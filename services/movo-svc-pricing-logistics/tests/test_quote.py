@@ -1,11 +1,11 @@
-"""MOVO-138: `POST /quote` con `demand_fuel_routes_v1`.
+"""MOVO-138/MOVO-276: `POST /quote` con `package_tapered_v2`.
 
 Los casos de la fórmula usan nafta a $2.000/l y una ruta fija de 100 km para que las
 cuentas se verifiquen a mano:
-    base      = 0,675 l × 2000                = 1.350
+    base      = 0,15 l × 2000                 = 300
     por km    = (0,08 × 0,6 + 0,02) l × 2000   = 136   → 100 km = 13.600
-    por kg    = 0,135 l × 2000                = 270   → 10 kg  = 2.700
-    subtotal  = 17.650 (standard_package, sin recargo)
+    por kg    = 0,275 l × 2000                = 550   → 10 kg  = 5.500 (dentro del 1er tramo)
+    subtotal  = 19.400 (standard_package de 20×15×10 cm: volumétrico 0,6 kg, factura el real)
 """
 
 import asyncio
@@ -93,7 +93,7 @@ def _request(
 
 def _quote(req: QuoteRequest, km: float = 100.0) -> tuple[float, bool]:
     res = asyncio.run(compute_quote(req, fuel_provider=FixedFuel(), routes=FixedRoute(km)))
-    assert res.calculation_method.value == "demand_fuel_routes_v1"
+    assert res.calculation_method.value == "package_tapered_v2"
     return res.suggested_price_ars, res.high_demand
 
 
@@ -101,11 +101,11 @@ def _quote(req: QuoteRequest, km: float = 100.0) -> tuple[float, bool]:
 
 
 def test_formula_without_demand_context() -> None:
-    assert _quote(_request()) == (17650.0, False)
+    assert _quote(_request()) == (19400.0, False)
 
 
-def test_fragile_factor_applies_to_the_subtotal() -> None:
-    assert _quote(_request(PackageType.FRAGILE_ITEM)) == (21180.0, False)  # 17.650 × 1,2
+def test_fragile_surcharge_applies_to_the_subtotal() -> None:
+    assert _quote(_request(PackageType.FRAGILE_ITEM)) == (23280.0, False)  # 19.400 × 1,2
 
 
 def test_price_scales_linearly_with_fuel_price() -> None:
@@ -116,17 +116,17 @@ def test_price_scales_linearly_with_fuel_price() -> None:
             return FuelPrice(ars_per_liter=2400.0, source="api")
 
     res = asyncio.run(compute_quote(_request(), fuel_provider=PricierFuel(), routes=FixedRoute(100.0)))
-    assert res.suggested_price_ars == 21180.0  # 17.650 × 1,2
+    assert res.suggested_price_ars == 23280.0  # 19.400 × 1,2
 
 
 @pytest.mark.parametrize(
     ("demand", "expected_price", "high_demand"),
     [
-        ((9, 2), 21180.0, True),  # ratio 5 → recargo 20%
-        ((5, 2), 19420.0, True),  # ratio 3, justo en el umbral → 10% (19.415 redondea hacia arriba)
-        ((2, 0), 17650.0, False),  # 3 envíos: debajo del mínimo de 4
-        ((3, 5), 17650.0, False),  # ratio 0,8
-        ((20, 1), 22950.0, True),  # ratio 21 → tope del 30% (22.945 redondea hacia arriba)
+        ((9, 2), 23280.0, True),  # ratio 5 → recargo 20%
+        ((5, 2), 21340.0, True),  # ratio 3, justo en el umbral → 10%
+        ((2, 0), 19400.0, False),  # 3 envíos: debajo del mínimo de 4
+        ((3, 5), 19400.0, False),  # ratio 0,8
+        ((20, 1), 25220.0, True),  # ratio 21 → tope del 30%
     ],
 )
 def test_demand_surcharge(demand: tuple[int, int], expected_price: float, high_demand: bool) -> None:
@@ -268,7 +268,7 @@ def test_fuel_and_routes_run_in_parallel() -> None:
         res, elapsed = _elapsed(
             lambda: compute_quote(_request(), fuel_provider=SlowFuel(0.3), routes=SlowRoute(100.0, 0.3))
         )
-    assert res.suggested_price_ars == 17650.0
+    assert res.suggested_price_ars == 19400.0
     assert elapsed < 0.5
 
 
@@ -352,15 +352,15 @@ BODY = {
 def test_endpoint_with_default_mocks(caplog: pytest.LogCaptureFixture) -> None:
     # Defaults de dev/CI: FUEL_PRICE_PROVIDER=mock (2.222,5 $/l), ROUTES_PROVIDER=mock.
     # 111,195 km × 1,3 = 144,5535 km
-    # 1.500,19 + 144,5535 × 151,13 + 10 × 300,04 = 26.346,93 → 26.350
+    # 333,38 + 144,5535 × 151,13 + 10 × 611,19 = 28.291,52 → 28.290
     with caplog.at_level(logging.INFO, logger="app.services.pricing"):
         response = client.post("/quote", json=BODY)
 
     assert response.status_code == 200
     assert response.json() == {
-        "suggestedPriceArs": 26350.0,
+        "suggestedPriceArs": 28290.0,
         "highDemand": False,
-        "calculationMethod": "demand_fuel_routes_v1",
+        "calculationMethod": "package_tapered_v2",
     }
 
     [record] = [r for r in caplog.records if r.getMessage().startswith("pricing_quote_computed")]
@@ -376,7 +376,7 @@ def test_endpoint_with_high_demand() -> None:
 
     assert response.status_code == 200
     assert response.json()["highDemand"] is True
-    assert response.json()["suggestedPriceArs"] == 31620.0  # 26.346,93 × 1,2 = 31.616,32
+    assert response.json()["suggestedPriceArs"] == 33950.0  # 28.291,52 × 1,2 = 33.949,82
 
 
 def test_endpoint_rejects_negative_demand_context() -> None:
@@ -401,10 +401,11 @@ def test_breakdown_matches_the_formula_when_requested() -> None:
     req = _request(PackageType.FRAGILE_ITEM).model_copy(update={"include_breakdown": True})
     res = asyncio.run(compute_quote(req, fuel_provider=FixedFuel(), routes=FixedRoute(100.0)))
 
-    assert res.suggested_price_ars == 21180.0  # 17.650 × 1,2
+    assert res.suggested_price_ars == 23280.0  # 19.400 × 1,2
     assert res.breakdown is not None
     b = res.breakdown
-    assert (b.base, b.distance, b.weight) == (1350.0, 13600.0, 2700.0)
+    assert (b.base, b.distance, b.weight) == (300.0, 13600.0, 5500.0)
+    assert (b.volumetric_weight_kg, b.billable_weight_kg) == (0.6, 10.0)
     assert (b.distance_km, b.distance_source) == (100.0, "routes_api")
     assert (b.fuel_ars_per_liter, b.fuel_source) == (2000.0, "mock")
     assert (b.per_km_ars, b.package_factor, b.demand_multiplier) == (136.0, 1.2, 1.0)
@@ -419,12 +420,13 @@ def test_endpoint_sends_breakdown_with_the_flag() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["suggestedPriceArs"] == 26350.0  # el flag no cambia el precio
+    assert body["suggestedPriceArs"] == 28290.0  # el flag no cambia el precio
     assert body["breakdown"]["distanceSource"] == "haversine_mock"
     assert body["breakdown"]["fuelSource"] == "mock"
     assert set(body["breakdown"]) == {
         "distanceKm", "distanceSource", "fuelArsPerLiter", "fuelSource", "perKmArs",
-        "base", "distance", "weight", "packageFactor", "demandRatio", "demandMultiplier",
+        "base", "distance", "weight", "packageFactor", "volumetricWeightKg", "billableWeightKg",
+        "demandRatio", "demandMultiplier",
     }
 
 
