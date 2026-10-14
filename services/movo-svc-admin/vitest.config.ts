@@ -5,10 +5,11 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "text-summary"],
-      include: ["src/modules/**/*.service.ts", "src/modules/**/*.repository.ts"],
+      include: ["src/modules/**/*.ts", "src/adapters/**/*.ts", "src/utils/**/*.ts"],
       exclude: ["src/modules/**/*.schema.ts", "src/modules/**/*.routes.ts"],
-      // Umbral (55% lines) se activa cuando el módulo tenga lógica real y tests;
-      // hoy son stubs vacíos, exigir cobertura sobre eso rompería el CI sin sentido.
+      // MOVO-288: con dominio real (bitácora, conflicto de interés, clientes internos) se
+      // activa el mínimo acordado para componentes críticos (plan de testing: 70%).
+      thresholds: { lines: 70 },
     },
   },
 });
