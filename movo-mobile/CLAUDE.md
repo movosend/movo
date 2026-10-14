@@ -4524,3 +4524,36 @@ caché), `use-chat-channel.ts` (WebSocket de recepción, calcado de `use-shipmen
 Pendiente: no probado en dispositivo (teclado con el composer, `inverted` con paginación y tildes en vivo contra
 el backend real). Los no leídos de los chats que no están abiertos se actualizan por el refetch de la lista
 (cada 60 s) y al volver a Inicio: no hay un WebSocket global, solo uno por conversación abierta.
+
+### MOVO-214 — Detalle del pago (bruto, comisión, neto) en el envío entregado
+
+Sobre el canvas de Claude Design "MOVO-214 · Detalle del pago" y el contrato de MOVO-212
+(`GET /shipments/:id/settlement`, `paymentsClient.getShipmentSettlement` +
+`useShipmentSettlement`; un 404 `SETTLEMENT_NOT_FOUND` se lee como `null` = en proceso).
+`resolvePaymentView` (`src/lib/settlement-format.ts`, pura) decide qué se ve: un monto
+acreditado solo aparece con la liquidación `credited` y el neto informado (AC4).
+
+- **Detalle del envío**: `PaymentBreakdown` (`components/shipments/payment-breakdown.tsx`) arriba
+  de todo para emisor y transportista con el envío `delivered`/`completed` (la push de cobro,
+  `type: "shipment"`, cae ahí: AC6 sin cambios de routing). El transportista ve bruto, comisión
+  de Movo, fee de MP, neto y fecha; el emisor solo total y fecha; el receptor (y el que
+  transfirió) nada y no se consulta. Con la sección visible se oculta la card de precio estimado
+  ("Te queda"/"Precio pactado"), para no mostrar dos montos distintos. Mientras no está acreditada
+  se vuelve a consultar cada 15 s con la pantalla enfocada.
+- **Escalado (MOVO-213 AC5)**: el transportista ve "Demorado" con un plazo de 72 h
+  (`SETTLEMENT_ESCALATION_RESPONSE_HOURS`, **provisorio**: MOVO-213 todavía no lo fija). El emisor
+  lo ve como "Procesando": la demora es entre Movo y el transportista.
+- **Éxito de entrega (AC5)**: `HandshakeConfirmationResult` gana `paymentSlot` y pierde el
+  "El pago se está procesando." provisorio de MOVO-199 AC8. Solo `delivery/success.tsx` (el
+  transportista) lo pasa, con `DeliveryPaymentStatus` (consulta cada 4 s): el receptor que escanea
+  ya no ve nada del pago (AC3).
+- **Reuso**: el bloque "Cómo se reparte" de `carrier/offers/[id].tsx` pasó a
+  `components/payments/price-breakdown-card.tsx` (lo usan la oferta y el pago, mismo formato de
+  MOVO-186; sobre lima el texto va en tinta fija, antes era `text-fg` y en modo oscuro quedaba
+  blanco sobre lima). `SectionLabel` pasó a `components/ui/section-label.tsx` (estaba duplicado en
+  la oferta y en el detalle de oferta).
+
+Probado en device contra el stack local con datos sembrados (3 roles × sin liquidación /
+acreditada / escalada). Pendiente: una captura real contra el sandbox de MP vista desde la app
+(el desglose real de `fee_details` lo cubre el test de sandbox de MOVO-212), y una push real de
+cobro abriendo el detalle.
