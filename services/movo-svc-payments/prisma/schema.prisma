@@ -106,6 +106,10 @@ model Hold {
   // original); si no coincide, se busca el pago en MP antes de abrir otro intento.
   // Nunca el token en claro.
   requestFingerprint String?            @map("request_fingerprint")
+  // MOVO-100: tarjeta guardada (`saved_cards.id`) con la que se creó el hold, sin FK
+  // (la fila local se borra soft). La escribe MOVO-282; acá solo habilita el
+  // `409 CARD_IN_USE` al dar de baja una tarjeta con un hold vivo.
+  savedCardId        String?            @map("saved_card_id") @db.Uuid
   expiresAt          DateTime?          @map("expires_at") @db.Timestamptz
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz
@@ -113,7 +117,46 @@ model Hold {
 
   @@unique([shipmentId, attempt], map: "holds_shipment_id_attempt_key")
   @@index([mpPaymentId], map: "holds_mp_payment_id_idx")
+  @@index([savedCardId], map: "holds_saved_card_id_idx")
   @@map("holds")
+  @@schema("payments")
+}
+
+// MOVO-100 (ADR-039): customer de la cuenta de Movo S.A. en Mercado Pago, uno por
+// emisor. El `payer` del hold con tarjeta guardada es este customer (con `payer: {email}`
+// MP responde 2002). `userId` es referencia lógica a users.users, sin FK (ADR-003).
+model PayerCustomer {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @unique(map: "payer_customers_user_id_key") @map("user_id") @db.Uuid
+  mpCustomerId String   @unique(map: "payer_customers_mp_customer_id_key") @map("mp_customer_id")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("payer_customers")
+  @@schema("payments")
+}
+
+// MOVO-100 (ADR-039): tarjeta guardada del emisor en su customer de Movo. Solo ids de MP
+// y metadatos de display: NUNCA el `card_token` (un solo uso), el número ni el CVV.
+// Baja soft (`deletedAt`). Dos índices únicos PARCIALES, a mano en la migración porque
+// Prisma no los representa: `(user_id, mp_card_id)` y un solo `is_default` entre las
+// vivas de cada usuario, ambos `WHERE deleted_at IS NULL`.
+// `alias` es un nombre de referencia que pone el usuario; es de Movo, no se manda a MP.
+model SavedCard {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  mpCardId  String    @map("mp_card_id")
+  brand     String
+  last4     String
+  expMonth  Int       @map("exp_month")
+  expYear   Int       @map("exp_year")
+  isDefault Boolean   @default(false) @map("is_default")
+  alias     String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  @@index([userId], map: "saved_cards_user_id_idx")
+  @@map("saved_cards")
   @@schema("payments")
 }
 

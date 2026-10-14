@@ -443,3 +443,13 @@ el aviso de "está por llegar" sirve justo cuando llega, sea la hora que sea. Te
 inválida) y `PAYMENT_WEBHOOK_NOT_CONFIGURED` (503, falta `MP_WEBHOOK_SECRET`). Los consume
 solo MP, no la app. `HoldProviderEventRequest` (MOVO-210) no cambia: "vencido" sigue siendo
 `event: expired`.
+
+### MOVO-100 — Contrato de las tarjetas guardadas (`types/saved-card.ts`)
+
+`SavedCard` (con `mpCardId` y `alias`), `CreateSavedCardRequest`, `UpdateSavedCardRequest`,
+`CardsCheckoutDataResponse` y las constantes `MAX_SAVED_CARDS_PER_USER` (10) y
+`SAVED_CARD_ALIAS_MAX_LENGTH` (40). Wire contract de `/payments/cards` (`svc-payments`), para
+MOVO-101/269 en mobile. `ApiErrorCode` suma `CARD_IN_USE`, `CARD_LIMIT_REACHED`, `CARD_SAVE_REJECTED`
+(422, `details.providerCode`), `CARD_CUSTOMER_CONFLICT` (409, el customer de MP del email ya es
+de otra cuenta) y `CARDS_NOT_CONFIGURED`. Recordatorio habitual: `npm run build` acá antes
+de tipar desde otro workspace.

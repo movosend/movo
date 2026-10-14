@@ -296,3 +296,68 @@ Pendiente: probar contra el sandbox con una notificación real por túnel (DoD),
 `https://api-dev.movosend.app/api/v1/payments/webhooks/mercadopago` en el panel de
 `movosend` y cargar en el secret de dev `ALERT_PROVIDER=telegram`,
 `ALERT_TELEGRAM_BOT_TOKEN`/`_CHAT_ID` y `ALERT_ENVIRONMENT_LABEL=dev`.
+
+### MOVO-100 — Tarjetas guardadas del emisor en la cuenta de Movo (ADR-039 propuesto)
+
+`GET /payments/cards/checkout-data`, `POST /payments/cards`, `GET /payments/cards`,
+`PATCH /payments/cards/:id/default`, `PATCH /payments/cards/:id` (alias) y `DELETE /payments/cards/:id`
+(heredan el hook `x-user-id`; el gateway ya proxeaba `/payments`), más el interno
+`DELETE /internal/payments/users/:userId/cards` para la baja de cuenta (MOVO-39, nadie lo llama
+todavía). Código en `src/modules/cards/`, `src/repositories/saved-card-repository.ts`,
+`src/adapters/mercadopago-customers-client.ts` y `src/adapters/users-client.ts`; contrato en
+`@movo/shared` (`types/saved-card.ts`). Tablas `payer_customers` y `saved_cards` + `holds.saved_card_id`
+(migraciones `20261013230000_create_saved_cards` y `20261014120000_payer_customers_unique_mp_customer`).
+
+- **La tarjeta vive en un customer de la cuenta de Movo S.A.** (uno por emisor, `payer_customers`); se
+  persiste `mp_customer_id` + `mp_card_id` + marca/últimos 4/vencimiento/alias. Nunca el `card_token`,
+  número ni CVV. El token de Movo sale de `POST /oauth/token` (`client_credentials`, `test_token` según
+  `MP_TEST_MODE`) con `MovoTokenProvider`, cacheado en Redis (key `mp:movo-token:test|live`) hasta 5 min
+  antes de vencer; en modo test un token que no es `TEST-` se rechaza (daría `401 300`). Si MP responde
+  401/403 (token revocado o secret rotado) se saca del cache y se reintenta una vez con uno nuevo.
+- **Email del customer**: lo pide a `svc-users` (`GET /users/me`, falla cerrado con 502). **Sandbox**: MP
+  exige el email de una cuenta de prueba Comprador (si no, `225`), así que `MP_TEST_PAYER_EMAILS` (JSON
+  `userId -> email`) lo reemplaza, solo con `MP_TEST_MODE=true`; un usuario fuera del mapa usa su email
+  real y deja un warning. Un `101` (el email ya tiene customer en MP) busca y reusa el existente **solo si
+  no es de otra cuenta**: `mp_customer_id` es único y, si ya pertenece a otro usuario (alguien se cambió el
+  email y otro se registró con el viejo, o testers que comparten email en `MP_TEST_PAYER_EMAILS`), responde
+  `409 CARD_CUSTOMER_CONFLICT` y se resuelve a mano. Compartirlo haría que los holds de uno se cobren como
+  el otro y que la baja de cuenta de uno le borre las tarjetas al otro.
+- **Customer borrado en MP**: si guardar la tarjeta da 404 y un `GET` del customer confirma que no existe,
+  se borra la fila, se dan de baja las tarjetas vivas (se fueron con él) y se reintenta una vez con un
+  customer nuevo. Un 404 con el customer vivo sigue siendo `422 CARD_SAVE_REJECTED`.
+- **Duplicado por marca + últimos 4 + vencimiento**, no por `mp_card_id`: como el `cardToken` es opaco,
+  esos datos solo se conocen después de guardar en MP, así que se guarda primero, se compara contra las
+  vivas y, si coincide, se borra la copia nueva de MP (salvo que MP haya devuelto el mismo id) y se
+  responde 200 con la existente. Si falla la base después de guardar en MP, la copia solo se borra si no
+  es el `mp_card_id` de una tarjeta que el usuario ya tenía. Riesgo aceptado: dos tarjetas distintas con la misma marca/últimos
+  4/vencimiento.
+- **Índices únicos parciales a mano** (`WHERE deleted_at IS NULL`): `(user_id, mp_card_id)` (parcial y no
+  total como pedía el AC1, para poder volver a guardar una tarjeta dada de baja) y una sola `is_default`
+  viva por usuario. Alta, predeterminada y baja de un mismo usuario se serializan con
+  `pg_advisory_xact_lock` (con `$executeRaw`: `$queryRaw` no deserializa el `void` de la función).
+- **Predeterminada**: la primera viva queda marcada; al borrar la predeterminada se promueve la más
+  reciente. Tope de 10 vivas (`409 CARD_LIMIT_REACHED`). `DELETE`: `409 CARD_IN_USE` si hay un hold vivo
+  con `saved_card_id`; borra en MP primero (un 404 cuenta como borrada) y recién después la fila.
+- **`holds.saved_card_id`** nace acá, nullable y sin FK; no lo escribe nadie todavía (lo hace MOVO-282).
+  El `409 CARD_IN_USE` está probado con holds insertados a mano.
+- **Alias** (AC11): trim, 1-40, sin caracteres de control, y `400` si trae 12+ dígitos (se ignoran
+  espacios y guiones al contar, así "4111 1111 1111 1111" también se rechaza). Es de Movo, no va a MP.
+- **Baja de cuenta**: best-effort; si MP falla se loguea el `mpCustomerId` huérfano y las filas locales se
+  borran igual.
+- **Logger**: `cardToken`/`card_token`, `mpCardId`/`mp_card_id`, `cardId`/`card_id` redactados.
+- **Env vars** (`.env.example` + `envSchema` + compose): `MP_PUBLIC_KEY` (sin ella `checkout-data` responde
+  `503 CARDS_NOT_CONFIGURED`), `MP_TEST_PAYER_EMAILS`. **`MP_PUBLIC_KEY` solo sirve para tokenizar** en el
+  dispositivo: la tarjeta queda siempre en el customer de Movo S.A., sea de quien sea esa key. En dev está
+  cargada la `TEST-` de un Vendedor de prueba (atajo de sandbox); en prod se espera la de Movo. `USERS_SERVICE_URL` tiene
+  default de código (como en `svc-shipments`), no se lista en compose.
+
+Verificado contra el sandbox real (13/10): `test/cards.sandbox.test.ts` guarda, lista, detecta el duplicado
+y borra. **Gotchas del sandbox**: guardar la tarjeta da `500` con la Visa 4509…, la Mastercard 5031… y la
+del spike; con la Visa `4075 5957 1648 3764` da 201. La `public_key` con que se tokeniza puede ser la `TEST-`
+de cualquier Vendedor de prueba vinculado (la consola de `movosend` solo muestra `APP_USR-`); la de Movo S.A.
+sigue sin identificarse (punto 2 de MOVO-283).
+
+Pendiente: `MP_PUBLIC_KEY` ya está cargada en el secret de dev (`TEST-` de un Vendedor de prueba, atajo
+de sandbox); producción y segundo
+transportista (spike MOVO-283, ADR-039 sigue "propuesto"); MOVO-282 (hold con `payer: customer` y escritura
+de `saved_card_id`) y MOVO-39 (llamar al endpoint interno de baja).

@@ -3264,6 +3264,12 @@ parciales de una pendiente y una completada por envío). Rutas: `POST /shipments
 Tests: `test/receiver-transfers.integration.test.ts` (Postgres y Redis reales: cada
 validación, concurrencia, límite, carrera con el handshake, vencimiento, acceso y filtrado).
 
+### Tarjetas guardadas del emisor (MOVO-282, ADR-039 propuesto): diseño acordado, sin implementar
+
+`POST /shipments/:id/funding` (MOVO-210) suma `savedCardId?` opcional a `ShipmentFundingRequest` y
+lo reenvía al hold junto con el `senderId`; el `cardToken` sigue siendo obligatorio (ahora se genera
+en el mobile con `card_id` + CVV). Sin `savedCardId` el comportamiento es el de hoy. Ver el
+`CLAUDE.md` raíz y `services/movo-svc-payments/CLAUDE.md`.
 ### MOVO-281 / MOVO-240 — `offer_voided`, recordatorio del día anterior al viaje y aviso de proximidad
 
 - **`offer_voided` (MOVO-281)**: `dispatchOfferVoidedPushes` (`shipments.service.ts`) recibe pares

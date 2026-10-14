@@ -413,3 +413,24 @@ cobra solo.
 Dato de paso: el customer del comprador en la cuenta del vendedor tiene id
 `3612507366-…`. Es el mismo `payer.id 3612507366` de los pagos de la sección 3, así que ese
 es el usuario que MP asocia al email de Emisor-Alena.
+
+### Actualización 13/10/2026: la conclusión de arriba quedó superada
+
+Repetida la prueba con un script propio (no el de este spike), contra un Vendedor de prueba
+vinculado en dev (token `TEST-`):
+
+- **El `128` no se reprodujo.** Guardar la tarjeta en un customer del Vendedor dio 201 (Visa y
+  Mastercard), re-tokenizar con `card_id` + CVV y la `public_key` del Vendedor dio 201, y el hold con
+  `capture:false` + `application_fee` quedó `authorized / pending_capture`. **Sin CVV** el token
+  falla: Visa 500, Mastercard 400 `3031 "security_code_id can't be null"`.
+- **La variante `c3` sí se puede probar.** El `401 300 "Unauthorized use of live credentials"` venía de
+  usar el token `APP_USR-` de la app. Con `POST /oauth/token` (`grant_type=client_credentials`,
+  `test_token=true`) Movo S.A. obtiene un token `TEST-` y crea customers (201). Con la tarjeta guardada
+  en el customer de Movo, el token con `card_id` + CVV y la `public_key` del Vendedor creó el hold
+  (`payer: {type: "customer", id}`). Con `payer: {email}` da `400 2002 "Customer not found"`.
+- En sandbox la tarjeta se tokeniza con una `public_key` `TEST-`: la `APP_USR-` de la app da `404 card
+  not found` y el `Bearer` de Movo da `403 G001`.
+- **Sin validar**: hold con un segundo Vendedor, producción, `application_fee` real al capturar y el
+  débito sin CVV con Movo como cobradora directa (MOVO-37). Todo en el spike MOVO-283.
+
+Decisión y alternativas: `docs/payments/adr-039-tarjetas-guardadas-con-cvv.md`.
