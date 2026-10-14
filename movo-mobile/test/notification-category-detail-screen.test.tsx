@@ -63,7 +63,7 @@ describe("NotificationCategoryDetailScreen", () => {
   });
 
   it("una categoría 'Pronto' no lista triggers y avisa que no está disponible", async () => {
-    mockParams = { categoryId: "chat" };
+    mockParams = { categoryId: "disputes" };
 
     const { getByTestId, queryByTestId } = await render(<NotificationCategoryDetailScreen />);
 

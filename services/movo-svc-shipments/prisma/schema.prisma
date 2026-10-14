@@ -210,6 +210,9 @@ model Shipment {
   handshakeEvents  HandshakeEvent[]
   carrierPositions CarrierPosition[]
   receiverTransfers ReceiverTransferRequest[]
+  chatMessages      ChatMessage[]
+  chatStates        ChatParticipantState[]
+  chatReports       ChatReport[]
 
   @@index([senderId], map: "shipments_sender_id_idx")
   @@index([receiverId], map: "shipments_receiver_id_idx")
@@ -668,5 +671,59 @@ model ReceiverTransferRequest {
   @@index([newReceiverId, status], map: "receiver_transfer_requests_new_receiver_id_status_idx")
   @@index([status, newReceiverDeadline], map: "receiver_transfer_requests_status_deadline_idx")
   @@map("receiver_transfer_requests")
+  @@schema("shipments")
+}
+
+// MOVO-26 (ADR-040): mensajes del chat de un envío. Solo se agregan, nunca se editan ni se
+// borran: el historial es evidencia para una disputa (visible para el admin).
+model ChatMessage {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String @map("shipment_id") @db.Uuid
+  // Referencia lógica a users.users, sin FK real (ADR-003).
+  authorId   String @map("author_id") @db.Uuid
+  body       String
+  // Lo genera el cliente: reenviar el mismo mensaje (cola offline, reintento) no lo duplica.
+  clientMessageId String   @map("client_message_id") @db.Uuid
+  // El filtro de lenguaje tapó alguna palabra de `body` (que se guarda ya enmascarado).
+  moderated       Boolean  @default(false)
+  // Primer nombre del autor al escribir: la lista de chats muestra "Diego: ..." sin consultar a svc-users.
+  authorName      String?  @map("author_name")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([shipmentId, authorId, clientMessageId], map: "chat_messages_shipment_author_client_key")
+  @@index([shipmentId, createdAt, id], map: "chat_messages_shipment_id_created_at_idx")
+  @@map("chat_messages")
+  @@schema("shipments")
+}
+
+// MOVO-26: hasta dónde recibió y leyó el chat cada integrante de un envío (los tildes del mensaje y el
+// contador de no leídos). Una fila por (envío, usuario); los dos instantes solo avanzan.
+model ChatParticipantState {
+  shipmentId      String    @map("shipment_id") @db.Uuid
+  // Referencia lógica a users.users, sin FK real (ADR-003).
+  userId          String    @map("user_id") @db.Uuid
+  lastDeliveredAt DateTime? @map("last_delivered_at") @db.Timestamptz
+  lastReadAt      DateTime? @map("last_read_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@id([shipmentId, userId])
+  @@map("chat_participant_states")
+  @@schema("shipments")
+}
+
+// MOVO-26: "Reportar conversación". Una por persona y envío; la revisa el equipo de Movo.
+model ChatReport {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String   @map("shipment_id") @db.Uuid
+  reporterId String   @map("reporter_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([shipmentId, reporterId], map: "chat_reports_shipment_reporter_key")
+  @@map("chat_reports")
   @@schema("shipments")
 }

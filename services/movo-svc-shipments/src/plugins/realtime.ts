@@ -7,12 +7,18 @@ import {
   ShipmentStatusChangedEvent,
 } from "../realtime/shipment-status-events";
 import { TRACKING_CLOSED_STATUSES } from "../domain/shipment-state-machine";
+import { CHAT_CLOSING_STATUSES } from "../domain/chat-window";
+import { ChatHub } from "../realtime/chat-hub";
 
 /** Cierre WS "privado" (RFC 6455, >=4000) propio del proyecto -- el envío pasó a un
  * estado que corta el tracking (MOVO-201/AC4) mientras el socket seguía abierto.
  * Distinto de los códigos de rechazo al conectar (4001/4003/4004, `tracking.routes.ts`):
  * este cierra una conexión que SÍ estaba autorizada. */
 export const TRACKING_STATUS_CLOSED_WS_CODE = 4009;
+
+/** MOVO-26: mismo código privado, el chat del envío ya no está disponible (cancelado o rechazado).
+ * El cliente no reconecta: el hilo terminó. */
+export const CHAT_CLOSED_WS_CODE = 4009;
 
 /** `readyState` de un socket abierto (`WebSocket.OPEN` de `ws`) -- literal para no
  * importar `ws` como valor (es devDependency, `src/` solo lo usa como tipo). */
@@ -113,6 +119,9 @@ export default fp(async (app: FastifyInstance) => {
   const registry = new RealtimeRegistry();
   app.decorate("realtimeRegistry", registry);
 
+  const chatHub = new ChatHub();
+  app.decorate("chatHub", chatHub);
+
   onShipmentStatusChanged((event: ShipmentStatusChangedEvent) => {
     // MOVO-250/AC6: cada transición se difunde a los suscriptores -- las pantallas de QR
     // del handshake (MOVO-159) dejan de consultar cada 2,5s. Va ANTES del cierre por
@@ -126,5 +135,12 @@ export default fp(async (app: FastifyInstance) => {
       "realtime: cerrando tracking por cambio de estado"
     );
     registry.close(event.shipmentId, TRACKING_STATUS_CLOSED_WS_CODE, `El envío pasó a '${event.to}'.`);
+  });
+
+  // MOVO-26: el chat tiene su propia política de cierre (cancelado o rechazado); una entrega
+  // NO lo corta: pasa a solo lectura y a las 24 h solo se marca como archivado (sigue legible).
+  onShipmentStatusChanged((event: ShipmentStatusChangedEvent) => {
+    if (!CHAT_CLOSING_STATUSES.includes(event.to)) return;
+    chatHub.close(event.shipmentId, CHAT_CLOSED_WS_CODE, `El envío pasó a '${event.to}'.`);
   });
 });

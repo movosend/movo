@@ -126,7 +126,7 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategoryDefinition[] 
     section: "conversations",
     title: "Mensajes",
     sub: "Mensaje nuevo de la contraparte de un envío",
-    implemented: false,
+    implemented: true,
     quietHoursExempt: false,
   },
   {
