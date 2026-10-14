@@ -413,6 +413,11 @@ todavía). Código en `src/modules/cards/`, `src/repositories/saved-card-reposit
   cargada la `TEST-` de un Vendedor de prueba (atajo de sandbox); en prod se espera la de Movo. `USERS_SERVICE_URL` tiene
   default de código (como en `svc-shipments`), no se lista en compose.
 
+**MOVO-101**: `saved_cards` suma `issuer_name` y `payment_type` (nullable, migración
+`20261014180000`), tomados de `issuer.name` y `payment_method.payment_type_id` de la respuesta de MP al
+guardar, para que la lista del mobile muestre "Galicia · Crédito". Solo display: no entran en el criterio
+de duplicado.
+
 Verificado contra el sandbox real (13/10): `test/cards.sandbox.test.ts` guarda, lista, detecta el duplicado
 y borra. **Gotchas del sandbox**: guardar la tarjeta da `500` con la Visa 4509…, la Mastercard 5031… y la
 del spike; con la Visa `4075 5957 1648 3764` da 201. La `public_key` con que se tokeniza puede ser la `TEST-`

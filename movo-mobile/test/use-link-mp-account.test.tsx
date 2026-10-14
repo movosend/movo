@@ -55,10 +55,12 @@ describe("useLinkMpAccount (MOVO-112)", () => {
     getStatus.mockResolvedValue({ status: "linked", account: null, invalidReason: null });
     const link = await mountHook();
 
+    let linked = false;
     await act(async () => {
-      await link.current.start();
+      linked = await link.current.start();
     });
 
+    expect(linked).toBe(true);
     expect(openAuthSession).toHaveBeenCalledWith(
       "https://auth.mercadopago.com/authorization?x=1",
       "movo://mp-connect",
@@ -102,15 +104,20 @@ describe("useLinkMpAccount (MOVO-112)", () => {
     getStatus.mockResolvedValue({ status: "unlinked", account: null, invalidReason: null });
     const link = await mountHook();
 
-    let first: Promise<void> = Promise.resolve();
+    let first: Promise<boolean> = Promise.resolve(false);
+    let second = true;
     await act(async () => {
       first = link.current.start();
-      await link.current.start();
+      second = await link.current.start();
     });
+    let firstLinked = true;
     await act(async () => {
       resolveBrowser({ type: "cancel" });
-      await first;
+      firstLinked = await first;
     });
+
+    expect(second).toBe(false);
+    expect(firstLinked).toBe(false);
 
     expect(getUrl).toHaveBeenCalledTimes(1);
     expect(openAuthSession).toHaveBeenCalledTimes(1);

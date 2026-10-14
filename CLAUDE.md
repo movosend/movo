@@ -279,7 +279,8 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
 Primeros borradores de `docs/legal/terminos-y-condiciones.md` y
 `docs/legal/politica-privacidad.md` (base legal argentina: Ley 25.326, CCyCN
 contrato de transporte de cosas, Ley 24.240), con aviso académico explícito y
-`[A COMPLETAR]` donde falta un dato real (fee de MP, mecánica de penalidad).
+`[A COMPLETAR]` donde falta un dato real (mecánica de penalidad, MOVO-226; el
+de la comisión de MP lo cerró MOVO-225).
 Documentos nuevos también subidos a Drive (`[Movo] NNN - Términos y
 Condiciones`/`Política de Privacidad`) por el equipo. Decisiones no obvias:
 
@@ -512,10 +513,11 @@ prueba y alternativas en `docs/payments/adr-039-tarjetas-guardadas-con-cvv.md`.
   `payer: customer`), MOVO-101 (mobile, Pagos y cobros: gestión de tarjetas, para emisor y
   transportista), MOVO-269 (mobile: pagar con tarjeta guardada + CVV), MOVO-283 (spike).
 - **Estado**: MOVO-100 (backend `svc-payments`) implementado, ver `services/movo-svc-payments/CLAUDE.md`.
+  MOVO-101 (mobile, alta/lista/predeterminada/nombre/baja en "Pagos y cobros") implementado en el
+  PR #239, ver `movo-mobile/CLAUDE.md`; falta probarlo en un development build con tarjetas de test.
   **`MP_PUBLIC_KEY`** solo tokeniza en el dispositivo (la tarjeta queda siempre en el customer de Movo S.A.);
   en dev es una `TEST-` de un Vendedor de prueba (ya cargada en el secret), en prod se espera la de Movo.
-  **Pendiente**: confirmar con MOVO-283 cuál es la key de producción; MOVO-282,
-  MOVO-101 y MOVO-269; el spike MOVO-283 (segundo transportista, producción con cuenta real y bajo
+  **Pendiente**: confirmar con MOVO-283 cuál es la key de producción; MOVO-282 y MOVO-269; el spike MOVO-283 (segundo transportista, producción con cuenta real y bajo
   monto, `application_fee` real, débito de la comisión sin CVV para MOVO-37); pasar el ADR a
   "aceptado" y pegar su desarrollo completo en Drive.
 
@@ -568,6 +570,22 @@ prueba y alternativas en `docs/payments/adr-039-tarjetas-guardadas-con-cvv.md`.
   `MP_CLIENT_SECRET`, `MP_REDIRECT_URI`, `MP_WEBHOOK_SECRET` y `MP_TEST_MODE=true` en el
   secret de dev (app sandbox `movosend`), las cuatro primeras en prod (app de la cuenta
   real de Movo). `MERCADOPAGO_ACCESS_TOKEN` ya no se usa: borrarlo de ambos secrets.
+- **Config de comisiones compartida vía `@movo/shared`** (MOVO-143,
+  `shared/movo-shared/src/config/commission.ts`): candidato a ADR corto (primera config
+  de negocio en el barrel en vez de en el `envSchema` de un servicio), todavía no
+  escrito. `MOVO_COMMISSION_RATE` (15%) está confirmado; `MP_TRANSACTION_FEE_RATE` es un
+  estimado a propósito, ver la entrada de MOVO-225 más abajo.
+
+### MOVO-225 — Comisión de Mercado Pago: estimado, no valor contractual
+
+No hay un porcentaje de MP que confirmar: MP descuenta su comisión de la cuenta de cada
+transportista (según sus tarifas, el plazo de liberación y el medio de pago del emisor).
+Los TyC (secciones 3, 5.1 y 7, v0.2) lo dicen así y corrigen la comisión de Movo (15%
+sobre el neto, no sobre el precio). Todo monto que la app le muestra al transportista
+como cobro es "Recibís aprox." = neto menos el estimado de MP (sobre el bruto, a validar
+con pagos reales; `estimateReceivedArs` de `@movo/shared`, tasa de
+`EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE`). Pendiente:
+persistir el `mercadopago_fee` real del hold/captura para mostrar el monto exacto.
 - **Webhook de MP sin registrar** (MOVO-268): cargar
   `https://api-dev.movosend.app/api/v1/payments/webhooks/mercadopago` (tópico `payment`) en el
   panel de la app `movosend` y su clave secreta como `MP_WEBHOOK_SECRET`; en prod, lo mismo

@@ -4,6 +4,8 @@ import { httpClient } from "../src/api/http-client";
 jest.mock("../src/api/http-client", () => ({
   httpClient: {
     get: jest.fn(),
+    post: jest.fn(),
+    patch: jest.fn(),
     delete: jest.fn(),
   },
 }));
@@ -42,5 +44,34 @@ describe("paymentsClient (MOVO-112)", () => {
 
     await paymentsClient.unlinkMpAccount();
     expect(httpClient.delete).toHaveBeenCalledWith("/payments/mp-connect");
+  });
+
+  describe("tarjetas guardadas (MOVO-101)", () => {
+    it("getCardsCheckoutData envía GET /payments/cards/checkout-data", async () => {
+      (httpClient.get as jest.Mock).mockResolvedValueOnce({ publicKey: "TEST-pk" });
+      await expect(paymentsClient.getCardsCheckoutData()).resolves.toEqual({ publicKey: "TEST-pk" });
+      expect(httpClient.get).toHaveBeenCalledWith("/payments/cards/checkout-data");
+    });
+
+    it("listSavedCards envía GET /payments/cards", async () => {
+      (httpClient.get as jest.Mock).mockResolvedValueOnce([]);
+      await paymentsClient.listSavedCards();
+      expect(httpClient.get).toHaveBeenCalledWith("/payments/cards");
+    });
+
+    it("createSavedCard envía POST /payments/cards con el token", async () => {
+      (httpClient.post as jest.Mock).mockResolvedValueOnce({ id: "c1" });
+      await paymentsClient.createSavedCard({ cardToken: "tok", alias: "Personal" });
+      expect(httpClient.post).toHaveBeenCalledWith("/payments/cards", { cardToken: "tok", alias: "Personal" });
+    });
+
+    it("setDefaultCard, updateCardAlias y deleteSavedCard usan el id", async () => {
+      await paymentsClient.setDefaultCard("c1");
+      expect(httpClient.patch).toHaveBeenCalledWith("/payments/cards/c1/default");
+      await paymentsClient.updateCardAlias("c1", null);
+      expect(httpClient.patch).toHaveBeenCalledWith("/payments/cards/c1", { alias: null });
+      await paymentsClient.deleteSavedCard("c1");
+      expect(httpClient.delete).toHaveBeenCalledWith("/payments/cards/c1");
+    });
   });
 });

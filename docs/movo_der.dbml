@@ -696,6 +696,8 @@ Table payments.saved_cards {
   last4 varchar
   exp_month int
   exp_year int
+  issuer_name text [null, note: 'MOVO-101: issuer.name de MP ("Banco Galicia"), solo para mostrar']
+  payment_type text [null, note: 'MOVO-101: payment_type_id de MP (credit_card, debit_card, prepaid_card)']
   is_default boolean
   alias varchar [null, note: 'nombre de referencia del usuario, 1-40 caracteres; es de Movo, no va a MP']
   created_at timestamptz

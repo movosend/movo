@@ -151,7 +151,8 @@ describe("OfferDetailScreen (MOVO-182)", () => {
     const { getByTestId, queryByTestId } = await render(<OfferDetailScreen />);
 
     expect(getByTestId("offer-detail-status-title")).toHaveTextContent("Esperando a Pedro");
-    expect(getByTestId("offer-detail-net-amount")).toHaveTextContent("$8.000");
+    // MOVO-225: neto ($8.000) menos el estimado de MP sobre el bruto (9200 x 4,99% = $459,08).
+    expect(getByTestId("offer-detail-net-amount")).toHaveTextContent("$7.540,92");
     expect(getByTestId("offer-detail-rank-section")).toBeTruthy();
     expect(getByTestId("offer-detail-change-price-cta")).toBeTruthy();
     expect(queryByTestId("offer-detail-modify-date-link")).toBeNull();

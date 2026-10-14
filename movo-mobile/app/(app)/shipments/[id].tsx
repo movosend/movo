@@ -48,8 +48,11 @@ import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment, useShipmentPhotos } from "../../../src/hooks/use-shipments";
 import { useShipmentSettlement } from "../../../src/hooks/use-shipment-settlement";
 import { activeShipmentDisplayCode } from "../../../src/lib/active-shipment-format";
+import {
+  estimateReceivedArs,
+  getClientCommissionRate,
+} from "../../../src/lib/commission-config";
 import { chatAvailability } from "../../../src/lib/chat-format";
-import { getClientCommissionRate } from "../../../src/lib/commission-config";
 import {
   FULFILLED_SHIPMENT_STATUSES,
   canCancelShipment,
@@ -251,10 +254,14 @@ export default function ShipmentDetailScreen() {
   const contextualCta = shipment ? shipmentDetailCta(role, shipment.status, shipment.id) : null;
 
   // El precio pactado (`agreedPriceArs`) es el bruto que paga el emisor; el
-  // transportista ve lo que le queda después de la comisión de Movo (AC3).
-  const carrierNetArs =
+  // transportista ve lo que recibe aprox. después de la comisión de Movo (AC3) y del
+  // estimado de MP (MOVO-225), el mismo monto que en el resto de las pantallas.
+  const carrierReceivedArs =
     isCarrier && shipment?.agreedPriceArs != null
-      ? computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate())
+      ? estimateReceivedArs(
+          computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
+          shipment.agreedPriceArs,
+        )
       : null;
 
   // MOVO-271 AC5: emisor y receptor ven el seguimiento (o su placeholder) mientras hay
@@ -529,15 +536,15 @@ export default function ShipmentDetailScreen() {
                       <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                         <GridPattern />
                         <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                          {carrierNetArs !== null
-                            ? "Te queda"
+                          {carrierReceivedArs !== null
+                            ? "Recibís aprox."
                             : hasAgreedPrice
                               ? "Precio pactado"
                               : "Costo aproximado"}
                         </Text>
                         <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
-                          {carrierNetArs !== null
-                            ? formatPriceArs(carrierNetArs)
+                          {carrierReceivedArs !== null
+                            ? formatPriceArs(carrierReceivedArs)
                             : formatShipmentPrice(
                                 shipment.agreedPriceArs,
                                 shipment.suggestedPriceArs
