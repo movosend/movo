@@ -432,6 +432,17 @@ export default function DevShortcutsScreen() {
             </Pressable>
 
             <Pressable
+              testID="dev-chat-btn"
+              onPress={() => router.push("/dev-chat" as any)}
+              className="flex-row items-center justify-between rounded-[12px] border border-border bg-bg px-4 py-3"
+            >
+              <Text className="font-sans-medium text-[13px] text-fg">
+                Galería del chat del envío
+              </Text>
+              <Text className="font-sans text-[12px] text-lime-500">Abrir →</Text>
+            </Pressable>
+
+            <Pressable
               testID="dev-tokens-btn"
               onPress={() => router.push("/dev-tokens" as any)}
               className="flex-row items-center justify-between rounded-[12px] border border-border bg-bg px-4 py-3"
