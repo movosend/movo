@@ -2808,6 +2808,9 @@ prototipo "Chat del envío · v2".
   `GET /chats` se ordena por actividad en SQL (último mensaje o cambio de estado) antes de limitar a 50, y un cursor
   que no trae un uuid da 400. El filtro de lenguaje compara el término exacto y solo usa la forma reducida
   ("puuuta") cuando quien escribió repitió letras, así "foro" no se confunde con "forro".
+- **`GET /shipments/chats` suma `participants`** (emisor, transportista y receptor con nombre y foto) para los avatares
+  de cada fila; `svc-users` se consulta una vez por persona aunque aparezca en varios envíos, y si no responde el
+  integrante sale sin datos en vez de romper la lista.
 - `POST /:id/chat/report` guarda un reporte por persona y envío (`chat_reports`) y loguea
   `chat_conversation_reported`; falta el panel que lo muestre (MOVO-30/33). `createdAt` lo fija la app (ms): con
   µs de Postgres el cursor saltearía mensajes del mismo milisegundo.

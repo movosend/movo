@@ -728,6 +728,19 @@ describe("Chat del envío (MOVO-26)", () => {
       expect((await list(p.receiverId)).json().items[0].unreadCount).toBe(2);
     });
 
+    it("cada chat trae a sus integrantes (emisor, transportista, receptor) para los avatares", async () => {
+      const p = await createShipment();
+
+      const item = (await list(p.senderId)).json().items[0];
+
+      expect(item.participants.map((x: { role: string; userId: string }) => [x.role, x.userId])).toEqual([
+        ["sender", p.senderId],
+        ["carrier", p.carrierId],
+        ["receiver", p.receiverId],
+      ]);
+      expect(item.participants[0]).toMatchObject({ firstName: "Ana", fullName: "Ana Gómez", photoUrl: null });
+    });
+
     it("el último mensaje de alguien bloqueado llega oculto y no suma a los no leídos", async () => {
       const p = await createShipment();
       blocks.push([p.senderId, p.carrierId]); // el emisor bloqueó al transportista
