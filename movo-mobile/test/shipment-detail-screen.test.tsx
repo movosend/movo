@@ -39,6 +39,16 @@ const mockAcceptMutation = { mutateAsync: jest.fn(), isPending: false };
 const mockRejectMutation = { mutateAsync: jest.fn(), isPending: false };
 const mockCancelMutation = { mutateAsync: jest.fn(), isPending: false };
 
+const mockUseShipmentSettlement = jest.fn((..._args: unknown[]) => ({
+  data: undefined as unknown,
+  isLoading: false,
+  isError: false,
+  refetch: jest.fn(),
+}));
+jest.mock("../src/hooks/use-shipment-settlement", () => ({
+  useShipmentSettlement: (...args: unknown[]) => mockUseShipmentSettlement(...args),
+}));
+
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: (...args: unknown[]) => mockUseShipment(...args),
   useShipmentPhotos: () => ({ data: [], isLoading: false, isStale: false, refetch: jest.fn() }),
@@ -882,6 +892,142 @@ describe("ShipmentDetailScreen", () => {
       expect(getByTestId("shipment-detail-receiver")).toBeTruthy();
       expect(queryByTestId("shipment-detail-carrier")).toBeNull();
       expect(getByText(/Transportás/)).toBeTruthy();
+    });
+  });
+
+  describe("detalle del pago (MOVO-214)", () => {
+    const CREDITED_CARRIER = {
+      shipmentId: "shipment-1",
+      role: "carrier",
+      status: "credited",
+      paidAmountArs: 13800,
+      paidAt: "2026-10-14T19:42:00.000Z",
+      mpFeeArs: 688.62,
+      commissionArs: 1800,
+      netAmountArs: 11311.38,
+    };
+
+    afterEach(() => settlementReturns(undefined));
+
+    function settlementReturns(data: unknown) {
+      mockUseShipmentSettlement.mockReturnValue({ data, isLoading: false, isError: false, refetch: jest.fn() });
+    }
+
+    function mockFulfilled(userId: string, status = ShipmentStatus.COMPLETED) {
+      mockCurrentUser.mockReturnValue({ userId });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: "user-2",
+          agreedPriceArs: 13800,
+          status,
+          deliveredAt: "2026-10-14T19:40:00.000Z",
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+    }
+
+    it("AC1: el transportista ve bruto, comisión, fee de MP y neto acreditado, sin el precio estimado", async () => {
+      mockFulfilled("user-2");
+      settlementReturns(CREDITED_CARRIER);
+
+      const { getByTestId, getByText, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Acreditado");
+      expect(getByText("$13.800")).toBeTruthy();
+      expect(getByText("− $1.800")).toBeTruthy();
+      expect(getByText("− $688,62")).toBeTruthy();
+      expect(getByTestId("shipment-detail-payment-net")).toHaveTextContent("$11.311,38");
+      expect(getByTestId("shipment-detail-payment-date")).toHaveTextContent(/Acreditado el .+ en tu cuenta de Mercado Pago/);
+      expect(queryByTestId("shipment-detail-price")).toBeNull();
+    });
+
+    it("AC2: el emisor ve el total pagado y la fecha, sin el neto ni la comisión", async () => {
+      mockFulfilled("user-1");
+      settlementReturns({ shipmentId: "shipment-1", role: "sender", status: "credited", paidAmountArs: 13800, paidAt: "2026-10-14T19:42:00.000Z" });
+
+      const { getByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Cobrado");
+      expect(getByTestId("shipment-detail-payment-total")).toHaveTextContent("$13.800");
+      expect(getByTestId("shipment-detail-payment-date")).toHaveTextContent(/Mercado Pago lo cobró el/);
+      expect(queryByText(/Comisión/)).toBeNull();
+      expect(queryByText("Te acreditamos")).toBeNull();
+    });
+
+    it("AC3: el receptor no ve nada del pago y no se consulta", async () => {
+      mockFulfilled("receiver-1");
+
+      const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(queryByTestId("shipment-detail-payment")).toBeNull();
+      expect(mockUseShipmentSettlement).toHaveBeenLastCalledWith("shipment-1", expect.objectContaining({ enabled: false }));
+    });
+
+    it("antes de la entrega no hay sección de pago", async () => {
+      mockFulfilled("user-2", ShipmentStatus.IN_TRANSIT);
+
+      const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(queryByTestId("shipment-detail-payment")).toBeNull();
+      expect(mockUseShipmentSettlement).toHaveBeenLastCalledWith("shipment-1", expect.objectContaining({ enabled: false }));
+    });
+
+    it("AC4: sin liquidación todavía, el transportista ve 'cobrando' y ningún monto acreditado", async () => {
+      mockFulfilled("user-2", ShipmentStatus.DELIVERED);
+      settlementReturns(null);
+
+      const { getByTestId, getByText, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Cobrando");
+      expect(getByText("Estamos cobrando el envío")).toBeTruthy();
+      expect(getByTestId("shipment-detail-payment-net")).toHaveTextContent("Se confirma al cobrar");
+      expect(queryByText("$11.311,38")).toBeNull();
+    });
+
+    it("AC4: un neto informado pero sin acreditar no se muestra", async () => {
+      mockFulfilled("user-2", ShipmentStatus.DELIVERED);
+      settlementReturns({ ...CREDITED_CARRIER, status: "processing", paidAt: null });
+
+      const { getByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Cobrando");
+      expect(queryByText("$11.311,38")).toBeNull();
+    });
+
+    it("AC4: con la liquidación escalada, el transportista ve el cobro demorado con el plazo", async () => {
+      mockFulfilled("user-2", ShipmentStatus.DELIVERED);
+      settlementReturns({ shipmentId: "shipment-1", role: "carrier", status: "escalated", paidAmountArs: 13800, paidAt: null, mpFeeArs: null, commissionArs: 1800, netAmountArs: null });
+
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Demorado");
+      expect(getByTestId("shipment-detail-payment-escalated")).toHaveTextContent(/72 horas/);
+      expect(getByTestId("shipment-detail-payment-net")).toHaveTextContent("En revisión");
+    });
+
+    it("la liquidación escalada el emisor la ve como pago en proceso", async () => {
+      mockFulfilled("user-1", ShipmentStatus.DELIVERED);
+      settlementReturns({ shipmentId: "shipment-1", role: "sender", status: "escalated", paidAmountArs: 13800, paidAt: null });
+
+      const { getByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Procesando");
+      expect(getByTestId("shipment-detail-payment-total")).toHaveTextContent("$13.800");
+      expect(queryByText(/demorado/i)).toBeNull();
+    });
+
+    it("si la consulta falla, ofrece reintentar en vez de inventar un estado", async () => {
+      mockFulfilled("user-2");
+      const refetchSettlement = jest.fn();
+      mockUseShipmentSettlement.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: refetchSettlement });
+
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+      fireEvent.press(getByTestId("shipment-detail-payment-retry"));
+
+      expect(refetchSettlement).toHaveBeenCalled();
     });
   });
 

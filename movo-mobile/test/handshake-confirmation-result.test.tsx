@@ -78,8 +78,19 @@ describe("HandshakeConfirmationResult", () => {
 
     expect(getByText(/Entrega confirmada/)).toBeTruthy();
     expect(getByText(/Se lo entregaste\./)).toBeTruthy();
-    expect(getByText("El pago se está procesando.")).toBeTruthy();
+    expect(queryByText(/pago/)).toBeNull();
     expect(queryByText(/destinataria/)).toBeNull();
+  });
+
+  it("entrega: muestra el estado del cobro solo si el caller lo pasa (MOVO-214 AC3/AC5)", async () => {
+    const { Text } = require("react-native");
+    const deliveryResult: ConfirmHandshakeResult = { ...baseResult, stage: "delivery", status: ShipmentStatus.DELIVERED };
+
+    const { getByText } = await render(
+      <HandshakeConfirmationResult result={deliveryResult} paymentSlot={<Text>estado del cobro</Text>} />,
+    );
+
+    expect(getByText("estado del cobro")).toBeTruthy();
   });
 
   it("sin onCtaPress, no muestra ningún botón (sigue sin ser dueño de la navegación)", async () => {

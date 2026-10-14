@@ -29,6 +29,14 @@ describe("paymentsClient (MOVO-112)", () => {
     expect(httpClient.get).toHaveBeenCalledWith("/payments/mp-connect/authorization-url");
   });
 
+  it("getShipmentSettlement envía GET /shipments/:id/settlement (MOVO-214)", async () => {
+    const settlement = { shipmentId: "s-1", role: "sender", status: "processing", paidAmountArs: 100, paidAt: null };
+    (httpClient.get as jest.Mock).mockResolvedValueOnce(settlement);
+
+    await expect(paymentsClient.getShipmentSettlement("s-1")).resolves.toEqual(settlement);
+    expect(httpClient.get).toHaveBeenCalledWith("/shipments/s-1/settlement");
+  });
+
   it("unlinkMpAccount envía DELETE /payments/mp-connect", async () => {
     (httpClient.delete as jest.Mock).mockResolvedValueOnce(undefined);
 

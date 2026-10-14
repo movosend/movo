@@ -113,7 +113,10 @@ jest.mock("../components/handshake/handshake-qr-card", () => {
   return { HandshakeQrCard: ({ testID }: { testID?: string }) => <View testID={testID} /> };
 });
 
-let mockConfirmationResultProps: { onCtaPress?: () => void } | null = null;
+let mockConfirmationResultProps: {
+  onCtaPress?: () => void;
+  paymentSlot?: { props: { shipmentId: string } };
+} | null = null;
 jest.mock("../components/handshake/handshake-confirmation-result", () => {
   const { Pressable, Text, View } = require("react-native");
   return {
@@ -492,6 +495,15 @@ describe("delivery/success (AC8/AC9)", () => {
 
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["shipments", "detail", "shipment-1"] });
     expect(mockRouterReplace).toHaveBeenCalledWith("/shipments/shipment-1");
+  });
+
+  it("MOVO-214 AC5: reemplaza el copy provisorio por el estado real del cobro del envío", async () => {
+    mockUseDeliveryResult.mockReturnValue({ result: confirmResult, setResult: jest.fn() });
+    mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });
+
+    await render(<DeliverySuccessScreen />);
+
+    expect(mockConfirmationResultProps?.paymentSlot?.props.shipmentId).toBe("shipment-1");
   });
 
   it("AC9: con el receptor resuelto, muestra el CTA de calificar y abre el RatingSheet con el target correcto", async () => {
