@@ -342,6 +342,16 @@ describe("PaymentsSettingsScreen — Mis tarjetas (MOVO-101)", () => {
     expect(getByTestId("mp-connect-card-unlinked")).toBeTruthy();
   });
 
+  it("muestra el logo del banco emisor y, sin banco o en Amex, el de la marca", async () => {
+    mockCards = { data: [VISA, { ...MASTER, issuerName: null }, EXPIRED_AMEX], isError: false };
+    const { getByTestId, queryByTestId } = await render(<PaymentsSettingsScreen />);
+    expect(getByTestId("saved-card-bank-card-visa")).toBeTruthy();
+    expect(queryByTestId("saved-card-brand-card-visa")).toBeNull();
+    expect(getByTestId("saved-card-brand-card-master")).toBeTruthy();
+    expect(getByTestId("saved-card-brand-card-amex")).toBeTruthy();
+    expect(queryByTestId("saved-card-bank-card-amex")).toBeNull();
+  });
+
   it("muestra skeleton mientras carga las tarjetas (AC8)", async () => {
     mockCards = { data: undefined, isError: false };
     const { getByTestId } = await render(<PaymentsSettingsScreen />);

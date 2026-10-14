@@ -2,6 +2,7 @@ import { ApiError } from "@movo/shared/dist/errors/api-error";
 import type { SavedCard } from "@movo/shared/dist/types/saved-card";
 import { CardTokenError } from "../src/lib/mp-card-tokenizer";
 import {
+  cardIssuerName,
   cardLabel,
   cardMeta,
   cardSaveError,
@@ -49,6 +50,12 @@ describe("saved-cards (MOVO-101)", () => {
     expect(cardMeta(card({ paymentType: "debit_card", issuerName: null }), NOW)).toBe("Débito · Vence 11/29");
     expect(cardMeta(card({ brand: "amex", issuerName: "American Express" }), NOW)).toBe("Crédito · Vence 11/29");
     expect(cardMeta(card({ expMonth: 8, expYear: 2026 }), NOW)).toBe("Galicia · Crédito · Venció 08/26");
+  });
+
+  it("el banco a mostrar: el emisor de MP, salvo en Amex o si MP no lo informó", () => {
+    expect(cardIssuerName(card())).toBe("Banco Galicia");
+    expect(cardIssuerName(card({ issuerName: null }))).toBeNull();
+    expect(cardIssuerName(card({ brand: "amex", issuerName: "American Express" }))).toBeNull();
   });
 
   it("una tarjeta vale hasta el último día de su mes", () => {

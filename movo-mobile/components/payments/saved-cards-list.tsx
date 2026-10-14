@@ -6,6 +6,7 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { cardBrandKey } from "../../src/lib/card-brand";
 import {
   cardBrandName,
+  cardIssuerName,
   cardLabel,
   cardMeta,
   cardTitle,
@@ -14,6 +15,7 @@ import {
   sortSavedCards,
 } from "../../src/lib/saved-cards";
 import { SkeletonBlock } from "../ui/skeleton-block";
+import { BankLogo } from "./bank-logo";
 import { CardBrandLogo } from "./card-brand-logo";
 
 /**
@@ -44,6 +46,22 @@ export function CardBrandBox({ brand, size = "md", testID }: { brand: string; si
   );
 }
 
+/**
+ * Recuadro de una tarjeta guardada: el logo del banco emisor y, si MP no informó el banco
+ * (o es Amex), el de la marca. Ocupa el mismo ancho que `CardBrandBox` para que los textos
+ * de la lista queden alineados con la fila "Agregar tarjeta".
+ */
+export function SavedCardMark({ card, size = "md" }: { card: SavedCard; size?: "md" | "lg" }) {
+  const issuer = cardIssuerName(card);
+  if (!issuer) return <CardBrandBox brand={card.brand} size={size} testID={`saved-card-brand-${card.id}`} />;
+  const lg = size === "lg";
+  return (
+    <View testID={`saved-card-bank-${card.id}`} className={`shrink-0 items-center ${lg ? "w-[52px]" : "w-11"}`}>
+      <BankLogo issuerName={issuer} size={lg ? 40 : 34} />
+    </View>
+  );
+}
+
 function SavedCardRow({ card, onPress }: { card: SavedCard; onPress: () => void }) {
   const colors = useThemeColors();
   const expired = isCardExpired(card);
@@ -56,7 +74,7 @@ function SavedCardRow({ card, onPress }: { card: SavedCard; onPress: () => void 
       onPress={onPress}
       className="flex-row items-center gap-3 border-b border-border px-4 py-3.5 active:bg-bg-sub"
     >
-      <CardBrandBox brand={card.brand} />
+      <SavedCardMark card={card} />
       <View className="min-w-0 flex-1 gap-0.5">
         <Text numberOfLines={1} className="font-sans-semibold text-[15px] leading-5 text-fg">
           {cardLabel(card)}

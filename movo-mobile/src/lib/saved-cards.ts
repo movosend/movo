@@ -55,11 +55,17 @@ export function paymentTypeLabel(paymentType: string | null | undefined): string
 }
 
 /**
- * "Galicia · Crédito · Vence 11/29". El banco se omite en Amex (el emisor es la propia
- * marca, igual que el prototipo) y cuando MP no lo informó.
+ * El banco que se muestra de la tarjeta (logo y nombre), o `null` en Amex (el emisor es la
+ * propia marca, igual que el prototipo) y cuando MP no lo informó.
  */
+export function cardIssuerName(card: Pick<SavedCard, "brand" | "issuerName">): string | null {
+  return card.issuerName && cardBrandKey(card.brand) !== "amex" ? card.issuerName : null;
+}
+
+/** "Galicia · Crédito · Vence 11/29". */
 export function cardMeta(card: SavedCard, now: Date = new Date()): string {
-  const bank = card.issuerName && cardBrandKey(card.brand) !== "amex" ? shortBankName(card.issuerName) : null;
+  const issuer = cardIssuerName(card);
+  const bank = issuer ? shortBankName(issuer) : null;
   const expired = isCardExpired(card, now);
   return [bank, paymentTypeLabel(card.paymentType), `${expired ? "Venció" : "Vence"} ${formatCardExpiry(card)}`]
     .filter(Boolean)

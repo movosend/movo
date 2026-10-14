@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import { cardLabel, cardOptionsSub, isCardExpired } from "../../src/lib/saved-cards";
 import { BottomSheetModal } from "../ui/bottom-sheet-modal";
 import { SheetBackButton, SheetOutlineButton, SheetPrimaryButton } from "./card-sheet-buttons";
-import { CardBrandBox } from "./saved-cards-list";
+import { SavedCardMark } from "./saved-cards-list";
 
 interface CardOptionsSheetProps {
   /** Se mantiene la última tarjeta mientras la hoja anima el cierre. */
@@ -50,7 +50,7 @@ export function CardOptionsSheet({
       {card ? (
         <>
           <View className="flex-row items-center gap-3">
-            <CardBrandBox brand={card.brand} size="lg" />
+            <SavedCardMark card={card} size="lg" />
             <View className="min-w-0 flex-1">
               <Text numberOfLines={1} className="font-sans-semibold text-[17px] leading-[22px] text-fg">
                 {cardLabel(card)}
