@@ -321,7 +321,9 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
         </View>
       </View>
 
-      <View className={`px-5 ${keyboardVisible ? "pt-3" : "pt-5"}`}>
+      {/* Por encima del formulario: si no, el degradé de arriba del scroll (que arranca opaco)
+          tapaba la parte de abajo de la sombra y la dejaba cortada en seco. */}
+      <View className={`px-5 ${keyboardVisible ? "pt-3" : "pt-5"}`} style={{ zIndex: 1, elevation: 6 }}>
         <CompactCard compact={keyboardVisible}>
           <CardPreview3D
             number={num}
