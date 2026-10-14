@@ -39,7 +39,11 @@ export interface QuoteBreakdown {
   base: number;
   distance: number;
   weight: number;
+  /** 1 + recargo por frágil en `package_tapered_v2`; factor por `packageType` en v1. */
   packageFactor: number;
+  /** MOVO-276: ausentes en una respuesta de `demand_fuel_routes_v1`. */
+  volumetricWeightKg?: number;
+  billableWeightKg?: number;
   demandRatio: number;
   demandMultiplier: number;
 }
@@ -60,8 +64,10 @@ export interface DemandContext {
 export enum PriceCalculationMethod {
   /** Provisoria de MOVO-82 (ADR-018). Ya no se emite, pero sigue persistida en envíos viejos. */
   EUCLIDEAN_LINEAR_V1 = "euclidean_linear_v1",
-  /** Ruta real + combustible + demanda (MOVO-138, ADR-025). */
+  /** Ruta real + combustible + demanda (MOVO-138, ADR-025). Ya no se emite, pero sigue persistida en envíos viejos. */
   DEMAND_FUEL_ROUTES_V1 = "demand_fuel_routes_v1",
+  /** Peso facturable, base por categoría y recargo por frágil sobre v1 (MOVO-276). */
+  PACKAGE_TAPERED_V2 = "package_tapered_v2",
 }
 
 /**

@@ -31,6 +31,8 @@ export type ApiErrorCode =
   | "SHIPMENT_PICKUP_WINDOW_IN_PAST"
   | "SHIPMENT_PICKUP_WINDOW_INVALID"
   | "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE"
+  // MOVO-276: peso o medidas fuera de los límites duros (`details.violations`).
+  | "PACKAGE_LIMITS_EXCEEDED"
   | "USERS_SERVICE_UNAVAILABLE"
   | "PUSH_PROVIDER_ERROR"
   | "ADDRESS_NOT_FOUND"

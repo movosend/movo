@@ -422,3 +422,10 @@ mobile), `ReceiverTransferRequest`, `ReceiverTransferInvitation` y
 `ShipmentReceiverTransferSummary`. Siete códigos nuevos (`SHIPMENT_RECEIVER_TRANSFER_*`,
 `RECEIVER_TRANSFER_NOT_FOUND`/`_NOT_PENDING`) y diez triggers `receiverTransfer*` en la
 categoría `shipments`, con copy propio por destinatario.
+
+### MOVO-276 — `package_tapered_v2` y `PACKAGE_LIMITS_EXCEEDED` (ADR-039)
+
+`PriceCalculationMethod.PACKAGE_TAPERED_V2` (`DEMAND_FUEL_ROUTES_V1` queda, ya no se emite
+pero persiste en envíos viejos), `QuoteBreakdown.volumetricWeightKg?`/`billableWeightKg?`
+(ausentes en respuestas de v1) y el código `PACKAGE_LIMITS_EXCEEDED` (422, con
+`details.violations`).
