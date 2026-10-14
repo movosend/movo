@@ -188,12 +188,13 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
  * tokeniza para GUARDAR la tarjeta), MP_SANDBOX_BUYER_EMAIL y la Visa 4075 5957 1648 3764 en
  * MP_TEST_CARD_NUMBER (guardar con las otras da 500 en el sandbox).
  *
- * LÍMITE DEL SANDBOX (verificado el 14/10/2026): el resultado de un pago lo decide el titular de la
- * tarjeta, y con una tarjeta GUARDADA no se pueden simular rechazos: guardar con titular SECU o FUND
- * responde 500, y un CVV equivocado (`999`) en el token `card_id` + CVV se autoriza igual. Por eso acá
- * solo se prueba el camino feliz; el mapeo del CVV incorrecto (`invalid_data`), la tarjeta vencida
- * (`card_rejected`) y los fondos insuficientes está cubierto con MP mockeado en `hold.service.test.ts`
- * y `holds.integration.test.ts`.
+ * Cómo simular resultados con una tarjeta GUARDADA (verificado el 14/10/2026): el resultado lo decide el
+ * titular (APRO aprueba, SECU/FUND/EXPI rechazan, CONT queda en contingencia) y **hay que mandar la
+ * identificación (`cardholder.identification`) al tokenizar para guardar**: sin ella, MP responde 500 al
+ * guardar con cualquier titular que no sea APRO. El valor del CVV NO se valida en sandbox (un `999` se
+ * autoriza igual), pero uno ausente/vacío (3031) o de largo inválido (3032) sí falla al crear el pago.
+ * Cada caso guarda su propia tarjeta y la da de baja. Al terminar se borra el customer en MP y su
+ * eliminación tarda ~1-2 minutos en reflejarse: una corrida inmediata puede fallar con `customer not found`.
  */
 const SAVED_CARD_CONFIGURED = Boolean(
   CONFIGURED &&
@@ -260,7 +261,8 @@ describe.skipIf(!SAVED_CARD_CONFIGURED)("hold con tarjeta guardada contra el san
         security_code: process.env.MP_TEST_CARD_CVV ?? "123",
         expiration_month: Number(process.env.MP_TEST_CARD_EXP_MONTH ?? 11),
         expiration_year: Number(process.env.MP_TEST_CARD_EXP_YEAR ?? 2030),
-        cardholder: { name: holder },
+        // Sin identificación MP responde 500 al guardar con cualquier titular que no sea APRO.
+        cardholder: { name: holder, identification: { type: "DNI", number: "12345678" } },
       }),
     });
     expect(res.status).toBe(201);
@@ -268,11 +270,12 @@ describe.skipIf(!SAVED_CARD_CONFIGURED)("hold con tarjeta guardada contra el san
   }
 
   /** Lo que hace el mobile al pagar: `card_id` + CVV con la `public_key` del TRANSPORTISTA. */
-  async function tokenForPaying(mpCardId: string, cvv: string): Promise<string> {
+  async function tokenForPaying(mpCardId: string, cvv: string | null): Promise<string> {
     const res = await fetch(`https://api.mercadopago.com/v1/card_tokens?public_key=${encodeURIComponent(PUBLIC_KEY!)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ card_id: mpCardId, security_code: cvv }),
+      // `null` = el emisor no escribió el CVV: se omite el campo.
+      body: JSON.stringify({ card_id: mpCardId, ...(cvv === null ? {} : { security_code: cvv }) }),
     });
     expect(res.status, await res.clone().text()).toBe(201);
     return ((await res.json()) as { id: string }).id;
@@ -292,7 +295,7 @@ describe.skipIf(!SAVED_CARD_CONFIGURED)("hold con tarjeta guardada contra el san
     return { id, mpCardId: row.mpCardId };
   }
 
-  async function holdWith(holder: string, cvv = process.env.MP_TEST_CARD_CVV ?? "123") {
+  async function holdWith(holder: string, cvv: string | null = process.env.MP_TEST_CARD_CVV ?? "123") {
     const card = await saveCard(holder);
     const shipmentId = randomUUID();
     shipmentIds.push(shipmentId);
@@ -336,5 +339,60 @@ describe.skipIf(!SAVED_CARD_CONFIGURED)("hold con tarjeta guardada contra el san
     // Liberado el hold, la tarjeta sigue ahí y ahora sí se puede dar de baja.
     expect((await app.inject({ method: "GET", url: "/payments/cards", headers })).json()).toHaveLength(1);
     expect((await removeCard(card.id)).statusCode).toBe(204);
+  }, 90_000);
+
+  it("CVV incorrecto (titular SECU): rejected / invalid_data, no un error HTTP", async () => {
+    const { card, res } = await holdWith("SECU");
+
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json()).toMatchObject({
+      status: "rejected",
+      statusDetail: "cc_rejected_bad_filled_security_code",
+      failureReason: "invalid_data",
+    });
+    expect((await removeCard(card.id)).statusCode).toBe(204);
+  }, 90_000);
+
+  it("fondos insuficientes (titular FUND): rejected / insufficient_funds", async () => {
+    const { card, res } = await holdWith("FUND");
+
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json()).toMatchObject({ status: "rejected", failureReason: "insufficient_funds" });
+    expect((await removeCard(card.id)).statusCode).toBe(204);
+  }, 90_000);
+
+  it("tarjeta guardada vencida (titular EXPI): rejected / card_rejected, no invalid_data", async () => {
+    const { card, res } = await holdWith("EXPI");
+
+    expect(res.statusCode, res.body).toBe(201);
+    // MP responde cc_rejected_bad_filled_date; con tarjeta guardada el emisor no tipeó la fecha, así que
+    // se clasifica como tarjeta rechazada (hay que probar con otra), no como un dato para revisar.
+    expect(res.json()).toMatchObject({
+      status: "rejected",
+      statusDetail: "cc_rejected_bad_filled_date",
+      failureReason: "card_rejected",
+    });
+    expect((await removeCard(card.id)).statusCode).toBe(204);
+  }, 90_000);
+
+  it.each([
+    ["CVV ausente", null, "mp_error_3031"],
+    ["CVV de largo inválido", "12", "mp_error_3032"],
+  ])("%s: el pago se rechaza con 400 de MP y el hold queda rejected / invalid_data (no un 502 colgado)", async (_label, cvv, detail) => {
+    const { card, res } = await holdWith("APRO", cvv);
+
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json()).toMatchObject({ status: "rejected", statusDetail: detail, failureReason: "invalid_data" });
+    expect((await removeCard(card.id)).statusCode).toBe(204);
+  }, 90_000);
+
+  it("en contingencia (titular CONT): queda in_process, un hold vivo", async () => {
+    const { card, shipmentId, res } = await holdWith("CONT");
+
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json()).toMatchObject({ status: "in_process", statusDetail: "pending_contingency" });
+    // Vivo: la tarjeta no se puede borrar hasta liberarlo.
+    expect((await removeCard(card.id)).statusCode).toBe(409);
+    await app.inject({ method: "POST", url: `/internal/payments/holds/by-shipment/${shipmentId}/release` });
   }, 90_000);
 });
