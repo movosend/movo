@@ -4357,6 +4357,21 @@ pantalla de pagos).
 Probado de punta a punta en local contra MOVO-111 (ya en `develop`). Pendiente: probarlo en dev
 cuando estén cargados `MP_REDIRECT_URI` y `MP_TOKEN_ENCRYPTION_KEY` en sus secrets.
 
+**Rediseño sobre el prototipo "MOVO-112 Pagos y cobros v3"**: "Medios de cobro" pasa a la misma
+lista que las tarjetas (`components/payments/payment-method-list.tsx`: recuadro de marca, fila
+punteada de acción y estado vacío, compartidos con `saved-cards-list.tsx`). La cuenta vinculada es
+una fila con el emblema de MP (`MercadoPagoEmblem`; el logo con wordmark se borró, ya no se usaba),
+el email en mono y acortado (`shortenEmail`, conserva el dominio) y "Cambiar cuenta" al final.
+Desvincular pasa a la hoja de opciones de la cuenta (`mp-account-sheet.tsx`), igual que eliminar
+una tarjeta. `invalid` no está en el prototipo: misma fila con el detalle en rojo y "Volver a
+vincular". La confirmación de desvincular no usa el texto del prototipo ("lo que ya ganaste se
+acredita igual"), porque al desvincular se borran los tokens y los cobros pendientes no se pueden
+operar. `useLinkMpAccount#start` devuelve si quedó vinculada, para el aviso "Vinculaste tu cuenta".
+La fila "Pagos y cobros" de Perfil → Configuración deja la pill de estado de MP (`MpStatusPill`,
+borrada) y muestra un aviso solo si hay algo que resolver (`paymentsAttention`): "Revisar" si MP
+dejó de funcionar, "Vencidas" si todas las tarjetas vencieron. Sin MP o sin tarjetas no se marca: es
+normal para quien solo envía.
+
 ### MOVO-116 (lado mobile mínimo) — mensaje del emisor al aceptar una oferta
 
 Solo `OFFER_CARRIER_NOT_ELIGIBLE` en `error-messages.ts`, que ve el emisor si el transportista
