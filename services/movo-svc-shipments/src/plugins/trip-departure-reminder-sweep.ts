@@ -4,6 +4,7 @@ import { registerSweep } from "./register-sweep";
 import { createTripRepository } from "../repositories/trip-repository";
 import { createNotificationsClient, NotificationsClient } from "../adapters/notifications-client";
 import { sendTripDepartureReminders } from "../modules/trips/trip-departure-reminder";
+import { createNotificationClaims } from "../utils/notification-claim";
 
 export interface TripDepartureReminderSweepPluginOptions {
   notificationsClient?: NotificationsClient;
@@ -19,11 +20,7 @@ export default fp(async (app: FastifyInstance, opts: TripDepartureReminderSweepP
   const deps = {
     tripRepository: createTripRepository(app.db),
     notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),
-    claimNotificationOnce: async (key: string, ttlSeconds: number) =>
-      (await app.redis.set(`notified:${key}`, "1", "EX", ttlSeconds, "NX")) === "OK",
-    releaseNotificationClaim: async (key: string) => {
-      await app.redis.del(`notified:${key}`);
-    },
+    ...createNotificationClaims(app.redis),
     logger: app.log,
   };
 
