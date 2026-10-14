@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ApiError, HoldResponse, ShipmentStatus } from "@movo/shared";
-import { createSettlementService } from "../src/modules/settlements/settlement.service";
+import { createSettlementService, SettlementRetryState, settlementRetryCooldownSeconds } from "../src/modules/settlements/settlement.service";
 import { createPaymentsFundsReleaseNotifier } from "../src/adapters/payments-funds-release-notifier";
 import { InvalidShipmentTransitionError } from "../src/domain/shipment-state-machine";
 import { ShipmentConcurrentModificationError } from "../src/repositories/shipment-repository";
@@ -254,7 +254,135 @@ describe("settlement.service.retryPendingSettlements", () => {
     // El margen se resta de "ahora": 01:00 - 5 min.
     expect(ctx.repository.listDeliveredAwaitingSettlement).toHaveBeenCalledWith(
       new Date("2030-01-05T00:55:00.000Z"),
-      20
+      20,
+      undefined
     );
+  });
+});
+
+/** Envíos entregados sueltos para probar la paginación y el enfriamiento del barrido. */
+function sweepSetup(count: number, retryState: SettlementRetryState) {
+  const shipments = Array.from({ length: count }, (_, i) => ({
+    id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+    senderId: SENDER,
+    carrierId: CARRIER,
+    receiverId: RECEIVER,
+    status: ShipmentStatus.DELIVERED,
+    deliveredAt: new Date(Date.UTC(2030, 0, 1, 0, i)),
+  })) as Shipment[];
+  const captured: string[] = [];
+  const repository = {
+    findById: vi.fn(async (id: string) => shipments.find((s) => s.id === id) ?? null),
+    updateStatus: vi.fn(async (id: string) => {
+      const s = shipments.find((x) => x.id === id)!;
+      s.status = ShipmentStatus.COMPLETED;
+      return s;
+    }),
+    // Keyset real: ordenado por (deliveredAt, id) y a partir del cursor.
+    listDeliveredAwaitingSettlement: vi.fn(
+      async (_before: Date, limit: number, after?: { deliveredAt: Date; id: string }) =>
+        shipments
+          .filter((s) => s.status === ShipmentStatus.DELIVERED)
+          .filter((s) => !after || s.deliveredAt! > after.deliveredAt || (+s.deliveredAt! === +after.deliveredAt && s.id > after.id))
+          .slice(0, limit)
+    ),
+  };
+  const payments = createFakePaymentsClient();
+  const failing = new Set<string>();
+  payments.captureHold.mockImplementation(async (shipmentId: string) => {
+    captured.push(shipmentId);
+    if (failing.has(shipmentId)) throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "caído");
+    return {
+      id: "s", shipmentId, holdId: "h", carrierId: CARRIER, mpPaymentId: "mp", status: "credited",
+      grossAmountArs: 1000, mpFeeArs: 41, commissionArs: 150, netAmountArs: 809,
+      failureReason: null, capturedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    } as never;
+  });
+  const service = createSettlementService({
+    repository: repository as unknown as ShipmentRepository,
+    paymentsClient: payments,
+    logger: { warn: vi.fn(), info: vi.fn() },
+    retryState,
+    now: () => new Date("2030-02-01T00:00:00.000Z"),
+  });
+  return { service, shipments, captured, failing, repository, payments };
+}
+
+function memoryRetryState(): SettlementRetryState & { cooling: Set<string>; failures: Array<[string, boolean]> } {
+  const cooling = new Set<string>();
+  const failures: Array<[string, boolean]> = [];
+  return {
+    cooling,
+    failures,
+    isCoolingDown: async (id) => cooling.has(id),
+    recordFailure: async (id, permanent) => {
+      cooling.add(id);
+      failures.push([id, permanent]);
+    },
+    clear: async (id) => {
+      cooling.delete(id);
+    },
+  };
+}
+
+describe("settlement.service.retryPendingSettlements: barrido que no se traba (review de PR #235)", () => {
+  it("20 envíos imposibles de capturar no tapan a uno nuevo con un fallo transitorio", async () => {
+    const retryState = memoryRetryState();
+    const ctx = sweepSetup(21, retryState);
+    // Los 20 más viejos nunca se pueden capturar; el 21° (el más nuevo) se cobra bien.
+    for (const s of ctx.shipments.slice(0, 20)) ctx.failing.add(s.id);
+
+    await ctx.service.retryPendingSettlements({ graceMinutes: 5, batchSize: 20 });
+    // Primera pasada: intentó los 20 viejos, todos fallaron y quedaron enfriándose.
+    expect(retryState.cooling.size).toBe(20);
+    expect(ctx.shipments[20].status).toBe(ShipmentStatus.DELIVERED);
+
+    ctx.captured.length = 0;
+    await ctx.service.retryPendingSettlements({ graceMinutes: 5, batchSize: 20 });
+
+    // Segunda pasada: salta los enfriados, pagina hasta el 21° y lo cobra.
+    expect(ctx.captured).toEqual([ctx.shipments[20].id]);
+    expect(ctx.shipments[20].status).toBe(ShipmentStatus.COMPLETED);
+  });
+
+  it("distingue el fallo permanente (sin hold / hold no capturable) del transitorio al enfriar", async () => {
+    const retryState = memoryRetryState();
+    const ctx = sweepSetup(3, retryState);
+    ctx.failing.add(ctx.shipments[1].id); // transitorio: 502
+    ctx.payments.captureHold.mockImplementation(async (shipmentId: string) => {
+      if (shipmentId === ctx.shipments[0].id) throw new ApiError(404, "HOLD_NOT_FOUND", "sin hold");
+      if (shipmentId === ctx.shipments[1].id) throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "caído");
+      return { status: "credited", id: "s", netAmountArs: 809 } as never;
+    });
+
+    await ctx.service.retryPendingSettlements({ graceMinutes: 5, batchSize: 20 });
+
+    expect(retryState.failures).toEqual([
+      [ctx.shipments[0].id, true],
+      [ctx.shipments[1].id, false],
+    ]);
+    expect(ctx.shipments[2].status).toBe(ShipmentStatus.COMPLETED);
+  });
+
+  it("un envío que se cobra bien sale del enfriamiento", async () => {
+    const retryState = memoryRetryState();
+    const ctx = sweepSetup(1, retryState);
+    retryState.cooling.add(ctx.shipments[0].id);
+    retryState.cooling.delete(ctx.shipments[0].id);
+
+    await ctx.service.retryPendingSettlements({ graceMinutes: 5, batchSize: 20 });
+
+    expect(ctx.shipments[0].status).toBe(ShipmentStatus.COMPLETED);
+    expect(retryState.cooling.size).toBe(0);
+  });
+});
+
+describe("settlementRetryCooldownSeconds", () => {
+  it("duplica por intento hasta el tope de 6 h, y un fallo permanente espera 24 h", () => {
+    expect(settlementRetryCooldownSeconds(1, false)).toBe(10 * 60);
+    expect(settlementRetryCooldownSeconds(2, false)).toBe(20 * 60);
+    expect(settlementRetryCooldownSeconds(3, false)).toBe(40 * 60);
+    expect(settlementRetryCooldownSeconds(20, false)).toBe(6 * 60 * 60);
+    expect(settlementRetryCooldownSeconds(1, true)).toBe(24 * 60 * 60);
   });
 });

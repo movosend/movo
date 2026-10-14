@@ -1,39 +1,15 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
-import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
-import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
-import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
-import { createSettlementService, SettlementService } from "./settlement.service";
 import { settlementSchemas } from "./settlements.schema";
 
-export interface SettlementRoutesOptions extends FastifyPluginOptions {
-  /** Overrides solo para tests de integración -- mismo criterio que el resto de los módulos. */
-  notificationsClient?: NotificationsClient;
-  paymentsClient?: PaymentsClient;
-}
-
-/**
- * Arma el service de liquidación; lo comparten el notifier real del handshake, el barrido y
- * las rutas. El dedupe de los pushes (Redis `SET NX`) se cablea SIEMPRE acá, así la captura en
- * línea y el barrido comparten las mismas marcas y no llegan dos avisos.
- */
-export function buildSettlementService(app: FastifyInstance, opts: SettlementRoutesOptions = {}): SettlementService {
-  return createSettlementService({
-    repository: createShipmentRepository(app.db),
-    paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
-    notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),
-    logger: app.log,
-    claimNotificationOnce: async (key, ttlSeconds) =>
-      (await app.redis.set(`notified:${key}`, "1", "EX", ttlSeconds, "NX")) === "OK",
-  });
-}
+export type SettlementRoutesOptions = FastifyPluginOptions;
 
 /**
  * MOVO-212 (AC10): `GET /shipments/:id/settlement`, el pago del envío con visibilidad por
  * rol. Alimenta el detalle del pago en la app (MOVO-214).
  */
-export default async function settlementRoutes(app: FastifyInstance, opts: SettlementRoutesOptions) {
-  const service = buildSettlementService(app, opts);
+export default async function settlementRoutes(app: FastifyInstance, _opts: SettlementRoutesOptions) {
+  const service = app.settlements;
 
   app.get(
     "/:id/settlement",

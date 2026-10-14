@@ -9,7 +9,6 @@ import { createFundsReleaseNotifier, FundsReleaseNotifier } from "../../adapters
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 import { PaymentsClient } from "../../adapters/payments-client";
-import { buildSettlementService } from "../settlements/settlements.routes";
 import { buildReceiverTransfersService } from "../receiver-transfers/receiver-transfers.routes";
 
 export interface HandshakeRoutesOptions extends FastifyPluginOptions {
@@ -49,13 +48,7 @@ export default async function handshakeRoutes(app: FastifyInstance, opts: Handsh
     opts.fundsReleaseNotifier ??
     createFundsReleaseNotifier(app.config, {
       // El service de liquidación solo se arma si hace falta: con "console" no toca payments.
-      settlementService:
-        app.config.FUNDS_RELEASE_NOTIFIER === "payments"
-          ? buildSettlementService(app, {
-              notificationsClient,
-              ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
-            })
-          : undefined,
+      settlementService: app.config.FUNDS_RELEASE_NOTIFIER === "payments" ? app.settlements : undefined,
     });
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
   const shipmentRepository = createShipmentRepository(app.db);

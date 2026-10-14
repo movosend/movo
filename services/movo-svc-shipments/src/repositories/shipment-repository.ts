@@ -403,6 +403,12 @@ export interface RedesignateReceiverInput {
   receiverConfirmationDeadline: Date;
 }
 
+/** Cursor keyset del barrido de liquidaciones: el último envío ya visto. */
+export interface SettlementCursor {
+  deliveredAt: Date;
+  id: string;
+}
+
 export interface ShipmentRepository {
   create(input: CreateShipmentInput): Promise<Shipment>;
   findById(id: string): Promise<Shipment | null>;
@@ -410,8 +416,15 @@ export interface ShipmentRepository {
    * MOVO-212: envíos `delivered` con transportista cuya liquidación todavía no se cerró
    * (nunca pasaron a `completed`), entregados hace más de `deliveredBefore` -- el margen
    * evita pisar la captura en línea que dispara el handshake. Los más viejos primero.
+   * `after` es el cursor keyset `(deliveredAt, id)` para paginar: sin él, 20 envíos que nunca se
+   * pueden capturar (sin hold, hold vencido, cuenta desvinculada) ocupaban siempre la primera página
+   * y los demás no se reintentaban jamás.
    */
-  listDeliveredAwaitingSettlement(deliveredBefore: Date, limit: number): Promise<Shipment[]>;
+  listDeliveredAwaitingSettlement(
+    deliveredBefore: Date,
+    limit: number,
+    after?: SettlementCursor
+  ): Promise<Shipment[]>;
   /**
    * Única vía de escritura de `status` (AC2 de MOVO-104): valida la
    * transición con `shipment-state-machine.ts` (MOVO-105) antes de tocar la
@@ -800,14 +813,26 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return row ? mapShipmentWithLastRejection(row) : null;
     },
 
-    async listDeliveredAwaitingSettlement(deliveredBefore: Date, limit: number): Promise<Shipment[]> {
+    async listDeliveredAwaitingSettlement(
+      deliveredBefore: Date,
+      limit: number,
+      after?: SettlementCursor
+    ): Promise<Shipment[]> {
       const rows = await db.shipment.findMany({
         where: {
           status: ShipmentStatus.DELIVERED,
           carrierId: { not: null },
           deliveredAt: { lt: deliveredBefore },
+          ...(after
+            ? {
+                OR: [
+                  { deliveredAt: { gt: after.deliveredAt } },
+                  { deliveredAt: after.deliveredAt, id: { gt: after.id } },
+                ],
+              }
+            : {}),
         },
-        orderBy: { deliveredAt: "asc" },
+        orderBy: [{ deliveredAt: "asc" }, { id: "asc" }],
         take: limit,
       });
       return rows.map(mapShipment);

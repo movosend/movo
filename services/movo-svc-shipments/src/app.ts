@@ -17,6 +17,7 @@ import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
 import pickupMissedSweepPlugin from "./plugins/pickup-missed-sweep";
 import transitAnomalySweepPlugin from "./plugins/transit-anomaly-sweep";
 import fundingSweepPlugin from "./plugins/funding-sweep";
+import settlementsPlugin from "./plugins/settlements";
 import settlementSweepPlugin from "./plugins/settlement-sweep";
 import settlementRoutes, { SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
 import fundingRoutes, { internalFundingRoutes, FundingRoutesOptions } from "./modules/funding/funding.routes";
@@ -183,10 +184,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.fundingSweepEnabled !== undefined ? { enabled: opts.fundingSweepEnabled } : {}),
   });
 
-  // MOVO-212: reintenta la captura de los `delivered` sin cobrar (solo con el notifier real).
-  app.register(settlementSweepPlugin, {
+  // MOVO-212: el service de liquidación se arma una sola vez (`app.settlements`) para el notifier del
+  // handshake, el barrido y las rutas; tiene que registrarse antes que cualquiera de los tres.
+  app.register(settlementsPlugin, {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+  });
+  // MOVO-212: reintenta la captura de los `delivered` sin cobrar (solo con el notifier real).
+  app.register(settlementSweepPlugin, {
     ...(opts.settlementSweepEnabled !== undefined ? { enabled: opts.settlementSweepEnabled } : {}),
   });
 
@@ -271,11 +276,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(handshakeRoutes, handshakeRouteOpts);
 
   // MOVO-212 AC10: `GET /shipments/:id/settlement`, el pago del envío según el rol.
-  const settlementRouteOpts: SettlementRoutesOptions = {
-    prefix: "/shipments",
-    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
-    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
-  };
+  const settlementRouteOpts: SettlementRoutesOptions = { prefix: "/shipments" };
   app.register(settlementRoutes, settlementRouteOpts);
 
   // MOVO-201/ADR-022: canal de tiempo real (@fastify/websocket) -- mismo prefix

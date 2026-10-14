@@ -8,7 +8,11 @@ import {
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PaymentsClient } from "../../adapters/payments-client";
 import { InvalidShipmentTransitionError } from "../../domain/shipment-state-machine";
-import { ShipmentConcurrentModificationError, ShipmentRepository } from "../../repositories/shipment-repository";
+import {
+  SettlementCursor,
+  ShipmentConcurrentModificationError,
+  ShipmentRepository,
+} from "../../repositories/shipment-repository";
 import { sendCustodyPush } from "../../utils/dispatch-push";
 
 type SettlementLogger = {
@@ -25,6 +29,34 @@ export type CaptureOutcome =
   /** No corresponde capturar (no está `delivered`, no tiene transportista o no existe). */
   | "skipped";
 
+/**
+ * Estado de reintento por envío del barrido (en Redis): qué envíos están "enfriándose" tras un
+ * fallo de captura. Sin esto el barrido reintentaba SIEMPRE los mismos envíos que nunca van a
+ * poder capturarse y los demás quedaban sin atender.
+ */
+export interface SettlementRetryState {
+  isCoolingDown(shipmentId: string): Promise<boolean>;
+  /** Registra un intento fallido y arranca el enfriamiento (más largo cuanto más intentos). */
+  recordFailure(shipmentId: string, permanent: boolean): Promise<void>;
+  clear(shipmentId: string): Promise<void>;
+}
+
+/** Códigos con los que `svc-payments` avisa que reintentar no sirve (sin hold / hold no capturable). */
+const PERMANENT_CAPTURE_CODES = new Set(["HOLD_NOT_FOUND", "HOLD_NOT_CAPTURABLE"]);
+
+/** Máximo de páginas que recorre una pasada del barrido para juntar `batchSize` envíos elegibles. */
+const SWEEP_MAX_PAGES = 10;
+
+const SWEEP_COOLDOWN_BASE_SECONDS = 10 * 60;
+const SWEEP_COOLDOWN_MAX_SECONDS = 6 * 60 * 60;
+const SWEEP_COOLDOWN_PERMANENT_SECONDS = 24 * 60 * 60;
+
+/** Enfriamiento tras el intento fallido N: 10 min, 20, 40... hasta 6 h; un fallo permanente espera 24 h. */
+export function settlementRetryCooldownSeconds(attempts: number, permanent: boolean): number {
+  if (permanent) return SWEEP_COOLDOWN_PERMANENT_SECONDS;
+  return Math.min(SWEEP_COOLDOWN_MAX_SECONDS, SWEEP_COOLDOWN_BASE_SECONDS * 2 ** Math.max(0, attempts - 1));
+}
+
 export interface SettlementServiceDeps {
   repository: ShipmentRepository;
   paymentsClient: PaymentsClient;
@@ -32,6 +64,8 @@ export interface SettlementServiceDeps {
   logger?: SettlementLogger;
   /** Dedupe de los pushes entre réplicas (Redis `SET NX`), mismo molde que la saga de MOVO-210. */
   claimNotificationOnce?: (key: string, ttlSeconds: number) => Promise<boolean>;
+  /** Enfriamiento por envío del barrido; sin él (tests) todos los candidatos se reintentan. */
+  retryState?: SettlementRetryState;
   now?: () => Date;
 }
 
@@ -60,7 +94,7 @@ function displayStatus(settlement: SettlementResponse): SettlementDisplayStatus 
  * un llamador "gana" y dispara los pushes.
  */
 export function createSettlementService(deps: SettlementServiceDeps) {
-  const { repository, paymentsClient, notificationsClient, logger, claimNotificationOnce } = deps;
+  const { repository, paymentsClient, notificationsClient, logger, claimNotificationOnce, retryState } = deps;
 
   async function notifyParties(
     shipment: { id: string; senderId: string; carrierId: string | null },
@@ -188,26 +222,44 @@ export function createSettlementService(deps: SettlementServiceDeps) {
 
     /**
      * Para el barrido: reintenta la captura de los `delivered` que no se cerraron. Un fallo
-     * de un envío no frena a los demás.
+     * de un envío no frena a los demás. Recorre los candidatos con un cursor keyset y se salta
+     * los que están enfriándose tras un fallo reciente, así una pila de envíos imposibles de
+     * capturar (sin hold, hold vencido, cuenta desvinculada) no tapa a los que sí se pueden cobrar.
      */
     async retryPendingSettlements(options: { graceMinutes: number; batchSize: number }): Promise<void> {
       const now = (deps.now ?? (() => new Date()))();
       const deliveredBefore = new Date(now.getTime() - options.graceMinutes * 60 * 1000);
-      const pending = await repository.listDeliveredAwaitingSettlement(deliveredBefore, options.batchSize);
-      for (const shipment of pending) {
-        try {
-          await this.captureAndComplete(shipment.id);
-        } catch (err) {
-          const code = err instanceof ApiError ? err.code : undefined;
-          // Un `delivered` sin hold (asignado antes de la saga de pagos) no tiene nada que
-          // capturar: se deja registrado y se sigue, no es un fallo de cobro.
-          logger?.warn(
-            { event: "settlement_retry_failed", shipmentId: shipment.id, code, err },
-            code === "HOLD_NOT_FOUND"
-              ? "envío entregado sin hold: no hay nada que capturar"
-              : "no se pudo capturar el pago del envío entregado, queda para el próximo barrido"
-          );
+      let cursor: SettlementCursor | undefined;
+      let attempted = 0;
+
+      for (let page = 0; page < SWEEP_MAX_PAGES && attempted < options.batchSize; page += 1) {
+        const pending = await repository.listDeliveredAwaitingSettlement(deliveredBefore, options.batchSize, cursor);
+        if (pending.length === 0) break;
+
+        for (const shipment of pending) {
+          if (shipment.deliveredAt) cursor = { deliveredAt: shipment.deliveredAt, id: shipment.id };
+          if (attempted >= options.batchSize) break;
+          if (retryState && (await retryState.isCoolingDown(shipment.id))) continue;
+
+          attempted += 1;
+          try {
+            await this.captureAndComplete(shipment.id);
+            await retryState?.clear(shipment.id);
+          } catch (err) {
+            const code = err instanceof ApiError ? err.code : undefined;
+            const permanent = code !== undefined && PERMANENT_CAPTURE_CODES.has(code);
+            // Un `delivered` sin hold (asignado antes de la saga de pagos) no tiene nada que
+            // capturar: se deja registrado y se sigue, no es un fallo de cobro.
+            logger?.warn(
+              { event: "settlement_retry_failed", shipmentId: shipment.id, code, permanent, err },
+              code === "HOLD_NOT_FOUND"
+                ? "envío entregado sin hold: no hay nada que capturar"
+                : "no se pudo capturar el pago del envío entregado, queda para un próximo barrido"
+            );
+            await retryState?.recordFailure(shipment.id, permanent).catch(() => undefined);
+          }
         }
+        if (pending.length < options.batchSize) break;
       }
     },
   };
