@@ -256,6 +256,13 @@ services:
       - MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES=${MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES:-60}
       - MP_TOKEN_REFRESH_WINDOW_DAYS=${MP_TOKEN_REFRESH_WINDOW_DAYS:-30}
       - MOVO_COMMISSION_RATE=${MOVO_COMMISSION_RATE:-0.15}
+      # MOVO-100 (ADR-039): public_key con la que el mobile tokeniza la tarjeta al guardarla
+      # (no decide dónde queda: siempre un customer de Movo S.A.; en dev es la TEST- de un
+      # Vendedor de prueba, no la de Movo) y (solo sandbox) el mapa userId -> email de
+      # Comprador de prueba. USERS_SERVICE_URL no hace falta: el default de código ya es el
+      # servicio en movo-net.
+      - MP_PUBLIC_KEY=${MP_PUBLIC_KEY:-}
+      - MP_TEST_PAYER_EMAILS=${MP_TEST_PAYER_EMAILS:-}
       # MOVO-268: webhook de MP. Aviso a svc-shipments, reintentos del inbox y alertas
       # al equipo (`telegram` necesita el token del bot y el chat en el secret).
       - SHIPMENTS_SERVICE_URL=${SHIPMENTS_SERVICE_URL:-http://movo-svc-shipments:3000}
