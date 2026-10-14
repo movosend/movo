@@ -36,8 +36,12 @@ function isAmex(num: string): boolean {
   return cardBrandFromNumber(num) === "amex";
 }
 
-/** Largo mínimo por marca: 15 en Amex, 16 en el resto (las Visa de 13 ya no se emiten). */
+/**
+ * Largo mínimo por marca: 14 en Diners (300-305, 36, 38, 39), 15 en Amex y 16 en el resto (las
+ * Visa de 13 ya no se emiten). Sale de la marca y no de MP porque el BIN solo informa el máximo.
+ */
 export function minNumberLength(num: string): number {
+  if (/^3(0[0-5]|[689])/.test(num)) return 14;
   return isAmex(num) ? 15 : 16;
 }
 

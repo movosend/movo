@@ -25,6 +25,20 @@ describe("card-form (MOVO-101)", () => {
     expect(validateCardForm(amex, null, NOW)).toMatchObject({ num: true, cvv: true });
   });
 
+  it("Diners: 14 dígitos, también con el largo que informa MP para el BIN", () => {
+    const diners = { ...BASE, num: "30569309025904" };
+    expect(validateCardForm(diners, null, NOW).num).toBe(true);
+    const bin = {
+      paymentMethodId: "diners",
+      paymentType: "credit_card",
+      issuerName: "Diners Club",
+      cardNumberLength: 14,
+      securityCodeLength: 3,
+    };
+    expect(validateCardForm(diners, bin, NOW).num).toBe(true);
+    expect(validateCardForm({ ...BASE, num: "3056930902590" }, bin, NOW).num).toBe(false);
+  });
+
   it("el largo que informa MP es un tope, no el exacto: una Visa de 16 vale aunque MP diga 19", () => {
     // Respuesta real de `payment_methods/search` para el BIN 450979 (Santander, Visa crédito).
     const bin = {
