@@ -111,6 +111,7 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
         cardToken: await tokenizeCard(),
         amountArs: 1150,
         payerEmail,
+        payerUserId: randomUUID(),
         paymentMethodId: process.env.MP_TEST_PAYMENT_METHOD_ID ?? "visa",
       },
     });
@@ -137,6 +138,7 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
         cardToken: "token-que-no-se-usa",
         amountArs: 1150,
         payerEmail,
+        payerUserId: randomUUID(),
       },
     });
     expect(replay.statusCode).toBe(200);
@@ -174,4 +176,180 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
     });
     expect(((await direct.json()) as { status: string }).status).toBe("cancelled");
   }, 60_000);
+});
+
+/**
+ * MOVO-282 (ADR-039), DoD: hold con una TARJETA GUARDADA contra el sandbox real. La tarjeta vive
+ * en un customer de la cuenta de Movo S.A. (MOVO-100); el mobile pide a MP un token con `card_id` +
+ * CVV y la `public_key` del Vendedor, y el hold se crea con `payer: { type: "customer", id }`.
+ *
+ * Se saltea sin credenciales. Necesita las del Vendedor (como arriba) más las de MOVO-100
+ * (`cards.sandbox.test.ts`): MP_CLIENT_ID / MP_CLIENT_SECRET, MP_PUBLIC_KEY (`TEST-` con que se
+ * tokeniza para GUARDAR la tarjeta), MP_SANDBOX_BUYER_EMAIL y la Visa 4075 5957 1648 3764 en
+ * MP_TEST_CARD_NUMBER (guardar con las otras da 500 en el sandbox).
+ *
+ * El resultado del pago lo decide el titular con el que se guardó la tarjeta (APRO aprueba, SECU
+ * rechaza por código de seguridad, FUND por fondos), así que cada caso guarda su propia tarjeta
+ * y la da de baja al terminar.
+ */
+const SAVED_CARD_CONFIGURED = Boolean(
+  CONFIGURED &&
+    process.env.MP_CLIENT_ID &&
+    process.env.MP_CLIENT_SECRET &&
+    process.env.MP_PUBLIC_KEY?.startsWith("TEST-") &&
+    process.env.MP_SANDBOX_BUYER_EMAIL
+);
+
+describe.skipIf(!SAVED_CARD_CONFIGURED)("hold con tarjeta guardada contra el sandbox real (MOVO-282)", () => {
+  let app: FastifyInstance;
+  const carrierId = randomUUID();
+  const payerUserId = randomUUID();
+  const shipmentIds: string[] = [];
+  const headers = { "x-user-id": payerUserId };
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL ??= "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL ??= "redis://localhost:6379";
+    process.env.MP_TOKEN_ENCRYPTION_KEY = ENCRYPTION_KEY;
+    process.env.MP_TEST_MODE = "true";
+    process.env.MP_TEST_PAYER_EMAILS = JSON.stringify({ [payerUserId]: process.env.MP_SANDBOX_BUYER_EMAIL });
+    app = buildApp({ usersClient: { findAccountEmail: async () => null } });
+    await app.ready();
+
+    await createCarrierMpAccountRepository(app.db, createTokenCipher(ENCRYPTION_KEY)).upsertLinked(
+      carrierId,
+      {
+        mpUserId: `${process.env.MP_SANDBOX_CARRIER_MP_USER_ID ?? "sandbox"}-saved-card-${carrierId}`,
+        email: null,
+        nickname: null,
+        accessToken: ACCESS_TOKEN!,
+        refreshToken: "TG-no-usado-en-esta-prueba",
+        publicKey: PUBLIC_KEY!,
+        scope: "offline_access",
+        tokenExpiresAt: new Date(Date.now() + 86_400_000),
+      },
+      new Date()
+    );
+  });
+
+  afterAll(async () => {
+    if (!app) return;
+    for (const id of shipmentIds) {
+      await app.db.$executeRawUnsafe("DELETE FROM payments.holds WHERE shipment_id = $1::uuid", id);
+    }
+    await app.db.$executeRawUnsafe("DELETE FROM payments.carrier_mp_accounts WHERE user_id = $1::uuid", carrierId);
+    // Borra el customer del sandbox (y con él sus tarjetas) y las filas locales.
+    await app.inject({ method: "DELETE", url: `/internal/payments/users/${payerUserId}/cards` });
+    await app.close();
+    delete process.env.MP_TOKEN_ENCRYPTION_KEY;
+    delete process.env.MP_TEST_MODE;
+    delete process.env.MP_TEST_PAYER_EMAILS;
+  });
+
+  /** Token para GUARDAR la tarjeta (la `public_key` de Movo, como `cards.sandbox.test.ts`). */
+  async function tokenForSaving(holder: string): Promise<string> {
+    const res = await fetch(`https://api.mercadopago.com/v1/card_tokens?public_key=${process.env.MP_PUBLIC_KEY}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        card_number: process.env.MP_TEST_CARD_NUMBER,
+        security_code: process.env.MP_TEST_CARD_CVV ?? "123",
+        expiration_month: Number(process.env.MP_TEST_CARD_EXP_MONTH ?? 11),
+        expiration_year: Number(process.env.MP_TEST_CARD_EXP_YEAR ?? 2030),
+        cardholder: { name: holder },
+      }),
+    });
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Lo que hace el mobile al pagar: `card_id` + CVV con la `public_key` del TRANSPORTISTA. */
+  async function tokenForPaying(mpCardId: string, cvv: string): Promise<string> {
+    const res = await fetch(`https://api.mercadopago.com/v1/card_tokens?public_key=${encodeURIComponent(PUBLIC_KEY!)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ card_id: mpCardId, security_code: cvv }),
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Guarda la tarjeta con ese titular y devuelve su id interno y el de MP (solo para el token). */
+  async function saveCard(holder: string): Promise<{ id: string; mpCardId: string }> {
+    const created = await app.inject({
+      method: "POST",
+      url: "/payments/cards",
+      headers,
+      payload: { cardToken: await tokenForSaving(holder) },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const { id } = created.json() as { id: string };
+    const row = await app.db.savedCard.findUniqueOrThrow({ where: { id } });
+    return { id, mpCardId: row.mpCardId };
+  }
+
+  async function holdWith(holder: string, cvv = process.env.MP_TEST_CARD_CVV ?? "123") {
+    const card = await saveCard(holder);
+    const shipmentId = randomUUID();
+    shipmentIds.push(shipmentId);
+    const res = await app.inject({
+      method: "POST",
+      url: "/internal/payments/holds",
+      payload: {
+        shipmentId,
+        carrierId,
+        cardToken: await tokenForPaying(card.mpCardId, cvv),
+        amountArs: 1150,
+        payerEmail: process.env.MP_SANDBOX_BUYER_EMAIL!,
+        payerUserId,
+        savedCardId: card.id,
+      },
+    });
+    return { card, shipmentId, res };
+  }
+
+  const removeCard = (id: string) => app.inject({ method: "DELETE", url: `/payments/cards/${id}`, headers });
+
+  it("reserva con payer: customer, el hold queda ligado a la tarjeta y se libera sin tocarla", async () => {
+    const { card, shipmentId, res } = await holdWith("APRO");
+
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json()).toMatchObject({ status: "authorized", statusDetail: "pending_capture", applicationFeeArs: 150 });
+    expect(res.body).not.toContain(card.mpCardId);
+
+    // Con el hold vivo la tarjeta no se puede borrar (MOVO-100, AC7).
+    const blocked = await removeCard(card.id);
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error.code).toBe("CARD_IN_USE");
+
+    const released = await app.inject({
+      method: "POST",
+      url: `/internal/payments/holds/by-shipment/${shipmentId}/release`,
+    });
+    expect(released.statusCode, released.body).toBe(200);
+    expect(released.json().status).toBe("cancelled");
+
+    // Liberado el hold, la tarjeta sigue ahí y ahora sí se puede dar de baja.
+    expect((await app.inject({ method: "GET", url: "/payments/cards", headers })).json()).toHaveLength(1);
+    expect((await removeCard(card.id)).statusCode).toBe(204);
+  }, 90_000);
+
+  it("CVV incorrecto (titular SECU): rejected / invalid_data, no un error HTTP", async () => {
+    const { card, res } = await holdWith("SECU");
+
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json()).toMatchObject({ status: "rejected", failureReason: "invalid_data" });
+
+    expect((await removeCard(card.id)).statusCode).toBe(204);
+  }, 90_000);
+
+  it("fondos insuficientes (titular FUND): rejected / insufficient_funds", async () => {
+    const { card, res } = await holdWith("FUND");
+
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json()).toMatchObject({ status: "rejected", failureReason: "insufficient_funds" });
+
+    expect((await removeCard(card.id)).statusCode).toBe(204);
+  }, 90_000);
 });

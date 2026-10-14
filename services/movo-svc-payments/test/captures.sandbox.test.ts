@@ -103,6 +103,7 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
         cardToken: await tokenizeCard(),
         amountArs: 1150,
         payerEmail,
+        payerUserId: randomUUID(),
         paymentMethodId: process.env.MP_TEST_PAYMENT_METHOD_ID ?? "visa",
       },
     });
