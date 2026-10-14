@@ -6,8 +6,11 @@ import { envSchema } from "./config/env";
 import dbPlugin from "./plugins/db";
 import redisPlugin from "./plugins/redis";
 import errorHandlerPlugin from "./plugins/error-handler";
+import internalClientsPlugin, { InternalClientsOptions } from "./plugins/internal-clients";
 
-export function buildApp(): FastifyInstance {
+export type BuildAppOptions = InternalClientsOptions;
+
+export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
 
   app.register(fastifyEnv, {
@@ -30,6 +33,8 @@ export function buildApp(): FastifyInstance {
   app.register(dbPlugin);
   app.register(redisPlugin);
   app.register(errorHandlerPlugin);
+  // Después de @fastify/env: los clientes toman las URLs de `app.config`.
+  app.register(internalClientsPlugin, opts);
 
   // Mismo criterio que el resto de los servicios Prisma: el healthcheck de Docker refleja
   // si el servicio puede hablar con Postgres, sin exponer el detalle del error.
