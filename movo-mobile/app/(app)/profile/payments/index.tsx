@@ -8,6 +8,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CardOptionsSheet } from "../../../../components/payments/card-options-sheet";
 import { DeleteCardSheet } from "../../../../components/payments/delete-card-sheet";
 import { MpAccountSheet } from "../../../../components/payments/mp-account-sheet";
+import { ChangeMpAccountSheet } from "../../../../components/payments/change-mp-account-sheet";
 import { MpConnectCard, MpConnectSkeletonCard } from "../../../../components/payments/mp-connect-card";
 import { PaymentsToast } from "../../../../components/payments/payments-toast";
 import { RenameCardSheet } from "../../../../components/payments/rename-card-sheet";
@@ -25,7 +26,7 @@ import {
 } from "../../../../src/lib/saved-cards";
 
 type CardOverlay = "options" | "rename" | "delete";
-type MpOverlay = "account" | "unlink";
+type MpOverlay = "account" | "unlink" | "change";
 
 /**
  * "Pagos y cobros" (MOVO-112), desde Perfil → Configuración.
@@ -58,7 +59,7 @@ export default function PaymentsSettingsScreen() {
   // Igual que con las tarjetas: desvincular (otra hoja) o abrir el navegador de MP se hace
   // recién cuando la hoja de opciones terminó de cerrarse, porque iOS no presenta nada
   // mientras un `Modal` se está cerrando.
-  const nextMpActionRef = useRef<"link" | "unlink" | null>(null);
+  const nextMpActionRef = useRef<"link" | "unlink" | "change" | null>(null);
   const [unlinkError, setUnlinkError] = useState<string | null>(null);
 
   const cardsQuery = useSavedCards();
@@ -161,10 +162,19 @@ export default function PaymentsSettingsScreen() {
   const refetchCards = cardsQuery.refetch;
   const linkPhaseRef = useRef(link.phase);
   linkPhaseRef.current = link.phase;
+  // Las tarjetas no se piden en el primer foco (ya las trae la query al montar) ni mientras
+  // el caché está fresco (por ejemplo, al volver del alta, que ya lo dejó al día).
+  const cardsStaleRef = useRef(cardsQuery.isStale);
+  cardsStaleRef.current = cardsQuery.isStale;
+  const firstFocusRef = useRef(true);
   useFocusEffect(
     useCallback(() => {
       if (linkPhaseRef.current === "idle") void refetch();
-      void refetchCards();
+      if (firstFocusRef.current) {
+        firstFocusRef.current = false;
+        return;
+      }
+      if (cardsStaleRef.current) void refetchCards();
     }, [refetch, refetchCards]),
   );
 
@@ -172,7 +182,7 @@ export default function PaymentsSettingsScreen() {
     setUnlinkError(null);
     if (await link.start()) setToast("Vinculaste tu cuenta de Mercado Pago.");
   };
-  const goFromMpAccount = (next: "link" | "unlink") => {
+  const goFromMpAccount = (next: "link" | "unlink" | "change") => {
     nextMpActionRef.current = next;
     setMpOverlay(null);
   };
@@ -190,6 +200,7 @@ export default function PaymentsSettingsScreen() {
         linking={link.phase !== "idle"}
         hadLinkError={link.error !== null}
         onLink={() => void handleLink()}
+        onChangeAccount={() => setMpOverlay("change")}
         onOpenAccount={() => {
           setUnlinkError(null);
           link.clearError();
@@ -327,19 +338,39 @@ export default function PaymentsSettingsScreen() {
         inUse={cardInUse}
         onConfirm={() => selectedCard && removeCard.mutate(selectedCard)}
         onClose={() => setOverlay(null)}
+        onClosed={() => {
+          // El error ya se vio dentro de la hoja: al cerrarla no queda también arriba de la lista.
+          setCardError(null);
+          setCardInUse(false);
+        }}
       />
 
       <MpAccountSheet
         data={data ?? null}
         visible={mpOverlay === "account"}
-        onLink={() => goFromMpAccount("link")}
+        onLink={() => goFromMpAccount(data?.status === "linked" ? "change" : "link")}
         onUnlink={() => goFromMpAccount("unlink")}
         onClose={() => setMpOverlay(null)}
         onClosed={() => {
           const next = nextMpActionRef.current;
           nextMpActionRef.current = null;
           if (next === "unlink") setMpOverlay("unlink");
+          else if (next === "change") setMpOverlay("change");
           else if (next === "link") void handleLink();
+        }}
+      />
+      <ChangeMpAccountSheet
+        visible={mpOverlay === "change"}
+        onConfirm={() => {
+          nextMpActionRef.current = "link";
+          setMpOverlay(null);
+        }}
+        onClose={() => setMpOverlay(null)}
+        onClosed={() => {
+          // iOS no abre el navegador del OAuth mientras la hoja se está cerrando.
+          if (nextMpActionRef.current !== "link") return;
+          nextMpActionRef.current = null;
+          void handleLink();
         }}
       />
       <UnlinkMpSheet

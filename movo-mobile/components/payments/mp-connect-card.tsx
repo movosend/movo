@@ -50,6 +50,8 @@ interface CardProps {
   /** El último intento falló: el botón de "sin vincular" pasa a "Reintentar". */
   hadLinkError: boolean;
   onLink: () => void;
+  /** "Cambiar cuenta" de una cuenta vinculada y vigente: pide confirmación antes de pisarla. */
+  onChangeAccount: () => void;
   /** Abre las opciones de la cuenta (cambiar, volver a vincular, desvincular). */
   onOpenAccount: () => void;
 }
@@ -74,7 +76,7 @@ function UnlinkedEmpty({ linking, hadLinkError, onLink }: CardProps) {
   );
 }
 
-function AccountList({ data, linking, onLink, onOpenAccount }: CardProps) {
+function AccountList({ data, linking, onLink, onChangeAccount, onOpenAccount }: CardProps) {
   const colors = useThemeColors();
   const invalid = data.status === "invalid";
   const label = mpAccountLabel(data);
@@ -135,7 +137,7 @@ function AccountList({ data, linking, onLink, onOpenAccount }: CardProps) {
           testID="mp-connect-change-account"
           icon={ArrowLeftRight}
           label="Cambiar cuenta"
-          onPress={onLink}
+          onPress={onChangeAccount}
           disabled={linking}
         />
       )}

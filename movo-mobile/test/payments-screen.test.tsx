@@ -151,9 +151,9 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     expect(queryByTestId("mp-connect-card-unlinked")).toBeNull();
   });
 
-  it("vinculada: fila de Mercado Pago con email y fecha, y 'Cambiar cuenta' (AC1)", async () => {
+  it("vinculada: fila de Mercado Pago con email y fecha, y 'Cambiar cuenta' con confirmación (AC1)", async () => {
     mockStatus = { data: LINKED, isError: false };
-    const { getByTestId, queryByTestId } = await render(<PaymentsSettingsScreen />);
+    const { getByTestId, queryByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
 
     expect(getByTestId("mp-connect-card-linked")).toBeTruthy();
     expect(getByTestId("mp-connect-linked-logo")).toBeTruthy();
@@ -162,7 +162,20 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     expect(queryByTestId("mp-connect-card-unlinked")).toBeNull();
 
     await act(async () => fireEvent.press(getByTestId("mp-connect-change-account")));
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(await findByTestId("change-mp-sheet")).toBeTruthy();
+    await act(async () => fireEvent.press(getByTestId("change-mp-sheet-confirm")));
     expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancelar la confirmación de 'Cambiar cuenta' no inicia el OAuth", async () => {
+    mockStatus = { data: LINKED, isError: false };
+    const { getByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
+
+    await act(async () => fireEvent.press(getByTestId("mp-connect-change-account")));
+    expect(await findByTestId("change-mp-sheet")).toBeTruthy();
+    await act(async () => fireEvent.press(getByTestId("change-mp-sheet-cancel")));
+    expect(mockStart).not.toHaveBeenCalled();
   });
 
   it("inválida: tacha la cuenta, explica qué pasó y ofrece volver a vincular (AC1, AC6)", async () => {
@@ -197,6 +210,9 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     await act(async () => fireEvent.press(getByTestId("mp-connect-account-row")));
     expect(await findByTestId("mp-account-sheet-note")).toBeTruthy();
     await act(async () => fireEvent.press(getByTestId("mp-account-sheet-link")));
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(await findByTestId("change-mp-sheet")).toBeTruthy();
+    await act(async () => fireEvent.press(getByTestId("change-mp-sheet-confirm")));
     expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
@@ -442,7 +458,7 @@ describe("PaymentsSettingsScreen — Mis tarjetas (MOVO-101)", () => {
   });
 
   it("con 409 CARD_IN_USE explica el motivo y no deja reintentar ni saca la tarjeta (AC5)", async () => {
-    const { getByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
+    const { getByTestId, findByTestId, queryByTestId } = await render(<PaymentsSettingsScreen />);
     await act(async () => fireEvent.press(getByTestId("saved-card-row-card-master")));
     await act(async () => fireEvent.press(await findByTestId("card-options-delete")));
     await findByTestId("delete-card-confirm");
@@ -453,6 +469,15 @@ describe("PaymentsSettingsScreen — Mis tarjetas (MOVO-101)", () => {
     expect((await findByTestId("delete-card-error")).props).toBeTruthy();
     expect(getByTestId("delete-card-confirm").props.accessibilityState.disabled).toBe(true);
     expect(getByTestId("saved-card-row-card-master")).toBeTruthy();
+
+    await act(async () => fireEvent.press(getByTestId("delete-card-back")));
+    expect(queryByTestId("saved-cards-action-error")).toBeNull();
+  });
+
+  it("no vuelve a pedir las tarjetas en el primer foco: ya las trae la query al montar", async () => {
+    mockCardsRefetch.mockClear();
+    await render(<PaymentsSettingsScreen />);
+    expect(mockCardsRefetch).not.toHaveBeenCalled();
   });
 
   it("renombra y quita el nombre de una tarjeta (AC10)", async () => {
