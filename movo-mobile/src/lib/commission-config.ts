@@ -22,3 +22,24 @@ export function getClientMpTransactionFeeRate(): number {
     ? Number(process.env.EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE)
     : DEFAULT_MP_TRANSACTION_FEE_RATE;
 }
+
+/**
+ * MOVO-225 (review de la PR #231): estimado de lo que MP descuenta por el pago. MP lo
+ * cobra sobre el total de la transacción, o sea sobre el BRUTO que paga el emisor, no
+ * sobre el neto del transportista. Es solo una referencia: el monto real lo informa MP
+ * en `fee_details` de cada pago.
+ */
+export function estimateMpFeeArs(grossArs: number): number {
+  return Math.round(grossArs * getClientMpTransactionFeeRate() * 100) / 100;
+}
+
+/**
+ * Lo que el transportista recibiría aprox.: el neto (después de la comisión de Movo)
+ * menos el estimado de MP. Nunca negativo.
+ */
+export function estimateReceivedArs(netArs: number, grossArs: number): number {
+  return Math.max(
+    0,
+    Math.round((netArs - estimateMpFeeArs(grossArs)) * 100) / 100,
+  );
+}

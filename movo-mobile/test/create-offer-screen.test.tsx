@@ -154,8 +154,9 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     // con `suggestedPriceArs` (que ya es el precio bruto que vio el emisor).
     expect(getByTestId("create-offer-amount-trigger")).toHaveTextContent("4.500", { exact: false });
     expect(getByTestId("create-offer-gross-preview")).toHaveTextContent("$4.500");
-    // neto = bruto / 1.15 = 3913,04
-    expect(getByTestId("create-offer-net-preview")).toHaveTextContent("$3.913,04");
+    // neto = bruto / 1.15 = 3913,04; MOVO-225: menos el estimado de MP sobre el bruto
+    // (4500 x 4,99% = 224,55) = 3688,49
+    expect(getByTestId("create-offer-received-preview")).toHaveTextContent("$3.688,49");
   });
 
   it("el toggle bruto/neto solo cambia la vista, nunca el ancla -- ida y vuelta no pierde centavos", async () => {
@@ -168,10 +169,10 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     // El trigger muestra la proyección redondeada a pesos enteros para poder seguir
     // editándola con el numpad...
     expect(getByTestId("create-offer-amount-trigger")).toHaveTextContent("3.913", { exact: false });
-    // ...pero el desglose "Te queda" sigue siendo el neto EXACTO derivado del ancla
-    // real (4500 / 1.15 = 3913,04), no el entero redondeado -- cambiar de tab no lo
-    // tocó para nada.
-    expect(getByTestId("create-offer-net-preview")).toHaveTextContent("$3.913,04");
+    // ...pero el desglose sigue saliendo del neto EXACTO derivado del ancla real
+    // (4500 / 1.15 = 3913,04, menos el estimado de MP = 3688,49), no del entero
+    // redondeado -- cambiar de tab no lo tocó para nada.
+    expect(getByTestId("create-offer-received-preview")).toHaveTextContent("$3.688,49");
 
     await act(async () => {
       fireEvent.press(getByTestId("create-offer-mode-gross"));

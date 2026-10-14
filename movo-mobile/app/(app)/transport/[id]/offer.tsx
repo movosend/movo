@@ -39,7 +39,8 @@ import {
 import { usePublicProfile } from "../../../../src/hooks/use-profile";
 import {
   getClientCommissionRate,
-  getClientMpTransactionFeeRate,
+  estimateMpFeeArs,
+  estimateReceivedArs,
 } from "../../../../src/lib/commission-config";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
@@ -295,9 +296,11 @@ function OfferSuccessOverlay({
  * `@movo/shared` solo expone el sentido neto→bruto.
  *
  * La línea de "Procesamiento del pago" es un ESTIMADO (`MP_TRANSACTION_FEE_RATE`: MP
- * cobra según la cuenta de cada transportista, no hay un valor único, MOVO-225) -- se muestra como
- * contexto, nunca restada de "Te queda": ese número sigue siendo exactamente el neto
- * calculado, porque hoy nada se lo descuenta de verdad.
+ * cobra según la cuenta de cada transportista, no hay un valor único, MOVO-225),
+ * calculado sobre el bruto. MP lo descuenta de lo que le acredita al transportista, así
+ * que el desglose termina en "Recibís aprox." (neto menos ese estimado). "Te queda"
+ * (teclado, CTA, confirmación) sigue siendo el neto después de la comisión de Movo, que
+ * es lo que viaja en `priceOfferedArs`.
  *
  * La franja de entrega estimada es un campo local todavía sin contrato de backend
  * (ver MOVO-178) -- se completa acá y se refleja en el preview "Lo que va a ver
@@ -489,9 +492,10 @@ export default function CreateOfferScreen() {
       ? rawAmountNumber
       : Math.round(amountMode === "net" ? netArs : grossArs);
 
-  const mpFeeEstimate = useMemo(
-    () => Math.round(netArs * getClientMpTransactionFeeRate() * 100) / 100,
-    [netArs],
+  const mpFeeEstimate = useMemo(() => estimateMpFeeArs(grossArs), [grossArs]);
+  const receivedEstimateArs = useMemo(
+    () => estimateReceivedArs(netArs, grossArs),
+    [netArs, grossArs],
   );
   const commissionPctLabel = `${Math.round(commissionRate * 100)}%`;
 
@@ -947,13 +951,13 @@ export default function CreateOfferScreen() {
                   </View>
                   <View className="flex-row items-center justify-between bg-lime-500 px-4 py-4">
                     <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-ink-950/60">
-                      Te queda
+                      Recibís aprox.
                     </Text>
                     <Text
-                      testID="create-offer-net-preview"
+                      testID="create-offer-received-preview"
                       className="font-sans-semibold text-[22px] text-ink-950"
                     >
-                      {formatPriceArs(netArs)}
+                      {formatPriceArs(receivedEstimateArs)}
                     </Text>
                   </View>
                 </View>

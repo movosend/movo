@@ -39,7 +39,8 @@ import { useSheetAnimation } from "../../../../src/hooks/use-sheet-animation";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import {
   getClientCommissionRate,
-  getClientMpTransactionFeeRate,
+  estimateMpFeeArs,
+  estimateReceivedArs,
 } from "../../../../src/lib/commission-config";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import {
@@ -156,7 +157,6 @@ export default function OfferDetailScreen() {
   } = useSheetAnimation(withdrawModalOpen);
 
   const commissionRate = getClientCommissionRate();
-  const mpFeeRate = getClientMpTransactionFeeRate();
 
   const draftAmount = parseInt(draftRaw || "0", 10) || 0;
   const draftNetArs =
@@ -282,8 +282,16 @@ export default function OfferDetailScreen() {
       : null;
 
   const commissionPctLabel = `${Math.round(commissionRate * 100)}%`;
-  const mpFeeEstimate =
-    Math.round(offer.priceNetArs * mpFeeRate * 100) / 100;
+  // MOVO-225: estimado de MP sobre el bruto; MP lo descuenta de lo que le acredita al
+  // transportista, así que lo que se muestra como cobro es aproximado. El monto real
+  // sale de `fee_details` al capturar (todavía no se persiste).
+  const mpFeeEstimate = estimateMpFeeArs(offer.priceOffered);
+  const receivedEstimateArs = estimateReceivedArs(
+    offer.priceNetArs,
+    offer.priceOffered,
+  );
+  const receivedLabel =
+    status === OfferStatus.ACCEPTED ? "Vas a recibir aprox." : "Recibís aprox.";
 
   const rank = offer.competitiveRank;
 
@@ -456,14 +464,14 @@ export default function OfferDetailScreen() {
         <View className="relative overflow-hidden rounded-[16px] bg-ink-950 px-5 py-5">
           <GridPattern color="#FFFFFF" opacity={0.06} />
           <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-ink-300">
-            {status === OfferStatus.ACCEPTED ? "Cobraste" : "Te queda"}
+            {receivedLabel}
           </Text>
           <View className="mt-1 flex-row items-end gap-2">
             <Text
               testID="offer-detail-net-amount"
               className="font-sans-semibold text-[42px] leading-[44px] text-lime-500"
             >
-              {formatPriceArs(offer.priceNetArs)}
+              {formatPriceArs(receivedEstimateArs)}
             </Text>
             <Text className="pb-1.5 font-sans text-[13px] text-ink-300">
               de {formatPriceArs(offer.priceOffered)}
@@ -576,10 +584,10 @@ export default function OfferDetailScreen() {
               }`}
             >
               <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-fg-2">
-                {status === OfferStatus.ACCEPTED ? "Cobraste" : "Te queda"}
+                {receivedLabel}
               </Text>
               <Text className="font-sans-semibold text-[26px] text-fg">
-                {formatPriceArs(offer.priceNetArs)}
+                {formatPriceArs(receivedEstimateArs)}
               </Text>
             </View>
           </View>
