@@ -206,21 +206,30 @@ y después cae en el 409 del hold. Tests en `test/mp-connect.integration.test.ts
 todavía). Código en `src/modules/cards/`, `src/repositories/saved-card-repository.ts`,
 `src/adapters/mercadopago-customers-client.ts` y `src/adapters/users-client.ts`; contrato en
 `@movo/shared` (`types/saved-card.ts`). Tablas `payer_customers` y `saved_cards` + `holds.saved_card_id`
-(migración `20261013230000_create_saved_cards`).
+(migraciones `20261013230000_create_saved_cards` y `20261014120000_payer_customers_unique_mp_customer`).
 
 - **La tarjeta vive en un customer de la cuenta de Movo S.A.** (uno por emisor, `payer_customers`); se
   persiste `mp_customer_id` + `mp_card_id` + marca/últimos 4/vencimiento/alias. Nunca el `card_token`,
   número ni CVV. El token de Movo sale de `POST /oauth/token` (`client_credentials`, `test_token` según
   `MP_TEST_MODE`) con `MovoTokenProvider`, cacheado en Redis (key `mp:movo-token:test|live`) hasta 5 min
-  antes de vencer; en modo test un token que no es `TEST-` se rechaza (daría `401 300`).
+  antes de vencer; en modo test un token que no es `TEST-` se rechaza (daría `401 300`). Si MP responde
+  401/403 (token revocado o secret rotado) se saca del cache y se reintenta una vez con uno nuevo.
 - **Email del customer**: lo pide a `svc-users` (`GET /users/me`, falla cerrado con 502). **Sandbox**: MP
   exige el email de una cuenta de prueba Comprador (si no, `225`), así que `MP_TEST_PAYER_EMAILS` (JSON
   `userId -> email`) lo reemplaza, solo con `MP_TEST_MODE=true`; un usuario fuera del mapa usa su email
-  real y deja un warning. Un `101` (el email ya tiene customer en MP) busca y reusa el existente.
+  real y deja un warning. Un `101` (el email ya tiene customer en MP) busca y reusa el existente **solo si
+  no es de otra cuenta**: `mp_customer_id` es único y, si ya pertenece a otro usuario (alguien se cambió el
+  email y otro se registró con el viejo, o testers que comparten email en `MP_TEST_PAYER_EMAILS`), responde
+  `409 CARD_CUSTOMER_CONFLICT` y se resuelve a mano. Compartirlo haría que los holds de uno se cobren como
+  el otro y que la baja de cuenta de uno le borre las tarjetas al otro.
+- **Customer borrado en MP**: si guardar la tarjeta da 404 y un `GET` del customer confirma que no existe,
+  se borra la fila, se dan de baja las tarjetas vivas (se fueron con él) y se reintenta una vez con un
+  customer nuevo. Un 404 con el customer vivo sigue siendo `422 CARD_SAVE_REJECTED`.
 - **Duplicado por marca + últimos 4 + vencimiento**, no por `mp_card_id`: como el `cardToken` es opaco,
   esos datos solo se conocen después de guardar en MP, así que se guarda primero, se compara contra las
   vivas y, si coincide, se borra la copia nueva de MP (salvo que MP haya devuelto el mismo id) y se
-  responde 200 con la existente. Riesgo aceptado: dos tarjetas distintas con la misma marca/últimos
+  responde 200 con la existente. Si falla la base después de guardar en MP, la copia solo se borra si no
+  es el `mp_card_id` de una tarjeta que el usuario ya tenía. Riesgo aceptado: dos tarjetas distintas con la misma marca/últimos
   4/vencimiento.
 - **Índices únicos parciales a mano** (`WHERE deleted_at IS NULL`): `(user_id, mp_card_id)` (parcial y no
   total como pedía el AC1, para poder volver a guardar una tarjeta dada de baja) y una sola `is_default`

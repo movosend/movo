@@ -208,6 +208,9 @@ export type ApiErrorCode =
   // Mercado Pago rechazó guardar la tarjeta (datos inválidos, vencida, cuenta de prueba que
   // no corresponde); `details.providerCode` trae el código crudo de MP si lo hay.
   | "CARD_SAVE_REJECTED"
+  // El customer de MP que corresponde al email del emisor ya está asociado a otra cuenta de
+  // Movo (p. ej. alguien que se cambió el email y otra persona se registró con el viejo).
+  | "CARD_CUSTOMER_CONFLICT"
   // Falta la `public_key` o las credenciales de Movo para operar con tarjetas (503).
   | "CARDS_NOT_CONFIGURED";
 

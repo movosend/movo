@@ -75,6 +75,15 @@ describe("MovoTokenProvider (MOVO-100 AC2)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("invalidate descarta el token cacheado solo si sigue siendo el rechazado", async () => {
+    const provider = new MovoTokenProvider(redis, CREDENTIALS);
+    await redis.set("mp:movo-token:test", "TEST-nuevo");
+    await provider.invalidate("TEST-viejo");
+    expect(await redis.get("mp:movo-token:test")).toBe("TEST-nuevo");
+    await provider.invalidate("TEST-nuevo");
+    expect(await redis.get("mp:movo-token:test")).toBeNull();
+  });
+
   it("el error de MP lleva solo el status: ni el body ni el secret", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ message: "client-secret-value inválido" }, 401)));
     const error = await new MovoTokenProvider(redis, CREDENTIALS).getToken().catch((e) => e);
@@ -88,7 +97,7 @@ describe("FetchMercadoPagoCustomersClient (MOVO-100)", () => {
     vi.unstubAllGlobals();
   });
 
-  const tokens = { getToken: async () => "TEST-movo-token" } as unknown as MovoTokenProvider;
+  const tokens = { getToken: async () => "TEST-movo-token", invalidate: async () => undefined } as unknown as MovoTokenProvider;
   const client = () => new FetchMercadoPagoCustomersClient(tokens);
 
   it("guarda la tarjeta con el Bearer de Movo y devuelve los metadatos", async () => {
@@ -148,5 +157,34 @@ describe("FetchMercadoPagoCustomersClient (MOVO-100)", () => {
   it("una respuesta incompleta al guardar es un error", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ id: "1" }, 201)));
     await expect(client().saveCard("cust", "tok")).rejects.toBeInstanceOf(MercadoPagoCustomersError);
+  });
+
+  it("customerExists: true si MP lo devuelve, false con 404", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: "cust-1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await client().customerExists("cust-1")).toBe(true);
+    expect((fetchMock.mock.calls[0] as [string])[0]).toBe("https://api.mercadopago.com/v1/customers/cust-1");
+    fetchMock.mockResolvedValueOnce(jsonResponse({ message: "not found" }, 404));
+    expect(await client().customerExists("cust-1")).toBe(false);
+  });
+
+  it("con un 401 o 403 descarta el token y reintenta una sola vez con uno nuevo", async () => {
+    const getToken = vi.fn().mockResolvedValueOnce("TEST-revocado").mockResolvedValue("TEST-nuevo");
+    const invalidate = vi.fn().mockResolvedValue(undefined);
+    const provider = { getToken, invalidate } as unknown as MovoTokenProvider;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}, 401))
+      .mockResolvedValueOnce(jsonResponse({ id: "cust-1" }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await new FetchMercadoPagoCustomersClient(provider).createCustomer("a@example.com")).toEqual({ id: "cust-1" });
+    expect(invalidate).toHaveBeenCalledWith("TEST-revocado");
+    const auth = (i: number) => ((fetchMock.mock.calls[i] as [string, RequestInit])[1].headers as Record<string, string>).Authorization;
+    expect(auth(1)).toBe("Bearer TEST-nuevo");
+
+    fetchMock.mockResolvedValue(jsonResponse({}, 403));
+    await expect(new FetchMercadoPagoCustomersClient(provider).createCustomer("a@example.com")).rejects.toMatchObject({ status: 403 });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });

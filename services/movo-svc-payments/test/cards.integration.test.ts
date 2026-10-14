@@ -36,6 +36,7 @@ describe("/payments/cards (MOVO-100)", () => {
   const mp = {
     createCustomer: vi.fn(),
     findCustomerByEmail: vi.fn(),
+    customerExists: vi.fn(),
     saveCard: vi.fn(),
     deleteCard: vi.fn(),
     deleteCustomer: vi.fn(),
@@ -67,6 +68,7 @@ describe("/payments/cards (MOVO-100)", () => {
     mp.saveCard.mockImplementation(async () => mpCard());
     mp.deleteCard.mockResolvedValue(undefined);
     mp.deleteCustomer.mockResolvedValue(undefined);
+    mp.customerExists.mockResolvedValue(true);
     vi.mocked(users.findAccountEmail).mockClear();
   });
 
@@ -88,6 +90,13 @@ describe("/payments/cards (MOVO-100)", () => {
       const byName = Object.fromEntries(rows.map((r) => [r.indexname, r.indexdef]));
       expect(byName["saved_cards_user_id_mp_card_id_live_key"]).toMatch(/UNIQUE.*\(user_id, mp_card_id\).*WHERE \(?deleted_at IS NULL\)?/s);
       expect(byName["saved_cards_user_id_default_live_key"]).toMatch(/UNIQUE.*\(user_id\).*WHERE.*is_default.*deleted_at IS NULL/s);
+    });
+
+    it("un customer de MP pertenece a una sola cuenta", async () => {
+      await app.db.payerCustomer.create({ data: { userId: USER, mpCustomerId: "mp-customer-1" } });
+      await expect(app.db.payerCustomer.create({ data: { userId: OTHER_USER, mpCustomerId: "mp-customer-1" } })).rejects.toMatchObject({
+        code: "P2002",
+      });
     });
   });
 
@@ -177,6 +186,58 @@ describe("/payments/cards (MOVO-100)", () => {
       expect(res.statusCode).toBe(201);
       expect(mp.saveCard).toHaveBeenCalledWith("mp-customer-existente", "tok-1");
       expect((await app.db.payerCustomer.findUnique({ where: { userId: USER } }))?.mpCustomerId).toBe("mp-customer-existente");
+    });
+
+    it("si el customer del email (101) ya es de otra cuenta responde 409 y no lo adopta", async () => {
+      await app.db.payerCustomer.create({ data: { userId: OTHER_USER, mpCustomerId: "mp-customer-ajeno" } });
+      mp.createCustomer.mockRejectedValueOnce(new MercadoPagoCustomersError("create_customer", 400, "101", "MP respondió 400"));
+      mp.findCustomerByEmail.mockResolvedValueOnce({ id: "mp-customer-ajeno" });
+      const res = await add();
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe("CARD_CUSTOMER_CONFLICT");
+      expect(mp.saveCard).not.toHaveBeenCalled();
+      expect(await app.db.payerCustomer.findUnique({ where: { userId: USER } })).toBeNull();
+    });
+
+    it("si el customer guardado ya no existe en MP, lo reemplaza y da de baja sus tarjetas", async () => {
+      const old = await add();
+      mp.saveCard.mockRejectedValueOnce(new MercadoPagoCustomersError("save_card", 404, null, "MP respondió 404"));
+      mp.customerExists.mockResolvedValueOnce(false);
+      mp.createCustomer.mockResolvedValueOnce({ id: "mp-customer-2" });
+      const res = await add();
+      expect(res.statusCode).toBe(201);
+      expect(res.json().isDefault).toBe(true);
+      expect(mp.customerExists).toHaveBeenCalledWith("mp-customer-1");
+      expect(mp.saveCard).toHaveBeenLastCalledWith("mp-customer-2", "tok-1");
+      expect((await app.db.payerCustomer.findUnique({ where: { userId: USER } }))?.mpCustomerId).toBe("mp-customer-2");
+      expect((await app.db.savedCard.findUnique({ where: { id: old.json().id } }))?.deletedAt).not.toBeNull();
+    });
+
+    it("un 404 al guardar con el customer todavía vivo es un rechazo y no toca nada", async () => {
+      const old = await add();
+      mp.saveCard.mockRejectedValueOnce(new MercadoPagoCustomersError("save_card", 404, null, "MP respondió 404"));
+      const res = await add();
+      expect(res.statusCode).toBe(422);
+      expect(mp.createCustomer).toHaveBeenCalledTimes(1);
+      expect((await app.db.savedCard.findUnique({ where: { id: old.json().id } }))?.deletedAt).toBeNull();
+    });
+
+    it("si falla la base tras guardar en MP, no borra una tarjeta que el usuario ya tenía", async () => {
+      await add();
+      mp.saveCard.mockResolvedValueOnce({ id: "mp-card-1", brand: "visa", last4: "1001", expMonth: 11, expYear: 2030 });
+      const spy = vi.spyOn(app.db, "$transaction").mockRejectedValueOnce(new Error("db caída"));
+      const res = await add();
+      spy.mockRestore();
+      expect(res.statusCode).toBe(500);
+      expect(mp.deleteCard).not.toHaveBeenCalled();
+    });
+
+    it("si falla la base tras guardar en MP, borra la copia nueva", async () => {
+      const spy = vi.spyOn(app.db, "$transaction").mockRejectedValueOnce(new Error("db caída"));
+      const res = await add();
+      spy.mockRestore();
+      expect(res.statusCode).toBe(500);
+      expect(mp.deleteCard).toHaveBeenCalledWith("mp-customer-1", "mp-card-1");
     });
 
     it("falla cerrado si svc-users no puede dar el email", async () => {
@@ -383,6 +444,7 @@ describe("/payments/cards (MOVO-100)", () => {
     it("borra el customer en MP y todas las filas locales", async () => {
       await add();
       await add();
+      mp.createCustomer.mockResolvedValueOnce({ id: "mp-customer-otro" });
       await add({}, OTHER_USER);
       const res = await app.inject({ method: "DELETE", url: `/internal/payments/users/${USER}/cards` });
       expect(res.statusCode).toBe(204);

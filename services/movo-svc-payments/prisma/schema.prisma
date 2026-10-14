@@ -127,7 +127,7 @@ model Hold {
 model PayerCustomer {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId       String   @unique(map: "payer_customers_user_id_key") @map("user_id") @db.Uuid
-  mpCustomerId String   @map("mp_customer_id")
+  mpCustomerId String   @unique(map: "payer_customers_mp_customer_id_key") @map("mp_customer_id")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
 

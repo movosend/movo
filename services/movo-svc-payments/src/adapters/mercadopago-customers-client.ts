@@ -22,6 +22,8 @@ export interface MercadoPagoCustomersClient {
   /** Falla con `MercadoPagoCustomersError.isCustomerAlreadyExists` si el email ya tiene customer. */
   createCustomer(email: string): Promise<{ id: string }>;
   findCustomerByEmail(email: string): Promise<{ id: string } | null>;
+  /** `false` solo si MP responde 404 (el customer fue borrado); cualquier otra falla tira. */
+  customerExists(customerId: string): Promise<boolean>;
   /** Guarda la tarjeta de un `card_token` de un solo uso (generado con la `public_key` de Movo). */
   saveCard(customerId: string, cardToken: string): Promise<MpSavedCard>;
   /** Un 404 (ya no existe) se toma como borrada. */
@@ -122,6 +124,17 @@ export class MovoTokenProvider {
     await this.redis.set(this.cacheKey, body.access_token, "EX", ttl);
     return body.access_token;
   }
+
+  /**
+   * Saca del cache un token que MP rechazó (revocado, secret rotado), así el próximo
+   * `getToken` pide uno nuevo en vez de seguir fallando hasta que venza. Solo borra si el
+   * cacheado sigue siendo ese: otro request pudo haberlo renovado mientras tanto.
+   */
+  async invalidate(rejectedToken: string): Promise<void> {
+    if ((await this.redis.get(this.cacheKey)) === rejectedToken) {
+      await this.redis.del(this.cacheKey);
+    }
+  }
 }
 
 interface MpCardBody {
@@ -177,6 +190,16 @@ export class FetchMercadoPagoCustomersClient implements MercadoPagoCustomersClie
     return first && typeof first.id === "string" ? { id: first.id } : null;
   }
 
+  async customerExists(customerId: string): Promise<boolean> {
+    const response = await this.request(
+      "get_customer",
+      `/v1/customers/${encodeURIComponent(customerId)}`,
+      { method: "GET" },
+      { tolerate404: true }
+    );
+    return response.status !== 404;
+  }
+
   async saveCard(customerId: string, cardToken: string): Promise<MpSavedCard> {
     const response = await this.request("save_card", `/v1/customers/${encodeURIComponent(customerId)}/cards`, {
       method: "POST",
@@ -207,7 +230,8 @@ export class FetchMercadoPagoCustomersClient implements MercadoPagoCustomersClie
     operation: string,
     path: string,
     init: RequestInit,
-    opts: { tolerate404?: boolean } = {}
+    opts: { tolerate404?: boolean } = {},
+    retryOnAuthError = true
   ): Promise<Response> {
     const token = await this.tokens.getToken();
     let response: Response;
@@ -226,6 +250,11 @@ export class FetchMercadoPagoCustomersClient implements MercadoPagoCustomersClie
       throw new MercadoPagoCustomersError(operation, null, null, `MP no respondió (${reason})`);
     }
     if (response.ok || (opts.tolerate404 && response.status === 404)) return response;
+    if (retryOnAuthError && (response.status === 401 || response.status === 403)) {
+      // Token cacheado que MP ya no acepta: se descarta y se reintenta una vez con uno nuevo.
+      await this.tokens.invalidate(token);
+      return this.request(operation, path, init, opts, false);
+    }
 
     let providerCode: string | null = null;
     try {

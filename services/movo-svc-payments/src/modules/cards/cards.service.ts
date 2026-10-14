@@ -134,7 +134,8 @@ export function createCardsService(deps: CardsServiceDeps): CardsService {
       mpCustomerId = (await mercadoPago.createCustomer(email)).id;
     } catch (error) {
       if (error instanceof MercadoPagoCustomersError && error.isCustomerAlreadyExists) {
-        // El email ya tiene customer (alta anterior sin fila local, o testers que comparten email).
+        // El email ya tiene customer (alta anterior sin fila local, o el de otra cuenta que
+        // usó ese email antes): se adopta solo si no es de otro usuario, lo chequea saveCustomer.
         const found = await mercadoPago.findCustomerByEmail(email).catch(() => null);
         if (!found) throw providerUnavailable();
         mpCustomerId = found.id;
@@ -142,7 +143,47 @@ export function createCardsService(deps: CardsServiceDeps): CardsService {
         throw mapCustomerError(error, "No se pudo crear el cliente en Mercado Pago.");
       }
     }
-    return (await cards.saveCustomer(userId, mpCustomerId)).mpCustomerId;
+    const saved = await cards.saveCustomer(userId, mpCustomerId);
+    if (!saved) {
+      // Nunca se comparte un customer: los holds de uno se cobrarían como el otro y la baja de
+      // cuenta de uno le borraría las tarjetas al otro. Queda para resolver a mano.
+      log.error({ userId, mpCustomerId }, "El customer de MP del email del emisor ya es de otra cuenta");
+      throw new ApiError(
+        409,
+        "CARD_CUSTOMER_CONFLICT",
+        "No pudimos asociar tu cuenta a Mercado Pago para guardar tarjetas. Contactá a soporte."
+      );
+    }
+    return saved.mpCustomerId;
+  }
+
+  /**
+   * ¿El 404 de MP al guardar es porque el customer ya no existe? Se confirma con un GET
+   * antes de olvidarlo: un 404 por otro motivo no puede dar de baja las tarjetas del usuario.
+   */
+  async function isCustomerGone(error: unknown, customerId: string): Promise<boolean> {
+    if (!(error instanceof MercadoPagoCustomersError) || error.status !== 404) return false;
+    return !(await mercadoPago.customerExists(customerId).catch(() => true));
+  }
+
+  async function saveCardInMp(userId: string, cardToken: string): Promise<{ customerId: string; saved: MpSavedCard }> {
+    const customerId = await ensureCustomerId(userId);
+    try {
+      return { customerId, saved: await mercadoPago.saveCard(customerId, cardToken) };
+    } catch (error) {
+      if (!(await isCustomerGone(error, customerId))) {
+        throw mapCustomerError(error, "Mercado Pago no pudo guardar la tarjeta. Revisá los datos o probá con otra.");
+      }
+    }
+    // El customer se borró en MP (y con él sus tarjetas): se olvida y se reintenta una vez con uno nuevo.
+    const discarded = await cards.forgetCustomer(userId, customerId);
+    log.warn({ userId, mpCustomerId: customerId, discardedCards: discarded }, "El customer de MP ya no existía: se crea uno nuevo");
+    const freshCustomerId = await ensureCustomerId(userId);
+    try {
+      return { customerId: freshCustomerId, saved: await mercadoPago.saveCard(freshCustomerId, cardToken) };
+    } catch (error) {
+      throw mapCustomerError(error, "Mercado Pago no pudo guardar la tarjeta. Revisá los datos o probá con otra.");
+    }
   }
 
   /** Un 4xx de MP (salvo credenciales) es un rechazo de lo que mandamos; el resto, falla del proveedor. */
@@ -186,14 +227,7 @@ export function createCardsService(deps: CardsServiceDeps): CardsService {
         throw limitReached();
       }
 
-      const customerId = await ensureCustomerId(userId);
-
-      let saved: MpSavedCard;
-      try {
-        saved = await mercadoPago.saveCard(customerId, input.cardToken);
-      } catch (error) {
-        throw mapCustomerError(error, "Mercado Pago no pudo guardar la tarjeta. Revisá los datos o probá con otra.");
-      }
+      const { customerId, saved } = await saveCardInMp(userId, input.cardToken);
 
       let result;
       try {
@@ -203,7 +237,13 @@ export function createCardsService(deps: CardsServiceDeps): CardsService {
           MAX_SAVED_CARDS_PER_USER
         );
       } catch (error) {
-        await discardMpCard(customerId, saved.id);
+        // MP puede devolver el id de una tarjeta que el usuario ya tenía guardada: esa no se toca.
+        // Si tampoco se puede leer la base, se deja la copia en MP (huérfana, inofensiva).
+        const alreadySaved = await cards
+          .listLive(userId)
+          .then((live) => live.some((card) => card.mpCardId === saved.id))
+          .catch(() => true);
+        if (!alreadySaved) await discardMpCard(customerId, saved.id);
         throw error;
       }
 

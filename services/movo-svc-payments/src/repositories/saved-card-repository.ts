@@ -27,8 +27,16 @@ export interface DeletedUserCards {
 
 export interface SavedCardRepository {
   findCustomer(userId: string): Promise<PayerCustomer | null>;
-  /** Idempotente: dos altas concurrentes del primer customer terminan en la misma fila. */
-  saveCustomer(userId: string, mpCustomerId: string): Promise<PayerCustomer>;
+  /**
+   * Idempotente: dos altas concurrentes del primer customer terminan en la misma fila. `null`
+   * si ese customer de MP ya está asociado a OTRO usuario (índice único en `mp_customer_id`).
+   */
+  saveCustomer(userId: string, mpCustomerId: string): Promise<PayerCustomer | null>;
+  /**
+   * El customer ya no existe en MP: borra la fila (si sigue apuntando a ese customer) y da de
+   * baja las tarjetas vivas del usuario, que se fueron con él. Devuelve cuántas se bajaron.
+   */
+  forgetCustomer(userId: string, mpCustomerId: string): Promise<number>;
   /** Vivas del usuario: la predeterminada primero, después las más nuevas. */
   listLive(userId: string): Promise<SavedCard[]>;
   countLive(userId: string): Promise<number>;
@@ -82,13 +90,28 @@ export function createSavedCardRepository(db: PrismaClient): SavedCardRepository
         });
       } catch (error) {
         // Dos upserts concurrentes pueden chocar en el índice único antes de que el segundo
-        // vea la fila: la que ganó es la buena.
+        // vea la fila: la que ganó es la buena. Si no hay fila del usuario, el choque fue en
+        // `mp_customer_id`: el customer es de otra cuenta.
         if (isUniqueViolation(error)) {
           const existing = await db.payerCustomer.findUnique({ where: { userId } });
           if (existing) return existing;
+          const owner = await db.payerCustomer.findUnique({ where: { mpCustomerId } });
+          if (owner && owner.userId !== userId) return null;
         }
         throw error;
       }
+    },
+
+    forgetCustomer(userId, mpCustomerId) {
+      return db.$transaction(async (tx) => {
+        await lockUser(tx, userId);
+        await tx.payerCustomer.deleteMany({ where: { userId, mpCustomerId } });
+        const { count } = await tx.savedCard.updateMany({
+          where: { userId, deletedAt: null },
+          data: { deletedAt: new Date(), isDefault: false },
+        });
+        return count;
+      });
     },
 
     listLive(userId) {
