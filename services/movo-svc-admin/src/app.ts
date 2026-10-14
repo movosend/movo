@@ -31,7 +31,16 @@ export function buildApp(): FastifyInstance {
   app.register(redisPlugin);
   app.register(errorHandlerPlugin);
 
-  app.get("/health", async () => ({ status: "ok" }));
+  // Mismo criterio que el resto de los servicios Prisma: el healthcheck de Docker refleja
+  // si el servicio puede hablar con Postgres, sin exponer el detalle del error.
+  app.get("/health", async (_request, reply) => {
+    const postgres = await app.checkDbHealth();
+    if (postgres.status === "error") {
+      app.log.error({ postgresError: postgres.error }, "Healthcheck con Postgres caído");
+      return reply.code(503).send({ status: "error", checks: { postgres: { status: "error" } } });
+    }
+    return { status: "ok", checks: { postgres: { status: "ok" } } };
+  });
 
   return app;
 }
