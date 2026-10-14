@@ -16,6 +16,6 @@ describe("GET /health", () => {
   it("responde status ok", async () => {
     const response = await app.inject({ method: "GET", url: "/health" });
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({ status: "ok" });
+    expect(JSON.parse(response.body)).toEqual({ status: "ok", checks: { postgres: { status: "ok" } } });
   });
 });
