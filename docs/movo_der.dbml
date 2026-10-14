@@ -19,7 +19,7 @@ Project movo_der {
     - user_ref       -> users.user
     - shipment_ref   -> shipments.shipments
     - dispute_ref    -> admin.dispute
-    - payment_method_ref -> users.payment_method
+    - payment_method_ref -> payments.saved_cards (MOVO-100; users.payment_method ya no existe)
   '''
 }
 
@@ -422,18 +422,6 @@ Table users.user_report_photos {
   Note: 'MOVO-256: foto de evidencia de un reporte. entry_id null = reporte original, si no la entrada que la sumó. Objeto privado en S3 (reports/{reporterId}/), se lee con presigned GET'
 }
 
-Table users.payment_method {
-  id uuid [pk]
-  user_id uuid [ref: > users.user.id]
-  mp_card_token varchar
-  card_brand varchar
-  last4 varchar
-  exp_month smallint
-  exp_year smallint
-  is_default boolean
-  created_at timestamp
-}
-
 // --- stub de referencia liviana (users) ---
 Table users.shipment_ref {
   id uuid [pk, note: 'espeja shipments.shipments.id, sin FK real (ADR-003)']
@@ -678,10 +666,45 @@ Table payments.holds {
   expires_at timestamptz [null, note: 'created + MP_HOLD_VALIDITY_DAYS (config, MOVO-215)']
   created_at timestamptz
   updated_at timestamptz
+  saved_card_id uuid [null, note: 'MOVO-100: tarjeta guardada (payments.saved_cards.id) con la que se creo el hold, sin FK. La escribe MOVO-282; habilita el 409 CARD_IN_USE al dar de baja la tarjeta']
 
   indexes {
     (shipment_id, attempt) [unique]
     mp_payment_id
+    saved_card_id
+  }
+}
+
+// MOVO-100 (ADR-039): customer del emisor en la cuenta de Movo S.A. de Mercado Pago, uno por
+// emisor. El payer del hold con tarjeta guardada es este customer.
+Table payments.payer_customers {
+  id uuid [pk]
+  user_id uuid [unique, note: 'referencia logica a users.user, sin FK (ADR-003)']
+  mp_customer_id varchar
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+// MOVO-100 (ADR-039): tarjeta guardada del emisor. Solo ids de MP y metadatos de display:
+// nunca card_token, numero ni CVV. Baja soft (deleted_at). Indices unicos parciales a mano:
+// (user_id, mp_card_id) y una sola is_default por usuario, ambos WHERE deleted_at IS NULL.
+Table payments.saved_cards {
+  id uuid [pk]
+  user_id uuid [note: 'referencia logica a users.user, sin FK (ADR-003)']
+  mp_card_id varchar [note: 'id de la tarjeta en el customer de Movo']
+  brand varchar [note: 'payment_method.id de MP (visa, master, ...)']
+  last4 varchar
+  exp_month int
+  exp_year int
+  issuer_name text [null, note: 'MOVO-101: issuer.name de MP ("Banco Galicia"), solo para mostrar']
+  payment_type text [null, note: 'MOVO-101: payment_type_id de MP (credit_card, debit_card, prepaid_card)']
+  is_default boolean
+  alias varchar [null, note: 'nombre de referencia del usuario, 1-40 caracteres; es de Movo, no va a MP']
+  created_at timestamptz
+  deleted_at timestamptz [null]
+
+  indexes {
+    user_id
   }
 }
 
@@ -787,7 +810,7 @@ Table payments.user_ref {
 }
 
 Table payments.payment_method_ref {
-  id uuid [pk, note: 'espeja users.payment_method.id, sin FK real (ADR-003)']
+  id uuid [pk, note: 'espeja payments.saved_cards.id (MOVO-100), sin FK real (ADR-003)']
 }
 
 Table payments.dispute_ref {

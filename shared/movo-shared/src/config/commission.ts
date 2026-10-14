@@ -5,21 +5,35 @@ export interface CommissionConfig {
    */
   movoCommissionRate: number;
   /**
-   * Comisión que cobra MercadoPago por operar la transacción (Auth & Capture /
-   * Marketplace Split Payments). No se descuenta en la creación de la oferta —
-   * `movo-svc-payments` todavía no implementa el split real (ver su CLAUDE.md) — se
-   * centraliza acá para que ese servicio y las estadísticas de `movo-svc-admin` no
-   * dupliquen el valor cuando lo necesiten. Valor real pendiente de confirmar con el
-   * contrato/homologación de MP.
+   * ESTIMADO de la comisión que cobra MercadoPago por la transacción, solo para
+   * mostrarle al transportista una referencia antes de ofertar. No es un valor a
+   * confirmar con MP (MOVO-225): MP la descuenta de la cuenta del transportista (en
+   * `fee_details` la informa como `fee_payer: collector`; Movo no envía ese campo), se
+   * aplica sobre el BRUTO del pago, y su porcentaje depende de las tarifas vigentes, del
+   * medio de pago del emisor y del plazo de liberación del dinero que cada
+   * transportista configura en su cuenta. El monto real de cada pago sale de
+   * `fee_details` (`mercadopago_fee`) de MP, nunca de esta tasa.
    */
   mpTransactionFeeRate: number;
 }
 
 let cached: CommissionConfig | undefined;
 
-const DEFAULT_MOVO_COMMISSION_RATE = 0.15;
-// TODO: placeholder hasta confirmar la tasa real contratada con MercadoPago.
-const DEFAULT_MP_TRANSACTION_FEE_RATE = 0.0499;
+export const DEFAULT_MOVO_COMMISSION_RATE = 0.15;
+// Estimado conservador, a validar con pagos reales: por encima del 4,1% observado en
+// sandbox (MOVO-49), única observación que tenemos. Ver `mpTransactionFeeRate` arriba.
+export const DEFAULT_MP_TRANSACTION_FEE_RATE = 0.0499;
+
+/**
+ * Parsea una tasa leída de una env var. Ausente, vacía o no numérica (`"4,99%"`) cae al
+ * default: un typo de configuración no puede terminar mostrando `$NaN` como monto
+ * principal (review de Pedro, PR #231). Tampoco se aceptan tasas negativas.
+ */
+export function parseRate(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const rate = Number(raw);
+  return Number.isFinite(rate) && rate >= 0 ? rate : fallback;
+}
 
 /**
  * Lee la config de comisiones desde variables de entorno.
@@ -31,12 +45,14 @@ const DEFAULT_MP_TRANSACTION_FEE_RATE = 0.0499;
 export function getCommissionConfig(): CommissionConfig {
   if (cached) return cached;
 
-  const movoCommissionRate = process.env.MOVO_COMMISSION_RATE
-    ? Number(process.env.MOVO_COMMISSION_RATE)
-    : DEFAULT_MOVO_COMMISSION_RATE;
-  const mpTransactionFeeRate = process.env.MP_TRANSACTION_FEE_RATE
-    ? Number(process.env.MP_TRANSACTION_FEE_RATE)
-    : DEFAULT_MP_TRANSACTION_FEE_RATE;
+  const movoCommissionRate = parseRate(
+    process.env.MOVO_COMMISSION_RATE,
+    DEFAULT_MOVO_COMMISSION_RATE,
+  );
+  const mpTransactionFeeRate = parseRate(
+    process.env.MP_TRANSACTION_FEE_RATE,
+    DEFAULT_MP_TRANSACTION_FEE_RATE,
+  );
 
   cached = { movoCommissionRate, mpTransactionFeeRate };
   return cached;
@@ -94,6 +110,35 @@ export function decomposeOfferGrossPrice(
   const netArs = computeNetFromGross(grossArs, rate);
   const commissionAmountArs = Math.round((grossArs - netArs) * 100) / 100;
   return { netArs, commissionAmountArs, grossArs };
+}
+
+/**
+ * MOVO-225: estimado de lo que MP descuenta por el pago. MP lo cobra sobre el total de
+ * la transacción, o sea sobre el BRUTO que paga el emisor, no sobre el neto del
+ * transportista. Es solo una referencia: el monto real lo informa MP en `fee_details`
+ * (`mercadopago_fee`) de cada pago.
+ */
+export function estimateMpFeeArs(
+  grossArs: number,
+  rate: number = getCommissionConfig().mpTransactionFeeRate,
+): number {
+  return Math.round(grossArs * rate * 100) / 100;
+}
+
+/**
+ * MOVO-225: lo que el transportista recibiría aprox. -- el neto (después de la comisión
+ * de Movo) menos el estimado de MP. Es el único monto que la app muestra como "lo que
+ * recibís". Nunca negativo.
+ */
+export function estimateReceivedArs(
+  netArs: number,
+  grossArs: number,
+  mpRate: number = getCommissionConfig().mpTransactionFeeRate,
+): number {
+  return Math.max(
+    0,
+    Math.round((netArs - estimateMpFeeArs(grossArs, mpRate)) * 100) / 100,
+  );
 }
 
 /** Solo para tests: resetea la config memoizada entre casos. */

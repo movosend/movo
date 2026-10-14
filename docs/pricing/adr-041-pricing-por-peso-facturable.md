@@ -1,4 +1,4 @@
-# ADR-039 — Pricing por peso facturable con distancia achatada
+# ADR-041 — Pricing por peso facturable con distancia achatada
 
 **Estado:** aceptado (MOVO-276). Borrador para pegar en la sección de ADRs de
 `[Movo] 004 - Sprint 0.md` en Drive. Reemplaza la parte de **cálculo** de ADR-025

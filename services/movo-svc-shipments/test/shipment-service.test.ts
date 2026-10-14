@@ -1784,10 +1784,16 @@ describe("shipments.service — cancelShipment (MOVO-29/MOVO-108)", () => {
       expect(offerRepository.listByShipment).toHaveBeenCalledWith(shipment.id);
       expect(notificationsClient.sendPush).toHaveBeenCalledTimes(2);
       expect(notificationsClient.sendPush).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: "carrier-1", data: { type: "shipment", shipmentId: shipment.id } })
+        expect.objectContaining({
+          userId: "carrier-1",
+          data: { type: "offer_voided", shipmentId: shipment.id, offerId: "offer-pending-1" },
+        })
       );
       expect(notificationsClient.sendPush).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: "carrier-2", data: { type: "shipment", shipmentId: shipment.id } })
+        expect.objectContaining({
+          userId: "carrier-2",
+          data: { type: "offer_voided", shipmentId: shipment.id, offerId: "offer-pending-2" },
+        })
       );
       expect(notificationsClient.sendPush).not.toHaveBeenCalledWith(expect.objectContaining({ userId: "carrier-3" }));
     }

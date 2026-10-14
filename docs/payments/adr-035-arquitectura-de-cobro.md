@@ -77,6 +77,16 @@ API de Mercado Pago lo permiten (`docs/payments/mercadopago-spike/SOLUCION-FINAL
 - **Credenciales**: nunca se loguean tokens ni datos de tarjeta (redacción en el logger,
   MOVO-267).
 
+- **Captura y liquidación (MOVO-212)**: al entregarse el envío, `svc-shipments` pide a
+  `svc-payments` capturar el hold SIN `amount` (cobra exactamente lo autorizado) con el
+  `access_token` del transportista; `application_fee` ya se fijó al crear el hold. El
+  desglose real (`fee_details` + `net_received_amount`) solo existe después de capturar y se
+  guarda en `payments.settlements` (una fila por envío, `numeric(12,2)`), no se calcula con
+  una tasa. Idempotencia en tres capas: fila única por envío creada en `processing` antes de
+  llamar a MP, key de MP por hold y adopción de un pago ya `approved`. La entrega es un hecho
+  inmutable: una captura fallida deja el envío en `delivered` y solo una captura acreditada lo
+  pasa a `completed`; reintentos con backoff y escalado manual quedan para MOVO-213.
+
 ## Referencias
 
 - `docs/payments/flujo-de-pagos.md`

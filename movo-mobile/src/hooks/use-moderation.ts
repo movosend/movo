@@ -9,7 +9,7 @@ export const BLOCKED_USERS_QUERY_KEY = ["moderation", "blocked"] as const;
  * un viaje (`["trips","matches",...]`) y las ofertas recibidas
  * (`["shipments", id, "offers", ...]`, invalidadas por predicado porque el id va en
  * el medio de la key). */
-function invalidateBlockDependentQueries(queryClient: QueryClient, userId: string) {
+export function invalidateBlockDependentQueries(queryClient: QueryClient, userId: string) {
   void queryClient.invalidateQueries({ queryKey: ["profile", "public", userId] });
   void queryClient.invalidateQueries({ queryKey: BLOCKED_USERS_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: ["shipments", "available"] });

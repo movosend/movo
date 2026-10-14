@@ -158,8 +158,9 @@ ADR-035.
   emisor retenidos y sin poder abrir otro hold para el envío en el medio. Decisión
   pendiente (no implementada): impedir la desvinculación mientras haya holds vivos del
   transportista, o ampliar MOVO-243/268.
-- **`?sync=true`** consulta el pago a MP y actualiza la fila: hasta MOVO-268 (webhook) es
-  la única forma de ver un hold que MP cambió por su cuenta.
+- **`?sync=true`** consulta el pago a MP y actualiza la fila. Desde MOVO-268 el webhook
+  refleja solo lo que MP cambia por su cuenta; `sync` sigue sirviendo para el barrido de
+  la saga de shipments y para resolver un `creating`.
 - **Logs (AC9)**: se loguean ids, estado y montos; nunca el `card_token`, el email del
   pagador ni los tokens OAuth (el test lo verifica además del `redact` del logger).
 - **`payment_method_id` es opcional** en el request: se reenvía a MP si el mobile lo manda
@@ -183,9 +184,58 @@ del Vendedor (el token del OAuth del spike no se persiste, ver el encabezado del
 
 Pendiente: cargar `MP_HOLD_VALIDITY_DAYS` en el secret si MOVO-215 define otro valor;
 `svc-shipments` ya los llama desde la saga de asignación (MOVO-210, ver
-`services/movo-svc-shipments/CLAUDE.md`). Falta que payments avise a
-`POST /internal/shipments/:id/hold-events` de shipments cuando MP cancela o vence un hold
-(MOVO-268): el endpoint receptor ya existe, nadie lo llama todavía.
+`services/movo-svc-shipments/CLAUDE.md`). El aviso a `POST /internal/shipments/:id/hold-events`
+cuando MP cancela o vence un hold lo hace el webhook (MOVO-268, abajo).
+
+### MOVO-212 — Captura del hold y liquidación (lado `svc-payments`)
+
+Endpoints **internos** (sin gateway, como los holds): `POST /internal/payments/holds/by-shipment/:shipmentId/capture`
+y `GET /internal/payments/holds/by-shipment/:shipmentId/settlement` (bajo el mismo prefijo que los
+holds, para que el `PaymentsClient` de MOVO-210 los alcance con su misma base). Código en `src/modules/settlements/`,
+`src/repositories/settlement-repository.ts` y `src/plugins/captures.ts`; contrato en `@movo/shared`
+(`types/settlement.ts`). Tabla `payments.settlements` (migración `20261011120000`).
+
+- **Idempotencia en tres capas (AC7)**: una liquidación `credited` se devuelve sin tocar a MP; hay UNA
+  fila por envío (`shipment_id` único) que se crea en `processing` ANTES de llamar a MP; la captura va con
+  la key `movo-hold-capture-<holdId>`. Si MP falla pero el pago ya está `approved` (respuesta perdida cuya
+  key venció) se adopta en vez de capturar de nuevo.
+- **Sin `amount` en la captura (AC3)**: MP cobra exactamente lo autorizado. El bruto de la liquidación es
+  el monto del hold.
+- **El desglose sale de MP, no de una tasa**: tras capturar se hace `getPayment` y se lee `fee_details`
+  (`application_fee` = comisión de Movo, el resto = fee de MP) y `net_received_amount`. Antes de capturar
+  ese desglose no existe (SOLUCION-FINAL §3). Aritmética en `Decimal`; si bruto ≠ fee MP + comisión + neto
+  se loguea el error pero se registra lo que dice MP. `MP_TRANSACTION_FEE_RATE` (placeholder) no interviene.
+- **Fallos (AC8)**: este servicio no conoce el estado del envío, así que no puede revertir la entrega. Un
+  fallo deja la liquidación `failed` (con `failureReason`) o `processing` (cobrado pero sin desglose todavía)
+  y el hold como estaba; llamar de nuevo reintenta desde donde quedó. El backoff y el escalado son MOVO-213.
+  El update a `failed` es condicional sobre `processing` (`updateIfStatus`): una captura en línea que ya
+  acreditó no la pisa un fallo tardío del reintento, y `capture()` relee y devuelve la acreditada.
+  **Fallos permanentes no se reintentan** (review de PR #235): `hold_expired` corta sin llamar a MP, y
+  `carrier_account_unavailable` solo se reintenta si la vinculación cambió después del fallo (re-vinculación
+  o un refresh de MOVO-243); un token vencido falla sin llamar a MP. **Pendiente (MOVO-243)**: refrescar el
+  `access_token` con el `refresh_token` antes de capturar; hoy no hay flujo de refresh en este servicio.
+- **Comisión de MP = solo lo que descuenta al vendedor** (`fee_payer: collector`): un cargo que paga el
+  comprador (`financing_fee` en cuotas) queda afuera, así `mpFee + comisión + neto == bruto` sigue cerrando.
+- **Decisión no obvia**: no se rechaza de entrada por `expiresAt` vencido. `MP_HOLD_VALIDITY_DAYS` es una
+  estimación provisoria (MOVO-215), así que se intenta igual y se clasifica el fallo como `hold_expired` solo
+  si MP rechaza y el hold ya pasó su fecha o MP lo tiene `cancelled`. Un hold cancelado por MP NO se sincroniza
+  acá: lo refleja el webhook (MOVO-268) o `?sync=true`, y la captura solo lo clasifica.
+- **`captured` es un UPDATE condicional sobre `authorized`** (`holdRepository.markCaptured`): si el webhook movió el hold
+  en el medio no se pisa, se loguea y la liquidación se acredita igual porque MP ya cobró.
+- **Visibilidad por rol (AC10)**: payments devuelve la liquidación completa; el filtro (transportista ve todo,
+  emisor total y fecha, receptor nada) lo aplica `svc-shipments`, que es quien sabe quién es quién.
+
+El lado de `svc-shipments` (notifier real, `completed`, push, barrido y endpoint por rol) está en
+`services/movo-svc-shipments/CLAUDE.md` (MOVO-212).
+
+Los tests que truncan `holds` (también los del webhook) incluyen `settlements` y usan `CASCADE`:
+`settlements.hold_id` es FK a `holds`.
+
+Verificado contra el sandbox real (13/10): `test/captures.sandbox.test.ts` crea un hold de $1150 con fee 150, lo captura
+(neto 952,85 = 1150 − 47,15 de MP − 150 de Movo, igual que un `GET` directo a MP) y una segunda captura devuelve la misma
+liquidación sin cobrar de nuevo. Se saltea sin credenciales (no corre en CI), mismas variables que `holds.sandbox.test.ts`.
+Entre el 11 y el 13/10 `POST /v1/payments` respondió `500 internal_error` (`cause: []`) para cualquier pago, incluso sin
+fee ni hold: era de MP y se resolvió solo.
 
 ### MOVO-116 — `GET /internal/payments/mp-connect/:userId/status`
 
@@ -196,3 +246,185 @@ ni hook de `x-user-id`) que devuelve `{ linked }` para el bloqueo del transporti
 `findActiveCredentials` y no descifra tokens): es más estricto que el `linked` de
 `GET /payments/mp-connect/status` porque también exige `public_key`, así nadie pasa el bloqueo
 y después cae en el 409 del hold. Tests en `test/mp-connect.integration.test.ts`.
+
+### MOVO-243 — Renovación automática de tokens OAuth y marcado de vinculación revocada
+
+Barrido periódico (`src/plugins/mp-token-refresh-sweep.ts`, esqueleto `register-sweep.ts`
+copiado de `svc-shipments`: `setInterval` + lock Redis) que llama a
+`mpConnect.refreshDueTokens()` (`mp-connect.service.ts`). Nunca refresca al cobrar (AC1).
+Cliente: `refreshTokens` en `mercadopago-oauth-client.ts`; repositorio: `findDueForRefresh`,
+`saveRefreshedTokens`, `markRevoked`, `touchRefreshAttempt`; conteo de rechazos en
+`mp-refresh-strike-store.ts` (Redis). El barrido hace además una corrida inicial a los 30 s
+de arrancar (`register-sweep.ts`): con deploys frecuentes sobre `develop` el primer
+intervalo de 60 min no llegaría nunca. El lock de Redis evita que las réplicas la dupliquen.
+
+- **Barrido cada hora, ventana de 30 días** (`MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES`,
+  `MP_TOKEN_REFRESH_WINDOW_DAYS`), en vez de un cron diario: con `setInterval` un deploy
+  diario reiniciaría el timer antes de que dispare nunca, y la ventana larga hace que un
+  MP caído se reintente muchas veces antes de que un token venza. La consulta es barata
+  (nada que renovar casi siempre). Un token ya vencido y no revocado también se intenta.
+- **Revocación = 400 `invalid_grant` visto en DOS corridas seguidas sobre el mismo token**
+  (`MercadoPagoOAuthError.isRevocation()`; el error conserva el código corto `error` de
+  OAuth, no el resto del body). `invalid_grant` también aparece si otra corrida o réplica ya
+  canjeó el token, así que el primer rechazo solo se registra (`failed`) en Redis
+  (`mp_refresh_invalid_grant:<userId>`, hash del token cifrado, TTL 7 días, sin migración);
+  si en el medio el token cambió (otra corrida lo rotó, el transportista re-vinculó) o hubo
+  un refresh exitoso, el conteo arranca de cero. Todo lo demás (5xx, 429, red,
+  `invalid_client` = nuestra app mal configurada) es transitorio: no toca la fila y se
+  reintenta (AC4). Revocada, la fila sale de `findDueForRefresh` y no se reintenta (AC3); el
+  status pasa a `invalid/revoked` y el hold y el webhook (`findCredentials`) dejan de usar
+  el token.
+- **Una fila problemática no frena ni acapara el lote**: `findDueForRefresh` ordena por
+  `updated_at` (el intento más viejo primero) y cada fallo anota el intento con
+  `touchRefreshAttempt`, así las que fallan siempre (`invalid_client`, 5xx persistente)
+  rotan al final en vez de ocupar los 100 lugares. Una fila que no se descifra (otra key,
+  corrupta) se loguea en `error` y se omite sin abortar la corrida.
+- **Sin configuración, el barrido avisa en `error`** (no `warn`): en prod las credenciales de
+  MP siguen sin cargar y, sin una alerta visible, los tokens de 180 días vencerían sin que
+  nadie se entere.
+- **Guardado con compare-and-swap** sobre el `refresh_token` cifrado leído: si el
+  transportista re-vincula o desvincula mientras se espera a MP, el resultado (renovación o
+  revocación) se descarta en vez de pisar la vinculación nueva.
+- **Se guardan los dos tokens** aunque el sandbox devolvió el mismo `access_token`.
+  Si MP rotó el `refresh_token` y la escritura falla, se reintenta el guardado 3 veces (0,5 s
+  y 2 s de pausa, `SAVE_RETRY_DELAYS_MS`) y, si la base sigue caída, los tokens nuevos se
+  dejan cifrados (misma key que la base) en Redis (`mp_refresh_pending:<userId>`, TTL 24 h,
+  `mp-pending-tokens-store.ts`). La corrida siguiente los persiste ANTES de llamar a MP; un
+  respaldo cuyo token ya no es el de la base (re-vinculó) se descarta. Riesgo residual
+  aceptado: base y Redis caídos a la vez, o la base sin volver en 24 h; ahí el token viejo
+  queda inservible y la cuenta se revoca tras dos `invalid_grant` (hay que re-vincular).
+- Env vars en `.env.example`, `envSchema` y `docker-compose.yml` (con `:-` por default).
+
+Verificado contra el sandbox (11/10, cuenta Vendedor del equipo, `FetchMercadoPagoOAuthClient`
+real): el refresh sobre el `refresh_token` guardado devolvió 200 con `access_token` `TEST-`
+nuevo (esta vez distinto del anterior, así que no se puede asumir que se mantiene), un
+`refresh_token` rotado y `expires_in` de 180 días. Un segundo refresh con el
+`refresh_token` ya canjeado **también respondió 200**: el sandbox no hace el refresh de un
+solo uso, así que ahí no se observó ningún rechazo. El disparador por vencimiento próximo
+se probó con `token_expires_at` forzado en la base (tests de integración), no esperando el
+plazo real.
+
+Pendiente: observar un `invalid_grant` real (con la confirmación en dos corridas, la
+revocación recién se ve en la segunda). El código asume 400 `invalid_grant` (lo que
+documenta MP) y falla seguro si es otra cosa (no revoca, reintenta); falta revocar el
+acceso desde la cuenta de prueba de MP y correr una corrida del barrido.
+
+### MOVO-268 — Webhook de MP: holds cancelados o vencidos por MP y contracargos
+
+`POST /payments/webhooks/mercadopago` (pública en el gateway, plugin aparte como el callback
+de OAuth), registrado en el panel de la app para el tópico `payment`. Código en
+`src/modules/webhooks/`, `src/repositories/mp-webhook-repository.ts`,
+`src/utils/mp-webhook-signature.ts`, `src/adapters/{shipments-client,alert-notifier}.ts` y
+`src/plugins/mp-webhooks.ts`.
+
+- **Se deduplica por lo firmado, no por el `id` del body** (review de PR #235): la clave es
+  `data.id:x-request-id:ts` (`notificationDedupeKey`), así reenviar una notificación válida con otro `id` no crea
+  filas nuevas. El `user_id` del body no está firmado: solo orienta qué credenciales probar para un pago
+  desconocido, y si el pago no es de ese vendedor (`collector_id`) se ignora. Un `status` heredado de `Object`
+  (`constructor`) ya no se cuela como `kind` (`hasOwnProperty`). Si la reconciliación de un intento en
+  `creating` (`?sync=true`) lo lleva a cancelado/vencido/rechazado, igual se avisa a `svc-shipments` (antes se veía
+  como "ya cerrado" y no avisaba).
+- **Inbox en la base (AC7)**: la ruta valida `x-signature` (HMAC del manifest
+  `id;request-id;ts`, sin ventana sobre `ts`: un reintento legítimo de MP conserva el `ts`), guarda la
+  notificación en `mp_webhook_notifications` y responde 200; el procesamiento corre en
+  segundo plano. Un error propio (MP o shipments caídos) la deja `pending` con backoff
+  (1, 2, 4... min, tope 6 h) y un barrido (`setInterval`, sin lock de Redis: cada
+  notificación se toma con un UPDATE condicional) la reintenta hasta
+  `MP_WEBHOOK_MAX_ATTEMPTS`; después queda `failed` y se alerta.
+- **Nunca se actúa sobre el body (AC3)**: `Payment.get` con el token del transportista
+  dueño del hold. Un pago sin hold se busca por el `user_id` del vendedor y su
+  `external_reference`, lo que además rescata un intento que quedó en `creating`. Sin
+  credenciales (desvinculó o MP revocó) la notificación queda `unverifiable` con alerta.
+- **Idempotencia (AC6)**: único por `id` de la notificación; el cambio del hold es un
+  UPDATE condicional sobre el estado esperado, en la misma transacción que anota el aviso
+  pendiente a shipments (`pending_hold_event`). Así un reintento vuelve a avisar sin
+  volver a consultar a MP, y la liberación hecha por Movo que vuelve como webhook no avisa.
+- **Vencido = `cancelled` + `status_detail: expired`** (sin estado nuevo en el enum ni en
+  `@movo/shared`); a shipments se le manda `event: expired`. Falta confirmar en MOVO-215 que
+  MP use ese detail. Un `in_process` que MP rechaza manda `rejected`; uno que autoriza solo
+  actualiza la fila (el barrido de la saga ya hace `?sync=true`).
+- **`approved` no toca el hold**: la transición a `captured` es de la captura (MOVO-212),
+  que persiste la liquidación. El webhook solo loguea.
+- **Contracargo, reembolso externo y mediación (AC5)**: se registran en
+  `payment_provider_events` (único por pago + estado de MP, una sola alerta). El hold y la
+  liquidación de MOVO-212 no cambian; se relacionan por `mp_payment_id`
+  (`settlements.mp_payment_id`), sin FK ni columna nueva. Qué pasa con el cobro ya acreditado
+  queda para disputas (MOVO-30/34).
+- **Alertas** (`AlertNotifier`, consola o Telegram con `ALERT_PROVIDER`): contracargos,
+  notificaciones `unverifiable`/`failed` y el `hold_lost_after_pickup` que responde shipments
+  (hold perdido con el paquete en camino: la captura va a fallar). La reusa MOVO-213.
+
+Pendiente: probar contra el sandbox con una notificación real por túnel (DoD), registrar
+`https://api-dev.movosend.app/api/v1/payments/webhooks/mercadopago` en el panel de
+`movosend` y cargar en el secret de dev `ALERT_PROVIDER=telegram`,
+`ALERT_TELEGRAM_BOT_TOKEN`/`_CHAT_ID` y `ALERT_ENVIRONMENT_LABEL=dev`.
+
+### MOVO-100 — Tarjetas guardadas del emisor en la cuenta de Movo (ADR-039 propuesto)
+
+`GET /payments/cards/checkout-data`, `POST /payments/cards`, `GET /payments/cards`,
+`PATCH /payments/cards/:id/default`, `PATCH /payments/cards/:id` (alias) y `DELETE /payments/cards/:id`
+(heredan el hook `x-user-id`; el gateway ya proxeaba `/payments`), más el interno
+`DELETE /internal/payments/users/:userId/cards` para la baja de cuenta (MOVO-39, nadie lo llama
+todavía). Código en `src/modules/cards/`, `src/repositories/saved-card-repository.ts`,
+`src/adapters/mercadopago-customers-client.ts` y `src/adapters/users-client.ts`; contrato en
+`@movo/shared` (`types/saved-card.ts`). Tablas `payer_customers` y `saved_cards` + `holds.saved_card_id`
+(migraciones `20261013230000_create_saved_cards` y `20261014120000_payer_customers_unique_mp_customer`).
+
+- **La tarjeta vive en un customer de la cuenta de Movo S.A.** (uno por emisor, `payer_customers`); se
+  persiste `mp_customer_id` + `mp_card_id` + marca/últimos 4/vencimiento/alias. Nunca el `card_token`,
+  número ni CVV. El token de Movo sale de `POST /oauth/token` (`client_credentials`, `test_token` según
+  `MP_TEST_MODE`) con `MovoTokenProvider`, cacheado en Redis (key `mp:movo-token:test|live`) hasta 5 min
+  antes de vencer; en modo test un token que no es `TEST-` se rechaza (daría `401 300`). Si MP responde
+  401/403 (token revocado o secret rotado) se saca del cache y se reintenta una vez con uno nuevo.
+- **Email del customer**: lo pide a `svc-users` (`GET /users/me`, falla cerrado con 502). **Sandbox**: MP
+  exige el email de una cuenta de prueba Comprador (si no, `225`), así que `MP_TEST_PAYER_EMAILS` (JSON
+  `userId -> email`) lo reemplaza, solo con `MP_TEST_MODE=true`; un usuario fuera del mapa usa su email
+  real y deja un warning. Un `101` (el email ya tiene customer en MP) busca y reusa el existente **solo si
+  no es de otra cuenta**: `mp_customer_id` es único y, si ya pertenece a otro usuario (alguien se cambió el
+  email y otro se registró con el viejo, o testers que comparten email en `MP_TEST_PAYER_EMAILS`), responde
+  `409 CARD_CUSTOMER_CONFLICT` y se resuelve a mano. Compartirlo haría que los holds de uno se cobren como
+  el otro y que la baja de cuenta de uno le borre las tarjetas al otro.
+- **Customer borrado en MP**: si guardar la tarjeta da 404 y un `GET` del customer confirma que no existe,
+  se borra la fila, se dan de baja las tarjetas vivas (se fueron con él) y se reintenta una vez con un
+  customer nuevo. Un 404 con el customer vivo sigue siendo `422 CARD_SAVE_REJECTED`.
+- **Duplicado por marca + últimos 4 + vencimiento**, no por `mp_card_id`: como el `cardToken` es opaco,
+  esos datos solo se conocen después de guardar en MP, así que se guarda primero, se compara contra las
+  vivas y, si coincide, se borra la copia nueva de MP (salvo que MP haya devuelto el mismo id) y se
+  responde 200 con la existente. Si falla la base después de guardar en MP, la copia solo se borra si no
+  es el `mp_card_id` de una tarjeta que el usuario ya tenía. Riesgo aceptado: dos tarjetas distintas con la misma marca/últimos
+  4/vencimiento.
+- **Índices únicos parciales a mano** (`WHERE deleted_at IS NULL`): `(user_id, mp_card_id)` (parcial y no
+  total como pedía el AC1, para poder volver a guardar una tarjeta dada de baja) y una sola `is_default`
+  viva por usuario. Alta, predeterminada y baja de un mismo usuario se serializan con
+  `pg_advisory_xact_lock` (con `$executeRaw`: `$queryRaw` no deserializa el `void` de la función).
+- **Predeterminada**: la primera viva queda marcada; al borrar la predeterminada se promueve la más
+  reciente. Tope de 10 vivas (`409 CARD_LIMIT_REACHED`). `DELETE`: `409 CARD_IN_USE` si hay un hold vivo
+  con `saved_card_id`; borra en MP primero (un 404 cuenta como borrada) y recién después la fila.
+- **`holds.saved_card_id`** nace acá, nullable y sin FK; no lo escribe nadie todavía (lo hace MOVO-282).
+  El `409 CARD_IN_USE` está probado con holds insertados a mano.
+- **Alias** (AC11): trim, 1-40, sin caracteres de control, y `400` si trae 12+ dígitos (se ignoran
+  espacios y guiones al contar, así "4111 1111 1111 1111" también se rechaza). Es de Movo, no va a MP.
+- **Baja de cuenta**: best-effort; si MP falla se loguea el `mpCustomerId` huérfano y las filas locales se
+  borran igual.
+- **Logger**: `cardToken`/`card_token`, `mpCardId`/`mp_card_id`, `cardId`/`card_id` redactados.
+- **Env vars** (`.env.example` + `envSchema` + compose): `MP_PUBLIC_KEY` (sin ella `checkout-data` responde
+  `503 CARDS_NOT_CONFIGURED`), `MP_TEST_PAYER_EMAILS`. **`MP_PUBLIC_KEY` solo sirve para tokenizar** en el
+  dispositivo: la tarjeta queda siempre en el customer de Movo S.A., sea de quien sea esa key. En dev está
+  cargada la `TEST-` de un Vendedor de prueba (atajo de sandbox); en prod se espera la de Movo. `USERS_SERVICE_URL` tiene
+  default de código (como en `svc-shipments`), no se lista en compose.
+
+**MOVO-101**: `saved_cards` suma `issuer_name` y `payment_type` (nullable, migración
+`20261014180000`), tomados de `issuer.name` y `payment_method.payment_type_id` de la respuesta de MP al
+guardar, para que la lista del mobile muestre "Galicia · Crédito". Solo display: no entran en el criterio
+de duplicado.
+
+Verificado contra el sandbox real (13/10): `test/cards.sandbox.test.ts` guarda, lista, detecta el duplicado
+y borra. **Gotchas del sandbox**: guardar la tarjeta da `500` con la Visa 4509…, la Mastercard 5031… y la
+del spike; con la Visa `4075 5957 1648 3764` da 201. La `public_key` con que se tokeniza puede ser la `TEST-`
+de cualquier Vendedor de prueba vinculado (la consola de `movosend` solo muestra `APP_USR-`); la de Movo S.A.
+sigue sin identificarse (punto 2 de MOVO-283).
+
+Pendiente: `MP_PUBLIC_KEY` ya está cargada en el secret de dev (`TEST-` de un Vendedor de prueba, atajo
+de sandbox); producción y segundo
+transportista (spike MOVO-283, ADR-039 sigue "propuesto"); MOVO-282 (hold con `payer: customer` y escritura
+de `saved_card_id`) y MOVO-39 (llamar al endpoint interno de baja).

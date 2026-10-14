@@ -34,6 +34,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // MOVO-175 (ADR-026): explícito a propósito -- el bloqueo se revela en vez de un
   // error genérico. Aplica en las dos direcciones (quien bloqueó y quien fue bloqueado).
   USER_BLOCKED: "No podés interactuar con este usuario porque hay un bloqueo entre ustedes.",
+  // MOVO-284 (ADR-040): el chat se cierra con el envío y queda en solo lectura al entregarse.
+  CHAT_CLOSED: "Este chat ya no está disponible porque el envío se canceló o todavía no tiene transportista.",
+  CHAT_READ_ONLY: "El envío finalizó: el chat quedó en solo lectura y ya no admite mensajes nuevos.",
   CANNOT_MODERATE_SELF: "No podés reportarte ni bloquearte a vos mismo.",
   REPORT_ALREADY_PENDING: "Ya tenés un reporte en revisión sobre esta persona. Podés sumarle información.",
   REPORT_NOT_FOUND: "Tu reporte ya no está en revisión.",
@@ -48,6 +51,14 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // Elegir otro receptor tras un rechazo (MOVO-253).
   SHIPMENT_RECEIVER_ALREADY_REJECTED: "Esta persona ya rechazó este envío. Elegí a otra.",
   SHIPMENT_REDESIGNATION_EXPIRED: "Venció el plazo para elegir otro receptor. El envío se va a cancelar.",
+  // Transferencia de receptor (MOVO-275).
+  SHIPMENT_RECEIVER_TRANSFER_LIMIT: "Este envío ya cambió de receptor una vez.",
+  SHIPMENT_RECEIVER_TRANSFER_PENDING: "Ya le pediste a alguien que reciba este envío. Esperá su respuesta o cancelá la solicitud.",
+  SHIPMENT_RECEIVER_TRANSFER_EXPIRED: "Venció el plazo para aceptar esta invitación.",
+  SHIPMENT_RECEIVER_TRANSFER_NOT_ALLOWED: "En este momento ya no se puede cambiar quién recibe el envío.",
+  SHIPMENT_RECEIVER_TRANSFER_INVALID_TARGET: "Esa persona no puede recibir este envío. Elegí a otra.",
+  RECEIVER_TRANSFER_NOT_FOUND: "No encontramos esta solicitud.",
+  RECEIVER_TRANSFER_NOT_PENDING: "Esta solicitud ya no está vigente.",
   SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",
   SHIPMENT_PICKUP_WINDOW_INVALID: "El horario de fin del retiro tiene que ser posterior al de inicio.",
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",
@@ -119,6 +130,13 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   MP_CONNECT_STATE_INVALID: "La vinculación tardó demasiado y se venció. Probá de nuevo.",
   MP_CONNECT_ACCESS_DENIED: "No autorizaste a Movo en Mercado Pago. Para cobrar tus envíos, tenés que aceptar el permiso.",
   MP_CONNECT_EXCHANGE_FAILED: "Mercado Pago no respondió al confirmar la vinculación. Probá de nuevo.",
+  // Tarjetas guardadas (MOVO-101, backend MOVO-100).
+  CARD_IN_USE:
+    "Esta tarjeta tiene una reserva de fondos de un envío en curso. Vas a poder eliminarla cuando se libere.",
+  CARD_LIMIT_REACHED: "Llegaste al máximo de tarjetas guardadas. Eliminá una para agregar otra.",
+  CARD_SAVE_REJECTED: "Tu banco no aprobó la tarjeta. Revisá los datos o probá con otra. No se cobró nada.",
+  CARD_CUSTOMER_CONFLICT: "No pudimos asociar la tarjeta a tu cuenta. Escribinos a soporte para resolverlo.",
+  CARDS_NOT_CONFIGURED: "Guardar tarjetas no está disponible por ahora. Probá más tarde.",
   MP_ACCOUNT_ALREADY_LINKED: "Esa cuenta de Mercado Pago ya está vinculada a otro usuario de Movo.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",

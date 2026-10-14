@@ -127,12 +127,14 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 031 | Juego del optimizador de la feria (`movo-institucional` /juegos/optimizador): compite contra el OR-Tools real de `POST /optimize/route`, con dos opt-in que solo usa el módulo `demo` de `svc-shipments` (`objective: "distance"` y `matrix` precalculada); la matriz de cada ciudad (pool fijo) se pide una vez a `POST /routes/matrix` y se cachea 30 días en Redis, así la feria completa factura ~487 elementos de Google en vez de ~49 por partida. Ranking del día compartido entre iPads en `shipments.route_game_sessions` | La matriz cacheada no refleja cambios de tránsito durante el evento (irrelevante para comparar órdenes); el ranking muestra nombres que el visitante elige en un stand público, y quien tenga la key demo puede reiniciarlo (mismo riesgo que ADR-030) |
 | 033 | Navegación turn-by-turn del transportista (MOVO-237): se delega por deep-link a la app de mapas del dispositivo (Google Maps nativo → Waze → Google Maps web, `movo-mobile/src/lib/navigation-deeplink.ts`) en vez del Navigation SDK de Google o re-routing propio. `RoutesProvider` (`svc-shipments`) gana `mode: "per_trip" \| "live"`: `per_trip` es el polyline estático de siempre (default, MOVO-123) y `live` queda tipado pero falla con 501 `ROUTE_MODE_NOT_IMPLEMENTED`, como placeholder intencional para una navegación 100% in-app futura | Costo cero para Movo a cambio de que la navegación salga de la app (el tracking en segundo plano de MOVO-242 sigue emitiendo, pero el transportista tiene que volver a Movo para confirmar cada parada); el Navigation SDK (~US$25/1.000, 5x Compute Routes) queda descartado hasta que haya una razón de producto para pagarlo. El ticket lo numeraba ADR-022, ya ocupado por el canal WebSocket |
 | 032 | Expiración y cierre automático (MOVO-258, revisa "bloquea, no cascadea" de MOVO-238): todo envío con transportista (`assignment_pending`/`assigned_unfunded`/`assigned`) se cancela sin culpables 24h después de cerrar su ventana de retiro efectiva (la acordada, copiada al envío al aceptar la oferta); cancelar un envío cierra sus ofertas (`pending` vigentes y `accepted` → nuevo `OfferStatus.shipment_cancelled`) en la misma transacción y eso destraba al viaje sin cascada explícita; un `published` sigue vivo mientras tenga ofertas vigentes (solo lo protege de la cancelación: deja de ofrecerse y no recibe ofertas nuevas); un `in_transit` que no se entrega se MARCA para revisión (entrega estimada + 50% de la duración) y nunca se cancela; los paquetes de un viaje quedan fijos al iniciarlo (`start()` exige ≥1 paquete; solo un viaje `declared` recibe ofertas, matches y el push de paquete compatible) y un viaje `active` pasa a `completed` cuando todos sus paquetes terminaron (`disputed` cuenta como terminado: sin salida modelada, retenerlo trabaría al transportista para siempre), o se cancela si se queda sin ninguno | Sin penalización ni atribución de responsabilidad (quién faltó queda para un ticket aparte con geolocalización); `delivered`→`completed` y la reversión por hold fallido siguen dependiendo de Mercado Pago (MOVO-210/212); el `in_transit` anómalo solo avisa al transportista y deja la marca, sin disputa automática ni alerta de admin todavía; el conteo de oferta de transportistas del pricing (ADR-025) sigue contando viajes `active` pese a que ya no toman paquetes, pendiente en MOVO-270 |
-| 035 | Arquitectura de cobro (MOVO-209): Payments API de Mercado Pago con el `access_token` OAuth del transportista + `application_fee` (marketplace), SDK oficial `mercadopago` v3, hold Auth & Capture (`capture: false`) creado siempre con el emisor presente, un intento de reserva = una fila y una idempotency key, un solo hold vivo por envío garantizado por índice único parcial. Borrador completo en `docs/payments/adr-035-arquitectura-de-cobro.md` (el ticket lo numeraba ADR-030, ya ocupado, y el 034 lo tomó MOVO-277) | Card-on-file/off-session descartado (no validado en marketplace): el emisor tiene que estar presente al reservar; plazo del hold decidido por MP y parametrizado (`MP_HOLD_VALIDITY_DAYS`, provisorio hasta MOVO-215); un intento sin respuesta de MP que se reasigna puede dejar un hold huérfano que vence solo |
+| 035 | Arquitectura de cobro (MOVO-209): Payments API de Mercado Pago con el `access_token` OAuth del transportista + `application_fee` (marketplace), SDK oficial `mercadopago` v3, hold Auth & Capture (`capture: false`) creado siempre con el emisor presente, un intento de reserva = una fila y una idempotency key, un solo hold vivo por envío garantizado por índice único parcial; captura (MOVO-212) sin `amount` con liquidación en `payments.settlements` (una fila por envío, desglose real de `fee_details`) y `delivered → completed` solo con el cobro acreditado. Borrador completo en `docs/payments/adr-035-arquitectura-de-cobro.md` (el ticket lo numeraba ADR-030, ya ocupado, y el 034 lo tomó MOVO-277) | Card-on-file/off-session descartado (no validado en marketplace; **las tarjetas guardadas las revisa el ADR-039, propuesto**, el cobro sin el emisor presente sigue descartado): el emisor tiene que estar presente al reservar; plazo del hold decidido por MP y parametrizado (`MP_HOLD_VALIDITY_DAYS`, provisorio hasta MOVO-215); un intento sin respuesta de MP que se reasigna puede dejar un hold huérfano que vence solo |
 | 034 | Inicio de viaje (MOVO-277, complementa ADR-032 sin modificarlo): `POST /trips/:id/start` exige que el día calendario argentino de `departureAt` ya haya llegado (`canStartTripOn`, `@movo/shared`, la misma función que decide el botón en el mobile) y al menos un paquete **ejecutable**. "Paquete ejecutable" (`TRIP_EXECUTABLE_SHIPMENT_STATUSES` = `assigned`/`in_transit`, `shipment-state-machine.ts`) pasa a ser la única definición que usan `start()`, la ruta del viaje, el tracking y el conteo `executablePackagesCount` de `/trips`; "paquete aceptado" (`ACCEPTED_OFFER_FILTER`) sigue rigiendo lo que bloquea editar/cancelar y el cierre de un viaje `active` | Mientras no exista el hold de fondos (MOVO-210) ningún envío llega a `assigned`, así que ningún viaje se puede iniciar desde la app (en dev hay que forzar el estado); a cambio, un viaje ya no queda `active` semanas antes ni con "N paquetes" y "Sin paradas asignadas", bloqueando al transportista por el índice de 1 viaje activo. Trade-off aceptado: un viaje "mixto" (al menos un paquete ejecutable más otros en `assignment_pending`/`assigned_unfunded`) se puede iniciar, y los no ejecutables quedan fuera de la ruta y del retiro pero siguen contando como aceptados, así que `completeFinishedActive` no lo cierra hasta que el barrido de ADR-032 los cancele (24h después de su ventana de retiro); mientras tanto el índice de 1 viaje activo mantiene bloqueado al transportista. Hoy es teórico (ningún envío llega a `assigned` hasta MOVO-210); la alternativa descartada por ahora es desasociar los no ejecutables al iniciar, como ya se hace con las ofertas `pending` |
 | 036 | Requisitos habilitantes del transportista (MOVO-116, revierte la "licencia como insignia, no permiso" de MOVO-142): declarar viaje, ofertar, editar oferta e iniciar viaje exigen identidad + licencia aprobada (`svc-users`) + cuenta de MP con la que se pueda cobrar (`svc-payments`, mismo criterio que el hold), consultadas en paralelo por endpoints internos, sin cache, fallando cerrado (502). 403 con `code` = primer requisito faltante y `details.missingRequirements` (campo nuevo y opcional de `ApiError`); aceptar una oferta revalida al transportista (409 `OFFER_CARRIER_NOT_ELIGIBLE` al emisor). Borrador completo en `docs/shipments/adr-036-requisitos-habilitantes-transportista.md` | Se pierde el transportista sin vehículo propio; dos llamadas síncronas más por escritura (si `svc-users` o `svc-payments` caen, nadie declara ni oferta); perder MP a mitad de un viaje en curso no se trata (solo se revalida al iniciar y al aceptar) |
 | 037 | Saga de asignación (MOVO-210, complementa ADR-035 y ADR-021): las demás ofertas NO se cierran al aceptar sino al confirmarse el hold (`superseded` en la misma transacción que `→ assigned`, con aviso), así una asignación que se cae devuelve el envío a `published` con sus ofertas vivas; la oferta aceptada que no prospera pasa a `assignment_lapsed` (no `rejected`); y se agrega la arista `assigned → assigned_unfunded` (revierte "assigned nunca vuelve atrás" de ADR-021 solo hacia ese estado) para que, si MP pierde el hold ya confirmado, el emisor reconfirme el pago dentro de la ventana en vez de perder la asignación. `updateStatus` suma `expectedFrom`/`expectedCarrierId`/`expectedAgreedPriceArs` para cerrar las carreras entre pagar, cancelar y revertir | Una oferta puede vencer (`expiresAt`) mientras espera el pago; un hold perdido con el envío ya `in_transit` no tiene estado al que volver (queda como error detectable hasta MOVO-212/MOVO-268); un `assigned` puede volver a pedir pago, relajando la garantía de ADR-021 |
 | 038 | Transferencia de receptor (MOVO-275): entidad paralela (`shipments.receiver_transfer_requests`) que nunca toca `Shipment.status`; el receptor actual invita a otra persona (KYC aprobado, sin bloqueo con el emisor), que acepta en 6 h; al aceptar cambia `receiverId` en una transacción. El emisor no aprueba (solo push), una sola transferencia completada por envío, el QR de entrega cancela la pendiente. El receptor original conserva acceso de solo lectura (detalle, línea de tiempo, tracking). Borrador en `docs/shipments/adr-038-transferencia-de-receptor.md` | Sin aprobación del emisor, una cuenta de receptor comprometida puede desviar el envío (queda evidencia y disputa); el receptor original sigue viendo la ubicación del transportista hasta la entrega |
-| 039 | Pricing por peso facturable con distancia achatada (MOVO-276, reemplaza la parte de cálculo de ADR-025): método `package_tapered_v2` con peso facturable = máx(real, L×A×H/5000) y tramo decreciente desde los 10 kg, tramos de km del hotfix formalizados, base menor para `letter_document` y +20% para `fragile_item`; límites duros 30 kg / 150 cm por lado / 300 cm de suma (`PACKAGE_MAX_*`, validados en `svc-shipments` al cotizar y crear, 422 `PACKAGE_LIMITS_EXCEEDED`). Calibrado contra el Correo (banda 0,6×–1,0×) con la grilla como golden tests. Borrador en `docs/pricing/adr-039-pricing-por-peso-facturable.md` | Documento a larga distancia sigue caro; la banda solo cubre `standard_package` ≤10 kg en rutas ≥200 km (el resto, solo monotonía/concavidad); medidas declaradas por el emisor sin verificar; límites duplicados en dos servicios |
+| 040 | Chat propio sobre el canal WebSocket (MOVO-26): un hilo por envío entre emisor, receptor y transportista, se envía por HTTP (idempotente por `clientMessageId`) y se recibe por el WebSocket de ADR-022/024, en `svc-shipments` (`shipments.chat_messages`). Se escribe desde la asignación hasta la entrega; entregado queda en solo lectura y a las 24 h se archiva; el receptor original (ADR-038) solo lee, el bloqueo (ADR-026) oculta el contenido sin impedir escribir y el admin lee siempre. Incluye tildes de entregado/leído, lista de chats y reporte de conversación. Se descartó un proveedor externo gratuito (Stream Chat Maker Account, 2.000 MAU) | Sin ack en tiempo real por el socket, presencia ni leído/no leído; registro de sockets en memoria y de una sola réplica (ADR-006/022); sin imágenes ni "escribiendo"; retención del historial sin definir. Borrador en `docs/chat/adr-040-chat-propio.md` (el 039 lo reserva MOVO-283) |
+| 039 | Tarjetas guardadas del emisor con re-ingreso de CVV (MOVO-100, **propuesto**, revisa solo el punto 5 de ADR-035): el emisor guarda tarjetas en Pagos y cobros y al pagar escribe solo el CVV. La tarjeta vive en un customer de la **cuenta de Movo S.A.** (token `TEST-` de la app vía `client_credentials` + `test_token=true`; el `401 300 live credentials` del spike venía de usar el token `APP_USR-`), no en la del transportista: el mobile pide a MP un token con `card_id` + CVV y la `public_key` del transportista del envío, y el hold se crea con `payer: {type: customer}` (con `payer: {email}` MP responde `2002`). Se persisten `customer_id` + `card_id` + metadatos de display en `svc-payments`, nunca un `card_token`. Borrador en `docs/payments/adr-039-tarjetas-guardadas-con-cvv.md` | Sin CVV MP no crea el hold (`3031`): el cobro sin el emisor presente sigue descartado. Validado en sandbox con **un** transportista; falta un segundo transportista, producción con cuenta real y confirmar el `application_fee` (spike MOVO-283), y no pasa a "aceptado" hasta entonces. El débito automático de la comisión en efectivo (MOVO-37) sin CVV no está validado |
+| 041 | Pricing por peso facturable con distancia achatada (MOVO-276, reemplaza la parte de cálculo de ADR-025): método `package_tapered_v2` con peso facturable = máx(real, L×A×H/5000) y tramo decreciente desde los 10 kg, tramos de km del hotfix formalizados, base menor para `letter_document` y +20% para `fragile_item`; límites duros 30 kg / 150 cm por lado / 300 cm de suma (`PACKAGE_MAX_*`, validados en `svc-shipments` al cotizar y crear, 422 `PACKAGE_LIMITS_EXCEEDED`). Calibrado contra el Correo (banda 0,6×–1,0×) con la grilla como golden tests. Borrador en `docs/pricing/adr-041-pricing-por-peso-facturable.md` | Documento a larga distancia sigue caro; la banda solo cubre `standard_package` ≤10 kg en rutas ≥200 km (el resto, solo monotonía/concavidad); medidas declaradas por el emisor sin verificar; límites duplicados en dos servicios |
 
 ## Convenciones de código
 
@@ -278,7 +280,8 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
 Primeros borradores de `docs/legal/terminos-y-condiciones.md` y
 `docs/legal/politica-privacidad.md` (base legal argentina: Ley 25.326, CCyCN
 contrato de transporte de cosas, Ley 24.240), con aviso académico explícito y
-`[A COMPLETAR]` donde falta un dato real (fee de MP, mecánica de penalidad).
+`[A COMPLETAR]` donde falta un dato real (mecánica de penalidad, MOVO-226; el
+de la comisión de MP lo cerró MOVO-225).
 Documentos nuevos también subidos a Drive (`[Movo] NNN - Términos y
 Condiciones`/`Política de Privacidad`) por el equipo. Decisiones no obvias:
 
@@ -484,6 +487,41 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
 - Credenciales de sandbox (app, cuentas de prueba): no se versionan, se comparten por
   fuera del repo — ver `docs/payments/mercadopago-spike/README.md`.
 
+### Tarjetas guardadas del emisor con CVV (MOVO-65, ADR-039 propuesto)
+
+El 13/10/2026 se validó contra el sandbox que el emisor puede guardar tarjetas y pagar con solo el
+CVV en el modelo marketplace, y se reescribieron las historias en Linear. Revierte la decisión del
+29/09 (MOVO-12, ADR-035 punto 5: "el emisor ingresa la tarjeta completa cada vez"). Detalle de la
+prueba y alternativas en `docs/payments/adr-039-tarjetas-guardadas-con-cvv.md`.
+
+- **Diseño**: la tarjeta se guarda en un customer de la cuenta de **Movo S.A.** (un customer por
+  emisor, `svc-payments`), no en la del transportista. Al pagar, el mobile pide a MP un token con
+  `card_id` + CVV y la `public_key` del transportista del envío (`POST /v1/card_tokens`), y el hold
+  usa `payer: {type: "customer", id}`. El `svc-shipments` (`POST /shipments/:id/funding`) y el hold
+  (`POST /internal/payments/holds`) se reutilizan: ya reciben un `cardToken`; solo suman `savedCardId`.
+- **Hallazgo no obvio**: el `401 300 "Unauthorized use of live credentials"` del spike (`SOLUCION-FINAL.md`
+  §7) venía de usar el token `APP_USR-` de la app. Con `POST /oauth/token` (`client_credentials`,
+  `test_token=true`) Movo S.A. obtiene un token `TEST-` y puede crear customers. En sandbox el token de la
+  tarjeta tiene que generarse con una `public_key` `TEST-` (la `APP_USR-` da `404 card not found`; el
+  `Bearer` da `403 G001`), y la de Movo todavía no está identificada.
+- **Nombre de referencia**: la tarjeta guarda un `alias` opcional (1-40 caracteres, lo edita el usuario, se
+  rechaza si parece un número de tarjeta) para distinguirla en la lista y al pagar. Es de Movo, no va a MP.
+- **Dependencias en Linear**: MOVO-100 → MOVO-101, MOVO-282 y MOVO-269; MOVO-282 → MOVO-269;
+  MOVO-101 → MOVO-269 (el alta es el componente que usa el pago); MOVO-283 → MOVO-37. El spike
+  MOVO-283 no bloquea el desarrollo en sandbox, sí la salida a producción.
+- **Tickets**: MOVO-65 (US padre, vuelve a Todo), MOVO-100 (backend `svc-payments`: alta/listado/
+  predeterminada/baja y `checkout-data`; antes `svc-users` con `mp_card_token`), MOVO-282 (hold con
+  `payer: customer`), MOVO-101 (mobile, Pagos y cobros: gestión de tarjetas, para emisor y
+  transportista), MOVO-269 (mobile: pagar con tarjeta guardada + CVV), MOVO-283 (spike).
+- **Estado**: MOVO-100 (backend `svc-payments`) implementado, ver `services/movo-svc-payments/CLAUDE.md`.
+  MOVO-101 (mobile, alta/lista/predeterminada/nombre/baja en "Pagos y cobros") implementado en el
+  PR #239, ver `movo-mobile/CLAUDE.md`; falta probarlo en un development build con tarjetas de test.
+  **`MP_PUBLIC_KEY`** solo tokeniza en el dispositivo (la tarjeta queda siempre en el customer de Movo S.A.);
+  en dev es una `TEST-` de un Vendedor de prueba (ya cargada en el secret), en prod se espera la de Movo.
+  **Pendiente**: confirmar con MOVO-283 cuál es la key de producción; MOVO-282 y MOVO-269; el spike MOVO-283 (segundo transportista, producción con cuenta real y bajo
+  monto, `application_fee` real, débito de la comisión sin CVV para MOVO-37); pasar el ADR a
+  "aceptado" y pegar su desarrollo completo en Drive.
+
 ### Pendientes transversales
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
@@ -507,7 +545,7 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
   Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
   bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 039 (012-018 ya están pegados en
+  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041 (012-018 ya están pegados en
   el doc de Sprint 0, confirmado al buscar dónde iba ADR-022 — la lista anterior acá
   estaba desactualizada). **ADR-022 tiene su contenido completo ya redactado**, en un
   doc aparte (`ADR-022 - Canal de tiempo real (WebSocket nativo) - pegar en Sprint 0`,
@@ -532,6 +570,28 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
   `MP_CLIENT_SECRET`, `MP_REDIRECT_URI`, `MP_WEBHOOK_SECRET` y `MP_TEST_MODE=true` en el
   secret de dev (app sandbox `movosend`), las cuatro primeras en prod (app de la cuenta
   real de Movo). `MERCADOPAGO_ACCESS_TOKEN` ya no se usa: borrarlo de ambos secrets.
+- **Config de comisiones compartida vía `@movo/shared`** (MOVO-143,
+  `shared/movo-shared/src/config/commission.ts`): candidato a ADR corto (primera config
+  de negocio en el barrel en vez de en el `envSchema` de un servicio), todavía no
+  escrito. `MOVO_COMMISSION_RATE` (15%) está confirmado; `MP_TRANSACTION_FEE_RATE` es un
+  estimado a propósito, ver la entrada de MOVO-225 más abajo.
+
+### MOVO-225 — Comisión de Mercado Pago: estimado, no valor contractual
+
+No hay un porcentaje de MP que confirmar: MP descuenta su comisión de la cuenta de cada
+transportista (según sus tarifas, el plazo de liberación y el medio de pago del emisor).
+Los TyC (secciones 3, 5.1 y 7, v0.2) lo dicen así y corrigen la comisión de Movo (15%
+sobre el neto, no sobre el precio). Todo monto que la app le muestra al transportista
+como cobro es "Recibís aprox." = neto menos el estimado de MP (sobre el bruto, a validar
+con pagos reales; `estimateReceivedArs` de `@movo/shared`, tasa de
+`EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE`). Pendiente:
+persistir el `mercadopago_fee` real del hold/captura para mostrar el monto exacto.
+- **Webhook de MP sin registrar** (MOVO-268): cargar
+  `https://api-dev.movosend.app/api/v1/payments/webhooks/mercadopago` (tópico `payment`) en el
+  panel de la app `movosend` y su clave secreta como `MP_WEBHOOK_SECRET`; en prod, lo mismo
+  con la app real. Las alertas al equipo de `svc-payments` necesitan `ALERT_PROVIDER=telegram`,
+  `ALERT_TELEGRAM_BOT_TOKEN`, `ALERT_TELEGRAM_CHAT_ID` y `ALERT_ENVIRONMENT_LABEL` en el
+  secret (sin ellas, solo quedan en el log).
 - **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
   valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,

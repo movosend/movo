@@ -16,7 +16,7 @@ Si el diseño cambia, se actualiza este documento en el mismo PR que el cambio.
 ## 1. Resumen en cinco líneas
 
 1. El **transportista** vincula su cuenta de Mercado Pago a Movo (OAuth). Sin eso no puede ofertar.
-2. Cuando el **emisor** acepta una oferta, paga con tarjeta desde la app. No se le cobra:
+2. Cuando el **emisor** acepta una oferta, paga con una **tarjeta guardada** escribiendo solo el CVV (ADR-039, propuesto). No se le cobra:
    se le **reserva** el monto (hold, `capture: false`).
 3. La reserva se crea **cerca del retiro**, porque MP la cancela sola a los pocos días.
    Si el retiro está lejos, el emisor confirma el pago cuando se acerca la fecha.
@@ -73,7 +73,7 @@ flowchart TD
     B --> C{Emisor acepta la oferta.<br/>¿Retiro dentro de N días?}
 
     C -- Sí --> D[Envío: assignment_pending]
-    D --> E[Emisor ingresa la tarjeta en la app]
+    D --> E[Emisor elige una tarjeta guardada y escribe el CVV]
     E --> F{¿Hold creado?}
     F -- Sí --> K[Envío: assigned<br/>fondos reservados]
     F -- "No, rechazo" --> E
@@ -81,7 +81,7 @@ flowchart TD
 
     C -- No --> G[Envío: assigned_unfunded<br/>transportista confirmado, sin reserva]
     G --> H[Al entrar en N días:<br/>push 'Confirmá el pago']
-    H --> I[Emisor ingresa la tarjeta en la app]
+    H --> I[Emisor elige una tarjeta guardada y escribe el CVV]
     I --> J{¿Hold creado?}
     J -- Sí --> K
     J -- "No, rechazo" --> I
@@ -212,7 +212,7 @@ sequenceDiagram
     S->>P: datos de checkout (interno)
     P-->>S: public_key del transportista, monto, email del emisor
     S-->>M: public_key, monto, vence_a
-    E->>M: ingresa la tarjeta (formulario de MP)
+    E->>M: escribe el CVV (token con card_id + CVV y la public_key del transportista)
     M->>MP: POST /v1/card_tokens con la public_key del TRANSPORTISTA
     MP-->>M: card_token (un solo uso)
     M->>S: POST /shipments/:id/funding con cardToken
@@ -310,7 +310,8 @@ sequenceDiagram
 
     MP->>G: POST /payments/webhooks/mercadopago (ruta pública)
     G->>P: reenvía
-    P->>P: valida x-signature y descarta si ya se procesó
+    P->>P: valida x-signature y guarda en el inbox (descarta el reenvío)
+    P-->>MP: 200 (antes de procesar)
     P->>MP: Payment.get (nunca confía en el body)
     MP-->>P: estado real del pago
     alt hold cancelado o vencido por MP
@@ -318,10 +319,14 @@ sequenceDiagram
         P->>S: aviso interno
         S->>S: camino de fallo según el estado del envío
     else contracargo o reembolso externo
-        P->>P: registra en la liquidación + alerta al equipo
+        P->>P: registra en payment_provider_events + alerta al equipo
     end
-    P-->>MP: 200
 ```
+
+Si MP o `svc-shipments` fallan, la notificación queda pendiente en el inbox y un barrido la
+reintenta con backoff hasta un tope; agotado, alerta al equipo. Un pago `approved` no cambia
+el hold: la captura y su liquidación son de MOVO-212. Detalle en
+`services/movo-svc-payments/CLAUDE.md` (MOVO-268).
 
 ---
 
@@ -339,10 +344,27 @@ flowchart LR
 
 - El `application_fee` se fija **al crear el hold** y MP lo aplica **al capturar**.
   Antes de la captura el pago no muestra el split.
-- Los dos fees los paga el **cobrador** (el transportista, `fee_payer: collector`):
-  el emisor paga exactamente el precio acordado.
-- El 4,1% de MP es del sandbox; el valor real depende del contrato (MOVO-225). La app
-  hoy estima con `MP_TRANSACTION_FEE_RATE` de `@movo/shared`.
+- Los dos fees salen de la cuenta del **cobrador** (el transportista): el emisor paga
+  exactamente el precio acordado. Movo no envía `fee_payer`; es lo que MP informa en
+  `fee_details` (`fee_payer: collector`). `hold.service.ts` solo manda
+  `application_fee`.
+- Orden de aplicación (documentación de MP para marketplaces): primero se descuenta la
+  comisión de MP de los fondos del vendedor y la comisión del marketplace
+  (`application_fee`) sale del saldo restante.
+- Los $150 de `application_fee` se pusieron a mano en el script del spike (15% del
+  total). La fórmula real (MOVO-143/209) es 15% sobre el neto del transportista:
+  `application_fee = bruto - bruto / 1,15`, que para $1000 da $130,43 (~13,04% del
+  bruto). Es lo que calcula `decomposeOfferGrossPrice` de `@movo/shared`.
+- El 4,1% de MP es del sandbox, y es la única observación real que tenemos. En
+  producción no hay un valor único que confirmar (MOVO-225): depende de las tarifas de
+  MP, del medio de pago y las cuotas del emisor, y del plazo de liberación del dinero
+  que cada transportista configura en su cuenta. La app muestra un estimado (4,99%,
+  **a validar con pagos reales**) calculado sobre el bruto, que es sobre lo que cobra
+  MP, y lo resta en todo monto que presenta como "Recibís aprox.". Mobile lee su propia
+  `EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE` (`movo-mobile/src/lib/commission-config.ts`);
+  `MP_TRANSACTION_FEE_RATE` del backend no cambia lo que ve la app. La fórmula
+  (`estimateMpFeeArs`/`estimateReceivedArs`) y el default viven en `@movo/shared`. El
+  monto real de cada pago es el `mercadopago_fee` de `fee_details`.
 - Si se cancela un hold, no se cobra nada a nadie.
 
 ---
@@ -353,7 +375,9 @@ flowchart LR
 | --- | --- | --- |
 | Marketplace de MP: Payments API + OAuth del transportista + `application_fee` | Movo nunca toca el dinero del transportista: MP lo acredita directo en su cuenta y retiene la comisión de Movo en la misma operación. | MOVO-209, ADR-035 (`docs/payments/adr-035-arquitectura-de-cobro.md`) |
 | La tarjeta se tokeniza con la `public_key` **del transportista** | Requisito de MP: el card_token tiene que pertenecer a la cuenta que cobra. Con otra key, error 2006. | Spike MOVO-49 |
-| El hold se crea **siempre con el emisor presente** | Tarjeta guardada + cobro off-session no se pudo validar en marketplace (error 128 al guardarla; la variante con la cuenta de Movo no se puede probar en sandbox). | MOVO-12, SOLUCION-FINAL §7 |
+| El hold se crea **siempre con el emisor presente**, que escribe solo el CVV | Sin CVV MP no crea el hold (500 / `3031`), así que el cobro automático sin el emisor sigue descartado. Con tarjeta guardada + CVV sí funciona (13/10/2026, ADR-039 propuesto). | MOVO-12, MOVO-65, SOLUCION-FINAL §7 |
+| La tarjeta se guarda en un customer de la **cuenta de Movo**, no en la del transportista | Una sola tarjeta sirve para pagar a cualquier transportista: el mobile pide el token con `card_id` + CVV y la `public_key` del transportista del envío. El `payer` del hold tiene que ser ese customer (con `payer: {email}`, error `2002`). | ADR-039, MOVO-100, MOVO-282 |
+| El token de Movo para customers se pide con `client_credentials` + `test_token=true` | Con el `APP_USR-` de la app MP responde `401 300 "live credentials"` en sandbox. | ADR-039, MOVO-100 |
 | El hold se ancla **cerca del retiro**, no en la aceptación | MP cancela el hold a los pocos días. Si falla cerca del retiro, falla antes de la custodia, cuando todavía se puede republicar el envío. | MOVO-12 |
 | **No** se renuevan holds vencidos | La renovación puede fallar con el paquete en tránsito, bloquea doble monto y parece un doble cobro. | MOVO-12 |
 | `svc-shipments` es el dueño de la saga y la puerta del mobile | Los estados del envío viven ahí. `svc-payments` queda aislado como único integrador de MP. | MOVO-210 |
@@ -377,7 +401,10 @@ envío se republica. Se mitiga con recordatorios y aviso explícito al transport
 | Plazo real del hold y valor de N | MOVO-215 (spike) | — | MOVO-12 |
 | Crear, consultar y liberar el hold | MOVO-209 | — | MOVO-12 |
 | Saga: rutas, ventana de confirmación, timeouts, cancelación | MOVO-210 | — | MOVO-12 |
-| Pagar con tarjeta (aceptación o confirmación) | — | MOVO-269 | MOVO-12 |
+| Guardar y administrar tarjetas del emisor | MOVO-100 | MOVO-101 | MOVO-65 |
+| Hold con tarjeta guardada (pagador = customer) | MOVO-282 | — | MOVO-65 |
+| Pagar con tarjeta guardada + CVV (aceptación o confirmación) | — | MOVO-269 | MOVO-12 |
+| Validar con otro transportista, en producción y el débito sin CVV | MOVO-283 (spike) | — | MOVO-65 |
 | Estado de la reserva en el detalle del envío | — | MOVO-211 | MOVO-12 |
 | Webhook de MP (holds vencidos, contracargos) | MOVO-268 | — | MOVO-12 |
 | Captura y split al entregar | MOVO-212 | — | MOVO-13 |
@@ -388,10 +415,9 @@ envío se republica. Se mitiga con recordatorios y aviso explícito al transport
 
 | Ticket | Por qué está en espera |
 | --- | --- |
-| MOVO-37 (+ MOVO-65, 100, 101) | Pago en efectivo: Movo le cobra la comisión a la tarjeta guardada del transportista. MOVO-65/100/101 quedaron solo para este caso. |
+| MOVO-37 | Pago en efectivo: Movo le cobra la comisión a una tarjeta guardada del transportista. Usa las tarjetas de MOVO-65/100/101, pero el débito sin CVV no está validado (MOVO-283). |
 | MOVO-28 | Historial de transacciones del emisor. Depende de que existan liquidaciones (MOVO-212). |
 | MOVO-226 | Penalidad por cancelar con transportista asignado. Falta la definición de negocio. |
-| MOVO-225 | Fee real de MP para los Términos y Condiciones. Depende del contrato con MP. |
 
 ---
 

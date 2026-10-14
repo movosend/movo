@@ -237,7 +237,7 @@ devuelve la matriz del provider para 2 a 25 puntos (límite de 625 elementos de 
 la matriz de cada ciudad una vez y la cachea. Tests en `tests/test_optimize_demo_opt_ins.py`.
 
 
-### MOVO-276 — `package_tapered_v2`: peso facturable, categoría y límites duros (ADR-039)
+### MOVO-276 — `package_tapered_v2`: peso facturable, categoría y límites duros (ADR-041)
 
 Reemplaza el cálculo de `demand_fuel_routes_v1` (combustible, demanda y fallback de
 distancia sin cambios). `app/services/pricing.py#price_components` (parte determinística,

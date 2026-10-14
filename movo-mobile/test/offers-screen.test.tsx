@@ -269,7 +269,7 @@ describe("ShipmentOffersScreen", () => {
 
     // 3. Confirmar elección
     await act(async () => {
-      fireEvent.press(getByTestId("choose-offer-modal-confirm-btn"));
+      fireEvent.press(getByTestId("choose-offer-modal-confirm"));
     });
 
     expect(mockMutateAccept).toHaveBeenCalledWith("off-1");
@@ -323,7 +323,7 @@ describe("ShipmentOffersScreen", () => {
       fireEvent.press(getByTestId("offer-card-off-1-accept-btn"));
     });
     await act(async () => {
-      fireEvent.press(getByTestId("choose-offer-modal-confirm-btn"));
+      fireEvent.press(getByTestId("choose-offer-modal-confirm"));
     });
 
     expect(getByText("¡Oferta aceptada!")).toBeTruthy();
@@ -373,7 +373,7 @@ describe("ShipmentOffersScreen", () => {
     });
 
     await act(async () => {
-      fireEvent.press(getByTestId("choose-offer-modal-confirm-btn"));
+      fireEvent.press(getByTestId("choose-offer-modal-confirm"));
     });
 
     expect(

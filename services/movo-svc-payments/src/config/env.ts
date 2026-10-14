@@ -10,6 +10,21 @@ export interface EnvConfig {
   MP_TOKEN_ENCRYPTION_KEY?: string;
   MP_TEST_MODE: boolean;
   MP_HOLD_VALIDITY_DAYS: number;
+  MP_TOKEN_REFRESH_SWEEP_ENABLED: boolean;
+  MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES: number;
+  MP_TOKEN_REFRESH_WINDOW_DAYS: number;
+
+  MP_PUBLIC_KEY?: string;
+  MP_TEST_PAYER_EMAILS?: string;
+  USERS_SERVICE_URL: string;
+  SHIPMENTS_SERVICE_URL: string;
+  MP_WEBHOOK_MAX_ATTEMPTS: number;
+  MP_WEBHOOK_SWEEP_INTERVAL_MINUTES: number;
+  MP_WEBHOOK_SWEEP_ENABLED: boolean;
+  ALERT_PROVIDER: "console" | "telegram";
+  ALERT_TELEGRAM_BOT_TOKEN?: string;
+  ALERT_TELEGRAM_CHAT_ID?: string;
+  ALERT_ENVIRONMENT_LABEL?: string;
 }
 
 export const envSchema = {
@@ -44,6 +59,48 @@ export const envSchema = {
     // de la medición de MOVO-215 (la documentación de MP dice 5 o 7 días según la
     // página). 5 es el mínimo de los documentados: provisorio hasta que cierre el spike.
     MP_HOLD_VALIDITY_DAYS: { type: "number", minimum: 1, default: 5 },
+    // MOVO-243: renovación de los tokens OAuth de los transportistas (el access_token de
+    // MP dura 180 días). El barrido corre cada hora y renueva lo que vence dentro de la
+    // ventana: 30 días dan margen para que un MP caído o un fallo transitorio se
+    // reintente muchas veces antes de que un token venza de verdad.
+    MP_TOKEN_REFRESH_SWEEP_ENABLED: { type: "boolean", default: true },
+    MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES: { type: "number", minimum: 1, default: 60 },
+    MP_TOKEN_REFRESH_WINDOW_DAYS: { type: "number", minimum: 1, default: 30 },
+
+    // MOVO-100 (ADR-039): `public_key` con la que el mobile tokeniza la tarjeta al guardarla.
+    // Solo genera el token de un solo uso: la tarjeta queda siempre en un customer de Movo S.A.
+    // (token de client_credentials), sin importar de quién sea esta key. En sandbox tiene que
+    // ser una `TEST-` (la `APP_USR-` da 404 card not found): en dev se usa la de un Vendedor de
+    // prueba, porque la consola de `movosend` no muestra una `TEST-` de Movo. En producción
+    // se espera la de Movo (pendiente de confirmar, spike MOVO-283). Opcional como el resto de
+    // las MP_*: sin ella `checkout-data` responde 503 CARDS_NOT_CONFIGURED.
+    MP_PUBLIC_KEY: { type: "string" },
+    // MOVO-100, solo sandbox (`MP_TEST_MODE=true`): JSON `{"<userId de Movo>": "<email de una
+    // cuenta de prueba Comprador>"}`. En sandbox el customer tiene que usar el email de un
+    // Comprador de prueba (con otro, MP responde 225), y la cuenta de Movo de cada tester
+    // tiene su email real. Fuera de test mode se ignora.
+    MP_TEST_PAYER_EMAILS: { type: "string" },
+    // MOVO-100: el email del customer sale de `svc-users` (GET /users/me, ADR-010). El
+    // default ya es el nombre del servicio en movo-net, mismo criterio que en svc-shipments.
+    USERS_SERVICE_URL: { type: "string", default: "http://movo-svc-users:3000" },
+    // MOVO-268: a quién avisarle que MP canceló o venció un hold
+    // (`POST /internal/shipments/:id/hold-events`). El default es el nombre del servicio
+    // en la red de Docker, mismo criterio que PAYMENTS_SERVICE_URL en svc-shipments.
+    SHIPMENTS_SERVICE_URL: { type: "string", default: "http://movo-svc-shipments:3000" },
+    // MOVO-268: reintentos del procesamiento de una notificación del webhook (backoff
+    // exponencial 1, 2, 4... min hasta 6 h). Con 10 intentos se insiste ~8 h; después la
+    // notificación queda `failed` y se alerta al equipo.
+    MP_WEBHOOK_MAX_ATTEMPTS: { type: "number", minimum: 1, default: 10 },
+    MP_WEBHOOK_SWEEP_INTERVAL_MINUTES: { type: "number", minimum: 0, default: 1 },
+    MP_WEBHOOK_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-268: alertas al equipo (contracargos, holds perdidos con el paquete en camino,
+    // notificaciones que no se pudieron procesar). `console` = solo log (dev/test/CI);
+    // `telegram` = además al chat del equipo. La reusa MOVO-213 (liquidación escalada).
+    ALERT_PROVIDER: { type: "string", enum: ["console", "telegram"], default: "console" },
+    ALERT_TELEGRAM_BOT_TOKEN: { type: "string" },
+    ALERT_TELEGRAM_CHAT_ID: { type: "string" },
+    // Prefijo de cada alerta (`dev`, `prod`) para distinguir ambientes en el mismo chat.
+    ALERT_ENVIRONMENT_LABEL: { type: "string" },
   },
 };
 

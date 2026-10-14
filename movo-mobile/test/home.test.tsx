@@ -1,5 +1,5 @@
 import { KycStatus } from "@movo/shared/dist/types/user";
-import { fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render } from "@testing-library/react-native";
 import { router } from "expo-router";
 import { RefreshControl } from "react-native";
 import AuthenticatedHomeScreen from "../app/(app)/(tabs)/home";
@@ -62,6 +62,12 @@ jest.mock("../src/hooks/use-active-shipments", () => ({
   useTransportingShipments: () => mockUseTransportingShipments(),
 }));
 
+const mockUseChatList = jest.fn();
+jest.mock("../src/hooks/use-chat", () => ({
+  useChatList: () => mockUseChatList(),
+  totalUnread: (items: { unreadCount: number }[] | undefined) => (items ?? []).reduce((sum, i) => sum + i.unreadCount, 0),
+}));
+
 jest.mock("../src/hooks/use-attention-tasks", () => ({
   useAttentionTasks: () => mockUseAttentionTasks(),
 }));
@@ -91,6 +97,7 @@ jest.mock("../src/store/auth-store", () => ({
 // envío + actividad reciente.
 describe("AuthenticatedHomeScreen", () => {
   beforeEach(() => {
+    mockUseChatList.mockReturnValue({ data: [] });
     mockUseMyProfile.mockReturnValue({ data: { kycStatus: KycStatus.APPROVED, firstName: "Martina" } });
     mockUseRecentShipments.mockReturnValue({
       isLoading: false,
@@ -113,6 +120,28 @@ describe("AuthenticatedHomeScreen", () => {
     expect(getByTestId("app-home-welcome")).toHaveTextContent("Hola, Martina");
     expect(getByTestId("app-home-send-cta")).toBeTruthy();
     expect(getByText("Coordiná un envío con un transportista verificado")).toBeTruthy();
+  });
+
+  it("MOVO-284: el ícono de chats del header suma los no leídos y abre la lista", async () => {
+    mockUseChatList.mockReturnValue({
+      data: [
+        { shipmentId: "s1", unreadCount: 2 },
+        { shipmentId: "s2", unreadCount: 1 },
+      ],
+    });
+    const { getByTestId } = await render(<AuthenticatedHomeScreen />);
+
+    expect(getByTestId("app-home-chats-badge")).toHaveTextContent("3");
+    await fireEvent.press(getByTestId("app-home-chats"));
+    expect(router.push).toHaveBeenCalledWith("/(app)/chats");
+  });
+
+  it("MOVO-284: sin mensajes sin leer el ícono queda sin contador", async () => {
+    mockUseChatList.mockReturnValue({ data: [{ shipmentId: "s1", unreadCount: 0 }] });
+    const { getByTestId, queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+    expect(getByTestId("app-home-chats")).toBeTruthy();
+    expect(queryByTestId("app-home-chats-badge")).toBeNull();
   });
 
   it("no renderiza 'Estoy transportando' si no hay viajes activos ni declarados con paquetes", async () => {
@@ -260,6 +289,26 @@ describe("AuthenticatedHomeScreen", () => {
 
     expect(getByTestId("app-home-attention")).toBeTruthy();
     expect(getByText("El receptor rechazó tu envío")).toBeTruthy();
+  });
+
+  it("MOVO-284: el pull-to-refresh también refresca la lista de chats", async () => {
+    const { toJSON } = await render(<AuthenticatedHomeScreen />);
+    const findNode = (node: any, type: string): any => {
+      if (!node) return null;
+      if (node.type === type) return node;
+      for (const c of node.children ?? []) {
+        const found = findNode(c, type);
+        if (found) return found;
+      }
+      return null;
+    };
+    const refreshControl = findNode(toJSON(), "RCTScrollView")?.props?.refreshControl;
+
+    await act(async () => {
+      await refreshControl.props.onRefresh();
+    });
+
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["chat", "list"] });
   });
 
   it("renderiza refresh control para pull-to-refresh", async () => {

@@ -61,11 +61,14 @@ un `boolean | undefined` obligaría a cada consumidor a decidir qué significa l
 `computeOfferGrossPrice()` (función pura, neto→bruto). Consumido hoy por
 `movo-svc-shipments` (AC6 de MOVO-143, creación de oferta) — pensado para que
 `movo-svc-payments` (split real) y `movo-svc-admin` (estadísticas) reusen el mismo
-número más adelante en vez de duplicarlo, en particular `mpTransactionFeeRate`, que
-esta US define pero todavía no descuenta en ningún lado (`movo-svc-payments` sigue
-siendo un esqueleto). `MOVO_COMMISSION_RATE` confirmado en 15%;
-`MP_TRANSACTION_FEE_RATE` es un placeholder pendiente de confirmar con el contrato
-real de MP.
+número en vez de duplicarlo (`svc-payments` ya lo usa para el `application_fee` del
+hold, MOVO-209). `mpTransactionFeeRate` no se descuenta en el backend: MP cobra su
+comisión real y la informa en `fee_details`. `MOVO_COMMISSION_RATE` confirmado en 15%;
+`MP_TRANSACTION_FEE_RATE` es un estimado para mostrar, no un valor contractual
+(MOVO-225: MP cobra según la cuenta de cada transportista, ver `CLAUDE.md` raíz).
+MOVO-225 suma `estimateMpFeeArs`/`estimateReceivedArs` (lo que mobile muestra como
+"Recibís aprox.") y `parseRate`, que cae al default si una tasa no es numérica, así
+un typo en la env var no termina en `$NaN`.
 
 ### MOVO-188 (fix de review, PR #142) — `computeNetFromGross`
 
@@ -394,6 +397,12 @@ distingue `unlinked` de `invalid` (revocada o vencida) y devuelve `account` (ema
 que redirige el callback público. Cinco `ApiErrorCode` nuevos (`MP_CONNECT_*`,
 `MP_ACCOUNT_ALREADY_LINKED`): cuatro de ellos viajan en ese deep link, no como respuesta HTTP.
 
+### MOVO-212 — Contrato de la liquidación (`types/settlement.ts`)
+
+`SettlementStatus`/`SettlementFailureReason`/`SettlementResponse`/`CaptureHoldResponse` para los endpoints
+internos de captura de `svc-payments`, y los códigos `HOLD_NOT_CAPTURABLE`/`SETTLEMENT_NOT_FOUND`.
+`mpFeeArs` y `netAmountArs` son `null` hasta que MP confirma la captura. `escalated` está reservado para
+MOVO-213 (212 nunca lo escribe). Recordatorio: `npm run build` acá antes de tipar desde otro workspace.
 ### MOVO-116 — `ApiError.details`, requisitos del transportista y códigos nuevos (ADR-036)
 
 `ApiError` gana un 4.º parámetro opcional `details` (`ApiErrorDetails`), que `toJSON()` incluye
@@ -423,7 +432,41 @@ mobile), `ReceiverTransferRequest`, `ReceiverTransferInvitation` y
 `RECEIVER_TRANSFER_NOT_FOUND`/`_NOT_PENDING`) y diez triggers `receiverTransfer*` en la
 categoría `shipments`, con copy propio por destinatario.
 
-### MOVO-276 — `package_tapered_v2` y `PACKAGE_LIMITS_EXCEEDED` (ADR-039)
+### MOVO-26 — Contrato del chat (ADR-040)
+
+`types/chat.ts`: `ChatMessage` (con `authorName`, `moderated`, `hidden` por bloqueo y `deliveryStatus` en los
+propios), `ChatMessagesPage` (`access`, `archived`, `reportedByMe`), `ChatParticipant(s)`, `ChatListItem`/
+`ChatListResponse`, `ChatRealtimeEvent` (`chat_message` y `chat_receipt`), `ChatAccess` y las constantes
+`CHAT_MESSAGE_MAX_LENGTH` (1000), `CHAT_POST_DELIVERY_WINDOW_HOURS` (24, pasado ese plazo se archiva) y
+`CHAT_PAGE_MAX_LIMIT`, más `CHAT_MODERATION_WARNING` (el aviso de respeto que muestran los clientes cuando el filtro
+de lenguaje tapó palabras de un mensaje propio). `ApiErrorCode` suma `CHAT_CLOSED` y `CHAT_READ_ONLY`; el trigger
+`chatMessageReceived` va en la categoría `chat`, que pasa a `implemented: true`.
+### MOVO-240 — Triggers de recordatorio de viaje y proximidad
+
+`config/notification-templates.ts` suma `tripDepartureReminder` (categoría `trips`), con un copy
+que cambia según `packagesCount` (con paquetes invita a sumar uno más, sin paquetes a buscar),
+y `carrierNearPickup`/`carrierNearDelivery` (categoría `proximity`). En
+`notification-categories.ts`, `proximity` pasa a `implemented: true` y `quietHoursExempt: true`:
+el aviso de "está por llegar" sirve justo cuando llega, sea la hora que sea. Tests en
+`test/notification-templates.test.ts`.
+### MOVO-268 — Códigos del webhook de Mercado Pago
+
+`ApiErrorCode` suma `PAYMENT_WEBHOOK_INVALID_SIGNATURE` (401, `x-signature` ausente o
+inválida) y `PAYMENT_WEBHOOK_NOT_CONFIGURED` (503, falta `MP_WEBHOOK_SECRET`). Los consume
+solo MP, no la app. `HoldProviderEventRequest` (MOVO-210) no cambia: "vencido" sigue siendo
+`event: expired`.
+
+### MOVO-100 — Contrato de las tarjetas guardadas (`types/saved-card.ts`)
+
+`SavedCard` (con `mpCardId` y `alias`), `CreateSavedCardRequest`, `UpdateSavedCardRequest`,
+`CardsCheckoutDataResponse` y las constantes `MAX_SAVED_CARDS_PER_USER` (10) y
+`SAVED_CARD_ALIAS_MAX_LENGTH` (40). Wire contract de `/payments/cards` (`svc-payments`), para
+MOVO-101/269 en mobile. `ApiErrorCode` suma `CARD_IN_USE`, `CARD_LIMIT_REACHED`, `CARD_SAVE_REJECTED`
+(422, `details.providerCode`), `CARD_CUSTOMER_CONFLICT` (409, el customer de MP del email ya es
+de otra cuenta) y `CARDS_NOT_CONFIGURED`. Recordatorio habitual: `npm run build` acá antes
+de tipar desde otro workspace.
+
+### MOVO-276 — `package_tapered_v2` y `PACKAGE_LIMITS_EXCEEDED` (ADR-041)
 
 `PriceCalculationMethod.PACKAGE_TAPERED_V2` (`DEMAND_FUEL_ROUTES_V1` queda, ya no se emite
 pero persiste en envíos viejos), `QuoteBreakdown.volumetricWeightKg?`/`billableWeightKg?`
