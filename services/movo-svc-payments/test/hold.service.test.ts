@@ -7,6 +7,7 @@ import {
   createHoldService,
   HoldServiceDeps,
   failureReasonFromStatusDetail,
+  readMpError,
   STALE_CREATING_MS,
 } from "../src/modules/holds/hold.service";
 import type { MercadoPagoClient, PaymentResponse } from "../src/adapters/mercadopago-client";
@@ -117,12 +118,39 @@ describe("failureReasonFromStatusDetail (AC5 de MOVO-209)", () => {
   });
 });
 
+describe("readMpError: forma real del error del SDK (verificado en sandbox el 14/10/2026)", () => {
+  // El SDK 3.x tira una instancia de Error con `status`, `error` y las causas en `causes`.
+  class SdkBadRequestError extends Error {
+    status = 400;
+    error = "bad_request";
+    causes = [{ code: "3031", description: "security_code_id can't be null" }];
+  }
+
+  it("lee las causas de `causes` (SDK) y de `cause` (cuerpo crudo de la API)", () => {
+    const sdk = readMpError(Object.assign(new SdkBadRequestError("security_code_id can't be null")));
+    expect(sdk).toEqual({ status: 400, causeCodes: ["3031"], message: "security_code_id can't be null" });
+    expect(readMpError({ status: 400, message: "x", cause: [{ code: 2006 }] }).causeCodes).toEqual(["2006"]);
+  });
+
+  it("con el error real del SDK, un CVV ausente (3031) se clasifica como rechazo y no como transitorio", () => {
+    const info = readMpError(new SdkBadRequestError("security_code_id can't be null"));
+    expect(classifyCreateError(info)).toEqual({ kind: "rejected", failureReason: "invalid_data" });
+  });
+
+  it("un Error común (timeout, red) no trae causas", () => {
+    expect(readMpError(new Error("The operation was aborted"))).toMatchObject({ status: undefined, causeCodes: [] });
+  });
+});
+
 describe("classifyCreateError (review de PR #226, punto 2)", () => {
   const info = (status: number | undefined, causeCodes: string[] = []) => ({ status, causeCodes, message: "x" });
 
   it("solo un 400/422 con causa conocida cierra el intento", () => {
     expect(classifyCreateError(info(400, ["2006"]))).toEqual({ kind: "rejected", failureReason: "invalid_data" });
     expect(classifyCreateError(info(422, ["3003"]))).toEqual({ kind: "rejected", failureReason: "invalid_data" });
+    // MOVO-282: CVV ausente o vacío (3031) y de largo inválido (3032) con tarjeta guardada.
+    expect(classifyCreateError(info(400, ["3031"]))).toEqual({ kind: "rejected", failureReason: "invalid_data" });
+    expect(classifyCreateError(info(400, ["3032"]))).toEqual({ kind: "rejected", failureReason: "invalid_data" });
     expect(classifyCreateError(info(400, ["2034"]))).toEqual({ kind: "rejected", failureReason: "platform_error" });
   });
 
@@ -376,8 +404,8 @@ describe("HoldService (MOVO-209)", () => {
         expect(hold.failureReason).toBe("invalid_data");
       });
 
-      it.each([["2006"], ["3001"], ["3003"]])(
-        "token vencido o ya usado (%s) cierra el intento como rejected, sin pasar por el 502",
+      it.each([["2006"], ["3001"], ["3003"], ["3031"], ["3032"]])(
+        "token vencido o ya usado, o CVV ausente/de largo inválido (%s), cierra el intento como rejected, sin pasar por el 502",
         async (code) => {
           mp.createPayment.mockRejectedValueOnce({ status: 400, message: "Card token", cause: [{ code }] });
           const { hold } = await service().create(withCard);

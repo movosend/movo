@@ -46,8 +46,14 @@ const INVALID_DATA_DETAILS = new Set([
  */
 const PLATFORM_DETAILS = new Set(["rejected_by_regulations", "rejected_insufficient_data"]);
 
-/** Códigos de error de la API de MP (no de rechazo) que apuntan al `card_token` enviado. */
-const INVALID_TOKEN_CAUSE_CODES = new Set(["2006", "3001", "3003"]);
+/**
+ * Códigos de error de la API de MP (no de rechazo) que apuntan al `card_token` enviado o a su código
+ * de seguridad: token inexistente, vencido o ya usado (2006/3001/3003) y, con tarjeta guardada, el CVV
+ * ausente o vacío (3031 "security_code_id can't be null") o de largo inválido (3032). Verificados en el
+ * sandbox el 14/10/2026. MP los responde ANTES de crear el pago y repetirlos falla igual, así que cierran
+ * el intento; el emisor lo resuelve volviendo a escribir el código.
+ */
+const INVALID_TOKEN_CAUSE_CODES = new Set(["2006", "3001", "3003", "3031", "3032"]);
 
 /**
  * Errores de configuración de cuentas que MP responde con 400 antes de crear nada (por
@@ -82,16 +88,20 @@ interface MpErrorInfo {
 }
 
 /**
- * El SDK tira el cuerpo JSON de error de MP tal cual (`{ message, error, status, cause:
- * [{ code, description }] }`, no una instancia de `Error`), y un `Error` común ante un
- * timeout o un corte de red. Se lee de forma defensiva: nunca se asume la forma.
+ * Errores de la API de MP vistos desde el SDK `mercadopago` 3.x: una instancia de `Error`
+ * (`MPBadRequestError`, ...) con `status`, `error` y las causas de la API en **`causes`** (el SDK
+ * copia ahí el `cause` del body); ante un timeout o un corte de red, un `Error` común. También se
+ * acepta el cuerpo JSON crudo de la API (`cause`). Verificado contra el sandbox el 14/10/2026: con
+ * el SDK real `cause` no existe, y leer solo ese campo dejaba sin reconocer ninguna causa (el
+ * intento quedaba en `creating` aun con un 400 que prueba que MP no creó el pago). Se lee de forma
+ * defensiva: nunca se asume la forma.
  */
 export function readMpError(error: unknown): MpErrorInfo {
   if (typeof error !== "object" || error === null) {
     return { status: undefined, causeCodes: [], message: String(error) };
   }
-  const raw = error as { status?: unknown; message?: unknown; cause?: unknown };
-  const causes: unknown[] = Array.isArray(raw.cause) ? raw.cause : [];
+  const raw = error as { status?: unknown; message?: unknown; cause?: unknown; causes?: unknown };
+  const causes: unknown[] = Array.isArray(raw.causes) ? raw.causes : Array.isArray(raw.cause) ? raw.cause : [];
   return {
     status: typeof raw.status === "number" ? raw.status : undefined,
     causeCodes: causes
