@@ -1264,3 +1264,11 @@ Pendiente / fuera de alcance: alta y baja del rol (MOVO-290), UI del login (MOVO
 ### MOVO-290 — Alta y baja del rol admin: script de CLI y endpoints internos
 
 `src/modules/admins/admin-roles.service.ts` concentra las reglas para endpoints internos (`GET`/`POST /internal/admins`, `DELETE /internal/admins/:userId`) y el script `src/scripts/admin-role.ts`. Otorgar exige email verificado y cuenta `active` (idempotente, best-effort email notice). Revocar y baja de cuenta (`deleteAccount`) respetan la invariante compartida de nunca cero admins elegibles (`FOR UPDATE OF ur, u ORDER BY ur.user_id` -> 409 `ADMIN_LAST_ADMIN`) y cortan sesiones de panel en Redis. El CLI valida solo su configuración y `grant` no depende de Redis. Baneo pendiente en MOVO-296: deberá usar el mismo invariante. Procedimiento para el primer admin: ver `docs/admin/primer-admin.md`.
+
+### MOVO-288 — `GET /internal/user-reports/:id/parties`
+
+Interno (en `internalModerationRoutes`, `hide: true`, sin ruta en el gateway): devuelve
+`UserReportParties` (`reporterId`, `reportedId`) para la regla de conflicto de interés de
+`svc-admin` (un admin no modera un reporte que lo involucra). 404 `REPORT_NOT_FOUND` si no existe.
+`moderation-repository.ts#findReportParties`. Test:
+`test/moderation.internal-parties.integration.test.ts`.
