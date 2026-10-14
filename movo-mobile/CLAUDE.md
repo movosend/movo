@@ -4370,3 +4370,12 @@ ya no cumple los requisitos para operar (ADR-036). Los códigos del lado del tra
 `details.missingRequirements`) y leer `details` en `http-client.ts#parseErrorBody` quedan para
 MOVO-117, que además tiene que cubrir "Iniciar viaje" y editar oferta, no solo declarar viaje y
 ofertar.
+
+### MOVO-276 — Suma de lados en el paso de paquete del wizard
+
+`isPackageStepValid` exige además largo + ancho + alto ≤ 300 cm y `DimensionInputs` muestra
+el aviso ("no pueden sumar más de 300 cm, ahora suman N") cuando cada medida está en rango
+pero la suma no: sin esto, un 150 × 100 × 60 pasaba "Siguiente" y recién fallaba al cotizar
+en el resumen. `SIDES_SUM_CM_MAX` replica `PACKAGE_MAX_SIDES_SUM_CM` del backend solo para
+ese aviso; `PACKAGE_LIMITS_EXCEEDED` tiene copy propio en `error-messages.ts` para el caso de
+que el backend recalibre los límites. Test en `test/package-limits.test.tsx`.
