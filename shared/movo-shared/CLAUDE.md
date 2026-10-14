@@ -488,3 +488,9 @@ rol `admin` en un token con ese claim (antes lo deducía del rol).
 pero persiste en envíos viejos), `QuoteBreakdown.volumetricWeightKg?`/`billableWeightKg?`
 (ausentes en respuestas de v1) y el código `PACKAGE_LIMITS_EXCEEDED` (422, con
 `details.violations`).
+
+### MOVO-290 — `AdminSummary` y códigos de alta y baja del rol admin
+
+`AdminSummary` (`types/user.ts`): fila de `GET /internal/admins` de `svc-users`, que va a consumir
+`svc-admin` (MOVO-292). `ApiErrorCode` suma `ADMIN_GRANT_EMAIL_NOT_VERIFIED` y
+`ADMIN_GRANT_ACCOUNT_NOT_ACTIVE` (422), `ADMIN_NOT_FOUND` (404) y `ADMIN_LAST_ADMIN` (409).
