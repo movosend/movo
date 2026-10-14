@@ -12,9 +12,11 @@ import {
 import { Alert, Pressable, Text, View } from "react-native";
 import { useMpConnectStatus } from "../../src/hooks/use-mp-connect";
 import { useMyProfile } from "../../src/hooks/use-profile";
-import { MpStatusPill } from "../payments/mp-status-pill";
+import { useSavedCards } from "../../src/hooks/use-saved-cards";
+import { PaymentsAttentionPill } from "../payments/payments-attention-pill";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { hasPendingLegalAcceptance } from "../../src/lib/legal-acceptance";
+import { paymentsAttention } from "../../src/lib/payments-attention";
 
 interface SettingsItem {
   label: string;
@@ -30,15 +32,16 @@ interface SettingsItem {
  * toast nueva solo para este caso). "Direcciones guardadas" fue el primero en tener
  * pantalla real (MOVO-121), "Cuenta y seguridad" el segundo (MOVO-136), "Legal"
  * el tercero (MOVO-224), "Notificaciones" el cuarto (MOVO-246) y "Pagos y cobros" el
- * quinto (MOVO-112, con el estado de Mercado Pago en la fila) — a diferencia del resto,
+ * quinto (MOVO-112, con un aviso en la fila si hay algo que resolver) — a diferencia del resto,
  * no llevan `opacity-60`.
  */
 export function ProfileSettingsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
   const { data: profile } = useMyProfile();
   const legalPending = hasPendingLegalAcceptance(profile);
-  // MOVO-112: estado de Mercado Pago en la fila. Sin pill mientras carga o si falla.
-  const mpStatus = useMpConnectStatus().data?.status;
+  // MOVO-112/101: aviso en la fila solo si Mercado Pago dejó de funcionar o todas las
+  // tarjetas vencieron. Sin aviso mientras carga o si falla.
+  const attention = paymentsAttention(useMpConnectStatus().data?.status, useSavedCards().data);
 
   const settingsItems: SettingsItem[] = [
     { label: "Cuenta y seguridad", Icon: Shield, onPress: () => router.push("/profile/security" as any) },
@@ -74,8 +77,8 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
                 <View testID="profile-settings-legal-pending-dot" className="h-[7px] w-[7px] rounded-full bg-warning-500" />
               ) : null}
             </View>
-            {label === "Pagos y cobros" && mpStatus ? (
-              <MpStatusPill status={mpStatus} variant="row" testID="profile-settings-mp-pill" />
+            {label === "Pagos y cobros" && attention ? (
+              <PaymentsAttentionPill attention={attention} testID="profile-settings-payments-pill" />
             ) : null}
             <ChevronRight size={18} strokeWidth={1.8} color={colors.fg3} />
           </Pressable>

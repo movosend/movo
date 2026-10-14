@@ -804,8 +804,8 @@ Decisiones clave:
   (estadísticas) van a necesitar más adelante — centralizarlos evita que cada
   servicio reinvente el número. Mismo motivo por el que no van en `envSchema` de
   ningún servicio en particular (como `JWT_SECRET` sí lo hace) — `MP_TRANSACTION_FEE_RATE`
-  es un **placeholder** (0.0499), pendiente de confirmar con el contrato/homologación
-  real de MP.
+  (0.0499) es un **estimado a validar con pagos reales**, no un valor a confirmar con
+  MP: el fee depende de la cuenta de cada transportista (MOVO-225).
 - **`mpTransactionFeeRate` se define pero NO se descuenta en esta US**: el AC6 del
   ticket solo pide neto→bruto con la comisión de Movo (lo que paga el emisor). El fee
   de MP se cobra en el split/captura real, que hoy no existe (`movo-svc-payments`
@@ -840,8 +840,8 @@ Decisiones clave:
 - **`withdrawOffer` sin notificación push**: el AC8 no la pide (a diferencia de
   `acceptOffer`/`rejectOffer`, MOVO-144).
 
-Pendiente / fuera de alcance: valor real de `MP_TRANSACTION_FEE_RATE` (placeholder,
-pendiente de confirmar con MP); tope máximo de precio de una oferta (no lo pide
+Pendiente / fuera de alcance: validar el estimado de `MP_TRANSACTION_FEE_RATE` con
+pagos reales (no hay un valor único que confirmar con MP, MOVO-225); tope máximo de precio de una oferta (no lo pide
 ningún AC, sin definir todavía); consumo real del fee de MP desde `movo-svc-payments`
 (split real, sigue siendo un esqueleto) y desde estadísticas de `movo-svc-admin`.
 

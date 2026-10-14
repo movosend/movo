@@ -41,7 +41,8 @@ import { useCarrierRequirementsSheet } from "../../../../src/hooks/use-carrier-r
 import { usePublicProfile } from "../../../../src/hooks/use-profile";
 import {
   getClientCommissionRate,
-  getClientMpTransactionFeeRate,
+  estimateMpFeeArs,
+  estimateReceivedArs,
 } from "../../../../src/lib/commission-config";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
@@ -204,11 +205,11 @@ const SUCCESS_OVERLAY_DURATION_MS = 2400;
  * acá (a diferencia de la pantalla estática anterior con "Ver el envío"/"Editar la
  * oferta"). */
 function OfferSuccessOverlay({
-  netArs,
+  receivedArs,
   title = "Oferta enviada",
   onDone,
 }: {
-  netArs: number;
+  receivedArs: number;
   title?: string;
   onDone: () => void;
 }) {
@@ -267,7 +268,7 @@ function OfferSuccessOverlay({
           testID="create-offer-success-net"
           className="text-center font-sans text-body text-ink-950/70"
         >
-          Te queda {formatPriceArs(netArs)}
+          Recibís aprox. {formatPriceArs(receivedArs)}
         </Text>
       </Animated.View>
     </View>
@@ -296,10 +297,14 @@ function OfferSuccessOverlay({
  * ambiente. La fórmula bruto→neto de "gross" mode es la inversa, resuelta acá porque
  * `@movo/shared` solo expone el sentido neto→bruto.
  *
- * La línea de "Procesamiento del pago" es un ESTIMADO (`MP_TRANSACTION_FEE_RATE`
- * todavía sin confirmar, `movo-svc-payments` no tiene split real) -- se muestra como
- * contexto, nunca restada de "Te queda": ese número sigue siendo exactamente el neto
- * calculado, porque hoy nada se lo descuenta de verdad.
+ * La línea de "Procesamiento del pago" es un ESTIMADO (`MP_TRANSACTION_FEE_RATE`: MP
+ * cobra según la cuenta de cada transportista, no hay un valor único, MOVO-225),
+ * calculado sobre el bruto. MP lo descuenta de lo que le acredita al transportista, así
+ * que todo lo que la pantalla le muestra al transportista como cobro (teclado, desglose,
+ * CTA, confirmación, éxito) es "Recibís aprox." = neto menos ese estimado
+ * (`estimateReceivedArs`, review de Pedro en la PR #231: antes el teclado y el CTA
+ * mostraban el neto y el desglose el estimado, dos montos distintos para lo mismo). Lo
+ * que viaja en `priceOfferedArs` sigue siendo el neto después de la comisión de Movo.
  *
  * La franja de entrega estimada es un campo local todavía sin contrato de backend
  * (ver MOVO-178) -- se completa acá y se refleja en el preview "Lo que va a ver
@@ -493,9 +498,10 @@ export default function CreateOfferScreen() {
       ? rawAmountNumber
       : Math.round(amountMode === "net" ? netArs : grossArs);
 
-  const mpFeeEstimate = useMemo(
-    () => Math.round(netArs * getClientMpTransactionFeeRate() * 100) / 100,
-    [netArs],
+  const mpFeeEstimate = useMemo(() => estimateMpFeeArs(grossArs), [grossArs]);
+  const receivedEstimateArs = useMemo(
+    () => estimateReceivedArs(netArs, grossArs),
+    [netArs, grossArs],
   );
   const commissionPctLabel = `${Math.round(commissionRate * 100)}%`;
 
@@ -701,7 +707,7 @@ export default function CreateOfferScreen() {
           Publicando oferta
         </Text>
         <Text className="mt-2.5 font-sans-semibold text-[32px] text-fg">
-          {formatPriceArs(netArs)}
+          {formatPriceArs(receivedEstimateArs)}
         </Text>
         <Text className="mt-1 font-sans text-small text-fg-3">
           {shortAddressLabel(shipment.pickupAddress)} →{" "}
@@ -714,7 +720,10 @@ export default function CreateOfferScreen() {
   if (phase === "sent" && createdOffer) {
     return (
       <OfferSuccessOverlay
-        netArs={createdOffer.priceNetArs}
+        receivedArs={estimateReceivedArs(
+          createdOffer.priceNetArs,
+          createdOffer.priceOffered,
+        )}
         title={isEditMode ? "Oferta actualizada" : "Oferta enviada"}
         // `dismissTo` y no `replace` (MOVO-271): este formulario siempre se abre empujado
         // desde el detalle al que vuelve (del envío al crear, de la oferta al editar), y
@@ -821,7 +830,7 @@ export default function CreateOfferScreen() {
                 <Text className="mb-4 font-sans text-caption text-fg-3">
                   {amountMode === "gross"
                     ? "Monto total que le cobrás al emisor por el viaje."
-                    : "Lo que te queda a vos después de la comisión de Movo."}
+                    : "Lo que te queda después de la comisión de Movo, antes del procesamiento del pago."}
                 </Text>
 
                 <Pressable
@@ -889,9 +898,9 @@ export default function CreateOfferScreen() {
                   <View className="mt-4 rounded-[12px] border border-border">
                     <View className="flex-row items-center justify-between px-4 pb-1 pt-3">
                       <Text className="font-sans text-small text-fg-2">
-                        Te queda{" "}
+                        Recibís aprox.{" "}
                         <Text className="font-sans-semibold text-fg">
-                          {formatPriceArs(netArs)}
+                          {formatPriceArs(receivedEstimateArs)}
                         </Text>
                       </Text>
                       <Pressable
@@ -952,13 +961,13 @@ export default function CreateOfferScreen() {
                   </View>
                   <View className="flex-row items-center justify-between bg-lime-500 px-4 py-4">
                     <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-ink-950/60">
-                      Te queda
+                      Recibís aprox.
                     </Text>
                     <Text
-                      testID="create-offer-net-preview"
+                      testID="create-offer-received-preview"
                       className="font-sans-semibold text-[22px] text-ink-950"
                     >
-                      {formatPriceArs(netArs)}
+                      {formatPriceArs(receivedEstimateArs)}
                     </Text>
                   </View>
                 </View>
@@ -1226,13 +1235,13 @@ export default function CreateOfferScreen() {
                 <Text
                   className={`font-sans-medium text-small ${canContinueToPickup ? "text-lime-500" : "text-fg-3"}`}
                 >
-                  Te queda {formatPriceArs(netArs)}
+                  Recibís aprox. {formatPriceArs(receivedEstimateArs)}
                 </Text>
               </Pressable>
             ) : (
               <View className="gap-2">
                 <Text className="text-center font-sans-medium text-small text-fg-2">
-                  Te queda {formatPriceArs(netArs)}
+                  Recibís aprox. {formatPriceArs(receivedEstimateArs)}
                 </Text>
                 <SlideToConfirm
                   key={slideKey}

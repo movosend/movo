@@ -150,6 +150,10 @@ model SavedCard {
   last4     String
   expMonth  Int       @map("exp_month")
   expYear   Int       @map("exp_year")
+  // MOVO-101: banco y tipo que devuelve MP al guardar, solo para mostrar. Nulas en las
+  // tarjetas guardadas antes de esta migración.
+  issuerName  String? @map("issuer_name")
+  paymentType String? @map("payment_type")
   isDefault Boolean   @default(false) @map("is_default")
   alias     String?
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz

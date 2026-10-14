@@ -16,7 +16,7 @@
  * cambió.
  */
 export const LEGAL_DOCUMENT_VERSIONS = {
-  terms: "2026-09-14",
+  terms: "2026-10-11",
   privacy: "2026-10-07",
 } as const;
 

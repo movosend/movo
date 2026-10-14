@@ -10,6 +10,7 @@ import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import type { MyOfferSummary } from "../../../../src/api/offers-client";
 import { useMyOffers } from "../../../../src/hooks/use-offers";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
+import { estimateReceivedArs } from "../../../../src/lib/commission-config";
 import { competitiveRankNotice } from "../../../../src/lib/offer-format";
 import { formatPriceArs } from "../../../../src/lib/shipment-format";
 
@@ -108,8 +109,11 @@ export default function MyOffersSummaryScreen() {
     () => items.filter((o) => CLOSED_STATUSES.includes(o.status)).sort(byRecent),
     [items],
   );
-  const pendingTotal = pending.reduce((sum, o) => sum + o.priceNetArs, 0);
-  const acceptedTotal = accepted.reduce((sum, o) => sum + o.priceNetArs, 0);
+  // MOVO-225: totales en lo que recibe aprox. (neto menos el estimado de MP), el
+  // mismo monto que muestra cada card y el detalle de la oferta.
+  const receivedOf = (o: MyOfferSummary) => estimateReceivedArs(o.priceNetArs, o.priceOffered);
+  const pendingTotal = pending.reduce((sum, o) => sum + receivedOf(o), 0);
+  const acceptedTotal = accepted.reduce((sum, o) => sum + receivedOf(o), 0);
 
   // Mismo criterio que el aviso de cada card: "requiere algo tuyo" = tiene aviso.
   const attention = useMemo(
@@ -201,7 +205,7 @@ export default function MyOffersSummaryScreen() {
                 >
                   {formatPriceArs(acceptedTotal)}
                 </Text>
-                <Text className="font-sans text-[11px] text-ink-300">cobrás al entregar</Text>
+                <Text className="font-sans text-[11px] text-ink-300">cobrás aprox. al entregar</Text>
               </View>
             </View>
           </View>

@@ -89,8 +89,9 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
 
     const { getByTestId, getByText } = await render(<MyOffersSummaryScreen />);
 
-    expect(getByTestId("my-offers-pending-total")).toHaveTextContent("$1.000");
-    expect(getByTestId("my-offers-accepted-total")).toHaveTextContent("$2.000");
+    // MOVO-225: neto menos el estimado de MP sobre el bruto (4,99%).
+    expect(getByTestId("my-offers-pending-total")).toHaveTextContent("$940,12");
+    expect(getByTestId("my-offers-accepted-total")).toHaveTextContent("$1.880,24");
     expect(getByText("1 sin respuesta")).toBeTruthy();
   });
 

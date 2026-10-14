@@ -22,7 +22,7 @@ export interface ConfirmActionSheetProps {
 }
 
 /**
- * Hoja de confirmación estándar (mismo armado que `ChooseOfferModal`/`UnlinkMpSheet`): título,
+ * Hoja de confirmación estándar (mismo armado que `ChooseOfferModal`): título,
  * descripción, botón principal de 48px a todo el ancho y "Volver" como texto. Mientras la acción
  * está en curso no se puede cerrar. Los `testID` derivan del prefijo: `-backdrop`, `-confirm`
  * y `-cancel`.

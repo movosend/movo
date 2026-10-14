@@ -11,6 +11,10 @@ export interface MpSavedCard {
   last4: string;
   expMonth: number;
   expYear: number;
+  /** `issuer.name` ("Banco Galicia"); solo para mostrar, MP puede no mandarlo. */
+  issuerName: string | null;
+  /** `payment_method.payment_type_id` (`credit_card`, `debit_card`, `prepaid_card`). */
+  paymentType: string | null;
 }
 
 /**
@@ -142,11 +146,12 @@ interface MpCardBody {
   last_four_digits?: unknown;
   expiration_month?: unknown;
   expiration_year?: unknown;
-  payment_method?: { id?: unknown } | null;
+  payment_method?: { id?: unknown; payment_type_id?: unknown } | null;
+  issuer?: { name?: unknown } | null;
 }
 
 function parseCard(body: MpCardBody): MpSavedCard {
-  const { id, last_four_digits, expiration_month, expiration_year, payment_method } = body;
+  const { id, last_four_digits, expiration_month, expiration_year, payment_method, issuer } = body;
   const brand = payment_method?.id;
   if (
     (typeof id !== "string" && typeof id !== "number") ||
@@ -157,7 +162,15 @@ function parseCard(body: MpCardBody): MpSavedCard {
   ) {
     throw new MercadoPagoCustomersError("save_card", 200, null, "Respuesta de guardar tarjeta incompleta");
   }
-  return { id: String(id), brand, last4: last_four_digits, expMonth: expiration_month, expYear: expiration_year };
+  return {
+    id: String(id),
+    brand,
+    last4: last_four_digits,
+    expMonth: expiration_month,
+    expYear: expiration_year,
+    issuerName: typeof issuer?.name === "string" && issuer.name !== "" ? issuer.name : null,
+    paymentType: typeof payment_method?.payment_type_id === "string" ? payment_method.payment_type_id : null,
+  };
 }
 
 export class FetchMercadoPagoCustomersClient implements MercadoPagoCustomersClient {
