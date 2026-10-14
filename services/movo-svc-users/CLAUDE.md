@@ -1216,3 +1216,28 @@ gateway) que devuelve `{ kycStatusIdentity, kycStatusLicense }` crudos para el b
 transportista de `svc-shipments` (ADR-036). Más liviano que `GET /users/:id`, que además pide
 la reputación a `svc-shipments`. 404 `USER_NOT_FOUND` si no existe o está `deleted` (mismo
 criterio que MOVO-77). Test: `test/kyc.internal-status.integration.test.ts`.
+
+### MOVO-287 — Sesión de panel: login con email + OTP y `admin` solo en esa sesión
+
+`POST /auth/admin/login` (email + contraseña → OTP por email, devuelve `challengeId`, nunca
+tokens), `/auth/admin/verify`, `/auth/admin/refresh` y `/auth/admin/logout`, en
+`src/modules/auth/admin-session.service.ts`. `isPanelEligible` (rol `admin` + email verificado +
+cuenta `active`) es la única regla y se revalida en el login, en el verify y en cada refresh.
+`issueSession()` (sesión de la app: register, login, refresh y cambio de contraseña) filtra
+`admin` del JWT y de la respuesta.
+
+- **Namespace propio en Redis** (`panel-refresh:{userId}:{tokenId}`, con `absoluteExpiresAt`):
+  así se pueden revocar las sesiones de panel sin tocar las de la app
+  (`revokePanelSessionsForUser`, que usarán MOVO-290 y MOVO-296), y un refresh de un tipo no
+  sirve en el endpoint del otro. Cada rotación copia el vencimiento de 8 h y la key nueva
+  vive solo lo que le queda. `revokeAllForUser` barre los dos prefijos.
+- **Corte del access token de panel**: `panel-revoked-at:{userId}`, que el gateway mira solo
+  en tokens con `admin` (ver `gateway/CLAUDE.md`). `user-revoked-at` cortaría también la app.
+- **AC3 sin señuelo**: las cuatro causas de rechazo dan el mismo 401 y pasan por exactamente
+  un Argon2id (`DUMMY_HASH` si el email no existe) antes de mirar rol y estado.
+- **Límite por email en el servicio, no en el gateway** (desvío de la letra del AC9): el
+  gateway no parsea el body y aplica un solo limiter por request. 5 intentos cada 15 min por
+  hash del email, contando todos los intentos, así un 429 no revela si la cuenta existe.
+- El reenvío del código usa `POST /auth/resend-otp` con el `challengeId` como `otpId`.
+
+Pendiente / fuera de alcance: alta y baja del rol (MOVO-290), UI del login (MOVO-291).
