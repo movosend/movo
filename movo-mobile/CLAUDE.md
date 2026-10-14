@@ -4357,6 +4357,21 @@ pantalla de pagos).
 Probado de punta a punta en local contra MOVO-111 (ya en `develop`). Pendiente: probarlo en dev
 cuando estén cargados `MP_REDIRECT_URI` y `MP_TOKEN_ENCRYPTION_KEY` en sus secrets.
 
+**Rediseño sobre el prototipo "MOVO-112 Pagos y cobros v3"**: "Medios de cobro" pasa a la misma
+lista que las tarjetas (`components/payments/payment-method-list.tsx`: recuadro de marca, fila
+punteada de acción y estado vacío, compartidos con `saved-cards-list.tsx`). La cuenta vinculada es
+una fila con el emblema de MP (`MercadoPagoEmblem`; el logo con wordmark se borró, ya no se usaba),
+el email en mono y acortado (`shortenEmail`, conserva el dominio) y "Cambiar cuenta" al final.
+Desvincular pasa a la hoja de opciones de la cuenta (`mp-account-sheet.tsx`), igual que eliminar
+una tarjeta. `invalid` no está en el prototipo: misma fila con el detalle en rojo y "Volver a
+vincular". La confirmación de desvincular no usa el texto del prototipo ("lo que ya ganaste se
+acredita igual"), porque al desvincular se borran los tokens y los cobros pendientes no se pueden
+operar. `useLinkMpAccount#start` devuelve si quedó vinculada, para el aviso "Vinculaste tu cuenta".
+La fila "Pagos y cobros" de Perfil → Configuración deja la pill de estado de MP (`MpStatusPill`,
+borrada) y muestra un aviso solo si hay algo que resolver (`paymentsAttention`): "Revisar" si MP
+dejó de funcionar, "Vencidas" si todas las tarjetas vencieron. Sin MP o sin tarjetas no se marca: es
+normal para quien solo envía.
+
 ### MOVO-116 (lado mobile mínimo) — mensaje del emisor al aceptar una oferta
 
 Solo `OFFER_CARRIER_NOT_ELIGIBLE` en `error-messages.ts`, que ve el emisor si el transportista
@@ -4430,22 +4445,22 @@ se sabe qué falta). La autoridad sigue siendo el backend (ADR-036).
 "Mis envíos" sigue visible.
 
 Probado en device.
-### Tarjetas guardadas (MOVO-101, MOVO-269; ADR-039 propuesto): diseño acordado, sin implementar
 
-- **MOVO-101** (asignado a Tomás): `app/(app)/profile/payments.tsx` ("Pagos y cobros", hoy solo el
-  vínculo con MP de MOVO-112) suma la sección "Mis tarjetas" para emisor y transportista: alta
-  tokenizada en el dispositivo con la `public_key` de Movo (`GET /payments/cards/checkout-data`),
-  listado, predeterminada y baja (`409 CARD_IN_USE`). El alta es un componente reutilizable.
+### Tarjetas guardadas: pago con CVV (MOVO-269; ADR-039 propuesto), diseño acordado, sin implementar
+
+MOVO-101 (alta y gestión de tarjetas) ya está implementado, ver su entrada más abajo.
+
 - **MOVO-269** (Juan Cruz): pago con tarjeta guardada + CVV. Genera el token en el dispositivo con
   `card_id` + CVV y la `public_key` del transportista (`carrierPublicKey` de `GET /shipments/:id/funding`)
   y lo manda a `POST /shipments/:id/funding` con `savedCardId`. Sin tarjetas guardadas abre el alta de
-  MOVO-101 y pide el CVV de nuevo (el token de alta es de la `public_key` de Movo, no sirve para pagar).
-- **Nombre de referencia**: campo opcional en el alta (40 caracteres), renombrable desde la lista;
-  es el título de la tarjeta en la lista y en el selector de MOVO-269, que siempre muestra también
-  los últimos 4.
+  MOVO-101 (`AddCardWizard`) y pide el CVV de nuevo (el token de alta es de la `public_key` de Movo, no
+  sirve para pagar).
+- **Nombre de referencia**: es el título de la tarjeta en el selector de MOVO-269, que siempre muestra
+  también los últimos 4.
 - El CVV no se guarda, no se loguea ni va al store. Un solo campo no requiere Brick: un `TextInput`
-  seguro que llama directo a `v1/card_tokens` es lo que se validó. Decisión de captura del alta
-  (Bricks en WebView / Secure Fields / formulario propio) a documentar al arrancar MOVO-101.
+  seguro que llama directo a `v1/card_tokens` es lo que se validó (mismo criterio de formulario propio
+  que el alta de MOVO-101).
+
 ### MOVO-281 — Navegación al tocar todas las notificaciones push
 
 `resolveNotificationRoute` (`use-push-notifications.ts`, ahora exportada) rutea cada `data.type`
@@ -4470,6 +4485,30 @@ la ruta que resuelve cada tipo. Al tocarla pasa por el mismo handler que una pus
 Gotcha de entorno: con un `ios/` local generado (Pods y build, ~2 GB) jest se cuelga armando el
 mapa de módulos sin mostrar nada. Correrlo con
 `--modulePathIgnorePatterns '<rootDir>/ios' '<rootDir>/android'`.
+
+### MOVO-101 — "Pagos y cobros": tarjetas guardadas (alta, lista, predeterminada, nombre y baja)
+
+"Medios de pago" en `profile/payments/index.tsx` (backend de MOVO-100). El alta es
+`AddCardWizard` (`components/payments/`), montado en `profile/payments/add-card.tsx`; no navega,
+avisa con `onSaved`/`onCancel` para que MOVO-269 lo reuse.
+
+- **Captura propia contra la API de MP** (`src/lib/mp-card-tokenizer.ts`), no Bricks (no soporta
+  cuentas de prueba): `payment_methods/search` con el BIN y `card_tokens` con la `public_key` de
+  `GET /payments/cards/checkout-data`. Al backend solo va `{ cardToken, paymentMethodId?, alias? }`;
+  número, CVV y DNI viven solo en el estado local del wizard.
+- **`card_number.length` del BIN es un tope, no el largo exacto** (Visa responde 19 con tarjetas de
+  16): el número vale entre el mínimo de la marca y ese tope, y tiene que pasar Luhn.
+- **Banco por palabras clave** del `issuer.name` (`src/lib/bank-logos.ts`, por palabra completa, no
+  por substring), con logos de las apps oficiales en `assets/bank-logos/`; sin logo, iniciales.
+- Si el alta sale bien pero marcarla predeterminada falla, queda guardada y se avisa
+  (`saveNewCard` devuelve `defaultFailed`); mientras no se sabe si ya hay tarjetas no se fuerza.
+- Al borrar la predeterminada el backend promueve a la vigente más reciente (si no queda ninguna,
+  a la más reciente); `nextDefaultAfterDelete` lo espeja para que el copy no prometa otra.
+- "Cambiar cuenta" de Mercado Pago pide confirmación (`ChangeMpAccountSheet`): pisa los tokens
+  de la cuenta, igual que desvincular.
+
+Pendiente: probar en development build con tarjetas de test (Visa y Mastercard; el titular
+`OTHE` solo rechaza al pagar, MOVO-269) y revisar los requests.
 
 ### MOVO-284 — Chat del envío: conversación, lista de chats y accesos (ADR-040)
 

@@ -26,6 +26,13 @@ export interface SavedCard {
   last4: string;
   expMonth: number;
   expYear: number;
+  /**
+   * Banco emisor según MP (`issuer.name`, "Banco Galicia"), solo para mostrar. `null` en
+   * tarjetas guardadas antes de MOVO-101 o si MP no lo informa.
+   */
+  issuerName: string | null;
+  /** `payment_type_id` de MP: `credit_card`, `debit_card` o `prepaid_card`; `null` si no vino. */
+  paymentType: string | null;
   isDefault: boolean;
   createdAt: string;
 }

@@ -21,12 +21,17 @@ let mockMpStatus: unknown = undefined;
 jest.mock("../src/hooks/use-mp-connect", () => ({
   useMpConnectStatus: () => ({ data: mockMpStatus }),
 }));
+let mockCards: unknown = undefined;
+jest.mock("../src/hooks/use-saved-cards", () => ({
+  useSavedCards: () => ({ data: mockCards }),
+}));
 
 describe("ProfileSettingsSection", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseMyProfile.mockReturnValue({ data: undefined });
     mockMpStatus = undefined;
+    mockCards = undefined;
   });
 
   it("navega a /addresses al tocar 'Direcciones guardadas'", async () => {
@@ -90,22 +95,32 @@ describe("ProfileSettingsSection", () => {
     expect(router.push).toHaveBeenCalledWith("/profile/payments");
   });
 
-  it.each([
-    ["linked", "Vinculado"],
-    ["unlinked", "Pendiente"],
-    ["invalid", "Revisar"],
-  ])("MOVO-112: muestra la pill de Mercado Pago para el status %s", async (status, label) => {
-    mockMpStatus = { status, account: null, invalidReason: null };
+  it("MOVO-112: avisa 'Revisar' si la vinculación de Mercado Pago dejó de funcionar", async () => {
+    mockMpStatus = { status: "invalid", account: null, invalidReason: "revoked" };
     const { getByTestId, getByText } = await render(<ProfileSettingsSection testID="settings" />);
 
-    expect(getByTestId("profile-settings-mp-pill")).toBeTruthy();
-    expect(getByText(label)).toBeTruthy();
+    expect(getByTestId("profile-settings-payments-pill")).toBeTruthy();
+    expect(getByText("Revisar")).toBeTruthy();
   });
 
-  it("MOVO-112: sin pill mientras el status no cargó", async () => {
+  it("MOVO-101: avisa 'Vencidas' si todas las tarjetas guardadas vencieron", async () => {
+    mockMpStatus = { status: "linked", account: null, invalidReason: null };
+    mockCards = [{ id: "c1", brand: "visa", last4: "3704", expMonth: 1, expYear: 2020, isDefault: true }];
+    const { getByText } = await render(<ProfileSettingsSection testID="settings" />);
+
+    expect(getByText("Vencidas")).toBeTruthy();
+  });
+
+  it.each([
+    ["sin datos todavía", undefined, undefined],
+    ["Mercado Pago sin vincular y sin tarjetas", { status: "unlinked", account: null, invalidReason: null }, []],
+    ["todo en orden", { status: "linked", account: null, invalidReason: null }, undefined],
+  ])("sin aviso: %s", async (_case, status, cards) => {
+    mockMpStatus = status;
+    mockCards = cards;
     const { queryByTestId } = await render(<ProfileSettingsSection testID="settings" />);
 
-    expect(queryByTestId("profile-settings-mp-pill")).toBeNull();
+    expect(queryByTestId("profile-settings-payments-pill")).toBeNull();
   });
 
   it("sigue mostrando el placeholder 'Próximamente' para el resto de los ítems", async () => {

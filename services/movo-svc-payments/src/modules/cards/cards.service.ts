@@ -45,6 +45,8 @@ export function toSavedCardDto(card: SavedCard): SavedCardDto {
     last4: card.last4,
     expMonth: card.expMonth,
     expYear: card.expYear,
+    issuerName: card.issuerName,
+    paymentType: card.paymentType,
     isDefault: card.isDefault,
     createdAt: card.createdAt.toISOString(),
   };
@@ -233,7 +235,16 @@ export function createCardsService(deps: CardsServiceDeps): CardsService {
       try {
         result = await cards.create(
           userId,
-          { mpCardId: saved.id, brand: saved.brand, last4: saved.last4, expMonth: saved.expMonth, expYear: saved.expYear, alias },
+          {
+            mpCardId: saved.id,
+            brand: saved.brand,
+            last4: saved.last4,
+            expMonth: saved.expMonth,
+            expYear: saved.expYear,
+            issuerName: saved.issuerName,
+            paymentType: saved.paymentType,
+            alias,
+          },
           MAX_SAVED_CARDS_PER_USER
         );
       } catch (error) {

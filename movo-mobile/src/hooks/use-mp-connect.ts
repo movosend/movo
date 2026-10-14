@@ -100,8 +100,9 @@ export function useLinkMpAccount() {
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
 
-  const start = useCallback(async () => {
-    if (inFlight.current) return;
+  /** Devuelve `true` si la cuenta quedó vinculada (para avisarlo en la pantalla). */
+  const start = useCallback(async (): Promise<boolean> => {
+    if (inFlight.current) return false;
     inFlight.current = true;
     linkInFlight = true;
     setError(null);
@@ -141,7 +142,9 @@ export function useLinkMpAccount() {
             ? messageForCode(outcome.code, outcome.fallbackMessage)
             : outcome.fallbackMessage,
         );
+        return false;
       }
+      return true;
     } catch (err) {
       setError(
         friendlyErrorMessage(
@@ -151,6 +154,7 @@ export function useLinkMpAccount() {
             : "No pudimos iniciar la vinculación con Mercado Pago. Probá de nuevo.",
         ),
       );
+      return false;
     } finally {
       inFlight.current = false;
       linkInFlight = false;
