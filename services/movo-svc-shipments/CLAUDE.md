@@ -3270,3 +3270,36 @@ validación, concurrencia, límite, carrera con el handshake, vencimiento, acces
 lo reenvía al hold junto con el `senderId`; el `cardToken` sigue siendo obligatorio (ahora se genera
 en el mobile con `card_id` + CVV). Sin `savedCardId` el comportamiento es el de hoy. Ver el
 `CLAUDE.md` raíz y `services/movo-svc-payments/CLAUDE.md`.
+### MOVO-281 / MOVO-240 — `offer_voided`, recordatorio del día anterior al viaje y aviso de proximidad
+
+- **`offer_voided` (MOVO-281)**: `dispatchOfferVoidedPushes` (`shipments.service.ts`) recibe pares
+  `{ carrierId, offerId }` y manda `data: { type: "offer_voided", shipmentId, offerId }` en vez de
+  `type: "shipment"`: el detalle de un envío `cancelled` le responde 403 a un transportista que no es
+  parte de él, así que el mobile abre el detalle de la oferta. Es un `data.type` nuevo, no un renombre.
+- **Recordatorio del día anterior (MOVO-240)**: barrido `trip-departure-reminder-sweep.ts`
+  (`TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES`/`_ENABLED`, en los tres lugares) sobre
+  `sendTripDepartureReminders` (`modules/trips/trip-departure-reminder.ts`). Desde las 19:00 (hora
+  argentina, `domain/trip-departure-reminder.ts`) avisa a los viajes `declared` que salen mañana, con
+  la cantidad de paquetes aceptados vivos (`findDeclaredForDepartureReminder`, `_count` filtrado por
+  `ACCEPTED_OFFER_FILTER`). Un viaje declarado el mismo día anterior a su salida, a cualquier hora, no
+  recibe aviso: quien lo declara hoy para mañana lo tiene presente (review de PR #233; el
+  refinamiento cortaba en las 19:00, y declarar a las 18:55 traía el aviso cinco minutos después). Un aviso por viaje (claim `notified:` en Redis); un
+  push fallido libera el claim; si el proceso muere entre el claim y el push, ese viaje se
+  queda sin aviso (at-most-once, aceptado). Recorre todas las páginas con cursor
+  (`departureAt, id`): con solo la primera, 100 viajes ya avisados tapaban al resto.
+  `data: { type: "trip_reminder", tripId }`. `shortAddress` pasó a `utils/short-address.ts`.
+  El claim `notified:` lo arma `utils/notification-claim.ts`, compartido con el barrido de
+  retiro vencido y la saga de pagos.
+- **"Está por llegar" (MOVO-240)**: `position-service.ts#notifyProximity` corre cuando una posición
+  abre un tramo de 45s y además avanza la última posición conocida (deja afuera la cola offline y
+  limita la evaluación a una por tramo). Recorre todos los envíos activos del viaje: `assigned` contra
+  el retiro (aviso al emisor) e `in_transit` contra la entrega (al receptor), con un radio de 2 km en
+  línea recta (`PROXIMITY_RADIUS_KM`). Un aviso por envío y etapa (`SET NX` con el mismo cliente de
+  Redis de la ingesta); es fire-and-forget y nunca hace fallar la ingesta. Cada envío se relee
+  con `findById` justo antes de decidir (sin caché: uno entregado o cancelado mientras tanto no
+  recibe el aviso) y un fallo en uno no corta a los demás. Un lote evalúa una sola vez por viaje,
+  con su posición más reciente, y las evaluaciones corren en serie. La entrega se avisa recién
+  cuando el transportista salió del radio del retiro: con las dos direcciones a menos de 2 km, el
+  receptor recibía "ya llega" apenas se retiraba el paquete (puede quedarse sin este aviso; ya
+  tuvo el push de custodia del retiro). Sin `notificationsClient` no se evalúa nada.
+  `data: { type: "carrier_nearby", shipmentId }`.
