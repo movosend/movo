@@ -10,16 +10,21 @@ import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
 import mpConnectPlugin from "./plugins/mp-connect";
 import holdsPlugin from "./plugins/holds";
-import capturesPlugin from "./plugins/captures";
-import mpWebhooksPlugin from "./plugins/mp-webhooks";
-import mpWebhookRoutes from "./modules/webhooks/mp-webhook.routes";
+import mpTokenRefreshSweepPlugin from "./plugins/mp-token-refresh-sweep";
+import cardsPlugin from "./plugins/cards";
 import paymentsRoutes from "./modules/payments/payments.routes";
 import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
 import holdsRoutes from "./modules/holds/holds.routes";
-import settlementsRoutes from "./modules/settlements/settlements.routes";
+import cardsInternalRoutes from "./modules/cards/cards-internal.routes";
 import mpConnectInternalRoutes from "./modules/mp-connect/mp-connect-internal.routes";
 import { MercadoPagoClient, SdkMercadoPagoClient } from "./adapters/mercadopago-client";
 import { FetchMercadoPagoOAuthClient, MercadoPagoOAuthClient } from "./adapters/mercadopago-oauth-client";
+import { MercadoPagoCustomersClient } from "./adapters/mercadopago-customers-client";
+import { UsersClient } from "./adapters/users-client";
+import capturesPlugin from "./plugins/captures";
+import mpWebhooksPlugin from "./plugins/mp-webhooks";
+import mpWebhookRoutes from "./modules/webhooks/mp-webhook.routes";
+import settlementsRoutes from "./modules/settlements/settlements.routes";
 import type { ShipmentsClient } from "./adapters/shipments-client";
 import type { AlertNotifier } from "./adapters/alert-notifier";
 
@@ -29,6 +34,13 @@ export interface BuildAppOptions {
   mercadoPagoClient?: MercadoPagoClient;
   /** Ídem para el canje de OAuth (MOVO-111). */
   mercadoPagoOAuthClient?: MercadoPagoOAuthClient;
+  /** Override para habilitar/deshabilitar el barrido de renovación de tokens (MOVO-243). */
+  mpTokenRefreshSweepEnabled?: boolean;
+
+  /** Ídem para Customers & Cards con el token de Movo (MOVO-100). */
+  mercadoPagoCustomersClient?: MercadoPagoCustomersClient;
+  /** Ídem para el email del emisor, que sale de `svc-users` (MOVO-100). */
+  usersClient?: UsersClient;
   /** Ídem para el aviso a svc-shipments y las alertas del webhook (MOVO-268). */
   shipmentsClient?: ShipmentsClient;
   alertNotifier?: AlertNotifier;
@@ -61,9 +73,18 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     oauthClient: opts.mercadoPagoOAuthClient ?? new FetchMercadoPagoOAuthClient(),
   });
 
+  app.register(mpTokenRefreshSweepPlugin, {
+    ...(opts.mpTokenRefreshSweepEnabled !== undefined ? { enabled: opts.mpTokenRefreshSweepEnabled } : {}),
+  });
+
   app.decorate("mercadoPago", opts.mercadoPagoClient ?? new SdkMercadoPagoClient());
   // Después de `mercadoPago`: el service de holds lo toma de `app` (MOVO-209).
   app.register(holdsPlugin);
+  // MOVO-100: tarjetas guardadas del emisor. Necesita env, DB y Redis.
+  app.register(cardsPlugin, {
+    customersClient: opts.mercadoPagoCustomersClient,
+    usersClient: opts.usersClient,
+  });
   // MOVO-212: captura del hold y liquidación, también sobre `mercadoPago`.
   app.register(capturesPlugin);
   // Después de `holds`: reconcilia intentos en `creating` con su service (MOVO-268).
@@ -94,6 +115,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(holdsRoutes, { prefix: "/internal/payments/holds" });
   // MOVO-212: captura (`/by-shipment/:id/capture`) y liquidación (`/by-shipment/:id/settlement`).
   app.register(settlementsRoutes, { prefix: "/internal/payments/holds" });
+
+  // MOVO-100: interno, lo llama svc-users al dar de baja una cuenta (MOVO-39).
+  app.register(cardsInternalRoutes, { prefix: "/internal/payments/users" });
 
   // MOVO-116: interno, lo llama svc-shipments para el bloqueo del transportista.
   app.register(mpConnectInternalRoutes, { prefix: "/internal/payments/mp-connect" });

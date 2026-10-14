@@ -4396,3 +4396,78 @@ pantalla sin foco (prop `paused`) o la app en segundo plano. Los pines usan `Sta
 (`components/map/static-marker.tsx`, compartido con `trip-detail-map`) y el mapa apaga capas y
 controles que no usa. Pendiente: pausar el barrido cuando la card sale de pantalla dentro del
 mismo scroll; si el scroll del detalle sigue trabado, desactivar gestos del mapa o mostrarlo como imagen.
+
+### MOVO-167 — Tab Transportar bloqueado sin licencia verificada + pulido del header
+
+`transport.tsx` lee `kycStatus`/`licenseKycStatus` de `useMyProfile()` y, vía
+`resolveTransportGate` (`src/lib/carrier-requirements.ts`), bloquea primero por identidad
+(perfil o 403 `CARRIER_NOT_VERIFIED` del feed) y después por licencia. El bloqueo reemplaza
+listado, zona, accesos, radio y filtros (también en modo `?tripId=`); mientras dura no se
+resuelve el origen (no pide GPS) ni se piden envíos. Al ganar foco con el bloqueo activo se
+refetchea el perfil (y el feed, si el bloqueo vino de su 403), así volver de `/kyc` o
+`/license-kyc` lo destraba sin reabrir la app; el bloqueo también tiene pull-to-refresh, para
+cuando la licencia se aprueba sin salir del tab. Si el perfil falla no se deja pasar: se
+muestra el error con "Reintentar" (decisión de la review, el bloqueo es UX pero sin perfil no
+se sabe qué falta). La autoridad sigue siendo el backend (ADR-036).
+
+- **`CarrierRequirementGate`** (`components/carrier/`) es genérico (ícono, título, texto, CTA)
+  y lo usan ambos bloqueos. MOVO-117 reemplaza la rama de licencia por una checklist propia
+  (licencia + Mercado Pago, sin MP tampoco se navega el tab) y no reutiliza este componente,
+  que queda para el bloqueo de identidad. El copy de licencia varía por estado (`licenseGateCopy`): en
+  `manual_review` dice "Estamos revisando tu licencia" con "Ver estado", porque pedir
+  "verificá" sobre algo ya enviado se lee como error. El CTA pasa `status` a `/license-kyc`,
+  igual que el banner de Perfil.
+- **Header**: chip de zona más legible (pin en `fg`, 13px) y con `PressableScale`; "Mi ruta de
+  hoy" y los accesos "Mis viajes"/"Mis ofertas" también con `PressableScale` y labels de
+  accesibilidad. Los íconos de los accesos eran lima puro sobre `bg-bg-sub`, ilegibles en modo
+  claro: ahora van en un círculo `bg-lime-500/20` con el color de texto del tema.
+- El AC2 describía el header anterior a MOVO-183 ("Envíos cerca de…", "Cambiar", pill "Mis
+  viajes"); se pulió el header actual en vez de volver a ese diseño.
+
+**Fuera del ticket, en el mismo PR (commit aparte)**: "Actividad reciente" del Inicio decía
+"Todavía no hiciste ningún envío." cuando el usuario tenía historial pero todo oculto
+(cancelados de más de 48h, MOVO-184). Ahora dice "No tenés actividad reciente." y el link a
+"Mis envíos" sigue visible.
+
+Probado en device.
+### Tarjetas guardadas (MOVO-101, MOVO-269; ADR-039 propuesto): diseño acordado, sin implementar
+
+- **MOVO-101** (asignado a Tomás): `app/(app)/profile/payments.tsx` ("Pagos y cobros", hoy solo el
+  vínculo con MP de MOVO-112) suma la sección "Mis tarjetas" para emisor y transportista: alta
+  tokenizada en el dispositivo con la `public_key` de Movo (`GET /payments/cards/checkout-data`),
+  listado, predeterminada y baja (`409 CARD_IN_USE`). El alta es un componente reutilizable.
+- **MOVO-269** (Juan Cruz): pago con tarjeta guardada + CVV. Genera el token en el dispositivo con
+  `card_id` + CVV y la `public_key` del transportista (`carrierPublicKey` de `GET /shipments/:id/funding`)
+  y lo manda a `POST /shipments/:id/funding` con `savedCardId`. Sin tarjetas guardadas abre el alta de
+  MOVO-101 y pide el CVV de nuevo (el token de alta es de la `public_key` de Movo, no sirve para pagar).
+- **Nombre de referencia**: campo opcional en el alta (40 caracteres), renombrable desde la lista;
+  es el título de la tarjeta en la lista y en el selector de MOVO-269, que siempre muestra también
+  los últimos 4.
+- El CVV no se guarda, no se loguea ni va al store. Un solo campo no requiere Brick: un `TextInput`
+  seguro que llama directo a `v1/card_tokens` es lo que se validó. Decisión de captura del alta
+  (Bricks en WebView / Secure Fields / formulario propio) a documentar al arrancar MOVO-101.
+### MOVO-281 — Navegación al tocar todas las notificaciones push
+
+`resolveNotificationRoute` (`use-push-notifications.ts`, ahora exportada) rutea cada `data.type`
+que manda el backend, no solo 9. Envíos (`shipment_accepted`, `shipment_cancelled`, `custody_*`,
+`trip_started`, `rating_pending`, `carrier_nearby` de MOVO-240) → detalle del envío;
+`shipment_rejected` → elegir otro receptor; `offer_created` → ofertas del envío;
+`offer_superseded`/`offer_rejected`/`offer_voided` → detalle de la oferta (el del envío le daba 403
+al transportista que perdió); `trip_auto_created` → detalle del viaje (antes el feed filtrado, de
+cuando no existía); `trip_match`/`trip_reminder` → feed filtrado por viaje; `account_*` →
+`/profile/security`; `kyc_result` → Inicio si quedó en revisión o se aprobó la identidad,
+Transportar si se aprobó la licencia, y a reintentar (`/kyc` o `/license-kyc` con `status`) si
+se rechazó. Un resultado de oferta sin `offerId` (push vieja) abre "Mis ofertas". Un tipo desconocido, o un `data` sin el id
+que necesita la ruta, devuelve `null` y no navega. Tests en
+`test/resolve-notification-route.test.ts`. Con MOVO-240, la categoría "Transportista en camino"
+deja de mostrarse como "Pronto" en Configuración de notificaciones.
+
+Para probarlo sin push remota (el team de Apple es individual y el build local va con
+`ENABLE_PUSH_NOTIFICATIONS=false`), `/dev-shortcuts` tiene "Navegación de notificaciones":
+programa una notificación local a 10 s con el mismo `data` que manda el backend, y muestra
+la ruta que resuelve cada tipo. Al tocarla pasa por el mismo handler que una push real.
+
+Gotcha de entorno: con un `ios/` local generado (Pods y build, ~2 GB) jest se cuelga armando el
+mapa de módulos sin mostrar nada. Correrlo con
+`--modulePathIgnorePatterns '<rootDir>/ios' '<rootDir>/android'`.
+

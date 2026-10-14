@@ -39,6 +39,8 @@ export interface EnvConfig {
   PICKUP_MISSED_GRACE_HOURS: number;
   TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: number;
   TRANSIT_ANOMALY_SWEEP_ENABLED?: boolean;
+  TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES: number;
+  TRIP_DEPARTURE_REMINDER_SWEEP_ENABLED?: boolean;
   IN_TRANSIT_ANOMALY_FALLBACK_HOURS: number;
   FUNDING_NEAR_PICKUP_DAYS: number;
   FUNDING_PAYMENT_TIMEOUT_MINUTES: number;
@@ -163,6 +165,8 @@ export const envSchema = {
     // El fallback aplica solo si la oferta aceptada no declaró entrega estimada.
     TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     TRANSIT_ANOMALY_SWEEP_ENABLED: { type: "boolean", default: true },
+    TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
+    TRIP_DEPARTURE_REMINDER_SWEEP_ENABLED: { type: "boolean", default: true },
     IN_TRANSIT_ANOMALY_FALLBACK_HOURS: { type: "number", default: 48 },
     // MOVO-210 / MOVO-215: "N" de la saga. Un retiro a N días o menos toma la ruta cercana (el
     // emisor paga al aceptar); a más de N, la ruta lejana (`assigned_unfunded` + ventana de

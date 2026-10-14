@@ -44,6 +44,26 @@ export interface CarrierMpCredentials {
   updatedAt: Date;
 }
 
+/** MOVO-243: una vinculación a renovar, con el refresh_token ya descifrado. */
+export interface RefreshCandidate {
+  userId: string;
+  mpUserId: string;
+  refreshToken: string;
+  /**
+   * Opaco: identifica los tokens que se leyeron. `saveRefreshedTokens`/`markRevoked` solo
+   * escriben si la fila sigue con esos mismos tokens, así un re-vincular o desvincular que
+   * ocurra mientras se espera a MP no se pisa.
+   */
+  version: string;
+}
+
+export interface RefreshedTokensData {
+  accessToken: string;
+  refreshToken: string;
+  scope: string | null;
+  tokenExpiresAt: Date;
+}
+
 export interface CarrierMpAccountRepository {
   /** La fila tal cual: `accessToken`/`refreshToken` vienen cifrados. */
   findByUserId(userId: string): Promise<CarrierMpAccount | null>;
@@ -69,6 +89,35 @@ export interface CarrierMpAccountRepository {
    * `svc-shipments` para no dejar operar a quien después caería en el 409 del hold.
    */
   hasActiveCredentials(userId: string, now: Date): Promise<boolean>;
+  /**
+   * MOVO-243 AC1: vinculaciones vigentes (ni desvinculadas ni revocadas) cuyo token vence
+   * antes de `expiresBefore`, incluidas las ya vencidas (se intenta recuperarlas), las
+   * que se intentaron hace más tiempo primero. Descifra solo el `refresh_token`; una fila
+   * que no se puede descifrar (otra key, corrupta) se omite y se avisa por `onUnreadable`
+   * en vez de frenar a las demás.
+   */
+  findDueForRefresh(
+    expiresBefore: Date,
+    limit: number,
+    onUnreadable?: (userId: string) => void
+  ): Promise<RefreshCandidate[]>;
+  /**
+   * MOVO-243: anota que se intentó renovar esta vinculación (toca `updated_at`, mismo CAS
+   * que `saveRefreshedTokens`). `findDueForRefresh` ordena por el intento más viejo, así
+   * una fila que falla siempre rota al final del lote y no acapara los 100 lugares.
+   */
+  touchRefreshAttempt(userId: string, version: string, now: Date): Promise<void>;
+  /**
+   * MOVO-243 AC2: reemplaza `access_token`, `refresh_token` y `token_expires_at` si la
+   * fila sigue vigente con los tokens de `version`. `false` = alguien la cambió en el
+   * medio (re-vinculó, desvinculó) y no se escribió nada.
+   */
+  saveRefreshedTokens(userId: string, version: string, data: RefreshedTokensData): Promise<boolean>;
+  /**
+   * MOVO-243 AC3: marca `revoked_at` con la misma condición que `saveRefreshedTokens`.
+   * Conserva los tokens (ya no sirven; `findCredentials` filtra por `revoked_at`).
+   */
+  markRevoked(userId: string, version: string, now: Date): Promise<boolean>;
   /**
    * Vincula (o re-vincula) la cuenta del usuario: pisa tokens y datos, y limpia
    * `revokedAt`/`unlinkedAt`. Tira `MpAccountAlreadyLinkedError` si esa cuenta de MP
@@ -162,6 +211,71 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
         tokenExpiresAt: row.tokenExpiresAt,
         updatedAt: row.updatedAt,
       };
+    },
+
+    async findDueForRefresh(expiresBefore, limit, onUnreadable) {
+      const rows = await db.carrierMpAccount.findMany({
+        where: {
+          unlinkedAt: null,
+          revokedAt: null,
+          accessToken: { not: null },
+          refreshToken: { not: null },
+          tokenExpiresAt: { lt: expiresBefore },
+        },
+        // `updated_at` solo cambia al guardar o al anotar un intento (`touchRefreshAttempt`):
+        // la que se intentó hace más tiempo va primera y las que fallan rotan.
+        orderBy: [{ updatedAt: "asc" }, { tokenExpiresAt: "asc" }],
+        take: limit,
+      });
+      const candidates: RefreshCandidate[] = [];
+      for (const row of rows) {
+        if (!row.refreshToken) continue;
+        try {
+          candidates.push({
+            userId: row.userId,
+            mpUserId: row.mpUserId,
+            refreshToken: cipher.decrypt(row.refreshToken),
+            version: row.refreshToken,
+          });
+        } catch {
+          onUnreadable?.(row.userId);
+          // Se anota el intento para que rote y no quede siempre primera en el lote.
+          await db.carrierMpAccount.updateMany({
+            where: { userId: row.userId, refreshToken: row.refreshToken },
+            data: { updatedAt: new Date() },
+          });
+        }
+      }
+      return candidates;
+    },
+
+    async touchRefreshAttempt(userId, version, now) {
+      await db.carrierMpAccount.updateMany({
+        where: { userId, unlinkedAt: null, revokedAt: null, refreshToken: version },
+        data: { updatedAt: now },
+      });
+    },
+
+    async saveRefreshedTokens(userId, version, data) {
+      const result = await db.carrierMpAccount.updateMany({
+        where: { userId, unlinkedAt: null, revokedAt: null, refreshToken: version },
+        data: {
+          accessToken: cipher.encrypt(data.accessToken),
+          refreshToken: cipher.encrypt(data.refreshToken),
+          tokenExpiresAt: data.tokenExpiresAt,
+          // Si MP no devuelve `scope` en el refresh, se conserva el de la vinculación.
+          ...(data.scope !== null ? { scope: data.scope } : {}),
+        },
+      });
+      return result.count > 0;
+    },
+
+    async markRevoked(userId, version, now) {
+      const result = await db.carrierMpAccount.updateMany({
+        where: { userId, unlinkedAt: null, revokedAt: null, refreshToken: version },
+        data: { revokedAt: now },
+      });
+      return result.count > 0;
     },
 
     async upsertLinked(userId, data, now) {

@@ -438,9 +438,27 @@ propios), `ChatMessagesPage` (`access`, `archived`, `reportedByMe`), `ChatPartic
 `CHAT_PAGE_MAX_LIMIT`, más `CHAT_MODERATION_WARNING` (el aviso de respeto que muestran los clientes cuando el filtro
 de lenguaje tapó palabras de un mensaje propio). `ApiErrorCode` suma `CHAT_CLOSED` y `CHAT_READ_ONLY`; el trigger
 `chatMessageReceived` va en la categoría `chat`, que pasa a `implemented: true`.
+### MOVO-240 — Triggers de recordatorio de viaje y proximidad
+
+`config/notification-templates.ts` suma `tripDepartureReminder` (categoría `trips`), con un copy
+que cambia según `packagesCount` (con paquetes invita a sumar uno más, sin paquetes a buscar),
+y `carrierNearPickup`/`carrierNearDelivery` (categoría `proximity`). En
+`notification-categories.ts`, `proximity` pasa a `implemented: true` y `quietHoursExempt: true`:
+el aviso de "está por llegar" sirve justo cuando llega, sea la hora que sea. Tests en
+`test/notification-templates.test.ts`.
 ### MOVO-268 — Códigos del webhook de Mercado Pago
 
 `ApiErrorCode` suma `PAYMENT_WEBHOOK_INVALID_SIGNATURE` (401, `x-signature` ausente o
 inválida) y `PAYMENT_WEBHOOK_NOT_CONFIGURED` (503, falta `MP_WEBHOOK_SECRET`). Los consume
 solo MP, no la app. `HoldProviderEventRequest` (MOVO-210) no cambia: "vencido" sigue siendo
 `event: expired`.
+
+### MOVO-100 — Contrato de las tarjetas guardadas (`types/saved-card.ts`)
+
+`SavedCard` (con `mpCardId` y `alias`), `CreateSavedCardRequest`, `UpdateSavedCardRequest`,
+`CardsCheckoutDataResponse` y las constantes `MAX_SAVED_CARDS_PER_USER` (10) y
+`SAVED_CARD_ALIAS_MAX_LENGTH` (40). Wire contract de `/payments/cards` (`svc-payments`), para
+MOVO-101/269 en mobile. `ApiErrorCode` suma `CARD_IN_USE`, `CARD_LIMIT_REACHED`, `CARD_SAVE_REJECTED`
+(422, `details.providerCode`), `CARD_CUSTOMER_CONFLICT` (409, el customer de MP del email ya es
+de otra cuenta) y `CARDS_NOT_CONFIGURED`. Recordatorio habitual: `npm run build` acá antes
+de tipar desde otro workspace.

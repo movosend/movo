@@ -549,6 +549,14 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect(paymentsClient.holds.get(shipmentId)?.status).toBe("cancelled");
       expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.CANCELLED);
       expect(pushedTitles(winner.carrierId)).toContain("Tu oferta fue cancelada");
+      // MOVO-281: el aviso lleva la oferta, no el envío (al transportista el detalle del envío
+      // cancelado le responde 403).
+      expect(notificationsClient.sendPush).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: winner.carrierId,
+          data: { type: "offer_voided", shipmentId, offerId: winner.id },
+        }),
+      );
     });
 
     it("cancela primero y libera después: si la liberación falla el envío igual queda cancelado", async () => {

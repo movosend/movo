@@ -20,6 +20,8 @@ import {
   MpAccountAlreadyLinkedError,
 } from "../../repositories/carrier-mp-account-repository";
 import { MpConnectStateStore } from "./mp-connect-state-store";
+import { RefreshStrikeStore } from "./mp-refresh-strike-store";
+import { PendingTokensStore } from "./mp-pending-tokens-store";
 import { parseEncryptionKey } from "../../utils/token-cipher";
 
 export const MP_AUTHORIZATION_URL = "https://auth.mercadopago.com/authorization";
@@ -35,9 +37,34 @@ export interface MpConnectServiceDeps {
   config: EnvConfig;
   repository: CarrierMpAccountRepository;
   stateStore: MpConnectStateStore;
+  strikeStore: RefreshStrikeStore;
+  pendingTokensStore: PendingTokensStore;
+  /** Espera entre reintentos del guardado; inyectable para no dormir de verdad en tests. */
+  sleep?: (ms: number) => Promise<void>;
   oauthClient: MercadoPagoOAuthClient;
   log: FastifyBaseLogger;
   now?: () => Date;
+}
+
+/** Tope de vinculaciones por corrida: el resto entra en la siguiente (se ordenan por vencimiento). */
+export const TOKEN_REFRESH_BATCH_SIZE = 100;
+/**
+ * Esperas entre los intentos de guardar los tokens ya rotados por MP (3 intentos en total):
+ * cubren un corte de la base de unos segundos. Pasado eso se deja un respaldo en Redis.
+ */
+const SAVE_RETRY_DELAYS_MS = [500, 2000];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Resultado de una corrida de renovación (MOVO-243), para el log y los tests. */
+export interface TokenRefreshSummary {
+  checked: number;
+  refreshed: number;
+  revoked: number;
+  /** Fallos transitorios (red, MP caído): se reintentan en la próxima corrida. */
+  failed: number;
+  /** La fila cambió mientras se esperaba a MP (re-vinculó/desvinculó): no se escribió. */
+  skipped: number;
 }
 
 export function successReturnUrl(): string {
@@ -73,7 +100,8 @@ export function toStatusResponse(account: CarrierMpAccount | null, now: Date): M
 }
 
 export function createMpConnectService(deps: MpConnectServiceDeps) {
-  const { config, repository, stateStore, oauthClient, log } = deps;
+  const { config, repository, stateStore, strikeStore, pendingTokensStore, oauthClient, log } = deps;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const now = deps.now ?? (() => new Date());
 
   /** 503 si faltan las credenciales de la app, o la key para cifrar los tokens. */
@@ -209,6 +237,143 @@ export function createMpConnectService(deps: MpConnectServiceDeps) {
 
     async unlink(userId: string): Promise<void> {
       await repository.unlink(userId, now());
+    },
+
+    /**
+     * MOVO-243: renueva los tokens que vencen dentro de `MP_TOKEN_REFRESH_WINDOW_DAYS`.
+     * Lo dispara el barrido periódico (`plugins/mp-token-refresh-sweep.ts`), nunca el
+     * cobro (AC1). Una vinculación a la vez: son pocas por corrida y así un MP lento no
+     * se multiplica en conexiones paralelas.
+     *
+     * - 200 → se guardan `access_token` y `refresh_token` nuevos y el vencimiento (AC2).
+     * - 400 `invalid_grant` en dos corridas seguidas sobre el mismo token → `revoked_at`; ya
+     *   no entra en las próximas corridas (AC3). La primera vez solo se registra.
+     * - cualquier otro fallo → no se toca la fila y se reintenta en la próxima (AC4).
+     * Nunca se loguea un token.
+     */
+    async refreshDueTokens(): Promise<TokenRefreshSummary> {
+      const summary: TokenRefreshSummary = { checked: 0, refreshed: 0, revoked: 0, failed: 0, skipped: 0 };
+      let credentials: Pick<OAuthAppCredentials, "clientId" | "clientSecret" | "testToken">;
+      try {
+        parseEncryptionKey(requireMercadoPagoSecret(config, "MP_TOKEN_ENCRYPTION_KEY"));
+        credentials = {
+          clientId: requireMercadoPagoSecret(config, "MP_CLIENT_ID"),
+          clientSecret: requireMercadoPagoSecret(config, "MP_CLIENT_SECRET"),
+          testToken: config.MP_TEST_MODE,
+        };
+      } catch (error) {
+        // error y no warn: en prod esas credenciales siguen sin cargar y, sin una alerta
+        // visible, los tokens de 180 días vencerían sin que nadie se entere.
+        log.error({ reason: (error as Error).message }, "renovación de tokens de MP OMITIDA: sin configurar");
+        return summary;
+      }
+
+      const dueBefore = new Date(now().getTime() + config.MP_TOKEN_REFRESH_WINDOW_DAYS * DAY_MS);
+      const candidates = await repository.findDueForRefresh(dueBefore, TOKEN_REFRESH_BATCH_SIZE, (userId) =>
+        log.error({ userId }, "no se pudo descifrar el refresh_token de una vinculación de MP, se omite")
+      );
+      summary.checked = candidates.length;
+
+      for (const { userId, mpUserId, refreshToken, version } of candidates) {
+        try {
+          // Si una corrida anterior dejó los tokens ya rotados sin poder guardarlos, se
+          // persisten ESOS: el `refresh_token` de la base ya no sirve y pedir otro refresh
+          // terminaría en `invalid_grant`.
+          const pending = await pendingTokensStore.find(userId).catch(() => null);
+          if (pending && pending.version === version) {
+            const restored = await repository.saveRefreshedTokens(userId, version, pending.tokens);
+            await pendingTokensStore.clear(userId).catch(() => undefined);
+            await strikeStore.clear(userId).catch(() => undefined);
+            if (restored) {
+              summary.refreshed += 1;
+              log.info({ userId, mpUserId }, "tokens de MP renovados (recuperados del respaldo)");
+            } else {
+              summary.skipped += 1;
+            }
+            continue;
+          }
+          if (pending) await pendingTokensStore.clear(userId).catch(() => undefined);
+
+          const refreshed = await oauthClient.refreshTokens(credentials, refreshToken);
+          // MP ya rotó el refresh_token: si el guardado falla se reintenta con una pausa
+          // corta y, si sigue fallando, se deja un respaldo en Redis. Si no, en la corrida
+          // siguiente el token viejo daría `invalid_grant` y se revocaría una cuenta sana.
+          const tokensToSave = {
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken,
+            scope: refreshed.scope,
+            tokenExpiresAt: new Date(now().getTime() + refreshed.expiresInSeconds * 1000),
+          };
+          let saved = false;
+          for (let attempt = 0; ; attempt += 1) {
+            try {
+              saved = await repository.saveRefreshedTokens(userId, version, tokensToSave);
+              break;
+            } catch (saveError) {
+              if (attempt >= SAVE_RETRY_DELAYS_MS.length) {
+                const backedUp = await pendingTokensStore
+                  .save(userId, { version, tokens: tokensToSave })
+                  .then(() => true)
+                  .catch(() => false);
+                log.error(
+                  { userId, mpUserId, backedUp },
+                  "no se pudieron guardar los tokens de MP ya rotados en la base"
+                );
+                throw saveError;
+              }
+              await sleep(SAVE_RETRY_DELAYS_MS[attempt]);
+            }
+          }
+          if (saved) {
+            await strikeStore.clear(userId).catch(() => undefined);
+            summary.refreshed += 1;
+            log.info({ userId, mpUserId }, "tokens de MP renovados");
+          } else {
+            summary.skipped += 1;
+            log.warn({ userId, mpUserId }, "la vinculación de MP cambió durante la renovación, se descarta");
+          }
+        } catch (error) {
+          // Se anota el intento para que, si sigue fallando, no acapare el lote.
+          await repository.touchRefreshAttempt(userId, version, now()).catch(() => undefined);
+          if (error instanceof MercadoPagoOAuthError && error.isRevocation()) {
+            try {
+              // `invalid_grant` no siempre es una revocación (otra corrida pudo canjear el
+              // token): se exige verlo dos corridas seguidas sobre el mismo token.
+              if ((await strikeStore.strike(userId, version)) < 2) {
+                summary.failed += 1;
+                log.warn(
+                  { userId, mpUserId },
+                  "MP rechazó el refresh_token (invalid_grant), se confirma en la próxima corrida antes de revocar"
+                );
+                continue;
+              }
+              if (await repository.markRevoked(userId, version, now())) {
+                summary.revoked += 1;
+                log.warn({ userId, mpUserId }, "el transportista revocó el acceso a MP: vinculación marcada");
+              } else {
+                summary.skipped += 1;
+              }
+            } catch (markError) {
+              summary.failed += 1;
+              log.error({ userId, mpUserId, err: markError }, "no se pudo marcar la vinculación de MP como revocada");
+            }
+            continue;
+          }
+          summary.failed += 1;
+          log.warn(
+            {
+              userId,
+              mpUserId,
+              status: error instanceof MercadoPagoOAuthError ? error.status : null,
+              reason: error instanceof Error ? error.message : "unknown",
+            },
+            "no se pudieron renovar los tokens de MP, se reintenta en la próxima corrida"
+          );
+        }
+      }
+
+      if (summary.checked > 0) log.info(summary, "corrida de renovación de tokens de MP");
+      return summary;
     },
   };
 }
