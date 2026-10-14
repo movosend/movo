@@ -187,7 +187,7 @@ describe("ShipmentDetailScreen — chat del envío (MOVO-284)", () => {
     const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
 
     expect(getByTestId("shipment-detail-chat")).toBeTruthy();
-    expect(getByText("El envío finalizó. Podés leer la conversación, ya no admite mensajes.")).toBeTruthy();
+    expect(getByText("El envío finalizó. El chat queda en solo lectura y se archiva en 24 h.")).toBeTruthy();
   });
 
   it("sin transportista no hay chat", async () => {
@@ -216,6 +216,7 @@ describe("ShipmentDetailScreen — chat del envío (MOVO-284)", () => {
 
     const { getByText } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("El envío finalizó. Podés leer la conversación, ya no admite mensajes.")).toBeTruthy();
+    // Sin entrega: no puede decir que el envío finalizó.
+    expect(getByText("Le pasaste la recepción a otra persona. Podés leer la conversación, no escribir.")).toBeTruthy();
   });
 });

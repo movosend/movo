@@ -1,6 +1,6 @@
-import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
+import { router, useIsFocused, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ChatBubble } from "../../../../components/chat/chat-bubble";
 import { ChatComposer } from "../../../../components/chat/chat-composer";
@@ -31,7 +31,15 @@ const OPEN_ERROR = "No pudimos abrir el chat. Intentá de nuevo en unos minutos.
 export default function ShipmentChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();
-  const chat = useChatConversation(id);
+  // "Al frente" = pantalla enfocada Y app activa: con el celu bloqueado el socket puede seguir vivo un rato y no
+  // alcanza con mirar la navegación.
+  const screenFocused = useIsFocused();
+  const [appActive, setAppActive] = useState(AppState.currentState === "active");
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => setAppActive(next === "active"));
+    return () => sub.remove();
+  }, []);
+  const chat = useChatConversation(id, { focused: screenFocused && appActive });
   const reportMutation = useReportChat(id ?? "");
   const blockedQuery = useBlockedUsers();
   const [safetyOpen, setSafetyOpen] = useState(false);
@@ -145,7 +153,7 @@ export default function ShipmentChatScreen() {
           </View>
         ) : null}
 
-        {chat.canWrite && chat.myRole ? (
+        {!chat.isLoading && !errorMessage && chat.canWrite && chat.myRole ? (
           <QuickReplies testID="chat-quick-replies" replies={CHAT_QUICK_REPLIES[chat.myRole]} onPick={(text) => chat.send(text)} />
         ) : null}
         {!chat.isLoading && !errorMessage ? (

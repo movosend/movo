@@ -5,6 +5,7 @@ import {
   buildChatTimeline,
   chatAvailability,
   chatEventCard,
+  eventsSinceCurrentAssignment,
   chatReadOnlyCopy,
   deliveryStatusLabel,
   formatDayLabel,
@@ -32,8 +33,11 @@ function msg(id: string, authorId: string, at: Date, extra: Partial<ChatMessage>
   };
 }
 
-function event(toStatus: ShipmentStatus, at: Date, id = toStatus): ShipmentEvent {
-  return { id, shipmentId: "s1", fromStatus: null, toStatus, actorId: null, reason: null, createdAt: at.toISOString() };
+function event(toStatus: ShipmentStatus, at: Date, id: string = toStatus, fromStatus: ShipmentStatus | null = null): ShipmentEvent {
+  // Una aceptación entra desde `published`.
+  const from =
+    fromStatus ?? (toStatus === ShipmentStatus.ASSIGNMENT_PENDING || toStatus === ShipmentStatus.ASSIGNED_UNFUNDED ? ShipmentStatus.PUBLISHED : null);
+  return { id, shipmentId: "s1", fromStatus: from, toStatus, actorId: null, reason: null, createdAt: at.toISOString() };
 }
 
 describe("formateo de textos del chat", () => {
@@ -72,6 +76,33 @@ describe("formateo de textos del chat", () => {
     expect(chatReadOnlyCopy({ archived: true, status: ShipmentStatus.DELIVERED, isFormerReceiver: false })).toMatch(/archivado/);
     expect(chatReadOnlyCopy({ archived: false, status: ShipmentStatus.DISPUTED, isFormerReceiver: false })).toMatch(/disputa/);
     expect(chatReadOnlyCopy({ archived: false, status: ShipmentStatus.IN_TRANSIT, isFormerReceiver: true })).toMatch(/recepción/);
+  });
+});
+
+describe("eventos de la asignación vigente", () => {
+  const at = new Date("2026-10-14T12:00:00Z");
+  const viewer = { role: "receiver" as const, carrierFirstName: "Diego", receiverFirstName: "Luis" };
+
+  it("un hold perdido (assigned -> assigned_unfunded) no cuenta como una aceptación nueva", () => {
+    const lost = event(ShipmentStatus.ASSIGNED_UNFUNDED, at, "lost", ShipmentStatus.ASSIGNED);
+    expect(chatEventCard(lost, viewer)).toBeNull();
+  });
+
+  it("descarta los eventos de la asignación anterior y conserva los de la vigente", () => {
+    const t = (min: number) => new Date(at.getTime() + min * 60_000);
+    const events = [
+      event(ShipmentStatus.PUBLISHED, t(0)),
+      event(ShipmentStatus.ASSIGNMENT_PENDING, t(1), "accept-a"),
+      event(ShipmentStatus.PUBLISHED, t(2), "back", ShipmentStatus.ASSIGNMENT_PENDING),
+      event(ShipmentStatus.ASSIGNMENT_PENDING, t(3), "accept-b"),
+      event(ShipmentStatus.ASSIGNED, t(4), "assigned"),
+    ];
+    expect(eventsSinceCurrentAssignment(events).map((e) => e.id)).toEqual(["accept-b", "assigned"]);
+  });
+
+  it("sin ninguna aceptación devuelve todo", () => {
+    const events = [event(ShipmentStatus.IN_TRANSIT, at, "x")];
+    expect(eventsSinceCurrentAssignment(events)).toHaveLength(1);
   });
 });
 

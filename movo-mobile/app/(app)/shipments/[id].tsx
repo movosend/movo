@@ -440,7 +440,13 @@ export default function ShipmentDetailScreen() {
               ) : null}
 
               {chatAccess ? (
-                <ChatAccessCard shipmentId={shipment.id} availability={chatAccess} testID="shipment-detail-chat" />
+                <ChatAccessCard
+                  shipmentId={shipment.id}
+                  availability={chatAccess}
+                  status={shipment.status}
+                  isFormerReceiver={isFormerReceiver}
+                  testID="shipment-detail-chat"
+                />
               ) : null}
 
               {showExpiredBanner ? (

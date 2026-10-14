@@ -2813,6 +2813,10 @@ prototipo "Chat del envío · v2".
   instante. Si el pago vence (MOVO-210) y entra otro transportista, no lee la conversación del anterior; los mensajes
   viejos no se borran y el admin los ve todos. `NULL` = sin corte. Una reasignación al MISMO transportista también
   reinicia el hilo (simplicidad: no se distingue).
+- **Review de PR #238**: el `ChatHub` sabe qué sockets abrió un admin (`register(..., { admin })`) y `sendMessage` solo difunde
+  en vivo a admins y al receptor original, no a un transportista anterior que siga conectado; volver a `published` además corta los
+  sockets del chat. `listShipmentsForUser` aplica el mismo corte por `chat_started_at` que el último mensaje y los no leídos, y la lista
+  resuelve los integrantes en paralelo con esas dos consultas.
 - **`GET /shipments/chats` suma `participants`** (emisor, transportista y receptor con nombre y foto) para los avatares
   de cada fila; `svc-users` se consulta una vez por persona aunque aparezca en varios envíos, y si no responde el
   integrante sale sin datos en vez de romper la lista.

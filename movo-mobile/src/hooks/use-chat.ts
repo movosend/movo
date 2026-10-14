@@ -1,5 +1,5 @@
 import type { ChatListItem, ChatMessage, ChatMessagesPage } from "@movo/shared/dist/types/chat";
-import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type InfiniteData, type QueryClient, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { chatClient } from "../api/chat-client";
 import { moderationClient } from "../api/moderation-client";
 import { invalidateBlockDependentQueries } from "./use-moderation";
@@ -81,6 +81,53 @@ export function upsertMessageInCache(
   return { ...data, pages: [{ ...first, items }, ...rest] };
 }
 
+/**
+ * Deja solo la primera página en el caché y la vuelve a pedir. Los tildes y lo que cambió mientras el canal estuvo
+ * caído están en los mensajes recientes: no hace falta repetir los GET de todas las páginas ya cargadas.
+ */
+export function refetchFirstMessagesPage(queryClient: QueryClient, shipmentId: string): void {
+  queryClient.setQueryData<InfiniteData<ChatMessagesPage>>(chatKeys.messages(shipmentId), (data) =>
+    data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data,
+  );
+  void queryClient.invalidateQueries({ queryKey: chatKeys.messages(shipmentId) });
+}
+
+/**
+ * Refleja un mensaje nuevo en la lista de chats sin volver a pedirla (cada pedido son consultas a `svc-users` en el
+ * backend). Si el envío todavía no está en la lista se invalida, que es la única forma de traerlo.
+ */
+export function patchChatListWithMessage(
+  queryClient: QueryClient,
+  message: ChatMessage,
+  options: { fromMe: boolean; seen: boolean },
+): void {
+  const current = queryClient.getQueryData<{ items: ChatListItem[] }>(chatKeys.list);
+  if (!current || !current.items.some((item) => item.shipmentId === message.shipmentId)) {
+    void queryClient.invalidateQueries({ queryKey: chatKeys.list });
+    return;
+  }
+  const items = current.items
+    .map((item) =>
+      item.shipmentId === message.shipmentId
+        ? {
+            ...item,
+            lastMessage: {
+              authorId: message.authorId,
+              authorName: message.authorName,
+              body: message.hidden ? "" : message.body,
+              hidden: message.hidden,
+              createdAt: message.createdAt,
+            },
+            lastActivityAt: message.createdAt,
+            // Un mensaje oculto (bloqueo) no suma, igual que en el servidor.
+            unreadCount: options.fromMe || options.seen || message.hidden ? item.unreadCount : item.unreadCount + 1,
+          }
+        : item,
+    )
+    .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+  queryClient.setQueryData<{ items: ChatListItem[] }>(chatKeys.list, { items });
+}
+
 export function useSendChatMessage(shipmentId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -90,7 +137,7 @@ export function useSendChatMessage(shipmentId: string) {
       queryClient.setQueryData<InfiniteData<ChatMessagesPage>>(chatKeys.messages(shipmentId), (data) =>
         upsertMessageInCache(data, message),
       );
-      void queryClient.invalidateQueries({ queryKey: chatKeys.list });
+      patchChatListWithMessage(queryClient, message, { fromMe: true, seen: true });
     },
   });
 }

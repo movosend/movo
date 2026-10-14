@@ -2,12 +2,17 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { ChevronRight, MessageCircle } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
+import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { chatReadOnlyCopy } from "../../src/lib/chat-format";
 
 export interface ChatAccessCardProps {
   shipmentId: string;
   /** `read_only`: el envío ya se entregó, la conversación se puede leer pero no escribir. */
   availability: "open" | "read_only";
+  /** Estado del envío y si quien mira es el receptor original: deciden el texto de solo lectura. */
+  status?: ShipmentStatus;
+  isFormerReceiver?: boolean;
   testID?: string;
 }
 
@@ -16,7 +21,7 @@ export interface ChatAccessCardProps {
  * y `OffersBanner` (borde, ícono en cuadrado de 42, título de 15 y subtítulo de 12). Con el chat abierto el ícono
  * va en el lima de marca; en solo lectura, apagado.
  */
-export function ChatAccessCard({ shipmentId, availability, testID }: ChatAccessCardProps) {
+export function ChatAccessCard({ shipmentId, availability, status, isFormerReceiver = false, testID }: ChatAccessCardProps) {
   const colors = useThemeColors();
   const open = availability === "open";
 
@@ -39,7 +44,7 @@ export function ChatAccessCard({ shipmentId, availability, testID }: ChatAccessC
         <Text className="mt-0.5 font-sans text-[12px] text-fg-3">
           {open
             ? "Coordiná el retiro y la entrega con las otras partes."
-            : "El envío finalizó. Podés leer la conversación, ya no admite mensajes."}
+            : chatReadOnlyCopy({ archived: false, status, isFormerReceiver })}
         </Text>
       </View>
       <ChevronRight size={18} color={colors.fg3} strokeWidth={2} />

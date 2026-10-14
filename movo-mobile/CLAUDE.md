@@ -4499,8 +4499,7 @@ caché), `use-chat-channel.ts` (WebSocket de recepción, calcado de `use-shipmen
 - **Dónde se entra** (decidido con el usuario sobre un mockup): ícono de mensajes de 36 px en el header de
   Inicio con el total de no leídos (`HomeChatButton`) hacia la lista, y un botón de chat con contador dentro de
   la card de cada envío activo (`ActiveShipmentCard` recibe `chat` por prop desde `RoleSection`, que lo toma de
-  `useChatList` en `home.tsx`: solo los envíos que ya tienen chat lo muestran). No se tocó la barra de tabs ni el
-`useChatList` en `home.tsx`: solo los envíos que ya tienen chat lo muestran). La push `chat_message` abre la
+  `useChatList` en `home.tsx`: solo los envíos que ya tienen chat lo muestran). La push `chat_message` abre la
   conversación (`resolveNotificationRoute`). El detalle del envío suma `ChatAccessCard` para las tres partes desde que hay
   transportista (`chatAvailability`, misma regla que `resolveChatAccess` del backend; entregado queda como solo
   lectura). Aceptar una oferta y el pull-to-refresh de Inicio refrescan la lista de chats: un envío en

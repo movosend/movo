@@ -116,6 +116,9 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
   switch (event.toStatus) {
     case ShipmentStatus.ASSIGNMENT_PENDING:
     case ShipmentStatus.ASSIGNED_UNFUNDED:
+      // Solo la entrada desde `published` es una aceptación: `assigned → assigned_unfunded` es un hold perdido
+      // (ADR-037) y nadie aceptó nada.
+      if (event.fromStatus !== ShipmentStatus.PUBLISHED) return null;
       return card(isCarrier ? "Aceptaste el envío" : `${carrier} aceptó el envío`);
     case ShipmentStatus.IN_TRANSIT:
       return card(
@@ -131,6 +134,22 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
     default:
       return null;
   }
+}
+
+/**
+ * Eventos de la asignación vigente. Cada asignación arranca una conversación limpia (el backend corta el hilo en
+ * `chat_started_at`, que fija la aceptación): si el pago caducó y entró otro transportista, las tarjetas de la
+ * asignación anterior ("X aceptó el envío") no se muestran. El corte es la última entrada desde `published`.
+ */
+export function eventsSinceCurrentAssignment(events: readonly ShipmentEvent[]): ShipmentEvent[] {
+  let start = -1;
+  events.forEach((event, index) => {
+    const accepted =
+      event.fromStatus === ShipmentStatus.PUBLISHED &&
+      (event.toStatus === ShipmentStatus.ASSIGNMENT_PENDING || event.toStatus === ShipmentStatus.ASSIGNED_UNFUNDED);
+    if (accepted) start = index;
+  });
+  return start === -1 ? [...events] : events.slice(start);
 }
 
 export type ChatTimelineItem =

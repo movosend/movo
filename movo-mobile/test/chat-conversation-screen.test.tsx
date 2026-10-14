@@ -8,6 +8,7 @@ import type { ChatTimelineItem, LocalChatMessage } from "../src/lib/chat-format"
 jest.mock("expo-router", () => ({
   router: { back: jest.fn(), replace: jest.fn(), dismissTo: jest.fn(), canGoBack: () => true },
   useLocalSearchParams: () => ({ id: "s1" }),
+  useIsFocused: () => true,
 }));
 
 const mockChat = jest.fn();

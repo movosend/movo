@@ -8,6 +8,7 @@ import { useAuthStore } from "../store/auth-store";
 import {
   buildChatTimeline,
   chatEventCard,
+  eventsSinceCurrentAssignment,
   type ChatEventCard,
   type LocalChatMessage,
 } from "../lib/chat-format";
@@ -15,6 +16,8 @@ import { useChatChannel } from "./use-chat-channel";
 import {
   chatKeys,
   flattenMessages,
+  patchChatListWithMessage,
+  refetchFirstMessagesPage,
   upsertMessageInCache,
   useChatMessages,
   useChatParticipants,
@@ -71,7 +74,7 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
       carrierFirstName: participants.find((p) => p.role === "carrier")?.firstName ?? null,
       receiverFirstName: participants.find((p) => p.role === "receiver")?.firstName ?? null,
     };
-    return (eventsQuery.data ?? [])
+    return eventsSinceCurrentAssignment(eventsQuery.data ?? [])
       .map((event) => chatEventCard(event, viewer))
       .filter((card): card is ChatEventCard => card !== null);
   }, [eventsQuery.data, participants, me?.role]);
@@ -88,13 +91,40 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
 
   // ── Leído: al ver la conversación y cuando llega un mensaje con la pantalla al frente.
   const lastReadAtRef = useRef(0);
+  const readTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markReadRef = useRef(markReadMutation.mutate);
+  markReadRef.current = markReadMutation.mutate;
   const markRead = useCallback(() => {
     if (!shipmentId || !focused) return;
-    const now = Date.now();
-    if (now - lastReadAtRef.current < READ_THROTTLE_MS) return;
-    lastReadAtRef.current = now;
-    markReadMutation.mutate();
-  }, [shipmentId, focused, markReadMutation]);
+    const elapsed = Date.now() - lastReadAtRef.current;
+    if (elapsed < READ_THROTTLE_MS) {
+      // Dentro de la ventana no se descarta: se agenda una sola llamada para cuando venza, así `last_read_at`
+      // termina después del último mensaje (si no, el autor no vería el tilde de leído).
+      if (!readTimerRef.current) {
+        readTimerRef.current = setTimeout(() => {
+          readTimerRef.current = null;
+          lastReadAtRef.current = Date.now();
+          markReadRef.current();
+        }, READ_THROTTLE_MS - elapsed);
+      }
+      return;
+    }
+    lastReadAtRef.current = Date.now();
+    markReadRef.current();
+  }, [shipmentId, focused]);
+  useEffect(
+    () => () => {
+      if (readTimerRef.current) clearTimeout(readTimerRef.current);
+    },
+    [],
+  );
+  // Si la pantalla deja de estar al frente, un aviso pendiente ya no corresponde: se leería sin que nadie lo vea.
+  useEffect(() => {
+    if (!focused && readTimerRef.current) {
+      clearTimeout(readTimerRef.current);
+      readTimerRef.current = null;
+    }
+  }, [focused]);
 
   const firstItemId = serverMessages[0]?.id;
   useEffect(() => {
@@ -113,26 +143,26 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
   );
 
   const channel = useChatChannel(shipmentId, {
-    enabled: !!shipmentId && !messagesQuery.isError,
+    // Sin la pantalla al frente (bloqueo, segundo plano) se cierra el socket: así el servidor ve al usuario
+    // desconectado, no lo da por entregado/leído y le manda la push.
+    enabled: !!shipmentId && !messagesQuery.isError && focused,
     onMessage: (message: ChatMessage) => {
       if (!shipmentId) return;
       queryClient.setQueryData<InfiniteData<ChatMessagesPage>>(chatKeys.messages(shipmentId), (data) =>
         upsertMessageInCache(data, message),
       );
-      void queryClient.invalidateQueries({ queryKey: chatKeys.list });
+      patchChatListWithMessage(queryClient, message, { fromMe: message.authorId === meId, seen: focused });
       if (message.authorId !== meId) markRead();
     },
     onReceipt: () => {
       if (!shipmentId) return;
       // Los tildes los calcula el servidor: se pide la primera página de nuevo, con debounce.
       if (receiptTimerRef.current) clearTimeout(receiptTimerRef.current);
-      receiptTimerRef.current = setTimeout(() => {
-        void queryClient.invalidateQueries({ queryKey: chatKeys.messages(shipmentId) });
-      }, RECEIPT_REFETCH_DEBOUNCE_MS);
+      receiptTimerRef.current = setTimeout(() => refetchFirstMessagesPage(queryClient, shipmentId), RECEIPT_REFETCH_DEBOUNCE_MS);
     },
     onConnected: () => {
       if (!shipmentId) return;
-      void queryClient.invalidateQueries({ queryKey: chatKeys.messages(shipmentId) });
+      refetchFirstMessagesPage(queryClient, shipmentId);
       // El envío pudo avanzar mientras el canal estuvo caído: las tarjetas ("Retiro confirmado", "Entregado") se actualizan.
       void queryClient.invalidateQueries({ queryKey: ["shipments", "events", shipmentId] });
     },

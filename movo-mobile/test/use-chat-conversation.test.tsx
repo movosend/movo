@@ -65,13 +65,17 @@ function page(items: ChatMessage[], over: Partial<ChatMessagesPage> = {}): ChatM
   return { items, nextCursor: null, access: "open", archived: false, reportedByMe: false, ...over };
 }
 
-async function setup(first: ChatMessagesPage = page([serverMessage({ id: "srv-1", clientMessageId: "c-1", body: "Estoy llegando" })]), participants = [ana, diego]) {
+async function setup(
+  first: ChatMessagesPage = page([serverMessage({ id: "srv-1", clientMessageId: "c-1", body: "Estoy llegando" })]),
+  participants = [ana, diego],
+  options: { focused?: boolean } = {},
+) {
   mockChatClient.listMessages.mockResolvedValue(first);
   mockChatClient.getParticipants.mockResolvedValue({ participants });
   mockChatClient.markRead.mockResolvedValue({ readAt: new Date().toISOString() });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false, gcTime: Infinity } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  const rendered = await renderHook(() => useChatConversation("s1"), { wrapper });
+  const rendered = await renderHook(() => useChatConversation("s1", options), { wrapper });
   return { client, ...rendered };
 }
 
@@ -95,6 +99,29 @@ describe("useChatConversation (MOVO-284)", () => {
     expect(result.current.canWrite).toBe(true);
     // El historial del envío trae la tarjeta "Retiro confirmado" intercalada.
     expect(result.current.timeline.some((i) => i.kind === "event")).toBe(true);
+  });
+
+  it("un mensaje que llega dentro de la ventana de 2 s se marca leído al vencer (no se pierde)", async () => {
+    const { result } = await setup();
+    await waitFor(() => expect(mockChatClient.markRead).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      mockChannelOptions.onMessage?.(serverMessage({ id: "srv-9", clientMessageId: "c-9", body: "Estoy en la puerta" }));
+    });
+    // Dentro de la ventana todavía no sale otra llamada...
+    expect(mockChatClient.markRead).toHaveBeenCalledTimes(1);
+    // ...pero al vencer sale la pendiente.
+    await waitFor(() => expect(mockChatClient.markRead.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 4_000 });
+  });
+
+  it("con la pantalla fuera de foco no marca leído", async () => {
+    const { result } = await setup(undefined, undefined, { focused: false });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await act(async () => {
+      mockChannelOptions.onMessage?.(serverMessage({ id: "srv-9", clientMessageId: "c-9" }));
+    });
+    expect(mockChatClient.markRead).not.toHaveBeenCalled();
   });
 
   it("un mensaje enviado aparece enseguida y, confirmado, queda una sola vez", async () => {
