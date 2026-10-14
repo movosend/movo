@@ -58,6 +58,8 @@ export interface ChatRepository {
   /** Idempotente: devuelve `created: false` si ya había reportado esta conversación. */
   createReport(shipmentId: string, reporterId: string): Promise<{ created: boolean }>;
   hasReport(shipmentId: string, reporterId: string): Promise<boolean>;
+  /** MOVO-288: el reporte por id (para la regla de conflicto de interés de `svc-admin`), o `null`. */
+  findReportById(id: string): Promise<{ id: string; shipmentId: string; reporterId: string } | null>;
   /** Envíos con chat visible para `userId`, el de actividad más reciente primero (último mensaje o cambio de estado). */
   listShipmentsForUser(userId: string, statuses: readonly ShipmentStatus[], limit: number): Promise<ChatShipmentRow[]>;
   /** El último mensaje de cada envío (los envíos sin mensajes no aparecen). */
@@ -200,6 +202,10 @@ export function createChatRepository(db: PrismaClient): ChatRepository {
 
     async hasReport(shipmentId, reporterId) {
       return (await db.chatReport.count({ where: { shipmentId, reporterId } })) > 0;
+    },
+
+    async findReportById(id) {
+      return db.chatReport.findUnique({ where: { id }, select: { id: true, shipmentId: true, reporterId: true } });
     },
 
     async listShipmentsForUser(userId, statuses, limit) {
