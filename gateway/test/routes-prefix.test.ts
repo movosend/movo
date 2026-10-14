@@ -191,11 +191,12 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
   });
 
   describe("Rutas de /admin (MOVO-288)", () => {
-    function issueToken(roles: UserRole[]): string {
+    function issueToken(roles: UserRole[], session?: "panel"): string {
       return signAccessToken({
         sub: "88888888-8888-8888-8888-888888888888",
         roles,
         kycStatus: KycStatus.APPROVED,
+        ...(session ? { session } : {}),
       });
     }
 
@@ -216,12 +217,22 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       expect(JSON.parse(response.body).error.code).toBe("AUTH_FORBIDDEN");
     });
 
+    it("un token de la app que trae admin pero no es de panel recibe 403", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/audit-log",
+        headers: { authorization: `Bearer ${issueToken([UserRole.SENDER, UserRole.ADMIN])}` },
+      });
+
+      expect(response.statusCode).toBe(403);
+    });
+
     it("un token de panel llega al upstream con el prefijo /admin y la identidad inyectada", async () => {
       const response = await app.inject({
         method: "GET",
         url: "/api/v1/admin/audit-log?limit=5",
         headers: {
-          authorization: `Bearer ${issueToken([UserRole.SENDER, UserRole.CARRIER, UserRole.ADMIN])}`,
+          authorization: `Bearer ${issueToken([UserRole.SENDER, UserRole.CARRIER, UserRole.ADMIN], "panel")}`,
           "x-user-id": "33333333-3333-3333-3333-333333333333",
         },
       });
