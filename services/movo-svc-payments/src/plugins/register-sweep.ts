@@ -1,5 +1,7 @@
 import { FastifyInstance } from "fastify";
 
+const INITIAL_RUN_DELAY_MS = 30_000;
+
 export interface SweepOptions {
   /** Nombre del barrido, para los logs ("Pickup expiry sweep plugin está desactivado."). */
   name: string;
@@ -12,6 +14,9 @@ export interface SweepOptions {
 }
 
 /**
+ * Mismo esqueleto que `services/movo-svc-shipments/src/plugins/register-sweep.ts` (copia
+ * deliberada; candidato a `@movo/shared`): un arreglo acá hay que replicarlo allá.
+ *
  * Esqueleto común de los barridos periódicos del servicio: `setInterval` + lock
  * distribuido en Redis (`PX`/`NX`) para no duplicar trabajo entre réplicas + limpieza en
  * `onClose`. Cada plugin solo declara su regla en `run`.
@@ -53,8 +58,12 @@ export function registerSweep(app: FastifyInstance, opts: SweepOptions): void {
   };
 
   const timer = setInterval(runSweep, intervalMs);
+  // Corrida inicial diferida: con deploys frecuentes el primer intervalo (60 min) nunca
+  // llegaría. El lock de Redis evita que varias réplicas la dupliquen.
+  const initial = setTimeout(runSweep, INITIAL_RUN_DELAY_MS);
 
   app.addHook("onClose", async () => {
     clearInterval(timer);
+    clearTimeout(initial);
   });
 }
