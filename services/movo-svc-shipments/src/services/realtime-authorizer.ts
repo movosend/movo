@@ -1,4 +1,4 @@
-import { ApiError, verifyAccessToken } from "@movo/shared";
+import { ApiError, UserRole, verifyAccessToken } from "@movo/shared";
 import { TRACKING_CLOSED_STATUSES } from "../domain/shipment-state-machine";
 import { Shipment } from "../models/shipment";
 import { ShipmentRepository } from "../repositories/shipment-repository";
@@ -7,6 +7,8 @@ import { assertShipmentAccess } from "../modules/shipments/assert-shipment-acces
 export interface AuthorizedRealtimeConnection {
   shipment: Shipment;
   callerId: string;
+  /** Roles del JWT (MOVO-26: el chat distingue al admin, que solo lee). */
+  callerRoles: UserRole[];
   /** `exp` del JWT en ms epoch -- MOVO-250/AC7: la conexión se cierra al llegar a este instante. */
   tokenExpiresAtMs: number;
 }
@@ -26,7 +28,8 @@ export interface AuthorizedRealtimeConnection {
 export async function authorizeRealtimeConnection(
   shipmentRepository: ShipmentRepository,
   authorizationHeader: string | undefined,
-  shipmentId: string
+  shipmentId: string,
+  forbiddenMessage = "No tenés permiso para ver el tracking de este envío."
 ): Promise<AuthorizedRealtimeConnection> {
   if (!authorizationHeader?.startsWith("Bearer ")) {
     throw new ApiError(401, "AUTH_TOKEN_INVALID", "Falta el header Authorization.");
@@ -43,9 +46,9 @@ export async function authorizeRealtimeConnection(
     throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
   }
 
-  assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver el tracking de este envío.");
+  assertShipmentAccess(shipment, callerId, callerRoles, forbiddenMessage);
 
-  return { shipment, callerId, tokenExpiresAtMs: exp * 1000 };
+  return { shipment, callerId, callerRoles, tokenExpiresAtMs: exp * 1000 };
 }
 
 /** AC4: el envío ya está en un estado donde el tracking no debería mostrarse. */

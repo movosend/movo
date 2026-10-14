@@ -19,6 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
 import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
+import { ChatAccessCard } from "../../../components/shipments/chat-access-card";
 import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard, PackageSummaryCard } from "../../../components/shipments/package-card";
@@ -45,6 +46,7 @@ import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment, useShipmentPhotos } from "../../../src/hooks/use-shipments";
 import { activeShipmentDisplayCode } from "../../../src/lib/active-shipment-format";
+import { chatAvailability } from "../../../src/lib/chat-format";
 import { getClientCommissionRate } from "../../../src/lib/commission-config";
 import {
   FULFILLED_SHIPMENT_STATUSES,
@@ -240,6 +242,11 @@ export default function ShipmentDetailScreen() {
       ? liveTrackingAvailability(shipment.status)
       : null;
 
+  // MOVO-284: el chat existe desde que hay transportista (y queda legible tras la entrega); lo ven las tres partes.
+  const chatBase = shipment !== undefined ? chatAvailability(shipment.status, shipment.carrierId) : null;
+  // El receptor original (ADR-038) lee la conversación pero ya no escribe, aunque el envío siga en curso.
+  const chatAccess = chatBase && isFormerReceiver ? "read_only" : chatBase;
+
   // Misma condición que decide "Precio pactado" en la card de precio: con transportista
   // asignado el precio que se ve ya no es el sugerido, así que el recargo no aplica.
   const hasAgreedPrice =
@@ -429,6 +436,16 @@ export default function ShipmentDetailScreen() {
                   shipmentId={shipment.id}
                   availability={liveTracking}
                   testID="shipment-detail-live-tracking"
+                />
+              ) : null}
+
+              {chatAccess ? (
+                <ChatAccessCard
+                  shipmentId={shipment.id}
+                  availability={chatAccess}
+                  status={shipment.status}
+                  isFormerReceiver={isFormerReceiver}
+                  testID="shipment-detail-chat"
                 />
               ) : null}
 

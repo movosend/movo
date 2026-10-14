@@ -106,6 +106,11 @@ export function resolveNotificationRoute(data: unknown): NotificationRoute | nul
     const offerId = stringField(data, "offerId");
     return offerId ? `/carrier/offers/${offerId}` : "/carrier/offers";
   }
+  // MOVO-284: un mensaje nuevo abre la conversación del envío (la push no lleva el texto).
+  if (type === "chat_message") {
+    const shipmentId = stringField(data, "shipmentId");
+    return shipmentId ? `/shipments/${shipmentId}/chat` : null;
+  }
   if (type === "receiver_transfer_invite") {
     // MOVO-275: la invitación (o su cancelación) abre su pantalla, que muestra si sigue vigente.
     const transferId = stringField(data, "transferId");

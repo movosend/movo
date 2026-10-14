@@ -96,6 +96,7 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     receiverConfirmationDeadline: row.receiverConfirmationDeadline,
     receiverRedesignationDeadline: row.receiverRedesignationDeadline,
     transitAnomalyFlaggedAt: row.transitAnomalyFlaggedAt,
+    chatStartedAt: row.chatStartedAt,
     rejectionReason,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

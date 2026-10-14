@@ -115,6 +115,8 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
       expect(updatedShipment?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
       expect(updatedShipment?.carrierId).toBe(winner.carrierId);
       expect(updatedShipment?.agreedPriceArs).toBe(winner.priceOffered);
+      // MOVO-26: la asignación marca el inicio del chat (un transportista nuevo no lee lo hablado con el anterior).
+      expect(updatedShipment?.chatStartedAt).toBeInstanceOf(Date);
 
       // MOVO-210 (AC4): las demás ofertas siguen vivas hasta que se confirme el hold.
       const updatedLoser = await offerRepo.findById(loser.id);

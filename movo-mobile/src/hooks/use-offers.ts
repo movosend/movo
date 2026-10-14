@@ -47,6 +47,8 @@ export function useAcceptOffer(options?: {
       void queryClient.invalidateQueries({
         queryKey: ["shipments", "detail", data.shipmentId],
       });
+      // El envío ya tiene transportista: su chat existe desde ahora (MOVO-284).
+      void queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
       // Invalida los listados de envíos
       void queryClient.invalidateQueries({
         queryKey: ["shipments", "mine"],

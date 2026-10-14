@@ -2763,6 +2763,71 @@ y excluye a los dos usuarios de la cuenta.
 Pendiente / fuera de alcance: mostrar nombres de pila (requeriría revertir la decisión de privacidad
 y un ADR corto).
 
+### MOVO-26 — Chat entre las partes de un envío (ADR-040)
+
+Un hilo por envío entre emisor, receptor y transportista, en `src/modules/chat/` (rutas, servicio, schema),
+`src/repositories/chat-repository.ts`, `src/domain/{chat-window,chat-receipts,chat-moderation}.ts` y
+`src/realtime/chat-hub.ts`; tablas `shipments.chat_messages`, `chat_participant_states` y `chat_reports`
+(migraciones `20261014120000`/`130000`/`140000`). Uso y reglas: `docs/chat/README.md`. Implementa el
+prototipo "Chat del envío · v2".
+
+- **Se envía por HTTP y se recibe por WebSocket** (mismo molde que la ingesta de posiciones, ADR-024):
+  `POST .../chat/messages` es idempotente por `clientMessageId` (índice único `(envío, autor, clientMessageId)`:
+  201 la primera vez, 200 en un reenvío, sin difundir ni notificar de nuevo), el historial pagina por cursor y
+  `GET /shipments/:id/chat` (WS) solo empuja. El gateway no cambió: `/shipments` ya proxea HTTP y el upgrade.
+- **`ChatHub` indexa los sockets por envío y por usuario** y NO es el `RealtimeRegistry` de tracking: un mensaje de
+  chat no llega a quien solo mira el mapa, el `4009` de tracking no corta el chat, y cada usuario recibe SU
+  versión del mensaje (contenido oculto si bloqueó al autor; los tildes son solo del autor).
+- **`resolveChatAccess` (puro)**: `open` con transportista y sin entregar; entregado/completado/disputa →
+  `read_only` y, pasadas 24 h de la entrega, `archived: true` (sigue legible, atenuado en la lista); cancelado,
+  rechazado o sin transportista → `closed` (`409 CHAT_CLOSED`, sockets cortados con `4009`). El receptor original
+  (ADR-038) y el admin nunca escriben; el admin lee siempre.
+- **El bloqueo (ADR-026) no impide escribir**: oculta. A quien tiene un bloqueo con el autor le llega
+  `hidden: true` y body vacío (historial, tiempo real y último mensaje de la lista), sin push, sin sumar a los no
+  leídos y sin contar para los tildes. Falla abierto ante `svc-users` caído (como los listados). Reemplaza el
+  `403 USER_BLOCKED` del primer diseño.
+- **Tildes**: `chat_participant_states` guarda hasta dónde recibió/leyó cada integrante (`GREATEST` en el
+  upsert: solo avanzan). Recibir = tener el WS abierto al llegar el mensaje, abrir la primera página del historial
+  o conectarse; leer = `POST /:id/chat/read`. `computeDeliveryStatus` (puro) da `sent`/`delivered`/`read` contra
+  los demás integrantes sin bloqueo; el WS empuja `chat_receipt` para actualizar los tildes en vivo. Solo las
+  partes cuentan (ni el admin ni el receptor original).
+- **Lista de chats** (`GET /shipments/chats`): envíos con transportista en estados abiertos/entregado/disputa,
+  último mensaje (`DISTINCT ON`) y no leídos en dos consultas por lote, nunca una por envío; ruta con la primera
+  parte de cada dirección; el código `#MOVO-xxxxx` lo arma el cliente (`activeShipmentDisplayCode`). El nombre del
+  autor se guarda en cada mensaje (`author_name`) para no consultar `svc-users` al listar.
+- **Filtro de lenguaje** (`domain/chat-moderation.ts`): tapa con asteriscos del mismo largo las palabras de una
+  lista acotada, ANTES de guardar y difundir; el mensaje sale con `moderated: true` y el cliente le muestra al autor
+  `CHAT_MODERATION_WARNING`. Compara por palabra entera y contra evasiones comunes; no toca "boludo"/"mierda" ni
+  "retrasado". La lista la ajusta el equipo en ese archivo.
+- **Push `chatMessageReceived`** (categoría `chat`): a quien no tiene el chat abierto y no tiene bloqueo con el
+  autor, una vez por minuto y destinatario (`SET NX`), sin el texto. Best-effort.
+- **Quien solo mira** (el admin y el receptor original, ADR-038) recibe los mensajes nuevos en vivo y puede
+  marcar leído para bajar su contador, pero no cuenta como "entregado" ni mueve los tildes de los demás. Un
+  reintento de un mensaje ya guardado devuelve 200 aunque el chat haya pasado a solo lectura o cerrado (el
+  chequeo de acceso va después del replay). Un socket que se corta mientras se autoriza no se registra en el hub.
+  `GET /chats` se ordena por actividad en SQL (último mensaje o cambio de estado) antes de limitar a 50, y un cursor
+  que no trae un uuid da 400. El filtro de lenguaje compara el término exacto y solo usa la forma reducida
+  ("puuuta") cuando quien escribió repitió letras, así "foro" no se confunde con "forro".
+- **Cada asignación arranca una conversación limpia** (`shipments.chat_started_at`, migración `20261014150000`):
+  `acceptOffer` lo fija y el historial, el último mensaje de la lista y los no leídos solo cuentan mensajes desde ese
+  instante. Si el pago vence (MOVO-210) y entra otro transportista, no lee la conversación del anterior; los mensajes
+  viejos no se borran y el admin los ve todos. `NULL` = sin corte. Una reasignación al MISMO transportista también
+  reinicia el hilo (simplicidad: no se distingue).
+- **Review de PR #238**: el `ChatHub` sabe qué sockets abrió un admin (`register(..., { admin })`) y `sendMessage` solo difunde
+  en vivo a admins y al receptor original, no a un transportista anterior que siga conectado; volver a `published` además corta los
+  sockets del chat. `listShipmentsForUser` aplica el mismo corte por `chat_started_at` que el último mensaje y los no leídos, y la lista
+  resuelve los integrantes en paralelo con esas dos consultas.
+- **`GET /shipments/chats` suma `participants`** (emisor, transportista y receptor con nombre y foto) para los avatares
+  de cada fila; `svc-users` se consulta una vez por persona aunque aparezca en varios envíos, y si no responde el
+  integrante sale sin datos en vez de romper la lista.
+- `POST /:id/chat/report` guarda un reporte por persona y envío (`chat_reports`) y loguea
+  `chat_conversation_reported`; falta el panel que lo muestre (MOVO-30/33). `createdAt` lo fija la app (ms): con
+  µs de Postgres el cursor saltearía mensajes del mismo milisegundo.
+
+Pendiente / fuera de alcance: imágenes y "escribiendo", la tarjeta "Llegando" (sin evento de cercanía),
+retención y purga del historial (dato personal, a definir junto a ADR-023), panel de admin para el historial y los
+reportes, la pantalla en `movo-mobile` (MOVO-284) y Redis pub/sub si algún día hay más de una réplica.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

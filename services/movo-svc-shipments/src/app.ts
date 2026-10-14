@@ -32,6 +32,7 @@ import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/han
 import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
 import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
+import chatRoutes, { ChatRoutesOptions } from "./modules/chat/chat.routes";
 import receiverTransfersRoutes, {
   ReceiverTransfersRoutesOptions,
   shipmentReceiverTransferRoutes,
@@ -63,6 +64,8 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
    * real levantado (MOVO-108/129), mismo criterio que `usersClient`. */
   notificationsClient?: NotificationsClient;
+  /** Reloj del chat (MOVO-26), solo para probar el borde de las 24 h en tests. */
+  chatNow?: () => Date;
   /** Override solo para tests de integración — evita depender de un
    * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
    * `usersClient`. */
@@ -323,6 +326,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.register(shipmentReceiverTransferRoutes, { prefix: "/shipments", ...receiverTransfersRouteOpts });
   app.register(receiverTransfersRoutes, { prefix: "/receiver-transfers", ...receiverTransfersRouteOpts });
+
+  // MOVO-26 (ADR-040): chat del envío -- se envía por HTTP, se recibe por WebSocket, mismo
+  // prefijo "/shipments" (el gateway ya proxea HTTP y el upgrade de ese prefijo).
+  const chatRouteOpts: ChatRoutesOptions = {
+    prefix: "/shipments",
+    ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.chatNow ? { now: opts.chatNow } : {}),
+  };
+  app.register(chatRoutes, chatRouteOpts);
 
   return app;
 }
