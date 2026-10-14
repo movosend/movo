@@ -4406,8 +4406,9 @@ que manda el backend, no solo 9. Envíos (`shipment_accepted`, `shipment_cancell
 `offer_superseded`/`offer_rejected`/`offer_voided` → detalle de la oferta (el del envío le daba 403
 al transportista que perdió); `trip_auto_created` → detalle del viaje (antes el feed filtrado, de
 cuando no existía); `trip_match`/`trip_reminder` → feed filtrado por viaje; `account_*` →
-`/profile/security`; `kyc_result` → Inicio si quedó aprobado o en revisión, y a reintentar
-(`/kyc` o `/license-kyc` con `status`) si se rechazó. Un tipo desconocido, o un `data` sin el id
+`/profile/security`; `kyc_result` → Inicio si quedó en revisión o se aprobó la identidad,
+Transportar si se aprobó la licencia, y a reintentar (`/kyc` o `/license-kyc` con `status`) si
+se rechazó. Un resultado de oferta sin `offerId` (push vieja) abre "Mis ofertas". Un tipo desconocido, o un `data` sin el id
 que necesita la ruta, devuelve `null` y no navega. Tests en
 `test/resolve-notification-route.test.ts`. Con MOVO-240, la categoría "Transportista en camino"
 deja de mostrarse como "Pronto" en Configuración de notificaciones.
