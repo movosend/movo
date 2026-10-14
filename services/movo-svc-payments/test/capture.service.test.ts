@@ -88,9 +88,16 @@ class MemorySettlementRepository implements SettlementRepository {
     return this.row;
   }
   async update(_id: string, patch: SettlementUpdate) {
-    Object.assign(this.row as Settlement, patch);
+    Object.assign(this.row as Settlement, patch, { updatedAt: this.clock() });
     return this.row as Settlement;
   }
+  async updateIfStatus(_id: string, expected: Settlement["status"], patch: SettlementUpdate) {
+    if (this.row?.status !== expected) return false;
+    Object.assign(this.row, patch, { updatedAt: this.clock() });
+    return true;
+  }
+  /** Reloj de `updatedAt`: los tests de re-vinculación lo mueven para ordenar "falló" y "se re-vinculó". */
+  clock: () => Date = () => NOW;
 }
 
 function payment(overrides: Record<string, unknown> = {}): PaymentResponse {
@@ -115,7 +122,14 @@ const silentLog = {
   debug: vi.fn(),
 } as unknown as FastifyBaseLogger;
 
-function setup(opts: { hold?: Hold | null; credentials?: boolean } = {}) {
+function setup(
+  opts: {
+    hold?: Hold | null;
+    credentials?: boolean;
+    /** Pisa campos de las credenciales (vencimiento del token, última actualización de la vinculación). */
+    account?: { tokenExpiresAt?: Date | null; updatedAt?: Date };
+  } = {}
+) {
   const holds = new MemoryHoldRepository(opts.hold === undefined ? makeHold() : opts.hold);
   const settlements = new MemorySettlementRepository();
   const mp = {
@@ -129,7 +143,15 @@ function setup(opts: { hold?: Hold | null; credentials?: boolean } = {}) {
     findCredentials: vi.fn(async () =>
       opts.credentials === false
         ? null
-        : { mpUserId: "1000000001", accessToken: "TEST-access", refreshToken: "TG-r", publicKey: "TEST-pk" }
+        : {
+            mpUserId: "1000000001",
+            accessToken: "TEST-access",
+            refreshToken: "TG-r",
+            publicKey: "TEST-pk",
+            tokenExpiresAt: null,
+            updatedAt: new Date("2026-10-01T00:00:00.000Z"),
+            ...opts.account,
+          }
     ),
   } as unknown as CarrierMpAccountRepository;
   const service = createCaptureService({
@@ -140,7 +162,7 @@ function setup(opts: { hold?: Hold | null; credentials?: boolean } = {}) {
     log: silentLog,
     now: () => NOW,
   });
-  return { service, holds, settlements, mp };
+  return { service, holds, settlements, mp, accounts };
 }
 
 async function expectApiError(promise: Promise<unknown>, statusCode: number, code: string) {
@@ -334,6 +356,114 @@ describe("createCaptureService.capture", () => {
   it("envío sin hold: 404 HOLD_NOT_FOUND", async () => {
     ctx = setup({ hold: null });
     await expectApiError(ctx.service.capture(SHIPMENT), 404, "HOLD_NOT_FOUND");
+  });
+});
+
+describe("createCaptureService: fallos permanentes y carreras (review de PR #235)", () => {
+  const LATER = new Date("2026-10-12T00:00:00.000Z");
+
+  it("un fallo tardío no pisa una liquidación que otro llamador ya acreditó", async () => {
+    const ctx = setup();
+    // La captura en línea (A) ya acreditó mientras este reintento (B) hacía timeout.
+    ctx.mp.capturePayment.mockImplementationOnce(async () => {
+      Object.assign(ctx.settlements.row as Settlement, { status: "credited" });
+      throw { status: 500, message: "timeout" };
+    });
+    ctx.mp.getPayment.mockRejectedValue({ status: 500 });
+
+    const result = await ctx.service.capture(SHIPMENT);
+
+    expect(result.replayed).toBe(true);
+    expect(result.settlement.status).toBe("credited");
+    expect(ctx.settlements.row?.status).toBe("credited");
+  });
+
+  it("hold_expired es permanente: la siguiente llamada no vuelve a processing ni le pega a MP", async () => {
+    const ctx = setup();
+    ctx.mp.capturePayment.mockRejectedValue({ status: 400, message: "expired" });
+    ctx.mp.getPayment.mockResolvedValue(payment({ status: "cancelled", fee_details: [] }));
+    await expectApiError(ctx.service.capture(SHIPMENT), 409, "HOLD_NOT_CAPTURABLE");
+    ctx.mp.capturePayment.mockClear();
+    ctx.mp.getPayment.mockClear();
+
+    await expectApiError(ctx.service.capture(SHIPMENT), 409, "HOLD_NOT_CAPTURABLE");
+
+    expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
+    expect(ctx.mp.getPayment).not.toHaveBeenCalled();
+    expect(ctx.settlements.row?.status).toBe("failed");
+  });
+
+  it("credenciales rechazadas: no se reintenta con el mismo token, pero sí cuando el transportista se re-vincula", async () => {
+    const ctx = setup({ account: { updatedAt: new Date("2026-10-01T00:00:00.000Z") } });
+    ctx.settlements.clock = () => LATER;
+    ctx.mp.capturePayment.mockRejectedValue({ status: 401, message: "unauthorized" });
+    ctx.mp.getPayment.mockRejectedValue({ status: 401 });
+    await expectApiError(ctx.service.capture(SHIPMENT), 409, "CARRIER_MP_ACCOUNT_NOT_LINKED");
+    ctx.mp.capturePayment.mockClear();
+
+    // Sin cambios en la vinculación: corta sin llamar a MP.
+    await expectApiError(ctx.service.capture(SHIPMENT), 409, "CARRIER_MP_ACCOUNT_NOT_LINKED");
+    expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
+    expect(ctx.settlements.row?.status).toBe("failed");
+
+    // El transportista se re-vincula después del fallo: se reintenta con las credenciales nuevas.
+    const relinked = setup({ account: { updatedAt: new Date("2026-10-13T00:00:00.000Z") } });
+    relinked.settlements.row = ctx.settlements.row;
+    relinked.settlements.clock = () => LATER;
+    const retry = await relinked.service.capture(SHIPMENT);
+    expect(retry.settlement.status).toBe("credited");
+  });
+
+  it("token vencido: falla sin llamar a MP, aun en la primera captura", async () => {
+    const ctx = setup({ account: { tokenExpiresAt: new Date("2026-10-09T00:00:00.000Z") } });
+
+    await expectApiError(ctx.service.capture(SHIPMENT), 409, "CARRIER_MP_ACCOUNT_NOT_LINKED");
+
+    expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
+    expect(ctx.settlements.row).toMatchObject({ status: "failed", failureReason: "carrier_account_unavailable" });
+  });
+
+  it("un fallo transitorio sí se sigue reintentando", async () => {
+    const ctx = setup();
+    ctx.mp.capturePayment.mockRejectedValueOnce({ status: 500, message: "boom" });
+    ctx.mp.getPayment.mockResolvedValueOnce(payment({ status: "authorized", fee_details: [] }));
+    await expectApiError(ctx.service.capture(SHIPMENT), 502, "PAYMENT_PROVIDER_ERROR");
+    expect(ctx.settlements.row?.failureReason).toBe("provider_error");
+
+    expect((await ctx.service.capture(SHIPMENT)).settlement.status).toBe("credited");
+  });
+});
+
+describe("readFeeBreakdown: quién paga cada cargo", () => {
+  const dec = (n: number) => new Prisma.Decimal(n);
+
+  it("un cargo que paga el comprador (cuotas) no entra en la comisión de MP del transportista", () => {
+    const breakdown = readFeeBreakdown(
+      payment({
+        transaction_amount: 1000,
+        fee_details: [
+          { type: "mercadopago_fee", amount: 41, fee_payer: "collector" },
+          { type: "application_fee", amount: 150, fee_payer: "collector" },
+          { type: "financing_fee", amount: 63.2, fee_payer: "payer" },
+        ],
+        transaction_details: { net_received_amount: 809 },
+      }),
+      dec(150)
+    );
+
+    expect(breakdown).not.toBeNull();
+    expect(breakdown!.mpFeeArs.toString()).toBe("41");
+    expect(breakdown!.commissionArs.toString()).toBe("150");
+    // Bruto = comisión de MP + comisión de Movo + neto: sigue cerrando.
+    expect(breakdown!.mpFeeArs.plus(breakdown!.commissionArs).plus(breakdown!.netAmountArs).toString()).toBe("1000");
+  });
+
+  it("una entrada sin fee_payer (respuestas viejas) se toma como del vendedor", () => {
+    const breakdown = readFeeBreakdown(
+      payment({ fee_details: [{ type: "mercadopago_fee", amount: 41 }, { type: "application_fee", amount: 150 }] }),
+      dec(150)
+    );
+    expect(breakdown!.mpFeeArs.toString()).toBe("41");
   });
 });
 

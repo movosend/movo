@@ -38,6 +38,10 @@ export interface CarrierMpCredentials {
   accessToken: string;
   refreshToken: string;
   publicKey: string | null;
+  /** Vencimiento del access_token (`null` si MP no lo informó). Lo mira quien captura (MOVO-212). */
+  tokenExpiresAt: Date | null;
+  /** Última vez que cambió la vinculación (re-vinculación, refresh de tokens, MOVO-243). */
+  updatedAt: Date;
 }
 
 export interface CarrierMpAccountRepository {
@@ -118,6 +122,8 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
         accessToken: cipher.decrypt(row.accessToken),
         refreshToken: cipher.decrypt(row.refreshToken),
         publicKey: row.publicKey,
+        tokenExpiresAt: row.tokenExpiresAt,
+        updatedAt: row.updatedAt,
       };
     },
 
@@ -130,6 +136,8 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
         accessToken: cipher.decrypt(row.accessToken),
         refreshToken: cipher.decrypt(row.refreshToken),
         publicKey: row.publicKey,
+        tokenExpiresAt: row.tokenExpiresAt,
+        updatedAt: row.updatedAt,
       };
     },
 
@@ -151,6 +159,8 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
         accessToken: cipher.decrypt(row.accessToken),
         refreshToken: cipher.decrypt(row.refreshToken),
         publicKey: row.publicKey,
+        tokenExpiresAt: row.tokenExpiresAt,
+        updatedAt: row.updatedAt,
       };
     },
 

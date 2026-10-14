@@ -32,6 +32,13 @@ export interface SettlementRepository {
    */
   findOrCreateProcessing(data: NewSettlement): Promise<Settlement>;
   update(id: string, patch: SettlementUpdate): Promise<Settlement>;
+  /**
+   * UPDATE condicional sobre el estado: aplica el cambio SOLO si la liquidación sigue en
+   * `expected`. `false` si otro llamador ya la movió (p. ej. la acreditó). Es lo que impide que
+   * un fallo tardío pise una liquidación `credited` por una carrera entre la captura en línea y
+   * el reintento (mismo patrón que `holds.markCaptured`).
+   */
+  updateIfStatus(id: string, expected: SettlementStatus, patch: SettlementUpdate): Promise<boolean>;
 }
 
 export function createSettlementRepository(db: PrismaClient): SettlementRepository {
@@ -59,6 +66,11 @@ export function createSettlementRepository(db: PrismaClient): SettlementReposito
 
     update(id, patch) {
       return db.settlement.update({ where: { id }, data: patch });
+    },
+
+    async updateIfStatus(id, expected, patch) {
+      const { count } = await db.settlement.updateMany({ where: { id, status: expected }, data: patch });
+      return count === 1;
     },
   };
 }
