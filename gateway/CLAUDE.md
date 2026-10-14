@@ -188,3 +188,10 @@ como `/auth/login`) y `/auth/admin/refresh` (límite general, como `/auth/refres
 body no se parsea. `authenticate` también rechaza un token con `admin` cuyo `iat` sea
 anterior a `panel-revoked-at:{userId}`: así se cortan las sesiones de panel sin tocar las
 de la app, porque la app nunca recibe `admin`. Detalle en `services/movo-svc-users/CLAUDE.md`.
+
+Fixes de review (PR #244, PedroYorlano): un token es de panel por el claim `session: "panel"`, no
+por traer `admin`; un token sin ese claim pierde `admin` antes de `authorize` y de `x-user-roles`
+(un token de la app emitido antes del deploy con `admin` ya no vale como admin cuando vence la
+marca de 15 min). Las dos marcas se leen en un solo `MGET`, y la del panel se compara con `<=`
+(un refresh en paralelo a la revocación no sobrevive en el mismo segundo). Todo request proxeado
+lleva `x-client-ip` = `request.ip` (pisa el del cliente), que usa el límite del login del panel.

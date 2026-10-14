@@ -544,6 +544,18 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       }
     );
 
+    it("reenvía la IP real del cliente en x-client-ip y pisa la que mande el cliente (review de PR #244)", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/admin/refresh",
+        headers: { "x-forwarded-for": "10.7.0.1", "x-client-ip": "1.2.3.4" },
+        payload: { refreshToken: "a.b.c" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedHeaders["x-client-ip"]).toBe("10.7.0.1");
+    });
+
     it("/api/v1/auth/admin/logout exige token", async () => {
       const response = await app.inject({
         method: "POST",
