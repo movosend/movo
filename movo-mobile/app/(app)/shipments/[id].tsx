@@ -51,7 +51,6 @@ import {
   getClientCommissionRate,
 } from "../../../src/lib/commission-config";
 import { chatAvailability } from "../../../src/lib/chat-format";
-import { getClientCommissionRate } from "../../../src/lib/commission-config";
 import {
   FULFILLED_SHIPMENT_STATUSES,
   canCancelShipment,
@@ -478,20 +477,6 @@ export default function ShipmentDetailScreen() {
                     className="relative flex-1 overflow-hidden rounded-[14px] bg-lime-200 px-4 py-3.5"
                   >
                     <GridPattern />
-                    <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                      {carrierReceivedArs !== null
-                        ? "Recibís aprox."
-                        : hasAgreedPrice
-                          ? "Precio pactado"
-                          : "Costo aproximado"}
-                    </Text>
-                    <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
-                      {carrierReceivedArs !== null
-                        ? formatPriceArs(carrierReceivedArs)
-                        : formatShipmentPrice(
-                            shipment.agreedPriceArs,
-                            shipment.suggestedPriceArs
-                          )}
                     <Text className="mb-1 font-sans-medium text-caption uppercase text-ink-700">Retiro</Text>
                     <Text className="font-sans-semibold text-[15px] text-ink-950">{pickupDateLabel}</Text>
                     <Text className="mt-0.5 font-sans text-small text-ink-700">
@@ -517,15 +502,15 @@ export default function ShipmentDetailScreen() {
                     <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                       <GridPattern />
                       <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                        {carrierNetArs !== null
-                          ? "Te queda"
+                        {carrierReceivedArs !== null
+                          ? "Recibís aprox."
                           : hasAgreedPrice
                             ? "Precio pactado"
                             : "Costo aproximado"}
                       </Text>
                       <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
-                        {carrierNetArs !== null
-                          ? formatPriceArs(carrierNetArs)
+                        {carrierReceivedArs !== null
+                          ? formatPriceArs(carrierReceivedArs)
                           : formatShipmentPrice(
                               shipment.agreedPriceArs,
                               shipment.suggestedPriceArs
