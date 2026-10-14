@@ -4,6 +4,11 @@ import { CarrierTransportingSection } from "../components/home/carrier-transport
 import { TripStatus } from "../src/api/trips-client";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 
+// MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
+jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
+  require("./mocks/carrier-requirements-sheet-hook"),
+);
+
 // El gate de ubicación del transportista tiene su propio test
 // (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
 jest.mock("../src/store/carrier-location-gate-store", () => ({
@@ -145,6 +150,38 @@ describe("CarrierTransportingSection", () => {
       "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez.",
     );
     expect(errorMsg).toBeTruthy();
+  });
+
+  it("MOVO-117: un 403 por requisitos al iniciar abre la checklist en vez del banner de error", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: {
+        items: [
+          {
+            id: "t-req",
+            carrierId: "c1",
+            originAddress: "Av. Colón 100, Córdoba",
+            destinationAddress: "San Martín 200, Villa Carlos Paz",
+            departureAt: new Date().toISOString(),
+            status: TripStatus.DECLARED,
+            hasAcceptedPackages: true,
+            acceptedPackagesCount: 1,
+          },
+        ],
+        total: 1,
+      },
+    });
+    mockStartTripMutateAsync.mockRejectedValueOnce(
+      new ApiError(403, "CARRIER_MP_ACCOUNT_NOT_LINKED", "x", { missingRequirements: ["mp_account"] }),
+    );
+
+    const { getByText, getByTestId, queryByTestId } = await render(<CarrierTransportingSection />);
+    await act(async () => {
+      fireEvent.press(getByText("Iniciar viaje"));
+    });
+
+    expect(getByText("Para iniciar tu viaje te queda un solo paso.")).toBeTruthy();
+    expect(getByTestId("carrier-requirements-sheet-checklist-mp-cta")).toBeTruthy();
+    expect(queryByTestId("app-home-transporting-card-t-req-error")).toBeNull();
   });
 
   describe("muestra un solo viaje: el de la card con CTA", () => {
