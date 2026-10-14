@@ -4,7 +4,7 @@ import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Check, ChevronLeft, ShieldAlert } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -25,6 +25,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { NumericKeypad } from "../../../../components/ui/numeric-keypad";
+import { SectionLabel } from "../../../../components/ui/section-label";
 import { SlideToConfirm } from "../../../../components/ui/slide-to-confirm";
 import { TextField } from "../../../../components/ui/text-field";
 import type {
@@ -178,14 +179,6 @@ function TimeSlotGrid({
         );
       })}
     </View>
-  );
-}
-
-function SectionLabel({ children }: { children: ReactNode }) {
-  return (
-    <Text className="mb-2.5 font-sans-medium text-[11px] uppercase tracking-wide text-fg-3">
-      {children}
-    </Text>
   );
 }
 
