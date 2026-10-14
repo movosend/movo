@@ -4464,15 +4464,18 @@ reuse. Al guardar vuelve con `dismissTo` y el aviso por param (`toast`).
 - **El `card_number.length` del BIN es un tope, no el largo exacto**: MP responde 19 para Visa
   aunque sus tarjetas sean de 16 (verificado contra la API con el BIN 450979). El número vale
   entre el mínimo de la marca y ese tope, y tiene que pasar Luhn (`validation: "standard"`).
-- **Teclado**: con el teclado abierto la tarjeta se achica al 60% desde arriba, el pie pierde
-  el aviso del candado y el margen inferior (la pantalla usa `SafeAreaView` solo arriba; el pie
+- **Teclado**: con el teclado abierto la tarjeta se achica al 60% desde arriba, se oculta el
+  subtítulo del paso, el botón baja a 44px y el pie pierde el aviso del candado y el margen inferior (la pantalla usa `SafeAreaView` solo arriba; el pie
   suma `insets.bottom` cuando el teclado está cerrado), y el `ScrollView` recorta su contenido
   para que el texto no quede dibujado debajo de la tarjeta. En device no se podía pegar el
   número: se sacó `textContentType="creditCardNumber"`/`autoComplete="cc-number"` como causa
   probable (sin confirmar todavía en device).
 - **Tarjeta 3D** (`card-preview-3d.tsx`): frente con anillos que se vuelve cromado según el
   progreso, giro al enfocar el CVV, resaltado lima del dato enfocado y barrido de luz al pasar de
-  paso y mientras valida. Colores fijos (es el plástico).
+  paso y mientras valida. Colores fijos (es el plástico). En reposo las dos caras quedan en
+  `rotateY(0deg)` exacto: con el dorso en 360° iOS lo seguía rasterizando como 3D y el texto se
+  veía borroso. Los colores animados van con `interpolateColor`, nunca con un template string
+  (un alfa chico sale en notación científica y Reanimated tira "Invalid color value").
 - **Desvíos del prototipo**: nombre de referencia de 40 caracteres (contrato), no 24; sin el tilt
   con mouse; "Cambiar nombre" y su hoja (AC10) y el aviso de `409 CARD_IN_USE` dentro de la hoja
   de eliminar (botón apagado, la tarjeta sigue en la lista) no estaban y reusan sus piezas;

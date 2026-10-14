@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardVisible } from "../../src/hooks/use-keyboard-visible";
 import { useAddSavedCard, useCardsCheckoutData } from "../../src/hooks/use-saved-cards";
@@ -339,194 +340,207 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
         </CompactCard>
       </View>
 
-      {/* `overflow: hidden`: sin esto, al hacer scroll hasta el campo enfocado el texto de
-          arriba se dibujaba debajo de la tarjeta. */}
-      <ScrollView
-        className="flex-1"
-        style={{ overflow: "hidden" }}
-        contentContainerClassName={`gap-4 px-5 pb-4 ${keyboardVisible ? "pt-4" : "pt-[22px]"}`}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {checkoutError ? (
-          <View testID="add-card-checkout-error" className="rounded-[10px] border border-danger-300 bg-danger-100 px-3.5 py-3">
-            <Text className="font-sans text-[12.5px] leading-[18px] text-ink-950">{checkoutError}</Text>
-          </View>
-        ) : null}
-
-        {status === "error" && errorMessage ? (
-          <View
-            testID="add-card-error"
-            accessibilityLiveRegion="polite"
-            className="flex-row items-start gap-2.5 rounded-[10px] border border-danger-300 bg-danger-100 px-3.5 py-3"
-          >
-            <XCircle size={16} color="#C22F35" strokeWidth={2} style={{ marginTop: 1 }} />
-            <View className="flex-1">
-              <Text className="font-sans-semibold text-[13px] text-ink-950">No pudimos validar la tarjeta</Text>
-              <Text className="mt-0.5 font-sans text-[12.5px] leading-[18px] text-ink-950">{errorMessage}</Text>
+      {/* El formulario arranca con aire debajo de la tarjeta y se desvanece arriba al hacer
+          scroll, en vez de cortarse contra el borde de la tarjeta. `overflow: hidden`: sin esto
+          el texto scrolleado se dibujaba debajo de la tarjeta. */}
+      <View className={`flex-1 ${keyboardVisible ? "mt-3" : "mt-1.5"}`}>
+        <ScrollView
+          className="flex-1"
+          style={{ overflow: "hidden" }}
+          contentContainerClassName={`gap-4 px-5 pb-4 ${keyboardVisible ? "pt-3" : "pt-4"}`}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {checkoutError ? (
+            <View testID="add-card-checkout-error" className="rounded-[10px] border border-danger-300 bg-danger-100 px-3.5 py-3">
+              <Text className="font-sans text-[12.5px] leading-[18px] text-ink-950">{checkoutError}</Text>
             </View>
-          </View>
-        ) : null}
+          ) : null}
 
-        <View className="flex-row items-end justify-between gap-3">
-          <View className="min-w-0 shrink gap-1">
-            <Text testID="add-card-step-title" className="font-sans-semibold text-[20px] tracking-[-0.3px] text-fg">
-              {title}
-            </Text>
-            <Text className="font-sans text-[13px] leading-[18px] text-fg-3">{subtitle}</Text>
-          </View>
-        </View>
-
-        {step === 1 ? (
-          <>
-            <CardField
-              ref={refs.num}
-              testID="add-card-number"
-              label="Número de tarjeta"
-              mono
-              value={formatCardNumberInput(num)}
-              onChangeText={(text) => {
-                setNum(onlyDigits(text, MAX_NUMBER_LENGTH));
-                editing();
-              }}
-              keyboardType="number-pad"
-              placeholder="0000 0000 0000 0000"
-              {...focusProps("num")}
-            />
-            {binInfo?.issuerName ? (
-              <View testID="add-card-bank" className="flex-row items-center gap-3 rounded-[10px] border border-border bg-bg-sub px-3 py-2.5">
-                <BankLogo issuerName={binInfo.issuerName} size={32} testID="add-card-bank-logo" />
-                <View className="min-w-0 flex-1">
-                  <Text className="font-sans-semibold text-[14px] text-fg">{binInfo.issuerName}</Text>
-                  <Text className="mt-px font-sans text-[12px] text-fg-3">
-                    {[cardBrandName(binInfo.paymentMethodId), paymentTypeLabel(binInfo.paymentType)?.toLowerCase()]
-                      .filter(Boolean)
-                      .join(" ")}
-                  </Text>
-                </View>
-                <Check size={16} color="#1F9760" strokeWidth={2.4} />
+          {status === "error" && errorMessage ? (
+            <View
+              testID="add-card-error"
+              accessibilityLiveRegion="polite"
+              className="flex-row items-start gap-2.5 rounded-[10px] border border-danger-300 bg-danger-100 px-3.5 py-3"
+            >
+              <XCircle size={16} color="#C22F35" strokeWidth={2} style={{ marginTop: 1 }} />
+              <View className="flex-1">
+                <Text className="font-sans-semibold text-[13px] text-ink-950">No pudimos validar la tarjeta</Text>
+                <Text className="mt-0.5 font-sans text-[12.5px] leading-[18px] text-ink-950">{errorMessage}</Text>
               </View>
-            ) : null}
-          </>
-        ) : null}
-
-        {step === 2 ? (
-          <View className="flex-row gap-2.5">
-            <View className="flex-1">
-              <CardField
-                ref={refs.exp}
-                testID="add-card-exp"
-                label="Vencimiento"
-                mono
-                value={formatExpiryInput(exp)}
-                onChangeText={(text) => {
-                  const nextExp = onlyDigits(text, 4);
-                  setExp(nextExp);
-                  editing();
-                  if (nextExp.length === 4 && exp.length < 4) setTimeout(() => refs.cvv.current?.focus(), 120);
-                }}
-                keyboardType="number-pad"
-                placeholder="MM/AA"
-                error={expError ? "Revisá la fecha" : null}
-                {...focusProps("exp")}
-              />
             </View>
-            <View className="flex-1">
-              <CardField
-                ref={refs.cvv}
-                testID="add-card-cvv"
-                label="Código de seguridad"
-                mono
-                value={cvv}
-                onChangeText={(text) => {
-                  setCvv(onlyDigits(text, cvvLength));
-                  editing();
-                }}
-                keyboardType="number-pad"
-                placeholder="3 o 4 dígitos"
-                autoComplete="cc-csc"
-                {...focusProps("cvv")}
-              />
+          ) : null}
+
+          <View className="flex-row items-end justify-between gap-3">
+            <View className="min-w-0 shrink gap-1">
+              <Text testID="add-card-step-title" className="font-sans-semibold text-[20px] tracking-[-0.3px] text-fg">
+                {title}
+              </Text>
+              {keyboardVisible ? null : (
+                <Text className="font-sans text-[13px] leading-[18px] text-fg-3">{subtitle}</Text>
+              )}
             </View>
           </View>
-        ) : null}
 
-        {step === 3 ? (
-          <>
-            <CardField
-              ref={refs.name}
-              testID="add-card-name"
-              label="Nombre como figura en la tarjeta"
-              value={name}
-              onChangeText={(text) => {
-                setName(sanitizeHolderName(text));
-                editing();
-              }}
-              placeholder="Nombre y apellido"
-              autoCapitalize="characters"
-              autoComplete="cc-name"
-              {...focusProps("name")}
-            />
-            <View className="flex-row gap-2.5">
-              <View className="w-[88px] gap-1.5">
-                <Text className="font-sans-medium text-[12px] text-fg-2">Documento</Text>
-                <View className="h-[52px] flex-row items-center justify-between rounded-[6px] border border-border-strong px-3">
-                  <Text className="font-sans text-[15px] text-fg">DNI</Text>
-                  <ChevronDown size={14} color={colors.fg3} strokeWidth={2} />
+          {step === 1 ? (
+            <>
+              <CardField
+                ref={refs.num}
+                testID="add-card-number"
+                label="Número de tarjeta"
+                mono
+                value={formatCardNumberInput(num)}
+                onChangeText={(text) => {
+                  setNum(onlyDigits(text, MAX_NUMBER_LENGTH));
+                  editing();
+                }}
+                keyboardType="number-pad"
+                placeholder="0000 0000 0000 0000"
+                {...focusProps("num")}
+              />
+              {binInfo?.issuerName ? (
+                <View testID="add-card-bank" className="flex-row items-center gap-3 rounded-[10px] border border-border bg-bg-sub px-3 py-2.5">
+                  <BankLogo issuerName={binInfo.issuerName} size={32} testID="add-card-bank-logo" />
+                  <View className="min-w-0 flex-1">
+                    <Text className="font-sans-semibold text-[14px] text-fg">{binInfo.issuerName}</Text>
+                    <Text className="mt-px font-sans text-[12px] text-fg-3">
+                      {[cardBrandName(binInfo.paymentMethodId), paymentTypeLabel(binInfo.paymentType)?.toLowerCase()]
+                        .filter(Boolean)
+                        .join(" ")}
+                    </Text>
+                  </View>
+                  <Check size={16} color="#1F9760" strokeWidth={2.4} />
                 </View>
+              ) : null}
+            </>
+          ) : null}
+
+          {step === 2 ? (
+            <View className="flex-row gap-2.5">
+              <View className="flex-1">
+                <CardField
+                  ref={refs.exp}
+                  testID="add-card-exp"
+                  label="Vencimiento"
+                  mono
+                  value={formatExpiryInput(exp)}
+                  onChangeText={(text) => {
+                    const nextExp = onlyDigits(text, 4);
+                    setExp(nextExp);
+                    editing();
+                    if (nextExp.length === 4 && exp.length < 4) setTimeout(() => refs.cvv.current?.focus(), 120);
+                  }}
+                  keyboardType="number-pad"
+                  placeholder="MM/AA"
+                  error={expError ? "Revisá la fecha" : null}
+                  {...focusProps("exp")}
+                />
               </View>
               <View className="flex-1">
                 <CardField
-                  ref={refs.dni}
-                  testID="add-card-dni"
-                  label="Número"
+                  ref={refs.cvv}
+                  testID="add-card-cvv"
+                  label="Código de seguridad"
                   mono
-                  value={formatDniInput(dni)}
+                  value={cvv}
                   onChangeText={(text) => {
-                    setDni(onlyDigits(text, CARD_DNI_MAX_LENGTH));
+                    setCvv(onlyDigits(text, cvvLength));
                     editing();
                   }}
                   keyboardType="number-pad"
-                  placeholder="Sin puntos"
-                  {...focusProps("dni")}
+                  placeholder="3 o 4 dígitos"
+                  autoComplete="cc-csc"
+                  {...focusProps("cvv")}
                 />
               </View>
             </View>
-            <View className="gap-1.5">
+          ) : null}
+
+          {step === 3 ? (
+            <>
               <CardField
-                testID="add-card-alias"
-                label="Nombre de la tarjeta"
-                labelHint="(opcional)"
-                labelRight={`${alias.length}/${SAVED_CARD_ALIAS_MAX_LENGTH}`}
-                value={alias}
-                onChangeText={(text) => setAlias(text.slice(0, SAVED_CARD_ALIAS_MAX_LENGTH))}
-                maxLength={SAVED_CARD_ALIAS_MAX_LENGTH}
-                placeholder="Ej: Personal, Cuenta sueldo"
-                {...focusProps("alias")}
+                ref={refs.name}
+                testID="add-card-name"
+                label="Nombre como figura en la tarjeta"
+                value={name}
+                onChangeText={(text) => {
+                  setName(sanitizeHolderName(text));
+                  editing();
+                }}
+                placeholder="Nombre y apellido"
+                autoCapitalize="characters"
+                autoComplete="cc-name"
+                {...focusProps("name")}
               />
-              <Text className="font-sans text-[12px] leading-4 text-fg-3">
-                Un nombre tuyo para reconocerla rápido cuando pagás o la elegís en tu lista. Solo lo ves vos. No escribas el
-                número de la tarjeta.
-              </Text>
-            </View>
-            <View className="flex-row items-center gap-3 rounded-[10px] border border-border bg-bg-sub px-3.5 py-3">
-              <View className="min-w-0 flex-1">
-                <Text className="font-sans-medium text-[14px] text-fg">Usar como predeterminada</Text>
-                <Text testID="add-card-default-hint" className="mt-0.5 font-sans text-[12px] leading-4 text-fg-3">
-                  {forcedDefault
-                    ? "Es tu primera tarjeta, así que va a ser la predeterminada."
-                    : "Te la proponemos primero cuando pagás."}
+              <View className="flex-row gap-2.5">
+                <View className="w-[88px] gap-1.5">
+                  <Text className="font-sans-medium text-[12px] text-fg-2">Documento</Text>
+                  <View className="h-[52px] flex-row items-center justify-between rounded-[6px] border border-border-strong px-3">
+                    <Text className="font-sans text-[15px] text-fg">DNI</Text>
+                    <ChevronDown size={14} color={colors.fg3} strokeWidth={2} />
+                  </View>
+                </View>
+                <View className="flex-1">
+                  <CardField
+                    ref={refs.dni}
+                    testID="add-card-dni"
+                    label="Número"
+                    mono
+                    value={formatDniInput(dni)}
+                    onChangeText={(text) => {
+                      setDni(onlyDigits(text, CARD_DNI_MAX_LENGTH));
+                      editing();
+                    }}
+                    keyboardType="number-pad"
+                    placeholder="Sin puntos"
+                    {...focusProps("dni")}
+                  />
+                </View>
+              </View>
+              <View className="gap-1.5">
+                <CardField
+                  testID="add-card-alias"
+                  label="Nombre de la tarjeta"
+                  labelHint="(opcional)"
+                  labelRight={`${alias.length}/${SAVED_CARD_ALIAS_MAX_LENGTH}`}
+                  value={alias}
+                  onChangeText={(text) => setAlias(text.slice(0, SAVED_CARD_ALIAS_MAX_LENGTH))}
+                  maxLength={SAVED_CARD_ALIAS_MAX_LENGTH}
+                  placeholder="Ej: Personal, Cuenta sueldo"
+                  {...focusProps("alias")}
+                />
+                <Text className="font-sans text-[12px] leading-4 text-fg-3">
+                  Un nombre tuyo para reconocerla rápido cuando pagás o la elegís en tu lista. Solo lo ves vos. No escribas el
+                  número de la tarjeta.
                 </Text>
               </View>
-              <DefaultSwitch on={defaultOn} forced={forcedDefault} onToggle={() => setMakeDefault((v) => !v)} />
-            </View>
-          </>
-        ) : null}
-      </ScrollView>
+              <View className="flex-row items-center gap-3 rounded-[10px] border border-border bg-bg-sub px-3.5 py-3">
+                <View className="min-w-0 flex-1">
+                  <Text className="font-sans-medium text-[14px] text-fg">Usar como predeterminada</Text>
+                  <Text testID="add-card-default-hint" className="mt-0.5 font-sans text-[12px] leading-4 text-fg-3">
+                    {forcedDefault
+                      ? "Es tu primera tarjeta, así que va a ser la predeterminada."
+                      : "Te la proponemos primero cuando pagás."}
+                  </Text>
+                </View>
+                <DefaultSwitch on={defaultOn} forced={forcedDefault} onToggle={() => setMakeDefault((v) => !v)} />
+              </View>
+            </>
+          ) : null}
+        </ScrollView>
+        <LinearGradient
+          pointerEvents="none"
+          colors={[colors.bg, `${colors.bg}00`]}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: 16 }}
+        />
+      </View>
 
       {/* Con el teclado abierto el pie va pegado al teclado: sin el aviso del candado ni el
           margen del home indicator (el `SafeAreaView` de la pantalla solo aplica arriba). */}
-      <View className="gap-2.5 bg-bg px-5 pt-3" style={{ paddingBottom: keyboardVisible ? 10 : Math.max(insets.bottom, 24) }}>
+      <View
+        className={`gap-2.5 bg-bg px-5 ${keyboardVisible ? "pt-2" : "pt-3"}`}
+        style={{ paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 24) }}
+      >
         {keyboardVisible ? null : (
           <View className="flex-row items-center justify-center gap-1.5">
             <Lock size={12} color={colors.fg3} strokeWidth={2.2} />
@@ -540,7 +554,7 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
           accessibilityState={{ disabled: primaryDisabled, busy }}
           onPress={next}
           disabled={primaryDisabled}
-          className={`h-[52px] flex-row items-center justify-center gap-2 rounded-lg ${
+          className={`flex-row items-center justify-center gap-2 rounded-lg ${keyboardVisible ? "h-11" : "h-[52px]"} ${
             primaryDisabled ? "bg-bg-mute" : "bg-fg active:opacity-80"
           }`}
         >

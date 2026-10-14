@@ -15,10 +15,9 @@ import Svg, {
   Circle,
   Defs,
   G,
-  Line,
   LinearGradient,
   Path,
-  Pattern,
+  Polygon,
   RadialGradient,
   Rect,
   Stop,
@@ -136,6 +135,33 @@ function Chip() {
   );
 }
 
+/**
+ * Banda de firma: `repeating-linear-gradient(135deg, #FFF 0 6px, #EDEDF0 6px 12px)` del
+ * prototipo, dibujada como bandas diagonales "/" de 6px cada 12px (medidos en la dirección del
+ * gradiente, o sea cada 12·√2 en horizontal). Un `Pattern` de SVG rotado no lo reproducía bien.
+ */
+function SignatureStripes() {
+  const [width, setWidth] = useState(0);
+  const height = 34;
+  const step = 12 * Math.SQRT2;
+  const band = 6 * Math.SQRT2;
+  const bands: string[] = [];
+  for (let c = band; c < width + height + step; c += step) {
+    // Banda entre las rectas x + y = c y x + y = c + band.
+    bands.push(`${c},0 ${c + band},0 ${c + band - height},${height} ${c - height},${height}`);
+  }
+  return (
+    <View style={{ flex: 1 }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+      <Svg width="100%" height="100%">
+        <Rect width="100%" height="100%" fill="#FFFFFF" />
+        {bands.map((points) => (
+          <Polygon key={points} points={points} fill="#EDEDF0" />
+        ))}
+      </Svg>
+    </View>
+  );
+}
+
 /** Fondo lima detrás del dato enfocado, con el fundido de 200ms del prototipo. */
 function Highlight({ on, children, style }: { on: boolean; children: ReactNode; style?: object }) {
   const value = useSharedValue(on ? 1 : 0);
@@ -242,7 +268,10 @@ export function CardPreview3D(props: CardPreview3DProps) {
     transform: [{ perspective: 1100 }, { rotateY: `${flip.value * 180}deg` }],
   }));
   const backStyle = useAnimatedStyle(() => ({
-    transform: [{ perspective: 1100 }, { rotateY: `${180 + flip.value * 180}deg` }],
+    // `(flip - 1) * 180` y no `180 + flip * 180`: con la tarjeta dada vuelta el dorso queda en
+    // 0° exactos. En 360° iOS lo sigue tratando como una transformación 3D y rasteriza la cara,
+    // y el texto del dorso se veía borroso.
+    transform: [{ perspective: 1100 }, { rotateY: `${(flip.value - 1) * 180}deg` }],
   }));
   const shadowStyle = useAnimatedStyle(() => ({ shadowOpacity: 0.1 + fill.value * 0.14 }));
   const chromeStyle = useAnimatedStyle(() => ({ opacity: fill.value }));
@@ -386,15 +415,7 @@ export function CardPreview3D(props: CardPreview3DProps) {
                   borderColor: "rgba(10,10,11,0.12)",
                 }}
               >
-                <Svg width="100%" height="100%">
-                  <Defs>
-                    <Pattern id="sig" width={12} height={12} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                      <Rect width={12} height={12} fill="#FFFFFF" />
-                      <Line x1={9} y1={0} x2={9} y2={12} stroke="#EDEDF0" strokeWidth={6} />
-                    </Pattern>
-                  </Defs>
-                  <Rect width="100%" height="100%" fill="url(#sig)" />
-                </Svg>
+                <SignatureStripes />
               </View>
               <View
                 style={{
