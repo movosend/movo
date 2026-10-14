@@ -5,6 +5,7 @@ import Animated, {
   Easing,
   cancelAnimation,
   interpolate,
+  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -142,7 +143,11 @@ function Highlight({ on, children, style }: { on: boolean; children: ReactNode; 
     value.value = withTiming(on ? 1 : 0, { duration: 200, easing: EASE_OUT });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on]);
-  const animated = useAnimatedStyle(() => ({ backgroundColor: `rgba(198,242,74,${0.7 * value.value})` }));
+  // `interpolateColor` y no un template string: con valores chicos JS escribe el alfa en
+  // notación científica ("2.9e-7") y Reanimated rechaza el color.
+  const animated = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(value.value, [0, 1], ["rgba(198,242,74,0)", LIME_HL]),
+  }));
   return (
     <Animated.View style={[{ borderRadius: 5, paddingHorizontal: 6, paddingVertical: 3, margin: -3, marginHorizontal: -6 }, style, animated]}>
       {children}
