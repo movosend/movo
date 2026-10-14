@@ -394,6 +394,12 @@ distingue `unlinked` de `invalid` (revocada o vencida) y devuelve `account` (ema
 que redirige el callback público. Cinco `ApiErrorCode` nuevos (`MP_CONNECT_*`,
 `MP_ACCOUNT_ALREADY_LINKED`): cuatro de ellos viajan en ese deep link, no como respuesta HTTP.
 
+### MOVO-212 — Contrato de la liquidación (`types/settlement.ts`)
+
+`SettlementStatus`/`SettlementFailureReason`/`SettlementResponse`/`CaptureHoldResponse` para los endpoints
+internos de captura de `svc-payments`, y los códigos `HOLD_NOT_CAPTURABLE`/`SETTLEMENT_NOT_FOUND`.
+`mpFeeArs` y `netAmountArs` son `null` hasta que MP confirma la captura. `escalated` está reservado para
+MOVO-213 (212 nunca lo escribe). Recordatorio: `npm run build` acá antes de tipar desde otro workspace.
 ### MOVO-116 — `ApiError.details`, requisitos del transportista y códigos nuevos (ADR-036)
 
 `ApiError` gana un 4.º parámetro opcional `details` (`ApiErrorDetails`), que `toJSON()` incluye
@@ -432,3 +438,9 @@ propios), `ChatMessagesPage` (`access`, `archived`, `reportedByMe`), `ChatPartic
 `CHAT_PAGE_MAX_LIMIT`, más `CHAT_MODERATION_WARNING` (el aviso de respeto que muestran los clientes cuando el filtro
 de lenguaje tapó palabras de un mensaje propio). `ApiErrorCode` suma `CHAT_CLOSED` y `CHAT_READ_ONLY`; el trigger
 `chatMessageReceived` va en la categoría `chat`, que pasa a `implemented: true`.
+### MOVO-268 — Códigos del webhook de Mercado Pago
+
+`ApiErrorCode` suma `PAYMENT_WEBHOOK_INVALID_SIGNATURE` (401, `x-signature` ausente o
+inválida) y `PAYMENT_WEBHOOK_NOT_CONFIGURED` (503, falta `MP_WEBHOOK_SECRET`). Los consume
+solo MP, no la app. `HoldProviderEventRequest` (MOVO-210) no cambia: "vencido" sigue siendo
+`event: expired`.

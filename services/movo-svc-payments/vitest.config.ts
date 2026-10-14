@@ -16,6 +16,8 @@ export default defineConfig({
         "src/adapters/**/*.ts",
         // MOVO-209: holds (service) y su repositorio.
         "src/modules/holds/*.ts",
+        // MOVO-212: captura del hold y liquidación.
+        "src/modules/settlements/*.ts",
         // MOVO-111: vinculación de la cuenta de MP.
         "src/modules/mp-connect/*.ts",
         "src/repositories/**/*.ts",

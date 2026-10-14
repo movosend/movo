@@ -42,18 +42,34 @@ export class HoldAttemptConflictError extends Error {
 export interface HoldRepository {
   /** El intento más reciente del envío (mayor `attempt`), cualquiera sea su estado. */
   findLatestByShipment(shipmentId: string): Promise<Hold | null>;
+  findById(id: string): Promise<Hold | null>;
+  /** MOVO-268: el intento al que MP le asignó ese pago, si existe. */
+  findByMpPaymentId(mpPaymentId: string): Promise<Hold | null>;
   /**
    * Inserta un intento en `creating`. Tira `HoldAttemptConflictError` si otro request ya
    * lo creó (`shipment_id`+`attempt`) o si el envío ya tiene un hold vivo (índice parcial).
    */
   createAttempt(data: NewHoldAttempt): Promise<Hold>;
   update(id: string, patch: HoldUpdate): Promise<Hold>;
+  /**
+   * MOVO-212: `authorized` → `captured` como UPDATE condicional. Devuelve `false` si el hold ya
+   * no estaba `authorized` (el webhook de MOVO-268 lo movió en el medio): no se pisa.
+   */
+  markCaptured(id: string, patch: { statusDetail: string | null }): Promise<boolean>;
 }
 
 export function createHoldRepository(db: PrismaClient): HoldRepository {
   return {
     findLatestByShipment(shipmentId) {
       return db.hold.findFirst({ where: { shipmentId }, orderBy: { attempt: "desc" } });
+    },
+
+    findById(id) {
+      return db.hold.findUnique({ where: { id } });
+    },
+
+    findByMpPaymentId(mpPaymentId) {
+      return db.hold.findFirst({ where: { mpPaymentId }, orderBy: { attempt: "desc" } });
     },
 
     async createAttempt(data) {
@@ -78,6 +94,14 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
 
     update(id, patch) {
       return db.hold.update({ where: { id }, data: patch });
+    },
+
+    async markCaptured(id, patch) {
+      const { count } = await db.hold.updateMany({
+        where: { id, status: "authorized" },
+        data: { status: "captured", statusDetail: patch.statusDetail, expiresAt: null },
+      });
+      return count === 1;
     },
   };
 }
