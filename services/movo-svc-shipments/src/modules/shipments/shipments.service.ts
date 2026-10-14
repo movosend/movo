@@ -2225,6 +2225,9 @@ export function createShipmentsService(
           }
 
           if (notificationsClient) {
+            // El transportista asignado NO recibe además `offer_voided` (a diferencia de
+            // `cancelShipment`): ya le llega el aviso propio del retiro no realizado, y sigue
+            // siendo `carrierId` del envío cancelado, así que su detalle le abre sin 403.
             void dispatchPickupMissedPushes(notificationsClient, logger, shipment);
             if (pendingVoidedOffers.length > 0) {
               void dispatchOfferVoidedPushes(notificationsClient, logger, shipment.id, pendingVoidedOffers);
