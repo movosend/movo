@@ -539,22 +539,12 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
 
 ### MOVO-225 — Comisión de Mercado Pago: estimado, no valor contractual
 
-No hay un porcentaje de MP que "confirmar": el pago se crea con el `access_token` del
-transportista y `fee_payer: collector`, así que MP cobra su comisión sobre la cuenta de
-cada transportista, según sus tarifas vigentes y el plazo de liberación del dinero que
-ese transportista configuró (además del medio de pago del emisor). Por eso los TyC
-(sección 7) ya no llevan un `[A COMPLETAR]` con un número: dicen que la comisión es a
-cargo del transportista, que Movo no la fija ni la percibe, y que la app muestra un
-estimado. `MP_TRANSACTION_FEE_RATE` (0.0499, por encima del 4,1% observado en sandbox)
-queda documentado como estimado en `commission.ts` y en los `.env.example`; el monto
-real de cada pago sale de `fee_details.mercadopago_fee`.
-
-En la misma sección se corrigió la comisión de Movo: los TyC decían "15% sobre el precio
-acordado, deducida al liquidar al transportista", pero el código (oferta, MOVO-143, y
-`application_fee` del hold, MOVO-209) cobra 15% sobre el neto del transportista, sumado
-arriba (~13,04% del precio que paga el emisor). Se corrigió el texto, no la fórmula. Por
-ser un cambio sustancial, los TyC pasan a la versión 0.2 (`2026-10-11`) y disparan la
-re-aceptación (MOVO-229).
+No hay un porcentaje de MP que confirmar: MP descuenta su comisión de la cuenta de cada
+transportista (según sus tarifas, el plazo de liberación y el medio de pago del emisor).
+Los TyC (secciones 3, 5.1 y 7, v0.2) lo dicen así y corrigen la comisión de Movo (15%
+sobre el neto, no sobre el precio); la app resta el estimado (`MP_TRANSACTION_FEE_RATE`,
+sobre el bruto, a validar con pagos reales) y lo rotula "Recibís aprox.". Pendiente:
+persistir el `mercadopago_fee` real del hold/captura para mostrar el monto exacto.
 
 ### MOVO-252 — CTA "Iniciar viaje" para el transportista y Conteo de Paradas por viaje
 - Backend (`svc-shipments`): Se modificó `listActiveShipments` para incluir el `tripId` resolviendo la oferta aceptada desde el `offerRepository`. Esto permite propagar `tripId` en el payload de `ActiveShipmentSummary`.

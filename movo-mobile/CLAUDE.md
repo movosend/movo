@@ -891,11 +891,12 @@ que resuelve los 3 puntos que dejó abiertos el ticket de planificación homóni
   en vez de duplicar `MOVO_COMMISSION_RATE` a mano en mobile. El monto final que
   persiste sigue siendo el que devuelve la respuesta del servidor, este es solo un
   preview.
-- **Línea de "Procesamiento del pago" mostrada como estimado, nunca restada de "Te
-  queda"**: `MP_TRANSACTION_FEE_RATE` sigue sin confirmar y `movo-svc-payments` no
-  tiene split real todavía — el transportista de hecho recibe el neto completo que
-  tipeó, así que "Te queda" es exactamente ese número, con una nota aclarando que el
-  estimado de MP es solo contexto.
+- **Línea de "Procesamiento del pago" mostrada como estimado**: MOVO-225 la pasó a
+  restar del desglose, que termina en "Recibís aprox." (neto menos el estimado de MP
+  sobre el bruto, `estimateReceivedArs` de `src/lib/commission-config.ts`), porque MP
+  sí descuenta su comisión de lo que le acredita al transportista.
+  `MP_TRANSACTION_FEE_RATE` es un estimado a validar con pagos reales, no un valor
+  contractual. "Te queda" (teclado/CTA) sigue siendo el neto después de Movo.
 - **Fecha/horario de retiro alternativo** (bloqueado hasta el cambio de backend del
   mismo ticket, ver `services/movo-svc-shipments/CLAUDE.md` MOVO-177): "Como lo pidió
   el emisor" (default) vs. "Proponer otro día u horario" — day chips (0 a +3 días) +
