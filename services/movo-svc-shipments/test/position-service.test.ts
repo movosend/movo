@@ -815,6 +815,98 @@ describe("position-service (MOVO-202 / MOVO-251)", () => {
       );
     });
 
+    it("con retiro y entrega cerca, no avisa la entrega mientras siga en el radio del retiro", async () => {
+      // Retiro ~1,5 km al sur de la entrega (-31.4353, -64.1858).
+      const { service, sendPush } = setup([
+        fakeShipment({ status: ShipmentStatus.IN_TRANSIT, pickupLat: -31.4488, pickupLng: -64.1858 }),
+      ]);
+
+      // En la entrega misma, pero todavía a 1,5 km del retiro: recién se retiró.
+      await service.reportPosition("shipment-1", "carrier-1", at({ lat: -31.4353, lng: -64.1858 }, 0));
+      await flush();
+      expect(sendPush).not.toHaveBeenCalled();
+
+      // ~1,5 km al norte de la entrega y ~3 km del retiro: ya salió del radio del retiro.
+      await service.reportPosition("shipment-1", "carrier-1", at({ lat: -31.4218, lng: -64.1858 }, 1));
+      await flush();
+      expect(sendPush).toHaveBeenCalledWith(expect.objectContaining({ userId: "receiver-1" }));
+    });
+
+    it("si falla la lectura de un envío, evalúa igual los demás del viaje", async () => {
+      const shipmentB = fakeShipment({ id: "shipment-B", senderId: "sender-B", status: ShipmentStatus.ASSIGNED });
+      const sendPush = vi.fn().mockResolvedValue(undefined);
+      const findById = vi.fn(async (id: string) => {
+        if (id === "shipment-A") throw new Error("Postgres caído");
+        return shipmentB;
+      });
+      const service = createPositionService(
+        fakeShipmentRepository({
+          findById,
+          findTrackingContext: vi.fn().mockResolvedValue({
+            shipment: fakeShipment({ id: "shipment-A", status: ShipmentStatus.ASSIGNED }),
+            trip: { id: "trip-1", status: TripStatus.ACTIVE, carrierId: "carrier-1" },
+            activeShipmentIds: ["shipment-A", "shipment-B"],
+          }),
+        }),
+        fakePositionRepository(),
+        createFakeRedis(),
+        fakeRealtime(),
+        { warn: vi.fn() },
+        { sendPush }
+      );
+
+      await service.reportPosition("shipment-A", "carrier-1", at(NEAR_PICKUP, 0));
+      await flush();
+
+      expect(sendPush).toHaveBeenCalledTimes(1);
+      expect(sendPush).toHaveBeenCalledWith(expect.objectContaining({ userId: "sender-B" }));
+    });
+
+    it("relee el envío antes de avisar: uno que ya no está asignado no recibe el aviso", async () => {
+      const sendPush = vi.fn().mockResolvedValue(undefined);
+      const service = createPositionService(
+        fakeShipmentRepository({
+          // El contexto de tracking lo vio asignado, pero al evaluar ya se canceló.
+          findTrackingContext: vi.fn().mockResolvedValue({
+            shipment: fakeShipment({ status: ShipmentStatus.ASSIGNED }),
+            trip: { id: "trip-1", status: TripStatus.ACTIVE, carrierId: "carrier-1" },
+            activeShipmentIds: ["shipment-1"],
+          }),
+          findById: vi.fn().mockResolvedValue(fakeShipment({ status: ShipmentStatus.CANCELLED })),
+        }),
+        fakePositionRepository(),
+        createFakeRedis(),
+        fakeRealtime(),
+        { warn: vi.fn() },
+        { sendPush }
+      );
+
+      await service.reportPosition("shipment-1", "carrier-1", at(NEAR_PICKUP, 0));
+      await flush();
+
+      expect(sendPush).not.toHaveBeenCalled();
+    });
+
+    it("en un lote evalúa una sola vez por viaje, con la posición más reciente", async () => {
+      const { service, sendPush } = setup([fakeShipment({ status: ShipmentStatus.ASSIGNED })]);
+
+      // La más reciente (minuto 2) está lejos: aunque las anteriores estén cerca, no avisa.
+      await service.reportPositions("carrier-1", [
+        { shipmentId: "shipment-1", ...at(NEAR_PICKUP, 0) },
+        { shipmentId: "shipment-1", ...at(NEAR_PICKUP, 1) },
+        { shipmentId: "shipment-1", ...at(FAR_FROM_PICKUP, 2) },
+      ]);
+      await flush();
+      expect(sendPush).not.toHaveBeenCalled();
+
+      await service.reportPositions("carrier-1", [
+        { shipmentId: "shipment-1", ...at(FAR_FROM_PICKUP, 3) },
+        { shipmentId: "shipment-1", ...at(NEAR_PICKUP, 4) },
+      ]);
+      await flush();
+      expect(sendPush).toHaveBeenCalledTimes(1);
+    });
+
     it("una posición vieja que no avanza el marcador no evalúa", async () => {
       const { service, sendPush } = setup([fakeShipment({ status: ShipmentStatus.ASSIGNED })]);
 

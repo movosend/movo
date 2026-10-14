@@ -230,65 +230,89 @@ export function createPositionService(
    * (`in_transit`). Recorre todos los envíos activos del viaje: el aviso puede salir aunque
    * no sea la próxima parada (decisión del refinamiento, el orden del VRPTW no se persiste).
    * Una sola vez por envío y etapa (`SET NX`); si el push falla se libera para reintentar.
+   *
+   * Cada envío se relee justo antes de decidir (nada cacheado entre posiciones), así un envío
+   * que se entregó o canceló mientras tanto no recibe un "ya llega". Un fallo leyendo o avisando
+   * un envío no corta la evaluación de los demás.
    */
-  async function notifyProximity(
-    context: ShipmentTrackingContext,
-    position: ReportPositionInput,
-    shipmentCache: Map<string, Promise<Shipment | null>>
-  ): Promise<void> {
+  async function notifyProximity(context: ShipmentTrackingContext, position: ReportPositionInput): Promise<void> {
     if (!notificationsClient) return;
     const ids = context.activeShipmentIds?.length ? context.activeShipmentIds : [context.shipment.id];
     for (const id of ids) {
-      let lookup = shipmentCache.get(id);
-      if (!lookup) {
-        lookup =
-          id === context.shipment.id ? Promise.resolve(context.shipment) : shipmentRepository.findById(id);
-        shipmentCache.set(id, lookup);
-      }
-      const shipment = await lookup;
-      if (!shipment) continue;
-
-      const target =
-        shipment.status === ShipmentStatus.ASSIGNED
-          ? {
-              stage: "pickup" as const,
-              userId: shipment.senderId,
-              lat: shipment.pickupLat,
-              lng: shipment.pickupLng,
-              trigger: "carrierNearPickup" as const,
-            }
-          : shipment.status === ShipmentStatus.IN_TRANSIT && shipment.receiverId
-            ? {
-                stage: "delivery" as const,
-                userId: shipment.receiverId,
-                lat: shipment.deliveryLat,
-                lng: shipment.deliveryLng,
-                trigger: "carrierNearDelivery" as const,
-              }
-            : null;
-      if (!target) continue;
-      if (haversineKm(position.lat, position.lng, target.lat, target.lng) > PROXIMITY_RADIUS_KM) continue;
-
-      const claimKey = proximityClaimKey(target.stage, shipment.id);
-      if ((await redis.set(claimKey, "1", "PX", PROXIMITY_CLAIM_TTL_MS, "NX")) !== "OK") continue;
-
-      const { title, body } = renderNotificationTrigger(target.trigger, undefined);
       try {
-        await notificationsClient.sendPush({
-          userId: target.userId,
-          title,
-          body,
-          category: notificationTriggerCategory(target.trigger),
-          data: { type: "carrier_nearby", shipmentId: shipment.id },
-        });
+        const shipment = await shipmentRepository.findById(id);
+        if (shipment) await notifyShipmentProximity(shipment, position);
       } catch (err) {
-        await redis.del(claimKey).catch(() => undefined);
-        logger?.warn(
-          { err, event: "notification_dispatch_failed", shipmentId: shipment.id, stage: target.stage },
-          "No se pudo mandar el aviso de transportista cerca"
-        );
+        logger?.warn({ err, event: "proximity_check_failed", shipmentId: id }, "Falló la evaluación de proximidad");
       }
     }
+  }
+
+  async function notifyShipmentProximity(shipment: Shipment, position: ReportPositionInput): Promise<void> {
+    if (!notificationsClient) return;
+    const target =
+      shipment.status === ShipmentStatus.ASSIGNED
+        ? {
+            stage: "pickup" as const,
+            userId: shipment.senderId,
+            lat: shipment.pickupLat,
+            lng: shipment.pickupLng,
+            trigger: "carrierNearPickup" as const,
+          }
+        : shipment.status === ShipmentStatus.IN_TRANSIT && shipment.receiverId
+          ? {
+              stage: "delivery" as const,
+              userId: shipment.receiverId,
+              lat: shipment.deliveryLat,
+              lng: shipment.deliveryLng,
+              trigger: "carrierNearDelivery" as const,
+            }
+          : null;
+    if (!target) return;
+    if (haversineKm(position.lat, position.lng, target.lat, target.lng) > PROXIMITY_RADIUS_KM) return;
+    // Con retiro y entrega a menos de 2 km, el receptor recibiría "ya llega" apenas se retira el
+    // paquete: la entrega se avisa recién cuando el transportista salió del radio del retiro. Un
+    // envío con las dos direcciones tan cerca puede quedarse sin este aviso; el push de custodia
+    // del retiro ya le dijo al receptor que el paquete salió.
+    if (
+      target.stage === "delivery" &&
+      haversineKm(position.lat, position.lng, shipment.pickupLat, shipment.pickupLng) <= PROXIMITY_RADIUS_KM
+    ) {
+      return;
+    }
+
+    const claimKey = proximityClaimKey(target.stage, shipment.id);
+    if ((await redis.set(claimKey, "1", "PX", PROXIMITY_CLAIM_TTL_MS, "NX")) !== "OK") return;
+
+    const { title, body } = renderNotificationTrigger(target.trigger, undefined);
+    try {
+      await notificationsClient.sendPush({
+        userId: target.userId,
+        title,
+        body,
+        category: notificationTriggerCategory(target.trigger),
+        data: { type: "carrier_nearby", shipmentId: shipment.id },
+      });
+    } catch (err) {
+      await redis.del(claimKey).catch(() => undefined);
+      logger?.warn(
+        { err, event: "notification_dispatch_failed", shipmentId: shipment.id, stage: target.stage },
+        "No se pudo mandar el aviso de transportista cerca"
+      );
+    }
+  }
+
+  /** Fire-and-forget: la ingesta nunca espera al push ni falla por él. Las evaluaciones corren
+   * una detrás de otra, así un lote no abre N lecturas en paralelo contra la base. */
+  function scheduleProximity(evaluations: Array<{ context: ShipmentTrackingContext; position: ReportPositionInput }>): void {
+    if (!notificationsClient || evaluations.length === 0) return;
+    void (async () => {
+      for (const { context, position } of evaluations) {
+        await notifyProximity(context, position);
+      }
+    })().catch((err: unknown) => {
+      logger?.warn({ err, event: "proximity_check_failed" }, "Falló la evaluación de proximidad");
+    });
   }
 
   /**
@@ -299,9 +323,8 @@ export function createPositionService(
   async function ingest(
     context: ShipmentTrackingContext & { trip: NonNullable<ShipmentTrackingContext["trip"]> },
     input: ReportPositionInput,
-    now: Date,
-    shipmentCache: Map<string, Promise<Shipment | null>> = new Map()
-  ): Promise<{ persisted: boolean }> {
+    now: Date
+  ): Promise<{ persisted: boolean; evaluateProximity: boolean }> {
     const shipmentId = context.shipment.id;
     const tripId = context.trip.id;
     const activeShipmentIds = context.activeShipmentIds;
@@ -341,7 +364,8 @@ export function createPositionService(
       String(LAST_KNOWN_POSITION_TTL_SECONDS)
     );
 
-    if (Number(updated) === 1) {
+    const advanced = Number(updated) === 1;
+    if (advanced) {
       const targets = activeShipmentIds && activeShipmentIds.length > 0 ? activeShipmentIds : [shipmentId];
       for (const targetId of targets) {
         realtime.broadcast(targetId, {
@@ -354,18 +378,12 @@ export function createPositionService(
           recordedAt: now.toISOString(),
         });
       }
-
-      // MOVO-240: solo con una posición nueva (avanzó el marcador) y que abrió un tramo de
-      // 45s -- deja afuera las posiciones viejas de la cola offline y limita la evaluación a
-      // una por tramo. Fire-and-forget: la ingesta nunca espera al push ni falla por él.
-      if (shouldPersist) {
-        void notifyProximity(context, input, shipmentCache).catch((err: unknown) => {
-          logger?.warn({ err, event: "proximity_check_failed", tripId }, "Falló la evaluación de proximidad");
-        });
-      }
     }
 
-    return { persisted: shouldPersist };
+    // MOVO-240: la proximidad se evalúa solo con una posición nueva (avanzó el marcador) que
+    // además abrió un tramo de 45s -- deja afuera las posiciones viejas de la cola offline y
+    // limita la evaluación a una por tramo. La dispara el caller (`scheduleProximity`).
+    return { persisted: shouldPersist, evaluateProximity: shouldPersist && advanced };
   }
 
   return {
@@ -377,13 +395,17 @@ export function createPositionService(
       const context = await resolveTrackingContext(shipmentId);
       const now = new Date();
       const valid = assertCanReport(context, callerId, input.capturedAt, now);
-      return ingest(valid, input, now);
+      const { persisted, evaluateProximity } = await ingest(valid, input, now);
+      if (evaluateProximity) scheduleProximity([{ context: valid, position: input }]);
+      return { persisted };
     },
 
     async reportPositions(callerId: string, items: BatchPositionInput[]): Promise<PositionBatchItemResult[]> {
       const now = new Date();
       const contexts = new Map<string, Promise<ShipmentTrackingContext | null>>();
-      const shipmentCache = new Map<string, Promise<Shipment | null>>();
+      // Una sola evaluación de proximidad por viaje y por lote, con la posición más reciente:
+      // una cola offline vaciada de golpe no dispara una evaluación por tramo.
+      const proximityByTrip = new Map<string, { context: ShipmentTrackingContext; position: ReportPositionInput }>();
       const results: PositionBatchItemResult[] = [];
 
       for (const [index, item] of items.entries()) {
@@ -403,10 +425,15 @@ export function createPositionService(
           continue;
         }
 
-        const { persisted } = await ingest(valid, item, now, shipmentCache);
+        const { persisted, evaluateProximity } = await ingest(valid, item, now);
         results.push({ index, shipmentId: item.shipmentId, status: "accepted", persisted });
+        const previous = proximityByTrip.get(valid.trip.id);
+        if (evaluateProximity && (!previous || previous.position.capturedAt < item.capturedAt)) {
+          proximityByTrip.set(valid.trip.id, { context: valid, position: item });
+        }
       }
 
+      scheduleProximity([...proximityByTrip.values()]);
       return results;
     },
 
