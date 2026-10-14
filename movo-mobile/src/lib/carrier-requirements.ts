@@ -3,21 +3,19 @@ import { KycStatus } from "@movo/shared/dist/types/user";
 export type TransportGate = "identity" | "license";
 
 /**
- * Qué requisito bloquea la entrada al tab Transportar (MOVO-167), en orden de
- * prioridad: la identidad va primero y recién con la identidad aprobada se pide la
- * licencia (AC3 del ticket) — nunca dos CTAs a la vez.
+ * Qué requisito bloquea la entrada al tab Transportar según el perfil propio (MOVO-167),
+ * en orden de prioridad: la identidad va primero y recién con la identidad aprobada se
+ * pide la licencia (AC3 del ticket) — nunca dos CTAs a la vez.
  *
- * `identityRejectedByFeed` cubre el 403 `CARRIER_NOT_VERIFIED` de
- * `GET /shipments/available`: el perfil cacheado puede estar viejo, el backend no.
+ * El 403 `CARRIER_NOT_VERIFIED` de `GET /shipments/available` (el perfil cacheado puede
+ * estar viejo, el backend no) lo suma la pantalla encima de este resultado.
  * Sin perfil todavía (`null`) no se bloquea por licencia — el que llama decide qué
  * mostrar mientras carga.
  */
 export function resolveTransportGate(input: {
   kycStatus: KycStatus | null;
   licenseKycStatus: KycStatus | null;
-  identityRejectedByFeed: boolean;
 }): TransportGate | null {
-  if (input.identityRejectedByFeed) return "identity";
   if (input.kycStatus !== null && input.kycStatus !== KycStatus.APPROVED) return "identity";
   if (input.licenseKycStatus !== null && input.licenseKycStatus !== KycStatus.APPROVED) return "license";
   return null;

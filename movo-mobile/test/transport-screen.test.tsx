@@ -1,7 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { KycStatus } from "@movo/shared/dist/types/user";
-import { fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render } from "@testing-library/react-native";
 import type { AvailableShipment } from "../src/api/shipments-client";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 import TransportScreen from "../app/(app)/(tabs)/transport";
@@ -887,15 +887,27 @@ describe("TransportScreen", () => {
       expect(mockUseTransportOrigin).toHaveBeenCalledWith(false);
     });
 
-    it("si el perfil no se pudo cargar no bloquea (el backend sigue siendo la autoridad)", async () => {
-      mockUseMyProfile.mockReturnValue({ data: undefined, isLoading: false, refetch: mockRefetchProfile });
-      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
-      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
+    it("si el perfil no se pudo cargar no deja pasar: muestra el error con Reintentar", async () => {
+      mockUseMyProfile.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error("network down"),
+        refetch: mockRefetchProfile,
+      });
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
 
-      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+      const { getByTestId, getByText, queryByTestId } = await render(<TransportScreen />);
 
-      expect(queryByTestId("transport-license-gate")).toBeNull();
-      expect(getByTestId("transport-list")).toBeTruthy();
+      expect(getByTestId("transport-profile-error")).toBeTruthy();
+      expect(queryByTestId("transport-list")).toBeNull();
+      expect(queryByTestId("transport-zone-chip")).toBeNull();
+      expect(mockUseTransportOrigin).toHaveBeenCalledWith(false);
+      expect(mockUseAvailableShipments).toHaveBeenLastCalledWith(null, 50);
+
+      await fireEvent.press(getByText("Reintentar"));
+      expect(mockRefetchProfile).toHaveBeenCalledTimes(1);
     });
 
     it("al ganar foco con el bloqueo activo vuelve a pedir el perfil (vuelta desde /license-kyc)", async () => {
@@ -919,6 +931,38 @@ describe("TransportScreen", () => {
       onFocus();
 
       expect(mockRefetchProfile).not.toHaveBeenCalled();
+    });
+
+    it("con el bloqueo que vino del 403 del feed, ganar foco refetchea el perfil y el feed", async () => {
+      const refetchFeed = jest.fn();
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          isError: true,
+          error: new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tu identidad verificada."),
+          refetch: refetchFeed,
+        }),
+      );
+
+      await render(<TransportScreen />);
+      const onFocus = mockUseFocusEffect.mock.calls.at(-1)?.[0] as () => void;
+      onFocus();
+
+      expect(mockRefetchProfile).toHaveBeenCalled();
+      expect(refetchFeed).toHaveBeenCalled();
+    });
+
+    it("el bloqueo tiene pull-to-refresh que vuelve a pedir el perfil", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus: KycStatus.MANUAL_REVIEW }));
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId } = await render(<TransportScreen />);
+      await act(async () => {
+        await getByTestId("transport-gate-scroll").props.refreshControl.props.onRefresh();
+      });
+
+      expect(mockRefetchProfile).toHaveBeenCalledTimes(1);
     });
 
     it("también bloquea el modo filtrado por viaje, sin pedir el viaje ni sus matches", async () => {

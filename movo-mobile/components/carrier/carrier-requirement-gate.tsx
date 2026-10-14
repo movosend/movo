@@ -1,6 +1,7 @@
 import * as Haptics from "expo-haptics";
 import { ArrowRight, type LucideIcon } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
+import { BRAND_COLORS } from "../../src/constants/brand-colors";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 
 export interface CarrierRequirementGateProps {
@@ -15,9 +16,9 @@ export interface CarrierRequirementGateProps {
 /**
  * Estado bloqueante "te falta un requisito para transportar" (MOVO-167): ícono en
  * círculo, título, explicación y un CTA directo al flujo que lo resuelve. No sabe qué
- * requisito es — el caller decide el copy y a dónde navega, así lo reusan tanto la
- * identidad y la licencia del tab Transportar como la pantalla de requisitos
- * pendientes de MOVO-117 (Mercado Pago), sin un tercer componente casi idéntico.
+ * requisito es — el caller decide el copy y a dónde navega. Hoy lo usan los bloqueos
+ * de identidad y de licencia del tab Transportar; MOVO-117 reemplaza el de licencia
+ * por una checklist propia (licencia + Mercado Pago) y no reutiliza este componente.
  *
  * Ocupa el alto disponible y centra el mensaje; el `pb-24` compensa la tab bar
  * flotante, que tapa el pie de la pantalla. El CTA ocupa todo el ancho del contenido
@@ -47,13 +48,14 @@ export function CarrierRequirementGate({
         testID={testID ? `${testID}-cta` : undefined}
         accessibilityRole="button"
         onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          // Sin `.catch`, un dispositivo sin haptics deja un rechazo sin manejar.
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
           onPressCta();
         }}
         className="mt-6 h-[50px] w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 px-6 active:opacity-80"
       >
         <Text className="font-sans-semibold text-body text-ink-950">{ctaLabel}</Text>
-        <ArrowRight size={17} strokeWidth={1.8} color="#0A0A0B" />
+        <ArrowRight size={17} strokeWidth={1.8} color={BRAND_COLORS.ink950} />
       </Pressable>
     </View>
   );

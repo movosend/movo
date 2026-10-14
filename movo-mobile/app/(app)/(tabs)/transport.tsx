@@ -13,8 +13,8 @@ import {
   ShieldAlert,
   SlidersHorizontal,
 } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { FlatList } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CarrierRequirementGate } from "../../../components/carrier/carrier-requirement-gate";
@@ -250,24 +250,24 @@ export default function TransportScreen() {
   const isTripMode = Boolean(tripId);
 
   // MOVO-167: gating de entrada por identidad y licencia, sobre el perfil propio. Es
-  // solo UX — el backend sigue siendo la autoridad (ADR-036). Mientras el perfil carga
-  // o el usuario está bloqueado no se resuelve el origen (evita pedir permiso de GPS a
-  // quien igual no va a poder ver el listado) ni se piden envíos. Si el perfil falla
-  // no se bloquea: el 403 `CARRIER_NOT_VERIFIED` del feed sigue cubriendo la identidad.
-  const { data: profile, isLoading: isProfileLoading, refetch: refetchProfile } = useMyProfile();
+  // solo UX — el backend sigue siendo la autoridad (ADR-036). Mientras el perfil carga,
+  // falló o el usuario está bloqueado no se resuelve el origen (evita pedir permiso de
+  // GPS a quien igual no va a poder ver el listado) ni se piden envíos. Si el perfil
+  // falla no se deja pasar: sin él no se sabe si falta la licencia, así que se muestra
+  // el error con "Reintentar".
+  const {
+    data: profile,
+    isLoading: isProfileLoading,
+    isError: isProfileError,
+    error: profileError,
+    refetch: refetchProfile,
+  } = useMyProfile();
+  const profileUnavailable = !profile && isProfileError;
   const profileGate = resolveTransportGate({
     kycStatus: profile?.kycStatus ?? null,
     licenseKycStatus: profile?.licenseKycStatus ?? null,
-    identityRejectedByFeed: false,
   });
-  const canBrowse = !isProfileLoading && profileGate === null;
-  // Al volver de `/kyc` o `/license-kyc` el tab sigue montado: sin este refetch el
-  // bloqueo quedaría con el estado viejo hasta reabrir la app.
-  useFocusEffect(
-    useCallback(() => {
-      if (profileGate !== null) void refetchProfile();
-    }, [profileGate, refetchProfile]),
-  );
+  const canBrowse = !isProfileLoading && !profileUnavailable && profileGate === null;
 
   const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!isTripMode && canBrowse);
   const { radiusKm, setRadiusKm } = useTransportRadius();
@@ -307,11 +307,39 @@ export default function TransportScreen() {
     if (needsManualPick) setPickerOpen(true);
   }, [needsManualPick]);
 
-  const gate = resolveTransportGate({
-    kycStatus: profile?.kycStatus ?? null,
-    licenseKycStatus: profile?.licenseKycStatus ?? null,
-    identityRejectedByFeed: isError && error instanceof ApiError && error.code === "CARRIER_NOT_VERIFIED",
-  });
+  // El perfil puede estar cacheado viejo; el 403 `CARRIER_NOT_VERIFIED` del feed no.
+  const identityRejectedByFeed = isError && error instanceof ApiError && error.code === "CARRIER_NOT_VERIFIED";
+  const gate = identityRejectedByFeed ? "identity" : profileGate;
+
+  // Al volver de `/kyc` o `/license-kyc` el tab sigue montado: sin este refetch el
+  // bloqueo quedaría con el estado viejo hasta reabrir la app. Si el bloqueo vino del
+  // feed también hay que volver a pedirlo, el perfil solo no lo destraba. Lee el
+  // estado de un ref para que el callback no cambie con cada render: si dependiera de
+  // `gate`, `useFocusEffect` lo volvería a correr apenas el bloqueo aparece, sin que
+  // la pantalla haya ganado foco.
+  const refreshGate = useCallback(async () => {
+    const tasks: Promise<unknown>[] = [refetchProfile()];
+    if (identityRejectedByFeed) tasks.push(refetch());
+    await Promise.all(tasks);
+  }, [refetchProfile, refetch, identityRejectedByFeed]);
+  const focusRefreshRef = useRef({ blocked: false, refreshGate });
+  focusRefreshRef.current = { blocked: gate !== null || profileUnavailable, refreshGate };
+  useFocusEffect(
+    useCallback(() => {
+      if (focusRefreshRef.current.blocked) void focusRefreshRef.current.refreshGate();
+    }, []),
+  );
+  // Pull-to-refresh del estado bloqueante: si la licencia se aprueba con el usuario
+  // parado en el tab no hay evento de foco que lo destrabe.
+  const [isRefreshingGate, setIsRefreshingGate] = useState(false);
+  const onRefreshGate = useCallback(async () => {
+    setIsRefreshingGate(true);
+    try {
+      await refreshGate();
+    } finally {
+      setIsRefreshingGate(false);
+    }
+  }, [refreshGate]);
   // Filtro client-side de envíos con la ventana de retiro ya vencida — el backend
   // no los excluye (ver `isPickupWindowExpired`), en ninguno de los dos modos.
   const unexpiredItems = (data?.pages.flatMap((page) => page.items) ?? []).filter(
@@ -410,8 +438,9 @@ export default function TransportScreen() {
   const acceptedOffersCount = offers.filter((o) => o.status === OfferStatus.ACCEPTED).length;
   const offersMeta = `${pendingOffersCount} ${pendingOffersCount === 1 ? "pendiente" : "pendientes"} · ${acceptedOffersCount} ${acceptedOffersCount === 1 ? "aceptada" : "aceptadas"}`;
 
-  // Con un requisito pendiente solo queda el título (y el indicador de tracking, que
-  // nunca se esconde): zona, accesos, radio y filtros no sirven sin poder ver envíos.
+  // Con un requisito pendiente solo queda el título (y, fuera del modo `?tripId=`, el
+  // indicador de tracking, que no depende del bloqueo): zona, accesos, radio y filtros
+  // no sirven sin poder ver envíos.
   const showBrowseChrome = canBrowse && gate === null;
   const zoneLabel = origin ? origin.city ?? zoneLabelFromAddress(origin.address) : null;
 
@@ -501,22 +530,46 @@ export default function TransportScreen() {
 
       {isInitialLoading ? (
         isTripMode ? <TransportCardSkeleton /> : <TransportRowSkeleton />
-      ) : gate === "identity" ? (
-        <CarrierRequirementGate
-          testID="transport-identity-gate"
-          icon={ShieldAlert}
-          {...IDENTITY_GATE_COPY}
-          onPressCta={() => router.push("/kyc")}
-        />
-      ) : gate === "license" && profile ? (
-        <CarrierRequirementGate
-          testID="transport-license-gate"
-          icon={IdCard}
-          {...licenseGateCopy(profile.licenseKycStatus)}
-          onPressCta={() =>
-            router.push({ pathname: "/license-kyc", params: { status: profile.licenseKycStatus } })
+      ) : profileUnavailable ? (
+        <View className="px-5 pt-2">
+          <ErrorBanner
+            testID="transport-profile-error"
+            message={friendlyErrorMessage(profileError, "No pudimos verificar tus requisitos para transportar.")}
+          />
+          <Text onPress={() => refetchProfile()} className="font-sans-medium text-small text-fg">
+            Reintentar
+          </Text>
+        </View>
+      ) : gate !== null ? (
+        <ScrollView
+          testID="transport-gate-scroll"
+          contentContainerStyle={{ flexGrow: 1 }}
+          refreshControl={
+            <RefreshControl
+              testID="transport-gate-refresh"
+              refreshing={isRefreshingGate}
+              onRefresh={onRefreshGate}
+            />
           }
-        />
+        >
+          {gate === "identity" || !profile ? (
+            <CarrierRequirementGate
+              testID="transport-identity-gate"
+              icon={ShieldAlert}
+              {...IDENTITY_GATE_COPY}
+              onPressCta={() => router.push("/kyc")}
+            />
+          ) : (
+            <CarrierRequirementGate
+              testID="transport-license-gate"
+              icon={IdCard}
+              {...licenseGateCopy(profile.licenseKycStatus)}
+              onPressCta={() =>
+                router.push({ pathname: "/license-kyc", params: { status: profile.licenseKycStatus } })
+              }
+            />
+          )}
+        </ScrollView>
       ) : isTripMode && isTripError ? (
         <View className="px-5 pt-2">
           <ErrorBanner

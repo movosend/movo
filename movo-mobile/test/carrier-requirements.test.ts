@@ -2,7 +2,7 @@ import { KycStatus } from "@movo/shared/dist/types/user";
 import { licenseGateCopy, resolveTransportGate } from "../src/lib/carrier-requirements";
 
 describe("resolveTransportGate", () => {
-  const approved = { kycStatus: KycStatus.APPROVED, licenseKycStatus: KycStatus.APPROVED, identityRejectedByFeed: false };
+  const approved = { kycStatus: KycStatus.APPROVED, licenseKycStatus: KycStatus.APPROVED };
 
   it("sin bloqueo con identidad y licencia aprobadas", () => {
     expect(resolveTransportGate(approved)).toBeNull();
@@ -17,18 +17,13 @@ describe("resolveTransportGate", () => {
       resolveTransportGate({
         kycStatus: KycStatus.PENDING,
         licenseKycStatus: KycStatus.NOT_STARTED,
-        identityRejectedByFeed: false,
       }),
     ).toBe("identity");
   });
 
-  it("el 403 del feed bloquea por identidad aunque el perfil diga aprobado", () => {
-    expect(resolveTransportGate({ ...approved, identityRejectedByFeed: true })).toBe("identity");
-  });
-
   it("sin perfil no bloquea por licencia", () => {
     expect(
-      resolveTransportGate({ kycStatus: null, licenseKycStatus: null, identityRejectedByFeed: false }),
+      resolveTransportGate({ kycStatus: null, licenseKycStatus: null }),
     ).toBeNull();
   });
 });
