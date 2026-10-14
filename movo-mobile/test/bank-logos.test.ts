@@ -20,6 +20,7 @@ describe("bank-logos (MOVO-101)", () => {
     ["Tarjeta Naranja", "naranja-x"],
     ["Mercado Pago", "mercado-pago"],
     ["Personal Pay", "personal-pay"],
+    ["Ualá", "uala"],
   ])("%s → %s", (issuer, slug) => {
     expect(bankSlugFromIssuer(issuer)).toBe(slug);
     expect(bankLogoFor(issuer)).toBeTruthy();

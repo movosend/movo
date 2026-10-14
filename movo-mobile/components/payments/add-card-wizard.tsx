@@ -1,7 +1,7 @@
 import type { SavedCard } from "@movo/shared/dist/types/saved-card";
 import { SAVED_CARD_ALIAS_MAX_LENGTH } from "@movo/shared/dist/types/saved-card";
 import { Check, ChevronDown, ChevronLeft, Lock, XCircle } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -13,6 +13,8 @@ import {
   View,
 } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useKeyboardVisible } from "../../src/hooks/use-keyboard-visible";
 import { useAddSavedCard, useCardsCheckoutData } from "../../src/hooks/use-saved-cards";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { cardBrandFromNumber, cardBrandKey } from "../../src/lib/card-brand";
@@ -57,16 +59,6 @@ const STEP_COPY: Record<Step, [string, string]> = {
   1: ["Número de la tarjeta", "Crédito o débito. Con los primeros dígitos reconocemos tu banco."],
   2: ["Vencimiento y código", "El código lo encontrás en el dorso. Lo usamos solo para validarla."],
   3: ["Titular y nombre", "Tal como figura en el plástico. Si querés, ponele un nombre para reconocerla."],
-};
-
-/** Datos de prueba de Mercado Pago (sandbox): Visa que el sandbox acepta guardar (ver MOVO-100). */
-const DEV_AUTOFILL = {
-  num: "4075595716483764",
-  exp: "1130",
-  cvv: "123",
-  name: "APRO",
-  dni: "12345678",
-  alias: "Gastos del trabajo",
 };
 
 export interface AddCardWizardProps {
@@ -137,8 +129,30 @@ function DefaultSwitch({ on, forced, onToggle }: { on: boolean; forced: boolean;
   );
 }
 
+/** Con el teclado abierto la tarjeta se achica a este factor para dejar lugar al campo. */
+const COMPACT_SCALE = 0.6;
+const CARD_HEIGHT = 220;
+
+/** Achica la tarjeta (desde arriba) mientras el teclado está abierto. */
+function CompactCard({ compact, children }: { compact: boolean; children: ReactNode }) {
+  const progress = useSharedValue(compact ? 1 : 0);
+  useEffect(() => {
+    progress.value = withTiming(compact ? 1 : 0, { duration: 250, easing: EASE_OUT });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compact]);
+  const outer = useAnimatedStyle(() => ({ height: CARD_HEIGHT * (1 - progress.value * (1 - COMPACT_SCALE)) }));
+  const inner = useAnimatedStyle(() => ({ transform: [{ scale: 1 - progress.value * (1 - COMPACT_SCALE) }] }));
+  return (
+    <Animated.View testID="add-card-preview-container" style={outer}>
+      <Animated.View style={[{ height: CARD_HEIGHT, transformOrigin: "top center" }, inner]}>{children}</Animated.View>
+    </Animated.View>
+  );
+}
+
 export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
+  const keyboardVisible = useKeyboardVisible();
   const checkoutData = useCardsCheckoutData();
   const publicKey = checkoutData.data?.publicKey ?? null;
 
@@ -258,20 +272,6 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
     }
   };
 
-  const autofill = () => {
-    if (step === 1) setNum(DEV_AUTOFILL.num);
-    if (step === 2) {
-      setExp(DEV_AUTOFILL.exp);
-      setCvv(DEV_AUTOFILL.cvv);
-    }
-    if (step === 3) {
-      setName(DEV_AUTOFILL.name);
-      setDni(DEV_AUTOFILL.dni);
-      setAlias(DEV_AUTOFILL.alias);
-    }
-    setStatus("form");
-  };
-
   const focusProps = (key: Exclude<CardPreviewFocus, null>) => ({
     onFocusChange: (focused: boolean) => setFocus((current) => (focused ? key : current === key ? null : current)),
     onSubmitEditing: next,
@@ -320,26 +320,31 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
         </View>
       </View>
 
-      <View className="px-5 pt-5">
-        <CardPreview3D
-          number={num}
-          exp={exp}
-          cvv={cvv}
-          name={name}
-          focus={focus}
-          flipped={focus === "cvv" && step === 2}
-          brand={brand}
-          bankName={binInfo?.issuerName ?? null}
-          progress={progress}
-          busy={busy}
-          sweepKey={sweepKey}
-          error={status === "error"}
-        />
+      <View className={`px-5 ${keyboardVisible ? "pt-3" : "pt-5"}`}>
+        <CompactCard compact={keyboardVisible}>
+          <CardPreview3D
+            number={num}
+            exp={exp}
+            cvv={cvv}
+            name={name}
+            focus={focus}
+            flipped={focus === "cvv" && step === 2}
+            brand={brand}
+            bankName={binInfo?.issuerName ?? null}
+            progress={progress}
+            busy={busy}
+            sweepKey={sweepKey}
+            error={status === "error"}
+          />
+        </CompactCard>
       </View>
 
+      {/* `overflow: hidden`: sin esto, al hacer scroll hasta el campo enfocado el texto de
+          arriba se dibujaba debajo de la tarjeta. */}
       <ScrollView
         className="flex-1"
-        contentContainerClassName="gap-4 px-5 pb-4 pt-[22px]"
+        style={{ overflow: "hidden" }}
+        contentContainerClassName={`gap-4 px-5 pb-4 ${keyboardVisible ? "pt-4" : "pt-[22px]"}`}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -370,11 +375,6 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
             </Text>
             <Text className="font-sans text-[13px] leading-[18px] text-fg-3">{subtitle}</Text>
           </View>
-          {__DEV__ && !busy && !stepOk ? (
-            <Pressable testID="add-card-autofill" accessibilityRole="button" onPress={autofill} className="shrink-0 pb-0.5">
-              <Text className="font-sans-medium text-[12px] text-fg underline">Autocompletar</Text>
-            </Pressable>
-          ) : null}
         </View>
 
         {step === 1 ? (
@@ -391,8 +391,6 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
               }}
               keyboardType="number-pad"
               placeholder="0000 0000 0000 0000"
-              autoComplete="cc-number"
-              textContentType="creditCardNumber"
               {...focusProps("num")}
             />
             {binInfo?.issuerName ? (
@@ -526,11 +524,15 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
         ) : null}
       </ScrollView>
 
-      <View className="gap-2.5 bg-bg px-5 pb-6 pt-3">
-        <View className="flex-row items-center justify-center gap-1.5">
-          <Lock size={12} color={colors.fg3} strokeWidth={2.2} />
-          <Text className="font-sans text-[11px] text-fg-3">Se guarda cifrada en Mercado Pago. El código no se guarda.</Text>
-        </View>
+      {/* Con el teclado abierto el pie va pegado al teclado: sin el aviso del candado ni el
+          margen del home indicator (el `SafeAreaView` de la pantalla solo aplica arriba). */}
+      <View className="gap-2.5 bg-bg px-5 pt-3" style={{ paddingBottom: keyboardVisible ? 10 : Math.max(insets.bottom, 24) }}>
+        {keyboardVisible ? null : (
+          <View className="flex-row items-center justify-center gap-1.5">
+            <Lock size={12} color={colors.fg3} strokeWidth={2.2} />
+            <Text className="font-sans text-[11px] text-fg-3">Se guarda cifrada en Mercado Pago. El código no se guarda.</Text>
+          </View>
+        )}
         <Pressable
           testID="add-card-primary"
           accessibilityRole="button"

@@ -2,8 +2,9 @@ import type { ImageSourcePropType } from "react-native";
 import { normalizeSearchText } from "../data/vehicle-catalog";
 
 /**
- * Logos de bancos para las tarjetas guardadas (MOVO-101), con los archivos que aportó el
- * equipo en `assets/bank-logos/`. Mismo patrón que `vehicle-brand-icons.ts`: Metro no
+ * Logos de bancos para las tarjetas guardadas (MOVO-101), en `assets/bank-logos/`: los
+ * íconos de las apps oficiales de cada banco en el App Store (512 px, bajados a 256), que
+ * son isotipos cuadrados nítidos a los tamaños en que se muestran. Mismo patrón que `vehicle-brand-icons.ts`: Metro no
  * soporta `require()` dinámico, así que cada logo tiene su línea. Sin entrada, `BankLogo`
  * cae a las iniciales del banco (como el prototipo), nunca rompe.
  */
@@ -26,7 +27,7 @@ const BANK_LOGOS: Record<string, ImageSourcePropType> = {
   provincia: require("../../assets/bank-logos/provincia.png"),
   santander: require("../../assets/bank-logos/santander.png"),
   supervielle: require("../../assets/bank-logos/supervielle.png"),
-  uilo: require("../../assets/bank-logos/uilo.png"),
+  uala: require("../../assets/bank-logos/uala.png"),
 };
 
 /**
@@ -55,7 +56,7 @@ const ISSUER_KEYWORDS: [string, string][] = [
   ["mercado pago", "mercado-pago"],
   ["mercadopago", "mercado-pago"],
   ["personal", "personal-pay"],
-  ["uilo", "uilo"],
+  ["uala", "uala"],
   ["provincia", "provincia"],
   ["bapro", "provincia"],
 ];

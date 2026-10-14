@@ -4457,16 +4457,26 @@ reuse. Al guardar vuelve con `dismissTo` y el aviso por param (`toast`).
   test que verifica que el número, CVV y DNI no viajan). Los datos de la tarjeta viven solo en el
   estado local del wizard.
 - **Banco y tipo en la lista**: el backend suma `issuerName`/`paymentType` (commit propio en
-  `svc-payments`). Logos de bancos en `assets/bank-logos/` mapeados por palabras clave del
-  `issuer.name` (`src/lib/bank-logos.ts`, mismo patrón que `vehicle-brand-icons.ts`); sin logo,
-  iniciales. Varios logos son favicons de 16-48 px y se ven pixelados: conviene reemplazarlos.
+  `svc-payments`). Logos en `assets/bank-logos/`: los íconos de las apps oficiales de cada banco
+  en el App Store (512 px, bajados a 256; los favicons originales eran de 16-48 px), mapeados
+  por palabras clave del `issuer.name` (`src/lib/bank-logos.ts`). `BankLogo` deja padding
+  interno (el isotipo ocupa ~70% del recuadro); sin logo, iniciales.
+- **El `card_number.length` del BIN es un tope, no el largo exacto**: MP responde 19 para Visa
+  aunque sus tarjetas sean de 16 (verificado contra la API con el BIN 450979). El número vale
+  entre el mínimo de la marca y ese tope, y tiene que pasar Luhn (`validation: "standard"`).
+- **Teclado**: con el teclado abierto la tarjeta se achica al 60% desde arriba, el pie pierde
+  el aviso del candado y el margen inferior (la pantalla usa `SafeAreaView` solo arriba; el pie
+  suma `insets.bottom` cuando el teclado está cerrado), y el `ScrollView` recorta su contenido
+  para que el texto no quede dibujado debajo de la tarjeta. En device no se podía pegar el
+  número: se sacó `textContentType="creditCardNumber"`/`autoComplete="cc-number"` como causa
+  probable (sin confirmar todavía en device).
 - **Tarjeta 3D** (`card-preview-3d.tsx`): frente con anillos que se vuelve cromado según el
   progreso, giro al enfocar el CVV, resaltado lima del dato enfocado y barrido de luz al pasar de
   paso y mientras valida. Colores fijos (es el plástico).
 - **Desvíos del prototipo**: nombre de referencia de 40 caracteres (contrato), no 24; sin el tilt
   con mouse; "Cambiar nombre" y su hoja (AC10) y el aviso de `409 CARD_IN_USE` dentro de la hoja
   de eliminar (botón apagado, la tarjeta sigue en la lista) no estaban y reusan sus piezas;
-  "Autocompletar" solo en `__DEV__` (con la Visa de sandbox `4075 5957 1648 3764`). El aviso
+  sin "Autocompletar" (era un atajo del prototipo, no tiene sentido en la app real). El aviso
   ámbar sale cuando ninguna tarjeta está vigente (el backend siempre tiene una predeterminada).
 - Las hojas se encadenan por `onClosed` (iOS no presenta un `Modal` mientras otro se cierra);
   `BottomSheetModal` ganó `avoidKeyboard` para la hoja de renombrar.

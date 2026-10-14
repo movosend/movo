@@ -4,6 +4,7 @@ import {
   formatExpiryInput,
   isExpiryValid,
   isStepValid,
+  passesLuhn,
   sanitizeHolderName,
   validateCardForm,
 } from "../src/lib/card-form";
@@ -21,19 +22,27 @@ describe("card-form (MOVO-101)", () => {
   });
 
   it("Amex: 15 dígitos y código de 4", () => {
-    const amex = { ...BASE, num: "377798123456789", cvv: "1234" };
+    const amex = { ...BASE, num: "371180303257522", cvv: "1234" };
     expect(validateCardForm(amex, null, NOW)).toMatchObject({ num: true, cvv: true });
   });
 
-  it("usa los largos que informa MP para el BIN", () => {
+  it("el largo que informa MP es un tope, no el exacto: una Visa de 16 vale aunque MP diga 19", () => {
+    // Respuesta real de `payment_methods/search` para el BIN 450979 (Santander, Visa crédito).
     const bin = {
-      paymentMethodId: "cabal",
-      paymentType: "debit_card",
-      issuerName: null,
+      paymentMethodId: "visa",
+      paymentType: "credit_card",
+      issuerName: "Banco Santander",
       cardNumberLength: 19,
       securityCodeLength: 3,
     };
-    expect(validateCardForm(BASE, bin, NOW).num).toBe(false);
+    expect(validateCardForm({ ...BASE, num: "4509790243249301" }, bin, NOW).num).toBe(true);
+    expect(validateCardForm({ ...BASE, num: "450979024324930" }, bin, NOW).num).toBe(false);
+  });
+
+  it("exige el dígito verificador (Luhn)", () => {
+    expect(passesLuhn("4509790243249301")).toBe(true);
+    expect(passesLuhn("4509790243249302")).toBe(false);
+    expect(validateCardForm({ ...BASE, num: "4509790243249302" }, null, NOW).num).toBe(false);
   });
 
   it("rechaza vencimientos pasados o inválidos", () => {

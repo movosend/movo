@@ -157,6 +157,34 @@ describe("AddCardWizard (MOVO-101)", () => {
     expect(onCancel).toHaveBeenCalled();
   });
 
+  it("habilita Continuar con una Visa de 16 aunque MP informe 19 como largo máximo", async () => {
+    const { lookupBin } = jest.requireMock("../src/lib/mp-card-tokenizer");
+    (lookupBin as jest.Mock).mockResolvedValueOnce({
+      paymentMethodId: "visa",
+      paymentType: "credit_card",
+      issuerName: "Banco Santander",
+      cardNumberLength: 19,
+      securityCodeLength: 3,
+    });
+    const { getByTestId, findByTestId } = await render(
+      <AddCardWizard cards={[EXISTING]} onSaved={jest.fn()} onCancel={jest.fn()} />,
+    );
+    await act(async () => fireEvent.changeText(getByTestId("add-card-number"), "4509790243249301"));
+    await findByTestId("add-card-bank");
+    expect(getByTestId("add-card-primary").props.accessibilityState.disabled).toBe(false);
+  });
+
+  it("acepta un número pegado con espacios", async () => {
+    const { getByTestId } = await render(<AddCardWizard cards={[EXISTING]} onSaved={jest.fn()} onCancel={jest.fn()} />);
+    await act(async () => fireEvent.changeText(getByTestId("add-card-number"), " 4509 7902 4324 9301 "));
+    expect(getByTestId("add-card-number").props.value).toBe("4509 7902 4324 9301");
+  });
+
+  it("no ofrece Autocompletar", async () => {
+    const { queryByTestId } = await render(<AddCardWizard cards={[]} onSaved={jest.fn()} onCancel={jest.fn()} />);
+    expect(queryByTestId("add-card-autofill")).toBeNull();
+  });
+
   it("el copy aclara que el código no se guarda (AC7)", async () => {
     const { getByText } = await render(<AddCardWizard cards={[]} onSaved={jest.fn()} onCancel={jest.fn()} />);
     expect(getByText("Se guarda cifrada en Mercado Pago. El código no se guarda.")).toBeTruthy();

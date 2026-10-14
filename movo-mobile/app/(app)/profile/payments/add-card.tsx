@@ -18,7 +18,7 @@ export default function AddCardScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
+    <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
       <AddCardWizard
         cards={cards}
         onCancel={goBack}

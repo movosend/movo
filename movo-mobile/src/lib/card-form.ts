@@ -2,9 +2,12 @@ import { cardBrandFromNumber } from "./card-brand";
 import type { CardBinInfo } from "./mp-card-tokenizer";
 
 /**
- * Reglas del formulario de alta de tarjeta (MOVO-101), las mismas del prototipo: el número y
- * el código toman el largo que informa MP para ese BIN (si no, 15/4 en Amex y 16/3 en el
- * resto), el vencimiento no puede haber pasado, titular de 3+ letras y DNI de 7 u 8 dígitos.
+ * Reglas del formulario de alta de tarjeta (MOVO-101), las del prototipo con dos ajustes
+ * contra la API real de MP: el `card_number.length` que informa MP para un BIN es el largo
+ * MÁXIMO (Visa responde 19 aunque sus tarjetas sean de 16), así que el número vale entre el
+ * mínimo de la marca y ese tope y además tiene que pasar Luhn (`validation: "standard"`).
+ * El código toma el largo de MP (si no, 4 en Amex y 3 en el resto). Vencimiento no pasado,
+ * titular de 3+ letras y DNI de 7 u 8 dígitos.
  */
 export interface CardFormValues {
   /** Solo dígitos. */
@@ -32,8 +35,28 @@ function isAmex(num: string): boolean {
   return cardBrandFromNumber(num) === "amex";
 }
 
-export function expectedNumberLength(num: string, bin: CardBinInfo | null): number {
-  return bin?.cardNumberLength ?? (isAmex(num) ? 15 : 16);
+/** Largo mínimo por marca: 15 en Amex, 16 en el resto (las Visa de 13 ya no se emiten). */
+export function minNumberLength(num: string): number {
+  return isAmex(num) ? 15 : 16;
+}
+
+/** Tope del número: el que informa MP para el BIN, o el mínimo de la marca. */
+export function maxNumberLength(num: string, bin: CardBinInfo | null): number {
+  return Math.max(bin?.cardNumberLength ?? 0, minNumberLength(num));
+}
+
+/** Dígito verificador de Luhn, el que MP llama validación "standard". */
+export function passesLuhn(num: string): boolean {
+  let sum = 0;
+  for (let i = 0; i < num.length; i++) {
+    let digit = Number(num[num.length - 1 - i]);
+    if (i % 2 === 1) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+  }
+  return num.length > 0 && sum % 10 === 0;
 }
 
 export function expectedCvvLength(num: string, bin: CardBinInfo | null): number {
@@ -56,7 +79,10 @@ export function validateCardForm(
   now: Date = new Date(),
 ): CardFormValidity {
   return {
-    num: values.num.length === expectedNumberLength(values.num, bin),
+    num:
+      values.num.length >= minNumberLength(values.num) &&
+      values.num.length <= maxNumberLength(values.num, bin) &&
+      passesLuhn(values.num),
     exp: isExpiryValid(values.exp, now),
     cvv: values.cvv.length === expectedCvvLength(values.num, bin),
     name: values.name.trim().length >= 3,
