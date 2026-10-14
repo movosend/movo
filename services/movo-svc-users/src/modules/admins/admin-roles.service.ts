@@ -82,15 +82,17 @@ export function createAdminRolesService(deps: AdminRolesServiceDeps) {
     if (!user || user.status === AccountStatus.DELETED) {
       throw new ApiError(404, "USER_NOT_FOUND", "No existe un usuario con ese email.");
     }
-    if (!user.emailVerified) {
-      throw new ApiError(422, "ADMIN_GRANT_EMAIL_NOT_VERIFIED", "El usuario no verificó su email.");
-    }
-    if (user.status !== AccountStatus.ACTIVE) {
-      throw new ApiError(422, "ADMIN_GRANT_ACCOUNT_NOT_ACTIVE", "La cuenta del usuario no está activa.");
-    }
 
+    // Idempotente (AC1): quien ya es admin no se revalida. Si hoy está suspendido, otorgar
+    // no cambia nada y no tiene por qué fallar (review de PR #247).
     let alreadyAdmin = user.roles.includes(UserRole.ADMIN);
     if (!alreadyAdmin) {
+      if (!user.emailVerified) {
+        throw new ApiError(422, "ADMIN_GRANT_EMAIL_NOT_VERIFIED", "El usuario no verificó su email.");
+      }
+      if (user.status !== AccountStatus.ACTIVE) {
+        throw new ApiError(422, "ADMIN_GRANT_ACCOUNT_NOT_ACTIVE", "La cuenta del usuario no está activa.");
+      }
       try {
         await db.userRoleGrant.create({ data: { userId: user.id, role: PrismaUserRole.admin } });
       } catch (error) {
@@ -106,7 +108,7 @@ export function createAdminRolesService(deps: AdminRolesServiceDeps) {
     const grant = await findGrant(user.id);
     if (!grant) {
       // Lo revocaron entre el INSERT y esta lectura: no hay nada coherente que devolver.
-      throw new ApiError(409, "ADMIN_NOT_FOUND", "El rol se revocó mientras se otorgaba.");
+      throw new ApiError(409, "ADMIN_GRANT_CONFLICT", "El rol se revocó mientras se otorgaba. Reintentá.");
     }
 
     logger.info(
