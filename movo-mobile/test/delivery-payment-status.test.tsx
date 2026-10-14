@@ -6,8 +6,14 @@ jest.mock("../src/hooks/use-shipment-settlement", () => ({
   useShipmentSettlement: (...args: unknown[]) => mockUseShipmentSettlement(...args),
 }));
 
-function settlementReturns(data: unknown, isError = false) {
-  mockUseShipmentSettlement.mockReturnValue({ data, isError, isLoading: false, refetch: jest.fn() });
+function settlementReturns(data: unknown, isError = false, isPollingTimedOut = false) {
+  mockUseShipmentSettlement.mockReturnValue({
+    data,
+    isError,
+    isPollingTimedOut,
+    isLoading: false,
+    refetch: jest.fn(),
+  });
 }
 
 describe("DeliveryPaymentStatus (MOVO-214 AC5)", () => {
@@ -47,16 +53,34 @@ describe("DeliveryPaymentStatus (MOVO-214 AC5)", () => {
   });
 
   it.each([
-    ["sin liquidación todavía", null, false],
-    ["con la liquidación en proceso", { status: "processing", paidAmountArs: 13800, paidAt: null, netAmountArs: null }, false],
-    ["si la consulta falla", undefined, true],
-  ])("%s dice que se está cobrando, sin monto", async (_label, data, isError) => {
-    settlementReturns(data, isError);
+    ["sin liquidación todavía", null],
+    ["con la liquidación en proceso", { status: "processing", paidAmountArs: 13800, paidAt: null, netAmountArs: null }],
+  ])("%s dice que se está cobrando, sin monto", async (_label, data) => {
+    settlementReturns(data, false);
 
     const { getByTestId, queryByText } = await render(<DeliveryPaymentStatus shipmentId="s-1" testID="dps" />);
 
     expect(getByTestId("dps-processing")).toHaveTextContent(/Estamos cobrando el envío/);
     expect(queryByText(/\$/)).toBeNull();
+  });
+
+  it.each([
+    ["si la consulta falla", { isError: true, isPollingTimedOut: false }],
+    ["si se agota el tiempo de polling", { isError: false, isPollingTimedOut: true }],
+  ])("%s muestra 'Mirá el detalle del envío' con botón 'Ver detalle'", async (_label, flags) => {
+    settlementReturns(undefined, flags.isError, flags.isPollingTimedOut);
+    const onViewDetail = jest.fn();
+
+    const { getByTestId, queryByText } = await render(
+      <DeliveryPaymentStatus shipmentId="s-1" onViewDetail={onViewDetail} testID="dps" />
+    );
+
+    expect(getByTestId("dps-error")).toHaveTextContent(/Mirá el detalle del envío/);
+    expect(getByTestId("dps-view-detail")).toBeTruthy();
+    expect(queryByText(/\$/)).toBeNull();
+
+    fireEvent.press(getByTestId("dps-view-detail"));
+    expect(onViewDetail).toHaveBeenCalledTimes(1);
   });
 
   it("con la liquidación escalada avisa que el cobro está demorado", async () => {
@@ -65,5 +89,6 @@ describe("DeliveryPaymentStatus (MOVO-214 AC5)", () => {
     const { getByTestId } = await render(<DeliveryPaymentStatus shipmentId="s-1" testID="dps" />);
 
     expect(getByTestId("dps-escalated")).toHaveTextContent(/Tu cobro está demorado/);
+    expect(getByTestId("dps-escalated")).toHaveTextContent(/a la brevedad/);
   });
 });

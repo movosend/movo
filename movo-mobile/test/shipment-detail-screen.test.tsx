@@ -997,14 +997,14 @@ describe("ShipmentDetailScreen", () => {
       expect(queryByText("$11.311,38")).toBeNull();
     });
 
-    it("AC4: con la liquidación escalada, el transportista ve el cobro demorado con el plazo", async () => {
+    it("AC4: con la liquidación escalada, el transportista ve el cobro demorado", async () => {
       mockFulfilled("user-2", ShipmentStatus.DELIVERED);
       settlementReturns({ shipmentId: "shipment-1", role: "carrier", status: "escalated", paidAmountArs: 13800, paidAt: null, mpFeeArs: null, commissionArs: 1800, netAmountArs: null });
 
       const { getByTestId } = await render(<ShipmentDetailScreen />);
 
       expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Demorado");
-      expect(getByTestId("shipment-detail-payment-escalated")).toHaveTextContent(/72 horas/);
+      expect(getByTestId("shipment-detail-payment-escalated")).toHaveTextContent(/a la brevedad/);
       expect(getByTestId("shipment-detail-payment-net")).toHaveTextContent("En revisión");
     });
 
