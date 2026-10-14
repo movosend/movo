@@ -465,6 +465,13 @@ Tests: `test/hold.service.test.ts` (payer customer vs. email, 404 sin fila ni ll
 ajena/inexistente, fingerprint y reuso de key, mapeo de rechazos, logs y respuesta sin ids de MP, liberación) y
 `test/holds.integration.test.ts` (Postgres/Redis reales con MP mockeado: `saved_card_id` persistido, 404, `409
 CARD_IN_USE` con un hold real, otra tarjeta no reusa la key). `test/holds.sandbox.test.ts` suma el flujo
-completo contra el sandbox real (tarjeta guardada → token con `card_id` + CVV → hold con `payer: customer` →
-`authorized` → liberar, más CVV incorrecto con titular SECU y fondos insuficientes con FUND); se saltea sin
-credenciales y **todavía no se corrió** (pendiente de quien tenga las `MP_SANDBOX_*`/`MP_TEST_*`).
+completo contra el sandbox real (tarjeta guardada → token con `card_id` + CVV y la `public_key` del Vendedor →
+hold con `payer: customer` → `authorized` → `409 CARD_IN_USE` con el hold vivo → liberar → la tarjeta sigue
+guardada y se puede dar de baja); se saltea sin credenciales.
+
+**Verificado contra el sandbox real (14/10/2026)** con el Transportista de prueba y la Visa 4075 5957 1648 3764:
+el escenario completo pasa. **Límite del sandbox**: con una tarjeta guardada no se pueden simular rechazos. El
+resultado lo decide el titular y guardar con titular `SECU` o `FUND` responde `500`; un CVV equivocado (`999`) en
+el token `card_id` + CVV se autoriza igual (el sandbox no valida su valor). Por eso el CVV incorrecto
+(`invalid_data`), la tarjeta vencida (`card_rejected`) y los fondos insuficientes solo están cubiertos con MP
+mockeado (`hold.service.test.ts`, `holds.integration.test.ts`); el ticket pedía probarlos en sandbox y no es posible.
