@@ -4539,19 +4539,21 @@ acreditado solo aparece con la liquidación `credited` y el neto informado (AC4)
   de Movo, fee de MP, neto y fecha; el emisor solo total y fecha; el receptor (y el que
   transfirió) nada y no se consulta. Con la sección visible se oculta la card de precio estimado
   ("Te queda"/"Precio pactado"), para no mostrar dos montos distintos. Mientras no está acreditada
-  se vuelve a consultar cada 15 s con la pantalla enfocada.
-- **Escalado (MOVO-213 AC5)**: el transportista ve "Demorado" con un plazo de 72 h
-  (`SETTLEMENT_ESCALATION_RESPONSE_HOURS`, **provisorio**: MOVO-213 todavía no lo fija). El emisor
-  lo ve como "Procesando": la demora es entre Movo y el transportista.
+  se vuelve a consultar cada 15 s con la pantalla enfocada con un tope de 2 min (`DEFAULT_SETTLEMENT_POLL_TIMEOUT_MS`),
+  cortando inmediatamente si la consulta arroja error y reseteándose al hacer refetch/pull-to-refresh.
+- **Escalado (MOVO-213 AC5)**: el transportista ve "Demorado" con aviso de que se le responderá
+  "a la brevedad" (sin prometer horas hasta que MOVO-213 lo defina). El emisor lo ve como "Procesando":
+  la demora es entre Movo y el transportista.
 - **Éxito de entrega (AC5)**: `HandshakeConfirmationResult` gana `paymentSlot` y pierde el
   "El pago se está procesando." provisorio de MOVO-199 AC8. Solo `delivery/success.tsx` (el
-  transportista) lo pasa, con `DeliveryPaymentStatus` (consulta cada 4 s): el receptor que escanea
-  ya no ve nada del pago (AC3).
+  transportista) lo pasa, con `DeliveryPaymentStatus` (consulta cada 4 s con tope de polling):
+  el receptor que escanea ya no ve nada del pago (AC3). Si la consulta falla o se agota el tope de
+  polling, muestra "Mirá el detalle del envío" con el botón "Ver detalle" hacia el envío.
 - **Reuso**: el bloque "Cómo se reparte" de `carrier/offers/[id].tsx` pasó a
   `components/payments/price-breakdown-card.tsx` (lo usan la oferta y el pago, mismo formato de
   MOVO-186; sobre lima el texto va en tinta fija, antes era `text-fg` y en modo oscuro quedaba
-  blanco sobre lima). `SectionLabel` pasó a `components/ui/section-label.tsx` (estaba duplicado en
-  la oferta y en el detalle de oferta).
+  blanco sobre lima). `SectionLabel` pasó a `components/ui/section-label.tsx` (con soporte para `noMargin`,
+  reusado en la oferta, detalle de oferta y desglose de pago).
 
 Probado en device contra el stack local con datos sembrados (3 roles × sin liquidación /
 acreditada / escalada). Pendiente: una captura real contra el sandbox de MP vista desde la app
