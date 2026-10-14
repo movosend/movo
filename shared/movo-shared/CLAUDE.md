@@ -494,3 +494,10 @@ pero persiste en envíos viejos), `QuoteBreakdown.volumetricWeightKg?`/`billable
 `AdminSummary` (`types/user.ts`): fila de `GET /internal/admins` de `svc-users`, que va a consumir
 `svc-admin` (MOVO-292), con `status` de la cuenta para distinguir admins suspendidos. `ApiErrorCode` suma `ADMIN_GRANT_EMAIL_NOT_VERIFIED` y
 `ADMIN_GRANT_ACCOUNT_NOT_ACTIVE` (422), `ADMIN_NOT_FOUND` (404), `ADMIN_LAST_ADMIN` (409) y `ADMIN_GRANT_CONFLICT` (409).
+
+### MOVO-288 — Bitácora de admin y conflicto de interés
+
+`types/admin.ts`: `AuditLogEntry`/`AuditLogPage` (`GET /admin/audit-log` de `svc-admin`),
+`AuditOutcome`, `AdminTargetType` y las partes de un objetivo que exponen los servicios dueños
+para la regla de conflicto (`ShipmentParties`, `ChatReportParties` de `svc-shipments`,
+`UserReportParties` de `svc-users`). `ApiErrorCode` suma `ADMIN_CONFLICT_OF_INTEREST` (403).
