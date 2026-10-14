@@ -34,6 +34,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // MOVO-175 (ADR-026): explícito a propósito -- el bloqueo se revela en vez de un
   // error genérico. Aplica en las dos direcciones (quien bloqueó y quien fue bloqueado).
   USER_BLOCKED: "No podés interactuar con este usuario porque hay un bloqueo entre ustedes.",
+  // MOVO-284 (ADR-040): el chat se cierra con el envío y queda en solo lectura al entregarse.
+  CHAT_CLOSED: "Este chat ya no está disponible porque el envío se canceló o todavía no tiene transportista.",
+  CHAT_READ_ONLY: "El envío finalizó: el chat quedó en solo lectura y ya no admite mensajes nuevos.",
   CANNOT_MODERATE_SELF: "No podés reportarte ni bloquearte a vos mismo.",
   REPORT_ALREADY_PENDING: "Ya tenés un reporte en revisión sobre esta persona. Podés sumarle información.",
   REPORT_NOT_FOUND: "Tu reporte ya no está en revisión.",

@@ -55,6 +55,9 @@ export interface Shipment {
   /** MOVO-258 (D4): cuándo el barrido marcó el envío `in_transit` para revisión por no
    * haberse entregado a tiempo; `null` = nunca marcado. */
   transitAnomalyFlaggedAt: Date | null;
+  /** MOVO-26: inicio de la última asignación; el chat solo muestra mensajes desde acá (el admin los ve todos).
+   * `null` = sin corte. */
+  chatStartedAt: Date | null;
   /** MOVO-253: motivo del último rechazo (`shipment_events.reason`), solo cuando el
    * envío está en `rejected_by_receiver` y la lectura lo cargó (`findById`/
    * `listByUser`) -- `null` en cualquier otro caso. */

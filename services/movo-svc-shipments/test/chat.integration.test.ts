@@ -1,3 +1,4 @@
+import { createChatRepository } from "../src/repositories/chat-repository";
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
@@ -546,6 +547,31 @@ describe("Chat del envío (MOVO-26)", () => {
   });
 
   describe("correcciones de review", () => {
+    it("un transportista anterior con el socket vivo no recibe la conversación de la nueva asignación", async () => {
+      const p = await createShipment();
+      const formerCarrier = await connectedChat(p.shipmentId, p.carrierId);
+      // Se reasigna sin cambio de estado (el socket sigue abierto): otro transportista y conversación limpia.
+      const newCarrierId = randomUUID();
+      await app.db.shipment.update({ where: { id: p.shipmentId }, data: { carrierId: newCarrierId, chatStartedAt: new Date() } });
+
+      expect((await send(p.shipmentId, p.senderId, "Hola, ¿cómo va?")).statusCode).toBe(201);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(chatMessagesOf(formerCarrier)).toHaveLength(0);
+      formerCarrier.ws.close();
+    });
+
+    it("la lista no deja afuera un chat con actividad real por mensajes de una asignación anterior", async () => {
+      const reassigned = await createShipment();
+      const active = await createShipment();
+      await app.db.shipment.update({ where: { id: active.shipmentId }, data: { senderId: reassigned.senderId } });
+      // El mensaje de la asignación anterior es el más reciente de todos, pero queda antes del corte del hilo.
+      await send(reassigned.shipmentId, reassigned.senderId, "Mensaje de la asignación anterior");
+      await app.db.shipment.update({ where: { id: reassigned.shipmentId }, data: { chatStartedAt: new Date(Date.now() + 60_000) } });
+
+      const rows = await createChatRepository(app.db).listShipmentsForUser(reassigned.senderId, [ShipmentStatus.IN_TRANSIT], 1);
+      expect(rows.map((r) => r.id)).toEqual([active.shipmentId]);
+    });
+
     it("un reintento de un mensaje ya guardado devuelve 200 aunque el chat haya pasado a solo lectura o cerrado", async () => {
       const p = await createShipment();
       const clientMessageId = randomUUID();
@@ -638,6 +664,49 @@ describe("Chat del envío (MOVO-26)", () => {
     }, 120_000);
   });
 
+  describe("nueva asignación del envío", () => {
+    /** Simula una reasignación: el envío vuelve a asignarse y `chatStartedAt` pasa a "ahora". */
+    async function startNewAssignment(shipmentId: string): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { chatStartedAt: new Date() } });
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+
+    it("el historial no trae lo hablado antes de la asignación, y el admin sí lo ve todo", async () => {
+      const p = await createShipment();
+      await send(p.shipmentId, p.senderId, "Con el transportista anterior");
+      await startNewAssignment(p.shipmentId);
+      await send(p.shipmentId, p.senderId, "Con el transportista nuevo");
+
+      const items = (await history(p.shipmentId, p.carrierId, "", "carrier")).json().items;
+      expect(items.map((m: { body: string }) => m.body)).toEqual(["Con el transportista nuevo"]);
+      expect((await history(p.shipmentId, p.senderId)).json().items).toHaveLength(1);
+
+      const adminView = (await history(p.shipmentId, randomUUID(), "", "admin")).json().items;
+      expect(adminView.map((m: { body: string }) => m.body)).toEqual(["Con el transportista nuevo", "Con el transportista anterior"]);
+    });
+
+    it("la lista ignora los mensajes anteriores: sin último mensaje y sin no leídos", async () => {
+      const p = await createShipment();
+      await send(p.shipmentId, p.carrierId, "Mensaje de la asignación anterior", randomUUID(), "carrier");
+      const list = () =>
+        app.inject({ method: "GET", url: "/shipments/chats", headers: { "x-user-id": p.senderId, "x-user-roles": "sender" } });
+      expect((await list()).json().items[0]).toMatchObject({ unreadCount: 1, lastMessage: { body: "Mensaje de la asignación anterior" } });
+
+      await startNewAssignment(p.shipmentId);
+
+      expect((await list()).json().items[0]).toMatchObject({ unreadCount: 0, lastMessage: null });
+    });
+
+    it("un envío sin corte (anterior a este cambio) sigue mostrando todo", async () => {
+      const p = await createShipment();
+      await send(p.shipmentId, p.senderId, "Uno");
+      await send(p.shipmentId, p.senderId, "Dos");
+
+      expect((await history(p.shipmentId, p.carrierId, "", "carrier")).json().items).toHaveLength(2);
+    });
+  });
+
   describe("integrantes del chat", () => {
     it("devuelve emisor, transportista y receptor con nombre, foto y rol", async () => {
       const p = await createShipment();
@@ -726,6 +795,19 @@ describe("Chat del envío (MOVO-26)", () => {
       await readChat(p.shipmentId, p.senderId);
       expect((await list(p.senderId)).json().items[0].unreadCount).toBe(0);
       expect((await list(p.receiverId)).json().items[0].unreadCount).toBe(2);
+    });
+
+    it("cada chat trae a sus integrantes (emisor, transportista, receptor) para los avatares", async () => {
+      const p = await createShipment();
+
+      const item = (await list(p.senderId)).json().items[0];
+
+      expect(item.participants.map((x: { role: string; userId: string }) => [x.role, x.userId])).toEqual([
+        ["sender", p.senderId],
+        ["carrier", p.carrierId],
+        ["receiver", p.receiverId],
+      ]);
+      expect(item.participants[0]).toMatchObject({ firstName: "Ana", fullName: "Ana Gómez", photoUrl: null });
     });
 
     it("el último mensaje de alguien bloqueado llega oculto y no suma a los no leídos", async () => {

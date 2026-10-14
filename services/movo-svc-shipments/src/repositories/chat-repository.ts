@@ -45,7 +45,9 @@ export interface ChatRepository {
   listPage(
     shipmentId: string,
     limit: number,
-    cursor?: string
+    cursor?: string,
+    /** Solo mensajes desde este instante (inicio de la última asignación); `null`/ausente = todos. */
+    since?: Date | null
   ): Promise<{ items: ChatMessageRecord[]; nextCursor: string | null }>;
   /** Estado de entrega y lectura de cada integrante del envío que ya lo tiene. */
   listReceiptStates(shipmentId: string): Promise<ChatReceiptState[]>;
@@ -139,12 +141,13 @@ export function createChatRepository(db: PrismaClient): ChatRepository {
       });
     },
 
-    async listPage(shipmentId, limit, cursor) {
+    async listPage(shipmentId, limit, cursor, since) {
       const cursorFilter = cursor ? decodeCursor(cursor) : null;
       if (cursor && !cursorFilter) throw new InvalidChatCursorError();
       const rows = await db.chatMessage.findMany({
         where: {
           shipmentId,
+          ...(since ? { createdAt: { gte: since } } : {}),
           ...(cursorFilter
             ? {
                 OR: [
@@ -208,7 +211,8 @@ export function createChatRepository(db: PrismaClient): ChatRepository {
         SELECT s.id
         FROM shipments.shipments s
         LEFT JOIN LATERAL (
-          SELECT MAX(m.created_at) AS last_message_at FROM shipments.chat_messages m WHERE m.shipment_id = s.id
+          SELECT MAX(m.created_at) AS last_message_at FROM shipments.chat_messages m
+          WHERE m.shipment_id = s.id AND (s.chat_started_at IS NULL OR m.created_at >= s.chat_started_at)
         ) lm ON TRUE
         WHERE s.status::text = ANY(${[...statuses]}::text[])
           AND s.carrier_id IS NOT NULL
@@ -262,10 +266,12 @@ export function createChatRepository(db: PrismaClient): ChatRepository {
       const map = new Map<string, ChatMessageRecord>();
       if (shipmentIds.length === 0) return map;
       const rows = await db.$queryRaw<LastMessageRow[]>`
-        SELECT DISTINCT ON (shipment_id) id, shipment_id, author_id, author_name, body, client_message_id, moderated, created_at
-        FROM shipments.chat_messages
-        WHERE shipment_id = ANY(${[...shipmentIds]}::uuid[])
-        ORDER BY shipment_id, created_at DESC, id DESC`;
+        SELECT DISTINCT ON (m.shipment_id) m.id, m.shipment_id, m.author_id, m.author_name, m.body, m.client_message_id, m.moderated, m.created_at
+        FROM shipments.chat_messages m
+        JOIN shipments.shipments sh ON sh.id = m.shipment_id
+        WHERE m.shipment_id = ANY(${[...shipmentIds]}::uuid[])
+          AND (sh.chat_started_at IS NULL OR m.created_at >= sh.chat_started_at)
+        ORDER BY m.shipment_id, m.created_at DESC, m.id DESC`;
       for (const r of rows) {
         map.set(r.shipment_id, {
           id: r.id,
@@ -287,9 +293,11 @@ export function createChatRepository(db: PrismaClient): ChatRepository {
       const rows = await db.$queryRaw<Array<{ shipment_id: string; n: number }>>`
         SELECT m.shipment_id, COUNT(*)::int AS n
         FROM shipments.chat_messages m
+        JOIN shipments.shipments sh ON sh.id = m.shipment_id
         LEFT JOIN shipments.chat_participant_states s
           ON s.shipment_id = m.shipment_id AND s.user_id = ${userId}::uuid
         WHERE m.shipment_id = ANY(${[...shipmentIds]}::uuid[])
+          AND (sh.chat_started_at IS NULL OR m.created_at >= sh.chat_started_at)
           AND m.author_id <> ${userId}::uuid
           AND NOT (m.author_id = ANY(${[...excludeAuthorIds]}::uuid[]))
           AND (s.last_read_at IS NULL OR m.created_at > s.last_read_at)

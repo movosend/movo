@@ -4471,3 +4471,56 @@ Gotcha de entorno: con un `ios/` local generado (Pods y build, ~2 GB) jest se cu
 mapa de módulos sin mostrar nada. Correrlo con
 `--modulePathIgnorePatterns '<rootDir>/ios' '<rootDir>/android'`.
 
+### MOVO-284 — Chat del envío: conversación, lista de chats y accesos (ADR-040)
+
+Lado mobile del chat de MOVO-26 (backend en `services/movo-svc-shipments/CLAUDE.md`), sobre el prototipo
+"Chat del envío · v2". `src/api/chat-client.ts`, `src/hooks/use-chat.ts` (consultas, mutaciones y helpers del
+caché), `use-chat-channel.ts` (WebSocket de recepción, calcado de `use-shipment-channel.ts`) y
+`use-chat-conversation.ts` (orquesta todo); formato puro en `src/lib/chat-format.ts`; componentes en
+`components/chat/`; pantallas `app/(app)/shipments/[id]/chat.tsx` y `app/(app)/chats.tsx`.
+
+- **Se envía por HTTP y se recibe por WebSocket.** El mensaje propio aparece enseguida como `sending`; si falla
+  queda `failed` con "Reintentar"/"Descartar", y reintentar reusa el mismo `clientMessageId`, así que el
+  servidor no lo duplica. Un mensaje que llega por WebSocket y por HTTP se suma una sola vez (se deduplica por
+  `clientMessageId`). Los tildes los calcula el servidor: cada `chat_receipt` vuelve a pedir la primera página
+  con un debounce de 400 ms, y también al (re)conectar el canal.
+- **Lista invertida (`FlatList inverted`) con el historial del más nuevo al más viejo**; `buildChatTimeline`
+  intercala las tarjetas del envío (`GET /shipments/:id/events`: aceptado, retiro, entrega, disputa, cancelación)
+  con los mensajes por fecha, agrupa las burbujas de una misma persona y pone separador de día. "Llegando" no
+  existe: el backend no tiene evento de cercanía.
+- **Solo lectura, archivado y receptor original**: sale de `access`/`archived` de la primera página; quien ya
+  no figura entre los integrantes con `read_only` es el receptor original (ADR-038) y no escribe. `CHAT_CLOSED`
+  (409) se muestra como error con "Reintentar" y sin campo de texto.
+- **Bloqueo y reporte** desde "Tu seguridad" (`chat-safety-sheet.tsx`): bloquear o desbloquear a cada integrante
+  (`useChatBlockToggle`, invalida lo mismo que el resto del bloqueo y todo `["chat"]`) y "Reportar conversación"
+  (queda como "Reporte enviado"). El contenido de un bloqueado llega oculto del servidor y se muestra como
+  "Mensaje de un usuario bloqueado"; el chat sigue y se puede escribir. La advertencia de lenguaje
+  (`CHAT_MODERATION_WARNING`) sale cuando la respuesta del envío trae `moderated: true`.
+- **Dónde se entra** (decidido con el usuario sobre un mockup): ícono de mensajes de 36 px en el header de
+  Inicio con el total de no leídos (`HomeChatButton`) hacia la lista, y un botón de chat con contador dentro de
+  la card de cada envío activo (`ActiveShipmentCard` recibe `chat` por prop desde `RoleSection`, que lo toma de
+  `useChatList` en `home.tsx`: solo los envíos que ya tienen chat lo muestran). La push `chat_message` abre la
+  conversación (`resolveNotificationRoute`). El detalle del envío suma `ChatAccessCard` para las tres partes desde que hay
+  transportista (`chatAvailability`, misma regla que `resolveChatAccess` del backend; entregado queda como solo
+  lectura). Aceptar una oferta y el pull-to-refresh de Inicio refrescan la lista de chats: un envío en
+  `assignment_pending` ya tiene chat pero todavía no tiene card en Inicio (las cards son de `assigned_unfunded` en
+  adelante). No se tocó la barra de tabs.
+- **Diseño calcado del prototipo** (revisado contra su código, no a ojo): burbuja propia en `fg`/`bg` (negra en
+  claro, blanca en oscuro) y ajena en `bg-mute`, radios 20/20/6, tilde lima de 2.2 de trazo que se toca para ver el
+  estado, tarjetas del envío siempre en `#EEFCBF` con tinta fija, fondo de puntos de 14 px (`chat-dot-background.tsx`,
+  `fg` al 7 %), campo sin relleno con borde `strong` y botón de enviar lima fijo, hoja "Tu seguridad" con sus textos.
+  Los textos de las tarjetas cambian según quién mira ("Aceptaste el envío" / "Diego aceptó el envío"). Se mantienen
+  del lado de la app, no del prototipo: el código `#MOVO-xxxxx` en la lista (el prototipo usa `MV-2841`, un número que
+  el backend no tiene), la advertencia de lenguaje y el contador de 800+ caracteres, que el prototipo no tiene.
+- El trío de avatares de cada fila sale de `ChatListItem.participants`, que `GET /shipments/chats` devuelve desde
+  que se sumó (un solo lookup a `svc-users` por persona, aunque se repita en varios envíos).
+- Las tarjetas del envío se piden con `GET /shipments/:id/events` y se vuelven a pedir cuando el canal del chat
+  (re)conecta; no hay suscripción al canal de tracking, así que un cambio de estado con la conversación abierta y el
+  socket sano aparece al reconectar o al volver a entrar. El receptor original entra en solo lectura también desde el
+  detalle del envío. Se mantienen del prototipo, no del texto del ticket: las respuestas rápidas ("Te espero en la
+  puerta", "Tengo el QR listo"), los textos de las tarjetas por rol y el estado de los tildes, que se ve al tocarlos.
+- Sin imágenes, sin "escribiendo" y sin pasar el texto del mensaje por la push (igual que el backend).
+
+Pendiente: no probado en dispositivo (teclado con el composer, `inverted` con paginación y tildes en vivo contra
+el backend real). Los no leídos de los chats que no están abiertos se actualizan por el refetch de la lista
+(cada 60 s) y al volver a Inicio: no hay un WebSocket global, solo uno por conversación abierta.

@@ -1,6 +1,7 @@
 import fp from "fastify-plugin";
 import websocket from "@fastify/websocket";
 import { FastifyInstance } from "fastify";
+import { ShipmentStatus } from "@movo/shared";
 import type { WebSocket } from "ws";
 import {
   onShipmentStatusChanged,
@@ -140,7 +141,9 @@ export default fp(async (app: FastifyInstance) => {
   // MOVO-26: el chat tiene su propia política de cierre (cancelado o rechazado); una entrega
   // NO lo corta: pasa a solo lectura y a las 24 h solo se marca como archivado (sigue legible).
   onShipmentStatusChanged((event: ShipmentStatusChangedEvent) => {
-    if (!CHAT_CLOSING_STATUSES.includes(event.to)) return;
+    // `published` = la asignación se cayó (pago vencido): sin transportista el chat queda cerrado y los sockets
+    // del transportista anterior no pueden seguir vivos para la conversación que arranque la próxima asignación.
+    if (!CHAT_CLOSING_STATUSES.includes(event.to) && event.to !== ShipmentStatus.PUBLISHED) return;
     chatHub.close(event.shipmentId, CHAT_CLOSED_WS_CODE, `El envío pasó a '${event.to}'.`);
   });
 });

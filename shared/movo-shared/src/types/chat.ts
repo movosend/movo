@@ -90,6 +90,8 @@ export interface ChatListItem {
   lastMessage: Pick<ChatMessage, "authorId" | "authorName" | "body" | "hidden" | "createdAt"> | null;
   /** Hora del último mensaje; si no hubo, la del último cambio de estado. */
   lastActivityAt: string;
+  /** Emisor, transportista y receptor, para los avatares de la fila (mismo contenido que `GET .../chat/participants`). */
+  participants: ChatParticipant[];
 }
 
 export interface ChatListResponse {
@@ -110,4 +112,4 @@ export type ChatRealtimeEvent =
  * Vive acá para que todos los clientes muestren el mismo texto.
  */
 export const CHAT_MODERATION_WARNING =
-  "Cuidá tu lenguaje: hay que respetar a los demás miembros de la comunidad de Movo. Taparon con asteriscos las palabras ofensivas de tu mensaje.";
+  "Cuidá tu lenguaje. En Movo nos respetamos entre todos, por eso tapamos con asteriscos las palabras ofensivas de tu mensaje.";

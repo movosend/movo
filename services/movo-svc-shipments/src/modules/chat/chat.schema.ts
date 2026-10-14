@@ -58,24 +58,23 @@ const listMessagesResponse = {
   },
 };
 
+const participantItem = {
+  type: "object",
+  required: ["userId", "role", "firstName", "fullName", "photoUrl"],
+  properties: {
+    userId: { type: "string" },
+    role: { type: "string", enum: ["sender", "carrier", "receiver"] },
+    firstName: { type: "string" },
+    fullName: { type: "string" },
+    photoUrl: { type: ["string", "null"] },
+  },
+};
+
 const participantsResponse = {
   type: "object",
   required: ["participants"],
   properties: {
-    participants: {
-      type: "array",
-      items: {
-        type: "object",
-        required: ["userId", "role", "firstName", "fullName", "photoUrl"],
-        properties: {
-          userId: { type: "string" },
-          role: { type: "string", enum: ["sender", "carrier", "receiver"] },
-          firstName: { type: "string" },
-          fullName: { type: "string" },
-          photoUrl: { type: ["string", "null"] },
-        },
-      },
-    },
+    participants: { type: "array", items: participantItem },
   },
 };
 
@@ -87,7 +86,7 @@ const chatListResponse = {
       type: "array",
       items: {
         type: "object",
-        required: ["shipmentId", "status", "route", "access", "archived", "unreadCount", "lastMessage", "lastActivityAt"],
+        required: ["shipmentId", "status", "route", "access", "archived", "unreadCount", "lastMessage", "lastActivityAt", "participants"],
         properties: {
           shipmentId: { type: "string" },
           status: { type: "string" },
@@ -107,6 +106,7 @@ const chatListResponse = {
             },
           },
           lastActivityAt: { type: "string", format: "date-time" },
+          participants: { type: "array", items: participantItem },
         },
       },
     },

@@ -33,6 +33,12 @@ El WebSocket se autentica con `Authorization: Bearer <JWT>` en el handshake (com
 El receptor que transfirió la recepción (ADR-038) lee, no escribe. El admin lee siempre (evidencia de disputa)
 y nunca escribe. Sin permiso de escritura: `403 CHAT_READ_ONLY`. Reglas puras en `src/domain/chat-window.ts`.
 
+**Cada asignación arranca una conversación limpia.** Si el emisor no paga a tiempo, el envío vuelve a `published`, el
+transportista se cae y el chat se cierra; si después acepta otra oferta, el nuevo transportista no ve lo que se habló
+con el anterior. `acceptOffer` guarda `chat_started_at` en el envío y el historial, el último mensaje y los no leídos
+solo cuentan mensajes desde ese instante. Los mensajes viejos no se borran: el admin los ve todos (evidencia de
+disputa). `NULL` = sin corte (envíos anteriores a este cambio).
+
 ## Bloqueo (ADR-026)
 
 Un bloqueo **no impide escribir**. El contenido de quien tiene un bloqueo con quien mira llega vacío con

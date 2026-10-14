@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
-import { ApiError } from "@movo/shared";
+import { ApiError, UserRole } from "@movo/shared";
 import type { WebSocket } from "ws";
 import { chatSchemas } from "./chat.schema";
 import { createChatService, ChatService } from "./chat.service";
@@ -212,6 +212,7 @@ export default async function chatRoutes(app: FastifyInstance, opts: ChatRoutesO
 
       let userId: string;
       let tokenExpiresAtMs: number;
+      let isAdmin = false;
       let shipment: Awaited<ReturnType<typeof authorizeRealtimeConnection>>["shipment"];
       try {
         const authorized = await authorizeRealtimeConnection(
@@ -226,6 +227,7 @@ export default async function chatRoutes(app: FastifyInstance, opts: ChatRoutesO
           return;
         }
         userId = authorized.callerId;
+        isAdmin = authorized.callerRoles.includes(UserRole.ADMIN);
         tokenExpiresAtMs = authorized.tokenExpiresAtMs;
         shipment = authorized.shipment;
       } catch (err) {
@@ -241,7 +243,7 @@ export default async function chatRoutes(app: FastifyInstance, opts: ChatRoutesO
       // para siempre en el hub (el usuario figuraría conectado, sin push ni tildes) y sin limpiar sus timers.
       if (socket.readyState !== 1) return;
 
-      app.chatHub.register(shipmentId, userId, socket);
+      app.chatHub.register(shipmentId, userId, socket, { admin: isAdmin });
       app.log.info({ shipmentId, activeConnections: app.chatHub.activeConnections(shipmentId) }, "realtime: conexión de chat aceptada");
       socket.send(JSON.stringify({ type: "connected", shipmentId }));
       // Conectarse cuenta como recibir lo que había: los demás ven sus mensajes como entregados.

@@ -175,6 +175,48 @@ export function createChatService(deps: ChatServiceDeps) {
     await emitReceipt(shipment, userId, "delivered", at);
   }
 
+  type ParticipantLookup = Map<string, Promise<Pick<ChatParticipant, "firstName" | "fullName" | "photoUrl">>>;
+
+  /** Nombre y foto de `userId`; si `svc-users` no responde, un integrante sin datos (el chat no se cae por eso). */
+  function lookupParticipant(userId: string, viewerId: string, cache: ParticipantLookup) {
+    let found = cache.get(userId);
+    if (!found) {
+      found = (async () => {
+        try {
+          const profile = await deps.usersClient.findPublicProfile(userId, viewerId);
+          if (profile) return { firstName: firstName(profile.fullName), fullName: profile.fullName, photoUrl: profile.photoUrl };
+        } catch (err) {
+          deps.logger?.warn({ err, event: "chat_participant_lookup_failed", userId }, "No se pudo resolver un integrante del chat");
+        }
+        return { firstName: UNKNOWN_USER_NAME, fullName: UNKNOWN_USER_NAME, photoUrl: null };
+      })();
+      cache.set(userId, found);
+    }
+    return found;
+  }
+
+  /** Emisor, transportista y receptor (sin repetir a nadie), con nombre y foto, en ese orden. */
+  async function resolveParticipants(
+    shipment: Pick<Shipment, "senderId" | "carrierId" | "receiverId">,
+    viewerId: string,
+    cache: ParticipantLookup
+  ): Promise<ChatParticipant[]> {
+    const roles: Array<{ userId: string | null; role: ChatParticipantRole }> = [
+      { userId: shipment.senderId, role: "sender" },
+      { userId: shipment.carrierId, role: "carrier" },
+      { userId: shipment.receiverId, role: "receiver" },
+    ];
+    const seen = new Set<string>();
+    const unique = roles.filter((r): r is { userId: string; role: ChatParticipantRole } => {
+      if (!r.userId || seen.has(r.userId)) return false;
+      seen.add(r.userId);
+      return true;
+    });
+    return Promise.all(
+      unique.map(async ({ userId, role }) => ({ userId, role, ...(await lookupParticipant(userId, viewerId, cache)) }))
+    );
+  }
+
   return {
     /**
      * Envía un mensaje. Idempotente por `clientMessageId`: un reenvío devuelve el mensaje ya
@@ -233,7 +275,16 @@ export function createChatService(deps: ChatServiceDeps) {
         const delivered: string[] = [];
         // También a quienes solo miran (el admin y el receptor original, ADR-038): están conectados con acceso de
         // lectura y, si no, verían el hilo desactualizado hasta recargar. No cuentan como "entregado" para los tildes.
-        const watchers = deps.hub.connectedUserIds(shipment.id).filter((id) => id !== input.callerId && !recipients.includes(id));
+        // Solo esos dos: un transportista anterior con el socket todavía vivo ya no es parte y no debe leer la
+        // conversación nueva (cada asignación arranca limpia).
+        const watchers = deps.hub
+          .connectedUserIds(shipment.id)
+          .filter(
+            (id) =>
+              id !== input.callerId &&
+              !recipients.includes(id) &&
+              (id === shipment.formerReceiverId || deps.hub.isAdminConnected(shipment.id, id))
+          );
         for (const userId of [...recipients, ...watchers]) {
           const hidden = blocked.has(userId);
           if (!deps.hub.isUserConnected(shipment.id, userId)) continue;
@@ -287,7 +338,9 @@ export function createChatService(deps: ChatServiceDeps) {
       const isAdminOnly = input.callerRoles.includes(UserRole.ADMIN) && !chatParties(shipment).includes(input.callerId);
       let page;
       try {
-        page = await deps.chatRepository.listPage(shipment.id, input.limit, input.cursor);
+        // Cada asignación arranca una conversación limpia: quien entra al chat no lee lo hablado con un transportista
+        // anterior. El admin sí lo ve todo (el historial es evidencia de disputa).
+        page = await deps.chatRepository.listPage(shipment.id, input.limit, input.cursor, isAdminOnly ? null : shipment.chatStartedAt);
       } catch (err) {
         if (err instanceof InvalidChatCursorError) {
           throw new ApiError(400, "VALIDATION_FAILED", "El cursor de paginación es inválido.");
@@ -343,30 +396,7 @@ export function createChatService(deps: ChatServiceDeps) {
       if (accessFor(shipment, input.callerId, input.callerRoles) === "closed") {
         throw new ApiError(409, "CHAT_CLOSED", "El chat de este envío ya no está disponible.");
       }
-      const roles: Array<{ userId: string | null; role: ChatParticipantRole }> = [
-        { userId: shipment.senderId, role: "sender" },
-        { userId: shipment.carrierId, role: "carrier" },
-        { userId: shipment.receiverId, role: "receiver" },
-      ];
-      const seen = new Set<string>();
-      const unique = roles.filter((r): r is { userId: string; role: ChatParticipantRole } => {
-        if (!r.userId || seen.has(r.userId)) return false;
-        seen.add(r.userId);
-        return true;
-      });
-      return Promise.all(
-        unique.map(async ({ userId, role }) => {
-          try {
-            const profile = await deps.usersClient.findPublicProfile(userId, input.callerId);
-            if (profile) {
-              return { userId, role, firstName: firstName(profile.fullName), fullName: profile.fullName, photoUrl: profile.photoUrl };
-            }
-          } catch (err) {
-            deps.logger?.warn({ err, event: "chat_participant_lookup_failed", userId }, "No se pudo resolver un integrante del chat");
-          }
-          return { userId, role, firstName: UNKNOWN_USER_NAME, fullName: UNKNOWN_USER_NAME, photoUrl: null };
-        })
-      );
+      return resolveParticipants(shipment, input.callerId, new Map());
     },
 
     /** "Reportar conversación": una por persona y envío; la revisa el equipo de Movo. */
@@ -402,13 +432,16 @@ export function createChatService(deps: ChatServiceDeps) {
 
       const ids = visible.map((v) => v.row.id);
       const blocked = await blockedWith(input.callerId);
-      const [last, unread] = await Promise.all([
+      // Un mismo transportista o receptor suele repetirse en varios envíos: se consulta una sola vez por persona.
+      const lookup: ParticipantLookup = new Map();
+      const [last, unread, participants] = await Promise.all([
         deps.chatRepository.lastMessages(ids),
         deps.chatRepository.unreadCounts(input.callerId, ids, [...blocked]),
+        Promise.all(visible.map(({ row }) => resolveParticipants(row, input.callerId, lookup))),
       ]);
 
       return visible
-        .map(({ row, access }): ChatListItem => {
+        .map(({ row, access }, index): ChatListItem => {
           const lastRecord = last.get(row.id);
           const lastMessage = lastRecord
             ? {
@@ -428,6 +461,7 @@ export function createChatService(deps: ChatServiceDeps) {
             unreadCount: unread.get(row.id) ?? 0,
             lastMessage,
             lastActivityAt: (lastRecord?.createdAt ?? row.lastStatusChangedAt ?? now()).toISOString(),
+            participants: participants[index],
           };
         })
         .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));

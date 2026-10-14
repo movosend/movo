@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { HomeChatButton } from '../../../components/chat/home-chat-button';
 import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { AttentionSection } from '../../../components/home/attention-section';
 import { CarrierTransportingSection } from '../../../components/home/carrier-transporting-section';
@@ -13,6 +14,7 @@ import { RoleSection } from '../../../components/home/role-section';
 import { TrackingActiveIndicator } from '../../../components/location/tracking-active-indicator';
 import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
 import { useAuth } from '../../../src/hooks/use-auth';
+import { useChatList } from '../../../src/hooks/use-chat';
 import { useMyProfile } from '../../../src/hooks/use-profile';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import {
@@ -60,6 +62,9 @@ export default function AuthenticatedHomeScreen() {
   const colors = useThemeColors();
   const { data: sending } = useSendingShipments();
   const { data: receiving } = useReceivingShipments();
+  const { data: chats } = useChatList();
+  // Solo los envíos que ya tienen chat llevan el botón en su card.
+  const chatByShipment = Object.fromEntries((chats ?? []).map((item) => [item.shipmentId, { unreadCount: item.unreadCount }]));
 
   // El perfil fresco del backend prevalece sobre el snapshot estático del login
   const currentKycStatus = profile?.kycStatus ?? user?.kycStatus;
@@ -94,6 +99,7 @@ export default function AuthenticatedHomeScreen() {
       queryClient.invalidateQueries({ queryKey: ["trips"] }),
       queryClient.invalidateQueries({ queryKey: ["users", "me"] }),
       queryClient.invalidateQueries({ queryKey: ["attention-tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["chat", "list"] }),
     ]);
     setRefreshing(false);
   };
@@ -113,6 +119,8 @@ export default function AuthenticatedHomeScreen() {
               Hola{firstName ? `, ${firstName}` : ''}
             </Text>
           </View>
+          <View className="flex-row items-center gap-3">
+          <HomeChatButton />
           <Pressable
             testID="app-home-avatar"
             onPress={() => router.push('/profile')}
@@ -121,6 +129,7 @@ export default function AuthenticatedHomeScreen() {
           >
             <ProfileAvatar fullName={fullName} photoUrl={profile?.photoUrl ?? null} size={44} />
           </Pressable>
+          </View>
         </View>
       </SafeAreaView>
 
@@ -158,12 +167,14 @@ export default function AuthenticatedHomeScreen() {
           title="Estoy enviando"
           role="sending"
           shipments={sending ?? []}
+          chatByShipment={chatByShipment}
         />
         <RoleSection
           testID="app-home-receiving"
           title="Voy a recibir"
           role="receiving"
           shipments={receiving ?? []}
+          chatByShipment={chatByShipment}
         />
 
         <HomeSendCta testID="app-home-send-cta" kycStatus={currentKycStatus} />
