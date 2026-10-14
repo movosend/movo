@@ -277,7 +277,8 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
 Primeros borradores de `docs/legal/terminos-y-condiciones.md` y
 `docs/legal/politica-privacidad.md` (base legal argentina: Ley 25.326, CCyCN
 contrato de transporte de cosas, Ley 24.240), con aviso académico explícito y
-`[A COMPLETAR]` donde falta un dato real (fee de MP, mecánica de penalidad).
+`[A COMPLETAR]` donde falta un dato real (mecánica de penalidad, MOVO-226; el
+de la comisión de MP lo cerró MOVO-225).
 Documentos nuevos también subidos a Drive (`[Movo] NNN - Términos y
 Condiciones`/`Política de Privacidad`) por el equipo. Decisiones no obvias:
 
@@ -542,8 +543,10 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
 No hay un porcentaje de MP que confirmar: MP descuenta su comisión de la cuenta de cada
 transportista (según sus tarifas, el plazo de liberación y el medio de pago del emisor).
 Los TyC (secciones 3, 5.1 y 7, v0.2) lo dicen así y corrigen la comisión de Movo (15%
-sobre el neto, no sobre el precio); la app resta el estimado (`MP_TRANSACTION_FEE_RATE`,
-sobre el bruto, a validar con pagos reales) y lo rotula "Recibís aprox.". Pendiente:
+sobre el neto, no sobre el precio). Todo monto que la app le muestra al transportista
+como cobro es "Recibís aprox." = neto menos el estimado de MP (sobre el bruto, a validar
+con pagos reales; `estimateReceivedArs` de `@movo/shared`, tasa de
+`EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE`). Pendiente:
 persistir el `mercadopago_fee` real del hold/captura para mostrar el monto exacto.
 
 ### MOVO-252 — CTA "Iniciar viaje" para el transportista y Conteo de Paradas por viaje

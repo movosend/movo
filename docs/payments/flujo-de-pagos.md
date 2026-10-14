@@ -353,10 +353,13 @@ flowchart LR
 - El 4,1% de MP es del sandbox, y es la única observación real que tenemos. En
   producción no hay un valor único que confirmar (MOVO-225): depende de las tarifas de
   MP, del medio de pago y las cuotas del emisor, y del plazo de liberación del dinero
-  que cada transportista configura en su cuenta. La app muestra un estimado
-  (`MP_TRANSACTION_FEE_RATE` de `@movo/shared`, 4,99%, **a validar con pagos reales**)
-  calculado sobre el bruto, que es sobre lo que cobra MP; el monto real de cada pago es
-  el `mercadopago_fee` de `fee_details`.
+  que cada transportista configura en su cuenta. La app muestra un estimado (4,99%,
+  **a validar con pagos reales**) calculado sobre el bruto, que es sobre lo que cobra
+  MP, y lo resta en todo monto que presenta como "Recibís aprox.". Mobile lee su propia
+  `EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE` (`movo-mobile/src/lib/commission-config.ts`);
+  `MP_TRANSACTION_FEE_RATE` del backend no cambia lo que ve la app. La fórmula
+  (`estimateMpFeeArs`/`estimateReceivedArs`) y el default viven en `@movo/shared`. El
+  monto real de cada pago es el `mercadopago_fee` de `fee_details`.
 - Si se cancela un hold, no se cobra nada a nadie.
 
 ---
