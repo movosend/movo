@@ -425,10 +425,10 @@ categoría `shipments`, con copy propio por destinatario.
 
 ### MOVO-26 — Contrato del chat (ADR-040)
 
-`types/chat.ts`: `ChatMessage`, `ChatMessagesPage` (con `access`), `ChatRealtimeEvent`, `ChatAccess` y las
-constantes `CHAT_MESSAGE_MAX_LENGTH` (1000), `CHAT_POST_DELIVERY_WINDOW_HOURS` (24) y `CHAT_PAGE_MAX_LIMIT`.
-`ApiErrorCode` suma `CHAT_CLOSED` y `CHAT_READ_ONLY`; el trigger `chatMessageReceived` va en la categoría
-`chat`, que pasa a `implemented: true` (la pantalla de configuración de MOVO-246 la muestra con toggle real).
-`ChatMessage.moderated` y `CHAT_MODERATION_WARNING` (texto del aviso de respeto que muestran los clientes cuando el
-filtro de lenguaje tapó palabras de un mensaje propio).
-
+`types/chat.ts`: `ChatMessage` (con `authorName`, `moderated`, `hidden` por bloqueo y `deliveryStatus` en los
+propios), `ChatMessagesPage` (`access`, `archived`, `reportedByMe`), `ChatParticipant(s)`, `ChatListItem`/
+`ChatListResponse`, `ChatRealtimeEvent` (`chat_message` y `chat_receipt`), `ChatAccess` y las constantes
+`CHAT_MESSAGE_MAX_LENGTH` (1000), `CHAT_POST_DELIVERY_WINDOW_HOURS` (24, pasado ese plazo se archiva) y
+`CHAT_PAGE_MAX_LIMIT`, más `CHAT_MODERATION_WARNING` (el aviso de respeto que muestran los clientes cuando el filtro
+de lenguaje tapó palabras de un mensaje propio). `ApiErrorCode` suma `CHAT_CLOSED` y `CHAT_READ_ONLY`; el trigger
+`chatMessageReceived` va en la categoría `chat`, que pasa a `implemented: true`.

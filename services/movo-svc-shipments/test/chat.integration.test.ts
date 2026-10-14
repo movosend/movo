@@ -18,7 +18,8 @@ describe("Chat del envío (MOVO-26)", () => {
   let app: FastifyInstance;
   let repo: ShipmentRepository;
   let baseUrl: string;
-  let clock = new Date();
+  // Reloj del chat: sin fijar corre en tiempo real; los tests de borde de 24 h lo fijan a mano.
+  let clock: Date | null = null;
   const blocks: Array<[string, string]> = [];
   const notifications = createFakeNotificationsClient();
 
@@ -79,6 +80,14 @@ describe("Chat del envío (MOVO-26)", () => {
     });
   }
 
+  function readChat(shipmentId: string, userId: string, roles = "sender") {
+    return app.inject({
+      method: "POST",
+      url: `/shipments/${shipmentId}/chat/read`,
+      headers: { "x-user-id": userId, "x-user-roles": roles },
+    });
+  }
+
   function history(shipmentId: string, userId: string, query = "", roles = "sender") {
     return app.inject({
       method: "GET",
@@ -126,7 +135,7 @@ describe("Chat del envío (MOVO-26)", () => {
         blocks
       ),
       notificationsClient: notifications,
-      chatNow: () => clock,
+      chatNow: () => clock ?? new Date(),
       sweepEnabled: false,
     });
     await app.listen({ port: 0, host: "127.0.0.1" });
@@ -141,7 +150,7 @@ describe("Chat del envío (MOVO-26)", () => {
   });
 
   beforeEach(async () => {
-    clock = new Date();
+    clock = null;
     blocks.length = 0;
     vi.mocked(notifications.sendPush).mockClear();
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
@@ -167,7 +176,8 @@ describe("Chat del envío (MOVO-26)", () => {
       });
       await vi.waitFor(() => expect(chatMessagesOf(carrier)).toHaveLength(1));
       await vi.waitFor(() => expect(chatMessagesOf(sender)).toHaveLength(1));
-      expect(chatMessagesOf(carrier)[0]).toEqual({ type: "chat_message", message: response.json() });
+      // Cada destinatario recibe su versión: sin los tildes, que son solo del autor.
+      expect(chatMessagesOf(carrier)[0]).toEqual({ type: "chat_message", message: { ...response.json(), deliveryStatus: null } });
 
       carrier.ws.close();
       sender.ws.close();
@@ -280,15 +290,30 @@ describe("Chat del envío (MOVO-26)", () => {
       expect((await send(p.shipmentId, p.senderId, "a".repeat(1000))).statusCode).toBe(201);
     });
 
-    it("con un bloqueo entre el escritor y otra de las partes, enviar da 403 USER_BLOCKED pero leer sigue andando", async () => {
+    it("un bloqueo NO impide escribir: a quien tiene el bloqueo le llega el contenido vacío y los demás lo ven normal", async () => {
       const p = await createShipment();
-      await send(p.shipmentId, p.senderId, "Antes del bloqueo");
-      blocks.push([p.carrierId, p.senderId]);
+      blocks.push([p.carrierId, p.senderId]); // el transportista bloqueó al emisor
+      const carrier = await connectedChat(p.shipmentId, p.carrierId);
+      const receiver = await connectedChat(p.shipmentId, p.receiverId);
 
-      const blocked = await send(p.shipmentId, p.senderId, "Después");
-      expect(blocked.statusCode).toBe(403);
-      expect(blocked.json().error.code).toBe("USER_BLOCKED");
-      expect((await history(p.shipmentId, p.senderId)).statusCode).toBe(200);
+      const sent = await send(p.shipmentId, p.senderId, "Hola a todos");
+
+      expect(sent.statusCode).toBe(201);
+      await vi.waitFor(() => expect(chatMessagesOf(carrier)).toHaveLength(1));
+      await vi.waitFor(() => expect(chatMessagesOf(receiver)).toHaveLength(1));
+      expect(chatMessagesOf(carrier)[0].message).toMatchObject({ hidden: true, body: "" });
+      expect(chatMessagesOf(receiver)[0].message).toMatchObject({ hidden: false, body: "Hola a todos" });
+      // El historial aplica lo mismo, y quien bloqueó sigue pudiendo escribir.
+      const carrierView = (await history(p.shipmentId, p.carrierId, "", "carrier")).json();
+      expect(carrierView.items[0]).toMatchObject({ hidden: true, body: "" });
+      const receiverView = (await history(p.shipmentId, p.receiverId)).json();
+      expect(receiverView.items[0]).toMatchObject({ hidden: false, body: "Hola a todos" });
+      expect((await send(p.shipmentId, p.carrierId, "Sigo acá", randomUUID(), "carrier")).statusCode).toBe(201);
+      // El mensaje del bloqueado tampoco dispara una push al transportista.
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(vi.mocked(notifications.sendPush).mock.calls.every(([call]) => call.userId !== p.carrierId)).toBe(true);
+      carrier.ws.close();
+      receiver.ws.close();
     });
   });
 
@@ -331,18 +356,24 @@ describe("Chat del envío (MOVO-26)", () => {
       expect((await connectChat(p.shipmentId, token(p.senderId)).closed).code).toBe(4009);
     });
 
-    it("entregado: sigue abierto hasta 24 h después y se cierra pasado ese plazo", async () => {
+    it("entregado: queda en solo lectura (no se escribe), y pasadas las 24 h figura archivado pero sigue legible", async () => {
       const p = await createShipment();
+      await send(p.shipmentId, p.carrierId, "Ya te lo dejé", randomUUID(), "carrier");
       const deliveredAt = new Date("2026-10-14T12:00:00.000Z");
       await app.db.shipment.update({ where: { id: p.shipmentId }, data: { status: "delivered", deliveredAt } });
 
       clock = new Date(deliveredAt.getTime() + 23 * 60 * 60 * 1000);
-      expect((await send(p.shipmentId, p.carrierId, "Entregado, gracias", randomUUID(), "carrier")).statusCode).toBe(201);
+      const early = await send(p.shipmentId, p.carrierId, "Una cosa más", randomUUID(), "carrier");
+      expect(early.statusCode).toBe(403);
+      expect(early.json().error.code).toBe("CHAT_READ_ONLY");
+      const recent = (await history(p.shipmentId, p.senderId)).json();
+      expect(recent).toMatchObject({ access: "read_only", archived: false });
 
       clock = new Date(deliveredAt.getTime() + 25 * 60 * 60 * 1000);
-      const late = await send(p.shipmentId, p.carrierId, "Una cosa más", randomUUID(), "carrier");
-      expect(late.statusCode).toBe(409);
-      expect(late.json().error.code).toBe("CHAT_CLOSED");
+      const archived = await history(p.shipmentId, p.senderId);
+      expect(archived.statusCode).toBe(200);
+      expect(archived.json()).toMatchObject({ access: "read_only", archived: true });
+      expect(archived.json().items).toHaveLength(1);
     });
 
     it("el receptor original (ADR-038) lee pero no escribe: 403 CHAT_READ_ONLY", async () => {
@@ -404,7 +435,7 @@ describe("Chat del envío (MOVO-26)", () => {
         data: { type: "chat_message", shipmentId: p.shipmentId },
       });
       expect(`${input.title} ${input.body}`).not.toContain("4321");
-      expect(input.title).toContain("Ana Gómez");
+      expect(input.title).toContain("Ana");
       carrier.ws.close();
     });
 
@@ -416,6 +447,204 @@ describe("Chat del envío (MOVO-26)", () => {
 
       expect(response.statusCode).toBe(201);
       await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalled());
+    });
+  });
+
+  describe("tildes de entregado y leído", () => {
+    it("pasa de enviado a entregado cuando todos lo recibieron y a leído cuando todos lo leyeron, con avisos en vivo", async () => {
+      const p = await createShipment();
+      const sender = await connectedChat(p.shipmentId, p.senderId);
+      const carrier = await connectedChat(p.shipmentId, p.carrierId);
+
+      // El receptor no está conectado: el transportista lo recibió pero falta uno.
+      const sent = await send(p.shipmentId, p.senderId, "¿Todo bien?");
+      expect(sent.json().deliveryStatus).toBe("sent");
+      await vi.waitFor(() =>
+        expect(sender.messages).toContainEqual(expect.objectContaining({ type: "chat_receipt", userId: p.carrierId, status: "delivered" }))
+      );
+
+      // El receptor abre el chat: lo recibe, y el emisor se entera en vivo.
+      const receiverView = (await history(p.shipmentId, p.receiverId)).json();
+      expect(receiverView.items[0].deliveryStatus).toBeNull();
+      await vi.waitFor(() =>
+        expect(sender.messages).toContainEqual(expect.objectContaining({ type: "chat_receipt", userId: p.receiverId, status: "delivered" }))
+      );
+      expect((await history(p.shipmentId, p.senderId)).json().items[0].deliveryStatus).toBe("delivered");
+
+      // Lo leen los dos: "leído por todos".
+      expect((await readChat(p.shipmentId, p.carrierId, "carrier")).statusCode).toBe(200);
+      expect((await history(p.shipmentId, p.senderId)).json().items[0].deliveryStatus).toBe("delivered");
+      expect((await readChat(p.shipmentId, p.receiverId)).statusCode).toBe(200);
+      await vi.waitFor(() =>
+        expect(sender.messages).toContainEqual(expect.objectContaining({ type: "chat_receipt", userId: p.receiverId, status: "read" }))
+      );
+      expect((await history(p.shipmentId, p.senderId)).json().items[0].deliveryStatus).toBe("read");
+      sender.ws.close();
+      carrier.ws.close();
+    });
+
+    it("conectarse al WebSocket cuenta como recibir lo pendiente", async () => {
+      const p = await createShipment();
+      const sender = await connectedChat(p.shipmentId, p.senderId);
+      await send(p.shipmentId, p.senderId, "Hola");
+
+      const receiver = await connectedChat(p.shipmentId, p.receiverId);
+      const carrier = await connectedChat(p.shipmentId, p.carrierId);
+
+      await vi.waitFor(() =>
+        expect(sender.messages.filter((m) => m.type === "chat_receipt" && m.status === "delivered").map((m) => m.userId)).toEqual(
+          expect.arrayContaining([p.receiverId, p.carrierId])
+        )
+      );
+      expect((await history(p.shipmentId, p.senderId)).json().items[0].deliveryStatus).toBe("delivered");
+      sender.ws.close();
+      receiver.ws.close();
+      carrier.ws.close();
+    });
+
+    it("quien tiene un bloqueo con el autor no cuenta para los tildes", async () => {
+      const p = await createShipment();
+      blocks.push([p.receiverId, p.senderId]); // el receptor bloqueó al emisor
+      await send(p.shipmentId, p.senderId, "Hola");
+      await readChat(p.shipmentId, p.carrierId, "carrier");
+
+      // Solo el transportista cuenta: leyó, así que está leído aunque el receptor nunca lo vea.
+      expect((await history(p.shipmentId, p.senderId)).json().items[0].deliveryStatus).toBe("read");
+    });
+
+    it("solo las partes marcan leído (un tercero 403, un envío cerrado 409)", async () => {
+      const p = await createShipment("assigned");
+      expect((await readChat(p.shipmentId, randomUUID())).statusCode).toBe(403);
+      await repo.updateStatus(p.shipmentId, ShipmentStatus.CANCELLED, p.senderId);
+      expect((await readChat(p.shipmentId, p.senderId)).statusCode).toBe(409);
+    });
+  });
+
+  describe("integrantes del chat", () => {
+    it("devuelve emisor, transportista y receptor con nombre, foto y rol", async () => {
+      const p = await createShipment();
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${p.shipmentId}/chat/participants`,
+        headers: { "x-user-id": p.receiverId, "x-user-roles": "sender" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().participants.map((x: { role: string; userId: string }) => [x.role, x.userId])).toEqual([
+        ["sender", p.senderId],
+        ["carrier", p.carrierId],
+        ["receiver", p.receiverId],
+      ]);
+      expect(response.json().participants[0]).toMatchObject({ firstName: "Ana", fullName: "Ana Gómez", photoUrl: null });
+    });
+
+    it("un tercero ajeno no los ve (403)", async () => {
+      const p = await createShipment();
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${p.shipmentId}/chat/participants`,
+        headers: { "x-user-id": randomUUID(), "x-user-roles": "sender" },
+      });
+      expect(response.statusCode).toBe(403);
+    });
+  });
+
+  describe("reportar conversación", () => {
+    it("registra un reporte por persona, idempotente, y el historial lo refleja solo para quien reportó", async () => {
+      const p = await createShipment();
+      const report = () =>
+        app.inject({
+          method: "POST",
+          url: `/shipments/${p.shipmentId}/chat/report`,
+          headers: { "x-user-id": p.receiverId, "x-user-roles": "sender" },
+        });
+
+      expect((await history(p.shipmentId, p.receiverId)).json().reportedByMe).toBe(false);
+      const first = await report();
+      const second = await report();
+
+      expect(first.statusCode).toBe(201);
+      expect(second.statusCode).toBe(200);
+      expect(first.json()).toEqual({ reported: true });
+      expect(await app.db.chatReport.count({ where: { shipmentId: p.shipmentId } })).toBe(1);
+      expect((await history(p.shipmentId, p.receiverId)).json().reportedByMe).toBe(true);
+      expect((await history(p.shipmentId, p.senderId)).json().reportedByMe).toBe(false);
+    });
+
+    it("un tercero ajeno no puede reportar (403)", async () => {
+      const p = await createShipment();
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${p.shipmentId}/chat/report`,
+        headers: { "x-user-id": randomUUID(), "x-user-roles": "sender" },
+      });
+      expect(response.statusCode).toBe(403);
+    });
+  });
+
+  describe("lista de chats", () => {
+    const list = (userId: string, roles = "sender") =>
+      app.inject({ method: "GET", url: "/shipments/chats", headers: { "x-user-id": userId, "x-user-roles": roles } });
+
+    it("trae un chat por envío con ruta, último mensaje y no leídos, y los baja al leer", async () => {
+      const p = await createShipment();
+      await send(p.shipmentId, p.carrierId, "Ya retiré el paquete", randomUUID(), "carrier");
+      await send(p.shipmentId, p.carrierId, "Salgo ahora", randomUUID(), "carrier");
+
+      const forSender = (await list(p.senderId)).json().items;
+      expect(forSender).toHaveLength(1);
+      expect(forSender[0]).toMatchObject({
+        shipmentId: p.shipmentId,
+        status: "in_transit",
+        route: "Av. Colón 1234 → Bv. San Juan 500",
+        access: "open",
+        archived: false,
+        unreadCount: 2,
+        lastMessage: { authorId: p.carrierId, authorName: "Ana", body: "Salgo ahora", hidden: false },
+      });
+      // Lo propio no cuenta como no leído.
+      expect((await list(p.carrierId, "carrier")).json().items[0].unreadCount).toBe(0);
+
+      await readChat(p.shipmentId, p.senderId);
+      expect((await list(p.senderId)).json().items[0].unreadCount).toBe(0);
+      expect((await list(p.receiverId)).json().items[0].unreadCount).toBe(2);
+    });
+
+    it("el último mensaje de alguien bloqueado llega oculto y no suma a los no leídos", async () => {
+      const p = await createShipment();
+      blocks.push([p.senderId, p.carrierId]); // el emisor bloqueó al transportista
+      await send(p.shipmentId, p.carrierId, "Mensaje que no debería ver", randomUUID(), "carrier");
+
+      const item = (await list(p.senderId)).json().items[0];
+      expect(item.lastMessage).toMatchObject({ hidden: true, body: "" });
+      expect(item.unreadCount).toBe(0);
+    });
+
+    it("incluye los entregados (atenuados, archivados pasadas las 24 h) y deja afuera cancelados y envíos sin transportista", async () => {
+      const delivered = await createShipment();
+      const deliveredAt = new Date("2026-10-10T12:00:00.000Z");
+      await app.db.shipment.update({ where: { id: delivered.shipmentId }, data: { status: "delivered", deliveredAt } });
+      clock = new Date("2026-10-14T12:00:00.000Z");
+      const cancelled = await createShipment("assigned");
+      await repo.updateStatus(cancelled.shipmentId, ShipmentStatus.CANCELLED, cancelled.senderId);
+
+      const forDelivered = (await list(delivered.senderId)).json().items;
+      expect(forDelivered).toHaveLength(1);
+      expect(forDelivered[0]).toMatchObject({ shipmentId: delivered.shipmentId, access: "read_only", archived: true });
+      expect((await list(cancelled.senderId)).json().items).toHaveLength(0);
+      expect((await list(randomUUID())).json().items).toHaveLength(0);
+    });
+
+    it("ordena por la actividad más reciente primero", async () => {
+      const older = await createShipment();
+      const newer = await createShipment();
+      await send(older.shipmentId, older.carrierId, "Primero", randomUUID(), "carrier");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await send(newer.shipmentId, newer.carrierId, "Segundo", randomUUID(), "carrier");
+
+      const forCarrier = async (carrierId: string) => (await list(carrierId, "carrier")).json().items.map((i: { shipmentId: string }) => i.shipmentId);
+      expect(await forCarrier(older.carrierId)).toEqual([older.shipmentId]);
+      expect(await forCarrier(newer.carrierId)).toEqual([newer.shipmentId]);
     });
   });
 });

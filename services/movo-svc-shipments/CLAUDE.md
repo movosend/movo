@@ -2766,39 +2766,48 @@ y un ADR corto).
 ### MOVO-26 — Chat entre las partes de un envío (ADR-040)
 
 Un hilo por envío entre emisor, receptor y transportista, en `src/modules/chat/` (rutas, servicio, schema),
-`src/repositories/chat-repository.ts`, `src/domain/chat-window.ts` y `src/realtime/chat-hub.ts`; tabla
-`shipments.chat_messages` (migración `20261014120000`, solo se agrega). Uso y reglas: `docs/chat/README.md`.
+`src/repositories/chat-repository.ts`, `src/domain/{chat-window,chat-receipts,chat-moderation}.ts` y
+`src/realtime/chat-hub.ts`; tablas `shipments.chat_messages`, `chat_participant_states` y `chat_reports`
+(migraciones `20261014120000`/`130000`/`140000`). Uso y reglas: `docs/chat/README.md`. Implementa el
+prototipo "Chat del envío · v2".
 
 - **Se envía por HTTP y se recibe por WebSocket** (mismo molde que la ingesta de posiciones, ADR-024):
-  `POST /shipments/:id/chat/messages` es idempotente por `clientMessageId` (índice único
-  `(shipment, autor, clientMessageId)`: 201 la primera vez, 200 en un reenvío, sin difundir ni notificar de
-  nuevo), `GET .../chat/messages` pagina por cursor y `GET /shipments/:id/chat` (WS) solo empuja. El gateway
-  no cambió: `/shipments` ya proxea HTTP y el upgrade.
-- **`ChatHub` es una instancia propia de `RealtimeRegistry`**, no la de tracking: así un mensaje de chat no
-  llega a quien solo mira el mapa y el cierre `4009` de tracking por un envío entregado no corta el chat, que
-  sigue 24 h. Cuenta además sockets por usuario para no pushear a quien ya lo tiene abierto. Cierra los
-  sockets al pasar a `cancelled`/`rejected_by_receiver`; la ventana post-entrega la corta un timer por conexión.
-- **`resolveChatAccess` (puro) decide `open | read_only | closed`**: abierto con transportista asignado y hasta
-  `deliveredAt + 24 h`; `disputed` y el receptor original (ADR-038) solo leen; el admin siempre lee y nunca
-  escribe. Fuera de la ventana las partes reciben `409 CHAT_CLOSED` también al leer (el admin conserva el
-  historial como evidencia). El bloqueo (ADR-026) corta la escritura (`403 USER_BLOCKED`, falla cerrado) si hay
-  relación con CUALQUIERA de las otras partes: es un hilo único, no uno por par.
-- **Push `chatMessageReceived`** (categoría `chat`, que pasa a `implemented: true`): a quien no tiene el chat
-  abierto, una vez por minuto y destinatario (`SET NX` en Redis), sin el texto del mensaje. Best-effort: un
-  fallo libera la marca y nunca afecta el envío.
+  `POST .../chat/messages` es idempotente por `clientMessageId` (índice único `(envío, autor, clientMessageId)`:
+  201 la primera vez, 200 en un reenvío, sin difundir ni notificar de nuevo), el historial pagina por cursor y
+  `GET /shipments/:id/chat` (WS) solo empuja. El gateway no cambió: `/shipments` ya proxea HTTP y el upgrade.
+- **`ChatHub` indexa los sockets por envío y por usuario** y NO es el `RealtimeRegistry` de tracking: un mensaje de
+  chat no llega a quien solo mira el mapa, el `4009` de tracking no corta el chat, y cada usuario recibe SU
+  versión del mensaje (contenido oculto si bloqueó al autor; los tildes son solo del autor).
+- **`resolveChatAccess` (puro)**: `open` con transportista y sin entregar; entregado/completado/disputa →
+  `read_only` y, pasadas 24 h de la entrega, `archived: true` (sigue legible, atenuado en la lista); cancelado,
+  rechazado o sin transportista → `closed` (`409 CHAT_CLOSED`, sockets cortados con `4009`). El receptor original
+  (ADR-038) y el admin nunca escriben; el admin lee siempre.
+- **El bloqueo (ADR-026) no impide escribir**: oculta. A quien tiene un bloqueo con el autor le llega
+  `hidden: true` y body vacío (historial, tiempo real y último mensaje de la lista), sin push, sin sumar a los no
+  leídos y sin contar para los tildes. Falla abierto ante `svc-users` caído (como los listados). Reemplaza el
+  `403 USER_BLOCKED` del primer diseño.
+- **Tildes**: `chat_participant_states` guarda hasta dónde recibió/leyó cada integrante (`GREATEST` en el
+  upsert: solo avanzan). Recibir = tener el WS abierto al llegar el mensaje, abrir la primera página del historial
+  o conectarse; leer = `POST /:id/chat/read`. `computeDeliveryStatus` (puro) da `sent`/`delivered`/`read` contra
+  los demás integrantes sin bloqueo; el WS empuja `chat_receipt` para actualizar los tildes en vivo. Solo las
+  partes cuentan (ni el admin ni el receptor original).
+- **Lista de chats** (`GET /shipments/chats`): envíos con transportista en estados abiertos/entregado/disputa,
+  último mensaje (`DISTINCT ON`) y no leídos en dos consultas por lote, nunca una por envío; ruta con la primera
+  parte de cada dirección; el código `#MOVO-xxxxx` lo arma el cliente (`activeShipmentDisplayCode`). El nombre del
+  autor se guarda en cada mensaje (`author_name`) para no consultar `svc-users` al listar.
 - **Filtro de lenguaje** (`domain/chat-moderation.ts`): tapa con asteriscos del mismo largo las palabras de una
-  lista acotada de insultos y agravios, ANTES de guardar y difundir; el mensaje sale igual con
-  `moderated: true` (columna nueva, migración `20261014130000`) y el cliente le muestra al autor
-  `CHAT_MODERATION_WARNING`. Se guarda ya enmascarado, así que el admin ve lo mismo que las partes. Compara por
-  palabra entera (sin falsos positivos tipo "computadora") y contra evasiones comunes; no toca "boludo"/"mierda"
-  ni "retrasado" (legítimo en un envío demorado). La lista la ajusta el equipo en ese archivo.
-- `createdAt` lo fija la app (ms), no el default de Postgres (µs): el cursor viaja como ISO en ms y con µs
-  saltearía mensajes del mismo milisegundo. `authorizeRealtimeConnection` ahora devuelve `callerRoles` y acepta
-  un mensaje de 403 propio.
+  lista acotada, ANTES de guardar y difundir; el mensaje sale con `moderated: true` y el cliente le muestra al autor
+  `CHAT_MODERATION_WARNING`. Compara por palabra entera y contra evasiones comunes; no toca "boludo"/"mierda" ni
+  "retrasado". La lista la ajusta el equipo en ese archivo.
+- **Push `chatMessageReceived`** (categoría `chat`): a quien no tiene el chat abierto y no tiene bloqueo con el
+  autor, una vez por minuto y destinatario (`SET NX`), sin el texto. Best-effort.
+- `POST /:id/chat/report` guarda un reporte por persona y envío (`chat_reports`) y loguea
+  `chat_conversation_reported`; falta el panel que lo muestre (MOVO-30/33). `createdAt` lo fija la app (ms): con
+  µs de Postgres el cursor saltearía mensajes del mismo milisegundo.
 
-Pendiente / fuera de alcance: imágenes, escribiendo/leído/no leído, retención y purga del historial (dato
-personal, a definir junto a ADR-023), panel de admin que lo muestre en una disputa (MOVO-30/33 consumen el
-mismo GET), pantalla en `movo-mobile`, y Redis pub/sub si algún día hay más de una réplica.
+Pendiente / fuera de alcance: imágenes y "escribiendo", la tarjeta "Llegando" (sin evento de cercanía),
+retención y purga del historial (dato personal, a definir junto a ADR-023), panel de admin para el historial y los
+reportes, la pantalla en `movo-mobile` (MOVO-284) y Redis pub/sub si algún día hay más de una réplica.
 
 ### Pendientes de este servicio
 

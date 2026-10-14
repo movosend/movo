@@ -1,33 +1,55 @@
 # Chat entre las partes de un envío (MOVO-26)
 
-Un hilo por envío entre emisor, receptor y transportista. Se **envía por HTTP** y se **recibe por
-WebSocket** (mismo molde que la ingesta de posiciones, ADR-024). Decisión y trade-offs: `adr-040-chat-propio.md`.
+Un hilo por envío entre emisor, receptor y transportista. Se **envía por HTTP** y se **recibe por WebSocket**
+(mismo molde que la ingesta de posiciones, ADR-024). Decisión y trade-offs: `adr-040-chat-propio.md`.
+El diseño de la pantalla es el prototipo "Chat del envío · v2".
 
 ## Endpoints (`movo-svc-shipments`, prefijo `/shipments`, pasan por el gateway)
 
 | Método | Ruta | Qué hace |
 | --- | --- | --- |
-| `POST` | `/:id/chat/messages` | Envía un mensaje `{ body, clientMessageId }`. 201 la primera vez, 200 si es un reenvío (idempotente por `clientMessageId`). |
-| `GET` | `/:id/chat/messages?limit=&cursor=` | Historial del más reciente al más antiguo, con cursor opaco. Devuelve `access`: `open` o `read_only`. |
-| `GET` (WS) | `/:id/chat` | Canal de recepción: `{type:"connected"}` y `{type:"chat_message", message}`. El cliente no manda nada por acá. |
+| `GET` | `/chats` | La lista "Chats": uno por envío con transportista (en curso, entregado o en disputa), el más reciente primero, con `route`, último mensaje, `unreadCount`, `access` y `archived`. |
+| `POST` | `/:id/chat/messages` | Envía `{ body, clientMessageId }`. 201 la primera vez, 200 si es un reenvío (idempotente por `clientMessageId`). |
+| `GET` | `/:id/chat/messages?limit=&cursor=` | Historial del más reciente al más antiguo, con cursor opaco. Devuelve `access`, `archived`, `reportedByMe` y, en los mensajes propios, `deliveryStatus`. |
+| `GET` | `/:id/chat/participants` | Emisor, transportista y receptor con `firstName`, `fullName`, `photoUrl` y `role` (encabezado "Ana, Diego y Luis" y avatares). |
+| `POST` | `/:id/chat/read` | Quien mira leyó todo hasta ahora: baja su contador y les avisa a los demás. |
+| `POST` | `/:id/chat/report` | "Reportar conversación": una por persona y envío, idempotente (201 / 200). |
+| `GET` (WS) | `/:id/chat` | Canal de recepción: `connected`, `chat_message` y `chat_receipt`. El cliente no manda nada por acá. |
 
 El WebSocket se autentica con `Authorization: Bearer <JWT>` en el handshake (como `/track`). Códigos de cierre:
 `4001` token inválido o vencido (reconectar con token nuevo), `4003` sin permiso, `4004` envío inexistente,
-`4009` el chat ya no está disponible (no reconectar).
+`4009` el chat ya no está disponible (cancelado; no reconectar).
 
-## Cuándo está disponible
+## Cuándo se puede escribir y cuándo se lee
 
-- Desde que hay transportista asignado (`assignment_pending`, `assigned_unfunded`, `assigned`, `in_transit`).
-- Hasta 24 h después de `delivered`/`completed` (`CHAT_POST_DELIVERY_WINDOW_HOURS`).
-- `cancelled` y `rejected_by_receiver` lo cierran en el acto (se cortan los sockets abiertos).
-- `disputed`: solo lectura.
-- El receptor que transfirió la recepción (ADR-038) lee, no escribe.
-- Un bloqueo (ADR-026) entre quien escribe y cualquiera de las otras partes corta la escritura
-  (`403 USER_BLOCKED`); la lectura sigue.
-- El **admin** lee el historial siempre (evidencia de disputa) y nunca escribe.
+| Situación | Las partes | Admin |
+| --- | --- | --- |
+| Con transportista asignado, sin entregar (`assignment_pending` … `in_transit`) | escriben | lee |
+| Entregado / completado | **solo lectura** | lee |
+| Entregado hace más de 24 h | solo lectura, `archived: true` (sigue legible, atenuado en la lista) | lee |
+| En disputa | solo lectura | lee |
+| Cancelado, rechazado o sin transportista | `409 CHAT_CLOSED` y se cortan los sockets (`4009`) | lee |
 
-Fuera de la ventana: `409 CHAT_CLOSED` (también en el historial para las partes). Sin permiso de escritura:
-`403 CHAT_READ_ONLY`. Reglas puras en `src/domain/chat-window.ts`.
+El receptor que transfirió la recepción (ADR-038) lee, no escribe. El admin lee siempre (evidencia de disputa)
+y nunca escribe. Sin permiso de escritura: `403 CHAT_READ_ONLY`. Reglas puras en `src/domain/chat-window.ts`.
+
+## Bloqueo (ADR-026)
+
+Un bloqueo **no impide escribir**. El contenido de quien tiene un bloqueo con quien mira llega vacío con
+`hidden: true` (el cliente muestra "Mensaje de un usuario bloqueado"), tanto en el historial como en tiempo
+real y en el último mensaje de la lista. Esos mensajes no suman a los no leídos, no disparan push ni cuentan
+para los tildes. Si `svc-users` no responde, no se oculta nada (falla abierto, como los listados).
+Bloquear y desbloquear usa los endpoints de siempre (`POST/DELETE /users/:id/block`).
+
+## Tildes de entregado y leído
+
+Cada mensaje propio trae `deliveryStatus`: `sent` ✓, `delivered` ✓✓ (todos los demás lo recibieron) o `read`
+✓✓ azules / "Leído por todos" (todos lo leyeron). "Los demás" son las otras partes menos quienes tienen un
+bloqueo con el autor. Se guarda hasta dónde recibió y leyó cada integrante (`chat_participant_states`):
+- **Recibir:** tener el chat abierto por WebSocket cuando llega el mensaje, abrir el historial o conectarse.
+- **Leer:** `POST /:id/chat/read` (la app lo llama al ver la conversación y al llegar un mensaje con ella abierta).
+- **En vivo:** el WebSocket empuja `{type:"chat_receipt", userId, status:"delivered"|"read", upTo}`; el cliente
+  guarda el último valor por usuario y recalcula los tildes de sus mensajes.
 
 ## Filtro de lenguaje
 
@@ -40,15 +62,25 @@ tapado (el admin ve lo mismo que las partes). La lista vive en `src/domain/chat-
 números y símbolos por letra ("put4", "put@"). Es acotada a propósito: insultos y agravios fuertes, no las
 palabrotas de uso cotidiano ("boludo", "mierda") ni palabras legítimas del dominio ("retrasado").
 
+## Lo que arma el cliente
+
+- Código del envío en la lista (`#MOVO-12345`): `activeShipmentDisplayCode(id)` de `movo-mobile`.
+- Tarjetas de evento dentro de la conversación ("Envío aceptado", "Retiro confirmado", "En camino", "Entregado"):
+  se mezclan con los mensajes los eventos de `GET /shipments/:id/events` (y el `{type:"status"}` del canal de
+  tracking). **"Llegando"** no tiene evento hoy: depende de las notificaciones de cercanía, sin implementar.
+- Separadores de día ("Hoy"), agrupar burbujas del mismo autor, respuestas rápidas por rol e iniciales.
+
 ## Detalles que conviene saber
 
-- Texto de 1 a 1000 caracteres tras `trim`. Sin imágenes, sin "escribiendo…", sin leído/no leído.
-- Push (`chatMessageReceived`, categoría `chat`): se manda a quien **no** tiene el chat abierto, una vez por
-  minuto y por destinatario, y sin el texto del mensaje (se vería en la pantalla bloqueada).
+- Texto de 1 a 1000 caracteres tras `trim`. Sin imágenes, sin "escribiendo…".
+- Push (`chatMessageReceived`, categoría `chat`): a quien **no** tiene el chat abierto, una vez por minuto y por
+  destinatario, y sin el texto del mensaje (se vería en la pantalla bloqueada).
 - El hilo vive en `shipments.chat_messages` (solo se agrega). La retención y purga del historial no están
   definidas: es un dato personal, hay que decidirlo con el equipo junto con ADR-023.
 - El registro de sockets (`ChatHub`) está en memoria y es de una sola réplica, igual que el de tracking
-  (ADR-006/022). Es una instancia aparte de `realtimeRegistry` para no mezclar mensajes ni cierres.
+  (ADR-006/022), y es aparte del de tracking para no mezclar mensajes ni cierres.
+- "Reportar conversación" guarda el reporte (`chat_reports`) y deja un log `chat_conversation_reported`; todavía
+  no hay un panel que lo muestre al equipo (MOVO-30/33).
 
 ## Probarlo a mano
 

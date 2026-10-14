@@ -11,14 +11,17 @@ const shipmentIdParam = {
 
 const chatMessageResponse = {
   type: "object",
-  required: ["id", "shipmentId", "authorId", "body", "clientMessageId", "moderated", "createdAt"],
+  required: ["id", "shipmentId", "authorId", "authorName", "body", "clientMessageId", "moderated", "hidden", "deliveryStatus", "createdAt"],
   properties: {
     id: { type: "string" },
     shipmentId: { type: "string" },
     authorId: { type: "string" },
+    authorName: { type: ["string", "null"] },
     body: { type: "string" },
     clientMessageId: { type: "string" },
     moderated: { type: "boolean" },
+    hidden: { type: "boolean" },
+    deliveryStatus: { type: ["string", "null"], enum: ["sent", "delivered", "read", null] },
     createdAt: { type: "string", format: "date-time" },
   },
 };
@@ -45,12 +48,81 @@ const listMessagesQuery = {
 
 const listMessagesResponse = {
   type: "object",
-  required: ["items", "nextCursor", "access"],
+  required: ["items", "nextCursor", "access", "archived", "reportedByMe"],
   properties: {
     items: { type: "array", items: chatMessageResponse },
     nextCursor: { type: ["string", "null"] },
     access: { type: "string", enum: ["open", "read_only"] },
+    archived: { type: "boolean" },
+    reportedByMe: { type: "boolean" },
   },
+};
+
+const participantsResponse = {
+  type: "object",
+  required: ["participants"],
+  properties: {
+    participants: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["userId", "role", "firstName", "fullName", "photoUrl"],
+        properties: {
+          userId: { type: "string" },
+          role: { type: "string", enum: ["sender", "carrier", "receiver"] },
+          firstName: { type: "string" },
+          fullName: { type: "string" },
+          photoUrl: { type: ["string", "null"] },
+        },
+      },
+    },
+  },
+};
+
+const chatListResponse = {
+  type: "object",
+  required: ["items"],
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["shipmentId", "status", "route", "access", "archived", "unreadCount", "lastMessage", "lastActivityAt"],
+        properties: {
+          shipmentId: { type: "string" },
+          status: { type: "string" },
+          route: { type: "string" },
+          access: { type: "string", enum: ["open", "read_only"] },
+          archived: { type: "boolean" },
+          unreadCount: { type: "integer" },
+          lastMessage: {
+            type: ["object", "null"],
+            required: ["authorId", "authorName", "body", "hidden", "createdAt"],
+            properties: {
+              authorId: { type: "string" },
+              authorName: { type: ["string", "null"] },
+              body: { type: "string" },
+              hidden: { type: "boolean" },
+              createdAt: { type: "string", format: "date-time" },
+            },
+          },
+          lastActivityAt: { type: "string", format: "date-time" },
+        },
+      },
+    },
+  },
+};
+
+const readResponse = {
+  type: "object",
+  required: ["readAt"],
+  properties: { readAt: { type: "string", format: "date-time" } },
+};
+
+const reportResponse = {
+  type: "object",
+  required: ["reported"],
+  properties: { reported: { type: "boolean" } },
 };
 
 const errorResponse = {
@@ -77,5 +149,9 @@ export const chatSchemas = {
   listMessagesQuery,
   chatMessageResponse,
   listMessagesResponse,
+  participantsResponse,
+  chatListResponse,
+  readResponse,
+  reportResponse,
   errorResponse,
 };

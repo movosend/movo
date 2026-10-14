@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ShipmentStatus, UserRole, CHAT_POST_DELIVERY_WINDOW_HOURS } from "@movo/shared";
-import { chatWindowDeadline, resolveChatAccess } from "../src/domain/chat-window";
+import { chatArchiveInstant, isChatArchived, resolveChatAccess } from "../src/domain/chat-window";
+import { computeDeliveryStatus } from "../src/domain/chat-receipts";
 import { Shipment } from "../src/models/shipment";
 
 const SENDER = "11111111-1111-4111-8111-111111111111";
@@ -25,8 +26,8 @@ function shipment(overrides: Partial<Shipment> = {}): Shipment {
   } as Shipment;
 }
 
-function access(s: Shipment, viewerId: string, now: Date = DELIVERED_AT, roles: UserRole[] = []) {
-  return resolveChatAccess({ shipment: s, viewerId, viewerRoles: roles, now });
+function access(s: Shipment, viewerId: string, roles: UserRole[] = []) {
+  return resolveChatAccess({ shipment: s, viewerId, viewerRoles: roles });
 }
 
 describe("resolveChatAccess (MOVO-26)", () => {
@@ -56,38 +57,40 @@ describe("resolveChatAccess (MOVO-26)", () => {
     expect(access(shipment({ carrierId: null }), SENDER)).toBe("closed");
   });
 
-  describe("ventana de 24 h posteriores a la entrega", () => {
+  it.each([ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED])(
+    "envío %s: queda en solo lectura para las tres partes, sin cerrarse nunca",
+    (status) => {
+      const s = shipment({ status, deliveredAt: DELIVERED_AT });
+      expect(access(s, SENDER)).toBe("read_only");
+      expect(access(s, RECEIVER)).toBe("read_only");
+      expect(access(s, CARRIER)).toBe("read_only");
+    }
+  );
+
+  describe("archivado a las 24 h de la entrega", () => {
     const delivered = shipment({ status: ShipmentStatus.DELIVERED, deliveredAt: DELIVERED_AT });
 
-    it("dentro de la ventana sigue abierto", () => {
-      expect(access(delivered, SENDER, new Date(DELIVERED_AT.getTime() + 23 * HOUR_MS))).toBe("open");
-    });
-
-    it("en el instante exacto del cierre todavía está abierto y un milisegundo después se cierra", () => {
-      const deadline = chatWindowDeadline(delivered)!;
+    it("antes del plazo no está archivado; pasado el plazo sí (en el borde exacto todavía no)", () => {
+      const deadline = chatArchiveInstant(delivered)!;
       expect(deadline.getTime() - DELIVERED_AT.getTime()).toBe(CHAT_POST_DELIVERY_WINDOW_HOURS * HOUR_MS);
-      expect(access(delivered, CARRIER, deadline)).toBe("open");
-      expect(access(delivered, CARRIER, new Date(deadline.getTime() + 1))).toBe("closed");
+      expect(isChatArchived(delivered, new Date(DELIVERED_AT.getTime() + 23 * HOUR_MS))).toBe(false);
+      expect(isChatArchived(delivered, deadline)).toBe(false);
+      expect(isChatArchived(delivered, new Date(deadline.getTime() + 1))).toBe(true);
     });
 
-    it("un envío completed usa la misma ventana", () => {
+    it("un envío completed usa el mismo plazo", () => {
       const completed = shipment({ status: ShipmentStatus.COMPLETED, deliveredAt: DELIVERED_AT });
-      expect(access(completed, SENDER, new Date(DELIVERED_AT.getTime() + HOUR_MS))).toBe("open");
-      expect(access(completed, SENDER, new Date(DELIVERED_AT.getTime() + 25 * HOUR_MS))).toBe("closed");
+      expect(isChatArchived(completed, new Date(DELIVERED_AT.getTime() + 25 * HOUR_MS))).toBe(true);
     });
 
-    it("entregado sin deliveredAt (dato inconsistente) se trata como cerrado", () => {
-      expect(access(shipment({ status: ShipmentStatus.DELIVERED, deliveredAt: null }), SENDER)).toBe("closed");
+    it("un envío en curso o sin deliveredAt nunca está archivado", () => {
+      expect(isChatArchived(shipment(), new Date(DELIVERED_AT.getTime() + 100 * HOUR_MS))).toBe(false);
+      expect(isChatArchived(shipment({ status: ShipmentStatus.DELIVERED, deliveredAt: null }), DELIVERED_AT)).toBe(false);
     });
 
-    it("chatWindowDeadline es null mientras no se entregó", () => {
-      expect(chatWindowDeadline(shipment())).toBeNull();
+    it("archivado sigue siendo solo lectura, no se cierra", () => {
+      expect(access(delivered, SENDER)).toBe("read_only");
     });
-  });
-
-  it("un envío en disputa queda en solo lectura para las partes", () => {
-    const disputed = shipment({ status: ShipmentStatus.DISPUTED, deliveredAt: DELIVERED_AT });
-    expect(access(disputed, SENDER, new Date(DELIVERED_AT.getTime() + 500 * HOUR_MS))).toBe("read_only");
   });
 
   it("el receptor original (ADR-038) nunca escribe: solo lee mientras el chat esté abierto", () => {
@@ -98,14 +101,40 @@ describe("resolveChatAccess (MOVO-26)", () => {
   });
 
   it("el admin siempre puede leer, incluso con el chat cerrado, y nunca escribe", () => {
-    const cancelled = shipment({ status: ShipmentStatus.CANCELLED });
-    expect(access(cancelled, STRANGER, DELIVERED_AT, [UserRole.ADMIN])).toBe("read_only");
-    const open = shipment({ status: ShipmentStatus.IN_TRANSIT });
-    expect(access(open, STRANGER, DELIVERED_AT, [UserRole.ADMIN])).toBe("read_only");
+    expect(access(shipment({ status: ShipmentStatus.CANCELLED }), STRANGER, [UserRole.ADMIN])).toBe("read_only");
+    expect(access(shipment({ status: ShipmentStatus.IN_TRANSIT }), STRANGER, [UserRole.ADMIN])).toBe("read_only");
   });
 
   it("un admin que además es parte del envío se rige por las reglas de las partes", () => {
-    const open = shipment({ status: ShipmentStatus.IN_TRANSIT });
-    expect(access(open, SENDER, DELIVERED_AT, [UserRole.ADMIN])).toBe("open");
+    expect(access(shipment({ status: ShipmentStatus.IN_TRANSIT }), SENDER, [UserRole.ADMIN])).toBe("open");
+  });
+});
+
+describe("computeDeliveryStatus (tildes del chat)", () => {
+  const sentAt = new Date("2026-10-14T12:00:00.000Z");
+  const before = new Date(sentAt.getTime() - 1000);
+  const after = new Date(sentAt.getTime() + 1000);
+  const state = (userId: string, lastDeliveredAt: Date | null, lastReadAt: Date | null) => ({ userId, lastDeliveredAt, lastReadAt });
+
+  it("sin nadie más (todos bloqueados o solo el autor) queda en enviado", () => {
+    expect(computeDeliveryStatus(sentAt, [])).toBe("sent");
+  });
+
+  it("enviado hasta que TODOS los demás lo recibieron", () => {
+    expect(computeDeliveryStatus(sentAt, [state("a", after, null), state("b", null, null)])).toBe("sent");
+    expect(computeDeliveryStatus(sentAt, [state("a", after, null), state("b", before, null)])).toBe("sent");
+  });
+
+  it("entregado cuando todos lo recibieron pero no todos lo leyeron", () => {
+    expect(computeDeliveryStatus(sentAt, [state("a", after, null), state("b", after, after)])).toBe("delivered");
+  });
+
+  it("leído solo cuando todos lo leyeron", () => {
+    expect(computeDeliveryStatus(sentAt, [state("a", after, after), state("b", after, after)])).toBe("read");
+    expect(computeDeliveryStatus(sentAt, [state("a", after, after), state("b", after, before)])).toBe("delivered");
+  });
+
+  it("el instante exacto del mensaje cuenta como recibido y leído", () => {
+    expect(computeDeliveryStatus(sentAt, [state("a", sentAt, sentAt)])).toBe("read");
   });
 });

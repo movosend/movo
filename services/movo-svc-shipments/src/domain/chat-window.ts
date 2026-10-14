@@ -1,10 +1,13 @@
 import { ChatAccess, CHAT_POST_DELIVERY_WINDOW_HOURS, ShipmentStatus, UserRole } from "@movo/shared";
 import { Shipment } from "../models/shipment";
 
-/**
- * MOVO-26 (ADR-040): con transportista asignado y hasta que el paquete se entrega. Los envíos
- * `published` o anteriores no tienen transportista; `cancelled` y `rejected_by_receiver` cierran el chat.
- */
+/** Lo mínimo del envío que decide el estado del chat (la lista de chats no carga el modelo completo). */
+export type ChatShipmentFacts = Pick<
+  Shipment,
+  "status" | "senderId" | "receiverId" | "carrierId" | "deliveredAt" | "formerReceiverId"
+>;
+
+/** Con transportista asignado y el paquete sin entregar: se conversa. */
 const CHAT_OPEN_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.ASSIGNMENT_PENDING,
   ShipmentStatus.ASSIGNED_UNFUNDED,
@@ -12,35 +15,51 @@ const CHAT_OPEN_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.IN_TRANSIT,
 ];
 
-/** Envíos cuyo chat se corta en el acto (se cierran los sockets). La ventana post-entrega la corta un timer. */
+/** Entregado o en disputa: el hilo se conserva legible, sin mensajes nuevos. */
+const CHAT_READ_ONLY_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.DELIVERED,
+  ShipmentStatus.COMPLETED,
+  ShipmentStatus.DISPUTED,
+];
+
+/** Envíos cuyo chat se corta en el acto (se cierran los sockets). */
 export const CHAT_CLOSING_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.CANCELLED,
   ShipmentStatus.REJECTED_BY_RECEIVER,
 ];
 
-/** Instante en que se cierra el chat de un envío entregado, o `null` si todavía no se entregó. */
-export function chatWindowDeadline(shipment: Pick<Shipment, "deliveredAt">): Date | null {
+/** Estados de envío que pueden tener un chat visible para las partes (los de la lista de chats). */
+export const CHAT_LISTABLE_STATUSES: readonly ShipmentStatus[] = [...CHAT_OPEN_STATUSES, ...CHAT_READ_ONLY_STATUSES];
+
+/** Instante desde el que el chat de un envío entregado se considera archivado, o `null` si no se entregó. */
+export function chatArchiveInstant(shipment: Pick<ChatShipmentFacts, "deliveredAt">): Date | null {
   if (!shipment.deliveredAt) return null;
   return new Date(shipment.deliveredAt.getTime() + CHAT_POST_DELIVERY_WINDOW_HOURS * 60 * 60 * 1000);
+}
+
+/** Entregado hace más de 24 h: sigue legible pero la app lo muestra como archivado. */
+export function isChatArchived(shipment: ChatShipmentFacts, now: Date): boolean {
+  if (shipment.status !== ShipmentStatus.DELIVERED && shipment.status !== ShipmentStatus.COMPLETED) return false;
+  const archiveAt = chatArchiveInstant(shipment);
+  return archiveAt !== null && now.getTime() > archiveAt.getTime();
 }
 
 /**
  * Qué puede hacer `viewer` con el chat del envío. Asume que ya pasó el chequeo de acceso al
  * envío (`hasShipmentAccess`): acá solo se decide el estado del hilo.
  *
- * - El envío con transportista y sin entregar → `open`; entregado → `open` hasta 24 h después.
- * - `disputed` → `read_only` (la evidencia queda, pero no se sigue conversando).
- * - Cualquier otro estado, o fuera de la ventana → `closed` para las partes.
+ * - Con transportista y sin entregar → `open`.
+ * - Entregado/completado o en disputa → `read_only` (también pasadas las 24 h: archivado, no cerrado).
+ * - Cualquier otro estado, o sin transportista → `closed` para las partes.
  * - El receptor que transfirió la recepción (ADR-038) nunca pasa de `read_only`.
  * - El admin siempre lee (`read_only`) y nunca escribe: el historial es evidencia de disputa.
  */
 export function resolveChatAccess(input: {
-  shipment: Shipment;
+  shipment: ChatShipmentFacts;
   viewerId: string;
   viewerRoles: readonly UserRole[];
-  now: Date;
 }): ChatAccess {
-  const { shipment, viewerId, viewerRoles, now } = input;
+  const { shipment, viewerId, viewerRoles } = input;
 
   const isParty =
     viewerId === shipment.senderId ||
@@ -51,15 +70,12 @@ export function resolveChatAccess(input: {
   const isFormerReceiver = !isParty && shipment.formerReceiverId != null && shipment.formerReceiverId === viewerId;
 
   let access: ChatAccess;
-  if (shipment.status === ShipmentStatus.DISPUTED) {
-    access = "read_only";
-  } else if (shipment.carrierId === null) {
+  if (shipment.carrierId === null) {
     access = "closed";
   } else if (CHAT_OPEN_STATUSES.includes(shipment.status)) {
     access = "open";
-  } else if (shipment.status === ShipmentStatus.DELIVERED || shipment.status === ShipmentStatus.COMPLETED) {
-    const deadline = chatWindowDeadline(shipment);
-    access = deadline !== null && now.getTime() <= deadline.getTime() ? "open" : "closed";
+  } else if (CHAT_READ_ONLY_STATUSES.includes(shipment.status)) {
+    access = "read_only";
   } else {
     access = "closed";
   }

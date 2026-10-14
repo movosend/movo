@@ -183,7 +183,18 @@ export {
   CHAT_PAGE_MAX_LIMIT,
   CHAT_MODERATION_WARNING,
 } from "./types/chat";
-export type { ChatAccess, ChatMessage, ChatMessagesPage, ChatRealtimeEvent } from "./types/chat";
+export type {
+  ChatAccess,
+  ChatDeliveryStatus,
+  ChatListItem,
+  ChatListResponse,
+  ChatMessage,
+  ChatMessagesPage,
+  ChatParticipant,
+  ChatParticipantRole,
+  ChatParticipantsResponse,
+  ChatRealtimeEvent,
+} from "./types/chat";
 
 // receiver transfer (MOVO-275)
 export {

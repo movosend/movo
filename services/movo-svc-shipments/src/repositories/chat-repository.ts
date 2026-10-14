@@ -1,9 +1,13 @@
 import { PrismaClient } from "../generated/prisma/client";
+import { ShipmentStatus } from "@movo/shared";
+import { ChatReceiptState } from "../domain/chat-receipts";
+import { ChatShipmentFacts } from "../domain/chat-window";
 
 export interface ChatMessageRecord {
   id: string;
   shipmentId: string;
   authorId: string;
+  authorName: string | null;
   body: string;
   clientMessageId: string;
   moderated: boolean;
@@ -13,10 +17,19 @@ export interface ChatMessageRecord {
 export interface NewChatMessage {
   shipmentId: string;
   authorId: string;
+  authorName: string | null;
   /** Ya moderado: lo que se guarda es lo que ven todos. */
   body: string;
   clientMessageId: string;
   moderated: boolean;
+}
+
+/** Un envío con chat para la lista: lo mínimo para decidir el acceso y dibujar la fila. */
+export interface ChatShipmentRow extends ChatShipmentFacts {
+  id: string;
+  pickupAddress: string;
+  deliveryAddress: string;
+  lastStatusChangedAt: Date | null;
 }
 
 export interface ChatRepository {
@@ -32,6 +45,24 @@ export interface ChatRepository {
     limit: number,
     cursor?: string
   ): Promise<{ items: ChatMessageRecord[]; nextCursor: string | null }>;
+  /** Estado de entrega y lectura de cada integrante del envío que ya lo tiene. */
+  listReceiptStates(shipmentId: string): Promise<ChatReceiptState[]>;
+  /** Avanza (nunca retrocede) lo que `userId` recibió del chat. */
+  markDelivered(shipmentId: string, userId: string, at: Date): Promise<void>;
+  /** Avanza (nunca retrocede) lo que `userId` leyó; leer implica haber recibido. */
+  markRead(shipmentId: string, userId: string, at: Date): Promise<void>;
+  /** Idempotente: devuelve `created: false` si ya había reportado esta conversación. */
+  createReport(shipmentId: string, reporterId: string): Promise<{ created: boolean }>;
+  hasReport(shipmentId: string, reporterId: string): Promise<boolean>;
+  /** Envíos con chat visible para `userId`, el más reciente primero. */
+  listShipmentsForUser(userId: string, statuses: readonly ShipmentStatus[], limit: number): Promise<ChatShipmentRow[]>;
+  /** El último mensaje de cada envío (los envíos sin mensajes no aparecen). */
+  lastMessages(shipmentIds: readonly string[]): Promise<Map<string, ChatMessageRecord>>;
+  /**
+   * Mensajes ajenos posteriores a lo último que `userId` leyó, por envío. No cuenta los de
+   * `excludeAuthorIds` (quienes tienen un bloqueo con `userId`: no ve esos mensajes).
+   */
+  unreadCounts(userId: string, shipmentIds: readonly string[], excludeAuthorIds: readonly string[]): Promise<Map<string, number>>;
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -60,6 +91,17 @@ export class InvalidChatCursorError extends Error {
     super("Cursor de paginación inválido");
     this.name = "InvalidChatCursorError";
   }
+}
+
+interface LastMessageRow {
+  id: string;
+  shipment_id: string;
+  author_id: string;
+  author_name: string | null;
+  body: string;
+  client_message_id: string;
+  moderated: boolean;
+  created_at: Date;
 }
 
 export function createChatRepository(db: PrismaClient): ChatRepository {
@@ -107,6 +149,125 @@ export function createChatRepository(db: PrismaClient): ChatRepository {
       });
       const items = rows.slice(0, limit);
       return { items, nextCursor: rows.length > limit ? encodeCursor(items[items.length - 1]) : null };
+    },
+
+    async listReceiptStates(shipmentId) {
+      const rows = await db.chatParticipantState.findMany({ where: { shipmentId } });
+      return rows.map((r) => ({ userId: r.userId, lastDeliveredAt: r.lastDeliveredAt, lastReadAt: r.lastReadAt }));
+    },
+
+    async markDelivered(shipmentId, userId, at) {
+      // GREATEST: los instantes solo avanzan aunque lleguen dos marcas fuera de orden.
+      await db.$executeRaw`
+        INSERT INTO shipments.chat_participant_states (shipment_id, user_id, last_delivered_at)
+        VALUES (${shipmentId}::uuid, ${userId}::uuid, ${at})
+        ON CONFLICT (shipment_id, user_id) DO UPDATE
+          SET last_delivered_at = GREATEST(shipments.chat_participant_states.last_delivered_at, EXCLUDED.last_delivered_at)`;
+    },
+
+    async markRead(shipmentId, userId, at) {
+      await db.$executeRaw`
+        INSERT INTO shipments.chat_participant_states (shipment_id, user_id, last_delivered_at, last_read_at)
+        VALUES (${shipmentId}::uuid, ${userId}::uuid, ${at}, ${at})
+        ON CONFLICT (shipment_id, user_id) DO UPDATE SET
+          last_delivered_at = GREATEST(shipments.chat_participant_states.last_delivered_at, EXCLUDED.last_delivered_at),
+          last_read_at = GREATEST(shipments.chat_participant_states.last_read_at, EXCLUDED.last_read_at)`;
+    },
+
+    async createReport(shipmentId, reporterId) {
+      try {
+        await db.chatReport.create({ data: { shipmentId, reporterId } });
+        return { created: true };
+      } catch (error) {
+        if (isUniqueViolation(error)) return { created: false };
+        throw error;
+      }
+    },
+
+    async hasReport(shipmentId, reporterId) {
+      return (await db.chatReport.count({ where: { shipmentId, reporterId } })) > 0;
+    },
+
+    async listShipmentsForUser(userId, statuses, limit) {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: { in: [...statuses] },
+          carrierId: { not: null },
+          OR: [
+            { senderId: userId },
+            { receiverId: userId },
+            { carrierId: userId },
+            // El receptor que transfirió la recepción (ADR-038) sigue viendo el hilo, en solo lectura.
+            { receiverTransfers: { some: { requestedBy: userId, status: "completed" } } },
+          ],
+        },
+        select: {
+          id: true,
+          status: true,
+          senderId: true,
+          receiverId: true,
+          carrierId: true,
+          deliveredAt: true,
+          pickupAddress: true,
+          deliveryAddress: true,
+          lastStatusChangedAt: true,
+          receiverTransfers: { where: { status: "completed" }, select: { requestedBy: true }, take: 1 },
+        },
+        orderBy: { lastStatusChangedAt: "desc" },
+        take: limit,
+      });
+      return rows.map((r) => ({
+        id: r.id,
+        status: r.status as ShipmentStatus,
+        senderId: r.senderId,
+        receiverId: r.receiverId,
+        carrierId: r.carrierId,
+        deliveredAt: r.deliveredAt,
+        pickupAddress: r.pickupAddress,
+        deliveryAddress: r.deliveryAddress,
+        lastStatusChangedAt: r.lastStatusChangedAt,
+        formerReceiverId: r.receiverTransfers[0]?.requestedBy ?? null,
+      }));
+    },
+
+    async lastMessages(shipmentIds) {
+      const map = new Map<string, ChatMessageRecord>();
+      if (shipmentIds.length === 0) return map;
+      const rows = await db.$queryRaw<LastMessageRow[]>`
+        SELECT DISTINCT ON (shipment_id) id, shipment_id, author_id, author_name, body, client_message_id, moderated, created_at
+        FROM shipments.chat_messages
+        WHERE shipment_id = ANY(${[...shipmentIds]}::uuid[])
+        ORDER BY shipment_id, created_at DESC, id DESC`;
+      for (const r of rows) {
+        map.set(r.shipment_id, {
+          id: r.id,
+          shipmentId: r.shipment_id,
+          authorId: r.author_id,
+          authorName: r.author_name,
+          body: r.body,
+          clientMessageId: r.client_message_id,
+          moderated: r.moderated,
+          createdAt: r.created_at,
+        });
+      }
+      return map;
+    },
+
+    async unreadCounts(userId, shipmentIds, excludeAuthorIds) {
+      const map = new Map<string, number>();
+      if (shipmentIds.length === 0) return map;
+      const rows = await db.$queryRaw<Array<{ shipment_id: string; n: number }>>`
+        SELECT m.shipment_id, COUNT(*)::int AS n
+        FROM shipments.chat_messages m
+        LEFT JOIN shipments.chat_participant_states s
+          ON s.shipment_id = m.shipment_id AND s.user_id = ${userId}::uuid
+        WHERE m.shipment_id = ANY(${[...shipmentIds]}::uuid[])
+          AND m.author_id <> ${userId}::uuid
+          AND NOT (m.author_id = ANY(${[...excludeAuthorIds]}::uuid[]))
+          AND (s.last_read_at IS NULL OR m.created_at > s.last_read_at)
+        GROUP BY m.shipment_id`;
+      for (const r of rows) map.set(r.shipment_id, r.n);
+      return map;
     },
   };
 }
