@@ -139,8 +139,11 @@ MOVO sí:
 - Es responsable de estar disponible en el punto y ventana horaria de retiro
   acordados.
 - Es quien paga el precio acordado con el Transportista. Ese precio ya
-  incluye la comisión de MOVO, y no se le suma ningún otro cargo de MOVO ni de
-  Mercado Pago (ver sección 7).
+  incluye la comisión de MOVO, y ni MOVO ni el Transportista le suman ningún
+  otro cargo (ver sección 7). Si el Emisor elige pagar en cuotas, el costo
+  financiero de esas cuotas, si lo hay, lo fijan Mercado Pago o el emisor de
+  su tarjeta según las condiciones del medio de pago elegido, y no forma
+  parte del precio del Envío.
 
 ### 5.2 Transportista
 
@@ -202,7 +205,8 @@ suspender la cuenta del Emisor infractor (sección 14).
 - MOVO cobra una **comisión del 15%** sobre el monto que el Transportista
   indica que quiere cobrar. Esa comisión se suma a ese monto para formar el
   precio que paga el Emisor (equivale a aproximadamente el 13% de ese
-  precio), y Mercado Pago la acredita a MOVO al liberar el pago.
+  precio), y Mercado Pago la descuenta y se la acredita a MOVO cuando se
+  cobra el pago al confirmarse la entrega.
 - El procesamiento de pagos se realiza a través de **Mercado Pago**, que
   cobra su propia comisión por cada transacción. Esa comisión **está a cargo
   del Transportista**: Mercado Pago la descuenta del monto que le acredita en
