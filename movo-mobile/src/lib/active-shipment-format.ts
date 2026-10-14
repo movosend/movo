@@ -1,9 +1,11 @@
+import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ActiveShipmentSummary } from "../api/shipments-client";
 import {
   FUNDS_PENDING_INFO_TEXT,
   RECEIVER_DELIVERY_CTA_LABEL,
   SENDER_PICKUP_CTA_LABEL,
   formatTimeHHMM,
+  shipmentDetailCta,
 } from "./shipment-format";
 
 /** Rol efectivo con el que se consultó el envío activo — "sending"/"receiving" son
@@ -64,7 +66,21 @@ export interface ActiveShipmentCta {
    * (Ver en el mapa) — mismo criterio de jerarquía visual que el resto de la app
    * (un CTA por pantalla se lleva el acento lime, el resto usa `bg-fg`). */
   variant?: "primary" | "secondary";
-  action?: "live_tracking" | "coming_soon";
+  action?: "live_tracking" | "navigate" | "coming_soon";
+  /** Ruta a la que va el botón con `action: "navigate"`. Sale de `shipmentDetailCta` (la misma
+   * que el CTA del detalle del envío), así las dos pantallas no pueden divergir. */
+  path?: string;
+}
+
+/** La ruta del CTA del detalle del envío para esta combinación rol + estado, si es una acción. */
+function detailActionPath(
+  role: "sender" | "receiver",
+  status: ActiveShipmentSummary["status"],
+  shipmentId: string,
+): string | undefined {
+  // Los valores del literal de `ActiveShipmentSummary` son los del enum `ShipmentStatus`.
+  const cta = shipmentDetailCta(role, status as ShipmentStatus, shipmentId);
+  return cta?.kind === "action" ? cta.path : undefined;
 }
 
 /**
@@ -86,7 +102,12 @@ export function activeShipmentCta(
 ): ActiveShipmentCta | null {
   if (shipment.status === "assigned_unfunded") return null;
   if (role === "sending" && shipment.status === "assigned") {
-    return { label: SENDER_PICKUP_CTA_LABEL, destination: "MOVO-159 · QR de retiro" };
+    return {
+      label: SENDER_PICKUP_CTA_LABEL,
+      destination: "MOVO-159 · QR de retiro",
+      action: "navigate",
+      path: detailActionPath("sender", shipment.status, shipment.id),
+    };
   }
   if (role === "sending" && shipment.status === "in_transit") {
     return {
@@ -97,7 +118,12 @@ export function activeShipmentCta(
     };
   }
   if (role === "receiving" && shipment.status === "in_transit") {
-    return { label: RECEIVER_DELIVERY_CTA_LABEL, destination: "MOVO-160 · Escaneo de entrega" };
+    return {
+      label: RECEIVER_DELIVERY_CTA_LABEL,
+      destination: "MOVO-160 · Escaneo de entrega",
+      action: "navigate",
+      path: detailActionPath("receiver", shipment.status, shipment.id),
+    };
   }
   return null;
 }

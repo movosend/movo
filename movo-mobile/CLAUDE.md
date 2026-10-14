@@ -4516,6 +4516,9 @@ en funciones puras (`pay-shipment-flow.ts`, `pay-shipment-format.ts`) para teste
 - **Plazo vencido o 409 `SHIPMENT_FUNDING_NOT_AVAILABLE`**: la pantalla explica qué pasó según el estado del envío
   (`unavailableKind`: volvió a publicarse / ya está pago / todavía no se puede pagar).
 - Sin cuotas ni pasos de v2 (el hold no soporta cuotas).
+- **Fuera del ticket, en el mismo PR**: "Generar retiro" y "Confirmar recepción" de la card de envío activo del Inicio
+  (MOVO-193) mostraban "Muy pronto" aunque MOVO-159/160 ya existen. Ahora navegan a la misma ruta que el CTA del
+  detalle (`handshake` / `handshake-scan`, salen de `shipmentDetailCta`, una sola fuente).
 
 Pendiente: probarlo en development build contra el sandbox (reserva exitosa, CVV incorrecto con titular `SECU`,
 fondos insuficientes `FUND`, rechazo genérico `OTHE`) y verificar en los requests que el backend nunca recibe número

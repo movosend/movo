@@ -30,12 +30,22 @@ function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShi
 describe("activeShipmentCta (MOVO-193 AC5, recortado a sending/receiving)", () => {
   it("emisor + assigned -> Generar retiro", () => {
     const cta = activeShipmentCta("sending", makeShipment({ status: "assigned" }));
-    expect(cta).toEqual({ label: "Generar retiro", destination: "MOVO-159 · QR de retiro" });
+    expect(cta).toEqual({
+      label: "Generar retiro",
+      destination: "MOVO-159 · QR de retiro",
+      action: "navigate",
+      path: "/(app)/shipments/s1/handshake",
+    });
   });
 
   it("receptor + in_transit -> Confirmar recepción", () => {
     const cta = activeShipmentCta("receiving", makeShipment({ status: "in_transit" }));
-    expect(cta).toEqual({ label: "Confirmar recepción", destination: "MOVO-160 · Escaneo de entrega" });
+    expect(cta).toEqual({
+      label: "Confirmar recepción",
+      destination: "MOVO-160 · Escaneo de entrega",
+      action: "navigate",
+      path: "/(app)/shipments/s1/handshake-scan",
+    });
   });
 
   it("emisor + in_transit -> Ver en el mapa, variante secundaria (negra, no lime)", () => {
