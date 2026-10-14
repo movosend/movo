@@ -32,6 +32,7 @@ import { locationService, type TrackingStatus } from "../../src/location/locatio
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { DevRatingSection } from "./DevRatingSection";
 import { DevMutualConnectionsSection } from "./DevMutualConnectionsSection";
+import { DevPushRoutingSection } from "./DevPushRoutingSection";
 
 const DEV_DEMO_SHIPMENT_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -387,6 +388,9 @@ export default function DevShortcutsScreen() {
 
         {/* SECCIÓN 3c: CONEXIONES MUTUAS (MOVO-174) */}
         <DevMutualConnectionsSection />
+
+        {/* SECCIÓN 3d: NAVEGACIÓN AL TOCAR UNA NOTIFICACIÓN (MOVO-281) */}
+        <DevPushRoutingSection />
 
         {/* SECCIÓN 4: OPERACIONES Y DEBUG */}
         <View className="rounded-[16px] border border-border bg-bg-sub p-4">

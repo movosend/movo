@@ -34,6 +34,7 @@ export type NotificationTriggerKey =
   | "offerVoidedByShipmentCancellation"
   | "tripMatch"
   | "tripAutoCreated"
+  | "tripDepartureReminder"
   | "ratingReceived"
   | "custodyPickupConfirmed"
   | "custodyPickupConfirmedReceiver"
@@ -41,6 +42,8 @@ export type NotificationTriggerKey =
   | "custodyDeliveryConfirmedCarrier"
   | "tripStartedSender"
   | "tripStartedReceiver"
+  | "carrierNearPickup"
+  | "carrierNearDelivery"
   | "kycIdentityApproved"
   | "kycIdentityRejected"
   | "kycIdentityManualReview"
@@ -259,6 +262,22 @@ export const NOTIFICATION_TRIGGERS = {
       body: "Armamos un viaje en tu cuenta con este envío. Vas a recibir avisos de otros paquetes compatibles con esta ruta.",
     })
   ),
+  /** MOVO-240: a las 19:00 del día anterior a la salida de un viaje `declared`. El copy
+   * cambia según si ya tiene paquetes aceptados: la idea es que entre a buscar más. */
+  tripDepartureReminder: definition<{ destinationShort: string; packagesCount: number }>(
+    "trips",
+    { title: "Tu viaje es mañana", body: "Entrá y mirá qué envíos te quedan de paso." },
+    ({ destinationShort, packagesCount }) =>
+      packagesCount > 0
+        ? {
+            title: "Mañana salís de viaje",
+            body: `Ya llevás ${packagesCount === 1 ? "1 paquete" : `${packagesCount} paquetes`} a ${destinationShort}. ¿Te entra uno más? Fijate qué envíos te quedan de paso.`,
+          }
+        : {
+            title: "Tu viaje es mañana",
+            body: `Todavía no tenés paquetes para llevar a ${destinationShort}. Entrá y mirá qué envíos te quedan de paso.`,
+          }
+  ),
   ratingReceived: definition<void>(
     "ratings",
     { title: "Recibiste una calificación", body: "Alguien calificó tu participación en un envío. Mirala en tu perfil." },
@@ -356,6 +375,19 @@ export const NOTIFICATION_TRIGGERS = {
       title: "Salieron a buscar tu paquete",
       body: `${carrierName} inició su viaje camino a retirar tu paquete. Te avisamos cuando esté en camino a vos.`,
     })
+  ),
+  /** MOVO-240: el transportista entró en un radio de 2 km del punto de retiro (al emisor)
+   * o del de entrega (al receptor). Se manda a cualquier hora (`proximity` está exenta del
+   * horario de silencio). */
+  carrierNearPickup: definition<void>(
+    "proximity",
+    { title: "Tu transportista está por llegar", body: "Está a menos de 2 km del punto de retiro." },
+    () => ({ title: "Tu transportista está por llegar", body: "Está a menos de 2 km del punto de retiro." })
+  ),
+  carrierNearDelivery: definition<void>(
+    "proximity",
+    { title: "Tu paquete está por llegar", body: "El transportista está a menos de 2 km del punto de entrega." },
+    () => ({ title: "Tu paquete está por llegar", body: "El transportista está a menos de 2 km del punto de entrega." })
   ),
   // MOVO-274: resultado de la verificación de identidad / licencia (Didit). Seis
   // triggers y no uno parametrizado por tipo: el copy tiene que dejar claro de cuál de

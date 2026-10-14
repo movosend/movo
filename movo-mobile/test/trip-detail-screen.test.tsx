@@ -80,6 +80,7 @@ const TRIP: TripWithAcceptedPackages = {
   cancelledAt: null,
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
+  executablePackagesCount: 0,
   packages: [],
 };
 

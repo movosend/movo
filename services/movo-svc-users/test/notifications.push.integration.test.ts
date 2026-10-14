@@ -259,6 +259,21 @@ describe("Endpoint interno POST /internal/notifications/push (MOVO-106 AC6)", ()
       expect(pushProvider.__sentNotifications).toHaveLength(0);
     });
 
+    it("MOVO-240: el aviso de transportista cerca (proximity) atraviesa el horario de silencio", async () => {
+      const user = await repo.create(buildInput());
+      await registerToken(user.id, "device-1", "ExponentPushToken[abc]");
+      await putPreferences(user.id, { quietHours: { enabled: true, from: "10:00", to: "10:00" } });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/internal/notifications/push",
+        payload: { userId: user.id, title: "t", body: "b", category: "proximity" },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(pushProvider.__sentNotifications).toHaveLength(1);
+    });
+
     it("horario de silencio desactivado no bloquea nada, aunque tenga una franja cargada", async () => {
       const user = await repo.create(buildInput());
       await registerToken(user.id, "device-1", "ExponentPushToken[abc]");

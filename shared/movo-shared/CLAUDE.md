@@ -429,6 +429,14 @@ mobile), `ReceiverTransferRequest`, `ReceiverTransferInvitation` y
 `RECEIVER_TRANSFER_NOT_FOUND`/`_NOT_PENDING`) y diez triggers `receiverTransfer*` en la
 categoría `shipments`, con copy propio por destinatario.
 
+### MOVO-240 — Triggers de recordatorio de viaje y proximidad
+
+`config/notification-templates.ts` suma `tripDepartureReminder` (categoría `trips`), con un copy
+que cambia según `packagesCount` (con paquetes invita a sumar uno más, sin paquetes a buscar),
+y `carrierNearPickup`/`carrierNearDelivery` (categoría `proximity`). En
+`notification-categories.ts`, `proximity` pasa a `implemented: true` y `quietHoursExempt: true`:
+el aviso de "está por llegar" sirve justo cuando llega, sea la hora que sea. Tests en
+`test/notification-templates.test.ts`.
 ### MOVO-268 — Códigos del webhook de Mercado Pago
 
 `ApiErrorCode` suma `PAYMENT_WEBHOOK_INVALID_SIGNATURE` (401, `x-signature` ausente o
