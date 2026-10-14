@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import Redis from "ioredis";
+import { PANEL_ACCESS_TOKEN_TTL_SECONDS } from "@movo/shared";
 import {
   createSessionRepository,
   SessionRepository,
@@ -23,7 +24,7 @@ describe("Session Repository (Redis)", () => {
 
   beforeEach(async () => {
     // Clean up test keys matching refresh:* and user-revoked-at:* before each test
-    for (const pattern of ["refresh:*", "user-revoked-at:*"]) {
+    for (const pattern of ["refresh:*", "panel-refresh:*", "user-revoked-at:*", "panel-revoked-at:*"]) {
       let cursor = "0";
       do {
         const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
@@ -169,5 +170,103 @@ describe("Session Repository (Redis)", () => {
     await expect(sessionRepo.revokeAccessTokensIssuedBefore("user:id")).rejects.toThrow(
       "userId is required and cannot contain colons"
     );
+  });
+
+  describe("sesiones de panel (MOVO-287)", () => {
+    const nowSeconds = (): number => Math.floor(Date.now() / 1000);
+
+    it("guarda en panel-refresh:* con TTL igual a lo que le queda a la sesión", async () => {
+      const absoluteExpiresAt = nowSeconds() + 3600;
+      await sessionRepo.savePanelRefreshToken("usr-panel", "tok-p1", { hash: "h1", absoluteExpiresAt });
+
+      const raw = await redis.get("panel-refresh:usr-panel:tok-p1");
+      expect(JSON.parse(raw!)).toEqual({ hash: "h1", used: false, absoluteExpiresAt });
+      const ttl = await redis.ttl("panel-refresh:usr-panel:tok-p1");
+      expect(ttl).toBeGreaterThan(3590);
+      expect(ttl).toBeLessThanOrEqual(3600);
+      // No se mezcla con las sesiones de la app.
+      expect(await sessionRepo.findRefreshToken("usr-panel", "tok-p1")).toBeNull();
+    });
+
+    it("rechaza guardar una sesión de panel ya vencida", async () => {
+      await expect(
+        sessionRepo.savePanelRefreshToken("usr-panel", "tok-p1", { hash: "h1", absoluteExpiresAt: nowSeconds() - 1 })
+      ).rejects.toThrow("panel session already expired");
+    });
+
+    it("consume una sola vez y devuelve el vencimiento absoluto", async () => {
+      const absoluteExpiresAt = nowSeconds() + 3600;
+      await sessionRepo.savePanelRefreshToken("usr-panel", "tok-p1", { hash: "h1", absoluteExpiresAt });
+
+      expect(await sessionRepo.consumePanelRefreshToken("usr-panel", "tok-p1", "otro")).toEqual({
+        status: "hash-mismatch",
+      });
+      expect(await sessionRepo.consumePanelRefreshToken("usr-panel", "tok-p1", "h1")).toEqual({
+        status: "ok",
+        absoluteExpiresAt,
+      });
+      expect(await sessionRepo.consumePanelRefreshToken("usr-panel", "tok-p1", "h1")).toEqual({
+        status: "already-used",
+      });
+      expect(await sessionRepo.consumePanelRefreshToken("usr-panel", "tok-nope", "h1")).toEqual({
+        status: "not-found",
+      });
+    });
+
+    it("un refresh de la app no se consume como de panel ni al revés", async () => {
+      await sessionRepo.saveRefreshToken("usr-panel", "tok-app", { hash: "h1", used: false });
+      await sessionRepo.savePanelRefreshToken("usr-panel", "tok-p1", {
+        hash: "h1",
+        absoluteExpiresAt: nowSeconds() + 3600,
+      });
+
+      expect(await sessionRepo.consumePanelRefreshToken("usr-panel", "tok-app", "h1")).toEqual({
+        status: "not-found",
+      });
+      expect(await sessionRepo.consumeRefreshToken("usr-panel", "tok-p1", "h1")).toBe("not-found");
+    });
+
+    it("revokePanelSessionsForUser borra solo las de panel y sella panel-revoked-at", async () => {
+      const absoluteExpiresAt = nowSeconds() + 3600;
+      await sessionRepo.saveRefreshToken("usr-panel", "tok-app");
+      await sessionRepo.savePanelRefreshToken("usr-panel", "tok-p1", { hash: "h1", absoluteExpiresAt });
+      await sessionRepo.savePanelRefreshToken("usr-panel", "tok-p2", { hash: "h2", absoluteExpiresAt });
+      await sessionRepo.savePanelRefreshToken("usr-other", "tok-p3", { hash: "h3", absoluteExpiresAt });
+      const beforeSeconds = nowSeconds();
+
+      expect(await sessionRepo.revokePanelSessionsForUser("usr-panel")).toBe(2);
+
+      expect(await redis.exists("panel-refresh:usr-panel:tok-p1", "panel-refresh:usr-panel:tok-p2")).toBe(0);
+      expect(await redis.exists("panel-refresh:usr-other:tok-p3")).toBe(1);
+      expect(await sessionRepo.findRefreshToken("usr-panel", "tok-app")).toBe("true");
+      expect(await redis.exists("user-revoked-at:usr-panel")).toBe(0);
+
+      const revokedAt = Number(await redis.get("panel-revoked-at:usr-panel"));
+      expect(revokedAt).toBeGreaterThanOrEqual(beforeSeconds);
+      const ttl = await redis.ttl("panel-revoked-at:usr-panel");
+      expect(ttl).toBeGreaterThan(0);
+      expect(ttl).toBeLessThanOrEqual(PANEL_ACCESS_TOKEN_TTL_SECONDS);
+    });
+
+    it("revokeAllForUser también borra las sesiones de panel", async () => {
+      await sessionRepo.saveRefreshToken("usr-panel", "tok-app");
+      await sessionRepo.savePanelRefreshToken("usr-panel", "tok-p1", {
+        hash: "h1",
+        absoluteExpiresAt: nowSeconds() + 3600,
+      });
+
+      expect(await sessionRepo.revokeAllForUser("usr-panel")).toBe(2);
+      expect(await redis.exists("panel-refresh:usr-panel:tok-p1")).toBe(0);
+    });
+
+    it("revokePanelRefreshToken borra solo esa sesión", async () => {
+      const absoluteExpiresAt = nowSeconds() + 3600;
+      await sessionRepo.savePanelRefreshToken("usr-panel", "tok-p1", { hash: "h1", absoluteExpiresAt });
+      await sessionRepo.savePanelRefreshToken("usr-panel", "tok-p2", { hash: "h2", absoluteExpiresAt });
+
+      expect(await sessionRepo.revokePanelRefreshToken("usr-panel", "tok-p1")).toBe(true);
+      expect(await sessionRepo.revokePanelRefreshToken("usr-panel", "tok-p1")).toBe(false);
+      expect(await redis.exists("panel-refresh:usr-panel:tok-p2")).toBe(1);
+    });
   });
 });
