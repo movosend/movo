@@ -116,7 +116,8 @@ MOVO sí:
 - Calcula un precio sugerido y optimiza rutas mediante su motor de
   precios/logística.
 - Procesa el cobro al Emisor y la liquidación al Transportista a través de
-  Mercado Pago, reteniendo su comisión.
+  Mercado Pago, reteniendo su comisión (calculada sobre el monto que el
+  Transportista quiere cobrar, ver sección 7).
 - Provee el mecanismo de confirmación de custodia (handshake criptográfico).
 - Modera disputas y calificaciones dentro de los límites descriptos en estos
   Términos.
@@ -144,8 +145,9 @@ MOVO sí:
   del paquete, y de que no contenga objetos prohibidos (sección 6).
 - Es responsable de estar disponible en el punto y ventana horaria de retiro
   acordados.
-- Es quien paga el precio acordado con el Transportista, más las comisiones
-  aplicables.
+- Es quien paga el precio acordado con el Transportista. Ese precio ya
+  incluye la comisión de MOVO, y no se le suma ningún otro cargo de MOVO ni de
+  Mercado Pago (ver sección 7).
 
 ### 5.2 Transportista
 
