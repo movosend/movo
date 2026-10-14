@@ -8,6 +8,7 @@ import {
   HoldResponse,
   HoldStatus,
   LIVE_HOLD_STATUSES,
+  SettlementResponse,
 } from "@movo/shared";
 import { PaymentsClient } from "../src/adapters/payments-client";
 
@@ -31,11 +32,15 @@ export interface FakePaymentsBehavior {
   lookupFails: boolean;
   /** Si es true, `createHold` lanza 502 (MP no respondió). */
   createFails: boolean;
+  /** MOVO-212: si no es null, `captureHold` lanza este error (la captura falló). */
+  captureError: ApiError | null;
 }
 
 export interface FakePaymentsClient extends PaymentsClient {
   behavior: FakePaymentsBehavior;
   holds: Map<string, HoldResponse>;
+  /** MOVO-212: liquidaciones por envío, las crea `captureHold`. */
+  settlements: Map<string, SettlementResponse>;
 }
 
 export function createFakePaymentsClient(
@@ -53,11 +58,13 @@ export function createFakePaymentsClient(
     createFails: false,
     ...behaviorOverrides,
   };
+  const settlements = new Map<string, SettlementResponse>();
   let sequence = 0;
 
   const client: FakePaymentsClient = {
     behavior,
     holds,
+    settlements,
 
     getCarrierMpAccountStatus: vi.fn(
       async (userId: string): Promise<CarrierMpAccountStatusResponse> => ({ linked: !unlinked.has(userId) }),
@@ -126,6 +133,48 @@ export function createFakePaymentsClient(
     }),
 
     ...overrides,
+
+    // MOVO-212: idempotente como el real -- una liquidación ya acreditada vuelve tal cual.
+    captureHold: vi.fn(async (shipmentId: string) => {
+      if (behavior.captureError) {
+        throw behavior.captureError;
+      }
+      const existing = settlements.get(shipmentId);
+      if (existing) {
+        return existing;
+      }
+      const hold = holds.get(shipmentId);
+      if (!hold) {
+        throw new ApiError(404, "HOLD_NOT_FOUND", "El envío no tiene ningún hold");
+      }
+      if (hold.status !== "authorized" && hold.status !== "captured") {
+        throw new ApiError(409, "HOLD_NOT_CAPTURABLE", "El hold no se puede capturar");
+      }
+      const now = new Date().toISOString();
+      // 1000 = 41 (MP) + 150 (Movo) + 809 (neto): la misma forma que el sandbox.
+      const mpFeeArs = Math.round(hold.amountArs * 0.041 * 100) / 100;
+      const settlement: SettlementResponse = {
+        id: `00000000-0000-4000-8000-${String(++sequence).padStart(12, "9")}`,
+        shipmentId,
+        holdId: hold.id,
+        carrierId: hold.carrierId,
+        mpPaymentId: hold.mpPaymentId ?? "mp-0",
+        status: "credited",
+        grossAmountArs: hold.amountArs,
+        mpFeeArs,
+        commissionArs: hold.applicationFeeArs,
+        netAmountArs: Math.round((hold.amountArs - mpFeeArs - hold.applicationFeeArs) * 100) / 100,
+        failureReason: null,
+        capturedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      settlements.set(shipmentId, settlement);
+      holds.set(shipmentId, { ...hold, status: "captured" });
+      return settlement;
+    }),
+
+    findSettlement: vi.fn(async (shipmentId: string) => settlements.get(shipmentId) ?? null),
   };
 
   return client;

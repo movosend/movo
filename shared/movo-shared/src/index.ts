@@ -122,6 +122,16 @@ export type {
   UpdateSavedCardRequest,
 } from "./types/saved-card";
 
+// liquidación: captura del hold + split (MOVO-212)
+export { SETTLEMENT_STATUSES } from "./types/settlement";
+export type {
+  CaptureHoldResponse,
+  SettlementDisplayStatus,
+  SettlementFailureReason,
+  SettlementResponse,
+  SettlementStatus,
+  ShipmentSettlementResponse,
+} from "./types/settlement";
 // funding (MOVO-210)
 export type {
   FundingRoute,

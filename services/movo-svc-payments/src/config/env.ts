@@ -13,6 +13,14 @@ export interface EnvConfig {
   MP_PUBLIC_KEY?: string;
   MP_TEST_PAYER_EMAILS?: string;
   USERS_SERVICE_URL: string;
+  SHIPMENTS_SERVICE_URL: string;
+  MP_WEBHOOK_MAX_ATTEMPTS: number;
+  MP_WEBHOOK_SWEEP_INTERVAL_MINUTES: number;
+  MP_WEBHOOK_SWEEP_ENABLED: boolean;
+  ALERT_PROVIDER: "console" | "telegram";
+  ALERT_TELEGRAM_BOT_TOKEN?: string;
+  ALERT_TELEGRAM_CHAT_ID?: string;
+  ALERT_ENVIRONMENT_LABEL?: string;
 }
 
 export const envSchema = {
@@ -63,6 +71,24 @@ export const envSchema = {
     // MOVO-100: el email del customer sale de `svc-users` (GET /users/me, ADR-010). El
     // default ya es el nombre del servicio en movo-net, mismo criterio que en svc-shipments.
     USERS_SERVICE_URL: { type: "string", default: "http://movo-svc-users:3000" },
+    // MOVO-268: a quién avisarle que MP canceló o venció un hold
+    // (`POST /internal/shipments/:id/hold-events`). El default es el nombre del servicio
+    // en la red de Docker, mismo criterio que PAYMENTS_SERVICE_URL en svc-shipments.
+    SHIPMENTS_SERVICE_URL: { type: "string", default: "http://movo-svc-shipments:3000" },
+    // MOVO-268: reintentos del procesamiento de una notificación del webhook (backoff
+    // exponencial 1, 2, 4... min hasta 6 h). Con 10 intentos se insiste ~8 h; después la
+    // notificación queda `failed` y se alerta al equipo.
+    MP_WEBHOOK_MAX_ATTEMPTS: { type: "number", minimum: 1, default: 10 },
+    MP_WEBHOOK_SWEEP_INTERVAL_MINUTES: { type: "number", minimum: 0, default: 1 },
+    MP_WEBHOOK_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-268: alertas al equipo (contracargos, holds perdidos con el paquete en camino,
+    // notificaciones que no se pudieron procesar). `console` = solo log (dev/test/CI);
+    // `telegram` = además al chat del equipo. La reusa MOVO-213 (liquidación escalada).
+    ALERT_PROVIDER: { type: "string", enum: ["console", "telegram"], default: "console" },
+    ALERT_TELEGRAM_BOT_TOKEN: { type: "string" },
+    ALERT_TELEGRAM_CHAT_ID: { type: "string" },
+    // Prefijo de cada alerta (`dev`, `prod`) para distinguir ambientes en el mismo chat.
+    ALERT_ENVIRONMENT_LABEL: { type: "string" },
   },
 };
 

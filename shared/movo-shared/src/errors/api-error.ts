@@ -174,6 +174,11 @@ export type ApiErrorCode =
   // Mercado Pago no respondió o devolvió un error que no es un rechazo de la tarjeta
   // (5xx, timeout, red). El hold queda reintentable con la misma idempotency key.
   | "PAYMENT_PROVIDER_ERROR"
+  // MOVO-212: capturar un hold que no está en `authorized` (rechazado, cancelado, todavía
+  // en revisión...) o que MP ya no sostiene (vencido).
+  | "HOLD_NOT_CAPTURABLE"
+  // El envío todavía no tiene liquidación (no se pidió la captura).
+  | "SETTLEMENT_NOT_FOUND"
   // MOVO-116 (ADR-036): el transportista no tiene la licencia de conducir aprobada
   // (`kyc_status_license`). Viaja con `details.missingRequirements`.
   | "CARRIER_LICENSE_NOT_APPROVED"
@@ -212,7 +217,12 @@ export type ApiErrorCode =
   // Movo (p. ej. alguien que se cambió el email y otra persona se registró con el viejo).
   | "CARD_CUSTOMER_CONFLICT"
   // Falta la `public_key` o las credenciales de Movo para operar con tarjetas (503).
-  | "CARDS_NOT_CONFIGURED";
+  | "CARDS_NOT_CONFIGURED"
+  // MOVO-268: webhook de Mercado Pago (`svc-payments`). `x-signature` ausente o que no
+  // coincide con la clave secreta de webhooks de la app.
+  | "PAYMENT_WEBHOOK_INVALID_SIGNATURE"
+  // Falta `MP_WEBHOOK_SECRET` en el ambiente: no hay contra qué validar, se rechaza todo.
+  | "PAYMENT_WEBHOOK_NOT_CONFIGURED";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

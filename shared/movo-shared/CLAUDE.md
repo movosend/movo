@@ -394,6 +394,12 @@ distingue `unlinked` de `invalid` (revocada o vencida) y devuelve `account` (ema
 que redirige el callback público. Cinco `ApiErrorCode` nuevos (`MP_CONNECT_*`,
 `MP_ACCOUNT_ALREADY_LINKED`): cuatro de ellos viajan en ese deep link, no como respuesta HTTP.
 
+### MOVO-212 — Contrato de la liquidación (`types/settlement.ts`)
+
+`SettlementStatus`/`SettlementFailureReason`/`SettlementResponse`/`CaptureHoldResponse` para los endpoints
+internos de captura de `svc-payments`, y los códigos `HOLD_NOT_CAPTURABLE`/`SETTLEMENT_NOT_FOUND`.
+`mpFeeArs` y `netAmountArs` son `null` hasta que MP confirma la captura. `escalated` está reservado para
+MOVO-213 (212 nunca lo escribe). Recordatorio: `npm run build` acá antes de tipar desde otro workspace.
 ### MOVO-116 — `ApiError.details`, requisitos del transportista y códigos nuevos (ADR-036)
 
 `ApiError` gana un 4.º parámetro opcional `details` (`ApiErrorDetails`), que `toJSON()` incluye
@@ -423,11 +429,19 @@ mobile), `ReceiverTransferRequest`, `ReceiverTransferInvitation` y
 `RECEIVER_TRANSFER_NOT_FOUND`/`_NOT_PENDING`) y diez triggers `receiverTransfer*` en la
 categoría `shipments`, con copy propio por destinatario.
 
+### MOVO-268 — Códigos del webhook de Mercado Pago
+
+`ApiErrorCode` suma `PAYMENT_WEBHOOK_INVALID_SIGNATURE` (401, `x-signature` ausente o
+inválida) y `PAYMENT_WEBHOOK_NOT_CONFIGURED` (503, falta `MP_WEBHOOK_SECRET`). Los consume
+solo MP, no la app. `HoldProviderEventRequest` (MOVO-210) no cambia: "vencido" sigue siendo
+`event: expired`.
+
 ### MOVO-100 — Contrato de las tarjetas guardadas (`types/saved-card.ts`)
 
 `SavedCard` (con `mpCardId` y `alias`), `CreateSavedCardRequest`, `UpdateSavedCardRequest`,
 `CardsCheckoutDataResponse` y las constantes `MAX_SAVED_CARDS_PER_USER` (10) y
 `SAVED_CARD_ALIAS_MAX_LENGTH` (40). Wire contract de `/payments/cards` (`svc-payments`), para
 MOVO-101/269 en mobile. `ApiErrorCode` suma `CARD_IN_USE`, `CARD_LIMIT_REACHED`, `CARD_SAVE_REJECTED`
-(422, `details.providerCode`) y `CARDS_NOT_CONFIGURED`. Recordatorio habitual: `npm run build` acá antes
+(422, `details.providerCode`), `CARD_CUSTOMER_CONFLICT` (409, el customer de MP del email ya es
+de otra cuenta) y `CARDS_NOT_CONFIGURED`. Recordatorio habitual: `npm run build` acá antes
 de tipar desde otro workspace.

@@ -1,10 +1,12 @@
 import {
   ApiError,
   CarrierMpAccountStatusResponse,
+  CaptureHoldResponse,
   CreateHoldRequest,
   HoldCheckoutDataRequest,
   HoldCheckoutDataResponse,
   HoldResponse,
+  SettlementResponse,
 } from "@movo/shared";
 
 /**
@@ -40,6 +42,15 @@ export interface PaymentsClient {
    * envío nunca tuvo hold. Lanza si payments no puede confirmar la liberación.
    */
   releaseHold(shipmentId: string): Promise<HoldResponse | null>;
+  /**
+   * MOVO-212: captura el hold del envío entregado y devuelve la liquidación. Idempotente en
+   * payments: una liquidación ya acreditada vuelve tal cual sin volver a cobrar. Lanza si la
+   * captura no se pudo completar (409 `HOLD_NOT_CAPTURABLE`, `CARRIER_MP_ACCOUNT_NOT_LINKED`,
+   * 404 `HOLD_NOT_FOUND`, 502 `PAYMENT_PROVIDER_ERROR`...): el envío NO se toca.
+   */
+  captureHold(shipmentId: string): Promise<SettlementResponse>;
+  /** MOVO-212: liquidación del envío, o `null` si todavía no se pidió la captura. */
+  findSettlement(shipmentId: string): Promise<SettlementResponse | null>;
 }
 
 export interface PaymentsClientConfig {
@@ -51,6 +62,10 @@ const STATUS_TIMEOUT_MS = 5000;
 // Crear el hold llama a Mercado Pago (timeout propio de 10s en payments): un margen
 // holgado para no cortar del lado de shipments una reserva que MP sí está procesando.
 const HOLD_TIMEOUT_MS = 20_000;
+// Capturar hace dos llamadas a MP en serie (capturar y leer el desglose, ~22s cada una en el
+// peor caso con el reintento del SDK): con 20s se cortaría una captura que MP sí procesa. Es
+// seguro reintentar porque la captura es idempotente (key por hold + fila por envío).
+const CAPTURE_TIMEOUT_MS = 50_000;
 const HOLDS_PATH = "/internal/payments/holds";
 
 type SerializedError = { error?: { code?: string; message?: string } };
@@ -71,12 +86,12 @@ async function parseApiError(response: Response, fallbackMessage: string): Promi
 }
 
 export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClient {
-  async function callHolds(path: string, init: RequestInit): Promise<Response> {
+  async function callHolds(path: string, init: RequestInit, timeoutMs = HOLD_TIMEOUT_MS): Promise<Response> {
     try {
       return await fetch(`${config.PAYMENTS_SERVICE_URL}${HOLDS_PATH}${path}`, {
         ...init,
         headers: { "content-type": "application/json", ...(init.headers ?? {}) },
-        signal: AbortSignal.timeout(HOLD_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
       throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
@@ -147,6 +162,29 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
         throw await parseApiError(response, "El servicio de pagos devolvió un error.");
       }
       return (await response.json()) as HoldResponse;
+    },
+
+    async captureHold(shipmentId) {
+      const response = await callHolds(
+        `/by-shipment/${encodeURIComponent(shipmentId)}/capture`,
+        { method: "POST" },
+        CAPTURE_TIMEOUT_MS,
+      );
+      if (!response.ok) {
+        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
+      }
+      return ((await response.json()) as CaptureHoldResponse).settlement;
+    },
+
+    async findSettlement(shipmentId) {
+      const response = await callHolds(`/by-shipment/${encodeURIComponent(shipmentId)}/settlement`, { method: "GET" });
+      if (response.status === 404) {
+        return null;
+      }
+      if (!response.ok) {
+        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
+      }
+      return (await response.json()) as SettlementResponse;
     },
   };
 }

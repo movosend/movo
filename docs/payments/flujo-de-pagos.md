@@ -310,7 +310,8 @@ sequenceDiagram
 
     MP->>G: POST /payments/webhooks/mercadopago (ruta pública)
     G->>P: reenvía
-    P->>P: valida x-signature y descarta si ya se procesó
+    P->>P: valida x-signature y guarda en el inbox (descarta el reenvío)
+    P-->>MP: 200 (antes de procesar)
     P->>MP: Payment.get (nunca confía en el body)
     MP-->>P: estado real del pago
     alt hold cancelado o vencido por MP
@@ -318,10 +319,14 @@ sequenceDiagram
         P->>S: aviso interno
         S->>S: camino de fallo según el estado del envío
     else contracargo o reembolso externo
-        P->>P: registra en la liquidación + alerta al equipo
+        P->>P: registra en payment_provider_events + alerta al equipo
     end
-    P-->>MP: 200
 ```
+
+Si MP o `svc-shipments` fallan, la notificación queda pendiente en el inbox y un barrido la
+reintenta con backoff hasta un tope; agotado, alerta al equipo. Un pago `approved` no cambia
+el hold: la captura y su liquidación son de MOVO-212. Detalle en
+`services/movo-svc-payments/CLAUDE.md` (MOVO-268).
 
 ---
 

@@ -61,7 +61,7 @@ describe("/payments/cards (MOVO-100)", () => {
   });
 
   beforeEach(async () => {
-    await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.saved_cards, payments.payer_customers, payments.holds");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.saved_cards, payments.payer_customers, payments.holds CASCADE");
     nextCard = 0;
     for (const fn of Object.values(mp)) fn.mockReset();
     mp.createCustomer.mockResolvedValue({ id: "mp-customer-1" });
