@@ -1,10 +1,9 @@
-import { AlertTriangle } from "lucide-react-native";
+import { AlertTriangle, Clock } from "lucide-react-native";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useShipmentSettlement } from "../../src/hooks/use-shipment-settlement";
 import {
   formatSettlementAmount,
   resolvePaymentView,
-  SETTLEMENT_ESCALATION_RESPONSE_HOURS,
 } from "../../src/lib/settlement-format";
 
 /** La captura corre en segundo plano apenas se confirma la entrega: se vuelve a consultar
@@ -13,7 +12,7 @@ const SUCCESS_POLL_MS = 4000;
 
 interface DeliveryPaymentStatusProps {
   shipmentId: string;
-  /** "Ver detalle" del cobro acreditado: lleva al detalle del envío. */
+  /** "Ver detalle" del cobro: lleva al detalle del envío. */
   onViewDetail?: () => void;
   testID?: string;
 }
@@ -23,18 +22,21 @@ interface DeliveryPaymentStatusProps {
  * "El pago se está procesando." provisorio de MOVO-199 AC8). Vive en la hoja blanca de
  * `HandshakeConfirmationResult`, que es clara en los dos temas: colores fijos.
  *
- * Solo el transportista llega acá. Un error de la consulta se muestra como "cobrando": la
- * entrega ya disparó la captura, y nunca se afirma un monto que no llegó.
+ * Solo el transportista llega acá. Si la consulta falla o se agota el tiempo de polling,
+ * se invita a ver el detalle del envío para seguir el cobro.
  */
 export function DeliveryPaymentStatus({
   shipmentId,
   onViewDetail,
   testID,
 }: DeliveryPaymentStatusProps) {
-  const { data } = useShipmentSettlement(shipmentId, {
-    enabled: true,
-    pollWhileProcessingMs: SUCCESS_POLL_MS,
-  });
+  const { data, isError, isPollingTimedOut } = useShipmentSettlement(
+    shipmentId,
+    {
+      enabled: true,
+      pollWhileProcessingMs: SUCCESS_POLL_MS,
+    },
+  );
   const view = resolvePaymentView("carrier", data ?? null, null);
 
   if (view.kind === "carrier_credited") {
@@ -73,35 +75,77 @@ export function DeliveryPaymentStatus({
     );
   }
 
-  const escalated = view.kind === "carrier_escalated";
+  if (view.kind === "carrier_escalated") {
+    return (
+      <View
+        testID={testID ? `${testID}-escalated` : undefined}
+        className="flex-row items-center gap-3 rounded-[14px] border border-warning-200 bg-warning-100 p-3.5"
+      >
+        <View className="h-9 w-9 items-center justify-center rounded-full bg-warning-200">
+          <AlertTriangle size={16} color="#A97714" strokeWidth={2} />
+        </View>
+        <View className="flex-1">
+          <Text className="font-sans-semibold text-[14px] leading-5 text-ink-950">
+            Tu cobro está demorado
+          </Text>
+          <Text className="mt-0.5 font-sans text-[12.5px] leading-[18px] text-ink-500">
+            Lo estamos revisando. Te escribimos a la brevedad.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  const failedOrTimedOut = isError || isPollingTimedOut;
+  if (failedOrTimedOut) {
+    return (
+      <View
+        testID={testID ? `${testID}-error` : undefined}
+        className="flex-row items-center justify-between gap-3 rounded-[14px] border border-ink-950/10 p-3.5"
+      >
+        <View className="flex-1 flex-row items-center gap-3">
+          <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-100">
+            <Clock size={16} color="#3A3A40" strokeWidth={2} />
+          </View>
+          <View className="flex-1">
+            <Text className="font-sans-semibold text-[14px] leading-5 text-ink-950">
+              Mirá el detalle del envío
+            </Text>
+            <Text className="mt-0.5 font-sans text-[12.5px] leading-[18px] text-ink-500">
+              Seguí el estado del cobro desde ahí.
+            </Text>
+          </View>
+        </View>
+        {onViewDetail ? (
+          <Pressable
+            testID={testID ? `${testID}-view-detail` : undefined}
+            onPress={onViewDetail}
+            accessibilityRole="link"
+            hitSlop={8}
+          >
+            <Text className="font-sans-semibold text-[12.5px] text-ink-950 underline">
+              Ver detalle
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
   return (
     <View
-      testID={
-        testID
-          ? `${testID}-${escalated ? "escalated" : "processing"}`
-          : undefined
-      }
-      className={`flex-row items-center gap-3 rounded-[14px] border p-3.5 ${
-        escalated ? "border-warning-200 bg-warning-100" : "border-ink-950/10"
-      }`}
+      testID={testID ? `${testID}-processing` : undefined}
+      className="flex-row items-center gap-3 rounded-[14px] border border-ink-950/10 p-3.5"
     >
-      <View
-        className={`h-9 w-9 items-center justify-center rounded-full ${escalated ? "bg-warning-200" : "bg-ink-100"}`}
-      >
-        {escalated ? (
-          <AlertTriangle size={16} color="#A97714" strokeWidth={2} />
-        ) : (
-          <ActivityIndicator size="small" color="#3A3A40" />
-        )}
+      <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-100">
+        <ActivityIndicator size="small" color="#3A3A40" />
       </View>
       <View className="flex-1">
         <Text className="font-sans-semibold text-[14px] leading-5 text-ink-950">
-          {escalated ? "Tu cobro está demorado" : "Estamos cobrando el envío"}
+          Estamos cobrando el envío
         </Text>
         <Text className="mt-0.5 font-sans text-[12.5px] leading-[18px] text-ink-500">
-          {escalated
-            ? `Lo estamos revisando. Te escribimos dentro de las próximas ${SETTLEMENT_ESCALATION_RESPONSE_HOURS} horas.`
-            : "Te avisamos cuando se acredite en tu cuenta de Mercado Pago."}
+          Te avisamos cuando se acredite en tu cuenta de Mercado Pago.
         </Text>
       </View>
     </View>

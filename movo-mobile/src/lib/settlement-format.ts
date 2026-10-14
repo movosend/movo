@@ -70,16 +70,10 @@ export function resolvePaymentView(
   return { kind: "carrier_processing", amountArs };
 }
 
-/**
- * Plazo que se le promete al transportista con el cobro escalado (AC4). MOVO-213 todavía no lo
- * fijó: es provisorio y vive acá para cambiarlo en un solo lugar.
- */
-export const SETTLEMENT_ESCALATION_RESPONSE_HOURS = 72;
-
 export function escalatedSettlementMessage(): string {
   return (
     "No pudimos acreditarte el pago de este envío y lo estamos revisando a mano. " +
-    `Te escribimos dentro de las próximas ${SETTLEMENT_ESCALATION_RESPONSE_HOURS} horas con una solución.`
+    "Te escribimos a la brevedad con una solución."
   );
 }
 
