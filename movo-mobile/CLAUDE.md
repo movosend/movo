@@ -4567,3 +4567,12 @@ caché), `use-chat-channel.ts` (WebSocket de recepción, calcado de `use-shipmen
 Pendiente: no probado en dispositivo (teclado con el composer, `inverted` con paginación y tildes en vivo contra
 el backend real). Los no leídos de los chats que no están abiertos se actualizan por el refetch de la lista
 (cada 60 s) y al volver a Inicio: no hay un WebSocket global, solo uno por conversación abierta.
+
+### MOVO-276 — Suma de lados en el paso de paquete del wizard
+
+`isPackageStepValid` exige además largo + ancho + alto ≤ 300 cm y `DimensionInputs` muestra
+el aviso ("no pueden sumar más de 300 cm, ahora suman N") cuando cada medida está en rango
+pero la suma no: sin esto, un 150 × 100 × 60 pasaba "Siguiente" y recién fallaba al cotizar
+en el resumen. `SIDES_SUM_CM_MAX` replica `PACKAGE_MAX_SIDES_SUM_CM` del backend solo para
+ese aviso; `PACKAGE_LIMITS_EXCEEDED` tiene copy propio en `error-messages.ts` para el caso de
+que el backend recalibre los límites. Test en `test/package-limits.test.tsx`.

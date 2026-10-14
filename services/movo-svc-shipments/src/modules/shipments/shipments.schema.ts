@@ -5,14 +5,12 @@ import { shipmentReceiverTransferSummary } from "../receiver-transfers/receiver-
 
 const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
 
-// Placeholder de equipo, documentado explícitamente (mismo criterio que
-// MAX_PHOTO_CONTENT_LENGTH_BYTES en movo-svc-users/MOVO-97) — a confirmar con el
-// equipo qué puede transportar realmente un transportista en bici/auto. Ajustable sin
-// migración, es solo un bound de AJV.
+// Solo los mínimos: los máximos de peso y medidas (más la suma de lados) son límites duros
+// configurables por env var (MOVO-276, `domain/package-limits.ts`) y los valida el servicio
+// con un 422 `PACKAGE_LIMITS_EXCEEDED` que dice qué se excedió. Un máximo de AJV acá los
+// pisaría con un 400 genérico y quedaría desalineado si se recalibra el env.
 const WEIGHT_KG_MIN = 0.1;
-const WEIGHT_KG_MAX = 30;
 const DIMENSION_CM_MIN = 1;
-const DIMENSION_CM_MAX = 150;
 
 // "HH:MM" o "HH:MM:SS", sin offset — a propósito no se usa `format: "time"` de AJV: ese
 // format exige el time-offset de RFC 3339 (full-time), y acá se quiere una hora local
@@ -390,10 +388,10 @@ const shipmentEventResponse = {
 // de `POST /shipments/quote` para que las dos rutas validen exactamente igual.
 const priceAffectingProperties = {
   packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
-  weightKg: { type: "number", minimum: WEIGHT_KG_MIN, maximum: WEIGHT_KG_MAX },
-  lengthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
-  widthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
-  heightCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
+  weightKg: { type: "number", minimum: WEIGHT_KG_MIN },
+  lengthCm: { type: "number", minimum: DIMENSION_CM_MIN },
+  widthCm: { type: "number", minimum: DIMENSION_CM_MIN },
+  heightCm: { type: "number", minimum: DIMENSION_CM_MIN },
   pickupLat: { type: "number", minimum: -90, maximum: 90 },
   pickupLng: { type: "number", minimum: -180, maximum: 180 },
   deliveryLat: { type: "number", minimum: -90, maximum: 90 },

@@ -193,6 +193,11 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       // GET /trips/:id/matches, `Trip` no persiste un radiusKm propio.
       tripMatchDetourRadiusKm: app.config.TRIP_DEFAULT_MAX_DETOUR_KM,
       quoteStore: createQuoteStore(app.redis),
+      packageLimits: {
+        maxWeightKg: app.config.PACKAGE_MAX_WEIGHT_KG,
+        maxSideCm: app.config.PACKAGE_MAX_SIDE_CM,
+        maxSidesSumCm: app.config.PACKAGE_MAX_SIDES_SUM_CM,
+      },
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -222,7 +227,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "MOVO-255: con `quoteId` (de `POST /shipments/quote`) usa ese precio congelado sin " +
           "volver a cotizar; responde 409 QUOTE_EXPIRED si no existe, venció, ya se usó o es " +
           "de otro usuario, y 409 QUOTE_MISMATCH si los datos que afectan el precio no " +
-          "coinciden con los cotizados. Sin `quoteId`, cotiza al crear.",
+          "coinciden con los cotizados. Sin `quoteId`, cotiza al crear. MOVO-276: 422 " +
+          "PACKAGE_LIMITS_EXCEEDED (con `details.violations`) si el paquete excede el peso, " +
+          "el lado o la suma de lados máximos (`PACKAGE_MAX_*`, por defecto 30 kg, 150 cm y 300 cm).",
         tags: ["shipments"],
         body: shipmentsSchemas.createShipmentBody,
         response: {
@@ -256,7 +263,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "ese precio hasta `expiresAt` (15 min) para el mismo usuario y los mismos datos. " +
           "Si pricing no responde, todos los campos vienen en null ('precio a estimar') y " +
           "sin `quoteId`. Rate limit por usuario en el gateway: cada cotización consulta " +
-          "Google Routes.",
+          "Google Routes. Mismos límites duros del paquete que `POST /shipments` (422 " +
+          "PACKAGE_LIMITS_EXCEEDED), validados antes de cotizar.",
         tags: ["shipments"],
         body: shipmentsSchemas.quoteShipmentBody,
         response: {

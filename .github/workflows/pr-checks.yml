@@ -298,6 +298,13 @@ jobs:
       - name: Tests
         run: pytest
 
+      # MOVO-276 (AC6): el motor de precios exige 100%, no el 55% global de pyproject.
+      # Reusa el `.coverage` que dejó el paso anterior.
+      - name: Cobertura del motor de precios
+        run: >-
+          coverage report --fail-under=100
+          --include=app/services/pricing.py,app/config.py,app/models/quote.py,app/routers/quote.py
+
   tests-summary:
     if: always()
     needs: [node-services, python-service, mobile, admin-web]

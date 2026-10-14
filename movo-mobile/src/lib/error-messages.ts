@@ -62,6 +62,8 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",
   SHIPMENT_PICKUP_WINDOW_INVALID: "El horario de fin del retiro tiene que ser posterior al de inicio.",
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",
+  // MOVO-276: el wizard ya valida lo mismo; esto cubre una recalibración de los límites del backend.
+  PACKAGE_LIMITS_EXCEEDED: "El paquete supera el peso o las medidas que se pueden enviar. Revisá los datos del paquete.",
   GEOCODING_PROVIDER_ERROR: "No pudimos validar la dirección en el mapa. Intentá de nuevo.",
   GEOCODING_ADDRESS_NOT_FOUND: "No encontramos la dirección ingresada.",
   // Edición de perfil (MOVO-135 / backend MOVO-133).

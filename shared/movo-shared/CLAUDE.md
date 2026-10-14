@@ -465,3 +465,10 @@ MOVO-101/269 en mobile. `ApiErrorCode` suma `CARD_IN_USE`, `CARD_LIMIT_REACHED`,
 (422, `details.providerCode`), `CARD_CUSTOMER_CONFLICT` (409, el customer de MP del email ya es
 de otra cuenta) y `CARDS_NOT_CONFIGURED`. Recordatorio habitual: `npm run build` acá antes
 de tipar desde otro workspace.
+
+### MOVO-276 — `package_tapered_v2` y `PACKAGE_LIMITS_EXCEEDED` (ADR-041)
+
+`PriceCalculationMethod.PACKAGE_TAPERED_V2` (`DEMAND_FUEL_ROUTES_V1` queda, ya no se emite
+pero persiste en envíos viejos), `QuoteBreakdown.volumetricWeightKg?`/`billableWeightKg?`
+(ausentes en respuestas de v1) y el código `PACKAGE_LIMITS_EXCEEDED` (422, con
+`details.violations`).

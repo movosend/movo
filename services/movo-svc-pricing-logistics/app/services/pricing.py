@@ -1,7 +1,11 @@
-"""Precio sugerido `demand_fuel_routes_v1` (MOVO-138, ADR-025).
+"""Precio sugerido `package_tapered_v2` (MOVO-276).
 
-Reemplaza a `euclidean_linear_v1` (MOVO-82, ADR-018). Fórmula, calibración y
-decisiones en `docs/pricing/pricing-spike-report.md` §4-§7.
+Reemplaza la parte de cálculo de `demand_fuel_routes_v1` (MOVO-138, ADR-025): misma
+distancia por tramos, combustible y recargo por demanda, pero el paquete ahora cotiza por
+su peso facturable (máximo entre real y volumétrico, con un tramo decreciente), con una
+tarifa base por categoría y un recargo por frágil. Calibración contra el Correo en
+`docs/pricing/grilla-referencia.md`; demanda y combustible en
+`docs/pricing/pricing-spike-report.md` §3-§4.
 """
 
 import asyncio
@@ -110,12 +114,73 @@ def effective_distance_km(distance_km: float) -> float:
     return tier1 + tier2 * settings.distance_tier2_rate + tier3 * settings.distance_tier3_rate
 
 
-def _package_factor(package_type: PackageType) -> float:
-    return {
-        PackageType.LETTER_DOCUMENT: settings.factor_letter_document,
-        PackageType.STANDARD_PACKAGE: settings.factor_standard_package,
-        PackageType.FRAGILE_ITEM: settings.factor_fragile_item,
-    }[package_type]
+class PackageLimitsExceededError(ValueError):
+    """El paquete excede los límites duros de peso o medidas (MOVO-276)."""
+
+    def __init__(self, violations: list[str]):
+        self.violations = violations
+        super().__init__("El paquete excede los límites: " + "; ".join(violations) + ".")
+
+
+def package_limit_violations(req: QuoteRequest) -> list[str]:
+    sides = (req.length_cm, req.width_cm, req.height_cm)
+    violations = []
+    if req.weight_kg > settings.package_max_weight_kg:
+        violations.append(f"peso de {req.weight_kg:g} kg (máximo {settings.package_max_weight_kg:g} kg)")
+    if max(sides) > settings.package_max_side_cm:
+        violations.append(f"lado de {max(sides):g} cm (máximo {settings.package_max_side_cm:g} cm)")
+    if sum(sides) > settings.package_max_sides_sum_cm:
+        violations.append(
+            f"suma de lados de {sum(sides):g} cm (máximo {settings.package_max_sides_sum_cm:g} cm)"
+        )
+    return violations
+
+
+def volumetric_weight_kg(req: QuoteRequest) -> float:
+    return req.length_cm * req.width_cm * req.height_cm / settings.volumetric_divisor
+
+
+def effective_weight_kg(billable_kg: float) -> float:
+    """Kg facturables con tarifa decreciente por tramo (ver `config.py`)."""
+    tier = settings.weight_tier_kg
+    return min(billable_kg, tier) + max(billable_kg - tier, 0.0) * settings.weight_tier_rate
+
+
+@dataclass(frozen=True)
+class PriceComponents:
+    """Componentes en pesos, antes del recargo por demanda y del redondeo."""
+
+    per_km_ars: float
+    base: float
+    distance: float
+    weight: float
+    package_factor: float
+    volumetric_weight_kg: float
+    billable_weight_kg: float
+
+    @property
+    def subtotal(self) -> float:
+        return (self.base + self.distance + self.weight) * self.package_factor
+
+
+def price_components(req: QuoteRequest, distance_km: float, ars_per_liter: float) -> PriceComponents:
+    """Parte determinística de la fórmula, sin red, demanda ni redondeo: los tests de
+    forma de la curva (monotonía, concavidad) la ejercitan directo."""
+    p = ars_per_liter
+    is_document = req.package_type == PackageType.LETTER_DOCUMENT
+    is_fragile = req.package_type == PackageType.FRAGILE_ITEM
+    per_km_ars = (settings.fuel_l_per_km * settings.fuel_cost_share + settings.non_fuel_l_per_km) * p
+    volumetric = volumetric_weight_kg(req)
+    billable = max(req.weight_kg, volumetric)
+    return PriceComponents(
+        per_km_ars=per_km_ars,
+        base=(settings.base_fare_document_l if is_document else settings.base_fare_l) * p,
+        distance=effective_distance_km(distance_km) * per_km_ars,
+        weight=effective_weight_kg(billable) * settings.per_kg_l * p,
+        package_factor=1.0 + settings.fragile_surcharge if is_fragile else 1.0,
+        volumetric_weight_kg=volumetric,
+        billable_weight_kg=billable,
+    )
 
 
 def _round_to_10(value: float) -> float:
@@ -128,6 +193,11 @@ async def compute_quote(
     fuel_provider: FuelPriceProvider | None = None,
     routes: RoutesProvider | None = None,
 ) -> QuoteResponse:
+    # Antes de consultar Google: un paquete fuera de límites no gasta un elemento facturado.
+    violations = package_limit_violations(req)
+    if violations:
+        raise PackageLimitsExceededError(violations)
+
     # Independientes entre sí: en serie, el peor caso (2s + 1,5s) pasaba los 3s de
     # `pricing-client.ts` y el envío quedaba en "precio a estimar".
     fuel, (distance_km, distance_source) = await asyncio.gather(
@@ -140,15 +210,9 @@ async def compute_quote(
     )
 
     p = fuel.ars_per_liter
-    base = settings.base_fare_l * p
-    per_km_ars = (settings.fuel_l_per_km * settings.fuel_cost_share + settings.non_fuel_l_per_km) * p
-    distance_component = effective_distance_km(distance_km) * per_km_ars
-    weight_component = req.weight_kg * settings.per_kg_l * p
-    package_factor = _package_factor(req.package_type)
-    subtotal = (base + distance_component + weight_component) * package_factor
-
+    c = price_components(req, distance_km, p)
     demand = demand_multiplier(req.demand_context)
-    suggested_price_ars = _round_to_10(subtotal * demand.multiplier)
+    suggested_price_ars = _round_to_10(c.subtotal * demand.multiplier)
 
     # El desglose no viaja al emisor (spike §6.2): se loguea para recalibrar los
     # parámetros con datos reales. No sirve como evidencia de disputas (MOVO-30): la
@@ -164,11 +228,13 @@ async def compute_quote(
                 "fuelSource": fuel.source,
                 "distanceKm": round(distance_km, 2),
                 "distanceSource": distance_source,
-                "perKmArs": round(per_km_ars, 2),
-                "base": round(base, 2),
-                "distance": round(distance_component, 2),
-                "weight": round(weight_component, 2),
-                "packageFactor": package_factor,
+                "perKmArs": round(c.per_km_ars, 2),
+                "base": round(c.base, 2),
+                "distance": round(c.distance, 2),
+                "weight": round(c.weight, 2),
+                "packageFactor": c.package_factor,
+                "volumetricWeightKg": round(c.volumetric_weight_kg, 2),
+                "billableWeightKg": round(c.billable_weight_kg, 2),
                 "demandContext": req.demand_context.model_dump(by_alias=True) if req.demand_context else None,
                 "demandRatio": round(demand.ratio, 2),
                 "demandMultiplier": demand.multiplier,
@@ -182,11 +248,13 @@ async def compute_quote(
             distance_source=distance_source,
             fuel_ars_per_liter=p,
             fuel_source=fuel.source,
-            per_km_ars=round(per_km_ars, 2),
-            base=round(base, 2),
-            distance=round(distance_component, 2),
-            weight=round(weight_component, 2),
-            package_factor=package_factor,
+            per_km_ars=round(c.per_km_ars, 2),
+            base=round(c.base, 2),
+            distance=round(c.distance, 2),
+            weight=round(c.weight, 2),
+            package_factor=c.package_factor,
+            volumetric_weight_kg=round(c.volumetric_weight_kg, 2),
+            billable_weight_kg=round(c.billable_weight_kg, 2),
             demand_ratio=round(demand.ratio, 2),
             demand_multiplier=demand.multiplier,
         )
@@ -197,6 +265,6 @@ async def compute_quote(
     return QuoteResponse(
         suggested_price_ars=suggested_price_ars,
         high_demand=demand.high_demand,
-        calculation_method=PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1,
+        calculation_method=PriceCalculationMethod.PACKAGE_TAPERED_V2,
         breakdown=breakdown,
     )

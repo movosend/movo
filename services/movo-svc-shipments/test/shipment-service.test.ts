@@ -459,6 +459,29 @@ describe("shipments.service — createShipment", () => {
     expect(repository.create).toHaveBeenCalled();
   });
 
+  it("rechaza un paquete fuera de los límites inyectados, antes de svc-users y de pricing (MOVO-276)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({});
+    const findPublicProfileSpy = vi.spyOn(usersClient, "findPublicProfile");
+    const pricingClient = createFakePricingClient();
+    const service = createShipmentsService(repository, usersClient, createFakeNotificationsClient(), undefined, {
+      pricingClient,
+      packageLimits: { maxWeightKg: 20, maxSideCm: 150, maxSidesSumCm: 300 },
+    });
+
+    const error = await service.createShipment({ ...baseInput, weightKg: 25 }).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      statusCode: 422,
+      code: "PACKAGE_LIMITS_EXCEEDED",
+      details: { violations: ["peso de 25 kg (máximo 20 kg)"] },
+    });
+    expect(findPublicProfileSpy).not.toHaveBeenCalled();
+    expect(pricingClient.getQuote).not.toHaveBeenCalled();
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
   it("notifica al receptor tras crear el envío (AC1 de MOVO-108)", async () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({
