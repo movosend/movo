@@ -22,6 +22,7 @@ export function createFakeTripRepository(overrides: Partial<TripRepository> = {}
     countAvailableCarriersNear: vi.fn().mockResolvedValue(0),
     start: vi.fn(),
     cancelOverdueDeclared: vi.fn().mockResolvedValue([]),
+    findDeclaredForDepartureReminder: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }

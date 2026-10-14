@@ -297,11 +297,13 @@ describe("/payments/mp-connect (MOVO-111)", () => {
       expect(row.refreshToken).toMatch(/^v1:/);
       expect(JSON.stringify(row)).not.toContain("access-secret");
       expect(JSON.stringify(row)).not.toContain("refresh-secret");
-      expect(await credentials(USER_A)).toEqual({
+      expect(await credentials(USER_A)).toMatchObject({
         mpUserId: "2991764998",
         accessToken: "TEST-access-secret",
         refreshToken: "TG-refresh-secret",
         publicKey: "TEST-public-key",
+        tokenExpiresAt: expect.any(Date),
+        updatedAt: expect.any(Date),
       });
       expect(row).toMatchObject({
         mpUserId: "2991764998",

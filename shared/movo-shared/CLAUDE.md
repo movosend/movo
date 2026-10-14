@@ -394,6 +394,12 @@ distingue `unlinked` de `invalid` (revocada o vencida) y devuelve `account` (ema
 que redirige el callback público. Cinco `ApiErrorCode` nuevos (`MP_CONNECT_*`,
 `MP_ACCOUNT_ALREADY_LINKED`): cuatro de ellos viajan en ese deep link, no como respuesta HTTP.
 
+### MOVO-212 — Contrato de la liquidación (`types/settlement.ts`)
+
+`SettlementStatus`/`SettlementFailureReason`/`SettlementResponse`/`CaptureHoldResponse` para los endpoints
+internos de captura de `svc-payments`, y los códigos `HOLD_NOT_CAPTURABLE`/`SETTLEMENT_NOT_FOUND`.
+`mpFeeArs` y `netAmountArs` son `null` hasta que MP confirma la captura. `escalated` está reservado para
+MOVO-213 (212 nunca lo escribe). Recordatorio: `npm run build` acá antes de tipar desde otro workspace.
 ### MOVO-116 — `ApiError.details`, requisitos del transportista y códigos nuevos (ADR-036)
 
 `ApiError` gana un 4.º parámetro opcional `details` (`ApiErrorDetails`), que `toJSON()` incluye
@@ -422,3 +428,18 @@ mobile), `ReceiverTransferRequest`, `ReceiverTransferInvitation` y
 `ShipmentReceiverTransferSummary`. Siete códigos nuevos (`SHIPMENT_RECEIVER_TRANSFER_*`,
 `RECEIVER_TRANSFER_NOT_FOUND`/`_NOT_PENDING`) y diez triggers `receiverTransfer*` en la
 categoría `shipments`, con copy propio por destinatario.
+
+### MOVO-240 — Triggers de recordatorio de viaje y proximidad
+
+`config/notification-templates.ts` suma `tripDepartureReminder` (categoría `trips`), con un copy
+que cambia según `packagesCount` (con paquetes invita a sumar uno más, sin paquetes a buscar),
+y `carrierNearPickup`/`carrierNearDelivery` (categoría `proximity`). En
+`notification-categories.ts`, `proximity` pasa a `implemented: true` y `quietHoursExempt: true`:
+el aviso de "está por llegar" sirve justo cuando llega, sea la hora que sea. Tests en
+`test/notification-templates.test.ts`.
+### MOVO-268 — Códigos del webhook de Mercado Pago
+
+`ApiErrorCode` suma `PAYMENT_WEBHOOK_INVALID_SIGNATURE` (401, `x-signature` ausente o
+inválida) y `PAYMENT_WEBHOOK_NOT_CONFIGURED` (503, falta `MP_WEBHOOK_SECRET`). Los consume
+solo MP, no la app. `HoldProviderEventRequest` (MOVO-210) no cambia: "vencido" sigue siendo
+`event: expired`.

@@ -176,7 +176,7 @@ describe("usePushNotifications", () => {
     expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip_cold" } });
   });
 
-  it("MOVO-236: tocar una notificación trip_auto_created navega al feed filtrado por tripId", async () => {
+  it("MOVO-281: tocar una notificación trip_auto_created abre el detalle del viaje", async () => {
     mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
 
     await renderHook(() => usePushNotifications());
@@ -186,7 +186,24 @@ describe("usePushNotifications", () => {
       notification: { request: { content: { data: { type: "trip_auto_created", tripId: "trip_2" } } } },
     });
 
-    expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip_2" } });
+    expect(mockRouterPush).toHaveBeenCalledWith("/carrier/trips/trip_2");
+  });
+
+  it("MOVO-281: una cancelación por vencimiento abre el detalle del envío en cold start", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: {
+        request: {
+          identifier: "cancelled-1",
+          content: { data: { type: "shipment_cancelled", shipmentId: "shp_cancelled" } },
+        },
+      },
+    });
+
+    await renderHook(() => usePushNotifications());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_cancelled");
   });
 
   it("MOVO-236: un trip_auto_created sin tripId en el payload no navega", async () => {
