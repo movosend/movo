@@ -13,10 +13,13 @@ const kycInternalSchemas = {
   },
   kycStatusResponse: {
     type: "object",
-    required: ["kycStatusIdentity", "kycStatusLicense"],
+    required: ["kycStatusIdentity", "kycStatusLicense", "accountStatus", "bannedUntil"],
     properties: {
       kycStatusIdentity: { type: "string" },
       kycStatusLicense: { type: "string" },
+      // MOVO-265: la generación de viajes recurrentes corta la serie de una cuenta suspendida.
+      accountStatus: { type: "string" },
+      bannedUntil: { type: ["string", "null"], format: "date-time" },
     },
   },
   errorResponse: {
@@ -69,6 +72,8 @@ export default async function kycInternalRoutes(app: FastifyInstance, _opts: Fas
       return {
         kycStatusIdentity: user.kycStatusIdentity,
         kycStatusLicense: user.kycStatusLicense,
+        accountStatus: user.status,
+        bannedUntil: user.bannedUntil?.toISOString() ?? null,
       };
     },
   );

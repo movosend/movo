@@ -479,3 +479,13 @@ de tipar desde otro workspace.
 pero persiste en envíos viejos), `QuoteBreakdown.volumetricWeightKg?`/`billableWeightKg?`
 (ausentes en respuestas de v1) y el código `PACKAGE_LIMITS_EXCEEDED` (422, con
 `details.violations`).
+
+### MOVO-265 — `config/trip-recurrence.ts` (ADR-042)
+
+`RECURRENCE_WEEKDAY` (0 = domingo … 6 = sábado), `MAX_ACTIVE_RECURRING_SERIES` (3),
+`argentinaWeekday`, `formatArgentinaShortDay` ("vie 10/10") y `nextRecurrenceOccurrence` (próximo
+día elegido estrictamente posterior a `max(departureAt, now)`, a la misma hora de pared en huso
+argentino, `null` si se pasa de `recurrenceUntil`). Va en shared para que el preview de MOVO-266
+use la misma cuenta que el barrido. Suma los códigos `RECURRING_SERIES_LIMIT`/`TRIP_NOT_SERIES_HEAD`,
+los triggers `tripRecurrence{Generated,StoppedPhantom,StoppedUnavailable}` (categoría `trips`, que
+ya existía, en vez de una nueva) y `accountStatus?`/`bannedUntil?` en `CarrierKycStatusResponse`.

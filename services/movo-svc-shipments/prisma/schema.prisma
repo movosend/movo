@@ -497,6 +497,21 @@ model Trip {
 
   cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz
 
+  // MOVO-265 (ADR-042): recurrencia como atributo del trip. `recurrenceWeekdays` usa
+  // 0 = domingo … 6 = sábado (`RECURRENCE_WEEKDAY`, @movo/shared). Prisma no admite listas
+  // opcionales: vacío = no se repite (la API lo expone como `null`, ver `mapTrip`).
+  // El CHECK de valores 0-6 vive en la migración (no representable en Prisma).
+  recurrenceWeekdays  Int[]     @default([]) @map("recurrence_weekdays")
+  // Inclusive, calendario argentino.
+  recurrenceUntil     DateTime? @map("recurrence_until") @db.Date
+  // El primer trip de la serie usa su propio id; se conserva al apagar la recurrencia.
+  seriesId            String?   @map("series_id") @db.Uuid
+  // UNIQUE: cada trip tiene a lo sumo un sucesor. El vigente de la serie es el que nadie
+  // referencia, y el insert del barrido es idempotente gracias a este índice.
+  generatedFromTripId String?   @unique(map: "trips_generated_from_trip_id_key") @map("generated_from_trip_id") @db.Uuid
+  generatedFrom       Trip?     @relation("TripRecurrence", fields: [generatedFromTripId], references: [id], onDelete: SetNull)
+  successor           Trip?     @relation("TripRecurrence")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -504,6 +519,7 @@ model Trip {
   carrierPositions CarrierPosition[]
 
   @@index([carrierId], map: "trips_carrier_id_idx")
+  @@index([seriesId], map: "trips_series_id_idx")
   @@index([status], map: "trips_status_idx")
   @@index([departureAt], map: "trips_departure_at_idx")
   @@map("trips")

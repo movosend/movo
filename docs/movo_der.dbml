@@ -626,6 +626,10 @@ Table shipments.trips {
   vehicle_type varchar [note: 'auto, moto, utilitario, camion, etc.']
   status trip_status_enum [default: 'declared', note: 'MOVO-221: default pasó de active a declared']
   cancelled_at timestamp [note: 'timestamptz, MOVO-260: fecha de cancelación lógica']
+  recurrence_weekdays "integer[]" [default: '{}', note: 'MOVO-265 (ADR-042): días en que se repite, 0 = domingo … 6 = sábado (CHECK 0-6); vacío = no se repite']
+  recurrence_until date [null, note: 'MOVO-265: último día de la serie, inclusive, calendario argentino']
+  series_id uuid [null, note: 'MOVO-265: id del primer trip de la serie; se conserva al apagar la recurrencia']
+  generated_from_trip_id uuid [null, unique, ref: - shipments.trips.id, note: 'MOVO-265: trip que lo generó (ON DELETE SET NULL). UNIQUE: a lo sumo un sucesor; el vigente de la serie es el que nadie referencia']
   created_at timestamp
   updated_at timestamp [note: 'mantenida por trigger update_updated_at_column']
 
@@ -633,6 +637,7 @@ Table shipments.trips {
     carrier_id
     status
     departure_at
+    series_id
   }
 
   Note: 'Permite al transportista declarar viajes futuros, visualizar paquetes en corredor y alimentar el solver de rutas VRPTW.'

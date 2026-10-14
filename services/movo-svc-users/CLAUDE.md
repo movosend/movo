@@ -1216,3 +1216,8 @@ gateway) que devuelve `{ kycStatusIdentity, kycStatusLicense }` crudos para el b
 transportista de `svc-shipments` (ADR-036). Más liviano que `GET /users/:id`, que además pide
 la reputación a `svc-shipments`. 404 `USER_NOT_FOUND` si no existe o está `deleted` (mismo
 criterio que MOVO-77). Test: `test/kyc.internal-status.integration.test.ts`.
+
+**MOVO-265 (ADR-042)**: la respuesta suma `accountStatus` y `bannedUntil` (ISO o `null`), así
+`svc-shipments` corta la serie de viajes recurrentes de una cuenta suspendida. `deleted` sigue
+siendo 404. Los dos campos son opcionales en `CarrierKycStatusResponse` para que un
+`svc-shipments` nuevo tolere este servicio sin actualizar durante el deploy.

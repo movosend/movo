@@ -42,6 +42,8 @@ interface CreateTripBody {
   destinationLng: number;
   departureAt: string;
   vehicleType: string;
+  recurrenceWeekdays?: number[];
+  recurrenceUntil?: string;
 }
 
 interface UpdateTripBody {
@@ -53,6 +55,8 @@ interface UpdateTripBody {
   destinationLng?: number;
   departureAt?: string;
   vehicleType?: string;
+  recurrenceWeekdays?: number[] | null;
+  recurrenceUntil?: string | null;
 }
 
 function toAvailableShipmentDto(item: MatchedShipment) {
@@ -115,12 +119,16 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
           "de Mercado Pago vinculada (403 CARRIER_LICENSE_NOT_APPROVED o " +
           "CARRIER_MP_ACCOUNT_NOT_LINKED, el primero que falte, con " +
           "details.missingRequirements listando todos), antes de persistir nada. 502 " +
-          "USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar.",
+          "USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar. " +
+          "MOVO-265 (ADR-042): con recurrenceWeekdays el viaje nace recurrente (el día de " +
+          "departureAt tiene que estar incluido, 400 VALIDATION_FAILED si no); 409 " +
+          "RECURRING_SERIES_LIMIT si el transportista ya tiene 3 series activas.",
         body: tripsSchemas.createTripBody,
         response: {
           201: tripsSchemas.tripResponse,
           400: tripsSchemas.errorResponse,
           403: tripsSchemas.errorResponse,
+          409: tripsSchemas.errorResponse,
           502: tripsSchemas.errorResponse,
         },
       },
@@ -214,6 +222,12 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
     {
       schema: {
         summary: "Editar viaje declarado",
+        description:
+          "409 TRIP_HAS_ACCEPTED_PACKAGES si el viaje tiene paquetes aceptados, salvo que el " +
+          "PATCH solo toque recurrenceWeekdays/recurrenceUntil (MOVO-265, ADR-042). Editar la " +
+          "recurrencia de un viaje que no es el vigente de su serie: 409 TRIP_NOT_SERIES_HEAD. " +
+          "Prenderla con 3 series activas: 409 RECURRING_SERIES_LIMIT. recurrenceWeekdays: null " +
+          "la apaga.",
         params: tripsSchemas.tripIdParam,
         body: tripsSchemas.updateTripBody,
         response: {
@@ -282,7 +296,11 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
     {
       schema: {
         summary: "Cancelar viaje declarado (lógico)",
+        description:
+          "Solo viajes declared sin paquetes aceptados. MOVO-265: con stopRecurrence: true " +
+          "además deja de repetir el viaje, en la misma transacción; sin el flag la serie sigue.",
         params: tripsSchemas.tripIdParam,
+        body: tripsSchemas.cancelTripBody,
         response: {
           200: tripsSchemas.tripResponse,
           403: tripsSchemas.errorResponse,
@@ -296,10 +314,13 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       const callerRoles = getUserRolesFromHeader(request);
       const { id } = request.params as { id: string };
 
+      const body = request.body as { stopRecurrence?: boolean } | null;
+
       const trip = await service.cancelTrip({
         tripId: id,
         callerId,
         callerRoles,
+        stopRecurrence: body?.stopRecurrence === true,
       });
 
       return reply.send(toTripDto(trip));

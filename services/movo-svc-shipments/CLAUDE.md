@@ -3387,3 +3387,30 @@ validan primero, sin I/O (un paquete fuera de límites no gasta Google ni quema 
   validaba en ningún lado: un cubo de 150 cm (3,4 m³) pasaba.
 - `calculationMethod` es un string libre en DB y en el quote store, así que los envíos y
   cotizaciones con `demand_fuel_routes_v1` siguen intactos (AC5); no hizo falta migración.
+
+### MOVO-265 — Viajes recurrentes (ADR-042)
+
+La recurrencia es un atributo del `Trip` (migración `20261015120000_add_trip_recurrence`):
+`recurrenceWeekdays`, `recurrenceUntil`, `seriesId` y `generatedFromTripId` (FK a `trips`, UNIQUE,
+`ON DELETE SET NULL`). Prisma no admite listas opcionales, así que "no se repite" es el array
+vacío en la base y `null` en la API (`mapTrip`); el rango 0-6 es un CHECK escrito a mano. Toda
+query que pasa por `mapTrip` incluye `TRIP_SERIES_INCLUDE` (relación `successor`) para exponer
+`isSeriesHead`. Reglas puras en `domain/trip-recurrence.ts`, cálculo de fecha en `@movo/shared`.
+
+- **API**: `POST /trips` y `PATCH /trips/:id` aceptan la recurrencia (400 si falta el día de la
+  salida o `recurrenceUntil` no es posterior; 409 `RECURRING_SERIES_LIMIT` al prender una cuarta
+  serie; 409 `TRIP_NOT_SERIES_HEAD` fuera del vigente, también como CAS en el UPDATE contra el
+  barrido). Un PATCH que solo toca recurrencia saltea `TRIP_HAS_ACCEPTED_PACKAGES`.
+  `POST /trips/:id/cancel` acepta `{ stopRecurrence }` y lo aplica en la transacción de
+  `retireDeclaredTrip`, solo sobre el vigente. Dos PATCH concurrentes pueden dejar 4 series: aceptado.
+- **Generación** (`modules/trips/trip-recurrence.ts`, último paso de `trip-expiry-sweep.ts`, así
+  el vigente vencido en esa corrida ya cuenta como `expired`): serie fantasma (3 `expired`
+  seguidos por `seriesId`/`createdAt`) → corta con push; fecha fuera de `recurrenceUntil` → apaga
+  sin push (si no, seguiría contando para el tope); cuenta suspendida/borrada o sin requisitos de
+  ADR-036 → corta con push genérica; `svc-users`/`svc-payments` caídos, o `svc-users` sin
+  `accountStatus` (versión vieja) → posterga sin cortar. El insert es `createMany` con
+  `skipDuplicates` (`ON CONFLICT DO NOTHING` sobre `generated_from_trip_id`). Logs
+  `trip_recurrence_generated`/`trip_recurrence_stopped` con `reason`.
+- Pushes `data.type`: `trip_recurrence_generated` (tripId nuevo) y `trip_recurrence_stopped`.
+
+Pendiente: la UI es MOVO-266.

@@ -16,6 +16,11 @@ const tripResponse = {
     "departureAt",
     "vehicleType",
     "status",
+    "recurrenceWeekdays",
+    "recurrenceUntil",
+    "seriesId",
+    "generatedFromTripId",
+    "isSeriesHead",
     "createdAt",
     "updatedAt",
   ],
@@ -32,9 +37,38 @@ const tripResponse = {
     vehicleType: { type: "string" },
     status: { type: "string", enum: TRIP_STATUS_VALUES },
     cancelledAt: { type: ["string", "null"], format: "date-time" },
+    // MOVO-265 (ADR-042): recurrencia. 0 = domingo … 6 = sábado; null = no se repite.
+    recurrenceWeekdays: { type: ["array", "null"], items: { type: "integer" } },
+    recurrenceUntil: {
+      type: ["string", "null"],
+      format: "date",
+      description: "Último día de la serie, inclusive, calendario argentino.",
+    },
+    seriesId: { type: ["string", "null"] },
+    generatedFromTripId: { type: ["string", "null"] },
+    isSeriesHead: {
+      type: "boolean",
+      description: "Trip vigente de su serie (sin sucesor). Solo el vigente admite editar la recurrencia.",
+    },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
   },
+};
+
+// MOVO-265: días de la semana de la recurrencia (al menos uno, sin repetidos, 0-6). El día
+// de `departureAt` incluido y `recurrenceUntil` posterior a la salida los valida el service.
+const recurrenceWeekdaysBody = {
+  type: "array",
+  items: { type: "integer", minimum: 0, maximum: 6 },
+  minItems: 1,
+  maxItems: 7,
+  uniqueItems: true,
+  description: "Días en que se repite el viaje: 0 = domingo … 6 = sábado.",
+};
+const recurrenceUntilBody = {
+  type: "string",
+  format: "date",
+  description: "Último día de la serie (YYYY-MM-DD, inclusive, calendario argentino).",
 };
 
 const tripAcceptedPackageResponse = {
@@ -174,6 +208,8 @@ export const tripsSchemas = {
       destinationLng: { type: "number", minimum: -180, maximum: 180 },
       departureAt: { type: "string", format: "date-time" },
       vehicleType: { type: "string", minLength: 1, maxLength: 50 },
+      recurrenceWeekdays: recurrenceWeekdaysBody,
+      recurrenceUntil: recurrenceUntilBody,
     },
   },
 
@@ -189,6 +225,22 @@ export const tripsSchemas = {
       destinationLng: { type: "number", minimum: -180, maximum: 180 },
       departureAt: { type: "string", format: "date-time" },
       vehicleType: { type: "string", minLength: 1, maxLength: 50 },
+      // `null` apaga la recurrencia (y limpia `recurrenceUntil`).
+      recurrenceWeekdays: { ...recurrenceWeekdaysBody, type: ["array", "null"] },
+      recurrenceUntil: { ...recurrenceUntilBody, type: ["string", "null"] },
+    },
+  },
+
+  // MOVO-265: body opcional de `POST /trips/:id/cancel`.
+  cancelTripBody: {
+    type: "object",
+    nullable: true,
+    additionalProperties: false,
+    properties: {
+      stopRecurrence: {
+        type: "boolean",
+        description: "Además de cancelar esta ocurrencia, deja de repetir el viaje. Se ignora si no es recurrente.",
+      },
     },
   },
 

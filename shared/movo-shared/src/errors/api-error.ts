@@ -106,6 +106,11 @@ export type ApiErrorCode =
   // (`assigned`/`in_transit`) -- p. ej. todos esperan el hold de fondos
   // (`assignment_pending`/`assigned_unfunded`). Distinto de `TRIP_NO_PACKAGES`.
   | "TRIP_PACKAGES_NOT_READY"
+  // MOVO-265 (ADR-042): prender la recurrencia con 3 series activas ya (tope de
+  // `MAX_ACTIVE_RECURRING_SERIES`), y editar la recurrencia de un trip que no es el
+  // vigente de su serie (ya tiene sucesor).
+  | "RECURRING_SERIES_LIMIT"
+  | "TRIP_NOT_SERIES_HEAD"
   // MOVO-228: la app mandó una versión de Términos/Privacidad distinta a la vigente
   // (`LEGAL_DOCUMENT_VERSIONS`, config/legal.ts) -- app desactualizada, el usuario
   // tiene que revisar y aceptar el contenido actual antes de poder registrarse.
