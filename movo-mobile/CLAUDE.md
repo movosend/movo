@@ -891,11 +891,14 @@ que resuelve los 3 puntos que dejó abiertos el ticket de planificación homóni
   en vez de duplicar `MOVO_COMMISSION_RATE` a mano en mobile. El monto final que
   persiste sigue siendo el que devuelve la respuesta del servidor, este es solo un
   preview.
-- **Línea de "Procesamiento del pago" mostrada como estimado, nunca restada de "Te
-  queda"**: `MP_TRANSACTION_FEE_RATE` sigue sin confirmar y `movo-svc-payments` no
-  tiene split real todavía — el transportista de hecho recibe el neto completo que
-  tipeó, así que "Te queda" es exactamente ese número, con una nota aclarando que el
-  estimado de MP es solo contexto.
+- **Línea de "Procesamiento del pago" mostrada como estimado**: MOVO-225 la pasó a
+  restar del desglose, porque MP sí descuenta su comisión de lo que le acredita al
+  transportista. Todo monto que se le presenta como cobro (crear oferta, detalle y
+  edición de oferta, "Mis ofertas", detalle del envío, card del sugerido) es "Recibís
+  aprox." = neto menos el estimado de MP sobre el bruto (`estimateReceivedArs`,
+  fórmula en `@movo/shared`, tasa `EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE` con fallback
+  si es inválida). Una oferta que ya no se concreta dice "Habrías recibido aprox."
+  (`receivedAmountLabel`). El estimado es a validar con pagos reales.
 - **Fecha/horario de retiro alternativo** (bloqueado hasta el cambio de backend del
   mismo ticket, ver `services/movo-svc-shipments/CLAUDE.md` MOVO-177): "Como lo pidió
   el emisor" (default) vs. "Proponer otro día u horario" — day chips (0 a +3 días) +
@@ -2498,7 +2501,8 @@ a los mismos documentos, en una US aparte); checkbox de aceptación explícita e
 el wizard de registro y su versionado (qué versión aceptó cada usuario y
 cuándo) — el hub de Legal de esta US es de consulta libre, no un gate de
 onboarding; el contenido en sí sigue siendo un borrador (ver
-`[A COMPLETAR]` pendientes en `docs/legal/`, trackeados en MOVO-225/226/227);
+`[A COMPLETAR]` pendientes en `docs/legal/`, trackeados en MOVO-226/227; el de
+MOVO-225 ya se cerró);
 no probado en device (el scroll a ancla depende del `ScrollView` real, que en
 el entorno de test no expone `scrollTo` de forma mockeable — cubierto solo
 como smoke test de que no rompe, la lógica de cálculo de offset/slug sí está

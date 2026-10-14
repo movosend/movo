@@ -814,7 +814,8 @@ describe("ShipmentDetailScreen", () => {
 
   describe("vista del transportista y del receptor (MOVO-194)", () => {
     it.each([
-      ["user-2", "Te queda", "$5.000"],
+      // MOVO-225: neto (5000) menos el estimado de MP sobre el bruto (5750 * 4,99%).
+      ["user-2", "Recibís aprox.", "$4.713,07"],
       ["user-1", "Precio pactado", "$5.750"],
     ])("sobre el mismo agreedPriceArs, el usuario %s ve '%s' %s", async (userId, label, amount) => {
       mockCurrentUser.mockReturnValue({ userId });

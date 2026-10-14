@@ -61,11 +61,14 @@ un `boolean | undefined` obligaría a cada consumidor a decidir qué significa l
 `computeOfferGrossPrice()` (función pura, neto→bruto). Consumido hoy por
 `movo-svc-shipments` (AC6 de MOVO-143, creación de oferta) — pensado para que
 `movo-svc-payments` (split real) y `movo-svc-admin` (estadísticas) reusen el mismo
-número más adelante en vez de duplicarlo, en particular `mpTransactionFeeRate`, que
-esta US define pero todavía no descuenta en ningún lado (`movo-svc-payments` sigue
-siendo un esqueleto). `MOVO_COMMISSION_RATE` confirmado en 15%;
-`MP_TRANSACTION_FEE_RATE` es un placeholder pendiente de confirmar con el contrato
-real de MP.
+número en vez de duplicarlo (`svc-payments` ya lo usa para el `application_fee` del
+hold, MOVO-209). `mpTransactionFeeRate` no se descuenta en el backend: MP cobra su
+comisión real y la informa en `fee_details`. `MOVO_COMMISSION_RATE` confirmado en 15%;
+`MP_TRANSACTION_FEE_RATE` es un estimado para mostrar, no un valor contractual
+(MOVO-225: MP cobra según la cuenta de cada transportista, ver `CLAUDE.md` raíz).
+MOVO-225 suma `estimateMpFeeArs`/`estimateReceivedArs` (lo que mobile muestra como
+"Recibís aprox.") y `parseRate`, que cae al default si una tasa no es numérica, así
+un typo en la env var no termina en `$NaN`.
 
 ### MOVO-188 (fix de review, PR #142) — `computeNetFromGross`
 
