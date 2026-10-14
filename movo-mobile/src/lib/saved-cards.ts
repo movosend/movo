@@ -95,15 +95,16 @@ export function hasUsableCard(cards: SavedCard[], now: Date = new Date()): boole
 }
 
 /**
- * La que el backend marca como predeterminada si se borra `deleted`: la viva más reciente
- * (`saved-card-repository.ts#softDelete`). Así el copy de la hoja de eliminar no promete
- * otra distinta.
+ * La que el backend marca como predeterminada si se borra `deleted`: la vigente más reciente,
+ * o la más reciente si ninguna está vigente (`saved-card-repository.ts#softDelete`). Así el
+ * copy de la hoja de eliminar no promete otra distinta.
  */
-export function nextDefaultAfterDelete(cards: SavedCard[], deleted: SavedCard): SavedCard | null {
+export function nextDefaultAfterDelete(cards: SavedCard[], deleted: SavedCard, now: Date = new Date()): SavedCard | null {
   if (!deleted.isDefault) return null;
-  const rest = cards.filter((card) => card.id !== deleted.id);
-  if (rest.length === 0) return null;
-  return [...rest].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const rest = cards
+    .filter((card) => card.id !== deleted.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return rest.find((card) => !isCardExpired(card, now)) ?? rest[0] ?? null;
 }
 
 /** Título de la hoja de eliminar: `¿Eliminar "Personal"?` o `¿Eliminar Visa •••• 4242?`. */
@@ -113,7 +114,7 @@ export function deleteCardTitle(card: SavedCard): string {
 
 export function deleteCardBody(cards: SavedCard[], card: SavedCard, now: Date = new Date()): string {
   if (!card.isDefault) return "La sacamos de tus medios de pago. Podés volver a agregarla cuando quieras.";
-  const next = nextDefaultAfterDelete(cards, card);
+  const next = nextDefaultAfterDelete(cards, card, now);
   if (next && !isCardExpired(next, now)) {
     return `Es tu tarjeta predeterminada. Vamos a usar ${cardLabel(next)} en su lugar.`;
   }
@@ -121,8 +122,9 @@ export function deleteCardBody(cards: SavedCard[], card: SavedCard, now: Date = 
 }
 
 /** Texto del aviso tras guardar, como el prototipo. */
-export function savedCardToast(card: SavedCard): string {
+export function savedCardToast(card: SavedCard, defaultFailed = false): string {
   const base = card.alias ? `Guardamos "${card.alias}"` : `Guardamos tu ${cardTitle(card)}`;
+  if (defaultFailed) return `${base}, pero no pudimos marcarla como predeterminada.`;
   return base + (card.isDefault ? ". Es tu predeterminada." : ".");
 }
 
@@ -156,7 +158,7 @@ const TOKEN_FAILURE_MESSAGES: Record<CardTokenFailure["reason"], string> = {
   invalid_holder: "Revisá el nombre del titular, tal como figura en la tarjeta.",
   invalid_document: "Revisá el número de documento del titular.",
   network: "No pudimos conectarnos con Mercado Pago. Revisá tu conexión y probá de nuevo.",
-  unknown: "Tu banco no la aprobó. Revisá los datos o probá con otra. No se cobró nada.",
+  unknown: "No pudimos guardar la tarjeta. Revisá los datos o probá con otra.",
 };
 
 const FIELD_STEP: Record<NonNullable<CardTokenFailure["field"]>, 1 | 2 | 3> = {

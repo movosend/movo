@@ -23,13 +23,13 @@ import {
   CARD_DNI_MAX_LENGTH,
   expectedCvvLength,
   formatCardNumberInput,
-  formatDniInput,
   formatExpiryInput,
   isStepValid,
   onlyDigits,
   sanitizeHolderName,
   validateCardForm,
 } from "../../src/lib/card-form";
+import { formatDni } from "../../src/lib/dni";
 import { friendlyErrorMessage } from "../../src/lib/error-messages";
 import { type CardBinInfo, lookupBin } from "../../src/lib/mp-card-tokenizer";
 import { cardBrandName, cardSaveError, hasUsableCard, paymentTypeLabel } from "../../src/lib/saved-cards";
@@ -64,8 +64,10 @@ const STEP_COPY: Record<Step, [string, string]> = {
 
 export interface AddCardWizardProps {
   /** Las tarjetas que ya tiene: si ninguna está vigente, la nueva queda predeterminada sí o sí. */
-  cards: SavedCard[];
-  onSaved: (card: SavedCard) => void;
+  /** `undefined`: todavía no se sabe (cargando o con error). Mientras tanto no se fuerza la predeterminada. */
+  cards: SavedCard[] | undefined;
+  /** `defaultFailed`: quedó guardada pero no se pudo marcar como predeterminada. */
+  onSaved: (card: SavedCard, info: { defaultFailed: boolean }) => void;
   onCancel: () => void;
 }
 
@@ -180,7 +182,7 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
   };
 
   const add = useAddSavedCard({
-    onSuccess: (card) => onSaved(card),
+    onSuccess: ({ card, defaultFailed }) => onSaved(card, { defaultFailed }),
     onError: (err) => {
       const { message, step: errorStep } = cardSaveError(err);
       setStatus("error");
@@ -223,9 +225,11 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
   const done = Object.values(validity).filter(Boolean).length;
   const progress = busy ? 1 : done / 5;
   const stepOk = isStepValid(step, validity);
-  const forcedDefault = !hasUsableCard(cards);
+  const forcedDefault = cards !== undefined && !hasUsableCard(cards);
   const defaultOn = forcedDefault || makeDefault;
-  const brand = cardBrandKey(binInfo?.paymentMethodId) ?? cardBrandFromNumber(num);
+  // Si MP ya dijo la marca y no es una de las tres con logo (Naranja, Argencard...), no se
+  // adivina por el primer dígito: un "5" es Mastercard solo si MP no dijo otra cosa.
+  const brand = binInfo?.paymentMethodId ? cardBrandKey(binInfo.paymentMethodId) : cardBrandFromNumber(num);
   const expError = exp.length === 4 && !validity.exp;
   const cvvLength = expectedCvvLength(num, binInfo);
 
@@ -488,7 +492,7 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
                     testID="add-card-dni"
                     label="Número"
                     mono
-                    value={formatDniInput(dni)}
+                    value={formatDni(dni)}
                     onChangeText={(text) => {
                       setDni(onlyDigits(text, CARD_DNI_MAX_LENGTH));
                       editing();

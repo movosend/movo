@@ -87,7 +87,19 @@ describe("saved-cards (MOVO-101)", () => {
       "Es tu tarjeta predeterminada. Vamos a usar Personal en su lugar.",
     );
     expect(deleteCardBody([def], def, NOW)).toContain("Es tu única tarjeta vigente");
+    expect(deleteCardBody([def, older, newer], def, NOW)).not.toContain("única");
     expect(deleteCardBody([def, older], older, NOW)).toContain("La sacamos de tus medios de pago");
+  });
+
+  it("la siguiente predeterminada es la vigente más reciente, aunque haya una vencida más nueva (review PR #239)", () => {
+    const def = card({ id: "A", isDefault: true, createdAt: "2026-10-01T00:00:00Z" });
+    const live = card({ id: "B", createdAt: "2026-09-01T00:00:00Z" });
+    const expired = card({ id: "C", expYear: 2025, createdAt: "2026-10-10T00:00:00Z" });
+    expect(nextDefaultAfterDelete([def, live, expired], def, NOW)?.id).toBe("B");
+    expect(deleteCardBody([def, live, expired], def, NOW)).toBe("Es tu tarjeta predeterminada. Vamos a usar Visa •••• 4242 en su lugar.");
+    // Si ninguna que queda sirve, el backend igual promueve la más reciente y el copy lo dice.
+    expect(nextDefaultAfterDelete([def, expired], def, NOW)?.id).toBe("C");
+    expect(deleteCardBody([def, expired], def, NOW)).toContain("Es tu única tarjeta vigente");
   });
 
   it("textos de eliminar, guardar y renombrar", () => {
@@ -95,6 +107,7 @@ describe("saved-cards (MOVO-101)", () => {
     expect(deleteCardTitle(card())).toBe("¿Eliminar Visa •••• 4242?");
     expect(savedCardToast(card({ alias: "Gastos", isDefault: true }))).toBe('Guardamos "Gastos". Es tu predeterminada.');
     expect(savedCardToast(card())).toBe("Guardamos tu Visa •••• 4242.");
+    expect(savedCardToast(card(), true)).toBe("Guardamos tu Visa •••• 4242, pero no pudimos marcarla como predeterminada.");
     expect(renamedCardToast(card())).toBe("Le sacaste el nombre a tu Visa •••• 4242.");
   });
 

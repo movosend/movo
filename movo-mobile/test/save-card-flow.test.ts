@@ -54,8 +54,16 @@ describe("saveNewCard (MOVO-101)", () => {
     (paymentsClient.setDefaultCard as jest.Mock).mockResolvedValue({ ...SAVED, isDefault: true });
     await expect(
       saveNewCard({ publicKey: "TEST-pk", card: CARD, paymentMethodId: null, alias: null, makeDefault: true }),
-    ).resolves.toEqual({ ...SAVED, isDefault: true });
+    ).resolves.toEqual({ card: { ...SAVED, isDefault: true }, defaultFailed: false });
     expect(paymentsClient.setDefaultCard).toHaveBeenCalledWith("card-1");
+  });
+
+  it("si marcar la predeterminada falla, la tarjeta ya guardada se devuelve igual con el aviso", async () => {
+    (paymentsClient.setDefaultCard as jest.Mock).mockRejectedValue(new Error("timeout"));
+    await expect(
+      saveNewCard({ publicKey: "TEST-pk", card: CARD, paymentMethodId: null, alias: null, makeDefault: true }),
+    ).resolves.toEqual({ card: SAVED, defaultFailed: true });
+    expect(paymentsClient.createSavedCard).toHaveBeenCalledTimes(1);
   });
 
   it("si MP rechaza la tarjeta no llama al backend", async () => {

@@ -1,8 +1,8 @@
 import { act, fireEvent, render } from "@testing-library/react-native";
 import { AddCardWizard } from "../components/payments/add-card-wizard";
-import { CardTokenError } from "../src/lib/mp-card-tokenizer";
+import { CardTokenError, lookupBin } from "../src/lib/mp-card-tokenizer";
 
-type AddOptions = { onSuccess?: (card: unknown) => void; onError?: (err: unknown) => void };
+type AddOptions = { onSuccess?: (result: { card: unknown; defaultFailed: boolean }) => void; onError?: (err: unknown) => void };
 const mockMutate = jest.fn();
 let mockAddOptions: AddOptions = {};
 
@@ -63,6 +63,22 @@ describe("AddCardWizard (MOVO-101)", () => {
     expect(await findByTestId("add-card-bank")).toBeTruthy();
     expect(getByTestId("card-preview-bank", { includeHiddenElements: true }).props.children).toBe("Banco Galicia");
     expect(getByTestId("add-card-primary").props.accessibilityState.disabled).toBe(false);
+  });
+
+  it("una marca que MP reconoce pero sin logo (Naranja) no cae al Mastercard del primer dígito", async () => {
+    (lookupBin as jest.Mock).mockResolvedValueOnce({
+      paymentMethodId: "naranja",
+      paymentType: "credit_card",
+      issuerName: "Tarjeta Naranja",
+      cardNumberLength: 16,
+      securityCodeLength: 3,
+    });
+    const { getByTestId, findByTestId, queryByTestId } = await render(
+      <AddCardWizard cards={[EXISTING]} onSaved={jest.fn()} onCancel={jest.fn()} />,
+    );
+    await act(async () => fireEvent.changeText(getByTestId("add-card-number"), "5895 6270 0000 0000"));
+    expect(await findByTestId("add-card-bank")).toBeTruthy();
+    expect(queryByTestId("card-preview-brand", { includeHiddenElements: true })).toBeNull();
   });
 
   it("recorre los 3 pasos y guarda con nombre de referencia, sin mandar nada más que lo necesario al hook (AC3, AC10)", async () => {
@@ -142,8 +158,22 @@ describe("AddCardWizard (MOVO-101)", () => {
   it("al guardar avisa al caller con la tarjeta (AC6)", async () => {
     const onSaved = jest.fn();
     await render(<AddCardWizard cards={[EXISTING]} onSaved={onSaved} onCancel={jest.fn()} />);
-    await act(async () => mockAddOptions.onSuccess?.({ id: "new" }));
-    expect(onSaved).toHaveBeenCalledWith({ id: "new" });
+    await act(async () => mockAddOptions.onSuccess?.({ card: { id: "new" }, defaultFailed: false }));
+    expect(onSaved).toHaveBeenCalledWith({ id: "new" }, { defaultFailed: false });
+  });
+
+  it("avisa si la tarjeta quedó guardada pero no se pudo marcar como predeterminada", async () => {
+    const onSaved = jest.fn();
+    await render(<AddCardWizard cards={[EXISTING]} onSaved={onSaved} onCancel={jest.fn()} />);
+    await act(async () => mockAddOptions.onSuccess?.({ card: { id: "new" }, defaultFailed: true }));
+    expect(onSaved).toHaveBeenCalledWith({ id: "new" }, { defaultFailed: true });
+  });
+
+  it("mientras no se sabe si ya tiene tarjetas (cargando o con error) no fuerza la predeterminada", async () => {
+    const utils = await render(<AddCardWizard cards={undefined} onSaved={jest.fn()} onCancel={jest.fn()} />);
+    const { getByTestId } = utils;
+    await fillUpToStep3(utils);
+    expect(getByTestId("add-card-default-switch").props.accessibilityState).toEqual({ checked: false, disabled: false });
   });
 
   it("volver en el paso 1 cancela; en el paso 2 vuelve al 1", async () => {

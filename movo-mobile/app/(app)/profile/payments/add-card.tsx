@@ -10,7 +10,7 @@ import { savedCardToast } from "../../../../src/lib/saved-cards";
  * desde el pago.
  */
 export default function AddCardScreen() {
-  const cards = useSavedCards().data ?? [];
+  const cards = useSavedCards().data;
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -22,10 +22,10 @@ export default function AddCardScreen() {
       <AddCardWizard
         cards={cards}
         onCancel={goBack}
-        onSaved={(card) => {
+        onSaved={(card, { defaultFailed }) => {
           // `dismissTo` (MOVO-271): vuelve a la instancia de "Pagos y cobros" que abrió el
           // alta en vez de apilar otra.
-          router.dismissTo({ pathname: "/profile/payments", params: { toast: savedCardToast(card) } });
+          router.dismissTo({ pathname: "/profile/payments", params: { toast: savedCardToast(card, defaultFailed) } });
         }}
       />
     </SafeAreaView>

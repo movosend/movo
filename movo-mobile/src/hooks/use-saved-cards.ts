@@ -1,7 +1,7 @@
 import type { SavedCard } from "@movo/shared/dist/types/saved-card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { paymentsClient } from "../api/payments-client";
-import { type SaveCardInput, saveNewCard } from "../lib/save-card-flow";
+import { type SaveCardInput, type SaveCardResult, saveNewCard } from "../lib/save-card-flow";
 
 /**
  * Tarjetas guardadas (MOVO-101, backend MOVO-100). Mismo molde que `use-mp-connect.ts`:
@@ -40,13 +40,16 @@ export function upsertCard(cards: SavedCard[] | undefined, card: SavedCard): Sav
   return [...rest.slice(0, index), card, ...rest.slice(index)];
 }
 
-export function useAddSavedCard(options?: { onSuccess?: (card: SavedCard) => void; onError?: (error: unknown) => void }) {
+export function useAddSavedCard(options?: {
+  onSuccess?: (result: SaveCardResult) => void;
+  onError?: (error: unknown) => void;
+}) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: SaveCardInput) => saveNewCard(input),
-    onSuccess: (card) => {
-      queryClient.setQueryData<SavedCard[]>(SAVED_CARDS_QUERY_KEY, (cards) => upsertCard(cards, card));
-      options?.onSuccess?.(card);
+    onSuccess: (result) => {
+      queryClient.setQueryData<SavedCard[]>(SAVED_CARDS_QUERY_KEY, (cards) => upsertCard(cards, result.card));
+      options?.onSuccess?.(result);
     },
     onError: options?.onError,
   });
