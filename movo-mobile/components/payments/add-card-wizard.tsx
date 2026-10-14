@@ -194,9 +194,8 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
   const binInfo = binKey && bin?.key === binKey ? bin.info : null;
 
   // Enfoca el primer campo de cada paso, como el prototipo (después de la animación).
-  const autofilling = useRef(false);
   useEffect(() => {
-    if (status !== "form" || autofilling.current) return;
+    if (status !== "form") return;
     const first = step === 1 ? refs.num : step === 2 ? refs.exp : refs.name;
     const timer = setTimeout(() => first.current?.focus(), 380);
     return () => clearTimeout(timer);
@@ -260,7 +259,6 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
   };
 
   const autofill = () => {
-    autofilling.current = true;
     if (step === 1) setNum(DEV_AUTOFILL.num);
     if (step === 2) {
       setExp(DEV_AUTOFILL.exp);
@@ -272,7 +270,6 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
       setAlias(DEV_AUTOFILL.alias);
     }
     setStatus("form");
-    autofilling.current = false;
   };
 
   const focusProps = (key: Exclude<CardPreviewFocus, null>) => ({
@@ -449,7 +446,6 @@ export function AddCardWizard({ cards, onSaved, onCancel }: AddCardWizardProps) 
                 }}
                 keyboardType="number-pad"
                 placeholder="3 o 4 dígitos"
-                secureTextEntry={false}
                 autoComplete="cc-csc"
                 {...focusProps("cvv")}
               />
