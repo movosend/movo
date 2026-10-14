@@ -453,6 +453,14 @@ inválida) y `PAYMENT_WEBHOOK_NOT_CONFIGURED` (503, falta `MP_WEBHOOK_SECRET`). 
 solo MP, no la app. `HoldProviderEventRequest` (MOVO-210) no cambia: "vencido" sigue siendo
 `event: expired`.
 
+### MOVO-282 — Hold con tarjeta guardada: `payerUserId` y `savedCardId`
+
+`CreateHoldRequest` (`types/hold.ts`) suma `payerUserId` (requerido: el emisor, dueño de la tarjeta) y
+`savedCardId?` (id interno de `payments.saved_cards`); `ShipmentFundingRequest` (`types/funding.ts`) suma
+`savedCardId?`. `HoldResponse` no cambia: no expone ids de MP ni de la tarjeta. Cambio compatible hacia atrás
+salvo por `payerUserId`, que `svc-shipments` siempre manda. `npm run build` acá antes de tipar desde otro
+workspace.
+
 ### MOVO-100 — Contrato de las tarjetas guardadas (`types/saved-card.ts`)
 
 `SavedCard` (con `mpCardId` y `alias`), `CreateSavedCardRequest`, `UpdateSavedCardRequest`,
