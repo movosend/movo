@@ -208,6 +208,14 @@ holds, para que el `PaymentsClient` de MOVO-210 los alcance con su misma base). 
 - **Fallos (AC8)**: este servicio no conoce el estado del envío, así que no puede revertir la entrega. Un
   fallo deja la liquidación `failed` (con `failureReason`) o `processing` (cobrado pero sin desglose todavía)
   y el hold como estaba; llamar de nuevo reintenta desde donde quedó. El backoff y el escalado son MOVO-213.
+  El update a `failed` es condicional sobre `processing` (`updateIfStatus`): una captura en línea que ya
+  acreditó no la pisa un fallo tardío del reintento, y `capture()` relee y devuelve la acreditada.
+  **Fallos permanentes no se reintentan** (review de PR #235): `hold_expired` corta sin llamar a MP, y
+  `carrier_account_unavailable` solo se reintenta si la vinculación cambió después del fallo (re-vinculación
+  o un refresh de MOVO-243); un token vencido falla sin llamar a MP. **Pendiente (MOVO-243)**: refrescar el
+  `access_token` con el `refresh_token` antes de capturar; hoy no hay flujo de refresh en este servicio.
+- **Comisión de MP = solo lo que descuenta al vendedor** (`fee_payer: collector`): un cargo que paga el
+  comprador (`financing_fee` en cuotas) queda afuera, así `mpFee + comisión + neto == bruto` sigue cerrando.
 - **Decisión no obvia**: no se rechaza de entrada por `expiresAt` vencido. `MP_HOLD_VALIDITY_DAYS` es una
   estimación provisoria (MOVO-215), así que se intenta igual y se clasifica el fallo como `hold_expired` solo
   si MP rechaza y el hold ya pasó su fecha o MP lo tiene `cancelled`. Un hold cancelado por MP NO se sincroniza
@@ -247,8 +255,15 @@ de OAuth), registrado en el panel de la app para el tópico `payment`. Código e
 `src/utils/mp-webhook-signature.ts`, `src/adapters/{shipments-client,alert-notifier}.ts` y
 `src/plugins/mp-webhooks.ts`.
 
+- **Se deduplica por lo firmado, no por el `id` del body** (review de PR #235): la clave es
+  `data.id:x-request-id:ts` (`notificationDedupeKey`), así reenviar una notificación válida con otro `id` no crea
+  filas nuevas. El `user_id` del body no está firmado: solo orienta qué credenciales probar para un pago
+  desconocido, y si el pago no es de ese vendedor (`collector_id`) se ignora. Un `status` heredado de `Object`
+  (`constructor`) ya no se cuela como `kind` (`hasOwnProperty`). Si la reconciliación de un intento en
+  `creating` (`?sync=true`) lo lleva a cancelado/vencido/rechazado, igual se avisa a `svc-shipments` (antes se veía
+  como "ya cerrado" y no avisaba).
 - **Inbox en la base (AC7)**: la ruta valida `x-signature` (HMAC del manifest
-  `id;request-id;ts`, sin ventana sobre `ts`: un reenvío viejo es inofensivo), guarda la
+  `id;request-id;ts`, sin ventana sobre `ts`: un reintento legítimo de MP conserva el `ts`), guarda la
   notificación en `mp_webhook_notifications` y responde 200; el procesamiento corre en
   segundo plano. Un error propio (MP o shipments caídos) la deja `pending` con backoff
   (1, 2, 4... min, tope 6 h) y un barrido (`setInterval`, sin lock de Redis: cada

@@ -3216,9 +3216,16 @@ payments-funds-release-notifier.ts`, `src/plugins/settlement-sweep.ts`; `Payment
   `SET NX`). El default de código sigue siendo `console` (dev/test/CI, como MOVO-158); `infra/docker-compose.yml`
   lo pone en `payments` para dev/prod. El handshake no cambió: sigue siendo `void notify().catch(warn)`.
 - **AC8**: si la captura falla, el servicio lanza y el envío queda en `delivered`; no hay transición hacia atrás.
-  Lo reintenta `settlement-sweep` (solo corre con el notifier `payments`): un intento por envío y por pasada,
-  sin backoff ni escalado — eso es MOVO-213. Un `delivered` sin hold (asignado antes de la saga de pagos) se
-  loguea y se salta, no es un fallo de cobro.
+  Lo reintenta `settlement-sweep` (solo corre con el notifier `payments`): un intento por envío y por pasada.
+  El barrido recorre los candidatos con un cursor keyset `(deliveredAt, id)` y salta los que están
+  "enfriándose" tras un fallo (Redis `settlement-sweep:cooldown:<id>`: 10 min, 20, 40... hasta 6 h; 24 h si
+  payments dice `HOLD_NOT_FOUND`/`HOLD_NOT_CAPTURABLE`), así una pila de envíos imposibles de capturar no tapa a
+  los que sí se pueden cobrar (review de PR #235). La política completa y el escalado manual siguen siendo
+  MOVO-213. Un `delivered` sin hold (asignado antes de la saga de pagos) se loguea y se salta, no es un fallo
+  de cobro.
+- **El service de liquidación se arma una sola vez** (`plugins/settlements.ts`, `app.settlements`) y lo usan el
+  notifier del handshake, el barrido y las rutas: antes cada uno armaba el suyo y un override de test podía
+  llegar a uno solo.
 - **`GET /shipments/:id/settlement`** (AC10): transportista ve bruto/fee MP/comisión/neto, emisor solo total y
   fecha, receptor y ajenos 403. El estado visible es `processing|credited|escalated`: `failed` se muestra como
   `processing`. El filtro por rol vive acá y no en payments porque acá se sabe quién es quién.
