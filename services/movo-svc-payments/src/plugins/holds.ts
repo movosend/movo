@@ -2,6 +2,7 @@ import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
 import { createCarrierMpAccountRepository } from "../repositories/carrier-mp-account-repository";
 import { createHoldRepository } from "../repositories/hold-repository";
+import { createSavedCardRepository } from "../repositories/saved-card-repository";
 import { createTokenCipher } from "../utils/token-cipher";
 import { createHoldService, HoldService } from "../modules/holds/hold.service";
 
@@ -17,6 +18,7 @@ export default fp(async (app: FastifyInstance) => {
       holds: createHoldRepository(app.db),
       accounts: createCarrierMpAccountRepository(app.db, createTokenCipher(app.config.MP_TOKEN_ENCRYPTION_KEY)),
       mercadoPago: app.mercadoPago,
+      savedCards: createSavedCardRepository(app.db),
       log: app.log,
     })
   );
