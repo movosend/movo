@@ -6,7 +6,6 @@ describe("GET /health", () => {
   let app: FastifyInstance;
 
   beforeAll(() => {
-    process.env.JWT_SECRET = "test-secret";
     app = buildApp();
   });
 
