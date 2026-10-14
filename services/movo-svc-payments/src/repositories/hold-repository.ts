@@ -12,6 +12,8 @@ export interface NewHoldAttempt {
   applicationFeeArs: number;
   /** Hash del cuerpo del pedido (token, pagador, medio de pago): ver `requestFingerprint`. */
   requestFingerprint: string;
+  /** MOVO-282: tarjeta guardada con la que se crea el hold (habilita el `409 CARD_IN_USE` al borrarla). */
+  savedCardId?: string | null;
 }
 
 export interface HoldUpdate {
@@ -83,6 +85,7 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
             amountArs: new Prisma.Decimal(data.amountArs),
             applicationFeeArs: new Prisma.Decimal(data.applicationFeeArs),
             requestFingerprint: data.requestFingerprint,
+            savedCardId: data.savedCardId ?? null,
             status: "creating",
           },
         });

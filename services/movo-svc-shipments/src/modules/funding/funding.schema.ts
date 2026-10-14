@@ -46,6 +46,8 @@ export const fundingSchemas = {
     additionalProperties: false,
     properties: {
       cardToken: { type: "string", minLength: 1, maxLength: 256 },
+      // MOVO-282: tarjeta guardada con la que se generó el token (`card_id` + CVV).
+      savedCardId: { type: "string", format: "uuid" },
       paymentMethodId: { type: "string", minLength: 1, maxLength: 64 },
     },
   },

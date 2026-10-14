@@ -7,20 +7,27 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Configuración general de movo-svc-pricing-logistics.
 
-    Incluye los coeficientes de la fórmula de pricing (MOVO-138)
+    Incluye los coeficientes de la fórmula de pricing (MOVO-138, MOVO-276)
     y los parámetros de optimización de rutas VRPTW (MOVO-205 / MOVO-217).
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Coeficientes de `demand_fuel_routes_v1` (MOVO-138, ADR-025), en LITROS de nafta y no
-    # en pesos: la tarifa se indexa sola con el precio del surtidor. Calibrados para que,
-    # a 2.222,5 ARS/l, coincidan con la tarifa de euclidean_linear_v1 (1500 base, ~150/km,
-    # 300/kg) y el cambio de método no sea un salto de precio (spike §5.2).
+    # Coeficientes de `package_tapered_v2` (MOVO-276), en LITROS de nafta y no en pesos: la
+    # tarifa se indexa sola con el precio del surtidor (ADR-025). Los de distancia vienen
+    # de `demand_fuel_routes_v1`; base y peso se recalibraron contra la grilla de
+    # referencia (`docs/pricing/grilla-referencia.md`, banda de 0,6x a 1,0x del Correo).
+    # Tarifa base de un paquete (`standard_package`, y `fragile_item` antes del recargo).
     base_fare_l: float = Field(
-        default=0.675,
+        default=0.15,
         ge=0,
         validation_alias=AliasChoices("PRICING_BASE_FARE_L", "base_fare_l"),
+    )
+    # Tarifa base de un documento: menor que la de un paquete (AC3 de MOVO-276).
+    base_fare_document_l: float = Field(
+        default=0.0,
+        ge=0,
+        validation_alias=AliasChoices("PRICING_BASE_FARE_DOCUMENT_L", "base_fare_document_l"),
     )
     # Consumo de un auto mediano (8 l/100 km).
     fuel_l_per_km: float = Field(
@@ -41,10 +48,31 @@ class Settings(BaseSettings):
         ge=0,
         validation_alias=AliasChoices("PRICING_NON_FUEL_L_PER_KM", "non_fuel_l_per_km"),
     )
+    # Por kg de peso FACTURABLE: máx(peso real, L x A x H / divisor), como cotizan Correo,
+    # Andreani y OCA. Así un paquete liviano pero grande paga por el espacio que ocupa.
     per_kg_l: float = Field(
-        default=0.135,
+        default=0.275,
         ge=0,
         validation_alias=AliasChoices("PRICING_PER_KG_L", "per_kg_l"),
+    )
+    volumetric_divisor: float = Field(
+        default=5000.0,
+        gt=0,
+        validation_alias=AliasChoices("PRICING_VOLUMETRIC_DIVISOR", "volumetric_divisor"),
+    )
+    # Tramo decreciente de peso: los primeros `weight_tier_kg` facturables a tarifa llena,
+    # el resto al `weight_tier_rate`. Sin esto, el cubo de 1 m³ que admiten los límites
+    # (200 kg volumétricos) cotizaba ~135.000 a cualquier destino.
+    weight_tier_kg: float = Field(
+        default=10.0,
+        ge=0,
+        validation_alias=AliasChoices("PRICING_WEIGHT_TIER_KG", "weight_tier_kg"),
+    )
+    weight_tier_rate: float = Field(
+        default=0.35,
+        ge=0,
+        le=1,
+        validation_alias=AliasChoices("PRICING_WEIGHT_TIER_RATE", "weight_tier_rate"),
     )
 
     # Tramos decrecientes de distancia (hotfix de precios de larga distancia): la tarifa
@@ -102,18 +130,31 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PRICING_DEMAND_MAX_SURCHARGE", "demand_max_surcharge"),
     )
 
-    # Multiplicador por `packageType` (MOVO-82), sin cambios en demand_fuel_routes_v1.
-    factor_letter_document: float = Field(
-        default=1.0,
-        validation_alias=AliasChoices("PRICING_FACTOR_LETTER_DOCUMENT", "factor_letter_document"),
+    # Recargo por manipulación de `fragile_item` sobre el precio del mismo paquete no
+    # frágil. Frágil sigue siendo una categoría y no un atributo: el tamaño ya entra por
+    # el peso facturable, así que un frasco y un televisor frágiles no cuestan lo mismo.
+    fragile_surcharge: float = Field(
+        default=0.2,
+        ge=0,
+        validation_alias=AliasChoices("PRICING_FRAGILE_SURCHARGE", "fragile_surcharge"),
     )
-    factor_standard_package: float = Field(
-        default=1.0,
-        validation_alias=AliasChoices("PRICING_FACTOR_STANDARD_PACKAGE", "factor_standard_package"),
+
+    # Límites duros del paquete (MOVO-276): `/quote` responde 422 si se exceden. Mismos
+    # nombres y defaults que en `movo-svc-shipments`, que los valida antes de cotizar.
+    package_max_weight_kg: float = Field(
+        default=30.0,
+        gt=0,
+        validation_alias=AliasChoices("PACKAGE_MAX_WEIGHT_KG", "package_max_weight_kg"),
     )
-    factor_fragile_item: float = Field(
-        default=1.2,
-        validation_alias=AliasChoices("PRICING_FACTOR_FRAGILE_ITEM", "factor_fragile_item"),
+    package_max_side_cm: float = Field(
+        default=150.0,
+        gt=0,
+        validation_alias=AliasChoices("PACKAGE_MAX_SIDE_CM", "package_max_side_cm"),
+    )
+    package_max_sides_sum_cm: float = Field(
+        default=300.0,
+        gt=0,
+        validation_alias=AliasChoices("PACKAGE_MAX_SIDES_SUM_CM", "package_max_sides_sum_cm"),
     )
 
     # Precio de combustible (MOVO-138, ADR-025). `mock` devuelve el fallback fijo sin

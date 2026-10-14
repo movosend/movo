@@ -32,11 +32,13 @@ import {
   initialWindowMetrics,
 } from "react-native-safe-area-context";
 import { PriceBreakdownCard } from "../../../../components/payments/price-breakdown-card";
+import { CarrierRequirementsSheet } from "../../../../components/carrier/carrier-requirements-checklist";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { GridPattern } from "../../../../components/ui/grid-pattern";
 import { NumericKeypad } from "../../../../components/ui/numeric-keypad";
 import { SectionLabel } from "../../../../components/ui/section-label";
 import { SuccessBanner } from "../../../../components/ui/success-banner";
+import { useCarrierRequirementsSheet } from "../../../../src/hooks/use-carrier-requirements-sheet";
 import { useOfferDetail, useUpdateOffer, useWithdrawOffer } from "../../../../src/hooks/use-offers";
 import { useSheetAnimation } from "../../../../src/hooks/use-sheet-animation";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
@@ -133,6 +135,7 @@ export default function OfferDetailScreen() {
   const { data: offer, isLoading, isError, error, refetch } = useOfferDetail(offerId);
   const withdrawOffer = useWithdrawOffer(offer?.shipmentId);
   const updateOffer = useUpdateOffer(offerId);
+  const requirements = useCarrierRequirementsSheet("edit_offer");
 
   const { colorScheme } = useColorScheme();
 
@@ -183,6 +186,11 @@ export default function OfferDetailScreen() {
         onSuccess: () => {
           setPriceSheetOpen(false);
           setUpdateSuccess(true);
+        },
+        onError: (err) => {
+          // MOVO-117: el 403 de requisitos abre la checklist en vez del texto de respaldo.
+          // iOS no presenta un `Modal` sobre otro abierto, así que se cierra antes el del precio.
+          if (requirements.handleError(err)) setPriceSheetOpen(false);
         },
       },
     );
@@ -898,6 +906,8 @@ export default function OfferDetailScreen() {
           </View>
         </SafeAreaProvider>
       </Modal>
+
+      <CarrierRequirementsSheet {...requirements.sheetProps} />
     </SafeAreaView>
   );
 }

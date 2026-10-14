@@ -16,9 +16,9 @@ export interface CarrierRequirementGateProps {
 /**
  * Estado bloqueante "te falta un requisito para transportar" (MOVO-167): ícono en
  * círculo, título, explicación y un CTA directo al flujo que lo resuelve. No sabe qué
- * requisito es — el caller decide el copy y a dónde navega. Hoy lo usan los bloqueos
- * de identidad y de licencia del tab Transportar; MOVO-117 reemplaza el de licencia
- * por una checklist propia (licencia + Mercado Pago) y no reutiliza este componente.
+ * requisito es — el caller decide el copy y a dónde navega. Hoy lo usa solo el bloqueo
+ * de identidad del tab Transportar; licencia y Mercado Pago van en la checklist de
+ * MOVO-117 (`CarrierRequirementsChecklist`).
  *
  * Ocupa el alto disponible y centra el mensaje; el `pb-24` compensa la tab bar
  * flotante, que tapa el pie de la pantalla. El CTA ocupa todo el ancho del contenido

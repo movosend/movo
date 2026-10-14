@@ -236,3 +236,22 @@ devuelve la matriz del provider para 2 a 25 puntos (límite de 625 elementos de 
 `elementsBilled` (0 en el mock). Solo los usa el módulo `demo` de `svc-shipments`, que pide
 la matriz de cada ciudad una vez y la cachea. Tests en `tests/test_optimize_demo_opt_ins.py`.
 
+
+### MOVO-276 — `package_tapered_v2`: peso facturable, categoría y límites duros (ADR-041)
+
+Reemplaza el cálculo de `demand_fuel_routes_v1` (combustible, demanda y fallback de
+distancia sin cambios). `app/services/pricing.py#price_components` (parte determinística,
+sin red: la ejercitan los tests de forma de curva) y `package_limit_violations` (422
+`PACKAGE_LIMITS_EXCEEDED` en `/quote`, antes de consultar Google). Coeficientes y límites
+nuevos en `app/config.py`; `PRICING_FACTOR_*` de MOVO-82 eliminados. `QuoteBreakdown` suma
+`volumetricWeightKg`/`billableWeightKg`.
+
+- **Calibración contra el Correo** (`docs/pricing/grilla-referencia.md`): banda 0,6×–1,0×
+  para `standard_package` ≤10 kg facturables en rutas ≥200 km. La grilla vive en
+  `tests/pricing_grid.py` (`python -m tests.pricing_grid` regenera la tabla) y queda como
+  golden tests en `tests/test_pricing_golden.py`, junto a monotonía, concavidad, categoría,
+  peso volumétrico y límites.
+- **Tramo de peso** (10 kg al 100%, el resto al 35%) no estaba en el plan: sin él el cubo de
+  1 m³ (200 kg volumétricos) cotizaba ~$135.000.
+- **CI exige 100% de cobertura** sobre `pricing.py`, `config.py`, `models/quote.py` y
+  `routers/quote.py` (paso propio en `pr-checks.yml`, reusa el `.coverage` de pytest).

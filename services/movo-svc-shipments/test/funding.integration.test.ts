@@ -233,12 +233,80 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNED);
       expect((await offerRepo.findById(winner.id))?.status).toBe(OfferStatus.ACCEPTED);
       expect(paymentsClient.createHold).toHaveBeenCalledWith(
-        expect.objectContaining({ cardToken: "tok_123", paymentMethodId: "visa", amountArs: winner.priceOffered }),
+        expect.objectContaining({ cardToken: "tok_123", paymentMethodId: "visa", amountArs: winner.priceOffered, payerUserId: senderId }),
       );
+      // MOVO-282: sin `savedCardId` el pedido al hold es el de siempre (tarjeta completa).
+      expect(paymentsClient.createHold.mock.calls[0][0]).not.toHaveProperty("savedCardId");
       await vi.waitFor(() => {
         expect(pushedTitles(senderId)).toContain("Pago confirmado");
         expect(pushedTitles(winner.carrierId)).toContain("Envío confirmado");
       });
+    });
+
+    it("MOVO-282: con savedCardId lo pasa al hold junto con el emisor, y el cardToken sigue yendo", async () => {
+      const { shipmentId, winner } = await acceptedShipment(1);
+      const savedCardId = "11111111-1111-4111-8111-111111111111";
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { cardToken: "tok_cvv", savedCardId },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ funded: true, shipmentStatus: ShipmentStatus.ASSIGNED });
+      expect(paymentsClient.createHold).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cardToken: "tok_cvv",
+          savedCardId,
+          payerUserId: senderId,
+          amountArs: winner.priceOffered,
+        }),
+      );
+    });
+
+    it("MOVO-282: un savedCardId que no es uuid se rechaza con 400 antes de llamar a payments", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { cardToken: "tok_cvv", savedCardId: "no-es-uuid" },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(paymentsClient.createHold).not.toHaveBeenCalled();
+    });
+
+    it("MOVO-282: el cardToken sigue siendo obligatorio aunque venga savedCardId", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { savedCardId: "11111111-1111-4111-8111-111111111111" },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(paymentsClient.createHold).not.toHaveBeenCalled();
+    });
+
+    it("MOVO-282: si payments responde 404 por la tarjeta, el emisor ve el 404 y el envío no cambia", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+      paymentsClient.createHold.mockRejectedValueOnce(new ApiError(404, "NOT_FOUND", "Tarjeta no encontrada."));
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { cardToken: "tok_cvv", savedCardId: "11111111-1111-4111-8111-111111111111" },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
     });
 
     it("AC14: un segundo POST (doble tap) no crea otro hold y devuelve funded: true", async () => {

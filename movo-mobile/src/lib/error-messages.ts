@@ -62,6 +62,8 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",
   SHIPMENT_PICKUP_WINDOW_INVALID: "El horario de fin del retiro tiene que ser posterior al de inicio.",
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",
+  // MOVO-276: el wizard ya valida lo mismo; esto cubre una recalibración de los límites del backend.
+  PACKAGE_LIMITS_EXCEEDED: "El paquete supera el peso o las medidas que se pueden enviar. Revisá los datos del paquete.",
   GEOCODING_PROVIDER_ERROR: "No pudimos validar la dirección en el mapa. Intentá de nuevo.",
   GEOCODING_ADDRESS_NOT_FOUND: "No encontramos la dirección ingresada.",
   // Edición de perfil (MOVO-135 / backend MOVO-133).
@@ -111,9 +113,16 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   OFFER_DUPLICATE_ACTIVE: "Ya tenés una oferta activa sobre este envío.",
   OFFER_DATE_OUT_OF_RANGE: "La fecha del viaje tiene que coincidir con la fecha de retiro del envío.",
   // MOVO-116 (ADR-036): lo ve el emisor al aceptar la oferta de un transportista que ya no
-  // cumple los requisitos para operar. Los dos códigos del lado del transportista
-  // (CARRIER_LICENSE_NOT_APPROVED/CARRIER_MP_ACCOUNT_NOT_LINKED) los resuelve MOVO-117.
+  // cumple los requisitos para operar.
   OFFER_CARRIER_NOT_ELIGIBLE: "Este transportista ya no puede tomar envíos. Elegí otra oferta.",
+  // MOVO-117: los ve el transportista. Las pantallas que pueden recibirlos abren la
+  // checklist de requisitos (`useCarrierRequirementsSheet`); este texto es el respaldo
+  // para quien no la monta.
+  CARRIER_LICENSE_NOT_APPROVED: "Necesitás tu licencia de conducir verificada para operar como transportista.",
+  CARRIER_MP_ACCOUNT_NOT_LINKED: "Necesitás vincular tu cuenta de Mercado Pago para operar como transportista.",
+  // No son un requisito que el usuario pueda resolver: no se pudo verificar, se reintenta.
+  USERS_SERVICE_UNAVAILABLE: "No pudimos verificar tus requisitos. Intentá de nuevo en unos minutos.",
+  PAYMENTS_SERVICE_UNAVAILABLE: "No pudimos verificar tu cuenta de Mercado Pago. Intentá de nuevo en unos minutos.",
   // Handshake criptográfico: escaneo del receptor de custodia (MOVO-160 / backend MOVO-158, Done).
   HANDSHAKE_QR_EXPIRED: "Este código venció. Pedile a la otra persona que genere uno nuevo.",
   HANDSHAKE_DISTANCE_EXCEEDED: "Estás a más de 100 m del punto. Acercate e intentá de nuevo.",

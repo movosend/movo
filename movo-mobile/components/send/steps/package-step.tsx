@@ -5,7 +5,7 @@ import type { OnFocusInput } from "../../../src/hooks/use-keyboard-scroll";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useShipmentWizardStore } from "../../../src/store/shipment-wizard-store";
 import { CategoryGrid } from "../category-grid";
-import { DimensionInputs } from "../dimension-inputs";
+import { DimensionInputs, SIDES_SUM_CM_MAX } from "../dimension-inputs";
 import { WeightStepper } from "../weight-stepper";
 
 const DEFAULT_LETTER_WEIGHT_KG = "0.1";
@@ -42,7 +42,9 @@ export function isPackageStepValid(state: {
     width <= 150 &&
     Number.isFinite(height) &&
     height >= 1 &&
-    height <= 150
+    height <= 150 &&
+    // MOVO-276: límite de suma de lados (`PACKAGE_MAX_SIDES_SUM_CM` del backend).
+    length + width + height <= SIDES_SUM_CM_MAX
   );
 }
 

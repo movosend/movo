@@ -31,6 +31,8 @@ export type ApiErrorCode =
   | "SHIPMENT_PICKUP_WINDOW_IN_PAST"
   | "SHIPMENT_PICKUP_WINDOW_INVALID"
   | "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE"
+  // MOVO-276: peso o medidas fuera de los límites duros (`details.violations`).
+  | "PACKAGE_LIMITS_EXCEEDED"
   | "USERS_SERVICE_UNAVAILABLE"
   | "PUSH_PROVIDER_ERROR"
   | "ADDRESS_NOT_FOUND"
@@ -173,6 +175,9 @@ export type ApiErrorCode =
   | "CARRIER_MP_ACCOUNT_NOT_LINKED"
   // El envío no tiene ningún hold (ni siquiera un intento rechazado).
   | "HOLD_NOT_FOUND"
+  // MOVO-282: el hold pidió pagar con una `savedCardId` que no existe, no es del emisor o ya se
+  // dio de baja. Distinto de `NOT_FOUND` para que el mobile refresque la lista de tarjetas.
+  | "SAVED_CARD_NOT_FOUND"
   // Liberar un hold que ya no se puede liberar (capturado) o que todavía no está creado.
   | "HOLD_NOT_RELEASABLE"
   // Ya hay un hold vigente del envío con otro transportista o monto: no se pisa en silencio.

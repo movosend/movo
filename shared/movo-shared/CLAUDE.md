@@ -411,8 +411,7 @@ solo si viene: primer error con datos extra para el cliente, compatible hacia at
 `CarrierRequirementsErrorDetails` y las respuestas de los dos endpoints internos nuevos.
 Códigos nuevos: `CARRIER_LICENSE_NOT_APPROVED`, `PAYMENTS_SERVICE_UNAVAILABLE`,
 `OFFER_CARRIER_NOT_ELIGIBLE`; `CARRIER_MP_ACCOUNT_NOT_LINKED` (MOVO-209) se reusa, ahora también
-como 403 de `svc-shipments`. Mobile todavía no lee `details` (`parseErrorBody` lo descarta): es
-parte de MOVO-117.
+como 403 de `svc-shipments`. Mobile ya lee `details` (`parseErrorBody`, MOVO-117).
 
 ### MOVO-210 — Contrato de la saga de asignación y `OfferStatus.ASSIGNMENT_LAPSED`
 
@@ -456,6 +455,14 @@ inválida) y `PAYMENT_WEBHOOK_NOT_CONFIGURED` (503, falta `MP_WEBHOOK_SECRET`). 
 solo MP, no la app. `HoldProviderEventRequest` (MOVO-210) no cambia: "vencido" sigue siendo
 `event: expired`.
 
+### MOVO-282 — Hold con tarjeta guardada: `payerUserId` y `savedCardId`
+
+`CreateHoldRequest` (`types/hold.ts`) suma `payerUserId` (requerido: el emisor, dueño de la tarjeta) y
+`savedCardId?` (id interno de `payments.saved_cards`); `ShipmentFundingRequest` (`types/funding.ts`) suma
+`savedCardId?`. `HoldResponse` no cambia: no expone ids de MP ni de la tarjeta. Cambio compatible hacia atrás
+salvo por `payerUserId`, que `svc-shipments` siempre manda. `npm run build` acá antes de tipar desde otro
+workspace.
+
 ### MOVO-100 — Contrato de las tarjetas guardadas (`types/saved-card.ts`)
 
 `SavedCard` (con `mpCardId` y `alias`), `CreateSavedCardRequest`, `UpdateSavedCardRequest`,
@@ -465,3 +472,10 @@ MOVO-101/269 en mobile. `ApiErrorCode` suma `CARD_IN_USE`, `CARD_LIMIT_REACHED`,
 (422, `details.providerCode`), `CARD_CUSTOMER_CONFLICT` (409, el customer de MP del email ya es
 de otra cuenta) y `CARDS_NOT_CONFIGURED`. Recordatorio habitual: `npm run build` acá antes
 de tipar desde otro workspace.
+
+### MOVO-276 — `package_tapered_v2` y `PACKAGE_LIMITS_EXCEEDED` (ADR-041)
+
+`PriceCalculationMethod.PACKAGE_TAPERED_V2` (`DEMAND_FUEL_ROUTES_V1` queda, ya no se emite
+pero persiste en envíos viejos), `QuoteBreakdown.volumetricWeightKg?`/`billableWeightKg?`
+(ausentes en respuestas de v1) y el código `PACKAGE_LIMITS_EXCEEDED` (422, con
+`details.violations`).

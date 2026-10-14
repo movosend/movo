@@ -2,6 +2,11 @@ import { act, fireEvent, render } from "@testing-library/react-native";
 import NewTripScreen from "../app/(app)/carrier/trips/new";
 import type { CreateTripInput } from "../src/api/trips-client";
 
+// MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
+jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
+  require("./mocks/carrier-requirements-sheet-hook"),
+);
+
 // El gate de ubicación del transportista tiene su propio test
 // (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
 jest.mock("../src/store/carrier-location-gate-store", () => ({
@@ -88,6 +93,46 @@ describe("NewTripScreen", () => {
 
     expect(getByTestId("tf-stub-error").props.children).toBe(
       "Necesitás tener tu identidad verificada como transportista para declarar viajes.",
+    );
+  });
+
+  it("MOVO-117: un 403 CARRIER_LICENSE_NOT_APPROVED abre la checklist con los faltantes, sin error genérico", async () => {
+    const { ApiError } = require("@movo/shared/dist/errors/api-error");
+    mockCreateTripMutate.mockImplementation((_input, { onError }: any) =>
+      onError(
+        new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "forbidden", {
+          missingRequirements: ["license", "mp_account"],
+        }),
+      ),
+    );
+
+    const { getByTestId, getByText } = await render(<NewTripScreen />);
+    await act(async () => {
+      fireEvent.press(getByTestId("tf-stub-submit"));
+      await Promise.resolve();
+    });
+
+    expect(getByText("Para declarar tu viaje necesitás completar estos dos pasos.")).toBeTruthy();
+    expect(getByTestId("carrier-requirements-sheet-checklist-license-cta")).toBeTruthy();
+    expect(getByTestId("carrier-requirements-sheet-checklist-mp-cta")).toBeTruthy();
+    expect(getByTestId("tf-stub-error").props.children).toBeNull();
+  });
+
+  it("MOVO-117: un 502 de verificación se muestra como error para reintentar, sin checklist", async () => {
+    const { ApiError } = require("@movo/shared/dist/errors/api-error");
+    mockCreateTripMutate.mockImplementation((_input, { onError }: any) =>
+      onError(new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "down")),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<NewTripScreen />);
+    await act(async () => {
+      fireEvent.press(getByTestId("tf-stub-submit"));
+      await Promise.resolve();
+    });
+
+    expect(queryByTestId("carrier-requirements-sheet")).toBeNull();
+    expect(getByTestId("tf-stub-error").props.children).toBe(
+      "No pudimos verificar tus requisitos. Intentá de nuevo en unos minutos.",
     );
   });
 

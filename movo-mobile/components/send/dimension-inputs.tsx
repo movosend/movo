@@ -22,6 +22,8 @@ const FIELDS = [
 
 const DIMENSION_CM_MIN = 1;
 const DIMENSION_CM_MAX = 150;
+/** MOVO-276: suma máxima de largo + ancho + alto (`PACKAGE_MAX_SIDES_SUM_CM`). */
+export const SIDES_SUM_CM_MAX = 300;
 
 function isDimensionOutOfRange(value: string): boolean {
   if (value.trim() === "") return false;
@@ -29,11 +31,12 @@ function isDimensionOutOfRange(value: string): boolean {
   return !Number.isFinite(numeric) || numeric < DIMENSION_CM_MIN || numeric > DIMENSION_CM_MAX;
 }
 
-/** Dimensiones en cm, mismos límites que `lengthCm`/`widthCm`/`heightCm` en
- * `createShipmentBody` (`shipments.schema.ts`, MOVO-80: min 1, max 150) — replicados
- * acá (`DIMENSION_CM_MIN`/`MAX`) solo para el hint inline, no para bloquear el campo:
+/** Dimensiones en cm, mismos límites duros que valida el backend (MOVO-276,
+ * `domain/package-limits.ts` de `svc-shipments`: cada lado entre 1 y 150, suma hasta
+ * 300) — replicados acá solo para el hint inline, no para bloquear el campo:
  * "Siguiente" ya queda deshabilitado por `isPackageStepValid`, esto es lo que le
- * explica al usuario por qué. */
+ * explica al usuario por qué. Si el backend recalibra los `PACKAGE_MAX_*`, el 422
+ * `PACKAGE_LIMITS_EXCEEDED` sigue siendo la fuente de verdad. */
 export function DimensionInputs({
   lengthCm,
   widthCm,
@@ -56,6 +59,8 @@ export function DimensionInputs({
   };
   const refByKey = { length: lengthRef, width: widthRef, height: heightRef };
   const outOfRange = FIELDS.some(({ key }) => isDimensionOutOfRange(valuesByKey[key]));
+  const sidesSum = FIELDS.reduce((sum, { key }) => sum + (Number(valuesByKey[key]) || 0), 0);
+  const sumExceeded = !outOfRange && sidesSum > SIDES_SUM_CM_MAX;
 
   return (
     <View testID={testID}>
@@ -93,6 +98,14 @@ export function DimensionInputs({
           className="mt-1.5 font-sans text-[11px] text-danger-500"
         >
           Cada medida tiene que estar entre {DIMENSION_CM_MIN} y {DIMENSION_CM_MAX} cm.
+        </Text>
+      ) : null}
+      {sumExceeded ? (
+        <Text
+          testID={testID ? `${testID}-sum-error` : undefined}
+          className="mt-1.5 font-sans text-[11px] text-danger-500"
+        >
+          Largo, ancho y alto no pueden sumar más de {SIDES_SUM_CM_MAX} cm (ahora suman {sidesSum} cm).
         </Text>
       ) : null}
     </View>

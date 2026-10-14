@@ -23,6 +23,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
+import { CarrierRequirementsSheet } from "../../../../components/carrier/carrier-requirements-checklist";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { NumericKeypad } from "../../../../components/ui/numeric-keypad";
 import { SectionLabel } from "../../../../components/ui/section-label";
@@ -37,6 +38,7 @@ import {
   useOfferDetail,
   useUpdateOffer,
 } from "../../../../src/hooks/use-offers";
+import { useCarrierRequirementsSheet } from "../../../../src/hooks/use-carrier-requirements-sheet";
 import { usePublicProfile } from "../../../../src/hooks/use-profile";
 import {
   getClientCommissionRate,
@@ -319,6 +321,8 @@ export default function CreateOfferScreen() {
   });
   const createOffer = useCreateOffer(id);
   const updateOffer = useUpdateOffer(offerId ?? "");
+  // MOVO-117: un 403 por licencia/MP faltante abre la checklist en vez de un error genérico.
+  const requirements = useCarrierRequirementsSheet(isEditMode ? "edit_offer" : "offer");
 
   // MOVO-177 (feedback de UI): el formulario se partió en 2 pasos -- "precio" era
   // demasiado largo compartiendo pantalla con "cuándo retirás"/"entrega estimada"/
@@ -669,8 +673,9 @@ export default function CreateOfferScreen() {
       setCreatedOffer(data);
       setPhase("sent");
     } catch (err) {
-      setError(err);
       setPhase("form");
+      if (requirements.handleError(err)) return;
+      setError(err);
     }
   };
 
@@ -1244,6 +1249,7 @@ export default function CreateOfferScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+      <CarrierRequirementsSheet {...requirements.sheetProps} />
     </SafeAreaView>
   );
 }

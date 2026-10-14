@@ -22,6 +22,9 @@ export interface EnvConfig {
   REPUTATION_CONFIDENCE_CONSTANT: number;
   REPUTATION_DECAY_HALF_LIFE_DAYS: number;
   TRIP_DEFAULT_MAX_DETOUR_KM: number;
+  PACKAGE_MAX_WEIGHT_KG: number;
+  PACKAGE_MAX_SIDE_CM: number;
+  PACKAGE_MAX_SIDES_SUM_CM: number;
   PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
   PICKUP_EXPIRY_SWEEP_ENABLED?: boolean;
   FUNDS_RELEASE_NOTIFIER: "console" | "payments";
@@ -122,6 +125,12 @@ export const envSchema = {
     REPUTATION_DECAY_HALF_LIFE_DAYS: { type: "number", default: 180 },
     // MOVO-161: radio de desvío ortogonal máximo por defecto al corredor del viaje declarado (km)
     TRIP_DEFAULT_MAX_DETOUR_KM: { type: "number", default: 15 },
+    // MOVO-276: límites duros del paquete (`domain/package-limits.ts`), validados al cotizar
+    // y al crear el envío. Mismos nombres y defaults que en movo-svc-pricing-logistics, que
+    // también responde 422 si se exceden.
+    PACKAGE_MAX_WEIGHT_KG: { type: "number", default: 30 },
+    PACKAGE_MAX_SIDE_CM: { type: "number", default: 150 },
+    PACKAGE_MAX_SIDES_SUM_CM: { type: "number", default: 300 },
     // Corrección directa sobre un bug reportado (sin ticket propio): barrido que cancela
     // envíos `published` cuya ventana de retiro venció sin que nadie los tomara —
     // mismo criterio que RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES/_ENABLED (MOVO-130).

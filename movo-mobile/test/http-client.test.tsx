@@ -63,6 +63,44 @@ describe("http-client", () => {
     } satisfies Partial<ApiError>);
   });
 
+  it("MOVO-117: pasa details del error al ApiError (missingRequirements del 403)", async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({
+        error: {
+          code: "CARRIER_LICENSE_NOT_APPROVED",
+          message: "Falta la licencia",
+          statusCode: 403,
+          details: { missingRequirements: ["license", "mp_account"] },
+        },
+      }),
+    });
+    // @ts-expect-error mock global
+    global.fetch = fetchMock;
+
+    const { httpClient } = require("../src/api/http-client");
+
+    await expect(httpClient.post("/trips", {})).rejects.toMatchObject({
+      code: "CARRIER_LICENSE_NOT_APPROVED",
+      details: { missingRequirements: ["license", "mp_account"] },
+    });
+  });
+
+  it("un error sin details deja details en undefined", async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { code: "CARRIER_NOT_VERIFIED", message: "x", statusCode: 403 } }),
+    });
+    // @ts-expect-error mock global
+    global.fetch = fetchMock;
+
+    const { httpClient } = require("../src/api/http-client");
+
+    await expect(httpClient.post("/trips", {})).rejects.toMatchObject({ details: undefined });
+  });
+
   it("lanza INTERNAL_ERROR de red si fetch falla", async () => {
     const fetchMock = jest.fn().mockRejectedValue(new Error("network down"));
     // @ts-expect-error mock global

@@ -186,12 +186,42 @@ describe("POST /shipments (Postgres)", () => {
     expect(response.json().error.code).toBe("SHIPMENT_PICKUP_WINDOW_IN_PAST");
   });
 
-  it("responde 400 si el peso excede el máximo permitido", async () => {
+  it("MOVO-276 (AC4): rechaza con 422 y el detalle un paquete fuera de los límites duros", async () => {
     const response = await app.inject({
       method: "POST",
       url: "/shipments",
       headers: { "x-user-id": senderId },
       payload: { ...validBody, weightKg: 999 },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error).toMatchObject({
+      code: "PACKAGE_LIMITS_EXCEEDED",
+      message: "El paquete excede los límites: peso de 999 kg (máximo 30 kg).",
+      details: { violations: ["peso de 999 kg (máximo 30 kg)"] },
+    });
+    expect(pricingClient.getQuote).not.toHaveBeenCalled();
+  });
+
+  it("MOVO-276 (AC4): rechaza un paquete con lados válidos pero suma de lados mayor a 300 cm", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/shipments",
+      headers: { "x-user-id": senderId },
+      payload: { ...validBody, lengthCm: 150, widthCm: 100, heightCm: 51 },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe("PACKAGE_LIMITS_EXCEEDED");
+    expect(response.json().error.details.violations).toEqual(["suma de lados de 301 cm (máximo 300 cm)"]);
+  });
+
+  it("sigue respondiendo 400 de AJV para un peso por debajo del mínimo", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/shipments",
+      headers: { "x-user-id": senderId },
+      payload: { ...validBody, weightKg: 0 },
     });
 
     expect(response.statusCode).toBe(400);

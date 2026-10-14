@@ -1,9 +1,14 @@
 import React from "react";
-import { render, fireEvent, act } from "@testing-library/react-native";
+import { render, fireEvent, act, waitFor } from "@testing-library/react-native";
 import OptimizedRouteScreen from "../app/(app)/route/index";
 import { useOptimizedRoute } from "../src/hooks/use-optimized-route";
 import { router } from "expo-router";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
+
+// MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
+jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
+  require("./mocks/carrier-requirements-sheet-hook"),
+);
 
 // El gate de ubicación del transportista tiene su propio test
 // (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
@@ -351,6 +356,45 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
 
     await fireEvent.press(getByTestId("route-trip-cta-start-button"));
     expect(mockStartTripMutateAsync).toHaveBeenCalledWith("trip-declared-1");
+  });
+
+  it("MOVO-117: un 403 por requisitos al iniciar el viaje abre la checklist en vez del banner de error", async () => {
+    mockSearchParams = { tripId: "trip-declared-1" };
+    (useOptimizedRoute as jest.Mock).mockReturnValue({
+      route: null,
+      carrierLocation: null,
+      isLoading: false,
+      isRefreshing: false,
+      gpsPermissionDenied: false,
+      error: null,
+      refetch: mockRefetch,
+    });
+    mockUseTrip.mockReturnValue({
+      data: {
+        id: "trip-declared-1",
+        carrierId: "carrier-1",
+        originAddress: "Av. Colón 1234, Córdoba",
+        destinationAddress: "San Martín 450, Villa María",
+        departureAt: "2026-09-10T12:00:00.000Z",
+        vehicleType: "Auto",
+        status: "declared",
+        hasAcceptedPackages: true,
+        acceptedPackagesCount: 1,
+        executablePackagesCount: 1,
+      } as any,
+      isLoading: false,
+    });
+    const { ApiError } = require("@movo/shared/dist/errors/api-error");
+    mockStartTripMutateAsync.mockRejectedValueOnce(
+      new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "x", { missingRequirements: ["license"] }),
+    );
+
+    const { getByTestId, getByText, queryByTestId } = await render(<OptimizedRouteScreen />);
+    await fireEvent.press(getByTestId("route-trip-cta-start-button"));
+
+    await waitFor(() => expect(getByText("Para iniciar tu viaje te queda un solo paso.")).toBeTruthy());
+    expect(getByTestId("carrier-requirements-sheet-checklist-license-cta")).toBeTruthy();
+    expect(queryByTestId("route-trip-cta-error")).toBeNull();
   });
 
   describe("MOVO-277: viaje declared que todavía no se puede iniciar", () => {

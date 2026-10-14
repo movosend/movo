@@ -7,6 +7,7 @@ import { useState, type ReactNode } from "react";
 import { useColorScheme } from "nativewind";
 import { ActivityIndicator, Platform, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { CarrierRequirementsSheet } from "../../../../../components/carrier/carrier-requirements-checklist";
 import { PressableScale } from "../../../../../components/trips/pressable-scale";
 import { BrandAvatar } from "../../../../../components/vehicle/brand-avatar";
 import { brandFromVehicleLabel } from "../../../../../src/data/vehicle-catalog";
@@ -16,6 +17,7 @@ import { TripPackageRow } from "../../../../../components/trips/trip-package-row
 import { TripStatusPill } from "../../../../../components/trips/trip-status-pill";
 import { ErrorBanner } from "../../../../../components/ui/error-banner";
 import { SkeletonBlock } from "../../../../../components/ui/skeleton-block";
+import { useCarrierRequirementsSheet } from "../../../../../src/hooks/use-carrier-requirements-sheet";
 import { useCancelTrip, useStartTrip, useTrip } from "../../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../../src/lib/error-messages";
@@ -84,6 +86,7 @@ export default function TripDetailScreen() {
   const { data: trip, isLoading, isError, error, isRefetching, refetch } = useTrip(id);
   const cancelTrip = useCancelTrip();
   const startTrip = useStartTrip();
+  const requirements = useCarrierRequirementsSheet("start");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
@@ -138,6 +141,8 @@ export default function TripDetailScreen() {
       // El viaje ya está en curso: se lleva directo al mapa en vez de dejar solo un cambio de footer.
       router.push({ pathname: "/route", params: { tripId: t.id } } as any);
     } catch (err) {
+      // MOVO-117: un 403 por licencia/MP faltante abre la checklist en vez de un error genérico.
+      if (requirements.handleError(err)) return;
       setStartError(formatTripStartErrorMessage(err, t.departureAt));
     }
   };
@@ -422,6 +427,7 @@ export default function TripDetailScreen() {
           onClose={closeSheet}
         />
       ) : null}
+      <CarrierRequirementsSheet {...requirements.sheetProps} />
     </SafeAreaView>
   );
 }
