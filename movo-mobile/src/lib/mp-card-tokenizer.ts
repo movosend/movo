@@ -141,19 +141,39 @@ export async function lookupBin(publicKey: string, bin: string): Promise<CardBin
  * `CardTokenError` con el motivo si MP la rechaza.
  */
 export async function createCardToken(publicKey: string, input: CardTokenInput): Promise<string> {
+  return postCardToken(publicKey, {
+    card_number: input.cardNumber,
+    expiration_month: input.expMonth,
+    expiration_year: input.expYear,
+    security_code: input.securityCode,
+    cardholder: {
+      name: input.holderName,
+      identification: { type: input.docType, number: input.docNumber },
+    },
+  });
+}
+
+export interface SavedCardTokenInput {
+  /** `mpCardId` de la tarjeta guardada en la cuenta de Movo (`SavedCard.mpCardId`). */
+  cardId: string;
+  securityCode: string;
+}
+
+/**
+ * `POST /v1/card_tokens` con `card_id` + CVV (MOVO-269, ADR-039): token de un solo uso para
+ * pagar con una tarjeta guardada. `publicKey` es la **del transportista** del envío
+ * (`carrierPublicKey` de `GET /shipments/:id/funding`), no la de Movo: MP exige que el token
+ * pertenezca a la cuenta que cobra. El CVV viaja solo de acá a MP.
+ */
+export async function createSavedCardToken(publicKey: string, input: SavedCardTokenInput): Promise<string> {
+  return postCardToken(publicKey, { card_id: input.cardId, security_code: input.securityCode });
+}
+
+async function postCardToken(publicKey: string, payload: Record<string, unknown>): Promise<string> {
   const response = await mpFetch(`${MP_API_URL}/card_tokens?public_key=${encodeURIComponent(publicKey)}`, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({
-      card_number: input.cardNumber,
-      expiration_month: input.expMonth,
-      expiration_year: input.expYear,
-      security_code: input.securityCode,
-      cardholder: {
-        name: input.holderName,
-        identification: { type: input.docType, number: input.docNumber },
-      },
-    }),
+    body: JSON.stringify(payload),
   });
 
   let body: unknown = null;

@@ -144,6 +144,11 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   CARD_SAVE_REJECTED: "Tu banco no aprobó la tarjeta. Revisá los datos o probá con otra. No se cobró nada.",
   CARD_CUSTOMER_CONFLICT: "No pudimos asociar la tarjeta a tu cuenta. Escribinos a soporte para resolverlo.",
   CARDS_NOT_CONFIGURED: "Guardar tarjetas no está disponible por ahora. Probá más tarde.",
+  // Pago del envío con tarjeta guardada (MOVO-269, backend MOVO-210/282).
+  SHIPMENT_FUNDING_NOT_AVAILABLE: "Ya no se puede pagar este envío. Puede haber vencido el plazo o cambiado de estado.",
+  SAVED_CARD_NOT_FOUND: "No encontramos esa tarjeta. Elegí otra o agregala de nuevo.",
+  HOLD_CONFLICT: "Ya hay una reserva de fondos en curso para este envío. Actualizá la pantalla.",
+  PAYMENT_PROVIDER_ERROR: "Mercado Pago no respondió. No se cobró nada: probá de nuevo en unos minutos.",
   MP_ACCOUNT_ALREADY_LINKED: "Esa cuenta de Mercado Pago ya está vinculada a otro usuario de Movo.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
