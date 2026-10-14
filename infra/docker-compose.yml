@@ -175,6 +175,10 @@ services:
       - REPUTATION_DECAY_HALF_LIFE_DAYS=${REPUTATION_DECAY_HALF_LIFE_DAYS:-180}
       # MOVO-161: radio de desvío ortogonal al corredor del viaje declarado (km).
       - TRIP_DEFAULT_MAX_DETOUR_KM=${TRIP_DEFAULT_MAX_DETOUR_KM:-15}
+      # MOVO-276: límites duros del paquete (mismos valores que movo-svc-pricing-logistics).
+      - PACKAGE_MAX_WEIGHT_KG=${PACKAGE_MAX_WEIGHT_KG:-30}
+      - PACKAGE_MAX_SIDE_CM=${PACKAGE_MAX_SIDE_CM:-150}
+      - PACKAGE_MAX_SIDES_SUM_CM=${PACKAGE_MAX_SIDES_SUM_CM:-300}
       # MOVO-143: comisión de Movo (confirmada, 15%) + fee de MercadoPago (placeholder,
       # pendiente de confirmar) -- leídas por @movo/shared, no por el envSchema propio
       # de este servicio (ver shared/movo-shared/src/config/commission.ts).

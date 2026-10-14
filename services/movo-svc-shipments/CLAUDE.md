@@ -3231,3 +3231,18 @@ parciales de una pendiente y una completada por envío). Rutas: `POST /shipments
 
 Tests: `test/receiver-transfers.integration.test.ts` (Postgres y Redis reales: cada
 validación, concurrencia, límite, carrera con el handshake, vencimiento, acceso y filtrado).
+
+### MOVO-276 — Límites duros del paquete al cotizar y crear (ADR-039)
+
+`src/domain/package-limits.ts` (`packageLimitViolations`): peso, lado más largo y suma de
+lados contra `PACKAGE_MAX_WEIGHT_KG`/`_SIDE_CM`/`_SIDES_SUM_CM` (30/150/300, env vars en los
+tres lugares, mismos nombres que en pricing). `quoteShipmentPrice` y `createShipment` lo
+validan primero, sin I/O (un paquete fuera de límites no gasta Google ni quema un `quoteId`):
+422 `PACKAGE_LIMITS_EXCEEDED` con `details.violations`, mismo texto que el 422 de pricing.
+
+- **Los máximos salieron del schema de AJV** (quedan solo los mínimos): con un `maximum`
+  ahí, un recalibrado del env quedaba pisado por un 400 genérico. Antes un peso de 999 kg
+  daba 400 `VALIDATION_FAILED`; ahora 422 con el detalle. La suma de lados (300 cm) no se
+  validaba en ningún lado: un cubo de 150 cm (3,4 m³) pasaba.
+- `calculationMethod` es un string libre en DB y en el quote store, así que los envíos y
+  cotizaciones con `demand_fuel_routes_v1` siguen intactos (AC5); no hizo falta migración.
