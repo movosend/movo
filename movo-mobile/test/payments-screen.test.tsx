@@ -2,6 +2,8 @@ import { act, fireEvent, render } from "@testing-library/react-native";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import PaymentsSettingsScreen from "../app/(app)/profile/payments";
 
+type Screen = Awaited<ReturnType<typeof render>>;
+
 type StatusState = {
   data?: unknown;
   isError: boolean;
@@ -102,22 +104,31 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     expect(mockRefetch).toHaveBeenCalled();
   });
 
-  it("sin vincular: logo, aviso persistente de que no puede cobrar y botón de vincular (AC1, AC6)", async () => {
+  it("sin vincular: estado vacío que explica que no puede cobrar y botón de vincular (AC1, AC6)", async () => {
     mockStatus = { data: UNLINKED, isError: false };
     const { getByTestId, getByText } = await render(<PaymentsSettingsScreen />);
 
     expect(getByTestId("mp-connect-card-unlinked")).toBeTruthy();
     expect(getByTestId("mp-connect-logo")).toBeTruthy();
-    expect(getByText("Sin vincular")).toBeTruthy();
-    expect(getByTestId("mp-connect-unlinked-warning")).toBeTruthy();
-    expect(getByText("Vincular cuenta de Mercado Pago")).toBeTruthy();
+    expect(getByText("Todavía no vinculaste una cuenta")).toBeTruthy();
+    expect(getByText(/llevar envíos y cobrar/)).toBeTruthy();
+    expect(getByText("Vincular Mercado Pago")).toBeTruthy();
+  });
+
+  it("al vincular con éxito avisa con un toast", async () => {
+    mockStatus = { data: UNLINKED, isError: false };
+    mockStart.mockResolvedValueOnce(true);
+    const { getByTestId, findByText } = await render(<PaymentsSettingsScreen />);
+
+    await act(async () => fireEvent.press(getByTestId("mp-connect-link-button")));
+    expect(await findByText("Vinculaste tu cuenta de Mercado Pago.")).toBeTruthy();
   });
 
   it("tocar vincular arranca el flujo (AC2)", async () => {
     mockStatus = { data: UNLINKED, isError: false };
     const { getByTestId } = await render(<PaymentsSettingsScreen />);
 
-    fireEvent.press(getByTestId("mp-connect-link-button"));
+    await act(async () => fireEvent.press(getByTestId("mp-connect-link-button")));
     expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
@@ -126,7 +137,7 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     mockLink = { phase: "browser", error: null };
     const { getByTestId } = await render(<PaymentsSettingsScreen />);
 
-    fireEvent.press(getByTestId("mp-connect-link-button"));
+    await act(async () => fireEvent.press(getByTestId("mp-connect-link-button")));
     expect(mockStart).not.toHaveBeenCalled();
   });
 
@@ -140,29 +151,52 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     expect(queryByTestId("mp-connect-card-unlinked")).toBeNull();
   });
 
-  it("vinculada: email de MP, fecha y botón Desvincular (AC1)", async () => {
+  it("vinculada: fila de Mercado Pago con email y fecha, y 'Cambiar cuenta' (AC1)", async () => {
     mockStatus = { data: LINKED, isError: false };
-    const { getByTestId, getByText, queryByTestId } = await render(<PaymentsSettingsScreen />);
+    const { getByTestId, queryByTestId } = await render(<PaymentsSettingsScreen />);
 
     expect(getByTestId("mp-connect-card-linked")).toBeTruthy();
     expect(getByTestId("mp-connect-linked-logo")).toBeTruthy();
-    expect(getByText("Vinculada")).toBeTruthy();
     expect(getByTestId("mp-connect-account-email").props.children).toBe("julieta.ramos@gmail.com");
-    expect(getByText("JR")).toBeTruthy();
-    expect(getByText(/Vinculada el 12 sep/)).toBeTruthy();
-    expect(queryByTestId("mp-connect-unlinked-warning")).toBeNull();
+    expect(getByTestId("mp-connect-account-meta").props.children).toMatch(/Vinculada el 12 sep/);
+    expect(queryByTestId("mp-connect-card-unlinked")).toBeNull();
+
+    await act(async () => fireEvent.press(getByTestId("mp-connect-change-account")));
+    expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
-  it("inválida: explica qué pasó, tacha la cuenta y ofrece volver a vincular (AC1, AC6)", async () => {
+  it("inválida: tacha la cuenta, explica qué pasó y ofrece volver a vincular (AC1, AC6)", async () => {
     mockStatus = { data: INVALID, isError: false };
-    const { getByTestId, getByText } = await render(<PaymentsSettingsScreen />);
+    const { getByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
 
     expect(getByTestId("mp-connect-card-invalid")).toBeTruthy();
-    expect(getByText("Dejó de funcionar")).toBeTruthy();
-    expect(getByText("Tu vinculación dejó de funcionar")).toBeTruthy();
     expect(getByTestId("mp-connect-invalid-email").props.children).toBe("julieta.ramos@gmail.com");
+    expect(getByTestId("mp-connect-account-meta").props.children).toMatch(/Dejó de funcionar/);
 
-    fireEvent.press(getByTestId("mp-connect-relink-button"));
+    await act(async () => fireEvent.press(getByTestId("mp-connect-relink-button")));
+    expect(mockStart).toHaveBeenCalledTimes(1);
+
+    await act(async () => fireEvent.press(getByTestId("mp-connect-account-row")));
+    expect(await findByTestId("mp-account-sheet-invalid-note")).toBeTruthy();
+    expect(getByTestId("mp-account-sheet-link").props.accessibilityLabel).toBe("Volver a vincular");
+  });
+
+  it("acorta un email largo de la cuenta vinculada", async () => {
+    mockStatus = {
+      data: { ...LINKED, account: { ...LINKED.account, email: "test_user_7133831507754225491@testuser.com" } },
+      isError: false,
+    };
+    const { getByTestId } = await render(<PaymentsSettingsScreen />);
+    expect(getByTestId("mp-connect-account-email").props.children).toBe("test_user_7133…@testuser.com");
+  });
+
+  it("las opciones de la cuenta permiten cambiarla", async () => {
+    mockStatus = { data: LINKED, isError: false };
+    const { getByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
+
+    await act(async () => fireEvent.press(getByTestId("mp-connect-account-row")));
+    expect(await findByTestId("mp-account-sheet-note")).toBeTruthy();
+    await act(async () => fireEvent.press(getByTestId("mp-account-sheet-link")));
     expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
@@ -221,38 +255,44 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
   });
 
   describe("desvincular (AC5)", () => {
+    // Desvincular está dentro de las opciones de la cuenta, como eliminar una tarjeta.
+    async function openUnlinkSheet(
+      getByTestId: Screen["getByTestId"],
+      findByTestId: Screen["findByTestId"],
+    ) {
+      await act(async () => fireEvent.press(getByTestId("mp-connect-account-row")));
+      await act(async () => fireEvent.press(await findByTestId("mp-account-sheet-unlink")));
+      await findByTestId("unlink-mp-sheet-confirm");
+    }
+
     it("pide confirmación antes de desvincular", async () => {
       mockStatus = { data: LINKED, isError: false };
-      const { getByTestId, queryByTestId } = await render(<PaymentsSettingsScreen />);
+      const { getByTestId, queryByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
 
       expect(queryByTestId("unlink-mp-sheet-confirm")).toBeNull();
-      await act(async () => {
-        fireEvent.press(getByTestId("mp-connect-unlink-button"));
-      });
+      await openUnlinkSheet(getByTestId, findByTestId);
       expect(getByTestId("unlink-mp-sheet-confirm")).toBeTruthy();
       expect(mockUnlinkMutate).not.toHaveBeenCalled();
     });
 
-    it("confirmar ejecuta el DELETE", async () => {
+    it("confirmar ejecuta el DELETE y avisa con un toast", async () => {
       mockStatus = { data: LINKED, isError: false };
-      const { getByTestId } = await render(<PaymentsSettingsScreen />);
+      const { getByTestId, findByTestId, findByText } = await render(<PaymentsSettingsScreen />);
 
-      await act(async () => {
-        fireEvent.press(getByTestId("mp-connect-unlink-button"));
-      });
+      await openUnlinkSheet(getByTestId, findByTestId);
       await act(async () => {
         fireEvent.press(getByTestId("unlink-mp-sheet-confirm"));
       });
       expect(mockUnlinkMutate).toHaveBeenCalledTimes(1);
+      await act(async () => mockUnlinkOptions.onSuccess?.());
+      expect(await findByText("Desvinculaste Mercado Pago.")).toBeTruthy();
     });
 
     it("Volver cierra sin desvincular", async () => {
       mockStatus = { data: LINKED, isError: false };
-      const { getByTestId } = await render(<PaymentsSettingsScreen />);
+      const { getByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
 
-      await act(async () => {
-        fireEvent.press(getByTestId("mp-connect-unlink-button"));
-      });
+      await openUnlinkSheet(getByTestId, findByTestId);
       await act(async () => {
         fireEvent.press(getByTestId("unlink-mp-sheet-cancel"));
       });

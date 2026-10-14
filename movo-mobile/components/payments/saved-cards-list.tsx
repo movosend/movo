@@ -1,5 +1,5 @@
 import type { SavedCard } from "@movo/shared/dist/types/saved-card";
-import { AlertTriangle, Check, ChevronRight, CreditCard, MoreHorizontal, Plus } from "lucide-react-native";
+import { AlertTriangle, Check, CreditCard, MoreHorizontal, Plus } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { STATE_COLORS } from "../../src/constants/state-colors";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -17,10 +17,11 @@ import {
 import { SkeletonBlock } from "../ui/skeleton-block";
 import { BankLogo } from "./bank-logo";
 import { CardBrandLogo } from "./card-brand-logo";
+import { PaymentMethodActionRow, PaymentMethodsEmpty, PaymentMethodTile } from "./payment-method-list";
 
 /**
  * Sección "Medios de pago" de "Pagos y cobros" (MOVO-101), fiel al prototipo de Claude
- * Design "MOVO-112 Pagos y cobros v2": lista de tarjetas con la predeterminada marcada,
+ * Design "MOVO-112 Pagos y cobros v3": lista de tarjetas con la predeterminada marcada,
  * fila "Agregar tarjeta" y estado vacío. No hace fetch: recibe las tarjetas y callbacks.
  */
 
@@ -29,12 +30,7 @@ export function CardBrandBox({ brand, size = "md", testID }: { brand: string; si
   const colors = useThemeColors();
   const lg = size === "lg";
   return (
-    <View
-      testID={testID}
-      className={`shrink-0 items-center justify-center border border-border-strong bg-bg-sub ${
-        lg ? "h-9 w-[52px] rounded-[6px]" : "h-[30px] w-11 rounded-[5px]"
-      }`}
-    >
+    <PaymentMethodTile size={size} testID={testID}>
       {cardBrandKey(brand) ? (
         <CardBrandLogo brand={brand} size={lg ? 18 : 16} color={colors.fg1} />
       ) : (
@@ -42,7 +38,7 @@ export function CardBrandBox({ brand, size = "md", testID }: { brand: string; si
           {cardBrandName(brand)}
         </Text>
       )}
-    </View>
+    </PaymentMethodTile>
   );
 }
 
@@ -103,52 +99,18 @@ function SavedCardRow({ card, onPress }: { card: SavedCard; onPress: () => void 
   );
 }
 
-function AddCardRow({ onPress }: { onPress: () => void }) {
-  const colors = useThemeColors();
-  return (
-    <Pressable
-      testID="saved-cards-add-row"
-      accessibilityRole="button"
-      accessibilityLabel="Agregar tarjeta"
-      onPress={onPress}
-      className="flex-row items-center gap-3 bg-bg-sub px-4 py-3.5 active:bg-bg-mute"
-    >
-      <View
-        className="h-[30px] w-11 shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-dashed"
-        style={{ borderColor: colors.borderStrong }}
-      >
-        <Plus size={16} color={colors.fg1} strokeWidth={2} />
-      </View>
-      <Text className="flex-1 font-sans-semibold text-[15px] text-fg">Agregar tarjeta</Text>
-      <ChevronRight size={18} color={colors.fg3} strokeWidth={1.8} />
-    </Pressable>
-  );
-}
-
 export function SavedCardsEmpty({ onAdd }: { onAdd: () => void }) {
   const colors = useThemeColors();
   return (
-    <View
+    <PaymentMethodsEmpty
       testID="saved-cards-empty"
-      className="items-center gap-2 rounded-2xl border border-border bg-bg-sub px-4 pb-4 pt-6"
-    >
-      <View className="mb-1 h-12 w-12 items-center justify-center rounded-xl border border-border bg-bg">
-        <CreditCard size={22} color={colors.fg2} strokeWidth={1.8} />
-      </View>
-      <Text className="font-sans-semibold text-[15px] text-fg">Todavía no guardaste tarjetas</Text>
-      <Text className="max-w-[260px] text-center font-sans text-[13px] leading-[18px] text-fg-3">
-        Agregá una y la próxima vez que pagues un envío solo te pedimos el código.
-      </Text>
-      <Pressable
-        testID="saved-cards-empty-add"
-        accessibilityRole="button"
-        accessibilityLabel="Agregar tarjeta"
-        onPress={onAdd}
-        className="mt-2 w-full items-center rounded-full bg-fg py-3 active:opacity-80"
-      >
-        <Text className="font-sans-semibold text-[14px] text-bg">Agregar tarjeta</Text>
-      </Pressable>
-    </View>
+      actionTestID="saved-cards-empty-add"
+      icon={<CreditCard size={22} color={colors.fg2} strokeWidth={1.8} />}
+      title="Todavía no guardaste tarjetas"
+      body="Agregá una y la próxima vez que pagues un envío solo te pedimos el código."
+      actionLabel="Agregar tarjeta"
+      onAction={onAdd}
+    />
   );
 }
 
@@ -188,7 +150,7 @@ export function SavedCardsList({
         {sortSavedCards(cards).map((card) => (
           <SavedCardRow key={card.id} card={card} onPress={() => onOpenCard(card)} />
         ))}
-        <AddCardRow onPress={onAdd} />
+        <PaymentMethodActionRow testID="saved-cards-add-row" icon={Plus} label="Agregar tarjeta" onPress={onAdd} />
       </View>
       {hasUsableCard(cards) ? null : (
         <View

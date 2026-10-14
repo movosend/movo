@@ -1,13 +1,13 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import type { SavedCard } from "@movo/shared/dist/types/saved-card";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useColorScheme } from "nativewind";
 import { ChevronLeft } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CardOptionsSheet } from "../../../../components/payments/card-options-sheet";
 import { DeleteCardSheet } from "../../../../components/payments/delete-card-sheet";
+import { MpAccountSheet } from "../../../../components/payments/mp-account-sheet";
 import { MpConnectCard, MpConnectSkeletonCard } from "../../../../components/payments/mp-connect-card";
 import { PaymentsToast } from "../../../../components/payments/payments-toast";
 import { RenameCardSheet } from "../../../../components/payments/rename-card-sheet";
@@ -18,27 +18,29 @@ import { useLinkMpAccount, useMpConnectStatus, useUnlinkMpAccount } from "../../
 import { useDeleteCard, useRenameCard, useSavedCards, useSetDefaultCard } from "../../../../src/hooks/use-saved-cards";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
-import { getInitials } from "../../../../src/lib/profile-format";
 import {
   defaultCardToast,
   deletedCardToast,
   renamedCardToast,
 } from "../../../../src/lib/saved-cards";
-import { useAuthStore } from "../../../../src/store/auth-store";
 
 type CardOverlay = "options" | "rename" | "delete";
+type MpOverlay = "account" | "unlink";
 
 /**
  * "Pagos y cobros" (MOVO-112), desde Perfil → Configuración.
  *
- * Arriba, "Medios de pago" (MOVO-101): las tarjetas guardadas de cualquier usuario, con
- * alta (`profile/payments/add-card`), predeterminada, nombre de referencia y baja. Fiel al
- * prototipo "MOVO-112 Pagos y cobros v2"; renombrar y el aviso de `409 CARD_IN_USE` no
- * están en el prototipo y reusan sus piezas.
+ * Fiel al prototipo de Claude Design "MOVO-112 Pagos y cobros v3": las dos secciones usan
+ * la misma lista (recuadro de marca, título, detalle y menú) y sus opciones se abren en
+ * hojas con el mismo armado.
  *
- * Abajo, "Medios de cobro": el transportista vincula,
- * consulta y desvincula su cuenta de Mercado Pago (MOVO-111). Fiel al mockup de Claude
- * Design, con dos desvíos:
+ * Arriba, "Medios de pago" (MOVO-101): las tarjetas guardadas de cualquier usuario, con
+ * alta (`profile/payments/add-card`), predeterminada, nombre de referencia y baja.
+ * Renombrar y el aviso de `409 CARD_IN_USE` no están en el prototipo y reusan sus piezas.
+ *
+ * Abajo, "Medios de cobro": el transportista vincula, consulta, cambia y desvincula su
+ * cuenta de Mercado Pago (MOVO-111). Desvincular está dentro de las opciones de la cuenta,
+ * igual que eliminar una tarjeta. Desvíos del prototipo:
  *
  * - Un error al vincular (cancelar en MP, deep link con error) es un banner arriba del
  *   estado REAL, que se vuelve a consultar. El mockup siempre volvía a "Sin vincular",
@@ -50,11 +52,13 @@ type CardOverlay = "options" | "rename" | "delete";
  */
 export default function PaymentsSettingsScreen() {
   const colors = useThemeColors();
-  const { colorScheme } = useColorScheme();
-  const fullName = useAuthStore((s) => s.user?.fullName);
   const statusQuery = useMpConnectStatus();
   const link = useLinkMpAccount();
-  const [unlinkOpen, setUnlinkOpen] = useState(false);
+  const [mpOverlay, setMpOverlay] = useState<MpOverlay | null>(null);
+  // Igual que con las tarjetas: desvincular (otra hoja) o abrir el navegador de MP se hace
+  // recién cuando la hoja de opciones terminó de cerrarse, porque iOS no presenta nada
+  // mientras un `Modal` se está cerrando.
+  const nextMpActionRef = useRef<"link" | "unlink" | null>(null);
   const [unlinkError, setUnlinkError] = useState<string | null>(null);
 
   const cardsQuery = useSavedCards();
@@ -139,9 +143,12 @@ export default function PaymentsSettingsScreen() {
   const openAddCard = () => router.push("/profile/payments/add-card");
 
   const unlink = useUnlinkMpAccount({
-    onSuccess: () => setUnlinkOpen(false),
+    onSuccess: () => {
+      setMpOverlay(null);
+      setToast("Desvinculaste Mercado Pago.");
+    },
     onError: (err) => {
-      setUnlinkOpen(false);
+      setMpOverlay(null);
       setUnlinkError(friendlyErrorMessage(err, "No pudimos desvincular tu cuenta. Probá de nuevo."));
     },
   });
@@ -161,9 +168,13 @@ export default function PaymentsSettingsScreen() {
     }, [refetch, refetchCards]),
   );
 
-  const handleLink = () => {
+  const handleLink = async () => {
     setUnlinkError(null);
-    void link.start();
+    if (await link.start()) setToast("Vinculaste tu cuenta de Mercado Pago.");
+  };
+  const goFromMpAccount = (next: "link" | "unlink") => {
+    nextMpActionRef.current = next;
+    setMpOverlay(null);
   };
 
   const data = statusQuery.data;
@@ -176,15 +187,13 @@ export default function PaymentsSettingsScreen() {
     content = (
       <MpConnectCard
         data={data}
-        initials={getInitials(fullName)}
-        isDark={colorScheme === "dark"}
         linking={link.phase !== "idle"}
         hadLinkError={link.error !== null}
-        onLink={handleLink}
-        onUnlink={() => {
+        onLink={() => void handleLink()}
+        onOpenAccount={() => {
           setUnlinkError(null);
           link.clearError();
-          setUnlinkOpen(true);
+          setMpOverlay("account");
         }}
       />
     );
@@ -258,7 +267,7 @@ export default function PaymentsSettingsScreen() {
         <View className="gap-1">
           <Text className="font-sans-semibold text-caption uppercase text-fg-3">Medios de pago</Text>
           <Text className="font-sans text-[13px] leading-[18px] text-fg-2">
-            Con estas tarjetas pagás tus envíos. La marcada es la predeterminada: te la proponemos al pagar.
+            La marcada es la que te proponemos al pagar.
           </Text>
         </View>
         {cardError && overlay !== "delete" ? (
@@ -271,8 +280,7 @@ export default function PaymentsSettingsScreen() {
         <View className="mt-3 gap-1">
           <Text className="font-sans-semibold text-caption uppercase text-fg-3">Medios de cobro</Text>
           <Text className="font-sans text-[13px] leading-[18px] text-fg-2">
-            Cuando llevás envíos como transportista, lo que ganás se te acredita en esta cuenta de Mercado Pago. No se usa
-            para pagar.
+            Acá se acredita lo que ganás llevando envíos.
           </Text>
         </View>
         {link.error && !showFinishing ? (
@@ -321,11 +329,24 @@ export default function PaymentsSettingsScreen() {
         onClose={() => setOverlay(null)}
       />
 
+      <MpAccountSheet
+        data={data ?? null}
+        visible={mpOverlay === "account"}
+        onLink={() => goFromMpAccount("link")}
+        onUnlink={() => goFromMpAccount("unlink")}
+        onClose={() => setMpOverlay(null)}
+        onClosed={() => {
+          const next = nextMpActionRef.current;
+          nextMpActionRef.current = null;
+          if (next === "unlink") setMpOverlay("unlink");
+          else if (next === "link") void handleLink();
+        }}
+      />
       <UnlinkMpSheet
-        visible={unlinkOpen}
+        visible={mpOverlay === "unlink"}
         isPending={unlink.isPending}
         onConfirm={() => unlink.mutate()}
-        onClose={() => setUnlinkOpen(false)}
+        onClose={() => setMpOverlay(null)}
       />
       {toast ? <PaymentsToast key={toast} message={toast} onHide={hideToast} /> : null}
     </SafeAreaView>
