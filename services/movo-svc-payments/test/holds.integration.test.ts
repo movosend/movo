@@ -325,7 +325,7 @@ describe("/internal/payments/holds (MOVO-209)", () => {
       for (const savedCardId of [theirs.id, deleted.id, "00000000-0000-4000-8000-0000000000aa"]) {
         const res = await create({ savedCardId });
         expect(res.statusCode).toBe(404);
-        expect(res.json().error.code).toBe("NOT_FOUND");
+        expect(res.json().error.code).toBe("SAVED_CARD_NOT_FOUND");
       }
       // La de otro usuario tampoco sirve aunque el `payerUserId` sea el de su dueño con otro emisor.
       expect((await create({ savedCardId: mine.id, payerUserId: STRANGER })).statusCode).toBe(404);

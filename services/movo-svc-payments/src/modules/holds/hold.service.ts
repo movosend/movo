@@ -301,7 +301,7 @@ export function createHoldService(deps: HoldServiceDeps) {
       savedCards.findLive(input.payerUserId, input.savedCardId),
       savedCards.findCustomer(input.payerUserId),
     ]);
-    if (!card || !customer) throw new ApiError(404, "NOT_FOUND", "Tarjeta no encontrada.");
+    if (!card || !customer) throw new ApiError(404, "SAVED_CARD_NOT_FOUND", "Tarjeta no encontrada.");
     return { type: "customer", id: customer.mpCustomerId };
   }
 

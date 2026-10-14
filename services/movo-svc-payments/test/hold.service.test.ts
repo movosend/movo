@@ -283,7 +283,7 @@ describe("HoldService (MOVO-209)", () => {
     ])("AC2: una tarjeta %s responde 404 sin abrir intento ni llamar a MP", async (_label, override) => {
       Object.assign(savedCards, Object.fromEntries(Object.entries(override).map(([k, fn]) => [k, vi.fn(fn)])));
 
-      await expect(service().create(withCard)).rejects.toMatchObject({ statusCode: 404, code: "NOT_FOUND" });
+      await expect(service().create(withCard)).rejects.toMatchObject({ statusCode: 404, code: "SAVED_CARD_NOT_FOUND" });
 
       expect(mp.createPayment).not.toHaveBeenCalled();
       expect(accounts.findActiveCredentials).not.toHaveBeenCalled();
