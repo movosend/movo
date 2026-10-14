@@ -42,6 +42,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     process.env.USERS_SERVICE_URL = `http://localhost:${stubPort}`;
     process.env.SHIPMENTS_SERVICE_URL = `http://localhost:${stubPort}`;
     process.env.PAYMENTS_SERVICE_URL = `http://localhost:${stubPort}`;
+    process.env.ADMIN_SERVICE_URL = `http://localhost:${stubPort}`;
 
     app = buildApp();
     await app.ready();
@@ -186,6 +187,49 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       const response = await app.inject({ method: "GET", url: "/api/v1/payments/mp-connect/status" });
 
       expect(response.statusCode).toBe(401);
+    });
+  });
+
+  describe("Rutas de /admin (MOVO-288)", () => {
+    function issueToken(roles: UserRole[]): string {
+      return signAccessToken({
+        sub: "88888888-8888-8888-8888-888888888888",
+        roles,
+        kycStatus: KycStatus.APPROVED,
+      });
+    }
+
+    it("exige token (401 sin Authorization)", async () => {
+      const response = await app.inject({ method: "GET", url: "/api/v1/admin/audit-log" });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("un token de la app (sin admin) recibe 403", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/audit-log",
+        headers: { authorization: `Bearer ${issueToken([UserRole.SENDER, UserRole.CARRIER])}` },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(JSON.parse(response.body).error.code).toBe("AUTH_FORBIDDEN");
+    });
+
+    it("un token de panel llega al upstream con el prefijo /admin y la identidad inyectada", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/audit-log?limit=5",
+        headers: {
+          authorization: `Bearer ${issueToken([UserRole.SENDER, UserRole.CARRIER, UserRole.ADMIN])}`,
+          "x-user-id": "33333333-3333-3333-3333-333333333333",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/admin/audit-log?limit=5");
+      expect(capturedHeaders["x-user-id"]).toBe("88888888-8888-8888-8888-888888888888");
+      expect(capturedHeaders["x-user-roles"]).toContain("admin");
     });
   });
 
