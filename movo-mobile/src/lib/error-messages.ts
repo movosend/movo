@@ -125,6 +125,13 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   MP_CONNECT_STATE_INVALID: "La vinculación tardó demasiado y se venció. Probá de nuevo.",
   MP_CONNECT_ACCESS_DENIED: "No autorizaste a Movo en Mercado Pago. Para cobrar tus envíos, tenés que aceptar el permiso.",
   MP_CONNECT_EXCHANGE_FAILED: "Mercado Pago no respondió al confirmar la vinculación. Probá de nuevo.",
+  // Tarjetas guardadas (MOVO-101, backend MOVO-100).
+  CARD_IN_USE:
+    "Esta tarjeta tiene una reserva de fondos de un envío en curso. Vas a poder eliminarla cuando se libere.",
+  CARD_LIMIT_REACHED: "Llegaste al máximo de tarjetas guardadas. Eliminá una para agregar otra.",
+  CARD_SAVE_REJECTED: "Tu banco no aprobó la tarjeta. Revisá los datos o probá con otra. No se cobró nada.",
+  CARD_CUSTOMER_CONFLICT: "No pudimos asociar la tarjeta a tu cuenta. Escribinos a soporte para resolverlo.",
+  CARDS_NOT_CONFIGURED: "Guardar tarjetas no está disponible por ahora. Probá más tarde.",
   MP_ACCOUNT_ALREADY_LINKED: "Esa cuenta de Mercado Pago ya está vinculada a otro usuario de Movo.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
