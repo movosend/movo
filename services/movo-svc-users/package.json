@@ -14,7 +14,11 @@
     "lint": "eslint src",
     "postinstall": "prisma generate",
     "migrate": "prisma migrate deploy",
-    "migrate:dev": "prisma migrate dev"
+    "migrate:dev": "prisma migrate dev",
+    "admin:grant": "node dist/scripts/admin-role.js grant",
+    "admin:revoke": "node dist/scripts/admin-role.js revoke",
+    "admin:grant:dev": "tsx src/scripts/admin-role.ts grant",
+    "admin:revoke:dev": "tsx src/scripts/admin-role.ts revoke"
   },
   "keywords": [],
   "author": "",
