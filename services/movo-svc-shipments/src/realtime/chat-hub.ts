@@ -12,8 +12,11 @@ const WS_READY_STATE_OPEN = 1;
  */
 export class ChatHub {
   private readonly sockets = new Map<string, Map<string, Set<WebSocket>>>();
+  /** Sockets abiertos por un admin: junto con el receptor original, los únicos que miran sin ser parte. */
+  private readonly adminSockets = new WeakSet<WebSocket>();
 
-  register(shipmentId: string, userId: string, socket: WebSocket): void {
+  register(shipmentId: string, userId: string, socket: WebSocket, options: { admin?: boolean } = {}): void {
+    if (options.admin) this.adminSockets.add(socket);
     let users = this.sockets.get(shipmentId);
     if (!users) {
       users = new Map();
@@ -39,6 +42,14 @@ export class ChatHub {
   /** ¿Tiene `userId` el chat de este envío abierto en algún dispositivo? */
   isUserConnected(shipmentId: string, userId: string): boolean {
     return (this.sockets.get(shipmentId)?.get(userId)?.size ?? 0) > 0;
+  }
+
+  /** ¿Tiene `userId` el chat abierto como admin? Quien fue parte y dejó de serlo no cuenta. */
+  isAdminConnected(shipmentId: string, userId: string): boolean {
+    for (const socket of this.sockets.get(shipmentId)?.get(userId) ?? []) {
+      if (this.adminSockets.has(socket)) return true;
+    }
+    return false;
   }
 
   /** Usuarios con el chat abierto en este envío. */

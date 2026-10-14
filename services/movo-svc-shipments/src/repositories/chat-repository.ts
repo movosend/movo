@@ -211,7 +211,8 @@ export function createChatRepository(db: PrismaClient): ChatRepository {
         SELECT s.id
         FROM shipments.shipments s
         LEFT JOIN LATERAL (
-          SELECT MAX(m.created_at) AS last_message_at FROM shipments.chat_messages m WHERE m.shipment_id = s.id
+          SELECT MAX(m.created_at) AS last_message_at FROM shipments.chat_messages m
+          WHERE m.shipment_id = s.id AND (s.chat_started_at IS NULL OR m.created_at >= s.chat_started_at)
         ) lm ON TRUE
         WHERE s.status::text = ANY(${[...statuses]}::text[])
           AND s.carrier_id IS NOT NULL

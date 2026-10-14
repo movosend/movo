@@ -1,3 +1,4 @@
+import { createChatRepository } from "../src/repositories/chat-repository";
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
@@ -546,6 +547,31 @@ describe("Chat del envío (MOVO-26)", () => {
   });
 
   describe("correcciones de review", () => {
+    it("un transportista anterior con el socket vivo no recibe la conversación de la nueva asignación", async () => {
+      const p = await createShipment();
+      const formerCarrier = await connectedChat(p.shipmentId, p.carrierId);
+      // Se reasigna sin cambio de estado (el socket sigue abierto): otro transportista y conversación limpia.
+      const newCarrierId = randomUUID();
+      await app.db.shipment.update({ where: { id: p.shipmentId }, data: { carrierId: newCarrierId, chatStartedAt: new Date() } });
+
+      expect((await send(p.shipmentId, p.senderId, "Hola, ¿cómo va?")).statusCode).toBe(201);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(chatMessagesOf(formerCarrier)).toHaveLength(0);
+      formerCarrier.ws.close();
+    });
+
+    it("la lista no deja afuera un chat con actividad real por mensajes de una asignación anterior", async () => {
+      const reassigned = await createShipment();
+      const active = await createShipment();
+      await app.db.shipment.update({ where: { id: active.shipmentId }, data: { senderId: reassigned.senderId } });
+      // El mensaje de la asignación anterior es el más reciente de todos, pero queda antes del corte del hilo.
+      await send(reassigned.shipmentId, reassigned.senderId, "Mensaje de la asignación anterior");
+      await app.db.shipment.update({ where: { id: reassigned.shipmentId }, data: { chatStartedAt: new Date(Date.now() + 60_000) } });
+
+      const rows = await createChatRepository(app.db).listShipmentsForUser(reassigned.senderId, [ShipmentStatus.IN_TRANSIT], 1);
+      expect(rows.map((r) => r.id)).toEqual([active.shipmentId]);
+    });
+
     it("un reintento de un mensaje ya guardado devuelve 200 aunque el chat haya pasado a solo lectura o cerrado", async () => {
       const p = await createShipment();
       const clientMessageId = randomUUID();

@@ -275,7 +275,16 @@ export function createChatService(deps: ChatServiceDeps) {
         const delivered: string[] = [];
         // También a quienes solo miran (el admin y el receptor original, ADR-038): están conectados con acceso de
         // lectura y, si no, verían el hilo desactualizado hasta recargar. No cuentan como "entregado" para los tildes.
-        const watchers = deps.hub.connectedUserIds(shipment.id).filter((id) => id !== input.callerId && !recipients.includes(id));
+        // Solo esos dos: un transportista anterior con el socket todavía vivo ya no es parte y no debe leer la
+        // conversación nueva (cada asignación arranca limpia).
+        const watchers = deps.hub
+          .connectedUserIds(shipment.id)
+          .filter(
+            (id) =>
+              id !== input.callerId &&
+              !recipients.includes(id) &&
+              (id === shipment.formerReceiverId || deps.hub.isAdminConnected(shipment.id, id))
+          );
         for (const userId of [...recipients, ...watchers]) {
           const hidden = blocked.has(userId);
           if (!deps.hub.isUserConnected(shipment.id, userId)) continue;
@@ -423,14 +432,13 @@ export function createChatService(deps: ChatServiceDeps) {
 
       const ids = visible.map((v) => v.row.id);
       const blocked = await blockedWith(input.callerId);
-      const [last, unread] = await Promise.all([
-        deps.chatRepository.lastMessages(ids),
-        deps.chatRepository.unreadCounts(input.callerId, ids, [...blocked]),
-      ]);
-
       // Un mismo transportista o receptor suele repetirse en varios envíos: se consulta una sola vez por persona.
       const lookup: ParticipantLookup = new Map();
-      const participants = await Promise.all(visible.map(({ row }) => resolveParticipants(row, input.callerId, lookup)));
+      const [last, unread, participants] = await Promise.all([
+        deps.chatRepository.lastMessages(ids),
+        deps.chatRepository.unreadCounts(input.callerId, ids, [...blocked]),
+        Promise.all(visible.map(({ row }) => resolveParticipants(row, input.callerId, lookup))),
+      ]);
 
       return visible
         .map(({ row, access }, index): ChatListItem => {
