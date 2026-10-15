@@ -4722,7 +4722,8 @@ Pulido de MOVO-284 (todo mobile, sin backend).
   genérica y no "Receptor anterior" porque el mensaje no trae el rol y un ex integrante también podría ser un transportista
   reasignado.
 - **Contador de Inicio**: `useChatUnreadSync` (montado en `_layout`) vuelve a pedir la lista con una push `chat_message` en
-  foreground y al volver a primer plano; salir del chat también la invalida. Sin WebSocket global.
+  foreground y al volver a primer plano; salir del chat también la invalida. Sin WebSocket global, y un build local sin push
+  no recibe la push: por eso la lista además se pide cada 15 s (`CHAT_LIST_POLL_MS`).
 - **Doble entrada al chat**: `pushOnce` (`navigation-guard.ts`) ignora un segundo toque a la misma ruta en 800 ms (todos los
   accesos al chat). Las push comparan con la ruta actual, y las respuestas atendidas/cold start son de módulo, no de hook,
   para que un remonte (logout → login) no repita la navegación.

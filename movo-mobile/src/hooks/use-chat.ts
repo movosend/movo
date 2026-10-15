@@ -15,6 +15,10 @@ export const chatKeys = {
 
 const PAGE_SIZE = 30;
 
+/** Cada cuánto se vuelve a pedir la lista de chats. Sin WebSocket global ni push en foreground (un build local sin push, por
+ * ejemplo), es lo único que actualiza el contador de no leídos de Inicio, así que va corto (MOVO-301). */
+const CHAT_LIST_POLL_MS = 15_000;
+
 /** Lista "Chats": uno por envío con transportista. `refetchInterval` cubre cuando no hay WebSocket abierto. */
 export function useChatList() {
   const isAuthenticated = useAuthStore((state) => state.status === "authenticated");
@@ -23,7 +27,7 @@ export function useChatList() {
     queryFn: () => chatClient.listChats(),
     enabled: isAuthenticated,
     select: (data) => data.items,
-    refetchInterval: 60_000,
+    refetchInterval: CHAT_LIST_POLL_MS,
   });
 }
 
