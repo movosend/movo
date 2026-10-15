@@ -115,9 +115,9 @@ export function useTripMatches(tripId: string | undefined, radiusKm?: number, li
  */
 export function useCancelTrip() {
   const queryClient = useQueryClient();
-  return useMutation<Trip, unknown, string>({
-    mutationFn: (id) => tripsClient.cancel(id),
-    onSuccess: (_data, id) => {
+  return useMutation<Trip, unknown, { id: string; stopRecurrence?: boolean }>({
+    mutationFn: ({ id, stopRecurrence }) => tripsClient.cancel(id, { stopRecurrence }),
+    onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: TRIPS_LIST_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["trips", "detail", id] });
       queryClient.invalidateQueries({ queryKey: ["trips", "matches"] });

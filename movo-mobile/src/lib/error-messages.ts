@@ -91,6 +91,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     "El origen y el destino tienen que estar separados por al menos 100 metros.",
   TRIP_DEPARTURE_IN_PAST: "La fecha y hora de salida tiene que ser futura.",
   TRIP_NOT_ACTIVE: "Este viaje ya no está activo.",
+  // Viajes recurrentes (MOVO-266 / backend MOVO-265).
+  RECURRING_SERIES_LIMIT: "Ya tenés 3 viajes que se repiten. Dejá de repetir alguno para sumar otro.",
+  TRIP_NOT_SERIES_HEAD: "Este viaje ya tiene el siguiente declarado: los días se cambian desde ese.",
   // Iniciar viaje (MOVO-221 / MOVO-252).
   TRIP_NOT_DECLARED: "El viaje ya fue iniciado o finalizado.",
   TRIP_ALREADY_HAS_ACTIVE_TRIP:
