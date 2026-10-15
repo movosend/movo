@@ -4714,7 +4714,8 @@ Pulido de MOVO-284 (todo mobile, sin backend).
   los 800 ms, así una burbuja que se vuelve a montar por virtualización no se anima de nuevo. `chatEnteringAnimation`
   (`chat-bubble.tsx`) usa `translateY` positivo: la `FlatList inverted` espeja la lista y cada celda, el doble espejo se
   cancela y el contenido queda derecho (verificar en dispositivo).
-  Al enviar: el mensaje propio crece con un resorte desde su esquina (`ownMessageEnteringAnimation`), pasa de
+  Al enviar: el mensaje propio crece con un resorte desde su esquina (un valor compartido que arranca en el estado
+  inicial y no `entering`, que dibujaba un cuadro final y se veía como un parpadeo blanco en modo oscuro), pasa de
   atenuado a opaco al confirmarse, los de abajo suben con `LinearTransition` y el botón rebota con una vibración suave.
   Respeta `useReducedMotion`. El mock de Jest de reanimated no trae ese hook: `test/mocks/reanimated-setup.js` lo suma
   (`globalThis.__reduceMotion`).

@@ -37,7 +37,8 @@ const SENDING_OPACITY = 0.6;
 const SPRING = { damping: 16, stiffness: 240, mass: 0.8 };
 
 /**
- * Entrada de un mensaje nuevo y del botón "ir al final": fade + deslizamiento corto desde abajo. La
+ * Entrada del botón "ir al final": fade + deslizamiento corto desde abajo (las burbujas usan un valor compartido
+ * propio, ver `ChatBubble`). La
  * `FlatList inverted` espeja la lista y también cada celda, así que el contenido de una burbuja queda
  * derecho (el doble espejo se cancela) y un `translateY` positivo se ve como venir desde abajo.
  */
@@ -48,18 +49,6 @@ export function chatEnteringAnimation() {
     animations: {
       opacity: withTiming(1, { duration: CHAT_ENTER_MS }),
       transform: [{ translateY: withTiming(0, { duration: CHAT_ENTER_MS }) }],
-    },
-  };
-}
-
-/** Un mensaje propio recién enviado "sale" del campo de texto: crece con un resorte desde su esquina inferior. */
-export function ownMessageEnteringAnimation() {
-  "worklet";
-  return {
-    initialValues: { opacity: 0, transform: [{ scale: 0.82 }, { translateY: 10 }] },
-    animations: {
-      opacity: withTiming(1, { duration: 140 }),
-      transform: [{ scale: withSpring(1, SPRING) }, { translateY: withSpring(0, SPRING) }],
     },
   };
 }
@@ -85,6 +74,25 @@ function Ticks({ double }: { double: boolean }) {
 export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, groupStart, avatar, onPressAvatar, onRetry, onDiscard, animateIn, testID }: ChatBubbleProps) {
   const reduceMotion = useReducedMotion();
   const [statusOpen, setStatusOpen] = useState(false);
+  const animate = !!animateIn && !reduceMotion;
+
+  // La entrada se maneja con un valor compartido que ARRANCA en el estado inicial, no con `entering`: con
+  // `entering` la burbuja se dibuja un cuadro en su estado final (blanca en modo oscuro) antes de que se aplique
+  // el inicial, y se veía como un parpadeo.
+  const enter = useSharedValue(animate ? 0 : 1);
+  useEffect(() => {
+    if (!animate) return;
+    enter.value = mine ? withSpring(1, SPRING) : withTiming(1, { duration: CHAT_ENTER_MS });
+    // Solo al montar: `animate` no cambia después de que la burbuja ya está en pantalla.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const rowEnterStyle = useAnimatedStyle(() => ({
+    opacity: Math.min(1, enter.value * 1.4),
+    transform: [{ translateY: (1 - enter.value) * 14 }],
+  }));
+  const bubbleEnterStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: mine ? 0.82 + 0.18 * enter.value : 1 }],
+  }));
   const failed = message.localState === "failed";
   const sending = message.localState === "sending";
   const status = message.deliveryStatus ?? (mine && !sending && !failed ? "sent" : null);
@@ -101,11 +109,10 @@ export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, g
   return (
     <Animated.View
       testID={testID}
-      entering={animateIn && !reduceMotion ? chatEnteringAnimation : undefined}
       // Los de abajo suben con suavidad cuando entra uno nuevo (la lista va invertida).
       layout={reduceMotion ? undefined : LinearTransition.duration(200)}
       className={`flex-row items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}
-      style={{ marginTop: groupStart ? 14 : 4 }}
+      style={[{ marginTop: groupStart ? 14 : 4 }, rowEnterStyle]}
     >
       {!mine ? (
         <Pressable
@@ -127,7 +134,6 @@ export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, g
 
         <Animated.View
           testID={`${testID}-bubble`}
-          entering={animateIn && mine && !reduceMotion ? ownMessageEnteringAnimation : undefined}
           className={mine ? "bg-fg" : "bg-bg-mute"}
           style={[
             {
@@ -139,6 +145,7 @@ export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, g
               transformOrigin: mine ? "right bottom" : "left bottom",
             },
             bubbleOpacityStyle,
+            bubbleEnterStyle,
           ]}
         >
           {message.hidden ? (
