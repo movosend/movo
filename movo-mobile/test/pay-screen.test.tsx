@@ -262,7 +262,7 @@ describe("PayShipmentScreen (MOVO-269)", () => {
     const refetch = jest.fn();
     mockFunding.mockReturnValue({ data: FUNDING, isLoading: false, isError: false, error: null, refetch });
     await render(<PayShipmentScreen />);
-    await act(async () => mockOnSettled?.({ kind: "error", error: new ApiError(422, "VALIDATION_ERROR", "x") }));
+    await act(async () => mockOnSettled?.({ kind: "error", error: new ApiError(422, "VALIDATION_FAILED", "x") }));
     expect(refetch).not.toHaveBeenCalled();
   });
 
