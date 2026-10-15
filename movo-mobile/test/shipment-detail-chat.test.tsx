@@ -16,6 +16,9 @@ jest.mock("../src/hooks/use-receiver-transfers", () => ({
   useCancelReceiverTransfer: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false })),
 }));
 
+const mockChatList = jest.fn(() => ({ data: [] as { shipmentId: string; unreadCount: number }[] }));
+jest.mock("../src/hooks/use-chat", () => ({ useChatList: () => mockChatList() }));
+
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
@@ -149,7 +152,10 @@ describe("ShipmentDetailScreen — chat del envío (MOVO-284)", () => {
     mockCanGoBack.mockReturnValue(true);
     mockCurrentUser.mockReturnValue({ userId: "user-1" });
   });
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    mockChatList.mockReturnValue({ data: [] });
+  });
 
   function mockShipment(overrides: Partial<ShipmentSummary>) {
     mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(overrides), error: null, refetch: jest.fn() });
@@ -163,9 +169,11 @@ describe("ShipmentDetailScreen — chat del envío (MOVO-284)", () => {
   ])("con transportista (%s) ofrece abrir el chat y navega a la conversación", async (status) => {
     mockShipment({ carrierId: "carrier-1", status });
 
-    const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("Coordiná el retiro y la entrega con las otras partes.")).toBeTruthy();
+    // El botón de Chat vive en la misma card que el mapa y el seguimiento (MOVO-301).
+    expect(getByTestId("shipment-detail-route-card")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-chat-unread")).toBeNull();
     await fireEvent.press(getByTestId("shipment-detail-chat"));
     expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/chat");
   });
@@ -191,10 +199,12 @@ describe("ShipmentDetailScreen — chat del envío (MOVO-284)", () => {
   it("entregado queda como solo lectura", async () => {
     mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.DELIVERED });
 
-    const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
 
     expect(getByTestId("shipment-detail-chat")).toBeTruthy();
-    expect(getByText("El envío finalizó. El chat queda en solo lectura y se archiva en 24 h.")).toBeTruthy();
+    expect(getByTestId("shipment-detail-chat").props.accessibilityHint).toBe(
+      "El envío finalizó. El chat queda en solo lectura y se archiva en 24 h.",
+    );
   });
 
   it("sin transportista no hay chat", async () => {
@@ -221,9 +231,39 @@ describe("ShipmentDetailScreen — chat del envío (MOVO-284)", () => {
       receiverTransfer: { viewerIsFormerReceiver: true, pending: null, completed: null },
     });
 
-    const { getByText } = await render(<ShipmentDetailScreen />);
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
 
     // Sin entrega: no puede decir que el envío finalizó.
-    expect(getByText("Le pasaste la recepción a otra persona. Podés leer la conversación, no escribir.")).toBeTruthy();
+    expect(getByTestId("shipment-detail-chat").props.accessibilityHint).toBe(
+      "Le pasaste la recepción a otra persona. Podés leer la conversación, no escribir.",
+    );
+  });
+
+  it("MOVO-301: el botón de Chat muestra el punto lima cuando hay mensajes sin leer", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.ASSIGNED });
+    mockChatList.mockReturnValue({ data: [{ shipmentId: "shipment-1", unreadCount: 3 }] });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-chat-unread")).toBeTruthy();
+    expect(getByTestId("shipment-detail-chat").props.accessibilityLabel).toBe("Abrir el chat del envío, 3 sin leer");
+  });
+
+  it("MOVO-301: los no leídos de otro envío no marcan este botón", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.ASSIGNED });
+    mockChatList.mockReturnValue({ data: [{ shipmentId: "otro", unreadCount: 5 }] });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-chat-unread")).toBeNull();
+  });
+
+  it("MOVO-301: el seguimiento y el chat comparten la card del mapa; sin transportista es solo el mapa", async () => {
+    mockShipment({ carrierId: null, status: ShipmentStatus.PUBLISHED });
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-route-card")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-chat")).toBeNull();
+    expect(queryByTestId("shipment-detail-live-tracking-pending")).toBeNull();
   });
 });

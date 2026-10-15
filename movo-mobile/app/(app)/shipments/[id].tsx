@@ -20,8 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
 import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
-import { ChatAccessCard } from "../../../components/shipments/chat-access-card";
-import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
+import { RouteTrackingChatCard } from "../../../components/shipments/route-tracking-chat-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard, PackageSummaryCard } from "../../../components/shipments/package-card";
 import { PaymentBreakdown } from "../../../components/shipments/payment-breakdown";
@@ -456,42 +455,36 @@ export default function ShipmentDetailScreen() {
 
               <View>
                 <Eyebrow>Ruta</Eyebrow>
-                <RouteMapCard
-                  pickup={{
-                    address: shipment.pickupAddress,
-                    lat: shipment.pickupLat,
-                    lng: shipment.pickupLng,
-                  }}
-                  delivery={{
-                    address: shipment.deliveryAddress,
-                    lat: shipment.deliveryLat,
-                    lng: shipment.deliveryLng,
-                  }}
-                  paused={!isFocused}
-                  testID="shipment-detail-route-map"
-                />
+                <RouteTrackingChatCard
+                  shipmentId={shipment.id}
+                  tracking={liveTracking}
+                  chat={chatAccess}
+                  status={shipment.status}
+                  isFormerReceiver={isFormerReceiver}
+                  testID="shipment-detail-route-card"
+                  trackingTestID="shipment-detail-live-tracking"
+                  chatTestID="shipment-detail-chat"
+                >
+                  <RouteMapCard
+                    bare
+                    pickup={{
+                      address: shipment.pickupAddress,
+                      lat: shipment.pickupLat,
+                      lng: shipment.pickupLng,
+                    }}
+                    delivery={{
+                      address: shipment.deliveryAddress,
+                      lat: shipment.deliveryLat,
+                      lng: shipment.deliveryLng,
+                    }}
+                    paused={!isFocused}
+                    testID="shipment-detail-route-map"
+                  />
+                </RouteTrackingChatCard>
               </View>
 
               {showRejectedBanner ? (
                 <RejectedReceiverBanner shipment={shipment} testID="shipment-detail-rejected-banner" />
-              ) : null}
-
-              {liveTracking ? (
-                <LiveTrackingCard
-                  shipmentId={shipment.id}
-                  availability={liveTracking}
-                  testID="shipment-detail-live-tracking"
-                />
-              ) : null}
-
-              {chatAccess ? (
-                <ChatAccessCard
-                  shipmentId={shipment.id}
-                  availability={chatAccess}
-                  status={shipment.status}
-                  isFormerReceiver={isFormerReceiver}
-                  testID="shipment-detail-chat"
-                />
               ) : null}
 
               {showExpiredBanner ? (
@@ -504,6 +497,10 @@ export default function ShipmentDetailScreen() {
                     El plazo de 24 horas para aceptar o rechazar este envío ya venció.
                   </Text>
                 </View>
+              ) : null}
+
+              {showOffersBanner ? (
+                <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
               ) : null}
 
               {seesReceiverView ? (
@@ -572,12 +569,6 @@ export default function ShipmentDetailScreen() {
                 </>
               )}
 
-              <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
-
-              {showOffersBanner ? (
-                <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
-              ) : null}
-
               <View>
                 <Eyebrow>Participantes</Eyebrow>
                 <ShipmentPartiesCard
@@ -627,6 +618,8 @@ export default function ShipmentDetailScreen() {
                   ]}
                 />
               </View>
+
+              <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
 
               {isReceiver && activeUserId ? (
                 <ReceiverTransferSection

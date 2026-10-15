@@ -4705,3 +4705,30 @@ PR apilada sobre la de MOVO-265 (#246), que trae los tipos y helpers de `@movo/s
   `trip_recurrence_generated`/`trip_recurrence_stopped` abren el detalle del viaje.
 
 Pendiente: no probado en device; revisar contra el backend real cuando #246 esté en dev.
+
+### MOVO-301 — Chat del envío: animación, botón de ir al final, rol del autor, detalle rediseñado y fixes
+
+Pulido de MOVO-284 (todo mobile, sin backend).
+- **Animación de mensajes**: `useLiveChatKeys` (`src/hooks/`) distingue lo que llega en vivo (nuevo y antes del que era el más
+  nuevo) de historial y paginación, durante el render porque `entering` solo corre al montar. Cada key en vivo se retira sola a
+  los 800 ms, así una burbuja que se vuelve a montar por virtualización no se anima de nuevo. `chatEnteringAnimation`
+  (`chat-bubble.tsx`) usa `translateY` negativo: la `FlatList inverted` espeja cada celda, y así se ve venir desde abajo.
+  Respeta `useReducedMotion`. El mock de Jest de reanimated no trae ese hook: `test/mocks/reanimated-setup.js` lo suma
+  (`globalThis.__reduceMotion`).
+- **"Ir al último mensaje"** (`scroll-to-bottom-button.tsx`): aparece a más de una altura de lista del final, cuenta los
+  mensajes ajenos que llegan estando arriba y baja con `scrollToOffset({offset: 0})`; un mensaje propio siempre baja.
+  **Sin cambiar todavía** cuándo se marca como leído un mensaje ajeno (sigue al llegar): decisión pendiente en el ticket.
+- **Rol del autor** (`chatAuthorLabel`): lista de participantes → ids del envío → "Ex integrante". Se eligió esa etiqueta
+  genérica y no "Receptor anterior" porque el mensaje no trae el rol y un ex integrante también podría ser un transportista
+  reasignado.
+- **Contador de Inicio**: `useChatUnreadSync` (montado en `_layout`) vuelve a pedir la lista con una push `chat_message` en
+  foreground y al volver a primer plano; salir del chat también la invalida. Sin WebSocket global.
+- **Doble entrada al chat**: `pushOnce` (`navigation-guard.ts`) ignora un segundo toque a la misma ruta en 800 ms (todos los
+  accesos al chat). Las push comparan con la ruta actual, y las respuestas atendidas/cold start son de módulo, no de hook,
+  para que un remonte (logout → login) no repita la navegación.
+- **Detalle**: `RouteTrackingChatCard` reúne mapa (`RouteMapCard bare`), franja "En vivo" y botón "Chat" con punto lima si hay no
+  leídos; reemplaza `LiveTrackingCard` y `ChatAccessCard` (borradas). El texto de solo lectura pasó al `accessibilityHint`.
+  Orden nuevo: pago → ruta → avisos → ofertas → retiro/precio → paquete → participantes → evidencias → transferencia →
+  calificaciones.
+
+Pendiente: probar en dispositivo (dirección del slide en la lista invertida, iOS y Android); confirmar el criterio de leído.
