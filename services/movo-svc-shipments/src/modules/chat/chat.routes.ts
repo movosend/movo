@@ -7,6 +7,7 @@ import { createShipmentRepository, ShipmentRepository } from "../../repositories
 import { createChatRepository } from "../../repositories/chat-repository";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
+import { createRedisChatPushBuffer } from "../../repositories/chat-push-buffer";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { authorizeRealtimeConnection } from "../../services/realtime-authorizer";
@@ -20,6 +21,8 @@ export interface ChatRoutesOptions extends FastifyPluginOptions {
   notificationsClient?: NotificationsClient;
   /** Reloj inyectable para probar el borde de las 24 h. */
   now?: () => Date;
+  /** Agenda el resumen de avisos de una ráfaga; los tests lo reemplazan para no esperar la ventana real. */
+  schedulePush?: (run: () => void, delayMs: number) => void;
 }
 
 const errors = {
@@ -43,6 +46,9 @@ export function buildChatService(app: FastifyInstance, opts: ChatRoutesOptions =
     releaseNotificationClaim: async (key) => {
       await app.redis.del(`notified:${key}`);
     },
+    windowRemainingMs: async (key) => Math.max(0, await app.redis.pttl(`notified:${key}`)),
+    pushBuffer: createRedisChatPushBuffer(app.redis),
+    schedule: opts.schedulePush,
     logger: app.log,
     now: opts.now,
   });

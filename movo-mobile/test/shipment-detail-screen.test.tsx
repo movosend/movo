@@ -17,6 +17,9 @@ jest.mock("../src/hooks/use-receiver-transfers", () => ({
   useCancelReceiverTransfer: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false })),
 }));
 
+const mockChatList = jest.fn(() => ({ data: [] as { shipmentId: string; unreadCount: number }[] }));
+jest.mock("../src/hooks/use-chat", () => ({ useChatList: () => mockChatList() }));
+
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
@@ -1396,9 +1399,7 @@ describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () =
 
       expect(getByTestId("shipment-detail-live-tracking-pending")).toBeTruthy();
       expect(queryByTestId("shipment-detail-live-tracking")).toBeNull();
-      expect(
-        getByText("Cuando el transportista inicie el recorrido, vas a poder ver su ubicación en tiempo real."),
-      ).toBeTruthy();
+      expect(getByText("Se activa al iniciar el recorrido")).toBeTruthy();
     },
   );
 

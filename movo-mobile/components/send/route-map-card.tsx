@@ -96,6 +96,8 @@ function RouteBadge({ label }: { label: string }) {
 }
 
 interface RouteMapCardProps {
+  /** Sin borde ni radio propios: el mapa va dentro de otra card que ya los pone (MOVO-301). */
+  bare?: boolean;
   pickup: RoutePoint | null;
   delivery: RoutePoint | null;
   /** Sin `onEdit` no se renderiza el botón flotante de lápiz — el detalle de envío
@@ -124,7 +126,7 @@ interface RouteMapCardProps {
  * el origen, un cuadrado para el destino, mismo color `fg-1` a propósito (se
  * distinguen por forma, no por color).
  */
-export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = false, testID }: RouteMapCardProps) {
+export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = false, bare = false, testID }: RouteMapCardProps) {
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
   const mapRef = useRef<MapView>(null);
@@ -277,7 +279,7 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = f
   }
 
   return (
-    <View testID={testID} className="overflow-hidden rounded-[14px] border border-border">
+    <View testID={testID} className={bare ? "overflow-hidden" : "overflow-hidden rounded-[14px] border border-border"}>
       <View style={{ height: MAP_HEIGHT, backgroundColor: mapBackgroundColor }}>
         <MapView
           ref={mapRef}

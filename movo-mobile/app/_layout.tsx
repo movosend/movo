@@ -26,6 +26,7 @@ import { RequiredPermissionsGate } from '../components/permissions/required-perm
 import { useDeviceKeyBootstrap } from '../src/hooks/use-device-key-bootstrap';
 import { useLegalAcceptanceEntry } from '../src/hooks/use-legal-acceptance-entry';
 import { useRequiredPermissionsGate } from '../src/hooks/use-required-permissions-gate';
+import { useChatUnreadSync } from '../src/hooks/use-chat-unread-sync';
 import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
@@ -51,6 +52,12 @@ SplashScreen.preventAutoHideAsync();
  */
 function CarrierTrackingCoordinatorMount() {
   useCarrierTrackingCoordinator();
+  return null;
+}
+
+/** MOVO-301: contador de chats sin leer al día (push en foreground y vuelta a primer plano). */
+function ChatUnreadSyncMount() {
+  useChatUnreadSync();
   return null;
 }
 
@@ -257,6 +264,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <RegistrationProvider>
           <CarrierTrackingCoordinatorMount />
+          <ChatUnreadSyncMount />
           {!showAnimatedSplash ? <BlockingGatesMount /> : null}
           <View onLayout={onLayout} className="flex-1 bg-bg">
             <Stack screenOptions={{ headerShown: false }} />

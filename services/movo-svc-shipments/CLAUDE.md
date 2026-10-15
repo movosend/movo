@@ -3458,3 +3458,24 @@ tres partes). Reglas puras en `domain/expiration.ts` (`isTransitAnomalyDeadlineP
 
 Pendiente / fuera de alcance: resolución de disputas (MOVO-34, sin ella el bloqueo no tiene salida),
 disputa iniciada por usuario (MOVO-30) y panel de admin (MOVO-33).
+
+### MOVO-301 — Avisos de chat con el texto y ráfagas en un solo resumen (ADR-046)
+
+`chat.service.ts#dispatchPush` deja de mandar una push por mensaje sin texto (el cooldown fijo de 60 s de MOVO-26): el
+primer mensaje de una conversación avisa enseguida (título `Ana · Emisor`, cuerpo el texto cortado a 140) y abre una
+ventana de `CHAT_PUSH_WINDOW_SECONDS` (30, marca `notified:chat-push:*`). Los mensajes que llegan dentro de la ventana se juntan
+en una cola de Redis (`repositories/chat-push-buffer.ts`, tope 100, TTL 5 min) y `scheduleFlush` agenda UN resumen para
+cuando **cierra esa misma ventana** (`windowRemainingMs`, `PTTL` de la marca): ventana y resumen comparten un solo reloj, así
+un mensaje posterior nunca sale antes que uno anterior. `flushChatPush` suelta primero la marca de agendado (lo que llegue
+después agenda su propio resumen), toma la ventana siguiente (si ya la tomó otro mensaje, se reagenda), relee el envío
+(rol y acceso pudieron cambiar), vuelve a filtrar los autores bloqueados (ADR-026) y manda el resumen
+(`"N mensajes nuevos · último"`) solo si el destinatario todavía tiene no leídos; si no hay nada que avisar libera la
+ventana para no atrasar el próximo mensaje.
+
+- **Reemplaza el punto de ADR-040** "sin el texto" (ADR-046): el texto viaja en la push.
+- **El resumen vive en un `setTimeout` del proceso**: un reinicio entre el primer mensaje y el cierre de la ventana lo pierde
+  (el primero ya avisó). Aceptado, mismo criterio que los barridos de una sola réplica (ADR-006).
+- `ChatServiceDeps` suma `pushBuffer` y `windowRemainingMs` (requeridos) y `schedule` (opcional; los tests lo inyectan con
+  `chatSchedulePush` en `buildApp` y simulan el paso del tiempo borrando la marca de ventana).
+- El trigger `chatMessageReceived` (`@movo/shared`) ahora recibe `authorName`, `roleLabel?`, `messageBody` y `count?`.
+- Un autor que ya no es parte del envío sale sin rol en el título.

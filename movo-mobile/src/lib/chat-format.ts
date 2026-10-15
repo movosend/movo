@@ -25,6 +25,37 @@ export function chatRoleLabel(role: ChatParticipantRole): string {
   return ROLE_LABEL[role];
 }
 
+/** Rol que se muestra de alguien que ya no figura en el chat (ADR-038: sale del hilo sin perder sus mensajes). */
+export const FORMER_MEMBER_ROLE_LABEL = "Ex integrante";
+
+/**
+ * "Ana M. · Emisor" para el encabezado de un grupo de burbujas ajenas. El rol se resuelve siempre
+ * que se pueda: primero por la lista de participantes, después por los ids del envío, y si el
+ * autor ya no es parte (receptor original tras una transferencia) se marca como ex integrante
+ * en vez de dejar el nombre sin rol o con el rol de quien lo reemplazó.
+ */
+export function chatAuthorLabel(params: {
+  authorId: string;
+  authorName: string | null;
+  participants: readonly { userId: string; fullName: string; role: ChatParticipantRole }[];
+  shipment?: { senderId?: string | null; carrierId?: string | null; receiverId?: string | null } | null;
+}): string | undefined {
+  const { authorId, authorName, participants, shipment } = params;
+  const participant = participants.find((p) => p.userId === authorId);
+  if (participant) return `${shortName(participant.fullName)} · ${chatRoleLabel(participant.role)}`;
+  const name = shortName(authorName);
+  if (!name) return undefined;
+  const role: ChatParticipantRole | null =
+    shipment?.senderId === authorId
+      ? "sender"
+      : shipment?.carrierId === authorId
+        ? "carrier"
+        : shipment?.receiverId === authorId
+          ? "receiver"
+          : null;
+  return `${name} · ${role ? chatRoleLabel(role) : FORMER_MEMBER_ROLE_LABEL}`;
+}
+
 /** "Ana, Diego y Luis" a partir de los primeros nombres. */
 export function joinNames(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";

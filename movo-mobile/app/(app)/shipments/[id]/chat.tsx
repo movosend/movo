@@ -1,6 +1,18 @@
 import { router, useIsFocused, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  AppState,
+  FlatList,
+  KeyboardAvoidingView,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  Platform,
+  Pressable,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ChatBubble } from "../../../../components/chat/chat-bubble";
 import { ChatComposer } from "../../../../components/chat/chat-composer";
@@ -8,22 +20,26 @@ import { ChatEventCard } from "../../../../components/chat/chat-event-card";
 import { ChatSafetySheet, type SafetyTarget } from "../../../../components/chat/chat-safety-sheet";
 import { ModerationBanner } from "../../../../components/chat/moderation-banner";
 import { QuickReplies } from "../../../../components/chat/quick-replies";
+import { ScrollToBottomButton } from "../../../../components/chat/scroll-to-bottom-button";
 import { ChatHeader } from "../../../../components/chat/chat-header";
 import { ChatDotBackground } from "../../../../components/chat/chat-dot-background";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { useChatBlockToggle, useReportChat } from "../../../../src/hooks/use-chat";
 import { useChatConversation } from "../../../../src/hooks/use-chat-conversation";
+import { useLiveChatKeys } from "../../../../src/hooks/use-live-chat-keys";
 import { useBlockedUsers } from "../../../../src/hooks/use-moderation";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import {
   CHAT_QUICK_REPLIES,
+  chatAuthorLabel,
   chatReadOnlyCopy,
-  chatRoleLabel,
-  shortName,
   type ChatTimelineItem,
 } from "../../../../src/lib/chat-format";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 
+
+/** Distancia al final (en altura de la lista) a partir de la cual aparece "Ir al último mensaje". */
+const SCROLL_AWAY_FALLBACK_PX = 600;
 
 const OPEN_ERROR = "No pudimos abrir el chat. Intentá de nuevo en unos minutos.";
 
@@ -40,6 +56,7 @@ export default function ShipmentChatScreen() {
     return () => sub.remove();
   }, []);
   const chat = useChatConversation(id, { focused: screenFocused && appActive });
+
   const reportMutation = useReportChat(id ?? "");
   const blockedQuery = useBlockedUsers();
   const [safetyOpen, setSafetyOpen] = useState(false);
@@ -59,6 +76,40 @@ export default function ShipmentChatScreen() {
     if (id) router.dismissTo(`/(app)/shipments/${id}` as never);
   }, [id]);
 
+  // ── Animación de lo que llega en vivo y botón "Ir al último mensaje".
+  const listRef = useRef<FlatList<ChatTimelineItem>>(null);
+  const listHeightRef = useRef(SCROLL_AWAY_FALLBACK_PX);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const awayRef = useRef(false);
+  const [newWhileAway, setNewWhileAway] = useState(0);
+  const { liveKeys, arrivals } = useLiveChatKeys(chat.timeline, !chat.isLoading);
+
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    // La lista va invertida: el offset 0 es el último mensaje.
+    const away = event.nativeEvent.contentOffset.y > listHeightRef.current;
+    if (away === awayRef.current) return;
+    awayRef.current = away;
+    setAwayFromBottom(away);
+    if (!away) setNewWhileAway(0);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
+  // Los mensajes que llegan con el usuario arriba no lo mueven y se cuentan; uno propio siempre baja.
+  useEffect(() => {
+    let incoming = 0;
+    for (const item of arrivals) {
+      if (item.kind !== "message") continue;
+      // Solo el mensaje que acaba de enviar ESTE teléfono (todavía local) baja al final. Uno propio que llega por otro
+      // dispositivo, o dentro de una carga en bloque, cuenta como nuevo igual que uno ajeno.
+      if (item.message.localState === "sending") scrollToBottom();
+      else incoming += 1;
+    }
+    if (incoming > 0 && awayRef.current) setNewWhileAway((count) => count + incoming);
+  }, [arrivals, scrollToBottom]);
+
   const participantById = new Map(chat.participants.map((p) => [p.userId, p]));
   const blockedIds = new Set((blockedQuery.data ?? []).map((u) => u.id));
   const safetyTargets: SafetyTarget[] = chat.participants
@@ -77,9 +128,12 @@ export default function ShipmentChatScreen() {
     const author = participantById.get(item.message.authorId);
     const authorLabel = item.mine
       ? undefined
-      : author
-        ? `${shortName(author.fullName)} · ${chatRoleLabel(author.role)}`
-        : (item.message.authorName ?? undefined);
+      : chatAuthorLabel({
+          authorId: item.message.authorId,
+          authorName: item.message.authorName,
+          participants: chat.participants,
+          shipment: chat.shipment,
+        });
     return (
       <ChatBubble
         testID={`chat-message-${item.message.clientMessageId || item.message.id}`}
@@ -89,6 +143,7 @@ export default function ShipmentChatScreen() {
         showName={item.showName}
         showAvatar={item.showAvatar}
         groupStart={item.groupStart}
+        animateIn={liveKeys.has(item.key)}
         avatar={author ? { fullName: author.fullName, photoUrl: author.photoUrl } : undefined}
         onPressAvatar={openShipmentDetail}
         onRetry={chat.retry}
@@ -104,7 +159,13 @@ export default function ShipmentChatScreen() {
       <ChatHeader participants={chat.participants} onBack={goBack} onOptions={() => setSafetyOpen(true)} onPressParticipants={openShipmentDetail} />
 
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View className="flex-1" style={{ marginTop: 10 }}>
+        <View
+          className="flex-1"
+          style={{ marginTop: 10 }}
+          onLayout={(event: LayoutChangeEvent) => {
+            listHeightRef.current = event.nativeEvent.layout.height || SCROLL_AWAY_FALLBACK_PX;
+          }}
+        >
           <ChatDotBackground />
           {chat.isLoading ? (
             <View className="flex-1 items-center justify-center">
@@ -132,18 +193,22 @@ export default function ShipmentChatScreen() {
             </View>
           ) : (
             <FlatList
+              ref={listRef}
               testID="chat-list"
               inverted
               data={chat.timeline}
               keyExtractor={(item) => item.key}
               renderItem={renderItem}
               contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 8, paddingBottom: 12 }}
+              onScroll={handleScroll}
+              scrollEventThrottle={64}
               onEndReached={chat.loadOlder}
               onEndReachedThreshold={0.4}
               keyboardShouldPersistTaps="handled"
               ListFooterComponent={chat.isLoadingOlder ? <ActivityIndicator className="my-3" color={colors.fg3} /> : null}
             />
           )}
+          <ScrollToBottomButton visible={awayFromBottom} newCount={newWhileAway} onPress={scrollToBottom} />
         </View>
 
         <ModerationBanner visible={chat.moderationWarning} onDismiss={chat.dismissModerationWarning} />

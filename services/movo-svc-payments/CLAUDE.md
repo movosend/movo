@@ -500,6 +500,14 @@ guardado: `src/utils/payment-card.ts` es la única puerta y la usan crear, `?syn
 (aunque el estado no cambie) y captura. Un reintento con otro `payerUserId` sobre un hold vigente responde
 `409 HOLD_CONFLICT`. Sin cambio de contrato: `HoldResponse` no los expone, los lee MOVO-303.
 
+### MOVO-305 — Spike: captura parcial y `application_fee` variable en el sandbox
+
+Resultado en `docs/payments/spike-movo-305-captura-parcial.md` (test: `test/partial-capture.sandbox.test.ts`,
+pega directo a MP). Limitaciones de MP que tiene que respetar la penalidad (MOVO-306/307): en una captura
+parcial el `application_fee` se cobra **entero** (el MP fee sí va sobre lo capturado); capturar un monto
+≤ al fee responde `400 4201` y deja el hold `authorized`; un segundo capture no cobra de nuevo; al crear el
+hold, el fee tiene que ser `< transaction_amount` (si no, `400 4038`). Para "Pagar mi saldo" (MOVO-312) se
+recomienda Checkout Pro: con tarjeta hace falta la `public_key` de Movo S.A. (MOVO-283).
 ### MOVO-303 — Historial: listado y detalle por rol (sub-issue de MOVO-28)
 
 `GET /payments/transactions?role=sender|carrier&status=&from=&to=&cursor=&limit=` y

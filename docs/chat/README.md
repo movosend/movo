@@ -79,8 +79,17 @@ palabrotas de uso cotidiano ("boludo", "mierda") ni palabras legítimas del domi
 ## Detalles que conviene saber
 
 - Texto de 1 a 1000 caracteres tras `trim`. Sin imágenes, sin "escribiendo…".
-- Push (`chatMessageReceived`, categoría `chat`): a quien **no** tiene el chat abierto, una vez por minuto y por
-  destinatario, y sin el texto del mensaje (se vería en la pantalla bloqueada).
+- Push (`chatMessageReceived`, categoría `chat`), al estilo WhatsApp (MOVO-301): a quien **no** tiene el chat abierto, con
+  el nombre y rol de quien escribió como título y el **texto del mensaje** (cortado a 140 caracteres) como cuerpo. El
+  primer mensaje avisa enseguida; los que llegan dentro de los 30 s siguientes (`CHAT_PUSH_WINDOW_SECONDS`) no mandan
+  una push cada uno: se juntan en Redis (`chat-push-buffer:*`) y al cerrarse la ventana sale **un único resumen**
+  ("3 mensajes nuevos · último texto"). El resumen se agenda para cuando cierra la ventana vigente (un solo reloj: un
+  mensaje posterior nunca sale antes que uno anterior) y, al salir, relee el envío, vuelve a filtrar los autores
+  bloqueados (ADR-026) y se omite si el destinatario ya leyó la conversación. Así una ráfaga son como
+  mucho dos avisos por ventana. El resumen lo agenda un `setTimeout` en el proceso: un reinicio entre medio lo pierde
+  (el primer mensaje ya avisó). **Esto reemplaza el punto de ADR-040** ("sin el texto") por ADR-046: el texto ahora se ve en la pantalla
+  bloqueada, como en WhatsApp. El mobile saca de la bandeja las
+  notificaciones de un chat al abrirlo.
 - El hilo vive en `shipments.chat_messages` (solo se agrega). La retención y purga del historial no están
   definidas: es un dato personal, hay que decidirlo con el equipo junto con ADR-023.
 - El registro de sockets (`ChatHub`) está en memoria y es de una sola réplica, igual que el de tracking
