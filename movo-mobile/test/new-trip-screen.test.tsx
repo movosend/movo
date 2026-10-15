@@ -50,10 +50,27 @@ const FAKE_INPUT: CreateTripInput = {
 jest.mock("../components/trips/trip-form", () => {
   const { Pressable, Text } = require("react-native");
   return {
-    TripForm: ({ onSubmit, error }: { onSubmit: (i: CreateTripInput) => void; error: string | null }) => (
+    TripForm: (props: {
+      onSubmit: (i: CreateTripInput) => void;
+      error: string | null;
+      recurrenceError?: string | null;
+      recurringSubmitLabel?: string;
+      mode?: string;
+      recurrenceReadOnlyReason?: string | null;
+      initialValues?: { recurrence?: unknown };
+    }) => (
       <>
-        <Pressable testID="tf-stub-submit" onPress={() => onSubmit(FAKE_INPUT)} />
-        <Text testID="tf-stub-error">{error}</Text>
+        <Pressable testID="tf-stub-submit" onPress={() => props.onSubmit(FAKE_INPUT)} />
+        <Text testID="tf-stub-error">{props.error}</Text>
+        <Text testID="tf-stub-recurrence-error">{props.recurrenceError}</Text>
+        <Text testID="tf-stub-props">
+          {JSON.stringify({
+            recurringSubmitLabel: props.recurringSubmitLabel ?? null,
+            mode: props.mode ?? null,
+            recurrenceReadOnlyReason: props.recurrenceReadOnlyReason ?? null,
+            recurrence: props.initialValues?.recurrence ?? null,
+          })}
+        </Text>
       </>
     ),
   };
@@ -152,5 +169,26 @@ describe("NewTripScreen", () => {
     fireEvent.press(getByTestId("new-trip-back"));
 
     expect(mockRouterBack).toHaveBeenCalled();
+  });
+
+  it("MOVO-266: pasa el label recurrente y muestra el tope de series inline en la card", async () => {
+    const { ApiError } = require("@movo/shared/dist/errors/api-error");
+    mockCreateTripMutate.mockImplementation((_input, { onError }: any) =>
+      onError(new ApiError(409, "RECURRING_SERIES_LIMIT", "limit")),
+    );
+
+    const { getByTestId } = await render(<NewTripScreen />);
+    expect(JSON.parse(getByTestId("tf-stub-props").props.children).recurringSubmitLabel).toBe(
+      "Declarar viaje recurrente",
+    );
+    await act(async () => {
+      fireEvent.press(getByTestId("tf-stub-submit"));
+      await Promise.resolve();
+    });
+
+    expect(getByTestId("tf-stub-recurrence-error").props.children).toBe(
+      "Ya tenés 3 viajes que se repiten. Dejá de repetir alguno para sumar otro.",
+    );
+    expect(getByTestId("tf-stub-error").props.children).toBeNull();
   });
 });

@@ -23,6 +23,8 @@ export interface AuditService {
    * 3. una sola fila en la bitácora con el resultado.
    * Nunca queda registrada como `succeeded` una acción que no ocurrió (AC5): si la regla o
    * la acción fallan, la fila es `failed` con el código del error y el error se relanza.
+   * Excepción: si el servicio dueño no responde (`*_SERVICE_UNAVAILABLE`) la acción pudo haberse
+   * aplicada igual, y la fila es `unknown` en vez de `failed`.
    */
   runAdminAction<T>(input: AdminActionInput, action: () => Promise<T>): Promise<T>;
   list(filters: AuditLogFilters, limit: number, cursor?: string): Promise<AuditLogPage>;
@@ -53,6 +55,15 @@ function errorCodeOf(error: unknown): string {
   return error instanceof ApiError ? error.code : "INTERNAL_ERROR";
 }
 
+/**
+ * El servicio dueño no respondió (red, timeout, 5xx): pudo haber aplicado la acción antes de
+ * cortarse, así que no se puede afirmar `failed`. Solo vale para errores de la acción; los de la
+ * regla de conflicto son lecturas y nunca aplican nada.
+ */
+function isOutcomeUnknown(error: unknown): boolean {
+  return error instanceof ApiError && error.code.endsWith("_SERVICE_UNAVAILABLE");
+}
+
 export function createAuditService(deps: AuditServiceDeps): AuditService {
   const { repository, conflictChecker, logger } = deps;
 
@@ -68,23 +79,34 @@ export function createAuditService(deps: AuditServiceDeps): AuditService {
         requestId: input.requestId,
       };
 
-      let result: Awaited<ReturnType<typeof action>>;
+      const recordFailure = async (error: unknown, outcome: "failed" | "unknown") => {
+        try {
+          await repository.insert({ ...base, outcome, errorCode: errorCodeOf(error) });
+        } catch (auditError) {
+          logger.error({ err: auditError, event: "admin_audit_insert_failed", ...base, outcome }, "No se pudo registrar una acción fallida en la bitácora");
+        }
+      };
+
+      // El rechazo por conflicto también queda: es el rastro de un intento. Es una lectura, así
+      // que cualquier error acá es `failed` (la acción nunca se llamó).
       try {
         await conflictChecker.assertNoConflict(input.adminId, input.target, { requestId: input.requestId });
+      } catch (error) {
+        await recordFailure(error, "failed");
+        throw error;
+      }
+
+      let result: Awaited<ReturnType<typeof action>>;
+      try {
         result = await action();
       } catch (error) {
-        // El rechazo por conflicto también queda: es el rastro de un intento.
-        try {
-          await repository.insert({ ...base, outcome: "failed", errorCode: errorCodeOf(error) });
-        } catch (auditError) {
-          logger.error({ err: auditError, event: "admin_audit_insert_failed", ...base, outcome: "failed" }, "No se pudo registrar una acción fallida en la bitácora");
-        }
+        await recordFailure(error, isOutcomeUnknown(error) ? "unknown" : "failed");
         throw error;
       }
 
       // La acción ya ocurrió en el servicio dueño: si la bitácora falla no se puede deshacer
       // (no hay transacción entre servicios, ADR-001), así que se responde el resultado y se
-      // deja el error en el log con todo el contexto para cargarlo a mano. Brecha aceptada:
+      // deja el error en el log con todo el contexto para cargarlo a mano (con `created_at` truncado a ms, ver CLAUDE.md de svc-admin). Brecha aceptada:
       // la inversa (registrar como hecha una acción que no ocurrió) nunca pasa.
       try {
         await repository.insert({ ...base, outcome: "succeeded" });

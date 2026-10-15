@@ -1,4 +1,10 @@
-import { CardTokenError, createCardToken, failureFromMpBody, lookupBin } from "../src/lib/mp-card-tokenizer";
+import {
+  CardTokenError,
+  createCardToken,
+  createSavedCardToken,
+  failureFromMpBody,
+  lookupBin,
+} from "../src/lib/mp-card-tokenizer";
 
 function jsonResponse(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body } as Response;
@@ -33,6 +39,24 @@ describe("mp-card-tokenizer (MOVO-101)", () => {
       expiration_year: 2030,
       security_code: "123",
       cardholder: { name: "APRO", identification: { type: "DNI", number: "12345678" } },
+    });
+  });
+
+  it("tokeniza una tarjeta guardada con card_id + CVV y la public_key del transportista (MOVO-269)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: "tok-saved" }, 201));
+    await expect(createSavedCardToken("TEST-carrier-pk", { cardId: "mp-card-1", securityCode: "123" })).resolves.toBe(
+      "tok-saved",
+    );
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.mercadopago.com/v1/card_tokens?public_key=TEST-carrier-pk");
+    expect(JSON.parse(init.body as string)).toEqual({ card_id: "mp-card-1", security_code: "123" });
+  });
+
+  it("un CVV rechazado por MP al tokenizar la tarjeta guardada tira CardTokenError (MOVO-269)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ cause: [{ code: "E203" }] }, 400));
+    await expect(createSavedCardToken("TEST-pk", { cardId: "c", securityCode: "12" })).rejects.toMatchObject({
+      failure: { reason: "invalid_security_code" },
     });
   });
 

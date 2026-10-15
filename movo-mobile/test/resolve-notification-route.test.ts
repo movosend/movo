@@ -60,9 +60,12 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
     );
   });
 
-  it("trip_auto_created abre el detalle del viaje", () => {
-    expect(resolveNotificationRoute({ type: "trip_auto_created", tripId: "trip_1" })).toBe("/carrier/trips/trip_1");
-  });
+  it.each(["trip_auto_created", "trip_recurrence_generated", "trip_recurrence_stopped"])(
+    "%s abre el detalle del viaje",
+    (type) => {
+      expect(resolveNotificationRoute({ type, tripId: "trip_1" })).toBe("/carrier/trips/trip_1");
+    },
+  );
 
   it.each(["trip_match", "trip_reminder"])("%s abre el feed filtrado por el viaje", (type) => {
     expect(resolveNotificationRoute({ type, tripId: "trip_1" })).toEqual({
@@ -110,6 +113,7 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
     [{ type: "shipment_rejected" }],
     [{ type: "offer_created" }],
     [{ type: "trip_auto_created" }],
+    [{ type: "trip_recurrence_generated" }],
     [{ type: "trip_reminder" }],
     [{ type: "carrier_nearby", shipmentId: "" }],
   ])("sin el id que necesita la ruta no navega (%o)", (data) => {

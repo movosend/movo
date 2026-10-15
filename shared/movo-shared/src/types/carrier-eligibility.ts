@@ -1,4 +1,4 @@
-import type { KycStatus } from "./user";
+import type { AccountStatus, KycStatus } from "./user";
 
 /**
  * MOVO-116 (ADR-036): requisitos habilitantes para operar como transportista, además
@@ -21,6 +21,12 @@ export interface CarrierRequirementsErrorDetails {
 export interface CarrierKycStatusResponse {
   kycStatusIdentity: KycStatus;
   kycStatusLicense: KycStatus;
+  /** MOVO-265: estado de la cuenta (`deleted` nunca llega, el endpoint da 404). Lo usa la
+   * generación de viajes recurrentes para cortar la serie de una cuenta suspendida. Opcional
+   * para tolerar un `svc-users` anterior a MOVO-265 durante el deploy. */
+  accountStatus?: AccountStatus;
+  /** ISO 8601, o `null` sin suspensión temporal. */
+  bannedUntil?: string | null;
 }
 
 /**

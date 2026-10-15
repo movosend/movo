@@ -91,6 +91,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     "El origen y el destino tienen que estar separados por al menos 100 metros.",
   TRIP_DEPARTURE_IN_PAST: "La fecha y hora de salida tiene que ser futura.",
   TRIP_NOT_ACTIVE: "Este viaje ya no está activo.",
+  // Viajes recurrentes (MOVO-266 / backend MOVO-265).
+  RECURRING_SERIES_LIMIT: "Ya tenés 3 viajes que se repiten. Dejá de repetir alguno para sumar otro.",
+  TRIP_NOT_SERIES_HEAD: "Este viaje ya tiene el siguiente declarado: los días se cambian desde ese.",
   // Iniciar viaje (MOVO-221 / MOVO-252).
   TRIP_NOT_DECLARED: "El viaje ya fue iniciado o finalizado.",
   TRIP_ALREADY_HAS_ACTIVE_TRIP:
@@ -144,6 +147,11 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   CARD_SAVE_REJECTED: "Tu banco no aprobó la tarjeta. Revisá los datos o probá con otra. No se cobró nada.",
   CARD_CUSTOMER_CONFLICT: "No pudimos asociar la tarjeta a tu cuenta. Escribinos a soporte para resolverlo.",
   CARDS_NOT_CONFIGURED: "Guardar tarjetas no está disponible por ahora. Probá más tarde.",
+  // Pago del envío con tarjeta guardada (MOVO-269, backend MOVO-210/282).
+  SHIPMENT_FUNDING_NOT_AVAILABLE: "Ya no se puede pagar este envío. Puede haber vencido el plazo o cambiado de estado.",
+  SAVED_CARD_NOT_FOUND: "No encontramos esa tarjeta. Elegí otra o agregala de nuevo.",
+  HOLD_CONFLICT: "Ya hay una reserva de fondos en curso para este envío. Actualizamos los datos: revisalos e intentá de nuevo.",
+  PAYMENT_PROVIDER_ERROR: "Mercado Pago no respondió. No se cobró nada: probá de nuevo en unos minutos.",
   MP_ACCOUNT_ALREADY_LINKED: "Esa cuenta de Mercado Pago ya está vinculada a otro usuario de Movo.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",

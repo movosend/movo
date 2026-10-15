@@ -5,7 +5,7 @@
 CREATE SCHEMA IF NOT EXISTS "admin";
 
 -- CreateEnum
-CREATE TYPE "admin"."audit_outcome" AS ENUM ('succeeded', 'failed');
+CREATE TYPE "admin"."audit_outcome" AS ENUM ('succeeded', 'failed', 'unknown');
 
 -- CreateEnum
 CREATE TYPE "admin"."admin_target_type" AS ENUM ('user', 'admin_role', 'shipment', 'chat_report', 'user_report');

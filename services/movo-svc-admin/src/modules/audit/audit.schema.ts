@@ -46,7 +46,7 @@ export const auditSchemas = {
             targetId: { type: "string" },
             reason: { type: ["string", "null"] },
             context: { type: ["object", "null"], additionalProperties: true },
-            outcome: { type: "string", enum: ["succeeded", "failed"] },
+            outcome: { type: "string", enum: ["succeeded", "failed", "unknown"] },
             errorCode: { type: ["string", "null"] },
             requestId: { type: ["string", "null"] },
             createdAt: { type: "string", format: "date-time" },

@@ -108,9 +108,13 @@ export function ActiveShipmentCard({
       );
       return;
     }
-    // MOVO-159/160 todavía no tienen pantalla propia en el repo — mismo criterio que
-    // "Abrir Mis ofertas completo" en MOVO-183, un aviso explícito en vez de navegar
-    // a una ruta inventada.
+    // Generar retiro / Confirmar recepción abren la misma pantalla que el CTA del detalle.
+    if (cta.action === "navigate" && cta.path) {
+      router.push(cta.path as never);
+      return;
+    }
+    // Sin pantalla todavía: un aviso explícito en vez de navegar a una ruta inventada
+    // (mismo criterio que "Abrir Mis ofertas completo" en MOVO-183).
     Alert.alert("Muy pronto", `Esta acción todavía no está lista (${cta.destination}).`);
   };
 

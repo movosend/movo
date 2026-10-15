@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { ApiError, KycStatus, UserRole } from "@movo/shared";
+import { AccountStatus, ApiError, CarrierKycStatusResponse, KycStatus, UserRole } from "@movo/shared";
 import { assertCarrierCanOperate, resolveCarrierEligibility } from "../src/utils/carrier-gate";
 import { UsersClient } from "../src/adapters/users-client";
 import { createFakePaymentsClient } from "./fake-payments-client";
 
 const CARRIER_ID = "carrier-id";
 
-function usersClientWith(kyc: { kycStatusIdentity: KycStatus; kycStatusLicense: KycStatus } | null): UsersClient {
+function usersClientWith(kyc: CarrierKycStatusResponse | null): UsersClient {
   return {
     findPublicProfile: vi.fn(),
     findDeviceKey: vi.fn(),
@@ -90,9 +90,27 @@ describe("carrier-gate (MOVO-116, ADR-036)", () => {
       expect(await resolveCarrierEligibility(deps, CARRIER_ID)).toEqual({
         identityApproved: true,
         missingRequirements: [],
+        // svc-users anterior a MOVO-265: no informa el estado de la cuenta.
+        account: undefined,
       });
       expect(deps.usersClient.findKycStatus).toHaveBeenCalledWith(CARRIER_ID);
       expect(deps.paymentsClient.getCarrierMpAccountStatus).toHaveBeenCalledWith(CARRIER_ID);
+    });
+
+    it("MOVO-265: devuelve el estado de la cuenta, con la suspensión como Date, y null si no existe", async () => {
+      const suspended = {
+        ...approved,
+        accountStatus: AccountStatus.ACTIVE,
+        bannedUntil: "2030-01-01T00:00:00.000Z",
+      };
+      const withAccount = { usersClient: usersClientWith(suspended), paymentsClient: createFakePaymentsClient() };
+      const missing = { usersClient: usersClientWith(null), paymentsClient: createFakePaymentsClient() };
+
+      expect((await resolveCarrierEligibility(withAccount, CARRIER_ID)).account).toEqual({
+        status: AccountStatus.ACTIVE,
+        bannedUntil: new Date("2030-01-01T00:00:00.000Z"),
+      });
+      expect((await resolveCarrierEligibility(missing, CARRIER_ID)).account).toBeNull();
     });
   });
 });

@@ -27,7 +27,7 @@ describe("TripCancelSheet (MOVO-263 AC6)", () => {
     await fireEvent.press(getByTestId("trip-cancel-confirm"));
     await fireEvent.press(getByTestId("trip-cancel-dismiss"));
 
-    expect(base.onConfirm).toHaveBeenCalled();
+    expect(base.onConfirm).toHaveBeenCalledWith(false);
     expect(base.onClose).toHaveBeenCalled();
   });
 
@@ -43,5 +43,31 @@ describe("TripCancelSheet (MOVO-263 AC6)", () => {
     await fireEvent.press(getByTestId("trip-cancel-confirm"));
 
     expect(base.onConfirm).not.toHaveBeenCalled();
+  });
+
+  describe("MOVO-266: viaje recurrente", () => {
+    it("sin recurring no muestra las opciones", async () => {
+      const { queryByTestId } = await render(<TripCancelSheet {...base} />);
+
+      expect(queryByTestId("trip-cancel-option-only")).toBeNull();
+    });
+
+    it("ofrece 'Solo este viaje' (default) y 'Este y dejar de repetir'", async () => {
+      const { getByTestId, getByText } = await render(
+        <TripCancelSheet {...base} recurring={{ weekdayName: "viernes" }} />,
+      );
+
+      expect(getByText("Cancelás solo el viaje de este viernes; el del próximo se declara igual.")).toBeTruthy();
+      expect(getByTestId("trip-cancel-option-only").props.accessibilityState).toEqual(
+        expect.objectContaining({ checked: true }),
+      );
+
+      await fireEvent.press(getByTestId("trip-cancel-confirm"));
+      expect(base.onConfirm).toHaveBeenLastCalledWith(false);
+
+      await fireEvent.press(getByTestId("trip-cancel-option-stop"));
+      await fireEvent.press(getByTestId("trip-cancel-confirm"));
+      expect(base.onConfirm).toHaveBeenLastCalledWith(true);
+    });
   });
 });

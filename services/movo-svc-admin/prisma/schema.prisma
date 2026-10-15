@@ -19,6 +19,8 @@ datasource db {
 enum AuditOutcome {
   succeeded
   failed
+  // La acción pudo haberse aplicado: el servicio dueño no respondió (red, timeout, 5xx).
+  unknown
 
   @@map("audit_outcome")
   @@schema("admin")

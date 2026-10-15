@@ -60,15 +60,17 @@ describe("UsersClient.findKycStatus (MOVO-116)", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("devuelve los dos estados de KYC del endpoint interno", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ kycStatusIdentity: "approved", kycStatusLicense: "pending" }),
-    });
+  it("devuelve los dos estados de KYC y el de la cuenta (MOVO-265) del endpoint interno", async () => {
+    const body = {
+      kycStatusIdentity: "approved",
+      kycStatusLicense: "pending",
+      accountStatus: "active",
+      bannedUntil: "2030-01-01T00:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve(body) });
     globalThis.fetch = fetchMock;
 
-    expect(await client.findKycStatus(USER_ID)).toEqual({ kycStatusIdentity: "approved", kycStatusLicense: "pending" });
+    expect(await client.findKycStatus(USER_ID)).toEqual(body);
     expect(fetchMock.mock.calls[0][0]).toBe(`http://movo-svc-users:3000/internal/users/${USER_ID}/kyc-status`);
   });
 
@@ -76,6 +78,16 @@ describe("UsersClient.findKycStatus (MOVO-116)", () => {
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
 
     expect(await client.findKycStatus(USER_ID)).toBeNull();
+  });
+
+  it("tolera un svc-users anterior a MOVO-265, sin el estado de la cuenta", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ kycStatusIdentity: "approved", kycStatusLicense: "approved" }),
+    });
+
+    expect(await client.findKycStatus(USER_ID)).toEqual({ kycStatusIdentity: "approved", kycStatusLicense: "approved" });
   });
 
   it("502 USERS_SERVICE_UNAVAILABLE ante una forma inesperada", async () => {

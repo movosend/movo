@@ -1,4 +1,4 @@
-import { CarrierKycStatusResponse, KycStatus, PublicProfile } from "@movo/shared";
+import { AccountStatus, CarrierKycStatusResponse, KycStatus, PublicProfile } from "@movo/shared";
 import { DeviceKey, UsersClient } from "../src/adapters/users-client";
 
 /**
@@ -34,6 +34,8 @@ export function createFakeUsersClient(
       return {
         kycStatusIdentity: profile?.isVerified === false ? KycStatus.NOT_STARTED : KycStatus.APPROVED,
         kycStatusLicense: KycStatus.APPROVED,
+        accountStatus: AccountStatus.ACTIVE,
+        bannedUntil: null,
         ...override,
       };
     },

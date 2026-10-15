@@ -4490,22 +4490,44 @@ después de `gate`); ganar foco sin bloqueo solo refetchea perfil + MP si pasaro
 (`GATE_STALE_MS`); la hoja del gate es `accessibilityViewIsModal` y el contenido de atrás queda con
 `no-hide-descendants`; `/license-kyc` no recibe `status=approved` si el backend dice que la licencia falta.
 
-### Tarjetas guardadas (MOVO-101, MOVO-269; ADR-039 propuesto): diseño acordado, sin implementar
+### MOVO-269 — Pago del envío con tarjeta guardada + CVV (ADR-039 propuesto)
 
-### Tarjetas guardadas: pago con CVV (MOVO-269; ADR-039 propuesto), diseño acordado, sin implementar
+`app/(app)/shipments/[id]/pay.tsx`, fiel al prototipo de Claude Design "Pago con tarjeta v3": el emisor elige una
+tarjeta guardada (la predeterminada viene elegida) y escribe solo el CVV. Es una **reserva, no un cobro**. Se genera
+el token en el dispositivo con `card_id` + CVV y la `public_key` del transportista (`carrierPublicKey` de
+`GET /shipments/:id/funding`, `createSavedCardToken` en `mp-card-tokenizer.ts`) y se manda a
+`POST /shipments/:id/funding` con `savedCardId` (`funding-client.ts`, `use-shipment-funding.ts`). La lógica vive
+en funciones puras (`pay-shipment-flow.ts`, `pay-shipment-format.ts`) para testearla sin montar `useMutation`.
+El CVV se tokeniza (`tokenizeSavedCard`) en el handler de la pantalla, **antes** de la mutación: React Query retiene
+las variables de cada mutación en el `MutationCache`, así que `useMutation` (`fundWithToken`) recibe solo token e ids.
 
-MOVO-101 (alta y gestión de tarjetas) ya está implementado, ver su entrada más abajo.
+- **El CVV no sale del dispositivo**: campo seguro (`secureTextEntry`, sin autocompletar), al backend van solo
+  `cardToken` y `savedCardId`; se limpia al fallar, al cambiar de tarjeta y al salir. Un rechazo de la tarjeta es
+  HTTP 200 con `funded:false` y un motivo (`insufficient_funds`/`card_rejected`/`invalid_data`/`platform_error`),
+  cada uno con su copy; `invalid_data` es "Revisá el código de seguridad". Sin red de idempotencia del lado cliente:
+  la garantiza el backend por envío; el botón queda deshabilitado mientras hay un intento en curso.
+- **Entradas**: tras aceptar una oferta con retiro cercano (`assignment_pending`) `offers.tsx` hace `replace` a
+  `pay` (deja el detalle debajo); el detalle suma el CTA "Pagar y reservar fondos" (`?resumed=1` muestra "Retomaste
+  tu pago") y, con `assigned_unfunded`, "Confirmar el pago" solo si la ventana está abierta
+  (`isFundingWindowOpen`, `FUNDING_WINDOW_DAYS = 3`, espeja `FUNDING_NEAR_PICKUP_DAYS` del backend, que es quien
+  decide; se abre 72 h antes del INICIO de la ventana de retiro acordada, `pickupDate` + `pickupTimeWindowStart`
+  en hora argentina, no al empezar el día calendario). Los pushes de la saga ya abren el detalle (`type: "shipment"`).
+- **"Agregar tarjeta nueva"** reusa tal cual el `AddCardWizard` de MOVO-101 (`pay-add-card-modal.tsx`, un `Modal` a
+  pantalla completa, mismo patrón que `AddressSearchSheet`): sin una segunda implementación del alta. Al guardar, la
+  nueva queda elegida y se pide el CVV otra vez, con un aviso que lo explica (el token de alta es de la `public_key` de
+  Movo y no sirve para pagar al transportista).
+- **Plazo vencido o 409 `SHIPMENT_FUNDING_NOT_AVAILABLE`**: la pantalla explica qué pasó según el estado del envío
+  (`unavailableKind`: volvió a publicarse / ya está pago / todavía no se puede pagar).
+- Sin cuotas ni pasos de v2 (el hold no soporta cuotas).
+- **Fuera del ticket, en el mismo PR**: "Generar retiro" y "Confirmar recepción" de la card de envío activo del Inicio
+  (MOVO-193) mostraban "Muy pronto" aunque MOVO-159/160 ya existen. Ahora navegan a la misma ruta que el CTA del
+  detalle (`handshake` / `handshake-scan`, salen de `shipmentDetailCta`, una sola fuente).
 
-- **MOVO-269** (Juan Cruz): pago con tarjeta guardada + CVV. Genera el token en el dispositivo con
-  `card_id` + CVV y la `public_key` del transportista (`carrierPublicKey` de `GET /shipments/:id/funding`)
-  y lo manda a `POST /shipments/:id/funding` con `savedCardId`. Sin tarjetas guardadas abre el alta de
-  MOVO-101 (`AddCardWizard`) y pide el CVV de nuevo (el token de alta es de la `public_key` de Movo, no
-  sirve para pagar).
-- **Nombre de referencia**: es el título de la tarjeta en el selector de MOVO-269, que siempre muestra
-  también los últimos 4.
-- El CVV no se guarda, no se loguea ni va al store. Un solo campo no requiere Brick: un `TextInput`
-  seguro que llama directo a `v1/card_tokens` es lo que se validó (mismo criterio de formulario propio
-  que el alta de MOVO-101).
+Pendiente: probarlo en development build contra el sandbox (reserva exitosa, CVV incorrecto con titular `SECU`,
+fondos insuficientes `FUND`, rechazo genérico `OTHE`) y verificar en los requests que el backend nunca recibe número
+ni CVV; el aviso "Confirmá el pago" en "Requiere tu atención" no se agregó.
+
+Nombre de referencia de la tarjeta: es el título en el selector, que siempre muestra también los últimos 4.
 
 ### MOVO-281 — Navegación al tocar todas las notificaciones push
 
@@ -4653,3 +4675,33 @@ pero la suma no: sin esto, un 150 × 100 × 60 pasaba "Siguiente" y recién fall
 en el resumen. `SIDES_SUM_CM_MAX` replica `PACKAGE_MAX_SIDES_SUM_CM` del backend solo para
 ese aviso; `PACKAGE_LIMITS_EXCEEDED` tiene copy propio en `error-messages.ts` para el caso de
 que el backend recalibre los límites. Test en `test/package-limits.test.tsx`.
+
+### MOVO-266 — Viajes recurrentes: "Se repite" al declarar/editar, badge de serie y avisos (ADR-042)
+
+UI del modelo de MOVO-264/265, sobre el artefacto de Claude Design (lo que contradice los AC
+se ignoró: anticipación de 2 semanas, calendario, "Iniciar 2 h antes", sheet de una opción).
+PR apilada sobre la de MOVO-265 (#246), que trae los tipos y helpers de `@movo/shared`.
+
+- **`TripRecurrenceCard`** (`components/trips/trip-recurrence-card.tsx`): switch "Se repite",
+  chips L→D, "Hora de salida"/"Desde" (el mismo `departureAt`, `DepartureDateTimePicker` ganó
+  `fields`/`minimumDate`/`disabled`), radio de "Hasta" y preview lima. **El chip del día de
+  "Desde" es de la fecha, no del usuario**: queda fijo y, si cambia "Desde", se saca el viejo
+  y se suma el nuevo (`withFixedDay`). Cada chip mapea a `RECURRENCE_WEEKDAY` (0 = domingo).
+  El preview usa `nextRecurrenceOccurrence` (la misma cuenta que el barrido) y avisa si la
+  fecha de fin no deja declarar otro viaje.
+- **`TripForm`** pasa a `variant: "create" | "edit"`. En la edición los campos de recurrencia
+  viajan solo si cambiaron, así un PATCH de ruta/hora no choca con `TRIP_NOT_SERIES_HEAD`;
+  apagar manda `recurrenceWeekdays: null`. Un viaje con paquetes aceptados no se edita,
+  tampoco su recurrencia (review de PR #246; se sacó el modo `recurrence-only`): cortar la
+  serie es "Dejar de repetir" del detalle. Sin `isSeriesHead`, la recurrencia es de solo
+  lectura. `RECURRING_SERIES_LIMIT` se muestra inline en la card. "Hasta" se valida contra el
+  día argentino de la salida (`isUntilAfterDeparture`/`minimumUntilDate`), como el backend.
+- **Detalle**: badge (`TripRecurrenceBadge`, también en la card de Próximos), "Dejar de
+  repetir" en el menú con confirmación (`Alert.alert`, PATCH `recurrenceWeekdays: null`,
+  disponible con paquetes) y `TripCancelSheet` con "Solo este viaje"/"Este y dejar de
+  repetir" (`onConfirm(stopRecurrence)`). Las acciones de recurrencia solo con `isSeriesHead`.
+- **Avisos**: el banner de MOVO-236 distingue las ocurrencias generadas
+  (`newTripsBannerMessage`, `src/lib/trip-recurrence.ts`) y las pushes
+  `trip_recurrence_generated`/`trip_recurrence_stopped` abren el detalle del viaje.
+
+Pendiente: no probado en device; revisar contra el backend real cuando #246 esté en dev.

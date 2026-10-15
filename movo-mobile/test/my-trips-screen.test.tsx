@@ -53,6 +53,11 @@ const TRIP_A: TripWithAcceptedPackages = {
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
   cancelledAt: null,
+  recurrenceWeekdays: null,
+  recurrenceUntil: null,
+  seriesId: null,
+  generatedFromTripId: null,
+  isSeriesHead: true,
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
   executablePackagesCount: 0,
@@ -417,5 +422,35 @@ describe("MyTripsScreen", () => {
     await fireEvent.press(getByTestId("my-trips-back"));
 
     expect(mockRouterReplace).toHaveBeenCalledWith("/(app)/(tabs)/transport");
+  });
+
+  describe("MOVO-266: viajes recurrentes", () => {
+    it("la card de Próximos muestra el badge de la serie", async () => {
+      mockUseMyTrips.mockReturnValue(listOf({ ...TRIP_A, recurrenceWeekdays: [1, 3, 5] }));
+
+      const { getByTestId, getByText } = await render(<MyTripsScreen />);
+
+      expect(getByTestId("my-trips-card-trip-1-recurrence")).toBeTruthy();
+      expect(getByText("Lun, mié y vie")).toBeTruthy();
+    });
+
+    it("un viaje no recurrente no muestra badge", async () => {
+      mockUseMyTrips.mockReturnValue(listOf(TRIP_A));
+
+      const { queryByTestId } = await render(<MyTripsScreen />);
+
+      expect(queryByTestId("my-trips-card-trip-1-recurrence")).toBeNull();
+    });
+
+    it("el banner de viaje nuevo distingue una ocurrencia generada por la serie", async () => {
+      mockDiffAndMarkSeenTrips.mockResolvedValueOnce({ newTripIds: ["trip-1"] });
+      mockUseMyTrips.mockReturnValue(
+        listOf({ ...TRIP_A, recurrenceWeekdays: [4], seriesId: "trip-0", generatedFromTripId: "trip-0" }),
+      );
+
+      const { getByText } = await render(<MyTripsScreen />);
+
+      await waitFor(() => expect(getByText("Declaramos tu viaje del jue 10/9 a Av. San Martín 100")).toBeTruthy());
+    });
   });
 });

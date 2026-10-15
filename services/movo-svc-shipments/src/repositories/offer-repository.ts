@@ -18,7 +18,7 @@ import {
   deriveEffectiveOfferStatus,
   OfferWithShipmentContext,
 } from "../models/offer";
-import { Trip, buildTripCreateData, mapTrip } from "../models/trip";
+import { TRIP_SERIES_INCLUDE, Trip, buildTripCreateData, mapTrip } from "../models/trip";
 
 /** MOVO-177: el transportista puede proponer retirar hasta 3 días después de la
  * fecha pedida por el emisor (nunca antes -- el paquete recién está listo desde ese
@@ -742,6 +742,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
               departureAt,
               vehicleType: autoTripDefaults.vehicleType,
             }),
+            include: TRIP_SERIES_INCLUDE,
           });
           autoCreatedTrip = mapTrip(tripRow);
         }

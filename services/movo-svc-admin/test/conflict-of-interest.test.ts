@@ -100,7 +100,7 @@ describe("regla de conflicto de interés (MOVO-288)", () => {
 
     expect(await codeOf(c.assertNoConflict(ADMIN, { type: "user_report", id: "reported" }, ctx))).toBe("ADMIN_CONFLICT_OF_INTEREST");
     expect(await codeOf(c.assertNoConflict(ADMIN, { type: "user_report", id: "reporter" }, ctx))).toBe("ADMIN_CONFLICT_OF_INTEREST");
-    expect(await codeOf(c.assertNoConflict(ADMIN, { type: "user_report", id: "nope" }, ctx))).toBe("REPORT_NOT_FOUND");
+    expect(await codeOf(c.assertNoConflict(ADMIN, { type: "user_report", id: "nope" }, ctx))).toBe("NOT_FOUND");
   });
 
   it("si svc-users no responde falla cerrado con 502", async () => {

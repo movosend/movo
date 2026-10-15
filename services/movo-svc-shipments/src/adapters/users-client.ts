@@ -169,7 +169,14 @@ export function createUsersClient(config: UsersClientConfig): UsersClient {
       if (typeof body.kycStatusIdentity !== "string" || typeof body.kycStatusLicense !== "string") {
         throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió una respuesta inválida.");
       }
-      return { kycStatusIdentity: body.kycStatusIdentity, kycStatusLicense: body.kycStatusLicense };
+      return {
+        kycStatusIdentity: body.kycStatusIdentity,
+        kycStatusLicense: body.kycStatusLicense,
+        // MOVO-265: un svc-users anterior no los manda. Su ausencia no rompe los gates de
+        // escritura (no los miran); la generación de recurrentes posterga en vez de cortar.
+        ...(typeof body.accountStatus === "string" ? { accountStatus: body.accountStatus } : {}),
+        ...(body.bannedUntil === null || typeof body.bannedUntil === "string" ? { bannedUntil: body.bannedUntil } : {}),
+      };
     },
 
     async findAccountEmail(userId: string): Promise<string | null> {

@@ -55,6 +55,14 @@ const OFFER_DETAIL_TYPES: readonly string[] = ["offer_superseded", "offer_reject
  * recordatorio del día anterior (MOVO-240), donde se buscan envíos de paso. */
 const TRIP_FEED_TYPES: readonly string[] = ["trip_match", "trip_reminder"];
 
+/** Abren el detalle del viaje: el auto-creado al aceptar una oferta (MOVO-236) y las
+ * ocurrencias de una serie recurrente, la declarada y la que cortó la serie (MOVO-266). */
+const TRIP_DETAIL_TYPES: readonly string[] = [
+  "trip_auto_created",
+  "trip_recurrence_generated",
+  "trip_recurrence_stopped",
+];
+
 const ACCOUNT_SECURITY_TYPES: readonly string[] = [
   "account_password_changed",
   "account_email_changed",
@@ -116,7 +124,7 @@ export function resolveNotificationRoute(data: unknown): NotificationRoute | nul
     const transferId = stringField(data, "transferId");
     return transferId ? `/receiver-transfers/${transferId}` : null;
   }
-  if (type === "trip_auto_created") {
+  if (TRIP_DETAIL_TYPES.includes(type)) {
     const tripId = stringField(data, "tripId");
     return tripId ? `/carrier/trips/${tripId}` : null;
   }

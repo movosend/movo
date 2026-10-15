@@ -43,11 +43,13 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
     getShipmentParties(shipmentId, ctx) {
       return client.request(`/internal/shipments/${encodeURIComponent(shipmentId)}/parties`, ctx, {
         isValid: isShipmentParties,
+        notFoundCodes: ["NOT_FOUND"],
       });
     },
     getChatReportParties(reportId, ctx) {
       return client.request(`/internal/chat-reports/${encodeURIComponent(reportId)}/parties`, ctx, {
         isValid: isChatReportParties,
+        notFoundCodes: ["NOT_FOUND"],
       });
     },
   };
