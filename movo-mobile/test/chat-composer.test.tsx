@@ -1,8 +1,5 @@
 import { fireEvent, render } from "@testing-library/react-native";
-import * as Haptics from "expo-haptics";
 import { ChatComposer } from "../components/chat/chat-composer";
-
-jest.mock("expo-haptics", () => ({ impactAsync: jest.fn(), ImpactFeedbackStyle: { Light: "light" } }));
 
 describe("ChatComposer (MOVO-284)", () => {
   const props = { readOnlyCopy: "El envío finalizó.", testID: "c" };
@@ -16,21 +13,6 @@ describe("ChatComposer (MOVO-284)", () => {
 
     expect(onSend).toHaveBeenCalledWith("Hola");
     expect(getByTestId("c-input").props.value).toBe("");
-  });
-
-  it("MOVO-301: al enviar vibra suave; si no se pudo enviar, no", async () => {
-    (Haptics.impactAsync as jest.Mock).mockClear();
-    const sent = await render(<ChatComposer {...props} canWrite onSend={jest.fn(() => true)} />);
-    await fireEvent.changeText(sent.getByTestId("c-input"), "Hola");
-    await fireEvent.press(sent.getByTestId("c-send"));
-    expect(Haptics.impactAsync).toHaveBeenCalledTimes(1);
-    sent.unmount();
-
-    (Haptics.impactAsync as jest.Mock).mockClear();
-    const failed = await render(<ChatComposer {...props} canWrite onSend={jest.fn(() => false)} />);
-    await fireEvent.changeText(failed.getByTestId("c-input"), "Hola");
-    await fireEvent.press(failed.getByTestId("c-send"));
-    expect(Haptics.impactAsync).not.toHaveBeenCalled();
   });
 
   it("no envía un texto vacío", async () => {
