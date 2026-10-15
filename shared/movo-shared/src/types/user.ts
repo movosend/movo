@@ -136,6 +136,7 @@ export interface AdminSummary {
   id: string;
   fullName: string;
   email: string;
+  status: AccountStatus;
   /** ISO date en que se otorgó el rol. */
   grantedAt: string;
 }

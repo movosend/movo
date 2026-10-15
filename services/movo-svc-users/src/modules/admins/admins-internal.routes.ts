@@ -13,11 +13,12 @@ export interface AdminsInternalRoutesOptions extends FastifyPluginOptions {
 // Autocontenido a propósito, mismo criterio que `kyc-internal.routes.ts`.
 const adminSummary = {
   type: "object",
-  required: ["id", "fullName", "email", "grantedAt"],
+  required: ["id", "fullName", "email", "status", "grantedAt"],
   properties: {
     id: { type: "string" },
     fullName: { type: "string" },
     email: { type: "string" },
+    status: { type: "string", enum: ["active", "banned", "deleted"] },
     grantedAt: { type: "string" },
   },
 };

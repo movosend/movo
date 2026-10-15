@@ -1263,37 +1263,4 @@ Pendiente / fuera de alcance: alta y baja del rol (MOVO-290), UI del login (MOVO
 
 ### MOVO-290 — Alta y baja del rol admin: script de CLI y endpoints internos
 
-`src/modules/admins/admin-roles.service.ts` concentra las reglas y lo usan los dos caminos: los
-endpoints internos (`admins-internal.routes.ts`: `GET`/`POST /internal/admins` y
-`DELETE /internal/admins/:userId`, sin ruta en el gateway, para `svc-admin`/MOVO-292) y el script
-`src/scripts/admin-role.ts`. Otorgar exige email verificado y cuenta `active` (también desde el
-script, aunque el AC1 solo pedía el email: un admin sin eso no podría entrar al panel), es
-idempotente y avisa por email (best-effort). Revocar corta las sesiones de panel
-(`revokePanelSessionsForUser`, MOVO-287) sin tocar las de la app. `x-user-id` es quien pidió la
-operación y solo se loguea (`requestedBy`); desde el script vale `cli`.
-
-- **Nunca cero admins, con bloqueo**: la revocación hace `SELECT … FOR UPDATE` sobre las filas de
-  admin dentro de la transacción, así dos revocaciones simultáneas de los dos últimos se
-  serializan y la segunda da 409 `ADMIN_LAST_ADMIN`. Solo cuentan como "admins que quedan" los que
-  podrían entrar al panel (email verificado + `active`).
-- **Corte de sesiones después del commit**: si Redis falla, responde 500 con el rol ya borrado. El
-  reintento da 404 `ADMIN_NOT_FOUND`, pero esa rama también corta las sesiones, así que se completa.
-  Mientras tanto el refresh de panel revalida el rol y el access token dura como mucho 15 min.
-- **El script vive en `src/`** porque la imagen solo trae `dist/` (sin `tsx`): `admin:grant`/
-  `admin:revoke` corren `node dist/scripts/admin-role.js`; `admin:grant:dev`/`admin:revoke:dev`
-  usan `tsx` en local. `revoke` recibe el email, no el id. `createPrismaClient` salió de
-  `plugins/db.ts` para armar el cliente sin Fastify.
-
-**Cómo crear el primer admin.** Requisito: la persona ya tiene cuenta (registro desde la app) y
-verificó su email (Perfil → verificar email).
-
-- Local: `npm run admin:grant:dev -- persona@movo.app` desde este directorio (toma el `.env`).
-- Dev/prod, en la EC2, desde el directorio del `docker-compose.yml`:
-  `docker compose pull movo-svc-users && docker compose run --rm -T movo-svc-users npm run admin:grant -- persona@movo.app`
-  (el `pull` por el mismo motivo que en las migraciones: `run` no repullea la imagen).
-- Revocar: lo mismo con `admin:revoke`. Sale con 0 si salió bien (también "ya era admin"), 1 ante
-  un error de negocio (lo imprime con su código) y 2 si faltan argumentos.
-
-Pendiente / fuera de alcance: la pantalla y los endpoints `/admin/*` de gestión (MOVO-292), la
-bitácora (la escribe `svc-admin`), y probar el script dentro del contenedor de dev (solo se probó
-el build local de `dist/`).
+`src/modules/admins/admin-roles.service.ts` concentra las reglas para endpoints internos (`GET`/`POST /internal/admins`, `DELETE /internal/admins/:userId`) y el script `src/scripts/admin-role.ts`. Otorgar exige email verificado y cuenta `active` (idempotente, best-effort email notice). Revocar y baja de cuenta (`deleteAccount`) respetan la invariante compartida de nunca cero admins elegibles (`FOR UPDATE OF ur, u ORDER BY ur.user_id` -> 409 `ADMIN_LAST_ADMIN`) y cortan sesiones de panel en Redis. El CLI valida solo su configuración y `grant` no depende de Redis. Baneo pendiente en MOVO-296: deberá usar el mismo invariante. Procedimiento para el primer admin: ver `docs/admin/primer-admin.md`.

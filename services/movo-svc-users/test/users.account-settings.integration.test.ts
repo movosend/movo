@@ -104,6 +104,7 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
 
   beforeEach(async () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
+    captor.sentCodes.clear();
     let cursor = "0";
     do {
       const [nextCursor, keys] = await app.redis.scan(cursor, "MATCH", "refresh:*", "COUNT", 100);
@@ -136,7 +137,9 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
   async function registerFixtureUser(payload: typeof validRegisterPayload = validRegisterPayload) {
     const send = await app.inject({ method: "POST", url: "/auth/send-otp", payload: { phone: payload.phone } });
     const { otpId } = JSON.parse(send.body) as { otpId: string };
-    const code = [...captor.sentCodes.values()].pop();
+    const code =
+      [...captor.sentCodes.entries()].find(([to]) => to.endsWith(payload.phone))?.[1] ??
+      [...captor.sentCodes.values()].pop();
     if (!code) {
       throw new Error("No se capturó ningún código OTP");
     }
@@ -592,6 +595,90 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
         payload: { password: "cualquier-cosa" },
       });
       expect(second.statusCode).toBe(204);
+    });
+
+    it("rechaza con 409 ADMIN_LAST_ADMIN si el usuario es el último admin elegible (Comentarios 1 y 2)", async () => {
+      const { userId } = await registerFixtureUser();
+      await app.db.userRoleGrant.create({ data: { userId, role: "admin" } });
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: "/users/me",
+        headers: { "x-user-id": userId },
+        payload: { password: "Password1" },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(JSON.parse(response.body).error.code).toBe("ADMIN_LAST_ADMIN");
+
+      const repo = createUserRepository(app.db);
+      const reloaded = await repo.findById(userId);
+      expect(reloaded?.status).toBe("active");
+      const hasAdmin = await app.db.userRoleGrant.findUnique({
+        where: { userId_role: { userId, role: "admin" } },
+      });
+      expect(hasAdmin).not.toBeNull();
+    });
+
+    it("una baja y una revocación concurrentes conservan un admin elegible", async () => {
+      const first = await registerFixtureUser();
+      const second = await registerFixtureUser({
+        ...validRegisterPayload, phone: "3517777777", email: "second-admin@example.com",
+      });
+      for (const userId of [first.userId, second.userId]) {
+        await app.db.user.update({ where: { id: userId }, data: { emailVerified: true } });
+        await app.db.userRoleGrant.create({ data: { userId, role: "admin" } });
+      }
+      const responses = await Promise.all([
+        app.inject({ method: "DELETE", url: "/users/me", headers: { "x-user-id": first.userId },
+          payload: { password: "Password1" } }),
+        app.inject({ method: "DELETE", url: `/internal/admins/${second.userId}`,
+          headers: { "x-user-id": first.userId } }),
+      ]);
+      expect(responses.map((response) => response.statusCode).sort()).toEqual([204, 409]);
+      const rejected = responses.find((response) => response.statusCode === 409)!;
+      expect(JSON.parse(rejected.body).error.code).toBe("ADMIN_LAST_ADMIN");
+      expect(await app.db.userRoleGrant.count({
+        where: { role: "admin", user: { status: "active", emailVerified: true } },
+      })).toBe(1);
+    });
+
+    it("borra el rol admin al darse de baja si queda otro admin elegible (Comentarios 2 y 3)", async () => {
+      const remaining = await registerFixtureUser({
+        ...validRegisterPayload,
+        phone: "3519999999",
+        email: "other-admin@example.com",
+      });
+      await app.db.user.update({ where: { id: remaining.userId }, data: { emailVerified: true } });
+      await app.db.userRoleGrant.create({ data: { userId: remaining.userId, role: "admin" } });
+
+      const target = await registerFixtureUser({
+        ...validRegisterPayload,
+        phone: "3518888888",
+        email: "target-admin@example.com",
+      });
+      await app.db.userRoleGrant.create({ data: { userId: target.userId, role: "admin" } });
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: "/users/me",
+        headers: { "x-user-id": target.userId },
+        payload: { password: "Password1" },
+      });
+
+      expect(response.statusCode).toBe(204);
+
+      const repo = createUserRepository(app.db);
+      const reloaded = await repo.findById(target.userId);
+      expect(reloaded?.status).toBe("deleted");
+      const hasAdmin = await app.db.userRoleGrant.findUnique({
+        where: { userId_role: { userId: target.userId, role: "admin" } },
+      });
+      expect(hasAdmin).toBeNull();
+      const remainingHasAdmin = await app.db.userRoleGrant.findUnique({
+        where: { userId_role: { userId: remaining.userId, role: "admin" } },
+      });
+      expect(remainingHasAdmin).not.toBeNull();
     });
 
     it("devuelve 401 AUTH_TOKEN_INVALID sin header x-user-id", async () => {

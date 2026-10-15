@@ -6,7 +6,11 @@ import { LEGAL_DOCUMENT_VERSIONS, UserRole } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createUserRepository, UserRepository } from "../src/repositories/user-repository";
 import { createSessionRepository } from "../src/repositories/session-repository";
-import { createAdminRolesService, AdminRolesLogger } from "../src/modules/admins/admin-roles.service";
+import {
+  createAdminRolesService,
+  ensureNotLastEligibleAdmin,
+  AdminRolesLogger,
+} from "../src/modules/admins/admin-roles.service";
 import { runAdminRoleCli } from "../src/scripts/admin-role";
 import { CreateUserInput, User } from "../src/models/user";
 import { SmsProvider } from "../src/adapters/sms-provider";
@@ -192,14 +196,30 @@ describe("Alta y baja del rol admin (MOVO-290)", () => {
       const response = await app.inject({ method: "GET", url: "/internal/admins" });
 
       expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body) as { id: string; fullName: string; email: string; grantedAt: string }[];
+      const body = JSON.parse(response.body) as { id: string; fullName: string; email: string; status: string; grantedAt: string }[];
       expect(body.map((admin) => admin.id)).toEqual([first.id, second.id]);
       expect(body[0]).toEqual({
         id: first.id,
         fullName: "Lucas Dalmagro",
         email: first.email,
+        status: "active",
         grantedAt: expect.any(String),
       });
+    });
+
+    it("deja afuera las cuentas dadas de baja y muestra el status (Comentario 3)", async () => {
+      const activeAdmin = await createUser({ admin: true, status: "active" });
+      const bannedAdmin = await createUser({ admin: true, status: "banned" });
+      const deletedAdmin = await createUser({ admin: true, status: "deleted" });
+
+      const response = await app.inject({ method: "GET", url: "/internal/admins" });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as { id: string; status: string }[];
+      expect(body.map((admin) => admin.id)).toEqual([activeAdmin.id, bannedAdmin.id]);
+      expect(body.find((a) => a.id === activeAdmin.id)?.status).toBe("active");
+      expect(body.find((a) => a.id === bannedAdmin.id)?.status).toBe("banned");
+      expect(body.some((a) => a.id === deletedAdmin.id)).toBe(false);
     });
   });
 
@@ -210,7 +230,7 @@ describe("Alta y baja del rol admin (MOVO-290)", () => {
       const response = await grant(user.email.toUpperCase());
 
       expect(response.statusCode).toBe(201);
-      expect(JSON.parse(response.body)).toMatchObject({ id: user.id, email: user.email });
+      expect(JSON.parse(response.body)).toMatchObject({ id: user.id, email: user.email, status: "active" });
       expect(await isAdmin(user.id)).toBe(true);
       expect(emailCaptor.adminNoticesFor(user.email)).toHaveLength(1);
     });
@@ -340,6 +360,39 @@ describe("Alta y baja del rol admin (MOVO-290)", () => {
       expect(JSON.parse(response.body).error.code).toBe("ADMIN_NOT_FOUND");
     });
 
+    it("evita escribir panel-revoked-at para UUIDs inexistentes (Comentario 5)", async () => {
+      await createUser({ admin: true });
+      const nonExistentId = randomUUID();
+
+      const response = await revoke(nonExistentId);
+
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).error.code).toBe("ADMIN_NOT_FOUND");
+      const revokedAt = await app.redis.get(`panel-revoked-at:${nonExistentId}`);
+      expect(revokedAt).toBeNull();
+    });
+
+    it("si falla Redis al revocar a alguien que no es admin, responde 404 y no 500 (Comentario 5)", async () => {
+      await createUser({ admin: true });
+      const user = await createUser();
+      const faultySessionRepo = {
+        revokePanelSessionsForUser: async () => {
+          throw new Error("Redis connection dropped");
+        },
+      };
+      const { logger } = createSpyLogger();
+      const service = createAdminRolesService({
+        db: app.db,
+        sessionRepository: faultySessionRepo,
+        emailProvider: emailCaptor.provider,
+        logger,
+      });
+
+      await expect(service.revokeAdmin(user.id, requesterId)).rejects.toThrowError(
+        expect.objectContaining({ statusCode: 404, code: "ADMIN_NOT_FOUND" })
+      );
+    });
+
     it("dos revocaciones simultáneas de los dos últimos admins: una pasa y la otra da 409", async () => {
       const first = await createUser({ admin: true });
       const second = await createUser({ admin: true });
@@ -349,6 +402,30 @@ describe("Alta y baja del rol admin (MOVO-290)", () => {
       expect(responses.map((r) => r.statusCode).sort()).toEqual([204, 409]);
       const remaining = (await isAdmin(first.id) ? 1 : 0) + (await isAdmin(second.id) ? 1 : 0);
       expect(remaining).toBe(1);
+    });
+  });
+
+  describe("Invariante de nunca cero admins en deleteAccount (Comentarios 1 y 2)", () => {
+    it("la baja de cuenta (deleteAccount) rechaza con 409 si el usuario es el último admin elegible", async () => {
+      const admin = await createUser({ admin: true });
+      await expect(
+        app.db.$transaction((tx) => ensureNotLastEligibleAdmin(tx, admin.id, "No se puede dar de baja al último admin."))
+      ).rejects.toThrowError(expect.objectContaining({ statusCode: 409, code: "ADMIN_LAST_ADMIN" }));
+    });
+
+    it("permite la baja de cuenta si queda otro admin elegible", async () => {
+      const first = await createUser({ admin: true });
+      await createUser({ admin: true });
+      await expect(
+        app.db.$transaction((tx) => ensureNotLastEligibleAdmin(tx, first.id, "No se puede dar de baja al último admin."))
+      ).resolves.toEqual({ isAdmin: true });
+    });
+
+    it("no bloquea si el usuario no es admin", async () => {
+      const normalUser = await createUser();
+      await expect(
+        app.db.$transaction((tx) => ensureNotLastEligibleAdmin(tx, normalUser.id, "No se puede dar de baja al último admin."))
+      ).resolves.toEqual({ isAdmin: false });
     });
   });
 
