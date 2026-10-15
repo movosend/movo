@@ -786,7 +786,8 @@ describe("ShipmentDetailScreen", () => {
         mockUseShipment.mockReturnValue({
           isLoading: false,
           isError: false,
-          data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNED_UNFUNDED }),
+          // Retiro lejano: la ventana para confirmar el pago todavía no se abrió (MOVO-269).
+          data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNED_UNFUNDED, pickupDate: "2099-01-01" }),
           error: null,
           refetch: jest.fn(),
         });
@@ -797,6 +798,40 @@ describe("ShipmentDetailScreen", () => {
         expect(getByText("Los fondos se reservan antes del retiro.")).toBeTruthy();
       },
     );
+
+    it("en assigned_unfunded con la ventana abierta el emisor ve 'Confirmar el pago' (MOVO-269)", async () => {
+      mockCurrentUser.mockReturnValue({ userId: SENDER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNED_UNFUNDED, pickupDate: "2000-01-01" }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Confirmar el pago")).toBeTruthy();
+      await fireEvent.press(getByTestId("shipment-detail-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/pay");
+    });
+
+    it("en assignment_pending el emisor puede retomar el pago desde el detalle (MOVO-269 AC7)", async () => {
+      mockCurrentUser.mockReturnValue({ userId: SENDER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNMENT_PENDING }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Pagar y reservar fondos")).toBeTruthy();
+      await fireEvent.press(getByTestId("shipment-detail-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/pay?resumed=1");
+    });
 
     it.each([
       [SENDER, ShipmentStatus.PUBLISHED],

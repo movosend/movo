@@ -100,16 +100,29 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
     expect(getByText("Belgrano 99")).toBeTruthy();
   });
 
-  it("tocar el CTA muestra un aviso 'Muy pronto' en vez de navegar (MOVO-159/160 sin pantalla todavía)", async () => {
+  it("Generar retiro abre la pantalla del QR de retiro, la misma que el detalle del envío", async () => {
     const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    const { getByTestId } = await render(
+      <ActiveShipmentCard shipment={makeShipment({ status: "assigned" })} role="sending" testID="card" />,
+    );
 
+    await fireEvent.press(getByTestId("card-cta"));
+
+    expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/handshake");
+    expect(alertSpy).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it("Confirmar recepción abre el escaneo del QR de entrega", async () => {
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     const { getByTestId } = await render(
       <ActiveShipmentCard shipment={makeShipment({ status: "in_transit" })} role="receiving" testID="card" />,
     );
 
     await fireEvent.press(getByTestId("card-cta"));
 
-    expect(alertSpy).toHaveBeenCalledWith("Muy pronto", expect.stringContaining("MOVO-160"));
+    expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/handshake-scan");
+    expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
   });
 
