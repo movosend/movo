@@ -14,6 +14,12 @@ export interface NewHoldAttempt {
   requestFingerprint: string;
   /** MOVO-282: tarjeta guardada con la que se crea el hold (habilita el `409 CARD_IN_USE` al borrarla). */
   savedCardId?: string | null;
+  /**
+   * MOVO-302: el emisor que paga (`payerUserId`, MOVO-282). Es lo que permite listar "lo que pagó
+   * cada emisor" en el historial; null en los holds anteriores. Opcional para no romper a quien
+   * crea intentos sin saber quién paga.
+   */
+  payerId?: string | null;
 }
 
 export interface HoldUpdate {
@@ -22,6 +28,13 @@ export interface HoldUpdate {
   failureReason?: HoldFailureReason | null;
   mpPaymentId?: string | null;
   expiresAt?: Date | null;
+  /**
+   * MOVO-302: últimos 4 y marca de la tarjeta, tal como los informa MP en el pago. Solo se
+   * escriben cuando MP los trae (`undefined` = no tocar): una respuesta sin `card` nunca borra
+   * un dato que una consulta anterior ya había dejado.
+   */
+  cardLast4?: string;
+  cardBrand?: string;
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -86,6 +99,7 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
             applicationFeeArs: new Prisma.Decimal(data.applicationFeeArs),
             requestFingerprint: data.requestFingerprint,
             savedCardId: data.savedCardId ?? null,
+            payerId: data.payerId ?? null,
             status: "creating",
           },
         });

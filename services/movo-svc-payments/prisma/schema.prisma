@@ -110,6 +110,13 @@ model Hold {
   // (la fila local se borra soft). La escribe MOVO-282; acá solo habilita el
   // `409 CARD_IN_USE` al dar de baja una tarjeta con un hold vivo.
   savedCardId        String?            @map("saved_card_id") @db.Uuid
+  // MOVO-302 (historial de MOVO-28): quién pagó y con qué tarjeta, para listar "lo que pagó cada
+  // emisor". `payerId` es el emisor (`payerUserId` de MOVO-282), referencia lógica a users.users sin
+  // FK (ADR-003); los holds anteriores quedan en null. `cardLast4`/`cardBrand` salen de la respuesta
+  // de MP (`card.last_four_digits`, `payment_method_id`), nunca del token; null si MP no los informa.
+  payerId            String?            @map("payer_id") @db.Uuid
+  cardLast4          String?            @map("card_last4") @db.VarChar(4)
+  cardBrand          String?            @map("card_brand") @db.VarChar(32)
   expiresAt          DateTime?          @map("expires_at") @db.Timestamptz
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz
@@ -118,6 +125,9 @@ model Hold {
   @@unique([shipmentId, attempt], map: "holds_shipment_id_attempt_key")
   @@index([mpPaymentId], map: "holds_mp_payment_id_idx")
   @@index([savedCardId], map: "holds_saved_card_id_idx")
+  // MOVO-302: listados del historial por rol (emisor / transportista), más reciente primero.
+  @@index([payerId, createdAt(sort: Desc), id(sort: Desc)], map: "holds_payer_id_created_at_idx")
+  @@index([carrierId, createdAt(sort: Desc), id(sort: Desc)], map: "holds_carrier_id_created_at_idx")
   @@map("holds")
   @@schema("payments")
 }

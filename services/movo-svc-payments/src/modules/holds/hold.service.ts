@@ -155,17 +155,21 @@ export function holdUpdateFromPayment(
   const statusDetail = payment.status_detail ?? null;
   const mpPaymentId = payment.id !== undefined ? String(payment.id) : null;
   const expiresAt = current?.expiresAt ?? new Date(now.getTime() + holdValidityDays * DAY_MS);
+  // MOVO-302: marca y últimos 4 de la tarjeta, siempre que MP los traiga. Pasa por acá todo lo
+  // que lee un pago (crear, consultar, adoptar, webhook), así la fila se completa donde sea que
+  // MP los informe primero.
+  const card = cardFromPayment(payment);
   switch (payment.status) {
     case "authorized":
-      return { status: "authorized", statusDetail, failureReason: null, mpPaymentId, expiresAt };
+      return { status: "authorized", statusDetail, failureReason: null, mpPaymentId, expiresAt, ...card };
     case "in_process":
     case "pending":
-      return { status: "in_process", statusDetail, failureReason: null, mpPaymentId, expiresAt };
+      return { status: "in_process", statusDetail, failureReason: null, mpPaymentId, expiresAt, ...card };
     case "approved":
       // Con `capture: false` no debería pasar; si pasa, la plata ya se cobró.
-      return { status: "captured", statusDetail, failureReason: null, mpPaymentId, expiresAt: null };
+      return { status: "captured", statusDetail, failureReason: null, mpPaymentId, expiresAt: null, ...card };
     case "cancelled":
-      return { status: "cancelled", statusDetail, failureReason: null, mpPaymentId, expiresAt: null };
+      return { status: "cancelled", statusDetail, failureReason: null, mpPaymentId, expiresAt: null, ...card };
     case "rejected":
       return {
         status: "rejected",
@@ -173,10 +177,30 @@ export function holdUpdateFromPayment(
         failureReason: failureReasonFromStatusDetail(statusDetail, { savedCard: current?.savedCardId != null }),
         mpPaymentId,
         expiresAt: null,
+        ...card,
       };
     default:
       return null;
   }
+}
+
+/** Últimos 4 de una tarjeta: exactamente 4 dígitos. */
+const CARD_LAST4_PATTERN = /^\d{4}$/;
+/** `payment_method_id` de MP (`visa`, `master`, `debvisa`, ...): corto y alfanumérico. */
+const CARD_BRAND_PATTERN = /^[a-z0-9_]{1,32}$/i;
+
+/**
+ * Marca y últimos 4 de la tarjeta con que se pagó, solo si MP los informa y tienen la forma
+ * esperada: lo que no cumple se descarta en vez de persistirse o inventarse (nunca se deriva
+ * nada del token). Lo que MP no trae no aparece en el parche, así que no pisa un dato previo.
+ */
+function cardFromPayment(payment: PaymentSnapshot): Pick<HoldUpdate, "cardLast4" | "cardBrand"> {
+  const last4 = payment.card?.last_four_digits;
+  const brand = payment.payment_method_id;
+  return {
+    ...(typeof last4 === "string" && CARD_LAST4_PATTERN.test(last4) ? { cardLast4: last4 } : {}),
+    ...(typeof brand === "string" && CARD_BRAND_PATTERN.test(brand) ? { cardBrand: brand.toLowerCase() } : {}),
+  };
 }
 
 const roundArs = (value: number): number => Math.round(value * 100) / 100;
@@ -429,6 +453,9 @@ export function createHoldService(deps: HoldServiceDeps) {
           applicationFeeArs,
           requestFingerprint: fingerprint,
           savedCardId,
+          // MOVO-302: el emisor queda en el hold para el historial; no entra al fingerprint ni
+          // a `HoldResponse` (el contrato interno de holds no lo expone).
+          payerId: input.payerUserId,
         });
         return { kind: "process", hold: created };
       } catch (error) {
