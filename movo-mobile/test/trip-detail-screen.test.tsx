@@ -402,9 +402,9 @@ describe("TripDetailScreen (MOVO-263)", () => {
       mockUseTrip.mockReturnValue(loaded({ ...RECURRING, ...WITH_PACKAGES, recurrenceWeekdays: [5] }));
       const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
 
-      // Con paquetes no hay cancelar, pero sí editar los días y dejar de repetir.
+      // Con paquetes no hay editar ni cancelar: solo dejar de repetir.
       expect(queryByTestId("trip-detail-menu-action-cancel-trip")).toBeNull();
-      expect(getByTestId("trip-detail-menu-action-edit-trip")).toBeTruthy();
+      expect(queryByTestId("trip-detail-menu-action-edit-trip")).toBeNull();
       await fireEvent.press(getByTestId("trip-detail-menu-action-stop-recurrence"));
 
       expect(alertSpy).toHaveBeenCalledWith(
