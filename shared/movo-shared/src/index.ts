@@ -131,6 +131,26 @@ export type {
   UpdateSavedCardRequest,
 } from "./types/saved-card";
 
+// historial de transacciones (MOVO-303)
+export {
+  TRANSACTION_MOVEMENT_KINDS,
+  TRANSACTION_ROLES,
+  TRANSACTION_STATUSES,
+  TRANSACTIONS_DEFAULT_LIMIT,
+  TRANSACTIONS_MAX_LIMIT,
+} from "./types/transaction";
+export type {
+  TransactionBreakdown,
+  TransactionCard,
+  TransactionDetail,
+  TransactionListItem,
+  TransactionListResponse,
+  TransactionMovement,
+  TransactionMovementKind,
+  TransactionRole,
+  TransactionStatus,
+} from "./types/transaction";
+
 // liquidación: captura del hold + split (MOVO-212)
 export { SETTLEMENT_STATUSES } from "./types/settlement";
 export type {
@@ -174,7 +194,11 @@ export {
 export type { RatingCategoryDefinition, RatingCategoryScoreField } from "./config/rating-categories";
 
 // utils
-export { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "./utils/argentina-date";
+export {
+  ARGENTINA_UTC_OFFSET_HOURS,
+  toArgentinaCalendarDateString,
+  toArgentinaTimeOfDayString,
+} from "./utils/argentina-date";
 
 // notification preferences (MOVO-239)
 export {
