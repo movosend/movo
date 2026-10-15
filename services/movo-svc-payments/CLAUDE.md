@@ -491,3 +491,11 @@ mobile, MOVO-101, tiene que incluirla). (2) **El valor del CVV no se valida**: u
 falla uno ausente, vacío o de largo inválido. Un CVV equivocado de verdad solo se verá en producción (spike
 MOVO-283). (3) Al borrar un customer, MP tarda ~1-2 minutos en dejar de devolverlo en la búsqueda por email (da
 `404 customer not found` por id): una segunda corrida inmediata del test de sandbox puede fallar por eso.
+
+### MOVO-302 — Historial: guardar el pagador y la tarjeta en el hold (sub-issue de MOVO-28)
+
+`payments.holds` suma `payer_id` (el `payerUserId` de MOVO-282; los holds anteriores quedan en null y no
+aparecen en el historial) y `card_last4`/`card_brand`, tomados de la respuesta de MP sin pisar un dato ya
+guardado: `src/utils/payment-card.ts` es la única puerta y la usan crear, `?sync=true`, adopción, webhook
+(aunque el estado no cambie) y captura. Un reintento con otro `payerUserId` sobre un hold vigente responde
+`409 HOLD_CONFLICT`. Sin cambio de contrato: `HoldResponse` no los expone, los lee MOVO-303.
