@@ -21,6 +21,7 @@ import {
   Package,
   ShieldCheck,
 } from "lucide-react-native";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useLivePosition } from "../../../../src/hooks/use-live-position";
 import { LiveMap } from "../../../../components/tracking/live-map";
@@ -106,8 +107,13 @@ export default function LiveTrackingScreen() {
   // MOVO-278 (ADR-045): sin posición (o con el envío demorado) el mapa explica qué pasa en
   // vez de quedar solo con el pin de destino. La última posición vence a los 7 días (ADR-024).
   const isDelayed = !demoMode && shipment ? isTransitDelayed(shipment) : false;
+  // Solo en tránsito: con el envío en `assigned`/`assigned_unfunded` todavía no salió y es normal no tener posición.
   const showNoPositionNotice =
-    !demoMode && !isDelivered && !isLoadingInitial && (!displayPosition || isDelayed);
+    !demoMode &&
+    shipment?.status === ShipmentStatus.IN_TRANSIT &&
+    !isDelivered &&
+    !isLoadingInitial &&
+    (!displayPosition || isDelayed);
 
   const [isExpanded, setIsExpanded] = useState(false);
 

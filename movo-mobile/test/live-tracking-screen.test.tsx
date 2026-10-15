@@ -213,6 +213,12 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
       expect(getByTestId("tracking-no-position-overlay")).toHaveTextContent(/La entrega está demorada\. Si no se confirma pronto/);
     });
 
+    it.each(["assigned", "assigned_unfunded"])("con el envío en %s todavía no avisa que falta la ubicación", async (status) => {
+      const { queryByTestId } = await renderWith({ status }, { position: null, trackingStatus: "no_position" });
+
+      expect(queryByTestId("tracking-no-position-overlay")).toBeNull();
+    });
+
     it("con posición en vivo y sin demora no muestra el aviso", async () => {
       const { queryByTestId } = await renderWith({}, {});
 
