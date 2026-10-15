@@ -36,6 +36,23 @@ export function totalUnread(items: readonly ChatListItem[] | undefined): number 
   return (items ?? []).reduce((sum, item) => sum + item.unreadCount, 0);
 }
 
+/**
+ * MOVO-301: suma un no leído a esa conversación en el caché sin esperar a la lista del servidor, que tarda
+ * varios segundos (resuelve a los integrantes contra `svc-users`). Se usa con una push `chat_message` en
+ * foreground; la lista real que se pide después pisa este valor, así que no se desvía.
+ */
+export function bumpChatUnread(queryClient: QueryClient, shipmentId: string): void {
+  queryClient.setQueryData<{ items: ChatListItem[] }>(chatKeys.list, (data) =>
+    data
+      ? {
+          items: data.items.map((item) =>
+            item.shipmentId === shipmentId ? { ...item, unreadCount: item.unreadCount + 1 } : item,
+          ),
+        }
+      : data,
+  );
+}
+
 export function useChatParticipants(shipmentId: string | undefined) {
   return useQuery({
     queryKey: chatKeys.participants(shipmentId ?? ""),

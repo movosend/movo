@@ -3,7 +3,7 @@ import * as Notifications from "expo-notifications";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 import { useAuthStore } from "../store/auth-store";
-import { chatKeys } from "./use-chat";
+import { bumpChatUnread, chatKeys } from "./use-chat";
 
 /**
  * MOVO-301: mantiene al día el contador de no leídos de Inicio sin esperar los 60 s del polling.
@@ -20,8 +20,11 @@ export function useChatUnreadSync(): void {
     const refresh = () => void queryClient.invalidateQueries({ queryKey: chatKeys.list });
 
     const received = Notifications.addNotificationReceivedListener((notification) => {
-      const data = notification.request?.content?.data as { type?: unknown } | undefined;
-      if (data?.type === "chat_message") refresh();
+      const data = notification.request?.content?.data as { type?: unknown; shipmentId?: unknown } | undefined;
+      if (data?.type !== "chat_message") return;
+      // El contador sube ya; la lista del servidor tarda y recién después lo confirma.
+      if (typeof data.shipmentId === "string") bumpChatUnread(queryClient, data.shipmentId);
+      refresh();
     });
     const appState = AppState.addEventListener("change", (next) => {
       if (next === "active") refresh();

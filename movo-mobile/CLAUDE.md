@@ -4724,6 +4724,8 @@ Pulido de MOVO-284 (todo mobile, sin backend).
 - **Contador de Inicio**: `useChatUnreadSync` (montado en `_layout`) vuelve a pedir la lista con una push `chat_message` en
   foreground y al volver a primer plano; salir del chat también la invalida. Sin WebSocket global, y un build local sin push
   no recibe la push: por eso la lista además se pide cada 15 s (`CHAT_LIST_POLL_MS`).
+  Esa lista tarda unos segundos (resuelve los integrantes contra `svc-users`), así que la push en foreground además suma el
+  no leído al caché al instante (`bumpChatUnread`) y la lista real lo confirma después.
 - **Doble entrada al chat**: `pushOnce` (`navigation-guard.ts`) ignora un segundo toque a la misma ruta en 800 ms (todos los
   accesos al chat). Las push comparan con la ruta actual, y las respuestas atendidas/cold start son de módulo, no de hook,
   para que un remonte (logout → login) no repita la navegación.

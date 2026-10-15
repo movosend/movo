@@ -52,6 +52,22 @@ describe("useChatUnreadSync (MOVO-301)", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.list });
   });
 
+  it("la push suma un no leído al instante, sin esperar a la lista del servidor", async () => {
+    queryClient.setQueryData(chatKeys.list, {
+      items: [
+        { shipmentId: "s1", unreadCount: 1 },
+        { shipmentId: "s2", unreadCount: 0 },
+      ],
+    });
+    await mount();
+    const listener = mockAddReceived.mock.calls[0][0] as (n: unknown) => void;
+    listener({ request: { content: { data: { type: "chat_message", shipmentId: "s1" } } } });
+
+    const cached = queryClient.getQueryData<{ items: { shipmentId: string; unreadCount: number }[] }>(chatKeys.list);
+    expect(cached?.items.find((i) => i.shipmentId === "s1")?.unreadCount).toBe(2);
+    expect(cached?.items.find((i) => i.shipmentId === "s2")?.unreadCount).toBe(0);
+  });
+
   it("otras push no tocan la lista", async () => {
     await mount();
     const listener = mockAddReceived.mock.calls[0][0] as (n: unknown) => void;
