@@ -32,7 +32,9 @@ del emisor como "En camino".
    Una sola vez por envío, con una columna durable (`transit_anomaly_warned_at`, compare-and-
    swap antes de la push) y no con un claim de Redis: tiene que sobrevivir a un flush.
 3. **Disputa automática** a las `IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS` (24 h) de la marca:
-   `in_transit → disputed` (arista que ya existía), sin actor (`actor_id` nulo) y con motivo
+   `in_transit → disputed` (arista que ya existía), solo si el aviso ya tiene al menos
+   `dispute − warn` (12 h): así los envíos marcados antes del deploy, o con el barrido caído
+   más que el plazo, reciben el aviso primero y no pasan a disputa en la misma corrida. Sin actor (`actor_id` nulo) y con motivo
    explícito, avisando a emisor, receptor y transportista. `expectedFrom: in_transit` hace que
    una entrega confirmada mientras corre el barrido gane: la marca nunca bloquea el handshake.
 4. **El viaje se cierra solo**: `disputed` ya cuenta como terminado para
@@ -84,7 +86,10 @@ ledger de MOVO-309 (`manual_adjustment`), no por un mecanismo de deuda aparte.
   la resolución por un administrador.
 - **"Demorado" no promete una revisión**: el texto describe lo que el sistema hace solo (abrir
   una disputa), porque hoy nadie revisa las disputas.
-- Un aviso cuya push falla no se reintenta (la marca ya se escribió); la disputa llega igual.
+- Un aviso cuya push falla no se reintenta (la marca ya se escribió); la disputa llega igual y el
+  fallo queda en el log con el evento `transit_anomaly_warning_push_failed`. Las pushes de la
+  disputa se esperan (`await`) antes de seguir con el próximo envío, porque ningún barrido las
+  reenvía si el proceso se reinicia después de la transición.
 - Los TyC tienen que cubrir "Demorado" y la disputa automática (MOVO-316).
 
 **Referencias**: MOVO-278 (este ticket), MOVO-258/ADR-032 (marca de D4), ADR-036 (requisitos

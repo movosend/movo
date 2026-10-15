@@ -3441,7 +3441,11 @@ tres partes). Reglas puras en `domain/expiration.ts` (`isTransitAnomalyDeadlineP
 
 - **Aviso una sola vez con columna, no con claim de Redis** (`transit_anomaly_warned_at`, migración
   `20261016120000`): el CAS se hace antes de la push, así una réplica concurrente no la repite; a
-  cambio, una push que falla no se reintenta (la disputa llega igual).
+  cambio, una push que falla no se reintenta (la disputa llega igual; queda el evento de log
+  `transit_anomaly_warning_push_failed`). **La disputa exige el aviso previo** con `dispute − warn`
+  horas de antigüedad (`findFlaggedInTransitBefore(limit, flaggedBefore, warnedBefore)`): cubre el
+  backfill de lo marcado por MOVO-258 antes del deploy y un barrido caído, sin migración de datos.
+  Las pushes de la disputa se esperan antes de seguir con el próximo envío.
 - **Una entrega concurrente gana**: `ShipmentConcurrentModificationError` del `expectedFrom` se
   saltea sin contar como error. La disputa no toca el hold (MOVO-34).
 - **`transitAnomalyFlaggedAt` expuesto** en `/sending|receiving|transporting` (`ActiveShipmentSummary`)
