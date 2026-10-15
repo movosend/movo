@@ -67,6 +67,8 @@ export interface BuildAppOptions {
   notificationsClient?: NotificationsClient;
   /** Reloj del chat (MOVO-26), solo para probar el borde de las 24 h en tests. */
   chatNow?: () => Date;
+  /** Agenda el resumen de avisos de una ráfaga de chat (MOVO-301); solo tests, para no esperar la ventana real. */
+  chatSchedulePush?: (run: () => void, delayMs: number) => void;
   /** Override solo para tests de integración — evita depender de un
    * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
    * `usersClient`. */
@@ -343,6 +345,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.chatNow ? { now: opts.chatNow } : {}),
+    ...(opts.chatSchedulePush ? { schedulePush: opts.chatSchedulePush } : {}),
   };
   app.register(chatRoutes, chatRouteOpts);
 

@@ -15,21 +15,49 @@ export const chatKeys = {
 
 const PAGE_SIZE = 30;
 
-/** Lista "Chats": uno por envío con transportista. `refetchInterval` cubre cuando no hay WebSocket abierto. */
-export function useChatList() {
+/**
+ * Cada cuánto se vuelve a pedir la lista de chats. Es un endpoint lento (resuelve a los integrantes contra
+ * `svc-users`), así que en uso normal va a 60 s: el contador de Inicio lo mantienen al día la push en foreground
+ * (`useChatUnreadSync`) y el refresco al volver a primer plano. En desarrollo va a 15 s porque un build local sin push
+ * (`ENABLE_PUSH_NOTIFICATIONS=false`) no recibe nada de eso (MOVO-301).
+ */
+const CHAT_LIST_POLL_MS = __DEV__ ? 15_000 : 60_000;
+
+/**
+ * Lista "Chats": uno por envío con transportista. `refetchInterval` cubre cuando no hay WebSocket abierto.
+ * `enabled: false` es para quien solo la usa si hay chat (la card del detalle del envío) y no quiere sumar un observer.
+ */
+export function useChatList({ enabled = true }: { enabled?: boolean } = {}) {
   const isAuthenticated = useAuthStore((state) => state.status === "authenticated");
   return useQuery({
     queryKey: chatKeys.list,
     queryFn: () => chatClient.listChats(),
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && enabled,
     select: (data) => data.items,
-    refetchInterval: 60_000,
+    refetchInterval: CHAT_LIST_POLL_MS,
   });
 }
 
 /** Total de mensajes sin leer, para el contador del header de Inicio. */
 export function totalUnread(items: readonly ChatListItem[] | undefined): number {
   return (items ?? []).reduce((sum, item) => sum + item.unreadCount, 0);
+}
+
+/**
+ * MOVO-301: suma un no leído a esa conversación en el caché sin esperar a la lista del servidor, que tarda
+ * varios segundos (resuelve a los integrantes contra `svc-users`). Se usa con una push `chat_message` en
+ * foreground; la lista real que se pide después pisa este valor, así que no se desvía.
+ */
+export function bumpChatUnread(queryClient: QueryClient, shipmentId: string): void {
+  queryClient.setQueryData<{ items: ChatListItem[] }>(chatKeys.list, (data) =>
+    data
+      ? {
+          items: data.items.map((item) =>
+            item.shipmentId === shipmentId ? { ...item, unreadCount: item.unreadCount + 1 } : item,
+          ),
+        }
+      : data,
+  );
 }
 
 export function useChatParticipants(shipmentId: string | undefined) {

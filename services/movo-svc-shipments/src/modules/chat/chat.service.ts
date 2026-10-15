@@ -32,11 +32,31 @@ import { Shipment } from "../../models/shipment";
 
 type ChatLogger = { warn: (obj: unknown, msg?: string) => void };
 
-/** Una ráfaga de mensajes avisa una sola vez por destinatario durante este tiempo. */
-const CHAT_PUSH_COOLDOWN_SECONDS = 60;
+/**
+ * Ventana de avisos por destinatario y conversación (MOVO-301, al estilo WhatsApp): el primer mensaje avisa enseguida
+ * con su texto; los que llegan seguidos dentro de la ventana no mandan una push cada uno, se juntan y al cerrarse la
+ * ventana sale un único resumen ("3 mensajes nuevos · …") si todavía quedan sin leer.
+ */
+const CHAT_PUSH_WINDOW_SECONDS = 30;
+/** Largo máximo del texto en la push: el sistema igual lo corta, pero no hace falta mandar un mensaje de 2.000 caracteres. */
+const CHAT_PUSH_PREVIEW_MAX = 140;
 /** Tope de chats que devuelve la lista. */
 const CHAT_LIST_LIMIT = 50;
 const UNKNOWN_USER_NAME = "Usuario de Movo";
+
+/** Un mensaje que no avisó por estar dentro de la ventana; se resume al cerrarse. */
+export interface ChatPushBufferEntry {
+  authorId: string;
+  authorName: string;
+  body: string;
+}
+
+/** Cola (en Redis) de los mensajes sin avisar de una conversación para un destinatario. */
+export interface ChatPushBuffer {
+  add(shipmentId: string, userId: string, entry: ChatPushBufferEntry): Promise<void>;
+  /** Devuelve y vacía la cola, en orden de llegada. */
+  drain(shipmentId: string, userId: string): Promise<ChatPushBufferEntry[]>;
+}
 
 export interface ChatServiceDeps {
   shipmentRepository: ShipmentRepository;
@@ -47,6 +67,11 @@ export interface ChatServiceDeps {
   /** `SET NX` en Redis: true si esta llamada ganó la marca (primer aviso de la ráfaga). */
   claimNotificationOnce: (key: string, ttlSeconds: number) => Promise<boolean>;
   releaseNotificationClaim: (key: string) => Promise<void>;
+  pushBuffer: ChatPushBuffer;
+  /** Milisegundos que le quedan a una marca de `claimNotificationOnce` (0 si ya no existe). */
+  windowRemainingMs: (key: string) => Promise<number>;
+  /** Agenda el resumen de una ráfaga (`setTimeout` por defecto; los tests lo inyectan). */
+  schedule?: (run: () => void, delayMs: number) => void;
   logger?: ChatLogger;
   now?: () => Date;
 }
@@ -146,25 +171,109 @@ export function createChatService(deps: ChatServiceDeps) {
     }
   }
 
-  async function dispatchPush(shipment: Shipment, userId: string, authorName: string): Promise<void> {
-    const claimKey = `chat-push:${shipment.id}:${userId}`;
-    if (!(await deps.claimNotificationOnce(claimKey, CHAT_PUSH_COOLDOWN_SECONDS))) return;
+  /** "Emisor" / "Transportista" / "Receptor" según quién escribió; un ex integrante no lleva rol. */
+  function roleLabelOf(shipment: Shipment, authorId: string): string | undefined {
+    if (authorId === shipment.senderId) return "Emisor";
+    if (authorId === shipment.carrierId) return "Transportista";
+    if (authorId === shipment.receiverId) return "Receptor";
+    return undefined;
+  }
+
+  function previewOf(body: string): string {
+    const text = body.replace(/\s+/g, " ").trim();
+    return text.length > CHAT_PUSH_PREVIEW_MAX ? `${text.slice(0, CHAT_PUSH_PREVIEW_MAX - 1)}…` : text;
+  }
+
+  async function sendChatPush(
+    shipment: Shipment,
+    userId: string,
+    entry: ChatPushBufferEntry,
+    count: number
+  ): Promise<void> {
+    const copy = renderNotificationTrigger("chatMessageReceived", {
+      authorName: entry.authorName,
+      roleLabel: roleLabelOf(shipment, entry.authorId),
+      messageBody: previewOf(entry.body),
+      count,
+    });
+    await deps.notificationsClient.sendPush({
+      userId,
+      title: copy.title,
+      body: copy.body,
+      category: notificationTriggerCategory("chatMessageReceived"),
+      data: { type: "chat_message", shipmentId: shipment.id },
+    });
+  }
+
+  const pushWindowKey = (shipmentId: string, userId: string) => `chat-push:${shipmentId}:${userId}`;
+  const pushFlushKey = (shipmentId: string, userId: string) => `chat-push-flush:${shipmentId}:${userId}`;
+
+  /**
+   * Agenda el resumen para cuando CIERRA la ventana vigente (lo que le falta de vida, no una ventana nueva desde
+   * este mensaje): así la ventana y el resumen comparten un solo reloj y un mensaje posterior nunca sale antes que
+   * uno anterior. Una sola vez por ventana: la marca de agendado dura lo que falta más un margen.
+   */
+  async function scheduleFlush(shipmentId: string, userId: string): Promise<void> {
+    const remainingMs = Math.max(0, await deps.windowRemainingMs(pushWindowKey(shipmentId, userId)));
+    const claimed = await deps.claimNotificationOnce(pushFlushKey(shipmentId, userId), Math.ceil(remainingMs / 1000) + 5);
+    if (!claimed) return;
+    const schedule = deps.schedule ?? ((run, delayMs) => void setTimeout(run, delayMs).unref());
+    schedule(() => void flushChatPush(shipmentId, userId), remainingMs);
+  }
+
+  /**
+   * Cierre de la ventana: si en el medio llegaron más mensajes y siguen sin leer, un único resumen. Se relee el envío
+   * (el rol o el acceso pudieron cambiar en esos segundos por una reasignación o una transferencia de receptor) y se
+   * vuelven a filtrar los autores bloqueados (ADR-026): el bloqueo pudo ser posterior a que el mensaje entrara a la
+   * cola. Si el destinatario ya abrió la conversación no se avisa de algo que ya vio.
+   */
+  async function flushChatPush(shipmentId: string, userId: string): Promise<void> {
+    const windowKey = pushWindowKey(shipmentId, userId);
     try {
-      const copy = renderNotificationTrigger("chatMessageReceived", { authorName });
-      await deps.notificationsClient.sendPush({
-        userId,
-        title: copy.title,
-        body: copy.body,
-        category: notificationTriggerCategory("chatMessageReceived"),
-        data: { type: "chat_message", shipmentId: shipment.id },
-      });
+      // Desde acá, lo que llegue agenda su propio resumen.
+      await deps.releaseNotificationClaim(pushFlushKey(shipmentId, userId));
+      // Si otro mensaje ya abrió una ventana (llegó justo al vencer la anterior), el resumen espera a que cierre.
+      if (!(await deps.claimNotificationOnce(windowKey, CHAT_PUSH_WINDOW_SECONDS))) {
+        await scheduleFlush(shipmentId, userId);
+        return;
+      }
+      const entries = await deps.pushBuffer.drain(shipmentId, userId);
+      const shipment = await deps.shipmentRepository.findById(shipmentId);
+      let summary: { entry: ChatPushBufferEntry; count: number } | null = null;
+      if (entries.length > 0 && shipment && chatParties(shipment).includes(userId) && accessFor(shipment, userId, []) !== "closed") {
+        const blocked = await blockedWith(userId);
+        const visible = entries.filter((e) => !blocked.has(e.authorId));
+        const unread = (await deps.chatRepository.unreadCounts(userId, [shipmentId], [...blocked])).get(shipmentId) ?? 0;
+        if (visible.length > 0 && unread > 0) summary = { entry: visible[visible.length - 1], count: Math.min(visible.length, unread) };
+      }
+      if (!summary || !shipment) {
+        // Nada que avisar: no se deja una ventana abierta que atrase el próximo mensaje.
+        await deps.releaseNotificationClaim(windowKey);
+        return;
+      }
+      await sendChatPush(shipment, userId, summary.entry, summary.count);
     } catch (err) {
-      await deps.releaseNotificationClaim(claimKey).catch(() => undefined);
-      deps.logger?.warn(
-        { err, event: "chat_push_failed", shipmentId: shipment.id, userId },
-        "No se pudo notificar el mensaje de chat"
-      );
+      deps.logger?.warn({ err, event: "chat_push_flush_failed", shipmentId, userId }, "No se pudo enviar el resumen de chat");
     }
+  }
+
+  async function dispatchPush(shipment: Shipment, userId: string, entry: ChatPushBufferEntry): Promise<void> {
+    const windowKey = pushWindowKey(shipment.id, userId);
+    if (await deps.claimNotificationOnce(windowKey, CHAT_PUSH_WINDOW_SECONDS)) {
+      try {
+        await sendChatPush(shipment, userId, entry, 1);
+      } catch (err) {
+        await deps.releaseNotificationClaim(windowKey).catch(() => undefined);
+        deps.logger?.warn(
+          { err, event: "chat_push_failed", shipmentId: shipment.id, userId },
+          "No se pudo notificar el mensaje de chat"
+        );
+      }
+      return;
+    }
+    // Dentro de la ventana: se junta y un único resumen sale cuando cierra.
+    await deps.pushBuffer.add(shipment.id, userId, entry);
+    await scheduleFlush(shipment.id, userId);
   }
 
   /** Marca lo recibido por `userId` (si es parte del envío) y se lo avisa a los demás. */
@@ -307,7 +416,9 @@ export function createChatService(deps: ChatServiceDeps) {
 
         // Best-effort: un fallo de push nunca afecta el envío del mensaje.
         const toNotify = recipients.filter((id) => !blocked.has(id) && !deps.hub.isUserConnected(shipment.id, id));
-        void Promise.all(toNotify.map((id) => dispatchPush(shipment, id, authorName ?? UNKNOWN_USER_NAME))).catch((err) =>
+        void Promise.all(toNotify.map((id) =>
+            dispatchPush(shipment, id, { authorId: input.callerId, authorName: authorName ?? UNKNOWN_USER_NAME, body: message.body })
+          )).catch((err) =>
           deps.logger?.warn({ err, event: "chat_push_dispatch_failed", shipmentId: shipment.id }, "Falló el aviso de chat")
         );
       }

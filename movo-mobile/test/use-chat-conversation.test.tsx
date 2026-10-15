@@ -20,6 +20,10 @@ jest.mock("../src/api/chat-client", () => ({
 }));
 
 let mockUuidCounter = 0;
+const mockDismissChatNotifications = jest.fn();
+jest.mock("../src/lib/dismiss-chat-notifications", () => ({
+  dismissChatNotifications: (...args: unknown[]) => mockDismissChatNotifications(...args),
+}));
 jest.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mockUuidCounter}` }));
 
 type ChannelOptions = { onMessage?: (m: ChatMessage) => void; onReceipt?: (e: unknown) => void; onConnected?: () => void };

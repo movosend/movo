@@ -1,6 +1,9 @@
 # ADR-040 — Chat propio sobre el canal WebSocket (MOVO-26)
 
 > Borrador para pegar en `[Movo] 004 - Sprint 0.md`. El 039 lo reserva MOVO-283.
+>
+> **Parcialmente reemplazado por ADR-046** (`adr-046-notificaciones-de-chat.md`): la push del chat ahora lleva el
+> texto del mensaje y las ráfagas se juntan en un resumen. El resto de este ADR sigue vigente.
 
 **Contexto.** MOVO-26 pide chat de texto en tiempo real entre emisor, receptor y transportista, disponible
 desde la asignación hasta 24 h después de la entrega, con el historial vinculado al envío y visible para el

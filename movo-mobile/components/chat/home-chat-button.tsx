@@ -1,8 +1,8 @@
-import { router } from "expo-router";
 import { MessageCircle } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { totalUnread, useChatList } from "../../src/hooks/use-chat";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { pushOnce } from "../../src/lib/navigation-guard";
 import { formatUnreadCount } from "../../src/lib/chat-format";
 
 /** MOVO-284: acceso a la lista "Chats" desde el header de Inicio, con el total de mensajes sin leer. */
@@ -14,7 +14,7 @@ export function HomeChatButton({ testID = "app-home-chats" }: { testID?: string 
   return (
     <Pressable
       testID={testID}
-      onPress={() => router.push("/(app)/chats" as never)}
+      onPress={() => pushOnce("/(app)/chats")}
       accessibilityRole="button"
       accessibilityLabel={unread > 0 ? `Chats, ${unread} sin leer` : "Chats"}
       className="h-9 w-9 items-center justify-center rounded-full bg-bg-mute"
