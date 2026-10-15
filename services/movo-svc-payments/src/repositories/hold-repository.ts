@@ -70,7 +70,10 @@ export interface HoldRepository {
    * MOVO-212: `authorized` → `captured` como UPDATE condicional. Devuelve `false` si el hold ya
    * no estaba `authorized` (el webhook de MOVO-268 lo movió en el medio): no se pisa.
    */
-  markCaptured(id: string, patch: { statusDetail: string | null }): Promise<boolean>;
+  markCaptured(
+    id: string,
+    patch: { statusDetail: string | null; cardLast4?: string; cardBrand?: string }
+  ): Promise<boolean>;
 }
 
 export function createHoldRepository(db: PrismaClient): HoldRepository {
@@ -116,7 +119,14 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
     async markCaptured(id, patch) {
       const { count } = await db.hold.updateMany({
         where: { id, status: "authorized" },
-        data: { status: "captured", statusDetail: patch.statusDetail, expiresAt: null },
+        data: {
+          status: "captured",
+          statusDetail: patch.statusDetail,
+          expiresAt: null,
+          // MOVO-302: la captura es la última lectura del pago; completa la tarjeta si faltaba.
+          ...(patch.cardLast4 ? { cardLast4: patch.cardLast4 } : {}),
+          ...(patch.cardBrand ? { cardBrand: patch.cardBrand } : {}),
+        },
       });
       return count === 1;
     },

@@ -524,6 +524,60 @@ describe("HoldService (MOVO-209)", () => {
       expect(logged).not.toContain(PAYER_USER);
     });
 
+    // Review de PR #255, punto 7: un estado que no conocemos igual trae la tarjeta en la misma respuesta.
+    it("AC4: un estado de MP desconocido en el create igual deja la tarjeta (nada lo vuelve a sincronizar)", async () => {
+      mp.createPayment.mockResolvedValueOnce(
+        payment({ status: "in_mediation", payment_method_id: "visa", card: { last_four_digits: "4242" } })
+      );
+
+      await expect(service().create(input)).rejects.toMatchObject({ statusCode: 502 });
+
+      expect(holds.rows[0].status).toBe("creating");
+      expect(row()).toMatchObject({ cardLast4: "4242", cardBrand: "visa" });
+    });
+
+    // Review de PR #255, punto 4: `?sync=true` solo releía authorized/in_process.
+    describe("?sync=true completa la tarjeta de un hold que ya salió de authorized/in_process", () => {
+      const setup = async (status: "captured" | "cancelled" | "rejected", extra: Record<string, unknown> = {}) => {
+        await service().create(input);
+        Object.assign(holds.rows[0], { status, mpPaymentId: "5550001", ...extra });
+        mp.getPayment.mockReset().mockResolvedValue(
+          payment({ status: "approved", payment_method_id: "visa", card: { last_four_digits: "4242" } })
+        );
+      };
+
+      it.each(["captured", "cancelled"] as const)("un hold %s sin tarjeta la recibe, sin cambiar el estado", async (status) => {
+        await setup(status);
+
+        const res = await service().getByShipment(SHIPMENT, { sync: true });
+
+        expect(mp.getPayment).toHaveBeenCalledTimes(1);
+        expect(res.status).toBe(status);
+        expect(row()).toMatchObject({ cardLast4: "4242", cardBrand: "visa" });
+      });
+
+      it("con la tarjeta ya guardada no vuelve a consultar a MP", async () => {
+        await setup("captured", { cardLast4: "1881", cardBrand: "master" });
+
+        await service().getByShipment(SHIPMENT, { sync: true });
+
+        expect(mp.getPayment).not.toHaveBeenCalled();
+        expect(row()).toMatchObject({ cardLast4: "1881", cardBrand: "master" });
+      });
+
+      it("un hold rechazado no aparece en el historial: no se consulta", async () => {
+        await setup("rejected");
+        await service().getByShipment(SHIPMENT, { sync: true });
+        expect(mp.getPayment).not.toHaveBeenCalled();
+      });
+
+      it("sin sync no consulta a MP aunque falte la tarjeta", async () => {
+        await setup("captured");
+        await service().getByShipment(SHIPMENT);
+        expect(mp.getPayment).not.toHaveBeenCalled();
+      });
+    });
+
     it("AC7: HoldResponse no expone el pagador ni la tarjeta", async () => {
       mp.createPayment.mockResolvedValue(payment({ payment_method_id: "visa", card: { last_four_digits: "4242" } }));
       const { hold } = await service().create(input);

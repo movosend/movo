@@ -123,6 +123,9 @@ export class SdkMercadoPagoClient implements MercadoPagoClient {
       status: p.status,
       status_detail: p.status_detail,
       payment_method_id: p.payment_method_id,
+      // El resultado de búsqueda del SDK sí trae `card` (tipado `any`): se pasa solo lo que
+      // usa un hold, los últimos 4. Sin esto un `creating` adoptado por acá quedaba sin tarjeta.
+      card: p.card ? { last_four_digits: p.card.last_four_digits } : undefined,
     }));
   }
 

@@ -358,6 +358,58 @@ describe("POST /payments/webhooks/mercadopago (MOVO-268)", () => {
     });
   });
 
+  // MOVO-302 (review de PR #255): el webhook completa la tarjeta del hold aunque el estado no cambie.
+  describe("tarjeta del pago en el webhook (MOVO-302)", () => {
+    const withCard = (overrides: Partial<PaymentResponse> = {}) =>
+      payment({ payment_method_id: "visa", card: { last_four_digits: "4242" }, ...overrides } as Partial<PaymentResponse>);
+
+    it("estado sin cambios (no_change): igual completa los últimos 4 que faltaban", async () => {
+      // Un hold adoptado solo con la marca, y después llega el webhook con la tarjeta y el mismo estado.
+      await seedHold({ status: "authorized", cardBrand: "visa", cardLast4: null });
+      mp.getPayment.mockImplementation(async () => withCard());
+
+      await notify();
+
+      const row = await hold();
+      expect(row.status).toBe("authorized");
+      expect(row.cardLast4).toBe("4242");
+      expect((await notifications())[0].outcome).toBe("no_change");
+    });
+
+    it("no pisa una tarjeta que el hold ya tenía", async () => {
+      await seedHold({ cardBrand: "master", cardLast4: "1881" });
+      mp.getPayment.mockImplementation(async () => withCard());
+
+      await notify();
+
+      expect(await hold()).toMatchObject({ cardBrand: "master", cardLast4: "1881" });
+    });
+
+    it("un reembolso por fuera de Movo también la completa (corta antes de transitionHold)", async () => {
+      await seedHold({ status: "captured", statusDetail: "accredited", expiresAt: null });
+      mp.getPayment.mockImplementation(async () => withCard({ status: "refunded", status_detail: "refunded" }));
+
+      await notify();
+
+      expect(await hold()).toMatchObject({ cardLast4: "4242", cardBrand: "visa" });
+      expect(await app.db.paymentProviderEvent.findMany()).toHaveLength(1);
+    });
+
+    it("un intento en creating rescatado por el webhook queda con la tarjeta aunque la búsqueda no la traiga", async () => {
+      await seedHold({ status: "creating", mpPaymentId: null, statusDetail: null, expiresAt: null });
+      mp.searchPaymentsByExternalReference.mockImplementation(async () => [
+        { id: Number(PAYMENT_ID), status: "authorized" },
+      ]);
+      mp.getPayment.mockImplementation(async () => withCard());
+
+      await notify();
+
+      const adopted = await hold();
+      expect(adopted.status).toBe("authorized");
+      expect(adopted).toMatchObject({ cardLast4: "4242", cardBrand: "visa" });
+    });
+  });
+
   describe("pagos que no son de Movo o no se pueden verificar", () => {
     it("un pago desconocido de un vendedor no vinculado se ignora sin consultar a MP", async () => {
       await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.carrier_mp_accounts");

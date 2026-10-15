@@ -14,6 +14,7 @@ import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-c
 import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
 import { SavedCardRepository } from "../../repositories/saved-card-repository";
 import { Hold, HoldAttemptConflictError, HoldRepository, HoldUpdate } from "../../repositories/hold-repository";
+import { cardFromPayment, missingCardFields } from "../../utils/payment-card";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -182,25 +183,6 @@ export function holdUpdateFromPayment(
     default:
       return null;
   }
-}
-
-/** Últimos 4 de una tarjeta: exactamente 4 dígitos. */
-const CARD_LAST4_PATTERN = /^\d{4}$/;
-/** `payment_method_id` de MP (`visa`, `master`, `debvisa`, ...): corto y alfanumérico. */
-const CARD_BRAND_PATTERN = /^[a-z0-9_]{1,32}$/i;
-
-/**
- * Marca y últimos 4 de la tarjeta con que se pagó, solo si MP los informa y tienen la forma
- * esperada: lo que no cumple se descarta en vez de persistirse o inventarse (nunca se deriva
- * nada del token). Lo que MP no trae no aparece en el parche, así que no pisa un dato previo.
- */
-function cardFromPayment(payment: PaymentSnapshot): Pick<HoldUpdate, "cardLast4" | "cardBrand"> {
-  const last4 = payment.card?.last_four_digits;
-  const brand = payment.payment_method_id;
-  return {
-    ...(typeof last4 === "string" && CARD_LAST4_PATTERN.test(last4) ? { cardLast4: last4 } : {}),
-    ...(typeof brand === "string" && CARD_BRAND_PATTERN.test(brand) ? { cardBrand: brand.toLowerCase() } : {}),
-  };
 }
 
 const roundArs = (value: number): number => Math.round(value * 100) / 100;
@@ -473,6 +455,8 @@ export function createHoldService(deps: HoldServiceDeps) {
       await holds.update(hold.id, {
         mpPaymentId: payment.id !== undefined ? String(payment.id) : null,
         statusDetail: payment.status_detail ?? null,
+        // Un estado que no conocemos igual trae la tarjeta, y nada lo vuelve a sincronizar después.
+        ...cardFromPayment(payment),
       });
       throw new ApiError(
         502,
@@ -634,6 +618,15 @@ export function createHoldService(deps: HoldServiceDeps) {
           const patch = mapPayment(payment, hold);
           if (patch) hold = await holds.update(hold.id, patch);
         }
+      } else if (
+        hold.mpPaymentId &&
+        hold.cardLast4 == null &&
+        (hold.status === "captured" || hold.status === "cancelled")
+      ) {
+        // MOVO-302: un hold que ya salió de authorized/in_process no vuelve a leerse nunca; si quedó
+        // sin tarjeta (adoptado por búsqueda, o un create que vino sin `card`), este es el único camino
+        // que la completa. No toca el estado: solo agrega lo que falta.
+        hold = await completeCardFromMp(hold);
       }
       return toHoldResponse(hold);
     },
@@ -729,6 +722,30 @@ export function createHoldService(deps: HoldServiceDeps) {
       return toHoldResponse(updated);
     },
   };
+
+  /**
+   * MOVO-302: completa marca y últimos 4 de un hold ya capturado o cancelado leyendo el pago a MP.
+   * Solo agrega lo que falta: no cambia el estado ni pisa una tarjeta ya guardada.
+   */
+  async function completeCardFromMp(hold: Hold): Promise<Hold> {
+    const credentials = await accounts.findCredentials(hold.carrierId);
+    if (!credentials || !hold.mpPaymentId) {
+      log.warn({ shipmentId: hold.shipmentId, holdId: hold.id }, "sin credenciales para completar la tarjeta del hold");
+      return hold;
+    }
+    let payment: PaymentSnapshot;
+    try {
+      payment = await mercadoPago.getPayment(credentials.accessToken, hold.mpPaymentId);
+    } catch (error) {
+      log.error(
+        { shipmentId: hold.shipmentId, holdId: hold.id, reason: readMpError(error).message },
+        "falló la consulta del pago a MP para completar la tarjeta"
+      );
+      throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "No se pudo consultar el estado a Mercado Pago");
+    }
+    const missing = missingCardFields(hold, payment);
+    return Object.keys(missing).length > 0 ? holds.update(hold.id, missing) : hold;
+  }
 
   /**
    * Resuelve un intento en `creating` contra MP: si el pago existe se lo adopta; si MP no

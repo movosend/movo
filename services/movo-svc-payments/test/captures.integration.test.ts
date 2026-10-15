@@ -91,6 +91,49 @@ describe("captura y liquidación (MOVO-212)", () => {
       },
     });
 
+  it("MOVO-302: la captura completa la tarjeta que el hold no tenía, sin pisar una que ya tenía", async () => {
+    // El desglose (y la tarjeta) salen de `getPayment`, la lectura posterior a la captura.
+    mp.getPayment.mockImplementation(async () =>
+      payment({ payment_method_id: "visa", card: { last_four_digits: "4242" } })
+    );
+    await seedHold();
+
+    const res = await app.inject({ method: "POST", url: CAPTURE });
+
+    expect(res.statusCode).toBe(200);
+    expect(await app.db.hold.findFirstOrThrow({ where: { shipmentId: SHIPMENT } })).toMatchObject({
+      status: "captured",
+      cardLast4: "4242",
+      cardBrand: "visa",
+    });
+
+    // Con la tarjeta ya guardada, otra respuesta con una distinta no la reescribe.
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.settlements, payments.holds CASCADE");
+    mp.getPayment.mockImplementation(async () =>
+      payment({ payment_method_id: "visa", card: { last_four_digits: "9999" } })
+    );
+    await app.db.hold.create({
+      data: {
+        shipmentId: SHIPMENT,
+        attempt: 1,
+        carrierId: CARRIER,
+        collectorId: "1000000001",
+        mpPaymentId: MP_PAYMENT,
+        amountArs: 1000,
+        applicationFeeArs: 150,
+        status: "authorized",
+        cardLast4: "1881",
+        cardBrand: "master",
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    await app.inject({ method: "POST", url: CAPTURE });
+    expect(await app.db.hold.findFirstOrThrow({ where: { shipmentId: SHIPMENT } })).toMatchObject({
+      cardLast4: "1881",
+      cardBrand: "master",
+    });
+  });
+
   it("captura el hold, persiste la liquidación con numeric y deja el hold captured", async () => {
     await seedHold();
 
