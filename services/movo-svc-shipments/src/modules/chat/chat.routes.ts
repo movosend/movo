@@ -46,6 +46,7 @@ export function buildChatService(app: FastifyInstance, opts: ChatRoutesOptions =
     releaseNotificationClaim: async (key) => {
       await app.redis.del(`notified:${key}`);
     },
+    windowRemainingMs: async (key) => Math.max(0, await app.redis.pttl(`notified:${key}`)),
     pushBuffer: createRedisChatPushBuffer(app.redis),
     schedule: opts.schedulePush,
     logger: app.log,

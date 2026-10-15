@@ -68,6 +68,8 @@ export interface ChatServiceDeps {
   claimNotificationOnce: (key: string, ttlSeconds: number) => Promise<boolean>;
   releaseNotificationClaim: (key: string) => Promise<void>;
   pushBuffer: ChatPushBuffer;
+  /** Milisegundos que le quedan a una marca de `claimNotificationOnce` (0 si ya no existe). */
+  windowRemainingMs: (key: string) => Promise<number>;
   /** Agenda el resumen de una ráfaga (`setTimeout` por defecto; los tests lo inyectan). */
   schedule?: (run: () => void, delayMs: number) => void;
   logger?: ChatLogger;
@@ -203,27 +205,60 @@ export function createChatService(deps: ChatServiceDeps) {
     });
   }
 
+  const pushWindowKey = (shipmentId: string, userId: string) => `chat-push:${shipmentId}:${userId}`;
+  const pushFlushKey = (shipmentId: string, userId: string) => `chat-push-flush:${shipmentId}:${userId}`;
+
   /**
-   * Cierre de la ventana: si en el medio llegaron más mensajes y siguen sin leer, un único resumen. Si el
-   * destinatario ya abrió la conversación no se avisa de algo que ya vio.
+   * Agenda el resumen para cuando CIERRA la ventana vigente (lo que le falta de vida, no una ventana nueva desde
+   * este mensaje): así la ventana y el resumen comparten un solo reloj y un mensaje posterior nunca sale antes que
+   * uno anterior. Una sola vez por ventana: la marca de agendado dura lo que falta más un margen.
    */
-  async function flushChatPush(shipment: Shipment, userId: string): Promise<void> {
+  async function scheduleFlush(shipmentId: string, userId: string): Promise<void> {
+    const remainingMs = Math.max(0, await deps.windowRemainingMs(pushWindowKey(shipmentId, userId)));
+    const claimed = await deps.claimNotificationOnce(pushFlushKey(shipmentId, userId), Math.ceil(remainingMs / 1000) + 5);
+    if (!claimed) return;
+    const schedule = deps.schedule ?? ((run, delayMs) => void setTimeout(run, delayMs).unref());
+    schedule(() => void flushChatPush(shipmentId, userId), remainingMs);
+  }
+
+  /**
+   * Cierre de la ventana: si en el medio llegaron más mensajes y siguen sin leer, un único resumen. Se relee el envío
+   * (el rol o el acceso pudieron cambiar en esos segundos por una reasignación o una transferencia de receptor) y se
+   * vuelven a filtrar los autores bloqueados (ADR-026): el bloqueo pudo ser posterior a que el mensaje entrara a la
+   * cola. Si el destinatario ya abrió la conversación no se avisa de algo que ya vio.
+   */
+  async function flushChatPush(shipmentId: string, userId: string): Promise<void> {
+    const windowKey = pushWindowKey(shipmentId, userId);
     try {
-      const entries = await deps.pushBuffer.drain(shipment.id, userId);
-      if (entries.length === 0) return;
-      const blocked = await blockedWith(userId);
-      const unread = (await deps.chatRepository.unreadCounts(userId, [shipment.id], [...blocked])).get(shipment.id) ?? 0;
-      if (unread === 0) return;
-      // Una nueva ventana arranca desde este resumen: lo que llegue después se sigue juntando.
-      await deps.claimNotificationOnce(`chat-push:${shipment.id}:${userId}`, CHAT_PUSH_WINDOW_SECONDS);
-      await sendChatPush(shipment, userId, entries[entries.length - 1], Math.min(entries.length, unread));
+      // Desde acá, lo que llegue agenda su propio resumen.
+      await deps.releaseNotificationClaim(pushFlushKey(shipmentId, userId));
+      // Si otro mensaje ya abrió una ventana (llegó justo al vencer la anterior), el resumen espera a que cierre.
+      if (!(await deps.claimNotificationOnce(windowKey, CHAT_PUSH_WINDOW_SECONDS))) {
+        await scheduleFlush(shipmentId, userId);
+        return;
+      }
+      const entries = await deps.pushBuffer.drain(shipmentId, userId);
+      const shipment = await deps.shipmentRepository.findById(shipmentId);
+      let summary: { entry: ChatPushBufferEntry; count: number } | null = null;
+      if (entries.length > 0 && shipment && chatParties(shipment).includes(userId) && accessFor(shipment, userId, []) !== "closed") {
+        const blocked = await blockedWith(userId);
+        const visible = entries.filter((e) => !blocked.has(e.authorId));
+        const unread = (await deps.chatRepository.unreadCounts(userId, [shipmentId], [...blocked])).get(shipmentId) ?? 0;
+        if (visible.length > 0 && unread > 0) summary = { entry: visible[visible.length - 1], count: Math.min(visible.length, unread) };
+      }
+      if (!summary || !shipment) {
+        // Nada que avisar: no se deja una ventana abierta que atrase el próximo mensaje.
+        await deps.releaseNotificationClaim(windowKey);
+        return;
+      }
+      await sendChatPush(shipment, userId, summary.entry, summary.count);
     } catch (err) {
-      deps.logger?.warn({ err, event: "chat_push_flush_failed", shipmentId: shipment.id, userId }, "No se pudo enviar el resumen de chat");
+      deps.logger?.warn({ err, event: "chat_push_flush_failed", shipmentId, userId }, "No se pudo enviar el resumen de chat");
     }
   }
 
   async function dispatchPush(shipment: Shipment, userId: string, entry: ChatPushBufferEntry): Promise<void> {
-    const windowKey = `chat-push:${shipment.id}:${userId}`;
+    const windowKey = pushWindowKey(shipment.id, userId);
     if (await deps.claimNotificationOnce(windowKey, CHAT_PUSH_WINDOW_SECONDS)) {
       try {
         await sendChatPush(shipment, userId, entry, 1);
@@ -236,12 +271,9 @@ export function createChatService(deps: ChatServiceDeps) {
       }
       return;
     }
-    // Dentro de la ventana: se junta y un único resumen sale cuando cierra (una sola vez por ventana).
+    // Dentro de la ventana: se junta y un único resumen sale cuando cierra.
     await deps.pushBuffer.add(shipment.id, userId, entry);
-    if (await deps.claimNotificationOnce(`chat-push-flush:${shipment.id}:${userId}`, CHAT_PUSH_WINDOW_SECONDS + 5)) {
-      const schedule = deps.schedule ?? ((run, delayMs) => void setTimeout(run, delayMs).unref());
-      schedule(() => void flushChatPush(shipment, userId), CHAT_PUSH_WINDOW_SECONDS * 1000);
-    }
+    await scheduleFlush(shipment.id, userId);
   }
 
   /** Marca lo recibido por `userId` (si es parte del envío) y se lo avisa a los demás. */

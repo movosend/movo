@@ -3430,18 +3430,23 @@ transferencia completada (ADR-038) y quien rechazó antes de una redesignación 
 evento `-> rejected_by_receiver`), porque un admin que fue receptor también es parte. `ChatRepository`
 gana `findReportById`. 404 `NOT_FOUND` si el envío o el reporte no existen.
 
-### MOVO-301 — Avisos de chat con el texto y ráfagas en un solo resumen
+### MOVO-301 — Avisos de chat con el texto y ráfagas en un solo resumen (ADR-046)
 
 `chat.service.ts#dispatchPush` deja de mandar una push por mensaje sin texto (el cooldown fijo de 60 s de MOVO-26): el
-primer mensaje de una conversación avisa enseguida (título `Ana · Emisor`, cuerpo el texto cortado a 140) y los que
-llegan dentro de `CHAT_PUSH_WINDOW_SECONDS` (30) se juntan en una cola de Redis (`repositories/chat-push-buffer.ts`, tope 100,
-TTL 5 min). Al cerrarse la ventana `flushChatPush` manda un único resumen (`"N mensajes nuevos · último"`) solo si el
-destinatario todavía tiene mensajes sin leer (`unreadCounts`), y abre una ventana nueva desde ahí. Las claves
-`notified:chat-push:*` (ventana) y `notified:chat-push-flush:*` (un solo resumen por ventana) usan `claimNotificationOnce`.
+primer mensaje de una conversación avisa enseguida (título `Ana · Emisor`, cuerpo el texto cortado a 140) y abre una
+ventana de `CHAT_PUSH_WINDOW_SECONDS` (30, marca `notified:chat-push:*`). Los mensajes que llegan dentro de la ventana se juntan
+en una cola de Redis (`repositories/chat-push-buffer.ts`, tope 100, TTL 5 min) y `scheduleFlush` agenda UN resumen para
+cuando **cierra esa misma ventana** (`windowRemainingMs`, `PTTL` de la marca): ventana y resumen comparten un solo reloj, así
+un mensaje posterior nunca sale antes que uno anterior. `flushChatPush` suelta primero la marca de agendado (lo que llegue
+después agenda su propio resumen), toma la ventana siguiente (si ya la tomó otro mensaje, se reagenda), relee el envío
+(rol y acceso pudieron cambiar), vuelve a filtrar los autores bloqueados (ADR-026) y manda el resumen
+(`"N mensajes nuevos · último"`) solo si el destinatario todavía tiene no leídos; si no hay nada que avisar libera la
+ventana para no atrasar el próximo mensaje.
 
-- **Cambia ADR-040**: el texto viaja en la push (se ve en la pantalla bloqueada). Hace falta un ADR nuevo que lo reemplace.
+- **Reemplaza el punto de ADR-040** "sin el texto" (ADR-046): el texto viaja en la push.
 - **El resumen vive en un `setTimeout` del proceso**: un reinicio entre el primer mensaje y el cierre de la ventana lo pierde
   (el primero ya avisó). Aceptado, mismo criterio que los barridos de una sola réplica (ADR-006).
-- `ChatServiceDeps` suma `pushBuffer` (requerido) y `schedule` (opcional; tests lo inyectan con `chatSchedulePush` en `buildApp`).
+- `ChatServiceDeps` suma `pushBuffer` y `windowRemainingMs` (requeridos) y `schedule` (opcional; los tests lo inyectan con
+  `chatSchedulePush` en `buildApp` y simulan el paso del tiempo borrando la marca de ventana).
 - El trigger `chatMessageReceived` (`@movo/shared`) ahora recibe `authorName`, `roleLabel?`, `messageBody` y `count?`.
 - Un autor que ya no es parte del envío sale sin rol en el título.
