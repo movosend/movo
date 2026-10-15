@@ -237,6 +237,13 @@ export type ApiErrorCode =
   | "CARD_CUSTOMER_CONFLICT"
   // Falta la `public_key` o las credenciales de Movo para operar con tarjetas (503).
   | "CARDS_NOT_CONFIGURED"
+  // MOVO-309 (ADR-044): cuenta corriente del usuario (`svc-payments`). La `idempotencyKey` ya
+  // existe con otro cuerpo (otro usuario, tipo, monto o referencia).
+  | "LEDGER_IDEMPOTENCY_CONFLICT"
+  // El movimiento no existe para ese usuario.
+  | "LEDGER_ENTRY_NOT_FOUND"
+  // El movimiento ya no está en el estado esperado: otro llamador lo movió primero.
+  | "LEDGER_ENTRY_STATE_CONFLICT"
   // MOVO-268: webhook de Mercado Pago (`svc-payments`). `x-signature` ausente o que no
   // coincide con la clave secreta de webhooks de la app.
   | "PAYMENT_WEBHOOK_INVALID_SIGNATURE"
