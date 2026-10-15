@@ -494,29 +494,8 @@ MOVO-283). (3) Al borrar un customer, MP tarda ~1-2 minutos en dejar de devolver
 
 ### MOVO-302 — Historial: guardar el pagador y la tarjeta en el hold (sub-issue de MOVO-28)
 
-Primer paso del historial de pagos y cobros (MOVO-28): `payments.holds` no sabía quién pagó ni con qué
-tarjeta, así que no había cómo listar "lo que pagó cada emisor". Aditivo y nullable, **sin cambio de
-contrato**: `HoldResponse` y los endpoints internos de holds no exponen ninguno de los datos nuevos (los
-usa MOVO-303). Migración `20261015120000_holds_payer_and_card`.
-
-- **`payer_id`** (UUID, referencia lógica a `users.users`, sin FK, ADR-003): el `payerUserId` de MOVO-282, que
-  `svc-shipments` manda siempre. `CreateHoldRequest.payerUserId` es requerido desde MOVO-282, así que un hold
-  nuevo siempre lo trae; `null` solo quedan los holds anteriores (sandbox), que **no aparecen en el
-  historial** y no tienen backfill. No entra al `request_fingerprint`.
-- **`card_last4` (VARCHAR 4) y `card_brand` (VARCHAR 32)** salen de la respuesta de MP (`card.last_four_digits`
-  y `payment_method_id`), nunca del token ni del medio de pago que mandó el mobile. Se escriben en
-  `holdUpdateFromPayment` (`cardFromPayment`), por donde pasa todo pago que se lee: crear, `?sync=true`,
-  adoptar un `creating` y el webhook (MOVO-268). Solo se guardan si tienen forma de 4 dígitos / `[a-z0-9_]{1,32}`
-  (marca en minúsculas); lo que no cumple se descarta. Si MP no los trae el parche **no incluye las claves**, así
-  una consulta posterior sin tarjeta no borra lo ya guardado.
-- **Gap conocido, aceptado**: la búsqueda por `external_reference` (que recupera un `creating` cuyo pago MP sí
-  creó) no devuelve la tarjeta, solo el medio de pago. Ese hold queda con marca y sin últimos 4 hasta el
-  próximo `?sync=true` o webhook, que sí la traen. MOVO-303 tiene que tratar `card` como `null` si falta
-  cualquiera de los dos.
-- **Índices** `(payer_id, created_at DESC, id DESC)` y `(carrier_id, created_at DESC, id DESC)` para los
-  listados por rol, comunes (no parciales) para que `prisma migrate diff` no tenga drift.
-- Tests: `test/hold.service.test.ts` (persistencia del emisor, tarjeta de MP, valores inválidos, `sync` que
-  completa y no borra, nada de token/pagador en el log, `HoldResponse` sin los datos) y
-  `test/holds.integration.test.ts` (Postgres real: columnas, `?sync=true`, índices por rol).
-
-Pendiente: los endpoints del historial son MOVO-303 y la pantalla MOVO-304.
+`payments.holds` suma `payer_id` (el `payerUserId` de MOVO-282; los holds anteriores quedan en null y no
+aparecen en el historial) y `card_last4`/`card_brand`, tomados de la respuesta de MP sin pisar un dato ya
+guardado: `src/utils/payment-card.ts` es la única puerta y la usan crear, `?sync=true`, adopción, webhook
+(aunque el estado no cambie) y captura. Un reintento con otro `payerUserId` sobre un hold vigente responde
+`409 HOLD_CONFLICT`. Sin cambio de contrato: `HoldResponse` no los expone, los lee MOVO-303.
