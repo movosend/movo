@@ -204,6 +204,15 @@ export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
 // trip start (MOVO-277)
 export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";
 
+// viajes recurrentes (MOVO-265, ADR-042)
+export {
+  RECURRENCE_WEEKDAY,
+  MAX_ACTIVE_RECURRING_SERIES,
+  argentinaWeekday,
+  formatArgentinaShortDay,
+  nextRecurrenceOccurrence,
+} from "./config/trip-recurrence";
+
 // chat (MOVO-26)
 export {
   CHAT_MESSAGE_MAX_LENGTH,

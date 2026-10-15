@@ -170,6 +170,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
       : {}),
   });
   app.register(tripExpirySweepPlugin, {
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.tripExpirySweepEnabled !== undefined ? { enabled: opts.tripExpirySweepEnabled } : {}),
   });
   app.register(pickupMissedSweepPlugin, {

@@ -60,6 +60,8 @@ describe("GET /internal/users/:id/kyc-status (MOVO-116)", () => {
     expect(JSON.parse(response.body)).toEqual({
       kycStatusIdentity: KycStatus.APPROVED,
       kycStatusLicense: KycStatus.PENDING,
+      accountStatus: AccountStatus.ACTIVE,
+      bannedUntil: null,
     });
   });
 
@@ -72,7 +74,27 @@ describe("GET /internal/users/:id/kyc-status (MOVO-116)", () => {
     expect(JSON.parse(response.body)).toEqual({
       kycStatusIdentity: KycStatus.NOT_STARTED,
       kycStatusLicense: KycStatus.NOT_STARTED,
+      accountStatus: AccountStatus.ACTIVE,
+      bannedUntil: null,
     });
+  });
+
+  it("MOVO-265: expone el estado de la cuenta y la suspensión temporal", async () => {
+    const banned = await repo.create(buildInput());
+    await app.db.user.update({ where: { id: banned.id }, data: { status: AccountStatus.BANNED } });
+    const suspended = await repo.create(buildInput());
+    const bannedUntil = new Date("2030-01-01T12:00:00.000Z");
+    await app.db.user.update({ where: { id: suspended.id }, data: { bannedUntil } });
+
+    const bannedBody = JSON.parse(
+      (await app.inject({ method: "GET", url: `/internal/users/${banned.id}/kyc-status` })).body,
+    );
+    const suspendedBody = JSON.parse(
+      (await app.inject({ method: "GET", url: `/internal/users/${suspended.id}/kyc-status` })).body,
+    );
+
+    expect(bannedBody).toMatchObject({ accountStatus: AccountStatus.BANNED, bannedUntil: null });
+    expect(suspendedBody).toMatchObject({ accountStatus: AccountStatus.ACTIVE, bannedUntil: bannedUntil.toISOString() });
   });
 
   it("404 USER_NOT_FOUND para un usuario inexistente", async () => {
