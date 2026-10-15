@@ -396,6 +396,15 @@ describe("TripDetailScreen (MOVO-263)", () => {
       expect(queryByTestId("trip-detail-menu-action-stop-recurrence")).toBeNull();
     });
 
+    it("un viaje cancelado ('Solo este viaje') que sigue siendo cabeza de la serie ofrece 'Dejar de repetir'", async () => {
+      mockUseTrip.mockReturnValue(loaded({ ...RECURRING, status: TripStatus.CANCELLED }));
+      const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
+
+      expect(getByTestId("trip-detail-menu-action-stop-recurrence")).toBeTruthy();
+      expect(queryByTestId("trip-detail-menu-action-edit-trip")).toBeNull();
+      expect(queryByTestId("trip-detail-menu-action-cancel-trip")).toBeNull();
+    });
+
     it("'Dejar de repetir' confirma y manda recurrenceWeekdays: null, aunque tenga paquetes", async () => {
       const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
       mockUpdateMutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());

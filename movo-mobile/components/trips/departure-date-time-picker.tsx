@@ -35,7 +35,8 @@ interface DepartureDateTimePickerProps {
   fields?: "both" | "date" | "time";
   /** Fecha mínima elegible (default: ahora). "Hasta" la fija al día siguiente de "Desde". */
   minimumDate?: Date;
-  /** Edición con paquetes aceptados: la hora queda fija (MOVO-266, AC2). */
+  /** Solo lectura: la recurrencia de un viaje que no es la cabeza de su serie
+   * (`recurrenceReadOnlyReason`). */
   disabled?: boolean;
   testID?: string;
 }

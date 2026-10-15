@@ -13,8 +13,10 @@ import { tierFromLabel } from "../../src/data/vehicle-catalog";
 import { useMyVehicle } from "../../src/hooks/use-vehicle";
 import type { AddressSelection } from "../../src/types/address-selection";
 import {
+  DEFAULT_UNTIL_OFFSET_MS,
   fromUntilDateString,
   isUntilAfterDeparture,
+  reconcileUntil,
   sortWeekdays,
   toUntilDateString,
   withFixedDay,
@@ -36,7 +38,6 @@ function defaultDepartureAt(): Date {
 }
 
 /** Default de "Hasta una fecha": cuatro semanas después de la primera salida. */
-const DEFAULT_UNTIL_OFFSET_MS = 28 * 24 * 60 * 60 * 1000;
 
 function sameWeekdays(a: readonly number[] | null, b: readonly number[] | null): boolean {
   if (a === null || b === null) return a === b;
@@ -126,6 +127,7 @@ export function TripForm(props: TripFormProps) {
   // el patrón de los próximos, no hay edición "solo de esta ocurrencia".
   const handleDepartureChange = (next: Date) => {
     setWeekdays((current) => withFixedDay(current, argentinaWeekday(departureAt), argentinaWeekday(next)));
+    setUntil((current) => reconcileUntil(current, next));
     setDepartureAt(next);
   };
 
@@ -195,7 +197,10 @@ export function TripForm(props: TripFormProps) {
         weekdays={weekdays}
         onWeekdaysChange={setWeekdays}
         untilMode={untilMode}
-        onUntilModeChange={setUntilMode}
+        onUntilModeChange={(mode) => {
+          if (mode === "date") setUntil((current) => reconcileUntil(current, departureAt));
+          setUntilMode(mode);
+        }}
         until={until}
         onUntilChange={setUntil}
         untilInvalid={untilInvalid}

@@ -243,7 +243,10 @@ export default function TripDetailScreen() {
   const canEditOrCancel = isDeclared && !hasPackages;
   const isRecurring = trip.recurrenceWeekdays !== null;
   const isOngoing = isDeclared || trip.status === TripStatus.ACTIVE;
-  const canStopRecurrence = isRecurring && trip.isSeriesHead && isOngoing;
+  // Un `cancelled` ("Solo este viaje") sigue siendo la cabeza con la recurrencia prendida: la serie
+  // sigue viva en el backend y ocupa un lugar del tope de 3, así que tiene que poder cortarse.
+  const canStopRecurrence =
+    isRecurring && trip.isSeriesHead && (isOngoing || trip.status === TripStatus.CANCELLED);
   const menuActions = [
     ...(canEditOrCancel
       ? [

@@ -6,6 +6,7 @@ import {
   minimumUntilDate,
   newTripsBannerMessage,
   recurrencePreview,
+  reconcileUntil,
   toUntilDateString,
   withFixedDay,
 } from "../src/lib/trip-recurrence";
@@ -72,6 +73,19 @@ describe("trip-recurrence (MOVO-266)", () => {
     it("el mínimo de \"Hasta\" es el día siguiente a la salida en Argentina", () => {
       const min = minimumUntilDate(MONDAY_NIGHT_AR);
       expect(toUntilDateString(min)).toBe("2026-10-06");
+    });
+  });
+
+  describe("reconcileUntil (review de PR #251)", () => {
+    it("conserva el 'Hasta' si sigue siendo posterior a la salida", () => {
+      const until = new Date(2026, 10, 20, 12);
+      expect(reconcileUntil(until, FRIDAY_8AM)).toBe(until);
+    });
+
+    it("si se movió la salida más allá del 'Hasta', lo reasigna a 4 semanas de la nueva salida", () => {
+      const until = new Date(2026, 10, 2, 12);
+      const movedDeparture = new Date("2026-12-11T11:00:00.000Z");
+      expect(toUntilDateString(reconcileUntil(until, movedDeparture))).toBe("2027-01-08");
     });
   });
 

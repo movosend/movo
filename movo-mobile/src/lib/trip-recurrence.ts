@@ -136,6 +136,19 @@ export function minimumUntilDate(departureAt: Date): Date {
   return new Date(year, month - 1, day + 1, 12, 0, 0, 0);
 }
 
+/** "Hasta" por defecto al elegir una fecha de fin: 4 semanas después de la salida. */
+export const DEFAULT_UNTIL_OFFSET_MS = 28 * 24 * 60 * 60 * 1000;
+
+/**
+ * Mantiene "Hasta" posterior a la salida: si el usuario movió la salida más allá de la fecha
+ * precargada, esa fecha queda inválida y el botón deshabilitado hasta elegir otra a mano.
+ * Devuelve `until` si todavía sirve, o el default a 4 semanas de la nueva salida.
+ */
+export function reconcileUntil(until: Date, departureAt: Date): Date {
+  if (until.getTime() >= minimumUntilDate(departureAt).getTime()) return until;
+  return new Date(departureAt.getTime() + DEFAULT_UNTIL_OFFSET_MS);
+}
+
 /**
  * Texto del banner de viajes nuevos (MOVO-236). MOVO-266: distingue las ocurrencias que
  * declaró el barrido de una serie recurrente (`generatedFromTripId`) de los viajes que se
