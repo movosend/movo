@@ -72,6 +72,7 @@ describe("Sesión de panel (MOVO-287)", () => {
       "otp:*",
       "refresh:*",
       "panel-refresh:*",
+      "panel-rotation:*",
       "panel-revoked-at:*",
       "user-revoked-at:*",
       "admin-login-attempts:*",
@@ -323,6 +324,95 @@ describe("Sesión de panel (MOVO-287)", () => {
       });
       expect(panelOnApp.statusCode).toBe(401);
       expect((await adminRefresh(appRefreshToken)).statusCode).toBe(401);
+    });
+  });
+
+  describe("refresh idempotente (MOVO-291)", () => {
+    function duplicate(token: string, key = "duplicate-request-123456") {
+      return app.inject({ method: "POST", url: "/auth/admin/refresh", headers: { "idempotency-key": key }, payload: { refreshToken: token } });
+    }
+    it("solicitudes concurrentes comparten una sola rotación cifrada", async () => {
+      const user = await createUser();
+      const session = await openPanelSession(user);
+      const results = await Promise.all(Array.from({ length: 8 }, () => duplicate(session.refreshToken)));
+      expect(results.map(r => r.statusCode)).toEqual(Array(8).fill(200));
+      expect(new Set(results.map(r => r.body)).size).toBe(1);
+      expect(await app.redis.keys(`panel-refresh:${user.id}:*`)).toHaveLength(2);
+      const { createHash } = await import("node:crypto");
+      const cached = await app.redis.get(`panel-rotation:${createHash("sha256").update(session.refreshToken).digest("hex")}`);
+      expect(cached).not.toContain(JSON.parse(results[0].body).accessToken);
+      expect(cached).not.toContain(JSON.parse(results[0].body).refreshToken);
+    });
+    it("otra clave conserva detección de reuso e invalida la caché", async () => {
+      const session = await openPanelSession(await createUser());
+      expect((await duplicate(session.refreshToken)).statusCode).toBe(200);
+      expect((await duplicate(session.refreshToken, "different-request-123456")).statusCode).toBe(401);
+      expect((await duplicate(session.refreshToken)).statusCode).toBe(401);
+    });
+    for (const logoutOld of [false, true]) {
+      it(`logout del token ${logoutOld ? "anterior" : "nuevo"} impide reutilizar el resultado`, async () => {
+        const user = await createUser();
+        const session = await openPanelSession(user);
+        const rotated = JSON.parse((await duplicate(session.refreshToken)).body) as PanelSessionBody;
+        await app.inject({ method: "POST", url: "/auth/admin/logout", headers: { "x-user-id": user.id }, payload: { refreshToken: logoutOld ? session.refreshToken : rotated.refreshToken } });
+        expect((await duplicate(session.refreshToken)).statusCode).toBe(401);
+        expect((await adminRefresh(rotated.refreshToken)).statusCode).toBe(401);
+      });
+    }
+    it("revocación impide devolver el resultado compartido", async () => {
+      const user = await createUser();
+      const session = await openPanelSession(user);
+      expect((await duplicate(session.refreshToken)).statusCode).toBe(200);
+      await createSessionRepository(app.redis).revokePanelSessionsForUser(user.id);
+      expect((await duplicate(session.refreshToken)).statusCode).toBe(401);
+    });
+    it("revocación durante la emisión impide publicar la respuesta", async () => {
+      const user = await createUser();
+      const session = await openPanelSession(user);
+      const sessions = createSessionRepository(app.redis);
+      const save = sessions.savePanelRefreshToken.bind(sessions);
+      vi.spyOn(sessions, "savePanelRefreshToken").mockImplementation(async (...args) => {
+        const result = await save(...args);
+        await sessions.revokePanelSessionsForUser(user.id);
+        return result;
+      });
+      const service = createAdminSessionService(app.db, app.redis, { generateOtp: vi.fn(), verifyOtp: vi.fn() }, sessions);
+      await expect(service.refresh(session.refreshToken, "concurrent-revocation-1234")).rejects.toMatchObject({ statusCode: 401 });
+      expect(await app.redis.keys(`panel-refresh:${user.id}:*`)).toHaveLength(0);
+    });
+    it("logout durante la emisión impide publicar y revoca el hijo sin cortar otras sesiones", async () => {
+      const user = await createUser();
+      const session = await openPanelSession(user);
+      emailCaptor.sentCodes.clear();
+      const other = await openPanelSession(user);
+      const sessions = createSessionRepository(app.redis);
+      const save = sessions.savePanelRefreshToken.bind(sessions);
+      const service = createAdminSessionService(app.db, app.redis, { generateOtp: vi.fn(), verifyOtp: vi.fn() }, sessions);
+      vi.spyOn(sessions, "savePanelRefreshToken").mockImplementation(async (...args) => {
+        const result = await save(...args);
+        await service.logout(session.refreshToken, user.id);
+        return result;
+      });
+      await expect(service.refresh(session.refreshToken, "logout-during-refresh-1234")).rejects.toMatchObject({ statusCode: 401 });
+      expect(await app.redis.keys(`panel-refresh:${user.id}:*`)).toHaveLength(1);
+      expect((await adminRefresh(other.refreshToken)).statusCode).toBe(200);
+    });
+    it("una rotación incompleta falla cerrado sin consumir dos veces", async () => {
+      const session = await openPanelSession(await createUser());
+      const sessions = createSessionRepository(app.redis);
+      const consume = vi.spyOn(sessions, "consumePanelRefreshToken");
+      vi.spyOn(sessions, "savePanelRefreshToken").mockRejectedValue(new Error("storage failed"));
+      const service = createAdminSessionService(app.db, app.redis, { generateOtp: vi.fn(), verifyOtp: vi.fn() }, sessions);
+      await expect(service.refresh(session.refreshToken, "incomplete-rotation-1234")).rejects.toThrow("storage failed");
+      await expect(service.refresh(session.refreshToken, "incomplete-rotation-1234")).rejects.toMatchObject({ statusCode: 503 });
+      expect(consume).toHaveBeenCalledTimes(1);
+    });
+    it("fuera de la ventana la repetición es reuso", async () => {
+      const session = await openPanelSession(await createUser());
+      expect((await duplicate(session.refreshToken)).statusCode).toBe(200);
+      const { createHash } = await import("node:crypto");
+      await app.redis.del(`panel-rotation:${createHash("sha256").update(session.refreshToken).digest("hex")}`);
+      expect((await duplicate(session.refreshToken)).statusCode).toBe(401);
     });
   });
 
