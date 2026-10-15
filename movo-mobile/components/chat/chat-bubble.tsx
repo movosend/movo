@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import Animated, {
-  LinearTransition,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -67,52 +66,81 @@ function Ticks({ double }: { double: boolean }) {
 }
 
 /**
+ * Envoltorio de una burbuja que llegó EN VIVO (MOVO-301): fade + deslizamiento desde abajo y, si es propia, un resorte
+ * que la hace crecer desde su esquina; mientras se envía va atenuada y al confirmarse se "asienta". Solo las burbujas
+ * que se animan lo montan: las del historial son `View`s simples sin valores compartidos ni mappers (con 30-60 mensajes
+ * serían cientos de mappers al abrir y por cada página vieja).
+ *
+ * Los valores compartidos ARRANCAN en el estado inicial y se animan desde un efecto, en vez de usar `entering`: con
+ * `entering` la burbuja se dibuja un cuadro en su estado final (blanca en modo oscuro) antes de que se aplique el
+ * inicial, y se veía como un parpadeo.
+ */
+function LiveBubbleEnter({ mine, sending, children }: { mine: boolean; sending: boolean; children: ReactNode }) {
+  const enter = useSharedValue(0);
+  const opacity = useSharedValue(sending ? SENDING_OPACITY : 1);
+  useEffect(() => {
+    enter.value = mine ? withSpring(1, SPRING) : withTiming(1, { duration: CHAT_ENTER_MS });
+    // Solo al montar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    opacity.value = withTiming(sending ? SENDING_OPACITY : 1, { duration: 180 });
+    // `opacity` es un shared value (referencia estable en runtime real).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sending]);
+  const style = useAnimatedStyle(() => ({
+    opacity: Math.min(1, enter.value * 1.4) * opacity.value,
+    transform: [{ translateY: (1 - enter.value) * 14 }, { scale: mine ? 0.82 + 0.18 * enter.value : 1 }],
+  }));
+  return (
+    <Animated.View style={[{ transformOrigin: mine ? "right bottom" : "left bottom" }, style]}>{children}</Animated.View>
+  );
+}
+
+/**
  * MOVO-284: una burbuja de la conversación, calcada del prototipo. Propia: fondo `fg` y texto `bg`
  * (negra en claro, blanca en oscuro). Ajena: `bg-mute`. Radios 20/20/6; el tilde se toca para ver
  * "Enviado / Entregado / Leído por todos".
  */
-export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, groupStart, avatar, onPressAvatar, onRetry, onDiscard, animateIn, testID }: ChatBubbleProps) {
+export function ChatBubble(props: ChatBubbleProps) {
   const reduceMotion = useReducedMotion();
-  const [statusOpen, setStatusOpen] = useState(false);
-  const animate = !!animateIn && !reduceMotion;
+  // Se decide al montar: si la burbuja entró en vivo queda con el envoltorio animado (para asentarse al confirmarse).
+  const [animated] = useState(!!props.animateIn && !reduceMotion);
+  const sending = props.message.localState === "sending";
+  const row = <BubbleRow {...props} sending={sending} dimWhileSending={!animated} />;
+  return animated ? (
+    <LiveBubbleEnter mine={props.mine} sending={sending}>
+      {row}
+    </LiveBubbleEnter>
+  ) : (
+    row
+  );
+}
 
-  // La entrada se maneja con un valor compartido que ARRANCA en el estado inicial, no con `entering`: con
-  // `entering` la burbuja se dibuja un cuadro en su estado final (blanca en modo oscuro) antes de que se aplique
-  // el inicial, y se veía como un parpadeo.
-  const enter = useSharedValue(animate ? 0 : 1);
-  useEffect(() => {
-    if (!animate) return;
-    enter.value = mine ? withSpring(1, SPRING) : withTiming(1, { duration: CHAT_ENTER_MS });
-    // Solo al montar: `animate` no cambia después de que la burbuja ya está en pantalla.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const rowEnterStyle = useAnimatedStyle(() => ({
-    opacity: Math.min(1, enter.value * 1.4),
-    transform: [{ translateY: (1 - enter.value) * 14 }],
-  }));
-  const bubbleEnterStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: mine ? 0.82 + 0.18 * enter.value : 1 }],
-  }));
+function BubbleRow({
+  message,
+  mine,
+  authorLabel,
+  showName,
+  showAvatar,
+  groupStart,
+  avatar,
+  onPressAvatar,
+  onRetry,
+  onDiscard,
+  testID,
+  sending,
+  dimWhileSending,
+}: ChatBubbleProps & { sending: boolean; dimWhileSending: boolean }) {
+  const [statusOpen, setStatusOpen] = useState(false);
   const failed = message.localState === "failed";
-  const sending = message.localState === "sending";
   const status = message.deliveryStatus ?? (mine && !sending && !failed ? "sent" : null);
 
-  // Al confirmarse el envío la burbuja se "asienta" (de atenuada a opaca) en vez de saltar.
-  const bubbleOpacity = useSharedValue(sending ? SENDING_OPACITY : 1);
-  useEffect(() => {
-    bubbleOpacity.value = reduceMotion ? (sending ? SENDING_OPACITY : 1) : withTiming(sending ? SENDING_OPACITY : 1, { duration: 180 });
-    // `bubbleOpacity` es un shared value (referencia estable en runtime real).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sending, reduceMotion]);
-  const bubbleOpacityStyle = useAnimatedStyle(() => ({ opacity: bubbleOpacity.value }));
-
   return (
-    <Animated.View
+    <View
       testID={testID}
-      // Los de abajo suben con suavidad cuando entra uno nuevo (la lista va invertida).
-      layout={reduceMotion ? undefined : LinearTransition.duration(200)}
       className={`flex-row items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}
-      style={[{ marginTop: groupStart ? 14 : 4 }, rowEnterStyle]}
+      style={{ marginTop: groupStart ? 14 : 4 }}
     >
       {!mine ? (
         <Pressable
@@ -132,28 +160,25 @@ export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, g
           <Text className="px-1 pt-1 font-sans-semibold text-caption uppercase text-fg-3">{authorLabel}</Text>
         ) : null}
 
-        <Animated.View
+        <View
           testID={`${testID}-bubble`}
           className={mine ? "bg-fg" : "bg-bg-mute"}
-          style={[
-            {
-              borderRadius: 20,
-              borderBottomRightRadius: mine ? 6 : 20,
-              borderBottomLeftRadius: mine ? 20 : 6,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              transformOrigin: mine ? "right bottom" : "left bottom",
-            },
-            bubbleOpacityStyle,
-            bubbleEnterStyle,
-          ]}
+          style={{
+            borderRadius: 20,
+            borderBottomRightRadius: mine ? 6 : 20,
+            borderBottomLeftRadius: mine ? 20 : 6,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            // Con el envoltorio animado la atenuación la maneja él (y se asienta al confirmarse).
+            opacity: dimWhileSending && sending ? SENDING_OPACITY : 1,
+          }}
         >
           {message.hidden ? (
             <Text className="font-sans text-body italic text-fg-3">Mensaje de un usuario bloqueado</Text>
           ) : (
             <Text className={`font-sans text-body ${mine ? "text-bg" : "text-fg"}`}>{message.body}</Text>
           )}
-        </Animated.View>
+        </View>
 
         {failed ? (
           <View className="flex-row items-center gap-2 px-1">
@@ -189,6 +214,6 @@ export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, g
           </View>
         )}
       </View>
-    </Animated.View>
+    </View>
   );
 }

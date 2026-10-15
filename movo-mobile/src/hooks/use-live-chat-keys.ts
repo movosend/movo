@@ -1,50 +1,47 @@
-import { useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { ChatTimelineItem } from "../lib/chat-format";
 
-/** Cuánto vive una key como "en vivo": pasado esto, volver a montar la burbuja ya no la anima. */
-const LIVE_KEY_TTL_MS = 800;
-
-interface LiveState {
-  timeline: readonly ChatTimelineItem[] | null;
-  keys: string[];
-  baselineDone: boolean;
-  live: Set<string>;
-  arrivals: ChatTimelineItem[];
-}
+/**
+ * Hasta cuántos mensajes nuevos al frente se consideran "en vivo" y se animan. Más que eso es una carga en bloque (el
+ * refetch al volver de segundo plano trae decenas de golpe): se muestran sin animar, como el historial.
+ */
+export const MAX_ANIMATED_ARRIVALS = 3;
 
 /**
- * MOVO-301: distingue lo que llega EN VIVO de lo que ya estaba (historial al abrir, páginas más
- * viejas). La lista va del más nuevo al más viejo, así que un mensaje es en vivo si es nuevo y
- * queda antes del que era el más nuevo; lo que se agrega al final es paginación.
+ * MOVO-301: distingue lo que llega EN VIVO de lo que ya estaba (historial al abrir, páginas más viejas). La lista va del
+ * más nuevo al más viejo, así que un mensaje es nuevo si no estaba antes y queda delante del que era el más nuevo; lo que
+ * se agrega al final es paginación.
  *
- * Se calcula durante el render porque `entering` solo corre al montar la burbuja: un efecto
- * llegaría tarde. Es idempotente por identidad del `timeline`, así que re-renders y el doble
- * render de StrictMode no lo duplican. `liveKeys` es mutable a propósito (sin re-render): cada
- * key se retira sola pasado `LIVE_KEY_TTL_MS`, y una burbuja que se vuelve a montar al volver a
- * entrar en pantalla (virtualización) no repite la animación.
+ * Es una función pura de `(timeline, lo ya confirmado)`: las keys vistas se guardan en un `useEffect` (al confirmarse el
+ * render), no durante el render, así un render descartado o doble no pierde ni duplica llegadas. Una burbuja decide si se
+ * anima al MONTARSE; después, como la key ya es "vista", ninguna re-renderización ni volver a montarla por virtualización
+ * la anima de nuevo, sin necesidad de temporizadores.
+ *
+ * - `arrivals`: todos los mensajes nuevos al frente (para el contador de "nuevos" y el scroll al enviar).
+ * - `liveKeys`: de esos, los que se animan; vacío si es una carga en bloque (> `MAX_ANIMATED_ARRIVALS`).
  */
 export function useLiveChatKeys(timeline: readonly ChatTimelineItem[], ready: boolean) {
-  const ref = useRef<LiveState>({ timeline: null, keys: [], baselineDone: false, live: new Set(), arrivals: [] });
-  const state = ref.current;
-  if (state.timeline !== timeline) {
-    const keys = timeline.map((item) => item.key);
+  const seenKeysRef = useRef<ReadonlySet<string>>(new Set());
+  const seenHeadRef = useRef<string | undefined>(undefined);
+  const baselineDoneRef = useRef(false);
+
+  const result = useMemo(() => {
     let arrivals: ChatTimelineItem[] = [];
-    if (state.baselineDone && keys.length > 0) {
-      const known = new Set(state.keys);
-      const oldHead = state.keys[0];
-      const headIndex = oldHead === undefined ? keys.length : keys.indexOf(oldHead);
+    if (baselineDoneRef.current && timeline.length > 0) {
+      const headIndex = seenHeadRef.current === undefined ? timeline.length : timeline.findIndex((i) => i.key === seenHeadRef.current);
       if (headIndex > 0) {
-        arrivals = timeline.slice(0, headIndex).filter((item) => item.kind === "message" && !known.has(item.key));
+        arrivals = timeline.slice(0, headIndex).filter((i) => i.kind === "message" && !seenKeysRef.current.has(i.key));
       }
     }
-    for (const item of arrivals) {
-      state.live.add(item.key);
-      setTimeout(() => state.live.delete(item.key), LIVE_KEY_TTL_MS);
-    }
-    state.timeline = timeline;
-    state.keys = keys;
-    state.arrivals = arrivals;
-    if (ready && !state.baselineDone) state.baselineDone = true;
-  }
-  return { liveKeys: state.live as ReadonlySet<string>, arrivals: state.arrivals };
+    const animated = arrivals.length <= MAX_ANIMATED_ARRIVALS ? arrivals : [];
+    return { arrivals, liveKeys: new Set(animated.map((i) => i.key)) as ReadonlySet<string> };
+  }, [timeline]);
+
+  useEffect(() => {
+    seenKeysRef.current = new Set(timeline.map((i) => i.key));
+    seenHeadRef.current = timeline[0]?.key;
+    if (ready) baselineDoneRef.current = true;
+  }, [timeline, ready]);
+
+  return result;
 }

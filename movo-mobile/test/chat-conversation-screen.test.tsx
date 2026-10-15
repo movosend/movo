@@ -328,11 +328,28 @@ describe("ShipmentChatScreen (MOVO-284)", () => {
       await fireEvent.scroll(getByTestId("chat-list"), scrollTo(1500));
 
       const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset").mockImplementation(() => {});
-      const mine = message({ authorId: "ana", clientMessageId: "c-m" });
+      // Un mensaje que acaba de enviar este teléfono todavía es local ("enviando").
+      const mine = message({ authorId: "ana", clientMessageId: "c-m", localState: "sending" });
       mockChat.mockReturnValue(state({ timeline: [item(mine, true), item(first, false)] }));
       await rerender(<ShipmentChatScreen />);
 
       expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+      scrollToOffset.mockRestore();
+    });
+
+    it("un mensaje propio que llega por otro dispositivo no baja solo: cuenta como nuevo", async () => {
+      const first = message({ authorId: "diego", clientMessageId: "c-1" });
+      mockChat.mockReturnValue(state({ timeline: [item(first, false)] }));
+      const { getByTestId, rerender } = await render(<ShipmentChatScreen />);
+      await fireEvent.scroll(getByTestId("chat-list"), scrollTo(1500));
+
+      const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset").mockImplementation(() => {});
+      const fromOtherDevice = message({ authorId: "ana", clientMessageId: "c-od" });
+      mockChat.mockReturnValue(state({ timeline: [item(fromOtherDevice, true), item(first, false)] }));
+      await rerender(<ShipmentChatScreen />);
+
+      expect(scrollToOffset).not.toHaveBeenCalled();
+      expect(getByTestId("chat-scroll-bottom-badge")).toHaveTextContent("1");
       scrollToOffset.mockRestore();
     });
 

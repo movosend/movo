@@ -15,17 +15,24 @@ export const chatKeys = {
 
 const PAGE_SIZE = 30;
 
-/** Cada cuánto se vuelve a pedir la lista de chats. Sin WebSocket global ni push en foreground (un build local sin push, por
- * ejemplo), es lo único que actualiza el contador de no leídos de Inicio, así que va corto (MOVO-301). */
-const CHAT_LIST_POLL_MS = 15_000;
+/**
+ * Cada cuánto se vuelve a pedir la lista de chats. Es un endpoint lento (resuelve a los integrantes contra
+ * `svc-users`), así que en uso normal va a 60 s: el contador de Inicio lo mantienen al día la push en foreground
+ * (`useChatUnreadSync`) y el refresco al volver a primer plano. En desarrollo va a 15 s porque un build local sin push
+ * (`ENABLE_PUSH_NOTIFICATIONS=false`) no recibe nada de eso (MOVO-301).
+ */
+const CHAT_LIST_POLL_MS = __DEV__ ? 15_000 : 60_000;
 
-/** Lista "Chats": uno por envío con transportista. `refetchInterval` cubre cuando no hay WebSocket abierto. */
-export function useChatList() {
+/**
+ * Lista "Chats": uno por envío con transportista. `refetchInterval` cubre cuando no hay WebSocket abierto.
+ * `enabled: false` es para quien solo la usa si hay chat (la card del detalle del envío) y no quiere sumar un observer.
+ */
+export function useChatList({ enabled = true }: { enabled?: boolean } = {}) {
   const isAuthenticated = useAuthStore((state) => state.status === "authenticated");
   return useQuery({
     queryKey: chatKeys.list,
     queryFn: () => chatClient.listChats(),
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && enabled,
     select: (data) => data.items,
     refetchInterval: CHAT_LIST_POLL_MS,
   });

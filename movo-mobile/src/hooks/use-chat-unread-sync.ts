@@ -6,7 +6,7 @@ import { useAuthStore } from "../store/auth-store";
 import { bumpChatUnread, chatKeys } from "./use-chat";
 
 /**
- * MOVO-301: mantiene al día el contador de no leídos de Inicio sin esperar los 60 s del polling.
+ * MOVO-301: mantiene al día el contador de no leídos de Inicio sin esperar al polling de la lista de chats (60 s).
  * No hay WebSocket global, así que se refresca cuando llega una push `chat_message` con la app
  * abierta (el banner ya se muestra, ver `setNotificationHandler`) y cuando la app vuelve a
  * primer plano. Va montado una vez dentro de `QueryClientProvider`.

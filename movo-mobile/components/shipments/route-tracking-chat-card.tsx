@@ -44,9 +44,11 @@ export function RouteTrackingChatCard({
   chatTestID = "route-chat",
 }: RouteTrackingChatCardProps) {
   const colors = useThemeColors();
-  const { data: chats } = useChatList();
+  const { data: chats } = useChatList({ enabled: chat !== null });
   const unread = chat ? (chats ?? []).find((item) => item.shipmentId === shipmentId)?.unreadCount ?? 0 : 0;
   const showFooter = tracking !== null || chat !== null;
+  // En solo lectura se dice por qué (entregado, transferiste la recepción) y que se archiva, a la vista y no solo para lectores de pantalla.
+  const readOnlyCopy = chat === "read_only" ? chatReadOnlyCopy({ archived: false, status, isFormerReceiver }) : null;
 
   const trackingBody = (live: boolean) => (
     <View className="flex-1 pr-3">
@@ -105,7 +107,6 @@ export function RouteTrackingChatCard({
                     : "Abrir el chat del envío"
                   : "Ver la conversación del envío"
               }
-              accessibilityHint={chat === "read_only" ? chatReadOnlyCopy({ archived: false, status, isFormerReceiver }) : undefined}
               className={`h-11 flex-row items-center gap-2 rounded-[10px] px-4 active:opacity-80 ${
                 chat === "open" ? "bg-fg" : "border border-border-strong bg-bg"
               }`}
@@ -121,6 +122,11 @@ export function RouteTrackingChatCard({
             </Pressable>
           ) : null}
         </View>
+      ) : null}
+      {readOnlyCopy ? (
+        <Text testID={`${chatTestID}-readonly-copy`} className="border-t border-border bg-bg px-4 py-2.5 font-sans text-small text-fg-3">
+          {readOnlyCopy}
+        </Text>
       ) : null}
     </View>
   );

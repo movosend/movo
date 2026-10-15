@@ -33,8 +33,6 @@ function Probe({ timeline, ready = true }: { timeline: ChatTimelineItem[]; ready
 }
 
 describe("useLiveChatKeys (MOVO-301)", () => {
-  afterEach(() => jest.useRealTimers());
-
   it("el historial que ya estaba al abrir no es en vivo", async () => {
     await render(<Probe timeline={[msg("m3"), msg("m2"), msg("m1")]} />);
     expect(latest.liveKeys.size).toBe(0);
@@ -63,13 +61,31 @@ describe("useLiveChatKeys (MOVO-301)", () => {
     expect(latest.arrivals).toEqual([]);
   });
 
-  it("la key en vivo se retira sola: volver a montar la burbuja ya no la anima", async () => {
-    jest.useFakeTimers();
+  it("una carga en bloque (el refetch al volver de segundo plano) cuenta como llegada pero no se anima", async () => {
     const { rerender } = await render(<Probe timeline={[msg("m1")]} />);
-    await rerender(<Probe timeline={[msg("m2"), msg("m1")]} />);
-    expect(latest.liveKeys.has("m2")).toBe(true);
-    jest.advanceTimersByTime(1000);
-    expect(latest.liveKeys.has("m2")).toBe(false);
+    const batch = Array.from({ length: 12 }, (_, i) => msg(`n${12 - i}`));
+    await rerender(<Probe timeline={[...batch, msg("m1")]} />);
+
+    expect(latest.arrivals).toHaveLength(12);
+    expect(latest.liveKeys.size).toBe(0);
+  });
+
+  it("pocos mensajes nuevos juntos sí se animan", async () => {
+    const { rerender } = await render(<Probe timeline={[msg("m1")]} />);
+    await rerender(<Probe timeline={[msg("m3"), msg("m2"), msg("m1")]} />);
+
+    expect(latest.liveKeys.size).toBe(2);
+  });
+
+  it("un re-render con la misma lista no duplica ni pierde llegadas (render doble)", async () => {
+    const timeline = [msg("m2"), msg("m1")];
+    const { rerender } = await render(<Probe timeline={[msg("m1")]} />);
+    await rerender(<Probe timeline={timeline} />);
+    const first = latest.arrivals;
+    await rerender(<Probe timeline={timeline} />);
+
+    expect(first.map((i) => i.key)).toEqual(["m2"]);
+    expect(latest.arrivals).toBe(first);
   });
 
   it("mientras no está lista la conversación no hay línea base: el primer mensaje en un chat vacío sí se anima", async () => {

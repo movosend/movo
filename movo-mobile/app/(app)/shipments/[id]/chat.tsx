@@ -102,7 +102,9 @@ export default function ShipmentChatScreen() {
     let incoming = 0;
     for (const item of arrivals) {
       if (item.kind !== "message") continue;
-      if (item.mine) scrollToBottom();
+      // Solo el mensaje que acaba de enviar ESTE teléfono (todavía local) baja al final. Uno propio que llega por otro
+      // dispositivo, o dentro de una carga en bloque, cuenta como nuevo igual que uno ajeno.
+      if (item.message.localState === "sending") scrollToBottom();
       else incoming += 1;
     }
     if (incoming > 0 && awayRef.current) setNewWhileAway((count) => count + incoming);

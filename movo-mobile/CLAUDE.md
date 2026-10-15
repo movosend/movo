@@ -4710,31 +4710,36 @@ Pendiente: no probado en device; revisar contra el backend real cuando #246 est�
 
 Pulido de MOVO-284 (todo mobile, sin backend).
 - **Animación de mensajes**: `useLiveChatKeys` (`src/hooks/`) distingue lo que llega en vivo (nuevo y antes del que era el más
-  nuevo) de historial y paginación, durante el render porque `entering` solo corre al montar. Cada key en vivo se retira sola a
-  los 800 ms, así una burbuja que se vuelve a montar por virtualización no se anima de nuevo. `chatEnteringAnimation`
-  (`chat-bubble.tsx`) usa `translateY` positivo: la `FlatList inverted` espeja la lista y cada celda, el doble espejo se
-  cancela y el contenido queda derecho (verificar en dispositivo).
-  Al enviar: el mensaje propio crece con un resorte desde su esquina (un valor compartido que arranca en el estado
-  inicial y no `entering`, que dibujaba un cuadro final y se veía como un parpadeo blanco en modo oscuro), pasa de
-  atenuado a opaco al confirmarse, los de abajo suben con `LinearTransition` y el botón rebota con una vibración suave.
-  Respeta `useReducedMotion`. El mock de Jest de reanimated no trae ese hook: `test/mocks/reanimated-setup.js` lo suma
+  nuevo) de historial y paginación. Es una función pura de `(timeline, keys ya confirmadas)`: guarda las keys vistas en un
+  `useEffect` (no en el render), así un render descartado no pierde llegadas, y no usa temporizadores (una vez "vista" la key,
+  volver a montar la burbuja por virtualización no la anima). Más de `MAX_ANIMATED_ARRIVALS` (3) nuevos juntos es una carga en
+  bloque (refetch al volver de segundo plano): se cuentan como llegadas pero no se animan. Solo las burbujas en vivo montan
+  `LiveBubbleEnter` (valores compartidos + mappers); las del historial son `View`s simples. La entrada arranca en el estado
+  inicial y no usa `entering` (dibujaba un cuadro final y se veía como un parpadeo blanco en modo oscuro); `translateY` es
+  positivo porque la `FlatList inverted` espeja la lista y cada celda y el doble espejo se cancela (verificar en dispositivo).
+  Al enviar: el mensaje propio crece con un resorte desde su esquina, pasa de atenuado a opaco al confirmarse y el botón
+  rebota con una vibración suave. No hay `layout={LinearTransition}`: dentro de la celda de la `FlatList` no mueve a los de
+  abajo. Respeta `useReducedMotion`. El mock de Jest de reanimated no trae ese hook: `test/mocks/reanimated-setup.js` lo suma
   (`globalThis.__reduceMotion`).
 - **"Ir al último mensaje"** (`scroll-to-bottom-button.tsx`): aparece a más de una altura de lista del final, cuenta los
-  mensajes ajenos que llegan estando arriba y baja con `scrollToOffset({offset: 0})`; un mensaje propio siempre baja.
+  mensajes que llegan estando arriba y baja con `scrollToOffset({offset: 0})`; baja solo el mensaje que acaba de enviar este
+  teléfono (todavía `localState: "sending"`): uno propio de otro dispositivo cuenta como nuevo.
   **Sin cambiar todavía** cuándo se marca como leído un mensaje ajeno (sigue al llegar): decisión pendiente en el ticket.
 - **Rol del autor** (`chatAuthorLabel`): lista de participantes → ids del envío → "Ex integrante". Se eligió esa etiqueta
   genérica y no "Receptor anterior" porque el mensaje no trae el rol y un ex integrante también podría ser un transportista
   reasignado.
 - **Contador de Inicio**: `useChatUnreadSync` (montado en `_layout`) vuelve a pedir la lista con una push `chat_message` en
   foreground y al volver a primer plano; salir del chat también la invalida. Sin WebSocket global, y un build local sin push
-  no recibe la push: por eso la lista además se pide cada 15 s (`CHAT_LIST_POLL_MS`).
+  no recibe la push: por eso en desarrollo la lista se pide cada 15 s y en uso normal cada 60 s (`CHAT_LIST_POLL_MS`).
   Esa lista tarda unos segundos (resuelve los integrantes contra `svc-users`), así que la push en foreground además suma el
   no leído al caché al instante (`bumpChatUnread`) y la lista real lo confirma después.
 - **Doble entrada al chat**: `pushOnce` (`navigation-guard.ts`) ignora un segundo toque a la misma ruta en 800 ms (todos los
-  accesos al chat). Las push comparan con la ruta actual, y las respuestas atendidas/cold start son de módulo, no de hook,
-  para que un remonte (logout → login) no repita la navegación.
+  accesos al chat). Las push comparan con la ruta actual (`isSameRoute`: sin grupos de rutas y con los
+  parámetros, así sirve también para rutas con objeto), y las respuestas atendidas/cold start viven en
+  `notification-response-log.ts`, de módulo y no de hook, para que un remonte (logout → login) no repita la navegación.
 - **Detalle**: `RouteTrackingChatCard` reúne mapa (`RouteMapCard bare`), franja "En vivo" y botón "Chat" con punto lima si hay no
-  leídos; reemplaza `LiveTrackingCard` y `ChatAccessCard` (borradas). El texto de solo lectura pasó al `accessibilityHint`.
+  leídos; reemplaza `LiveTrackingCard` y `ChatAccessCard` (borradas). El texto de solo lectura se muestra como una línea debajo de la franja (no solo como pista de accesibilidad). La card pide la
+  lista de chats solo si hay chat.
   Orden nuevo: pago → ruta → avisos → ofertas → retiro/precio → paquete → participantes → evidencias → transferencia →
   calificaciones.
 

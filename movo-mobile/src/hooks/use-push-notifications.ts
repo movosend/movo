@@ -1,6 +1,7 @@
-import { router, usePathname, useRootNavigationState } from "expo-router";
+import { router, useGlobalSearchParams, usePathname, useRootNavigationState } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { useEffect, useRef } from "react";
+import { claimColdStart, claimNotificationResponse } from "../lib/notification-response-log";
 import { requestPermissionAndRegisterPushToken } from "../lib/push-registration";
 import { useAuthStore } from "../store/auth-store";
 
@@ -114,7 +115,7 @@ export function resolveNotificationRoute(data: unknown): NotificationRoute | nul
     const offerId = stringField(data, "offerId");
     return offerId ? `/carrier/offers/${offerId}` : "/carrier/offers";
   }
-  // MOVO-284: un mensaje nuevo abre la conversación del envío (la push no lleva el texto).
+  // MOVO-284: un mensaje nuevo abre la conversación del envío (la push trae nombre, rol y texto, ADR-046).
   if (type === "chat_message") {
     const shipmentId = stringField(data, "shipmentId");
     return shipmentId ? `/shipments/${shipmentId}/chat` : null;
@@ -144,26 +145,34 @@ function notificationRouteKey(route: NotificationRoute): string {
   return typeof route === "string" ? route : `${route.pathname}?${new URLSearchParams(route.params).toString()}`;
 }
 
-/**
- * Respuestas ya atendidas y cold start ya resuelto, a nivel de módulo: `getLastNotificationResponseAsync`
- * devuelve la última respuesta aunque ya se haya manejado, y si el hook se remonta (logout → login)
- * un `ref` por instancia la volvería a navegar (MOVO-301).
- */
-const handledResponseIds = new Set<string>();
-let coldStartHandled = false;
+/** Sin los grupos de rutas (`(app)`, `(tabs)`), que no forman parte de la URL que reporta `usePathname()`. */
+function normalizePath(path: string): string {
+  const withoutGroups = path.replace(/\/\([^/)]+\)/g, "");
+  return withoutGroups.length > 1 ? withoutGroups.replace(/\/+$/, "") : withoutGroups || "/";
+}
 
-/** Solo para tests: cada caso arranca sin recordar respuestas ni cold start de otro. */
-export function resetPushHandlingForTests(): void {
-  handledResponseIds.clear();
-  coldStartHandled = false;
+interface CurrentLocation {
+  pathname: string;
+  params: Record<string, string | string[] | undefined>;
+}
+
+/**
+ * ¿La pantalla a la que lleva la notificación ya es la que está abierta? Compara la ruta sin grupos y, si la ruta trae
+ * parámetros (p. ej. el feed filtrado por `tripId`), que coincidan: mismo path con otro viaje es otra pantalla.
+ */
+export function isSameRoute(route: NotificationRoute, current: CurrentLocation): boolean {
+  const target = typeof route === "string" ? route : route.pathname;
+  if (normalizePath(target) !== normalizePath(current.pathname)) return false;
+  if (typeof route === "string") return true;
+  return Object.entries(route.params).every(([key, value]) => current.params[key] === value);
 }
 
 /**
  * Navega a la ruta resuelta de una notificación, con dedup por `responseId` — antes
  * duplicado tal cual entre el manejo de cold start y el de foreground/background. Si esa
- * conversación/pantalla ya es la actual no apila otra copia (MOVO-301).
+ * pantalla ya es la actual no apila otra copia (MOVO-301).
  */
-function handleNotificationResponse(response: Notifications.NotificationResponse, currentPathname: string): void {
+function handleNotificationResponse(response: Notifications.NotificationResponse, current: CurrentLocation): void {
   const data = response.notification?.request?.content?.data;
   const route = resolveNotificationRoute(data);
   if (!route) return;
@@ -171,9 +180,8 @@ function handleNotificationResponse(response: Notifications.NotificationResponse
   const responseId =
     response.notification?.request?.identifier ||
     `${notificationRouteKey(route)}-${response.notification?.date ?? Date.now()}`;
-  if (handledResponseIds.has(responseId)) return;
-  handledResponseIds.add(responseId);
-  if (typeof route === "string" ? route === currentPathname : route.pathname === currentPathname) return;
+  if (!claimNotificationResponse(responseId)) return;
+  if (isSameRoute(route, current)) return;
 
   // `as any`: `route` es una unión de dos formas armadas en runtime, no un literal
   // de ruta tipado — mismo criterio que el resto del repo para rutas que
@@ -197,8 +205,9 @@ export function usePushNotifications(): void {
 
   // Ruta actual en un ref: el listener se suscribe una sola vez y tiene que ver la de ahora, no la del montaje.
   const pathname = usePathname();
-  const pathnameRef = useRef(pathname);
-  pathnameRef.current = pathname;
+  const params = useGlobalSearchParams();
+  const locationRef = useRef<CurrentLocation>({ pathname, params });
+  locationRef.current = { pathname, params };
 
   const registeredRef = useRef(false);
 
@@ -218,21 +227,20 @@ export function usePushNotifications(): void {
   // Gated por `isNavigatorMounted` para no disparar router.push antes de que
   // el Root Layout monte el <Stack> (evita fallo en cold start).
   useEffect(() => {
-    if (sessionStatus !== "authenticated" || !isNavigatorMounted || coldStartHandled) {
+    if (sessionStatus !== "authenticated" || !isNavigatorMounted || !claimColdStart()) {
       return;
     }
-    coldStartHandled = true;
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
-      handleNotificationResponse(response, pathnameRef.current);
+      handleNotificationResponse(response, locationRef.current);
     });
   }, [sessionStatus, isNavigatorMounted]);
 
   // Manejo de interacción con notificación recibida en foreground / background
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      handleNotificationResponse(response, pathnameRef.current);
+      handleNotificationResponse(response, locationRef.current);
     });
     return () => subscription.remove();
   }, []);
