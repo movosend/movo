@@ -307,9 +307,10 @@ export interface TripRepository {
   cancelOverdueDeclared(now: Date, limit: number): Promise<string[]>;
   /**
    * MOVO-258 (D5): pasa a `completed` hasta `limit` viajes `active` que tienen al menos un
-   * paquete aceptado vivo y cuyos paquetes quedaron TODOS en un estado final (`delivered`/
-   * `completed`/`cancelled`) -- un `disputed`, un `in_transit` o cualquier otro estado
-   * intermedio lo mantiene abierto. Un viaje `active` sin paquetes no se toca. Devuelve
+   * paquete aceptado vivo y cuyos paquetes quedaron TODOS en un estado final
+   * (`TRIP_FINISHED_SHIPMENT_STATUSES`: `delivered`/`completed`/`cancelled`/`disputed`) -- un
+   * `in_transit` o cualquier otro estado intermedio lo mantiene abierto. Un `in_transit`
+   * demorado sale por la disputa automática de MOVO-278 (ADR-045). Un viaje `active` sin paquetes no se toca. Devuelve
    * los ids efectivamente cerrados.
    */
   completeFinishedActive(limit: number): Promise<string[]>;

@@ -65,3 +65,20 @@ export function transitAnomalyInstant(input: TransitAnomalyInput): Date {
 export function isTransitAnomalous(input: TransitAnomalyInput, now: Date = new Date()): boolean {
   return transitAnomalyInstant(input) < now;
 }
+
+/**
+ * MOVO-278 (ADR-045): plazos contados desde la marca de D4 (`transitAnomalyFlaggedAt`). A
+ * las `warnHours` se le avisa al transportista que se abre una disputa; a las
+ * `disputeHours` el envío pasa a `disputed`. Sin marca no aplica ninguno de los dos.
+ */
+export function transitAnomalyDeadline(flaggedAt: Date, hours: number): Date {
+  return new Date(flaggedAt.getTime() + hours * HOUR_MS);
+}
+
+export function isTransitAnomalyDeadlinePassed(
+  flaggedAt: Date | null,
+  hours: number,
+  now: Date = new Date(),
+): boolean {
+  return flaggedAt !== null && transitAnomalyDeadline(flaggedAt, hours) <= now;
+}

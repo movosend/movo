@@ -45,6 +45,8 @@ export interface EnvConfig {
   TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES: number;
   TRIP_DEPARTURE_REMINDER_SWEEP_ENABLED?: boolean;
   IN_TRANSIT_ANOMALY_FALLBACK_HOURS: number;
+  IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS: number;
+  IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS: number;
   FUNDING_NEAR_PICKUP_DAYS: number;
   FUNDING_PAYMENT_TIMEOUT_MINUTES: number;
   FUNDING_RELEASE_HOURS_BEFORE_PICKUP: number;
@@ -177,6 +179,11 @@ export const envSchema = {
     TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     TRIP_DEPARTURE_REMINDER_SWEEP_ENABLED: { type: "boolean", default: true },
     IN_TRANSIT_ANOMALY_FALLBACK_HOURS: { type: "number", default: 48 },
+    // MOVO-278 (ADR-045): horas desde la marca de D4 hasta el aviso previo al transportista
+    // y hasta pasar el envío a `disputed`. WARN tiene que ser menor que DISPUTE (se valida
+    // al registrar el barrido, `transit-anomaly-sweep.ts`).
+    IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS: { type: "number", default: 12 },
+    IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS: { type: "number", default: 24 },
     // MOVO-210 / MOVO-215: "N" de la saga. Un retiro a N días o menos toma la ruta cercana (el
     // emisor paga al aceptar); a más de N, la ruta lejana (`assigned_unfunded` + ventana de
     // confirmación). PROVISORIO hasta que MOVO-215 mida el plazo real del hold de MP.

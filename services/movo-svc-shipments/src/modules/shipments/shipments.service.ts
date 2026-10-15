@@ -17,7 +17,7 @@ import {
   toArgentinaCalendarDateString,
 } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
-import { ShipmentRepository } from "../../repositories/shipment-repository";
+import { ShipmentConcurrentModificationError, ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { TripRepository } from "../../repositories/trip-repository";
 import { Trip } from "../../models/trip";
@@ -39,7 +39,7 @@ import {
 } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
 import { DEFAULT_PACKAGE_LIMITS, PackageLimits, packageLimitViolations } from "../../domain/package-limits";
-import { isPickupMissed, isTransitAnomalous } from "../../domain/expiration";
+import { isPickupMissed, isTransitAnomalous, isTransitAnomalyDeadlinePassed } from "../../domain/expiration";
 import { quoteShipment } from "./shipment-quote";
 import { QuoteStore, quoteFingerprint } from "./quote-store";
 import {
@@ -257,6 +257,8 @@ export interface ActiveShipmentResult {
   isToday: boolean;
   pickupWindowExpired: boolean;
   tripId: string | null;
+  /** MOVO-278 (ADR-045): marca de `in_transit` demorado (MOVO-258 D4), `null` si no la tiene. */
+  transitAnomalyFlaggedAt: Date | null;
 }
 
 const ACTIVE_SHIPMENT_ROLE_TO_COLUMN: Record<ActiveShipmentRole, "senderId" | "carrierId" | "receiverId"> = {
@@ -958,6 +960,71 @@ async function dispatchTransitAnomalyPush(
   }
 }
 
+/** MOVO-278 (ADR-045): aviso previo al transportista -- si no confirma la entrega, el envío
+ * demorado pasa a disputa y queda bloqueado para operar. */
+async function dispatchTransitAnomalyWarningPush(
+  notificationsClient: NotificationsClient,
+  logger: SweepLogger,
+  shipment: Shipment
+): Promise<void> {
+  if (!shipment.carrierId) return;
+  try {
+    const { title, body } = renderNotificationTrigger("transitAnomalyDisputeWarning", undefined);
+    await notificationsClient.sendPush({
+      userId: shipment.carrierId,
+      title,
+      body,
+      category: notificationTriggerCategory("transitAnomalyDisputeWarning"),
+      data: { shipmentId: shipment.id, type: "shipment" },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
+      "No se pudo enviar la push de aviso previo a la disputa al transportista"
+    );
+  }
+}
+
+/** MOVO-278 (ADR-045): el envío demorado pasó a disputa -- avisa a emisor, receptor y
+ * transportista, cada uno con su propio copy. Un fallo de una push nunca frena a las otras. */
+async function dispatchTransitAnomalyDisputePushes(
+  notificationsClient: NotificationsClient,
+  logger: SweepLogger,
+  shipment: Shipment
+): Promise<void> {
+  const targets: Array<{
+    userId: string | null;
+    trigger:
+      | "transitAnomalyDisputeOpenedSender"
+      | "transitAnomalyDisputeOpenedReceiver"
+      | "transitAnomalyDisputeOpenedCarrier";
+  }> = [
+    { userId: shipment.senderId, trigger: "transitAnomalyDisputeOpenedSender" },
+    { userId: shipment.receiverId, trigger: "transitAnomalyDisputeOpenedReceiver" },
+    { userId: shipment.carrierId, trigger: "transitAnomalyDisputeOpenedCarrier" },
+  ];
+  await Promise.all(
+    targets.map(async ({ userId, trigger }) => {
+      if (!userId) return;
+      try {
+        const { title, body } = renderNotificationTrigger(trigger, undefined);
+        await notificationsClient.sendPush({
+          userId,
+          title,
+          body,
+          category: notificationTriggerCategory(trigger),
+          data: { shipmentId: shipment.id, type: "shipment" },
+        });
+      } catch (err) {
+        logger?.warn(
+          { err, event: "notification_dispatch_failed", shipmentId: shipment.id, userId },
+          "No se pudo enviar la push de disputa automática por entrega demorada"
+        );
+      }
+    })
+  );
+}
+
 export interface ShipmentsServiceOptions {
   receiverConfirmationTimeoutHours?: number;
   /** MOVO-253: horas que tiene el emisor para elegir otro receptor tras un rechazo
@@ -1021,6 +1088,12 @@ export interface ShipmentsServiceOptions {
   /** MOVO-258 (D4): plazo fijo (horas desde el retiro) para un `in_transit` cuya oferta
    * no declaró entrega estimada (`IN_TRANSIT_ANOMALY_FALLBACK_HOURS`, default 48). */
   transitAnomalyFallbackHours?: number;
+  /** MOVO-278 (ADR-045): horas desde la marca de D4 hasta el aviso previo al transportista
+   * (`IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS`, default 12). */
+  transitAnomalyWarnAfterHours?: number;
+  /** MOVO-278 (ADR-045): horas desde la marca de D4 hasta pasar el envío a `disputed`
+   * (`IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS`, default 24). */
+  transitAnomalyDisputeAfterHours?: number;
   /** MOVO-258 (D6): dedupe de avisos de los barridos -- devuelve `true` solo la primera
    * vez que se reclama `key` dentro de `ttlSeconds` (Redis `SET NX` en el plugin). Sin
    * esta dependencia el aviso de "ofertas para revisar" no se manda: un barrido corre
@@ -1044,6 +1117,8 @@ export function createShipmentsService(
   const redesignationTimeoutHours = opts.receiverRedesignationTimeoutHours ?? 48;
   const pickupMissedGraceHours = opts.pickupMissedGraceHours ?? 24;
   const transitAnomalyFallbackHours = opts.transitAnomalyFallbackHours ?? 48;
+  const transitAnomalyWarnAfterHours = opts.transitAnomalyWarnAfterHours ?? 12;
+  const transitAnomalyDisputeAfterHours = opts.transitAnomalyDisputeAfterHours ?? 24;
   const offerRepository = opts.offerRepository;
   const paymentsClient = opts.paymentsClient;
   const pricingClient = opts.pricingClient;
@@ -1392,7 +1467,11 @@ export function createShipmentsService(
 
       // MOVO-116 (ADR-036): identidad + licencia + MP antes de cualquier lectura o
       // escritura del envío. Antes era `assertVerifiedCarrier` (sin licencia, MOVO-142).
-      await assertCarrierCanOperate({ usersClient, paymentsClient }, input.carrierId, input.callerRoles);
+      await assertCarrierCanOperate(
+        { usersClient, paymentsClient, shipmentRepository: repository },
+        input.carrierId,
+        input.callerRoles
+      );
 
       const shipment = await repository.findById(input.shipmentId);
       if (!shipment) {
@@ -2282,8 +2361,8 @@ export function createShipmentsService(
      * los envíos `in_transit` que pasaron su entrega estimada más el 50% de la duración
      * estimada, y le pregunta al transportista si tuvo un inconveniente. Se marca una sola
      * vez (`transitAnomalyFlaggedAt`, compare-and-swap) así que la push no se repite.
-     * Pendiente (fuera de alcance): disputa automática y alerta en el panel de admin
-     * (MOVO-30/MOVO-33) -- la marca es el punto de enganche para ambos.
+     * La salida de la marca (aviso previo y disputa automática) la da MOVO-278, ver
+     * `warnFlaggedInTransitShipments`/`disputeOverdueFlaggedShipments`.
      */
     async flagAnomalousInTransitShipments(batchSize = 100): Promise<{ flaggedCount: number; errorsCount: number }> {
       const now = new Date();
@@ -2333,6 +2412,103 @@ export function createShipmentsService(
       }
 
       return { flaggedCount, errorsCount };
+    },
+
+    /**
+     * MOVO-278 (ADR-045, AC8): a las `transitAnomalyWarnAfterHours` de la marca, si el envío
+     * sigue `in_transit`, le avisa al transportista que se abre una disputa si no confirma la
+     * entrega. Una sola vez por envío: el compare-and-swap de `transitAnomalyWarnedAt` se hace
+     * antes de la push, así una réplica concurrente nunca la repite (a cambio, una push que
+     * falla no se reintenta: el aviso es best-effort, la disputa igual llega).
+     */
+    async warnFlaggedInTransitShipments(batchSize = 100): Promise<{ warnedCount: number; errorsCount: number }> {
+      const now = new Date();
+      const cutoff = new Date(now.getTime() - transitAnomalyWarnAfterHours * 60 * 60 * 1000);
+      const candidates = await repository.findFlaggedInTransitUnwarned(batchSize, cutoff);
+      let warnedCount = 0;
+      let errorsCount = 0;
+
+      for (const shipment of candidates) {
+        if (!isTransitAnomalyDeadlinePassed(shipment.transitAnomalyFlaggedAt, transitAnomalyWarnAfterHours, now)) {
+          continue;
+        }
+        try {
+          const warned = await repository.markTransitAnomalyWarned(shipment.id, now);
+          if (!warned) {
+            continue;
+          }
+          warnedCount++;
+          if (notificationsClient) {
+            void dispatchTransitAnomalyWarningPush(notificationsClient, logger, shipment);
+          }
+        } catch (err) {
+          errorsCount++;
+          logger?.error(
+            { err, shipmentId: shipment.id, event: "transit_anomaly_warning_sweep_error" },
+            "Error al avisar al transportista de un envío demorado en barrido"
+          );
+        }
+      }
+
+      return { warnedCount, errorsCount };
+    },
+
+    /**
+     * MOVO-278 (ADR-045, AC3): pasa a `disputed` los envíos que siguen `in_transit` pasadas
+     * `transitAnomalyDisputeAfterHours` desde la marca, sin actor y con motivo explícito, y
+     * avisa a las tres partes. No toca el hold de fondos (eso queda para la resolución,
+     * MOVO-34). El viaje se cierra solo en la siguiente corrida de `completeFinishedActive`
+     * (`disputed` cuenta como terminado). `expectedFrom: in_transit`: una entrega confirmada
+     * mientras corre el barrido gana y este envío se saltea (AC6).
+     */
+    async disputeOverdueFlaggedShipments(batchSize = 100): Promise<{ disputedCount: number; errorsCount: number }> {
+      const now = new Date();
+      const cutoff = new Date(now.getTime() - transitAnomalyDisputeAfterHours * 60 * 60 * 1000);
+      const candidates = await repository.findFlaggedInTransitBefore(batchSize, cutoff);
+      let disputedCount = 0;
+      let errorsCount = 0;
+
+      for (const shipment of candidates) {
+        if (!isTransitAnomalyDeadlinePassed(shipment.transitAnomalyFlaggedAt, transitAnomalyDisputeAfterHours, now)) {
+          continue;
+        }
+        try {
+          await repository.updateStatus(
+            shipment.id,
+            ShipmentStatus.DISPUTED,
+            null,
+            "La entrega no se confirmó dentro del plazo posterior a la demora detectada",
+            { expectedFrom: ShipmentStatus.IN_TRANSIT }
+          );
+          disputedCount++;
+          logger?.warn(
+            { event: "transit_anomaly_disputed", shipmentId: shipment.id, carrierId: shipment.carrierId },
+            "Envío demorado pasado a disputa automáticamente"
+          );
+          if (notificationsClient) {
+            void dispatchTransitAnomalyDisputePushes(notificationsClient, logger, shipment);
+          }
+        } catch (err) {
+          if (err instanceof ShipmentConcurrentModificationError) {
+            // Se entregó (o cambió de estado) entre la lectura y la transición: nada que hacer.
+            continue;
+          }
+          errorsCount++;
+          logger?.error(
+            { err, shipmentId: shipment.id, event: "transit_anomaly_dispute_sweep_error" },
+            "Error al pasar a disputa un envío demorado en barrido"
+          );
+        }
+      }
+
+      if (disputedCount > 0 || errorsCount > 0) {
+        logger?.info(
+          { event: "transit_anomaly_dispute_sweep", disputedCount, errorsCount },
+          `Barrido de disputa por entrega demorada finalizado: ${disputedCount} en disputa, ${errorsCount} fallos`
+        );
+      }
+
+      return { disputedCount, errorsCount };
     },
 
     /**
@@ -2429,6 +2605,7 @@ export function createShipmentsService(
             now
           ),
           tripId: tripIdByShipmentId.get(shipment.id) ?? null,
+          transitAnomalyFlaggedAt: shipment.transitAnomalyFlaggedAt,
         };
       });
     },
