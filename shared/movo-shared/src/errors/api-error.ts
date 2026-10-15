@@ -252,7 +252,10 @@ export type ApiErrorCode =
   // Revocar el rol al único admin que queda: nunca puede quedar el sistema sin admins.
   | "ADMIN_LAST_ADMIN"
   // Otorgar el rol compitió con una revocación: no es "no es admin" (404), hay que reintentar.
-  | "ADMIN_GRANT_CONFLICT";
+  | "ADMIN_GRANT_CONFLICT"
+  // MOVO-288: el admin intenta una acción de escritura sobre algo en lo que es parte
+  // (él mismo, su rol, un envío suyo o un reporte que lo involucra). Leer sí puede.
+  | "ADMIN_CONFLICT_OF_INTEREST";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

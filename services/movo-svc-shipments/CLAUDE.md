@@ -3418,3 +3418,14 @@ query que pasa por `mapTrip` incluye `TRIP_SERIES_INCLUDE` (relación `successor
 - Pushes `data.type`: `trip_recurrence_generated` (tripId nuevo) y `trip_recurrence_stopped`.
 
 Pendiente: la UI es MOVO-266.
+
+### MOVO-288 — Partes de un envío y de un reporte de chat para `svc-admin`
+
+Módulo interno `src/modules/admin-internal/` (prefijo `/internal`, `hide: true`, fuera del gateway):
+`GET /internal/shipments/:id/parties` (`ShipmentParties`) y `GET /internal/chat-reports/:id/parties`
+(`ChatReportParties`: quien reportó más todas las partes del envío). Los consume la regla de conflicto
+de interés de `svc-admin`, que falla cerrado si este servicio no responde. `findParties`
+(`shipment-repository.ts`) suma a los receptores anteriores (`formerReceiverIds`): quien pidió una
+transferencia completada (ADR-038) y quien rechazó antes de una redesignación (ADR-027, actor del
+evento `-> rejected_by_receiver`), porque un admin que fue receptor también es parte. `ChatRepository`
+gana `findReportById`. 404 `NOT_FOUND` si el envío o el reporte no existen.

@@ -195,3 +195,10 @@ por traer `admin`; un token sin ese claim pierde `admin` antes de `authorize` y 
 marca de 15 min). Las dos marcas se leen en un solo `MGET`, y la del panel se compara con `<=`
 (un refresh en paralelo a la revocación no sobrevive en el mismo segundo). Todo request proxeado
 lleva `x-client-ip` = `request.ip` (pisa el del cliente), que usa el límite del login del panel.
+
+### MOVO-288 — Proxy de `/admin` (`svc-admin`)
+
+Se descomentó la entrada `/admin` de `getServiceRoutes()` hacia `ADMIN_SERVICE_URL` con
+`allowedRoles: [admin]`: un token de la app recibe 403 `AUTH_FORBIDDEN`, porque `admin` solo
+entra al JWT en una sesión de panel (MOVO-287). Cuarto servicio proxeado. Detalle en
+`services/movo-svc-admin/CLAUDE.md`.

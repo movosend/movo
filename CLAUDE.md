@@ -208,9 +208,8 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 - Puerto 22 SSH abierto a `0.0.0.0/0` en las EC2 es una limitación aceptada y documentada
   (restricción de AWS Security Groups para filtrar solo IPs de GitHub Actions), no un
   descuido.
-- Migraciones en deploy: `run-migrations.sh` (SQL a mano, solo `svc-admin`)
-  lleva ledger propio (`public.schema_migrations`) para tolerar reruns sin repetir
-  migraciones no-idempotentes. `svc-users`/`svc-shipments`/`svc-payments` (Prisma) usan
+- Migraciones en deploy: todos los servicios Node (Prisma, `svc-admin` desde MOVO-288,
+  que dejó sin uso y borró `run-migrations.sh`) usan
   `docker compose pull <servicio> && docker compose run --rm -T <servicio> npx prisma
   migrate deploy` — el `pull` explícito es necesario porque `run` no repullea una imagen
   ya presente localmente. `DATABASE_URL` para Prisma necesita user/password
@@ -273,6 +272,7 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
 - `services/movo-svc-shipments/CLAUDE.md`
 - `services/movo-svc-pricing-logistics/CLAUDE.md`
 - `services/movo-svc-payments/CLAUDE.md`
+- `services/movo-svc-admin/CLAUDE.md`
 - `shared/movo-shared/CLAUDE.md`
 - `movo-mobile/CLAUDE.md`
 

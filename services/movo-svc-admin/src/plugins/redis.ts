@@ -3,7 +3,7 @@ import { FastifyInstance } from "fastify";
 import Redis from "ioredis";
 
 export default fp(async (app: FastifyInstance) => {
-  const redis = new Redis(process.env.REDIS_URL as string);
+  const redis = new Redis(app.config.REDIS_URL);
 
   app.decorate("redis", redis);
 

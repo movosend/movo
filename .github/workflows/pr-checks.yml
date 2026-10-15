@@ -163,28 +163,16 @@ jobs:
         working-directory: ${{ matrix.service.path }}
         run: npx tsc --noEmit
 
-      # movo-svc-users, movo-svc-shipments y movo-svc-payments usan Prisma Migrate
-      # (prisma migrate deploy, con tracking propio en _prisma_migrations) -- los
-      # demás servicios siguen con el runner de SQL a mano hasta que tengan dominio
-      # real (ver ADR-011; movo-svc-shipments lo adoptó en MOVO-104 y
-      # movo-svc-payments en MOVO-267).
+      # Todos los servicios Node usan Prisma Migrate (prisma migrate deploy, con
+      # tracking propio en _prisma_migrations, ADR-011): svc-shipments desde MOVO-104,
+      # svc-payments desde MOVO-267 y svc-admin desde MOVO-288, que dejó sin uso el
+      # runner de SQL a mano (scripts/run-migrations.sh, borrado).
       - name: Run migrations (Prisma)
         if: |
           matrix.service.changed == 'true' &&
-          (matrix.service.name == 'movo-svc-users' || matrix.service.name == 'movo-svc-shipments' || matrix.service.name == 'movo-svc-payments')
+          matrix.service.name != 'gateway'
         working-directory: ${{ matrix.service.path }}
         run: npx prisma migrate deploy
-
-      - name: Run migrations (SQL)
-        if: |
-          matrix.service.changed == 'true' &&
-          matrix.service.name != 'gateway' &&
-          matrix.service.name != 'movo-svc-users' &&
-          matrix.service.name != 'movo-svc-shipments' &&
-          matrix.service.name != 'movo-svc-payments'
-        run: |
-          sudo apt-get update && sudo apt-get install -y postgresql-client
-          ./scripts/run-migrations.sh ${{ matrix.service.path }}
 
       - name: Tests
         if: matrix.service.changed == 'true'

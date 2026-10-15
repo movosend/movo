@@ -130,12 +130,13 @@ export function getServiceRoutes(env: {
       allowedRoles: [UserRole.SENDER, UserRole.CARRIER],
     },
 
-    // admin service (fuera de alcance este sprint, ver MOVO-68)
-    // {
-    //   prefix: "/admin",
-    //   upstream: env.ADMIN_SERVICE_URL,
-    //   allowedRoles: [UserRole.ADMIN],
-    // },
+    // admin service (MOVO-288). Solo el panel: el rol admin entra al JWT
+    // únicamente en una sesión de panel (MOVO-287), nunca en la de la app.
+    {
+      prefix: "/admin",
+      upstream: env.ADMIN_SERVICE_URL,
+      allowedRoles: [UserRole.ADMIN],
+    },
 
     // pricing-logistics service (futuro)
     // {

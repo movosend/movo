@@ -279,4 +279,24 @@ export async function internalModerationRoutes(app: FastifyInstance, opts: Moder
       return { userIds: await service.listRelatedUserIds(id) };
     },
   );
+
+  // MOVO-288: quién reportó a quién, para la regla de conflicto de interés de svc-admin
+  // (un admin no modera un reporte que lo involucra).
+  app.get(
+    "/user-reports/:id/parties",
+    {
+      schema: {
+        hide: true,
+        params: moderationSchemas.userIdParam,
+        response: {
+          200: moderationSchemas.reportPartiesResponse,
+          404: moderationSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const { id } = request.params as { id: string };
+      return service.getReportParties(id);
+    },
+  );
 }
