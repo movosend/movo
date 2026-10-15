@@ -233,7 +233,18 @@ export type ApiErrorCode =
   // coincide con la clave secreta de webhooks de la app.
   | "PAYMENT_WEBHOOK_INVALID_SIGNATURE"
   // Falta `MP_WEBHOOK_SECRET` en el ambiente: no hay contra qué validar, se rechaza todo.
-  | "PAYMENT_WEBHOOK_NOT_CONFIGURED";
+  | "PAYMENT_WEBHOOK_NOT_CONFIGURED"
+  // MOVO-290: alta y baja del rol admin (`svc-users`, endpoints internos y script).
+  // Otorgar el rol a una cuenta con el email sin verificar.
+  | "ADMIN_GRANT_EMAIL_NOT_VERIFIED"
+  // Otorgar el rol a una cuenta que no está `active`.
+  | "ADMIN_GRANT_ACCOUNT_NOT_ACTIVE"
+  // Revocar el rol a alguien que no lo tiene.
+  | "ADMIN_NOT_FOUND"
+  // Revocar el rol al único admin que queda: nunca puede quedar el sistema sin admins.
+  | "ADMIN_LAST_ADMIN"
+  // Otorgar el rol compitió con una revocación: no es "no es admin" (404), hay que reintentar.
+  | "ADMIN_GRANT_CONFLICT";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

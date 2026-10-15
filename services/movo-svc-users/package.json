@@ -14,7 +14,11 @@
     "lint": "eslint src",
     "postinstall": "prisma generate",
     "migrate": "prisma migrate deploy",
-    "migrate:dev": "prisma migrate dev"
+    "migrate:dev": "prisma migrate dev",
+    "admin:grant": "node dist/scripts/admin-role.js grant",
+    "admin:revoke": "node dist/scripts/admin-role.js revoke",
+    "admin:grant:dev": "tsx src/scripts/admin-role.ts grant",
+    "admin:revoke:dev": "tsx src/scripts/admin-role.ts revoke"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +35,7 @@
     "@node-rs/argon2": "^2.0.2",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
+    "env-schema": "^7.0.0",
     "fastify": "^5.10.0",
     "fastify-plugin": "^6.0.0",
     "ioredis": "^5.11.1",

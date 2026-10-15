@@ -127,3 +127,16 @@ export interface BlockedUserSummary {
   /** ISO date del bloqueo. */
   blockedAt: string;
 }
+
+/**
+ * Fila de `GET /internal/admins` de `svc-users` (MOVO-290), del otorgamiento más viejo al
+ * más reciente. La consume `svc-admin` para la gestión de admins del panel (MOVO-292).
+ */
+export interface AdminSummary {
+  id: string;
+  fullName: string;
+  email: string;
+  status: AccountStatus;
+  /** ISO date en que se otorgó el rol. */
+  grantedAt: string;
+}

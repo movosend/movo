@@ -1260,3 +1260,7 @@ Pendiente / fuera de alcance: alta y baja del rol (MOVO-290), UI del login (MOVO
 - Un refresh armado a mano con `:` en los ids (`a:b.c.d`) es 401, no 500 (app y panel). Los métodos
   de app y panel del repositorio comparten implementación (namespace como parámetro). El TTL del
   access token de la app sale de `ACCESS_TOKEN_TTL_SECONDS` de `@movo/shared`.
+
+### MOVO-290 — Alta y baja del rol admin: script de CLI y endpoints internos
+
+`src/modules/admins/admin-roles.service.ts` concentra las reglas para endpoints internos (`GET`/`POST /internal/admins`, `DELETE /internal/admins/:userId`) y el script `src/scripts/admin-role.ts`. Otorgar exige email verificado y cuenta `active` (idempotente, best-effort email notice). Revocar y baja de cuenta (`deleteAccount`) respetan la invariante compartida de nunca cero admins elegibles (`FOR UPDATE OF ur, u ORDER BY ur.user_id` -> 409 `ADMIN_LAST_ADMIN`) y cortan sesiones de panel en Redis. El CLI valida solo su configuración y `grant` no depende de Redis. Baneo pendiente en MOVO-296: deberá usar el mismo invariante. Procedimiento para el primer admin: ver `docs/admin/primer-admin.md`.
