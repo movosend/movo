@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { isPickupMissed, isTransitAnomalous, pickupMissedInstant, transitAnomalyInstant } from "../src/domain/expiration";
+import {
+  isPickupMissed,
+  isTransitAnomalous,
+  isTransitAnomalyDeadlinePassed,
+  pickupMissedInstant,
+  transitAnomalyDeadline,
+  transitAnomalyInstant,
+} from "../src/domain/expiration";
 
 // Fechas/horas de pared argentinas ancladas como UTC (mismo criterio que `@db.Date`/`@db.Time`).
 const PICKUP_DATE = new Date("2026-09-23T00:00:00.000Z");
@@ -54,5 +61,25 @@ describe("expiration (MOVO-258)", () => {
       const early = { ...base, inTransitSince: new Date("2026-09-23T23:00:00.000Z") };
       expect(transitAnomalyInstant(early).toISOString()).toBe("2026-09-23T21:00:00.000Z");
     });
+  });
+});
+
+describe("plazos posteriores a la marca de in_transit anómalo (MOVO-278)", () => {
+  const FLAGGED_AT = new Date("2026-10-04T10:00:00.000Z");
+
+  it("el plazo se cuenta desde la marca", () => {
+    expect(transitAnomalyDeadline(FLAGGED_AT, 24).toISOString()).toBe("2026-10-05T10:00:00.000Z");
+  });
+
+  it("marcado hace menos del plazo: no aplica", () => {
+    expect(isTransitAnomalyDeadlinePassed(FLAGGED_AT, 24, new Date("2026-10-05T09:59:00.000Z"))).toBe(false);
+  });
+
+  it("marcado hace más del plazo: aplica", () => {
+    expect(isTransitAnomalyDeadlinePassed(FLAGGED_AT, 24, new Date("2026-10-05T10:01:00.000Z"))).toBe(true);
+  });
+
+  it("sin marca nunca aplica", () => {
+    expect(isTransitAnomalyDeadlinePassed(null, 0, new Date("2030-01-01T00:00:00.000Z"))).toBe(false);
   });
 });

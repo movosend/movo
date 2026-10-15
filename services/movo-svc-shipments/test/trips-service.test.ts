@@ -84,6 +84,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
     };
 
     shipmentRepo = {
+      hasOpenDisputeAsCarrier: vi.fn().mockResolvedValue(false),
       create: vi.fn(),
       findById: vi.fn(),
       updateStatus: vi.fn(),

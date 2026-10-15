@@ -104,6 +104,7 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
     findPotentiallyPickupMissed: vi.fn().mockResolvedValue([]),
     findInTransitUnflagged: vi.fn().mockResolvedValue([]),
     flagTransitAnomaly: vi.fn().mockResolvedValue(true),
+    hasOpenDisputeAsCarrier: vi.fn().mockResolvedValue(false),
     hasActiveShipmentsForUser: vi.fn().mockResolvedValue({ hasActiveDispute: false, hasActiveShipments: false }),
     countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 0, asCarrier: 0 }),
     countDeliveredAsCarrierByIds: vi.fn().mockResolvedValue(new Map()),
