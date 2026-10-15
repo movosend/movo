@@ -17,7 +17,7 @@ de MP; se saltea sin credenciales, ver su encabezado).
 | ¿Se puede capturar dos veces? | **No.** Un segundo `capture` sobre un pago ya capturado responde `200` con el mismo pago, sin cobrar de nuevo. |
 | ¿Hasta qué `application_fee` acepta un hold? | Hasta cualquier valor **menor** que el monto: 30 %, 50 % y 90 % → `authorized`; 100 % y 110 % → `400`, código `4038` ("application_fee cannot be bigger or equal than transaction_amount"). |
 | ¿El split funciona con un fee alto? | **Sí.** Fee del 50 % sobre $1.000, captura total: Movo $500, MP $41, transportista $459. |
-| ¿Movo puede cobrar directo (pagar mi saldo)? | **Con tarjeta tokenizada, todavía no**: el token `TEST-` de Movo S.A. se obtiene (`client_credentials`), pero un `card_token` hecho con la `public_key` de un Vendedor da `403` ("At least one policy returned UNAUTHORIZED"); hace falta la `public_key` `TEST-` de Movo S.A., que sigue sin identificarse (`MOVO-283`, punto 2). **Con Checkout Pro sí**: Movo crea la preferencia (`collector_id` = Movo S.A.) y devuelve `init_point`; no se completó el pago en el navegador. |
+| ¿Movo puede cobrar directo (pagar mi saldo)? | **Con tarjeta tokenizada, todavía no**: el token `TEST-` de Movo S.A. se obtiene (`client_credentials`), pero un `card_token` hecho con la `public_key` de un Vendedor da `403` ("At least one policy returned UNAUTHORIZED"); hace falta la `public_key` `TEST-` de Movo S.A., que sigue sin identificarse (`MOVO-283`, punto 2). **Con Checkout Pro sí**: Movo crea la preferencia (`collector_id` = Movo S.A.) y devuelve `init_point` (escenario G); el pago en el navegador no se completó. |
 
 ## Detalle
 
@@ -34,6 +34,12 @@ de MP; se saltea sin credenciales, ver su encabezado).
 
 El MP fee sí se calcula sobre lo capturado; el `application_fee` no.
 
+### B. Segunda captura sobre el mismo pago
+
+Después de la captura parcial de A, un segundo `PUT` con `{ capture: true, transaction_amount: 100 }` responde
+`200` con el mismo pago, sin cambios: no cobra de nuevo ni captura otra parte. Lo no capturado en la primera
+ya está liberado.
+
 ### C. Captura menor que el fee
 
 Hold de $1.150 con fee $150, captura de $100 → `400 4201`. El hold queda `authorized` y hay que liberarlo o
@@ -49,10 +55,34 @@ capturar otro monto.
 | 100 % | `400 4038` |
 | 110 % | `400 4038` |
 
+### E. Split con `application_fee` del 50 %
+
+Hold de $1.000 con fee $500, captura total: Movo recibe $500, MP cobra $41 (4,1 % del total) y el transportista
+recibe $459. Un fee alto no cambia el reparto: se descuenta entero y el MP fee se calcula sobre el monto.
+
+### F. Pago directo a Movo con tarjeta (`POST /v1/payments`)
+
+El token `TEST-` de Movo S.A. se obtiene con `client_credentials` + `test_token=true` (ADR-039). Pero el
+`card_token` hay que generarlo con una `public_key` de Movo S.A.: con la de un Vendedor, el pago responde
+`403` ("At least one policy returned UNAUTHORIZED"). La `public_key` `TEST-` de Movo sigue sin identificarse
+(`MOVO-283`, punto 2), así que este camino queda bloqueado.
+
+### G. Pago directo a Movo con Checkout Pro
+
+Con el mismo token `TEST-`, `POST /checkout/preferences` crea la preferencia con `collector_id` igual al
+usuario de Movo S.A. y devuelve `init_point` y `sandbox_init_point`. El test lo verifica con asserts y solo
+necesita las credenciales de la app. El pago en el navegador, que es lo que acreditaría la plata en la
+cuenta de Movo, no se completó ni se automatiza.
+
+No contradice ADR-035, que descartó Checkout Pro **para el hold con split** (no permite reservar sin cobrar
+con split por transportista). Acá no hay hold ni split: es un cobro directo de Movo, sin transportista.
+
 ## Qué cambia en las issues
 
 Se aplica la fila "cobra la comisión entera" del plan decidido en `MOVO-305`: **se acepta y se documenta
-como limitación de MP en ADR-043**. Además:
+como limitación de MP en el ADR de la penalidad de cancelación (`MOVO-226`)**. Ese ADR todavía no tiene
+número: el 043 lo tomó MOVO-291 (refresh idempotente del panel) y el 045 MOVO-278, así que se numera al
+escribirlo. Además:
 
 1. **`MOVO-306`/`MOVO-307`: la captura parcial tiene que ser mayor que el `application_fee` del hold.** Con
    la penalidad del 25 % y la comisión de Movo (~13,04 % del bruto) siempre se cumple, pero deja de cumplirse si
@@ -65,4 +95,5 @@ como limitación de MP en ADR-043**. Además:
    decidido entra sin problema. Solo hay que garantizar `application_fee < transaction_amount`.
 4. **`MOVO-312`:** el pago directo con tarjeta a Movo depende de la `public_key` de Movo S.A. (`MOVO-283`).
    Alternativa sin ese bloqueo: Checkout Pro (preferencia de Movo + `init_point` en un navegador embebido,
-   confirmación por webhook). Recomendación: Checkout Pro para "Pagar mi saldo".
+   confirmación por webhook; escenario G). Recomendación: Checkout Pro para "Pagar mi saldo", validando el
+   pago completo en el navegador al implementar `MOVO-312`.
