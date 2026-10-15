@@ -543,3 +543,27 @@ reembolsos/contracargos (`payment_provider_events`) resueltos en la misma consul
 Tests: `test/transaction-status.test.ts` (cada estado y la precedencia) y
 `test/transactions.integration.test.ts` (Postgres real: rol, visibilidad, filtros, borde de las
 23:30, cursor sin duplicados ni saltos con la misma fecha, 404, desglose por rol).
+
+### MOVO-309 — Cuenta corriente del usuario (ADR-044)
+
+`GET /internal/payments/users/:userId/balance`, `POST /internal/payments/users/:userId/ledger-entries` y
+`POST .../manual-adjustments` (internos, mismo prefijo que la baja de tarjetas, sin gateway ni `x-user-id`), más
+`GET /payments/balance` (saldo + movimientos paginados por cursor; hereda el hook de `paymentsRoutes`, el gateway
+ya proxeaba `/payments`). Código en `src/modules/user-ledger/`, `src/repositories/user-ledger-repository.ts` y
+`src/plugins/user-ledger.ts`; contrato en `@movo/shared` (`types/user-ledger.ts`). Tabla
+`payments.user_ledger_entries` (migración `20261015220000`). Nadie la consume todavía: la usan MOVO-307, 310, 311, 312 y 313.
+
+- **Solo inserción impuesta por la base**: triggers `BEFORE DELETE`/`BEFORE UPDATE` (a mano en la migración); de un
+  `UPDATE` solo pasa `status`. Un `TRUNCATE` sí funciona, por eso los tests lo usan para limpiar. El `reason` de un
+  `manual_adjustment` también es un `CHECK`.
+- **Saldo** = suma de lo que no está `voided` (un `settled` sigue contando; lo cancela un movimiento negativo aparte).
+  `oldestUnpaidAt` = deuda positiva `pending`/`reserved` más vieja, `null` si el saldo no es positivo.
+- **Idempotencia**: `idempotency_key` única + `request_fingerprint` (hash). Mismo cuerpo → 200 con el original; otro
+  cuerpo → 409 `LEDGER_IDEMPOTENCY_CONFLICT`. La carrera la resuelve el P2002 de la base.
+- **El signo no se valida contra el tipo**: lo manda quien registra (decisión del ADR). Monto distinto de cero, hasta
+  2 decimales y tope de ±$10.000.000 (los decimales los mira el service, no Ajv).
+- **`created_at` lo pone la app** (ms) y no Postgres (µs), para que el cursor `(created_at, id)` no pierda precisión.
+- `service.transition()` mueve el `status` con un UPDATE condicional; sin endpoint HTTP todavía (lo abren 311/312).
+
+Pendiente: que `svc-admin` llame a `manual-adjustments` (sin UI de admin todavía); sin env vars nuevas.
+

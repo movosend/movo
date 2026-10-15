@@ -821,3 +821,21 @@ Table payments.payment_method_ref {
 Table payments.dispute_ref {
   id uuid [pk, note: 'espeja admin.dispute.id, sin FK real (ADR-003)']
 }
+
+// MOVO-309 (ADR-044): cuenta corriente del usuario. Solo inserción (triggers): de un UPDATE solo pasa `status`.
+Table payments.user_ledger_entries {
+  id uuid [pk]
+  user_id uuid [note: 'usuario de Movo, sin FK (ADR-003); la deuda es del usuario, no de un rol']
+  role_at_origin varchar [null, note: 'sender | carrier, solo informativo']
+  type varchar [note: 'cancellation_penalty | penalty_capture | cash_commission | fee_offset | payment_surcharge | voluntary_payment | manual_adjustment']
+  amount_ars decimal(12,2) [note: 'con signo: positivo = el usuario debe; distinto de cero']
+  status varchar [note: 'pending | reserved | settled | voided; el saldo suma lo que no esta voided']
+  shipment_id uuid [null, note: 'referencia logica, sin FK']
+  hold_id uuid [null, ref: > payments.holds.id]
+  payment_id varchar [null, note: 'pago de MP asociado']
+  reason text [null, note: 'obligatorio en manual_adjustment']
+  admin_id uuid [null, note: 'quien hizo el ajuste manual']
+  idempotency_key varchar [unique]
+  request_fingerprint varchar [note: 'hash del cuerpo: distingue un reintento de una key reusada']
+  created_at timestamptz
+}
