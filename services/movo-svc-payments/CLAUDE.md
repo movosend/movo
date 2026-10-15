@@ -499,3 +499,36 @@ aparecen en el historial) y `card_last4`/`card_brand`, tomados de la respuesta d
 guardado: `src/utils/payment-card.ts` es la única puerta y la usan crear, `?sync=true`, adopción, webhook
 (aunque el estado no cambie) y captura. Un reintento con otro `payerUserId` sobre un hold vigente responde
 `409 HOLD_CONFLICT`. Sin cambio de contrato: `HoldResponse` no los expone, los lee MOVO-303.
+
+### MOVO-303 — Historial: listado y detalle por rol (sub-issue de MOVO-28)
+
+`GET /payments/transactions?role=sender|carrier&status=&from=&to=&cursor=&limit=` y
+`GET /payments/transactions/:id?role=` (heredan el hook `x-user-id`; el gateway ya proxeaba
+`/payments`, sin tocar `routes-map.ts`). Código en `src/modules/transactions/`,
+`src/repositories/transaction-repository.ts` y `src/plugins/transactions.ts`; contrato en
+`@movo/shared` (`types/transaction.ts`). Sin tabla nueva: una fila por hold, con liquidación y
+reembolsos/contracargos (`payment_provider_events`) resueltos en la misma consulta.
+
+- **El estado derivado vive dos veces, a propósito**: `deriveTransactionStatus` (función pura, la
+  que arma cada ítem y el detalle) y su espejo `STATUS_CASE` en SQL, que filtra por estado ANTES de
+  paginar. Un cambio en la regla se replica en las dos; la integración verifica que el filtro y el
+  estado de cada ítem coincidan. Visibles: `in_process`/`authorized`/`captured` y `cancelled` con
+  `mp_payment_id` (los `creating`, `rejected` y cancelados sin pago no aparecen).
+- **Cursor `(created_at, id)` con precisión de µs**: Postgres guarda µs y el `Date` de JS solo ms,
+  así que el cursor sale de un `to_char(... US)` de la base; con ms se saltearían filas que
+  comparten el milisegundo. Comparación por tupla `(created_at, id) < (...)`.
+- **`from`/`to` en hora argentina** (`argentinaDayStart`): se busca el primer instante cuyo
+  `toArgentinaCalendarDateString` es el día pedido, sin repetir el UTC-3; `to` inclusivo = inicio del
+  día siguiente exclusivo. Se rechazan fechas inexistentes (`2026-02-30`) y `from > to`.
+- **`status` acepta repetido (`status=a&status=b`) o con comas**; el service valida cada valor (400).
+- **Forma del ítem**: `refundedAmountArs` es el último monto informado (no la suma); `card` solo
+  viaja con `role=sender` y es `{brand, last4: string | null}` (un hold recuperado por
+  `external_reference` puede tener marca y no últimos 4, gap conocido de MOVO-302; el contrato de
+  `last4` nullable se aparta del `{brand, last4}` del ticket por eso). `breakdown` solo con
+  `role=carrier` y liquidación `credited`; con `role=sender` la clave no existe.
+- **404 único** para transacción ajena, de otro rol, inexistente o no visible: el filtro por usuario
+  y rol va dentro de la consulta, así no hay forma de distinguirlos.
+
+Tests: `test/transaction-status.test.ts` (cada estado y la precedencia) y
+`test/transactions.integration.test.ts` (Postgres real: rol, visibilidad, filtros, borde de las
+23:30, cursor sin duplicados ni saltos con la misma fecha, 404, desglose por rol).
