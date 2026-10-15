@@ -978,8 +978,10 @@ async function dispatchTransitAnomalyWarningPush(
       data: { shipmentId: shipment.id, type: "shipment" },
     });
   } catch (err) {
+    // Evento propio: `warnedAt` ya quedó persistido y no se reintenta, así que este log es lo único
+    // que permite contar a los transportistas que van a la disputa sin haber recibido el aviso.
     logger?.warn(
-      { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
+      { err, event: "transit_anomaly_warning_push_failed", shipmentId: shipment.id, carrierId: shipment.carrierId },
       "No se pudo enviar la push de aviso previo a la disputa al transportista"
     );
   }
@@ -2464,12 +2466,19 @@ export function createShipmentsService(
     async disputeOverdueFlaggedShipments(batchSize = 100): Promise<{ disputedCount: number; errorsCount: number }> {
       const now = new Date();
       const cutoff = new Date(now.getTime() - transitAnomalyDisputeAfterHours * 60 * 60 * 1000);
-      const candidates = await repository.findFlaggedInTransitBefore(batchSize, cutoff);
+      // El transportista tiene que haber recibido el aviso al menos `dispute - warn` horas antes
+      // (las 12 h que dice la push), sin importar cuánto hace que se marcó el envío.
+      const graceHours = transitAnomalyDisputeAfterHours - transitAnomalyWarnAfterHours;
+      const warnedCutoff = new Date(now.getTime() - graceHours * 60 * 60 * 1000);
+      const candidates = await repository.findFlaggedInTransitBefore(batchSize, cutoff, warnedCutoff);
       let disputedCount = 0;
       let errorsCount = 0;
 
       for (const shipment of candidates) {
         if (!isTransitAnomalyDeadlinePassed(shipment.transitAnomalyFlaggedAt, transitAnomalyDisputeAfterHours, now)) {
+          continue;
+        }
+        if (!isTransitAnomalyDeadlinePassed(shipment.transitAnomalyWarnedAt, graceHours, now)) {
           continue;
         }
         try {
@@ -2486,7 +2495,10 @@ export function createShipmentsService(
             "Envío demorado pasado a disputa automáticamente"
           );
           if (notificationsClient) {
-            void dispatchTransitAnomalyDisputePushes(notificationsClient, logger, shipment);
+            // `await` (no fire-and-forget): el envío ya no está `in_transit`, así que ningún barrido
+            // reenvía estas pushes si el proceso se reinicia justo después de la transición. Nunca
+            // lanza: cada push tiene su propio try/catch.
+            await dispatchTransitAnomalyDisputePushes(notificationsClient, logger, shipment);
           }
         } catch (err) {
           if (err instanceof ShipmentConcurrentModificationError) {

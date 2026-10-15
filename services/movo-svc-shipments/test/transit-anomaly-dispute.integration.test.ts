@@ -46,7 +46,11 @@ describe("salida del in_transit demorado (Postgres, MOVO-278)", () => {
   }
 
   /** Viaje `active` con un único paquete `in_transit`, marcado como demorado hace `flaggedHoursAgo`. */
-  async function inTransitPackage(flaggedHoursAgo: number | null, carrierId = randomUUID()) {
+  async function inTransitPackage(
+    flaggedHoursAgo: number | null,
+    carrierId = randomUUID(),
+    warnedHoursAgo: number | null = null
+  ) {
     const trip = await tripRepo.create(tripInput(carrierId));
     const { shipmentId } = await attachAcceptedPackage(app.db, trip, ShipmentStatus.IN_TRANSIT);
     await app.db.trip.update({ where: { id: trip.id }, data: { status: TripStatus.ACTIVE } });
@@ -54,6 +58,7 @@ describe("salida del in_transit demorado (Postgres, MOVO-278)", () => {
       where: { id: shipmentId },
       data: {
         transitAnomalyFlaggedAt: flaggedHoursAgo === null ? null : new Date(Date.now() - flaggedHoursAgo * HOUR_MS),
+        transitAnomalyWarnedAt: warnedHoursAgo === null ? null : new Date(Date.now() - warnedHoursAgo * HOUR_MS),
       },
     });
     return { shipmentId, trip, carrierId };
@@ -108,7 +113,7 @@ describe("salida del in_transit demorado (Postgres, MOVO-278)", () => {
 
   describe("disputa automática (AC3/AC6)", () => {
     it("pasa a disputed solo los marcados y vencidos, con evento sin actor, y es idempotente", async () => {
-      const overdue = await inTransitPackage(25);
+      const overdue = await inTransitPackage(25, randomUUID(), 13);
       const recent = await inTransitPackage(5);
       const unflagged = await inTransitPackage(null);
 
@@ -128,12 +133,32 @@ describe("salida del in_transit demorado (Postgres, MOVO-278)", () => {
       expect(await app.db.shipmentEvent.count({ where: { toStatus: ShipmentStatus.DISPUTED } })).toBe(1);
     });
 
+    it("un marcado hace más de 24 h pero sin aviso previo se avisa primero y recién después se disputa (backfill)", async () => {
+      const { shipmentId } = await inTransitPackage(30);
+
+      await service().warnFlaggedInTransitShipments();
+      expect(await service().disputeOverdueFlaggedShipments()).toEqual({ disputedCount: 0, errorsCount: 0 });
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.IN_TRANSIT);
+      expect((await shipmentRepo.findById(shipmentId))?.transitAnomalyWarnedAt).not.toBeNull();
+
+      // 12 h después del aviso ya cumplió el plazo que prometió la push.
+      await app.db.shipment.update({
+        where: { id: shipmentId },
+        data: { transitAnomalyWarnedAt: new Date(Date.now() - 13 * HOUR_MS) },
+      });
+      expect(await service().disputeOverdueFlaggedShipments()).toEqual({ disputedCount: 1, errorsCount: 0 });
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.DISPUTED);
+    });
+
     it("una entrega confirmada antes del plazo queda delivered y el barrido no la toca", async () => {
       const { shipmentId } = await inTransitPackage(20);
       await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.DELIVERED, randomUUID());
       await app.db.shipment.update({
         where: { id: shipmentId },
-        data: { transitAnomalyFlaggedAt: new Date(Date.now() - 25 * HOUR_MS) },
+        data: {
+          transitAnomalyFlaggedAt: new Date(Date.now() - 25 * HOUR_MS),
+          transitAnomalyWarnedAt: new Date(Date.now() - 13 * HOUR_MS),
+        },
       });
 
       expect((await service().disputeOverdueFlaggedShipments()).disputedCount).toBe(0);
@@ -143,7 +168,7 @@ describe("salida del in_transit demorado (Postgres, MOVO-278)", () => {
 
   describe("viaje y bloqueo del transportista (AC4/AC9)", () => {
     it("el viaje se completa, pero el transportista no puede iniciar otro mientras la disputa siga abierta", async () => {
-      const { shipmentId, trip, carrierId } = await inTransitPackage(25);
+      const { shipmentId, trip, carrierId } = await inTransitPackage(25, randomUUID(), 13);
       await service().disputeOverdueFlaggedShipments();
 
       expect(await tripRepo.completeFinishedActive(10)).toEqual([trip.id]);

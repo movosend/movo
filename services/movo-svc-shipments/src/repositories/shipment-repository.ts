@@ -598,10 +598,12 @@ export interface ShipmentRepository {
    */
   markTransitAnomalyWarned(id: string, now?: Date): Promise<boolean>;
   /**
-   * MOVO-278 (ADR-045): envíos `in_transit` marcados en o antes de `flaggedBefore`
-   * (candidatos a pasar a `disputed`), el marcado hace más tiempo primero.
+   * MOVO-278 (ADR-045): envíos `in_transit` marcados en o antes de `flaggedBefore` Y avisados
+   * en o antes de `warnedBefore` (candidatos a pasar a `disputed`), el marcado hace más tiempo
+   * primero. Exigir el aviso previo garantiza que el transportista tuvo el plazo prometido, aun
+   * para los marcados antes del deploy o si el barrido estuvo caído más que el plazo de disputa.
    */
-  findFlaggedInTransitBefore(limit: number, flaggedBefore: Date): Promise<Shipment[]>;
+  findFlaggedInTransitBefore(limit: number, flaggedBefore: Date, warnedBefore: Date): Promise<Shipment[]>;
   /**
    * MOVO-278 (ADR-045, requisito de ADR-036): ¿el usuario tiene algún envío en
    * `disputed` como transportista? Sea la disputa automática o una iniciada por un usuario.
@@ -1433,9 +1435,13 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return result.count > 0;
     },
 
-    async findFlaggedInTransitBefore(limit: number, flaggedBefore: Date): Promise<Shipment[]> {
+    async findFlaggedInTransitBefore(limit: number, flaggedBefore: Date, warnedBefore: Date): Promise<Shipment[]> {
       const rows = await db.shipment.findMany({
-        where: { status: ShipmentStatus.IN_TRANSIT, transitAnomalyFlaggedAt: { lte: flaggedBefore } },
+        where: {
+          status: ShipmentStatus.IN_TRANSIT,
+          transitAnomalyFlaggedAt: { lte: flaggedBefore },
+          transitAnomalyWarnedAt: { lte: warnedBefore },
+        },
         take: limit,
         orderBy: { transitAnomalyFlaggedAt: "asc" },
       });

@@ -347,6 +347,28 @@ describe("salida del in_transit demorado (MOVO-278, ADR-045)", () => {
       expect(notifications.sendPush).not.toHaveBeenCalled();
     });
 
+    it("si la push falla loguea un evento propio y el aviso queda marcado (no se reintenta)", async () => {
+      const repository = repo({ findFlaggedInTransitUnwarned: vi.fn().mockResolvedValue([flagged(13)]) });
+      const notifications = createFakeNotificationsClient();
+      (notifications.sendPush as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("push caída"));
+      const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn() };
+      const service = createShipmentsService(
+        repository,
+        createFakeUsersClient({}),
+        notifications,
+        logger as never
+      );
+
+      expect((await service.warnFlaggedInTransitShipments()).warnedCount).toBe(1);
+
+      await vi.waitFor(() =>
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ event: "transit_anomaly_warning_push_failed", shipmentId: "s-1" }),
+          expect.any(String)
+        )
+      );
+    });
+
     it("respeta el plazo configurado", async () => {
       const repository = repo({ findFlaggedInTransitUnwarned: vi.fn().mockResolvedValue([flagged(13)]) });
       const service = createShipmentsService(repository, createFakeUsersClient({}), undefined, undefined, {
@@ -359,13 +381,24 @@ describe("salida del in_transit demorado (MOVO-278, ADR-045)", () => {
   });
 
   describe("disputeOverdueFlaggedShipments (AC3)", () => {
+    const warned = (hoursAgo: number) => new Date(NOW.getTime() - hoursAgo * 60 * 60 * 1000);
+
     it("pasa a disputed sin actor, con motivo y expectedFrom in_transit, y avisa a las tres partes", async () => {
-      const repository = repo({ findFlaggedInTransitBefore: vi.fn().mockResolvedValue([flagged(25)]) });
+      const repository = repo({
+        findFlaggedInTransitBefore: vi
+          .fn()
+          .mockResolvedValue([flagged(25, { transitAnomalyWarnedAt: warned(13) })]),
+      });
       const notifications = createFakeNotificationsClient();
       const service = createShipmentsService(repository, createFakeUsersClient({}), notifications);
 
       expect(await service.disputeOverdueFlaggedShipments()).toEqual({ disputedCount: 1, errorsCount: 0 });
-      expect(repository.findFlaggedInTransitBefore).toHaveBeenCalledWith(100, new Date("2026-09-24T18:00:00.000Z"));
+      // Marcado hace 24h Y avisado hace 12h (dispute - warn): las horas que prometió la push.
+      expect(repository.findFlaggedInTransitBefore).toHaveBeenCalledWith(
+        100,
+        new Date("2026-09-24T18:00:00.000Z"),
+        new Date("2026-09-25T06:00:00.000Z")
+      );
       expect(repository.updateStatus).toHaveBeenCalledWith(
         "s-1",
         ShipmentStatus.DISPUTED,
@@ -379,16 +412,59 @@ describe("salida del in_transit demorado (MOVO-278, ADR-045)", () => {
     });
 
     it("no toca un envío marcado hace menos del plazo", async () => {
-      const repository = repo({ findFlaggedInTransitBefore: vi.fn().mockResolvedValue([flagged(23)]) });
+      const repository = repo({
+        findFlaggedInTransitBefore: vi
+          .fn()
+          .mockResolvedValue([flagged(23, { transitAnomalyWarnedAt: warned(13) })]),
+      });
       const service = createShipmentsService(repository, createFakeUsersClient({}));
 
       expect((await service.disputeOverdueFlaggedShipments()).disputedCount).toBe(0);
       expect(repository.updateStatus).not.toHaveBeenCalled();
     });
 
+    it("no disputa si el aviso es más reciente que el plazo prometido (backfill o barrido caído)", async () => {
+      const repository = repo({
+        findFlaggedInTransitBefore: vi
+          .fn()
+          .mockResolvedValue([flagged(30, { transitAnomalyWarnedAt: warned(0) }), flagged(30, { id: "s-2" })]),
+      });
+      const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+      expect(await service.disputeOverdueFlaggedShipments()).toEqual({ disputedCount: 0, errorsCount: 0 });
+      expect(repository.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it("espera las pushes antes de seguir con el próximo candidato", async () => {
+      const order: string[] = [];
+      const repository = repo({
+        findFlaggedInTransitBefore: vi.fn().mockResolvedValue([
+          flagged(25, { transitAnomalyWarnedAt: warned(13) }),
+          flagged(26, { id: "s-2", transitAnomalyWarnedAt: warned(13) }),
+        ]),
+        updateStatus: vi.fn().mockImplementation(async (id: string) => {
+          order.push(`status:${id}`);
+        }),
+      });
+      const notifications = createFakeNotificationsClient();
+      (notifications.sendPush as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        // Microtareas, no `setTimeout`: este archivo usa timers falsos.
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+        order.push("push");
+      });
+      const service = createShipmentsService(repository, createFakeUsersClient({}), notifications);
+
+      await service.disputeOverdueFlaggedShipments();
+
+      // Las 3 pushes del primer envío terminan antes de la transición del segundo.
+      expect(order).toEqual(["status:s-1", "push", "push", "push", "status:s-2", "push", "push", "push"]);
+    });
+
     it("una entrega concurrente gana: el conflicto no cuenta como error ni avisa (AC6)", async () => {
       const repository = repo({
-        findFlaggedInTransitBefore: vi.fn().mockResolvedValue([flagged(25)]),
+        findFlaggedInTransitBefore: vi
+          .fn()
+          .mockResolvedValue([flagged(25, { transitAnomalyWarnedAt: warned(13) })]),
         updateStatus: vi.fn().mockRejectedValue(new ShipmentConcurrentModificationError("s-1")),
       });
       const notifications = createFakeNotificationsClient();
@@ -400,7 +476,10 @@ describe("salida del in_transit demorado (MOVO-278, ADR-045)", () => {
 
     it("cualquier otro error cuenta y no frena al resto del lote", async () => {
       const repository = repo({
-        findFlaggedInTransitBefore: vi.fn().mockResolvedValue([flagged(25), flagged(26, { id: "s-2" })]),
+        findFlaggedInTransitBefore: vi.fn().mockResolvedValue([
+          flagged(25, { transitAnomalyWarnedAt: warned(13) }),
+          flagged(26, { id: "s-2", transitAnomalyWarnedAt: warned(13) }),
+        ]),
         updateStatus: vi.fn().mockRejectedValueOnce(new Error("db")).mockResolvedValueOnce(undefined),
       });
       const service = createShipmentsService(repository, createFakeUsersClient({}));
