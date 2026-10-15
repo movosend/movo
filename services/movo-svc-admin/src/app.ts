@@ -8,6 +8,7 @@ import redisPlugin from "./plugins/redis";
 import errorHandlerPlugin from "./plugins/error-handler";
 import internalClientsPlugin, { InternalClientsOptions } from "./plugins/internal-clients";
 import auditPlugin from "./plugins/audit";
+import { requireAdmin } from "./utils/require-admin";
 import auditRoutes from "./modules/audit/audit.routes";
 
 export type BuildAppOptions = InternalClientsOptions;
@@ -51,6 +52,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
 
   // Todo lo que expone el panel vive bajo /admin (el gateway exige el rol admin, MOVO-288).
+  app.get("/admin/session", {
+    schema: { summary: "Validar acceso del panel", tags: ["admin"], response: {
+      200: { type: "object", required: ["authenticated"], properties: { authenticated: { type: "boolean" } } },
+    } },
+  }, async (request, reply) => {
+    requireAdmin(request);
+    reply.header("Cache-Control", "no-store");
+    return { authenticated: true };
+  });
   app.register(auditRoutes, { prefix: "/admin" });
 
   return app;
