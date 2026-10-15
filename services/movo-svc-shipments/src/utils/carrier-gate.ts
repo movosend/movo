@@ -1,4 +1,11 @@
-import { ApiError, CarrierRequirement, CarrierRequirementsErrorDetails, KycStatus, UserRole } from "@movo/shared";
+import {
+  AccountStatus,
+  ApiError,
+  CarrierRequirement,
+  CarrierRequirementsErrorDetails,
+  KycStatus,
+  UserRole,
+} from "@movo/shared";
 import { UsersClient } from "../adapters/users-client";
 import { PaymentsClient } from "../adapters/payments-client";
 
@@ -42,6 +49,11 @@ export interface CarrierEligibility {
   identityApproved: boolean;
   /** Requisitos habilitantes que faltan, en orden fijo: licencia primero, después MP. */
   missingRequirements: CarrierRequirement[];
+  /** MOVO-265: estado de la cuenta, de la misma llamada a svc-users. `null` si la cuenta no
+   * existe o se dio de baja; `undefined` si svc-users no lo informó (versión anterior). Lo
+   * usa la generación de viajes recurrentes; los gates de escritura no lo miran (no estaba
+   * en ADR-036). */
+  account: { status: AccountStatus; bannedUntil: Date | null } | null | undefined;
 }
 
 /**
@@ -68,6 +80,11 @@ export async function resolveCarrierEligibility(
   return {
     identityApproved: kyc?.kycStatusIdentity === KycStatus.APPROVED,
     missingRequirements,
+    account: !kyc
+      ? null
+      : kyc.accountStatus === undefined
+        ? undefined
+        : { status: kyc.accountStatus, bannedUntil: kyc.bannedUntil ? new Date(kyc.bannedUntil) : null },
   };
 }
 

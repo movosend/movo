@@ -2,9 +2,17 @@ import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
 import { registerSweep } from "./register-sweep";
 import { createTripRepository } from "../repositories/trip-repository";
+import { createUsersClient, UsersClient } from "../adapters/users-client";
+import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
+import { createNotificationsClient, NotificationsClient } from "../adapters/notifications-client";
+import { generateRecurringOccurrences } from "../modules/trips/trip-recurrence";
 
 export interface TripExpirySweepPluginOptions {
   enabled?: boolean;
+  /** MOVO-265: requisitos del transportista y avisos de la generación de viajes recurrentes. */
+  usersClient?: UsersClient;
+  paymentsClient?: PaymentsClient;
+  notificationsClient?: NotificationsClient;
 }
 
 const BATCH_SIZE = 100;
@@ -24,9 +32,20 @@ const BATCH_SIZE = 100;
  * Auditoría (AC5): sin tabla de eventos propia para `Trip` -- alcanza con el log
  * estructurado (`trip_auto_expired`) + `updatedAt`, que el `@updatedAt` de Prisma
  * refresca en la cancelación.
+ *
+ * MOVO-265 (ADR-042): el último paso continúa las series de viajes recurrentes. Va al final
+ * para que el vigente que venció en esta misma corrida (un `declared` sin salir o un `active`
+ * vacío) ya cuente como `expired` en la racha de serie fantasma.
  */
 export default fp(async (app: FastifyInstance, opts: TripExpirySweepPluginOptions = {}) => {
   const repository = createTripRepository(app.db);
+  const recurrenceDeps = {
+    tripRepository: repository,
+    usersClient: opts.usersClient ?? createUsersClient(app.config),
+    paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
+    notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),
+    logger: app.log,
+  };
 
   // Un paso que falla no debe frenar a los demás: con un solo try/catch, una fila mala en
   // `cancelOverdueDeclared` dejaba sin correr (para siempre) el cierre de los `active`
@@ -75,6 +94,10 @@ export default fp(async (app: FastifyInstance, opts: TripExpirySweepPluginOption
             "Viaje active sin paquetes vivos expirado automáticamente",
           );
         }
+      });
+
+      await runStep("generate_recurring_next", async () => {
+        await generateRecurringOccurrences(recurrenceDeps);
       });
     },
   });

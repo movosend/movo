@@ -35,6 +35,9 @@ export type NotificationTriggerKey =
   | "tripMatch"
   | "tripAutoCreated"
   | "tripDepartureReminder"
+  | "tripRecurrenceGenerated"
+  | "tripRecurrenceStoppedPhantom"
+  | "tripRecurrenceStoppedUnavailable"
   | "ratingReceived"
   | "custodyPickupConfirmed"
   | "custodyPickupConfirmedReceiver"
@@ -278,6 +281,42 @@ export const NOTIFICATION_TRIGGERS = {
             title: "Tu viaje es mañana",
             body: `Todavía no tenés paquetes para llevar a ${destinationShort}. Entrá y mirá qué envíos te quedan de paso.`,
           }
+  ),
+  /** MOVO-265 (ADR-042): el barrido declaró la ocurrencia siguiente de un viaje recurrente. */
+  tripRecurrenceGenerated: definition<{ dayLabel: string; destinationShort: string }>(
+    "trips",
+    { title: "Declaramos tu próximo viaje", body: "Declaramos tu viaje de la semana que viene. Entrá y mirá qué envíos te quedan de paso." },
+    ({ dayLabel, destinationShort }) => ({
+      title: "Declaramos tu próximo viaje",
+      body: `Declaramos tu viaje del ${dayLabel} a ${destinationShort}. Entrá y mirá qué envíos te quedan de paso.`,
+    })
+  ),
+  /** MOVO-265: corte automático por 3 ocurrencias seguidas vencidas (serie fantasma). Habla
+   * de viajes y no de semanas: con varios días por semana, 3 ocurrencias no son 3 semanas. */
+  tripRecurrenceStoppedPhantom: definition<{ destinationShort: string }>(
+    "trips",
+    {
+      title: "Dejamos de repetir tu viaje",
+      body: "Dejamos de repetir tu viaje porque no saliste en tus últimos 3 viajes.",
+    },
+    ({ destinationShort }) => ({
+      title: "Dejamos de repetir tu viaje",
+      body: `Dejamos de repetir tu viaje a ${destinationShort} porque no saliste en tus últimos 3 viajes.`,
+    })
+  ),
+  /** MOVO-265: corte automático porque no se pudo declarar en nombre del transportista
+   * (cuenta suspendida o requisitos de ADR-036). Genérico a propósito: sin detalles de
+   * moderación en una pantalla bloqueada. */
+  tripRecurrenceStoppedUnavailable: definition<{ destinationShort: string }>(
+    "trips",
+    {
+      title: "Dejamos de repetir tu viaje",
+      body: "No pudimos declarar tu próximo viaje. Revisá tu cuenta para volver a activarlo.",
+    },
+    ({ destinationShort }) => ({
+      title: "Dejamos de repetir tu viaje",
+      body: `No pudimos declarar tu próximo viaje a ${destinationShort}. Revisá tu cuenta para volver a activarlo.`,
+    })
   ),
   ratingReceived: definition<void>(
     "ratings",

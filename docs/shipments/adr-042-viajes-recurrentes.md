@@ -41,7 +41,11 @@ alcance del TFG no compensa.
    índice único parcial "un solo trip no terminal por `seriesId`": cuando el vigente pasa
    a `active` y se genera el siguiente en `declared`, los dos son legítimos a la vez. El
    insert usa `ON CONFLICT DO NOTHING`, así que una segunda corrida del barrido o dos
-   instancias en paralelo no duplican, y no hace falta un `nextGeneratedAt`. La API
+   instancias en paralelo no duplican, y no hace falta un `nextGeneratedAt`. Como el
+   candidato se lee antes de dos llamadas HTTP por serie, el insert bloquea la fila origen
+   (`FOR UPDATE`), la relee como cabeza de una serie activa y copia los datos de esa fila:
+   un `PATCH`/`cancel` con `stopRecurrence` que llegó en el medio gana y no se genera nada
+   (review de PR #246). La API
    expone `isSeriesHead` para que el mobile no tenga que reconstruir la cadena.
 4. **Cuándo y dónde se genera.** Es un paso nuevo del barrido existente
    (`trip-expiry-sweep.ts`, `runStep` propio), sin job nuevo. Corre **después** de
@@ -57,13 +61,19 @@ alcance del TFG no compensa.
    ruta, `vehicleType`, la recurrencia y `seriesId`.
 6. **Editar.** La recurrencia solo se edita en el trip vigente (en otro trip de la serie
    responde 409 `TRIP_NOT_SERIES_HEAD`). Editar el vigente (ruta, hora, días) define el
-   patrón de las ocurrencias siguientes: no hay una edición "de la serie" aparte. Un
-   `PATCH` que solo toca campos de recurrencia (`recurrenceWeekdays`, `recurrenceUntil`,
-   incluido apagarla) se permite **aunque el viaje tenga paquetes aceptados**, porque no
-   cambia ese viaje concreto. Es una excepción al 409 `TRIP_HAS_ACCEPTED_PACKAGES`. Un
-   `PATCH` mixto sigue la regla actual. Validaciones: al menos un día, sin repetidos; el
+   patrón de las ocurrencias siguientes: no hay una edición "de la serie" aparte. Un viaje
+   con paquetes aceptados no se edita (409 `TRIP_HAS_ACCEPTED_PACKAGES`), tampoco su
+   recurrencia: si el transportista quiere otro patrón, declara un viaje nuevo. La única
+   excepción es **apagar** la recurrencia (`recurrenceWeekdays: null`, con o sin
+   `recurrenceUntil: null`), que no cambia ese viaje concreto y es la única forma de cortar
+   una serie cuyo vigente ya tiene paquetes (review de PR #246: la primera versión dejaba
+   pasar cualquier `PATCH` de solo recurrencia, y entonces cambiar los días de un vigente
+   ya `active` chocaba con la regla del día de salida de abajo, pensada para un viaje que
+   todavía se puede editar). Validaciones: al menos un día, sin repetidos; el
    día de semana de `departureAt` (huso Córdoba) tiene que estar en `recurrenceWeekdays`;
-   `recurrenceUntil` tiene que ser posterior a la fecha de `departureAt`. Un trip
+   `recurrenceUntil` tiene que ser posterior a la fecha de `departureAt`. Prender o cambiar la recurrencia exige que el viaje esté `declared` o `active` (409
+   `TRIP_NOT_EDITABLE` si ya terminó: un `expired`/`cancelled`/`completed` sin sucesor
+   sería candidato del barrido y se declararía uno nuevo desde el historial). Un trip
    auto-creado por MOVO-234 se puede volver recurrente con `PATCH`, como cualquier otro.
 7. **Cancelar la ocurrencia o cortar la serie.** `POST /trips/:id/cancel` (MOVO-260)
    suma `{ stopRecurrence?: boolean }`. Sin el flag cancela solo la ocurrencia, y la
@@ -72,7 +82,8 @@ alcance del TFG no compensa.
    el flag se ignora. El cancel sigue limitado a viajes `declared` sin paquetes aceptados
    (`TRIP_NOT_DECLARED`/`TRIP_HAS_ACCEPTED_PACKAGES`), así que la elección "solo este /
    este y dejar de repetir" del mobile solo aparece ahí. Para cortar una serie cuyo
-   vigente ya tiene paquetes, está "Dejar de repetir" (`PATCH` del punto 6). Apagar la
+   vigente ya tiene paquetes, está "Dejar de repetir" (el `PATCH` que la apaga, única
+   excepción del punto 6). Apagar la
    recurrencia (`recurrenceWeekdays = null`) conserva `seriesId` como histórico.
 8. **Cortes automáticos** (siempre `recurrenceWeekdays = null` en el vigente + push):
    - **Serie fantasma:** si las últimas 3 ocurrencias consecutivas de la cadena
@@ -110,15 +121,17 @@ alcance del TFG no compensa.
     generación tiene que reusar esa misma validación.
 12. **Auditoría:** mismo criterio que MOVO-238. Log estructurado por generación y por
     corte (`trip_recurrence_generated`, `trip_recurrence_stopped` con `reason`), sin
-    tabla de eventos propia para `Trip`.
+    tabla de eventos propia para `Trip`, y un resumen por corrida (`trip_recurrence_run`:
+    generadas, cortadas, postergadas y ya generadas por otra corrida).
 
 ## Trade-offs aceptados
 
 - **Visibilidad corta:** solo existe la próxima ocurrencia, así que no se matchean
   paquetes para dentro de dos semanas o más. Es el costo de no tener un `TripSchedule`.
 - **La hora queda atada al vigente:** las ocurrencias futuras copian la hora del
-  `departureAt` vigente. Si ese viaje tiene paquetes aceptados, la hora no se puede
-  cambiar (los días sí) hasta que se genere la siguiente.
+  `departureAt` vigente. Si ese viaje tiene paquetes aceptados, ni la hora ni los días se
+  pueden cambiar hasta que se genere la siguiente (o se declara un viaje nuevo); solo se
+  puede apagar la serie.
 - **Cortar en vez de saltear:** un problema temporal de requisitos (por ejemplo, una
   cuenta de MP desvinculada justo cuando corre el barrido) apaga la serie, y el
   transportista tiene que volver a prenderla. Se aceptó porque la alternativa (saltear

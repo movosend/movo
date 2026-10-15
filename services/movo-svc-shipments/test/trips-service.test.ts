@@ -269,6 +269,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         destinationLng: -63.24,
         departureAt,
         vehicleType: "auto",
+        recurrenceUntil: null,
       });
       expect(trip.id).toBe(TRIP_ID);
     });
@@ -451,7 +452,11 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         input: { vehicleType: "camioneta" },
       });
 
-      expect(tripRepo.update).toHaveBeenCalledWith(TRIP_ID, { vehicleType: "camioneta" });
+      expect(tripRepo.update).toHaveBeenCalledWith(
+        TRIP_ID,
+        { vehicleType: "camioneta" },
+        { allowWithAcceptedPackages: false, seriesId: undefined },
+      );
       expect(updated.vehicleType).toBe("camioneta");
     });
   });
@@ -859,7 +864,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
 
       const result = await service.cancelTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] });
 
-      expect(tripRepo.cancel).toHaveBeenCalledWith(TRIP_ID);
+      expect(tripRepo.cancel).toHaveBeenCalledWith(TRIP_ID, { stopRecurrence: false });
       expect(result.status).toBe(TripStatus.CANCELLED);
       expect(result.cancelledAt).toBeInstanceOf(Date);
     });
