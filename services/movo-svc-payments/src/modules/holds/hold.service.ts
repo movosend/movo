@@ -633,11 +633,14 @@ export function createHoldService(deps: HoldServiceDeps) {
       } else if (
         hold.mpPaymentId &&
         hold.cardLast4 == null &&
+        hold.cardBrand == null &&
         (hold.status === "captured" || hold.status === "cancelled")
       ) {
         // MOVO-302: un hold que ya salió de authorized/in_process no vuelve a leerse nunca; si quedó
         // sin tarjeta (adoptado por búsqueda, o un create que vino sin `card`), este es el único camino
-        // que la completa. No toca el estado: solo agrega lo que falta.
+        // que la completa. No toca el estado: solo agrega lo que falta. Solo se intenta si no hay ni
+        // marca ni últimos 4: un pago sin tarjeta (por ejemplo con dinero en cuenta) queda con la
+        // marca guardada y no vuelve a consultar a MP en cada `?sync=true` (review de PR #255).
         hold = await completeCardFromMp(hold);
       }
       return toHoldResponse(hold);
@@ -738,6 +741,10 @@ export function createHoldService(deps: HoldServiceDeps) {
   /**
    * MOVO-302: completa marca y últimos 4 de un hold ya capturado o cancelado leyendo el pago a MP.
    * Solo agrega lo que falta: no cambia el estado ni pisa una tarjeta ya guardada.
+   *
+   * Es un dato solo para el historial, así que es de mejor esfuerzo: si MP no responde se loguea y
+   * se devuelve el hold como está, en vez de convertir un `?sync=true` que antes nunca llamaba a MP
+   * en un 502 para `svc-shipments` (review de PR #255).
    */
   async function completeCardFromMp(hold: Hold): Promise<Hold> {
     const credentials = await accounts.findCredentials(hold.carrierId);
@@ -751,9 +758,9 @@ export function createHoldService(deps: HoldServiceDeps) {
     } catch (error) {
       log.error(
         { shipmentId: hold.shipmentId, holdId: hold.id, reason: readMpError(error).message },
-        "falló la consulta del pago a MP para completar la tarjeta"
+        "falló la consulta del pago a MP para completar la tarjeta, el hold queda como está"
       );
-      throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "No se pudo consultar el estado a Mercado Pago");
+      return hold;
     }
     const missing = missingCardFields(hold, payment);
     return Object.keys(missing).length > 0 ? holds.update(hold.id, missing) : hold;

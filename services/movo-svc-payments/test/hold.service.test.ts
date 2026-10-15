@@ -613,6 +613,41 @@ describe("HoldService (MOVO-209)", () => {
         expect(row()).toMatchObject({ cardLast4: "1881", cardBrand: "master" });
       });
 
+      // Seguimiento de Pedro (review de PR #255): es un dato solo para el historial.
+      it("si MP falla no tira un 502: devuelve el hold como está y lo loguea", async () => {
+        await setup("captured");
+        mp.getPayment.mockReset().mockRejectedValue(new Error("The operation was aborted"));
+
+        const res = await service().getByShipment(SHIPMENT, { sync: true });
+
+        expect(res.status).toBe("captured");
+        expect(row().cardLast4).toBeNull();
+        expect(log.error).toHaveBeenCalledWith(
+          expect.objectContaining({ holdId: holds.rows[0].id }),
+          expect.stringContaining("el hold queda como está")
+        );
+      });
+
+      it("un pago sin tarjeta (marca guardada, sin últimos 4) no vuelve a consultar a MP en cada sync", async () => {
+        await setup("captured", { cardBrand: "account_money" });
+
+        await service().getByShipment(SHIPMENT, { sync: true });
+        await service().getByShipment(SHIPMENT, { sync: true });
+
+        expect(mp.getPayment).not.toHaveBeenCalled();
+      });
+
+      it("la primera consulta de un pago sin tarjeta guarda la marca y corta las siguientes", async () => {
+        await setup("captured");
+        mp.getPayment.mockReset().mockResolvedValue(payment({ status: "approved", payment_method_id: "account_money" }));
+
+        await service().getByShipment(SHIPMENT, { sync: true });
+        await service().getByShipment(SHIPMENT, { sync: true });
+
+        expect(mp.getPayment).toHaveBeenCalledTimes(1);
+        expect(row()).toMatchObject({ cardBrand: "account_money", cardLast4: null });
+      });
+
       it("un hold rechazado no aparece en el historial: no se consulta", async () => {
         await setup("rejected");
         await service().getByShipment(SHIPMENT, { sync: true });
