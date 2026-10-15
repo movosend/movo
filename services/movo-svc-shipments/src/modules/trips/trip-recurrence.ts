@@ -7,6 +7,7 @@ import {
   renderNotificationTrigger,
 } from "@movo/shared";
 import { TripRepository } from "../../repositories/trip-repository";
+import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { PaymentsClient } from "../../adapters/payments-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
@@ -24,6 +25,9 @@ export interface TripRecurrenceDeps {
   tripRepository: TripRepository;
   usersClient: UsersClient;
   paymentsClient: PaymentsClient;
+  /** MOVO-278 (ADR-045): un transportista con una disputa abierta corta la serie, como el
+   * resto de los requisitos de ADR-036. */
+  shipmentRepository: Pick<ShipmentRepository, "hasOpenDisputeAsCarrier">;
   notificationsClient?: NotificationsClient;
   logger?: RecurrenceLogger;
 }

@@ -46,6 +46,20 @@ describe("resolveTransportGate", () => {
 });
 
 describe("carrierRequirementsFromError", () => {
+  it("MOVO-278: una disputa abierta no abre la checklist, aunque también falten otros requisitos", () => {
+    const error = new ApiError(403, "CARRIER_DISPUTE_OPEN", "x", {
+      missingRequirements: ["no_open_dispute", "license"],
+    });
+    expect(carrierRequirementsFromError(error)).toBeNull();
+  });
+
+  it("MOVO-278: un code de licencia que trae la disputa en details solo lista los pasos de la checklist", () => {
+    const error = new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "x", {
+      missingRequirements: ["license", "no_open_dispute"],
+    });
+    expect(carrierRequirementsFromError(error)).toEqual(["license"]);
+  });
+
   it("lee todos los faltantes de details.missingRequirements, en el orden de la checklist", () => {
     const error = new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "x", {
       missingRequirements: ["mp_account", "license"],

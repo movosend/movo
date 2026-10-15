@@ -69,6 +69,13 @@ Dos problemas con eso:
 - Hoy nada escribe `revoked_at` (MOVO-243), así que el único motivo real de "cuenta no
   vigente", además de no haber vinculado, es el vencimiento del token.
 
+## Requisitos sumados después
+
+- **`no_open_dispute`** (MOVO-278, ADR-045): ningún envío en `disputed` como transportista.
+  Va primero en `missingRequirements` y responde 403 `CARRIER_DISPUTE_OPEN`. Es una consulta
+  local (misma DB) y falla cerrado igual que los otros dos. Se levanta cuando se resuelve la
+  disputa (MOVO-34).
+
 **Referencias**: MOVO-116 (este ticket), MOVO-117 (UI de requisitos pendientes), MOVO-142
 (decisión que se revierte), MOVO-15 (licencia), MOVO-111/112 (vinculación de MP), MOVO-209
 (hold), ADR-026 (criterio de fallar cerrado).

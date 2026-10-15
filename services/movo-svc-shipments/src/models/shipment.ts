@@ -55,6 +55,9 @@ export interface Shipment {
   /** MOVO-258 (D4): cuándo el barrido marcó el envío `in_transit` para revisión por no
    * haberse entregado a tiempo; `null` = nunca marcado. */
   transitAnomalyFlaggedAt: Date | null;
+  /** MOVO-278 (ADR-045): cuándo se le avisó al transportista que el envío marcado pasa a
+   * disputa si no confirma la entrega; `null` = nunca avisado. */
+  transitAnomalyWarnedAt: Date | null;
   /** MOVO-26: inicio de la última asignación; el chat solo muestra mensajes desde acá (el admin los ve todos).
    * `null` = sin corte. */
   chatStartedAt: Date | null;

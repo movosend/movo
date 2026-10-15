@@ -21,11 +21,16 @@ import {
   Package,
   ShieldCheck,
 } from "lucide-react-native";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useLivePosition } from "../../../../src/hooks/use-live-position";
 import { LiveMap } from "../../../../components/tracking/live-map";
 import { CounterpartCard } from "../../../../components/shipments/counterpart-card";
-import { activeShipmentDisplayCode } from "../../../../src/lib/active-shipment-format";
+import {
+  TRANSIT_DELAYED_INFO_TEXT,
+  activeShipmentDisplayCode,
+  isTransitDelayed,
+} from "../../../../src/lib/active-shipment-format";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -90,6 +95,7 @@ export default function LiveTrackingScreen() {
     distanceKm,
     estimatedArrivalMinutes,
     lastUpdateText,
+    isLoadingInitial,
   } = useLivePosition(demoMode ? undefined : shipmentId, {
     destination,
     enabled: Boolean(shipmentId) || demoMode,
@@ -97,6 +103,17 @@ export default function LiveTrackingScreen() {
   });
 
   const displayPosition = demoMode ? (livePosition ?? DEMO_CARRIER_POSITION) : livePosition;
+
+  // MOVO-278 (ADR-045): sin posición (o con el envío demorado) el mapa explica qué pasa en
+  // vez de quedar solo con el pin de destino. La última posición vence a los 7 días (ADR-024).
+  const isDelayed = !demoMode && shipment ? isTransitDelayed(shipment) : false;
+  // Solo en tránsito: con el envío en `assigned`/`assigned_unfunded` todavía no salió y es normal no tener posición.
+  const showNoPositionNotice =
+    !demoMode &&
+    shipment?.status === ShipmentStatus.IN_TRANSIT &&
+    !isDelivered &&
+    !isLoadingInitial &&
+    (!displayPosition || isDelayed);
 
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -336,6 +353,23 @@ export default function LiveTrackingScreen() {
           >
             <Text className="font-sans-semibold text-small text-bg">Ver detalle del envío</Text>
           </Pressable>
+        </View>
+      )}
+
+      {showNoPositionNotice && (
+        <View
+          testID="tracking-no-position-overlay"
+          style={{ position: "absolute", top: topInset + 68, left: 16, right: 16, zIndex: 35 }}
+          className="p-5 rounded-2xl bg-bg border border-border items-center gap-2"
+        >
+          <Text className="font-sans-semibold text-h3 text-fg text-center">
+            {displayPosition ? "La entrega está demorada" : "No tenemos la ubicación del transportista"}
+          </Text>
+          <Text className="font-sans text-small text-fg-2 text-center">
+            {isDelayed
+              ? TRANSIT_DELAYED_INFO_TEXT
+              : "Cuando el transportista vuelva a compartir su ubicación, la vas a ver en el mapa."}
+          </Text>
         </View>
       )}
 

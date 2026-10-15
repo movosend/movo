@@ -236,6 +236,44 @@ describe("ShipmentDetailScreen", () => {
     expect(queryByText("$5.000")).toBeNull();
   });
 
+  describe("MOVO-278: in_transit demorado", () => {
+    it("muestra 'Demorado' en el badge y el banner explicativo", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: "carrier-1",
+          status: ShipmentStatus.IN_TRANSIT,
+          transitAnomalyFlaggedAt: "2026-10-04T10:00:00.000Z",
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-status-badge")).toHaveTextContent("Demorado");
+      expect(getByTestId("shipment-detail-delayed-banner")).toHaveTextContent(
+        "La entrega está demorada. Si no se confirma pronto, vamos a abrir una disputa.",
+      );
+    });
+
+    it("sin marca no muestra el banner y el badge dice 'En camino'", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-status-badge")).toHaveTextContent("En camino");
+      expect(queryByTestId("shipment-detail-delayed-banner")).toBeNull();
+    });
+  });
+
   describe("encabezado: rol y código del envío", () => {
     function withShipment() {
       mockUseShipment.mockReturnValue({

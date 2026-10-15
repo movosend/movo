@@ -93,6 +93,9 @@ function toShipmentDto(shipment: Shipment | ShipmentDetailResult) {
     receiverRedesignationDeadline: shipment.receiverRedesignationDeadline
       ? shipment.receiverRedesignationDeadline.toISOString()
       : null,
+    transitAnomalyFlaggedAt: shipment.transitAnomalyFlaggedAt
+      ? shipment.transitAnomalyFlaggedAt.toISOString()
+      : null,
     // MOVO-180: mismo gotcha de timezone que pickupDate (@db.Date anclada a UTC) --
     // estimatedDeliveryTimeWindowStart/End no lo necesitan, se persisten como string
     // simple (ver schema.prisma).
@@ -126,6 +129,7 @@ function toActiveShipmentDto(item: ActiveShipmentResult) {
     pickupDate: item.pickupDate.toISOString().slice(0, 10),
     pickupTimeWindowStart: item.pickupTimeWindowStart.toISOString().slice(11, 19),
     pickupTimeWindowEnd: item.pickupTimeWindowEnd.toISOString().slice(11, 19),
+    transitAnomalyFlaggedAt: item.transitAnomalyFlaggedAt ? item.transitAnomalyFlaggedAt.toISOString() : null,
   };
 }
 
@@ -828,7 +832,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "CARRIER_LICENSE_NOT_APPROVED o CARRIER_MP_ACCOUNT_NOT_LINKED, el primero que " +
           "falte, con details.missingRequirements listando todos), antes de persistir " +
           "nada; 502 USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se " +
-          "pudo verificar. Ni el emisor ni el receptor pueden ofertar " +
+          "pudo verificar. MOVO-278 (ADR-045): con un envío en disputa como " +
+          "transportista, 403 CARRIER_DISPUTE_OPEN (va primero en missingRequirements). " +
+          "Ni el emisor ni el receptor pueden ofertar " +
           "sobre su propio envío (403 AUTH_FORBIDDEN, AC3). `priceOfferedArs` es el " +
           "NETO que quiere cobrar el transportista -- el servidor calcula el bruto con " +
           "la comisión de Movo (AC6, @movo/shared#computeOfferGrossPrice) y devuelve el " +

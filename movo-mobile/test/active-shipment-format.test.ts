@@ -23,6 +23,7 @@ function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShi
     counterparty: { name: "Lucía Gómez", initials: "LG" },
     isToday: false,
     pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
     ...overrides,
   };
 }
@@ -145,6 +146,17 @@ describe("activeShipmentStatusLabel", () => {
   it("traduce los estados sin hora asociada", () => {
     expect(activeShipmentStatusLabel(makeShipment({ status: "assigned" }))).toBe("Asignado");
     expect(activeShipmentStatusLabel(makeShipment({ status: "in_transit" }))).toBe("En camino");
+  });
+
+  it("MOVO-278: un in_transit marcado como demorado es 'Demorado'; sin marca, 'En camino'", () => {
+    expect(
+      activeShipmentStatusLabel(
+        makeShipment({ status: "in_transit", transitAnomalyFlaggedAt: "2026-10-04T10:00:00.000Z" }),
+      ),
+    ).toBe("Demorado");
+    expect(activeShipmentStatusLabel(makeShipment({ status: "in_transit", transitAnomalyFlaggedAt: null }))).toBe(
+      "En camino",
+    );
   });
 
   it("assigned_unfunded (card flat, previa a que arranque el viaje) muestra la hora de retiro, no un texto genérico", () => {

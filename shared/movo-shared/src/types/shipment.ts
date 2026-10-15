@@ -90,6 +90,9 @@ export interface ActiveShipmentSummary {
   isToday: boolean;
   pickupWindowExpired: boolean;
   tripId: string | null;
+  /** MOVO-278 (ADR-045): ISO del instante en que el envío `in_transit` se marcó como
+   * demorado (MOVO-258 D4); `null` si no está marcado. La app lo muestra como "Demorado". */
+  transitAnomalyFlaggedAt: string | null;
 }
 
 /**
