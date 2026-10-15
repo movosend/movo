@@ -154,11 +154,15 @@ describe("sesión del BFF", () => {
   it("renueva y reintenta una sola vez desde acciones", async () => {
     mocks.values.set(ACCESS_COOKIE, "expired")
     mocks.values.set(REFRESH_COOKIE, tokens.refreshToken)
-    mocks.gateway
-      .mockRejectedValueOnce(new ApiError(401, "AUTH_TOKEN_EXPIRED", "expired"))
-      .mockResolvedValueOnce(tokens)
-      .mockResolvedValueOnce(admin)
-      .mockResolvedValueOnce({ authenticated: true })
+    // Profile and panel checks run in parallel, so answer by path, not by call order.
+    mocks.gateway.mockImplementation(
+      async (path: string, options?: { accessToken?: string }) => {
+        if (path === "/auth/admin/refresh") return tokens
+        if (options?.accessToken === "expired")
+          throw new ApiError(401, "AUTH_TOKEN_EXPIRED", "expired")
+        return path === "/users/me" ? admin : { authenticated: true }
+      }
+    )
     expect(await requireAdmin(true)).toEqual(admin)
     expect(
       mocks.gateway.mock.calls.filter(

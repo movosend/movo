@@ -24,7 +24,6 @@ export async function login(
   form: FormData
 ): Promise<AuthState> {
   await assertOrigin()
-  await clearSession()
   const email = String(form.get("email") ?? "")
     .trim()
     .toLowerCase()
@@ -36,6 +35,7 @@ export async function login(
     password.length > 1024
   )
     return { error: "Ingresá un email válido y tu contraseña." }
+  await clearSession()
   try {
     const result = await gateway<{
       challengeId: string

@@ -407,6 +407,15 @@ describe("Sesión de panel (MOVO-287)", () => {
       await expect(service.refresh(session.refreshToken, "incomplete-rotation-1234")).rejects.toMatchObject({ statusCode: 503 });
       expect(consume).toHaveBeenCalledTimes(1);
     });
+    it("si el primer refresh falla por sesión vencida, los duplicados concurrentes responden 401 enseguida", async () => {
+      const user = await createUser();
+      const session = await openPanelSession(user);
+      await createSessionRepository(app.redis).revokePanelSessionsForUser(user.id);
+      const started = Date.now();
+      const results = await Promise.all(Array.from({ length: 4 }, () => duplicate(session.refreshToken)));
+      expect(results.map(r => r.statusCode)).toEqual(Array(4).fill(401));
+      expect(Date.now() - started).toBeLessThan(1500);
+    });
     it("fuera de la ventana la repetición es reuso", async () => {
       const session = await openPanelSession(await createUser());
       expect((await duplicate(session.refreshToken)).statusCode).toBe(200);

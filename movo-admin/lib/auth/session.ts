@@ -128,10 +128,10 @@ export async function renew(): Promise<string> {
 // Call beside each protected operation. Gateway validates signature, expiry, panel
 // revocation and roles; profile supplies current eligibility, never cookie presence.
 export async function validateAdmin(access: string): Promise<AdminProfile> {
-  const profile = await gateway<AdminProfile>("/users/me", {
-    accessToken: access,
-  })
-  await gateway("/admin/session", { accessToken: access })
+  const [profile] = await Promise.all([
+    gateway<AdminProfile>("/users/me", { accessToken: access }),
+    gateway("/admin/session", { accessToken: access }),
+  ])
   if (
     !profile.roles.includes("admin") ||
     profile.accountStatus !== "active" ||

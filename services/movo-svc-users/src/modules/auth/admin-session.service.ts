@@ -140,6 +140,29 @@ export function createAdminSessionService(
     }
   }
 
+  async function publishRotation(
+    refreshToken: string,
+    key: string,
+    owner: string,
+    pending: string
+  ): Promise<PanelSessionResult> {
+    const result = await service.rotate(refreshToken);
+    await validateShared(result);
+    // Compare-and-set: a logout or an expired lease must never be overwritten.
+    const published = await redis.eval(`
+      if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
+      redis.call("SET", KEYS[1], ARGV[2], "EX", 10)
+      return 1
+    `, 1, key, pending, JSON.stringify({ owner, value: seal(refreshToken, result) }));
+    if (published !== 1) {
+      const child = parseRefreshToken(result.refreshToken)!;
+      await sessionRepository.revokePanelRefreshToken(child.userId, child.tokenId);
+      throw REFRESH_INVALID();
+    }
+    await validateShared(result);
+    return result;
+  }
+
   const service = {
     /**
      * Paso 1 (AC1): nunca emite tokens. Las cuatro causas de rechazo (credenciales,
@@ -223,29 +246,30 @@ export function createAdminSessionService(
       const pending = JSON.stringify({ owner, nonce: randomBytes(16).toString("hex") });
       const acquired = await redis.set(key, pending, "EX", 10, "NX");
       if (acquired) {
-        // A failed rotation leaves a pending marker: never consume again in this window.
-        const result = await service.rotate(refreshToken);
-        await validateShared(result);
-        // Compare-and-set: a logout or an expired lease must never be overwritten.
-        const published = await redis.eval(`
-          if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
-          redis.call("SET", KEYS[1], ARGV[2], "EX", 10)
-          return 1
-        `, 1, key, pending, JSON.stringify({ owner, value: seal(refreshToken, result) }));
-        if (published !== 1) {
-          const child = parseRefreshToken(result.refreshToken)!;
-          await sessionRepository.revokePanelRefreshToken(child.userId, child.tokenId);
-          throw REFRESH_INVALID();
+        try {
+          return await publishRotation(refreshToken, key, owner, pending);
+        } catch (error) {
+          // Never consume again in this window: replace the pending marker with a terminal one
+          // so duplicates answer right away (401 for a dead session, 503 otherwise).
+          const failed = error instanceof ApiError && error.statusCode === 401 ? 401 : 503;
+          await redis.eval(`
+            if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
+            redis.call("SET", KEYS[1], ARGV[2], "EX", 10)
+            return 1
+          `, 1, key, pending, JSON.stringify({ owner, failed })).catch(() => undefined);
+          throw error;
         }
-        await validateShared(result);
-        return result;
       }
       for (let attempt = 0; attempt < 100; attempt++) {
         const raw = await redis.get(key);
         if (!raw) throw REFRESH_INVALID();
-        const cached = JSON.parse(raw) as { owner: string; value?: string; blocked?: boolean };
+        const cached = JSON.parse(raw) as { owner: string; value?: string; blocked?: boolean; failed?: number };
         if (cached.blocked) throw REFRESH_INVALID();
         if (cached.owner !== owner) return service.rotate(refreshToken);
+        if (cached.failed) {
+          if (cached.failed === 401) throw REFRESH_INVALID();
+          throw new ApiError(503, "INTERNAL_ERROR", "La renovación no pudo completarse. Reintentá.");
+        }
         if (cached.value) {
           const result = unseal(refreshToken, cached.value);
           await validateShared(result);

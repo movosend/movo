@@ -53,10 +53,12 @@ export function AuthForm({
   >(resend, {})
   const [now, setNow] = useState(0)
   const [code, setCode] = useState("")
+  const hasChallenge = !!challenge
   useEffect(() => {
+    if (!hasChallenge) return
     const timer = setInterval(() => setNow(Date.now()), 500)
     return () => clearInterval(timer)
-  }, [])
+  }, [hasChallenge])
   const seconds = Math.max(
     0,
     Math.ceil(((resendState.resendAt ?? challenge?.resendAt ?? 0) - now) / 1000)
