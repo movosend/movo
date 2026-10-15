@@ -51,7 +51,7 @@ export function RouteTrackingChatCard({
   const trackingBody = (live: boolean) => (
     <View className="flex-1 pr-3">
       <View className="flex-row items-center gap-2">
-        <View className={`h-2 w-2 rounded-full ${live ? "bg-[#6E8E1E]" : "bg-fg-3/60"}`} />
+        <View className="h-2 w-2 rounded-full bg-fg-3" style={live ? { backgroundColor: "#6E8E1E" } : undefined} />
         <Text className="font-sans-semibold text-caption uppercase tracking-wider text-fg-2">En vivo</Text>
       </View>
       <Text className="mt-1 font-sans text-small text-fg-2" numberOfLines={2}>
