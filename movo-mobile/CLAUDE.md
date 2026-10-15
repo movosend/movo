@@ -4712,7 +4712,10 @@ Pulido de MOVO-284 (todo mobile, sin backend).
 - **Animación de mensajes**: `useLiveChatKeys` (`src/hooks/`) distingue lo que llega en vivo (nuevo y antes del que era el más
   nuevo) de historial y paginación, durante el render porque `entering` solo corre al montar. Cada key en vivo se retira sola a
   los 800 ms, así una burbuja que se vuelve a montar por virtualización no se anima de nuevo. `chatEnteringAnimation`
-  (`chat-bubble.tsx`) usa `translateY` negativo: la `FlatList inverted` espeja cada celda, y así se ve venir desde abajo.
+  (`chat-bubble.tsx`) usa `translateY` positivo: la `FlatList inverted` espeja la lista y cada celda, el doble espejo se
+  cancela y el contenido queda derecho (verificar en dispositivo).
+  Al enviar: el mensaje propio crece con un resorte desde su esquina (`ownMessageEnteringAnimation`), pasa de
+  atenuado a opaco al confirmarse, los de abajo suben con `LinearTransition` y el botón rebota con una vibración suave.
   Respeta `useReducedMotion`. El mock de Jest de reanimated no trae ese hook: `test/mocks/reanimated-setup.js` lo suma
   (`globalThis.__reduceMotion`).
 - **"Ir al último mensaje"** (`scroll-to-bottom-button.tsx`): aparece a más de una altura de lista del final, cuenta los

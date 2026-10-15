@@ -1,6 +1,8 @@
 import { CHAT_MESSAGE_MAX_LENGTH } from "@movo/shared/dist/types/chat";
+import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSequence, withSpring, withTiming } from "react-native-reanimated";
 import Svg, { Path, Rect } from "react-native-svg";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 
@@ -23,6 +25,10 @@ export function ChatComposer({ canWrite, readOnlyCopy, onSend, testID }: ChatCom
   const colors = useThemeColors();
   const [text, setText] = useState("");
   const [focused, setFocused] = useState(false);
+  // Al enviar, el botón "rebota" y el campo se vacía: así se nota que el mensaje salió.
+  const reduceMotion = useReducedMotion();
+  const sendScale = useSharedValue(1);
+  const sendStyle = useAnimatedStyle(() => ({ transform: [{ scale: sendScale.value }] }));
 
   if (!canWrite) {
     return (
@@ -40,7 +46,11 @@ export function ChatComposer({ canWrite, readOnlyCopy, onSend, testID }: ChatCom
   const canSend = trimmed.length > 0 && trimmed.length <= CHAT_MESSAGE_MAX_LENGTH;
   const handleSend = () => {
     if (!canSend) return;
-    if (onSend(trimmed)) setText("");
+    if (onSend(trimmed)) {
+      setText("");
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (!reduceMotion) sendScale.value = withSequence(withTiming(0.82, { duration: 70 }), withSpring(1, { damping: 8, stiffness: 300 }));
+    }
   };
 
   return (
@@ -64,18 +74,20 @@ export function ChatComposer({ canWrite, readOnlyCopy, onSend, testID }: ChatCom
             style={{ fontSize: 15, minHeight: 42, maxHeight: 112, paddingVertical: 10 }}
           />
         </View>
-        <Pressable
-          testID={`${testID}-send`}
-          accessibilityLabel="Enviar"
-          disabled={!canSend}
-          onPress={handleSend}
-          className="items-center justify-center"
-          style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#C6F24A" }}
-        >
-          <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#0A0A0B" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <Path d="m5 12 7-7 7 7M12 19V5" />
-          </Svg>
-        </Pressable>
+        <Animated.View style={sendStyle}>
+          <Pressable
+            testID={`${testID}-send`}
+            accessibilityLabel="Enviar"
+            disabled={!canSend}
+            onPress={handleSend}
+            className="items-center justify-center"
+            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#C6F24A" }}
+          >
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#0A0A0B" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <Path d="m5 12 7-7 7 7M12 19V5" />
+            </Svg>
+          </Pressable>
+        </Animated.View>
       </View>
       {text.length >= COUNTER_THRESHOLD ? (
         <Text testID={`${testID}-counter`} className={`mt-1 text-right font-mono text-[10.5px] ${text.length > CHAT_MESSAGE_MAX_LENGTH ? "text-danger-500" : "text-fg-3"}`}>

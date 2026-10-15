@@ -1,6 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import Animated, { useReducedMotion, withTiming } from "react-native-reanimated";
+import Animated, {
+  LinearTransition,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
 import { deliveryStatusLabel, formatChatTime, type LocalChatMessage } from "../../src/lib/chat-format";
 import { ChatAvatar } from "./chat-avatar";
@@ -25,23 +32,38 @@ export interface ChatBubbleProps {
 }
 
 const AVATAR = 28;
-export const CHAT_ENTER_MS = 200;
+export const CHAT_ENTER_MS = 220;
+const SENDING_OPACITY = 0.6;
+const SPRING = { damping: 16, stiffness: 240, mass: 0.8 };
 
 /**
- * Entrada de un mensaje nuevo y del botón "ir al final": fade + slide corto. La lista va invertida
- * (`scaleY: -1` en cada celda), así que el eje Y local está espejado: un `translateY` negativo se
- * ve como venir desde abajo.
+ * Entrada de un mensaje nuevo y del botón "ir al final": fade + deslizamiento corto desde abajo. La
+ * `FlatList inverted` espeja la lista y también cada celda, así que el contenido de una burbuja queda
+ * derecho (el doble espejo se cancela) y un `translateY` positivo se ve como venir desde abajo.
  */
 export function chatEnteringAnimation() {
   "worklet";
   return {
-    initialValues: { opacity: 0, transform: [{ translateY: -12 }] },
+    initialValues: { opacity: 0, transform: [{ translateY: 14 }] },
     animations: {
       opacity: withTiming(1, { duration: CHAT_ENTER_MS }),
       transform: [{ translateY: withTiming(0, { duration: CHAT_ENTER_MS }) }],
     },
   };
 }
+
+/** Un mensaje propio recién enviado "sale" del campo de texto: crece con un resorte desde su esquina inferior. */
+export function ownMessageEnteringAnimation() {
+  "worklet";
+  return {
+    initialValues: { opacity: 0, transform: [{ scale: 0.82 }, { translateY: 10 }] },
+    animations: {
+      opacity: withTiming(1, { duration: 140 }),
+      transform: [{ scale: withSpring(1, SPRING) }, { translateY: withSpring(0, SPRING) }],
+    },
+  };
+}
+
 /** Verde lima del tilde en el prototipo (`tick: "#C6F24A"`, igual en claro y oscuro). */
 const TICK_COLOR = "#C6F24A";
 
@@ -67,10 +89,21 @@ export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, g
   const sending = message.localState === "sending";
   const status = message.deliveryStatus ?? (mine && !sending && !failed ? "sent" : null);
 
+  // Al confirmarse el envío la burbuja se "asienta" (de atenuada a opaca) en vez de saltar.
+  const bubbleOpacity = useSharedValue(sending ? SENDING_OPACITY : 1);
+  useEffect(() => {
+    bubbleOpacity.value = reduceMotion ? (sending ? SENDING_OPACITY : 1) : withTiming(sending ? SENDING_OPACITY : 1, { duration: 180 });
+    // `bubbleOpacity` es un shared value (referencia estable en runtime real).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sending, reduceMotion]);
+  const bubbleOpacityStyle = useAnimatedStyle(() => ({ opacity: bubbleOpacity.value }));
+
   return (
     <Animated.View
       testID={testID}
       entering={animateIn && !reduceMotion ? chatEnteringAnimation : undefined}
+      // Los de abajo suben con suavidad cuando entra uno nuevo (la lista va invertida).
+      layout={reduceMotion ? undefined : LinearTransition.duration(200)}
       className={`flex-row items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}
       style={{ marginTop: groupStart ? 14 : 4 }}
     >
@@ -92,23 +125,28 @@ export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, g
           <Text className="px-1 pt-1 font-sans-semibold text-caption uppercase text-fg-3">{authorLabel}</Text>
         ) : null}
 
-        <View
+        <Animated.View
+          testID={`${testID}-bubble`}
+          entering={animateIn && mine && !reduceMotion ? ownMessageEnteringAnimation : undefined}
           className={mine ? "bg-fg" : "bg-bg-mute"}
-          style={{
-            borderRadius: 20,
-            borderBottomRightRadius: mine ? 6 : 20,
-            borderBottomLeftRadius: mine ? 20 : 6,
-            paddingHorizontal: 14,
-            paddingVertical: 10,
-            opacity: sending ? 0.6 : 1,
-          }}
+          style={[
+            {
+              borderRadius: 20,
+              borderBottomRightRadius: mine ? 6 : 20,
+              borderBottomLeftRadius: mine ? 20 : 6,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              transformOrigin: mine ? "right bottom" : "left bottom",
+            },
+            bubbleOpacityStyle,
+          ]}
         >
           {message.hidden ? (
             <Text className="font-sans text-body italic text-fg-3">Mensaje de un usuario bloqueado</Text>
           ) : (
             <Text className={`font-sans text-body ${mine ? "text-bg" : "text-fg"}`}>{message.body}</Text>
           )}
-        </View>
+        </Animated.View>
 
         {failed ? (
           <View className="flex-row items-center gap-2 px-1">
