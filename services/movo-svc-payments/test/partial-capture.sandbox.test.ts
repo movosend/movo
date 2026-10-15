@@ -17,16 +17,17 @@ import { writeFileSync } from "node:fs";
  *   MP_SANDBOX_CARRIER_ACCESS_TOKEN   access_token `TEST-...` del Vendedor (como holds.sandbox)
  *   MP_SANDBOX_CARRIER_PUBLIC_KEY     public_key del mismo Vendedor
  *   MP_TEST_CARD_* / MP_TEST_PAYER_EMAIL / MP_TEST_PAYMENT_METHOD_ID   los del .env del spike
- *   MP_APP_CLIENT_ID / MP_APP_CLIENT_SECRET   app `movosend` (escenario F, Movo como cobradora;
- *                                     también acepta MP_CLIENT_ID / MP_CLIENT_SECRET)
+ *   MP_APP_CLIENT_ID / MP_APP_CLIENT_SECRET   app `movosend` (escenarios F y G, Movo como cobradora;
+ *                                     también acepta MP_CLIENT_ID / MP_CLIENT_SECRET). El G solo
+ *                                     necesita estas dos: corre aunque falten las del Vendedor
  *   MP_PUBLIC_KEY                     (opcional, escenario F) public_key `TEST-` para tokenizar
  *                                     el pago a Movo; sin ella se prueba con la del Vendedor
  *   MP_SANDBOX_BUYER_EMAIL            (opcional, escenario F) Comprador de prueba; si no, MP_TEST_PAYER_EMAIL
- *   MOVO_305_RESULTS_PATH             (opcional) archivo donde escribir el resumen en JSON
+ *   MOVO_305_RESULTS_PATH             (opcional) archivo donde escribir el resumen en JSON (A-F)
  *
  * Ejemplo (desde services/movo-svc-payments):
  *   node --env-file=../../docs/payments/mercadopago-spike/.env \
- *     ./node_modules/vitest/vitest.mjs run test/partial-capture.sandbox.test.ts
+ *     ../../node_modules/vitest/vitest.mjs run test/partial-capture.sandbox.test.ts
  * con las dos MP_SANDBOX_CARRIER_* exportadas en la shell.
  */
 const MP_API = "https://api.mercadopago.com";
@@ -247,4 +248,41 @@ describe.skipIf(!CONFIGURED)("spike MOVO-305: captura parcial y application_fee 
     },
     120_000
   );
+});
+
+/** Token `TEST-` de Movo S.A. (ADR-039): `client_credentials` con `test_token`. */
+async function movoTestToken(): Promise<MpResponse> {
+  return mp("POST", "/oauth/token", null, {
+    client_id: APP_CLIENT_ID,
+    client_secret: APP_CLIENT_SECRET,
+    grant_type: "client_credentials",
+    test_token: true,
+  });
+}
+
+describe.skipIf(!APP_CLIENT_ID || !APP_CLIENT_SECRET)("spike MOVO-305: Checkout Pro con Movo como cobradora", () => {
+  // G: alternativa a F sin la public_key de Movo S.A. Solo crea la preferencia: el pago se
+  // completa en el navegador (init_point) y eso no se automatiza acá.
+  it("G: preferencia de Checkout Pro cobrada por Movo S.A. (pagar mi saldo, MOVO-312)", async () => {
+    const oauth = await movoTestToken();
+    const movoToken = oauth.body.access_token;
+    expect(typeof movoToken === "string" && movoToken.startsWith("TEST-"), `oauth ${oauth.status}`).toBe(true);
+    const movoUserId = oauth.body.user_id;
+
+    const preference = await mp("POST", "/checkout/preferences", movoToken as string, {
+      items: [{ title: "MOVO-305 spike: pago de saldo a Movo", quantity: 1, unit_price: 100, currency_id: "ARS" }],
+      external_reference: `movo-305-balance-${randomUUID()}`,
+    });
+    const result = {
+      httpStatus: preference.status,
+      collectorIsMovo: preference.body.collector_id === movoUserId,
+      hasInitPoint: typeof preference.body.init_point === "string",
+      hasSandboxInitPoint: typeof preference.body.sandbox_init_point === "string",
+    };
+    console.log(`\n===== MOVO-305 G =====\n${JSON.stringify(result, null, 2)}\n`);
+
+    expect(preference.status, JSON.stringify(preference.body)).toBe(201);
+    expect(preference.body.collector_id).toBe(movoUserId);
+    expect(typeof preference.body.init_point).toBe("string");
+  }, 60_000);
 });
