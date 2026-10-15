@@ -4,8 +4,6 @@ import { TripStatus, UpdateTripInput } from "../models/trip";
 /** ADR-042 (punto 8): ocurrencias seguidas vencidas que cortan la serie ("serie fantasma"). */
 export const PHANTOM_SERIES_STREAK = 3;
 
-const RECURRENCE_FIELDS: ReadonlySet<string> = new Set(["recurrenceWeekdays", "recurrenceUntil"]);
-
 /**
  * MOVO-265 (ADR-042, punto 6): reglas de una recurrencia prendida. El schema de AJV ya
  * rechaza días repetidos o fuera de rango; se repiten acá para que la regla no dependa de
@@ -33,13 +31,18 @@ export function validateRecurrence(params: { weekdays: number[]; until: string |
 }
 
 /**
- * MOVO-265: un PATCH que solo toca la recurrencia no cambia este viaje concreto, así que no
- * lo frena `TRIP_HAS_ACCEPTED_PACKAGES`. Un PATCH mixto (recurrencia + hora, ruta o vehículo)
- * sigue la regla de siempre.
+ * MOVO-265 (ADR-042, punto 6): un viaje con paquetes aceptados no se edita. La única
+ * excepción es apagar la recurrencia (`recurrenceWeekdays: null`, con o sin
+ * `recurrenceUntil: null`), porque no cambia ese viaje concreto y es la única forma de cortar
+ * una serie cuyo vigente ya tiene paquetes. Cambiar los días o la fecha de fin, o prender la
+ * recurrencia, sigue la regla de siempre: si quiere otro patrón, declara un viaje nuevo.
  */
-export function isRecurrenceOnlyPatch(input: UpdateTripInput): boolean {
+export function isStopRecurrencePatch(input: UpdateTripInput): boolean {
   const touched = Object.entries(input).filter(([, value]) => value !== undefined);
-  return touched.length > 0 && touched.every(([key]) => RECURRENCE_FIELDS.has(key));
+  return (
+    input.recurrenceWeekdays === null &&
+    touched.every(([key, value]) => key === "recurrenceWeekdays" || (key === "recurrenceUntil" && value === null))
+  );
 }
 
 /**

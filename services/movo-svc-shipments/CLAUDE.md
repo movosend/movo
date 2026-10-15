@@ -3400,7 +3400,8 @@ query que pasa por `mapTrip` incluye `TRIP_SERIES_INCLUDE` (relación `successor
 - **API**: `POST /trips` y `PATCH /trips/:id` aceptan la recurrencia (400 si falta el día de la
   salida o `recurrenceUntil` no es posterior; 409 `RECURRING_SERIES_LIMIT` al prender una cuarta
   serie; 409 `TRIP_NOT_SERIES_HEAD` fuera del vigente, también como CAS en el UPDATE contra el
-  barrido). Un PATCH que solo toca recurrencia saltea `TRIP_HAS_ACCEPTED_PACKAGES`.
+  barrido). Con paquetes aceptados el viaje no se edita, salvo para apagar la recurrencia
+  (`isStopRecurrencePatch`): cambiarla exige declarar un viaje nuevo (review de PR #246).
   `POST /trips/:id/cancel` acepta `{ stopRecurrence }` y lo aplica en la transacción de
   `retireDeclaredTrip`, solo sobre el vigente. Dos PATCH concurrentes pueden dejar 4 series: aceptado.
 - **Generación** (`modules/trips/trip-recurrence.ts`, último paso de `trip-expiry-sweep.ts`, así
@@ -3410,7 +3411,10 @@ query que pasa por `mapTrip` incluye `TRIP_SERIES_INCLUDE` (relación `successor
   ADR-036 → corta con push genérica; `svc-users`/`svc-payments` caídos, o `svc-users` sin
   `accountStatus` (versión vieja) → posterga sin cortar. El insert es `createMany` con
   `skipDuplicates` (`ON CONFLICT DO NOTHING` sobre `generated_from_trip_id`). Logs
-  `trip_recurrence_generated`/`trip_recurrence_stopped` con `reason`.
+  `trip_recurrence_generated`/`trip_recurrence_stopped` con `reason` y el resumen
+  `trip_recurrence_run`. Los candidatos se paginan por keyset en el `where`, no con `cursor` +
+  `skip: 1`: el último de la página ya procesado deja de cumplir el filtro y `skip` se comía
+  al primero de la página siguiente.
 - Pushes `data.type`: `trip_recurrence_generated` (tripId nuevo) y `trip_recurrence_stopped`.
 
 Pendiente: la UI es MOVO-266.

@@ -18,7 +18,7 @@ import {
   TripPackagesNotReadyError,
   TripNotSeriesHeadError,
 } from "../../repositories/trip-repository";
-import { isRecurrenceOnlyPatch, validateRecurrence } from "../../domain/trip-recurrence";
+import { isStopRecurrencePatch, validateRecurrence } from "../../domain/trip-recurrence";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
@@ -395,15 +395,15 @@ export function createTripsService(deps: {
         forbiddenMessage: "No tenés permiso para modificar este viaje.",
       });
 
-      // MOVO-265 (ADR-042, punto 6): la recurrencia solo se edita en el trip vigente, y un
-      // PATCH que solo la toca no cambia este viaje concreto (se permite con paquetes).
+      // MOVO-265 (ADR-042, punto 6): la recurrencia solo se edita en el trip vigente. Con
+      // paquetes aceptados el viaje no se edita, salvo para apagar la recurrencia.
       const touchesRecurrence = input.recurrenceWeekdays !== undefined || input.recurrenceUntil !== undefined;
-      const recurrenceOnly = isRecurrenceOnlyPatch(input);
+      const stopRecurrenceOnly = isStopRecurrencePatch(input);
       if (touchesRecurrence && !trip.isSeriesHead) {
         throw notSeriesHeadError(tripId);
       }
 
-      if (!recurrenceOnly) {
+      if (!stopRecurrenceOnly) {
         const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
         if (acceptedCount > 0) {
           throw new ApiError(
@@ -463,7 +463,7 @@ export function createTripsService(deps: {
 
       try {
         const updated = await tripRepository.update(tripId, normalizedInput, {
-          allowWithAcceptedPackages: recurrenceOnly,
+          allowWithAcceptedPackages: stopRecurrenceOnly,
           seriesId,
         });
         if (trip.recurrenceWeekdays !== null && updated.recurrenceWeekdays === null) {

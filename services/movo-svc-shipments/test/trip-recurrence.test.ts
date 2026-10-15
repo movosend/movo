@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { TripStatus } from "@movo/shared";
-import { isPhantomSeries, isRecurrenceOnlyPatch, validateRecurrence } from "../src/domain/trip-recurrence";
+import { isPhantomSeries, isStopRecurrencePatch, validateRecurrence } from "../src/domain/trip-recurrence";
 
 // Viernes 2026-10-09 08:00 AR.
 const FRIDAY = new Date("2026-10-09T11:00:00.000Z");
@@ -30,17 +30,20 @@ describe("validateRecurrence (MOVO-265)", () => {
   });
 });
 
-describe("isRecurrenceOnlyPatch (MOVO-265)", () => {
-  it("es true si solo toca campos de recurrencia, incluido apagarla", () => {
-    expect(isRecurrenceOnlyPatch({ recurrenceWeekdays: [1] })).toBe(true);
-    expect(isRecurrenceOnlyPatch({ recurrenceWeekdays: null })).toBe(true);
-    expect(isRecurrenceOnlyPatch({ recurrenceUntil: "2026-12-31", vehicleType: undefined })).toBe(true);
+describe("isStopRecurrencePatch (MOVO-265)", () => {
+  it("es true si solo apaga la recurrencia", () => {
+    expect(isStopRecurrencePatch({ recurrenceWeekdays: null })).toBe(true);
+    expect(isStopRecurrencePatch({ recurrenceWeekdays: null, recurrenceUntil: null })).toBe(true);
+    expect(isStopRecurrencePatch({ recurrenceWeekdays: null, vehicleType: undefined })).toBe(true);
   });
 
-  it("es false si además toca otro campo o si no toca nada", () => {
-    expect(isRecurrenceOnlyPatch({ recurrenceWeekdays: [1], departureAt: FRIDAY })).toBe(false);
-    expect(isRecurrenceOnlyPatch({ vehicleType: "camioneta" })).toBe(false);
-    expect(isRecurrenceOnlyPatch({})).toBe(false);
+  it("es false si cambia los días o la fecha de fin, o si toca otro campo", () => {
+    expect(isStopRecurrencePatch({ recurrenceWeekdays: [1] })).toBe(false);
+    expect(isStopRecurrencePatch({ recurrenceUntil: "2026-12-31" })).toBe(false);
+    expect(isStopRecurrencePatch({ recurrenceWeekdays: null, recurrenceUntil: "2026-12-31" })).toBe(false);
+    expect(isStopRecurrencePatch({ recurrenceWeekdays: null, departureAt: FRIDAY })).toBe(false);
+    expect(isStopRecurrencePatch({ vehicleType: "camioneta" })).toBe(false);
+    expect(isStopRecurrencePatch({})).toBe(false);
   });
 });
 

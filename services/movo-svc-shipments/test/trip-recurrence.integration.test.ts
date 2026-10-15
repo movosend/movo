@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, it, expect, beforeAll, beforeEach, afterAll, Mock } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, Mock, vi } from "vitest";
 import { FastifyInstance } from "fastify";
 import { AccountStatus, ApiError, KycStatus, TripStatus, argentinaWeekday } from "@movo/shared";
 import { buildApp } from "../src/app";
@@ -144,6 +144,43 @@ describe("viajes recurrentes (MOVO-265)", () => {
       expect(sendPush).toHaveBeenCalledTimes(1);
     });
 
+    it("si otra corrida ya generó la ocurrencia, la cuenta como alreadyGenerated y no avisa", async () => {
+      await createPastRecurringTrip();
+      const base = recurrenceDeps();
+      const deps: TripRecurrenceDeps = {
+        ...base.deps,
+        tripRepository: { ...tripRepo, createRecurrenceSuccessor: async () => null },
+      };
+
+      const result = await generateRecurringOccurrences(deps);
+
+      expect(result).toEqual({ generated: 0, stopped: 0, deferred: 0, alreadyGenerated: 1 });
+      expect(base.sendPush).not.toHaveBeenCalled();
+    });
+
+    it("con más de una página de candidatos no saltea ninguno y loguea el resumen de la corrida", async () => {
+      // 101 series: la primera página (100) queda generada y deja de cumplir el filtro de
+      // candidatos; la 101 tiene que aparecer igual en la segunda página.
+      const heads = await Promise.all(
+        Array.from({ length: 101 }, (_, i) =>
+          createPastRecurringTrip({ departureAt: new Date(Date.now() - 2 * HOUR_MS - i * 60_000) }),
+        ),
+      );
+      const info = vi.fn();
+      const { deps } = recurrenceDeps({ logger: { info, warn: vi.fn() } });
+
+      const result = await generateRecurringOccurrences(deps);
+
+      expect(result).toEqual({ generated: 101, stopped: 0, deferred: 0, alreadyGenerated: 0 });
+      for (const head of heads) {
+        expect(await successorOf(head.id)).not.toBeNull();
+      }
+      expect(info).toHaveBeenCalledWith(
+        { event: "trip_recurrence_run", generated: 101, stopped: 0, deferred: 0, alreadyGenerated: 0 },
+        expect.any(String),
+      );
+    });
+
     it.each([TripStatus.ACTIVE, TripStatus.EXPIRED, TripStatus.CANCELLED, TripStatus.COMPLETED])(
       "genera aunque el vigente esté %s",
       async (status) => {
@@ -162,7 +199,7 @@ describe("viajes recurrentes (MOVO-265)", () => {
 
       const result = await generateRecurringOccurrences(recurrenceDeps().deps);
 
-      expect(result).toEqual({ generated: 0, stopped: 0, deferred: 0 });
+      expect(result).toEqual({ generated: 0, stopped: 0, deferred: 0, alreadyGenerated: 0 });
       expect(await app.db.trip.count()).toBe(2);
     });
 
@@ -278,7 +315,7 @@ describe("viajes recurrentes (MOVO-265)", () => {
 
       const result = await generateRecurringOccurrences(recurrenceDeps({ usersClient }).deps);
 
-      expect(result).toEqual({ generated: 0, stopped: 0, deferred: 1 });
+      expect(result).toEqual({ generated: 0, stopped: 0, deferred: 1, alreadyGenerated: 0 });
       expect((await tripRepo.findById(head.id))!.recurrenceWeekdays).toEqual(head.recurrenceWeekdays);
     });
 
@@ -304,7 +341,7 @@ describe("viajes recurrentes (MOVO-265)", () => {
           : { ...base.deps, paymentsClient: { ...base.deps.paymentsClient, getCarrierMpAccountStatus: unavailable } };
 
       const first = await generateRecurringOccurrences(failing);
-      expect(first).toEqual({ generated: 0, stopped: 0, deferred: 1 });
+      expect(first).toEqual({ generated: 0, stopped: 0, deferred: 1, alreadyGenerated: 0 });
       expect(await successorOf(head.id)).toBeNull();
       expect((await tripRepo.findById(head.id))!.recurrenceWeekdays).toEqual(head.recurrenceWeekdays);
       expect(base.sendPush).not.toHaveBeenCalled();
@@ -423,27 +460,34 @@ describe("viajes recurrentes (MOVO-265)", () => {
       expect(res.json()).toMatchObject({ seriesId: trip.id, isSeriesHead: true });
     });
 
-    it("PATCH de solo recurrencia con paquetes aceptados se permite; un PATCH mixto da 409", async () => {
-      const head = await createPastRecurringTrip({ departureAt: futureDeparture() });
+    it("con paquetes aceptados solo se permite apagar la recurrencia; cambiarla o un PATCH mixto da 409", async () => {
+      const head = await createPastRecurringTrip({ departureAt: futureDeparture(), recurrenceUntil: "2099-01-01" });
       await attachAcceptedPackage(app.db, head);
       const day = argentinaWeekday(head.departureAt);
 
-      const recurrenceOnly = await app.inject({
-        method: "PATCH",
-        url: `/trips/${head.id}`,
-        headers: headers(head.carrierId),
-        payload: { recurrenceWeekdays: [day, (day + 2) % 7], recurrenceUntil: "2099-06-30" },
-      });
-      expect(recurrenceOnly.statusCode).toBe(200);
+      for (const payload of [
+        { recurrenceWeekdays: [day, (day + 2) % 7] },
+        { recurrenceUntil: "2099-06-30" },
+        { recurrenceWeekdays: [day], departureAt: futureDeparture(9).toISOString() },
+      ]) {
+        const res = await app.inject({
+          method: "PATCH",
+          url: `/trips/${head.id}`,
+          headers: headers(head.carrierId),
+          payload,
+        });
+        expect(res.statusCode).toBe(409);
+        expect(res.json().error.code).toBe("TRIP_HAS_ACCEPTED_PACKAGES");
+      }
 
-      const mixed = await app.inject({
+      const stop = await app.inject({
         method: "PATCH",
         url: `/trips/${head.id}`,
         headers: headers(head.carrierId),
-        payload: { recurrenceWeekdays: [day], departureAt: futureDeparture(9).toISOString() },
+        payload: { recurrenceWeekdays: null },
       });
-      expect(mixed.statusCode).toBe(409);
-      expect(mixed.json().error.code).toBe("TRIP_HAS_ACCEPTED_PACKAGES");
+      expect(stop.statusCode).toBe(200);
+      expect(stop.json()).toMatchObject({ recurrenceWeekdays: null, recurrenceUntil: null, seriesId: head.id });
     });
 
     it("recurrenceWeekdays: null apaga la serie, limpia recurrenceUntil y conserva seriesId", async () => {

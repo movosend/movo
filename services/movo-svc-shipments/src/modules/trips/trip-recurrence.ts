@@ -32,7 +32,11 @@ export interface TripRecurrenceRunResult {
   generated: number;
   stopped: number;
   deferred: number;
+  /** Otra corrida (u otra réplica) ya había generado la ocurrencia: no es un error ni se posterga. */
+  alreadyGenerated: number;
 }
+
+type SeriesOutcome = "generated" | "stopped" | "deferred" | "alreadyGenerated";
 
 /** Por qué se apagó una serie sola. `until_reached` es el fin natural (sin push). */
 export type RecurrenceStopReason = "phantom" | "account_unavailable" | "requirements_missing" | "until_reached";
@@ -55,16 +59,17 @@ const MAX_PAGES = 20;
  *    fecha sale de `max(departureAt, now)`, así que no nace vencida).
  * 4. Insert idempotente (`ON CONFLICT DO NOTHING` sobre `generatedFromTripId`) y push.
  *
- * Auditoría como MOVO-238: log estructurado por generación y por corte, sin tabla propia.
+ * Auditoría como MOVO-238: log estructurado por generación y por corte, sin tabla propia, y
+ * un resumen por corrida (`trip_recurrence_run`) cuando hubo algún candidato.
  */
 export async function generateRecurringOccurrences(
   deps: TripRecurrenceDeps,
   now = new Date(),
 ): Promise<TripRecurrenceRunResult> {
-  const result: TripRecurrenceRunResult = { generated: 0, stopped: 0, deferred: 0 };
-  let afterId: string | undefined;
+  const result: TripRecurrenceRunResult = { generated: 0, stopped: 0, deferred: 0, alreadyGenerated: 0 };
+  let after: { departureAt: Date; id: string } | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const candidates = await deps.tripRepository.findRecurrenceCandidates({ now, limit: BATCH_SIZE, afterId });
+    const candidates = await deps.tripRepository.findRecurrenceCandidates({ now, limit: BATCH_SIZE, after });
     for (const trip of candidates) {
       try {
         const outcome = await continueSeries(deps, trip, now);
@@ -79,7 +84,13 @@ export async function generateRecurringOccurrences(
       }
     }
     if (candidates.length < BATCH_SIZE) break;
-    afterId = candidates[candidates.length - 1].id;
+    const last = candidates[candidates.length - 1];
+    after = { departureAt: last.departureAt, id: last.id };
+  }
+  if (result.generated + result.stopped + result.deferred + result.alreadyGenerated > 0) {
+    // `deferred` alto en varias corridas seguidas suele ser `svc-users`/`svc-payments` caídos o
+    // sin `accountStatus`: las series no avanzan hasta que vuelvan.
+    deps.logger?.info({ event: "trip_recurrence_run", ...result }, "Barrido de viajes recurrentes terminado");
   }
   return result;
 }
@@ -88,7 +99,7 @@ async function continueSeries(
   deps: TripRecurrenceDeps,
   trip: Trip,
   now: Date,
-): Promise<"generated" | "stopped" | "deferred"> {
+): Promise<SeriesOutcome> {
   const weekdays = trip.recurrenceWeekdays;
   if (weekdays === null) return "deferred";
 
@@ -145,7 +156,7 @@ async function continueSeries(
     generatedFromTripId: trip.id,
   });
   // Otra corrida (u otra réplica) ya la generó: no se avisa dos veces.
-  if (next === null) return "deferred";
+  if (next === null) return "alreadyGenerated";
 
   deps.logger?.info(
     {

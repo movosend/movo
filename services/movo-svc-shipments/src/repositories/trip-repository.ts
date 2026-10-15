@@ -276,9 +276,13 @@ export interface TripRepository {
   /**
    * MOVO-265 (ADR-042): trips vigentes con la recurrencia prendida cuyo `departureAt` ya pasó,
    * en cualquier estado: son los que el barrido tiene que continuar o cortar. Paginado por
-   * cursor sobre `(departureAt, id)`.
+   * keyset sobre `(departureAt, id)`: `after` es el último de la página anterior.
    */
-  findRecurrenceCandidates(params: { now: Date; limit: number; afterId?: string }): Promise<Trip[]>;
+  findRecurrenceCandidates(params: {
+    now: Date;
+    limit: number;
+    after?: { departureAt: Date; id: string };
+  }): Promise<Trip[]>;
   /** MOVO-265: estados de los últimos `limit` trips de la serie, del más nuevo al más viejo. */
   listRecentSeriesStatuses(seriesId: string, limit: number): Promise<TripStatus[]>;
   /**
@@ -769,13 +773,27 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       return db.trip.count({ where: { carrierId, ...ACTIVE_SERIES_HEAD_WHERE } });
     },
 
-    async findRecurrenceCandidates({ now, limit, afterId }): Promise<Trip[]> {
+    async findRecurrenceCandidates({ now, limit, after }): Promise<Trip[]> {
+      // Keyset en el `where`, no `cursor` + `skip: 1`: el último candidato de la página anterior
+      // ya se procesó y, si se generó su sucesor o se cortó la serie, ya no cumple el filtro.
+      // Con `cursor`, Prisma ubica la posición por id sin el filtro y `skip: 1` se comería el
+      // primer candidato real de la página siguiente.
       const rows = await db.trip.findMany({
-        where: { ...ACTIVE_SERIES_HEAD_WHERE, departureAt: { lt: now } },
+        where: {
+          ...ACTIVE_SERIES_HEAD_WHERE,
+          departureAt: { lt: now },
+          ...(after
+            ? {
+                OR: [
+                  { departureAt: { gt: after.departureAt } },
+                  { departureAt: after.departureAt, id: { gt: after.id } },
+                ],
+              }
+            : {}),
+        },
         include: TRIP_SERIES_INCLUDE,
         orderBy: [{ departureAt: "asc" }, { id: "asc" }],
         take: limit,
-        ...(afterId ? { cursor: { id: afterId }, skip: 1 } : {}),
       });
       return rows.map(mapTrip);
     },
