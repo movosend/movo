@@ -97,6 +97,7 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     receiverConfirmationDeadline: row.receiverConfirmationDeadline,
     receiverRedesignationDeadline: row.receiverRedesignationDeadline,
     transitAnomalyFlaggedAt: row.transitAnomalyFlaggedAt,
+    transitAnomalyWarnedAt: row.transitAnomalyWarnedAt,
     chatStartedAt: row.chatStartedAt,
     rejectionReason,
     createdAt: row.createdAt,
@@ -586,6 +587,28 @@ export interface ShipmentRepository {
    * marcó o el envío se entregó mientras tanto (el caller no notifica en ese caso).
    */
   flagTransitAnomaly(id: string, now?: Date): Promise<boolean>;
+  /**
+   * MOVO-278 (ADR-045): envíos `in_transit` marcados en o antes de `flaggedBefore` a los
+   * que todavía no se les mandó el aviso previo a la disputa, el marcado hace más tiempo primero.
+   */
+  findFlaggedInTransitUnwarned(limit: number, flaggedBefore: Date): Promise<Shipment[]>;
+  /**
+   * MOVO-278 (ADR-045): registra (una sola vez) que se avisó al transportista.
+   * Compare-and-swap: devuelve `false` si el envío ya no está `in_transit` o ya se avisó.
+   */
+  markTransitAnomalyWarned(id: string, now?: Date): Promise<boolean>;
+  /**
+   * MOVO-278 (ADR-045): envíos `in_transit` marcados en o antes de `flaggedBefore` Y avisados
+   * en o antes de `warnedBefore` (candidatos a pasar a `disputed`), el marcado hace más tiempo
+   * primero. Exigir el aviso previo garantiza que el transportista tuvo el plazo prometido, aun
+   * para los marcados antes del deploy o si el barrido estuvo caído más que el plazo de disputa.
+   */
+  findFlaggedInTransitBefore(limit: number, flaggedBefore: Date, warnedBefore: Date): Promise<Shipment[]>;
+  /**
+   * MOVO-278 (ADR-045, requisito de ADR-036): ¿el usuario tiene algún envío en
+   * `disputed` como transportista? Sea la disputa automática o una iniciada por un usuario.
+   */
+  hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean>;
   /**
    * MOVO-134: soporte del endpoint interno de baja de cuenta de `svc-users` -- ¿el
    * usuario (como sender, receiver o carrier) tiene algún envío en un estado no
@@ -1389,6 +1412,45 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         data: { transitAnomalyFlaggedAt: now },
       });
       return result.count > 0;
+    },
+
+    async findFlaggedInTransitUnwarned(limit: number, flaggedBefore: Date): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.IN_TRANSIT,
+          transitAnomalyFlaggedAt: { lte: flaggedBefore },
+          transitAnomalyWarnedAt: null,
+        },
+        take: limit,
+        orderBy: { transitAnomalyFlaggedAt: "asc" },
+      });
+      return rows.map(mapShipment);
+    },
+
+    async markTransitAnomalyWarned(id: string, now: Date = new Date()): Promise<boolean> {
+      const result = await db.shipment.updateMany({
+        where: { id, status: ShipmentStatus.IN_TRANSIT, transitAnomalyWarnedAt: null },
+        data: { transitAnomalyWarnedAt: now },
+      });
+      return result.count > 0;
+    },
+
+    async findFlaggedInTransitBefore(limit: number, flaggedBefore: Date, warnedBefore: Date): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.IN_TRANSIT,
+          transitAnomalyFlaggedAt: { lte: flaggedBefore },
+          transitAnomalyWarnedAt: { lte: warnedBefore },
+        },
+        take: limit,
+        orderBy: { transitAnomalyFlaggedAt: "asc" },
+      });
+      return rows.map(mapShipment);
+    },
+
+    async hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean> {
+      const count = await db.shipment.count({ where: { carrierId, status: ShipmentStatus.DISPUTED } });
+      return count > 0;
     },
 
     /** MOVO-275: marca (una sola vez) que la entrega empezó. Idempotente. */

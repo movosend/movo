@@ -27,6 +27,10 @@ export type NotificationTriggerKey =
   | "shipmentCancelledPickupMissedCarrier"
   | "offersNeedReview"
   | "transitAnomalyCheck"
+  | "transitAnomalyDisputeWarning"
+  | "transitAnomalyDisputeOpenedSender"
+  | "transitAnomalyDisputeOpenedReceiver"
+  | "transitAnomalyDisputeOpenedCarrier"
   | "offerCreated"
   | "offerAccepted"
   | "offerSuperseded"
@@ -211,6 +215,46 @@ export const NOTIFICATION_TRIGGERS = {
     () => ({
       title: "¿Todo bien con tu entrega?",
       body: "Pasó el tiempo estimado de entrega. Si tuviste un inconveniente, avisanos; si ya entregaste, confirmalo en la app",
+    })
+  ),
+  // MOVO-278 (ADR-045): aviso previo al transportista, antes de que el envío demorado pase a disputa.
+  transitAnomalyDisputeWarning: definition<void>(
+    "shipments",
+    {
+      title: "Confirmá la entrega",
+      body: "Si no confirmás la entrega, se abre una disputa y no vas a poder operar como transportista.",
+    },
+    () => ({
+      title: "Confirmá la entrega",
+      body: "Si no confirmás la entrega pronto, se abre una disputa y no vas a poder operar como transportista hasta que se resuelva",
+    })
+  ),
+  // MOVO-278 (ADR-045): el envío demorado pasó a disputa automáticamente.
+  transitAnomalyDisputeOpenedSender: definition<void>(
+    "shipments",
+    { title: "Envío en disputa", body: "Tu envío no se entregó a tiempo y pasó a disputa." },
+    () => ({
+      title: "Envío en disputa",
+      body: "Tu envío no se entregó dentro del plazo y pasó a disputa",
+    })
+  ),
+  transitAnomalyDisputeOpenedReceiver: definition<void>(
+    "shipments",
+    { title: "Envío en disputa", body: "El envío que ibas a recibir no se entregó a tiempo y pasó a disputa." },
+    () => ({
+      title: "Envío en disputa",
+      body: "El envío que ibas a recibir no se entregó dentro del plazo y pasó a disputa",
+    })
+  ),
+  transitAnomalyDisputeOpenedCarrier: definition<void>(
+    "shipments",
+    {
+      title: "Envío en disputa",
+      body: "No confirmaste la entrega a tiempo: el envío pasó a disputa y no podés operar hasta que se resuelva.",
+    },
+    () => ({
+      title: "Envío en disputa",
+      body: "No confirmaste la entrega a tiempo: el envío pasó a disputa y no podés operar como transportista hasta que se resuelva",
     })
   ),
   offerCreated: definition<{ carrierName: string | null; deliveryShort: string }>(

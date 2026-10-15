@@ -82,7 +82,7 @@ stateDiagram-v2
     assigned --> cancelled: emisor cancela\n(con penalización)
 
     in_transit --> delivered: entrega confirmada\n(handshake)
-    in_transit --> disputed: reclamo en tránsito (MOVO-30)
+    in_transit --> disputed: reclamo en tránsito (MOVO-30)\no entrega demorada (barrido, MOVO-278)
 
     delivered --> completed: captura y split de MP confirmados (MOVO-212)
     delivered --> disputed: reclamo post-entrega (MOVO-30)

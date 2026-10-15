@@ -13,6 +13,10 @@ export interface TransitAnomalySweepPluginOptions {
 }
 
 /**
+ * MOVO-278 (ADR-045): además de marcar, avisa al transportista a las
+ * `IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS` de la marca y pasa el envío a `disputed` a las
+ * `IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS`.
+ *
  * MOVO-258 (D4): barrido periódico que marca para revisión (nunca cancela) los envíos
  * `in_transit` que pasaron su entrega estimada más el 50% de la duración estimada, y le
  * pregunta al transportista si tuvo un inconveniente. Misma estructura que
@@ -23,8 +27,18 @@ export default fp(async (app: FastifyInstance, opts: TransitAnomalySweepPluginOp
   const repository = createShipmentRepository(app.db);
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
+  const warnAfterHours = app.config.IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS;
+  const disputeAfterHours = app.config.IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS;
+  // MOVO-278 (ADR-045): un aviso que llega después (o junto con) la disputa no avisa nada.
+  if (warnAfterHours >= disputeAfterHours) {
+    throw new Error(
+      `IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS (${warnAfterHours}) tiene que ser menor que IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS (${disputeAfterHours})`
+    );
+  }
   const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
     transitAnomalyFallbackHours: app.config.IN_TRANSIT_ANOMALY_FALLBACK_HOURS,
+    transitAnomalyWarnAfterHours: warnAfterHours,
+    transitAnomalyDisputeAfterHours: disputeAfterHours,
   });
 
   registerSweep(app, {
@@ -34,7 +48,20 @@ export default fp(async (app: FastifyInstance, opts: TransitAnomalySweepPluginOp
     intervalMinutes: app.config.TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES,
     errorMessage: "Error inesperado durante el sweep de envíos en tránsito anómalos",
     run: async () => {
-      await service.flagAnomalousInTransitShipments();
+      // Cada paso por separado: una falla en uno no frena a los otros (mismo criterio que
+      // `trip-expiry-sweep.ts#runStep`).
+      const steps: Array<[string, () => Promise<unknown>]> = [
+        ["flag", () => service.flagAnomalousInTransitShipments()],
+        ["warn", () => service.warnFlaggedInTransitShipments()],
+        ["dispute", () => service.disputeOverdueFlaggedShipments()],
+      ];
+      for (const [step, run] of steps) {
+        try {
+          await run();
+        } catch (err) {
+          app.log.error({ err, step, event: "transit_anomaly_sweep_step_error" }, "Error en un paso del sweep de envíos en tránsito anómalos");
+        }
+      }
     },
   });
 });

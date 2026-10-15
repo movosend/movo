@@ -192,6 +192,9 @@ model Shipment {
   // MOVO-258 (D4): instante en que el barrido de `in_transit` anómalo marcó el envío
   // para revisión (no lo cancela). NULL = nunca marcado; solo se escribe una vez.
   transitAnomalyFlaggedAt DateTime? @map("transit_anomaly_flagged_at") @db.Timestamptz
+  // MOVO-278 (ADR-045): instante en que se le avisó al transportista que el envío marcado
+  // pasa a disputa si no confirma la entrega. NULL = nunca avisado; solo se escribe una vez.
+  transitAnomalyWarnedAt DateTime? @map("transit_anomaly_warned_at") @db.Timestamptz
   // MOVO-26: cuándo empezó la última asignación (`acceptOffer`). El chat no muestra mensajes anteriores a este
   // instante (salvo al admin): cada transportista nuevo arranca una conversación limpia. NULL = sin corte.
   chatStartedAt DateTime? @map("chat_started_at") @db.Timestamptz

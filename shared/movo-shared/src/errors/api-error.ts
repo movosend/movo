@@ -201,6 +201,9 @@ export type ApiErrorCode =
   // MOVO-116 (ADR-036): el transportista no tiene la licencia de conducir aprobada
   // (`kyc_status_license`). Viaja con `details.missingRequirements`.
   | "CARRIER_LICENSE_NOT_APPROVED"
+  // MOVO-278 (ADR-045): el transportista tiene un envío en `disputed` (automática por
+  // entrega demorada o iniciada por un usuario). Viaja con `details.missingRequirements`.
+  | "CARRIER_DISPUTE_OPEN"
   // MOVO-116: `svc-payments` no respondió al consultar la cuenta de MP del transportista.
   | "PAYMENTS_SERVICE_UNAVAILABLE"
   // MOVO-116: el emisor quiso aceptar la oferta de un transportista que ya no cumple los

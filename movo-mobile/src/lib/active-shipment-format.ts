@@ -28,9 +28,29 @@ const ACTIVE_STATUS_LABEL: Record<Exclude<ActiveShipmentSummary["status"], "assi
  * "Retiro" de más abajo, es la mejor aproximación disponible a esa hora. El resto
  * de los estados no tiene ninguna hora asociada que mostrar, quedan como texto fijo.
  */
+/**
+ * MOVO-278 (ADR-045): un envío `in_transit` que el backend marcó como demorado (pasó su
+ * entrega estimada más un margen). Se muestra "Demorado" en vez de "En camino", sin el halo
+ * pulsante: si sigue sin entregarse, el backend lo pasa a disputa.
+ */
+export function isTransitDelayed(shipment: {
+  status: string;
+  transitAnomalyFlaggedAt?: string | null;
+}): boolean {
+  return shipment.status === "in_transit" && Boolean(shipment.transitAnomalyFlaggedAt);
+}
+
+export const TRANSIT_DELAYED_LABEL = "Demorado";
+
+/** MOVO-278: texto explicativo de un envío demorado. No promete una revisión manual (no
+ * existe todavía, MOVO-33/34): describe lo que el sistema hace solo. */
+export const TRANSIT_DELAYED_INFO_TEXT =
+  "La entrega está demorada. Si no se confirma pronto, vamos a abrir una disputa.";
+
 export function activeShipmentStatusLabel(
-  shipment: Pick<ActiveShipmentSummary, "status" | "pickupTimeWindowStart">,
+  shipment: Pick<ActiveShipmentSummary, "status" | "pickupTimeWindowStart" | "transitAnomalyFlaggedAt">,
 ): string {
+  if (isTransitDelayed(shipment)) return TRANSIT_DELAYED_LABEL;
   if (shipment.status === "assigned_unfunded") {
     return `Retira ${formatTimeHHMM(shipment.pickupTimeWindowStart)}`;
   }
@@ -155,6 +175,7 @@ export function activeShipmentFooterText(
   shipment: ActiveShipmentSummary,
 ): string {
   const name = shipment.counterparty.name;
+  if (isTransitDelayed(shipment)) return TRANSIT_DELAYED_INFO_TEXT;
   if (shipment.status === "assigned_unfunded") return activeShipmentInfoText(role, shipment);
   if (role === "sending") {
     return shipment.status === "assigned" ? `${name} retira con este código` : `${name} lo lleva`;

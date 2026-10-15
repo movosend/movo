@@ -123,6 +123,10 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // para quien no la monta.
   CARRIER_LICENSE_NOT_APPROVED: "Necesitás tu licencia de conducir verificada para operar como transportista.",
   CARRIER_MP_ACCOUNT_NOT_LINKED: "Necesitás vincular tu cuenta de Mercado Pago para operar como transportista.",
+  // MOVO-278 (ADR-045): no es un paso de la checklist (el transportista no lo puede
+  // completar), así que se muestra como error: se levanta cuando se resuelve la disputa.
+  CARRIER_DISPUTE_OPEN:
+    "Tenés una disputa abierta como transportista. Vas a poder operar cuando se resuelva.",
   // No son un requisito que el usuario pueda resolver: no se pudo verificar, se reintenta.
   USERS_SERVICE_UNAVAILABLE: "No pudimos verificar tus requisitos. Intentá de nuevo en unos minutos.",
   PAYMENTS_SERVICE_UNAVAILABLE: "No pudimos verificar tu cuenta de Mercado Pago. Intentá de nuevo en unos minutos.",

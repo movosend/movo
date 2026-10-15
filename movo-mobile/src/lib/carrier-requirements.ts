@@ -50,6 +50,10 @@ export function resolveTransportGate(input: {
  * (por eso solo se llama desde pantallas de acciones del transportista).
  * El `code` es solo el primer requisito que falta; la lista completa viene en
  * `details.missingRequirements`. Un 502 `*_SERVICE_UNAVAILABLE` no es un requisito.
+ *
+ * MOVO-278 (ADR-045): `CARRIER_DISPUTE_OPEN` (requisito `no_open_dispute`) tampoco abre la
+ * checklist: no es un paso que el transportista pueda completar, se levanta cuando se
+ * resuelve la disputa. Devuelve `null` y el caller muestra el mensaje de error.
  */
 export function carrierRequirementsFromError(error: unknown): CarrierRequirement[] | null {
   if (!(error instanceof ApiError)) return null;
