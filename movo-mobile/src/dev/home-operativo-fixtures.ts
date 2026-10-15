@@ -24,7 +24,8 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 4500,
     counterparty: { name: "Nicolás Vera", initials: "NV" },
     isToday: false,
-    pickupWindowExpired: false, tripId: null
+    pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
   },
   {
     id: "dev-sending-assigned-hoy-51302",
@@ -37,7 +38,8 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 5200,
     counterparty: { name: "Lucía Gómez", initials: "LG" },
     isToday: true,
-    pickupWindowExpired: false, tripId: null
+    pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
   },
   {
     id: "dev-sending-assigned-vencido-39871",
@@ -50,7 +52,8 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 3800,
     counterparty: { name: "Marta Ruiz", initials: "MR" },
     isToday: false,
-    pickupWindowExpired: true, tripId: null
+    pickupWindowExpired: true, tripId: null,
+    transitAnomalyFlaggedAt: null,
   },
   {
     id: "dev-sending-in-transit-60214",
@@ -63,7 +66,8 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 6100,
     counterparty: { name: "Juan Pereyra", initials: "JP" },
     isToday: false,
-    pickupWindowExpired: false, tripId: null
+    pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
   },
 ];
 
@@ -79,7 +83,8 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 4900,
     counterparty: { name: "Julia Fernández", initials: "JF" },
     isToday: false,
-    pickupWindowExpired: false, tripId: null
+    pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
   },
   {
     id: "dev-receiving-assigned-88530",
@@ -92,7 +97,8 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 5300,
     counterparty: { name: "Pedro Yorlano", initials: "PY" },
     isToday: false,
-    pickupWindowExpired: false, tripId: null
+    pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
   },
   {
     id: "dev-receiving-in-transit-hoy-91007",
@@ -105,7 +111,8 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 4100,
     counterparty: { name: "Alena Ariza", initials: "AA" },
     isToday: true,
-    pickupWindowExpired: false, tripId: null
+    pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
   },
   {
     id: "dev-receiving-in-transit-vencido-25164",
@@ -118,7 +125,9 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 3500,
     counterparty: { name: "Tomás Olmos", initials: "TO" },
     isToday: false,
-    pickupWindowExpired: true, tripId: null
+    pickupWindowExpired: true, tripId: null,
+    // MOVO-278: en tránsito y demorado ("Demorado", sin halo pulsante).
+    transitAnomalyFlaggedAt: "2026-09-12T10:00:00.000Z",
   },
 ];
 

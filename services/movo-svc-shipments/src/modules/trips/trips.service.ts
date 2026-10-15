@@ -298,7 +298,7 @@ export function createTripsService(deps: {
     notificationsClient,
     routesProvider,
   } = deps;
-  const carrierGate = { usersClient, paymentsClient };
+  const carrierGate = { usersClient, paymentsClient, shipmentRepository };
 
   /** MOVO-265 (ADR-042, punto 9). Dos PATCH concurrentes pueden dejar una serie de más:
    * aceptado, no justifica un lock por transportista para este volumen. */

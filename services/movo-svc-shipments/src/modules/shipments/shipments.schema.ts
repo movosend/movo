@@ -67,6 +67,7 @@ const shipmentResponse = {
     "deliveredAt",
     "receiverConfirmationDeadline",
     "receiverRedesignationDeadline",
+    "transitAnomalyFlaggedAt",
     "rejectionReason",
     "createdAt",
     "updatedAt",
@@ -115,6 +116,9 @@ const shipmentResponse = {
     // fuera de ese estado.
     receiverRedesignationDeadline: { type: ["string", "null"], format: "date-time" },
     rejectionReason: { type: ["string", "null"] },
+    // MOVO-278 (ADR-045): cuándo el barrido marcó el envío `in_transit` como demorado
+    // (MOVO-258 D4). El mobile lo muestra como "Demorado"; `null` = nunca marcado.
+    transitAnomalyFlaggedAt: { type: ["string", "null"], format: "date-time" },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
     // MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
@@ -303,6 +307,7 @@ const activeShipmentSummaryResponse = {
     "isToday",
     "pickupWindowExpired",
     "tripId",
+    "transitAnomalyFlaggedAt",
   ],
   properties: {
     id: { type: "string" },
@@ -326,6 +331,8 @@ const activeShipmentSummaryResponse = {
     isToday: { type: "boolean" },
     pickupWindowExpired: { type: "boolean" },
     tripId: { type: ["string", "null"], format: "uuid" },
+    // MOVO-278 (ADR-045): envío `in_transit` demorado (ver shipmentResponse).
+    transitAnomalyFlaggedAt: { type: ["string", "null"], format: "date-time" },
   },
 };
 

@@ -11,6 +11,7 @@ import {
   activeShipmentDisplayCode,
   activeShipmentFooterText,
   activeShipmentStatusLabel,
+  isTransitDelayed,
   activeShipmentStepIndex,
   activeShipmentSubtitle,
   type ActiveShipmentRole,
@@ -48,6 +49,7 @@ function PulsingStepRing({ color }: { color: string }) {
 
   return (
     <Animated.View
+      testID="active-shipment-pulsing-step"
       pointerEvents="none"
       style={[
         {
@@ -94,6 +96,8 @@ export function ActiveShipmentCard({
 }) {
   const colors = useThemeColors();
   const isUnfunded = shipment.status === "assigned_unfunded";
+  // MOVO-278 (ADR-045): un `in_transit` demorado no pulsa ni se lee "En camino".
+  const isDelayed = isTransitDelayed(shipment);
   const cta = activeShipmentCta(role, shipment);
   const activeIndex = activeShipmentStepIndex(shipment.status);
 
@@ -136,13 +140,14 @@ export function ActiveShipmentCard({
             // — feedback del usuario, "el pill actual no se diferencia del fondo, es
             // muy clarito") — un borde explícito lo separa sin depender del contraste
             // de relleno, que en dark mode es igual de parecido entre ambos tokens.
-            className={`flex-none flex-row items-center gap-1.5 self-start rounded-full border px-3 ${isUnfunded ? "border-border-strong bg-bg-mute" : "border-transparent"}`}
-            style={{ height: 31, backgroundColor: isUnfunded ? undefined : colors.activeCardPillBg }}
+            testID={testID ? `${testID}-status-pill` : undefined}
+            className={`flex-none flex-row items-center gap-1.5 self-start rounded-full border px-3 ${isUnfunded ? "border-border-strong bg-bg-mute" : isDelayed ? "border-transparent bg-warning-100" : "border-transparent"}`}
+            style={{ height: 31, backgroundColor: isUnfunded || isDelayed ? undefined : colors.activeCardPillBg }}
           >
-            {shipment.status === "in_transit" ? (
+            {shipment.status === "in_transit" && !isDelayed ? (
               <View className="h-1.5 w-1.5 rounded-full bg-fg" />
             ) : null}
-            <Text className="font-sans-semibold text-caption text-fg">
+            <Text className={`font-sans-semibold text-caption ${isDelayed ? "text-warning-700" : "text-fg"}`}>
               {activeShipmentStatusLabel(shipment)}
             </Text>
           </View>
@@ -171,7 +176,7 @@ export function ActiveShipmentCard({
           const Icon = STEP_ICONS[index];
           const done = index < activeIndex;
           const current = index === activeIndex;
-          const pulsing = current && index === 1;
+          const pulsing = current && index === 1 && !isDelayed;
           // `done`/`current` son un par blanco+negro FIJO (nunca invertido con el
           // tema) — el nodo "actual" siempre es un círculo blanco con ícono negro,
           // así que su contraste interno no depende de si la card de alrededor es

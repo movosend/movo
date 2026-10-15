@@ -120,6 +120,8 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
           "CARRIER_MP_ACCOUNT_NOT_LINKED, el primero que falte, con " +
           "details.missingRequirements listando todos), antes de persistir nada. 502 " +
           "USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar. " +
+          "MOVO-278 (ADR-045): con un envío en disputa como transportista, 403 " +
+          "CARRIER_DISPUTE_OPEN (va primero en missingRequirements). " +
           "MOVO-265 (ADR-042): con recurrenceWeekdays el viaje nace recurrente (el día de " +
           "departureAt tiene que estar incluido, 400 VALIDATION_FAILED si no); 409 " +
           "RECURRING_SERIES_LIMIT si el transportista ya tiene 3 series activas.",
@@ -339,7 +341,8 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
           "MOVO-221/277. MOVO-116 (ADR-036): el transportista dueño del viaje tiene " +
           "que seguir cumpliendo los requisitos para operar -- 403 CARRIER_NOT_VERIFIED, " +
           "CARRIER_LICENSE_NOT_APPROVED o CARRIER_MP_ACCOUNT_NOT_LINKED (con " +
-          "details.missingRequirements); 502 si no se pudo verificar.",
+          "details.missingRequirements); MOVO-278 (ADR-045): 403 CARRIER_DISPUTE_OPEN con " +
+          "un envío en disputa como transportista; 502 si no se pudo verificar.",
         params: tripsSchemas.tripIdParam,
         response: {
           200: tripsSchemas.tripResponse,
