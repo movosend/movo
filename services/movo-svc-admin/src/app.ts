@@ -9,6 +9,7 @@ import errorHandlerPlugin from "./plugins/error-handler";
 import internalClientsPlugin, { InternalClientsOptions } from "./plugins/internal-clients";
 import auditPlugin from "./plugins/audit";
 import auditRoutes from "./modules/audit/audit.routes";
+import sessionRoutes from "./modules/session/session.routes";
 
 export type BuildAppOptions = InternalClientsOptions;
 
@@ -51,6 +52,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
 
   // Todo lo que expone el panel vive bajo /admin (el gateway exige el rol admin, MOVO-288).
+  app.register(sessionRoutes, { prefix: "/admin" });
   app.register(auditRoutes, { prefix: "/admin" });
 
   return app;

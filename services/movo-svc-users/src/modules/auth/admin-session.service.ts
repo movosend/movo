@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 import { verify } from "@node-rs/argon2";
 import Redis from "ioredis";
 import { PrismaClient } from "../../generated/prisma/client";
@@ -105,7 +105,65 @@ export function createAdminSessionService(
     }
   }
 
-  return {
+  // The refresh secret has server-generated entropy. Derive an encryption key with
+  // domain separation; Redis never stores the response tokens in plaintext.
+  function cacheKey(token: string): string {
+    return `panel-rotation:${createHash("sha256").update(token).digest("hex")}`;
+  }
+  function encryptionKey(token: string): Buffer {
+    return createHash("sha256").update(`movo-panel-rotation-v1:${token}`).digest();
+  }
+  function seal(token: string, value: PanelSessionResult): string {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", encryptionKey(token), iv);
+    const encrypted = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
+    return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64");
+  }
+  function unseal(token: string, value: string): PanelSessionResult {
+    const bytes = Buffer.from(value, "base64");
+    const cipher = createDecipheriv("aes-256-gcm", encryptionKey(token), bytes.subarray(0, 12));
+    cipher.setAuthTag(bytes.subarray(12, 28));
+    return JSON.parse(Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]).toString());
+  }
+  async function validateShared(value: PanelSessionResult): Promise<void> {
+    const parsed = parseRefreshToken(value.refreshToken);
+    const user = parsed ? await repository.findById(parsed.userId) : null;
+    if (!parsed || !user || !isPanelEligible(user) || Date.parse(value.sessionExpiresAt) <= Date.now()) {
+      throw REFRESH_INVALID();
+    }
+    // Logout, token consumption and role revocation all invalidate the child record.
+    const raw = await redis.get(`panel-refresh:${parsed.userId}:${parsed.tokenId}`);
+    const revokedAt = await redis.get(`panel-revoked-at:${parsed.userId}`);
+    if (!raw || JSON.parse(raw).used || JSON.parse(raw).hash !== hashRefreshSecret(parsed.secret) ||
+        (revokedAt && Number(revokedAt) >= Date.parse(value.sessionExpiresAt) / 1000 - PANEL_SESSION_TTL_SECONDS)) {
+      throw REFRESH_INVALID();
+    }
+  }
+
+  async function publishRotation(
+    refreshToken: string,
+    key: string,
+    owner: string,
+    pending: string
+  ): Promise<PanelSessionResult> {
+    const result = await service.rotate(refreshToken);
+    await validateShared(result);
+    // Compare-and-set: a logout or an expired lease must never be overwritten.
+    const published = await redis.eval(`
+      if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
+      redis.call("SET", KEYS[1], ARGV[2], "EX", 10)
+      return 1
+    `, 1, key, pending, JSON.stringify({ owner, value: seal(refreshToken, result) }));
+    if (published !== 1) {
+      const child = parseRefreshToken(result.refreshToken)!;
+      await sessionRepository.revokePanelRefreshToken(child.userId, child.tokenId);
+      throw REFRESH_INVALID();
+    }
+    await validateShared(result);
+    return result;
+  }
+
+  const service = {
     /**
      * Paso 1 (AC1): nunca emite tokens. Las cuatro causas de rechazo (credenciales,
      * rol, email sin verificar, cuenta no activa) responden el mismo 401 (AC3), y todas
@@ -153,7 +211,7 @@ export function createAdminSessionService(
      * estado contra la base. Cualquier rechazo es 401 (a diferencia del 403 de la app
      * por cuenta suspendida): el panel solo necesita saber que la sesión terminó.
      */
-    async refresh(refreshToken: string): Promise<PanelSessionResult> {
+    async rotate(refreshToken: string): Promise<PanelSessionResult> {
       const parsed = parseRefreshToken(refreshToken);
       if (!parsed) {
         throw REFRESH_INVALID();
@@ -180,6 +238,48 @@ export function createAdminSessionService(
       return issuePanelSessionOr(REFRESH_INVALID, user, result.absoluteExpiresAt);
     },
 
+    async refresh(refreshToken: string, idempotencyKey?: string): Promise<PanelSessionResult> {
+      if (!idempotencyKey) return service.rotate(refreshToken);
+      if (!parseRefreshToken(refreshToken)) throw REFRESH_INVALID();
+      const key = cacheKey(refreshToken);
+      const owner = createHash("sha256").update(idempotencyKey).digest("hex");
+      const pending = JSON.stringify({ owner, nonce: randomBytes(16).toString("hex") });
+      const acquired = await redis.set(key, pending, "EX", 10, "NX");
+      if (acquired) {
+        try {
+          return await publishRotation(refreshToken, key, owner, pending);
+        } catch (error) {
+          // Never consume again in this window: replace the pending marker with a terminal one
+          // so duplicates answer right away (401 for a dead session, 503 otherwise).
+          const failed = error instanceof ApiError && error.statusCode === 401 ? 401 : 503;
+          await redis.eval(`
+            if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
+            redis.call("SET", KEYS[1], ARGV[2], "EX", 10)
+            return 1
+          `, 1, key, pending, JSON.stringify({ owner, failed })).catch(() => undefined);
+          throw error;
+        }
+      }
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const raw = await redis.get(key);
+        if (!raw) throw REFRESH_INVALID();
+        const cached = JSON.parse(raw) as { owner: string; value?: string; blocked?: boolean; failed?: number };
+        if (cached.blocked) throw REFRESH_INVALID();
+        if (cached.owner !== owner) return service.rotate(refreshToken);
+        if (cached.failed) {
+          if (cached.failed === 401) throw REFRESH_INVALID();
+          throw new ApiError(503, "INTERNAL_ERROR", "La renovación no pudo completarse. Reintentá.");
+        }
+        if (cached.value) {
+          const result = unseal(refreshToken, cached.value);
+          await validateShared(result);
+          return result;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new ApiError(503, "INTERNAL_ERROR", "La renovación está en curso. Reintentá.");
+    },
+
     /** AC8: idempotente, mismo criterio que el logout de la app (token ajeno o inválido
      * es un no-op silencioso). */
     async logout(refreshToken: string, requestUserId: string): Promise<void> {
@@ -187,7 +287,22 @@ export function createAdminSessionService(
       if (!parsed || parsed.userId !== requestUserId) {
         return;
       }
+      // Logout racing a rotation also revokes its child, including pending rotations.
+      const key = cacheKey(refreshToken);
+      const raw = await redis.eval(`
+        local previous = redis.call("GET", KEYS[1])
+        redis.call("SET", KEYS[1], '{"blocked":true}', "EX", 10)
+        return previous
+      `, 1, key) as string | null;
       await sessionRepository.revokePanelRefreshToken(parsed.userId, parsed.tokenId);
+      if (raw) {
+        const cached = JSON.parse(raw) as { value?: string; blocked?: boolean };
+        if (cached.blocked) return;
+        if (cached.value) {
+          const child = parseRefreshToken(unseal(refreshToken, cached.value).refreshToken);
+          if (child) await sessionRepository.revokePanelRefreshToken(child.userId, child.tokenId);
+        }
+      }
     },
 
     /**
@@ -198,6 +313,7 @@ export function createAdminSessionService(
       await sessionRepository.revokePanelSessionsForUser(userId);
     },
   };
+  return service;
 }
 
 export type AdminSessionService = ReturnType<typeof createAdminSessionService>;

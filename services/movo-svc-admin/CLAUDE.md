@@ -64,3 +64,9 @@ servicio dueño (decisión 6 de MOVO-286).
 Pendiente / fuera de alcance: endpoints de negocio (cada US de admin), UI de la bitácora,
 `movo-admin` consumiendo `/admin/*` (MOVO-291), y la primera corrida de `prisma migrate deploy`
 de este servicio en dev/prod (su fila vieja en `public.schema_migrations` queda como histórico).
+
+### MOVO-291 — Comprobación de acceso al panel
+
+`GET /admin/session` exige identidad y rol admin (además del gateway) y responde
+únicamente `{ authenticated: true }`, sin caché. El BFF lo combina con el perfil actual
+para comprobar una sesión de panel válida junto a cada operación protegida.
