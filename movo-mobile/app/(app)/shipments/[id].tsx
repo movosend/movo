@@ -255,7 +255,7 @@ export default function ShipmentDetailScreen() {
         : null;
   const contextualCta = shipment
     ? shipmentDetailCta(role, shipment.status, shipment.id, {
-        fundingWindowOpen: isFundingWindowOpen(shipment.pickupDate),
+        fundingWindowOpen: isFundingWindowOpen(shipment),
       })
     : null;
 

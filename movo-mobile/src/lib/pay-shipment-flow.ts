@@ -10,9 +10,11 @@ import { CardTokenError, createSavedCardToken } from "./mp-card-tokenizer";
  * para testearla sin montar `useMutation`, que cuelga el worker de jest-expo (ver
  * `movo-mobile/CLAUDE.md`, MOVO-136).
  *
- * El CVV entra, se usa para pedirle a MP un token de un solo uso con la `public_key` del
- * transportista y no sale de acá: no se guarda, no se loguea y no se manda al backend (a
- * `POST /shipments/:id/funding` van solo `cardToken` y `savedCardId`).
+ * Dos pasos separados a propósito: `tokenizeSavedCard` es el único que ve el CVV (se lo manda a
+ * MP y devuelve un token de un solo uso) y corre FUERA de `useMutation`, porque React Query
+ * retiene las variables de cada mutación en el `MutationCache`. `fundWithToken` es lo que se
+ * pasa a la mutación: solo el token y los ids, nunca el CVV. Al backend (`POST
+ * /shipments/:id/funding`) van solo `cardToken` y `savedCardId`.
  */
 export type PayShipmentOutcome =
   /** Fondos reservados: el envío pasó a `assigned`. */
@@ -28,23 +30,37 @@ export type PayShipmentOutcome =
   /** Cualquier otro error del backend (502, tarjeta inexistente, transportista sin MP...). */
   | { kind: "error"; error: unknown };
 
-export interface PayShipmentInput {
-  funding: Pick<ShipmentFundingResponse, "shipmentId" | "carrierPublicKey">;
-  card: Pick<SavedCard, "id" | "mpCardId">;
+export type TokenizeOutcome =
+  | { kind: "token"; cardToken: string }
+  | Extract<PayShipmentOutcome, { kind: "token_error" | "error" }>;
+
+export interface TokenizeSavedCardInput {
+  funding: Pick<ShipmentFundingResponse, "carrierPublicKey">;
+  card: Pick<SavedCard, "mpCardId">;
   cvv: string;
 }
 
-export async function payWithSavedCard({ funding, card, cvv }: PayShipmentInput): Promise<PayShipmentOutcome> {
-  let cardToken: string;
+/** Pide a MP el token de un solo uso (`card_id` + CVV, `public_key` del transportista). */
+export async function tokenizeSavedCard({ funding, card, cvv }: TokenizeSavedCardInput): Promise<TokenizeOutcome> {
   try {
-    cardToken = await createSavedCardToken(funding.carrierPublicKey, { cardId: card.mpCardId, securityCode: cvv });
+    const cardToken = await createSavedCardToken(funding.carrierPublicKey, { cardId: card.mpCardId, securityCode: cvv });
+    return { kind: "token", cardToken };
   } catch (err) {
     if (err instanceof CardTokenError) return { kind: "token_error", error: err };
     return { kind: "error", error: err };
   }
+}
 
+/** Entrada de la mutación: sin CVV, solo el token ya generado y los identificadores. */
+export interface FundWithTokenInput {
+  shipmentId: string;
+  cardToken: string;
+  savedCardId: string;
+}
+
+export async function fundWithToken({ shipmentId, cardToken, savedCardId }: FundWithTokenInput): Promise<PayShipmentOutcome> {
   try {
-    const result = await fundingClient.fund(funding.shipmentId, { cardToken, savedCardId: card.id });
+    const result = await fundingClient.fund(shipmentId, { cardToken, savedCardId });
     if (result.funded) return { kind: "reserved" };
     if (result.failureReason) {
       return { kind: "rejected", reason: result.failureReason, payUntil: result.payUntil };

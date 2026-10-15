@@ -154,12 +154,18 @@ export type ShipmentDetailCta =
  * evita ofrecer el botón antes de tiempo. */
 export const FUNDING_WINDOW_DAYS = 3;
 
-/** ¿El retiro (`YYYY-MM-DD`) entra en la ventana en que se confirma el pago? Cuenta días
- * calendario argentinos, igual que el resto de las fechas de retiro. */
-export function isFundingWindowOpen(pickupDate: string, now: Date = new Date()): boolean {
-  const today = toArgentinaCalendarDateString(now);
-  const days = Math.round((Date.parse(`${pickupDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
-  return !Number.isNaN(days) && days <= FUNDING_WINDOW_DAYS;
+/** ¿Ya abrió la ventana en que se confirma el pago? Igual que el backend
+ * (`fundingWindowOpensAt`): se abre exactamente `FUNDING_WINDOW_DAYS` x 24 h antes del INICIO
+ * de la ventana de retiro acordada (`pickupDate` + `pickupTimeWindowStart`, hora de Argentina,
+ * UTC-3 sin horario de verano), no al empezar el día calendario. */
+export function isFundingWindowOpen(
+  pickup: { pickupDate: string; pickupTimeWindowStart: string },
+  now: Date = new Date(),
+): boolean {
+  const time = pickup.pickupTimeWindowStart.match(/^(\d{1,2}):(\d{2})/);
+  const hhmm = time ? `${time[1].padStart(2, "0")}:${time[2]}` : "00:00";
+  const pickupStart = Date.parse(`${pickup.pickupDate}T${hhmm}:00-03:00`);
+  return !Number.isNaN(pickupStart) && pickupStart - FUNDING_WINDOW_DAYS * 86_400_000 <= now.getTime();
 }
 
 /** Acción contextual del pie del detalle del envío (MOVO-194 AC2): una sola por

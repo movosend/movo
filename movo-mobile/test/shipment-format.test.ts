@@ -754,17 +754,19 @@ describe("liveTrackingPendingPollInterval (MOVO-271 AC5)", () => {
 });
 
 describe("isFundingWindowOpen (MOVO-269)", () => {
-  const now = new Date("2026-10-14T15:00:00Z");
+  const pickup = { pickupDate: "2026-10-17", pickupTimeWindowStart: "18:00:00" };
 
-  it("se abre cuando el retiro entra en 3 días (inclusive) y sigue abierta si ya pasó", () => {
-    expect(isFundingWindowOpen("2026-10-14", now)).toBe(true);
-    expect(isFundingWindowOpen("2026-10-17", now)).toBe(true);
-    expect(isFundingWindowOpen("2026-10-18", now)).toBe(false);
-    expect(isFundingWindowOpen("2026-10-12", now)).toBe(true);
+  it("se abre exactamente 3 días antes del inicio de la ventana de retiro (hora argentina)", () => {
+    // Retiro 17/10 18:00 ART = 21:00 UTC -> abre el 14/10 18:00 ART = 21:00 UTC.
+    expect(isFundingWindowOpen(pickup, new Date("2026-10-14T20:59:00Z"))).toBe(false);
+    expect(isFundingWindowOpen(pickup, new Date("2026-10-14T21:00:00Z"))).toBe(true);
   });
 
-  it("usa el día calendario argentino, no el UTC", () => {
-    // 01:00 UTC del 18 todavía es la noche del 17 en Argentina.
-    expect(isFundingWindowOpen("2026-10-20", new Date("2026-10-18T01:00:00Z"))).toBe(true);
+  it("el 14/10 a las 09:00 ART todavía no está abierta aunque el retiro sea en 3 días calendario", () => {
+    expect(isFundingWindowOpen(pickup, new Date("2026-10-14T12:00:00Z"))).toBe(false);
+  });
+
+  it("sigue abierta si el retiro ya pasó", () => {
+    expect(isFundingWindowOpen({ pickupDate: "2026-10-12", pickupTimeWindowStart: "08:00" }, new Date("2026-10-14T15:00:00Z"))).toBe(true);
   });
 });

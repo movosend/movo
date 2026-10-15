@@ -1,7 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fundingClient } from "../api/funding-client";
-import { type PayShipmentInput, type PayShipmentOutcome, payWithSavedCard } from "../lib/pay-shipment-flow";
+import { type FundWithTokenInput, type PayShipmentOutcome, fundWithToken } from "../lib/pay-shipment-flow";
 
 /**
  * Datos del pago de un envío (MOVO-269): `carrierPublicKey`, monto y `payUntil`. Sin cache
@@ -23,13 +23,13 @@ export function useShipmentFunding(shipmentId: string | undefined) {
   });
 }
 
-/** Reserva los fondos con la tarjeta elegida + CVV. No lanza: devuelve el resultado discriminado. */
+/** Reserva los fondos con un token ya generado (sin CVV: React Query retiene las variables). No lanza: devuelve el resultado discriminado. */
 export function usePayShipment(options?: { onSettled?: (outcome: PayShipmentOutcome) => void }) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: PayShipmentInput) => payWithSavedCard(input),
+    mutationFn: (input: FundWithTokenInput) => fundWithToken(input),
     onSuccess: (outcome, input) => {
-      const id = input.funding.shipmentId;
+      const id = input.shipmentId;
       // Reservado o vencido: el estado del envío cambió (a `assigned` o de vuelta a `published`).
       if (outcome.kind === "reserved" || outcome.kind === "unavailable" || outcome.kind === "pending") {
         void queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });

@@ -4,7 +4,7 @@ import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { SavedCard } from "@movo/shared/dist/types/saved-card";
 import { router, useLocalSearchParams } from "expo-router";
 import PayShipmentScreen from "../app/(app)/shipments/[id]/pay";
-import type { PayShipmentOutcome } from "../src/lib/pay-shipment-flow";
+import { type PayShipmentOutcome, tokenizeSavedCard } from "../src/lib/pay-shipment-flow";
 
 const mockMutate = jest.fn();
 let mockOnSettled: ((outcome: PayShipmentOutcome) => void) | undefined;
@@ -26,6 +26,7 @@ jest.mock("../src/hooks/use-shipment-funding", () => ({
     return { mutate: mockMutate, isPending: mockPending };
   },
 }));
+jest.mock("../src/lib/pay-shipment-flow", () => ({ tokenizeSavedCard: jest.fn() }));
 jest.mock("../src/hooks/use-saved-cards", () => ({ useSavedCards: () => mockCards() }));
 jest.mock("../src/hooks/use-shipments", () => ({ useShipment: () => mockShipment() }));
 jest.mock("../src/hooks/use-profile", () => ({
@@ -87,6 +88,7 @@ function setup(opts: { cards?: SavedCard[]; resumed?: boolean } = {}) {
 describe("PayShipmentScreen (MOVO-269)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (tokenizeSavedCard as jest.Mock).mockResolvedValue({ kind: "token", cardToken: "tok-1" });
     mockPending = false;
     mockOnSettled = undefined;
   });
@@ -116,7 +118,10 @@ describe("PayShipmentScreen (MOVO-269)", () => {
 
     await act(async () => fireEvent.press(getByTestId("pay-submit")));
     expect(mockMutate).toHaveBeenCalledTimes(1);
-    expect(mockMutate).toHaveBeenCalledWith({ funding: FUNDING, card: VISA, cvv: "123" });
+    expect(tokenizeSavedCard).toHaveBeenCalledWith({ funding: FUNDING, card: VISA, cvv: "123" });
+    // React Query retiene las variables de la mutación: acá no puede viajar el CVV.
+    expect(mockMutate).toHaveBeenCalledWith({ shipmentId: "ship-1", cardToken: "tok-1", savedCardId: VISA.id });
+    expect(JSON.stringify(mockMutate.mock.calls[0][0])).not.toContain("123");
   });
 
   it("American Express pide 4 dígitos (AC2)", async () => {
@@ -239,7 +244,7 @@ describe("PayShipmentScreen (MOVO-269)", () => {
     expect(getByTestId("pay-submit").props.accessibilityState.disabled).toBe(true);
     await act(async () => fireEvent.changeText(getByTestId("pay-cvv"), "123"));
     await act(async () => fireEvent.press(getByTestId("pay-submit")));
-    expect(mockMutate).toHaveBeenCalledWith({ funding: FUNDING, card: mockNewCard, cvv: "123" });
+    expect(mockMutate).toHaveBeenCalledWith({ shipmentId: "ship-1", cardToken: "tok-1", savedCardId: mockNewCard.id });
   });
 
   it("al retomar un pago a medias avisa que hay que volver a escribir el código (AC7)", async () => {

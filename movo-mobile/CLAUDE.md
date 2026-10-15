@@ -4498,6 +4498,8 @@ el token en el dispositivo con `card_id` + CVV y la `public_key` del transportis
 `GET /shipments/:id/funding`, `createSavedCardToken` en `mp-card-tokenizer.ts`) y se manda a
 `POST /shipments/:id/funding` con `savedCardId` (`funding-client.ts`, `use-shipment-funding.ts`). La lógica vive
 en funciones puras (`pay-shipment-flow.ts`, `pay-shipment-format.ts`) para testearla sin montar `useMutation`.
+El CVV se tokeniza (`tokenizeSavedCard`) en el handler de la pantalla, **antes** de la mutación: React Query retiene
+las variables de cada mutación en el `MutationCache`, así que `useMutation` (`fundWithToken`) recibe solo token e ids.
 
 - **El CVV no sale del dispositivo**: campo seguro (`secureTextEntry`, sin autocompletar), al backend van solo
   `cardToken` y `savedCardId`; se limpia al fallar, al cambiar de tarjeta y al salir. Un rechazo de la tarjeta es
@@ -4508,7 +4510,8 @@ en funciones puras (`pay-shipment-flow.ts`, `pay-shipment-format.ts`) para teste
   `pay` (deja el detalle debajo); el detalle suma el CTA "Pagar y reservar fondos" (`?resumed=1` muestra "Retomaste
   tu pago") y, con `assigned_unfunded`, "Confirmar el pago" solo si la ventana está abierta
   (`isFundingWindowOpen`, `FUNDING_WINDOW_DAYS = 3`, espeja `FUNDING_NEAR_PICKUP_DAYS` del backend, que es quien
-  decide). Los pushes de la saga ya abren el detalle (`type: "shipment"`).
+  decide; se abre 72 h antes del INICIO de la ventana de retiro acordada, `pickupDate` + `pickupTimeWindowStart`
+  en hora argentina, no al empezar el día calendario). Los pushes de la saga ya abren el detalle (`type: "shipment"`).
 - **"Agregar tarjeta nueva"** reusa tal cual el `AddCardWizard` de MOVO-101 (`pay-add-card-modal.tsx`, un `Modal` a
   pantalla completa, mismo patrón que `AddressSearchSheet`): sin una segunda implementación del alta. Al guardar, la
   nueva queda elegida y se pide el CVV otra vez, con un aviso que lo explica (el token de alta es de la `public_key` de

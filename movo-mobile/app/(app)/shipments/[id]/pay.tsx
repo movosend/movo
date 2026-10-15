@@ -16,7 +16,7 @@ import { usePayShipment, useShipmentFunding } from "../../../../src/hooks/use-sh
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { activeShipmentDisplayCode } from "../../../../src/lib/active-shipment-format";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
-import type { PayShipmentOutcome } from "../../../../src/lib/pay-shipment-flow";
+import { type PayShipmentOutcome, tokenizeSavedCard } from "../../../../src/lib/pay-shipment-flow";
 import {
   type PayFailureCopy,
   cvvLengthFor,
@@ -159,7 +159,7 @@ export default function PayShipmentScreen() {
     }
   }
 
-  const submit = () => {
+  const submit = async () => {
     if (phase === "paying" || pay.isPending || !funding.data || !selectedCard) return;
     if (cvv.length !== cvvLengthFor(selectedCard)) return;
     setFailure(null);
@@ -171,7 +171,13 @@ export default function PayShipmentScreen() {
       setTimeout(() => handleOutcome(payDemoOutcome(typed)), 1500);
       return;
     }
-    pay.mutate({ funding: funding.data, card: selectedCard, cvv });
+    // El CVV se usa solo acá: se tokeniza antes de la mutación para que React Query no lo retenga.
+    const tokenized = await tokenizeSavedCard({ funding: funding.data, card: selectedCard, cvv });
+    if (tokenized.kind !== "token") {
+      handleOutcome(tokenized);
+      return;
+    }
+    pay.mutate({ shipmentId: funding.data.shipmentId, cardToken: tokenized.cardToken, savedCardId: selectedCard.id });
   };
 
   const selectCard = (card: SavedCard) => {
