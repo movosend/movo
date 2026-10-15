@@ -4,21 +4,40 @@ import { getJwtConfig } from "./config";
 import { AccessTokenClaims } from "./claims";
 import { KycStatus, UserRole } from "../types/user";
 
-/** TTL del access token, per ADR-004. */
-const ACCESS_TOKEN_TTL = "60m";
+/**
+ * TTL del access token de la app, per ADR-004. Exportado (review de PR #244) para que
+ * `svc-users` use el mismo número en el `expiresIn` de la respuesta y en el TTL de la
+ * marca de revocación `user-revoked-at`.
+ */
+export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
+
+/**
+ * MOVO-287: sesión del panel de administración. Access token corto (15 min) y una
+ * sesión de 8 h fijas desde el login, que rotar el refresh no extiende. Exportados para
+ * que `svc-users` (emite) y el gateway (TTL de la marca de revocación) usen el mismo número.
+ */
+export const PANEL_ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+export const PANEL_SESSION_TTL_SECONDS = 8 * 60 * 60;
 
 /** Datos de entrada para emitir un access token; `iat`/`exp`/`iss` los completa `signAccessToken`. */
 export interface AccessTokenPayload {
   sub: string;
   roles: UserRole[];
   kycStatus: KycStatus;
+  /** MOVO-287: solo lo llevan los tokens de una sesión de panel. Ver `AccessTokenClaims.session`. */
+  session?: "panel";
 }
 
-/** Emite un JWT de acceso firmado, con TTL de 60 minutos (ADR-004). */
-export function signAccessToken(payload: AccessTokenPayload): string {
+export interface SignAccessTokenOptions {
+  /** Default: 60 minutos (ADR-004). La sesión de panel pasa `PANEL_ACCESS_TOKEN_TTL_SECONDS`. */
+  expiresInSeconds?: number;
+}
+
+/** Emite un JWT de acceso firmado, con TTL de 60 minutos (ADR-004) salvo que se indique otro. */
+export function signAccessToken(payload: AccessTokenPayload, options: SignAccessTokenOptions = {}): string {
   const { secret, issuer } = getJwtConfig();
   return jwt.sign(payload, secret, {
-    expiresIn: ACCESS_TOKEN_TTL,
+    expiresIn: options.expiresInSeconds ?? ACCESS_TOKEN_TTL_SECONDS,
     issuer,
   });
 }

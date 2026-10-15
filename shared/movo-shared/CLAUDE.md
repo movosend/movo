@@ -473,6 +473,15 @@ MOVO-101/269 en mobile. `ApiErrorCode` suma `CARD_IN_USE`, `CARD_LIMIT_REACHED`,
 de otra cuenta) y `CARDS_NOT_CONFIGURED`. Recordatorio habitual: `npm run build` acá antes
 de tipar desde otro workspace.
 
+### MOVO-287 — TTL configurable del access token y constantes de la sesión de panel
+
+`signAccessToken(payload, { expiresInSeconds })` (default de 60 min sin cambios) y
+`PANEL_ACCESS_TOKEN_TTL_SECONDS` (15 min) / `PANEL_SESSION_TTL_SECONDS` (8 h), compartidas
+entre `svc-users`, que emite la sesión de panel, y el TTL de su marca de revocación.
+Review de PR #244: también se exporta `ACCESS_TOKEN_TTL_SECONDS` (60 min, la app), así el TTL no
+vive en tres lugares, y el payload/claims suman `session?: "panel"`. El gateway solo respeta el
+rol `admin` en un token con ese claim (antes lo deducía del rol).
+
 ### MOVO-276 — `package_tapered_v2` y `PACKAGE_LIMITS_EXCEEDED` (ADR-041)
 
 `PriceCalculationMethod.PACKAGE_TAPERED_V2` (`DEMAND_FUEL_ROUTES_V1` queda, ya no se emite
@@ -489,3 +498,9 @@ argentino, `null` si se pasa de `recurrenceUntil`). Va en shared para que el pre
 use la misma cuenta que el barrido. Suma los códigos `RECURRING_SERIES_LIMIT`/`TRIP_NOT_SERIES_HEAD`,
 los triggers `tripRecurrence{Generated,StoppedPhantom,StoppedUnavailable}` (categoría `trips`, que
 ya existía, en vez de una nueva) y `accountStatus?`/`bannedUntil?` en `CarrierKycStatusResponse`.
+
+### MOVO-290 — `AdminSummary` y códigos de alta y baja del rol admin
+
+`AdminSummary` (`types/user.ts`): fila de `GET /internal/admins` de `svc-users`, que va a consumir
+`svc-admin` (MOVO-292), con `status` de la cuenta para distinguir admins suspendidos. `ApiErrorCode` suma `ADMIN_GRANT_EMAIL_NOT_VERIFIED` y
+`ADMIN_GRANT_ACCOUNT_NOT_ACTIVE` (422), `ADMIN_NOT_FOUND` (404), `ADMIN_LAST_ADMIN` (409) y `ADMIN_GRANT_CONFLICT` (409).

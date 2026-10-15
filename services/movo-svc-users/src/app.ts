@@ -25,6 +25,7 @@ import addressesRoutes from "./modules/addresses/addresses.routes";
 import deviceKeysRoutes from "./modules/device-keys/device-keys.routes";
 import notificationPreferencesRoutes from "./modules/notification-preferences/notification-preferences.routes";
 import moderationRoutes, { internalModerationRoutes } from "./modules/moderation/moderation.routes";
+import adminsInternalRoutes, { AdminsInternalRoutesOptions } from "./modules/admins/admins-internal.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import { SmsProvider } from "./adapters/sms-provider";
 import { EmailProvider } from "./adapters/email-provider";
@@ -174,6 +175,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const storageOverride = opts.storageProvider ? { storageProvider: opts.storageProvider } : {};
   app.register(moderationRoutes, { prefix: "/users", ...storageOverride });
   app.register(internalModerationRoutes, { prefix: "/internal", ...storageOverride });
+
+  // MOVO-290: alta y baja del rol admin para svc-admin. Interno, mismo criterio que
+  // device-key: no se declara en gateway/src/config/routes-map.ts.
+  const adminsInternalRouteOpts: AdminsInternalRoutesOptions = {
+    prefix: "/internal",
+    ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+  };
+  app.register(adminsInternalRoutes, adminsInternalRouteOpts);
 
   return app;
 }

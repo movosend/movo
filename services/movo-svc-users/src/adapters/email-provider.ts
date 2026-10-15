@@ -198,6 +198,25 @@ export function buildPasswordChangedNotice(): EmailMessage {
 }
 
 /**
+ * MOVO-290 (AC5): aviso al usuario que recibió el rol `admin`, sea por el script o desde el
+ * panel. Si no lo esperaba, se entera: el rol da acceso al panel de administración.
+ */
+export function buildAdminGrantedNotice(): EmailMessage {
+  const text =
+    "Tu cuenta de Movo ahora tiene acceso al panel de administración. " +
+    "Si no lo esperabas, escribinos cuanto antes.";
+  const html = wrapHtml(
+    "Ahora sos administrador",
+    "Tu cuenta tiene acceso al panel de administración.",
+    [
+      `<p style="margin:0 0 16px;font-size:15px;line-height:22px;color:${INK_700};">Tu cuenta de Movo ahora tiene acceso al panel de administración. Para entrar vas a usar tu email, tu contraseña y un código que te llega a este correo.</p>`,
+      `<p style="margin:0;font-size:15px;line-height:22px;color:${INK_700};">Si no lo esperabas, escribinos cuanto antes.</p>`,
+    ].join("")
+  );
+  return { subject: "Ahora tenés acceso al panel de Movo", text, html };
+}
+
+/**
  * `maskEmail()` no enmascara el dominio (se muestra tal cual, solo el local-part se
  * oculta) y viaja interpolado directo en el HTML del mail — hay que escaparlo antes:
  * un dominio con metacaracteres HTML no es válido en DNS/SMTP y Resend no lo

@@ -208,6 +208,65 @@ export const authSchemas = {
       refreshToken: { type: "string" },
     },
   },
+  // MOVO-287: login del panel de administración, paso 1 (email + contraseña).
+  adminLoginBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["email", "password"],
+    properties: {
+      email: { type: "string", pattern: EMAIL_PATTERN, maxLength: 254 },
+      password: { type: "string", minLength: 1 },
+    },
+  },
+  adminLoginResponse: {
+    type: "object",
+    required: ["challengeId", "cooldownSeconds"],
+    properties: {
+      challengeId: { type: "string" },
+      cooldownSeconds: { type: "integer" },
+    },
+  },
+  // Paso 2: el challengeId del paso 1 y el código que llegó por email.
+  adminVerifyBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["challengeId", "code"],
+    properties: {
+      challengeId: { type: "string", minLength: 1 },
+      code: { type: "string", pattern: "^\\d{6}$" },
+    },
+  },
+  // Mismo shape que loginResponse + el vencimiento absoluto de la sesión (8 h desde el
+  // login, rotar el refresh no lo extiende).
+  adminSessionResponse: {
+    type: "object",
+    required: [
+      "userId",
+      "accessToken",
+      "refreshToken",
+      "expiresIn",
+      "sessionExpiresAt",
+      "kycStatus",
+      "fullName",
+      "roles",
+    ],
+    properties: {
+      userId: { type: "string", format: "uuid" },
+      accessToken: { type: "string" },
+      refreshToken: { type: "string" },
+      expiresIn: { type: "integer" },
+      sessionExpiresAt: { type: "string", format: "date-time" },
+      kycStatus: {
+        type: "string",
+        enum: ["not_started", "pending", "approved", "rejected", "expired", "manual_review"],
+      },
+      fullName: { type: "string" },
+      roles: {
+        type: "array",
+        items: { type: "string" },
+      },
+    },
+  },
   errorResponse: {
     type: "object",
     required: ["error"],

@@ -1221,3 +1221,51 @@ criterio que MOVO-77). Test: `test/kyc.internal-status.integration.test.ts`.
 `svc-shipments` corta la serie de viajes recurrentes de una cuenta suspendida. `deleted` sigue
 siendo 404. Los dos campos son opcionales en `CarrierKycStatusResponse` para que un
 `svc-shipments` nuevo tolere este servicio sin actualizar durante el deploy.
+
+### MOVO-287 — Sesión de panel: login con email + OTP y `admin` solo en esa sesión
+
+`POST /auth/admin/login` (email + contraseña → OTP por email, devuelve `challengeId`, nunca
+tokens), `/auth/admin/verify`, `/auth/admin/refresh` y `/auth/admin/logout`, en
+`src/modules/auth/admin-session.service.ts`. `isPanelEligible` (rol `admin` + email verificado +
+cuenta `active`) es la única regla y se revalida en el login, en el verify y en cada refresh.
+`issueSession()` (sesión de la app: register, login, refresh y cambio de contraseña) filtra
+`admin` del JWT y de la respuesta.
+
+- **Namespace propio en Redis** (`panel-refresh:{userId}:{tokenId}`, con `absoluteExpiresAt`):
+  así se pueden revocar las sesiones de panel sin tocar las de la app
+  (`revokePanelSessionsForUser`, que usarán MOVO-290 y MOVO-296), y un refresh de un tipo no
+  sirve en el endpoint del otro. Cada rotación copia el vencimiento de 8 h y la key nueva
+  vive solo lo que le queda. `revokeAllForUser` barre los dos prefijos.
+- **Corte del access token de panel**: `panel-revoked-at:{userId}`, que el gateway mira solo
+  en tokens con `admin` (ver `gateway/CLAUDE.md`). `user-revoked-at` cortaría también la app.
+- **AC3 sin señuelo**: las cuatro causas de rechazo dan el mismo 401 y pasan por exactamente
+  un Argon2id (`DUMMY_HASH` si el email no existe) antes de mirar rol y estado.
+- **Límite por email en el servicio, no en el gateway** (desvío de la letra del AC9): el
+  gateway no parsea el body y aplica un solo limiter por request. 5 intentos cada 15 min por
+  hash del email, contando todos los intentos, así un 429 no revela si la cuenta existe.
+- El reenvío del código usa `POST /auth/resend-otp` con el `challengeId` como `otpId`.
+
+Pendiente / fuera de alcance: alta y baja del rol (MOVO-290), UI del login (MOVO-291).
+
+**Fixes de review (PR #244, PedroYorlano):**
+- **Límite del login por email + IP, no solo por email**: con solo el email, cualquiera que lo
+  conociera dejaba afuera al admin con 5 intentos cada 15 min. La IP llega en `x-client-ip`, que
+  inyecta el gateway (y pisa la del cliente). El contador es un Lua (`INCR` + `EXPIRE` si no tiene
+  TTL): con `SET NX` + `INCR` separados, si la key vencía entre los dos quedaba sin TTL y en 429 para
+  siempre.
+- **Carrera entre revocar y un refresh/verify en paralelo**: `revokePanelSessionsForUser` escribe
+  `panel-revoked-at` antes de barrer, `savePanelRefreshToken` no guarda (Lua) el refresh de una
+  sesión que arrancó antes de la marca (inicio = vencimiento absoluto − 8 h) y `issuePanelSession`
+  firma el access token antes de guardar; el gateway compara el panel con `<=`. Guardar devuelve
+  `ok | expired | revoked` y los dos últimos son 401 (antes, el último segundo de la sesión daba 500).
+- **`session: "panel"` en el access token de panel**: el gateway solo respeta `admin` con ese claim.
+- **`revokeAllForUser` solo toca la app**: el reuso de un refresh de la app o un logout-all ya no
+  cierran el panel. Cambio y reset de contraseña y baja de cuenta llaman además a
+  `revokePanelSessionsForUser`.
+- Un refresh armado a mano con `:` en los ids (`a:b.c.d`) es 401, no 500 (app y panel). Los métodos
+  de app y panel del repositorio comparten implementación (namespace como parámetro). El TTL del
+  access token de la app sale de `ACCESS_TOKEN_TTL_SECONDS` de `@movo/shared`.
+
+### MOVO-290 — Alta y baja del rol admin: script de CLI y endpoints internos
+
+`src/modules/admins/admin-roles.service.ts` concentra las reglas para endpoints internos (`GET`/`POST /internal/admins`, `DELETE /internal/admins/:userId`) y el script `src/scripts/admin-role.ts`. Otorgar exige email verificado y cuenta `active` (idempotente, best-effort email notice). Revocar y baja de cuenta (`deleteAccount`) respetan la invariante compartida de nunca cero admins elegibles (`FOR UPDATE OF ur, u ORDER BY ur.user_id` -> 409 `ADMIN_LAST_ADMIN`) y cortan sesiones de panel en Redis. El CLI valida solo su configuración y `grant` no depende de Redis. Baneo pendiente en MOVO-296: deberá usar el mismo invariante. Procedimiento para el primer admin: ver `docs/admin/primer-admin.md`.

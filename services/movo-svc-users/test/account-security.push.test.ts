@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   updatePhone: vi.fn(),
   updateEmail: vi.fn(),
   revokeAllForUser: vi.fn(),
+  revokePanelSessionsForUser: vi.fn(),
   revokeAccessTokensIssuedBefore: vi.fn(),
   saveRefreshToken: vi.fn(),
 }));
@@ -53,6 +54,7 @@ vi.mock("../src/repositories/session-repository", async (importOriginal) => ({
 function fakeSessionRepository(): SessionRepository {
   return {
     revokeAllForUser: mocks.revokeAllForUser,
+    revokePanelSessionsForUser: mocks.revokePanelSessionsForUser,
     revokeAccessTokensIssuedBefore: mocks.revokeAccessTokensIssuedBefore,
     saveRefreshToken: mocks.saveRefreshToken,
   } as unknown as SessionRepository;

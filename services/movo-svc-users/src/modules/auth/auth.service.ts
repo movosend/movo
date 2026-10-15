@@ -10,6 +10,8 @@ import {
   signAccessToken,
   signRefreshToken,
   LEGAL_DOCUMENT_VERSIONS,
+  ACCESS_TOKEN_TTL_SECONDS,
+  PANEL_ACCESS_TOKEN_TTL_SECONDS,
 } from "@movo/shared";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createSessionRepository, SessionRepository } from "../../repositories/session-repository";
@@ -26,7 +28,7 @@ const ARGON2ID = 2;
 
 // Hash sintético constante para ejecutar verificación Argon2id cuando el usuario
 // no existe, evitando ataques de tiempo (timing attacks / enumeración de usuarios).
-const DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$RkJWb2lMNzJ2ZzBvV0RzTE4xQ3pndw";
+export const DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$RkJWb2lMNzJ2ZzBvV0RzTE4xQ3pndw";
 
 export interface RegisterUserInput {
   fullName: string;
@@ -87,11 +89,11 @@ export interface LogoutInput {
  * cliente — ninguno de los tres componentes puede contener un punto (UUID o
  * base64url), así que el split es seguro.
  */
-function buildRefreshToken(userId: string, tokenId: string, secret: string): string {
+export function buildRefreshToken(userId: string, tokenId: string, secret: string): string {
   return `${userId}.${tokenId}.${secret}`;
 }
 
-function parseRefreshToken(refreshToken: string): { userId: string; tokenId: string; secret: string } | null {
+export function parseRefreshToken(refreshToken: string): { userId: string; tokenId: string; secret: string } | null {
   const parts = refreshToken.split(".");
   if (parts.length !== 3) {
     return null;
@@ -108,7 +110,7 @@ function parseRefreshToken(refreshToken: string): { userId: string; tokenId: str
  * generados por `signRefreshToken()`, no una contraseña de usuario — alcanza con
  * una comparación honesta, no hace falta un hash lento.
  */
-function hashRefreshSecret(secret: string): string {
+export function hashRefreshSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
 }
 
@@ -150,9 +152,14 @@ export function normalizePhoneToE164Ar(rawPhone: string): string {
  * `phoneVerificationService` (dependencia de `createAuthService` que no le hace falta).
  */
 export async function issueSession(sessionRepository: SessionRepository, user: User): Promise<LoginUserResult> {
+  // MOVO-287 (AC6): la app nunca recibe `admin`, aunque el usuario lo tenga. Ese rol
+  // solo entra al JWT en una sesión de panel (`issuePanelSession`), que exige OTP por
+  // email. Como register/login/refresh y el cambio de contraseña pasan todos por acá,
+  // el filtro vive en un solo lugar.
+  const roles = appSessionRoles(user.roles);
   const accessToken = signAccessToken({
     sub: user.id,
-    roles: user.roles,
+    roles,
     kycStatus: user.kycStatusIdentity,
   });
 
@@ -166,7 +173,67 @@ export async function issueSession(sessionRepository: SessionRepository, user: U
     userId: user.id,
     accessToken,
     refreshToken: buildRefreshToken(user.id, tokenId, secret),
-    expiresIn: 3600,
+    expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+    kycStatus: user.kycStatusIdentity,
+    fullName: fullName(user),
+    roles,
+  };
+}
+
+function appSessionRoles(roles: UserRole[]): UserRole[] {
+  return roles.filter((role) => role !== UserRole.ADMIN);
+}
+
+export interface PanelSessionResult extends LoginUserResult {
+  /** ISO 8601. Vencimiento absoluto de la sesión: rotar el refresh no lo mueve (AC4). */
+  sessionExpiresAt: string;
+}
+
+/**
+ * La sesión de panel no se pudo guardar: venció (8 h) o se revocó mientras se emitía
+ * (review de PR #244). Cada flujo lo responde con su 401, nunca con un 500.
+ */
+export class PanelSessionNotSavedError extends Error {
+  constructor(readonly reason: "expired" | "revoked") {
+    super(`panel session ${reason}`);
+  }
+}
+
+/**
+ * MOVO-287: sesión del panel de administración. Access token de 15 min con los roles
+ * completos (incluido `admin`) y el claim `session: "panel"`, que es lo que el gateway mira
+ * para respetar `admin`. Refresh en el namespace `panel-refresh:*`, que vive hasta
+ * `absoluteExpiresAt` (segundos Unix, fijado al hacer login y copiado en cada rotación).
+ * El caller ya validó que el usuario es elegible (`admin-session.service.ts`).
+ */
+export async function issuePanelSession(
+  sessionRepository: SessionRepository,
+  user: User,
+  absoluteExpiresAt: number
+): Promise<PanelSessionResult> {
+  // El access token se firma ANTES de guardar el refresh: si una revocación llega después
+  // del guardado, su marca es >= este `iat` y el gateway lo rechaza; si llega antes, el
+  // guardado falla y el token nunca sale.
+  const accessToken = signAccessToken(
+    { sub: user.id, roles: user.roles, kycStatus: user.kycStatusIdentity, session: "panel" },
+    { expiresInSeconds: PANEL_ACCESS_TOKEN_TTL_SECONDS }
+  );
+
+  const { token: secret, tokenId } = signRefreshToken();
+  const saved = await sessionRepository.savePanelRefreshToken(user.id, tokenId, {
+    hash: hashRefreshSecret(secret),
+    absoluteExpiresAt,
+  });
+  if (saved !== "ok") {
+    throw new PanelSessionNotSavedError(saved);
+  }
+
+  return {
+    userId: user.id,
+    accessToken,
+    refreshToken: buildRefreshToken(user.id, tokenId, secret),
+    expiresIn: PANEL_ACCESS_TOKEN_TTL_SECONDS,
+    sessionExpiresAt: new Date(absoluteExpiresAt * 1000).toISOString(),
     kycStatus: user.kycStatusIdentity,
     fullName: fullName(user),
     roles: user.roles,

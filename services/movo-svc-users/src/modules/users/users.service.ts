@@ -11,7 +11,8 @@ import {
   RecentRatingComment,
   VehicleProfile as SharedVehicleProfile,
 } from "@movo/shared";
-import { PrismaClient } from "../../generated/prisma/client";
+import { PrismaClient, UserRole as PrismaUserRole } from "../../generated/prisma/client";
+import { ensureNotLastEligibleAdmin } from "../admins/admin-roles.service";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createPushTokenRepository } from "../../repositories/push-token-repository";
 import { createDeviceKeyRepository } from "../../repositories/device-key-repository";
@@ -728,6 +729,8 @@ export function createUsersService(
 
       await resetPasswordChangeRateLimit(redis, userId);
       await sessionRepository.revokeAllForUser(userId);
+      // MOVO-287: `revokeAllForUser` solo toca la app; un cambio de contraseña corta también el panel.
+      await sessionRepository.revokePanelSessionsForUser(userId);
       await sessionRepository.revokeAccessTokensIssuedBefore(userId);
 
       // MOVO-274: aviso push, después de revocar las sesiones y con el cambio ya
@@ -807,6 +810,8 @@ export function createUsersService(
         const previousPhotoUrl = user.photoUrl;
 
         await db.$transaction(async (tx) => {
+          // MOVO-290 (review de PR #247): el último admin elegible no puede darse de baja (409 ADMIN_LAST_ADMIN).
+          await ensureNotLastEligibleAdmin(tx, userId, "No se puede dar de baja al último admin.");
           const txUserRepository = createUserRepository(tx);
           const txPushTokenRepository = createPushTokenRepository(tx);
           await txUserRepository.anonymizeAndDelete(userId);
@@ -833,9 +838,12 @@ export function createUsersService(
           // MOVO-175 (ADR-026): mismo motivo -- los bloqueos en ambas direcciones se
           // borran a mano. Los reportes se conservan a propósito (evidencia para admin).
           await tx.userBlock.deleteMany({ where: { OR: [{ blockerId: userId }, { blockedId: userId }] } });
+          // MOVO-290 (review de PR #247): la baja de cuenta borra el rol admin si lo tenía.
+          await tx.userRoleGrant.deleteMany({ where: { userId, role: PrismaUserRole.admin } });
         });
 
         await sessionRepository.revokeAllForUser(userId);
+        await sessionRepository.revokePanelSessionsForUser(userId);
         await sessionRepository.revokeAccessTokensIssuedBefore(userId);
 
         // MOVO-202/AC7: la traza GPS del usuario como transportista vive en
