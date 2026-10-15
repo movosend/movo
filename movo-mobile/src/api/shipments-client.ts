@@ -48,6 +48,9 @@ export interface ShipmentSummary {
   receiverRedesignationDeadline?: string | null;
   /** MOVO-253: motivo del último rechazo, `null` fuera de `rejected_by_receiver`. */
   rejectionReason?: string | null;
+  /** MOVO-278 (ADR-045): ISO del momento en que el envío `in_transit` se marcó como
+   * demorado; `null` (u omitido en builds viejos del backend) si no está marcado. */
+  transitAnomalyFlaggedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   /** MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
@@ -263,6 +266,9 @@ export interface ActiveShipmentSummary {
   isToday: boolean;
   pickupWindowExpired: boolean;
   tripId: string | null;
+  /** MOVO-278 (ADR-045): envío `in_transit` demorado (ISO del momento en que se marcó);
+   * `null` si no está marcado. Se muestra como "Demorado". */
+  transitAnomalyFlaggedAt: string | null;
 }
 
 /**

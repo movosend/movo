@@ -189,4 +189,40 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     expect(getByTestId("tracking-delivered-overlay")).toBeTruthy();
     expect(getByText("Envío entregado")).toBeTruthy();
   });
+
+  describe("MOVO-278: estado explícito sin ubicación", () => {
+    function renderWith(shipmentOverrides: Record<string, unknown>, positionOverrides: Record<string, unknown>) {
+      (useShipment as jest.Mock).mockReturnValue({ data: { ...mockShipmentData, ...shipmentOverrides }, isLoading: false });
+      (usePublicProfile as jest.Mock).mockReturnValue({ data: mockCarrierData, isLoading: false });
+      (useLivePosition as jest.Mock).mockReturnValue({ ...mockPositionData, ...positionOverrides });
+      return render(<LiveTrackingScreen />);
+    }
+
+    it("sin posición muestra 'No tenemos la ubicación del transportista'", async () => {
+      const { getByTestId } = await renderWith({}, { position: null, trackingStatus: "no_position" });
+
+      expect(getByTestId("tracking-no-position-overlay")).toHaveTextContent(/No tenemos la ubicación del transportista/);
+    });
+
+    it("un envío demorado lo explica aunque no haya posición", async () => {
+      const { getByTestId } = await renderWith(
+        { transitAnomalyFlaggedAt: "2026-10-04T10:00:00.000Z" },
+        { position: null, trackingStatus: "no_position" },
+      );
+
+      expect(getByTestId("tracking-no-position-overlay")).toHaveTextContent(/La entrega está demorada\. Si no se confirma pronto/);
+    });
+
+    it("con posición en vivo y sin demora no muestra el aviso", async () => {
+      const { queryByTestId } = await renderWith({}, {});
+
+      expect(queryByTestId("tracking-no-position-overlay")).toBeNull();
+    });
+
+    it("mientras carga la primera posición no muestra el aviso", async () => {
+      const { queryByTestId } = await renderWith({}, { position: null, isLoadingInitial: true });
+
+      expect(queryByTestId("tracking-no-position-overlay")).toBeNull();
+    });
+  });
 });

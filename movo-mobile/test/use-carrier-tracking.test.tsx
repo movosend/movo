@@ -45,7 +45,8 @@ function activeShipment(id: string, status: "assigned_unfunded" | "assigned" | "
     agreedPriceArs: 4000,
     counterparty: { name: "Juan", initials: "J" },
     isToday: true,
-    pickupWindowExpired: false, tripId: null
+    pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
   };
 }
 
