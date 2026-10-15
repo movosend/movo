@@ -60,7 +60,7 @@ export interface UserLedgerEntry {
   shipmentId: string | null;
   holdId: string | null;
   paymentId: string | null;
-  /** Solo en `manual_adjustment`. */
+  /** Solo en `manual_adjustment`. Oculto (`null`) en `GET /payments/balance` para resguardar evidencia interna del admin. */
   reason: string | null;
   createdAt: string;
 }

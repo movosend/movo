@@ -559,9 +559,10 @@ ya proxeaba `/payments`). Código en `src/modules/user-ledger/`, `src/repositori
 - **Saldo** = suma de lo que no está `voided` (un `settled` sigue contando; lo cancela un movimiento negativo aparte).
   `oldestUnpaidAt` = el cargo más viejo que compone la deuda actual (cargos `pending`/`reserved` del más nuevo al más viejo hasta cubrir el saldo), `null` si el saldo no es positivo; saldo, esa fecha y la página se leen en una transacción `REPEATABLE READ`.
 - **Idempotencia**: `idempotency_key` única + `request_fingerprint` (hash). Mismo cuerpo → 200 con el original; otro
-  cuerpo → 409 `LEDGER_IDEMPOTENCY_CONFLICT`. La carrera la resuelve el P2002 de la base.
+  cuerpo → 409 `LEDGER_IDEMPOTENCY_CONFLICT`. La carrera la resuelve el P2002 de la base. Si se manda un `holdId` inexistente, el error P2003 de FK se mapea a 404 `HOLD_NOT_FOUND`.
 - **El signo no se valida contra el tipo**: lo manda quien registra (decisión del ADR). Monto distinto de cero, hasta
-  2 decimales y tope de ±$10.000.000 (los decimales los mira el service, no Ajv).
+  2 decimales y tope de ±$10.000.000 (los decimales los mira el service, no Ajv). Pagos/cobros (307/312) insertan en `settled`.
+- **`reason` de ajustes manuales resguardado**: en `GET /payments/balance` se expone como `null` para resguardar evidencia interna del admin de la app móvil; solo se expone en endpoints internos.
 - **`created_at` lo pone la app y la columna es `TIMESTAMPTZ(3)`** (migración `20261016120000`), así el cursor `(created_at, id)` no pierde precisión ni con una fila insertada por fuera de la app.
 - `service.transition()` mueve el `status` con un UPDATE condicional; sin endpoint HTTP todavía (lo abren 311/312). Solo permite `pending→reserved|settled|voided`, `reserved→pending|settled|voided` y `settled→voided` (409 `LEDGER_INVALID_TRANSITION`); `voided` es terminal, y el trigger de la base lo impone también.
 - **Replay idempotente**: con `created: false` el movimiento se devuelve como está hoy, así que su `status` puede haber cambiado desde el alta; el llamador mira `entry.status`.

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
@@ -137,10 +138,37 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
       expect((await balanceOf(USER)).balanceArs).toBe(75);
     });
 
+    it("404 HOLD_NOT_FOUND si el holdId no existe en la base", async () => {
+      const res = await addEntry(USER, { holdId: "99999999-9999-4999-8999-999999999999" });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error.code).toBe("HOLD_NOT_FOUND");
+    });
+
+    it("asocia el holdId si existe en la base", async () => {
+      const hold = await app.db.hold.create({
+        data: {
+          shipmentId: randomUUID(),
+          attempt: seq + 1,
+          carrierId: OTHER_USER,
+          collectorId: "1000000001",
+          mpPaymentId: `test-mp-${seq}`,
+          amountArs: 1000,
+          applicationFeeArs: 150,
+          status: "authorized",
+          expiresAt: new Date(Date.now() + 86_400_000),
+        },
+      });
+      const res = await addEntry(USER, { holdId: hold.id });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().entry.holdId).toBe(hold.id);
+    });
+
     it.each([
       ["cero", { amountArs: 0 }],
       ["más de 2 decimales", { amountArs: 10.123 }],
       ["medio centavo en el tope", { amountArs: 9999999.995 }],
+      ["más de 10M", { amountArs: 10000001 }],
+      ["menos de -10M", { amountArs: -10000001 }],
       ["tipo inválido", { type: "bonus" }],
       ["tipo manual_adjustment (va por su endpoint)", { type: "manual_adjustment" }],
     ])("400 con %s", async (_name, patch) => {
@@ -212,6 +240,12 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
       await expect(app.userLedger.transition(USER, entry.id, "voided", "pending")).rejects.toMatchObject({
         code: "LEDGER_INVALID_TRANSITION",
       });
+      await expect(app.userLedger.transition(USER, entry.id, "voided", "reserved")).rejects.toMatchObject({
+        code: "LEDGER_INVALID_TRANSITION",
+      });
+      await expect(app.userLedger.transition(USER, entry.id, "voided", "settled")).rejects.toMatchObject({
+        code: "LEDGER_INVALID_TRANSITION",
+      });
     });
 
     it("la base también rechaza reabrir un movimiento anulado", async () => {
@@ -220,6 +254,12 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
 
       await expect(
         app.db.$executeRawUnsafe(`UPDATE payments.user_ledger_entries SET status = 'pending' WHERE id = '${entry.id}'`)
+      ).rejects.toThrow(/transición de status no permitida/);
+      await expect(
+        app.db.$executeRawUnsafe(`UPDATE payments.user_ledger_entries SET status = 'reserved' WHERE id = '${entry.id}'`)
+      ).rejects.toThrow(/transición de status no permitida/);
+      await expect(
+        app.db.$executeRawUnsafe(`UPDATE payments.user_ledger_entries SET status = 'settled' WHERE id = '${entry.id}'`)
       ).rejects.toThrow(/transición de status no permitida/);
     });
 
@@ -284,6 +324,25 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
 
     it("400 con un cursor inválido", async () => {
       expect((await mine(USER, "?cursor=basura")).statusCode).toBe(400);
+    });
+
+    it("no expone el reason de un ajuste manual al usuario (lo devuelve como null)", async () => {
+      await app.inject({
+        method: "POST",
+        url: `/internal/payments/users/${USER}/manual-adjustments`,
+        payload: {
+          idempotencyKey: `priv-adjust-${seq++}`,
+          amountArs: -50,
+          adminId: ADMIN,
+          reason: "Nota confidencial del admin: sospecha de fraude",
+        },
+      });
+
+      const res = await mine(USER);
+      expect(res.statusCode).toBe(200);
+      const adjustment = res.json().items.find((i: { type: string }) => i.type === "manual_adjustment");
+      expect(adjustment).toBeDefined();
+      expect(adjustment.reason).toBeNull();
     });
   });
 });

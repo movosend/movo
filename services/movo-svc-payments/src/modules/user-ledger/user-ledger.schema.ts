@@ -91,6 +91,7 @@ export const createEntryInternalSchema = {
     200: { type: "object", required: ["entry", "created"], properties: { entry, created: { type: "boolean" } } },
     201: { type: "object", required: ["entry", "created"], properties: { entry, created: { type: "boolean" } } },
     400: errorResponse,
+    404: errorResponse,
     409: errorResponse,
   },
 } as const;

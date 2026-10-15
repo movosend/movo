@@ -1,4 +1,5 @@
 import { Prisma, PrismaClient } from "../generated/prisma/client";
+import { ApiError } from "@movo/shared";
 import type {
   LedgerEntryStatus,
   LedgerEntryType,
@@ -96,9 +97,14 @@ export function createUserLedgerRepository(db: PrismaClient): UserLedgerReposito
         const entry = await db.userLedgerEntry.create({ data: { ...data, createdAt: new Date() } });
         return { entry, created: true };
       } catch (err) {
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-          const existing = await db.userLedgerEntry.findUnique({ where: { idempotencyKey: data.idempotencyKey } });
-          if (existing) return { entry: existing, created: false };
+        if (err instanceof Prisma.PrismaClientKnownRequestError) {
+          if (err.code === "P2002") {
+            const existing = await db.userLedgerEntry.findUnique({ where: { idempotencyKey: data.idempotencyKey } });
+            if (existing) return { entry: existing, created: false };
+          }
+          if (err.code === "P2003") {
+            throw new ApiError(404, "HOLD_NOT_FOUND", "El hold no existe.");
+          }
         }
         throw err;
       }

@@ -63,7 +63,7 @@ function fingerprint(parts: Record<string, unknown>): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 }
 
-function toDto(row: UserLedgerEntry): UserLedgerEntryDto {
+function toDto(row: UserLedgerEntry, opts?: { maskReason?: boolean }): UserLedgerEntryDto {
   return {
     id: row.id,
     userId: row.userId,
@@ -74,7 +74,7 @@ function toDto(row: UserLedgerEntry): UserLedgerEntryDto {
     shipmentId: row.shipmentId,
     holdId: row.holdId,
     paymentId: row.paymentId,
-    reason: row.reason,
+    reason: opts?.maskReason ? null : row.reason,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -189,7 +189,7 @@ export function createUserLedgerService(deps: UserLedgerServiceDeps): UserLedger
       const last = pageRows[pageRows.length - 1];
       return {
         ...toSummary(summary),
-        items: pageRows.map(toDto),
+        items: pageRows.map((r) => toDto(r, { maskReason: true })),
         nextCursor: hasMore && last ? encodeCursor(last) : null,
       };
     },

@@ -17,8 +17,8 @@ Una tabla `payments.user_ledger_entries` por **usuario**, con **saldo con signo*
 - **`oldestUnpaidAt`** = el cargo más viejo que compone la deuda actual: se recorren los cargos positivos `pending`/`reserved` del más nuevo al más viejo hasta cubrir el saldo, y `null` si el saldo no es positivo. Así una penalidad ya compensada por un movimiento negativo, pero que quedó `pending`, no figura como deuda vieja cuando después entra una deuda nueva. Es lo que va a mirar el bloqueo por deuda vencida (MOVO-313). Saldo, `oldestUnpaidAt` y la página de movimientos se leen en una sola transacción `REPEATABLE READ`.
 - **Monto:** `Decimal(12,2)` en la base, `number` con 2 decimales en el contrato HTTP (igual que holds y liquidaciones). Distinto de cero y con tope de ±$10.000.000 por movimiento (frena un typo). Los decimales se validan en el service (Ajv compara en float).
 - **El signo no se deduce del tipo.** El ledger no impone que `cancellation_penalty` sea positivo ni que `voluntary_payment` sea negativo: quien registra manda el signo. Se evaluó validarlo y se descartó por ahora porque los tickets que lo van a consumir (307, 311, 312) todavía no fijaron sus casos borde; si se vuelve útil se agrega un chequeo sin migrar datos.
-- **Ajuste manual** (`manual_adjustment`): solo por endpoint interno, `reason` obligatorio (también como `CHECK` en la base) y `adminId` para la auditoría.
-- **Sin FK** a usuarios y envíos (ADR-003); solo `hold_id` es FK, porque `holds` es del mismo schema.
+- **Ajuste manual** (`manual_adjustment`): solo por endpoint interno, `reason` obligatorio (también como `CHECK` en la base) y `adminId` para la auditoría. El `reason` es evidencia interna del admin y se oculta (`null`) en el endpoint del usuario (`GET /payments/balance`).
+- **Sin FK** a usuarios y envíos (ADR-003); solo `hold_id` es FK, porque `holds` es del mismo schema. Si el `holdId` no existe se rechaza con `404 HOLD_NOT_FOUND`.
 
 ### Endpoints
 
@@ -44,5 +44,6 @@ Una tabla `payments.user_ledger_entries` por **usuario**, con **saldo con signo*
 
 - Los consumidores (307, 310, 311, 312, 313) arman sus propias `idempotencyKey`; una key mal construida puede registrar una deuda dos veces o descartar una legítima. Convención sugerida: `<tipo>:<shipmentId>` (ej. `penalty:<id>`).
 - Un movimiento `reserved` cuenta para el saldo y para `oldestUnpaidAt`; si la reserva se cae, quien la hizo tiene que volverla a `pending` o anularla. No hay barrido que lo haga solo.
+- Los movimientos negativos (pagos o créditos) reducen el saldo siempre que no estén `voided`. Las operaciones que saldan deudas (307 captura parcial, 312 pago voluntario) registran los movimientos directamente en `settled` una vez acreditados; no se deben crear pagos en `pending` que reduzcan la deuda antes de que el cobro se concrete.
 - No hay endpoint HTTP para cambiar el `status` todavía: lo expone el service (`transition`) y lo van a abrir 311/312 cuando lo necesiten.
 - La plata de la deuda no pasa por Mercado Pago hasta que 311/312 la cobren; hasta entonces es un registro contable, no un cobro.
