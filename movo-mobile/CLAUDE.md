@@ -4669,10 +4669,11 @@ PR apilada sobre la de MOVO-265 (#246), que trae los tipos y helpers de `@movo/s
   fecha de fin no deja declarar otro viaje.
 - **`TripForm`** pasa a `variant: "create" | "edit"`. En la edición los campos de recurrencia
   viajan solo si cambiaron, así un PATCH de ruta/hora no choca con `TRIP_NOT_SERIES_HEAD`;
-  apagar manda `recurrenceWeekdays: null`. Con paquetes aceptados, el vigente de una serie
-  abre en modo `recurrence-only` (aviso + solo días/"Hasta"); un viaje común con paquetes
-  sigue bloqueado como en MOVO-263. Sin `isSeriesHead`, la recurrencia es de solo lectura.
-  `RECURRING_SERIES_LIMIT` se muestra inline en la card.
+  apagar manda `recurrenceWeekdays: null`. Un viaje con paquetes aceptados no se edita,
+  tampoco su recurrencia (review de PR #246; se sacó el modo `recurrence-only`): cortar la
+  serie es "Dejar de repetir" del detalle. Sin `isSeriesHead`, la recurrencia es de solo
+  lectura. `RECURRING_SERIES_LIMIT` se muestra inline en la card. "Hasta" se valida contra el
+  día argentino de la salida (`isUntilAfterDeparture`/`minimumUntilDate`), como el backend.
 - **Detalle**: badge (`TripRecurrenceBadge`, también en la card de Próximos), "Dejar de
   repetir" en el menú con confirmación (`Alert.alert`, PATCH `recurrenceWeekdays: null`,
   disponible con paquetes) y `TripCancelSheet` con "Solo este viaje"/"Este y dejar de

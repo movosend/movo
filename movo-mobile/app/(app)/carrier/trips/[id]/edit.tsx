@@ -17,10 +17,10 @@ const NOT_SERIES_HEAD_REASON =
 /**
  * Editar viaje (MOVO-162, AC3) — sibling de `new.tsx`, mismo `TripForm`.
  *
- * MOVO-266: con paquetes aceptados, el vigente de una serie recurrente (`isSeriesHead`) abre
- * el form en modo `recurrence-only` (solo los días; el backend acepta ese PATCH). Un viaje
- * común con paquetes sigue bloqueado. Un viaje que ya tiene el
- * siguiente declarado muestra la recurrencia de solo lectura.
+ * MOVO-266: un viaje con paquetes aceptados no se edita, tampoco su recurrencia (review de
+ * PR #246): para otro patrón se declara un viaje nuevo, y cortar la serie es "Dejar de
+ * repetir" desde el detalle. Un viaje que ya tiene el siguiente declarado muestra la
+ * recurrencia de solo lectura.
  */
 export default function EditTripScreen() {
   const colors = useThemeColors();
@@ -89,7 +89,7 @@ export default function EditTripScreen() {
             Reintentar
           </Text>
         </View>
-      ) : trip.hasAcceptedPackages && !(trip.recurrenceWeekdays !== null && trip.isSeriesHead) ? (
+      ) : trip.hasAcceptedPackages ? (
         // Carrera real: el viaje se aceptó paquetes después de que el usuario tocó
         // "Editar" desde una lista ya desactualizada. Mismo mensaje que la card
         // bloqueada del listado (MOVO-162 AC4) — no tiene sentido mostrar un
@@ -131,7 +131,6 @@ export default function EditTripScreen() {
         <TripForm
           testID="edit-trip-form"
           variant="edit"
-          mode={trip.hasAcceptedPackages ? "recurrence-only" : "full"}
           recurrenceReadOnlyReason={trip.isSeriesHead ? null : NOT_SERIES_HEAD_REASON}
           submitLabel="Guardar cambios"
           submitting={updateTrip.isPending}

@@ -85,8 +85,9 @@ function NoPackagesCard({ onSearch }: { onSearch: () => void }) {
  * (y ofrece iniciar), `active` solo lleva al mapa en vivo, y los terminales son de lectura.
  *
  * MOVO-266: un viaje recurrente muestra el badge de la serie. Las acciones de recurrencia
- * (editar los días, "Dejar de repetir", cortar la serie al cancelar) solo aparecen en el
- * vigente de la serie (`isSeriesHead`), y "Dejar de repetir" también con paquetes aceptados.
+ * ("Dejar de repetir", cortar la serie al cancelar) solo aparecen en el vigente de la serie
+ * (`isSeriesHead`). Con paquetes aceptados el viaje no se edita, pero "Dejar de repetir" sigue
+ * disponible: es la única forma de cortar esa serie.
  */
 export default function TripDetailScreen() {
   const colors = useThemeColors();
@@ -242,16 +243,13 @@ export default function TripDetailScreen() {
   const canEditOrCancel = isDeclared && !hasPackages;
   const isRecurring = trip.recurrenceWeekdays !== null;
   const isOngoing = isDeclared || trip.status === TripStatus.ACTIVE;
-  // Con paquetes aceptados solo se editan los días de una serie (el form entra en modo
-  // recurrence-only); un viaje común con paquetes sigue sin edición, como en MOVO-263.
-  const canEditRecurrenceOnly = isDeclared && hasPackages && isRecurring && trip.isSeriesHead;
   const canStopRecurrence = isRecurring && trip.isSeriesHead && isOngoing;
   const menuActions = [
-    ...(canEditOrCancel || canEditRecurrenceOnly
+    ...(canEditOrCancel
       ? [
           {
             id: EDIT_ACTION_ID,
-            title: canEditOrCancel ? "Editar viaje" : "Editar días en que se repite",
+            title: "Editar viaje",
             image: Platform.select({ ios: "pencil", android: "ic_menu_edit" }),
             // Sin `imageColor` el ícono no se tiñe y queda invisible sobre el menú.
             imageColor: colors.fg1,
@@ -436,7 +434,7 @@ export default function TripDetailScreen() {
                   <Lock size={14} color={colors.fg3} strokeWidth={1.75} />
                   <Text className="flex-1 font-sans text-[12px] leading-[18px] text-fg-3">
                     Con paquetes aceptados no podés editar ni cancelar el viaje. Si necesitás cancelar, hacelo desde
-                    cada envío.{canEditRecurrenceOnly ? " Los días en que se repite sí los podés cambiar desde el menú." : ""}
+                    cada envío.{canStopRecurrence ? " Para que no se repita, usá «Dejar de repetir» desde el menú." : ""}
                   </Text>
                 </View>
               ) : null}

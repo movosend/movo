@@ -1,4 +1,4 @@
-import { toArgentinaTimeOfDayString } from "@movo/shared/dist/utils/argentina-date";
+import { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "@movo/shared/dist/utils/argentina-date";
 import type { Trip } from "../api/trips-client";
 import { shortAddressLabel } from "./shipment-format";
 import {
@@ -119,6 +119,21 @@ export function toUntilDateString(date: Date): string {
 export function fromUntilDateString(value: string): Date {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day, 12, 0, 0, 0);
+}
+
+/**
+ * `recurrenceUntil` tiene que ser posterior al día de la salida. El backend compara contra el
+ * día en huso argentino (`toArgentinaCalendarDateString`), no contra el del dispositivo: en un
+ * teléfono con otra zona horaria la salida puede caer en otro día calendario.
+ */
+export function isUntilAfterDeparture(until: string, departureAt: Date): boolean {
+  return until > toArgentinaCalendarDateString(departureAt);
+}
+
+/** Primer día que se puede elegir como "Hasta": el siguiente a la salida, en huso argentino. */
+export function minimumUntilDate(departureAt: Date): Date {
+  const [year, month, day] = toArgentinaCalendarDateString(departureAt).split("-").map(Number);
+  return new Date(year, month - 1, day + 1, 12, 0, 0, 0);
 }
 
 /**

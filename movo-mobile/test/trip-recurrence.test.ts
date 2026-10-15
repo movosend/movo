@@ -2,6 +2,8 @@ import {
   WEEKDAY_CHIPS,
   formatRecurrenceBadge,
   fromUntilDateString,
+  isUntilAfterDeparture,
+  minimumUntilDate,
   newTripsBannerMessage,
   recurrencePreview,
   toUntilDateString,
@@ -56,6 +58,21 @@ describe("trip-recurrence (MOVO-266)", () => {
     expect(date.getMonth()).toBe(11);
     expect(date.getDate()).toBe(18);
     expect(toUntilDateString(date)).toBe("2026-12-18");
+  });
+
+  describe("fecha de fin contra el día de salida en huso argentino (review de PR #251)", () => {
+    // Lunes 5/10 21:30 en Argentina: en UTC (y en cualquier zona al este) ya es martes.
+    const MONDAY_NIGHT_AR = new Date("2026-10-06T00:30:00.000Z");
+
+    it("compara contra el día argentino, no contra el del dispositivo", () => {
+      expect(isUntilAfterDeparture("2026-10-05", MONDAY_NIGHT_AR)).toBe(false);
+      expect(isUntilAfterDeparture("2026-10-06", MONDAY_NIGHT_AR)).toBe(true);
+    });
+
+    it("el mínimo de \"Hasta\" es el día siguiente a la salida en Argentina", () => {
+      const min = minimumUntilDate(MONDAY_NIGHT_AR);
+      expect(toUntilDateString(min)).toBe("2026-10-06");
+    });
   });
 
   describe("newTripsBannerMessage", () => {

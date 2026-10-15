@@ -291,22 +291,6 @@ describe("TripForm", () => {
         expect(onSubmit).toHaveBeenCalledWith({ ...BASE_BODY, recurrenceWeekdays: null });
       });
 
-      it("con paquetes aceptados solo deja editar los días y manda solo la recurrencia", async () => {
-        const onSubmit = jest.fn();
-        const { getByTestId, queryByTestId } = await renderEdit(onSubmit, { mode: "recurrence-only" });
-
-        expect(getByTestId("tf-locked-notice")).toBeTruthy();
-        expect(queryByTestId("tf-origin")).toBeNull();
-        expect(getByTestId("tf-recurrence-time-time").props.accessibilityState?.disabled).toBe(true);
-        // Sin cambios no hay nada que guardar.
-        expect(getByTestId("tf-submit").props.accessibilityState?.disabled).toBeTruthy();
-
-        await fireEvent.press(getByTestId(`tf-recurrence-day-${OTHERS[0]}`));
-        await fireEvent.press(getByTestId("tf-submit"));
-
-        expect(onSubmit).toHaveBeenCalledWith({ recurrenceWeekdays: sortWeekdays([FIXED, OTHERS[0]]) });
-      });
-
       it("en un viaje que no es el vigente de la serie la recurrencia es de solo lectura y no viaja", async () => {
         const onSubmit = jest.fn();
         const { getByTestId } = await renderEdit(onSubmit, {

@@ -1,6 +1,6 @@
 import { argentinaWeekday } from "@movo/shared/dist/config/trip-recurrence";
 import { router } from "expo-router";
-import { AlertTriangle, CheckCircle2, Lock } from "lucide-react-native";
+import { AlertTriangle, CheckCircle2 } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { PrimaryButton } from "../auth/primary-button";
@@ -12,9 +12,9 @@ import { haversineKm } from "../../src/lib/geo";
 import { tierFromLabel } from "../../src/data/vehicle-catalog";
 import { useMyVehicle } from "../../src/hooks/use-vehicle";
 import type { AddressSelection } from "../../src/types/address-selection";
-import { shortAddressLabel } from "../../src/lib/shipment-format";
 import {
   fromUntilDateString,
+  isUntilAfterDeparture,
   sortWeekdays,
   toUntilDateString,
   withFixedDay,
@@ -77,9 +77,6 @@ interface CreateTripFormProps extends TripFormBaseProps {
 
 interface EditTripFormProps extends TripFormBaseProps {
   variant: "edit";
-  /** `recurrence-only`: el viaje tiene paquetes aceptados, solo se editan los días
-   * (MOVO-265 deja pasar un PATCH que solo toca la recurrencia). */
-  mode?: "full" | "recurrence-only";
   /** Motivo por el que la recurrencia no se edita acá (el viaje ya tiene el siguiente
    * declarado, `isSeriesHead = false`). `null` = editable. */
   recurrenceReadOnlyReason?: string | null;
@@ -106,7 +103,6 @@ export function TripForm(props: TripFormProps) {
   const { initialValues, submitLabel, recurringSubmitLabel, submitting, error, recurrenceError = null, testID } =
     props;
   const isEdit = props.variant === "edit";
-  const recurrenceOnly = props.variant === "edit" && props.mode === "recurrence-only";
   const recurrenceReadOnlyReason = props.variant === "edit" ? (props.recurrenceReadOnlyReason ?? null) : null;
 
   const [origin, setOrigin] = useState<AddressSelection | null>(initialValues?.origin ?? null);
@@ -125,6 +121,9 @@ export function TripForm(props: TripFormProps) {
     initialUntil ? fromUntilDateString(initialUntil) : new Date(departureAt.getTime() + DEFAULT_UNTIL_OFFSET_MS),
   );
 
+  // El día de la salida es de la fecha, no del usuario: mover el vigente de lunes a martes saca el
+  // lunes de la serie y suma el martes. Es a propósito (ADR-042, punto 6): editar el vigente define
+  // el patrón de los próximos, no hay edición "solo de esta ocurrencia".
   const handleDepartureChange = (next: Date) => {
     setWeekdays((current) => withFixedDay(current, argentinaWeekday(departureAt), argentinaWeekday(next)));
     setDepartureAt(next);
@@ -141,15 +140,11 @@ export function TripForm(props: TripFormProps) {
   const effectiveWeekdays = repeating ? sortWeekdays(weekdays) : null;
   const effectiveUntil = repeating && untilMode === "date" ? toUntilDateString(until) : null;
   // `recurrenceUntil` es inclusive y tiene que caer después del día de la primera salida.
-  const untilInvalid = effectiveUntil !== null && effectiveUntil <= toUntilDateString(departureAt);
-  const recurrenceChanged =
-    !sameWeekdays(effectiveWeekdays, initialWeekdays) || (effectiveWeekdays !== null && effectiveUntil !== initialUntil);
+  const untilInvalid = effectiveUntil !== null && !isUntilAfterDeparture(effectiveUntil, departureAt);
 
   const tooClose = areTooClose(origin, destination);
-  const inThePast = !recurrenceOnly && departureAt.getTime() <= Date.now();
-  const isValid = recurrenceOnly
-    ? recurrenceChanged && !untilInvalid
-    : !!origin && !!destination && !tooClose && !inThePast && !!vehicle && !untilInvalid;
+  const inThePast = departureAt.getTime() <= Date.now();
+  const isValid = !!origin && !!destination && !tooClose && !inThePast && !!vehicle && !untilInvalid;
 
   /** Campos de recurrencia del PATCH: solo lo que cambió. Apagar manda `null` y el
    * backend limpia `recurrenceUntil` solo. */
@@ -163,10 +158,6 @@ export function TripForm(props: TripFormProps) {
 
   const handleSubmit = () => {
     if (!isValid) return;
-    if (props.variant === "edit" && recurrenceOnly) {
-      props.onSubmit(recurrencePatch());
-      return;
-    }
     if (!origin || !destination || !vehicle) return;
     const base = {
       originAddress: origin.address,
@@ -208,7 +199,6 @@ export function TripForm(props: TripFormProps) {
         until={until}
         onUntilChange={setUntil}
         untilInvalid={untilInvalid}
-        lockedSchedule={recurrenceOnly}
         readOnlyReason={recurrenceReadOnlyReason}
         error={recurrenceError}
       />
@@ -230,76 +220,54 @@ export function TripForm(props: TripFormProps) {
       >
         <ErrorBanner testID={testID ? `${testID}-error` : undefined} message={error} />
 
-        {recurrenceOnly ? (
           <View className="gap-3">
-            <View
-              testID={testID ? `${testID}-locked-notice` : undefined}
-              className="flex-row gap-2.5 rounded-lg bg-bg-sub px-3.5 py-3"
-            >
-              <Lock size={14} color="#8A8A93" strokeWidth={1.75} />
-              <Text className="flex-1 font-sans text-[12.5px] leading-[18px] text-fg-3">
-                Tenés paquetes aceptados en este viaje. Podés cambiar los días en que se repite, pero la hora se
-                mantiene.
-              </Text>
-            </View>
-            {origin && destination ? (
-              <Text className="font-sans-medium text-[15px] text-fg" numberOfLines={1}>
-                {shortAddressLabel(origin.address)} → {shortAddressLabel(destination.address)}
+            <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-fg-3">
+              Ruta
+            </Text>
+            <AddressField
+              testID={testID ? `${testID}-origin` : undefined}
+              label="Origen"
+              dotColor="#0A0A0B"
+              value={origin}
+              onChange={setOrigin}
+            />
+            <AddressField
+              testID={testID ? `${testID}-destination` : undefined}
+              label="Destino"
+              dotColor="#C6F24A"
+              value={destination}
+              onChange={setDestination}
+            />
+            {tooClose ? (
+              <Text
+                testID={testID ? `${testID}-too-close-error` : undefined}
+                className="font-sans text-[12px] text-danger-500"
+              >
+                El origen y el destino están muy cerca — elegí ubicaciones distintas.
               </Text>
             ) : null}
           </View>
-        ) : (
-          <>
-            <View className="gap-3">
+
+          {!repeating ? (
+            <View className="gap-2.5">
               <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-fg-3">
-                Ruta
+                Salida
               </Text>
-              <AddressField
-                testID={testID ? `${testID}-origin` : undefined}
-                label="Origen"
-                dotColor="#0A0A0B"
-                value={origin}
-                onChange={setOrigin}
+              <DepartureDateTimePicker
+                testID={testID ? `${testID}-departure` : undefined}
+                value={departureAt}
+                onChange={handleDepartureChange}
               />
-              <AddressField
-                testID={testID ? `${testID}-destination` : undefined}
-                label="Destino"
-                dotColor="#C6F24A"
-                value={destination}
-                onChange={setDestination}
-              />
-              {tooClose ? (
+              {inThePast ? (
                 <Text
-                  testID={testID ? `${testID}-too-close-error` : undefined}
+                  testID={testID ? `${testID}-past-error` : undefined}
                   className="font-sans text-[12px] text-danger-500"
                 >
-                  El origen y el destino están muy cerca — elegí ubicaciones distintas.
+                  La fecha y hora de salida tiene que ser futura.
                 </Text>
               ) : null}
             </View>
-
-            {!repeating ? (
-              <View className="gap-2.5">
-                <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-fg-3">
-                  Salida
-                </Text>
-                <DepartureDateTimePicker
-                  testID={testID ? `${testID}-departure` : undefined}
-                  value={departureAt}
-                  onChange={handleDepartureChange}
-                />
-                {inThePast ? (
-                  <Text
-                    testID={testID ? `${testID}-past-error` : undefined}
-                    className="font-sans text-[12px] text-danger-500"
-                  >
-                    La fecha y hora de salida tiene que ser futura.
-                  </Text>
-                ) : null}
-              </View>
-            ) : null}
-          </>
-        )}
+          ) : null}
 
         {recurrenceCard}
         {repeating && inThePast ? (
@@ -311,67 +279,65 @@ export function TripForm(props: TripFormProps) {
           </Text>
         ) : null}
 
-        {!recurrenceOnly ? (
-          <View className="gap-2.5">
-            <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-fg-3">
-              Vehículo
-            </Text>
-            {vehicle ? (
-              <View className="overflow-hidden rounded-[10px] border-[1.5px] border-ink-950">
-                <View className="flex-row items-center gap-2 rounded-t-[8.5px] bg-lime-500 px-3.5 py-2.5">
-                  <CheckCircle2 size={14} color="#0A0A0B" strokeWidth={2.6} />
-                  <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-ink-950">
-                    Seleccionado automáticamente
-                  </Text>
-                </View>
-                <View className="flex-row items-center gap-3 rounded-b-[8.5px] bg-white px-3.5 py-[15px]">
-                  <BrandAvatar brand={vehicle.brand} size={40} />
-                  <View className="min-w-0 flex-1 gap-1">
-                    <Text className="font-sans-medium text-[15px] text-ink-950">
-                      {vehicle.brand} {vehicle.model}
-                    </Text>
-                    <Text className="font-mono text-[12px] tracking-[0.05em] text-ink-600">
-                      {vehicle.licensePlate} · {vehicle.cargoCapacityLabel}
-                    </Text>
-                  </View>
-                  <View className="h-10 min-w-10 items-center justify-center rounded-lg bg-ink-950 px-1.5">
-                    <Text className="font-mono-semibold text-[14px] text-lime-500">
-                      {tierFromLabel(vehicle.cargoCapacityLabel).id}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            ) : (
-              <View>
-                <View className="relative overflow-hidden rounded-[10px] border-[1.5px] border-ink-950/[0.18] bg-ink-50 p-[18px]">
-                  <GridPattern color="#0A0A0B" opacity={0.05} />
-                  <View className="mb-3.5 flex-row items-start gap-[11px]">
-                    <AlertTriangle size={20} color="#0A0A0B" strokeWidth={2} />
-                    <View className="min-w-0 flex-1 gap-1.5">
-                      <Text className="font-sans-semibold text-[16px] tracking-[-0.01em] text-ink-950">
-                        Necesitás una ficha de vehículo
-                      </Text>
-                      <Text className="font-sans text-[13.5px] leading-[20px] text-ink-600">
-                        Para declarar un viaje tenemos que saber qué llevás y cuánto entra. Registrá tu auto una vez y
-                        listo.
-                      </Text>
-                    </View>
-                  </View>
-                  <Pressable
-                    testID={testID ? `${testID}-register-vehicle` : undefined}
-                    onPress={() => router.push("/vehicle-info")}
-                    className="w-full items-center justify-center rounded-lg bg-ink-950 py-3"
-                  >
-                    <Text className="font-sans-semibold text-[14.5px] text-white">Registrar ficha de vehículo</Text>
-                  </Pressable>
-                </View>
-                <Text className="mt-2.5 font-sans text-[12.5px] leading-[19px] text-fg-3">
-                  Te llevamos a la ficha y volvés acá con el viaje como lo dejaste.
+        <View className="gap-2.5">
+          <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-fg-3">
+            Vehículo
+          </Text>
+          {vehicle ? (
+            <View className="overflow-hidden rounded-[10px] border-[1.5px] border-ink-950">
+              <View className="flex-row items-center gap-2 rounded-t-[8.5px] bg-lime-500 px-3.5 py-2.5">
+                <CheckCircle2 size={14} color="#0A0A0B" strokeWidth={2.6} />
+                <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-ink-950">
+                  Seleccionado automáticamente
                 </Text>
               </View>
-            )}
-          </View>
-        ) : null}
+              <View className="flex-row items-center gap-3 rounded-b-[8.5px] bg-white px-3.5 py-[15px]">
+                <BrandAvatar brand={vehicle.brand} size={40} />
+                <View className="min-w-0 flex-1 gap-1">
+                  <Text className="font-sans-medium text-[15px] text-ink-950">
+                    {vehicle.brand} {vehicle.model}
+                  </Text>
+                  <Text className="font-mono text-[12px] tracking-[0.05em] text-ink-600">
+                    {vehicle.licensePlate} · {vehicle.cargoCapacityLabel}
+                  </Text>
+                </View>
+                <View className="h-10 min-w-10 items-center justify-center rounded-lg bg-ink-950 px-1.5">
+                  <Text className="font-mono-semibold text-[14px] text-lime-500">
+                    {tierFromLabel(vehicle.cargoCapacityLabel).id}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View>
+              <View className="relative overflow-hidden rounded-[10px] border-[1.5px] border-ink-950/[0.18] bg-ink-50 p-[18px]">
+                <GridPattern color="#0A0A0B" opacity={0.05} />
+                <View className="mb-3.5 flex-row items-start gap-[11px]">
+                  <AlertTriangle size={20} color="#0A0A0B" strokeWidth={2} />
+                  <View className="min-w-0 flex-1 gap-1.5">
+                    <Text className="font-sans-semibold text-[16px] tracking-[-0.01em] text-ink-950">
+                      Necesitás una ficha de vehículo
+                    </Text>
+                    <Text className="font-sans text-[13.5px] leading-[20px] text-ink-600">
+                      Para declarar un viaje tenemos que saber qué llevás y cuánto entra. Registrá tu auto una vez y
+                      listo.
+                    </Text>
+                  </View>
+                </View>
+                <Pressable
+                  testID={testID ? `${testID}-register-vehicle` : undefined}
+                  onPress={() => router.push("/vehicle-info")}
+                  className="w-full items-center justify-center rounded-lg bg-ink-950 py-3"
+                >
+                  <Text className="font-sans-semibold text-[14.5px] text-white">Registrar ficha de vehículo</Text>
+                </Pressable>
+              </View>
+              <Text className="mt-2.5 font-sans text-[12.5px] leading-[19px] text-fg-3">
+                Te llevamos a la ficha y volvés acá con el viaje como lo dejaste.
+              </Text>
+            </View>
+          )}
+        </View>
       </ScrollView>
 
       <PrimaryButton

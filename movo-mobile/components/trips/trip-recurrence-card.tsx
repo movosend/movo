@@ -3,13 +3,17 @@ import { Repeat } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
-import { WEEKDAY_CHIPS, recurrencePreview, sortWeekdays, toUntilDateString } from "../../src/lib/trip-recurrence";
+import {
+  WEEKDAY_CHIPS,
+  minimumUntilDate,
+  recurrencePreview,
+  sortWeekdays,
+  toUntilDateString,
+} from "../../src/lib/trip-recurrence";
 import { ToggleSwitch } from "../ui/toggle-switch";
 import { DepartureDateTimePicker } from "./departure-date-time-picker";
 
 export type RecurrenceUntilMode = "none" | "date";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 function FieldLabel({ children }: { children: string }) {
   return <Text className="font-sans-medium text-[13px] text-fg-2">{children}</Text>;
@@ -65,8 +69,6 @@ interface TripRecurrenceCardProps {
   onUntilChange: (value: Date) => void;
   /** "Hasta" no es posterior a la primera salida. */
   untilInvalid?: boolean;
-  /** Edición con paquetes aceptados: hora y "Desde" quedan fijas, los días no. */
-  lockedSchedule?: boolean;
   /** La recurrencia no se puede tocar acá (el viaje ya tiene el siguiente declarado). */
   readOnlyReason?: string | null;
   /** Error de API que corresponde a este bloque (409 `RECURRING_SERIES_LIMIT`). */
@@ -95,7 +97,6 @@ export function TripRecurrenceCard({
   until,
   onUntilChange,
   untilInvalid = false,
-  lockedSchedule = false,
   readOnlyReason = null,
   error = null,
   testID,
@@ -181,7 +182,7 @@ export function TripRecurrenceCard({
                 fields="time"
                 value={departureAt}
                 onChange={onDepartureChange}
-                disabled={lockedSchedule || readOnly}
+                disabled={readOnly}
               />
             </View>
             <View className="flex-1 gap-2">
@@ -191,7 +192,7 @@ export function TripRecurrenceCard({
                 fields="date"
                 value={departureAt}
                 onChange={onDepartureChange}
-                disabled={lockedSchedule || readOnly}
+                disabled={readOnly}
               />
             </View>
           </View>
@@ -221,7 +222,7 @@ export function TripRecurrenceCard({
                       fields="date"
                       value={until}
                       onChange={onUntilChange}
-                      minimumDate={new Date(departureAt.getTime() + DAY_MS)}
+                      minimumDate={minimumUntilDate(departureAt)}
                       disabled={readOnly}
                     />
                   </View>

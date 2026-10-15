@@ -210,19 +210,21 @@ describe("EditTripScreen", () => {
       const { getByTestId } = await render(<EditTripScreen />);
 
       expect(props(getByTestId)).toEqual(
-        expect.objectContaining({ mode: "full", recurrence: { weekdays: [5], until: "2026-12-18" } }),
+        expect.objectContaining({ recurrence: { weekdays: [5], until: "2026-12-18" } }),
       );
     });
 
-    it("con paquetes aceptados, el vigente de una serie abre el form en modo recurrence-only", async () => {
+    it("con paquetes aceptados queda bloqueado aunque sea el vigente de una serie", async () => {
+      // Review de PR #246: la recurrencia de un viaje con paquetes no se edita; cortarla es
+      // "Dejar de repetir" desde el detalle.
       mockUseTrip.mockReturnValue(
         loaded({ ...TRIP, recurrenceWeekdays: [5], hasAcceptedPackages: true, acceptedPackagesCount: 1 }),
       );
 
       const { getByTestId, queryByTestId } = await render(<EditTripScreen />);
 
-      expect(queryByTestId("edit-trip-blocked")).toBeNull();
-      expect(props(getByTestId).mode).toBe("recurrence-only");
+      expect(getByTestId("edit-trip-blocked")).toBeTruthy();
+      expect(queryByTestId("tf-stub-props")).toBeNull();
     });
 
     it("con paquetes y un viaje que ya tiene el siguiente declarado, sigue bloqueado", async () => {
