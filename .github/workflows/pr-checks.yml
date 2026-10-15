@@ -58,6 +58,7 @@ jobs:
               - 'movo-mobile/**'
             admin-web:
               - 'movo-admin/**'
+              - 'shared/movo-shared/**'
 
   node-services:
     needs: detect-changes
@@ -228,15 +229,24 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: "22"
           cache: npm
           cache-dependency-path: movo-admin/package-lock.json
 
       - name: Instalar dependencias
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
       - name: Tests
         run: npm test
+
+      - name: Build
+        run: npm run build
 
   python-service:
     needs: detect-changes
