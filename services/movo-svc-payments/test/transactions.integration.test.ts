@@ -300,6 +300,20 @@ describe("/payments/transactions (MOVO-303)", () => {
       expect((await list("role=sender&limit=51")).statusCode).toBe(400);
       expect((await list("role=sender&cursor=basura")).statusCode).toBe(400);
     });
+
+    it("un cursor con fecha que Date.parse acepta pero Postgres no es 400, no 500", async () => {
+      const encode = (value: string) => Buffer.from(value, "utf8").toString("base64url");
+      const id = uuid();
+      for (const createdAt of ["1", "2026-10-05", "2026-02-30T12:00:00.000000Z", "2026-10-05T12:00:00Z"]) {
+        const res = await list(`role=sender&cursor=${encode(`${createdAt}|${id}`)}`);
+        expect(res.statusCode, createdAt).toBe(400);
+      }
+    });
+
+    it("status tiene tope de valores", async () => {
+      const many = Array.from({ length: 21 }, () => "reserved").join("&status=");
+      expect((await list(`role=sender&status=${many}`)).statusCode).toBe(400);
+    });
   });
 
   describe("detalle (AC10-12)", () => {
@@ -317,6 +331,25 @@ describe("/payments/transactions (MOVO-303)", () => {
         { kind: "refund", amountArs: 200, date: "2026-10-11T10:00:00.000Z" },
         { kind: "mediation", amountArs: null, date: "2026-10-12T10:00:00.000Z" },
       ]);
+    });
+
+    it("los movimientos usan el mismo mp_payment_id que el estado", async () => {
+      const h = await createHold({ status: "captured" });
+      await settle(h, "credited");
+      // Un evento de otro pago del mismo hold (re-adoptado): ni cuenta para el estado ni se lista.
+      await app.db.paymentProviderEvent.create({
+        data: {
+          holdId: h.id,
+          shipmentId: h.shipmentId,
+          mpPaymentId: "otro-pago",
+          kind: "chargeback",
+          mpStatus: "charged_back",
+          holdStatus: "captured",
+        },
+      });
+      const body = (await detail(h.id, "sender", SENDER)).json();
+      expect(body.status).toBe("completed");
+      expect(body.movements).toEqual([]);
     });
 
     it("el desglose viaja solo para el transportista y solo con la liquidación acreditada", async () => {

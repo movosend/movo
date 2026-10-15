@@ -517,15 +517,26 @@ reembolsos/contracargos (`payment_provider_events`) resueltos en la misma consul
 - **Cursor `(created_at, id)` con precisión de µs**: Postgres guarda µs y el `Date` de JS solo ms,
   así que el cursor sale de un `to_char(... US)` de la base; con ms se saltearían filas que
   comparten el milisegundo. Comparación por tupla `(created_at, id) < (...)`.
-- **`from`/`to` en hora argentina** (`argentinaDayStart`): se busca el primer instante cuyo
-  `toArgentinaCalendarDateString` es el día pedido, sin repetir el UTC-3; `to` inclusivo = inicio del
-  día siguiente exclusivo. Se rechazan fechas inexistentes (`2026-02-30`) y `from > to`.
+- **`from`/`to` en hora argentina** (`argentinaDayStart`): 00:00 UTC del día + `ARGENTINA_UTC_OFFSET_HOURS`
+  (exportado de `@movo/shared`, sin repetir el UTC-3); `to` inclusivo = inicio del día siguiente
+  exclusivo. La fecha es la de creación del intento de hold, no la de captura. Se rechazan fechas inexistentes (`2026-02-30`) y `from > to`.
 - **`status` acepta repetido (`status=a&status=b`) o con comas**; el service valida cada valor (400).
 - **Forma del ítem**: `refundedAmountArs` es el último monto informado (no la suma); `card` solo
   viaja con `role=sender` y es `{brand, last4: string | null}` (un hold recuperado por
   `external_reference` puede tener marca y no últimos 4, gap conocido de MOVO-302; el contrato de
   `last4` nullable se aparta del `{brand, last4}` del ticket por eso). `breakdown` solo con
   `role=carrier` y liquidación `credited`; con `role=sender` la clave no existe.
+- **Cursor estricto**: regex del ISO con µs más ida y vuelta por `Date` (V8 acepta `2026-02-30` y
+  Postgres no, review de PR #256). `status` tiene tope de 20 valores.
+- **Los movimientos del detalle usan el mismo `mp_payment_id` que el estado** (`has_dispute`,
+  `has_refund`): un evento de otro pago del mismo hold ni cuenta ni se lista.
+- **Limitaciones aceptadas** (review de PR #256): (1) una fila por hold, así un envío reasignado o con
+  un pago reintentado puede aparecer varias veces (los cancelados con pago salen como `released`);
+  (2) `captured` sin liquidación `credited` se ve `reserved` aunque la liquidación esté `failed` o
+  `processing`, un estado propio queda para MOVO-213; (3) el webhook (MOVO-268) solo registra
+  `refunded`, `charged_back` e `in_mediation`, así que un reembolso parcial (MP lo deja `approved`)
+  no llega a `payment_provider_events` y no se ve en el historial; (4) sin índices nuevos: los
+  listados usan los de MOVO-302 y los `EXISTS` el único `(mp_payment_id, mp_status)`.
 - **404 único** para transacción ajena, de otro rol, inexistente o no visible: el filtro por usuario
   y rol va dentro de la consulta, así no hay forma de distinguirlos.
 

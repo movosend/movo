@@ -5,6 +5,8 @@ import type { HoldStatus, SettlementStatus, TransactionRole, TransactionStatus }
 export interface TransactionRow {
   id: string;
   shipmentId: string;
+  /** Pago de MP del hold; los movimientos se filtran por él, igual que el estado. */
+  mpPaymentId: string | null;
   createdAt: Date;
   /** `created_at` con precisión de µs, para el cursor (el `Date` de JS solo llega a ms). */
   createdAtCursor: string;
@@ -47,12 +49,13 @@ export interface TransactionRepository {
   /** Hasta `limit + 1` filas: la de sobra marca que hay otra página. */
   list(query: ListTransactionsQuery): Promise<TransactionRow[]>;
   findOne(role: TransactionRole, userId: string, id: string): Promise<TransactionRow | null>;
-  listMovements(holdId: string): Promise<TransactionMovementRow[]>;
+  listMovements(holdId: string, mpPaymentId: string | null): Promise<TransactionMovementRow[]>;
 }
 
 interface RawRow {
   id: string;
   shipment_id: string;
+  mp_payment_id: string | null;
   created_at: Date;
   created_at_cursor: string;
   amount_ars: number;
@@ -74,6 +77,7 @@ function toRow(r: RawRow): TransactionRow {
   return {
     id: r.id,
     shipmentId: r.shipment_id,
+    mpPaymentId: r.mp_payment_id,
     createdAt: r.created_at,
     createdAtCursor: r.created_at_cursor,
     amountArs: r.amount_ars,
@@ -115,6 +119,7 @@ function visibleTransactions(column: "payer_id" | "carrier_id", userId: string):
     SELECT
       h.id,
       h.shipment_id,
+      h.mp_payment_id,
       h.created_at,
       to_char(h.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
       h.amount_ars::float8 AS amount_ars,
@@ -183,9 +188,11 @@ export function createTransactionRepository(db: PrismaClient): TransactionReposi
       return rows[0] ? toRow(rows[0]) : null;
     },
 
-    async listMovements(holdId) {
+    async listMovements(holdId, mpPaymentId) {
+      // Sin pago no hay eventos: el estado (`has_dispute`/`has_refund`) exige el mismo `mp_payment_id`.
+      if (mpPaymentId === null) return [];
       const events = await db.paymentProviderEvent.findMany({
-        where: { holdId },
+        where: { holdId, mpPaymentId },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       });
       return events.map((e) => ({

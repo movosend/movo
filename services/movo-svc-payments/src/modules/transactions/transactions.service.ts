@@ -1,6 +1,6 @@
 import {
   ApiError,
-  toArgentinaCalendarDateString,
+  ARGENTINA_UTC_OFFSET_HOURS,
   TRANSACTION_STATUSES,
   TRANSACTIONS_DEFAULT_LIMIT,
   TRANSACTIONS_MAX_LIMIT,
@@ -29,7 +29,12 @@ export interface TransactionsService {
   get(userId: string, role: TransactionRole, id: string): Promise<TransactionDetail>;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+// El `created_at` con µs que arma el repositorio (`to_char ... US`): estricto a propósito, porque
+// `Date.parse` acepta cosas como "1" y el cast `::timestamptz` de Postgres no.
+const CURSOR_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+const MAX_STATUS_VALUES = 20;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -44,18 +49,9 @@ function isRealCalendarDate(value: string): boolean {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(value);
 }
 
-/**
- * Primer instante del día argentino `date`. Se recorre desde las 00:00 UTC de `date` hasta que
- * `toArgentinaCalendarDateString` (la única cuenta del offset del repo) dice que ya es ese día,
- * en vez de repetir el UTC-3 acá.
- */
+/** Primer instante del día argentino `date`: 00:00 de Argentina = 00:00 UTC + el offset de `@movo/shared`. */
 function argentinaDayStart(date: string): Date {
-  const base = Date.parse(`${date}T00:00:00.000Z`);
-  for (let hour = 0; hour <= 24; hour += 1) {
-    const candidate = new Date(base + hour * 60 * 60 * 1000);
-    if (toArgentinaCalendarDateString(candidate) === date) return candidate;
-  }
-  throw new Error(`No se pudo resolver el inicio del día argentino ${date}`);
+  return new Date(Date.parse(`${date}T00:00:00.000Z`) + ARGENTINA_UTC_OFFSET_HOURS * HOUR_MS);
 }
 
 function nextDay(date: string): string {
@@ -64,6 +60,7 @@ function nextDay(date: string): string {
 
 function parseStatuses(raw: string[] | undefined): TransactionStatus[] {
   const values = (raw ?? []).flatMap((v) => v.split(",")).map((v) => v.trim()).filter(Boolean);
+  if (values.length > MAX_STATUS_VALUES) throw invalid("status trae demasiados valores");
   const unknown = values.find((v) => !(TRANSACTION_STATUSES as readonly string[]).includes(v));
   if (unknown) throw invalid(`status inválido: ${unknown}`);
   return [...new Set(values)] as TransactionStatus[];
@@ -76,10 +73,13 @@ function encodeCursor(row: TransactionRow): string {
 function decodeCursor(cursor: string): { createdAt: string; id: string } {
   const [createdAt, id] = Buffer.from(cursor, "base64url").toString("utf8").split("|");
   // Va contra columnas `timestamptz`/`uuid`: un valor mal formado sería un 500 en vez de un 400.
-  if (!createdAt || !id || !UUID_RE.test(id) || Number.isNaN(Date.parse(createdAt))) {
-    throw invalid("Cursor de paginación inválido");
-  }
-  return { createdAt, id };
+  // Ida y vuelta: V8 corre `2026-02-30` al 2 de marzo y Postgres lo rechaza (500 en vez de 400).
+  const wellFormed =
+    !!createdAt &&
+    CURSOR_TIMESTAMP_RE.test(createdAt) &&
+    new Date(createdAt.slice(0, 23) + "Z").toISOString() === createdAt.slice(0, 23) + "Z";
+  if (!wellFormed || !id || !UUID_RE.test(id)) throw invalid("Cursor de paginación inválido");
+  return { createdAt: createdAt as string, id };
 }
 
 function notFound(): ApiError {
@@ -157,7 +157,7 @@ export function createTransactionsService(deps: { transactions: TransactionRepos
     async get(userId, role, id) {
       const row = await transactions.findOne(role, userId, id);
       if (!row) throw notFound();
-      const movements = await transactions.listMovements(row.id);
+      const movements = await transactions.listMovements(row.id, row.mpPaymentId);
       const detail: TransactionDetail = {
         ...toListItem(row, role),
         capturedAt: row.capturedAt ? row.capturedAt.toISOString() : null,

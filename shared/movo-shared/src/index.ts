@@ -194,7 +194,11 @@ export {
 export type { RatingCategoryDefinition, RatingCategoryScoreField } from "./config/rating-categories";
 
 // utils
-export { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "./utils/argentina-date";
+export {
+  ARGENTINA_UTC_OFFSET_HOURS,
+  toArgentinaCalendarDateString,
+  toArgentinaTimeOfDayString,
+} from "./utils/argentina-date";
 
 // notification preferences (MOVO-239)
 export {

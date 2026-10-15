@@ -14,7 +14,11 @@ export interface TransactionStatusInput {
  * `disputed` > `refunded` > `completed` > `released`/`reserved`. `completed` exige la
  * liquidación `credited`: un hold `captured` sin acreditar sigue `reserved`.
  *
- * Esta regla tiene un espejo en SQL (`STATUS_CASE_SQL` de `transaction-repository.ts`) para
+ * Limitación aceptada (review de PR #256): si la liquidación queda `failed` o mucho tiempo en
+ * `processing`, el cobro ya capturado se ve igual como `reserved`. El ticket fija cinco estados;
+ * un estado de "cobro pendiente/con error" cambiaría el contrato y la UI, y queda para MOVO-213.
+ *
+ * Esta regla tiene un espejo en SQL (`STATUS_CASE` de `transaction-repository.ts`) para
  * filtrar por estado antes de paginar (AC9): cualquier cambio acá se replica allá, y la
  * integración verifica que ambos coincidan.
  */

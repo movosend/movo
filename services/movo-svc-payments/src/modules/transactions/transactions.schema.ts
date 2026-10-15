@@ -17,6 +17,12 @@ const errorResponse = {
   },
 } as const;
 
+// El hook de `paymentsRoutes` (x-user-id ausente o inválido) responde `{ error: "unauthorized" }`.
+const unauthorizedResponse = {
+  type: "object",
+  properties: { error: { type: "string" } },
+} as const;
+
 const uuid = { type: "string", format: "uuid" } as const;
 const role = { type: "string", enum: ["sender", "carrier"] } as const;
 const status = { type: "string", enum: ["reserved", "completed", "refunded", "disputed", "released"] } as const;
@@ -73,7 +79,7 @@ export const listTransactionsSchema = {
     properties: {
       role,
       // Uno o varios; el service valida cada valor (también acepta `a,b`) y responde 400.
-      status: { type: "array", items: { type: "string" } },
+      status: { type: "array", maxItems: 20, items: { type: "string", maxLength: 100 } },
       from: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "YYYY-MM-DD, hora de Argentina" },
       to: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "YYYY-MM-DD inclusivo, hora de Argentina" },
       cursor: { type: "string", maxLength: 200 },
@@ -87,6 +93,7 @@ export const listTransactionsSchema = {
       properties: { items: { type: "array", items: listItem }, nextCursor: { type: ["string", "null"] } },
     },
     400: errorResponse,
+    401: unauthorizedResponse,
   },
 } as const;
 
@@ -107,6 +114,7 @@ export const getTransactionSchema = {
       },
     },
     400: errorResponse,
+    401: unauthorizedResponse,
     404: errorResponse,
   },
 } as const;

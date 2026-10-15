@@ -1,5 +1,6 @@
 // La app opera solo en Argentina — sin DST, por lo que el offset es constante.
-const ARGENTINA_UTC_OFFSET_HOURS = 3;
+/** Horas que Argentina está por detrás de UTC (UTC-3, sin DST). */
+export const ARGENTINA_UTC_OFFSET_HOURS = 3;
 
 /**
  * Día calendario en Argentina para un instante real, como string `"YYYY-MM-DD"` —
