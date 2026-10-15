@@ -6,7 +6,7 @@ Revisión local del 14/10/2026, Node 22.22.2. Stack conservado:
 | Criterio de Linear | Estado | Evidencia |
 | --- | --- | --- |
 | 1. Login y OTP, reenvío y errores genéricos | ✅ | Server Actions; tests de formulario, validación, pendiente, pegado, cooldown y cambio de cuenta |
-| 2. Tokens exclusivamente en servidor/cookies protegidas | ✅ | Prueba HTTPS en Chrome: httpOnly, Secure, Strict y host-only; sin tokens en HTML, RSC ni almacenamiento JS; navegador no llama al gateway |
+| 2. Tokens exclusivamente en servidor/cookies protegidas | ✅ | Prueba HTTPS en Chrome: httpOnly, Secure, Lax y host-only (Lax por la review de PR #253; el ticket pedía Strict); sin tokens en HTML, RSC ni almacenamiento JS; navegador no llama al gateway |
 | 3. Refresh transparente y rechazo claro | ✅ local | DAL + handler; renovación y reintento único; errores transitorios conservan cookies; backend mantiene las 8 h absolutas |
 | 4. Rutas protegidas | ✅ | Proxy redirige sin cookies; DAL valida perfil actual y permiso de panel; desafíos OTP se validan en servidor |
 | 5. Layout, admin y logout | ✅ | Sidebar desktop de 240 px, header de 56 px con identidad y logout; ocho secciones futuras deshabilitadas; menú móvil, ambos temas y navegación por teclado |

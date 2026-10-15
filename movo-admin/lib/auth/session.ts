@@ -33,7 +33,7 @@ export interface Challenge {
 const cookieOptions = {
   httpOnly: true,
   secure: true,
-  sameSite: "strict" as const,
+  sameSite: "lax" as const,
   path: "/",
 }
 function secret(): string {

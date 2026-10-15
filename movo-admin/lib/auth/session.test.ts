@@ -86,7 +86,7 @@ beforeEach(() => {
   })
 })
 describe("sesión del BFF", () => {
-  it("cookies host-only, Secure, httpOnly y Strict con tope absoluto", async () => {
+  it("cookies host-only, Secure, httpOnly y Lax con tope absoluto", async () => {
     await writeSession({
       ...tokens,
       sessionExpiresAt: new Date(Date.now() + 120000).toISOString(),
@@ -96,7 +96,7 @@ describe("sesión del BFF", () => {
       expect(options).toMatchObject({
         httpOnly: true,
         secure: true,
-        sameSite: "strict",
+        sameSite: "lax",
         path: "/",
       })
       expect(options.domain).toBeUndefined()

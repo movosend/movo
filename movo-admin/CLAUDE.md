@@ -22,7 +22,7 @@ mediante la integración existente de Vercel. No se provisiona otro proyecto.
   `@movo/shared/src/errors/api-error` para no incluir el barrel de JWT ni requerir un
   build previo de shared en Vercel. `next` transpila el paquete; se usa webpack porque
   Turbopack rechaza el módulo TypeScript ESM dentro del paquete CommonJS compartido.
-- `lib/auth/session.ts`: cookies `__Host-*`, host-only, httpOnly, Secure, Strict,
+- `lib/auth/session.ts`: cookies `__Host-*`, host-only, httpOnly, Secure, Lax,
   path `/`; access acotado al TTL y refresh al vencimiento absoluto de 8 horas.
   Desafío OTP cifrado y autenticado con AES-256-GCM, máximo 10 minutos; se elimina al
   completar o abandonar el flujo. Nunca retornar tokens a componentes cliente.
@@ -34,8 +34,9 @@ mediante la integración existente de Vercel. No se provisiona otro proyecto.
   cookies y muestra «Tu sesión venció. Volvé a iniciar sesión». Infraestructura caída
   conserva cookies y permite reintentar. Destinos de retorno usan una lista interna.
 - Las Server Actions exigen un Origin igual a `MOVO_APP_ORIGIN`; el handler de refresh
-  rechaza solicitudes de otros sitios. Cookies Strict impiden enviarlas desde otros
-  sitios. No poner tokens en URLs, HTML, React payloads, logs ni almacenamiento JS.
+  rechaza solicitudes de otros sitios (`Sec-Fetch-Site`/`Origin`). Las cookies son Lax
+  (no Strict) para que un link externo al panel conserve la sesión; los POST cross-site
+  no las llevan y las Server Actions validan el Origin. No poner tokens en URLs, HTML, React payloads, logs ni almacenamiento JS.
 - `components/ui`: componentes oficiales; adaptar variantes compartidas, nunca
   colores particulares por pantalla. `globals.css` centraliza superficies, lima,
   advertencias y patrón. Header 56px, sidebar 240px y menú móvil accesible.

@@ -46,7 +46,7 @@ el refresh son necesarios para ello; no se abre un endpoint de consulta por clav
 La dependencia de Redis permanece fail-closed. Un atacante que ya tenga el refresh
 y la clave en esa ventana puede obtener ese resultado, limitado por la elegibilidad,
 revocación y vencimiento. Las respuestas de refresh nunca se serializan al navegador:
-Next solo escribe cookies host-only, httpOnly, Secure y SameSite=Strict.
+Next solo escribe cookies host-only, httpOnly, Secure y SameSite=Lax (revisión de PR #253: Strict descartaba la sesión al abrir el panel desde un link externo; los POST cross-site siguen sin cookies y se valida el Origin).
 
 Se prueba con Redis/Postgres reales: concurrencia, igualdad de respuestas, ciphertext,
 reuso con otra clave o fuera de ventana, logout de ambos tokens, revocación durante
