@@ -12,6 +12,7 @@ import mpConnectPlugin from "./plugins/mp-connect";
 import holdsPlugin from "./plugins/holds";
 import mpTokenRefreshSweepPlugin from "./plugins/mp-token-refresh-sweep";
 import cardsPlugin from "./plugins/cards";
+import transactionsPlugin from "./plugins/transactions";
 import paymentsRoutes from "./modules/payments/payments.routes";
 import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
 import holdsRoutes from "./modules/holds/holds.routes";
@@ -85,6 +86,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     customersClient: opts.mercadoPagoCustomersClient,
     usersClient: opts.usersClient,
   });
+  // MOVO-303: historial de transacciones (lectura de holds, liquidaciones y eventos).
+  app.register(transactionsPlugin);
   // MOVO-212: captura del hold y liquidación, también sobre `mercadoPago`.
   app.register(capturesPlugin);
   // Después de `holds`: reconcilia intentos en `creating` con su service (MOVO-268).
