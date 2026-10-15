@@ -179,3 +179,19 @@ que es parte de lo firmado (test en `routes-prefix.test.ts`).
 Entrada nueva en `getServiceRoutes()` hacia `svc-shipments` (protegida por defecto) para
 aceptar/rechazar/cancelar una transferencia de receptor y listar invitaciones. Pedirla y
 listarla por envío ya pasan por `/shipments`.
+
+### MOVO-287 — Rutas del login del panel y corte de sesiones de panel
+
+`getPublicRoutes()` suma `POST /auth/admin/login` y `/auth/admin/verify` (5/15 min por IP,
+como `/auth/login`) y `/auth/admin/refresh` (límite general, como `/auth/refresh`);
+`/auth/admin/logout` es protegida. El límite por email vive en `svc-users`, porque acá el
+body no se parsea. `authenticate` también rechaza un token con `admin` cuyo `iat` sea
+anterior a `panel-revoked-at:{userId}`: así se cortan las sesiones de panel sin tocar las
+de la app, porque la app nunca recibe `admin`. Detalle en `services/movo-svc-users/CLAUDE.md`.
+
+Fixes de review (PR #244, PedroYorlano): un token es de panel por el claim `session: "panel"`, no
+por traer `admin`; un token sin ese claim pierde `admin` antes de `authorize` y de `x-user-roles`
+(un token de la app emitido antes del deploy con `admin` ya no vale como admin cuando vence la
+marca de 15 min). Las dos marcas se leen en un solo `MGET`, y la del panel se compara con `<=`
+(un refresh en paralelo a la revocación no sobrevive en el mismo segundo). Todo request proxeado
+lleva `x-client-ip` = `request.ip` (pisa el del cliente), que usa el límite del login del panel.

@@ -728,6 +728,8 @@ export function createUsersService(
 
       await resetPasswordChangeRateLimit(redis, userId);
       await sessionRepository.revokeAllForUser(userId);
+      // MOVO-287: `revokeAllForUser` solo toca la app; un cambio de contraseña corta también el panel.
+      await sessionRepository.revokePanelSessionsForUser(userId);
       await sessionRepository.revokeAccessTokensIssuedBefore(userId);
 
       // MOVO-274: aviso push, después de revocar las sesiones y con el cambio ya
@@ -836,6 +838,7 @@ export function createUsersService(
         });
 
         await sessionRepository.revokeAllForUser(userId);
+        await sessionRepository.revokePanelSessionsForUser(userId);
         await sessionRepository.revokeAccessTokensIssuedBefore(userId);
 
         // MOVO-202/AC7: la traza GPS del usuario como transportista vive en

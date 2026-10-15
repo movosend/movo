@@ -198,6 +198,21 @@ export function getPublicRoutes(): PublicRoute[] {
       rateLimit: { max: 5, timeWindow: "15 minutes" },
     },
     { method: "POST", path: "/auth/refresh" },
+    // MOVO-287: login del panel de administración (email + contraseña, después OTP por
+    // email). Mismo límite estricto por IP que /auth/login; el límite por email lo pone
+    // `svc-users`, porque acá el body no se parsea. El refresh, como el de la app, queda
+    // bajo el general. /auth/admin/logout no se lista: es protegida.
+    {
+      method: "POST",
+      path: "/auth/admin/login",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    {
+      method: "POST",
+      path: "/auth/admin/verify",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    { method: "POST", path: "/auth/admin/refresh" },
     // MOVO-71: reemplaza el placeholder de "/auth/verify-phone" (contrato viejo,
     // OTP post-registro) — el vigente es OTP antes de crear la cuenta, sin token
     // todavía, así que las tres rutas son públicas.
