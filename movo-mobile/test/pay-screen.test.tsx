@@ -247,6 +247,25 @@ describe("PayShipmentScreen (MOVO-269)", () => {
     expect(mockMutate).toHaveBeenCalledWith({ shipmentId: "ship-1", cardToken: "tok-1", savedCardId: mockNewCard.id });
   });
 
+  it("un error ambiguo del backend vuelve a pedir los datos del pago (HOLD_CONFLICT, 5xx)", async () => {
+    const refetch = jest.fn();
+    mockFunding.mockReturnValue({ data: FUNDING, isLoading: false, isError: false, error: null, refetch });
+    const { findByTestId } = await render(<PayShipmentScreen />);
+    await act(async () =>
+      mockOnSettled?.({ kind: "error", error: new ApiError(409, "HOLD_CONFLICT", "conflicto") }),
+    );
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(await findByTestId("pay-submit")).toBeTruthy();
+  });
+
+  it("un error de validación (422) no refresca nada", async () => {
+    const refetch = jest.fn();
+    mockFunding.mockReturnValue({ data: FUNDING, isLoading: false, isError: false, error: null, refetch });
+    await render(<PayShipmentScreen />);
+    await act(async () => mockOnSettled?.({ kind: "error", error: new ApiError(422, "VALIDATION_ERROR", "x") }));
+    expect(refetch).not.toHaveBeenCalled();
+  });
+
   it("al retomar un pago a medias avisa que hay que volver a escribir el código (AC7)", async () => {
     setup({ resumed: true });
     const { getByTestId, getByText } = await render(<PayShipmentScreen />);

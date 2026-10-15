@@ -24,6 +24,7 @@ import {
   formatPayTimeLeft,
   payErrorMessage,
   rejectionCopy,
+  shouldReconcileAfterPayError,
   unavailableKind,
 } from "../../../../src/lib/pay-shipment-format";
 import { cardTitle, isCardExpired } from "../../../../src/lib/saved-cards";
@@ -153,6 +154,9 @@ export default function PayShipmentScreen() {
         if (outcome.error instanceof ApiError && outcome.error.code === "SAVED_CARD_NOT_FOUND") {
           void cardsQuery.refetch();
         }
+        // Monto, transportista o plazo pueden estar viejos (HOLD_CONFLICT, timeout, 5xx): se
+        // vuelve a pedir el pago; si el envío ya no es pagable, la pantalla pasa sola a su vista.
+        if (shouldReconcileAfterPayError(outcome)) void funding.refetch();
         setFailure(payErrorMessage(outcome));
         setPhase("form");
         return;

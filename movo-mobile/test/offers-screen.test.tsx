@@ -339,6 +339,38 @@ describe("ShipmentOffersScreen", () => {
     expect(router.dismissTo).not.toHaveBeenCalled();
   });
 
+  it("decide el destino con el estado que devuelve el refetch aunque el render siga viejo (MOVO-269)", async () => {
+    mockUseShipmentOffers.mockReturnValue({
+      data: [sampleOffer1],
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetchOffers,
+      isRefetching: false,
+    });
+    // El `shipment` del render nunca se actualiza: sigue `published` al cerrar el modal.
+    mockUseShipment.mockReturnValue({
+      data: { id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      refetch: mockRefetchShipment,
+    });
+    mockRefetchShipment.mockResolvedValueOnce({
+      data: { id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNMENT_PENDING },
+    });
+    mockMutateAccept.mockImplementationOnce(async () => ({ ...sampleOffer1, status: OfferStatus.ACCEPTED }));
+
+    const { getByTestId } = await render(<ShipmentOffersScreen />);
+    await act(async () => {
+      fireEvent.press(getByTestId("offer-card-off-1-accept-btn"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-modal-confirm"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
+    });
+
+    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1/pay");
+  });
+
   it("con retiro lejano (assigned_unfunded) vuelve al detalle: el pago se confirma más adelante (MOVO-269)", async () => {
     mockUseShipmentOffers.mockReturnValue({
       data: [sampleOffer1],

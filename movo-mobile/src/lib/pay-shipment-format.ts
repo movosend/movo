@@ -1,3 +1,4 @@
+import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { HoldFailureReason } from "@movo/shared/dist/types/hold";
 import type { SavedCard } from "@movo/shared/dist/types/saved-card";
@@ -124,4 +125,16 @@ export function unavailableKind(status: ShipmentStatus | undefined): Unavailable
     default:
       return "unavailable";
   }
+}
+
+/**
+ * ¿Hay que reconciliar el estado del envío tras este resultado? Un error del backend que no es de
+ * validación (409 `HOLD_CONFLICT`, timeout, 5xx) puede venir con el hold ya creado o con monto,
+ * transportista o plazo viejos: sin refrescar, el usuario reintenta sobre un envío que ya cambió.
+ */
+export function shouldReconcileAfterPayError(outcome: PayShipmentOutcome): boolean {
+  if (outcome.kind !== "error") return false;
+  const { error } = outcome;
+  if (error instanceof ApiError && (error.statusCode === 400 || error.statusCode === 422)) return false;
+  return true;
 }

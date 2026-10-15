@@ -1,6 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fundingClient } from "../api/funding-client";
+import { shouldReconcileAfterPayError } from "../lib/pay-shipment-format";
 import { type FundWithTokenInput, type PayShipmentOutcome, fundWithToken } from "../lib/pay-shipment-flow";
 
 /**
@@ -30,8 +31,8 @@ export function usePayShipment(options?: { onSettled?: (outcome: PayShipmentOutc
     mutationFn: (input: FundWithTokenInput) => fundWithToken(input),
     onSuccess: (outcome, input) => {
       const id = input.shipmentId;
-      // Reservado o vencido: el estado del envío cambió (a `assigned` o de vuelta a `published`).
-      if (outcome.kind === "reserved" || outcome.kind === "unavailable" || outcome.kind === "pending") {
+      // Reservado o vencido: el estado del envío cambió (a `assigned` o de vuelta a `published`). Un error ambiguo también reconcilia: el hold pudo crearse aunque la respuesta no llegara.
+      if (outcome.kind === "reserved" || outcome.kind === "unavailable" || outcome.kind === "pending" || shouldReconcileAfterPayError(outcome)) {
         void queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
         void queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
         void queryClient.invalidateQueries({ queryKey: ["shipments", "active"] });
