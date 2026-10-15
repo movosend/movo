@@ -38,14 +38,22 @@ function invalid(message: string): ApiError {
   return new ApiError(400, "VALIDATION_FAILED", message);
 }
 
+/** `voided` es terminal y de `settled` solo se sale anulando; `reserved` puede volver a `pending`. */
+const ALLOWED_TRANSITIONS: Record<LedgerEntryStatus, readonly LedgerEntryStatus[]> = {
+  pending: ["reserved", "settled", "voided"],
+  reserved: ["pending", "settled", "voided"],
+  settled: ["voided"],
+  voided: [],
+};
+
 /** Con signo, distinto de cero, hasta 2 decimales. Los decimales se miran acá: Ajv compara en float. */
 function assertValidAmount(amountArs: number): void {
-  const cents = amountArs * 100;
+  // Un número con a lo sumo 2 decimales vuelve igual tras redondear a centavos; sin tolerancias.
   if (
     !Number.isFinite(amountArs) ||
     amountArs === 0 ||
     Math.abs(amountArs) > LEDGER_MAX_ABS_AMOUNT_ARS ||
-    Math.abs(cents - Math.round(cents)) > 1e-6
+    Math.round(amountArs * 100) / 100 !== amountArs
   ) {
     throw invalid("amountArs tiene que ser un monto distinto de cero, con hasta 2 decimales");
   }
@@ -87,16 +95,19 @@ function decodeCursor(cursor: string): { createdAt: Date; id: string } {
 export function createUserLedgerService(deps: UserLedgerServiceDeps): UserLedgerService {
   const { ledger } = deps;
 
-  async function balance(userId: string): Promise<UserLedgerBalanceResponse> {
-    const [sum, oldest] = await Promise.all([ledger.balance(userId), ledger.oldestUnpaidAt(userId)]);
-    // Con saldo a favor o en cero no hay deuda vencible, aunque queden movimientos viejos sin saldar.
-    return {
-      balanceArs: sum.toNumber(),
-      oldestUnpaidAt: sum.greaterThan(0) && oldest ? oldest.toISOString() : null,
-    };
+  function toSummary(s: { balance: Prisma.Decimal; oldestUnpaidAt: Date | null }): UserLedgerBalanceResponse {
+    return { balanceArs: s.balance.toNumber(), oldestUnpaidAt: s.oldestUnpaidAt?.toISOString() ?? null };
   }
 
-  /** Reintento con la misma key: mismo cuerpo -> el movimiento original; otro cuerpo -> 409. */
+  async function balance(userId: string): Promise<UserLedgerBalanceResponse> {
+    return toSummary(await ledger.summary(userId));
+  }
+
+  /**
+   * Reintento con la misma key: mismo cuerpo -> el movimiento original; otro cuerpo -> 409.
+   * Ojo: el original se devuelve tal como está hoy, así que `status` puede haber cambiado desde el
+   * alta (`settled`, `voided`). Con `created: false` el llamador tiene que mirar `entry.status`.
+   */
   async function insertIdempotent(data: Parameters<UserLedgerRepository["insert"]>[0]) {
     const { entry, created } = await ledger.insert(data);
     if (!created && entry.requestFingerprint !== data.requestFingerprint) {
@@ -172,19 +183,21 @@ export function createUserLedgerService(deps: UserLedgerServiceDeps): UserLedger
     async page(userId, opts) {
       const limit = Math.min(Math.max(opts.limit ?? LEDGER_DEFAULT_LIMIT, 1), LEDGER_MAX_LIMIT);
       const after = opts.cursor ? decodeCursor(opts.cursor) : undefined;
-      const [summary, rows] = await Promise.all([balance(userId), ledger.listPage(userId, limit + 1, after)]);
+      const { rows, ...summary } = await ledger.summaryWithPage(userId, limit + 1, after);
       const hasMore = rows.length > limit;
       const pageRows = hasMore ? rows.slice(0, limit) : rows;
       const last = pageRows[pageRows.length - 1];
       return {
-        ...summary,
+        ...toSummary(summary),
         items: pageRows.map(toDto),
         nextCursor: hasMore && last ? encodeCursor(last) : null,
       };
     },
 
     async transition(userId, entryId, from, to) {
-      if (from === to) throw invalid("El estado nuevo tiene que ser distinto del actual");
+      if (!ALLOWED_TRANSITIONS[from].includes(to)) {
+        throw new ApiError(409, "LEDGER_INVALID_TRANSITION", `Transición no permitida: ${from} -> ${to}.`);
+      }
       const moved = await ledger.updateStatusIfCurrent(userId, entryId, from, to);
       const row = await ledger.findById(userId, entryId);
       if (!row) throw new ApiError(404, "LEDGER_ENTRY_NOT_FOUND", "Movimiento no encontrado.");

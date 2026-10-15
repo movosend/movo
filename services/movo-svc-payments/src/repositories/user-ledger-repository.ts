@@ -29,18 +29,27 @@ export interface LedgerCursor {
   id: string;
 }
 
+export interface LedgerSummary {
+  balance: Prisma.Decimal;
+  /** Fecha del cargo más viejo que compone la deuda actual; `null` si el saldo no es positivo. */
+  oldestUnpaidAt: Date | null;
+}
+
+type Db = PrismaClient | Prisma.TransactionClient;
+
 export interface UserLedgerRepository {
   /**
    * Inserta el movimiento. Si la `idempotencyKey` ya existe devuelve la fila original con
    * `created: false` (la base es la que decide, así dos requests a la vez terminan con UNA fila).
    */
   insert(data: NewLedgerEntry): Promise<{ entry: UserLedgerEntry; created: boolean }>;
-  /** Suma con signo de los movimientos no anulados. */
-  balance(userId: string): Promise<Prisma.Decimal>;
-  /** Movimiento de deuda sin saldar más viejo (`pending`/`reserved`, monto positivo). */
-  oldestUnpaidAt(userId: string): Promise<Date | null>;
-  /** Más nuevos primero. Pide `limit` filas: el service pide una de más para saber si hay otra página. */
-  listPage(userId: string, limit: number, after?: LedgerCursor): Promise<UserLedgerEntry[]>;
+  /** Saldo (suma con signo de lo no anulado) y deuda más vieja, leídos con la misma foto de la base. */
+  summary(userId: string): Promise<LedgerSummary>;
+  /**
+   * Resumen + una página de movimientos (más nuevos primero) en una sola transacción, así el saldo
+   * siempre coincide con la lista. Pide `limit` filas: el service pide una de más para saber si hay otra.
+   */
+  summaryWithPage(userId: string, limit: number, after?: LedgerCursor): Promise<LedgerSummary & { rows: UserLedgerEntry[] }>;
   /** Cambia el `status` solo si sigue en `expected`. `false` si otro llamador ya lo movió. */
   updateStatusIfCurrent(
     userId: string,
@@ -49,6 +58,35 @@ export interface UserLedgerRepository {
     next: LedgerEntryStatus
   ): Promise<boolean>;
   findById(userId: string, entryId: string): Promise<UserLedgerEntry | null>;
+}
+
+/**
+ * La deuda actual se explica con los cargos más nuevos: se recorren los cargos sin saldar
+ * (`pending`/`reserved`, monto positivo) del más nuevo al más viejo hasta cubrir el saldo, y el último
+ * que hizo falta es el más viejo. Así una penalidad ya compensada por un movimiento negativo, pero que
+ * quedó `pending`, no figura como la deuda vieja cuando después entra una deuda nueva.
+ */
+async function readSummary(db: Db, userId: string): Promise<LedgerSummary> {
+  const { _sum } = await db.userLedgerEntry.aggregate({
+    where: { userId, status: { not: "voided" } },
+    _sum: { amountArs: true },
+  });
+  const balance = _sum.amountArs ?? new Prisma.Decimal(0);
+  if (!balance.greaterThan(0)) return { balance, oldestUnpaidAt: null };
+
+  const charges = await db.userLedgerEntry.findMany({
+    where: { userId, status: { in: ["pending", "reserved"] }, amountArs: { gt: 0 } },
+    select: { createdAt: true, amountArs: true },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+  let covered = new Prisma.Decimal(0);
+  let oldest: Date | null = null;
+  for (const charge of charges) {
+    oldest = charge.createdAt;
+    covered = covered.plus(charge.amountArs);
+    if (covered.greaterThanOrEqualTo(balance)) break;
+  }
+  return { balance, oldestUnpaidAt: oldest };
 }
 
 export function createUserLedgerRepository(db: PrismaClient): UserLedgerRepository {
@@ -66,38 +104,33 @@ export function createUserLedgerRepository(db: PrismaClient): UserLedgerReposito
       }
     },
 
-    async balance(userId) {
-      const { _sum } = await db.userLedgerEntry.aggregate({
-        where: { userId, status: { not: "voided" } },
-        _sum: { amountArs: true },
-      });
-      return _sum.amountArs ?? new Prisma.Decimal(0);
+    summary(userId) {
+      return db.$transaction((tx) => readSummary(tx, userId), { isolationLevel: "RepeatableRead" });
     },
 
-    async oldestUnpaidAt(userId) {
-      const { _min } = await db.userLedgerEntry.aggregate({
-        where: { userId, status: { in: ["pending", "reserved"] }, amountArs: { gt: 0 } },
-        _min: { createdAt: true },
-      });
-      return _min.createdAt ?? null;
-    },
-
-    listPage(userId, limit, after) {
-      return db.userLedgerEntry.findMany({
-        where: {
-          userId,
-          ...(after
-            ? {
-                OR: [
-                  { createdAt: { lt: after.createdAt } },
-                  { createdAt: after.createdAt, id: { lt: after.id } },
-                ],
-              }
-            : {}),
+    summaryWithPage(userId, limit, after) {
+      return db.$transaction(
+        async (tx) => {
+          const summary = await readSummary(tx, userId);
+          const rows = await tx.userLedgerEntry.findMany({
+            where: {
+              userId,
+              ...(after
+                ? {
+                    OR: [
+                      { createdAt: { lt: after.createdAt } },
+                      { createdAt: after.createdAt, id: { lt: after.id } },
+                    ],
+                  }
+                : {}),
+            },
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            take: limit,
+          });
+          return { ...summary, rows };
         },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        take: limit,
-      });
+        { isolationLevel: "RepeatableRead" }
+      );
     },
 
     async updateStatusIfCurrent(userId, entryId, expected, next) {

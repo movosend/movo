@@ -557,13 +557,15 @@ ya proxeaba `/payments`). Código en `src/modules/user-ledger/`, `src/repositori
   `UPDATE` solo pasa `status`. Un `TRUNCATE` sí funciona, por eso los tests lo usan para limpiar. El `reason` de un
   `manual_adjustment` también es un `CHECK`.
 - **Saldo** = suma de lo que no está `voided` (un `settled` sigue contando; lo cancela un movimiento negativo aparte).
-  `oldestUnpaidAt` = deuda positiva `pending`/`reserved` más vieja, `null` si el saldo no es positivo.
+  `oldestUnpaidAt` = el cargo más viejo que compone la deuda actual (cargos `pending`/`reserved` del más nuevo al más viejo hasta cubrir el saldo), `null` si el saldo no es positivo; saldo, esa fecha y la página se leen en una transacción `REPEATABLE READ`.
 - **Idempotencia**: `idempotency_key` única + `request_fingerprint` (hash). Mismo cuerpo → 200 con el original; otro
   cuerpo → 409 `LEDGER_IDEMPOTENCY_CONFLICT`. La carrera la resuelve el P2002 de la base.
 - **El signo no se valida contra el tipo**: lo manda quien registra (decisión del ADR). Monto distinto de cero, hasta
   2 decimales y tope de ±$10.000.000 (los decimales los mira el service, no Ajv).
-- **`created_at` lo pone la app** (ms) y no Postgres (µs), para que el cursor `(created_at, id)` no pierda precisión.
-- `service.transition()` mueve el `status` con un UPDATE condicional; sin endpoint HTTP todavía (lo abren 311/312).
+- **`created_at` lo pone la app y la columna es `TIMESTAMPTZ(3)`** (migración `20261016120000`), así el cursor `(created_at, id)` no pierde precisión ni con una fila insertada por fuera de la app.
+- `service.transition()` mueve el `status` con un UPDATE condicional; sin endpoint HTTP todavía (lo abren 311/312). Solo permite `pending→reserved|settled|voided`, `reserved→pending|settled|voided` y `settled→voided` (409 `LEDGER_INVALID_TRANSITION`); `voided` es terminal, y el trigger de la base lo impone también.
+- **Replay idempotente**: con `created: false` el movimiento se devuelve como está hoy, así que su `status` puede haber cambiado desde el alta; el llamador mira `entry.status`.
+- **Sin validar `:userId` ni `adminId`** (ADR-010, perímetro): `svc-payments` no conoce usuarios; el llamador (otro servicio) es quien responde por ellos.
 
 Pendiente: que `svc-admin` llame a `manual-adjustments` (sin UI de admin todavía); sin env vars nuevas.
 

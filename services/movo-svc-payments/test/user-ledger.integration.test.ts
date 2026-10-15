@@ -85,6 +85,19 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
       expect(balance.oldestUnpaidAt).toBe(recent.createdAt);
     });
 
+    it("una penalidad compensada pero sin pasar a settled no figura como la deuda vieja", async () => {
+      const paid = (await addEntry(USER, { amountArs: 100 })).json().entry;
+      await addEntry(USER, { type: "penalty_capture", amountArs: -100, status: "settled" });
+      expect(await balanceOf(USER)).toEqual({ balanceArs: 0, oldestUnpaidAt: null });
+
+      const fresh = (await addEntry(USER, { amountArs: 50 })).json().entry;
+
+      const balance = await balanceOf(USER);
+      expect(balance.balanceArs).toBe(50);
+      expect(balance.oldestUnpaidAt).toBe(fresh.createdAt);
+      expect(balance.oldestUnpaidAt).not.toBe(paid.createdAt);
+    });
+
     it("no mezcla usuarios", async () => {
       await addEntry(USER, { amountArs: 100 });
       await addEntry(OTHER_USER, { amountArs: 40 });
@@ -127,6 +140,7 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
     it.each([
       ["cero", { amountArs: 0 }],
       ["más de 2 decimales", { amountArs: 10.123 }],
+      ["medio centavo en el tope", { amountArs: 9999999.995 }],
       ["tipo inválido", { type: "bonus" }],
       ["tipo manual_adjustment (va por su endpoint)", { type: "manual_adjustment" }],
     ])("400 con %s", async (_name, patch) => {
@@ -184,6 +198,29 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
       await expect(
         app.userLedger.transition(USER, entry.id, "pending", "reserved")
       ).resolves.toMatchObject({ status: "reserved", amountArs: 100 });
+    });
+
+    it("voided es terminal y de settled solo se sale anulando", async () => {
+      const entry = (await addEntry(USER, { amountArs: 100 })).json().entry;
+      await app.userLedger.transition(USER, entry.id, "pending", "settled");
+
+      await expect(app.userLedger.transition(USER, entry.id, "settled", "pending")).rejects.toMatchObject({
+        statusCode: 409,
+        code: "LEDGER_INVALID_TRANSITION",
+      });
+      await app.userLedger.transition(USER, entry.id, "settled", "voided");
+      await expect(app.userLedger.transition(USER, entry.id, "voided", "pending")).rejects.toMatchObject({
+        code: "LEDGER_INVALID_TRANSITION",
+      });
+    });
+
+    it("la base también rechaza reabrir un movimiento anulado", async () => {
+      const entry = (await addEntry(USER, { amountArs: 100 })).json().entry;
+      await app.userLedger.transition(USER, entry.id, "pending", "voided");
+
+      await expect(
+        app.db.$executeRawUnsafe(`UPDATE payments.user_ledger_entries SET status = 'pending' WHERE id = '${entry.id}'`)
+      ).rejects.toThrow(/transición de status no permitida/);
     });
 
     it("una transición con el estado esperado equivocado es 409 y un movimiento ajeno 404", async () => {

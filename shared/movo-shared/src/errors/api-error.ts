@@ -244,6 +244,7 @@ export type ApiErrorCode =
   | "LEDGER_ENTRY_NOT_FOUND"
   // El movimiento ya no está en el estado esperado: otro llamador lo movió primero.
   | "LEDGER_ENTRY_STATE_CONFLICT"
+  | "LEDGER_INVALID_TRANSITION"
   // MOVO-268: webhook de Mercado Pago (`svc-payments`). `x-signature` ausente o que no
   // coincide con la clave secreta de webhooks de la app.
   | "PAYMENT_WEBHOOK_INVALID_SIGNATURE"
