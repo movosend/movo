@@ -1,9 +1,9 @@
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
 import { ChevronRight, MessageCircle } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { pushOnce } from "../../src/lib/navigation-guard";
 import { chatReadOnlyCopy } from "../../src/lib/chat-format";
 
 export interface ChatAccessCardProps {
@@ -30,7 +30,7 @@ export function ChatAccessCard({ shipmentId, availability, status, isFormerRecei
       testID={testID ?? "chat-access-card"}
       onPress={() => {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        router.push(`/(app)/shipments/${shipmentId}/chat`);
+        pushOnce(`/(app)/shipments/${shipmentId}/chat`);
       }}
       className={`flex-row items-center gap-3 rounded-[12px] border bg-bg-mute px-4 py-3.5 active:bg-bg-mute/80 ${open ? "border-fg/30" : "border-transparent"}`}
       accessibilityRole="button"

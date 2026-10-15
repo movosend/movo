@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import Animated, { useReducedMotion, withTiming } from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
 import { deliveryStatusLabel, formatChatTime, type LocalChatMessage } from "../../src/lib/chat-format";
 import { ChatAvatar } from "./chat-avatar";
@@ -18,10 +19,29 @@ export interface ChatBubbleProps {
   onPressAvatar?: () => void;
   onRetry?: (clientMessageId: string) => void;
   onDiscard?: (clientMessageId: string) => void;
+  /** Mensaje que llegó en vivo: entra con una animación corta (el historial no se anima). */
+  animateIn?: boolean;
   testID?: string;
 }
 
 const AVATAR = 28;
+export const CHAT_ENTER_MS = 200;
+
+/**
+ * Entrada de un mensaje nuevo y del botón "ir al final": fade + slide corto. La lista va invertida
+ * (`scaleY: -1` en cada celda), así que el eje Y local está espejado: un `translateY` negativo se
+ * ve como venir desde abajo.
+ */
+export function chatEnteringAnimation() {
+  "worklet";
+  return {
+    initialValues: { opacity: 0, transform: [{ translateY: -12 }] },
+    animations: {
+      opacity: withTiming(1, { duration: CHAT_ENTER_MS }),
+      transform: [{ translateY: withTiming(0, { duration: CHAT_ENTER_MS }) }],
+    },
+  };
+}
 /** Verde lima del tilde en el prototipo (`tick: "#C6F24A"`, igual en claro y oscuro). */
 const TICK_COLOR = "#C6F24A";
 
@@ -40,14 +60,20 @@ function Ticks({ double }: { double: boolean }) {
  * (negra en claro, blanca en oscuro). Ajena: `bg-mute`. Radios 20/20/6; el tilde se toca para ver
  * "Enviado / Entregado / Leído por todos".
  */
-export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, groupStart, avatar, onPressAvatar, onRetry, onDiscard, testID }: ChatBubbleProps) {
+export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, groupStart, avatar, onPressAvatar, onRetry, onDiscard, animateIn, testID }: ChatBubbleProps) {
+  const reduceMotion = useReducedMotion();
   const [statusOpen, setStatusOpen] = useState(false);
   const failed = message.localState === "failed";
   const sending = message.localState === "sending";
   const status = message.deliveryStatus ?? (mine && !sending && !failed ? "sent" : null);
 
   return (
-    <View testID={testID} className={`flex-row items-end gap-2 ${mine ? "justify-end" : "justify-start"}`} style={{ marginTop: groupStart ? 14 : 4 }}>
+    <Animated.View
+      testID={testID}
+      entering={animateIn && !reduceMotion ? chatEnteringAnimation : undefined}
+      className={`flex-row items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}
+      style={{ marginTop: groupStart ? 14 : 4 }}
+    >
       {!mine ? (
         <Pressable
           testID={`${testID}-avatar`}
@@ -118,6 +144,6 @@ export function ChatBubble({ message, mine, authorLabel, showName, showAvatar, g
           </View>
         )}
       </View>
-    </View>
+    </Animated.View>
   );
 }

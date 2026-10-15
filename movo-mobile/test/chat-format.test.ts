@@ -2,6 +2,7 @@ import type { ChatMessage } from "@movo/shared/dist/types/chat";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../src/api/shipments-client";
 import {
+  chatAuthorLabel,
   buildChatTimeline,
   chatAvailability,
   chatEventCard,
@@ -225,5 +226,29 @@ describe("chatAvailability", () => {
     expect(chatAvailability(ShipmentStatus.ASSIGNED, null)).toBeNull();
     expect(chatAvailability(ShipmentStatus.CANCELLED, "carrier-1")).toBeNull();
     expect(chatAvailability(ShipmentStatus.REJECTED_BY_RECEIVER, "carrier-1")).toBeNull();
+  });
+});
+
+describe("chatAuthorLabel (MOVO-301)", () => {
+  const participants = [{ userId: "u1", fullName: "Ana Molina", role: "sender" as const }];
+
+  it("usa el rol de la lista de participantes", () => {
+    expect(chatAuthorLabel({ authorId: "u1", authorName: "Ana", participants })).toBe("Ana M. · Emisor");
+  });
+
+  it("sin participante, saca el rol de los ids del envío", () => {
+    expect(chatAuthorLabel({ authorId: "u2", authorName: "Diego Ramos", participants, shipment: { carrierId: "u2" } })).toBe(
+      "Diego R. · Transportista",
+    );
+  });
+
+  it("un autor que ya no figura se marca como ex integrante, nunca con el rol de quien lo reemplazó", () => {
+    expect(
+      chatAuthorLabel({ authorId: "viejo", authorName: "Pedro Gómez", participants, shipment: { receiverId: "nuevo" } }),
+    ).toBe("Pedro G. · Ex integrante");
+  });
+
+  it("sin nombre ni participante no inventa una etiqueta", () => {
+    expect(chatAuthorLabel({ authorId: "x", authorName: null, participants })).toBeUndefined();
   });
 });

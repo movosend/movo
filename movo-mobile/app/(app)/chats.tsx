@@ -7,6 +7,7 @@ import { ErrorBanner } from "../../components/ui/error-banner";
 import { useChatList } from "../../src/hooks/use-chat";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../src/lib/error-messages";
+import { pushOnce } from "../../src/lib/navigation-guard";
 import { useAuthStore } from "../../src/store/auth-store";
 
 const LIST_ERROR = "No pudimos cargar tus chats. Intentá de nuevo en unos minutos.";
@@ -58,7 +59,7 @@ export default function ChatsScreen() {
               testID={`chat-row-${item.shipmentId}`}
               item={item}
               meId={meId}
-              onPress={() => router.push(`/(app)/shipments/${item.shipmentId}/chat` as never)}
+              onPress={() => pushOnce(`/(app)/shipments/${item.shipmentId}/chat`)}
             />
           )}
           ListEmptyComponent={

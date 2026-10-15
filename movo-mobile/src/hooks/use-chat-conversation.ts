@@ -133,6 +133,14 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messagesQuery.isSuccess, firstItemId, focused]);
 
+  // Al salir se vuelve a pedir la lista de chats: Inicio muestra el total real de no leídos, no el último que vio.
+  useEffect(
+    () => () => {
+      void queryClient.invalidateQueries({ queryKey: chatKeys.list });
+    },
+    [queryClient],
+  );
+
   // ── Tiempo real.
   const receiptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(

@@ -1,4 +1,4 @@
-import { router, useRootNavigationState } from "expo-router";
+import { router, usePathname, useRootNavigationState } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { useEffect, useRef } from "react";
 import { requestPermissionAndRegisterPushToken } from "../lib/push-registration";
@@ -145,13 +145,25 @@ function notificationRouteKey(route: NotificationRoute): string {
 }
 
 /**
- * Navega a la ruta resuelta de una notificación, con dedup por `responseId` — antes
- * duplicado tal cual entre el manejo de cold start y el de foreground/background.
+ * Respuestas ya atendidas y cold start ya resuelto, a nivel de módulo: `getLastNotificationResponseAsync`
+ * devuelve la última respuesta aunque ya se haya manejado, y si el hook se remonta (logout → login)
+ * un `ref` por instancia la volvería a navegar (MOVO-301).
  */
-function handleNotificationResponse(
-  response: Notifications.NotificationResponse,
-  handledResponseIds: Set<string>,
-): void {
+const handledResponseIds = new Set<string>();
+let coldStartHandled = false;
+
+/** Solo para tests: cada caso arranca sin recordar respuestas ni cold start de otro. */
+export function resetPushHandlingForTests(): void {
+  handledResponseIds.clear();
+  coldStartHandled = false;
+}
+
+/**
+ * Navega a la ruta resuelta de una notificación, con dedup por `responseId` — antes
+ * duplicado tal cual entre el manejo de cold start y el de foreground/background. Si esa
+ * conversación/pantalla ya es la actual no apila otra copia (MOVO-301).
+ */
+function handleNotificationResponse(response: Notifications.NotificationResponse, currentPathname: string): void {
   const data = response.notification?.request?.content?.data;
   const route = resolveNotificationRoute(data);
   if (!route) return;
@@ -161,6 +173,7 @@ function handleNotificationResponse(
     `${notificationRouteKey(route)}-${response.notification?.date ?? Date.now()}`;
   if (handledResponseIds.has(responseId)) return;
   handledResponseIds.add(responseId);
+  if (typeof route === "string" ? route === currentPathname : route.pathname === currentPathname) return;
 
   // `as any`: `route` es una unión de dos formas armadas en runtime, no un literal
   // de ruta tipado — mismo criterio que el resto del repo para rutas que
@@ -182,9 +195,12 @@ export function usePushNotifications(): void {
   const rootNavState = useRootNavigationState();
   const isNavigatorMounted = Boolean(rootNavState?.key);
 
+  // Ruta actual en un ref: el listener se suscribe una sola vez y tiene que ver la de ahora, no la del montaje.
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+
   const registeredRef = useRef(false);
-  const handledResponseIdsRef = useRef<Set<string>>(new Set());
-  const coldStartHandledRef = useRef(false);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated" || registeredRef.current) return;
@@ -202,21 +218,21 @@ export function usePushNotifications(): void {
   // Gated por `isNavigatorMounted` para no disparar router.push antes de que
   // el Root Layout monte el <Stack> (evita fallo en cold start).
   useEffect(() => {
-    if (sessionStatus !== "authenticated" || !isNavigatorMounted || coldStartHandledRef.current) {
+    if (sessionStatus !== "authenticated" || !isNavigatorMounted || coldStartHandled) {
       return;
     }
-    coldStartHandledRef.current = true;
+    coldStartHandled = true;
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
-      handleNotificationResponse(response, handledResponseIdsRef.current);
+      handleNotificationResponse(response, pathnameRef.current);
     });
   }, [sessionStatus, isNavigatorMounted]);
 
   // Manejo de interacción con notificación recibida en foreground / background
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      handleNotificationResponse(response, handledResponseIdsRef.current);
+      handleNotificationResponse(response, pathnameRef.current);
     });
     return () => subscription.remove();
   }, []);

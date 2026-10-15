@@ -1,6 +1,7 @@
 import type { ChatParticipant } from "@movo/shared/dist/types/chat";
 import { CHAT_MODERATION_WARNING } from "@movo/shared/dist/types/chat";
 import { fireEvent, render } from "@testing-library/react-native";
+import { FlatList } from "react-native";
 import { router } from "expo-router";
 import ShipmentChatScreen from "../app/(app)/shipments/[id]/chat";
 import type { ChatTimelineItem, LocalChatMessage } from "../src/lib/chat-format";
@@ -263,5 +264,89 @@ describe("ShipmentChatScreen (MOVO-284)", () => {
 
     await fireEvent.press(getByTestId("chat-message-c-d-avatar"));
     expect(router.dismissTo).toHaveBeenCalledTimes(2);
+  });
+
+  it("MOVO-301: un mensaje de alguien que ya no es integrante muestra su nombre con 'Ex integrante'", async () => {
+    const former = message({ authorId: "viejo", authorName: "Pedro Gómez", clientMessageId: "c-v", body: "Hola" });
+    mockChat.mockReturnValue(state({ timeline: [item(former, false)], shipment: { status: "in_transit" } }));
+    const { getByText } = await render(<ShipmentChatScreen />);
+
+    expect(getByText("Pedro G. · Ex integrante")).toBeTruthy();
+  });
+
+  it("MOVO-301: el rol sale de los ids del envío cuando el autor no está en la lista de participantes", async () => {
+    const theirs = message({ authorId: "diego", authorName: "Diego Ramos", clientMessageId: "c-d", body: "Hola" });
+    mockChat.mockReturnValue(
+      state({ participants: [ana], timeline: [item(theirs, false)], shipment: { status: "in_transit", carrierId: "diego" } }),
+    );
+    const { getByText } = await render(<ShipmentChatScreen />);
+
+    expect(getByText("Diego R. · Transportista")).toBeTruthy();
+  });
+
+  describe("botón 'Ir al último mensaje' (MOVO-301)", () => {
+    const scrollTo = (y: number) => ({ nativeEvent: { contentOffset: { x: 0, y }, contentSize: { height: 4000, width: 300 }, layoutMeasurement: { height: 600, width: 300 } } });
+
+    it("no aparece con el chat al final y sí cuando el usuario se aleja más de una pantalla", async () => {
+      const first = message({ authorId: "diego", clientMessageId: "c-1" });
+      mockChat.mockReturnValue(state({ timeline: [item(first, false)] }));
+      const { getByTestId, queryByTestId } = await render(<ShipmentChatScreen />);
+
+      expect(queryByTestId("chat-scroll-bottom")).toBeNull();
+      await fireEvent.scroll(getByTestId("chat-list"), scrollTo(200));
+      expect(queryByTestId("chat-scroll-bottom")).toBeNull();
+      await fireEvent.scroll(getByTestId("chat-list"), scrollTo(1500));
+      expect(getByTestId("chat-scroll-bottom")).toBeTruthy();
+      // Al volver al final se oculta.
+      await fireEvent.scroll(getByTestId("chat-list"), scrollTo(0));
+      expect(queryByTestId("chat-scroll-bottom")).toBeNull();
+    });
+
+    it("cuenta los mensajes ajenos que llegan con el usuario arriba y baja animado al tocarlo", async () => {
+      const first = message({ authorId: "diego", clientMessageId: "c-1" });
+      mockChat.mockReturnValue(state({ timeline: [item(first, false)] }));
+      const { getByTestId, rerender } = await render(<ShipmentChatScreen />);
+      await fireEvent.scroll(getByTestId("chat-list"), scrollTo(1500));
+
+      const second = message({ authorId: "diego", clientMessageId: "c-2" });
+      mockChat.mockReturnValue(state({ timeline: [item(second, false), item(first, false)] }));
+      await rerender(<ShipmentChatScreen />);
+
+      expect(getByTestId("chat-scroll-bottom-badge")).toHaveTextContent("1");
+      expect(getByTestId("chat-scroll-bottom-btn").props.accessibilityLabel).toBe("Ir al último mensaje, 1 nuevos");
+
+      const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset").mockImplementation(() => {});
+      await fireEvent.press(getByTestId("chat-scroll-bottom-btn"));
+      expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+      scrollToOffset.mockRestore();
+    });
+
+    it("un mensaje propio siempre baja al final", async () => {
+      const first = message({ authorId: "diego", clientMessageId: "c-1" });
+      mockChat.mockReturnValue(state({ timeline: [item(first, false)] }));
+      const { getByTestId, rerender } = await render(<ShipmentChatScreen />);
+      await fireEvent.scroll(getByTestId("chat-list"), scrollTo(1500));
+
+      const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset").mockImplementation(() => {});
+      const mine = message({ authorId: "ana", clientMessageId: "c-m" });
+      mockChat.mockReturnValue(state({ timeline: [item(mine, true), item(first, false)] }));
+      await rerender(<ShipmentChatScreen />);
+
+      expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+      scrollToOffset.mockRestore();
+    });
+
+    it("el historial que se carga al paginar no suma al contador", async () => {
+      const first = message({ authorId: "diego", clientMessageId: "c-1" });
+      mockChat.mockReturnValue(state({ timeline: [item(first, false)] }));
+      const { getByTestId, queryByTestId, rerender } = await render(<ShipmentChatScreen />);
+      await fireEvent.scroll(getByTestId("chat-list"), scrollTo(1500));
+
+      const older = message({ authorId: "luis", clientMessageId: "c-old" });
+      mockChat.mockReturnValue(state({ timeline: [item(first, false), item(older, false)] }));
+      await rerender(<ShipmentChatScreen />);
+
+      expect(queryByTestId("chat-scroll-bottom-badge")).toBeNull();
+    });
   });
 });

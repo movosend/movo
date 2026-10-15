@@ -2,9 +2,11 @@ import { renderHook } from "@testing-library/react-native";
 
 const mockRouterPush = jest.fn();
 const mockUseRootNavigationState = jest.fn().mockReturnValue({ key: "root" });
+let mockPathname = "/home";
 jest.mock("expo-router", () => ({
   router: { push: (...args: unknown[]) => mockRouterPush(...args) },
   useRootNavigationState: () => mockUseRootNavigationState(),
+  usePathname: () => mockPathname,
 }));
 
 const mockUseAuthStore = jest.fn();
@@ -27,11 +29,13 @@ jest.mock("expo-notifications", () => ({
   getLastNotificationResponseAsync: () => mockGetLastNotificationResponseAsync(),
 }));
 
-import { usePushNotifications } from "../src/hooks/use-push-notifications";
+import { resetPushHandlingForTests, usePushNotifications } from "../src/hooks/use-push-notifications";
 
 describe("usePushNotifications", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetPushHandlingForTests();
+    mockPathname = "/home";
     mockGetLastNotificationResponseAsync.mockResolvedValue(null);
   });
 
@@ -278,5 +282,39 @@ describe("usePushNotifications", () => {
     await unmount();
 
     expect(mockRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it("MOVO-301: tocar la push del chat que ya está abierto no apila otra copia", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockPathname = "/shipments/shp_1/chat";
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (r: unknown) => void;
+    listener({
+      notification: { request: { identifier: "n1", content: { data: { type: "chat_message", shipmentId: "shp_1" } } } },
+    });
+    expect(mockRouterPush).not.toHaveBeenCalled();
+
+    // Un chat distinto sí se abre.
+    listener({
+      notification: { request: { identifier: "n2", content: { data: { type: "chat_message", shipmentId: "shp_2" } } } },
+    });
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_2/chat");
+  });
+
+  it("MOVO-301: al remontar el hook (logout → login) no vuelve a navegar la última respuesta del cold start", async () => {
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: { request: { identifier: "notif_cold", content: { data: { type: "chat_message", shipmentId: "shp_1" } } } },
+    });
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    const first = await renderHook(() => usePushNotifications());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockRouterPush).toHaveBeenCalledTimes(1);
+
+    await first.unmount();
+    await renderHook(() => usePushNotifications());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockRouterPush).toHaveBeenCalledTimes(1);
   });
 });

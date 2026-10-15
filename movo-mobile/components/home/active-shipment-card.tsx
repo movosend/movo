@@ -16,6 +16,7 @@ import {
   type ActiveShipmentRole,
 } from "../../src/lib/active-shipment-format";
 import { formatUnreadCount } from "../../src/lib/chat-format";
+import { pushOnce } from "../../src/lib/navigation-guard";
 import { formatPickupWindowLabel, pickupLocalityLabel, shortAddressLabel } from "../../src/lib/shipment-format";
 import { GradientBorderCard } from "../ui/gradient-border-card";
 
@@ -289,7 +290,7 @@ export function ActiveShipmentCard({
             testID={testID ? `${testID}-chat` : undefined}
             accessibilityRole="button"
             accessibilityLabel={chat.unreadCount > 0 ? `Abrir chat, ${chat.unreadCount} sin leer` : "Abrir chat"}
-            onPress={() => router.push(`/(app)/shipments/${shipment.id}/chat` as never)}
+            onPress={() => pushOnce(`/(app)/shipments/${shipment.id}/chat`)}
             className="h-[38px] w-[38px] flex-none items-center justify-center rounded-full border border-border-strong"
           >
             <MessageCircle size={17} color={colors.fg1} strokeWidth={2} />

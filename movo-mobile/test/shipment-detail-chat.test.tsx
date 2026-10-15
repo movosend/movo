@@ -3,6 +3,7 @@ import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import ShipmentDetailScreen from "../app/(app)/shipments/[id]";
+import { resetNavigationGuard } from "../src/lib/navigation-guard";
 
 const mockRouterReplace = jest.fn();
 const mockRouterBack = jest.fn();
@@ -143,6 +144,8 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
 
 describe("ShipmentDetailScreen — chat del envío (MOVO-284)", () => {
   beforeEach(() => {
+    // El guard anti doble tap recuerda el último toque: cada caso toca la misma ruta de chat.
+    resetNavigationGuard();
     mockCanGoBack.mockReturnValue(true);
     mockCurrentUser.mockReturnValue({ userId: "user-1" });
   });
