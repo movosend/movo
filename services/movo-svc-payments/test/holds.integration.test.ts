@@ -389,6 +389,68 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     });
   });
 
+  describe("pagador y tarjeta para el historial (MOVO-302)", () => {
+    type HistoryRow = { payer_id: string | null; card_last4: string | null; card_brand: string | null };
+    const historyRow = async () => {
+      const rows = await app.db.$queryRawUnsafe<HistoryRow[]>(
+        "SELECT payer_id::text AS payer_id, card_last4, card_brand FROM payments.holds ORDER BY attempt DESC LIMIT 1"
+      );
+      return rows[0];
+    };
+    const withCard = (last4: string, brand = "visa") =>
+      payment({ payment_method_id: brand, card: { last_four_digits: last4 } } as Partial<PaymentResponse>);
+
+    it("AC3/AC4: persiste el emisor y la tarjeta que informa MP, y no los expone en la respuesta", async () => {
+      mp.createPayment.mockImplementation(async () => ({ ...withCard("4242"), id: 1_000_001 }) as PaymentResponse);
+
+      const res = await create();
+
+      expect(res.statusCode).toBe(201);
+      expect(await historyRow()).toEqual({ payer_id: PAYER, card_last4: "4242", card_brand: "visa" });
+      for (const key of ["payerId", "payerUserId", "cardLast4", "cardBrand"]) {
+        expect(res.json()).not.toHaveProperty(key);
+      }
+    });
+
+    it("AC4: si MP no informa la tarjeta quedan en null (el emisor sí se guarda)", async () => {
+      await create();
+      expect(await historyRow()).toEqual({ payer_id: PAYER, card_last4: null, card_brand: null });
+    });
+
+    it("AC4: ?sync=true completa la tarjeta que faltaba y una consulta sin tarjeta no la borra", async () => {
+      await create();
+      mp.getPayment.mockImplementationOnce(async () => withCard("1881", "master") as PaymentResponse);
+      const first = await app.inject({ method: "GET", url: `${BASE}/by-shipment/${SHIPMENT}?sync=true` });
+      expect(first.statusCode).toBe(200);
+      expect(await historyRow()).toMatchObject({ card_last4: "1881", card_brand: "master" });
+
+      mp.getPayment.mockImplementationOnce(async () => payment());
+      await app.inject({ method: "GET", url: `${BASE}/by-shipment/${SHIPMENT}?sync=true` });
+      expect(await historyRow()).toMatchObject({ card_last4: "1881", card_brand: "master" });
+    });
+
+    it("AC4: un valor con forma inesperada no llega a la base", async () => {
+      mp.createPayment.mockImplementation(
+        async () => ({ ...withCard("12ab", "visa; drop table"), id: 1_000_001 }) as PaymentResponse
+      );
+      await create();
+      expect(await historyRow()).toEqual({ payer_id: PAYER, card_last4: null, card_brand: null });
+    });
+
+    it("AC2: existen los índices de los listados por rol (emisor y transportista), más reciente primero", async () => {
+      const rows = await app.db.$queryRawUnsafe<Array<{ indexname: string; indexdef: string }>>(
+        `SELECT indexname, indexdef FROM pg_indexes
+          WHERE schemaname = 'payments' AND tablename = 'holds' AND indexname LIKE 'holds_%_created_at_idx'
+          ORDER BY indexname`
+      );
+      expect(rows.map((r) => r.indexname)).toEqual([
+        "holds_carrier_id_created_at_idx",
+        "holds_payer_id_created_at_idx",
+      ]);
+      expect(rows[1].indexdef).toContain("(payer_id, created_at DESC, id DESC)");
+    });
+  });
+
   it("valida el body: uuid, monto positivo y email", async () => {
     const badId = await create({ shipmentId: "no-es-uuid" });
     expect(badId.statusCode).toBe(400);

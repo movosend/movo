@@ -10,6 +10,7 @@ import {
   MpWebhookRepository,
   NotificationResolution,
 } from "../../repositories/mp-webhook-repository";
+import { missingCardFields } from "../../utils/payment-card";
 import { holdUpdateFromPayment, HoldService, readMpError } from "../holds/hold.service";
 
 /**
@@ -204,11 +205,23 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
     return done("processed", `${kind}_recorded`);
   }
 
+  /**
+   * MOVO-302: completa marca y últimos 4 de la tarjeta si el hold no los tenía y este pago los trae.
+   * Va ANTES de cualquier decisión sobre el estado y es independiente de ella: un `no_change`, un
+   * contracargo o un reembolso cortan el procesamiento sin pasar por `transitionHold`, y de otro
+   * modo la tarjeta que el webhook ya tenía en la mano se perdería. Solo agrega lo que falta.
+   */
+  async function fillMissingCard(hold: Hold, payment: PaymentResponse): Promise<Hold> {
+    const missing = missingCardFields(hold, payment);
+    return Object.keys(missing).length > 0 ? holds.update(hold.id, missing) : hold;
+  }
+
   async function applyPayment(
     notification: MpWebhookNotification,
-    hold: Hold,
+    current: Hold,
     payment: PaymentResponse
   ): Promise<Resolution> {
+    const hold = await fillMissingCard(current, payment);
     const status = payment.status ?? "";
     // `hasOwn` y no `in`: un `status` como "constructor" o "toString" no puede colarse por la cadena de prototipos.
     if (Object.prototype.hasOwnProperty.call(PROVIDER_EVENT_KINDS, status)) {
@@ -313,18 +326,22 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
     if (!known) {
       const resolved = await resolveUnknownPayment(notification);
       if ("status" in resolved) return resolved;
+      // La reconciliación (`?sync=true`) adoptó el intento con lo que devuelve la búsqueda de pagos; el
+      // pago completo que ya tenemos en la mano completa la tarjeta si la búsqueda no la trajo (MOVO-302).
+      // Va antes del aviso de abajo, que corta el procesamiento sin pasar por `applyPayment`.
+      const reconciled = await fillMissingCard(resolved.hold, resolved.payment);
       // La reconciliación (`?sync=true`) ya escribió el estado final de MP en el hold. Si lo llevó a
       // cancelado/vencido/rechazado, `applyPayment` lo vería "ya cerrado" y no avisaría nunca: el envío no
       // se enteraría de que la reserva se cayó. Se avisa acá, dejando anotado el aviso por si hay que reintentar.
-      if (resolved.reconciledFrom && resolved.hold.status !== resolved.reconciledFrom) {
-        const detail = resolved.hold.statusDetail ?? null;
-        const event = holdEventFor(resolved.hold.status, detail);
+      if (resolved.reconciledFrom && reconciled.status !== resolved.reconciledFrom) {
+        const detail = reconciled.statusDetail ?? null;
+        const event = holdEventFor(reconciled.status, detail);
         if (event) {
-          await repo.setPendingHoldEvent(notification.id, resolved.hold.id, event, detail);
-          return deliverHoldEvent(notification, resolved.hold, event, detail);
+          await repo.setPendingHoldEvent(notification.id, reconciled.id, event, detail);
+          return deliverHoldEvent(notification, reconciled, event, detail);
         }
       }
-      return applyPayment(notification, resolved.hold, resolved.payment);
+      return applyPayment(notification, reconciled, resolved.payment);
     }
 
     // Credenciales del transportista del hold, no las del `user_id` del body (AC3).

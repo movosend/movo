@@ -23,6 +23,12 @@ export interface PaymentSnapshot {
   fee_details?: Array<{ type?: string; amount?: number; fee_payer?: string }>;
   /** `net_received_amount`: lo que le queda al transportista tras ambas comisiones. */
   transaction_details?: { net_received_amount?: number };
+  /**
+   * MOVO-302: medio de pago (`visa`, `master`, ...) y tarjeta enmascarada del pago. MP solo
+   * expone los últimos 4 dígitos; los resultados de una búsqueda traen el medio pero no la tarjeta.
+   */
+  payment_method_id?: string;
+  card?: { last_four_digits?: string };
 }
 
 /**
@@ -112,7 +118,15 @@ export class SdkMercadoPagoClient implements MercadoPagoClient {
     const result = await this.payments(accessToken).search({
       options: { external_reference: externalReference, sort: "date_created", criteria: "desc", limit: 20 },
     });
-    return (result.results ?? []).map((p) => ({ id: p.id, status: p.status, status_detail: p.status_detail }));
+    return (result.results ?? []).map((p) => ({
+      id: p.id,
+      status: p.status,
+      status_detail: p.status_detail,
+      payment_method_id: p.payment_method_id,
+      // El resultado de búsqueda del SDK sí trae `card` (tipado `any`): se pasa solo lo que
+      // usa un hold, los últimos 4. Sin esto un `creating` adoptado por acá quedaba sin tarjeta.
+      card: p.card ? { last_four_digits: p.card.last_four_digits } : undefined,
+    }));
   }
 
   cancelPayment(

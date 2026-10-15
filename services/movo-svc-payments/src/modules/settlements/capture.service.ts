@@ -5,6 +5,7 @@ import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-c
 import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
 import { Hold, HoldRepository } from "../../repositories/hold-repository";
 import { Settlement, SettlementRepository } from "../../repositories/settlement-repository";
+import { missingCardFields } from "../../utils/payment-card";
 import { readMpError } from "../holds/hold.service";
 
 const { Decimal } = Prisma;
@@ -183,7 +184,11 @@ export function createCaptureService(deps: CaptureServiceDeps) {
     if (hold.status !== "captured") {
       // Condicional sobre `authorized`: si el webhook movió el hold en el medio no se pisa. MP ya
       // cobró, así que la liquidación se acredita igual.
-      const moved = await holds.markCaptured(hold.id, { statusDetail: payment.status_detail ?? null });
+      const moved = await holds.markCaptured(hold.id, {
+        statusDetail: payment.status_detail ?? null,
+        // MOVO-302: sin pisar una tarjeta que el hold ya tenía.
+        ...missingCardFields(hold, payment),
+      });
       if (!moved) {
         log.warn(
           { shipmentId: settlement.shipmentId, holdId: hold.id, mpPaymentId: settlement.mpPaymentId },
