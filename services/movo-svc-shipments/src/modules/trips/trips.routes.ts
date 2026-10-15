@@ -223,11 +223,13 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       schema: {
         summary: "Editar viaje declarado",
         description:
-          "409 TRIP_HAS_ACCEPTED_PACKAGES si el viaje tiene paquetes aceptados, salvo que el " +
-          "PATCH solo toque recurrenceWeekdays/recurrenceUntil (MOVO-265, ADR-042). Editar la " +
-          "recurrencia de un viaje que no es el vigente de su serie: 409 TRIP_NOT_SERIES_HEAD. " +
-          "Prenderla con 3 series activas: 409 RECURRING_SERIES_LIMIT. recurrenceWeekdays: null " +
-          "la apaga.",
+          "409 TRIP_HAS_ACCEPTED_PACKAGES si el viaje tiene paquetes aceptados, sin importar qué " +
+          "se edite; la única excepción es apagar la recurrencia (recurrenceWeekdays: null, con o " +
+          "sin recurrenceUntil: null), la única forma de cortar una serie cuyo vigente ya tiene " +
+          "paquetes (MOVO-265, ADR-042). Prender o cambiar la recurrencia solo se puede en un " +
+          "viaje declared o active (409 TRIP_NOT_EDITABLE en otro estado) y que sea el vigente de " +
+          "su serie (409 TRIP_NOT_SERIES_HEAD). Prenderla con 3 series activas: 409 " +
+          "RECURRING_SERIES_LIMIT.",
         params: tripsSchemas.tripIdParam,
         body: tripsSchemas.updateTripBody,
         response: {

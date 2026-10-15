@@ -144,6 +144,42 @@ describe("viajes recurrentes (MOVO-265)", () => {
       expect(sendPush).toHaveBeenCalledTimes(1);
     });
 
+    it("no genera si el transportista apagó la recurrencia después de leer el candidato", async () => {
+      const head = await createPastRecurringTrip();
+      const stale = (await tripRepo.findById(head.id))!;
+      await tripRepo.stopRecurrence(head.id);
+
+      const next = await tripRepo.createRecurrenceSuccessor({
+        ...tripInput({ carrierId: stale.carrierId }),
+        departureAt: new Date(stale.departureAt.getTime() + 7 * DAY_MS),
+        recurrenceWeekdays: stale.recurrenceWeekdays,
+        seriesId: stale.seriesId,
+        generatedFromTripId: stale.id,
+      });
+
+      expect(next).toBeNull();
+      expect(await app.db.trip.count({ where: { generatedFromTripId: head.id } })).toBe(0);
+    });
+
+    it("el sucesor copia destino y vehículo de la fila actual, no del candidato viejo", async () => {
+      const head = await createPastRecurringTrip();
+      const stale = (await tripRepo.findById(head.id))!;
+      await app.db.trip.update({
+        where: { id: head.id },
+        data: { destinationAddress: "Destino nuevo 1, Río Cuarto", vehicleType: "camioneta" },
+      });
+
+      const next = await tripRepo.createRecurrenceSuccessor({
+        ...tripInput({ carrierId: stale.carrierId }),
+        departureAt: new Date(stale.departureAt.getTime() + 7 * DAY_MS),
+        recurrenceWeekdays: stale.recurrenceWeekdays,
+        seriesId: stale.seriesId,
+        generatedFromTripId: stale.id,
+      });
+
+      expect(next).toMatchObject({ destinationAddress: "Destino nuevo 1, Río Cuarto", vehicleType: "camioneta" });
+    });
+
     it("si otra corrida ya generó la ocurrencia, la cuenta como alreadyGenerated y no avisa", async () => {
       await createPastRecurringTrip();
       const base = recurrenceDeps();
@@ -518,6 +554,25 @@ describe("viajes recurrentes (MOVO-265)", () => {
       expect(res.statusCode).toBe(409);
       expect(res.json().error.code).toBe("TRIP_NOT_SERIES_HEAD");
     });
+
+    it.each([TripStatus.EXPIRED, TripStatus.CANCELLED, TripStatus.COMPLETED])(
+      "prender la recurrencia de un viaje %s da 409 TRIP_NOT_EDITABLE y no lo convierte en serie",
+      async (status) => {
+        const trip = await tripRepo.create(tripInput({ departureAt: new Date(Date.now() - 2 * HOUR_MS) }));
+        await app.db.trip.update({ where: { id: trip.id }, data: { status } });
+
+        const res = await app.inject({
+          method: "PATCH",
+          url: `/trips/${trip.id}`,
+          headers: headers(trip.carrierId),
+          payload: { recurrenceWeekdays: [argentinaWeekday(trip.departureAt)] },
+        });
+
+        expect(res.statusCode).toBe(409);
+        expect(res.json().error.code).toBe("TRIP_NOT_EDITABLE");
+        expect((await tripRepo.findById(trip.id))?.recurrenceWeekdays).toBeNull();
+      },
+    );
 
     it("GET /trips expone isSeriesHead y generatedFromTripId", async () => {
       const head = await createPastRecurringTrip();

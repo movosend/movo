@@ -403,6 +403,16 @@ export function createTripsService(deps: {
         throw notSeriesHeadError(tripId);
       }
 
+      // Prender o cambiar la recurrencia de un viaje terminado lo haría candidato del barrido
+      // (su `departureAt` ya pasó) y declararía uno nuevo a partir del historial.
+      if (touchesRecurrence && !stopRecurrenceOnly && ![TripStatus.DECLARED, TripStatus.ACTIVE].includes(trip.status)) {
+        throw new ApiError(
+          409,
+          "TRIP_NOT_EDITABLE",
+          "Solo podés repetir un viaje declarado o en curso. Declará un viaje nuevo.",
+        );
+      }
+
       if (!stopRecurrenceOnly) {
         const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
         if (acceptedCount > 0) {

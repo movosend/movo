@@ -209,8 +209,9 @@ export class TripNotSeriesHeadError extends Error {
 }
 
 export interface TripUpdateOptions {
-  /** MOVO-265: un PATCH que solo toca la recurrencia no cambia este viaje concreto, así que
-   * se permite aunque tenga paquetes aceptados (excepción a `TRIP_HAS_ACCEPTED_PACKAGES`). */
+  /** MOVO-265: excepción a `TRIP_HAS_ACCEPTED_PACKAGES` solo para APAGAR la recurrencia
+   * (`recurrenceWeekdays: null`): es la única forma de cortar una serie cuyo vigente ya tiene
+   * paquetes. Cambiar días o fecha de fin con paquetes aceptados sigue dando 409. */
   allowWithAcceptedPackages?: boolean;
   /** MOVO-265: al prender la recurrencia de un trip que nunca la tuvo, `seriesId = id`. */
   seriesId?: string;
@@ -810,15 +811,53 @@ export function createTripRepository(db: PrismaClient): TripRepository {
     },
 
     async createRecurrenceSuccessor(input): Promise<Trip | null> {
-      // `skipDuplicates` es `ON CONFLICT DO NOTHING`: una segunda corrida, o dos réplicas en
-      // paralelo, chocan contra el UNIQUE de `generated_from_trip_id` y no insertan nada.
-      const { count } = await db.trip.createMany({ data: [buildTripCreateData(input)], skipDuplicates: true });
-      if (count === 0) return null;
-      const row = await db.trip.findUniqueOrThrow({
-        where: { generatedFromTripId: input.generatedFromTripId },
-        include: TRIP_SERIES_INCLUDE,
+      // El candidato se leyó hace segundos (el barrido hace dos llamadas HTTP por serie): en
+      // ese lapso el transportista pudo apagar la recurrencia, cancelar con `stopRecurrence`
+      // o editar el vigente. Se bloquea la fila origen y se la relee: si ya no es la cabeza
+      // de una serie activa no se genera nada, y los datos salen de la fila releída, no del
+      // candidato. El PATCH/cancel concurrente espera el lock y ve el sucesor ya creado.
+      return db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM shipments.trips WHERE id = ${input.generatedFromTripId}::uuid FOR UPDATE`;
+        const origin = await tx.trip.findFirst({
+          where: {
+            id: input.generatedFromTripId,
+            ...ACTIVE_SERIES_HEAD_WHERE,
+            departureAt: { lt: input.departureAt },
+          },
+          include: TRIP_SERIES_INCLUDE,
+        });
+        if (!origin) return null;
+
+        // `skipDuplicates` es `ON CONFLICT DO NOTHING`: una segunda corrida, o dos réplicas en
+        // paralelo, chocan contra el UNIQUE de `generated_from_trip_id` y no insertan nada.
+        const fresh = mapTrip(origin);
+        const { count } = await tx.trip.createMany({
+          data: [
+            buildTripCreateData({
+              carrierId: fresh.carrierId,
+              originAddress: fresh.originAddress,
+              originLat: fresh.originLat,
+              originLng: fresh.originLng,
+              destinationAddress: fresh.destinationAddress,
+              destinationLat: fresh.destinationLat,
+              destinationLng: fresh.destinationLng,
+              departureAt: input.departureAt,
+              vehicleType: fresh.vehicleType,
+              recurrenceWeekdays: origin.recurrenceWeekdays,
+              recurrenceUntil: fresh.recurrenceUntil,
+              seriesId: fresh.seriesId ?? fresh.id,
+              generatedFromTripId: fresh.id,
+            }),
+          ],
+          skipDuplicates: true,
+        });
+        if (count === 0) return null;
+        const row = await tx.trip.findUniqueOrThrow({
+          where: { generatedFromTripId: fresh.id },
+          include: TRIP_SERIES_INCLUDE,
+        });
+        return mapTrip(row);
       });
-      return mapTrip(row);
     },
 
     async stopRecurrence(id: string): Promise<boolean> {

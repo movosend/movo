@@ -111,6 +111,9 @@ export type ApiErrorCode =
   // vigente de su serie (ya tiene sucesor).
   | "RECURRING_SERIES_LIMIT"
   | "TRIP_NOT_SERIES_HEAD"
+  // MOVO-265: prender o cambiar la recurrencia de un viaje que ya terminó (expired,
+  // cancelled, completed): solo `declared`/`active` pueden repetirse.
+  | "TRIP_NOT_EDITABLE"
   // MOVO-228: la app mandó una versión de Términos/Privacidad distinta a la vigente
   // (`LEGAL_DOCUMENT_VERSIONS`, config/legal.ts) -- app desactualizada, el usuario
   // tiene que revisar y aceptar el contenido actual antes de poder registrarse.

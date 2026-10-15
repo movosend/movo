@@ -41,7 +41,11 @@ alcance del TFG no compensa.
    índice único parcial "un solo trip no terminal por `seriesId`": cuando el vigente pasa
    a `active` y se genera el siguiente en `declared`, los dos son legítimos a la vez. El
    insert usa `ON CONFLICT DO NOTHING`, así que una segunda corrida del barrido o dos
-   instancias en paralelo no duplican, y no hace falta un `nextGeneratedAt`. La API
+   instancias en paralelo no duplican, y no hace falta un `nextGeneratedAt`. Como el
+   candidato se lee antes de dos llamadas HTTP por serie, el insert bloquea la fila origen
+   (`FOR UPDATE`), la relee como cabeza de una serie activa y copia los datos de esa fila:
+   un `PATCH`/`cancel` con `stopRecurrence` que llegó en el medio gana y no se genera nada
+   (review de PR #246). La API
    expone `isSeriesHead` para que el mobile no tenga que reconstruir la cadena.
 4. **Cuándo y dónde se genera.** Es un paso nuevo del barrido existente
    (`trip-expiry-sweep.ts`, `runStep` propio), sin job nuevo. Corre **después** de
@@ -67,7 +71,9 @@ alcance del TFG no compensa.
    ya `active` chocaba con la regla del día de salida de abajo, pensada para un viaje que
    todavía se puede editar). Validaciones: al menos un día, sin repetidos; el
    día de semana de `departureAt` (huso Córdoba) tiene que estar en `recurrenceWeekdays`;
-   `recurrenceUntil` tiene que ser posterior a la fecha de `departureAt`. Un trip
+   `recurrenceUntil` tiene que ser posterior a la fecha de `departureAt`. Prender o cambiar la recurrencia exige que el viaje esté `declared` o `active` (409
+   `TRIP_NOT_EDITABLE` si ya terminó: un `expired`/`cancelled`/`completed` sin sucesor
+   sería candidato del barrido y se declararía uno nuevo desde el historial). Un trip
    auto-creado por MOVO-234 se puede volver recurrente con `PATCH`, como cualquier otro.
 7. **Cancelar la ocurrencia o cortar la serie.** `POST /trips/:id/cancel` (MOVO-260)
    suma `{ stopRecurrence?: boolean }`. Sin el flag cancela solo la ocurrencia, y la
