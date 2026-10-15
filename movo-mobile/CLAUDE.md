@@ -4706,6 +4706,24 @@ PR apilada sobre la de MOVO-265 (#246), que trae los tipos y helpers de `@movo/s
 
 Pendiente: no probado en device; revisar contra el backend real cuando #246 esté en dev.
 
+### MOVO-278 — Envío demorado: "Demorado", aviso en el mapa y disputa abierta como transportista (ADR-045)
+
+`isTransitDelayed`/`TRANSIT_DELAYED_LABEL`/`TRANSIT_DELAYED_INFO_TEXT` (`active-shipment-format.ts`)
+sobre `transitAnomalyFlaggedAt`. La card del Home muestra el pill "Demorado" en warning, sin el punto
+ni el halo pulsante del paso "En camino", y el texto explicativo en la fila inferior. El detalle pisa
+el badge (`ShipmentStatusBadge` gana `delayed`) y suma un banner con el mismo estilo que el de plazo
+vencido (de paso se corrigieron `bg-warning-50`/`text-warning-800`, que no existen en la escala). El
+mapa en vivo muestra "No tenemos la ubicación del transportista" sin posición (o "La entrega está
+demorada" si la hay pero el envío está marcado), nunca mientras carga la primera posición.
+
+- **Texto neutro (decisión de producto)**: "Si no se confirma pronto, vamos a abrir una disputa", no
+  "estamos revisando qué pasó": no hay panel ni resolución de disputas todavía (MOVO-33/34).
+- **`CARRIER_DISPUTE_OPEN` no abre la checklist de MOVO-117**: es un paso que el transportista no
+  puede completar, así que `carrierRequirementsFromError` devuelve `null` y se muestra el mensaje de
+  `error-messages.ts`.
+
+Pendiente: no probado en device.
+
 ### MOVO-301 — Chat del envío: animación, botón de ir al final, rol del autor, detalle rediseñado y fixes
 
 Pulido de MOVO-284 (todo mobile, sin backend).

@@ -4,6 +4,7 @@ import { FastifyInstance } from "fastify";
 import { AccountStatus, ApiError, KycStatus, TripStatus, argentinaWeekday } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createTripRepository, TripRepository } from "../src/repositories/trip-repository";
+import { createShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateTripInput, Trip } from "../src/models/trip";
 import { generateRecurringOccurrences, TripRecurrenceDeps } from "../src/modules/trips/trip-recurrence";
 import { UsersClient } from "../src/adapters/users-client";
@@ -62,6 +63,7 @@ describe("viajes recurrentes (MOVO-265)", () => {
     const notificationsClient = createFakeNotificationsClient();
     const deps: TripRecurrenceDeps = {
       tripRepository: tripRepo,
+      shipmentRepository: createShipmentRepository(app.db),
       usersClient: createFakeUsersClient({}),
       paymentsClient: createFakePaymentsClient(),
       notificationsClient,

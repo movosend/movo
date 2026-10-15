@@ -452,11 +452,16 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
     {
       schema: {
         summary: "Renovar la sesión del panel",
+        headers: { type: "object", properties: {
+          "idempotency-key": { type: "string", pattern: "^[A-Za-z0-9_-]{16,128}$", description: "Clave estable para duplicados del mismo refresh; opcional." },
+        } },
         description:
           "Rota el refresh token de una sesión de panel (un solo uso, reusarlo revoca " +
           "todas las sesiones de panel del usuario) y revalida que la cuenta siga teniendo " +
           "rol admin y esté activa; si no, revoca la sesión y responde 401. El vencimiento " +
-          "absoluto de la sesión no cambia.",
+          "absoluto de la sesión no cambia. Con Idempotency-Key opcional, duplicados " +
+          "del mismo token y clave comparten el resultado cifrado durante 10 segundos. " +
+          "Otra clave o fuera de esa ventana conserva la detección de reuso.",
         tags: ["auth"],
         body: authSchemas.refreshBody,
         response: {
@@ -467,7 +472,11 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
       },
     },
     async (request: FastifyRequest<{ Body: RefreshBody }>, reply: FastifyReply) => {
-      const result = await adminSessionService.refresh(request.body.refreshToken);
+      const idempotencyKey = request.headers["idempotency-key"];
+      if (idempotencyKey !== undefined && (typeof idempotencyKey !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey))) {
+        throw new ApiError(400, "VALIDATION_FAILED", "Idempotency-Key inválida.");
+      }
+      const result = await adminSessionService.refresh(request.body.refreshToken, idempotencyKey);
       reply.code(200);
       return result;
     }

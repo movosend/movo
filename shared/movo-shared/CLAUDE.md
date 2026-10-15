@@ -511,3 +511,19 @@ ya existía, en vez de una nueva) y `accountStatus?`/`bannedUntil?` en `CarrierK
 `AuditOutcome`, `AdminTargetType` y las partes de un objetivo que exponen los servicios dueños
 para la regla de conflicto (`ShipmentParties`, `ChatReportParties` de `svc-shipments`,
 `UserReportParties` de `svc-users`). `ApiErrorCode` suma `ADMIN_CONFLICT_OF_INTEREST` (403).
+
+### MOVO-278 — `transitAnomalyFlaggedAt`, requisito `no_open_dispute` y pushes de la disputa automática (ADR-045)
+
+`ActiveShipmentSummary` suma `transitAnomalyFlaggedAt: string | null`. `CarrierRequirement` suma
+`"no_open_dispute"` (primero en el orden) y `ApiErrorCode` suma `CARRIER_DISPUTE_OPEN`. Triggers
+nuevos en `notification-templates.ts` (categoría `shipments`): `transitAnomalyDisputeWarning` (aviso
+previo al transportista) y `transitAnomalyDisputeOpened{Sender,Receiver,Carrier}`.
+
+### MOVO-303 — Contrato del historial de transacciones (`types/transaction.ts`)
+
+`TransactionStatus` (`reserved`/`completed`/`refunded`/`disputed`/`released`), `TransactionRole`,
+`TransactionListItem`/`TransactionListResponse`, `TransactionDetail` (con `movements` y `breakdown?`),
+`TransactionMovement`, `TransactionBreakdown`, `TransactionCard` y las constantes `TRANSACTIONS_DEFAULT_LIMIT`
+(20) / `TRANSACTIONS_MAX_LIMIT` (50). Wire contract de `GET /payments/transactions[/:id]` (`svc-payments`),
+para la sub-issue mobile de MOVO-28. `card` y `breakdown` son opcionales: ausentes según el rol, no `null`.
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

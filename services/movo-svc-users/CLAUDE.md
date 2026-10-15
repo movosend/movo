@@ -1277,3 +1277,11 @@ Interno (en `internalModerationRoutes`, `hide: true`, sin ruta en el gateway): d
 `svc-admin` (un admin no modera un reporte que lo involucra). 404 `REPORT_NOT_FOUND` si no existe.
 `moderation-repository.ts#findReportParties`. Test:
 `test/moderation.internal-parties.integration.test.ts`.
+
+### MOVO-291 — Refresh concurrente del panel
+
+`/auth/admin/refresh` acepta `Idempotency-Key` opcional: Redis coordina una sola
+rotación y comparte su respuesta cifrada por 10 segundos con la misma clave/token.
+Revalida elegibilidad, expiración y revocación; logout invalida la publicación y su hijo.
+Otras claves, solicitudes sin clave y fuera de ventana conservan detección de reuso;
+una rotación incompleta falla cerrado. Política y límites: `docs/auth/adr-043-refresh-idempotente-panel.md`.

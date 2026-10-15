@@ -47,7 +47,11 @@ import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment, useShipmentPhotos } from "../../../src/hooks/use-shipments";
 import { useShipmentSettlement } from "../../../src/hooks/use-shipment-settlement";
-import { activeShipmentDisplayCode } from "../../../src/lib/active-shipment-format";
+import {
+  TRANSIT_DELAYED_INFO_TEXT,
+  activeShipmentDisplayCode,
+  isTransitDelayed,
+} from "../../../src/lib/active-shipment-format";
 import {
   estimateReceivedArs,
   getClientCommissionRate,
@@ -372,7 +376,12 @@ export default function ShipmentDetailScreen() {
         </View>
 
         {shipment ? (
-          <ShipmentStatusBadge status={shipment.status} isReceiver={isReceiver} />
+          <ShipmentStatusBadge
+            status={shipment.status}
+            isReceiver={isReceiver}
+            delayed={isTransitDelayed(shipment)}
+            testID="shipment-detail-status-badge"
+          />
         ) : null}
         {showSenderActions && shipment ? (
           <SenderActionsBar
@@ -487,13 +496,24 @@ export default function ShipmentDetailScreen() {
                 <RejectedReceiverBanner shipment={shipment} testID="shipment-detail-rejected-banner" />
               ) : null}
 
+              {isTransitDelayed(shipment) ? (
+                // MOVO-278 (ADR-045): mismo estilo que el banner de plazo vencido.
+                <View
+                  testID="shipment-detail-delayed-banner"
+                  className="flex-row items-center gap-2 rounded-xl border border-warning-200 bg-warning-100 px-3.5 py-3"
+                >
+                  <Clock size={16} color="#A97714" strokeWidth={2} />
+                  <Text className="flex-1 font-sans text-small text-warning-700">{TRANSIT_DELAYED_INFO_TEXT}</Text>
+                </View>
+              ) : null}
+
               {showExpiredBanner ? (
                 <View
                   testID="shipment-detail-expired-banner"
-                  className="flex-row items-center gap-2 rounded-xl border border-warning-200 bg-warning-50 px-3.5 py-3"
+                  className="flex-row items-center gap-2 rounded-xl border border-warning-200 bg-warning-100 px-3.5 py-3"
                 >
                   <Clock size={16} color="#A97714" strokeWidth={2} />
-                  <Text className="flex-1 font-sans text-small text-warning-800">
+                  <Text className="flex-1 font-sans text-small text-warning-700">
                     El plazo de 24 horas para aceptar o rechazar este envío ya venció.
                   </Text>
                 </View>

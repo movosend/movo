@@ -21,11 +21,38 @@ function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShi
     counterparty: { name: "Lucía Gómez", initials: "LG" },
     isToday: false,
     pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
     ...overrides,
   };
 }
 
 describe("ActiveShipmentCard (MOVO-193)", () => {
+  describe("MOVO-278: in_transit demorado", () => {
+    it("muestra el pill 'Demorado' con la explicación, sin el halo pulsante", async () => {
+      const { getByText, getByTestId, queryByTestId } = await render(
+        <ActiveShipmentCard
+          shipment={makeShipment({ status: "in_transit", transitAnomalyFlaggedAt: "2026-10-04T10:00:00.000Z" })}
+          role="sending"
+          testID="card"
+        />,
+      );
+
+      // "En camino" sigue siendo el nombre del paso del stepper: el estado vive en el pill.
+      expect(getByTestId("card-status-pill")).toHaveTextContent("Demorado");
+      expect(getByText("La entrega está demorada. Si no se confirma pronto, vamos a abrir una disputa.")).toBeTruthy();
+      expect(queryByTestId("active-shipment-pulsing-step")).toBeNull();
+    });
+
+    it("sin marca sigue 'En camino' con el halo pulsante", async () => {
+      const { getByTestId } = await render(
+        <ActiveShipmentCard shipment={makeShipment({ status: "in_transit" })} role="sending" testID="card" />,
+      );
+
+      expect(getByTestId("card-status-pill")).toHaveTextContent("En camino");
+      expect(getByTestId("active-shipment-pulsing-step")).toBeTruthy();
+    });
+  });
+
   it("muestra la contraparte, el estado y el CTA cuando corresponde", async () => {
     const { getByText, getByTestId } = await render(
       <ActiveShipmentCard shipment={makeShipment()} role="sending" testID="card" />,

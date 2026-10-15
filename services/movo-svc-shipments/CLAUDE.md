@@ -3430,6 +3430,35 @@ transferencia completada (ADR-038) y quien rechazó antes de una redesignación 
 evento `-> rejected_by_receiver`), porque un admin que fue receptor también es parte. `ChatRepository`
 gana `findReportById`. 404 `NOT_FOUND` si el envío o el reporte no existen.
 
+### MOVO-278 — Salida para un `in_transit` demorado (ADR-045)
+
+Cierra la marca de MOVO-258 (D4), que nadie leía. `transit-anomaly-sweep.ts` corre ahora tres
+pasos, cada uno con su try/catch: marcar (sin cambios), `warnFlaggedInTransitShipments` (a las
+`IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS`, 12, de la marca, push `transitAnomalyDisputeWarning` al
+transportista) y `disputeOverdueFlaggedShipments` (a las `IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS`,
+24, `updateStatus(→ disputed, actorId: null, motivo, { expectedFrom: in_transit })` y push a las
+tres partes). Reglas puras en `domain/expiration.ts` (`isTransitAnomalyDeadlinePassed`).
+
+- **Aviso una sola vez con columna, no con claim de Redis** (`transit_anomaly_warned_at`, migración
+  `20261016120000`): el CAS se hace antes de la push, así una réplica concurrente no la repite; a
+  cambio, una push que falla no se reintenta (la disputa llega igual; queda el evento de log
+  `transit_anomaly_warning_push_failed`). **La disputa exige el aviso previo** con `dispute − warn`
+  horas de antigüedad (`findFlaggedInTransitBefore(limit, flaggedBefore, warnedBefore)`): cubre el
+  backfill de lo marcado por MOVO-258 antes del deploy y un barrido caído, sin migración de datos.
+  Las pushes de la disputa se esperan antes de seguir con el próximo envío.
+- **Una entrega concurrente gana**: `ShipmentConcurrentModificationError` del `expectedFrom` se
+  saltea sin contar como error. La disputa no toca el hold (MOVO-34).
+- **`transitAnomalyFlaggedAt` expuesto** en `/sending|receiving|transporting` (`ActiveShipmentSummary`)
+  y en el detalle (`shipmentResponse`).
+- **Gate (`carrier-gate.ts`)**: `CarrierGateDeps` suma `shipmentRepository`
+  (`hasOpenDisputeAsCarrier`, consulta local en el mismo `Promise.all`); requisito `no_open_dispute`
+  primero en la lista, 403 `CARRIER_DISPUTE_OPEN`. Lo heredan la revalidación al aceptar oferta y
+  la recurrencia (`TripRecurrenceDeps` suma el repositorio).
+- El servicio no arranca si el aviso no es anterior a la disputa (validado al registrar el barrido).
+
+Pendiente / fuera de alcance: resolución de disputas (MOVO-34, sin ella el bloqueo no tiene salida),
+disputa iniciada por usuario (MOVO-30) y panel de admin (MOVO-33).
+
 ### MOVO-301 — Avisos de chat con el texto y ráfagas en un solo resumen (ADR-046)
 
 `chat.service.ts#dispatchPush` deja de mandar una push por mensaje sin texto (el cooldown fijo de 60 s de MOVO-26): el

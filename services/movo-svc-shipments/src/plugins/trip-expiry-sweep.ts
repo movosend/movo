@@ -2,6 +2,7 @@ import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
 import { registerSweep } from "./register-sweep";
 import { createTripRepository } from "../repositories/trip-repository";
+import { createShipmentRepository } from "../repositories/shipment-repository";
 import { createUsersClient, UsersClient } from "../adapters/users-client";
 import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
 import { createNotificationsClient, NotificationsClient } from "../adapters/notifications-client";
@@ -41,6 +42,7 @@ export default fp(async (app: FastifyInstance, opts: TripExpirySweepPluginOption
   const repository = createTripRepository(app.db);
   const recurrenceDeps = {
     tripRepository: repository,
+    shipmentRepository: createShipmentRepository(app.db),
     usersClient: opts.usersClient ?? createUsersClient(app.config),
     paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
     notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),

@@ -15,18 +15,26 @@ function usersClientWith(kyc: CarrierKycStatusResponse | null): UsersClient {
   };
 }
 
+function disputesWith(hasOpenDispute: boolean | Error) {
+  return {
+    hasOpenDisputeAsCarrier: vi.fn(() =>
+      hasOpenDispute instanceof Error ? Promise.reject(hasOpenDispute) : Promise.resolve(hasOpenDispute),
+    ),
+  };
+}
+
 const approved = { kycStatusIdentity: KycStatus.APPROVED, kycStatusLicense: KycStatus.APPROVED };
 
 describe("carrier-gate (MOVO-116, ADR-036)", () => {
   describe("assertCarrierCanOperate", () => {
     it("deja pasar con identidad, licencia y MP", async () => {
-      const deps = { usersClient: usersClientWith(approved), paymentsClient: createFakePaymentsClient() };
+      const deps = { usersClient: usersClientWith(approved), paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) };
 
       await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).resolves.toBeUndefined();
     });
 
     it("sin rol carrier: 403 CARRIER_NOT_VERIFIED sin ninguna llamada de red", async () => {
-      const deps = { usersClient: usersClientWith(approved), paymentsClient: createFakePaymentsClient() };
+      const deps = { usersClient: usersClientWith(approved), paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) };
 
       await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.SENDER])).rejects.toMatchObject({
         statusCode: 403,
@@ -34,12 +42,13 @@ describe("carrier-gate (MOVO-116, ADR-036)", () => {
       });
       expect(deps.usersClient.findKycStatus).not.toHaveBeenCalled();
       expect(deps.paymentsClient.getCarrierMpAccountStatus).not.toHaveBeenCalled();
+      expect(deps.shipmentRepository.hasOpenDisputeAsCarrier).not.toHaveBeenCalled();
     });
 
     it("sin identidad aprobada: CARRIER_NOT_VERIFIED aunque también falten los otros requisitos", async () => {
       const deps = {
         usersClient: usersClientWith({ kycStatusIdentity: KycStatus.REJECTED, kycStatusLicense: KycStatus.NOT_STARTED }),
-        paymentsClient: createFakePaymentsClient([CARRIER_ID]),
+        paymentsClient: createFakePaymentsClient([CARRIER_ID]), shipmentRepository: disputesWith(false),
       };
 
       const error = await assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER]).catch((e: ApiError) => e);
@@ -48,7 +57,7 @@ describe("carrier-gate (MOVO-116, ADR-036)", () => {
     });
 
     it("usuario inexistente en svc-users: CARRIER_NOT_VERIFIED", async () => {
-      const deps = { usersClient: usersClientWith(null), paymentsClient: createFakePaymentsClient() };
+      const deps = { usersClient: usersClientWith(null), paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) };
 
       await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).rejects.toMatchObject({
         code: "CARRIER_NOT_VERIFIED",
@@ -62,13 +71,45 @@ describe("carrier-gate (MOVO-116, ADR-036)", () => {
     ])("licencia %s, MP desvinculado %j: %s con %j", async (license, unlinked, code, missing) => {
       const deps = {
         usersClient: usersClientWith({ kycStatusIdentity: KycStatus.APPROVED, kycStatusLicense: license }),
-        paymentsClient: createFakePaymentsClient(unlinked),
+        paymentsClient: createFakePaymentsClient(unlinked), shipmentRepository: disputesWith(false),
       };
 
       const error = await assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER]).catch((e: ApiError) => e);
       expect(error).toBeInstanceOf(ApiError);
       expect(error).toMatchObject({ statusCode: 403, code, details: { missingRequirements: missing } });
       expect((error as ApiError).toJSON().error.details).toEqual({ missingRequirements: missing });
+    });
+
+    it.each([
+      [KycStatus.APPROVED, [], ["no_open_dispute"]],
+      [KycStatus.PENDING, [CARRIER_ID], ["no_open_dispute", "license", "mp_account"]],
+    ])(
+      "MOVO-278: con una disputa abierta (licencia %s, MP desvinculado %j) responde CARRIER_DISPUTE_OPEN con %j",
+      async (license, unlinked, missing) => {
+        const deps = {
+          usersClient: usersClientWith({ kycStatusIdentity: KycStatus.APPROVED, kycStatusLicense: license }),
+          paymentsClient: createFakePaymentsClient(unlinked),
+          shipmentRepository: disputesWith(true),
+        };
+
+        const error = await assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER]).catch((e: ApiError) => e);
+        expect(error).toMatchObject({
+          statusCode: 403,
+          code: "CARRIER_DISPUTE_OPEN",
+          details: { missingRequirements: missing },
+        });
+        expect(deps.shipmentRepository.hasOpenDisputeAsCarrier).toHaveBeenCalledWith(CARRIER_ID);
+      },
+    );
+
+    it("MOVO-278: si la consulta de disputas falla, falla cerrado", async () => {
+      const deps = {
+        usersClient: usersClientWith(approved),
+        paymentsClient: createFakePaymentsClient(),
+        shipmentRepository: disputesWith(new Error("db caída")),
+      };
+
+      await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).rejects.toThrow("db caída");
     });
 
     it("propaga el 502 de svc-users (falla cerrado)", async () => {
@@ -78,14 +119,14 @@ describe("carrier-gate (MOVO-116, ADR-036)", () => {
       );
 
       await expect(
-        assertCarrierCanOperate({ usersClient, paymentsClient: createFakePaymentsClient() }, CARRIER_ID, [UserRole.CARRIER]),
+        assertCarrierCanOperate({ usersClient, paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) }, CARRIER_ID, [UserRole.CARRIER]),
       ).rejects.toMatchObject({ statusCode: 502, code: "USERS_SERVICE_UNAVAILABLE" });
     });
   });
 
   describe("resolveCarrierEligibility", () => {
     it("consulta los dos servicios en paralelo con el id del transportista", async () => {
-      const deps = { usersClient: usersClientWith(approved), paymentsClient: createFakePaymentsClient() };
+      const deps = { usersClient: usersClientWith(approved), paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) };
 
       expect(await resolveCarrierEligibility(deps, CARRIER_ID)).toEqual({
         identityApproved: true,
@@ -103,8 +144,8 @@ describe("carrier-gate (MOVO-116, ADR-036)", () => {
         accountStatus: AccountStatus.ACTIVE,
         bannedUntil: "2030-01-01T00:00:00.000Z",
       };
-      const withAccount = { usersClient: usersClientWith(suspended), paymentsClient: createFakePaymentsClient() };
-      const missing = { usersClient: usersClientWith(null), paymentsClient: createFakePaymentsClient() };
+      const withAccount = { usersClient: usersClientWith(suspended), paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) };
+      const missing = { usersClient: usersClientWith(null), paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) };
 
       expect((await resolveCarrierEligibility(withAccount, CARRIER_ID)).account).toEqual({
         status: AccountStatus.ACTIVE,

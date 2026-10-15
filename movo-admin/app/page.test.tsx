@@ -1,12 +1,20 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
-import Page from "./page";
-
-describe("Página principal", () => {
-  it("renderiza el mensaje de panel en construcción", () => {
-    render(<Page />);
+import { describe, it, expect, vi } from "vitest"
+import { render, screen } from "@testing-library/react"
+vi.mock("@/lib/auth/session", () => ({
+  requireAdmin: async () => ({ fullName: "Alena Ariza" }),
+}))
+vi.mock("@/components/admin-shell", () => ({
+  AdminShell: ({ children }: { children: React.ReactNode }) => (
+    <main>{children}</main>
+  ),
+}))
+import Page from "./page"
+describe("Inicio", () => {
+  it("saluda al admin real sin estadísticas ficticias ni promesas de gestión", async () => {
+    render(await Page())
     expect(
-      screen.getByText("Panel de administración en construcción"),
-    ).toBeInTheDocument();
-  });
-});
+      screen.getByRole("heading", { name: "Hola, Alena" })
+    ).toBeInTheDocument()
+    expect(screen.getByText(/próximas entregas/)).toBeInTheDocument()
+  })
+})

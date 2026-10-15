@@ -338,6 +338,123 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
     });
   });
 
+  describe("disputa abierta como transportista (MOVO-278, ADR-045)", () => {
+    /** Envío del transportista en `disputed` (automática o iniciada por un usuario). */
+    async function openDisputeFor(carrierId: string) {
+      const shipment = await createPublishedShipment();
+      await app.db.shipment.update({ where: { id: shipment.id }, data: { carrierId, status: ShipmentStatus.DISPUTED } });
+      return shipment.id;
+    }
+
+    function expectDisputeBlocked(response: { statusCode: number; json: () => { error: unknown } }) {
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error).toMatchObject({
+        code: "CARRIER_DISPUTE_OPEN",
+        details: { missingRequirements: ["no_open_dispute"] },
+      });
+    }
+
+    it("declarar viaje: 403 sin crear nada, y vuelve a funcionar al resolverse la disputa", async () => {
+      const disputedId = await openDisputeFor(eligibleCarrier);
+
+      expectDisputeBlocked(await declareTrip(app, eligibleCarrier));
+      expect(await countTrips(eligibleCarrier)).toBe(0);
+
+      // La resolución (MOVO-34) todavía no existe: se simula sacando el envío de `disputed`.
+      await app.db.shipment.update({ where: { id: disputedId }, data: { status: ShipmentStatus.COMPLETED } });
+      expect((await declareTrip(app, eligibleCarrier)).statusCode).toBe(201);
+    });
+
+    it("ofertar: 403 sin crear la oferta", async () => {
+      await openDisputeFor(eligibleCarrier);
+      const shipment = await createPublishedShipment();
+
+      expectDisputeBlocked(await createOffer(app, shipment.id, eligibleCarrier));
+      expect(await countOffers(eligibleCarrier)).toBe(0);
+    });
+
+    it("editar oferta: 403 sin tocar el precio", async () => {
+      await openDisputeFor(eligibleCarrier);
+      const shipment = await createPublishedShipment();
+      const offer = await offerRepo.create({
+        shipmentId: shipment.id,
+        carrierId: eligibleCarrier,
+        priceOffered: 5750,
+        offeredDate: PICKUP_DATE,
+      });
+
+      expectDisputeBlocked(
+        await app.inject({
+          method: "PATCH",
+          url: `/offers/${offer.id}`,
+          headers: { "x-user-id": eligibleCarrier, "x-user-roles": "carrier" },
+          payload: { priceOfferedArs: 6000 },
+        }),
+      );
+      expect((await offerRepo.findById(offer.id))?.priceOffered).toBe(5750);
+    });
+
+    it("iniciar viaje: 403 y el viaje sigue declared", async () => {
+      await openDisputeFor(eligibleCarrier);
+      const trip = await tripRepo.create({
+        carrierId: eligibleCarrier,
+        originAddress: "Av. Colón 1234, Córdoba",
+        originLat: -31.4201,
+        originLng: -64.1888,
+        destinationAddress: "Av. San Martín 100, Villa María",
+        destinationLat: -32.4104,
+        destinationLng: -63.2404,
+        departureAt: new Date(),
+        vehicleType: "auto",
+      });
+      await attachAcceptedPackage(app.db, trip);
+
+      expectDisputeBlocked(
+        await app.inject({
+          method: "POST",
+          url: `/trips/${trip.id}/start`,
+          headers: { "x-user-id": eligibleCarrier, "x-user-roles": "carrier" },
+        }),
+      );
+      expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.DECLARED);
+    });
+
+    it("no corta un envío ya en curso: sigue in_transit y en su lista de transportando", async () => {
+      const ongoing = await createPublishedShipment();
+      await app.db.shipment.update({
+        where: { id: ongoing.id },
+        data: { carrierId: eligibleCarrier, status: ShipmentStatus.IN_TRANSIT },
+      });
+      await openDisputeFor(eligibleCarrier);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/shipments/transporting",
+        headers: { "x-user-id": eligibleCarrier },
+      });
+      expect(response.json()).toEqual([expect.objectContaining({ id: ongoing.id, status: ShipmentStatus.IN_TRANSIT })]);
+    });
+
+    it("aceptar la oferta de un transportista con una disputa abierta: 409 al emisor", async () => {
+      await openDisputeFor(eligibleCarrier);
+      const shipment = await createPublishedShipment();
+      const offer = await offerRepo.create({
+        shipmentId: shipment.id,
+        carrierId: eligibleCarrier,
+        priceOffered: 5750,
+        offeredDate: PICKUP_DATE,
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/offers/${offer.id}/accept`,
+        headers: { "x-user-id": senderId },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("OFFER_CARRIER_NOT_ELIGIBLE");
+    });
+  });
+
   describe("svc-payments caído (falla cerrado)", () => {
     let failingApp: FastifyInstance;
 

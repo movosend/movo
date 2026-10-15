@@ -5,11 +5,14 @@ import type { AccountStatus, KycStatus } from "./user";
  * del KYC de identidad (que es prerequisito del rol y responde `CARRIER_NOT_VERIFIED`).
  * - `license`: licencia de conducir aprobada (`kyc_status_license`, MOVO-15).
  * - `mp_account`: cuenta de Mercado Pago vinculada y vigente (MOVO-111).
+ * - `no_open_dispute` (MOVO-278, ADR-045): ningún envío en `disputed` como transportista.
+ *   El transportista no lo puede resolver por su cuenta: se levanta cuando un admin
+ *   resuelve la disputa (MOVO-34).
  */
-export type CarrierRequirement = "license" | "mp_account";
+export type CarrierRequirement = "no_open_dispute" | "license" | "mp_account";
 
 /**
- * `details` de un `ApiError` `CARRIER_LICENSE_NOT_APPROVED`/`CARRIER_MP_ACCOUNT_NOT_LINKED`
+ * `details` de un `ApiError` `CARRIER_DISPUTE_OPEN`/`CARRIER_LICENSE_NOT_APPROVED`/`CARRIER_MP_ACCOUNT_NOT_LINKED`
  * de `svc-shipments`: el `code` es el primer requisito que falta, esta lista los trae a
  * todos (para mostrar un CTA por cada uno, MOVO-117).
  */

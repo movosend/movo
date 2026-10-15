@@ -8,6 +8,7 @@ import {
 } from "@movo/shared";
 import { UsersClient } from "../adapters/users-client";
 import { PaymentsClient } from "../adapters/payments-client";
+import { ShipmentRepository } from "../repositories/shipment-repository";
 
 /**
  * MOVO-142 (AC6): gate de "transportista verificado" para las LECTURAS de transportista
@@ -42,12 +43,15 @@ export async function assertVerifiedCarrier(
 export interface CarrierGateDeps {
   usersClient: UsersClient;
   paymentsClient: PaymentsClient;
+  /** MOVO-278 (ADR-045): disputa abierta como transportista, consulta local (misma DB). */
+  shipmentRepository: Pick<ShipmentRepository, "hasOpenDisputeAsCarrier">;
 }
 
 export interface CarrierEligibility {
   /** KYC de identidad aprobado: prerequisito del rol, no entra en `missingRequirements`. */
   identityApproved: boolean;
-  /** Requisitos habilitantes que faltan, en orden fijo: licencia primero, después MP. */
+  /** Requisitos habilitantes que faltan, en orden fijo: disputa abierta primero (la única
+   * que el transportista no puede resolver), después licencia y MP. */
   missingRequirements: CarrierRequirement[];
   /** MOVO-265: estado de la cuenta, de la misma llamada a svc-users. `null` si la cuenta no
    * existe o se dio de baja; `undefined` si svc-users no lo informó (versión anterior). Lo
@@ -57,8 +61,9 @@ export interface CarrierEligibility {
 }
 
 /**
- * MOVO-116 (ADR-036): consulta en paralelo los dos requisitos habilitantes (licencia en
- * svc-users, cuenta de MP en svc-payments) más el KYC de identidad, que sale de la misma
+ * MOVO-116 (ADR-036): consulta en paralelo los requisitos habilitantes (licencia en
+ * svc-users, cuenta de MP en svc-payments y, desde MOVO-278/ADR-045, ninguna disputa abierta
+ * como transportista en la propia DB) más el KYC de identidad, que sale de la misma
  * llamada a svc-users. Lanza el 502 del servicio que no responda: quien llama falla
  * cerrado (mismo criterio que `assertNotBlocked` en escrituras, ADR-026).
  *
@@ -70,11 +75,13 @@ export async function resolveCarrierEligibility(
   deps: CarrierGateDeps,
   carrierId: string,
 ): Promise<CarrierEligibility> {
-  const [kyc, mpAccount] = await Promise.all([
+  const [kyc, mpAccount, hasOpenDispute] = await Promise.all([
     deps.usersClient.findKycStatus(carrierId),
     deps.paymentsClient.getCarrierMpAccountStatus(carrierId),
+    deps.shipmentRepository.hasOpenDisputeAsCarrier(carrierId),
   ]);
   const missingRequirements: CarrierRequirement[] = [];
+  if (hasOpenDispute) missingRequirements.push("no_open_dispute");
   if (kyc?.kycStatusLicense !== KycStatus.APPROVED) missingRequirements.push("license");
   if (!mpAccount.linked) missingRequirements.push("mp_account");
   return {
@@ -88,15 +95,33 @@ export async function resolveCarrierEligibility(
   };
 }
 
-const REQUIREMENT_LABELS: Record<CarrierRequirement, string> = {
+const REQUIREMENT_LABELS: Record<Exclude<CarrierRequirement, "no_open_dispute">, string> = {
   license: "verificar tu licencia de conducir",
   mp_account: "vincular tu cuenta de Mercado Pago",
 };
 
+const REQUIREMENT_CODES = {
+  no_open_dispute: "CARRIER_DISPUTE_OPEN",
+  license: "CARRIER_LICENSE_NOT_APPROVED",
+  mp_account: "CARRIER_MP_ACCOUNT_NOT_LINKED",
+} as const satisfies Record<CarrierRequirement, string>;
+
 function missingRequirementsError(missingRequirements: CarrierRequirement[]): ApiError {
   const details: CarrierRequirementsErrorDetails = { missingRequirements };
-  const code = missingRequirements[0] === "license" ? "CARRIER_LICENSE_NOT_APPROVED" : "CARRIER_MP_ACCOUNT_NOT_LINKED";
-  const pending = missingRequirements.map((requirement) => REQUIREMENT_LABELS[requirement]).join(" y ");
+  const code = REQUIREMENT_CODES[missingRequirements[0]];
+  // La disputa no es algo que "falte hacer": va con su propio mensaje.
+  if (code === "CARRIER_DISPUTE_OPEN") {
+    return new ApiError(
+      403,
+      code,
+      "Tenés una disputa abierta como transportista. Vas a poder operar cuando se resuelva.",
+      { ...details }
+    );
+  }
+  const pending = missingRequirements
+    .filter((requirement): requirement is keyof typeof REQUIREMENT_LABELS => requirement !== "no_open_dispute")
+    .map((requirement) => REQUIREMENT_LABELS[requirement])
+    .join(" y ");
   return new ApiError(403, code, `Para operar como transportista te falta ${pending}.`, { ...details });
 }
 
