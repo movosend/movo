@@ -644,14 +644,15 @@ export const NOTIFICATION_TRIGGERS = {
   ),
   // MOVO-275 (ADR-038): transferencia de receptor. Copy propio por destinatario: la
   // persona invitada tiene que actuar; el emisor y el transportista solo se enteran.
-  // MOVO-26: mensaje nuevo en el chat de un envío. El texto del mensaje NO viaja en la push
-  // (se vería en la pantalla bloqueada): solo quién escribió.
-  chatMessageReceived: definition<{ authorName: string }>(
+  // MOVO-26 / MOVO-301: mensaje nuevo en el chat de un envío, al estilo WhatsApp: el nombre de quien escribió
+  // (con su rol) y el texto. Con una ráfaga (`count` > 1) el servidor manda un único resumen con el último mensaje.
+  // El texto viaja en la push (se ve en la pantalla bloqueada): cambia lo que decía ADR-040 ("sin el texto").
+  chatMessageReceived: definition<{ authorName: string; roleLabel?: string; messageBody: string; count?: number }>(
     "chat",
-    { title: "Mensaje nuevo", body: "Tenés un mensaje nuevo sobre un envío. Tocá para verlo." },
-    ({ authorName }) => ({
-      title: `${authorName} te escribió`,
-      body: "Tenés un mensaje nuevo sobre un envío. Tocá para verlo.",
+    { title: "Mensaje nuevo", body: "Te avisamos cuando alguien te escribe en el chat de un envío." },
+    ({ authorName, roleLabel, messageBody, count }) => ({
+      title: roleLabel ? `${authorName} · ${roleLabel}` : authorName,
+      body: count !== undefined && count > 1 ? `${count} mensajes nuevos · ${messageBody}` : messageBody,
     })
   ),
   receiverTransferInvited: definition<{ requesterName: string; deadlineHours: number }>(

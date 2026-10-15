@@ -4739,3 +4739,8 @@ Pulido de MOVO-284 (todo mobile, sin backend).
   calificaciones.
 
 Pendiente: probar en dispositivo (dirección del slide en la lista invertida, iOS y Android); confirmar el criterio de leído.
+
+**Notificaciones del chat al estilo WhatsApp (MOVO-301)**: la push ahora trae el nombre, el rol y el texto, y una ráfaga se
+junta en un solo resumen (ver `docs/chat/README.md` y `services/movo-svc-shipments/CLAUDE.md`). Del lado mobile,
+`dismissChatNotifications` (`src/lib/`) saca de la bandeja las `chat_message` de un envío cuando se abre la conversación
+(`useChatConversation`, con la pantalla al frente), solo esas y best-effort.

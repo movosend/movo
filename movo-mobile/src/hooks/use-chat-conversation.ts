@@ -4,6 +4,7 @@ import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessagesPage } from "@movo/shared/dist/types/chat";
+import { dismissChatNotifications } from "../lib/dismiss-chat-notifications";
 import { useAuthStore } from "../store/auth-store";
 import {
   buildChatTimeline,
@@ -132,6 +133,11 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
     // markRead cambia en cada render por la mutación: solo reaccionamos a la llegada de mensajes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messagesQuery.isSuccess, firstItemId, focused]);
+
+  // Con la conversación a la vista, sus notificaciones de la bandeja ya no hacen falta.
+  useEffect(() => {
+    if (shipmentId && focused) void dismissChatNotifications(shipmentId);
+  }, [shipmentId, focused, firstItemId]);
 
   // Al salir se vuelve a pedir la lista de chats: Inicio muestra el total real de no leídos, no el último que vio.
   useEffect(

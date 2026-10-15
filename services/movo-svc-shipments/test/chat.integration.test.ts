@@ -21,6 +21,8 @@ describe("Chat del envío (MOVO-26)", () => {
   let baseUrl: string;
   // Reloj del chat: sin fijar corre en tiempo real; los tests de borde de 24 h lo fijan a mano.
   let clock: Date | null = null;
+  // Resúmenes de ráfaga agendados (MOVO-301): el test los dispara a mano en vez de esperar la ventana real.
+  let scheduledFlushes: Array<() => void> = [];
   const blocks: Array<[string, string]> = [];
   const notifications = createFakeNotificationsClient();
 
@@ -137,6 +139,7 @@ describe("Chat del envío (MOVO-26)", () => {
       ),
       notificationsClient: notifications,
       chatNow: () => clock ?? new Date(),
+      chatSchedulePush: (run) => scheduledFlushes.push(run),
       sweepEnabled: false,
     });
     await app.listen({ port: 0, host: "127.0.0.1" });
@@ -152,10 +155,11 @@ describe("Chat del envío (MOVO-26)", () => {
 
   beforeEach(async () => {
     clock = null;
+    scheduledFlushes = [];
     blocks.length = 0;
     vi.mocked(notifications.sendPush).mockClear();
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
-    const keys = await app.redis.keys("notified:chat-push:*");
+    const keys = [...(await app.redis.keys("notified:chat-push*")), ...(await app.redis.keys("chat-push-buffer:*"))];
     if (keys.length > 0) await app.redis.del(...keys);
   });
 
@@ -418,26 +422,68 @@ describe("Chat del envío (MOVO-26)", () => {
   });
 
   describe("notificaciones push", () => {
-    it("avisa a quien no tiene el chat abierto, sin el texto del mensaje, y una sola vez por ráfaga", async () => {
+    it("avisa a quien no tiene el chat abierto, con el nombre, el rol y el texto del mensaje", async () => {
       const p = await createShipment();
       const carrier = await connectedChat(p.shipmentId, p.carrierId);
 
-      await send(p.shipmentId, p.senderId, "Mi clave de la puerta es 4321");
-      await send(p.shipmentId, p.senderId, "Segundo mensaje enseguida");
+      await send(p.shipmentId, p.senderId, "Ya estoy en la puerta");
 
-      // El transportista tiene el chat abierto: solo se avisa al receptor, y una vez.
+      // El transportista tiene el chat abierto: solo se avisa al receptor.
       await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalledTimes(1));
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      expect(notifications.sendPush).toHaveBeenCalledTimes(1);
       const input = vi.mocked(notifications.sendPush).mock.calls[0][0];
       expect(input).toMatchObject({
         userId: p.receiverId,
         category: "chat",
         data: { type: "chat_message", shipmentId: p.shipmentId },
       });
-      expect(`${input.title} ${input.body}`).not.toContain("4321");
-      expect(input.title).toContain("Ana");
+      expect(input.title).toBe("Ana · Emisor");
+      expect(input.body).toBe("Ya estoy en la puerta");
       carrier.ws.close();
+    });
+
+    it("una ráfaga avisa enseguida el primero y después un único resumen con la cantidad y el último mensaje", async () => {
+      const p = await createShipment();
+
+      await send(p.shipmentId, p.senderId, "Primero");
+      await send(p.shipmentId, p.senderId, "Segundo");
+      await send(p.shipmentId, p.senderId, "Tercero");
+      // Sin nadie conectado se avisa al transportista y al receptor: un resumen agendado por cada uno, una sola vez.
+      await vi.waitFor(() => expect(scheduledFlushes).toHaveLength(2));
+
+      // Dentro de la ventana solo salió la del primer mensaje.
+      const toReceiver = () => vi.mocked(notifications.sendPush).mock.calls.filter(([c]) => c.userId === p.receiverId);
+      expect(toReceiver()).toHaveLength(1);
+      expect(toReceiver()[0][0].body).toBe("Primero");
+
+      scheduledFlushes.forEach((run) => run());
+      await vi.waitFor(() => expect(toReceiver()).toHaveLength(2));
+      expect(toReceiver()[1][0].body).toBe("2 mensajes nuevos · Tercero");
+    });
+
+    it("si el destinatario ya leyó la conversación antes de que cierre la ventana, no se manda el resumen", async () => {
+      const p = await createShipment();
+
+      await send(p.shipmentId, p.senderId, "Primero");
+      await send(p.shipmentId, p.senderId, "Segundo");
+      await vi.waitFor(() => expect(scheduledFlushes).toHaveLength(2));
+      await readChat(p.shipmentId, p.receiverId, "receiver");
+
+      const toReceiver = () => vi.mocked(notifications.sendPush).mock.calls.filter(([c]) => c.userId === p.receiverId);
+      const before = toReceiver().length;
+      scheduledFlushes.forEach((run) => run());
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(toReceiver()).toHaveLength(before);
+    });
+
+    it("el texto largo se corta en la push", async () => {
+      const p = await createShipment();
+
+      await send(p.shipmentId, p.senderId, "a".repeat(600));
+
+      await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalled());
+      const body = vi.mocked(notifications.sendPush).mock.calls[0][0].body;
+      expect(body.length).toBeLessThanOrEqual(140);
+      expect(body.endsWith("…")).toBe(true);
     });
 
     it("un fallo de la push no afecta el envío del mensaje", async () => {

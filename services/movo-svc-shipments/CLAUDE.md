@@ -3429,3 +3429,19 @@ de interés de `svc-admin`, que falla cerrado si este servicio no responde. `fin
 transferencia completada (ADR-038) y quien rechazó antes de una redesignación (ADR-027, actor del
 evento `-> rejected_by_receiver`), porque un admin que fue receptor también es parte. `ChatRepository`
 gana `findReportById`. 404 `NOT_FOUND` si el envío o el reporte no existen.
+
+### MOVO-301 — Avisos de chat con el texto y ráfagas en un solo resumen
+
+`chat.service.ts#dispatchPush` deja de mandar una push por mensaje sin texto (el cooldown fijo de 60 s de MOVO-26): el
+primer mensaje de una conversación avisa enseguida (título `Ana · Emisor`, cuerpo el texto cortado a 140) y los que
+llegan dentro de `CHAT_PUSH_WINDOW_SECONDS` (30) se juntan en una cola de Redis (`repositories/chat-push-buffer.ts`, tope 100,
+TTL 5 min). Al cerrarse la ventana `flushChatPush` manda un único resumen (`"N mensajes nuevos · último"`) solo si el
+destinatario todavía tiene mensajes sin leer (`unreadCounts`), y abre una ventana nueva desde ahí. Las claves
+`notified:chat-push:*` (ventana) y `notified:chat-push-flush:*` (un solo resumen por ventana) usan `claimNotificationOnce`.
+
+- **Cambia ADR-040**: el texto viaja en la push (se ve en la pantalla bloqueada). Hace falta un ADR nuevo que lo reemplace.
+- **El resumen vive en un `setTimeout` del proceso**: un reinicio entre el primer mensaje y el cierre de la ventana lo pierde
+  (el primero ya avisó). Aceptado, mismo criterio que los barridos de una sola réplica (ADR-006).
+- `ChatServiceDeps` suma `pushBuffer` (requerido) y `schedule` (opcional; tests lo inyectan con `chatSchedulePush` en `buildApp`).
+- El trigger `chatMessageReceived` (`@movo/shared`) ahora recibe `authorName`, `roleLabel?`, `messageBody` y `count?`.
+- Un autor que ya no es parte del envío sale sin rol en el título.
