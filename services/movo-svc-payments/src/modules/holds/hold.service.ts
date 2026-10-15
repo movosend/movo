@@ -392,6 +392,18 @@ export function createHoldService(deps: HoldServiceDeps) {
     for (let tries = 0; tries < 3; tries += 1) {
       let latest = await holds.findLatestByShipment(input.shipmentId);
 
+      // El pagador de un hold vigente (o de un intento sin respuesta) no cambia: `payerId` no entra al
+      // fingerprint ni a `sameTerms`, así que sin este chequeo un reintento con otro `payerUserId`
+      // reusaría la fila y el pago quedaría atribuido al primer emisor (MOVO-302, review de PR #255).
+      // Un hold anterior a MOVO-302 no tiene `payerId` y no se compara.
+      if (latest && !CLOSED_HOLD_STATUSES.includes(latest.status) && latest.payerId && latest.payerId !== input.payerUserId) {
+        throw new ApiError(
+          409,
+          "HOLD_CONFLICT",
+          "El envío ya tiene un hold vigente de otro pagador: liberalo antes de crear otro"
+        );
+      }
+
       if (latest && latest.status === "creating") {
         const sameBody = sameTerms(latest, input.carrierId, amountArs) && latest.requestFingerprint === fingerprint;
         if (sameBody) return { kind: "process", hold: latest };

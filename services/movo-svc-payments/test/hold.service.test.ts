@@ -524,6 +524,54 @@ describe("HoldService (MOVO-209)", () => {
       expect(logged).not.toContain(PAYER_USER);
     });
 
+    // Review de PR #255, punto 6: `payerId` no entra al fingerprint, así que un reintento con otro
+    // emisor reusaba la fila y el pago quedaba atribuido al primero.
+    describe("el pagador de un hold vigente no cambia", () => {
+      const OTHER_PAYER = "99999999-9999-4999-8999-999999999999";
+
+      it("un reintento de un hold vigente con otro payerUserId se rechaza con 409 y no llama a MP", async () => {
+        await service().create(input);
+        mp.createPayment.mockClear();
+
+        await expect(service().create({ ...input, payerUserId: OTHER_PAYER })).rejects.toMatchObject({
+          statusCode: 409,
+          code: "HOLD_CONFLICT",
+        });
+        expect(mp.createPayment).not.toHaveBeenCalled();
+        expect(row().payerId).toBe(PAYER_USER);
+      });
+
+      it("lo mismo con un intento sin respuesta (creating): no reusa la key a nombre de otro emisor", async () => {
+        await leaveCreating();
+        mp.createPayment.mockClear();
+
+        await expect(service().create({ ...input, payerUserId: OTHER_PAYER })).rejects.toMatchObject({
+          statusCode: 409,
+          code: "HOLD_CONFLICT",
+        });
+        expect(mp.createPayment).not.toHaveBeenCalled();
+      });
+
+      it("el mismo emisor reintenta sin problema, y un hold anterior a MOVO-302 (sin payerId) no se compara", async () => {
+        await service().create(input);
+        expect((await service().create(input)).replayed).toBe(true);
+
+        Object.assign(holds.rows[0], { payerId: null });
+        expect((await service().create({ ...input, payerUserId: OTHER_PAYER })).replayed).toBe(true);
+      });
+
+      it("tras un rechazo el intento siguiente puede ser de otro emisor, con su propio payerId", async () => {
+        mp.createPayment.mockResolvedValueOnce(
+          payment({ status: "rejected", status_detail: "cc_rejected_other_reason" })
+        );
+        await service().create(input);
+
+        await service().create({ ...input, payerUserId: OTHER_PAYER });
+
+        expect(holds.rows.map((r) => (r as unknown as HistoryRow).payerId)).toEqual([PAYER_USER, OTHER_PAYER]);
+      });
+    });
+
     // Review de PR #255, punto 7: un estado que no conocemos igual trae la tarjeta en la misma respuesta.
     it("AC4: un estado de MP desconocido en el create igual deja la tarjeta (nada lo vuelve a sincronizar)", async () => {
       mp.createPayment.mockResolvedValueOnce(
