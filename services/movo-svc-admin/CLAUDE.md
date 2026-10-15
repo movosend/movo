@@ -28,19 +28,29 @@ servicio dueño (decisión 6 de MOVO-286).
   camino de una escritura del panel: regla de conflicto → acción → **una** fila con el resultado.
   Si la regla o la acción fallan, la fila es `failed` con el código del error y el error se
   relanza: nunca queda `succeeded` algo que no ocurrió (AC5). Un rechazo por conflicto también se
-  registra (rastro del intento). Brecha inversa aceptada: si la acción salió bien y el insert
+  registra (rastro del intento). **Tercer resultado `unknown`**: si la acción falla con
+  `*_SERVICE_UNAVAILABLE` (red, timeout o 5xx del servicio dueño) pudo haberse aplicado igual, así
+  que la fila no dice `failed` sino `unknown` (con el `errorCode`) y hay que verificarlo en el
+  servicio dueño antes de usarla como evidencia. Un `failed` es siempre un rechazo seguro. Los
+  errores de la regla de conflicto son lecturas, así que siguen siendo `failed`. Brecha inversa aceptada: si la acción salió bien y el insert
   falla, se responde el resultado y queda un `error` en el log (`admin_audit_insert_failed`) con
   todo el contexto, porque no hay transacción entre servicios (ADR-001). `action` es texto libre:
   cada US define las suyas (`user.suspend`, `admin_role.revoke`...). `createdAt` lo fija la app en
-  ms para que el cursor no saltee filas (gotcha del chat, MOVO-26).
+  ms para que el cursor no saltee filas (gotcha del chat, MOVO-26). **Al cargar a mano una fila
+  perdida** (`admin_audit_insert_failed`) hay que fijar `created_at` truncado a ms
+  (`date_trunc('milliseconds', ...)`): el `DEFAULT CURRENT_TIMESTAMP` trae microsegundos y el
+  cursor de `GET /admin/audit-log` viaja en ms, así que esa fila podría saltearse o duplicarse en
+  el borde de una página.
 - **Regla de conflicto** (`modules/audit/conflict-of-interest.ts`): `user`/`admin_role` comparan
   ids; `shipment` y `chat_report` consultan a `svc-shipments` y `user_report` a `svc-users` (los
   tres endpoints `/internal/.../parties` nacieron en esta US). Un receptor anterior (transferencia
-  o rechazo) cuenta como parte. Falla cerrado: servicio caído → 502; objetivo inexistente → 404.
+  o rechazo) cuenta como parte. Falla cerrado: servicio caído → 502; objetivo inexistente → 404 `NOT_FOUND` (mismo código para los cuatro tipos de objetivo).
   Solo aplica a escrituras: leer sí puede.
 - **Clientes internos** (`adapters/`): `createInternalClient` es la base (timeout de 5 s,
-  `x-request-id` propagado por primera vez en el repo, 404 → `null`, red/5xx/forma inválida →
-  502 `<SERVICIO>_SERVICE_UNAVAILABLE`, otro 4xx se relanza con su código). Cada US suma sus
+  `x-request-id` propagado por primera vez en el repo, 404 → `null` solo si el body trae uno de
+  los `notFoundCodes` del método (`NOT_FOUND`/`REPORT_NOT_FOUND`); cualquier otro 404, p. ej. la
+  ruta que el servicio todavía no tiene en un deploy en serie, es 502 como una caída. Red/5xx/forma
+  inválida → 502 `<SERVICIO>_SERVICE_UNAVAILABLE`, otro 4xx se relanza con su código). Cada US suma sus
   métodos en `users-client.ts`/`shipments-client.ts`/`payments-client.ts` (este último todavía
   sin ninguno). Se inyectan con `buildApp({ usersClient, ... })`; fakes en `test/fake-clients.ts`.
 - **`GET /admin/audit-log`**: filtros `adminId`, `action`, `targetType`, `targetId`; cursor

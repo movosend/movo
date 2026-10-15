@@ -21,6 +21,7 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
     getUserReportParties(reportId, ctx) {
       return client.request(`/internal/user-reports/${encodeURIComponent(reportId)}/parties`, ctx, {
         isValid: isUserReportParties,
+        notFoundCodes: ["REPORT_NOT_FOUND"],
       });
     },
   };

@@ -12,6 +12,12 @@ export interface InternalRequestOptions<T> {
   /** Header `x-user-id` para los endpoints internos que registran quién pidió la operación. */
   actorId?: string;
   timeoutMs?: number;
+  /**
+   * Códigos de negocio con los que el servicio dueño responde 404 cuando el objetivo no existe.
+   * Un 404 con otro código (o sin cuerpo de `ApiError`) es una ruta que el servicio todavía no
+   * tiene, p. ej. en un deploy en serie, y se trata como servicio no disponible.
+   */
+  notFoundCodes: readonly string[];
   /** Valida la forma de la respuesta: una forma inesperada nunca se lee como resultado. */
   isValid: (body: unknown) => body is T;
 }
@@ -23,9 +29,9 @@ export interface InternalRequestOptions<T> {
  */
 export interface InternalClient {
   /**
-   * `null` ante un 404 (el objetivo no existe: resultado de negocio, no una falla). Falla
-   * cerrado con 502 `<SERVICIO>_SERVICE_UNAVAILABLE` ante red caída, timeout, 5xx o una
-   * respuesta con forma inválida. Cualquier otro 4xx se relanza con su código y status.
+   * `null` ante un 404 con uno de los `notFoundCodes` (el objetivo no existe: resultado de
+   * negocio, no una falla). Falla cerrado con 502 `<SERVICIO>_SERVICE_UNAVAILABLE` ante red
+   * caída, timeout, 5xx, una respuesta con forma inválida o un 404 con otro código. Cualquier otro 4xx se relanza con su código y status.
    */
   request<T>(path: string, ctx: RequestContext, opts: InternalRequestOptions<T>): Promise<T | null>;
 }
@@ -63,8 +69,6 @@ export function createInternalClient(config: InternalClientConfig): InternalClie
         throw unavailable("no responde");
       }
 
-      if (response.status === 404) return null;
-
       if (!response.ok) {
         if (response.status >= 500) throw unavailable("devolvió un error");
         let body: SerializedError = {};
@@ -74,6 +78,10 @@ export function createInternalClient(config: InternalClientConfig): InternalClie
           // cuerpo no JSON: se trata como respuesta inválida.
         }
         if (typeof body.error?.code !== "string") throw unavailable("devolvió una respuesta inválida");
+        if (response.status === 404) {
+          if (opts.notFoundCodes.includes(body.error.code)) return null;
+          throw unavailable("no tiene este endpoint");
+        }
         const message = typeof body.error.message === "string" ? body.error.message : "Error del servicio.";
         throw new ApiError(response.status, body.error.code as ApiErrorCode, message);
       }

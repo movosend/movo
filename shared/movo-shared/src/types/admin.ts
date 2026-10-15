@@ -4,8 +4,12 @@
  * conflicto de interés.
  */
 
-/** Resultado de una acción del admin: nunca queda `succeeded` algo que no ocurrió. */
-export type AuditOutcome = "succeeded" | "failed";
+/**
+ * Resultado de una acción del admin. `succeeded` nunca es algo que no ocurrió; `failed` es un
+ * rechazo seguro (la acción no se aplicó); `unknown` es que el servicio dueño no respondió (red,
+ * timeout, 5xx) y la acción pudo haberse aplicado igual: hay que verificarlo en ese servicio.
+ */
+export type AuditOutcome = "succeeded" | "failed" | "unknown";
 
 /** Sobre qué actúa un admin. Cada tipo decide cómo se resuelve el conflicto de interés. */
 export type AdminTargetType = "user" | "admin_role" | "shipment" | "chat_report" | "user_report";

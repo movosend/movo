@@ -48,7 +48,7 @@ export function createConflictChecker(deps: ConflictCheckerDeps): ConflictChecke
 
       case "user_report": {
         const parties = await deps.usersClient.getUserReportParties(target.id, ctx);
-        if (!parties) throw new ApiError(404, "REPORT_NOT_FOUND", "Reporte no encontrado.");
+        if (!parties) throw new ApiError(404, "NOT_FOUND", "Reporte no encontrado.");
         return [parties.reporterId, parties.reportedId];
       }
     }

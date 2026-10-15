@@ -60,7 +60,7 @@ describe("Bitácora del panel (Postgres) — MOVO-288", () => {
       });
     });
 
-    it("si el servicio dueño falla, la acción queda como failed y nunca como succeeded", async () => {
+    it("si el servicio dueño no responde, queda como unknown (pudo aplicarse) y nunca como succeeded", async () => {
       const adminId = randomUUID();
 
       await expect(
@@ -73,8 +73,23 @@ describe("Bitácora del panel (Postgres) — MOVO-288", () => {
       ).rejects.toMatchObject({ code: "SHIPMENTS_SERVICE_UNAVAILABLE" });
 
       const rows = await rowsOf(adminId);
-      expect(rows.map((r) => r.outcome)).toEqual(["failed"]);
+      expect(rows.map((r) => r.outcome)).toEqual(["unknown"]);
       expect(rows[0].errorCode).toBe("SHIPMENTS_SERVICE_UNAVAILABLE");
+    });
+
+    it("si el servicio dueño rechaza la acción con un error de negocio, queda como failed", async () => {
+      const adminId = randomUUID();
+
+      await expect(
+        app.audit.runAdminAction(
+          { adminId, action: "user.suspend", target: { type: "user", id: otherUser }, requestId: "req-409" },
+          async () => {
+            throw new ApiError(409, "ADMIN_LAST_ADMIN", "Es el último admin.");
+          },
+        ),
+      ).rejects.toMatchObject({ code: "ADMIN_LAST_ADMIN" });
+
+      expect((await rowsOf(adminId))[0]).toMatchObject({ outcome: "failed", errorCode: "ADMIN_LAST_ADMIN" });
     });
 
     it("un error inesperado queda como failed con INTERNAL_ERROR", async () => {

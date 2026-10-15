@@ -62,6 +62,21 @@ describe("clientes internos de svc-admin (MOVO-288)", () => {
     await expect(shipments.getShipmentParties("s-1", ctx)).resolves.toBeNull();
   });
 
+  it("un 404 de ruta inexistente (formato de Fastify) es 502, no 'no existe'", async () => {
+    mockFetch(404, { message: "Route GET:/internal/shipments/s-1/parties not found", error: "Not Found", statusCode: 404 });
+
+    const error = await catchApiError(shipments.getShipmentParties("s-1", ctx));
+    expect(error.statusCode).toBe(502);
+    expect(error.code).toBe("SHIPMENTS_SERVICE_UNAVAILABLE");
+  });
+
+  it("un 404 con un código de negocio distinto del esperado es 502", async () => {
+    mockFetch(404, { error: { code: "USER_NOT_FOUND", message: "x" } });
+
+    const error = await catchApiError(shipments.getShipmentParties("s-1", ctx));
+    expect(error.code).toBe("SHIPMENTS_SERVICE_UNAVAILABLE");
+  });
+
   it("red caída o timeout: 502 con el código del servicio (falla cerrado)", async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new DOMException("timeout", "TimeoutError")) as unknown as typeof fetch;
 
@@ -93,6 +108,7 @@ describe("clientes internos de svc-admin (MOVO-288)", () => {
         method: "POST",
         body: { a: 1 },
         actorId: "admin-1",
+        notFoundCodes: [],
         isValid: (_body: unknown): _body is unknown => true,
       }),
     );
@@ -107,6 +123,7 @@ describe("clientes internos de svc-admin (MOVO-288)", () => {
       method: "POST",
       body: { a: 1 },
       actorId: "admin-1",
+      notFoundCodes: [],
       isValid: (_body: unknown): _body is unknown => true,
     });
 
