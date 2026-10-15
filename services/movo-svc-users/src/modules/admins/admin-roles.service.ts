@@ -1,9 +1,14 @@
 import { AccountStatus, AdminSummary, ApiError, UserRole } from "@movo/shared";
-import { Prisma, PrismaClient, UserRole as PrismaUserRole } from "../../generated/prisma/client";
+import {
+  AccountStatus as PrismaAccountStatus,
+  Prisma,
+  PrismaClient,
+  UserRole as PrismaUserRole,
+} from "../../generated/prisma/client";
 import { buildAdminGrantedNotice, EmailProvider } from "../../adapters/email-provider";
 import { createUserRepository } from "../../repositories/user-repository";
 import { SessionRepository } from "../../repositories/session-repository";
-import { fullName } from "../../models/user";
+import { fullName, parseAccountStatus } from "../../models/user";
 
 /**
  * Quién pidió la operación (AC6). Desde el panel es el id del admin que `svc-admin` reenvía
@@ -21,7 +26,7 @@ export interface AdminRolesLogger {
 
 export interface AdminRolesServiceDeps {
   db: PrismaClient;
-  sessionRepository: Pick<SessionRepository, "revokePanelSessionsForUser">;
+  sessionRepository?: Pick<SessionRepository, "revokePanelSessionsForUser"> | undefined;
   emailProvider: EmailProvider;
   logger: AdminRolesLogger;
 }
@@ -39,12 +44,49 @@ function toAdminSummary(row: AdminGrantRow): AdminSummary {
     id: row.userId,
     fullName: fullName(row.user),
     email: row.user.email,
+    status: parseAccountStatus(row.user.status),
     grantedAt: row.grantedAt.toISOString(),
   };
 }
 
 function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+/**
+ * Invariante compartido de "nunca cero admins elegibles" (MOVO-290, review PR #247):
+ * verifica con bloqueo FOR UPDATE que una operación que desactiva o remueve a un admin
+ * (revocación de rol, baja de cuenta en `deleteAccount`, o baneo en MOVO-296) no deje
+ * al sistema sin al menos un admin que pueda ingresar al panel (email verificado + `active`).
+ *
+ * `ORDER BY ur.user_id` previene deadlocks entre transacciones concurrentes.
+ */
+export async function ensureNotLastEligibleAdmin(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  errorMessage: string = "No se puede revocar el rol al último admin."
+): Promise<{ isAdmin: boolean }> {
+  const admins = await tx.$queryRaw<{ user_id: string; eligible: boolean }[]>`
+    SELECT ur.user_id,
+           (u.email_verified AND u.status = 'active') AS eligible
+    FROM users.user_roles ur
+    JOIN users.users u ON u.id = ur.user_id
+    WHERE ur.role = 'admin'
+    ORDER BY ur.user_id
+    FOR UPDATE OF ur, u
+  `;
+
+  const target = admins.find((admin) => admin.user_id === userId);
+  if (!target) {
+    return { isAdmin: false };
+  }
+
+  const remaining = admins.filter((admin) => admin.user_id !== userId && admin.eligible);
+  if (remaining.length === 0) {
+    throw new ApiError(409, "ADMIN_LAST_ADMIN", errorMessage);
+  }
+
+  return { isAdmin: true };
 }
 
 /**
@@ -65,7 +107,10 @@ export function createAdminRolesService(deps: AdminRolesServiceDeps) {
 
   async function listAdmins(): Promise<AdminSummary[]> {
     const rows = await db.userRoleGrant.findMany({
-      where: { role: PrismaUserRole.admin },
+      where: {
+        role: PrismaUserRole.admin,
+        user: { status: { not: PrismaAccountStatus.deleted } },
+      },
       include: { user: true },
       orderBy: { grantedAt: "asc" },
     });
@@ -140,37 +185,38 @@ export function createAdminRolesService(deps: AdminRolesServiceDeps) {
    * sirve para administrar nada.
    */
   async function revokeAdmin(userId: string, requestedBy: AdminRoleRequester): Promise<void> {
+    if (!sessionRepository) {
+      throw new Error("Revocar el rol admin requiere el repositorio de sesiones de panel.");
+    }
     let isAdmin = true;
+    let userExists = false;
     try {
       await db.$transaction(async (tx) => {
-        // `FOR UPDATE` sobre todas las filas de admin: dos revocaciones simultáneas de los
-        // dos últimos admins se serializan acá. La segunda espera y, al seguir, ya no ve la
-        // fila que borró la primera, así que responde 409. Un `count()` seguido de un
-        // `delete` sin bloqueo dejaba pasar las dos.
-        const admins = await tx.$queryRaw<{ user_id: string; eligible: boolean }[]>`
-          SELECT ur.user_id,
-                 (u.email_verified AND u.status = 'active') AS eligible
-          FROM users.user_roles ur
-          JOIN users.users u ON u.id = ur.user_id
-          WHERE ur.role = 'admin'
-          FOR UPDATE OF ur
-        `;
-        if (!admins.some((admin) => admin.user_id === userId)) {
+        const [lastAdminCheck, existingUser] = await Promise.all([
+          ensureNotLastEligibleAdmin(tx, userId, "No se puede revocar el rol al último admin."),
+          tx.user.findUnique({ where: { id: userId }, select: { id: true } }),
+        ]);
+        userExists = Boolean(existingUser);
+        if (!lastAdminCheck.isAdmin) {
           isAdmin = false;
           throw new ApiError(404, "ADMIN_NOT_FOUND", "El usuario no es admin.");
-        }
-        const remaining = admins.filter((admin) => admin.user_id !== userId && admin.eligible);
-        if (remaining.length === 0) {
-          throw new ApiError(409, "ADMIN_LAST_ADMIN", "No se puede revocar el rol al último admin.");
         }
         await tx.userRoleGrant.delete({ where: { userId_role: { userId, role: PrismaUserRole.admin } } });
       });
     } catch (error) {
-      if (!isAdmin) {
-        // Corta las sesiones de panel igual: si un intento anterior borró el rol pero se cayó
-        // Redis antes del corte, el reintento termina acá y tiene que poder completarlo. A un
-        // usuario que nunca fue admin no le cambia nada.
-        await sessionRepository.revokePanelSessionsForUser(userId);
+      if (!isAdmin && userExists && sessionRepository) {
+        // Corta las sesiones de panel residuales solo si el usuario existe (ej. reintento tras
+        // un intento anterior que borró el rol pero falló en Redis). Si Redis falla acá,
+        // se loguea como warn y NO pisa el 404 (review de PR #247). Si el usuario no existe,
+        // no se escribe panel-revoked-at para UUIDs inexistentes.
+        try {
+          await sessionRepository.revokePanelSessionsForUser(userId);
+        } catch (redisError) {
+          logger.warn(
+            { action: "admin_role_revoke_session_cut_failed", targetUserId: userId, err: String(redisError) },
+            "No se pudieron cortar las sesiones de panel tras reintento de revocación"
+          );
+        }
       }
       throw error;
     }
@@ -182,14 +228,16 @@ export function createAdminRolesService(deps: AdminRolesServiceDeps) {
     // 500 y el reintento lo completa (ver la rama de "no es admin" de arriba). Mientras
     // tanto, el refresh de panel ya revalida el rol contra la base (AC5 de MOVO-287) y el
     // access token vive como mucho 15 min.
-    try {
-      await sessionRepository.revokePanelSessionsForUser(userId);
-    } catch (error) {
-      logger.error(
-        { action: "admin_role_revoked_session_cut_failed", targetUserId: userId, requestedBy, err: String(error) },
-        "Rol admin revocado pero no se pudieron cortar las sesiones de panel"
-      );
-      throw error;
+    if (sessionRepository) {
+      try {
+        await sessionRepository.revokePanelSessionsForUser(userId);
+      } catch (error) {
+        logger.error(
+          { action: "admin_role_revoked_session_cut_failed", targetUserId: userId, requestedBy, err: String(error) },
+          "Rol admin revocado pero no se pudieron cortar las sesiones de panel"
+        );
+        throw error;
+      }
     }
   }
 

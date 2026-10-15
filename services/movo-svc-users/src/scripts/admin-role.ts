@@ -1,7 +1,8 @@
-import { existsSync } from "node:fs";
 import Redis from "ioredis";
+import envSchema from "env-schema";
 import { ApiError } from "@movo/shared";
-import { createEmailProvider } from "../adapters/email-provider";
+import { envSchema as configEnvSchema } from "../config/env";
+import { createEmailProvider, EmailProviderConfig } from "../adapters/email-provider";
 import { createPrismaClient } from "../plugins/db";
 import { createSessionRepository } from "../repositories/session-repository";
 import { createUserRepository } from "../repositories/user-repository";
@@ -52,7 +53,7 @@ export async function runAdminRoleCli(
   output: AdminRoleCliOutput = consoleOutput
 ): Promise<number> {
   const [command, email, ...rest] = argv;
-  if ((command !== "grant" && command !== "revoke") || !email || rest.length > 0) {
+  if ((command !== "grant" && command !== "revoke") || !email?.trim() || rest.length > 0) {
     output.err(USAGE);
     return 2;
   }
@@ -86,48 +87,59 @@ export async function runAdminRoleCli(
   }
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Falta la variable de entorno ${name}`);
-  }
-  return value;
-}
+type AdminRoleCliConfig = EmailProviderConfig & {
+  DATABASE_URL: string;
+  REDIS_URL?: string;
+};
 
-function readEmailProvider(): "console" | "resend" {
-  const value = process.env.EMAIL_PROVIDER || "console";
-  if (value !== "console" && value !== "resend") {
-    throw new Error(`EMAIL_PROVIDER inválido: ${value}`);
-  }
-  return value;
+/** Reutiliza las definiciones del servicio y exige solo las dependencias del comando. */
+export function readAdminRoleCliConfig(
+  command: string,
+  data: Record<string, unknown> = process.env,
+  dotenv = true
+): AdminRoleCliConfig {
+  const keys = ["DATABASE_URL", "REDIS_URL", "EMAIL_PROVIDER", "RESEND_API_KEY", "EMAIL_FROM"] as const;
+  return envSchema<AdminRoleCliConfig>({
+    schema: {
+      type: "object",
+      required: command === "revoke" ? ["DATABASE_URL", "REDIS_URL"] : ["DATABASE_URL"],
+      properties: Object.fromEntries(keys.map((key) => [key, configEnvSchema.properties[key]])),
+    },
+    dotenv,
+    data,
+  });
 }
 
 async function main(): Promise<void> {
-  // En local, el mismo `.env` que usa el servicio. En el contenedor no hay archivo: Compose
-  // ya inyecta las variables.
-  if (existsSync(".env")) {
-    process.loadEnvFile(".env");
+  const [command, email, ...rest] = process.argv.slice(2);
+  if ((command !== "grant" && command !== "revoke") || !email?.trim() || rest.length > 0) {
+    consoleOutput.err(USAGE);
+    process.exitCode = 2;
+    return;
   }
-
-  const db = createPrismaClient(requireEnv("DATABASE_URL"));
-  const redis = new Redis(requireEnv("REDIS_URL"), { maxRetriesPerRequest: 3 });
-  const emailProvider = createEmailProvider({
-    EMAIL_PROVIDER: readEmailProvider(),
-    ...(process.env.RESEND_API_KEY ? { RESEND_API_KEY: process.env.RESEND_API_KEY } : {}),
-    ...(process.env.EMAIL_FROM ? { EMAIL_FROM: process.env.EMAIL_FROM } : {}),
-  });
+  const config = readAdminRoleCliConfig(command);
+  // Valida las credenciales del proveedor antes de abrir conexiones.
+  const emailProvider = createEmailProvider(config);
+  const db = createPrismaClient(config.DATABASE_URL);
+  let redis: Redis | undefined;
 
   let exitCode = 1;
   try {
+    if (command === "revoke" && config.REDIS_URL) {
+      redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: 3 });
+    }
     exitCode = await runAdminRoleCli(process.argv.slice(2), {
       db,
-      sessionRepository: createSessionRepository(redis),
+      ...(redis ? { sessionRepository: createSessionRepository(redis) } : {}),
       emailProvider,
       logger: createJsonLogger(),
     });
   } finally {
-    await db.$disconnect();
-    redis.disconnect();
+    try {
+      await db.$disconnect();
+    } finally {
+      redis?.disconnect();
+    }
   }
   process.exitCode = exitCode;
 }

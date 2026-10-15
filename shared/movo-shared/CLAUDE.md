@@ -492,5 +492,5 @@ pero persiste en envíos viejos), `QuoteBreakdown.volumetricWeightKg?`/`billable
 ### MOVO-290 — `AdminSummary` y códigos de alta y baja del rol admin
 
 `AdminSummary` (`types/user.ts`): fila de `GET /internal/admins` de `svc-users`, que va a consumir
-`svc-admin` (MOVO-292). `ApiErrorCode` suma `ADMIN_GRANT_EMAIL_NOT_VERIFIED` y
-`ADMIN_GRANT_ACCOUNT_NOT_ACTIVE` (422), `ADMIN_NOT_FOUND` (404) y `ADMIN_LAST_ADMIN` (409).
+`svc-admin` (MOVO-292), con `status` de la cuenta para distinguir admins suspendidos. `ApiErrorCode` suma `ADMIN_GRANT_EMAIL_NOT_VERIFIED` y
+`ADMIN_GRANT_ACCOUNT_NOT_ACTIVE` (422), `ADMIN_NOT_FOUND` (404), `ADMIN_LAST_ADMIN` (409) y `ADMIN_GRANT_CONFLICT` (409).
