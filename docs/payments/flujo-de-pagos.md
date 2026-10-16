@@ -114,7 +114,7 @@ Reglas que el diagrama no muestra explícitamente:
 - **Cancelar desde `assigned` (MOVO-307, ADR-047):** con 12 h o más hasta el retiro, o con
   la ventana ya cerrada, es sin cargo y se libera el hold. Con menos de 12 h se cobra el 25 %
   del precio acordado capturando esa parte del hold (MOVO-306); MP libera el resto. Si la
-  penalidad no supera la comisión del hold, se libera entero y queda como deuda del emisor
+  penalidad no cubre la comisión del hold más el fee de MP, se libera entero y queda como deuda del emisor
   en su cuenta corriente (ADR-044).
 
 ---

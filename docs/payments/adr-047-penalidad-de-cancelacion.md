@@ -24,7 +24,7 @@ El spike MOVO-305 (`docs/payments/spike-movo-305-captura-parcial.md`) mostró c�
    2. captura esa parte del hold (`POST .../capture` con `kind: cancellation_penalty`, MOVO-306);
    3. con la captura acreditada, registra el cobro (`penalty_capture`, negativo y `settled`, key `penalty_capture:<shipmentId>`). El saldo queda en cero y el envío pasa a `captured`.
 6. **Cuando el hold no alcanza, la penalidad queda como deuda.**
-   - Si la penalidad no supera la comisión del hold (`422 CAPTURE_BELOW_APPLICATION_FEE`, plan B), se libera el hold entero.
+   - Si la penalidad no cubre la comisión del hold más el fee de MP (`422 CAPTURE_BELOW_APPLICATION_FEE`, plan B), se libera el hold entero. MP solo acepta una captura parcial que le deje neto al transportista (escenario H del spike MOVO-305).
    - Si el hold venció o no existe, no hay nada que liberar.
 
    En los dos casos el envío pasa a `debt`, la deuda queda en la cuenta corriente y se cobra en la próxima operación del emisor (MOVO-311). Un fallo transitorio deja la penalidad `pending` para el barrido.

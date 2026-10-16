@@ -247,7 +247,7 @@ describe("cancelación con penalidad desde assigned (Postgres) — MOVO-307", ()
       expect(payments.holds.get(shipmentId)?.status).toBe("cancelled");
     });
 
-    it("plan B: si la penalidad no supera la comisión del hold, libera el hold y la deja como deuda", async () => {
+    it("plan B: si la penalidad no cubre la comisión del hold más el fee de MP, libera el hold y la deja como deuda", async () => {
       const shipmentId = await createAssigned();
       const hold = payments.holds.get(shipmentId)!;
       payments.holds.set(shipmentId, { ...hold, applicationFeeArs: 400 });

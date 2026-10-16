@@ -57,7 +57,7 @@ export type PenaltyOutcome = "captured" | "debt" | "already_resolved" | "skipped
 /**
  * MOVO-307: códigos de la captura de penalidad que mandan la penalidad a la cuenta corriente
  * en vez de reintentar. `CAPTURE_BELOW_APPLICATION_FEE` es el plan B (spike MOVO-305: MP no
- * captura un monto que no supere su comisión); los otros dos, un hold que ya no existe o venció.
+ * captura un monto que no cubra su comisión más el fee de MP); los otros dos, un hold que ya no existe o venció.
  */
 const PENALTY_TO_DEBT_CODES = new Set(["CAPTURE_BELOW_APPLICATION_FEE", "HOLD_NOT_FOUND", "HOLD_NOT_CAPTURABLE"]);
 
@@ -248,7 +248,7 @@ export function createSettlementService(deps: SettlementServiceDeps) {
      * Orden: (1) se registra la deuda en la cuenta corriente del emisor (`cancellation_penalty`);
      * (2) se captura esa parte del hold; (3) con la captura acreditada se registra el cobro
      * (`penalty_capture`, negativo y `settled`), así el saldo queda en cero. Si el hold no la
-     * soporta (no supera la comisión, plan B) se libera entero; si venció o no existe, no hay
+     * soporta (no cubre la comisión más el fee de MP, plan B) se libera entero; si venció o no existe, no hay
      * nada que liberar. En los dos casos la deuda queda y se cobra en la próxima operación
      * (MOVO-311). Un fallo transitorio (payments o MP caídos) lanza y la penalidad sigue
      * `pending` para el próximo intento. Las tres llamadas a payments son idempotentes.

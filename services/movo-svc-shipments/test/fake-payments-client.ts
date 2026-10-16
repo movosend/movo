@@ -12,6 +12,7 @@ import {
   LIVE_HOLD_STATUSES,
   SettlementResponse,
   UserLedgerEntry,
+  estimateMpFeeArs,
 } from "@movo/shared";
 import { PaymentsClient, UserDebtStatus } from "../src/adapters/payments-client";
 
@@ -37,16 +38,13 @@ export interface FakePaymentsBehavior {
   createFails: boolean;
   /** MOVO-212: si no es null, `captureHold` lanza este error (la captura falló). */
   captureError: ApiError | null;
-<<<<<<< HEAD
   /**
    * MOVO-313: usuarios con una deuda vencida en la cuenta corriente. Es un `Set` que el test
    * muta (`add`/`delete`) para probar que el bloqueo se levanta en la siguiente consulta, sin cache.
    */
   overdueDebtUserIds: Set<string>;
-=======
   /** MOVO-307: si no es null, `createLedgerEntry` lanza este error (payments caído). */
   ledgerError: ApiError | null;
->>>>>>> d29dbd0b (test(shipments): cancelacion con penalidad, plan B y reintento)
 }
 
 export interface FakePaymentsClient extends PaymentsClient {
@@ -72,11 +70,8 @@ export function createFakePaymentsClient(
     lookupFails: false,
     createFails: false,
     captureError: null,
-<<<<<<< HEAD
     overdueDebtUserIds: new Set<string>(),
-=======
     ledgerError: null,
->>>>>>> d29dbd0b (test(shipments): cancelacion con penalidad, plan B y reintento)
     ...behaviorOverrides,
   };
   const settlements = new Map<string, SettlementResponse>();
@@ -198,7 +193,8 @@ export function createFakePaymentsClient(
       if (grossAmountArs > hold.amountArs) {
         throw new ApiError(422, "CAPTURE_AMOUNT_EXCEEDS_HOLD", "La penalidad supera el hold");
       }
-      if (grossAmountArs <= hold.applicationFeeArs) {
+      // Mismo piso que payments: tiene que cubrir la comisión y el fee de MP estimado.
+      if (grossAmountArs - estimateMpFeeArs(grossAmountArs) <= hold.applicationFeeArs) {
         throw new ApiError(422, "CAPTURE_BELOW_APPLICATION_FEE", "La penalidad no supera la comisión");
       }
       const now = new Date().toISOString();
