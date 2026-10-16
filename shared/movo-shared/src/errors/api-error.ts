@@ -252,6 +252,12 @@ export type ApiErrorCode =
   // El movimiento ya no está en el estado esperado: otro llamador lo movió primero.
   | "LEDGER_ENTRY_STATE_CONFLICT"
   | "LEDGER_INVALID_TRANSITION"
+  // MOVO-312: "Pagar mi saldo". El monto pedido supera el saldo deudor, o no hay deuda (422).
+  | "BALANCE_AMOUNT_EXCEEDS_DEBT"
+  // Ya hay un pago del mismo monto en curso para ese usuario: esperar su resultado (409).
+  | "BALANCE_PAYMENT_IN_PROGRESS"
+  // La cuenta cobradora de Movo no está configurada, vinculada o vigente (503).
+  | "BALANCE_COLLECTOR_NOT_CONFIGURED"
   // MOVO-268: webhook de Mercado Pago (`svc-payments`). `x-signature` ausente o que no
   // coincide con la clave secreta de webhooks de la app.
   | "PAYMENT_WEBHOOK_INVALID_SIGNATURE"

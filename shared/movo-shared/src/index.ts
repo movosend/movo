@@ -164,6 +164,9 @@ export type {
 // cuenta corriente del usuario (MOVO-309)
 export { USER_LEDGER_ENTRY_STATUSES, USER_LEDGER_ENTRY_TYPES, USER_LEDGER_ROLES } from "./types/user-ledger";
 export type {
+  BalancePayDataResponse,
+  BalancePayRequest,
+  BalancePayResponse,
   CreateManualAdjustmentRequest,
   CreateUserLedgerEntryRequest,
   CreateUserLedgerEntryResponse,

@@ -374,3 +374,42 @@ model UserLedgerEntry {
   @@map("user_ledger_entries")
   @@schema("payments")
 }
+
+enum BalanceAttemptStatus {
+  creating
+  pending
+  approved
+  rejected
+  failed
+
+  @@map("balance_attempt_status")
+  @@schema("payments")
+}
+
+// MOVO-312: un intento de "Pagar mi saldo" (Checkout API: tarjeta guardada + CVV, pago directo a la cuenta cobradora de
+// Movo). Su `id` es el `external_reference` del pago de MP: con él el webhook y la recuperación de un intento sin
+// respuesta lo reconocen. El movimiento del ledger (`voluntary_payment`) se asienta una sola vez por su
+// `idempotency_key` (`balance-payment:<id>`), no por el estado de esta fila.
+// Un índice único parcial a mano (`user_id` mientras `creating`/`pending`) deja un solo intento abierto por usuario: así lo
+// que está en vuelo nunca suma más que la deuda.
+model BalancePaymentAttempt {
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String               @map("user_id") @db.Uuid
+  // Lo que el usuario quiso pagar en este intento: siempre positivo (el ledger lo asienta negativo).
+  amountArs          Decimal              @map("amount_ars") @db.Decimal(12, 2)
+  status             BalanceAttemptStatus @default(creating)
+  // Tarjeta guardada (`saved_cards.id`) con la que se pagó; sin FK, solo para el historial.
+  savedCardId        String?              @map("saved_card_id") @db.Uuid
+  // Hash del cuerpo del pedido (token, tarjeta, medio de pago): un reintento con la misma key solo es seguro si coincide.
+  requestFingerprint String               @map("request_fingerprint")
+  // Pago de MP: único, así un mismo pago no puede asentar dos intentos.
+  mpPaymentId        String?              @unique(map: "balance_payment_attempts_mp_payment_id_key") @map("mp_payment_id")
+  statusDetail       String?              @map("status_detail")
+  failureReason      HoldFailureReason?   @map("failure_reason")
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId, status], map: "balance_payment_attempts_user_id_status_idx")
+  @@map("balance_payment_attempts")
+  @@schema("payments")
+}
