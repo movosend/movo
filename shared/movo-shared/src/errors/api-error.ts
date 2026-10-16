@@ -204,6 +204,10 @@ export type ApiErrorCode =
   // MOVO-278 (ADR-045): el transportista tiene un envío en `disputed` (automática por
   // entrega demorada o iniciada por un usuario). Viaja con `details.missingRequirements`.
   | "CARRIER_DISPUTE_OPEN"
+  // MOVO-313 (ADR-044): la cuenta tiene una deuda sin saldar hace más de 14 días
+  // (`USER_DEBT_OVERDUE_DAYS`). Bloquea operar como transportista (declarar viaje, ofertar,
+  // editar oferta, iniciar viaje); como emisor no. Viaja con `details.missingRequirements`.
+  | "USER_DEBT_OVERDUE"
   // MOVO-116: `svc-payments` no respondió al consultar la cuenta de MP del transportista.
   | "PAYMENTS_SERVICE_UNAVAILABLE"
   // MOVO-116: el emisor quiso aceptar la oferta de un transportista que ya no cumple los

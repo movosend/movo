@@ -42,6 +42,7 @@ export type NotificationTriggerKey =
   | "tripRecurrenceGenerated"
   | "tripRecurrenceStoppedPhantom"
   | "tripRecurrenceStoppedUnavailable"
+  | "tripRecurrenceBlockedByDebt"
   | "ratingReceived"
   | "custodyPickupConfirmed"
   | "custodyPickupConfirmedReceiver"
@@ -360,6 +361,19 @@ export const NOTIFICATION_TRIGGERS = {
     ({ destinationShort }) => ({
       title: "Dejamos de repetir tu viaje",
       body: `No pudimos declarar tu próximo viaje a ${destinationShort}. Revisá tu cuenta para volver a activarlo.`,
+    })
+  ),
+  /** MOVO-313: la ocurrencia siguiente de un viaje recurrente no se declaró porque el
+   * transportista tiene una deuda vencida. La serie NO se corta: se declara sola cuando la salde. */
+  tripRecurrenceBlockedByDebt: definition<{ destinationShort: string }>(
+    "trips",
+    {
+      title: "No pudimos declarar tu próximo viaje",
+      body: "Tenés una deuda pendiente. Saldala y declaramos tu próximo viaje automáticamente.",
+    },
+    ({ destinationShort }) => ({
+      title: "No pudimos declarar tu próximo viaje",
+      body: `No pudimos declarar tu próximo viaje a ${destinationShort} porque tenés una deuda pendiente. Saldala y lo declaramos automáticamente.`,
     })
   ),
   ratingReceived: definition<void>(
