@@ -9,7 +9,7 @@ import { createSettlementRepository } from "../src/repositories/settlement-repos
 const SHIPMENT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CARRIER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-describe("settlement-repository#findOrCreateProcessing", () => {
+describe("settlement-repository#findOrCreateProcessing (contrato, Postgres real)", () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -28,6 +28,8 @@ describe("settlement-repository#findOrCreateProcessing", () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.settlements, payments.holds CASCADE");
   });
 
+  // Test de contrato: pasa también con el `upsert` original (la carrera no se reproduce en un solo proceso). El que fuerza
+  // el P2002 es el de abajo.
   it("varias llamadas a la vez devuelven la MISMA fila y ninguna falla", async () => {
     const hold = await createHoldRepository(app.db).createAttempt({
       shipmentId: SHIPMENT,
@@ -54,5 +56,38 @@ describe("settlement-repository#findOrCreateProcessing", () => {
 
     expect(new Set(rows.map((r) => r.id)).size).toBe(1);
     expect(await app.db.settlement.count()).toBe(1);
+  });
+});
+
+describe("settlement-repository#findOrCreateProcessing ante P2002 (unitario)", () => {
+  const data = {
+    shipmentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    holdId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    carrierId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    mpPaymentId: "1",
+    grossAmountArs: 1000,
+    commissionArs: 150,
+  };
+
+  function repoWith(db: { create: () => Promise<unknown>; findUnique: () => Promise<unknown> }) {
+    return createSettlementRepository({ settlement: db } as never);
+  }
+
+  it("si el create pierde la carrera (P2002) devuelve la fila que ganó", async () => {
+    const winner = { id: "ganadora", ...data, status: "processing" };
+    const repo = repoWith({
+      create: async () => Promise.reject(Object.assign(new Error("Unique constraint failed"), { code: "P2002" })),
+      findUnique: async () => winner,
+    });
+
+    await expect(repo.findOrCreateProcessing(data)).resolves.toBe(winner);
+  });
+
+  it("un P2002 sin fila existente, o cualquier otro error, se propaga", async () => {
+    const p2002 = Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+    await expect(repoWith({ create: async () => Promise.reject(p2002), findUnique: async () => null }).findOrCreateProcessing(data)).rejects.toBe(p2002);
+
+    const other = Object.assign(new Error("connection"), { code: "P1001" });
+    await expect(repoWith({ create: async () => Promise.reject(other), findUnique: async () => ({}) }).findOrCreateProcessing(data)).rejects.toBe(other);
   });
 });
