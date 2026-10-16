@@ -1002,6 +1002,16 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           }
         : {};
 
+      // MOVO-307: la penalidad se persiste junto con la cancelación y también va en la fila
+      // reconstruida al final, así `updateStatus` devuelve lo mismo que quedó en la DB.
+      const cancellationPenalty =
+        to === ShipmentStatus.CANCELLED && options.cancellationPenaltyArs !== undefined
+          ? {
+              cancellationPenaltyArs: new Prisma.Decimal(options.cancellationPenaltyArs),
+              cancellationPenaltyStatus: "pending" as const,
+            }
+          : {};
+
       const row = await db.$transaction(async (tx) => {
         // MOVO-118: compare-and-swap, mismo patrón que
         // `offer-repository.ts#acceptOffer` (MOVO-102/AC9). El WHERE
@@ -1023,9 +1033,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             receiverRedesignationDeadline,
             ...restoredWindow,
             ...clearedAssignment,
-            ...(to === ShipmentStatus.CANCELLED && options.cancellationPenaltyArs !== undefined
-              ? { cancellationPenaltyArs: options.cancellationPenaltyArs, cancellationPenaltyStatus: "pending" as const }
-              : {}),
+            ...cancellationPenalty,
           },
         });
 
@@ -1106,6 +1114,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           receiverRedesignationDeadline,
           ...restoredWindow,
           ...clearedAssignment,
+          ...cancellationPenalty,
           updatedAt: now,
         };
       });

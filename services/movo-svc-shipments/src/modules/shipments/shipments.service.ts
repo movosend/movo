@@ -2125,8 +2125,11 @@ export function createShipmentsService(
 
       if (notificationsClient) {
         // MOVO-210 (AC17): el transportista ya asignado (su oferta estaba `accepted`, no
-        // `pending`, así que no entra en `pendingOffers`) también se entera.
-        const voidedOffers = assignedOffer ? [assignedOffer, ...pendingOffers] : pendingOffers;
+        // `pending`, así que no entra en `pendingOffers`) también se entera. MOVO-307: si la
+        // penalidad se capturó en línea ya recibió la push de compensación, así que no se le
+        // manda además la de oferta cancelada (mismo criterio que `expireUnpickedAssignedShipments`).
+        const notifyAssignedOffer = assignedOffer && cancelled.cancellationPenaltyStatus !== "captured";
+        const voidedOffers = notifyAssignedOffer ? [assignedOffer, ...pendingOffers] : pendingOffers;
         await dispatchOfferVoidedPushes(
           notificationsClient,
           logger,

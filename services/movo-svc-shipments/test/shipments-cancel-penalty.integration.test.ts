@@ -71,12 +71,21 @@ describe("cancelación con penalidad desde assigned (Postgres) — MOVO-307", ()
     suggestedPriceArs: AGREED_PRICE,
   };
 
-  /** Envío `assigned` con precio acordado y hold autorizado (fixture: bypasea la máquina de estados). */
+  /** Envío `assigned` con su oferta aceptada, precio acordado y hold autorizado (fixture: bypasea la máquina de estados). */
   async function createAssigned(window = lateWindow(), status: ShipmentStatus = ShipmentStatus.ASSIGNED): Promise<string> {
     const created = await shipmentRepo.create(baseShipmentInput);
     await app.db.shipment.update({
       where: { id: created.id },
       data: { status, carrierId, agreedPriceArs: AGREED_PRICE, lastStatusChangedAt: new Date(), ...window },
+    });
+    await app.db.offer.create({
+      data: {
+        shipmentId: created.id,
+        carrierId,
+        priceOffered: AGREED_PRICE,
+        offeredDate: window.pickupDate,
+        status: "accepted",
+      },
     });
     await payments.createHold({
       shipmentId: created.id,
@@ -202,6 +211,8 @@ describe("cancelación con penalidad desde assigned (Postgres) — MOVO-307", ()
 
       expect(pushTitlesTo(carrierId)).toContain("Recibiste una compensación");
       expect(pushTitlesTo(senderId)).toContain("Cobramos la penalidad por cancelar");
+      // Con la compensación ya avisada, no se le manda además "Tu oferta fue cancelada".
+      expect(pushTitlesTo(carrierId)).not.toContain("Tu oferta fue cancelada");
 
       // AC5: el emisor ve el monto cobrado; el transportista, el desglose de su compensación.
       const asSender = await app.inject({ method: "GET", url: `/shipments/${shipmentId}/settlement`, headers: { "x-user-id": senderId } });
@@ -261,6 +272,7 @@ describe("cancelación con penalidad desde assigned (Postgres) — MOVO-307", ()
       expect(payments.ledgerEntries.has(`penalty_capture:${shipmentId}`)).toBe(false);
       expect(pushTitlesTo(senderId)).toContain("Tenés una penalidad pendiente");
       expect(pushTitlesTo(carrierId)).not.toContain("Recibiste una compensación");
+      expect(pushTitlesTo(carrierId)).toContain("Tu oferta fue cancelada");
     });
 
     it("hold vencido o inexistente: la penalidad queda como deuda", async () => {
@@ -302,6 +314,21 @@ describe("cancelación con penalidad desde assigned (Postgres) — MOVO-307", ()
       expect(response.statusCode).toBe(409);
       expect(payments.captureHold).not.toHaveBeenCalled();
       expect(payments.ledgerEntries.size).toBe(0);
+    });
+
+    it("updateStatus devuelve la penalidad que persistió, sin releer el envío", async () => {
+      const shipmentId = await createAssigned();
+
+      const cancelled = await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.CANCELLED, senderId, undefined, {
+        expectedFrom: ShipmentStatus.ASSIGNED,
+        cancellationPenaltyArs: PENALTY,
+      });
+
+      expect(cancelled).toMatchObject({ cancellationPenaltyArs: PENALTY, cancellationPenaltyStatus: "pending" });
+      expect(await shipmentRepo.findById(shipmentId)).toMatchObject({
+        cancellationPenaltyArs: PENALTY,
+        cancellationPenaltyStatus: "pending",
+      });
     });
   });
 });
