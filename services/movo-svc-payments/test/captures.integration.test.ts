@@ -295,6 +295,9 @@ describe("captura y liquidación (MOVO-212)", () => {
       ["amountArs sin kind (es una entrega)", { amountArs: 250 }],
       ["kind desconocido", { kind: "refund" }],
       ["amountArs no positivo", { kind: "cancellation_penalty", amountArs: 0 }],
+      // Review de PR #261: sin esto Ajv borraba la clave y capturaba el hold entero como entrega.
+      ["clave desconocida (amount en vez de amountArs)", { amount: 300 }],
+      ["clave de más junto a una penalidad válida", { kind: "cancellation_penalty", amountArs: 250, motivo: "x" }],
     ])("400: %s", async (_case, body) => {
       await seedHold();
 

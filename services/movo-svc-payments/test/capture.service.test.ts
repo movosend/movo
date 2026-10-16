@@ -563,6 +563,35 @@ describe("createCaptureService.capture: penalidad de cancelación (MOVO-306)", (
     }
   );
 
+  it("review de PR #261: tiene que cubrir también el fee de MP (155 sobre fee 150 → 422 sin llamar a MP)", async () => {
+    await expectApiError(
+      ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 155 }),
+      422,
+      "CAPTURE_BELOW_APPLICATION_FEE"
+    );
+    expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
+
+    // 165 - fee de MP estimado (4,99 %, 8,23) = 156,77 > 150: pasa.
+    await ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 165 });
+    expect(ctx.mp.capturePayment).toHaveBeenCalledWith("TEST-access", MP_PAYMENT, expect.objectContaining({ amount: 165 }));
+  });
+
+  it.each(["2072", "4201"])(
+    "si igual MP la rechaza por no dejar neto (%s), responde 422 para el plan B y la liquidación queda failed",
+    async (code) => {
+      ctx.mp.capturePayment.mockRejectedValueOnce({ status: 400, message: "Invalid value", cause: [{ code: Number(code) }] });
+      ctx.mp.getPayment.mockResolvedValueOnce(penaltyPayment({ status: "authorized", fee_details: [] }));
+
+      await expectApiError(
+        ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 165 }),
+        422,
+        "CAPTURE_BELOW_APPLICATION_FEE"
+      );
+      expect(ctx.settlements.row?.status).toBe("failed");
+      expect(ctx.holds.hold?.status).toBe("authorized");
+    }
+  );
+
   it("un monto con más de 2 decimales es 400 VALIDATION_FAILED", async () => {
     await expectApiError(
       ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 250.001 }),
