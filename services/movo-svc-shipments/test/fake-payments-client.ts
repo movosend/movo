@@ -3,12 +3,15 @@ import { vi } from "vitest";
 import {
   ApiError,
   CLOSED_HOLD_STATUSES,
+  CaptureHoldRequest,
   CarrierMpAccountStatusResponse,
+  CreateUserLedgerEntryRequest,
   HoldFailureReason,
   HoldResponse,
   HoldStatus,
   LIVE_HOLD_STATUSES,
   SettlementResponse,
+  UserLedgerEntry,
 } from "@movo/shared";
 import { PaymentsClient, UserDebtStatus } from "../src/adapters/payments-client";
 
@@ -34,11 +37,16 @@ export interface FakePaymentsBehavior {
   createFails: boolean;
   /** MOVO-212: si no es null, `captureHold` lanza este error (la captura falló). */
   captureError: ApiError | null;
+<<<<<<< HEAD
   /**
    * MOVO-313: usuarios con una deuda vencida en la cuenta corriente. Es un `Set` que el test
    * muta (`add`/`delete`) para probar que el bloqueo se levanta en la siguiente consulta, sin cache.
    */
   overdueDebtUserIds: Set<string>;
+=======
+  /** MOVO-307: si no es null, `createLedgerEntry` lanza este error (payments caído). */
+  ledgerError: ApiError | null;
+>>>>>>> d29dbd0b (test(shipments): cancelacion con penalidad, plan B y reintento)
 }
 
 export interface FakePaymentsClient extends PaymentsClient {
@@ -46,6 +54,8 @@ export interface FakePaymentsClient extends PaymentsClient {
   holds: Map<string, HoldResponse>;
   /** MOVO-212: liquidaciones por envío, las crea `captureHold`. */
   settlements: Map<string, SettlementResponse>;
+  /** MOVO-307: movimientos de la cuenta corriente por `idempotencyKey`. */
+  ledgerEntries: Map<string, UserLedgerEntry>;
 }
 
 export function createFakePaymentsClient(
@@ -62,16 +72,22 @@ export function createFakePaymentsClient(
     lookupFails: false,
     createFails: false,
     captureError: null,
+<<<<<<< HEAD
     overdueDebtUserIds: new Set<string>(),
+=======
+    ledgerError: null,
+>>>>>>> d29dbd0b (test(shipments): cancelacion con penalidad, plan B y reintento)
     ...behaviorOverrides,
   };
   const settlements = new Map<string, SettlementResponse>();
+  const ledgerEntries = new Map<string, UserLedgerEntry>();
   let sequence = 0;
 
   const client: FakePaymentsClient = {
     behavior,
     holds,
     settlements,
+    ledgerEntries,
 
     getCarrierMpAccountStatus: vi.fn(
       async (userId: string): Promise<CarrierMpAccountStatusResponse> => ({ linked: !unlinked.has(userId) }),
@@ -156,12 +172,19 @@ export function createFakePaymentsClient(
     ...overrides,
 
     // MOVO-212: idempotente como el real -- una liquidación ya acreditada vuelve tal cual.
-    captureHold: vi.fn(async (shipmentId: string) => {
+    // MOVO-306/307: con `kind: cancellation_penalty` captura `amountArs` y aplica las mismas
+    // validaciones que payments (monto dentro del hold y mayor que la comisión, que MP cobra
+    // entera: spike MOVO-305).
+    captureHold: vi.fn(async (shipmentId: string, request?: CaptureHoldRequest) => {
       if (behavior.captureError) {
         throw behavior.captureError;
       }
+      const kind = request?.kind ?? "delivery";
       const existing = settlements.get(shipmentId);
       if (existing) {
+        if (existing.kind !== kind || (kind === "cancellation_penalty" && existing.grossAmountArs !== request?.amountArs)) {
+          throw new ApiError(409, "SETTLEMENT_CONFLICT", "El envío ya tiene otra liquidación");
+        }
         return existing;
       }
       const hold = holds.get(shipmentId);
@@ -171,9 +194,16 @@ export function createFakePaymentsClient(
       if (hold.status !== "authorized" && hold.status !== "captured") {
         throw new ApiError(409, "HOLD_NOT_CAPTURABLE", "El hold no se puede capturar");
       }
+      const grossAmountArs = kind === "cancellation_penalty" ? (request?.amountArs ?? 0) : hold.amountArs;
+      if (grossAmountArs > hold.amountArs) {
+        throw new ApiError(422, "CAPTURE_AMOUNT_EXCEEDS_HOLD", "La penalidad supera el hold");
+      }
+      if (grossAmountArs <= hold.applicationFeeArs) {
+        throw new ApiError(422, "CAPTURE_BELOW_APPLICATION_FEE", "La penalidad no supera la comisión");
+      }
       const now = new Date().toISOString();
       // 1000 = 41 (MP) + 150 (Movo) + 809 (neto): la misma forma que el sandbox.
-      const mpFeeArs = Math.round(hold.amountArs * 0.041 * 100) / 100;
+      const mpFeeArs = Math.round(grossAmountArs * 0.041 * 100) / 100;
       const settlement: SettlementResponse = {
         id: `00000000-0000-4000-8000-${String(++sequence).padStart(12, "9")}`,
         shipmentId,
@@ -181,11 +211,11 @@ export function createFakePaymentsClient(
         carrierId: hold.carrierId,
         mpPaymentId: hold.mpPaymentId ?? "mp-0",
         status: "credited",
-        kind: "delivery",
-        grossAmountArs: hold.amountArs,
+        kind,
+        grossAmountArs,
         mpFeeArs,
         commissionArs: hold.applicationFeeArs,
-        netAmountArs: Math.round((hold.amountArs - mpFeeArs - hold.applicationFeeArs) * 100) / 100,
+        netAmountArs: Math.round((grossAmountArs - mpFeeArs - hold.applicationFeeArs) * 100) / 100,
         failureReason: null,
         capturedAt: now,
         createdAt: now,
@@ -197,6 +227,32 @@ export function createFakePaymentsClient(
     }),
 
     findSettlement: vi.fn(async (shipmentId: string) => settlements.get(shipmentId) ?? null),
+
+    // MOVO-307: idempotente por `idempotencyKey`, como el real.
+    createLedgerEntry: vi.fn(async (userId: string, entry: CreateUserLedgerEntryRequest) => {
+      if (behavior.ledgerError) {
+        throw behavior.ledgerError;
+      }
+      const existing = ledgerEntries.get(entry.idempotencyKey);
+      if (existing) {
+        return { entry: existing, created: false };
+      }
+      const created: UserLedgerEntry = {
+        id: randomUUID(),
+        userId,
+        roleAtOrigin: entry.roleAtOrigin ?? null,
+        type: entry.type,
+        amountArs: entry.amountArs,
+        status: entry.status ?? "pending",
+        shipmentId: entry.shipmentId ?? null,
+        holdId: entry.holdId ?? null,
+        paymentId: entry.paymentId ?? null,
+        reason: null,
+        createdAt: new Date().toISOString(),
+      };
+      ledgerEntries.set(entry.idempotencyKey, created);
+      return { entry: created, created: true };
+    }),
   };
 
   return client;

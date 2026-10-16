@@ -152,7 +152,7 @@ describe("POST /shipments/:id/cancel (Postgres) — MOVO-29/MOVO-108", () => {
     expect(response.statusCode).toBe(404);
   });
 
-  it("responde 409 SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED al cancelar desde assigned", async () => {
+  it("MOVO-307: cancela desde assigned sin cargo cuando faltan 12 h o más (la penalidad tiene su propio test)", async () => {
     const shipmentId = await createShipmentAt(ShipmentStatus.ASSIGNED);
 
     const response = await app.inject({
@@ -161,9 +161,8 @@ describe("POST /shipments/:id/cancel (Postgres) — MOVO-29/MOVO-108", () => {
       headers: { "x-user-id": senderId },
     });
 
-    expect(response.statusCode).toBe(409);
-    expect(response.json().error.code).toBe("SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED");
-    expect(sendPush).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ status: ShipmentStatus.CANCELLED, cancellationPenaltyArs: null });
   });
 
   it("responde 409 SHIPMENT_INVALID_TRANSITION al cancelar un envío ya cancelado", async () => {

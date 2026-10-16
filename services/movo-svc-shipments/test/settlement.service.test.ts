@@ -210,6 +210,7 @@ describe("settlement.service.getForUser (AC10)", () => {
     expect(view).toEqual({
       shipmentId: SHIPMENT,
       role: "sender",
+      kind: "delivery",
       status: "credited",
       paidAmountArs: 1000,
       paidAt: expect.any(String),

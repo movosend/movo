@@ -1723,14 +1723,24 @@ describe("shipments.service — cancelShipment (MOVO-29/MOVO-108)", () => {
     expect(repository.updateStatus).not.toHaveBeenCalled();
   });
 
-  it("rechaza con 409 SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED cancelar desde assigned", async () => {
-    const shipment = fakeShipment({ senderId: "sender-id", status: ShipmentStatus.ASSIGNED });
+  it("MOVO-307: desde assigned con menos de 12 h, un monto confirmado distinto es 409 CANCELLATION_PENALTY_MISMATCH", async () => {
+    // Retiro en 1 h (reloj argentino anclado a UTC, como las columnas @db.Date/@db.Time).
+    const wallStart = new Date(Date.now() + 60 * 60 * 1000 - 3 * 60 * 60 * 1000);
+    const shipment = fakeShipment({
+      senderId: "sender-id",
+      status: ShipmentStatus.ASSIGNED,
+      agreedPriceArs: 1000,
+      pickupDate: new Date(Date.UTC(wallStart.getUTCFullYear(), wallStart.getUTCMonth(), wallStart.getUTCDate())),
+      pickupTimeWindowStart: new Date(Date.UTC(1970, 0, 1, wallStart.getUTCHours(), wallStart.getUTCMinutes())),
+      pickupTimeWindowEnd: new Date(Date.UTC(1970, 0, 1, 23, 59, 59)),
+    });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
     const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
-    await expect(service.cancelShipment(shipment.id, "sender-id")).rejects.toMatchObject({
+    await expect(service.cancelShipment(shipment.id, "sender-id", undefined, 100)).rejects.toMatchObject({
       statusCode: 409,
-      code: "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED",
+      code: "CANCELLATION_PENALTY_MISMATCH",
+      details: { penaltyArs: 250 },
     });
     expect(repository.updateStatus).not.toHaveBeenCalled();
   });
