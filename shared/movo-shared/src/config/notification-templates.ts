@@ -78,6 +78,9 @@ export type NotificationTriggerKey =
   | "fundingReconfirmCarrier"
   | "settlementCreditedCarrier"
   | "settlementProcessedSender"
+  | "cancellationPenaltyChargedSender"
+  | "cancellationPenaltyDebtSender"
+  | "cancellationPenaltyCompensationCarrier"
   | "receiverTransferInvited"
   | "receiverTransferRequested"
   | "receiverTransferCompletedRequester"
@@ -116,6 +119,11 @@ function formatEtaDuration(etaMinutes: number): string {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes === 0 ? `${hours} h` : `${hours} h ${remainingMinutes} min`;
+}
+
+/** Monto en pesos con 2 decimales, formato argentino (`1.234,50`). */
+function formatArs(amount: number): string {
+  return amount.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function definition<TParams = void>(
@@ -699,6 +707,33 @@ export const NOTIFICATION_TRIGGERS = {
     "payments",
     { title: "Pago procesado", body: "Tu envío fue entregado y el pago se procesó correctamente." },
     () => ({ title: "Pago procesado", body: "Tu envío fue entregado y el pago se procesó correctamente." })
+  ),
+  // MOVO-307 (ADR-047): penalidad por cancelar un envío asignado con menos de 12 h. Al
+  // emisor se le dice cuánto se cobró (o que quedó como deuda, si no se pudo cobrar del
+  // hold); al transportista, lo que recibe como compensación.
+  cancellationPenaltyChargedSender: definition<{ penaltyArs: number }>(
+    "payments",
+    { title: "Cobramos la penalidad por cancelar", body: "Cancelaste un envío asignado con menos de 12 h de anticipación." },
+    ({ penaltyArs }) => ({
+      title: "Cobramos la penalidad por cancelar",
+      body: `Cancelaste con menos de 12 h de anticipación: te cobramos $${formatArs(penaltyArs)} de la reserva y liberamos el resto.`,
+    })
+  ),
+  cancellationPenaltyDebtSender: definition<{ penaltyArs: number }>(
+    "payments",
+    { title: "Tenés una penalidad pendiente", body: "La penalidad por cancelar quedó en tu cuenta para la próxima operación." },
+    ({ penaltyArs }) => ({
+      title: "Tenés una penalidad pendiente",
+      body: `No pudimos cobrar la penalidad de $${formatArs(penaltyArs)} de la reserva: quedó en tu cuenta y se cobra en tu próxima operación.`,
+    })
+  ),
+  cancellationPenaltyCompensationCarrier: definition<{ netAmountArs: number }>(
+    "payments",
+    { title: "Recibiste una compensación", body: "El emisor canceló el envío a último momento y te acreditamos una compensación." },
+    ({ netAmountArs }) => ({
+      title: "Recibiste una compensación",
+      body: `El emisor canceló a último momento: te acreditamos $${formatArs(netAmountArs)} en tu cuenta de Mercado Pago.`,
+    })
   ),
   // MOVO-275 (ADR-038): transferencia de receptor. Copy propio por destinatario: la
   // persona invitada tiene que actuar; el emisor y el transportista solo se enteran.
