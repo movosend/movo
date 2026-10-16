@@ -527,3 +527,11 @@ previo al transportista) y `transitAnomalyDisputeOpened{Sender,Receiver,Carrier}
 (20) / `TRANSACTIONS_MAX_LIMIT` (50). Wire contract de `GET /payments/transactions[/:id]` (`svc-payments`),
 para la sub-issue mobile de MOVO-28. `card` y `breakdown` son opcionales: ausentes según el rol, no `null`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-306 — `SettlementKind` y body de la captura
+
+`types/settlement.ts` suma `SETTLEMENT_KINDS`/`SettlementKind` (`delivery` | `cancellation_penalty`),
+`SettlementResponse.kind` y `CaptureHoldRequest` (`kind?`, `amountArs?`: la penalidad lo exige, la entrega no
+lo acepta). `grossAmountArs` es lo capturado (el hold entero en una entrega). Errores nuevos:
+`SETTLEMENT_CONFLICT`, `CAPTURE_AMOUNT_EXCEEDS_HOLD` y `CAPTURE_BELOW_APPLICATION_FEE` (la penalidad no supera
+la comisión: MP la rechazaría, spike MOVO-305, y `svc-shipments` aplica el plan B de MOVO-307).

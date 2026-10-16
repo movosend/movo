@@ -551,3 +551,18 @@ reembolsos/contracargos (`payment_provider_events`) resueltos en la misma consul
 Tests: `test/transaction-status.test.ts` (cada estado y la precedencia) y
 `test/transactions.integration.test.ts` (Postgres real: rol, visibilidad, filtros, borde de las
 23:30, cursor sin duplicados ni saltos con la misma fecha, 404, desglose por rol).
+
+### MOVO-306 — Captura parcial del hold por penalidad de cancelación
+
+`POST /internal/payments/holds/by-shipment/:shipmentId/capture` acepta un body opcional
+`{ kind?: "delivery" | "cancellation_penalty", amountArs? }`; sin body es la captura de entrega de MOVO-212
+(un `preValidation` lo valida como `{}`: así llama hoy `svc-shipments`). La penalidad exige `amountArs` y la
+entrega lo rechaza (400): la entrega siempre cobra lo autorizado. `payments.settlements` suma `kind`
+(enum `settlement_kind`, default `delivery`); sigue siendo una fila por envío, y un pedido de otro tipo o por
+otro monto que la existente es `409 SETTLEMENT_CONFLICT`, también si la primera falló. La penalidad se
+captura con `amount` y su propia key (`movo-hold-penalty-<holdId>`); estados, reintentos y `hold_expired`
+permanente son los de la entrega. Antes de crear la fila y de llamar a MP: `422 CAPTURE_AMOUNT_EXCEEDS_HOLD`
+si supera el hold y `422 CAPTURE_BELOW_APPLICATION_FEE` si no supera el `application_fee` (MP respondería
+`4201`, spike MOVO-305); el hold queda `authorized` para el plan B de MOVO-307 (liberar con `/release`). La
+comisión liquidada es la entera que informa `fee_details`. Pendiente: que `svc-shipments` mande la
+penalidad (MOVO-307) y que el historial de transacciones (MOVO-303) distinga una penalidad de un cobro.
