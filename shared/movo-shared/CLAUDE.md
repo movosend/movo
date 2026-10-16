@@ -542,3 +542,13 @@ tipar desde otro workspace.
 `BalancePayResponse` (`{ attemptId, status, failureReason, balanceArs }`). `ApiErrorCode` suma `BALANCE_AMOUNT_EXCEEDS_DEBT` (422),
 `BALANCE_PAYMENT_IN_PROGRESS` (409) y `BALANCE_COLLECTOR_NOT_CONFIGURED` (503). Recordatorio habitual: `npm run build` acá antes de tipar
 desde otro workspace.
+
+### MOVO-313 — `no_overdue_debt` y `USER_DEBT_OVERDUE`
+
+`CarrierRequirement` (`types/carrier-eligibility.ts`) suma `"no_overdue_debt"` y `ApiErrorCode` suma
+`USER_DEBT_OVERDUE` (403 de `svc-shipments` al declarar viaje, ofertar, editar oferta o iniciar viaje con una deuda de la
+cuenta corriente sin saldar hace más de `USER_DEBT_OVERDUE_DAYS`). Viaja con `details.missingRequirements` y va al
+final del orden. También el trigger `tripRecurrenceBlockedByDebt` (categoría `trips`) para el aviso de una ocurrencia
+recurrente frenada por la deuda. Cambio aditivo: un cliente anterior que no conozca el valor lo ignora al filtrar por la checklist.
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+

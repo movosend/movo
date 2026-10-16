@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { ApiError, KycStatus, OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
@@ -9,7 +9,7 @@ import { createTripRepository, TripRepository } from "../src/repositories/trip-r
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { attachAcceptedPackage } from "./trip-package-fixture";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
-import { createFakePaymentsClient } from "./fake-payments-client";
+import { createFakePaymentsClient, FakePaymentsClient } from "./fake-payments-client";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 import { createFakePricingClient } from "./fake-pricing-client";
 import { createFakePricingLogisticsClient } from "./fake-pricing-logistics-client";
@@ -29,6 +29,7 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
   let shipmentRepo: ShipmentRepository;
   let offerRepo: OfferRepository;
   let tripRepo: TripRepository;
+  let payments: FakePaymentsClient;
 
   const senderId = randomUUID();
   const receiverId = randomUUID();
@@ -122,9 +123,10 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
     process.env.MOVO_COMMISSION_RATE = "0.15";
+    payments = createFakePaymentsClient(unlinkedMpCarriers);
     app = buildApp({
       usersClient: createFakeUsersClient(profiles, {}, [], kycStatuses),
-      paymentsClient: createFakePaymentsClient(unlinkedMpCarriers),
+      paymentsClient: payments,
       notificationsClient: createFakeNotificationsClient(),
       pricingClient: createFakePricingClient(),
       pricingLogisticsClient: createFakePricingLogisticsClient(),
@@ -143,6 +145,8 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
   beforeEach(async () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.trips RESTART IDENTITY CASCADE");
+    // MOVO-313: la deuda vencida es estado mutable del fake; cada test arranca sin deuda.
+    payments.behavior.overdueDebtUserIds.clear();
   });
 
   describe("POST /trips (criterio 7)", () => {
@@ -455,6 +459,168 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
     });
   });
 
+  describe("deuda vencida en la cuenta corriente (MOVO-313, ADR-044)", () => {
+    /** Marca la deuda vencida de la persona, la misma cuenta aunque cambie de rol. */
+    function owesOverdueDebt(userId: string) {
+      payments.behavior.overdueDebtUserIds.add(userId);
+    }
+
+    function expectDebtBlocked(response: { statusCode: number; json: () => { error: unknown } }) {
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error).toMatchObject({
+        code: "USER_DEBT_OVERDUE",
+        details: { missingRequirements: ["no_overdue_debt"] },
+      });
+    }
+
+    it("declarar viaje: 403 sin crear nada, y se levanta en la siguiente consulta al saldarla (sin cache)", async () => {
+      owesOverdueDebt(eligibleCarrier);
+
+      expectDebtBlocked(await declareTrip(app, eligibleCarrier));
+      expect(await countTrips(eligibleCarrier)).toBe(0);
+
+      // Pago voluntario (MOVO-312) o cobro del próximo pago (MOVO-311): la deuda queda saldada.
+      payments.behavior.overdueDebtUserIds.delete(eligibleCarrier);
+
+      expect((await declareTrip(app, eligibleCarrier)).statusCode).toBe(201);
+      expect(await countTrips(eligibleCarrier)).toBe(1);
+    });
+
+    it("ofertar: 403 sin crear la oferta", async () => {
+      owesOverdueDebt(eligibleCarrier);
+      const shipment = await createPublishedShipment();
+
+      expectDebtBlocked(await createOffer(app, shipment.id, eligibleCarrier));
+      expect(await countOffers(eligibleCarrier)).toBe(0);
+    });
+
+    it("editar oferta: 403 sin tocar el precio", async () => {
+      owesOverdueDebt(eligibleCarrier);
+      const shipment = await createPublishedShipment();
+      const offer = await offerRepo.create({
+        shipmentId: shipment.id,
+        carrierId: eligibleCarrier,
+        priceOffered: 5750,
+        offeredDate: PICKUP_DATE,
+      });
+
+      expectDebtBlocked(
+        await app.inject({
+          method: "PATCH",
+          url: `/offers/${offer.id}`,
+          headers: { "x-user-id": eligibleCarrier, "x-user-roles": "carrier" },
+          payload: { priceOfferedArs: 6000 },
+        }),
+      );
+      expect((await offerRepo.findById(offer.id))?.priceOffered).toBe(5750);
+    });
+
+    it("iniciar viaje: 403 y el viaje sigue declared", async () => {
+      owesOverdueDebt(eligibleCarrier);
+      const trip = await tripRepo.create({
+        carrierId: eligibleCarrier,
+        originAddress: "Av. Colón 1234, Córdoba",
+        originLat: -31.4201,
+        originLng: -64.1888,
+        destinationAddress: "Av. San Martín 100, Villa María",
+        destinationLat: -32.4104,
+        destinationLng: -63.2404,
+        departureAt: new Date(),
+        vehicleType: "auto",
+      });
+      await attachAcceptedPackage(app.db, trip);
+
+      expectDebtBlocked(
+        await app.inject({
+          method: "POST",
+          url: `/trips/${trip.id}/start`,
+          headers: { "x-user-id": eligibleCarrier, "x-user-roles": "carrier" },
+        }),
+      );
+      expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.DECLARED);
+    });
+
+    it("no corta un envío ya en curso: sigue in_transit y en su lista de transportando", async () => {
+      const ongoing = await createPublishedShipment();
+      await app.db.shipment.update({
+        where: { id: ongoing.id },
+        data: { carrierId: eligibleCarrier, status: ShipmentStatus.IN_TRANSIT },
+      });
+      owesOverdueDebt(eligibleCarrier);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/shipments/transporting",
+        headers: { "x-user-id": eligibleCarrier },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([expect.objectContaining({ id: ongoing.id, status: ShipmentStatus.IN_TRANSIT })]);
+      expect((await shipmentRepo.findById(ongoing.id))?.status).toBe(ShipmentStatus.IN_TRANSIT);
+    });
+
+    it("como emisor no se bloquea: la misma cuenta con deuda vencida puede seguir creando envíos", async () => {
+      owesOverdueDebt(eligibleCarrier);
+      // El fake acumula llamadas entre tests del archivo: se mide solo lo que pasa desde acá.
+      vi.mocked(payments.getUserDebtStatus).mockClear();
+
+      const created = await app.inject({
+        method: "POST",
+        url: "/shipments",
+        headers: { "x-user-id": eligibleCarrier },
+        payload: {
+          packageType: "standard_package",
+          weightKg: 2.5,
+          lengthCm: 30,
+          widthCm: 20,
+          heightCm: 15,
+          description: "Caja con libros",
+          receiverId,
+          pickupAddress: "Av. Colón 1234, Córdoba",
+          pickupLat: -31.4201,
+          pickupLng: -64.1888,
+          deliveryAddress: "Bv. San Juan 500, Córdoba",
+          deliveryLat: -31.4135,
+          deliveryLng: -64.1811,
+          pickupDate: PICKUP_DATE_STR,
+          pickupTimeWindowStart: "09:00",
+          pickupTimeWindowEnd: "12:00",
+        },
+      });
+
+      expect(created.statusCode).toBe(201);
+      expect(created.json().senderId).toBe(eligibleCarrier);
+      expect(await shipmentRepo.findById(created.json().id)).not.toBeNull();
+      // Y la deuda no se consulta para crear un envío: es solo del gate de transportista.
+      expect(payments.getUserDebtStatus).not.toHaveBeenCalled();
+
+      // La misma persona, en su rol de transportista, sí queda bloqueada.
+      expectDebtBlocked(await declareTrip(app, eligibleCarrier));
+    });
+
+    it("aceptar la oferta de un transportista con deuda vencida: 409 al emisor, sin details", async () => {
+      owesOverdueDebt(eligibleCarrier);
+      const shipment = await createPublishedShipment();
+      const offer = await offerRepo.create({
+        shipmentId: shipment.id,
+        carrierId: eligibleCarrier,
+        priceOffered: 5750,
+        offeredDate: PICKUP_DATE,
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/offers/${offer.id}/accept`,
+        headers: { "x-user-id": senderId },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("OFFER_CARRIER_NOT_ELIGIBLE");
+      expect(response.json().error.details).toBeUndefined();
+      expect((await offerRepo.findById(offer.id))?.status).toBe(OfferStatus.PENDING);
+    });
+  });
+
   describe("svc-payments caído (falla cerrado)", () => {
     let failingApp: FastifyInstance;
 
@@ -497,6 +663,48 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
     });
   });
 
+  describe("saldo de la cuenta corriente no disponible (MOVO-313, falla cerrado)", () => {
+    let debtFailingApp: FastifyInstance;
+
+    beforeAll(async () => {
+      debtFailingApp = buildApp({
+        usersClient: createFakeUsersClient(profiles),
+        paymentsClient: createFakePaymentsClient([], {
+          getUserDebtStatus: async () => {
+            throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "caído");
+          },
+        }),
+        notificationsClient: createFakeNotificationsClient(),
+        pricingClient: createFakePricingClient(),
+        pricingLogisticsClient: createFakePricingLogisticsClient(),
+        sweepEnabled: false,
+      });
+      await debtFailingApp.ready();
+    });
+
+    afterAll(async () => {
+      await debtFailingApp.close();
+    });
+
+    it("declarar viaje responde 502 PAYMENTS_SERVICE_UNAVAILABLE y no crea nada", async () => {
+      const response = await declareTrip(debtFailingApp, eligibleCarrier);
+
+      expect(response.statusCode).toBe(502);
+      expect(response.json().error.code).toBe("PAYMENTS_SERVICE_UNAVAILABLE");
+      expect(await countTrips(eligibleCarrier)).toBe(0);
+    });
+
+    it("ofertar responde 502 PAYMENTS_SERVICE_UNAVAILABLE y no crea nada", async () => {
+      const shipment = await createPublishedShipment(createShipmentRepository(debtFailingApp.db));
+
+      const response = await createOffer(debtFailingApp, shipment.id, eligibleCarrier);
+
+      expect(response.statusCode).toBe(502);
+      expect(response.json().error.code).toBe("PAYMENTS_SERVICE_UNAVAILABLE");
+      expect(await countOffers(eligibleCarrier)).toBe(0);
+    });
+  });
+
   it("Swagger documenta el 502 y el campo details del error en los endpoints bloqueados (criterio 6)", async () => {
     const spec = app.swagger() as {
       paths: Record<string, Record<string, { description?: string; responses: Record<string, unknown> }>>;
@@ -508,6 +716,8 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
       expect(op.responses).toHaveProperty("502");
       expect(op.description).toContain("CARRIER_LICENSE_NOT_APPROVED");
       expect(op.description).toContain("CARRIER_MP_ACCOUNT_NOT_LINKED");
+      // MOVO-313: la deuda vencida también está documentada.
+      expect(op.description).toContain("USER_DEBT_OVERDUE");
     }
     expect(JSON.stringify(createOfferOp.responses["403"])).toContain("details");
   });
