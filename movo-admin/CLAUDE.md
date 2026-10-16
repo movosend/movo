@@ -77,3 +77,13 @@ logout, además de ambos temas, móvil, teclado y ausencia de tokens en payloads
 
 La tabla de aceptación y evidencia local de MOVO-291 está en
 `docs/auth/movo-291-verification.md`; no reemplaza la aceptación pendiente contra dev.
+
+## MOVO-292 — Pantalla "Admins"
+
+`app/admins` (página + Server Actions `grantAdmin`/`revokeAdmin`) y `components/admins-manager.tsx`:
+lista con nombre, email y desde cuándo, alta por email y revocación con motivo y confirmación en línea
+(no hay componente de diálogo en `components/ui`). El admin logueado no ve "Revocar" sobre sí mismo
+(`AdminProfile.id`), y la acción lo rechaza antes de llamar al gateway aunque igual lo corta svc-admin.
+`gateway()` suma `method` (DELETE con body) y `publicError` mapea por código los rechazos de svc-users
+a un texto propio (no reenvía el texto del servidor). `requireAdmin(mutable, returnTo)` y
+`internalReturnPath` aceptan `/admins` además de `/`; `AdminShell` recibe `current`.
