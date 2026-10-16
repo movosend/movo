@@ -66,6 +66,8 @@ describe("/payments/transactions (MOVO-303)", () => {
         mpPaymentId: overrides.mpPaymentId === undefined ? `mp-${shipmentId}` : overrides.mpPaymentId,
         amountArs: 1150,
         applicationFeeArs: 150,
+        baseAmountArs: 1150,
+        commissionArs: 150,
         status: overrides.status ?? "authorized",
         payerId: overrides.payerId === undefined ? SENDER : overrides.payerId,
         cardBrand: overrides.cardBrand === undefined ? "visa" : overrides.cardBrand,
@@ -359,7 +361,13 @@ describe("/payments/transactions (MOVO-303)", () => {
       await settle(processing, "processing");
 
       const ok = (await detail(credited.id, "carrier", CARRIER)).json();
-      expect(ok.breakdown).toEqual({ grossArs: 1150, mpFeeArs: 47.15, commissionArs: 150, netArs: 952.85 });
+      expect(ok.breakdown).toEqual({
+        grossArs: 1150,
+        mpFeeArs: 47.15,
+        commissionArs: 150,
+        debtOffsetArs: 0,
+        netArs: 952.85,
+      });
       expect("card" in ok).toBe(false);
 
       expect((await detail(processing.id, "carrier", CARRIER)).json().breakdown).toBeNull();

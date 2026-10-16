@@ -108,6 +108,8 @@ describe("POST /payments/webhooks/mercadopago (MOVO-268)", () => {
         mpPaymentId: PAYMENT_ID,
         amountArs: 1150,
         applicationFeeArs: 150,
+        baseAmountArs: 1150,
+        commissionArs: 150,
         status: "authorized",
         statusDetail: "pending_capture",
         expiresAt: new Date(Date.now() + 5 * 86_400_000),
