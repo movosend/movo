@@ -1,9 +1,9 @@
 import type { Prisma, PrismaClient } from "../generated/prisma/client";
-import type { BalancePaymentAttempt, BalanceAttemptStatus } from "../generated/prisma/client";
+import type { BalancePaymentAttempt, BalanceAttemptStatus, HoldFailureReason } from "../generated/prisma/client";
 
 export type { BalancePaymentAttempt, BalanceAttemptStatus };
 
-/** Estados en los que un intento todavía puede terminar en un pago. */
+/** Estados en los que un intento todavía puede terminar en un cobro. */
 export const OPEN_ATTEMPT_STATUSES: readonly BalanceAttemptStatus[] = ["creating", "pending"];
 
 function isUniqueViolation(error: unknown): boolean {
@@ -13,28 +13,38 @@ function isUniqueViolation(error: unknown): boolean {
 export interface NewBalanceAttempt {
   userId: string;
   amountArs: Prisma.Decimal;
-  expiresAt: Date;
+  savedCardId: string;
+  requestFingerprint: string;
 }
 
-/** MOVO-312: persistencia de los intentos de "Pagar mi saldo" con Checkout Pro. */
+/** Lo que se aprende del pago de MP y se anota en el intento. */
+export interface BalanceAttemptUpdate {
+  status: BalanceAttemptStatus;
+  mpPaymentId?: string | null;
+  statusDetail?: string | null;
+  failureReason?: HoldFailureReason | null;
+}
+
+/** MOVO-312: persistencia de los intentos de "Pagar mi saldo". */
 export interface BalancePaymentAttemptRepository {
   /**
-   * Abre un intento `creating`. El índice único parcial (usuario + monto mientras `creating`/`pending`) es el que
-   * decide si dos pedidos iguales llegan a la vez: el que pierde recibe el intento abierto (`created: false`).
+   * Abre un intento `creating`. El índice único parcial (usuario + monto mientras `creating`/`pending`) decide si dos
+   * pedidos iguales llegan a la vez: el que pierde recibe el intento abierto (`created: false`).
    */
   insertOpen(data: NewBalanceAttempt): Promise<{ attempt: BalancePaymentAttempt; created: boolean }>;
   findById(id: string): Promise<BalancePaymentAttempt | null>;
   /** Intentos abiertos del usuario, del más viejo al más nuevo. */
   listOpenByUser(userId: string): Promise<BalancePaymentAttempt[]>;
-  /** `creating -> pending` con la preferencia armada. `false` si el intento ya no estaba `creating`. */
-  markPending(id: string, data: { mpPreferenceId: string; checkoutUrl: string }): Promise<boolean>;
-  /** Cierra un intento abierto (`creating`/`pending`). `false` si ya estaba cerrado. */
-  closeOpen(id: string, status: Extract<BalanceAttemptStatus, "failed" | "rejected" | "abandoned">): Promise<boolean>;
   /**
-   * Marca el intento `approved` con el pago que lo aprobó. Idempotente: si ya estaba `approved` con el MISMO pago
-   * devuelve `true`; con otro pago (o si ese pago ya está en otro intento) devuelve `false`.
+   * Actualiza un intento abierto (`creating`/`pending`). `false` si ya estaba cerrado: otro llamador (el webhook o una
+   * respuesta que llegó antes) ya lo resolvió.
    */
-  markApproved(id: string, mpPaymentId: string): Promise<boolean>;
+  updateOpen(id: string, update: BalanceAttemptUpdate): Promise<boolean>;
+  /**
+   * Marca el intento `approved` con el pago que lo aprobó, aunque estuviera cerrado (un aprobado tardío es plata
+   * recibida). Idempotente: con el MISMO pago devuelve `true`; si ese pago ya figura en otro intento, `false`.
+   */
+  markApproved(id: string, mpPaymentId: string, statusDetail: string | null): Promise<boolean>;
 }
 
 export function createBalancePaymentAttemptRepository(db: PrismaClient): BalancePaymentAttemptRepository {
@@ -68,32 +78,33 @@ export function createBalancePaymentAttemptRepository(db: PrismaClient): Balance
       });
     },
 
-    async markPending(id, data) {
-      const { count } = await db.balancePaymentAttempt.updateMany({
-        where: { id, status: "creating" },
-        data: { status: "pending", mpPreferenceId: data.mpPreferenceId, checkoutUrl: data.checkoutUrl },
-      });
-      return count === 1;
-    },
-
-    async closeOpen(id, status) {
-      const { count } = await db.balancePaymentAttempt.updateMany({
-        where: { id, status: { in: open } },
-        data: { status },
-      });
-      return count === 1;
-    },
-
-    async markApproved(id, mpPaymentId) {
+    async updateOpen(id, update) {
       try {
         const { count } = await db.balancePaymentAttempt.updateMany({
-          // Aprobar también un intento cerrado (rechazado/abandonado): un pago aprobado tardío es plata recibida.
-          where: { id, OR: [{ status: { not: "approved" } }, { mpPaymentId }] },
-          data: { status: "approved", mpPaymentId },
+          where: { id, status: { in: open } },
+          data: {
+            status: update.status,
+            ...(update.mpPaymentId !== undefined ? { mpPaymentId: update.mpPaymentId } : {}),
+            ...(update.statusDetail !== undefined ? { statusDetail: update.statusDetail } : {}),
+            ...(update.failureReason !== undefined ? { failureReason: update.failureReason } : {}),
+          },
         });
         return count === 1;
       } catch (error) {
         // El mismo pago de MP ya figura en otro intento.
+        if (isUniqueViolation(error)) return false;
+        throw error;
+      }
+    },
+
+    async markApproved(id, mpPaymentId, statusDetail) {
+      try {
+        const { count } = await db.balancePaymentAttempt.updateMany({
+          where: { id, OR: [{ status: { not: "approved" } }, { mpPaymentId }] },
+          data: { status: "approved", mpPaymentId, statusDetail, failureReason: null },
+        });
+        return count === 1;
+      } catch (error) {
         if (isUniqueViolation(error)) return false;
         throw error;
       }

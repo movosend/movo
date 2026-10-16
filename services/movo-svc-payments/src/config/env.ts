@@ -9,6 +9,7 @@ export interface EnvConfig {
   MP_WEBHOOK_SECRET?: string;
   MP_TOKEN_ENCRYPTION_KEY?: string;
   MP_TEST_MODE: boolean;
+  MOVO_COLLECTOR_USER_ID?: string;
   MP_HOLD_VALIDITY_DAYS: number;
   MP_TOKEN_REFRESH_SWEEP_ENABLED: boolean;
   MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES: number;
@@ -54,6 +55,9 @@ export const envSchema = {
     // Solo sandbox: agrega `test_token: true` al canje de OAuth para que MP
     // devuelva un access_token TEST- del vendedor de prueba.
     MP_TEST_MODE: { type: "boolean", default: false },
+    // MOVO-312: usuario interno de Movo cuya cuenta de MP (vinculada por OAuth, como la de un transportista) cobra los
+    // pagos de saldo. Sin él, pagar el saldo responde 503 BALANCE_COLLECTOR_NOT_CONFIGURED.
+    MOVO_COLLECTOR_USER_ID: { type: "string" },
     // MOVO-209 AC4: cuánto sostiene MP un hold sin capturar, y de ahí el `expires_at`
     // que se persiste. Configuración y no constante en el código: el valor real sale
     // de la medición de MOVO-215 (la documentación de MP dice 5 o 7 días según la

@@ -506,8 +506,8 @@ Resultado en `docs/payments/spike-movo-305-captura-parcial.md` (test: `test/part
 pega directo a MP). Limitaciones de MP que tiene que respetar la penalidad (MOVO-306/307): en una captura
 parcial el `application_fee` se cobra **entero** (el MP fee sí va sobre lo capturado); capturar un monto
 ≤ al fee responde `400 4201` y deja el hold `authorized`; un segundo capture no cobra de nuevo; al crear el
-hold, el fee tiene que ser `< transaction_amount` (si no, `400 4038`). Para "Pagar mi saldo" (MOVO-312) se
-recomienda Checkout Pro: con tarjeta hace falta la `public_key` de Movo S.A. (MOVO-283).
+hold, el fee tiene que ser `< transaction_amount` (si no, `400 4038`). Para "Pagar mi saldo" (MOVO-312) el
+pago directo a Movo S.A. no se puede (ver esa entrada): se cobra a una cuenta cobradora vinculada por OAuth.
 ### MOVO-303 — Historial: listado y detalle por rol (sub-issue de MOVO-28)
 
 `GET /payments/transactions?role=sender|carrier&status=&from=&to=&cursor=&limit=` y
@@ -578,54 +578,46 @@ ya proxeaba `/payments`). Código en `src/modules/user-ledger/`, `src/repositori
 
 Pendiente: que `svc-admin` llame a `manual-adjustments` (sin UI de admin todavía); sin env vars nuevas.
 
-### MOVO-312 — Pagar mi saldo con Checkout Pro
+### MOVO-312 — Pagar mi saldo con tarjeta guardada + CVV (Checkout API)
 
-`POST /payments/balance/checkout` `{ amountArs }` → `{ checkoutUrl, attemptId }` (hereda el hook `x-user-id`; el gateway ya proxeaba
-`/payments`) y `GET /payments/balance/checkout/return` (pública en el gateway, `getPublicRoutes()`; responde un 302 a
-`movo://balance?result=success|failure|pending`). Código en `src/modules/balance-checkout/`,
-`src/repositories/balance-payment-attempt-repository.ts` y `src/plugins/balance-checkout.ts`; tabla `payments.balance_payment_attempts`
+`GET /payments/balance/pay-data` → `{ publicKey, balanceArs }` y `POST /payments/balance/pay` `{ amountArs, cardToken, savedCardId,
+paymentMethodId? }` → `{ attemptId, status: approved|rejected|pending, failureReason, balanceArs }` (heredan el hook `x-user-id`; el gateway
+ya proxeaba `/payments`). El usuario no sale de la app: mismo flujo que pagar un envío (ADR-039). Código en `src/modules/balance-payment/`,
+`src/repositories/balance-payment-attempt-repository.ts` y `src/plugins/balance-payment.ts`; tabla `payments.balance_payment_attempts`
 (migración `20261016130000`); contrato en `@movo/shared` (`types/user-ledger.ts`). Diagrama: `flujo-de-pagos.md` 5.7.
 
-Por qué Checkout Pro: el pago directo con tarjeta tokenizada a Movo no funciona todavía (falta la `public_key` `TEST-` de Movo S.A.,
-MOVO-283, spike MOVO-305); con Checkout Pro Movo es el `collector` y MP devuelve el `init_point`.
+**Cuenta cobradora vinculada por OAuth, no la app de Movo S.A.** Verificado en el sandbox (16/10/2026): con el token `client_credentials`
+de la app, `POST /v1/payments` responde `403 At least one policy returned UNAUTHORIZED` (aun con `card_token` inválido, o sea que ni llega a
+validarlo), con el token `APP_USR-` de la app `401 Unauthorized use of live credentials`, y `card_tokens` con la `public_key` `APP_USR-` da 201 pero
+no sirve. El token de la app no puede crear pagos. Por eso Movo cobra con una cuenta de MP **vinculada como la de un transportista**:
+`MOVO_COLLECTOR_USER_ID` es un usuario interno que vincula su cuenta en Pagos y cobros; se leen sus credenciales con
+`findActiveCredentials` (token vigente + `public_key`) y las renueva el barrido de MOVO-243. Sin la var, sin cuenta vinculada o con el token
+vencido: 503 `BALANCE_COLLECTOR_NOT_CONFIGURED`. En el sandbox esa cuenta es un Vendedor de prueba; en producción, la cuenta real de Movo.
 
-- **Idempotencia en la base**: índice único parcial `(user_id, amount_ars) WHERE status IN ('creating','pending')`, a mano en la migración.
-  Un pedido igual con el checkout vigente devuelve el mismo link; si el primero todavía se está armando, 409
-  `BALANCE_CHECKOUT_IN_PROGRESS` (reintentar); un intento `creating` de un proceso caído (>2 min) o uno vencido se descarta y se abre otro.
-  Si MP no crea la preferencia (502), el intento queda `failed` y libera el índice. La preferencia lleva `external_reference` = id del intento,
-  `expires` a 24 h (`BALANCE_CHECKOUT_TTL_HOURS`), `back_urls` y `notification_url` propios, y la key de MP `movo-balance-checkout-<intento>`.
+- **Pago directo**: `payer: {type: customer}` con la tarjeta guardada del usuario (`resolvePayer`, igual que `hold.service.ts`: tarjeta ajena o
+  dada de baja → 404 `SAVED_CARD_NOT_FOUND`), captura inmediata, sin `capture:false` ni `application_fee`, `external_reference` = id del intento,
+  key de MP `movo-balance-<intento>`. El token lo hace el mobile con la `public_key` de `pay-data`.
+- **Idempotencia en la base**: índice único parcial `(user_id, amount_ars) WHERE status IN ('creating','pending')`, a mano en la migración. Con un
+  pedido igual: `pending` → devuelve su resultado; `creating` con el mismo token/tarjeta (huella) → reintenta con la MISMA key; en otro caso 409
+  `BALANCE_PAYMENT_IN_PROGRESS`.
+- **Errores de MP como en los holds** (`classifyCreateError`/`readMpError`/`failureReasonFromStatusDetail`, exportados de `hold.service.ts`): un
+  rechazo de la tarjeta o un token inválido (2006/3001/3003/3031/3032) es un 200 con `status: rejected` y `failureReason`; 401/403 de la cobradora →
+  intento `failed`, alerta `mp_balance_collector_auth` y 503; sin respuesta (timeout/5xx) → 502 y el intento queda `creating`.
 - **Monto**: mayor que cero, hasta 2 decimales y como mucho el saldo deudor (`ledger.balance`); sin deuda o con saldo a favor → 422
-  `BALANCE_AMOUNT_EXCEEDS_DEBT`. Distintos montos son distintos checkouts (se pueden tener varios abiertos).
-- **La plata se acredita una sola vez por el ledger, no por el estado del intento**: `voluntary_payment` negativo y `settled` con
-  `idempotencyKey: balance-payment:<intento>`. Un webhook repetido o en paralelo da `already_settled`. Un pago aprobado tardío sobre un
-  intento ya `rejected`/`abandoned` igual se acredita (es plata recibida). Rechazado/cancelado → intento `rejected`, sin movimiento;
-  `pending`/`in_process` → no hay resultado todavía.
-- **Webhook (AC5)**: `mp-webhook.service.ts#resolveBalancePayment` corre ANTES del camino de holds, solo para un pago sin hold cuyo
-  `user_id` no es un vendedor vinculado. Consulta `Payment.get` con el **token de Movo** (solo ve pagos donde Movo cobra: uno ajeno da
-  401/403/404 y se ignora, sin reintentar), exige que el `external_reference` sea de un intento y que el monto coincida (si no, no
-  acredita y avisa al equipo). Contracargo, reembolso o mediación sobre un pago de saldo no tocan el ledger: alertan (la decisión es de
-  una persona). Los holds se siguen procesando igual (los tests del webhook de MOVO-268 pasan sin cambios).
-- **Conciliación** (`reconcileOpen`, al pedir un checkout nuevo): por cada intento abierto del usuario consulta a MP las **órdenes de comercio
-  de la preferencia** (`searchPaymentsByPreference`, `preference_id`) y también la búsqueda por `external_reference`; con cualquier pago aprobado se
-  acredita antes de validar el monto, y un `pending` vencido sin pago se abandona. Una falla de MP ahí no bloquea. **Dos fuentes a propósito**: en el
-  sandbox la búsqueda por `external_reference` devolvió 0 resultados con el pago ya aprobado (la de `id` sí lo veía), mientras que la orden de
-  comercio lo listó. No hay barrido periódico: un usuario que nunca vuelve con un webhook perdido queda con el intento `pending` hasta su próximo pedido.
-- **Sin env vars nuevas**: la base pública del API (`back_urls`, `notification_url`) se deriva de `MP_REDIRECT_URI` (sin el sufijo
-  `/payments/mp-connect/callback`); sin ella, o sin las credenciales de Movo (`MovoTokenProvider`), responde 503
-  `BALANCE_CHECKOUT_NOT_CONFIGURED`. En `MP_TEST_MODE` se devuelve el `sandbox_init_point`.
-- **`notification_url` por preferencia**: se manda junto al webhook del panel de la app; falta confirmar en el sandbox que MP firme igual esas
-  notificaciones (hoy el webhook valida `x-signature` con `MP_WEBHOOK_SECRET`).
+  `BALANCE_AMOUNT_EXCEEDS_DEBT`.
+- **La plata se acredita una sola vez por el ledger, no por el estado del intento**: `voluntary_payment` negativo `settled` con
+  `idempotencyKey: balance-payment:<intento>`, al aprobarse en la respuesta o por el webhook. Un aprobado tardío sobre un intento ya `rejected`
+  igual se acredita (es plata recibida); un `mp_payment_id` es único por intento (un pago no puede asentar dos).
+- **Webhook**: `mp-webhook.service.ts#resolveBalancePayment` corre ANTES del camino de holds, solo si el `user_id` de la notificación es el de la
+  cuenta cobradora (`collectorForWebhook`). Consulta `Payment.get` con su token, exige `external_reference` de un intento y monto igual (si no, no acredita y
+  avisa). Contracargo/reembolso/mediación no tocan el ledger: alertan. Los holds se procesan igual.
+- **Conciliación** (`reconcileOpen`, al pedir `pay-data` o `pay`): por cada intento abierto busca en MP por `external_reference` con el token de la cobradora;
+  un aprobado se acredita antes de validar el monto, y un `creating` de más de 10 min sin pago en MP pasa a `failed`. Una falla de MP no bloquea. En el
+  sandbox esa búsqueda llegó a devolver 0 con el pago ya aprobado (la de `id` sí lo veía): por eso el resultado inmediato y el webhook son el camino principal.
+  No hay barrido periódico.
+- **Env var nueva**: `MOVO_COLLECTOR_USER_ID` (`.env.example`, `envSchema`, `docker-compose.yml`).
 
-**Verificado contra el sandbox real (16/10/2026)**, con la app `movosend` y el Comprador de prueba:
-- Preferencia creada con el token `TEST-` de Movo (`collector_id` 3609549431): MP aceptó `back_urls` https, `auto_return`, `notification_url` y el vencimiento.
-- Pago de $100 completado en el checkout con **dinero en cuenta** (pago #183440151757, `approved`/`accredited`, `external_reference` del intento).
-  `GET /v1/payments/:id` con el token de Movo lo devuelve completo; el camino del webhook (`applyPayment`) lo acredita una sola vez (saldo 1000 → 900,
-  `voluntary_payment` `settled`, intento `approved`) y repetirlo da `already_settled`. La conciliación por orden de comercio también lo acredita una sola vez.
-- **El pago con tarjeta se rechazó en el checkout** (pantalla "No pudimos procesar tu pago"): MP volvió a `back_urls.failure` con `payment_id=null`, o sea que
-  no llegó a crear un pago, así que no hay nada que conciliar. Con la misma cuenta cobradora y una preferencia mínima, dinero en cuenta sí pasó. La causa de la
-  tarjeta no está identificada (sesión del comprador, titular de la tarjeta o la cuenta de Movo); no es de este código.
-- El redirect a `…/checkout/return` contra `api-dev` dio 401: dev todavía no tiene la ruta pública de este PR (se resuelve al desplegar).
+**Reemplaza a una primera versión con Checkout Pro** (preferencia + redirect) que se descartó: el usuario sale de la app, y no es el flujo de pagar un envío.
 
-Pendiente: el pago con tarjeta en el checkout (ver arriba) y la prueba del ciclo completo con el redirect y el webhook reales una vez desplegado en dev (MP
-notifica a `api-dev`, que hoy corre el código anterior); la pantalla mobile (MOVO-315); sumar el pago con tarjeta guardada + CVV si MOVO-283 identifica la
-`public_key` de Movo.
+Pendiente: probar el ciclo completo contra el sandbox con una cuenta cobradora vinculada (token de tarjeta con su `public_key`, pago real y webhook);
+vincular la cuenta de Movo en dev/prod y cargar `MOVO_COLLECTOR_USER_ID` en los secrets; la pantalla mobile (MOVO-315).

@@ -14,9 +14,7 @@ import mpTokenRefreshSweepPlugin from "./plugins/mp-token-refresh-sweep";
 import cardsPlugin from "./plugins/cards";
 import transactionsPlugin from "./plugins/transactions";
 import userLedgerPlugin from "./plugins/user-ledger";
-import balanceCheckoutPlugin from "./plugins/balance-checkout";
-import balanceCheckoutReturnRoutes from "./modules/balance-checkout/balance-checkout-return.routes";
-import type { BalanceTokenProvider } from "./modules/balance-checkout/balance-checkout.service";
+import balancePaymentPlugin from "./plugins/balance-payment";
 import paymentsRoutes from "./modules/payments/payments.routes";
 import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
 import holdsRoutes from "./modules/holds/holds.routes";
@@ -50,8 +48,6 @@ export interface BuildAppOptions {
   /** Ídem para el aviso a svc-shipments y las alertas del webhook (MOVO-268). */
   shipmentsClient?: ShipmentsClient;
   alertNotifier?: AlertNotifier;
-  /** Ídem para el token de Movo de "Pagar mi saldo" (MOVO-312). */
-  movoTokenProvider?: BalanceTokenProvider;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -102,7 +98,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Después de `holds`: reconcilia intentos en `creating` con su service (MOVO-268).
   app.register(mpWebhooksPlugin, { shipmentsClient: opts.shipmentsClient, alertNotifier: opts.alertNotifier });
   // MOVO-312: "Pagar mi saldo". Después de `mpWebhooks` (usa `app.alerts`) y de `userLedger`.
-  app.register(balanceCheckoutPlugin, { tokenProvider: opts.movoTokenProvider });
+  app.register(balancePaymentPlugin);
 
   // Mismo criterio que movo-svc-users: el healthcheck de Docker tiene que reflejar
   // si el servicio puede hablar con Postgres. El detalle del error se loguea y no
@@ -124,9 +120,6 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-268: webhook de MP. Público en el gateway, protegido por la firma `x-signature`;
   // fuera de `paymentsRoutes` por el mismo motivo que el callback de OAuth.
   app.register(mpWebhookRoutes, { prefix: "/payments/webhooks" });
-
-  // MOVO-312: `back_urls` del checkout de "Pagar mi saldo": 302 al deep link, sin `x-user-id` (pública en el gateway).
-  app.register(balanceCheckoutReturnRoutes, { prefix: "/payments/balance/checkout" });
 
   // MOVO-209: interno, lo llama svc-shipments. Sin ruta en el gateway (ADR-010).
   app.register(holdsRoutes, { prefix: "/internal/payments/holds" });

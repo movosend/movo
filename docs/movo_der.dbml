@@ -840,20 +840,21 @@ Table payments.user_ledger_entries {
   created_at timestamptz
 }
 
-// MOVO-312: intentos de "Pagar mi saldo" con Checkout Pro. Su id es el `external_reference` de la preferencia de MP.
+// MOVO-312: intentos de "Pagar mi saldo" (Checkout API: tarjeta guardada + CVV). Su id es el `external_reference` del pago de MP.
 Table payments.balance_payment_attempts {
   id uuid [pk]
   user_id uuid [note: 'usuario de Movo, sin FK (ADR-003)']
   amount_ars decimal(12,2) [note: 'positivo; el ledger lo asienta negativo (voluntary_payment)']
-  status varchar [note: 'creating | pending | approved | rejected | abandoned | failed']
-  mp_preference_id varchar [null]
-  checkout_url varchar [null, note: 'init_point (sandbox_init_point en modo test)']
-  mp_payment_id varchar [null, unique, note: 'pago de MP que lo aprobó']
-  expires_at timestamptz [note: 'vencimiento de la preferencia']
+  status varchar [note: 'creating | pending | approved | rejected | failed']
+  saved_card_id uuid [null, note: 'tarjeta guardada con la que se pagó; sin FK']
+  request_fingerprint varchar [note: 'hash de token + tarjeta + medio de pago: distingue un reintento de una key reusada']
+  mp_payment_id varchar [null, unique, note: 'pago de MP']
+  status_detail varchar [null]
+  failure_reason varchar [null, note: 'insufficient_funds | card_rejected | invalid_data | platform_error']
   created_at timestamptz
   updated_at timestamptz
 
   indexes {
-    (user_id, amount_ars) [unique, note: 'parcial: solo mientras status IN (creating, pending); impide dos preferencias iguales en vuelo']
+    (user_id, amount_ars) [unique, note: 'parcial: solo mientras status IN (creating, pending); impide dos pagos iguales en vuelo']
   }
 }

@@ -157,24 +157,6 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       expect(capturedHeaders["x-user-id"]).toBeUndefined();
     });
 
-    it("GET /payments/balance/checkout/return es público (MOVO-312): llega sin token y sin x-user-* falsificados", async () => {
-      const response = await app.inject({
-        method: "GET",
-        url: "/api/v1/payments/balance/checkout/return?result=success&payment_id=123&status=approved",
-        headers: { "x-user-id": "33333333-3333-3333-3333-333333333333" },
-      });
-
-      expect(response.statusCode).toBe(200);
-      expect(capturedUrl).toBe("/payments/balance/checkout/return?result=success&payment_id=123&status=approved");
-      expect(capturedHeaders["x-user-id"]).toBeUndefined();
-    });
-
-    it("POST /payments/balance/checkout sigue protegido: sin token responde 401", async () => {
-      const response = await app.inject({ method: "POST", url: "/api/v1/payments/balance/checkout", payload: { amountArs: 100 } });
-
-      expect(response.statusCode).toBe(401);
-    });
-
     it("POST /payments/webhooks/mercadopago es público (MOVO-268): llega sin token, con el query y el x-request-id de MP", async () => {
       const response = await app.inject({
         method: "POST",

@@ -1,5 +1,4 @@
 import type { FastifyBaseLogger } from "fastify";
-import { ApiError } from "@movo/shared";
 import type { HoldProviderEventKind } from "@movo/shared";
 import { MercadoPagoClient, PaymentResponse } from "../../adapters/mercadopago-client";
 import { AlertNotifier } from "../../adapters/alert-notifier";
@@ -12,7 +11,7 @@ import {
   NotificationResolution,
 } from "../../repositories/mp-webhook-repository";
 import { missingCardFields } from "../../utils/payment-card";
-import type { BalanceCheckoutService } from "../balance-checkout/balance-checkout.service";
+import type { BalancePaymentService } from "../balance-payment/balance-payment.service";
 import { holdUpdateFromPayment, HoldService, readMpError } from "../holds/hold.service";
 
 /**
@@ -79,10 +78,10 @@ export interface MpWebhookServiceDeps {
   /** Intentos antes de dar la notificación por `failed` y alertar. */
   maxAttempts: number;
   /**
-   * MOVO-312: "Pagar mi saldo". Los pagos de Checkout Pro tienen a Movo de cobrador (no a un transportista), así que
-   * no están en `holds`. Es un getter porque el service se arma después que este (usa `app.alerts`).
+   * MOVO-312: "Pagar mi saldo". Estos pagos tienen de cobrador a la cuenta de Movo (no a un transportista) y no
+   * están en `holds`. Es un getter porque el service se arma después que este (usa `app.alerts`).
    */
-  balancePayments?: () => Pick<BalanceCheckoutService, "applyPayment" | "movoToken"> | undefined;
+  balancePayments?: () => Pick<BalancePaymentService, "applyPayment" | "collectorForWebhook"> | undefined;
   now?: () => Date;
 }
 
@@ -329,17 +328,16 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
   async function resolveBalancePayment(notification: MpWebhookNotification): Promise<Resolution | null> {
     const balance = deps.balancePayments?.();
     if (!balance) return null;
-    // Un pago de un vendedor vinculado es de holds, no de Movo.
-    if (notification.mpUserId && (await accounts.findCredentialsByMpUserId(notification.mpUserId))) return null;
-
-    let token: string;
+    // Solo los pagos de la cuenta cobradora de Movo (un pago de un transportista vinculado es de holds): sin cuenta
+    // cobradora configurada o con otro `user_id`, esto no es un pago de saldo.
+    let collector: Awaited<ReturnType<typeof balance.collectorForWebhook>>;
     try {
-      token = await balance.movoToken();
+      collector = await balance.collectorForWebhook(notification.mpUserId ?? undefined);
     } catch (error) {
-      if (error instanceof ApiError && error.code === "BALANCE_CHECKOUT_NOT_CONFIGURED") return null;
       throw new TransientError(error instanceof Error ? error.message : String(error));
     }
-    const fetched = await fetchPayment(token, notification.mpPaymentId);
+    if (!collector) return null;
+    const fetched = await fetchPayment(collector.accessToken, notification.mpPaymentId);
     if (fetched.kind !== "ok") return null;
     if (String(fetched.payment.id) !== notification.mpPaymentId) return null;
 

@@ -292,15 +292,6 @@ export function getPublicRoutes(): PublicRoute[] {
       rateLimit: { max: 20, timeWindow: "15 minutes" },
     },
 
-    // `back_urls` del checkout de "Pagar mi saldo" (MOVO-312): lo abre el navegador embebido del
-    // usuario al terminar (o cancelar) el pago en MP, sin JWT. Solo responde un 302 a
-    // `movo://balance`; el resultado real lo confirma la app pidiendo el saldo.
-    {
-      method: "GET",
-      path: "/payments/balance/checkout/return",
-      rateLimit: { max: 60, timeWindow: "15 minutes" },
-    },
-
     // Webhook de Mercado Pago (MOVO-268): MP no tiene JWT. Lo protege la firma
     // `x-signature` que valida svc-payments con MP_WEBHOOK_SECRET (el gateway conserva el
     // `x-request-id` entrante, que es parte de lo firmado). Límite propio y holgado: MP

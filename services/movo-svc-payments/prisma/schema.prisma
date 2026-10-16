@@ -380,33 +380,34 @@ enum BalanceAttemptStatus {
   pending
   approved
   rejected
-  abandoned
   failed
 
   @@map("balance_attempt_status")
   @@schema("payments")
 }
 
-// MOVO-312: un intento de "Pagar mi saldo" con Checkout Pro. Su `id` es el `external_reference`
-// de la preferencia de MP: con él el webhook distingue estos pagos (cobrador = Movo) de los holds
-// (cobrador = transportista). El movimiento del ledger (`voluntary_payment`) se asienta una sola vez
-// por su `idempotency_key` (`balance-payment:<id>`), no por el estado de esta fila.
-// Un índice único parcial a mano (`user_id`, `amount_ars` mientras `creating`/`pending`) impide dos
-// preferencias iguales en vuelo para el mismo usuario.
+// MOVO-312: un intento de "Pagar mi saldo" (Checkout API: tarjeta guardada + CVV, pago directo a la cuenta cobradora de
+// Movo). Su `id` es el `external_reference` del pago de MP: con él el webhook y la recuperación de un intento sin
+// respuesta lo reconocen. El movimiento del ledger (`voluntary_payment`) se asienta una sola vez por su
+// `idempotency_key` (`balance-payment:<id>`), no por el estado de esta fila.
+// Un índice único parcial a mano (`user_id`, `amount_ars` mientras `creating`/`pending`) impide dos pagos iguales
+// en vuelo para el mismo usuario.
 model BalancePaymentAttempt {
-  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId         String               @map("user_id") @db.Uuid
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String               @map("user_id") @db.Uuid
   // Lo que el usuario quiso pagar en este intento: siempre positivo (el ledger lo asienta negativo).
-  amountArs      Decimal              @map("amount_ars") @db.Decimal(12, 2)
-  status         BalanceAttemptStatus @default(creating)
-  mpPreferenceId String?              @map("mp_preference_id")
-  checkoutUrl    String?              @map("checkout_url")
-  // Pago de MP que lo aprobó: único, así un mismo pago no puede asentar dos intentos.
-  mpPaymentId    String?              @unique(map: "balance_payment_attempts_mp_payment_id_key") @map("mp_payment_id")
-  // Vencimiento de la preferencia: pasado, el checkout ya no se puede completar.
-  expiresAt      DateTime             @map("expires_at") @db.Timestamptz(3)
-  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  amountArs          Decimal              @map("amount_ars") @db.Decimal(12, 2)
+  status             BalanceAttemptStatus @default(creating)
+  // Tarjeta guardada (`saved_cards.id`) con la que se pagó; sin FK, solo para el historial.
+  savedCardId        String?              @map("saved_card_id") @db.Uuid
+  // Hash del cuerpo del pedido (token, tarjeta, medio de pago): un reintento con la misma key solo es seguro si coincide.
+  requestFingerprint String               @map("request_fingerprint")
+  // Pago de MP: único, así un mismo pago no puede asentar dos intentos.
+  mpPaymentId        String?              @unique(map: "balance_payment_attempts_mp_payment_id_key") @map("mp_payment_id")
+  statusDetail       String?              @map("status_detail")
+  failureReason      HoldFailureReason?   @map("failure_reason")
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId, status], map: "balance_payment_attempts_user_id_status_idx")
   @@map("balance_payment_attempts")
