@@ -119,6 +119,10 @@ const REQUIREMENT_CODES = {
   no_overdue_debt: "USER_DEBT_OVERDUE",
 } as const satisfies Record<CarrierRequirement, string>;
 
+/** Sin prometer un camino para pagar que todavía no existe en la app (MOVO-311/312). */
+const DEBT_MESSAGE =
+  "Tenés una deuda vencida con Movo y por ahora no podés operar como transportista. Se levanta apenas se salde.";
+
 function missingRequirementsError(missingRequirements: CarrierRequirement[]): ApiError {
   const details: CarrierRequirementsErrorDetails = { missingRequirements };
   const code = REQUIREMENT_CODES[missingRequirements[0]];
@@ -137,7 +141,7 @@ function missingRequirementsError(missingRequirements: CarrierRequirement[]): Ap
     return new ApiError(
       403,
       code,
-      "Tenés una deuda vencida con Movo. Saldala para volver a operar como transportista.",
+      DEBT_MESSAGE,
       { ...details }
     );
   }
@@ -145,7 +149,10 @@ function missingRequirementsError(missingRequirements: CarrierRequirement[]): Ap
     .filter((requirement): requirement is ChecklistRequirement => requirement in REQUIREMENT_LABELS)
     .map((requirement) => REQUIREMENT_LABELS[requirement])
     .join(" y ");
-  return new ApiError(403, code, `Para operar como transportista te falta ${pending}.`, { ...details });
+  // El `code` es el del primer requisito, así que con deuda + licencia/MP el mensaje no puede
+  // callarse la deuda: si no, la persona resuelve esos pasos y recién después se topa con el bloqueo.
+  const debtNote = missingRequirements.includes("no_overdue_debt") ? ` Además, ${DEBT_MESSAGE.charAt(0).toLowerCase()}${DEBT_MESSAGE.slice(1)}` : "";
+  return new ApiError(403, code, `Para operar como transportista te falta ${pending}.${debtNote}`, { ...details });
 }
 
 /**

@@ -17,7 +17,11 @@ import { shortAddress } from "../../utils/short-address";
 import { NotificationClaims } from "../../utils/notification-claim";
 import { Trip } from "../../models/trip";
 
-/** Un aviso por ocurrencia frenada por deuda; el vigente cambia al declararse la siguiente. */
+/**
+ * Un aviso por ocurrencia frenada por deuda; el vigente cambia al declararse la siguiente. Si la
+ * serie sigue frenada pasados 30 días el claim vence y el aviso se repite: es un recordatorio
+ * mensual a propósito (lleva un mes sin declarar viajes), no un estado que haya que persistir.
+ */
 const DEBT_BLOCK_CLAIM_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 type RecurrenceLogger = {
@@ -33,9 +37,9 @@ export interface TripRecurrenceDeps {
    * resto de los requisitos de ADR-036. */
   shipmentRepository: Pick<ShipmentRepository, "hasOpenDisputeAsCarrier">;
   notificationsClient?: NotificationsClient;
-  /** MOVO-313: dedupe del aviso "frenado por deuda" (corre cada pasada del barrido). Sin él no
-   * se avisa, para no repetir la push en cada corrida. */
-  claims?: NotificationClaims;
+  /** MOVO-313: dedupe del aviso "frenado por deuda" (corre cada pasada del barrido). Requerido,
+   * no opcional: si faltara, la serie quedaría frenada sin avisar nunca. */
+  claims: NotificationClaims;
   logger?: RecurrenceLogger;
 }
 
@@ -254,7 +258,7 @@ async function stopSeries(deps: TripRecurrenceDeps, trip: Trip, reason: Recurren
  * pasada lo reintenta. Sin `claims` no avisa: sin dedupe saldría en cada corrida.
  */
 async function notifyBlockedByDebt(deps: TripRecurrenceDeps, trip: Trip): Promise<void> {
-  if (!deps.claims || !deps.notificationsClient) return;
+  if (!deps.notificationsClient) return;
   const claimKey = `trip-recurrence-debt:${trip.id}`;
   if (!(await deps.claims.claimNotificationOnce(claimKey, DEBT_BLOCK_CLAIM_TTL_SECONDS))) return;
   const sent = await notify(deps, trip.carrierId, "tripRecurrenceBlockedByDebt", {

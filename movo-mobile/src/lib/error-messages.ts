@@ -129,7 +129,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     "Tenés una disputa abierta como transportista. Vas a poder operar cuando se resuelva.",
   // MOVO-313 (ADR-044): tampoco es un paso de la checklist, se resuelve con un pago. Como
   // emisor no se bloquea: su próximo pago ya incluye la deuda (MOVO-311).
-  USER_DEBT_OVERDUE: "Tenés una deuda vencida con Movo. Saldala para volver a operar como transportista.",
+  // Sin "pagá desde...": todavía no hay dónde saldarla en la app (MOVO-311/312).
+  USER_DEBT_OVERDUE:
+    "Tenés una deuda vencida con Movo y por ahora no podés operar como transportista. Se levanta apenas se salde.",
   // No son un requisito que el usuario pueda resolver: no se pudo verificar, se reintenta.
   USERS_SERVICE_UNAVAILABLE: "No pudimos verificar tus requisitos. Intentá de nuevo en unos minutos.",
   PAYMENTS_SERVICE_UNAVAILABLE: "No pudimos verificar tu cuenta de Mercado Pago. Intentá de nuevo en unos minutos.",

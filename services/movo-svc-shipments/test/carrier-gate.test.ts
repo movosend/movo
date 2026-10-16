@@ -153,6 +153,20 @@ describe("carrier-gate (MOVO-116, ADR-036)", () => {
         });
       });
 
+      it("con licencia o MP faltando, el mensaje también menciona la deuda (no se la descubre después)", async () => {
+        const deps = {
+          usersClient: usersClientWith({ kycStatusIdentity: KycStatus.APPROVED, kycStatusLicense: KycStatus.PENDING }),
+          paymentsClient: withDebt(),
+          shipmentRepository: disputesWith(false),
+        };
+
+        const error = (await assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER]).catch((e: ApiError) => e)) as ApiError;
+
+        expect(error.code).toBe("CARRIER_LICENSE_NOT_APPROVED");
+        expect(error.message).toContain("licencia");
+        expect(error.message).toContain("deuda vencida");
+      });
+
       it("con una disputa abierta y deuda: la disputa va primero", async () => {
         const deps = { usersClient: usersClientWith(approved), paymentsClient: withDebt(), shipmentRepository: disputesWith(true) };
 

@@ -112,6 +112,15 @@ async function parseApiError(response: Response, fallbackMessage: string): Promi
 }
 
 export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClient {
+  // MOVO-313: con `undefined`/`NaN`, `edad > undefined * DAY_MS` es siempre `false` y nadie quedaría
+  // bloqueado, sin error ni log: un gate que debe fallar cerrado fallaría abierto. Se corta al armar
+  // el cliente (arranque del servicio) en vez de degradar en silencio.
+  if (!Number.isFinite(config.USER_DEBT_OVERDUE_DAYS) || config.USER_DEBT_OVERDUE_DAYS < 0) {
+    throw new Error(
+      `USER_DEBT_OVERDUE_DAYS inválido (${String(config.USER_DEBT_OVERDUE_DAYS)}): tiene que ser un número >= 0.`,
+    );
+  }
+
   async function callHolds(path: string, init: RequestInit, timeoutMs = HOLD_TIMEOUT_MS): Promise<Response> {
     try {
       return await fetch(`${config.PAYMENTS_SERVICE_URL}${HOLDS_PATH}${path}`, {

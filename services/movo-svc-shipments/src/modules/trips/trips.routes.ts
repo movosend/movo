@@ -123,7 +123,8 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
           "MOVO-278 (ADR-045): con un envío en disputa como transportista, 403 " +
           "CARRIER_DISPUTE_OPEN (va primero en missingRequirements). " +
           "MOVO-313 (ADR-044): con una deuda de la cuenta corriente sin saldar hace más de " +
-          "USER_DEBT_OVERDUE_DAYS (14), 403 USER_DEBT_OVERDUE (va al final de missingRequirements). " +
+          "USER_DEBT_OVERDUE_DAYS (14), 403 USER_DEBT_OVERDUE (si es lo único que falta; con otros requisitos el code es el del " +
+          "primero, la deuda se lista al final de details.missingRequirements y el mensaje la menciona). " +
           "MOVO-265 (ADR-042): con recurrenceWeekdays el viaje nace recurrente (el día de " +
           "departureAt tiene que estar incluido, 400 VALIDATION_FAILED si no); 409 " +
           "RECURRING_SERIES_LIMIT si el transportista ya tiene 3 series activas.",

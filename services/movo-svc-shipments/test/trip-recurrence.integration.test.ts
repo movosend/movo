@@ -68,6 +68,7 @@ describe("viajes recurrentes (MOVO-265)", () => {
       usersClient: createFakeUsersClient({}),
       paymentsClient: createFakePaymentsClient(),
       notificationsClient,
+      claims: createNotificationClaims(app.redis),
       ...overrides,
     };
     return { deps, sendPush: notificationsClient.sendPush as Mock };
@@ -364,11 +365,15 @@ describe("viajes recurrentes (MOVO-265)", () => {
       const { deps, sendPush } = recurrenceDeps({ paymentsClient });
 
       const blocked = await generateRecurringOccurrences(deps);
-      // Postergada, no cortada: sin sucesor, la recurrencia sigue prendida y no se avisa ningún corte.
+      // Postergada, no cortada: sin sucesor, la recurrencia sigue prendida y el único aviso es el de
+      // "frenada por deuda", nunca el de corte de la serie.
       expect(blocked).toEqual({ generated: 0, stopped: 0, deferred: 1, alreadyGenerated: 0 });
       expect(await successorOf(head.id)).toBeNull();
       expect((await tripRepo.findById(head.id))!.recurrenceWeekdays).toEqual(head.recurrenceWeekdays);
-      expect(sendPush).not.toHaveBeenCalled();
+      expect(sendPush).toHaveBeenCalledTimes(1);
+      expect(sendPush).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { type: "trip_recurrence_blocked", tripId: head.id } }),
+      );
 
       // Sigue bloqueada mientras no se salde (varias corridas no acumulan nada).
       await generateRecurringOccurrences(deps);
@@ -385,7 +390,7 @@ describe("viajes recurrentes (MOVO-265)", () => {
       const debtDeps = async () => {
         const head = await createPastRecurringTrip();
         const paymentsClient = createFakePaymentsClient([], {}, { overdueDebtUserIds: new Set([head.carrierId]) });
-        const base = recurrenceDeps({ paymentsClient, claims: createNotificationClaims(app.redis) });
+        const base = recurrenceDeps({ paymentsClient });
         return { head, paymentsClient, ...base };
       };
 
@@ -416,16 +421,6 @@ describe("viajes recurrentes (MOVO-265)", () => {
         await generateRecurringOccurrences(deps);
 
         expect(sendPush).toHaveBeenCalledTimes(2);
-      });
-
-      it("sin dedupe configurado no avisa (saldría en cada corrida)", async () => {
-        const head = await createPastRecurringTrip();
-        const paymentsClient = createFakePaymentsClient([], {}, { overdueDebtUserIds: new Set([head.carrierId]) });
-        const { deps, sendPush } = recurrenceDeps({ paymentsClient });
-
-        await generateRecurringOccurrences(deps);
-
-        expect(sendPush).not.toHaveBeenCalled();
       });
     });
 

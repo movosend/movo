@@ -117,6 +117,18 @@ describe("PaymentsClient.getUserDebtStatus (MOVO-313, ADR-044)", () => {
     expect((await client.getUserDebtStatus(USER_ID, NOW)).overdue).toBe(false);
   });
 
+  it.each([undefined, Number.NaN, -1, Number.POSITIVE_INFINITY])(
+    "un umbral inválido (%s) corta al armar el cliente: nunca falla abierto en silencio",
+    (days) => {
+      expect(() =>
+        createPaymentsClient({
+          PAYMENTS_SERVICE_URL: "http://p:3000",
+          USER_DEBT_OVERDUE_DAYS: days as unknown as number,
+        }),
+      ).toThrow(/USER_DEBT_OVERDUE_DAYS/);
+    },
+  );
+
   it("sin deuda (saldo 0 o a favor): no overdue", async () => {
     respondWith({ balanceArs: -300, oldestUnpaidAt: null });
 

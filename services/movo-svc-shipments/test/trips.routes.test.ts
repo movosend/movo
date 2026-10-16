@@ -64,7 +64,7 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
     };
 
     app = Fastify({ logger: false });
-    (app as any).config = { TRIP_DEFAULT_MAX_DETOUR_KM: 15 };
+    (app as any).config = { TRIP_DEFAULT_MAX_DETOUR_KM: 15, USER_DEBT_OVERDUE_DAYS: 14 };
     await app.register(errorHandlerPlugin);
     await app.register(tripsRoutes, { service });
     await app.ready();

@@ -3508,8 +3508,14 @@ que se mide.
   próxima corrida declara la siguiente. Con otro requisito faltante además, se corta como siempre. **Avisa** con el
   trigger `tripRecurrenceBlockedByDebt` (categoría `trips`, `data: { type: "trip_recurrence_blocked", tripId }` del viaje
   vigente), **una vez por ocurrencia frenada**: dedupe `notified:trip-recurrence-debt:<tripId>` (30 días; el vigente cambia
-  al declararse la siguiente, así que una deuda futura vuelve a avisar), se suelta el claim si la push falla, y sin
-  `claims` en `TripRecurrenceDeps` no avisa (saldría en cada corrida; el sweep lo cablea con `app.redis`).
+  al declararse la siguiente, así que una deuda futura vuelve a avisar; si la serie sigue frenada a los 30 días el claim
+  vence y el aviso se repite, recordatorio mensual a propósito), se suelta el claim si la push falla, y `claims` es
+  requerido en `TripRecurrenceDeps` (el sweep lo cablea con `app.redis`). Cada pasada (15 min) vuelve a evaluar las
+  series frenadas: hasta 3 por transportista, acotado; si pesara, el siguiente paso sería un backoff por transportista.
+- **Revisión del PR #263**: `createPaymentsClient` corta al armarse si `USER_DEBT_OVERDUE_DAYS` no es un número >= 0 (con
+  `undefined`/`NaN` el gate fallaba abierto en silencio). Con deuda + licencia/MP el mensaje del 403 también menciona la
+  deuda (el `code` sigue siendo el del primer requisito). El texto de la deuda ya no promete "saldala": todavía no hay
+  dónde pagar en la app (MOVO-311/312).
 - No corta envíos en curso: handshake y tracking no pasan por el gate (test con un `in_transit` y deuda vencida).
 
 Tests: `user-debt.test.ts`, `payments-client.test.ts` (umbral configurable, formas inválidas), `carrier-gate.test.ts`
