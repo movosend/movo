@@ -1,4 +1,4 @@
-import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
+import { MercadoPagoConfig, MerchantOrder, Payment, Preference } from "mercadopago";
 
 // El SDK no exporta estos tipos desde su índice: se derivan de `Payment` en vez de
 // importarlos de `mercadopago/dist/...`, que es estructura interna del paquete.
@@ -69,6 +69,12 @@ export interface MercadoPagoClient {
    * segundo pago (MOVO-209, review de PR #226).
    */
   searchPaymentsByExternalReference(accessToken: string, externalReference: string): Promise<PaymentSnapshot[]>;
+  /**
+   * MOVO-312: pagos de una preferencia de Checkout Pro, vía las órdenes de comercio (`preference_id`). Es el camino
+   * confiable para conciliar "Pagar mi saldo": en el sandbox la búsqueda por `external_reference` no devolvió un pago ya
+   * aprobado, y la orden de comercio sí lo listó.
+   */
+  searchPaymentsByPreference(accessToken: string, preferenceId: string): Promise<PaymentSnapshot[]>;
   /** Libera un hold sin cobrar (`status: cancelled`). */
   cancelPayment(
     accessToken: string,
@@ -150,6 +156,14 @@ export class SdkMercadoPagoClient implements MercadoPagoClient {
     idempotencyKey: string
   ): Promise<PaymentResponse> {
     return this.payments(accessToken).cancel({ id: paymentId, requestOptions: { idempotencyKey } });
+  }
+
+  async searchPaymentsByPreference(accessToken: string, preferenceId: string): Promise<PaymentSnapshot[]> {
+    const orders = new MerchantOrder(new MercadoPagoConfig({ accessToken, options: { timeout: this.timeoutMs } }));
+    const result = await orders.search({ options: { preference_id: preferenceId } });
+    return (result.elements ?? []).flatMap((order) =>
+      (order.payments ?? []).map((p) => ({ id: p.id, status: p.status, transaction_amount: p.transaction_amount }))
+    );
   }
 
   createPreference(

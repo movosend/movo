@@ -605,16 +605,27 @@ MOVO-283, spike MOVO-305); con Checkout Pro Movo es el `collector` y MP devuelve
   401/403/404 y se ignora, sin reintentar), exige que el `external_reference` sea de un intento y que el monto coincida (si no, no
   acredita y avisa al equipo). Contracargo, reembolso o mediación sobre un pago de saldo no tocan el ledger: alertan (la decisión es de
   una persona). Los holds se siguen procesando igual (los tests del webhook de MOVO-268 pasan sin cambios).
-- **Conciliación** (`reconcileOpen`, al pedir un checkout nuevo): consulta a MP por `external_reference` los intentos abiertos del usuario;
-  un pago aprobado cuyo webhook se perdió se acredita antes de validar el monto, y un `pending` vencido sin pago se abandona. Una falla de
-  MP ahí no bloquea. No hay barrido periódico: un usuario que nunca vuelve con un webhook perdido queda con el intento `pending` hasta su
-  próximo pedido.
+- **Conciliación** (`reconcileOpen`, al pedir un checkout nuevo): por cada intento abierto del usuario consulta a MP las **órdenes de comercio
+  de la preferencia** (`searchPaymentsByPreference`, `preference_id`) y también la búsqueda por `external_reference`; con cualquier pago aprobado se
+  acredita antes de validar el monto, y un `pending` vencido sin pago se abandona. Una falla de MP ahí no bloquea. **Dos fuentes a propósito**: en el
+  sandbox la búsqueda por `external_reference` devolvió 0 resultados con el pago ya aprobado (la de `id` sí lo veía), mientras que la orden de
+  comercio lo listó. No hay barrido periódico: un usuario que nunca vuelve con un webhook perdido queda con el intento `pending` hasta su próximo pedido.
 - **Sin env vars nuevas**: la base pública del API (`back_urls`, `notification_url`) se deriva de `MP_REDIRECT_URI` (sin el sufijo
   `/payments/mp-connect/callback`); sin ella, o sin las credenciales de Movo (`MovoTokenProvider`), responde 503
   `BALANCE_CHECKOUT_NOT_CONFIGURED`. En `MP_TEST_MODE` se devuelve el `sandbox_init_point`.
 - **`notification_url` por preferencia**: se manda junto al webhook del panel de la app; falta confirmar en el sandbox que MP firme igual esas
   notificaciones (hoy el webhook valida `x-signature` con `MP_WEBHOOK_SECRET`).
 
-Pendiente: la prueba en el sandbox completando el pago en el navegador con el Comprador de prueba (DoD: verificar que MP acepte los `back_urls`
-con el 302 a `movo://`, que llegue el webhook y que el ledger baje el saldo); la pantalla mobile (MOVO-315); sumar el pago con tarjeta
-guardada + CVV si MOVO-283 identifica la `public_key` de Movo.
+**Verificado contra el sandbox real (16/10/2026)**, con la app `movosend` y el Comprador de prueba:
+- Preferencia creada con el token `TEST-` de Movo (`collector_id` 3609549431): MP aceptó `back_urls` https, `auto_return`, `notification_url` y el vencimiento.
+- Pago de $100 completado en el checkout con **dinero en cuenta** (pago #183440151757, `approved`/`accredited`, `external_reference` del intento).
+  `GET /v1/payments/:id` con el token de Movo lo devuelve completo; el camino del webhook (`applyPayment`) lo acredita una sola vez (saldo 1000 → 900,
+  `voluntary_payment` `settled`, intento `approved`) y repetirlo da `already_settled`. La conciliación por orden de comercio también lo acredita una sola vez.
+- **El pago con tarjeta se rechazó en el checkout** (pantalla "No pudimos procesar tu pago"): MP volvió a `back_urls.failure` con `payment_id=null`, o sea que
+  no llegó a crear un pago, así que no hay nada que conciliar. Con la misma cuenta cobradora y una preferencia mínima, dinero en cuenta sí pasó. La causa de la
+  tarjeta no está identificada (sesión del comprador, titular de la tarjeta o la cuenta de Movo); no es de este código.
+- El redirect a `…/checkout/return` contra `api-dev` dio 401: dev todavía no tiene la ruta pública de este PR (se resuelve al desplegar).
+
+Pendiente: el pago con tarjeta en el checkout (ver arriba) y la prueba del ciclo completo con el redirect y el webhook reales una vez desplegado en dev (MP
+notifica a `api-dev`, que hoy corre el código anterior); la pantalla mobile (MOVO-315); sumar el pago con tarjeta guardada + CVV si MOVO-283 identifica la
+`public_key` de Movo.

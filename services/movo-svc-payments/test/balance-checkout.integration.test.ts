@@ -31,6 +31,7 @@ describe("Pagar mi saldo con Checkout Pro (MOVO-312)", () => {
     capturePayment: vi.fn(),
     cancelPayment: vi.fn(),
     searchPaymentsByExternalReference: vi.fn(async () => [] as Array<Record<string, unknown>>),
+    searchPaymentsByPreference: vi.fn(async () => [] as Array<Record<string, unknown>>),
     createPreference: vi.fn(),
   };
   const alerts = { send: vi.fn(async () => undefined) };
@@ -67,6 +68,7 @@ describe("Pagar mi saldo con Checkout Pro (MOVO-312)", () => {
     preferenceSeq = 0;
     movoToken.getToken.mockImplementation(async () => "TEST-movo-token");
     mp.searchPaymentsByExternalReference.mockImplementation(async () => []);
+    mp.searchPaymentsByPreference.mockImplementation(async () => []);
     mp.createPreference.mockImplementation(async () => {
       preferenceSeq += 1;
       return { id: `pref-${preferenceSeq}`, init_point: `https://mp.test/checkout/pref-${preferenceSeq}`, sandbox_init_point: `https://sandbox.mp.test/checkout/pref-${preferenceSeq}` };
@@ -385,6 +387,23 @@ describe("Pagar mi saldo con Checkout Pro (MOVO-312)", () => {
       expect(res.statusCode).toBe(422);
       expect((await entries()).filter((e) => e.type === "voluntary_payment")).toHaveLength(1);
       expect((await attempts()).find((a) => a.id === attemptId)?.status).toBe("approved");
+    });
+
+    it("un pago aprobado que la búsqueda por external_reference no ve se acredita por la orden de comercio de la preferencia", async () => {
+      await owe(USER, 1000);
+      const { attemptId } = (await checkout(600)).json();
+      // Caso real del sandbox: la búsqueda por external_reference devolvió vacío con el pago ya aprobado.
+      mp.searchPaymentsByExternalReference.mockImplementation(async () => []);
+      mp.searchPaymentsByPreference.mockImplementation(async () => [
+        { id: Number(MP_PAYMENT), status: "approved", transaction_amount: 600 },
+      ]);
+
+      await checkout(100);
+
+      expect(mp.searchPaymentsByPreference).toHaveBeenCalledWith("TEST-movo-token", "pref-1");
+      expect((await entries()).filter((e) => e.type === "voluntary_payment")).toHaveLength(1);
+      expect((await attempts()).find((a) => a.id === attemptId)?.status).toBe("approved");
+      expect((await app.userLedger.balance(USER)).balanceArs).toBe(400);
     });
 
     it("un intento vencido sin pago se abandona y el pedido crea un checkout nuevo", async () => {

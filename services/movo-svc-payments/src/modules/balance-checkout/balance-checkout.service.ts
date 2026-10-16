@@ -180,8 +180,15 @@ export function createBalanceCheckoutService(deps: BalanceCheckoutDeps) {
     const open = await attempts.listOpenByUser(userId);
     for (const attempt of open) {
       try {
-        const payments = await mercadoPago.searchPaymentsByExternalReference(token, attempt.id);
-        const approved = payments.find((p) => p.status === "approved");
+        // Dos fuentes: la orden de comercio de la preferencia (confiable en el sandbox) y la búsqueda por
+        // `external_reference`, que puede tardar en indexar o no listar un pago ya aprobado.
+        const [byOrder, byReference] = await Promise.all([
+          attempt.mpPreferenceId
+            ? mercadoPago.searchPaymentsByPreference(token, attempt.mpPreferenceId).catch(() => [])
+            : Promise.resolve([]),
+          mercadoPago.searchPaymentsByExternalReference(token, attempt.id).catch(() => []),
+        ]);
+        const approved = [...byOrder, ...byReference].find((p) => p.status === "approved");
         if (approved) {
           await applyToAttempt(attempt, approved);
         } else if (attempt.status === "creating" && now().getTime() - attempt.createdAt.getTime() > STALE_CREATING_MS) {

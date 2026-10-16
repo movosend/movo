@@ -375,8 +375,8 @@ sequenceDiagram
   estado del intento: un webhook repetido o en paralelo acredita una vez.
 - **El webhook distingue estos pagos por cobrador**: se consulta con el token de Movo (solo ve pagos donde Movo cobra) y se asocia
   por `external_reference`; un pago de un vendedor vinculado sigue el camino de los holds. Rechazado o abandonado: sin movimiento.
-- **Conciliación**: al pedir un checkout nuevo se consulta a MP por los intentos abiertos del usuario (un webhook perdido se acredita;
-  un intento vencido se abandona). Un contracargo/reembolso de un pago de saldo no toca el ledger solo: avisa al equipo.
+- **Conciliación**: al pedir un checkout nuevo se consulta a MP por los intentos abiertos del usuario, por la orden de comercio de la preferencia
+  y por `external_reference` (en el sandbox solo la primera listó un pago ya aprobado): un webhook perdido se acredita; un intento vencido se abandona. Un contracargo/reembolso de un pago de saldo no toca el ledger solo: avisa al equipo.
 - La base pública (`back_urls`, `notification_url`) sale de `MP_REDIRECT_URI` (sin la parte `/payments/mp-connect/callback`).
 
 ---
