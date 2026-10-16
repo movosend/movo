@@ -328,6 +328,25 @@ reintenta con backoff hasta un tope; agotado, alerta al equipo. Un pago `approve
 el hold: la captura y su liquidación son de MOVO-212. Detalle en
 `services/movo-svc-payments/CLAUDE.md` (MOVO-268).
 
+### 5.6 Cuenta corriente del usuario (MOVO-309)
+
+Toda deuda de una persona (penalidad de MOVO-226, comisión en efectivo de MOVO-37) se registra en
+`payments.user_ledger_entries`, sin importar en qué rol se generó. Saldo con signo: positivo = debe,
+negativo = a favor; cuenta todo lo que no está `voided`. Solo inserción (triggers), idempotente por
+`idempotencyKey`. Cómo se salda, según el caso:
+
+| Caso | Cómo queda | Ticket |
+| --- | --- | --- |
+| Cancela como **emisor** con hold propio | Deuda + `penalty_capture` negativo en la misma operación (captura parcial) | MOVO-307 |
+| Cancela como **transportista** | Queda `pending`; se descuenta del `application_fee` de su próxima operación, en cualquier rol | MOVO-311 |
+| El usuario quiere saldar ya | `voluntary_payment` negativo, cobrado con tarjeta | MOVO-312 |
+| Error o caso especial | `manual_adjustment` de un admin, con motivo | MOVO-309 |
+
+`svc-shipments` registra los movimientos por `POST /internal/payments/users/:userId/ledger-entries` y
+consulta `GET .../balance` (`balanceArs`, `oldestUnpaidAt`, este último para el bloqueo por deuda vencida,
+MOVO-313); la app lee `GET /payments/balance`. La plata de las penalidades cobradas como deuda queda para
+Movo. Hasta MOVO-307/311/312 es un registro contable, no un cobro. ADR-044.
+
 ---
 
 ## 6. Cómo se reparte el dinero
@@ -383,6 +402,7 @@ flowchart LR
 | **No** se renuevan holds vencidos | La renovación puede fallar con el paquete en tránsito, bloquea doble monto y parece un doble cobro. | MOVO-12 |
 | `svc-shipments` es el dueño de la saga y la puerta del mobile | Los estados del envío viven ahí. `svc-payments` queda aislado como único integrador de MP. | MOVO-210 |
 | SDK oficial `mercadopago` v3 para pagos; canje y refresh de OAuth con `fetch` propio | Mismo resultado que la API REST, con tipos, idempotencia y errores ya resueltos. El canje queda afuera porque el SDK no tipa `code_verifier`/`test_token` y exige un access token que `/oauth/token` no necesita. | MOVO-267, SOLUCION-FINAL §4 |
+| Las deudas (penalidades, comisión en efectivo) viven en una **cuenta corriente del usuario**, no del transportista | La misma persona es emisor y transportista: una penalidad generada en un rol se puede saldar en el otro. Saldo con signo, solo inserción, idempotente. Hoy es un registro contable: el cobro llega con MOVO-307 (captura parcial), 311 (`application_fee`) y 312 (pago voluntario). | MOVO-309, ADR-044 (`docs/payments/adr-044-cuenta-corriente-del-usuario.md`) |
 | Idempotencia en hold, captura, saga y webhook | Un doble hold retiene plata dos veces; una doble captura cobra dos veces. | MOVO-209, 210, 212, 268 |
 
 **Costo aceptado de la ruta lejana:** el transportista se compromete sin fondos

@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import mpConnectRoutes from "../mp-connect/mp-connect.routes";
 import cardsRoutes from "../cards/cards.routes";
 import transactionsRoutes from "../transactions/transactions.routes";
+import userLedgerRoutes from "../user-ledger/user-ledger.routes";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -28,4 +29,6 @@ export default async function paymentsRoutes(app: FastifyInstance) {
   app.register(cardsRoutes, { prefix: "/cards" });
   // MOVO-303: historial de pagos y cobros.
   app.register(transactionsRoutes, { prefix: "/transactions" });
+  // MOVO-309: cuenta corriente del usuario (saldo y movimientos).
+  app.register(userLedgerRoutes, { prefix: "/balance" });
 }

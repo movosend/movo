@@ -528,6 +528,14 @@ previo al transportista) y `transitAnomalyDisputeOpened{Sender,Receiver,Carrier}
 para la sub-issue mobile de MOVO-28. `card` y `breakdown` son opcionales: ausentes según el rol, no `null`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-309 — Contrato de la cuenta corriente (`types/user-ledger.ts`, ADR-044)
+
+`USER_LEDGER_ENTRY_TYPES`/`_STATUSES`/`_ROLES`, `UserLedgerEntry`, `UserLedgerBalanceResponse`,
+`UserLedgerPageResponse`, `CreateUserLedgerEntryRequest`/`Response` y `CreateManualAdjustmentRequest`. Montos
+`number` con 2 decimales y con signo (positivo = debe). `ApiErrorCode` suma `LEDGER_IDEMPOTENCY_CONFLICT`,
+`LEDGER_ENTRY_NOT_FOUND` y `LEDGER_ENTRY_STATE_CONFLICT`. Recordatorio habitual: `npm run build` acá antes de
+tipar desde otro workspace.
+
 ### MOVO-306 — `SettlementKind` y body de la captura
 
 `types/settlement.ts` suma `SETTLEMENT_KINDS`/`SettlementKind` (`delivery` | `cancellation_penalty`),

@@ -163,6 +163,19 @@ export type {
   SettlementStatus,
   ShipmentSettlementResponse,
 } from "./types/settlement";
+// cuenta corriente del usuario (MOVO-309)
+export { USER_LEDGER_ENTRY_STATUSES, USER_LEDGER_ENTRY_TYPES, USER_LEDGER_ROLES } from "./types/user-ledger";
+export type {
+  CreateManualAdjustmentRequest,
+  CreateUserLedgerEntryRequest,
+  CreateUserLedgerEntryResponse,
+  UserLedgerBalanceResponse,
+  UserLedgerEntry,
+  UserLedgerEntryStatus,
+  UserLedgerEntryType,
+  UserLedgerPageResponse,
+  UserLedgerRole,
+} from "./types/user-ledger";
 // funding (MOVO-210)
 export type {
   FundingRoute,
