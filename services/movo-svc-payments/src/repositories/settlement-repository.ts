@@ -47,21 +47,29 @@ export function createSettlementRepository(db: PrismaClient): SettlementReposito
       return db.settlement.findUnique({ where: { shipmentId } });
     },
 
-    findOrCreateProcessing(data) {
-      return db.settlement.upsert({
-        where: { shipmentId: data.shipmentId },
-        // Si ya existe no se toca nada: el estado lo gobierna quien lo recibe.
-        update: {},
-        create: {
-          shipmentId: data.shipmentId,
-          holdId: data.holdId,
-          carrierId: data.carrierId,
-          mpPaymentId: data.mpPaymentId,
-          grossAmountArs: data.grossAmountArs,
-          commissionArs: data.commissionArs,
-          status: "processing",
-        },
-      });
+    async findOrCreateProcessing(data) {
+      // No es un `upsert`: Prisma lo resuelve con un SELECT y luego un INSERT, y dos capturas a la vez pueden pasar
+      // ambas el SELECT y la perdedora cae en P2002. Se inserta y, si el índice único por `shipment_id` dice que ya
+      // existe, se lee la fila que ganó. Si ya existe no se toca nada: el estado lo gobierna quien lo recibe.
+      try {
+        return await db.settlement.create({
+          data: {
+            shipmentId: data.shipmentId,
+            holdId: data.holdId,
+            carrierId: data.carrierId,
+            mpPaymentId: data.mpPaymentId,
+            grossAmountArs: data.grossAmountArs,
+            commissionArs: data.commissionArs,
+            status: "processing",
+          },
+        });
+      } catch (error) {
+        if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002") {
+          const existing = await db.settlement.findUnique({ where: { shipmentId: data.shipmentId } });
+          if (existing) return existing;
+        }
+        throw error;
+      }
     },
 
     update(id, patch) {
