@@ -551,3 +551,30 @@ reembolsos/contracargos (`payment_provider_events`) resueltos en la misma consul
 Tests: `test/transaction-status.test.ts` (cada estado y la precedencia) y
 `test/transactions.integration.test.ts` (Postgres real: rol, visibilidad, filtros, borde de las
 23:30, cursor sin duplicados ni saltos con la misma fecha, 404, desglose por rol).
+
+### MOVO-309 — Cuenta corriente del usuario (ADR-044)
+
+`GET /internal/payments/users/:userId/balance`, `POST /internal/payments/users/:userId/ledger-entries` y
+`POST .../manual-adjustments` (internos, mismo prefijo que la baja de tarjetas, sin gateway ni `x-user-id`), más
+`GET /payments/balance` (saldo + movimientos paginados por cursor; hereda el hook de `paymentsRoutes`, el gateway
+ya proxeaba `/payments`). Código en `src/modules/user-ledger/`, `src/repositories/user-ledger-repository.ts` y
+`src/plugins/user-ledger.ts`; contrato en `@movo/shared` (`types/user-ledger.ts`). Tabla
+`payments.user_ledger_entries` (migración `20261015220000`). Nadie la consume todavía: la usan MOVO-307, 310, 311, 312 y 313.
+
+- **Solo inserción impuesta por la base**: triggers `BEFORE DELETE`/`BEFORE UPDATE` (a mano en la migración); de un
+  `UPDATE` solo pasa `status`. Un `TRUNCATE` sí funciona, por eso los tests lo usan para limpiar. El `reason` de un
+  `manual_adjustment` también es un `CHECK`.
+- **Saldo** = suma de lo que no está `voided` (un `settled` sigue contando; lo cancela un movimiento negativo aparte).
+  `oldestUnpaidAt` = el cargo más viejo que compone la deuda actual (cargos `pending`/`reserved` del más nuevo al más viejo hasta cubrir el saldo), `null` si el saldo no es positivo; saldo, esa fecha y la página se leen en una transacción `REPEATABLE READ`.
+- **Idempotencia**: `idempotency_key` única + `request_fingerprint` (hash). Mismo cuerpo → 200 con el original; otro
+  cuerpo → 409 `LEDGER_IDEMPOTENCY_CONFLICT`. La carrera la resuelve el P2002 de la base. Si se manda un `holdId` inexistente, el error P2003 de FK se mapea a 404 `HOLD_NOT_FOUND`.
+- **El signo no se valida contra el tipo**: lo manda quien registra (decisión del ADR). Monto distinto de cero, hasta
+  2 decimales y tope de ±$10.000.000 (los decimales los mira el service, no Ajv). Pagos/cobros (307/312) insertan en `settled`.
+- **`reason` de ajustes manuales resguardado**: en `GET /payments/balance` se expone como `null` para resguardar evidencia interna del admin de la app móvil; solo se expone en endpoints internos.
+- **`created_at` lo pone la app y la columna es `TIMESTAMPTZ(3)`** (migración `20261016120000`), así el cursor `(created_at, id)` no pierde precisión ni con una fila insertada por fuera de la app.
+- `service.transition()` mueve el `status` con un UPDATE condicional; sin endpoint HTTP todavía (lo abren 311/312). Solo permite `pending→reserved|settled|voided`, `reserved→pending|settled|voided` y `settled→voided` (409 `LEDGER_INVALID_TRANSITION`); `voided` es terminal, y el trigger de la base lo impone también.
+- **Replay idempotente**: con `created: false` el movimiento se devuelve como está hoy, así que su `status` puede haber cambiado desde el alta; el llamador mira `entry.status`.
+- **Sin validar `:userId` ni `adminId`** (ADR-010, perímetro): `svc-payments` no conoce usuarios; el llamador (otro servicio) es quien responde por ellos.
+
+Pendiente: que `svc-admin` llame a `manual-adjustments` (sin UI de admin todavía); sin env vars nuevas.
+

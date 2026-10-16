@@ -13,10 +13,12 @@ import holdsPlugin from "./plugins/holds";
 import mpTokenRefreshSweepPlugin from "./plugins/mp-token-refresh-sweep";
 import cardsPlugin from "./plugins/cards";
 import transactionsPlugin from "./plugins/transactions";
+import userLedgerPlugin from "./plugins/user-ledger";
 import paymentsRoutes from "./modules/payments/payments.routes";
 import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
 import holdsRoutes from "./modules/holds/holds.routes";
 import cardsInternalRoutes from "./modules/cards/cards-internal.routes";
+import userLedgerInternalRoutes from "./modules/user-ledger/user-ledger-internal.routes";
 import mpConnectInternalRoutes from "./modules/mp-connect/mp-connect-internal.routes";
 import { MercadoPagoClient, SdkMercadoPagoClient } from "./adapters/mercadopago-client";
 import { FetchMercadoPagoOAuthClient, MercadoPagoOAuthClient } from "./adapters/mercadopago-oauth-client";
@@ -88,6 +90,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
   // MOVO-303: historial de transacciones (lectura de holds, liquidaciones y eventos).
   app.register(transactionsPlugin);
+  // MOVO-309 (ADR-044): cuenta corriente del usuario. Solo necesita la DB.
+  app.register(userLedgerPlugin);
   // MOVO-212: captura del hold y liquidación, también sobre `mercadoPago`.
   app.register(capturesPlugin);
   // Después de `holds`: reconcilia intentos en `creating` con su service (MOVO-268).
@@ -121,6 +125,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // MOVO-100: interno, lo llama svc-users al dar de baja una cuenta (MOVO-39).
   app.register(cardsInternalRoutes, { prefix: "/internal/payments/users" });
+  // MOVO-309: cuenta corriente (saldo, alta de movimientos, ajuste manual), interno.
+  app.register(userLedgerInternalRoutes, { prefix: "/internal/payments/users" });
 
   // MOVO-116: interno, lo llama svc-shipments para el bloqueo del transportista.
   app.register(mpConnectInternalRoutes, { prefix: "/internal/payments/mp-connect" });

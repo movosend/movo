@@ -121,6 +121,7 @@ model Hold {
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz
   settlement         Settlement?
+  ledgerEntries      UserLedgerEntry[]
 
   @@unique([shipmentId, attempt], map: "holds_shipment_id_attempt_key")
   @@index([mpPaymentId], map: "holds_mp_payment_id_idx")
@@ -309,5 +310,67 @@ model PaymentProviderEvent {
   @@unique([mpPaymentId, mpStatus], map: "payment_provider_events_mp_payment_id_mp_status_key")
   @@index([shipmentId], map: "payment_provider_events_shipment_id_idx")
   @@map("payment_provider_events")
+  @@schema("payments")
+}
+
+enum LedgerEntryType {
+  cancellation_penalty
+  penalty_capture
+  cash_commission
+  fee_offset
+  payment_surcharge
+  voluntary_payment
+  manual_adjustment
+
+  @@map("ledger_entry_type")
+  @@schema("payments")
+}
+
+enum LedgerEntryStatus {
+  pending
+  reserved
+  settled
+  voided
+
+  @@map("ledger_entry_status")
+  @@schema("payments")
+}
+
+enum LedgerRole {
+  sender
+  carrier
+
+  @@map("ledger_role")
+  @@schema("payments")
+}
+
+// MOVO-309 (ADR-044): cuenta corriente del USUARIO (no de un rol). Solo inserción, con
+// triggers en la migración: lo único que cambia de una fila es `status`. `amount_ars` es con
+// signo (positivo = debe). `createdAt` lo pone la app (ms) y no Postgres (µs) para que el
+// cursor de paginación no pierda precisión. Referencias lógicas, sin FK (ADR-003), salvo
+// `hold_id` que es del mismo schema.
+model UserLedgerEntry {
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String            @map("user_id") @db.Uuid
+  roleAtOrigin       LedgerRole?       @map("role_at_origin")
+  type               LedgerEntryType
+  // Con signo, nunca float.
+  amountArs          Decimal           @map("amount_ars") @db.Decimal(12, 2)
+  status             LedgerEntryStatus @default(pending)
+  shipmentId         String?           @map("shipment_id") @db.Uuid
+  holdId             String?           @map("hold_id") @db.Uuid
+  hold               Hold?             @relation(fields: [holdId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  paymentId          String?           @map("payment_id")
+  reason             String?
+  adminId            String?           @map("admin_id") @db.Uuid
+  idempotencyKey     String            @unique(map: "user_ledger_entries_idempotency_key_key") @map("idempotency_key")
+  // Hash del cuerpo, para distinguir un reintento legítimo de una key reusada con otros datos.
+  requestFingerprint String            @map("request_fingerprint")
+  // Milisegundos: es la precisión del cursor de paginación (la app la fija al insertar).
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "user_ledger_entries_user_id_created_at_id_idx")
+  @@index([shipmentId], map: "user_ledger_entries_shipment_id_idx")
+  @@map("user_ledger_entries")
   @@schema("payments")
 }
