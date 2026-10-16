@@ -1,4 +1,6 @@
 import { FastifyInstance } from "fastify";
+import type { CaptureHoldRequest } from "@movo/shared";
+import type { CaptureRequest } from "./capture.service";
 import { captureHoldSchema, getSettlementSchema } from "./settlements.schema";
 
 /**
@@ -13,11 +15,28 @@ import { captureHoldSchema, getSettlementSchema } from "./settlements.schema";
 export default async function settlementsRoutes(app: FastifyInstance) {
   const service = app.captures;
 
-  app.post("/by-shipment/:shipmentId/capture", { schema: captureHoldSchema }, async (request) => {
-    const { shipmentId } = request.params as { shipmentId: string };
-    const { settlement } = await service.capture(shipmentId);
-    return { settlement };
-  });
+  app.post(
+    "/by-shipment/:shipmentId/capture",
+    {
+      schema: captureHoldSchema,
+      // Sin body (MOVO-212, como llama `svc-shipments` hoy) es una entrega: Fastify validaría
+      // `undefined` contra el schema y respondería 400, así que se valida como `{}`.
+      preValidation: async (request) => {
+        request.body ??= {};
+      },
+    },
+    async (request) => {
+      const { shipmentId } = request.params as { shipmentId: string };
+      // El schema ya garantiza que la penalidad trae `amountArs` y la entrega no.
+      const body = request.body as CaptureHoldRequest;
+      const capture: CaptureRequest =
+        body.kind === "cancellation_penalty"
+          ? { kind: "cancellation_penalty", amountArs: body.amountArs as number }
+          : { kind: "delivery" };
+      const { settlement } = await service.capture(shipmentId, capture);
+      return { settlement };
+    }
+  );
 
   app.get("/by-shipment/:shipmentId/settlement", { schema: getSettlementSchema }, async (request) => {
     const { shipmentId } = request.params as { shipmentId: string };
