@@ -390,8 +390,8 @@ enum BalanceAttemptStatus {
 // Movo). Su `id` es el `external_reference` del pago de MP: con él el webhook y la recuperación de un intento sin
 // respuesta lo reconocen. El movimiento del ledger (`voluntary_payment`) se asienta una sola vez por su
 // `idempotency_key` (`balance-payment:<id>`), no por el estado de esta fila.
-// Un índice único parcial a mano (`user_id`, `amount_ars` mientras `creating`/`pending`) impide dos pagos iguales
-// en vuelo para el mismo usuario.
+// Un índice único parcial a mano (`user_id` mientras `creating`/`pending`) deja un solo intento abierto por usuario: así lo
+// que está en vuelo nunca suma más que la deuda.
 model BalancePaymentAttempt {
   id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId             String               @map("user_id") @db.Uuid

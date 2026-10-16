@@ -23,8 +23,8 @@ CREATE TABLE "payments"."balance_payment_attempts" (
 CREATE UNIQUE INDEX "balance_payment_attempts_mp_payment_id_key" ON "payments"."balance_payment_attempts"("mp_payment_id");
 CREATE INDEX "balance_payment_attempts_user_id_status_idx" ON "payments"."balance_payment_attempts"("user_id", "status");
 
--- Idempotencia del alta: dos pagos iguales (mismo usuario y monto) mientras uno se está procesando o espera resultado
--- no crean dos cobros. Parcial: un intento ya cerrado no bloquea uno nuevo por el mismo monto.
-CREATE UNIQUE INDEX "balance_payment_attempts_open_user_amount_key"
-  ON "payments"."balance_payment_attempts"("user_id", "amount_ars")
+-- Un solo intento abierto por usuario: con varios abiertos (aunque de distinto monto) la suma de lo que está en vuelo podría
+-- superar la deuda y dejar saldo a favor. Parcial: un intento ya cerrado no bloquea uno nuevo.
+CREATE UNIQUE INDEX "balance_payment_attempts_open_user_key"
+  ON "payments"."balance_payment_attempts"("user_id")
   WHERE "status" IN ('creating', 'pending');

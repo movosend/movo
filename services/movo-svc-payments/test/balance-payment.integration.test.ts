@@ -303,16 +303,40 @@ describe("Pagar mi saldo con Checkout API (MOVO-312)", () => {
       expect(keys.size).toBe(1);
     });
 
-    it("un pedido distinto (otro token) con un pago igual en curso responde 409", async () => {
+    it("el mismo pedido con un pago pendiente devuelve su resultado, sin crear otro cobro", async () => {
       await owe(USER, 1000);
       mpCreates({ status: "in_process" });
       expect((await pay()).statusCode).toBe(200);
 
-      // El primero quedó `pending`: un segundo pedido igual devuelve su resultado, sin crear otro pago.
       const again = await pay({ cardToken: "card-token-2" });
+
       expect(again.statusCode).toBe(200);
       expect(again.json().status).toBe("pending");
       expect(mp.createPayment).toHaveBeenCalledTimes(1);
+    });
+
+    it("no se puede pagar de más: con un pago en curso, otro de distinto monto espera (409)", async () => {
+      await owe(USER, 100);
+      mpCreates({ status: "in_process" });
+      expect((await pay({ amountArs: 60 })).statusCode).toBe(200);
+
+      // 60 en vuelo + 50 superaría la deuda de 100: se espera el resultado del primero.
+      const second = await pay({ amountArs: 50, cardToken: "card-token-2" });
+
+      expect(second.statusCode).toBe(409);
+      expect(second.json().error.code).toBe("BALANCE_PAYMENT_IN_PROGRESS");
+      expect(await attempts()).toHaveLength(1);
+      expect(mp.createPayment).toHaveBeenCalledTimes(1);
+    });
+
+    it("dos pedidos a la vez de distinto monto: solo uno abre intento", async () => {
+      await owe(USER, 100);
+      mpCreates({ status: "in_process" });
+
+      const [a, b] = await Promise.all([pay({ amountArs: 60 }), pay({ amountArs: 50, cardToken: "card-token-2" })]);
+
+      expect([a.statusCode, b.statusCode].sort()).toEqual([200, 409]);
+      expect(await attempts()).toHaveLength(1);
     });
 
     it("sin respuesta de MP (502) el intento queda creating y el reintento reusa la misma idempotency key", async () => {

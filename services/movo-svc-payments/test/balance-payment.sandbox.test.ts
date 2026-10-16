@@ -66,6 +66,8 @@ describe.skipIf(!CONFIGURED)("pagar mi saldo contra el sandbox real de Mercado P
     process.env.DATABASE_URL ??= "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL ??= "redis://localhost:6379";
     process.env.MP_TEST_MODE = "true";
+    // Sin barrido de renovación: refrescar el token de la cobradora lo rota y puede invalidar el que viene por entorno.
+    process.env.MP_TOKEN_REFRESH_SWEEP_ENABLED = "false";
     process.env.MP_TOKEN_ENCRYPTION_KEY = ENCRYPTION_KEY;
     process.env.MOVO_COLLECTOR_USER_ID = collectorUserId;
     process.env.MP_PUBLIC_KEY = env.MP_COLLECTOR_PUBLIC_KEY;
@@ -82,7 +84,7 @@ describe.skipIf(!CONFIGURED)("pagar mi saldo contra el sandbox real de Mercado P
         refreshToken: env.MP_COLLECTOR_REFRESH_TOKEN as string,
         publicKey: env.MP_COLLECTOR_PUBLIC_KEY as string,
         scope: "offline_access",
-        tokenExpiresAt: new Date(Date.now() + 86_400_000),
+        tokenExpiresAt: new Date(Date.now() + 90 * 86_400_000),
       },
       new Date()
     );

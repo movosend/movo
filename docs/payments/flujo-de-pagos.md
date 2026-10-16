@@ -366,7 +366,7 @@ sequenceDiagram
     A->>M: POST /v1/card_tokens (public_key de la cobradora, card_id + CVV)
     M-->>A: cardToken
     A->>P: POST /payments/balance/pay { amountArs, cardToken, savedCardId }
-    P->>P: valida 0 < monto <= saldo deudor, abre intento (índice único: usuario + monto)
+    P->>P: valida 0 < monto <= saldo deudor, abre intento (índice único: un intento abierto por usuario)
     P->>M: POST /v1/payments (token de la cobradora, payer customer, external_reference = intento)
     M-->>P: approved | rejected | in_process
     P->>P: approved: voluntary_payment settled, UNA vez (balance-payment:<intento>)
@@ -374,8 +374,9 @@ sequenceDiagram
     M->>P: webhook payment (MOVO-268), resuelve un in_process
 ```
 
-- **Idempotencia**: una fila por intento y `X-Idempotency-Key = movo-balance-<intento>`; un índice único parcial (usuario + monto
-  mientras `creating`/`pending`) hace que dos pedidos iguales en vuelo compartan un único pago. El movimiento del ledger se
+- **Idempotencia**: una fila por intento y `X-Idempotency-Key = movo-balance-<intento>`; un índice único parcial (**un intento
+  abierto por usuario**, mientras `creating`/`pending`) hace que dos pedidos iguales en vuelo compartan un único pago y que lo que está en
+  vuelo nunca sume más que la deuda (un pago de otro monto mientras hay uno en curso responde 409 `BALANCE_PAYMENT_IN_PROGRESS`). El movimiento del ledger se
   deduplica por `balance-payment:<intento>`, no por el estado del intento: un webhook repetido o en paralelo acredita una vez.
 - **Un rechazo de la tarjeta es 200** con `status: rejected` y el motivo (`insufficient_funds`/`card_rejected`/`invalid_data`/
   `platform_error`), como en los holds. Sin respuesta de MP (502) el intento queda `creating` y el reintento reusa la key.

@@ -855,6 +855,6 @@ Table payments.balance_payment_attempts {
   updated_at timestamptz
 
   indexes {
-    (user_id, amount_ars) [unique, note: 'parcial: solo mientras status IN (creating, pending); impide dos pagos iguales en vuelo']
+    (user_id) [unique, note: 'parcial: solo mientras status IN (creating, pending); un solo intento abierto por usuario, así lo que está en vuelo no suma más que la deuda']
   }
 }

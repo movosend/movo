@@ -597,9 +597,11 @@ vencido: 503 `BALANCE_COLLECTOR_NOT_CONFIGURED`. En el sandbox esa cuenta es un 
 - **Pago directo**: `payer: {type: customer}` con la tarjeta guardada del usuario (`resolvePayer`, igual que `hold.service.ts`: tarjeta ajena o
   dada de baja → 404 `SAVED_CARD_NOT_FOUND`), captura inmediata, sin `capture:false` ni `application_fee`, `external_reference` = id del intento,
   key de MP `movo-balance-<intento>`. El token lo hace el mobile con la `public_key` de `pay-data`.
-- **Idempotencia en la base**: índice único parcial `(user_id, amount_ars) WHERE status IN ('creating','pending')`, a mano en la migración. Con un
-  pedido igual: `pending` → devuelve su resultado; `creating` con el mismo token/tarjeta (huella) → reintenta con la MISMA key; en otro caso 409
-  `BALANCE_PAYMENT_IN_PROGRESS`.
+- **Idempotencia en la base**: índice único parcial `(user_id) WHERE status IN ('creating','pending')` (un solo intento abierto por usuario), a mano en la migración: con
+  varios abiertos, aunque de distinto monto, lo que está en vuelo podía sumar más que la deuda y dejar saldo a favor (review de PR #262). Con un
+  intento abierto: del mismo monto y `pending` → devuelve su resultado; `creating` con el mismo token/tarjeta (huella) → reintenta con la MISMA key;
+  en otro caso (otro monto, otro token) 409 `BALANCE_PAYMENT_IN_PROGRESS`. Un aprobado tardío sobre un intento ya cerrado igual se acredita (es plata
+  recibida), así que un saldo a favor puntual por esa vía es aceptable: el ledger lo soporta (saldo negativo).
 - **Errores de MP como en los holds** (`classifyCreateError`/`readMpError`/`failureReasonFromStatusDetail`, exportados de `hold.service.ts`): un
   rechazo de la tarjeta o un token inválido (2006/3001/3003/3031/3032) es un 200 con `status: rejected` y `failureReason`; 401/403 de la cobradora →
   intento `failed`, alerta `mp_balance_collector_auth` y 503; sin respuesta (timeout/5xx) → 502 y el intento queda `creating`.

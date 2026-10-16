@@ -28,8 +28,8 @@ export interface BalanceAttemptUpdate {
 /** MOVO-312: persistencia de los intentos de "Pagar mi saldo". */
 export interface BalancePaymentAttemptRepository {
   /**
-   * Abre un intento `creating`. El índice único parcial (usuario + monto mientras `creating`/`pending`) decide si dos
-   * pedidos iguales llegan a la vez: el que pierde recibe el intento abierto (`created: false`).
+   * Abre un intento `creating`. El índice único parcial (un intento abierto por usuario) decide si dos pedidos llegan a la
+   * vez: el que pierde recibe el intento abierto (`created: false`), sea o no del mismo monto.
    */
   insertOpen(data: NewBalanceAttempt): Promise<{ attempt: BalancePaymentAttempt; created: boolean }>;
   findById(id: string): Promise<BalancePaymentAttempt | null>;
@@ -58,7 +58,7 @@ export function createBalancePaymentAttemptRepository(db: PrismaClient): Balance
       } catch (error) {
         if (isUniqueViolation(error)) {
           const existing = await db.balancePaymentAttempt.findFirst({
-            where: { userId: data.userId, amountArs: data.amountArs, status: { in: open } },
+            where: { userId: data.userId, status: { in: open } },
             orderBy: { createdAt: "desc" },
           });
           if (existing) return { attempt: existing, created: false };

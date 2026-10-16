@@ -76,7 +76,7 @@ export type BalancePaymentOutcome =
  * con el token OAuth de esa misma cuenta (captura inmediata, sin hold ni `application_fee`: la plata ya es de Movo).
  *
  * - **Idempotencia**: una fila por intento, `X-Idempotency-Key = movo-balance-<intento>`, e índice único parcial
- *   (usuario + monto mientras `creating`/`pending`): dos pedidos iguales en vuelo comparten un único pago.
+ *   (un intento abierto por usuario): dos pedidos en vuelo no suman más que la deuda y los iguales comparten un único pago.
  * - **Plata una sola vez**: el movimiento `voluntary_payment` se asienta con la `idempotencyKey`
  *   `balance-payment:<intento>`; el estado del intento es informativo y no decide si se acredita.
  * - **Nada se confía del body del webhook**: el estado sale siempre de consultar el pago con el token de la cobradora.
@@ -275,11 +275,14 @@ export function createBalancePaymentService(deps: BalancePaymentDeps) {
     });
 
     if (!created) {
-      // Otro pedido igual está en vuelo. Con la misma tarjeta y token y sin respuesta de MP se reintenta con la MISMA
-      // key (MP devuelve el pago ya creado en vez de crear otro); en cualquier otro caso, esperar su resultado.
-      if (attempt.status === "pending") return toResponse(attempt, userId);
-      if (attempt.status !== "creating" || attempt.requestFingerprint !== fingerprint) {
-        throw new ApiError(409, "BALANCE_PAYMENT_IN_PROGRESS", "Ya hay un pago de ese monto en curso. Esperá su resultado.");
+      // Hay un intento abierto (un solo intento abierto por usuario: la suma de lo que está en vuelo no puede superar la
+      // deuda). Con otro monto, o con otro token/tarjeta sobre uno sin respuesta, hay que esperar su resultado; el mismo
+      // pedido pendiente devuelve su resultado, y uno sin respuesta de MP se reintenta con la MISMA key (MP devuelve el pago
+      // ya creado en vez de crear otro).
+      const sameAmount = attempt.amountArs.toFixed(2) === amount.toFixed(2);
+      if (sameAmount && attempt.status === "pending") return toResponse(attempt, userId);
+      if (!sameAmount || attempt.status !== "creating" || attempt.requestFingerprint !== fingerprint) {
+        throw new ApiError(409, "BALANCE_PAYMENT_IN_PROGRESS", "Ya hay un pago en curso. Esperá su resultado.");
       }
     }
 
