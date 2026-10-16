@@ -160,6 +160,7 @@ export function createFakePaymentsClient(
         carrierId: hold.carrierId,
         mpPaymentId: hold.mpPaymentId ?? "mp-0",
         status: "credited",
+        kind: "delivery",
         grossAmountArs: hold.amountArs,
         mpFeeArs,
         commissionArs: hold.applicationFeeArs,

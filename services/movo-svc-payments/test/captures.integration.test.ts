@@ -202,6 +202,117 @@ describe("captura y liquidación (MOVO-212)", () => {
     const res = await app.inject({ method: "GET", url: SETTLEMENT });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: "credited", netAmountArs: 809 });
+    expect(res.json()).toMatchObject({ status: "credited", kind: "delivery", netAmountArs: 809 });
+  });
+
+  describe("penalidad de cancelación (MOVO-306)", () => {
+    const penalty = (body: Record<string, unknown>) => app.inject({ method: "POST", url: CAPTURE, payload: body });
+    // Hold de $1.000 con fee $150, captura de $250: MP cobra el fee entero (spike MOVO-305).
+    const penaltyPayment = () =>
+      payment({
+        transaction_amount: 250,
+        fee_details: [
+          { type: "mercadopago_fee", amount: 10.25, fee_payer: "collector" },
+          { type: "application_fee", amount: 150, fee_payer: "collector" },
+        ],
+        transaction_details: { net_received_amount: 89.75 },
+      });
+
+    beforeEach(() => {
+      mp.capturePayment.mockImplementation(async () => penaltyPayment());
+      mp.getPayment.mockImplementation(async () => penaltyPayment());
+    });
+
+    it("captura parte del hold y persiste la liquidación con kind cancellation_penalty", async () => {
+      await seedHold();
+
+      const res = await penalty({ kind: "cancellation_penalty", amountArs: 250 });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().settlement).toMatchObject({
+        kind: "cancellation_penalty",
+        status: "credited",
+        grossAmountArs: 250,
+        mpFeeArs: 10.25,
+        commissionArs: 150,
+        netAmountArs: 89.75,
+      });
+      expect(mp.capturePayment).toHaveBeenCalledWith(
+        "TEST-access-secret",
+        MP_PAYMENT,
+        expect.objectContaining({ amount: 250, idempotencyKey: expect.stringMatching(/^movo-hold-penalty-/) })
+      );
+      const row = await app.db.settlement.findUniqueOrThrow({ where: { shipmentId: SHIPMENT } });
+      expect(row.kind).toBe("cancellation_penalty");
+      expect(row.grossAmountArs.toString()).toBe("250");
+      expect((await app.db.hold.findFirstOrThrow({ where: { shipmentId: SHIPMENT } })).status).toBe("captured");
+
+      // Idempotente (AC3): el mismo pedido devuelve la liquidación sin volver a capturar.
+      mp.capturePayment.mockClear();
+      const again = await penalty({ kind: "cancellation_penalty", amountArs: 250 });
+      expect(again.statusCode).toBe(200);
+      expect(mp.capturePayment).not.toHaveBeenCalled();
+      expect(await app.db.settlement.count()).toBe(1);
+    });
+
+    it("AC5: no superar el fee → 422 CAPTURE_BELOW_APPLICATION_FEE, sin fila y con el hold authorized", async () => {
+      await seedHold();
+
+      const res = await penalty({ kind: "cancellation_penalty", amountArs: 150 });
+
+      expect(res.statusCode).toBe(422);
+      expect(res.json().error.code).toBe("CAPTURE_BELOW_APPLICATION_FEE");
+      expect(mp.capturePayment).not.toHaveBeenCalled();
+      expect(await app.db.settlement.count()).toBe(0);
+      expect((await app.db.hold.findFirstOrThrow({ where: { shipmentId: SHIPMENT } })).status).toBe("authorized");
+    });
+
+    it("AC3: más que el hold → 422 CAPTURE_AMOUNT_EXCEEDS_HOLD", async () => {
+      await seedHold();
+
+      const res = await penalty({ kind: "cancellation_penalty", amountArs: 1500 });
+
+      expect(res.statusCode).toBe(422);
+      expect(res.json().error.code).toBe("CAPTURE_AMOUNT_EXCEEDS_HOLD");
+      expect(await app.db.settlement.count()).toBe(0);
+    });
+
+    it("409 SETTLEMENT_CONFLICT si el envío ya se liquidó como entrega", async () => {
+      await seedHold();
+      mp.capturePayment.mockImplementation(async () => payment());
+      mp.getPayment.mockImplementation(async () => payment());
+      await app.inject({ method: "POST", url: CAPTURE });
+
+      const res = await penalty({ kind: "cancellation_penalty", amountArs: 250 });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe("SETTLEMENT_CONFLICT");
+    });
+
+    it.each([
+      ["penalidad sin amountArs", { kind: "cancellation_penalty" }],
+      ["entrega con amountArs", { kind: "delivery", amountArs: 250 }],
+      ["amountArs sin kind (es una entrega)", { amountArs: 250 }],
+      ["kind desconocido", { kind: "refund" }],
+      ["amountArs no positivo", { kind: "cancellation_penalty", amountArs: 0 }],
+    ])("400: %s", async (_case, body) => {
+      await seedHold();
+
+      const res = await penalty(body);
+
+      expect(res.statusCode).toBe(400);
+      expect(mp.capturePayment).not.toHaveBeenCalled();
+    });
+
+    it("la entrega explícita (kind delivery, sin amountArs) es la captura de siempre", async () => {
+      await seedHold();
+      mp.capturePayment.mockImplementation(async () => payment());
+      mp.getPayment.mockImplementation(async () => payment());
+
+      const res = await penalty({ kind: "delivery" });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().settlement).toMatchObject({ kind: "delivery", grossAmountArs: 1000 });
+    });
   });
 });
