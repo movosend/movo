@@ -627,4 +627,9 @@ cobradora. El `payer: customer` de Movo S.A. **sí funciona cuando cobra otra cu
 servicio lo trata como sin respuesta, 502). Para vincular la cobradora en sandbox hace falta un `redirect_uri` https cargado en la app (MP rechaza
 `movo://` con `strict_redirect_uri_mismatch`).
 
-Pendiente: webhook real (un `in_process`), vincular la cuenta de Movo en dev/prod y cargar `MOVO_COLLECTOR_USER_ID` en los secrets; la pantalla mobile (MOVO-315).
+**Webhook real verificado (16/10/2026)**, con el servicio local detrás de un túnel y el webhook cargado en el panel de la app: llega `payment.created`
+firmado, se valida, se consulta el pago con el token de la cobradora y se resuelve `balance_payment_already_settled` (el pago aprobado en la respuesta no se
+acredita dos veces); con titular CONT el pago queda `pending` (`pending_contingency`), el webhook lo deja en `balance_payment_waiting` y el saldo no cambia.
+El sandbox no permite aprobar después un pago pendiente, así que esa transición queda cubierta solo por integración.
+
+Pendiente: vincular la cuenta de Movo en dev/prod y cargar `MOVO_COLLECTOR_USER_ID` en los secrets; la pantalla mobile (MOVO-315).
