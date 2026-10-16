@@ -4767,3 +4767,16 @@ Pendiente: probar en dispositivo (dirección del slide en la lista invertida, iO
 junta en un solo resumen (ver `docs/chat/README.md` y `services/movo-svc-shipments/CLAUDE.md`). Del lado mobile,
 `dismissChatNotifications` (`src/lib/`) saca de la bandeja las `chat_message` de un envío cuando se abre la conversación
 (`useChatConversation`, con la pantalla al frente), solo esas y best-effort.
+
+### MOVO-313 (lado mobile mínimo) — mensaje de deuda vencida
+
+Solo `USER_DEBT_OVERDUE` en `error-messages.ts` ("Tenés una deuda vencida con Movo. Saldala para volver a operar como
+transportista.") y la nota en `carrierRequirementsFromError`: como la disputa, no abre la checklist de MOVO-117
+(se resuelve con un pago, no con un paso), así que devuelve `null` y las pantallas de acciones del transportista
+(declarar/iniciar viaje, ofertar, editar oferta) muestran el mensaje de error. Un `details.missingRequirements`
+que trae `no_overdue_debt` junto a otro code se filtra solo. Como emisor la app no cambia: no se bloquea.
+
+La push `trip_recurrence_blocked` (ocurrencia recurrente frenada por la deuda) abre el detalle del viaje, como
+`trip_recurrence_stopped` (`TRIP_DETAIL_TYPES`).
+
+Pendiente: la pantalla con el saldo y el botón para saldarla es de MOVO-312.

@@ -127,6 +127,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // completar), así que se muestra como error: se levanta cuando se resuelve la disputa.
   CARRIER_DISPUTE_OPEN:
     "Tenés una disputa abierta como transportista. Vas a poder operar cuando se resuelva.",
+  // MOVO-313 (ADR-044): tampoco es un paso de la checklist, se resuelve con un pago. Como
+  // emisor no se bloquea: su próximo pago ya incluye la deuda (MOVO-311).
+  USER_DEBT_OVERDUE: "Tenés una deuda vencida con Movo. Saldala para volver a operar como transportista.",
   // No son un requisito que el usuario pueda resolver: no se pudo verificar, se reintenta.
   USERS_SERVICE_UNAVAILABLE: "No pudimos verificar tus requisitos. Intentá de nuevo en unos minutos.",
   PAYMENTS_SERVICE_UNAVAILABLE: "No pudimos verificar tu cuenta de Mercado Pago. Intentá de nuevo en unos minutos.",
