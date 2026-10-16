@@ -619,5 +619,12 @@ vencido: 503 `BALANCE_COLLECTOR_NOT_CONFIGURED`. En el sandbox esa cuenta es un 
 
 **Reemplaza a una primera versión con Checkout Pro** (preferencia + redirect) que se descartó: el usuario sale de la app, y no es el flujo de pagar un envío.
 
-Pendiente: probar el ciclo completo contra el sandbox con una cuenta cobradora vinculada (token de tarjeta con su `public_key`, pago real y webhook);
-vincular la cuenta de Movo en dev/prod y cargar `MOVO_COLLECTOR_USER_ID` en los secrets; la pantalla mobile (MOVO-315).
+**Verificado contra el sandbox real (16/10/2026)** con `test/balance-payment.sandbox.test.ts` (no corre en CI; variables en su cabecera): cuenta
+cobradora = el Vendedor de prueba vinculado por OAuth, tarjeta guardada en el customer de Movo S.A., token con `card_id` + CVV y la `public_key` de la
+cobradora. El `payer: customer` de Movo S.A. **sí funciona cuando cobra otra cuenta**. APRO aprueba y se acredita una vez (el pago existe en MP con el monto y el
+`external_reference` del intento); FUND → `insufficient_funds`; SECU → `invalid_data`; OTHE vuelve como `cc_rejected_bad_filled_other` (→ `invalid_data`, no
+`card_rejected`); la misma idempotency key devuelve el mismo pago; dos pedidos iguales a la vez cobran una vez (MP responde 423 `2001` a la segunda y el
+servicio lo trata como sin respuesta, 502). Para vincular la cobradora en sandbox hace falta un `redirect_uri` https cargado en la app (MP rechaza
+`movo://` con `strict_redirect_uri_mismatch`).
+
+Pendiente: webhook real (un `in_process`), vincular la cuenta de Movo en dev/prod y cargar `MOVO_COLLECTOR_USER_ID` en los secrets; la pantalla mobile (MOVO-315).
