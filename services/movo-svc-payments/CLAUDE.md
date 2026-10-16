@@ -578,3 +578,43 @@ ya proxeaba `/payments`). Código en `src/modules/user-ledger/`, `src/repositori
 
 Pendiente: que `svc-admin` llame a `manual-adjustments` (sin UI de admin todavía); sin env vars nuevas.
 
+### MOVO-312 — Pagar mi saldo con Checkout Pro
+
+`POST /payments/balance/checkout` `{ amountArs }` → `{ checkoutUrl, attemptId }` (hereda el hook `x-user-id`; el gateway ya proxeaba
+`/payments`) y `GET /payments/balance/checkout/return` (pública en el gateway, `getPublicRoutes()`; responde un 302 a
+`movo://balance?result=success|failure|pending`). Código en `src/modules/balance-checkout/`,
+`src/repositories/balance-payment-attempt-repository.ts` y `src/plugins/balance-checkout.ts`; tabla `payments.balance_payment_attempts`
+(migración `20261016130000`); contrato en `@movo/shared` (`types/user-ledger.ts`). Diagrama: `flujo-de-pagos.md` 5.7.
+
+Por qué Checkout Pro: el pago directo con tarjeta tokenizada a Movo no funciona todavía (falta la `public_key` `TEST-` de Movo S.A.,
+MOVO-283, spike MOVO-305); con Checkout Pro Movo es el `collector` y MP devuelve el `init_point`.
+
+- **Idempotencia en la base**: índice único parcial `(user_id, amount_ars) WHERE status IN ('creating','pending')`, a mano en la migración.
+  Un pedido igual con el checkout vigente devuelve el mismo link; si el primero todavía se está armando, 409
+  `BALANCE_CHECKOUT_IN_PROGRESS` (reintentar); un intento `creating` de un proceso caído (>2 min) o uno vencido se descarta y se abre otro.
+  Si MP no crea la preferencia (502), el intento queda `failed` y libera el índice. La preferencia lleva `external_reference` = id del intento,
+  `expires` a 24 h (`BALANCE_CHECKOUT_TTL_HOURS`), `back_urls` y `notification_url` propios, y la key de MP `movo-balance-checkout-<intento>`.
+- **Monto**: mayor que cero, hasta 2 decimales y como mucho el saldo deudor (`ledger.balance`); sin deuda o con saldo a favor → 422
+  `BALANCE_AMOUNT_EXCEEDS_DEBT`. Distintos montos son distintos checkouts (se pueden tener varios abiertos).
+- **La plata se acredita una sola vez por el ledger, no por el estado del intento**: `voluntary_payment` negativo y `settled` con
+  `idempotencyKey: balance-payment:<intento>`. Un webhook repetido o en paralelo da `already_settled`. Un pago aprobado tardío sobre un
+  intento ya `rejected`/`abandoned` igual se acredita (es plata recibida). Rechazado/cancelado → intento `rejected`, sin movimiento;
+  `pending`/`in_process` → no hay resultado todavía.
+- **Webhook (AC5)**: `mp-webhook.service.ts#resolveBalancePayment` corre ANTES del camino de holds, solo para un pago sin hold cuyo
+  `user_id` no es un vendedor vinculado. Consulta `Payment.get` con el **token de Movo** (solo ve pagos donde Movo cobra: uno ajeno da
+  401/403/404 y se ignora, sin reintentar), exige que el `external_reference` sea de un intento y que el monto coincida (si no, no
+  acredita y avisa al equipo). Contracargo, reembolso o mediación sobre un pago de saldo no tocan el ledger: alertan (la decisión es de
+  una persona). Los holds se siguen procesando igual (los tests del webhook de MOVO-268 pasan sin cambios).
+- **Conciliación** (`reconcileOpen`, al pedir un checkout nuevo): consulta a MP por `external_reference` los intentos abiertos del usuario;
+  un pago aprobado cuyo webhook se perdió se acredita antes de validar el monto, y un `pending` vencido sin pago se abandona. Una falla de
+  MP ahí no bloquea. No hay barrido periódico: un usuario que nunca vuelve con un webhook perdido queda con el intento `pending` hasta su
+  próximo pedido.
+- **Sin env vars nuevas**: la base pública del API (`back_urls`, `notification_url`) se deriva de `MP_REDIRECT_URI` (sin el sufijo
+  `/payments/mp-connect/callback`); sin ella, o sin las credenciales de Movo (`MovoTokenProvider`), responde 503
+  `BALANCE_CHECKOUT_NOT_CONFIGURED`. En `MP_TEST_MODE` se devuelve el `sandbox_init_point`.
+- **`notification_url` por preferencia**: se manda junto al webhook del panel de la app; falta confirmar en el sandbox que MP firme igual esas
+  notificaciones (hoy el webhook valida `x-signature` con `MP_WEBHOOK_SECRET`).
+
+Pendiente: la prueba en el sandbox completando el pago en el navegador con el Comprador de prueba (DoD: verificar que MP acepte los `back_urls`
+con el 302 a `movo://`, que llegue el webhook y que el ledger baje el saldo); la pantalla mobile (MOVO-315); sumar el pago con tarjeta
+guardada + CVV si MOVO-283 identifica la `public_key` de Movo.

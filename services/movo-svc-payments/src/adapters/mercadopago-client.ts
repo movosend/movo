@@ -1,9 +1,12 @@
-import { MercadoPagoConfig, Payment } from "mercadopago";
+import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 
 // El SDK no exporta estos tipos desde su índice: se derivan de `Payment` en vez de
 // importarlos de `mercadopago/dist/...`, que es estructura interna del paquete.
 export type PaymentCreateRequest = Parameters<Payment["create"]>[0]["body"];
 export type PaymentResponse = Awaited<ReturnType<Payment["get"]>>;
+// MOVO-312: Checkout Pro ("Pagar mi saldo"), mismo criterio que arriba para los tipos del SDK.
+export type PreferenceCreateRequest = Parameters<Preference["create"]>[0]["body"];
+export type PreferenceResponse = Awaited<ReturnType<Preference["create"]>>;
 
 /**
  * Lo mínimo de un pago que necesita `svc-payments` para decidir el estado de un hold.
@@ -72,6 +75,16 @@ export interface MercadoPagoClient {
     paymentId: string | number,
     idempotencyKey: string
   ): Promise<PaymentResponse>;
+  /**
+   * MOVO-312: crea una preferencia de Checkout Pro con el token de MOVO (no el de un transportista): el
+   * cobrador del pago es Movo y el usuario lo completa en el navegador. La key evita duplicar la preferencia
+   * si el reintento llega después de un timeout.
+   */
+  createPreference(
+    accessToken: string,
+    body: PreferenceCreateRequest,
+    idempotencyKey: string
+  ): Promise<PreferenceResponse>;
 }
 
 /**
@@ -122,6 +135,8 @@ export class SdkMercadoPagoClient implements MercadoPagoClient {
       id: p.id,
       status: p.status,
       status_detail: p.status_detail,
+      // MOVO-312: "Pagar mi saldo" compara el monto del pago contra el del intento.
+      transaction_amount: p.transaction_amount,
       payment_method_id: p.payment_method_id,
       // El resultado de búsqueda del SDK sí trae `card` (tipado `any`): se pasa solo lo que
       // usa un hold, los últimos 4. Sin esto un `creating` adoptado por acá quedaba sin tarjeta.
@@ -135,6 +150,16 @@ export class SdkMercadoPagoClient implements MercadoPagoClient {
     idempotencyKey: string
   ): Promise<PaymentResponse> {
     return this.payments(accessToken).cancel({ id: paymentId, requestOptions: { idempotencyKey } });
+  }
+
+  createPreference(
+    accessToken: string,
+    body: PreferenceCreateRequest,
+    idempotencyKey: string
+  ): Promise<PreferenceResponse> {
+    // Una instancia nueva por llamada, por la misma razón que `payments()`.
+    const preference = new Preference(new MercadoPagoConfig({ accessToken, options: { timeout: this.timeoutMs } }));
+    return preference.create({ body, requestOptions: { idempotencyKey } });
   }
 
   /**

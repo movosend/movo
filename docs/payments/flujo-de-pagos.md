@@ -339,13 +339,45 @@ negativo = a favor; cuenta todo lo que no está `voided`. Solo inserción (trigg
 | --- | --- | --- |
 | Cancela como **emisor** con hold propio | Deuda + `penalty_capture` negativo en la misma operación (captura parcial) | MOVO-307 |
 | Cancela como **transportista** | Queda `pending`; se descuenta del `application_fee` de su próxima operación, en cualquier rol | MOVO-311 |
-| El usuario quiere saldar ya | `voluntary_payment` negativo, cobrado con tarjeta | MOVO-312 |
+| El usuario quiere saldar ya | `voluntary_payment` negativo, pagado en Checkout Pro (5.7) | MOVO-312 |
 | Error o caso especial | `manual_adjustment` de un admin, con motivo | MOVO-309 |
 
 `svc-shipments` registra los movimientos por `POST /internal/payments/users/:userId/ledger-entries` y
 consulta `GET .../balance` (`balanceArs`, `oldestUnpaidAt`, este último para el bloqueo por deuda vencida,
 MOVO-313); la app lee `GET /payments/balance`. La plata de las penalidades cobradas como deuda queda para
 Movo. Hasta MOVO-307/311/312 es un registro contable, no un cobro. ADR-044.
+
+### 5.7 Pagar mi saldo con Checkout Pro (MOVO-312)
+
+El usuario con deuda la paga él, presente, a la cuenta de **Movo** (cobradora). Se usa Checkout Pro porque el pago directo
+con tarjeta tokenizada a Movo todavía no funciona: el `card_token` tiene que hacerse con la `public_key` `TEST-` de Movo S.A.,
+que sigue sin identificarse (MOVO-283, spike MOVO-305). Sin hold ni split: no hay transportista.
+
+```mermaid
+sequenceDiagram
+    participant A as App
+    participant P as svc-payments
+    participant M as Mercado Pago
+    A->>P: POST /payments/balance/checkout { amountArs }
+    P->>P: valida 0 < monto <= saldo deudor, abre intento (índice único: usuario + monto)
+    P->>M: POST /checkout/preferences (token de Movo, external_reference = id del intento)
+    M-->>P: init_point
+    P-->>A: { checkoutUrl }
+    A->>M: navegador embebido: el usuario paga
+    M-->>A: back_url -> 302 movo://balance (la app NO confía en esto y pide GET /payments/balance)
+    M->>P: webhook payment (MOVO-268)
+    P->>M: Payment.get con el token de Movo
+    P->>P: voluntary_payment settled, UNA vez (balance-payment:<intento>)
+```
+
+- **Idempotencia**: un índice único parcial (usuario + monto mientras el intento está `creating`/`pending`) hace que dos pedidos
+  iguales en vuelo compartan una sola preferencia. El movimiento del ledger se deduplica por `balance-payment:<intento>`, no por el
+  estado del intento: un webhook repetido o en paralelo acredita una vez.
+- **El webhook distingue estos pagos por cobrador**: se consulta con el token de Movo (solo ve pagos donde Movo cobra) y se asocia
+  por `external_reference`; un pago de un vendedor vinculado sigue el camino de los holds. Rechazado o abandonado: sin movimiento.
+- **Conciliación**: al pedir un checkout nuevo se consulta a MP por los intentos abiertos del usuario (un webhook perdido se acredita;
+  un intento vencido se abandona). Un contracargo/reembolso de un pago de saldo no toca el ledger solo: avisa al equipo.
+- La base pública (`back_urls`, `notification_url`) sale de `MP_REDIRECT_URI` (sin la parte `/payments/mp-connect/callback`).
 
 ---
 

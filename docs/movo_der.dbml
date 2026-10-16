@@ -839,3 +839,21 @@ Table payments.user_ledger_entries {
   request_fingerprint varchar [note: 'hash del cuerpo: distingue un reintento de una key reusada']
   created_at timestamptz
 }
+
+// MOVO-312: intentos de "Pagar mi saldo" con Checkout Pro. Su id es el `external_reference` de la preferencia de MP.
+Table payments.balance_payment_attempts {
+  id uuid [pk]
+  user_id uuid [note: 'usuario de Movo, sin FK (ADR-003)']
+  amount_ars decimal(12,2) [note: 'positivo; el ledger lo asienta negativo (voluntary_payment)']
+  status varchar [note: 'creating | pending | approved | rejected | abandoned | failed']
+  mp_preference_id varchar [null]
+  checkout_url varchar [null, note: 'init_point (sandbox_init_point en modo test)']
+  mp_payment_id varchar [null, unique, note: 'pago de MP que lo aprobó']
+  expires_at timestamptz [note: 'vencimiento de la preferencia']
+  created_at timestamptz
+  updated_at timestamptz
+
+  indexes {
+    (user_id, amount_ars) [unique, note: 'parcial: solo mientras status IN (creating, pending); impide dos preferencias iguales en vuelo']
+  }
+}
