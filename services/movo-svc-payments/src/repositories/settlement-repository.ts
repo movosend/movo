@@ -48,9 +48,11 @@ export function createSettlementRepository(db: PrismaClient): SettlementReposito
     },
 
     async findOrCreateProcessing(data) {
-      // No es un `upsert`: Prisma lo resuelve con un SELECT y luego un INSERT, y dos capturas a la vez pueden pasar
-      // ambas el SELECT y la perdedora cae en P2002. Se inserta y, si el índice único por `shipment_id` dice que ya
-      // existe, se lee la fila que ganó. Si ya existe no se toca nada: el estado lo gobierna quien lo recibe.
+      // No es un `upsert`: con `update: {}` Prisma no puede resolverlo con un único `INSERT … ON CONFLICT` (el upsert
+      // nativo exige un `update` con datos) y emite un SELECT seguido de un INSERT (verificado con el query log de
+      // Prisma), así que dos capturas a la vez pueden pasar las dos el SELECT y la perdedora cae en P2002. Se inserta y,
+      // si el índice único por `shipment_id` dice que ya existe, se lee la fila que ganó. Si ya existe no se toca nada:
+      // el estado lo gobierna quien lo recibe.
       try {
         return await db.settlement.create({
           data: {
