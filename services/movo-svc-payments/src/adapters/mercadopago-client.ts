@@ -16,6 +16,8 @@ export interface PaymentSnapshot {
   status_detail?: string;
   /** Monto del pago (MOVO-212: se compara contra el del hold, AC3). */
   transaction_amount?: number;
+  /** MOVO-312: el id del intento de "Pagar mi saldo" (en holds es el id del envío). */
+  external_reference?: string | null;
   /**
    * Desglose real de comisiones; solo aparece DESPUÉS de capturar (SOLUCION-FINAL §3):
    * `mercadopago_fee` y `application_fee`, ambos con `fee_payer: collector`.
@@ -122,6 +124,9 @@ export class SdkMercadoPagoClient implements MercadoPagoClient {
       id: p.id,
       status: p.status,
       status_detail: p.status_detail,
+      // MOVO-312: "Pagar mi saldo" compara el monto del pago contra el del intento.
+      transaction_amount: p.transaction_amount,
+      external_reference: p.external_reference,
       payment_method_id: p.payment_method_id,
       // El resultado de búsqueda del SDK sí trae `card` (tipado `any`): se pasa solo lo que
       // usa un hold, los últimos 4. Sin esto un `creating` adoptado por acá quedaba sin tarjeta.

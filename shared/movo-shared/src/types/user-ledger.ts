@@ -103,3 +103,40 @@ export interface UserLedgerPageResponse extends UserLedgerBalanceResponse {
   items: UserLedgerEntry[];
   nextCursor: string | null;
 }
+
+/**
+ * MOVO-312: "Pagar mi saldo" con Checkout API (el usuario no sale de la app; mismo flujo que pagar un envío: tarjeta
+ * guardada + CVV). El pago va a la cuenta cobradora de Movo, que se vincula por OAuth como la de un transportista.
+ */
+
+/** `GET /payments/balance/pay-data`: lo que la app necesita para tokenizar la tarjeta y mostrar el monto. */
+export interface BalancePayDataResponse {
+  /** `public_key` de la cuenta cobradora de Movo: con ella se genera el token (`card_id` + CVV) en el dispositivo. */
+  publicKey: string;
+  /** Saldo deudor actual: lo máximo que se puede pagar (mayor que cero; si no hay deuda responde 422). */
+  balanceArs: number;
+}
+
+/** `POST /payments/balance/pay`. */
+export interface BalancePayRequest {
+  /** Lo que quiere pagar ahora: mayor que cero, con hasta 2 decimales y como mucho el saldo deudor. */
+  amountArs: number;
+  /** Token de un solo uso (`card_id` + CVV) generado en el dispositivo con la `publicKey` de `pay-data`. */
+  cardToken: string;
+  /** Id interno de la tarjeta guardada (`GET /payments/cards`) con la que se generó el token. */
+  savedCardId: string;
+  /** `visa`, `master`, etc., tal como lo devuelve el formulario de MP junto al token. */
+  paymentMethodId?: string;
+}
+
+/**
+ * Resultado del pago. Un rechazo de la tarjeta NO es un error HTTP: responde 200 con `status: "rejected"` y el motivo,
+ * igual que el pago de un envío. `pending`: MP todavía no resolvió; el saldo se actualiza solo cuando llegue el webhook.
+ */
+export interface BalancePayResponse {
+  attemptId: string;
+  status: "approved" | "rejected" | "pending";
+  failureReason: "insufficient_funds" | "card_rejected" | "invalid_data" | "platform_error" | null;
+  /** Saldo después de este pago (con `pending`, el saldo todavía no cambió). */
+  balanceArs: number;
+}

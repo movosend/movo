@@ -8,6 +8,7 @@ function buildTestApp(redisResult: string | null) {
   app.decorate("config", {
     TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: 15,
     TRIP_EXPIRY_SWEEP_ENABLED: true,
+    USER_DEBT_OVERDUE_DAYS: 14,
   } as EnvConfig);
   const findMany = vi.fn().mockResolvedValue([{ id: "trip-1" }]);
   const updateMany = vi.fn().mockResolvedValue({ count: 1 });

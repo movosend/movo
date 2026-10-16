@@ -11,6 +11,7 @@ import {
   NotificationResolution,
 } from "../../repositories/mp-webhook-repository";
 import { missingCardFields } from "../../utils/payment-card";
+import type { BalancePaymentService } from "../balance-payment/balance-payment.service";
 import { holdUpdateFromPayment, HoldService, readMpError } from "../holds/hold.service";
 
 /**
@@ -76,6 +77,11 @@ export interface MpWebhookServiceDeps {
   holdValidityDays: number;
   /** Intentos antes de dar la notificación por `failed` y alertar. */
   maxAttempts: number;
+  /**
+   * MOVO-312: "Pagar mi saldo". Estos pagos tienen de cobrador a la cuenta de Movo (no a un transportista) y no
+   * están en `holds`. Es un getter porque el service se arma después que este (usa `app.alerts`).
+   */
+  balancePayments?: () => Pick<BalancePaymentService, "applyPayment" | "collectorForWebhook"> | undefined;
   now?: () => Date;
 }
 
@@ -314,6 +320,31 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
     return { hold, credentials, payment: fetched.payment, reconciledFrom };
   }
 
+  /**
+   * MOVO-312 (AC5): ¿el pago es de un intento de "Pagar mi saldo"? Se consulta con el token de MOVO (solo ve los
+   * pagos donde Movo es cobrador, así que un pago ajeno da 401/403/404 y se descarta) y se asocia por el
+   * `external_reference` (el id del intento). `null` si no lo es: el webhook sigue con el camino de los holds.
+   */
+  async function resolveBalancePayment(notification: MpWebhookNotification): Promise<Resolution | null> {
+    const balance = deps.balancePayments?.();
+    if (!balance) return null;
+    // Solo los pagos de la cuenta cobradora de Movo (un pago de un transportista vinculado es de holds): sin cuenta
+    // cobradora configurada o con otro `user_id`, esto no es un pago de saldo.
+    let collector: Awaited<ReturnType<typeof balance.collectorForWebhook>>;
+    try {
+      collector = await balance.collectorForWebhook(notification.mpUserId ?? undefined);
+    } catch (error) {
+      throw new TransientError(error instanceof Error ? error.message : String(error));
+    }
+    if (!collector) return null;
+    const fetched = await fetchPayment(collector.accessToken, notification.mpPaymentId);
+    if (fetched.kind !== "ok") return null;
+    if (String(fetched.payment.id) !== notification.mpPaymentId) return null;
+
+    const outcome = await balance.applyPayment(fetched.payment);
+    return outcome ? done("processed", `balance_payment_${outcome}`) : null;
+  }
+
   async function handle(notification: MpWebhookNotification): Promise<Resolution> {
     // Un intento anterior ya cambió el hold pero no pudo avisar a svc-shipments.
     if (notification.pendingHoldEvent && notification.holdId) {
@@ -324,6 +355,8 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
 
     const known = await holds.findByMpPaymentId(notification.mpPaymentId);
     if (!known) {
+      const balance = await resolveBalancePayment(notification);
+      if (balance) return balance;
       const resolved = await resolveUnknownPayment(notification);
       if ("status" in resolved) return resolved;
       // La reconciliación (`?sync=true`) adoptó el intento con lo que devuelve la búsqueda de pagos; el

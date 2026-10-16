@@ -48,22 +48,32 @@ export function createSettlementRepository(db: PrismaClient): SettlementReposito
       return db.settlement.findUnique({ where: { shipmentId } });
     },
 
-    findOrCreateProcessing(data) {
-      return db.settlement.upsert({
-        where: { shipmentId: data.shipmentId },
-        // Si ya existe no se toca nada: el estado lo gobierna quien lo recibe.
-        update: {},
-        create: {
-          shipmentId: data.shipmentId,
-          kind: data.kind,
-          holdId: data.holdId,
-          carrierId: data.carrierId,
-          mpPaymentId: data.mpPaymentId,
-          grossAmountArs: data.grossAmountArs,
-          commissionArs: data.commissionArs,
-          status: "processing",
-        },
-      });
+    async findOrCreateProcessing(data) {
+      // No es un `upsert`: con `update: {}` Prisma no puede resolverlo con un único `INSERT … ON CONFLICT` (el upsert
+      // nativo exige un `update` con datos) y emite un SELECT seguido de un INSERT (verificado con el query log de
+      // Prisma), así que dos capturas a la vez pueden pasar las dos el SELECT y la perdedora cae en P2002. Se inserta y,
+      // si el índice único por `shipment_id` dice que ya existe, se lee la fila que ganó. Si ya existe no se toca nada:
+      // el estado lo gobierna quien lo recibe.
+      try {
+        return await db.settlement.create({
+          data: {
+            shipmentId: data.shipmentId,
+            kind: data.kind,
+            holdId: data.holdId,
+            carrierId: data.carrierId,
+            mpPaymentId: data.mpPaymentId,
+            grossAmountArs: data.grossAmountArs,
+            commissionArs: data.commissionArs,
+            status: "processing",
+          },
+        });
+      } catch (error) {
+        if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002") {
+          const existing = await db.settlement.findUnique({ where: { shipmentId: data.shipmentId } });
+          if (existing) return existing;
+        }
+        throw error;
+      }
     },
 
     update(id, patch) {

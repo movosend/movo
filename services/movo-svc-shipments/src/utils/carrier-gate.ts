@@ -51,7 +51,8 @@ export interface CarrierEligibility {
   /** KYC de identidad aprobado: prerequisito del rol, no entra en `missingRequirements`. */
   identityApproved: boolean;
   /** Requisitos habilitantes que faltan, en orden fijo: disputa abierta primero (la única
-   * que el transportista no puede resolver), después licencia y MP. */
+   * que el transportista no puede resolver), después licencia y MP, y al final la deuda
+   * vencida (MOVO-313: es lo último que se resuelve, con un pago, y no abre la checklist). */
   missingRequirements: CarrierRequirement[];
   /** MOVO-265: estado de la cuenta, de la misma llamada a svc-users. `null` si la cuenta no
    * existe o se dio de baja; `undefined` si svc-users no lo informó (versión anterior). Lo
@@ -62,28 +63,35 @@ export interface CarrierEligibility {
 
 /**
  * MOVO-116 (ADR-036): consulta en paralelo los requisitos habilitantes (licencia en
- * svc-users, cuenta de MP en svc-payments y, desde MOVO-278/ADR-045, ninguna disputa abierta
- * como transportista en la propia DB) más el KYC de identidad, que sale de la misma
- * llamada a svc-users. Lanza el 502 del servicio que no responda: quien llama falla
- * cerrado (mismo criterio que `assertNotBlocked` en escrituras, ADR-026).
+ * svc-users, cuenta de MP en svc-payments, desde MOVO-278/ADR-045 ninguna disputa abierta
+ * como transportista en la propia DB y, desde MOVO-313/ADR-044, ninguna deuda vencida en la
+ * cuenta corriente de svc-payments) más el KYC de identidad, que sale de la misma llamada a
+ * svc-users. Lanza el 502 del servicio que no responda: quien llama falla cerrado (mismo
+ * criterio que `assertNotBlocked` en escrituras, ADR-026).
  *
  * Sin cache (criterio 4 de MOVO-116, decisión documentada): las escrituras protegidas
  * son pocas por transportista, y cachear haría que alguien recién vinculado siguiera
- * bloqueado (negativo) o que alguien recién desvinculado siguiera operando (positivo).
+ * bloqueado (negativo) o que alguien recién desvinculado siguiera operando (positivo). Con la
+ * deuda es igual (MOVO-313 criterio 5): saldarla levanta el bloqueo en la siguiente consulta.
+ *
+ * La deuda es de la PERSONA, no del rol, pero este gate solo lo usan las operaciones de
+ * transportista: como emisor no se bloquea (su próximo pago ya incluye la deuda, MOVO-311).
  */
 export async function resolveCarrierEligibility(
   deps: CarrierGateDeps,
   carrierId: string,
 ): Promise<CarrierEligibility> {
-  const [kyc, mpAccount, hasOpenDispute] = await Promise.all([
+  const [kyc, mpAccount, hasOpenDispute, debt] = await Promise.all([
     deps.usersClient.findKycStatus(carrierId),
     deps.paymentsClient.getCarrierMpAccountStatus(carrierId),
     deps.shipmentRepository.hasOpenDisputeAsCarrier(carrierId),
+    deps.paymentsClient.getUserDebtStatus(carrierId),
   ]);
   const missingRequirements: CarrierRequirement[] = [];
   if (hasOpenDispute) missingRequirements.push("no_open_dispute");
   if (kyc?.kycStatusLicense !== KycStatus.APPROVED) missingRequirements.push("license");
   if (!mpAccount.linked) missingRequirements.push("mp_account");
+  if (debt.overdue) missingRequirements.push("no_overdue_debt");
   return {
     identityApproved: kyc?.kycStatusIdentity === KycStatus.APPROVED,
     missingRequirements,
@@ -95,7 +103,11 @@ export async function resolveCarrierEligibility(
   };
 }
 
-const REQUIREMENT_LABELS: Record<Exclude<CarrierRequirement, "no_open_dispute">, string> = {
+/** Requisitos que son un paso a completar (la checklist de MOVO-117). La disputa y la deuda no:
+ * van con su propio mensaje. */
+type ChecklistRequirement = Exclude<CarrierRequirement, "no_open_dispute" | "no_overdue_debt">;
+
+const REQUIREMENT_LABELS: Record<ChecklistRequirement, string> = {
   license: "verificar tu licencia de conducir",
   mp_account: "vincular tu cuenta de Mercado Pago",
 };
@@ -104,7 +116,12 @@ const REQUIREMENT_CODES = {
   no_open_dispute: "CARRIER_DISPUTE_OPEN",
   license: "CARRIER_LICENSE_NOT_APPROVED",
   mp_account: "CARRIER_MP_ACCOUNT_NOT_LINKED",
+  no_overdue_debt: "USER_DEBT_OVERDUE",
 } as const satisfies Record<CarrierRequirement, string>;
+
+/** Sin prometer un camino para pagar que todavía no existe en la app (MOVO-311/312). */
+const DEBT_MESSAGE =
+  "Tenés una deuda vencida con Movo y por ahora no podés operar como transportista. Se levanta apenas se salde.";
 
 function missingRequirementsError(missingRequirements: CarrierRequirement[]): ApiError {
   const details: CarrierRequirementsErrorDetails = { missingRequirements };
@@ -118,11 +135,24 @@ function missingRequirementsError(missingRequirements: CarrierRequirement[]): Ap
       { ...details }
     );
   }
+  // MOVO-313: la deuda vencida tampoco es un paso de la checklist (se resuelve con un pago).
+  // Solo es el primer requisito cuando es el único que falta: va al final del orden.
+  if (code === "USER_DEBT_OVERDUE") {
+    return new ApiError(
+      403,
+      code,
+      DEBT_MESSAGE,
+      { ...details }
+    );
+  }
   const pending = missingRequirements
-    .filter((requirement): requirement is keyof typeof REQUIREMENT_LABELS => requirement !== "no_open_dispute")
+    .filter((requirement): requirement is ChecklistRequirement => requirement in REQUIREMENT_LABELS)
     .map((requirement) => REQUIREMENT_LABELS[requirement])
     .join(" y ");
-  return new ApiError(403, code, `Para operar como transportista te falta ${pending}.`, { ...details });
+  // El `code` es el del primer requisito, así que con deuda + licencia/MP el mensaje no puede
+  // callarse la deuda: si no, la persona resuelve esos pasos y recién después se topa con el bloqueo.
+  const debtNote = missingRequirements.includes("no_overdue_debt") ? ` Además, ${DEBT_MESSAGE.charAt(0).toLowerCase()}${DEBT_MESSAGE.slice(1)}` : "";
+  return new ApiError(403, code, `Para operar como transportista te falta ${pending}.${debtNote}`, { ...details });
 }
 
 /**

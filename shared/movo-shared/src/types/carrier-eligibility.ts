@@ -8,13 +8,17 @@ import type { AccountStatus, KycStatus } from "./user";
  * - `no_open_dispute` (MOVO-278, ADR-045): ningún envío en `disputed` como transportista.
  *   El transportista no lo puede resolver por su cuenta: se levanta cuando un admin
  *   resuelve la disputa (MOVO-34).
+ * - `no_overdue_debt` (MOVO-313, ADR-044): ninguna deuda de la cuenta corriente sin saldar
+ *   hace más de `USER_DEBT_OVERDUE_DAYS` (14). La deuda es de la persona, no del rol, pero
+ *   solo bloquea operar como transportista: como emisor, su próximo pago ya la incluye
+ *   (MOVO-311). Se levanta al saldarla (MOVO-311/312), en la siguiente consulta.
  */
-export type CarrierRequirement = "no_open_dispute" | "license" | "mp_account";
+export type CarrierRequirement = "no_open_dispute" | "license" | "mp_account" | "no_overdue_debt";
 
 /**
- * `details` de un `ApiError` `CARRIER_DISPUTE_OPEN`/`CARRIER_LICENSE_NOT_APPROVED`/`CARRIER_MP_ACCOUNT_NOT_LINKED`
- * de `svc-shipments`: el `code` es el primer requisito que falta, esta lista los trae a
- * todos (para mostrar un CTA por cada uno, MOVO-117).
+ * `details` de un `ApiError` `CARRIER_DISPUTE_OPEN`/`CARRIER_LICENSE_NOT_APPROVED`/`CARRIER_MP_ACCOUNT_NOT_LINKED`/
+ * `USER_DEBT_OVERDUE` de `svc-shipments`: el `code` es el primer requisito que falta, esta
+ * lista los trae a todos (para mostrar un CTA por cada uno, MOVO-117).
  */
 export interface CarrierRequirementsErrorDetails {
   missingRequirements: CarrierRequirement[];

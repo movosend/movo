@@ -60,6 +60,18 @@ describe("carrierRequirementsFromError", () => {
     expect(carrierRequirementsFromError(error)).toEqual(["license"]);
   });
 
+  it("MOVO-313: una deuda vencida no abre la checklist", () => {
+    const error = new ApiError(403, "USER_DEBT_OVERDUE", "x", { missingRequirements: ["no_overdue_debt"] });
+    expect(carrierRequirementsFromError(error)).toBeNull();
+  });
+
+  it("MOVO-313: un code de MP que trae la deuda en details solo lista los pasos de la checklist", () => {
+    const error = new ApiError(403, "CARRIER_MP_ACCOUNT_NOT_LINKED", "x", {
+      missingRequirements: ["mp_account", "no_overdue_debt"],
+    });
+    expect(carrierRequirementsFromError(error)).toEqual(["mp_account"]);
+  });
+
   it("lee todos los faltantes de details.missingRequirements, en el orden de la checklist", () => {
     const error = new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "x", {
       missingRequirements: ["mp_account", "license"],

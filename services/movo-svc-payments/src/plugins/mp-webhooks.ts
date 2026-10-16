@@ -60,6 +60,8 @@ export default fp<MpWebhooksPluginOptions>(async (app, opts) => {
     log: app.log,
     holdValidityDays: app.config.MP_HOLD_VALIDITY_DAYS,
     maxAttempts: app.config.MP_WEBHOOK_MAX_ATTEMPTS,
+    // MOVO-312: se resuelve al procesar cada notificación; el plugin de "Pagar mi saldo" va después de este.
+    balancePayments: () => app.balancePayment,
   });
   app.decorate("mpWebhooks", service);
 

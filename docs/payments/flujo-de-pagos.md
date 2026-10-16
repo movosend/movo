@@ -339,13 +339,51 @@ negativo = a favor; cuenta todo lo que no está `voided`. Solo inserción (trigg
 | --- | --- | --- |
 | Cancela como **emisor** con hold propio | Deuda + `penalty_capture` negativo en la misma operación (captura parcial) | MOVO-307 |
 | Cancela como **transportista** | Queda `pending`; se descuenta del `application_fee` de su próxima operación, en cualquier rol | MOVO-311 |
-| El usuario quiere saldar ya | `voluntary_payment` negativo, cobrado con tarjeta | MOVO-312 |
+| El usuario quiere saldar ya | `voluntary_payment` negativo, pagado con tarjeta guardada + CVV (5.7) | MOVO-312 |
 | Error o caso especial | `manual_adjustment` de un admin, con motivo | MOVO-309 |
 
 `svc-shipments` registra los movimientos por `POST /internal/payments/users/:userId/ledger-entries` y
 consulta `GET .../balance` (`balanceArs`, `oldestUnpaidAt`, este último para el bloqueo por deuda vencida,
 MOVO-313); la app lee `GET /payments/balance`. La plata de las penalidades cobradas como deuda queda para
 Movo. Hasta MOVO-307/311/312 es un registro contable, no un cobro. ADR-044.
+
+### 5.7 Pagar mi saldo con tarjeta guardada + CVV (MOVO-312)
+
+El usuario con deuda la paga él, presente y **sin salir de la app**, con el mismo flujo que un envío (Checkout API, ADR-039):
+tarjeta guardada + CVV, token hecho en el dispositivo. El pago va **directo a la cuenta cobradora de Movo**, sin hold, sin
+`application_fee` (la plata ya es de Movo) y con captura inmediata. La cuenta cobradora es la de un usuario interno
+(`MOVO_COLLECTOR_USER_ID`) vinculada por el mismo OAuth que un transportista: así hay un `access_token` y una `public_key` de
+Movo que se renuevan con el barrido de MOVO-243. (Con el token de la app, `client_credentials`, MP responde `403 UNAUTHORIZED`
+al crear un pago, y con el `APP_USR-` `401 live credentials`: verificado en el sandbox el 16/10/2026.)
+
+```mermaid
+sequenceDiagram
+    participant A as App
+    participant P as svc-payments
+    participant M as Mercado Pago
+    A->>P: GET /payments/balance/pay-data
+    P-->>A: { publicKey de la cobradora, balanceArs }
+    A->>M: POST /v1/card_tokens (public_key de la cobradora, card_id + CVV)
+    M-->>A: cardToken
+    A->>P: POST /payments/balance/pay { amountArs, cardToken, savedCardId }
+    P->>P: valida 0 < monto <= saldo deudor, abre intento (índice único: un intento abierto por usuario)
+    P->>M: POST /v1/payments (token de la cobradora, payer customer, external_reference = intento)
+    M-->>P: approved | rejected | in_process
+    P->>P: approved: voluntary_payment settled, UNA vez (balance-payment:<intento>)
+    P-->>A: { status, failureReason, balanceArs }
+    M->>P: webhook payment (MOVO-268), resuelve un in_process
+```
+
+- **Idempotencia**: una fila por intento y `X-Idempotency-Key = movo-balance-<intento>`; un índice único parcial (**un intento
+  abierto por usuario**, mientras `creating`/`pending`) hace que dos pedidos iguales en vuelo compartan un único pago y que lo que está en
+  vuelo nunca sume más que la deuda (un pago de otro monto mientras hay uno en curso responde 409 `BALANCE_PAYMENT_IN_PROGRESS`). El movimiento del ledger se
+  deduplica por `balance-payment:<intento>`, no por el estado del intento: un webhook repetido o en paralelo acredita una vez.
+- **Un rechazo de la tarjeta es 200** con `status: rejected` y el motivo (`insufficient_funds`/`card_rejected`/`invalid_data`/
+  `platform_error`), como en los holds. Sin respuesta de MP (502) el intento queda `creating` y el reintento reusa la key.
+- **El webhook distingue estos pagos por cobrador** (`user_id` de la cuenta cobradora) y se asocia por `external_reference`;
+  un pago de un transportista sigue el camino de los holds. Contracargo/reembolso: no toca el ledger, avisa al equipo.
+- **Conciliación**: al pedir `pay-data` o `pay` se consulta a MP por `external_reference` de los intentos abiertos: un webhook
+  perdido se acredita y un `creating` viejo sin pago en MP se descarta.
 
 ---
 

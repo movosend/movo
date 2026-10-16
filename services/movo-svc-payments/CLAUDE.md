@@ -506,8 +506,8 @@ Resultado en `docs/payments/spike-movo-305-captura-parcial.md` (test: `test/part
 pega directo a MP). Limitaciones de MP que tiene que respetar la penalidad (MOVO-306/307): en una captura
 parcial el `application_fee` se cobra **entero** (el MP fee sí va sobre lo capturado); capturar un monto
 ≤ al fee responde `400 4201` y deja el hold `authorized`; un segundo capture no cobra de nuevo; al crear el
-hold, el fee tiene que ser `< transaction_amount` (si no, `400 4038`). Para "Pagar mi saldo" (MOVO-312) se
-recomienda Checkout Pro: con tarjeta hace falta la `public_key` de Movo S.A. (MOVO-283).
+hold, el fee tiene que ser `< transaction_amount` (si no, `400 4038`). Para "Pagar mi saldo" (MOVO-312) el
+pago directo a Movo S.A. no se puede (ver esa entrada): se cobra a una cuenta cobradora vinculada por OAuth.
 ### MOVO-303 — Historial: listado y detalle por rol (sub-issue de MOVO-28)
 
 `GET /payments/transactions?role=sender|carrier&status=&from=&to=&cursor=&limit=` y
@@ -559,7 +559,9 @@ Tests: `test/transaction-status.test.ts` (cada estado y la precedencia) y
 `GET /payments/balance` (saldo + movimientos paginados por cursor; hereda el hook de `paymentsRoutes`, el gateway
 ya proxeaba `/payments`). Código en `src/modules/user-ledger/`, `src/repositories/user-ledger-repository.ts` y
 `src/plugins/user-ledger.ts`; contrato en `@movo/shared` (`types/user-ledger.ts`). Tabla
-`payments.user_ledger_entries` (migración `20261015220000`). Nadie la consume todavía: la usan MOVO-307, 310, 311, 312 y 313.
+`payments.user_ledger_entries` (migración `20261015220000`). Los consumidores son MOVO-307, 310, 311, 312 y 313; el
+primero en leerla es MOVO-313 (`svc-shipments` consulta `GET .../balance` para el bloqueo por deuda vencida, sin
+cambios acá: `oldestUnpaidAt` ya es la edad que mide).
 
 - **Solo inserción impuesta por la base**: triggers `BEFORE DELETE`/`BEFORE UPDATE` (a mano en la migración); de un
   `UPDATE` solo pasa `status`. Un `TRUNCATE` sí funciona, por eso los tests lo usan para limpiar. El `reason` de un
@@ -577,6 +579,64 @@ ya proxeaba `/payments`). Código en `src/modules/user-ledger/`, `src/repositori
 - **Sin validar `:userId` ni `adminId`** (ADR-010, perímetro): `svc-payments` no conoce usuarios; el llamador (otro servicio) es quien responde por ellos.
 
 Pendiente: que `svc-admin` llame a `manual-adjustments` (sin UI de admin todavía); sin env vars nuevas.
+
+### MOVO-312 — Pagar mi saldo con tarjeta guardada + CVV (Checkout API)
+
+`GET /payments/balance/pay-data` → `{ publicKey, balanceArs }` y `POST /payments/balance/pay` `{ amountArs, cardToken, savedCardId,
+paymentMethodId? }` → `{ attemptId, status: approved|rejected|pending, failureReason, balanceArs }` (heredan el hook `x-user-id`; el gateway
+ya proxeaba `/payments`). El usuario no sale de la app: mismo flujo que pagar un envío (ADR-039). Código en `src/modules/balance-payment/`,
+`src/repositories/balance-payment-attempt-repository.ts` y `src/plugins/balance-payment.ts`; tabla `payments.balance_payment_attempts`
+(migración `20261016130000`); contrato en `@movo/shared` (`types/user-ledger.ts`). Diagrama: `flujo-de-pagos.md` 5.7.
+
+**Cuenta cobradora vinculada por OAuth, no la app de Movo S.A.** Verificado en el sandbox (16/10/2026): con el token `client_credentials`
+de la app, `POST /v1/payments` responde `403 At least one policy returned UNAUTHORIZED` (aun con `card_token` inválido, o sea que ni llega a
+validarlo), con el token `APP_USR-` de la app `401 Unauthorized use of live credentials`, y `card_tokens` con la `public_key` `APP_USR-` da 201 pero
+no sirve. El token de la app no puede crear pagos. Por eso Movo cobra con una cuenta de MP **vinculada como la de un transportista**:
+`MOVO_COLLECTOR_USER_ID` es un usuario interno que vincula su cuenta en Pagos y cobros; se leen sus credenciales con
+`findActiveCredentials` (token vigente + `public_key`) y las renueva el barrido de MOVO-243. Sin la var, sin cuenta vinculada o con el token
+vencido: 503 `BALANCE_COLLECTOR_NOT_CONFIGURED`. En el sandbox esa cuenta es un Vendedor de prueba; en producción, la cuenta real de Movo.
+
+- **Pago directo**: `payer: {type: customer}` con la tarjeta guardada del usuario (`resolvePayer`, igual que `hold.service.ts`: tarjeta ajena o
+  dada de baja → 404 `SAVED_CARD_NOT_FOUND`), captura inmediata, sin `capture:false` ni `application_fee`, `external_reference` = id del intento,
+  key de MP `movo-balance-<intento>`. El token lo hace el mobile con la `public_key` de `pay-data`.
+- **Idempotencia en la base**: índice único parcial `(user_id) WHERE status IN ('creating','pending')` (un solo intento abierto por usuario), a mano en la migración: con
+  varios abiertos, aunque de distinto monto, lo que está en vuelo podía sumar más que la deuda y dejar saldo a favor (review de PR #262). Con un
+  intento abierto: del mismo monto y `pending` → devuelve su resultado; `creating` con el mismo token/tarjeta (huella) → reintenta con la MISMA key;
+  en otro caso (otro monto, otro token) 409 `BALANCE_PAYMENT_IN_PROGRESS`. Un aprobado tardío sobre un intento ya cerrado igual se acredita (es plata
+  recibida), así que un saldo a favor puntual por esa vía es aceptable: el ledger lo soporta (saldo negativo).
+- **Errores de MP como en los holds** (`classifyCreateError`/`readMpError`/`failureReasonFromStatusDetail`, exportados de `hold.service.ts`): un
+  rechazo de la tarjeta o un token inválido (2006/3001/3003/3031/3032) es un 200 con `status: rejected` y `failureReason`; 401/403 de la cobradora →
+  intento `failed`, alerta `mp_balance_collector_auth` y 503; sin respuesta (timeout/5xx) → 502 y el intento queda `creating`.
+- **Monto**: mayor que cero, hasta 2 decimales y como mucho el saldo deudor (`ledger.balance`); sin deuda o con saldo a favor → 422
+  `BALANCE_AMOUNT_EXCEEDS_DEBT`.
+- **La plata se acredita una sola vez por el ledger, no por el estado del intento**: `voluntary_payment` negativo `settled` con
+  `idempotencyKey: balance-payment:<intento>`, al aprobarse en la respuesta o por el webhook. Un aprobado tardío sobre un intento ya `rejected`
+  igual se acredita (es plata recibida); un `mp_payment_id` es único por intento (un pago no puede asentar dos).
+- **Webhook**: `mp-webhook.service.ts#resolveBalancePayment` corre ANTES del camino de holds, solo si el `user_id` de la notificación es el de la
+  cuenta cobradora (`collectorForWebhook`). Consulta `Payment.get` con su token, exige `external_reference` de un intento y monto igual (si no, no acredita y
+  avisa). Contracargo/reembolso/mediación no tocan el ledger: alertan. Los holds se procesan igual.
+- **Conciliación** (`reconcileOpen`, al pedir `pay-data` o `pay`): por cada intento abierto busca en MP por `external_reference` con el token de la cobradora;
+  un aprobado se acredita antes de validar el monto, y un `creating` de más de 10 min sin pago en MP pasa a `failed`. Una falla de MP no bloquea. En el
+  sandbox esa búsqueda llegó a devolver 0 con el pago ya aprobado (la de `id` sí lo veía): por eso el resultado inmediato y el webhook son el camino principal.
+  No hay barrido periódico.
+- **Env var nueva**: `MOVO_COLLECTOR_USER_ID` (`.env.example`, `envSchema`, `docker-compose.yml`).
+
+**Reemplaza a una primera versión con Checkout Pro** (preferencia + redirect) que se descartó: el usuario sale de la app, y no es el flujo de pagar un envío.
+
+**Verificado contra el sandbox real (16/10/2026)** con `test/balance-payment.sandbox.test.ts` (no corre en CI; variables en su cabecera): cuenta
+cobradora = el Vendedor de prueba vinculado por OAuth, tarjeta guardada en el customer de Movo S.A., token con `card_id` + CVV y la `public_key` de la
+cobradora. El `payer: customer` de Movo S.A. **sí funciona cuando cobra otra cuenta**. APRO aprueba y se acredita una vez (el pago existe en MP con el monto y el
+`external_reference` del intento); FUND → `insufficient_funds`; SECU → `invalid_data`; OTHE vuelve como `cc_rejected_bad_filled_other` (→ `invalid_data`, no
+`card_rejected`); la misma idempotency key devuelve el mismo pago; dos pedidos iguales a la vez cobran una vez (MP responde 423 `2001` a la segunda y el
+servicio lo trata como sin respuesta, 502). Para vincular la cobradora en sandbox hace falta un `redirect_uri` https cargado en la app (MP rechaza
+`movo://` con `strict_redirect_uri_mismatch`).
+
+**Webhook real verificado (16/10/2026)**, con el servicio local detrás de un túnel y el webhook cargado en el panel de la app: llega `payment.created`
+firmado, se valida, se consulta el pago con el token de la cobradora y se resuelve `balance_payment_already_settled` (el pago aprobado en la respuesta no se
+acredita dos veces); con titular CONT el pago queda `pending` (`pending_contingency`), el webhook lo deja en `balance_payment_waiting` y el saldo no cambia.
+El sandbox no permite aprobar después un pago pendiente, así que esa transición queda cubierta solo por integración.
+
+Pendiente: vincular la cuenta de Movo en dev/prod y cargar `MOVO_COLLECTOR_USER_ID` en los secrets; la pantalla mobile (MOVO-315).
 
 ### MOVO-306 — Captura parcial del hold por penalidad de cancelación
 

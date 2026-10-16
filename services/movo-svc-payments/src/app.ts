@@ -14,6 +14,7 @@ import mpTokenRefreshSweepPlugin from "./plugins/mp-token-refresh-sweep";
 import cardsPlugin from "./plugins/cards";
 import transactionsPlugin from "./plugins/transactions";
 import userLedgerPlugin from "./plugins/user-ledger";
+import balancePaymentPlugin from "./plugins/balance-payment";
 import paymentsRoutes from "./modules/payments/payments.routes";
 import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
 import holdsRoutes from "./modules/holds/holds.routes";
@@ -96,6 +97,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(capturesPlugin);
   // Después de `holds`: reconcilia intentos en `creating` con su service (MOVO-268).
   app.register(mpWebhooksPlugin, { shipmentsClient: opts.shipmentsClient, alertNotifier: opts.alertNotifier });
+  // MOVO-312: "Pagar mi saldo". Después de `mpWebhooks` (usa `app.alerts`) y de `userLedger`.
+  app.register(balancePaymentPlugin);
 
   // Mismo criterio que movo-svc-users: el healthcheck de Docker tiene que reflejar
   // si el servicio puede hablar con Postgres. El detalle del error se loguea y no
