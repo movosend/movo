@@ -75,6 +75,36 @@ Dos problemas con eso:
   Va primero en `missingRequirements` y responde 403 `CARRIER_DISPUTE_OPEN`. Es una consulta
   local (misma DB) y falla cerrado igual que los otros dos. Se levanta cuando se resuelve la
   disputa (MOVO-34).
+- **`no_overdue_debt`** (MOVO-313, ADR-044): ninguna deuda de la cuenta corriente sin saldar hace
+  más de `USER_DEBT_OVERDUE_DAYS` (14, env var de `svc-shipments`). Responde 403
+  `USER_DEBT_OVERDUE` y va **al final** de `missingRequirements`: es lo último que se resuelve
+  (con un pago) y, como la disputa, no es un paso de la checklist de MOVO-117.
+  - **La deuda es de la persona, el bloqueo es del rol**: solo corta las operaciones de
+    transportista de arriba. Como emisor no se bloquea (crear envíos, pagar, aceptar ofertas):
+    su próximo pago ya incluye la deuda (MOVO-311), así que se cobra ahí.
+  - **Umbral por antigüedad, sin monto mínimo**: `balanceArs > 0` y `oldestUnpaidAt` hace más
+    de 14 días (`>` estricto). Quien sigue operando con tarjeta la salda sola; el bloqueo
+    apunta a quien no lo hace por esa vía (efectivo, MOVO-37).
+  - **Mismo trato que los otros requisitos**: consulta síncrona sin cache a
+    `GET /internal/payments/users/:userId/balance` (MOVO-309), en el mismo `Promise.all`, y
+    falla cerrado con 502 si `svc-payments` no responde. Al saldarla (MOVO-311/312) el bloqueo
+    se levanta en la siguiente consulta. No corta envíos en curso: ni el handshake ni el
+    tracking pasan por este gate.
+  - **Un saldo positivo sin `oldestUnpaidAt`** (solo pasa si lo compone un movimiento ya
+    `settled` sin contrapartida) **bloquea**: no se puede probar que la deuda es reciente y no se
+    puede deber plata y operar como si nada. Se levanta al compensar el saldo.
+  - **Consecuencias por usar la misma función**: el emisor que intenta aceptar la oferta de un
+    transportista con deuda vencida recibe el 409 `OFFER_CARRIER_NOT_ELIGIBLE` sin detalle
+    (igual que con la licencia o una disputa). Es a propósito: el emisor solo se entera de que ese
+    transportista no puede tomar el envío, no del motivo; la deuda es privada del transportista.
+  - **Viajes recurrentes (ADR-042): la deuda frena la ocurrencia, no corta la serie.** Si lo
+    único que falta es `no_overdue_debt` (cuenta activa, identidad aprobada), el barrido
+    posterga la generación (`deferred`, log `trip_recurrence_generation_blocked_by_debt`) y la
+    serie queda intacta. Se avisa al transportista una sola vez por ocurrencia frenada
+    (`tripRecurrenceBlockedByDebt`: "no pudimos declarar tu próximo viaje porque tenés una deuda
+    pendiente"). Al saldar, la próxima corrida declara la siguiente
+    ocurrencia (sale de `max(departureAt, ahora)`, no nace vencida ni se acumulan atrasadas).
+    Con cualquier otro requisito faltante además de la deuda, la serie se corta como antes.
 
 **Referencias**: MOVO-116 (este ticket), MOVO-117 (UI de requisitos pendientes), MOVO-142
 (decisión que se revierte), MOVO-15 (licencia), MOVO-111/112 (vinculación de MP), MOVO-209

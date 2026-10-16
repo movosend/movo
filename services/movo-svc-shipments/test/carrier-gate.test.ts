@@ -112,6 +112,106 @@ describe("carrier-gate (MOVO-116, ADR-036)", () => {
       await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).rejects.toThrow("db caída");
     });
 
+    describe("deuda vencida en la cuenta corriente (MOVO-313, ADR-044)", () => {
+      const withDebt = () =>
+        createFakePaymentsClient([], {}, { overdueDebtUserIds: new Set([CARRIER_ID]) });
+
+      it("con deuda vencida y todo lo demás en regla: 403 USER_DEBT_OVERDUE con el requisito en details", async () => {
+        const deps = { usersClient: usersClientWith(approved), paymentsClient: withDebt(), shipmentRepository: disputesWith(false) };
+
+        const error = await assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER]).catch((e: ApiError) => e);
+
+        expect(error).toBeInstanceOf(ApiError);
+        expect(error).toMatchObject({
+          statusCode: 403,
+          code: "USER_DEBT_OVERDUE",
+          details: { missingRequirements: ["no_overdue_debt"] },
+        });
+        expect((error as ApiError).toJSON().error.details).toEqual({ missingRequirements: ["no_overdue_debt"] });
+        expect(deps.paymentsClient.getUserDebtStatus).toHaveBeenCalledWith(CARRIER_ID);
+      });
+
+      it("sin deuda vencida: deja pasar", async () => {
+        const deps = { usersClient: usersClientWith(approved), paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) };
+
+        await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).resolves.toBeUndefined();
+      });
+
+      it("con otros requisitos faltando, la deuda va al final y el code es el del primero", async () => {
+        const deps = {
+          usersClient: usersClientWith({ kycStatusIdentity: KycStatus.APPROVED, kycStatusLicense: KycStatus.PENDING }),
+          paymentsClient: createFakePaymentsClient([CARRIER_ID], {}, { overdueDebtUserIds: new Set([CARRIER_ID]) }),
+          shipmentRepository: disputesWith(false),
+        };
+
+        const error = await assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER]).catch((e: ApiError) => e);
+
+        expect(error).toMatchObject({
+          statusCode: 403,
+          code: "CARRIER_LICENSE_NOT_APPROVED",
+          details: { missingRequirements: ["license", "mp_account", "no_overdue_debt"] },
+        });
+      });
+
+      it("con una disputa abierta y deuda: la disputa va primero", async () => {
+        const deps = { usersClient: usersClientWith(approved), paymentsClient: withDebt(), shipmentRepository: disputesWith(true) };
+
+        const error = await assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER]).catch((e: ApiError) => e);
+
+        expect(error).toMatchObject({
+          code: "CARRIER_DISPUTE_OPEN",
+          details: { missingRequirements: ["no_open_dispute", "no_overdue_debt"] },
+        });
+      });
+
+      it("sin identidad aprobada: CARRIER_NOT_VERIFIED, la deuda no la pisa", async () => {
+        const deps = {
+          usersClient: usersClientWith({ kycStatusIdentity: KycStatus.REJECTED, kycStatusLicense: KycStatus.APPROVED }),
+          paymentsClient: withDebt(),
+          shipmentRepository: disputesWith(false),
+        };
+
+        await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).rejects.toMatchObject({
+          code: "CARRIER_NOT_VERIFIED",
+        });
+      });
+
+      it("sin rol carrier no consulta la deuda", async () => {
+        const deps = { usersClient: usersClientWith(approved), paymentsClient: withDebt(), shipmentRepository: disputesWith(false) };
+
+        await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.SENDER])).rejects.toMatchObject({
+          code: "CARRIER_NOT_VERIFIED",
+        });
+        expect(deps.paymentsClient.getUserDebtStatus).not.toHaveBeenCalled();
+      });
+
+      it("si svc-payments no responde el saldo, falla cerrado con su 502", async () => {
+        const paymentsClient = createFakePaymentsClient([], {
+          getUserDebtStatus: vi.fn().mockRejectedValue(new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "caído")),
+        });
+        const deps = { usersClient: usersClientWith(approved), paymentsClient, shipmentRepository: disputesWith(false) };
+
+        await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).rejects.toMatchObject({
+          statusCode: 502,
+          code: "PAYMENTS_SERVICE_UNAVAILABLE",
+        });
+      });
+
+      it("al saldar la deuda el bloqueo se levanta en la siguiente consulta (sin cache)", async () => {
+        const paymentsClient = withDebt();
+        const deps = { usersClient: usersClientWith(approved), paymentsClient, shipmentRepository: disputesWith(false) };
+
+        await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).rejects.toMatchObject({
+          code: "USER_DEBT_OVERDUE",
+        });
+
+        paymentsClient.behavior.overdueDebtUserIds.delete(CARRIER_ID);
+
+        await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).resolves.toBeUndefined();
+        expect(paymentsClient.getUserDebtStatus).toHaveBeenCalledTimes(2);
+      });
+    });
+
     it("propaga el 502 de svc-users (falla cerrado)", async () => {
       const usersClient = usersClientWith(approved);
       (usersClient.findKycStatus as ReturnType<typeof vi.fn>).mockRejectedValue(
@@ -136,6 +236,30 @@ describe("carrier-gate (MOVO-116, ADR-036)", () => {
       });
       expect(deps.usersClient.findKycStatus).toHaveBeenCalledWith(CARRIER_ID);
       expect(deps.paymentsClient.getCarrierMpAccountStatus).toHaveBeenCalledWith(CARRIER_ID);
+      // MOVO-313: la deuda se consulta junto con los demás, no después.
+      expect(deps.paymentsClient.getUserDebtStatus).toHaveBeenCalledWith(CARRIER_ID);
+    });
+
+    it("MOVO-313: la deuda se consulta en paralelo, no espera a KYC ni a MP", async () => {
+      const order: string[] = [];
+      const usersClient = usersClientWith(approved);
+      (usersClient.findKycStatus as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        order.push("kyc:start");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        order.push("kyc:end");
+        return approved;
+      });
+      const paymentsClient = createFakePaymentsClient([], {
+        getUserDebtStatus: vi.fn(async () => {
+          order.push("debt:start");
+          return { overdue: false, balanceArs: 0, oldestUnpaidAt: null };
+        }),
+      });
+
+      await resolveCarrierEligibility({ usersClient, paymentsClient, shipmentRepository: disputesWith(false) }, CARRIER_ID);
+
+      // Si fuera secuencial, `debt:start` aparecería después de `kyc:end`.
+      expect(order.indexOf("debt:start")).toBeLessThan(order.indexOf("kyc:end"));
     });
 
     it("MOVO-265: devuelve el estado de la cuenta, con la suspensión como Date, y null si no existe", async () => {

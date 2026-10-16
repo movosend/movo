@@ -14,7 +14,11 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { CarrierEligibility, resolveCarrierEligibility } from "../../utils/carrier-gate";
 import { PHANTOM_SERIES_STREAK, isPhantomSeries } from "../../domain/trip-recurrence";
 import { shortAddress } from "../../utils/short-address";
+import { NotificationClaims } from "../../utils/notification-claim";
 import { Trip } from "../../models/trip";
+
+/** Un aviso por ocurrencia frenada por deuda; el vigente cambia al declararse la siguiente. */
+const DEBT_BLOCK_CLAIM_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 type RecurrenceLogger = {
   info: (obj: unknown, msg?: string) => void;
@@ -29,6 +33,9 @@ export interface TripRecurrenceDeps {
    * resto de los requisitos de ADR-036. */
   shipmentRepository: Pick<ShipmentRepository, "hasOpenDisputeAsCarrier">;
   notificationsClient?: NotificationsClient;
+  /** MOVO-313: dedupe del aviso "frenado por deuda" (corre cada pasada del barrido). Sin él no
+   * se avisa, para no repetir la push en cada corrida. */
+  claims?: NotificationClaims;
   logger?: RecurrenceLogger;
 }
 
@@ -139,6 +146,18 @@ async function continueSeries(
     );
     return "deferred";
   }
+  // MOVO-313: la deuda vencida frena SOLO la ocurrencia que sigue. La serie queda intacta (no se
+  // apaga ni se avisa del corte): en cada corrida se vuelve a mirar y, apenas se salda la deuda,
+  // se declara la siguiente como si nada. `nextRecurrenceOccurrence` sale de `max(departureAt, now)`,
+  // así que no nace vencida ni se acumulan ocurrencias atrasadas.
+  if (isOnlyOverdueDebt(eligibility, now)) {
+    deps.logger?.info(
+      { event: "trip_recurrence_generation_blocked_by_debt", tripId: trip.id, carrierId: trip.carrierId },
+      "Deuda vencida: la ocurrencia siguiente se declara cuando el transportista la salde",
+    );
+    await notifyBlockedByDebt(deps, trip);
+    return "deferred";
+  }
   const unavailableReason = ineligibilityReason(eligibility, now);
   if (unavailableReason) {
     return (await stopSeries(deps, trip, unavailableReason)) ? "stopped" : "deferred";
@@ -180,6 +199,21 @@ async function continueSeries(
   return "generated";
 }
 
+/** La cuenta está bien y la identidad también: lo único que falta es saldar una deuda vencida. */
+function isOnlyOverdueDebt(eligibility: CarrierEligibility, now: Date): boolean {
+  const account = eligibility.account ?? null;
+  const accountOk =
+    account !== null &&
+    account.status === AccountStatus.ACTIVE &&
+    (account.bannedUntil === null || account.bannedUntil <= now);
+  return (
+    accountOk &&
+    eligibility.identityApproved &&
+    eligibility.missingRequirements.length === 1 &&
+    eligibility.missingRequirements[0] === "no_overdue_debt"
+  );
+}
+
 /** `null` si el transportista puede seguir declarando; si no, el motivo del corte. */
 function ineligibilityReason(eligibility: CarrierEligibility, now: Date): RecurrenceStopReason | null {
   const account = eligibility.account ?? null;
@@ -214,14 +248,31 @@ async function stopSeries(deps: TripRecurrenceDeps, trip: Trip, reason: Recurren
   return true;
 }
 
-/** Best-effort, como el resto de los avisos de los barridos: un push que falla solo se loguea. */
+/**
+ * MOVO-313: avisa una sola vez por ocurrencia frenada (clave = el viaje vigente, que cambia
+ * recién cuando se declara la siguiente). Si el push falla se suelta el claim y la próxima
+ * pasada lo reintenta. Sin `claims` no avisa: sin dedupe saldría en cada corrida.
+ */
+async function notifyBlockedByDebt(deps: TripRecurrenceDeps, trip: Trip): Promise<void> {
+  if (!deps.claims || !deps.notificationsClient) return;
+  const claimKey = `trip-recurrence-debt:${trip.id}`;
+  if (!(await deps.claims.claimNotificationOnce(claimKey, DEBT_BLOCK_CLAIM_TTL_SECONDS))) return;
+  const sent = await notify(deps, trip.carrierId, "tripRecurrenceBlockedByDebt", {
+    params: { destinationShort: shortAddress(trip.destinationAddress) },
+    data: { type: "trip_recurrence_blocked", tripId: trip.id },
+  });
+  if (!sent) await deps.claims.releaseNotificationClaim(claimKey);
+}
+
+/** Best-effort, como el resto de los avisos de los barridos: un push que falla solo se loguea.
+ * Devuelve si salió, para quien necesite soltar un claim. */
 async function notify<K extends NotificationTriggerKey>(
   deps: TripRecurrenceDeps,
   carrierId: string,
   triggerKey: K,
   payload: { params: Parameters<typeof renderNotificationTrigger<K>>[1]; data: Record<string, unknown> },
-): Promise<void> {
-  if (!deps.notificationsClient) return;
+): Promise<boolean> {
+  if (!deps.notificationsClient) return false;
   const { title, body } = renderNotificationTrigger(triggerKey, payload.params);
   try {
     await deps.notificationsClient.sendPush({
@@ -231,10 +282,12 @@ async function notify<K extends NotificationTriggerKey>(
       category: notificationTriggerCategory(triggerKey),
       data: payload.data,
     });
+    return true;
   } catch (err) {
     deps.logger?.warn(
       { err, event: "notification_dispatch_failed", carrierId, triggerKey, ...payload.data },
       "No se pudo avisar al transportista sobre su viaje recurrente",
     );
+    return false;
   }
 }

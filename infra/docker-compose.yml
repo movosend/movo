@@ -231,6 +231,8 @@ services:
       - FUNDING_REMINDER_INTERVAL_HOURS=${FUNDING_REMINDER_INTERVAL_HOURS:-12}
       - FUNDING_SWEEP_INTERVAL_MINUTES=${FUNDING_SWEEP_INTERVAL_MINUTES:-5}
       - FUNDING_SWEEP_ENABLED=${FUNDING_SWEEP_ENABLED:-true}
+      # MOVO-313 (ADR-044): antigüedad (días) de una deuda sin saldar que bloquea operar como transportista.
+      - USER_DEBT_OVERDUE_DAYS=${USER_DEBT_OVERDUE_DAYS:-14}
     depends_on:
       - postgres
       - redis

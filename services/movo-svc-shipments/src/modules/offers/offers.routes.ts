@@ -230,7 +230,8 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
           "OFFER_DATE_OUT_OF_RANGE) y la franja horaria propuesta (both-or-neither, " +
           "422 OFFER_PICKUP_WINDOW_INVALID). MOVO-116 (ADR-036): mismo bloqueo que " +
           "crearla -- 403 CARRIER_NOT_VERIFIED sin rol o identidad, 403 " +
-          "CARRIER_DISPUTE_OPEN/CARRIER_LICENSE_NOT_APPROVED/CARRIER_MP_ACCOUNT_NOT_LINKED con " +
+          "CARRIER_DISPUTE_OPEN/CARRIER_LICENSE_NOT_APPROVED/CARRIER_MP_ACCOUNT_NOT_LINKED/" +
+          "USER_DEBT_OVERDUE (MOVO-313, deuda vencida) con " +
           "details.missingRequirements, 502 USERS_SERVICE_UNAVAILABLE/" +
           "PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar.",
         tags: ["offers"],

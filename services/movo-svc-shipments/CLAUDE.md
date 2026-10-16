@@ -3479,3 +3479,42 @@ ventana para no atrasar el próximo mensaje.
   `chatSchedulePush` en `buildApp` y simulan el paso del tiempo borrando la marca de ventana).
 - El trigger `chatMessageReceived` (`@movo/shared`) ahora recibe `authorName`, `roleLabel?`, `messageBody` y `count?`.
 - Un autor que ya no es parte del envío sale sin rol en el título.
+
+### MOVO-313 — Bloqueo de operar como transportista por deuda vencida en la cuenta corriente (ADR-036/044)
+
+Quinto requisito habilitante de `resolveCarrierEligibility` (`utils/carrier-gate.ts`), junto a disputa, licencia y
+MP: `getUserDebtStatus` (`adapters/payments-client.ts`, `GET /internal/payments/users/:userId/balance` de MOVO-309) va
+en el mismo `Promise.all`. Una deuda sin saldar hace más de `USER_DEBT_OVERDUE_DAYS` (14) suma `no_overdue_debt` a
+`missingRequirements` y responde 403 `USER_DEBT_OVERDUE`. Bloquea declarar viaje, ofertar, editar oferta e iniciar
+viaje (los cuatro call sites de ADR-036, sin tocarlos). **`svc-payments` no cambió**: `oldestUnpaidAt` ya es la edad
+que se mide.
+
+- **La regla vive en `domain/user-debt.ts#isUserDebtOverdue`** (pura, `>` estricto: a los 14 días justos todavía no
+  vence). Sin monto mínimo (decisión del 15/10): quien opera con tarjeta la salda sola con su próximo pago.
+- **El umbral entra por `createPaymentsClient(app.config)`**, no por `CarrierGateDeps`: el cliente ya se arma así en los
+  7 sitios, y sumar un campo a las deps del gate habría obligado a tocar `trips`/`offers`/`shipments` y la recurrencia
+  (y cualquiera que se olvidara habría usado un default en silencio). `USER_DEBT_OVERDUE_DAYS` va en los tres lugares
+  (`.env.example`, `envSchema`, `infra/docker-compose.yml`).
+- **Solo es del gate de transportista**: como emisor no se bloquea (el gate no corre en `createShipment`/pagos); un test
+  de integración fija que la misma cuenta con deuda crea envíos y, en su rol de transportista, queda bloqueada.
+- **Va al final del orden** (disputa, licencia, MP, deuda): es lo último que se resuelve y, como la disputa, no abre la
+  checklist de MOVO-117 (`carrierRequirementsFromError` devuelve `null`; el mobile muestra el mensaje).
+- **Sin cache y falla cerrado**: 502 `PAYMENTS_SERVICE_UNAVAILABLE` ante red, status o forma inesperada. Un saldo
+  positivo **sin** `oldestUnpaidAt` también bloquea (no se puede probar que sea reciente; ver ADR-044).
+- **Aceptar oferta** (por compartir la función, ADR-036): la oferta de un transportista con deuda vencida da 409
+  `OFFER_CARRIER_NOT_ELIGIBLE` al emisor.
+- **Viajes recurrentes (MOVO-265)**: si lo único que falta es la deuda, `continueSeries` devuelve `deferred`
+  (`isOnlyOverdueDebt`, log `trip_recurrence_generation_blocked_by_debt`) y la serie queda intacta; al saldar, la
+  próxima corrida declara la siguiente. Con otro requisito faltante además, se corta como siempre. **Avisa** con el
+  trigger `tripRecurrenceBlockedByDebt` (categoría `trips`, `data: { type: "trip_recurrence_blocked", tripId }` del viaje
+  vigente), **una vez por ocurrencia frenada**: dedupe `notified:trip-recurrence-debt:<tripId>` (30 días; el vigente cambia
+  al declararse la siguiente, así que una deuda futura vuelve a avisar), se suelta el claim si la push falla, y sin
+  `claims` en `TripRecurrenceDeps` no avisa (saldría en cada corrida; el sweep lo cablea con `app.redis`).
+- No corta envíos en curso: handshake y tracking no pasan por el gate (test con un `in_transit` y deuda vencida).
+
+Tests: `user-debt.test.ts`, `payments-client.test.ts` (umbral configurable, formas inválidas), `carrier-gate.test.ts`
+(orden, paralelo, falla cerrado, sin cache) y `carrier-requirements.integration.test.ts` (los cuatro bloqueos, se
+levanta al saldar, emisor con deuda, 502). `FakePaymentsClient.behavior.overdueDebtUserIds` es el `Set` mutable.
+
+Pendiente / fuera de alcance: el pago voluntario (MOVO-312) y el cobro con el próximo pago (MOVO-311) que saldan la
+deuda; una pantalla en mobile con el saldo y el CTA para pagar (hoy solo el mensaje).

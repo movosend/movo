@@ -14,6 +14,7 @@ import { createFakePaymentsClient } from "./fake-payments-client";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 import { createFakePricingLogisticsClient } from "./fake-pricing-logistics-client";
 import { attachAcceptedPackage } from "./trip-package-fixture";
+import { createNotificationClaims } from "../src/utils/notification-claim";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -355,6 +356,87 @@ describe("viajes recurrentes (MOVO-265)", () => {
 
       expect(result).toEqual({ generated: 0, stopped: 0, deferred: 1, alreadyGenerated: 0 });
       expect((await tripRepo.findById(head.id))!.recurrenceWeekdays).toEqual(head.recurrenceWeekdays);
+    });
+
+    it("MOVO-313: con deuda vencida frena solo la ocurrencia siguiente, sin cortar la serie, y la retoma al saldar", async () => {
+      const head = await createPastRecurringTrip();
+      const paymentsClient = createFakePaymentsClient([], {}, { overdueDebtUserIds: new Set([head.carrierId]) });
+      const { deps, sendPush } = recurrenceDeps({ paymentsClient });
+
+      const blocked = await generateRecurringOccurrences(deps);
+      // Postergada, no cortada: sin sucesor, la recurrencia sigue prendida y no se avisa ningún corte.
+      expect(blocked).toEqual({ generated: 0, stopped: 0, deferred: 1, alreadyGenerated: 0 });
+      expect(await successorOf(head.id)).toBeNull();
+      expect((await tripRepo.findById(head.id))!.recurrenceWeekdays).toEqual(head.recurrenceWeekdays);
+      expect(sendPush).not.toHaveBeenCalled();
+
+      // Sigue bloqueada mientras no se salde (varias corridas no acumulan nada).
+      await generateRecurringOccurrences(deps);
+      expect(await successorOf(head.id)).toBeNull();
+
+      paymentsClient.behavior.overdueDebtUserIds.delete(head.carrierId);
+
+      const resumed = await generateRecurringOccurrences(deps);
+      expect(resumed.generated).toBe(1);
+      expect(await successorOf(head.id)).not.toBeNull();
+    });
+
+    describe("aviso de ocurrencia frenada por deuda (MOVO-313)", () => {
+      const debtDeps = async () => {
+        const head = await createPastRecurringTrip();
+        const paymentsClient = createFakePaymentsClient([], {}, { overdueDebtUserIds: new Set([head.carrierId]) });
+        const base = recurrenceDeps({ paymentsClient, claims: createNotificationClaims(app.redis) });
+        return { head, paymentsClient, ...base };
+      };
+
+      it("avisa una sola vez por ocurrencia frenada, apuntando al viaje vigente, aunque el barrido corra de nuevo", async () => {
+        const { head, deps, sendPush } = await debtDeps();
+
+        await generateRecurringOccurrences(deps);
+        await generateRecurringOccurrences(deps);
+        await generateRecurringOccurrences(deps);
+
+        expect(sendPush).toHaveBeenCalledTimes(1);
+        expect(sendPush).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: head.carrierId,
+            category: "trips",
+            data: { type: "trip_recurrence_blocked", tripId: head.id },
+          }),
+        );
+        expect(await successorOf(head.id)).toBeNull();
+        expect((await tripRepo.findById(head.id))!.recurrenceWeekdays).toEqual(head.recurrenceWeekdays);
+      });
+
+      it("si la push falla, la próxima pasada reintenta", async () => {
+        const { deps, sendPush } = await debtDeps();
+        sendPush.mockRejectedValueOnce(new Error("push caído"));
+
+        await generateRecurringOccurrences(deps);
+        await generateRecurringOccurrences(deps);
+
+        expect(sendPush).toHaveBeenCalledTimes(2);
+      });
+
+      it("sin dedupe configurado no avisa (saldría en cada corrida)", async () => {
+        const head = await createPastRecurringTrip();
+        const paymentsClient = createFakePaymentsClient([], {}, { overdueDebtUserIds: new Set([head.carrierId]) });
+        const { deps, sendPush } = recurrenceDeps({ paymentsClient });
+
+        await generateRecurringOccurrences(deps);
+
+        expect(sendPush).not.toHaveBeenCalled();
+      });
+    });
+
+    it("MOVO-313: la deuda junto con otro requisito faltante sí corta la serie (el otro no se resuelve solo)", async () => {
+      const head = await createPastRecurringTrip();
+      const paymentsClient = createFakePaymentsClient([head.carrierId], {}, { overdueDebtUserIds: new Set([head.carrierId]) });
+
+      const result = await generateRecurringOccurrences(recurrenceDeps({ paymentsClient }).deps);
+
+      expect(result.stopped).toBe(1);
+      expect((await tripRepo.findById(head.id))!.recurrenceWeekdays).toBeNull();
     });
 
     it("corta la serie si el transportista no tiene MP vinculado", async () => {
