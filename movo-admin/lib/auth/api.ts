@@ -9,6 +9,7 @@ import {
 export async function gateway<T>(
   path: string,
   options: {
+    method?: "GET" | "POST" | "DELETE"
     body?: unknown
     accessToken?: string
     idempotencyKey?: string
@@ -20,7 +21,7 @@ export async function gateway<T>(
     response = await fetch(
       `${process.env.MOVO_GATEWAY_URL ?? "https://api-dev.movosend.app"}/api/v1${path}`,
       {
-        method: options.body === undefined ? "GET" : "POST",
+        method: options.method ?? (options.body === undefined ? "GET" : "POST"),
         headers: {
           "Content-Type": "application/json",
           "x-request-id": requestId,
@@ -60,11 +61,27 @@ export async function gateway<T>(
   return response.json() as Promise<T>
 }
 
+const ADMIN_REASONS: Record<string, string> = {
+  USER_NOT_FOUND:
+    "No hay una cuenta con ese email. La persona tiene que registrarse primero en la app.",
+  ADMIN_GRANT_EMAIL_NOT_VERIFIED:
+    "Esa cuenta no verificó su email. Tiene que hacerlo antes de ser admin.",
+  ADMIN_GRANT_ACCOUNT_NOT_ACTIVE: "Esa cuenta no está activa.",
+  ADMIN_GRANT_CONFLICT: "El rol cambió mientras se otorgaba. Volvé a intentar.",
+  ADMIN_NOT_FOUND: "Esa persona ya no es admin. Actualizá la lista.",
+  ADMIN_LAST_ADMIN:
+    "No se puede revocar al último admin: el panel quedaría sin administradores.",
+}
+
 export function publicError(error: unknown): string {
   if (!(error instanceof ApiError))
     return "Ocurrió un problema. Volvé a intentar."
   if (error.code === "ADMIN_CONFLICT_OF_INTEREST")
     return "No podés modificar un registro en el que sos parte."
+  // Rechazos de svc-users al gestionar admins (MOVO-292): se mapean por código, con texto
+  // propio, para mostrar el motivo concreto sin reenviar el texto del servidor.
+  const adminReason = ADMIN_REASONS[error.code]
+  if (adminReason) return adminReason
   if (error.statusCode === 429)
     return "Demasiados intentos. Esperá antes de volver a intentar."
   if (error.statusCode >= 500)
