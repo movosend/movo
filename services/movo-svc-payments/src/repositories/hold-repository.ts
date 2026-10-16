@@ -1,5 +1,7 @@
 import { Prisma, PrismaClient } from "../generated/prisma/client";
 import type { Hold, HoldFailureReason, HoldStatus } from "../generated/prisma/client";
+import type { DebtCollection } from "../modules/holds/debt-collection";
+import { insertHoldDebtReservation, lockLedgerUser, readLedgerBalance } from "./user-ledger-repository";
 
 export type { Hold };
 
@@ -8,8 +10,12 @@ export interface NewHoldAttempt {
   attempt: number;
   carrierId: string;
   collectorId: string;
-  amountArs: number;
-  applicationFeeArs: number;
+  /**
+   * MOVO-311: arma los montos del intento con el saldo de la cuenta corriente del transportista y del
+   * emisor, leído con los dos usuarios bloqueados (ver `createAttempt`). Sin deuda devuelve el precio y la
+   * comisión de siempre.
+   */
+  plan: (balances: { carrierBalanceArs: number; payerBalanceArs: number }) => DebtCollection;
   /** Hash del cuerpo del pedido (token, pagador, medio de pago): ver `requestFingerprint`. */
   requestFingerprint: string;
   /** MOVO-282: tarjeta guardada con la que se crea el hold (habilita el `409 CARD_IN_USE` al borrarla). */
@@ -63,6 +69,11 @@ export interface HoldRepository {
   /**
    * Inserta un intento en `creating`. Tira `HoldAttemptConflictError` si otro request ya
    * lo creó (`shipment_id`+`attempt`) o si el envío ya tiene un hold vivo (índice parcial).
+   *
+   * MOVO-311: en la misma transacción reserva la deuda que cobra el intento (`fee_offset` del transportista,
+   * `payment_surcharge` del emisor). Los dos usuarios quedan bloqueados (advisory lock, en orden para no
+   * trabarse) desde que se lee su saldo hasta el commit, así dos holds en paralelo no descuentan la misma
+   * deuda: el segundo ya ve lo que reservó el primero.
    */
   createAttempt(data: NewHoldAttempt): Promise<Hold>;
   update(id: string, patch: HoldUpdate): Promise<Hold>;
@@ -91,20 +102,59 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
     },
 
     async createAttempt(data) {
+      const payerId = data.payerId ?? null;
+      // Si cobrador y pagador fueran la misma persona (shipments no lo permite), su saldo se cobraría dos veces en
+      // el mismo hold: se cobra solo como cobrador.
+      const payerDebtorId = payerId && payerId !== data.carrierId ? payerId : null;
       try {
-        return await db.hold.create({
-          data: {
-            shipmentId: data.shipmentId,
-            attempt: data.attempt,
-            carrierId: data.carrierId,
-            collectorId: data.collectorId,
-            amountArs: new Prisma.Decimal(data.amountArs),
-            applicationFeeArs: new Prisma.Decimal(data.applicationFeeArs),
-            requestFingerprint: data.requestFingerprint,
-            savedCardId: data.savedCardId ?? null,
-            payerId: data.payerId ?? null,
-            status: "creating",
-          },
+        return await db.$transaction(async (tx) => {
+          const users = [...new Set([data.carrierId, ...(payerId ? [payerId] : [])])].sort();
+          for (const userId of users) await lockLedgerUser(tx, userId);
+          const [carrierBalance, payerBalance] = await Promise.all([
+            readLedgerBalance(tx, data.carrierId),
+            payerDebtorId ? readLedgerBalance(tx, payerDebtorId) : Promise.resolve(new Prisma.Decimal(0)),
+          ]);
+          const amounts = data.plan({
+            carrierBalanceArs: carrierBalance.toNumber(),
+            payerBalanceArs: payerBalance.toNumber(),
+          });
+          const hold = await tx.hold.create({
+            data: {
+              shipmentId: data.shipmentId,
+              attempt: data.attempt,
+              carrierId: data.carrierId,
+              collectorId: data.collectorId,
+              amountArs: new Prisma.Decimal(amounts.amountArs),
+              applicationFeeArs: new Prisma.Decimal(amounts.applicationFeeArs),
+              baseAmountArs: new Prisma.Decimal(amounts.baseAmountArs),
+              commissionArs: new Prisma.Decimal(amounts.commissionArs),
+              debtOffsetArs: new Prisma.Decimal(amounts.debtOffsetArs),
+              debtSurchargeArs: new Prisma.Decimal(amounts.debtSurchargeArs),
+              requestFingerprint: data.requestFingerprint,
+              savedCardId: data.savedCardId ?? null,
+              payerId,
+              status: "creating",
+            },
+          });
+          if (hold.debtOffsetArs.greaterThan(0)) {
+            await insertHoldDebtReservation(tx, {
+              userId: data.carrierId,
+              type: "fee_offset",
+              amountArs: hold.debtOffsetArs,
+              shipmentId: hold.shipmentId,
+              holdId: hold.id,
+            });
+          }
+          if (payerDebtorId && hold.debtSurchargeArs.greaterThan(0)) {
+            await insertHoldDebtReservation(tx, {
+              userId: payerDebtorId,
+              type: "payment_surcharge",
+              amountArs: hold.debtSurchargeArs,
+              shipmentId: hold.shipmentId,
+              holdId: hold.id,
+            });
+          }
+          return hold;
         });
       } catch (error) {
         if (isUniqueViolation(error)) throw new HoldAttemptConflictError();

@@ -19,6 +19,10 @@ export interface SettlementUpdate {
   statusDetail?: string | null;
   mpFeeArs?: Prisma.Decimal | null;
   commissionArs?: Prisma.Decimal;
+  /** MOVO-311: deuda cobrada en la captura, aparte de la comisión. */
+  debtOffsetArs?: Prisma.Decimal;
+  debtSurchargeArs?: Prisma.Decimal;
+  debtSurchargeFeeArs?: Prisma.Decimal;
   netAmountArs?: Prisma.Decimal | null;
   capturedAt?: Date | null;
 }

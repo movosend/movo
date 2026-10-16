@@ -5,6 +5,7 @@ import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-c
 import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
 import { Hold, HoldRepository } from "../../repositories/hold-repository";
 import { Settlement, SettlementRepository } from "../../repositories/settlement-repository";
+import { HoldDebtSettlement, UserLedgerRepository } from "../../repositories/user-ledger-repository";
 import { missingCardFields } from "../../utils/payment-card";
 import { readMpError } from "../holds/hold.service";
 
@@ -30,6 +31,9 @@ export function toSettlementResponse(s: Settlement): SettlementResponse {
     grossAmountArs: s.grossAmountArs.toNumber(),
     mpFeeArs: s.mpFeeArs?.toNumber() ?? null,
     commissionArs: s.commissionArs.toNumber(),
+    debtOffsetArs: s.debtOffsetArs.toNumber(),
+    debtSurchargeArs: s.debtSurchargeArs.toNumber(),
+    debtSurchargeFeeArs: s.debtSurchargeFeeArs.toNumber(),
     netAmountArs: s.netAmountArs?.toNumber() ?? null,
     failureReason: (s.failureReason as SettlementFailureReason | null) ?? null,
     capturedAt: s.capturedAt?.toISOString() ?? null,
@@ -73,8 +77,51 @@ export function readFeeBreakdown(payment: PaymentSnapshot, fallbackCommission: D
   return { mpFeeArs: mpFee, commissionArs: commission ?? fallbackCommission, netAmountArs: toMoney(net) };
 }
 
+export interface RetainedFeeSplit {
+  /** Comisión de Movo. */
+  commissionArs: Decimal;
+  /** Deuda del transportista cobrada. */
+  debtOffsetArs: Decimal;
+  /** Deuda del emisor saldada (el recargo completo, aunque el fee lleve menos por la comisión de MP). */
+  debtSurchargeArs: Decimal;
+  /** La parte del fee retenido que corresponde al recargo (lo que entró al fee por él). */
+  debtSurchargeFeeArs: Decimal;
+}
+
+/**
+ * MOVO-311: reparte el `application_fee` que retuvo MP entre la comisión de Movo y la deuda que cobraba el
+ * hold. Lo normal es que MP retenga exactamente lo pedido (la captura va sin `amount`); si retuvo menos, el
+ * faltante se descuenta primero del recargo del emisor y después del descuento al transportista (la
+ * comisión es lo último que se resigna), y la deuda saldada es la proporción efectivamente cobrada.
+ */
+export function splitRetainedFee(
+  hold: Pick<Hold, "applicationFeeArs" | "commissionArs" | "debtOffsetArs" | "debtSurchargeArs">,
+  retainedArs: Decimal
+): RetainedFeeSplit {
+  const commission = Decimal.min(hold.commissionArs, retainedArs);
+  let debtRetained = Decimal.max(0, retainedArs.minus(commission));
+  const offset = Decimal.min(hold.debtOffsetArs, debtRetained);
+  debtRetained = debtRetained.minus(offset);
+  const surchargeFee = hold.applicationFeeArs.minus(hold.commissionArs).minus(hold.debtOffsetArs);
+  const surcharge =
+    surchargeFee.lessThanOrEqualTo(0) || debtRetained.greaterThanOrEqualTo(surchargeFee)
+      ? hold.debtSurchargeArs
+      : hold.debtSurchargeArs.times(debtRetained).dividedBy(surchargeFee).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+  const surchargeFeeRetained = Decimal.max(0, Decimal.min(debtRetained, surchargeFee));
+  // Lo que MP haya retenido de más (no debería pasar) queda como comisión: es lo que se cobró.
+  const extra = Decimal.max(0, retainedArs.minus(hold.applicationFeeArs));
+  return {
+    commissionArs: commission.plus(extra),
+    debtOffsetArs: offset,
+    debtSurchargeArs: surcharge,
+    debtSurchargeFeeArs: surchargeFeeRetained,
+  };
+}
+
 export interface CaptureServiceDeps {
   holds: HoldRepository;
+  /** MOVO-311: asienta en la cuenta corriente la deuda que cobró el hold. */
+  ledger: Pick<UserLedgerRepository, "settleHoldDebt">;
   settlements: SettlementRepository;
   accounts: CarrierMpAccountRepository;
   mercadoPago: MercadoPagoClient;
@@ -101,7 +148,7 @@ export interface CaptureServiceDeps {
  * hold como estaba. El reintento con backoff y el escalado son MOVO-213.
  */
 export function createCaptureService(deps: CaptureServiceDeps) {
-  const { holds, settlements, accounts, mercadoPago, log } = deps;
+  const { holds, settlements, accounts, mercadoPago, ledger, log } = deps;
   const now = deps.now ?? (() => new Date());
 
   const captureKey = (holdId: string) => `movo-hold-capture-${holdId}`;
@@ -149,7 +196,7 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       );
     }
 
-    const breakdown = readFeeBreakdown(payment, settlement.commissionArs);
+    const breakdown = readFeeBreakdown(payment, hold.applicationFeeArs);
     if (!breakdown) {
       log.error(
         { shipmentId: settlement.shipmentId, holdId: hold.id, mpPaymentId: settlement.mpPaymentId },
@@ -167,12 +214,13 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         "el monto del pago en MP no coincide con el del hold"
       );
     }
-    if (!breakdown.commissionArs.equals(settlement.commissionArs)) {
+    if (!breakdown.commissionArs.equals(hold.applicationFeeArs)) {
       log.error(
-        { shipmentId: settlement.shipmentId, expected: settlement.commissionArs.toString(), mp: breakdown.commissionArs.toString() },
-        "la comisión de Movo en MP no coincide con la del hold"
+        { shipmentId: settlement.shipmentId, expected: hold.applicationFeeArs.toString(), mp: breakdown.commissionArs.toString() },
+        "el application_fee en MP no coincide con el del hold"
       );
     }
+    const split = splitRetainedFee(hold, breakdown.commissionArs);
     const accounted = breakdown.mpFeeArs.plus(breakdown.commissionArs).plus(breakdown.netAmountArs);
     if (!accounted.equals(gross)) {
       log.error(
@@ -196,12 +244,24 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         );
       }
     }
+    // MOVO-311: la deuda se asienta ANTES de acreditar: una liquidación `credited` se devuelve sin volver a
+    // pasar por acá, así que acreditada implica deuda asentada. Asentar es idempotente.
+    if (hold.debtOffsetArs.greaterThan(0) || hold.debtSurchargeArs.greaterThan(0)) {
+      const settled: HoldDebtSettlement[] = [
+        { type: "fee_offset", amountArs: split.debtOffsetArs },
+        { type: "payment_surcharge", amountArs: split.debtSurchargeArs },
+      ];
+      await ledger.settleHoldDebt(hold.id, settled);
+    }
     const credited = await settlements.update(settlement.id, {
       status: "credited",
       failureReason: null,
       statusDetail: payment.status_detail ?? null,
       mpFeeArs: breakdown.mpFeeArs,
-      commissionArs: breakdown.commissionArs,
+      commissionArs: split.commissionArs,
+      debtOffsetArs: split.debtOffsetArs,
+      debtSurchargeArs: split.debtSurchargeArs,
+      debtSurchargeFeeArs: split.debtSurchargeFeeArs,
       netAmountArs: breakdown.netAmountArs,
       capturedAt: now(),
     });
@@ -212,7 +272,9 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         mpPaymentId: credited.mpPaymentId,
         grossArs: gross.toString(),
         mpFeeArs: breakdown.mpFeeArs.toString(),
-        commissionArs: breakdown.commissionArs.toString(),
+        commissionArs: split.commissionArs.toString(),
+        debtOffsetArs: split.debtOffsetArs.toString(),
+        debtSurchargeArs: split.debtSurchargeArs.toString(),
         netArs: breakdown.netAmountArs.toString(),
       },
       "hold capturado y liquidación acreditada"
@@ -300,7 +362,7 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         carrierId: hold.carrierId,
         mpPaymentId: hold.mpPaymentId,
         grossAmountArs: hold.amountArs,
-        commissionArs: hold.applicationFeeArs,
+        commissionArs: hold.commissionArs,
       });
       if (settlement.status === "credited") {
         return { settlement: toSettlementResponse(settlement), replayed: true };

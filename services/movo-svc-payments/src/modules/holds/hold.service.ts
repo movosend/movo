@@ -4,7 +4,7 @@ import {
   ApiError,
   CLOSED_HOLD_STATUSES,
   CreateHoldRequest,
-  decomposeOfferGrossPrice,
+  DebtCollectionPreviewResponse,
   HoldCheckoutDataRequest,
   HoldCheckoutDataResponse,
   HoldFailureReason,
@@ -15,6 +15,7 @@ import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-accoun
 import { SavedCardRepository } from "../../repositories/saved-card-repository";
 import { Hold, HoldAttemptConflictError, HoldRepository, HoldUpdate } from "../../repositories/hold-repository";
 import { cardFromPayment, missingCardFields } from "../../utils/payment-card";
+import { computeDebtCollection } from "./debt-collection";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -225,6 +226,10 @@ function toHoldResponse(hold: Hold): HoldResponse {
     collectorId: hold.collectorId,
     amountArs: hold.amountArs.toNumber(),
     applicationFeeArs: hold.applicationFeeArs.toNumber(),
+    baseAmountArs: hold.baseAmountArs.toNumber(),
+    commissionArs: hold.commissionArs.toNumber(),
+    debtOffsetArs: hold.debtOffsetArs.toNumber(),
+    debtSurchargeArs: hold.debtSurchargeArs.toNumber(),
     status: hold.status,
     statusDetail: hold.statusDetail,
     failureReason: hold.failureReason,
@@ -237,6 +242,10 @@ function toHoldResponse(hold: Hold): HoldResponse {
 export interface HoldServiceDeps {
   /** `MP_HOLD_VALIDITY_DAYS`: cuánto se espera que MP sostenga la reserva (AC4). */
   holdValidityDays: number;
+  /** MOVO-311 (`DEBT_COLLECTION_MAX_RATE`): tope de la deuda que se cobra en un hold, sobre el precio. */
+  debtCollectionMaxRate: number;
+  /** MOVO-311: saldo de la cuenta corriente de un usuario (positivo = debe), para las vistas previas. */
+  ledgerBalance: (userId: string) => Promise<number>;
   holds: HoldRepository;
   accounts: CarrierMpAccountRepository;
   mercadoPago: MercadoPagoClient;
@@ -311,8 +320,18 @@ export function createHoldService(deps: HoldServiceDeps) {
     return { type: "customer", id: customer.mpCustomerId };
   }
 
-  function sameTerms(hold: Hold, carrierId: string, amountArs: number): boolean {
-    return hold.carrierId === carrierId && hold.amountArs.toNumber() === amountArs;
+  /**
+   * Mismo transportista y mismo precio acordado. MOVO-311: se compara el precio (`baseAmountArs`) y no el
+   * monto cobrado, que puede llevar el recargo por la deuda del emisor; `svc-shipments` siempre manda el precio.
+   */
+  function sameTerms(hold: Hold, carrierId: string, priceArs: number): boolean {
+    return hold.carrierId === carrierId && hold.baseAmountArs.toNumber() === priceArs;
+  }
+
+  /** MOVO-311: montos del intento con la deuda que se puede cobrar a cada parte. */
+  function planFor(priceArs: number) {
+    return (balances: { carrierBalanceArs: number; payerBalanceArs: number }) =>
+      computeDebtCollection({ priceArs, ...balances, capRate: deps.debtCollectionMaxRate });
   }
 
   /**
@@ -383,8 +402,7 @@ export function createHoldService(deps: HoldServiceDeps) {
    */
   async function resolveAttempt(
     input: CreateHoldRequest,
-    amountArs: number,
-    applicationFeeArs: number,
+    priceArs: number,
     fingerprint: string,
     loadCarrier: () => Promise<LinkedCarrier>
   ): Promise<{ kind: "replay" | "process"; hold: Hold }> {
@@ -405,7 +423,7 @@ export function createHoldService(deps: HoldServiceDeps) {
       }
 
       if (latest && latest.status === "creating") {
-        const sameBody = sameTerms(latest, input.carrierId, amountArs) && latest.requestFingerprint === fingerprint;
+        const sameBody = sameTerms(latest, input.carrierId, priceArs) && latest.requestFingerprint === fingerprint;
         if (sameBody) return { kind: "process", hold: latest };
 
         // El cuerpo cambió (otra tarjeta, otro pagador, otro monto u otro transportista)
@@ -428,7 +446,7 @@ export function createHoldService(deps: HoldServiceDeps) {
       }
 
       if (latest && !CLOSED_HOLD_STATUSES.includes(latest.status)) {
-        if (sameTerms(latest, input.carrierId, amountArs)) return { kind: "replay", hold: latest };
+        if (sameTerms(latest, input.carrierId, priceArs)) return { kind: "replay", hold: latest };
         throw new ApiError(
           409,
           "HOLD_CONFLICT",
@@ -443,8 +461,7 @@ export function createHoldService(deps: HoldServiceDeps) {
           attempt: (latest?.attempt ?? 0) + 1,
           carrierId: input.carrierId,
           collectorId: carrier.mpUserId,
-          amountArs,
-          applicationFeeArs,
+          plan: planFor(priceArs),
           requestFingerprint: fingerprint,
           savedCardId,
           // MOVO-302: el emisor queda en el hold para el historial; no entra al fingerprint ni
@@ -495,23 +512,50 @@ export function createHoldService(deps: HoldServiceDeps) {
     /** AC1: lo que el mobile necesita para tokenizar la tarjeta y mostrar el monto. */
     async getCheckoutData(input: HoldCheckoutDataRequest): Promise<HoldCheckoutDataResponse> {
       assertValidAmount(input.amountArs);
-      const carrier = await requireLinkedCarrier(input.carrierId);
+      const priceArs = roundArs(input.amountArs);
+      const [carrier, carrierBalanceArs, payerBalanceArs] = await Promise.all([
+        requireLinkedCarrier(input.carrierId),
+        deps.ledgerBalance(input.carrierId),
+        // Misma persona en los dos roles (shipments no lo permite): su saldo se cobra una sola vez, como cobrador.
+        input.payerUserId && input.payerUserId !== input.carrierId
+          ? deps.ledgerBalance(input.payerUserId)
+          : Promise.resolve(0),
+      ]);
+      // MOVO-311: vista previa, sin reservar nada. El hold vuelve a calcularla con los usuarios bloqueados,
+      // así que si la deuda cambió en el medio el monto cobrado puede diferir (lo devuelve el hold).
+      const amounts = planFor(priceArs)({ carrierBalanceArs, payerBalanceArs });
       return {
         shipmentId: input.shipmentId,
         publicKey: carrier.publicKey,
-        amountArs: input.amountArs,
-        applicationFeeArs: decomposeOfferGrossPrice(input.amountArs).commissionAmountArs,
+        amountArs: amounts.amountArs,
+        applicationFeeArs: amounts.applicationFeeArs,
+        baseAmountArs: amounts.baseAmountArs,
+        debtOffsetArs: amounts.debtOffsetArs,
+        debtSurchargeArs: amounts.debtSurchargeArs,
         payerEmail: input.payerEmail,
+      };
+    },
+
+    /**
+     * MOVO-311: cuánto de su deuda se le descontaría a un transportista en cada uno de estos precios
+     * (para el "Recibís aprox." de sus ofertas). El saldo ya descuenta lo reservado por holds en curso.
+     */
+    async previewCarrierDebt(userId: string, amountsArs: number[]): Promise<DebtCollectionPreviewResponse> {
+      const balance = await deps.ledgerBalance(userId);
+      return {
+        pendingBalanceArs: Math.max(0, balance),
+        debtOffsetsArs: amountsArs.map(
+          (priceArs) => planFor(roundArs(priceArs))({ carrierBalanceArs: balance, payerBalanceArs: 0 }).debtOffsetArs
+        ),
       };
     },
 
     /** AC2/AC3/AC5/AC6. Un rechazo de la tarjeta NO es un error HTTP: vuelve como hold `rejected`. */
     async create(input: CreateHoldRequest): Promise<CreateHoldResult> {
       assertValidAmount(input.amountArs);
-      const amountArs = roundArs(input.amountArs);
-      // La comisión sale de `@movo/shared`: `amountArs` es el bruto que ve el emisor
-      // (`Offer.priceOffered`) y Movo cobra su % sobre el neto del transportista.
-      const applicationFeeArs = decomposeOfferGrossPrice(amountArs).commissionAmountArs;
+      // `amountArs` es el precio acordado (`Offer.priceOffered`, el bruto que ve el emisor). Lo que se cobra
+      // sale del intento: la comisión de `@movo/shared` más la deuda de cada parte (MOVO-311, `planFor`).
+      const priceArs = roundArs(input.amountArs);
 
       // Antes de abrir un intento: una tarjeta ajena o dada de baja no crea ninguna fila.
       const payer = await resolvePayer(input);
@@ -519,13 +563,7 @@ export function createHoldService(deps: HoldServiceDeps) {
       let carrierPromise: Promise<LinkedCarrier> | undefined;
       const loadCarrier = () => (carrierPromise ??= requireLinkedCarrier(input.carrierId));
 
-      const { kind, hold } = await resolveAttempt(
-        input,
-        amountArs,
-        applicationFeeArs,
-        requestFingerprint(input),
-        loadCarrier
-      );
+      const { kind, hold } = await resolveAttempt(input, priceArs, requestFingerprint(input), loadCarrier);
       if (kind === "replay") {
         log.info(
           { shipmentId: hold.shipmentId, holdId: hold.id, status: hold.status },
@@ -536,9 +574,20 @@ export function createHoldService(deps: HoldServiceDeps) {
 
       const carrier = await loadCarrier();
       const key = idempotencyKey(hold.shipmentId, hold.attempt);
+      // Los montos del intento, no recalculados: un reintento con la misma key tiene que mandar el mismo cuerpo.
+      const amountArs = hold.amountArs.toNumber();
+      const applicationFeeArs = hold.applicationFeeArs.toNumber();
       // AC9: ni el card_token ni el email del pagador (ni el customer/card id de MP) se loguean.
       log.info(
-        { shipmentId: hold.shipmentId, holdId: hold.id, attempt: hold.attempt, amountArs, applicationFeeArs },
+        {
+          shipmentId: hold.shipmentId,
+          holdId: hold.id,
+          attempt: hold.attempt,
+          amountArs,
+          applicationFeeArs,
+          debtOffsetArs: hold.debtOffsetArs.toNumber(),
+          debtSurchargeArs: hold.debtSurchargeArs.toNumber(),
+        },
         "creando hold en MP"
       );
 

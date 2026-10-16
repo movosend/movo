@@ -19,6 +19,11 @@ export interface TransactionRow {
   grossAmountArs: number | null;
   mpFeeArs: number | null;
   commissionArs: number | null;
+  debtOffsetArs: number | null;
+  /** MOVO-311: precio acordado y recargo del emisor, para mostrarle al transportista su cobro sin el recargo. */
+  baseAmountArs: number;
+  debtSurchargeArs: number | null;
+  debtSurchargeFeeArs: number | null;
   netAmountArs: number | null;
   hasDispute: boolean;
   hasRefund: boolean;
@@ -67,6 +72,10 @@ interface RawRow {
   gross_amount_ars: number | null;
   mp_fee_ars: number | null;
   commission_ars: number | null;
+  debt_offset_ars: number | null;
+  base_amount_ars: number;
+  debt_surcharge_ars: number | null;
+  debt_surcharge_fee_ars: number | null;
   net_amount_ars: number | null;
   has_dispute: boolean;
   has_refund: boolean;
@@ -89,6 +98,10 @@ function toRow(r: RawRow): TransactionRow {
     grossAmountArs: r.gross_amount_ars,
     mpFeeArs: r.mp_fee_ars,
     commissionArs: r.commission_ars,
+    debtOffsetArs: r.debt_offset_ars,
+    baseAmountArs: r.base_amount_ars,
+    debtSurchargeArs: r.debt_surcharge_ars,
+    debtSurchargeFeeArs: r.debt_surcharge_fee_ars,
     netAmountArs: r.net_amount_ars,
     hasDispute: r.has_dispute,
     hasRefund: r.has_refund,
@@ -123,6 +136,7 @@ function visibleTransactions(column: "payer_id" | "carrier_id", userId: string):
       h.created_at,
       to_char(h.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
       h.amount_ars::float8 AS amount_ars,
+      h.base_amount_ars::float8 AS base_amount_ars,
       h.status::text AS hold_status,
       h.card_brand,
       h.card_last4,
@@ -131,6 +145,9 @@ function visibleTransactions(column: "payer_id" | "carrier_id", userId: string):
       s.gross_amount_ars::float8 AS gross_amount_ars,
       s.mp_fee_ars::float8 AS mp_fee_ars,
       s.commission_ars::float8 AS commission_ars,
+      s.debt_offset_ars::float8 AS debt_offset_ars,
+      s.debt_surcharge_ars::float8 AS debt_surcharge_ars,
+      s.debt_surcharge_fee_ars::float8 AS debt_surcharge_fee_ars,
       s.net_amount_ars::float8 AS net_amount_ars,
       EXISTS (
         SELECT 1 FROM payments.payment_provider_events e

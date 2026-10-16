@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Prisma, PrismaClient } from "../generated/prisma/client";
 import { ApiError } from "@movo/shared";
 import type {
@@ -59,6 +60,85 @@ export interface UserLedgerRepository {
     next: LedgerEntryStatus
   ): Promise<boolean>;
   findById(userId: string, entryId: string): Promise<UserLedgerEntry | null>;
+  /**
+   * MOVO-311: al capturar, asienta la deuda que cobró el hold. Lo `reserved` del tipo pasa a `settled`
+   * si MP retuvo lo reservado; si retuvo otra cosa (los montos no se pueden editar), o si la reserva ya estaba
+   * anulada (el hold pasó por `cancelled` y MP igual capturó), se inserta un `settled` por lo real
+   * (`<tipo>:settle:<holdId>`). Idempotente y seguro ante llamadas concurrentes.
+   */
+  settleHoldDebt(holdId: string, settled: HoldDebtSettlement[]): Promise<void>;
+}
+
+/** Lo que efectivamente cobró un hold de la deuda de un usuario (MOVO-311). */
+export interface HoldDebtSettlement {
+  type: Extract<LedgerEntryType, "fee_offset" | "payment_surcharge">;
+  /** Monto cobrado, positivo (el movimiento lo registra con signo negativo). */
+  amountArs: Prisma.Decimal;
+}
+
+const fingerprintOf = (parts: Record<string, unknown>): string =>
+  createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+
+/**
+ * MOVO-311: serializa, dentro de la transacción, a quienes leen el saldo de un usuario para reservar
+ * parte de su deuda: dos holds en paralelo del mismo usuario no pueden descontar la misma deuda.
+ */
+export async function lockLedgerUser(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  // $executeRaw y no $queryRaw: la función devuelve `void`, un tipo que Prisma no deserializa.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`user_ledger:${userId}`}))`;
+}
+
+/** Saldo con signo (lo no anulado). Lo reservado por otros holds ya lo descuenta. */
+export async function readLedgerBalance(db: Db, userId: string): Promise<Prisma.Decimal> {
+  const { _sum } = await db.userLedgerEntry.aggregate({
+    where: { userId, status: { not: "voided" } },
+    _sum: { amountArs: true },
+  });
+  return _sum.amountArs ?? new Prisma.Decimal(0);
+}
+
+/**
+ * MOVO-311: reserva (`reserved`, monto negativo) la deuda que va a cobrar un hold recién creado. La key es
+ * `<tipo>:<holdId>`: un intento de hold reserva una sola vez por tipo.
+ */
+export async function insertHoldDebtReservation(
+  tx: Prisma.TransactionClient,
+  data: {
+    userId: string;
+    type: HoldDebtSettlement["type"];
+    amountArs: Prisma.Decimal;
+    shipmentId: string;
+    holdId: string;
+  }
+): Promise<void> {
+  const amountArs = data.amountArs.negated();
+  const roleAtOrigin: LedgerRole = data.type === "fee_offset" ? "carrier" : "sender";
+  await tx.userLedgerEntry.create({
+    data: {
+      userId: data.userId,
+      roleAtOrigin,
+      type: data.type,
+      amountArs,
+      status: "reserved",
+      shipmentId: data.shipmentId,
+      holdId: data.holdId,
+      paymentId: null,
+      reason: null,
+      adminId: null,
+      idempotencyKey: `${data.type}:${data.holdId}`,
+      requestFingerprint: fingerprintOf({
+        userId: data.userId,
+        type: data.type,
+        roleAtOrigin,
+        amount: amountArs.toFixed(2),
+        status: "reserved",
+        shipmentId: data.shipmentId,
+        holdId: data.holdId,
+        paymentId: null,
+      }),
+      createdAt: new Date(),
+    },
+  });
 }
 
 /**
@@ -68,11 +148,7 @@ export interface UserLedgerRepository {
  * quedó `pending`, no figura como la deuda vieja cuando después entra una deuda nueva.
  */
 async function readSummary(db: Db, userId: string): Promise<LedgerSummary> {
-  const { _sum } = await db.userLedgerEntry.aggregate({
-    where: { userId, status: { not: "voided" } },
-    _sum: { amountArs: true },
-  });
-  const balance = _sum.amountArs ?? new Prisma.Decimal(0);
+  const balance = await readLedgerBalance(db, userId);
   if (!balance.greaterThan(0)) return { balance, oldestUnpaidAt: null };
 
   const charges = await db.userLedgerEntry.findMany({
@@ -149,6 +225,63 @@ export function createUserLedgerRepository(db: PrismaClient): UserLedgerReposito
 
     findById(userId, entryId) {
       return db.userLedgerEntry.findFirst({ where: { id: entryId, userId } });
+    },
+
+    async settleHoldDebt(holdId, settled) {
+      await db.$transaction(async (tx) => {
+        for (const { type, amountArs } of settled) {
+          let reservation = await tx.userLedgerEntry.findUnique({ where: { idempotencyKey: `${type}:${holdId}` } });
+          if (!reservation) continue;
+          if (reservation.status === "reserved" && reservation.amountArs.negated().equals(amountArs)) {
+            const { count } = await tx.userLedgerEntry.updateMany({
+              where: { id: reservation.id, status: "reserved" },
+              data: { status: "settled" },
+            });
+            if (count === 1) continue;
+            // Otro llamador (o el trigger del hold) la movió en el medio: se decide con lo que dejó.
+            reservation = await tx.userLedgerEntry.findUniqueOrThrow({ where: { id: reservation.id } });
+          }
+          if (reservation.status === "settled") continue;
+          // MP retuvo otra cosa: la reserva se anula y se asienta lo real.
+          if (reservation.status === "reserved") {
+            await tx.userLedgerEntry.updateMany({ where: { id: reservation.id, status: "reserved" }, data: { status: "voided" } });
+          }
+          // Anulada por nosotros, o por el trigger si el hold pasó por `cancelled`/`rejected` mientras MP igual
+          // capturaba: la plata se cobró, así que la deuda saldada se asienta aparte. `skipDuplicates` (ON CONFLICT
+          // DO NOTHING) lo hace idempotente sin abortar la transacción, que un P2002 sí abortaría.
+          if (amountArs.lessThanOrEqualTo(0)) continue;
+          const amount = amountArs.negated();
+          await tx.userLedgerEntry.createMany({
+            data: [
+              {
+                userId: reservation.userId,
+                roleAtOrigin: reservation.roleAtOrigin,
+                type,
+                amountArs: amount,
+                status: "settled",
+                shipmentId: reservation.shipmentId,
+                holdId,
+                paymentId: null,
+                reason: null,
+                adminId: null,
+                idempotencyKey: `${type}:settle:${holdId}`,
+                requestFingerprint: fingerprintOf({
+                  userId: reservation.userId,
+                  roleAtOrigin: reservation.roleAtOrigin,
+                  type,
+                  amount: amount.toFixed(2),
+                  status: "settled",
+                  shipmentId: reservation.shipmentId,
+                  holdId,
+                  paymentId: null,
+                }),
+                createdAt: new Date(),
+              },
+            ],
+            skipDuplicates: true,
+          });
+        }
+      });
     },
   };
 }

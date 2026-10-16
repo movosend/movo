@@ -41,6 +41,10 @@ const hold = {
     "collectorId",
     "amountArs",
     "applicationFeeArs",
+    "baseAmountArs",
+    "commissionArs",
+    "debtOffsetArs",
+    "debtSurchargeArs",
     "status",
     "statusDetail",
     "failureReason",
@@ -57,6 +61,11 @@ const hold = {
     collectorId: { type: "string" },
     amountArs: { type: "number" },
     applicationFeeArs: { type: "number" },
+    // MOVO-311: desglose de la deuda que cobra el hold.
+    baseAmountArs: { type: "number" },
+    commissionArs: { type: "number" },
+    debtOffsetArs: { type: "number" },
+    debtSurchargeArs: { type: "number" },
     status: { type: "string", enum: ["creating", "in_process", "authorized", "captured", "cancelled", "rejected"] },
     statusDetail: { type: ["string", "null"] },
     failureReason: {
@@ -73,6 +82,9 @@ export const checkoutDataSchema = {
   hide: true,
   tags: ["holds"],
   summary: "Datos para el checkout de un envío: public_key del transportista, monto y comisión",
+  description:
+    "Con `payerUserId`, el monto incluye la deuda de la cuenta corriente del emisor y la comisión la del " +
+    "transportista, con el tope por envío (MOVO-311). Es una vista previa: no reserva nada.",
   body: {
     type: "object",
     required: ["shipmentId", "carrierId", "amountArs", "payerEmail"],
@@ -82,17 +94,31 @@ export const checkoutDataSchema = {
       carrierId: uuid,
       amountArs,
       payerEmail: { type: "string", format: "email", maxLength: 254 },
+      // MOVO-311: el emisor, para sumar su deuda al pago.
+      payerUserId: uuid,
     },
   },
   response: {
     200: {
       type: "object",
-      required: ["shipmentId", "publicKey", "amountArs", "applicationFeeArs", "payerEmail"],
+      required: [
+        "shipmentId",
+        "publicKey",
+        "amountArs",
+        "applicationFeeArs",
+        "baseAmountArs",
+        "debtOffsetArs",
+        "debtSurchargeArs",
+        "payerEmail",
+      ],
       properties: {
         shipmentId: uuid,
         publicKey: { type: "string" },
         amountArs: { type: "number" },
         applicationFeeArs: { type: "number" },
+        baseAmountArs: { type: "number" },
+        debtOffsetArs: { type: "number" },
+        debtSurchargeArs: { type: "number" },
         payerEmail: { type: "string" },
       },
     },

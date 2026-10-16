@@ -1,6 +1,7 @@
 import {
   ApiError,
   ARGENTINA_UTC_OFFSET_HOURS,
+  carrierPaymentView,
   TRANSACTION_STATUSES,
   TRANSACTIONS_DEFAULT_LIMIT,
   TRANSACTIONS_MAX_LIMIT,
@@ -92,7 +93,8 @@ function toListItem(row: TransactionRow, role: TransactionRole): TransactionList
     id: row.id,
     shipmentId: row.shipmentId,
     date: row.createdAt.toISOString(),
-    amountArs: row.amountArs,
+    // MOVO-311: el transportista ve el precio acordado, sin el recargo por la deuda del emisor.
+    amountArs: role === "carrier" ? row.baseAmountArs : row.amountArs,
     status: deriveTransactionStatus({
       holdStatus: row.holdStatus,
       settlementStatus: row.settlementStatus,
@@ -114,10 +116,18 @@ function toBreakdown(row: TransactionRow): TransactionBreakdown | null {
   if (row.grossAmountArs === null || row.mpFeeArs === null || row.commissionArs === null || row.netAmountArs === null) {
     return null;
   }
-  return {
-    grossArs: row.grossAmountArs,
+  // MOVO-311: sin el recargo del emisor (ver `carrierPaymentView`), así el desglose cierra contra el neto.
+  const view = carrierPaymentView({
+    grossAmountArs: row.grossAmountArs,
     mpFeeArs: row.mpFeeArs,
+    debtSurchargeArs: row.debtSurchargeArs ?? 0,
+    debtSurchargeFeeArs: row.debtSurchargeFeeArs ?? 0,
+  });
+  return {
+    grossArs: view.grossAmountArs,
+    mpFeeArs: view.mpFeeArs as number,
     commissionArs: row.commissionArs,
+    debtOffsetArs: row.debtOffsetArs ?? 0,
     netArs: row.netAmountArs,
   };
 }

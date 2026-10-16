@@ -69,6 +69,31 @@ export const getBalanceInternalSchema = {
   },
 } as const;
 
+// MOVO-311: vista previa del descuento por deuda al transportista, para el "Recibís aprox." de sus ofertas.
+export const debtCollectionPreviewInternalSchema = {
+  hide: true,
+  params: userIdParams,
+  body: {
+    type: "object",
+    required: ["amountsArs"],
+    additionalProperties: false,
+    properties: {
+      amountsArs: { type: "array", maxItems: 100, items: { type: "number", minimum: 0.01, maximum: 99_999_999.99 } },
+    },
+  },
+  response: {
+    200: {
+      type: "object",
+      required: ["pendingBalanceArs", "debtOffsetsArs"],
+      properties: {
+        pendingBalanceArs: { type: "number" },
+        debtOffsetsArs: { type: "array", items: { type: "number" } },
+      },
+    },
+    400: errorResponse,
+  },
+} as const;
+
 export const createEntryInternalSchema = {
   hide: true,
   params: userIdParams,
