@@ -98,6 +98,8 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     receiverRedesignationDeadline: row.receiverRedesignationDeadline,
     transitAnomalyFlaggedAt: row.transitAnomalyFlaggedAt,
     transitAnomalyWarnedAt: row.transitAnomalyWarnedAt,
+    cancellationPenaltyArs: row.cancellationPenaltyArs ? row.cancellationPenaltyArs.toNumber() : null,
+    cancellationPenaltyStatus: row.cancellationPenaltyStatus,
     chatStartedAt: row.chatStartedAt,
     rejectionReason,
     createdAt: row.createdAt,
@@ -396,6 +398,18 @@ export interface UpdateStatusOptions {
   expectedCarrierId?: string;
   /** MOVO-210: ...y al mismo precio acordado (condiciona el UPDATE). */
   expectedAgreedPriceArs?: number;
+  /**
+   * MOVO-307: penalidad de la cancelación (> 0), persistida junto con el paso a `cancelled`
+   * con estado `pending`. Así el envío nunca queda cancelado sin registro de lo que se debe
+   * cobrar, aunque el proceso se caiga antes de llamar a payments.
+   */
+  cancellationPenaltyArs?: number;
+}
+
+/** MOVO-307: cursor del barrido de penalidades pendientes (orden por cancelación). */
+export interface PenaltyCursor {
+  cancelledAt: Date;
+  id: string;
 }
 
 export interface RedesignateReceiverInput {
@@ -428,6 +442,17 @@ export interface ShipmentRepository {
     limit: number,
     after?: SettlementCursor
   ): Promise<Shipment[]>;
+  /**
+   * MOVO-307: envíos `cancelled` con la penalidad todavía `pending`, cancelados antes de
+   * `cancelledBefore` (para no pisar la captura en línea). Orden estable por
+   * `(lastStatusChangedAt, id)`, mismo molde que `listDeliveredAwaitingSettlement`.
+   */
+  listCancelledAwaitingPenalty(cancelledBefore: Date, limit: number, after?: PenaltyCursor): Promise<Shipment[]>;
+  /**
+   * MOVO-307: cierra la penalidad (`pending` -> `captured`/`debt`). Condicional sobre `pending`:
+   * `false` si otro llamador (la captura en línea o el barrido) ya la cerró.
+   */
+  resolveCancellationPenalty(id: string, to: "captured" | "debt"): Promise<boolean>;
   /**
    * Única vía de escritura de `status` (AC2 de MOVO-104): valida la
    * transición con `shipment-state-machine.ts` (MOVO-105) antes de tocar la
@@ -870,6 +895,35 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return rows.map(mapShipment);
     },
 
+    async listCancelledAwaitingPenalty(cancelledBefore, limit, after) {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.CANCELLED,
+          cancellationPenaltyStatus: "pending",
+          lastStatusChangedAt: { lt: cancelledBefore },
+          ...(after
+            ? {
+                OR: [
+                  { lastStatusChangedAt: { gt: after.cancelledAt } },
+                  { lastStatusChangedAt: after.cancelledAt, id: { gt: after.id } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ lastStatusChangedAt: "asc" }, { id: "asc" }],
+        take: limit,
+      });
+      return rows.map(mapShipment);
+    },
+
+    async resolveCancellationPenalty(id, to) {
+      const { count } = await db.shipment.updateMany({
+        where: { id, cancellationPenaltyStatus: "pending" },
+        data: { cancellationPenaltyStatus: to },
+      });
+      return count === 1;
+    },
+
     async updateStatus(
       id: string,
       to: ShipmentStatus,
@@ -969,6 +1023,9 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             receiverRedesignationDeadline,
             ...restoredWindow,
             ...clearedAssignment,
+            ...(to === ShipmentStatus.CANCELLED && options.cancellationPenaltyArs !== undefined
+              ? { cancellationPenaltyArs: options.cancellationPenaltyArs, cancellationPenaltyStatus: "pending" as const }
+              : {}),
           },
         });
 

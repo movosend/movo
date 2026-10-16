@@ -1,7 +1,7 @@
 import { ShipmentStatus } from "@movo/shared";
-import { PackageType, PhotoStage } from "../generated/prisma/client";
+import { CancellationPenaltyStatus, PackageType, PhotoStage } from "../generated/prisma/client";
 
-export { PackageType, PhotoStage };
+export { CancellationPenaltyStatus, PackageType, PhotoStage };
 
 /**
  * Modelo de dominio de un envío. `status` está alineado 1:1 con
@@ -58,6 +58,12 @@ export interface Shipment {
   /** MOVO-278 (ADR-045): cuándo se le avisó al transportista que el envío marcado pasa a
    * disputa si no confirma la entrega; `null` = nunca avisado. */
   transitAnomalyWarnedAt: Date | null;
+  /** MOVO-307 (ADR-047): penalidad que el emisor confirmó al cancelar un `assigned` con menos
+   * de 12 h; `null` en toda cancelación sin cargo. */
+  cancellationPenaltyArs: number | null;
+  /** MOVO-307: `pending` (falta cobrarla), `captured` (se cobró del hold) o `debt` (quedó en la
+   * cuenta corriente del emisor). `null` sin penalidad. */
+  cancellationPenaltyStatus: CancellationPenaltyStatus | null;
   /** MOVO-26: inicio de la última asignación; el chat solo muestra mensajes desde acá (el admin los ve todos).
    * `null` = sin corte. */
   chatStartedAt: Date | null;

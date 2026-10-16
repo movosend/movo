@@ -1,6 +1,7 @@
 import {
   ActiveShipmentStatus,
   ApiError,
+  CancellationQuoteResponse,
   CarrierRoute,
   OfferStatus,
   PublicProfile,
@@ -41,6 +42,8 @@ import { haversineKm } from "../../domain/geo";
 import { DEFAULT_PACKAGE_LIMITS, PackageLimits, packageLimitViolations } from "../../domain/package-limits";
 import { isPickupMissed, isTransitAnomalous, isTransitAnomalyDeadlinePassed } from "../../domain/expiration";
 import { quoteShipment } from "./shipment-quote";
+import { quoteShipmentCancellation } from "../../domain/cancellation-penalty";
+import { canTransition } from "../../domain/shipment-state-machine";
 import { QuoteStore, quoteFingerprint } from "./quote-store";
 import {
   aggregateCarrierStops,
@@ -1104,6 +1107,13 @@ export interface ShipmentsServiceOptions {
   /** Deshace un `claimNotificationOnce` cuando el envío de la push falló, para que el
    * próximo barrido lo reintente en vez de dar el aviso por mandado durante todo el TTL. */
   releaseNotificationClaim?: (key: string) => Promise<void>;
+  /**
+   * MOVO-307: cobra en línea la penalidad de una cancelación tardía (`app.settlements`, el
+   * mismo service que retoma el barrido). Sin él la penalidad queda `pending` hasta el
+   * barrido. Lanza si no se pudo cobrar: `cancelShipment` lo atrapa (el envío ya está
+   * cancelado).
+   */
+  settleCancellationPenalty?: (shipmentId: string) => Promise<unknown>;
 }
 
 export type ShipmentsService = ReturnType<typeof createShipmentsService>;
@@ -1982,15 +1992,41 @@ export function createShipmentsService(
     },
 
     /**
-     * MOVO-29 (recorte de alcance acordado en MOVO-108, ver comentario en Linear):
-     * solo cubre la cancelación sin penalización, desde los tres estados que todavía
-     * no tienen fondos confirmados. `svc-payments` hoy es un esqueleto sin holds ni
-     * capture reales -- cancelar desde `assigned` (que sí exige aplicar una política
-     * de penalización, AC de MOVO-29) queda bloqueado explícitamente más abajo hasta
-     * que esa integración exista, en vez de fingir una transición sin su consecuencia
-     * de negocio.
+     * MOVO-307 (ADR-047): lo que el emisor pagaría si cancela ahora. Solo el emisor, y solo
+     * sobre un envío que todavía se puede cancelar; `0` donde no hay penalidad.
      */
-    async cancelShipment(shipmentId: string, callerId: string, reason?: string): Promise<Shipment> {
+    async getCancellationQuote(shipmentId: string, callerId: string): Promise<CancellationQuoteResponse> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+      if (shipment.senderId !== callerId) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede cancelar este envío.");
+      }
+      if (!canTransition(shipment.status, ShipmentStatus.CANCELLED)) {
+        throw new ApiError(409, "SHIPMENT_INVALID_TRANSITION", "Este envío ya no se puede cancelar.");
+      }
+      const quote = quoteShipmentCancellation(shipment);
+      return {
+        penaltyArs: quote.penaltyArs,
+        reason: quote.reason,
+        freeUntil: quote.freeUntil?.toISOString() ?? null,
+      };
+    },
+
+    /**
+     * MOVO-29/MOVO-108: cancelación del emisor. MOVO-307 (ADR-047) habilita `assigned`: con
+     * 12 h o más hasta el retiro (o la ventana ya cerrada) es sin cargo y se libera el hold;
+     * con menos, se cobra el 25 % del precio acordado capturando parte del hold. El emisor
+     * confirma el monto que vio (`expectedPenaltyArs`, ausente = 0): si cambió, 409 y no se
+     * cancela nada (mismo criterio que la cotización congelada, ADR-028).
+     */
+    async cancelShipment(
+      shipmentId: string,
+      callerId: string,
+      reason?: string,
+      expectedPenaltyArs?: number
+    ): Promise<Shipment> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) {
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
@@ -2002,11 +2038,17 @@ export function createShipmentsService(
         throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede cancelar este envío.");
       }
 
-      if (shipment.status === ShipmentStatus.ASSIGNED) {
+      // MOVO-307: la penalidad se calcula acá y se compara con la que confirmó el emisor.
+      // `SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED` deja de usarse (sigue en el contrato).
+      const penaltyArs = shipment.status === ShipmentStatus.ASSIGNED ? quoteShipmentCancellation(shipment).penaltyArs : 0;
+      if (shipment.status === ShipmentStatus.ASSIGNED && Math.round((expectedPenaltyArs ?? 0) * 100) !== Math.round(penaltyArs * 100)) {
         throw new ApiError(
           409,
-          "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED",
-          "No se puede cancelar un envío ya asignado todavía -- la política de penalización no está implementada."
+          "CANCELLATION_PENALTY_MISMATCH",
+          penaltyArs > 0
+            ? "La penalidad por cancelar cambió: revisá el monto y confirmá de nuevo."
+            : "Ya no corresponde una penalidad por cancelar: confirmá de nuevo.",
+          { penaltyArs }
         );
       }
 
@@ -2018,14 +2060,17 @@ export function createShipmentsService(
       // listan ANTES de cancelar: desde MOVO-258 `updateStatus` pasa esas ofertas a
       // `shipment_cancelled` en la misma transacción, y después de eso ya no se las distinguiría.
       const awaitingFunding = AWAITING_FUNDING_STATUSES.includes(previousStatus);
-      const mayHavePendingOffers = previousStatus === ShipmentStatus.PUBLISHED || awaitingFunding;
+      // MOVO-307: desde `assigned` no quedan `pending` (se cerraron al confirmarse el hold),
+      // pero se lista igual para avisarle al transportista asignado.
+      const hasAssignment = awaitingFunding || previousStatus === ShipmentStatus.ASSIGNED;
+      const mayHavePendingOffers = previousStatus === ShipmentStatus.PUBLISHED || hasAssignment;
       if (mayHavePendingOffers && !offerRepository) {
         throw new Error("cancelShipment requiere offerRepository (ShipmentsServiceOptions) para notificar ofertas pendientes.");
       }
       const shipmentOffers = mayHavePendingOffers && offerRepository ? await offerRepository.listByShipment(shipmentId) : [];
       const pendingOffers = shipmentOffers.filter((offer) => offer.status === OfferStatus.PENDING);
       // MOVO-281: la oferta del transportista ya asignado, para mandarle su `offerId` en el aviso.
-      const assignedOffer = awaitingFunding
+      const assignedOffer = hasAssignment
         ? shipmentOffers.find((offer) => offer.status === OfferStatus.ACCEPTED && offer.carrierId === shipment.carrierId)
         : undefined;
 
@@ -2038,8 +2083,15 @@ export function createShipmentsService(
       // pago concurrente que pasó el envío a `assigned` entre la lectura y este UPDATE quedaba
       // `cancelled` con el hold autorizado sin liberar (`assigned -> cancelled` es una arista
       // válida): ahora falla con 409 de modificación concurrente y el emisor ve que ya se pagó.
-      const cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason, {
+      //
+      // MOVO-307 (AC4): desde `assigned` el orden es el mismo -- primero se cancela con
+      // compare-and-swap y recién después se cobra la penalidad o se libera el hold. Un
+      // handshake de retiro concurrente gana (el envío ya es `in_transit`) y esto da 409. La
+      // penalidad queda persistida junto con la cancelación, así nunca se pierde lo que hay
+      // que cobrar aunque el proceso se caiga antes de llamar a payments.
+      let cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason, {
         expectedFrom: previousStatus,
+        ...(penaltyArs > 0 ? { cancellationPenaltyArs: penaltyArs } : {}),
       });
 
       // MOVO-210 (AC12): mientras la asignación espera el pago puede haber un hold ya creado (el
@@ -2053,8 +2105,22 @@ export function createShipmentsService(
       // liberación no se puede confirmar (payments caído, un hold `creating` reciente,
       // transportista desvinculado) el envío ya está cancelado: queda logueado con evento propio
       // y el hold vence solo en MP.
-      if (awaitingFunding && opts.paymentsClient) {
+      if ((awaitingFunding || (hasAssignment && penaltyArs === 0)) && opts.paymentsClient) {
         await releaseHoldAfterCancel(opts.paymentsClient, shipmentId);
+      }
+
+      // MOVO-307: la penalidad se cobra en línea (best-effort); si falla, queda `pending` y la
+      // retoma el barrido de liquidaciones. Se relee el envío para devolver su estado final.
+      if (penaltyArs > 0 && opts.settleCancellationPenalty) {
+        try {
+          await opts.settleCancellationPenalty(shipmentId);
+        } catch (err) {
+          logger?.warn(
+            { err, event: "cancellation_penalty_inline_failed", shipmentId },
+            "No se pudo cobrar la penalidad al cancelar: la retoma el barrido de liquidaciones"
+          );
+        }
+        cancelled = (await repository.findById(shipmentId)) ?? cancelled;
       }
 
       if (notificationsClient) {
