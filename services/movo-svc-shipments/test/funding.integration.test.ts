@@ -207,6 +207,55 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect(forbidden.statusCode).toBe(403);
     });
 
+    it("MOVO-311: con deuda del emisor, GET desglosa precio, saldo pendiente y total", async () => {
+      const { shipmentId, winner } = await acceptedShipment(1);
+      paymentsClient.behavior.pendingDebtByUserId.set(senderId, 50);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        priceArs: winner.priceOffered,
+        pendingBalanceArs: 50,
+        totalArs: winner.priceOffered + 50,
+        amountArs: winner.priceOffered + 50,
+      });
+      expect(paymentsClient.getCheckoutData).toHaveBeenCalledWith(expect.objectContaining({ payerUserId: senderId }));
+    });
+
+    it("MOVO-311: el transportista asignado ve en el detalle la deuda que se le descuenta, y nadie más", async () => {
+      const { shipmentId, winner } = await acceptedShipment(1);
+      paymentsClient.behavior.pendingDebtByUserId.set(winner.carrierId, 40);
+
+      const asCarrier = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}`,
+        headers: { "x-user-id": winner.carrierId },
+      });
+      expect(asCarrier.statusCode).toBe(200);
+      expect(asCarrier.json().debtDiscount).toEqual({ amountArs: 40, reason: "pending_balance" });
+
+      const asSender = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}`,
+        headers: { "x-user-id": senderId },
+      });
+      expect(asSender.json()).not.toHaveProperty("debtDiscount");
+
+      // Payments caído: el detalle se abre igual, sin el descuento.
+      paymentsClient.behavior.previewFails = true;
+      const degraded = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}`,
+        headers: { "x-user-id": winner.carrierId },
+      });
+      expect(degraded.statusCode).toBe(200);
+      expect(degraded.json().debtDiscount).toBeNull();
+    });
+
     it("GET responde 409 si el envío no espera un pago (published)", async () => {
       const shipmentId = await createPublished(dateInDays(1));
       const response = await app.inject({

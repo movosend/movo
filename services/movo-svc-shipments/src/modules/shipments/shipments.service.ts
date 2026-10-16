@@ -1,7 +1,9 @@
 import {
   ActiveShipmentStatus,
   ApiError,
+  CarrierDebtDiscount,
   CarrierRoute,
+  LIVE_HOLD_STATUSES,
   OfferStatus,
   PublicProfile,
   ShipmentQuoteRequest,
@@ -226,7 +228,45 @@ export interface ShipmentOffersSummary {
   minPriceNetArs: number;
 }
 
-export type ShipmentDetailResult = Shipment & { offersSummary?: ShipmentOffersSummary | null };
+export type ShipmentDetailResult = Shipment & {
+  offersSummary?: ShipmentOffersSummary | null;
+  /** MOVO-311: solo para el transportista asignado, mientras el cobro no se capturó. */
+  debtDiscount?: CarrierDebtDiscount | null;
+};
+
+/** MOVO-311: estados con transportista asignado en los que el cobro todavía no se capturó. */
+const DEBT_DISCOUNT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.ASSIGNMENT_PENDING,
+  ShipmentStatus.ASSIGNED_UNFUNDED,
+  ShipmentStatus.ASSIGNED,
+  ShipmentStatus.IN_TRANSIT,
+  ShipmentStatus.DELIVERED,
+];
+
+/**
+ * MOVO-311: cuánto de su deuda se le descuenta al transportista asignado en este envío. Con un hold vivo es
+ * lo que reservó ese hold; antes del pago, la vista previa sobre el precio acordado. Solo para mostrar: si
+ * payments no responde, `null`.
+ */
+async function resolveCarrierDebtDiscount(
+  paymentsClient: PaymentsClient,
+  shipment: Shipment
+): Promise<CarrierDebtDiscount | null> {
+  if (!shipment.carrierId || shipment.agreedPriceArs === null) return null;
+  let amountArs: number;
+  try {
+    const hold = await paymentsClient.findHoldByShipment(shipment.id);
+    if (hold && LIVE_HOLD_STATUSES.includes(hold.status)) {
+      amountArs = hold.debtOffsetArs;
+    } else {
+      const preview = await paymentsClient.previewCarrierDebt(shipment.carrierId, [shipment.agreedPriceArs]);
+      amountArs = preview?.debtOffsetsArs[0] ?? 0;
+    }
+  } catch {
+    return null;
+  }
+  return amountArs > 0 ? { amountArs, reason: "pending_balance" } : null;
+}
 
 export interface ListAvailableResult {
   items: Array<AvailableShipment & { hasMyOffer: boolean }>;
@@ -1354,6 +1394,9 @@ export function createShipmentsService(
       }
 
       if (hasShipmentAccess(shipment, callerId, callerRoles)) {
+        if (paymentsClient && callerId === shipment.carrierId && DEBT_DISCOUNT_STATUSES.includes(shipment.status)) {
+          return { ...shipment, debtDiscount: await resolveCarrierDebtDiscount(paymentsClient, shipment) };
+        }
         return shipment;
       }
 

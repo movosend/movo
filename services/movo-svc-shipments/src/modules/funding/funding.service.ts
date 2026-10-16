@@ -388,6 +388,8 @@ export function createFundingService(deps: FundingServiceDeps) {
         carrierId: shipment.carrierId as string,
         amountArs: shipment.agreedPriceArs as number,
         payerEmail: await resolvePayerEmail(shipment.senderId),
+        // MOVO-311: con el emisor, payments suma su deuda de la cuenta corriente al monto.
+        payerUserId: shipment.senderId,
       });
 
       return {
@@ -395,6 +397,9 @@ export function createFundingService(deps: FundingServiceDeps) {
         route,
         carrierPublicKey: checkout.publicKey,
         amountArs: checkout.amountArs,
+        priceArs: checkout.baseAmountArs,
+        pendingBalanceArs: checkout.debtSurchargeArs,
+        totalArs: checkout.amountArs,
         payUntil: payUntil.toISOString(),
       };
     },

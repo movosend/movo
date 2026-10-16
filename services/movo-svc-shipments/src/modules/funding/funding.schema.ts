@@ -30,12 +30,25 @@ export const fundingSchemas = {
 
   fundingResponse: {
     type: "object",
-    required: ["shipmentId", "route", "carrierPublicKey", "amountArs", "payUntil"],
+    required: [
+      "shipmentId",
+      "route",
+      "carrierPublicKey",
+      "amountArs",
+      "priceArs",
+      "pendingBalanceArs",
+      "totalArs",
+      "payUntil",
+    ],
     properties: {
       shipmentId: { type: "string" },
       route: { type: "string", enum: ["near", "far"] },
       carrierPublicKey: { type: "string" },
       amountArs: { type: "number" },
+      // MOVO-311: precio, deuda del emisor que se suma a este pago y total (= amountArs).
+      priceArs: { type: "number" },
+      pendingBalanceArs: { type: "number" },
+      totalArs: { type: "number" },
       payUntil: { type: "string" },
     },
   },

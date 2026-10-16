@@ -1,5 +1,6 @@
 import {
   ApiError,
+  carrierPaymentView,
   SettlementDisplayStatus,
   SettlementResponse,
   ShipmentSettlementResponse,
@@ -204,17 +205,22 @@ export function createSettlementService(deps: SettlementServiceDeps) {
       const settlement = await paymentsClient.findSettlement(shipmentId);
       if (!settlement) throw new ApiError(404, "SETTLEMENT_NOT_FOUND", "Este envío todavía no tiene un pago liquidado.");
 
+      // MOVO-311: el transportista ve su cobro sin el recargo por la deuda del emisor (ni el monto ni la comisión
+      // de MP sobre él): revelaría esa deuda y el desglose no cerraría contra el neto.
+      const carrierView = carrierPaymentView(settlement);
       const base: ShipmentSettlementResponse = {
         shipmentId,
         role: isCarrier ? "carrier" : "sender",
         status: displayStatus(settlement),
-        paidAmountArs: settlement.grossAmountArs,
+        paidAmountArs: isCarrier ? carrierView.grossAmountArs : settlement.grossAmountArs,
         paidAt: settlement.status === "credited" ? settlement.capturedAt : null,
+        // MOVO-311: la deuda de la cuenta corriente saldada en este envío, la de quien consulta.
+        debtCollectedArs: isCarrier ? settlement.debtOffsetArs : settlement.debtSurchargeArs,
       };
       if (!isCarrier) return base;
       return {
         ...base,
-        mpFeeArs: settlement.mpFeeArs,
+        mpFeeArs: carrierView.mpFeeArs,
         commissionArs: settlement.commissionArs,
         netAmountArs: settlement.netAmountArs,
       };

@@ -131,6 +131,16 @@ const shipmentResponse = {
         minPriceNetArs: { type: "number" },
       },
     },
+    // MOVO-311: solo para el transportista asignado mientras el cobro no se capturó: deuda de su cuenta
+    // corriente que se descuenta de lo que recibe, con el motivo.
+    debtDiscount: {
+      type: ["object", "null"],
+      required: ["amountArs", "reason"],
+      properties: {
+        amountArs: { type: "number" },
+        reason: { type: "string", enum: ["pending_balance"] },
+      },
+    },
     // MOVO-180: entrega estimada de la oferta ganadora, null hasta que el envío tenga
     // una aceptada (o si esa oferta nunca la declaró -- es opcional al ofertar).
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
