@@ -536,3 +536,8 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 `LEDGER_ENTRY_NOT_FOUND` y `LEDGER_ENTRY_STATE_CONFLICT`. Recordatorio habitual: `npm run build` acá antes de
 tipar desde otro workspace.
 
+### MOVO-312 — "Pagar mi saldo" (`types/user-ledger.ts`)
+
+`CreateBalanceCheckoutRequest` (`{ amountArs }`) y `CreateBalanceCheckoutResponse` (`{ checkoutUrl, attemptId }`).
+`ApiErrorCode` suma `BALANCE_AMOUNT_EXCEEDS_DEBT` (422), `BALANCE_CHECKOUT_IN_PROGRESS` (409) y
+`BALANCE_CHECKOUT_NOT_CONFIGURED` (503). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

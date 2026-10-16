@@ -103,3 +103,19 @@ export interface UserLedgerPageResponse extends UserLedgerBalanceResponse {
   items: UserLedgerEntry[];
   nextCursor: string | null;
 }
+
+/**
+ * MOVO-312: "Pagar mi saldo" con Checkout Pro. El usuario paga a la cuenta de Movo (cobradora), presente, en el
+ * navegador de MP. `POST /payments/balance/checkout`.
+ */
+export interface CreateBalanceCheckoutRequest {
+  /** Lo que quiere pagar ahora: mayor que cero, con hasta 2 decimales y como mucho el saldo deudor. */
+  amountArs: number;
+}
+
+export interface CreateBalanceCheckoutResponse {
+  /** `init_point` de la preferencia (`sandbox_init_point` en modo test): se abre en un navegador embebido. */
+  checkoutUrl: string;
+  /** Id del intento (el `external_reference` de MP). Solo informativo: el resultado se confirma pidiendo el saldo. */
+  attemptId: string;
+}
