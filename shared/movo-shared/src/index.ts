@@ -192,6 +192,7 @@ export {
   computeOfferGrossPrice,
   computeNetFromGross,
   decomposeOfferGrossPrice,
+  estimateMpFeeArs,
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";

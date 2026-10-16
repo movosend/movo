@@ -1,7 +1,10 @@
 import { FastifyInstance } from "fastify";
-import type { CaptureHoldRequest } from "@movo/shared";
+import { ApiError, type CaptureHoldRequest } from "@movo/shared";
 import type { CaptureRequest } from "./capture.service";
 import { captureHoldSchema, getSettlementSchema } from "./settlements.schema";
+
+/** Campos que acepta el body de la captura. */
+const CAPTURE_BODY_KEYS = new Set(["kind", "amountArs"]);
 
 /**
  * MOVO-212: endpoints INTERNOS de captura y liquidación, los consume `movo-svc-shipments`
@@ -21,8 +24,18 @@ export default async function settlementsRoutes(app: FastifyInstance) {
       schema: captureHoldSchema,
       // Sin body (MOVO-212, como llama `svc-shipments` hoy) es una entrega: Fastify validaría
       // `undefined` contra el schema y respondería 400, así que se valida como `{}`.
+      // Review de PR #261: Ajv de Fastify borra en silencio las claves de más
+      // (`removeAdditional`), así que un `{ amount: 300 }` mal escrito llegaba como `{}` y
+      // capturaba el hold ENTERO como entrega. Acá se rechaza con 400 antes de validar.
       preValidation: async (request) => {
         request.body ??= {};
+        const body = request.body;
+        const unknown = typeof body === "object" && body !== null && !Array.isArray(body)
+          ? Object.keys(body).filter((key) => !CAPTURE_BODY_KEYS.has(key))
+          : [];
+        if (unknown.length > 0) {
+          throw new ApiError(400, "VALIDATION_FAILED", `Campos desconocidos en la captura: ${unknown.join(", ")}`);
+        }
       },
     },
     async (request) => {

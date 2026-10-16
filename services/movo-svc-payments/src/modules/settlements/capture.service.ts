@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
-import { ApiError, SettlementFailureReason, SettlementResponse } from "@movo/shared";
+import { ApiError, SettlementFailureReason, SettlementResponse, estimateMpFeeArs } from "@movo/shared";
 import { Prisma } from "../../generated/prisma/client";
 import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-client";
 import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
@@ -12,6 +12,21 @@ const { Decimal } = Prisma;
 type Decimal = Prisma.Decimal;
 
 const toMoney = (value: number): Decimal => new Decimal(value).toDecimalPlaces(2);
+
+/**
+ * Causas con las que MP rechaza una captura parcial que no deja neto para el transportista:
+ * `4201` si no supera el `application_fee`, `2072` si lo supera pero no alcanza para el fee
+ * de MP (sandbox, review de PR #261: sobre fee 150, 155 da `2072` y 157 se acepta con $0,56
+ * de neto). En los dos casos el hold sigue `authorized`.
+ */
+const CAPTURE_BELOW_FEES_CAUSES = new Set(["4201", "2072"]);
+
+const belowFeesError = (amount: Decimal, applicationFee: Decimal) =>
+  new ApiError(
+    422,
+    "CAPTURE_BELOW_APPLICATION_FEE",
+    `La penalidad (${amount.toString()}) no cubre la comisión del hold (${applicationFee.toString()}) más la de Mercado Pago`
+  );
 
 /**
  * Qué capturar (MOVO-306). La entrega siempre cobra lo autorizado; la penalidad de cancelación
@@ -107,8 +122,9 @@ export interface CaptureServiceDeps {
  * captura PARTE del hold (`amount`) con su propia key (`movo-hold-penalty-<holdId>`) y MP libera
  * el resto. Sigue siendo una liquidación por envío: un pedido de otro tipo o por otro monto que
  * la existente es `409 SETTLEMENT_CONFLICT`. Spike MOVO-305: MP cobra el `application_fee`
- * ENTERO (no lo prorratea) y rechaza (`4201`) una captura que no lo supere, así que eso se valida
- * antes de llamar a MP y antes de crear la fila.
+ * ENTERO (no lo prorratea) y solo acepta la captura si al transportista le queda neto (lo
+ * capturado tiene que superar ese fee más el de MP). Eso se valida antes de llamar a MP y antes de
+ * crear la fila, con el fee de MP estimado; si igual MP la rechaza, se responde el mismo 422.
  *
  * **Fallos (AC8).** Este servicio no sabe nada del estado del envío, así que no puede
  * revertir la entrega: un fallo deja la liquidación en `failed` (o `processing`) y el
@@ -136,7 +152,11 @@ export function createCaptureService(deps: CaptureServiceDeps) {
     }
   }
 
-  /** MOVO-306: lo que se captura como penalidad tiene que entrar en el hold y superar la comisión. */
+  /**
+   * MOVO-306: lo que se captura como penalidad tiene que entrar en el hold y dejarle neto al
+   * transportista: superar la comisión de Movo más el fee de MP. El de MP se estima con la tasa
+   * de `@movo/shared` (más alta que la real del sandbox, 4,1 %): ante la duda gana el plan B.
+   */
   function penaltyAmount(hold: Hold, amountArs: number): Decimal {
     assertValidAmount(amountArs);
     const amount = toMoney(amountArs);
@@ -147,12 +167,9 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         `La penalidad (${amount.toString()}) supera el monto del hold (${hold.amountArs.toString()})`
       );
     }
-    if (amount.lte(hold.applicationFeeArs)) {
-      throw new ApiError(
-        422,
-        "CAPTURE_BELOW_APPLICATION_FEE",
-        `La penalidad (${amount.toString()}) tiene que superar la comisión del hold (${hold.applicationFeeArs.toString()})`
-      );
+    const estimatedMpFee = toMoney(estimateMpFeeArs(amount.toNumber()));
+    if (amount.minus(estimatedMpFee).lte(hold.applicationFeeArs)) {
+      throw belowFeesError(amount, hold.applicationFeeArs);
     }
     return amount;
   }
@@ -293,6 +310,11 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       if (current?.status === "approved") return;
 
       const context = { mpHttpStatus: info.status, mpCauseCodes: info.causeCodes, mpStatus: current?.status, reason: info.message };
+      // La estimación del fee de MP no alcanzó y MP rechazó la penalidad: mismo 422 que la
+      // validación previa, para que `svc-shipments` aplique el plan B en vez de reintentar.
+      if (settlement.kind === "cancellation_penalty" && info.causeCodes.some((code) => CAPTURE_BELOW_FEES_CAUSES.has(code))) {
+        return fail(settlement, "provider_error", belowFeesError(settlement.grossAmountArs, hold.applicationFeeArs), context);
+      }
       if (info.status === 401 || info.status === 403) {
         return fail(
           settlement,
