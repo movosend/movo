@@ -61,6 +61,32 @@ transportista no puede declarar viaje, ofertar, editar una oferta ni iniciar un 
   cargo positivo directo en `settled` tiene que saber que el bloqueo por deuda entra de inmediato.
 - Detalle del bloqueo y sus consecuencias (aceptar oferta, viajes recurrentes) en ADR-036.
 
+### Cobro en el próximo hold (MOVO-311, 16/10/2026)
+
+La deuda se cobra en el `application_fee` del próximo hold, en el rol que el usuario use primero.
+Detalle y ejemplo en `flujo-de-pagos.md` §6.1.
+
+- **Decidido (15/10):** también se cobra al pagar como emisor (recargo al monto), y el tope es el
+  **30% del precio** del envío, el mismo para los dos roles (`DEBT_COLLECTION_MAX_RATE`).
+- **Decidido (16/10):** con el recargo al emisor, **Movo absorbe** la comisión de MP sobre el
+  recargo: el `application_fee` lleva el recargo menos el estimado de esa comisión, y al emisor se le
+  acredita el recargo completo. Así el transportista recibe lo mismo que sin recargo.
+- **La reserva es un movimiento negativo `reserved`** (`fee_offset` del transportista,
+  `payment_surcharge` del emisor) y cuenta para el saldo desde que se crea el hold. Es la excepción
+  a "los pagos entran directo en `settled`" (abajo): un hold autorizado retiene la plata, y que el
+  saldo ya la descuente es lo que impide que otro hold cobre la misma deuda. Como consecuencia, el
+  saldo baja (y el bloqueo de MOVO-313 se puede levantar) mientras el hold espera la captura; si el
+  hold se cae, la reserva se anula y el saldo vuelve.
+- **La anulación es un trigger de `holds`**, no código de cada camino: cuando un hold pasa a
+  `rejected` o `cancelled` (creación, liberación, `?sync`, webhook), sus movimientos `reserved` pasan
+  a `voided` en la misma transacción. Cubre la regla de abajo ("quien reserva tiene que anular").
+- **Al capturar** la reserva pasa a `settled` si MP retuvo lo pedido; si retuvo otra cosa, como el
+  monto no se puede editar, se anula y se inserta un `settled` por lo real. Se asienta antes de
+  acreditar la liquidación, así una liquidación `credited` siempre tiene la deuda asentada.
+- **Concurrencia:** el alta del hold lee el saldo y reserva con los dos usuarios bloqueados
+  (`pg_advisory_xact_lock`). El pago voluntario de MOVO-312 no toma ese lock: un pago de saldo en
+  paralelo con un hold puede dejar un saldo a favor puntual, que el diseño admite.
+
 ## Alternativas descartadas
 
 - **Cuenta corriente del transportista:** no cubre al emisor que cancela con hold propio ni la comisión en efectivo del emisor.
@@ -71,6 +97,6 @@ transportista no puede declarar viaje, ofertar, editar una oferta ni iniciar un 
 
 - Los consumidores (307, 310, 311, 312, 313) arman sus propias `idempotencyKey`; una key mal construida puede registrar una deuda dos veces o descartar una legítima. Convención sugerida: `<tipo>:<shipmentId>` (ej. `penalty:<id>`).
 - Un movimiento `reserved` cuenta para el saldo y para `oldestUnpaidAt`; si la reserva se cae, quien la hizo tiene que volverla a `pending` o anularla. No hay barrido que lo haga solo.
-- Los movimientos negativos (pagos o créditos) reducen el saldo siempre que no estén `voided`. Las operaciones que saldan deudas (307 captura parcial, 312 pago voluntario) registran los movimientos directamente en `settled` una vez acreditados; no se deben crear pagos en `pending` que reduzcan la deuda antes de que el cobro se concrete.
-- No hay endpoint HTTP para cambiar el `status` todavía: lo expone el service (`transition`) y lo van a abrir 311/312 cuando lo necesiten.
-- La plata de la deuda no pasa por Mercado Pago hasta que 311/312 la cobren; hasta entonces es un registro contable, no un cobro.
+- Los movimientos negativos (pagos o créditos) reducen el saldo siempre que no estén `voided`. Las operaciones que saldan deudas (307 captura parcial, 312 pago voluntario) registran los movimientos directamente en `settled` una vez acreditados; no se deben crear pagos en `pending` que reduzcan la deuda antes de que el cobro se concrete. La excepción es la reserva de 311 (arriba), atada a un hold con los fondos retenidos.
+- No hay endpoint HTTP para cambiar el `status`: 311 mueve sus reservas dentro de `svc-payments` (trigger y captura) y 312 inserta directo en `settled`, así que ninguno lo necesitó.
+- La captura parcial de 307 todavía no cobra deuda; 311 y 312 sí.
