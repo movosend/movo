@@ -53,6 +53,7 @@ export interface EnvConfig {
   FUNDING_REMINDER_INTERVAL_HOURS: number;
   FUNDING_SWEEP_INTERVAL_MINUTES: number;
   FUNDING_SWEEP_ENABLED?: boolean;
+  USER_DEBT_OVERDUE_DAYS: number;
 }
 
 export const envSchema = {
@@ -204,6 +205,10 @@ export const envSchema = {
     // MOVO-210: barrido de la saga (timeout del pago, apertura/cierre de la ventana).
     FUNDING_SWEEP_INTERVAL_MINUTES: { type: "number", default: 5 },
     FUNDING_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-313 (ADR-044): una deuda de la cuenta corriente sin saldar hace MÁS de estos días
+    // bloquea operar como transportista (declarar viaje, ofertar, editar oferta, iniciar
+    // viaje). Umbral por antigüedad, sin monto mínimo. Como emisor no se bloquea.
+    USER_DEBT_OVERDUE_DAYS: { type: "number", default: 14, minimum: 0 },
   },
 };
 

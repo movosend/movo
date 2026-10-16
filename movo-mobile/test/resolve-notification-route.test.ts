@@ -60,7 +60,7 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
     );
   });
 
-  it.each(["trip_auto_created", "trip_recurrence_generated", "trip_recurrence_stopped"])(
+  it.each(["trip_auto_created", "trip_recurrence_generated", "trip_recurrence_stopped", "trip_recurrence_blocked"])(
     "%s abre el detalle del viaje",
     (type) => {
       expect(resolveNotificationRoute({ type, tripId: "trip_1" })).toBe("/carrier/trips/trip_1");

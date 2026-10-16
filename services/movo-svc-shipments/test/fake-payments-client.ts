@@ -10,7 +10,7 @@ import {
   LIVE_HOLD_STATUSES,
   SettlementResponse,
 } from "@movo/shared";
-import { PaymentsClient } from "../src/adapters/payments-client";
+import { PaymentsClient, UserDebtStatus } from "../src/adapters/payments-client";
 
 /**
  * Fake en memoria de `PaymentsClient` -- evita depender de un `movo-svc-payments` real levantado.
@@ -34,6 +34,11 @@ export interface FakePaymentsBehavior {
   createFails: boolean;
   /** MOVO-212: si no es null, `captureHold` lanza este error (la captura falló). */
   captureError: ApiError | null;
+  /**
+   * MOVO-313: usuarios con una deuda vencida en la cuenta corriente. Es un `Set` que el test
+   * muta (`add`/`delete`) para probar que el bloqueo se levanta en la siguiente consulta, sin cache.
+   */
+  overdueDebtUserIds: Set<string>;
 }
 
 export interface FakePaymentsClient extends PaymentsClient {
@@ -56,6 +61,8 @@ export function createFakePaymentsClient(
     releaseError: null,
     lookupFails: false,
     createFails: false,
+    captureError: null,
+    overdueDebtUserIds: new Set<string>(),
     ...behaviorOverrides,
   };
   const settlements = new Map<string, SettlementResponse>();
@@ -69,6 +76,20 @@ export function createFakePaymentsClient(
     getCarrierMpAccountStatus: vi.fn(
       async (userId: string): Promise<CarrierMpAccountStatusResponse> => ({ linked: !unlinked.has(userId) }),
     ),
+
+    // MOVO-313: sin deuda por default (así los fixtures existentes siguen pasando el gate). La
+    // regla de antigüedad vive en `domain/user-debt.ts` y se prueba aparte; acá solo se dice si
+    // el usuario la tiene vencida hoy.
+    getUserDebtStatus: vi.fn(async (userId: string): Promise<UserDebtStatus> => {
+      if (behavior.overdueDebtUserIds.has(userId)) {
+        return {
+          overdue: true,
+          balanceArs: 4200,
+          oldestUnpaidAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+        };
+      }
+      return { overdue: false, balanceArs: 0, oldestUnpaidAt: null };
+    }),
 
     getCheckoutData: vi.fn(async (input) => ({
       shipmentId: input.shipmentId,

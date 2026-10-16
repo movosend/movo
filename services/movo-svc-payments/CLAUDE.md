@@ -559,7 +559,9 @@ Tests: `test/transaction-status.test.ts` (cada estado y la precedencia) y
 `GET /payments/balance` (saldo + movimientos paginados por cursor; hereda el hook de `paymentsRoutes`, el gateway
 ya proxeaba `/payments`). Código en `src/modules/user-ledger/`, `src/repositories/user-ledger-repository.ts` y
 `src/plugins/user-ledger.ts`; contrato en `@movo/shared` (`types/user-ledger.ts`). Tabla
-`payments.user_ledger_entries` (migración `20261015220000`). Nadie la consume todavía: la usan MOVO-307, 310, 311, 312 y 313.
+`payments.user_ledger_entries` (migración `20261015220000`). Los consumidores son MOVO-307, 310, 311, 312 y 313; el
+primero en leerla es MOVO-313 (`svc-shipments` consulta `GET .../balance` para el bloqueo por deuda vencida, sin
+cambios acá: `oldestUnpaidAt` ya es la edad que mide).
 
 - **Solo inserción impuesta por la base**: triggers `BEFORE DELETE`/`BEFORE UPDATE` (a mano en la migración); de un
   `UPDATE` solo pasa `status`. Un `TRUNCATE` sí funciona, por eso los tests lo usan para limpiar. El `reason` de un

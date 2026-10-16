@@ -62,6 +62,7 @@ const TRIP_DETAIL_TYPES: readonly string[] = [
   "trip_auto_created",
   "trip_recurrence_generated",
   "trip_recurrence_stopped",
+  "trip_recurrence_blocked",
 ];
 
 const ACCOUNT_SECURITY_TYPES: readonly string[] = [

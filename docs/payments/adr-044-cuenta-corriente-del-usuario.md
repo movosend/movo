@@ -34,6 +34,33 @@ Una tabla `payments.user_ledger_entries` por **usuario**, con **saldo con signo*
 - La plata de las penalidades que se cobran como deuda **queda para Movo**. No hay crédito al emisor perjudicado; se puede sumar después como un movimiento negativo sobre el mismo saldo con signo.
 - El saldo a favor está permitido en el diseño aunque hoy nada lo genere.
 
+## Consumidores
+
+### Bloqueo por deuda vencida (MOVO-313, 15/10/2026)
+
+`svc-shipments` consulta `GET /internal/payments/users/:userId/balance` dentro de
+`resolveCarrierEligibility` (ADR-036), en paralelo con KYC, MP y disputas. Si
+`balanceArs > 0` y `oldestUnpaidAt` es de hace más de `USER_DEBT_OVERDUE_DAYS` (14), el
+transportista no puede declarar viaje, ofertar, editar una oferta ni iniciar un viaje: 403
+`USER_DEBT_OVERDUE` con `details.missingRequirements: ["no_overdue_debt"]`.
+
+- **Decidido (15/10):** la deuda vencida bloquea **solo operar como transportista**. Como emisor
+  se puede seguir operando porque su próximo pago ya incluye la deuda (MOVO-311).
+- **Decidido (15/10):** el umbral es por **antigüedad** (más de 14 días sin saldar), **sin umbral
+  de monto**: quien sigue operando con tarjeta la salda sola; el bloqueo apunta a quien no la
+  salda por esa vía (efectivo, MOVO-37).
+- **No necesita cambios en `svc-payments`:** `oldestUnpaidAt` ya es "el cargo más viejo que
+  compone la deuda actual" (ver arriba), justo la edad que mide el bloqueo. La interpretación del
+  umbral vive en `svc-shipments` (`domain/user-debt.ts`), que es quien tiene la env var.
+- **Sin cache, falla cerrado:** se consulta en cada operación protegida; saldar la deuda (311/312)
+  levanta el bloqueo en la siguiente consulta. Si `svc-payments` no responde, 502.
+- **Un saldo positivo con `oldestUnpaidAt: null` bloquea.** Pasa cuando el saldo lo compone un
+  movimiento positivo ya `settled` sin contrapartida (el cálculo de `oldestUnpaidAt` solo recorre
+  cargos `pending`/`reserved`): no hay una edad que medir, pero se debe plata y no se puede probar
+  que sea reciente. Se levanta al compensar el saldo con un movimiento negativo. Quien registre un
+  cargo positivo directo en `settled` tiene que saber que el bloqueo por deuda entra de inmediato.
+- Detalle del bloqueo y sus consecuencias (aceptar oferta, viajes recurrentes) en ADR-036.
+
 ## Alternativas descartadas
 
 - **Cuenta corriente del transportista:** no cubre al emisor que cancela con hold propio ni la comisión en efectivo del emisor.

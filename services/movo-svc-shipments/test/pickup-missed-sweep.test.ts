@@ -19,6 +19,7 @@ describe("pickup-missed-sweep plugin", () => {
     app.decorate("config", {
       PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: 15,
       PICKUP_MISSED_SWEEP_ENABLED: false,
+      USER_DEBT_OVERDUE_DAYS: 14,
     } as EnvConfig);
     app.decorate("db", {} as any);
     app.decorate("redis", {} as any);
@@ -35,6 +36,7 @@ describe("pickup-missed-sweep plugin", () => {
     app.decorate("config", {
       PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: 15,
       PICKUP_MISSED_SWEEP_ENABLED: true,
+      USER_DEBT_OVERDUE_DAYS: 14,
     } as EnvConfig);
 
     const mockFindMany = vi.fn().mockResolvedValue([]);
@@ -75,6 +77,7 @@ describe("pickup-missed-sweep plugin", () => {
     app.decorate("config", {
       PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: 15,
       PICKUP_MISSED_SWEEP_ENABLED: true,
+      USER_DEBT_OVERDUE_DAYS: 14,
     } as EnvConfig);
 
     const mockFindMany = vi.fn().mockResolvedValue([]);
