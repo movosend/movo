@@ -1,17 +1,38 @@
 import type { FastifyBaseLogger } from "fastify";
-import { ApiError, SettlementFailureReason, SettlementResponse } from "@movo/shared";
+import { ApiError, SettlementFailureReason, SettlementResponse, estimateMpFeeArs } from "@movo/shared";
 import { Prisma } from "../../generated/prisma/client";
 import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-client";
 import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
 import { Hold, HoldRepository } from "../../repositories/hold-repository";
 import { Settlement, SettlementRepository } from "../../repositories/settlement-repository";
 import { missingCardFields } from "../../utils/payment-card";
-import { readMpError } from "../holds/hold.service";
+import { assertValidAmount, readMpError } from "../holds/hold.service";
 
 const { Decimal } = Prisma;
 type Decimal = Prisma.Decimal;
 
 const toMoney = (value: number): Decimal => new Decimal(value).toDecimalPlaces(2);
+
+/**
+ * Causas con las que MP rechaza una captura parcial que no deja neto para el transportista:
+ * `4201` si no supera el `application_fee`, `2072` si lo supera pero no alcanza para el fee
+ * de MP (sandbox, review de PR #261: sobre fee 150, 155 da `2072` y 157 se acepta con $0,56
+ * de neto). En los dos casos el hold sigue `authorized`.
+ */
+const CAPTURE_BELOW_FEES_CAUSES = new Set(["4201", "2072"]);
+
+const belowFeesError = (amount: Decimal, applicationFee: Decimal) =>
+  new ApiError(
+    422,
+    "CAPTURE_BELOW_APPLICATION_FEE",
+    `La penalidad (${amount.toString()}) no cubre la comisión del hold (${applicationFee.toString()}) más la de Mercado Pago`
+  );
+
+/**
+ * Qué capturar (MOVO-306). La entrega siempre cobra lo autorizado; la penalidad de cancelación
+ * cobra `amountArs` y MP libera el resto.
+ */
+export type CaptureRequest = { kind: "delivery" } | { kind: "cancellation_penalty"; amountArs: number };
 
 export interface CaptureResult {
   settlement: SettlementResponse;
@@ -27,6 +48,7 @@ export function toSettlementResponse(s: Settlement): SettlementResponse {
     carrierId: s.carrierId,
     mpPaymentId: s.mpPaymentId,
     status: s.status,
+    kind: s.kind,
     grossAmountArs: s.grossAmountArs.toNumber(),
     mpFeeArs: s.mpFeeArs?.toNumber() ?? null,
     commissionArs: s.commissionArs.toNumber(),
@@ -96,6 +118,14 @@ export interface CaptureServiceDeps {
  *
  * **Monto (AC3).** Se captura SIN `amount`: MP cobra exactamente lo autorizado.
  *
+ * **Penalidad de cancelación (MOVO-306).** La misma máquina, con `kind: cancellation_penalty`:
+ * captura PARTE del hold (`amount`) con su propia key (`movo-hold-penalty-<holdId>`) y MP libera
+ * el resto. Sigue siendo una liquidación por envío: un pedido de otro tipo o por otro monto que
+ * la existente es `409 SETTLEMENT_CONFLICT`. Spike MOVO-305: MP cobra el `application_fee`
+ * ENTERO (no lo prorratea) y solo acepta la captura si al transportista le queda neto (lo
+ * capturado tiene que superar ese fee más el de MP). Eso se valida antes de llamar a MP y antes de
+ * crear la fila, con el fee de MP estimado; si igual MP la rechaza, se responde el mismo 422.
+ *
  * **Fallos (AC8).** Este servicio no sabe nada del estado del envío, así que no puede
  * revertir la entrega: un fallo deja la liquidación en `failed` (o `processing`) y el
  * hold como estaba. El reintento con backoff y el escalado son MOVO-213.
@@ -104,7 +134,45 @@ export function createCaptureService(deps: CaptureServiceDeps) {
   const { holds, settlements, accounts, mercadoPago, log } = deps;
   const now = deps.now ?? (() => new Date());
 
-  const captureKey = (holdId: string) => `movo-hold-capture-${holdId}`;
+  const captureKey = (settlement: Settlement) =>
+    settlement.kind === "cancellation_penalty"
+      ? `movo-hold-penalty-${settlement.holdId}`
+      : `movo-hold-capture-${settlement.holdId}`;
+
+  /** Una liquidación por envío: otro tipo u otro monto no se pisa ni se devuelve como si fuera la pedida. */
+  function assertMatches(existing: Settlement, request: CaptureRequest): void {
+    const sameAmount =
+      request.kind !== "cancellation_penalty" || existing.grossAmountArs.equals(toMoney(request.amountArs));
+    if (existing.kind !== request.kind || !sameAmount) {
+      throw new ApiError(
+        409,
+        "SETTLEMENT_CONFLICT",
+        `El envío ya tiene una liquidación de tipo ${existing.kind} por ${existing.grossAmountArs.toString()}`
+      );
+    }
+  }
+
+  /**
+   * MOVO-306: lo que se captura como penalidad tiene que entrar en el hold y dejarle neto al
+   * transportista: superar la comisión de Movo más el fee de MP. El de MP se estima con la tasa
+   * de `@movo/shared` (más alta que la real del sandbox, 4,1 %): ante la duda gana el plan B.
+   */
+  function penaltyAmount(hold: Hold, amountArs: number): Decimal {
+    assertValidAmount(amountArs);
+    const amount = toMoney(amountArs);
+    if (amount.gt(hold.amountArs)) {
+      throw new ApiError(
+        422,
+        "CAPTURE_AMOUNT_EXCEEDS_HOLD",
+        `La penalidad (${amount.toString()}) supera el monto del hold (${hold.amountArs.toString()})`
+      );
+    }
+    const estimatedMpFee = toMoney(estimateMpFeeArs(amount.toNumber()));
+    if (amount.minus(estimatedMpFee).lte(hold.applicationFeeArs)) {
+      throw belowFeesError(amount, hold.applicationFeeArs);
+    }
+    return amount;
+  }
 
   async function fail(
     settlement: Settlement,
@@ -164,7 +232,7 @@ export function createCaptureService(deps: CaptureServiceDeps) {
     if (payment.transaction_amount !== undefined && !toMoney(payment.transaction_amount).equals(gross)) {
       log.error(
         { shipmentId: settlement.shipmentId, holdAmount: gross.toString(), mpAmount: payment.transaction_amount },
-        "el monto del pago en MP no coincide con el del hold"
+        "el monto del pago en MP no coincide con el de la liquidación"
       );
     }
     if (!breakdown.commissionArs.equals(settlement.commissionArs)) {
@@ -225,7 +293,9 @@ export function createCaptureService(deps: CaptureServiceDeps) {
     let payment: PaymentSnapshot;
     try {
       payment = await mercadoPago.capturePayment(accessToken, settlement.mpPaymentId, {
-        idempotencyKey: captureKey(hold.id),
+        idempotencyKey: captureKey(settlement),
+        // La entrega va sin `amount` (AC3 de MOVO-212); la penalidad, por lo que se liquida.
+        ...(settlement.kind === "cancellation_penalty" ? { amount: settlement.grossAmountArs.toNumber() } : {}),
       });
     } catch (error) {
       const info = readMpError(error);
@@ -240,6 +310,11 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       if (current?.status === "approved") return;
 
       const context = { mpHttpStatus: info.status, mpCauseCodes: info.causeCodes, mpStatus: current?.status, reason: info.message };
+      // La estimación del fee de MP no alcanzó y MP rechazó la penalidad: mismo 422 que la
+      // validación previa, para que `svc-shipments` aplique el plan B en vez de reintentar.
+      if (settlement.kind === "cancellation_penalty" && info.causeCodes.some((code) => CAPTURE_BELOW_FEES_CAUSES.has(code))) {
+        return fail(settlement, "provider_error", belowFeesError(settlement.grossAmountArs, hold.applicationFeeArs), context);
+      }
       if (info.status === 401 || info.status === 403) {
         return fail(
           settlement,
@@ -275,8 +350,9 @@ export function createCaptureService(deps: CaptureServiceDeps) {
      * Captura el hold del envío. Idempotente: acreditada → se devuelve tal cual; `failed` o
      * `processing` → se reintenta desde donde quedó.
      */
-    async capture(shipmentId: string): Promise<CaptureResult> {
+    async capture(shipmentId: string, request: CaptureRequest = { kind: "delivery" }): Promise<CaptureResult> {
       const existing = await settlements.findByShipment(shipmentId);
+      if (existing) assertMatches(existing, request);
       if (existing?.status === "credited") {
         return { settlement: toSettlementResponse(existing), replayed: true };
       }
@@ -293,15 +369,21 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         throw new ApiError(409, "HOLD_NOT_CAPTURABLE", "El hold no tiene un pago asociado en Mercado Pago");
       }
 
+      const grossAmountArs =
+        request.kind === "cancellation_penalty" ? penaltyAmount(hold, request.amountArs) : hold.amountArs;
+
       // La fila `processing` se escribe antes de hablar con MP (ver doc del service).
       let settlement = await settlements.findOrCreateProcessing({
         shipmentId,
+        kind: request.kind,
         holdId: hold.id,
         carrierId: hold.carrierId,
         mpPaymentId: hold.mpPaymentId,
-        grossAmountArs: hold.amountArs,
+        grossAmountArs,
         commissionArs: hold.applicationFeeArs,
       });
+      // Otro pedido pudo crear la fila entre la lectura de arriba y el upsert.
+      assertMatches(settlement, request);
       if (settlement.status === "credited") {
         return { settlement: toSettlementResponse(settlement), replayed: true };
       }

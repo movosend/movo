@@ -8,6 +8,8 @@ import { createTokenCipher } from "../src/utils/token-cipher";
 /**
  * MOVO-212, DoD: prueba de integración contra el SANDBOX REAL de Mercado Pago (hold
  * creado y CAPTURADO, con la liquidación persistida) con la configuración de SOLUCION-FINAL.
+ * MOVO-306 suma la captura parcial por penalidad de cancelación y el rechazo previo a MP de
+ * una penalidad que no supera el `application_fee` (spike MOVO-305).
  *
  * No corre en CI ni sin credenciales: se saltea si falta el token del vendedor. Nada de
  * esto se versiona, todo entra por variables de entorno:
@@ -20,7 +22,7 @@ import { createTokenCipher } from "../src/utils/token-cipher";
  *
  * Ejemplo (desde services/movo-svc-payments):
  *   node --env-file=../../docs/payments/mercadopago-spike/.env \
- *     ./node_modules/vitest/vitest.mjs run test/captures.sandbox.test.ts
+ *     ../../node_modules/vitest/vitest.mjs run test/captures.sandbox.test.ts
  * con las tres MP_SANDBOX_CARRIER_* exportadas en la shell.
  */
 const ACCESS_TOKEN = process.env.MP_SANDBOX_CARRIER_ACCESS_TOKEN;
@@ -29,10 +31,12 @@ const CONFIGURED = Boolean(ACCESS_TOKEN && PUBLIC_KEY && process.env.MP_TEST_CAR
 
 const ENCRYPTION_KEY = Buffer.alloc(32, 5).toString("base64");
 
-describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado Pago (MOVO-212)", () => {
+describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado Pago (MOVO-212/306)", () => {
   let app: FastifyInstance;
   const carrierId = randomUUID();
   const shipmentId = randomUUID();
+  const penaltyShipmentId = randomUUID();
+  const planBShipmentId = randomUUID();
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
@@ -65,8 +69,10 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
 
   afterAll(async () => {
     if (!app) return;
-    await app.db.$executeRawUnsafe("DELETE FROM payments.settlements WHERE shipment_id = $1::uuid", shipmentId);
-    await app.db.$executeRawUnsafe("DELETE FROM payments.holds WHERE shipment_id = $1::uuid", shipmentId);
+    for (const id of [shipmentId, penaltyShipmentId, planBShipmentId]) {
+      await app.db.$executeRawUnsafe("DELETE FROM payments.settlements WHERE shipment_id = $1::uuid", id);
+      await app.db.$executeRawUnsafe("DELETE FROM payments.holds WHERE shipment_id = $1::uuid", id);
+    }
     await app.db.$executeRawUnsafe("DELETE FROM payments.carrier_mp_accounts WHERE user_id = $1::uuid", carrierId);
     await app.close();
     delete process.env.MP_TOKEN_ENCRYPTION_KEY;
@@ -92,17 +98,17 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
     return ((await res.json()) as { id: string }).id;
   }
 
-  it("captura un hold real y persiste la liquidación con los montos de fee_details", async () => {
-    const payerEmail = process.env.MP_TEST_PAYER_EMAIL!;
+  /** Hold real de $1.150 (comisión $150) para el envío, ya `authorized`. */
+  async function createHold(forShipment: string): Promise<{ mpPaymentId: string }> {
     const created = await app.inject({
       method: "POST",
       url: "/internal/payments/holds",
       payload: {
-        shipmentId,
+        shipmentId: forShipment,
         carrierId,
         cardToken: await tokenizeCard(),
         amountArs: 1150,
-        payerEmail,
+        payerEmail: process.env.MP_TEST_PAYER_EMAIL!,
         payerUserId: randomUUID(),
         paymentMethodId: process.env.MP_TEST_PAYMENT_METHOD_ID ?? "visa",
       },
@@ -110,6 +116,25 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
     expect(created.statusCode, created.body).toBe(201);
     const hold = created.json();
     expect(hold.status).toBe("authorized");
+    return hold;
+  }
+
+  /** El pago tal como lo ve MP: la liquidación se contrasta con lo que informa, no con lo que calcula el servicio. */
+  async function getMpPayment(mpPaymentId: string) {
+    return (await (
+      await fetch(`https://api.mercadopago.com/v1/payments/${mpPaymentId}`, {
+        headers: { authorization: `Bearer ${ACCESS_TOKEN}` },
+      })
+    ).json()) as {
+      status: string;
+      transaction_amount: number;
+      fee_details: Array<{ type: string; amount: number }>;
+      transaction_details: { net_received_amount: number };
+    };
+  }
+
+  it("captura un hold real y persiste la liquidación con los montos de fee_details", async () => {
+    const hold = await createHold(shipmentId);
 
     const captured = await app.inject({
       method: "POST",
@@ -119,6 +144,7 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
     const settlement = captured.json().settlement;
     expect(settlement).toMatchObject({
       status: "credited",
+      kind: "delivery",
       mpPaymentId: hold.mpPaymentId,
       grossAmountArs: 1150,
       commissionArs: 150,
@@ -126,15 +152,7 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
 
     // Los montos de la liquidación son los que MP informa tras capturar (SOLUCION-FINAL §3):
     // se contrastan con un GET directo al pago, no con lo que calcula el servicio.
-    const direct = (await (
-      await fetch(`https://api.mercadopago.com/v1/payments/${hold.mpPaymentId}`, {
-        headers: { authorization: `Bearer ${ACCESS_TOKEN}` },
-      })
-    ).json()) as {
-      status: string;
-      fee_details: Array<{ type: string; amount: number }>;
-      transaction_details: { net_received_amount: number };
-    };
+    const direct = await getMpPayment(hold.mpPaymentId);
     expect(direct.status).toBe("approved");
     const mpFee = direct.fee_details.find((f) => f.type === "mercadopago_fee")?.amount;
     const appFee = direct.fee_details.find((f) => f.type === "application_fee")?.amount;
@@ -154,5 +172,61 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
     });
     expect(again.statusCode).toBe(200);
     expect(again.json().settlement.id).toBe(settlement.id);
+  }, 90_000);
+
+  it("MOVO-306: penalidad del 25 %: captura parcial, MP libera el resto y cobra la comisión entera", async () => {
+    const hold = await createHold(penaltyShipmentId);
+    const capture = () =>
+      app.inject({
+        method: "POST",
+        url: `/internal/payments/holds/by-shipment/${penaltyShipmentId}/capture`,
+        payload: { kind: "cancellation_penalty", amountArs: 287.5 },
+      });
+
+    const captured = await capture();
+    expect(captured.statusCode, captured.body).toBe(200);
+    const settlement = captured.json().settlement;
+    expect(settlement).toMatchObject({
+      status: "credited",
+      kind: "cancellation_penalty",
+      grossAmountArs: 287.5,
+      // Spike MOVO-305: el application_fee no se prorratea.
+      commissionArs: 150,
+    });
+
+    const direct = await getMpPayment(hold.mpPaymentId);
+    expect(direct.status).toBe("approved");
+    expect(direct.transaction_amount).toBe(287.5);
+    expect(settlement.mpFeeArs).toBe(direct.fee_details.find((f) => f.type === "mercadopago_fee")?.amount);
+    expect(settlement.commissionArs).toBe(direct.fee_details.find((f) => f.type === "application_fee")?.amount);
+    expect(settlement.netAmountArs).toBe(direct.transaction_details.net_received_amount);
+    expect(Math.round((settlement.mpFeeArs + settlement.commissionArs + settlement.netAmountArs) * 100)).toBe(28750);
+    expect((await app.db.hold.findFirstOrThrow({ where: { shipmentId: penaltyShipmentId } })).status).toBe("captured");
+
+    // Idempotencia contra MP real: el mismo pedido no vuelve a capturar.
+    const again = await capture();
+    expect(again.statusCode).toBe(200);
+    expect(again.json().settlement.id).toBe(settlement.id);
+  }, 90_000);
+
+  it("MOVO-306: penalidad que no supera la comisión: 422 sin tocar MP, y el plan B libera el hold", async () => {
+    const hold = await createHold(planBShipmentId);
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/internal/payments/holds/by-shipment/${planBShipmentId}/capture`,
+      payload: { kind: "cancellation_penalty", amountArs: 100 },
+    });
+    expect(rejected.statusCode, rejected.body).toBe(422);
+    expect(rejected.json().error.code).toBe("CAPTURE_BELOW_APPLICATION_FEE");
+    expect((await getMpPayment(hold.mpPaymentId)).status).toBe("authorized");
+
+    // Plan B (MOVO-307): se libera el hold completo y la penalidad pasa a deuda (MOVO-309).
+    const released = await app.inject({
+      method: "POST",
+      url: `/internal/payments/holds/by-shipment/${planBShipmentId}/release`,
+    });
+    expect(released.statusCode, released.body).toBe(200);
+    expect((await getMpPayment(hold.mpPaymentId)).status).toBe("cancelled");
   }, 90_000);
 });

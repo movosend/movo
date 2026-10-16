@@ -14,6 +14,7 @@ de MP; se saltea sin credenciales, ver su encabezado).
 | ¿Se puede capturar parte de un hold? | **Sí.** `PUT /v1/payments/{id}` con `{ capture: true, transaction_amount }` → `approved`. MP libera el resto solo: el pago queda con `transaction_amount` igual a lo capturado. |
 | ¿Qué pasa con el `application_fee`? | **Se cobra entero, no se prorratea.** Hold de $1.150 con fee $150, captura de $287,50: Movo $150, MP $11,79, transportista $125,71. |
 | ¿Se puede capturar un monto menor que el `application_fee`? | **No.** `400`, código `4201` ("transaction_amount must be bigger than application_fee"). El hold sigue `authorized`. |
+| ¿Y uno apenas mayor? | **Solo si al transportista le queda neto.** Sobre fee $150: $150,01 y $155 → `400 2072` ("Invalid value for transaction_amount"), hold `authorized`; $157 → `approved` con $0,56 de neto (escenario H, 16/10). |
 | ¿Se puede capturar dos veces? | **No.** Un segundo `capture` sobre un pago ya capturado responde `200` con el mismo pago, sin cobrar de nuevo. |
 | ¿Hasta qué `application_fee` acepta un hold? | Hasta cualquier valor **menor** que el monto: 30 %, 50 % y 90 % → `authorized`; 100 % y 110 % → `400`, código `4038` ("application_fee cannot be bigger or equal than transaction_amount"). |
 | ¿El split funciona con un fee alto? | **Sí.** Fee del 50 % sobre $1.000, captura total: Movo $500, MP $41, transportista $459. |
@@ -44,6 +45,21 @@ ya está liberado.
 
 Hold de $1.150 con fee $150, captura de $100 → `400 4201`. El hold queda `authorized` y hay que liberarlo o
 capturar otro monto.
+
+### H. Captura apenas por encima del fee
+
+Agregado el 16/10 por la review de MOVO-306 (PR #261). Hold de $1.150 con fee $150:
+
+| Capturado | Resultado | Fee de MP | Neto del transportista |
+| --- | --- | --- | --- |
+| $150,01 | `400 2072`, hold `authorized` | — | — |
+| $155 | `400 2072`, hold `authorized` | — | — |
+| $157 | `approved` | $6,44 | $0,56 |
+| $160 | `approved` | $6,56 | $3,44 |
+| $170 | `approved` | $6,97 | $13,03 |
+
+MP nunca deja un neto negativo: la captura tiene que superar el `application_fee` **más** su propio fee
+(4,1 % de lo capturado en sandbox).
 
 ### D. Tope del `application_fee`
 

@@ -184,6 +184,31 @@ describe.skipIf(!CONFIGURED)("spike MOVO-305: captura parcial y application_fee 
     await releaseIfAuthorized(id);
   }, 120_000);
 
+  // MOVO-306 (review de PR #261): una captura apenas mayor que el fee deja un neto negativo
+  // para el transportista (lo capturado - fee de MP - fee de Movo). ¿MP la acepta?
+  it("H: captura apenas por encima del application_fee (150,01 a 170 sobre fee 150)", async () => {
+    const results: Record<string, unknown> = {};
+    for (const captureAmount of [150.01, 155, 157, 160, 170]) {
+      const hold = await createHold(HOLD_AMOUNT, HOLD_FEE);
+      expect(hold.status, JSON.stringify(hold.body)).toBe(201);
+      const id = hold.body.id;
+      const partial = await mp("PUT", `/v1/payments/${String(id)}`, CARRIER_TOKEN!, {
+        capture: true,
+        transaction_amount: captureAmount,
+      });
+      results[String(captureAmount)] = {
+        captureResponse: { httpStatus: partial.status, ...summarizePayment(partial.body) },
+        paymentAfter: summarizePayment((await getPayment(id)).body),
+      };
+      await releaseIfAuthorized(id);
+    }
+    findings.H_capture_just_above_fee = results;
+    console.log(`
+===== MOVO-305 H =====
+${JSON.stringify(results, null, 2)}
+`);
+  }, 240_000);
+
   it("D: holds con application_fee del 30, 50, 90, 100 y 110 % del monto", async () => {
     const results: Record<string, unknown> = {};
     for (const ratio of [0.3, 0.5, 0.9, 1, 1.1]) {

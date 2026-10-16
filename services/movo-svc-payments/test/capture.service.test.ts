@@ -480,3 +480,185 @@ describe("createCaptureService.getByShipment", () => {
     expect(settlement).toMatchObject({ status: "credited", netAmountArs: 809 });
   });
 });
+
+describe("createCaptureService.capture: penalidad de cancelación (MOVO-306)", () => {
+  const PENALTY = { kind: "cancellation_penalty", amountArs: 250 } as const;
+  /** Lo que devuelve MP tras capturar $250 de un hold de $1.000 con fee $150 (spike MOVO-305). */
+  const penaltyPayment = (overrides: Record<string, unknown> = {}) =>
+    payment({
+      transaction_amount: 250,
+      fee_details: [
+        { type: "mercadopago_fee", amount: 10.25, fee_payer: "collector" },
+        { type: "application_fee", amount: 150, fee_payer: "collector" },
+      ],
+      transaction_details: { net_received_amount: 89.75 },
+      ...overrides,
+    });
+
+  let ctx: ReturnType<typeof setup>;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctx = setup();
+    ctx.mp.capturePayment.mockImplementation(async () => penaltyPayment());
+    ctx.mp.getPayment.mockImplementation(async () => penaltyPayment());
+  });
+
+  it("captura parte del hold con su propia key y liquida con la comisión entera (AC1, AC4)", async () => {
+    const { settlement, replayed } = await ctx.service.capture(SHIPMENT, PENALTY);
+
+    expect(replayed).toBe(false);
+    expect(ctx.mp.capturePayment).toHaveBeenCalledWith("TEST-access", MP_PAYMENT, {
+      idempotencyKey: `movo-hold-penalty-${HOLD_ID}`,
+      amount: 250,
+    });
+    expect(settlement).toMatchObject({
+      kind: "cancellation_penalty",
+      status: "credited",
+      grossAmountArs: 250,
+      mpFeeArs: 10.25,
+      commissionArs: 150,
+      netAmountArs: 89.75,
+    });
+    expect(ctx.holds.hold?.status).toBe("captured");
+  });
+
+  it("la entrega sigue sin amount y con su key de siempre", async () => {
+    ctx.mp.capturePayment.mockImplementation(async () => payment());
+    ctx.mp.getPayment.mockImplementation(async () => payment());
+
+    const { settlement } = await ctx.service.capture(SHIPMENT);
+
+    expect(ctx.mp.capturePayment).toHaveBeenCalledWith("TEST-access", MP_PAYMENT, {
+      idempotencyKey: `movo-hold-capture-${HOLD_ID}`,
+    });
+    expect(settlement.kind).toBe("delivery");
+  });
+
+  it("AC3: más que el hold → 422 CAPTURE_AMOUNT_EXCEEDS_HOLD, sin llamar a MP ni crear la fila", async () => {
+    await expectApiError(
+      ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 1000.01 }),
+      422,
+      "CAPTURE_AMOUNT_EXCEEDS_HOLD"
+    );
+    expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
+    expect(ctx.settlements.row).toBeNull();
+  });
+
+  it("el monto entero del hold sí se puede capturar como penalidad", async () => {
+    await ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 1000 });
+    expect(ctx.mp.capturePayment).toHaveBeenCalledWith("TEST-access", MP_PAYMENT, expect.objectContaining({ amount: 1000 }));
+  });
+
+  it.each([150, 100])(
+    "AC5: %s no supera el fee de 150 → 422 CAPTURE_BELOW_APPLICATION_FEE y el hold sigue authorized",
+    async (amountArs) => {
+      await expectApiError(
+        ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs }),
+        422,
+        "CAPTURE_BELOW_APPLICATION_FEE"
+      );
+      expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
+      expect(ctx.settlements.row).toBeNull();
+      expect(ctx.holds.hold?.status).toBe("authorized");
+    }
+  );
+
+  it("review de PR #261: tiene que cubrir también el fee de MP (155 sobre fee 150 → 422 sin llamar a MP)", async () => {
+    await expectApiError(
+      ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 155 }),
+      422,
+      "CAPTURE_BELOW_APPLICATION_FEE"
+    );
+    expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
+
+    // 165 - fee de MP estimado (4,99 %, 8,23) = 156,77 > 150: pasa.
+    await ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 165 });
+    expect(ctx.mp.capturePayment).toHaveBeenCalledWith("TEST-access", MP_PAYMENT, expect.objectContaining({ amount: 165 }));
+  });
+
+  it.each(["2072", "4201"])(
+    "si igual MP la rechaza por no dejar neto (%s), responde 422 para el plan B y la liquidación queda failed",
+    async (code) => {
+      ctx.mp.capturePayment.mockRejectedValueOnce({ status: 400, message: "Invalid value", cause: [{ code: Number(code) }] });
+      ctx.mp.getPayment.mockResolvedValueOnce(penaltyPayment({ status: "authorized", fee_details: [] }));
+
+      await expectApiError(
+        ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 165 }),
+        422,
+        "CAPTURE_BELOW_APPLICATION_FEE"
+      );
+      expect(ctx.settlements.row?.status).toBe("failed");
+      expect(ctx.holds.hold?.status).toBe("authorized");
+    }
+  );
+
+  it("un monto con más de 2 decimales es 400 VALIDATION_FAILED", async () => {
+    await expectApiError(
+      ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 250.001 }),
+      400,
+      "VALIDATION_FAILED"
+    );
+  });
+
+  it("AC3: una penalidad ya capturada se devuelve sin volver a llamar a MP", async () => {
+    await ctx.service.capture(SHIPMENT, PENALTY);
+    ctx.mp.capturePayment.mockClear();
+
+    const again = await ctx.service.capture(SHIPMENT, PENALTY);
+
+    expect(again.replayed).toBe(true);
+    expect(again.settlement.grossAmountArs).toBe(250);
+    expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
+  });
+
+  it("409 SETTLEMENT_CONFLICT: penalidad sobre un envío ya liquidado como entrega, y viceversa", async () => {
+    ctx.mp.capturePayment.mockImplementation(async () => payment());
+    ctx.mp.getPayment.mockImplementation(async () => payment());
+    await ctx.service.capture(SHIPMENT);
+    await expectApiError(ctx.service.capture(SHIPMENT, PENALTY), 409, "SETTLEMENT_CONFLICT");
+
+    const other = setup();
+    other.mp.capturePayment.mockImplementation(async () => penaltyPayment());
+    other.mp.getPayment.mockImplementation(async () => penaltyPayment());
+    await other.service.capture(SHIPMENT, PENALTY);
+    await expectApiError(other.service.capture(SHIPMENT), 409, "SETTLEMENT_CONFLICT");
+  });
+
+  it("409 SETTLEMENT_CONFLICT: otra penalidad por otro monto, aunque la primera haya fallado", async () => {
+    ctx.mp.capturePayment.mockRejectedValueOnce({ status: 500, message: "boom" });
+    ctx.mp.getPayment.mockResolvedValueOnce(penaltyPayment({ status: "authorized", fee_details: [] }));
+    await expectApiError(ctx.service.capture(SHIPMENT, PENALTY), 502, "PAYMENT_PROVIDER_ERROR");
+
+    await expectApiError(
+      ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 300 }),
+      409,
+      "SETTLEMENT_CONFLICT"
+    );
+  });
+
+  it("AC6: un fallo deja la penalidad failed y el reintento usa la misma key y el mismo monto", async () => {
+    ctx.mp.capturePayment.mockRejectedValueOnce({ status: 500, message: "boom" });
+    ctx.mp.getPayment.mockResolvedValueOnce(penaltyPayment({ status: "authorized", fee_details: [] }));
+    await expectApiError(ctx.service.capture(SHIPMENT, PENALTY), 502, "PAYMENT_PROVIDER_ERROR");
+    expect(ctx.settlements.row).toMatchObject({ status: "failed", failureReason: "provider_error" });
+
+    const retry = await ctx.service.capture(SHIPMENT, PENALTY);
+
+    expect(retry.settlement).toMatchObject({ status: "credited", kind: "cancellation_penalty", grossAmountArs: 250 });
+    expect(ctx.mp.capturePayment).toHaveBeenLastCalledWith("TEST-access", MP_PAYMENT, {
+      idempotencyKey: `movo-hold-penalty-${HOLD_ID}`,
+      amount: 250,
+    });
+    expect(ctx.settlements.creates).toBe(1);
+  });
+
+  it("AC6: hold_expired no se reintenta", async () => {
+    ctx.mp.capturePayment.mockRejectedValue({ status: 400, message: "expired" });
+    ctx.mp.getPayment.mockResolvedValue(penaltyPayment({ status: "cancelled", fee_details: [] }));
+    await expectApiError(ctx.service.capture(SHIPMENT, PENALTY), 409, "HOLD_NOT_CAPTURABLE");
+    ctx.mp.capturePayment.mockClear();
+
+    await expectApiError(ctx.service.capture(SHIPMENT, PENALTY), 409, "HOLD_NOT_CAPTURABLE");
+    expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
+  });
+});

@@ -15,6 +15,30 @@ export const SETTLEMENT_STATUSES = ["processing", "credited", "failed", "escalat
 
 export type SettlementStatus = (typeof SETTLEMENT_STATUSES)[number];
 
+/**
+ * MOVO-306: qué originó la captura. Sigue habiendo UNA liquidación por envío: un envío se
+ * entrega o se cancela, nunca las dos.
+ * - `delivery`: captura del total al confirmarse la entrega (MOVO-212).
+ * - `cancellation_penalty`: captura de PARTE del hold como penalidad de una cancelación tardía
+ *   del emisor (MOVO-226/307); MP libera el resto.
+ */
+export const SETTLEMENT_KINDS = ["delivery", "cancellation_penalty"] as const;
+
+export type SettlementKind = (typeof SETTLEMENT_KINDS)[number];
+
+/**
+ * Body de `POST /internal/payments/holds/by-shipment/:shipmentId/capture`. Sin body es una
+ * captura de entrega por el total, como en MOVO-212.
+ * - `delivery` no acepta `amountArs`: la entrega siempre cobra lo autorizado.
+ * - `cancellation_penalty` exige `amountArs`, que tiene que ser MAYOR que el `application_fee`
+ *   del hold (si no, `422 CAPTURE_BELOW_APPLICATION_FEE`: MP lo rechazaría con `4201`, spike
+ *   MOVO-305) y no mayor que el monto del hold (`422 CAPTURE_AMOUNT_EXCEEDS_HOLD`).
+ */
+export interface CaptureHoldRequest {
+  kind?: SettlementKind;
+  amountArs?: number;
+}
+
 /** Por qué una liquidación quedó `failed`. */
 export type SettlementFailureReason =
   | "hold_expired"
@@ -29,11 +53,18 @@ export interface SettlementResponse {
   carrierId: string;
   mpPaymentId: string;
   status: SettlementStatus;
-  /** Lo que pagó el emisor: el monto del hold, nunca otro (AC3). */
+  kind: SettlementKind;
+  /**
+   * Lo que pagó el emisor: el monto del hold en una entrega (AC3 de MOVO-212), lo capturado en
+   * una penalidad (MOVO-306).
+   */
   grossAmountArs: number;
   /** Comisión de Mercado Pago (`fee_details`). `null` hasta que MP confirma la captura. */
   mpFeeArs: number | null;
-  /** Comisión de Movo (`application_fee`). */
+  /**
+   * Comisión de Movo (`application_fee`). En una captura parcial MP la cobra ENTERA, no
+   * prorrateada (spike MOVO-305).
+   */
   commissionArs: number;
   /** Lo que recibe el transportista (`net_received_amount`). `null` hasta la captura. */
   netAmountArs: number | null;

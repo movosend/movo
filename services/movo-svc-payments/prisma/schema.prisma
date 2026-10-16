@@ -185,6 +185,15 @@ enum SettlementStatus {
   @@schema("payments")
 }
 
+// MOVO-306: qué originó la captura (ver `SettlementKind` en @movo/shared).
+enum SettlementKind {
+  delivery
+  cancellation_penalty
+
+  @@map("settlement_kind")
+  @@schema("payments")
+}
+
 // MOVO-212: liquidación de un envío (captura del hold + split). UNA fila por envío
 // (`shipment_id` único): es la base de la idempotencia del cobro, un segundo pedido de
 // captura encuentra la fila y no vuelve a cobrar. `processing` se escribe ANTES de llamar
@@ -206,6 +215,7 @@ model Settlement {
   commissionArs  Decimal          @map("commission_ars") @db.Decimal(12, 2)
   netAmountArs   Decimal?         @map("net_amount_ars") @db.Decimal(12, 2)
   status         SettlementStatus
+  kind           SettlementKind   @default(delivery)
   // Motivo si quedó `failed` (ver `SettlementFailureReason` en @movo/shared).
   failureReason  String?          @map("failure_reason")
   // `status_detail` crudo de MP al capturar (`accredited`, ...).

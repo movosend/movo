@@ -552,3 +552,10 @@ final del orden. También el trigger `tripRecurrenceBlockedByDebt` (categoría `
 recurrente frenada por la deuda. Cambio aditivo: un cliente anterior que no conozca el valor lo ignora al filtrar por la checklist.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-306 — `SettlementKind` y body de la captura
+
+`types/settlement.ts` suma `SETTLEMENT_KINDS`/`SettlementKind` (`delivery` | `cancellation_penalty`),
+`SettlementResponse.kind` y `CaptureHoldRequest` (`kind?`, `amountArs?`: la penalidad lo exige, la entrega no
+lo acepta). `grossAmountArs` es lo capturado (el hold entero en una entrega). Errores nuevos:
+`SETTLEMENT_CONFLICT`, `CAPTURE_AMOUNT_EXCEEDS_HOLD` y `CAPTURE_BELOW_APPLICATION_FEE` (la penalidad no supera
+la comisión: MP la rechazaría, spike MOVO-305, y `svc-shipments` aplica el plan B de MOVO-307).
