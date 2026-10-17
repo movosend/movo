@@ -21,7 +21,7 @@ Primer endpoint de negocio real del servicio (hasta acá solo `GET /health`) y p
 contacto real del equipo con FastAPI. Reestructurado a `app/{config,models,services,
 routers}` + `main.py` (convención de este repo para servicios Python, sin usar hasta
 ahora). Reemplaza el placeholder que tenía `movo-svc-shipments` (MOVO-80,
-`computePlaceholderPrice`, ya eliminado — ver `services/movo-svc-shipments/CLAUDE.md`).
+`computePlaceholderPrice`, ya eliminado — ver `services/movo-svc-shipments/HISTORIAL.md`).
 
 Decisiones clave:
 - **`app/models/quote.py` con `alias_generator=to_camel`**: primer contacto de este
