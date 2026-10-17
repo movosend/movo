@@ -295,7 +295,7 @@ async function resolveCarrierDebtDiscount(
 }
 
 export interface ListAvailableResult {
-  items: Array<AvailableShipment & { hasMyOffer: boolean }>;
+  items: Array<AvailableShipment & { hasMyOffer: boolean; debtDiscount: CarrierDebtDiscount | null }>;
   page: number;
   limit: number;
   total: number;
@@ -1441,7 +1441,10 @@ export function createShipmentsService(
         const offersSummary = offerRepository
           ? await computeOffersSummaryForCarrier(offerRepository, shipmentId, callerId)
           : null;
-        return { ...shipment, offersSummary };
+        const preview = paymentsClient && shipment.suggestedPriceArs != null
+          ? await paymentsClient.previewCarrierDebt(callerId, [shipment.suggestedPriceArs]) : null;
+        const amountArs = preview?.debtOffsetsArs[0] ?? 0;
+        return { ...shipment, offersSummary, debtDiscount: amountArs > 0 ? { amountArs, reason: "pending_balance" as const } : null };
       }
 
       throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver este envío.");
@@ -2049,8 +2052,16 @@ export function createShipmentsService(
         items.map((item) => item.id)
       );
 
+      const priced = items.filter((item) => item.suggestedPriceArs != null);
+      const preview = paymentsClient && priced.length > 0
+        ? await paymentsClient.previewCarrierDebt(callerId, priced.map((item) => item.suggestedPriceArs!)) : null;
+      const discounts = new Map(priced.map((item, index) => [item.id, preview?.debtOffsetsArs[index] ?? 0]));
+
       return {
-        items: items.map((item) => ({ ...item, hasMyOffer: offeredIds.has(item.id) })),
+        items: items.map((item) => {
+          const amountArs = discounts.get(item.id) ?? 0;
+          return { ...item, hasMyOffer: offeredIds.has(item.id), debtDiscount: amountArs > 0 ? { amountArs, reason: "pending_balance" as const } : null };
+        }),
         page: query.page,
         limit: query.limit,
         total,

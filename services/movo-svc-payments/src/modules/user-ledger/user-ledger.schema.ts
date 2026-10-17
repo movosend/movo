@@ -50,6 +50,7 @@ const entry = {
     paymentId: { type: ["string", "null"] },
     reason: { type: ["string", "null"] },
     createdAt: { type: "string", format: "date-time" },
+    originLabel: { type: ["string", "null"] },
   },
 } as const;
 

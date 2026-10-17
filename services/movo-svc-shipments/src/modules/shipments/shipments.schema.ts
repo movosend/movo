@@ -191,6 +191,7 @@ const availableShipmentResponse = {
     "deliveryDistanceKm",
     "distanceKm",
     "hasMyOffer",
+    "debtDiscount",
     "createdAt",
   ],
   properties: {
@@ -221,6 +222,7 @@ const availableShipmentResponse = {
     deliveryDistanceKm: { type: ["number", "null"] },
     distanceKm: { type: "number" },
     hasMyOffer: { type: "boolean" },
+    debtDiscount: { type: ["object", "null"], required: ["amountArs", "reason"], properties: { amountArs: { type: "number" }, reason: { type: "string", enum: ["pending_balance"] } } },
     createdAt: { type: "string", format: "date-time" },
   },
 };

@@ -23,6 +23,7 @@ import settlementSweepPlugin from "./plugins/settlement-sweep";
 import settlementRoutes, { SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
 import fundingRoutes, { internalFundingRoutes, FundingRoutesOptions } from "./modules/funding/funding.routes";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
+import ledgerOriginsRoutes from "./modules/shipments/ledger-origins.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
 import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
@@ -226,6 +227,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
+  app.register(ledgerOriginsRoutes, { prefix: "/internal" });
 
   // MOVO-210: pago del emisor (`GET`/`POST /shipments/:id/funding`) y aviso interno de
   // `svc-payments` cuando MP pierde un hold (`POST /internal/shipments/:id/hold-events`).

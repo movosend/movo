@@ -694,3 +694,7 @@ plan B de MOVO-307 (liberar con `/release`). Las claves desconocidas del body so
 silencio y un `{ amount }` mal escrito capturaba el hold entero como entrega). La
 comisión liquidada es la entera que informa `fee_details`. Pendiente: que `svc-shipments` mande la
 penalidad (MOVO-307) y que el historial de transacciones (MOVO-303) distinga una penalidad de un cobro.
+
+### MOVO-315 — Datos para la cuenta corriente mobile
+
+`GET /payments/balance` agrega `originLabel` a los movimientos: resuelve el destino del envío en lote por la ruta interna de shipments y la tarjeta usada en pagos voluntarios. Si shipments no responde, el saldo sigue disponible sin esa etiqueta. `POST /payments/balance/debt-preview` expone al usuario autenticado la misma estimación de descuento que ya usaba el backend. La presentación y el pago desde la app están en la rama mobile de MOVO-315.

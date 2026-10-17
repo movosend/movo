@@ -38,6 +38,7 @@ import { ActiveShipmentRole } from "../../domain/active-shipment";
 import { toOfferDto } from "../offers/offer.dto";
 import { hasShipmentAccess } from "./assert-shipment-access";
 import { buildReceiverTransfersService } from "../receiver-transfers/receiver-transfers.routes";
+import { resolveCarrierEligibility } from "../../utils/carrier-gate";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -110,7 +111,7 @@ function toShipmentDto(shipment: Shipment | ShipmentDetailResult) {
  * AC9: sin senderId/receiverId). No se extrae a un archivo shipments.dto.ts propio a
  * diferencia de toOfferDto (MOVO-144, compartida entre dos route files): esta función
  * solo la usa esta ruta. */
-function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean }) {
+function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean; debtDiscount: { amountArs: number; reason: "pending_balance" } | null }) {
   return {
     ...item,
     pickupDate: item.pickupDate.toISOString().slice(0, 10),
@@ -166,6 +167,11 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const pricingLogisticsClient =
     opts.pricingLogisticsClient ?? createPricingLogisticsClient(app.config);
   const repository = createShipmentRepository(app.db);
+  app.get("/carrier-eligibility", async (request) => {
+    const userId = requireUserIdFromHeader(request);
+    const status = await resolveCarrierEligibility({ usersClient, paymentsClient, shipmentRepository: repository }, userId);
+    return { identityApproved: status.identityApproved, missingRequirements: status.missingRequirements };
+  });
   const offerRepository = createOfferRepository(app.db);
   const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
   // MOVO-222: instancia compartida -- también la usa `listPendingRatings` (vía
