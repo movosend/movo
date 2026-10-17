@@ -132,7 +132,9 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
             carrierBalanceArs: carrierBalance.toNumber(),
             payerBalanceArs: payerBalance.toNumber(),
           });
-          if (data.expectedAmountArs != null && data.expectedAmountArs !== amounts.amountArs) {
+          // Los builds anteriores no mandan el total visto. Pueden seguir pagando el precio acordado, pero
+          // nunca se les agrega deuda sin una confirmación explícita del recargo.
+          if (data.expectedAmountArs == null ? amounts.debtSurchargeArs > 0 : data.expectedAmountArs !== amounts.amountArs) {
             throw new HoldAmountChangedError(amounts);
           }
           const hold = await tx.hold.create({

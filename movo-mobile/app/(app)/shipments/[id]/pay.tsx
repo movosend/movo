@@ -70,6 +70,7 @@ export default function PayShipmentScreen() {
     ? {
         data: demo === "expired" ? undefined : payDemoFunding(),
         isLoading: false,
+        isFetching: false,
         isError: false,
         error: null,
         refetch: async () => undefined,
@@ -140,6 +141,16 @@ export default function PayShipmentScreen() {
         setExpired(true);
         setPhase("form");
         return;
+      case "amount_changed":
+        setFailure({
+          title: "Cambió el monto a reservar",
+          body: "Revisá el total actualizado y volvé a confirmar el pago. No se retuvo nada en tu tarjeta.",
+          field: null,
+          suggestOtherCard: false,
+        });
+        setPhase("form");
+        void funding.refetch();
+        return;
       case "rejected": {
         const amount = formatPriceArs(funding.data?.amountArs ?? null);
         setFailure(rejectionCopy(outcome.reason, amount, selectedCard ? cardTitle(selectedCard) : "tarjeta"));
@@ -181,7 +192,12 @@ export default function PayShipmentScreen() {
       handleOutcome(tokenized);
       return;
     }
-    pay.mutate({ shipmentId: funding.data.shipmentId, cardToken: tokenized.cardToken, savedCardId: selectedCard.id });
+    pay.mutate({
+      shipmentId: funding.data.shipmentId,
+      cardToken: tokenized.cardToken,
+      savedCardId: selectedCard.id,
+      expectedTotalArs: funding.data.totalArs,
+    });
   };
 
   const selectCard = (card: SavedCard) => {
@@ -338,7 +354,7 @@ export default function PayShipmentScreen() {
   const loadError = funding.isError ? funding.error : cardsQuery.isError && !cards ? cardsQuery.error : null;
   const hasCards = !!cards && cards.length > 0;
   const primaryLabel = busy ? "Reservando…" : `Reservar ${amountLabel}`;
-  const primaryDisabled = busy || !ready || !funding.data;
+  const primaryDisabled = busy || !ready || !funding.data || funding.isFetching || funding.isError;
   const cvvError = failure?.field === "cvv";
 
   return (

@@ -149,7 +149,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
 
   it("emisor con deuda: paga precio + recargo y el fee lleva el recargo menos la comisión de MP", async () => {
     await owe(PAYER, 200);
-    const res = await createHold();
+    const res = await createHold({ expectedTotalArs: 1350 });
     expect(res.json()).toMatchObject({ baseAmountArs: 1150, amountArs: 1350, applicationFeeArs: 340.02, debtSurchargeArs: 200 });
 
     const [, body] = mp.createPayment.mock.calls[0] as unknown as [string, Record<string, unknown>];
@@ -158,7 +158,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
     expect(entry).toMatchObject({ type: "payment_surcharge", status: "reserved", roleAtOrigin: "sender" });
     expect(entry.amountArs.toNumber()).toBe(-200);
     // Un reintento de shipments con el precio (no el monto cobrado) devuelve el mismo hold.
-    const replay = await createHold();
+    const replay = await createHold({ expectedTotalArs: 1350 });
     expect(replay.statusCode).toBe(200);
     expect(mp.createPayment).toHaveBeenCalledTimes(1);
   });
@@ -177,7 +177,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
   it("hold liberado: la reserva se anula y la deuda vuelve a quedar pendiente", async () => {
     await owe(CARRIER, 100);
     await owe(PAYER, 200);
-    await createHold();
+    await createHold({ expectedTotalArs: 1350 });
     const release = await app.inject({ method: "POST", url: `${HOLDS}/by-shipment/${SHIPMENT}/release` });
     expect(release.json().status).toBe("cancelled");
 
@@ -236,6 +236,16 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
     expect(ok.json()).toMatchObject({ amountArs: 1450, debtSurchargeArs: 300 });
   });
 
+  it("un cliente viejo sin total confirmado no cobra el recargo de deuda del emisor", async () => {
+    await owe(PAYER, 200);
+    const stale = await createHold();
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error).toMatchObject({ code: "HOLD_AMOUNT_CHANGED", details: { totalArs: 1350 } });
+    expect(mp.createPayment).not.toHaveBeenCalled();
+    expect(await app.db.hold.count()).toBe(0);
+    expect(await entriesOf(PAYER)).toHaveLength(0);
+  });
+
   it("un pago de saldo abierto descuenta de lo que cobra el hold, y un hold reservado limita el pago de saldo", async () => {
     await owe(PAYER, 200);
     const attempts = createBalancePaymentAttemptRepository(app.db);
@@ -249,7 +259,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
     // El pago de saldo abierto (150) ya tomó esa parte de la deuda: el hold solo puede cobrar 50.
     const open = await attempts.insertOpen(data(150));
     expect(open.created).toBe(true);
-    const hold = await createHold();
+    const hold = await createHold({ expectedTotalArs: 1200 });
     expect(hold.json()).toMatchObject({ debtSurchargeArs: 50, amountArs: 1200 });
     await attempts.updateOpen(open.attempt.id, { status: "rejected" });
 
@@ -268,7 +278,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
         savedCardId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
         requestFingerprint: "fp",
       }),
-      createHold(),
+      createHold({ expectedTotalArs: 1350 }),
     ]);
     const holdJson = hold.status === "fulfilled" ? hold.value.json() : null;
     const surcharge = holdJson?.debtSurchargeArs ?? 0;
@@ -281,7 +291,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
   it("al capturar, la deuda pasa a settled y la liquidación separa la comisión de la deuda cobrada", async () => {
     await owe(CARRIER, 100);
     await owe(PAYER, 200);
-    const hold = (await createHold()).json();
+    const hold = (await createHold({ expectedTotalArs: 1350 })).json();
     const captured = payment({
       id: hold.mpPaymentId ? Number(hold.mpPaymentId) : 1,
       status: "approved",
@@ -361,7 +371,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
   it("el historial del transportista no muestra el recargo del emisor y su desglose cierra con el neto", async () => {
     await owe(CARRIER, 100);
     await owe(PAYER, 200);
-    const hold = (await createHold()).json();
+    const hold = (await createHold({ expectedTotalArs: 1350 })).json();
     await app.db.hold.update({ where: { id: hold.id }, data: { payerId: PAYER } });
     const captured = payment({
       status: "approved",

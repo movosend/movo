@@ -101,7 +101,8 @@ export interface CreateHoldRequest {
   /**
    * MOVO-311: total que el emisor vio y confirmó (`totalArs` de `GET /shipments/:id/funding`). Si al crear el
    * intento lo que corresponde cobrar es otro monto (la deuda de su cuenta corriente cambió en el medio), se
-   * responde 409 `HOLD_AMOUNT_CHANGED` en vez de cobrar de más. Sin él no se compara (builds viejos).
+   * responde 409 `HOLD_AMOUNT_CHANGED` en vez de cobrar de más. Si falta (builds viejos), solo se
+   * permite cobrar el precio acordado: un recargo por deuda responde 409 sin crear el hold.
    */
   expectedTotalArs?: number;
 }

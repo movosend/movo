@@ -12,6 +12,7 @@ function settlement(overrides: Partial<ShipmentSettlementResponse> = {}): Shipme
     kind: "delivery",
     status: "credited",
     paidAmountArs: 13800,
+    debtCollectedArs: 0,
     paidAt: "2026-10-14T19:42:00.000Z",
     mpFeeArs: 688.62,
     commissionArs: 1800,
@@ -50,7 +51,7 @@ describe("resolvePaymentView (MOVO-214)", () => {
   });
 
   it("emisor: total y fecha cuando se acreditó, 'en proceso' en cualquier otro caso", () => {
-    const sender = { shipmentId: "shipment-1", role: "sender" as const, kind: "delivery" as const, paidAmountArs: 13800, paidAt: null };
+    const sender = { shipmentId: "shipment-1", role: "sender" as const, kind: "delivery" as const, paidAmountArs: 13800, debtCollectedArs: 0, paidAt: null };
     expect(resolvePaymentView("sender", { ...sender, status: "credited", paidAt: "2026-10-14T19:42:00.000Z" }, null)).toEqual({
       kind: "sender_paid",
       amountArs: 13800,

@@ -95,8 +95,9 @@ Detalle y ejemplo en `flujo-de-pagos.md` §6.1.
   saldo cobrable de los holds: un hold y un pago de saldo en paralelo no cobran la misma deuda.
 - **El emisor paga lo que confirmó:** `GET /shipments/:id/funding` devuelve `totalArs` y el pago lo manda como
   `expectedTotalArs`; si al abrir el intento (con el saldo leído bajo el lock) el total que corresponde es otro
-  porque la deuda cambió, se responde 409 `HOLD_AMOUNT_CHANGED` con `details.totalArs` y no se crea nada. Sin
-  `expectedTotalArs` (builds viejos) no se compara.
+  porque la deuda cambió, se responde 409 `HOLD_AMOUNT_CHANGED` con `details.totalArs` y no se crea nada. Si un
+  build viejo omite `expectedTotalArs`, puede pagar el precio acordado, pero un recargo por deuda responde 409
+  sin crear el hold: nunca se cobra un monto mayor sin confirmación.
 
 ### Limitación conocida: reintegro o contracargo de un pago que cobró deuda
 
