@@ -116,6 +116,22 @@ describe("SummaryStep — cotización congelada (MOVO-255)", () => {
     );
   });
 
+  it("mientras cotiza muestra un skeleton en lugar del monto, y el precio al terminar", async () => {
+    let resolveQuote: (value: ReturnType<typeof frozenQuote>) => void = () => {};
+    quoteMock.mockReturnValueOnce(new Promise((resolve) => (resolveQuote = resolve)));
+
+    const { findByTestId, findByText, queryByText, queryByTestId } = await render(
+      <SummaryStep onGoToStep={jest.fn()} />,
+    );
+
+    expect(await findByTestId("summary-step-price-skeleton")).toBeTruthy();
+    expect(queryByText("Precio a estimar")).toBeNull();
+
+    resolveQuote(frozenQuote("q-1", 30120));
+    expect(await findByText(`$${(30120).toLocaleString("es-AR")}`)).toBeTruthy();
+    expect(queryByTestId("summary-step-price-skeleton")).toBeNull();
+  });
+
   it("muestra el badge de alta demanda solo si la cotización lo indica (MOVO-254)", async () => {
     quoteMock.mockResolvedValueOnce({ ...frozenQuote("q-1", 30120), highDemand: true });
 

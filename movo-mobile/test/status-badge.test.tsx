@@ -26,4 +26,22 @@ describe("ShipmentStatusBadge", () => {
     );
     expect(getByText("Esperando al receptor")).toBeTruthy();
   });
+
+  it("compacto (header del detalle): 'Por confirmar' en vez de la frase larga, para emisor y receptor", async () => {
+    const asSender = await render(
+      <ShipmentStatusBadge status={ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION} isReceiver={false} compact />,
+    );
+    expect(asSender.getByText("Por confirmar")).toBeTruthy();
+    await asSender.unmount();
+
+    const asReceiver = await render(
+      <ShipmentStatusBadge status={ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION} isReceiver compact />,
+    );
+    expect(asReceiver.getByText("Por confirmar")).toBeTruthy();
+  });
+
+  it("compacto no cambia la etiqueta del resto de los estados", async () => {
+    const { getByText } = await render(<ShipmentStatusBadge status={ShipmentStatus.IN_TRANSIT} compact />);
+    expect(getByText("En camino")).toBeTruthy();
+  });
 });

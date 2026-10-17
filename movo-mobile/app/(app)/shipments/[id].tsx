@@ -22,7 +22,7 @@ import {
   CarrierCancellationCompensation,
   SenderCancelledPayment,
 } from "../../../components/shipments/cancelled-payment-card";
-import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
+import { HighDemandBadge, HighDemandHelp } from "../../../components/shipments/high-demand-badge";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { RouteTrackingChatCard } from "../../../components/shipments/route-tracking-chat-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
@@ -142,6 +142,7 @@ export default function ShipmentDetailScreen() {
       isFocused ? liveTrackingPendingPollInterval(data, currentUser?.userId) : false,
   });
   const [tab, setTab] = useState<DetailTab>("detalle");
+  const [isHighDemandHelpOpen, setIsHighDemandHelpOpen] = useState(false);
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 
   const { data: ratings, refetch: refetchRatings } = useShipmentRatings(
@@ -381,7 +382,9 @@ export default function ShipmentDetailScreen() {
           <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
         </Pressable>
         <View className="flex-1">
-          <Text className="font-sans-semibold text-h3 text-fg">Detalle del envío</Text>
+          <Text numberOfLines={1} className="font-sans-semibold text-h3 text-fg">
+            Detalle del envío
+          </Text>
           {shipment ? (
             <View className="mt-0.5 flex-row items-center gap-1">
               {isFormerReceiver ? (
@@ -416,6 +419,7 @@ export default function ShipmentDetailScreen() {
             status={shipment.status}
             isReceiver={isReceiver}
             delayed={isTransitDelayed(shipment)}
+            compact
             testID="shipment-detail-status-badge"
           />
         ) : null}
@@ -631,12 +635,21 @@ export default function ShipmentDetailScreen() {
                         ) : null}
                         {showHighDemandBadge ? (
                           <View className="mt-2">
-                            <HighDemandBadge testID="shipment-detail-high-demand" />
+                            <HighDemandBadge
+                              label="Alta demanda"
+                              expanded={isHighDemandHelpOpen}
+                              onToggle={() => setIsHighDemandHelpOpen((open) => !open)}
+                              testID="shipment-detail-high-demand"
+                            />
                           </View>
                         ) : null}
                       </View>
                     )}
                   </View>
+
+                  {showHighDemandBadge && isHighDemandHelpOpen ? (
+                    <HighDemandHelp testID="shipment-detail-high-demand-help" />
+                  ) : null}
 
                   <View>
                     <Eyebrow>Paquete</Eyebrow>

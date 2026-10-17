@@ -4788,3 +4788,8 @@ Réplica del prototipo "MOVO-308 Emisor cancela" de Claude Design. `canCancelShi
 En el detalle cancelado, `SenderCancelledPayment` muestra la card "Tu pago" (reservado, penalidad según `cancellationPenaltyStatus`, tarjeta y liberado) solo si hubo reserva, con `useShipmentHold` sobre el filtro `shipmentId` de `/payments/transactions`. `CarrierCancellationCompensation` muestra al transportista el neto de la penalidad (`settlement.kind = cancellation_penalty`): "Recibís aprox." hasta acreditarse. El "Recibís aprox." del viaje ya no aparece en un envío cancelado. La línea de tiempo dice "Cancelaste el envío" al emisor que canceló. Lógica pura en `src/lib/cancellation-format.ts`.
 
 No se copió el pie "{transportista} retira el paquete el…" del prototipo: en `assigned`, ese lugar lo ocupa la CTA del QR de retiro. Limitación: el sheet calcula lo reservado con `agreedPriceArs`. Si el hold cobraba deuda del emisor (MOVO-311), lo liberado real difiere, y el detalle cancelado sí usa el monto real del hold.
+
+Cambios de UI en la misma rama, a pedido de diseño:
+- **Card de precio del detalle**: el badge de alta demanda dice "Alta demanda". Su ayuda se despliega a todo el ancho debajo de la fila (`HighDemandHelp`) y no dentro de la media card, que la cortaba y estiraba.
+- **Header del detalle**: la pill de estado es compacta (`ShipmentStatusBadge compact`) y en `awaiting_receiver_confirmation` dice "Por confirmar". Para el emisor va en neutro, porque la fila del receptor ya marca "Pendiente".
+- **Resumen del wizard**: mientras cotiza, `PricePreviewCard` muestra un skeleton en lugar de "Precio a estimar" a 38 px.

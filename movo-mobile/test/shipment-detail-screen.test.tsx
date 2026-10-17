@@ -636,6 +636,19 @@ describe("ShipmentDetailScreen", () => {
       expect(getByText("Costo aproximado")).toBeTruthy();
     });
 
+    it("la pill es corta y la ayuda se despliega a todo el ancho, fuera de la card de precio", async () => {
+      const { getByTestId, getByText, queryByTestId } = await renderWith({ highDemand: true });
+
+      expect(getByText("Alta demanda")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-high-demand-help")).toBeNull();
+
+      await fireEvent.press(getByTestId("shipment-detail-high-demand-toggle"));
+      expect(getByTestId("shipment-detail-high-demand-help")).toBeTruthy();
+
+      await fireEvent.press(getByTestId("shipment-detail-high-demand-toggle"));
+      expect(queryByTestId("shipment-detail-high-demand-help")).toBeNull();
+    });
+
     it.each([
       ["false", false],
       ["null (sin cotización o envío anterior)", null],

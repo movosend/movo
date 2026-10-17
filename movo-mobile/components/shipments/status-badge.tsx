@@ -1,5 +1,5 @@
 import { Text, View } from "react-native";
-import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { shipmentStatusLabel, shipmentStatusTone } from "../../src/lib/shipment-format";
 import { TRANSIT_DELAYED_LABEL } from "../../src/lib/active-shipment-format";
 
@@ -16,20 +16,31 @@ export interface ShipmentStatusBadgeProps {
   isReceiver?: boolean;
   /** MOVO-278 (ADR-045): `in_transit` demorado -> "Demorado" en tono warning. */
   delayed?: boolean;
+  /** Header del detalle: pill más chica y "Por confirmar" en vez de "Esperando al
+   * receptor"/"Requiere tu confirmación", que empujaban el título a dos líneas. Para el
+   * emisor va en neutro: no tiene nada que hacer, y la fila del receptor ya marca
+   * "Pendiente" en ámbar. */
+  compact?: boolean;
   testID?: string;
 }
 
 /** Extraído de `[id].tsx`/`recent-shipments-section.tsx` (duplicaban el mismo mapeo
  * tono→clase, MOVO-127) — único lugar que traduce `shipmentStatusTone` a clases de
  * NativeWind. */
-export function ShipmentStatusBadge({ status, isReceiver, delayed, testID }: ShipmentStatusBadgeProps) {
-  const tone = delayed ? "warning" : shipmentStatusTone(status);
+export function ShipmentStatusBadge({ status, isReceiver, delayed, compact, testID }: ShipmentStatusBadgeProps) {
+  const awaitingInHeader = compact && status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION;
+  const tone = delayed ? "warning" : awaitingInHeader && !isReceiver ? "neutral" : shipmentStatusTone(status);
   const [badgeBg, badgeText] = TONE_BADGE_CLASS[tone].split(" ");
+  const label = delayed
+    ? TRANSIT_DELAYED_LABEL
+    : awaitingInHeader
+      ? "Por confirmar"
+      : shipmentStatusLabel(status, { isReceiver });
 
   return (
-    <View testID={testID} className={`rounded-full px-3 py-1.5 ${badgeBg}`}>
-      <Text className={`font-sans-medium text-[12px] ${badgeText}`}>
-        {delayed ? TRANSIT_DELAYED_LABEL : shipmentStatusLabel(status, { isReceiver })}
+    <View testID={testID} className={`rounded-full ${compact ? "px-2.5 py-1" : "px-3 py-1.5"} ${badgeBg}`}>
+      <Text numberOfLines={1} className={`font-sans-medium text-[12px] ${badgeText}`}>
+        {label}
       </Text>
     </View>
   );
