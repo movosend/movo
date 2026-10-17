@@ -95,6 +95,13 @@ export const debtCollectionPreviewInternalSchema = {
   },
 } as const;
 
+export const debtCollectionPreviewSchema = {
+  tags: ["payments"],
+  summary: "Vista previa del descuento por deuda del transportista",
+  body: debtCollectionPreviewInternalSchema.body,
+  response: { ...debtCollectionPreviewInternalSchema.response, 401: unauthorizedResponse },
+} as const;
+
 export const createEntryInternalSchema = {
   hide: true,
   params: userIdParams,
@@ -157,7 +164,7 @@ export const getBalanceSchema = {
       required: ["balanceArs", "oldestUnpaidAt", "items", "nextCursor"],
       properties: {
         ...balanceProperties,
-        items: { type: "array", items: entry },
+        items: { type: "array", items: { ...entry, required: [...entry.required, "originLabel"] } },
         nextCursor: { type: ["string", "null"] },
       },
     },

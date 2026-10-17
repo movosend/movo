@@ -167,11 +167,6 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const pricingLogisticsClient =
     opts.pricingLogisticsClient ?? createPricingLogisticsClient(app.config);
   const repository = createShipmentRepository(app.db);
-  app.get("/carrier-eligibility", async (request) => {
-    const userId = requireUserIdFromHeader(request);
-    const status = await resolveCarrierEligibility({ usersClient, paymentsClient, shipmentRepository: repository }, userId);
-    return { identityApproved: status.identityApproved, missingRequirements: status.missingRequirements };
-  });
   const offerRepository = createOfferRepository(app.db);
   const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
   // MOVO-222: instancia compartida -- también la usa `listPendingRatings` (vía
@@ -297,6 +292,26 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   // Ruta estática — se registra antes de "/:id" por claridad para el próximo que lea
   // el archivo, aunque el radix router de Fastify (find-my-way) ya prioriza segmentos
   // estáticos sobre paramétricos sin importar el orden de registro.
+  app.get("/carrier-eligibility", {
+    schema: {
+      tags: ["shipments"], summary: "Requisitos vigentes para operar como transportista",
+      response: {
+        200: { type: "object", required: ["identityApproved", "missingRequirements"], properties: {
+          identityApproved: { type: "boolean" },
+          missingRequirements: { type: "array", items: { type: "string", enum: [
+            "no_open_dispute", "license", "mp_account", "no_overdue_debt",
+          ] } },
+        } },
+        401: shipmentsSchemas.errorResponse,
+        502: shipmentsSchemas.errorResponse,
+      },
+    },
+  }, async (request) => {
+    const userId = requireUserIdFromHeader(request);
+    const status = await resolveCarrierEligibility({ usersClient, paymentsClient, shipmentRepository: repository }, userId);
+    return { identityApproved: status.identityApproved, missingRequirements: status.missingRequirements };
+  });
+
   app.get(
     "/mine",
     {
