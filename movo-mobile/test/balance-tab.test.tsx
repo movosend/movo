@@ -27,8 +27,8 @@ describe("BalanceTab (MOVO-315)", () => {
     const screen = await render(<BalanceTab />);
     expect(screen.getByText("$6.100")).toBeTruthy();
     expect(screen.getByText("Penalidad")).toBeTruthy();
-    expect(screen.getByText("Envío a Rosario #12345678 ›")).toBeTruthy();
-    fireEvent.press(screen.getByText("Envío a Rosario #12345678 ›"));
+    expect(screen.getByText("Envío a Rosario #12345678")).toBeTruthy();
+    fireEvent.press(screen.getByText("Envío a Rosario #12345678"));
     expect(mockPush).toHaveBeenCalledWith("/shipments/12345678-1234-1234-1234-123456789abc");
   });
 
@@ -37,6 +37,14 @@ describe("BalanceTab (MOVO-315)", () => {
     const screen = await render(<BalanceTab />);
     fireEvent.press(screen.getByText("Cargar más"));
     expect(mockFetchNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("muestra el estado al día y el ícono de movimientos vacíos", async () => {
+    mockPage = { ...mockPage, balanceArs: 0, items: [] };
+    const screen = await render(<BalanceTab />);
+    expect(screen.getByText("Estás al día")).toBeTruthy();
+    expect(screen.getByTestId("balance-status-icon")).toBeTruthy();
+    expect(screen.getByTestId("balance-empty-icon")).toBeTruthy();
   });
 
   it("muestra saldo a favor sin CTA de pago y marca anulados", async () => {
