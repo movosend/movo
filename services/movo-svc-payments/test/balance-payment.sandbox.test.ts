@@ -2,8 +2,6 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomUUID } from "node:crypto";
 import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
-import { createCarrierMpAccountRepository } from "../src/repositories/carrier-mp-account-repository";
-import { createTokenCipher } from "../src/utils/token-cipher";
 
 /**
  * MOVO-312, DoD: "Pagar mi saldo" contra el SANDBOX REAL de Mercado Pago (Checkout API: tarjeta guardada + CVV,
@@ -15,8 +13,8 @@ import { createTokenCipher } from "../src/utils/token-cipher";
  *   MP_TEST_MODE=true
  *   MP_SANDBOX_BUYER_EMAIL            email de la cuenta de prueba COMPRADOR
  *   MP_TEST_CARD_NUMBER / _CVV / _EXP_MONTH / _EXP_YEAR   Visa 4075 5957 1648 3764 (la del .env del spike da 500 al guardarla)
- *   MP_COLLECTOR_ACCESS_TOKEN / _REFRESH_TOKEN / _PUBLIC_KEY / _MP_USER_ID   de la cuenta cobradora (vendedor de prueba),
- *                                     que salen del canje del OAuth (`POST /oauth/token`, test_token=true)
+ *   MP_COLLECTOR_ACCESS_TOKEN / _PUBLIC_KEY / _MP_USER_ID   de la cuenta cobradora (ADR-048): el token TEST- del OAuth
+ *                                     de la cuenta de prueba Movo S.A. (son las mismas que `movo/dev/app-secrets`)
  *
  * El titular de la tarjeta decide el resultado en el sandbox: APRO aprueba, FUND = fondos insuficientes, SECU = CVV
  * inválido, OTHE = rechazo genérico. Para guardar una tarjeta con otro titular hay que tokenizar con `identification`.
@@ -31,11 +29,9 @@ const CONFIGURED = Boolean(
     env.MP_SANDBOX_BUYER_EMAIL &&
     env.MP_TEST_CARD_NUMBER &&
     env.MP_COLLECTOR_ACCESS_TOKEN &&
-    env.MP_COLLECTOR_REFRESH_TOKEN &&
     env.MP_COLLECTOR_PUBLIC_KEY &&
     env.MP_COLLECTOR_MP_USER_ID
 );
-const ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
 
 async function cardToken(publicKey: string, body: Record<string, unknown>): Promise<string> {
   const res = await fetch(`https://api.mercadopago.com/v1/card_tokens?public_key=${publicKey}`, {
@@ -58,7 +54,6 @@ const fullCard = (holder: string) => ({
 describe.skipIf(!CONFIGURED)("pagar mi saldo contra el sandbox real de Mercado Pago (MOVO-312)", () => {
   let app: FastifyInstance;
   const userId = randomUUID();
-  const collectorUserId = randomUUID();
   const headers = { "x-user-id": userId };
 
   beforeAll(async () => {
@@ -66,34 +61,15 @@ describe.skipIf(!CONFIGURED)("pagar mi saldo contra el sandbox real de Mercado P
     process.env.DATABASE_URL ??= "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL ??= "redis://localhost:6379";
     process.env.MP_TEST_MODE = "true";
-    // Sin barrido de renovación: refrescar el token de la cobradora lo rota y puede invalidar el que viene por entorno.
-    process.env.MP_TOKEN_REFRESH_SWEEP_ENABLED = "false";
-    process.env.MP_TOKEN_ENCRYPTION_KEY = ENCRYPTION_KEY;
-    process.env.MOVO_COLLECTOR_USER_ID = collectorUserId;
     process.env.MP_PUBLIC_KEY = env.MP_COLLECTOR_PUBLIC_KEY;
     process.env.MP_TEST_PAYER_EMAILS = JSON.stringify({ [userId]: env.MP_SANDBOX_BUYER_EMAIL });
     app = buildApp({ usersClient: { findAccountEmail: async () => null } });
     await app.ready();
-    await createCarrierMpAccountRepository(app.db, createTokenCipher(ENCRYPTION_KEY)).upsertLinked(
-      collectorUserId,
-      {
-        mpUserId: env.MP_COLLECTOR_MP_USER_ID as string,
-        email: "cobradora@example.com",
-        nickname: "COBRADORA",
-        accessToken: env.MP_COLLECTOR_ACCESS_TOKEN as string,
-        refreshToken: env.MP_COLLECTOR_REFRESH_TOKEN as string,
-        publicKey: env.MP_COLLECTOR_PUBLIC_KEY as string,
-        scope: "offline_access",
-        tokenExpiresAt: new Date(Date.now() + 90 * 86_400_000),
-      },
-      new Date()
-    );
   }, 30_000);
 
   afterAll(async () => {
     if (!app) return;
     await app.inject({ method: "DELETE", url: `/internal/payments/users/${userId}/cards` });
-    await app.db.$executeRawUnsafe(`DELETE FROM payments.carrier_mp_accounts WHERE user_id = '${collectorUserId}'`);
     await app.close();
   });
 
