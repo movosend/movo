@@ -34,6 +34,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Brand } from "@/components/brand"
 import { ThemeToggle } from "@/components/theme-toggle"
 import type { ReactNode, CSSProperties } from "react"
+const LIVE_SECTIONS: Record<string, string> = { Admins: "/admins" }
 const sections = [
   { label: "Usuarios", icon: Users },
   { label: "KYC", icon: ShieldCheck },
@@ -46,9 +47,11 @@ const sections = [
 ]
 export function AdminShell({
   fullName,
+  current = "/",
   children,
 }: {
   fullName: string
+  current?: "/" | "/admins"
   children: ReactNode
 }) {
   const [state, action, pending] = useActionState(logout, {})
@@ -68,22 +71,49 @@ export function AdminShell({
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    isActive
-                    render={<Link href="/" aria-current="page" />}
+                    isActive={current === "/"}
+                    render={
+                      <Link
+                        href="/"
+                        aria-current={current === "/" ? "page" : undefined}
+                      />
+                    }
                   >
                     <Home />
                     <span>Inicio</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                {sections.map(({ label, icon: Icon }) => (
-                  <SidebarMenuItem key={label}>
-                    <SidebarMenuButton disabled>
-                      <Icon />
-                      <span>{label}</span>
-                      <span className="ml-auto text-xs">Pronto</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
+                {sections.map(({ label, icon: Icon }) => {
+                  const href = LIVE_SECTIONS[label]
+                  if (href)
+                    return (
+                      <SidebarMenuItem key={label}>
+                        <SidebarMenuButton
+                          isActive={current === href}
+                          render={
+                            <Link
+                              href={href}
+                              aria-current={
+                                current === href ? "page" : undefined
+                              }
+                            />
+                          }
+                        >
+                          <Icon />
+                          <span>{label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  return (
+                    <SidebarMenuItem key={label}>
+                      <SidebarMenuButton disabled>
+                        <Icon />
+                        <span>{label}</span>
+                        <span className="ml-auto text-xs">Pronto</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                })}
               </SidebarMenu>
             </SidebarGroup>
           </nav>
@@ -126,7 +156,9 @@ export function AdminShell({
         <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
           <div className="flex items-center gap-3">
             <SidebarTrigger aria-label="Abrir navegación" />
-            <span className="text-sm font-medium">Inicio</span>
+            <span className="text-sm font-medium">
+              {current === "/admins" ? "Admins" : "Inicio"}
+            </span>
           </div>
           <div className="flex min-w-0 items-center gap-2">
             <Avatar>

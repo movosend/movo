@@ -70,3 +70,20 @@ de este servicio en dev/prod (su fila vieja en `public.schema_migrations` queda 
 `GET /admin/session` exige identidad y rol admin (además del gateway) y responde
 únicamente `{ authenticated: true }`, sin caché. El BFF lo combina con el perfil actual
 para comprobar una sesión de panel válida junto a cada operación protegida.
+
+### MOVO-292 — Gestión de admins: `GET`/`POST /admin/admins`, `DELETE /admin/admins/:userId`
+
+`modules/admins/` sobre los endpoints internos de MOVO-290 (`users-client.ts`: `listAdmins`,
+`grantAdmin`, `revokeAdmin`). Otorgar y revocar pasan por `runAdminAction` (`admin_role.grant` /
+`admin_role.revoke`, objetivo `admin_role`), así revocarse a uno mismo es 403
+`ADMIN_CONFLICT_OF_INTEREST` y queda como `failed`. Revocar exige `reason` (3-500 caracteres) en el body.
+Los rechazos de `svc-users` (`USER_NOT_FOUND`, `ADMIN_GRANT_EMAIL_NOT_VERIFIED`, `ADMIN_LAST_ADMIN`...) se
+relanzan con su código para que el panel muestre el motivo concreto.
+
+- **En `grant` el objetivo de la bitácora es el email normalizado, no el id**: el usuario se resuelve
+  recién dentro de `svc-users` y `runAdminAction` pide el objetivo de antemano. Otorgarse el rol a uno mismo
+  es un no-op idempotente, no un conflicto.
+- `internal-client.ts` acepta un 204 sin cuerpo: `isValid(undefined)` decide si es una respuesta válida
+  (antes cualquier 204 era "respuesta inválida" → 502).
+- Pendiente: verificar a mano contra dev que el admin revocado pierde el acceso en su próxima acción
+  (necesita `svc-users`/`svc-admin` desplegados); pantalla de la bitácora (fuera de alcance).
