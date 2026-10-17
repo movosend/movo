@@ -32,3 +32,19 @@ export function balanceEntryOrigin(entry: UserLedgerEntry): string {
   if (entry.type === "voluntary_payment") return "Pago de saldo";
   return "Cuenta corriente";
 }
+
+/**
+ * "Otro monto" del pago de saldo: solo pesos enteros, agrupados con punto mientras se escribe
+ * ("2500" → "2.500"). Sin decimales a propósito: con el punto de miles no hay forma de
+ * distinguir "2.500" de "2,5" en un teclado que según el idioma escribe uno u otro.
+ */
+export function formatBalanceAmountInput(text: string): string {
+  const digits = text.replace(/\D/g, "").replace(/^0+/, "").slice(0, 9);
+  return digits ? Number(digits).toLocaleString("es-AR") : "";
+}
+
+/** Inversa de `formatBalanceAmountInput`; `NaN` si está vacío. */
+export function parseBalanceAmountInput(text: string): number {
+  const digits = text.replace(/\D/g, "");
+  return digits ? Number(digits) : NaN;
+}

@@ -20,6 +20,9 @@ export function useBalancePayData(enabled: boolean) {
     queryFn: paymentsClient.getBalancePayData,
     enabled,
     staleTime: 0,
+    // Un solo reintento: con los tres de default el error recién aparecía ~7 s después de abrir el sheet,
+    // en medio de la carga del CVV.
+    retry: 1,
   });
 }
 
