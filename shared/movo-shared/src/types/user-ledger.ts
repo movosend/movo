@@ -63,6 +63,8 @@ export interface UserLedgerEntry {
   /** Solo en `manual_adjustment`. Oculto (`null`) en `GET /payments/balance` para resguardar evidencia interna del admin. */
   reason: string | null;
   createdAt: string;
+  /** Descripción pública del origen; nunca contiene el motivo interno de un ajuste. */
+  originLabel?: string | null;
 }
 
 /** Alta de un movimiento (`POST /internal/payments/users/:userId/ledger-entries`). */
@@ -100,7 +102,7 @@ export interface CreateUserLedgerEntryResponse {
 
 /** `GET /payments/balance`: saldo y movimientos del usuario autenticado, más nuevos primero. */
 export interface UserLedgerPageResponse extends UserLedgerBalanceResponse {
-  items: UserLedgerEntry[];
+  items: Array<UserLedgerEntry & { originLabel: string | null }>;
   nextCursor: string | null;
 }
 

@@ -423,6 +423,7 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
       pickupDistanceKm: 1.2,
       deliveryDistanceKm: 2.5,
       hasMyOffer: true,
+      debtDiscount: { amountArs: 125, reason: "pending_balance" },
       detourDistanceKm: 7.5,
       detourDurationMinutes: 12,
     };
@@ -450,6 +451,7 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
     expect(body.items).toHaveLength(1);
     expect(body.items[0].id).toBe("33333333-3333-3333-3333-333333333333");
     expect(body.items[0].hasMyOffer).toBe(true);
+    expect(body.items[0].debtDiscount).toEqual({ amountArs: 125, reason: "pending_balance" });
     expect(body.items[0].detourDistanceKm).toBe(7.5);
     expect(body.items[0].detourDurationMinutes).toBe(12);
     expect(body.items[0].pickupDate).toBe("2030-01-01");

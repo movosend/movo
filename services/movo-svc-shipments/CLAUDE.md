@@ -3567,3 +3567,7 @@ coincide, 409 `CANCELLATION_PENALTY_MISMATCH` con `details.penaltyArs` y no canc
 
 Pendiente: mobile (MOVO-308), Términos y Condiciones (MOVO-316), alerta real del hold vencido (hoy solo log) y que el
 historial de transacciones distinga la penalidad de un cobro (MOVO-303).
+
+### MOVO-315 — Contratos para la cuenta corriente mobile
+
+`POST /internal/ledger-origins` devuelve etiquetas de origen solo para envíos vinculados al usuario consultado, incluidas ofertas de transportistas antes asignados; usa la calle de destino para evitar el sufijo "Argentina" de Geocoding. `GET /shipments/carrier-eligibility` publica los requisitos actuales del transportista para detectar deuda vencida al entrar en Transportar. El feed, el detalle público y los matches por viaje agregan `debtDiscount` con un tope de 3 s para que la app muestre el neto aproximado antes de ofertar. La interfaz visual queda en la rama mobile de MOVO-315.

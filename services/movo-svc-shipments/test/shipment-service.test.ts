@@ -612,7 +612,26 @@ describe("shipments.service — getShipmentDetail", () => {
 
     await expect(
       service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER])
-    ).resolves.toEqual({ ...shipment, offersSummary: null });
+    ).resolves.toEqual({ ...shipment, offersSummary: null, debtDiscount: null });
+  });
+
+  it("MOVO-315: muestra el descuento estimado al transportista en el detalle público", async () => {
+    const shipment = fakeShipment({ status: ShipmentStatus.PUBLISHED });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const paymentsClient = createFakePaymentsClient([], {}, {
+      pendingDebtByUserId: new Map([["carrier-id", 1000]]),
+    });
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+
+    const result = await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER]);
+
+    expect(paymentsClient.previewCarrierDebt).toHaveBeenCalledWith("carrier-id", [2100]);
+    expect(result.debtDiscount).toEqual({ amountArs: 630, reason: "pending_balance" });
   });
 
   it("MOVO-180: un transportista verificado ve el agregado de ofertas vigentes (sin identidad de competidores)", async () => {
@@ -801,6 +820,32 @@ describe("shipments.service — listAvailableShipments (MOVO-142)", () => {
     expect(result.page).toBe(1);
     expect(result.limit).toBe(20);
     expect(offerRepository.listPendingOfferedShipmentIds).toHaveBeenCalledWith("carrier-id", ["shipment-1"]);
+  });
+
+  it("MOVO-315: calcula los descuentos del feed en un solo preview y mantiene el orden", async () => {
+    const first = { ...fakeShipment({ id: "shipment-1", suggestedPriceArs: 2100 }), pickupDistanceKm: 1, deliveryDistanceKm: 1, distanceKm: 2 };
+    const second = { ...fakeShipment({ id: "shipment-2", suggestedPriceArs: 1000 }), pickupDistanceKm: 2, deliveryDistanceKm: 2, distanceKm: 4 };
+    const repository = fakeRepository({
+      listAvailable: vi.fn().mockResolvedValue({ items: [first, second], total: 2 }),
+    });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const paymentsClient = createFakePaymentsClient([], {}, {
+      pendingDebtByUserId: new Map([["carrier-id", 1000]]),
+    });
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+
+    const result = await service.listAvailableShipments("carrier-id", [UserRole.CARRIER], query);
+
+    expect(paymentsClient.previewCarrierDebt).toHaveBeenCalledTimes(1);
+    expect(paymentsClient.previewCarrierDebt).toHaveBeenCalledWith("carrier-id", [2100, 1000]);
+    expect(result.items.map((item) => item.debtDiscount)).toEqual([
+      { amountArs: 630, reason: "pending_balance" },
+      { amountArs: 300, reason: "pending_balance" },
+    ]);
   });
 });
 

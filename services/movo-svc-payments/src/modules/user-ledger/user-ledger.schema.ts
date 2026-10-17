@@ -50,6 +50,7 @@ const entry = {
     paymentId: { type: ["string", "null"] },
     reason: { type: ["string", "null"] },
     createdAt: { type: "string", format: "date-time" },
+    originLabel: { type: ["string", "null"] },
   },
 } as const;
 
@@ -92,6 +93,13 @@ export const debtCollectionPreviewInternalSchema = {
     },
     400: errorResponse,
   },
+} as const;
+
+export const debtCollectionPreviewSchema = {
+  tags: ["payments"],
+  summary: "Vista previa del descuento por deuda del transportista",
+  body: debtCollectionPreviewInternalSchema.body,
+  response: { ...debtCollectionPreviewInternalSchema.response, 401: unauthorizedResponse },
 } as const;
 
 export const createEntryInternalSchema = {
@@ -156,7 +164,7 @@ export const getBalanceSchema = {
       required: ["balanceArs", "oldestUnpaidAt", "items", "nextCursor"],
       properties: {
         ...balanceProperties,
-        items: { type: "array", items: entry },
+        items: { type: "array", items: { ...entry, required: [...entry.required, "originLabel"] } },
         nextCursor: { type: ["string", "null"] },
       },
     },
