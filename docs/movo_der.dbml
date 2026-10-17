@@ -669,6 +669,9 @@ Table payments.holds {
   commission_ars numeric [note: 'MOVO-311: comision de Movo sola']
   debt_offset_ars numeric [default: 0, note: 'MOVO-311: deuda del transportista descontada del cobro']
   debt_surcharge_ars numeric [default: 0, note: 'MOVO-311: deuda del emisor sumada al pago']
+  debt_surcharge_fee_ars numeric [default: 0, note: 'MOVO-311: parte del application_fee retenido que corresponde al recargo del emisor']
+  carrier_gross_amount_ars numeric [note: 'MOVO-311: bruto que ve el transportista (sin el recargo del emisor), fijado al acreditar']
+  carrier_mp_fee_ars numeric [note: 'MOVO-311: fee de MP que ve el transportista (sin la parte del recargo), fijado al acreditar']
   status hold_status_enum
   status_detail varchar [null, note: 'status_detail crudo de MP']
   failure_reason hold_failure_reason_enum [null]

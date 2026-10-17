@@ -451,7 +451,9 @@ Ejemplo con precio $1150 (comisión de Movo $150), transportista que debe $100 y
 - **Ledger:** al crear el hold, en la misma transacción, se reserva la deuda (`fee_offset` o
   `payment_surcharge`, monto negativo, `reserved`, key `<tipo>:<holdId>`). Los dos usuarios quedan
   bloqueados (advisory lock) mientras se lee su saldo, así dos holds en paralelo no descuentan la
-  misma deuda. Si el hold se rechaza, se libera o vence, un trigger de `holds` anula la reserva en la
+  misma deuda; "Pagar mi saldo" (5.7) toma el mismo lock y sus intentos abiertos descuentan del saldo
+  cobrable, así un pago de saldo y un hold tampoco cobran dos veces. Mientras es solo una reserva, el saldo
+  que se informa (y mide el bloqueo por deuda) no baja: recién baja al capturar (ADR-044). Si el hold se rechaza, se libera o vence, un trigger de `holds` anula la reserva en la
   misma transacción y la deuda vuelve a quedar pendiente. Al capturar, la reserva pasa a `settled`
   por lo que retuvo MP (`fee_details`); si retuvo menos, se anula y se asienta lo real.
 - **Liquidación:** `commission_ars` es solo la comisión de Movo; la deuda cobrada va en
@@ -460,8 +462,10 @@ Ejemplo con precio $1150 (comisión de Movo $150), transportista que debe $100 y
   bruto $1150 y fee de MP sin lo que MP cobró sobre el recargo (`carrierPaymentView`), así no ve la
   deuda ajena y `bruto − fee MP − comisión − su deuda = neto`.
 - **Antes de comprometerse:** el emisor ve `{ priceArs, pendingBalanceArs, totalArs }` en
-  `GET /shipments/:id/funding`; el transportista, el descuento (`debtDiscount`) en sus ofertas
+  `GET /shipments/:id/funding` y paga mandando `expectedTotalArs = totalArs`: si su deuda cambió en el medio,
+  409 `HOLD_AMOUNT_CHANGED` en vez de cobrarle de más; el transportista, el descuento (`debtDiscount`) en sus ofertas
   `pending` y en el detalle del envío asignado.
+- **Reintegro o contracargo:** hoy no repone la deuda cobrada (limitación aceptada, ADR-044).
 - **Límite de MP** (spike MOVO-305): el fee tiene que ser `< transaction_amount` (si no, `400 4038`).
   Con el tope de 30% el fee llega a ~73% del precio y el monto a 130%; la env var acepta hasta 0,5.
 - **Penalidad (MOVO-307):** en una captura parcial el `application_fee` se cobra entero, y capturar

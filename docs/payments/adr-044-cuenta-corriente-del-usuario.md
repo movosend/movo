@@ -72,20 +72,41 @@ Detalle y ejemplo en `flujo-de-pagos.md` §6.1.
   recargo: el `application_fee` lleva el recargo menos el estimado de esa comisión, y al emisor se le
   acredita el recargo completo. Así el transportista recibe lo mismo que sin recargo.
 - **La reserva es un movimiento negativo `reserved`** (`fee_offset` del transportista,
-  `payment_surcharge` del emisor) y cuenta para el saldo desde que se crea el hold. Es la excepción
-  a "los pagos entran directo en `settled`" (abajo): un hold autorizado retiene la plata, y que el
-  saldo ya la descuente es lo que impide que otro hold cobre la misma deuda. Como consecuencia, el
-  saldo baja (y el bloqueo de MOVO-313 se puede levantar) mientras el hold espera la captura; si el
-  hold se cae, la reserva se anula y el saldo vuelve.
+  `payment_surcharge` del emisor). Es la excepción a "los pagos entran directo en `settled`"
+  (abajo): un hold autorizado retiene la plata, y que otro cobro ya la vea tomada es lo que impide
+  que cobre la misma deuda. Hay tres lecturas del saldo, cada una con su propósito (revisión de la PR #266):
+  1. **Saldo informado** (`GET .../balance`, `GET /payments/balance`, `readLedgerBalance`): suma lo no
+     anulado **sin** las reservas negativas. Es el que ve el usuario y el que mide el bloqueo por deuda
+     (MOVO-313): una reserva no es un cobro, así que un hold en curso no destraba a nadie; si el hold se
+     cae, la deuda sigue ahí y el bloqueo no se levantó. Se baja recién cuando la reserva pasa a `settled`.
+  2. **Deuda sin reservar** (`readBalanceNetOfReservations`): el saldo informado menos lo que ya
+     reservaron los holds en curso. Es el máximo que puede pagar "Pagar mi saldo" (MOVO-312).
+  3. **Saldo cobrable** (`readCollectableBalance`): lo anterior menos los pagos de saldo abiertos
+     (`creating`/`pending`, todavía sin asiento). Es sobre lo que un hold calcula el descuento o el recargo.
 - **La anulación es un trigger de `holds`**, no código de cada camino: cuando un hold pasa a
   `rejected` o `cancelled` (creación, liberación, `?sync`, webhook), sus movimientos `reserved` pasan
   a `voided` en la misma transacción. Cubre la regla de abajo ("quien reserva tiene que anular").
 - **Al capturar** la reserva pasa a `settled` si MP retuvo lo pedido; si retuvo otra cosa, como el
   monto no se puede editar, se anula y se inserta un `settled` por lo real. Se asienta antes de
   acreditar la liquidación, así una liquidación `credited` siempre tiene la deuda asentada.
-- **Concurrencia:** el alta del hold lee el saldo y reserva con los dos usuarios bloqueados
-  (`pg_advisory_xact_lock`). El pago voluntario de MOVO-312 no toma ese lock: un pago de saldo en
-  paralelo con un hold puede dejar un saldo a favor puntual, que el diseño admite.
+- **Concurrencia:** el alta del hold lee el saldo cobrable y reserva con los dos usuarios bloqueados
+  (`pg_advisory_xact_lock`). El pago de saldo de MOVO-312 toma **el mismo lock** al abrir su intento
+  (lee la deuda sin reservar y crea el intento en esa transacción), y los intentos abiertos descuentan del
+  saldo cobrable de los holds: un hold y un pago de saldo en paralelo no cobran la misma deuda.
+- **El emisor paga lo que confirmó:** `GET /shipments/:id/funding` devuelve `totalArs` y el pago lo manda como
+  `expectedTotalArs`; si al abrir el intento (con el saldo leído bajo el lock) el total que corresponde es otro
+  porque la deuda cambió, se responde 409 `HOLD_AMOUNT_CHANGED` con `details.totalArs` y no se crea nada. Sin
+  `expectedTotalArs` (builds viejos) no se compara.
+
+### Limitación conocida: reintegro o contracargo de un pago que cobró deuda
+
+La deuda cobrada queda `settled` cuando se captura. Si ese pago después se **reintegra o tiene un contracargo**,
+el webhook de MP lo registra en `payment_provider_events` y alerta, pero **no repone la deuda**: la plata vuelve
+al emisor y el ledger sigue dando la deuda por saldada. Es la misma pata que el cobro ya acreditado ante un
+contracargo (qué pasa con la liquidación queda para disputas, MOVO-30/34). Mientras tanto la reposición es manual:
+un `manual_adjustment` positivo por el monto de la deuda cobrada. Se acepta porque el reintegro de un pago de un
+envío con deuda es el caso raro de un caso raro, y repararlo bien requiere decidir antes qué se devuelve al emisor
+(MOVO-34).
 
 ## Alternativas descartadas
 
@@ -96,7 +117,7 @@ Detalle y ejemplo en `flujo-de-pagos.md` §6.1.
 ## Consecuencias y trade-offs aceptados
 
 - Los consumidores (307, 310, 311, 312, 313) arman sus propias `idempotencyKey`; una key mal construida puede registrar una deuda dos veces o descartar una legítima. Convención sugerida: `<tipo>:<shipmentId>` (ej. `penalty:<id>`).
-- Un movimiento `reserved` cuenta para el saldo y para `oldestUnpaidAt`; si la reserva se cae, quien la hizo tiene que volverla a `pending` o anularla. No hay barrido que lo haga solo.
+- Un movimiento `reserved` **positivo** (un cargo) cuenta para el saldo y para `oldestUnpaidAt`; si la reserva se cae, quien la hizo tiene que volverla a `pending` o anularla. No hay barrido que lo haga solo. Las reservas **negativas** de 311 no bajan el saldo informado (ver arriba) y las anula el trigger de `holds`.
 - Los movimientos negativos (pagos o créditos) reducen el saldo siempre que no estén `voided`. Las operaciones que saldan deudas (307 captura parcial, 312 pago voluntario) registran los movimientos directamente en `settled` una vez acreditados; no se deben crear pagos en `pending` que reduzcan la deuda antes de que el cobro se concrete. La excepción es la reserva de 311 (arriba), atada a un hold con los fondos retenidos.
 - No hay endpoint HTTP para cambiar el `status`: 311 mueve sus reservas dentro de `svc-payments` (trigger y captura) y 312 inserta directo en `settled`, así que ninguno lo necesitó.
 - La captura parcial de 307 todavía no cobra deuda; 311 y 312 sí.

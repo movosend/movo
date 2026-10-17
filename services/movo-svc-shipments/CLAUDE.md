@@ -3532,6 +3532,9 @@ deuda; una pantalla en mobile con el saldo y el CTA para pagar (hoy solo el mens
 `payerUserId` a `checkout-data`. El transportista ve `debtDiscount: { amountArs, reason: "pending_balance" } | null` en
 `GET /offers/mine` y `GET /offers/:id` (solo ofertas `pending`, un pedido a payments por página con
 `previewCarrierDebt`) y en `GET /shipments/:id` del envío asignado hasta la entrega (con hold vivo, lo que reservó; si no,
-la vista previa). Es display: si payments no responde el campo viaja `null`, nunca bloquea. `GET /shipments/:id/settlement`
+la vista previa). Es display: si payments no responde (o tarda más de 3 s en total, `DEBT_DISCOUNT_TIMEOUT_MS`) el campo viaja `null`, nunca bloquea; sin hold vivo
+solo se previsualiza en `assignment_pending`/`assigned_unfunded` (en `in_transit`/`delivered` no se va a crear otro hold).
+`POST /shipments/:id/funding` acepta `expectedTotalArs` (el `totalArs` del GET) y lo pasa al hold: si la deuda cambió, 409 `HOLD_AMOUNT_CHANGED`
+con `details.totalArs` (el cliente de payments ahora conserva `details`; el mobile puede mandarlo cuando tome MOVO-315). `GET /shipments/:id/settlement`
 suma `debtCollectedArs`: el descuento para el transportista, el recargo para el emisor; al transportista,
-`paidAmountArs` y `mpFeeArs` le llegan sin el recargo del emisor (`carrierPaymentView`).
+`paidAmountArs` y `mpFeeArs` le llegan sin el recargo del emisor (payments los fija al acreditar: `carrierGrossAmountArs`/`carrierMpFeeArs`).
