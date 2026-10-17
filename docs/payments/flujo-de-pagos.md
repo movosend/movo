@@ -111,7 +111,11 @@ Reglas que el diagrama no muestra explícitamente:
   `assignment_pending`. Ese es el caso de compensación que tienen que cubrir MOVO-209/210
   (cómo se resuelve, reintentar la transición o liberar el hold, se define ahí). Si en
   ese estado el emisor cancela, el hold se **libera**.
-- Cancelar desde `assigned` sigue bloqueado hasta definir la penalidad (MOVO-226).
+- **Cancelar desde `assigned` (MOVO-307, ADR-047):** con 12 h o más hasta el retiro, o con
+  la ventana ya cerrada, es sin cargo y se libera el hold. Con menos de 12 h se cobra el 25 %
+  del precio acordado capturando esa parte del hold (MOVO-306); MP libera el resto. Si la
+  penalidad no cubre la comisión del hold más el fee de MP, se libera entero y queda como deuda del emisor
+  en su cuenta corriente (ADR-044).
 
 ---
 
@@ -132,6 +136,7 @@ stateDiagram-v2
     assigned_unfunded --> published: sin pago a T-24h del retiro
     assigned_unfunded --> cancelled: emisor cancela (no hay hold)
 
+    assigned --> cancelled: emisor cancela (sin cargo o captura parcial por penalidad)
     assigned --> in_transit: handshake de retiro
     in_transit --> delivered: handshake de entrega
     delivered --> completed: captura y split confirmados
@@ -441,6 +446,7 @@ flowchart LR
 | `svc-shipments` es el dueño de la saga y la puerta del mobile | Los estados del envío viven ahí. `svc-payments` queda aislado como único integrador de MP. | MOVO-210 |
 | SDK oficial `mercadopago` v3 para pagos; canje y refresh de OAuth con `fetch` propio | Mismo resultado que la API REST, con tipos, idempotencia y errores ya resueltos. El canje queda afuera porque el SDK no tipa `code_verifier`/`test_token` y exige un access token que `/oauth/token` no necesita. | MOVO-267, SOLUCION-FINAL §4 |
 | Las deudas (penalidades, comisión en efectivo) viven en una **cuenta corriente del usuario**, no del transportista | La misma persona es emisor y transportista: una penalidad generada en un rol se puede saldar en el otro. Saldo con signo, solo inserción, idempotente. Hoy es un registro contable: el cobro llega con MOVO-307 (captura parcial), 311 (`application_fee`) y 312 (pago voluntario). | MOVO-309, ADR-044 (`docs/payments/adr-044-cuenta-corriente-del-usuario.md`) |
+| La penalidad por cancelar un `assigned` se cobra con una **captura parcial del hold**, y si no se puede queda como deuda | El emisor ya tiene el hold autorizado: cobrar en el momento evita una deuda que puede no cobrarse. MP cobra la comisión entera en la captura parcial (el transportista recibe ≈ 11 % del precio) y rechaza capturar menos que la comisión: en ese caso se libera el hold y la penalidad queda en la cuenta corriente. | MOVO-306, MOVO-307, ADR-047 (`docs/payments/adr-047-penalidad-de-cancelacion.md`) |
 | Idempotencia en hold, captura, saga y webhook | Un doble hold retiene plata dos veces; una doble captura cobra dos veces. | MOVO-209, 210, 212, 268 |
 
 **Costo aceptado de la ruta lejana:** el transportista se compromete sin fondos
@@ -468,6 +474,8 @@ envío se republica. Se mitiga con recordatorios y aviso explícito al transport
 | Webhook de MP (holds vencidos, contracargos) | MOVO-268 | — | MOVO-12 |
 | Captura y split al entregar | MOVO-212 | — | MOVO-13 |
 | Reintentos y escalado manual | MOVO-213 | — | MOVO-13 |
+| Captura parcial del hold por penalidad | MOVO-306 | — | MOVO-226 |
+| Cancelación del emisor desde `assigned` con penalidad | MOVO-307 | MOVO-308 | MOVO-226 |
 | Detalle del cobro (bruto, comisión, neto) | — | MOVO-214 | MOVO-13 |
 
 **En Backlog, fuera del camino crítico:**
@@ -476,7 +484,6 @@ envío se republica. Se mitiga con recordatorios y aviso explícito al transport
 | --- | --- |
 | MOVO-37 | Pago en efectivo: Movo le cobra la comisión a una tarjeta guardada del transportista. Usa las tarjetas de MOVO-65/100/101, pero el débito sin CVV no está validado (MOVO-283). |
 | MOVO-28 | Historial de transacciones del emisor. Depende de que existan liquidaciones (MOVO-212). |
-| MOVO-226 | Penalidad por cancelar con transportista asignado. Falta la definición de negocio. |
 
 ---
 

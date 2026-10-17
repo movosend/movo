@@ -23,10 +23,18 @@ export default fp(async (app: FastifyInstance, opts: SettlementSweepPluginOption
     enabled: (opts.enabled ?? app.config.SETTLEMENT_SWEEP_ENABLED ?? true) && app.config.FUNDS_RELEASE_NOTIFIER === "payments",
     intervalMinutes: app.config.SETTLEMENT_SWEEP_INTERVAL_MINUTES,
     errorMessage: "Error inesperado durante el sweep de liquidaciones",
-    run: () =>
-      service.retryPendingSettlements({
+    // MOVO-307: después de las entregas, las penalidades de cancelación que quedaron `pending`.
+    // Si las entregas fallan de forma inesperada, las penalidades corren igual.
+    run: async () => {
+      const options = {
         graceMinutes: app.config.SETTLEMENT_SWEEP_GRACE_MINUTES,
         batchSize: app.config.SETTLEMENT_SWEEP_BATCH_SIZE,
-      }),
+      };
+      try {
+        await service.retryPendingSettlements(options);
+      } finally {
+        await service.retryPendingPenalties(options);
+      }
+    },
   });
 });

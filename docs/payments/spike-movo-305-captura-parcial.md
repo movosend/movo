@@ -96,9 +96,8 @@ con split por transportista). Acá no hay hold ni split: es un cobro directo de 
 ## Qué cambia en las issues
 
 Se aplica la fila "cobra la comisión entera" del plan decidido en `MOVO-305`: **se acepta y se documenta
-como limitación de MP en el ADR de la penalidad de cancelación (`MOVO-226`)**. Ese ADR todavía no tiene
-número: el 043 lo tomó MOVO-291 (refresh idempotente del panel) y el 045 MOVO-278, así que se numera al
-escribirlo. Además:
+como limitación de MP en el ADR de la penalidad de cancelación (`MOVO-226`)**: es el ADR-047
+(`docs/payments/adr-047-penalidad-de-cancelacion.md`, MOVO-307). Además:
 
 1. **`MOVO-306`/`MOVO-307`: la captura parcial tiene que ser mayor que el `application_fee` del hold.** Con
    la penalidad del 25 % y la comisión de Movo (~13,04 % del bruto) siempre se cumple, pero deja de cumplirse si

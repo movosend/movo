@@ -43,6 +43,8 @@ function shipment(overrides: Partial<Shipment> = {}): Shipment {
     receiverRedesignationDeadline: null,
     transitAnomalyFlaggedAt: null,
     transitAnomalyWarnedAt: null,
+    cancellationPenaltyArs: null,
+    cancellationPenaltyStatus: null,
     rejectionReason: null,
     createdAt: new Date("2026-09-20T00:00:00.000Z"),
     updatedAt: new Date("2026-09-20T00:00:00.000Z"),

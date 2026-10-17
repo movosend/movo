@@ -96,6 +96,11 @@ export type SettlementDisplayStatus = "processing" | "credited" | "escalated";
 export interface ShipmentSettlementResponse {
   shipmentId: string;
   role: "sender" | "carrier";
+  /**
+   * MOVO-307: `delivery` es el cobro del envío entregado; `cancellation_penalty`, la
+   * penalidad por una cancelación tardía (el transportista recibe la compensación).
+   */
+  kind: SettlementKind;
   status: SettlementDisplayStatus;
   /** Total que pagó el emisor. */
   paidAmountArs: number;

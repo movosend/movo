@@ -559,3 +559,12 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 lo acepta). `grossAmountArs` es lo capturado (el hold entero en una entrega). Errores nuevos:
 `SETTLEMENT_CONFLICT`, `CAPTURE_AMOUNT_EXCEEDS_HOLD` y `CAPTURE_BELOW_APPLICATION_FEE` (la penalidad no supera
 la comisión: MP la rechazaría, spike MOVO-305, y `svc-shipments` aplica el plan B de MOVO-307).
+
+### MOVO-307 — `config/cancellation-penalty.ts` y triggers de la penalidad (ADR-047)
+
+`CANCELLATION_PENALTY_FREE_HOURS` (12), `CANCELLATION_PENALTY_RATE` (0,25) y `computeCancellationPenalty` (pura:
+sin cargo con 12 h o más o con la ventana cerrada, 25 % del precio acordado si no; solo `assigned`), más
+`CancellationQuoteResponse` de `GET /shipments/:id/cancellation-quote`. Mobile la importa por subpath
+(`dist/config/cancellation-penalty`) para mostrar el mismo monto (MOVO-308). `ShipmentSettlementResponse` suma `kind`,
+`ApiErrorCode` suma `CANCELLATION_PENALTY_MISMATCH` (con `details.penaltyArs`) y la categoría `payments` suma
+`cancellationPenalty{ChargedSender,DebtSender,CompensationCarrier}`.

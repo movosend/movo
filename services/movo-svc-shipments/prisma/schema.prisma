@@ -104,6 +104,19 @@ enum HandshakeStage {
   @@schema("shipments")
 }
 
+// MOVO-307 (ADR-047): qué pasó con la penalidad de una cancelación tardía del emisor.
+// pending = cancelado, falta cobrarla (la captura en línea falló o no corrió: la retoma el
+// barrido de liquidaciones); captured = se cobró del hold; debt = no se pudo cobrar del hold
+// (no supera la comisión, hold vencido o inexistente) y quedó como deuda en la cuenta corriente.
+enum CancellationPenaltyStatus {
+  pending
+  captured
+  debt
+
+  @@map("cancellation_penalty_status_enum")
+  @@schema("shipments")
+}
+
 // MOVO-161: estado del viaje declarado por el transportista
 // MOVO-221: declared (default al crear, antes era active directo) -> active
 // (POST /trips/:id/start, máx 1 por cuenta) -> completed. cancelled sin cambios.
@@ -202,6 +215,10 @@ model Shipment {
   // entrega. Marca durable: el QR vence a los 15 s pero la entrega ya empezó y desde
   // entonces no se puede pedir ni aceptar un cambio de receptor.
   deliveryHandshakeStartedAt DateTime? @map("delivery_handshake_started_at") @db.Timestamptz
+  // MOVO-307 (ADR-047): penalidad que el emisor confirmó al cancelar un `assigned` con menos de
+  // 12 h, y qué pasó con ella. Ambas NULL en una cancelación sin cargo.
+  cancellationPenaltyArs    Decimal?                   @map("cancellation_penalty_ars") @db.Decimal(12, 2)
+  cancellationPenaltyStatus CancellationPenaltyStatus? @map("cancellation_penalty_status")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   // Mantenida por trigger de Postgres (shipments.update_updated_at_column()),

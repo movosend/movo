@@ -68,6 +68,8 @@ const shipmentResponse = {
     "receiverConfirmationDeadline",
     "receiverRedesignationDeadline",
     "transitAnomalyFlaggedAt",
+    "cancellationPenaltyArs",
+    "cancellationPenaltyStatus",
     "rejectionReason",
     "createdAt",
     "updatedAt",
@@ -119,6 +121,11 @@ const shipmentResponse = {
     // MOVO-278 (ADR-045): cuándo el barrido marcó el envío `in_transit` como demorado
     // (MOVO-258 D4). El mobile lo muestra como "Demorado"; `null` = nunca marcado.
     transitAnomalyFlaggedAt: { type: ["string", "null"], format: "date-time" },
+    // MOVO-307 (ADR-047): penalidad de una cancelación tardía del emisor y qué pasó con ella
+    // (`pending` = falta cobrarla, `captured` = se cobró del hold, `debt` = quedó en su cuenta
+    // corriente). Ambas `null` en toda cancelación sin cargo.
+    cancellationPenaltyArs: { type: ["number", "null"] },
+    cancellationPenaltyStatus: { type: ["string", "null"], enum: ["pending", "captured", "debt", null] },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
     // MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
@@ -469,8 +476,24 @@ export const shipmentsSchemas = {
     type: "object",
     properties: {
       reason: { type: "string", maxLength: 500 },
+      // MOVO-307: penalidad que el emisor vio en `GET /:id/cancellation-quote` y confirma.
+      // Solo cuenta para un envío `assigned`; ausente equivale a 0.
+      expectedPenaltyArs: { type: "number", minimum: 0 },
     },
     additionalProperties: false,
+  },
+
+  cancellationQuoteResponse: {
+    type: "object",
+    required: ["penaltyArs", "reason", "freeUntil"],
+    properties: {
+      penaltyArs: { type: "number" },
+      reason: {
+        type: "string",
+        enum: ["not_assigned", "before_free_deadline", "late_cancellation", "pickup_window_closed"],
+      },
+      freeUntil: { type: ["string", "null"], format: "date-time" },
+    },
   },
 
   shipmentIdParam: {

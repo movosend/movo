@@ -57,6 +57,10 @@ export type ApiErrorCode =
   | "SHIPMENTS_SERVICE_UNAVAILABLE"
   | "SHIPMENT_CONCURRENT_MODIFICATION"
   | "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED"
+  // MOVO-307: el emisor confirmó una penalidad de cancelación (`expectedPenaltyArs`) distinta
+  // de la que corresponde ahora (pasó el umbral de 12 h o cerró la ventana). Viaja con
+  // `details.penaltyArs`: el mobile vuelve a mostrar el monto y pide confirmar de nuevo.
+  | "CANCELLATION_PENALTY_MISMATCH"
   | "ACCOUNT_DELETION_IN_PROGRESS"
   | "PHOTO_CONFIRMATION_IN_PROGRESS"
   | "OFFER_NOT_FOUND"
