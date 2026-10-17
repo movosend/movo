@@ -38,6 +38,7 @@ import { ActiveShipmentRole } from "../../domain/active-shipment";
 import { toOfferDto } from "../offers/offer.dto";
 import { hasShipmentAccess } from "./assert-shipment-access";
 import { buildReceiverTransfersService } from "../receiver-transfers/receiver-transfers.routes";
+import { resolveCarrierEligibility } from "../../utils/carrier-gate";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -110,7 +111,7 @@ function toShipmentDto(shipment: Shipment | ShipmentDetailResult) {
  * AC9: sin senderId/receiverId). No se extrae a un archivo shipments.dto.ts propio a
  * diferencia de toOfferDto (MOVO-144, compartida entre dos route files): esta función
  * solo la usa esta ruta. */
-function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean }) {
+function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean; debtDiscount: { amountArs: number; reason: "pending_balance" } | null }) {
   return {
     ...item,
     pickupDate: item.pickupDate.toISOString().slice(0, 10),
@@ -291,6 +292,26 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   // Ruta estática — se registra antes de "/:id" por claridad para el próximo que lea
   // el archivo, aunque el radix router de Fastify (find-my-way) ya prioriza segmentos
   // estáticos sobre paramétricos sin importar el orden de registro.
+  app.get("/carrier-eligibility", {
+    schema: {
+      tags: ["shipments"], summary: "Requisitos vigentes para operar como transportista",
+      response: {
+        200: { type: "object", required: ["identityApproved", "missingRequirements"], properties: {
+          identityApproved: { type: "boolean" },
+          missingRequirements: { type: "array", items: { type: "string", enum: [
+            "no_open_dispute", "license", "mp_account", "no_overdue_debt",
+          ] } },
+        } },
+        401: shipmentsSchemas.errorResponse,
+        502: shipmentsSchemas.errorResponse,
+      },
+    },
+  }, async (request) => {
+    const userId = requireUserIdFromHeader(request);
+    const status = await resolveCarrierEligibility({ usersClient, paymentsClient, shipmentRepository: repository }, userId);
+    return { identityApproved: status.identityApproved, missingRequirements: status.missingRequirements };
+  });
+
   app.get(
     "/mine",
     {

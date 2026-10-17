@@ -14,7 +14,7 @@ import { CardTokenError, createSavedCardToken } from "./mp-card-tokenizer";
  * MP y devuelve un token de un solo uso) y corre FUERA de `useMutation`, porque React Query
  * retiene las variables de cada mutación en el `MutationCache`. `fundWithToken` es lo que se
  * pasa a la mutación: solo el token y los ids, nunca el CVV. Al backend (`POST
- * /shipments/:id/funding`) van solo `cardToken` y `savedCardId`.
+ * /shipments/:id/funding`) van el token, la tarjeta y el total que el emisor confirmó.
  */
 export type PayShipmentOutcome =
   /** Fondos reservados: el envío pasó a `assigned`. */
@@ -25,6 +25,8 @@ export type PayShipmentOutcome =
   | { kind: "pending"; payUntil: string | null }
   /** El plazo venció o el envío cambió de estado: ya no se puede pagar. */
   | { kind: "unavailable"; error: ApiError }
+  /** La deuda cambió: hay que mostrar el nuevo total y pedir otra confirmación. */
+  | { kind: "amount_changed" }
   /** MP rechazó generar el token (CVV mal formado, tarjeta inexistente) o no hubo red. */
   | { kind: "token_error"; error: CardTokenError }
   /** Cualquier otro error del backend (502, tarjeta inexistente, transportista sin MP...). */
@@ -56,17 +58,21 @@ export interface FundWithTokenInput {
   shipmentId: string;
   cardToken: string;
   savedCardId: string;
+  expectedTotalArs: number;
 }
 
-export async function fundWithToken({ shipmentId, cardToken, savedCardId }: FundWithTokenInput): Promise<PayShipmentOutcome> {
+export async function fundWithToken({ shipmentId, cardToken, savedCardId, expectedTotalArs }: FundWithTokenInput): Promise<PayShipmentOutcome> {
   try {
-    const result = await fundingClient.fund(shipmentId, { cardToken, savedCardId });
+    const result = await fundingClient.fund(shipmentId, { cardToken, savedCardId, expectedTotalArs });
     if (result.funded) return { kind: "reserved" };
     if (result.failureReason) {
       return { kind: "rejected", reason: result.failureReason, payUntil: result.payUntil };
     }
     return { kind: "pending", payUntil: result.payUntil };
   } catch (err) {
+    if (err instanceof ApiError && err.code === "HOLD_AMOUNT_CHANGED") {
+      return { kind: "amount_changed" };
+    }
     if (err instanceof ApiError && err.code === "SHIPMENT_FUNDING_NOT_AVAILABLE") {
       return { kind: "unavailable", error: err };
     }

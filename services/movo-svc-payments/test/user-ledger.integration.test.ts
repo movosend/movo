@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
+import type { ShipmentsClient } from "../src/adapters/shipments-client";
 
 // Integración contra Postgres real (convención del repo): la inmutabilidad la imponen triggers
 // de la migración, así que no se puede mockear la base.
@@ -14,12 +15,20 @@ const ADMIN = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 describe("cuenta corriente del usuario (MOVO-309)", () => {
   let app: FastifyInstance;
   let seq = 0;
+  let originsFail = false;
+  const shipmentsClient: ShipmentsClient = {
+    notifyHoldEvent: async () => ({ handled: true, outcome: "ok" }),
+    resolveLedgerOrigins: async (_userId, shipmentIds) => {
+      if (originsFail) throw new Error("shipments caído");
+      return shipmentIds.map((id) => ({ id, label: `Envío a Córdoba #${id.slice(0, 8)}` }));
+    },
+  };
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.DATABASE_URL ??= "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL ??= "redis://localhost:6379";
-    app = buildApp();
+    app = buildApp({ shipmentsClient });
     await app.ready();
   });
 
@@ -28,8 +37,10 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
   });
 
   beforeEach(async () => {
+    originsFail = false;
     // Los triggers bloquean DELETE pero no TRUNCATE.
     await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.user_ledger_entries CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.balance_payment_attempts, payments.saved_cards CASCADE");
   });
 
   function addEntry(userId: string, body: Record<string, unknown>) {
@@ -154,6 +165,8 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
           mpPaymentId: `test-mp-${seq}`,
           amountArs: 1000,
           applicationFeeArs: 150,
+          baseAmountArs: 1000,
+          commissionArs: 150,
           status: "authorized",
           expiresAt: new Date(Date.now() + 86_400_000),
         },
@@ -295,6 +308,7 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
       expect(body.balanceArs).toBe(120);
       expect(body.items).toHaveLength(1);
       expect(body.items[0]).toMatchObject({ roleAtOrigin: "carrier", shipmentId: SHIPMENT, amountArs: 120, type: "cancellation_penalty" });
+      expect(body.items[0].originLabel).toBe(`Envío a Córdoba #${SHIPMENT.slice(0, 8)}`);
       expect(body.nextCursor).toBeNull();
     });
 
@@ -326,6 +340,27 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
       expect((await mine(USER, "?cursor=basura")).statusCode).toBe(400);
     });
 
+    it("mantiene el saldo y deja originLabel en null si shipments falla", async () => {
+      await addEntry(USER, { shipmentId: SHIPMENT });
+      originsFail = true;
+      const res = await mine(USER);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().items[0].originLabel).toBeNull();
+    });
+
+    it("muestra la tarjeta del pago voluntario", async () => {
+      const card = await app.db.savedCard.create({ data: {
+        userId: USER, mpCardId: "card-1", brand: "visa", last4: "1234", expMonth: 12, expYear: 2030,
+      } });
+      await app.db.balancePaymentAttempt.create({ data: {
+        userId: USER, amountArs: 50, savedCardId: card.id, requestFingerprint: "test", mpPaymentId: "mp-123",
+      } });
+      await addEntry(USER, { type: "voluntary_payment", amountArs: -50, paymentId: "mp-123" });
+      const res = await mine(USER);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().items[0].originLabel).toBe("Visa •••• 1234");
+    });
+
     it("no expone el reason de un ajuste manual al usuario (lo devuelve como null)", async () => {
       await app.inject({
         method: "POST",
@@ -343,6 +378,26 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
       const adjustment = res.json().items.find((i: { type: string }) => i.type === "manual_adjustment");
       expect(adjustment).toBeDefined();
       expect(adjustment.reason).toBeNull();
+    });
+  });
+
+  describe("POST /payments/balance/debt-preview", () => {
+    const url = "/payments/balance/debt-preview";
+    it("401 sin usuario", async () => {
+      expect((await app.inject({ method: "POST", url, payload: { amountsArs: [100] } })).statusCode).toBe(401);
+    });
+    it("400 con monto inválido", async () => {
+      expect((await app.inject({ method: "POST", url, headers: { "x-user-id": USER },
+        payload: { amountsArs: [0] } })).statusCode).toBe(400);
+    });
+    it("200 con el preview", async () => {
+      await addEntry(USER, { amountArs: 100 });
+      const res = await app.inject({ method: "POST", url, headers: { "x-user-id": USER },
+        payload: { amountsArs: [100] } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().pendingBalanceArs).toBe(100);
+      expect(res.json().debtOffsetsArs).toHaveLength(1);
+      expect(res.json().debtOffsetsArs[0]).toBeGreaterThan(0);
     });
   });
 });

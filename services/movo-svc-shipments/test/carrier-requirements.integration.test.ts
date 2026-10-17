@@ -149,6 +149,22 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
     payments.behavior.overdueDebtUserIds.clear();
   });
 
+  describe("GET /shipments/carrier-eligibility", () => {
+    it("401 sin usuario", async () => {
+      const res = await app.inject({ method: "GET", url: "/shipments/carrier-eligibility" });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it("200 con todos los requisitos faltantes, incluida la deuda vencida", async () => {
+      payments.behavior.overdueDebtUserIds.add(carrierWithoutBoth);
+      const res = await app.inject({ method: "GET", url: "/shipments/carrier-eligibility",
+        headers: { "x-user-id": carrierWithoutBoth, "x-user-roles": "carrier" } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ identityApproved: true,
+        missingRequirements: expect.arrayContaining(["license", "mp_account", "no_overdue_debt"]) });
+    });
+  });
+
   describe("POST /trips (criterio 7)", () => {
     it("sin licencia aprobada: 403 CARRIER_LICENSE_NOT_APPROVED y ningún viaje creado", async () => {
       const response = await declareTrip(app, carrierWithoutLicense);
@@ -652,6 +668,12 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
       expect(await countTrips(eligibleCarrier)).toBe(0);
     });
 
+    it("carrier-eligibility responde 502 si payments no responde", async () => {
+      const res = await failingApp.inject({ method: "GET", url: "/shipments/carrier-eligibility",
+        headers: { "x-user-id": eligibleCarrier, "x-user-roles": "carrier" } });
+      expect(res.statusCode).toBe(502);
+    });
+
     it("ofertar responde 502 PAYMENTS_SERVICE_UNAVAILABLE y no crea nada", async () => {
       const shipment = await createPublishedShipment(createShipmentRepository(failingApp.db));
 
@@ -661,6 +683,28 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
       expect(response.json().error.code).toBe("PAYMENTS_SERVICE_UNAVAILABLE");
       expect(await countOffers(eligibleCarrier)).toBe(0);
     });
+  });
+
+  it("carrier-eligibility responde 502 si users no responde", async () => {
+    const users = createFakeUsersClient(profiles);
+    const failingApp = buildApp({
+      usersClient: { ...users, findKycStatus: async () => {
+        throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "caído");
+      } },
+      paymentsClient: payments,
+      notificationsClient: createFakeNotificationsClient(),
+      pricingClient: createFakePricingClient(),
+      pricingLogisticsClient: createFakePricingLogisticsClient(),
+      sweepEnabled: false,
+    });
+    try {
+      await failingApp.ready();
+      const res = await failingApp.inject({ method: "GET", url: "/shipments/carrier-eligibility",
+        headers: { "x-user-id": eligibleCarrier, "x-user-roles": "carrier" } });
+      expect(res.statusCode).toBe(502);
+    } finally {
+      await failingApp.close();
+    }
   });
 
   describe("saldo de la cuenta corriente no disponible (MOVO-313, falla cerrado)", () => {

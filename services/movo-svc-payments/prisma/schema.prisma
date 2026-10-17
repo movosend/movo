@@ -97,6 +97,16 @@ model Hold {
   mpPaymentId        String?            @map("mp_payment_id")
   amountArs          Decimal            @map("amount_ars") @db.Decimal(12, 2)
   applicationFeeArs  Decimal            @map("application_fee_ars") @db.Decimal(12, 2)
+  // MOVO-311: `amountArs` es lo que se le cobra al emisor (precio + recargo por su deuda) y
+  // `applicationFeeArs` la comisión + la deuda que se cobra. Acá queda el desglose, calculado una vez
+  // por intento: el precio acordado (contra el que se compara un reintento), la comisión de Movo, el
+  // descuento al transportista por su deuda y el recargo al emisor (completo; Movo absorbe la comisión
+  // de MP sobre él, así que el fee lleva un poco menos). Al cerrarse el hold sin cobrar, un trigger anula
+  // los movimientos `reserved` del ledger que lo referencian.
+  baseAmountArs      Decimal            @map("base_amount_ars") @db.Decimal(12, 2)
+  commissionArs      Decimal            @map("commission_ars") @db.Decimal(12, 2)
+  debtOffsetArs      Decimal            @default(0) @map("debt_offset_ars") @db.Decimal(12, 2)
+  debtSurchargeArs   Decimal            @default(0) @map("debt_surcharge_ars") @db.Decimal(12, 2)
   status             HoldStatus
   // `status_detail` crudo de MP (`pending_capture`, `cc_rejected_*`, ...).
   statusDetail       String?            @map("status_detail")
@@ -154,21 +164,21 @@ model PayerCustomer {
 // vivas de cada usuario, ambos `WHERE deleted_at IS NULL`.
 // `alias` es un nombre de referencia que pone el usuario; es de Movo, no se manda a MP.
 model SavedCard {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  mpCardId  String    @map("mp_card_id")
-  brand     String
-  last4     String
-  expMonth  Int       @map("exp_month")
-  expYear   Int       @map("exp_year")
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  mpCardId    String    @map("mp_card_id")
+  brand       String
+  last4       String
+  expMonth    Int       @map("exp_month")
+  expYear     Int       @map("exp_year")
   // MOVO-101: banco y tipo que devuelve MP al guardar, solo para mostrar. Nulas en las
   // tarjetas guardadas antes de esta migración.
-  issuerName  String? @map("issuer_name")
-  paymentType String? @map("payment_type")
-  isDefault Boolean   @default(false) @map("is_default")
-  alias     String?
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  issuerName  String?   @map("issuer_name")
+  paymentType String?   @map("payment_type")
+  isDefault   Boolean   @default(false) @map("is_default")
+  alias       String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz
 
   @@index([userId], map: "saved_cards_user_id_idx")
   @@map("saved_cards")
@@ -200,30 +210,41 @@ enum SettlementKind {
 // a MP, así una caída entre la captura y el desglose deja rastro y se puede completar.
 //
 // - `gross_amount_ars` = monto del hold (nunca otro, AC3); `commission_ars` = el
-//   `application_fee` del hold. `mp_fee_ars` y `net_amount_ars` salen de `fee_details` /
-//   `net_received_amount` de MP y son null hasta que MP confirma la captura.
+//   `application_fee` del hold menos la deuda cobrada (MOVO-311). `mp_fee_ars` y
+//   `net_amount_ars` salen de `fee_details` / `net_received_amount` de MP y son null
+//   hasta que MP confirma la captura.
 // - Montos `numeric(12,2)`, nunca float. `shipmentId`/`carrierId` son referencias
 //   lógicas, sin FK (ADR-003); `holdId` sí es FK interna del mismo schema.
 model Settlement {
-  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  shipmentId     String           @unique(map: "settlements_shipment_id_key") @map("shipment_id") @db.Uuid
-  holdId         String           @unique(map: "settlements_hold_id_key") @map("hold_id") @db.Uuid
-  carrierId      String           @map("carrier_id") @db.Uuid
-  mpPaymentId    String           @map("mp_payment_id")
-  grossAmountArs Decimal          @map("gross_amount_ars") @db.Decimal(12, 2)
-  mpFeeArs       Decimal?         @map("mp_fee_ars") @db.Decimal(12, 2)
-  commissionArs  Decimal          @map("commission_ars") @db.Decimal(12, 2)
-  netAmountArs   Decimal?         @map("net_amount_ars") @db.Decimal(12, 2)
-  status         SettlementStatus
-  kind           SettlementKind   @default(delivery)
+  id                    String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId            String           @unique(map: "settlements_shipment_id_key") @map("shipment_id") @db.Uuid
+  holdId                String           @unique(map: "settlements_hold_id_key") @map("hold_id") @db.Uuid
+  carrierId             String           @map("carrier_id") @db.Uuid
+  mpPaymentId           String           @map("mp_payment_id")
+  grossAmountArs        Decimal          @map("gross_amount_ars") @db.Decimal(12, 2)
+  mpFeeArs              Decimal?         @map("mp_fee_ars") @db.Decimal(12, 2)
+  commissionArs         Decimal          @map("commission_ars") @db.Decimal(12, 2)
+  netAmountArs          Decimal?         @map("net_amount_ars") @db.Decimal(12, 2)
+  // MOVO-311: deuda de la cuenta corriente cobrada en este envío, aparte de `commissionArs` (que queda
+  // solo la comisión de Movo): el descuento al transportista y el recargo que pagó el emisor.
+  debtOffsetArs         Decimal          @default(0) @map("debt_offset_ars") @db.Decimal(12, 2)
+  debtSurchargeArs      Decimal          @default(0) @map("debt_surcharge_ars") @db.Decimal(12, 2)
+  // Parte del `application_fee` retenido que corresponde al recargo (recargo menos la comisión de MP que
+  // absorbe Movo): para mostrarle al transportista su cobro sin el recargo del emisor.
+  debtSurchargeFeeArs   Decimal          @default(0) @map("debt_surcharge_fee_ars") @db.Decimal(12, 2)
+  // Bruto y fee de MP tal como los ve el transportista (sin el recargo del emisor), fijados al acreditar. Null hasta entonces.
+  carrierGrossAmountArs Decimal?         @map("carrier_gross_amount_ars") @db.Decimal(12, 2)
+  carrierMpFeeArs       Decimal?         @map("carrier_mp_fee_ars") @db.Decimal(12, 2)
+  status                SettlementStatus
+  kind                  SettlementKind   @default(delivery)
   // Motivo si quedó `failed` (ver `SettlementFailureReason` en @movo/shared).
-  failureReason  String?          @map("failure_reason")
+  failureReason         String?          @map("failure_reason")
   // `status_detail` crudo de MP al capturar (`accredited`, ...).
-  statusDetail   String?          @map("status_detail")
-  capturedAt     DateTime?        @map("captured_at") @db.Timestamptz
-  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz
-  hold           Hold             @relation(fields: [holdId], references: [id])
+  statusDetail          String?          @map("status_detail")
+  capturedAt            DateTime?        @map("captured_at") @db.Timestamptz
+  createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  hold                  Hold             @relation(fields: [holdId], references: [id])
 
   @@map("settlements")
   @@schema("payments")
@@ -381,6 +402,7 @@ model UserLedgerEntry {
 
   @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "user_ledger_entries_user_id_created_at_id_idx")
   @@index([shipmentId], map: "user_ledger_entries_shipment_id_idx")
+  @@index([holdId], map: "user_ledger_entries_hold_id_idx")
   @@map("user_ledger_entries")
   @@schema("payments")
 }

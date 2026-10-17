@@ -26,7 +26,7 @@ const shipmentIdParam = {
 // recibe (AC10), y el serializador de Fastify descarta cualquier campo que no figure acá.
 const settlementResponse = {
   type: "object",
-  required: ["shipmentId", "role", "kind", "status", "paidAmountArs", "paidAt"],
+  required: ["shipmentId", "role", "kind", "status", "paidAmountArs", "paidAt", "debtCollectedArs"],
   properties: {
     shipmentId: { type: "string", format: "uuid" },
     role: { type: "string", enum: ["sender", "carrier"] },
@@ -36,6 +36,8 @@ const settlementResponse = {
     status: { type: "string", enum: ["processing", "credited", "escalated"] },
     paidAmountArs: { type: "number" },
     paidAt: { type: ["string", "null"], format: "date-time" },
+    // MOVO-311: deuda de la cuenta corriente de quien consulta saldada en este envío.
+    debtCollectedArs: { type: "number" },
     mpFeeArs: { type: ["number", "null"] },
     commissionArs: { type: "number" },
     netAmountArs: { type: ["number", "null"] },

@@ -1,5 +1,8 @@
+import { ApiError } from "@movo/shared";
 import type { Prisma, PrismaClient } from "../generated/prisma/client";
 import type { BalancePaymentAttempt, BalanceAttemptStatus, HoldFailureReason } from "../generated/prisma/client";
+
+import { lockLedgerUser, readBalanceNetOfReservations } from "./user-ledger-repository";
 
 export type { BalancePaymentAttempt, BalanceAttemptStatus };
 
@@ -28,8 +31,12 @@ export interface BalanceAttemptUpdate {
 /** MOVO-312: persistencia de los intentos de "Pagar mi saldo". */
 export interface BalancePaymentAttemptRepository {
   /**
-   * Abre un intento `creating`. El índice único parcial (un intento abierto por usuario) decide si dos pedidos llegan a la
-   * vez: el que pierde recibe el intento abierto (`created: false`), sea o no del mismo monto.
+   * Abre un intento `creating`. Si el usuario ya tiene uno abierto lo devuelve (`created: false`), sea o no del mismo
+   * monto; el índice único parcial (un intento abierto por usuario) decide si dos pedidos llegan a la vez.
+   *
+   * MOVO-311: el monto se valida contra la deuda que no tomó ningún hold, con el lock de la cuenta corriente del usuario
+   * (el mismo que toma el alta de un hold) desde la lectura del saldo hasta el commit del intento. Sin él, un hold que
+   * reserva en paralelo y este pago cobrarían la misma deuda. 422 `BALANCE_AMOUNT_EXCEEDS_DEBT` si ya no alcanza.
    */
   insertOpen(data: NewBalanceAttempt): Promise<{ attempt: BalancePaymentAttempt; created: boolean }>;
   findById(id: string): Promise<BalancePaymentAttempt | null>;
@@ -53,8 +60,21 @@ export function createBalancePaymentAttemptRepository(db: PrismaClient): Balance
   return {
     async insertOpen(data) {
       try {
-        const attempt = await db.balancePaymentAttempt.create({ data: { ...data, status: "creating" } });
-        return { attempt, created: true };
+        return await db.$transaction(async (tx) => {
+          await lockLedgerUser(tx, data.userId);
+          const existing = await tx.balancePaymentAttempt.findFirst({
+            where: { userId: data.userId, status: { in: open } },
+            orderBy: { createdAt: "desc" },
+          });
+          if (existing) return { attempt: existing, created: false };
+          const balance = await readBalanceNetOfReservations(tx, data.userId);
+          if (!balance.greaterThan(0)) throw new ApiError(422, "BALANCE_AMOUNT_EXCEEDS_DEBT", "No tenés deuda para pagar.");
+          if (data.amountArs.greaterThan(balance)) {
+            throw new ApiError(422, "BALANCE_AMOUNT_EXCEEDS_DEBT", "El monto supera tu saldo deudor.");
+          }
+          const attempt = await tx.balancePaymentAttempt.create({ data: { ...data, status: "creating" } });
+          return { attempt, created: true };
+        });
       } catch (error) {
         if (isUniqueViolation(error)) {
           const existing = await db.balancePaymentAttempt.findFirst({

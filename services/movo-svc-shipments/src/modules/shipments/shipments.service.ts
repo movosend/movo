@@ -1,8 +1,10 @@
 import {
   ActiveShipmentStatus,
   ApiError,
+  CarrierDebtDiscount,
   CancellationQuoteResponse,
   CarrierRoute,
+  LIVE_HOLD_STATUSES,
   OfferStatus,
   PublicProfile,
   ShipmentQuoteRequest,
@@ -25,6 +27,7 @@ import { Trip } from "../../models/trip";
 import { RatingRepository } from "../../repositories/rating-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { PaymentsClient } from "../../adapters/payments-client";
+import { DEBT_DISCOUNT_TIMEOUT_MS, debtDiscount, previewDebtDiscounts } from "../../utils/debt-discount";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
@@ -229,10 +232,69 @@ export interface ShipmentOffersSummary {
   minPriceNetArs: number;
 }
 
-export type ShipmentDetailResult = Shipment & { offersSummary?: ShipmentOffersSummary | null };
+export type ShipmentDetailResult = Shipment & {
+  offersSummary?: ShipmentOffersSummary | null;
+  /** MOVO-311: solo para el transportista asignado, mientras el cobro no se capturó. */
+  debtDiscount?: CarrierDebtDiscount | null;
+};
+
+/** MOVO-311: estados con transportista asignado en los que el cobro todavía no se capturó. */
+const DEBT_DISCOUNT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.ASSIGNMENT_PENDING,
+  ShipmentStatus.ASSIGNED_UNFUNDED,
+  ShipmentStatus.ASSIGNED,
+  ShipmentStatus.IN_TRANSIT,
+  ShipmentStatus.DELIVERED,
+];
+
+/**
+ * MOVO-311: estados en los que todavía se puede crear un hold. Sin hold vivo, solo en estos el descuento tiene
+ * sentido como vista previa: en `assigned`+ sin hold no se va a crear otro (ADR-037), el saldo actual no se aplica.
+ */
+const DEBT_PREVIEW_STATUSES: readonly ShipmentStatus[] = [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED];
+
+/**
+ * Tope de TODA la resolución del descuento (hold + vista previa). Es solo para mostrar: con payments lento el
+ * detalle del envío no puede colgarse esperando (el hold tiene un timeout de 20 s y la vista previa otro de 5 s).
+ */
+/**
+ * MOVO-311: cuánto de su deuda se le descuenta al transportista asignado en este envío. Con un hold vivo es
+ * lo que reservó ese hold; antes del pago, la vista previa sobre el precio acordado. Solo para mostrar: si
+ * payments no responde (o tarda más de `DEBT_DISCOUNT_TIMEOUT_MS`), `null`.
+ */
+async function resolveCarrierDebtDiscount(
+  paymentsClient: PaymentsClient,
+  shipment: Shipment
+): Promise<CarrierDebtDiscount | null> {
+  const { carrierId, agreedPriceArs } = shipment;
+  if (!carrierId || agreedPriceArs === null) return null;
+
+  const resolve = async (): Promise<number> => {
+    const hold = await paymentsClient.findHoldByShipment(shipment.id);
+    if (hold && LIVE_HOLD_STATUSES.includes(hold.status)) return hold.debtOffsetArs;
+    if (!DEBT_PREVIEW_STATUSES.includes(shipment.status)) return 0;
+    const preview = await paymentsClient.previewCarrierDebt(carrierId, [agreedPriceArs]);
+    return preview?.debtOffsetsArs[0] ?? 0;
+  };
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const amountArs = await Promise.race([
+      resolve(),
+      new Promise<number>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("debt discount timeout")), DEBT_DISCOUNT_TIMEOUT_MS);
+      }),
+    ]);
+    return debtDiscount(amountArs);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export interface ListAvailableResult {
-  items: Array<AvailableShipment & { hasMyOffer: boolean }>;
+  items: Array<AvailableShipment & { hasMyOffer: boolean; debtDiscount: CarrierDebtDiscount | null }>;
   page: number;
   limit: number;
   total: number;
@@ -1364,6 +1426,9 @@ export function createShipmentsService(
       }
 
       if (hasShipmentAccess(shipment, callerId, callerRoles)) {
+        if (paymentsClient && callerId === shipment.carrierId && DEBT_DISCOUNT_STATUSES.includes(shipment.status)) {
+          return { ...shipment, debtDiscount: await resolveCarrierDebtDiscount(paymentsClient, shipment) };
+        }
         return shipment;
       }
 
@@ -1372,10 +1437,12 @@ export function createShipmentsService(
         // MOVO-180 (adelantado): agregado de ofertas vigentes para el transportista
         // que está evaluando ofertar -- nunca bloquea la apertura del detalle si
         // falla o si el servicio corre sin `offerRepository` (algún test aislado).
-        const offersSummary = offerRepository
-          ? await computeOffersSummaryForCarrier(offerRepository, shipmentId, callerId)
-          : null;
-        return { ...shipment, offersSummary };
+        const [offersSummary, discounts] = await Promise.all([
+          offerRepository ? computeOffersSummaryForCarrier(offerRepository, shipmentId, callerId) : null,
+          previewDebtDiscounts(paymentsClient, callerId,
+            shipment.suggestedPriceArs != null && shipment.suggestedPriceArs > 0 ? [shipment.suggestedPriceArs] : []),
+        ]);
+        return { ...shipment, offersSummary, debtDiscount: discounts[0] ?? null };
       }
 
       throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver este envío.");
@@ -1978,13 +2045,17 @@ export function createShipmentsService(
         page: query.page,
         limit: query.limit,
       });
-      const offeredIds = await offerRepository.listPendingOfferedShipmentIds(
-        callerId,
-        items.map((item) => item.id)
-      );
+      const priced = items.filter((item) => item.suggestedPriceArs != null && item.suggestedPriceArs > 0);
+      const [offeredIds, preview] = await Promise.all([
+        offerRepository.listPendingOfferedShipmentIds(callerId, items.map((item) => item.id)),
+        previewDebtDiscounts(paymentsClient, callerId, priced.map((item) => item.suggestedPriceArs!)),
+      ]);
+      const discounts = new Map(priced.map((item, index) => [item.id, preview[index]]));
 
       return {
-        items: items.map((item) => ({ ...item, hasMyOffer: offeredIds.has(item.id) })),
+        items: items.map((item) => {
+          return { ...item, hasMyOffer: offeredIds.has(item.id), debtDiscount: discounts.get(item.id) ?? null };
+        }),
         page: query.page,
         limit: query.limit,
         total,

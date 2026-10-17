@@ -3,6 +3,7 @@ import { FastifyInstance } from "fastify";
 import { createBalancePaymentAttemptRepository } from "../repositories/balance-payment-attempt-repository";
 import { createCarrierMpAccountRepository } from "../repositories/carrier-mp-account-repository";
 import { createSavedCardRepository } from "../repositories/saved-card-repository";
+import { readBalanceNetOfReservations } from "../repositories/user-ledger-repository";
 import { createTokenCipher } from "../utils/token-cipher";
 import { BalancePaymentService, createBalancePaymentService } from "../modules/balance-payment/balance-payment.service";
 
@@ -16,6 +17,7 @@ export default fp(async (app: FastifyInstance) => {
     createBalancePaymentService({
       attempts: createBalancePaymentAttemptRepository(app.db),
       ledger: app.userLedger,
+      payableBalance: async (userId) => (await readBalanceNetOfReservations(app.db, userId)).toNumber(),
       mercadoPago: app.mercadoPago,
       accounts: createCarrierMpAccountRepository(app.db, createTokenCipher(app.config.MP_TOKEN_ENCRYPTION_KEY)),
       savedCards: createSavedCardRepository(app.db),

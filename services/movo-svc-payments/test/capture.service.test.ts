@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { FastifyBaseLogger } from "fastify";
 import { ApiError } from "@movo/shared";
 import { Prisma } from "../src/generated/prisma/client";
-import { createCaptureService, readFeeBreakdown } from "../src/modules/settlements/capture.service";
+import { createCaptureService, readFeeBreakdown, splitRetainedFee } from "../src/modules/settlements/capture.service";
 import type { MercadoPagoClient, PaymentResponse } from "../src/adapters/mercadopago-client";
 import type { CarrierMpAccountRepository } from "../src/repositories/carrier-mp-account-repository";
 import type { Hold, HoldRepository, HoldUpdate } from "../src/repositories/hold-repository";
@@ -32,6 +32,10 @@ function makeHold(overrides: Partial<Hold> = {}): Hold {
     mpPaymentId: MP_PAYMENT,
     amountArs: D(1000),
     applicationFeeArs: D(150),
+    baseAmountArs: D(1000),
+    commissionArs: D(150),
+    debtOffsetArs: D(0),
+    debtSurchargeArs: D(0),
     status: "authorized",
     statusDetail: "pending_capture",
     failureReason: null,
@@ -77,6 +81,11 @@ class MemorySettlementRepository implements SettlementRepository {
         ...data,
         mpFeeArs: null,
         netAmountArs: null,
+        debtOffsetArs: D(0),
+        debtSurchargeArs: D(0),
+        debtSurchargeFeeArs: D(0),
+        carrierGrossAmountArs: null,
+        carrierMpFeeArs: null,
         status: "processing",
         failureReason: null,
         statusDetail: null,
@@ -154,15 +163,17 @@ function setup(
           }
     ),
   } as unknown as CarrierMpAccountRepository;
+  const ledger = { settleHoldDebt: vi.fn(async () => undefined) };
   const service = createCaptureService({
     holds,
     settlements,
     accounts,
     mercadoPago: mp as unknown as MercadoPagoClient,
+    ledger,
     log: silentLog,
     now: () => NOW,
   });
-  return { service, holds, settlements, mp, accounts };
+  return { service, holds, settlements, mp, accounts, ledger };
 }
 
 async function expectApiError(promise: Promise<unknown>, statusCode: number, code: string) {
@@ -478,6 +489,93 @@ describe("createCaptureService.getByShipment", () => {
     await service.capture(SHIPMENT);
     const settlement = await service.getByShipment(SHIPMENT);
     expect(settlement).toMatchObject({ status: "credited", netAmountArs: 809 });
+  });
+});
+
+describe("deuda de la cuenta corriente cobrada en la captura (MOVO-311)", () => {
+  // Precio 1000, comisión 150, deuda del transportista 100 y recargo del emisor 200 (fee de MP 9,98 absorbido).
+  const debtHold = () =>
+    makeHold({
+      amountArs: D(1200),
+      applicationFeeArs: D("440.02"),
+      commissionArs: D(150),
+      debtOffsetArs: D(100),
+      debtSurchargeArs: D(200),
+    });
+
+  it("si MP retiene lo pedido, la comisión queda sola y la deuda se asienta completa", () => {
+    const split = splitRetainedFee(debtHold(), D("440.02"));
+    expect(split.commissionArs.toString()).toBe("150");
+    expect(split.debtOffsetArs.toString()).toBe("100");
+    expect(split.debtSurchargeArs.toString()).toBe("200");
+    expect(split.debtSurchargeFeeArs.toString()).toBe("190.02");
+  });
+
+  it("si MP retiene menos, el faltante sale primero del recargo y después del descuento", () => {
+    // Retuvo 345,01: comisión 150 + descuento 100 + la mitad del fee del recargo (95,01 de 190,02).
+    const split = splitRetainedFee(debtHold(), D("345.01"));
+    expect(split.commissionArs.toString()).toBe("150");
+    expect(split.debtOffsetArs.toString()).toBe("100");
+    expect(split.debtSurchargeArs.toString()).toBe("100");
+
+    const less = splitRetainedFee(debtHold(), D(200));
+    expect(less.debtOffsetArs.toString()).toBe("50");
+    expect(less.debtSurchargeArs.toString()).toBe("0");
+  });
+
+  it("al capturar asienta la deuda antes de acreditar y separa la comisión en la liquidación", async () => {
+    const { service, ledger, mp } = setup({ hold: debtHold() });
+    const captured = payment({
+      transaction_amount: 1200,
+      fee_details: [
+        { type: "mercadopago_fee", amount: 59.88, fee_payer: "collector" },
+        { type: "application_fee", amount: 440.02, fee_payer: "collector" },
+      ],
+      transaction_details: { net_received_amount: 700.1 },
+    });
+    mp.capturePayment.mockResolvedValue(captured);
+    mp.getPayment.mockResolvedValue(captured);
+
+    const { settlement } = await service.capture(SHIPMENT);
+
+    expect(ledger.settleHoldDebt).toHaveBeenCalledTimes(1);
+    const [holdId, settled] = ledger.settleHoldDebt.mock.calls[0] as unknown as [
+      string,
+      { type: string; amountArs: Prisma.Decimal }[],
+    ];
+    expect(holdId).toBe(HOLD_ID);
+    expect(settled.map((s) => [s.type, s.amountArs.toString()])).toEqual([
+      ["fee_offset", "100"],
+      ["payment_surcharge", "200"],
+    ]);
+    expect(settlement).toMatchObject({
+      status: "credited",
+      grossAmountArs: 1200,
+      commissionArs: 150,
+      debtOffsetArs: 100,
+      debtSurchargeArs: 200,
+      // Lo que ve el transportista: el bruto sin el recargo y el fee de MP sin la parte que cae sobre él.
+      carrierGrossAmountArs: 1000,
+      netAmountArs: 700.1,
+    });
+    expect(settlement.carrierMpFeeArs).toBeCloseTo((settlement.mpFeeArs as number) - (200 - 190.02), 2);
+  });
+
+  it("si asentar la deuda falla, la liquidación no se acredita y el reintento la completa", async () => {
+    const { service, ledger, settlements } = setup({ hold: debtHold() });
+    ledger.settleHoldDebt.mockRejectedValueOnce(new Error("db caída"));
+    await expect(service.capture(SHIPMENT)).rejects.toThrow("db caída");
+    expect(settlements.row?.status).toBe("processing");
+
+    const { settlement } = await service.capture(SHIPMENT);
+    expect(settlement.status).toBe("credited");
+    expect(ledger.settleHoldDebt).toHaveBeenCalledTimes(2);
+  });
+
+  it("un hold sin deuda no toca la cuenta corriente", async () => {
+    const { service, ledger } = setup();
+    await service.capture(SHIPMENT);
+    expect(ledger.settleHoldDebt).not.toHaveBeenCalled();
   });
 });
 

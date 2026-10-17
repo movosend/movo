@@ -14,7 +14,7 @@ const TOKENIZE_INPUT = {
   card: { mpCardId: "mp-card-1" },
   cvv: "123",
 };
-const INPUT = { shipmentId: "s1", cardToken: "tok-1", savedCardId: "card-1" };
+const INPUT = { shipmentId: "s1", cardToken: "tok-1", savedCardId: "card-1", expectedTotalArs: 18400 };
 
 describe("pago con tarjeta guardada (MOVO-269)", () => {
   beforeEach(() => {
@@ -27,11 +27,11 @@ describe("pago con tarjeta guardada (MOVO-269)", () => {
     expect(createSavedCardToken).toHaveBeenCalledWith("TEST-carrier-pk", { cardId: "mp-card-1", securityCode: "123" });
   });
 
-  it("manda al backend solo token + tarjeta, nunca el CVV ni el id de MP (AC3)", async () => {
+  it("manda al backend el total confirmado, token y tarjeta, nunca el CVV ni el id de MP (AC3)", async () => {
     (fundingClient.fund as jest.Mock).mockResolvedValue({ funded: true, failureReason: null, payUntil: null });
     await expect(fundWithToken(INPUT)).resolves.toEqual({ kind: "reserved" });
 
-    expect(fundingClient.fund).toHaveBeenCalledWith("s1", { cardToken: "tok-1", savedCardId: "card-1" });
+    expect(fundingClient.fund).toHaveBeenCalledWith("s1", { cardToken: "tok-1", savedCardId: "card-1", expectedTotalArs: 18400 });
     const body = JSON.stringify((fundingClient.fund as jest.Mock).mock.calls[0][1]);
     expect(body).not.toContain("123");
     expect(body).not.toContain("mp-card-1");
@@ -58,6 +58,11 @@ describe("pago con tarjeta guardada (MOVO-269)", () => {
     const error = new ApiError(409, "SHIPMENT_FUNDING_NOT_AVAILABLE", "vencido");
     (fundingClient.fund as jest.Mock).mockRejectedValue(error);
     await expect(fundWithToken(INPUT)).resolves.toEqual({ kind: "unavailable", error });
+  });
+
+  it("un 409 HOLD_AMOUNT_CHANGED exige revisar el nuevo total antes de reintentar", async () => {
+    (fundingClient.fund as jest.Mock).mockRejectedValue(new ApiError(409, "HOLD_AMOUNT_CHANGED", "monto cambiado", { totalArs: 18500 }));
+    await expect(fundWithToken(INPUT)).resolves.toEqual({ kind: "amount_changed" });
   });
 
   it("otros errores del backend vuelven como error (SAVED_CARD_NOT_FOUND, 502...)", async () => {

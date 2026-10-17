@@ -194,6 +194,9 @@ export type ApiErrorCode =
   | "HOLD_NOT_RELEASABLE"
   // Ya hay un hold vigente del envío con otro transportista o monto: no se pisa en silencio.
   | "HOLD_CONFLICT"
+  // MOVO-311: lo que hay que cobrar cambió desde que el emisor vio el total (se sumó una deuda a su cuenta
+  // corriente). No se cobra distinto de lo confirmado: `details.totalArs` trae el total actual.
+  | "HOLD_AMOUNT_CHANGED"
   // Mercado Pago no respondió o devolvió un error que no es un rechazo de la tarjeta
   // (5xx, timeout, red). El hold queda reintentable con la misma idempotency key.
   | "PAYMENT_PROVIDER_ERROR"

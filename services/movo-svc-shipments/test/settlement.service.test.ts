@@ -51,6 +51,10 @@ function seedHold(payments: FakePaymentsClient, overrides: Partial<HoldResponse>
     collectorId: "1000000001",
     amountArs: 1000,
     applicationFeeArs: 150,
+    baseAmountArs: 1000,
+    commissionArs: 150,
+    debtOffsetArs: 0,
+    debtSurchargeArs: 0,
     status: "authorized",
     statusDetail: "pending_capture",
     failureReason: null,
@@ -214,6 +218,7 @@ describe("settlement.service.getForUser (AC10)", () => {
       status: "credited",
       paidAmountArs: 1000,
       paidAt: expect.any(String),
+      debtCollectedArs: 0,
     });
     expect(view).not.toHaveProperty("commissionArs");
     expect(view).not.toHaveProperty("netAmountArs");
@@ -385,5 +390,30 @@ describe("settlementRetryCooldownSeconds", () => {
     expect(settlementRetryCooldownSeconds(3, false)).toBe(40 * 60);
     expect(settlementRetryCooldownSeconds(20, false)).toBe(6 * 60 * 60);
     expect(settlementRetryCooldownSeconds(1, true)).toBe(24 * 60 * 60);
+  });
+});
+
+describe("settlement.service.getForUser: deuda cobrada (MOVO-311)", () => {
+  it("cada parte ve solo la deuda que saldó: el transportista el descuento, el emisor el recargo", async () => {
+    const ctx = setup({ status: ShipmentStatus.DELIVERED });
+    seedHold(ctx.payments, {
+      amountArs: 1200,
+      applicationFeeArs: 440.02,
+      commissionArs: 150,
+      debtOffsetArs: 100,
+      debtSurchargeArs: 200,
+    });
+    await ctx.payments.captureHold(SHIPMENT);
+
+    const carrier = await ctx.service.getForUser(SHIPMENT, CARRIER);
+    // Sin el recargo del emisor: bruto = 1000 y el fee de MP sin la parte del recargo que absorbe Movo, así
+    // bruto − fee MP − comisión − deuda propia cierra contra el neto.
+    expect(carrier).toMatchObject({ commissionArs: 150, debtCollectedArs: 100, paidAmountArs: 1000 });
+    const mpFee = carrier.mpFeeArs as number;
+    expect(Math.round((1000 - mpFee - 150 - 100) * 100) / 100).toBe(carrier.netAmountArs);
+
+    const sender = await ctx.service.getForUser(SHIPMENT, SENDER);
+    expect(sender).toMatchObject({ debtCollectedArs: 200, paidAmountArs: 1200 });
+    expect(sender).not.toHaveProperty("commissionArs");
   });
 });

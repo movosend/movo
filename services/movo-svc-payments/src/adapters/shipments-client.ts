@@ -6,6 +6,8 @@ export interface HoldEventResult {
   outcome: string;
 }
 
+export interface LedgerOrigin { id: string; label: string }
+
 /** svc-shipments no respondió o devolvió un error que puede resolverse reintentando. */
 export class ShipmentsUnavailableError extends Error {
   constructor(message: string) {
@@ -29,12 +31,33 @@ export class ShipmentNotFoundError extends Error {
 export interface ShipmentsClient {
   /** Avisa que MP canceló, venció o rechazó un hold del envío. */
   notifyHoldEvent(shipmentId: string, event: HoldProviderEventRequest): Promise<HoldEventResult>;
+  resolveLedgerOrigins(userId: string, shipmentIds: string[]): Promise<LedgerOrigin[]>;
 }
 
 const TIMEOUT_MS = 10_000;
 
 export function createShipmentsClient(baseUrl: string): ShipmentsClient {
   return {
+    async resolveLedgerOrigins(userId, shipmentIds) {
+      let response: Response;
+      try {
+        response = await fetch(`${baseUrl}/internal/ledger-origins`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ userId, shipmentIds }),
+          signal: AbortSignal.timeout(3_000),
+        });
+      } catch (error) {
+        throw new ShipmentsUnavailableError(`no se pudo resolver el origen: ${String(error)}`);
+      }
+      if (!response.ok) throw new ShipmentsUnavailableError(`svc-shipments respondió ${response.status}`);
+      const body: unknown = await response.json().catch(() => null);
+      if (!Array.isArray(body) || !body.every((item) => item !== null && typeof item === "object" &&
+        typeof item.id === "string" && typeof item.label === "string")) {
+        throw new ShipmentsUnavailableError("svc-shipments devolvió orígenes inválidos");
+      }
+      return body as LedgerOrigin[];
+    },
     async notifyHoldEvent(shipmentId, event) {
       let response: Response;
       try {

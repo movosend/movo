@@ -19,8 +19,17 @@ export interface ShipmentFundingResponse {
   route: FundingRoute;
   /** `public_key` del transportista: con ella el mobile tokeniza la tarjeta. */
   carrierPublicKey: string;
-  /** Monto acordado (bruto que paga el emisor). */
+  /** Lo que paga el emisor (= `totalArs`). */
   amountArs: number;
+  /** MOVO-311: precio acordado del envío. */
+  priceArs: number;
+  /**
+   * MOVO-311: deuda de la cuenta corriente del emisor que se suma a este pago (con el tope por envío; lo
+   * que no entra queda para la próxima operación). 0 si no debe.
+   */
+  pendingBalanceArs: number;
+  /** MOVO-311: `priceArs` + `pendingBalanceArs`. */
+  totalArs: number;
   /** Hasta cuándo puede pagar el emisor (ISO 8601). Pasado ese instante el envío vuelve a `published`. */
   payUntil: string;
 }
@@ -36,6 +45,11 @@ export interface ShipmentFundingRequest {
   savedCardId?: string;
   /** `visa`, `master`, etc., tal como lo devuelve el formulario de MP junto al token. */
   paymentMethodId?: string;
+  /**
+   * MOVO-311: el `totalArs` que el emisor vio en `GET /shipments/:id/funding`. Si su deuda cambió y el total
+   * ya no coincide, 409 `HOLD_AMOUNT_CHANGED` (con `details.totalArs`) en vez de cobrar distinto de lo confirmado.
+   */
+  expectedTotalArs?: number;
 }
 
 /**

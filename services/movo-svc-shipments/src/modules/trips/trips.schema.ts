@@ -152,6 +152,7 @@ const availableShipmentResponse = {
     "pickupDistanceKm",
     "deliveryDistanceKm",
     "hasMyOffer",
+    "debtDiscount",
     "detourDistanceKm",
     "detourDurationMinutes",
   ],
@@ -180,6 +181,9 @@ const availableShipmentResponse = {
     pickupDistanceKm: { type: "number" },
     deliveryDistanceKm: { type: ["number", "null"] },
     hasMyOffer: { type: "boolean" },
+    debtDiscount: { type: ["object", "null"], required: ["amountArs", "reason"], properties: {
+      amountArs: { type: "number" }, reason: { type: "string", enum: ["pending_balance"] },
+    } },
     detourDistanceKm: { type: "number" },
     detourDurationMinutes: { type: "integer" },
   },

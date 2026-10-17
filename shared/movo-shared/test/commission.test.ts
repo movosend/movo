@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   __resetCommissionConfigForTests,
+  carrierPaymentView,
   computeNetFromGross,
   computeOfferGrossPrice,
   decomposeOfferGrossPrice,
@@ -96,6 +97,23 @@ describe("commission", () => {
 
     it("nunca devuelve un monto negativo", () => {
       expect(estimateReceivedArs(10, 1000, 0.5)).toBe(0);
+    });
+  });
+
+  describe("carrierPaymentView (MOVO-311)", () => {
+    it("saca el recargo del emisor del bruto y la comisión de MP sobre él del fee: el desglose cierra con el neto", () => {
+      // Pago 1350 (precio 1150 + recargo 200), MP 67,37, fee 440,02 (150 comisión + 100 deuda propia + 190,02 del recargo).
+      const view = carrierPaymentView({ grossAmountArs: 1350, mpFeeArs: 67.37, debtSurchargeArs: 200, debtSurchargeFeeArs: 190.02 });
+      expect(view).toEqual({ grossAmountArs: 1150, mpFeeArs: 57.39 });
+      expect(Math.round((view.grossAmountArs - (view.mpFeeArs as number) - 150 - 100) * 100) / 100).toBe(842.61);
+    });
+
+    it("sin recargo no cambia nada, y respeta un fee de MP todavía desconocido", () => {
+      expect(carrierPaymentView({ grossAmountArs: 1150, mpFeeArs: 47.15, debtSurchargeArs: 0, debtSurchargeFeeArs: 0 })).toEqual({
+        grossAmountArs: 1150,
+        mpFeeArs: 47.15,
+      });
+      expect(carrierPaymentView({ grossAmountArs: 1350, mpFeeArs: null, debtSurchargeArs: 200, debtSurchargeFeeArs: 190.02 }).mpFeeArs).toBeNull();
     });
   });
 });

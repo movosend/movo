@@ -117,6 +117,7 @@ export type {
   CreateHoldRequest,
   HoldCheckoutDataRequest,
   HoldCheckoutDataResponse,
+  HoldDebtBreakdown,
   HoldFailureReason,
   HoldResponse,
   HoldStatus,
@@ -167,11 +168,14 @@ export type {
 export { USER_LEDGER_ENTRY_STATUSES, USER_LEDGER_ENTRY_TYPES, USER_LEDGER_ROLES } from "./types/user-ledger";
 export type {
   BalancePayDataResponse,
+  CarrierDebtDiscount,
   BalancePayRequest,
   BalancePayResponse,
   CreateManualAdjustmentRequest,
   CreateUserLedgerEntryRequest,
   CreateUserLedgerEntryResponse,
+  DebtCollectionPreviewRequest,
+  DebtCollectionPreviewResponse,
   UserLedgerBalanceResponse,
   UserLedgerEntry,
   UserLedgerEntryStatus,
@@ -195,6 +199,7 @@ export {
   computeOfferGrossPrice,
   computeNetFromGross,
   decomposeOfferGrossPrice,
+  carrierPaymentView,
   estimateMpFeeArs,
   __resetCommissionConfigForTests,
 } from "./config/commission";

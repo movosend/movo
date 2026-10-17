@@ -3556,3 +3556,21 @@ historial de transacciones distinga la penalidad de un cobro (MOVO-303).
 - Backend (`svc-shipments`): Se modificó `listActiveShipments` para incluir el `tripId` resolviendo la oferta aceptada desde el `offerRepository`. Esto permite propagar `tripId` en el payload de `ActiveShipmentSummary`.
 - Shared: Se actualizó `ActiveShipmentSummary` incluyendo `tripId: string | null`.
 - Mobile: Se adaptó la UI de la sección "Estoy transportando" para contar las paradas basándose en el `tripId` propagado desde el backend en vez de un conteo global de envíos en tránsito. Adicionalmente, el CTA para iniciar viaje maneja los casos de límite concurrente (1 viaje activo a la vez). Decisión: Se eliminó el bloqueo temprano `TRIP_START_TOO_EARLY` permitiendo priorizar el call to action independientemente de la fecha. **Revertido por MOVO-277 (ADR-034)**: el inicio vuelve a exigir el día de salida, y además al menos un paquete ejecutable.
+
+### MOVO-311 — Deuda de la cuenta corriente al pagar y al cobrar (lado `svc-shipments`)
+
+`svc-payments` calcula y cobra la deuda (ver su `HISTORIAL.md`); acá solo se muestra. `GET /shipments/:id/funding` suma
+`priceArs`, `pendingBalanceArs` (deuda del emisor que se agrega a este pago) y `totalArs` (= `amountArs`), y le pasa
+`payerUserId` a `checkout-data`. El transportista ve `debtDiscount: { amountArs, reason: "pending_balance" } | null` en
+`GET /offers/mine` y `GET /offers/:id` (solo ofertas `pending`, un pedido a payments por página con
+`previewCarrierDebt`) y en `GET /shipments/:id` del envío asignado hasta la entrega (con hold vivo, lo que reservó; si no,
+la vista previa). Es display: si payments no responde (o tarda más de 3 s en total, `DEBT_DISCOUNT_TIMEOUT_MS`) el campo viaja `null`, nunca bloquea; sin hold vivo
+solo se previsualiza en `assignment_pending`/`assigned_unfunded` (en `in_transit`/`delivered` no se va a crear otro hold).
+`POST /shipments/:id/funding` acepta `expectedTotalArs` (el `totalArs` del GET) y lo pasa al hold: si la deuda cambió, 409 `HOLD_AMOUNT_CHANGED`
+con `details.totalArs` (el cliente de payments ahora conserva `details`; el mobile puede mandarlo cuando tome MOVO-315). `GET /shipments/:id/settlement`
+suma `debtCollectedArs`: el descuento para el transportista, el recargo para el emisor; al transportista,
+`paidAmountArs` y `mpFeeArs` le llegan sin el recargo del emisor (payments los fija al acreditar: `carrierGrossAmountArs`/`carrierMpFeeArs`).
+
+### MOVO-315 — Contratos para la cuenta corriente mobile
+
+`POST /internal/ledger-origins` devuelve etiquetas de origen solo para envíos vinculados al usuario consultado, incluidas ofertas de transportistas antes asignados; usa la calle de destino para evitar el sufijo "Argentina" de Geocoding. `GET /shipments/carrier-eligibility` publica los requisitos actuales del transportista para detectar deuda vencida al entrar en Transportar. El feed, el detalle público y los matches por viaje agregan `debtDiscount` con un tope de 3 s para que la app muestre el neto aproximado antes de ofertar. La interfaz visual queda en la rama mobile de MOVO-315.

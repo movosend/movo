@@ -418,7 +418,7 @@ describe("/payments/cards (MOVO-100)", () => {
       const card = (await add()).json();
       await app.db.hold.create({
         data: {
-          shipmentId: SHIPMENT, attempt: 1, carrierId: CARRIER, collectorId: "1", amountArs: 1150, applicationFeeArs: 150,
+          shipmentId: SHIPMENT, attempt: 1, carrierId: CARRIER, collectorId: "1", amountArs: 1150, applicationFeeArs: 150, baseAmountArs: 1150, commissionArs: 150,
           status: status as "creating", savedCardId: card.id,
         },
       });
@@ -433,7 +433,7 @@ describe("/payments/cards (MOVO-100)", () => {
       const card = (await add()).json();
       await app.db.hold.create({
         data: {
-          shipmentId: SHIPMENT, attempt: 1, carrierId: CARRIER, collectorId: "1", amountArs: 1150, applicationFeeArs: 150,
+          shipmentId: SHIPMENT, attempt: 1, carrierId: CARRIER, collectorId: "1", amountArs: 1150, applicationFeeArs: 150, baseAmountArs: 1150, commissionArs: 150,
           status: "cancelled", savedCardId: card.id,
         },
       });

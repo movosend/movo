@@ -24,6 +24,7 @@ import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { safeBlockRelatedUserIds } from "../../utils/block-relations";
 import { PaymentsClient } from "../../adapters/payments-client";
+import { previewDebtDiscounts } from "../../utils/debt-discount";
 import { assertCarrierCanOperate, assertCarrierEligible, assertVerifiedCarrier } from "../../utils/carrier-gate";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { RoutesProvider } from "../../adapters/routes-provider";
@@ -685,10 +686,12 @@ export function createTripsService(deps: {
         limit,
       });
 
-      const offeredIds = await offerRepository.listPendingOfferedShipmentIds(
-        trip.carrierId,
-        items.map((item) => item.id),
-      );
+      const priced = items.filter((item) => item.suggestedPriceArs != null && item.suggestedPriceArs > 0);
+      const [offeredIds, preview] = await Promise.all([
+        offerRepository.listPendingOfferedShipmentIds(trip.carrierId, items.map((item) => item.id)),
+        previewDebtDiscounts(paymentsClient, trip.carrierId, priced.map((item) => item.suggestedPriceArs!)),
+      ]);
+      const discounts = new Map(priced.map((item, index) => [item.id, preview[index]]));
 
       // 2. Si no hay candidatos tras el prefiltro, retorna lista vacía inmediatamente sin llamar al servicio externo
       if (items.length === 0) {
@@ -761,6 +764,7 @@ export function createTripsService(deps: {
           matchedItems.push({
             ...item,
             hasMyOffer: offeredIds.has(item.id),
+            debtDiscount: discounts.get(item.id) ?? null,
             detourDistanceKm: ev.detourDistanceKm,
             detourDurationMinutes: ev.detourDurationMinutes,
           });

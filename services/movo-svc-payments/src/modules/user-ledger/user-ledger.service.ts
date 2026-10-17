@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Prisma } from "../../generated/prisma/client";
 import type { LedgerEntryStatus } from "../../generated/prisma/client";
 import { ApiError } from "@movo/shared";
@@ -10,7 +9,10 @@ import type {
   UserLedgerEntry as UserLedgerEntryDto,
   UserLedgerPageResponse,
 } from "@movo/shared";
+import { fingerprintOf as fingerprint } from "../../repositories/user-ledger-repository";
 import type { UserLedgerEntry, UserLedgerRepository } from "../../repositories/user-ledger-repository";
+import type { PrismaClient } from "../../generated/prisma/client";
+import type { ShipmentsClient } from "../../adapters/shipments-client";
 
 export const LEDGER_DEFAULT_LIMIT = 20;
 export const LEDGER_MAX_LIMIT = 50;
@@ -23,12 +25,15 @@ export interface UserLedgerService {
   createManualAdjustment(userId: string, input: CreateManualAdjustmentRequest): Promise<CreateUserLedgerEntryResponse>;
   /** Movimientos del usuario con su saldo, más nuevos primero. */
   page(userId: string, opts: { cursor?: string; limit?: number }): Promise<UserLedgerPageResponse>;
+  pageWithOrigins(userId: string, opts: { cursor?: string; limit?: number }): Promise<UserLedgerPageResponse>;
   /** Transición de estado de un movimiento (p. ej. `pending` -> `settled`, o anularlo). */
   transition(userId: string, entryId: string, from: LedgerEntryStatus, to: LedgerEntryStatus): Promise<UserLedgerEntryDto>;
 }
 
 export interface UserLedgerServiceDeps {
   ledger: UserLedgerRepository;
+  db?: PrismaClient;
+  shipmentsClient?: ShipmentsClient;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -59,11 +64,7 @@ function assertValidAmount(amountArs: number): void {
   }
 }
 
-function fingerprint(parts: Record<string, unknown>): string {
-  return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
-}
-
-function toDto(row: UserLedgerEntry, opts?: { maskReason?: boolean }): UserLedgerEntryDto {
+function toDto(row: UserLedgerEntry, opts?: { maskReason?: boolean }): UserLedgerEntryDto & { originLabel: null } {
   return {
     id: row.id,
     userId: row.userId,
@@ -76,6 +77,7 @@ function toDto(row: UserLedgerEntry, opts?: { maskReason?: boolean }): UserLedge
     paymentId: row.paymentId,
     reason: opts?.maskReason ? null : row.reason,
     createdAt: row.createdAt.toISOString(),
+    originLabel: null,
   };
 }
 
@@ -122,6 +124,44 @@ export function createUserLedgerService(deps: UserLedgerServiceDeps): UserLedger
 
   return {
     balance,
+
+    async pageWithOrigins(userId, opts) {
+      const page = await this.page(userId, opts);
+      const shipmentIds = [...new Set(page.items.map((item) => item.shipmentId).filter((id): id is string => !!id))];
+      const paymentIds = [...new Set(page.items.filter((item) => item.type === "voluntary_payment")
+        .map((item) => item.paymentId).filter((id): id is string => !!id))];
+      const cardLabels = async () => {
+        if (!deps.db || paymentIds.length === 0) return new Map<string, string>();
+        const attempts = await deps.db.balancePaymentAttempt.findMany({
+          where: { userId, mpPaymentId: { in: paymentIds } },
+          select: { mpPaymentId: true, savedCardId: true },
+        });
+        const cardIds = attempts.map((attempt) => attempt.savedCardId).filter((id): id is string => !!id);
+        const cards = cardIds.length ? await deps.db.savedCard.findMany({
+          where: { userId, id: { in: cardIds } }, select: { id: true, brand: true, last4: true },
+        }) : [];
+        const cardsById = new Map(cards.map((card) => [card.id, card]));
+        return new Map(attempts.map((attempt) => {
+          const card = attempt.savedCardId ? cardsById.get(attempt.savedCardId) : null;
+          const brand = card ? card.brand.charAt(0).toUpperCase() + card.brand.slice(1) : null;
+          return [attempt.mpPaymentId, card ? `${brand} •••• ${card.last4}` : "Pago de saldo"];
+        }));
+      };
+      const shipmentLabels = async () => {
+        if (!deps.shipmentsClient || shipmentIds.length === 0) return new Map<string, string>();
+        try {
+          const origins = await deps.shipmentsClient.resolveLedgerOrigins(userId, shipmentIds);
+          return new Map(origins.map((origin) => [origin.id, origin.label]));
+        } catch {
+          return new Map<string, string>();
+        }
+      };
+      const [payments, shipments] = await Promise.all([cardLabels(), shipmentLabels()]);
+      return { ...page, items: page.items.map((item) => ({ ...item,
+        originLabel: item.shipmentId ? shipments.get(item.shipmentId) ?? null
+          : item.paymentId ? payments.get(item.paymentId) ?? null : null,
+      })) };
+    },
 
     async createEntry(userId, input) {
       assertValidAmount(input.amountArs);

@@ -343,14 +343,14 @@ negativo = a favor; cuenta todo lo que no está `voided`. Solo inserción (trigg
 | Caso | Cómo queda | Ticket |
 | --- | --- | --- |
 | Cancela como **emisor** con hold propio | Deuda + `penalty_capture` negativo en la misma operación (captura parcial) | MOVO-307 |
-| Cancela como **transportista** | Queda `pending`; se descuenta del `application_fee` de su próxima operación, en cualquier rol | MOVO-311 |
+| Cancela como **transportista** | Queda `pending`; se cobra en el próximo hold, en el rol que use primero: descuento del `application_fee` como transportista o recargo al pago como emisor (§6.1) | MOVO-311 |
 | El usuario quiere saldar ya | `voluntary_payment` negativo, pagado con tarjeta guardada + CVV (5.7) | MOVO-312 |
 | Error o caso especial | `manual_adjustment` de un admin, con motivo | MOVO-309 |
 
 `svc-shipments` registra los movimientos por `POST /internal/payments/users/:userId/ledger-entries` y
 consulta `GET .../balance` (`balanceArs`, `oldestUnpaidAt`, este último para el bloqueo por deuda vencida,
 MOVO-313); la app lee `GET /payments/balance`. La plata de las penalidades cobradas como deuda queda para
-Movo. Hasta MOVO-307/311/312 es un registro contable, no un cobro. ADR-044.
+Movo. MOVO-311 (§6.1) y MOVO-312 (5.7) ya la cobran; la captura parcial de MOVO-307 todavía no. ADR-044.
 
 ### 5.7 Pagar mi saldo con tarjeta guardada + CVV (MOVO-312)
 
@@ -428,6 +428,54 @@ flowchart LR
   (`estimateMpFeeArs`/`estimateReceivedArs`) y el default viven en `@movo/shared`. El
   monto real de cada pago es el `mercadopago_fee` de `fee_details`.
 - Si se cancela un hold, no se cobra nada a nadie.
+- Con deuda en la cuenta corriente (§6.1), el emisor puede pagar más que el precio y el
+  `application_fee` es mayor que la comisión de Movo.
+
+### 6.1 Deuda de la cuenta corriente cobrada en el hold (MOVO-311)
+
+La deuda (5.6) se cobra en el próximo hold, en el rol que el usuario use primero, sin tarjeta
+ni CVV extra: sube el `application_fee`. Al crear el hold, `svc-payments` lee el saldo de las
+dos partes y cobra a cada una hasta un **tope del 30% del precio** (`DEBT_COLLECTION_MAX_RATE`);
+lo que no entra queda para la próxima operación.
+
+Ejemplo con precio $1150 (comisión de Movo $150), transportista que debe $100 y emisor que debe $200:
+
+| | Sin deuda | Transportista debe $100 | Emisor debe $200 | Los dos |
+| --- | --- | --- | --- | --- |
+| Paga el emisor (`transaction_amount`) | $1150 | $1150 | $1350 | $1350 |
+| `application_fee` | $150 | $250 | $340,02 | $440,02 |
+| Deuda saldada | — | $100 del transportista | $200 del emisor | $100 + $200 |
+
+- **Transportista con deuda:** `application_fee` += deuda. El emisor paga lo mismo y el
+  transportista recibe menos.
+- **Emisor con deuda:** el monto sube en la deuda y el `application_fee` en la deuda **menos el
+  estimado de la comisión de MP sobre ella** (`MP_TRANSACTION_FEE_RATE`, 4,99%: $9,98 sobre $200).
+  MP cobra su comisión sobre todo el monto y la descuenta al transportista; si el fee llevara el
+  recargo completo, el transportista pagaría la comisión de MP sobre la deuda del emisor. Movo la
+  absorbe: el transportista recibe lo mismo que sin recargo, y al emisor se le acreditan los $200.
+- **Ledger:** al crear el hold, en la misma transacción, se reserva la deuda (`fee_offset` o
+  `payment_surcharge`, monto negativo, `reserved`, key `<tipo>:<holdId>`). Los dos usuarios quedan
+  bloqueados (advisory lock) mientras se lee su saldo, así dos holds en paralelo no descuentan la
+  misma deuda; "Pagar mi saldo" (5.7) toma el mismo lock y sus intentos abiertos descuentan del saldo
+  cobrable, así un pago de saldo y un hold tampoco cobran dos veces. Mientras es solo una reserva, el saldo
+  que se informa (y mide el bloqueo por deuda) no baja: recién baja al capturar (ADR-044). Si el hold se rechaza, se libera o vence, un trigger de `holds` anula la reserva en la
+  misma transacción y la deuda vuelve a quedar pendiente. Al capturar, la reserva pasa a `settled`
+  por lo que retuvo MP (`fee_details`); si retuvo menos, se anula y se asienta lo real.
+- **Liquidación:** `commission_ars` es solo la comisión de Movo; la deuda cobrada va en
+  `debt_offset_ars` y `debt_surcharge_ars`. `GET /shipments/:id/settlement` le muestra a cada parte
+  su deuda saldada (`debtCollectedArs`). El transportista ve su cobro **sin el recargo del emisor**:
+  bruto $1150 y fee de MP sin lo que MP cobró sobre el recargo (`carrierPaymentView`), así no ve la
+  deuda ajena y `bruto − fee MP − comisión − su deuda = neto`.
+- **Antes de comprometerse:** el emisor ve `{ priceArs, pendingBalanceArs, totalArs }` en
+  `GET /shipments/:id/funding` y paga mandando `expectedTotalArs = totalArs`: si su deuda cambió en el medio,
+  409 `HOLD_AMOUNT_CHANGED` en vez de cobrarle de más; el transportista, el descuento (`debtDiscount`) en sus ofertas
+  `pending` y en el detalle del envío asignado.
+- **Reintegro o contracargo:** hoy no repone la deuda cobrada (limitación aceptada, ADR-044).
+- **Límite de MP** (spike MOVO-305): el fee tiene que ser `< transaction_amount` (si no, `400 4038`).
+  Con el tope de 30% el fee llega a ~73% del precio y el monto a 130%; la env var acepta hasta 0,5.
+- **Penalidad (MOVO-307):** en una captura parcial el `application_fee` se cobra entero, y capturar
+  un monto ≤ al fee da `4201`. Un hold con deuda en el fee deja menos margen para cobrar una
+  penalidad por captura parcial; si no alcanza, se aplica el plan B de MOVO-307.
 
 ---
 
@@ -445,7 +493,7 @@ flowchart LR
 | **No** se renuevan holds vencidos | La renovación puede fallar con el paquete en tránsito, bloquea doble monto y parece un doble cobro. | MOVO-12 |
 | `svc-shipments` es el dueño de la saga y la puerta del mobile | Los estados del envío viven ahí. `svc-payments` queda aislado como único integrador de MP. | MOVO-210 |
 | SDK oficial `mercadopago` v3 para pagos; canje y refresh de OAuth con `fetch` propio | Mismo resultado que la API REST, con tipos, idempotencia y errores ya resueltos. El canje queda afuera porque el SDK no tipa `code_verifier`/`test_token` y exige un access token que `/oauth/token` no necesita. | MOVO-267, SOLUCION-FINAL §4 |
-| Las deudas (penalidades, comisión en efectivo) viven en una **cuenta corriente del usuario**, no del transportista | La misma persona es emisor y transportista: una penalidad generada en un rol se puede saldar en el otro. Saldo con signo, solo inserción, idempotente. Hoy es un registro contable: el cobro llega con MOVO-307 (captura parcial), 311 (`application_fee`) y 312 (pago voluntario). | MOVO-309, ADR-044 (`docs/payments/adr-044-cuenta-corriente-del-usuario.md`) |
+| Las deudas (penalidades, comisión en efectivo) viven en una **cuenta corriente del usuario**, no del transportista | La misma persona es emisor y transportista: una penalidad generada en un rol se puede saldar en el otro. Saldo con signo, solo inserción, idempotente. Se cobra con MOVO-311 (`application_fee` del próximo hold, §6.1) y 312 (pago voluntario); la captura parcial de MOVO-307 falta. | MOVO-309, ADR-044 (`docs/payments/adr-044-cuenta-corriente-del-usuario.md`) |
 | La penalidad por cancelar un `assigned` se cobra con una **captura parcial del hold**, y si no se puede queda como deuda | El emisor ya tiene el hold autorizado: cobrar en el momento evita una deuda que puede no cobrarse. MP cobra la comisión entera en la captura parcial (el transportista recibe ≈ 11 % del precio) y rechaza capturar menos que la comisión: en ese caso se libera el hold y la penalidad queda en la cuenta corriente. | MOVO-306, MOVO-307, ADR-047 (`docs/payments/adr-047-penalidad-de-cancelacion.md`) |
 | Idempotencia en hold, captura, saga y webhook | Un doble hold retiene plata dos veces; una doble captura cobra dos veces. | MOVO-209, 210, 212, 268 |
 

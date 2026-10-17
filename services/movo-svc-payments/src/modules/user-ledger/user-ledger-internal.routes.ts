@@ -1,6 +1,15 @@
 import { FastifyInstance } from "fastify";
-import type { CreateManualAdjustmentRequest, CreateUserLedgerEntryRequest } from "@movo/shared";
-import { createEntryInternalSchema, getBalanceInternalSchema, manualAdjustmentInternalSchema } from "./user-ledger.schema";
+import type {
+  CreateManualAdjustmentRequest,
+  CreateUserLedgerEntryRequest,
+  DebtCollectionPreviewRequest,
+} from "@movo/shared";
+import {
+  createEntryInternalSchema,
+  debtCollectionPreviewInternalSchema,
+  getBalanceInternalSchema,
+  manualAdjustmentInternalSchema,
+} from "./user-ledger.schema";
 
 /**
  * MOVO-309 (ADR-044): cuenta corriente, endpoints INTERNOS que llama `svc-shipments` (penalidades,
@@ -12,6 +21,12 @@ export default async function userLedgerInternalRoutes(app: FastifyInstance) {
   app.get("/:userId/balance", { schema: getBalanceInternalSchema }, async (request) => {
     const { userId } = request.params as { userId: string };
     return app.userLedger.balance(userId);
+  });
+
+  // MOVO-311: cuánto de su deuda se le descontaría al transportista en cada precio. No reserva nada.
+  app.post("/:userId/debt-collection/preview", { schema: debtCollectionPreviewInternalSchema }, async (request) => {
+    const { userId } = request.params as { userId: string };
+    return app.holds.previewCarrierDebt(userId, (request.body as DebtCollectionPreviewRequest).amountsArs);
   });
 
   // 201 si crea el movimiento, 200 si la idempotencyKey ya existía (devuelve el original).
