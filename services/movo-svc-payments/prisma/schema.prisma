@@ -223,6 +223,9 @@ model Settlement {
   // Parte del `application_fee` retenido que corresponde al recargo (recargo menos la comisión de MP que
   // absorbe Movo): para mostrarle al transportista su cobro sin el recargo del emisor.
   debtSurchargeFeeArs Decimal          @default(0) @map("debt_surcharge_fee_ars") @db.Decimal(12, 2)
+  // Bruto y fee de MP tal como los ve el transportista (sin el recargo del emisor), fijados al acreditar. Null hasta entonces.
+  carrierGrossAmountArs Decimal?       @map("carrier_gross_amount_ars") @db.Decimal(12, 2)
+  carrierMpFeeArs     Decimal?         @map("carrier_mp_fee_ars") @db.Decimal(12, 2)
   status              SettlementStatus
   // Motivo si quedó `failed` (ver `SettlementFailureReason` en @movo/shared).
   failureReason       String?          @map("failure_reason")

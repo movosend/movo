@@ -1,7 +1,6 @@
 import {
   ApiError,
   ARGENTINA_UTC_OFFSET_HOURS,
-  carrierPaymentView,
   TRANSACTION_STATUSES,
   TRANSACTIONS_DEFAULT_LIMIT,
   TRANSACTIONS_MAX_LIMIT,
@@ -88,6 +87,14 @@ function notFound(): ApiError {
   return new ApiError(404, "NOT_FOUND", "Transacción no encontrada.");
 }
 
+/**
+ * MOVO-311: un monto de MP (reintegro, contracargo) es sobre el total pagado, que con deuda del emisor lleva el
+ * recargo. El transportista no lo ve (revelaría esa deuda y `reintegro > monto` no cerraría): se topa en el precio.
+ */
+function visibleAmount(amountArs: number | null, row: TransactionRow, role: TransactionRole): number | null {
+  return role === "carrier" && amountArs !== null ? Math.min(amountArs, row.baseAmountArs) : amountArs;
+}
+
 function toListItem(row: TransactionRow, role: TransactionRole): TransactionListItem {
   const item: TransactionListItem = {
     id: row.id,
@@ -101,7 +108,7 @@ function toListItem(row: TransactionRow, role: TransactionRole): TransactionList
       hasDispute: row.hasDispute,
       hasRefund: row.hasRefund,
     }),
-    refundedAmountArs: row.hasRefund ? row.refundedAmountArs : null,
+    refundedAmountArs: row.hasRefund ? visibleAmount(row.refundedAmountArs, row, role) : null,
   };
   // La tarjeta es del emisor: con `role=carrier` la clave ni viaja.
   if (role === "sender") {
@@ -113,19 +120,18 @@ function toListItem(row: TransactionRow, role: TransactionRole): TransactionList
 /** Solo con la liquidación acreditada y el desglose completo; si no, `null`. */
 function toBreakdown(row: TransactionRow): TransactionBreakdown | null {
   if (row.settlementStatus !== "credited") return null;
-  if (row.grossAmountArs === null || row.mpFeeArs === null || row.commissionArs === null || row.netAmountArs === null) {
+  if (
+    row.carrierGrossAmountArs === null ||
+    row.carrierMpFeeArs === null ||
+    row.commissionArs === null ||
+    row.netAmountArs === null
+  ) {
     return null;
   }
-  // MOVO-311: sin el recargo del emisor (ver `carrierPaymentView`), así el desglose cierra contra el neto.
-  const view = carrierPaymentView({
-    grossAmountArs: row.grossAmountArs,
-    mpFeeArs: row.mpFeeArs,
-    debtSurchargeArs: row.debtSurchargeArs ?? 0,
-    debtSurchargeFeeArs: row.debtSurchargeFeeArs ?? 0,
-  });
+  // MOVO-311: bruto y fee de MP sin el recargo del emisor, fijados al acreditar (así cierra contra el neto).
   return {
-    grossArs: view.grossAmountArs,
-    mpFeeArs: view.mpFeeArs as number,
+    grossArs: row.carrierGrossAmountArs,
+    mpFeeArs: row.carrierMpFeeArs,
     commissionArs: row.commissionArs,
     debtOffsetArs: row.debtOffsetArs ?? 0,
     netArs: row.netAmountArs,
@@ -171,7 +177,7 @@ export function createTransactionsService(deps: { transactions: TransactionRepos
       const detail: TransactionDetail = {
         ...toListItem(row, role),
         capturedAt: row.capturedAt ? row.capturedAt.toISOString() : null,
-        movements: movements.map((m) => ({ kind: m.kind, amountArs: m.amountArs, date: m.date.toISOString() })),
+        movements: movements.map((m) => ({ kind: m.kind, amountArs: visibleAmount(m.amountArs, row, role), date: m.date.toISOString() })),
       };
       // Con `role=sender` el desglose nunca viaja (AC11, mismo criterio que AC10 de MOVO-212).
       if (role === "carrier") detail.breakdown = toBreakdown(row);

@@ -23,6 +23,9 @@ export interface SettlementUpdate {
   debtOffsetArs?: Prisma.Decimal;
   debtSurchargeArs?: Prisma.Decimal;
   debtSurchargeFeeArs?: Prisma.Decimal;
+  /** Cobro del transportista sin el recargo del emisor, fijado al acreditar (ver `carrierPaymentView`). */
+  carrierGrossAmountArs?: Prisma.Decimal;
+  carrierMpFeeArs?: Prisma.Decimal | null;
   netAmountArs?: Prisma.Decimal | null;
   capturedAt?: Date | null;
 }

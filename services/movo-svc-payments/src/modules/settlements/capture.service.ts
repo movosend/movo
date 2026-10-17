@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
-import { ApiError, SettlementFailureReason, SettlementResponse } from "@movo/shared";
+import { ApiError, carrierPaymentView, SettlementFailureReason, SettlementResponse } from "@movo/shared";
 import { Prisma } from "../../generated/prisma/client";
 import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-client";
 import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
@@ -33,7 +33,9 @@ export function toSettlementResponse(s: Settlement): SettlementResponse {
     commissionArs: s.commissionArs.toNumber(),
     debtOffsetArs: s.debtOffsetArs.toNumber(),
     debtSurchargeArs: s.debtSurchargeArs.toNumber(),
-    debtSurchargeFeeArs: s.debtSurchargeFeeArs.toNumber(),
+    // Antes de acreditar no hay vista del transportista: el bruto del hold y sin comisión de MP.
+    carrierGrossAmountArs: (s.carrierGrossAmountArs ?? s.grossAmountArs).toNumber(),
+    carrierMpFeeArs: s.carrierMpFeeArs?.toNumber() ?? null,
     netAmountArs: s.netAmountArs?.toNumber() ?? null,
     failureReason: (s.failureReason as SettlementFailureReason | null) ?? null,
     capturedAt: s.capturedAt?.toISOString() ?? null,
@@ -253,6 +255,13 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       ];
       await ledger.settleHoldDebt(hold.id, settled);
     }
+    // La vista del transportista (sin el recargo del emisor) se fija una vez acá; el historial y la liquidación la leen.
+    const carrierView = carrierPaymentView({
+      grossAmountArs: gross.toNumber(),
+      mpFeeArs: breakdown.mpFeeArs.toNumber(),
+      debtSurchargeArs: split.debtSurchargeArs.toNumber(),
+      debtSurchargeFeeArs: split.debtSurchargeFeeArs.toNumber(),
+    });
     const credited = await settlements.update(settlement.id, {
       status: "credited",
       failureReason: null,
@@ -262,6 +271,8 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       debtOffsetArs: split.debtOffsetArs,
       debtSurchargeArs: split.debtSurchargeArs,
       debtSurchargeFeeArs: split.debtSurchargeFeeArs,
+      carrierGrossAmountArs: toMoney(carrierView.grossAmountArs),
+      carrierMpFeeArs: carrierView.mpFeeArs === null ? null : toMoney(carrierView.mpFeeArs),
       netAmountArs: breakdown.netAmountArs,
       capturedAt: now(),
     });

@@ -87,6 +87,9 @@ describe("/payments/transactions (MOVO-303)", () => {
         grossAmountArs: 1150,
         commissionArs: 150,
         mpFeeArs: status === "credited" ? 47.15 : null,
+        // Lo que fija la captura (sin deuda del emisor, igual al bruto y al fee de MP).
+        carrierGrossAmountArs: status === "credited" ? 1150 : null,
+        carrierMpFeeArs: status === "credited" ? 47.15 : null,
         netAmountArs: status === "credited" ? 952.85 : null,
         status,
         capturedAt: status === "credited" ? new Date("2026-10-10T15:00:00Z") : null,
@@ -239,6 +242,25 @@ describe("/payments/transactions (MOVO-303)", () => {
       const item = (await list("role=sender")).json().items[0];
       expect(item.status).toBe("refunded");
       expect(item.refundedAmountArs).toBe(1150);
+    });
+  });
+
+  describe("hold con recargo del emisor por su deuda (MOVO-311)", () => {
+    it("el transportista no ve el recargo en el monto reintegrado ni en los movimientos; el emisor sí", async () => {
+      const h = await createHold({ status: "captured" });
+      // Precio 1150 + recargo 200 = 1350 pagados.
+      await app.db.hold.update({ where: { id: h.id }, data: { amountArs: 1350, debtSurchargeArs: 200 } });
+      await settle(h, "credited");
+      await event(h, "refund", "refunded", 1350, new Date("2026-10-11T10:00:00Z"));
+
+      const asCarrier = (await detail(h.id, "carrier", CARRIER)).json();
+      expect(asCarrier.amountArs).toBe(1150);
+      expect(asCarrier.refundedAmountArs).toBe(1150);
+      expect(asCarrier.movements).toEqual([{ kind: "refund", amountArs: 1150, date: "2026-10-11T10:00:00.000Z" }]);
+
+      const asSender = (await detail(h.id, "sender", SENDER)).json();
+      expect(asSender.amountArs).toBe(1350);
+      expect(asSender.refundedAmountArs).toBe(1350);
     });
   });
 

@@ -23,7 +23,9 @@ export interface TransactionRow {
   /** MOVO-311: precio acordado y recargo del emisor, para mostrarle al transportista su cobro sin el recargo. */
   baseAmountArs: number;
   debtSurchargeArs: number | null;
-  debtSurchargeFeeArs: number | null;
+  /** MOVO-311: bruto y fee de MP tal como los ve el transportista (fijados al acreditar). */
+  carrierGrossAmountArs: number | null;
+  carrierMpFeeArs: number | null;
   netAmountArs: number | null;
   hasDispute: boolean;
   hasRefund: boolean;
@@ -75,7 +77,8 @@ interface RawRow {
   debt_offset_ars: number | null;
   base_amount_ars: number;
   debt_surcharge_ars: number | null;
-  debt_surcharge_fee_ars: number | null;
+  carrier_gross_amount_ars: number | null;
+  carrier_mp_fee_ars: number | null;
   net_amount_ars: number | null;
   has_dispute: boolean;
   has_refund: boolean;
@@ -101,7 +104,8 @@ function toRow(r: RawRow): TransactionRow {
     debtOffsetArs: r.debt_offset_ars,
     baseAmountArs: r.base_amount_ars,
     debtSurchargeArs: r.debt_surcharge_ars,
-    debtSurchargeFeeArs: r.debt_surcharge_fee_ars,
+    carrierGrossAmountArs: r.carrier_gross_amount_ars,
+    carrierMpFeeArs: r.carrier_mp_fee_ars,
     netAmountArs: r.net_amount_ars,
     hasDispute: r.has_dispute,
     hasRefund: r.has_refund,
@@ -147,7 +151,8 @@ function visibleTransactions(column: "payer_id" | "carrier_id", userId: string):
       s.commission_ars::float8 AS commission_ars,
       s.debt_offset_ars::float8 AS debt_offset_ars,
       s.debt_surcharge_ars::float8 AS debt_surcharge_ars,
-      s.debt_surcharge_fee_ars::float8 AS debt_surcharge_fee_ars,
+      s.carrier_gross_amount_ars::float8 AS carrier_gross_amount_ars,
+      s.carrier_mp_fee_ars::float8 AS carrier_mp_fee_ars,
       s.net_amount_ars::float8 AS net_amount_ars,
       EXISTS (
         SELECT 1 FROM payments.payment_provider_events e

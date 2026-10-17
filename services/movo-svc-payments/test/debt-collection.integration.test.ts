@@ -4,7 +4,8 @@ import { buildApp } from "../src/app";
 import type { MercadoPagoClient, PaymentResponse } from "../src/adapters/mercadopago-client";
 import { createCarrierMpAccountRepository } from "../src/repositories/carrier-mp-account-repository";
 import { createTokenCipher } from "../src/utils/token-cipher";
-import { createUserLedgerRepository } from "../src/repositories/user-ledger-repository";
+import { createBalancePaymentAttemptRepository } from "../src/repositories/balance-payment-attempt-repository";
+import { createUserLedgerRepository, readBalanceNetOfReservations } from "../src/repositories/user-ledger-repository";
 import { Prisma } from "../src/generated/prisma/client";
 
 // MOVO-311: la deuda de la cuenta corriente se cobra en el `application_fee` del hold. Postgres y Redis
@@ -68,7 +69,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
 
   beforeEach(async () => {
     await app.db.$executeRawUnsafe(
-      "TRUNCATE TABLE payments.user_ledger_entries, payments.settlements, payments.holds, payments.carrier_mp_accounts CASCADE"
+      "TRUNCATE TABLE payments.user_ledger_entries, payments.settlements, payments.holds, payments.carrier_mp_accounts, payments.balance_payment_attempts CASCADE"
     );
     createCount = 0;
     for (const fn of [mp.createPayment, mp.getPayment, mp.capturePayment, mp.cancelPayment]) fn.mockClear();
@@ -91,6 +92,11 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
   async function balanceOf(userId: string): Promise<number> {
     const res = await app.inject({ method: "GET", url: `${USERS}/${userId}/balance` });
     return res.json().balanceArs;
+  }
+
+  /** Lo que todavía no tomó ningún hold: el saldo menos las reservas (el que ve "Pagar mi saldo"). */
+  async function unreservedOf(userId: string): Promise<number> {
+    return (await readBalanceNetOfReservations(app.db, userId)).toNumber();
   }
 
   async function entriesOf(userId: string) {
@@ -127,14 +133,18 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
     const [entry] = await entriesOf(CARRIER);
     expect(entry).toMatchObject({ type: "fee_offset", status: "reserved", roleAtOrigin: "carrier", holdId: res.json().id });
     expect(entry.amountArs.toNumber()).toBe(-100);
-    expect(await balanceOf(CARRIER)).toBe(0);
+    expect(await unreservedOf(CARRIER)).toBe(0);
+    // El saldo que se informa (y mide el bloqueo por deuda) no baja mientras el hold es solo una reserva.
+    expect(await balanceOf(CARRIER)).toBe(100);
+    const summary = await app.inject({ method: "GET", url: `${USERS}/${CARRIER}/balance` });
+    expect(summary.json().oldestUnpaidAt).not.toBeNull();
   });
 
   it("deuda mayor al tope: se descuenta el 30% del precio y el resto queda pendiente", async () => {
     await owe(CARRIER, 1000);
     const res = await createHold();
     expect(res.json()).toMatchObject({ applicationFeeArs: 495, debtOffsetArs: 345 });
-    expect(await balanceOf(CARRIER)).toBe(655);
+    expect(await unreservedOf(CARRIER)).toBe(655);
   });
 
   it("emisor con deuda: paga precio + recargo y el fee lleva el recargo menos la comisión de MP", async () => {
@@ -186,7 +196,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
     // El reintento con otra tarjeta reserva de nuevo; si MP lo vence (webhook), vuelve a pendiente.
     const second = await createHold({ cardToken: "card-token-2" });
     expect(second.json()).toMatchObject({ status: "authorized", debtOffsetArs: 100 });
-    expect(await balanceOf(CARRIER)).toBe(0);
+    expect(await unreservedOf(CARRIER)).toBe(0);
     await app.db.hold.update({ where: { id: second.json().id }, data: { status: "cancelled", statusDetail: "expired" } });
     expect(await balanceOf(CARRIER)).toBe(100);
   });
@@ -196,7 +206,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
     const [a, b] = await Promise.all([createHold(), createHold({ shipmentId: SHIPMENT_2, cardToken: "card-token-2" })]);
     const offsets = [a.json().debtOffsetArs, b.json().debtOffsetArs].sort((x, y) => x - y);
     expect(offsets).toEqual([55, 345]);
-    expect(await balanceOf(CARRIER)).toBe(0);
+    expect(await unreservedOf(CARRIER)).toBe(0);
   });
 
   it("el mismo usuario con deuda, cobrador en un envío y pagador en otro, no la paga dos veces", async () => {
@@ -205,7 +215,67 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
     expect(asCarrier.json().debtOffsetArs).toBe(300);
     const asPayer = await createHold({ shipmentId: SHIPMENT_2, carrierId: OTHER_CARRIER, payerUserId: CARRIER });
     expect(asPayer.json()).toMatchObject({ amountArs: 1150, debtSurchargeArs: 0 });
-    expect(await balanceOf(CARRIER)).toBe(0);
+    expect(await unreservedOf(CARRIER)).toBe(0);
+  });
+
+  it("el total que el emisor confirmó tiene que coincidir: si su deuda cambió, 409 y no se crea nada", async () => {
+    await owe(PAYER, 200);
+    // El emisor vio `precio + 200`; antes de pagar se le suma otra deuda (tope: 30% del precio = 345).
+    await owe(PAYER, 100);
+
+    const stale = await createHold({ expectedTotalArs: 1350 });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error).toMatchObject({ code: "HOLD_AMOUNT_CHANGED", details: { totalArs: 1450 } });
+    expect(mp.createPayment).not.toHaveBeenCalled();
+    expect(await app.db.hold.count()).toBe(0);
+    expect(await entriesOf(PAYER)).toHaveLength(0);
+
+    // Con el total nuevo sí se crea.
+    const ok = await createHold({ expectedTotalArs: 1450 });
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json()).toMatchObject({ amountArs: 1450, debtSurchargeArs: 300 });
+  });
+
+  it("un pago de saldo abierto descuenta de lo que cobra el hold, y un hold reservado limita el pago de saldo", async () => {
+    await owe(PAYER, 200);
+    const attempts = createBalancePaymentAttemptRepository(app.db);
+    const data = (amountArs: number) => ({
+      userId: PAYER,
+      amountArs: new Prisma.Decimal(amountArs),
+      savedCardId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      requestFingerprint: `fp-${amountArs}`,
+    });
+
+    // El pago de saldo abierto (150) ya tomó esa parte de la deuda: el hold solo puede cobrar 50.
+    const open = await attempts.insertOpen(data(150));
+    expect(open.created).toBe(true);
+    const hold = await createHold();
+    expect(hold.json()).toMatchObject({ debtSurchargeArs: 50, amountArs: 1200 });
+    await attempts.updateOpen(open.attempt.id, { status: "rejected" });
+
+    // Con 50 reservados por el hold, del saldo de 200 solo se pueden pagar 150.
+    await expect(attempts.insertOpen(data(151))).rejects.toMatchObject({ code: "BALANCE_AMOUNT_EXCEEDS_DEBT" });
+    expect((await attempts.insertOpen(data(150))).created).toBe(true);
+  });
+
+  it("un pago de saldo y un hold en paralelo no cobran la misma deuda dos veces", async () => {
+    await owe(PAYER, 200);
+    const attempts = createBalancePaymentAttemptRepository(app.db);
+    const [pay, hold] = await Promise.allSettled([
+      attempts.insertOpen({
+        userId: PAYER,
+        amountArs: new Prisma.Decimal(200),
+        savedCardId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        requestFingerprint: "fp",
+      }),
+      createHold(),
+    ]);
+    const holdJson = hold.status === "fulfilled" ? hold.value.json() : null;
+    const surcharge = holdJson?.debtSurchargeArs ?? 0;
+    const paid = pay.status === "fulfilled" ? 200 : 0;
+    // Lo que cobran los dos juntos nunca supera la deuda.
+    expect(surcharge + paid).toBeLessThanOrEqual(200);
+    expect(surcharge + paid).toBe(200);
   });
 
   it("al capturar, la deuda pasa a settled y la liquidación separa la comisión de la deuda cobrada", async () => {
@@ -285,7 +355,7 @@ describe("deuda de la cuenta corriente cobrada en el hold (MOVO-311)", () => {
     await owe(CARRIER, 100);
     const res = await createHold({ payerUserId: CARRIER });
     expect(res.json()).toMatchObject({ amountArs: 1150, debtOffsetArs: 100, debtSurchargeArs: 0 });
-    expect(await balanceOf(CARRIER)).toBe(0);
+    expect(await unreservedOf(CARRIER)).toBe(0);
   });
 
   it("el historial del transportista no muestra el recargo del emisor y su desglose cierra con el neto", async () => {

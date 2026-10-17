@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Prisma } from "../../generated/prisma/client";
 import type { LedgerEntryStatus } from "../../generated/prisma/client";
 import { ApiError } from "@movo/shared";
@@ -10,6 +9,7 @@ import type {
   UserLedgerEntry as UserLedgerEntryDto,
   UserLedgerPageResponse,
 } from "@movo/shared";
+import { fingerprintOf as fingerprint } from "../../repositories/user-ledger-repository";
 import type { UserLedgerEntry, UserLedgerRepository } from "../../repositories/user-ledger-repository";
 
 export const LEDGER_DEFAULT_LIMIT = 20;
@@ -57,10 +57,6 @@ function assertValidAmount(amountArs: number): void {
   ) {
     throw invalid("amountArs tiene que ser un monto distinto de cero, con hasta 2 decimales");
   }
-}
-
-function fingerprint(parts: Record<string, unknown>): string {
-  return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 }
 
 function toDto(row: UserLedgerEntry, opts?: { maskReason?: boolean }): UserLedgerEntryDto {

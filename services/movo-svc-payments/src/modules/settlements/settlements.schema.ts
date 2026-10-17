@@ -38,7 +38,8 @@ const settlement = {
     "commissionArs",
     "debtOffsetArs",
     "debtSurchargeArs",
-    "debtSurchargeFeeArs",
+    "carrierGrossAmountArs",
+    "carrierMpFeeArs",
     "netAmountArs",
     "failureReason",
     "capturedAt",
@@ -58,7 +59,8 @@ const settlement = {
     // MOVO-311: deuda cobrada en el envío, aparte de la comisión.
     debtOffsetArs: { type: "number" },
     debtSurchargeArs: { type: "number" },
-    debtSurchargeFeeArs: { type: "number" },
+    carrierGrossAmountArs: { type: "number" },
+    carrierMpFeeArs: { type: ["number", "null"] },
     netAmountArs: { type: ["number", "null"] },
     failureReason: {
       type: ["string", "null"],

@@ -13,7 +13,7 @@ import {
 import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-client";
 import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
 import { SavedCardRepository } from "../../repositories/saved-card-repository";
-import { Hold, HoldAttemptConflictError, HoldRepository, HoldUpdate } from "../../repositories/hold-repository";
+import { Hold, HoldAmountChangedError, HoldAttemptConflictError, HoldRepository, HoldUpdate } from "../../repositories/hold-repository";
 import { cardFromPayment, missingCardFields } from "../../utils/payment-card";
 import { computeDebtCollection } from "./debt-collection";
 
@@ -244,7 +244,7 @@ export interface HoldServiceDeps {
   holdValidityDays: number;
   /** MOVO-311 (`DEBT_COLLECTION_MAX_RATE`): tope de la deuda que se cobra en un hold, sobre el precio. */
   debtCollectionMaxRate: number;
-  /** MOVO-311: saldo de la cuenta corriente de un usuario (positivo = debe), para las vistas previas. */
+  /** MOVO-311: saldo cobrable de la cuenta corriente de un usuario (positivo = debe), para las vistas previas. */
   ledgerBalance: (userId: string) => Promise<number>;
   holds: HoldRepository;
   accounts: CarrierMpAccountRepository;
@@ -379,6 +379,16 @@ export function createHoldService(deps: HoldServiceDeps) {
     }
   }
 
+  /** MOVO-311: el emisor confirmó un total y ya no es el que corresponde cobrar. */
+  function amountChanged(totalArs: number): ApiError {
+    return new ApiError(
+      409,
+      "HOLD_AMOUNT_CHANGED",
+      "El monto a pagar cambió desde que lo confirmaste: revisalo y volvé a confirmar",
+      { totalArs }
+    );
+  }
+
   /** Un `creating` al que MP ya le tiene un pago vivo: la fila pasa a reflejarlo. */
   async function adopt(hold: Hold, payment: PaymentSnapshot): Promise<Hold> {
     const patch = mapPayment(payment, hold);
@@ -424,7 +434,13 @@ export function createHoldService(deps: HoldServiceDeps) {
 
       if (latest && latest.status === "creating") {
         const sameBody = sameTerms(latest, input.carrierId, priceArs) && latest.requestFingerprint === fingerprint;
-        if (sameBody) return { kind: "process", hold: latest };
+        if (sameBody) {
+          // El intento ya fijó sus montos: si el emisor confirmó otro total, no se reintenta con la misma key.
+          if (input.expectedTotalArs != null && roundArs(input.expectedTotalArs) !== latest.amountArs.toNumber()) {
+            throw amountChanged(latest.amountArs.toNumber());
+          }
+          return { kind: "process", hold: latest };
+        }
 
         // El cuerpo cambió (otra tarjeta, otro pagador, otro monto u otro transportista)
         // sobre un intento sin respuesta: no se puede reusar la key. Antes de abrir otro
@@ -467,9 +483,11 @@ export function createHoldService(deps: HoldServiceDeps) {
           // MOVO-302: el emisor queda en el hold para el historial; no entra al fingerprint ni
           // a `HoldResponse` (el contrato interno de holds no lo expone).
           payerId: input.payerUserId,
+          expectedAmountArs: input.expectedTotalArs == null ? null : roundArs(input.expectedTotalArs),
         });
         return { kind: "process", hold: created };
       } catch (error) {
+        if (error instanceof HoldAmountChangedError) throw amountChanged(error.amounts.amountArs);
         // Otro request ganó la carrera: se vuelve a leer y se decide con lo que dejó.
         if (!(error instanceof HoldAttemptConflictError)) throw error;
       }

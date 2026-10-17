@@ -11,6 +11,8 @@ const errorResponse = {
         code: { type: "string" },
         message: { type: "string" },
         statusCode: { type: "number" },
+        // `HOLD_AMOUNT_CHANGED` trae el total actual en `details.totalArs`.
+        details: { type: "object", additionalProperties: true },
       },
     },
     requestId: { type: "string" },
@@ -149,6 +151,8 @@ export const createHoldSchema = {
       payerUserId: uuid,
       savedCardId: uuid,
       paymentMethodId: { type: "string", minLength: 1, maxLength: 64 },
+      // MOVO-311: el total que el emisor confirmó; si cambió su deuda, 409 `HOLD_AMOUNT_CHANGED`.
+      expectedTotalArs: amountArs,
     },
   },
   response: { 200: hold, 201: hold, 404: errorResponse, 409: errorResponse, 502: errorResponse },

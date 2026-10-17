@@ -84,6 +84,8 @@ class MemorySettlementRepository implements SettlementRepository {
         debtOffsetArs: D(0),
         debtSurchargeArs: D(0),
         debtSurchargeFeeArs: D(0),
+        carrierGrossAmountArs: null,
+        carrierMpFeeArs: null,
         status: "processing",
         failureReason: null,
         statusDetail: null,
@@ -552,9 +554,11 @@ describe("deuda de la cuenta corriente cobrada en la captura (MOVO-311)", () => 
       commissionArs: 150,
       debtOffsetArs: 100,
       debtSurchargeArs: 200,
-      debtSurchargeFeeArs: 190.02,
+      // Lo que ve el transportista: el bruto sin el recargo y el fee de MP sin la parte que cae sobre él.
+      carrierGrossAmountArs: 1000,
       netAmountArs: 700.1,
     });
+    expect(settlement.carrierMpFeeArs).toBeCloseTo((settlement.mpFeeArs as number) - (200 - 190.02), 2);
   });
 
   it("si asentar la deuda falla, la liquidación no se acredita y el reintento la completa", async () => {

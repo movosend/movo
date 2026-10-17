@@ -1,7 +1,7 @@
 import { Prisma, PrismaClient } from "../generated/prisma/client";
 import type { Hold, HoldFailureReason, HoldStatus } from "../generated/prisma/client";
 import type { DebtCollection } from "../modules/holds/debt-collection";
-import { insertHoldDebtReservation, lockLedgerUser, readLedgerBalance } from "./user-ledger-repository";
+import { insertHoldDebtReservation, lockLedgerUser, readCollectableBalance } from "./user-ledger-repository";
 
 export type { Hold };
 
@@ -26,6 +26,11 @@ export interface NewHoldAttempt {
    * crea intentos sin saber quién paga.
    */
   payerId?: string | null;
+  /**
+   * MOVO-311: total (`transaction_amount`) que el emisor confirmó. Si con el saldo leído bajo el lock el total del
+   * intento es otro, no se crea nada y tira `HoldAmountChangedError`.
+   */
+  expectedAmountArs?: number | null;
 }
 
 export interface HoldUpdate {
@@ -60,6 +65,14 @@ export class HoldAttemptConflictError extends Error {
   }
 }
 
+/** MOVO-311: el total que corresponde cobrar ya no es el que el emisor confirmó. */
+export class HoldAmountChangedError extends Error {
+  constructor(public readonly amounts: DebtCollection) {
+    super("El total a cobrar cambió desde que el emisor lo confirmó");
+    this.name = "HoldAmountChangedError";
+  }
+}
+
 export interface HoldRepository {
   /** El intento más reciente del envío (mayor `attempt`), cualquiera sea su estado. */
   findLatestByShipment(shipmentId: string): Promise<Hold | null>;
@@ -73,7 +86,8 @@ export interface HoldRepository {
    * MOVO-311: en la misma transacción reserva la deuda que cobra el intento (`fee_offset` del transportista,
    * `payment_surcharge` del emisor). Los dos usuarios quedan bloqueados (advisory lock, en orden para no
    * trabarse) desde que se lee su saldo hasta el commit, así dos holds en paralelo no descuentan la misma
-   * deuda: el segundo ya ve lo que reservó el primero.
+   * deuda: el segundo ya ve lo que reservó el primero. El saldo que se lee es el cobrable
+   * (`readCollectableBalance`): además de las reservas descuenta los pagos de saldo abiertos (MOVO-312).
    */
   createAttempt(data: NewHoldAttempt): Promise<Hold>;
   update(id: string, patch: HoldUpdate): Promise<Hold>;
@@ -111,13 +125,16 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
           const users = [...new Set([data.carrierId, ...(payerId ? [payerId] : [])])].sort();
           for (const userId of users) await lockLedgerUser(tx, userId);
           const [carrierBalance, payerBalance] = await Promise.all([
-            readLedgerBalance(tx, data.carrierId),
-            payerDebtorId ? readLedgerBalance(tx, payerDebtorId) : Promise.resolve(new Prisma.Decimal(0)),
+            readCollectableBalance(tx, data.carrierId),
+            payerDebtorId ? readCollectableBalance(tx, payerDebtorId) : Promise.resolve(new Prisma.Decimal(0)),
           ]);
           const amounts = data.plan({
             carrierBalanceArs: carrierBalance.toNumber(),
             payerBalanceArs: payerBalance.toNumber(),
           });
+          if (data.expectedAmountArs != null && data.expectedAmountArs !== amounts.amountArs) {
+            throw new HoldAmountChangedError(amounts);
+          }
           const hold = await tx.hold.create({
             data: {
               shipmentId: data.shipmentId,
