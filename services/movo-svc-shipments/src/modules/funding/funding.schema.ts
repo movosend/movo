@@ -10,6 +10,8 @@ const errorResponse = {
         code: { type: "string" },
         message: { type: "string" },
         statusCode: { type: "number" },
+        // MOVO-311: `HOLD_AMOUNT_CHANGED` trae el total actual en `details.totalArs`.
+        details: { type: "object", additionalProperties: true },
       },
     },
     requestId: { type: "string" },
@@ -62,6 +64,8 @@ export const fundingSchemas = {
       // MOVO-282: tarjeta guardada con la que se generó el token (`card_id` + CVV).
       savedCardId: { type: "string", format: "uuid" },
       paymentMethodId: { type: "string", minLength: 1, maxLength: 64 },
+      // MOVO-311: el `totalArs` que vio el emisor en el GET; si cambió su deuda, 409 `HOLD_AMOUNT_CHANGED`.
+      expectedTotalArs: { type: "number", minimum: 0.01, maximum: 99_999_999.99 },
     },
   },
 

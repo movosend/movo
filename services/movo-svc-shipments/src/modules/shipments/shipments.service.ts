@@ -244,28 +244,51 @@ const DEBT_DISCOUNT_STATUSES: readonly ShipmentStatus[] = [
 ];
 
 /**
+ * MOVO-311: estados en los que todavía se puede crear un hold. Sin hold vivo, solo en estos el descuento tiene
+ * sentido como vista previa: en `assigned`+ sin hold no se va a crear otro (ADR-037), el saldo actual no se aplica.
+ */
+const DEBT_PREVIEW_STATUSES: readonly ShipmentStatus[] = [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED];
+
+/**
+ * Tope de TODA la resolución del descuento (hold + vista previa). Es solo para mostrar: con payments lento el
+ * detalle del envío no puede colgarse esperando (el hold tiene un timeout de 20 s y la vista previa otro de 5 s).
+ */
+const DEBT_DISCOUNT_TIMEOUT_MS = 3_000;
+
+/**
  * MOVO-311: cuánto de su deuda se le descuenta al transportista asignado en este envío. Con un hold vivo es
  * lo que reservó ese hold; antes del pago, la vista previa sobre el precio acordado. Solo para mostrar: si
- * payments no responde, `null`.
+ * payments no responde (o tarda más de `DEBT_DISCOUNT_TIMEOUT_MS`), `null`.
  */
 async function resolveCarrierDebtDiscount(
   paymentsClient: PaymentsClient,
   shipment: Shipment
 ): Promise<CarrierDebtDiscount | null> {
-  if (!shipment.carrierId || shipment.agreedPriceArs === null) return null;
-  let amountArs: number;
-  try {
+  const { carrierId, agreedPriceArs } = shipment;
+  if (!carrierId || agreedPriceArs === null) return null;
+
+  const resolve = async (): Promise<number> => {
     const hold = await paymentsClient.findHoldByShipment(shipment.id);
-    if (hold && LIVE_HOLD_STATUSES.includes(hold.status)) {
-      amountArs = hold.debtOffsetArs;
-    } else {
-      const preview = await paymentsClient.previewCarrierDebt(shipment.carrierId, [shipment.agreedPriceArs]);
-      amountArs = preview?.debtOffsetsArs[0] ?? 0;
-    }
+    if (hold && LIVE_HOLD_STATUSES.includes(hold.status)) return hold.debtOffsetArs;
+    if (!DEBT_PREVIEW_STATUSES.includes(shipment.status)) return 0;
+    const preview = await paymentsClient.previewCarrierDebt(carrierId, [agreedPriceArs]);
+    return preview?.debtOffsetsArs[0] ?? 0;
+  };
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const amountArs = await Promise.race([
+      resolve(),
+      new Promise<number>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("debt discount timeout")), DEBT_DISCOUNT_TIMEOUT_MS);
+      }),
+    ]);
+    return amountArs > 0 ? { amountArs, reason: "pending_balance" } : null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
-  return amountArs > 0 ? { amountArs, reason: "pending_balance" } : null;
 }
 
 export interface ListAvailableResult {

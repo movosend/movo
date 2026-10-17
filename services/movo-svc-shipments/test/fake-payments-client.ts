@@ -134,6 +134,13 @@ export function createFakePaymentsClient(
       if (behavior.createFails) {
         throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "MP no respondió");
       }
+      // MOVO-311: igual que payments, si el total que confirmó el emisor ya no es el que corresponde cobrar, 409.
+      if (input.expectedTotalArs !== undefined) {
+        const total = input.amountArs + debtOffset(behavior.pendingDebtByUserId.get(input.payerUserId), input.amountArs);
+        if (Math.abs(total - input.expectedTotalArs) > 0.001) {
+          throw new ApiError(409, "HOLD_AMOUNT_CHANGED", "El monto a pagar cambió", { totalArs: total });
+        }
+      }
       const existing = holds.get(input.shipmentId);
       if (existing && LIVE_HOLD_STATUSES.includes(existing.status)) {
         return existing;
@@ -209,6 +216,7 @@ export function createFakePaymentsClient(
       const now = new Date().toISOString();
       // 1000 = 41 (MP) + 150 (Movo) + 809 (neto): la misma forma que el sandbox.
       const mpFeeArs = Math.round(hold.amountArs * 0.041 * 100) / 100;
+      const surchargeFee = Math.round((hold.applicationFeeArs - hold.commissionArs - hold.debtOffsetArs) * 100) / 100;
       const settlement: SettlementResponse = {
         id: `00000000-0000-4000-8000-${String(++sequence).padStart(12, "9")}`,
         shipmentId,
@@ -221,7 +229,8 @@ export function createFakePaymentsClient(
         commissionArs: hold.commissionArs,
         debtOffsetArs: hold.debtOffsetArs,
         debtSurchargeArs: hold.debtSurchargeArs,
-        debtSurchargeFeeArs: Math.round((hold.applicationFeeArs - hold.commissionArs - hold.debtOffsetArs) * 100) / 100,
+        carrierGrossAmountArs: Math.round((hold.amountArs - hold.debtSurchargeArs) * 100) / 100,
+        carrierMpFeeArs: Math.round((mpFeeArs - (hold.debtSurchargeArs - surchargeFee)) * 100) / 100,
         netAmountArs: Math.round((hold.amountArs - mpFeeArs - hold.applicationFeeArs) * 100) / 100,
         failureReason: null,
         capturedAt: now,

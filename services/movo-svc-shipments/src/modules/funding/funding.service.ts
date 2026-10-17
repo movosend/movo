@@ -440,6 +440,8 @@ export function createFundingService(deps: FundingServiceDeps) {
         payerUserId: shipment.senderId,
         ...(input.savedCardId ? { savedCardId: input.savedCardId } : {}),
         ...(input.paymentMethodId ? { paymentMethodId: input.paymentMethodId } : {}),
+        // MOVO-311: payments responde 409 HOLD_AMOUNT_CHANGED si la deuda cambió desde que el emisor vio el total.
+        ...(input.expectedTotalArs !== undefined ? { expectedTotalArs: input.expectedTotalArs } : {}),
       });
 
       if (!isFundedHold(hold)) {

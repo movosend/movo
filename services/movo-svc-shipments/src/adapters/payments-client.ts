@@ -104,7 +104,7 @@ const HOLD_TIMEOUT_MS = 20_000;
 const CAPTURE_TIMEOUT_MS = 50_000;
 const HOLDS_PATH = "/internal/payments/holds";
 
-type SerializedError = { error?: { code?: string; message?: string } };
+type SerializedError = { error?: { code?: string; message?: string; details?: Record<string, unknown> } };
 
 async function parseApiError(response: Response, fallbackMessage: string): Promise<ApiError> {
   let body: SerializedError = {};
@@ -118,6 +118,8 @@ async function parseApiError(response: Response, fallbackMessage: string): Promi
     response.status >= 400 && response.status < 600 ? response.status : 502,
     code,
     body.error?.message ?? fallbackMessage,
+    // MOVO-311: `HOLD_AMOUNT_CHANGED` trae el total actual en `details.totalArs`.
+    body.error?.details,
   );
 }
 
