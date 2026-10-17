@@ -476,6 +476,24 @@ describe("TransportScreen", () => {
     expect(getByTestId("transport-card-offered-1-offer-status")).toHaveTextContent("Pendiente");
   });
 
+  it("muestra el neto con descuento en el feed y no aplica ese preview a una oferta propia", async () => {
+    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+    mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([
+      availableShipment({ id: "new", debtDiscount: { amountArs: 300, reason: "pending_balance" } }),
+      availableShipment({ id: "offered", hasMyOffer: true,
+        debtDiscount: { amountArs: 300, reason: "pending_balance" } }),
+    ]) }));
+    mockUseMyOffers.mockReturnValue({ data: { items: [
+      myOfferSummary({ id: "o1", status: "pending", shipmentId: "offered", priceOffered: 3100 }),
+    ], page: 1, limit: 50, total: 1 } });
+
+    const { getByTestId, getByText, queryByTestId } = await render(<TransportScreen />);
+    expect(getByTestId("transport-card-new-debt-preview")).toBeTruthy();
+    expect(getByText("Recibís aprox.")).toBeTruthy();
+    expect(getByText("−$300 por deuda")).toBeTruthy();
+    expect(queryByTestId("transport-card-offered-debt-preview")).toBeNull();
+  });
+
   it("bug real: una oferta retirada del historial no se muestra como si siguiera vigente", async () => {
     // `hasMyOffer` (calculado por el backend) es `false` acá -- ya no hay ninguna
     // oferta activa sobre este envío -- pero `GET /offers/mine` sigue devolviendo la
