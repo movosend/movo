@@ -588,6 +588,7 @@ ya proxeaba `/payments`). El usuario no sale de la app: mismo flujo que pagar un
 `src/repositories/balance-payment-attempt-repository.ts` y `src/plugins/balance-payment.ts`; tabla `payments.balance_payment_attempts`
 (migración `20261016130000`); contrato en `@movo/shared` (`types/user-ledger.ts`). Diagrama: `flujo-de-pagos.md` 5.7.
 
+**Cuenta cobradora: la reemplazó ADR-048 (ver la entrada de MOVO-315 abajo).** Lo que sigue es el diseño original de MOVO-312.
 **Cuenta cobradora vinculada por OAuth, no la app de Movo S.A.** Verificado en el sandbox (16/10/2026): con el token `client_credentials`
 de la app, `POST /v1/payments` responde `403 At least one policy returned UNAUTHORIZED` (aun con `card_token` inválido, o sea que ni llega a
 validarlo), con el token `APP_USR-` de la app `401 Unauthorized use of live credentials`, y `card_tokens` con la `public_key` `APP_USR-` da 201 pero
@@ -696,5 +697,12 @@ comisión liquidada es la entera que informa `fee_details`. Pendiente: que `svc-
 penalidad (MOVO-307) y que el historial de transacciones (MOVO-303) distinga una penalidad de un cobro.
 
 ### MOVO-315 — Datos para la cuenta corriente mobile
+
+**Cuenta cobradora por credenciales (ADR-048)**: `balance-payment.service.ts` deja de leer la cobradora de
+`carrier_mp_accounts` (usuario interno + `MOVO_COLLECTOR_USER_ID`) y la toma de `MP_COLLECTOR_ACCESS_TOKEN`/`_PUBLIC_KEY`/
+`_MP_USER_ID` (`plugins/balance-payment.ts#collectorFromConfig`, las tres o ninguna). Verificado contra el sandbox el 17/10:
+los tokens de la app sin login no pueden crear pagos (403/401), el `TEST-` del OAuth de la cuenta de prueba Movo S.A. sobre su
+propia app sí, con tarjeta completa y con tarjeta guardada + CVV; `test/balance-payment.sandbox.test.ts` pasa con esas
+credenciales. El token de dev se obtiene y renueva con `scripts/collector-oauth.mjs`.
 
 `GET /payments/balance` agrega `originLabel` a los movimientos: resuelve el destino del envío en lote por la ruta interna de shipments y la tarjeta usada en pagos voluntarios. Si shipments no responde, el saldo sigue disponible sin esa etiqueta. `POST /payments/balance/debt-preview` expone al usuario autenticado la misma estimación de descuento que ya usaba el backend. La presentación y el pago desde la app están en la rama mobile de MOVO-315.
