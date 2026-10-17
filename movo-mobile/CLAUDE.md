@@ -4780,3 +4780,26 @@ La push `trip_recurrence_blocked` (ocurrencia recurrente frenada por la deuda) a
 `trip_recurrence_stopped` (`TRIP_DETAIL_TYPES`).
 
 Pendiente: la pantalla con el saldo y el botón para saldarla es de MOVO-312.
+
+### MOVO-304 — Historial de pagos y cobros (sub-issue mobile de MOVO-28)
+
+Ruta nueva `/profile/payments/history` (`app/(app)/profile/payments/history/index.tsx`) y su detalle `[id].tsx`, con una fila
+de entrada arriba de "Pagos y cobros" (`HistoryEntryRow`; la sección de tarjetas de MOVO-101 no se toca). Dos tabs, **Pagos**
+(`role=sender`) y **Cobros** (`role=carrier`), cada una con sus filtros y su paginación por cursor: `useTransactions`
+(`useInfiniteQuery`, la key lleva el rol y los filtros) sobre `GET /payments/transactions` de MOVO-303. El detalle recibe el
+rol como param de ruta, porque el backend arma el desglose según quién mira. Fiel al canvas de Claude Design "MOVO-28".
+
+- **Una sola fuente de etiquetas** (`src/lib/transaction-format.ts`): estados ("Completado" es "Cobrado" en Cobros), estilos
+  de pill, agrupado por mes y atajos de fecha, todos sobre el día calendario argentino (`toArgentinaCalendarDateString`; las
+  fechas viajan como `YYYY-MM-DD` y el backend las interpreta en hora de Argentina). El neto de un cobro solo se muestra con
+  la liquidación acreditada (`breakdown` no nulo y estado `completed`); si no, "Pagó el emisor" y nada de "Te queda".
+- **Con filtros activos las etiquetas solo se quitan**: se agregó un botón "Filtros" al lado (no está en el canvas) porque
+  si no la hoja no se podía reabrir para cambiarlos sin limpiar todo.
+- **Desvíos del canvas por lo que informa el backend**: no hay el resumen "Cobrado en octubre / Por acreditar" de Cobros (no
+  hay agregados), las filas de Cobros muestran lo que pagó el emisor (el neto está solo en el detalle), el botón de la hoja es
+  "Aplicar filtros" (no hay conteo previo) y el contador de la barra es un mínimo ("20+ pagos") mientras haya más páginas.
+- Un 404 del detalle (ajena o inexistente) se muestra como "No encontramos esta transacción", sin reintentar. Sin
+  dependencias nativas nuevas.
+
+Pendiente: probarlo en dispositivo con cuentas con pagos y con cobros reales (se revisó en el emulador con datos de
+ejemplo), y la paginación contra un historial largo.
