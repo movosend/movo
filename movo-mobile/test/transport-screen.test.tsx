@@ -851,7 +851,7 @@ describe("TransportScreen", () => {
 
       expect(getByTestId("transport-requirements-gate")).toBeTruthy();
       expect(getByText("Te falta completar esto\npara transportar")).toBeTruthy();
-      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([2, "/", 3]);
+      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([1, "/", 2]);
       expect(queryByTestId("transport-requirements-gate-checklist-mp-cta")).toBeNull();
       expect(queryByTestId("transport-list")).toBeNull();
       expect(queryByTestId("transport-zone-chip")).toBeNull();
@@ -897,12 +897,12 @@ describe("TransportScreen", () => {
       expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments?tab=balance&pay=1");
     });
 
-    it("sin licencia ni Mercado Pago muestra dos pendientes de tres requisitos", async () => {
+    it("sin licencia ni Mercado Pago muestra dos pendientes de dos requisitos (sin la fila de deuda)", async () => {
       blockedBy(KycStatus.REJECTED, "unlinked");
 
       const { getByTestId } = await render(<TransportScreen />);
 
-      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([1, "/", 3]);
+      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([0, "/", 2]);
       expect(getByTestId("transport-requirements-gate-checklist-license-cta")).toBeTruthy();
       expect(getByTestId("transport-requirements-gate-checklist-mp-cta")).toBeTruthy();
     });

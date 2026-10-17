@@ -583,7 +583,7 @@ export default function ShipmentDetailScreen() {
                     )}
                   </View>
 
-                  {carrierReceivedArs !== null && shipment.agreedPriceArs != null ? <DebtDiscount beforeArs={estimateReceivedArs(computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()), shipment.agreedPriceArs)} amountArs={shipment.debtDiscount?.amountArs} /> : null}
+                  {!showPayment && carrierReceivedArs !== null && shipment.agreedPriceArs != null ? <DebtDiscount beforeArs={estimateReceivedArs(computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()), shipment.agreedPriceArs)} amountArs={shipment.debtDiscount?.amountArs} /> : null}
 
                   <View>
                     <Eyebrow>Paquete</Eyebrow>

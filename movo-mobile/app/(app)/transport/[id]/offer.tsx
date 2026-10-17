@@ -967,6 +967,8 @@ export default function CreateOfferScreen() {
                       {formatPriceArs(receivedEstimateArs)}
                     </Text>
                   </View>
+                </View>
+                <View className="mt-2">
                   <DebtDiscount beforeArs={receivedBeforeDebtArs} amountArs={debtOffsetArs} />
                 </View>
               </View>

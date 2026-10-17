@@ -126,7 +126,7 @@ export function CarrierRequirementsChecklist({
   const licenseMissing = missing.includes("license");
   const mpMissing = missing.includes("mp_account");
   const debtMissing = missing.includes("no_overdue_debt");
-  const showDebt = !!onPressDebt || debtMissing;
+  const showDebt = debtMissing;
   const TOTAL = showDebt ? 3 : 2;
   const done = TOTAL - (licenseMissing ? 1 : 0) - (mpMissing ? 1 : 0) - (showDebt && debtMissing ? 1 : 0);
 

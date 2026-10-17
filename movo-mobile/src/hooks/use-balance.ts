@@ -19,6 +19,8 @@ export function useBalancePayData(enabled: boolean) {
     queryKey: ["payments", "balance", "pay-data"],
     queryFn: paymentsClient.getBalancePayData,
     enabled,
+    // Sin cache entre aperturas del sheet: un saldo viejo dejaría pagar un monto que ya no se debe.
+    gcTime: 0,
     staleTime: 0,
     // Un solo reintento: con los tres de default el error recién aparecía ~7 s después de abrir el sheet,
     // en medio de la carga del CVV.
@@ -34,5 +36,10 @@ export function useRefreshBalance() {
     void queryClient.invalidateQueries({ queryKey: ["offers", "mine"] });
     void queryClient.invalidateQueries({ queryKey: ["shipments", "funding"] });
     void queryClient.invalidateQueries({ queryKey: ["carrier", "eligibility"] });
+    // Pantallas abiertas atrás que muestran `debtDiscount` / lo que recibe el transportista.
+    void queryClient.invalidateQueries({ queryKey: ["payments", "debt-preview"] });
+    void queryClient.invalidateQueries({ queryKey: ["offers", "detail"] });
+    void queryClient.invalidateQueries({ queryKey: ["shipments", "detail"] });
+    void queryClient.invalidateQueries({ queryKey: ["trips", "matches"] });
   }, [queryClient]);
 }

@@ -10,9 +10,10 @@ import { useKeyboardHeight } from "../../src/hooks/use-keyboard-height";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { formatBalanceAmountInput, parseBalanceAmountInput } from "../../src/lib/balance-format";
 import { friendlyErrorMessage } from "../../src/lib/error-messages";
-import { payBalanceWithSavedCard } from "../../src/lib/pay-balance-flow";
-import { cvvLengthFor, defaultPayableCard, rejectionCopy } from "../../src/lib/pay-shipment-format";
-import { isCardExpired } from "../../src/lib/saved-cards";
+import { CardTokenError } from "../../src/lib/mp-card-tokenizer";
+import { balanceRejectionCopy, payBalanceWithSavedCard } from "../../src/lib/pay-balance-flow";
+import { cvvLengthFor, defaultPayableCard, payErrorMessage } from "../../src/lib/pay-shipment-format";
+import { cardTitle, isCardExpired } from "../../src/lib/saved-cards";
 import { formatPriceArs } from "../../src/lib/shipment-format";
 import { BottomSheetModal } from "../ui/bottom-sheet-modal";
 import { SheetOutlineButton } from "./card-sheet-buttons";
@@ -79,7 +80,9 @@ export function BalancePaySheet({ visible, onClose, cards, initialBalanceArs }: 
   const [partial, setPartial] = useState("");
   const [result, setResult] = useState<Result>("form");
   const [error, setError] = useState<string | null>(null);
+  const [cvvError, setCvvError] = useState(false);
   const [paid, setPaid] = useState(0);
+  const [pendingFrom, setPendingFrom] = useState<number | null>(null);
   const [remaining, setRemaining] = useState(0);
   const [addAfterClose, setAddAfterClose] = useState(false);
   const selected = (selectedId && cards?.find((card) => card.id === selectedId && !isCardExpired(card))) ||
@@ -91,7 +94,7 @@ export function BalancePaySheet({ visible, onClose, cards, initialBalanceArs }: 
   const cvvReady = !!selected && cvv.length === cvvLengthFor(selected);
   const canSubmit = !busy && !!payData.data && amountValid && cvvReady;
   // Sin los datos de pago no se puede tokenizar: se reemplaza el formulario en vez de dejarlo a medias.
-  const payDataFailed = payData.isError && !payData.data;
+  const payDataFailed = payData.isError;
 
   // La hoja nunca pasa la barra de estado ni queda detrás del teclado: el contenido scrollea y
   // el botón de pagar queda fijo abajo, siempre a la vista.
@@ -103,10 +106,22 @@ export function BalancePaySheet({ visible, onClose, cards, initialBalanceArs }: 
       setCvv("");
       setResult("form");
       setError(null);
+      setCvvError(false);
+      setPendingFrom(null);
       setMode("total");
       setPartial("");
     }
   }, [visible]);
+
+  // MP confirmó el cobro cuando el saldo bajó o la deuda ya quedó en cero (el endpoint responde 422).
+  const settledWhilePending = payData.error instanceof ApiError && payData.error.code === "BALANCE_AMOUNT_EXCEEDS_DEBT";
+  const balanceDropped = pendingFrom !== null && payData.data !== undefined && payData.data.balanceArs < pendingFrom;
+  useEffect(() => {
+    if (result !== "pending" || (!settledWhilePending && !balanceDropped)) return;
+    setPaid(amount);
+    setRemaining(payData.data?.balanceArs ?? 0);
+    setResult("approved");
+  }, [result, settledWhilePending, balanceDropped, amount, payData.data]);
 
   useEffect(() => {
     if (!visible || result !== "pending") return;
@@ -136,6 +151,7 @@ export function BalancePaySheet({ visible, onClose, cards, initialBalanceArs }: 
     Keyboard.dismiss();
     setResult("processing");
     setError(null);
+    setCvvError(false);
     const typedCvv = cvv;
     setCvv("");
     try {
@@ -146,12 +162,23 @@ export function BalancePaySheet({ visible, onClose, cards, initialBalanceArs }: 
         setRemaining(response.balanceArs);
         setResult("approved");
       } else if (response.status === "pending") {
+        setPendingFrom(balance);
         setResult("pending");
       } else {
         setResult("form");
-        setError(rejectionCopy(response.failureReason ?? "card_rejected", formatPriceArs(amount), "tarjeta").body);
+        const copy = balanceRejectionCopy(response.failureReason ?? "card_rejected", cardTitle(selected));
+        setError(copy.body);
+        setCvvError(copy.field === "cvv");
       }
     } catch (cause) {
+      if (cause instanceof CardTokenError) {
+        // La tarjeta no llegó a Movo: no hubo cobro y no hay nada que reconciliar.
+        const copy = payErrorMessage({ kind: "token_error", error: cause });
+        setError(copy.body);
+        setCvvError(copy.field === "cvv");
+        setResult("form");
+        return;
+      }
       setError(friendlyErrorMessage(cause, "No pudimos confirmar el pago. Consultá tu saldo antes de volver a intentar."));
       refresh();
       await payData.refetch();
@@ -221,7 +248,7 @@ export function BalancePaySheet({ visible, onClose, cards, initialBalanceArs }: 
           </View>
           <View className="gap-2">
             <Text className="font-sans-medium text-caption uppercase text-fg-3">Tarjeta</Text>
-            {cards?.map((card) => <PayCardRow key={card.id} card={card} selected={selected?.id === card.id} locked={busy} cvv={selected?.id === card.id ? cvv : ""} cvvError={false} onSelect={() => { setSelectedId(card.id); setCvv(""); setError(null); }} onCvvChange={setCvv} onSubmit={() => void submit()} />)}
+            {cards?.map((card) => <PayCardRow key={card.id} card={card} selected={selected?.id === card.id} locked={busy} cvv={selected?.id === card.id ? cvv : ""} cvvError={cvvError && selected?.id === card.id} onSelect={() => { setSelectedId(card.id); setCvv(""); setError(null); setCvvError(false); }} onCvvChange={(value) => { setCvv(value); setCvvError(false); }} onSubmit={() => void submit()} />)}
             <Pressable accessibilityRole="button" disabled={busy} onPress={() => { setAddAfterClose(true); onClose(); }} className="flex-row items-center gap-3 rounded-[10px] border border-border p-3.5">
               <View className="h-[30px] w-11 items-center justify-center rounded-md border border-dashed border-border-strong"><Plus size={16} color={colors.fg2} strokeWidth={2} /></View>
               <Text className="min-w-0 flex-1 font-sans-medium text-[15px] text-fg">Agregar tarjeta</Text>

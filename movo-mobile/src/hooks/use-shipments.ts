@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import { BALANCE_QUERY_KEY } from "./use-balance";
 import { shipmentsClient, type CreateShipmentInput, type EvidenceStatus, type ShipmentSummary } from "../api/shipments-client";
 
 interface LatLng {
@@ -245,6 +246,8 @@ export function useAcceptShipment() {
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "list"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
       queryClient.setQueryData(["shipments", "detail", id], data);
+      // Una cancelación puede generar penalidad (ADR-047): el saldo cambió.
+      queryClient.invalidateQueries({ queryKey: BALANCE_QUERY_KEY });
     },
   });
 }

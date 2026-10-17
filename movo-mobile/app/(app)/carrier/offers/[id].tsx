@@ -482,7 +482,9 @@ export default function OfferDetailScreen() {
               de {formatPriceArs(offer.priceOffered)}
             </Text>
           </View>
-          <DebtDiscount dark beforeArs={receivedBeforeDebtArs} amountArs={offer.debtDiscount?.amountArs} />
+          <View className="mt-3">
+            <DebtDiscount dark beforeArs={receivedBeforeDebtArs} amountArs={offer.debtDiscount?.amountArs} />
+          </View>
           <View className="mt-3.5 flex-row gap-2">
             <View className="flex-1 rounded-md border border-white/10 bg-white/[0.06] px-3 py-2.5">
               <Text className="font-sans text-[11px] text-ink-400">$ por km</Text>
@@ -565,6 +567,9 @@ export default function OfferDetailScreen() {
                 value: `− ${formatPriceArs(offer.commissionAmountArs)}`,
               },
               { label: "Procesamiento del pago (estimado)", value: `− ${formatPriceArs(mpFeeEstimate)}` },
+              ...(offer.debtDiscount?.amountArs
+                ? [{ label: "Descuento por saldo pendiente", value: `− ${formatPriceArs(offer.debtDiscount.amountArs)}` }]
+                : []),
             ]}
             total={{
               label: receivedLabel,
