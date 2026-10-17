@@ -59,6 +59,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_RECEIVER_TRANSFER_INVALID_TARGET: "Esa persona no puede recibir este envío. Elegí a otra.",
   RECEIVER_TRANSFER_NOT_FOUND: "No encontramos esta solicitud.",
   RECEIVER_TRANSFER_NOT_PENDING: "Esta solicitud ya no está vigente.",
+  // MOVO-308 (ADR-047): el sheet de cancelación re-cotiza solo; este texto es para cualquier
+  // otro lugar que lo reciba.
+  CANCELLATION_PENALTY_MISMATCH: "El monto de la penalidad cambió. Revisalo y confirmá de nuevo.",
   SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",
   SHIPMENT_PICKUP_WINDOW_INVALID: "El horario de fin del retiro tiene que ser posterior al de inicio.",
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",

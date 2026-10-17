@@ -115,14 +115,18 @@ describe("receiverConfirmationStatus", () => {
 });
 
 describe("canCancelShipment", () => {
-  it("permite cancelar desde los 3 estados sin fondos confirmados", () => {
+  it("permite cancelar desde los estados sin fondos confirmados", () => {
     expect(canCancelShipment(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe(true);
     expect(canCancelShipment(ShipmentStatus.PUBLISHED)).toBe(true);
     expect(canCancelShipment(ShipmentStatus.ASSIGNMENT_PENDING)).toBe(true);
+    expect(canCancelShipment(ShipmentStatus.ASSIGNED_UNFUNDED)).toBe(true);
   });
 
-  it("no permite cancelar desde assigned ni desde estados terminales", () => {
-    expect(canCancelShipment(ShipmentStatus.ASSIGNED)).toBe(false);
+  it("MOVO-308: permite cancelar desde assigned (con la penalidad que cotiza el sheet)", () => {
+    expect(canCancelShipment(ShipmentStatus.ASSIGNED)).toBe(true);
+  });
+
+  it("no permite cancelar con el paquete retirado ni desde estados terminales", () => {
     expect(canCancelShipment(ShipmentStatus.IN_TRANSIT)).toBe(false);
     expect(canCancelShipment(ShipmentStatus.DELIVERED)).toBe(false);
     expect(canCancelShipment(ShipmentStatus.CANCELLED)).toBe(false);
@@ -768,5 +772,14 @@ describe("isFundingWindowOpen (MOVO-269)", () => {
 
   it("sigue abierta si el retiro ya pasó", () => {
     expect(isFundingWindowOpen({ pickupDate: "2026-10-12", pickupTimeWindowStart: "08:00" }, new Date("2026-10-14T15:00:00Z"))).toBe(true);
+  });
+});
+
+describe("shipmentEventTitle — cancelación (MOVO-308)", () => {
+  it("el emisor que canceló lee 'Cancelaste el envío'; el resto, 'Envío cancelado'", () => {
+    const from = ShipmentStatus.ASSIGNED;
+    expect(shipmentEventTitle(ShipmentStatus.CANCELLED, from, { isSender: true, isActor: true })).toBe("Cancelaste el envío");
+    expect(shipmentEventTitle(ShipmentStatus.CANCELLED, from, { isSender: true, isActor: false })).toBe("Envío cancelado");
+    expect(shipmentEventTitle(ShipmentStatus.CANCELLED, from, { isCarrier: true, isActor: false })).toBe("Envío cancelado");
   });
 });

@@ -5,6 +5,8 @@ export interface PriceBreakdownLine {
   label: string;
   /** `null` = el monto todavía no se conoce (se muestra "—", nunca un número supuesto). */
   value: string | null;
+  /** MOVO-308: `danger` pinta el monto en rojo (penalidad cobrada). */
+  tone?: "danger";
   testID?: string;
 }
 
@@ -74,7 +76,11 @@ export function PriceBreakdownCard({
               </Text>
               <Text
                 testID={line.testID}
-                className="font-sans text-small text-fg-3"
+                className={
+                  line.tone === "danger"
+                    ? "font-sans-medium text-small text-danger-600"
+                    : "font-sans text-small text-fg-3"
+                }
               >
                 {line.value ?? "—"}
               </Text>

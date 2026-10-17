@@ -228,6 +228,7 @@ function EventRow({
               event.actorId === currentUserId,
             isSender: currentUserId !== null && currentUserId === parties.senderId,
             isCarrier: currentUserId !== null && currentUserId === parties.carrierId,
+            isActor: event.actorId !== null && event.actorId === currentUserId,
             carrierName: carrierFirstName,
           })}
         </Text>

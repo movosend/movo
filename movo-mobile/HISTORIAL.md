@@ -4780,3 +4780,11 @@ Pendiente: la pantalla con el saldo y el botón para saldarla es de MOVO-312.
 ### MOVO-252 — CTA "Iniciar viaje" y conteo de paradas por viaje
 
 Entrada completa en `services/movo-svc-shipments/HISTORIAL.md` (backend, shared y mobile).
+
+### MOVO-308 — Emisor cancela un envío asignado (penalidad de ADR-047)
+
+Réplica del prototipo "MOVO-308 Emisor cancela" de Claude Design. `canCancelShipment` suma `assigned` y `assigned_unfunded`. El menú nativo de `SenderActionsBar` abre `CancelShipmentSheet`, que reemplaza al modal anterior en todos los estados cancelables. En `assigned` pide `GET /shipments/:id/cancellation-quote` al abrir. Muestra sin cargo, penalidad (con barra y desglose) o franja vencida (motivo fijo, el backend solo manda el enum). Confirma con `expectedPenaltyArs`. Ante 409 `CANCELLATION_PENALTY_MISMATCH` re-cotiza y avisa el cambio, también cuando baja a 0. Un 409 de estado refresca el detalle y explica el bloqueo según si el paquete ya se retiró. Los estados sin reserva no cotizan. El motivo opcional se mantiene. El éxito usa `SuccessBanner`, no el toast del prototipo.
+
+En el detalle cancelado, `SenderCancelledPayment` muestra la card "Tu pago" (reservado, penalidad según `cancellationPenaltyStatus`, tarjeta y liberado) solo si hubo reserva, con `useShipmentHold` sobre el filtro `shipmentId` de `/payments/transactions`. `CarrierCancellationCompensation` muestra al transportista el neto de la penalidad (`settlement.kind = cancellation_penalty`): "Recibís aprox." hasta acreditarse. El "Recibís aprox." del viaje ya no aparece en un envío cancelado. La línea de tiempo dice "Cancelaste el envío" al emisor que canceló. Lógica pura en `src/lib/cancellation-format.ts`.
+
+No se copió el pie "{transportista} retira el paquete el…" del prototipo: en `assigned`, ese lugar lo ocupa la CTA del QR de retiro. Limitación: el sheet calcula lo reservado con `agreedPriceArs`. Si el hold cobraba deuda del emisor (MOVO-311), lo liberado real difiere, y el detalle cancelado sí usa el monto real del hold.

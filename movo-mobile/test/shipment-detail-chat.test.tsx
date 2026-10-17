@@ -45,6 +45,10 @@ jest.mock("../src/hooks/use-shipment-settlement", () => ({
   useShipmentSettlement: () => ({ data: undefined, isLoading: false, isError: false, refetch: jest.fn() }),
 }));
 
+jest.mock("../src/hooks/use-shipment-hold", () => ({
+  useShipmentHold: () => ({ data: undefined, refetch: jest.fn() }),
+}));
+
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: (...args: unknown[]) => mockUseShipment(...args),
   useShipmentPhotos: () => ({ data: [], isLoading: false, isStale: false, refetch: jest.fn() }),
@@ -53,6 +57,7 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useAcceptShipment: () => mockAcceptMutation,
   useRejectShipment: () => mockRejectMutation,
   useCancelShipment: () => mockCancelMutation,
+  useCancellationQuote: () => ({ mutateAsync: jest.fn() }),
 }));
 
 jest.mock("../src/hooks/use-offers", () => ({

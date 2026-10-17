@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import type { CancellationQuoteResponse } from "@movo/shared/dist/config/cancellation-penalty";
 import { shipmentsClient, type CreateShipmentInput, type EvidenceStatus, type ShipmentSummary } from "../api/shipments-client";
 
 interface LatLng {
@@ -285,12 +286,17 @@ export function useRedesignateReceiver() {
 
 /**
  * Cancela un envío como emisor (MOVO-29). En éxito invalida las listas de envíos y el
- * detalle del envío para reflejar el estado terminal `cancelled`.
+ * detalle del envío para reflejar el estado terminal `cancelled`. MOVO-308: en `assigned`
+ * viaja `expectedPenaltyArs`, el monto de la cotización que el emisor confirmó.
  */
 export function useCancelShipment() {
   const queryClient = useQueryClient();
-  return useMutation<ShipmentSummary, unknown, { id: string; reason?: string }>({
-    mutationFn: ({ id, reason }) => shipmentsClient.cancel(id, reason ? { reason } : undefined),
+  return useMutation<ShipmentSummary, unknown, { id: string; reason?: string; expectedPenaltyArs?: number }>({
+    mutationFn: ({ id, reason, expectedPenaltyArs }) =>
+      shipmentsClient.cancel(id, {
+        ...(reason ? { reason } : {}),
+        ...(expectedPenaltyArs !== undefined ? { expectedPenaltyArs } : {}),
+      }),
     onSuccess: (data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "recent"] });
@@ -298,6 +304,17 @@ export function useCancelShipment() {
       queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
       queryClient.setQueryData(["shipments", "detail", id], data);
     },
+  });
+}
+
+/**
+ * Cotización de la cancelación (MOVO-308). Mutación y no query a propósito: depende del
+ * reloj (el plazo sin cargo vence), así que se pide cada vez que se abre el sheet o se
+ * reintenta, nunca desde caché.
+ */
+export function useCancellationQuote() {
+  return useMutation<CancellationQuoteResponse, unknown, string>({
+    mutationFn: (id) => shipmentsClient.getCancellationQuote(id),
   });
 }
 
