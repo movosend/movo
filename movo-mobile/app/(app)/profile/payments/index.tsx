@@ -7,6 +7,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CardOptionsSheet } from "../../../../components/payments/card-options-sheet";
 import { DeleteCardSheet } from "../../../../components/payments/delete-card-sheet";
+import { HistoryEntryRow } from "../../../../components/payments/history-entry-row";
 import { MpAccountSheet } from "../../../../components/payments/mp-account-sheet";
 import { ChangeMpAccountSheet } from "../../../../components/payments/change-mp-account-sheet";
 import { MpConnectCard, MpConnectSkeletonCard } from "../../../../components/payments/mp-connect-card";
@@ -275,7 +276,12 @@ export default function PaymentsSettingsScreen() {
         contentContainerClassName="gap-4 px-5 pb-8 pt-3"
         showsVerticalScrollIndicator={false}
       >
-        <View className="gap-1">
+        <View className="gap-2.5">
+          <Text className="font-sans-semibold text-caption uppercase text-fg-3">Movimientos</Text>
+          <HistoryEntryRow onPress={() => router.push("/profile/payments/history")} />
+        </View>
+
+        <View className="mt-3 gap-1">
           <Text className="font-sans-semibold text-caption uppercase text-fg-3">Medios de pago</Text>
           <Text className="font-sans text-[13px] leading-[18px] text-fg-2">
             La marcada es la que te proponemos al pagar.

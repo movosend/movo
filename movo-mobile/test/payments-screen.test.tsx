@@ -1,5 +1,6 @@
 import { act, fireEvent, render } from "@testing-library/react-native";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { router } from "expo-router";
 import PaymentsSettingsScreen from "../app/(app)/profile/payments";
 
 type Screen = Awaited<ReturnType<typeof render>>;
@@ -97,6 +98,14 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     const { getByTestId, getByText } = await render(<PaymentsSettingsScreen />);
     expect(getByTestId("mp-connect-loading")).toBeTruthy();
     expect(getByText("Consultando el estado de tu cuenta…")).toBeTruthy();
+  });
+
+  it("tiene la fila 'Historial de pagos y cobros' que abre la ruta nueva (MOVO-304 AC1)", async () => {
+    const { getByTestId, getByText } = await render(<PaymentsSettingsScreen />);
+
+    expect(getByText("Historial de pagos y cobros")).toBeTruthy();
+    await act(async () => fireEvent.press(getByTestId("payments-history-entry")));
+    expect(router.push).toHaveBeenCalledWith("/profile/payments/history");
   });
 
   it("vuelve a consultar el status al ganar foco", async () => {
