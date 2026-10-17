@@ -732,3 +732,7 @@ Pendiente: correr `test/debt-collection.sandbox.test.ts` (escrito, sin correr po
 ### MOVO-315 — Datos para la cuenta corriente mobile
 
 `GET /payments/balance` agrega `originLabel` a los movimientos: resuelve el destino del envío en lote por la ruta interna de shipments y la tarjeta usada en pagos voluntarios. Si shipments no responde, el saldo sigue disponible sin esa etiqueta. `POST /payments/balance/debt-preview` expone al usuario autenticado la misma estimación de descuento que ya usaba el backend. La presentación y el pago desde la app están en la rama mobile de MOVO-315.
+
+### MOVO-308 — Filtro por envío en el historial de transacciones
+
+`GET /payments/transactions` acepta `shipmentId` (uuid, opcional): las reservas de un envío, más de una si hubo reintentos del hold, con la misma visibilidad por rol que el listado. Lo usa la card "Tu pago" de un envío cancelado en el mobile para mostrar cuánto se reservó y con qué tarjeta (la tarjeta solo viaja con `role=sender`). Archivos: `transactions.schema.ts`/`.routes.ts`/`.service.ts` y `transaction-repository.ts`.
