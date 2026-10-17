@@ -24,6 +24,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { CarrierRequirementsSheet } from "../../../../components/carrier/carrier-requirements-checklist";
+import { DebtDiscount } from "../../../../components/payments/debt-discount";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { NumericKeypad } from "../../../../components/ui/numeric-keypad";
 import { SectionLabel } from "../../../../components/ui/section-label";
@@ -39,6 +40,7 @@ import {
   useUpdateOffer,
 } from "../../../../src/hooks/use-offers";
 import { useCarrierRequirementsSheet } from "../../../../src/hooks/use-carrier-requirements-sheet";
+import { useDebtPreview } from "../../../../src/hooks/use-debt-preview";
 import { usePublicProfile } from "../../../../src/hooks/use-profile";
 import {
   getClientCommissionRate,
@@ -492,9 +494,11 @@ export default function CreateOfferScreen() {
       : Math.round(amountMode === "net" ? netArs : grossArs);
 
   const mpFeeEstimate = useMemo(() => estimateMpFeeArs(grossArs), [grossArs]);
+  const debtOffsetArs = useDebtPreview(grossArs);
+  const receivedBeforeDebtArs = estimateReceivedArs(netArs, grossArs);
   const receivedEstimateArs = useMemo(
-    () => estimateReceivedArs(netArs, grossArs),
-    [netArs, grossArs],
+    () => Math.max(0, receivedBeforeDebtArs - (debtOffsetArs ?? 0)),
+    [receivedBeforeDebtArs, debtOffsetArs],
   );
   const commissionPctLabel = `${Math.round(commissionRate * 100)}%`;
 
@@ -963,6 +967,7 @@ export default function CreateOfferScreen() {
                       {formatPriceArs(receivedEstimateArs)}
                     </Text>
                   </View>
+                  <DebtDiscount beforeArs={receivedBeforeDebtArs} amountArs={debtOffsetArs} />
                 </View>
               </View>
             </>

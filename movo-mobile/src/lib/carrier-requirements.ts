@@ -7,7 +7,7 @@ import type { MpConnectStatusResponse } from "@movo/shared/dist/types/mp-connect
 import { KycStatus } from "@movo/shared/dist/types/user";
 
 /** Orden fijo de la checklist (el del prototipo): primero la licencia, después Mercado Pago. */
-export const CARRIER_REQUIREMENT_ORDER: readonly CarrierRequirement[] = ["license", "mp_account"];
+export const CARRIER_REQUIREMENT_ORDER: readonly CarrierRequirement[] = ["license", "mp_account", "no_overdue_debt"];
 
 /**
  * Qué bloquea la entrada al tab Transportar (MOVO-167 / MOVO-117): `"identity"` o la
@@ -33,6 +33,7 @@ export function resolveTransportGate(input: {
   kycStatus: KycStatus | null;
   licenseKycStatus: KycStatus | null;
   mpStatus?: MpConnectStatusResponse["status"] | null;
+  debtOverdue?: boolean;
 }): TransportGate | null {
   if (input.kycStatus !== null && input.kycStatus !== KycStatus.APPROVED) return "identity";
   const missing: CarrierRequirement[] = [];
@@ -40,6 +41,7 @@ export function resolveTransportGate(input: {
     missing.push("license");
   }
   if (input.mpStatus != null && input.mpStatus !== "linked") missing.push("mp_account");
+  if (input.debtOverdue) missing.push("no_overdue_debt");
   return missing.length > 0 ? missing : null;
 }
 
@@ -67,6 +69,8 @@ export function carrierRequirementsFromError(error: unknown): CarrierRequirement
       ? "license"
       : error.code === "CARRIER_MP_ACCOUNT_NOT_LINKED"
         ? "mp_account"
+        : error.code === "USER_DEBT_OVERDUE"
+          ? "no_overdue_debt"
         : null;
   if (firstMissing === null) return null;
   const reported = (error.details as Partial<CarrierRequirementsErrorDetails> | undefined)

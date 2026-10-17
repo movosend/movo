@@ -140,7 +140,7 @@ describe("useCarrierRequirementsSheet (MOVO-117, AC5)", () => {
     await fireEvent.press(getByTestId("carrier-requirements-sheet-checklist-mp-cta"));
     await act(async () => {});
 
-    expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments");
+    expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments?tab=methods");
   });
 
   it("no pasa 'approved' a /license-kyc si el backend dice que la licencia falta (perfil cacheado viejo)", async () => {

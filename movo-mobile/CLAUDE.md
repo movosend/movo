@@ -4780,3 +4780,7 @@ La push `trip_recurrence_blocked` (ocurrencia recurrente frenada por la deuda) a
 `trip_recurrence_stopped` (`TRIP_DETAIL_TYPES`).
 
 Pendiente: la pantalla con el saldo y el botón para saldarla es de MOVO-312.
+
+### MOVO-315 — Cuenta corriente y saldo en mobile
+
+`Pagos y cobros` usa las tabs Saldo y Métodos de pago del prototipo variante 1b. Saldo muestra balance, movimientos con origen y rol, anulaciones y paginación; desde allí permite pagar total o parcialmente con tarjeta guardada y CVV. Las vistas de Transportar y de envío muestran el descuento estimado de deuda, el pago del emisor suma su saldo, y la entrada a Transportar consulta la deuda vencida para ofrecer el camino al pago. Pendiente: prueba de punta a punta en development build contra backend desplegado.

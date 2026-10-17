@@ -39,6 +39,7 @@ import { TimelineSection } from "../../../components/shipments/timeline-section"
 import { RouteMapCard } from "../../../components/send/route-map-card";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
+import { DebtDiscount } from "../../../components/payments/debt-discount";
 import { SuccessBanner } from "../../../components/ui/success-banner";
 import { useAuthStore } from "../../../src/store/auth-store";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
@@ -267,10 +268,10 @@ export default function ShipmentDetailScreen() {
   // estimado de MP (MOVO-225), el mismo monto que en el resto de las pantallas.
   const carrierReceivedArs =
     isCarrier && shipment?.agreedPriceArs != null
-      ? estimateReceivedArs(
+      ? Math.max(0, estimateReceivedArs(
           computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
           shipment.agreedPriceArs,
-        )
+        ) - (shipment.debtDiscount?.amountArs ?? 0))
       : null;
 
   // MOVO-271 AC5: emisor y receptor ven el seguimiento (o su placeholder) mientras hay
@@ -581,6 +582,8 @@ export default function ShipmentDetailScreen() {
                       </View>
                     )}
                   </View>
+
+                  {carrierReceivedArs !== null && shipment.agreedPriceArs != null ? <DebtDiscount beforeArs={estimateReceivedArs(computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()), shipment.agreedPriceArs)} amountArs={shipment.debtDiscount?.amountArs} /> : null}
 
                   <View>
                     <Eyebrow>Paquete</Eyebrow>

@@ -32,6 +32,7 @@ import {
   initialWindowMetrics,
 } from "react-native-safe-area-context";
 import { PriceBreakdownCard } from "../../../../components/payments/price-breakdown-card";
+import { DebtDiscount } from "../../../../components/payments/debt-discount";
 import { CarrierRequirementsSheet } from "../../../../components/carrier/carrier-requirements-checklist";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { GridPattern } from "../../../../components/ui/grid-pattern";
@@ -290,10 +291,11 @@ export default function OfferDetailScreen() {
   // transportista, así que lo que se muestra como cobro es aproximado. El monto real
   // sale de `fee_details` al capturar (todavía no se persiste).
   const mpFeeEstimate = estimateMpFeeArs(offer.priceOffered);
-  const receivedEstimateArs = estimateReceivedArs(
+  const receivedBeforeDebtArs = estimateReceivedArs(
     offer.priceNetArs,
     offer.priceOffered,
   );
+  const receivedEstimateArs = Math.max(0, receivedBeforeDebtArs - (offer.debtDiscount?.amountArs ?? 0));
   const receivedLabel = receivedAmountLabel(status);
 
   const rank = offer.competitiveRank;
@@ -480,6 +482,7 @@ export default function OfferDetailScreen() {
               de {formatPriceArs(offer.priceOffered)}
             </Text>
           </View>
+          <DebtDiscount dark beforeArs={receivedBeforeDebtArs} amountArs={offer.debtDiscount?.amountArs} />
           <View className="mt-3.5 flex-row gap-2">
             <View className="flex-1 rounded-md border border-white/10 bg-white/[0.06] px-3 py-2.5">
               <Text className="font-sans text-[11px] text-ink-400">$ por km</Text>

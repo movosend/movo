@@ -402,6 +402,15 @@ export default function PayShipmentScreen() {
             </View>
           ) : null}
 
+          {funding.data && funding.data.pendingBalanceArs > 0 ? (
+            <View testID="pay-debt-breakdown" className="overflow-hidden rounded-lg border border-border">
+              <View className="flex-row justify-between bg-bg-mute p-3.5"><Text className="font-sans text-fg-2">Precio del envío</Text><Text className="font-sans-semibold text-fg">{formatPriceArs(funding.data.priceArs)}</Text></View>
+              <View className="flex-row justify-between p-3.5"><Text className="font-sans text-fg-2">Saldo pendiente</Text><Text className="font-sans-semibold text-fg">+ {formatPriceArs(funding.data.pendingBalanceArs)}</Text></View>
+              <View className="flex-row justify-between bg-lime-500 p-3.5"><Text className="font-sans-semibold text-ink-950">Total a reservar</Text><Text className="font-sans-semibold text-ink-950">{formatPriceArs(funding.data.totalArs)}</Text></View>
+              <Text className="px-3.5 pb-3 font-sans text-[12px] text-fg-3">{formatPriceArs(funding.data.priceArs)} + saldo {formatPriceArs(funding.data.pendingBalanceArs)} = {formatPriceArs(funding.data.totalArs)}</Text>
+            </View>
+          ) : null}
+
           <View className="gap-1">
             <Text className="font-sans-semibold text-[20px] tracking-[-0.3px] text-fg">¿Con qué tarjeta pagás?</Text>
             <Text className="font-sans text-[13px] leading-[18px] text-fg-3">

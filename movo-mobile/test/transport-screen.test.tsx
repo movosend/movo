@@ -35,6 +35,11 @@ jest.mock("../src/hooks/use-mp-connect", () => ({
   useMpConnectStatus: (...args: unknown[]) => mockUseMpConnectStatus(...args),
 }));
 
+const mockUseCarrierEligibility = jest.fn();
+jest.mock("../src/hooks/use-carrier-eligibility", () => ({
+  useCarrierEligibility: () => mockUseCarrierEligibility(),
+}));
+
 const mockUseTrip = jest.fn();
 const mockUseTripMatches = jest.fn();
 const mockUseMyTrips = jest.fn();
@@ -299,6 +304,7 @@ describe("TransportScreen", () => {
     // pisan esto con el estado que necesitan.
     mockUseMyProfile.mockReturnValue(profileResult());
     mockUseMpConnectStatus.mockReturnValue(mpResult());
+    mockUseCarrierEligibility.mockReturnValue({ data: { identityApproved: true, missingRequirements: [] }, isLoading: false, isError: false, dataUpdatedAt: Date.now(), refetch: jest.fn() });
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -827,7 +833,7 @@ describe("TransportScreen", () => {
 
       expect(getByTestId("transport-requirements-gate")).toBeTruthy();
       expect(getByText("Te falta completar esto\npara transportar")).toBeTruthy();
-      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([1, "/", 2]);
+      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([2, "/", 3]);
       expect(queryByTestId("transport-requirements-gate-checklist-mp-cta")).toBeNull();
       expect(queryByTestId("transport-list")).toBeNull();
       expect(queryByTestId("transport-zone-chip")).toBeNull();
@@ -852,7 +858,7 @@ describe("TransportScreen", () => {
       expect(queryByTestId("transport-requirements-gate-checklist-license-cta")).toBeNull();
 
       await fireEvent.press(getByTestId("transport-requirements-gate-checklist-mp-cta"));
-      expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments");
+      expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments?tab=methods");
     });
 
     it("una cuenta de Mercado Pago inválida cuenta como faltante", async () => {
@@ -863,12 +869,22 @@ describe("TransportScreen", () => {
       expect(getByTestId("transport-requirements-gate-checklist-mp-cta")).toBeTruthy();
     });
 
-    it("sin licencia ni Mercado Pago muestra las dos filas con contador 0/2", async () => {
+    it("la deuda vencida abre la tercera fila antes de ofertar y lleva a Pagar mi saldo", async () => {
+      blockedBy(KycStatus.APPROVED, "linked");
+      mockUseCarrierEligibility.mockReturnValue({ data: { identityApproved: true, missingRequirements: ["no_overdue_debt"] }, isLoading: false, isError: false, dataUpdatedAt: Date.now(), refetch: jest.fn() });
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([2, "/", 3]);
+      expect(queryByTestId("transport-list")).toBeNull();
+      await fireEvent.press(getByTestId("transport-requirements-gate-checklist-debt-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments?tab=balance&pay=1");
+    });
+
+    it("sin licencia ni Mercado Pago muestra dos pendientes de tres requisitos", async () => {
       blockedBy(KycStatus.REJECTED, "unlinked");
 
       const { getByTestId } = await render(<TransportScreen />);
 
-      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([0, "/", 2]);
+      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([1, "/", 3]);
       expect(getByTestId("transport-requirements-gate-checklist-license-cta")).toBeTruthy();
       expect(getByTestId("transport-requirements-gate-checklist-mp-cta")).toBeTruthy();
     });
