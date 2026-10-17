@@ -45,6 +45,11 @@ export interface ShipmentFundingRequest {
   savedCardId?: string;
   /** `visa`, `master`, etc., tal como lo devuelve el formulario de MP junto al token. */
   paymentMethodId?: string;
+  /**
+   * MOVO-311: el `totalArs` que el emisor vio en `GET /shipments/:id/funding`. Si su deuda cambió y el total
+   * ya no coincide, 409 `HOLD_AMOUNT_CHANGED` (con `details.totalArs`) en vez de cobrar distinto de lo confirmado.
+   */
+  expectedTotalArs?: number;
 }
 
 /**

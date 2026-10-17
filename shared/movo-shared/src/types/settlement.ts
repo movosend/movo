@@ -40,11 +40,13 @@ export interface SettlementResponse {
   /** MOVO-311: deuda del emisor cobrada como recargo (incluida en `grossAmountArs`). */
   debtSurchargeArs: number;
   /**
-   * MOVO-311: parte del `application_fee` retenido que corresponde a ese recargo (el recargo menos la comisión
-   * de MP sobre él, que absorbe Movo). Sirve para mostrarle al transportista su cobro sin el recargo
-   * (`carrierPaymentView`).
+   * MOVO-311: el bruto tal como lo ve el transportista, sin el recargo del emisor (`carrierPaymentView`, calculado
+   * una vez al acreditar). Todo lo que se le muestra al transportista sale de acá, nunca de `grossAmountArs`.
+   * Antes de acreditar es el bruto del hold.
    */
-  debtSurchargeFeeArs: number;
+  carrierGrossAmountArs: number;
+  /** MOVO-311: la comisión de MP sin la parte que cae sobre el recargo del emisor. `null` hasta la captura. */
+  carrierMpFeeArs: number | null;
   /** Lo que recibe el transportista (`net_received_amount`). `null` hasta la captura. */
   netAmountArs: number | null;
   failureReason: SettlementFailureReason | null;
