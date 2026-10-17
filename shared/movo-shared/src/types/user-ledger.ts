@@ -102,7 +102,7 @@ export interface CreateUserLedgerEntryResponse {
 
 /** `GET /payments/balance`: saldo y movimientos del usuario autenticado, más nuevos primero. */
 export interface UserLedgerPageResponse extends UserLedgerBalanceResponse {
-  items: UserLedgerEntry[];
+  items: Array<UserLedgerEntry & { originLabel: string | null }>;
   nextCursor: string | null;
 }
 

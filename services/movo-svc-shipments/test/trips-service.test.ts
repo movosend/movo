@@ -907,6 +907,22 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       trip.status = TripStatus.DECLARED;
     });
 
+    it("incluye debtDiscount en los matches con precio positivo", async () => {
+      (shipmentRepo.listAvailable as any).mockResolvedValue({ items: [
+        { id: "shipment-1", pickupLat: -31.5, pickupLng: -64,
+          deliveryLat: -32.1, deliveryLng: -63.5, suggestedPriceArs: 1000 },
+      ], total: 1 });
+      const previewCarrierDebt = vi.fn().mockResolvedValue({ pendingBalanceArs: 100,
+        debtOffsetsArs: [100] });
+      const service = buildService({ paymentsClient: {
+        ...paymentsClient, previewCarrierDebt,
+      } });
+      const result = await service.getTripMatches({ tripId: TRIP_ID, callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER], page: 1, limit: 20 });
+      expect(previewCarrierDebt).toHaveBeenCalledWith(CARRIER_ID, [1000]);
+      expect(result.items[0].debtDiscount).toEqual({ amountArs: 100, reason: "pending_balance" });
+    });
+
     it("llama a shipmentRepository.listAvailable con el corredor y radio por defecto", async () => {
       const service = buildService();
 

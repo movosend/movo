@@ -16,6 +16,7 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { UsersClient } from "../../adapters/users-client";
 import { assertNotBlocked } from "../../utils/block-relations";
 import { PaymentsClient } from "../../adapters/payments-client";
+import { previewDebtDiscounts } from "../../utils/debt-discount";
 import { assertCarrierCanOperate, resolveCarrierEligibility } from "../../utils/carrier-gate";
 import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
 import { Trip } from "../../models/trip";
@@ -297,17 +298,10 @@ async function attachDebtDiscounts(
   paymentsClient: PaymentsClient
 ): Promise<OfferWithShipmentContext[]> {
   const pending = items.filter((item) => item.status === OfferStatus.PENDING);
-  const preview =
-    pending.length > 0
-      ? await paymentsClient.previewCarrierDebt(
-          carrierId,
-          pending.map((item) => item.priceOffered)
-        )
-      : null;
-  const byOfferId = new Map(pending.map((item, index) => [item.id, preview?.debtOffsetsArs[index] ?? 0]));
+  const preview = await previewDebtDiscounts(paymentsClient, carrierId, pending.map((item) => item.priceOffered));
+  const byOfferId = new Map(pending.map((item, index) => [item.id, preview[index]]));
   return items.map((item) => {
-    const amountArs = byOfferId.get(item.id) ?? 0;
-    return { ...item, debtDiscount: amountArs > 0 ? { amountArs, reason: "pending_balance" as const } : null };
+    return { ...item, debtDiscount: byOfferId.get(item.id) ?? null };
   });
 }
 

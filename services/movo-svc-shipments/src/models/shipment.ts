@@ -133,6 +133,7 @@ export interface AvailableShipment {
  */
 export interface MatchedShipment extends AvailableShipment {
   hasMyOffer: boolean;
+  debtDiscount: import("@movo/shared").CarrierDebtDiscount | null;
   detourDistanceKm: number;
   detourDurationMinutes: number;
 }
