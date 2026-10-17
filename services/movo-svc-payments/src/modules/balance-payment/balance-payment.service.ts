@@ -35,6 +35,11 @@ export interface BalanceCollector {
 export interface BalancePaymentDeps {
   attempts: BalancePaymentAttemptRepository;
   ledger: Pick<UserLedgerService, "balance" | "createEntry">;
+  /**
+   * MOVO-311: deuda que todavía no tomó ningún hold (`readBalanceNetOfReservations`): el máximo a pagar. El saldo que se
+   * muestra (`ledger.balance`) no descuenta las reservas, pero pagar esa parte la dejaría a favor cuando el hold cobre.
+   */
+  payableBalance: (userId: string) => Promise<number>;
   mercadoPago: MercadoPagoClient;
   accounts: Pick<CarrierMpAccountRepository, "findActiveCredentials" | "findCredentialsByMpUserId">;
   /** Tarjeta guardada y customer del usuario en la cuenta de Movo S.A. (ADR-039): igual que al pagar un envío. */
@@ -246,7 +251,7 @@ export function createBalancePaymentService(deps: BalancePaymentDeps) {
   async function getPayData(userId: string): Promise<BalancePayDataResponse> {
     const c = await collector();
     await reconcileOpen(userId, c);
-    const balanceArs = await currentBalance(userId);
+    const balanceArs = await deps.payableBalance(userId);
     if (balanceArs <= 0) throw new ApiError(422, "BALANCE_AMOUNT_EXCEEDS_DEBT", "No tenés deuda para pagar.");
     return { publicKey: c.publicKey, balanceArs };
   }
@@ -258,7 +263,8 @@ export function createBalancePaymentService(deps: BalancePaymentDeps) {
     // Primero se concilia: un pago aprobado cuyo webhook se perdió baja la deuda antes de validar el monto.
     await reconcileOpen(userId, c);
 
-    const balanceArs = await currentBalance(userId);
+    // Chequeo previo, sin lock, para responder antes de resolver la tarjeta; el que vale se repite al abrir el intento.
+    const balanceArs = await deps.payableBalance(userId);
     if (balanceArs <= 0) throw new ApiError(422, "BALANCE_AMOUNT_EXCEEDS_DEBT", "No tenés deuda para pagar.");
     if (input.amountArs > balanceArs) throw new ApiError(422, "BALANCE_AMOUNT_EXCEEDS_DEBT", "El monto supera tu saldo deudor.");
 

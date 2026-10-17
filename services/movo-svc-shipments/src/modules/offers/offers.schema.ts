@@ -132,6 +132,17 @@ const competitiveRankResponse = {
   },
 };
 
+// MOVO-311: lo que se le descontaría al transportista por la deuda de su cuenta corriente.
+// `null` si no debe nada, si la oferta no está pending o si payments no respondió.
+export const debtDiscountResponse = {
+  type: ["object", "null"],
+  required: ["amountArs", "reason"],
+  properties: {
+    amountArs: { type: "number" },
+    reason: { type: "string", enum: ["pending_balance"] },
+  },
+};
+
 // MOVO-145 (GET /offers/mine): a diferencia de `offerResponse` (accept/reject, sin
 // contexto de envío), acá `offeredDate` sale ya formateado como date-only (mismo gotcha
 // de timezone que `offerShipmentContextResponse.pickupDate`) y suma el contexto mínimo
@@ -165,6 +176,7 @@ const myOfferResponse = {
     "estimatedDeliveryTimeWindowEnd",
     "competitiveRank",
     "viewedAtBySender",
+    "debtDiscount",
   ],
   properties: {
     id: { type: "string" },
@@ -201,6 +213,8 @@ const myOfferResponse = {
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
     competitiveRank: competitiveRankResponse,
+    // MOVO-311: deuda del transportista que se descontaría de este cobro, con el motivo.
+    debtDiscount: debtDiscountResponse,
     // MOVO-189: mismo criterio que offerResponse -- instante crudo, sin copy.
     viewedAtBySender: { type: ["string", "null"], format: "date-time" },
   },

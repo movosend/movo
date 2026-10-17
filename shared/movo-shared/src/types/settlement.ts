@@ -66,6 +66,18 @@ export interface SettlementResponse {
    * prorrateada (spike MOVO-305).
    */
   commissionArs: number;
+  /** MOVO-311: deuda del transportista descontada de su cobro. */
+  debtOffsetArs: number;
+  /** MOVO-311: deuda del emisor cobrada como recargo (incluida en `grossAmountArs`). */
+  debtSurchargeArs: number;
+  /**
+   * MOVO-311: el bruto tal como lo ve el transportista, sin el recargo del emisor (`carrierPaymentView`, calculado
+   * una vez al acreditar). Todo lo que se le muestra al transportista sale de acá, nunca de `grossAmountArs`.
+   * Antes de acreditar es el bruto del hold.
+   */
+  carrierGrossAmountArs: number;
+  /** MOVO-311: la comisión de MP sin la parte que cae sobre el recargo del emisor. `null` hasta la captura. */
+  carrierMpFeeArs: number | null;
   /** Lo que recibe el transportista (`net_received_amount`). `null` hasta la captura. */
   netAmountArs: number | null;
   failureReason: SettlementFailureReason | null;
@@ -102,8 +114,16 @@ export interface ShipmentSettlementResponse {
    */
   kind: SettlementKind;
   status: SettlementDisplayStatus;
-  /** Total que pagó el emisor. */
+  /**
+   * Emisor: total que pagó (con el recargo por su deuda, si lo hubo). Transportista: el bruto de su cobro, sin
+   * ese recargo (MOVO-311, `carrierPaymentView`).
+   */
   paidAmountArs: number;
+  /**
+   * MOVO-311: deuda de la cuenta corriente saldada en este envío, la de quien consulta: al transportista,
+   * lo descontado de su cobro; al emisor, el recargo que pagó. 0 si no hubo.
+   */
+  debtCollectedArs: number;
   /** Cuándo MP confirmó el cobro; `null` mientras no esté acreditada. */
   paidAt: string | null;
   /** Solo para el transportista, y `null` hasta que MP confirma la captura. */

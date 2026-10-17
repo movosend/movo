@@ -4,6 +4,7 @@ import {
   CaptureHoldRequest,
   CaptureHoldResponse,
   CreateHoldRequest,
+  DebtCollectionPreviewResponse,
   CreateUserLedgerEntryRequest,
   CreateUserLedgerEntryResponse,
   HoldCheckoutDataRequest,
@@ -53,7 +54,16 @@ export interface PaymentsClient {
    * bloqueo de `utils/carrier-gate.ts` falla cerrado. `now` es solo para tests.
    */
   getUserDebtStatus(userId: string, now?: Date): Promise<UserDebtStatus>;
-  /** AC1 de MOVO-209: `public_key` del transportista + comisión. 409 si no tiene cuenta vinculada. */
+  /**
+   * MOVO-311: cuánto de su deuda se le descontaría al transportista al cobrar cada uno de estos precios
+   * (mismo orden). Es solo para mostrar: ante cualquier falla devuelve `null` en vez de lanzar, y quien
+   * lo muestra lo omite (el hold vuelve a calcularlo al crearse).
+   */
+  previewCarrierDebt(userId: string, amountsArs: number[]): Promise<DebtCollectionPreviewResponse | null>;
+  /**
+   * AC1 de MOVO-209: `public_key` del transportista + comisión. 409 si no tiene cuenta vinculada.
+   * MOVO-311: con `payerUserId`, el monto ya suma la deuda del emisor (vista previa).
+   */
   getCheckoutData(input: HoldCheckoutDataRequest): Promise<HoldCheckoutDataResponse>;
   /**
    * Crea la reserva (idempotente por envío: un hold vivo se devuelve tal cual). Un rechazo
@@ -103,7 +113,7 @@ const CAPTURE_TIMEOUT_MS = 50_000;
 const HOLDS_PATH = "/internal/payments/holds";
 const LEDGER_TIMEOUT_MS = 5000;
 
-type SerializedError = { error?: { code?: string; message?: string } };
+type SerializedError = { error?: { code?: string; message?: string; details?: Record<string, unknown> } };
 
 async function parseApiError(response: Response, fallbackMessage: string): Promise<ApiError> {
   let body: SerializedError = {};
@@ -117,6 +127,8 @@ async function parseApiError(response: Response, fallbackMessage: string): Promi
     response.status >= 400 && response.status < 600 ? response.status : 502,
     code,
     body.error?.message ?? fallbackMessage,
+    // MOVO-311: `HOLD_AMOUNT_CHANGED` trae el total actual en `details.totalArs`.
+    body.error?.details,
   );
 }
 
@@ -207,6 +219,35 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
         balanceArs,
         oldestUnpaidAt,
       };
+    },
+
+    async previewCarrierDebt(userId, amountsArs) {
+      if (amountsArs.length === 0) return { pendingBalanceArs: 0, debtOffsetsArs: [] };
+      try {
+        const response = await fetch(
+          `${config.PAYMENTS_SERVICE_URL}/internal/payments/users/${encodeURIComponent(userId)}/debt-collection/preview`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ amountsArs }),
+            signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
+          },
+        );
+        if (!response.ok) return null;
+        const body = (await response.json()) as Partial<DebtCollectionPreviewResponse>;
+        const offsets = body.debtOffsetsArs;
+        if (
+          typeof body.pendingBalanceArs !== "number" ||
+          !Array.isArray(offsets) ||
+          offsets.length !== amountsArs.length ||
+          !offsets.every((o) => typeof o === "number" && Number.isFinite(o))
+        ) {
+          return null;
+        }
+        return { pendingBalanceArs: body.pendingBalanceArs, debtOffsetsArs: offsets };
+      } catch {
+        return null;
+      }
     },
 
     async getCheckoutData(input) {

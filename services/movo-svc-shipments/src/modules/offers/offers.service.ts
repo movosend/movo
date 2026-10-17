@@ -287,6 +287,30 @@ async function attachCompetitiveRanks(
   }));
 }
 
+/**
+ * MOVO-311: descuento por deuda de la cuenta corriente del transportista en cada oferta `pending`, en un solo
+ * pedido a payments para toda la página. Es solo para mostrar: si payments no responde, el campo viaja `null`.
+ */
+async function attachDebtDiscounts(
+  items: OfferWithShipmentContext[],
+  carrierId: string,
+  paymentsClient: PaymentsClient
+): Promise<OfferWithShipmentContext[]> {
+  const pending = items.filter((item) => item.status === OfferStatus.PENDING);
+  const preview =
+    pending.length > 0
+      ? await paymentsClient.previewCarrierDebt(
+          carrierId,
+          pending.map((item) => item.priceOffered)
+        )
+      : null;
+  const byOfferId = new Map(pending.map((item, index) => [item.id, preview?.debtOffsetsArs[index] ?? 0]));
+  return items.map((item) => {
+    const amountArs = byOfferId.get(item.id) ?? 0;
+    return { ...item, debtDiscount: amountArs > 0 ? { amountArs, reason: "pending_balance" as const } : null };
+  });
+}
+
 export function createOffersService(
   offerRepository: OfferRepository,
   shipmentRepository: ShipmentRepository,
@@ -350,7 +374,7 @@ export function createOffersService(
         getCarrierReputationScores
       );
 
-      return { items: itemsWithRank, page, limit, total };
+      return { items: await attachDebtDiscounts(itemsWithRank, carrierId, paymentsClient), page, limit, total };
     },
 
     /**
@@ -382,7 +406,8 @@ export function createOffersService(
         shipmentRepository,
         getCarrierReputationScores
       );
-      return withRank;
+      const [withDebt] = await attachDebtDiscounts([withRank], callerId, paymentsClient);
+      return withDebt;
     },
 
     /**

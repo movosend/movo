@@ -36,8 +36,12 @@ const PAYER_EMAIL = "comprador@example.com";
 const NOW = new Date("2026-10-10T12:00:00.000Z");
 
 /** Repo en memoria con la misma semántica de unicidad que la base real. */
+const dec = (value: number) => ({ toNumber: () => value });
+
 class MemoryHoldRepository implements HoldRepository {
   rows: Hold[] = [];
+  /** MOVO-311: saldo de la cuenta corriente por usuario que ve `plan` al crear un intento. */
+  balances = new Map<string, number>();
   private seq = 0;
 
   async findLatestByShipment(shipmentId: string) {
@@ -52,6 +56,10 @@ class MemoryHoldRepository implements HoldRepository {
         (r.attempt === data.attempt || LIVE_HOLD_STATUSES.includes(r.status))
     );
     if (clash) throw new HoldAttemptConflictError();
+    const amounts = data.plan({
+      carrierBalanceArs: this.balances.get(data.carrierId) ?? 0,
+      payerBalanceArs: data.payerId ? (this.balances.get(data.payerId) ?? 0) : 0,
+    });
     const row = {
       id: `00000000-0000-4000-8000-${String(++this.seq).padStart(12, "0")}`,
       shipmentId: data.shipmentId,
@@ -59,8 +67,12 @@ class MemoryHoldRepository implements HoldRepository {
       carrierId: data.carrierId,
       collectorId: data.collectorId,
       mpPaymentId: null,
-      amountArs: { toNumber: () => data.amountArs },
-      applicationFeeArs: { toNumber: () => data.applicationFeeArs },
+      amountArs: dec(amounts.amountArs),
+      applicationFeeArs: dec(amounts.applicationFeeArs),
+      baseAmountArs: dec(amounts.baseAmountArs),
+      commissionArs: dec(amounts.commissionArs),
+      debtOffsetArs: dec(amounts.debtOffsetArs),
+      debtSurchargeArs: dec(amounts.debtSurchargeArs),
       status: "creating",
       statusDetail: null,
       failureReason: null,
@@ -233,6 +245,8 @@ describe("HoldService (MOVO-209)", () => {
   function service(holdValidityDays = 5) {
     return createHoldService({
       holdValidityDays,
+      debtCollectionMaxRate: 0.3,
+      ledgerBalance: async (userId) => holds.balances.get(userId) ?? 0,
       holds,
       accounts: accounts as unknown as CarrierMpAccountRepository,
       mercadoPago: mp as unknown as MercadoPagoClient,
@@ -283,6 +297,68 @@ describe("HoldService (MOVO-209)", () => {
         userId === PAYER_USER ? { userId, mpCustomerId: MP_CUSTOMER } : null
       ),
     };
+  });
+
+  describe("deuda de la cuenta corriente en el hold (MOVO-311)", () => {
+    it("transportista con deuda: sube el application_fee y el emisor paga lo mismo", async () => {
+      holds.balances.set(CARRIER, 100);
+      const { hold } = await service().create(input);
+
+      const [, body] = mp.createPayment.mock.calls[0];
+      expect(body).toMatchObject({ transaction_amount: 1150, application_fee: 250 });
+      expect(hold).toMatchObject({ amountArs: 1150, commissionArs: 150, debtOffsetArs: 100, debtSurchargeArs: 0 });
+    });
+
+    it("deuda mayor al tope: se descuenta el 30% del precio y el resto queda pendiente", async () => {
+      holds.balances.set(CARRIER, 1000);
+      const { hold } = await service().create(input);
+      expect(hold).toMatchObject({ applicationFeeArs: 495, debtOffsetArs: 345 });
+    });
+
+    it("emisor con deuda: el monto sube y el fee lleva el recargo menos la comisión de MP que absorbe Movo", async () => {
+      holds.balances.set(PAYER_USER, 200);
+      const { hold } = await service().create(input);
+
+      const [, body] = mp.createPayment.mock.calls[0];
+      expect(body).toMatchObject({ transaction_amount: 1350, application_fee: 340.02 });
+      expect(hold).toMatchObject({ baseAmountArs: 1150, amountArs: 1350, debtSurchargeArs: 200 });
+    });
+
+    it("un saldo a favor no descuenta nada", async () => {
+      holds.balances.set(CARRIER, -500).set(PAYER_USER, -500);
+      await service().create(input);
+      const [, body] = mp.createPayment.mock.calls[0];
+      expect(body).toMatchObject({ transaction_amount: 1150, application_fee: 150 });
+    });
+
+    it("el replay de un hold con recargo compara contra el precio, no contra el monto cobrado", async () => {
+      holds.balances.set(PAYER_USER, 200);
+      const svc = service();
+      await svc.create(input);
+      const second = await svc.create(input);
+      expect(second.replayed).toBe(true);
+      expect(mp.createPayment).toHaveBeenCalledTimes(1);
+    });
+
+    it("un reintento de un creating reusa los montos del intento aunque la deuda haya cambiado", async () => {
+      holds.balances.set(PAYER_USER, 200);
+      const svc = service();
+      await leaveCreating(svc);
+      holds.balances.set(PAYER_USER, 50);
+      await svc.create(input);
+
+      const [, first] = mp.createPayment.mock.calls[0];
+      const [, retry] = mp.createPayment.mock.calls[1];
+      expect(retry.transaction_amount).toBe(first.transaction_amount);
+      expect(retry.application_fee).toBe(first.application_fee);
+      expect(mp.createPayment.mock.calls[1][2]).toBe(mp.createPayment.mock.calls[0][2]);
+    });
+
+    it("la vista previa del transportista usa el mismo tope por precio", async () => {
+      holds.balances.set(CARRIER, 400);
+      const preview = await service().previewCarrierDebt(CARRIER, [1150, 500]);
+      expect(preview).toEqual({ pendingBalanceArs: 400, debtOffsetsArs: [345, 150] });
+    });
   });
 
   describe("tarjeta guardada (MOVO-282, ADR-039)", () => {
@@ -687,9 +763,26 @@ describe("HoldService (MOVO-209)", () => {
         publicKey: "TEST-public-key",
         amountArs: 1150,
         applicationFeeArs: 150,
+        baseAmountArs: 1150,
+        debtOffsetArs: 0,
+        debtSurchargeArs: 0,
         payerEmail: "e@x.com",
       });
       expect(accounts.findActiveCredentials).toHaveBeenCalledWith(CARRIER, NOW);
+    });
+
+    it("MOVO-311: con deuda de las dos partes, la vista previa suma el recargo y sube la comisión (sin reservar)", async () => {
+      holds.balances.set(CARRIER, 100).set(PAYER_USER, 200);
+      const data = await service().getCheckoutData({
+        shipmentId: SHIPMENT,
+        carrierId: CARRIER,
+        amountArs: 1150,
+        payerEmail: "e@x.com",
+        payerUserId: PAYER_USER,
+      });
+      // Recargo 200; Movo absorbe el 4,99% de MP sobre él (9,98), así que el fee lleva 190,02.
+      expect(data).toMatchObject({ amountArs: 1350, applicationFeeArs: 440.02, debtOffsetArs: 100, debtSurchargeArs: 200 });
+      expect(holds.rows).toHaveLength(0);
     });
 
     it("409 CARRIER_MP_ACCOUNT_NOT_LINKED si no hay credenciales vigentes (una sola lectura)", async () => {

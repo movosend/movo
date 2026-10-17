@@ -61,11 +61,13 @@ const movement = {
 
 const breakdown = {
   type: ["object", "null"],
-  required: ["grossArs", "mpFeeArs", "commissionArs", "netArs"],
+  required: ["grossArs", "mpFeeArs", "commissionArs", "debtOffsetArs", "netArs"],
   properties: {
     grossArs: { type: "number" },
     mpFeeArs: { type: "number" },
     commissionArs: { type: "number" },
+    // MOVO-311: deuda del transportista descontada de este cobro.
+    debtOffsetArs: { type: "number" },
     netArs: { type: "number" },
   },
 } as const;

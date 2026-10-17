@@ -141,6 +141,27 @@ export function estimateReceivedArs(
   );
 }
 
+/**
+ * MOVO-311: el cobro tal como lo ve el transportista cuando el emisor pagó un recargo por su deuda. El
+ * recargo no es del transportista: entra al bruto y sale por el `application_fee` (`debtSurchargeFeeArs`) y por
+ * la comisión de MP sobre él (el resto). Mostrarlo revelaría la deuda del emisor y el desglose no cerraría,
+ * así que se saca de los dos lados: bruto = bruto − recargo y fee de MP = fee de MP − (recargo −
+ * `debtSurchargeFeeArs`). Con eso `bruto − fee MP − comisión − deuda propia = neto real`. Si la comisión real de
+ * MP sobre el recargo difiere del estimado, la diferencia queda en la línea del fee de MP.
+ */
+export function carrierPaymentView(input: {
+  grossAmountArs: number;
+  mpFeeArs: number | null;
+  debtSurchargeArs: number;
+  debtSurchargeFeeArs: number;
+}): { grossAmountArs: number; mpFeeArs: number | null } {
+  const absorbedMpFee = input.debtSurchargeArs - input.debtSurchargeFeeArs;
+  return {
+    grossAmountArs: Math.round((input.grossAmountArs - input.debtSurchargeArs) * 100) / 100,
+    mpFeeArs: input.mpFeeArs === null ? null : Math.round((input.mpFeeArs - absorbedMpFee) * 100) / 100,
+  };
+}
+
 /** Solo para tests: resetea la config memoizada entre casos. */
 export function __resetCommissionConfigForTests(): void {
   cached = undefined;

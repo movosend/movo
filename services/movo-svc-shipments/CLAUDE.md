@@ -3524,6 +3524,20 @@ levanta al saldar, emisor con deuda, 502). `FakePaymentsClient.behavior.overdueD
 Pendiente / fuera de alcance: el pago voluntario (MOVO-312) y el cobro con el próximo pago (MOVO-311) que saldan la
 deuda; una pantalla en mobile con el saldo y el CTA para pagar (hoy solo el mensaje).
 
+### MOVO-311 — Deuda de la cuenta corriente al pagar y al cobrar (lado `svc-shipments`)
+
+`svc-payments` calcula y cobra la deuda (ver su `CLAUDE.md`); acá solo se muestra. `GET /shipments/:id/funding` suma
+`priceArs`, `pendingBalanceArs` (deuda del emisor que se agrega a este pago) y `totalArs` (= `amountArs`), y le pasa
+`payerUserId` a `checkout-data`. El transportista ve `debtDiscount: { amountArs, reason: "pending_balance" } | null` en
+`GET /offers/mine` y `GET /offers/:id` (solo ofertas `pending`, un pedido a payments por página con
+`previewCarrierDebt`) y en `GET /shipments/:id` del envío asignado hasta la entrega (con hold vivo, lo que reservó; si no,
+la vista previa). Es display: si payments no responde (o tarda más de 3 s en total, `DEBT_DISCOUNT_TIMEOUT_MS`) el campo viaja `null`, nunca bloquea; sin hold vivo
+solo se previsualiza en `assignment_pending`/`assigned_unfunded` (en `in_transit`/`delivered` no se va a crear otro hold).
+`POST /shipments/:id/funding` acepta `expectedTotalArs` (el `totalArs` del GET) y lo pasa al hold: si la deuda cambió, 409 `HOLD_AMOUNT_CHANGED`
+con `details.totalArs` (el cliente de payments ahora conserva `details`; el mobile puede mandarlo cuando tome MOVO-315). `GET /shipments/:id/settlement`
+suma `debtCollectedArs`: el descuento para el transportista, el recargo para el emisor; al transportista,
+`paidAmountArs` y `mpFeeArs` le llegan sin el recargo del emisor (payments los fija al acreditar: `carrierGrossAmountArs`/`carrierMpFeeArs`).
+
 ### MOVO-307 — Cancelación del emisor desde `assigned` con penalidad (ADR-047)
 
 `cancelShipment` deja de responder `409 SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED` (el código sigue en el

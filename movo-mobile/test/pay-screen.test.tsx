@@ -70,6 +70,9 @@ const FUNDING = {
   route: "near",
   carrierPublicKey: "TEST-carrier-pk",
   amountArs: 18400,
+  priceArs: 18400,
+  pendingBalanceArs: 0,
+  totalArs: 18400,
   payUntil: new Date(Date.now() + 23 * 3600_000 + 60_000).toISOString(),
 };
 
@@ -120,7 +123,7 @@ describe("PayShipmentScreen (MOVO-269)", () => {
     expect(mockMutate).toHaveBeenCalledTimes(1);
     expect(tokenizeSavedCard).toHaveBeenCalledWith({ funding: FUNDING, card: VISA, cvv: "123" });
     // React Query retiene las variables de la mutación: acá no puede viajar el CVV.
-    expect(mockMutate).toHaveBeenCalledWith({ shipmentId: "ship-1", cardToken: "tok-1", savedCardId: VISA.id });
+    expect(mockMutate).toHaveBeenCalledWith({ shipmentId: "ship-1", cardToken: "tok-1", savedCardId: VISA.id, expectedTotalArs: 18400 });
     expect(JSON.stringify(mockMutate.mock.calls[0][0])).not.toContain("123");
   });
 
@@ -244,7 +247,7 @@ describe("PayShipmentScreen (MOVO-269)", () => {
     expect(getByTestId("pay-submit").props.accessibilityState.disabled).toBe(true);
     await act(async () => fireEvent.changeText(getByTestId("pay-cvv"), "123"));
     await act(async () => fireEvent.press(getByTestId("pay-submit")));
-    expect(mockMutate).toHaveBeenCalledWith({ shipmentId: "ship-1", cardToken: "tok-1", savedCardId: mockNewCard.id });
+    expect(mockMutate).toHaveBeenCalledWith({ shipmentId: "ship-1", cardToken: "tok-1", savedCardId: mockNewCard.id, expectedTotalArs: 18400 });
   });
 
   it("un error ambiguo del backend vuelve a pedir los datos del pago (HOLD_CONFLICT, 5xx)", async () => {
@@ -256,6 +259,36 @@ describe("PayShipmentScreen (MOVO-269)", () => {
     );
     expect(refetch).toHaveBeenCalledTimes(1);
     expect(await findByTestId("pay-submit")).toBeTruthy();
+  });
+
+  it("si cambió el monto, pide el total nuevo y exige escribir el CVV otra vez", async () => {
+    setup();
+    const refetch = jest.fn();
+    mockFunding.mockReturnValue({ data: FUNDING, isLoading: false, isError: false, error: null, refetch });
+    const { getByTestId, getByText, rerender } = await render(<PayShipmentScreen />);
+    await act(async () => fireEvent.changeText(getByTestId("pay-cvv"), "123"));
+    await act(async () => fireEvent.press(getByTestId("pay-submit")));
+    await act(async () => mockOnSettled?.({ kind: "amount_changed" }));
+
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(getByText("Cambió el monto a reservar")).toBeTruthy();
+    expect(getByTestId("pay-cvv").props.value).toBe("");
+    expect(getByTestId("pay-submit").props.accessibilityState.disabled).toBe(true);
+
+    mockFunding.mockReturnValue({
+      data: { ...FUNDING, amountArs: 18500, pendingBalanceArs: 100, totalArs: 18500 },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch,
+    });
+    await act(async () => rerender(<PayShipmentScreen />));
+    expect(getByTestId("pay-amount").props.children).toBe("$18.500");
+    await act(async () => fireEvent.changeText(getByTestId("pay-cvv"), "123"));
+    await act(async () => fireEvent.press(getByTestId("pay-submit")));
+    expect(mockMutate).toHaveBeenLastCalledWith({
+      shipmentId: "ship-1", cardToken: "tok-1", savedCardId: VISA.id, expectedTotalArs: 18500,
+    });
   });
 
   it("un error de validación (422) no refresca nada", async () => {

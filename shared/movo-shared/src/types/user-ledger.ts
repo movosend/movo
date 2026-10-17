@@ -10,7 +10,7 @@
  * - `penalty_capture`: cobro de una penalidad con la captura parcial del hold (MOVO-307).
  * - `cash_commission`: comisión de Movo de un envío pagado en efectivo (MOVO-37).
  * - `fee_offset`: deuda descontada del `application_fee` de una operación (MOVO-311).
- * - `payment_surcharge`: recargo asociado a un pago.
+ * - `payment_surcharge`: deuda que el emisor paga como recargo en el pago de un envío (MOVO-311).
  * - `voluntary_payment`: el usuario salda su deuda con tarjeta (MOVO-312).
  * - `manual_adjustment`: ajuste de un administrador, siempre con motivo.
  */
@@ -139,4 +139,30 @@ export interface BalancePayResponse {
   failureReason: "insufficient_funds" | "card_rejected" | "invalid_data" | "platform_error" | null;
   /** Saldo después de este pago (con `pending`, el saldo todavía no cambió). */
   balanceArs: number;
+}
+
+/**
+ * MOVO-311: vista previa de la deuda que se le descontaría a un transportista al cobrar estos precios
+ * (`POST /internal/payments/users/:userId/debt-collection/preview`). No reserva nada.
+ */
+export interface DebtCollectionPreviewRequest {
+  /** Precios brutos de las ofertas o envíos, hasta 100. */
+  amountsArs: number[];
+}
+
+export interface DebtCollectionPreviewResponse {
+  /** Deuda actual sin contar lo que ya reservaron holds en curso. 0 si no debe. */
+  pendingBalanceArs: number;
+  /** Lo que se descontaría en cada precio (mismo orden), con el tope por envío. */
+  debtOffsetsArs: number[];
+}
+
+/**
+ * MOVO-311: lo que se le descontaría al transportista de su cobro por la deuda de su cuenta corriente,
+ * con el motivo, para que el "Recibís aprox." de ofertas y envíos lo reste antes de comprometerse.
+ * `null` en la respuesta cuando no debe nada o no se pudo calcular.
+ */
+export interface CarrierDebtDiscount {
+  amountArs: number;
+  reason: "pending_balance";
 }

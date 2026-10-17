@@ -552,6 +552,18 @@ final del orden. También el trigger `tripRecurrenceBlockedByDebt` (categoría `
 recurrente frenada por la deuda. Cambio aditivo: un cliente anterior que no conozca el valor lo ignora al filtrar por la checklist.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+
+### MOVO-311 — Deuda cobrada en el hold (`types/hold.ts`, `funding.ts`, `settlement.ts`, `user-ledger.ts`, `transaction.ts`)
+
+`HoldDebtBreakdown` (`baseAmountArs`, `debtOffsetArs`, `debtSurchargeArs`) en `HoldCheckoutDataResponse` y `HoldResponse`
+(que además suma `commissionArs`); `HoldCheckoutDataRequest.payerUserId?`. `ShipmentFundingResponse` suma `priceArs`,
+`pendingBalanceArs` y `totalArs`; `SettlementResponse` suma `debtOffsetArs`/`debtSurchargeArs` y
+`ShipmentSettlementResponse` suma `debtCollectedArs`; `TransactionBreakdown` suma `debtOffsetArs`. Nuevos:
+`DebtCollectionPreviewRequest`/`Response`, `CarrierDebtDiscount`, `SettlementResponse.carrierGrossAmountArs`/`carrierMpFeeArs` (el cobro del
+transportista sin el recargo del emisor, fijado al acreditar con `carrierPaymentView` de `config/commission.ts`, que solo llama el
+`capture.service` de payments) y `expectedTotalArs?` en `CreateHoldRequest`/`ShipmentFundingRequest` + código `HOLD_AMOUNT_CHANGED` (409,
+`details.totalArs`). `amountArs` del hold y del funding pasa a ser lo que paga el emisor (precio + recargo). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
 ### MOVO-306 — `SettlementKind` y body de la captura
 
 `types/settlement.ts` suma `SETTLEMENT_KINDS`/`SettlementKind` (`delivery` | `cancellation_penalty`),

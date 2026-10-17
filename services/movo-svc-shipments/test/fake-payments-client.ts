@@ -43,9 +43,20 @@ export interface FakePaymentsBehavior {
    * muta (`add`/`delete`) para probar que el bloqueo se levanta en la siguiente consulta, sin cache.
    */
   overdueDebtUserIds: Set<string>;
+  /**
+   * MOVO-311: deuda pendiente (ARS) por usuario. El fake la cobra con el tope del 30% por envío, igual
+   * que payments: al transportista en el "Recibís aprox." y al emisor como recargo del pago.
+   */
+  pendingDebtByUserId: Map<string, number>;
+  /** MOVO-311: si es true, `previewCarrierDebt` devuelve `null` (payments caído). */
+  previewFails: boolean;
   /** MOVO-307: si no es null, `createLedgerEntry` lanza este error (payments caído). */
   ledgerError: ApiError | null;
 }
+
+const DEBT_CAP_RATE = 0.3;
+const debtOffset = (debt: number | undefined, priceArs: number): number =>
+  Math.min(Math.max(0, debt ?? 0), Math.floor(priceArs * DEBT_CAP_RATE * 100) / 100);
 
 export interface FakePaymentsClient extends PaymentsClient {
   behavior: FakePaymentsBehavior;
@@ -71,6 +82,8 @@ export function createFakePaymentsClient(
     createFails: false,
     captureError: null,
     overdueDebtUserIds: new Set<string>(),
+    pendingDebtByUserId: new Map<string, number>(),
+    previewFails: false,
     ledgerError: null,
     ...behaviorOverrides,
   };
@@ -102,17 +115,42 @@ export function createFakePaymentsClient(
       return { overdue: false, balanceArs: 0, oldestUnpaidAt: null };
     }),
 
-    getCheckoutData: vi.fn(async (input) => ({
-      shipmentId: input.shipmentId,
-      publicKey: "TEST-carrier-public-key",
-      amountArs: input.amountArs,
-      applicationFeeArs: Math.round(input.amountArs * 0.13 * 100) / 100,
-      payerEmail: input.payerEmail,
-    })),
+    previewCarrierDebt: vi.fn(async (userId: string, amountsArs: number[]) => {
+      if (behavior.previewFails) return null;
+      const debt = behavior.pendingDebtByUserId.get(userId) ?? 0;
+      return {
+        pendingBalanceArs: Math.max(0, debt),
+        debtOffsetsArs: amountsArs.map((price) => debtOffset(debt, price)),
+      };
+    }),
+
+    getCheckoutData: vi.fn(async (input) => {
+      const surcharge = input.payerUserId
+        ? debtOffset(behavior.pendingDebtByUserId.get(input.payerUserId), input.amountArs)
+        : 0;
+      const offset = debtOffset(behavior.pendingDebtByUserId.get(input.carrierId), input.amountArs);
+      return {
+        shipmentId: input.shipmentId,
+        publicKey: "TEST-carrier-public-key",
+        amountArs: input.amountArs + surcharge,
+        applicationFeeArs: Math.round((input.amountArs * 0.13 + offset + surcharge) * 100) / 100,
+        baseAmountArs: input.amountArs,
+        debtOffsetArs: offset,
+        debtSurchargeArs: surcharge,
+        payerEmail: input.payerEmail,
+      };
+    }),
 
     createHold: vi.fn(async (input) => {
       if (behavior.createFails) {
         throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "MP no respondió");
+      }
+      // MOVO-311: igual que payments, si el total que confirmó el emisor ya no es el que corresponde cobrar, 409.
+      if (input.expectedTotalArs !== undefined) {
+        const total = input.amountArs + debtOffset(behavior.pendingDebtByUserId.get(input.payerUserId), input.amountArs);
+        if (Math.abs(total - input.expectedTotalArs) > 0.001) {
+          throw new ApiError(409, "HOLD_AMOUNT_CHANGED", "El monto a pagar cambió", { totalArs: total });
+        }
       }
       const existing = holds.get(input.shipmentId);
       if (existing && LIVE_HOLD_STATUSES.includes(existing.status)) {
@@ -130,6 +168,10 @@ export function createFakePaymentsClient(
         collectorId: "collector-1",
         amountArs: input.amountArs,
         applicationFeeArs: Math.round(input.amountArs * 0.13 * 100) / 100,
+        baseAmountArs: input.amountArs,
+        commissionArs: Math.round(input.amountArs * 0.13 * 100) / 100,
+        debtOffsetArs: 0,
+        debtSurchargeArs: 0,
         status: behavior.nextHoldStatus,
         statusDetail: null,
         failureReason: behavior.nextHoldStatus === "rejected" ? (behavior.nextFailureReason ?? "card_rejected") : null,
@@ -200,6 +242,7 @@ export function createFakePaymentsClient(
       const now = new Date().toISOString();
       // 1000 = 41 (MP) + 150 (Movo) + 809 (neto): la misma forma que el sandbox.
       const mpFeeArs = Math.round(grossAmountArs * 0.041 * 100) / 100;
+      const surchargeFee = Math.round((hold.applicationFeeArs - hold.commissionArs - hold.debtOffsetArs) * 100) / 100;
       const settlement: SettlementResponse = {
         id: `00000000-0000-4000-8000-${String(++sequence).padStart(12, "9")}`,
         shipmentId,
@@ -210,7 +253,11 @@ export function createFakePaymentsClient(
         kind,
         grossAmountArs,
         mpFeeArs,
-        commissionArs: hold.applicationFeeArs,
+        commissionArs: hold.commissionArs,
+        debtOffsetArs: hold.debtOffsetArs,
+        debtSurchargeArs: hold.debtSurchargeArs,
+        carrierGrossAmountArs: Math.round((grossAmountArs - hold.debtSurchargeArs) * 100) / 100,
+        carrierMpFeeArs: Math.round((mpFeeArs - (hold.debtSurchargeArs - surchargeFee)) * 100) / 100,
         netAmountArs: Math.round((grossAmountArs - mpFeeArs - hold.applicationFeeArs) * 100) / 100,
         failureReason: null,
         capturedAt: now,

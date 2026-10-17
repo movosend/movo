@@ -47,6 +47,9 @@ export function payDemoFunding(): ShipmentFundingResponse {
     route: "near",
     carrierPublicKey: "TEST-demo",
     amountArs: 18400,
+    priceArs: 18400,
+    pendingBalanceArs: 0,
+    totalArs: 18400,
     payUntil: new Date(Date.now() + 23 * 3600_000 + 60_000).toISOString(),
   };
 }

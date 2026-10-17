@@ -154,6 +154,8 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
           mpPaymentId: `test-mp-${seq}`,
           amountArs: 1000,
           applicationFeeArs: 150,
+          baseAmountArs: 1000,
+          commissionArs: 150,
           status: "authorized",
           expiresAt: new Date(Date.now() + 86_400_000),
         },

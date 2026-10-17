@@ -63,6 +63,8 @@ export interface TransactionBreakdown {
   grossArs: number;
   mpFeeArs: number;
   commissionArs: number;
+  /** MOVO-311: deuda de la cuenta corriente del transportista descontada de este cobro. */
+  debtOffsetArs: number;
   netArs: number;
 }
 

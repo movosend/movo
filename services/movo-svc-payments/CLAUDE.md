@@ -638,6 +638,45 @@ El sandbox no permite aprobar después un pago pendiente, así que esa transici�
 
 Pendiente: vincular la cuenta de Movo en dev/prod y cargar `MOVO_COLLECTOR_USER_ID` en los secrets; la pantalla mobile (MOVO-315).
 
+### MOVO-311 — Cobrar la deuda en el `application_fee` del próximo hold (ADR-044)
+
+Al crear un hold se cobra la deuda de la cuenta corriente de las dos partes, cada una con tope `DEBT_COLLECTION_MAX_RATE`
+(0.3 del precio): la del transportista sube el fee, la del emisor sube el monto y el fee (este último menos el estimado de la
+comisión de MP sobre el recargo, que absorbe Movo). Cálculo puro en `src/modules/holds/debt-collection.ts`; flujo y ejemplo en
+`flujo-de-pagos.md` §6.1. Migración `20261016200000_hold_debt_collection`.
+
+- **Montos fijados una vez por intento** en `holds` (`base_amount_ars`, `commission_ars`, `debt_offset_ars`, `debt_surcharge_ars`):
+  `amount_ars` pasa a ser lo cobrado. `sameTerms` compara contra `base_amount_ars` (shipments siempre manda el precio) y un
+  `creating` reintentado reusa los montos guardados, así la misma key siempre lleva el mismo cuerpo.
+- **Reserva en la transacción del alta** (`hold-repository#createAttempt` recibe un `plan`): advisory lock por usuario (en orden),
+  lectura del saldo cobrable, insert del hold y de los movimientos `reserved` negativos (`<tipo>:<holdId>`). Dos holds en paralelo del mismo
+  usuario no descuentan la misma deuda.
+- **Tres lecturas del saldo** (`user-ledger-repository.ts`, revisión de la PR #266): `readLedgerBalance` (el que se informa y mide el bloqueo
+  de MOVO-313) NO descuenta las reservas negativas, así un hold en curso no destraba a nadie; `readBalanceNetOfReservations` las descuenta
+  (máximo de "Pagar mi saldo") y `readCollectableBalance` descuenta además los pagos de saldo abiertos (lo que usa el hold). El pago de saldo
+  abre su intento con el mismo lock (`attempts.insertOpen`, que ahora valida el monto bajo el lock y devuelve el intento abierto si ya hay uno).
+- **`expectedTotalArs`**: `CreateHoldRequest` lo acepta; si el total que corresponde al abrir el intento (leído bajo el lock) difiere, 409
+  `HOLD_AMOUNT_CHANGED` con `details.totalArs` y no se crea fila ni reserva (`HoldAmountChangedError`). También se compara al reintentar un
+  `creating` con los montos ya fijados.
+- **Anulación por trigger** (`holds_void_debt_reservations`): todo paso a `rejected`/`cancelled` anula las reservas del hold, por
+  cualquier camino (creación, liberación, `?sync`, webhook). **Captura**: `splitRetainedFee` reparte lo que retuvo MP y
+  `user-ledger-repository#settleHoldDebt` asienta antes de acreditar la liquidación (`commission_ars` queda solo la comisión).
+  Si la reserva ya estaba anulada (el hold pasó por `cancelled` y MP igual capturó) o MP retuvo otro monto, inserta
+  `<tipo>:settle:<holdId>` con `createMany({ skipDuplicates })`: dentro de la transacción un P2002 la abortaría.
+- **El transportista no ve el recargo del emisor**: al acreditar, `capture.service` calcula UNA vez la vista del transportista
+  (`carrierPaymentView` de `@movo/shared`: bruto = precio, fee de MP sin la parte del recargo) y la guarda en
+  `settlements.carrier_gross_amount_ars`/`carrier_mp_fee_ars` (migración `20261016220000`, con backfill). El historial y
+  `GET /shipments/:id/settlement` las leen, nadie reconstruye. Si la comisión real de MP sobre el recargo difiere del 4,99% estimado,
+  la diferencia cae en el fee de MP que ve el transportista. El reintegro y los movimientos que ve el transportista se topan en el precio.
+- **Límite conocido**: un reintegro o contracargo del pago que cobró deuda no repone la deuda (ADR-044).
+- `MP_TRANSACTION_FEE_RATE` está en el `envSchema` (0 a 1): `@movo/shared` la lee de `process.env`, y un `4.99` en vez de `0.0499` corta el arranque.
+- Si cobrador y pagador fueran la misma persona (shipments no lo permite), el saldo se cobra una sola vez, como cobrador.
+- `checkout-data` acepta `payerUserId` y devuelve la vista previa; `POST /internal/payments/users/:userId/debt-collection/preview`
+  da el descuento del transportista por precio (para el "Recibís aprox."). El historial suma `debtOffsetArs` al desglose.
+
+Pendiente: correr `test/debt-collection.sandbox.test.ts` (escrito, sin correr por falta de las credenciales
+`MP_SANDBOX_CARRIER_*`), y la captura parcial de MOVO-307, que con deuda en el fee tiene menos margen antes del `4201`.
+
 ### MOVO-306 — Captura parcial del hold por penalidad de cancelación
 
 `POST /internal/payments/holds/by-shipment/:shipmentId/capture` acepta un body opcional

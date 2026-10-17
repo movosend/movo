@@ -126,6 +126,7 @@ describe("useShipmentSettlement (MOVO-214)", () => {
       kind: "delivery",
       status: "credited",
       paidAmountArs: 13800,
+      debtCollectedArs: 0,
       paidAt: "2026-10-14T19:42:00.000Z",
       mpFeeArs: 688.62,
       commissionArs: 1800,

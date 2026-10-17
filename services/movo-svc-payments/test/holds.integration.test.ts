@@ -98,6 +98,9 @@ describe("/internal/payments/holds (MOVO-209)", () => {
       publicKey: "TEST-public-key",
       amountArs: 1150,
       applicationFeeArs: 150,
+      baseAmountArs: 1150,
+      debtOffsetArs: 0,
+      debtSurchargeArs: 0,
       payerEmail: "e@x.com",
     });
   });
@@ -170,8 +173,8 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     await expect(
       app.db.$executeRawUnsafe(
         `INSERT INTO payments.holds (shipment_id, attempt, carrier_id, collector_id, amount_ars,
-           application_fee_ars, status, updated_at)
-         VALUES ('${SHIPMENT}', 2, '${CARRIER}', '1', 100, 10, 'authorized', now())`
+           application_fee_ars, base_amount_ars, commission_ars, status, updated_at)
+         VALUES ('${SHIPMENT}', 2, '${CARRIER}', '1', 100, 10, 100, 10, 'authorized', now())`
       )
     ).rejects.toThrow();
   });
