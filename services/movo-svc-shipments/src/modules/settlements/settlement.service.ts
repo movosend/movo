@@ -1,5 +1,7 @@
 import {
   ApiError,
+  NotificationTriggerKey,
+  renderNotificationTrigger,
   SettlementDisplayStatus,
   SettlementResponse,
   ShipmentSettlementResponse,
@@ -9,10 +11,12 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { PaymentsClient } from "../../adapters/payments-client";
 import { InvalidShipmentTransitionError } from "../../domain/shipment-state-machine";
 import {
+  PenaltyCursor,
   SettlementCursor,
   ShipmentConcurrentModificationError,
   ShipmentRepository,
 } from "../../repositories/shipment-repository";
+import { Shipment } from "../../models/shipment";
 import { sendCustodyPush } from "../../utils/dispatch-push";
 
 type SettlementLogger = {
@@ -40,6 +44,22 @@ export interface SettlementRetryState {
   recordFailure(shipmentId: string, permanent: boolean): Promise<void>;
   clear(shipmentId: string): Promise<void>;
 }
+
+/**
+ * MOVO-307: resultado de cobrar la penalidad de una cancelación tardía.
+ * - `captured`: se cobró del hold (captura parcial) en esta llamada.
+ * - `debt`: no se pudo cobrar del hold y quedó como deuda en la cuenta corriente.
+ * - `already_resolved`: ya estaba cobrada o registrada como deuda.
+ * - `skipped`: el envío no tiene una penalidad pendiente.
+ */
+export type PenaltyOutcome = "captured" | "debt" | "already_resolved" | "skipped";
+
+/**
+ * MOVO-307: códigos de la captura de penalidad que mandan la penalidad a la cuenta corriente
+ * en vez de reintentar. `CAPTURE_BELOW_APPLICATION_FEE` es el plan B (spike MOVO-305: MP no
+ * captura un monto que no cubra su comisión más el fee de MP); los otros dos, un hold que ya no existe o venció.
+ */
+const PENALTY_TO_DEBT_CODES = new Set(["CAPTURE_BELOW_APPLICATION_FEE", "HOLD_NOT_FOUND", "HOLD_NOT_CAPTURABLE"]);
 
 /** Códigos con los que `svc-payments` avisa que reintentar no sirve (sin hold / hold no capturable). */
 const PERMANENT_CAPTURE_CODES = new Set(["HOLD_NOT_FOUND", "HOLD_NOT_CAPTURABLE"]);
@@ -95,6 +115,41 @@ function displayStatus(settlement: SettlementResponse): SettlementDisplayStatus 
  */
 export function createSettlementService(deps: SettlementServiceDeps) {
   const { repository, paymentsClient, notificationsClient, logger, claimNotificationOnce, retryState } = deps;
+
+  /** MOVO-307: la penalidad no se pudo cobrar del hold y queda como deuda en la cuenta corriente. */
+  async function resolveAsDebt(shipment: Shipment, penaltyArs: number, code: string): Promise<PenaltyOutcome> {
+    const resolved = await repository.resolveCancellationPenalty(shipment.id, "debt");
+    if (!resolved) return "already_resolved";
+    logger?.warn(
+      { event: "cancellation_penalty_debt", shipmentId: shipment.id, senderId: shipment.senderId, penaltyArs, code },
+      "la penalidad de cancelación quedó como deuda en la cuenta corriente del emisor"
+    );
+    await notifyPenalty(shipment.id, shipment.senderId, "cancellationPenaltyDebtSender", { penaltyArs });
+    return "debt";
+  }
+
+  /** Push de la penalidad. Sin dedupe en Redis: solo la manda quien ganó `resolveCancellationPenalty`. */
+  async function notifyPenalty<K extends NotificationTriggerKey>(
+    shipmentId: string,
+    userId: string,
+    triggerKey: K,
+    params: Parameters<typeof renderNotificationTrigger<K>>[1]
+  ): Promise<void> {
+    if (!notificationsClient) return;
+    await sendCustodyPush({
+      notificationsClient,
+      userId,
+      triggerKey,
+      params,
+      data: { type: "shipment", shipmentId },
+      logger,
+      onErrorContext: {
+        event: "notification_dispatch_failed",
+        message: "No se pudo avisar la penalidad de cancelación",
+        extra: { shipmentId },
+      },
+    });
+  }
 
   async function notifyParties(
     shipment: { id: string; senderId: string; carrierId: string | null },
@@ -187,6 +242,130 @@ export function createSettlementService(deps: SettlementServiceDeps) {
     },
 
     /**
+     * MOVO-307 (ADR-047, AC6/AC9): cobra la penalidad de un envío cancelado con menos de 12 h.
+     * Idempotente y retomable: la llaman la cancelación en línea y el barrido.
+     *
+     * Orden: (1) se registra la deuda en la cuenta corriente del emisor (`cancellation_penalty`);
+     * (2) se captura esa parte del hold; (3) con la captura acreditada se registra el cobro
+     * (`penalty_capture`, negativo y `settled`), así el saldo queda en cero. Si el hold no la
+     * soporta (no cubre la comisión más el fee de MP, plan B) se libera entero; si venció o no existe, no hay
+     * nada que liberar. En los dos casos la deuda queda y se cobra en la próxima operación
+     * (MOVO-311). Un fallo transitorio (payments o MP caídos) lanza y la penalidad sigue
+     * `pending` para el próximo intento. Las tres llamadas a payments son idempotentes.
+     */
+    async settleCancellationPenalty(shipmentId: string): Promise<PenaltyOutcome> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment || shipment.status !== ShipmentStatus.CANCELLED || shipment.cancellationPenaltyArs === null) {
+        return "skipped";
+      }
+      if (shipment.cancellationPenaltyStatus !== "pending") return "already_resolved";
+      const penaltyArs = shipment.cancellationPenaltyArs;
+
+      await paymentsClient.createLedgerEntry(shipment.senderId, {
+        idempotencyKey: `penalty:${shipmentId}`,
+        type: "cancellation_penalty",
+        roleAtOrigin: "sender",
+        amountArs: penaltyArs,
+        shipmentId,
+      });
+
+      let settlement: SettlementResponse;
+      try {
+        settlement = await paymentsClient.captureHold(shipmentId, { kind: "cancellation_penalty", amountArs: penaltyArs });
+      } catch (err) {
+        const code = err instanceof ApiError ? err.code : undefined;
+        if (code === undefined || !PENALTY_TO_DEBT_CODES.has(code)) throw err;
+        if (code === "CAPTURE_BELOW_APPLICATION_FEE") {
+          // Plan B: el hold sigue `authorized` y se libera entero. Si la liberación falla, lanza
+          // y se reintenta; con la cuenta del transportista desvinculada no hay cómo liberarlo
+          // (vence solo en MP), mismo criterio que `releaseHoldBeforeCancel`.
+          try {
+            await paymentsClient.releaseHold(shipmentId);
+          } catch (releaseErr) {
+            if (!(releaseErr instanceof ApiError && releaseErr.code === "CARRIER_MP_ACCOUNT_NOT_LINKED")) throw releaseErr;
+            logger?.error?.(
+              { err: releaseErr, event: "funding_hold_release_impossible", shipmentId },
+              "No se pudo liberar el hold: la cuenta de MP del transportista no está vinculada, vence solo en MP"
+            );
+          }
+        } else {
+          logger?.error?.(
+            { event: "cancellation_penalty_hold_unavailable", shipmentId, code, penaltyArs },
+            "No se pudo cobrar la penalidad del hold (vencido o inexistente): queda como deuda del emisor"
+          );
+        }
+        return resolveAsDebt(shipment, penaltyArs, code);
+      }
+
+      if (settlement.status !== "credited") {
+        throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "La penalidad no quedó acreditada.");
+      }
+      await paymentsClient.createLedgerEntry(shipment.senderId, {
+        idempotencyKey: `penalty_capture:${shipmentId}`,
+        type: "penalty_capture",
+        roleAtOrigin: "sender",
+        amountArs: -settlement.grossAmountArs,
+        status: "settled",
+        shipmentId,
+        holdId: settlement.holdId,
+      });
+
+      const resolved = await repository.resolveCancellationPenalty(shipmentId, "captured");
+      if (!resolved) return "already_resolved";
+      logger?.info?.(
+        { event: "cancellation_penalty_captured", shipmentId, penaltyArs, netAmountArs: settlement.netAmountArs },
+        "penalidad de cancelación cobrada del hold"
+      );
+      const netAmountArs = settlement.netAmountArs;
+      await Promise.all([
+        shipment.carrierId && netAmountArs !== null
+          ? notifyPenalty(shipment.id, shipment.carrierId, "cancellationPenaltyCompensationCarrier", { netAmountArs })
+          : Promise.resolve(),
+        notifyPenalty(shipment.id, shipment.senderId, "cancellationPenaltyChargedSender", {
+          penaltyArs: settlement.grossAmountArs,
+        }),
+      ]);
+      return "captured";
+    },
+
+    /**
+     * MOVO-307: para el barrido -- reintenta las penalidades `pending` de envíos cancelados hace
+     * más de `graceMinutes` (para no pisar el cobro en línea). Mismo esqueleto que
+     * `retryPendingSettlements`: cursor keyset, enfriamiento por envío y un fallo no frena a los demás.
+     */
+    async retryPendingPenalties(options: { graceMinutes: number; batchSize: number }): Promise<void> {
+      const now = (deps.now ?? (() => new Date()))();
+      const cancelledBefore = new Date(now.getTime() - options.graceMinutes * 60 * 1000);
+      let cursor: PenaltyCursor | undefined;
+      let attempted = 0;
+
+      for (let page = 0; page < SWEEP_MAX_PAGES && attempted < options.batchSize; page += 1) {
+        const pending = await repository.listCancelledAwaitingPenalty(cancelledBefore, options.batchSize, cursor);
+        if (pending.length === 0) break;
+
+        for (const shipment of pending) {
+          if (shipment.lastStatusChangedAt) cursor = { cancelledAt: shipment.lastStatusChangedAt, id: shipment.id };
+          if (attempted >= options.batchSize) break;
+          if (retryState && (await retryState.isCoolingDown(shipment.id))) continue;
+
+          attempted += 1;
+          try {
+            await this.settleCancellationPenalty(shipment.id);
+            await retryState?.clear(shipment.id);
+          } catch (err) {
+            const code = err instanceof ApiError ? err.code : undefined;
+            logger?.warn(
+              { event: "cancellation_penalty_retry_failed", shipmentId: shipment.id, code, err },
+              "no se pudo cobrar la penalidad de cancelación, queda para un próximo barrido"
+            );
+            await retryState?.recordFailure(shipment.id, false).catch(() => undefined);
+          }
+        }
+        if (pending.length < options.batchSize) break;
+      }
+    },
+
+    /**
      * AC10: liquidación de un envío, con visibilidad por rol. El transportista ve el desglose
      * completo; el emisor solo el total pagado y la fecha; el receptor (y cualquier ajeno) no
      * accede.
@@ -209,6 +388,7 @@ export function createSettlementService(deps: SettlementServiceDeps) {
       const base: ShipmentSettlementResponse = {
         shipmentId,
         role: isCarrier ? "carrier" : "sender",
+        kind: settlement.kind,
         status: displayStatus(settlement),
         paidAmountArs: isCarrier ? settlement.carrierGrossAmountArs : settlement.grossAmountArs,
         paidAt: settlement.status === "credited" ? settlement.capturedAt : null,

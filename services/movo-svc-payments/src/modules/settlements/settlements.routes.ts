@@ -1,5 +1,10 @@
 import { FastifyInstance } from "fastify";
+import { ApiError, type CaptureHoldRequest } from "@movo/shared";
+import type { CaptureRequest } from "./capture.service";
 import { captureHoldSchema, getSettlementSchema } from "./settlements.schema";
+
+/** Campos que acepta el body de la captura. */
+const CAPTURE_BODY_KEYS = new Set(["kind", "amountArs"]);
 
 /**
  * MOVO-212: endpoints INTERNOS de captura y liquidación, los consume `movo-svc-shipments`
@@ -13,11 +18,38 @@ import { captureHoldSchema, getSettlementSchema } from "./settlements.schema";
 export default async function settlementsRoutes(app: FastifyInstance) {
   const service = app.captures;
 
-  app.post("/by-shipment/:shipmentId/capture", { schema: captureHoldSchema }, async (request) => {
-    const { shipmentId } = request.params as { shipmentId: string };
-    const { settlement } = await service.capture(shipmentId);
-    return { settlement };
-  });
+  app.post(
+    "/by-shipment/:shipmentId/capture",
+    {
+      schema: captureHoldSchema,
+      // Sin body (MOVO-212, como llama `svc-shipments` hoy) es una entrega: Fastify validaría
+      // `undefined` contra el schema y respondería 400, así que se valida como `{}`.
+      // Review de PR #261: Ajv de Fastify borra en silencio las claves de más
+      // (`removeAdditional`), así que un `{ amount: 300 }` mal escrito llegaba como `{}` y
+      // capturaba el hold ENTERO como entrega. Acá se rechaza con 400 antes de validar.
+      preValidation: async (request) => {
+        request.body ??= {};
+        const body = request.body;
+        const unknown = typeof body === "object" && body !== null && !Array.isArray(body)
+          ? Object.keys(body).filter((key) => !CAPTURE_BODY_KEYS.has(key))
+          : [];
+        if (unknown.length > 0) {
+          throw new ApiError(400, "VALIDATION_FAILED", `Campos desconocidos en la captura: ${unknown.join(", ")}`);
+        }
+      },
+    },
+    async (request) => {
+      const { shipmentId } = request.params as { shipmentId: string };
+      // El schema ya garantiza que la penalidad trae `amountArs` y la entrega no.
+      const body = request.body as CaptureHoldRequest;
+      const capture: CaptureRequest =
+        body.kind === "cancellation_penalty"
+          ? { kind: "cancellation_penalty", amountArs: body.amountArs as number }
+          : { kind: "delivery" };
+      const { settlement } = await service.capture(shipmentId, capture);
+      return { settlement };
+    }
+  );
 
   app.get("/by-shipment/:shipmentId/settlement", { schema: getSettlementSchema }, async (request) => {
     const { shipmentId } = request.params as { shipmentId: string };

@@ -153,11 +153,13 @@ export type {
 } from "./types/transaction";
 
 // liquidación: captura del hold + split (MOVO-212)
-export { SETTLEMENT_STATUSES } from "./types/settlement";
+export { SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
 export type {
+  CaptureHoldRequest,
   CaptureHoldResponse,
   SettlementDisplayStatus,
   SettlementFailureReason,
+  SettlementKind,
   SettlementResponse,
   SettlementStatus,
   ShipmentSettlementResponse,
@@ -198,6 +200,7 @@ export {
   computeNetFromGross,
   decomposeOfferGrossPrice,
   carrierPaymentView,
+  estimateMpFeeArs,
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
@@ -248,6 +251,18 @@ export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
 
 // trip start (MOVO-277)
 export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";
+// penalidad por cancelar un envío asignado (MOVO-307, ADR-047)
+export {
+  CANCELLATION_PENALTY_FREE_HOURS,
+  CANCELLATION_PENALTY_RATE,
+  computeCancellationPenalty,
+} from "./config/cancellation-penalty";
+export type {
+  CancellationPenaltyInput,
+  CancellationPenaltyQuote,
+  CancellationPenaltyReason,
+  CancellationQuoteResponse,
+} from "./config/cancellation-penalty";
 
 // viajes recurrentes (MOVO-265, ADR-042)
 export {

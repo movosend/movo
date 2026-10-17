@@ -1,9 +1,12 @@
 import {
   ApiError,
   CarrierMpAccountStatusResponse,
+  CaptureHoldRequest,
   CaptureHoldResponse,
   CreateHoldRequest,
   DebtCollectionPreviewResponse,
+  CreateUserLedgerEntryRequest,
+  CreateUserLedgerEntryResponse,
   HoldCheckoutDataRequest,
   HoldCheckoutDataResponse,
   HoldResponse,
@@ -80,9 +83,14 @@ export interface PaymentsClient {
    * captura no se pudo completar (409 `HOLD_NOT_CAPTURABLE`, `CARRIER_MP_ACCOUNT_NOT_LINKED`,
    * 404 `HOLD_NOT_FOUND`, 502 `PAYMENT_PROVIDER_ERROR`...): el envío NO se toca.
    */
-  captureHold(shipmentId: string): Promise<SettlementResponse>;
+  captureHold(shipmentId: string, request?: CaptureHoldRequest): Promise<SettlementResponse>;
   /** MOVO-212: liquidación del envío, o `null` si todavía no se pidió la captura. */
   findSettlement(shipmentId: string): Promise<SettlementResponse | null>;
+  /**
+   * MOVO-307 (ADR-044): registra un movimiento en la cuenta corriente del usuario.
+   * Idempotente por `idempotencyKey`: reenviar el mismo cuerpo devuelve el movimiento ya creado.
+   */
+  createLedgerEntry(userId: string, entry: CreateUserLedgerEntryRequest): Promise<CreateUserLedgerEntryResponse>;
 }
 
 export interface PaymentsClientConfig {
@@ -103,6 +111,7 @@ const HOLD_TIMEOUT_MS = 20_000;
 // seguro reintentar porque la captura es idempotente (key por hold + fila por envío).
 const CAPTURE_TIMEOUT_MS = 50_000;
 const HOLDS_PATH = "/internal/payments/holds";
+const LEDGER_TIMEOUT_MS = 5000;
 
 type SerializedError = { error?: { code?: string; message?: string; details?: Record<string, unknown> } };
 
@@ -137,7 +146,9 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
     try {
       return await fetch(`${config.PAYMENTS_SERVICE_URL}${HOLDS_PATH}${path}`, {
         ...init,
-        headers: { "content-type": "application/json", ...(init.headers ?? {}) },
+        // Solo con body: un POST sin body con `content-type: application/json` lo rechaza el
+        // parser de Fastify de payments (MOVO-307, rompía la captura y la liberación).
+        headers: { ...(init.body !== undefined ? { "content-type": "application/json" } : {}), ...(init.headers ?? {}) },
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
@@ -278,10 +289,11 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
       return (await response.json()) as HoldResponse;
     },
 
-    async captureHold(shipmentId) {
+    async captureHold(shipmentId, request) {
       const response = await callHolds(
         `/by-shipment/${encodeURIComponent(shipmentId)}/capture`,
-        { method: "POST" },
+        // Sin `request` es la captura de entrega de MOVO-212, tal cual.
+        { method: "POST", ...(request ? { body: JSON.stringify(request) } : {}) },
         CAPTURE_TIMEOUT_MS,
       );
       if (!response.ok) {
@@ -299,6 +311,27 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
         throw await parseApiError(response, "El servicio de pagos devolvió un error.");
       }
       return (await response.json()) as SettlementResponse;
+    },
+
+    async createLedgerEntry(userId, entry) {
+      let response: Response;
+      try {
+        response = await fetch(
+          `${config.PAYMENTS_SERVICE_URL}/internal/payments/users/${encodeURIComponent(userId)}/ledger-entries`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(entry),
+            signal: AbortSignal.timeout(LEDGER_TIMEOUT_MS),
+          },
+        );
+      } catch {
+        throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
+      }
+      if (!response.ok) {
+        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
+      }
+      return (await response.json()) as CreateUserLedgerEntryResponse;
     },
   };
 }

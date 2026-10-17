@@ -1,11 +1,12 @@
 import { Prisma, PrismaClient } from "../generated/prisma/client";
-import type { Settlement, SettlementStatus } from "../generated/prisma/client";
+import type { Settlement, SettlementKind, SettlementStatus } from "../generated/prisma/client";
 
 export type { Settlement };
 
-/** Lo que se sabe de la liquidación ANTES de hablar con MP: sale del hold. */
+/** Lo que se sabe de la liquidación ANTES de hablar con MP: sale del hold (y del pedido, MOVO-306). */
 export interface NewSettlement {
   shipmentId: string;
+  kind: SettlementKind;
   holdId: string;
   carrierId: string;
   mpPaymentId: string;
@@ -64,6 +65,7 @@ export function createSettlementRepository(db: PrismaClient): SettlementReposito
         return await db.settlement.create({
           data: {
             shipmentId: data.shipmentId,
+            kind: data.kind,
             holdId: data.holdId,
             carrierId: data.carrierId,
             mpPaymentId: data.mpPaymentId,

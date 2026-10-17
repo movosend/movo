@@ -466,6 +466,8 @@ Table shipments.shipments {
   status shipment_status_enum
   last_status_changed_at timestamp [null]
   delivered_at timestamp [null]
+  cancellation_penalty_ars decimal(12,2) [null, note: 'MOVO-307: penalidad de una cancelación tardía del emisor']
+  cancellation_penalty_status cancellation_penalty_status_enum [null, note: 'MOVO-307: pending, captured o debt']
   receiver_confirmation_deadline timestamp [null, note: 'MOVO-130: deadline de confirmación del receptor (48h)']
   created_at timestamp
   updated_at timestamp [note: 'mantenida por trigger de Postgres, no por código de aplicación (mismo patrón que users.users)']

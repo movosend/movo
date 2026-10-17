@@ -123,6 +123,7 @@ describe("useShipmentSettlement (MOVO-214)", () => {
     const credited: ShipmentSettlementResponse = {
       shipmentId: "s-1",
       role: "carrier",
+      kind: "delivery",
       status: "credited",
       paidAmountArs: 13800,
       paidAt: "2026-10-14T19:42:00.000Z",

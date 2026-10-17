@@ -195,6 +195,15 @@ enum SettlementStatus {
   @@schema("payments")
 }
 
+// MOVO-306: qué originó la captura (ver `SettlementKind` en @movo/shared).
+enum SettlementKind {
+  delivery
+  cancellation_penalty
+
+  @@map("settlement_kind")
+  @@schema("payments")
+}
+
 // MOVO-212: liquidación de un envío (captura del hold + split). UNA fila por envío
 // (`shipment_id` único): es la base de la idempotencia del cobro, un segundo pedido de
 // captura encuentra la fila y no vuelve a cobrar. `processing` se escribe ANTES de llamar
@@ -207,34 +216,35 @@ enum SettlementStatus {
 // - Montos `numeric(12,2)`, nunca float. `shipmentId`/`carrierId` son referencias
 //   lógicas, sin FK (ADR-003); `holdId` sí es FK interna del mismo schema.
 model Settlement {
-  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  shipmentId          String           @unique(map: "settlements_shipment_id_key") @map("shipment_id") @db.Uuid
-  holdId              String           @unique(map: "settlements_hold_id_key") @map("hold_id") @db.Uuid
-  carrierId           String           @map("carrier_id") @db.Uuid
-  mpPaymentId         String           @map("mp_payment_id")
-  grossAmountArs      Decimal          @map("gross_amount_ars") @db.Decimal(12, 2)
-  mpFeeArs            Decimal?         @map("mp_fee_ars") @db.Decimal(12, 2)
-  commissionArs       Decimal          @map("commission_ars") @db.Decimal(12, 2)
-  netAmountArs        Decimal?         @map("net_amount_ars") @db.Decimal(12, 2)
+  id                    String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId            String           @unique(map: "settlements_shipment_id_key") @map("shipment_id") @db.Uuid
+  holdId                String           @unique(map: "settlements_hold_id_key") @map("hold_id") @db.Uuid
+  carrierId             String           @map("carrier_id") @db.Uuid
+  mpPaymentId           String           @map("mp_payment_id")
+  grossAmountArs        Decimal          @map("gross_amount_ars") @db.Decimal(12, 2)
+  mpFeeArs              Decimal?         @map("mp_fee_ars") @db.Decimal(12, 2)
+  commissionArs         Decimal          @map("commission_ars") @db.Decimal(12, 2)
+  netAmountArs          Decimal?         @map("net_amount_ars") @db.Decimal(12, 2)
   // MOVO-311: deuda de la cuenta corriente cobrada en este envío, aparte de `commissionArs` (que queda
   // solo la comisión de Movo): el descuento al transportista y el recargo que pagó el emisor.
-  debtOffsetArs       Decimal          @default(0) @map("debt_offset_ars") @db.Decimal(12, 2)
-  debtSurchargeArs    Decimal          @default(0) @map("debt_surcharge_ars") @db.Decimal(12, 2)
+  debtOffsetArs         Decimal          @default(0) @map("debt_offset_ars") @db.Decimal(12, 2)
+  debtSurchargeArs      Decimal          @default(0) @map("debt_surcharge_ars") @db.Decimal(12, 2)
   // Parte del `application_fee` retenido que corresponde al recargo (recargo menos la comisión de MP que
   // absorbe Movo): para mostrarle al transportista su cobro sin el recargo del emisor.
-  debtSurchargeFeeArs Decimal          @default(0) @map("debt_surcharge_fee_ars") @db.Decimal(12, 2)
+  debtSurchargeFeeArs   Decimal          @default(0) @map("debt_surcharge_fee_ars") @db.Decimal(12, 2)
   // Bruto y fee de MP tal como los ve el transportista (sin el recargo del emisor), fijados al acreditar. Null hasta entonces.
-  carrierGrossAmountArs Decimal?       @map("carrier_gross_amount_ars") @db.Decimal(12, 2)
-  carrierMpFeeArs     Decimal?         @map("carrier_mp_fee_ars") @db.Decimal(12, 2)
-  status              SettlementStatus
+  carrierGrossAmountArs Decimal?         @map("carrier_gross_amount_ars") @db.Decimal(12, 2)
+  carrierMpFeeArs       Decimal?         @map("carrier_mp_fee_ars") @db.Decimal(12, 2)
+  status                SettlementStatus
+  kind                  SettlementKind   @default(delivery)
   // Motivo si quedó `failed` (ver `SettlementFailureReason` en @movo/shared).
-  failureReason       String?          @map("failure_reason")
+  failureReason         String?          @map("failure_reason")
   // `status_detail` crudo de MP al capturar (`accredited`, ...).
-  statusDetail        String?          @map("status_detail")
-  capturedAt          DateTime?        @map("captured_at") @db.Timestamptz
-  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz
-  hold                Hold             @relation(fields: [holdId], references: [id])
+  statusDetail          String?          @map("status_detail")
+  capturedAt            DateTime?        @map("captured_at") @db.Timestamptz
+  createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  hold                  Hold             @relation(fields: [holdId], references: [id])
 
   @@map("settlements")
   @@schema("payments")

@@ -57,6 +57,10 @@ export type ApiErrorCode =
   | "SHIPMENTS_SERVICE_UNAVAILABLE"
   | "SHIPMENT_CONCURRENT_MODIFICATION"
   | "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED"
+  // MOVO-307: el emisor confirmó una penalidad de cancelación (`expectedPenaltyArs`) distinta
+  // de la que corresponde ahora (pasó el umbral de 12 h o cerró la ventana). Viaja con
+  // `details.penaltyArs`: el mobile vuelve a mostrar el monto y pide confirmar de nuevo.
+  | "CANCELLATION_PENALTY_MISMATCH"
   | "ACCOUNT_DELETION_IN_PROGRESS"
   | "PHOTO_CONFIRMATION_IN_PROGRESS"
   | "OFFER_NOT_FOUND"
@@ -201,6 +205,14 @@ export type ApiErrorCode =
   | "HOLD_NOT_CAPTURABLE"
   // El envío todavía no tiene liquidación (no se pidió la captura).
   | "SETTLEMENT_NOT_FOUND"
+  // MOVO-306: el envío ya tiene una liquidación de otro tipo (entrega vs. penalidad) o por
+  // otro monto. Una por envío: no se pisa en silencio.
+  | "SETTLEMENT_CONFLICT"
+  // MOVO-306: la penalidad pide capturar más que lo autorizado en el hold.
+  | "CAPTURE_AMOUNT_EXCEEDS_HOLD"
+  // MOVO-306: la penalidad no supera el `application_fee` del hold; MP la rechazaría (`4201`,
+  // spike MOVO-305). El hold sigue `authorized`: `svc-shipments` aplica el plan B (MOVO-307).
+  | "CAPTURE_BELOW_APPLICATION_FEE"
   // MOVO-116 (ADR-036): el transportista no tiene la licencia de conducir aprobada
   // (`kyc_status_license`). Viaja con `details.missingRequirements`.
   | "CARRIER_LICENSE_NOT_APPROVED"

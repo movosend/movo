@@ -202,6 +202,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         maxSideCm: app.config.PACKAGE_MAX_SIDE_CM,
         maxSidesSumCm: app.config.PACKAGE_MAX_SIDES_SUM_CM,
       },
+      // MOVO-307: cobro en línea de la penalidad de cancelación. Se resuelve al llamar
+      // (`app.settlements` se decora en un plugin registrado después de estas rutas).
+      settleCancellationPenalty: (shipmentId: string) => app.settlements.settleCancellationPenalty(shipmentId),
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -921,13 +924,14 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       schema: {
         summary: "Cancelar un envío",
         description:
-          "MOVO-29 (alcance acotado en MOVO-108, ver CLAUDE.md): cancela un envío " +
-          "propio desde awaiting_receiver_confirmation, published o assignment_pending " +
-          "-- ninguno de los tres tiene fondos confirmados, así que no aplica " +
-          "penalización. Cancelar desde assigned todavía no está soportado (requiere " +
-          "una política de penalización real en svc-payments). Solo el emisor puede " +
-          "cancelar. Si el envío estaba published o assignment_pending, se notifica a " +
-          "cada transportista con una oferta pending sobre él.",
+          "MOVO-29/MOVO-108: cancela un envío propio. Solo el emisor puede cancelar. " +
+          "Antes de `assigned` no hay penalidad y se libera el hold que hubiera. Desde " +
+          "`assigned` (MOVO-307, ADR-047) se cobra el 25 % del precio acordado si faltan " +
+          "menos de 12 h para el retiro y la ventana sigue abierta: el emisor manda el " +
+          "monto que vio en `GET /:id/cancellation-quote` como `expectedPenaltyArs` " +
+          "(ausente = 0) y si no coincide responde 409 CANCELLATION_PENALTY_MISMATCH con " +
+          "`details.penaltyArs`, sin cancelar. Un retiro concurrente gana (409). Se notifica " +
+          "al transportista asignado y a cada uno con una oferta pending.",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,
         body: shipmentsSchemas.cancelShipmentBody,
@@ -943,9 +947,38 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     async (request: FastifyRequest) => {
       const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
-      const { reason } = request.body as { reason?: string };
-      const shipment = await service.cancelShipment(id, callerId, reason);
+      const { reason, expectedPenaltyArs } = request.body as { reason?: string; expectedPenaltyArs?: number };
+      const shipment = await service.cancelShipment(id, callerId, reason, expectedPenaltyArs);
       return toShipmentDto(shipment);
+    }
+  );
+
+  app.get(
+    "/:id/cancellation-quote",
+    {
+      schema: {
+        summary: "Penalidad por cancelar un envío",
+        description:
+          "MOVO-307 (ADR-047): lo que el emisor pagaría si cancela ahora. Solo el emisor y solo " +
+          "sobre un envío que todavía se puede cancelar (409 SHIPMENT_INVALID_TRANSITION si no). " +
+          "`penaltyArs` es 0 salvo en un envío `assigned` cancelado con menos de 12 h hasta el " +
+          "retiro y con la ventana todavía abierta (25 % del precio acordado). `freeUntil` es hasta " +
+          "cuándo se puede cancelar sin cargo. El monto se devuelve al cancelar como `expectedPenaltyArs`.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        response: {
+          200: shipmentsSchemas.cancellationQuoteResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      return service.getCancellationQuote(id, callerId);
     }
   );
 

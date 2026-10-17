@@ -2834,8 +2834,7 @@ reportes, la pantalla en `movo-mobile` (MOVO-284) y Redis pub/sub si algún día
   `→ published` (interpretación propuesta en Linear); si el equipo responde distinto,
   es un ajuste acotado a `shipment-repository.ts#updateStatus()`.
 - **Liberación del hold de MercadoPago al cancelar (MOVO-29) y cancelación con
-  penalización desde `assigned`**: bloqueadas por `svc-payments`, que hoy no tiene
-  holds/capture reales — ver MOVO-108 arriba.
+  penalización desde `assigned`**: resueltas en MOVO-210 y MOVO-307 (ver sus entradas).
 - **`agreedPriceArs` resuelto en MOVO-244**: `offer-repository.ts#acceptOffer` ahora persiste
   `agreedPriceArs: current.priceOffered` atómicamente al pasar a `assignment_pending`, y
   `getShipmentDetail` cuenta con fallback defensivo que recupera el precio de la oferta aceptada
@@ -3538,3 +3537,33 @@ solo se previsualiza en `assignment_pending`/`assigned_unfunded` (en `in_transit
 con `details.totalArs` (el cliente de payments ahora conserva `details`; el mobile puede mandarlo cuando tome MOVO-315). `GET /shipments/:id/settlement`
 suma `debtCollectedArs`: el descuento para el transportista, el recargo para el emisor; al transportista,
 `paidAmountArs` y `mpFeeArs` le llegan sin el recargo del emisor (payments los fija al acreditar: `carrierGrossAmountArs`/`carrierMpFeeArs`).
+
+### MOVO-307 — Cancelación del emisor desde `assigned` con penalidad (ADR-047)
+
+`cancelShipment` deja de responder `409 SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED` (el código sigue en el
+contrato). La regla vive en `@movo/shared` (`computeCancellationPenalty`) y acá se aplica sobre la ventana del envío
+(`domain/cancellation-penalty.ts`, la acordada desde MOVO-258 D3). `GET /shipments/:id/cancellation-quote` (solo el
+emisor, 409 si el envío ya no se puede cancelar) y `POST /:id/cancel` con `expectedPenaltyArs` (ausente = 0; si no
+coincide, 409 `CANCELLATION_PENALTY_MISMATCH` con `details.penaltyArs` y no cancela).
+
+- **Cancela con CAS y la penalidad entra en la misma transacción** (`UpdateStatusOptions.cancellationPenaltyArs`,
+  columnas `cancellation_penalty_ars`/`_status`, migración `20261016140000`): `pending` hasta cobrarla. Sin cargo
+  desde `assigned` se libera el hold como en `assignment_pending`.
+- **El cobro vive en `settlement.service.ts#settleCancellationPenalty`** (lo comparten la cancelación en línea, vía
+  `ShipmentsServiceOptions.settleCancellationPenalty` resuelto en la llamada porque `app.settlements` se decora
+  después de las rutas, y el barrido): deuda en la cuenta corriente → captura parcial → `penalty_capture`; las tres
+  llamadas idempotentes. `CAPTURE_BELOW_APPLICATION_FEE` libera el hold y deja la deuda (plan B);
+  `HOLD_NOT_FOUND`/`HOLD_NOT_CAPTURABLE` dejan la deuda con log `error`; cualquier otro error deja `pending`.
+  `resolveCancellationPenalty` cierra `pending → captured|debt` con un UPDATE condicional y solo quien gana manda
+  los pushes (sin claim de Redis).
+- **`settlement-sweep` suma `retryPendingPenalties`** (mismo cursor keyset, enfriamiento y gracia que las
+  entregas; corre aunque falle el paso de entregas). Sigue activo solo con `FUNDS_RELEASE_NOTIFIER=payments`; el
+  cobro en línea corre siempre.
+- **`GET /:id/settlement` suma `kind`** y el detalle del envío expone la penalidad y su estado.
+- **Fix de paso en `payments-client.ts`**: `callHolds` mandaba `content-type: application/json` también sin body y el
+  parser de Fastify de `svc-payments` respondía 500, así que la captura de entrega y la liberación de hold fallaban
+  contra el servicio real (los tests usan un fake). Ahora el header va solo con body. `PaymentsClient` suma
+  `createLedgerEntry` y el body opcional de `captureHold`.
+
+Pendiente: mobile (MOVO-308), Términos y Condiciones (MOVO-316), alerta real del hold vencido (hoy solo log) y que el
+historial de transacciones distinga la penalidad de un cobro (MOVO-303).

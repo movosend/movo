@@ -189,7 +189,7 @@ export function holdUpdateFromPayment(
 const roundArs = (value: number): number => Math.round(value * 100) / 100;
 
 /** Centavos exactos y positivos: no se redondea en silencio un monto con más precisión. */
-function assertValidAmount(amountArs: number): void {
+export function assertValidAmount(amountArs: number): void {
   const cents = amountArs * 100;
   if (!Number.isFinite(amountArs) || amountArs < 0.01 || Math.abs(cents - Math.round(cents)) > 1e-6) {
     throw new ApiError(400, "VALIDATION_FAILED", "amountArs tiene que ser un monto positivo con hasta 2 decimales");
