@@ -25,7 +25,7 @@ key la sella `movo-svc-users` (`repositories/session-repository.ts#revoke
 AccessTokensIssuedBefore`) al cambiar la contraseña o dar de baja la cuenta — sin
 esto, un JWT stateless (ADR-004) seguía siendo válido hasta sus 60 minutos de TTL
 aunque la sesión ya estuviera revocada del lado de `svc-users`. Ver detalle completo
-en `services/movo-svc-users/CLAUDE.md` (MOVO-134, fixes de review).
+en `services/movo-svc-users/HISTORIAL.md` (MOVO-134, fixes de review).
 
 ### MOVO-144/145 — Proxy de `/offers` (`svc-shipments`)
 
@@ -37,14 +37,14 @@ propio, no anidados en `/shipments`. Mismo criterio que MOVO-119 de abajo. Ambas
 agregaron esta misma entrada en paralelo sobre ramas distintas; al mergear quedó
 una sola (duplicado detectado por el arranque de Fastify fallando en CI con
 `Method '[...]' already declared for route '/api/v1/offers'`, no por el merge en sí).
-Detalle completo de cada US en `services/movo-svc-shipments/CLAUDE.md`.
+Detalle completo de cada US en `services/movo-svc-shipments/HISTORIAL.md`.
 
 ### MOVO-119 — Proxy de `/addresses` (`svc-users`)
 
 Se sumó la entrada `/addresses` a `config/routes-map.ts#getServiceRoutes()` (protegido
 por defecto, sin tocar `getPublicRoutes()`) para proxear el CRUD de direcciones
 guardadas de `svc-users`. Detalle completo de la US en
-`services/movo-svc-users/CLAUDE.md`.
+`services/movo-svc-users/HISTORIAL.md`.
 
 ### MOVO-133 — Rate limit para cambio de teléfono/email (fix de review, PR #91)
 
@@ -54,14 +54,14 @@ mandan SMS reales por Twilio (ADR-012) y el cooldown de `otpService.generateOtp(
 (`movo-svc-users`) es por target, no por caller: sin este override, una cuenta
 autenticada podía disparar del orden de 200 SMS/min variando el teléfono en cada
 request bajo el límite general. Detalle completo en
-`services/movo-svc-users/CLAUDE.md` (MOVO-133, fixes de review).
+`services/movo-svc-users/HISTORIAL.md` (MOVO-133, fixes de review).
 
 ### MOVO-139 — Rate limit para la verificación de email
 
 `getRateLimitOverrides()` suma `POST /users/me/email/verify/otp` (5/15min), alineado
 con los dos endpoints de cambio de arriba -- ahora manda mails reales por Resend
 (ADR-017): la cuota del free tier y la reputación del dominio son el recurso a
-proteger. Detalle completo en `services/movo-svc-users/CLAUDE.md` (MOVO-139).
+proteger. Detalle completo en `services/movo-svc-users/HISTORIAL.md` (MOVO-139).
 
 ### MOVO-140 — Rutas públicas de recuperación de contraseña
 
@@ -70,7 +70,7 @@ proteger. Detalle completo en `services/movo-svc-users/CLAUDE.md` (MOVO-139).
 sesión), match exacto por método+path (no por prefijo), mismo rate limit estricto
 que `/auth/login` (5/15min c/u, `keyGenerator` propio por ruta vía el mecanismo ya
 existente de `routes/index.ts`) para que no sean una fuente gratis de SMS/mails
-contra terceros. Detalle completo en `services/movo-svc-users/CLAUDE.md` (MOVO-140).
+contra terceros. Detalle completo en `services/movo-svc-users/HISTORIAL.md` (MOVO-140).
 
 ### MOVO-201 — Proxy de WebSocket hacia `/shipments` (canal de tiempo real)
 
@@ -99,7 +99,7 @@ este test arma un upstream `ws` real y verifica de punta a punta que `authorizat
 `x-user-id`/`x-user-roles`/`x-kyc-status` llegan inyectados (y que un `x-user-id`
 falsificado por el cliente no sobrevive). Suite completa del gateway: 51/51. Detalle
 completo del canal (autenticación en `svc-shipments`, cierre por estado, heartbeat) en
-`services/movo-svc-shipments/CLAUDE.md` (MOVO-201).
+`services/movo-svc-shipments/HISTORIAL.md` (MOVO-201).
 
 **Fix de review (PR #174, JcBordino4, antes de mergear) — `authorization` faltaba en
 `FORWARDED_IDENTITY_HEADERS`**: la lista original solo tenía `x-user-*`/`x-request-id`
@@ -116,7 +116,7 @@ propio) para el lote de la cola offline/tarea de segundo plano del mobile (MOVO-
 Sin esto caía en el límite general de 200/min compartido con toda la API y una tanda al
 volver la señal podía consumirlo. El POST individual `/shipments/:id/positions` no se
 puede listar acá (el match es por path exacto) y sigue bajo el general. Detalle en
-`services/movo-svc-shipments/CLAUDE.md` (MOVO-250).
+`services/movo-svc-shipments/HISTORIAL.md` (MOVO-250).
 
 ### MOVO-255 — Rate limit por usuario en `POST /shipments/quote`
 
@@ -155,14 +155,14 @@ tiene la key.
 Se descomentó la entrada `/payments` de `config/routes-map.ts#getServiceRoutes()`, con
 `allowedRoles: [sender, carrier]` (un admin sin esos roles recibe 403). Es el tercer
 servicio proxeado, después de `svc-users` y `svc-shipments`. El callback de OAuth y el webhook de Mercado Pago entran a `getPublicRoutes()` en
-MOVO-111/268. Detalle en `services/movo-svc-payments/CLAUDE.md`.
+MOVO-111/268. Detalle en `services/movo-svc-payments/HISTORIAL.md`.
 
 ### MOVO-111 — Callback público de OAuth de Mercado Pago
 
 `getPublicRoutes()` suma `GET /payments/mp-connect/callback` (20 cada 15 min por IP). Lo
 abre el navegador embebido del transportista al volver de MP, sin JWT; a quién pertenece
 la vinculación sale del `state` en Redis de `svc-payments`, no de la sesión. El resto de
-`/payments/mp-connect/*` sigue protegido. Detalle en `services/movo-svc-payments/CLAUDE.md`.
+`/payments/mp-connect/*` sigue protegido. Detalle en `services/movo-svc-payments/HISTORIAL.md`.
 El gateway deja de arrancar con `logger: true`: `config/logger.ts` tiene un serializer de
 `req` que oculta el query de esa ruta (`?code=...&state=...`), y el error handler usa el
 mismo `redactUrl`.
@@ -187,7 +187,7 @@ como `/auth/login`) y `/auth/admin/refresh` (límite general, como `/auth/refres
 `/auth/admin/logout` es protegida. El límite por email vive en `svc-users`, porque acá el
 body no se parsea. `authenticate` también rechaza un token con `admin` cuyo `iat` sea
 anterior a `panel-revoked-at:{userId}`: así se cortan las sesiones de panel sin tocar las
-de la app, porque la app nunca recibe `admin`. Detalle en `services/movo-svc-users/CLAUDE.md`.
+de la app, porque la app nunca recibe `admin`. Detalle en `services/movo-svc-users/HISTORIAL.md`.
 
 Fixes de review (PR #244, PedroYorlano): un token es de panel por el claim `session: "panel"`, no
 por traer `admin`; un token sin ese claim pierde `admin` antes de `authorize` y de `x-user-roles`

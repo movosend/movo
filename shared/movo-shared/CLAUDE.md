@@ -126,7 +126,7 @@ contrato, solo agregar un valor nuevo al enum.
 Código nuevo en `ApiErrorCode` (`errors/api-error.ts`), consumido por
 `movo-svc-shipments#createOfferForShipment` al validar el `tripId` opcional de
 `POST /shipments/:id/offers` — 409 cuando el viaje referenciado ya no está `active`
-(cancelado/completado). Ver `services/movo-svc-shipments/CLAUDE.md` (entrada de
+(cancelado/completado). Ver `services/movo-svc-shipments/HISTORIAL.md` (entrada de
 MOVO-161) para el detalle completo.
 
 **Gotcha de build local (review PR #120, Pedro Yorlano)**: los servicios Node
@@ -202,7 +202,7 @@ valores "activos" (`assigned_unfunded`/`assigned`/`in_transit`) en vez de reusar
 enum completo — mismo criterio que otros subconjuntos con nombre propio del proyecto.
 `agreedPriceArs: number | null` (no solo `number`, a diferencia del mock de mobile): la
 columna real sigue nullable y ningún flujo la puebla todavía al aceptar una oferta (ver
-`services/movo-svc-shipments/CLAUDE.md`, MOVO-192, sección de pendientes). El mobile
+`services/movo-svc-shipments/HISTORIAL.md`, MOVO-192, sección de pendientes). El mobile
 sigue con su propia copia local del tipo (`shipments-client.ts`) — migrarla a importar
 desde acá queda pendiente, fuera de alcance de este ticket (100% backend).
 
@@ -233,7 +233,7 @@ vieja de Términos/Privacidad al registrarse (app desactualizada).
 
 `src/types/shipment.ts` — wire contract de `GET /shipments/pending-ratings`
 (`movo-svc-shipments`, endpoint nuevo, no un campo en `ShipmentSummary`/`/mine` — ver
-`services/movo-svc-shipments/CLAUDE.md` para la decisión completa). `RatingRole`
+`services/movo-svc-shipments/HISTORIAL.md` para la decisión completa). `RatingRole`
 (`"sender" | "carrier" | "receiver"`) es la primera vez que este tipo cruza el barrel
 compartido — antes vivía duplicado como enum Prisma en `movo-svc-shipments/src/models/
 rating.ts` (MOVO-146) y como literal propio en `movo-mobile/src/api/ratings-client.ts`
@@ -254,7 +254,7 @@ es lejano y el hold de fondos de MOVO-12 todavía no se creó) y
 `COMPLETED = "completed"` (después de `DELIVERED`, entregado Y pago liberado —
 MOVO-212). Set canónico de MOVO-79/MOVO-105 pasa de 9 a 11 — actualizado en el mismo PR
 que el enum de Postgres (`movo-svc-shipments/prisma/schema.prisma`) y la máquina de
-estados, conforme obliga el AC6 de MOVO-79. Ver `services/movo-svc-shipments/CLAUDE.md`
+estados, conforme obliga el AC6 de MOVO-79. Ver `services/movo-svc-shipments/HISTORIAL.md`
 (entrada de MOVO-208) para el detalle completo y ADR-021 (`CLAUDE.md` raíz) para el
 razonamiento.
 
@@ -266,7 +266,7 @@ ya no nace directo en `active`). Tres códigos nuevos en `ApiErrorCode`
 (`errors/api-error.ts`) para el endpoint `POST /trips/:id/start` y el chequeo ampliado
 de `tripId` en `POST /shipments/:id/offers` — `TRIP_NOT_ACTIVE` (MOVO-162) queda sin
 uso pero nunca se elimina (contrato de wire). Detalle completo en
-`services/movo-svc-shipments/CLAUDE.md` (entrada de MOVO-221).
+`services/movo-svc-shipments/HISTORIAL.md` (entrada de MOVO-221).
 
 ### MOVO-245 — Catálogo de notificaciones: categorías, copy centralizado, horario de silencio
 
