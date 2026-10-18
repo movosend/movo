@@ -88,6 +88,11 @@ describe("senderCancelledPaymentView", () => {
     });
   });
 
+  it("penalidad sin estado: no se muestra como 'Sin cargo', queda procesando", () => {
+    const view = senderCancelledPaymentView({ cancellationPenaltyArs: 4625, cancellationPenaltyStatus: null }, hold);
+    expect(view).toMatchObject({ processing: true, lines: [{ label: "Penalidad", value: "Calculando…" }], releasedArs: 18500 });
+  });
+
   it("captured: penalidad cobrada y el resto liberado", () => {
     const view = senderCancelledPaymentView({ cancellationPenaltyArs: 4625, cancellationPenaltyStatus: "captured" }, hold);
     expect(view).toMatchObject({

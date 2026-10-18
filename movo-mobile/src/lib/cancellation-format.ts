@@ -109,6 +109,17 @@ export function senderCancelledPaymentView(
   const penaltyArs = shipment.cancellationPenaltyArs ?? 0;
   const status = shipment.cancellationPenaltyStatus ?? null;
 
+  // Penalidad sin estado todavía: el backend no terminó de registrarla, no es "Sin cargo".
+  if (penaltyArs > 0 && status === null) {
+    return {
+      processing: true,
+      reservedArs,
+      lines: [{ label: "Penalidad", value: "Calculando…" }],
+      releasedLabel: "Se libera en tu tarjeta",
+      releasedArs: reservedArs,
+      note: null,
+    };
+  }
   if (penaltyArs <= 0 || status === null) {
     return {
       processing: false,
