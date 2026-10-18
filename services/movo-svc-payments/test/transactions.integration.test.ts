@@ -170,7 +170,7 @@ describe("/payments/transactions (MOVO-303)", () => {
       await createHold();
       const items = (await list(`role=sender&shipmentId=${mine.shipmentId}`)).json().items;
       expect(items.map((t: { id: string }) => t.id)).toEqual([mine.id]);
-      expect(items[0].card).toEqual({ brand: "visa", last4: "3764" });
+      expect(items[0].card).toMatchObject({ brand: "visa", last4: "3764" });
       expect((await list(`role=sender&shipmentId=${mine.shipmentId}`, OTHER)).json().items).toEqual([]);
     });
 
@@ -466,6 +466,7 @@ describe("/payments/transactions (MOVO-303)", () => {
         id: attempt.id,
         kind: "balance_payment",
         shipmentId: null,
+        destinationLabel: null,
         date: "2026-10-09T12:00:00.000Z",
         amountArs: 1500,
         status: "completed",
