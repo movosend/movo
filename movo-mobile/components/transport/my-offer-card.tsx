@@ -30,6 +30,7 @@ const STATUS_CHIP_BG_CLASS: Record<OfferStatus, string> = {
   [OfferStatus.SUPERSEDED]: "bg-bg-mute",
   [OfferStatus.SHIPMENT_CANCELLED]: "bg-bg-mute",
   [OfferStatus.ASSIGNMENT_LAPSED]: "bg-bg-mute",
+  [OfferStatus.CARRIER_WITHDRAWN]: "bg-bg-mute",
 };
 
 const STATUS_CHIP_TEXT_CLASS: Record<OfferStatus, string> = {
@@ -41,6 +42,7 @@ const STATUS_CHIP_TEXT_CLASS: Record<OfferStatus, string> = {
   [OfferStatus.SUPERSEDED]: "text-fg-3",
   [OfferStatus.SHIPMENT_CANCELLED]: "text-fg-3",
   [OfferStatus.ASSIGNMENT_LAPSED]: "text-fg-3",
+  [OfferStatus.CARRIER_WITHDRAWN]: "text-fg-3",
 };
 
 export interface MyOfferCardNotice {

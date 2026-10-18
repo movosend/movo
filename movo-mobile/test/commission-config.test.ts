@@ -50,6 +50,7 @@ describe("receivedAmountLabel (MOVO-225)", () => {
       OfferStatus.SUPERSEDED,
       OfferStatus.SHIPMENT_CANCELLED,
       OfferStatus.ASSIGNMENT_LAPSED,
+      OfferStatus.CARRIER_WITHDRAWN,
     ]) {
       expect(receivedAmountLabel(status)).toBe("Habrías recibido aprox.");
     }
