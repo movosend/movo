@@ -1,6 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 import {
+  tripCancelledMessage,
   formatDepartureDateOnly,
   formatTripStartDate,
   formatTripStartErrorMessage,
@@ -194,5 +195,23 @@ describe("trip-format — Inicio (jerarquía de viajes)", () => {
       expect(primaryTrip).toBeNull();
       expect(otherTrips.map((t) => t.id)).toEqual(["future"]);
     });
+  });
+});
+
+describe("tripCancelledMessage (MOVO-314)", () => {
+  it("sin envíos: el aviso de siempre", () => {
+    expect(tripCancelledMessage("Rosario")).toBe("Cancelaste el viaje a Rosario");
+  });
+
+  it("con envíos y deuda", () => {
+    expect(tripCancelledMessage("Rosario", 3, 2400)).toBe(
+      "Cancelaste el viaje a Rosario. Cancelamos sus 3 envíos y registramos una deuda de $2.400.",
+    );
+  });
+
+  it("con un envío y sin deuda", () => {
+    expect(tripCancelledMessage("Rosario", 1, 0)).toBe(
+      "Cancelaste el viaje a Rosario. Cancelamos su envío y avisamos a los emisores.",
+    );
   });
 });

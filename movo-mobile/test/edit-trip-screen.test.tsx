@@ -196,7 +196,7 @@ describe("EditTripScreen", () => {
     });
 
     expect(getByTestId("tf-stub-error").props.children).toBe(
-      "Este viaje ya tiene paquetes aceptados, así que no se puede modificar ni cancelar. Si necesitás cancelar, hacelo desde cada envío.",
+      "Este viaje ya tiene paquetes aceptados, así que no se puede modificar. Si necesitás cancelarlo, usá «Cancelar viaje» desde el detalle.",
     );
   });
 
