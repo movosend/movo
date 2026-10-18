@@ -194,6 +194,9 @@ model Shipment {
   estimatedDeliveryTimeWindowEnd   String?   @map("estimated_delivery_time_window_end") @db.VarChar(8)
 
   status                       ShipmentStatus @default(awaiting_receiver_confirmation)
+  // Bloquea las transiciones mientras se libera el hold de la asignación que se retira.
+  carrierWithdrawalPending     Boolean        @default(false) @map("carrier_withdrawal_pending")
+  carrierWithdrawalPenaltyArs  Decimal?       @map("carrier_withdrawal_penalty_ars") @db.Decimal(12, 2)
   lastStatusChangedAt          DateTime?      @map("last_status_changed_at") @db.Timestamptz
   deliveredAt                  DateTime?      @map("delivered_at") @db.Timestamptz
   // MOVO-130 AC1: deadline de confirmación del receptor (createdAt + RECEIVER_CONFIRMATION_TIMEOUT_HOURS).

@@ -46,6 +46,8 @@ export interface Shipment {
   agreedPriceArs: number | null;
   paymentMethod: string | null;
   status: ShipmentStatus;
+  carrierWithdrawalPending?: boolean;
+  carrierWithdrawalPenaltyArs?: number | null;
   lastStatusChangedAt: Date | null;
   deliveredAt: Date | null;
   receiverConfirmationDeadline: Date | null;

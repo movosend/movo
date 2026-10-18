@@ -225,6 +225,35 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     expect(none.statusCode).toBe(404);
   });
 
+  it("rechaza una liberación retrasada de otro transportista sin tocar el hold", async () => {
+    await create();
+    const wrongCarrier = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const response = await app.inject({
+      method: "POST",
+      url: `${BASE}/by-shipment/${SHIPMENT}/release?expectedCarrierId=${wrongCarrier}`,
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("HOLD_CONFLICT");
+    expect(mp.cancelPayment).not.toHaveBeenCalled();
+    expect((await app.inject({ method: "GET", url: `${BASE}/by-shipment/${SHIPMENT}` })).json().status)
+      .toBe("authorized");
+  });
+
+  it("rechaza una liberación retrasada del mismo transportista si ya hay otro intento", async () => {
+    const previousId = (await create()).json().id as string;
+    expect((await app.inject({ method: "POST", url: `${BASE}/by-shipment/${SHIPMENT}/release` })).statusCode)
+      .toBe(200);
+    const next = await create({ cardToken: "otro-token" });
+    expect(next.statusCode).toBe(201);
+    const response = await app.inject({
+      method: "POST",
+      url: `${BASE}/by-shipment/${SHIPMENT}/release?expectedCarrierId=${CARRIER}&expectedHoldId=${previousId}`,
+    });
+    expect(response.statusCode).toBe(409);
+    expect(next.json().id).not.toBe(previousId);
+    expect(mp.cancelPayment).toHaveBeenCalledTimes(1);
+  });
+
   it("el índice único parcial de la base lista exactamente los estados vivos de @movo/shared (review, punto 7)", async () => {
     const [{ indexdef }] = await app.db.$queryRawUnsafe<Array<{ indexdef: string }>>(
       "SELECT indexdef FROM pg_indexes WHERE schemaname = 'payments' AND indexname = 'holds_shipment_id_live_key'"

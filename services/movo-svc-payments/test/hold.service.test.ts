@@ -1161,6 +1161,17 @@ describe("HoldService (MOVO-209)", () => {
       expect(next.hold).toMatchObject({ attempt: 2, status: "authorized" });
     });
 
+    it("una liberación demorada no cancela un intento posterior del mismo transportista", async () => {
+      const svc = service();
+      const first = (await svc.create(input)).hold;
+      await svc.release(SHIPMENT, CARRIER, first.id);
+      const second = (await svc.create(input)).hold;
+      await expect(svc.release(SHIPMENT, CARRIER, first.id))
+        .rejects.toMatchObject({ statusCode: 409, code: "HOLD_CONFLICT" });
+      expect(second.id).not.toBe(first.id);
+      expect(mp.cancelPayment).toHaveBeenCalledTimes(1);
+    });
+
     it("un intento rechazado no retuvo fondos: se devuelve tal cual, sin llamar a MP", async () => {
       mp.createPayment.mockResolvedValue(payment({ status: "rejected", status_detail: "cc_rejected_other_reason" }));
       const svc = service();

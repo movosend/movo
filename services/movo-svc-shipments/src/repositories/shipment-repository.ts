@@ -92,6 +92,8 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     agreedPriceArs: row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null,
     paymentMethod: row.paymentMethod,
     status: parseShipmentStatus(row.status, "status"),
+    carrierWithdrawalPending: row.carrierWithdrawalPending,
+    carrierWithdrawalPenaltyArs: row.carrierWithdrawalPenaltyArs?.toNumber() ?? null,
     lastStatusChangedAt: row.lastStatusChangedAt,
     deliveredAt: row.deliveredAt,
     receiverConfirmationDeadline: row.receiverConfirmationDeadline,
@@ -474,6 +476,8 @@ export interface SettlementCursor {
 }
 
 export interface ShipmentRepository {
+  claimCarrierWithdrawal(id: string, carrierId: string, from: ShipmentStatus, penaltyArs: number): Promise<boolean>;
+  listPendingCarrierWithdrawals(limit: number, afterId?: string): Promise<Shipment[]>;
   create(input: CreateShipmentInput): Promise<Shipment>;
   findById(id: string): Promise<Shipment | null>;
   /**
@@ -878,6 +882,23 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
   }
 
   return {
+    async claimCarrierWithdrawal(id, carrierId, from, penaltyArs) {
+      const { count } = await db.shipment.updateMany({
+        where: { id, carrierId, status: from, carrierWithdrawalPending: false },
+        data: { carrierWithdrawalPending: true, carrierWithdrawalPenaltyArs: new Prisma.Decimal(penaltyArs) },
+      });
+      return count === 1;
+    },
+
+    async listPendingCarrierWithdrawals(limit, afterId) {
+      const rows = await db.shipment.findMany({
+        where: { carrierWithdrawalPending: true, ...(afterId && { id: { gt: afterId } }) },
+        orderBy: { id: "asc" },
+        take: limit,
+      });
+      return rows.map(mapShipment);
+    },
+
     async create(input: CreateShipmentInput): Promise<Shipment> {
       const row = await db.$transaction(async (tx) => {
         const created = await tx.shipment.create({
@@ -1038,6 +1059,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       }
 
       const from = parseShipmentStatus(current.status, "status");
+      if (current.carrierWithdrawalPending && !(to === ShipmentStatus.PUBLISHED && options.carrierWithdrawal)) {
+        throw new ShipmentConcurrentModificationError(id);
+      }
+      if (options.carrierWithdrawal && !current.carrierWithdrawalPending) {
+        throw new ShipmentConcurrentModificationError(id);
+      }
       // Antes de validar la arista: si el caller decidió sobre otro estado, es una carrera
       // (409 de modificación concurrente), no una transición inválida.
       if (options.expectedFrom !== undefined && options.expectedFrom !== from) {
@@ -1128,11 +1155,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           where: {
             id,
             status: from,
+            carrierWithdrawalPending: options.carrierWithdrawal ? true : false,
             ...(options.expectedCarrierId !== undefined && { carrierId: options.expectedCarrierId }),
             ...(options.expectedAgreedPriceArs !== undefined && { agreedPriceArs: options.expectedAgreedPriceArs }),
           },
           data: {
             status: to,
+            carrierWithdrawalPending: false,
+            carrierWithdrawalPenaltyArs: null,
             lastStatusChangedAt: now,
             deliveredAt,
             receiverRedesignationDeadline,
@@ -1228,6 +1258,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         return {
           ...current,
           status: to,
+          carrierWithdrawalPending: false,
+          carrierWithdrawalPenaltyArs: null,
           lastStatusChangedAt: now,
           deliveredAt,
           receiverRedesignationDeadline,

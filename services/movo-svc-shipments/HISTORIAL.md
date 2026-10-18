@@ -3581,7 +3581,10 @@ suma `debtCollectedArs`: el descuento para el transportista, el recargo para el 
 `assignment_pending`/`assigned_unfunded`/`assigned` (`shipments.service.ts#withdrawCarrierFromShipment`). El envío vuelve
 siempre a `published` por `updateStatus` con `carrierWithdrawal` (arista nueva `assigned → published`, que sin esa opción
 se rechaza): misma desasignación que MOVO-210 pero la oferta pasa a `carrier_withdrawn` (migración `20261018120000`), y
-las demás no se tocan. El hold se libera entero después de la transición (mismo orden que `cancelShipment`).
+las demás no se tocan. La baja marca primero `carrier_withdrawal_pending` y congela la penalidad; mientras está
+pendiente, `updateStatus` bloquea cualquier otra transición. Se consulta y libera el hold de esa asignación, identificado
+por transportista e ID, y recién entonces se republica. Un error de Payments deja la asignación bloqueada para
+reintentarla por el endpoint o por `settlement-sweep` (migración `20261018210000`).
 
 - **Penalidad**: mismos tramos que el emisor (12 h) pero desde los tres estados (`quoteCarrierWithdrawal` →
   `computeCarrierWithdrawalPenalty` de shared): es deuda, no depende del hold. Con la ventana ya cerrada también se cobra

@@ -2245,8 +2245,10 @@ export function createShipmentsService(
       const shipment = await findWithdrawableShipment(shipmentId, callerId);
       const quote = quoteCarrierWithdrawal(shipment);
       return {
-        penaltyArs: quote.penaltyArs,
-        reason: quote.reason,
+        penaltyArs: shipment.carrierWithdrawalPending ? (shipment.carrierWithdrawalPenaltyArs ?? 0) : quote.penaltyArs,
+        reason: shipment.carrierWithdrawalPending
+          ? ((shipment.carrierWithdrawalPenaltyArs ?? 0) > 0 ? "late_cancellation" : "before_free_deadline")
+          : quote.reason,
         freeUntil: quote.freeUntil?.toISOString() ?? null,
       };
     },
@@ -2269,10 +2271,15 @@ export function createShipmentsService(
       if (!offerRepository) {
         throw new Error("withdrawCarrierFromShipment requiere offerRepository (ShipmentsServiceOptions).");
       }
+      if (!opts.paymentsClient) {
+        throw new Error("withdrawCarrierFromShipment requiere paymentsClient (ShipmentsServiceOptions).");
+      }
       const shipment = await findWithdrawableShipment(shipmentId, callerId);
 
-      const penaltyArs = quoteCarrierWithdrawal(shipment).penaltyArs;
-      if (Math.round((expectedPenaltyArs ?? 0) * 100) !== Math.round(penaltyArs * 100)) {
+      const penaltyArs = shipment.carrierWithdrawalPending
+        ? (shipment.carrierWithdrawalPenaltyArs ?? 0)
+        : quoteCarrierWithdrawal(shipment).penaltyArs;
+      if (!shipment.carrierWithdrawalPending && Math.round((expectedPenaltyArs ?? 0) * 100) !== Math.round(penaltyArs * 100)) {
         throw new ApiError(
           409,
           "CANCELLATION_PENALTY_MISMATCH",
@@ -2288,11 +2295,21 @@ export function createShipmentsService(
         (offer) => offer.status === OfferStatus.ACCEPTED && offer.carrierId === callerId
       );
 
-      // Mismo orden que `cancelShipment` (MOVO-210 AC12): primero la transición con
-      // compare-and-swap sobre el estado y el transportista validados, después el hold. Un
-      // handshake de retiro concurrente (`in_transit`) o un pago que confirmó el hold (`assigned`)
-      // ganan y esto da 409; el transportista vuelve a intentar sobre el estado nuevo. Un pago en
-      // vuelo que pierde la carrera libera su propio hold al fallar la transición.
+      // El claim se persiste antes de llamar a Payments. Mientras está pendiente ninguna
+      // transición (incluidos pickup y funding) puede ganar la carrera ni se puede volver
+      // a aceptar una oferta. Si Payments falla, el barrido reintenta la liberación.
+      if (!shipment.carrierWithdrawalPending) {
+        const claimed = await repository.claimCarrierWithdrawal(shipmentId, callerId, previousStatus, penaltyArs);
+        if (!claimed) throw new ShipmentConcurrentModificationError(shipmentId);
+      }
+
+      // Payments verifica el transportista del hold antes de liberarlo. Esto protege a
+      // una asignación posterior incluso si llega una petición retrasada.
+      const hold = await opts.paymentsClient.findHoldByShipment(shipmentId, { sync: true });
+      if (hold) {
+        await opts.paymentsClient.releaseHold(shipmentId, callerId, hold.id);
+      }
+
       const republished = await repository.updateStatus(
         shipmentId,
         ShipmentStatus.PUBLISHED,
@@ -2300,13 +2317,6 @@ export function createShipmentsService(
         reason ?? "El transportista se bajó del envío",
         { expectedFrom: previousStatus, expectedCarrierId: callerId, carrierWithdrawal: { penaltyArs } }
       );
-
-      // AC3: el emisor no paga nada. Desde `assigned` el hold está autorizado; antes puede haber
-      // uno en vuelo (el emisor pagó y MP no resolvió). Si la liberación falla queda logueado y
-      // el hold vence solo en MP, mismo criterio que la cancelación.
-      if (opts.paymentsClient) {
-        await releaseHoldAfterCancel(opts.paymentsClient, shipmentId);
-      }
 
       // AC4: la deuda ya quedó `pending` en la oferta junto con la transición; acá se registra en
       // línea (best-effort). Si falla, la retoma el barrido de liquidaciones.
@@ -2339,6 +2349,29 @@ export function createShipmentsService(
       }
 
       return republished;
+    },
+
+    async retryPendingCarrierWithdrawals(batchSize = 100): Promise<void> {
+      let afterId: string | undefined;
+      for (let page = 0; page < 20; page++) {
+        const batch = await repository.listPendingCarrierWithdrawals(batchSize, afterId);
+        for (const shipment of batch) {
+          if (!shipment.carrierId) continue;
+          try {
+            await this.withdrawCarrierFromShipment(
+              shipment.id,
+              shipment.carrierId,
+              undefined,
+              shipment.carrierWithdrawalPenaltyArs ?? 0
+            );
+          } catch (err) {
+            logger?.warn({ err, event: "carrier_withdrawal_retry_failed", shipmentId: shipment.id },
+              "No se pudo completar la baja pendiente del transportista");
+          }
+        }
+        if (batch.length < batchSize) return;
+        afterId = batch.at(-1)?.id;
+      }
     },
 
     /**

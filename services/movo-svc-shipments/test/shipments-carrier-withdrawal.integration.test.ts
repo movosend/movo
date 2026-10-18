@@ -4,6 +4,8 @@ import { FastifyInstance } from "fastify";
 import { ApiError, OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
+import { createOfferRepository } from "../src/repositories/offer-repository";
+import { createShipmentsService } from "../src/modules/shipments/shipments.service";
 import { createTripRepository } from "../src/repositories/trip-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { createFakeUsersClient } from "./fake-users-client";
@@ -312,7 +314,7 @@ describe("baja del transportista de un envío asignado (Postgres) — MOVO-310",
       expect(response.json()).toMatchObject({ status: ShipmentStatus.PUBLISHED, carrierId: null, suggestedPriceArs: BASE_PRICE });
       expect(await offerRow(offerId)).toMatchObject({ status: OfferStatus.CARRIER_WITHDRAWN, withdrawalPenaltyStatus: "debt" });
       expect((await offerRow(otherOfferId)).status).toBe(OfferStatus.PENDING);
-      expect(payments.releaseHold).toHaveBeenCalledWith(shipmentId);
+      expect(payments.releaseHold).toHaveBeenCalledWith(shipmentId, carrierId, payments.holds.get(shipmentId)?.id);
       expect(payments.ledgerEntries.get(`withdrawal_penalty:${offerId}`)).toMatchObject({ userId: carrierId, amountArs: PENALTY });
     }
   );
@@ -349,6 +351,52 @@ describe("baja del transportista de un envío asignado (Postgres) — MOVO-310",
   });
 
   describe("carreras", () => {
+    it("mantiene la asignación bloqueada hasta confirmar la liberación", async () => {
+      const { shipmentId } = await createAssignment(ShipmentStatus.ASSIGNED, FAR_WINDOW);
+      const release = vi.mocked(payments.releaseHold).getMockImplementation()!;
+      let started!: () => void;
+      let proceed!: () => void;
+      const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+      const proceedPromise = new Promise<void>((resolve) => { proceed = resolve; });
+      vi.mocked(payments.releaseHold).mockImplementationOnce(async (id, expectedCarrierId, expectedHoldId) => {
+        started();
+        await proceedPromise;
+        return release(id, expectedCarrierId, expectedHoldId);
+      });
+
+      const withdrawal = withdraw(shipmentId);
+      await startedPromise;
+      expect(await shipmentRepo.findById(shipmentId)).toMatchObject({
+        status: ShipmentStatus.ASSIGNED, carrierId, carrierWithdrawalPending: true,
+      });
+      await expect(shipmentRepo.updateStatus(shipmentId, ShipmentStatus.IN_TRANSIT, carrierId))
+        .rejects.toThrow();
+      proceed();
+      expect((await withdrawal).statusCode).toBe(200);
+      expect(await shipmentRepo.findById(shipmentId)).toMatchObject({
+        status: ShipmentStatus.PUBLISHED, carrierId: null, carrierWithdrawalPending: false,
+      });
+    });
+
+    it("si Payments falla conserva la asignación y la baja se puede reintentar", async () => {
+      const { shipmentId, offerId } = await createAssignment(ShipmentStatus.ASSIGNED, FAR_WINDOW);
+      payments.behavior.releaseError = new ApiError(502, "PAYMENT_PROVIDER_ERROR", "MP caído");
+      expect((await withdraw(shipmentId)).statusCode).toBe(502);
+      expect(await shipmentRepo.findById(shipmentId)).toMatchObject({
+        status: ShipmentStatus.ASSIGNED, carrierId, carrierWithdrawalPending: true,
+      });
+      expect((await offerRow(offerId)).status).toBe(OfferStatus.ACCEPTED);
+      expect(payments.holds.get(shipmentId)?.status).toBe("authorized");
+
+      payments.behavior.releaseError = null;
+      const retryService = createShipmentsService(shipmentRepo, createFakeUsersClient({}), undefined, app.log, {
+        offerRepository: createOfferRepository(app.db),
+        paymentsClient: payments,
+      });
+      await retryService.retryPendingCarrierWithdrawals();
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.PUBLISHED);
+      expect(payments.holds.get(shipmentId)?.status).toBe("cancelled");
+    });
     it("con el handshake de retiro: gana uno solo y el estado queda consistente", async () => {
       const { shipmentId, offerId } = await createAssignment(ShipmentStatus.ASSIGNED, FAR_WINDOW);
 
@@ -393,7 +441,7 @@ describe("baja del transportista de un envío asignado (Postgres) — MOVO-310",
       const shipment = await shipmentRepo.findById(shipmentId);
       if (withdrawalWon) {
         expect(shipment).toMatchObject({ status: ShipmentStatus.PUBLISHED, carrierId: null });
-        expect(payments.releaseHold).toHaveBeenCalledWith(shipmentId);
+        expect(payments.releaseHold).toHaveBeenCalledWith(shipmentId, carrierId, payments.holds.get(shipmentId)?.id);
       } else {
         expect(withdrawal.status === "fulfilled" && withdrawal.value.statusCode).toBe(409);
         expect(shipment).toMatchObject({ status: ShipmentStatus.ASSIGNED, carrierId });

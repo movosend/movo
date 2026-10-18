@@ -76,7 +76,7 @@ export interface PaymentsClient {
    * Libera (cancela sin cobrar) el hold del envío. Idempotente en payments. `null` si el
    * envío nunca tuvo hold. Lanza si payments no puede confirmar la liberación.
    */
-  releaseHold(shipmentId: string): Promise<HoldResponse | null>;
+  releaseHold(shipmentId: string, expectedCarrierId?: string, expectedHoldId?: string): Promise<HoldResponse | null>;
   /**
    * MOVO-212: captura el hold del envío entregado y devuelve la liquidación. Idempotente en
    * payments: una liquidación ya acreditada vuelve tal cual sin volver a cobrar. Lanza si la
@@ -278,8 +278,12 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
       return (await response.json()) as HoldResponse;
     },
 
-    async releaseHold(shipmentId) {
-      const response = await callHolds(`/by-shipment/${encodeURIComponent(shipmentId)}/release`, { method: "POST" });
+    async releaseHold(shipmentId, expectedCarrierId, expectedHoldId) {
+      const params = new URLSearchParams();
+      if (expectedCarrierId) params.set("expectedCarrierId", expectedCarrierId);
+      if (expectedHoldId) params.set("expectedHoldId", expectedHoldId);
+      const query = params.size ? `?${params.toString()}` : "";
+      const response = await callHolds(`/by-shipment/${encodeURIComponent(shipmentId)}/release${query}`, { method: "POST" });
       if (response.status === 404) {
         return null;
       }

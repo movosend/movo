@@ -104,6 +104,8 @@ Endpoints **internos** que consume `svc-shipments` (dueño de la saga, MOVO-210)
 `/internal/payments/holds/*`: sin ruta en el gateway y sin el hook de `x-user-id` (el
 caller es un servicio, ADR-010). `POST /checkout-data` (AC1), `POST /` (crear),
 `GET /by-shipment/:shipmentId[?sync=true]` y `POST /by-shipment/:shipmentId/release`.
+La liberación admite `expectedCarrierId` y `expectedHoldId` como query opcional: si el último hold no coincide,
+responde 409 sin cancelar el intento de una asignación posterior.
 Contrato en `@movo/shared` (`types/hold.ts`). Código en `src/modules/holds/`,
 `src/repositories/hold-repository.ts` y `src/plugins/holds.ts`. Arquitectura de cobro:
 ADR-035.
