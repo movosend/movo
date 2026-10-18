@@ -4802,3 +4802,9 @@ Cambios de UI en la misma rama, a pedido de diseño:
 **Fix del sheet "Pagar mi saldo"**: el contenido scrollea con alto máximo calculado (ventana − safe areas − teclado, `useKeyboardHeight`) y el botón de pagar queda fijo abajo, fuera del scroll (antes `max-h-[90%]` sobre un padre sin alto dejaba el botón tapado y se rompía con el teclado). "Otro monto" se expande dentro de su opción, en pesos enteros con punto de miles (`formatBalanceAmountInput`; el `parseAmount` anterior leía "2.500" como inválido). Si `GET /payments/balance/pay-data` falla sin datos, el formulario se reemplaza por el error con "Reintentar" (y `retry: 1`: con los 3 reintentos de default el error aparecía ~7 s después, en medio de la carga del CVV).
 
 **Aviso de deuda en Perfil**: la fila "Pagos y cobros" de Configuración suma la pill "Debés $X" (rojo) cuando el saldo es positivo (`paymentsAttention`, prioridad: Mercado Pago roto → deuda → tarjetas vencidas, un solo aviso). Con un aviso de Mercado Pago o de tarjetas la fila abre la pestaña de medios de pago (`?tab=methods`); sin aviso o con deuda, Saldo.
+
+### MOVO-310 — `OfferStatus.CARRIER_WITHDRAWN` (solo compatibilidad)
+
+Etiqueta, banner y chip de la oferta en "Mis ofertas" (pestaña de cerradas) para el estado nuevo, y la push
+`carrier_withdrawal_penalty` abre el detalle de la oferta (el envío ya no es del transportista). La pantalla para
+bajarse de un envío es MOVO-314.

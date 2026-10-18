@@ -3574,3 +3574,23 @@ suma `debtCollectedArs`: el descuento para el transportista, el recargo para el 
 ### MOVO-315 — Contratos para la cuenta corriente mobile
 
 `POST /internal/ledger-origins` devuelve etiquetas de origen solo para envíos vinculados al usuario consultado, incluidas ofertas de transportistas antes asignados; usa la calle de destino para evitar el sufijo "Argentina" de Geocoding. `GET /shipments/carrier-eligibility` publica los requisitos actuales del transportista para detectar deuda vencida al entrar en Transportar. El feed, el detalle público y los matches por viaje agregan `debtDiscount` con un tope de 3 s para que la app muestre el neto aproximado antes de ofertar. La interfaz visual queda en la rama mobile de MOVO-315.
+
+### MOVO-310 — Baja del transportista de un envío asignado (ADR-047/044)
+
+`POST /shipments/:id/carrier-withdrawal` (y `GET /:id/carrier-withdrawal-quote`), solo el transportista asignado, desde
+`assignment_pending`/`assigned_unfunded`/`assigned` (`shipments.service.ts#withdrawCarrierFromShipment`). El envío vuelve
+siempre a `published` por `updateStatus` con `carrierWithdrawal` (arista nueva `assigned → published`, que sin esa opción
+se rechaza): misma desasignación que MOVO-210 pero la oferta pasa a `carrier_withdrawn` (migración `20261018120000`), y
+las demás no se tocan. El hold se libera entero después de la transición (mismo orden que `cancelShipment`).
+
+- **Penalidad**: mismos tramos que el emisor (12 h) pero desde los tres estados (`quoteCarrierWithdrawal` →
+  `computeCarrierWithdrawalPenalty` de shared): es deuda, no depende del hold. Con la ventana ya cerrada también se cobra
+  (el que faltó es él), hasta que el barrido de MOVO-258 cancele sin culpables. El transportista confirma `expectedPenaltyArs` con el mismo 409. Se guarda `pending` en la oferta
+  (`withdrawal_penalty_*`, `carrier_withdrawn_at`) en la misma transacción, porque el envío se reasigna y no puede
+  guardarla. `settlement.service.ts#registerWithdrawalPenalty` la registra como deuda (`withdrawal_penalty:<offerId>`,
+  por oferta y no por envío: un envío puede tener más de una baja) y avisa; `settlement-sweep` la reintenta.
+- **Precio**: `agreedPriceArs` vuelve a `null` y `suggestedPriceArs` no se toca: el emisor ve el precio base y se
+  puede contraofertar como siempre.
+- **Viaje (AC7)**: no hizo falta código: la oferta deja de ser `accepted` y los barridos de MOVO-258 cierran el viaje.
+- Mobile: solo lo mínimo para compilar con el valor nuevo de `OfferStatus` y abrir la oferta desde la push; la pantalla
+  para bajarse es MOVO-314.
