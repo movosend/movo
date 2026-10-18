@@ -38,7 +38,7 @@ const mockDelete = jest.fn();
 let mockSetDefaultOptions: MutationOptions = {};
 let mockRenameOptions: MutationOptions = {};
 let mockDeleteOptions: MutationOptions = {};
-let mockParams: { toast?: string } = {};
+let mockParams: { toast?: string; tab?: string } = { tab: "methods" };
 
 jest.mock("../src/hooks/use-saved-cards", () => ({
   useSavedCards: () => ({ ...mockCards, refetch: mockCardsRefetch }),
@@ -90,7 +90,7 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     mockLink = { phase: "idle", error: null };
     mockUnlinkPending = false;
     mockCards = { data: [], isError: false };
-    mockParams = {};
+    mockParams = { tab: "methods" };
   });
 
   it("muestra el skeleton mientras consulta el status", async () => {
@@ -373,7 +373,7 @@ describe("PaymentsSettingsScreen — Mis tarjetas (MOVO-101)", () => {
     mockStatus = { data: UNLINKED, isError: false };
     mockLink = { phase: "idle", error: null };
     mockCards = { data: [VISA, MASTER], isError: false };
-    mockParams = {};
+    mockParams = { tab: "methods" };
   });
 
   it("sin tarjetas muestra el estado vacío con el beneficio y el botón de agregar (AC2)", async () => {
@@ -513,7 +513,7 @@ describe("PaymentsSettingsScreen — Mis tarjetas (MOVO-101)", () => {
   });
 
   it("muestra el aviso de tarjeta guardada que llega desde el alta", async () => {
-    mockParams = { toast: 'Guardamos "Personal". Es tu predeterminada.' };
+    mockParams = { tab: "methods", toast: 'Guardamos "Personal". Es tu predeterminada.' };
     const { findByText } = await render(<PaymentsSettingsScreen />);
     expect(await findByText('Guardamos "Personal". Es tu predeterminada.')).toBeTruthy();
   });

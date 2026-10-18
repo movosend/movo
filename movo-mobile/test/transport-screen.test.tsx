@@ -35,6 +35,11 @@ jest.mock("../src/hooks/use-mp-connect", () => ({
   useMpConnectStatus: (...args: unknown[]) => mockUseMpConnectStatus(...args),
 }));
 
+const mockUseCarrierEligibility = jest.fn();
+jest.mock("../src/hooks/use-carrier-eligibility", () => ({
+  useCarrierEligibility: () => mockUseCarrierEligibility(),
+}));
+
 const mockUseTrip = jest.fn();
 const mockUseTripMatches = jest.fn();
 const mockUseMyTrips = jest.fn();
@@ -299,6 +304,7 @@ describe("TransportScreen", () => {
     // pisan esto con el estado que necesitan.
     mockUseMyProfile.mockReturnValue(profileResult());
     mockUseMpConnectStatus.mockReturnValue(mpResult());
+    mockUseCarrierEligibility.mockReturnValue({ data: { identityApproved: true, missingRequirements: [] }, isLoading: false, isError: false, dataUpdatedAt: Date.now(), refetch: jest.fn() });
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -468,6 +474,24 @@ describe("TransportScreen", () => {
     expect(getByTestId("transport-card-offered-1")).toBeTruthy();
     expect(getByTestId("transport-card-offered-1-my-offer-price")).toHaveTextContent("$3.100tu oferta");
     expect(getByTestId("transport-card-offered-1-offer-status")).toHaveTextContent("Pendiente");
+  });
+
+  it("muestra el neto con descuento en el feed y no aplica ese preview a una oferta propia", async () => {
+    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+    mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([
+      availableShipment({ id: "new", debtDiscount: { amountArs: 300, reason: "pending_balance" } }),
+      availableShipment({ id: "offered", hasMyOffer: true,
+        debtDiscount: { amountArs: 300, reason: "pending_balance" } }),
+    ]) }));
+    mockUseMyOffers.mockReturnValue({ data: { items: [
+      myOfferSummary({ id: "o1", status: "pending", shipmentId: "offered", priceOffered: 3100 }),
+    ], page: 1, limit: 50, total: 1 } });
+
+    const { getByTestId, getByText, queryByTestId } = await render(<TransportScreen />);
+    expect(getByTestId("transport-card-new-debt-preview")).toBeTruthy();
+    expect(getByText("Recibís aprox.")).toBeTruthy();
+    expect(getByText("−$300 por deuda")).toBeTruthy();
+    expect(queryByTestId("transport-card-offered-debt-preview")).toBeNull();
   });
 
   it("bug real: una oferta retirada del historial no se muestra como si siguiera vigente", async () => {
@@ -852,7 +876,7 @@ describe("TransportScreen", () => {
       expect(queryByTestId("transport-requirements-gate-checklist-license-cta")).toBeNull();
 
       await fireEvent.press(getByTestId("transport-requirements-gate-checklist-mp-cta"));
-      expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments");
+      expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments?tab=methods");
     });
 
     it("una cuenta de Mercado Pago inválida cuenta como faltante", async () => {
@@ -863,7 +887,17 @@ describe("TransportScreen", () => {
       expect(getByTestId("transport-requirements-gate-checklist-mp-cta")).toBeTruthy();
     });
 
-    it("sin licencia ni Mercado Pago muestra las dos filas con contador 0/2", async () => {
+    it("la deuda vencida abre la tercera fila antes de ofertar y lleva a Pagar mi saldo", async () => {
+      blockedBy(KycStatus.APPROVED, "linked");
+      mockUseCarrierEligibility.mockReturnValue({ data: { identityApproved: true, missingRequirements: ["no_overdue_debt"] }, isLoading: false, isError: false, dataUpdatedAt: Date.now(), refetch: jest.fn() });
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([2, "/", 3]);
+      expect(queryByTestId("transport-list")).toBeNull();
+      await fireEvent.press(getByTestId("transport-requirements-gate-checklist-debt-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments?tab=balance&pay=1");
+    });
+
+    it("sin licencia ni Mercado Pago muestra dos pendientes de dos requisitos (sin la fila de deuda)", async () => {
       blockedBy(KycStatus.REJECTED, "unlinked");
 
       const { getByTestId } = await render(<TransportScreen />);

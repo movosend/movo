@@ -100,4 +100,14 @@ describe("AvailableShipmentCard", () => {
     expect(getByTestId("card-urgent")).toBeTruthy();
     expect(getByTestId("card-has-offer")).toBeTruthy();
   });
+
+  it("muestra el descuento recibido desde los matches del viaje", async () => {
+    const { getByTestId, getByText } = await render(
+      <AvailableShipmentCard shipment={availableShipment({
+        debtDiscount: { amountArs: 300, reason: "pending_balance" },
+      })} testID="card" />,
+    );
+    expect(getByText("Recibís aprox.")).toBeTruthy();
+    expect(getByTestId("debt-discount")).toBeTruthy();
+  });
 });

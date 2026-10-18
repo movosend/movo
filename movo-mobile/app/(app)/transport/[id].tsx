@@ -26,6 +26,7 @@ import { ProfileVerifiedBadge } from "../../../components/profile/profile-verifi
 import { AvatarImage } from "../../../components/ui/avatar-image";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
+import { DebtDiscount } from "../../../components/payments/debt-discount";
 import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { useMyOffers } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
@@ -319,7 +320,7 @@ export default function TransportShipmentDetailScreen() {
   // de MP), el mismo monto que crear oferta y el detalle de la oferta.
   const suggestedReceivedIfOffered =
     shipment && suggestedNetIfOffered !== null
-      ? estimateReceivedArs(suggestedNetIfOffered, shipment.suggestedPriceArs)
+      ? Math.max(0, estimateReceivedArs(suggestedNetIfOffered, shipment.suggestedPriceArs) - (shipment.debtDiscount?.amountArs ?? 0))
       : null;
   // `RouteMapCard` de abajo ya pide esta misma ruta (mismos pickup/delivery) para
   // dibujar el mapa — TanStack Query dedupea por query key, así que pedirla acá de
@@ -535,6 +536,7 @@ export default function TransportShipmentDetailScreen() {
                   {formatPriceArs(suggestedReceivedIfOffered)}
                 </Text>
               </View>
+              {shipment.debtDiscount?.amountArs && suggestedNetIfOffered !== null ? <View className="mt-3"><DebtDiscount dark beforeArs={estimateReceivedArs(suggestedNetIfOffered, shipment.suggestedPriceArs)} amountArs={shipment.debtDiscount.amountArs} /></View> : null}
               <Text className="mt-2.5 font-sans text-[13px] leading-[19px] text-ink-300">
                 Sobre una oferta de{" "}
                 <Text className="font-sans-semibold text-paper">

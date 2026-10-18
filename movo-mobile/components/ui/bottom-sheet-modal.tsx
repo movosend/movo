@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
+import { useKeyboardVisible } from "../../src/hooks/use-keyboard-visible";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
 
 const FALLBACK_METRICS = {
@@ -47,6 +48,9 @@ export function BottomSheetModal({
   children,
 }: BottomSheetModalProps) {
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(visible);
+  // Con el teclado abierto la hoja se apoya sobre él: el margen del indicador de inicio sobra.
+  const keyboardVisible = useKeyboardVisible();
+  const bottomEdge = !(avoidKeyboard && keyboardVisible);
 
   const onClosedRef = useRef(onClosed);
   onClosedRef.current = onClosed;
@@ -79,7 +83,7 @@ export function BottomSheetModal({
             className="flex-1 justify-end"
           >
             <Animated.View style={sheetStyle} className={sheetClassName}>
-              <SafeAreaView edges={["bottom"]} className={contentClassName}>
+              <SafeAreaView edges={bottomEdge ? ["bottom"] : []} className={contentClassName}>
                 {children}
               </SafeAreaView>
             </Animated.View>

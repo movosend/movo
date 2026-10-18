@@ -37,6 +37,9 @@ jest.mock("../src/hooks/use-mp-connect", () => ({
 jest.mock("../src/hooks/use-saved-cards", () => ({
   useSavedCards: () => ({ data: undefined }),
 }));
+jest.mock("../src/hooks/use-balance", () => ({
+  useBalance: () => ({ data: undefined }),
+}));
 
 function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
   return {

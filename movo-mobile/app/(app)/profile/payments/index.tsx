@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CardOptionsSheet } from "../../../../components/payments/card-options-sheet";
+import { BalanceTab } from "../../../../components/payments/balance-tab";
 import { DeleteCardSheet } from "../../../../components/payments/delete-card-sheet";
 import { MpAccountSheet } from "../../../../components/payments/mp-account-sheet";
 import { ChangeMpAccountSheet } from "../../../../components/payments/change-mp-account-sheet";
@@ -63,7 +64,9 @@ export default function PaymentsSettingsScreen() {
   const [unlinkError, setUnlinkError] = useState<string | null>(null);
 
   const cardsQuery = useSavedCards();
-  const params = useLocalSearchParams<{ toast?: string }>();
+  const params = useLocalSearchParams<{ toast?: string; tab?: string; pay?: string }>();
+  const [activeTab, setActiveTab] = useState<"balance" | "methods">(params.tab === "methods" ? "methods" : "balance");
+  useEffect(() => { if (params.tab === "balance" || params.pay === "1") setActiveTab("balance"); else if (params.tab === "methods") setActiveTab("methods"); }, [params.tab, params.pay]);
   const [toast, setToast] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<SavedCard | null>(null);
   const [overlay, setOverlay] = useState<CardOverlay | null>(null);
@@ -270,6 +273,13 @@ export default function PaymentsSettingsScreen() {
         <Text className="font-sans-semibold text-[17px] leading-[22px] text-fg">Pagos y cobros</Text>
       </View>
 
+      <View className="flex-row border-b border-border px-5">
+        <Pressable testID="payments-tab-balance" accessibilityRole="tab" accessibilityState={{ selected: activeTab === "balance" }} onPress={() => setActiveTab("balance")} className={`mr-6 border-b-2 py-2.5 ${activeTab === "balance" ? "border-fg" : "border-transparent"}`}><Text className={`font-sans-medium text-[13px] ${activeTab === "balance" ? "text-fg" : "text-fg-3"}`}>Saldo</Text></Pressable>
+        <Pressable testID="payments-tab-methods" accessibilityRole="tab" accessibilityState={{ selected: activeTab === "methods" }} onPress={() => setActiveTab("methods")} className={`border-b-2 py-2.5 ${activeTab === "methods" ? "border-fg" : "border-transparent"}`}><Text className={`font-sans-medium text-[13px] ${activeTab === "methods" ? "text-fg" : "text-fg-3"}`}>Medios de pago y cobro</Text></Pressable>
+      </View>
+
+      {activeTab === "balance" ? <BalanceTab openPay={params.pay === "1"} onPayOpened={() => router.setParams({ pay: undefined })} /> : (
+
       <ScrollView
         testID="payments-screen-content"
         contentContainerClassName="gap-4 px-5 pb-8 pt-3"
@@ -306,6 +316,7 @@ export default function PaymentsSettingsScreen() {
         ) : null}
         {content}
       </ScrollView>
+      )}
 
       <CardOptionsSheet
         card={selectedCard}

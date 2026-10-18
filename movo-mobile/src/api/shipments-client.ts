@@ -58,6 +58,7 @@ export interface ShipmentSummary {
    * un transportista ajeno viendo un envío `published` — agregado de ofertas vigentes
    * sin identidad de los competidores, `null` si no hay ninguna. */
   offersSummary?: { count: number; minPriceNetArs: number } | null;
+  debtDiscount?: { amountArs: number; reason: "pending_balance" } | null;
   /** MOVO-257: solo en `GET /shipments/mine` — ofertas vigentes de un envío
    * `published` visto por su emisor; `null` en cualquier otro caso. */
   pendingOffersCount?: number | null;
@@ -224,6 +225,7 @@ export interface AvailableShipment {
   deliveryDistanceKm: number | null;
   distanceKm: number;
   hasMyOffer: boolean;
+  debtDiscount?: { amountArs: number; reason: "pending_balance" } | null;
   createdAt: string;
 }
 
