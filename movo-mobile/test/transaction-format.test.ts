@@ -138,7 +138,10 @@ describe("subtítulo de la fila (AC4)", () => {
       "Se acredita al entregar · 13 oct",
     );
     expect(transactionRowSubtitle(item({ status: "released", card: undefined }), "carrier")).toBe(
-      "El envío se canceló · 13 oct",
+      "Reserva liberada · 13 oct",
+    );
+    expect(transactionRowSubtitle(item({ status: "completed", card: undefined }), "carrier")).toBe(
+      "Acreditado · reserva del 13 oct",
     );
   });
 });
@@ -149,6 +152,8 @@ describe("hero del detalle", () => {
     expect(transactionHeroLabel("reserved", "carrier", false)).toBe("Pagó el emisor");
     expect(transactionHeroLabel("completed", "sender")).toBe("Pagaste");
     expect(transactionHeroLabel("released", "sender")).toBe("Reservaste");
+    expect(transactionHeroLabel("reserved", "sender")).toBe("Reservaste");
+    expect(transactionHeroLabel("reserved", "sender", false, true)).toBe("Pagaste");
   });
 
   it("un reembolso parcial lo aclara en la pill; uno total no", () => {

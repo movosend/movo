@@ -32,6 +32,8 @@ type CardOverlay = "options" | "rename" | "delete";
 type MpOverlay = "account" | "unlink" | "change";
 type PaymentsTab = "balance" | "history" | "methods";
 const PAYMENTS_TABS: readonly PaymentsTab[] = ["balance", "history", "methods"];
+const parseTab = (tab: string | undefined): PaymentsTab | null =>
+  PAYMENTS_TABS.includes(tab as PaymentsTab) ? (tab as PaymentsTab) : null;
 
 const TAB_LABELS: Record<PaymentsTab, string> = { balance: "Saldo", history: "Historial", methods: "Medios" };
 
@@ -74,11 +76,20 @@ export default function PaymentsSettingsScreen() {
   // Se abre en Saldo si hay deuda y, si no, en Historial (prototipo "Pagos y cobros 2c"); un `?tab=`
   // explícito manda. Mientras el saldo carga se muestra Saldo, que ya tiene su propio indicador.
   const balanceQuery = useBalance();
-  const [pickedTab, setPickedTab] = useState<PaymentsTab | null>(PAYMENTS_TABS.includes(params.tab as PaymentsTab) ? (params.tab as PaymentsTab) : null);
+  const [pickedTab, setPickedTab] = useState<PaymentsTab | null>(() => params.pay === "1" ? "balance" : parseTab(params.tab));
   const balanceArs = balanceQuery.data?.pages[0]?.balanceArs;
-  const activeTab: PaymentsTab = pickedTab ?? (balanceQuery.isPending || balanceQuery.isError || (balanceArs ?? 0) > 0 ? "balance" : "history");
-  const setActiveTab = setPickedTab;
-  useEffect(() => { if (params.pay === "1") setPickedTab("balance"); else if (PAYMENTS_TABS.includes(params.tab as PaymentsTab)) setPickedTab(params.tab as PaymentsTab); }, [params.tab, params.pay]);
+  const activeTab: PaymentsTab = pickedTab ?? "balance";
+  useEffect(() => {
+    const requestedTab = parseTab(params.tab);
+    if (params.pay === "1") setPickedTab("balance");
+    else if (requestedTab) setPickedTab(requestedTab);
+  }, [params.tab, params.pay]);
+  useEffect(() => {
+    if (pickedTab === null && params.pay !== "1" && !parseTab(params.tab) &&
+        (balanceArs !== undefined || balanceQuery.isError)) {
+      setPickedTab(balanceArs !== undefined && balanceArs <= 0 ? "history" : "balance");
+    }
+  }, [pickedTab, params.tab, params.pay, balanceArs, balanceQuery.isError]);
   const [toast, setToast] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<SavedCard | null>(null);
   const [overlay, setOverlay] = useState<CardOverlay | null>(null);
@@ -287,7 +298,7 @@ export default function PaymentsSettingsScreen() {
 
       <View accessibilityRole="tablist" className="flex-row gap-[22px] border-b border-border px-5">
         {PAYMENTS_TABS.map((tab) => (
-          <Pressable key={tab} testID={`payments-tab-${tab}`} accessibilityRole="tab" accessibilityState={{ selected: activeTab === tab }} onPress={() => setActiveTab(tab)} className={`border-b-2 pb-2.5 pt-2 ${activeTab === tab ? "border-fg" : "border-transparent"}`}>
+          <Pressable key={tab} testID={`payments-tab-${tab}`} accessibilityRole="tab" accessibilityState={{ selected: activeTab === tab }} onPress={() => setPickedTab(tab)} className={`border-b-2 pb-2.5 pt-2 ${activeTab === tab ? "border-fg" : "border-transparent"}`}>
             <Text className={`font-sans-medium text-[13px] ${activeTab === tab ? "text-fg" : "text-fg-3"}`}>{TAB_LABELS[tab]}</Text>
           </Pressable>
         ))}

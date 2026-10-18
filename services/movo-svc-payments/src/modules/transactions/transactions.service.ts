@@ -12,6 +12,7 @@ import {
   TransactionStatus,
 } from "@movo/shared";
 import type { ShipmentsClient } from "../../adapters/shipments-client";
+import { resolveShipmentOrigins } from "../../adapters/shipments-client";
 import type { TransactionRepository, TransactionRow } from "../../repositories/transaction-repository";
 import { deriveTransactionStatus } from "./transaction-status";
 
@@ -99,8 +100,7 @@ function visibleAmount(amountArs: number | null, row: TransactionRow, role: Tran
 
 /**
  * Qué parte es deuda de la cuenta corriente (MOVO-311), para que el historial cierre con el Saldo:
- * - emisor: el recargo que viajó dentro de lo que pagó (`amount - base`); si el hold se liberó sin cobrar,
- *   el trigger anuló esa deuda y no se muestra;
+ * - emisor: el recargo registrado en la liquidación; no se atribuye deuda a operaciones revertidas;
  * - transportista: lo descontado de su cobro, solo con la liquidación acreditada (igual que el `breakdown`).
  * Un pago de saldo es la deuda entera: no lleva un monto aparte.
  */
@@ -111,9 +111,9 @@ function debtAmount(row: TransactionRow, role: TransactionRole, status: Transact
       ? row.settlementStatus === "credited"
         ? row.debtOffsetArs ?? 0
         : 0
-      : status === "released"
+      : status === "released" || status === "refunded" || status === "disputed"
         ? 0
-        : Math.round((row.amountArs - row.baseAmountArs) * 100) / 100;
+        : row.debtSurchargeArs ?? 0;
   return amount > 0 ? amount : null;
 }
 
@@ -178,17 +178,9 @@ export function createTransactionsService(deps: {
 }): TransactionsService {
   const { transactions, shipmentsClient } = deps;
 
-  /** Destino por envío; si svc-shipments no responde el historial sigue andando y el cliente muestra el código. */
-  async function destinationsOf(userId: string, shipmentIds: (string | null)[]): Promise<Map<string, string>> {
-    const ids = [...new Set(shipmentIds.filter((id): id is string => !!id))];
-    if (!shipmentsClient || ids.length === 0) return new Map();
-    try {
-      const origins = await shipmentsClient.resolveLedgerOrigins(userId, ids);
-      return new Map(origins.flatMap((o) => (o.destination ? [[o.id, o.destination] as const] : [])));
-    } catch {
-      return new Map();
-    }
-  }
+  /** El destino es accesorio: un servicio de envíos lento no debe retener el historial por 3 s. */
+  const destinationsOf = (userId: string, ids: (string | null)[]) =>
+    resolveShipmentOrigins(shipmentsClient, userId, ids, 500);
 
   return {
     async list(userId, input) {
@@ -218,7 +210,7 @@ export function createTransactionsService(deps: {
       return {
         items: page.map((row) => ({
           ...toListItem(row, input.role),
-          destinationLabel: row.shipmentId ? destinations.get(row.shipmentId) ?? null : null,
+          destinationLabel: row.shipmentId ? destinations.get(row.shipmentId)?.destination ?? null : null,
         })),
         nextCursor: rows.length > limit && last ? encodeCursor(last) : null,
       };
@@ -230,14 +222,14 @@ export function createTransactionsService(deps: {
       // Un pago de saldo no tiene reembolsos ni disputas registrados: los eventos de MP son por hold.
       const movements = row.kind === "shipment" ? await transactions.listMovements(row.id, row.mpPaymentId) : [];
       const destinations = await destinationsOf(userId, [row.shipmentId]);
-      const item = { ...toListItem(row, role), destinationLabel: row.shipmentId ? destinations.get(row.shipmentId) ?? null : null };
+      const item = { ...toListItem(row, role), destinationLabel: row.shipmentId ? destinations.get(row.shipmentId)?.destination ?? null : null };
       const released = item.status === "released";
       const detail: TransactionDetail = {
         ...item,
         capturedAt: row.capturedAt ? row.capturedAt.toISOString() : null,
         // La fija un trigger de la base al pasar el hold a `cancelled`; solo se informa con el estado `released`.
         releasedAt: released && row.releasedAt ? row.releasedAt.toISOString() : null,
-        releaseReason: released ? (row.holdStatusDetail === "expired" ? "expired" : "cancelled") : null,
+        releaseReason: released && row.holdStatusDetail === "expired" ? "expired" : null,
         movements: movements.map((m) => ({ kind: m.kind, amountArs: visibleAmount(m.amountArs, row, role), date: m.date.toISOString() })),
       };
       // Con `role=sender` el desglose nunca viaja (AC11, mismo criterio que AC10 de MOVO-212).

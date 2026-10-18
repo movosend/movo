@@ -30,6 +30,7 @@ import mpWebhooksPlugin from "./plugins/mp-webhooks";
 import mpWebhookRoutes from "./modules/webhooks/mp-webhook.routes";
 import settlementsRoutes from "./modules/settlements/settlements.routes";
 import type { ShipmentsClient } from "./adapters/shipments-client";
+import shipmentsClientPlugin from "./plugins/shipments-client";
 import type { AlertNotifier } from "./adapters/alert-notifier";
 
 export interface BuildAppOptions {
@@ -71,6 +72,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   app.register(dbPlugin);
   app.register(redisPlugin);
+  app.register(shipmentsClientPlugin, { shipmentsClient: opts.shipmentsClient });
   app.register(authPlugin);
   app.register(errorHandlerPlugin);
   app.register(mpConnectPlugin, {
@@ -90,13 +92,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     usersClient: opts.usersClient,
   });
   // MOVO-303: historial de transacciones (lectura de holds, liquidaciones y eventos).
-  app.register(transactionsPlugin, { shipmentsClient: opts.shipmentsClient });
+  app.register(transactionsPlugin);
   // MOVO-309 (ADR-044): cuenta corriente del usuario. Solo necesita la DB.
-  app.register(userLedgerPlugin, { shipmentsClient: opts.shipmentsClient });
+  app.register(userLedgerPlugin);
   // MOVO-212: captura del hold y liquidación, también sobre `mercadoPago`.
   app.register(capturesPlugin);
   // Después de `holds`: reconcilia intentos en `creating` con su service (MOVO-268).
-  app.register(mpWebhooksPlugin, { shipmentsClient: opts.shipmentsClient, alertNotifier: opts.alertNotifier });
+  app.register(mpWebhooksPlugin, { alertNotifier: opts.alertNotifier });
   // MOVO-312: "Pagar mi saldo". Después de `mpWebhooks` (usa `app.alerts`) y de `userLedger`.
   app.register(balancePaymentPlugin);
 

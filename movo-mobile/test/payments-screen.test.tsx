@@ -132,6 +132,16 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     expect(getByTestId("payments-tab-balance").props.accessibilityState.selected).toBe(true);
   });
 
+  it("mantiene Saldo abierto cuando un pago deja la deuda en cero", async () => {
+    mockParams = {};
+    mockBalance = { isPending: false, isError: false, data: { pages: [{ balanceArs: 4100 }] } };
+    const screen = await render(<PaymentsSettingsScreen />);
+    mockBalance = { isPending: false, isError: false, data: { pages: [{ balanceArs: 0 }] } };
+    screen.rerender(<PaymentsSettingsScreen />);
+    expect(screen.getByTestId("payments-tab-balance").props.accessibilityState.selected).toBe(true);
+    expect(screen.getByText("balance-tab-stub")).toBeTruthy();
+  });
+
   it("mientras carga el saldo no salta a Historial", async () => {
     mockParams = {};
     mockBalance = { isPending: true, isError: false };

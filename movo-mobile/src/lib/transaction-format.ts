@@ -200,11 +200,12 @@ export function senderTimeline(detail: TransactionDetail): TimelineEvent[] {
       detail: `${formatShortDateTime(detail.capturedAt)} · al entregarse el envío`,
     });
   } else if (detail.status === "released") {
-    const why = detail.releaseReason === "expired" ? "La reserva venció" : "El envío se canceló";
+    const why = detail.releaseReason === "expired" ? "La reserva venció"
+      : detail.releaseReason === "cancelled" ? "El envío se canceló" : null;
     events.push({
       key: "released",
       title: "Reserva liberada",
-      detail: `${detail.releasedAt ? `${formatShortDateTime(detail.releasedAt)} · ` : ""}${why}. No se te cobró nada`,
+      detail: `${detail.releasedAt ? `${formatShortDateTime(detail.releasedAt)} · ` : ""}${why ? `${why}. ` : ""}No se te cobró nada`,
     });
   } else if (detail.status === "reserved") {
     events.push({
@@ -222,7 +223,7 @@ const CARRIER_NOTES: Record<TransactionStatus, string> = {
   completed: "Acreditado",
   refunded: "Reembolsado al emisor",
   disputed: "Hay una disputa abierta",
-  released: "El envío se canceló",
+  released: "Reserva liberada",
 };
 
 /** Segunda línea de la fila: tarjeta y fecha en Pagos, situación del cobro y fecha en Cobros. */
@@ -232,7 +233,9 @@ export function transactionRowSubtitle(item: TransactionListItem, role: Transact
     const card = transactionCardLabel(item.card);
     return card ? `${card} · ${date}` : date;
   }
-  return `${CARRIER_NOTES[item.status]} · ${date}`;
+  return item.status === "completed"
+    ? `${CARRIER_NOTES[item.status]} · reserva del ${date}`
+    : `${CARRIER_NOTES[item.status]} · ${date}`;
 }
 
 /**
@@ -240,8 +243,8 @@ export function transactionRowSubtitle(item: TransactionListItem, role: Transact
  * liquidación está acreditada y hay desglose (`hasNet`); en cualquier otro estado el hero
  * muestra lo que pagó el emisor y nunca un neto (AC11).
  */
-export function transactionHeroLabel(status: TransactionStatus, role: TransactionRole, hasNet = false): string {
-  if (role === "sender") return status === "released" ? "Reservaste" : "Pagaste";
+export function transactionHeroLabel(status: TransactionStatus, role: TransactionRole, hasNet = false, captured = false): string {
+  if (role === "sender") return status === "released" || (status === "reserved" && !captured) ? "Reservaste" : "Pagaste";
   return hasNet ? "Te acreditaron" : "Pagó el emisor";
 }
 

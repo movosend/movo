@@ -17,7 +17,7 @@ jest.mock("expo-router", () => ({ router: { push: (...args: unknown[]) => mockPu
 const movement = {
   id: "entry-1", userId: "user-1", roleAtOrigin: "carrier", type: "cancellation_penalty", amountArs: 2400,
   status: "pending", shipmentId: "12345678-1234-1234-1234-123456789abc", holdId: null, paymentId: null,
-  reason: null, originLabel: "Envío a Rosario #12345678", createdAt: "2026-10-14T12:00:00.000Z",
+  reason: null, originLabel: "Envío a Rosario #12345678", destination: "Rosario", createdAt: "2026-10-14T12:00:00.000Z",
 };
 
 describe("BalanceTab (MOVO-315)", () => {
@@ -39,6 +39,15 @@ describe("BalanceTab (MOVO-315)", () => {
     const screen = await render(<BalanceTab />);
     fireEvent.press(screen.getByText("Cargar más"));
     expect(mockFetchNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("busca la próxima página si la actual no contiene deudas abiertas", async () => {
+    mockHasNextPage = true;
+    mockPage = { ...mockPage, items: [{ ...movement, status: "settled" }] };
+    const screen = await render(<BalanceTab />);
+    expect(mockFetchNextPage).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Buscando deudas…")).toBeTruthy();
+    expect(screen.queryByText("Cargar más")).toBeNull();
   });
 
   it("muestra el estado al día sin lista de movimientos", async () => {

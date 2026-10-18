@@ -5,7 +5,6 @@ import {
   createConsoleAlertNotifier,
   createTelegramAlertNotifier,
 } from "../adapters/alert-notifier";
-import { createShipmentsClient, ShipmentsClient } from "../adapters/shipments-client";
 import { createCarrierMpAccountRepository } from "../repositories/carrier-mp-account-repository";
 import { createHoldRepository } from "../repositories/hold-repository";
 import { createMpWebhookRepository } from "../repositories/mp-webhook-repository";
@@ -14,7 +13,6 @@ import { createMpWebhookService, MpWebhookService } from "../modules/webhooks/mp
 
 export interface MpWebhooksPluginOptions {
   /** Override solo para tests (mismo criterio que `mercadoPagoClient`). */
-  shipmentsClient?: ShipmentsClient;
   alertNotifier?: AlertNotifier;
 }
 
@@ -55,7 +53,7 @@ export default fp<MpWebhooksPluginOptions>(async (app, opts) => {
     holdService: app.holds,
     accounts: createCarrierMpAccountRepository(app.db, createTokenCipher(app.config.MP_TOKEN_ENCRYPTION_KEY)),
     mercadoPago: app.mercadoPago,
-    shipments: opts.shipmentsClient ?? createShipmentsClient(app.config.SHIPMENTS_SERVICE_URL),
+    shipments: app.shipmentsClient,
     alerts,
     log: app.log,
     holdValidityDays: app.config.MP_HOLD_VALIDITY_DAYS,

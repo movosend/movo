@@ -22,7 +22,7 @@ describe("formatBalanceArs y títulos de la lista de Saldo", () => {
   });
 
   it("saca el id interno que el backend pega al final de la etiqueta del envío", () => {
-    const entry = { shipmentId: "s", originLabel: "Envío a Rivadavia 387 #a8a0ed48", type: "cancellation_penalty" } as never;
+    const entry = { shipmentId: "s", destination: "Rivadavia 387", originLabel: "Envío a Rivadavia 387 #a8a0ed48", type: "cancellation_penalty" } as never;
     expect(balanceEntryOrigin(entry)).toBe("Envío a Rivadavia 387");
     expect(balanceEntryTitle(entry)).toBe("Envío a Rivadavia 387");
   });

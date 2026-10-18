@@ -68,6 +68,14 @@ export function BalanceTab({ openPay, onPayOpened }: { openPay?: boolean; onPayO
   const amount = page?.balanceArs ?? 0;
   const entries = (balance.data?.pages.flatMap((p) => p.items) ?? []).filter(isOpenDebt);
   useEffect(() => { if (openPay) { setPayOpen(true); onPayOpened?.(); } }, [openPay, onPayOpened]);
+  // El endpoint pagina todos los movimientos. Si la página visible solo contiene pagos o
+  // deudas cerradas, avanzar hasta encontrar una deuda o agotar las páginas.
+  useEffect(() => {
+    if (amount > 0 && entries.length === 0 && balance.hasNextPage &&
+        !balance.isFetchingNextPage && !balance.isFetchNextPageError) {
+      void balance.fetchNextPage();
+    }
+  }, [amount, entries.length, balance.hasNextPage, balance.isFetchingNextPage, balance.isFetchNextPageError, balance.fetchNextPage]);
 
   return (
     <>
@@ -80,7 +88,7 @@ export function BalanceTab({ openPay, onPayOpened }: { openPay?: boolean; onPayO
                 <Text className="mb-3 font-sans-semibold text-caption uppercase text-fg-3">Qué forma tu saldo</Text>
                 <View className="overflow-hidden rounded-[10px] border border-border">
                   {entries.map((entry, index) => <DebtEntry key={entry.id} entry={entry} last={index === entries.length - 1 && !balance.hasNextPage} />)}
-                {balance.hasNextPage ? <Pressable accessibilityRole="button" disabled={balance.isFetchingNextPage} onPress={() => void balance.fetchNextPage()} className="flex-row items-center justify-center gap-2 border-t border-border py-4">{balance.isFetchingNextPage ? <ActivityIndicator size="small" color={colors.fg1} /> : null}<Text className="font-sans-medium text-[14px] text-fg">{balance.isFetchingNextPage ? "Cargando…" : "Cargar más"}</Text></Pressable> : null}
+                {balance.hasNextPage ? <Pressable accessibilityRole="button" disabled={balance.isFetchingNextPage || (entries.length === 0 && !balance.isFetchNextPageError)} onPress={() => void balance.fetchNextPage()} className="flex-row items-center justify-center gap-2 border-t border-border py-4">{balance.isFetchingNextPage || (entries.length === 0 && !balance.isFetchNextPageError) ? <ActivityIndicator size="small" color={colors.fg1} /> : null}<Text className="font-sans-medium text-[14px] text-fg">{balance.isFetchNextPageError ? "Reintentar" : balance.isFetchingNextPage || entries.length === 0 ? "Buscando deudas…" : "Cargar más"}</Text></Pressable> : null}
                 </View>
               </View> : null}
           </>

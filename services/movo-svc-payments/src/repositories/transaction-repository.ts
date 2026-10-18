@@ -181,7 +181,7 @@ function visibleTransactions(column: "payer_id" | "carrier_id", userId: string):
       s.mp_fee_ars::float8 AS mp_fee_ars,
       s.commission_ars::float8 AS commission_ars,
       s.debt_offset_ars::float8 AS debt_offset_ars,
-      s.debt_surcharge_ars::float8 AS debt_surcharge_ars,
+      COALESCE(s.debt_surcharge_ars, h.debt_surcharge_ars)::float8 AS debt_surcharge_ars,
       s.carrier_gross_amount_ars::float8 AS carrier_gross_amount_ars,
       s.carrier_mp_fee_ars::float8 AS carrier_mp_fee_ars,
       s.net_amount_ars::float8 AS net_amount_ars,

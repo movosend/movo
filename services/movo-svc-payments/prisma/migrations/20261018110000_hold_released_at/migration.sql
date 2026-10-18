@@ -6,14 +6,18 @@ ALTER TABLE "payments"."holds" ADD COLUMN "released_at" TIMESTAMPTZ;
 
 CREATE FUNCTION "payments"."holds_set_released_at"() RETURNS trigger AS $$
 BEGIN
-  IF NEW."status" = 'cancelled' AND OLD."status" IS DISTINCT FROM 'cancelled' AND NEW."released_at" IS NULL THEN
-    NEW."released_at" := now();
+  IF NEW."status" = 'cancelled' AND NEW."released_at" IS NULL THEN
+    IF TG_OP = 'INSERT' THEN
+      NEW."released_at" := now();
+    ELSIF OLD."status" IS DISTINCT FROM 'cancelled' THEN
+      NEW."released_at" := now();
+    END IF;
   END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER "holds_set_released_at" BEFORE UPDATE ON "payments"."holds"
+CREATE TRIGGER "holds_set_released_at" BEFORE INSERT OR UPDATE ON "payments"."holds"
   FOR EACH ROW EXECUTE FUNCTION "payments"."holds_set_released_at"();
 
 -- Los ya cancelados: lo más cercano que hay es su última actualización.

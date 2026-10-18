@@ -50,7 +50,7 @@ export interface TransactionCard {
   paymentType?: string | null;
 }
 
-/** Por qué se liberó un hold sin cobrar: `expired` si la reserva venció, `cancelled` en el resto. */
+/** Motivo de liberación solo cuando está confirmado; `null` si MP no lo informa. */
 export const TRANSACTION_RELEASE_REASONS = ["cancelled", "expired"] as const;
 
 export type TransactionReleaseReason = (typeof TRANSACTION_RELEASE_REASONS)[number];

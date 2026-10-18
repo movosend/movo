@@ -35,10 +35,8 @@ export function balanceEntryRole(entry: UserLedgerEntry): string | null {
 }
 
 export function balanceEntryOrigin(entry: UserLedgerEntry): string {
-  // El backend cierra la etiqueta con los primeros 8 caracteres del id del envío ("Envío a Rivadavia 387 #a8a0ed48"):
-  // es un identificador interno que no le dice nada a quien mira.
-  if (entry.originLabel) return entry.originLabel.replace(/\s+#[0-9a-f]{8}$/i, "");
-  if (entry.shipmentId) return `Envío #${entry.shipmentId.slice(0, 8)}`;
+  if (entry.shipmentId) return entry.destination ? `Envío a ${entry.destination}` : `Envío #${entry.shipmentId.slice(0, 8)}`;
+  if (entry.originLabel) return entry.originLabel;
   if (entry.type === "voluntary_payment") return "Pago de saldo";
   return "Cuenta corriente";
 }

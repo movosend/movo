@@ -619,7 +619,7 @@ describe("/payments/transactions (MOVO-303)", () => {
 
       const a = (await detail(cancelled.id, "sender", SENDER)).json();
       expect(a.status).toBe("released");
-      expect(a.releaseReason).toBe("cancelled");
+      expect(a.releaseReason).toBeNull();
       expect(Date.parse(a.releasedAt)).toBeGreaterThanOrEqual(before - 1000);
       expect((await detail(expired.id, "sender", SENDER)).json().releaseReason).toBe("expired");
     });
@@ -635,6 +635,13 @@ describe("/payments/transactions (MOVO-303)", () => {
       const body = (await detail(active.id, "sender", SENDER)).json();
       expect(body.releasedAt).toBeNull();
       expect(body.releaseReason).toBeNull();
+    });
+
+    it("fecha también los holds insertados ya cancelados", async () => {
+      const hold = await createHold({ status: "cancelled" });
+      const body = (await detail(hold.id, "sender", SENDER)).json();
+      expect(body.status).toBe("released");
+      expect(body.releasedAt).not.toBeNull();
     });
   });
 });

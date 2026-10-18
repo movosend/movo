@@ -114,7 +114,7 @@ function Hero({ detail, role }: { detail: TransactionDetail; role: TransactionRo
   return (
     <View testID="transaction-hero" className="mx-5 mt-2 gap-1.5 overflow-hidden rounded-[20px] bg-ink-950 p-5 dark:border dark:border-border-strong">
       <CornerDotPattern />
-      <Text className="font-sans text-[12.5px] text-ink-300">{transactionHeroLabel(detail.status, role, !!breakdown)}</Text>
+      <Text className="font-sans text-[12.5px] text-ink-300">{transactionHeroLabel(detail.status, role, !!breakdown, !!detail.capturedAt)}</Text>
       <Text
         testID="transaction-hero-amount"
         className={`font-sans-semibold text-[34px] leading-[40px] ${breakdown ? "text-lime-500" : "text-ink-50"}`}
@@ -133,7 +133,9 @@ function Hero({ detail, role }: { detail: TransactionDetail; role: TransactionRo
             testID="transaction-hero-pill"
           />
         </View>
-        <Text className="font-sans text-[13px] text-ink-300">{formatDateTime(detail.date)}</Text>
+        <Text className="font-sans text-[13px] text-ink-300">
+          {role === "carrier" && detail.status === "completed" ? "Reserva: " : ""}{formatDateTime(detail.date)}
+        </Text>
       </View>
     </View>
   );
@@ -168,7 +170,6 @@ function PaymentMethodCard({ card }: { card: NonNullable<TransactionDetail["card
 
 /** Un pago de saldo (MOVO-312): tarjeta y a qué se aplicó; no tiene envío, ni reserva, ni reembolsos. */
 function BalancePaymentBody({ detail }: { detail: TransactionDetail }) {
-  const colors = useThemeColors();
   return (
     <>
       {detail.card ? (
@@ -201,7 +202,6 @@ function DebtNote({ detail, role }: { detail: TransactionDetail; role: Transacti
 }
 
 function SenderBody({ detail }: { detail: TransactionDetail }) {
-  const colors = useThemeColors();
   const timeline = senderTimeline(detail);
   return (
     <>
