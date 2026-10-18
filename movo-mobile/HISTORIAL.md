@@ -4793,3 +4793,4 @@ Cambios de UI en la misma rama, a pedido de diseño:
 - **Card de precio del detalle**: el badge de alta demanda dice "Alta demanda". Su ayuda se despliega a todo el ancho debajo de la fila (`HighDemandHelp`) y no dentro de la media card, que la cortaba y estiraba.
 - **Header del detalle**: la pill de estado es compacta (`ShipmentStatusBadge compact`) y en `awaiting_receiver_confirmation` dice "Por confirmar". Para el emisor va en neutro, porque la fila del receptor ya marca "Pendiente".
 - **Resumen del wizard**: mientras cotiza, `PricePreviewCard` muestra un skeleton en lugar de "Precio a estimar" a 38 px.
+- **Card "Tu pago" cancelado**: la pill "Cancelado" se quitó (ya está en el header); solo queda "Procesando" mientras se cobra la penalidad. El aviso de penalidad pendiente va en su propia card de alerta (`AlertCard`).

@@ -1,6 +1,6 @@
 import type { ShipmentSettlementResponse } from "@movo/shared/dist/types/settlement";
 import type { TransactionListItem } from "@movo/shared/dist/types/transaction";
-import { CalendarDays } from "lucide-react-native";
+import { CalendarDays, TriangleAlert } from "lucide-react-native";
 import { Text, View } from "react-native";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -42,6 +42,16 @@ function Note({ children, testID }: { children: string; testID?: string }) {
   );
 }
 
+function AlertCard({ children, testID }: { children: string; testID?: string }) {
+  const colors = useThemeColors();
+  return (
+    <View testID={testID} className="mt-3 flex-row items-start gap-2.5 rounded-[10px] border border-warning-300 bg-warning-100 px-3.5 py-3">
+      <TriangleAlert size={16} color={colors.fg2} strokeWidth={2} style={{ marginTop: 1 }} />
+      <Text className="flex-1 font-sans text-[12.5px] leading-[18px] text-ink-950">{children}</Text>
+    </View>
+  );
+}
+
 interface SenderCancelledPaymentProps {
   shipment: Pick<ShipmentSummary, "cancellationPenaltyArs" | "cancellationPenaltyStatus" | "lastStatusChangedAt">;
   hold: TransactionListItem | null;
@@ -73,9 +83,10 @@ export function SenderCancelledPayment({ shipment, hold, carrierFirstName, testI
 
   return (
     <View testID={testID}>
+      {/* El estado "Cancelado" ya está en el header de la pantalla: la pill solo aparece mientras se cobra. */}
       <View className="mb-2.5 flex-row items-center justify-between gap-3">
         <SectionLabel noMargin>Tu pago</SectionLabel>
-        <Pill label={view.processing ? "Procesando" : "Cancelado"} tone="neutral" testID={id("pill")} />
+        {view.processing ? <Pill label="Procesando" tone="neutral" testID={id("pill")} /> : null}
       </View>
       <PriceBreakdownCard
         testID={id("card-breakdown")}
@@ -89,7 +100,7 @@ export function SenderCancelledPayment({ shipment, hold, carrierFirstName, testI
         }}
         footer={<DateStrip text={dateText} testID={id("date")} />}
       />
-      {view.note ? <Note testID={id("note")}>{view.note}</Note> : null}
+      {view.note ? <AlertCard testID={id("note")}>{view.note}</AlertCard> : null}
     </View>
   );
 }
