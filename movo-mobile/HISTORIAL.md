@@ -4837,3 +4837,26 @@ porque el backend arma el desglose según quién mira.
 - **Fuera de alcance:** el resumen "Cobrado en octubre / Por acreditar" de Cobros (falta definir bruto/neto y la fecha de acreditación;
   no hay agregados en el backend) y la penalidad del emisor como fila propia (MOVO-308). Un pago de saldo `pending` aparece en Historial
   recién cuando MP lo aprueba. Pendiente: probarlo en dispositivo con cuentas con pagos y cobros reales.
+
+### MOVO-314 — Transportista: bajarse de un envío asignado y cancelar el viaje con paquetes
+
+Prototipos "MOVO-314 Transportista se baja" y "v2 Transportista cancela viaje" (Claude Design). **Un envío:** menú ⋮ del detalle
+(`CarrierActionsBar`, solo `assignment_pending`/`assigned_unfunded`/`assigned`, `canCarrierWithdraw`) → `CarrierWithdrawSheet`, modelado
+sobre `CancelShipmentSheet`: cotiza con `GET /carrier-withdrawal-quote`, muestra "sin cargo" o "Se te va a registrar una deuda de $X que se
+descuenta de tus próximos cobros", y confirma con `expectedPenaltyArs` (re-cotiza ante el 409 de monto). El monto sale siempre del quote del
+servidor, el mobile no calcula la penalidad. Al confirmar sale al Inicio (el detalle daría 403: el envío vuelve a `published`) con
+`withdrawnNotice` por param y un `SuccessBanner`; `invalidateAfterCarrierWithdrawal` refresca "Estoy transportando", viajes, ofertas y saldo.
+Sin código nuevo para AC4: la push al emisor es `type: "shipment"` y ya abría el envío. Se cambió su copy en `@movo/shared`
+(`carrierWithdrewSender`): "Tu envío vuelve a estar publicado", con el nombre del transportista y que puede cancelarlo sin cargo.
+
+**Viaje completo:** el backend no tiene endpoint (`POST /trips/:id/cancel` da 409 con paquetes aceptados), así que se resuelve en el
+cliente y en secuencia (`useCancelTripWithPackages`): una baja por envío y, al final, el cancel del viaje. "Cancelar viaje" se ofrece en un
+viaje `declared` mientras todos sus paquetes sean retirables (con uno en tránsito no); "Editar" sigue oculto con paquetes. `TripCancelSheet`
+suma la lista de envíos con su cargo y el total. **No es atómico**: si falla a mitad, las filas bajadas quedan marcadas y el reintento sigue
+con las que faltan (la baja es idempotente en el backend). Candidato a endpoint atómico en una US futura.
+
+- Decisión: `assignment_pending` también paga el 25 % si faltan < 12 h (`quoteCarrierWithdrawal`); el estado "Mixto" del prototipo del viaje,
+  que lo mostraba sin cargo, no se implementó así. Cada fila muestra lo que devuelve su quote. Los montos del prototipo son mock.
+- Entrada del envío en el menú ⋮ (consistente con el emisor) en vez del link del footer del prototipo; feedback con `SuccessBanner`, no toast.
+- Pendiente: probarlo en dispositivo contra dev con un envío a < 12 h y otro a > 12 h.
+
