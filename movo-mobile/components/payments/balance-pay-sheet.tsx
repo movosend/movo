@@ -118,10 +118,13 @@ export function BalancePaySheet({ visible, onClose, cards, initialBalanceArs }: 
   const balanceDropped = pendingFrom !== null && payData.data !== undefined && payData.data.balanceArs < pendingFrom;
   useEffect(() => {
     if (result !== "pending" || (!settledWhilePending && !balanceDropped)) return;
-    setPaid(amount);
-    setRemaining(payData.data?.balanceArs ?? 0);
+    // `paid` ya se guardó al entrar en pending: `amount` a esta altura puede ser el saldo restante.
+    // Con 422 la deuda quedó en 0, pero `payData.data` conserva el último saldo exitoso.
+    setRemaining(settledWhilePending ? 0 : (payData.data?.balanceArs ?? 0));
+    // `reconcileOpen` corre en pay-data, no en /balance: se refresca el saldo ya conciliado.
+    refresh();
     setResult("approved");
-  }, [result, settledWhilePending, balanceDropped, amount, payData.data]);
+  }, [result, settledWhilePending, balanceDropped, payData.data, refresh]);
 
   useEffect(() => {
     if (!visible || result !== "pending") return;
@@ -162,6 +165,7 @@ export function BalancePaySheet({ visible, onClose, cards, initialBalanceArs }: 
         setRemaining(response.balanceArs);
         setResult("approved");
       } else if (response.status === "pending") {
+        setPaid(amount);
         setPendingFrom(balance);
         setResult("pending");
       } else {

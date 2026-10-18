@@ -246,8 +246,6 @@ export function useAcceptShipment() {
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "list"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
       queryClient.setQueryData(["shipments", "detail", id], data);
-      // Una cancelación puede generar penalidad (ADR-047): el saldo cambió.
-      queryClient.invalidateQueries({ queryKey: BALANCE_QUERY_KEY });
     },
   });
 }
@@ -300,6 +298,8 @@ export function useCancelShipment() {
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "list"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
       queryClient.setQueryData(["shipments", "detail", id], data);
+      // Una cancelación puede generar penalidad (ADR-047): el saldo cambió.
+      queryClient.invalidateQueries({ queryKey: BALANCE_QUERY_KEY });
     },
   });
 }
