@@ -136,7 +136,15 @@ function toListItem(row: TransactionRow, role: TransactionRole): TransactionList
   };
   // La tarjeta es del emisor: con `role=carrier` la clave ni viaja.
   if (role === "sender") {
-    item.card = row.cardBrand ? { brand: row.cardBrand, last4: row.cardLast4 } : null;
+    item.card = row.cardBrand
+      ? {
+          brand: row.cardBrand,
+          last4: row.cardLast4,
+          alias: row.cardAlias,
+          issuerName: row.cardIssuerName,
+          paymentType: row.cardPaymentType,
+        }
+      : null;
   }
   return item;
 }
@@ -199,9 +207,14 @@ export function createTransactionsService(deps: { transactions: TransactionRepos
       if (!row) throw notFound();
       // Un pago de saldo no tiene reembolsos ni disputas registrados: los eventos de MP son por hold.
       const movements = row.kind === "shipment" ? await transactions.listMovements(row.id, row.mpPaymentId) : [];
+      const item = toListItem(row, role);
+      const released = item.status === "released";
       const detail: TransactionDetail = {
-        ...toListItem(row, role),
+        ...item,
         capturedAt: row.capturedAt ? row.capturedAt.toISOString() : null,
+        // La fija un trigger de la base al pasar el hold a `cancelled`; solo se informa con el estado `released`.
+        releasedAt: released && row.releasedAt ? row.releasedAt.toISOString() : null,
+        releaseReason: released ? (row.holdStatusDetail === "expired" ? "expired" : "cancelled") : null,
         movements: movements.map((m) => ({ kind: m.kind, amountArs: visibleAmount(m.amountArs, row, role), date: m.date.toISOString() })),
       };
       // Con `role=sender` el desglose nunca viaja (AC11, mismo criterio que AC10 de MOVO-212).

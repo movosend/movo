@@ -37,6 +37,8 @@ function detail(overrides: Partial<TransactionDetail> = {}): TransactionDetail {
     debtAmountArs: null,
     card: { brand: "master", last4: "1881" },
     capturedAt: "2026-10-06T12:00:00.000Z",
+    releasedAt: null,
+    releaseReason: null,
     movements: [{ kind: "refund", amountArs: 1500, date: "2026-10-08T13:00:00.000Z" }],
     ...overrides,
   };
@@ -83,24 +85,49 @@ describe("PaymentTransactionDetailScreen (MOVO-304)", () => {
 
       const refund = getByTestId("transaction-movement-refund");
       expect(within(refund).getByText("Reembolso parcial")).toBeTruthy();
-      expect(within(refund).getByText("8 oct · $1.500 devueltos a tu tarjeta")).toBeTruthy();
+      expect(within(refund).getByText("8 oct · 10:00 · $1.500 devueltos a tu tarjeta")).toBeTruthy();
       expect(within(refund).getByText("Vinculado al pago de $5.200 del 4 oct.")).toBeTruthy();
     });
 
-    it("la línea de movimientos arranca por el pago y suma el cobro acreditado", async () => {
+    it("la línea de tiempo arranca por la reserva y suma el cobro, los dos con día y hora", async () => {
       mockQuery({ data: detail() });
       const { getByTestId } = await render(<PaymentTransactionDetailScreen />);
       const movements = getByTestId("transaction-movements");
-      expect(within(movements).getByText("Pago realizado")).toBeTruthy();
-      expect(within(movements).getByText("4 oct · $5.200")).toBeTruthy();
-      expect(within(movements).getByText("Cobro acreditado")).toBeTruthy();
+      expect(within(movements).getByText("Fondos reservados")).toBeTruthy();
+      expect(within(movements).getByText("4 oct · 14:32 · $5.200")).toBeTruthy();
+      expect(within(movements).getByText("Pago cobrado")).toBeTruthy();
+      expect(within(movements).getByText("6 oct · 09:00 · al entregarse el envío")).toBeTruthy();
+    });
+
+    it("un hold liberado muestra cuándo y por qué, y que no se cobró nada", async () => {
+      mockQuery({
+        data: detail({
+          status: "released", refundedAmountArs: null, capturedAt: null, movements: [],
+          releasedAt: "2026-10-17T22:30:00.000Z", releaseReason: "cancelled",
+        }),
+      });
+      const { getByTestId, queryByTestId } = await render(<PaymentTransactionDetailScreen />);
+      const released = getByTestId("transaction-step-released");
+      expect(within(released).getByText("Reserva liberada")).toBeTruthy();
+      expect(within(released).getByText("17 oct · 19:30 · El envío se canceló. No se te cobró nada")).toBeTruthy();
+      expect(queryByTestId("transaction-step-pending-capture")).toBeNull();
+    });
+
+    it("una reserva vencida lo dice, y sin fecha de liberación no inventa una", async () => {
+      mockQuery({
+        data: detail({ status: "released", refundedAmountArs: null, capturedAt: null, movements: [], releasedAt: null, releaseReason: "expired" }),
+      });
+      const { getByText } = await render(<PaymentTransactionDetailScreen />);
+      expect(getByText("La reserva venció. No se te cobró nada")).toBeTruthy();
     });
 
     it("un pago reservado todavía no tiene cobro acreditado ni movimientos", async () => {
       mockQuery({ data: detail({ status: "reserved", refundedAmountArs: null, capturedAt: null, movements: [] }) });
       const { getByTestId, queryByText } = await render(<PaymentTransactionDetailScreen />);
       expect(within(getByTestId("transaction-movements")).getByText("Fondos reservados")).toBeTruthy();
-      expect(queryByText("Cobro acreditado")).toBeNull();
+      // Mientras no se cobró ni se liberó, se ve el paso que falta.
+      expect(within(getByTestId("transaction-step-pending-capture")).getByText("Se cobra cuando se entregue el envío")).toBeTruthy();
+      expect(queryByText("Pago cobrado")).toBeNull();
       expect(within(getByTestId("transaction-hero-pill")).getByText("Reservado")).toBeTruthy();
     });
 
@@ -120,6 +147,26 @@ describe("PaymentTransactionDetailScreen (MOVO-304)", () => {
       mockQuery({ data: detail({ debtAmountArs: 250 }) });
       const { getByTestId } = await render(<PaymentTransactionDetailScreen />);
       expect(within(getByTestId("transaction-debt-note")).getByText("Incluye $250 de tu saldo")).toBeTruthy();
+    });
+
+    it("el método de pago muestra el nombre de la tarjeta guardada, su banco y si es crédito o débito", async () => {
+      mockQuery({
+        data: detail({ card: { brand: "visa", last4: "3704", alias: "Personal", issuerName: "Banco Galicia", paymentType: "credit_card" } }),
+      });
+      const { getByTestId } = await render(<PaymentTransactionDetailScreen />);
+      const card = getByTestId("transaction-card");
+      expect(within(card).getByText("Personal")).toBeTruthy();
+      expect(within(card).getByText("Visa •••• 3704 · Galicia · Crédito")).toBeTruthy();
+      // Los logos son decorativos (ocultos para accesibilidad): el texto ya dice banco y marca.
+      expect(getByTestId("transaction-card-bank", { includeHiddenElements: true })).toBeTruthy();
+      expect(getByTestId("transaction-card-brand", { includeHiddenElements: true })).toBeTruthy();
+    });
+
+    it("sin alias ni banco el método de pago queda en marca y últimos 4, sin repetirlos", async () => {
+      mockQuery({ data: detail({ card: { brand: "master", last4: "1881" } }) });
+      const { getByTestId, queryByTestId } = await render(<PaymentTransactionDetailScreen />);
+      expect(within(getByTestId("transaction-card")).getByText("Mastercard •••• 1881")).toBeTruthy();
+      expect(queryByTestId("transaction-card-bank", { includeHiddenElements: true })).toBeNull();
     });
 
     it("sin datos de tarjeta no se muestra la sección de método de pago", async () => {

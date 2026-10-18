@@ -4,6 +4,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, ChevronRight, CreditCard, Package } from "lucide-react-native";
 import { ScrollView, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { BankLogo } from "../../../../../components/payments/bank-logo";
+import { CardBrandLogo } from "../../../../../components/payments/card-brand-logo";
 import { MercadoPagoEmblem } from "../../../../../components/payments/mercadopago-logo";
 import { TransactionStatusPill } from "../../../../../components/payments/transaction-status-pill";
 import { TransactionsError } from "../../../../../components/payments/transactions-states";
@@ -17,8 +19,10 @@ import {
   debtLine,
   formatTransactionAmount,
   movementCopy,
+  senderTimeline,
   TRANSACTION_NOT_FOUND_MESSAGE,
-  transactionCardLabel,
+  transactionCardMeta,
+  transactionCardTitle,
   transactionDisplayCode,
   transactionHeroLabel,
   transactionHeroPill,
@@ -132,23 +136,42 @@ function Hero({ detail, role }: { detail: TransactionDetail; role: TransactionRo
   );
 }
 
+/**
+ * Método de pago: la misma tarjeta que el usuario ve en Medios. Con banco informado, su logo a la izquierda y la marca
+ * a la derecha; sin banco (Amex, o MP no lo informó), el recuadro de marca. El nombre de referencia, si lo tiene,
+ * manda; si no, marca y últimos 4.
+ */
+function PaymentMethodCard({ card }: { card: NonNullable<TransactionDetail["card"]> }) {
+  const colors = useThemeColors();
+  const meta = transactionCardMeta(card);
+  const brand = <CardBrandLogo brand={card.brand} size={26} color={colors.fg1} testID="transaction-card-brand" />;
+  return (
+    <Card testID="transaction-card">
+      <View className="flex-row items-center gap-3 px-4 py-3.5">
+        {card.issuerName ? (
+          <BankLogo issuerName={card.issuerName} size={40} testID="transaction-card-bank" />
+        ) : (
+          <IconCircle>{brand ?? <CreditCard size={18} color={colors.fg1} strokeWidth={2} />}</IconCircle>
+        )}
+        <View className="min-w-0 flex-1">
+          <Text numberOfLines={1} className="font-sans-semibold text-[15px] text-fg">{transactionCardTitle(card)}</Text>
+          {meta ? <Text numberOfLines={1} className="font-sans text-[12.5px] text-fg-2">{meta}</Text> : null}
+        </View>
+        {card.issuerName ? brand : null}
+      </View>
+    </Card>
+  );
+}
+
 /** Un pago de saldo (MOVO-312): tarjeta y a qué se aplicó; no tiene envío, ni reserva, ni reembolsos. */
 function BalancePaymentBody({ detail }: { detail: TransactionDetail }) {
   const colors = useThemeColors();
-  const card = transactionCardLabel(detail.card);
   return (
     <>
-      {card ? (
+      {detail.card ? (
         <View className="mx-5 mt-[18px]">
           <SectionLabel>Método de pago</SectionLabel>
-          <Card testID="transaction-card">
-            <View className="flex-row items-center gap-3 px-4 py-3.5">
-              <IconCircle>
-                <CreditCard size={18} color={colors.fg1} strokeWidth={2} />
-              </IconCircle>
-              <Text className="flex-1 font-sans-semibold text-[15px] text-fg">{card}</Text>
-            </View>
-          </Card>
+          <PaymentMethodCard card={detail.card} />
         </View>
       ) : null}
       <View className="mx-5 mt-[18px]">
@@ -176,21 +199,13 @@ function DebtNote({ detail, role }: { detail: TransactionDetail; role: Transacti
 
 function SenderBody({ detail }: { detail: TransactionDetail }) {
   const colors = useThemeColors();
-  const card = transactionCardLabel(detail.card);
-  const captured = detail.capturedAt !== null;
+  const timeline = senderTimeline(detail);
   return (
     <>
-      {card ? (
+      {detail.card ? (
         <View className="mx-5 mt-[18px]">
           <SectionLabel>Método de pago</SectionLabel>
-          <Card testID="transaction-card">
-            <View className="flex-row items-center gap-3 px-4 py-3.5">
-              <IconCircle>
-                <CreditCard size={18} color={colors.fg1} strokeWidth={2} />
-              </IconCircle>
-              <Text className="flex-1 font-sans-semibold text-[15px] text-fg">{card}</Text>
-            </View>
-          </Card>
+          <PaymentMethodCard card={detail.card} />
         </View>
       ) : null}
 
@@ -205,18 +220,16 @@ function SenderBody({ detail }: { detail: TransactionDetail }) {
         <SectionLabel>Movimientos</SectionLabel>
         <Card testID="transaction-movements">
           <View className="px-4 pb-3.5 pt-1.5">
-            <TimelineStep
-              last={!captured && detail.movements.length === 0}
-              title={captured ? "Pago realizado" : "Fondos reservados"}
-              detail={`${formatShortDate(detail.date)} · ${formatTransactionAmount(detail.amountArs)}`}
-            />
-            {captured ? (
+            {timeline.map((event, index) => (
               <TimelineStep
-                last={detail.movements.length === 0}
-                title="Cobro acreditado"
-                detail={`${formatShortDate(detail.capturedAt!)} · al entregarse el envío`}
+                key={event.key}
+                last={index === timeline.length - 1 && detail.movements.length === 0}
+                pending={event.pending}
+                testID={`transaction-step-${event.key}`}
+                title={event.title}
+                detail={event.detail}
               />
-            ) : null}
+            ))}
             {detail.movements.map((movement, index) => {
               const copy = movementCopy(movement, detail.amountArs, detail.date);
               return (
@@ -244,6 +257,7 @@ function TimelineStep({
   note,
   last,
   highlight,
+  pending,
   testID,
 }: {
   title: string;
@@ -251,17 +265,19 @@ function TimelineStep({
   note?: string | null;
   last: boolean;
   highlight?: boolean;
+  /** Todavía no pasó: punto vacío y texto apagado. */
+  pending?: boolean;
   testID?: string;
 }) {
   return (
     <View testID={testID} className="relative flex-row gap-3 pt-3">
       {last ? null : <View className="absolute bottom-[-12px] left-[5px] top-7 w-0.5 bg-border-strong" />}
       <View
-        className={`mt-1 h-3 w-3 rounded-full ${highlight ? "border-2 border-fg bg-lime-500" : "bg-fg"}`}
+        className={`mt-1 h-3 w-3 rounded-full ${pending ? "border-2 border-border-strong bg-bg" : highlight ? "border-2 border-fg bg-lime-500" : "bg-fg"}`}
       />
       <View className="flex-1">
-        <Text className="font-sans-semibold text-[14px] text-fg">{title}</Text>
-        <Text className="mt-px font-sans text-[12.5px] text-fg-2">{detail}</Text>
+        <Text className={`font-sans-semibold text-[14px] ${pending ? "text-fg-3" : "text-fg"}`}>{title}</Text>
+        <Text className={`mt-px font-sans text-[12.5px] ${pending ? "text-fg-3" : "text-fg-2"}`}>{detail}</Text>
         {note ? (
           <View className="mt-1.5 rounded-[10px] border border-lime-600/40 bg-lime-200/50 px-2.5 py-2 dark:bg-lime-500/10">
             <Text className="font-sans text-[12.5px] text-ink-950 dark:text-lime-200">{note}</Text>

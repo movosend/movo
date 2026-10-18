@@ -755,3 +755,13 @@ salvo hold liberado; descuento al transportista, solo con la liquidación acredi
   reciben `kind`; la integración verifica que coincidan.
 - Fuera de alcance: el resumen "Cobrado en el mes / Por acreditar" y la penalidad del emisor como fila propia (MOVO-308).
 
+### MOVO-303 (ampliación) — Tarjeta guardada y liberación en el detalle
+
+`TransactionCard` suma `alias`, `issuerName` y `paymentType`, que salen de la tarjeta guardada del hold (`LEFT JOIN saved_cards` por
+`holds.saved_card_id`; marca y últimos 4 también caen a los de la tarjeta si MP todavía no los informó). `TransactionDetail` suma
+`releasedAt` y `releaseReason` (`cancelled` | `expired`, según el `status_detail` de MP), solo con el estado `released`.
+
+- **`holds.released_at` la fija un trigger** (`holds_set_released_at`) la primera vez que `status` pasa a `cancelled`, y no el código:
+  un hold se cierra desde varios lugares (liberación explícita, webhook de MP, vencimiento) y `updated_at` no sirve porque cambia
+  con cualquier update posterior. Los ya cancelados se rellenaron con su `updated_at`, que es aproximado.
+

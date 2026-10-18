@@ -41,7 +41,19 @@ export interface TransactionCard {
   brand: string;
   /** `null` si Mercado Pago todavía no informó los últimos 4 (se completa con el próximo sync). */
   last4: string | null;
+  /**
+   * De la tarjeta guardada con la que se pagó (`savedCardId` del hold), para mostrar la misma tarjeta que el
+   * usuario ve en Medios. Ausentes o `null` si el pago no usó una tarjeta guardada o ya no hay datos.
+   */
+  alias?: string | null;
+  issuerName?: string | null;
+  paymentType?: string | null;
 }
+
+/** Por qué se liberó un hold sin cobrar: `expired` si la reserva venció, `cancelled` en el resto. */
+export const TRANSACTION_RELEASE_REASONS = ["cancelled", "expired"] as const;
+
+export type TransactionReleaseReason = (typeof TRANSACTION_RELEASE_REASONS)[number];
 
 export interface TransactionListItem {
   /** Id del hold, o del intento de pago si `kind` es `balance_payment`. */
@@ -90,6 +102,9 @@ export interface TransactionBreakdown {
 export interface TransactionDetail extends TransactionListItem {
   /** Cuándo se capturó el pago; `null` si todavía no. */
   capturedAt: string | null;
+  /** Cuándo se liberó la reserva sin cobrar (`status: released`); `null` si no se liberó. */
+  releasedAt: string | null;
+  releaseReason: TransactionReleaseReason | null;
   movements: TransactionMovement[];
   /**
    * Solo con `role=carrier` (con `role=sender` la clave no viaja, AC10 de MOVO-212): `null`

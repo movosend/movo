@@ -4809,6 +4809,10 @@ porque el backend arma el desglose según quién mira.
   etiqueta chica arriba y rol y fecha son contexto. No hay pill "Por pagar" por fila (toda la lista lo es); solo "En proceso"
   si ya se está cobrando. Un ajuste sin envío usa el tipo como título. Montos con centavos siempre a dos dígitos
   (`formatBalanceArs`: "$1.742,50", no "$1.742,5"), y más aire: tarjeta de saldo `p-5`, filas `py-4`, separación `gap-6`.
+- **Detalle de un pago**: el método de pago es la misma tarjeta que se ve en Medios (nombre de referencia, banco con su logo, marca,
+  crédito/débito; `PaymentMethodCard`). La línea de tiempo (`senderTimeline`) lleva día y hora de cada hito: reserva, cobro al
+  entregar, o la liberación con su motivo ("No se te cobró nada"); mientras no pasó ninguna de las dos se ve el paso que falta, apagado.
+  Los reembolsos y disputas también llevan hora.
 - Con filtros activos las etiquetas solo se quitan: botón "Filtros" aparte (no está en el prototipo) para reabrir la hoja.
 - **Fuera de alcance:** el resumen "Cobrado en octubre / Por acreditar" de Cobros (falta definir bruto/neto y la fecha de acreditación;
   no hay agregados en el backend) y la penalidad del emisor como fila propia (MOVO-308). Un pago de saldo `pending` aparece en Historial

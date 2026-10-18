@@ -1,4 +1,5 @@
 import type {
+  TransactionDetail,
   TransactionListItem,
   TransactionMovement,
   TransactionRole,
@@ -6,7 +7,7 @@ import type {
 } from "@movo/shared/dist/types/transaction";
 import { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "@movo/shared/dist/utils/argentina-date";
 import { activeShipmentDisplayCode } from "./active-shipment-format";
-import { cardBrandName } from "./saved-cards";
+import { cardBrandName, paymentTypeLabel, shortBankName } from "./saved-cards";
 import { formatPriceArs } from "./shipment-format";
 
 /**
@@ -90,6 +91,11 @@ export function formatDateTime(iso: string): string {
   return `${date} ${MONTHS_SHORT[month - 1]} ${year} · ${toArgentinaTimeOfDayString(iso)}`;
 }
 
+/** "4 oct · 14:32" en hora de Argentina (la línea de tiempo del detalle, sin el año). */
+export function formatShortDateTime(iso: string): string {
+  return `${formatShortDate(iso)} · ${toArgentinaTimeOfDayString(iso)}`;
+}
+
 /** "1 oct 2026" para un `YYYY-MM-DD` ya armado (filtros). */
 export function formatFilterDay(day: string): string {
   const { year, month, date } = parseDay(day);
@@ -151,6 +157,64 @@ export function transactionCardLabel(card: TransactionListItem["card"]): string 
   return card.last4 ? `${cardBrandName(card.brand)} •••• ${card.last4}` : cardBrandName(card.brand);
 }
 
+/** Lo que se lee primero del método de pago: el nombre de referencia de la tarjeta guardada, o marca y últimos 4. */
+export function transactionCardTitle(card: NonNullable<TransactionListItem["card"]>): string {
+  return card.alias?.trim() || transactionCardLabel(card) || "Tarjeta";
+}
+
+/** "Visa •••• 3704 · Galicia · Crédito": con nombre de referencia suma marca y últimos 4 adelante, sin repetirlos si no. */
+export function transactionCardMeta(card: NonNullable<TransactionListItem["card"]>): string {
+  const bank = card.issuerName ? shortBankName(card.issuerName) : null;
+  return [card.alias?.trim() ? transactionCardLabel(card) : null, bank, paymentTypeLabel(card.paymentType)]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export interface TimelineEvent {
+  key: string;
+  title: string;
+  detail: string;
+  /** Todavía no pasó: se muestra apagado, para que se vea qué viene después. */
+  pending?: boolean;
+}
+
+/**
+ * Línea de tiempo del pago del emisor (AC10), con día y hora de cada hito: la reserva, y después el cobro al entregar,
+ * la liberación sin cobrar (con su motivo) o, mientras no pasó ninguna de las dos, el paso que falta. Los reembolsos y
+ * disputas se agregan aparte (`movementCopy`).
+ */
+export function senderTimeline(detail: TransactionDetail): TimelineEvent[] {
+  const events: TimelineEvent[] = [
+    {
+      key: "reserved",
+      title: "Fondos reservados",
+      detail: `${formatShortDateTime(detail.date)} · ${formatTransactionAmount(detail.amountArs)}`,
+    },
+  ];
+  if (detail.capturedAt) {
+    events.push({
+      key: "captured",
+      title: "Pago cobrado",
+      detail: `${formatShortDateTime(detail.capturedAt)} · al entregarse el envío`,
+    });
+  } else if (detail.status === "released") {
+    const why = detail.releaseReason === "expired" ? "La reserva venció" : "El envío se canceló";
+    events.push({
+      key: "released",
+      title: "Reserva liberada",
+      detail: `${detail.releasedAt ? `${formatShortDateTime(detail.releasedAt)} · ` : ""}${why}. No se te cobró nada`,
+    });
+  } else if (detail.status === "reserved") {
+    events.push({
+      key: "pending-capture",
+      title: "Cobro al entregar",
+      detail: "Se cobra cuando se entregue el envío",
+      pending: true,
+    });
+  }
+  return events;
+}
+
 const CARRIER_NOTES: Record<TransactionStatus, string> = {
   reserved: "Se acredita al entregar",
   completed: "Acreditado",
@@ -210,7 +274,7 @@ export function movementCopy(
   paymentAmountArs: number,
   paymentDate: string,
 ): MovementCopy {
-  const date = formatShortDate(movement.date);
+  const date = formatShortDateTime(movement.date);
   const amount = movement.amountArs;
   const hasAmount = amount !== null && Number.isFinite(amount);
   if (movement.kind === "refund") {

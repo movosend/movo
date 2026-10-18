@@ -32,7 +32,14 @@ const kind = { type: "string", enum: ["shipment", "balance_payment"] } as const;
 const card = {
   type: ["object", "null"],
   required: ["brand", "last4"],
-  properties: { brand: { type: "string" }, last4: { type: ["string", "null"] } },
+  properties: {
+    brand: { type: "string" },
+    last4: { type: ["string", "null"] },
+    // De la tarjeta guardada con la que se pagó; null si el pago no usó una.
+    alias: { type: ["string", "null"] },
+    issuerName: { type: ["string", "null"] },
+    paymentType: { type: ["string", "null"] },
+  },
 } as const;
 
 const listItemProperties = {
@@ -113,10 +120,13 @@ export const getTransactionSchema = {
   response: {
     200: {
       type: "object",
-      required: [...listItem.required, "capturedAt", "movements"],
+      required: [...listItem.required, "capturedAt", "releasedAt", "releaseReason", "movements"],
       properties: {
         ...listItemProperties,
         capturedAt: { type: ["string", "null"], format: "date-time" },
+        // Solo con status `released`: cuándo y por qué se liberó la reserva sin cobrar.
+        releasedAt: { type: ["string", "null"], format: "date-time" },
+        releaseReason: { type: ["string", "null"], enum: ["cancelled", "expired", null] },
         movements: { type: "array", items: movement },
         breakdown,
       },

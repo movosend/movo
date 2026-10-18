@@ -152,7 +152,7 @@ describe("/payments/transactions (MOVO-303)", () => {
     it("el ítem trae la tarjeta solo para el emisor", async () => {
       await createHold();
       const sender = (await list("role=sender")).json().items[0];
-      expect(sender.card).toEqual({ brand: "visa", last4: "3764" });
+      expect(sender.card).toEqual({ brand: "visa", last4: "3764", alias: null, issuerName: null, paymentType: null });
       expect(sender.refundedAmountArs).toBeNull();
       const carrier = (await list("role=carrier", CARRIER)).json().items[0];
       expect("card" in carrier).toBe(false);
@@ -397,7 +397,7 @@ describe("/payments/transactions (MOVO-303)", () => {
       const asSender = await detail(credited.id, "sender", SENDER);
       expect(asSender.statusCode).toBe(200);
       expect("breakdown" in asSender.json()).toBe(false);
-      expect(asSender.json().card).toEqual({ brand: "visa", last4: "3764" });
+      expect(asSender.json().card).toEqual({ brand: "visa", last4: "3764", alias: null, issuerName: null, paymentType: null });
     });
 
     it("una transacción ajena, de otro rol o inexistente responde el mismo 404", async () => {
@@ -456,7 +456,7 @@ describe("/payments/transactions (MOVO-303)", () => {
         status: "completed",
         refundedAmountArs: null,
         debtAmountArs: null,
-        card: { brand: "master", last4: "1881" },
+        card: { brand: "master", last4: "1881", alias: null, issuerName: null, paymentType: null },
       });
       expect(items[1].kind).toBe("shipment");
     });
@@ -567,6 +567,58 @@ describe("/payments/transactions (MOVO-303)", () => {
       );
       expect(byId[credited.id]).toBe(200);
       expect(byId[processing.id]).toBeNull();
+    });
+  });
+
+  describe("datos de la tarjeta y de la liberación en el detalle", () => {
+    it("un hold con tarjeta guardada trae alias, banco y tipo, y completa marca y últimos 4 si MP no los informó", async () => {
+      const card = await app.db.savedCard.create({
+        data: {
+          userId: SENDER, mpCardId: `mp-card-${uuid()}`, brand: "visa", last4: "3704", expMonth: 12, expYear: 2030,
+          alias: "Personal", issuerName: "Banco Galicia", paymentType: "credit_card",
+        },
+      });
+      const hold = await createHold({ cardBrand: null, cardLast4: null });
+      await app.db.hold.update({ where: { id: hold.id }, data: { savedCardId: card.id } });
+
+      const body = (await detail(hold.id, "sender", SENDER)).json();
+      expect(body.card).toEqual({
+        brand: "visa", last4: "3704", alias: "Personal", issuerName: "Banco Galicia", paymentType: "credit_card",
+      });
+      expect((await list("role=sender")).json().items[0].card.alias).toBe("Personal");
+    });
+
+    it("un hold sin tarjeta guardada trae los datos de la tarjeta en null", async () => {
+      const hold = await createHold();
+      const { card } = (await detail(hold.id, "sender", SENDER)).json();
+      expect(card).toEqual({ brand: "visa", last4: "3764", alias: null, issuerName: null, paymentType: null });
+    });
+
+    it("un hold liberado informa cuándo (lo fija la base al cancelarse) y por qué", async () => {
+      const cancelled = await createHold({ status: "authorized" });
+      const before = Date.now();
+      await app.db.hold.update({ where: { id: cancelled.id }, data: { status: "cancelled", statusDetail: "by_collector" } });
+      const expired = await createHold({ status: "authorized" });
+      await app.db.hold.update({ where: { id: expired.id }, data: { status: "cancelled", statusDetail: "expired" } });
+
+      const a = (await detail(cancelled.id, "sender", SENDER)).json();
+      expect(a.status).toBe("released");
+      expect(a.releaseReason).toBe("cancelled");
+      expect(Date.parse(a.releasedAt)).toBeGreaterThanOrEqual(before - 1000);
+      expect((await detail(expired.id, "sender", SENDER)).json().releaseReason).toBe("expired");
+    });
+
+    it("la fecha de liberación no cambia con updates posteriores, y un hold no liberado no la trae", async () => {
+      const hold = await createHold({ status: "authorized" });
+      await app.db.hold.update({ where: { id: hold.id }, data: { status: "cancelled" } });
+      const first = (await detail(hold.id, "sender", SENDER)).json().releasedAt;
+      await app.db.hold.update({ where: { id: hold.id }, data: { cardLast4: "9999" } });
+      expect((await detail(hold.id, "sender", SENDER)).json().releasedAt).toBe(first);
+
+      const active = await createHold({ status: "authorized" });
+      const body = (await detail(active.id, "sender", SENDER)).json();
+      expect(body.releasedAt).toBeNull();
+      expect(body.releaseReason).toBeNull();
     });
   });
 });

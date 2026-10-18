@@ -172,7 +172,7 @@ describe("movimientos de la línea de tiempo (AC10)", () => {
       "2026-10-04T17:32:00.000Z",
     );
     expect(copy.title).toBe("Reembolso parcial");
-    expect(copy.detail).toBe("8 oct · $1.500 devueltos a tu tarjeta");
+    expect(copy.detail).toBe("8 oct · 10:00 · $1.500 devueltos a tu tarjeta");
     expect(copy.linkedNote).toBe("Vinculado al pago de $5.200 del 4 oct.");
   });
 

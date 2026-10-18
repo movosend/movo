@@ -16,6 +16,13 @@ export interface TransactionRow {
   holdStatus: HoldStatus;
   cardBrand: string | null;
   cardLast4: string | null;
+  /** De la tarjeta guardada con la que se pagó (nulos si el pago no usó una, o si ya no hay datos). */
+  cardAlias: string | null;
+  cardIssuerName: string | null;
+  cardPaymentType: string | null;
+  /** Cuándo se liberó el hold sin cobrar, y el `status_detail` de MP (distingue vencida de cancelada). */
+  releasedAt: Date | null;
+  holdStatusDetail: string | null;
   settlementStatus: SettlementStatus | null;
   capturedAt: Date | null;
   grossAmountArs: number | null;
@@ -72,6 +79,11 @@ interface RawRow {
   hold_status: HoldStatus;
   card_brand: string | null;
   card_last4: string | null;
+  card_alias: string | null;
+  card_issuer_name: string | null;
+  card_payment_type: string | null;
+  released_at: Date | null;
+  hold_status_detail: string | null;
   settlement_status: SettlementStatus | null;
   captured_at: Date | null;
   gross_amount_ars: number | null;
@@ -100,6 +112,11 @@ function toRow(r: RawRow): TransactionRow {
     holdStatus: r.hold_status,
     cardBrand: r.card_brand,
     cardLast4: r.card_last4,
+    cardAlias: r.card_alias,
+    cardIssuerName: r.card_issuer_name,
+    cardPaymentType: r.card_payment_type,
+    releasedAt: r.released_at,
+    holdStatusDetail: r.hold_status_detail,
     settlementStatus: r.settlement_status,
     capturedAt: r.captured_at,
     grossAmountArs: r.gross_amount_ars,
@@ -148,8 +165,14 @@ function visibleTransactions(column: "payer_id" | "carrier_id", userId: string):
       h.amount_ars::float8 AS amount_ars,
       h.base_amount_ars::float8 AS base_amount_ars,
       h.status::text AS hold_status,
-      h.card_brand,
-      h.card_last4,
+      -- Un hold con tarjeta guardada completa marca y últimos 4 con la tarjeta si MP todavía no los informó.
+      COALESCE(h.card_brand, sc.brand)::varchar(32) AS card_brand,
+      COALESCE(h.card_last4, sc.last4)::varchar(4) AS card_last4,
+      sc.alias AS card_alias,
+      sc.issuer_name AS card_issuer_name,
+      sc.payment_type AS card_payment_type,
+      h.released_at,
+      h.status_detail AS hold_status_detail,
       s.status::text AS settlement_status,
       s.captured_at,
       s.gross_amount_ars::float8 AS gross_amount_ars,
@@ -176,6 +199,7 @@ function visibleTransactions(column: "payer_id" | "carrier_id", userId: string):
       ) AS refunded_amount_ars
     FROM payments.holds h
     LEFT JOIN payments.settlements s ON s.hold_id = h.id
+    LEFT JOIN payments.saved_cards sc ON sc.id = h.saved_card_id
     WHERE h.${Prisma.raw(column)} = ${userId}::uuid
       AND (h.status IN ('in_process', 'authorized', 'captured')
            OR (h.status = 'cancelled' AND h.mp_payment_id IS NOT NULL))`;
@@ -202,6 +226,11 @@ function approvedBalancePayments(userId: string): Prisma.Sql {
       'captured'::text AS hold_status,
       c.brand::varchar(32) AS card_brand,
       c.last4::varchar(4) AS card_last4,
+      c.alias AS card_alias,
+      c.issuer_name AS card_issuer_name,
+      c.payment_type AS card_payment_type,
+      NULL::timestamptz AS released_at,
+      NULL::text AS hold_status_detail,
       NULL::text AS settlement_status,
       NULL::timestamptz AS captured_at,
       NULL::float8 AS gross_amount_ars,
