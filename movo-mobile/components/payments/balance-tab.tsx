@@ -52,7 +52,8 @@ function DebtEntry({ entry, last }: { entry: UserLedgerEntry; last: boolean }) {
         <Text className="font-sans-semibold text-[15px] text-danger-600" style={{ fontVariant: ["tabular-nums"] }}>{balanceEntryAmount(entry)}</Text>
         {entry.status === "reserved" ? <Text className="font-sans text-[11.5px] text-fg-3">En proceso</Text> : null}
       </View>
-      {openable ? <ChevronRight size={16} color={colors.fg3} strokeWidth={2} /> : null}
+      {/* Hueco fijo para la flecha: sin él, las filas sin envío (un ajuste) correrían el monto y no quedarían alineados. */}
+      <View className="w-4 items-center">{openable ? <ChevronRight size={16} color={colors.fg3} strokeWidth={2} /> : null}</View>
     </Pressable>
   );
 }
