@@ -6,7 +6,8 @@ export interface HoldEventResult {
   outcome: string;
 }
 
-export interface LedgerOrigin { id: string; label: string }
+/** `destination`: primer componente de la dirección de entrega; vacío si el envío no la tiene. */
+export interface LedgerOrigin { id: string; label: string; destination?: string }
 
 /** svc-shipments no respondió o devolvió un error que puede resolverse reintentando. */
 export class ShipmentsUnavailableError extends Error {

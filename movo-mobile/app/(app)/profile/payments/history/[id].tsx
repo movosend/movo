@@ -24,6 +24,7 @@ import {
   transactionCardMeta,
   transactionCardTitle,
   transactionDisplayCode,
+  transactionTitle,
   transactionHeroLabel,
   transactionHeroPill,
 } from "../../../../../src/lib/transaction-format";
@@ -98,7 +99,7 @@ function ShipmentLink({ detail, subtitle }: { detail: TransactionDetail; subtitl
         <Package size={18} color={colors.fg1} strokeWidth={2} />
       </IconCircle>
       <View className="flex-1">
-        <Text className="font-sans-semibold text-[15px] text-fg">{transactionDisplayCode(shipmentId)}</Text>
+        <Text className="font-sans-semibold text-[15px] text-fg">{transactionTitle(detail)}</Text>
         <Text className="font-sans text-[12.5px] text-fg-2">{subtitle}</Text>
       </View>
       <ChevronRight size={20} color={colors.fg3} strokeWidth={2} />

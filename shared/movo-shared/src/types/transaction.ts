@@ -61,6 +61,11 @@ export interface TransactionListItem {
   kind: TransactionKind;
   /** `null` en un `balance_payment`. */
   shipmentId: string | null;
+  /**
+   * Destino del envío ("Av. Colón 1234"), para titular la fila en vez del id. `null` en un `balance_payment` o si
+   * svc-shipments no respondió: el cliente cae al código del envío.
+   */
+  destinationLabel?: string | null;
   /** Creación del hold (ISO 8601). */
   date: string;
   amountArs: number;

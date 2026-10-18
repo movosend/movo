@@ -131,8 +131,10 @@ export function groupTransactionsByMonth(items: readonly TransactionListItem[]):
 }
 
 /** Título de la fila y del detalle: el envío, o "Pago de tu saldo" (un pago de la cuenta corriente, sin envío). */
-export function transactionTitle(item: Pick<TransactionListItem, "kind" | "shipmentId">): string {
-  return item.kind === "balance_payment" || !item.shipmentId ? "Pago de tu saldo" : `Envío ${transactionDisplayCode(item.shipmentId)}`;
+export function transactionTitle(item: Pick<TransactionListItem, "kind" | "shipmentId" | "destinationLabel">): string {
+  if (item.kind === "balance_payment" || !item.shipmentId) return "Pago de tu saldo";
+  // Como el resto de la app, el envío se nombra por su destino; el código queda de respaldo si no se pudo resolver.
+  return item.destinationLabel ? `Envío a ${item.destinationLabel}` : `Envío ${transactionDisplayCode(item.shipmentId)}`;
 }
 
 /**

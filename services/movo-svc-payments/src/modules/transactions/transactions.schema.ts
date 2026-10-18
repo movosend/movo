@@ -47,6 +47,7 @@ const listItemProperties = {
   kind,
   // null en un pago de saldo (`balance_payment`).
   shipmentId: { type: ["string", "null"], format: "uuid" },
+  destinationLabel: { type: ["string", "null"] },
   date: { type: "string", format: "date-time" },
   amountArs: { type: "number" },
   status,

@@ -263,6 +263,7 @@ describe("textos de lista", () => {
 describe("pagos de saldo y deuda en el historial", () => {
   it("el título es el envío, o 'Pago de tu saldo' si no tiene envío", () => {
     expect(transactionTitle(item())).toBe("Envío #MOVO-48215");
+    expect(transactionTitle(item({ destinationLabel: "Av. Colón 1234" }))).toBe("Envío a Av. Colón 1234");
     expect(transactionTitle(item({ kind: "balance_payment", shipmentId: null }))).toBe("Pago de tu saldo");
   });
 

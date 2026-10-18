@@ -90,7 +90,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     usersClient: opts.usersClient,
   });
   // MOVO-303: historial de transacciones (lectura de holds, liquidaciones y eventos).
-  app.register(transactionsPlugin);
+  app.register(transactionsPlugin, { shipmentsClient: opts.shipmentsClient });
   // MOVO-309 (ADR-044): cuenta corriente del usuario. Solo necesita la DB.
   app.register(userLedgerPlugin, { shipmentsClient: opts.shipmentsClient });
   // MOVO-212: captura del hold y liquidación, también sobre `mercadoPago`.

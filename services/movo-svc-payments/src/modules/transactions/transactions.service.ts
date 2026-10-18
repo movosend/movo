@@ -11,6 +11,7 @@ import {
   TransactionRole,
   TransactionStatus,
 } from "@movo/shared";
+import type { ShipmentsClient } from "../../adapters/shipments-client";
 import type { TransactionRepository, TransactionRow } from "../../repositories/transaction-repository";
 import { deriveTransactionStatus } from "./transaction-status";
 
@@ -170,8 +171,23 @@ function toBreakdown(row: TransactionRow): TransactionBreakdown | null {
   };
 }
 
-export function createTransactionsService(deps: { transactions: TransactionRepository }): TransactionsService {
-  const { transactions } = deps;
+export function createTransactionsService(deps: {
+  transactions: TransactionRepository;
+  shipmentsClient?: ShipmentsClient;
+}): TransactionsService {
+  const { transactions, shipmentsClient } = deps;
+
+  /** Destino por envío; si svc-shipments no responde el historial sigue andando y el cliente muestra el código. */
+  async function destinationsOf(userId: string, shipmentIds: (string | null)[]): Promise<Map<string, string>> {
+    const ids = [...new Set(shipmentIds.filter((id): id is string => !!id))];
+    if (!shipmentsClient || ids.length === 0) return new Map();
+    try {
+      const origins = await shipmentsClient.resolveLedgerOrigins(userId, ids);
+      return new Map(origins.flatMap((o) => (o.destination ? [[o.id, o.destination] as const] : [])));
+    } catch {
+      return new Map();
+    }
+  }
 
   return {
     async list(userId, input) {
@@ -195,9 +211,13 @@ export function createTransactionsService(deps: { transactions: TransactionRepos
       });
 
       const page = rows.slice(0, limit);
+      const destinations = await destinationsOf(userId, page.map((row) => row.shipmentId));
       const last = page[page.length - 1];
       return {
-        items: page.map((row) => toListItem(row, input.role)),
+        items: page.map((row) => ({
+          ...toListItem(row, input.role),
+          destinationLabel: row.shipmentId ? destinations.get(row.shipmentId) ?? null : null,
+        })),
         nextCursor: rows.length > limit && last ? encodeCursor(last) : null,
       };
     },
@@ -207,7 +227,8 @@ export function createTransactionsService(deps: { transactions: TransactionRepos
       if (!row) throw notFound();
       // Un pago de saldo no tiene reembolsos ni disputas registrados: los eventos de MP son por hold.
       const movements = row.kind === "shipment" ? await transactions.listMovements(row.id, row.mpPaymentId) : [];
-      const item = toListItem(row, role);
+      const destinations = await destinationsOf(userId, [row.shipmentId]);
+      const item = { ...toListItem(row, role), destinationLabel: row.shipmentId ? destinations.get(row.shipmentId) ?? null : null };
       const released = item.status === "released";
       const detail: TransactionDetail = {
         ...item,
