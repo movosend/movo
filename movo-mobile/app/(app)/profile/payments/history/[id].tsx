@@ -9,6 +9,7 @@ import { CardBrandLogo } from "../../../../../components/payments/card-brand-log
 import { MercadoPagoEmblem } from "../../../../../components/payments/mercadopago-logo";
 import { TransactionStatusPill } from "../../../../../components/payments/transaction-status-pill";
 import { TransactionsError } from "../../../../../components/payments/transactions-states";
+import { CornerDotPattern } from "../../../../../components/ui/corner-dot-pattern";
 import { SkeletonBlock } from "../../../../../components/ui/skeleton-block";
 import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
 import { useTransaction } from "../../../../../src/hooks/use-transactions";
@@ -111,7 +112,8 @@ function Hero({ detail, role }: { detail: TransactionDetail; role: TransactionRo
   const breakdown = role === "carrier" && detail.status === "completed" ? detail.breakdown : null;
   const amount = breakdown ? breakdown.netArs : detail.amountArs;
   return (
-    <View testID="transaction-hero" className="mx-5 mt-2 gap-1.5 rounded-[20px] bg-ink-950 p-5 dark:border dark:border-border-strong">
+    <View testID="transaction-hero" className="mx-5 mt-2 gap-1.5 overflow-hidden rounded-[20px] bg-ink-950 p-5 dark:border dark:border-border-strong">
+      <CornerDotPattern />
       <Text className="font-sans text-[12.5px] text-ink-300">{transactionHeroLabel(detail.status, role, !!breakdown)}</Text>
       <Text
         testID="transaction-hero-amount"
