@@ -1,17 +1,29 @@
-import { Calendar, ChevronRight, MessageSquare } from "lucide-react-native";
+import { AlertTriangle, Calendar, ChevronRight, MessageSquare } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { ProfileAvatar } from "../profile/profile-avatar";
 import { StarRatingInput } from "../ui/star-rating-input";
 import type { OfferSummary } from "../../src/api/offers-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { formatReputationScore } from "../../src/lib/profile-format";
-import { formatPickupDateLabel, formatPriceArs } from "../../src/lib/shipment-format";
+import {
+  formatPickupDateLabel,
+  formatPickupWindowLabel,
+  formatPriceArs,
+  formatTimeHHMM,
+} from "../../src/lib/shipment-format";
 
 export interface OfferCardProps {
   offer: OfferSummary;
   onAccept: (offer: OfferSummary) => void;
   onReject: (offer: OfferSummary) => void;
   onViewProfile: (carrierId: string) => void;
+  /** Fecha y ventana de retiro pedidas al publicar el envío — si la oferta propone otro
+   * día u horario, la card lo avisa. Opcional: sin esto no se muestra ninguna nota. */
+  requestedPickup?: {
+    pickupDate: string;
+    pickupTimeWindowStart: string;
+    pickupTimeWindowEnd: string;
+  };
   disabled?: boolean;
   testID?: string;
 }
@@ -21,6 +33,7 @@ export function OfferCard({
   onAccept,
   onReject,
   onViewProfile,
+  requestedPickup,
   disabled = false,
   testID,
 }: OfferCardProps) {
@@ -35,10 +48,24 @@ export function OfferCard({
     : offer.offeredDate;
   const formattedDate = formatPickupDateLabel(dateStr) ?? dateStr;
 
+  const offeredWindowStart = formatTimeHHMM(offer.offeredPickupTimeWindowStart);
+  const offeredWindowEnd = formatTimeHHMM(offer.offeredPickupTimeWindowEnd);
+  const differsInDate = requestedPickup != null && dateStr !== requestedPickup.pickupDate;
+  const differsInWindow =
+    requestedPickup != null &&
+    offeredWindowStart !== "" &&
+    offeredWindowEnd !== "" &&
+    (offeredWindowStart !== formatTimeHHMM(requestedPickup.pickupTimeWindowStart) ||
+      offeredWindowEnd !== formatTimeHHMM(requestedPickup.pickupTimeWindowEnd));
+  const differsFromRequested = differsInDate || differsInWindow;
+  const requestedDateLabel = requestedPickup
+    ? (formatPickupDateLabel(requestedPickup.pickupDate) ?? requestedPickup.pickupDate)
+    : "";
+
   return (
     <View
       testID={testID ?? `offer-card-${offer.id}`}
-      className="rounded-[16px] border border-border bg-bg p-4 shadow-sm gap-3.5"
+      className="rounded-[16px] border border-border bg-bg p-4 gap-3.5"
     >
       {/* Header: Carrier Info & View Profile */}
       <Pressable
@@ -101,6 +128,28 @@ export function OfferCard({
           </Text>
         </View>
       </View>
+
+      {/* Aviso: la oferta propone otro día u horario que el pedido al publicar */}
+      {differsFromRequested && requestedPickup ? (
+        <View
+          testID={testID ? `${testID}-schedule-note` : `offer-card-${offer.id}-schedule-note`}
+          className="flex-row items-start gap-2 rounded-[10px] border border-warning-200 bg-warning-100 px-3 py-2.5"
+        >
+          <AlertTriangle size={14} color="#A97714" strokeWidth={2} className="mt-0.5" />
+          <Text className="flex-1 font-sans text-[12.5px] leading-[18px] text-ink-950">
+            <Text className="font-sans-semibold">Otra fecha u horario que el pedido. </Text>
+            Pediste {requestedDateLabel},{" "}
+            {formatPickupWindowLabel(
+              requestedPickup.pickupTimeWindowStart,
+              requestedPickup.pickupTimeWindowEnd,
+            )}
+            .
+            {offeredWindowStart && offeredWindowEnd
+              ? ` Propone ${formattedDate}, ${formatPickupWindowLabel(offeredWindowStart, offeredWindowEnd)}.`
+              : ` Propone ${formattedDate}.`}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Message if present */}
       {offer.message ? (

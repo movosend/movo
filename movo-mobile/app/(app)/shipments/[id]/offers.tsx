@@ -322,6 +322,15 @@ export default function ShipmentOffersScreen() {
                 onAccept={handlePromptAccept}
                 onReject={handlePromptReject}
                 onViewProfile={handleOpenCarrierProfile}
+                requestedPickup={
+                  shipment
+                    ? {
+                        pickupDate: shipment.pickupDate,
+                        pickupTimeWindowStart: shipment.pickupTimeWindowStart,
+                        pickupTimeWindowEnd: shipment.pickupTimeWindowEnd,
+                      }
+                    : undefined
+                }
                 disabled={acceptMutation.isPending || rejectMutation.isPending}
                 testID={`offer-card-${offer.id}`}
               />
