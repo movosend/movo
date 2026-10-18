@@ -52,6 +52,7 @@ import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment, useShipmentPhotos } from "../../../src/hooks/use-shipments";
 import { useShipmentSettlement } from "../../../src/hooks/use-shipment-settlement";
+import { carrierCompensationView } from "../../../src/lib/cancellation-format";
 import { useShipmentHold } from "../../../src/hooks/use-shipment-hold";
 import {
   TRANSIT_DELAYED_INFO_TEXT,
@@ -123,6 +124,8 @@ const TABS: [DetailTab, string][] = [
   ["timeline", "Línea de tiempo"],
 ];
 
+const CANCELLATION_PENALTY_POLL_MS = 15_000;
+
 /**
  * Detalle de un envío propio (MOVO-127) con soporte para calificaciones
  * post-entrega (MOVO-153).
@@ -139,8 +142,15 @@ export default function ShipmentDetailScreen() {
   // React Query no conoce el foco de React Navigation.
   const isFocused = useIsFocused();
   const { data: shipment, isLoading, isError, error, refetch } = useShipment(id, {
-    refetchInterval: (data) =>
-      isFocused ? liveTrackingPendingPollInterval(data, currentUser?.userId) : false,
+    refetchInterval: (data) => {
+      if (!isFocused) return false;
+      // MOVO-308: el cobro de la penalidad pasa de `pending` a `captured`/`debt` en el backend;
+      // sin polling la card "Tu pago" quedaría en "Procesando" hasta volver a enfocar.
+      if (data?.status === ShipmentStatus.CANCELLED && data.cancellationPenaltyStatus === "pending") {
+        return CANCELLATION_PENALTY_POLL_MS;
+      }
+      return liveTrackingPendingPollInterval(data, currentUser?.userId);
+    },
   });
   const [tab, setTab] = useState<DetailTab>("detalle");
   const [isHighDemandHelpOpen, setIsHighDemandHelpOpen] = useState(false);
@@ -297,7 +307,7 @@ export default function ShipmentDetailScreen() {
   // transportista ve lo que recibe aprox. después de la comisión de Movo (AC3) y del
   // estimado de MP (MOVO-225), el mismo monto que en el resto de las pantallas.
   const carrierReceivedArs =
-    isCarrier && shipment?.agreedPriceArs != null
+    isCarrier && !isCancelled && shipment?.agreedPriceArs != null
       ? Math.max(0, estimateReceivedArs(
           computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
           shipment.agreedPriceArs,
@@ -325,8 +335,14 @@ export default function ShipmentDetailScreen() {
   // Con el pago a la vista, el precio de la card de abajo competiría con el monto real
   // (MOVO-214). MOVO-308: lo mismo con la reserva de un envío cancelado; y al transportista
   // de un envío cancelado ya no le corresponde el "Recibís aprox." del viaje.
+  // Sin settlement `cancellation_penalty` (cancelación sin cargo) no hay card de compensación,
+  // así que el transportista conserva el resto de la pantalla; mientras carga no se muestra
+  // la price card para que no aparezca y desaparezca.
+  const hidesCarrierPrice =
+    showCancellationCompensation &&
+    (settlementQuery.isLoading || carrierCompensationView(settlementQuery.data) !== null);
   const hidePriceCard =
-    showPayment || (showCancelledSenderPayment && senderHold !== null) || showCancellationCompensation;
+    showPayment || (showCancelledSenderPayment && senderHold !== null) || hidesCarrierPrice;
 
   // MOVO-254: el badge es información para el emisor. `null` no equivale a `false`.
   const showHighDemandBadge = isSender && shipment?.highDemand === true && !hasAgreedPrice;

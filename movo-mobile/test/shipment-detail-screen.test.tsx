@@ -1627,14 +1627,16 @@ describe("ShipmentDetailScreen — envío cancelado (MOVO-308)", () => {
     expect(getByTestId("shipment-detail-cancellation-compensation-pill")).toHaveTextContent("Cobrando");
   });
 
-  it("transportista sin penalidad: sin card de compensación ni precio del viaje", async () => {
+  it("transportista sin penalidad: sin card de compensación y con el precio pactado, no 'Recibís aprox.'", async () => {
     mockCurrentUser.mockReturnValue({ userId: "carrier-1" });
     mockDetail(cancelled());
     mockUseShipmentSettlement.mockReturnValue({ data: null, isLoading: false, isError: false, refetch: jest.fn() });
 
-    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+    const { queryByTestId, queryByText, getByText } = await render(<ShipmentDetailScreen />);
 
     expect(queryByTestId("shipment-detail-cancellation-compensation")).toBeNull();
-    expect(queryByTestId("shipment-detail-price")).toBeNull();
+    expect(queryByTestId("shipment-detail-price")).toBeTruthy();
+    expect(getByText("Precio pactado")).toBeTruthy();
+    expect(queryByText("Recibís aprox.")).toBeNull();
   });
 });
