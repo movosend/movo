@@ -403,11 +403,30 @@ export default function PayShipmentScreen() {
           ) : null}
 
           {funding.data && funding.data.pendingBalanceArs > 0 ? (
-            <View testID="pay-debt-breakdown" className="overflow-hidden rounded-lg border border-border">
-              <View className="flex-row justify-between bg-bg-mute p-3.5"><Text className="font-sans text-fg-2">Precio del envío</Text><Text className="font-sans-semibold text-fg">{formatPriceArs(funding.data.priceArs)}</Text></View>
-              <View className="flex-row justify-between p-3.5"><Text className="font-sans text-fg-2">Saldo pendiente</Text><Text className="font-sans-semibold text-fg">+ {formatPriceArs(funding.data.pendingBalanceArs)}</Text></View>
-              <View className="flex-row justify-between bg-lime-500 p-3.5"><Text className="font-sans-semibold text-ink-950">Total a reservar</Text><Text className="font-sans-semibold text-ink-950">{formatPriceArs(funding.data.totalArs)}</Text></View>
-              <Text className="px-3.5 pb-3 font-sans text-[12px] text-fg-3">{formatPriceArs(funding.data.priceArs)} + saldo {formatPriceArs(funding.data.pendingBalanceArs)} = {formatPriceArs(funding.data.totalArs)}</Text>
+            <View testID="pay-debt-breakdown" className="gap-2">
+              <View className="overflow-hidden rounded-lg border border-border">
+                <View className="flex-row items-center justify-between bg-bg-mute px-3.5 py-3.5">
+                  <Text className="font-sans text-[14px] text-fg-2">Precio del envío</Text>
+                  <Text className="font-sans-semibold text-[16px] text-fg">{formatPriceArs(funding.data.priceArs)}</Text>
+                </View>
+                <View className="flex-row items-start justify-between gap-3 px-3.5 py-3.5">
+                  <View className="flex-1">
+                    <Text className="font-sans text-[14px] text-fg-2">Saldo pendiente</Text>
+                    <Text className="mt-0.5 font-sans text-[12px] leading-[17px] text-fg-3">
+                      De tu cuenta corriente. Se cobra hasta un tope por envío; el resto queda para el próximo.
+                    </Text>
+                  </View>
+                  <Text className="font-sans-semibold text-[16px] text-fg">+ {formatPriceArs(funding.data.pendingBalanceArs)}</Text>
+                </View>
+                <View className="flex-row items-center justify-between bg-lime-500 px-3.5 py-4">
+                  <Text className="font-sans-semibold text-[12px] uppercase tracking-wider text-ink-950">Total a reservar</Text>
+                  <Text className="font-sans-semibold text-[24px] text-ink-950">{formatPriceArs(funding.data.totalArs)}</Text>
+                </View>
+              </View>
+              <Text className="px-0.5 font-sans text-[12px] text-fg-3">
+                {formatPriceArs(funding.data.priceArs)} + saldo {formatPriceArs(funding.data.pendingBalanceArs)} ={" "}
+                {formatPriceArs(funding.data.totalArs)}
+              </Text>
             </View>
           ) : null}
 
