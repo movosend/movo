@@ -15,6 +15,8 @@ export interface RouteTrackingChatCardProps {
   children: ReactNode;
   /** `null`: el seguimiento no aplica a quien mira (p. ej. el transportista) o al estado. */
   tracking: LiveTrackingAvailability | null;
+  /** Lo mismo desde el lado del transportista: si su ubicación se está compartiendo (`available`) o todavía no. `null`: no aplica. */
+  sharing?: LiveTrackingAvailability | null;
   /** `null`: todavía no hay transportista, así que no hay chat y el botón no se muestra. */
   chat: "open" | "read_only" | null;
   /** Estado del envío y si quien mira es el receptor original: deciden el texto de solo lectura. */
@@ -37,6 +39,7 @@ export function RouteTrackingChatCard({
   children,
   tracking,
   chat,
+  sharing = null,
   status,
   isFormerReceiver = false,
   testID = "route-tracking-chat-card",
@@ -46,18 +49,22 @@ export function RouteTrackingChatCard({
   const colors = useThemeColors();
   const { data: chats } = useChatList({ enabled: chat !== null });
   const unread = chat ? (chats ?? []).find((item) => item.shipmentId === shipmentId)?.unreadCount ?? 0 : 0;
-  const showFooter = tracking !== null || chat !== null;
+  const showFooter = tracking !== null || sharing !== null || chat !== null;
   // En solo lectura se dice por qué (entregado, transferiste la recepción) y que se archiva, a la vista y no solo para lectores de pantalla.
   const readOnlyCopy = chat === "read_only" ? chatReadOnlyCopy({ archived: false, status, isFormerReceiver }) : null;
 
-  const trackingBody = (live: boolean) => (
+  const trackingBody = (live: boolean, copy?: { label: string; live: string; idle: string }) => (
     <View className="flex-1 pr-3">
       <View className="flex-row items-center gap-2">
         <View className="h-2 w-2 rounded-full bg-fg-3" style={live ? { backgroundColor: "#6E8E1E" } : undefined} />
-        <Text className="font-sans-semibold text-caption uppercase tracking-wider text-fg-2">En vivo</Text>
+        <Text className="font-sans-semibold text-caption uppercase tracking-wider text-fg-2">
+          {copy?.label ?? "En vivo"}
+        </Text>
       </View>
       <Text className="mt-1 font-sans text-small text-fg-2" numberOfLines={2}>
-        {live ? "Mirá en el mapa dónde está el transportista" : "Se activa al iniciar el recorrido"}
+        {live
+          ? (copy?.live ?? "Mirá en el mapa dónde está el transportista")
+          : (copy?.idle ?? "Se activa al iniciar el recorrido")}
       </Text>
     </View>
   );
@@ -87,6 +94,22 @@ export function RouteTrackingChatCard({
               accessibilityLabel="Seguimiento en vivo, todavía no disponible"
             >
               <View className="flex-row">{trackingBody(false)}</View>
+            </View>
+          ) : sharing !== null ? (
+            <View
+              testID={`${trackingTestID}-sharing`}
+              className="flex-1"
+              accessibilityLabel={
+                sharing === "available" ? "Estás compartiendo tu ubicación" : "Tu ubicación se comparte al iniciar el recorrido"
+              }
+            >
+              <View className="flex-row">
+                {trackingBody(sharing === "available", {
+                  label: sharing === "available" ? "Compartiendo" : "Ubicación",
+                  live: "Quien envía y quien recibe ven dónde estás",
+                  idle: "Se comparte al iniciar el recorrido",
+                })}
+              </View>
             </View>
           ) : (
             <View className="flex-1" />

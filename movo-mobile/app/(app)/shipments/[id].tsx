@@ -328,6 +328,10 @@ export default function ShipmentDetailScreen() {
       ? liveTrackingAvailability(shipment.status)
       : null;
 
+  // Espejo para el transportista: si su ubicación ya se comparte con emisor y receptor.
+  const carrierSharing =
+    shipment !== undefined && isCarrier && shipment.carrierId ? liveTrackingAvailability(shipment.status) : null;
+
   // MOVO-284: el chat existe desde que hay transportista (y queda legible tras la entrega); lo ven las tres partes.
   const chatBase = shipment !== undefined ? chatAvailability(shipment.status, shipment.carrierId) : null;
   // El receptor original (ADR-038) lee la conversación pero ya no escribe, aunque el envío siga en curso.
@@ -565,6 +569,7 @@ export default function ShipmentDetailScreen() {
                 <RouteTrackingChatCard
                   shipmentId={shipment.id}
                   tracking={liveTracking}
+                  sharing={carrierSharing}
                   chat={chatAccess}
                   status={shipment.status}
                   isFormerReceiver={isFormerReceiver}
