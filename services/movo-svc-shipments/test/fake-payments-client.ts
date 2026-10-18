@@ -190,13 +190,17 @@ export function createFakePaymentsClient(
       return holds.get(shipmentId) ?? null;
     }),
 
-    releaseHold: vi.fn(async (shipmentId: string) => {
+    releaseHold: vi.fn(async (shipmentId: string, expectedCarrierId?: string, expectedHoldId?: string) => {
       if (behavior.releaseError) {
         throw behavior.releaseError;
       }
       const hold = holds.get(shipmentId);
       if (!hold) {
         return null;
+      }
+      if ((expectedCarrierId && hold.carrierId !== expectedCarrierId) ||
+          (expectedHoldId && hold.id !== expectedHoldId)) {
+        throw new ApiError(409, "HOLD_CONFLICT", "El hold pertenece a otra asignación");
       }
       if (CLOSED_HOLD_STATUSES.includes(hold.status)) {
         return hold;

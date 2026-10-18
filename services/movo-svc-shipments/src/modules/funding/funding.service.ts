@@ -463,7 +463,9 @@ export function createFundingService(deps: FundingServiceDeps) {
         // El hold quedó autorizado pero el envío ya no puede pasar a `assigned` (se canceló o
         // el barrido lo revirtió en el medio): se libera para no dejar fondos retenidos.
         try {
-          await releaseHoldBeforeCancel(paymentsClient, shipment.id, logger);
+          // La asignación pudo cambiar mientras MP confirmaba el hold. Se libera solo
+          // este intento; una respuesta tardía no debe cancelar el hold siguiente.
+          await paymentsClient.releaseHold(shipment.id, hold.carrierId, hold.id);
         } catch (releaseErr) {
           logger?.error(
             { err: releaseErr, event: "funding_orphan_hold", shipmentId: shipment.id, holdId: hold.id },

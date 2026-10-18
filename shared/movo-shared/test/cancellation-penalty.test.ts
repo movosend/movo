@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CANCELLATION_PENALTY_FREE_HOURS,
   computeCancellationPenalty,
+  computeCarrierWithdrawalPenalty,
 } from "../src/config/cancellation-penalty";
 import { ShipmentStatus } from "../src/types/shipment";
 
@@ -64,4 +65,22 @@ describe("computeCancellationPenalty (MOVO-307)", () => {
       expect(quote(START, { status })).toEqual({ penaltyArs: 0, reason: "not_assigned", freeUntil: null });
     }
   );
+});
+
+describe("computeCarrierWithdrawalPenalty (MOVO-310)", () => {
+  const withdrawal = (now: Date) =>
+    computeCarrierWithdrawalPenalty({ agreedPriceArs: 1150, pickupWindowStart: START, pickupWindowEnd: END, now });
+
+  it("mismo umbral de 12 h que el emisor, sin depender del estado del envío", () => {
+    expect(withdrawal(new Date("2026-10-14T12:00:00.000Z")).reason).toBe("before_free_deadline");
+    expect(withdrawal(START)).toEqual({ penaltyArs: 287.5, reason: "late_cancellation", freeUntil: FREE_UNTIL });
+  });
+
+  it("con la ventana ya cerrada también cobra: el que faltó es el transportista", () => {
+    expect(withdrawal(new Date(END.getTime() + 60 * 60 * 1000))).toEqual({
+      penaltyArs: 287.5,
+      reason: "late_cancellation",
+      freeUntil: FREE_UNTIL,
+    });
+  });
 });

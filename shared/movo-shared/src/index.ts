@@ -260,6 +260,7 @@ export {
   CANCELLATION_PENALTY_FREE_HOURS,
   CANCELLATION_PENALTY_RATE,
   computeCancellationPenalty,
+  computeCarrierWithdrawalPenalty,
 } from "./config/cancellation-penalty";
 export type {
   CancellationPenaltyInput,

@@ -1,9 +1,15 @@
 import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
 import { registerSweep } from "./register-sweep";
+import { createShipmentRepository } from "../repositories/shipment-repository";
+import { createOfferRepository } from "../repositories/offer-repository";
+import { createUsersClient } from "../adapters/users-client";
+import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
+import { createShipmentsService } from "../modules/shipments/shipments.service";
 
 export interface SettlementSweepPluginOptions {
   enabled?: boolean;
+  paymentsClient?: PaymentsClient;
 }
 
 /**
@@ -16,6 +22,14 @@ export interface SettlementSweepPluginOptions {
  */
 export default fp(async (app: FastifyInstance, opts: SettlementSweepPluginOptions = {}) => {
   const service = app.settlements;
+  const shipments = createShipmentsService(
+    createShipmentRepository(app.db), createUsersClient(app.config), undefined, app.log,
+    {
+      offerRepository: createOfferRepository(app.db),
+      paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
+      registerWithdrawalPenalty: (offerId) => service.registerWithdrawalPenalty(offerId),
+    }
+  );
 
   registerSweep(app, {
     name: "Settlement sweep plugin",
@@ -26,6 +40,7 @@ export default fp(async (app: FastifyInstance, opts: SettlementSweepPluginOption
     // MOVO-307: después de las entregas, las penalidades de cancelación que quedaron `pending`.
     // Si las entregas fallan de forma inesperada, las penalidades corren igual.
     run: async () => {
+      await shipments.retryPendingCarrierWithdrawals();
       const options = {
         graceMinutes: app.config.SETTLEMENT_SWEEP_GRACE_MINUTES,
         batchSize: app.config.SETTLEMENT_SWEEP_BATCH_SIZE,
@@ -33,7 +48,12 @@ export default fp(async (app: FastifyInstance, opts: SettlementSweepPluginOption
       try {
         await service.retryPendingSettlements(options);
       } finally {
-        await service.retryPendingPenalties(options);
+        try {
+          await service.retryPendingPenalties(options);
+        } finally {
+          // MOVO-310: penalidades de bajas del transportista que no se registraron en línea.
+          await service.retryPendingWithdrawalPenalties(options);
+        }
       }
     },
   });

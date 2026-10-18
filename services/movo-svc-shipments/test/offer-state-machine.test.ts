@@ -17,6 +17,8 @@ const VALID_TRANSITIONS: Array<[OfferStatus, OfferStatus]> = [
   [OfferStatus.ACCEPTED, OfferStatus.SHIPMENT_CANCELLED],
   // MOVO-210: aceptada pero la asignación no prosperó (pago no completado o hold perdido)
   [OfferStatus.ACCEPTED, OfferStatus.ASSIGNMENT_LAPSED],
+  // MOVO-310: el transportista asignado se bajó del envío
+  [OfferStatus.ACCEPTED, OfferStatus.CARRIER_WITHDRAWN],
 ];
 
 const INVALID_TRANSITIONS: Array<[OfferStatus, OfferStatus]> = [
@@ -83,6 +85,7 @@ describe("offer-state-machine", () => {
       OfferStatus.SUPERSEDED,
       OfferStatus.SHIPMENT_CANCELLED,
       OfferStatus.ASSIGNMENT_LAPSED,
+      OfferStatus.CARRIER_WITHDRAWN,
     ];
     const nonTerminal = Object.values(OfferStatus).filter((status) => !terminal.includes(status));
 

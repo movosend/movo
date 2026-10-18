@@ -13,6 +13,7 @@ import { InvalidShipmentTransitionError } from "../../domain/shipment-state-mach
 import {
   PenaltyCursor,
   SettlementCursor,
+  WithdrawalPenaltyCursor,
   ShipmentConcurrentModificationError,
   ShipmentRepository,
 } from "../../repositories/shipment-repository";
@@ -53,6 +54,9 @@ export interface SettlementRetryState {
  * - `skipped`: el envío no tiene una penalidad pendiente.
  */
 export type PenaltyOutcome = "captured" | "debt" | "already_resolved" | "skipped";
+
+/** MOVO-310: resultado de registrar la penalidad de una baja del transportista (siempre deuda, no hay hold). */
+export type WithdrawalPenaltyOutcome = Exclude<PenaltyOutcome, "captured">;
 
 /**
  * MOVO-307: códigos de la captura de penalidad que mandan la penalidad a la cuenta corriente
@@ -326,6 +330,84 @@ export function createSettlementService(deps: SettlementServiceDeps) {
         }),
       ]);
       return "captured";
+    },
+
+    /**
+     * MOVO-310: la penalidad de un transportista que se bajó con menos de 12 h va a su cuenta
+     * corriente como deuda (no hay hold suyo del que cobrarla; se descuenta de su próximo cobro,
+     * MOVO-311). Idempotente por oferta: la key del ledger es la misma en cada reintento y solo
+     * quien gana `resolveWithdrawalPenalty` manda la push. Lanza si payments falla (queda `pending`).
+     */
+    async registerWithdrawalPenalty(offerId: string): Promise<WithdrawalPenaltyOutcome> {
+      const penalty = await repository.findPendingWithdrawalPenalty(offerId);
+      if (!penalty) return "skipped";
+
+      await paymentsClient.createLedgerEntry(penalty.carrierId, {
+        idempotencyKey: `withdrawal_penalty:${offerId}`,
+        type: "cancellation_penalty",
+        roleAtOrigin: "carrier",
+        amountArs: penalty.penaltyArs,
+        shipmentId: penalty.shipmentId,
+      });
+
+      if (!(await repository.resolveWithdrawalPenalty(offerId))) return "already_resolved";
+      logger?.warn(
+        { event: "carrier_withdrawal_penalty_debt", offerId, shipmentId: penalty.shipmentId, carrierId: penalty.carrierId, penaltyArs: penalty.penaltyArs },
+        "la penalidad por bajarse del envío quedó como deuda del transportista"
+      );
+      if (notificationsClient) {
+        // El envío ya no es suyo (vuelve a `published`): la push abre su oferta, no el envío.
+        await sendCustodyPush({
+          notificationsClient,
+          userId: penalty.carrierId,
+          triggerKey: "carrierWithdrawalPenaltyDebtCarrier",
+          params: { penaltyArs: penalty.penaltyArs },
+          data: { type: "carrier_withdrawal_penalty", shipmentId: penalty.shipmentId, offerId },
+          logger,
+          onErrorContext: {
+            event: "notification_dispatch_failed",
+            message: "No se pudo avisar la penalidad por bajarse del envío",
+            extra: { shipmentId: penalty.shipmentId, offerId },
+          },
+        });
+      }
+      return "debt";
+    },
+
+    /**
+     * MOVO-310: para el barrido -- reintenta las penalidades de baja `pending` de hace más de
+     * `graceMinutes`. Mismo esqueleto que `retryPendingPenalties`; el enfriamiento va por oferta.
+     */
+    async retryPendingWithdrawalPenalties(options: { graceMinutes: number; batchSize: number }): Promise<void> {
+      const now = (deps.now ?? (() => new Date()))();
+      const withdrawnBefore = new Date(now.getTime() - options.graceMinutes * 60 * 1000);
+      let cursor: WithdrawalPenaltyCursor | undefined;
+      let attempted = 0;
+
+      for (let page = 0; page < SWEEP_MAX_PAGES && attempted < options.batchSize; page += 1) {
+        const pending = await repository.listPendingWithdrawalPenalties(withdrawnBefore, options.batchSize, cursor);
+        if (pending.length === 0) break;
+
+        for (const penalty of pending) {
+          cursor = { withdrawnAt: penalty.withdrawnAt, offerId: penalty.offerId };
+          const retryKey = `withdrawal:${penalty.offerId}`;
+          if (attempted >= options.batchSize) break;
+          if (await retryState?.isCoolingDown(retryKey)) continue;
+          attempted += 1;
+          try {
+            await this.registerWithdrawalPenalty(penalty.offerId);
+            await retryState?.clear(retryKey);
+          } catch (err) {
+            const code = err instanceof ApiError ? err.code : undefined;
+            logger?.warn(
+              { event: "carrier_withdrawal_penalty_retry_failed", offerId: penalty.offerId, code, err },
+              "no se pudo registrar la penalidad por bajarse del envío, queda para un próximo barrido"
+            );
+            await retryState?.recordFailure(retryKey, false).catch(() => undefined);
+          }
+        }
+        if (pending.length < options.batchSize) break;
+      }
     },
 
     /**

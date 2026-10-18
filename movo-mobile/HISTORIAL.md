@@ -4803,6 +4803,12 @@ Cambios de UI en la misma rama, a pedido de diseño:
 
 **Aviso de deuda en Perfil**: la fila "Pagos y cobros" de Configuración suma la pill "Debés $X" (rojo) cuando el saldo es positivo (`paymentsAttention`, prioridad: Mercado Pago roto → deuda → tarjetas vencidas, un solo aviso). Con un aviso de Mercado Pago o de tarjetas la fila abre la pestaña de medios de pago (`?tab=methods`); sin aviso o con deuda, Saldo.
 
+### MOVO-310 — `OfferStatus.CARRIER_WITHDRAWN` (solo compatibilidad)
+
+Etiqueta, banner y chip de la oferta en "Mis ofertas" (pestaña de cerradas) para el estado nuevo, y la push
+`carrier_withdrawal_penalty` abre el detalle de la oferta (el envío ya no es del transportista). La pantalla para
+bajarse de un envío es MOVO-314.
+
 ### MOVO-304 — Historial de pagos y cobros (sub-issue mobile de MOVO-28), integrado con la cuenta corriente
 
 `Pagos y cobros` pasa a tres pestañas, **Saldo · Historial · Medios** (prototipo "Pagos y cobros 2c", que integra la cuenta

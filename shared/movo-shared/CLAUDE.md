@@ -581,6 +581,14 @@ sin cargo con 12 h o más o con la ventana cerrada, 25 % del precio acordado si 
 `ApiErrorCode` suma `CANCELLATION_PENALTY_MISMATCH` (con `details.penaltyArs`) y la categoría `payments` suma
 `cancellationPenalty{ChargedSender,DebtSender,CompensationCarrier}`.
 
+### MOVO-310 — `OfferStatus.CARRIER_WITHDRAWN` y pushes de la baja del transportista
+
+`types/offer.ts` suma `carrier_withdrawn` (el transportista asignado se bajó; distinto de `withdrawn` y de
+`assignment_lapsed`). Triggers nuevos: `carrierWithdrewSender` (`shipments`, con el nombre del snapshot de la oferta) y
+`carrierWithdrawalPenaltyDebtCarrier` (`payments`). `computeCarrierWithdrawalPenalty`: los mismos tramos que
+`computeCancellationPenalty` pero desde cualquier estado con transportista (su penalidad es deuda, no depende del hold)
+y cobrando también con la ventana ya cerrada; `penaltyArs > 0` siempre viaja con `late_cancellation`.
+
 ### MOVO-303 (ampliación) — `TransactionKind` y `debtAmountArs`
 
 `types/transaction.ts` suma `TRANSACTION_KINDS`/`TransactionKind` (`shipment` | `balance_payment`); `TransactionListItem` gana `kind`,
@@ -591,4 +599,3 @@ sin cargo con 12 h o más o con la ventana cerrada, 25 % del precio acordado si 
 
 `TransactionCard` gana `alias`/`issuerName`/`paymentType` (opcionales) y `TransactionDetail` gana `releasedAt`/`releaseReason`
 (obligatorios, `null` si no se liberó; `TRANSACTION_RELEASE_REASONS`). Rompe literales `TransactionDetail` armados a mano.
-

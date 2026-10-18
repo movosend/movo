@@ -211,6 +211,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
   // MOVO-212: reintenta la captura de los `delivered` sin cobrar (solo con el notifier real).
   app.register(settlementSweepPlugin, {
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
     ...(opts.settlementSweepEnabled !== undefined ? { enabled: opts.settlementSweepEnabled } : {}),
   });
 

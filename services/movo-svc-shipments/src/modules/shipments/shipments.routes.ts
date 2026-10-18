@@ -206,6 +206,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       // MOVO-307: cobro en línea de la penalidad de cancelación. Se resuelve al llamar
       // (`app.settlements` se decora en un plugin registrado después de estas rutas).
       settleCancellationPenalty: (shipmentId: string) => app.settlements.settleCancellationPenalty(shipmentId),
+      // MOVO-310: registro en línea de la penalidad por bajarse del envío, mismo criterio.
+      registerWithdrawalPenalty: (offerId: string) => app.settlements.registerWithdrawalPenalty(offerId),
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -1000,6 +1002,77 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
       return service.getCancellationQuote(id, callerId);
+    }
+  );
+
+  app.post(
+    "/:id/carrier-withdrawal",
+    {
+      // Body opcional, mismo criterio que `/:id/cancel`.
+      preValidation: (request, _reply, done) => {
+        if (request.body === undefined) {
+          request.body = {};
+        }
+        done();
+      },
+      schema: {
+        summary: "Bajarse de un envío asignado (transportista)",
+        description:
+          "MOVO-310: el transportista asignado deja el envío desde `assignment_pending`, " +
+          "`assigned_unfunded` o `assigned`. El envío vuelve a `published` (carrierId y precio en " +
+          "null, ventana original restaurada), su oferta pasa a `carrier_withdrawn` y las demás " +
+          "ofertas vivas no se tocan. Se libera el hold entero: el emisor no paga nada. Con menos " +
+          "de 12 h para el retiro y la ventana abierta (desde cualquiera de los tres estados), el 25 % del precio " +
+          "acordado queda como deuda en la cuenta corriente del transportista (ADR-047/044): manda " +
+          "el monto de `GET /:id/carrier-withdrawal-quote` como `expectedPenaltyArs` (ausente = 0) y " +
+          "si no coincide responde 409 CANCELLATION_PENALTY_MISMATCH con `details.penaltyArs`. Un " +
+          "retiro o un pago concurrente gana (409). Se avisa al emisor.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        body: shipmentsSchemas.cancelShipmentBody,
+        response: {
+          200: shipmentsSchemas.shipmentResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const { reason, expectedPenaltyArs } = request.body as { reason?: string; expectedPenaltyArs?: number };
+      const shipment = await service.withdrawCarrierFromShipment(id, callerId, reason, expectedPenaltyArs);
+      return toShipmentDto(shipment);
+    }
+  );
+
+  app.get(
+    "/:id/carrier-withdrawal-quote",
+    {
+      schema: {
+        summary: "Penalidad por bajarse de un envío (transportista)",
+        description:
+          "MOVO-310: lo que el transportista asignado debería si se baja ahora. Mismos tramos que la " +
+          "cancelación del emisor, en cualquier estado con transportista: `penaltyArs` es 0 salvo con " +
+          "menos de 12 h hasta el retiro y la ventana abierta. Solo el transportista asignado (403) y solo si todavía se " +
+          "puede bajar (409 SHIPMENT_INVALID_TRANSITION).",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        response: {
+          200: shipmentsSchemas.cancellationQuoteResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      return service.getCarrierWithdrawalQuote(id, callerId);
     }
   );
 

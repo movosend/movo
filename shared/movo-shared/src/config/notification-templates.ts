@@ -81,6 +81,8 @@ export type NotificationTriggerKey =
   | "cancellationPenaltyChargedSender"
   | "cancellationPenaltyDebtSender"
   | "cancellationPenaltyCompensationCarrier"
+  | "carrierWithdrewSender"
+  | "carrierWithdrawalPenaltyDebtCarrier"
   | "receiverTransferInvited"
   | "receiverTransferRequested"
   | "receiverTransferCompletedRequester"
@@ -733,6 +735,31 @@ export const NOTIFICATION_TRIGGERS = {
     ({ netAmountArs }) => ({
       title: "Recibiste una compensación",
       body: `El emisor canceló a último momento: te acreditamos $${formatArs(netAmountArs)} en tu cuenta de Mercado Pago.`,
+    })
+  ),
+  // MOVO-310: el transportista asignado se bajó del envío y volvió a publicarse. Al emisor se le
+  // dice que puede cancelarlo sin cargo (desde `published` no hay penalidad); al transportista,
+  // la penalidad que quedó como deuda en su cuenta corriente si se bajó con menos de 12 h.
+  carrierWithdrewSender: definition<{ carrierName: string | null }>(
+    "shipments",
+    {
+      title: "El transportista se bajó del envío",
+      body: "Tu envío ya está publicado de nuevo. Si ya no te sirve, podés cancelarlo sin cargo.",
+    },
+    ({ carrierName }) => ({
+      title: "El transportista se bajó del envío",
+      body: `${carrierName ?? "El transportista"} se bajó del envío, ya está publicado de nuevo. Si ya no te sirve, podés cancelarlo sin cargo.`,
+    })
+  ),
+  carrierWithdrawalPenaltyDebtCarrier: definition<{ penaltyArs: number }>(
+    "payments",
+    {
+      title: "Registramos una penalidad",
+      body: "Te bajaste de un envío con menos de 12 h para el retiro: la penalidad quedó en tu cuenta.",
+    },
+    ({ penaltyArs }) => ({
+      title: "Registramos una penalidad",
+      body: `Te bajaste con menos de 12 h para el retiro: sumamos $${formatArs(penaltyArs)} a tu cuenta. Se descuenta de tu próximo cobro.`,
     })
   ),
   // MOVO-275 (ADR-038): transferencia de receptor. Copy propio por destinatario: la

@@ -1,4 +1,4 @@
-import { CancellationPenaltyQuote, computeCancellationPenalty } from "@movo/shared";
+import { CancellationPenaltyQuote, computeCancellationPenalty, computeCarrierWithdrawalPenalty } from "@movo/shared";
 import { Shipment } from "../models/shipment";
 import { pickupWindowEndInstant, pickupWindowInstant } from "./pickup-window";
 
@@ -14,6 +14,23 @@ export function quoteShipmentCancellation(
 ): CancellationPenaltyQuote {
   return computeCancellationPenalty({
     status: shipment.status,
+    agreedPriceArs: shipment.agreedPriceArs,
+    pickupWindowStart: pickupWindowInstant(shipment.pickupDate, shipment.pickupTimeWindowStart),
+    pickupWindowEnd: pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
+    now,
+  });
+}
+
+/**
+ * MOVO-310: penalidad del transportista asignado si se baja en `now`. Mismos tramos que el emisor
+ * sobre la misma ventana, pero en cualquier estado con transportista: es deuda en su cuenta
+ * corriente, no depende de que haya un hold.
+ */
+export function quoteCarrierWithdrawal(
+  shipment: Pick<Shipment, "agreedPriceArs" | "pickupDate" | "pickupTimeWindowStart" | "pickupTimeWindowEnd">,
+  now: Date = new Date()
+): CancellationPenaltyQuote {
+  return computeCarrierWithdrawalPenalty({
     agreedPriceArs: shipment.agreedPriceArs,
     pickupWindowStart: pickupWindowInstant(shipment.pickupDate, shipment.pickupTimeWindowStart),
     pickupWindowEnd: pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
