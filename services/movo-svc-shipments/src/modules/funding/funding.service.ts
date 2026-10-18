@@ -382,13 +382,17 @@ export function createFundingService(deps: FundingServiceDeps) {
     }
   }
 
-  /** Estados en los que el emisor necesita el hold (último intento, tarjeta o si se liberó). */
+  /**
+   * Estados en los que la API de detalle proyecta el hold. La app usa PaymentBreakdown tras
+   * la entrega, pero otros consumidores pueden usar `funding.held`/`funding.captured`.
+   */
   const SENDER_HOLD_STATUSES: readonly ShipmentStatus[] = [
     ShipmentStatus.ASSIGNMENT_PENDING,
     ShipmentStatus.ASSIGNED_UNFUNDED,
     ShipmentStatus.ASSIGNED,
     ShipmentStatus.IN_TRANSIT,
     ShipmentStatus.DELIVERED,
+    ShipmentStatus.COMPLETED,
     ShipmentStatus.CANCELLED,
   ];
 
@@ -398,7 +402,7 @@ export function createFundingService(deps: FundingServiceDeps) {
    */
   async function findHoldForView(shipmentId: string): Promise<FundingViewHold | null | undefined> {
     try {
-      return await paymentsClient.findHoldByShipment(shipmentId);
+      return await paymentsClient.findHoldByShipment(shipmentId, { timeoutMs: 2500 });
     } catch (err) {
       logger?.warn(
         { err, event: "funding_view_hold_unavailable", shipmentId },
@@ -427,8 +431,7 @@ export function createFundingService(deps: FundingServiceDeps) {
 
       const needsLastEvent =
         shipment.status === ShipmentStatus.PUBLISHED || shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED;
-      const events = needsLastEvent ? await repository.listEvents(shipment.id) : [];
-      const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+      const lastEvent = needsLastEvent ? await repository.findLatestEvent(shipment.id) : null;
 
       if (opts.formerCarrier) {
         const reason = shipment.status === ShipmentStatus.PUBLISHED ? fundingLapseReasonOf(lastEvent) : null;
@@ -445,6 +448,8 @@ export function createFundingService(deps: FundingServiceDeps) {
         status: shipment.status,
         carrierId: shipment.carrierId,
         amountArs: shipment.agreedPriceArs,
+        cancellationPenaltyArs: shipment.cancellationPenaltyArs,
+        cancellationPenaltyStatus: shipment.cancellationPenaltyStatus,
         pickupStart: pickupStartOf(shipment),
         payUntil: awaitingPayment && shipment.carrierId !== null ? payUntilOf(shipment) : null,
         nearPickupDays: config.nearPickupDays,

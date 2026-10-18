@@ -127,7 +127,13 @@ export type SenderFundingView =
   /** `completed`: la reserva se cobró al entregar (MOVO-212). */
   | { viewer: "sender"; phase: "captured"; amountArs: number; at: string }
   /** `cancelled` con una reserva que llegó a autorizarse y se liberó. */
-  | { viewer: "sender"; phase: "released"; amountArs: number }
+  | {
+      viewer: "sender";
+      phase: "released";
+      amountArs: number;
+      penaltyArs?: number | null;
+      penaltyStatus?: "pending" | "captured" | "debt" | null;
+    }
   /** `published` después de que la asignación se cayera por falta de pago. */
   | { viewer: "sender"; phase: "lapsed"; reason: FundingLapseReason; at: string };
 

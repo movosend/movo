@@ -32,6 +32,7 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { releaseHoldBeforeCancel } from "../funding/funding.service";
+import { isLatestFundingLapseForCarrier } from "../../domain/funding";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { RatingRole } from "../../models/rating";
 import {
@@ -1443,9 +1444,10 @@ export function createShipmentsService(
           const offers = await offerRepository.listByShipment(shipment.id);
           const own = offers.filter((o) => o.carrierId === callerId);
           // Si volvió a ofertar, lo está evaluando de nuevo: vista de descubrimiento normal.
-          const lapsed =
-            own.some((o) => o.status === OfferStatus.ASSIGNMENT_LAPSED) &&
-            !own.some((o) => o.status === OfferStatus.PENDING);
+          const lastEvent = own.some((o) => o.status === OfferStatus.ASSIGNMENT_LAPSED)
+            ? await repository.findLatestEvent(shipment.id)
+            : null;
+          const lapsed = isLatestFundingLapseForCarrier(lastEvent, callerId, own);
           if (lapsed) return { ...shipment, viewerIsFormerCarrier: true };
         }
         await assertVerifiedCarrier(usersClient, callerId, callerRoles, CARRIER_READ_ROLE_MESSAGE);

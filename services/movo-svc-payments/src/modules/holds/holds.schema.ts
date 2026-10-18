@@ -161,9 +161,10 @@ export const createHoldSchema = {
 /** MOVO-211: el hold más la tarjeta del intento, solo para la consulta por envío (ver `HoldDetailResponse`). */
 const holdDetail = {
   ...hold,
-  required: [...hold.required, "cardBrand", "cardLast4"],
+  required: [...hold.required, "wasAuthorized", "cardBrand", "cardLast4"],
   properties: {
     ...hold.properties,
+    wasAuthorized: { type: "boolean" },
     cardBrand: { type: ["string", "null"] },
     cardLast4: { type: ["string", "null"] },
   },

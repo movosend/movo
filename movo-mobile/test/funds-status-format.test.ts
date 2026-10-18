@@ -7,7 +7,6 @@ import {
   formatFundingCard,
   formatFundingDeadline,
   fundingProcessingPollInterval,
-  fundsStatusNeedsPayment,
   fundsStatusVariant,
   lapseReasonCopy,
 } from "../src/lib/funds-status-format";
@@ -83,31 +82,23 @@ describe("fundsStatusVariant (MOVO-211)", () => {
     ).toBe("carrier_lapsed");
   });
 
-  it("solo confirmar, sin terminar y rechazado llevan a pagar", () => {
-    expect(fundsStatusNeedsPayment("confirm")).toBe(true);
-    expect(fundsStatusNeedsPayment("unfinished")).toBe(true);
-    expect(fundsStatusNeedsPayment("rejected")).toBe(true);
-    expect(fundsStatusNeedsPayment("processing")).toBe(false);
-    expect(fundsStatusNeedsPayment("held")).toBe(false);
-    expect(fundsStatusNeedsPayment(null)).toBe(false);
-  });
 });
 
 describe("formatFundingDeadline", () => {
   it("día corto y hora en Argentina", () => {
     // 13:00 UTC = 10:00 en Argentina, jueves 8 de octubre.
-    expect(formatFundingDeadline(PAY_UNTIL, new Date("2026-10-01T12:00:00.000Z"))).toBe("jue 8 oct, 10:00");
+    expect(formatFundingDeadline(PAY_UNTIL, new Date("2026-10-01T12:00:00.000Z"))).toBe("el jue 8 oct a las 10:00");
   });
 
   it("hoy y mañana en minúscula", () => {
     const now = new Date("2026-10-08T12:00:00.000Z");
-    expect(formatFundingDeadline(PAY_UNTIL, now)).toBe("hoy, 10:00");
-    expect(formatFundingDeadline("2026-10-09T21:30:00.000Z", now)).toBe("mañana, 18:30");
+    expect(formatFundingDeadline(PAY_UNTIL, now)).toBe("hoy a las 10:00");
+    expect(formatFundingDeadline("2026-10-09T21:30:00.000Z", now)).toBe("mañana a las 18:30");
   });
 
   it("un instante de madrugada UTC cae el día anterior en Argentina", () => {
     expect(formatFundingDeadline("2026-10-09T01:00:00.000Z", new Date("2026-10-01T12:00:00.000Z"))).toBe(
-      "jue 8 oct, 22:00",
+      "el jue 8 oct a las 22:00",
     );
   });
 });
@@ -121,7 +112,7 @@ describe("copy", () => {
   });
 
   it("por qué volvió a publicarse, para emisor y transportista (AC6)", () => {
-    expect(lapseReasonCopy("window_expired", "sender", "Julieta")).toMatch(/No confirmaste el pago a tiempo, así que Julieta/);
+    expect(lapseReasonCopy("window_expired", "sender")).toMatch(/No confirmaste el pago a tiempo, así que el transportista/);
     expect(lapseReasonCopy("payment_timeout", "sender")).toMatch(/no se completó a tiempo, así que el transportista/);
     expect(lapseReasonCopy("window_expired", "carrier")).toBe("El emisor no confirmó el pago antes del plazo.");
     expect(lapseReasonCopy("payment_timeout", "carrier")).toBe("El pago del emisor no se completó a tiempo.");

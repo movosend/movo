@@ -35,6 +35,7 @@ export interface NewHoldAttempt {
 
 export interface HoldUpdate {
   status?: HoldStatus;
+  wasAuthorized?: boolean;
   statusDetail?: string | null;
   failureReason?: HoldFailureReason | null;
   mpPaymentId?: string | null;
@@ -182,7 +183,10 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
     },
 
     update(id, patch) {
-      return db.hold.update({ where: { id }, data: patch });
+      return db.hold.update({
+        where: { id },
+        data: { ...patch, ...(patch.status === "authorized" || patch.status === "captured" ? { wasAuthorized: true } : {}) },
+      });
     },
 
     async markCaptured(id, patch) {
@@ -190,6 +194,7 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
         where: { id, status: "authorized" },
         data: {
           status: "captured",
+          wasAuthorized: true,
           statusDetail: patch.statusDetail,
           expiresAt: null,
           // MOVO-302: la captura es la última lectura del pago; completa la tarjeta si faltaba.

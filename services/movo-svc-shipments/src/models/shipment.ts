@@ -169,6 +169,7 @@ export interface ShipmentEvent {
   fromStatus: ShipmentStatus | null;
   toStatus: ShipmentStatus;
   actorId: string | null;
+  assignmentCarrierId?: string | null;
   reason: string | null;
   createdAt: Date;
 }

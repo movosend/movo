@@ -18,6 +18,7 @@ import {
   failureReasonCopy,
   formatFundingCard,
   formatFundingDay,
+  formatFundingDayWithArticle,
   formatFundingDeadline,
   fundsStatusVariant,
   lapseReasonCopy,
@@ -74,7 +75,7 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
         <Row icon={<IconCircle tone="mute"><Clock size={18} color={colors.fg2} strokeWidth={2} /></IconCircle>}>
           <Title>Pago del emisor pendiente</Title>
           <Body>
-            Tiene hasta el <Strong>{formatFundingDeadline(funding.payUntil)}</Strong> para reservarlo. Si no lo
+            Tiene hasta <Strong>{formatFundingDeadline(funding.payUntil)}</Strong> para reservarlo. Si no lo
             hace, el envío se libera y te avisamos.
           </Body>
         </Row>
@@ -108,8 +109,8 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
           <Row icon={<IconCircle tone="lime"><Check size={18} color={INK} strokeWidth={2.2} /></IconCircle>}>
             <Title>Todo en orden. {Name} lleva tu paquete.</Title>
             <Body>
-              Vas a poder confirmar el pago a partir del{" "}
-              <Strong>{formatFundingDay(funding.windowOpensAt)}</Strong> y te avisamos ese día. Por ahora no tenés
+              Vas a poder confirmar el pago a partir de{" "}
+              <Strong>{formatFundingDayWithArticle(funding.windowOpensAt)}</Strong> y te avisamos ese día. Por ahora no tenés
               que hacer nada: no se retuvo ni se cobró ningún monto.
             </Body>
           </Row>
@@ -161,7 +162,7 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
                 <View />
               )}
               <Text className="font-sans text-[12px] text-fg-2">
-                Hasta el <Text className="font-sans-semibold text-fg">{deadline}</Text>
+                Hasta <Text className="font-sans-semibold text-fg">{deadline}</Text>
               </Text>
             </View>
             <DarkButton testID={`${id}-cta`} label="Reintentar con otra tarjeta" onPress={() => goToPayment()} />
@@ -175,7 +176,7 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
             <Row icon={<IconCircle tone="mute"><PauseCircle size={18} color={colors.fg2} strokeWidth={2} /></IconCircle>}>
               <Title>Tu pago quedó sin terminar</Title>
               <Body>
-                Empezaste a confirmar los {amount} pero no lo completaste. No se retuvo nada. Retomalo antes del{" "}
+                Empezaste a confirmar el pago pero no lo completaste. No se retuvo nada. Retomalo antes de{" "}
                 <Strong>{deadline}</Strong>.
               </Body>
             </Row>
@@ -194,18 +195,20 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
                 {funding.holdLost ? "Volvé a confirmar tu pago" : "Confirmá tu pago"}
               </Text>
             </View>
+            <Text className="mt-2 font-sans text-small text-ink-700">Precio del envío</Text>
             <Text testID={`${id}-amount`} className="mt-2 font-sans-semibold text-[32px] leading-9 text-ink-950">
               {amount}
             </Text>
             <Text className="mt-0.5 font-sans text-small text-ink-700">
-              Tenés tiempo hasta el <Text className="font-sans-semibold text-ink-950">{deadline}</Text>
+              Tenés tiempo hasta <Text className="font-sans-semibold text-ink-950">{deadline}</Text>
             </Text>
           </View>
           <View className="gap-3.5 bg-bg px-4 pb-4 pt-3.5">
             <Body>
               {funding.holdLost
                 ? `La reserva anterior venció en Mercado Pago y se liberó sin cobrarte nada. Confirmala de nuevo para que ${name} pueda retirar el paquete.`
-                : `El monto queda reservado en tu tarjeta y se cobra recién cuando ${name} entregue el paquete. Si no lo confirmás antes de esa fecha, el envío vuelve a publicarse.`}
+                : `El total queda reservado en tu tarjeta y se cobra recién cuando ${name} entregue el paquete. Si no lo confirmás antes de esa fecha, el envío vuelve a publicarse.`}
+              {" "}El total a reservar, incluida cualquier deuda pendiente, se muestra antes de confirmar el pago.
             </Body>
             <DarkButton testID={`${id}-cta`} label="Confirmar pago" onPress={() => goToPayment()} limeDot />
           </View>
@@ -269,8 +272,16 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
           <Row icon={<IconCircle tone="mute"><LockOpen size={18} color={colors.fg2} strokeWidth={2} /></IconCircle>}>
             <Title>Se liberó la reserva</Title>
             <Body>
-              El envío se canceló, así que los {formatPriceArs(funding.amountArs)} retenidos quedan libres. No se
-              cobró nada. Según tu banco, puede tardar unos días en desaparecer del resumen.
+              El envío se canceló, así que los {formatPriceArs(funding.amountArs)} retenidos quedan libres.
+              {funding.penaltyStatus === "debt" && funding.penaltyArs ? (
+                <> La penalidad de {formatPriceArs(funding.penaltyArs)} quedó pendiente en tu cuenta corriente.</>
+              ) : funding.penaltyStatus === "pending" && funding.penaltyArs ? (
+                <> La penalidad de {formatPriceArs(funding.penaltyArs)} todavía se está procesando.</>
+              ) : funding.penaltyStatus === "captured" && funding.penaltyArs ? (
+                <> Se cobró la penalidad de {formatPriceArs(funding.penaltyArs)}.</>
+              ) : (
+                <> No se cobró nada.</>
+              )} Según tu banco, puede tardar unos días en desaparecer del resumen.
             </Body>
           </Row>
         </Card>

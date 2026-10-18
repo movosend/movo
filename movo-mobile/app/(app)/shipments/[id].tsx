@@ -279,10 +279,18 @@ export default function ShipmentDetailScreen() {
     : null;
   // MOVO-211: con la card de la reserva a la vista, ella lleva el CTA de pago y la explicación de
   // los fondos pendientes; el pie no los repite (el Home sí los usa, de ahí que sigan en el helper).
-  const fundsCardVisible =
-    shipment !== undefined && !showPayment && fundsStatusVariant(shipment.funding, shipment.status) !== null;
+  const fundingVariant = shipment !== undefined && !showPayment
+    ? fundsStatusVariant(shipment.funding, shipment.status)
+    : null;
+  const fundingReplacesCta =
+    shipment !== undefined && fundingVariant !== null && detailCta !== null &&
+    ((shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED && detailCta.kind === "info") ||
+      ((shipment.status === ShipmentStatus.ASSIGNMENT_PENDING ||
+        shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED) &&
+        detailCta.kind === "action" && detailCta.icon === "card" &&
+        ["confirm", "unfinished", "rejected", "processing"].includes(fundingVariant)));
   const contextualCta =
-    fundsCardVisible && detailCta && (detailCta.kind === "info" || detailCta.icon === "card") ? null : detailCta;
+    fundingReplacesCta ? null : detailCta;
 
   // El precio pactado (`agreedPriceArs`) es el bruto que paga el emisor; el
   // transportista ve lo que recibe aprox. después de la comisión de Movo (AC3) y del

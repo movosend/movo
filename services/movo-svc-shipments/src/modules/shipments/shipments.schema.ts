@@ -55,6 +55,8 @@ const shipmentFundingView = {
     windowOpensAt: { type: "string", format: "date-time" },
     payUntil: { type: "string", format: "date-time" },
     amountArs: { type: "number" },
+    penaltyArs: { type: ["number", "null"] },
+    penaltyStatus: { type: ["string", "null"], enum: ["pending", "captured", "debt", null] },
     lastAttempt: { type: ["string", "null"], enum: ["none", "in_process", "rejected", null] },
     failureReason: {
       type: ["string", "null"],

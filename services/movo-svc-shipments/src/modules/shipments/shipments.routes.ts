@@ -650,13 +650,14 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { id } = request.params as { id: string };
       const shipment = await service.getShipmentDetail(id, callerId, callerRoles);
       // MOVO-275: solo las partes del envío (no un transportista que lo está evaluando).
-      const receiverTransfer = hasShipmentAccess(shipment, callerId, callerRoles)
-        ? await receiverTransfersService.summaryForShipment(shipment, callerId)
-        : null;
-      // MOVO-211: estado de la reserva según quién mira (null para el receptor y terceros).
-      const funding = await fundingService.viewFor(shipment, callerId, {
-        formerCarrier: shipment.viewerIsFormerCarrier === true,
-      });
+      const [receiverTransfer, funding] = await Promise.all([
+        hasShipmentAccess(shipment, callerId, callerRoles)
+          ? receiverTransfersService.summaryForShipment(shipment, callerId)
+          : Promise.resolve(null),
+        fundingService.viewFor(shipment, callerId, {
+          formerCarrier: shipment.viewerIsFormerCarrier === true,
+        }),
+      ]);
       return { ...toShipmentDto(shipment), receiverTransfer, funding };
     }
   );

@@ -242,7 +242,7 @@ function toHoldResponse(hold: Hold): HoldResponse {
 
 /** MOVO-211: `toHoldResponse` + la tarjeta del intento, solo para la consulta por envío (ver `HoldDetailResponse`). */
 function toHoldDetailResponse(hold: Hold): HoldDetailResponse {
-  return { ...toHoldResponse(hold), cardBrand: hold.cardBrand, cardLast4: hold.cardLast4 };
+  return { ...toHoldResponse(hold), wasAuthorized: hold.wasAuthorized, cardBrand: hold.cardBrand, cardLast4: hold.cardLast4 };
 }
 
 export interface HoldServiceDeps {

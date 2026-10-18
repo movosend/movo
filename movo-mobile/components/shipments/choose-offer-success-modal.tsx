@@ -162,12 +162,12 @@ export function ChooseOfferSuccessModal({
                   >
                     <View>
                       <Text className="font-sans-medium text-caption uppercase tracking-wider text-fg-3">
-                        A reservar
+                        Precio de la oferta
                       </Text>
                       <Text className="mt-0.5 font-sans-semibold text-[20px] text-fg">{formatPriceArs(amountArs)}</Text>
                     </View>
                     <Text className="text-right font-sans text-[12px] leading-[17px] text-fg-2">
-                      Se cobra al entregar.{"\n"}No hoy.
+                      El total a reservar se muestra{"\n"}antes de confirmar el pago.
                     </Text>
                   </View>
                 ) : null}

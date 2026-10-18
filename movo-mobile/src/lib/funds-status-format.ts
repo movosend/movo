@@ -23,8 +23,8 @@ export type FundsStatusVariant =
   | "rejected" // último intento rechazado, con motivo
   | "held" // assigned
   | "held_in_transit" // in_transit
-  | "held_delivered" // delivered, captura pendiente (MOVO-212)
-  | "captured" // completed
+  | "held_delivered" // vista disponible para reutilizar la card; el detalle actual muestra PaymentBreakdown
+  | "captured" // vista disponible para reutilizar la card; el detalle actual muestra PaymentBreakdown
   | "released" // cancelado con una reserva que se liberó
   | "lapsed" // volvió a published por falta de pago
   // Transportista
@@ -65,11 +65,6 @@ export function fundsStatusVariant(
   }
 }
 
-/** Variantes con CTA a la pantalla de pago (MOVO-269). */
-export function fundsStatusNeedsPayment(variant: FundsStatusVariant | null): boolean {
-  return variant === "confirm" || variant === "unfinished" || variant === "rejected";
-}
-
 const AR_OFFSET_MS = 3 * 60 * 60 * 1000;
 
 /** "10:00" en hora argentina (UTC-3 fijo, mismo criterio que el resto del dominio). */
@@ -83,11 +78,16 @@ export function formatFundingDay(iso: string, now: Date = new Date()): string {
   return formatPickupDayLabel(toArgentinaCalendarDateString(iso), now);
 }
 
-/** "mié 8 oct, 10:00" / "hoy, 18:30" — plazo o apertura de la ventana de pago. */
+/** Frase completa para el plazo: "el mié 8 oct a las 10:00" / "hoy a las 18:30". */
 export function formatFundingDeadline(iso: string, now: Date = new Date()): string {
   const day = formatFundingDay(iso, now);
   const dayLabel = day === "Hoy" || day === "Mañana" ? day.toLowerCase() : day;
-  return `${dayLabel}, ${argentinaTimeHHMM(new Date(iso))}`;
+  return `${day === "Hoy" || day === "Mañana" ? "" : "el "}${dayLabel} a las ${argentinaTimeHHMM(new Date(iso))}`;
+}
+
+export function formatFundingDayWithArticle(iso: string, now: Date = new Date()): string {
+  const day = formatFundingDay(iso, now);
+  return day === "Hoy" || day === "Mañana" ? day.toLowerCase() : `el ${day}`;
 }
 
 /** AC5: motivo diferenciado del rechazo, con qué hacer. */
@@ -121,9 +121,8 @@ export function failureReasonCopy(reason: HoldFailureReason | null): { title: st
 export function lapseReasonCopy(
   reason: FundingLapseReason,
   viewer: "sender" | "carrier",
-  carrierFirstName?: string,
 ): string {
-  const who = carrierFirstName ?? "el transportista";
+  const who = "el transportista";
   if (viewer === "sender") {
     return reason === "window_expired"
       ? `No confirmaste el pago a tiempo, así que ${who} quedó liberado y el envío volvió a recibir ofertas.`

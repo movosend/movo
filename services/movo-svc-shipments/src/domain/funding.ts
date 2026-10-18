@@ -1,4 +1,5 @@
 import {
+  OfferStatus,
   ShipmentStatus,
   type CarrierFundingView,
   type FundingAttempt,
@@ -62,7 +63,7 @@ export function reminderBucket(now: Date, intervalHours: number): number {
 /** Lo que la proyección necesita del hold más reciente del envío (MOVO-211). */
 export type FundingViewHold = Pick<
   HoldDetailResponse,
-  "status" | "failureReason" | "carrierId" | "cardBrand" | "cardLast4" | "createdAt"
+  "status" | "failureReason" | "carrierId" | "cardBrand" | "cardLast4" | "createdAt" | "amountArs" | "wasAuthorized"
 >;
 
 /** Lo que la proyección necesita del último `shipment_event`. */
@@ -70,12 +71,32 @@ export interface FundingViewEvent {
   fromStatus: ShipmentStatus | null;
   toStatus: ShipmentStatus;
   createdAt: Date;
+  assignmentCarrierId?: string | null;
+}
+
+/** El acceso especial pertenece solo al transportista de la última asignación vencida. */
+export function isLatestFundingLapseForCarrier(
+  event: FundingViewEvent | null,
+  callerId: string,
+  offers: readonly { carrierId: string; status: OfferStatus; createdAt: Date }[],
+): boolean {
+  if (!event || !fundingLapseReasonOf(event) || event.assignmentCarrierId !== callerId) return false;
+  return (
+    offers.some((offer) => offer.carrierId === callerId && offer.status === OfferStatus.ASSIGNMENT_LAPSED) &&
+    !offers.some(
+      (offer) =>
+        offer.carrierId === callerId &&
+        (offer.status === OfferStatus.PENDING || offer.createdAt > event.createdAt),
+    )
+  );
 }
 
 export interface SenderFundingViewInput {
   status: ShipmentStatus;
   carrierId: string | null;
   amountArs: number | null;
+  cancellationPenaltyArs?: number | null;
+  cancellationPenaltyStatus?: "pending" | "captured" | "debt" | null;
   /** Inicio de la ventana de retiro acordada. */
   pickupStart: Date;
   /** Plazo de pago del estado actual (`payUntilOf`), solo en `assignment_pending`/`assigned_unfunded`. */
@@ -132,6 +153,7 @@ export function fundingLapseReasonOf(event: FundingViewEvent | null): FundingLap
  */
 export function computeSenderFundingView(input: SenderFundingViewInput): SenderFundingView | null {
   const { status, amountArs, hold } = input;
+  const assignmentHold = hold && hold.carrierId === input.carrierId ? hold : null;
 
   if (status === ShipmentStatus.PUBLISHED) {
     const reason = fundingLapseReasonOf(input.lastEvent);
@@ -158,6 +180,8 @@ export function computeSenderFundingView(input: SenderFundingViewInput): SenderF
     }
     const known = hold !== undefined;
     const attempt = known ? attemptOf(hold, input.carrierId, input.statusChangedAt) : null;
+    const attemptedAmountArs =
+      attempt?.lastAttempt === "rejected" || attempt?.lastAttempt === "in_process" ? hold?.amountArs : null;
     const holdLost =
       status === ShipmentStatus.ASSIGNED_UNFUNDED &&
       input.lastEvent?.fromStatus === ShipmentStatus.ASSIGNED &&
@@ -167,7 +191,7 @@ export function computeSenderFundingView(input: SenderFundingViewInput): SenderF
       phase: "payment_due",
       route: status === ShipmentStatus.ASSIGNMENT_PENDING ? "near" : "far",
       payUntil,
-      amountArs,
+      amountArs: attemptedAmountArs ?? amountArs,
       lastAttempt: attempt?.lastAttempt ?? null,
       failureReason: attempt?.failureReason ?? null,
       card: attempt?.lastAttempt === "rejected" || attempt?.lastAttempt === "in_process" ? cardOf(hold) : null,
@@ -180,21 +204,32 @@ export function computeSenderFundingView(input: SenderFundingViewInput): SenderF
     status === ShipmentStatus.IN_TRANSIT ||
     status === ShipmentStatus.DELIVERED
   ) {
-    return { viewer: "sender", phase: "held", amountArs, card: cardOf(hold) };
+    return {
+      viewer: "sender",
+      phase: "held",
+      amountArs: assignmentHold?.amountArs ?? amountArs,
+      card: cardOf(assignmentHold),
+    };
   }
 
   if (status === ShipmentStatus.COMPLETED) {
     return {
       viewer: "sender",
       phase: "captured",
-      amountArs,
+      amountArs: assignmentHold?.amountArs ?? amountArs,
       at: (input.statusChangedAt ?? input.now).toISOString(),
     };
   }
 
-  // `cancelled` con una reserva que llegó a MP y se liberó (un hold `rejected` nunca retuvo nada).
-  if (status === ShipmentStatus.CANCELLED && hold && hold.carrierId === input.carrierId && hold.status === "cancelled") {
-    return { viewer: "sender", phase: "released", amountArs };
+  // `cancelled` solo si MP llegó a autorizar; un `in_process` cancelado nunca retuvo fondos.
+  if (status === ShipmentStatus.CANCELLED && assignmentHold?.status === "cancelled" && assignmentHold.wasAuthorized) {
+    return {
+      viewer: "sender",
+      phase: "released",
+      amountArs: assignmentHold.amountArs,
+      penaltyArs: input.cancellationPenaltyArs ?? null,
+      penaltyStatus: input.cancellationPenaltyStatus ?? null,
+    };
   }
 
   return null;

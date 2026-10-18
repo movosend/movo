@@ -174,6 +174,7 @@ export function createFakePaymentsClient(
         debtOffsetArs: 0,
         debtSurchargeArs: 0,
         status: behavior.nextHoldStatus,
+        wasAuthorized: behavior.nextHoldStatus === "authorized" || behavior.nextHoldStatus === "captured",
         statusDetail: null,
         failureReason: behavior.nextHoldStatus === "rejected" ? (behavior.nextFailureReason ?? "card_rejected") : null,
         cardBrand: "visa",

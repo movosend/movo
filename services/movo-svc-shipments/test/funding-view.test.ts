@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { ShipmentStatus } from "@movo/shared";
+import { OfferStatus, ShipmentStatus } from "@movo/shared";
 import {
   computeSenderFundingView,
+  isLatestFundingLapseForCarrier,
   FundingViewHold,
   SenderFundingViewInput,
   toCarrierFundingView,
@@ -11,6 +12,23 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const NOW = new Date("2026-10-11T12:00:00.000Z");
 const CARRIER = "carrier-1";
+
+describe("isLatestFundingLapseForCarrier", () => {
+  const event = {
+    fromStatus: ShipmentStatus.ASSIGNMENT_PENDING,
+    toStatus: ShipmentStatus.PUBLISHED,
+    assignmentCarrierId: CARRIER,
+    createdAt: NOW,
+  };
+  const lapsedOffer = { carrierId: CARRIER, status: OfferStatus.ASSIGNMENT_LAPSED, createdAt: new Date(NOW.getTime() - DAY) };
+
+  it("asocia el aviso solo con la última asignación vencida", () => {
+    expect(isLatestFundingLapseForCarrier(event, CARRIER, [lapsedOffer])).toBe(true);
+    expect(isLatestFundingLapseForCarrier({ ...event, assignmentCarrierId: "otro" }, CARRIER, [lapsedOffer])).toBe(false);
+    expect(isLatestFundingLapseForCarrier({ ...event, fromStatus: ShipmentStatus.ASSIGNED }, CARRIER, [lapsedOffer])).toBe(false);
+    expect(isLatestFundingLapseForCarrier(event, CARRIER, [lapsedOffer, { ...lapsedOffer, status: OfferStatus.REJECTED, createdAt: new Date(NOW.getTime() + 1) }])).toBe(false);
+  });
+});
 
 function input(overrides: Partial<SenderFundingViewInput> = {}): SenderFundingViewInput {
   return {
@@ -33,6 +51,8 @@ function hold(overrides: Partial<FundingViewHold> = {}): FundingViewHold {
     status: "rejected",
     failureReason: "insufficient_funds",
     carrierId: CARRIER,
+    amountArs: 18400,
+    wasAuthorized: false,
     cardBrand: "visa",
     cardLast4: "3704",
     createdAt: new Date(NOW.getTime() - 60 * 1000).toISOString(),
@@ -156,10 +176,19 @@ describe("computeSenderFundingView (MOVO-211)", () => {
 
   it("cancelled: released solo si hubo una reserva que se liberó", () => {
     expect(
-      computeSenderFundingView(input({ status: ShipmentStatus.CANCELLED, hold: hold({ status: "cancelled" }) })),
-    ).toEqual({ viewer: "sender", phase: "released", amountArs: 18400 });
+      computeSenderFundingView(input({ status: ShipmentStatus.CANCELLED, hold: hold({ status: "cancelled", wasAuthorized: true }) })),
+    ).toEqual({ viewer: "sender", phase: "released", amountArs: 18400, penaltyArs: null, penaltyStatus: null });
+    expect(computeSenderFundingView(input({ status: ShipmentStatus.CANCELLED, hold: hold({ status: "cancelled" }) }))).toBeNull();
     expect(computeSenderFundingView(input({ status: ShipmentStatus.CANCELLED, hold: hold() }))).toBeNull();
     expect(computeSenderFundingView(input({ status: ShipmentStatus.CANCELLED, hold: null }))).toBeNull();
+  });
+
+  it("usa el monto realmente intentado o retenido, incluido el recargo por deuda", () => {
+    expect(computeSenderFundingView(input({ hold: hold({ amountArs: 20400 }) }))).toMatchObject({ amountArs: 20400 });
+    expect(computeSenderFundingView(input({ status: ShipmentStatus.ASSIGNED, hold: hold({ status: "authorized", amountArs: 20400 }) })))
+      .toMatchObject({ amountArs: 20400 });
+    expect(computeSenderFundingView(input({ status: ShipmentStatus.CANCELLED, hold: hold({ status: "cancelled", wasAuthorized: true, amountArs: 20400 }), cancellationPenaltyArs: 1500, cancellationPenaltyStatus: "debt" })))
+      .toMatchObject({ amountArs: 20400, penaltyArs: 1500, penaltyStatus: "debt" });
   });
 
   it("published tras revertir: lapsed con el motivo según de dónde salió", () => {

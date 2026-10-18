@@ -197,6 +197,15 @@ describe("FundsStatus (MOVO-211)", () => {
       expect(getByText(/No se cobró nada/)).toBeTruthy();
     });
 
+    it("liberada con penalidad en deuda: informa la deuda sin afirmar que se cobró", async () => {
+      const { getByText, queryByText } = await renderCard(
+        { viewer: "sender", phase: "released", amountArs: 20400, penaltyArs: 1500, penaltyStatus: "debt" },
+        ShipmentStatus.CANCELLED,
+      );
+      expect(getByText(/La penalidad de .* quedó pendiente en tu cuenta corriente/)).toBeTruthy();
+      expect(queryByText(/No se cobró nada/)).toBeNull();
+    });
+
     it("volvió a publicarse: motivo, sin botón propio a las ofertas (lo da la bandeja de abajo) (AC6)", async () => {
       const { getByText, queryByTestId } = await renderCard(
         { viewer: "sender", phase: "lapsed", reason: "window_expired", at: PAY_UNTIL },
