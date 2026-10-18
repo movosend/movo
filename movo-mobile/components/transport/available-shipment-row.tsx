@@ -12,6 +12,7 @@ import {
   formatPriceArs,
   formatTripDistanceKm,
   haversineDistanceKm,
+  shortAddressLabel,
   zoneLabelFromAddress,
 } from "../../src/lib/shipment-format";
 
@@ -107,6 +108,13 @@ export function AvailableShipmentRow({ shipment, testID, detour, myOffer }: Avai
         </View>
         <Text numberOfLines={1} className="font-sans-semibold text-h3 text-fg">
           {zoneLabelFromAddress(shipment.pickupAddress)}
+        </Text>
+        <Text
+          testID={testID ? `${testID}-delivery` : undefined}
+          numberOfLines={1}
+          className="font-sans text-[13px] text-fg-2"
+        >
+          Entrega en: {shortAddressLabel(shipment.deliveryAddress)}
         </Text>
         <Text className="font-sans text-[13px] text-fg-2">
           +{formatDetourKm(detourKm)} km de desvío · {formatTripDistanceKm(tripDistanceKm)}
