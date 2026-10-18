@@ -85,7 +85,10 @@ export interface TripAcceptedPackage {
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
   agreedPriceArs: number;
+  senderId: string;
   senderName: string;
+  /** Foto actual del emisor (la resuelve `getTrip` contra svc-users); `null` si no tiene o no se pudo leer. */
+  senderPhotoUrl: string | null;
 }
 
 export interface TripWithAcceptedPackages extends Trip {

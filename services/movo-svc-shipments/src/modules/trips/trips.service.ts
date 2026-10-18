@@ -370,7 +370,25 @@ export function createTripsService(deps: {
 
       assertTripAccess(trip, callerId, callerRoles, { forbiddenMessage: "No tenés permiso para ver este viaje." });
 
-      return trip;
+      // Foto actual de cada emisor (no queda en el snapshot de la oferta). Si svc-users no
+      // responde la fila cae a iniciales, el detalle del viaje no se rompe por eso.
+      const photoBySender = new Map<string, Promise<string | null>>();
+      const photoOf = (senderId: string) => {
+        let found = photoBySender.get(senderId);
+        if (!found) {
+          found = usersClient
+            .findPublicProfile(senderId, callerId)
+            .then((profile) => profile?.photoUrl ?? null)
+            .catch(() => null);
+          photoBySender.set(senderId, found);
+        }
+        return found;
+      };
+      const packages = trip.packages
+        ? await Promise.all(trip.packages.map(async (pkg) => ({ ...pkg, senderPhotoUrl: await photoOf(pkg.senderId) })))
+        : trip.packages;
+
+      return { ...trip, packages };
     },
 
     async listCarrierTrips({ callerId, callerRoles, page, limit, status, scope }) {

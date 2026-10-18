@@ -430,7 +430,9 @@ export function createTripRepository(db: PrismaClient): TripRepository {
           pickupTimeWindowStart,
           pickupTimeWindowEnd,
           agreedPriceArs: offer.priceOffered.toNumber(),
+          senderId: sh.senderId,
           senderName: offer.senderNameAtOffer ?? "Emisor",
+          senderPhotoUrl: null,
         };
       });
 

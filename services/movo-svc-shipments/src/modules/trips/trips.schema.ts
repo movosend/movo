@@ -88,7 +88,9 @@ const tripAcceptedPackageResponse = {
     "pickupTimeWindowStart",
     "pickupTimeWindowEnd",
     "agreedPriceArs",
+    "senderId",
     "senderName",
+    "senderPhotoUrl",
   ],
   properties: {
     shipmentId: { type: "string" },
@@ -105,7 +107,9 @@ const tripAcceptedPackageResponse = {
     pickupTimeWindowStart: { type: "string" },
     pickupTimeWindowEnd: { type: "string" },
     agreedPriceArs: { type: "number" },
+    senderId: { type: "string" },
     senderName: { type: "string" },
+    senderPhotoUrl: { type: ["string", "null"] },
   },
 };
 
