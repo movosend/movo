@@ -21,16 +21,20 @@ import {
   transactionHeroPill,
   transactionRowSubtitle,
   transactionStatusLabel,
+  debtLine,
+  transactionTitle,
 } from "../src/lib/transaction-format";
 
 function item(overrides: Partial<TransactionListItem> = {}): TransactionListItem {
   return {
     id: "tx-1",
+    kind: "shipment",
     shipmentId: "00000000-0000-4000-8000-000000048215",
     date: "2026-10-13T15:10:00.000Z",
     amountArs: 12450,
     status: "reserved",
     refundedAmountArs: null,
+    debtAmountArs: null,
     card: { brand: "visa", last4: "4242" },
     ...overrides,
   };
@@ -253,5 +257,18 @@ describe("textos de lista", () => {
   it("título de 'sin resultados' por tab", () => {
     expect(noResultsTitle("sender")).toBe("Ningún pago coincide");
     expect(noResultsTitle("carrier")).toBe("Ningún cobro coincide");
+  });
+});
+
+describe("pagos de saldo y deuda en el historial", () => {
+  it("el título es el envío, o 'Pago de tu saldo' si no tiene envío", () => {
+    expect(transactionTitle(item())).toBe("Envío #MOVO-48215");
+    expect(transactionTitle(item({ kind: "balance_payment", shipmentId: null }))).toBe("Pago de tu saldo");
+  });
+
+  it("debtLine distingue el recargo del emisor de lo descontado al transportista", () => {
+    expect(debtLine(item({ debtAmountArs: 250 }), "sender")).toBe("Incluye $250 de tu saldo");
+    expect(debtLine(item({ debtAmountArs: 2400 }), "carrier")).toBe("Se descontaron $2.400 de tu saldo");
+    expect(debtLine(item({ debtAmountArs: null }), "sender")).toBeNull();
   });
 });

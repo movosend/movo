@@ -442,6 +442,8 @@ model BalancePaymentAttempt {
   updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId, status], map: "balance_payment_attempts_user_id_status_idx")
+  // El historial del emisor (MOVO-303) lista los aprobados, más recientes primero.
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "balance_payment_attempts_user_id_created_at_idx")
   @@map("balance_payment_attempts")
   @@schema("payments")
 }

@@ -39,4 +39,9 @@ describe("deriveTransactionStatus (MOVO-303)", () => {
       })
     ).toBe("disputed");
   });
+
+  it("un pago de saldo es siempre completed, sin importar lo demás", () => {
+    expect(deriveTransactionStatus({ ...base, kind: "balance_payment", holdStatus: "captured" })).toBe("completed");
+    expect(deriveTransactionStatus({ ...base, kind: "shipment", holdStatus: "authorized" })).toBe("reserved");
+  });
 });

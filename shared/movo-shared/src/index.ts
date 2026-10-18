@@ -134,6 +134,7 @@ export type {
 
 // historial de transacciones (MOVO-303)
 export {
+  TRANSACTION_KINDS,
   TRANSACTION_MOVEMENT_KINDS,
   TRANSACTION_ROLES,
   TRANSACTION_STATUSES,
@@ -144,6 +145,7 @@ export type {
   TransactionBreakdown,
   TransactionCard,
   TransactionDetail,
+  TransactionKind,
   TransactionListItem,
   TransactionListResponse,
   TransactionMovement,

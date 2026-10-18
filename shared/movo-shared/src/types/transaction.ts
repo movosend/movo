@@ -20,6 +20,16 @@ export const TRANSACTION_ROLES = ["sender", "carrier"] as const;
 
 export type TransactionRole = (typeof TRANSACTION_ROLES)[number];
 
+/**
+ * Qué es la transacción. `shipment` es el hold de un envío (lo que paga el emisor y cobra el
+ * transportista). `balance_payment` es un pago de la cuenta corriente del usuario ("Pagar mi saldo",
+ * MOVO-312): solo existe con `role=sender`, no tiene envío y solo se lista cuando MP lo aprobó (siempre
+ * `completed`; un intento pendiente o rechazado no es una transacción todavía).
+ */
+export const TRANSACTION_KINDS = ["shipment", "balance_payment"] as const;
+
+export type TransactionKind = (typeof TRANSACTION_KINDS)[number];
+
 export const TRANSACTION_MOVEMENT_KINDS = ["refund", "chargeback", "mediation"] as const;
 
 export type TransactionMovementKind = (typeof TRANSACTION_MOVEMENT_KINDS)[number];
@@ -34,15 +44,24 @@ export interface TransactionCard {
 }
 
 export interface TransactionListItem {
-  /** Id del hold. */
+  /** Id del hold, o del intento de pago si `kind` es `balance_payment`. */
   id: string;
-  shipmentId: string;
+  kind: TransactionKind;
+  /** `null` en un `balance_payment`. */
+  shipmentId: string | null;
   /** Creación del hold (ISO 8601). */
   date: string;
   amountArs: number;
   status: TransactionStatus;
   /** Último monto devuelto que informó MP; `null` si no hay reembolso o MP no informó monto. */
   refundedAmountArs: number | null;
+  /**
+   * Parte de `amountArs` o del cobro que corresponde a la deuda de la cuenta corriente (MOVO-311), para
+   * que el historial cierre con el Saldo. `role=sender`: el recargo por su deuda que viaja dentro de lo
+   * que pagó. `role=carrier`: lo descontado de su cobro, solo con la liquidación acreditada (igual que
+   * `breakdown`). `null` si no hubo deuda de por medio.
+   */
+  debtAmountArs: number | null;
   /** Solo con `role=sender`; `null` si el hold no tiene datos de tarjeta. */
   card?: TransactionCard | null;
 }

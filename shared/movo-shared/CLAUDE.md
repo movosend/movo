@@ -580,3 +580,10 @@ sin cargo con 12 h o más o con la ventana cerrada, 25 % del precio acordado si 
 (`dist/config/cancellation-penalty`) para mostrar el mismo monto (MOVO-308). `ShipmentSettlementResponse` suma `kind`,
 `ApiErrorCode` suma `CANCELLATION_PENALTY_MISMATCH` (con `details.penaltyArs`) y la categoría `payments` suma
 `cancellationPenalty{ChargedSender,DebtSender,CompensationCarrier}`.
+
+### MOVO-303 (ampliación) — `TransactionKind` y `debtAmountArs`
+
+`types/transaction.ts` suma `TRANSACTION_KINDS`/`TransactionKind` (`shipment` | `balance_payment`); `TransactionListItem` gana `kind`,
+`debtAmountArs` y `shipmentId` pasa a ser `string | null` (nulo en un pago de saldo). Rompe literales `TransactionListItem` armados a mano
+(fixtures de `movo-mobile`). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+

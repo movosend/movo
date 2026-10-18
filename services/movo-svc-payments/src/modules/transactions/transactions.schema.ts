@@ -27,6 +27,8 @@ const uuid = { type: "string", format: "uuid" } as const;
 const role = { type: "string", enum: ["sender", "carrier"] } as const;
 const status = { type: "string", enum: ["reserved", "completed", "refunded", "disputed", "released"] } as const;
 
+const kind = { type: "string", enum: ["shipment", "balance_payment"] } as const;
+
 const card = {
   type: ["object", "null"],
   required: ["brand", "last4"],
@@ -35,17 +37,21 @@ const card = {
 
 const listItemProperties = {
   id: uuid,
-  shipmentId: uuid,
+  kind,
+  // null en un pago de saldo (`balance_payment`).
+  shipmentId: { type: ["string", "null"], format: "uuid" },
   date: { type: "string", format: "date-time" },
   amountArs: { type: "number" },
   status,
   refundedAmountArs: { type: ["number", "null"] },
+  // MOVO-311: parte del monto que es deuda de la cuenta corriente (recargo del emisor / descuento del transportista).
+  debtAmountArs: { type: ["number", "null"] },
   card,
 } as const;
 
 const listItem = {
   type: "object",
-  required: ["id", "shipmentId", "date", "amountArs", "status", "refundedAmountArs"],
+  required: ["id", "kind", "shipmentId", "date", "amountArs", "status", "refundedAmountArs", "debtAmountArs"],
   properties: listItemProperties,
 } as const;
 
@@ -74,7 +80,7 @@ const breakdown = {
 
 export const listTransactionsSchema = {
   tags: ["transactions"],
-  summary: "Historial de transacciones del usuario como emisor (sender) o transportista (carrier)",
+  summary: "Historial de transacciones del usuario como emisor (sender, con sus pagos de saldo) o transportista (carrier)",
   querystring: {
     type: "object",
     required: ["role"],

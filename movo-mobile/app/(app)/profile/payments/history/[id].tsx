@@ -14,6 +14,7 @@ import { friendlyErrorMessage } from "../../../../../src/lib/error-messages";
 import {
   formatDateTime,
   formatShortDate,
+  debtLine,
   formatTransactionAmount,
   movementCopy,
   TRANSACTION_NOT_FOUND_MESSAGE,
@@ -78,19 +79,22 @@ function AmountRow({
 
 function ShipmentLink({ detail, subtitle }: { detail: TransactionDetail; subtitle: string }) {
   const colors = useThemeColors();
+  const shipmentId = detail.shipmentId;
+  // Un pago de saldo no tiene envío; igual no llega acá (tiene su propio cuerpo).
+  if (!shipmentId) return null;
   return (
     <Pressable
       testID="transaction-shipment-link"
       accessibilityRole="button"
-      accessibilityLabel={`Ver el envío ${transactionDisplayCode(detail.shipmentId)}`}
-      onPress={() => router.push(`/shipments/${detail.shipmentId}`)}
+      accessibilityLabel={`Ver el envío ${transactionDisplayCode(shipmentId)}`}
+      onPress={() => router.push(`/shipments/${shipmentId}`)}
       className="flex-row items-center gap-3 px-4 py-3.5 active:bg-bg-mute"
     >
       <IconCircle>
         <Package size={18} color={colors.fg1} strokeWidth={2} />
       </IconCircle>
       <View className="flex-1">
-        <Text className="font-sans-semibold text-[15px] text-fg">{transactionDisplayCode(detail.shipmentId)}</Text>
+        <Text className="font-sans-semibold text-[15px] text-fg">{transactionDisplayCode(shipmentId)}</Text>
         <Text className="font-sans text-[12.5px] text-fg-2">{subtitle}</Text>
       </View>
       <ChevronRight size={20} color={colors.fg3} strokeWidth={2} />
@@ -124,6 +128,48 @@ function Hero({ detail, role }: { detail: TransactionDetail; role: TransactionRo
         </View>
         <Text className="font-sans text-[13px] text-ink-300">{formatDateTime(detail.date)}</Text>
       </View>
+    </View>
+  );
+}
+
+/** Un pago de saldo (MOVO-312): tarjeta y a qué se aplicó; no tiene envío, ni reserva, ni reembolsos. */
+function BalancePaymentBody({ detail }: { detail: TransactionDetail }) {
+  const colors = useThemeColors();
+  const card = transactionCardLabel(detail.card);
+  return (
+    <>
+      {card ? (
+        <View className="mx-5 mt-[18px]">
+          <SectionLabel>Método de pago</SectionLabel>
+          <Card testID="transaction-card">
+            <View className="flex-row items-center gap-3 px-4 py-3.5">
+              <IconCircle>
+                <CreditCard size={18} color={colors.fg1} strokeWidth={2} />
+              </IconCircle>
+              <Text className="flex-1 font-sans-semibold text-[15px] text-fg">{card}</Text>
+            </View>
+          </Card>
+        </View>
+      ) : null}
+      <View className="mx-5 mt-[18px]">
+        <Card testID="transaction-balance-note">
+          <Text className="px-4 py-3.5 font-sans text-[14px] leading-[20px] text-fg-2">
+            Este pago se aplicó a tu saldo con Movo. Las penalidades que cubre las ves en la pestaña Saldo.
+          </Text>
+        </Card>
+      </View>
+    </>
+  );
+}
+
+function DebtNote({ detail, role }: { detail: TransactionDetail; role: TransactionRole }) {
+  const line = debtLine(detail, role);
+  if (!line) return null;
+  return (
+    <View className="mx-5 mt-[18px]">
+      <Card testID="transaction-debt-note">
+        <Text className="px-4 py-3.5 font-sans-medium text-[14px] leading-[20px] text-fg">{line}</Text>
+      </Card>
     </View>
   );
 }
@@ -331,7 +377,14 @@ export default function PaymentTransactionDetailScreen() {
     body = (
       <>
         <Hero detail={detail} role={role} />
-        {role === "sender" ? <SenderBody detail={detail} /> : <CarrierBody detail={detail} />}
+        {detail.kind === "balance_payment" ? (
+          <BalancePaymentBody detail={detail} />
+        ) : (
+          <>
+            <DebtNote detail={detail} role={role} />
+            {role === "sender" ? <SenderBody detail={detail} /> : <CarrierBody detail={detail} />}
+          </>
+        )}
       </>
     );
   } else if (notFound) {

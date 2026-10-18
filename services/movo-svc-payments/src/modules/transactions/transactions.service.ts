@@ -95,20 +95,44 @@ function visibleAmount(amountArs: number | null, row: TransactionRow, role: Tran
   return role === "carrier" && amountArs !== null ? Math.min(amountArs, row.baseAmountArs) : amountArs;
 }
 
+/**
+ * Qué parte es deuda de la cuenta corriente (MOVO-311), para que el historial cierre con el Saldo:
+ * - emisor: el recargo que viajó dentro de lo que pagó (`amount - base`); si el hold se liberó sin cobrar,
+ *   el trigger anuló esa deuda y no se muestra;
+ * - transportista: lo descontado de su cobro, solo con la liquidación acreditada (igual que el `breakdown`).
+ * Un pago de saldo es la deuda entera: no lleva un monto aparte.
+ */
+function debtAmount(row: TransactionRow, role: TransactionRole, status: TransactionStatus): number | null {
+  if (row.kind === "balance_payment") return null;
+  const amount =
+    role === "carrier"
+      ? row.settlementStatus === "credited"
+        ? row.debtOffsetArs ?? 0
+        : 0
+      : status === "released"
+        ? 0
+        : Math.round((row.amountArs - row.baseAmountArs) * 100) / 100;
+  return amount > 0 ? amount : null;
+}
+
 function toListItem(row: TransactionRow, role: TransactionRole): TransactionListItem {
+  const status = deriveTransactionStatus({
+    kind: row.kind,
+    holdStatus: row.holdStatus,
+    settlementStatus: row.settlementStatus,
+    hasDispute: row.hasDispute,
+    hasRefund: row.hasRefund,
+  });
   const item: TransactionListItem = {
     id: row.id,
+    kind: row.kind,
     shipmentId: row.shipmentId,
     date: row.createdAt.toISOString(),
     // MOVO-311: el transportista ve el precio acordado, sin el recargo por la deuda del emisor.
     amountArs: role === "carrier" ? row.baseAmountArs : row.amountArs,
-    status: deriveTransactionStatus({
-      holdStatus: row.holdStatus,
-      settlementStatus: row.settlementStatus,
-      hasDispute: row.hasDispute,
-      hasRefund: row.hasRefund,
-    }),
+    status,
     refundedAmountArs: row.hasRefund ? visibleAmount(row.refundedAmountArs, row, role) : null,
+    debtAmountArs: debtAmount(row, role, status),
   };
   // La tarjeta es del emisor: con `role=carrier` la clave ni viaja.
   if (role === "sender") {
@@ -173,7 +197,8 @@ export function createTransactionsService(deps: { transactions: TransactionRepos
     async get(userId, role, id) {
       const row = await transactions.findOne(role, userId, id);
       if (!row) throw notFound();
-      const movements = await transactions.listMovements(row.id, row.mpPaymentId);
+      // Un pago de saldo no tiene reembolsos ni disputas registrados: los eventos de MP son por hold.
+      const movements = row.kind === "shipment" ? await transactions.listMovements(row.id, row.mpPaymentId) : [];
       const detail: TransactionDetail = {
         ...toListItem(row, role),
         capturedAt: row.capturedAt ? row.capturedAt.toISOString() : null,

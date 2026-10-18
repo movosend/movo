@@ -28,11 +28,13 @@ const SHIPMENT_ID = "00000000-0000-4000-8000-000000046380";
 function detail(overrides: Partial<TransactionDetail> = {}): TransactionDetail {
   return {
     id: "tx-1",
+    kind: "shipment",
     shipmentId: SHIPMENT_ID,
     date: "2026-10-04T17:32:00.000Z",
     amountArs: 5200,
     status: "refunded",
     refundedAmountArs: 1500,
+    debtAmountArs: null,
     card: { brand: "master", last4: "1881" },
     capturedAt: "2026-10-06T12:00:00.000Z",
     movements: [{ kind: "refund", amountArs: 1500, date: "2026-10-08T13:00:00.000Z" }],
@@ -100,6 +102,24 @@ describe("PaymentTransactionDetailScreen (MOVO-304)", () => {
       expect(within(getByTestId("transaction-movements")).getByText("Fondos reservados")).toBeTruthy();
       expect(queryByText("Cobro acreditado")).toBeNull();
       expect(within(getByTestId("transaction-hero-pill")).getByText("Reservado")).toBeTruthy();
+    });
+
+    it("un pago de saldo no tiene envío, movimientos ni reembolsos: muestra la tarjeta y a qué se aplicó", async () => {
+      mockQuery({
+        data: detail({ kind: "balance_payment", shipmentId: null, status: "completed", refundedAmountArs: null, capturedAt: null, movements: [] }),
+      });
+      const { getByTestId, queryByTestId, queryByText } = await render(<PaymentTransactionDetailScreen />);
+      expect(within(getByTestId("transaction-card")).getByText("Mastercard •••• 1881")).toBeTruthy();
+      expect(getByTestId("transaction-balance-note")).toBeTruthy();
+      expect(queryByTestId("transaction-shipment-link")).toBeNull();
+      expect(queryByTestId("transaction-movements")).toBeNull();
+      expect(queryByText("Envío")).toBeNull();
+    });
+
+    it("el recargo por la deuda del emisor se aclara en el detalle", async () => {
+      mockQuery({ data: detail({ debtAmountArs: 250 }) });
+      const { getByTestId } = await render(<PaymentTransactionDetailScreen />);
+      expect(within(getByTestId("transaction-debt-note")).getByText("Incluye $250 de tu saldo")).toBeTruthy();
     });
 
     it("sin datos de tarjeta no se muestra la sección de método de pago", async () => {

@@ -124,6 +124,21 @@ export function groupTransactionsByMonth(items: readonly TransactionListItem[]):
   return sections;
 }
 
+/** Título de la fila y del detalle: el envío, o "Pago de tu saldo" (un pago de la cuenta corriente, sin envío). */
+export function transactionTitle(item: Pick<TransactionListItem, "kind" | "shipmentId">): string {
+  return item.kind === "balance_payment" || !item.shipmentId ? "Pago de tu saldo" : `Envío ${transactionDisplayCode(item.shipmentId)}`;
+}
+
+/**
+ * Cuánto de la transacción es deuda de la cuenta corriente, para que el historial cierre con Saldo:
+ * el recargo que el emisor pagó con el envío, o lo que se descontó del cobro del transportista.
+ */
+export function debtLine(item: Pick<TransactionListItem, "debtAmountArs">, role: TransactionRole): string | null {
+  if (item.debtAmountArs === null || item.debtAmountArs === undefined || !Number.isFinite(item.debtAmountArs)) return null;
+  const amount = formatTransactionAmount(item.debtAmountArs);
+  return role === "sender" ? `Incluye ${amount} de tu saldo` : `Se descontaron ${amount} de tu saldo`;
+}
+
 /** "Reembolso de $1.500" (AC4), o `null` si la transacción no tiene reembolso. */
 export function refundLine(item: Pick<TransactionListItem, "refundedAmountArs">): string | null {
   if (item.refundedAmountArs === null || !Number.isFinite(item.refundedAmountArs)) return null;

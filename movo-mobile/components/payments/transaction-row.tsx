@@ -3,16 +3,17 @@ import { ArrowDownLeft, ArrowUpRight, CreditCard, Undo2 } from "lucide-react-nat
 import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
+  debtLine,
   formatTransactionAmount,
   refundLine,
-  transactionDisplayCode,
+  transactionTitle,
   transactionRowSubtitle,
   transactionStatusLabel,
 } from "../../src/lib/transaction-format";
 import { TransactionStatusPill } from "./transaction-status-pill";
 
 /**
- * Fila del historial (MOVO-304 AC4): referencia `#MOVO-xxxxx`, tarjeta (solo Pagos), fecha,
+ * Fila del historial (MOVO-304 AC4): referencia `#MOVO-xxxxx` (o "Pago de tu saldo"), tarjeta (solo Pagos), fecha,
  * monto y pill de estado. Una transacción con reembolso suma "Reembolso de $X". En Cobros un
  * cobro que todavía no se acreditó (reservado, liberado, en disputa) lleva el monto atenuado,
  * como el canvas.
@@ -27,8 +28,9 @@ export function TransactionRow({
   onPress: () => void;
 }) {
   const colors = useThemeColors();
-  const code = transactionDisplayCode(item.shipmentId);
+  const title = transactionTitle(item);
   const refund = refundLine(item);
+  const debt = debtLine(item, role);
   const muted = role === "carrier" && item.status !== "completed" && item.status !== "refunded";
   const Direction = role === "sender" ? ArrowUpRight : ArrowDownLeft;
   const amount = formatTransactionAmount(item.amountArs);
@@ -37,7 +39,7 @@ export function TransactionRow({
     <Pressable
       testID={`transaction-row-${item.id}`}
       accessibilityRole="button"
-      accessibilityLabel={`${role === "sender" ? "Pago" : "Cobro"} del envío ${code}, ${amount}, ${transactionStatusLabel(item.status, role)}`}
+      accessibilityLabel={`${role === "sender" ? "Pago" : "Cobro"} · ${title}, ${amount}, ${transactionStatusLabel(item.status, role)}`}
       accessibilityHint="Abre el detalle"
       onPress={onPress}
       className="flex-row items-center gap-3 border-b border-border px-5 py-3 active:bg-bg-sub"
@@ -56,11 +58,16 @@ export function TransactionRow({
 
       <View className="min-w-0 flex-1 gap-0.5">
         <Text numberOfLines={1} className="font-sans-semibold text-[15px] leading-5 text-fg">
-          Envío {code}
+          {title}
         </Text>
         <Text numberOfLines={1} className="font-sans text-[12.5px] leading-4 text-fg-2">
           {transactionRowSubtitle(item, role)}
         </Text>
+        {debt ? (
+          <Text testID={`transaction-debt-${item.id}`} numberOfLines={1} className="font-sans-medium text-[12.5px] leading-4 text-fg">
+            {debt}
+          </Text>
+        ) : null}
         {refund ? (
           <View testID={`transaction-refund-${item.id}`} className="flex-row items-center gap-1">
             <Undo2 size={12} color={colors.fg1} strokeWidth={2.4} />

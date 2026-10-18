@@ -40,11 +40,13 @@ const mockFetchNextPage = jest.fn();
 function tx(overrides: Partial<TransactionListItem> = {}): TransactionListItem {
   return {
     id: "tx-1",
+    kind: "shipment",
     shipmentId: "00000000-0000-4000-8000-000000048215",
     date: "2026-10-13T15:10:00.000Z",
     amountArs: 12450,
     status: "reserved",
     refundedAmountArs: null,
+    debtAmountArs: null,
     card: { brand: "visa", last4: "4242" },
     ...overrides,
   };
@@ -123,6 +125,15 @@ describe("HistoryTab (MOVO-304)", () => {
     mockUseTransactions.mockImplementation((role: "sender" | "carrier") => queryFor(role));
   });
 
+  describe("Cobros con deuda", () => {
+    it("el cobro muestra lo que se descontó de su saldo", async () => {
+      mockState.carrier = { items: [tx({ id: "c-debt", status: "completed", card: undefined, debtAmountArs: 2400 })] };
+      const { getByTestId } = await render(<PaymentsHistoryScreen />);
+      await press(getByTestId("history-role-carrier"));
+      expect(getByTestId("transaction-debt-c-debt")).toHaveTextContent("Se descontaron $2.400 de tu saldo");
+    });
+  });
+
   describe("Pagos", () => {
     it("arranca en la tab Pagos (role=sender) sin filtros", async () => {
       await render(<PaymentsHistoryScreen />);
@@ -147,6 +158,19 @@ describe("HistoryTab (MOVO-304)", () => {
       const { getByTestId, queryByTestId } = await render(<PaymentsHistoryScreen />);
       expect(within(getByTestId("transaction-refund-s-refunded")).getByText("Reembolso de $1.500")).toBeTruthy();
       expect(queryByTestId("transaction-refund-s-reserved")).toBeNull();
+    });
+
+    it("un pago de saldo se muestra sin envío, y el recargo por la deuda cierra con Saldo", async () => {
+      mockState.sender = {
+        items: [
+          tx({ id: "s-balance", kind: "balance_payment", shipmentId: null, status: "completed", amountArs: 1500 }),
+          tx({ id: "s-debt", debtAmountArs: 250, amountArs: 12700 }),
+        ],
+      };
+      const { getByTestId, getByText } = await render(<PaymentsHistoryScreen />);
+      expect(getByText("Pago de tu saldo")).toBeTruthy();
+      expect(within(getByTestId("transaction-pill-s-balance")).getByText("Completado")).toBeTruthy();
+      expect(getByTestId("transaction-debt-s-debt")).toHaveTextContent("Incluye $250 de tu saldo");
     });
 
     it("agrupa por mes, del más reciente al más viejo (AC3)", async () => {

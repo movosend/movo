@@ -4799,12 +4799,12 @@ manda. **Historial** (`components/payments/history-tab.tsx`) lista los holds de 
 porque el backend arma el desglose según quién mira.
 
 - **Cada evento vive en un solo lugar.** Saldo ya no es el libro mayor completo: lista solo lo que forma la deuda abierta ("Qué forma
-  tu saldo": `amountArs > 0` y `pending`/`reserved`, pill "Por pagar"); pagos, deudas saldadas y anuladas no se muestran. Lo que
-  se descontó de un cobro se ve en el detalle del cobro (`breakdown.debtOffsetArs`, MOVO-311).
+  tu saldo": `amountArs > 0` y `pending`/`reserved`, pill "Por pagar"). Los pagos de saldo están en Historial › Pagos ("Pago de tu
+  saldo", `kind: balance_payment`, sin envío); el recargo que el emisor paga por su deuda ("Incluye $X de tu saldo") y lo descontado de
+  un cobro ("Se descontaron $X de tu saldo") salen de `debtAmountArs` en la fila y el detalle. Deudas saldadas o anuladas no se muestran.
 - **Etiquetas en un solo lugar** (`src/lib/transaction-format.ts`): estados ("Completado" es "Cobrado" en Cobros), pills, agrupado por
   mes y atajos de fecha sobre el día argentino. El neto de un cobro solo se muestra con la liquidación acreditada.
 - Con filtros activos las etiquetas solo se quitan: botón "Filtros" aparte (no está en el prototipo) para reabrir la hoja.
-- **Fuera de alcance / pendiente de backend:** el resumen "Cobrado en octubre / Por acreditar" (no hay agregados), el "Pago de tu
-  saldo" y la penalidad del emisor dentro de Historial › Pagos (`/payments/transactions` solo devuelve holds), y la línea "se
-  descontaron $X" en la fila de la lista de Cobros (el desglose está solo en el detalle). Hasta que el backend los exponga, un pago de
-  saldo ya hecho no aparece en ninguna pestaña. Pendiente: probarlo en dispositivo con cuentas con pagos y cobros reales.
+- **Fuera de alcance:** el resumen "Cobrado en octubre / Por acreditar" de Cobros (falta definir bruto/neto y la fecha de acreditación;
+  no hay agregados en el backend) y la penalidad del emisor como fila propia (MOVO-308). Un pago de saldo `pending` aparece en Historial
+  recién cuando MP lo aprueba. Pendiente: probarlo en dispositivo con cuentas con pagos y cobros reales.
