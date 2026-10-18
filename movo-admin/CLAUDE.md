@@ -87,3 +87,4 @@ lista con nombre, email y desde cuándo, alta por email y revocación con motivo
 `gateway()` suma `method` (DELETE con body) y `publicError` mapea por código los rechazos de svc-users
 a un texto propio (no reenvía el texto del servidor). `requireAdmin(mutable, returnTo)` y
 `internalReturnPath` aceptan `/admins` además de `/`; `AdminShell` recibe `current`.
+Si `requireAdmin` falla por infraestructura caída, las acciones devuelven el error al formulario en vez de subir al error boundary.

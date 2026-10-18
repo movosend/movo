@@ -76,10 +76,6 @@ function GrantForm() {
 
 function RevokeControl({ admin }: { admin: AdminRowData }) {
   const [open, setOpen] = useState(false)
-  const [state, action, pending] = useActionState<AdminsState, FormData>(
-    revokeAdmin,
-    {}
-  )
   if (!open)
     return (
       <Button
@@ -92,6 +88,22 @@ function RevokeControl({ admin }: { admin: AdminRowData }) {
         Revocar
       </Button>
     )
+  return <RevokeForm admin={admin} onCancel={() => setOpen(false)} />
+}
+
+// Se monta solo mientras está abierto: al cancelar se desmonta y el error de un intento anterior
+// no reaparece al volver a abrirlo.
+function RevokeForm({
+  admin,
+  onCancel,
+}: {
+  admin: AdminRowData
+  onCancel: () => void
+}) {
+  const [state, action, pending] = useActionState<AdminsState, FormData>(
+    revokeAdmin,
+    {}
+  )
   return (
     <form
       action={action}
@@ -132,7 +144,7 @@ function RevokeControl({ admin }: { admin: AdminRowData }) {
           variant="ghost"
           size="sm"
           disabled={pending}
-          onClick={() => setOpen(false)}
+          onClick={onCancel}
         >
           Cancelar
         </Button>

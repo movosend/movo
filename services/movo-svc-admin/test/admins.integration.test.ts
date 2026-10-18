@@ -93,8 +93,31 @@ describe("Gestión de admins (MOVO-292)", () => {
       ["admin_role.grant", "succeeded"],
       ["admin_role.revoke", "succeeded"],
     ]);
-    expect(rows[1]).toMatchObject({ targetType: "admin_role", targetId: target.email });
+    // Exitoso: el objetivo es el id del usuario (como el revoke) y el email queda en el contexto.
+    expect(rows[1]).toMatchObject({ targetType: "admin_role", targetId: target.id, context: { email: target.email } });
+    expect(rows[0]).toMatchObject({ targetId: "nadie@movo.test" });
     expect(rows[2]).toMatchObject({ targetId: target.id, reason: "Dejó el equipo" });
+  });
+
+  it("un motivo o email que queda vacío tras el trim es 400 y no deja fila", async () => {
+    const actor = summary();
+    admins.push(actor);
+    const reason = await app.inject({ method: "DELETE", url: `/admin/admins/${other.id}`, headers: headers(actor.id), payload: { reason: " a " } });
+    const email = await app.inject({ method: "POST", url: "/admin/admins", headers: headers(actor.id), payload: { email: "   " } });
+    expect([reason.statusCode, email.statusCode]).toEqual([400, 400]);
+    expect(await rowsOf(actor.id)).toHaveLength(0);
+  });
+
+  it("registra el x-request-id real del gateway, no el contador de Fastify", async () => {
+    const actor = summary();
+    admins.push(actor);
+    await app.inject({
+      method: "POST",
+      url: "/admin/admins",
+      headers: { ...headers(actor.id), "x-request-id": "req-gateway-123" },
+      payload: { email: "nadie@movo.test" },
+    });
+    expect((await rowsOf(actor.id))[0]).toMatchObject({ requestId: "req-gateway-123" });
   });
 
   it("propaga el motivo concreto de svc-users (último admin)", async () => {

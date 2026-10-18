@@ -17,6 +17,7 @@ vi.mock("@/lib/auth/session", () => ({
   assertOrigin: async () => {},
   requireAdmin: mocks.requireAdmin,
 }))
+import { ApiError } from "@movo/shared/src/errors/api-error"
 import { grantAdmin, revokeAdmin } from "./actions"
 
 const OTHER = "22222222-2222-2222-2222-222222222222"
@@ -49,7 +50,7 @@ describe("acciones de admins", () => {
       {},
       form({ userId: OTHER, reason: "Dejó el equipo" })
     )
-    expect(result.notice).toBeDefined()
+    expect(result).toEqual({})
     expect(mocks.gateway).toHaveBeenCalledWith(`/admin/admins/${OTHER}`, {
       method: "DELETE",
       accessToken: "access-token",
@@ -68,6 +69,15 @@ describe("acciones de admins", () => {
 
   it("un email inválido no llega al gateway", async () => {
     expect((await grantAdmin({}, form({ email: "nada" }))).error).toBeDefined()
+    expect(mocks.gateway).not.toHaveBeenCalled()
+  })
+
+  it("con el backend caído al validar la sesión devuelve el error en vez de romper la pantalla", async () => {
+    mocks.requireAdmin.mockRejectedValueOnce(
+      new ApiError(503, "INTERNAL_ERROR", "caído")
+    )
+    const result = await grantAdmin({}, form({ email: "ana@movo.test" }))
+    expect(result.error).toBe("error público")
     expect(mocks.gateway).not.toHaveBeenCalled()
   })
 

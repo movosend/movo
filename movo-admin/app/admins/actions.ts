@@ -1,13 +1,30 @@
 "use server"
 import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
+import { ApiError } from "@movo/shared/src/errors/api-error"
 import { gateway, publicError } from "@/lib/auth/api"
-import { assertOrigin, requireAdmin } from "@/lib/auth/session"
+import {
+  assertOrigin,
+  requireAdmin,
+  type AdminProfile,
+} from "@/lib/auth/session"
 import { ACCESS_COOKIE } from "@/lib/auth/policy"
 
 export interface AdminsState {
   error?: string
   notice?: string
+}
+
+// Con el gateway o un servicio caído `requireAdmin` lanza un ApiError 5xx: se devuelve como estado
+// del formulario en vez de subir al error boundary. Un 401/403 redirige (NEXT_REDIRECT, que no es un
+// ApiError) y se deja pasar.
+async function authorize(): Promise<AdminProfile | { error: string }> {
+  try {
+    return await requireAdmin(true)
+  } catch (error) {
+    if (error instanceof ApiError) return { error: publicError(error) }
+    throw error
+  }
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -18,7 +35,8 @@ export async function grantAdmin(
 ): Promise<AdminsState> {
   void _previous
   await assertOrigin()
-  await requireAdmin(true, "/admins")
+  const auth = await authorize()
+  if ("error" in auth) return auth
   const email = String(form.get("email") ?? "")
     .trim()
     .toLowerCase()
@@ -42,7 +60,8 @@ export async function revokeAdmin(
 ): Promise<AdminsState> {
   void _previous
   await assertOrigin()
-  const profile = await requireAdmin(true, "/admins")
+  const profile = await authorize()
+  if ("error" in profile) return profile
   const userId = String(form.get("userId") ?? "")
   const reason = String(form.get("reason") ?? "").trim()
   if (!UUID.test(userId)) return { error: "No pudimos identificar al admin." }
@@ -60,6 +79,7 @@ export async function revokeAdmin(
   } catch (error) {
     return { error: publicError(error) }
   }
+  // Sin aviso: la fila desaparece de la lista y con ella este formulario.
   revalidatePath("/admins")
-  return { notice: "Se revocó el rol de admin." }
+  return {}
 }

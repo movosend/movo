@@ -80,9 +80,13 @@ para comprobar una sesión de panel válida junto a cada operación protegida.
 Los rechazos de `svc-users` (`USER_NOT_FOUND`, `ADMIN_GRANT_EMAIL_NOT_VERIFIED`, `ADMIN_LAST_ADMIN`...) se
 relanzan con su código para que el panel muestre el motivo concreto.
 
-- **En `grant` el objetivo de la bitácora es el email normalizado, no el id**: el usuario se resuelve
-  recién dentro de `svc-users` y `runAdminAction` pide el objetivo de antemano. Otorgarse el rol a uno mismo
-  es un no-op idempotente, no un conflicto.
+- **Objetivo de la bitácora en `grant`**: el usuario se resuelve recién dentro de `svc-users` y
+  `runAdminAction` pide el objetivo de antemano, así que la fila arranca con el email. `resolveTarget`
+  (opcional en `AdminActionInput`) lo reemplaza por el id si la acción sale bien, igual que el revoke, y
+  el email queda siempre en `context`. Una fila `failed` conserva el email como `target_id`, por eso el
+  filtro `targetId` de `GET /admin/audit-log` admite 254 caracteres. Otorgarse el rol a uno mismo es un
+  no-op idempotente, no un conflicto.
+- Las rutas usan `request.requestId` (el `x-request-id` del gateway), no `request.id` (el contador de Fastify).
 - `internal-client.ts` acepta un 204 sin cuerpo: `isValid(undefined)` decide si es una respuesta válida
   (antes cualquier 204 era "respuesta inválida" → 502).
 - Pendiente: verificar a mano contra dev que el admin revocado pierde el acceso en su próxima acción

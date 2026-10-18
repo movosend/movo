@@ -78,6 +78,27 @@ describe("gestión de admins", () => {
     )
   })
 
+  it("al cancelar y reabrir no reaparece el error del intento anterior", async () => {
+    render(<AdminsManager admins={admins} currentUserId={admins[0].id} />)
+    const open = () =>
+      fireEvent.click(
+        screen.getByRole("button", { name: "Revocar el rol de Bruno Baez" })
+      )
+    open()
+    fireEvent.change(screen.getByLabelText("Motivo"), {
+      target: { value: "Dejó el equipo" },
+    })
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirmar revocación" })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("último admin")
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }))
+    open()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
   it("muestra el error de carga de la lista", () => {
     render(
       <AdminsManager
