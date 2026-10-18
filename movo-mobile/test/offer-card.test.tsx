@@ -3,6 +3,11 @@ import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { OfferCard } from "../components/shipments/offer-card";
 import type { OfferSummary } from "../src/api/offers-client";
 
+const mockUsePublicProfile = jest.fn();
+jest.mock("../src/hooks/use-profile", () => ({
+  usePublicProfile: (id: string | undefined) => mockUsePublicProfile(id),
+}));
+
 describe("OfferCard", () => {
   const mockOffer: OfferSummary = {
     id: "offer-123",
@@ -36,6 +41,19 @@ describe("OfferCard", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUsePublicProfile.mockReturnValue({ data: undefined });
+  });
+
+  it("pide el perfil público del transportista para mostrar su foto", async () => {
+    await render(
+      <OfferCard
+        offer={mockOffer}
+        onAccept={mockOnAccept}
+        onReject={mockOnReject}
+        onViewProfile={mockOnViewProfile}
+      />,
+    );
+    expect(mockUsePublicProfile).toHaveBeenCalledWith("carrier-789");
   });
 
   it("renderiza correctamente datos de la oferta con 'Sin calificaciones' cuando rating es null", async () => {

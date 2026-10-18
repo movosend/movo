@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import { ProfileAvatar } from "../profile/profile-avatar";
 import { StarRatingInput } from "../ui/star-rating-input";
 import type { OfferSummary } from "../../src/api/offers-client";
+import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { formatReputationScore } from "../../src/lib/profile-format";
 import {
@@ -38,6 +39,9 @@ export function OfferCard({
   testID,
 }: OfferCardProps) {
   const colors = useThemeColors();
+  // La oferta solo guarda nombre y rating como snapshot, no la foto: se resuelve del
+  // perfil público (misma cache que el resto de la app).
+  const { data: carrierProfile } = usePublicProfile(offer.carrierId);
   const carrierName = offer.carrierNameAtOffer || "Transportista";
   const reputationLabel = formatReputationScore(offer.carrierRatingAtOffer);
   const formattedPrice = formatPriceArs(offer.priceOffered);
@@ -75,7 +79,7 @@ export function OfferCard({
         accessibilityRole="button"
         accessibilityLabel={`Ver perfil de ${carrierName}`}
       >
-        <ProfileAvatar fullName={carrierName} photoUrl={null} size={42} />
+        <ProfileAvatar fullName={carrierName} photoUrl={carrierProfile?.photoUrl ?? null} size={42} />
         <View className="flex-1">
           <View className="flex-row items-center gap-1.5">
             <Text
