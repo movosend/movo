@@ -33,9 +33,10 @@ function service(resolveLedgerOrigins: ShipmentsClient["resolveLedgerOrigins"]) 
 
 describe("saldo con orígenes", () => {
   it("combina envío y tarjeta", async () => {
-    const result = await service(async () => [{ id: shipmentId, label: "Envío a Córdoba" }])
+    const result = await service(async () => [{ id: shipmentId, label: "Envío a Córdoba", destination: "Córdoba" }])
       .pageWithOrigins(userId, {});
     expect(result.items.map((item) => item.originLabel)).toEqual(["Envío a Córdoba", "Visa •••• 1234"]);
+    expect(result.items.map((item) => item.destination)).toEqual(["Córdoba", null]);
   });
 
   it("conserva el saldo y la tarjeta si shipments falla", async () => {

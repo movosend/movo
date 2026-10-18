@@ -1,0 +1,289 @@
+import type { TransactionListItem, TransactionRole, TransactionStatus } from "@movo/shared/dist/types/transaction";
+import { router, useFocusEffect } from "expo-router";
+import { Calendar, Filter, X } from "lucide-react-native";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
+import { TransactionFiltersSheet } from "./transaction-filters-sheet";
+import { TransactionRow } from "./transaction-row";
+import {
+  TransactionsEmpty,
+  TransactionsError,
+  TransactionsNoResults,
+  TransactionsSkeleton,
+} from "./transactions-states";
+import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import {
+  EMPTY_TRANSACTION_FILTERS,
+  transactionFilterCount,
+  useTransactions,
+  type TransactionFilters,
+} from "../../src/hooks/use-transactions";
+import { friendlyErrorMessage } from "../../src/lib/error-messages";
+import {
+  dateRangeLabel,
+  groupTransactionsByMonth,
+  resultsCountLabel,
+  transactionStatusLabel,
+} from "../../src/lib/transaction-format";
+
+type ListRow =
+  | { type: "month"; key: string; label: string }
+  | { type: "item"; key: string; item: TransactionListItem };
+
+const ROLE_CHIPS: { role: TransactionRole; label: string }[] = [
+  { role: "sender", label: "Pagos" },
+  { role: "carrier", label: "Cobros" },
+];
+
+function ActiveChip({ label, onRemove, testID }: { label: string; onRemove: () => void; testID: string }) {
+  const colors = useThemeColors();
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={`Quitar filtro ${label}`}
+      onPress={onRemove}
+      className="h-9 flex-row items-center gap-1.5 rounded-full bg-fg px-3 active:opacity-80"
+    >
+      <Text className="font-sans-medium text-[13px] text-bg">{label}</Text>
+      <X size={14} color={colors.bg} strokeWidth={2.4} />
+    </Pressable>
+  );
+}
+
+function FilterButton({
+  label,
+  icon: Icon,
+  onPress,
+  testID,
+}: {
+  label: string;
+  icon: typeof Filter;
+  onPress: () => void;
+  testID: string;
+}) {
+  const colors = useThemeColors();
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={`Filtrar por ${label.toLowerCase()}`}
+      onPress={onPress}
+      className="h-9 flex-row items-center gap-1.5 rounded-full border border-border-strong bg-bg px-3 active:bg-bg-sub"
+    >
+      <Icon size={16} color={colors.fg1} strokeWidth={2} />
+      <Text className="font-sans-medium text-[13px] text-fg">{label}</Text>
+    </Pressable>
+  );
+}
+
+/**
+ * Pestaña "Historial" de Pagos y cobros (MOVO-304, sub-issue mobile de MOVO-28), junto a Saldo y
+ * Medios (prototipo "Pagos y cobros 2c"). Pagos (`role=sender`) y Cobros (`role=carrier`) son chips
+ * de filtro, uno activo a la vez, no pestañas: cada rol conserva sus propios filtros y su propia
+ * paginación por cursor (la query key lleva el rol y los filtros, así volver a un rol no pierde lo
+ * ya cargado). La lista se agrupa por mes y se refresca al volver a la pantalla.
+ *
+ * Cada evento vive en un solo lugar: acá solo los holds de `GET /payments/transactions`; las
+ * penalidades que quedan como deuda viven en Saldo. Desvíos del prototipo, por lo que el backend
+ * de MOVO-303 no informa: el resumen "Cobrado en octubre / Por acreditar" de Cobros no está (no
+ * hay agregados), las filas de Cobros muestran lo que pagó el emisor (el neto y lo descontado por
+ * deuda están en el detalle) y el contador cuenta lo ya cargado ("20+ pagos" si hay más páginas)
+ * porque no hay total.
+ */
+export function HistoryTab() {
+  const colors = useThemeColors();
+  const [role, setRole] = useState<TransactionRole>("sender");
+  const [filtersByRole, setFiltersByRole] = useState<Record<TransactionRole, TransactionFilters>>({
+    sender: EMPTY_TRANSACTION_FILTERS,
+    carrier: EMPTY_TRANSACTION_FILTERS,
+  });
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const filters = filtersByRole[role];
+  const filterCount = transactionFilterCount(filters);
+  const query = useTransactions(role, filters);
+  const { refetch } = query;
+
+  // Al volver a la pantalla (por ejemplo, del detalle de un envío) un pago pudo cambiar de
+  // estado. El primer foco no refetchea: la query ya se pidió al montar.
+  const firstFocusRef = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (firstFocusRef.current) {
+        firstFocusRef.current = false;
+        return;
+      }
+      void refetch();
+    }, [refetch]),
+  );
+
+  const items = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data]);
+  const rows = useMemo<ListRow[]>(
+    () =>
+      groupTransactionsByMonth(items).flatMap((section) => [
+        { type: "month" as const, key: `month-${section.key}`, label: section.label },
+        ...section.items.map((item) => ({ type: "item" as const, key: item.id, item })),
+      ]),
+    [items],
+  );
+
+  const setFilters = (next: TransactionFilters) => setFiltersByRole((prev) => ({ ...prev, [role]: next }));
+  const clearFilters = () => setFilters(EMPTY_TRANSACTION_FILTERS);
+  const removeStatus = (status: TransactionStatus) =>
+    setFilters({ ...filters, statuses: filters.statuses.filter((s) => s !== status) });
+
+  const openDetail = (id: string) =>
+    router.push({ pathname: "/profile/payments/history/[id]", params: { id, role } });
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const rangeLabel = dateRangeLabel(filters.from, filters.to);
+  const hasData = !!query.data;
+
+  let body: React.ReactNode;
+  if (query.isPending) {
+    body = <TransactionsSkeleton />;
+  } else if (query.isError && !hasData) {
+    body = (
+      <TransactionsError
+        message={friendlyErrorMessage(query.error, "No pudimos cargar tu historial. Revisá tu conexión e intentá de nuevo.")}
+        onRetry={() => void refetch()}
+      />
+    );
+  } else if (items.length === 0) {
+    body =
+      filterCount > 0 ? (
+        <TransactionsNoResults role={role} onClear={clearFilters} />
+      ) : (
+        <TransactionsEmpty
+          role={role}
+          onAction={() => router.push(role === "sender" ? "/send" : "/(app)/(tabs)/transport")}
+        />
+      );
+  } else {
+    body = (
+      <FlatList
+        testID="transactions-list"
+        data={rows}
+        keyExtractor={(row) => row.key}
+        renderItem={({ item: row }) =>
+          row.type === "month" ? (
+            <Text
+              accessibilityRole="header"
+              className="px-5 pb-1.5 pt-4 font-sans-semibold text-caption uppercase text-fg-3"
+            >
+              {row.label}
+            </Text>
+          ) : (
+            <TransactionRow item={row.item} role={role} onPress={() => openDetail(row.item.id)} />
+          )
+        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void handleRefresh()} />}
+        ListFooterComponent={
+          query.hasNextPage ? (
+            <Pressable
+              testID="transactions-load-more"
+              accessibilityRole="button"
+              disabled={query.isFetchingNextPage}
+              onPress={() => void query.fetchNextPage()}
+              className="mx-5 my-4 h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border-strong bg-bg active:bg-bg-sub"
+            >
+              {query.isFetchingNextPage ? <ActivityIndicator size="small" color={colors.fg1} /> : null}
+              <Text className="font-sans-semibold text-[14px] text-fg">
+                {query.isFetchNextPageError ? "Reintentar" : query.isFetchingNextPage ? "Cargando…" : "Cargar más"}
+              </Text>
+            </Pressable>
+          ) : (
+            <View className="h-6" />
+          )
+        }
+        showsVerticalScrollIndicator={false}
+      />
+    );
+  }
+
+  return (
+    <View testID="history-tab" className="flex-1">
+      <View testID="history-filter-bar" className="flex-row flex-wrap items-center gap-2 px-5 pb-1.5 pt-3.5">
+        <View accessibilityRole="tablist" className="flex-row gap-2">
+          {ROLE_CHIPS.map((chip) => {
+            const selected = chip.role === role;
+            return (
+              <Pressable
+                key={chip.role}
+                testID={`history-role-${chip.role}`}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                onPress={() => setRole(chip.role)}
+                className={`h-[30px] items-center justify-center rounded-full px-3 ${selected ? "bg-fg" : "border border-border-strong"}`}
+              >
+                <Text className={`font-sans-semibold text-[12px] ${selected ? "text-bg" : "text-fg"}`}>{chip.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View className="h-5 w-px bg-border" />
+        {filterCount === 0 ? (
+          <>
+            <FilterButton testID="history-filter-status" label="Estado" icon={Filter} onPress={() => setSheetOpen(true)} />
+            <FilterButton testID="history-filter-dates" label="Fechas" icon={Calendar} onPress={() => setSheetOpen(true)} />
+          </>
+        ) : (
+          <>
+            {/* Con filtros activos las etiquetas solo se quitan: este botón vuelve a abrir la hoja. */}
+            <FilterButton testID="history-filter-open" label="Filtros" icon={Filter} onPress={() => setSheetOpen(true)} />
+            {filters.statuses.map((status) => (
+              <ActiveChip
+                key={status}
+                testID={`history-chip-status-${status}`}
+                label={transactionStatusLabel(status, role)}
+                onRemove={() => removeStatus(status)}
+              />
+            ))}
+            {rangeLabel ? (
+              <ActiveChip
+                testID="history-chip-dates"
+                label={rangeLabel}
+                onRemove={() => setFilters({ ...filters, from: null, to: null })}
+              />
+            ) : null}
+            <Pressable
+              testID="history-clear"
+              accessibilityRole="button"
+              onPress={clearFilters}
+              hitSlop={8}
+              className="px-1 py-2"
+            >
+              <Text className="font-sans-semibold text-[13px] text-fg-2">Limpiar</Text>
+            </Pressable>
+          </>
+        )}
+        <View className="flex-1" />
+        {hasData && items.length > 0 ? (
+          <Text testID="history-count" className="font-sans text-[12px] text-fg-2">
+            {resultsCountLabel(items.length, role, !!query.hasNextPage)}
+          </Text>
+        ) : null}
+      </View>
+
+      <View className="flex-1">{body}</View>
+
+      <TransactionFiltersSheet
+        visible={sheetOpen}
+        role={role}
+        applied={filters}
+        onApply={setFilters}
+        onClose={() => setSheetOpen(false)}
+      />
+    </View>
+  );
+}

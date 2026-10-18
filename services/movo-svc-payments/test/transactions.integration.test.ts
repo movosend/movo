@@ -34,7 +34,7 @@ describe("/payments/transactions (MOVO-303)", () => {
 
   beforeEach(async () => {
     await app.db.$executeRawUnsafe(
-      "TRUNCATE TABLE payments.settlements, payments.payment_provider_events, payments.holds CASCADE"
+      "TRUNCATE TABLE payments.settlements, payments.payment_provider_events, payments.holds, payments.balance_payment_attempts, payments.saved_cards CASCADE"
     );
     seq = 0;
   });
@@ -152,7 +152,7 @@ describe("/payments/transactions (MOVO-303)", () => {
     it("el ítem trae la tarjeta solo para el emisor", async () => {
       await createHold();
       const sender = (await list("role=sender")).json().items[0];
-      expect(sender.card).toEqual({ brand: "visa", last4: "3764" });
+      expect(sender.card).toEqual({ brand: "visa", last4: "3764", alias: null, issuerName: null, paymentType: null });
       expect(sender.refundedAmountArs).toBeNull();
       const carrier = (await list("role=carrier", CARRIER)).json().items[0];
       expect("card" in carrier).toBe(false);
@@ -170,7 +170,7 @@ describe("/payments/transactions (MOVO-303)", () => {
       await createHold();
       const items = (await list(`role=sender&shipmentId=${mine.shipmentId}`)).json().items;
       expect(items.map((t: { id: string }) => t.id)).toEqual([mine.id]);
-      expect(items[0].card).toEqual({ brand: "visa", last4: "3764" });
+      expect(items[0].card).toMatchObject({ brand: "visa", last4: "3764" });
       expect((await list(`role=sender&shipmentId=${mine.shipmentId}`, OTHER)).json().items).toEqual([]);
     });
 
@@ -412,7 +412,7 @@ describe("/payments/transactions (MOVO-303)", () => {
       const asSender = await detail(credited.id, "sender", SENDER);
       expect(asSender.statusCode).toBe(200);
       expect("breakdown" in asSender.json()).toBe(false);
-      expect(asSender.json().card).toEqual({ brand: "visa", last4: "3764" });
+      expect(asSender.json().card).toEqual({ brand: "visa", last4: "3764", alias: null, issuerName: null, paymentType: null });
     });
 
     it("una transacción ajena, de otro rol o inexistente responde el mismo 404", async () => {
@@ -427,6 +427,221 @@ describe("/payments/transactions (MOVO-303)", () => {
     it("un hold no visible (rejected) es 404", async () => {
       const h = await createHold({ status: "rejected", mpPaymentId: null });
       expect((await detail(h.id, "sender", SENDER)).statusCode).toBe(404);
+    });
+  });
+
+  describe("deuda de la cuenta corriente en el historial (MOVO-311, MOVO-312)", () => {
+    async function createCard(userId = SENDER) {
+      return app.db.savedCard.create({
+        data: { userId, mpCardId: `mp-card-${uuid()}`, brand: "master", last4: "1881", expMonth: 12, expYear: 2030 },
+      });
+    }
+
+    function createAttempt(
+      overrides: { userId?: string; status?: "creating" | "pending" | "approved" | "rejected" | "failed"; amountArs?: number; savedCardId?: string | null; createdAt?: Date } = {}
+    ) {
+      const id = uuid();
+      return app.db.balancePaymentAttempt.create({
+        data: {
+          id,
+          userId: overrides.userId ?? SENDER,
+          amountArs: overrides.amountArs ?? 1500,
+          status: overrides.status ?? "approved",
+          savedCardId: overrides.savedCardId === undefined ? null : overrides.savedCardId,
+          requestFingerprint: `fp-${id}`,
+          mpPaymentId: `mp-balance-${id}`,
+          ...(overrides.createdAt ? { createdAt: overrides.createdAt } : {}),
+        },
+      });
+    }
+
+    it("el emisor ve sus pagos de saldo aprobados junto a los pagos de envíos, sin envío y con la tarjeta", async () => {
+      const card = await createCard();
+      const hold = await createHold({ createdAt: new Date("2026-10-08T12:00:00Z") });
+      const attempt = await createAttempt({ savedCardId: card.id, createdAt: new Date("2026-10-09T12:00:00Z") });
+
+      const items = (await list("role=sender")).json().items;
+      expect(items.map((i: { id: string }) => i.id)).toEqual([attempt.id, hold.id]);
+      expect(items[0]).toEqual({
+        id: attempt.id,
+        kind: "balance_payment",
+        shipmentId: null,
+        destinationLabel: null,
+        date: "2026-10-09T12:00:00.000Z",
+        amountArs: 1500,
+        status: "completed",
+        refundedAmountArs: null,
+        debtAmountArs: null,
+        card: { brand: "master", last4: "1881", alias: null, issuerName: null, paymentType: null },
+      });
+      expect(items[1].kind).toBe("shipment");
+    });
+
+    it("solo lista los intentos aprobados, y solo del propio usuario", async () => {
+      // Un índice parcial deja un solo intento abierto (`creating`/`pending`) por usuario: el pendiente va en otro.
+      for (const status of ["creating", "rejected", "failed"] as const) await createAttempt({ status });
+      await createAttempt({ userId: CARRIER, status: "pending" });
+      await createAttempt({ userId: OTHER });
+      const mine = await createAttempt();
+
+      const items = (await list("role=sender")).json().items;
+      expect(items.map((i: { id: string }) => i.id)).toEqual([mine.id]);
+    });
+
+    it("sin tarjeta guardada (intento sin savedCardId) devuelve card null", async () => {
+      await createAttempt({ savedCardId: null });
+      expect((await list("role=sender")).json().items[0].card).toBeNull();
+    });
+
+    it("el transportista no ve pagos de saldo", async () => {
+      await createAttempt({ userId: CARRIER });
+      expect((await list("role=carrier", CARRIER)).json().items).toEqual([]);
+    });
+
+    it("los filtros de estado y de fechas aplican a los pagos de saldo", async () => {
+      const early = await createAttempt({ createdAt: new Date("2026-10-05T15:00:00Z") });
+      const late = await createAttempt({ createdAt: new Date("2026-10-20T15:00:00Z") });
+      await createHold({ status: "authorized", createdAt: new Date("2026-10-06T15:00:00Z") });
+
+      const completed = (await list("role=sender&status=completed")).json().items;
+      expect(completed.map((i: { id: string }) => i.id).sort()).toEqual([early.id, late.id].sort());
+      expect((await list("role=sender&status=reserved")).json().items.map((i: { kind: string }) => i.kind)).toEqual(["shipment"]);
+      const range = (await list("role=sender&from=2026-10-15&to=2026-10-25")).json().items;
+      expect(range.map((i: { id: string }) => i.id)).toEqual([late.id]);
+    });
+
+    it("pagina por cursor mezclando holds y pagos de saldo sin repetir ni perder filas", async () => {
+      const ids: string[] = [];
+      for (let day = 1; day <= 6; day += 1) {
+        const at = new Date(`2026-10-0${day}T12:00:00Z`);
+        ids.push(day % 2 === 0 ? (await createAttempt({ createdAt: at })).id : (await createHold({ createdAt: at })).id);
+      }
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      do {
+        const res = (await list(`role=sender&limit=2${cursor ? `&cursor=${cursor}` : ""}`)).json();
+        seen.push(...res.items.map((i: { id: string }) => i.id));
+        cursor = res.nextCursor;
+      } while (cursor);
+      expect(seen).toEqual([...ids].reverse());
+    });
+
+    it("el detalle de un pago de saldo no trae movimientos ni desglose, y es 404 para otro rol o usuario", async () => {
+      const attempt = await createAttempt();
+      const res = await detail(attempt.id, "sender", SENDER);
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ kind: "balance_payment", shipmentId: null, movements: [], capturedAt: null });
+      expect("breakdown" in res.json()).toBe(false);
+      expect((await detail(attempt.id, "carrier", SENDER)).statusCode).toBe(404);
+      expect((await detail(attempt.id, "sender", OTHER)).statusCode).toBe(404);
+    });
+
+    it("el emisor ve el recargo por su deuda dentro de lo que pagó, salvo que el hold se haya liberado", async () => {
+      const withDebt = await app.db.hold.create({
+        data: {
+          shipmentId: uuid(), attempt: 1, carrierId: CARRIER, collectorId: "mp-collector", mpPaymentId: `mp-${uuid()}`,
+          amountArs: 1400, baseAmountArs: 1150, debtSurchargeArs: 250, applicationFeeArs: 150, commissionArs: 150,
+          status: "authorized", payerId: SENDER,
+        },
+      });
+      const released = await app.db.hold.create({
+        data: {
+          shipmentId: uuid(), attempt: 1, carrierId: CARRIER, collectorId: "mp-collector", mpPaymentId: `mp-${uuid()}`,
+          amountArs: 1400, baseAmountArs: 1150, debtSurchargeArs: 250, applicationFeeArs: 150, commissionArs: 150,
+          status: "cancelled", payerId: SENDER,
+        },
+      });
+      const clean = await createHold();
+
+      const byId = Object.fromEntries(
+        ((await list("role=sender")).json().items as Array<{ id: string; amountArs: number; debtAmountArs: number | null }>).map((i) => [i.id, i])
+      );
+      expect(byId[withDebt.id]).toMatchObject({ amountArs: 1400, debtAmountArs: 250 });
+      expect(byId[released.id].debtAmountArs).toBeNull();
+      expect(byId[clean.id].debtAmountArs).toBeNull();
+    });
+
+    it("el transportista ve lo descontado de su cobro solo con la liquidación acreditada", async () => {
+      const credited = await createHold({ status: "captured" });
+      await app.db.settlement.create({
+        data: {
+          shipmentId: credited.shipmentId, holdId: credited.id, carrierId: CARRIER, mpPaymentId: credited.mpPaymentId as string,
+          grossAmountArs: 1150, commissionArs: 150, mpFeeArs: 47.15, carrierGrossAmountArs: 1150, carrierMpFeeArs: 47.15,
+          netAmountArs: 952.85, debtOffsetArs: 200, status: "credited", capturedAt: new Date("2026-10-10T15:00:00Z"),
+        },
+      });
+      const processing = await createHold({ status: "captured" });
+      await app.db.settlement.create({
+        data: {
+          shipmentId: processing.shipmentId, holdId: processing.id, carrierId: CARRIER, mpPaymentId: processing.mpPaymentId as string,
+          grossAmountArs: 1150, commissionArs: 150, debtOffsetArs: 200, status: "processing",
+        },
+      });
+
+      const byId = Object.fromEntries(
+        ((await list("role=carrier", CARRIER)).json().items as Array<{ id: string; debtAmountArs: number | null }>).map((i) => [i.id, i.debtAmountArs])
+      );
+      expect(byId[credited.id]).toBe(200);
+      expect(byId[processing.id]).toBeNull();
+    });
+  });
+
+  describe("datos de la tarjeta y de la liberación en el detalle", () => {
+    it("un hold con tarjeta guardada trae alias, banco y tipo, y completa marca y últimos 4 si MP no los informó", async () => {
+      const card = await app.db.savedCard.create({
+        data: {
+          userId: SENDER, mpCardId: `mp-card-${uuid()}`, brand: "visa", last4: "3704", expMonth: 12, expYear: 2030,
+          alias: "Personal", issuerName: "Banco Galicia", paymentType: "credit_card",
+        },
+      });
+      const hold = await createHold({ cardBrand: null, cardLast4: null });
+      await app.db.hold.update({ where: { id: hold.id }, data: { savedCardId: card.id } });
+
+      const body = (await detail(hold.id, "sender", SENDER)).json();
+      expect(body.card).toEqual({
+        brand: "visa", last4: "3704", alias: "Personal", issuerName: "Banco Galicia", paymentType: "credit_card",
+      });
+      expect((await list("role=sender")).json().items[0].card.alias).toBe("Personal");
+    });
+
+    it("un hold sin tarjeta guardada trae los datos de la tarjeta en null", async () => {
+      const hold = await createHold();
+      const { card } = (await detail(hold.id, "sender", SENDER)).json();
+      expect(card).toEqual({ brand: "visa", last4: "3764", alias: null, issuerName: null, paymentType: null });
+    });
+
+    it("un hold liberado informa cuándo (lo fija la base al cancelarse) y por qué", async () => {
+      const cancelled = await createHold({ status: "authorized" });
+      const before = Date.now();
+      await app.db.hold.update({ where: { id: cancelled.id }, data: { status: "cancelled", statusDetail: "by_collector" } });
+      const expired = await createHold({ status: "authorized" });
+      await app.db.hold.update({ where: { id: expired.id }, data: { status: "cancelled", statusDetail: "expired" } });
+
+      const a = (await detail(cancelled.id, "sender", SENDER)).json();
+      expect(a.status).toBe("released");
+      expect(a.releaseReason).toBeNull();
+      expect(Date.parse(a.releasedAt)).toBeGreaterThanOrEqual(before - 1000);
+      expect((await detail(expired.id, "sender", SENDER)).json().releaseReason).toBe("expired");
+    });
+
+    it("la fecha de liberación no cambia con updates posteriores, y un hold no liberado no la trae", async () => {
+      const hold = await createHold({ status: "authorized" });
+      await app.db.hold.update({ where: { id: hold.id }, data: { status: "cancelled" } });
+      const first = (await detail(hold.id, "sender", SENDER)).json().releasedAt;
+      await app.db.hold.update({ where: { id: hold.id }, data: { cardLast4: "9999" } });
+      expect((await detail(hold.id, "sender", SENDER)).json().releasedAt).toBe(first);
+
+      const active = await createHold({ status: "authorized" });
+      const body = (await detail(active.id, "sender", SENDER)).json();
+      expect(body.releasedAt).toBeNull();
+      expect(body.releaseReason).toBeNull();
+    });
+
+    it("fecha también los holds insertados ya cancelados", async () => {
+      const hold = await createHold({ status: "cancelled" });
+      const body = (await detail(hold.id, "sender", SENDER)).json();
+      expect(body.status).toBe("released");
+      expect(body.releasedAt).not.toBeNull();
     });
   });
 });

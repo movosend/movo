@@ -4802,3 +4802,32 @@ Cambios de UI en la misma rama, a pedido de diseño:
 **Fix del sheet "Pagar mi saldo"**: el contenido scrollea con alto máximo calculado (ventana − safe areas − teclado, `useKeyboardHeight`) y el botón de pagar queda fijo abajo, fuera del scroll (antes `max-h-[90%]` sobre un padre sin alto dejaba el botón tapado y se rompía con el teclado). "Otro monto" se expande dentro de su opción, en pesos enteros con punto de miles (`formatBalanceAmountInput`; el `parseAmount` anterior leía "2.500" como inválido). Si `GET /payments/balance/pay-data` falla sin datos, el formulario se reemplaza por el error con "Reintentar" (y `retry: 1`: con los 3 reintentos de default el error aparecía ~7 s después, en medio de la carga del CVV).
 
 **Aviso de deuda en Perfil**: la fila "Pagos y cobros" de Configuración suma la pill "Debés $X" (rojo) cuando el saldo es positivo (`paymentsAttention`, prioridad: Mercado Pago roto → deuda → tarjetas vencidas, un solo aviso). Con un aviso de Mercado Pago o de tarjetas la fila abre la pestaña de medios de pago (`?tab=methods`); sin aviso o con deuda, Saldo.
+
+### MOVO-304 — Historial de pagos y cobros (sub-issue mobile de MOVO-28), integrado con la cuenta corriente
+
+`Pagos y cobros` pasa a tres pestañas, **Saldo · Historial · Medios** (prototipo "Pagos y cobros 2c", que integra la cuenta
+corriente de MOVO-315 con el historial): se abre en Saldo si hay deuda (o mientras carga) y en Historial si no; un `?tab=` explícito
+manda. **Historial** (`components/payments/history-tab.tsx`) lista los holds de `GET /payments/transactions` (MOVO-303): Pagos
+(`role=sender`) y Cobros (`role=carrier`) son chips de filtro, no pestañas, cada rol con sus filtros y su paginación por cursor
+(`useTransactions`, la key lleva rol y filtros). El detalle sigue en `profile/payments/history/[id].tsx` y recibe el rol como param
+porque el backend arma el desglose según quién mira.
+
+- **Cada evento vive en un solo lugar.** Saldo ya no es el libro mayor completo: lista solo lo que forma la deuda abierta ("Qué forma
+  tu saldo": `amountArs > 0` y `pending`/`reserved`, pill "Por pagar"). Los pagos de saldo están en Historial › Pagos ("Pago de tu
+  saldo", `kind: balance_payment`, sin envío); el recargo que el emisor paga por su deuda ("Incluye $X de tu saldo") y lo descontado de
+  un cobro ("Se descontaron $X de tu saldo") salen de `debtAmountArs` en la fila y el detalle. Deudas saldadas o anuladas no se muestran.
+- **Etiquetas en un solo lugar** (`src/lib/transaction-format.ts`): estados ("Completado" es "Cobrado" en Cobros), pills, agrupado por
+  mes y atajos de fecha sobre el día argentino. El neto de un cobro solo se muestra con la liquidación acreditada.
+- **Fila de deuda en Saldo** (entre el prototipo 2c y el de MOVO-315): sin círculo de ícono, en una lista con borde; el origen
+  ("Envío a Rivadavia 387", sin el `#id` interno que el backend pega a la etiqueta) es lo primero que se lee, el tipo es una
+  etiqueta chica arriba y rol y fecha son contexto. No hay pill "Por pagar" por fila (toda la lista lo es); solo "En proceso"
+  si ya se está cobrando. Un ajuste sin envío usa el tipo como título. Montos con centavos siempre a dos dígitos
+  (`formatBalanceArs`: "$1.742,50", no "$1.742,5"), y más aire: tarjeta de saldo `p-5`, filas `py-4`, separación `gap-6`.
+- **Detalle de un pago**: el método de pago es la misma tarjeta que se ve en Medios (nombre de referencia, banco con su logo, marca,
+  crédito/débito; `PaymentMethodCard`). La línea de tiempo (`senderTimeline`) lleva día y hora de cada hito: reserva, cobro al
+  entregar, o la liberación con su motivo ("No se te cobró nada"); mientras no pasó ninguna de las dos se ve el paso que falta, apagado.
+  Los reembolsos y disputas también llevan hora.
+- Con filtros activos las etiquetas solo se quitan: botón "Filtros" aparte (no está en el prototipo) para reabrir la hoja.
+- **Fuera de alcance:** el resumen "Cobrado en octubre / Por acreditar" de Cobros (falta definir bruto/neto y la fecha de acreditación;
+  no hay agregados en el backend) y la penalidad del emisor como fila propia (MOVO-308). Un pago de saldo `pending` aparece en Historial
+  recién cuando MP lo aprueba. Pendiente: probarlo en dispositivo con cuentas con pagos y cobros reales.
