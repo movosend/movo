@@ -86,6 +86,13 @@ export function createInternalClient(config: InternalClientConfig): InternalClie
         throw new ApiError(response.status, body.error.code as ApiErrorCode, message);
       }
 
+      // 204: sin cuerpo (p. ej. un DELETE). `isValid` decide si `undefined` es una respuesta válida.
+      if (response.status === 204) {
+        if (!opts.isValid(undefined)) throw unavailable("devolvió una respuesta inválida");
+        // Solo llega acá si `isValid(undefined)` pasó, o sea que `T` admite `undefined`.
+        return undefined as T;
+      }
+
       let body: unknown;
       try {
         body = await response.json();

@@ -3,7 +3,7 @@ import { ApiError, AuditLogPage } from "@movo/shared";
 import { AuditLogCursor, AuditLogFilters, AuditRepository } from "./audit.repository";
 import { AdminTarget, ConflictChecker } from "./conflict-of-interest";
 
-export interface AdminActionInput {
+export interface AdminActionInput<T = unknown> {
   adminId: string;
   /** Libre, una por acción de negocio (ej. `user.suspend`, `admin_role.revoke`). */
   action: string;
@@ -13,6 +13,12 @@ export interface AdminActionInput {
   /** Datos de contexto que ayudan a reconstruir la decisión (estado previo, etc.). */
   context?: Record<string, unknown> | null;
   requestId: string;
+  /**
+   * Para una acción cuyo objetivo real solo se conoce al terminar (p. ej. otorgar el rol por email:
+   * el id sale de `svc-users`). Si la acción sale bien, la fila `succeeded` usa este objetivo en vez
+   * de `target`; si falla, queda el de `target` (es lo único que se sabía).
+   */
+  resolveTarget?: (result: T) => AdminTarget;
 }
 
 export interface AuditService {
@@ -26,7 +32,7 @@ export interface AuditService {
    * Excepción: si el servicio dueño no responde (`*_SERVICE_UNAVAILABLE`) la acción pudo haberse
    * aplicada igual, y la fila es `unknown` en vez de `failed`.
    */
-  runAdminAction<T>(input: AdminActionInput, action: () => Promise<T>): Promise<T>;
+  runAdminAction<T>(input: AdminActionInput<T>, action: () => Promise<T>): Promise<T>;
   list(filters: AuditLogFilters, limit: number, cursor?: string): Promise<AuditLogPage>;
 }
 
@@ -109,7 +115,12 @@ export function createAuditService(deps: AuditServiceDeps): AuditService {
       // deja el error en el log con todo el contexto para cargarlo a mano (con `created_at` truncado a ms, ver CLAUDE.md de svc-admin). Brecha aceptada:
       // la inversa (registrar como hecha una acción que no ocurrió) nunca pasa.
       try {
-        await repository.insert({ ...base, outcome: "succeeded" });
+        const resolved = input.resolveTarget?.(result);
+        await repository.insert({
+          ...base,
+          ...(resolved ? { targetType: resolved.type, targetId: resolved.id } : {}),
+          outcome: "succeeded",
+        });
       } catch (auditError) {
         logger.error({ err: auditError, event: "admin_audit_insert_failed", ...base, outcome: "succeeded" }, "Acción del panel hecha pero sin registrar en la bitácora");
       }

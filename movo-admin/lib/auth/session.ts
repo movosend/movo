@@ -19,6 +19,7 @@ export interface SessionTokens {
   sessionExpiresAt: string
 }
 export interface AdminProfile {
+  id: string
   fullName: string
   roles: string[]
   accountStatus: string
@@ -140,7 +141,10 @@ export async function validateAdmin(access: string): Promise<AdminProfile> {
     throw new ApiError(401, "AUTH_TOKEN_INVALID", "Sesión inválida.")
   return profile
 }
-export async function requireAdmin(mutable = false): Promise<AdminProfile> {
+export async function requireAdmin(
+  mutable = false,
+  returnTo = "/"
+): Promise<AdminProfile> {
   let access = (await cookies()).get(ACCESS_COOKIE)?.value
   try {
     if (!access)
@@ -149,7 +153,8 @@ export async function requireAdmin(mutable = false): Promise<AdminProfile> {
   } catch (error) {
     if (!(error instanceof ApiError) || ![401, 403].includes(error.statusCode))
       throw error
-    if (!mutable) redirect("/auth/refresh?returnTo=%2F")
+    if (!mutable)
+      redirect(`/auth/refresh?returnTo=${encodeURIComponent(returnTo)}`)
     try {
       access = await renew()
       return await validateAdmin(access)

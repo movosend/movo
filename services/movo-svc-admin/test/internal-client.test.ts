@@ -133,3 +133,47 @@ describe("clientes internos de svc-admin (MOVO-288)", () => {
     expect(init.headers["x-user-id"]).toBe("admin-1");
   });
 });
+
+describe("gestión de admins en el cliente de usuarios (MOVO-292)", () => {
+  const users = createUsersClient({ USERS_SERVICE_URL: "http://users" });
+  const admin = { id: "u-1", fullName: "Ada", email: "ada@movo.test", status: "active", grantedAt: "2026-10-01T00:00:00.000Z" };
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("lista admins", async () => {
+    mockFetch(200, [admin]);
+    expect(await users.listAdmins(ctx)).toEqual([admin]);
+  });
+
+  it("otorga con x-user-id del admin que lo pidió", async () => {
+    const fetchMock = mockFetch(201, admin);
+    expect(await users.grantAdmin("ada@movo.test", "admin-1", ctx)).toEqual(admin);
+    const [, init] = fetchMock.mock.calls[0] as [string, { method: string; headers: Record<string, string> }];
+    expect(init.method).toBe("POST");
+    expect(init.headers["x-user-id"]).toBe("admin-1");
+  });
+
+  it("un email sin cuenta es 404 USER_NOT_FOUND, no un 502", async () => {
+    mockFetch(404, { error: { code: "USER_NOT_FOUND", message: "No existe", statusCode: 404 } });
+    const error = await catchApiError(users.grantAdmin("x@movo.test", "admin-1", ctx));
+    expect([error.statusCode, error.code]).toEqual([404, "USER_NOT_FOUND"]);
+  });
+
+  it("revocar acepta el 204 sin cuerpo", async () => {
+    mockFetch(204);
+    await expect(users.revokeAdmin("u-1", "admin-1", ctx)).resolves.toBeUndefined();
+  });
+
+  it("revocar a alguien que no es admin es 404 ADMIN_NOT_FOUND", async () => {
+    mockFetch(404, { error: { code: "ADMIN_NOT_FOUND", message: "No es admin", statusCode: 404 } });
+    expect((await catchApiError(users.revokeAdmin("u-1", "admin-1", ctx))).code).toBe("ADMIN_NOT_FOUND");
+  });
+
+  it("el rechazo del último admin se relanza con su código", async () => {
+    mockFetch(409, { error: { code: "ADMIN_LAST_ADMIN", message: "Último admin", statusCode: 409 } });
+    const error = await catchApiError(users.revokeAdmin("u-1", "admin-1", ctx));
+    expect([error.statusCode, error.code]).toEqual([409, "ADMIN_LAST_ADMIN"]);
+  });
+});
