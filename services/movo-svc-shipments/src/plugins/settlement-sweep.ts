@@ -33,7 +33,12 @@ export default fp(async (app: FastifyInstance, opts: SettlementSweepPluginOption
       try {
         await service.retryPendingSettlements(options);
       } finally {
-        await service.retryPendingPenalties(options);
+        try {
+          await service.retryPendingPenalties(options);
+        } finally {
+          // MOVO-310: penalidades de bajas del transportista que no se registraron en línea.
+          await service.retryPendingWithdrawalPenalties(options);
+        }
       }
     },
   });
