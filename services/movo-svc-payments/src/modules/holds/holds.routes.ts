@@ -30,6 +30,7 @@ export default async function holdsRoutes(app: FastifyInstance) {
 
   app.post("/by-shipment/:shipmentId/release", { schema: releaseHoldSchema }, async (request) => {
     const { shipmentId } = request.params as { shipmentId: string };
-    return service.release(shipmentId);
+    const { expectedCarrierId, expectedHoldId } = request.query as { expectedCarrierId?: string; expectedHoldId?: string };
+    return service.release(shipmentId, expectedCarrierId, expectedHoldId);
   });
 }

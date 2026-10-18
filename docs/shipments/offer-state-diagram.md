@@ -29,9 +29,11 @@ stateDiagram-v2
     pending --> shipment_cancelled: el envío se canceló con la oferta vigente (MOVO-258)
     accepted --> shipment_cancelled: el envío se canceló después de aceptarla (MOVO-258)
     accepted --> assignment_lapsed: la asignación no prosperó (pago no completado o hold perdido, MOVO-210)
+    accepted --> carrier_withdrawn: el transportista asignado se bajó del envío (MOVO-310)
 
     shipment_cancelled --> [*]
     assignment_lapsed --> [*]
+    carrier_withdrawn --> [*]
     rejected --> [*]
     withdrawn --> [*]
     superseded --> [*]
@@ -63,6 +65,15 @@ Cambio asociado (MOVO-210, AC4): `superseded` ya no se aplica al aceptar. Las de
 `pending` del envío siguen vivas mientras la asignación espera el pago y recién se cierran
 (`superseded`, con aviso) cuando el hold se confirma (`shipment-repository.ts#updateStatus`,
 `→ assigned`), en la misma transacción.
+
+## `carrier_withdrawn` (MOVO-310)
+
+Noveno estado: el transportista se bajó del envío después de que aceptaran su oferta
+(`POST /shipments/:id/carrier-withdrawal`) y el envío volvió a `published`. Distinto de
+`withdrawn` (retirar una oferta todavía `pending`) y de `assignment_lapsed` (la asignación se cayó
+por el pago, sin culpa del transportista). Si se bajó con menos de 12 h, la oferta guarda la
+penalidad (`withdrawal_penalty_ars`) y si ya quedó registrada como deuda (`withdrawal_penalty_status`:
+`pending` → `debt`). Terminal.
 
 ## Transiciones inválidas (rechazadas explícitamente, ejemplos)
 

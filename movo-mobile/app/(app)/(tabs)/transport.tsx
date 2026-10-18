@@ -18,6 +18,7 @@ import { FlatList } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CarrierRequirementGate } from "../../../components/carrier/carrier-requirement-gate";
 import { CarrierRequirementsScreen } from "../../../components/carrier/carrier-requirements-checklist";
+import { useCarrierEligibility } from "../../../src/hooks/use-carrier-eligibility";
 import { AddressSearchSheet } from "../../../components/send/address-search-sheet";
 import { AvailableShipmentCard } from "../../../components/transport/available-shipment-card";
 import { AvailableShipmentRow } from "../../../components/transport/available-shipment-row";
@@ -274,17 +275,20 @@ export default function TransportScreen() {
     dataUpdatedAt: mpUpdatedAt,
     refetch: refetchMp,
   } = useMpConnectStatus();
+  const eligibilityQuery = useCarrierEligibility();
   const profileGate = resolveTransportGate({
     kycStatus: profile?.kycStatus ?? null,
     licenseKycStatus: profile?.licenseKycStatus ?? null,
     mpStatus: mpConnect?.status ?? null,
+    debtOverdue: eligibilityQuery.data?.missingRequirements.includes("no_overdue_debt") ?? false,
   });
   // Sin identidad aprobada la checklist no se muestra, así que MP no hace falta para decidir.
   const profileUnavailable = !profile && isProfileError;
   const mpUnavailable = !mpConnect && isMpError && profileGate !== "identity";
-  const requirementsError = profileUnavailable ? profileError : mpError;
-  const isRequirementsLoading = isProfileLoading || (isMpLoading && profileGate !== "identity");
-  const canBrowse = !isRequirementsLoading && !(profileUnavailable || mpUnavailable) && profileGate === null;
+  const eligibilityUnavailable = !eligibilityQuery.data && eligibilityQuery.isError && profileGate !== "identity";
+  const requirementsError = profileUnavailable ? profileError : mpUnavailable ? mpError : eligibilityQuery.error;
+  const isRequirementsLoading = isProfileLoading || (isMpLoading && profileGate !== "identity") || (eligibilityQuery.isLoading && profileGate !== "identity");
+  const canBrowse = !isRequirementsLoading && !(profileUnavailable || mpUnavailable || eligibilityUnavailable) && profileGate === null;
 
   const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!isTripMode && canBrowse);
   const { radiusKm, setRadiusKm } = useTransportRadius();
@@ -329,7 +333,7 @@ export default function TransportScreen() {
   const gate = identityRejectedByFeed ? "identity" : profileGate;
   // Si el feed ya rechazó por identidad, el error de MP no corresponde: manda el gate de
   // identidad (que no necesita MP). `mpUnavailable` de arriba solo decide qué se consulta.
-  const requirementsUnavailable = profileUnavailable || (mpUnavailable && gate !== "identity");
+  const requirementsUnavailable = profileUnavailable || ((mpUnavailable || eligibilityUnavailable) && gate !== "identity");
 
   // Al volver de `/kyc`, `/license-kyc` o `/profile/payments` el tab sigue montado: sin este
   // refetch el bloqueo quedaría con el estado viejo hasta reabrir la app. Con un bloqueo (o
@@ -340,11 +344,11 @@ export default function TransportScreen() {
   // para que el callback no cambie con cada render y `useFocusEffect` no lo vuelva a
   // correr sin que la pantalla haya ganado foco.
   const refreshGate = useCallback(async () => {
-    const tasks: Promise<unknown>[] = [refetchProfile(), refetchMp()];
+    const tasks: Promise<unknown>[] = [refetchProfile(), refetchMp(), eligibilityQuery.refetch()];
     if (identityRejectedByFeed) tasks.push(refetch());
     await Promise.all(tasks);
-  }, [refetchProfile, refetchMp, refetch, identityRejectedByFeed]);
-  const isGateStale = Date.now() - Math.min(profileUpdatedAt, mpUpdatedAt) > GATE_STALE_MS;
+  }, [refetchProfile, refetchMp, eligibilityQuery.refetch, refetch, identityRejectedByFeed]);
+  const isGateStale = Date.now() - Math.min(profileUpdatedAt, mpUpdatedAt, eligibilityQuery.dataUpdatedAt) > GATE_STALE_MS;
   const shouldRefreshOnFocus = gate !== null || requirementsUnavailable || isGateStale;
   const focusRefreshRef = useRef({ refreshGate, shouldRefreshOnFocus });
   focusRefreshRef.current = { refreshGate, shouldRefreshOnFocus };
@@ -598,8 +602,9 @@ export default function TransportScreen() {
           />
         </ScrollView>
       ) : gate !== null && profile ? (
-        // La checklist se monta abajo, sobre todo el tab (incluido el título).
-        null
+        // La checklist se monta abajo, sobre todo el tab (incluido el título); atrás van
+        // filas en esqueleto para que el fondo no quede en blanco.
+        <TransportRowSkeleton />
       ) : isTripMode && isTripError ? (
         <View className="px-5 pt-2">
           <ErrorBanner
@@ -765,7 +770,8 @@ export default function TransportScreen() {
           onPressLicense={() =>
             router.push({ pathname: "/license-kyc", params: { status: profile.licenseKycStatus } })
           }
-          onPressMp={() => router.push("/profile/payments")}
+          onPressMp={() => router.push("/profile/payments?tab=methods")}
+          onPressDebt={() => router.push("/profile/payments?tab=balance&pay=1")}
           onLater={() => router.navigate("/home")}
         />
       ) : null}

@@ -2,7 +2,7 @@ import type { CarrierRequirement } from "@movo/shared/dist/types/carrier-eligibi
 import type { MpConnectStatusResponse } from "@movo/shared/dist/types/mp-connect";
 import { KycStatus } from "@movo/shared/dist/types/user";
 import * as Haptics from "expo-haptics";
-import { IdCard, Wallet } from "lucide-react-native";
+import { IdCard, Receipt, Wallet } from "lucide-react-native";
 import { useCallback, useRef } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,7 +33,6 @@ const CONTEXT_INTRO: Record<CarrierRequirementsContext, string> = {
 // Corte fijo: el prototipo parte el título después de "esto" (`text-wrap: pretty`), y sin el
 // salto explícito en un teléfono más ancho entra en una sola línea y deja de verse igual.
 const TITLE = "Te falta completar esto\npara transportar";
-const TOTAL = 2;
 
 const PILL_CLASS: Record<RequirementRowCopy["state"], { bg: string; text: string }> = {
   pending: { bg: "bg-warning-100", text: "text-warning-700" },
@@ -49,6 +48,7 @@ export interface CarrierRequirementsChecklistProps {
   context: CarrierRequirementsContext;
   onPressLicense: () => void;
   onPressMp: () => void;
+  onPressDebt?: () => void;
   /** "Después". Sin handler no se muestra (no hay a dónde volver). */
   onLater?: () => void;
   testID?: string;
@@ -68,7 +68,7 @@ function RequirementRow({
   testID: string;
 }) {
   const colors = useThemeColors();
-  const Icon = requirement === "license" ? IdCard : Wallet;
+  const Icon = requirement === "license" ? IdCard : requirement === "mp_account" ? Wallet : Receipt;
   const pill = PILL_CLASS[copy.state];
   return (
     <View testID={testID} className={`gap-3 p-4 ${isLast ? "" : "border-b border-border"}`}>
@@ -119,12 +119,16 @@ export function CarrierRequirementsChecklist({
   context,
   onPressLicense,
   onPressMp,
+  onPressDebt,
   onLater,
   testID = "carrier-requirements",
 }: CarrierRequirementsChecklistProps) {
   const licenseMissing = missing.includes("license");
   const mpMissing = missing.includes("mp_account");
-  const done = TOTAL - (licenseMissing ? 1 : 0) - (mpMissing ? 1 : 0);
+  const debtMissing = missing.includes("no_overdue_debt");
+  const showDebt = debtMissing;
+  const TOTAL = showDebt ? 3 : 2;
+  const done = TOTAL - (licenseMissing ? 1 : 0) - (mpMissing ? 1 : 0) - (showDebt && debtMissing ? 1 : 0);
 
   // Un requisito que el backend reporta faltante pero cuyo estado local dice "aprobado/vinculado"
   // (estado del cliente viejo) se muestra pendiente: el backend es la autoridad.
@@ -133,9 +137,8 @@ export function CarrierRequirementsChecklist({
     : licenseRowCopy(KycStatus.APPROVED);
   const mp = mpMissing ? mpRowCopy(mpStatus === "linked" ? "unlinked" : mpStatus) : mpRowCopy("linked");
 
-  const intro = `${CONTEXT_INTRO[context]}${
-    done === 0 ? " necesitás completar estos dos pasos." : " te queda un solo paso."
-  }`;
+  const pendingCount = TOTAL - done;
+  const intro = `${CONTEXT_INTRO[context]} ${pendingCount === 1 ? "te queda un solo paso." : `necesitás completar estos ${pendingCount === 2 ? "dos" : "tres"} pasos.`}`;
 
   return (
     <View testID={testID} className="gap-[14px]">
@@ -149,6 +152,7 @@ export function CarrierRequirementsChecklist({
       <View className="h-[6px] flex-row gap-[6px]">
         <View testID={`${testID}-seg-1`} className={`h-full flex-1 rounded-full ${done >= 1 ? "bg-lime-500" : "bg-bg-mute"}`} />
         <View testID={`${testID}-seg-2`} className={`h-full flex-1 rounded-full ${done >= 2 ? "bg-lime-500" : "bg-bg-mute"}`} />
+        {showDebt ? <View testID={`${testID}-seg-3`} className={`h-full flex-1 rounded-full ${done >= 3 ? "bg-lime-500" : "bg-bg-mute"}`} /> : null}
       </View>
 
       <Text className="font-sans text-[13.5px] leading-[19px] text-fg-2">{intro}</Text>
@@ -165,9 +169,16 @@ export function CarrierRequirementsChecklist({
           requirement="mp_account"
           copy={mp}
           onPressCta={onPressMp}
-          isLast
+          isLast={!showDebt}
           testID={`${testID}-mp`}
         />
+        {showDebt ? <RequirementRow
+          requirement="no_overdue_debt"
+          copy={debtMissing ? { title: "Saldo pendiente vencido", state: "pending", pillLabel: "Pendiente", body: "Tenés una deuda vencida con Movo. Pagala para volver a ofertar y declarar viajes.", ctaLabel: "Pagar mi saldo" } : { title: "Saldo pendiente vencido", state: "done", pillLabel: "Listo", body: "No tenés deuda vencida.", ctaLabel: null }}
+          onPressCta={onPressDebt ?? (() => {})}
+          isLast
+          testID={`${testID}-debt`}
+        /> : null}
       </View>
 
       {onLater ? (
@@ -184,6 +195,9 @@ export function CarrierRequirementsChecklist({
   );
 }
 
+/** Espacio bajo la hoja, sin el inset inferior, para la tab bar flotante (pill + margen + aire). */
+const TAB_BAR_CLEARANCE = 80;
+
 export interface CarrierRequirementsScreenProps extends CarrierRequirementsChecklistProps {
   refreshing: boolean;
   onRefresh: () => void;
@@ -194,8 +208,8 @@ export interface CarrierRequirementsScreenProps extends CarrierRequirementsCheck
  * anclada abajo, manija, sobre el contenido oscurecido al 40%), pero fijo en la pantalla
  * en vez de un `Modal` — no se cierra, se resuelve o se sale con "Después". Se monta como
  * hermano absoluto del contenido del tab para que oscurezca también el título. Pull-to-refresh
- * para destrabarse sin salir (AC4 de MOVO-117). La hoja se extiende bajo la tab bar flotante
- * (que se dibuja encima) y deja el pie de la checklist por encima de ella.
+ * para destrabarse sin salir (AC4 de MOVO-117). La hoja es una tarjeta que termina arriba de la
+ * tab bar flotante, así la barra no tapa ni se superpone con la checklist.
  */
 export function CarrierRequirementsScreen({
   refreshing,
@@ -210,13 +224,12 @@ export function CarrierRequirementsScreen({
       <ScrollView
         testID={testID}
         accessibilityViewIsModal
-        contentContainerClassName="grow justify-end"
+        contentContainerClassName="grow justify-end px-3"
+        // La tab bar flotante queda libre debajo: la hoja es una tarjeta que termina arriba de ella.
+        contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FFFFFF" />}
       >
-        <View
-          className="gap-[14px] rounded-t-[24px] bg-bg px-5 pt-5"
-          style={{ paddingBottom: insets.bottom + 84 }}
-        >
+        <View className="gap-[14px] rounded-[24px] bg-bg px-5 pb-4 pt-5">
           <View className="-mt-2 items-center">
             <View className="h-[5px] w-9 rounded-full bg-ink-200" />
           </View>
@@ -243,6 +256,7 @@ export function CarrierRequirementsSheet({
   onClose,
   onPressLicense,
   onPressMp,
+  onPressDebt,
   ...checklist
 }: CarrierRequirementsSheetProps) {
   const pendingAction = useRef<(() => void) | null>(null);
@@ -278,6 +292,7 @@ export function CarrierRequirementsSheet({
         {...checklist}
         onPressLicense={() => runAfterClose(onPressLicense)}
         onPressMp={() => runAfterClose(onPressMp)}
+        onPressDebt={() => onPressDebt && runAfterClose(onPressDebt)}
         onLater={onClose}
         testID="carrier-requirements-sheet-checklist"
       />

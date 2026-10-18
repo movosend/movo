@@ -59,6 +59,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_RECEIVER_TRANSFER_INVALID_TARGET: "Esa persona no puede recibir este envío. Elegí a otra.",
   RECEIVER_TRANSFER_NOT_FOUND: "No encontramos esta solicitud.",
   RECEIVER_TRANSFER_NOT_PENDING: "Esta solicitud ya no está vigente.",
+  // MOVO-308 (ADR-047): el sheet de cancelación re-cotiza solo; este texto es para cualquier
+  // otro lugar que lo reciba.
+  CANCELLATION_PENALTY_MISMATCH: "El monto de la penalidad cambió. Revisalo y confirmá de nuevo.",
   SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",
   SHIPMENT_PICKUP_WINDOW_INVALID: "El horario de fin del retiro tiene que ser posterior al de inicio.",
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",
@@ -129,9 +132,13 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     "Tenés una disputa abierta como transportista. Vas a poder operar cuando se resuelva.",
   // MOVO-313 (ADR-044): tampoco es un paso de la checklist, se resuelve con un pago. Como
   // emisor no se bloquea: su próximo pago ya incluye la deuda (MOVO-311).
-  // Sin "pagá desde...": todavía no hay dónde saldarla en la app (MOVO-311/312).
+  // Se salda desde Perfil > Pagos y cobros > Saldo (MOVO-315).
   USER_DEBT_OVERDUE:
-    "Tenés una deuda vencida con Movo y por ahora no podés operar como transportista. Se levanta apenas se salde.",
+    "Tenés una deuda vencida con Movo y por ahora no podés operar como transportista. Pagá tu saldo desde Pagos y cobros para volver a operar.",
+  // MOVO-315: pago del saldo con tarjeta.
+  BALANCE_PAYMENT_IN_PROGRESS: "Ya hay un pago de tu saldo en curso. Esperá a que se confirme antes de volver a pagar.",
+  BALANCE_AMOUNT_EXCEEDS_DEBT: "El monto supera tu saldo pendiente. Actualizá la pantalla e intentá de nuevo.",
+  BALANCE_COLLECTOR_NOT_CONFIGURED: "Por ahora no podés pagar el saldo con tarjeta. Tu saldo no cambió: probá más tarde.",
   // No son un requisito que el usuario pueda resolver: no se pudo verificar, se reintenta.
   USERS_SERVICE_UNAVAILABLE: "No pudimos verificar tus requisitos. Intentá de nuevo en unos minutos.",
   PAYMENTS_SERVICE_UNAVAILABLE: "No pudimos verificar tu cuenta de Mercado Pago. Intentá de nuevo en unos minutos.",

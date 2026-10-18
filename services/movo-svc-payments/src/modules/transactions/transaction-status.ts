@@ -1,6 +1,8 @@
-import type { HoldStatus, SettlementStatus, TransactionStatus } from "@movo/shared";
+import type { HoldStatus, SettlementStatus, TransactionKind, TransactionStatus } from "@movo/shared";
 
 export interface TransactionStatusInput {
+  /** Por defecto `shipment`. Un pago de saldo solo se lista aprobado: siempre `completed`. */
+  kind?: TransactionKind;
   holdStatus: HoldStatus;
   /** `null` si el hold no tiene liquidación. */
   settlementStatus: SettlementStatus | null;
@@ -23,6 +25,7 @@ export interface TransactionStatusInput {
  * integración verifica que ambos coincidan.
  */
 export function deriveTransactionStatus(input: TransactionStatusInput): TransactionStatus {
+  if (input.kind === "balance_payment") return "completed";
   if (input.hasDispute) return "disputed";
   if (input.hasRefund) return "refunded";
   if (input.settlementStatus === "credited") return "completed";

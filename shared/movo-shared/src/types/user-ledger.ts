@@ -65,6 +65,8 @@ export interface UserLedgerEntry {
   createdAt: string;
   /** Descripción pública del origen; nunca contiene el motivo interno de un ajuste. */
   originLabel?: string | null;
+  /** Destino público del envío, sin el identificador que puede formar parte de `originLabel`. */
+  destination?: string | null;
 }
 
 /** Alta de un movimiento (`POST /internal/payments/users/:userId/ledger-entries`). */
@@ -102,7 +104,7 @@ export interface CreateUserLedgerEntryResponse {
 
 /** `GET /payments/balance`: saldo y movimientos del usuario autenticado, más nuevos primero. */
 export interface UserLedgerPageResponse extends UserLedgerBalanceResponse {
-  items: Array<UserLedgerEntry & { originLabel: string | null }>;
+  items: Array<UserLedgerEntry & { originLabel: string | null; destination: string | null }>;
   nextCursor: string | null;
 }
 

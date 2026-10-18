@@ -50,7 +50,13 @@ const SHIPMENT_DETAIL_TYPES: readonly string[] = [
  * `offer_voided` llegan con el envío ya `assigned`/`cancelled`, y ese detalle le
  * responde 403 a un transportista que no es parte del envío. Sin `offerId` (una push vieja,
  * anterior a que el backend lo mandara) abre "Mis ofertas", que siempre responde. */
-const OFFER_DETAIL_TYPES: readonly string[] = ["offer_superseded", "offer_rejected", "offer_voided"];
+const OFFER_DETAIL_TYPES: readonly string[] = [
+  "offer_superseded",
+  "offer_rejected",
+  "offer_voided",
+  // MOVO-310: la penalidad por bajarse de un envío; ese envío ya no es suyo (403).
+  "carrier_withdrawal_penalty",
+];
 
 /** Abren el feed de Transportar filtrado por el viaje (MOVO-163): `trip_match` y el
  * recordatorio del día anterior (MOVO-240), donde se buscan envíos de paso. */

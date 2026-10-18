@@ -4807,3 +4807,60 @@ el transportista, pendiente, reservado y "Este envío se liberó". AC7: ningún 
   (backend viejo), el mensaje genérico de antes.
 
 Pendiente: no probado en device; copy del AC7 a revisar con el equipo (DoD).
+
+### MOVO-308 — Emisor cancela un envío asignado (penalidad de ADR-047)
+
+Réplica del prototipo "MOVO-308 Emisor cancela" de Claude Design. `canCancelShipment` suma `assigned` y `assigned_unfunded`. El menú nativo de `SenderActionsBar` abre `CancelShipmentSheet`, que reemplaza al modal anterior en todos los estados cancelables. En `assigned` pide `GET /shipments/:id/cancellation-quote` al abrir. Muestra sin cargo, penalidad (con barra y desglose) o franja vencida (motivo fijo, el backend solo manda el enum). Confirma con `expectedPenaltyArs`. Ante 409 `CANCELLATION_PENALTY_MISMATCH` re-cotiza y avisa el cambio, también cuando baja a 0. Un 409 de estado refresca el detalle y explica el bloqueo según si el paquete ya se retiró. Los estados sin reserva no cotizan. El motivo opcional se mantiene. El éxito usa `SuccessBanner`, no el toast del prototipo.
+
+En el detalle cancelado, `SenderCancelledPayment` muestra la card "Tu pago" (reservado, penalidad según `cancellationPenaltyStatus`, tarjeta y liberado) solo si hubo reserva, con `useShipmentHold` sobre el filtro `shipmentId` de `/payments/transactions`. `CarrierCancellationCompensation` muestra al transportista el neto de la penalidad (`settlement.kind = cancellation_penalty`): "Recibís aprox." hasta acreditarse. El "Recibís aprox." del viaje ya no aparece en un envío cancelado. La línea de tiempo dice "Cancelaste el envío" al emisor que canceló. Lógica pura en `src/lib/cancellation-format.ts`.
+
+No se copió el pie "{transportista} retira el paquete el…" del prototipo: en `assigned`, ese lugar lo ocupa la CTA del QR de retiro. Limitación: el sheet calcula lo reservado con `agreedPriceArs`. Si el hold cobraba deuda del emisor (MOVO-311), lo liberado real difiere, y el detalle cancelado sí usa el monto real del hold.
+
+Cambios de UI en la misma rama, a pedido de diseño:
+- **Card de precio del detalle**: el badge de alta demanda dice "Alta demanda". Su ayuda se despliega a todo el ancho debajo de la fila (`HighDemandHelp`) y no dentro de la media card, que la cortaba y estiraba.
+- **Header del detalle**: la pill de estado es compacta (`ShipmentStatusBadge compact`) y en `awaiting_receiver_confirmation` dice "Por confirmar". Para el emisor va en neutro, porque la fila del receptor ya marca "Pendiente".
+- **Resumen del wizard**: mientras cotiza, `PricePreviewCard` muestra un skeleton en lugar de "Precio a estimar" a 38 px.
+- **Card "Tu pago" cancelado**: la pill "Cancelado" se quitó (ya está en el header); solo queda "Procesando" mientras se cobra la penalidad. El aviso de penalidad pendiente va en su propia card de alerta (`AlertCard`).
+
+### MOVO-315 — Cuenta corriente y saldo en mobile
+
+`Pagos y cobros` usa las tabs Saldo y Métodos de pago del prototipo variante 1b. Saldo muestra balance, movimientos con origen y rol, anulaciones y paginación; desde allí permite pagar total o parcialmente con tarjeta guardada y CVV. Las vistas de Transportar y de envío muestran el descuento estimado de deuda: la card lo recibe desde matches por viaje y la fila del feed general muestra el neto solo para el precio sugerido, no para una oferta propia. El pago del emisor suma su saldo y la entrada a Transportar consulta la deuda vencida para ofrecer el camino al pago. Pendiente: prueba de punta a punta en development build contra backend desplegado.
+
+**Fix del sheet "Pagar mi saldo"**: el contenido scrollea con alto máximo calculado (ventana − safe areas − teclado, `useKeyboardHeight`) y el botón de pagar queda fijo abajo, fuera del scroll (antes `max-h-[90%]` sobre un padre sin alto dejaba el botón tapado y se rompía con el teclado). "Otro monto" se expande dentro de su opción, en pesos enteros con punto de miles (`formatBalanceAmountInput`; el `parseAmount` anterior leía "2.500" como inválido). Si `GET /payments/balance/pay-data` falla sin datos, el formulario se reemplaza por el error con "Reintentar" (y `retry: 1`: con los 3 reintentos de default el error aparecía ~7 s después, en medio de la carga del CVV).
+
+**Aviso de deuda en Perfil**: la fila "Pagos y cobros" de Configuración suma la pill "Debés $X" (rojo) cuando el saldo es positivo (`paymentsAttention`, prioridad: Mercado Pago roto → deuda → tarjetas vencidas, un solo aviso). Con un aviso de Mercado Pago o de tarjetas la fila abre la pestaña de medios de pago (`?tab=methods`); sin aviso o con deuda, Saldo.
+
+### MOVO-310 — `OfferStatus.CARRIER_WITHDRAWN` (solo compatibilidad)
+
+Etiqueta, banner y chip de la oferta en "Mis ofertas" (pestaña de cerradas) para el estado nuevo, y la push
+`carrier_withdrawal_penalty` abre el detalle de la oferta (el envío ya no es del transportista). La pantalla para
+bajarse de un envío es MOVO-314.
+
+### MOVO-304 — Historial de pagos y cobros (sub-issue mobile de MOVO-28), integrado con la cuenta corriente
+
+`Pagos y cobros` pasa a tres pestañas, **Saldo · Historial · Medios** (prototipo "Pagos y cobros 2c", que integra la cuenta
+corriente de MOVO-315 con el historial): se abre en Saldo si hay deuda (o mientras carga) y en Historial si no; un `?tab=` explícito
+manda. **Historial** (`components/payments/history-tab.tsx`) lista los holds de `GET /payments/transactions` (MOVO-303): Pagos
+(`role=sender`) y Cobros (`role=carrier`) son chips de filtro, no pestañas, cada rol con sus filtros y su paginación por cursor
+(`useTransactions`, la key lleva rol y filtros). El detalle sigue en `profile/payments/history/[id].tsx` y recibe el rol como param
+porque el backend arma el desglose según quién mira.
+
+- **Cada evento vive en un solo lugar.** Saldo ya no es el libro mayor completo: lista solo lo que forma la deuda abierta ("Qué forma
+  tu saldo": `amountArs > 0` y `pending`/`reserved`, pill "Por pagar"). Los pagos de saldo están en Historial › Pagos ("Pago de tu
+  saldo", `kind: balance_payment`, sin envío); el recargo que el emisor paga por su deuda ("Incluye $X de tu saldo") y lo descontado de
+  un cobro ("Se descontaron $X de tu saldo") salen de `debtAmountArs` en la fila y el detalle. Deudas saldadas o anuladas no se muestran.
+- **Etiquetas en un solo lugar** (`src/lib/transaction-format.ts`): estados ("Completado" es "Cobrado" en Cobros), pills, agrupado por
+  mes y atajos de fecha sobre el día argentino. El neto de un cobro solo se muestra con la liquidación acreditada.
+- **Fila de deuda en Saldo** (entre el prototipo 2c y el de MOVO-315): sin círculo de ícono, en una lista con borde; el origen
+  ("Envío a Rivadavia 387", sin el `#id` interno que el backend pega a la etiqueta) es lo primero que se lee, el tipo es una
+  etiqueta chica arriba y rol y fecha son contexto. No hay pill "Por pagar" por fila (toda la lista lo es); solo "En proceso"
+  si ya se está cobrando. Un ajuste sin envío usa el tipo como título. Montos con centavos siempre a dos dígitos
+  (`formatBalanceArs`: "$1.742,50", no "$1.742,5"), y más aire: tarjeta de saldo `p-5`, filas `py-4`, separación `gap-6`.
+- **Detalle de un pago**: el método de pago es la misma tarjeta que se ve en Medios (nombre de referencia, banco con su logo, marca,
+  crédito/débito; `PaymentMethodCard`). La línea de tiempo (`senderTimeline`) lleva día y hora de cada hito: reserva, cobro al
+  entregar, o la liberación con su motivo ("No se te cobró nada"); mientras no pasó ninguna de las dos se ve el paso que falta, apagado.
+  Los reembolsos y disputas también llevan hora.
+- Con filtros activos las etiquetas solo se quitan: botón "Filtros" aparte (no está en el prototipo) para reabrir la hoja.
+- **Fuera de alcance:** el resumen "Cobrado en octubre / Por acreditar" de Cobros (falta definir bruto/neto y la fecha de acreditación;
+  no hay agregados en el backend) y la penalidad del emisor como fila propia (MOVO-308). Un pago de saldo `pending` aparece en Historial
+  recién cuando MP lo aprueba. Pendiente: probarlo en dispositivo con cuentas con pagos y cobros reales.

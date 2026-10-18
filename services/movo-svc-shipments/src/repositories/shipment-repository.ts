@@ -92,6 +92,8 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     agreedPriceArs: row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null,
     paymentMethod: row.paymentMethod,
     status: parseShipmentStatus(row.status, "status"),
+    carrierWithdrawalPending: row.carrierWithdrawalPending,
+    carrierWithdrawalPenaltyArs: row.carrierWithdrawalPenaltyArs?.toNumber() ?? null,
     lastStatusChangedAt: row.lastStatusChangedAt,
     deliveredAt: row.deliveredAt,
     receiverConfirmationDeadline: row.receiverConfirmationDeadline,
@@ -384,6 +386,31 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
   };
 }
 
+const WITHDRAWAL_PENALTY_SELECT = {
+  id: true,
+  shipmentId: true,
+  carrierId: true,
+  withdrawalPenaltyArs: true,
+  carrierWithdrawnAt: true,
+} as const;
+
+function mapWithdrawalPenalty(row: {
+  id: string;
+  shipmentId: string;
+  carrierId: string;
+  withdrawalPenaltyArs: Prisma.Decimal | null;
+  carrierWithdrawnAt: Date | null;
+}): PendingWithdrawalPenalty {
+  // Solo se llama sobre filas `pending`, que siempre se escriben con monto y fecha.
+  return {
+    offerId: row.id,
+    shipmentId: row.shipmentId,
+    carrierId: row.carrierId,
+    penaltyArs: row.withdrawalPenaltyArs?.toNumber() ?? 0,
+    withdrawnAt: row.carrierWithdrawnAt ?? new Date(0),
+  };
+}
+
 export interface UpdateStatusOptions {
   /** MOVO-253: se persiste junto con el paso a `rejected_by_receiver`. */
   receiverRedesignationDeadline?: Date;
@@ -405,6 +432,28 @@ export interface UpdateStatusOptions {
    * cobrar, aunque el proceso se caiga antes de llamar a payments.
    */
   cancellationPenaltyArs?: number;
+  /**
+   * MOVO-310: la vuelta a `published` es porque el transportista asignado se bajó. Su oferta
+   * `accepted` pasa a `carrier_withdrawn` (en vez de `assignment_lapsed`) y, si hay penalidad
+   * (> 0), queda persistida en la oferta como `pending` en la misma transacción. Es obligatorio
+   * para `assigned -> published`: esa arista solo existe por la baja del transportista.
+   */
+  carrierWithdrawal?: { penaltyArs: number };
+}
+
+/** MOVO-310: penalidad de una baja del transportista todavía sin registrar en su cuenta corriente. */
+export interface PendingWithdrawalPenalty {
+  offerId: string;
+  shipmentId: string;
+  carrierId: string;
+  penaltyArs: number;
+  withdrawnAt: Date;
+}
+
+/** MOVO-310: cursor del barrido de penalidades de baja (orden por baja). */
+export interface WithdrawalPenaltyCursor {
+  withdrawnAt: Date;
+  offerId: string;
 }
 
 /** MOVO-307: cursor del barrido de penalidades pendientes (orden por cancelación). */
@@ -428,6 +477,8 @@ export interface SettlementCursor {
 }
 
 export interface ShipmentRepository {
+  claimCarrierWithdrawal(id: string, carrierId: string, from: ShipmentStatus, penaltyArs: number): Promise<boolean>;
+  listPendingCarrierWithdrawals(limit: number, afterId?: string): Promise<Shipment[]>;
   create(input: CreateShipmentInput): Promise<Shipment>;
   findById(id: string): Promise<Shipment | null>;
   /**
@@ -454,6 +505,19 @@ export interface ShipmentRepository {
    * `false` si otro llamador (la captura en línea o el barrido) ya la cerró.
    */
   resolveCancellationPenalty(id: string, to: "captured" | "debt"): Promise<boolean>;
+  /** MOVO-310: penalidad de baja `pending` de una oferta (`null` si no tiene o ya se registró). */
+  findPendingWithdrawalPenalty(offerId: string): Promise<PendingWithdrawalPenalty | null>;
+  /**
+   * MOVO-310: bajas del transportista con la penalidad todavía `pending`, anteriores a
+   * `withdrawnBefore` (para no pisar el registro en línea). Orden estable por `(withdrawnAt, offerId)`.
+   */
+  listPendingWithdrawalPenalties(
+    withdrawnBefore: Date,
+    limit: number,
+    after?: WithdrawalPenaltyCursor
+  ): Promise<PendingWithdrawalPenalty[]>;
+  /** MOVO-310: `pending -> debt`. Condicional: `false` si otro llamador ya la cerró. */
+  resolveWithdrawalPenalty(offerId: string): Promise<boolean>;
   /**
    * Única vía de escritura de `status` (AC2 de MOVO-104): valida la
    * transición con `shipment-state-machine.ts` (MOVO-105) antes de tocar la
@@ -820,6 +884,23 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
   }
 
   return {
+    async claimCarrierWithdrawal(id, carrierId, from, penaltyArs) {
+      const { count } = await db.shipment.updateMany({
+        where: { id, carrierId, status: from, carrierWithdrawalPending: false },
+        data: { carrierWithdrawalPending: true, carrierWithdrawalPenaltyArs: new Prisma.Decimal(penaltyArs) },
+      });
+      return count === 1;
+    },
+
+    async listPendingCarrierWithdrawals(limit, afterId) {
+      const rows = await db.shipment.findMany({
+        where: { carrierWithdrawalPending: true, ...(afterId && { id: { gt: afterId } }) },
+        orderBy: { id: "asc" },
+        take: limit,
+      });
+      return rows.map(mapShipment);
+    },
+
     async create(input: CreateShipmentInput): Promise<Shipment> {
       const row = await db.$transaction(async (tx) => {
         const created = await tx.shipment.create({
@@ -926,6 +1007,43 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return count === 1;
     },
 
+    async findPendingWithdrawalPenalty(offerId) {
+      const row = await db.offer.findFirst({
+        where: { id: offerId, withdrawalPenaltyStatus: "pending" },
+        select: WITHDRAWAL_PENALTY_SELECT,
+      });
+      return row ? mapWithdrawalPenalty(row) : null;
+    },
+
+    async listPendingWithdrawalPenalties(withdrawnBefore, limit, after) {
+      const rows = await db.offer.findMany({
+        where: {
+          withdrawalPenaltyStatus: "pending",
+          carrierWithdrawnAt: { lt: withdrawnBefore },
+          ...(after
+            ? {
+                OR: [
+                  { carrierWithdrawnAt: { gt: after.withdrawnAt } },
+                  { carrierWithdrawnAt: after.withdrawnAt, id: { gt: after.offerId } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ carrierWithdrawnAt: "asc" }, { id: "asc" }],
+        take: limit,
+        select: WITHDRAWAL_PENALTY_SELECT,
+      });
+      return rows.map(mapWithdrawalPenalty);
+    },
+
+    async resolveWithdrawalPenalty(offerId) {
+      const { count } = await db.offer.updateMany({
+        where: { id: offerId, withdrawalPenaltyStatus: "pending" },
+        data: { withdrawalPenaltyStatus: "debt" },
+      });
+      return count === 1;
+    },
+
     async updateStatus(
       id: string,
       to: ShipmentStatus,
@@ -943,6 +1061,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       }
 
       const from = parseShipmentStatus(current.status, "status");
+      if (current.carrierWithdrawalPending && !(to === ShipmentStatus.PUBLISHED && options.carrierWithdrawal)) {
+        throw new ShipmentConcurrentModificationError(id);
+      }
+      if (options.carrierWithdrawal && !current.carrierWithdrawalPending) {
+        throw new ShipmentConcurrentModificationError(id);
+      }
       // Antes de validar la arista: si el caller decidió sobre otro estado, es una carrera
       // (409 de modificación concurrente), no una transición inválida.
       if (options.expectedFrom !== undefined && options.expectedFrom !== from) {
@@ -951,6 +1075,11 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       // Lanza InvalidShipmentTransitionError si la transición no es válida —
       // ningún UPDATE se ejecuta si esto tira.
       transition(from, to);
+      // MOVO-310: `assigned -> published` es solo la baja del transportista; sin la opción, la
+      // oferta terminaría como `assignment_lapsed` y el hold quedaría sin liberar.
+      if (from === ShipmentStatus.ASSIGNED && to === ShipmentStatus.PUBLISHED && !options.carrierWithdrawal) {
+        throw new Error("assigned -> published requiere UpdateStatusOptions.carrierWithdrawal (MOVO-310)");
+      }
 
       // AC6 de MOVO-81: precondición de negocio sobre una transición que ya es
       // estructuralmente válida — publicar exige evidencia mínima del paquete. Vive acá
@@ -991,9 +1120,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       // y el envío vuelve a la cola: se desasigna al transportista y se cierra la oferta
       // aceptada en la misma transacción. Sin esto el envío quedaba `published` con un
       // `carrierId` y un precio acordado de una asignación que ya no existe.
+      // MOVO-310: lo mismo cuando el transportista se baja, también desde `assigned`.
       const revertsAssignment =
         to === ShipmentStatus.PUBLISHED &&
-        (from === ShipmentStatus.ASSIGNMENT_PENDING || from === ShipmentStatus.ASSIGNED_UNFUNDED);
+        (from === ShipmentStatus.ASSIGNMENT_PENDING ||
+          from === ShipmentStatus.ASSIGNED_UNFUNDED ||
+          from === ShipmentStatus.ASSIGNED);
       const clearedAssignment = revertsAssignment
         ? {
             carrierId: null,
@@ -1025,11 +1157,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           where: {
             id,
             status: from,
+            carrierWithdrawalPending: options.carrierWithdrawal ? true : false,
             ...(options.expectedCarrierId !== undefined && { carrierId: options.expectedCarrierId }),
             ...(options.expectedAgreedPriceArs !== undefined && { agreedPriceArs: options.expectedAgreedPriceArs }),
           },
           data: {
             status: to,
+            carrierWithdrawalPending: false,
+            carrierWithdrawalPenaltyArs: null,
             lastStatusChangedAt: now,
             deliveredAt,
             receiverRedesignationDeadline,
@@ -1058,11 +1193,25 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         // fue aceptada y no llegó a cerrarse: pasa a `assignment_lapsed`. Las demás ofertas NO
         // se tocan acá porque nunca se cerraron (solo se cierran al confirmar el hold, abajo):
         // siguen `pending`, así que el envío vuelve a `published` con sus ofertas vivas.
+        // MOVO-310: si fue el transportista quien se bajó, la oferta pasa a `carrier_withdrawn` con
+        // su penalidad `pending` (si hay): queda registrada antes de llamar a payments, así no se
+        // pierde aunque el proceso se caiga. Desde `assigned` las demás ya estaban `superseded`.
         if (revertsAssignment) {
-          offerTransition(OfferStatus.ACCEPTED, OfferStatus.ASSIGNMENT_LAPSED);
+          const withdrawal = options.carrierWithdrawal;
+          const offerTo = withdrawal ? OfferStatus.CARRIER_WITHDRAWN : OfferStatus.ASSIGNMENT_LAPSED;
+          offerTransition(OfferStatus.ACCEPTED, offerTo);
           await tx.offer.updateMany({
             where: { shipmentId: id, status: OfferStatus.ACCEPTED },
-            data: { status: OfferStatus.ASSIGNMENT_LAPSED },
+            data: {
+              status: offerTo,
+              ...(withdrawal && {
+                carrierWithdrawnAt: now,
+                ...(withdrawal.penaltyArs > 0 && {
+                  withdrawalPenaltyArs: new Prisma.Decimal(withdrawal.penaltyArs),
+                  withdrawalPenaltyStatus: "pending" as const,
+                }),
+              }),
+            },
           });
         }
 
@@ -1112,6 +1261,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         return {
           ...current,
           status: to,
+          carrierWithdrawalPending: false,
+          carrierWithdrawalPenaltyArs: null,
           lastStatusChangedAt: now,
           deliveredAt,
           receiverRedesignationDeadline,

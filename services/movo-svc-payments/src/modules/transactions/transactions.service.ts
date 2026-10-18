@@ -11,6 +11,8 @@ import {
   TransactionRole,
   TransactionStatus,
 } from "@movo/shared";
+import type { ShipmentsClient } from "../../adapters/shipments-client";
+import { resolveShipmentOrigins } from "../../adapters/shipments-client";
 import type { TransactionRepository, TransactionRow } from "../../repositories/transaction-repository";
 import { deriveTransactionStatus } from "./transaction-status";
 
@@ -20,6 +22,7 @@ export interface ListTransactionsInput {
   status?: string[];
   from?: string;
   to?: string;
+  shipmentId?: string;
   cursor?: string;
   limit?: number;
 }
@@ -95,24 +98,55 @@ function visibleAmount(amountArs: number | null, row: TransactionRow, role: Tran
   return role === "carrier" && amountArs !== null ? Math.min(amountArs, row.baseAmountArs) : amountArs;
 }
 
+/**
+ * Qué parte es deuda de la cuenta corriente (MOVO-311), para que el historial cierre con el Saldo:
+ * - emisor: el recargo registrado en la liquidación; no se atribuye deuda a operaciones revertidas;
+ * - transportista: lo descontado de su cobro, solo con la liquidación acreditada (igual que el `breakdown`).
+ * Un pago de saldo es la deuda entera: no lleva un monto aparte.
+ */
+function debtAmount(row: TransactionRow, role: TransactionRole, status: TransactionStatus): number | null {
+  if (row.kind === "balance_payment") return null;
+  const amount =
+    role === "carrier"
+      ? row.settlementStatus === "credited"
+        ? row.debtOffsetArs ?? 0
+        : 0
+      : status === "released" || status === "refunded" || status === "disputed"
+        ? 0
+        : row.debtSurchargeArs ?? 0;
+  return amount > 0 ? amount : null;
+}
+
 function toListItem(row: TransactionRow, role: TransactionRole): TransactionListItem {
+  const status = deriveTransactionStatus({
+    kind: row.kind,
+    holdStatus: row.holdStatus,
+    settlementStatus: row.settlementStatus,
+    hasDispute: row.hasDispute,
+    hasRefund: row.hasRefund,
+  });
   const item: TransactionListItem = {
     id: row.id,
+    kind: row.kind,
     shipmentId: row.shipmentId,
     date: row.createdAt.toISOString(),
     // MOVO-311: el transportista ve el precio acordado, sin el recargo por la deuda del emisor.
     amountArs: role === "carrier" ? row.baseAmountArs : row.amountArs,
-    status: deriveTransactionStatus({
-      holdStatus: row.holdStatus,
-      settlementStatus: row.settlementStatus,
-      hasDispute: row.hasDispute,
-      hasRefund: row.hasRefund,
-    }),
+    status,
     refundedAmountArs: row.hasRefund ? visibleAmount(row.refundedAmountArs, row, role) : null,
+    debtAmountArs: debtAmount(row, role, status),
   };
   // La tarjeta es del emisor: con `role=carrier` la clave ni viaja.
   if (role === "sender") {
-    item.card = row.cardBrand ? { brand: row.cardBrand, last4: row.cardLast4 } : null;
+    item.card = row.cardBrand
+      ? {
+          brand: row.cardBrand,
+          last4: row.cardLast4,
+          alias: row.cardAlias,
+          issuerName: row.cardIssuerName,
+          paymentType: row.cardPaymentType,
+        }
+      : null;
   }
   return item;
 }
@@ -138,8 +172,15 @@ function toBreakdown(row: TransactionRow): TransactionBreakdown | null {
   };
 }
 
-export function createTransactionsService(deps: { transactions: TransactionRepository }): TransactionsService {
-  const { transactions } = deps;
+export function createTransactionsService(deps: {
+  transactions: TransactionRepository;
+  shipmentsClient?: ShipmentsClient;
+}): TransactionsService {
+  const { transactions, shipmentsClient } = deps;
+
+  /** El destino es accesorio: un servicio de envíos lento no debe retener el historial por 3 s. */
+  const destinationsOf = (userId: string, ids: (string | null)[]) =>
+    resolveShipmentOrigins(shipmentsClient, userId, ids, 500);
 
   return {
     async list(userId, input) {
@@ -158,14 +199,19 @@ export function createTransactionsService(deps: { transactions: TransactionRepos
         from: input.from ? argentinaDayStart(input.from) : undefined,
         // `to` es inclusivo: el tope es el comienzo del día siguiente.
         toExclusive: input.to ? argentinaDayStart(nextDay(input.to)) : undefined,
+        shipmentId: input.shipmentId,
         cursor: input.cursor ? decodeCursor(input.cursor) : undefined,
         limit,
       });
 
       const page = rows.slice(0, limit);
+      const destinations = await destinationsOf(userId, page.map((row) => row.shipmentId));
       const last = page[page.length - 1];
       return {
-        items: page.map((row) => toListItem(row, input.role)),
+        items: page.map((row) => ({
+          ...toListItem(row, input.role),
+          destinationLabel: row.shipmentId ? destinations.get(row.shipmentId)?.destination ?? null : null,
+        })),
         nextCursor: rows.length > limit && last ? encodeCursor(last) : null,
       };
     },
@@ -173,10 +219,17 @@ export function createTransactionsService(deps: { transactions: TransactionRepos
     async get(userId, role, id) {
       const row = await transactions.findOne(role, userId, id);
       if (!row) throw notFound();
-      const movements = await transactions.listMovements(row.id, row.mpPaymentId);
+      // Un pago de saldo no tiene reembolsos ni disputas registrados: los eventos de MP son por hold.
+      const movements = row.kind === "shipment" ? await transactions.listMovements(row.id, row.mpPaymentId) : [];
+      const destinations = await destinationsOf(userId, [row.shipmentId]);
+      const item = { ...toListItem(row, role), destinationLabel: row.shipmentId ? destinations.get(row.shipmentId)?.destination ?? null : null };
+      const released = item.status === "released";
       const detail: TransactionDetail = {
-        ...toListItem(row, role),
+        ...item,
         capturedAt: row.capturedAt ? row.capturedAt.toISOString() : null,
+        // La fija un trigger de la base al pasar el hold a `cancelled`; solo se informa con el estado `released`.
+        releasedAt: released && row.releasedAt ? row.releasedAt.toISOString() : null,
+        releaseReason: released && row.holdStatusDetail === "expired" ? "expired" : null,
         movements: movements.map((m) => ({ kind: m.kind, amountArs: visibleAmount(m.amountArs, row, role), date: m.date.toISOString() })),
       };
       // Con `role=sender` el desglose nunca viaja (AC11, mismo criterio que AC10 de MOVO-212).

@@ -113,6 +113,7 @@ export interface OfferCompetitiveRank {
 export interface MyOfferSummary extends OfferSummary {
   shipment: MyOfferShipmentContext;
   competitiveRank: OfferCompetitiveRank | null;
+  debtDiscount?: { amountArs: number; reason: "pending_balance" } | null;
 }
 
 export interface ListMyOffersParams {

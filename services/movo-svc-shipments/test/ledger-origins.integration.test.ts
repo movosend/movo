@@ -46,7 +46,7 @@ describe("POST /internal/ledger-origins", () => {
     const owner = await request(senderId);
     expect(owner.statusCode).toBe(200);
     expect(owner.json()).toEqual([{ id: shipment.id,
-      label: `Envío a San Martín 450 #${shipment.id.slice(0, 8)}` }]);
+      label: `Envío a San Martín 450 #${shipment.id.slice(0, 8)}`, destination: "San Martín 450" }]);
     expect((await request(formerCarrierId)).json()).toEqual(owner.json());
     expect((await request(randomUUID())).json()).toEqual([]);
   });

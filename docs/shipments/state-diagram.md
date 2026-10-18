@@ -54,8 +54,15 @@ de un envío ya `assigned`, el envío NO se libera: vuelve a `assigned_unfunded`
 recibe el aviso "La reserva de tu pago expiró — Confirmá el pago de nuevo para asegurar tu
 envío". Reconfirma con los mismos `GET`/`POST /shipments/:id/funding`; si no paga a T-24h
 (o, con el retiro a menos de 24h, dentro de `FUNDING_PAYMENT_TIMEOUT_MINUTES` desde que
-volvió a ese estado) el barrido lo devuelve a `published`. Es la única salida de
-`assigned` además de `in_transit` y `cancelled`: nunca va directo a `published`.
+volvió a ese estado) el barrido lo devuelve a `published`.
+
+**Baja del transportista (`→ published` desde `assignment_pending`, `assigned_unfunded` o
+`assigned`, MOVO-310)**: `POST /shipments/:id/carrier-withdrawal`. Misma desasignación que la
+saga (ventana original restaurada, las demás ofertas no se tocan), pero la oferta aceptada queda
+`carrier_withdrawn`. El hold se libera entero y el envío vuelve a mostrar el precio base. Con
+menos de 12 h para el retiro, o con la ventana ya cerrada (desde cualquiera de los tres
+estados), la penalidad de ADR-047 va como deuda a la cuenta corriente del transportista (ADR-044). `assigned → published` es solo esta baja: el repositorio la rechaza sin
+`carrierWithdrawal`.
 
 ```mermaid
 stateDiagram-v2
@@ -69,16 +76,17 @@ stateDiagram-v2
     published --> assigned_unfunded: emisor acepta oferta, retiro lejano (MOVO-208/210)
     published --> cancelled: emisor cancela (MOVO-29)
 
-    assignment_pending --> published: sin pago dentro del plazo (ruta cercana)\no hold perdido (MOVO-210)
+    assignment_pending --> published: sin pago dentro del plazo (ruta cercana)\no hold perdido (MOVO-210)\no el transportista se baja (MOVO-310)
     assignment_pending --> assigned: fondos reservados\n(el emisor paga al aceptar, MOVO-210)
     assignment_pending --> cancelled: emisor cancela (MOVO-29)
 
     assigned_unfunded --> assigned: emisor confirma el pago\ndentro de la ventana de confirmación (MOVO-210)
-    assigned_unfunded --> published: sin pago a T-24h del retiro\n(ventana de confirmación vencida, MOVO-210)
+    assigned_unfunded --> published: sin pago a T-24h del retiro\n(ventana de confirmación vencida, MOVO-210)\no el transportista se baja (MOVO-310)
     assigned_unfunded --> cancelled: emisor cancela\n(sin hold que liberar)
 
     assigned --> assigned_unfunded: MP perdió el hold\n(el emisor reconfirma el pago, MOVO-210)
     assigned --> in_transit: retiro confirmado\n(handshake, MOVO-6)
+    assigned --> published: el transportista se baja\n(hold liberado, deuda si < 12 h, MOVO-310)
     assigned --> cancelled: emisor cancela\n(con penalización)
 
     in_transit --> delivered: entrega confirmada\n(handshake)

@@ -6,7 +6,8 @@ export interface HoldEventResult {
   outcome: string;
 }
 
-export interface LedgerOrigin { id: string; label: string }
+/** `destination`: primer componente de la dirección de entrega; vacío si el envío no la tiene. */
+export interface LedgerOrigin { id: string; label: string; destination?: string }
 
 /** svc-shipments no respondió o devolvió un error que puede resolverse reintentando. */
 export class ShipmentsUnavailableError extends Error {
@@ -31,21 +32,34 @@ export class ShipmentNotFoundError extends Error {
 export interface ShipmentsClient {
   /** Avisa que MP canceló, venció o rechazó un hold del envío. */
   notifyHoldEvent(shipmentId: string, event: HoldProviderEventRequest): Promise<HoldEventResult>;
-  resolveLedgerOrigins(userId: string, shipmentIds: string[]): Promise<LedgerOrigin[]>;
+  resolveLedgerOrigins(userId: string, shipmentIds: string[], timeoutMs?: number): Promise<LedgerOrigin[]>;
+}
+
+/** Resuelve los mismos orígenes para Saldo e Historial y degrada ambos a sus etiquetas locales. */
+export async function resolveShipmentOrigins(
+  client: ShipmentsClient | undefined, userId: string, shipmentIds: (string | null)[], timeoutMs?: number,
+): Promise<Map<string, LedgerOrigin>> {
+  const ids = [...new Set(shipmentIds.filter((id): id is string => !!id))];
+  if (!client || ids.length === 0) return new Map();
+  try {
+    return new Map((await client.resolveLedgerOrigins(userId, ids, timeoutMs)).map((origin) => [origin.id, origin]));
+  } catch {
+    return new Map();
+  }
 }
 
 const TIMEOUT_MS = 10_000;
 
 export function createShipmentsClient(baseUrl: string): ShipmentsClient {
   return {
-    async resolveLedgerOrigins(userId, shipmentIds) {
+    async resolveLedgerOrigins(userId, shipmentIds, timeoutMs = 3_000) {
       let response: Response;
       try {
         response = await fetch(`${baseUrl}/internal/ledger-origins`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ userId, shipmentIds }),
-          signal: AbortSignal.timeout(3_000),
+          signal: AbortSignal.timeout(timeoutMs),
         });
       } catch (error) {
         throw new ShipmentsUnavailableError(`no se pudo resolver el origen: ${String(error)}`);

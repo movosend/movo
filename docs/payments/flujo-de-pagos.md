@@ -356,10 +356,9 @@ Movo. MOVO-311 (§6.1) y MOVO-312 (5.7) ya la cobran; la captura parcial de MOVO
 
 El usuario con deuda la paga él, presente y **sin salir de la app**, con el mismo flujo que un envío (Checkout API, ADR-039):
 tarjeta guardada + CVV, token hecho en el dispositivo. El pago va **directo a la cuenta cobradora de Movo**, sin hold, sin
-`application_fee` (la plata ya es de Movo) y con captura inmediata. La cuenta cobradora es la de un usuario interno
-(`MOVO_COLLECTOR_USER_ID`) vinculada por el mismo OAuth que un transportista: así hay un `access_token` y una `public_key` de
-Movo que se renuevan con el barrido de MOVO-243. (Con el token de la app, `client_credentials`, MP responde `403 UNAUTHORIZED`
-al crear un pago, y con el `APP_USR-` `401 live credentials`: verificado en el sandbox el 16/10/2026.)
+`application_fee` (la plata ya es de Movo) y con captura inmediata. La cuenta cobradora es la propia cuenta de MP de Movo
+S.A., configurada con sus credenciales (`MP_COLLECTOR_*`, ADR-048): en producción las productivas del panel; en el sandbox el
+token `TEST-` del OAuth de la cuenta de prueba, porque un token de la app sin login no puede crear pagos.
 
 ```mermaid
 sequenceDiagram

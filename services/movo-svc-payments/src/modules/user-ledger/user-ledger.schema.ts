@@ -51,6 +51,7 @@ const entry = {
     reason: { type: ["string", "null"] },
     createdAt: { type: "string", format: "date-time" },
     originLabel: { type: ["string", "null"] },
+    destination: { type: ["string", "null"] },
   },
 } as const;
 
@@ -164,7 +165,7 @@ export const getBalanceSchema = {
       required: ["balanceArs", "oldestUnpaidAt", "items", "nextCursor"],
       properties: {
         ...balanceProperties,
-        items: { type: "array", items: { ...entry, required: [...entry.required, "originLabel"] } },
+        items: { type: "array", items: { ...entry, required: [...entry.required, "originLabel", "destination"] } },
         nextCursor: { type: ["string", "null"] },
       },
     },

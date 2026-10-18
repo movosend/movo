@@ -89,6 +89,7 @@ enum OfferStatus {
   superseded
   shipment_cancelled
   assignment_lapsed
+  carrier_withdrawn
 
   @@map("offer_status_enum")
   @@schema("shipments")
@@ -193,6 +194,9 @@ model Shipment {
   estimatedDeliveryTimeWindowEnd   String?   @map("estimated_delivery_time_window_end") @db.VarChar(8)
 
   status                       ShipmentStatus @default(awaiting_receiver_confirmation)
+  // Bloquea las transiciones mientras se libera el hold de la asignación que se retira.
+  carrierWithdrawalPending     Boolean        @default(false) @map("carrier_withdrawal_pending")
+  carrierWithdrawalPenaltyArs  Decimal?       @map("carrier_withdrawal_penalty_ars") @db.Decimal(12, 2)
   lastStatusChangedAt          DateTime?      @map("last_status_changed_at") @db.Timestamptz
   deliveredAt                  DateTime?      @map("delivered_at") @db.Timestamptz
   // MOVO-130 AC1: deadline de confirmación del receptor (createdAt + RECEIVER_CONFIRMATION_TIMEOUT_HOURS).
@@ -367,6 +371,14 @@ model Offer {
   // best-effort al listar (shipments.service.ts#listShipmentOffers), nunca se pisa una
   // vez seteado ni sigue actualizándose tras resolverse la oferta (AC4).
   viewedAtBySender DateTime? @map("viewed_at_by_sender") @db.Timestamptz
+
+  // MOVO-310: el transportista se bajó del envío ya asignado (`carrier_withdrawn`). La penalidad
+  // (< 12 h, ADR-047) es deuda en su cuenta corriente: `pending` hasta registrarla en payments,
+  // `debt` después. NULL en una baja sin cargo. Vive en la oferta y no en el envío porque el envío
+  // vuelve a `published` y puede tener otra asignación (y otra baja) después.
+  carrierWithdrawnAt      DateTime?                  @map("carrier_withdrawn_at") @db.Timestamptz
+  withdrawalPenaltyArs    Decimal?                   @map("withdrawal_penalty_ars") @db.Decimal(12, 2)
+  withdrawalPenaltyStatus CancellationPenaltyStatus? @map("withdrawal_penalty_status")
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   trip     Trip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)

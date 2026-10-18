@@ -20,3 +20,9 @@ describe("MOVO-117: errores de requisitos del transportista", () => {
     expect(messageForCode(code, "fallback")).toMatch(pattern);
   });
 });
+
+describe("MOVO-308: cancelación con penalidad", () => {
+  it("CANCELLATION_PENALTY_MISMATCH tiene mensaje propio", () => {
+    expect(messageForCode("CANCELLATION_PENALTY_MISMATCH", "fallback")).toMatch(/penalidad cambió/);
+  });
+});

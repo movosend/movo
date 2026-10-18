@@ -36,6 +36,11 @@ Una tabla `payments.user_ledger_entries` por **usuario**, con **saldo con signo*
 
 ## Consumidores
 
+- **Penalidades de cancelación (ADR-047)**: la del emisor (`penalty:<shipmentId>`, cobrada del hold si alcanza) y,
+  desde MOVO-310, la del transportista que se baja de un envío asignado con menos de 12 h
+  (`withdrawal_penalty:<offerId>`, `roleAtOrigin: carrier`): no hay hold suyo, así que siempre queda como deuda y se
+  descuenta de su próximo cobro (MOVO-311).
+
 ### Bloqueo por deuda vencida (MOVO-313, 15/10/2026)
 
 `svc-shipments` consulta `GET /internal/payments/users/:userId/balance` dentro de

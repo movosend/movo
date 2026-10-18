@@ -728,9 +728,13 @@ export function createHoldService(deps: HoldServiceDeps) {
      * deja cancelar al cobrador). Si desvinculó (se borran los tokens) o MP los revocó, el
      * hold no se puede liberar desde acá y vence solo (~5-7 días); ver CLAUDE.md.
      */
-    async release(shipmentId: string): Promise<HoldResponse> {
+    async release(shipmentId: string, expectedCarrierId?: string, expectedHoldId?: string): Promise<HoldResponse> {
       let hold = await holds.findLatestByShipment(shipmentId);
       if (!hold) throw new ApiError(404, "HOLD_NOT_FOUND", "El envío no tiene ningún hold");
+      if ((expectedCarrierId && hold.carrierId !== expectedCarrierId) ||
+          (expectedHoldId && hold.id !== expectedHoldId)) {
+        throw new ApiError(409, "HOLD_CONFLICT", "El hold pertenece a otra asignación");
+      }
 
       if (hold.status === "creating") hold = await reconcileCreating(hold);
       if (hold.status === "cancelled" || hold.status === "rejected") return toHoldResponse(hold);

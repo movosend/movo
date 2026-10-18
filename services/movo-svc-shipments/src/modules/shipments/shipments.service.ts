@@ -46,7 +46,7 @@ import { haversineKm } from "../../domain/geo";
 import { DEFAULT_PACKAGE_LIMITS, PackageLimits, packageLimitViolations } from "../../domain/package-limits";
 import { isPickupMissed, isTransitAnomalous, isTransitAnomalyDeadlinePassed } from "../../domain/expiration";
 import { quoteShipment } from "./shipment-quote";
-import { quoteShipmentCancellation } from "../../domain/cancellation-penalty";
+import { quoteCarrierWithdrawal, quoteShipmentCancellation } from "../../domain/cancellation-penalty";
 import { canTransition } from "../../domain/shipment-state-machine";
 import { QuoteStore, quoteFingerprint } from "./quote-store";
 import {
@@ -79,6 +79,7 @@ import {
 } from "./assert-shipment-access";
 import { assertTripAccess } from "../trips/trip-access";
 import { assertNotBlocked, safeBlockRelatedUserIds } from "../../utils/block-relations";
+import { sendCustodyPush } from "../../utils/dispatch-push";
 import { assertCarrierCanOperate, assertVerifiedCarrier } from "../../utils/carrier-gate";
 import { shortAddress } from "../../utils/short-address";
 
@@ -959,6 +960,9 @@ const AWAITING_FUNDING_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.ASSIGNED_UNFUNDED,
 ];
 
+/** MOVO-310: estados desde los que el transportista asignado se puede bajar del envío. */
+const CARRIER_WITHDRAWABLE_STATUSES: readonly ShipmentStatus[] = [...AWAITING_FUNDING_STATUSES, ShipmentStatus.ASSIGNED];
+
 /** MOVO-258 (D6): día de retiro sin oferta aceptada pero con ofertas vigentes -- avisa al
  * emisor UNA vez por envío (la clave de dedupe vive más que cualquier ventana de retiro). Si la
  * push falla se libera la clave: sin eso, un `notifications` caído dejaba al emisor sin aviso
@@ -1179,6 +1183,12 @@ export interface ShipmentsServiceOptions {
    * cancelado).
    */
   settleCancellationPenalty?: (shipmentId: string) => Promise<unknown>;
+  /**
+   * MOVO-310: registra en línea la penalidad de una baja del transportista como deuda en su
+   * cuenta corriente (`app.settlements`, mismo criterio que `settleCancellationPenalty`). Sin él
+   * queda `pending` hasta el barrido.
+   */
+  registerWithdrawalPenalty?: (offerId: string) => Promise<unknown>;
 }
 
 export type ShipmentsService = ReturnType<typeof createShipmentsService>;
@@ -1212,6 +1222,21 @@ export function createShipmentsService(
    * MOVO-210 (AC12): libera el hold de un envío que YA se canceló. Nunca lanza: el envío no se
    * puede "descancelar", así que una liberación fallida queda logueada y el hold vence solo en MP.
    */
+  /** MOVO-310: el envío existe, el caller es su transportista asignado y todavía se puede bajar. */
+  async function findWithdrawableShipment(shipmentId: string, callerId: string): Promise<Shipment> {
+    const shipment = await repository.findById(shipmentId);
+    if (!shipment) {
+      throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+    }
+    if (shipment.carrierId !== callerId) {
+      throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el transportista asignado puede bajarse de este envío.");
+    }
+    if (!CARRIER_WITHDRAWABLE_STATUSES.includes(shipment.status)) {
+      throw new ApiError(409, "SHIPMENT_INVALID_TRANSITION", "Ya no te podés bajar de este envío.");
+    }
+    return shipment;
+  }
+
   async function releaseHoldAfterCancel(client: PaymentsClient, shipmentId: string): Promise<void> {
     try {
       await releaseHoldBeforeCancel(client, shipmentId, logger);
@@ -2227,6 +2252,143 @@ export function createShipmentsService(
       }
 
       return cancelled;
+    },
+
+    /**
+     * MOVO-310: lo que el transportista asignado debería si se baja ahora. Mismos tramos que el
+     * emisor (ADR-047): menos de 12 h y la ventana abierta, en cualquier estado con transportista.
+     */
+    async getCarrierWithdrawalQuote(shipmentId: string, callerId: string): Promise<CancellationQuoteResponse> {
+      const shipment = await findWithdrawableShipment(shipmentId, callerId);
+      const quote = quoteCarrierWithdrawal(shipment);
+      return {
+        penaltyArs: shipment.carrierWithdrawalPending ? (shipment.carrierWithdrawalPenaltyArs ?? 0) : quote.penaltyArs,
+        reason: shipment.carrierWithdrawalPending
+          ? ((shipment.carrierWithdrawalPenaltyArs ?? 0) > 0 ? "late_cancellation" : "before_free_deadline")
+          : quote.reason,
+        freeUntil: quote.freeUntil?.toISOString() ?? null,
+      };
+    },
+
+    /**
+     * MOVO-310: el transportista asignado se baja del envío desde `assignment_pending`,
+     * `assigned_unfunded` o `assigned`. El envío vuelve SIEMPRE a `published` (AC5) con la misma
+     * desasignación que la saga de MOVO-210, su oferta queda `carrier_withdrawn` y las demás no se
+     * tocan. El emisor no paga nada: el hold se libera entero. Con menos de 12 h para el retiro
+     * (desde cualquiera de los tres estados) la penalidad va a la cuenta corriente del
+     * transportista como deuda. Confirma el monto que vio (`expectedPenaltyArs`, ausente = 0),
+     * igual que la cancelación del emisor.
+     */
+    async withdrawCarrierFromShipment(
+      shipmentId: string,
+      callerId: string,
+      reason?: string,
+      expectedPenaltyArs?: number
+    ): Promise<Shipment> {
+      if (!offerRepository) {
+        throw new Error("withdrawCarrierFromShipment requiere offerRepository (ShipmentsServiceOptions).");
+      }
+      if (!opts.paymentsClient) {
+        throw new Error("withdrawCarrierFromShipment requiere paymentsClient (ShipmentsServiceOptions).");
+      }
+      const shipment = await findWithdrawableShipment(shipmentId, callerId);
+
+      const penaltyArs = shipment.carrierWithdrawalPending
+        ? (shipment.carrierWithdrawalPenaltyArs ?? 0)
+        : quoteCarrierWithdrawal(shipment).penaltyArs;
+      if (!shipment.carrierWithdrawalPending && Math.round((expectedPenaltyArs ?? 0) * 100) !== Math.round(penaltyArs * 100)) {
+        throw new ApiError(
+          409,
+          "CANCELLATION_PENALTY_MISMATCH",
+          penaltyArs > 0
+            ? "La penalidad por bajarte del envío cambió: revisá el monto y confirmá de nuevo."
+            : "Ya no corresponde una penalidad por bajarte del envío: confirmá de nuevo.",
+          { penaltyArs }
+        );
+      }
+
+      const previousStatus = shipment.status;
+      const acceptedOffer = (await offerRepository.listByShipment(shipmentId)).find(
+        (offer) => offer.status === OfferStatus.ACCEPTED && offer.carrierId === callerId
+      );
+
+      // El claim se persiste antes de llamar a Payments. Mientras está pendiente ninguna
+      // transición (incluidos pickup y funding) puede ganar la carrera ni se puede volver
+      // a aceptar una oferta. Si Payments falla, el barrido reintenta la liberación.
+      if (!shipment.carrierWithdrawalPending) {
+        const claimed = await repository.claimCarrierWithdrawal(shipmentId, callerId, previousStatus, penaltyArs);
+        if (!claimed) throw new ShipmentConcurrentModificationError(shipmentId);
+      }
+
+      // Payments verifica el transportista del hold antes de liberarlo. Esto protege a
+      // una asignación posterior incluso si llega una petición retrasada.
+      const hold = await opts.paymentsClient.findHoldByShipment(shipmentId, { sync: true });
+      if (hold) {
+        await opts.paymentsClient.releaseHold(shipmentId, callerId, hold.id);
+      }
+
+      const republished = await repository.updateStatus(
+        shipmentId,
+        ShipmentStatus.PUBLISHED,
+        callerId,
+        reason ?? "El transportista se bajó del envío",
+        { expectedFrom: previousStatus, expectedCarrierId: callerId, carrierWithdrawal: { penaltyArs } }
+      );
+
+      // AC4: la deuda ya quedó `pending` en la oferta junto con la transición; acá se registra en
+      // línea (best-effort). Si falla, la retoma el barrido de liquidaciones.
+      if (penaltyArs > 0 && acceptedOffer && opts.registerWithdrawalPenalty) {
+        try {
+          await opts.registerWithdrawalPenalty(acceptedOffer.id);
+        } catch (err) {
+          logger?.warn(
+            { err, event: "carrier_withdrawal_penalty_inline_failed", shipmentId, offerId: acceptedOffer.id },
+            "No se pudo registrar la penalidad al bajarse del envío: la retoma el barrido de liquidaciones"
+          );
+        }
+      }
+
+      // AC6: aviso al emisor. El de la deuda al transportista lo manda quien la registra.
+      if (notificationsClient) {
+        await sendCustodyPush({
+          notificationsClient,
+          userId: shipment.senderId,
+          triggerKey: "carrierWithdrewSender",
+          params: { carrierName: acceptedOffer?.carrierNameAtOffer ?? null },
+          data: { type: "shipment", shipmentId },
+          logger,
+          onErrorContext: {
+            event: "notification_dispatch_failed",
+            message: "No se pudo avisar al emisor que el transportista se bajó del envío",
+            extra: { shipmentId },
+          },
+        });
+      }
+
+      return republished;
+    },
+
+    async retryPendingCarrierWithdrawals(batchSize = 100): Promise<void> {
+      let afterId: string | undefined;
+      for (let page = 0; page < 20; page++) {
+        const batch = await repository.listPendingCarrierWithdrawals(batchSize, afterId);
+        for (const shipment of batch) {
+          if (!shipment.carrierId) continue;
+          try {
+            await this.withdrawCarrierFromShipment(
+              shipment.id,
+              shipment.carrierId,
+              undefined,
+              shipment.carrierWithdrawalPenaltyArs ?? 0
+            );
+          } catch (err) {
+            logger?.warn({ err, event: "carrier_withdrawal_retry_failed", shipmentId: shipment.id },
+              "No se pudo completar la baja pendiente del transportista");
+          }
+        }
+        if (batch.length < batchSize) return;
+        afterId = batch.at(-1)?.id;
+      }
     },
 
     /**

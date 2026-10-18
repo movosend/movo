@@ -5,7 +5,13 @@ import { createTransactionsService, TransactionsService } from "../modules/trans
 
 /** MOVO-303: arma el service del historial de transacciones. Va después de env y DB. */
 export default fp(async (app: FastifyInstance) => {
-  app.decorate("transactions", createTransactionsService({ transactions: createTransactionRepository(app.db) }));
+  app.decorate(
+    "transactions",
+    createTransactionsService({
+      transactions: createTransactionRepository(app.db),
+      shipmentsClient: app.shipmentsClient,
+    }),
+  );
 });
 
 declare module "fastify" {

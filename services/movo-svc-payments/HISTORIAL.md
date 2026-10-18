@@ -104,6 +104,8 @@ Endpoints **internos** que consume `svc-shipments` (dueño de la saga, MOVO-210)
 `/internal/payments/holds/*`: sin ruta en el gateway y sin el hook de `x-user-id` (el
 caller es un servicio, ADR-010). `POST /checkout-data` (AC1), `POST /` (crear),
 `GET /by-shipment/:shipmentId[?sync=true]` y `POST /by-shipment/:shipmentId/release`.
+La liberación admite `expectedCarrierId` y `expectedHoldId` como query opcional: si el último hold no coincide,
+responde 409 sin cancelar el intento de una asignación posterior.
 Contrato en `@movo/shared` (`types/hold.ts`). Código en `src/modules/holds/`,
 `src/repositories/hold-repository.ts` y `src/plugins/holds.ts`. Arquitectura de cobro:
 ADR-035.
@@ -582,6 +584,7 @@ ya proxeaba `/payments`). El usuario no sale de la app: mismo flujo que pagar un
 `src/repositories/balance-payment-attempt-repository.ts` y `src/plugins/balance-payment.ts`; tabla `payments.balance_payment_attempts`
 (migración `20261016130000`); contrato en `@movo/shared` (`types/user-ledger.ts`). Diagrama: `flujo-de-pagos.md` 5.7.
 
+**Cuenta cobradora: la reemplazó ADR-048 (ver la entrada de MOVO-315 abajo).** Lo que sigue es el diseño original de MOVO-312.
 **Cuenta cobradora vinculada por OAuth, no la app de Movo S.A.** Verificado en el sandbox (16/10/2026): con el token `client_credentials`
 de la app, `POST /v1/payments` responde `403 At least one policy returned UNAUTHORIZED` (aun con `card_token` inválido, o sea que ni llega a
 validarlo), con el token `APP_USR-` de la app `401 Unauthorized use of live credentials`, y `card_tokens` con la `public_key` `APP_USR-` da 201 pero
@@ -731,6 +734,13 @@ Pendiente: correr `test/debt-collection.sandbox.test.ts` (escrito, sin correr po
 
 ### MOVO-315 — Datos para la cuenta corriente mobile
 
+**Cuenta cobradora por credenciales (ADR-048)**: `balance-payment.service.ts` deja de leer la cobradora de
+`carrier_mp_accounts` (usuario interno + `MOVO_COLLECTOR_USER_ID`) y la toma de `MP_COLLECTOR_ACCESS_TOKEN`/`_PUBLIC_KEY`/
+`_MP_USER_ID` (`plugins/balance-payment.ts#collectorFromConfig`, las tres o ninguna). Verificado contra el sandbox el 17/10:
+los tokens de la app sin login no pueden crear pagos (403/401), el `TEST-` del OAuth de la cuenta de prueba Movo S.A. sobre su
+propia app sí, con tarjeta completa y con tarjeta guardada + CVV; `test/balance-payment.sandbox.test.ts` pasa con esas
+credenciales. El token de dev se obtiene y renueva con `scripts/collector-oauth.mjs`.
+
 `GET /payments/balance` agrega `originLabel` a los movimientos: resuelve el destino del envío en lote por la ruta interna de shipments y la tarjeta usada en pagos voluntarios. Si shipments no responde, el saldo sigue disponible sin esa etiqueta. `POST /payments/balance/debt-preview` expone al usuario autenticado la misma estimación de descuento que ya usaba el backend. La presentación y el pago desde la app están en la rama mobile de MOVO-315.
 
 ### MOVO-211 — Marca y últimos 4 de la tarjeta en `HoldDetailResponse`
@@ -739,3 +749,31 @@ Las columnas (`card_brand`/`card_last4`) y su lectura de la respuesta de MP las 
 MOVO-211 expone `cardBrand`/`cardLast4` en `HoldDetailResponse`/`toHoldDetailResponse`, solo para
 `GET /by-shipment`. Crear y liberar siguen devolviendo `HoldResponse` sin datos de tarjeta. `svc-shipments`
 le muestra al emisor la tarjeta del intento; nunca el BIN ni el token.
+
+### MOVO-303 (ampliación) — Pagos de saldo y deuda en el historial de transacciones
+
+`GET /payments/transactions[/:id]` con `role=sender` suma, además de los holds, los **pagos de saldo aprobados**
+(`balance_payment_attempts`, MOVO-312) con `UNION ALL` en `transaction-repository.ts` (`approvedBalancePayments`), de modo que
+paginación por cursor, filtros de fecha y de estado siguen siendo una sola consulta. Contrato en `@movo/shared` (`TransactionKind`):
+`kind` (`shipment` | `balance_payment`), `shipmentId` nullable y `debtAmountArs` (recargo por la deuda del emisor dentro de lo que pagó,
+salvo hold liberado; descuento al transportista, solo con la liquidación acreditada, igual que el `breakdown`).
+
+- Un pago de saldo solo aparece **aprobado** y siempre es `completed`: `creating`/`pending`/`rejected`/`failed` no movieron plata, y no
+  se agregó un estado nuevo al contrato. Sin reembolsos ni disputas (los eventos de MP se registran por hold). El transportista no los ve.
+- Índice nuevo `(user_id, created_at DESC, id DESC)` en `balance_payment_attempts`. `deriveTransactionStatus` y `STATUS_CASE` (espejo SQL)
+  reciben `kind`; la integración verifica que coincidan.
+- Fuera de alcance: el resumen "Cobrado en el mes / Por acreditar" y la penalidad del emisor como fila propia (MOVO-308).
+
+### MOVO-303 (ampliación) — Tarjeta guardada y liberación en el detalle
+
+`TransactionCard` suma `alias`, `issuerName` y `paymentType`, que salen de la tarjeta guardada del hold (`LEFT JOIN saved_cards` por
+`holds.saved_card_id`; marca y últimos 4 también caen a los de la tarjeta si MP todavía no los informó). `TransactionDetail` suma
+`releasedAt` y `releaseReason` (`expired` cuando MP lo confirma, `null` si no se conoce el motivo), solo con el estado `released`.
+
+- **`holds.released_at` la fija un trigger** (`holds_set_released_at`) al insertar un hold ya cancelado o la primera vez que `status` pasa a `cancelled`, y no el código:
+  un hold se cierra desde varios lugares (liberación explícita, webhook de MP, vencimiento) y `updated_at` no sirve porque cambia
+  con cualquier update posterior. Los ya cancelados se rellenaron con su `updated_at`, que es aproximado.
+
+### MOVO-308 — Filtro por envío en el historial de transacciones
+
+`GET /payments/transactions` acepta `shipmentId` (uuid, opcional): las reservas de un envío, más de una si hubo reintentos del hold, con la misma visibilidad por rol que el listado. Lo usa la card "Tu pago" de un envío cancelado en el mobile para mostrar cuánto se reservó y con qué tarjeta (la tarjeta solo viaja con `role=sender`). Archivos: `transactions.schema.ts`/`.routes.ts`/`.service.ts` y `transaction-repository.ts`.

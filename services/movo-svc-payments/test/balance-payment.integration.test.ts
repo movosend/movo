@@ -4,15 +4,12 @@ import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
 import type { MercadoPagoClient } from "../src/adapters/mercadopago-client";
 import type { AlertNotifier } from "../src/adapters/alert-notifier";
-import { createCarrierMpAccountRepository } from "../src/repositories/carrier-mp-account-repository";
-import { createTokenCipher } from "../src/utils/token-cipher";
 
 // MOVO-312: integración contra Postgres/Redis reales (convención del repo). Se reemplazan solo los bordes externos:
 // MP y el canal de alertas. El pago real contra el sandbox es la DoD manual.
 
 const USER = "11111111-1111-4111-8111-111111111111";
 const OTHER_USER = "22222222-2222-4222-8222-222222222222";
-const COLLECTOR = "99999999-9999-4999-8999-999999999999";
 const COLLECTOR_MP_USER = "3609549431";
 const SECRET = "test-webhook-secret";
 const ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64");
@@ -42,7 +39,9 @@ describe("Pagar mi saldo con Checkout API (MOVO-312)", () => {
     process.env.REDIS_URL ??= "redis://localhost:6379";
     process.env.MP_WEBHOOK_SECRET = SECRET;
     process.env.MP_TOKEN_ENCRYPTION_KEY = ENCRYPTION_KEY;
-    process.env.MOVO_COLLECTOR_USER_ID = COLLECTOR;
+    process.env.MP_COLLECTOR_ACCESS_TOKEN = "TEST-collector-access";
+    process.env.MP_COLLECTOR_PUBLIC_KEY = "TEST-collector-public-key";
+    process.env.MP_COLLECTOR_MP_USER_ID = COLLECTOR_MP_USER;
     process.env.MP_WEBHOOK_SWEEP_ENABLED = "false";
     app = buildApp({
       mercadoPagoClient: mp as unknown as MercadoPagoClient,
@@ -53,28 +52,10 @@ describe("Pagar mi saldo con Checkout API (MOVO-312)", () => {
 
   afterAll(async () => {
     await app.close();
-    for (const name of ["MP_WEBHOOK_SECRET", "MP_TOKEN_ENCRYPTION_KEY", "MOVO_COLLECTOR_USER_ID", "MP_WEBHOOK_SWEEP_ENABLED"]) {
+    for (const name of ["MP_WEBHOOK_SECRET", "MP_TOKEN_ENCRYPTION_KEY", "MP_COLLECTOR_ACCESS_TOKEN", "MP_COLLECTOR_PUBLIC_KEY", "MP_COLLECTOR_MP_USER_ID", "MP_WEBHOOK_SWEEP_ENABLED"]) {
       delete process.env[name];
     }
   });
-
-  /** Vincula (o re-vincula) la cuenta cobradora de Movo con el vencimiento pedido. */
-  async function linkCollector(tokenExpiresAt = new Date(Date.now() + 86_400_000)) {
-    await createCarrierMpAccountRepository(app.db, createTokenCipher(ENCRYPTION_KEY)).upsertLinked(
-      COLLECTOR,
-      {
-        mpUserId: COLLECTOR_MP_USER,
-        email: "movo@example.com",
-        nickname: "MOVO",
-        accessToken: "TEST-collector-access",
-        refreshToken: "TG-collector-refresh",
-        publicKey: "TEST-collector-public-key",
-        scope: "offline_access",
-        tokenExpiresAt,
-      },
-      new Date()
-    );
-  }
 
   /** Una tarjeta viva del usuario en su customer de la cuenta de Movo S.A. */
   async function seedCard(userId = USER, overrides: { deletedAt?: Date } = {}) {
@@ -91,7 +72,7 @@ describe("Pagar mi saldo con Checkout API (MOVO-312)", () => {
 
   beforeEach(async () => {
     await app.db.$executeRawUnsafe(
-      "TRUNCATE TABLE payments.balance_payment_attempts, payments.user_ledger_entries, payments.mp_webhook_notifications, payments.holds, payments.carrier_mp_accounts, payments.saved_cards, payments.payer_customers CASCADE"
+      "TRUNCATE TABLE payments.balance_payment_attempts, payments.user_ledger_entries, payments.mp_webhook_notifications, payments.holds, payments.saved_cards, payments.payer_customers CASCADE"
     );
     vi.clearAllMocks();
     mp.searchPaymentsByExternalReference.mockImplementation(async () => []);
@@ -102,7 +83,6 @@ describe("Pagar mi saldo con Checkout API (MOVO-312)", () => {
       transaction_amount: body.transaction_amount,
       external_reference: body.external_reference,
     }));
-    await linkCollector();
     cardId = await seedCard();
   });
 
@@ -153,16 +133,20 @@ describe("Pagar mi saldo con Checkout API (MOVO-312)", () => {
       expect(res.json().error.code).toBe("BALANCE_AMOUNT_EXCEEDS_DEBT");
     });
 
-    it("503 si la cuenta cobradora no está vinculada, o su token venció", async () => {
+    it("503 si la cuenta cobradora no está configurada", async () => {
       await owe(USER, 1000);
-      await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.carrier_mp_accounts CASCADE");
-      const unlinked = await app.inject({ method: "GET", url: "/payments/balance/pay-data", headers: { "x-user-id": USER } });
-      expect(unlinked.statusCode).toBe(503);
-      expect(unlinked.json().error.code).toBe("BALANCE_COLLECTOR_NOT_CONFIGURED");
-
-      await linkCollector(new Date(Date.now() - 1000));
-      const expired = await app.inject({ method: "GET", url: "/payments/balance/pay-data", headers: { "x-user-id": USER } });
-      expect(expired.statusCode).toBe(503);
+      const unconfigured = buildApp({ mercadoPagoClient: mp as unknown as MercadoPagoClient, alertNotifier: alerts as unknown as AlertNotifier });
+      const previous = process.env.MP_COLLECTOR_ACCESS_TOKEN;
+      process.env.MP_COLLECTOR_ACCESS_TOKEN = "";
+      try {
+        await unconfigured.ready();
+        const res = await unconfigured.inject({ method: "GET", url: "/payments/balance/pay-data", headers: { "x-user-id": USER } });
+        expect(res.statusCode).toBe(503);
+        expect(res.json().error.code).toBe("BALANCE_COLLECTOR_NOT_CONFIGURED");
+      } finally {
+        process.env.MP_COLLECTOR_ACCESS_TOKEN = previous;
+        await unconfigured.close();
+      }
     });
   });
 

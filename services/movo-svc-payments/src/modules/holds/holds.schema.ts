@@ -190,5 +190,10 @@ export const releaseHoldSchema = {
   tags: ["holds"],
   summary: "Libera el hold de un envío sin capturar (idempotente)",
   params: shipmentIdParams,
+  querystring: {
+    type: "object",
+    additionalProperties: false,
+    properties: { expectedCarrierId: uuid, expectedHoldId: uuid },
+  },
   response: { 200: hold, 404: errorResponse, 409: errorResponse, 502: errorResponse },
 } as const;

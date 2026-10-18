@@ -21,6 +21,7 @@ const CLOSED_STATUSES: readonly OfferStatus[] = [
   OfferStatus.SUPERSEDED,
   OfferStatus.SHIPMENT_CANCELLED,
   OfferStatus.ASSIGNMENT_LAPSED,
+  OfferStatus.CARRIER_WITHDRAWN,
 ];
 
 type OffersTab = "active" | "closed";
@@ -111,7 +112,7 @@ export default function MyOffersSummaryScreen() {
   );
   // MOVO-225: totales en lo que recibe aprox. (neto menos el estimado de MP), el
   // mismo monto que muestra cada card y el detalle de la oferta.
-  const receivedOf = (o: MyOfferSummary) => estimateReceivedArs(o.priceNetArs, o.priceOffered);
+  const receivedOf = (o: MyOfferSummary) => Math.max(0, estimateReceivedArs(o.priceNetArs, o.priceOffered) - (o.debtDiscount?.amountArs ?? 0));
   const pendingTotal = pending.reduce((sum, o) => sum + receivedOf(o), 0);
   const acceptedTotal = accepted.reduce((sum, o) => sum + receivedOf(o), 0);
 

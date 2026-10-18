@@ -2,6 +2,7 @@ import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { Pressable, Text, View } from "react-native";
 import type { MyOfferSummary } from "../../src/api/offers-client";
 import { estimateReceivedArs } from "../../src/lib/commission-config";
+import { DebtDiscount } from "../payments/debt-discount";
 import {
   formatOfferedAgo,
   offerStatusLabel,
@@ -29,6 +30,7 @@ const STATUS_CHIP_BG_CLASS: Record<OfferStatus, string> = {
   [OfferStatus.SUPERSEDED]: "bg-bg-mute",
   [OfferStatus.SHIPMENT_CANCELLED]: "bg-bg-mute",
   [OfferStatus.ASSIGNMENT_LAPSED]: "bg-bg-mute",
+  [OfferStatus.CARRIER_WITHDRAWN]: "bg-bg-mute",
 };
 
 const STATUS_CHIP_TEXT_CLASS: Record<OfferStatus, string> = {
@@ -40,6 +42,7 @@ const STATUS_CHIP_TEXT_CLASS: Record<OfferStatus, string> = {
   [OfferStatus.SUPERSEDED]: "text-fg-3",
   [OfferStatus.SHIPMENT_CANCELLED]: "text-fg-3",
   [OfferStatus.ASSIGNMENT_LAPSED]: "text-fg-3",
+  [OfferStatus.CARRIER_WITHDRAWN]: "text-fg-3",
 };
 
 export interface MyOfferCardNotice {
@@ -108,13 +111,14 @@ export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyO
         </View>
         <View className="items-end gap-0.5">
           <Text className="font-sans-semibold text-[17px] leading-[20px] tracking-[-0.02em] text-fg">
-            {formatPriceArs(estimateReceivedArs(offer.priceNetArs, offer.priceOffered))}
+            {formatPriceArs(Math.max(0, estimateReceivedArs(offer.priceNetArs, offer.priceOffered) - (offer.debtDiscount?.amountArs ?? 0)))}
           </Text>
           <Text className="font-sans text-[10px] text-fg-3">
             {receivedAmountLabel(offer.status).toLowerCase()}
           </Text>
         </View>
       </View>
+      <DebtDiscount beforeArs={estimateReceivedArs(offer.priceNetArs, offer.priceOffered)} amountArs={offer.debtDiscount?.amountArs} />
       {notice ? (
         <View
           testID={`${testID}-notice`}

@@ -73,3 +73,19 @@ export function computeCancellationPenalty(input: CancellationPenaltyInput): Can
   const penaltyArs = Math.round(input.agreedPriceArs * CANCELLATION_PENALTY_RATE * 100) / 100;
   return { penaltyArs, reason: "late_cancellation", freeUntil };
 }
+
+/**
+ * MOVO-310: penalidad del transportista asignado que se baja del envío. Mismo umbral de 12 h que
+ * el emisor, con dos diferencias:
+ * - aplica desde cualquier estado con transportista (`assignment_pending`, `assigned_unfunded`,
+ *   `assigned`): su penalidad es deuda en la cuenta corriente, no depende de que haya fondos;
+ * - con la ventana ya cerrada TAMBIÉN se cobra: el que faltó es él (para el emisor es sin cargo
+ *   por eso mismo). Se informa como `late_cancellation`, así `penaltyArs > 0` siempre va con ese motivo.
+ * `not_assigned` solo sale si no hay precio acordado.
+ */
+export function computeCarrierWithdrawalPenalty(
+  input: Omit<CancellationPenaltyInput, "status">
+): CancellationPenaltyQuote {
+  // Sin fin de ventana, el tramo "ventana cerrada" no existe: todo lo posterior al plazo libre es tarde.
+  return computeCancellationPenalty({ ...input, status: ShipmentStatus.ASSIGNED, pickupWindowEnd: new Date(8.64e15) });
+}

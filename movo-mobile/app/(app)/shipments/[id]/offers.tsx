@@ -27,6 +27,7 @@ import {
 } from "../../../../src/hooks/use-offers";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
+import { isFundingWindowOpen } from "../../../../src/lib/shipment-format";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 
 function OffersSkeleton() {
@@ -74,6 +75,7 @@ export default function ShipmentOffersScreen() {
     amountArs: number;
     pickupDate: string;
   } | null>(null);
+  const [acceptedPayNow, setAcceptedPayNow] = useState<boolean | null>(null);
   const [acceptErrorMessage, setAcceptErrorMessage] = useState<string | null>(null);
   const [rejectErrorMessage, setRejectErrorMessage] = useState<string | null>(null);
 
@@ -152,6 +154,7 @@ export default function ShipmentOffersScreen() {
         amountArs: offerToAccept.priceOffered,
         pickupDate: offerToAccept.offeredDate,
       });
+      setAcceptedPayNow(payNowFor(offerToAccept));
       // El modal de éxito se abre recién en `onClosed` del sheet de confirmación:
       // abrirlo en este mismo render hacía que iOS lo descartara (MOVO-271 AC2).
       showSuccessOnCloseRef.current = true;
@@ -214,6 +217,15 @@ export default function ShipmentOffersScreen() {
   const handleSuccessPay = () => {
     setIsSuccessModalVisible(false);
     router.replace(`/shipments/${id}/pay` as never);
+  };
+
+  // Fallback para una respuesta de accept sin `assignment`.
+  const payNowFor = (offer: OfferSummary | null): boolean | null => {
+    if (!offer || !shipment) return null;
+    return isFundingWindowOpen({
+      pickupDate: offer.offeredDate.slice(0, 10),
+      pickupTimeWindowStart: offer.offeredPickupTimeWindowStart ?? shipment.pickupTimeWindowStart,
+    });
   };
 
   const offerCount = offers ? offers.length : 0;
@@ -342,6 +354,15 @@ export default function ShipmentOffersScreen() {
                 onAccept={handlePromptAccept}
                 onReject={handlePromptReject}
                 onViewProfile={handleOpenCarrierProfile}
+                requestedPickup={
+                  shipment
+                    ? {
+                        pickupDate: shipment.pickupDate,
+                        pickupTimeWindowStart: shipment.pickupTimeWindowStart,
+                        pickupTimeWindowEnd: shipment.pickupTimeWindowEnd,
+                      }
+                    : undefined
+                }
                 disabled={acceptMutation.isPending || rejectMutation.isPending}
                 testID={`offer-card-${offer.id}`}
               />
@@ -356,6 +377,7 @@ export default function ShipmentOffersScreen() {
         visible={!!offerToAccept}
         isPending={acceptMutation.isPending}
         errorMessage={acceptErrorMessage}
+        payNow={payNowFor(offerToAccept)}
         onConfirm={handleConfirmAccept}
         onClosed={() => {
           if (!showSuccessOnCloseRef.current) return;
@@ -375,6 +397,7 @@ export default function ShipmentOffersScreen() {
       <ChooseOfferSuccessModal
         visible={isSuccessModalVisible}
         carrierName={acceptedOfferCarrierName}
+          payNow={acceptedPayNow}
         onDismiss={handleSuccessDismiss}
         assignment={acceptedOutcome?.assignment}
         amountArs={acceptedOutcome?.amountArs}
