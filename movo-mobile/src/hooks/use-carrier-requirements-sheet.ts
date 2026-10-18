@@ -62,7 +62,8 @@ export function useCarrierRequirementsSheet(context: CarrierRequirementsContext)
     mpStatus: mp?.status ?? null,
     context,
     onPressLicense: () => router.push({ pathname: "/license-kyc", params: { status: licenseStatusParam ?? undefined } }),
-    onPressMp: () => router.push("/profile/payments"),
+    onPressMp: () => router.push("/profile/payments?tab=methods"),
+    onPressDebt: () => router.push("/profile/payments?tab=balance&pay=1"),
   };
 
   return { handleError, sheetProps };

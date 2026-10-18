@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import { Alert, Pressable, Text, View } from "react-native";
+import { useBalance } from "../../src/hooks/use-balance";
 import { useMpConnectStatus } from "../../src/hooks/use-mp-connect";
 import { useMyProfile } from "../../src/hooks/use-profile";
 import { useSavedCards } from "../../src/hooks/use-saved-cards";
@@ -39,14 +40,17 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
   const { data: profile } = useMyProfile();
   const legalPending = hasPendingLegalAcceptance(profile);
-  // MOVO-112/101: aviso en la fila solo si Mercado Pago dejó de funcionar o todas las
-  // tarjetas vencieron. Sin aviso mientras carga o si falla.
-  const attention = paymentsAttention(useMpConnectStatus().data?.status, useSavedCards().data);
+  // MOVO-112/101/315: aviso en la fila solo si Mercado Pago dejó de funcionar, hay saldo
+  // pendiente con Movo o todas las tarjetas vencieron. Sin aviso mientras carga o si falla.
+  const balanceArs = useBalance().data?.pages[0]?.balanceArs;
+  const attention = paymentsAttention(useMpConnectStatus().data?.status, useSavedCards().data, balanceArs);
+  // La pantalla abre en Saldo; un problema de Mercado Pago o de tarjetas se resuelve en la otra pestaña.
+  const paymentsRoute = attention === "mp_invalid" || attention === "cards_expired" ? "/profile/payments?tab=methods" : "/profile/payments";
 
   const settingsItems: SettingsItem[] = [
     { label: "Cuenta y seguridad", Icon: Shield, onPress: () => router.push("/profile/security" as any) },
     { label: "Notificaciones", Icon: Bell, onPress: () => router.push("/profile/notifications" as any) },
-    { label: "Pagos y cobros", Icon: Wallet, onPress: () => router.push("/profile/payments" as any) },
+    { label: "Pagos y cobros", Icon: Wallet, onPress: () => router.push(paymentsRoute as any) },
     { label: "Direcciones guardadas", Icon: MapPin, onPress: () => router.push("/addresses") },
     { label: "Ayuda y soporte", Icon: HelpCircle },
     { label: "Legal", Icon: FileText, onPress: () => router.push("/profile/legal" as any) },
@@ -78,7 +82,7 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
               ) : null}
             </View>
             {label === "Pagos y cobros" && attention ? (
-              <PaymentsAttentionPill attention={attention} testID="profile-settings-payments-pill" />
+              <PaymentsAttentionPill attention={attention} balanceArs={balanceArs} testID="profile-settings-payments-pill" />
             ) : null}
             <ChevronRight size={18} strokeWidth={1.8} color={colors.fg3} />
           </Pressable>

@@ -8,6 +8,8 @@ import type {
   SavedCard,
 } from "@movo/shared/dist/types/saved-card";
 import type { ShipmentSettlementResponse } from "@movo/shared/dist/types/settlement";
+import type { BalancePayDataResponse, BalancePayRequest, BalancePayResponse, UserLedgerPageResponse } from "@movo/shared/dist/types/user-ledger";
+import type { DebtCollectionPreviewResponse } from "@movo/shared/dist/types/user-ledger";
 import { httpClient } from "./http-client";
 
 /**
@@ -15,6 +17,18 @@ import { httpClient } from "./http-client";
  * endpoints de `svc-payments` (MOVO-111). Mismo patrón cliente que `vehicle-client.ts`.
  */
 export const paymentsClient = {
+  getBalance(cursor?: string): Promise<UserLedgerPageResponse> {
+    return httpClient.get<UserLedgerPageResponse>("/payments/balance", { limit: 20, ...(cursor ? { cursor } : {}) });
+  },
+  getBalancePayData(): Promise<BalancePayDataResponse> {
+    return httpClient.get<BalancePayDataResponse>("/payments/balance/pay-data");
+  },
+  payBalance(body: BalancePayRequest): Promise<BalancePayResponse> {
+    return httpClient.post<BalancePayResponse>("/payments/balance/pay", body);
+  },
+  previewCarrierDebt(amountsArs: number[]): Promise<DebtCollectionPreviewResponse> {
+    return httpClient.post<DebtCollectionPreviewResponse>("/payments/balance/debt-preview", { amountsArs });
+  },
   /** `GET /payments/mp-connect/status` */
   getMpConnectStatus(): Promise<MpConnectStatusResponse> {
     return httpClient.get<MpConnectStatusResponse>("/payments/mp-connect/status");

@@ -6,8 +6,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CardOptionsSheet } from "../../../../components/payments/card-options-sheet";
+import { BalanceTab } from "../../../../components/payments/balance-tab";
 import { DeleteCardSheet } from "../../../../components/payments/delete-card-sheet";
-import { HistoryEntryRow } from "../../../../components/payments/history-entry-row";
+import { HistoryTab } from "../../../../components/payments/history-tab";
 import { MpAccountSheet } from "../../../../components/payments/mp-account-sheet";
 import { ChangeMpAccountSheet } from "../../../../components/payments/change-mp-account-sheet";
 import { MpConnectCard, MpConnectSkeletonCard } from "../../../../components/payments/mp-connect-card";
@@ -16,6 +17,7 @@ import { RenameCardSheet } from "../../../../components/payments/rename-card-she
 import { SavedCardsList, SavedCardsSkeleton } from "../../../../components/payments/saved-cards-list";
 import { UnlinkMpSheet } from "../../../../components/payments/unlink-mp-sheet";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
+import { useBalance } from "../../../../src/hooks/use-balance";
 import { useLinkMpAccount, useMpConnectStatus, useUnlinkMpAccount } from "../../../../src/hooks/use-mp-connect";
 import { useDeleteCard, useRenameCard, useSavedCards, useSetDefaultCard } from "../../../../src/hooks/use-saved-cards";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
@@ -28,6 +30,10 @@ import {
 
 type CardOverlay = "options" | "rename" | "delete";
 type MpOverlay = "account" | "unlink" | "change";
+type PaymentsTab = "balance" | "history" | "methods";
+const PAYMENTS_TABS: readonly PaymentsTab[] = ["balance", "history", "methods"];
+
+const TAB_LABELS: Record<PaymentsTab, string> = { balance: "Saldo", history: "Historial", methods: "Medios" };
 
 /**
  * "Pagos y cobros" (MOVO-112), desde Perfil → Configuración.
@@ -64,7 +70,15 @@ export default function PaymentsSettingsScreen() {
   const [unlinkError, setUnlinkError] = useState<string | null>(null);
 
   const cardsQuery = useSavedCards();
-  const params = useLocalSearchParams<{ toast?: string }>();
+  const params = useLocalSearchParams<{ toast?: string; tab?: string; pay?: string }>();
+  // Se abre en Saldo si hay deuda y, si no, en Historial (prototipo "Pagos y cobros 2c"); un `?tab=`
+  // explícito manda. Mientras el saldo carga se muestra Saldo, que ya tiene su propio indicador.
+  const balanceQuery = useBalance();
+  const [pickedTab, setPickedTab] = useState<PaymentsTab | null>(PAYMENTS_TABS.includes(params.tab as PaymentsTab) ? (params.tab as PaymentsTab) : null);
+  const balanceArs = balanceQuery.data?.pages[0]?.balanceArs;
+  const activeTab: PaymentsTab = pickedTab ?? (balanceQuery.isPending || balanceQuery.isError || (balanceArs ?? 0) > 0 ? "balance" : "history");
+  const setActiveTab = setPickedTab;
+  useEffect(() => { if (params.pay === "1") setPickedTab("balance"); else if (PAYMENTS_TABS.includes(params.tab as PaymentsTab)) setPickedTab(params.tab as PaymentsTab); }, [params.tab, params.pay]);
   const [toast, setToast] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<SavedCard | null>(null);
   const [overlay, setOverlay] = useState<CardOverlay | null>(null);
@@ -271,17 +285,22 @@ export default function PaymentsSettingsScreen() {
         <Text className="font-sans-semibold text-[17px] leading-[22px] text-fg">Pagos y cobros</Text>
       </View>
 
+      <View accessibilityRole="tablist" className="flex-row gap-[22px] border-b border-border px-5">
+        {PAYMENTS_TABS.map((tab) => (
+          <Pressable key={tab} testID={`payments-tab-${tab}`} accessibilityRole="tab" accessibilityState={{ selected: activeTab === tab }} onPress={() => setActiveTab(tab)} className={`border-b-2 pb-2.5 pt-2 ${activeTab === tab ? "border-fg" : "border-transparent"}`}>
+            <Text className={`font-sans-medium text-[13px] ${activeTab === tab ? "text-fg" : "text-fg-3"}`}>{TAB_LABELS[tab]}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {activeTab === "balance" ? <BalanceTab openPay={params.pay === "1"} onPayOpened={() => router.setParams({ pay: undefined })} /> : activeTab === "history" ? <HistoryTab /> : (
+
       <ScrollView
         testID="payments-screen-content"
         contentContainerClassName="gap-4 px-5 pb-8 pt-3"
         showsVerticalScrollIndicator={false}
       >
-        <View className="gap-2.5">
-          <Text className="font-sans-semibold text-caption uppercase text-fg-3">Movimientos</Text>
-          <HistoryEntryRow onPress={() => router.push("/profile/payments/history")} />
-        </View>
-
-        <View className="mt-3 gap-1">
+        <View className="gap-1">
           <Text className="font-sans-semibold text-caption uppercase text-fg-3">Medios de pago</Text>
           <Text className="font-sans text-[13px] leading-[18px] text-fg-2">
             La marcada es la que te proponemos al pagar.
@@ -312,6 +331,7 @@ export default function PaymentsSettingsScreen() {
         ) : null}
         {content}
       </ScrollView>
+      )}
 
       <CardOptionsSheet
         card={selectedCard}

@@ -21,6 +21,8 @@ export const AUTO_DISMISS_MS = 3500;
 export interface ChooseOfferSuccessModalProps {
   visible: boolean;
   carrierName: string | null;
+  /** Mismo criterio que `ChooseOfferModal.payNow`: define a dónde sigue el flujo. */
+  payNow?: boolean | null;
   onDismiss: () => void;
   testID?: string;
 }
@@ -33,6 +35,7 @@ export interface ChooseOfferSuccessModalProps {
 export function ChooseOfferSuccessModal({
   visible,
   carrierName,
+  payNow = null,
   onDismiss,
   testID,
 }: ChooseOfferSuccessModalProps) {
@@ -40,6 +43,12 @@ export function ChooseOfferSuccessModal({
   const progress = useSharedValue(0);
 
   const displayName = carrierName || "el transportista";
+  const subtitle =
+    payNow === true
+      ? `Seleccionaste la propuesta de ${displayName}. Ahora reservá el pago con tu tarjeta para confirmar el viaje: se cobra recién cuando se entrega el paquete.`
+      : payNow === false
+        ? `Seleccionaste la propuesta de ${displayName}. Todavía no pagás nada: vas a reservar el pago desde el detalle del envío, antes del retiro.`
+        : `Seleccionaste la propuesta de ${displayName}. Tu envío quedó en espera de la confirmación del pago para iniciar el viaje.`;
 
   // `onDismiss` no está memoizado en todos los callers (`offers.tsx` le pasa una
   // función inline) — cualquier re-render del padre mientras el modal está visible
@@ -109,7 +118,7 @@ export function ChooseOfferSuccessModal({
                     arranca en cada apertura y termina (~600ms) antes del auto-dismiss. */}
                 <SuccessMoment
                   title="¡Oferta aceptada!"
-                  subtitle={`Seleccionaste la propuesta de ${displayName}. Tu envío quedó en espera de la confirmación del pago para iniciar el viaje.`}
+                  subtitle={subtitle}
                   testID={testID ? `${testID}-moment` : "choose-offer-success-moment"}
                 />
 
@@ -122,7 +131,7 @@ export function ChooseOfferSuccessModal({
                     />
                   </View>
                   <Text className="font-sans text-[12px] text-fg-3">
-                    Redirigiendo al detalle del envío...
+                    {payNow === true ? "Te llevamos a reservar el pago..." : "Redirigiendo al detalle del envío..."}
                   </Text>
                 </View>
 
@@ -133,7 +142,7 @@ export function ChooseOfferSuccessModal({
                     className="h-12 w-full items-center justify-center rounded-[12px] bg-lime-500 active:bg-lime-400"
                   >
                     <Text className="font-sans-semibold text-small text-ink-950">
-                      Ver detalle del envío
+                      {payNow === true ? "Reservar el pago" : "Ver detalle del envío"}
                     </Text>
                   </Pressable>
                 </View>

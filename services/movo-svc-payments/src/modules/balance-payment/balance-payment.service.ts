@@ -9,7 +9,6 @@ import type {
   BalancePaymentAttempt,
   BalancePaymentAttemptRepository,
 } from "../../repositories/balance-payment-attempt-repository";
-import type { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
 import type { SavedCardRepository } from "../../repositories/saved-card-repository";
 import type { UserLedgerService } from "../user-ledger/user-ledger.service";
 import { classifyCreateError, failureReasonFromStatusDetail, readMpError } from "../holds/hold.service";
@@ -24,9 +23,11 @@ const ATTENTION_STATUSES = new Set(["refunded", "charged_back", "in_mediation"])
 /** Estados de MP en los que el pago todavía puede terminar aprobado. */
 const WAITING_STATUSES = new Set(["pending", "in_process", "authorized"]);
 
-/** Cuenta cobradora de Movo (vinculada por OAuth, como la de un transportista). */
+/**
+ * Cuenta cobradora: la propia cuenta de MP de Movo S.A., configurada con sus credenciales (ADR-048). En producción son las
+ * credenciales productivas del panel; en el sandbox, el token `TEST-` del OAuth de la cuenta de prueba (`scripts/collector-oauth.mjs`).
+ */
 export interface BalanceCollector {
-  userId: string;
   mpUserId: string;
   accessToken: string;
   publicKey: string;
@@ -41,11 +42,10 @@ export interface BalancePaymentDeps {
    */
   payableBalance: (userId: string) => Promise<number>;
   mercadoPago: MercadoPagoClient;
-  accounts: Pick<CarrierMpAccountRepository, "findActiveCredentials" | "findCredentialsByMpUserId">;
   /** Tarjeta guardada y customer del usuario en la cuenta de Movo S.A. (ADR-039): igual que al pagar un envío. */
   savedCards: Pick<SavedCardRepository, "findLive" | "findCustomer">;
-  /** `MOVO_COLLECTOR_USER_ID`: el usuario interno de Movo cuya cuenta de MP cobra los pagos de saldo. */
-  collectorUserId: string | undefined;
+  /** `MP_COLLECTOR_*`: `undefined` si falta alguna de las tres variables. */
+  collector: BalanceCollector | undefined;
   alerts: AlertNotifier;
   log: FastifyBaseLogger;
   now?: () => Date;
@@ -87,37 +87,23 @@ export type BalancePaymentOutcome =
  * - **Nada se confía del body del webhook**: el estado sale siempre de consultar el pago con el token de la cobradora.
  */
 export function createBalancePaymentService(deps: BalancePaymentDeps) {
-  const { attempts, ledger, mercadoPago, accounts, savedCards, alerts, log } = deps;
+  const { attempts, ledger, mercadoPago, savedCards, alerts, log } = deps;
   const now = deps.now ?? (() => new Date());
 
-  /** La cuenta cobradora tiene que estar configurada y vinculada con el token vigente. */
+  /** La cuenta cobradora tiene que estar configurada. */
   async function collector(): Promise<BalanceCollector> {
-    const notConfigured = () =>
-      new ApiError(503, "BALANCE_COLLECTOR_NOT_CONFIGURED", "El pago de saldo no está disponible en este momento.");
-    if (!deps.collectorUserId) throw notConfigured();
-    const credentials = await accounts.findActiveCredentials(deps.collectorUserId, now());
-    if (!credentials) {
-      log.error("la cuenta cobradora de Movo no está vinculada o su token venció");
-      throw notConfigured();
+    if (!deps.collector) {
+      log.error("la cuenta cobradora de Movo no está configurada (MP_COLLECTOR_*)");
+      throw new ApiError(503, "BALANCE_COLLECTOR_NOT_CONFIGURED", "El pago de saldo no está disponible en este momento.");
     }
-    return {
-      userId: deps.collectorUserId,
-      mpUserId: credentials.mpUserId,
-      accessToken: credentials.accessToken,
-      publicKey: credentials.publicKey,
-    };
+    return deps.collector;
   }
 
   /** El webhook: ¿esta notificación es de la cuenta cobradora de Movo? `null` si no está configurada. */
   async function collectorForWebhook(mpUserId: string | undefined): Promise<BalanceCollector | null> {
-    if (!deps.collectorUserId) return null;
-    try {
-      const c = await collector();
-      return mpUserId && mpUserId !== c.mpUserId ? null : c;
-    } catch (error) {
-      if (error instanceof ApiError && error.code === "BALANCE_COLLECTOR_NOT_CONFIGURED") return null;
-      throw error;
-    }
+    const c = deps.collector;
+    if (!c) return null;
+    return mpUserId && mpUserId !== c.mpUserId ? null : c;
   }
 
   /** Asienta el pago aprobado. Idempotente: el ledger deduplica por `balance-payment:<intento>`. */

@@ -39,7 +39,7 @@ const mockDelete = jest.fn();
 let mockSetDefaultOptions: MutationOptions = {};
 let mockRenameOptions: MutationOptions = {};
 let mockDeleteOptions: MutationOptions = {};
-let mockParams: { toast?: string } = {};
+let mockParams: { toast?: string; tab?: string } = { tab: "methods" };
 
 jest.mock("../src/hooks/use-saved-cards", () => ({
   useSavedCards: () => ({ ...mockCards, refetch: mockCardsRefetch }),
@@ -67,6 +67,11 @@ jest.mock("expo-router", () => ({
   },
 }));
 
+let mockBalance: { isPending: boolean; isError: boolean; data?: { pages: { balanceArs: number }[] } } = { isPending: false, isError: false, data: { pages: [{ balanceArs: 0 }] } };
+jest.mock("../src/hooks/use-balance", () => ({ useBalance: () => mockBalance }));
+jest.mock("../components/payments/balance-tab", () => ({ BalanceTab: () => { const { Text } = require("react-native"); return <Text>balance-tab-stub</Text>; } }));
+jest.mock("../components/payments/history-tab", () => ({ HistoryTab: () => { const { Text } = require("react-native"); return <Text>history-tab-stub</Text>; } }));
+
 jest.mock("../src/store/auth-store", () => ({
   useAuthStore: (selector: (s: unknown) => unknown) => selector({ user: { fullName: "Julieta Ramos" } }),
 }));
@@ -91,7 +96,8 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     mockLink = { phase: "idle", error: null };
     mockUnlinkPending = false;
     mockCards = { data: [], isError: false };
-    mockParams = {};
+    mockParams = { tab: "methods" };
+    mockBalance = { isPending: false, isError: false, data: { pages: [{ balanceArs: 0 }] } };
   });
 
   it("muestra el skeleton mientras consulta el status", async () => {
@@ -100,12 +106,37 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     expect(getByText("Consultando el estado de tu cuenta…")).toBeTruthy();
   });
 
-  it("tiene la fila 'Historial de pagos y cobros' que abre la ruta nueva (MOVO-304 AC1)", async () => {
-    const { getByTestId, getByText } = await render(<PaymentsSettingsScreen />);
+  it("tiene las pestañas Saldo, Historial y Medios (prototipo 2c)", async () => {
+    const { getByText, getByTestId } = await render(<PaymentsSettingsScreen />);
 
-    expect(getByText("Historial de pagos y cobros")).toBeTruthy();
-    await act(async () => fireEvent.press(getByTestId("payments-history-entry")));
-    expect(router.push).toHaveBeenCalledWith("/profile/payments/history");
+    expect(getByText("Saldo")).toBeTruthy();
+    expect(getByText("Historial")).toBeTruthy();
+    expect(getByText("Medios")).toBeTruthy();
+    expect(getByTestId("payments-tab-methods").props.accessibilityState.selected).toBe(true);
+    await act(async () => fireEvent.press(getByTestId("payments-tab-history")));
+    expect(getByText("history-tab-stub")).toBeTruthy();
+    await act(async () => fireEvent.press(getByTestId("payments-tab-balance")));
+    expect(getByText("balance-tab-stub")).toBeTruthy();
+  });
+
+  it("sin ?tab= y sin deuda se abre en Historial", async () => {
+    mockParams = {};
+    const { getByTestId } = await render(<PaymentsSettingsScreen />);
+    expect(getByTestId("payments-tab-history").props.accessibilityState.selected).toBe(true);
+  });
+
+  it("sin ?tab= y con deuda se abre en Saldo", async () => {
+    mockParams = {};
+    mockBalance = { isPending: false, isError: false, data: { pages: [{ balanceArs: 4100 }] } };
+    const { getByTestId } = await render(<PaymentsSettingsScreen />);
+    expect(getByTestId("payments-tab-balance").props.accessibilityState.selected).toBe(true);
+  });
+
+  it("mientras carga el saldo no salta a Historial", async () => {
+    mockParams = {};
+    mockBalance = { isPending: true, isError: false };
+    const { getByTestId } = await render(<PaymentsSettingsScreen />);
+    expect(getByTestId("payments-tab-balance").props.accessibilityState.selected).toBe(true);
   });
 
   it("vuelve a consultar el status al ganar foco", async () => {
@@ -382,7 +413,8 @@ describe("PaymentsSettingsScreen — Mis tarjetas (MOVO-101)", () => {
     mockStatus = { data: UNLINKED, isError: false };
     mockLink = { phase: "idle", error: null };
     mockCards = { data: [VISA, MASTER], isError: false };
-    mockParams = {};
+    mockParams = { tab: "methods" };
+    mockBalance = { isPending: false, isError: false, data: { pages: [{ balanceArs: 0 }] } };
   });
 
   it("sin tarjetas muestra el estado vacío con el beneficio y el botón de agregar (AC2)", async () => {
@@ -522,7 +554,7 @@ describe("PaymentsSettingsScreen — Mis tarjetas (MOVO-101)", () => {
   });
 
   it("muestra el aviso de tarjeta guardada que llega desde el alta", async () => {
-    mockParams = { toast: 'Guardamos "Personal". Es tu predeterminada.' };
+    mockParams = { tab: "methods", toast: 'Guardamos "Personal". Es tu predeterminada.' };
     const { findByText } = await render(<PaymentsSettingsScreen />);
     expect(await findByText('Guardamos "Personal". Es tu predeterminada.')).toBeTruthy();
   });

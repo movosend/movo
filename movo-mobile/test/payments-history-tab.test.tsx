@@ -1,17 +1,15 @@
 import type { TransactionListItem } from "@movo/shared/dist/types/transaction";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { act, fireEvent, render, within } from "@testing-library/react-native";
-import PaymentsHistoryScreen from "../app/(app)/profile/payments/history";
+import { HistoryTab as PaymentsHistoryScreen } from "../components/payments/history-tab";
 import { dateRangeForPreset } from "../src/lib/transaction-format";
 
 const mockPush = jest.fn();
-const mockBack = jest.fn();
 let mockFocusCallback: (() => void) | null = null;
 
 jest.mock("expo-router", () => ({
   router: {
     push: (...args: unknown[]) => mockPush(...args),
-    back: () => mockBack(),
   },
   // Se guarda el callback para poder simular "volver a la pantalla" varias veces.
   useFocusEffect: (cb: () => void) => {
@@ -117,7 +115,7 @@ function lastQueryArgs(): { role: string; filters: { statuses: string[]; from: s
   return { role, filters };
 }
 
-describe("PaymentsHistoryScreen (MOVO-304)", () => {
+describe("HistoryTab (MOVO-304)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFocusCallback = null;
@@ -193,13 +191,13 @@ describe("PaymentsHistoryScreen (MOVO-304)", () => {
   describe("Cobros", () => {
     it("cambiar de tab consulta role=carrier (AC2)", async () => {
       const { getByTestId } = await render(<PaymentsHistoryScreen />);
-      await press(getByTestId("history-tab-carrier"));
+      await press(getByTestId("history-role-carrier"));
       expect(lastQueryArgs().role).toBe("carrier");
     });
 
     it("'Completado' se muestra como 'Cobrado' y no hay tarjeta en la fila (AC6)", async () => {
       const { getByTestId, getByText, queryByText } = await render(<PaymentsHistoryScreen />);
-      await press(getByTestId("history-tab-carrier"));
+      await press(getByTestId("history-role-carrier"));
 
       expect(within(getByTestId("transaction-pill-c-completed")).getByText("Cobrado")).toBeTruthy();
       expect(queryByText("Completado")).toBeNull();
@@ -211,7 +209,7 @@ describe("PaymentsHistoryScreen (MOVO-304)", () => {
 
     it("el detalle de un cobro se abre con role=carrier", async () => {
       const { getByTestId } = await render(<PaymentsHistoryScreen />);
-      await press(getByTestId("history-tab-carrier"));
+      await press(getByTestId("history-role-carrier"));
       await press(getByTestId("transaction-row-c-completed"));
       expect(mockPush).toHaveBeenCalledWith({
         pathname: "/profile/payments/history/[id]",
@@ -295,10 +293,10 @@ describe("PaymentsHistoryScreen (MOVO-304)", () => {
       await press(getByTestId("transaction-filters-apply"));
       expect(lastQueryArgs()).toMatchObject({ role: "sender", filters: { statuses: ["disputed"] } });
 
-      await press(getByTestId("history-tab-carrier"));
+      await press(getByTestId("history-role-carrier"));
       expect(lastQueryArgs()).toEqual({ role: "carrier", filters: { statuses: [], from: null, to: null } });
 
-      await press(getByTestId("history-tab-sender"));
+      await press(getByTestId("history-role-sender"));
       expect(lastQueryArgs()).toMatchObject({ role: "sender", filters: { statuses: ["disputed"] } });
     });
 
@@ -336,7 +334,7 @@ describe("PaymentsHistoryScreen (MOVO-304)", () => {
     it("vacío de Cobros con la acción 'Ver envíos disponibles'", async () => {
       mockState.carrier = { items: [] };
       const { getByTestId, getByText } = await render(<PaymentsHistoryScreen />);
-      await press(getByTestId("history-tab-carrier"));
+      await press(getByTestId("history-role-carrier"));
 
       expect(getByText("Todavía no cobraste")).toBeTruthy();
       await press(getByTestId("transactions-empty-action-carrier"));
@@ -401,11 +399,5 @@ describe("PaymentsHistoryScreen (MOVO-304)", () => {
       });
       expect(mockRefetch).toHaveBeenCalledTimes(1);
     });
-  });
-
-  it("el botón de volver navega hacia atrás", async () => {
-    const { getByTestId } = await render(<PaymentsHistoryScreen />);
-    await press(getByTestId("history-back"));
-    expect(mockBack).toHaveBeenCalledTimes(1);
   });
 });

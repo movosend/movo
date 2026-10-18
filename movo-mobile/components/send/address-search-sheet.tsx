@@ -143,9 +143,11 @@ export function AddressSearchSheet({
   };
 
   const handleSelectSaved = (saved: Address) => {
+    // Nunca `saved.label` ("Casa", "Trabajo"): es un apodo privado del dueño y este
+    // string termina como `pickupAddress`/`deliveryAddress` del envío, que ven los
+    // transportistas al ofertar.
     onSelect({
-      address:
-        saved.label ?? `${saved.street} ${saved.streetNumber}, ${saved.city}`,
+      address: `${saved.street} ${saved.streetNumber}, ${saved.city}`,
       lat: saved.lat,
       lng: saved.long,
       source: "saved",

@@ -11,7 +11,8 @@ export const auditSchemas = {
       adminId: { type: "string", format: "uuid" },
       action: { type: "string", minLength: 1, maxLength: 100 },
       targetType: { type: "string", enum: TARGET_TYPES },
-      targetId: { type: "string", minLength: 1, maxLength: 100 },
+      // 254 = largo máximo de un email, que es el objetivo de una fila `admin_role.grant` fallida.
+      targetId: { type: "string", minLength: 1, maxLength: 254 },
       limit: { type: "integer", minimum: 1, maximum: AUDIT_LOG_PAGE_MAX_LIMIT, default: 20 },
       cursor: { type: "string", minLength: 1, maxLength: 200 },
     },

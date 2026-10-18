@@ -139,6 +139,11 @@ describe("AddressField", () => {
     });
 
     expect(mockDetails).not.toHaveBeenCalled();
-    expect(onChange).toHaveBeenCalledWith({ address: "Casa", lat: -31.42, lng: -64.19, source: "saved" });
+    expect(onChange).toHaveBeenCalledWith({
+      address: "San Martín 123, Córdoba",
+      lat: -31.42,
+      lng: -64.19,
+      source: "saved",
+    });
   });
 });

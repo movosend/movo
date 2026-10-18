@@ -1,37 +1,36 @@
 import type { TransactionListItem, TransactionRole, TransactionStatus } from "@movo/shared/dist/types/transaction";
 import { router, useFocusEffect } from "expo-router";
-import { Calendar, ChevronLeft, Filter, X } from "lucide-react-native";
+import { Calendar, Filter, X } from "lucide-react-native";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { TransactionFiltersSheet } from "../../../../../components/payments/transaction-filters-sheet";
-import { TransactionRow } from "../../../../../components/payments/transaction-row";
+import { TransactionFiltersSheet } from "./transaction-filters-sheet";
+import { TransactionRow } from "./transaction-row";
 import {
   TransactionsEmpty,
   TransactionsError,
   TransactionsNoResults,
   TransactionsSkeleton,
-} from "../../../../../components/payments/transactions-states";
-import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
+} from "./transactions-states";
+import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
   EMPTY_TRANSACTION_FILTERS,
   transactionFilterCount,
   useTransactions,
   type TransactionFilters,
-} from "../../../../../src/hooks/use-transactions";
-import { friendlyErrorMessage } from "../../../../../src/lib/error-messages";
+} from "../../src/hooks/use-transactions";
+import { friendlyErrorMessage } from "../../src/lib/error-messages";
 import {
   dateRangeLabel,
   groupTransactionsByMonth,
   resultsCountLabel,
   transactionStatusLabel,
-} from "../../../../../src/lib/transaction-format";
+} from "../../src/lib/transaction-format";
 
 type ListRow =
   | { type: "month"; key: string; label: string }
   | { type: "item"; key: string; item: TransactionListItem };
 
-const TABS: { role: TransactionRole; label: string }[] = [
+const ROLE_CHIPS: { role: TransactionRole; label: string }[] = [
   { role: "sender", label: "Pagos" },
   { role: "carrier", label: "Cobros" },
 ];
@@ -79,19 +78,20 @@ function FilterButton({
 }
 
 /**
- * Historial de pagos y cobros (MOVO-304, sub-issue mobile de MOVO-28), desde Pagos y cobros.
+ * Pestaña "Historial" de Pagos y cobros (MOVO-304, sub-issue mobile de MOVO-28), junto a Saldo y
+ * Medios (prototipo "Pagos y cobros 2c"). Pagos (`role=sender`) y Cobros (`role=carrier`) son chips
+ * de filtro, uno activo a la vez, no pestañas: cada rol conserva sus propios filtros y su propia
+ * paginación por cursor (la query key lleva el rol y los filtros, así volver a un rol no pierde lo
+ * ya cargado). La lista se agrupa por mes y se refresca al volver a la pantalla.
  *
- * Fiel al canvas de Claude Design "MOVO-28 Historial de pagos y cobros": dos tabs, **Pagos**
- * (`role=sender`) y **Cobros** (`role=carrier`), cada una con sus propios filtros y su propia
- * paginación por cursor (la query key lleva el rol y los filtros, así volver a una tab no
- * pierde lo ya cargado). La lista se agrupa por mes y se refresca al volver a la pantalla.
- *
- * Desvíos del canvas, por lo que el backend de MOVO-303 no informa: el resumen "Cobrado en
- * octubre / Por acreditar" de la tab Cobros no está (no hay agregados), las filas de Cobros
- * muestran lo que pagó el emisor (el neto está solo en el detalle) y el contador de la barra
- * de filtros cuenta lo ya cargado ("20+ pagos" si hay más páginas) porque no hay total.
+ * Cada evento vive en un solo lugar: acá solo los holds de `GET /payments/transactions`; las
+ * penalidades que quedan como deuda viven en Saldo. Desvíos del prototipo, por lo que el backend
+ * de MOVO-303 no informa: el resumen "Cobrado en octubre / Por acreditar" de Cobros no está (no
+ * hay agregados), las filas de Cobros muestran lo que pagó el emisor (el neto y lo descontado por
+ * deuda están en el detalle) y el contador cuenta lo ya cargado ("20+ pagos" si hay más páginas)
+ * porque no hay total.
  */
-export default function PaymentsHistoryScreen() {
+export function HistoryTab() {
   const colors = useThemeColors();
   const [role, setRole] = useState<TransactionRole>("sender");
   const [filtersByRole, setFiltersByRole] = useState<Record<TransactionRole, TransactionFilters>>({
@@ -212,41 +212,26 @@ export default function PaymentsHistoryScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
-      <View className="flex-row items-center gap-3 px-5 pb-2 pt-1.5">
-        <Pressable
-          testID="history-back"
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-          onPress={() => router.back()}
-          className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
-        >
-          <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
-        </Pressable>
-        <Text className="font-sans-semibold text-[17px] leading-[22px] text-fg">Historial</Text>
-      </View>
-
-      <View accessibilityRole="tablist" className="mx-5 mt-2 flex-row gap-1 rounded-[14px] bg-bg-mute p-1">
-        {TABS.map((tab) => {
-          const selected = tab.role === role;
-          return (
-            <Pressable
-              key={tab.role}
-              testID={`history-tab-${tab.role}`}
-              accessibilityRole="tab"
-              accessibilityState={{ selected }}
-              onPress={() => setRole(tab.role)}
-              className={`h-10 flex-1 items-center justify-center rounded-[10px] ${selected ? "bg-fg" : ""}`}
-            >
-              <Text className={`font-sans-semibold text-[14px] ${selected ? "text-bg" : "text-fg-2"}`}>
-                {tab.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
+    <View testID="history-tab" className="flex-1">
       <View testID="history-filter-bar" className="flex-row flex-wrap items-center gap-2 px-5 pb-1.5 pt-3.5">
+        <View accessibilityRole="tablist" className="flex-row gap-2">
+          {ROLE_CHIPS.map((chip) => {
+            const selected = chip.role === role;
+            return (
+              <Pressable
+                key={chip.role}
+                testID={`history-role-${chip.role}`}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                onPress={() => setRole(chip.role)}
+                className={`h-[30px] items-center justify-center rounded-full px-3 ${selected ? "bg-fg" : "border border-border-strong"}`}
+              >
+                <Text className={`font-sans-semibold text-[12px] ${selected ? "text-bg" : "text-fg"}`}>{chip.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View className="h-5 w-px bg-border" />
         {filterCount === 0 ? (
           <>
             <FilterButton testID="history-filter-status" label="Estado" icon={Filter} onPress={() => setSheetOpen(true)} />
@@ -284,7 +269,7 @@ export default function PaymentsHistoryScreen() {
         )}
         <View className="flex-1" />
         {hasData && items.length > 0 ? (
-          <Text testID="history-count" className="font-sans text-[12.5px] text-fg-2">
+          <Text testID="history-count" className="font-sans text-[12px] text-fg-2">
             {resultsCountLabel(items.length, role, !!query.hasNextPage)}
           </Text>
         ) : null}
@@ -299,6 +284,6 @@ export default function PaymentsHistoryScreen() {
         onApply={setFilters}
         onClose={() => setSheetOpen(false)}
       />
-    </SafeAreaView>
+    </View>
   );
 }

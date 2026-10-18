@@ -1,6 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fundingClient } from "../api/funding-client";
+import { BALANCE_QUERY_KEY } from "./use-balance";
 import { shouldReconcileAfterPayError } from "../lib/pay-shipment-format";
 import { type FundWithTokenInput, type PayShipmentOutcome, fundWithToken } from "../lib/pay-shipment-flow";
 
@@ -38,6 +39,8 @@ export function usePayShipment(options?: { onSettled?: (outcome: PayShipmentOutc
         void queryClient.invalidateQueries({ queryKey: ["shipments", "active"] });
         void queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
       }
+      // Si el emisor absorbió deuda en este pago (recargo), el saldo cambió.
+      if (outcome.kind === "reserved") void queryClient.invalidateQueries({ queryKey: BALANCE_QUERY_KEY });
       options?.onSettled?.(outcome);
     },
   });
