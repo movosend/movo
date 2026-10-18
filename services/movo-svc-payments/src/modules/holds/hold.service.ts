@@ -8,6 +8,7 @@ import {
   HoldCheckoutDataRequest,
   HoldCheckoutDataResponse,
   HoldFailureReason,
+  HoldDetailResponse,
   HoldResponse,
 } from "@movo/shared";
 import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-client";
@@ -237,6 +238,11 @@ function toHoldResponse(hold: Hold): HoldResponse {
     createdAt: hold.createdAt.toISOString(),
     updatedAt: hold.updatedAt.toISOString(),
   };
+}
+
+/** MOVO-211: `toHoldResponse` + la tarjeta del intento, solo para la consulta por envío (ver `HoldDetailResponse`). */
+function toHoldDetailResponse(hold: Hold): HoldDetailResponse {
+  return { ...toHoldResponse(hold), wasAuthorized: hold.wasAuthorized, cardBrand: hold.cardBrand, cardLast4: hold.cardLast4 };
 }
 
 export interface HoldServiceDeps {
@@ -672,10 +678,10 @@ export function createHoldService(deps: HoldServiceDeps) {
      * fila (hasta que MOVO-268 reciba los webhooks, es la forma de ver un hold que MP
      * cambió por su cuenta, o de resolver un intento que quedó en `creating`).
      */
-    async getByShipment(shipmentId: string, opts: { sync?: boolean } = {}): Promise<HoldResponse> {
+    async getByShipment(shipmentId: string, opts: { sync?: boolean } = {}): Promise<HoldDetailResponse> {
       let hold = await holds.findLatestByShipment(shipmentId);
       if (!hold) throw new ApiError(404, "HOLD_NOT_FOUND", "El envío no tiene ningún hold");
-      if (!opts.sync) return toHoldResponse(hold);
+      if (!opts.sync) return toHoldDetailResponse(hold);
 
       if (hold.status === "creating") {
         hold = await reconcileCreating(hold);
@@ -710,7 +716,7 @@ export function createHoldService(deps: HoldServiceDeps) {
         // marca guardada y no vuelve a consultar a MP en cada `?sync=true` (review de PR #255).
         hold = await completeCardFromMp(hold);
       }
-      return toHoldResponse(hold);
+      return toHoldDetailResponse(hold);
     },
 
     /**

@@ -244,7 +244,27 @@ const patchOfferBody = {
   additionalProperties: false,
 };
 
+// MOVO-211 AC4: `POST /offers/:id/accept` suma qué ruta de la saga se tomó, para que el
+// mobile muestre el desenlace correcto (pagar ya o más cerca del retiro).
+const acceptOfferResponse = {
+  ...offerResponse,
+  required: [...offerResponse.required, "assignment"],
+  properties: {
+    ...offerResponse.properties,
+    assignment: {
+      type: "object",
+      required: ["shipmentStatus", "fundingRoute", "fundingWindowOpensAt"],
+      properties: {
+        shipmentStatus: { type: "string", enum: ["assignment_pending", "assigned_unfunded"] },
+        fundingRoute: { type: "string", enum: ["near", "far"] },
+        fundingWindowOpensAt: { type: ["string", "null"], format: "date-time" },
+      },
+    },
+  },
+} as const;
+
 export const offersSchemas = {
+  acceptOfferResponse,
   listMineQuery: {
     type: "object",
     properties: {

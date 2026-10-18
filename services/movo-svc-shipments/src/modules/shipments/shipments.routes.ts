@@ -38,6 +38,7 @@ import { ActiveShipmentRole } from "../../domain/active-shipment";
 import { toOfferDto } from "../offers/offer.dto";
 import { hasShipmentAccess } from "./assert-shipment-access";
 import { buildReceiverTransfersService } from "../receiver-transfers/receiver-transfers.routes";
+import { buildFundingService } from "../funding/funding.routes";
 import { resolveCarrierEligibility } from "../../utils/carrier-gate";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
@@ -222,6 +223,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const photosService = createPhotosService(repository, storageProvider, app.redis, app.log);
   // MOVO-275: resumen de la transferencia de receptor en el detalle y badge en `/mine`.
   const receiverTransfersService = buildReceiverTransfersService(app, { usersClient, notificationsClient });
+  const fundingService = buildFundingService(app, { usersClient, notificationsClient, paymentsClient });
 
   app.post(
     "/",
@@ -650,10 +652,15 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { id } = request.params as { id: string };
       const shipment = await service.getShipmentDetail(id, callerId, callerRoles);
       // MOVO-275: solo las partes del envío (no un transportista que lo está evaluando).
-      const receiverTransfer = hasShipmentAccess(shipment, callerId, callerRoles)
-        ? await receiverTransfersService.summaryForShipment(shipment, callerId)
-        : null;
-      return { ...toShipmentDto(shipment), receiverTransfer };
+      const [receiverTransfer, funding] = await Promise.all([
+        hasShipmentAccess(shipment, callerId, callerRoles)
+          ? receiverTransfersService.summaryForShipment(shipment, callerId)
+          : Promise.resolve(null),
+        fundingService.viewFor(shipment, callerId, {
+          formerCarrier: shipment.viewerIsFormerCarrier === true,
+        }),
+      ]);
+      return { ...toShipmentDto(shipment), receiverTransfer, funding };
     }
   );
 

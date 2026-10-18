@@ -9,6 +9,7 @@ import {
   ShipmentFundingRequest,
   ShipmentFundingResponse,
   ShipmentFundingResult,
+  ShipmentFundingView,
   ShipmentStatus,
 } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
@@ -16,8 +17,12 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { PaymentsClient } from "../../adapters/payments-client";
 import { UsersClient } from "../../adapters/users-client";
 import {
+  computeSenderFundingView,
   farRouteFundingDeadline,
+  type FundingViewHold,
+  fundingLapseReasonOf,
   isFundingWindowOpen,
+  toCarrierFundingView,
   nearRouteFundingDeadline,
   reminderBucket,
 } from "../../domain/funding";
@@ -377,7 +382,85 @@ export function createFundingService(deps: FundingServiceDeps) {
     }
   }
 
+  /**
+   * Estados en los que la API de detalle proyecta el hold. La app usa PaymentBreakdown tras
+   * la entrega, pero otros consumidores pueden usar `funding.held`/`funding.captured`.
+   */
+  const SENDER_HOLD_STATUSES: readonly ShipmentStatus[] = [
+    ShipmentStatus.ASSIGNMENT_PENDING,
+    ShipmentStatus.ASSIGNED_UNFUNDED,
+    ShipmentStatus.ASSIGNED,
+    ShipmentStatus.IN_TRANSIT,
+    ShipmentStatus.DELIVERED,
+    ShipmentStatus.COMPLETED,
+    ShipmentStatus.CANCELLED,
+  ];
+
+  /**
+   * Hold más reciente del envío para la proyección del detalle. Falla abierto: si payments
+   * no responde devuelve `undefined` y la card muestra el estado sin el detalle del intento.
+   */
+  async function findHoldForView(shipmentId: string): Promise<FundingViewHold | null | undefined> {
+    try {
+      return await paymentsClient.findHoldByShipment(shipmentId, { timeoutMs: 2500 });
+    } catch (err) {
+      logger?.warn(
+        { err, event: "funding_view_hold_unavailable", shipmentId },
+        "No se pudo consultar el hold para el detalle: se muestra la reserva sin el último intento",
+      );
+      return undefined;
+    }
+  }
+
   return {
+    /**
+     * MOVO-211: estado de la reserva para el detalle del envío, según quién mira. El emisor ve
+     * plazos, monto, último intento y tarjeta; el transportista asignado solo si el pago está
+     * pendiente o reservado (AC2); el que perdió la asignación, por qué se liberó (AC6); el
+     * receptor y cualquier otro, nada (AC3).
+     */
+    async viewFor(
+      shipment: Shipment,
+      callerId: string,
+      opts: { formerCarrier?: boolean; now?: Date } = {},
+    ): Promise<ShipmentFundingView | null> {
+      const now = opts.now ?? new Date();
+      const isSender = callerId === shipment.senderId;
+      const isCarrier = shipment.carrierId !== null && callerId === shipment.carrierId;
+      if (!isSender && !isCarrier && !opts.formerCarrier) return null;
+
+      const needsLastEvent =
+        shipment.status === ShipmentStatus.PUBLISHED || shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED;
+      const lastEvent = needsLastEvent ? await repository.findLatestEvent(shipment.id) : null;
+
+      if (opts.formerCarrier) {
+        const reason = shipment.status === ShipmentStatus.PUBLISHED ? fundingLapseReasonOf(lastEvent) : null;
+        if (!reason || !lastEvent) return null;
+        return { viewer: "former_carrier", phase: "lapsed", reason, at: lastEvent.createdAt.toISOString() };
+      }
+
+      const awaitingPayment =
+        shipment.status === ShipmentStatus.ASSIGNMENT_PENDING || shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED;
+      const hold =
+        isSender && SENDER_HOLD_STATUSES.includes(shipment.status) ? await findHoldForView(shipment.id) : null;
+
+      const senderView = computeSenderFundingView({
+        status: shipment.status,
+        carrierId: shipment.carrierId,
+        amountArs: shipment.agreedPriceArs,
+        cancellationPenaltyArs: shipment.cancellationPenaltyArs,
+        cancellationPenaltyStatus: shipment.cancellationPenaltyStatus,
+        pickupStart: pickupStartOf(shipment),
+        payUntil: awaitingPayment && shipment.carrierId !== null ? payUntilOf(shipment) : null,
+        nearPickupDays: config.nearPickupDays,
+        statusChangedAt: shipment.lastStatusChangedAt,
+        hold,
+        lastEvent,
+        now,
+      });
+      return isSender ? senderView : toCarrierFundingView(senderView);
+    },
+
     /** AC1: `GET /shipments/:id/funding`. */
     async getFunding(shipmentId: string, callerId: string, now: Date = new Date()): Promise<ShipmentFundingResponse> {
       const shipment = await loadShipmentForSender(shipmentId, callerId);

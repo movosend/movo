@@ -119,6 +119,7 @@ export type {
   HoldCheckoutDataResponse,
   HoldDebtBreakdown,
   HoldFailureReason,
+  HoldDetailResponse,
   HoldResponse,
   HoldStatus,
 } from "./types/hold";
@@ -189,8 +190,15 @@ export type {
 } from "./types/user-ledger";
 // funding (MOVO-210)
 export type {
+  CarrierFundingView,
+  FundingAttempt,
+  FundingCard,
+  FundingLapseReason,
   FundingRoute,
   HoldProviderEventKind,
+  OfferAcceptanceAssignment,
+  SenderFundingView,
+  ShipmentFundingView,
   HoldProviderEventRequest,
   ShipmentFundingRequest,
   ShipmentFundingResponse,

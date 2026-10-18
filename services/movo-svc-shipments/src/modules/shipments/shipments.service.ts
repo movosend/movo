@@ -32,6 +32,7 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { releaseHoldBeforeCancel } from "../funding/funding.service";
+import { isLatestFundingLapseForCarrier } from "../../domain/funding";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { RatingRole } from "../../models/rating";
 import {
@@ -235,6 +236,8 @@ export interface ShipmentOffersSummary {
 
 export type ShipmentDetailResult = Shipment & {
   offersSummary?: ShipmentOffersSummary | null;
+  /** MOVO-211 AC6: el caller es el transportista cuya asignación se cayó por falta de pago. */
+  viewerIsFormerCarrier?: boolean;
   /** MOVO-311: solo para el transportista asignado, mientras el cobro no se capturó. */
   debtDiscount?: CarrierDebtDiscount | null;
 };
@@ -1458,6 +1461,20 @@ export function createShipmentsService(
       }
 
       if (shipment.status === ShipmentStatus.PUBLISHED) {
+        // MOVO-211 AC6: el transportista cuya asignación se cayó por falta de pago entra por el
+        // push "Envío liberado" y tiene que ver por qué, aunque ya no sea parte del envío. No
+        // pasa por el chequeo de KYC ni recibe `offersSummary`: es su envío caído, no uno que
+        // está evaluando.
+        if (offerRepository) {
+          const offers = await offerRepository.listByShipment(shipment.id);
+          const own = offers.filter((o) => o.carrierId === callerId);
+          // Si volvió a ofertar, lo está evaluando de nuevo: vista de descubrimiento normal.
+          const lastEvent = own.some((o) => o.status === OfferStatus.ASSIGNMENT_LAPSED)
+            ? await repository.findLatestEvent(shipment.id)
+            : null;
+          const lapsed = isLatestFundingLapseForCarrier(lastEvent, callerId, own);
+          if (lapsed) return { ...shipment, viewerIsFormerCarrier: true };
+        }
         await assertVerifiedCarrier(usersClient, callerId, callerRoles, CARRIER_READ_ROLE_MESSAGE);
         // MOVO-180 (adelantado): agregado de ofertas vigentes para el transportista
         // que está evaluando ofertar -- nunca bloquea la apertura del detalle si

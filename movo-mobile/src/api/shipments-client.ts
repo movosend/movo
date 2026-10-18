@@ -1,5 +1,6 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
+import type { ShipmentFundingView } from "@movo/shared/dist/types/funding";
 import type { ShipmentQuoteRequest, ShipmentQuoteResponse } from "@movo/shared/dist/types/pricing";
 import type { ShipmentReceiverTransferSummary } from "@movo/shared/dist/types/receiver-transfer";
 import type { CancellationQuoteResponse } from "@movo/shared/dist/config/cancellation-penalty";
@@ -62,6 +63,10 @@ export interface ShipmentSummary {
   /** MOVO-257: solo en `GET /shipments/mine` — ofertas vigentes de un envío
    * `published` visto por su emisor; `null` en cualquier otro caso. */
   pendingOffersCount?: number | null;
+  /** MOVO-211: solo en `GET /shipments/:id` — estado de la reserva de fondos según quién
+   * mira (emisor, transportista asignado o el que perdió la asignación). `null` para el
+   * receptor y cuando no hay nada que mostrar. */
+  funding?: ShipmentFundingView | null;
   /** MOVO-275: solo en `GET /shipments/:id` para las partes del envío. Dice si quien
    * mira le pasó la recepción a otra persona (solo lectura), la solicitud pendiente
    * (solo para quien la pidió y el emisor) y la transferencia completada. */

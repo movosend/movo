@@ -262,6 +262,8 @@ export interface AcceptOfferResult {
   /** Ruta elegida y estado al que pasó el envío (MOVO-210, AC3/AC6). */
   fundingRoute: FundingRoute;
   shipmentStatus: ShipmentStatus.ASSIGNMENT_PENDING | ShipmentStatus.ASSIGNED_UNFUNDED;
+  /** MOVO-211: inicio de la ventana de retiro acordada, para avisar cuándo abre el pago. */
+  pickupStart: Date;
 }
 
 function isPendingOfferConflict(error: unknown): boolean {
@@ -788,6 +790,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           autoCreatedTrip,
           fundingRoute,
           shipmentStatus: targetStatus,
+          pickupStart,
         };
       });
 

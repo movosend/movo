@@ -158,6 +158,18 @@ export const createHoldSchema = {
   response: { 200: hold, 201: hold, 404: errorResponse, 409: errorResponse, 502: errorResponse },
 } as const;
 
+/** MOVO-211: el hold más la tarjeta del intento, solo para la consulta por envío (ver `HoldDetailResponse`). */
+const holdDetail = {
+  ...hold,
+  required: [...hold.required, "wasAuthorized", "cardBrand", "cardLast4"],
+  properties: {
+    ...hold.properties,
+    wasAuthorized: { type: "boolean" },
+    cardBrand: { type: ["string", "null"] },
+    cardLast4: { type: ["string", "null"] },
+  },
+};
+
 export const getHoldSchema = {
   hide: true,
   tags: ["holds"],
@@ -170,7 +182,7 @@ export const getHoldSchema = {
       sync: { type: "boolean", default: false, description: "Consulta el pago a MP y actualiza la fila." },
     },
   },
-  response: { 200: hold, 404: errorResponse, 502: errorResponse },
+  response: { 200: holdDetail, 404: errorResponse, 502: errorResponse },
 } as const;
 
 export const releaseHoldSchema = {

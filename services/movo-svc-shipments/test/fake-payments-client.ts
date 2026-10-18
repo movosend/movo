@@ -7,6 +7,7 @@ import {
   CarrierMpAccountStatusResponse,
   CreateUserLedgerEntryRequest,
   HoldFailureReason,
+  HoldDetailResponse,
   HoldResponse,
   HoldStatus,
   LIVE_HOLD_STATUSES,
@@ -60,7 +61,7 @@ const debtOffset = (debt: number | undefined, priceArs: number): number =>
 
 export interface FakePaymentsClient extends PaymentsClient {
   behavior: FakePaymentsBehavior;
-  holds: Map<string, HoldResponse>;
+  holds: Map<string, HoldDetailResponse>;
   /** MOVO-212: liquidaciones por envío, las crea `captureHold`. */
   settlements: Map<string, SettlementResponse>;
   /** MOVO-307: movimientos de la cuenta corriente por `idempotencyKey`. */
@@ -73,7 +74,7 @@ export function createFakePaymentsClient(
   behaviorOverrides: Partial<FakePaymentsBehavior> = {},
 ): FakePaymentsClient {
   const unlinked = new Set(unlinkedUserIds);
-  const holds = new Map<string, HoldResponse>();
+  const holds = new Map<string, HoldDetailResponse>();
   const behavior: FakePaymentsBehavior = {
     nextHoldStatus: "authorized",
     nextFailureReason: null,
@@ -158,7 +159,7 @@ export function createFakePaymentsClient(
       }
       sequence += 1;
       const now = new Date().toISOString();
-      const hold: HoldResponse = {
+      const hold: HoldDetailResponse = {
         // UUID real: el dedupe de avisos por hold vive en Redis entre corridas de tests.
         id: randomUUID(),
         shipmentId: input.shipmentId,
@@ -173,8 +174,11 @@ export function createFakePaymentsClient(
         debtOffsetArs: 0,
         debtSurchargeArs: 0,
         status: behavior.nextHoldStatus,
+        wasAuthorized: behavior.nextHoldStatus === "authorized" || behavior.nextHoldStatus === "captured",
         statusDetail: null,
         failureReason: behavior.nextHoldStatus === "rejected" ? (behavior.nextFailureReason ?? "card_rejected") : null,
+        cardBrand: "visa",
+        cardLast4: "3704",
         expiresAt: null,
         createdAt: now,
         updatedAt: now,
@@ -205,7 +209,7 @@ export function createFakePaymentsClient(
       if (CLOSED_HOLD_STATUSES.includes(hold.status)) {
         return hold;
       }
-      const released: HoldResponse = { ...hold, status: "cancelled" };
+      const released: HoldDetailResponse = { ...hold, status: "cancelled" };
       holds.set(shipmentId, released);
       return released;
     }),

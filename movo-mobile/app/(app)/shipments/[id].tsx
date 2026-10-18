@@ -23,6 +23,7 @@ import {
   SenderCancelledPayment,
 } from "../../../components/shipments/cancelled-payment-card";
 import { HighDemandBadge, HighDemandHelp } from "../../../components/shipments/high-demand-badge";
+import { FundsStatus } from "../../../components/shipments/funds-status";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { RouteTrackingChatCard } from "../../../components/shipments/route-tracking-chat-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
@@ -78,6 +79,7 @@ import {
   shipmentDetailCta,
   type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
+import { fundingProcessingPollInterval, fundsStatusVariant } from "../../../src/lib/funds-status-format";
 
 type DetailTab = "detalle" | "timeline";
 
@@ -144,12 +146,10 @@ export default function ShipmentDetailScreen() {
   const { data: shipment, isLoading, isError, error, refetch } = useShipment(id, {
     refetchInterval: (data) => {
       if (!isFocused) return false;
-      // MOVO-308: el cobro de la penalidad pasa de `pending` a `captured`/`debt` en el backend;
-      // sin polling la card "Tu pago" quedaría en "Procesando" hasta volver a enfocar.
       if (data?.status === ShipmentStatus.CANCELLED && data.cancellationPenaltyStatus === "pending") {
         return CANCELLATION_PENALTY_POLL_MS;
       }
-      return liveTrackingPendingPollInterval(data, currentUser?.userId);
+      return fundingProcessingPollInterval(data) || liveTrackingPendingPollInterval(data, currentUser?.userId);
     },
   });
   const [tab, setTab] = useState<DetailTab>("detalle");
@@ -284,6 +284,12 @@ export default function ShipmentDetailScreen() {
 
   const isSender = shipment !== undefined && currentUser?.userId === shipment.senderId;
   const isCarrier = shipment !== undefined && currentUser?.userId === shipment.carrierId;
+
+  // MOVO-211 AC6: el transportista cuya asignación se cayó por falta de pago llega por el push
+  // "Envío liberado". Ya no es parte del envío: ve solo por qué se liberó, la ruta y el paquete,
+  // sin acciones, evidencia ni datos de las partes.
+  const isFormerCarrier = shipment?.funding?.viewer === "former_carrier";
+
   const showSenderActions =
     isSender && shipment !== undefined && canCancelShipment(shipment.status);
 
@@ -297,11 +303,25 @@ export default function ShipmentDetailScreen() {
       : isCarrier
         ? "carrier"
         : null;
-  const contextualCta = shipment
+  const detailCta = shipment
     ? shipmentDetailCta(role, shipment.status, shipment.id, {
         fundingWindowOpen: isFundingWindowOpen(shipment),
       })
     : null;
+  // MOVO-211: con la card de la reserva a la vista, ella lleva el CTA de pago y la explicación de
+  // los fondos pendientes; el pie no los repite (el Home sí los usa, de ahí que sigan en el helper).
+  const fundingVariant = shipment !== undefined && !showPayment
+    ? fundsStatusVariant(shipment.funding, shipment.status)
+    : null;
+  const fundingReplacesCta =
+    shipment !== undefined && fundingVariant !== null && detailCta !== null &&
+    ((shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED && detailCta.kind === "info") ||
+      ((shipment.status === ShipmentStatus.ASSIGNMENT_PENDING ||
+        shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED) &&
+        detailCta.kind === "action" && detailCta.icon === "card" &&
+        ["confirm", "unfinished", "rejected", "processing"].includes(fundingVariant)));
+  const contextualCta =
+    fundingReplacesCta ? null : detailCta;
 
   // El precio pactado (`agreedPriceArs`) es el bruto que paga el emisor; el
   // transportista ve lo que recibe aprox. después de la comisión de Movo (AC3) y del
@@ -521,6 +541,16 @@ export default function ShipmentDetailScreen() {
                 />
               ) : null}
 
+              {/* MOVO-211: estado de la reserva de fondos. Una vez entregado, el detalle del cobro
+                  es el de `PaymentBreakdown` (MOVO-214), así que no se repite. */}
+              {showPayment ? null : (
+                <FundsStatus
+                  shipment={shipment}
+                  carrierFirstName={carrierFirstName ?? undefined}
+                  testID="shipment-detail-funds"
+                />
+              )}
+
               {showCancelledSenderPayment ? (
                 <SenderCancelledPayment
                   shipment={shipment}
@@ -535,6 +565,12 @@ export default function ShipmentDetailScreen() {
                   settlement={settlementQuery.data}
                   testID="shipment-detail-cancellation-compensation"
                 />
+              ) : null}
+
+              {/* Ofertas recibidas arriba del mapa: es la acción principal del emisor
+                  mientras el envío está publicado, y al pie de la pantalla no se veía. */}
+              {showOffersBanner ? (
+                <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
               ) : null}
 
               <View>
@@ -594,10 +630,6 @@ export default function ShipmentDetailScreen() {
                 </View>
               ) : null}
 
-              {showOffersBanner ? (
-                <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
-              ) : null}
-
               {seesReceiverView ? (
                 // El receptor no ve el precio (no paga nada): retiro y paquete comparten la fila.
                 <View className="flex-row gap-3" testID="shipment-detail-pickup-package">
@@ -618,6 +650,7 @@ export default function ShipmentDetailScreen() {
                 </View>
               ) : (
                 <>
+                  {isFormerCarrier ? null : (
                   <View className="flex-row gap-3">
                     <View className="flex-1 rounded-[10px] bg-bg-mute px-3.5 py-3.5">
                       <View className="mb-1">
@@ -653,7 +686,7 @@ export default function ShipmentDetailScreen() {
                         {showHighDemandBadge ? (
                           <View className="mt-2">
                             <HighDemandBadge
-                              label="Alta demanda"
+                              compact
                               expanded={isHighDemandHelpOpen}
                               onToggle={() => setIsHighDemandHelpOpen((open) => !open)}
                               testID="shipment-detail-high-demand"
@@ -663,9 +696,12 @@ export default function ShipmentDetailScreen() {
                       </View>
                     )}
                   </View>
+                  )}
 
-                  {showHighDemandBadge && isHighDemandHelpOpen ? (
-                    <HighDemandHelp testID="shipment-detail-high-demand-help" />
+                  {showHighDemandBadge && isHighDemandHelpOpen && !hidePriceCard ? (
+                    <View testID="shipment-detail-high-demand-explainer">
+                      <HighDemandHelp testID="shipment-detail-high-demand-help" />
+                    </View>
                   ) : null}
                   {!hidePriceCard && carrierReceivedArs !== null && shipment.agreedPriceArs != null ? <DebtDiscount beforeArs={estimateReceivedArs(computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()), shipment.agreedPriceArs)} amountArs={shipment.debtDiscount?.amountArs} /> : null}
 
@@ -676,6 +712,7 @@ export default function ShipmentDetailScreen() {
                 </>
               )}
 
+              {isFormerCarrier ? null : (
               <View>
                 <Eyebrow>Participantes</Eyebrow>
                 <ShipmentPartiesCard
@@ -725,8 +762,11 @@ export default function ShipmentDetailScreen() {
                   ]}
                 />
               </View>
+              )}
 
-              <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
+              {isFormerCarrier ? null : (
+                <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
+              )}
 
               {isReceiver && activeUserId ? (
                 <ReceiverTransferSection

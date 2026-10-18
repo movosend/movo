@@ -119,6 +119,7 @@ function mapEvent(row: ShipmentEventRow): ShipmentEvent {
     fromStatus: row.fromStatus ? parseShipmentStatus(row.fromStatus, "from_status") : null,
     toStatus: parseShipmentStatus(row.toStatus, "to_status"),
     actorId: row.actorId,
+    assignmentCarrierId: row.assignmentCarrierId,
     reason: row.reason,
     createdAt: row.createdAt,
   };
@@ -543,6 +544,7 @@ export interface ShipmentRepository {
    */
   redesignateReceiver(input: RedesignateReceiverInput): Promise<Shipment>;
   listEvents(shipmentId: string): Promise<ShipmentEvent[]>;
+  findLatestEvent(shipmentId: string): Promise<ShipmentEvent | null>;
   addPhoto(shipmentId: string, stage: PhotoStage, s3Key: string): Promise<ShipmentPhoto>;
   listPhotos(shipmentId: string): Promise<ShipmentPhoto[]>;
   /**
@@ -1182,6 +1184,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             fromStatus: from,
             toStatus: to,
             actorId,
+            assignmentCarrierId: revertsAssignment ? current.carrierId : null,
             reason: reason ?? null,
           },
         });
@@ -1321,6 +1324,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         orderBy: { createdAt: "asc" },
       });
       return rows.map(mapEvent);
+    },
+
+    async findLatestEvent(shipmentId: string): Promise<ShipmentEvent | null> {
+      const row = await db.shipmentEvent.findFirst({
+        where: { shipmentId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      });
+      return row ? mapEvent(row) : null;
     },
 
     async addPhoto(shipmentId: string, stage: PhotoStage, s3Key: string): Promise<ShipmentPhoto> {

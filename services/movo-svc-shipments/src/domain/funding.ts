@@ -1,4 +1,15 @@
-import type { FundingRoute } from "@movo/shared";
+import {
+  OfferStatus,
+  ShipmentStatus,
+  type CarrierFundingView,
+  type FundingAttempt,
+  type FundingCard,
+  type FundingLapseReason,
+  type FundingRoute,
+  type HoldDetailResponse,
+  type HoldResponse,
+  type SenderFundingView,
+} from "@movo/shared";
 
 /**
  * MOVO-210: reglas puras de la saga de asignación (pago del emisor), sin DB ni reloj propio
@@ -47,4 +58,192 @@ export function isFundingWindowOpen(pickupStart: Date, nearDays: number, now: Da
 /** Cubeta (entera) del recordatorio: cambia cada `intervalHours`, para deduplicar avisos por barrido. */
 export function reminderBucket(now: Date, intervalHours: number): number {
   return Math.floor(now.getTime() / (Math.max(1, intervalHours) * HOUR_MS));
+}
+
+/** Lo que la proyección necesita del hold más reciente del envío (MOVO-211). */
+export type FundingViewHold = Pick<
+  HoldDetailResponse,
+  "status" | "failureReason" | "carrierId" | "cardBrand" | "cardLast4" | "createdAt" | "amountArs" | "wasAuthorized"
+>;
+
+/** Lo que la proyección necesita del último `shipment_event`. */
+export interface FundingViewEvent {
+  fromStatus: ShipmentStatus | null;
+  toStatus: ShipmentStatus;
+  createdAt: Date;
+  assignmentCarrierId?: string | null;
+}
+
+/** El acceso especial pertenece solo al transportista de la última asignación vencida. */
+export function isLatestFundingLapseForCarrier(
+  event: FundingViewEvent | null,
+  callerId: string,
+  offers: readonly { carrierId: string; status: OfferStatus; createdAt: Date }[],
+): boolean {
+  if (!event || !fundingLapseReasonOf(event) || event.assignmentCarrierId !== callerId) return false;
+  return (
+    offers.some((offer) => offer.carrierId === callerId && offer.status === OfferStatus.ASSIGNMENT_LAPSED) &&
+    !offers.some(
+      (offer) =>
+        offer.carrierId === callerId &&
+        (offer.status === OfferStatus.PENDING || offer.createdAt > event.createdAt),
+    )
+  );
+}
+
+export interface SenderFundingViewInput {
+  status: ShipmentStatus;
+  carrierId: string | null;
+  amountArs: number | null;
+  cancellationPenaltyArs?: number | null;
+  cancellationPenaltyStatus?: "pending" | "captured" | "debt" | null;
+  /** Inicio de la ventana de retiro acordada. */
+  pickupStart: Date;
+  /** Plazo de pago del estado actual (`payUntilOf`), solo en `assignment_pending`/`assigned_unfunded`. */
+  payUntil: Date | null;
+  nearPickupDays: number;
+  /** Cuándo entró el envío a su estado actual. */
+  statusChangedAt: Date | null;
+  /** `undefined` = payments no respondió (falla abierto); `null` = no hay hold. */
+  hold: FundingViewHold | null | undefined;
+  lastEvent: FundingViewEvent | null;
+  now: Date;
+}
+
+function cardOf(hold: FundingViewHold | null | undefined): FundingCard | null {
+  if (!hold?.cardBrand || !hold.cardLast4) return null;
+  return { brand: hold.cardBrand, lastFour: hold.cardLast4 };
+}
+
+/**
+ * Resultado del último intento de pago de la asignación ACTUAL. Un hold de otro
+ * transportista, o creado antes de entrar al estado (una asignación anterior que se cayó),
+ * no cuenta: el emisor todavía no intentó pagar esta.
+ */
+function attemptOf(
+  hold: FundingViewHold | null,
+  carrierId: string | null,
+  statusChangedAt: Date | null,
+): { lastAttempt: FundingAttempt; failureReason: HoldResponse["failureReason"] } {
+  const current =
+    hold !== null &&
+    hold.carrierId === carrierId &&
+    (statusChangedAt === null || new Date(hold.createdAt).getTime() >= statusChangedAt.getTime());
+  if (!current) return { lastAttempt: "none", failureReason: null };
+  if (hold.status === "rejected") return { lastAttempt: "rejected", failureReason: hold.failureReason };
+  // `authorized`/`captured` con el envío todavía sin confirmar: la saga lo está confirmando.
+  if (hold.status === "in_process" || hold.status === "authorized" || hold.status === "captured") {
+    return { lastAttempt: "in_process", failureReason: null };
+  }
+  // `creating` abandonado o `cancelled`: no se retuvo nada, el pago quedó sin terminar.
+  return { lastAttempt: "none", failureReason: null };
+}
+
+/** Por qué una asignación volvió a `published`, según de qué estado salió. */
+export function fundingLapseReasonOf(event: FundingViewEvent | null): FundingLapseReason | null {
+  if (!event || event.toStatus !== ShipmentStatus.PUBLISHED) return null;
+  if (event.fromStatus === ShipmentStatus.ASSIGNMENT_PENDING) return "payment_timeout";
+  if (event.fromStatus === ShipmentStatus.ASSIGNED_UNFUNDED) return "window_expired";
+  return null;
+}
+
+/**
+ * MOVO-211: estado de la reserva que ve el emisor en el detalle del envío. `null` cuando no
+ * hay nada que mostrar (todavía sin transportista, o cancelado sin que se haya reservado nada).
+ */
+export function computeSenderFundingView(input: SenderFundingViewInput): SenderFundingView | null {
+  const { status, amountArs, hold } = input;
+  const assignmentHold = hold && hold.carrierId === input.carrierId ? hold : null;
+
+  if (status === ShipmentStatus.PUBLISHED) {
+    const reason = fundingLapseReasonOf(input.lastEvent);
+    if (!reason || !input.lastEvent) return null;
+    return { viewer: "sender", phase: "lapsed", reason, at: input.lastEvent.createdAt.toISOString() };
+  }
+
+  if (amountArs === null) return null;
+
+  if (status === ShipmentStatus.ASSIGNED_UNFUNDED || status === ShipmentStatus.ASSIGNMENT_PENDING) {
+    if (input.payUntil === null) return null;
+    const payUntil = input.payUntil.toISOString();
+    if (
+      status === ShipmentStatus.ASSIGNED_UNFUNDED &&
+      !isFundingWindowOpen(input.pickupStart, input.nearPickupDays, input.now)
+    ) {
+      return {
+        viewer: "sender",
+        phase: "awaiting_window",
+        windowOpensAt: fundingWindowOpensAt(input.pickupStart, input.nearPickupDays).toISOString(),
+        payUntil,
+        amountArs,
+      };
+    }
+    const known = hold !== undefined;
+    const attempt = known ? attemptOf(hold, input.carrierId, input.statusChangedAt) : null;
+    const attemptedAmountArs =
+      attempt?.lastAttempt === "rejected" || attempt?.lastAttempt === "in_process" ? hold?.amountArs : null;
+    const holdLost =
+      status === ShipmentStatus.ASSIGNED_UNFUNDED &&
+      input.lastEvent?.fromStatus === ShipmentStatus.ASSIGNED &&
+      input.lastEvent.toStatus === ShipmentStatus.ASSIGNED_UNFUNDED;
+    return {
+      viewer: "sender",
+      phase: "payment_due",
+      route: status === ShipmentStatus.ASSIGNMENT_PENDING ? "near" : "far",
+      payUntil,
+      amountArs: attemptedAmountArs ?? amountArs,
+      lastAttempt: attempt?.lastAttempt ?? null,
+      failureReason: attempt?.failureReason ?? null,
+      card: attempt?.lastAttempt === "rejected" || attempt?.lastAttempt === "in_process" ? cardOf(hold) : null,
+      holdLost,
+    };
+  }
+
+  if (
+    status === ShipmentStatus.ASSIGNED ||
+    status === ShipmentStatus.IN_TRANSIT ||
+    status === ShipmentStatus.DELIVERED
+  ) {
+    return {
+      viewer: "sender",
+      phase: "held",
+      amountArs: assignmentHold?.amountArs ?? amountArs,
+      card: cardOf(assignmentHold),
+    };
+  }
+
+  if (status === ShipmentStatus.COMPLETED) {
+    return {
+      viewer: "sender",
+      phase: "captured",
+      amountArs: assignmentHold?.amountArs ?? amountArs,
+      at: (input.statusChangedAt ?? input.now).toISOString(),
+    };
+  }
+
+  // `cancelled` solo si MP llegó a autorizar; un `in_process` cancelado nunca retuvo fondos.
+  if (status === ShipmentStatus.CANCELLED && assignmentHold?.status === "cancelled" && assignmentHold.wasAuthorized) {
+    return {
+      viewer: "sender",
+      phase: "released",
+      amountArs: assignmentHold.amountArs,
+      penaltyArs: input.cancellationPenaltyArs ?? null,
+      penaltyStatus: input.cancellationPenaltyStatus ?? null,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * MOVO-211 AC2: lo que ve el transportista asignado, sin montos, tarjeta ni motivos de
+ * rechazo del emisor. Solo "pago pendiente" o "reservado".
+ */
+export function toCarrierFundingView(view: SenderFundingView | null): CarrierFundingView | null {
+  if (!view) return null;
+  if (view.phase === "awaiting_window" || view.phase === "payment_due") {
+    return { viewer: "carrier", phase: "sender_payment_pending", payUntil: view.payUntil };
+  }
+  if (view.phase === "held") return { viewer: "carrier", phase: "held" };
+  return null;
 }

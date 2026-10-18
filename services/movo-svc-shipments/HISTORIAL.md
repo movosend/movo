@@ -3575,6 +3575,34 @@ suma `debtCollectedArs`: el descuento para el transportista, el recargo para el 
 
 `POST /internal/ledger-origins` devuelve etiquetas de origen solo para envíos vinculados al usuario consultado, incluidas ofertas de transportistas antes asignados; usa la calle de destino para evitar el sufijo "Argentina" de Geocoding. `GET /shipments/carrier-eligibility` publica los requisitos actuales del transportista para detectar deuda vencida al entrar en Transportar. El feed, el detalle público y los matches por viaje agregan `debtDiscount` con un tope de 3 s para que la app muestre el neto aproximado antes de ofertar. La interfaz visual queda en la rama mobile de MOVO-315.
 
+### MOVO-211 — Estado de la reserva en el detalle (`funding`) y desenlace de aceptar una oferta
+
+`GET /shipments/:id` suma `funding` (`ShipmentFundingView` de `@movo/shared`): la fase de la reserva
+calculada por el servidor según quién mira, así el mobile no reimplementa N días ni plazos. Reglas puras
+en `domain/funding.ts#computeSenderFundingView`/`toCarrierFundingView` (reusan `fundingWindowOpensAt`/
+`isFundingWindowOpen`; el plazo sale de `payUntilOf`, sin cambios). El servicio es `funding.service.ts#viewFor`,
+llamado desde la ruta del detalle (no desde `getShipmentDetail`, mismo criterio que `receiverTransfer`).
+
+- **Por rol**: el emisor ve plazos, monto, último intento (`none`/`in_process`/`rejected` + motivo) y la
+  tarjeta; el transportista asignado solo `sender_payment_pending` o `held`, sin montos ni motivos (AC2); el
+  receptor y terceros, `null` (AC3).
+- **Hold solo para el emisor**, sin `sync`, y falla abierto (`lastAttempt: null`, sin tarjeta; `cardBrand`/`cardLast4` del hold) si payments no
+  responde: el detalle nunca cae por payments. Un hold de otro transportista o anterior a la entrada al estado
+  actual no cuenta como intento (una asignación caída no pinta "rechazado" en la siguiente).
+- **Motivo de vuelta a `published`** derivado del `fromStatus` del último evento (`assignment_pending` →
+  `payment_timeout`, `assigned_unfunded` → `window_expired`), sin columna nueva: el `reason` es texto libre.
+- **Ex-transportista (AC6)**: con oferta `assignment_lapsed` y sin otra `pending` propia, `getShipmentDetail` lo
+  deja ver el envío `published` (sin KYC ni `offersSummary`, `viewerIsFormerCarrier`) y `funding` dice por qué
+  se liberó. Si volvió a ofertar ve la vista de descubrimiento normal.
+- **`released`** = cancelado con el hold más reciente del mismo transportista en `cancelled` (llegó a MP);
+  `captured` = `completed` (queda "disponible, no disparado" hasta MOVO-212).
+- **`POST /offers/:id/accept`** suma `assignment: { shipmentStatus, fundingRoute, fundingWindowOpensAt }`
+  (AC4); `AcceptOfferResult` expone `pickupStart`. Se corrigió la descripción Swagger desactualizada (las demás
+  ofertas ya no pasan a `superseded` al aceptar, desde MOVO-210).
+
+Tests: `test/funding-view.test.ts` (fases, bordes de N días, reducción por rol) y
+`test/funding-view.integration.test.ts` (Postgres real: los tres roles, ex-transportista, payments caído, accept).
+
 ### MOVO-310 — Baja del transportista de un envío asignado (ADR-047/044)
 
 `POST /shipments/:id/carrier-withdrawal` (y `GET /:id/carrier-withdrawal-quote`), solo el transportista asignado, desde

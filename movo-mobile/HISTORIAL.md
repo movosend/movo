@@ -4781,6 +4781,33 @@ Pendiente: la pantalla con el saldo y el botón para saldarla es de MOVO-312.
 
 Entrada completa en `services/movo-svc-shipments/HISTORIAL.md` (backend, shared y mobile).
 
+### MOVO-211 — Estado de la reserva de fondos en el detalle y desenlaces de aceptar una oferta
+
+Sobre el prototipo de Claude Design "MOVO-211 Estado de la reserva". `components/shipments/funds-status.tsx`
+va arriba de todo en la pestaña Detalle y renderiza `shipment.funding` (lo calcula `svc-shipments`, ver su
+CLAUDE.md): el componente no calcula plazos ni fases. Variantes y copy en `src/lib/funds-status-format.ts`
+(puro): pendiente con la ventana cerrada (con línea de tiempo), confirmá tu pago, procesando, sin terminar,
+rechazado con motivo (AC5), reservada/en camino/entregada, cobrada, liberada y vuelta a publicar (AC6); para
+el transportista, pendiente, reservado y "Este envío se liberó". AC7: ningún texto afirma un débito antes de
+`captured` (hay un test que lo verifica).
+
+- **CTAs de pago a la pantalla real `shipments/[id]/pay`** (MOVO-269); "Retomar pago" entra con `?resumed=1`. El pie del
+  detalle no repite el CTA de pago ni el aviso de fondos pendientes cuando la card está a la vista (`fundsCardVisible`
+  en `shipments/[id].tsx`); `shipmentDetailCta` los conserva porque también alimentan la card del Home (MOVO-193).
+- **Entregado/cobrado**: con `showPayment` (MOVO-214) la card de la reserva no se muestra, el detalle del cobro es
+  `PaymentBreakdown`.
+- **Ex-transportista** (`funding.viewer === "former_carrier"`, llega por el push "Envío liberado"): vista
+  reducida, sin precio, partes, evidencia ni CTA.
+- **`assigned_unfunded` ya no muestra `FUNDS_PENDING_INFO_TEXT` al pie** (`shipmentDetailCta`): la card lo
+  explica con fechas reales. El texto sigue en el home (MOVO-193).
+- **Polling de 5 s** mientras MP revisa el pago (`fundingProcessingPollInterval`), con foco.
+- **AC4**: `ChooseOfferSuccessModal` lee `assignment` de la respuesta de accept. Retiro cercano: "Elegiste a
+  X", monto a reservar y "Reservar el pago" (sin auto-cierre, reemplaza la pantalla de ofertas por la de
+  pago). Retiro lejano: "X lleva tu paquete" con la línea de tiempo y auto-cierre al detalle. Sin `assignment`
+  (backend viejo), el mensaje genérico de antes.
+
+Pendiente: no probado en device; copy del AC7 a revisar con el equipo (DoD).
+
 ### MOVO-308 — Emisor cancela un envío asignado (penalidad de ADR-047)
 
 Réplica del prototipo "MOVO-308 Emisor cancela" de Claude Design. `canCancelShipment` suma `assigned` y `assigned_unfunded`. El menú nativo de `SenderActionsBar` abre `CancelShipmentSheet`, que reemplaza al modal anterior en todos los estados cancelables. En `assigned` pide `GET /shipments/:id/cancellation-quote` al abrir. Muestra sin cargo, penalidad (con barra y desglose) o franja vencida (motivo fijo, el backend solo manda el enum). Confirma con `expectedPenaltyArs`. Ante 409 `CANCELLATION_PENALTY_MISMATCH` re-cotiza y avisa el cambio, también cuando baja a 0. Un 409 de estado refresca el detalle y explica el bloqueo según si el paquete ya se retiró. Los estados sin reserva no cotizan. El motivo opcional se mantiene. El éxito usa `SuccessBanner`, no el toast del prototipo.

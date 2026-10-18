@@ -129,3 +129,17 @@ export interface HoldResponse extends HoldDebtBreakdown {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * MOVO-211: lo que devuelve `GET /internal/payments/holds/by-shipment/:id` (único consumidor: el
+ * detalle del envío de `svc-shipments`, que se lo muestra solo al emisor). `HoldResponse` sigue sin
+ * exponer el pagador ni la tarjeta (AC7 de MOVO-302): la marca y los últimos 4 viajan únicamente acá.
+ */
+export interface HoldDetailResponse extends HoldResponse {
+  /** Si el intento llegó a retener fondos antes de terminar cancelado. */
+  wasAuthorized: boolean;
+  /** Marca de la tarjeta según MP (`visa`, `master`, ...). Nunca el BIN ni el token. */
+  cardBrand: string | null;
+  /** Últimos 4 dígitos de la tarjeta, para que el emisor la reconozca. */
+  cardLast4: string | null;
+}

@@ -108,6 +108,8 @@ model Hold {
   debtOffsetArs      Decimal            @default(0) @map("debt_offset_ars") @db.Decimal(12, 2)
   debtSurchargeArs   Decimal            @default(0) @map("debt_surcharge_ars") @db.Decimal(12, 2)
   status             HoldStatus
+  // Persiste si MP autorizó alguna vez el intento; `cancelled` también puede venir de `in_process`.
+  wasAuthorized      Boolean            @default(false) @map("was_authorized")
   // `status_detail` crudo de MP (`pending_capture`, `cc_rejected_*`, ...).
   statusDetail       String?            @map("status_detail")
   failureReason      HoldFailureReason? @map("failure_reason")

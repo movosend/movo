@@ -12,4 +12,3 @@ ALTER TABLE "shipments"."offers"
   ADD COLUMN "carrier_withdrawn_at" TIMESTAMPTZ,
   ADD COLUMN "withdrawal_penalty_ars" DECIMAL(12,2),
   ADD COLUMN "withdrawal_penalty_status" "shipments"."cancellation_penalty_status_enum";
-

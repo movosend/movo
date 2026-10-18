@@ -9,6 +9,7 @@ import {
   CreateUserLedgerEntryResponse,
   HoldCheckoutDataRequest,
   HoldCheckoutDataResponse,
+  HoldDetailResponse,
   HoldResponse,
   SettlementResponse,
   UserLedgerBalanceResponse,
@@ -71,7 +72,7 @@ export interface PaymentsClient {
    */
   createHold(input: CreateHoldRequest): Promise<HoldResponse>;
   /** Hold más reciente del envío, o `null` si nunca se intentó (404 `HOLD_NOT_FOUND`). */
-  findHoldByShipment(shipmentId: string, options?: { sync?: boolean }): Promise<HoldResponse | null>;
+  findHoldByShipment(shipmentId: string, options?: { sync?: boolean; timeoutMs?: number }): Promise<HoldDetailResponse | null>;
   /**
    * Libera (cancela sin cobrar) el hold del envío. Idempotente en payments. `null` si el
    * envío nunca tuvo hold. Lanza si payments no puede confirmar la liberación.
@@ -268,14 +269,18 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
 
     async findHoldByShipment(shipmentId, options = {}) {
       const query = options.sync ? "?sync=true" : "";
-      const response = await callHolds(`/by-shipment/${encodeURIComponent(shipmentId)}${query}`, { method: "GET" });
+      const response = await callHolds(
+        `/by-shipment/${encodeURIComponent(shipmentId)}${query}`,
+        { method: "GET" },
+        options.timeoutMs ?? HOLD_TIMEOUT_MS,
+      );
       if (response.status === 404) {
         return null;
       }
       if (!response.ok) {
         throw await parseApiError(response, "El servicio de pagos devolvió un error.");
       }
-      return (await response.json()) as HoldResponse;
+      return (await response.json()) as HoldDetailResponse;
     },
 
     async releaseHold(shipmentId, expectedCarrierId, expectedHoldId) {

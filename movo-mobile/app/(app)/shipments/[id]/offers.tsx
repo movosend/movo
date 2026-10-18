@@ -1,3 +1,4 @@
+import type { OfferAcceptanceAssignment } from "@movo/shared/dist/types/funding";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useLocalSearchParams } from "expo-router";
@@ -67,6 +68,13 @@ export default function ShipmentOffersScreen() {
   const [offerToReject, setOfferToReject] = useState<OfferSummary | null>(null);
   const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
   const [acceptedOfferCarrierName, setAcceptedOfferCarrierName] = useState<string | null>(null);
+  // MOVO-211 AC4: desenlace de la aceptación (pagar ya o más cerca del retiro) y lo que se
+  // va a reservar, para el modal de éxito.
+  const [acceptedOutcome, setAcceptedOutcome] = useState<{
+    assignment: OfferAcceptanceAssignment | null;
+    amountArs: number;
+    pickupDate: string;
+  } | null>(null);
   const [acceptedPayNow, setAcceptedPayNow] = useState<boolean | null>(null);
   const [acceptErrorMessage, setAcceptErrorMessage] = useState<string | null>(null);
   const [rejectErrorMessage, setRejectErrorMessage] = useState<string | null>(null);
@@ -138,9 +146,14 @@ export default function ShipmentOffersScreen() {
   const handleConfirmAccept = async () => {
     if (!offerToAccept) return;
     try {
-      await acceptMutation.mutateAsync(offerToAccept.id);
+      const accepted = await acceptMutation.mutateAsync(offerToAccept.id);
       hasAcceptedRef.current = true;
       setAcceptedOfferCarrierName(offerToAccept.carrierNameAtOffer);
+      setAcceptedOutcome({
+        assignment: accepted?.assignment ?? null,
+        amountArs: offerToAccept.priceOffered,
+        pickupDate: offerToAccept.offeredDate,
+      });
       setAcceptedPayNow(payNowFor(offerToAccept));
       // El modal de éxito se abre recién en `onClosed` del sheet de confirmación:
       // abrirlo en este mismo render hacía que iOS lo descartara (MOVO-271 AC2).
@@ -199,8 +212,14 @@ export default function ShipmentOffersScreen() {
     goToShipmentDetail();
   };
 
-  // ¿El pago se reserva ya? Con retiro cercano sí (MOVO-269); lejano, más adelante. Se calcula
-  // con la fecha/franja de la oferta (la que queda acordada), como la ventana del backend.
+  // Ruta cercana: la aceptación lleva directo al pago. Reemplaza esta pantalla, así
+  // "volver" desde el pago cae en el detalle del envío y no de nuevo en las ofertas.
+  const handleSuccessPay = () => {
+    setIsSuccessModalVisible(false);
+    router.replace(`/shipments/${id}/pay` as never);
+  };
+
+  // Fallback para una respuesta de accept sin `assignment`.
   const payNowFor = (offer: OfferSummary | null): boolean | null => {
     if (!offer || !shipment) return null;
     return isFundingWindowOpen({
@@ -378,8 +397,12 @@ export default function ShipmentOffersScreen() {
       <ChooseOfferSuccessModal
         visible={isSuccessModalVisible}
         carrierName={acceptedOfferCarrierName}
-        payNow={acceptedPayNow}
+          payNow={acceptedPayNow}
         onDismiss={handleSuccessDismiss}
+        assignment={acceptedOutcome?.assignment}
+        amountArs={acceptedOutcome?.amountArs}
+        pickupDate={acceptedOutcome?.pickupDate}
+        onPay={handleSuccessPay}
         testID="choose-offer-success-modal"
       />
 

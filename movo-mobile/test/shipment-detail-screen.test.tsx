@@ -1,6 +1,6 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { RefreshControl } from "react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import ShipmentDetailScreen from "../app/(app)/shipments/[id]";
@@ -629,6 +629,23 @@ describe("ShipmentDetailScreen", () => {
       return render(<ShipmentDetailScreen />);
     }
 
+    it("al tocarlo, la explicación aparece debajo de la fila de cards y no dentro de la de precio", async () => {
+      const { getByTestId, queryByTestId } = await renderWith({ highDemand: true });
+
+      expect(queryByTestId("shipment-detail-high-demand-explainer")).toBeNull();
+      await act(async () => {
+        fireEvent.press(getByTestId("shipment-detail-high-demand-toggle"));
+      });
+      expect(getByTestId("shipment-detail-high-demand-explainer")).toBeTruthy();
+      // La ayuda está dentro del contenedor externo, fuera de la card de precio.
+      expect(getByTestId("shipment-detail-high-demand-help")).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(getByTestId("shipment-detail-high-demand-toggle"));
+      });
+      expect(queryByTestId("shipment-detail-high-demand-explainer")).toBeNull();
+    });
+
     it("lo muestra al emisor junto al precio sugerido si highDemand es true", async () => {
       const { getByTestId, getByText } = await renderWith({ highDemand: true });
 
@@ -722,6 +739,25 @@ describe("ShipmentDetailScreen", () => {
 
     expect(getByTestId("shipment-detail-offers")).toBeTruthy();
     expect(getByText("Aún no tenés ofertas")).toBeTruthy();
+  });
+
+  it("la bandeja de ofertas va arriba del mapa: es la acción principal del emisor con el envío publicado", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ status: ShipmentStatus.PUBLISHED, carrierId: null }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { container } = await render(<ShipmentDetailScreen />);
+    // Orden de render (recorrido en profundidad) de los testIDs de la pantalla.
+    const ids = container
+      .queryAll((node) => typeof node.props.testID === "string")
+      .map((node) => node.props.testID as string);
+
+    expect(ids).toContain("shipment-detail-offers");
+    expect(ids.indexOf("shipment-detail-offers")).toBeLessThan(ids.indexOf("shipment-detail-route-map"));
   });
 
   it("no muestra el banner de ofertas si el envío ya tiene transportista asignado", async () => {
@@ -844,24 +880,69 @@ describe("ShipmentDetailScreen", () => {
     });
 
     it.each([SENDER, CARRIER])(
-      "en assigned_unfunded el usuario %s ve un texto informativo sin botón",
+      "en assigned_unfunded el usuario %s no tiene CTA ni texto al pie: la card de la reserva lo explica (MOVO-211)",
       async (userId) => {
         mockCurrentUser.mockReturnValue({ userId });
         mockUseShipment.mockReturnValue({
           isLoading: false,
           isError: false,
           // Retiro lejano: la ventana para confirmar el pago todavía no se abrió (MOVO-269).
-          data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNED_UNFUNDED, pickupDate: "2099-01-01" }),
+          data: shipment({
+            carrierId: CARRIER,
+            status: ShipmentStatus.ASSIGNED_UNFUNDED,
+            pickupDate: "2099-01-01",
+            funding:
+              userId === SENDER
+                ? {
+                    viewer: "sender",
+                    phase: "awaiting_window",
+                    windowOpensAt: "2098-12-29T12:00:00.000Z",
+                    payUntil: "2098-12-31T12:00:00.000Z",
+                    amountArs: 18400,
+                  }
+                : { viewer: "carrier", phase: "sender_payment_pending", payUntil: "2098-12-31T12:00:00.000Z" },
+          }),
           error: null,
           refetch: jest.fn(),
         });
 
-        const { getByText, queryByTestId } = await render(<ShipmentDetailScreen />);
+        const { queryByTestId, queryByText } = await render(<ShipmentDetailScreen />);
 
         expect(queryByTestId("shipment-detail-cta")).toBeNull();
-        expect(getByText("Los fondos se reservan antes del retiro.")).toBeTruthy();
+        expect(queryByTestId("shipment-detail-cta-info")).toBeNull();
+        expect(queryByText("Los fondos se reservan antes del retiro.")).toBeNull();
       },
     );
+
+    it("con la card de la reserva a la vista, el pago se pide ahí y no también al pie (MOVO-211)", async () => {
+      mockCurrentUser.mockReturnValue({ userId: SENDER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: CARRIER,
+          status: ShipmentStatus.ASSIGNMENT_PENDING,
+          funding: {
+            viewer: "sender",
+            phase: "payment_due",
+            route: "near",
+            amountArs: 18400,
+            payUntil: "2026-10-08T13:00:00.000Z",
+            lastAttempt: "none",
+            failureReason: null,
+            card: null,
+            holdLost: false,
+          },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-funds-cta")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-cta")).toBeNull();
+    });
 
     it("en assigned_unfunded con la ventana abierta el emisor ve 'Confirmar el pago' (MOVO-269)", async () => {
       mockCurrentUser.mockReturnValue({ userId: SENDER });
@@ -1219,6 +1300,121 @@ describe("ShipmentDetailScreen", () => {
       expect(queryByTestId("shipment-detail-rejected-banner")).toBeNull();
     });
   });
+  describe("estado de la reserva de fondos (MOVO-211)", () => {
+    const SENDER = "user-1";
+    const CARRIER = "user-2";
+    const RECEIVER = "receiver-1";
+    const PAY_UNTIL = "2026-10-08T13:00:00.000Z";
+
+    it("el emisor ve la card de la reserva arriba del detalle", async () => {
+      mockCurrentUser.mockReturnValue({ userId: SENDER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: CARRIER,
+          status: ShipmentStatus.ASSIGNED,
+          agreedPriceArs: 18400,
+          funding: { viewer: "sender", phase: "held", amountArs: 18400, card: null },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-funds-held")).toBeTruthy();
+    });
+
+    it("el transportista ve solo si el pago está pendiente, sin montos", async () => {
+      mockCurrentUser.mockReturnValue({ userId: CARRIER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: CARRIER,
+          status: ShipmentStatus.ASSIGNMENT_PENDING,
+          agreedPriceArs: 18400,
+          funding: { viewer: "carrier", phase: "sender_payment_pending", payUntil: PAY_UNTIL },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-funds-carrier-pending")).toBeTruthy();
+      expect(queryByText(/18\.400/)).toBeNull();
+    });
+
+    it("el receptor no ve ninguna card de la reserva", async () => {
+      mockCurrentUser.mockReturnValue({ userId: RECEIVER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNED, funding: null }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(queryByTestId(/^shipment-detail-funds/)).toBeNull();
+    });
+
+    it("vuelta a publicar: la card explica el motivo y la bandeja de abajo es el único acceso a las ofertas", async () => {
+      mockCurrentUser.mockReturnValue({ userId: SENDER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: null,
+          status: ShipmentStatus.PUBLISHED,
+          funding: { viewer: "sender", phase: "lapsed", reason: "payment_timeout", at: PAY_UNTIL },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, queryByTestId, container } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-funds-lapsed")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-funds-offers")).toBeNull();
+      const ids = container
+        .queryAll((node) => typeof node.props.testID === "string")
+        .map((node) => node.props.testID as string);
+      expect(ids.indexOf("shipment-detail-funds-lapsed")).toBeLessThan(ids.indexOf("shipment-detail-offers"));
+    });
+
+    it("el ex-transportista ve por qué se liberó, sin precio ni datos de las partes", async () => {
+      const formerCarrier = "former-carrier";
+      mockCurrentUser.mockReturnValue({ userId: formerCarrier });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: null,
+          status: ShipmentStatus.PUBLISHED,
+          funding: {
+            viewer: "former_carrier",
+            phase: "lapsed",
+            reason: "window_expired",
+            at: "2026-10-08T13:00:00.000Z",
+          },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-funds-carrier-lapsed")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-price")).toBeNull();
+      expect(queryByTestId("shipment-detail-receiver")).toBeNull();
+      expect(queryByTestId("shipment-detail-cta")).toBeNull();
+    });
+  });
+
 });
 
 describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => {

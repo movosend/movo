@@ -743,6 +743,13 @@ credenciales. El token de dev se obtiene y renueva con `scripts/collector-oauth.
 
 `GET /payments/balance` agrega `originLabel` a los movimientos: resuelve el destino del envío en lote por la ruta interna de shipments y la tarjeta usada en pagos voluntarios. Si shipments no responde, el saldo sigue disponible sin esa etiqueta. `POST /payments/balance/debt-preview` expone al usuario autenticado la misma estimación de descuento que ya usaba el backend. La presentación y el pago desde la app están en la rama mobile de MOVO-315.
 
+### MOVO-211 — Marca y últimos 4 de la tarjeta en `HoldDetailResponse`
+
+Las columnas (`card_brand`/`card_last4`) y su lectura de la respuesta de MP las trajo MOVO-302 (historial de pagos);
+MOVO-211 expone `cardBrand`/`cardLast4` en `HoldDetailResponse`/`toHoldDetailResponse`, solo para
+`GET /by-shipment`. Crear y liberar siguen devolviendo `HoldResponse` sin datos de tarjeta. `svc-shipments`
+le muestra al emisor la tarjeta del intento; nunca el BIN ni el token.
+
 ### MOVO-303 (ampliación) — Pagos de saldo y deuda en el historial de transacciones
 
 `GET /payments/transactions[/:id]` con `role=sender` suma, además de los holds, los **pagos de saldo aprobados**
