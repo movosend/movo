@@ -195,6 +195,9 @@ export function CarrierRequirementsChecklist({
   );
 }
 
+/** Espacio bajo la hoja, sin el inset inferior, para la tab bar flotante (pill + margen + aire). */
+const TAB_BAR_CLEARANCE = 80;
+
 export interface CarrierRequirementsScreenProps extends CarrierRequirementsChecklistProps {
   refreshing: boolean;
   onRefresh: () => void;
@@ -205,8 +208,8 @@ export interface CarrierRequirementsScreenProps extends CarrierRequirementsCheck
  * anclada abajo, manija, sobre el contenido oscurecido al 40%), pero fijo en la pantalla
  * en vez de un `Modal` — no se cierra, se resuelve o se sale con "Después". Se monta como
  * hermano absoluto del contenido del tab para que oscurezca también el título. Pull-to-refresh
- * para destrabarse sin salir (AC4 de MOVO-117). La hoja se extiende bajo la tab bar flotante
- * (que se dibuja encima) y deja el pie de la checklist por encima de ella.
+ * para destrabarse sin salir (AC4 de MOVO-117). La hoja es una tarjeta que termina arriba de la
+ * tab bar flotante, así la barra no tapa ni se superpone con la checklist.
  */
 export function CarrierRequirementsScreen({
   refreshing,
@@ -221,13 +224,12 @@ export function CarrierRequirementsScreen({
       <ScrollView
         testID={testID}
         accessibilityViewIsModal
-        contentContainerClassName="grow justify-end"
+        contentContainerClassName="grow justify-end px-3"
+        // La tab bar flotante queda libre debajo: la hoja es una tarjeta que termina arriba de ella.
+        contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FFFFFF" />}
       >
-        <View
-          className="gap-[14px] rounded-t-[24px] bg-bg px-5 pt-5"
-          style={{ paddingBottom: insets.bottom + 84 }}
-        >
+        <View className="gap-[14px] rounded-[24px] bg-bg px-5 pb-4 pt-5">
           <View className="-mt-2 items-center">
             <View className="h-[5px] w-9 rounded-full bg-ink-200" />
           </View>
