@@ -4804,6 +4804,11 @@ porque el backend arma el desglose según quién mira.
   un cobro ("Se descontaron $X de tu saldo") salen de `debtAmountArs` en la fila y el detalle. Deudas saldadas o anuladas no se muestran.
 - **Etiquetas en un solo lugar** (`src/lib/transaction-format.ts`): estados ("Completado" es "Cobrado" en Cobros), pills, agrupado por
   mes y atajos de fecha sobre el día argentino. El neto de un cobro solo se muestra con la liquidación acreditada.
+- **Fila de deuda en Saldo** (entre el prototipo 2c y el de MOVO-315): sin círculo de ícono, en una lista con borde; el origen
+  ("Envío a Rivadavia 387", sin el `#id` interno que el backend pega a la etiqueta) es lo primero que se lee, el tipo es una
+  etiqueta chica arriba y rol y fecha son contexto. No hay pill "Por pagar" por fila (toda la lista lo es); solo "En proceso"
+  si ya se está cobrando. Un ajuste sin envío usa el tipo como título. Montos con centavos siempre a dos dígitos
+  (`formatBalanceArs`: "$1.742,50", no "$1.742,5"), y más aire: tarjeta de saldo `p-5`, filas `py-4`, separación `gap-6`.
 - Con filtros activos las etiquetas solo se quitan: botón "Filtros" aparte (no está en el prototipo) para reabrir la hoja.
 - **Fuera de alcance:** el resumen "Cobrado en octubre / Por acreditar" de Cobros (falta definir bruto/neto y la fecha de acreditación;
   no hay agregados en el backend) y la penalidad del emisor como fila propia (MOVO-308). Un pago de saldo `pending` aparece en Historial

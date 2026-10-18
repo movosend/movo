@@ -26,8 +26,11 @@ describe("BalanceTab (MOVO-315)", () => {
   it("muestra deuda, rol, origen y acceso al envío", async () => {
     const screen = await render(<BalanceTab />);
     expect(screen.getByText("$6.100")).toBeTruthy();
-    expect(screen.getByText("Penalidad · Envío a Rosario #12345678")).toBeTruthy();
-    fireEvent.press(screen.getByText("Penalidad · Envío a Rosario #12345678"));
+    expect(screen.getByText("Penalidad")).toBeTruthy();
+    // El id interno que el backend le pega a la etiqueta ("#12345678") no se muestra.
+    expect(screen.getByText("Envío a Rosario")).toBeTruthy();
+    expect(screen.getByText("Como transportista · 14 oct")).toBeTruthy();
+    fireEvent.press(screen.getByText("Envío a Rosario"));
     expect(mockPush).toHaveBeenCalledWith("/shipments/12345678-1234-1234-1234-123456789abc");
   });
 
@@ -67,8 +70,23 @@ describe("BalanceTab (MOVO-315)", () => {
     };
     const screen = await render(<BalanceTab />);
     expect(screen.getByTestId("balance-entry-entry-1")).toBeTruthy();
-    expect(screen.getByText("Por pagar")).toBeTruthy();
+    expect(screen.queryByText("En proceso")).toBeNull();
     expect(screen.queryByTestId("balance-entry-pago")).toBeNull();
     expect(screen.queryByTestId("balance-entry-saldada")).toBeNull();
+  });
+
+  it("un ajuste sin envío muestra su tipo como título, sin repetirlo con un origen genérico", async () => {
+    mockPage = { ...mockPage, items: [{ ...movement, id: "ajuste", type: "manual_adjustment", roleAtOrigin: null, shipmentId: null, originLabel: null, amountArs: 5000 }] };
+    const screen = await render(<BalanceTab />);
+    expect(screen.getAllByText("Ajuste")).toHaveLength(2);
+    expect(screen.queryByText("Cuenta corriente")).toBeNull();
+  });
+
+  it("aclara solo la deuda que ya se está cobrando y muestra los centavos con dos dígitos", async () => {
+    mockPage = { ...mockPage, balanceArs: 1742.5, items: [{ ...movement, status: "reserved", amountArs: 1742.5 }] };
+    const screen = await render(<BalanceTab />);
+    expect(screen.getByText("En proceso")).toBeTruthy();
+    expect(screen.getByTestId("balance-amount")).toHaveTextContent("$1.742,50");
+    expect(screen.getByText("−$1.742,50")).toBeTruthy();
   });
 });
