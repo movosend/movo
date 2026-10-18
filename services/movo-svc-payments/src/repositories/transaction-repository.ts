@@ -47,6 +47,8 @@ export interface ListTransactionsQuery {
   /** Inicio (inclusivo) y fin (exclusivo) ya resueltos como instantes de la hora argentina. */
   from?: Date;
   toExclusive?: Date;
+  /** MOVO-308: solo las de este envío. */
+  shipmentId?: string;
   /** `createdAt` en ISO con µs, tal cual lo devolvió `createdAtCursor`. */
   cursor?: { createdAt: string; id: string };
   limit: number;
@@ -188,6 +190,7 @@ export function createTransactionRepository(db: PrismaClient): TransactionReposi
       }
       if (query.from) conditions.push(Prisma.sql`t.created_at >= ${query.from}`);
       if (query.toExclusive) conditions.push(Prisma.sql`t.created_at < ${query.toExclusive}`);
+      if (query.shipmentId) conditions.push(Prisma.sql`t.shipment_id = ${query.shipmentId}::uuid`);
       if (query.cursor) {
         conditions.push(
           Prisma.sql`(t.created_at, t.id) < (${query.cursor.createdAt}::timestamptz, ${query.cursor.id}::uuid)`

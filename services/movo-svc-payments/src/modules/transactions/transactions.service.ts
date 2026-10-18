@@ -20,6 +20,7 @@ export interface ListTransactionsInput {
   status?: string[];
   from?: string;
   to?: string;
+  shipmentId?: string;
   cursor?: string;
   limit?: number;
 }
@@ -158,6 +159,7 @@ export function createTransactionsService(deps: { transactions: TransactionRepos
         from: input.from ? argentinaDayStart(input.from) : undefined,
         // `to` es inclusivo: el tope es el comienzo del día siguiente.
         toExclusive: input.to ? argentinaDayStart(nextDay(input.to)) : undefined,
+        shipmentId: input.shipmentId,
         cursor: input.cursor ? decodeCursor(input.cursor) : undefined,
         limit,
       });

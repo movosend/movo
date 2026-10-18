@@ -1,4 +1,4 @@
-import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { fireEvent, render } from "@testing-library/react-native";
 import { SenderActionsBar } from "../components/shipments/sender-actions-bar";
 
@@ -10,6 +10,7 @@ jest.mock("../src/hooks/use-shipments", () => ({
     mutateAsync: mockMutateCancel,
     isPending: mockCancelState.isPending,
   }),
+  useCancellationQuote: () => ({ mutateAsync: jest.fn() }),
 }));
 
 // Mismo criterio que el mock de `@react-native-community/datetimepicker`
@@ -49,6 +50,20 @@ async function pressCancelAction(getByTestId: (id: string) => any) {
   await fireEvent.press(getByTestId("actions-menu-action-cancel-shipment"));
 }
 
+const PUBLISHED = { id: "shipment-1", status: ShipmentStatus.PUBLISHED, agreedPriceArs: null };
+
+function renderBar(onCancelled = jest.fn()) {
+  return render(
+    <SenderActionsBar
+      shipment={PUBLISHED}
+      onRefetch={jest.fn().mockResolvedValue(undefined)}
+      onCancelled={onCancelled}
+      testID="actions"
+    />,
+  );
+}
+
+// El sheet en sí (cotización, penalidad, 409) se prueba en `cancel-shipment-sheet.test.tsx`.
 describe("SenderActionsBar", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -56,148 +71,33 @@ describe("SenderActionsBar", () => {
   });
 
   it("renderiza el botón de menú (tres puntos) y la acción de cancelar", async () => {
-    const { getByTestId, getByText } = await render(
-      <SenderActionsBar shipmentId="shipment-1" testID="actions" />,
-    );
+    const { getByTestId, getByText } = await renderBar();
 
     expect(getByTestId("actions-menu-button")).toBeTruthy();
     expect(getByTestId("actions-menu-action-cancel-shipment")).toBeTruthy();
     expect(getByText("Cancelar envío")).toBeTruthy();
   });
 
-  it("al elegir 'Cancelar envío' del menú nativo, abre el modal de confirmación con motivo opcional", async () => {
-    const { getByTestId, queryByTestId } = await render(
-      <SenderActionsBar shipmentId="shipment-1" testID="actions" />,
-    );
+  it("al elegir 'Cancelar envío' del menú nativo abre el sheet de cancelación", async () => {
+    const { getByTestId, queryByTestId } = await renderBar();
 
-    expect(queryByTestId("actions-cancel-reason-input")).toBeNull();
+    expect(queryByTestId("actions-cancel-sheet-reason-input")).toBeNull();
 
     await pressCancelAction(getByTestId);
 
-    expect(getByTestId("actions-cancel-modal")).toBeTruthy();
-    expect(getByTestId("actions-cancel-reason-input")).toBeTruthy();
-    expect(getByTestId("actions-cancel-confirm-button")).toBeTruthy();
+    expect(getByTestId("actions-cancel-sheet-no-hold")).toBeTruthy();
+    expect(getByTestId("actions-cancel-sheet-reason-input")).toBeTruthy();
   });
 
-  it("al confirmar cancelación con motivo, llama a mutateAsync con reason", async () => {
+  it("al cancelar, cierra el sheet y le pasa el mensaje de éxito a la pantalla", async () => {
     mockMutateCancel.mockResolvedValueOnce({ id: "shipment-1", status: "cancelled" });
-
-    const { getByTestId } = await render(
-      <SenderActionsBar shipmentId="shipment-1" testID="actions" />,
-    );
+    const onCancelled = jest.fn();
+    const { getByTestId, queryByTestId } = await renderBar(onCancelled);
 
     await pressCancelAction(getByTestId);
-    await fireEvent.changeText(getByTestId("actions-cancel-reason-input"), "Me equivoqué de receptor");
-    await fireEvent.press(getByTestId("actions-cancel-confirm-button"));
+    await fireEvent.press(getByTestId("actions-cancel-sheet-confirm"));
 
-    expect(mockMutateCancel).toHaveBeenCalledWith({
-      id: "shipment-1",
-      reason: "Me equivoqué de receptor",
-    });
-  });
-
-  it("al confirmar cancelación con motivo vacío, llama a mutateAsync con reason undefined", async () => {
-    mockMutateCancel.mockResolvedValueOnce({ id: "shipment-1", status: "cancelled" });
-
-    const { getByTestId } = await render(
-      <SenderActionsBar shipmentId="shipment-1" testID="actions" />,
-    );
-
-    await pressCancelAction(getByTestId);
-    await fireEvent.press(getByTestId("actions-cancel-confirm-button"));
-
-    expect(mockMutateCancel).toHaveBeenCalledWith({
-      id: "shipment-1",
-      reason: undefined,
-    });
-  });
-
-  it("el botón 'Volver' cierra el modal sin cancelar", async () => {
-    const { getByTestId, queryByTestId } = await render(
-      <SenderActionsBar shipmentId="shipment-1" testID="actions" />,
-    );
-
-    await pressCancelAction(getByTestId);
-    await fireEvent.press(getByTestId("actions-cancel-dismiss-button"));
-
-    expect(queryByTestId("actions-cancel-reason-input")).toBeNull();
-    expect(mockMutateCancel).not.toHaveBeenCalled();
-  });
-
-  it("maneja error 403 mostrando 'No sos el emisor de este envío.' sin cerrar el modal", async () => {
-    mockMutateCancel.mockRejectedValueOnce(new ApiError(403, "AUTH_FORBIDDEN", "forbidden"));
-
-    const { getByTestId, findByText } = await render(
-      <SenderActionsBar shipmentId="shipment-1" testID="actions" />,
-    );
-
-    await pressCancelAction(getByTestId);
-    await fireEvent.press(getByTestId("actions-cancel-confirm-button"));
-
-    expect(await findByText("No sos el emisor de este envío.")).toBeTruthy();
-    expect(getByTestId("actions-cancel-reason-input")).toBeTruthy();
-  });
-
-  it("maneja error 404 mostrando 'Este envío ya no existe.'", async () => {
-    mockMutateCancel.mockRejectedValueOnce(new ApiError(404, "NOT_FOUND", "not found"));
-
-    const { getByTestId, findByText } = await render(
-      <SenderActionsBar shipmentId="shipment-1" testID="actions" />,
-    );
-
-    await pressCancelAction(getByTestId);
-    await fireEvent.press(getByTestId("actions-cancel-confirm-button"));
-
-    expect(await findByText("Este envío ya no existe.")).toBeTruthy();
-  });
-
-  it("maneja error 409 SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED con mensaje específico y dispara onRefetch", async () => {
-    const mockRefetch = jest.fn();
-    mockMutateCancel.mockRejectedValueOnce(
-      new ApiError(409, "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED", "conflict"),
-    );
-
-    const { getByTestId, findByText } = await render(
-      <SenderActionsBar shipmentId="shipment-1" onRefetch={mockRefetch} testID="actions" />,
-    );
-
-    await pressCancelAction(getByTestId);
-    await fireEvent.press(getByTestId("actions-cancel-confirm-button"));
-
-    expect(
-      await findByText(
-        "Este envío ya tiene un transportista asignado y no se puede cancelar desde la app todavía.",
-      ),
-    ).toBeTruthy();
-    expect(mockRefetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("maneja error 409 SHIPMENT_INVALID_TRANSITION con mensaje genérico y dispara onRefetch", async () => {
-    const mockRefetch = jest.fn();
-    mockMutateCancel.mockRejectedValueOnce(
-      new ApiError(409, "SHIPMENT_INVALID_TRANSITION", "conflict"),
-    );
-
-    const { getByTestId, findByText } = await render(
-      <SenderActionsBar shipmentId="shipment-1" onRefetch={mockRefetch} testID="actions" />,
-    );
-
-    await pressCancelAction(getByTestId);
-    await fireEvent.press(getByTestId("actions-cancel-confirm-button"));
-
-    expect(await findByText("Este envío ya no se puede cancelar.")).toBeTruthy();
-    expect(mockRefetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("deshabilita el botón de menú (pointerEvents+opacidad) mientras la mutación está en vuelo", async () => {
-    mockCancelState = { isPending: true };
-
-    const { getByTestId } = await render(
-      <SenderActionsBar shipmentId="shipment-1" testID="actions" />,
-    );
-
-    const wrapper = getByTestId("actions-menu-wrapper");
-    expect(wrapper.props.pointerEvents).toBe("none");
-    expect(wrapper.props.style?.opacity).toBe(0.5);
+    expect(onCancelled).toHaveBeenCalledWith("Cancelaste el envío.");
+    expect(queryByTestId("actions-cancel-sheet-reason-input")).toBeNull();
   });
 });

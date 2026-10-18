@@ -2,12 +2,15 @@ import { Text, View } from "react-native";
 import { formatPriceArs } from "../../src/lib/shipment-format";
 import { HighDemandBadge } from "../shipments/high-demand-badge";
 import { GridPattern } from "../ui/grid-pattern";
+import { SkeletonBlock } from "../ui/skeleton-block";
 
 interface PricePreviewCardProps {
   suggestedPriceArs: number | null;
   caption: string;
   /** Muestra el badge de alta demanda (MOVO-254); cuándo corresponde lo decide el caller. */
   highDemand?: boolean;
+  /** Cotizando: un skeleton del tamaño del monto en vez de "Precio a estimar" a 38 px. */
+  loading?: boolean;
   testID?: string;
 }
 
@@ -18,6 +21,7 @@ export function PricePreviewCard({
   suggestedPriceArs,
   caption,
   highDemand = false,
+  loading = false,
   testID,
 }: PricePreviewCardProps) {
   return (
@@ -29,10 +33,20 @@ export function PricePreviewCard({
       <Text className="font-sans-semibold text-[11px] uppercase tracking-widest text-ink-950/50">
         Costo aproximado
       </Text>
-      <Text className="mt-1 font-sans-semibold text-[38px] tracking-tight text-ink-950">
-        {formatPriceArs(suggestedPriceArs)}
-      </Text>
-      {highDemand ? (
+      {loading ? (
+        // Tinta translúcida y no `bg-mute`: la card es lima en los dos temas.
+        <SkeletonBlock
+          testID={testID ? `${testID}-skeleton` : undefined}
+          accessibilityLabel="Calculando el costo"
+          className="mb-1 mt-2.5 h-9 w-40 rounded-lg"
+          style={{ backgroundColor: "rgba(10,10,11,0.12)" }}
+        />
+      ) : (
+        <Text className="mt-1 font-sans-semibold text-[38px] tracking-tight text-ink-950">
+          {formatPriceArs(suggestedPriceArs)}
+        </Text>
+      )}
+      {highDemand && !loading ? (
         <View className="mt-2">
           <HighDemandBadge testID={testID ? `${testID}-high-demand` : undefined} />
         </View>

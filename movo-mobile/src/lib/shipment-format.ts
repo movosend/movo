@@ -121,18 +121,19 @@ export function receiverConfirmationStatus(
   return "confirmed";
 }
 
-/** Estados desde los que el emisor puede cancelar sin penalización (MOVO-29,
- * implementado en MOVO-108) — los únicos 3 sin fondos confirmados todavía. Cancelar
- * desde `assigned` existe en `shipment-state-machine.ts` pero el backend lo bloquea
- * con 409 hasta que `svc-payments` tenga holds/capture reales, así que acá no se
- * ofrece el botón para ese ni ningún otro estado. */
+/** Estados desde los que el emisor puede cancelar (MOVO-29/108). MOVO-308: también
+ * `assigned` (con la penalidad de ADR-047, que el sheet cotiza antes de confirmar) y
+ * `assigned_unfunded` (todavía sin reserva, sin cargo). El resto de los estados no puede
+ * pasar a `cancelled` (`shipment-state-machine.ts`). */
 export function canCancelShipment(status: ShipmentStatus): boolean {
   return (
     status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION ||
     // MOVO-253 AC4: en vez de elegir otro receptor, el emisor puede cancelar.
     status === ShipmentStatus.REJECTED_BY_RECEIVER ||
     status === ShipmentStatus.PUBLISHED ||
-    status === ShipmentStatus.ASSIGNMENT_PENDING
+    status === ShipmentStatus.ASSIGNMENT_PENDING ||
+    status === ShipmentStatus.ASSIGNED_UNFUNDED ||
+    status === ShipmentStatus.ASSIGNED
   );
 }
 
@@ -289,6 +290,8 @@ export function shipmentEventTitle(
     isReceiver?: boolean;
     isSender?: boolean;
     isCarrier?: boolean;
+    /** Quien mira es el autor del evento (MOVO-308: "Cancelaste el envío"). */
+    isActor?: boolean;
   },
 ): string {
   if (fromStatus === null) return "Envío creado";
@@ -351,7 +354,7 @@ export function shipmentEventTitle(
     case ShipmentStatus.COMPLETED:
       return "Pago liberado, envío cerrado";
     case ShipmentStatus.CANCELLED:
-      return "Envío cancelado";
+      return options?.isSender && options.isActor ? "Cancelaste el envío" : "Envío cancelado";
     case ShipmentStatus.DISPUTED:
       return "Envío en disputa";
     default:
