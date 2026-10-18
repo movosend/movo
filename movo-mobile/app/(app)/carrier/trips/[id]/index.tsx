@@ -370,23 +370,27 @@ export default function TripDetailScreen() {
               ) : null}
             </View>
 
-            <View className="flex-row gap-3.5">
-              <View className="items-center pt-[5px]">
-                <View className="h-3 w-3 rounded-full border-[2.5px] border-fg" />
-                <View className="my-1 min-h-[24px] w-0.5 flex-1 bg-border-strong" />
-                <View
-                  className="h-3 w-3 rounded-full"
-                  style={{ backgroundColor: "#2B6BFF", shadowColor: "#CBDAFF", shadowOpacity: 1, shadowRadius: 0 }}
-                />
-              </View>
-              <View className="flex-1 gap-4">
-                <View>
+            <View>
+              <View className="flex-row gap-3.5">
+                <View className="w-3 items-center">
+                  <View className="mt-[7px] h-3 w-3 rounded-full border-[2.5px] border-fg" />
+                  <View className="mt-1 w-0.5 flex-1 bg-border-strong" />
+                </View>
+                <View className="flex-1 pb-4">
                   <Text className="font-sans-semibold text-[17px] tracking-[-0.17px] text-fg" numberOfLines={1}>
                     {shortAddressLabel(trip.originAddress)}
                   </Text>
                   <Text className="mt-0.5 font-sans text-[13px] text-fg-3">{trip.originAddress}</Text>
                 </View>
-                <View>
+              </View>
+              <View className="flex-row gap-3.5">
+                <View className="w-3 items-center">
+                  <View className="mt-[7px] h-3 w-3 items-center justify-center">
+                    <View className="absolute h-[20px] w-[20px] rounded-full" style={{ backgroundColor: "rgba(43,107,255,0.25)" }} />
+                    <View className="h-3 w-3 rounded-full" style={{ backgroundColor: "#2B6BFF" }} />
+                  </View>
+                </View>
+                <View className="flex-1">
                   <Text className="font-sans-semibold text-[17px] tracking-[-0.17px] text-fg" numberOfLines={1}>
                     {shortAddressLabel(trip.destinationAddress)}
                   </Text>
@@ -435,11 +439,10 @@ export default function TripDetailScreen() {
                   </Text>
                 ) : null}
               </View>
-              <View className="gap-2">
-                {packages.map((pkg, i) => (
+              <View className="gap-3">
+                {packages.map((pkg) => (
                   <TripPackageRow
                     key={pkg.shipmentId}
-                    index={i + 1}
                     testID={`trip-detail-package-${pkg.shipmentId}`}
                     pkg={pkg}
                     onPress={() => router.push(`/shipments/${pkg.shipmentId}` as any)}

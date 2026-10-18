@@ -133,7 +133,9 @@ const pkg = (id: string, price: number): TripAcceptedPackage => ({
   pickupTimeWindowStart: "07:00:00",
   pickupTimeWindowEnd: "09:00:00",
   agreedPriceArs: price,
+  senderId: "sender-1",
   senderName: "Julia Paz",
+  senderPhotoUrl: null,
 });
 
 const WITH_PACKAGES: TripWithAcceptedPackages = {
@@ -445,13 +447,6 @@ describe("TripDetailScreen (MOVO-263)", () => {
 
     await waitFor(() => expect(getByTestId("trip-cancel-error")).toBeTruthy());
     expect(queryByTestId("trip-detail-cancel-error")).toBeNull();
-  });
-
-  it("cada paquete lleva el número con el que el mapa marca su retiro y entrega", async () => {
-    mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
-    const { getByTestId } = await render(<TripDetailScreen />);
-
-    expect(getByTestId("trip-detail-package-ship-1-index")).toHaveTextContent("1");
   });
 
   it("iniciar el viaje con éxito lleva al mapa en vivo", async () => {

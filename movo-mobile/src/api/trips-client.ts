@@ -54,7 +54,10 @@ export interface TripAcceptedPackage {
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
   agreedPriceArs: number;
+  senderId: string;
   senderName: string;
+  /** Foto actual del emisor; `null` si no tiene (la fila cae a iniciales). */
+  senderPhotoUrl: string | null;
 }
 
 /** `GET /trips`/`GET /trips/:id` suman este flag (`hasAcceptedPackages`) — un viaje con

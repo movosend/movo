@@ -35,7 +35,9 @@ const pkg = (id: string, sender = "Julia Paz"): TripAcceptedPackage => ({
   pickupTimeWindowStart: "07:00:00",
   pickupTimeWindowEnd: "09:00:00",
   agreedPriceArs: 10000,
+  senderId: "sender-1",
   senderName: sender,
+  senderPhotoUrl: null,
 });
 
 const quote = (penaltyArs: number) => ({ penaltyArs, reason: penaltyArs ? "late_cancellation" : "before_free_deadline", freeUntil: null });

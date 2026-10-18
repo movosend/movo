@@ -12,7 +12,7 @@ import {
   shipmentStatusLabel,
   shortAddressLabel,
 } from "../../src/lib/shipment-format";
-import { getInitials } from "../../src/lib/profile-format";
+import { AvatarImage } from "../ui/avatar-image";
 import type { TripAcceptedPackage } from "../../src/api/trips-client";
 import { PressableScale } from "./pressable-scale";
 
@@ -39,13 +39,10 @@ function packageStatus(status: ShipmentStatus, dark: boolean): { label: string; 
  */
 export function TripPackageRow({
   pkg,
-  index,
   onPress,
   testID,
 }: {
   pkg: TripAcceptedPackage;
-  /** Número (desde 1) con el que el mapa marca el retiro y la entrega de este paquete. */
-  index?: number;
   onPress: () => void;
   testID?: string;
 }) {
@@ -60,60 +57,54 @@ export function TripPackageRow({
     <PressableScale
       testID={testID}
       onPress={onPress}
-      className="flex-row gap-3 rounded-[10px] border border-border bg-bg p-3"
+      className="gap-3.5 rounded-[12px] border border-border bg-bg p-4"
     >
-      <View className="h-10 w-10 items-center justify-center rounded-lg bg-bg-mute">
-        <Icon size={20} color={colors.fg1} strokeWidth={1.75} />
-        {index !== undefined ? (
-          <View
-            testID={testID ? `${testID}-index` : undefined}
-            className="absolute -left-1.5 -top-1.5 h-[18px] w-[18px] items-center justify-center rounded-full border-2 border-bg bg-fg"
-          >
-            <Text className="font-sans-semibold text-[9px] text-bg">{index}</Text>
-          </View>
-        ) : null}
-      </View>
-      <View className="min-w-0 flex-1 gap-[5px]">
-        <View className="flex-row items-center gap-1.5">
-          <Text className="shrink font-sans-medium text-[14px] text-fg" numberOfLines={1}>
-            {shortAddressLabel(pkg.pickupAddress)}
-          </Text>
-          <ArrowRight size={13} color={colors.fg3} strokeWidth={1.75} />
-          <Text className="shrink font-sans-medium text-[14px] text-fg" numberOfLines={1}>
-            {shortAddressLabel(pkg.deliveryAddress)}
-          </Text>
+      <View className="flex-row items-start gap-3">
+        <View className="h-11 w-11 items-center justify-center rounded-lg bg-bg-mute">
+          <Icon size={22} color={colors.fg1} strokeWidth={1.75} />
         </View>
-        <View className="flex-row items-center gap-[5px]">
-          <Clock size={12} color={colors.fg3} strokeWidth={1.75} />
-          <Text className="font-sans text-[12px] text-fg-3" numberOfLines={1}>
-            Retiro {[date, window].filter(Boolean).join(", ")}
-          </Text>
-        </View>
-        <View className="mt-0.5 flex-row items-center gap-2">
+        <View className="min-w-0 flex-1 gap-1.5">
           <View className="flex-row items-center gap-1.5">
-            <View className="h-5 w-5 items-center justify-center rounded-full bg-fg">
-              <Text className="font-sans-semibold text-[9px] text-bg">{getInitials(pkg.senderName)}</Text>
-            </View>
-            <Text className="font-sans text-[12px] text-fg-2" numberOfLines={1}>
-              {pkg.senderName}
+            <Text className="shrink font-sans-semibold text-[15px] text-fg" numberOfLines={1}>
+              {shortAddressLabel(pkg.pickupAddress)}
+            </Text>
+            <ArrowRight size={14} color={colors.fg3} strokeWidth={1.75} />
+            <Text className="shrink font-sans-semibold text-[15px] text-fg" numberOfLines={1}>
+              {shortAddressLabel(pkg.deliveryAddress)}
             </Text>
           </View>
-          <View
-            testID={testID ? `${testID}-status` : undefined}
-            className="h-5 justify-center rounded-full px-2"
-            style={{ backgroundColor: status.bg }}
-          >
-            <Text className="font-sans-semibold text-[11px]" style={{ color: status.fg }}>
-              {status.label}
+          <View className="flex-row items-center gap-1.5">
+            <Clock size={13} color={colors.fg3} strokeWidth={1.75} />
+            <Text className="flex-1 font-sans text-[13px] text-fg-3" numberOfLines={1}>
+              Retiro {[date, window].filter(Boolean).join(", ")}
             </Text>
           </View>
         </View>
+        <ChevronRight size={18} color={colors.fg3} strokeWidth={1.75} style={{ marginTop: 2 }} />
       </View>
-      <View className="flex-row items-center gap-1">
-        <Text className="font-sans-semibold text-[15px] tracking-[-0.15px] text-fg">
+      <View className="h-px bg-border" />
+      <View className="flex-row items-center gap-2.5">
+        <AvatarImage
+          testID={testID ? `${testID}-sender-avatar` : undefined}
+          fullName={pkg.senderName}
+          photoUrl={pkg.senderPhotoUrl}
+          size={28}
+        />
+        <Text className="min-w-0 flex-1 font-sans-medium text-[13px] text-fg-2" numberOfLines={1}>
+          {pkg.senderName}
+        </Text>
+        <View
+          testID={testID ? `${testID}-status` : undefined}
+          className="h-6 justify-center rounded-full px-2.5"
+          style={{ backgroundColor: status.bg }}
+        >
+          <Text className="font-sans-semibold text-[12px]" style={{ color: status.fg }}>
+            {status.label}
+          </Text>
+        </View>
+        <Text className="font-sans-semibold text-[16px] tracking-[-0.16px] text-fg">
           {formatPriceArs(pkg.agreedPriceArs)}
         </Text>
-        <ChevronRight size={18} color={colors.fg3} strokeWidth={1.75} />
       </View>
     </PressableScale>
   );

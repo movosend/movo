@@ -18,7 +18,9 @@ const PKG: TripAcceptedPackage = {
   pickupTimeWindowStart: "07:30:00",
   pickupTimeWindowEnd: "08:00:00",
   agreedPriceArs: 6800,
+  senderId: "sender-1",
   senderName: "Martín Ruiz",
+  senderPhotoUrl: null,
 };
 
 describe("TripPackageRow (MOVO-263 AC2)", () => {
