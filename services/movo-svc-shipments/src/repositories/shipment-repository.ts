@@ -1,4 +1,5 @@
 import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import type { ShipmentParties } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
   ACTIVE_SHIPMENT_STATUSES,
@@ -96,6 +97,10 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     receiverConfirmationDeadline: row.receiverConfirmationDeadline,
     receiverRedesignationDeadline: row.receiverRedesignationDeadline,
     transitAnomalyFlaggedAt: row.transitAnomalyFlaggedAt,
+    transitAnomalyWarnedAt: row.transitAnomalyWarnedAt,
+    cancellationPenaltyArs: row.cancellationPenaltyArs ? row.cancellationPenaltyArs.toNumber() : null,
+    cancellationPenaltyStatus: row.cancellationPenaltyStatus,
+    chatStartedAt: row.chatStartedAt,
     rejectionReason,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -393,6 +398,18 @@ export interface UpdateStatusOptions {
   expectedCarrierId?: string;
   /** MOVO-210: ...y al mismo precio acordado (condiciona el UPDATE). */
   expectedAgreedPriceArs?: number;
+  /**
+   * MOVO-307: penalidad de la cancelación (> 0), persistida junto con el paso a `cancelled`
+   * con estado `pending`. Así el envío nunca queda cancelado sin registro de lo que se debe
+   * cobrar, aunque el proceso se caiga antes de llamar a payments.
+   */
+  cancellationPenaltyArs?: number;
+}
+
+/** MOVO-307: cursor del barrido de penalidades pendientes (orden por cancelación). */
+export interface PenaltyCursor {
+  cancelledAt: Date;
+  id: string;
 }
 
 export interface RedesignateReceiverInput {
@@ -403,9 +420,39 @@ export interface RedesignateReceiverInput {
   receiverConfirmationDeadline: Date;
 }
 
+/** Cursor keyset del barrido de liquidaciones: el último envío ya visto. */
+export interface SettlementCursor {
+  deliveredAt: Date;
+  id: string;
+}
+
 export interface ShipmentRepository {
   create(input: CreateShipmentInput): Promise<Shipment>;
   findById(id: string): Promise<Shipment | null>;
+  /**
+   * MOVO-212: envíos `delivered` con transportista cuya liquidación todavía no se cerró
+   * (nunca pasaron a `completed`), entregados hace más de `deliveredBefore` -- el margen
+   * evita pisar la captura en línea que dispara el handshake. Los más viejos primero.
+   * `after` es el cursor keyset `(deliveredAt, id)` para paginar: sin él, 20 envíos que nunca se
+   * pueden capturar (sin hold, hold vencido, cuenta desvinculada) ocupaban siempre la primera página
+   * y los demás no se reintentaban jamás.
+   */
+  listDeliveredAwaitingSettlement(
+    deliveredBefore: Date,
+    limit: number,
+    after?: SettlementCursor
+  ): Promise<Shipment[]>;
+  /**
+   * MOVO-307: envíos `cancelled` con la penalidad todavía `pending`, cancelados antes de
+   * `cancelledBefore` (para no pisar la captura en línea). Orden estable por
+   * `(lastStatusChangedAt, id)`, mismo molde que `listDeliveredAwaitingSettlement`.
+   */
+  listCancelledAwaitingPenalty(cancelledBefore: Date, limit: number, after?: PenaltyCursor): Promise<Shipment[]>;
+  /**
+   * MOVO-307: cierra la penalidad (`pending` -> `captured`/`debt`). Condicional sobre `pending`:
+   * `false` si otro llamador (la captura en línea o el barrido) ya la cerró.
+   */
+  resolveCancellationPenalty(id: string, to: "captured" | "debt"): Promise<boolean>;
   /**
    * Única vía de escritura de `status` (AC2 de MOVO-104): valida la
    * transición con `shipment-state-machine.ts` (MOVO-105) antes de tocar la
@@ -566,6 +613,28 @@ export interface ShipmentRepository {
    */
   flagTransitAnomaly(id: string, now?: Date): Promise<boolean>;
   /**
+   * MOVO-278 (ADR-045): envíos `in_transit` marcados en o antes de `flaggedBefore` a los
+   * que todavía no se les mandó el aviso previo a la disputa, el marcado hace más tiempo primero.
+   */
+  findFlaggedInTransitUnwarned(limit: number, flaggedBefore: Date): Promise<Shipment[]>;
+  /**
+   * MOVO-278 (ADR-045): registra (una sola vez) que se avisó al transportista.
+   * Compare-and-swap: devuelve `false` si el envío ya no está `in_transit` o ya se avisó.
+   */
+  markTransitAnomalyWarned(id: string, now?: Date): Promise<boolean>;
+  /**
+   * MOVO-278 (ADR-045): envíos `in_transit` marcados en o antes de `flaggedBefore` Y avisados
+   * en o antes de `warnedBefore` (candidatos a pasar a `disputed`), el marcado hace más tiempo
+   * primero. Exigir el aviso previo garantiza que el transportista tuvo el plazo prometido, aun
+   * para los marcados antes del deploy o si el barrido estuvo caído más que el plazo de disputa.
+   */
+  findFlaggedInTransitBefore(limit: number, flaggedBefore: Date, warnedBefore: Date): Promise<Shipment[]>;
+  /**
+   * MOVO-278 (ADR-045, requisito de ADR-036): ¿el usuario tiene algún envío en
+   * `disputed` como transportista? Sea la disputa automática o una iniciada por un usuario.
+   */
+  hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean>;
+  /**
    * MOVO-134: soporte del endpoint interno de baja de cuenta de `svc-users` -- ¿el
    * usuario (como sender, receiver o carrier) tiene algún envío en un estado no
    * terminal? Separa `disputed` del resto (`awaiting_receiver_confirmation`,
@@ -630,6 +699,13 @@ export interface ShipmentRepository {
    * es una conexión mutua).
    */
   findMutualCounterpartyIds(userId: string, otherId: string): Promise<string[]>;
+  /**
+   * MOVO-288: las partes de un envío para la regla de conflicto de interés de `svc-admin`.
+   * Además del emisor, transportista y receptor actuales, devuelve los receptores anteriores:
+   * quien pidió una transferencia completada (ADR-038) y quien rechazó antes de que el emisor
+   * eligiera a otra persona (ADR-027, sale del evento `-> rejected_by_receiver`). `null` si no existe.
+   */
+  findParties(id: string): Promise<ShipmentParties | null>;
   /**
    * MOVO-192: envíos activos (`ACTIVE_SHIPMENT_STATUSES`) donde `userId` participa en
    * el rol de columna dado (`senderId`/`carrierId`/`receiverId` -- no los nombres de
@@ -794,6 +870,60 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return row ? mapShipmentWithLastRejection(row) : null;
     },
 
+    async listDeliveredAwaitingSettlement(
+      deliveredBefore: Date,
+      limit: number,
+      after?: SettlementCursor
+    ): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.DELIVERED,
+          carrierId: { not: null },
+          deliveredAt: { lt: deliveredBefore },
+          ...(after
+            ? {
+                OR: [
+                  { deliveredAt: { gt: after.deliveredAt } },
+                  { deliveredAt: after.deliveredAt, id: { gt: after.id } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ deliveredAt: "asc" }, { id: "asc" }],
+        take: limit,
+      });
+      return rows.map(mapShipment);
+    },
+
+    async listCancelledAwaitingPenalty(cancelledBefore, limit, after) {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.CANCELLED,
+          cancellationPenaltyStatus: "pending",
+          lastStatusChangedAt: { lt: cancelledBefore },
+          ...(after
+            ? {
+                OR: [
+                  { lastStatusChangedAt: { gt: after.cancelledAt } },
+                  { lastStatusChangedAt: after.cancelledAt, id: { gt: after.id } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ lastStatusChangedAt: "asc" }, { id: "asc" }],
+        take: limit,
+      });
+      return rows.map(mapShipment);
+    },
+
+    async resolveCancellationPenalty(id, to) {
+      const { count } = await db.shipment.updateMany({
+        where: { id, cancellationPenaltyStatus: "pending" },
+        data: { cancellationPenaltyStatus: to },
+      });
+      return count === 1;
+    },
+
     async updateStatus(
       id: string,
       to: ShipmentStatus,
@@ -872,6 +1002,16 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           }
         : {};
 
+      // MOVO-307: la penalidad se persiste junto con la cancelación y también va en la fila
+      // reconstruida al final, así `updateStatus` devuelve lo mismo que quedó en la DB.
+      const cancellationPenalty =
+        to === ShipmentStatus.CANCELLED && options.cancellationPenaltyArs !== undefined
+          ? {
+              cancellationPenaltyArs: new Prisma.Decimal(options.cancellationPenaltyArs),
+              cancellationPenaltyStatus: "pending" as const,
+            }
+          : {};
+
       const row = await db.$transaction(async (tx) => {
         // MOVO-118: compare-and-swap, mismo patrón que
         // `offer-repository.ts#acceptOffer` (MOVO-102/AC9). El WHERE
@@ -893,6 +1033,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             receiverRedesignationDeadline,
             ...restoredWindow,
             ...clearedAssignment,
+            ...cancellationPenalty,
           },
         });
 
@@ -973,6 +1114,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           receiverRedesignationDeadline,
           ...restoredWindow,
           ...clearedAssignment,
+          ...cancellationPenalty,
           updatedAt: now,
         };
       });
@@ -1338,6 +1480,45 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return result.count > 0;
     },
 
+    async findFlaggedInTransitUnwarned(limit: number, flaggedBefore: Date): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.IN_TRANSIT,
+          transitAnomalyFlaggedAt: { lte: flaggedBefore },
+          transitAnomalyWarnedAt: null,
+        },
+        take: limit,
+        orderBy: { transitAnomalyFlaggedAt: "asc" },
+      });
+      return rows.map(mapShipment);
+    },
+
+    async markTransitAnomalyWarned(id: string, now: Date = new Date()): Promise<boolean> {
+      const result = await db.shipment.updateMany({
+        where: { id, status: ShipmentStatus.IN_TRANSIT, transitAnomalyWarnedAt: null },
+        data: { transitAnomalyWarnedAt: now },
+      });
+      return result.count > 0;
+    },
+
+    async findFlaggedInTransitBefore(limit: number, flaggedBefore: Date, warnedBefore: Date): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.IN_TRANSIT,
+          transitAnomalyFlaggedAt: { lte: flaggedBefore },
+          transitAnomalyWarnedAt: { lte: warnedBefore },
+        },
+        take: limit,
+        orderBy: { transitAnomalyFlaggedAt: "asc" },
+      });
+      return rows.map(mapShipment);
+    },
+
+    async hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean> {
+      const count = await db.shipment.count({ where: { carrierId, status: ShipmentStatus.DISPUTED } });
+      return count > 0;
+    },
+
     /** MOVO-275: marca (una sola vez) que la entrega empezó. Idempotente. */
     async markDeliveryHandshakeStarted(id: string): Promise<void> {
       await db.shipment.updateMany({
@@ -1465,6 +1646,36 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         fulfilledCounterpartyIds(otherId),
       ]);
       return [...mine].filter((id) => id !== userId && id !== otherId && theirs.has(id));
+    },
+
+    async findParties(id: string): Promise<ShipmentParties | null> {
+      const row = await db.shipment.findUnique({
+        where: { id },
+        select: {
+          senderId: true,
+          carrierId: true,
+          receiverId: true,
+          receiverTransfers: { where: { status: "completed" }, select: { requestedBy: true } },
+          events: {
+            where: { toStatus: ShipmentStatus.REJECTED_BY_RECEIVER, actorId: { not: null } },
+            select: { actorId: true },
+          },
+        },
+      });
+      if (!row) return null;
+
+      const former = new Set<string>();
+      for (const transfer of row.receiverTransfers) former.add(transfer.requestedBy);
+      for (const event of row.events) if (event.actorId) former.add(event.actorId);
+      former.delete(row.receiverId);
+
+      return {
+        shipmentId: id,
+        senderId: row.senderId,
+        carrierId: row.carrierId,
+        receiverId: row.receiverId,
+        formerReceiverIds: [...former],
+      };
     },
 
     async listActiveShipments(

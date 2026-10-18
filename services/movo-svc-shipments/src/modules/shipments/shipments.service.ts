@@ -1,7 +1,10 @@
 import {
   ActiveShipmentStatus,
   ApiError,
+  CarrierDebtDiscount,
+  CancellationQuoteResponse,
   CarrierRoute,
+  LIVE_HOLD_STATUSES,
   OfferStatus,
   PublicProfile,
   ShipmentQuoteRequest,
@@ -17,13 +20,14 @@ import {
   toArgentinaCalendarDateString,
 } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
-import { ShipmentRepository } from "../../repositories/shipment-repository";
+import { ShipmentConcurrentModificationError, ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { TripRepository } from "../../repositories/trip-repository";
 import { Trip } from "../../models/trip";
 import { RatingRepository } from "../../repositories/rating-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { PaymentsClient } from "../../adapters/payments-client";
+import { DEBT_DISCOUNT_TIMEOUT_MS, debtDiscount, previewDebtDiscounts } from "../../utils/debt-discount";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
@@ -38,8 +42,11 @@ import {
   pickupWindowInstant,
 } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
-import { isPickupMissed, isTransitAnomalous } from "../../domain/expiration";
+import { DEFAULT_PACKAGE_LIMITS, PackageLimits, packageLimitViolations } from "../../domain/package-limits";
+import { isPickupMissed, isTransitAnomalous, isTransitAnomalyDeadlinePassed } from "../../domain/expiration";
 import { quoteShipment } from "./shipment-quote";
+import { quoteShipmentCancellation } from "../../domain/cancellation-penalty";
+import { canTransition } from "../../domain/shipment-state-machine";
 import { QuoteStore, quoteFingerprint } from "./quote-store";
 import {
   aggregateCarrierStops,
@@ -72,6 +79,7 @@ import {
 import { assertTripAccess } from "../trips/trip-access";
 import { assertNotBlocked, safeBlockRelatedUserIds } from "../../utils/block-relations";
 import { assertCarrierCanOperate, assertVerifiedCarrier } from "../../utils/carrier-gate";
+import { shortAddress } from "../../utils/short-address";
 
 type ShipmentsServiceLogger =
   | FastifyBaseLogger
@@ -228,10 +236,67 @@ export type ShipmentDetailResult = Shipment & {
   offersSummary?: ShipmentOffersSummary | null;
   /** MOVO-211 AC6: el caller es el transportista cuya asignación se cayó por falta de pago. */
   viewerIsFormerCarrier?: boolean;
+  /** MOVO-311: solo para el transportista asignado, mientras el cobro no se capturó. */
+  debtDiscount?: CarrierDebtDiscount | null;
 };
 
+/** MOVO-311: estados con transportista asignado en los que el cobro todavía no se capturó. */
+const DEBT_DISCOUNT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.ASSIGNMENT_PENDING,
+  ShipmentStatus.ASSIGNED_UNFUNDED,
+  ShipmentStatus.ASSIGNED,
+  ShipmentStatus.IN_TRANSIT,
+  ShipmentStatus.DELIVERED,
+];
+
+/**
+ * MOVO-311: estados en los que todavía se puede crear un hold. Sin hold vivo, solo en estos el descuento tiene
+ * sentido como vista previa: en `assigned`+ sin hold no se va a crear otro (ADR-037), el saldo actual no se aplica.
+ */
+const DEBT_PREVIEW_STATUSES: readonly ShipmentStatus[] = [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED];
+
+/**
+ * Tope de TODA la resolución del descuento (hold + vista previa). Es solo para mostrar: con payments lento el
+ * detalle del envío no puede colgarse esperando (el hold tiene un timeout de 20 s y la vista previa otro de 5 s).
+ */
+/**
+ * MOVO-311: cuánto de su deuda se le descuenta al transportista asignado en este envío. Con un hold vivo es
+ * lo que reservó ese hold; antes del pago, la vista previa sobre el precio acordado. Solo para mostrar: si
+ * payments no responde (o tarda más de `DEBT_DISCOUNT_TIMEOUT_MS`), `null`.
+ */
+async function resolveCarrierDebtDiscount(
+  paymentsClient: PaymentsClient,
+  shipment: Shipment
+): Promise<CarrierDebtDiscount | null> {
+  const { carrierId, agreedPriceArs } = shipment;
+  if (!carrierId || agreedPriceArs === null) return null;
+
+  const resolve = async (): Promise<number> => {
+    const hold = await paymentsClient.findHoldByShipment(shipment.id);
+    if (hold && LIVE_HOLD_STATUSES.includes(hold.status)) return hold.debtOffsetArs;
+    if (!DEBT_PREVIEW_STATUSES.includes(shipment.status)) return 0;
+    const preview = await paymentsClient.previewCarrierDebt(carrierId, [agreedPriceArs]);
+    return preview?.debtOffsetsArs[0] ?? 0;
+  };
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const amountArs = await Promise.race([
+      resolve(),
+      new Promise<number>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("debt discount timeout")), DEBT_DISCOUNT_TIMEOUT_MS);
+      }),
+    ]);
+    return debtDiscount(amountArs);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface ListAvailableResult {
-  items: Array<AvailableShipment & { hasMyOffer: boolean }>;
+  items: Array<AvailableShipment & { hasMyOffer: boolean; debtDiscount: CarrierDebtDiscount | null }>;
   page: number;
   limit: number;
   total: number;
@@ -259,6 +324,8 @@ export interface ActiveShipmentResult {
   isToday: boolean;
   pickupWindowExpired: boolean;
   tripId: string | null;
+  /** MOVO-278 (ADR-045): marca de `in_transit` demorado (MOVO-258 D4), `null` si no la tiene. */
+  transitAnomalyFlaggedAt: Date | null;
 }
 
 const ACTIVE_SHIPMENT_ROLE_TO_COLUMN: Record<ActiveShipmentRole, "senderId" | "carrierId" | "receiverId"> = {
@@ -312,6 +379,23 @@ function assertPickupDeliveryApart(
       422,
       "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE",
       "El retiro y la entrega tienen que estar en ubicaciones distintas."
+    );
+  }
+}
+
+// MOVO-276 (AC4): sin I/O, así un paquete fuera de límites no gasta un elemento de Google
+// ni consume una cotización congelada.
+function assertPackageWithinLimits(
+  input: Pick<ShipmentQuoteRequest, "weightKg" | "lengthCm" | "widthCm" | "heightCm">,
+  limits: PackageLimits
+) {
+  const violations = packageLimitViolations(input, limits);
+  if (violations.length > 0) {
+    throw new ApiError(
+      422,
+      "PACKAGE_LIMITS_EXCEEDED",
+      `El paquete excede los límites: ${violations.join("; ")}.`,
+      { violations }
     );
   }
 }
@@ -611,14 +695,6 @@ async function dispatchReceiverTimeoutPush(
   }
 }
 
-/** MOVO-179: primer componente de una dirección ("Av. Colón 1234, Córdoba" ->
- * "Av. Colón 1234") -- sin helper de formato de dirección reusable en el repo
- * todavía, así que queda local a este archivo (consumido por el copy del push de
- * `dispatchTripMatchPushes` y, desde MOVO-245, `dispatchNewOfferPush`). */
-function shortAddress(address: string): string {
-  return address.split(",")[0].trim();
-}
-
 /**
  * MOVO-179 (comentario de Linear, decisión de equipo): el prefiltro geométrico de
  * `findDeclaredTripsMatchingShipment` puede dar falsos positivos (un envío que "en línea
@@ -844,15 +920,17 @@ async function dispatchPickupMissedPushes(
 
 /** MOVO-108 (AC7) / MOVO-210: el envío se canceló -- avisa a cada transportista cuya oferta
  * quedó sin efecto (las `pending` vigentes y, antes de confirmarse el hold, el asignado). Un
- * fallo de una push nunca frena a las otras. */
+ * fallo de una push nunca frena a las otras. MOVO-281: viaja como `offer_voided` con el
+ * `offerId` para que el mobile abra el detalle de la oferta -- el del envío ya `cancelled` le
+ * responde 403 a un transportista que no es parte de él. */
 async function dispatchOfferVoidedPushes(
   notificationsClient: NotificationsClient,
   logger: SweepLogger,
   shipmentId: string,
-  carrierIds: string[]
+  voidedOffers: Array<{ carrierId: string; offerId: string }>
 ): Promise<void> {
   await Promise.all(
-    carrierIds.map(async (carrierId) => {
+    voidedOffers.map(async ({ carrierId, offerId }) => {
       try {
         const { title, body } = renderNotificationTrigger("offerVoidedByShipmentCancellation", undefined);
         await notificationsClient.sendPush({
@@ -860,7 +938,7 @@ async function dispatchOfferVoidedPushes(
           title,
           body,
           category: notificationTriggerCategory("offerVoidedByShipmentCancellation"),
-          data: { type: "shipment", shipmentId },
+          data: { type: "offer_voided", shipmentId, offerId },
         });
       } catch (err) {
         logger?.warn(
@@ -949,6 +1027,73 @@ async function dispatchTransitAnomalyPush(
   }
 }
 
+/** MOVO-278 (ADR-045): aviso previo al transportista -- si no confirma la entrega, el envío
+ * demorado pasa a disputa y queda bloqueado para operar. */
+async function dispatchTransitAnomalyWarningPush(
+  notificationsClient: NotificationsClient,
+  logger: SweepLogger,
+  shipment: Shipment
+): Promise<void> {
+  if (!shipment.carrierId) return;
+  try {
+    const { title, body } = renderNotificationTrigger("transitAnomalyDisputeWarning", undefined);
+    await notificationsClient.sendPush({
+      userId: shipment.carrierId,
+      title,
+      body,
+      category: notificationTriggerCategory("transitAnomalyDisputeWarning"),
+      data: { shipmentId: shipment.id, type: "shipment" },
+    });
+  } catch (err) {
+    // Evento propio: `warnedAt` ya quedó persistido y no se reintenta, así que este log es lo único
+    // que permite contar a los transportistas que van a la disputa sin haber recibido el aviso.
+    logger?.warn(
+      { err, event: "transit_anomaly_warning_push_failed", shipmentId: shipment.id, carrierId: shipment.carrierId },
+      "No se pudo enviar la push de aviso previo a la disputa al transportista"
+    );
+  }
+}
+
+/** MOVO-278 (ADR-045): el envío demorado pasó a disputa -- avisa a emisor, receptor y
+ * transportista, cada uno con su propio copy. Un fallo de una push nunca frena a las otras. */
+async function dispatchTransitAnomalyDisputePushes(
+  notificationsClient: NotificationsClient,
+  logger: SweepLogger,
+  shipment: Shipment
+): Promise<void> {
+  const targets: Array<{
+    userId: string | null;
+    trigger:
+      | "transitAnomalyDisputeOpenedSender"
+      | "transitAnomalyDisputeOpenedReceiver"
+      | "transitAnomalyDisputeOpenedCarrier";
+  }> = [
+    { userId: shipment.senderId, trigger: "transitAnomalyDisputeOpenedSender" },
+    { userId: shipment.receiverId, trigger: "transitAnomalyDisputeOpenedReceiver" },
+    { userId: shipment.carrierId, trigger: "transitAnomalyDisputeOpenedCarrier" },
+  ];
+  await Promise.all(
+    targets.map(async ({ userId, trigger }) => {
+      if (!userId) return;
+      try {
+        const { title, body } = renderNotificationTrigger(trigger, undefined);
+        await notificationsClient.sendPush({
+          userId,
+          title,
+          body,
+          category: notificationTriggerCategory(trigger),
+          data: { shipmentId: shipment.id, type: "shipment" },
+        });
+      } catch (err) {
+        logger?.warn(
+          { err, event: "notification_dispatch_failed", shipmentId: shipment.id, userId },
+          "No se pudo enviar la push de disputa automática por entrega demorada"
+        );
+      }
+    })
+  );
+}
+
 export interface ShipmentsServiceOptions {
   receiverConfirmationTimeoutHours?: number;
   /** MOVO-253: horas que tiene el emisor para elegir otro receptor tras un rechazo
@@ -1004,12 +1149,20 @@ export interface ShipmentsServiceOptions {
   /** Requerido para `quoteShipmentPrice` y para `createShipment` con `quoteId`
    * (MOVO-255) -- cotizaciones congeladas en Redis. */
   quoteStore?: QuoteStore;
+  /** MOVO-276: límites duros del paquete (`PACKAGE_MAX_*`). Sin inyectar, los defaults. */
+  packageLimits?: PackageLimits;
   /** MOVO-258 (D1): horas de gracia tras cerrar la ventana de retiro antes de cancelar
    * un envío con transportista (`PICKUP_MISSED_GRACE_HOURS`, default 24). */
   pickupMissedGraceHours?: number;
   /** MOVO-258 (D4): plazo fijo (horas desde el retiro) para un `in_transit` cuya oferta
    * no declaró entrega estimada (`IN_TRANSIT_ANOMALY_FALLBACK_HOURS`, default 48). */
   transitAnomalyFallbackHours?: number;
+  /** MOVO-278 (ADR-045): horas desde la marca de D4 hasta el aviso previo al transportista
+   * (`IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS`, default 12). */
+  transitAnomalyWarnAfterHours?: number;
+  /** MOVO-278 (ADR-045): horas desde la marca de D4 hasta pasar el envío a `disputed`
+   * (`IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS`, default 24). */
+  transitAnomalyDisputeAfterHours?: number;
   /** MOVO-258 (D6): dedupe de avisos de los barridos -- devuelve `true` solo la primera
    * vez que se reclama `key` dentro de `ttlSeconds` (Redis `SET NX` en el plugin). Sin
    * esta dependencia el aviso de "ofertas para revisar" no se manda: un barrido corre
@@ -1018,6 +1171,13 @@ export interface ShipmentsServiceOptions {
   /** Deshace un `claimNotificationOnce` cuando el envío de la push falló, para que el
    * próximo barrido lo reintente en vez de dar el aviso por mandado durante todo el TTL. */
   releaseNotificationClaim?: (key: string) => Promise<void>;
+  /**
+   * MOVO-307: cobra en línea la penalidad de una cancelación tardía (`app.settlements`, el
+   * mismo service que retoma el barrido). Sin él la penalidad queda `pending` hasta el
+   * barrido. Lanza si no se pudo cobrar: `cancelShipment` lo atrapa (el envío ya está
+   * cancelado).
+   */
+  settleCancellationPenalty?: (shipmentId: string) => Promise<unknown>;
 }
 
 export type ShipmentsService = ReturnType<typeof createShipmentsService>;
@@ -1033,6 +1193,8 @@ export function createShipmentsService(
   const redesignationTimeoutHours = opts.receiverRedesignationTimeoutHours ?? 48;
   const pickupMissedGraceHours = opts.pickupMissedGraceHours ?? 24;
   const transitAnomalyFallbackHours = opts.transitAnomalyFallbackHours ?? 48;
+  const transitAnomalyWarnAfterHours = opts.transitAnomalyWarnAfterHours ?? 12;
+  const transitAnomalyDisputeAfterHours = opts.transitAnomalyDisputeAfterHours ?? 24;
   const offerRepository = opts.offerRepository;
   const paymentsClient = opts.paymentsClient;
   const pricingClient = opts.pricingClient;
@@ -1043,6 +1205,7 @@ export function createShipmentsService(
   const ratingRepository = opts.ratingRepository;
   const tripMatchDetourRadiusKm = opts.tripMatchDetourRadiusKm;
   const quoteStore = opts.quoteStore;
+  const packageLimits = opts.packageLimits ?? DEFAULT_PACKAGE_LIMITS;
 
   /**
    * MOVO-210 (AC12): libera el hold de un envío que YA se canceló. Nunca lanza: el envío no se
@@ -1090,6 +1253,7 @@ export function createShipmentsService(
      * `SHIPMENT_QUOTE_TTL_SECONDS`; sin precio (pricing caído) no guarda nada.
      */
     async quoteShipmentPrice(senderId: string, input: ShipmentQuoteRequest): Promise<ShipmentQuoteResponse> {
+      assertPackageWithinLimits(input, packageLimits);
       assertPickupDeliveryApart(input);
       const store = requireQuoteStore();
 
@@ -1126,6 +1290,9 @@ export function createShipmentsService(
       if (input.senderId === input.receiverId) {
         throw new ApiError(422, "SHIPMENT_RECEIVER_IS_SENDER", "No podés designarte a vos mismo como receptor.");
       }
+
+      // MOVO-276 (AC4) — límites duros de peso y medidas, sin I/O.
+      assertPackageWithinLimits(input, packageLimits);
 
       // MOVO-126 — retiro y entrega no pueden ser la misma ubicación, todavía sin I/O.
       assertPickupDeliveryApart(input);
@@ -1261,6 +1428,9 @@ export function createShipmentsService(
       }
 
       if (hasShipmentAccess(shipment, callerId, callerRoles)) {
+        if (paymentsClient && callerId === shipment.carrierId && DEBT_DISCOUNT_STATUSES.includes(shipment.status)) {
+          return { ...shipment, debtDiscount: await resolveCarrierDebtDiscount(paymentsClient, shipment) };
+        }
         return shipment;
       }
 
@@ -1282,10 +1452,12 @@ export function createShipmentsService(
         // MOVO-180 (adelantado): agregado de ofertas vigentes para el transportista
         // que está evaluando ofertar -- nunca bloquea la apertura del detalle si
         // falla o si el servicio corre sin `offerRepository` (algún test aislado).
-        const offersSummary = offerRepository
-          ? await computeOffersSummaryForCarrier(offerRepository, shipmentId, callerId)
-          : null;
-        return { ...shipment, offersSummary };
+        const [offersSummary, discounts] = await Promise.all([
+          offerRepository ? computeOffersSummaryForCarrier(offerRepository, shipmentId, callerId) : null,
+          previewDebtDiscounts(paymentsClient, callerId,
+            shipment.suggestedPriceArs != null && shipment.suggestedPriceArs > 0 ? [shipment.suggestedPriceArs] : []),
+        ]);
+        return { ...shipment, offersSummary, debtDiscount: discounts[0] ?? null };
       }
 
       throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver este envío.");
@@ -1389,7 +1561,11 @@ export function createShipmentsService(
 
       // MOVO-116 (ADR-036): identidad + licencia + MP antes de cualquier lectura o
       // escritura del envío. Antes era `assertVerifiedCarrier` (sin licencia, MOVO-142).
-      await assertCarrierCanOperate({ usersClient, paymentsClient }, input.carrierId, input.callerRoles);
+      await assertCarrierCanOperate(
+        { usersClient, paymentsClient, shipmentRepository: repository },
+        input.carrierId,
+        input.callerRoles
+      );
 
       const shipment = await repository.findById(input.shipmentId);
       if (!shipment) {
@@ -1884,13 +2060,17 @@ export function createShipmentsService(
         page: query.page,
         limit: query.limit,
       });
-      const offeredIds = await offerRepository.listPendingOfferedShipmentIds(
-        callerId,
-        items.map((item) => item.id)
-      );
+      const priced = items.filter((item) => item.suggestedPriceArs != null && item.suggestedPriceArs > 0);
+      const [offeredIds, preview] = await Promise.all([
+        offerRepository.listPendingOfferedShipmentIds(callerId, items.map((item) => item.id)),
+        previewDebtDiscounts(paymentsClient, callerId, priced.map((item) => item.suggestedPriceArs!)),
+      ]);
+      const discounts = new Map(priced.map((item, index) => [item.id, preview[index]]));
 
       return {
-        items: items.map((item) => ({ ...item, hasMyOffer: offeredIds.has(item.id) })),
+        items: items.map((item) => {
+          return { ...item, hasMyOffer: offeredIds.has(item.id), debtDiscount: discounts.get(item.id) ?? null };
+        }),
         page: query.page,
         limit: query.limit,
         total,
@@ -1898,15 +2078,41 @@ export function createShipmentsService(
     },
 
     /**
-     * MOVO-29 (recorte de alcance acordado en MOVO-108, ver comentario en Linear):
-     * solo cubre la cancelación sin penalización, desde los tres estados que todavía
-     * no tienen fondos confirmados. `svc-payments` hoy es un esqueleto sin holds ni
-     * capture reales -- cancelar desde `assigned` (que sí exige aplicar una política
-     * de penalización, AC de MOVO-29) queda bloqueado explícitamente más abajo hasta
-     * que esa integración exista, en vez de fingir una transición sin su consecuencia
-     * de negocio.
+     * MOVO-307 (ADR-047): lo que el emisor pagaría si cancela ahora. Solo el emisor, y solo
+     * sobre un envío que todavía se puede cancelar; `0` donde no hay penalidad.
      */
-    async cancelShipment(shipmentId: string, callerId: string, reason?: string): Promise<Shipment> {
+    async getCancellationQuote(shipmentId: string, callerId: string): Promise<CancellationQuoteResponse> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+      if (shipment.senderId !== callerId) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede cancelar este envío.");
+      }
+      if (!canTransition(shipment.status, ShipmentStatus.CANCELLED)) {
+        throw new ApiError(409, "SHIPMENT_INVALID_TRANSITION", "Este envío ya no se puede cancelar.");
+      }
+      const quote = quoteShipmentCancellation(shipment);
+      return {
+        penaltyArs: quote.penaltyArs,
+        reason: quote.reason,
+        freeUntil: quote.freeUntil?.toISOString() ?? null,
+      };
+    },
+
+    /**
+     * MOVO-29/MOVO-108: cancelación del emisor. MOVO-307 (ADR-047) habilita `assigned`: con
+     * 12 h o más hasta el retiro (o la ventana ya cerrada) es sin cargo y se libera el hold;
+     * con menos, se cobra el 25 % del precio acordado capturando parte del hold. El emisor
+     * confirma el monto que vio (`expectedPenaltyArs`, ausente = 0): si cambió, 409 y no se
+     * cancela nada (mismo criterio que la cotización congelada, ADR-028).
+     */
+    async cancelShipment(
+      shipmentId: string,
+      callerId: string,
+      reason?: string,
+      expectedPenaltyArs?: number
+    ): Promise<Shipment> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) {
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
@@ -1918,11 +2124,17 @@ export function createShipmentsService(
         throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede cancelar este envío.");
       }
 
-      if (shipment.status === ShipmentStatus.ASSIGNED) {
+      // MOVO-307: la penalidad se calcula acá y se compara con la que confirmó el emisor.
+      // `SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED` deja de usarse (sigue en el contrato).
+      const penaltyArs = shipment.status === ShipmentStatus.ASSIGNED ? quoteShipmentCancellation(shipment).penaltyArs : 0;
+      if (shipment.status === ShipmentStatus.ASSIGNED && Math.round((expectedPenaltyArs ?? 0) * 100) !== Math.round(penaltyArs * 100)) {
         throw new ApiError(
           409,
-          "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED",
-          "No se puede cancelar un envío ya asignado todavía -- la política de penalización no está implementada."
+          "CANCELLATION_PENALTY_MISMATCH",
+          penaltyArs > 0
+            ? "La penalidad por cancelar cambió: revisá el monto y confirmá de nuevo."
+            : "Ya no corresponde una penalidad por cancelar: confirmá de nuevo.",
+          { penaltyArs }
         );
       }
 
@@ -1934,14 +2146,19 @@ export function createShipmentsService(
       // listan ANTES de cancelar: desde MOVO-258 `updateStatus` pasa esas ofertas a
       // `shipment_cancelled` en la misma transacción, y después de eso ya no se las distinguiría.
       const awaitingFunding = AWAITING_FUNDING_STATUSES.includes(previousStatus);
-      const mayHavePendingOffers = previousStatus === ShipmentStatus.PUBLISHED || awaitingFunding;
+      // MOVO-307: desde `assigned` no quedan `pending` (se cerraron al confirmarse el hold),
+      // pero se lista igual para avisarle al transportista asignado.
+      const hasAssignment = awaitingFunding || previousStatus === ShipmentStatus.ASSIGNED;
+      const mayHavePendingOffers = previousStatus === ShipmentStatus.PUBLISHED || hasAssignment;
       if (mayHavePendingOffers && !offerRepository) {
         throw new Error("cancelShipment requiere offerRepository (ShipmentsServiceOptions) para notificar ofertas pendientes.");
       }
-      const pendingOffers =
-        mayHavePendingOffers && offerRepository
-          ? (await offerRepository.listByShipment(shipmentId)).filter((offer) => offer.status === OfferStatus.PENDING)
-          : [];
+      const shipmentOffers = mayHavePendingOffers && offerRepository ? await offerRepository.listByShipment(shipmentId) : [];
+      const pendingOffers = shipmentOffers.filter((offer) => offer.status === OfferStatus.PENDING);
+      // MOVO-281: la oferta del transportista ya asignado, para mandarle su `offerId` en el aviso.
+      const assignedOffer = hasAssignment
+        ? shipmentOffers.find((offer) => offer.status === OfferStatus.ACCEPTED && offer.carrierId === shipment.carrierId)
+        : undefined;
 
       // Cualquier otro estado sin salida hacia `cancelled` (delivered, in_transit,
       // disputed, cancelled) llega hasta acá y
@@ -1952,8 +2169,15 @@ export function createShipmentsService(
       // pago concurrente que pasó el envío a `assigned` entre la lectura y este UPDATE quedaba
       // `cancelled` con el hold autorizado sin liberar (`assigned -> cancelled` es una arista
       // válida): ahora falla con 409 de modificación concurrente y el emisor ve que ya se pagó.
-      const cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason, {
+      //
+      // MOVO-307 (AC4): desde `assigned` el orden es el mismo -- primero se cancela con
+      // compare-and-swap y recién después se cobra la penalidad o se libera el hold. Un
+      // handshake de retiro concurrente gana (el envío ya es `in_transit`) y esto da 409. La
+      // penalidad queda persistida junto con la cancelación, así nunca se pierde lo que hay
+      // que cobrar aunque el proceso se caiga antes de llamar a payments.
+      let cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason, {
         expectedFrom: previousStatus,
+        ...(penaltyArs > 0 ? { cancellationPenaltyArs: penaltyArs } : {}),
       });
 
       // MOVO-210 (AC12): mientras la asignación espera el pago puede haber un hold ya creado (el
@@ -1967,18 +2191,37 @@ export function createShipmentsService(
       // liberación no se puede confirmar (payments caído, un hold `creating` reciente,
       // transportista desvinculado) el envío ya está cancelado: queda logueado con evento propio
       // y el hold vence solo en MP.
-      if (awaitingFunding && opts.paymentsClient) {
+      if ((awaitingFunding || (hasAssignment && penaltyArs === 0)) && opts.paymentsClient) {
         await releaseHoldAfterCancel(opts.paymentsClient, shipmentId);
+      }
+
+      // MOVO-307: la penalidad se cobra en línea (best-effort); si falla, queda `pending` y la
+      // retoma el barrido de liquidaciones. Se relee el envío para devolver su estado final.
+      if (penaltyArs > 0 && opts.settleCancellationPenalty) {
+        try {
+          await opts.settleCancellationPenalty(shipmentId);
+        } catch (err) {
+          logger?.warn(
+            { err, event: "cancellation_penalty_inline_failed", shipmentId },
+            "No se pudo cobrar la penalidad al cancelar: la retoma el barrido de liquidaciones"
+          );
+        }
+        cancelled = (await repository.findById(shipmentId)) ?? cancelled;
       }
 
       if (notificationsClient) {
         // MOVO-210 (AC17): el transportista ya asignado (su oferta estaba `accepted`, no
-        // `pending`, así que no entra en `pendingOffers`) también se entera.
-        const assignedCarrier = awaitingFunding && shipment.carrierId ? [shipment.carrierId] : [];
-        await dispatchOfferVoidedPushes(notificationsClient, logger, shipmentId, [
-          ...assignedCarrier,
-          ...pendingOffers.map((offer) => offer.carrierId),
-        ]);
+        // `pending`, así que no entra en `pendingOffers`) también se entera. MOVO-307: si la
+        // penalidad se capturó en línea ya recibió la push de compensación, así que no se le
+        // manda además la de oferta cancelada (mismo criterio que `expireUnpickedAssignedShipments`).
+        const notifyAssignedOffer = assignedOffer && cancelled.cancellationPenaltyStatus !== "captured";
+        const voidedOffers = notifyAssignedOffer ? [assignedOffer, ...pendingOffers] : pendingOffers;
+        await dispatchOfferVoidedPushes(
+          notificationsClient,
+          logger,
+          shipmentId,
+          voidedOffers.map((offer) => ({ carrierId: offer.carrierId, offerId: offer.id }))
+        );
       }
 
       return cancelled;
@@ -2212,11 +2455,11 @@ export function createShipmentsService(
           const awaitingFunding = AWAITING_FUNDING_STATUSES.includes(shipment.status);
           // Antes de cancelar: `updateStatus` las pasa a `shipment_cancelled` en la misma
           // transacción y después ya no se distinguen (mismo criterio que `cancelShipment`).
-          const pendingOfferCarrierIds =
+          const pendingVoidedOffers =
             awaitingFunding && offerRepository
               ? (await offerRepository.listByShipment(shipment.id))
                   .filter((offer) => offer.status === OfferStatus.PENDING)
-                  .map((offer) => offer.carrierId)
+                  .map((offer) => ({ carrierId: offer.carrierId, offerId: offer.id }))
               : [];
           // MOVO-210: cancelar un retiro no realizado tiene que liberar la reserva del emisor.
           // Desde `assigned` nadie más puede mover el envío, así que se libera antes y, si no se
@@ -2243,9 +2486,12 @@ export function createShipmentsService(
           }
 
           if (notificationsClient) {
+            // El transportista asignado NO recibe además `offer_voided` (a diferencia de
+            // `cancelShipment`): ya le llega el aviso propio del retiro no realizado, y sigue
+            // siendo `carrierId` del envío cancelado, así que su detalle le abre sin 403.
             void dispatchPickupMissedPushes(notificationsClient, logger, shipment);
-            if (pendingOfferCarrierIds.length > 0) {
-              void dispatchOfferVoidedPushes(notificationsClient, logger, shipment.id, pendingOfferCarrierIds);
+            if (pendingVoidedOffers.length > 0) {
+              void dispatchOfferVoidedPushes(notificationsClient, logger, shipment.id, pendingVoidedOffers);
             }
           }
         } catch (err) {
@@ -2272,8 +2518,8 @@ export function createShipmentsService(
      * los envíos `in_transit` que pasaron su entrega estimada más el 50% de la duración
      * estimada, y le pregunta al transportista si tuvo un inconveniente. Se marca una sola
      * vez (`transitAnomalyFlaggedAt`, compare-and-swap) así que la push no se repite.
-     * Pendiente (fuera de alcance): disputa automática y alerta en el panel de admin
-     * (MOVO-30/MOVO-33) -- la marca es el punto de enganche para ambos.
+     * La salida de la marca (aviso previo y disputa automática) la da MOVO-278, ver
+     * `warnFlaggedInTransitShipments`/`disputeOverdueFlaggedShipments`.
      */
     async flagAnomalousInTransitShipments(batchSize = 100): Promise<{ flaggedCount: number; errorsCount: number }> {
       const now = new Date();
@@ -2323,6 +2569,113 @@ export function createShipmentsService(
       }
 
       return { flaggedCount, errorsCount };
+    },
+
+    /**
+     * MOVO-278 (ADR-045, AC8): a las `transitAnomalyWarnAfterHours` de la marca, si el envío
+     * sigue `in_transit`, le avisa al transportista que se abre una disputa si no confirma la
+     * entrega. Una sola vez por envío: el compare-and-swap de `transitAnomalyWarnedAt` se hace
+     * antes de la push, así una réplica concurrente nunca la repite (a cambio, una push que
+     * falla no se reintenta: el aviso es best-effort, la disputa igual llega).
+     */
+    async warnFlaggedInTransitShipments(batchSize = 100): Promise<{ warnedCount: number; errorsCount: number }> {
+      const now = new Date();
+      const cutoff = new Date(now.getTime() - transitAnomalyWarnAfterHours * 60 * 60 * 1000);
+      const candidates = await repository.findFlaggedInTransitUnwarned(batchSize, cutoff);
+      let warnedCount = 0;
+      let errorsCount = 0;
+
+      for (const shipment of candidates) {
+        if (!isTransitAnomalyDeadlinePassed(shipment.transitAnomalyFlaggedAt, transitAnomalyWarnAfterHours, now)) {
+          continue;
+        }
+        try {
+          const warned = await repository.markTransitAnomalyWarned(shipment.id, now);
+          if (!warned) {
+            continue;
+          }
+          warnedCount++;
+          if (notificationsClient) {
+            void dispatchTransitAnomalyWarningPush(notificationsClient, logger, shipment);
+          }
+        } catch (err) {
+          errorsCount++;
+          logger?.error(
+            { err, shipmentId: shipment.id, event: "transit_anomaly_warning_sweep_error" },
+            "Error al avisar al transportista de un envío demorado en barrido"
+          );
+        }
+      }
+
+      return { warnedCount, errorsCount };
+    },
+
+    /**
+     * MOVO-278 (ADR-045, AC3): pasa a `disputed` los envíos que siguen `in_transit` pasadas
+     * `transitAnomalyDisputeAfterHours` desde la marca, sin actor y con motivo explícito, y
+     * avisa a las tres partes. No toca el hold de fondos (eso queda para la resolución,
+     * MOVO-34). El viaje se cierra solo en la siguiente corrida de `completeFinishedActive`
+     * (`disputed` cuenta como terminado). `expectedFrom: in_transit`: una entrega confirmada
+     * mientras corre el barrido gana y este envío se saltea (AC6).
+     */
+    async disputeOverdueFlaggedShipments(batchSize = 100): Promise<{ disputedCount: number; errorsCount: number }> {
+      const now = new Date();
+      const cutoff = new Date(now.getTime() - transitAnomalyDisputeAfterHours * 60 * 60 * 1000);
+      // El transportista tiene que haber recibido el aviso al menos `dispute - warn` horas antes
+      // (las 12 h que dice la push), sin importar cuánto hace que se marcó el envío.
+      const graceHours = transitAnomalyDisputeAfterHours - transitAnomalyWarnAfterHours;
+      const warnedCutoff = new Date(now.getTime() - graceHours * 60 * 60 * 1000);
+      const candidates = await repository.findFlaggedInTransitBefore(batchSize, cutoff, warnedCutoff);
+      let disputedCount = 0;
+      let errorsCount = 0;
+
+      for (const shipment of candidates) {
+        if (!isTransitAnomalyDeadlinePassed(shipment.transitAnomalyFlaggedAt, transitAnomalyDisputeAfterHours, now)) {
+          continue;
+        }
+        if (!isTransitAnomalyDeadlinePassed(shipment.transitAnomalyWarnedAt, graceHours, now)) {
+          continue;
+        }
+        try {
+          await repository.updateStatus(
+            shipment.id,
+            ShipmentStatus.DISPUTED,
+            null,
+            "La entrega no se confirmó dentro del plazo posterior a la demora detectada",
+            { expectedFrom: ShipmentStatus.IN_TRANSIT }
+          );
+          disputedCount++;
+          logger?.warn(
+            { event: "transit_anomaly_disputed", shipmentId: shipment.id, carrierId: shipment.carrierId },
+            "Envío demorado pasado a disputa automáticamente"
+          );
+          if (notificationsClient) {
+            // `await` (no fire-and-forget): el envío ya no está `in_transit`, así que ningún barrido
+            // reenvía estas pushes si el proceso se reinicia justo después de la transición. Nunca
+            // lanza: cada push tiene su propio try/catch.
+            await dispatchTransitAnomalyDisputePushes(notificationsClient, logger, shipment);
+          }
+        } catch (err) {
+          if (err instanceof ShipmentConcurrentModificationError) {
+            // Se entregó (o cambió de estado) entre la lectura y la transición: nada que hacer.
+            continue;
+          }
+          errorsCount++;
+          logger?.error(
+            { err, shipmentId: shipment.id, event: "transit_anomaly_dispute_sweep_error" },
+            "Error al pasar a disputa un envío demorado en barrido"
+          );
+        }
+      }
+
+      if (disputedCount > 0 || errorsCount > 0) {
+        logger?.info(
+          { event: "transit_anomaly_dispute_sweep", disputedCount, errorsCount },
+          `Barrido de disputa por entrega demorada finalizado: ${disputedCount} en disputa, ${errorsCount} fallos`
+        );
+      }
+
+      return { disputedCount, errorsCount };
     },
 
     /**
@@ -2419,6 +2772,7 @@ export function createShipmentsService(
             now
           ),
           tripId: tripIdByShipmentId.get(shipment.id) ?? null,
+          transitAnomalyFlaggedAt: shipment.transitAnomalyFlaggedAt,
         };
       });
     },

@@ -5,9 +5,11 @@ import {
   CreateTripInput,
   UpdateTripInput,
   TripWithAcceptedPackages,
+  TRIP_SERIES_INCLUDE,
   buildTripCreateData,
   mapTrip,
   parseTripStatus,
+  toRecurrenceUntilColumn,
 } from "../models/trip";
 import { distanceToSegmentKm } from "../domain/geo";
 import { TRIP_EXECUTABLE_SHIPMENT_STATUSES } from "../domain/shipment-state-machine";
@@ -91,6 +93,7 @@ async function retireDeclaredTrip(
   db: PrismaClient,
   where: Prisma.TripWhereInput & { id: string },
   data: Prisma.TripUpdateManyMutationInput,
+  options: { stopRecurrence?: boolean } = {},
 ): Promise<boolean> {
   return db.$transaction(async (tx) => {
     const result = await tx.trip.updateMany({ where, data });
@@ -99,6 +102,14 @@ async function retireDeclaredTrip(
       where: { tripId: where.id, status: OfferStatus.PENDING },
       data: { tripId: null },
     });
+    // MOVO-265: "cancelar y dejar de repetir" en la misma transacción. Solo aplica sobre el
+    // vigente de la serie: en un trip no recurrente o con sucesor no matchea y se ignora.
+    if (options.stopRecurrence) {
+      await tx.trip.updateMany({
+        where: { id: where.id, ...ACTIVE_SERIES_HEAD_WHERE },
+        data: { recurrenceWeekdays: [], recurrenceUntil: null },
+      });
+    }
     return true;
   });
 }
@@ -186,6 +197,41 @@ export class TripAlreadyHasActiveTripError extends Error {
   }
 }
 
+/**
+ * MOVO-265 (ADR-042): se intentó editar la recurrencia de un trip que ya tiene sucesor (no es
+ * el vigente de su serie), o el barrido lo generó entre la lectura y el UPDATE.
+ */
+export class TripNotSeriesHeadError extends Error {
+  constructor(public readonly tripId: string) {
+    super(`El viaje '${tripId}' no es el vigente de su serie: la recurrencia se edita en el último viaje generado`);
+    this.name = "TripNotSeriesHeadError";
+  }
+}
+
+export interface TripUpdateOptions {
+  /** MOVO-265: excepción a `TRIP_HAS_ACCEPTED_PACKAGES` solo para APAGAR la recurrencia
+   * (`recurrenceWeekdays: null`): es la única forma de cortar una serie cuyo vigente ya tiene
+   * paquetes. Cambiar días o fecha de fin con paquetes aceptados sigue dando 409. */
+  allowWithAcceptedPackages?: boolean;
+  /** MOVO-265: al prender la recurrencia de un trip que nunca la tuvo, `seriesId = id`. */
+  seriesId?: string;
+}
+
+/** MOVO-265: trip vigente (sin sucesor) con la recurrencia prendida. */
+const ACTIVE_SERIES_HEAD_WHERE = {
+  recurrenceWeekdays: { isEmpty: false },
+  successor: { is: null },
+} satisfies Prisma.TripWhereInput;
+
+function isRecordNotFound(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2025"
+  );
+}
+
 function isUniqueConstraintConflict(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -207,7 +253,7 @@ export interface TripRepository {
     status?: TripStatus,
     scope?: "upcoming" | "history",
   ): Promise<{ items: TripWithAcceptedPackages[]; total: number }>;
-  update(id: string, input: UpdateTripInput): Promise<Trip>;
+  update(id: string, input: UpdateTripInput, options?: TripUpdateOptions): Promise<Trip>;
   delete(id: string): Promise<void>;
   findDeclaredTripsMatchingShipment(params: MatchShipmentParams): Promise<Trip[]>;
   /**
@@ -225,7 +271,31 @@ export interface TripRepository {
    * `TripNotFoundError`, `TripNotDeclaredError` (acción "cancelar") o
    * `TripHasAcceptedPackagesError`. Desasocia las ofertas `pending` del viaje.
    */
-  cancel(id: string): Promise<Trip>;
+  cancel(id: string, options?: { stopRecurrence?: boolean }): Promise<Trip>;
+  /** MOVO-265: series activas del transportista (trip vigente con recurrencia prendida). */
+  countActiveSeries(carrierId: string): Promise<number>;
+  /**
+   * MOVO-265 (ADR-042): trips vigentes con la recurrencia prendida cuyo `departureAt` ya pasó,
+   * en cualquier estado: son los que el barrido tiene que continuar o cortar. Paginado por
+   * keyset sobre `(departureAt, id)`: `after` es el último de la página anterior.
+   */
+  findRecurrenceCandidates(params: {
+    now: Date;
+    limit: number;
+    after?: { departureAt: Date; id: string };
+  }): Promise<Trip[]>;
+  /** MOVO-265: estados de los últimos `limit` trips de la serie, del más nuevo al más viejo. */
+  listRecentSeriesStatuses(seriesId: string, limit: number): Promise<TripStatus[]>;
+  /**
+   * MOVO-265: crea la ocurrencia siguiente con `INSERT ... ON CONFLICT DO NOTHING` sobre el
+   * UNIQUE de `generatedFromTripId`. `null` si otra corrida ya la había creado.
+   */
+  createRecurrenceSuccessor(input: CreateTripInput & { generatedFromTripId: string }): Promise<Trip | null>;
+  /**
+   * MOVO-265: apaga la recurrencia del trip si sigue siendo el vigente y la tiene prendida
+   * (compare-and-swap). Devuelve si aplicó; `seriesId` se conserva como histórico.
+   */
+  stopRecurrence(id: string): Promise<boolean>;
   /**
    * MOVO-238: pasa a `expired` (MOVO-260, antes `cancelled`) hasta `limit` viajes
    * `declared` cuyo `departureAt` ya pasó y que no tienen ningún paquete aceptado (mismo
@@ -237,9 +307,10 @@ export interface TripRepository {
   cancelOverdueDeclared(now: Date, limit: number): Promise<string[]>;
   /**
    * MOVO-258 (D5): pasa a `completed` hasta `limit` viajes `active` que tienen al menos un
-   * paquete aceptado vivo y cuyos paquetes quedaron TODOS en un estado final (`delivered`/
-   * `completed`/`cancelled`) -- un `disputed`, un `in_transit` o cualquier otro estado
-   * intermedio lo mantiene abierto. Un viaje `active` sin paquetes no se toca. Devuelve
+   * paquete aceptado vivo y cuyos paquetes quedaron TODOS en un estado final
+   * (`TRIP_FINISHED_SHIPMENT_STATUSES`: `delivered`/`completed`/`cancelled`/`disputed`) -- un
+   * `in_transit` o cualquier otro estado intermedio lo mantiene abierto. Un `in_transit`
+   * demorado sale por la disputa automática de MOVO-278 (ADR-045). Un viaje `active` sin paquetes no se toca. Devuelve
    * los ids efectivamente cerrados.
    */
   completeFinishedActive(limit: number): Promise<string[]>;
@@ -257,6 +328,29 @@ export interface TripRepository {
    * con dos viajes en la semana cuenta una vez.
    */
   countAvailableCarriersNear(params: AvailableCarriersParams): Promise<number>;
+  /**
+   * MOVO-240 (recordatorio del día anterior): viajes `declared` que salen dentro de
+   * `[departureFrom, departureTo)` y que se declararon antes de `createdBefore`, con la
+   * cantidad de paquetes aceptados vivos (`ACCEPTED_OFFER_FILTER`, no los ejecutables:
+   * antes de confirmarse el pago ninguno lo es, pero para el transportista ya son suyos).
+   */
+  findDeclaredForDepartureReminder(params: DepartureReminderParams): Promise<DepartureReminderTrip[]>;
+}
+
+export interface DepartureReminderParams {
+  departureFrom: Date;
+  departureTo: Date;
+  createdBefore: Date;
+  limit: number;
+  /** Cursor: el último `id` de la página anterior (orden `departureAt, id`). */
+  afterId?: string;
+}
+
+export interface DepartureReminderTrip {
+  id: string;
+  carrierId: string;
+  destinationAddress: string;
+  acceptedPackagesCount: number;
 }
 
 export interface AvailableCarriersParams {
@@ -284,12 +378,12 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       // MOVO-234 (fix de review, PR #176): mapeo centralizado en `buildTripCreateData`
       // -- ver su comentario en `models/trip.ts` -- reusado también por
       // `offer-repository.ts#acceptOffer` para el `Trip` auto-creado.
-      const row = await db.trip.create({ data: buildTripCreateData(input) });
+      const row = await db.trip.create({ data: buildTripCreateData(input), include: TRIP_SERIES_INCLUDE });
       return mapTrip(row);
     },
 
     async findById(id: string): Promise<Trip | null> {
-      const row = await db.trip.findUnique({ where: { id } });
+      const row = await db.trip.findUnique({ where: { id }, include: TRIP_SERIES_INCLUDE });
       return row ? mapTrip(row) : null;
     },
 
@@ -297,6 +391,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       const row = await db.trip.findUnique({
         where: { id },
         include: {
+          ...TRIP_SERIES_INCLUDE,
           offers: {
             where: ACCEPTED_OFFER_FILTER,
             include: {
@@ -394,6 +489,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
           skip: (page - 1) * limit,
           take: limit,
           include: {
+            ...TRIP_SERIES_INCLUDE,
             _count: {
               select: {
                 offers: {
@@ -429,23 +525,35 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       return { items, total };
     },
 
-    async update(id: string, input: UpdateTripInput): Promise<Trip> {
+    async update(id: string, input: UpdateTripInput, options: TripUpdateOptions = {}): Promise<Trip> {
       const current = await db.trip.findUnique({ where: { id } });
       if (!current) {
         throw new TripNotFoundError(id);
       }
 
-      const acceptedCount = await db.offer.count({
-        where: { tripId: id, ...ACCEPTED_OFFER_FILTER },
-      });
-      if (acceptedCount > 0) {
-        throw new TripHasAcceptedPackagesError(id);
+      if (!options.allowWithAcceptedPackages) {
+        const acceptedCount = await db.offer.count({
+          where: { tripId: id, ...ACCEPTED_OFFER_FILTER },
+        });
+        if (acceptedCount > 0) {
+          throw new TripHasAcceptedPackagesError(id);
+        }
       }
+
+      const touchesRecurrence = input.recurrenceWeekdays !== undefined || input.recurrenceUntil !== undefined;
 
       try {
         const updated = await db.trip.update({
-          where: { id },
+          // MOVO-265: la recurrencia solo se edita en el trip vigente. Condicionar el UPDATE a
+          // "sin sucesor" cierra la carrera con el barrido que lo genera (P2025 si perdió).
+          where: touchesRecurrence ? { id, successor: { is: null } } : { id },
+          include: TRIP_SERIES_INCLUDE,
           data: {
+            ...(input.recurrenceWeekdays !== undefined ? { recurrenceWeekdays: input.recurrenceWeekdays ?? [] } : {}),
+            ...(input.recurrenceUntil !== undefined
+              ? { recurrenceUntil: toRecurrenceUntilColumn(input.recurrenceUntil) }
+              : {}),
+            ...(options.seriesId !== undefined ? { seriesId: options.seriesId } : {}),
             ...(input.originAddress !== undefined ? { originAddress: input.originAddress } : {}),
             ...(input.originLat !== undefined ? { originLat: input.originLat } : {}),
             ...(input.originLng !== undefined ? { originLng: input.originLng } : {}),
@@ -464,6 +572,9 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         // el índice único parcial es la garantía real, esto solo la traduce.
         if (isUniqueConstraintConflict(error)) {
           throw new TripAlreadyHasActiveTripError(current.carrierId);
+        }
+        if (touchesRecurrence && isRecordNotFound(error)) {
+          throw new TripNotSeriesHeadError(id);
         }
         throw error;
       }
@@ -506,6 +617,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
           status: TripStatus.DECLARED,
           carrierId: { notIn: params.excludeCarrierIds },
         },
+        include: TRIP_SERIES_INCLUDE,
       });
 
       return rows
@@ -619,11 +731,11 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         throw new TripNotDeclaredError(id);
       }
 
-      const row = await db.trip.findUniqueOrThrow({ where: { id } });
+      const row = await db.trip.findUniqueOrThrow({ where: { id }, include: TRIP_SERIES_INCLUDE });
       return mapTrip(row);
     },
 
-    async cancel(id: string): Promise<Trip> {
+    async cancel(id: string, options: { stopRecurrence?: boolean } = {}): Promise<Trip> {
       const current = await db.trip.findUnique({ where: { id } });
       if (!current) {
         throw new TripNotFoundError(id);
@@ -648,14 +760,113 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         db,
         { id, status: TripStatus.DECLARED },
         { status: TripStatus.CANCELLED, cancelledAt: new Date() },
+        { stopRecurrence: options.stopRecurrence },
       );
 
       if (!applied) {
         throw new TripNotDeclaredError(id, undefined, "cancelar");
       }
 
-      const row = await db.trip.findUniqueOrThrow({ where: { id } });
+      const row = await db.trip.findUniqueOrThrow({ where: { id }, include: TRIP_SERIES_INCLUDE });
       return mapTrip(row);
+    },
+
+    async countActiveSeries(carrierId: string): Promise<number> {
+      return db.trip.count({ where: { carrierId, ...ACTIVE_SERIES_HEAD_WHERE } });
+    },
+
+    async findRecurrenceCandidates({ now, limit, after }): Promise<Trip[]> {
+      // Keyset en el `where`, no `cursor` + `skip: 1`: el último candidato de la página anterior
+      // ya se procesó y, si se generó su sucesor o se cortó la serie, ya no cumple el filtro.
+      // Con `cursor`, Prisma ubica la posición por id sin el filtro y `skip: 1` se comería el
+      // primer candidato real de la página siguiente.
+      const rows = await db.trip.findMany({
+        where: {
+          ...ACTIVE_SERIES_HEAD_WHERE,
+          departureAt: { lt: now },
+          ...(after
+            ? {
+                OR: [
+                  { departureAt: { gt: after.departureAt } },
+                  { departureAt: after.departureAt, id: { gt: after.id } },
+                ],
+              }
+            : {}),
+        },
+        include: TRIP_SERIES_INCLUDE,
+        orderBy: [{ departureAt: "asc" }, { id: "asc" }],
+        take: limit,
+      });
+      return rows.map(mapTrip);
+    },
+
+    async listRecentSeriesStatuses(seriesId: string, limit: number): Promise<TripStatus[]> {
+      // `createdAt` crece a lo largo de la cadena: cada ocurrencia se crea después de la anterior.
+      const rows = await db.trip.findMany({
+        where: { seriesId },
+        select: { status: true },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit,
+      });
+      return rows.map((row) => parseTripStatus(row.status));
+    },
+
+    async createRecurrenceSuccessor(input): Promise<Trip | null> {
+      // El candidato se leyó hace segundos (el barrido hace dos llamadas HTTP por serie): en
+      // ese lapso el transportista pudo apagar la recurrencia, cancelar con `stopRecurrence`
+      // o editar el vigente. Se bloquea la fila origen y se la relee: si ya no es la cabeza
+      // de una serie activa no se genera nada, y los datos salen de la fila releída, no del
+      // candidato. El PATCH/cancel concurrente espera el lock y ve el sucesor ya creado.
+      return db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM shipments.trips WHERE id = ${input.generatedFromTripId}::uuid FOR UPDATE`;
+        const origin = await tx.trip.findFirst({
+          where: {
+            id: input.generatedFromTripId,
+            ...ACTIVE_SERIES_HEAD_WHERE,
+            departureAt: { lt: input.departureAt },
+          },
+          include: TRIP_SERIES_INCLUDE,
+        });
+        if (!origin) return null;
+
+        // `skipDuplicates` es `ON CONFLICT DO NOTHING`: una segunda corrida, o dos réplicas en
+        // paralelo, chocan contra el UNIQUE de `generated_from_trip_id` y no insertan nada.
+        const fresh = mapTrip(origin);
+        const { count } = await tx.trip.createMany({
+          data: [
+            buildTripCreateData({
+              carrierId: fresh.carrierId,
+              originAddress: fresh.originAddress,
+              originLat: fresh.originLat,
+              originLng: fresh.originLng,
+              destinationAddress: fresh.destinationAddress,
+              destinationLat: fresh.destinationLat,
+              destinationLng: fresh.destinationLng,
+              departureAt: input.departureAt,
+              vehicleType: fresh.vehicleType,
+              recurrenceWeekdays: origin.recurrenceWeekdays,
+              recurrenceUntil: fresh.recurrenceUntil,
+              seriesId: fresh.seriesId ?? fresh.id,
+              generatedFromTripId: fresh.id,
+            }),
+          ],
+          skipDuplicates: true,
+        });
+        if (count === 0) return null;
+        const row = await tx.trip.findUniqueOrThrow({
+          where: { generatedFromTripId: fresh.id },
+          include: TRIP_SERIES_INCLUDE,
+        });
+        return mapTrip(row);
+      });
+    },
+
+    async stopRecurrence(id: string): Promise<boolean> {
+      const { count } = await db.trip.updateMany({
+        where: { id, ...ACTIVE_SERIES_HEAD_WHERE },
+        data: { recurrenceWeekdays: [], recurrenceUntil: null },
+      });
+      return count > 0;
     },
 
     async completeFinishedActive(limit: number): Promise<string[]> {
@@ -708,6 +919,31 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         if (result.count > 0) expired.push(id);
       }
       return expired;
+    },
+
+    async findDeclaredForDepartureReminder(params: DepartureReminderParams): Promise<DepartureReminderTrip[]> {
+      const rows = await db.trip.findMany({
+        where: {
+          status: TripStatus.DECLARED,
+          departureAt: { gte: params.departureFrom, lt: params.departureTo },
+          createdAt: { lt: params.createdBefore },
+        },
+        select: {
+          id: true,
+          carrierId: true,
+          destinationAddress: true,
+          _count: { select: { offers: { where: ACCEPTED_OFFER_FILTER } } },
+        },
+        orderBy: [{ departureAt: "asc" }, { id: "asc" }],
+        take: params.limit,
+        ...(params.afterId ? { cursor: { id: params.afterId }, skip: 1 } : {}),
+      });
+      return rows.map((row) => ({
+        id: row.id,
+        carrierId: row.carrierId,
+        destinationAddress: row.destinationAddress,
+        acceptedPackagesCount: row._count.offers,
+      }));
     },
 
     async cancelOverdueDeclared(now: Date, limit: number): Promise<string[]> {

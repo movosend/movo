@@ -29,6 +29,15 @@ export const REDACTED_KEYS = [
   "securityCode",
   "cardholder",
   "token",
+  // MOVO-100: el token de un solo uso del alta y los ids de la tarjeta guardada (AC10).
+  "card_token",
+  "cardToken",
+  "card_id",
+  "cardId",
+  "mp_card_id",
+  "mpCardId",
+  // Token de la app de Movo (client_credentials) para Customers & Cards.
+  "movoToken",
 ] as const;
 
 /** Hasta qué profundidad del objeto logueado se buscan las claves de arriba. */

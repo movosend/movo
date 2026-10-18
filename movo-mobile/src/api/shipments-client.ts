@@ -2,6 +2,7 @@ import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 import type { ShipmentFundingView } from "@movo/shared/dist/types/funding";
 import type { ShipmentQuoteRequest, ShipmentQuoteResponse } from "@movo/shared/dist/types/pricing";
+import type { ShipmentReceiverTransferSummary } from "@movo/shared/dist/types/receiver-transfer";
 import type { PackageType } from "../store/shipment-wizard-store";
 import { httpClient } from "./http-client";
 
@@ -48,6 +49,9 @@ export interface ShipmentSummary {
   receiverRedesignationDeadline?: string | null;
   /** MOVO-253: motivo del último rechazo, `null` fuera de `rejected_by_receiver`. */
   rejectionReason?: string | null;
+  /** MOVO-278 (ADR-045): ISO del momento en que el envío `in_transit` se marcó como
+   * demorado; `null` (u omitido en builds viejos del backend) si no está marcado. */
+  transitAnomalyFlaggedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   /** MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
@@ -61,6 +65,13 @@ export interface ShipmentSummary {
    * mira (emisor, transportista asignado o el que perdió la asignación). `null` para el
    * receptor y cuando no hay nada que mostrar. */
   funding?: ShipmentFundingView | null;
+  /** MOVO-275: solo en `GET /shipments/:id` para las partes del envío. Dice si quien
+   * mira le pasó la recepción a otra persona (solo lectura), la solicitud pendiente
+   * (solo para quien la pidió y el emisor) y la transferencia completada. */
+  receiverTransfer?: ShipmentReceiverTransferSummary | null;
+  /** MOVO-275: solo en `GET /shipments/mine` — el usuario le pasó la recepción de este
+   * envío a otra persona (badge "Transferido"). `null` en cualquier otro caso. */
+  transferredByMe?: { newReceiverId: string; newReceiverName: string | null; at: string } | null;
 }
 
 export interface ListMineResponse {
@@ -260,6 +271,9 @@ export interface ActiveShipmentSummary {
   isToday: boolean;
   pickupWindowExpired: boolean;
   tripId: string | null;
+  /** MOVO-278 (ADR-045): envío `in_transit` demorado (ISO del momento en que se marcó);
+   * `null` si no está marcado. Se muestra como "Demorado". */
+  transitAnomalyFlaggedAt: string | null;
 }
 
 /**

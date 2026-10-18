@@ -1,0 +1,417 @@
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { FastifyInstance } from "fastify";
+import { buildApp } from "../src/app";
+
+// Integración contra Postgres y Redis reales (convención del repo). Las filas se insertan
+// directo: el historial solo lee `holds`, `settlements` y `payment_provider_events`.
+
+const SENDER = "11111111-1111-4111-8111-111111111111";
+const OTHER = "22222222-2222-4222-8222-222222222222";
+const CARRIER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+let seq = 0;
+function uuid(): string {
+  seq += 1;
+  return `00000000-0000-4000-8000-${String(seq).padStart(12, "0")}`;
+}
+
+type SeededHold = { id: string; shipmentId: string; mpPaymentId: string | null };
+
+describe("/payments/transactions (MOVO-303)", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL ??= "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL ??= "redis://localhost:6379";
+    app = buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await app.db.$executeRawUnsafe(
+      "TRUNCATE TABLE payments.settlements, payments.payment_provider_events, payments.holds CASCADE"
+    );
+    seq = 0;
+  });
+
+  const as = (userId: string) => ({ "x-user-id": userId });
+  const list = (query: string, userId = SENDER) =>
+    app.inject({ method: "GET", url: `/payments/transactions?${query}`, headers: as(userId) });
+  const detail = (id: string, role: string, userId: string) =>
+    app.inject({ method: "GET", url: `/payments/transactions/${id}?role=${role}`, headers: as(userId) });
+
+  async function createHold(
+    overrides: {
+      status?: "creating" | "in_process" | "authorized" | "captured" | "cancelled" | "rejected";
+      payerId?: string | null;
+      carrierId?: string;
+      createdAt?: Date;
+      mpPaymentId?: string | null;
+      cardBrand?: string | null;
+      cardLast4?: string | null;
+    } = {}
+  ) {
+    const shipmentId = uuid();
+    return app.db.hold.create({
+      data: {
+        shipmentId,
+        attempt: 1,
+        carrierId: overrides.carrierId ?? CARRIER,
+        collectorId: "mp-collector",
+        mpPaymentId: overrides.mpPaymentId === undefined ? `mp-${shipmentId}` : overrides.mpPaymentId,
+        amountArs: 1150,
+        applicationFeeArs: 150,
+        baseAmountArs: 1150,
+        commissionArs: 150,
+        status: overrides.status ?? "authorized",
+        payerId: overrides.payerId === undefined ? SENDER : overrides.payerId,
+        cardBrand: overrides.cardBrand === undefined ? "visa" : overrides.cardBrand,
+        cardLast4: overrides.cardLast4 === undefined ? "3764" : overrides.cardLast4,
+        ...(overrides.createdAt ? { createdAt: overrides.createdAt } : {}),
+      },
+    });
+  }
+
+  function settle(hold: SeededHold, status: "processing" | "credited") {
+    return app.db.settlement.create({
+      data: {
+        shipmentId: hold.shipmentId,
+        holdId: hold.id,
+        carrierId: CARRIER,
+        mpPaymentId: hold.mpPaymentId as string,
+        grossAmountArs: 1150,
+        commissionArs: 150,
+        mpFeeArs: status === "credited" ? 47.15 : null,
+        // Lo que fija la captura (sin deuda del emisor, igual al bruto y al fee de MP).
+        carrierGrossAmountArs: status === "credited" ? 1150 : null,
+        carrierMpFeeArs: status === "credited" ? 47.15 : null,
+        netAmountArs: status === "credited" ? 952.85 : null,
+        status,
+        capturedAt: status === "credited" ? new Date("2026-10-10T15:00:00Z") : null,
+      },
+    });
+  }
+
+  function event(
+    hold: SeededHold,
+    kind: "refund" | "chargeback" | "mediation",
+    mpStatus: string,
+    amountArs: number | null = null,
+    createdAt?: Date
+  ) {
+    return app.db.paymentProviderEvent.create({
+      data: {
+        holdId: hold.id,
+        shipmentId: hold.shipmentId,
+        mpPaymentId: hold.mpPaymentId as string,
+        kind,
+        mpStatus,
+        amountArs,
+        holdStatus: "captured",
+        ...(createdAt ? { createdAt } : {}),
+      },
+    });
+  }
+
+  it("exige x-user-id", async () => {
+    const res = await app.inject({ method: "GET", url: "/payments/transactions?role=sender" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("role es obligatorio y valida sus valores", async () => {
+    expect((await list("")).statusCode).toBe(400);
+    expect((await list("role=admin")).statusCode).toBe(400);
+  });
+
+  describe("visibilidad y rol (AC2, AC8)", () => {
+    it("separa emisor y transportista y oculta creating, rejected y cancelados sin pago", async () => {
+      await createHold({ status: "authorized" });
+      await createHold({ status: "creating", mpPaymentId: null });
+      await createHold({ status: "rejected", mpPaymentId: null });
+      await createHold({ status: "cancelled", mpPaymentId: null });
+      await createHold({ status: "cancelled" }); // released
+      await createHold({ status: "authorized", payerId: OTHER });
+      await createHold({ status: "authorized", payerId: null });
+
+      const sender = await list("role=sender");
+      expect(sender.statusCode).toBe(200);
+      expect(sender.json().items.map((i: { status: string }) => i.status).sort()).toEqual(["released", "reserved"]);
+
+      // Visibles para el transportista: los 4 holds que llegaron a MP (2 del emisor + otros 2).
+      const asCarrier = await list("role=carrier", CARRIER);
+      expect(asCarrier.json().items).toHaveLength(4);
+      // El transportista no es pagador de nada: cada lado se ve por separado.
+      expect((await list("role=sender", CARRIER)).json().items).toHaveLength(0);
+    });
+
+    it("el ítem trae la tarjeta solo para el emisor", async () => {
+      await createHold();
+      const sender = (await list("role=sender")).json().items[0];
+      expect(sender.card).toEqual({ brand: "visa", last4: "3764" });
+      expect(sender.refundedAmountArs).toBeNull();
+      const carrier = (await list("role=carrier", CARRIER)).json().items[0];
+      expect("card" in carrier).toBe(false);
+    });
+
+    it("un hold sin datos de tarjeta devuelve card null", async () => {
+      await createHold({ cardBrand: null, cardLast4: null });
+      expect((await list("role=sender")).json().items[0].card).toBeNull();
+    });
+  });
+
+  describe("estados (AC6, AC7, AC9)", () => {
+    async function seedAllStatuses() {
+      const reserved = await createHold({ status: "authorized" });
+      const capturedPending = await createHold({ status: "captured" });
+      await settle(capturedPending, "processing");
+      const completed = await createHold({ status: "captured" });
+      await settle(completed, "credited");
+      const refunded = await createHold({ status: "captured" });
+      await settle(refunded, "credited");
+      await event(refunded, "refund", "refunded", 500);
+      const disputed = await createHold({ status: "captured" });
+      await settle(disputed, "credited");
+      await event(disputed, "refund", "refunded", 100);
+      await event(disputed, "chargeback", "charged_back");
+      const released = await createHold({ status: "cancelled" });
+      return { reserved, capturedPending, completed, refunded, disputed, released };
+    }
+
+    it("deriva cada estado con su precedencia", async () => {
+      const h = await seedAllStatuses();
+      const items = (await list("role=sender")).json().items as Array<{ id: string; status: string }>;
+      const byId = Object.fromEntries(items.map((i) => [i.id, i.status]));
+      expect(byId).toEqual({
+        [h.reserved.id]: "reserved",
+        [h.capturedPending.id]: "reserved",
+        [h.completed.id]: "completed",
+        [h.refunded.id]: "refunded",
+        [h.disputed.id]: "disputed",
+        [h.released.id]: "released",
+      });
+    });
+
+    it.each(["reserved", "completed", "refunded", "disputed", "released"])(
+      "el filtro status=%s coincide con el estado de cada ítem",
+      async (status) => {
+        await seedAllStatuses();
+        const items = (await list(`role=sender&status=${status}`)).json().items as Array<{ status: string }>;
+        expect(items.length).toBeGreaterThan(0);
+        expect(items.every((i) => i.status === status)).toBe(true);
+      }
+    );
+
+    it("acepta varios status (repetidos o separados por coma) y rechaza uno desconocido", async () => {
+      await seedAllStatuses();
+      const repeated = await list("role=sender&status=completed&status=refunded");
+      expect(repeated.json().items.map((i: { status: string }) => i.status).sort()).toEqual(["completed", "refunded"]);
+      const commas = await list("role=sender&status=completed,refunded");
+      expect(commas.json().items).toHaveLength(2);
+      expect((await list("role=sender&status=bogus")).statusCode).toBe(400);
+    });
+
+    it("el filtro se aplica antes de paginar: cada página trae limit ítems del estado", async () => {
+      for (let i = 0; i < 3; i += 1) {
+        await createHold({ status: "authorized", createdAt: new Date(Date.UTC(2026, 9, 1, 12, i)) });
+      }
+      for (let i = 0; i < 4; i += 1) {
+        const h = await createHold({ status: "captured", createdAt: new Date(Date.UTC(2026, 9, 2, 12, i)) });
+        await settle(h, "credited");
+      }
+      // Los completados son los más recientes: sin filtrar en la base, la primera página saldría vacía.
+      const page1 = (await list("role=sender&status=reserved&limit=2")).json();
+      expect(page1.items).toHaveLength(2);
+      expect(page1.nextCursor).not.toBeNull();
+      const page2 = (await list(`role=sender&status=reserved&limit=2&cursor=${page1.nextCursor}`)).json();
+      expect(page2.items).toHaveLength(1);
+      expect(page2.nextCursor).toBeNull();
+    });
+  });
+
+  describe("reembolsos (AC5)", () => {
+    it("refundedAmountArs es el último monto informado, no la suma", async () => {
+      const h = await createHold({ status: "captured" });
+      await settle(h, "credited");
+      await event(h, "refund", "partially_refunded", 300, new Date("2026-10-11T10:00:00Z"));
+      await event(h, "refund", "refunded", 1150, new Date("2026-10-12T10:00:00Z"));
+      const item = (await list("role=sender")).json().items[0];
+      expect(item.status).toBe("refunded");
+      expect(item.refundedAmountArs).toBe(1150);
+    });
+  });
+
+  describe("hold con recargo del emisor por su deuda (MOVO-311)", () => {
+    it("el transportista no ve el recargo en el monto reintegrado ni en los movimientos; el emisor sí", async () => {
+      const h = await createHold({ status: "captured" });
+      // Precio 1150 + recargo 200 = 1350 pagados.
+      await app.db.hold.update({ where: { id: h.id }, data: { amountArs: 1350, debtSurchargeArs: 200 } });
+      await settle(h, "credited");
+      await event(h, "refund", "refunded", 1350, new Date("2026-10-11T10:00:00Z"));
+
+      const asCarrier = (await detail(h.id, "carrier", CARRIER)).json();
+      expect(asCarrier.amountArs).toBe(1150);
+      expect(asCarrier.refundedAmountArs).toBe(1150);
+      expect(asCarrier.movements).toEqual([{ kind: "refund", amountArs: 1150, date: "2026-10-11T10:00:00.000Z" }]);
+
+      const asSender = (await detail(h.id, "sender", SENDER)).json();
+      expect(asSender.amountArs).toBe(1350);
+      expect(asSender.refundedAmountArs).toBe(1350);
+    });
+  });
+
+  describe("fechas en hora de Argentina (AC4)", () => {
+    it("un pago de las 23:30 queda en su día y el límite to es inclusivo", async () => {
+      // 23:30 del 10/10 en Argentina = 02:30 UTC del 11/10.
+      const late = await createHold({ createdAt: new Date("2026-10-11T02:30:00Z") });
+      // 00:30 del 11/10 en Argentina = 03:30 UTC del 11/10.
+      const next = await createHold({ createdAt: new Date("2026-10-11T03:30:00Z") });
+
+      const day10 = (await list("role=sender&from=2026-10-10&to=2026-10-10")).json().items;
+      expect(day10.map((i: { id: string }) => i.id)).toEqual([late.id]);
+
+      const day11 = (await list("role=sender&from=2026-10-11&to=2026-10-11")).json().items;
+      expect(day11.map((i: { id: string }) => i.id)).toEqual([next.id]);
+
+      const both = (await list("role=sender&from=2026-10-10&to=2026-10-11")).json().items;
+      expect(both).toHaveLength(2);
+    });
+
+    it("rechaza fechas inválidas y from posterior a to", async () => {
+      expect((await list("role=sender&from=2026-02-30")).statusCode).toBe(400);
+      expect((await list("role=sender&from=10/10/2026")).statusCode).toBe(400);
+      expect((await list("role=sender&from=2026-10-12&to=2026-10-10")).statusCode).toBe(400);
+    });
+  });
+
+  describe("paginación por cursor (AC1, AC3)", () => {
+    it("recorre todo sin duplicados ni saltos, incluso con la misma fecha", async () => {
+      const sameInstant = new Date("2026-10-05T12:00:00.123Z");
+      const ids: string[] = [];
+      for (let i = 0; i < 7; i += 1) {
+        const h = await createHold({ createdAt: i < 4 ? sameInstant : new Date(Date.UTC(2026, 9, 6, 12, i)) });
+        ids.push(h.id);
+      }
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      let pages = 0;
+      do {
+        const res: { items: Array<{ id: string }>; nextCursor: string | null } = (
+          await list(`role=sender&limit=3${cursor ? `&cursor=${cursor}` : ""}`)
+        ).json();
+        seen.push(...res.items.map((i) => i.id));
+        cursor = res.nextCursor;
+        pages += 1;
+      } while (cursor && pages < 10);
+
+      expect(pages).toBe(3);
+      expect(new Set(seen).size).toBe(7);
+      expect([...seen].sort()).toEqual([...ids].sort());
+    });
+
+    it("el orden es del más reciente al más antiguo", async () => {
+      const old = await createHold({ createdAt: new Date("2026-10-01T10:00:00Z") });
+      const recent = await createHold({ createdAt: new Date("2026-10-02T10:00:00Z") });
+      const items = (await list("role=sender")).json().items;
+      expect(items.map((i: { id: string }) => i.id)).toEqual([recent.id, old.id]);
+    });
+
+    it("limit tiene tope 50 y un cursor inválido es 400", async () => {
+      expect((await list("role=sender&limit=51")).statusCode).toBe(400);
+      expect((await list("role=sender&cursor=basura")).statusCode).toBe(400);
+    });
+
+    it("un cursor con fecha que Date.parse acepta pero Postgres no es 400, no 500", async () => {
+      const encode = (value: string) => Buffer.from(value, "utf8").toString("base64url");
+      const id = uuid();
+      for (const createdAt of ["1", "2026-10-05", "2026-02-30T12:00:00.000000Z", "2026-10-05T12:00:00Z"]) {
+        const res = await list(`role=sender&cursor=${encode(`${createdAt}|${id}`)}`);
+        expect(res.statusCode, createdAt).toBe(400);
+      }
+    });
+
+    it("status tiene tope de valores", async () => {
+      const many = Array.from({ length: 21 }, () => "reserved").join("&status=");
+      expect((await list(`role=sender&status=${many}`)).statusCode).toBe(400);
+    });
+  });
+
+  describe("detalle (AC10-12)", () => {
+    it("trae capturedAt y los movimientos en orden", async () => {
+      const h = await createHold({ status: "captured" });
+      await settle(h, "credited");
+      await event(h, "refund", "partially_refunded", 200, new Date("2026-10-11T10:00:00Z"));
+      await event(h, "mediation", "in_mediation", null, new Date("2026-10-12T10:00:00Z"));
+      const res = await detail(h.id, "sender", SENDER);
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.status).toBe("disputed");
+      expect(body.capturedAt).toBe("2026-10-10T15:00:00.000Z");
+      expect(body.movements).toEqual([
+        { kind: "refund", amountArs: 200, date: "2026-10-11T10:00:00.000Z" },
+        { kind: "mediation", amountArs: null, date: "2026-10-12T10:00:00.000Z" },
+      ]);
+    });
+
+    it("los movimientos usan el mismo mp_payment_id que el estado", async () => {
+      const h = await createHold({ status: "captured" });
+      await settle(h, "credited");
+      // Un evento de otro pago del mismo hold (re-adoptado): ni cuenta para el estado ni se lista.
+      await app.db.paymentProviderEvent.create({
+        data: {
+          holdId: h.id,
+          shipmentId: h.shipmentId,
+          mpPaymentId: "otro-pago",
+          kind: "chargeback",
+          mpStatus: "charged_back",
+          holdStatus: "captured",
+        },
+      });
+      const body = (await detail(h.id, "sender", SENDER)).json();
+      expect(body.status).toBe("completed");
+      expect(body.movements).toEqual([]);
+    });
+
+    it("el desglose viaja solo para el transportista y solo con la liquidación acreditada", async () => {
+      const credited = await createHold({ status: "captured" });
+      await settle(credited, "credited");
+      const processing = await createHold({ status: "captured" });
+      await settle(processing, "processing");
+
+      const ok = (await detail(credited.id, "carrier", CARRIER)).json();
+      expect(ok.breakdown).toEqual({
+        grossArs: 1150,
+        mpFeeArs: 47.15,
+        commissionArs: 150,
+        debtOffsetArs: 0,
+        netArs: 952.85,
+      });
+      expect("card" in ok).toBe(false);
+
+      expect((await detail(processing.id, "carrier", CARRIER)).json().breakdown).toBeNull();
+
+      const asSender = await detail(credited.id, "sender", SENDER);
+      expect(asSender.statusCode).toBe(200);
+      expect("breakdown" in asSender.json()).toBe(false);
+      expect(asSender.json().card).toEqual({ brand: "visa", last4: "3764" });
+    });
+
+    it("una transacción ajena, de otro rol o inexistente responde el mismo 404", async () => {
+      const h = await createHold();
+      const foreign = await detail(h.id, "sender", OTHER);
+      const wrongRole = await detail(h.id, "carrier", SENDER);
+      const missing = await detail(uuid(), "sender", SENDER);
+      for (const res of [foreign, wrongRole, missing]) expect(res.statusCode).toBe(404);
+      expect(foreign.json().error).toEqual(missing.json().error);
+    });
+
+    it("un hold no visible (rejected) es 404", async () => {
+      const h = await createHold({ status: "rejected", mpPaymentId: null });
+      expect((await detail(h.id, "sender", SENDER)).statusCode).toBe(404);
+    });
+  });
+});

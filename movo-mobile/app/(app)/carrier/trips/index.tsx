@@ -12,6 +12,7 @@ import { SuccessBanner } from "../../../../components/ui/success-banner";
 import { useMyTripsPaged } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { groupTripsByMonth } from "../../../../src/lib/trip-format";
+import { newTripsBannerMessage } from "../../../../src/lib/trip-recurrence";
 import { diffAndMarkSeenTrips } from "../../../../src/lib/seen-trips";
 import { type TripListScope, type TripWithAcceptedPackages } from "../../../../src/api/trips-client";
 
@@ -69,11 +70,8 @@ export default function MyTripsScreen() {
     let cancelled = false;
     diffAndMarkSeenTrips(trips.map((trip) => trip.id)).then(({ newTripIds }) => {
       if (cancelled || newTripIds.length === 0 || created === "1") return;
-      setAutoCreatedMessage(
-        newTripIds.length === 1
-          ? "Se armó un viaje con un envío que aceptaste"
-          : "Se armaron viajes nuevos con envíos que aceptaste",
-      );
+      const newIds = new Set(newTripIds);
+      setAutoCreatedMessage(newTripsBannerMessage(trips.filter((trip) => newIds.has(trip.id))));
     });
     return () => {
       cancelled = true;

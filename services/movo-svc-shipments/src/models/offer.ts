@@ -1,4 +1,4 @@
-import { OfferStatus, ShipmentStatus } from "@movo/shared";
+import { CarrierDebtDiscount, OfferStatus, ShipmentStatus } from "@movo/shared";
 import { InvalidEnumValueError, PackageType } from "./shipment";
 
 /**
@@ -100,6 +100,11 @@ export interface OfferCompetitiveRank {
 export interface OfferWithShipmentContext extends Offer {
   shipment: OfferShipmentContext;
   competitiveRank: OfferCompetitiveRank | null;
+  /**
+   * MOVO-311: deuda de la cuenta corriente del transportista que se descontaría de este cobro (vista
+   * previa). Solo en ofertas `pending`: con la oferta aceptada, la deuda real la fija el hold.
+   */
+  debtDiscount?: CarrierDebtDiscount | null;
 }
 
 export interface CreateOfferInput {

@@ -97,6 +97,16 @@ model Hold {
   mpPaymentId        String?            @map("mp_payment_id")
   amountArs          Decimal            @map("amount_ars") @db.Decimal(12, 2)
   applicationFeeArs  Decimal            @map("application_fee_ars") @db.Decimal(12, 2)
+  // MOVO-311: `amountArs` es lo que se le cobra al emisor (precio + recargo por su deuda) y
+  // `applicationFeeArs` la comisión + la deuda que se cobra. Acá queda el desglose, calculado una vez
+  // por intento: el precio acordado (contra el que se compara un reintento), la comisión de Movo, el
+  // descuento al transportista por su deuda y el recargo al emisor (completo; Movo absorbe la comisión
+  // de MP sobre él, así que el fee lleva un poco menos). Al cerrarse el hold sin cobrar, un trigger anula
+  // los movimientos `reserved` del ledger que lo referencian.
+  baseAmountArs      Decimal            @map("base_amount_ars") @db.Decimal(12, 2)
+  commissionArs      Decimal            @map("commission_ars") @db.Decimal(12, 2)
+  debtOffsetArs      Decimal            @default(0) @map("debt_offset_ars") @db.Decimal(12, 2)
+  debtSurchargeArs   Decimal            @default(0) @map("debt_surcharge_ars") @db.Decimal(12, 2)
   status             HoldStatus
   // `status_detail` crudo de MP (`pending_capture`, `cc_rejected_*`, ...).
   statusDetail       String?            @map("status_detail")
@@ -106,16 +116,332 @@ model Hold {
   // original); si no coincide, se busca el pago en MP antes de abrir otro intento.
   // Nunca el token en claro.
   requestFingerprint String?            @map("request_fingerprint")
-  // MOVO-211: marca (`payment_method_id` de MP) y últimos 4 dígitos de la tarjeta del
-  // intento, para el detalle del envío. Nunca el BIN ni el token.
-  cardBrand          String?            @map("card_brand")
-  cardLastFour       String?            @map("card_last_four")
+  // MOVO-100: tarjeta guardada (`saved_cards.id`) con la que se creó el hold, sin FK
+  // (la fila local se borra soft). La escribe MOVO-282; acá solo habilita el
+  // `409 CARD_IN_USE` al dar de baja una tarjeta con un hold vivo.
+  savedCardId        String?            @map("saved_card_id") @db.Uuid
+  // MOVO-302 (historial de MOVO-28): quién pagó y con qué tarjeta, para listar "lo que pagó cada
+  // emisor". `payerId` es el emisor (`payerUserId` de MOVO-282), referencia lógica a users.users sin
+  // FK (ADR-003); los holds anteriores quedan en null. `cardLast4`/`cardBrand` salen de la respuesta
+  // de MP (`card.last_four_digits`, `payment_method_id`), nunca del token; null si MP no los informa.
+  payerId            String?            @map("payer_id") @db.Uuid
+  cardLast4          String?            @map("card_last4") @db.VarChar(4)
+  cardBrand          String?            @map("card_brand") @db.VarChar(32)
   expiresAt          DateTime?          @map("expires_at") @db.Timestamptz
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+  settlement         Settlement?
+  ledgerEntries      UserLedgerEntry[]
 
   @@unique([shipmentId, attempt], map: "holds_shipment_id_attempt_key")
   @@index([mpPaymentId], map: "holds_mp_payment_id_idx")
+  @@index([savedCardId], map: "holds_saved_card_id_idx")
+  // MOVO-302: listados del historial por rol (emisor / transportista), más reciente primero.
+  @@index([payerId, createdAt(sort: Desc), id(sort: Desc)], map: "holds_payer_id_created_at_idx")
+  @@index([carrierId, createdAt(sort: Desc), id(sort: Desc)], map: "holds_carrier_id_created_at_idx")
   @@map("holds")
+  @@schema("payments")
+}
+
+// MOVO-100 (ADR-039): customer de la cuenta de Movo S.A. en Mercado Pago, uno por
+// emisor. El `payer` del hold con tarjeta guardada es este customer (con `payer: {email}`
+// MP responde 2002). `userId` es referencia lógica a users.users, sin FK (ADR-003).
+model PayerCustomer {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @unique(map: "payer_customers_user_id_key") @map("user_id") @db.Uuid
+  mpCustomerId String   @unique(map: "payer_customers_mp_customer_id_key") @map("mp_customer_id")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("payer_customers")
+  @@schema("payments")
+}
+
+// MOVO-100 (ADR-039): tarjeta guardada del emisor en su customer de Movo. Solo ids de MP
+// y metadatos de display: NUNCA el `card_token` (un solo uso), el número ni el CVV.
+// Baja soft (`deletedAt`). Dos índices únicos PARCIALES, a mano en la migración porque
+// Prisma no los representa: `(user_id, mp_card_id)` y un solo `is_default` entre las
+// vivas de cada usuario, ambos `WHERE deleted_at IS NULL`.
+// `alias` es un nombre de referencia que pone el usuario; es de Movo, no se manda a MP.
+model SavedCard {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  mpCardId    String    @map("mp_card_id")
+  brand       String
+  last4       String
+  expMonth    Int       @map("exp_month")
+  expYear     Int       @map("exp_year")
+  // MOVO-101: banco y tipo que devuelve MP al guardar, solo para mostrar. Nulas en las
+  // tarjetas guardadas antes de esta migración.
+  issuerName  String?   @map("issuer_name")
+  paymentType String?   @map("payment_type")
+  isDefault   Boolean   @default(false) @map("is_default")
+  alias       String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz
+
+  @@index([userId], map: "saved_cards_user_id_idx")
+  @@map("saved_cards")
+  @@schema("payments")
+}
+
+enum SettlementStatus {
+  processing
+  credited
+  failed
+  escalated
+
+  @@map("settlement_status")
+  @@schema("payments")
+}
+
+// MOVO-306: qué originó la captura (ver `SettlementKind` en @movo/shared).
+enum SettlementKind {
+  delivery
+  cancellation_penalty
+
+  @@map("settlement_kind")
+  @@schema("payments")
+}
+
+// MOVO-212: liquidación de un envío (captura del hold + split). UNA fila por envío
+// (`shipment_id` único): es la base de la idempotencia del cobro, un segundo pedido de
+// captura encuentra la fila y no vuelve a cobrar. `processing` se escribe ANTES de llamar
+// a MP, así una caída entre la captura y el desglose deja rastro y se puede completar.
+//
+// - `gross_amount_ars` = monto del hold (nunca otro, AC3); `commission_ars` = el
+//   `application_fee` del hold menos la deuda cobrada (MOVO-311). `mp_fee_ars` y
+//   `net_amount_ars` salen de `fee_details` / `net_received_amount` de MP y son null
+//   hasta que MP confirma la captura.
+// - Montos `numeric(12,2)`, nunca float. `shipmentId`/`carrierId` son referencias
+//   lógicas, sin FK (ADR-003); `holdId` sí es FK interna del mismo schema.
+model Settlement {
+  id                    String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId            String           @unique(map: "settlements_shipment_id_key") @map("shipment_id") @db.Uuid
+  holdId                String           @unique(map: "settlements_hold_id_key") @map("hold_id") @db.Uuid
+  carrierId             String           @map("carrier_id") @db.Uuid
+  mpPaymentId           String           @map("mp_payment_id")
+  grossAmountArs        Decimal          @map("gross_amount_ars") @db.Decimal(12, 2)
+  mpFeeArs              Decimal?         @map("mp_fee_ars") @db.Decimal(12, 2)
+  commissionArs         Decimal          @map("commission_ars") @db.Decimal(12, 2)
+  netAmountArs          Decimal?         @map("net_amount_ars") @db.Decimal(12, 2)
+  // MOVO-311: deuda de la cuenta corriente cobrada en este envío, aparte de `commissionArs` (que queda
+  // solo la comisión de Movo): el descuento al transportista y el recargo que pagó el emisor.
+  debtOffsetArs         Decimal          @default(0) @map("debt_offset_ars") @db.Decimal(12, 2)
+  debtSurchargeArs      Decimal          @default(0) @map("debt_surcharge_ars") @db.Decimal(12, 2)
+  // Parte del `application_fee` retenido que corresponde al recargo (recargo menos la comisión de MP que
+  // absorbe Movo): para mostrarle al transportista su cobro sin el recargo del emisor.
+  debtSurchargeFeeArs   Decimal          @default(0) @map("debt_surcharge_fee_ars") @db.Decimal(12, 2)
+  // Bruto y fee de MP tal como los ve el transportista (sin el recargo del emisor), fijados al acreditar. Null hasta entonces.
+  carrierGrossAmountArs Decimal?         @map("carrier_gross_amount_ars") @db.Decimal(12, 2)
+  carrierMpFeeArs       Decimal?         @map("carrier_mp_fee_ars") @db.Decimal(12, 2)
+  status                SettlementStatus
+  kind                  SettlementKind   @default(delivery)
+  // Motivo si quedó `failed` (ver `SettlementFailureReason` en @movo/shared).
+  failureReason         String?          @map("failure_reason")
+  // `status_detail` crudo de MP al capturar (`accredited`, ...).
+  statusDetail          String?          @map("status_detail")
+  capturedAt            DateTime?        @map("captured_at") @db.Timestamptz
+  createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  hold                  Hold             @relation(fields: [holdId], references: [id])
+
+  @@map("settlements")
+  @@schema("payments")
+}
+
+enum MpWebhookNotificationStatus {
+  pending
+  processed
+  ignored
+  unverifiable
+  failed
+
+  @@map("mp_webhook_notification_status")
+  @@schema("payments")
+}
+
+enum HoldProviderEventKind {
+  cancelled
+  expired
+  rejected
+
+  @@map("hold_provider_event_kind")
+  @@schema("payments")
+}
+
+// MOVO-268: inbox de las notificaciones del webhook de Mercado Pago (tópico `payment`).
+// La ruta valida la firma, inserta acá y responde 200 enseguida (AC7); el procesamiento
+// corre después, y un barrido reintenta lo que quedó `pending` con backoff hasta un tope.
+//
+// - `mpNotificationId` es el `id` del body de MP, que se repite en cada reenvío: el
+//   índice único descarta el duplicado en el insert (AC6).
+// - `pendingHoldEvent`: el hold ya cambió de estado por esta notificación pero todavía no
+//   se le avisó a svc-shipments. Se escribe en la MISMA transacción que el cambio del hold,
+//   así un reintento sabe que tiene que volver a avisar aunque el hold ya no esté vivo.
+// - `holdId` es una referencia lógica, sin FK: los tests truncan `holds` por separado.
+model MpWebhookNotification {
+  id                     String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mpNotificationId       String                      @unique(map: "mp_webhook_notifications_mp_notification_id_key") @map("mp_notification_id")
+  topic                  String
+  action                 String?
+  mpPaymentId            String                      @map("mp_payment_id")
+  // `user_id` del body: el vendedor (transportista) dueño del pago.
+  mpUserId               String?                     @map("mp_user_id")
+  liveMode               Boolean?                    @map("live_mode")
+  status                 MpWebhookNotificationStatus @default(pending)
+  attempts               Int                         @default(0)
+  nextAttemptAt          DateTime                    @default(now()) @map("next_attempt_at") @db.Timestamptz
+  // Qué hizo el procesamiento (`hold_cancelled`, `chargeback_recorded`, ...), para auditar.
+  outcome                String?
+  lastError              String?                     @map("last_error")
+  holdId                 String?                     @map("hold_id") @db.Uuid
+  pendingHoldEvent       HoldProviderEventKind?      @map("pending_hold_event")
+  pendingHoldEventDetail String?                     @map("pending_hold_event_detail")
+  processedAt            DateTime?                   @map("processed_at") @db.Timestamptz
+  receivedAt             DateTime                    @default(now()) @map("received_at") @db.Timestamptz
+  updatedAt              DateTime                    @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status, nextAttemptAt], map: "mp_webhook_notifications_status_next_attempt_at_idx")
+  @@map("mp_webhook_notifications")
+  @@schema("payments")
+}
+
+enum PaymentProviderEventKind {
+  chargeback
+  refund
+  mediation
+
+  @@map("payment_provider_event_kind")
+  @@schema("payments")
+}
+
+// MOVO-268 AC5: lo que MP hizo sobre un pago por fuera de Movo (contracargo, reembolso,
+// mediación abierta por el pagador). Hoy no existe la liquidación (MOVO-212): esta tabla
+// es el registro, y MOVO-212 la enlaza a su liquidación por `mp_payment_id`. Qué pasa con
+// el envío queda fuera de alcance (disputas, MOVO-30/34).
+//
+// Una fila por (pago, estado de MP): la misma notificación procesada dos veces, o dos
+// notificaciones del mismo cambio, no generan dos filas ni dos alertas (AC6).
+model PaymentProviderEvent {
+  id             String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Referencias lógicas, sin FK (mismo criterio que `MpWebhookNotification.holdId`).
+  holdId         String                   @map("hold_id") @db.Uuid
+  shipmentId     String                   @map("shipment_id") @db.Uuid
+  mpPaymentId    String                   @map("mp_payment_id")
+  kind           PaymentProviderEventKind
+  mpStatus       String                   @map("mp_status")
+  mpStatusDetail String?                  @map("mp_status_detail")
+  // Lo que MP informa como devuelto (`transaction_amount_refunded`), si viene.
+  amountArs      Decimal?                 @map("amount_ars") @db.Decimal(12, 2)
+  holdStatus     HoldStatus               @map("hold_status")
+  alertedAt      DateTime?                @map("alerted_at") @db.Timestamptz
+  createdAt      DateTime                 @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([mpPaymentId, mpStatus], map: "payment_provider_events_mp_payment_id_mp_status_key")
+  @@index([shipmentId], map: "payment_provider_events_shipment_id_idx")
+  @@map("payment_provider_events")
+  @@schema("payments")
+}
+
+enum LedgerEntryType {
+  cancellation_penalty
+  penalty_capture
+  cash_commission
+  fee_offset
+  payment_surcharge
+  voluntary_payment
+  manual_adjustment
+
+  @@map("ledger_entry_type")
+  @@schema("payments")
+}
+
+enum LedgerEntryStatus {
+  pending
+  reserved
+  settled
+  voided
+
+  @@map("ledger_entry_status")
+  @@schema("payments")
+}
+
+enum LedgerRole {
+  sender
+  carrier
+
+  @@map("ledger_role")
+  @@schema("payments")
+}
+
+// MOVO-309 (ADR-044): cuenta corriente del USUARIO (no de un rol). Solo inserción, con
+// triggers en la migración: lo único que cambia de una fila es `status`. `amount_ars` es con
+// signo (positivo = debe). `createdAt` lo pone la app (ms) y no Postgres (µs) para que el
+// cursor de paginación no pierda precisión. Referencias lógicas, sin FK (ADR-003), salvo
+// `hold_id` que es del mismo schema.
+model UserLedgerEntry {
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String            @map("user_id") @db.Uuid
+  roleAtOrigin       LedgerRole?       @map("role_at_origin")
+  type               LedgerEntryType
+  // Con signo, nunca float.
+  amountArs          Decimal           @map("amount_ars") @db.Decimal(12, 2)
+  status             LedgerEntryStatus @default(pending)
+  shipmentId         String?           @map("shipment_id") @db.Uuid
+  holdId             String?           @map("hold_id") @db.Uuid
+  hold               Hold?             @relation(fields: [holdId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  paymentId          String?           @map("payment_id")
+  reason             String?
+  adminId            String?           @map("admin_id") @db.Uuid
+  idempotencyKey     String            @unique(map: "user_ledger_entries_idempotency_key_key") @map("idempotency_key")
+  // Hash del cuerpo, para distinguir un reintento legítimo de una key reusada con otros datos.
+  requestFingerprint String            @map("request_fingerprint")
+  // Milisegundos: es la precisión del cursor de paginación (la app la fija al insertar).
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "user_ledger_entries_user_id_created_at_id_idx")
+  @@index([shipmentId], map: "user_ledger_entries_shipment_id_idx")
+  @@index([holdId], map: "user_ledger_entries_hold_id_idx")
+  @@map("user_ledger_entries")
+  @@schema("payments")
+}
+
+enum BalanceAttemptStatus {
+  creating
+  pending
+  approved
+  rejected
+  failed
+
+  @@map("balance_attempt_status")
+  @@schema("payments")
+}
+
+// MOVO-312: un intento de "Pagar mi saldo" (Checkout API: tarjeta guardada + CVV, pago directo a la cuenta cobradora de
+// Movo). Su `id` es el `external_reference` del pago de MP: con él el webhook y la recuperación de un intento sin
+// respuesta lo reconocen. El movimiento del ledger (`voluntary_payment`) se asienta una sola vez por su
+// `idempotency_key` (`balance-payment:<id>`), no por el estado de esta fila.
+// Un índice único parcial a mano (`user_id` mientras `creating`/`pending`) deja un solo intento abierto por usuario: así lo
+// que está en vuelo nunca suma más que la deuda.
+model BalancePaymentAttempt {
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String               @map("user_id") @db.Uuid
+  // Lo que el usuario quiso pagar en este intento: siempre positivo (el ledger lo asienta negativo).
+  amountArs          Decimal              @map("amount_ars") @db.Decimal(12, 2)
+  status             BalanceAttemptStatus @default(creating)
+  // Tarjeta guardada (`saved_cards.id`) con la que se pagó; sin FK, solo para el historial.
+  savedCardId        String?              @map("saved_card_id") @db.Uuid
+  // Hash del cuerpo del pedido (token, tarjeta, medio de pago): un reintento con la misma key solo es seguro si coincide.
+  requestFingerprint String               @map("request_fingerprint")
+  // Pago de MP: único, así un mismo pago no puede asentar dos intentos.
+  mpPaymentId        String?              @unique(map: "balance_payment_attempts_mp_payment_id_key") @map("mp_payment_id")
+  statusDetail       String?              @map("status_detail")
+  failureReason      HoldFailureReason?   @map("failure_reason")
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId, status], map: "balance_payment_attempts_user_id_status_idx")
+  @@map("balance_payment_attempts")
   @@schema("payments")
 }

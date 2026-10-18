@@ -140,7 +140,34 @@ describe("SdkMercadoPagoClient (MOVO-267)", () => {
       "TEST-seller",
       expect.objectContaining({ options: expect.objectContaining({ external_reference: "ship-1" }) })
     );
-    expect(found).toEqual([{ id: "777", status: "authorized", status_detail: "pending_capture" }]);
+    expect(found).toEqual([
+      { id: "777", status: "authorized", status_detail: "pending_capture", external_reference: "ship-1" },
+    ]);
+  });
+
+  it("searchPaymentsByExternalReference pasa el medio de pago y los últimos 4 de la tarjeta (MOVO-302)", async () => {
+    sdk.calls.search.mockResolvedValue({
+      results: [
+        {
+          id: "777",
+          status: "authorized",
+          status_detail: "pending_capture",
+          payment_method_id: "visa",
+          // El SDK tipa `card` como `any`: se pasa solo lo que usa un hold, nunca el resto (BIN, titular).
+          card: { last_four_digits: "4242", first_six_digits: "450995", cardholder: { name: "APRO" } },
+        },
+      ],
+    });
+
+    const [found] = await client.searchPaymentsByExternalReference("TEST-seller", "ship-1");
+
+    expect(found).toEqual({
+      id: "777",
+      status: "authorized",
+      status_detail: "pending_capture",
+      payment_method_id: "visa",
+      card: { last_four_digits: "4242" },
+    });
   });
 
   it("searchPaymentsByExternalReference sin resultados devuelve una lista vacía", async () => {

@@ -163,6 +163,21 @@ describe("presentMyShipment", () => {
     expect(delivered.pill).toEqual({ label: "ENTREGADO", tone: "success" });
     expect(present(shipment({ status: ShipmentStatus.CANCELLED })).pill?.label).toBe("CANCELADO");
   });
+
+  it("MOVO-275: quien transfirió la recepción lo ve en el historial con la pill Transferido", () => {
+    const p = present(
+      shipment({
+        senderId: "martin",
+        receiverId: "otra-persona",
+        status: ShipmentStatus.IN_TRANSIT,
+        transferredByMe: { newReceiverId: "otra-persona", newReceiverName: "Martín López", at: "2026-09-20T12:00:00.000Z" },
+      }),
+    );
+    expect(p.stage).toBe("history");
+    expect(p.pill).toEqual({ label: "TRANSFERIDO", tone: "neutral" });
+    expect(p.statusKey).toBe("transferred");
+    expect(p.strip).toBeNull();
+  });
 });
 
 describe("envío por vencer sin ofertas", () => {

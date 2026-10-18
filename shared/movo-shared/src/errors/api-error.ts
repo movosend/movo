@@ -31,6 +31,8 @@ export type ApiErrorCode =
   | "SHIPMENT_PICKUP_WINDOW_IN_PAST"
   | "SHIPMENT_PICKUP_WINDOW_INVALID"
   | "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE"
+  // MOVO-276: peso o medidas fuera de los límites duros (`details.violations`).
+  | "PACKAGE_LIMITS_EXCEEDED"
   | "USERS_SERVICE_UNAVAILABLE"
   | "PUSH_PROVIDER_ERROR"
   | "ADDRESS_NOT_FOUND"
@@ -55,6 +57,10 @@ export type ApiErrorCode =
   | "SHIPMENTS_SERVICE_UNAVAILABLE"
   | "SHIPMENT_CONCURRENT_MODIFICATION"
   | "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED"
+  // MOVO-307: el emisor confirmó una penalidad de cancelación (`expectedPenaltyArs`) distinta
+  // de la que corresponde ahora (pasó el umbral de 12 h o cerró la ventana). Viaja con
+  // `details.penaltyArs`: el mobile vuelve a mostrar el monto y pide confirmar de nuevo.
+  | "CANCELLATION_PENALTY_MISMATCH"
   | "ACCOUNT_DELETION_IN_PROGRESS"
   | "PHOTO_CONFIRMATION_IN_PROGRESS"
   | "OFFER_NOT_FOUND"
@@ -104,6 +110,14 @@ export type ApiErrorCode =
   // (`assigned`/`in_transit`) -- p. ej. todos esperan el hold de fondos
   // (`assignment_pending`/`assigned_unfunded`). Distinto de `TRIP_NO_PACKAGES`.
   | "TRIP_PACKAGES_NOT_READY"
+  // MOVO-265 (ADR-042): prender la recurrencia con 3 series activas ya (tope de
+  // `MAX_ACTIVE_RECURRING_SERIES`), y editar la recurrencia de un trip que no es el
+  // vigente de su serie (ya tiene sucesor).
+  | "RECURRING_SERIES_LIMIT"
+  | "TRIP_NOT_SERIES_HEAD"
+  // MOVO-265: prender o cambiar la recurrencia de un viaje que ya terminó (expired,
+  // cancelled, completed): solo `declared`/`active` pueden repetirse.
+  | "TRIP_NOT_EDITABLE"
   // MOVO-228: la app mandó una versión de Términos/Privacidad distinta a la vigente
   // (`LEGAL_DOCUMENT_VERSIONS`, config/legal.ts) -- app desactualizada, el usuario
   // tiene que revisar y aceptar el contenido actual antes de poder registrarse.
@@ -127,6 +141,12 @@ export type ApiErrorCode =
   // MOVO-175: interacción (oferta, aceptación, envío como receptor) entre dos usuarios
   // con un bloqueo en cualquier dirección -- explícito a propósito (ADR-026).
   | "USER_BLOCKED"
+  // MOVO-26: el chat del envío ya no está disponible (el envío se canceló, se rechazó o
+  // todavía no tiene transportista). Un envío entregado NO da este error: queda en solo lectura.
+  | "CHAT_CLOSED"
+  // MOVO-26: el chat sigue visible pero no admite mensajes nuevos de quien escribe
+  // (receptor original, envío en disputa).
+  | "CHAT_READ_ONLY"
   // MOVO-175: reportarse o bloquearse a uno mismo.
   | "CANNOT_MODERATE_SELF"
   // MOVO-175: ya hay un reporte propio en revisión sobre ese usuario -- se suma
@@ -167,16 +187,42 @@ export type ApiErrorCode =
   | "CARRIER_MP_ACCOUNT_NOT_LINKED"
   // El envío no tiene ningún hold (ni siquiera un intento rechazado).
   | "HOLD_NOT_FOUND"
+  // MOVO-282: el hold pidió pagar con una `savedCardId` que no existe, no es del emisor o ya se
+  // dio de baja. Distinto de `NOT_FOUND` para que el mobile refresque la lista de tarjetas.
+  | "SAVED_CARD_NOT_FOUND"
   // Liberar un hold que ya no se puede liberar (capturado) o que todavía no está creado.
   | "HOLD_NOT_RELEASABLE"
   // Ya hay un hold vigente del envío con otro transportista o monto: no se pisa en silencio.
   | "HOLD_CONFLICT"
+  // MOVO-311: lo que hay que cobrar cambió desde que el emisor vio el total (se sumó una deuda a su cuenta
+  // corriente). No se cobra distinto de lo confirmado: `details.totalArs` trae el total actual.
+  | "HOLD_AMOUNT_CHANGED"
   // Mercado Pago no respondió o devolvió un error que no es un rechazo de la tarjeta
   // (5xx, timeout, red). El hold queda reintentable con la misma idempotency key.
   | "PAYMENT_PROVIDER_ERROR"
+  // MOVO-212: capturar un hold que no está en `authorized` (rechazado, cancelado, todavía
+  // en revisión...) o que MP ya no sostiene (vencido).
+  | "HOLD_NOT_CAPTURABLE"
+  // El envío todavía no tiene liquidación (no se pidió la captura).
+  | "SETTLEMENT_NOT_FOUND"
+  // MOVO-306: el envío ya tiene una liquidación de otro tipo (entrega vs. penalidad) o por
+  // otro monto. Una por envío: no se pisa en silencio.
+  | "SETTLEMENT_CONFLICT"
+  // MOVO-306: la penalidad pide capturar más que lo autorizado en el hold.
+  | "CAPTURE_AMOUNT_EXCEEDS_HOLD"
+  // MOVO-306: la penalidad no supera el `application_fee` del hold; MP la rechazaría (`4201`,
+  // spike MOVO-305). El hold sigue `authorized`: `svc-shipments` aplica el plan B (MOVO-307).
+  | "CAPTURE_BELOW_APPLICATION_FEE"
   // MOVO-116 (ADR-036): el transportista no tiene la licencia de conducir aprobada
   // (`kyc_status_license`). Viaja con `details.missingRequirements`.
   | "CARRIER_LICENSE_NOT_APPROVED"
+  // MOVO-278 (ADR-045): el transportista tiene un envío en `disputed` (automática por
+  // entrega demorada o iniciada por un usuario). Viaja con `details.missingRequirements`.
+  | "CARRIER_DISPUTE_OPEN"
+  // MOVO-313 (ADR-044): la cuenta tiene una deuda sin saldar hace más de 14 días
+  // (`USER_DEBT_OVERDUE_DAYS`). Bloquea operar como transportista (declarar viaje, ofertar,
+  // editar oferta, iniciar viaje); como emisor no. Viaja con `details.missingRequirements`.
+  | "USER_DEBT_OVERDUE"
   // MOVO-116: `svc-payments` no respondió al consultar la cuenta de MP del transportista.
   | "PAYMENTS_SERVICE_UNAVAILABLE"
   // MOVO-116: el emisor quiso aceptar la oferta de un transportista que ya no cumple los
@@ -199,7 +245,53 @@ export type ApiErrorCode =
   | "SHIPMENT_RECEIVER_TRANSFER_INVALID_TARGET"
   | "RECEIVER_TRANSFER_NOT_FOUND"
   // La solicitud ya no está pendiente (aceptada, rechazada, vencida o cancelada).
-  | "RECEIVER_TRANSFER_NOT_PENDING";
+  | "RECEIVER_TRANSFER_NOT_PENDING"
+  // MOVO-100 (ADR-039): tarjetas guardadas del emisor en `svc-payments`.
+  // La tarjeta tiene un hold vivo asociado: no se puede dar de baja hasta que se libere.
+  | "CARD_IN_USE"
+  // Tope de tarjetas vivas por usuario (`MAX_SAVED_CARDS_PER_USER`).
+  | "CARD_LIMIT_REACHED"
+  // Mercado Pago rechazó guardar la tarjeta (datos inválidos, vencida, cuenta de prueba que
+  // no corresponde); `details.providerCode` trae el código crudo de MP si lo hay.
+  | "CARD_SAVE_REJECTED"
+  // El customer de MP que corresponde al email del emisor ya está asociado a otra cuenta de
+  // Movo (p. ej. alguien que se cambió el email y otra persona se registró con el viejo).
+  | "CARD_CUSTOMER_CONFLICT"
+  // Falta la `public_key` o las credenciales de Movo para operar con tarjetas (503).
+  | "CARDS_NOT_CONFIGURED"
+  // MOVO-309 (ADR-044): cuenta corriente del usuario (`svc-payments`). La `idempotencyKey` ya
+  // existe con otro cuerpo (otro usuario, tipo, monto o referencia).
+  | "LEDGER_IDEMPOTENCY_CONFLICT"
+  // El movimiento no existe para ese usuario.
+  | "LEDGER_ENTRY_NOT_FOUND"
+  // El movimiento ya no está en el estado esperado: otro llamador lo movió primero.
+  | "LEDGER_ENTRY_STATE_CONFLICT"
+  | "LEDGER_INVALID_TRANSITION"
+  // MOVO-312: "Pagar mi saldo". El monto pedido supera el saldo deudor, o no hay deuda (422).
+  | "BALANCE_AMOUNT_EXCEEDS_DEBT"
+  // Ya hay un pago del mismo monto en curso para ese usuario: esperar su resultado (409).
+  | "BALANCE_PAYMENT_IN_PROGRESS"
+  // La cuenta cobradora de Movo no está configurada, vinculada o vigente (503).
+  | "BALANCE_COLLECTOR_NOT_CONFIGURED"
+  // MOVO-268: webhook de Mercado Pago (`svc-payments`). `x-signature` ausente o que no
+  // coincide con la clave secreta de webhooks de la app.
+  | "PAYMENT_WEBHOOK_INVALID_SIGNATURE"
+  // Falta `MP_WEBHOOK_SECRET` en el ambiente: no hay contra qué validar, se rechaza todo.
+  | "PAYMENT_WEBHOOK_NOT_CONFIGURED"
+  // MOVO-290: alta y baja del rol admin (`svc-users`, endpoints internos y script).
+  // Otorgar el rol a una cuenta con el email sin verificar.
+  | "ADMIN_GRANT_EMAIL_NOT_VERIFIED"
+  // Otorgar el rol a una cuenta que no está `active`.
+  | "ADMIN_GRANT_ACCOUNT_NOT_ACTIVE"
+  // Revocar el rol a alguien que no lo tiene.
+  | "ADMIN_NOT_FOUND"
+  // Revocar el rol al único admin que queda: nunca puede quedar el sistema sin admins.
+  | "ADMIN_LAST_ADMIN"
+  // Otorgar el rol compitió con una revocación: no es "no es admin" (404), hay que reintentar.
+  | "ADMIN_GRANT_CONFLICT"
+  // MOVO-288: el admin intenta una acción de escritura sobre algo en lo que es parte
+  // (él mismo, su rol, un envío suyo o un reporte que lo involucra). Leer sí puede.
+  | "ADMIN_CONFLICT_OF_INTEREST";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

@@ -207,6 +207,121 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect(forbidden.statusCode).toBe(403);
     });
 
+    it("MOVO-311: con deuda del emisor, GET desglosa precio, saldo pendiente y total", async () => {
+      const { shipmentId, winner } = await acceptedShipment(1);
+      paymentsClient.behavior.pendingDebtByUserId.set(senderId, 50);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        priceArs: winner.priceOffered,
+        pendingBalanceArs: 50,
+        totalArs: winner.priceOffered + 50,
+        amountArs: winner.priceOffered + 50,
+      });
+      expect(paymentsClient.getCheckoutData).toHaveBeenCalledWith(expect.objectContaining({ payerUserId: senderId }));
+    });
+
+    it("MOVO-311: el transportista asignado ve en el detalle la deuda que se le descuenta, y nadie más", async () => {
+      const { shipmentId, winner } = await acceptedShipment(1);
+      paymentsClient.behavior.pendingDebtByUserId.set(winner.carrierId, 40);
+
+      const asCarrier = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}`,
+        headers: { "x-user-id": winner.carrierId },
+      });
+      expect(asCarrier.statusCode).toBe(200);
+      expect(asCarrier.json().debtDiscount).toEqual({ amountArs: 40, reason: "pending_balance" });
+
+      const asSender = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}`,
+        headers: { "x-user-id": senderId },
+      });
+      expect(asSender.json()).not.toHaveProperty("debtDiscount");
+
+      // Payments caído: el detalle se abre igual, sin el descuento.
+      paymentsClient.behavior.previewFails = true;
+      const degraded = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}`,
+        headers: { "x-user-id": winner.carrierId },
+      });
+      expect(degraded.statusCode).toBe(200);
+      expect(degraded.json().debtDiscount).toBeNull();
+    });
+
+    it("MOVO-311: sin hold vivo, el descuento solo se previsualiza mientras se puede crear un hold", async () => {
+      const { shipmentId, winner } = await acceptedShipment(1);
+      paymentsClient.behavior.pendingDebtByUserId.set(winner.carrierId, 40);
+      // El pago se registró en payments pero el hold ya no está vivo (se perdió con el envío en tránsito).
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.ASSIGNED, senderId);
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.IN_TRANSIT, winner.carrierId);
+      paymentsClient.previewCarrierDebt.mockClear();
+
+      const detail = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}`,
+        headers: { "x-user-id": winner.carrierId },
+      });
+      expect(detail.statusCode).toBe(200);
+      expect(detail.json().debtDiscount).toBeNull();
+      expect(paymentsClient.previewCarrierDebt).not.toHaveBeenCalled();
+    });
+
+    it("MOVO-311: si payments tarda, el detalle del envío no espera: debtDiscount sale null", async () => {
+      const { shipmentId, winner } = await acceptedShipment(1);
+      paymentsClient.behavior.pendingDebtByUserId.set(winner.carrierId, 40);
+      paymentsClient.findHoldByShipment.mockImplementationOnce(() => new Promise(() => undefined));
+
+      const startedAt = Date.now();
+      const detail = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}`,
+        headers: { "x-user-id": winner.carrierId },
+      });
+      expect(detail.statusCode).toBe(200);
+      expect(detail.json().debtDiscount).toBeNull();
+      expect(Date.now() - startedAt).toBeLessThan(5_000);
+    });
+
+    it("MOVO-311: POST manda el total confirmado y, si la deuda cambió, responde 409 con el total nuevo", async () => {
+      const { shipmentId, winner } = await acceptedShipment(1);
+      paymentsClient.behavior.pendingDebtByUserId.set(senderId, 100);
+      const expectedTotalArs = winner.priceOffered + 100;
+
+      // Se le suma otra deuda antes de pagar: el tope (30% del precio) todavía deja subir el recargo.
+      paymentsClient.behavior.pendingDebtByUserId.set(senderId, 100_000);
+      const stale = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { cardToken: "tok_123", expectedTotalArs },
+      });
+      expect(stale.statusCode).toBe(409);
+      expect(stale.json().error.code).toBe("HOLD_AMOUNT_CHANGED");
+      expect(stale.json().error.details.totalArs).toBeGreaterThan(expectedTotalArs);
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
+
+      // Con el total actual sí se paga.
+      const ok = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { cardToken: "tok_123", expectedTotalArs: stale.json().error.details.totalArs },
+      });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toMatchObject({ funded: true });
+      expect(paymentsClient.createHold).toHaveBeenLastCalledWith(
+        expect.objectContaining({ expectedTotalArs: stale.json().error.details.totalArs }),
+      );
+    });
+
     it("GET responde 409 si el envío no espera un pago (published)", async () => {
       const shipmentId = await createPublished(dateInDays(1));
       const response = await app.inject({
@@ -233,12 +348,80 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNED);
       expect((await offerRepo.findById(winner.id))?.status).toBe(OfferStatus.ACCEPTED);
       expect(paymentsClient.createHold).toHaveBeenCalledWith(
-        expect.objectContaining({ cardToken: "tok_123", paymentMethodId: "visa", amountArs: winner.priceOffered }),
+        expect.objectContaining({ cardToken: "tok_123", paymentMethodId: "visa", amountArs: winner.priceOffered, payerUserId: senderId }),
       );
+      // MOVO-282: sin `savedCardId` el pedido al hold es el de siempre (tarjeta completa).
+      expect(paymentsClient.createHold.mock.calls[0][0]).not.toHaveProperty("savedCardId");
       await vi.waitFor(() => {
         expect(pushedTitles(senderId)).toContain("Pago confirmado");
         expect(pushedTitles(winner.carrierId)).toContain("Envío confirmado");
       });
+    });
+
+    it("MOVO-282: con savedCardId lo pasa al hold junto con el emisor, y el cardToken sigue yendo", async () => {
+      const { shipmentId, winner } = await acceptedShipment(1);
+      const savedCardId = "11111111-1111-4111-8111-111111111111";
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { cardToken: "tok_cvv", savedCardId },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ funded: true, shipmentStatus: ShipmentStatus.ASSIGNED });
+      expect(paymentsClient.createHold).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cardToken: "tok_cvv",
+          savedCardId,
+          payerUserId: senderId,
+          amountArs: winner.priceOffered,
+        }),
+      );
+    });
+
+    it("MOVO-282: un savedCardId que no es uuid se rechaza con 400 antes de llamar a payments", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { cardToken: "tok_cvv", savedCardId: "no-es-uuid" },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(paymentsClient.createHold).not.toHaveBeenCalled();
+    });
+
+    it("MOVO-282: el cardToken sigue siendo obligatorio aunque venga savedCardId", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { savedCardId: "11111111-1111-4111-8111-111111111111" },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(paymentsClient.createHold).not.toHaveBeenCalled();
+    });
+
+    it("MOVO-282: si payments responde 404 por la tarjeta, el emisor ve el 404 y el envío no cambia", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+      paymentsClient.createHold.mockRejectedValueOnce(new ApiError(404, "NOT_FOUND", "Tarjeta no encontrada."));
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { cardToken: "tok_cvv", savedCardId: "11111111-1111-4111-8111-111111111111" },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
     });
 
     it("AC14: un segundo POST (doble tap) no crea otro hold y devuelve funded: true", async () => {
@@ -549,6 +732,14 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect(paymentsClient.holds.get(shipmentId)?.status).toBe("cancelled");
       expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.CANCELLED);
       expect(pushedTitles(winner.carrierId)).toContain("Tu oferta fue cancelada");
+      // MOVO-281: el aviso lleva la oferta, no el envío (al transportista el detalle del envío
+      // cancelado le responde 403).
+      expect(notificationsClient.sendPush).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: winner.carrierId,
+          data: { type: "offer_voided", shipmentId, offerId: winner.id },
+        }),
+      );
     });
 
     it("cancela primero y libera después: si la liberación falla el envío igual queda cancelado", async () => {

@@ -1,5 +1,5 @@
 import { AccountStatus as PrismaAccountStatus, Prisma } from "../generated/prisma/client";
-import { BlockedUserSummary, ReportReason, ReportStatus } from "@movo/shared";
+import { BlockedUserSummary, ReportReason, ReportStatus, UserReportParties } from "@movo/shared";
 import { fullName } from "../models/user";
 
 export interface UserReportRecord {
@@ -55,6 +55,8 @@ export interface ModerationRepository {
    * consumen la búsqueda de usuarios y `svc-shipments`.
    */
   listRelatedUserIds(userId: string): Promise<string[]>;
+  /** MOVO-288: quién reportó a quién en un reporte (regla de conflicto de `svc-admin`), o `null`. */
+  findReportParties(reportId: string): Promise<UserReportParties | null>;
   findPendingReport(reporterId: string, reportedId: string): Promise<UserReportRecord | null>;
   /** `null` si ya hay un reporte `pending` del mismo par (índice único parcial
    * `user_reports_reporter_id_reported_id_pending_key`): otro pedido concurrente ganó. */
@@ -167,6 +169,14 @@ export function createModerationRepository(db: Prisma.TransactionClient): Modera
         ids.add(row.blockerId === userId ? row.blockedId : row.blockerId);
       }
       return [...ids];
+    },
+
+    async findReportParties(reportId) {
+      const row = await db.userReport.findUnique({
+        where: { id: reportId },
+        select: { id: true, reporterId: true, reportedId: true },
+      });
+      return row ? { reportId: row.id, reporterId: row.reporterId, reportedId: row.reportedId } : null;
     },
 
     async findPendingReport(reporterId, reportedId) {

@@ -18,7 +18,7 @@ import {
   deriveEffectiveOfferStatus,
   OfferWithShipmentContext,
 } from "../models/offer";
-import { Trip, buildTripCreateData, mapTrip } from "../models/trip";
+import { TRIP_SERIES_INCLUDE, Trip, buildTripCreateData, mapTrip } from "../models/trip";
 
 /** MOVO-177: el transportista puede proponer retirar hasta 3 días después de la
  * fecha pedida por el emisor (nunca antes -- el paquete recién está listo desde ese
@@ -661,6 +661,9 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
             // las US de asignación de EP-03). No está en el AC8 literal,
             // documentado como superset explícito.
             carrierId: current.carrierId,
+            // MOVO-26: cada asignación arranca una conversación limpia en el chat (si el pago vence y entra otro
+            // transportista, no lee lo que se habló con el anterior).
+            chatStartedAt: acceptedAt,
             // MOVO-244: persistir el precio pactado de la oferta aceptada como agreedPriceArs
             agreedPriceArs: current.priceOffered,
             // MOVO-180: mismo criterio que carrierId -- el receptor necesita ver la
@@ -741,6 +744,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
               departureAt,
               vehicleType: autoTripDefaults.vehicleType,
             }),
+            include: TRIP_SERIES_INCLUDE,
           });
           autoCreatedTrip = mapTrip(tripRow);
         }

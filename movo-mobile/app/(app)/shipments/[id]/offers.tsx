@@ -95,6 +95,9 @@ export default function ShipmentOffersScreen() {
   // (MOVO-244 review, PR #184).
   const hasAcceptedRef = useRef(false);
   const showSuccessOnCloseRef = useRef(false);
+  // Estado del envío DESPUÉS de aceptar: se decide con lo que devuelve el refetch, no con el
+  // `shipment` del render (el modal puede cerrarse antes de que llegue el estado nuevo).
+  const statusAfterAcceptRef = useRef<Promise<ShipmentStatus | undefined>>(Promise.resolve(undefined));
 
   // Vuelve al detalle de este envío: si ya está en la pila (se llegó desde ahí) hace pop
   // hasta él, y si no (ej. desde el aviso de ofertas del home, MOVO-184) reemplaza esta
@@ -145,7 +148,7 @@ export default function ShipmentOffersScreen() {
       hasAcceptedRef.current = true;
       setAcceptedOfferCarrierName(offerToAccept.carrierNameAtOffer);
       setAcceptedOutcome({
-        assignment: accepted.assignment ?? null,
+        assignment: accepted?.assignment ?? null,
         amountArs: offerToAccept.priceOffered,
         pickupDate: offerToAccept.offeredDate,
       });
@@ -154,7 +157,7 @@ export default function ShipmentOffersScreen() {
       showSuccessOnCloseRef.current = true;
       setOfferToAccept(null);
       void refetch();
-      void refetchShipment();
+      statusAfterAcceptRef.current = Promise.resolve(refetchShipment()).then((r) => r?.data?.status);
     } catch (err) {
       if (err instanceof ApiError && err.statusCode === 409) {
         setAcceptErrorMessage(
@@ -193,8 +196,16 @@ export default function ShipmentOffersScreen() {
     }
   };
 
-  const handleSuccessDismiss = () => {
+  const handleSuccessDismiss = async () => {
     setIsSuccessModalVisible(false);
+    const status = (await statusAfterAcceptRef.current) ?? shipment?.status;
+    // Retiro cercano (MOVO-269): el envío queda `assignment_pending` y el emisor paga en el
+    // mismo flujo. `replace` deja el detalle debajo, así "volver" desde el pago cae ahí. Con
+    // retiro lejano (`assigned_unfunded`) el pago se confirma más adelante desde el detalle.
+    if (status === ShipmentStatus.ASSIGNMENT_PENDING) {
+      router.replace(`/shipments/${id}/pay` as never);
+      return;
+    }
     goToShipmentDetail();
   };
 
@@ -202,7 +213,7 @@ export default function ShipmentOffersScreen() {
   // "volver" desde el pago cae en el detalle del envío y no de nuevo en las ofertas.
   const handleSuccessPay = () => {
     setIsSuccessModalVisible(false);
-    router.replace(`/shipments/${id}/payment` as never);
+    router.replace(`/shipments/${id}/pay` as never);
   };
 
   const offerCount = offers ? offers.length : 0;

@@ -8,6 +8,7 @@ import {
   MAX_REPORT_PHOTOS_PER_SUBMISSION,
   ReportPhotoUploadUrl,
   ReportReason,
+  UserReportParties,
 } from "@movo/shared";
 import { PrismaClient } from "../../generated/prisma/client";
 import { StorageProvider } from "../../adapters/storage-provider";
@@ -376,6 +377,13 @@ export function createModerationService(
 
     async listRelatedUserIds(userId: string): Promise<string[]> {
       return repository.listRelatedUserIds(userId);
+    },
+
+    /** MOVO-288: 404 `REPORT_NOT_FOUND` si el reporte no existe. */
+    async getReportParties(reportId: string): Promise<UserReportParties> {
+      const parties = await repository.findReportParties(reportId);
+      if (!parties) throw new ApiError(404, "REPORT_NOT_FOUND", "Reporte no encontrado.");
+      return parties;
     },
   };
 }

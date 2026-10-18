@@ -8,9 +8,17 @@
  */
 
 // auth
-export { signAccessToken, signRefreshToken, verifyAccessToken } from "./auth/jwt";
+export {
+  signAccessToken,
+  signRefreshToken,
+  verifyAccessToken,
+  ACCESS_TOKEN_TTL_SECONDS,
+  PANEL_ACCESS_TOKEN_TTL_SECONDS,
+  PANEL_SESSION_TTL_SECONDS,
+} from "./auth/jwt";
 export type {
   AccessTokenPayload,
+  SignAccessTokenOptions,
   RefreshTokenResult,
   VerifyAccessTokenResult,
 } from "./auth/jwt";
@@ -35,6 +43,7 @@ export type {
   UserReportEntry,
   UserReportPhoto,
   UserReportSummary,
+  AdminSummary,
 } from "./types/user";
 export { ShipmentStatus } from "./types/shipment";
 export type {
@@ -108,11 +117,73 @@ export type {
   CreateHoldRequest,
   HoldCheckoutDataRequest,
   HoldCheckoutDataResponse,
+  HoldDebtBreakdown,
   HoldFailureReason,
+  HoldDetailResponse,
   HoldResponse,
   HoldStatus,
 } from "./types/hold";
 
+// saved cards (MOVO-100)
+export { MAX_SAVED_CARDS_PER_USER, SAVED_CARD_ALIAS_MAX_LENGTH } from "./types/saved-card";
+export type {
+  CardsCheckoutDataResponse,
+  CreateSavedCardRequest,
+  SavedCard,
+  UpdateSavedCardRequest,
+} from "./types/saved-card";
+
+// historial de transacciones (MOVO-303)
+export {
+  TRANSACTION_MOVEMENT_KINDS,
+  TRANSACTION_ROLES,
+  TRANSACTION_STATUSES,
+  TRANSACTIONS_DEFAULT_LIMIT,
+  TRANSACTIONS_MAX_LIMIT,
+} from "./types/transaction";
+export type {
+  TransactionBreakdown,
+  TransactionCard,
+  TransactionDetail,
+  TransactionListItem,
+  TransactionListResponse,
+  TransactionMovement,
+  TransactionMovementKind,
+  TransactionRole,
+  TransactionStatus,
+} from "./types/transaction";
+
+// liquidación: captura del hold + split (MOVO-212)
+export { SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
+export type {
+  CaptureHoldRequest,
+  CaptureHoldResponse,
+  SettlementDisplayStatus,
+  SettlementFailureReason,
+  SettlementKind,
+  SettlementResponse,
+  SettlementStatus,
+  ShipmentSettlementResponse,
+} from "./types/settlement";
+// cuenta corriente del usuario (MOVO-309)
+export { USER_LEDGER_ENTRY_STATUSES, USER_LEDGER_ENTRY_TYPES, USER_LEDGER_ROLES } from "./types/user-ledger";
+export type {
+  BalancePayDataResponse,
+  CarrierDebtDiscount,
+  BalancePayRequest,
+  BalancePayResponse,
+  CreateManualAdjustmentRequest,
+  CreateUserLedgerEntryRequest,
+  CreateUserLedgerEntryResponse,
+  DebtCollectionPreviewRequest,
+  DebtCollectionPreviewResponse,
+  UserLedgerBalanceResponse,
+  UserLedgerEntry,
+  UserLedgerEntryStatus,
+  UserLedgerEntryType,
+  UserLedgerPageResponse,
+  UserLedgerRole,
+} from "./types/user-ledger";
 // funding (MOVO-210)
 export type {
   CarrierFundingView,
@@ -136,6 +207,8 @@ export {
   computeOfferGrossPrice,
   computeNetFromGross,
   decomposeOfferGrossPrice,
+  carrierPaymentView,
+  estimateMpFeeArs,
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
@@ -153,7 +226,11 @@ export {
 export type { RatingCategoryDefinition, RatingCategoryScoreField } from "./config/rating-categories";
 
 // utils
-export { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "./utils/argentina-date";
+export {
+  ARGENTINA_UTC_OFFSET_HOURS,
+  toArgentinaCalendarDateString,
+  toArgentinaTimeOfDayString,
+} from "./utils/argentina-date";
 
 // notification preferences (MOVO-239)
 export {
@@ -182,6 +259,47 @@ export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
 
 // trip start (MOVO-277)
 export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";
+// penalidad por cancelar un envío asignado (MOVO-307, ADR-047)
+export {
+  CANCELLATION_PENALTY_FREE_HOURS,
+  CANCELLATION_PENALTY_RATE,
+  computeCancellationPenalty,
+} from "./config/cancellation-penalty";
+export type {
+  CancellationPenaltyInput,
+  CancellationPenaltyQuote,
+  CancellationPenaltyReason,
+  CancellationQuoteResponse,
+} from "./config/cancellation-penalty";
+
+// viajes recurrentes (MOVO-265, ADR-042)
+export {
+  RECURRENCE_WEEKDAY,
+  MAX_ACTIVE_RECURRING_SERIES,
+  argentinaWeekday,
+  formatArgentinaShortDay,
+  nextRecurrenceOccurrence,
+} from "./config/trip-recurrence";
+
+// chat (MOVO-26)
+export {
+  CHAT_MESSAGE_MAX_LENGTH,
+  CHAT_POST_DELIVERY_WINDOW_HOURS,
+  CHAT_PAGE_MAX_LIMIT,
+  CHAT_MODERATION_WARNING,
+} from "./types/chat";
+export type {
+  ChatAccess,
+  ChatDeliveryStatus,
+  ChatListItem,
+  ChatListResponse,
+  ChatMessage,
+  ChatMessagesPage,
+  ChatParticipant,
+  ChatParticipantRole,
+  ChatParticipantsResponse,
+  ChatRealtimeEvent,
+} from "./types/chat";
 
 // receiver transfer (MOVO-275)
 export {
@@ -196,3 +314,14 @@ export type {
   ReceiverTransferInvitationShipment,
   ShipmentReceiverTransferSummary,
 } from "./types/receiver-transfer";
+
+// admin: bitácora y conflicto de interés (MOVO-288)
+export type {
+  AuditOutcome,
+  AdminTargetType,
+  AuditLogEntry,
+  AuditLogPage,
+  ShipmentParties,
+  ChatReportParties,
+  UserReportParties,
+} from "./types/admin";

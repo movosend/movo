@@ -144,6 +144,17 @@ export const moderationSchemas = {
     },
   },
 
+  // MOVO-288: interno, para la regla de conflicto de interés de svc-admin.
+  reportPartiesResponse: {
+    type: "object",
+    required: ["reportId", "reporterId", "reportedId"],
+    properties: {
+      reportId: { type: "string", format: "uuid" },
+      reporterId: { type: "string", format: "uuid" },
+      reportedId: { type: "string", format: "uuid" },
+    },
+  },
+
   noContent: { type: "null", description: "Sin contenido" },
 
   errorResponse: {

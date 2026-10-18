@@ -82,7 +82,7 @@ stateDiagram-v2
     assigned --> cancelled: emisor cancela\n(con penalización)
 
     in_transit --> delivered: entrega confirmada\n(handshake)
-    in_transit --> disputed: reclamo en tránsito (MOVO-30)
+    in_transit --> disputed: reclamo en tránsito (MOVO-30)\no entrega demorada (barrido, MOVO-278)
 
     delivered --> completed: captura y split de MP confirmados (MOVO-212)
     delivered --> disputed: reclamo post-entrega (MOVO-30)
@@ -151,7 +151,9 @@ stateDiagram-v2
   directo, sin pasar por `published`/`assignment_pending`).
 - Cancelar desde `in_transit` o `delivered` — el diagrama solo permite cancelar hasta
   `assigned`/`assigned_unfunded` inclusive (con penalización desde `assigned`, sin
-  penalización desde `assigned_unfunded` porque todavía no hay hold que liberar); a
+  penalización desde `assigned_unfunded` porque todavía no hay hold que liberar; la
+  penalidad desde `assigned` es el 25 % del precio acordado si faltan menos de 12 h para el
+  retiro, MOVO-307/ADR-047); a
   partir de `in_transit` la única salida de excepción es `disputed`.
 - `assigned_unfunded` → `in_transit` directo (AC2 de MOVO-208): permitiría retirar un
   paquete sin fondos reservados.

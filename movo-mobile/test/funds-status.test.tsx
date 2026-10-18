@@ -106,7 +106,7 @@ describe("FundsStatus (MOVO-211)", () => {
       await act(async () => {
         fireEvent.press(getByTestId("funds-status-cta"));
       });
-      expect(router.push).toHaveBeenCalledWith("/(app)/shipments/ship-1/payment");
+      expect(router.push).toHaveBeenCalledWith("/(app)/shipments/ship-1/pay");
     });
 
     it("reserva perdida por MP: pide reconfirmar sin decir que se cobró", async () => {
@@ -150,7 +150,7 @@ describe("FundsStatus (MOVO-211)", () => {
       await act(async () => {
         fireEvent.press(getByTestId("funds-status-cta"));
       });
-      expect(router.push).toHaveBeenCalledWith("/(app)/shipments/ship-1/payment");
+      expect(router.push).toHaveBeenCalledWith("/(app)/shipments/ship-1/pay");
     });
 
     it("rechazo sin tarjeta conocida: no muestra la fila de la tarjeta", async () => {

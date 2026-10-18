@@ -17,7 +17,8 @@ class PriceCalculationMethod(str, Enum):
     ambos lados (TS → Python), agregar un valor acá obliga a agregarlo también ahí."""
 
     EUCLIDEAN_LINEAR_V1 = "euclidean_linear_v1"  # MOVO-82: ya no se emite, persiste en envíos viejos
-    DEMAND_FUEL_ROUTES_V1 = "demand_fuel_routes_v1"  # MOVO-138, ADR-025
+    DEMAND_FUEL_ROUTES_V1 = "demand_fuel_routes_v1"  # MOVO-138: ya no se emite, persiste en envíos viejos
+    PACKAGE_TAPERED_V2 = "package_tapered_v2"  # MOVO-276: peso facturable + tramos
 
 
 class CamelModel(BaseModel):
@@ -66,7 +67,10 @@ class QuoteBreakdown(CamelModel):
     base: float
     distance: float
     weight: float
+    # 1 + recargo por frágil (`fragile_item`), 1 para el resto.
     package_factor: float
+    volumetric_weight_kg: float
+    billable_weight_kg: float
     demand_ratio: float
     demand_multiplier: float
 

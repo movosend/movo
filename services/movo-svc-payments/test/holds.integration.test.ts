@@ -13,6 +13,9 @@ import { createTokenCipher } from "../src/utils/token-cipher";
 const SHIPMENT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SHIPMENT_2 = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const CARRIER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+// MOVO-282: el emisor (dueño de la tarjeta guardada) y otro usuario.
+const PAYER = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const STRANGER = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64");
 const BASE = "/internal/payments/holds";
 
@@ -48,7 +51,7 @@ describe("/internal/payments/holds (MOVO-209)", () => {
   });
 
   beforeEach(async () => {
-    await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.holds, payments.carrier_mp_accounts");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.holds, payments.carrier_mp_accounts, payments.saved_cards, payments.payer_customers CASCADE");
     createCount = 0;
     for (const fn of [mp.createPayment, mp.getPayment, mp.cancelPayment]) fn.mockClear();
     mp.createPayment.mockImplementation(async () => payment({ id: 1_000_000 + ++createCount }));
@@ -76,6 +79,7 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     cardToken: "card-token-1",
     amountArs: 1150,
     payerEmail: "comprador@example.com",
+    payerUserId: PAYER,
     paymentMethodId: "visa",
     ...overrides,
   });
@@ -94,6 +98,9 @@ describe("/internal/payments/holds (MOVO-209)", () => {
       publicKey: "TEST-public-key",
       amountArs: 1150,
       applicationFeeArs: 150,
+      baseAmountArs: 1150,
+      debtOffsetArs: 0,
+      debtSurchargeArs: 0,
       payerEmail: "e@x.com",
     });
   });
@@ -166,8 +173,8 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     await expect(
       app.db.$executeRawUnsafe(
         `INSERT INTO payments.holds (shipment_id, attempt, carrier_id, collector_id, amount_ars,
-           application_fee_ars, status, updated_at)
-         VALUES ('${SHIPMENT}', 2, '${CARRIER}', '1', 100, 10, 'authorized', now())`
+           application_fee_ars, base_amount_ars, commission_ars, status, updated_at)
+         VALUES ('${SHIPMENT}', 2, '${CARRIER}', '1', 100, 10, 100, 10, 'authorized', now())`
       )
     ).rejects.toThrow();
   });
@@ -184,22 +191,6 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     expect(retry.json()).toMatchObject({ status: "authorized", attempt: 2 });
     const keys = mp.createPayment.mock.calls.map((c) => (c as unknown as [string, unknown, string])[2]);
     expect(keys).toEqual([`movo-hold-${SHIPMENT}-1`, `movo-hold-${SHIPMENT}-2`]);
-  });
-
-  it("guarda la marca y los últimos 4 de la tarjeta y los conserva al sincronizar (MOVO-211)", async () => {
-    mp.createPayment.mockResolvedValueOnce(
-      payment({ id: 7, payment_method_id: "visa", card: { last_four_digits: "3704" } } as Partial<PaymentResponse>)
-    );
-    const created = await create();
-    expect(created.json()).toMatchObject({ cardBrand: "visa", cardLastFour: "3704" });
-
-    // Un pago sin datos de tarjeta (respuesta resumida) no borra los que ya estaban.
-    mp.getPayment.mockResolvedValueOnce(payment({ id: 7, status: "authorized" }));
-    const synced = await app.inject({ method: "GET", url: `${BASE}/by-shipment/${SHIPMENT}?sync=true` });
-    expect(synced.json()).toMatchObject({ status: "authorized", cardBrand: "visa", cardLastFour: "3704" });
-
-    const row = await app.db.hold.findFirstOrThrow({ where: { shipmentId: SHIPMENT } });
-    expect(row).toMatchObject({ cardBrand: "visa", cardLastFour: "3704" });
   });
 
   it("consulta el hold por envío, 404 sin hold (AC7)", async () => {
@@ -281,6 +272,188 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     expect(mp.createPayment).not.toHaveBeenCalled();
   });
 
+  describe("con tarjeta guardada (MOVO-282, ADR-039)", () => {
+    /** Una tarjeta viva del emisor en su customer de la cuenta de Movo. */
+    async function seedCard(userId = PAYER, overrides: { deletedAt?: Date } = {}) {
+      await app.db.payerCustomer.upsert({
+        where: { userId },
+        create: { userId, mpCustomerId: `mp-customer-${userId.slice(0, 4)}` },
+        update: {},
+      });
+      return app.db.savedCard.create({
+        data: { userId, mpCardId: "mp-card-secret", brand: "visa", last4: "3764", expMonth: 11, expYear: 2030, ...overrides },
+      });
+    }
+
+    it("AC1/AC3: el pagador es el customer de la tarjeta y el hold guarda saved_card_id", async () => {
+      const card = await seedCard();
+
+      const res = await create({ savedCardId: card.id });
+
+      expect(res.statusCode).toBe(201);
+      const [, mpBody] = mp.createPayment.mock.calls[0] as unknown as [string, Record<string, unknown>, string];
+      expect(mpBody.payer).toEqual({ type: "customer", id: `mp-customer-${PAYER.slice(0, 4)}` });
+      expect(mpBody.token).toBe("card-token-1");
+      const [row] = await app.db.$queryRawUnsafe<Array<{ saved_card_id: string }>>(
+        "SELECT saved_card_id::text AS saved_card_id FROM payments.holds"
+      );
+      expect(row.saved_card_id).toBe(card.id);
+    });
+
+    it("AC2: la respuesta no expone customer_id ni card_id de MP", async () => {
+      const card = await seedCard();
+      const res = await create({ savedCardId: card.id });
+      const raw = res.body;
+      expect(raw).not.toContain("mp-card-secret");
+      expect(raw).not.toContain("mp-customer-");
+      expect(res.json()).not.toHaveProperty("savedCardId");
+    });
+
+    it("sin savedCardId el pagador sigue siendo el email y saved_card_id queda null", async () => {
+      const res = await create();
+      expect(res.statusCode).toBe(201);
+      const [, mpBody] = mp.createPayment.mock.calls[0] as unknown as [string, Record<string, unknown>, string];
+      expect(mpBody.payer).toEqual({ email: "comprador@example.com" });
+      const [row] = await app.db.$queryRawUnsafe<Array<{ saved_card_id: string | null }>>(
+        "SELECT saved_card_id::text AS saved_card_id FROM payments.holds"
+      );
+      expect(row.saved_card_id).toBeNull();
+    });
+
+    it("AC2: la tarjeta de otro usuario, dada de baja o inexistente responden 404 y no crean nada", async () => {
+      const mine = await seedCard();
+      const theirs = await seedCard(STRANGER);
+      const deleted = await seedCard(PAYER, { deletedAt: new Date() });
+
+      for (const savedCardId of [theirs.id, deleted.id, "00000000-0000-4000-8000-0000000000aa"]) {
+        const res = await create({ savedCardId });
+        expect(res.statusCode).toBe(404);
+        expect(res.json().error.code).toBe("SAVED_CARD_NOT_FOUND");
+      }
+      // La de otro usuario tampoco sirve aunque el `payerUserId` sea el de su dueño con otro emisor.
+      expect((await create({ savedCardId: mine.id, payerUserId: STRANGER })).statusCode).toBe(404);
+
+      expect(mp.createPayment).not.toHaveBeenCalled();
+      expect(await app.db.hold.count()).toBe(0);
+    });
+
+    it("AC3: con un hold vivo creado con la tarjeta, borrarla responde 409 CARD_IN_USE", async () => {
+      const card = await seedCard();
+      expect((await create({ savedCardId: card.id })).statusCode).toBe(201);
+
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/payments/cards/${card.id}`,
+        headers: { "x-user-id": PAYER },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe("CARD_IN_USE");
+      expect(await app.db.savedCard.count({ where: { id: card.id, deletedAt: null } })).toBe(1);
+    });
+
+    it("AC4: un reintento con otra tarjeta guardada sobre un intento sin respuesta no reusa la key", async () => {
+      const first = await seedCard();
+      const second = await app.db.savedCard.create({
+        data: { userId: PAYER, mpCardId: "mp-card-2", brand: "master", last4: "1111", expMonth: 5, expYear: 2031 },
+      });
+      mp.createPayment.mockRejectedValueOnce(new Error("The operation was aborted"));
+      expect((await create({ savedCardId: first.id })).statusCode).toBe(502);
+
+      const res = await create({ savedCardId: second.id });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json().attempt).toBe(2);
+      expect((mp.createPayment.mock.calls[1] as unknown as [string, unknown, string])[2]).toBe(`movo-hold-${SHIPMENT}-2`);
+    });
+
+    it("AC6: un CVV incorrecto vuelve como 201 rejected/invalid_data, no como error HTTP", async () => {
+      const card = await seedCard();
+      mp.createPayment.mockResolvedValueOnce(
+        payment({ status: "rejected", status_detail: "cc_rejected_bad_filled_security_code" })
+      );
+
+      const res = await create({ savedCardId: card.id });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({ status: "rejected", failureReason: "invalid_data" });
+    });
+
+    it("AC8: liberar el hold cancela con el token del transportista y no toca la tarjeta", async () => {
+      const card = await seedCard();
+      await create({ savedCardId: card.id });
+
+      const res = await app.inject({ method: "POST", url: `${BASE}/by-shipment/${SHIPMENT}/release` });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().status).toBe("cancelled");
+      expect(mp.cancelPayment.mock.calls[0][0]).toBe("TEST-access-secret");
+      expect(await app.db.savedCard.count({ where: { id: card.id, deletedAt: null } })).toBe(1);
+    });
+  });
+
+  describe("pagador y tarjeta para el historial (MOVO-302)", () => {
+    type HistoryRow = { payer_id: string | null; card_last4: string | null; card_brand: string | null };
+    const historyRow = async () => {
+      const rows = await app.db.$queryRawUnsafe<HistoryRow[]>(
+        "SELECT payer_id::text AS payer_id, card_last4, card_brand FROM payments.holds ORDER BY attempt DESC LIMIT 1"
+      );
+      return rows[0];
+    };
+    const withCard = (last4: string, brand = "visa") =>
+      payment({ payment_method_id: brand, card: { last_four_digits: last4 } } as Partial<PaymentResponse>);
+
+    it("AC3/AC4: persiste el emisor y la tarjeta que informa MP, y no los expone en la respuesta", async () => {
+      mp.createPayment.mockImplementation(async () => ({ ...withCard("4242"), id: 1_000_001 }) as PaymentResponse);
+
+      const res = await create();
+
+      expect(res.statusCode).toBe(201);
+      expect(await historyRow()).toEqual({ payer_id: PAYER, card_last4: "4242", card_brand: "visa" });
+      for (const key of ["payerId", "payerUserId", "cardLast4", "cardBrand"]) {
+        expect(res.json()).not.toHaveProperty(key);
+      }
+    });
+
+    it("AC4: si MP no informa la tarjeta quedan en null (el emisor sí se guarda)", async () => {
+      await create();
+      expect(await historyRow()).toEqual({ payer_id: PAYER, card_last4: null, card_brand: null });
+    });
+
+    it("AC4: ?sync=true completa la tarjeta que faltaba y una consulta sin tarjeta no la borra", async () => {
+      await create();
+      mp.getPayment.mockImplementationOnce(async () => withCard("1881", "master") as PaymentResponse);
+      const first = await app.inject({ method: "GET", url: `${BASE}/by-shipment/${SHIPMENT}?sync=true` });
+      expect(first.statusCode).toBe(200);
+      expect(await historyRow()).toMatchObject({ card_last4: "1881", card_brand: "master" });
+
+      mp.getPayment.mockImplementationOnce(async () => payment());
+      await app.inject({ method: "GET", url: `${BASE}/by-shipment/${SHIPMENT}?sync=true` });
+      expect(await historyRow()).toMatchObject({ card_last4: "1881", card_brand: "master" });
+    });
+
+    it("AC4: un valor con forma inesperada no llega a la base", async () => {
+      mp.createPayment.mockImplementation(
+        async () => ({ ...withCard("12ab", "visa; drop table"), id: 1_000_001 }) as PaymentResponse
+      );
+      await create();
+      expect(await historyRow()).toEqual({ payer_id: PAYER, card_last4: null, card_brand: null });
+    });
+
+    it("AC2: existen los índices de los listados por rol (emisor y transportista), más reciente primero", async () => {
+      const rows = await app.db.$queryRawUnsafe<Array<{ indexname: string; indexdef: string }>>(
+        `SELECT indexname, indexdef FROM pg_indexes
+          WHERE schemaname = 'payments' AND tablename = 'holds' AND indexname LIKE 'holds_%_created_at_idx'
+          ORDER BY indexname`
+      );
+      expect(rows.map((r) => r.indexname)).toEqual([
+        "holds_carrier_id_created_at_idx",
+        "holds_payer_id_created_at_idx",
+      ]);
+      expect(rows[1].indexdef).toContain("(payer_id, created_at DESC, id DESC)");
+    });
+  });
+
   it("valida el body: uuid, monto positivo y email", async () => {
     const badId = await create({ shipmentId: "no-es-uuid" });
     expect(badId.statusCode).toBe(400);
@@ -288,6 +461,15 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     expect(badAmount.statusCode).toBe(400);
     const badEmail = await create({ payerEmail: "inventado" });
     expect(badEmail.statusCode).toBe(400);
+    // MOVO-282: `payerUserId` es obligatorio y `savedCardId`, si viene, un uuid.
+    const noPayer = await app.inject({
+      method: "POST",
+      url: BASE,
+      payload: { ...body(), payerUserId: undefined },
+    });
+    expect(noPayer.statusCode).toBe(400);
+    const badCard = await create({ savedCardId: "no-es-uuid" });
+    expect(badCard.statusCode).toBe(400);
     expect(mp.createPayment).not.toHaveBeenCalled();
   });
 

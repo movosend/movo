@@ -5,6 +5,7 @@ import {
   type FundingCard,
   type FundingLapseReason,
   type FundingRoute,
+  type HoldDetailResponse,
   type HoldResponse,
   type SenderFundingView,
 } from "@movo/shared";
@@ -60,8 +61,8 @@ export function reminderBucket(now: Date, intervalHours: number): number {
 
 /** Lo que la proyección necesita del hold más reciente del envío (MOVO-211). */
 export type FundingViewHold = Pick<
-  HoldResponse,
-  "status" | "failureReason" | "carrierId" | "cardBrand" | "cardLastFour" | "createdAt"
+  HoldDetailResponse,
+  "status" | "failureReason" | "carrierId" | "cardBrand" | "cardLast4" | "createdAt"
 >;
 
 /** Lo que la proyección necesita del último `shipment_event`. */
@@ -89,8 +90,8 @@ export interface SenderFundingViewInput {
 }
 
 function cardOf(hold: FundingViewHold | null | undefined): FundingCard | null {
-  if (!hold?.cardBrand || !hold.cardLastFour) return null;
-  return { brand: hold.cardBrand, lastFour: hold.cardLastFour };
+  if (!hold?.cardBrand || !hold.cardLast4) return null;
+  return { brand: hold.cardBrand, lastFour: hold.cardLast4 };
 }
 
 /**

@@ -42,6 +42,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
     app = Fastify({ logger: false });
     (app as any).config = {
       RECEIVER_CONFIRMATION_TIMEOUT_HOURS: 48,
+      USER_DEBT_OVERDUE_DAYS: 14,
       REPUTATION_CONFIDENCE_CONSTANT: 5,
       REPUTATION_DECAY_HALF_LIFE_DAYS: 30,
     };

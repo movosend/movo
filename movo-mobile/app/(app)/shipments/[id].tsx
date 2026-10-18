@@ -4,9 +4,11 @@ import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useFocusEffect, useIsFocused, useLocalSearchParams, type Href } from "expo-router";
 import {
   ArrowDownLeft,
+  ArrowLeftRight,
   ArrowUpRight,
   ChevronLeft,
   Clock,
+  CreditCard,
   Package,
   QrCode,
   Truck,
@@ -16,18 +18,22 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
-import { CounterpartCard } from "../../../components/shipments/counterpart-card";
 import { HighDemandBadge, HighDemandHelp } from "../../../components/shipments/high-demand-badge";
-import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { FundsStatus } from "../../../components/shipments/funds-status";
-import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
+import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
+import { RouteTrackingChatCard } from "../../../components/shipments/route-tracking-chat-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
-import { PackageCard } from "../../../components/shipments/package-card";
+import { PackageCard, PackageSummaryCard } from "../../../components/shipments/package-card";
+import { PaymentBreakdown } from "../../../components/shipments/payment-breakdown";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
 import { RejectedReceiverBanner } from "../../../components/shipments/rejected-receiver-banner";
+import { ReceiverTransferPendingBanner } from "../../../components/shipments/receiver-transfer-pending-banner";
+import { ReceiverTransferSection } from "../../../components/shipments/receiver-transfer-section";
+import { TransferredByYouBanner } from "../../../components/shipments/transferred-by-you-banner";
 import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
+import { ShipmentPartiesCard } from "../../../components/shipments/shipment-parties-card";
 import { ShipmentRatingsCard } from "../../../components/shipments/shipment-ratings-card";
 import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { TimelineSection } from "../../../components/shipments/timeline-section";
@@ -41,8 +47,17 @@ import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment, useShipmentPhotos } from "../../../src/hooks/use-shipments";
-import { activeShipmentDisplayCode } from "../../../src/lib/active-shipment-format";
-import { getClientCommissionRate } from "../../../src/lib/commission-config";
+import { useShipmentSettlement } from "../../../src/hooks/use-shipment-settlement";
+import {
+  TRANSIT_DELAYED_INFO_TEXT,
+  activeShipmentDisplayCode,
+  isTransitDelayed,
+} from "../../../src/lib/active-shipment-format";
+import {
+  estimateReceivedArs,
+  getClientCommissionRate,
+} from "../../../src/lib/commission-config";
+import { chatAvailability } from "../../../src/lib/chat-format";
 import {
   FULFILLED_SHIPMENT_STATUSES,
   canCancelShipment,
@@ -52,14 +67,24 @@ import {
   formatTimeHHMM,
   liveTrackingAvailability,
   liveTrackingPendingPollInterval,
-  pickupLocalityLabel,
   receiverConfirmationStatus,
+  isFundingWindowOpen,
   shipmentDetailCta,
   type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
-import { fundingProcessingPollInterval } from "../../../src/lib/funds-status-format";
+import { fundingProcessingPollInterval, fundsStatusVariant } from "../../../src/lib/funds-status-format";
 
 type DetailTab = "detalle" | "timeline";
+
+const SHORT_DAY_FORMATTER = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
+
+/** "Receptor desde el 10 oct · antes, vos" (MOVO-275): la fila del receptor nuevo vista por
+ * quien le pasó la recepción. */
+function formerReceiverNote(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Receptor · antes, vos";
+  return `Receptor desde el ${SHORT_DAY_FORMATTER.format(date).replace(".", "")} · antes, vos`;
+}
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return <Text className="mb-1.5 font-sans-medium text-caption uppercase text-fg-3">{children}</Text>;
@@ -128,13 +153,32 @@ export default function ShipmentDetailScreen() {
   const photosQueryRef = useRef(photosQuery);
   photosQueryRef.current = photosQuery;
 
+  // MOVO-214: el detalle del pago es de emisor y transportista, y recién existe con el envío
+  // entregado (AC1-AC3). El receptor que transfirió tampoco lo ve (no es parte del cobro).
+  const paymentRole =
+    shipment === undefined || shipment.receiverTransfer?.viewerIsFormerReceiver === true
+      ? null
+      : currentUser?.userId === shipment.carrierId
+        ? ("carrier" as const)
+        : currentUser?.userId === shipment.senderId
+          ? ("sender" as const)
+          : null;
+  const showPayment =
+    paymentRole !== null && shipment !== undefined && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status);
+  const settlementQuery = useShipmentSettlement(id, {
+    enabled: showPayment,
+    pollWhileProcessingMs: isFocused ? 15_000 : false,
+  });
+  const refetchSettlement = settlementQuery.refetch;
+
   useFocusEffect(
     useCallback(() => {
       void refetch();
       if (shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)) {
         void refetchRatings();
       }
-    }, [refetch, refetchRatings, shipment?.status])
+      if (showPayment) void refetchSettlement();
+    }, [refetch, refetchRatings, refetchSettlement, showPayment, shipment?.status])
   );
 
   // Las URLs de las fotos son presigned y vencen: al volver a la pantalla pasado el
@@ -157,6 +201,7 @@ export default function ShipmentDetailScreen() {
       refetch(),
       refetchRatings(),
       photosQueryRef.current.refetch(),
+      ...(showPayment ? [refetchSettlement()] : []),
     ]);
     setRefreshing(false);
   };
@@ -166,8 +211,16 @@ export default function ShipmentDetailScreen() {
   const activeUserId = currentUser?.userId ?? "";
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
+  // MOVO-275 (ADR-037): le pasó la recepción a otra persona y ve el envío en solo
+  // lectura. No es ninguno de los tres roles, así que no tiene acciones ni CTA; como el
+  // receptor, no ve el punto exacto de retiro ni el precio.
+  const isFormerReceiver = shipment?.receiverTransfer?.viewerIsFormerReceiver === true;
+  const completedTransfer = shipment?.receiverTransfer?.completed ?? null;
+  const pendingTransfer = shipment?.receiverTransfer?.pending ?? null;
+  const pendingOwnTransfer = pendingTransfer && pendingTransfer.requestedBy === activeUserId ? pendingTransfer : null;
+  const seesReceiverView = isReceiver || isFormerReceiver;
 
-  // Mismo query key que `CounterpartCard` (`usePublicProfile`, MOVO-154) — TanStack
+  // Mismo query key que `ShipmentPartiesCard` (`usePublicProfile`, MOVO-154) — TanStack
   // Query dedupea, así que esto no dispara un segundo request cuando esa card ya trajo
   // el perfil del emisor. Solo se usa para nombrar al emisor en el sheet de rechazo
   // de `ReceiverActionsBar` (variante 2a del diseño de "Confirmación de envío").
@@ -194,23 +247,23 @@ export default function ShipmentDetailScreen() {
 
   const isSender = shipment !== undefined && currentUser?.userId === shipment.senderId;
   const isCarrier = shipment !== undefined && currentUser?.userId === shipment.carrierId;
+
+  // MOVO-211 AC6: el transportista cuya asignación se cayó por falta de pago llega por el push
+  // "Envío liberado". Ya no es parte del envío: ve solo por qué se liberó, la ruta y el paquete,
+  // sin acciones, evidencia ni datos de las partes.
+  const isFormerCarrier = shipment?.funding?.viewer === "former_carrier";
+
+  // Nombre de pila del transportista para el copy de la reserva (mismo query key que su fila de
+  // `ShipmentPartiesCard`, TanStack Query dedupea).
+  const { data: carrierProfile } = usePublicProfile(
+    isSender && shipment?.funding ? (shipment.carrierId ?? undefined) : undefined,
+  );
+  const carrierFirstName = carrierProfile?.fullName?.split(" ")[0];
   const showSenderActions =
     isSender && shipment !== undefined && canCancelShipment(shipment.status);
 
   // MOVO-253 AC6: el receptor rechazó y el emisor puede elegir a otra persona.
   const showRejectedBanner = isSender && shipment?.status === ShipmentStatus.REJECTED_BY_RECEIVER;
-
-  // MOVO-211 AC6: el transportista cuya asignación se cayó por falta de pago llega por el
-  // push "Envío liberado". Ya no es parte del envío: ve solo por qué se liberó, la ruta y
-  // el paquete, sin acciones ni datos de las partes.
-  const isFormerCarrier = shipment?.funding?.viewer === "former_carrier";
-
-  // Nombre de pila del transportista para el copy de la reserva (mismo query key que su
-  // `CounterpartCard`, TanStack Query dedupea).
-  const { data: carrierProfile } = usePublicProfile(
-    isSender && shipment?.funding ? (shipment.carrierId ?? undefined) : undefined,
-  );
-  const carrierFirstName = carrierProfile?.fullName?.split(" ")[0];
 
   const role: ShipmentDetailRole | null = isSender
     ? "sender"
@@ -219,13 +272,27 @@ export default function ShipmentDetailScreen() {
       : isCarrier
         ? "carrier"
         : null;
-  const contextualCta = shipment ? shipmentDetailCta(role, shipment.status, shipment.id) : null;
+  const detailCta = shipment
+    ? shipmentDetailCta(role, shipment.status, shipment.id, {
+        fundingWindowOpen: isFundingWindowOpen(shipment),
+      })
+    : null;
+  // MOVO-211: con la card de la reserva a la vista, ella lleva el CTA de pago y la explicación de
+  // los fondos pendientes; el pie no los repite (el Home sí los usa, de ahí que sigan en el helper).
+  const fundsCardVisible =
+    shipment !== undefined && !showPayment && fundsStatusVariant(shipment.funding, shipment.status) !== null;
+  const contextualCta =
+    fundsCardVisible && detailCta && (detailCta.kind === "info" || detailCta.icon === "card") ? null : detailCta;
 
   // El precio pactado (`agreedPriceArs`) es el bruto que paga el emisor; el
-  // transportista ve lo que le queda después de la comisión de Movo (AC3).
-  const carrierNetArs =
+  // transportista ve lo que recibe aprox. después de la comisión de Movo (AC3) y del
+  // estimado de MP (MOVO-225), el mismo monto que en el resto de las pantallas.
+  const carrierReceivedArs =
     isCarrier && shipment?.agreedPriceArs != null
-      ? computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate())
+      ? estimateReceivedArs(
+          computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
+          shipment.agreedPriceArs,
+        )
       : null;
 
   // MOVO-271 AC5: emisor y receptor ven el seguimiento (o su placeholder) mientras hay
@@ -234,6 +301,11 @@ export default function ShipmentDetailScreen() {
     shipment !== undefined && !isCarrier && shipment.carrierId
       ? liveTrackingAvailability(shipment.status)
       : null;
+
+  // MOVO-284: el chat existe desde que hay transportista (y queda legible tras la entrega); lo ven las tres partes.
+  const chatBase = shipment !== undefined ? chatAvailability(shipment.status, shipment.carrierId) : null;
+  // El receptor original (ADR-038) lee la conversación pero ya no escribe, aunque el envío siga en curso.
+  const chatAccess = chatBase && isFormerReceiver ? "read_only" : chatBase;
 
   // Misma condición que decide "Precio pactado" en la card de precio: con transportista
   // asignado el precio que se ve ya no es el sugerido, así que el recargo no aplica.
@@ -299,6 +371,12 @@ export default function ShipmentDetailScreen() {
           <Text className="font-sans-semibold text-h3 text-fg">Detalle del envío</Text>
           {shipment ? (
             <View className="mt-0.5 flex-row items-center gap-1">
+              {isFormerReceiver ? (
+                <View testID="shipment-detail-role" className="flex-row items-center gap-0.5">
+                  <ArrowLeftRight size={11} strokeWidth={2} color={colors.fg3} />
+                  <Text className="font-sans text-[10px] uppercase tracking-wide text-fg-3">Transferiste ·</Text>
+                </View>
+              ) : null}
               {role ? (
                 <View testID="shipment-detail-role" className="flex-row items-center gap-0.5">
                   {role === "sender" ? (
@@ -321,7 +399,12 @@ export default function ShipmentDetailScreen() {
         </View>
 
         {shipment ? (
-          <ShipmentStatusBadge status={shipment.status} isReceiver={isReceiver} />
+          <ShipmentStatusBadge
+            status={shipment.status}
+            isReceiver={isReceiver}
+            delayed={isTransitDelayed(shipment)}
+            testID="shipment-detail-status-badge"
+          />
         ) : null}
         {showSenderActions && shipment ? (
           <SenderActionsBar
@@ -381,12 +464,36 @@ export default function ShipmentDetailScreen() {
                 />
               }
             >
-              {/* MOVO-211: estado de la reserva de fondos, arriba de todo. */}
-              <FundsStatus
-                shipment={shipment}
-                carrierFirstName={carrierFirstName}
-                testID="shipment-detail-funds"
-              />
+              {isReceiver && pendingOwnTransfer ? (
+                <ReceiverTransferPendingBanner
+                  transfer={pendingOwnTransfer}
+                  testID="shipment-detail-receiver-transfer-pending"
+                />
+              ) : null}
+
+              {isFormerReceiver && completedTransfer ? (
+                <TransferredByYouBanner transfer={completedTransfer} testID="shipment-detail-transferred-banner" />
+              ) : null}
+
+              {/* Primero, para que la push de cobro (MOVO-212 AC6) aterrice sobre lo que avisa. */}
+              {showPayment && paymentRole ? (
+                <PaymentBreakdown
+                  role={paymentRole}
+                  shipment={shipment}
+                  settlement={settlementQuery}
+                  testID="shipment-detail-payment"
+                />
+              ) : null}
+
+              {/* MOVO-211: estado de la reserva de fondos. Una vez entregado, el detalle del cobro
+                  es el de `PaymentBreakdown` (MOVO-214), así que no se repite. */}
+              {showPayment ? null : (
+                <FundsStatus
+                  shipment={shipment}
+                  carrierFirstName={carrierFirstName}
+                  testID="shipment-detail-funds"
+                />
+              )}
 
               {/* Ofertas recibidas arriba del mapa: es la acción principal del emisor
                   mientras el envío está publicado, y al pie de la pantalla no se veía. */}
@@ -396,158 +503,205 @@ export default function ShipmentDetailScreen() {
 
               <View>
                 <Eyebrow>Ruta</Eyebrow>
-                {/* El receptor no ve el punto exacto de retiro: solo el pin de entrega y
-                    la localidad del origen, sin calle ni altura (AC4). */}
-                <RouteMapCard
-                  pickup={
-                    isReceiver
-                      ? null
-                      : {
-                          address: shipment.pickupAddress,
-                          lat: shipment.pickupLat,
-                          lng: shipment.pickupLng,
-                        }
-                  }
-                  pickupLabel={
-                    isReceiver
-                      ? (pickupLocalityLabel(shipment.pickupAddress) ?? "la zona del emisor")
-                      : undefined
-                  }
-                  delivery={{
-                    address: shipment.deliveryAddress,
-                    lat: shipment.deliveryLat,
-                    lng: shipment.deliveryLng,
-                  }}
-                  testID="shipment-detail-route-map"
-                />
+                <RouteTrackingChatCard
+                  shipmentId={shipment.id}
+                  tracking={liveTracking}
+                  chat={chatAccess}
+                  status={shipment.status}
+                  isFormerReceiver={isFormerReceiver}
+                  testID="shipment-detail-route-card"
+                  trackingTestID="shipment-detail-live-tracking"
+                  chatTestID="shipment-detail-chat"
+                >
+                  <RouteMapCard
+                    bare
+                    pickup={{
+                      address: shipment.pickupAddress,
+                      lat: shipment.pickupLat,
+                      lng: shipment.pickupLng,
+                    }}
+                    delivery={{
+                      address: shipment.deliveryAddress,
+                      lat: shipment.deliveryLat,
+                      lng: shipment.deliveryLng,
+                    }}
+                    paused={!isFocused}
+                    testID="shipment-detail-route-map"
+                  />
+                </RouteTrackingChatCard>
               </View>
 
               {showRejectedBanner ? (
                 <RejectedReceiverBanner shipment={shipment} testID="shipment-detail-rejected-banner" />
               ) : null}
 
-              {liveTracking ? (
-                <LiveTrackingCard
-                  shipmentId={shipment.id}
-                  availability={liveTracking}
-                  testID="shipment-detail-live-tracking"
-                />
+              {isTransitDelayed(shipment) ? (
+                // MOVO-278 (ADR-045): mismo estilo que el banner de plazo vencido.
+                <View
+                  testID="shipment-detail-delayed-banner"
+                  className="flex-row items-center gap-2 rounded-xl border border-warning-200 bg-warning-100 px-3.5 py-3"
+                >
+                  <Clock size={16} color="#A97714" strokeWidth={2} />
+                  <Text className="flex-1 font-sans text-small text-warning-700">{TRANSIT_DELAYED_INFO_TEXT}</Text>
+                </View>
               ) : null}
 
               {showExpiredBanner ? (
                 <View
                   testID="shipment-detail-expired-banner"
-                  className="flex-row items-center gap-2 rounded-xl border border-warning-200 bg-warning-50 px-3.5 py-3"
+                  className="flex-row items-center gap-2 rounded-xl border border-warning-200 bg-warning-100 px-3.5 py-3"
                 >
                   <Clock size={16} color="#A97714" strokeWidth={2} />
-                  <Text className="flex-1 font-sans text-small text-warning-800">
+                  <Text className="flex-1 font-sans text-small text-warning-700">
                     El plazo de 24 horas para aceptar o rechazar este envío ya venció.
                   </Text>
                 </View>
               ) : null}
 
-              {isFormerCarrier ? null : (
-              <View className="flex-row gap-3">
-                <View className="flex-1 rounded-[10px] bg-bg-mute px-3.5 py-3.5">
-                  <View className="mb-1">
-                    <Eyebrow>Retiro programado</Eyebrow>
-                  </View>
-                  <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
-                  <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
-                    {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
-                    {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
-                  </Text>
-                </View>
-                {/* El precio es un acuerdo entre emisor y transportista: el receptor no
-                    paga nada, así que no se le muestra y el retiro ocupa todo el ancho. */}
-                {isReceiver ? null : (
-                  <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
+              {seesReceiverView ? (
+                // El receptor no ve el precio (no paga nada): retiro y paquete comparten la fila.
+                <View className="flex-row gap-3" testID="shipment-detail-pickup-package">
+                  {/* Colores fijos: la card es lima en los dos temas, como la de precio. */}
+                  <View
+                    testID="shipment-detail-pickup"
+                    className="relative flex-1 overflow-hidden rounded-[14px] bg-lime-200 px-4 py-3.5"
+                  >
                     <GridPattern />
-                    <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                      {carrierNetArs !== null
-                        ? "Te queda"
-                        : hasAgreedPrice
-                          ? "Precio pactado"
-                          : "Costo aproximado"}
+                    <Text className="mb-1 font-sans-medium text-caption uppercase text-ink-700">Retiro</Text>
+                    <Text className="font-sans-semibold text-[15px] text-ink-950">{pickupDateLabel}</Text>
+                    <Text className="mt-0.5 font-sans text-small text-ink-700">
+                      {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
+                      {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
                     </Text>
-                    <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
-                      {carrierNetArs !== null
-                        ? formatPriceArs(carrierNetArs)
-                        : formatShipmentPrice(
-                            shipment.agreedPriceArs,
-                            shipment.suggestedPriceArs
-                          )}
-                    </Text>
-                    {showHighDemandBadge ? (
-                      <View className="mt-2">
-                        <HighDemandBadge
-                          compact
-                          expanded={isHighDemandHelpOpen}
-                          onToggle={() => setIsHighDemandHelpOpen((open) => !open)}
-                          testID="shipment-detail-high-demand"
-                        />
-                      </View>
-                    ) : null}
                   </View>
-                )}
-              </View>
+                  <PackageSummaryCard shipment={shipment} testID="shipment-detail-package" />
+                </View>
+              ) : (
+                <>
+                  {isFormerCarrier ? null : (
+                  <View className="flex-row gap-3">
+                    <View className="flex-1 rounded-[10px] bg-bg-mute px-3.5 py-3.5">
+                      <View className="mb-1">
+                        <Eyebrow>Retiro programado</Eyebrow>
+                      </View>
+                      <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
+                      <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
+                        {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
+                        {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
+                      </Text>
+                    </View>
+                    {/* Con el pago a la vista, el precio estimado de acá competiría con el monto real. */}
+                    {showPayment ? null : (
+                      <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
+                        <GridPattern />
+                        <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
+                          {carrierReceivedArs !== null
+                            ? "Recibís aprox."
+                            : hasAgreedPrice
+                              ? "Precio pactado"
+                              : "Costo aproximado"}
+                        </Text>
+                        <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
+                          {carrierReceivedArs !== null
+                            ? formatPriceArs(carrierReceivedArs)
+                            : formatShipmentPrice(
+                                shipment.agreedPriceArs,
+                                shipment.suggestedPriceArs
+                              )}
+                        </Text>
+                        {showHighDemandBadge ? (
+                          <View className="mt-2">
+                            <HighDemandBadge
+                              compact
+                              expanded={isHighDemandHelpOpen}
+                              onToggle={() => setIsHighDemandHelpOpen((open) => !open)}
+                              testID="shipment-detail-high-demand"
+                            />
+                          </View>
+                        ) : null}
+                      </View>
+                    )}
+                  </View>
+                  )}
+
+                  {showHighDemandBadge && isHighDemandHelpOpen ? (
+                    <HighDemandHelp testID="shipment-detail-high-demand-explainer" />
+                  ) : null}
+
+                  <View>
+                    <Eyebrow>Paquete</Eyebrow>
+                    <PackageCard shipment={shipment} testID="shipment-detail-package" />
+                  </View>
+                </>
               )}
 
-              {showHighDemandBadge && isHighDemandHelpOpen ? (
-                <HighDemandHelp testID="shipment-detail-high-demand-explainer" />
-              ) : null}
-
+              {isFormerCarrier ? null : (
               <View>
-                <Eyebrow>Paquete</Eyebrow>
-                <PackageCard shipment={shipment} testID="shipment-detail-package" />
+                <Eyebrow>Participantes</Eyebrow>
+                <ShipmentPartiesCard
+                  testID="shipment-detail-parties"
+                  rows={[
+                    ...(isSender
+                      ? []
+                      : [
+                          {
+                            userId: shipment.senderId,
+                            roleLabel: "Emisor",
+                            onPress: () => openProfile(shipment.senderId),
+                            testID: "shipment-detail-sender",
+                          },
+                        ]),
+                    // Con el envío entregado, el transportista sigue en "Calificaciones".
+                    ...(!isCarrier && shipment.carrierId && !FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)
+                      ? [
+                          {
+                            userId: shipment.carrierId,
+                            roleLabel: "Transportista",
+                            onPress: () => shipment.carrierId && openProfile(shipment.carrierId),
+                            testID: "shipment-detail-carrier",
+                          },
+                        ]
+                      : []),
+                    ...(isReceiver
+                      ? []
+                      : [
+                          {
+                            userId: shipment.receiverId,
+                            roleLabel: "Receptor",
+                            // Quien le pasó la recepción ve desde cuándo recibe la otra persona
+                            // (MOVO-275), no si aceptó el envío.
+                            receiverConfirmation: isFormerReceiver
+                              ? undefined
+                              : receiverConfirmationStatus(shipment.status),
+                            note:
+                              isFormerReceiver && completedTransfer
+                                ? formerReceiverNote(completedTransfer.resolvedAt ?? completedTransfer.createdAt)
+                                : undefined,
+                            highlight: isFormerReceiver,
+                            onPress: () => openProfile(shipment.receiverId),
+                            testID: "shipment-detail-receiver",
+                          },
+                        ]),
+                  ]}
+                />
               </View>
+              )}
 
               {isFormerCarrier ? null : (
                 <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
               )}
 
-              {isCarrier ? (
-                <View>
-                  <Eyebrow>Emisor</Eyebrow>
-                  <CounterpartCard
-                    userId={shipment.senderId}
-                    onPress={() => openProfile(shipment.senderId)}
-                    testID="shipment-detail-sender"
-                  />
-                </View>
-              ) : null}
-
-              {isFormerCarrier ? null : (
-              <View>
-                <Eyebrow>{isReceiver ? "Emisor" : "Receptor"}</Eyebrow>
-                <CounterpartCard
-                  userId={isReceiver ? shipment.senderId : shipment.receiverId}
-                  receiverConfirmation={
-                    isReceiver ? undefined : receiverConfirmationStatus(shipment.status)
-                  }
-                  onPress={() =>
-                    openProfile(isReceiver ? shipment.senderId : shipment.receiverId)
-                  }
-                  testID={isReceiver ? "shipment-detail-sender" : "shipment-detail-receiver"}
+              {isReceiver && activeUserId ? (
+                <ReceiverTransferSection
+                  shipment={shipment}
+                  currentUserId={activeUserId}
+                  testID="shipment-detail-receiver-transfer"
                 />
-              </View>
-              )}
-
-              {!isCarrier &&
-              shipment.carrierId &&
-              !FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? (
-                <View>
-                  <Eyebrow>Transportista</Eyebrow>
-                  <CounterpartCard
-                    userId={shipment.carrierId}
-                    onPress={() => shipment.carrierId && openProfile(shipment.carrierId)}
-                    testID="shipment-detail-carrier"
-                  />
-                </View>
               ) : null}
 
-              {/* Sección de calificaciones post-entrega (MOVO-153) */}
-              {FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? (
+              {/* Sección de calificaciones post-entrega (MOVO-153). El receptor que
+                  transfirió no califica (MOVO-275): no participó de la entrega. */}
+              {FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) && !isFormerReceiver ? (
                 <View>
                   <Eyebrow>Calificaciones</Eyebrow>
                   <ShipmentRatingsCard
@@ -569,6 +723,8 @@ export default function ShipmentDetailScreen() {
                   senderId: shipment.senderId,
                   receiverId: shipment.receiverId,
                   carrierId: shipment.carrierId,
+                  formerReceiverId: completedTransfer?.requestedBy ?? null,
+                  formerReceiverName: completedTransfer?.requesterName ?? null,
                 }}
                 testID="shipment-detail-timeline"
               />
@@ -600,6 +756,8 @@ export default function ShipmentDetailScreen() {
               >
                 {contextualCta.icon === "qr" ? (
                   <QrCode size={18} color="#0A0A0B" />
+                ) : contextualCta.icon === "card" ? (
+                  <CreditCard size={18} color="#0A0A0B" />
                 ) : (
                   <Package size={18} color="#0A0A0B" />
                 )}

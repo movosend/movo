@@ -53,10 +53,10 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
   const id = testID ?? "funds-status";
   const name = carrierFirstName ?? "el transportista";
   const Name = carrierFirstName ?? "El transportista";
-  const paymentPath = `/(app)/shipments/${shipment.id}/payment` as Href;
-  const goToPayment = () => {
+  // Pantalla de pago real (MOVO-269). `resumed` = retoma un pago que quedó a medias (AC7 de ese ticket).
+  const goToPayment = (resumed = false) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push(paymentPath);
+    router.push(`/(app)/shipments/${shipment.id}/pay${resumed ? "?resumed=1" : ""}` as Href);
   };
 
   if (funding.viewer === "carrier") {
@@ -164,7 +164,7 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
                 Hasta el <Text className="font-sans-semibold text-fg">{deadline}</Text>
               </Text>
             </View>
-            <DarkButton testID={`${id}-cta`} label="Reintentar con otra tarjeta" onPress={goToPayment} />
+            <DarkButton testID={`${id}-cta`} label="Reintentar con otra tarjeta" onPress={() => goToPayment()} />
           </Card>
         );
       }
@@ -179,7 +179,7 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
                 <Strong>{deadline}</Strong>.
               </Body>
             </Row>
-            <DarkButton testID={`${id}-cta`} label="Retomar pago" onPress={goToPayment} />
+            <DarkButton testID={`${id}-cta`} label="Retomar pago" onPress={() => goToPayment(true)} />
           </Card>
         );
       }
@@ -207,7 +207,7 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
                 ? `La reserva anterior venció en Mercado Pago y se liberó sin cobrarte nada. Confirmala de nuevo para que ${name} pueda retirar el paquete.`
                 : `El monto queda reservado en tu tarjeta y se cobra recién cuando ${name} entregue el paquete. Si no lo confirmás antes de esa fecha, el envío vuelve a publicarse.`}
             </Body>
-            <DarkButton testID={`${id}-cta`} label="Confirmar pago" onPress={goToPayment} limeDot />
+            <DarkButton testID={`${id}-cta`} label="Confirmar pago" onPress={() => goToPayment()} limeDot />
           </View>
         </View>
       );

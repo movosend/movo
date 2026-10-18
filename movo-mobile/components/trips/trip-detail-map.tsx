@@ -13,31 +13,13 @@ import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { decodePolyline } from "../../src/lib/polyline";
 import { formatDurationMin, formatRouteDistanceKm } from "../../src/lib/shipment-format";
 import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
+import { StaticMarker } from "../map/static-marker";
 import { SkeletonBlock } from "../ui/skeleton-block";
 
 const MAP_HEIGHT = 200;
 const EDGE_PADDING = { top: 40, right: 40, bottom: 48, left: 40 };
 const MAX_ZOOM_LEVEL = 20;
 const ROUTE_BLUE = "#2B6BFF";
-
-/**
- * `Marker` con vista propia: se rasteriza una vez, así que se deja de trackear tras el primer
- * render (si no, en Android redibuja el bitmap en cada frame: parpadeo y batería), con un
- * margen para que cargue el contenido. Lo usan todos los marcadores del mapa.
- */
-function StaticMarker({ coordinate, children }: { coordinate: LatLng; children: ReactNode }) {
-  const [track, setTrack] = useState(true);
-  useEffect(() => {
-    const t = setTimeout(() => setTrack(false), 600);
-    return () => clearTimeout(t);
-  }, []);
-
-  return (
-    <Marker coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={track}>
-      {children}
-    </Marker>
-  );
-}
 
 /** Marcador numerado del mockup: relleno negro = retiro, borde negro sobre blanco = entrega. */
 function NumberedMarker({ n, kind, coordinate }: { n: number; kind: "pickup" | "delivery"; coordinate: LatLng }) {

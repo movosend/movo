@@ -1,14 +1,24 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { act, fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { RefreshControl } from "react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import ShipmentDetailScreen from "../app/(app)/shipments/[id]";
+import { useCancelReceiverTransfer } from "../src/hooks/use-receiver-transfers";
 
 const mockRouterReplace = jest.fn();
 const mockRouterBack = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
+
+jest.mock("../src/hooks/use-receiver-transfers", () => ({
+  useShipmentReceiverTransfers: jest.fn(() => ({ data: [] })),
+  useReceiverTransferInvitations: jest.fn(() => ({ data: [] })),
+  useCancelReceiverTransfer: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false })),
+}));
+
+const mockChatList = jest.fn(() => ({ data: [] as { shipmentId: string; unreadCount: number }[] }));
+jest.mock("../src/hooks/use-chat", () => ({ useChatList: () => mockChatList() }));
 
 jest.mock("expo-router", () => ({
   router: {
@@ -31,6 +41,16 @@ const mockUseShipment = jest.fn();
 const mockAcceptMutation = { mutateAsync: jest.fn(), isPending: false };
 const mockRejectMutation = { mutateAsync: jest.fn(), isPending: false };
 const mockCancelMutation = { mutateAsync: jest.fn(), isPending: false };
+
+const mockUseShipmentSettlement = jest.fn((..._args: unknown[]) => ({
+  data: undefined as unknown,
+  isLoading: false,
+  isError: false,
+  refetch: jest.fn(),
+}));
+jest.mock("../src/hooks/use-shipment-settlement", () => ({
+  useShipmentSettlement: (...args: unknown[]) => mockUseShipmentSettlement(...args),
+}));
 
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: (...args: unknown[]) => mockUseShipment(...args),
@@ -188,8 +208,9 @@ describe("ShipmentDetailScreen", () => {
 
     expect(getByTestId("shipment-detail-route-map")).toBeTruthy();
     expect(getByTestId("shipment-detail-package")).toBeTruthy();
-    expect(getByText("Receptor")).toBeTruthy();
-    expect(getByTestId("shipment-detail-receiver")).toBeTruthy();
+    expect(getByText("Participantes")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-pickup-package")).toBeNull();
+    expect(getByTestId("shipment-detail-receiver-subtitle")).toHaveTextContent(/^Receptor/);
     expect(getByText("Tomás Olmos")).toBeTruthy();
     expect(getByText("$4.500")).toBeTruthy();
     expect(queryByTestId("shipment-detail-carrier")).toBeNull();
@@ -212,10 +233,48 @@ describe("ShipmentDetailScreen", () => {
     });
     const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("Retiro programado")).toBeTruthy();
+    expect(getByText("Retiro")).toBeTruthy();
     expect(queryByText("Precio pactado")).toBeNull();
     expect(queryByText("Costo aproximado")).toBeNull();
     expect(queryByText("$5.000")).toBeNull();
+  });
+
+  describe("MOVO-278: in_transit demorado", () => {
+    it("muestra 'Demorado' en el badge y el banner explicativo", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: "carrier-1",
+          status: ShipmentStatus.IN_TRANSIT,
+          transitAnomalyFlaggedAt: "2026-10-04T10:00:00.000Z",
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-status-badge")).toHaveTextContent("Demorado");
+      expect(getByTestId("shipment-detail-delayed-banner")).toHaveTextContent(
+        "La entrega está demorada. Si no se confirma pronto, vamos a abrir una disputa.",
+      );
+    });
+
+    it("sin marca no muestra el banner y el badge dice 'En camino'", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-status-badge")).toHaveTextContent("En camino");
+      expect(queryByTestId("shipment-detail-delayed-banner")).toBeNull();
+    });
   });
 
   describe("encabezado: rol y código del envío", () => {
@@ -285,9 +344,11 @@ describe("ShipmentDetailScreen", () => {
 
     const { getByTestId, getByText, queryByTestId, queryByText } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("Emisor")).toBeTruthy();
-    expect(getByTestId("shipment-detail-sender")).toBeTruthy();
+    expect(getByTestId("shipment-detail-sender-subtitle")).toHaveTextContent(/^Emisor/);
     expect(getByText("Pedro Emisor")).toBeTruthy();
+    // Sin precio, retiro y paquete comparten la fila.
+    expect(getByTestId("shipment-detail-pickup-package")).toBeTruthy();
+    expect(getByTestId("shipment-detail-package")).toHaveTextContent(/kg · \d+ × \d+ × \d+/);
     expect(queryByTestId("shipment-detail-receiver")).toBeNull();
     expect(queryByText("Pendiente")).toBeNull();
     expect(queryByText("Aceptó")).toBeNull();
@@ -802,7 +863,22 @@ describe("ShipmentDetailScreen", () => {
         mockUseShipment.mockReturnValue({
           isLoading: false,
           isError: false,
-          data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNED_UNFUNDED }),
+          // Retiro lejano: la ventana para confirmar el pago todavía no se abrió (MOVO-269).
+          data: shipment({
+            carrierId: CARRIER,
+            status: ShipmentStatus.ASSIGNED_UNFUNDED,
+            pickupDate: "2099-01-01",
+            funding:
+              userId === SENDER
+                ? {
+                    viewer: "sender",
+                    phase: "awaiting_window",
+                    windowOpensAt: "2098-12-29T12:00:00.000Z",
+                    payUntil: "2098-12-31T12:00:00.000Z",
+                    amountArs: 18400,
+                  }
+                : { viewer: "carrier", phase: "sender_payment_pending", payUntil: "2098-12-31T12:00:00.000Z" },
+          }),
           error: null,
           refetch: jest.fn(),
         });
@@ -814,6 +890,70 @@ describe("ShipmentDetailScreen", () => {
         expect(queryByText("Los fondos se reservan antes del retiro.")).toBeNull();
       },
     );
+
+    it("con la card de la reserva a la vista, el pago se pide ahí y no también al pie (MOVO-211)", async () => {
+      mockCurrentUser.mockReturnValue({ userId: SENDER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: CARRIER,
+          status: ShipmentStatus.ASSIGNMENT_PENDING,
+          funding: {
+            viewer: "sender",
+            phase: "payment_due",
+            route: "near",
+            amountArs: 18400,
+            payUntil: "2026-10-08T13:00:00.000Z",
+            lastAttempt: "none",
+            failureReason: null,
+            card: null,
+            holdLost: false,
+          },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-funds-cta")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-cta")).toBeNull();
+    });
+
+    it("en assigned_unfunded con la ventana abierta el emisor ve 'Confirmar el pago' (MOVO-269)", async () => {
+      mockCurrentUser.mockReturnValue({ userId: SENDER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNED_UNFUNDED, pickupDate: "2000-01-01" }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Confirmar el pago")).toBeTruthy();
+      await fireEvent.press(getByTestId("shipment-detail-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/pay");
+    });
+
+    it("en assignment_pending el emisor puede retomar el pago desde el detalle (MOVO-269 AC7)", async () => {
+      mockCurrentUser.mockReturnValue({ userId: SENDER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNMENT_PENDING }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Pagar y reservar fondos")).toBeTruthy();
+      await fireEvent.press(getByTestId("shipment-detail-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/pay?resumed=1");
+    });
 
     it.each([
       [SENDER, ShipmentStatus.PUBLISHED],
@@ -841,7 +981,8 @@ describe("ShipmentDetailScreen", () => {
 
   describe("vista del transportista y del receptor (MOVO-194)", () => {
     it.each([
-      ["user-2", "Te queda", "$5.000"],
+      // MOVO-225: neto (5000) menos el estimado de MP sobre el bruto (5750 * 4,99%).
+      ["user-2", "Recibís aprox.", "$4.713,07"],
       ["user-1", "Precio pactado", "$5.750"],
     ])("sobre el mismo agreedPriceArs, el usuario %s ve '%s' %s", async (userId, label, amount) => {
       mockCurrentUser.mockReturnValue({ userId });
@@ -859,7 +1000,7 @@ describe("ShipmentDetailScreen", () => {
       expect(getByTestId("shipment-detail-price")).toHaveTextContent(amount);
     });
 
-    it("el receptor no recibe la dirección ni las coordenadas de retiro en el mapa", async () => {
+    it("el receptor ve el retiro y la entrega en el mapa, igual que el resto de las partes", async () => {
       mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
       mockUseShipment.mockReturnValue({
         isLoading: false,
@@ -872,28 +1013,9 @@ describe("ShipmentDetailScreen", () => {
       await render(<ShipmentDetailScreen />);
 
       const props = mockRouteMapCard.mock.calls.at(-1)[0];
-      expect(props.pickup).toBeNull();
-      expect(props.pickupLabel).toBe("Córdoba");
-      expect(JSON.stringify(props)).not.toContain("Colón");
-      expect(JSON.stringify(props)).not.toContain("-64.18");
+      expect(props.pickup).toEqual({ address: "Av. Colón 1234, Córdoba", lat: -31.4, lng: -64.18 });
+      expect(props.pickupLabel).toBeUndefined();
       expect(props.delivery).toEqual({ address: "Bv. San Juan 500, Córdoba", lat: -31.41, lng: -64.19 });
-    });
-
-    it("si la dirección de retiro no trae localidad, el receptor ve un texto genérico y no la calle", async () => {
-      mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
-      mockUseShipment.mockReturnValue({
-        isLoading: false,
-        isError: false,
-        data: shipment({ carrierId: "user-2", status: ShipmentStatus.IN_TRANSIT, pickupAddress: "Av. Colón 1234" }),
-        error: null,
-        refetch: jest.fn(),
-      });
-
-      await render(<ShipmentDetailScreen />);
-
-      const props = mockRouteMapCard.mock.calls.at(-1)[0];
-      expect(props.pickupLabel).toBe("la zona del emisor");
-      expect(JSON.stringify(props)).not.toContain("Colón");
     });
 
     it("el emisor sigue viendo el retiro completo en el mapa", async () => {
@@ -928,6 +1050,142 @@ describe("ShipmentDetailScreen", () => {
       expect(getByTestId("shipment-detail-receiver")).toBeTruthy();
       expect(queryByTestId("shipment-detail-carrier")).toBeNull();
       expect(getByText(/Transportás/)).toBeTruthy();
+    });
+  });
+
+  describe("detalle del pago (MOVO-214)", () => {
+    const CREDITED_CARRIER = {
+      shipmentId: "shipment-1",
+      role: "carrier",
+      status: "credited",
+      paidAmountArs: 13800,
+      paidAt: "2026-10-14T19:42:00.000Z",
+      mpFeeArs: 688.62,
+      commissionArs: 1800,
+      netAmountArs: 11311.38,
+    };
+
+    afterEach(() => settlementReturns(undefined));
+
+    function settlementReturns(data: unknown) {
+      mockUseShipmentSettlement.mockReturnValue({ data, isLoading: false, isError: false, refetch: jest.fn() });
+    }
+
+    function mockFulfilled(userId: string, status = ShipmentStatus.COMPLETED) {
+      mockCurrentUser.mockReturnValue({ userId });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: "user-2",
+          agreedPriceArs: 13800,
+          status,
+          deliveredAt: "2026-10-14T19:40:00.000Z",
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+    }
+
+    it("AC1: el transportista ve bruto, comisión, fee de MP y neto acreditado, sin el precio estimado", async () => {
+      mockFulfilled("user-2");
+      settlementReturns(CREDITED_CARRIER);
+
+      const { getByTestId, getByText, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Acreditado");
+      expect(getByText("$13.800")).toBeTruthy();
+      expect(getByText("− $1.800")).toBeTruthy();
+      expect(getByText("− $688,62")).toBeTruthy();
+      expect(getByTestId("shipment-detail-payment-net")).toHaveTextContent("$11.311,38");
+      expect(getByTestId("shipment-detail-payment-date")).toHaveTextContent(/Acreditado el .+ en tu cuenta de Mercado Pago/);
+      expect(queryByTestId("shipment-detail-price")).toBeNull();
+    });
+
+    it("AC2: el emisor ve el total pagado y la fecha, sin el neto ni la comisión", async () => {
+      mockFulfilled("user-1");
+      settlementReturns({ shipmentId: "shipment-1", role: "sender", status: "credited", paidAmountArs: 13800, paidAt: "2026-10-14T19:42:00.000Z" });
+
+      const { getByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Cobrado");
+      expect(getByTestId("shipment-detail-payment-total")).toHaveTextContent("$13.800");
+      expect(getByTestId("shipment-detail-payment-date")).toHaveTextContent(/Mercado Pago lo cobró el/);
+      expect(queryByText(/Comisión/)).toBeNull();
+      expect(queryByText("Te acreditamos")).toBeNull();
+    });
+
+    it("AC3: el receptor no ve nada del pago y no se consulta", async () => {
+      mockFulfilled("receiver-1");
+
+      const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(queryByTestId("shipment-detail-payment")).toBeNull();
+      expect(mockUseShipmentSettlement).toHaveBeenLastCalledWith("shipment-1", expect.objectContaining({ enabled: false }));
+    });
+
+    it("antes de la entrega no hay sección de pago", async () => {
+      mockFulfilled("user-2", ShipmentStatus.IN_TRANSIT);
+
+      const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(queryByTestId("shipment-detail-payment")).toBeNull();
+      expect(mockUseShipmentSettlement).toHaveBeenLastCalledWith("shipment-1", expect.objectContaining({ enabled: false }));
+    });
+
+    it("AC4: sin liquidación todavía, el transportista ve 'cobrando' y ningún monto acreditado", async () => {
+      mockFulfilled("user-2", ShipmentStatus.DELIVERED);
+      settlementReturns(null);
+
+      const { getByTestId, getByText, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Cobrando");
+      expect(getByText("Estamos cobrando el envío")).toBeTruthy();
+      expect(getByTestId("shipment-detail-payment-net")).toHaveTextContent("Se confirma al cobrar");
+      expect(queryByText("$11.311,38")).toBeNull();
+    });
+
+    it("AC4: un neto informado pero sin acreditar no se muestra", async () => {
+      mockFulfilled("user-2", ShipmentStatus.DELIVERED);
+      settlementReturns({ ...CREDITED_CARRIER, status: "processing", paidAt: null });
+
+      const { getByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Cobrando");
+      expect(queryByText("$11.311,38")).toBeNull();
+    });
+
+    it("AC4: con la liquidación escalada, el transportista ve el cobro demorado", async () => {
+      mockFulfilled("user-2", ShipmentStatus.DELIVERED);
+      settlementReturns({ shipmentId: "shipment-1", role: "carrier", status: "escalated", paidAmountArs: 13800, paidAt: null, mpFeeArs: null, commissionArs: 1800, netAmountArs: null });
+
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Demorado");
+      expect(getByTestId("shipment-detail-payment-escalated")).toHaveTextContent(/a la brevedad/);
+      expect(getByTestId("shipment-detail-payment-net")).toHaveTextContent("En revisión");
+    });
+
+    it("la liquidación escalada el emisor la ve como pago en proceso", async () => {
+      mockFulfilled("user-1", ShipmentStatus.DELIVERED);
+      settlementReturns({ shipmentId: "shipment-1", role: "sender", status: "escalated", paidAmountArs: 13800, paidAt: null });
+
+      const { getByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-payment-pill")).toHaveTextContent("Procesando");
+      expect(getByTestId("shipment-detail-payment-total")).toHaveTextContent("$13.800");
+      expect(queryByText(/demorado/i)).toBeNull();
+    });
+
+    it("si la consulta falla, ofrece reintentar en vez de inventar un estado", async () => {
+      mockFulfilled("user-2");
+      const refetchSettlement = jest.fn();
+      mockUseShipmentSettlement.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: refetchSettlement });
+
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+      fireEvent.press(getByTestId("shipment-detail-payment-retry"));
+
+      expect(refetchSettlement).toHaveBeenCalled();
     });
   });
 
@@ -1136,6 +1394,181 @@ describe("ShipmentDetailScreen", () => {
 
 });
 
+describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => {
+  const transferBase = {
+    id: "tr-1",
+    shipmentId: "shipment-1",
+    requestedBy: "lucia",
+    requesterName: "Lucía Gómez",
+    newReceiverId: "receiver-1",
+    newReceiverName: "Martín López",
+    reason: "Esa semana estoy de viaje",
+    responseReason: null,
+    cancelReason: null,
+    newReceiverDeadline: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+    createdAt: "2026-08-16T12:00:00.000Z",
+    resolvedBy: null,
+  };
+
+  function mockDetail(data: ShipmentSummary) {
+    mockUseShipment.mockReturnValue({ isLoading: false, isError: false, error: null, refetch: jest.fn(), data });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Un `mockReturnValueOnce` sin consumir de un test anterior del archivo se colaría
+    // en el primer render de estos: `mockClear` no vacía esa cola.
+    mockUseShipment.mockReset();
+    mockCurrentUser.mockReset();
+  });
+
+  it("el receptor ve la acción 'Que lo reciba otra persona' y navega a elegir a la persona", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        receiverTransfer: { viewerIsFormerReceiver: false, pending: null, completed: null },
+      }),
+    );
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-action"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/receiver-transfer");
+  });
+
+  it("con una solicitud pendiente propia, muestra el plazo y la opción de cancelarla", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.PUBLISHED,
+        receiverTransfer: {
+          viewerIsFormerReceiver: false,
+          pending: {
+            ...transferBase,
+            requestedBy: "receiver-1",
+            newReceiverId: "martin",
+            status: "pending_new_receiver",
+            resolvedAt: null,
+          },
+          completed: null,
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-receiver-transfer-pending")).toBeTruthy();
+    expect(getByTestId("shipment-detail-receiver-transfer-pending-title")).toHaveTextContent("Esperando que Martín acepte");
+    expect(getByTestId("shipment-detail-receiver-transfer-pending-deadline")).toHaveTextContent(/^Vence /);
+    expect(getByTestId("shipment-detail-receiver-transfer-pending-cancel")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-receiver-transfer-action")).toBeNull();
+  });
+
+  it("cancelar la solicitud pide confirmación en una sheet y recién ahí cancela", async () => {
+    const mutateAsync = jest.fn().mockResolvedValue(undefined);
+    (useCancelReceiverTransfer as jest.Mock).mockReturnValue({ mutateAsync, isPending: false });
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.PUBLISHED,
+        receiverTransfer: {
+          viewerIsFormerReceiver: false,
+          pending: {
+            ...transferBase,
+            requestedBy: "receiver-1",
+            newReceiverId: "martin",
+            status: "pending_new_receiver",
+            resolvedAt: null,
+          },
+          completed: null,
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-receiver-transfer-pending-cancel-sheet-confirm")).toBeNull();
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-pending-cancel"));
+    expect(getByText("¿Cancelar la solicitud?")).toBeTruthy();
+    expect(mutateAsync).not.toHaveBeenCalled();
+
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-pending-cancel-sheet-confirm"));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ transferId: transferBase.id }));
+  });
+
+  it("el receptor nuevo ve que ya no se puede volver a transferir", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        receiverTransfer: {
+          viewerIsFormerReceiver: false,
+          pending: null,
+          completed: { ...transferBase, status: "completed", resolvedAt: "2026-08-16T12:20:00.000Z" },
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-receiver-transfer-used")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-receiver-transfer-action")).toBeNull();
+  });
+
+  it("el receptor original ve el detalle en solo lectura con el banner, sin precio", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "lucia" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        agreedPriceArs: 8400,
+        receiverTransfer: {
+          viewerIsFormerReceiver: true,
+          pending: null,
+          completed: { ...transferBase, status: "completed", resolvedAt: "2026-08-16T12:20:00.000Z" },
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-transferred-banner")).toBeTruthy();
+    expect(getByTestId("shipment-detail-transferred-banner-reason")).toHaveTextContent("“Esa semana estoy de viaje”");
+    expect(getByTestId("shipment-detail-role")).toHaveTextContent(/Transferiste/);
+    expect(queryByTestId("shipment-detail-price")).toBeNull();
+    expect(queryByTestId("shipment-detail-receiver-transfer")).toBeNull();
+    expect(queryByTestId("shipment-detail-cta")).toBeNull();
+    const mapProps = mockRouteMapCard.mock.calls.at(-1)?.[0] as { pickup: unknown };
+    expect(mapProps.pickup).not.toBeNull();
+    // Participantes: emisor, transportista y el receptor nuevo con desde cuándo recibe.
+    expect(getByTestId("shipment-detail-sender")).toBeTruthy();
+    expect(getByTestId("shipment-detail-carrier")).toBeTruthy();
+    expect(getByTestId("shipment-detail-receiver-subtitle")).toHaveTextContent(
+      /^Receptor desde el \d{1,2} ago · antes, vos$/,
+    );
+    expect(queryByText("Aceptó")).toBeNull();
+  });
+
+  it("el emisor no tiene acción sobre la recepción", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        receiverTransfer: { viewerIsFormerReceiver: false, pending: null, completed: null },
+      }),
+    );
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-receiver-transfer")).toBeNull();
+  });
+});
+
+
 describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () => {
   beforeEach(() => {
     mockCanGoBack.mockReturnValue(true);
@@ -1162,9 +1595,7 @@ describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () =
 
       expect(getByTestId("shipment-detail-live-tracking-pending")).toBeTruthy();
       expect(queryByTestId("shipment-detail-live-tracking")).toBeNull();
-      expect(
-        getByText("Cuando el transportista inicie el recorrido, vas a poder ver su ubicación en tiempo real."),
-      ).toBeTruthy();
+      expect(getByText("Se activa al iniciar el recorrido")).toBeTruthy();
     },
   );
 

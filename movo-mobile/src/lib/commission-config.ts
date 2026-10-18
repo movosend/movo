@@ -1,3 +1,11 @@
+import {
+  DEFAULT_MOVO_COMMISSION_RATE,
+  DEFAULT_MP_TRANSACTION_FEE_RATE,
+  estimateMpFeeArs as sharedEstimateMpFeeArs,
+  estimateReceivedArs as sharedEstimateReceivedArs,
+  parseRate,
+} from "@movo/shared/dist/config/commission";
+
 /**
  * Fix de review (PR #136, JcBordino4): `getCommissionConfig()` de `@movo/shared` lee
  * `process.env.MOVO_COMMISSION_RATE`/`MP_TRANSACTION_FEE_RATE` sin prefijo -- esas vars
@@ -8,17 +16,36 @@
  * comportamiento actual hasta que se cargue una real) y sigue delegando el cálculo en
  * sí a `computeOfferGrossPrice`/`@movo/shared` pasando la tasa explícita.
  */
-const DEFAULT_MOVO_COMMISSION_RATE = 0.15;
-const DEFAULT_MP_TRANSACTION_FEE_RATE = 0.0499;
-
 export function getClientCommissionRate(): number {
-  return process.env.EXPO_PUBLIC_MOVO_COMMISSION_RATE
-    ? Number(process.env.EXPO_PUBLIC_MOVO_COMMISSION_RATE)
-    : DEFAULT_MOVO_COMMISSION_RATE;
+  return parseRate(
+    process.env.EXPO_PUBLIC_MOVO_COMMISSION_RATE,
+    DEFAULT_MOVO_COMMISSION_RATE,
+  );
 }
 
 export function getClientMpTransactionFeeRate(): number {
-  return process.env.EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE
-    ? Number(process.env.EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE)
-    : DEFAULT_MP_TRANSACTION_FEE_RATE;
+  return parseRate(
+    process.env.EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE,
+    DEFAULT_MP_TRANSACTION_FEE_RATE,
+  );
+}
+
+/**
+ * MOVO-225: estimado de MP sobre el bruto, con la tasa `EXPO_PUBLIC_`. La fórmula vive
+ * en `@movo/shared` (`estimateMpFeeArs`).
+ */
+export function estimateMpFeeArs(grossArs: number): number {
+  return sharedEstimateMpFeeArs(grossArs, getClientMpTransactionFeeRate());
+}
+
+/**
+ * MOVO-225: lo que el transportista recibe aprox. (neto menos el estimado de MP). Es el
+ * único monto que la app muestra como "lo que recibís", en todas las pantallas.
+ */
+export function estimateReceivedArs(netArs: number, grossArs: number): number {
+  return sharedEstimateReceivedArs(
+    netArs,
+    grossArs,
+    getClientMpTransactionFeeRate(),
+  );
 }

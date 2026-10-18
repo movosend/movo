@@ -14,10 +14,23 @@ export interface PaymentSnapshot {
   id?: string | number;
   status?: string;
   status_detail?: string;
-  /** MOVO-211: marca de la tarjeta (`visa`, `master`, ...). */
+  /** Monto del pago (MOVO-212: se compara contra el del hold, AC3). */
+  transaction_amount?: number;
+  /** MOVO-312: el id del intento de "Pagar mi saldo" (en holds es el id del envío). */
+  external_reference?: string | null;
+  /**
+   * Desglose real de comisiones; solo aparece DESPUÉS de capturar (SOLUCION-FINAL §3):
+   * `mercadopago_fee` y `application_fee`, ambos con `fee_payer: collector`.
+   */
+  fee_details?: Array<{ type?: string; amount?: number; fee_payer?: string }>;
+  /** `net_received_amount`: lo que le queda al transportista tras ambas comisiones. */
+  transaction_details?: { net_received_amount?: number };
+  /**
+   * MOVO-302: medio de pago (`visa`, `master`, ...) y tarjeta enmascarada del pago. MP solo
+   * expone los últimos 4 dígitos; los resultados de una búsqueda traen el medio pero no la tarjeta.
+   */
   payment_method_id?: string;
-  /** MOVO-211: solo se guardan los últimos 4 dígitos, nunca el BIN. */
-  card?: { last_four_digits?: string | null };
+  card?: { last_four_digits?: string };
 }
 
 /**
@@ -111,7 +124,12 @@ export class SdkMercadoPagoClient implements MercadoPagoClient {
       id: p.id,
       status: p.status,
       status_detail: p.status_detail,
+      // MOVO-312: "Pagar mi saldo" compara el monto del pago contra el del intento.
+      transaction_amount: p.transaction_amount,
+      external_reference: p.external_reference,
       payment_method_id: p.payment_method_id,
+      // El resultado de búsqueda del SDK sí trae `card` (tipado `any`): se pasa solo lo que
+      // usa un hold, los últimos 4. Sin esto un `creating` adoptado por acá quedaba sin tarjeta.
       card: p.card ? { last_four_digits: p.card.last_four_digits } : undefined,
     }));
   }

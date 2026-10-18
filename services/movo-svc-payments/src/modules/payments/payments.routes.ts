@@ -1,5 +1,9 @@
 import { FastifyInstance } from "fastify";
 import mpConnectRoutes from "../mp-connect/mp-connect.routes";
+import cardsRoutes from "../cards/cards.routes";
+import transactionsRoutes from "../transactions/transactions.routes";
+import userLedgerRoutes from "../user-ledger/user-ledger.routes";
+import balancePaymentRoutes from "../balance-payment/balance-payment.routes";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -22,4 +26,12 @@ export default async function paymentsRoutes(app: FastifyInstance) {
   });
 
   app.register(mpConnectRoutes, { prefix: "/mp-connect" });
+  // MOVO-100: tarjetas guardadas del emisor.
+  app.register(cardsRoutes, { prefix: "/cards" });
+  // MOVO-303: historial de pagos y cobros.
+  app.register(transactionsRoutes, { prefix: "/transactions" });
+  // MOVO-309: cuenta corriente del usuario (saldo y movimientos).
+  app.register(userLedgerRoutes, { prefix: "/balance" });
+  // MOVO-312: "Pagar mi saldo" (Checkout API: tarjeta guardada + CVV, sin salir de la app).
+  app.register(balancePaymentRoutes, { prefix: "/balance" });
 }

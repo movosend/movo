@@ -42,6 +42,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     process.env.USERS_SERVICE_URL = `http://localhost:${stubPort}`;
     process.env.SHIPMENTS_SERVICE_URL = `http://localhost:${stubPort}`;
     process.env.PAYMENTS_SERVICE_URL = `http://localhost:${stubPort}`;
+    process.env.ADMIN_SERVICE_URL = `http://localhost:${stubPort}`;
 
     app = buildApp();
     await app.ready();
@@ -156,10 +157,90 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       expect(capturedHeaders["x-user-id"]).toBeUndefined();
     });
 
+    it("POST /payments/webhooks/mercadopago es público (MOVO-268): llega sin token, con el query y el x-request-id de MP", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/payments/webhooks/mercadopago?data.id=123456&type=payment",
+        headers: {
+          "x-request-id": "mp-request-id-abc",
+          "x-signature": "ts=1700000000,v1=deadbeef",
+          "x-user-id": "33333333-3333-3333-3333-333333333333",
+        },
+        payload: { id: 99, type: "payment", data: { id: "123456" } },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/payments/webhooks/mercadopago?data.id=123456&type=payment");
+      // Parte de lo que firma MP: si el gateway lo pisara, toda firma sería inválida.
+      expect(capturedHeaders["x-request-id"]).toBe("mp-request-id-abc");
+      expect(capturedHeaders["x-signature"]).toBe("ts=1700000000,v1=deadbeef");
+      expect(capturedHeaders["x-user-id"]).toBeUndefined();
+    });
+
+    it("el resto de /payments/webhooks sigue protegido", async () => {
+      const response = await app.inject({ method: "GET", url: "/api/v1/payments/webhooks/mercadopago" });
+
+      expect(response.statusCode).toBe(401);
+    });
+
     it("el resto de /payments/mp-connect sigue protegido", async () => {
       const response = await app.inject({ method: "GET", url: "/api/v1/payments/mp-connect/status" });
 
       expect(response.statusCode).toBe(401);
+    });
+  });
+
+  describe("Rutas de /admin (MOVO-288)", () => {
+    function issueToken(roles: UserRole[], session?: "panel"): string {
+      return signAccessToken({
+        sub: "88888888-8888-8888-8888-888888888888",
+        roles,
+        kycStatus: KycStatus.APPROVED,
+        ...(session ? { session } : {}),
+      });
+    }
+
+    it("exige token (401 sin Authorization)", async () => {
+      const response = await app.inject({ method: "GET", url: "/api/v1/admin/audit-log" });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("un token de la app (sin admin) recibe 403", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/audit-log",
+        headers: { authorization: `Bearer ${issueToken([UserRole.SENDER, UserRole.CARRIER])}` },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(JSON.parse(response.body).error.code).toBe("AUTH_FORBIDDEN");
+    });
+
+    it("un token de la app que trae admin pero no es de panel recibe 403", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/audit-log",
+        headers: { authorization: `Bearer ${issueToken([UserRole.SENDER, UserRole.ADMIN])}` },
+      });
+
+      expect(response.statusCode).toBe(403);
+    });
+
+    it("un token de panel llega al upstream con el prefijo /admin y la identidad inyectada", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/audit-log?limit=5",
+        headers: {
+          authorization: `Bearer ${issueToken([UserRole.SENDER, UserRole.CARRIER, UserRole.ADMIN], "panel")}`,
+          "x-user-id": "33333333-3333-3333-3333-333333333333",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/admin/audit-log?limit=5");
+      expect(capturedHeaders["x-user-id"]).toBe("88888888-8888-8888-8888-888888888888");
+      expect(capturedHeaders["x-user-roles"]).toContain("admin");
     });
   });
 
@@ -485,6 +566,56 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
         method: "POST",
         url: "/api/v1/auth/forgot-password-x",
         payload: {},
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+  });
+
+  describe("Rutas del login del panel (MOVO-287)", () => {
+    it.each([
+      ["/api/v1/auth/admin/login", "/auth/admin/login", { email: "admin@example.com", password: "Password1" }],
+      ["/api/v1/auth/admin/verify", "/auth/admin/verify", { challengeId: "c", code: "123456" }],
+      ["/api/v1/auth/admin/refresh", "/auth/admin/refresh", { refreshToken: "a.b.c" }],
+    ])("%s es pública (sin token) y llega al upstream con el path exacto preservado", async (url, upstreamPath, payload) => {
+      const response = await app.inject({ method: "POST", url, payload });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe(upstreamPath);
+    });
+
+    it.each(["/api/v1/auth/admin/login", "/api/v1/auth/admin/verify"])(
+      "%s: permite 5 intentos por IP y bloquea el 6to con 429",
+      async (url) => {
+        const testIp = `10.6.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+
+        for (let i = 0; i < 5; i++) {
+          const response = await app.inject({ method: "POST", url, headers: { "x-forwarded-for": testIp }, payload: {} });
+          expect(response.statusCode).toBe(200);
+        }
+
+        const sixth = await app.inject({ method: "POST", url, headers: { "x-forwarded-for": testIp }, payload: {} });
+        expect(sixth.statusCode).toBe(429);
+      }
+    );
+
+    it("reenvía la IP real del cliente en x-client-ip y pisa la que mande el cliente (review de PR #244)", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/admin/refresh",
+        headers: { "x-forwarded-for": "10.7.0.1", "x-client-ip": "1.2.3.4" },
+        payload: { refreshToken: "a.b.c" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedHeaders["x-client-ip"]).toBe("10.7.0.1");
+    });
+
+    it("/api/v1/auth/admin/logout exige token", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/admin/logout",
+        payload: { refreshToken: "a.b.c" },
       });
 
       expect(response.statusCode).toBe(401);

@@ -179,4 +179,28 @@ describe("AttentionSection (MOVO-193)", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1");
     expect(queryByTestId("attention-accept-success-modal")).toBeNull();
   });
+
+  it("MOVO-275: la invitación para recibir muestra el plazo y abre la invitación", async () => {
+    const onPress = jest.fn();
+    mockUseAttentionTasks.mockReturnValue({
+      tasks: [
+        {
+          kind: "transfer_invite",
+          id: "transfer-tr-1",
+          transferId: "tr-1",
+          title: "Lucía te pidió que recibas un paquete",
+          meta: "Recibís en Av. Colón 1234",
+          deadlineLabel: "Tenés hasta hoy 15:02",
+          onPress,
+        },
+      ],
+    });
+
+    const { getByTestId, getByText } = await render(<AttentionSection testID="attention" />);
+
+    expect(getByText("Lucía te pidió que recibas un paquete")).toBeTruthy();
+    expect(getByTestId("attention-task-transfer-tr-1-deadline")).toHaveTextContent("Tenés hasta hoy 15:02 para aceptar");
+    await fireEvent.press(getByTestId("attention-task-transfer-tr-1-primary"));
+    expect(onPress).toHaveBeenCalled();
+  });
 });

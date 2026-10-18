@@ -11,6 +11,7 @@ import { createSessionRepository } from "../../repositories/session-repository";
 import { createPasswordResetService } from "./password-reset.service";
 import { createPushNotificationProvider, PushNotificationProvider } from "../../adapters/push-notification-provider";
 import { createNotificationsService } from "../notifications/notifications.service";
+import { createAdminSessionService } from "./admin-session.service";
 
 export interface AuthRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests — evita depender de logs de consola para leer el código
@@ -55,6 +56,16 @@ interface ResetPasswordBody {
   newPassword: string;
 }
 
+interface AdminLoginBody {
+  email: string;
+  password: string;
+}
+
+interface AdminVerifyBody {
+  challengeId: string;
+  code: string;
+}
+
 export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesOptions) {
   const smsProvider = opts.smsProvider ?? createSmsProvider(app.config);
   const emailProvider = opts.emailProvider ?? createEmailProvider(app.config);
@@ -67,6 +78,7 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
   // mismo Redis solo era trabajo de más, no un bug.
   const sessionRepository = createSessionRepository(app.redis);
   const service = createAuthService(app.db, app.redis, phoneVerificationService, sessionRepository);
+  const adminSessionService = createAdminSessionService(app.db, app.redis, otpService, sessionRepository);
 
   const pushProvider = opts.pushProvider ?? createPushNotificationProvider(app.config);
   const notifications = createNotificationsService(app.db, pushProvider, app.log);
@@ -368,6 +380,130 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
     },
     async (request: FastifyRequest<{ Body: ResetPasswordBody }>, reply: FastifyReply) => {
       await passwordResetService.resetPassword(request.body.passwordResetToken, request.body.newPassword);
+      reply.code(204);
+      return null;
+    }
+  );
+
+  // MOVO-287: sesión del panel de administración. Separada de la de la app: login con
+  // email + contraseña + OTP por email, `admin` en el JWT solo acá, refresh y logout
+  // propios (un refresh de panel no sirve en /auth/refresh ni al revés).
+  app.post<{ Body: AdminLoginBody }>(
+    "/admin/login",
+    {
+      schema: {
+        summary: "Login del panel (paso 1): email y contraseña",
+        description:
+          "Si la cuenta tiene rol admin, email verificado y está activa, envía un código " +
+          "por email y devuelve un challengeId para POST /auth/admin/verify. Nunca emite " +
+          "tokens. Credenciales inválidas, falta de rol, email sin verificar y cuenta no " +
+          "activa responden el mismo 401, sin revelar si el email es de un admin. Límite " +
+          "de 5 intentos cada 15 minutos por email y dirección IP.",
+        tags: ["auth"],
+        body: authSchemas.adminLoginBody,
+        response: {
+          200: authSchemas.adminLoginResponse,
+          400: authSchemas.errorResponse,
+          401: authSchemas.errorResponse,
+          429: authSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Body: AdminLoginBody }>, reply: FastifyReply) => {
+      // `x-client-ip` lo inyecta el gateway (pisa el del cliente); sin gateway de por medio
+      // (tests, debug local) se usa la IP de la conexión.
+      const forwardedIp = request.headers["x-client-ip"];
+      const clientIp = typeof forwardedIp === "string" && forwardedIp.length > 0 ? forwardedIp : request.ip;
+      const result = await adminSessionService.startLogin(request.body.email, request.body.password, clientIp);
+      reply.code(200);
+      return result;
+    }
+  );
+
+  app.post<{ Body: AdminVerifyBody }>(
+    "/admin/verify",
+    {
+      schema: {
+        summary: "Login del panel (paso 2): código por email",
+        description:
+          "Valida el código del paso 1 (10 minutos, 5 intentos, un solo uso) y emite la " +
+          "sesión de panel: access token de 15 minutos con rol admin y refresh token con " +
+          "vencimiento absoluto de 8 horas (sessionExpiresAt), que rotar no extiende. El " +
+          "código se reenvía con POST /auth/resend-otp usando el challengeId como otpId.",
+        tags: ["auth"],
+        body: authSchemas.adminVerifyBody,
+        response: {
+          200: authSchemas.adminSessionResponse,
+          400: authSchemas.errorResponse,
+          401: authSchemas.errorResponse,
+          422: authSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Body: AdminVerifyBody }>, reply: FastifyReply) => {
+      const result = await adminSessionService.verify(request.body.challengeId, request.body.code);
+      reply.code(200);
+      return result;
+    }
+  );
+
+  app.post<{ Body: RefreshBody }>(
+    "/admin/refresh",
+    {
+      schema: {
+        summary: "Renovar la sesión del panel",
+        headers: { type: "object", properties: {
+          "idempotency-key": { type: "string", pattern: "^[A-Za-z0-9_-]{16,128}$", description: "Clave estable para duplicados del mismo refresh; opcional." },
+        } },
+        description:
+          "Rota el refresh token de una sesión de panel (un solo uso, reusarlo revoca " +
+          "todas las sesiones de panel del usuario) y revalida que la cuenta siga teniendo " +
+          "rol admin y esté activa; si no, revoca la sesión y responde 401. El vencimiento " +
+          "absoluto de la sesión no cambia. Con Idempotency-Key opcional, duplicados " +
+          "del mismo token y clave comparten el resultado cifrado durante 10 segundos. " +
+          "Otra clave o fuera de esa ventana conserva la detección de reuso.",
+        tags: ["auth"],
+        body: authSchemas.refreshBody,
+        response: {
+          200: authSchemas.adminSessionResponse,
+          400: authSchemas.errorResponse,
+          401: authSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Body: RefreshBody }>, reply: FastifyReply) => {
+      const idempotencyKey = request.headers["idempotency-key"];
+      if (idempotencyKey !== undefined && (typeof idempotencyKey !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey))) {
+        throw new ApiError(400, "VALIDATION_FAILED", "Idempotency-Key inválida.");
+      }
+      const result = await adminSessionService.refresh(request.body.refreshToken, idempotencyKey);
+      reply.code(200);
+      return result;
+    }
+  );
+
+  app.post<{ Body: LogoutInput }>(
+    "/admin/logout",
+    {
+      schema: {
+        summary: "Cerrar la sesión actual del panel",
+        description:
+          "Revoca el refresh token de la sesión de panel actual. Ruta protegida (x-user-id " +
+          "inyectado por el gateway) e idempotente. El access token sigue siendo válido " +
+          "hasta su expiración (15 minutos).",
+        tags: ["auth"],
+        body: authSchemas.logoutBody,
+        response: {
+          204: { type: "null" },
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Body: LogoutInput }>, reply: FastifyReply) => {
+      const userId = request.headers["x-user-id"];
+      if (typeof userId !== "string" || !userId) {
+        throw new ApiError(401, "AUTH_TOKEN_INVALID", "Missing or invalid authorization header");
+      }
+      await adminSessionService.logout(request.body.refreshToken, userId);
       reply.code(204);
       return null;
     }

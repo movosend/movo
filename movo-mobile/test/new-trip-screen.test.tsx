@@ -2,6 +2,11 @@ import { act, fireEvent, render } from "@testing-library/react-native";
 import NewTripScreen from "../app/(app)/carrier/trips/new";
 import type { CreateTripInput } from "../src/api/trips-client";
 
+// MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
+jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
+  require("./mocks/carrier-requirements-sheet-hook"),
+);
+
 // El gate de ubicación del transportista tiene su propio test
 // (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
 jest.mock("../src/store/carrier-location-gate-store", () => ({
@@ -45,10 +50,27 @@ const FAKE_INPUT: CreateTripInput = {
 jest.mock("../components/trips/trip-form", () => {
   const { Pressable, Text } = require("react-native");
   return {
-    TripForm: ({ onSubmit, error }: { onSubmit: (i: CreateTripInput) => void; error: string | null }) => (
+    TripForm: (props: {
+      onSubmit: (i: CreateTripInput) => void;
+      error: string | null;
+      recurrenceError?: string | null;
+      recurringSubmitLabel?: string;
+      mode?: string;
+      recurrenceReadOnlyReason?: string | null;
+      initialValues?: { recurrence?: unknown };
+    }) => (
       <>
-        <Pressable testID="tf-stub-submit" onPress={() => onSubmit(FAKE_INPUT)} />
-        <Text testID="tf-stub-error">{error}</Text>
+        <Pressable testID="tf-stub-submit" onPress={() => props.onSubmit(FAKE_INPUT)} />
+        <Text testID="tf-stub-error">{props.error}</Text>
+        <Text testID="tf-stub-recurrence-error">{props.recurrenceError}</Text>
+        <Text testID="tf-stub-props">
+          {JSON.stringify({
+            recurringSubmitLabel: props.recurringSubmitLabel ?? null,
+            mode: props.mode ?? null,
+            recurrenceReadOnlyReason: props.recurrenceReadOnlyReason ?? null,
+            recurrence: props.initialValues?.recurrence ?? null,
+          })}
+        </Text>
       </>
     ),
   };
@@ -91,6 +113,46 @@ describe("NewTripScreen", () => {
     );
   });
 
+  it("MOVO-117: un 403 CARRIER_LICENSE_NOT_APPROVED abre la checklist con los faltantes, sin error genérico", async () => {
+    const { ApiError } = require("@movo/shared/dist/errors/api-error");
+    mockCreateTripMutate.mockImplementation((_input, { onError }: any) =>
+      onError(
+        new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "forbidden", {
+          missingRequirements: ["license", "mp_account"],
+        }),
+      ),
+    );
+
+    const { getByTestId, getByText } = await render(<NewTripScreen />);
+    await act(async () => {
+      fireEvent.press(getByTestId("tf-stub-submit"));
+      await Promise.resolve();
+    });
+
+    expect(getByText("Para declarar tu viaje necesitás completar estos dos pasos.")).toBeTruthy();
+    expect(getByTestId("carrier-requirements-sheet-checklist-license-cta")).toBeTruthy();
+    expect(getByTestId("carrier-requirements-sheet-checklist-mp-cta")).toBeTruthy();
+    expect(getByTestId("tf-stub-error").props.children).toBeNull();
+  });
+
+  it("MOVO-117: un 502 de verificación se muestra como error para reintentar, sin checklist", async () => {
+    const { ApiError } = require("@movo/shared/dist/errors/api-error");
+    mockCreateTripMutate.mockImplementation((_input, { onError }: any) =>
+      onError(new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "down")),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<NewTripScreen />);
+    await act(async () => {
+      fireEvent.press(getByTestId("tf-stub-submit"));
+      await Promise.resolve();
+    });
+
+    expect(queryByTestId("carrier-requirements-sheet")).toBeNull();
+    expect(getByTestId("tf-stub-error").props.children).toBe(
+      "No pudimos verificar tus requisitos. Intentá de nuevo en unos minutos.",
+    );
+  });
+
   it("el botón de back del header reemplaza al listado si no hay historial", async () => {
     mockCanGoBack.mockReturnValue(false);
 
@@ -107,5 +169,26 @@ describe("NewTripScreen", () => {
     fireEvent.press(getByTestId("new-trip-back"));
 
     expect(mockRouterBack).toHaveBeenCalled();
+  });
+
+  it("MOVO-266: pasa el label recurrente y muestra el tope de series inline en la card", async () => {
+    const { ApiError } = require("@movo/shared/dist/errors/api-error");
+    mockCreateTripMutate.mockImplementation((_input, { onError }: any) =>
+      onError(new ApiError(409, "RECURRING_SERIES_LIMIT", "limit")),
+    );
+
+    const { getByTestId } = await render(<NewTripScreen />);
+    expect(JSON.parse(getByTestId("tf-stub-props").props.children).recurringSubmitLabel).toBe(
+      "Declarar viaje recurrente",
+    );
+    await act(async () => {
+      fireEvent.press(getByTestId("tf-stub-submit"));
+      await Promise.resolve();
+    });
+
+    expect(getByTestId("tf-stub-recurrence-error").props.children).toBe(
+      "Ya tenés 3 viajes que se repiten. Dejá de repetir alguno para sumar otro.",
+    );
+    expect(getByTestId("tf-stub-error").props.children).toBeNull();
   });
 });

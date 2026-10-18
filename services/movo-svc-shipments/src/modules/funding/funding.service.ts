@@ -466,6 +466,8 @@ export function createFundingService(deps: FundingServiceDeps) {
         carrierId: shipment.carrierId as string,
         amountArs: shipment.agreedPriceArs as number,
         payerEmail: await resolvePayerEmail(shipment.senderId),
+        // MOVO-311: con el emisor, payments suma su deuda de la cuenta corriente al monto.
+        payerUserId: shipment.senderId,
       });
 
       return {
@@ -473,6 +475,9 @@ export function createFundingService(deps: FundingServiceDeps) {
         route,
         carrierPublicKey: checkout.publicKey,
         amountArs: checkout.amountArs,
+        priceArs: checkout.baseAmountArs,
+        pendingBalanceArs: checkout.debtSurchargeArs,
+        totalArs: checkout.amountArs,
         payUntil: payUntil.toISOString(),
       };
     },
@@ -509,7 +514,12 @@ export function createFundingService(deps: FundingServiceDeps) {
         cardToken: input.cardToken,
         amountArs: shipment.agreedPriceArs as number,
         payerEmail: await resolvePayerEmail(shipment.senderId),
+        // MOVO-282: payments valida que la tarjeta guardada sea de este usuario y esté viva.
+        payerUserId: shipment.senderId,
+        ...(input.savedCardId ? { savedCardId: input.savedCardId } : {}),
         ...(input.paymentMethodId ? { paymentMethodId: input.paymentMethodId } : {}),
+        // MOVO-311: payments responde 409 HOLD_AMOUNT_CHANGED si la deuda cambió desde que el emisor vio el total.
+        ...(input.expectedTotalArs !== undefined ? { expectedTotalArs: input.expectedTotalArs } : {}),
       });
 
       if (!isFundedHold(hold)) {

@@ -100,6 +100,7 @@ describe("auth plugin - decorador authorize", () => {
       sub: "admin-user",
       roles: [UserRole.ADMIN],
       kycStatus: KycStatus.APPROVED,
+      session: "panel",
     });
 
     const response = await app.inject({
@@ -191,6 +192,120 @@ describe("auth plugin - revocación de access tokens (MOVO-134)", () => {
       headers: { authorization: `Bearer ${token}` },
     });
 
+    expect(response.statusCode).toBe(200);
+  });
+
+  describe("corte de sesiones de panel (MOVO-287)", () => {
+    function iatOf(token: string): number {
+      return JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()).iat;
+    }
+
+    it("rechaza un token de panel cuyo iat es anterior a panel-revoked-at:{userId}", async () => {
+      const userId = "user-panel-revoked";
+      const token = signAccessToken({ sub: userId, roles: [UserRole.ADMIN], kycStatus: KycStatus.APPROVED, session: "panel" });
+      await redis.set(`panel-revoked-at:${userId}`, iatOf(token) + 60, "EX", 900);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/protected",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body).error.code).toBe("AUTH_TOKEN_INVALID");
+    });
+
+    it("rechaza un token de panel emitido en el mismo segundo que la marca (review de PR #244)", async () => {
+      const userId = "user-panel-same-second";
+      const token = signAccessToken({ sub: userId, roles: [UserRole.ADMIN], kycStatus: KycStatus.APPROVED, session: "panel" });
+      await redis.set(`panel-revoked-at:${userId}`, iatOf(token), "EX", 900);
+
+      const response = await app.inject({ method: "GET", url: "/protected", headers: { authorization: `Bearer ${token}` } });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("un token sin admin (sesión de la app) ignora panel-revoked-at", async () => {
+      const userId = "user-panel-revoked-app";
+      const token = signAccessToken({ sub: userId, roles: [UserRole.SENDER], kycStatus: KycStatus.APPROVED });
+      await redis.set(`panel-revoked-at:${userId}`, iatOf(token) + 60, "EX", 900);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/protected",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+    });
+
+    it("deja pasar un token de panel emitido después del corte", async () => {
+      const userId = "user-panel-relogin";
+      await redis.set(`panel-revoked-at:${userId}`, Math.floor(Date.now() / 1000) - 60, "EX", 900);
+      const token = signAccessToken({ sub: userId, roles: [UserRole.ADMIN], kycStatus: KycStatus.APPROVED, session: "panel" });
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/protected",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+    });
+  });
+});
+
+describe("auth plugin - el rol admin solo vale en una sesión de panel (review de PR #244)", () => {
+  let app: FastifyInstance;
+
+  const env: EnvConfig = {
+    PORT: 3000,
+    JWT_SECRET: "test-secret",
+    REDIS_URL: "redis://localhost:6379",
+    USERS_SERVICE_URL: "http://localhost:1",
+    SHIPMENTS_SERVICE_URL: "http://localhost:1",
+    PAYMENTS_SERVICE_URL: "http://localhost:1",
+    ADMIN_SERVICE_URL: "http://localhost:1",
+    RATE_LIMIT_MAX: 200,
+  };
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    app = Fastify({ logger: false });
+    await app.register(errorHandlerPlugin);
+    await app.register(redisPlugin, { env });
+    await app.register(authPlugin, { env });
+    app.get("/roles", { preHandler: app.authenticate, handler: async (request) => ({ roles: request.user!.roles }) });
+    app.get("/needs-admin", {
+      preHandler: [app.authenticate, app.authorize([UserRole.ADMIN])],
+      handler: async () => ({ ok: true }),
+    });
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it("un token de la app que trae admin (emitido antes del deploy) lo pierde: 403 en una ruta de admin", async () => {
+    const token = signAccessToken({ sub: "legacy-admin", roles: [UserRole.SENDER, UserRole.ADMIN], kycStatus: KycStatus.APPROVED });
+
+    const roles = await app.inject({ method: "GET", url: "/roles", headers: { authorization: `Bearer ${token}` } });
+    expect(JSON.parse(roles.body).roles).toEqual([UserRole.SENDER]);
+
+    const admin = await app.inject({ method: "GET", url: "/needs-admin", headers: { authorization: `Bearer ${token}` } });
+    expect(admin.statusCode).toBe(403);
+  });
+
+  it("un token de panel conserva admin", async () => {
+    const token = signAccessToken({
+      sub: "panel-admin",
+      roles: [UserRole.SENDER, UserRole.ADMIN],
+      kycStatus: KycStatus.APPROVED,
+      session: "panel",
+    });
+
+    const response = await app.inject({ method: "GET", url: "/needs-admin", headers: { authorization: `Bearer ${token}` } });
     expect(response.statusCode).toBe(200);
   });
 });

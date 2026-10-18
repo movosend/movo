@@ -1,7 +1,12 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { Pressable, Text, View } from "react-native";
 import type { MyOfferSummary } from "../../src/api/offers-client";
-import { formatOfferedAgo, offerStatusLabel } from "../../src/lib/offer-format";
+import { estimateReceivedArs } from "../../src/lib/commission-config";
+import {
+  formatOfferedAgo,
+  offerStatusLabel,
+  receivedAmountLabel,
+} from "../../src/lib/offer-format";
 import {
   formatDetourKm,
   formatPickupDateLabel,
@@ -63,8 +68,8 @@ function routeLabel(offer: MyOfferSummary): string {
  * Card de una oferta propia del transportista en "Mis ofertas" (MOVO-151, listado
  * completo del bridge armado en MOVO-183). Reemplaza la fila plana de una sola línea
  * que tenía `carrier/offers/index.tsx` -- ahora con fecha de retiro + distancia
- * (`MyOfferShipmentContext.distanceKm`, MOVO-185), el neto real (`priceNetArs`,
- * MOVO-186, no el bruto `priceOffered`) y un aviso opcional con su propio
+ * (`MyOfferShipmentContext.distanceKm`, MOVO-185), lo que recibe aprox. (neto de
+ * MOVO-186 menos el estimado de MP, MOVO-225; no el bruto `priceOffered`) y un aviso opcional con su propio
  * tratamiento visual (fondo lima para positivo, mute para de atención).
  */
 export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyOfferCardProps) {
@@ -103,9 +108,11 @@ export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyO
         </View>
         <View className="items-end gap-0.5">
           <Text className="font-sans-semibold text-[17px] leading-[20px] tracking-[-0.02em] text-fg">
-            {formatPriceArs(offer.priceNetArs)}
+            {formatPriceArs(estimateReceivedArs(offer.priceNetArs, offer.priceOffered))}
           </Text>
-          <Text className="font-sans text-[10px] text-fg-3">te queda</Text>
+          <Text className="font-sans text-[10px] text-fg-3">
+            {receivedAmountLabel(offer.status).toLowerCase()}
+          </Text>
         </View>
       </View>
       {notice ? (

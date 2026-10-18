@@ -1,0 +1,66 @@
+// MOVO-288: movo-svc-admin adopta Prisma (ADR-011) con su primer modelo real, la
+// bitácora del panel. Reemplaza el `pg` crudo y la migración placeholder del scaffold.
+//
+// moduleFormat = "cjs": el resto del servicio es CommonJS, mismo motivo que
+// movo-svc-users/prisma/schema.prisma.
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Las tablas viven en el schema `admin` de Postgres (ADR-003: una sola instancia
+  // compartida, un schema por servicio), no en `public`.
+  schemas  = ["admin"]
+}
+
+enum AuditOutcome {
+  succeeded
+  failed
+  // La acción pudo haberse aplicado: el servicio dueño no respondió (red, timeout, 5xx).
+  unknown
+
+  @@map("audit_outcome")
+  @@schema("admin")
+}
+
+enum AdminTargetType {
+  user
+  admin_role
+  shipment
+  chat_report
+  user_report
+
+  @@map("admin_target_type")
+  @@schema("admin")
+}
+
+// MOVO-288: una fila por acción de escritura del panel (decisión 4 de MOVO-286). Solo se
+// agregan filas: un trigger de la migración rechaza UPDATE y DELETE. `adminId` y
+// `targetId` sin FK: viven en schemas de otros servicios (users, shipments).
+// `outcome` se escribe después de llamar al servicio dueño, así nunca queda como
+// `succeeded` una acción que no ocurrió (AC5).
+model AuditLog {
+  id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId    String          @map("admin_id") @db.Uuid
+  // Libre a propósito: cada US de admin suma las suyas (ej. `user.suspend`).
+  action     String
+  targetType AdminTargetType @map("target_type")
+  targetId   String          @map("target_id")
+  reason     String?         @db.Text
+  context    Json?
+  outcome    AuditOutcome
+  // Código de ApiError con el que falló la acción (o el rechazo por conflicto).
+  errorCode  String?         @map("error_code")
+  requestId  String?         @map("request_id")
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)], map: "audit_log_created_at_id_idx")
+  @@index([adminId, createdAt(sort: Desc)], map: "audit_log_admin_id_created_at_idx")
+  @@index([targetType, targetId, createdAt(sort: Desc)], map: "audit_log_target_created_at_idx")
+  @@index([action, createdAt(sort: Desc)], map: "audit_log_action_created_at_idx")
+  @@map("audit_log")
+  @@schema("admin")
+}

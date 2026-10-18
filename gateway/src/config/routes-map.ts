@@ -123,20 +123,20 @@ export function getServiceRoutes(env: {
 
     // payments service (MOVO-267). Emisor (paga) y transportista (vincula su
     // cuenta de MP y cobra). Las rutas que se llaman sin JWT van en
-    // getPublicRoutes(): el callback de OAuth (MOVO-111, ya está) y el webhook
-    // (MOVO-268).
+    // getPublicRoutes(): el callback de OAuth (MOVO-111) y el webhook (MOVO-268).
     {
       prefix: "/payments",
       upstream: env.PAYMENTS_SERVICE_URL,
       allowedRoles: [UserRole.SENDER, UserRole.CARRIER],
     },
 
-    // admin service (fuera de alcance este sprint, ver MOVO-68)
-    // {
-    //   prefix: "/admin",
-    //   upstream: env.ADMIN_SERVICE_URL,
-    //   allowedRoles: [UserRole.ADMIN],
-    // },
+    // admin service (MOVO-288). Solo el panel: el rol admin entra al JWT
+    // únicamente en una sesión de panel (MOVO-287), nunca en la de la app.
+    {
+      prefix: "/admin",
+      upstream: env.ADMIN_SERVICE_URL,
+      allowedRoles: [UserRole.ADMIN],
+    },
 
     // pricing-logistics service (futuro)
     // {
@@ -199,6 +199,21 @@ export function getPublicRoutes(): PublicRoute[] {
       rateLimit: { max: 5, timeWindow: "15 minutes" },
     },
     { method: "POST", path: "/auth/refresh" },
+    // MOVO-287: login del panel de administración (email + contraseña, después OTP por
+    // email). Mismo límite estricto por IP que /auth/login; el límite por email lo pone
+    // `svc-users`, porque acá el body no se parsea. El refresh, como el de la app, queda
+    // bajo el general. /auth/admin/logout no se lista: es protegida.
+    {
+      method: "POST",
+      path: "/auth/admin/login",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    {
+      method: "POST",
+      path: "/auth/admin/verify",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    { method: "POST", path: "/auth/admin/refresh" },
     // MOVO-71: reemplaza el placeholder de "/auth/verify-phone" (contrato viejo,
     // OTP post-registro) — el vigente es OTP antes de crear la cuenta, sin token
     // todavía, así que las tres rutas son públicas.
@@ -275,6 +290,17 @@ export function getPublicRoutes(): PublicRoute[] {
       method: "GET",
       path: "/payments/mp-connect/callback",
       rateLimit: { max: 20, timeWindow: "15 minutes" },
+    },
+
+    // Webhook de Mercado Pago (MOVO-268): MP no tiene JWT. Lo protege la firma
+    // `x-signature` que valida svc-payments con MP_WEBHOOK_SECRET (el gateway conserva el
+    // `x-request-id` entrante, que es parte de lo firmado). Límite propio y holgado: MP
+    // llega desde pocas IPs compartidas y una ráfaga de reenvíos no puede caer en 429
+    // (MP lo tomaría como fallo y seguiría reintentando).
+    {
+      method: "POST",
+      path: "/payments/webhooks/mercadopago",
+      rateLimit: { max: 300, timeWindow: "1 minute" },
     },
   ];
 }

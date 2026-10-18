@@ -17,6 +17,7 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { UsersClient } from "../../adapters/users-client";
 import { assertNotBlocked } from "../../utils/block-relations";
 import { PaymentsClient } from "../../adapters/payments-client";
+import { previewDebtDiscounts } from "../../utils/debt-discount";
 import { assertCarrierCanOperate, resolveCarrierEligibility } from "../../utils/carrier-gate";
 import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
 import { Trip } from "../../models/trip";
@@ -289,6 +290,23 @@ async function attachCompetitiveRanks(
   }));
 }
 
+/**
+ * MOVO-311: descuento por deuda de la cuenta corriente del transportista en cada oferta `pending`, en un solo
+ * pedido a payments para toda la página. Es solo para mostrar: si payments no responde, el campo viaja `null`.
+ */
+async function attachDebtDiscounts(
+  items: OfferWithShipmentContext[],
+  carrierId: string,
+  paymentsClient: PaymentsClient
+): Promise<OfferWithShipmentContext[]> {
+  const pending = items.filter((item) => item.status === OfferStatus.PENDING);
+  const preview = await previewDebtDiscounts(paymentsClient, carrierId, pending.map((item) => item.priceOffered));
+  const byOfferId = new Map(pending.map((item, index) => [item.id, preview[index]]));
+  return items.map((item) => {
+    return { ...item, debtDiscount: byOfferId.get(item.id) ?? null };
+  });
+}
+
 export function createOffersService(
   offerRepository: OfferRepository,
   shipmentRepository: ShipmentRepository,
@@ -352,7 +370,7 @@ export function createOffersService(
         getCarrierReputationScores
       );
 
-      return { items: itemsWithRank, page, limit, total };
+      return { items: await attachDebtDiscounts(itemsWithRank, carrierId, paymentsClient), page, limit, total };
     },
 
     /**
@@ -384,7 +402,8 @@ export function createOffersService(
         shipmentRepository,
         getCarrierReputationScores
       );
-      return withRank;
+      const [withDebt] = await attachDebtDiscounts([withRank], callerId, paymentsClient);
+      return withDebt;
     },
 
     /**
@@ -418,7 +437,10 @@ export function createOffersService(
       // después de ofertar. Quien llama es el emisor, que no puede resolverlo: 409 sin
       // `details` (no se le cuenta qué le falta al otro) y la oferta sigue `pending` para
       // que elija otra. Un servicio caído propaga su 502 (falla cerrado).
-      const eligibility = await resolveCarrierEligibility({ usersClient, paymentsClient }, offer.carrierId);
+      const eligibility = await resolveCarrierEligibility(
+        { usersClient, paymentsClient, shipmentRepository },
+        offer.carrierId
+      );
       if (!eligibility.identityApproved || eligibility.missingRequirements.length > 0) {
         throw new ApiError(
           409,
@@ -575,7 +597,7 @@ export function createOffersService(
 
       // MOVO-116 (ADR-036): editar una oferta es operar como transportista, mismo
       // bloqueo que crearla. Hasta acá este endpoint no exigía ni el KYC de identidad.
-      await assertCarrierCanOperate({ usersClient, paymentsClient }, callerId, callerRoles);
+      await assertCarrierCanOperate({ usersClient, paymentsClient, shipmentRepository }, callerId, callerRoles);
 
       if (patch.priceOfferedArs !== undefined && patch.priceOfferedArs <= 0) {
         throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");

@@ -84,6 +84,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
     };
 
     shipmentRepo = {
+      hasOpenDisputeAsCarrier: vi.fn().mockResolvedValue(false),
       create: vi.fn(),
       findById: vi.fn(),
       updateStatus: vi.fn(),
@@ -269,6 +270,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         destinationLng: -63.24,
         departureAt,
         vehicleType: "auto",
+        recurrenceUntil: null,
       });
       expect(trip.id).toBe(TRIP_ID);
     });
@@ -451,7 +453,11 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         input: { vehicleType: "camioneta" },
       });
 
-      expect(tripRepo.update).toHaveBeenCalledWith(TRIP_ID, { vehicleType: "camioneta" });
+      expect(tripRepo.update).toHaveBeenCalledWith(
+        TRIP_ID,
+        { vehicleType: "camioneta" },
+        { allowWithAcceptedPackages: false, seriesId: undefined },
+      );
       expect(updated.vehicleType).toBe("camioneta");
     });
   });
@@ -859,7 +865,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
 
       const result = await service.cancelTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] });
 
-      expect(tripRepo.cancel).toHaveBeenCalledWith(TRIP_ID);
+      expect(tripRepo.cancel).toHaveBeenCalledWith(TRIP_ID, { stopRecurrence: false });
       expect(result.status).toBe(TripStatus.CANCELLED);
       expect(result.cancelledAt).toBeInstanceOf(Date);
     });
@@ -899,6 +905,22 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
     // MOVO-258 (D5): solo un viaje `declared` busca paquetes; al iniciarlo quedan fijos.
     beforeEach(() => {
       trip.status = TripStatus.DECLARED;
+    });
+
+    it("incluye debtDiscount en los matches con precio positivo", async () => {
+      (shipmentRepo.listAvailable as any).mockResolvedValue({ items: [
+        { id: "shipment-1", pickupLat: -31.5, pickupLng: -64,
+          deliveryLat: -32.1, deliveryLng: -63.5, suggestedPriceArs: 1000 },
+      ], total: 1 });
+      const previewCarrierDebt = vi.fn().mockResolvedValue({ pendingBalanceArs: 100,
+        debtOffsetsArs: [100] });
+      const service = buildService({ paymentsClient: {
+        ...paymentsClient, previewCarrierDebt,
+      } });
+      const result = await service.getTripMatches({ tripId: TRIP_ID, callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER], page: 1, limit: 20 });
+      expect(previewCarrierDebt).toHaveBeenCalledWith(CARRIER_ID, [1000]);
+      expect(result.items[0].debtDiscount).toEqual({ amountArs: 100, reason: "pending_balance" });
     });
 
     it("llama a shipmentRepository.listAvailable con el corredor y radio por defecto", async () => {

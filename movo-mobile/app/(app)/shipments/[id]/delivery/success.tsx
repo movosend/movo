@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Pressable, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HandshakeConfirmationResult } from "../../../../../components/handshake/handshake-confirmation-result";
+import { DeliveryPaymentStatus } from "../../../../../components/payments/delivery-payment-status";
 import { RatingSheet, type RatingTarget } from "../../../../../components/shipments/rating-sheet";
 import { useShipment } from "../../../../../src/hooks/use-shipments";
 import { useShipmentRatings } from "../../../../../src/hooks/use-ratings";
@@ -12,12 +13,10 @@ import { useDeliveryResult } from "./_layout";
 
 /**
  * Paso terminal del wizard de entrega (MOVO-199 AC8): reusa `HandshakeConfirmationResult`
- * tal cual (mismo componente que `pickup/success.tsx`, stage `"delivery"` ya
- * diferenciado ahí -- distingue `DELIVERED` "estamos procesando el pago" de
- * `COMPLETED` "el pago fue acreditado", sin afirmar de más sobre un cobro que
- * `FundsReleaseNotifier` todavía no ejecuta de verdad, ADR-021). Invalida el
- * detalle del envío ANTES de navegar, así el transportista lo ve ya en
- * `delivered`/`completed` sin depender de un refetch en el aire.
+ * (mismo componente que `pickup/success.tsx`) y le pasa el estado real del cobro
+ * (`DeliveryPaymentStatus`, MOVO-214 AC5): el neto acreditado cuando la captura terminó,
+ * "estamos cobrando" mientras tanto. Invalida el detalle del envío ANTES de navegar, así el
+ * transportista lo ve ya en `delivered`/`completed` sin depender de un refetch en el aire.
  *
  * El CTA principal vuelve al detalle del envío (a diferencia de pickup, que navega
  * a `/route` -- acá no hay próxima parada que trackear, la entrega es el final del
@@ -88,6 +87,13 @@ export default function DeliverySuccessScreen() {
         onCtaPress={goToShipment}
         secondaryCtaLabel={ratingTarget ? (alreadyRated ? "Ya calificaste al receptor" : "Calificar al receptor") : undefined}
         onSecondaryCtaPress={ratingTarget ? () => setRatingOpen(true) : undefined}
+        paymentSlot={
+          <DeliveryPaymentStatus
+            shipmentId={result.shipmentId}
+            onViewDetail={goToShipment}
+            testID="delivery-success-payment"
+          />
+        }
       />
 
       <RatingSheet

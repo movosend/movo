@@ -58,6 +58,7 @@ jobs:
               - 'movo-mobile/**'
             admin-web:
               - 'movo-admin/**'
+              - 'shared/movo-shared/**'
 
   node-services:
     needs: detect-changes
@@ -163,28 +164,16 @@ jobs:
         working-directory: ${{ matrix.service.path }}
         run: npx tsc --noEmit
 
-      # movo-svc-users, movo-svc-shipments y movo-svc-payments usan Prisma Migrate
-      # (prisma migrate deploy, con tracking propio en _prisma_migrations) -- los
-      # demás servicios siguen con el runner de SQL a mano hasta que tengan dominio
-      # real (ver ADR-011; movo-svc-shipments lo adoptó en MOVO-104 y
-      # movo-svc-payments en MOVO-267).
+      # Todos los servicios Node usan Prisma Migrate (prisma migrate deploy, con
+      # tracking propio en _prisma_migrations, ADR-011): svc-shipments desde MOVO-104,
+      # svc-payments desde MOVO-267 y svc-admin desde MOVO-288, que dejó sin uso el
+      # runner de SQL a mano (scripts/run-migrations.sh, borrado).
       - name: Run migrations (Prisma)
         if: |
           matrix.service.changed == 'true' &&
-          (matrix.service.name == 'movo-svc-users' || matrix.service.name == 'movo-svc-shipments' || matrix.service.name == 'movo-svc-payments')
+          matrix.service.name != 'gateway'
         working-directory: ${{ matrix.service.path }}
         run: npx prisma migrate deploy
-
-      - name: Run migrations (SQL)
-        if: |
-          matrix.service.changed == 'true' &&
-          matrix.service.name != 'gateway' &&
-          matrix.service.name != 'movo-svc-users' &&
-          matrix.service.name != 'movo-svc-shipments' &&
-          matrix.service.name != 'movo-svc-payments'
-        run: |
-          sudo apt-get update && sudo apt-get install -y postgresql-client
-          ./scripts/run-migrations.sh ${{ matrix.service.path }}
 
       - name: Tests
         if: matrix.service.changed == 'true'
@@ -240,15 +229,24 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: "22"
           cache: npm
           cache-dependency-path: movo-admin/package-lock.json
 
       - name: Instalar dependencias
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
       - name: Tests
         run: npm test
+
+      - name: Build
+        run: npm run build
 
   python-service:
     needs: detect-changes
@@ -297,6 +295,13 @@ jobs:
 
       - name: Tests
         run: pytest
+
+      # MOVO-276 (AC6): el motor de precios exige 100%, no el 55% global de pyproject.
+      # Reusa el `.coverage` que dejó el paso anterior.
+      - name: Cobertura del motor de precios
+        run: >-
+          coverage report --fail-under=100
+          --include=app/services/pricing.py,app/config.py,app/models/quote.py,app/routers/quote.py
 
   tests-summary:
     if: always()

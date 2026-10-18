@@ -34,7 +34,7 @@ function hold(overrides: Partial<FundingViewHold> = {}): FundingViewHold {
     failureReason: "insufficient_funds",
     carrierId: CARRIER,
     cardBrand: "visa",
-    cardLastFour: "3704",
+    cardLast4: "3704",
     createdAt: new Date(NOW.getTime() - 60 * 1000).toISOString(),
     ...overrides,
   };

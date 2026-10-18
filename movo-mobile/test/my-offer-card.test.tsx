@@ -53,7 +53,9 @@ describe("MyOfferCard (MOVO-151)", () => {
 
     expect(getByText(/Av\. Colón.*→.*Bv\. San Juan/)).toBeTruthy();
     expect(getByText(/9,4 km/)).toBeTruthy();
-    expect(getByText("$4.500")).toBeTruthy();
+    // MOVO-225: neto (4500) menos el estimado de MP sobre el bruto (5000 * 4,99%).
+    expect(getByText("$4.250,5")).toBeTruthy();
+    expect(getByText("recibís aprox.")).toBeTruthy();
     expect(queryByText("$5.000")).toBeNull();
   });
 

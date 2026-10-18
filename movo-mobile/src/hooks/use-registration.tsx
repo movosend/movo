@@ -13,6 +13,7 @@ import {
 } from "react";
 import { authClient } from "../api/auth-client";
 import { friendlyErrorMessage } from "../lib/error-messages";
+import { formatDni, isDniValid } from "../lib/dni";
 import { isPasswordValid } from "../lib/password-policy";
 import { SECURE_STORE_KEYS, deletePendingRegistrationKeys, secureStore } from "../lib/secure-store";
 import { useAuthStore } from "../store/auth-store";
@@ -122,15 +123,8 @@ export function toE164Phone(localPhone: string): string {
 export { isPasswordValid };
 
 
-export function isDniValid(v: string): boolean {
-  const d = v.replace(/\D/g, "");
-  return d.length >= 7 && d.length <= 8;
-}
-
-export function formatDni(v: string): string {
-  const d = v.replace(/\D/g, "").slice(0, 8);
-  return d.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
+/** Re-export de `src/lib/dni.ts` (extraído ahí en MOVO-101 para reusarlo en el alta de tarjeta). */
+export { formatDni, isDniValid };
 
 export function isZipValid(v: string): boolean {
   return /^\d{4}$/.test(v.trim());
