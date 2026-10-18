@@ -765,3 +765,6 @@ salvo hold liberado; descuento al transportista, solo con la liquidación acredi
   un hold se cierra desde varios lugares (liberación explícita, webhook de MP, vencimiento) y `updated_at` no sirve porque cambia
   con cualquier update posterior. Los ya cancelados se rellenaron con su `updated_at`, que es aproximado.
 
+### MOVO-308 — Filtro por envío en el historial de transacciones
+
+`GET /payments/transactions` acepta `shipmentId` (uuid, opcional): las reservas de un envío, más de una si hubo reintentos del hold, con la misma visibilidad por rol que el listado. Lo usa la card "Tu pago" de un envío cancelado en el mobile para mostrar cuánto se reservó y con qué tarjeta (la tarjeta solo viaja con `role=sender`). Archivos: `transactions.schema.ts`/`.routes.ts`/`.service.ts` y `transaction-repository.ts`.

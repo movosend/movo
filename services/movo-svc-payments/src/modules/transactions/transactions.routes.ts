@@ -22,6 +22,7 @@ export default async function transactionsRoutes(app: FastifyInstance) {
       status?: string[];
       from?: string;
       to?: string;
+      shipmentId?: string;
       cursor?: string;
       limit?: number;
     };

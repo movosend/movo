@@ -98,6 +98,8 @@ export const listTransactionsSchema = {
       status: { type: "array", maxItems: 20, items: { type: "string", maxLength: 100 } },
       from: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "YYYY-MM-DD, hora de Argentina" },
       to: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "YYYY-MM-DD inclusivo, hora de Argentina" },
+      // MOVO-308: las transacciones de un envío (más de una si hubo reintentos del hold).
+      shipmentId: uuid,
       cursor: { type: "string", maxLength: 200 },
       limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
     },

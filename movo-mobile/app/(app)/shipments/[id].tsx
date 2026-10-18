@@ -18,7 +18,11 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
-import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
+import {
+  CarrierCancellationCompensation,
+  SenderCancelledPayment,
+} from "../../../components/shipments/cancelled-payment-card";
+import { HighDemandBadge, HighDemandHelp } from "../../../components/shipments/high-demand-badge";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { RouteTrackingChatCard } from "../../../components/shipments/route-tracking-chat-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
@@ -48,6 +52,8 @@ import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment, useShipmentPhotos } from "../../../src/hooks/use-shipments";
 import { useShipmentSettlement } from "../../../src/hooks/use-shipment-settlement";
+import { carrierCompensationView } from "../../../src/lib/cancellation-format";
+import { useShipmentHold } from "../../../src/hooks/use-shipment-hold";
 import {
   TRANSIT_DELAYED_INFO_TEXT,
   activeShipmentDisplayCode,
@@ -118,6 +124,8 @@ const TABS: [DetailTab, string][] = [
   ["timeline", "Línea de tiempo"],
 ];
 
+const CANCELLATION_PENALTY_POLL_MS = 15_000;
+
 /**
  * Detalle de un envío propio (MOVO-127) con soporte para calificaciones
  * post-entrega (MOVO-153).
@@ -134,10 +142,18 @@ export default function ShipmentDetailScreen() {
   // React Query no conoce el foco de React Navigation.
   const isFocused = useIsFocused();
   const { data: shipment, isLoading, isError, error, refetch } = useShipment(id, {
-    refetchInterval: (data) =>
-      isFocused ? liveTrackingPendingPollInterval(data, currentUser?.userId) : false,
+    refetchInterval: (data) => {
+      if (!isFocused) return false;
+      // MOVO-308: el cobro de la penalidad pasa de `pending` a `captured`/`debt` en el backend;
+      // sin polling la card "Tu pago" quedaría en "Procesando" hasta volver a enfocar.
+      if (data?.status === ShipmentStatus.CANCELLED && data.cancellationPenaltyStatus === "pending") {
+        return CANCELLATION_PENALTY_POLL_MS;
+      }
+      return liveTrackingPendingPollInterval(data, currentUser?.userId);
+    },
   });
   const [tab, setTab] = useState<DetailTab>("detalle");
+  const [isHighDemandHelpOpen, setIsHighDemandHelpOpen] = useState(false);
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 
   const { data: ratings, refetch: refetchRatings } = useShipmentRatings(
@@ -162,11 +178,18 @@ export default function ShipmentDetailScreen() {
           : null;
   const showPayment =
     paymentRole !== null && shipment !== undefined && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status);
+  // MOVO-308: en un envío cancelado, el emisor ve qué pasó con su reserva y el transportista
+  // la compensación si el emisor canceló tarde (settlement `cancellation_penalty`).
+  const isCancelled = shipment?.status === ShipmentStatus.CANCELLED;
+  const showCancelledSenderPayment = paymentRole === "sender" && isCancelled;
+  const showCancellationCompensation = paymentRole === "carrier" && isCancelled;
   const settlementQuery = useShipmentSettlement(id, {
-    enabled: showPayment,
+    enabled: showPayment || showCancellationCompensation,
     pollWhileProcessingMs: isFocused ? 15_000 : false,
   });
   const refetchSettlement = settlementQuery.refetch;
+  const holdQuery = useShipmentHold(id, { enabled: showCancelledSenderPayment });
+  const refetchHold = holdQuery.refetch;
 
   useFocusEffect(
     useCallback(() => {
@@ -174,8 +197,18 @@ export default function ShipmentDetailScreen() {
       if (shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)) {
         void refetchRatings();
       }
-      if (showPayment) void refetchSettlement();
-    }, [refetch, refetchRatings, refetchSettlement, showPayment, shipment?.status])
+      if (showPayment || showCancellationCompensation) void refetchSettlement();
+      if (showCancelledSenderPayment) void refetchHold();
+    }, [
+      refetch,
+      refetchRatings,
+      refetchSettlement,
+      refetchHold,
+      showPayment,
+      showCancellationCompensation,
+      showCancelledSenderPayment,
+      shipment?.status,
+    ])
   );
 
   // Las URLs de las fotos son presigned y vencen: al volver a la pantalla pasado el
@@ -198,7 +231,8 @@ export default function ShipmentDetailScreen() {
       refetch(),
       refetchRatings(),
       photosQueryRef.current.refetch(),
-      ...(showPayment ? [refetchSettlement()] : []),
+      ...(showPayment || showCancellationCompensation ? [refetchSettlement()] : []),
+      ...(showCancelledSenderPayment ? [refetchHold()] : []),
     ]);
     setRefreshing(false);
   };
@@ -223,6 +257,12 @@ export default function ShipmentDetailScreen() {
   // de `ReceiverActionsBar` (variante 2a del diseño de "Confirmación de envío").
   const { data: senderProfile } = usePublicProfile(isReceiver ? shipment?.senderId : undefined);
   const senderFirstName = senderProfile?.fullName?.split(" ")[0];
+  // MOVO-308: el sheet de cancelación y la card "Tu pago" nombran al transportista. Mismo
+  // query key que `ShipmentPartiesCard`, sin request extra.
+  const { data: carrierProfile } = usePublicProfile(
+    paymentRole === "sender" ? (shipment?.carrierId ?? undefined) : undefined
+  );
+  const carrierFirstName = carrierProfile?.fullName?.split(" ")[0] ?? null;
 
   // Si el deadline ya venció, el receptor no puede actuar aunque el barrido todavía
   // no haya cancelado el envío — la deadline manda sobre el reloj del job (MOVO-130 AC5).
@@ -267,7 +307,7 @@ export default function ShipmentDetailScreen() {
   // transportista ve lo que recibe aprox. después de la comisión de Movo (AC3) y del
   // estimado de MP (MOVO-225), el mismo monto que en el resto de las pantallas.
   const carrierReceivedArs =
-    isCarrier && shipment?.agreedPriceArs != null
+    isCarrier && !isCancelled && shipment?.agreedPriceArs != null
       ? Math.max(0, estimateReceivedArs(
           computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
           shipment.agreedPriceArs,
@@ -290,6 +330,19 @@ export default function ShipmentDetailScreen() {
   // asignado el precio que se ve ya no es el sugerido, así que el recargo no aplica.
   const hasAgreedPrice =
     shipment !== undefined && (shipment.agreedPriceArs !== null || shipment.carrierId !== null);
+
+  const senderHold = holdQuery.data ?? null;
+  // Con el pago a la vista, el precio de la card de abajo competiría con el monto real
+  // (MOVO-214). MOVO-308: lo mismo con la reserva de un envío cancelado; y al transportista
+  // de un envío cancelado ya no le corresponde el "Recibís aprox." del viaje.
+  // Sin settlement `cancellation_penalty` (cancelación sin cargo) no hay card de compensación,
+  // así que el transportista conserva el resto de la pantalla; mientras carga no se muestra
+  // la price card para que no aparezca y desaparezca.
+  const hidesCarrierPrice =
+    showCancellationCompensation &&
+    (settlementQuery.isLoading || carrierCompensationView(settlementQuery.data) !== null);
+  const hidePriceCard =
+    showPayment || (showCancelledSenderPayment && senderHold !== null) || hidesCarrierPrice;
 
   // MOVO-254: el badge es información para el emisor. `null` no equivale a `false`.
   const showHighDemandBadge = isSender && shipment?.highDemand === true && !hasAgreedPrice;
@@ -346,7 +399,9 @@ export default function ShipmentDetailScreen() {
           <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
         </Pressable>
         <View className="flex-1">
-          <Text className="font-sans-semibold text-h3 text-fg">Detalle del envío</Text>
+          <Text numberOfLines={1} className="font-sans-semibold text-h3 text-fg">
+            Detalle del envío
+          </Text>
           {shipment ? (
             <View className="mt-0.5 flex-row items-center gap-1">
               {isFormerReceiver ? (
@@ -381,13 +436,16 @@ export default function ShipmentDetailScreen() {
             status={shipment.status}
             isReceiver={isReceiver}
             delayed={isTransitDelayed(shipment)}
+            compact
             testID="shipment-detail-status-badge"
           />
         ) : null}
         {showSenderActions && shipment ? (
           <SenderActionsBar
-            shipmentId={shipment.id}
-            onRefetch={() => refetch()}
+            shipment={shipment}
+            carrierFirstName={carrierFirstName}
+            onRefetch={async () => (await refetch()).data?.status}
+            onCancelled={setSuccessMessage}
             testID="shipment-detail-sender-actions"
           />
         ) : null}
@@ -460,6 +518,22 @@ export default function ShipmentDetailScreen() {
                   shipment={shipment}
                   settlement={settlementQuery}
                   testID="shipment-detail-payment"
+                />
+              ) : null}
+
+              {showCancelledSenderPayment ? (
+                <SenderCancelledPayment
+                  shipment={shipment}
+                  hold={senderHold}
+                  carrierFirstName={carrierFirstName}
+                  testID="shipment-detail-cancelled-payment"
+                />
+              ) : null}
+
+              {showCancellationCompensation ? (
+                <CarrierCancellationCompensation
+                  settlement={settlementQuery.data}
+                  testID="shipment-detail-cancellation-compensation"
                 />
               ) : null}
 
@@ -555,8 +629,7 @@ export default function ShipmentDetailScreen() {
                         {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
                       </Text>
                     </View>
-                    {/* Con el pago a la vista, el precio estimado de acá competiría con el monto real. */}
-                    {showPayment ? null : (
+                    {hidePriceCard ? null : (
                       <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                         <GridPattern />
                         <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
@@ -574,16 +647,27 @@ export default function ShipmentDetailScreen() {
                                 shipment.suggestedPriceArs
                               )}
                         </Text>
+                        {isSender && shipment.status === ShipmentStatus.ASSIGNED ? (
+                          <Text className="font-sans text-[11px] text-ink-700">Reservado en tu tarjeta</Text>
+                        ) : null}
                         {showHighDemandBadge ? (
                           <View className="mt-2">
-                            <HighDemandBadge testID="shipment-detail-high-demand" />
+                            <HighDemandBadge
+                              label="Alta demanda"
+                              expanded={isHighDemandHelpOpen}
+                              onToggle={() => setIsHighDemandHelpOpen((open) => !open)}
+                              testID="shipment-detail-high-demand"
+                            />
                           </View>
                         ) : null}
                       </View>
                     )}
                   </View>
 
-                  {!showPayment && carrierReceivedArs !== null && shipment.agreedPriceArs != null ? <DebtDiscount beforeArs={estimateReceivedArs(computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()), shipment.agreedPriceArs)} amountArs={shipment.debtDiscount?.amountArs} /> : null}
+                  {showHighDemandBadge && isHighDemandHelpOpen ? (
+                    <HighDemandHelp testID="shipment-detail-high-demand-help" />
+                  ) : null}
+                  {!hidePriceCard && carrierReceivedArs !== null && shipment.agreedPriceArs != null ? <DebtDiscount beforeArs={estimateReceivedArs(computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()), shipment.agreedPriceArs)} amountArs={shipment.debtDiscount?.amountArs} /> : null}
 
                   <View>
                     <Eyebrow>Paquete</Eyebrow>

@@ -8,6 +8,7 @@ import type {
   SavedCard,
 } from "@movo/shared/dist/types/saved-card";
 import type { ShipmentSettlementResponse } from "@movo/shared/dist/types/settlement";
+import type { TransactionListResponse } from "@movo/shared/dist/types/transaction";
 import type { BalancePayDataResponse, BalancePayRequest, BalancePayResponse, UserLedgerPageResponse } from "@movo/shared/dist/types/user-ledger";
 import type { DebtCollectionPreviewResponse } from "@movo/shared/dist/types/user-ledger";
 import { httpClient } from "./http-client";
@@ -48,6 +49,15 @@ export const paymentsClient = {
    */
   getShipmentSettlement(shipmentId: string): Promise<ShipmentSettlementResponse> {
     return httpClient.get<ShipmentSettlementResponse>(`/shipments/${shipmentId}/settlement`);
+  },
+  /**
+   * `GET /payments/transactions?role=sender&shipmentId=` (MOVO-303, filtro de MOVO-308): las
+   * reservas que el emisor hizo para un envío, la más reciente primero, con la tarjeta usada.
+   */
+  listShipmentSenderTransactions(shipmentId: string): Promise<TransactionListResponse> {
+    return httpClient.get<TransactionListResponse>(
+      `/payments/transactions?role=sender&shipmentId=${encodeURIComponent(shipmentId)}`,
+    );
   },
   /** `GET /payments/cards/checkout-data`: la `public_key` con la que se tokeniza en el dispositivo (MOVO-101). */
   getCardsCheckoutData(): Promise<CardsCheckoutDataResponse> {

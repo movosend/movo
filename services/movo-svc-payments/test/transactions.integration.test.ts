@@ -164,6 +164,21 @@ describe("/payments/transactions (MOVO-303)", () => {
     });
   });
 
+  describe("filtro por envío (MOVO-308)", () => {
+    it("devuelve solo las transacciones del envío, y nunca las de otro emisor", async () => {
+      const mine = await createHold({ status: "cancelled" });
+      await createHold();
+      const items = (await list(`role=sender&shipmentId=${mine.shipmentId}`)).json().items;
+      expect(items.map((t: { id: string }) => t.id)).toEqual([mine.id]);
+      expect(items[0].card).toEqual({ brand: "visa", last4: "3764" });
+      expect((await list(`role=sender&shipmentId=${mine.shipmentId}`, OTHER)).json().items).toEqual([]);
+    });
+
+    it("rechaza un shipmentId que no es UUID", async () => {
+      expect((await list("role=sender&shipmentId=abc")).statusCode).toBe(400);
+    });
+  });
+
   describe("estados (AC6, AC7, AC9)", () => {
     async function seedAllStatuses() {
       const reserved = await createHold({ status: "authorized" });

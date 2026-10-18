@@ -4781,6 +4781,20 @@ Pendiente: la pantalla con el saldo y el botón para saldarla es de MOVO-312.
 
 Entrada completa en `services/movo-svc-shipments/HISTORIAL.md` (backend, shared y mobile).
 
+### MOVO-308 — Emisor cancela un envío asignado (penalidad de ADR-047)
+
+Réplica del prototipo "MOVO-308 Emisor cancela" de Claude Design. `canCancelShipment` suma `assigned` y `assigned_unfunded`. El menú nativo de `SenderActionsBar` abre `CancelShipmentSheet`, que reemplaza al modal anterior en todos los estados cancelables. En `assigned` pide `GET /shipments/:id/cancellation-quote` al abrir. Muestra sin cargo, penalidad (con barra y desglose) o franja vencida (motivo fijo, el backend solo manda el enum). Confirma con `expectedPenaltyArs`. Ante 409 `CANCELLATION_PENALTY_MISMATCH` re-cotiza y avisa el cambio, también cuando baja a 0. Un 409 de estado refresca el detalle y explica el bloqueo según si el paquete ya se retiró. Los estados sin reserva no cotizan. El motivo opcional se mantiene. El éxito usa `SuccessBanner`, no el toast del prototipo.
+
+En el detalle cancelado, `SenderCancelledPayment` muestra la card "Tu pago" (reservado, penalidad según `cancellationPenaltyStatus`, tarjeta y liberado) solo si hubo reserva, con `useShipmentHold` sobre el filtro `shipmentId` de `/payments/transactions`. `CarrierCancellationCompensation` muestra al transportista el neto de la penalidad (`settlement.kind = cancellation_penalty`): "Recibís aprox." hasta acreditarse. El "Recibís aprox." del viaje ya no aparece en un envío cancelado. La línea de tiempo dice "Cancelaste el envío" al emisor que canceló. Lógica pura en `src/lib/cancellation-format.ts`.
+
+No se copió el pie "{transportista} retira el paquete el…" del prototipo: en `assigned`, ese lugar lo ocupa la CTA del QR de retiro. Limitación: el sheet calcula lo reservado con `agreedPriceArs`. Si el hold cobraba deuda del emisor (MOVO-311), lo liberado real difiere, y el detalle cancelado sí usa el monto real del hold.
+
+Cambios de UI en la misma rama, a pedido de diseño:
+- **Card de precio del detalle**: el badge de alta demanda dice "Alta demanda". Su ayuda se despliega a todo el ancho debajo de la fila (`HighDemandHelp`) y no dentro de la media card, que la cortaba y estiraba.
+- **Header del detalle**: la pill de estado es compacta (`ShipmentStatusBadge compact`) y en `awaiting_receiver_confirmation` dice "Por confirmar". Para el emisor va en neutro, porque la fila del receptor ya marca "Pendiente".
+- **Resumen del wizard**: mientras cotiza, `PricePreviewCard` muestra un skeleton en lugar de "Precio a estimar" a 38 px.
+- **Card "Tu pago" cancelado**: la pill "Cancelado" se quitó (ya está en el header); solo queda "Procesando" mientras se cobra la penalidad. El aviso de penalidad pendiente va en su propia card de alerta (`AlertCard`).
+
 ### MOVO-315 — Cuenta corriente y saldo en mobile
 
 `Pagos y cobros` usa las tabs Saldo y Métodos de pago del prototipo variante 1b. Saldo muestra balance, movimientos con origen y rol, anulaciones y paginación; desde allí permite pagar total o parcialmente con tarjeta guardada y CVV. Las vistas de Transportar y de envío muestran el descuento estimado de deuda: la card lo recibe desde matches por viaje y la fila del feed general muestra el neto solo para el precio sugerido, no para una oferta propia. El pago del emisor suma su saldo y la entrada a Transportar consulta la deuda vencida para ofrecer el camino al pago. Pendiente: prueba de punta a punta en development build contra backend desplegado.
