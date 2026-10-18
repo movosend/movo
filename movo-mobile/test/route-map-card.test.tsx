@@ -29,6 +29,13 @@ function baseCoordinates(getByTestId: (id: string) => { props: Record<string, un
 describe("RouteMapCard", () => {
   beforeEach(() => mockUseShipmentRoute.mockReset());
 
+  it("ofrece expandir el mapa a pantalla completa", async () => {
+    mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+    const { getByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} />);
+
+    expect(getByTestId("map-frame-expand")).toBeTruthy();
+  });
+
   it("mientras la ruta carga no dibuja la recta y tapa el mapa con un skeleton", async () => {
     mockUseShipmentRoute.mockReturnValue({ data: undefined, isError: false });
     const { getByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} />);

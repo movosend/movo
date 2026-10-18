@@ -15,6 +15,8 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
 import { cumulativeFractions, decodePolyline, simplifyPolyline } from "../../src/lib/polyline";
+import { ExpandableMap } from "../map/expandable-map";
+import { FullscreenMap } from "../map/fullscreen-map";
 import { StaticMarker } from "../map/static-marker";
 import { SkeletonBlock } from "../ui/skeleton-block";
 
@@ -280,7 +282,49 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = f
 
   return (
     <View testID={testID} className={bare ? "overflow-hidden" : "overflow-hidden rounded-[14px] border border-border"}>
-      <View style={{ height: MAP_HEIGHT, backgroundColor: mapBackgroundColor }}>
+      <ExpandableMap
+        style={{ height: MAP_HEIGHT, backgroundColor: mapBackgroundColor }}
+        backgroundColor={mapBackgroundColor}
+        borderRadius={bare ? 0 : 14}
+        testID={testID ? `${testID}-frame` : undefined}
+        renderFullscreen={(close) => (
+          <FullscreenMap
+            testID={testID ? `${testID}-fullscreen` : undefined}
+            onClose={close}
+            fitPoints={[pickup, delivery].flatMap((p) => (p ? [{ latitude: p.lat, longitude: p.lng }] : []))}
+          >
+            {pickup ? (
+              <>
+                <Polyline coordinates={routePoints} strokeColor={colors.fg1} strokeWidth={3.5} />
+                <StaticMarker
+                  key={`fs-pickup-${pickup.address}`}
+                  coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
+                  anchor={{ x: 0.5, y: 1 }}
+                >
+                  <View className="items-center">
+                    <View className="mb-1.5">
+                      <RouteBadge label={pickup.address} />
+                    </View>
+                    <View className="h-3.5 w-3.5 rounded-full border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
+                  </View>
+                </StaticMarker>
+              </>
+            ) : null}
+            <StaticMarker
+              key={`fs-delivery-${delivery.address}`}
+              coordinate={{ latitude: delivery.lat, longitude: delivery.lng }}
+              anchor={{ x: 0.5, y: 1 }}
+            >
+              <View className="items-center">
+                <View className="mb-1.5">
+                  <RouteBadge label={delivery.address} />
+                </View>
+                <View className="h-3.5 w-3.5 rounded-[3px] border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
+              </View>
+            </StaticMarker>
+          </FullscreenMap>
+        )}
+      >
         <MapView
           ref={mapRef}
           testID={testID ? `${testID}-map` : undefined}
@@ -398,13 +442,13 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = f
             testID={testID ? `${testID}-edit` : undefined}
             onPress={onEdit}
             hitSlop={8}
-            className="absolute right-3 top-3 h-9 w-9 items-center justify-center rounded-full bg-bg"
+            className="absolute right-14 top-3 h-9 w-9 items-center justify-center rounded-full bg-bg"
             style={{ shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }}
           >
             <Pencil size={16} color={colors.fg1} strokeWidth={1.8} />
           </Pressable>
         ) : null}
-      </View>
+      </ExpandableMap>
 
       {deliveryOnly ? (
         <View
