@@ -1,6 +1,6 @@
 import { KycStatus } from '@movo/shared/dist/types/user';
 import { useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import { CarrierTransportingSection } from '../../../components/home/carrier-tra
 import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
 import { RoleSection } from '../../../components/home/role-section';
+import { SuccessBanner } from '../../../components/ui/success-banner';
 import { TrackingActiveIndicator } from '../../../components/location/tracking-active-indicator';
 import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
 import { useAuth } from '../../../src/hooks/use-auth';
@@ -89,6 +90,15 @@ export default function AuthenticatedHomeScreen() {
   const fullName = profile?.fullName ? capitalizeName(profile.fullName) : capitalizeName(user?.fullName);
   const dateLabel = formatGreetingDateLabel(new Date());
 
+  // MOVO-314: el detalle del envío vuelve acá cuando el transportista se baja de un envío, con el
+  // aviso en `withdrawnNotice`. `withdrawnAt` lo hace único: dos bajas seguidas con el mismo texto
+  // no volverían a armar el banner.
+  const { withdrawnNotice, withdrawnAt } = useLocalSearchParams<{ withdrawnNotice?: string; withdrawnAt?: string }>();
+  const [withdrawnMessage, setWithdrawnMessage] = useState<string | null>(withdrawnNotice ?? null);
+  useEffect(() => {
+    if (withdrawnNotice) setWithdrawnMessage(withdrawnNotice);
+  }, [withdrawnNotice, withdrawnAt]);
+
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
 
@@ -148,6 +158,16 @@ export default function AuthenticatedHomeScreen() {
           />
         }
       >
+        {withdrawnMessage ? (
+          <View className="mb-6">
+            <SuccessBanner
+              message={withdrawnMessage}
+              onDismiss={() => setWithdrawnMessage(null)}
+              testID="app-home-withdrawn-banner"
+            />
+          </View>
+        ) : null}
+
         {bannerText && BannerIcon ? (
           <View
             testID="app-home-kyc-banner"

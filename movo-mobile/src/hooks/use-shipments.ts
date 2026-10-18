@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient, useQuery, type QueryClient } from "@tanstack/react-query";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { CancellationQuoteResponse } from "@movo/shared/dist/config/cancellation-penalty";
 import { BALANCE_QUERY_KEY } from "./use-balance";
@@ -321,3 +321,39 @@ export function useCancellationQuote() {
   });
 }
 
+
+/**
+ * Cotización de la baja del transportista (MOVO-314). Mutación por la misma razón que
+ * `useCancellationQuote`: depende del reloj, se pide cada vez que se abre el sheet.
+ */
+export function useCarrierWithdrawalQuote() {
+  return useMutation<CancellationQuoteResponse, unknown, string>({
+    mutationFn: (id) => shipmentsClient.getCarrierWithdrawalQuote(id),
+  });
+}
+
+/** Qué se refresca cuando el transportista deja de tener un envío (baja de uno o de todo el viaje). */
+export function invalidateAfterCarrierWithdrawal(queryClient: QueryClient, shipmentId: string) {
+  queryClient.invalidateQueries({ queryKey: ["shipments", "active"] });
+  queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
+  queryClient.invalidateQueries({ queryKey: ["trips"] });
+  queryClient.invalidateQueries({ queryKey: ["route"] });
+  queryClient.invalidateQueries({ queryKey: ["offers", "mine"] });
+  // El transportista pierde el acceso al envío: se descarta el detalle en vez de refrescarlo (daría 403).
+  queryClient.removeQueries({ queryKey: ["shipments", "detail", shipmentId] });
+  // La penalidad queda como deuda en la cuenta corriente (ADR-044/047): el saldo cambió.
+  queryClient.invalidateQueries({ queryKey: BALANCE_QUERY_KEY });
+}
+
+/**
+ * El transportista se baja de un envío asignado (MOVO-314, `POST /shipments/:id/carrier-withdrawal`).
+ * No hace `setQueryData` del detalle: el envío vuelve a `published` y deja de ser suyo.
+ */
+export function useCarrierWithdraw() {
+  const queryClient = useQueryClient();
+  return useMutation<ShipmentSummary, unknown, { id: string; reason?: string; expectedPenaltyArs: number }>({
+    mutationFn: ({ id, reason, expectedPenaltyArs }) =>
+      shipmentsClient.withdrawCarrier(id, { ...(reason ? { reason } : {}), expectedPenaltyArs }),
+    onSuccess: (_data, { id }) => invalidateAfterCarrierWithdrawal(queryClient, id),
+  });
+}

@@ -63,6 +63,29 @@ describe("shipmentsClient", () => {
     expect(httpClient.get).toHaveBeenCalledWith("/shipments/shipment-1/cancellation-quote");
   });
 
+  it("getCarrierWithdrawalQuote hace GET /shipments/:id/carrier-withdrawal-quote (MOVO-314)", async () => {
+    const quote = { penaltyArs: 2450, reason: "late_cancellation", freeUntil: "2026-10-16T11:00:00.000Z" };
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: { get: jest.fn().mockResolvedValue(quote) },
+    }));
+    const { shipmentsClient } = require("../src/api/shipments-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    await expect(shipmentsClient.getCarrierWithdrawalQuote("shipment-1")).resolves.toEqual(quote);
+    expect(httpClient.get).toHaveBeenCalledWith("/shipments/shipment-1/carrier-withdrawal-quote");
+  });
+
+  it("withdrawCarrier hace POST /shipments/:id/carrier-withdrawal con el monto visto (MOVO-314)", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: { post: jest.fn().mockResolvedValue({ id: "shipment-1", status: "published" }) },
+    }));
+    const { shipmentsClient } = require("../src/api/shipments-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    await shipmentsClient.withdrawCarrier("shipment-1", { expectedPenaltyArs: 2450 });
+    expect(httpClient.post).toHaveBeenCalledWith("/shipments/shipment-1/carrier-withdrawal", { expectedPenaltyArs: 2450 });
+  });
+
   it("redesignateReceiver hace POST /shipments/:id/receiver con el receptor nuevo (MOVO-253)", async () => {
     jest.doMock("../src/api/http-client", () => ({
       httpClient: {

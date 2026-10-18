@@ -38,6 +38,10 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
     );
   });
 
+  it("MOVO-314 AC4: la push del republicado al emisor (type shipment) abre el envío", () => {
+    expect(resolveNotificationRoute({ type: "shipment", shipmentId: "shp_1" })).toBe("/shipments/shp_1");
+  });
+
   it.each(["offer_superseded", "offer_rejected", "offer_voided"])(
     "%s abre el detalle de la oferta, no el del envío",
     (type) => {
