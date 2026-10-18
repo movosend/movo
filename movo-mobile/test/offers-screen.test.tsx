@@ -16,6 +16,12 @@ const mockUseShipment = jest.fn(() => ({
   refetch: mockRefetchShipment,
 }));
 const mockUsePublicProfile = jest.fn();
+// Retiro ya dentro de la ventana de pago (fecha pasada): el pago se reserva al elegir.
+const PICKUP_FIELDS = {
+  pickupDate: "2020-01-01",
+  pickupTimeWindowStart: "09:00:00",
+  pickupTimeWindowEnd: "12:00:00",
+};
 
 jest.mock("expo-router", () => ({
   router: {
@@ -104,6 +110,10 @@ describe("ShipmentOffersScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (useLocalSearchParams as jest.Mock).mockReturnValue({ id: "ship-1" });
+    mockUseShipment.mockReturnValue({
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      refetch: mockRefetchShipment,
+    });
     mockUsePublicProfile.mockReturnValue({
       data: {
         id: "carr-1",
@@ -266,6 +276,8 @@ describe("ShipmentOffersScreen", () => {
 
     // 2. Verifica que se abrió el modal de confirmación
     expect(getByText("¿Elegir esta oferta?")).toBeTruthy();
+    expect(getByTestId("choose-offer-modal-payment-note")).toBeTruthy();
+    expect(getByText(/Después te pedimos reservar el pago/)).toBeTruthy();
 
     // 3. Confirmar elección
     await act(async () => {
@@ -276,9 +288,7 @@ describe("ShipmentOffersScreen", () => {
 
     // 4. Modal de éxito visible con copy animado "¡Oferta aceptada!"
     expect(getByText("¡Oferta aceptada!")).toBeTruthy();
-    expect(
-      getByText(/Tu envío quedó en espera de la confirmación del pago para iniciar el viaje/)
-    ).toBeTruthy();
+    expect(getByText(/Ahora reservá el pago con tu tarjeta para confirmar el viaje/)).toBeTruthy();
 
     // 5. Cerrar modal de éxito
     await act(async () => {
@@ -306,12 +316,12 @@ describe("ShipmentOffersScreen", () => {
     // simular que la invalidación de MOVO-150 ya resolvió con `carrierId` seteado
     // justo cuando se muestra el modal de éxito — el caso real que disparaba el bug.
     mockUseShipment.mockReturnValue({
-      data: { id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
       refetch: mockRefetchShipment,
     });
     mockMutateAccept.mockImplementationOnce(async () => {
       mockUseShipment.mockReturnValue({
-        data: { id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNMENT_PENDING },
+        data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNMENT_PENDING },
         refetch: mockRefetchShipment,
       });
       return { ...sampleOffer1, status: OfferStatus.ACCEPTED };
@@ -349,11 +359,11 @@ describe("ShipmentOffersScreen", () => {
     });
     // El `shipment` del render nunca se actualiza: sigue `published` al cerrar el modal.
     mockUseShipment.mockReturnValue({
-      data: { id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
       refetch: mockRefetchShipment,
     });
     mockRefetchShipment.mockResolvedValueOnce({
-      data: { id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNMENT_PENDING },
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNMENT_PENDING },
     });
     mockMutateAccept.mockImplementationOnce(async () => ({ ...sampleOffer1, status: OfferStatus.ACCEPTED }));
 
@@ -380,12 +390,12 @@ describe("ShipmentOffersScreen", () => {
       isRefetching: false,
     });
     mockUseShipment.mockReturnValue({
-      data: { id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
       refetch: mockRefetchShipment,
     });
     mockMutateAccept.mockImplementationOnce(async () => {
       mockUseShipment.mockReturnValue({
-        data: { id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNED_UNFUNDED },
+        data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNED_UNFUNDED },
         refetch: mockRefetchShipment,
       });
       return { ...sampleOffer1, status: OfferStatus.ACCEPTED };
@@ -416,7 +426,7 @@ describe("ShipmentOffersScreen", () => {
       isRefetching: false,
     });
     mockUseShipment.mockReturnValue({
-      data: { id: "ship-1", carrierId: "carrier-123", status: ShipmentStatus.ASSIGNED },
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: "carrier-123", status: ShipmentStatus.ASSIGNED },
       refetch: mockRefetchShipment,
     });
 

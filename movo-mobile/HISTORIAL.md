@@ -4780,3 +4780,11 @@ Pendiente: la pantalla con el saldo y el botón para saldarla es de MOVO-312.
 ### MOVO-252 — CTA "Iniciar viaje" y conteo de paradas por viaje
 
 Entrada completa en `services/movo-svc-shipments/HISTORIAL.md` (backend, shared y mobile).
+
+### MOVO-315 — Cuenta corriente y saldo en mobile
+
+`Pagos y cobros` usa las tabs Saldo y Métodos de pago del prototipo variante 1b. Saldo muestra balance, movimientos con origen y rol, anulaciones y paginación; desde allí permite pagar total o parcialmente con tarjeta guardada y CVV. Las vistas de Transportar y de envío muestran el descuento estimado de deuda: la card lo recibe desde matches por viaje y la fila del feed general muestra el neto solo para el precio sugerido, no para una oferta propia. El pago del emisor suma su saldo y la entrada a Transportar consulta la deuda vencida para ofrecer el camino al pago. Pendiente: prueba de punta a punta en development build contra backend desplegado.
+
+**Fix del sheet "Pagar mi saldo"**: el contenido scrollea con alto máximo calculado (ventana − safe areas − teclado, `useKeyboardHeight`) y el botón de pagar queda fijo abajo, fuera del scroll (antes `max-h-[90%]` sobre un padre sin alto dejaba el botón tapado y se rompía con el teclado). "Otro monto" se expande dentro de su opción, en pesos enteros con punto de miles (`formatBalanceAmountInput`; el `parseAmount` anterior leía "2.500" como inválido). Si `GET /payments/balance/pay-data` falla sin datos, el formulario se reemplaza por el error con "Reintentar" (y `retry: 1`: con los 3 reintentos de default el error aparecía ~7 s después, en medio de la carga del CVV).
+
+**Aviso de deuda en Perfil**: la fila "Pagos y cobros" de Configuración suma la pill "Debés $X" (rojo) cuando el saldo es positivo (`paymentsAttention`, prioridad: Mercado Pago roto → deuda → tarjetas vencidas, un solo aviso). Con un aviso de Mercado Pago o de tarjetas la fila abre la pestaña de medios de pago (`?tab=methods`); sin aviso o con deuda, Saldo.

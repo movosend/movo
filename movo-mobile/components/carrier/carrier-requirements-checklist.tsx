@@ -2,7 +2,7 @@ import type { CarrierRequirement } from "@movo/shared/dist/types/carrier-eligibi
 import type { MpConnectStatusResponse } from "@movo/shared/dist/types/mp-connect";
 import { KycStatus } from "@movo/shared/dist/types/user";
 import * as Haptics from "expo-haptics";
-import { IdCard, Wallet } from "lucide-react-native";
+import { IdCard, Receipt, Wallet } from "lucide-react-native";
 import { useCallback, useRef } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,7 +33,6 @@ const CONTEXT_INTRO: Record<CarrierRequirementsContext, string> = {
 // Corte fijo: el prototipo parte el título después de "esto" (`text-wrap: pretty`), y sin el
 // salto explícito en un teléfono más ancho entra en una sola línea y deja de verse igual.
 const TITLE = "Te falta completar esto\npara transportar";
-const TOTAL = 2;
 
 const PILL_CLASS: Record<RequirementRowCopy["state"], { bg: string; text: string }> = {
   pending: { bg: "bg-warning-100", text: "text-warning-700" },
@@ -49,6 +48,7 @@ export interface CarrierRequirementsChecklistProps {
   context: CarrierRequirementsContext;
   onPressLicense: () => void;
   onPressMp: () => void;
+  onPressDebt?: () => void;
   /** "Después". Sin handler no se muestra (no hay a dónde volver). */
   onLater?: () => void;
   testID?: string;
@@ -68,7 +68,7 @@ function RequirementRow({
   testID: string;
 }) {
   const colors = useThemeColors();
-  const Icon = requirement === "license" ? IdCard : Wallet;
+  const Icon = requirement === "license" ? IdCard : requirement === "mp_account" ? Wallet : Receipt;
   const pill = PILL_CLASS[copy.state];
   return (
     <View testID={testID} className={`gap-3 p-4 ${isLast ? "" : "border-b border-border"}`}>
@@ -119,12 +119,16 @@ export function CarrierRequirementsChecklist({
   context,
   onPressLicense,
   onPressMp,
+  onPressDebt,
   onLater,
   testID = "carrier-requirements",
 }: CarrierRequirementsChecklistProps) {
   const licenseMissing = missing.includes("license");
   const mpMissing = missing.includes("mp_account");
-  const done = TOTAL - (licenseMissing ? 1 : 0) - (mpMissing ? 1 : 0);
+  const debtMissing = missing.includes("no_overdue_debt");
+  const showDebt = debtMissing;
+  const TOTAL = showDebt ? 3 : 2;
+  const done = TOTAL - (licenseMissing ? 1 : 0) - (mpMissing ? 1 : 0) - (showDebt && debtMissing ? 1 : 0);
 
   // Un requisito que el backend reporta faltante pero cuyo estado local dice "aprobado/vinculado"
   // (estado del cliente viejo) se muestra pendiente: el backend es la autoridad.
@@ -133,9 +137,8 @@ export function CarrierRequirementsChecklist({
     : licenseRowCopy(KycStatus.APPROVED);
   const mp = mpMissing ? mpRowCopy(mpStatus === "linked" ? "unlinked" : mpStatus) : mpRowCopy("linked");
 
-  const intro = `${CONTEXT_INTRO[context]}${
-    done === 0 ? " necesitás completar estos dos pasos." : " te queda un solo paso."
-  }`;
+  const pendingCount = TOTAL - done;
+  const intro = `${CONTEXT_INTRO[context]} ${pendingCount === 1 ? "te queda un solo paso." : `necesitás completar estos ${pendingCount === 2 ? "dos" : "tres"} pasos.`}`;
 
   return (
     <View testID={testID} className="gap-[14px]">
@@ -149,6 +152,7 @@ export function CarrierRequirementsChecklist({
       <View className="h-[6px] flex-row gap-[6px]">
         <View testID={`${testID}-seg-1`} className={`h-full flex-1 rounded-full ${done >= 1 ? "bg-lime-500" : "bg-bg-mute"}`} />
         <View testID={`${testID}-seg-2`} className={`h-full flex-1 rounded-full ${done >= 2 ? "bg-lime-500" : "bg-bg-mute"}`} />
+        {showDebt ? <View testID={`${testID}-seg-3`} className={`h-full flex-1 rounded-full ${done >= 3 ? "bg-lime-500" : "bg-bg-mute"}`} /> : null}
       </View>
 
       <Text className="font-sans text-[13.5px] leading-[19px] text-fg-2">{intro}</Text>
@@ -165,9 +169,16 @@ export function CarrierRequirementsChecklist({
           requirement="mp_account"
           copy={mp}
           onPressCta={onPressMp}
-          isLast
+          isLast={!showDebt}
           testID={`${testID}-mp`}
         />
+        {showDebt ? <RequirementRow
+          requirement="no_overdue_debt"
+          copy={debtMissing ? { title: "Saldo pendiente vencido", state: "pending", pillLabel: "Pendiente", body: "Tenés una deuda vencida con Movo. Pagala para volver a ofertar y declarar viajes.", ctaLabel: "Pagar mi saldo" } : { title: "Saldo pendiente vencido", state: "done", pillLabel: "Listo", body: "No tenés deuda vencida.", ctaLabel: null }}
+          onPressCta={onPressDebt ?? (() => {})}
+          isLast
+          testID={`${testID}-debt`}
+        /> : null}
       </View>
 
       {onLater ? (
@@ -243,6 +254,7 @@ export function CarrierRequirementsSheet({
   onClose,
   onPressLicense,
   onPressMp,
+  onPressDebt,
   ...checklist
 }: CarrierRequirementsSheetProps) {
   const pendingAction = useRef<(() => void) | null>(null);
@@ -278,6 +290,7 @@ export function CarrierRequirementsSheet({
         {...checklist}
         onPressLicense={() => runAfterClose(onPressLicense)}
         onPressMp={() => runAfterClose(onPressMp)}
+        onPressDebt={() => onPressDebt && runAfterClose(onPressDebt)}
         onLater={onClose}
         testID="carrier-requirements-sheet-checklist"
       />

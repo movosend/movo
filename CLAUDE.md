@@ -121,7 +121,8 @@ habilitantes del transportista · 037 saga de asignación · 038 transferencia d
 039 (propuesto) tarjetas guardadas con CVV · 040 chat propio · 041 pricing
 `package_tapered_v2` · 042 viajes recurrentes · 043 (propuesto) refresh idempotente del
 panel · 044 cuenta corriente del usuario · 045 salida de `in_transit` demorado ·
-046 push de chat · 047 (propuesto) penalidad de cancelación
+046 push de chat · 047 (propuesto) penalidad de cancelación ·
+048 cuenta cobradora de Movo por credenciales
 
 ## Convenciones de código
 
@@ -302,10 +303,13 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   `Sec-WebSocket-Protocol`, no query param) pero sin implementar, porque `movo-admin`/
   MOVO-33 (el único consumidor que lo necesitaría) no está bloqueado por MOVO-201 y
   todavía no lo pide. Implementar cuando ese ticket lo necesite, no antes.
-- **Credenciales de Mercado Pago sin cargar** (MOVO-267): `MP_CLIENT_ID`,
-  `MP_CLIENT_SECRET`, `MP_REDIRECT_URI`, `MP_WEBHOOK_SECRET` y `MP_TEST_MODE=true` en el
-  secret de dev (app sandbox `movosend`), las cuatro primeras en prod (app de la cuenta
-  real de Movo). `MERCADOPAGO_ACCESS_TOKEN` ya no se usa: borrarlo de ambos secrets.
+- **Cuenta cobradora del saldo (ADR-048)**: en dev ya están `MP_COLLECTOR_*` (token `TEST-` de Movo S.A., vence ~15/04/2027,
+  se renueva con `services/movo-svc-payments/scripts/collector-oauth.mjs`), `MP_WEBHOOK_SECRET` (webhook registrado en el
+  panel de `movosend`) y `ALERT_*` (Telegram, grupo "Movo Team"). En prod falta cargar las credenciales productivas del panel
+  de la cuenta real de Movo S.A. y borrar el legado `MERCADOPAGO_ACCESS_TOKEN`.
+- **Credenciales de Mercado Pago de prod sin cargar** (MOVO-267): dev ya tiene todas (app
+  sandbox `movosend`); en prod faltan `MP_CLIENT_ID`, `MP_CLIENT_SECRET`, `MP_REDIRECT_URI`,
+  `MP_WEBHOOK_SECRET` y `MP_TOKEN_ENCRYPTION_KEY` (app de la cuenta real de Movo).
 - **Config de comisiones compartida vía `@movo/shared`** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): candidato a ADR corto (primera config
   de negocio en el barrel en vez de en el `envSchema` de un servicio), todavía no
@@ -322,12 +326,10 @@ como cobro es "Recibís aprox." = neto menos el estimado de MP (sobre el bruto, 
 con pagos reales; `estimateReceivedArs` de `@movo/shared`, tasa de
 `EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE`). Pendiente:
 persistir el `mercadopago_fee` real del hold/captura para mostrar el monto exacto.
-- **Webhook de MP sin registrar** (MOVO-268): cargar
-  `https://api-dev.movosend.app/api/v1/payments/webhooks/mercadopago` (tópico `payment`) en el
-  panel de la app `movosend` y su clave secreta como `MP_WEBHOOK_SECRET`; en prod, lo mismo
-  con la app real. Las alertas al equipo de `svc-payments` necesitan `ALERT_PROVIDER=telegram`,
-  `ALERT_TELEGRAM_BOT_TOKEN`, `ALERT_TELEGRAM_CHAT_ID` y `ALERT_ENVIRONMENT_LABEL` en el
-  secret (sin ellas, solo quedan en el log).
+- **Webhook de MP y alertas en prod** (MOVO-268): en dev ya están registrados (17/10). En prod
+  falta cargar `https://api.movosend.app/api/v1/payments/webhooks/mercadopago` (tópico
+  `payment`) en el panel de la app real con su clave como `MP_WEBHOOK_SECRET`, y las `ALERT_*`
+  (sin ellas las alertas solo quedan en el log).
 - **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
   valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,

@@ -9,7 +9,9 @@ export interface EnvConfig {
   MP_WEBHOOK_SECRET?: string;
   MP_TOKEN_ENCRYPTION_KEY?: string;
   MP_TEST_MODE: boolean;
-  MOVO_COLLECTOR_USER_ID?: string;
+  MP_COLLECTOR_ACCESS_TOKEN?: string;
+  MP_COLLECTOR_PUBLIC_KEY?: string;
+  MP_COLLECTOR_MP_USER_ID?: string;
   MP_HOLD_VALIDITY_DAYS: number;
   DEBT_COLLECTION_MAX_RATE: number;
   MP_TRANSACTION_FEE_RATE: number;
@@ -57,9 +59,13 @@ export const envSchema = {
     // Solo sandbox: agrega `test_token: true` al canje de OAuth para que MP
     // devuelva un access_token TEST- del vendedor de prueba.
     MP_TEST_MODE: { type: "boolean", default: false },
-    // MOVO-312: usuario interno de Movo cuya cuenta de MP (vinculada por OAuth, como la de un transportista) cobra los
-    // pagos de saldo. Sin él, pagar el saldo responde 503 BALANCE_COLLECTOR_NOT_CONFIGURED.
-    MOVO_COLLECTOR_USER_ID: { type: "string" },
+    // ADR-048: la cuenta de MP de Movo S.A. que cobra los pagos de saldo (MOVO-312). En producción, el Access Token y la
+    // Public Key productivos de su panel; en el sandbox, el token TEST- del OAuth de la cuenta de prueba (un token de la
+    // app sin login no puede crear pagos). El user id identifica sus notificaciones del webhook. Sin las tres, pagar el
+    // saldo responde 503 BALANCE_COLLECTOR_NOT_CONFIGURED.
+    MP_COLLECTOR_ACCESS_TOKEN: { type: "string" },
+    MP_COLLECTOR_PUBLIC_KEY: { type: "string" },
+    MP_COLLECTOR_MP_USER_ID: { type: "string" },
     // MOVO-209 AC4: cuánto sostiene MP un hold sin capturar, y de ahí el `expires_at`
     // que se persiste. Configuración y no constante en el código: el valor real sale
     // de la medición de MOVO-215 (la documentación de MP dice 5 o 7 días según la

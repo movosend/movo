@@ -3,6 +3,7 @@ import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { act, fireEvent, render } from "@testing-library/react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import CreateOfferScreen from "../app/(app)/transport/[id]/offer";
+jest.mock("../src/hooks/use-debt-preview", () => ({ useDebtPreview: () => 0 }));
 
 // MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
 jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>

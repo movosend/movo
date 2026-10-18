@@ -4,6 +4,9 @@ import { Pressable, Text, View } from "react-native";
 import { packageTypeLabel } from "../send/category-grid";
 import type { AvailableShipment } from "../../src/api/shipments-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { computeNetFromGross } from "@movo/shared/dist/config/commission";
+import { estimateReceivedArs, getClientCommissionRate } from "../../src/lib/commission-config";
+import { DebtDiscount } from "../payments/debt-discount";
 import {
   formatDetourKm,
   formatPickupDateLabel,
@@ -60,6 +63,9 @@ export function AvailableShipmentCard({
     shipment.pickupLng,
     shipment.deliveryLat,
     shipment.deliveryLng,
+  );
+  const receivedBeforeDebt = shipment.suggestedPriceArs == null ? null : estimateReceivedArs(
+    computeNetFromGross(shipment.suggestedPriceArs, getClientCommissionRate()), shipment.suggestedPriceArs,
   );
 
   return (
@@ -154,6 +160,12 @@ export function AvailableShipmentCard({
           <Text className="mt-0.5 font-sans text-[11px] text-fg-3">precio sugerido</Text>
         </View>
       </View>
+      {receivedBeforeDebt !== null && shipment.debtDiscount?.amountArs ? (
+        <View className="gap-2 rounded-lg border border-border bg-bg p-3">
+          <View className="flex-row justify-between"><Text className="font-sans text-[12px] text-fg-2">Recibís aprox.</Text><Text className="font-sans-semibold text-[15px] text-fg">{formatPriceArs(Math.max(0, receivedBeforeDebt - shipment.debtDiscount.amountArs))}</Text></View>
+          <DebtDiscount beforeArs={receivedBeforeDebt} amountArs={shipment.debtDiscount.amountArs} />
+        </View>
+      ) : null}
     </Pressable>
   );
 }
