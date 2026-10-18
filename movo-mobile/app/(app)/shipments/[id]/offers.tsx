@@ -26,6 +26,7 @@ import {
 } from "../../../../src/hooks/use-offers";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
+import { isFundingWindowOpen } from "../../../../src/lib/shipment-format";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 
 function OffersSkeleton() {
@@ -66,6 +67,7 @@ export default function ShipmentOffersScreen() {
   const [offerToReject, setOfferToReject] = useState<OfferSummary | null>(null);
   const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
   const [acceptedOfferCarrierName, setAcceptedOfferCarrierName] = useState<string | null>(null);
+  const [acceptedPayNow, setAcceptedPayNow] = useState<boolean | null>(null);
   const [acceptErrorMessage, setAcceptErrorMessage] = useState<string | null>(null);
   const [rejectErrorMessage, setRejectErrorMessage] = useState<string | null>(null);
 
@@ -139,6 +141,7 @@ export default function ShipmentOffersScreen() {
       await acceptMutation.mutateAsync(offerToAccept.id);
       hasAcceptedRef.current = true;
       setAcceptedOfferCarrierName(offerToAccept.carrierNameAtOffer);
+      setAcceptedPayNow(payNowFor(offerToAccept));
       // El modal de éxito se abre recién en `onClosed` del sheet de confirmación:
       // abrirlo en este mismo render hacía que iOS lo descartara (MOVO-271 AC2).
       showSuccessOnCloseRef.current = true;
@@ -194,6 +197,16 @@ export default function ShipmentOffersScreen() {
       return;
     }
     goToShipmentDetail();
+  };
+
+  // ¿El pago se reserva ya? Con retiro cercano sí (MOVO-269); lejano, más adelante. Se calcula
+  // con la fecha/franja de la oferta (la que queda acordada), como la ventana del backend.
+  const payNowFor = (offer: OfferSummary | null): boolean | null => {
+    if (!offer || !shipment) return null;
+    return isFundingWindowOpen({
+      pickupDate: offer.offeredDate.slice(0, 10),
+      pickupTimeWindowStart: offer.offeredPickupTimeWindowStart ?? shipment.pickupTimeWindowStart,
+    });
   };
 
   const offerCount = offers ? offers.length : 0;
@@ -345,6 +358,7 @@ export default function ShipmentOffersScreen() {
         visible={!!offerToAccept}
         isPending={acceptMutation.isPending}
         errorMessage={acceptErrorMessage}
+        payNow={payNowFor(offerToAccept)}
         onConfirm={handleConfirmAccept}
         onClosed={() => {
           if (!showSuccessOnCloseRef.current) return;
@@ -364,6 +378,7 @@ export default function ShipmentOffersScreen() {
       <ChooseOfferSuccessModal
         visible={isSuccessModalVisible}
         carrierName={acceptedOfferCarrierName}
+        payNow={acceptedPayNow}
         onDismiss={handleSuccessDismiss}
         testID="choose-offer-success-modal"
       />
