@@ -20,7 +20,7 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
     notifyHoldEvent: async () => ({ handled: true, outcome: "ok" }),
     resolveLedgerOrigins: async (_userId, shipmentIds) => {
       if (originsFail) throw new Error("shipments caído");
-      return shipmentIds.map((id) => ({ id, label: `Envío a Córdoba #${id.slice(0, 8)}` }));
+      return shipmentIds.map((id) => ({ id, label: `Envío a Córdoba #${id.slice(0, 8)}`, destination: "Córdoba" }));
     },
   };
 
@@ -309,6 +309,7 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
       expect(body.items).toHaveLength(1);
       expect(body.items[0]).toMatchObject({ roleAtOrigin: "carrier", shipmentId: SHIPMENT, amountArs: 120, type: "cancellation_penalty" });
       expect(body.items[0].originLabel).toBe(`Envío a Córdoba #${SHIPMENT.slice(0, 8)}`);
+      expect(body.items[0].destination).toBe("Córdoba");
       expect(body.nextCursor).toBeNull();
     });
 

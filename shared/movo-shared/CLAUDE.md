@@ -588,3 +588,14 @@ sin cargo con 12 h o más o con la ventana cerrada, 25 % del precio acordado si 
 `carrierWithdrawalPenaltyDebtCarrier` (`payments`). `computeCarrierWithdrawalPenalty`: los mismos tramos que
 `computeCancellationPenalty` pero desde cualquier estado con transportista (su penalidad es deuda, no depende del hold)
 y cobrando también con la ventana ya cerrada; `penaltyArs > 0` siempre viaja con `late_cancellation`.
+
+### MOVO-303 (ampliación) — `TransactionKind` y `debtAmountArs`
+
+`types/transaction.ts` suma `TRANSACTION_KINDS`/`TransactionKind` (`shipment` | `balance_payment`); `TransactionListItem` gana `kind`,
+`debtAmountArs` y `shipmentId` pasa a ser `string | null` (nulo en un pago de saldo). Rompe literales `TransactionListItem` armados a mano
+(fixtures de `movo-mobile`). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-303 (ampliación) — `TransactionCard` extendida y `releasedAt`/`releaseReason`
+
+`TransactionCard` gana `alias`/`issuerName`/`paymentType` (opcionales) y `TransactionDetail` gana `releasedAt`/`releaseReason`
+(obligatorios, `null` si no se liberó; `TRANSACTION_RELEASE_REASONS`). Rompe literales `TransactionDetail` armados a mano.

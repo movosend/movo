@@ -128,6 +128,8 @@ model Hold {
   cardLast4          String?            @map("card_last4") @db.VarChar(4)
   cardBrand          String?            @map("card_brand") @db.VarChar(32)
   expiresAt          DateTime?          @map("expires_at") @db.Timestamptz
+  // MOVO-303: la fija un trigger la primera vez que el hold pasa a `cancelled` (ver la migración `hold_released_at`).
+  releasedAt         DateTime?          @map("released_at") @db.Timestamptz
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz
   settlement         Settlement?
@@ -442,6 +444,8 @@ model BalancePaymentAttempt {
   updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId, status], map: "balance_payment_attempts_user_id_status_idx")
+  // El historial del emisor (MOVO-303) lista los aprobados, más recientes primero.
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "balance_payment_attempts_user_id_created_at_idx")
   @@map("balance_payment_attempts")
   @@schema("payments")
 }

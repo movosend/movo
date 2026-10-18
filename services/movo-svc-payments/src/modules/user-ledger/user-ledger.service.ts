@@ -13,6 +13,7 @@ import { fingerprintOf as fingerprint } from "../../repositories/user-ledger-rep
 import type { UserLedgerEntry, UserLedgerRepository } from "../../repositories/user-ledger-repository";
 import type { PrismaClient } from "../../generated/prisma/client";
 import type { ShipmentsClient } from "../../adapters/shipments-client";
+import { resolveShipmentOrigins } from "../../adapters/shipments-client";
 
 export const LEDGER_DEFAULT_LIMIT = 20;
 export const LEDGER_MAX_LIMIT = 50;
@@ -64,7 +65,7 @@ function assertValidAmount(amountArs: number): void {
   }
 }
 
-function toDto(row: UserLedgerEntry, opts?: { maskReason?: boolean }): UserLedgerEntryDto & { originLabel: null } {
+function toDto(row: UserLedgerEntry, opts?: { maskReason?: boolean }): UserLedgerEntryDto & { originLabel: null; destination: null } {
   return {
     id: row.id,
     userId: row.userId,
@@ -78,6 +79,7 @@ function toDto(row: UserLedgerEntry, opts?: { maskReason?: boolean }): UserLedge
     reason: opts?.maskReason ? null : row.reason,
     createdAt: row.createdAt.toISOString(),
     originLabel: null,
+    destination: null,
   };
 }
 
@@ -147,19 +149,13 @@ export function createUserLedgerService(deps: UserLedgerServiceDeps): UserLedger
           return [attempt.mpPaymentId, card ? `${brand} •••• ${card.last4}` : "Pago de saldo"];
         }));
       };
-      const shipmentLabels = async () => {
-        if (!deps.shipmentsClient || shipmentIds.length === 0) return new Map<string, string>();
-        try {
-          const origins = await deps.shipmentsClient.resolveLedgerOrigins(userId, shipmentIds);
-          return new Map(origins.map((origin) => [origin.id, origin.label]));
-        } catch {
-          return new Map<string, string>();
-        }
-      };
-      const [payments, shipments] = await Promise.all([cardLabels(), shipmentLabels()]);
+      const [payments, shipments] = await Promise.all([
+        cardLabels(), resolveShipmentOrigins(deps.shipmentsClient, userId, shipmentIds),
+      ]);
       return { ...page, items: page.items.map((item) => ({ ...item,
-        originLabel: item.shipmentId ? shipments.get(item.shipmentId) ?? null
+        originLabel: item.shipmentId ? shipments.get(item.shipmentId)?.label ?? null
           : item.paymentId ? payments.get(item.paymentId) ?? null : null,
+        destination: item.shipmentId ? shipments.get(item.shipmentId)?.destination ?? null : null,
       })) };
     },
 

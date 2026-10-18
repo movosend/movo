@@ -602,8 +602,9 @@ export default function TransportScreen() {
           />
         </ScrollView>
       ) : gate !== null && profile ? (
-        // La checklist se monta abajo, sobre todo el tab (incluido el título).
-        null
+        // La checklist se monta abajo, sobre todo el tab (incluido el título); atrás van
+        // filas en esqueleto para que el fondo no quede en blanco.
+        <TransportRowSkeleton />
       ) : isTripMode && isTripError ? (
         <View className="px-5 pt-2">
           <ErrorBanner

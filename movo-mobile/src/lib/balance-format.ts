@@ -1,5 +1,13 @@
 import type { UserLedgerEntry } from "@movo/shared/dist/types/user-ledger";
-import { formatPriceArs } from "./shipment-format";
+
+/**
+ * Monto de la cuenta corriente: pesos enteros sin decimales y, si hay centavos, siempre dos ("$1.742,50", no
+ * "$1.742,5": un solo decimal se lee como un monto distinto).
+ */
+export function formatBalanceArs(value: number): string {
+  const fraction = Number.isInteger(value) ? 0 : 2;
+  return `$${value.toLocaleString("es-AR", { minimumFractionDigits: fraction, maximumFractionDigits: fraction })}`;
+}
 
 const LABELS: Record<UserLedgerEntry["type"], string> = {
   cancellation_penalty: "Penalidad",
@@ -19,7 +27,7 @@ export function balanceEntryAmount(entry: UserLedgerEntry): string {
   // En la cuenta corriente un positivo aumenta lo que se debe; para el usuario se muestra
   // como salida de dinero. Un pago negativo se muestra como entrada que baja la deuda.
   const sign = entry.amountArs > 0 ? "−" : "+";
-  return `${sign}${formatPriceArs(Math.abs(entry.amountArs))}`;
+  return `${sign}${formatBalanceArs(Math.abs(entry.amountArs))}`;
 }
 
 export function balanceEntryRole(entry: UserLedgerEntry): string | null {
@@ -27,8 +35,8 @@ export function balanceEntryRole(entry: UserLedgerEntry): string | null {
 }
 
 export function balanceEntryOrigin(entry: UserLedgerEntry): string {
+  if (entry.shipmentId) return entry.destination ? `Envío a ${entry.destination}` : `Envío #${entry.shipmentId.slice(0, 8)}`;
   if (entry.originLabel) return entry.originLabel;
-  if (entry.shipmentId) return `Envío #${entry.shipmentId.slice(0, 8)}`;
   if (entry.type === "voluntary_payment") return "Pago de saldo";
   return "Cuenta corriente";
 }
@@ -47,4 +55,12 @@ export function formatBalanceAmountInput(text: string): string {
 export function parseBalanceAmountInput(text: string): number {
   const digits = text.replace(/\D/g, "");
   return digits ? Number(digits) : NaN;
+}
+
+/**
+ * Título de una deuda en la lista de Saldo. Con envío manda su origen ("Envío a Rivadavia 387"); sin envío
+ * (un ajuste) manda el tipo, que si no se repetiría con un origen genérico ("Ajuste · Cuenta corriente").
+ */
+export function balanceEntryTitle(entry: UserLedgerEntry): string {
+  return entry.shipmentId || entry.originLabel ? balanceEntryOrigin(entry) : balanceEntryLabel(entry);
 }

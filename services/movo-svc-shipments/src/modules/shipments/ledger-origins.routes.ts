@@ -11,7 +11,7 @@ export default async function ledgerOriginsRoutes(app: FastifyInstance) {
         shipmentIds: { type: "array", maxItems: 50, items: { type: "string", format: "uuid" } },
       } },
       response: { 200: { type: "array", items: { type: "object", required: ["id", "label"], properties: {
-        id: { type: "string", format: "uuid" }, label: { type: "string" },
+        id: { type: "string", format: "uuid" }, label: { type: "string" }, destination: { type: "string" },
       } } } },
     },
   }, async (request) => {
@@ -20,6 +20,10 @@ export default async function ledgerOriginsRoutes(app: FastifyInstance) {
       { senderId: userId }, { carrierId: userId }, { receiverId: userId },
       { offers: { some: { carrierId: userId } } },
     ] }, select: { id: true, deliveryAddress: true } });
-    return rows.map((row) => ({ id: row.id, label: `Envío a ${shortAddress(row.deliveryAddress) || "destino"} #${row.id.slice(0, 8)}` }));
+    return rows.map((row) => ({
+      id: row.id,
+      label: `Envío a ${shortAddress(row.deliveryAddress) || "destino"} #${row.id.slice(0, 8)}`,
+      destination: shortAddress(row.deliveryAddress),
+    }));
   });
 }

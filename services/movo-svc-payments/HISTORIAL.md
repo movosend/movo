@@ -743,6 +743,30 @@ credenciales. El token de dev se obtiene y renueva con `scripts/collector-oauth.
 
 `GET /payments/balance` agrega `originLabel` a los movimientos: resuelve el destino del envío en lote por la ruta interna de shipments y la tarjeta usada en pagos voluntarios. Si shipments no responde, el saldo sigue disponible sin esa etiqueta. `POST /payments/balance/debt-preview` expone al usuario autenticado la misma estimación de descuento que ya usaba el backend. La presentación y el pago desde la app están en la rama mobile de MOVO-315.
 
+### MOVO-303 (ampliación) — Pagos de saldo y deuda en el historial de transacciones
+
+`GET /payments/transactions[/:id]` con `role=sender` suma, además de los holds, los **pagos de saldo aprobados**
+(`balance_payment_attempts`, MOVO-312) con `UNION ALL` en `transaction-repository.ts` (`approvedBalancePayments`), de modo que
+paginación por cursor, filtros de fecha y de estado siguen siendo una sola consulta. Contrato en `@movo/shared` (`TransactionKind`):
+`kind` (`shipment` | `balance_payment`), `shipmentId` nullable y `debtAmountArs` (recargo por la deuda del emisor dentro de lo que pagó,
+salvo hold liberado; descuento al transportista, solo con la liquidación acreditada, igual que el `breakdown`).
+
+- Un pago de saldo solo aparece **aprobado** y siempre es `completed`: `creating`/`pending`/`rejected`/`failed` no movieron plata, y no
+  se agregó un estado nuevo al contrato. Sin reembolsos ni disputas (los eventos de MP se registran por hold). El transportista no los ve.
+- Índice nuevo `(user_id, created_at DESC, id DESC)` en `balance_payment_attempts`. `deriveTransactionStatus` y `STATUS_CASE` (espejo SQL)
+  reciben `kind`; la integración verifica que coincidan.
+- Fuera de alcance: el resumen "Cobrado en el mes / Por acreditar" y la penalidad del emisor como fila propia (MOVO-308).
+
+### MOVO-303 (ampliación) — Tarjeta guardada y liberación en el detalle
+
+`TransactionCard` suma `alias`, `issuerName` y `paymentType`, que salen de la tarjeta guardada del hold (`LEFT JOIN saved_cards` por
+`holds.saved_card_id`; marca y últimos 4 también caen a los de la tarjeta si MP todavía no los informó). `TransactionDetail` suma
+`releasedAt` y `releaseReason` (`expired` cuando MP lo confirma, `null` si no se conoce el motivo), solo con el estado `released`.
+
+- **`holds.released_at` la fija un trigger** (`holds_set_released_at`) al insertar un hold ya cancelado o la primera vez que `status` pasa a `cancelled`, y no el código:
+  un hold se cierra desde varios lugares (liberación explícita, webhook de MP, vencimiento) y `updated_at` no sirve porque cambia
+  con cualquier update posterior. Los ya cancelados se rellenaron con su `updated_at`, que es aproximado.
+
 ### MOVO-308 — Filtro por envío en el historial de transacciones
 
 `GET /payments/transactions` acepta `shipmentId` (uuid, opcional): las reservas de un envío, más de una si hubo reintentos del hold, con la misma visibilidad por rol que el listado. Lo usa la card "Tu pago" de un envío cancelado en el mobile para mostrar cuánto se reservó y con qué tarjeta (la tarjeta solo viaja con `role=sender`). Archivos: `transactions.schema.ts`/`.routes.ts`/`.service.ts` y `transaction-repository.ts`.
