@@ -45,15 +45,16 @@ function DebtEntry({ entry, last }: { entry: UserLedgerEntry; last: boolean }) {
     >
       <View className="min-w-0 flex-1 gap-1.5">
         <Text className={`self-start overflow-hidden rounded-full px-2 py-0.5 font-sans-medium text-[11px] ${TYPE_CHIP[entry.type] ?? "bg-bg-mute text-fg-2"}`}>{balanceEntryLabel(entry)}</Text>
-        <Text numberOfLines={1} className="font-sans-semibold text-[15px] leading-5 text-fg">{balanceEntryTitle(entry)}</Text>
+        <View className="flex-row items-center gap-1">
+          <Text numberOfLines={1} className="shrink font-sans-semibold text-[15px] leading-5 text-fg">{balanceEntryTitle(entry)}</Text>
+          {openable ? <ChevronRight size={15} color={colors.fg3} strokeWidth={2} /> : null}
+        </View>
         <Text numberOfLines={1} className="font-sans text-[12.5px] leading-4 text-fg-2">{[role, date].filter(Boolean).join(" · ")}</Text>
       </View>
       <View className="items-end gap-1">
         <Text className="font-sans-semibold text-[15px] text-danger-600" style={{ fontVariant: ["tabular-nums"] }}>{balanceEntryAmount(entry)}</Text>
         {entry.status === "reserved" ? <Text className="font-sans text-[11.5px] text-fg-3">En proceso</Text> : null}
       </View>
-      {/* Hueco fijo para la flecha: sin él, las filas sin envío (un ajuste) correrían el monto y no quedarían alineados. */}
-      <View className="w-4 items-center">{openable ? <ChevronRight size={16} color={colors.fg3} strokeWidth={2} /> : null}</View>
     </Pressable>
   );
 }
