@@ -3,9 +3,15 @@ import { act, fireEvent, render } from "@testing-library/react-native";
 import { BalancePaySheet } from "../components/payments/balance-pay-sheet";
 
 let mockPayData: any;
+const mockRefresh = jest.fn();
+const mockPay = jest.fn();
 jest.mock("../src/hooks/use-balance", () => ({
   useBalancePayData: () => mockPayData,
-  useRefreshBalance: () => jest.fn(),
+  useRefreshBalance: () => mockRefresh,
+}));
+jest.mock("../src/lib/pay-balance-flow", () => ({
+  ...jest.requireActual("../src/lib/pay-balance-flow"),
+  payBalanceWithSavedCard: (...args: unknown[]) => mockPay(...args),
 }));
 jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
 
@@ -17,6 +23,8 @@ const card = {
 
 describe("BalancePaySheet (MOVO-315)", () => {
   beforeEach(() => {
+    mockRefresh.mockClear();
+    mockPay.mockReset();
     mockPayData = { data: { publicKey: "TEST-key", balanceArs: 5000 }, isError: false, isFetching: false, error: null, refetch: jest.fn() };
   });
 
@@ -61,5 +69,42 @@ describe("BalancePaySheet (MOVO-315)", () => {
     const screen = await render(<BalancePaySheet visible onClose={jest.fn()} cards={[card]} initialBalanceArs={5000} />);
     expect(screen.getByTestId("balance-pay-loading")).toBeTruthy();
     expect(screen.queryByTestId("balance-pay-submit")).toBeNull();
+  });
+
+  describe("pago pendiente en Mercado Pago", () => {
+    const toPending = async () => {
+      mockPay.mockResolvedValue({ status: "pending", balanceArs: 5000 });
+      const screen = await render(<BalancePaySheet visible onClose={jest.fn()} cards={[card]} initialBalanceArs={5000} />);
+      await act(async () => { fireEvent.changeText(screen.getByTestId("pay-cvv"), "123"); });
+      await act(async () => { fireEvent.press(screen.getByTestId("balance-pay-submit")); });
+      expect(screen.getByText("Estamos confirmando tu pago")).toBeTruthy();
+      mockRefresh.mockClear();
+      return screen;
+    };
+
+    it("pasa a aprobado cuando el saldo baja y conserva lo que se pagó", async () => {
+      const screen = await toPending();
+      mockPayData = { ...mockPayData, data: { publicKey: "TEST-key", balanceArs: 2000 } };
+      await act(async () => { screen.rerender(<BalancePaySheet visible onClose={jest.fn()} cards={[card]} initialBalanceArs={5000} />); });
+      // En modo total `amount` pasa a ser el saldo restante: lo pagado sigue siendo el monto original.
+      expect(screen.getByText("Pagaste $5.000")).toBeTruthy();
+      expect(screen.getByText("Te quedan $2.000 pendientes.")).toBeTruthy();
+      expect(mockRefresh).toHaveBeenCalled();
+    });
+
+    it("pasa a aprobado sin saldo si pay-data responde 422 por deuda en cero, aunque quede el último dato en caché", async () => {
+      const screen = await toPending();
+      mockPayData = { ...mockPayData, isError: true, error: new ApiError(422, "BALANCE_AMOUNT_EXCEEDS_DEBT", "x") };
+      await act(async () => { screen.rerender(<BalancePaySheet visible onClose={jest.fn()} cards={[card]} initialBalanceArs={5000} />); });
+      expect(screen.getByText("Pagaste $5.000")).toBeTruthy();
+      expect(screen.getByText("Ya no tenés saldo pendiente.")).toBeTruthy();
+      expect(mockRefresh).toHaveBeenCalled();
+    });
+
+    it("sigue pendiente mientras el saldo no cambie", async () => {
+      const screen = await toPending();
+      await act(async () => { screen.rerender(<BalancePaySheet visible onClose={jest.fn()} cards={[card]} initialBalanceArs={5000} />); });
+      expect(screen.getByText("Estamos confirmando tu pago")).toBeTruthy();
+    });
   });
 });
