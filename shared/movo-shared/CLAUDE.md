@@ -585,7 +585,7 @@ sin cargo con 12 h o más o con la ventana cerrada, 25 % del precio acordado si 
 
 `types/offer.ts` suma `carrier_withdrawn` (el transportista asignado se bajó; distinto de `withdrawn` y de
 `assignment_lapsed`). Triggers nuevos: `carrierWithdrewSender` (`shipments`, con el nombre del snapshot de la oferta) y
-`carrierWithdrawalPenaltyDebtCarrier` (`payments`). `computeCarrierWithdrawalPenalty`: los mismos tramos que
+`carrierWithdrawalPenaltyDebtCarrier` (`payments`). MOVO-314: el copy de `carrierWithdrewSender` pasa a "Tu envío vuelve a estar publicado" (título del prototipo), manteniendo el aviso de que puede cancelarlo sin cargo. `computeCarrierWithdrawalPenalty`: los mismos tramos que
 `computeCancellationPenalty` pero desde cualquier estado con transportista (su penalidad es deuda, no depende del hold)
 y cobrando también con la ventana ya cerrada; `penaltyArs > 0` siempre viaja con `late_cancellation`.
 
