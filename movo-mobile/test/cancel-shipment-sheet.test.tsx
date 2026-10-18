@@ -104,6 +104,21 @@ describe("CancelShipmentSheet (MOVO-308)", () => {
     expect(mockCancel).toHaveBeenCalledWith({ id: "shipment-1", reason: undefined });
   });
 
+  it("si la reserva aparece con el sheet abierto (assigned_unfunded -> assigned), cotiza", async () => {
+    mockQuote.mockResolvedValueOnce(freeQuote);
+    const unfunded = { ...ASSIGNED, status: ShipmentStatus.ASSIGNED_UNFUNDED };
+    const { utils } = renderSheet({ shipment: unfunded });
+    const { getByTestId, findByTestId, rerender } = await utils;
+    expect(getByTestId("sheet-no-hold")).toBeTruthy();
+    expect(mockQuote).not.toHaveBeenCalled();
+
+    rerender(
+      <CancelShipmentSheet visible shipment={ASSIGNED} carrierFirstName="Martín" onClose={jest.fn()} onCancelled={jest.fn()} onRefetch={jest.fn()} testID="sheet" />,
+    );
+    expect(await findByTestId("sheet-free")).toBeTruthy();
+    expect(mockQuote).toHaveBeenCalledTimes(1);
+  });
+
   it("si la cotización falla, permite reintentar", async () => {
     mockQuote.mockRejectedValueOnce(new ApiError(500, "INTERNAL_ERROR", "boom")).mockResolvedValueOnce(freeQuote);
     const { utils } = renderSheet();

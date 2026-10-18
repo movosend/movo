@@ -117,6 +117,10 @@ export function CancelShipmentSheet({
 
   useEffect(() => {
     if (!visible) return;
+    // Con el sheet abierto el envío puede pasar de `assigned_unfunded` a `assigned` (o al revés)
+    // por un refetch: ahí se vuelve a armar. Cualquier otro estado (cancelado, retirado) no
+    // cambia la vista; el 409 del backend lo explica al confirmar.
+    if (!hasHold && (shipment.status === ShipmentStatus.CANCELLED || PICKED_UP_STATUSES.includes(shipment.status))) return;
     const session = ++sessionRef.current;
     setReason("");
     setConfirmError(false);
@@ -130,9 +134,9 @@ export function CancelShipmentSheet({
       setView({ kind: "noHold" });
       setPhase("quote");
     }
-    // Solo al abrir: re-cotizar en cada render pisaría lo que el emisor está leyendo.
+    // Solo al abrir o si cambia la reserva: re-cotizar en cada render pisaría lo que el emisor lee.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
+  }, [visible, hasHold]);
 
   const handleRetryQuote = () => {
     setPhase("loading");
