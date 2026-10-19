@@ -1,7 +1,7 @@
 "use client"
 import Link from "next/link"
 import { useActionState, useEffect, useState } from "react"
-import { LoaderCircle, ShieldCheck, ArrowLeft } from "lucide-react"
+import { LoaderCircle, ArrowLeft, Smartphone } from "lucide-react"
 import {
   login,
   verify,
@@ -11,26 +11,13 @@ import {
 } from "@/app/login/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  Field,
-  FieldGroup,
-  FieldLabel,
-  FieldDescription,
-} from "@/components/ui/field"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
-} from "@/components/ui/card"
 import { Brand } from "@/components/brand"
 import { ThemeToggle } from "@/components/theme-toggle"
 
@@ -53,6 +40,8 @@ export function AuthForm({
   >(resend, {})
   const [now, setNow] = useState(0)
   const [code, setCode] = useState("")
+  const [forgot, setForgot] = useState(false)
+  const [method, setMethod] = useState<"email" | "phone">("email")
   const hasChallenge = !!challenge
   useEffect(() => {
     if (!hasChallenge) return
@@ -63,170 +52,221 @@ export function AuthForm({
     0,
     Math.ceil(((resendState.resendAt ?? challenge?.resendAt ?? 0) - now) / 1000)
   )
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
   return (
     <main className="auth-canvas">
       <div className="auth-theme">
         <ThemeToggle />
       </div>
       <div className="auth-container">
-        <Brand />
-        <Card className="auth-card">
-          <CardHeader>
-            <ShieldCheck className="auth-symbol" />
-            <CardTitle>
-              <h1>
-                {challenge ? "Revisá tu email" : "Panel de administración"}
-              </h1>
-            </CardTitle>
-            <CardDescription>
-              {challenge
-                ? `Te enviamos un código de 6 dígitos a ${challenge.email}. Vence en 10 minutos.`
-                : "Ingresá con tu cuenta de Movo."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-5">
-            {notice && (
-              <Alert>
-                <AlertDescription>{notice}</AlertDescription>
-              </Alert>
-            )}
-            {retrySession && (
-              <Button variant="outline" render={<Link href="/" />}>
-                Reintentar sesión
-              </Button>
-            )}
-            <form action={action} aria-busy={pending}>
-              <FieldGroup>
-                {challenge ? (
+        <div className="auth-card">
+          {challenge ? (
+            <form action={changeAccount}>
+              <button type="submit" className="auth-back" disabled={pending}>
+                <ArrowLeft aria-hidden />
+                Usar otra cuenta
+              </button>
+            </form>
+          ) : (
+            <Brand />
+          )}
+          <div className="auth-heading">
+            <h1>{challenge ? "Revisá tu email" : "Panel de administración"}</h1>
+            <p>
+              {challenge ? (
+                <>
+                  Te enviamos un código de 6 dígitos a{" "}
+                  <span className="auth-mono">{challenge.email}</span>. Vence en
+                  10 minutos.
+                </>
+              ) : (
+                "Ingresá con tu cuenta de Movo."
+              )}
+            </p>
+          </div>
+          {notice && (
+            <Alert>
+              <AlertDescription>{notice}</AlertDescription>
+            </Alert>
+          )}
+          {retrySession && (
+            <Button variant="outline" render={<Link href="/" />}>
+              Reintentar sesión
+            </Button>
+          )}
+          <form action={action} aria-busy={pending}>
+            <FieldGroup>
+              {challenge ? (
+                <Field data-invalid={!!state.error}>
+                  <FieldLabel htmlFor="code" className="sr-only">
+                    Código de verificación
+                  </FieldLabel>
+                  <InputOTP
+                    id="code"
+                    name="code"
+                    maxLength={6}
+                    pattern="^[0-9]*$"
+                    pasteTransformer={(value) => value.replace(/\s/g, "")}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={code}
+                    onChange={setCode}
+                    disabled={pending}
+                    aria-invalid={!!state.error}
+                    required
+                  >
+                    <InputOTPGroup className="auth-otp">
+                      {Array.from({ length: 6 }, (_, i) => (
+                        <InputOTPSlot key={i} index={i} />
+                      ))}
+                    </InputOTPGroup>
+                  </InputOTP>
+                </Field>
+              ) : (
+                <>
+                  <div
+                    role="tablist"
+                    aria-label="Ingresar con"
+                    className="auth-tabs"
+                  >
+                    {(["email", "phone"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        role="tab"
+                        id={`tab-${m}`}
+                        aria-selected={method === m}
+                        disabled={pending}
+                        onClick={() => setMethod(m)}
+                      >
+                        {m === "email" ? "Email" : "Teléfono"}
+                      </button>
+                    ))}
+                  </div>
+                  <input type="hidden" name="method" value={method} />
                   <Field data-invalid={!!state.error}>
-                    <FieldLabel htmlFor="code">
-                      Código de verificación
+                    <FieldLabel htmlFor="identifier">
+                      {method === "email" ? "Email" : "Teléfono"}
                     </FieldLabel>
-                    <InputOTP
-                      id="code"
-                      name="code"
-                      maxLength={6}
-                      pattern="^[0-9]*$"
-                      pasteTransformer={(value) => value.replace(/\s/g, "")}
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      value={code}
-                      onChange={setCode}
-                      disabled={pending}
-                      aria-invalid={!!state.error}
-                      required
-                    >
-                      <InputOTPGroup>
-                        {Array.from({ length: 6 }, (_, i) => (
-                          <InputOTPSlot key={i} index={i} />
-                        ))}
-                      </InputOTPGroup>
-                    </InputOTP>
-                  </Field>
-                ) : (
-                  <>
-                    <Field data-invalid={!!state.error}>
-                      <FieldLabel htmlFor="email">Email</FieldLabel>
+                    <div className="auth-phone-row">
+                      {method === "phone" && (
+                        <span className="auth-prefix" aria-hidden>
+                          🇦🇷 +54
+                        </span>
+                      )}
                       <Input
-                        id="email"
-                        name="email"
-                        type="email"
-                        autoComplete="username"
-                        placeholder="nombre@email.com"
+                        key={method}
+                        id="identifier"
+                        name="identifier"
+                        type={method === "email" ? "email" : "tel"}
+                        autoComplete={
+                          method === "email" ? "username" : "tel-national"
+                        }
+                        placeholder={
+                          method === "email"
+                            ? "nombre@email.com"
+                            : "351 123 4567"
+                        }
                         required
                         maxLength={254}
                         disabled={pending}
                         aria-invalid={!!state.error}
                       />
-                    </Field>
-                    <Field data-invalid={!!state.error}>
+                    </div>
+                  </Field>
+                  <Field data-invalid={!!state.error}>
+                    <div className="auth-label-row">
                       <FieldLabel htmlFor="password">Contraseña</FieldLabel>
-                      <Input
-                        id="password"
-                        name="password"
-                        type="password"
-                        autoComplete="current-password"
-                        required
-                        maxLength={1024}
-                        disabled={pending}
-                        aria-invalid={!!state.error}
-                      />
-                      <FieldDescription>
-                        Para cambiar tu contraseña, abrí la app de Movo y andá a
-                        Perfil → Seguridad.
-                      </FieldDescription>
-                    </Field>
-                  </>
-                )}
-                {state.error && (
-                  <Alert variant="destructive">
-                    <AlertDescription>{state.error}</AlertDescription>
-                  </Alert>
-                )}
-                <Button
-                  type="submit"
-                  disabled={pending || (challenge && code.length !== 6)}
-                >
-                  {pending ? (
-                    <>
-                      <LoaderCircle
-                        data-icon="inline-start"
-                        className="animate-spin"
-                      />
-                      Verificando…
-                    </>
-                  ) : challenge ? (
-                    "Verificar"
-                  ) : (
-                    "Continuar"
+                      <button
+                        type="button"
+                        className="auth-link"
+                        aria-expanded={forgot}
+                        onClick={() => setForgot((v) => !v)}
+                      >
+                        ¿Olvidaste tu contraseña?
+                      </button>
+                    </div>
+                    <Input
+                      id="password"
+                      name="password"
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      maxLength={1024}
+                      disabled={pending}
+                      aria-invalid={!!state.error}
+                    />
+                  </Field>
+                  {forgot && (
+                    <div className="auth-hint">
+                      <Smartphone aria-hidden />
+                      <p>
+                        El panel usa la misma cuenta que la app. Para cambiar tu
+                        contraseña, abrí la app de Movo y andá a{" "}
+                        <strong>Perfil → Seguridad</strong>.
+                      </p>
+                    </div>
                   )}
-                </Button>
-              </FieldGroup>
-            </form>
-            {challenge && (
-              <>
-                <form action={resendAction}>
-                  <Button
-                    className="w-full"
-                    variant="outline"
-                    type="submit"
-                    disabled={seconds > 0 || resending || pending}
-                  >
-                    {resending
-                      ? "Enviando…"
-                      : seconds > 0
-                        ? `Reenviar en ${now ? seconds : "…"} s`
-                        : "Reenviar código"}
-                  </Button>
-                </form>
-                <form action={changeAccount}>
-                  <Button
-                    variant="ghost"
-                    type="submit"
-                    disabled={pending || resending}
-                  >
-                    <ArrowLeft data-icon="inline-start" />
-                    Usar otra cuenta
-                  </Button>
-                </form>
-                {(resendState.error || resendState.notice) && (
-                  <Alert>
-                    <AlertDescription>
-                      {resendState.error || resendState.notice}
-                    </AlertDescription>
-                  </Alert>
+                </>
+              )}
+              {state.error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{state.error}</AlertDescription>
+                </Alert>
+              )}
+              <Button
+                type="submit"
+                disabled={pending || (challenge && code.length !== 6)}
+              >
+                {pending ? (
+                  <>
+                    <LoaderCircle
+                      data-icon="inline-start"
+                      className="animate-spin"
+                    />
+                    Verificando…
+                  </>
+                ) : challenge ? (
+                  "Verificar"
+                ) : (
+                  "Continuar"
                 )}
-              </>
-            )}
-          </CardContent>
-          <CardFooter>
-            <p className="text-xs text-muted-foreground">
-              Acceso exclusivo para el equipo de Movo.
-            </p>
-          </CardFooter>
-        </Card>
-        <p className="text-center text-xs text-muted-foreground">
-          Movo · Panel de administración
+              </Button>
+            </FieldGroup>
+          </form>
+          {challenge && (
+            <>
+              <form action={resendAction} className="auth-resend">
+                <span>¿No te llegó?</span>
+                {seconds > 0 ? (
+                  <span>
+                    Podés pedir otro en{" "}
+                    <span className="auth-mono">{now ? clock : "…"}</span>
+                  </span>
+                ) : (
+                  <button
+                    type="submit"
+                    className="auth-link"
+                    disabled={resending || pending}
+                  >
+                    {resending ? "Enviando…" : "Reenviar código"}
+                  </button>
+                )}
+              </form>
+              {(resendState.error || resendState.notice) && (
+                <Alert>
+                  <AlertDescription>
+                    {resendState.error || resendState.notice}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </>
+          )}
+        </div>
+        <p className="auth-foot">
+          <span className="auth-mono">admin.movosend.app</span>
+          <span aria-hidden>·</span>
+          Solo para el equipo de Movo
         </p>
       </div>
     </main>

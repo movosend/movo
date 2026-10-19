@@ -88,3 +88,12 @@ lista con nombre, email y desde cuándo, alta por email y revocación con motivo
 a un texto propio (no reenvía el texto del servidor). `requireAdmin(mutable, returnTo)` y
 `internalReturnPath` aceptan `/admins` además de `/`; `AdminShell` recibe `current`.
 Si `requireAdmin` falla por infraestructura caída, las acciones devuelven el error al formulario en vez de subir al error boundary.
+
+## Rediseño del acceso + login por teléfono
+
+El login (`components/auth-form.tsx`, estilos `.auth-*` en `globals.css`) sigue el prototipo
+de Claude Design: paleta neutra y grilla, con los tokens de shadcn remapeados **solo dentro de
+`.auth-canvas`** (el resto del panel conserva la paleta actual hasta que se rediseñe). Pestañas
+Email / Teléfono (con 🇦🇷 +54 fijo) sobre un campo `identifier`; la pestaña viaja como `method` y
+`parseIdentifier` en `app/login/actions.ts` valida según ella. El backend (`/auth/admin/login`) acepta `email` o `phone` y el OTP
+sale siempre al email de la cuenta; ahora devuelve `maskedEmail`, que es lo que muestra `/verify`.

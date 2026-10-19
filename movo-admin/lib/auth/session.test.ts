@@ -207,7 +207,7 @@ describe("sesión del BFF", () => {
 describe("acciones de autenticación", () => {
   it("valida el formulario antes de llamar al gateway", async () => {
     expect(
-      (await login({}, form({ email: "invalid", password: "" }))).error
+      (await login({}, form({ identifier: "invalid", password: "" }))).error
     ).toBeDefined()
     expect(mocks.gateway).not.toHaveBeenCalled()
   })
@@ -215,10 +215,17 @@ describe("acciones de autenticación", () => {
     mocks.gateway.mockResolvedValue({
       challengeId: "private-challenge",
       cooldownSeconds: 60,
+      maskedEmail: "a***@movo.test",
     })
     await expect(
-      login({}, form({ email: "Alena@movo.test", password: "secret-password" }))
+      login(
+        {},
+        form({ identifier: "Alena@movo.test", password: "secret-password" })
+      )
     ).rejects.toThrow("redirect:/verify")
+    expect(mocks.gateway).toHaveBeenCalledWith("/auth/admin/login", {
+      body: { email: "alena@movo.test", password: "secret-password" },
+    })
     expect(await readChallenge()).toMatchObject({
       challengeId: "private-challenge",
       email: "a***@movo.test",
@@ -230,13 +237,33 @@ describe("acciones de autenticación", () => {
       "private-challenge"
     )
   })
+  it("login por teléfono manda solo los dígitos como phone", async () => {
+    mocks.gateway.mockResolvedValue({
+      challengeId: "c",
+      cooldownSeconds: 60,
+      maskedEmail: "a***@movo.test",
+    })
+    await expect(
+      login(
+        {},
+        form({
+          method: "phone",
+          identifier: "+54 9 351 123-4567",
+          password: "secret",
+        })
+      )
+    ).rejects.toThrow("redirect:/verify")
+    expect(mocks.gateway).toHaveBeenCalledWith("/auth/admin/login", {
+      body: { phone: "5493511234567", password: "secret" },
+    })
+  })
   it("errores genéricos no devuelven secretos ni el error interno", async () => {
     mocks.gateway.mockRejectedValue(
       new ApiError(401, "AUTH_INVALID_CREDENTIALS", "sensitive backend message")
     )
     const result = await login(
       {},
-      form({ email: "test@movo.test", password: "secret" })
+      form({ identifier: "test@movo.test", password: "secret" })
     )
     expect(result).toEqual({
       error: "No pudimos verificar los datos. Revisalos y volvé a intentar.",

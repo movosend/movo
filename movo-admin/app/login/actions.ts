@@ -19,32 +19,43 @@ export interface AuthState {
   notice?: string
 }
 
+function parseIdentifier(
+  method: string,
+  value: string
+): { email: string } | { phone: string } | null {
+  if (method === "phone") {
+    // +54 9 351 123-4567, (351) 123 4567, etc.: se dejan solo los dígitos.
+    const phone = value.replace(/[\s().-]/g, "").replace(/^\+/, "")
+    return /^(54)?9?\d{10}$/.test(phone) ? { phone } : null
+  }
+  const email = value.toLowerCase()
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254
+    ? { email }
+    : null
+}
+
 export async function login(
   _previous: AuthState,
   form: FormData
 ): Promise<AuthState> {
   await assertOrigin()
-  const email = String(form.get("email") ?? "")
-    .trim()
-    .toLowerCase()
+  // La pestaña elegida define si el campo es email o teléfono argentino (formato de la app).
+  const method = String(form.get("method") ?? "email")
+  const identifier = String(form.get("identifier") ?? "").trim()
   const password = String(form.get("password") ?? "")
-  if (
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-    email.length > 254 ||
-    !password ||
-    password.length > 1024
-  )
-    return { error: "Ingresá un email válido y tu contraseña." }
+  const login = parseIdentifier(method, identifier)
+  if (!login || !password || password.length > 1024)
+    return { error: "Ingresá un email o teléfono válido y tu contraseña." }
   await clearSession()
   try {
     const result = await gateway<{
       challengeId: string
       cooldownSeconds: number
-    }>("/auth/admin/login", { body: { email, password } })
-    const [name, domain] = email.split("@")
+      maskedEmail: string
+    }>("/auth/admin/login", { body: { ...login, password } })
     await writeChallenge({
       challengeId: result.challengeId,
-      email: `${name[0]}***@${domain}`,
+      email: result.maskedEmail,
       expiresAt: Date.now() + 10 * 60 * 1000,
       resendAt: Date.now() + result.cooldownSeconds * 1000,
     })
