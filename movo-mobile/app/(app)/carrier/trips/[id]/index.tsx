@@ -21,14 +21,15 @@ import { ErrorBanner } from "../../../../../components/ui/error-banner";
 import { SuccessBanner } from "../../../../../components/ui/success-banner";
 import { SkeletonBlock } from "../../../../../components/ui/skeleton-block";
 import { useCarrierRequirementsSheet } from "../../../../../src/hooks/use-carrier-requirements-sheet";
+import { useCancelTripWithPackages } from "../../../../../src/hooks/use-cancel-trip-with-packages";
 import { useCancelTrip, useStartTrip, useTrip, useUpdateTrip } from "../../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../../src/lib/error-messages";
-import { formatPriceArs, shortAddressLabel } from "../../../../../src/lib/shipment-format";
+import { canCarrierWithdraw, formatPriceArs, shortAddressLabel } from "../../../../../src/lib/shipment-format";
 import { formatTripDateLong, formatTripStartErrorMessage, tripDisplayCode } from "../../../../../src/lib/trip-format";
 import { weekdayName } from "../../../../../src/lib/trip-recurrence";
 import { requireCarrierLocation } from "../../../../../src/store/carrier-location-gate-store";
-import { TripStatus, type TripWithAcceptedPackages } from "../../../../../src/api/trips-client";
+import { TripStatus, type TripAcceptedPackage, type TripWithAcceptedPackages } from "../../../../../src/api/trips-client";
 
 const EDIT_ACTION_ID = "edit-trip";
 const CANCEL_ACTION_ID = "cancel-trip";
@@ -101,6 +102,10 @@ export default function TripDetailScreen() {
   const requirements = useCarrierRequirementsSheet("start");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // MOVO-314: cancelar con paquetes aceptados baja al transportista de cada envío antes de cancelar
+  // el viaje. Se decide al abrir el sheet y no cambia aunque el detalle se refresque en el medio.
+  const [cancelWithPackages, setCancelWithPackages] = useState(false);
+  const packagesCancel = useCancelTripWithPackages({ onStale: () => void refetch() });
   const [startError, setStartError] = useState<string | null>(null);
   const [stopRecurrenceError, setStopRecurrenceError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -114,23 +119,43 @@ export default function TripDetailScreen() {
     router.push({ pathname: "/(app)/(tabs)/transport", params: { tripId: t.id } });
 
   const closeSheet = () => {
+    if (packagesCancel.isRunning) return;
     setSheetOpen(false);
     setCancelError(null);
+    if (cancelWithPackages) packagesCancel.close();
+  };
+
+  const openCancelSheet = (accepted: TripAcceptedPackage[]) => {
+    setCancelError(null);
+    setCancelWithPackages(accepted.length > 0);
+    if (accepted.length > 0) packagesCancel.open(accepted);
+    setSheetOpen(true);
+  };
+
+  const goToTripsAfterCancel = (t: TripWithAcceptedPackages, extra?: { cancelledPackages: number; cancelledDebt: number }) => {
+    setSheetOpen(false);
+    // `dismissTo`: el detalle se abre desde "Mis viajes", `replace` apilaría otra copia.
+    // `cancelledAt` hace único cada aviso: dos cancelaciones seguidas al mismo destino
+    // llegan con el mismo `cancelledTo` y el banner de "Mis viajes" no se volvería a armar.
+    router.dismissTo({
+      pathname: "/carrier/trips",
+      params: {
+        cancelledTo: shortAddressLabel(t.destinationAddress),
+        cancelledAt: String(Date.now()),
+        ...(extra ? { cancelledPackages: String(extra.cancelledPackages), cancelledDebt: String(extra.cancelledDebt) } : {}),
+      },
+    } as any);
+  };
+
+  const handleCancelWithPackages = async (t: TripWithAcceptedPackages, stopRecurrence: boolean) => {
+    const result = await packagesCancel.run(t.id, stopRecurrence);
+    if (result) goToTripsAfterCancel(t, { cancelledPackages: result.withdrawnCount, cancelledDebt: result.debtArs });
   };
 
   const handleCancel = (t: TripWithAcceptedPackages, stopRecurrence: boolean) => {
     setCancelError(null);
     cancelTrip.mutate({ id: t.id, stopRecurrence }, {
-      onSuccess: () => {
-        setSheetOpen(false);
-        // `dismissTo`: el detalle se abre desde "Mis viajes", `replace` apilaría otra copia.
-        // `cancelledAt` hace único cada aviso: dos cancelaciones seguidas al mismo destino
-        // llegan con el mismo `cancelledTo` y el banner de "Mis viajes" no se volvería a armar.
-        router.dismissTo({
-          pathname: "/carrier/trips",
-          params: { cancelledTo: shortAddressLabel(t.destinationAddress), cancelledAt: String(Date.now()) },
-        } as any);
-      },
+      onSuccess: () => goToTripsAfterCancel(t),
       onError: (err) => {
         setCancelError(friendlyErrorMessage(err, CANCEL_ERROR_FALLBACK));
         // Carrera típica: se aceptó un paquete entre medio. El refresco trae los paquetes, con
@@ -240,7 +265,10 @@ export default function TripDetailScreen() {
   const packages = trip.packages ?? [];
   const hasPackages = trip.acceptedPackagesCount > 0;
   const isDeclared = trip.status === TripStatus.DECLARED;
-  const canEditOrCancel = isDeclared && !hasPackages;
+  const canEdit = isDeclared && !hasPackages;
+  // MOVO-314: con paquetes se puede cancelar mientras todos sean retirables (ninguno en tránsito).
+  const canCancel =
+    isDeclared && (!hasPackages || (packages.length > 0 && packages.every((p) => canCarrierWithdraw(p.status))));
   const isRecurring = trip.recurrenceWeekdays !== null;
   const isOngoing = isDeclared || trip.status === TripStatus.ACTIVE;
   // Un `cancelled` ("Solo este viaje") sigue siendo la cabeza con la recurrencia prendida: la serie
@@ -248,7 +276,7 @@ export default function TripDetailScreen() {
   const canStopRecurrence =
     isRecurring && trip.isSeriesHead && (isOngoing || trip.status === TripStatus.CANCELLED);
   const menuActions = [
-    ...(canEditOrCancel
+    ...(canEdit
       ? [
           {
             id: EDIT_ACTION_ID,
@@ -269,7 +297,7 @@ export default function TripDetailScreen() {
           },
         ]
       : []),
-    ...(canEditOrCancel
+    ...(canCancel
       ? [
           {
             id: CANCEL_ACTION_ID,
@@ -282,7 +310,7 @@ export default function TripDetailScreen() {
         ]
       : []),
   ];
-  const menuBusy = cancelTrip.isPending || updateTrip.isPending;
+  const menuBusy = cancelTrip.isPending || updateTrip.isPending || packagesCancel.isRunning;
   const showFooter = trip.status === TripStatus.ACTIVE || (isDeclared && hasPackages);
   // Alto del footer = 12 (padding superior) + 52 (botón) + inset inferior real del dispositivo.
   const footerBottomPadding = Math.max(insets.bottom, 12);
@@ -300,8 +328,7 @@ export default function TripDetailScreen() {
           if (nativeEvent.event === EDIT_ACTION_ID) {
             router.push(`/carrier/trips/${trip.id}/edit` as any);
           } else if (nativeEvent.event === CANCEL_ACTION_ID) {
-            setCancelError(null);
-            setSheetOpen(true);
+            openCancelSheet(packages);
           } else if (nativeEvent.event === STOP_RECURRENCE_ACTION_ID) {
             confirmStopRecurrence(trip);
           }
@@ -343,23 +370,27 @@ export default function TripDetailScreen() {
               ) : null}
             </View>
 
-            <View className="flex-row gap-3.5">
-              <View className="items-center pt-[5px]">
-                <View className="h-3 w-3 rounded-full border-[2.5px] border-fg" />
-                <View className="my-1 min-h-[24px] w-0.5 flex-1 bg-border-strong" />
-                <View
-                  className="h-3 w-3 rounded-full"
-                  style={{ backgroundColor: "#2B6BFF", shadowColor: "#CBDAFF", shadowOpacity: 1, shadowRadius: 0 }}
-                />
-              </View>
-              <View className="flex-1 gap-4">
-                <View>
+            <View>
+              <View className="flex-row gap-3.5">
+                <View className="w-3 items-center">
+                  <View className="mt-[7px] h-3 w-3 rounded-full border-[2.5px] border-fg" />
+                  <View className="mt-1 w-0.5 flex-1 bg-border-strong" />
+                </View>
+                <View className="flex-1 pb-4">
                   <Text className="font-sans-semibold text-[17px] tracking-[-0.17px] text-fg" numberOfLines={1}>
                     {shortAddressLabel(trip.originAddress)}
                   </Text>
                   <Text className="mt-0.5 font-sans text-[13px] text-fg-3">{trip.originAddress}</Text>
                 </View>
-                <View>
+              </View>
+              <View className="flex-row gap-3.5">
+                <View className="w-3 items-center">
+                  <View className="mt-[7px] h-3 w-3 items-center justify-center">
+                    <View className="absolute h-[20px] w-[20px] rounded-full" style={{ backgroundColor: "rgba(43,107,255,0.25)" }} />
+                    <View className="h-3 w-3 rounded-full" style={{ backgroundColor: "#2B6BFF" }} />
+                  </View>
+                </View>
+                <View className="flex-1">
                   <Text className="font-sans-semibold text-[17px] tracking-[-0.17px] text-fg" numberOfLines={1}>
                     {shortAddressLabel(trip.destinationAddress)}
                   </Text>
@@ -408,11 +439,10 @@ export default function TripDetailScreen() {
                   </Text>
                 ) : null}
               </View>
-              <View className="gap-2">
-                {packages.map((pkg, i) => (
+              <View className="gap-3">
+                {packages.map((pkg) => (
                   <TripPackageRow
                     key={pkg.shipmentId}
-                    index={i + 1}
                     testID={`trip-detail-package-${pkg.shipmentId}`}
                     pkg={pkg}
                     onPress={() => router.push(`/shipments/${pkg.shipmentId}` as any)}
@@ -436,8 +466,11 @@ export default function TripDetailScreen() {
                 >
                   <Lock size={14} color={colors.fg3} strokeWidth={1.75} />
                   <Text className="flex-1 font-sans text-[12px] leading-[18px] text-fg-3">
-                    Con paquetes aceptados no podés editar ni cancelar el viaje. Si necesitás cancelar, hacelo desde
-                    cada envío.{canStopRecurrence ? " Para que no se repita, usá «Dejar de repetir» desde el menú." : ""}
+                    Con paquetes aceptados no podés editar el viaje.
+                    {canCancel
+                      ? " Si necesitás cancelarlo, usá «Cancelar viaje» desde el menú: se cancelan también sus envíos."
+                      : " Si necesitás bajarte, hacelo desde cada envío."}
+                    {canStopRecurrence ? " Para que no se repita, usá «Dejar de repetir» desde el menú." : ""}
                   </Text>
                 </View>
               ) : null}
@@ -484,16 +517,29 @@ export default function TripDetailScreen() {
         </View>
       ) : null}
 
-      {canEditOrCancel ? (
+      {canCancel ? (
         <TripCancelSheet
           visible={sheetOpen}
           destination={shortAddressLabel(trip.destinationAddress)}
-          isCancelling={cancelTrip.isPending}
-          errorMessage={cancelError}
+          isCancelling={cancelTrip.isPending || packagesCancel.isRunning}
+          errorMessage={cancelWithPackages ? packagesCancel.errorMessage : cancelError}
+          packages={
+            cancelWithPackages
+              ? {
+                  rows: packagesCancel.rows,
+                  phase: packagesCancel.phase,
+                  totalDebtArs: packagesCancel.totalDebtArs,
+                  mismatchNotice: packagesCancel.mismatchNotice,
+                  onRetryQuote: packagesCancel.retryQuotes,
+                }
+              : undefined
+          }
           recurring={
             isRecurring && trip.isSeriesHead ? { weekdayName: weekdayName(argentinaWeekday(trip.departureAt)) } : undefined
           }
-          onConfirm={(stopRecurrence) => handleCancel(trip, stopRecurrence)}
+          onConfirm={(stopRecurrence) =>
+            cancelWithPackages ? void handleCancelWithPackages(trip, stopRecurrence) : handleCancel(trip, stopRecurrence)
+          }
           onClose={closeSheet}
         />
       ) : null}

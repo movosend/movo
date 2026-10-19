@@ -59,6 +59,23 @@ export function cancellationQuoteView(
   }
 }
 
+/**
+ * Qué muestra el sheet de baja del transportista (MOVO-314, ADR-047), según
+ * `GET /shipments/:id/carrier-withdrawal-quote`. A diferencia del emisor no hay "ventana vencida
+ * sin cargo": con la franja cerrada el transportista igual paga. Toda penalidad es deuda en su
+ * cuenta corriente, no un cobro de tarjeta.
+ */
+export type CarrierWithdrawalQuoteView = { kind: "free" } | { kind: "debt"; penaltyArs: number };
+
+export function carrierWithdrawalQuoteView(quote: Pick<CancellationQuoteResponse, "penaltyArs">): CarrierWithdrawalQuoteView {
+  return quote.penaltyArs > 0 ? { kind: "debt", penaltyArs: quote.penaltyArs } : { kind: "free" };
+}
+
+/** Texto del aviso de deuda (AC2 de MOVO-314); el mismo para el envío suelto y para el viaje. */
+export function carrierDebtNotice(penaltyArs: number): string {
+  return `Se te va a registrar una deuda de ${formatSettlementAmount(penaltyArs)} que se descuenta de tus próximos cobros.`;
+}
+
 /** Aviso del sheet cuando la confirmación vuelve con 409 `CANCELLATION_PENALTY_MISMATCH`: la
  * penalidad cambió entre que el emisor la vio y que confirmó. */
 export function penaltyMismatchNotice(previousArs: number, nextArs: number): { title: string; body: string } {

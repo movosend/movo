@@ -438,6 +438,24 @@ export const shipmentsClient = {
     return httpClient.get<CancellationQuoteResponse>(`/shipments/${shipmentId}/cancellation-quote`);
   },
 
+  /** `GET /shipments/:id/carrier-withdrawal-quote` (MOVO-310/314) — solo el transportista asignado.
+   * Cuánto le cuesta bajarse ahora: deuda en su cuenta corriente si faltan menos de 12 h para
+   * el retiro, y desde cualquier estado con transportista (ADR-047). */
+  getCarrierWithdrawalQuote(shipmentId: string): Promise<CancellationQuoteResponse> {
+    return httpClient.get<CancellationQuoteResponse>(`/shipments/${shipmentId}/carrier-withdrawal-quote`);
+  },
+
+  /** `POST /shipments/:id/carrier-withdrawal` (MOVO-310/314) — el envío vuelve a `published`. El
+   * body siempre lleva `expectedPenaltyArs` (el monto que el transportista vio): si cambió, 409
+   * `CANCELLATION_PENALTY_MISMATCH` sin bajarlo. La respuesta es el envío republicado, al que el
+   * transportista ya no tiene acceso. */
+  withdrawCarrier(
+    shipmentId: string,
+    body: { reason?: string; expectedPenaltyArs: number },
+  ): Promise<ShipmentSummary> {
+    return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/carrier-withdrawal`, body);
+  },
+
   /** `POST /shipments/:id/receiver` (MOVO-253) — el emisor elige otro receptor para un
    * envío `rejected_by_receiver`, antes de `receiverRedesignationDeadline`. La dirección
    * de entrega no cambia. */

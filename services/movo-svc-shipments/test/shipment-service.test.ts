@@ -982,6 +982,11 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
           deliveryLng: shipment.deliveryLng,
           excludeCarrierIds: [shipment.senderId, shipment.receiverId],
           radiusKm: 15,
+          // MOVO-314: ventana de retiro 09:00-12:00 ART del 2030-01-01.
+          pickupWindow: {
+            start: new Date("2030-01-01T12:00:00.000Z"),
+            end: new Date("2030-01-01T15:00:00.000Z"),
+          },
         });
       });
       // Peter (comentario de Linear): solo se llama a pricing-logistics para los

@@ -11,7 +11,7 @@ import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import { SuccessBanner } from "../../../../components/ui/success-banner";
 import { useMyTripsPaged } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
-import { groupTripsByMonth } from "../../../../src/lib/trip-format";
+import { groupTripsByMonth, tripCancelledMessage } from "../../../../src/lib/trip-format";
 import { newTripsBannerMessage } from "../../../../src/lib/trip-recurrence";
 import { diffAndMarkSeenTrips } from "../../../../src/lib/seen-trips";
 import { type TripListScope, type TripWithAcceptedPackages } from "../../../../src/api/trips-client";
@@ -35,10 +35,12 @@ function TripsListSkeleton() {
  */
 export default function MyTripsScreen() {
   const colors = useThemeColors();
-  const { created, cancelledTo, cancelledAt } = useLocalSearchParams<{
+  const { created, cancelledTo, cancelledAt, cancelledPackages, cancelledDebt } = useLocalSearchParams<{
     created?: string;
     cancelledTo?: string;
     cancelledAt?: string;
+    cancelledPackages?: string;
+    cancelledDebt?: string;
   }>();
   // MOVO-262 AC1: una query (y una query key) por tab; el default es "Próximos".
   const [scope, setScope] = useState<TripListScope>("upcoming");
@@ -48,12 +50,15 @@ export default function MyTripsScreen() {
   const trips = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data]);
   const [showCreatedSuccess, setShowCreatedSuccess] = useState(created === "1");
   // MOVO-263: el detalle de un viaje vuelve acá con el destino cancelado para avisarlo.
-  const [cancelledMessage, setCancelledMessage] = useState<string | null>(
-    cancelledTo ? `Cancelaste el viaje a ${cancelledTo}` : null,
-  );
+  // MOVO-314: si el viaje tenía paquetes, el aviso suma qué pasó con ellos y con la deuda.
+  const cancelledText = cancelledTo
+    ? tripCancelledMessage(cancelledTo, Number(cancelledPackages ?? 0), Number(cancelledDebt ?? 0))
+    : null;
+  const [cancelledMessage, setCancelledMessage] = useState<string | null>(cancelledText);
   useEffect(() => {
-    if (cancelledTo) setCancelledMessage(`Cancelaste el viaje a ${cancelledTo}`);
+    if (cancelledText) setCancelledMessage(cancelledText);
     // `cancelledAt` cambia en cada cancelación aunque el destino sea el mismo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cancelledTo, cancelledAt]);
   const [autoCreatedMessage, setAutoCreatedMessage] = useState<string | null>(null);
 

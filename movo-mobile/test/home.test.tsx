@@ -15,8 +15,11 @@ jest.mock("../src/store/carrier-location-gate-store", () => ({
   requireCarrierLocation: (action: () => unknown) => action(),
 }));
 
+const mockSearchParams = jest.fn(() => ({}) as Record<string, string>);
+
 jest.mock("expo-router", () => ({
   router: { push: jest.fn() },
+  useLocalSearchParams: () => mockSearchParams(),
 }));
 
 const mockUseMyProfile = jest.fn();
@@ -117,7 +120,26 @@ describe("AuthenticatedHomeScreen", () => {
     mockUseMyTrips.mockReturnValue({ data: { items: [], total: 0 } });
   });
 
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    mockSearchParams.mockReturnValue({});
+  });
+
+  it("MOVO-314: tras bajarse de un envío muestra el aviso que llega por parámetro", async () => {
+    mockSearchParams.mockReturnValue({
+      withdrawnNotice: "Cancelaste el envío. Registramos una deuda de $2.450.",
+      withdrawnAt: "1",
+    });
+    const { getByTestId } = await render(<AuthenticatedHomeScreen />);
+
+    expect(getByTestId("app-home-withdrawn-banner")).toHaveTextContent("Cancelaste el envío. Registramos una deuda de $2.450.");
+  });
+
+  it("sin aviso por parámetro no hay banner de baja", async () => {
+    const { queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+    expect(queryByTestId("app-home-withdrawn-banner")).toBeNull();
+  });
 
   it("saluda al usuario y muestra la CTA de enviar un paquete", async () => {
     const { getByTestId, getByText } = await render(<AuthenticatedHomeScreen />);

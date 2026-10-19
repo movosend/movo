@@ -820,15 +820,13 @@ describe("TransportScreen", () => {
       expect(getByTestId("transport-card-std")).toBeTruthy();
     });
 
-    it("el acceso 'Mi ruta de hoy' navega a /route (MOVO-207)", async () => {
+    it("no muestra el acceso 'Mi ruta de hoy' (el punto de entrada de la ruta es el viaje)", async () => {
       mockUseTransportOrigin.mockReturnValue(baseOriginResult());
       mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
 
-      const { getByTestId } = await render(<TransportScreen />);
+      const { queryByTestId } = await render(<TransportScreen />);
 
-      await fireEvent.press(getByTestId("transport-my-route-cta"));
-
-      expect(mockRouterPush).toHaveBeenCalledWith("/route");
+      expect(queryByTestId("transport-my-route-cta")).toBeNull();
     });
   });
 

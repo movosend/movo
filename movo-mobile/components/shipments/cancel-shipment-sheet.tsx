@@ -394,7 +394,7 @@ export function CancelShipmentSheet({
   );
 }
 
-function MismatchNotice({ previous, next, testID }: { previous: number; next: number; testID: string }) {
+export function MismatchNotice({ previous, next, testID }: { previous: number; next: number; testID: string }) {
   const notice = penaltyMismatchNotice(previous, next);
   return (
     <View testID={testID} className="flex-row gap-2.5 rounded-[10px] border border-warning-300 bg-warning-100 px-3.5 py-3">

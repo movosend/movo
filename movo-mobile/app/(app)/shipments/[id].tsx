@@ -35,6 +35,7 @@ import { RejectedReceiverBanner } from "../../../components/shipments/rejected-r
 import { ReceiverTransferPendingBanner } from "../../../components/shipments/receiver-transfer-pending-banner";
 import { ReceiverTransferSection } from "../../../components/shipments/receiver-transfer-section";
 import { TransferredByYouBanner } from "../../../components/shipments/transferred-by-you-banner";
+import { CarrierActionsBar } from "../../../components/shipments/carrier-actions-bar";
 import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { ShipmentPartiesCard } from "../../../components/shipments/shipment-parties-card";
@@ -68,6 +69,7 @@ import { chatAvailability } from "../../../src/lib/chat-format";
 import {
   FULFILLED_SHIPMENT_STATUSES,
   canCancelShipment,
+  canCarrierWithdraw,
   formatPickupDateLabel,
   formatPriceArs,
   formatShipmentPrice,
@@ -255,7 +257,9 @@ export default function ShipmentDetailScreen() {
   // Query dedupea, así que esto no dispara un segundo request cuando esa card ya trajo
   // el perfil del emisor. Solo se usa para nombrar al emisor en el sheet de rechazo
   // de `ReceiverActionsBar` (variante 2a del diseño de "Confirmación de envío").
-  const { data: senderProfile } = usePublicProfile(isReceiver ? shipment?.senderId : undefined);
+  const { data: senderProfile } = usePublicProfile(
+    isReceiver || (!!shipment?.carrierId && currentUser?.userId === shipment.carrierId) ? shipment?.senderId : undefined,
+  );
   const senderFirstName = senderProfile?.fullName?.split(" ")[0];
   // MOVO-308: el sheet de cancelación y la card "Tu pago" nombran al transportista. Mismo
   // query key que `ShipmentPartiesCard`, sin request extra.
@@ -292,6 +296,9 @@ export default function ShipmentDetailScreen() {
 
   const showSenderActions =
     isSender && shipment !== undefined && canCancelShipment(shipment.status);
+  // MOVO-314 AC1: el transportista puede bajarse mientras el envío no se retiró.
+  const showCarrierActions =
+    isCarrier && shipment !== undefined && canCarrierWithdraw(shipment.status);
 
   // MOVO-253 AC6: el receptor rechazó y el emisor puede elegir a otra persona.
   const showRejectedBanner = isSender && shipment?.status === ShipmentStatus.REJECTED_BY_RECEIVER;
@@ -340,6 +347,10 @@ export default function ShipmentDetailScreen() {
     shipment !== undefined && !isCarrier && shipment.carrierId
       ? liveTrackingAvailability(shipment.status)
       : null;
+
+  // Espejo para el transportista: si su ubicación ya se comparte con emisor y receptor.
+  const carrierSharing =
+    shipment !== undefined && isCarrier && shipment.carrierId ? liveTrackingAvailability(shipment.status) : null;
 
   // MOVO-284: el chat existe desde que hay transportista (y queda legible tras la entrega); lo ven las tres partes.
   const chatBase = shipment !== undefined ? chatAvailability(shipment.status, shipment.carrierId) : null;
@@ -469,6 +480,22 @@ export default function ShipmentDetailScreen() {
             testID="shipment-detail-sender-actions"
           />
         ) : null}
+        {showCarrierActions && shipment ? (
+          <CarrierActionsBar
+            shipmentId={shipment.id}
+            senderFirstName={senderFirstName}
+            onRefetch={() => void refetch()}
+            onWithdrawn={(message) => {
+              // El envío vuelve a `published` y deja de ser suyo (el detalle daría 403): se sale al
+              // Inicio, que ya no lo lista en "Estoy transportando", con el aviso.
+              router.dismissTo({
+                pathname: "/(app)/(tabs)/home",
+                params: { withdrawnNotice: message, withdrawnAt: String(Date.now()) },
+              } as any);
+            }}
+            testID="shipment-detail-carrier-actions"
+          />
+        ) : null}
       </View>
 
       {isError || !shipment ? (
@@ -578,6 +605,7 @@ export default function ShipmentDetailScreen() {
                 <RouteTrackingChatCard
                   shipmentId={shipment.id}
                   tracking={liveTracking}
+                  sharing={carrierSharing}
                   chat={chatAccess}
                   status={shipment.status}
                   isFormerReceiver={isFormerReceiver}

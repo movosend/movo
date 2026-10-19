@@ -251,6 +251,25 @@ describe("trip-repository (Postgres) — findDeclaredTripsMatchingShipment (MOVO
     expect(matches.map((t) => t.id)).toEqual([trip.id]);
   });
 
+  it("MOVO-314: con pickupWindow, solo matchea viajes que salen dentro de la ventana de retiro", async () => {
+    const pickupWindow = { start: new Date("2030-01-01T12:00:00.000Z"), end: new Date("2030-01-01T15:00:00.000Z") };
+    const inside = await createDeclaredTrip({ departureAt: new Date("2030-01-01T13:00:00.000Z") });
+    await createDeclaredTrip({ departureAt: new Date("2030-01-01T16:00:00.000Z") }); // ya cerró la ventana
+    await createDeclaredTrip({ departureAt: new Date("2030-01-02T13:00:00.000Z") }); // otro día
+
+    const matches = await tripRepo.findDeclaredTripsMatchingShipment({
+      pickupLat: -31.0,
+      pickupLng: -63.5,
+      deliveryLat: -31.0,
+      deliveryLng: -63.49,
+      excludeCarrierIds: [],
+      radiusKm: 10,
+      pickupWindow,
+    });
+
+    expect(matches.map((t) => t.id)).toEqual([inside.id]);
+  });
+
   it("no matchea un envío fuera del radio de desvío del corredor", async () => {
     await createDeclaredTrip();
 

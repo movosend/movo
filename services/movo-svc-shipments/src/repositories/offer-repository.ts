@@ -1,9 +1,10 @@
-import { FundingRoute, OfferStatus, ShipmentStatus } from "@movo/shared";
+import { FundingRoute, OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import { selectFundingRoute } from "../domain/funding";
 import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
 import { haversineKm } from "../domain/geo";
+import { pickReusableTrip } from "../domain/trip-compatibility";
 import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
 import {
   acceptedOfferPickupWindowStartInstant,
@@ -241,6 +242,9 @@ export class OfferNotEditableError extends Error {
  */
 export interface AutoTripDefaults {
   vehicleType: string;
+  /** MOVO-314: desvío máximo (km) para sumar el envío a un viaje `declared` existente del
+   * transportista en vez de crear uno. Sin valor, siempre se crea uno nuevo (MOVO-234). */
+  reuseDetourKm?: number;
 }
 
 /**
@@ -716,6 +720,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // nada (mismo criterio best-effort que el resto de las dependencias opcionales
         // de este repositorio).
         let autoCreatedTrip: Trip | null = null;
+        let joinedTripId: string | null = null;
         if (current.tripId === null && autoTripDefaults) {
           const shipment = await tx.shipment.findUniqueOrThrow({ where: { id: current.shipmentId } });
           const effectiveDepartureAt = acceptedOfferPickupWindowStartInstant(
@@ -732,21 +737,67 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           // tolerado en otras partes del dominio) -- en vez de eso, ancla el viaje a
           // "ahora" como aproximación razonable de cuándo arranca en la práctica.
           const departureAt = effectiveDepartureAt > now ? effectiveDepartureAt : now;
-          const tripRow = await tx.trip.create({
-            data: buildTripCreateData({
-              carrierId: current.carrierId,
-              originAddress: shipment.pickupAddress,
-              originLat: shipment.pickupLat.toNumber(),
-              originLng: shipment.pickupLng.toNumber(),
-              destinationAddress: shipment.deliveryAddress,
-              destinationLat: shipment.deliveryLat.toNumber(),
-              destinationLng: shipment.deliveryLng.toNumber(),
-              departureAt,
-              vehicleType: autoTripDefaults.vehicleType,
-            }),
-            include: TRIP_SERIES_INCLUDE,
-          });
-          autoCreatedTrip = mapTrip(tripRow);
+
+          // MOVO-314: antes de crear, se intenta sumar el envío a un viaje `declared` del
+          // mismo transportista (salida compatible con la ventana de retiro, corredor compatible). Evita un viaje por
+          // paquete y los viajes vacíos que dejaba una asignación caída al reofertar.
+          if (autoTripDefaults.reuseDetourKm !== undefined) {
+            const candidates = await tx.trip.findMany({
+              where: { carrierId: current.carrierId, status: TripStatus.DECLARED, departureAt: { gt: now } },
+            });
+            const reusable = pickReusableTrip(
+              candidates.map((t) => ({
+                id: t.id,
+                originLat: t.originLat.toNumber(),
+                originLng: t.originLng.toNumber(),
+                destinationLat: t.destinationLat.toNumber(),
+                destinationLng: t.destinationLng.toNumber(),
+                departureAt: t.departureAt,
+              })),
+              {
+                pickupLat: shipment.pickupLat.toNumber(),
+                pickupLng: shipment.pickupLng.toNumber(),
+                deliveryLat: shipment.deliveryLat.toNumber(),
+                deliveryLng: shipment.deliveryLng.toNumber(),
+              },
+              {
+                start: effectiveDepartureAt,
+                end: offerExpiresAtInstant(
+                  current.offeredDate,
+                  current.offeredPickupTimeWindowEnd,
+                  shipment.pickupTimeWindowEnd,
+                ),
+              },
+              autoTripDefaults.reuseDetourKm,
+            );
+            if (reusable) {
+              // Toma el lock de la fila y confirma que sigue `declared`: un `start()`
+              // concurrente del viaje (que cierra sus paquetes) no se cruza con esto.
+              const locked = await tx.trip.updateMany({
+                where: { id: reusable.id, status: TripStatus.DECLARED },
+                data: { updatedAt: now },
+              });
+              if (locked.count === 1) joinedTripId = reusable.id;
+            }
+          }
+
+          if (!joinedTripId) {
+            const tripRow = await tx.trip.create({
+              data: buildTripCreateData({
+                carrierId: current.carrierId,
+                originAddress: shipment.pickupAddress,
+                originLat: shipment.pickupLat.toNumber(),
+                originLng: shipment.pickupLng.toNumber(),
+                destinationAddress: shipment.deliveryAddress,
+                destinationLat: shipment.deliveryLat.toNumber(),
+                destinationLng: shipment.deliveryLng.toNumber(),
+                departureAt,
+                vehicleType: autoTripDefaults.vehicleType,
+              }),
+              include: TRIP_SERIES_INCLUDE,
+            });
+            autoCreatedTrip = mapTrip(tripRow);
+          }
         }
 
         // Mismo compare-and-swap que applyTerminalTransition (PR #70,
@@ -764,7 +815,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           data: {
             status: OfferStatus.ACCEPTED,
             respondedAt: now,
-            ...(autoCreatedTrip ? { tripId: autoCreatedTrip.id } : {}),
+            ...(autoCreatedTrip ? { tripId: autoCreatedTrip.id } : joinedTripId ? { tripId: joinedTripId } : {}),
           },
         });
         if (offerUpdate.count === 0) {
@@ -774,7 +825,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           ...current,
           status: OfferStatus.ACCEPTED,
           respondedAt: now,
-          ...(autoCreatedTrip ? { tripId: autoCreatedTrip.id } : {}),
+          ...(autoCreatedTrip ? { tripId: autoCreatedTrip.id } : joinedTripId ? { tripId: joinedTripId } : {}),
         };
 
         // MOVO-210 (AC4): las demás ofertas `pending` del envío NO se cierran acá. Mientras la

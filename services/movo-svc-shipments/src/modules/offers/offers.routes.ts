@@ -85,7 +85,9 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
     app.log,
     ratingsService.getCarrierReputationScoresBatch,
     // MOVO-210: "N" de la saga -- elige ruta cercana/lejana al aceptar la oferta.
-    app.config.FUNDING_NEAR_PICKUP_DAYS
+    app.config.FUNDING_NEAR_PICKUP_DAYS,
+    // MOVO-314: mismo desvío que el feed de matches, para sumar el envío a un viaje existente.
+    app.config.TRIP_DEFAULT_MAX_DETOUR_KM
   );
 
   app.get(

@@ -1,3 +1,4 @@
+import { formatSettlementAmount } from "./settlement-format";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { canStartTripOn, tripStartAvailableOn } from "@movo/shared/dist/config/trip-start";
 import { toArgentinaCalendarDateString } from "@movo/shared/dist/utils/argentina-date";
@@ -255,4 +256,17 @@ export function formatTripDateLong(departureAt: string): string {
 export function tripDisplayCode(id: string): string {
   const digits = id.replace(/\D/g, "").slice(-5).padStart(5, "0");
   return `#VJ-${digits}`;
+}
+
+/**
+ * Aviso de "Mis viajes" tras cancelar un viaje (MOVO-263). MOVO-314: si tenía envíos aceptados
+ * (`packagesCount > 0`) suma que también se cancelaron y, si hubo, la deuda que quedó registrada.
+ */
+export function tripCancelledMessage(destination: string, packagesCount = 0, debtArs = 0): string {
+  const base = `Cancelaste el viaje a ${destination}`;
+  if (!(packagesCount > 0)) return base;
+  const packages = packagesCount === 1 ? "su envío" : `sus ${packagesCount} envíos`;
+  return debtArs > 0
+    ? `${base}. Cancelamos ${packages} y registramos una deuda de ${formatSettlementAmount(debtArs)}.`
+    : `${base}. Cancelamos ${packages} y avisamos a los emisores.`;
 }

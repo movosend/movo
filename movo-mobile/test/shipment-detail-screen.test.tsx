@@ -20,11 +20,36 @@ jest.mock("../src/hooks/use-receiver-transfers", () => ({
 const mockChatList = jest.fn(() => ({ data: [] as { shipmentId: string; unreadCount: number }[] }));
 jest.mock("../src/hooks/use-chat", () => ({ useChatList: () => mockChatList() }));
 
+const mockRouterDismissTo = jest.fn();
+
+// El menú nativo no tiene representación en el árbol de React: cada acción se simula como una fila
+// tocable (mismo criterio que `sender-actions-bar.test.tsx`).
+jest.mock("@react-native-menu/menu", () => {
+  const { Pressable, Text, View } = require("react-native");
+  return {
+    MenuView: ({ testID, actions, onPressAction, children }: any) => (
+      <View testID={testID}>
+        {children}
+        {actions.map((action: any) => (
+          <Pressable
+            key={action.id}
+            testID={`${testID}-action-${action.id}`}
+            onPress={() => onPressAction?.({ nativeEvent: { event: action.id } })}
+          >
+            <Text>{action.title}</Text>
+          </Pressable>
+        ))}
+      </View>
+    ),
+  };
+});
+
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
     back: (...args: unknown[]) => mockRouterBack(...args),
     push: (...args: unknown[]) => mockRouterPush(...args),
+    dismissTo: (...args: unknown[]) => mockRouterDismissTo(...args),
     canGoBack: () => mockCanGoBack(),
   },
   useLocalSearchParams: () => ({ id: "shipment-1" }),
@@ -60,6 +85,9 @@ jest.mock("../src/hooks/use-shipment-hold", () => ({
   useShipmentHold: (...args: unknown[]) => mockUseShipmentHold(...args),
 }));
 
+const mockCarrierQuote = jest.fn();
+const mockCarrierWithdraw = jest.fn();
+
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: (...args: unknown[]) => mockUseShipment(...args),
   useShipmentPhotos: () => ({ data: [], isLoading: false, isStale: false, refetch: jest.fn() }),
@@ -69,6 +97,8 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useRejectShipment: () => mockRejectMutation,
   useCancelShipment: () => mockCancelMutation,
   useCancellationQuote: () => ({ mutateAsync: jest.fn() }),
+  useCarrierWithdrawalQuote: () => ({ mutateAsync: mockCarrierQuote }),
+  useCarrierWithdraw: () => ({ mutateAsync: mockCarrierWithdraw, isPending: false }),
 }));
 
 jest.mock("../src/hooks/use-offers", () => ({
@@ -1073,6 +1103,61 @@ describe("ShipmentDetailScreen", () => {
       expect(getByTestId("shipment-detail-receiver")).toBeTruthy();
       expect(queryByTestId("shipment-detail-carrier")).toBeNull();
       expect(getByText(/Transportás/)).toBeTruthy();
+    });
+
+    describe("MOVO-314: bajarse del envío", () => {
+      const asCarrier = (status: ShipmentStatus, carrierId = "user-2") => {
+        mockCurrentUser.mockReturnValue({ userId: "user-2" });
+        mockUseShipment.mockReturnValue({
+          isLoading: false,
+          isError: false,
+          data: shipment({ carrierId, status }),
+          error: null,
+          refetch: jest.fn(),
+        });
+      };
+
+      it.each([ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.ASSIGNED])(
+        "AC1: el transportista ve 'No puedo hacer este envío' en %s",
+        async (status) => {
+          asCarrier(status);
+          const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+          expect(getByTestId("shipment-detail-carrier-actions")).toBeTruthy();
+          expect(getByText("No puedo hacer este envío")).toBeTruthy();
+        },
+      );
+
+      it("no aparece una vez retirado el paquete", async () => {
+        asCarrier(ShipmentStatus.IN_TRANSIT);
+        const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+        expect(queryByTestId("shipment-detail-carrier-actions")).toBeNull();
+      });
+
+      it("no aparece para quien no es el transportista", async () => {
+        asCarrier(ShipmentStatus.ASSIGNED, "otro-transportista");
+        const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+        expect(queryByTestId("shipment-detail-carrier-actions")).toBeNull();
+      });
+
+      it("AC3: tras confirmar sale del detalle al Inicio con el aviso", async () => {
+        asCarrier(ShipmentStatus.ASSIGNED);
+        mockCarrierQuote.mockResolvedValue({ penaltyArs: 0, reason: "before_free_deadline", freeUntil: null });
+        mockCarrierWithdraw.mockResolvedValue({});
+        const { getByTestId, findByTestId } = await render(<ShipmentDetailScreen />);
+
+        await fireEvent.press(getByTestId("shipment-detail-carrier-actions-menu-action-withdraw-shipment"));
+        await fireEvent.press(await findByTestId("shipment-detail-carrier-actions-sheet-confirm"));
+
+        await waitFor(() =>
+          expect(mockRouterDismissTo).toHaveBeenCalledWith({
+            pathname: "/(app)/(tabs)/home",
+            params: { withdrawnNotice: "Cancelaste el envío. Ya no está en tu viaje.", withdrawnAt: expect.any(String) },
+          }),
+        );
+      });
     });
   });
 

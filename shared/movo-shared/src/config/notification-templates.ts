@@ -743,12 +743,12 @@ export const NOTIFICATION_TRIGGERS = {
   carrierWithdrewSender: definition<{ carrierName: string | null }>(
     "shipments",
     {
-      title: "El transportista se bajó del envío",
-      body: "Tu envío ya está publicado de nuevo. Si ya no te sirve, podés cancelarlo sin cargo.",
+      title: "Tu envío vuelve a estar publicado",
+      body: "El transportista se bajó del envío y ya está visible para otros transportistas. Si ya no te sirve, podés cancelarlo sin cargo.",
     },
     ({ carrierName }) => ({
-      title: "El transportista se bajó del envío",
-      body: `${carrierName ?? "El transportista"} se bajó del envío, ya está publicado de nuevo. Si ya no te sirve, podés cancelarlo sin cargo.`,
+      title: "Tu envío vuelve a estar publicado",
+      body: `${carrierName ?? "El transportista"} se bajó del envío y ya está visible para otros transportistas. Si ya no te sirve, podés cancelarlo sin cargo.`,
     })
   ),
   carrierWithdrawalPenaltyDebtCarrier: definition<{ penaltyArs: number }>(

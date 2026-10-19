@@ -370,7 +370,25 @@ export function createTripsService(deps: {
 
       assertTripAccess(trip, callerId, callerRoles, { forbiddenMessage: "No tenés permiso para ver este viaje." });
 
-      return trip;
+      // Foto actual de cada emisor (no queda en el snapshot de la oferta). Si svc-users no
+      // responde la fila cae a iniciales, el detalle del viaje no se rompe por eso.
+      const photoBySender = new Map<string, Promise<string | null>>();
+      const photoOf = (senderId: string) => {
+        let found = photoBySender.get(senderId);
+        if (!found) {
+          found = usersClient
+            .findPublicProfile(senderId, callerId)
+            .then((profile) => profile?.photoUrl ?? null)
+            .catch(() => null);
+          photoBySender.set(senderId, found);
+        }
+        return found;
+      };
+      const packages = trip.packages
+        ? await Promise.all(trip.packages.map(async (pkg) => ({ ...pkg, senderPhotoUrl: await photoOf(pkg.senderId) })))
+        : trip.packages;
+
+      return { ...trip, packages };
     },
 
     async listCarrierTrips({ callerId, callerRoles, page, limit, status, scope }) {
@@ -672,7 +690,7 @@ export function createTripsService(deps: {
       // MOVO-175 (ADR-026): mismo filtro de bloqueos que el feed "Transportar", falla abierto.
       const blockedIds = await safeBlockRelatedUserIds(usersClient, trip.carrierId, logger);
 
-      // 1. Prefiltro geométrico (corredor <= 15 km y fecha calendario argentina)
+      // 1. Prefiltro geométrico (corredor <= 15 km, fecha calendario argentina y ventana de retiro)
       const { items, total } = await shipmentRepository.listAvailable({
         originLat: trip.originLat,
         originLng: trip.originLng,
@@ -680,6 +698,8 @@ export function createTripsService(deps: {
         destinationLng: trip.destinationLng,
         radiusKm: effectiveRadiusKm,
         pickupDate: toArgentinaCalendarDate(trip.departureAt),
+        // MOVO-314: además del día, la salida tiene que caer en la ventana de retiro.
+        departureAt: trip.departureAt,
         excludeUserId: trip.carrierId,
         excludePartyIds: blockedIds,
         page,

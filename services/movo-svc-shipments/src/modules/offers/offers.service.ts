@@ -336,7 +336,10 @@ export function createOffersService(
   getCarrierReputationScores?: GetCarrierReputationScores,
   /** MOVO-210: "N" de la saga (`FUNDING_NEAR_PICKUP_DAYS`). Sin valor, toda aceptación
    * toma la ruta cercana (`assignment_pending`). */
-  fundingNearPickupDays?: number
+  fundingNearPickupDays?: number,
+  /** MOVO-314: desvío máximo (km) para sumar una oferta sin viaje a un viaje `declared`
+   * existente del transportista (`TRIP_DEFAULT_MAX_DETOUR_KM`). Sin valor, siempre crea uno. */
+  tripReuseDetourKm?: number
 ) {
   return {
     /**
@@ -467,7 +470,10 @@ export function createOffersService(
       // garantía de AC1/AC2. El costo (una llamada de más a `usersClient` en el caso
       // minoritario de una oferta que YA tenía viaje) es aceptable frente a esa
       // garantía.
-      const autoTripDefaults = { vehicleType: await resolveAutoTripVehicleType(usersClient, offer.carrierId, logger) };
+      const autoTripDefaults = {
+        vehicleType: await resolveAutoTripVehicleType(usersClient, offer.carrierId, logger),
+        reuseDetourKm: tripReuseDetourKm,
+      };
 
       const {
         offer: accepted,

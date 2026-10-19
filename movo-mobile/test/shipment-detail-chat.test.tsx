@@ -58,6 +58,8 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useRejectShipment: () => mockRejectMutation,
   useCancelShipment: () => mockCancelMutation,
   useCancellationQuote: () => ({ mutateAsync: jest.fn() }),
+  useCarrierWithdrawalQuote: () => ({ mutateAsync: jest.fn() }),
+  useCarrierWithdraw: () => ({ mutateAsync: jest.fn(), isPending: false }),
 }));
 
 jest.mock("../src/hooks/use-offers", () => ({

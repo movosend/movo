@@ -137,6 +137,16 @@ export function canCancelShipment(status: ShipmentStatus): boolean {
   );
 }
 
+/** Estados desde los que el transportista asignado puede bajarse (MOVO-314 AC1, backend
+ * `CARRIER_WITHDRAWABLE_STATUSES` de MOVO-310): hasta que retira el paquete. */
+export function canCarrierWithdraw(status: ShipmentStatus): boolean {
+  return (
+    status === ShipmentStatus.ASSIGNMENT_PENDING ||
+    status === ShipmentStatus.ASSIGNED_UNFUNDED ||
+    status === ShipmentStatus.ASSIGNED
+  );
+}
+
 /** Copy compartido entre el detalle del envío y el home operativo (MOVO-193/194), para
  * que la misma combinación rol + estado diga lo mismo en las dos pantallas. */
 export const SENDER_PICKUP_CTA_LABEL = "Generar retiro";

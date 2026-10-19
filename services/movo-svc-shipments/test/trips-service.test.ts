@@ -941,6 +941,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         destinationLng: -63.2402,
         radiusKm: 15,
         pickupDate: toArgentinaCalendarDate(trip.departureAt),
+        departureAt: trip.departureAt,
         excludeUserId: CARRIER_ID,
         excludePartyIds: [],
         page: 1,

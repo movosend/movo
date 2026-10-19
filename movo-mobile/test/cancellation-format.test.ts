@@ -1,5 +1,7 @@
 import type { ShipmentSettlementResponse } from "@movo/shared/dist/types/settlement";
 import {
+  carrierDebtNotice,
+  carrierWithdrawalQuoteView,
   PICKUP_WINDOW_CLOSED_REASON,
   cancellationQuoteView,
   carrierCompensationView,
@@ -144,5 +146,19 @@ describe("carrierCompensationView", () => {
   it("sin liquidación o de una entrega: no hay compensación que mostrar", () => {
     expect(carrierCompensationView(null)).toBeNull();
     expect(carrierCompensationView({ ...base, kind: "delivery" })).toBeNull();
+  });
+});
+
+describe("carrierWithdrawalQuoteView (MOVO-314)", () => {
+  it("sin penalidad: sin cargo", () => {
+    expect(carrierWithdrawalQuoteView({ penaltyArs: 0 })).toEqual({ kind: "free" });
+  });
+
+  it("con penalidad: deuda por ese monto", () => {
+    expect(carrierWithdrawalQuoteView({ penaltyArs: 2450 })).toEqual({ kind: "debt", penaltyArs: 2450 });
+  });
+
+  it("el aviso de deuda nombra el monto y que se descuenta de los próximos cobros (AC2)", () => {
+    expect(carrierDebtNotice(2450)).toBe("Se te va a registrar una deuda de $2.450 que se descuenta de tus próximos cobros.");
   });
 });
