@@ -85,6 +85,15 @@ describe("acceso al panel", () => {
     expect(phone).toHaveAttribute("placeholder", "351 123 4567")
     expect(screen.getByText(/🇦🇷/)).toBeInTheDocument()
   })
+  it("el botón del ojo alterna la visibilidad de la contraseña", () => {
+    render(<AuthForm />)
+    const password = screen.getByLabelText("Contraseña")
+    expect(password).toHaveAttribute("type", "password")
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar contraseña" }))
+    expect(password).toHaveAttribute("type", "text")
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar contraseña" }))
+    expect(password).toHaveAttribute("type", "password")
+  })
   it("muestra la ayuda de contraseña solo al pedirla", () => {
     render(<AuthForm />)
     expect(screen.queryByText("Perfil → Seguridad")).not.toBeInTheDocument()

@@ -349,6 +349,32 @@
   font-size: 14px;
   white-space: nowrap;
 }
+.auth-password {
+  position: relative;
+}
+.auth-password input {
+  padding-right: 40px;
+}
+.auth-reveal {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  background: none;
+  border: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.auth-reveal:hover {
+  color: var(--foreground);
+}
+.auth-reveal svg {
+  width: 16px;
+  height: 16px;
+}
 .auth-label-row {
   display: flex;
   justify-content: space-between;

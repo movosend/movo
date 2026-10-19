@@ -1,7 +1,7 @@
 "use client"
 import Link from "next/link"
 import { useActionState, useEffect, useState } from "react"
-import { LoaderCircle, ArrowLeft, Smartphone } from "lucide-react"
+import { LoaderCircle, ArrowLeft, Smartphone, Eye, EyeOff } from "lucide-react"
 import {
   login,
   verify,
@@ -41,6 +41,7 @@ export function AuthForm({
   const [now, setNow] = useState(0)
   const [code, setCode] = useState("")
   const [forgot, setForgot] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const [method, setMethod] = useState<"email" | "phone">("email")
   const hasChallenge = !!challenge
   useEffect(() => {
@@ -186,16 +187,35 @@ export function AuthForm({
                         ¿Olvidaste tu contraseña?
                       </button>
                     </div>
-                    <Input
-                      id="password"
-                      name="password"
-                      type="password"
-                      autoComplete="current-password"
-                      required
-                      maxLength={1024}
-                      disabled={pending}
-                      aria-invalid={!!state.error}
-                    />
+                    <div className="auth-password">
+                      <Input
+                        id="password"
+                        name="password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        required
+                        maxLength={1024}
+                        disabled={pending}
+                        aria-invalid={!!state.error}
+                      />
+                      <button
+                        type="button"
+                        className="auth-reveal"
+                        aria-label={
+                          showPassword
+                            ? "Ocultar contraseña"
+                            : "Mostrar contraseña"
+                        }
+                        aria-pressed={showPassword}
+                        onClick={() => setShowPassword((v) => !v)}
+                      >
+                        {showPassword ? (
+                          <EyeOff aria-hidden />
+                        ) : (
+                          <Eye aria-hidden />
+                        )}
+                      </button>
+                    </div>
                   </Field>
                   {forgot && (
                     <div className="auth-hint">
