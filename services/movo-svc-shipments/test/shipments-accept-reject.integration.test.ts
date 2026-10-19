@@ -97,7 +97,8 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
       destinationAddress: "Bv. San Juan 500, Córdoba",
       destinationLat: baseInput.deliveryLat,
       destinationLng: baseInput.deliveryLng,
-      departureAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      // MOVO-314: dentro de la ventana de retiro del envío del fixture (09:00-12:00 ART del 2030-01-01).
+      departureAt: new Date("2030-01-01T13:00:00.000Z"),
       vehicleType: "auto",
       ...overrides,
     };

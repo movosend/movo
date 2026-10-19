@@ -690,7 +690,7 @@ export function createTripsService(deps: {
       // MOVO-175 (ADR-026): mismo filtro de bloqueos que el feed "Transportar", falla abierto.
       const blockedIds = await safeBlockRelatedUserIds(usersClient, trip.carrierId, logger);
 
-      // 1. Prefiltro geométrico (corredor <= 15 km y fecha calendario argentina)
+      // 1. Prefiltro geométrico (corredor <= 15 km, fecha calendario argentina y ventana de retiro)
       const { items, total } = await shipmentRepository.listAvailable({
         originLat: trip.originLat,
         originLng: trip.originLng,
@@ -698,6 +698,8 @@ export function createTripsService(deps: {
         destinationLng: trip.destinationLng,
         radiusKm: effectiveRadiusKm,
         pickupDate: toArgentinaCalendarDate(trip.departureAt),
+        // MOVO-314: además del día, la salida tiene que caer en la ventana de retiro.
+        departureAt: trip.departureAt,
         excludeUserId: trip.carrierId,
         excludePartyIds: blockedIds,
         page,

@@ -3597,3 +3597,22 @@ reintentarla por el endpoint o por `settlement-sweep` (migración `2026101821000
 - **Viaje (AC7)**: no hizo falta código: la oferta deja de ser `accepted` y los barridos de MOVO-258 cierran el viaje.
 - Mobile: solo lo mínimo para compilar con el valor nuevo de `OfferStatus` y abrir la oferta desde la push; la pantalla
   para bajarse es MOVO-314.
+
+### MOVO-314 — Reuso de viaje al aceptar una oferta y regla de ventana de retiro
+
+QA encontró un viaje por paquete y un viaje vacío duplicado al reofertar tras una asignación caída: `acceptOffer`
+auto-creaba siempre un `Trip` (MOVO-234, su AC5 "asociar a un viaje compatible" había quedado fuera de alcance).
+
+- **Reuso (`offer-repository.ts#acceptOffer`)**: si la oferta no trae `tripId`, antes de crear busca un viaje `declared`
+  del mismo transportista con salida futura (`domain/trip-compatibility.ts#pickReusableTrip`): retiro y entrega a
+  ≤ `TRIP_DEFAULT_MAX_DETOUR_KM` del corredor y salida compatible con la ventana de retiro. Gana el de menor desvío.
+  Un `updateMany ... status = declared` sobre el viaje elegido toma su lock, así que un `start()` concurrente no se cruza.
+- **Regla de ventana única (`tripDepartureFitsPickupWindow`)**: el viaje sale entre `inicio de ventana − 2 h` y el
+  `fin de ventana`, el mismo día calendario argentino. Reemplaza la diferencia fija de horas (descartada: rechazaba
+  retiros de la tarde del mismo día). La usan tres lugares: el reuso, el feed del viaje (`listAvailable` con
+  `departureAt`, mismo SQL) y el push `trip_match` (`findDeclaredTripsMatchingShipment` con `pickupWindow`, que antes
+  no miraba la fecha). Constante en el dominio, no env var.
+- Un viaje auto-creado que queda vacío tras una caída se reutiliza en la reoferta; si nadie reoferta lo cierra el
+  barrido de expiración de viajes sin paquetes.
+
+Pendiente: el filtro "de paso" del tab Transportar en `movo-mobile` sigue comparando solo el día calendario.

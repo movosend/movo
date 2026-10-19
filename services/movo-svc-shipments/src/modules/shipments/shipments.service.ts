@@ -788,6 +788,15 @@ async function dispatchTripMatchPushes(
       deliveryLng: shipment.deliveryLng,
       excludeCarrierIds: [...new Set([shipment.senderId, shipment.receiverId, ...senderBlocks, ...receiverBlocks])],
       radiusKm,
+      // MOVO-314: solo viajes que salen dentro de la ventana de retiro del envío.
+      ...(shipment.pickupDate && shipment.pickupTimeWindowStart && shipment.pickupTimeWindowEnd
+        ? {
+            pickupWindow: {
+              start: pickupWindowInstant(shipment.pickupDate, shipment.pickupTimeWindowStart),
+              end: pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
+            },
+          }
+        : {}),
     });
 
     if (geometricCandidates.length === 0) {

@@ -12,6 +12,7 @@ import {
   toRecurrenceUntilColumn,
 } from "../models/trip";
 import { distanceToSegmentKm } from "../domain/geo";
+import { tripDepartureFitsPickupWindow } from "../domain/trip-compatibility";
 import { TRIP_EXECUTABLE_SHIPMENT_STATUSES } from "../domain/shipment-state-machine";
 
 /**
@@ -370,6 +371,9 @@ export interface MatchShipmentParams {
    * criterio de auto-exclusión que `GET /shipments/available` (MOVO-142). */
   excludeCarrierIds: string[];
   radiusKm: number;
+  /** MOVO-314: ventana de retiro del envío; sin ella no se filtra por fecha. Misma regla
+   * que el feed del viaje (`tripDepartureFitsPickupWindow`). */
+  pickupWindow?: { start: Date; end: Date };
 }
 
 export function createTripRepository(db: PrismaClient): TripRepository {
@@ -625,6 +629,12 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       return rows
         .map(mapTrip)
         .filter((trip) => {
+          if (
+            params.pickupWindow &&
+            !tripDepartureFitsPickupWindow(trip.departureAt, params.pickupWindow.start, params.pickupWindow.end)
+          ) {
+            return false;
+          }
           const pickupDistanceKm = distanceToSegmentKm(
             params.pickupLat,
             params.pickupLng,

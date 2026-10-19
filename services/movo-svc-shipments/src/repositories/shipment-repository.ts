@@ -1,3 +1,4 @@
+import { TRIP_PICKUP_WINDOW_LEAD_HOURS } from "../domain/trip-compatibility";
 import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import type { ShipmentParties } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
@@ -286,6 +287,8 @@ function availableShipmentsWhereSql(params: {
   pickupBox: { latMin: number; latMax: number; lngMin: number; lngMax: number };
   deliveryBox: { latMin: number; latMax: number; lngMin: number; lngMax: number } | null;
   pickupDate: Date | null;
+  /** MOVO-314: salida del viaje -- exige que caiga dentro de la ventana de retiro del envío. */
+  departureAt: Date | null;
   excludePartyIds: string[];
 }): Prisma.Sql {
   const deliveryBoxFilter = params.deliveryBox
@@ -300,6 +303,17 @@ function availableShipmentsWhereSql(params: {
   // argentino que `trip.departureAt` (ver `toArgentinaCalendarDate`). `pickup_date` es
   // `@db.Date`, comparable por igualdad directa contra el `Date` ya anclado.
   const pickupDateFilter = params.pickupDate ? Prisma.sql`AND pickup_date = ${params.pickupDate}::date` : Prisma.empty;
+  // MOVO-314: misma regla que `tripDepartureFitsPickupWindow` (domain/trip-compatibility.ts),
+  // expresada en SQL: salida entre (inicio de ventana - LEAD) y el fin de la ventana.
+  const departureWindowFilter = params.departureAt
+    ? Prisma.sql`
+      AND ${params.departureAt}::timestamptz >=
+        ((pickup_date + pickup_time_window_start) AT TIME ZONE 'America/Argentina/Buenos_Aires')
+        - ${TRIP_PICKUP_WINDOW_LEAD_HOURS} * interval '1 hour'
+      AND ${params.departureAt}::timestamptz <=
+        ((pickup_date + pickup_time_window_end) AT TIME ZONE 'America/Argentina/Buenos_Aires')
+    `
+    : Prisma.empty;
   // MOVO-175 (ADR-026): envíos donde el emisor o el receptor tienen un bloqueo con el
   // caller. Acá y no en un post-filtro, para que el conteo de paginación no diverja.
   const blockedPartiesFilter =
@@ -318,6 +332,7 @@ function availableShipmentsWhereSql(params: {
       AND pickup_lng BETWEEN ${params.pickupBox.lngMin} AND ${params.pickupBox.lngMax}
       ${deliveryBoxFilter}
       ${pickupDateFilter}
+      ${departureWindowFilter}
       ${blockedPartiesFilter}
   `;
 }
@@ -602,6 +617,8 @@ export interface ShipmentRepository {
     radiusKm: number;
     maxDistanceKm?: number;
     pickupDate?: Date;
+    /** MOVO-314: salida del viaje; filtra por la ventana de retiro (`tripDepartureFitsPickupWindow`). */
+    departureAt?: Date;
     excludeUserId: string;
     /** MOVO-175: usuarios con un bloqueo con el caller -- se excluyen sus envíos como emisor o receptor. */
     excludePartyIds?: string[];
@@ -1428,6 +1445,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       radiusKm: number;
       maxDistanceKm?: number;
       pickupDate?: Date;
+      departureAt?: Date;
       excludeUserId: string;
       excludePartyIds?: string[];
       page: number;
@@ -1449,6 +1467,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         pickupBox,
         deliveryBox,
         pickupDate: params.pickupDate ?? null,
+        departureAt: params.departureAt ?? null,
         excludePartyIds: params.excludePartyIds ?? [],
       });
 
