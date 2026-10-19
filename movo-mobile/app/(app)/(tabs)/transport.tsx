@@ -8,7 +8,6 @@ import {
   MapPin,
   PackageX,
   Radar,
-  Route,
   ShieldAlert,
   SlidersHorizontal,
 } from "lucide-react-native";
@@ -532,25 +531,6 @@ export default function TransportScreen() {
 
       {showBrowseChrome && !isTripMode ? (
         <>
-          <PressableScale
-            testID="transport-my-route-cta"
-            // expo-router no infiere la ruta raíz `/route` cuando se navega desde un grupo anidado (tabs); la ruta existe en app/(app)/route/index.tsx
-            onPress={() => router.push("/route" as any)}
-            accessibilityRole="button"
-            className="mx-5 mb-3 flex-row items-center justify-between rounded-[10px] border border-border bg-bg-sub p-3.5"
-          >
-            <View className="flex-row items-center gap-3">
-              <View className="h-8 w-8 items-center justify-center rounded-full bg-lime-500/20">
-                <Route size={16} strokeWidth={2} color={colors.fg1} />
-              </View>
-              <View>
-                <Text className="font-sans-semibold text-[14px] text-fg">Mi ruta de hoy</Text>
-                <Text className="font-sans text-[11.5px] text-fg-3">Mapa y paradas optimizadas</Text>
-              </View>
-            </View>
-            <ArrowRight size={15} strokeWidth={1.8} color={colors.fg2} />
-          </PressableScale>
-
           <TransportAccessCards
             tripsMeta={tripsMeta}
             offersMeta={offersMeta}
