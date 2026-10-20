@@ -3644,3 +3644,7 @@ auto-creaba siempre un `Trip` (MOVO-234, su AC5 "asociar a un viaje compatible" 
   barrido de expiración de viajes sin paquetes.
 
 Pendiente: el filtro "de paso" del tab Transportar en `movo-mobile` sigue comparando solo el día calendario.
+
+### MOVO-296 — Una cuenta suspendida pausa las series recurrentes
+
+`trip-recurrence.ts#continueSeries`: si `svc-users` informa `accountStatus = suspended`, la ocurrencia siguiente se posterga (`deferred`) sin apagar la recurrencia ni avisar de un corte, igual que la deuda vencida (MOVO-313); al levantarse la suspensión se retoma sola. Antes cualquier estado distinto de `active` cortaba la serie para siempre. Una cuenta `banned` (inhabilitada) sigue cortándola. Test en `test/trip-recurrence.integration.test.ts`.
