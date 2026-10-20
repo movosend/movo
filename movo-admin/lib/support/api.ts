@@ -17,7 +17,7 @@ import type {
   SupportSendBody,
   SupportUserContext,
 } from "@movo/shared/src/types/admin-support"
-import { gateway } from "@/lib/auth/api"
+import { gateway, gatewayBaseUrl } from "@/lib/auth/api"
 import { ACCESS_COOKIE } from "@/lib/auth/policy"
 import {
   mockAgents,
@@ -36,6 +36,7 @@ import {
   mockSetStatus,
   type MockActor,
 } from "./mock"
+import { isTrustedSupportSocketUrl } from "./realtime/url"
 
 /**
  * Cliente de `svc-admin` `/admin/support/*` (MOVO-322). El panel no llama a `svc-shipments` ni a
@@ -165,11 +166,23 @@ export async function getRealtimeTicket(
   actor: MockActor
 ): Promise<SupportRealtimeTicket> {
   if (mockEnabled()) return mockRealtimeTicket(actor)
-  return gateway(`${base}/realtime-ticket`, {
-    method: "POST",
-    body: {},
-    accessToken: await token(),
-  })
+  const ticket = await gateway<SupportRealtimeTicket>(
+    `${base}/realtime-ticket`,
+    {
+      method: "POST",
+      body: {},
+      accessToken: await token(),
+    }
+  )
+  if (
+    !isTrustedSupportSocketUrl(
+      ticket.url,
+      gatewayBaseUrl(),
+      process.env.NODE_ENV === "development"
+    )
+  )
+    throw new Error("Invalid support WebSocket URL")
+  return ticket
 }
 
 /** Respaldo del WS: eventos posteriores a `since` (cursor opaco). */

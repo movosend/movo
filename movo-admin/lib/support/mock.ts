@@ -860,7 +860,14 @@ export function mockStoreUpload(
   bytes: Buffer
 ): boolean {
   const up = globals.__movoSupportMock?.uploads.get(id)
-  if (!up || up.bytes || up.contentType !== contentType) return false
+  if (
+    !up ||
+    up.bytes ||
+    up.contentType !== contentType ||
+    bytes.length !== up.sizeBytes ||
+    bytes.length > SUPPORT_ATTACHMENT_MAX_BYTES
+  )
+    return false
   up.bytes = bytes
   return true
 }

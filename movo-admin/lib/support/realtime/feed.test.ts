@@ -64,7 +64,11 @@ function setup(
 }
 const flush = () => vi.advanceTimersByTimeAsync(0)
 
-beforeEach(() => vi.useFakeTimers())
+beforeEach(() =>
+  vi.useFakeTimers({
+    toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+  })
+)
 afterEach(() => vi.useRealTimers())
 
 describe("SupportFeed", () => {
@@ -91,6 +95,30 @@ describe("SupportFeed", () => {
     sockets[1].onopen?.()
     expect(feed.status).toBe("live")
     expect(messages).toContainEqual({ type: "resync" })
+  })
+
+  it("cuenta onerror y onclose del mismo socket como un solo fallo", async () => {
+    const { feed, sockets } = setup()
+    feed.start()
+    await flush()
+    const error = sockets[0].onerror
+    const close = sockets[0].onclose
+    error?.()
+    close?.()
+    expect(sockets[0].closed).toBe(true)
+    expect(feed.status).toBe("reconnecting")
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(sockets).toHaveLength(2)
+    sockets[1].onerror?.()
+    sockets[1].onclose?.()
+    expect(feed.status).toBe("reconnecting")
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(sockets).toHaveLength(3)
+    expect(feed.status).toBe("reconnecting")
+    sockets[2].onerror?.()
+    sockets[2].onclose?.()
+    expect(feed.status).toBe("polling")
+    feed.stop()
   })
 
   it("cae a polling tras fallos seguidos y sigue leyendo desde el cursor", async () => {

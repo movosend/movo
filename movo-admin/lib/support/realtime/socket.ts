@@ -95,6 +95,9 @@ export function openSupportSocket(
   ticket: SupportRealtimeTicket,
   fetchEvents: (since: string | undefined) => Promise<SupportEventsPage | null>
 ): SocketLike {
-  if (ticket.url.startsWith("mock://")) return new MockSocket(fetchEvents)
+  if (ticket.url === MOCK_SOCKET_URL) return new MockSocket(fetchEvents)
+  const url = new URL(ticket.url)
+  if (url.protocol !== "wss:" && url.protocol !== "ws:")
+    throw new Error("Invalid support WebSocket protocol")
   return new NativeSocket(ticket.url, [SUPPORT_WS_PROTOCOL, ticket.ticket])
 }

@@ -151,8 +151,8 @@ export class SupportFeed {
       this.emit({ type: "event", event })
     }
     const down = () => {
-      if (epoch !== this.epoch || !this.running) return
-      this.socket = null
+      if (epoch !== this.epoch || !this.running || this.socket !== socket)
+        return
       this.failed()
     }
     socket.onclose = down

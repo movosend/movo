@@ -261,6 +261,9 @@ describe("adjuntos", () => {
       )
     ).rejects.toMatchObject({ code: "SUPPORT_ATTACHMENT_INVALID" })
     expect(
+      mockStoreUpload(created.attachmentId, "image/png", Buffer.from([1, 2]))
+    ).toBe(false)
+    expect(
       mockStoreUpload(
         created.attachmentId,
         "image/png",
