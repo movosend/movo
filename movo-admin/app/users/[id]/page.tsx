@@ -19,6 +19,7 @@ import { ActivitySection } from "@/components/users/sections/activity-section"
 import { AuditSection } from "@/components/users/sections/audit-section"
 import { DevicesSection } from "@/components/users/sections/devices-section"
 import { KycSection } from "@/components/users/sections/kyc-section"
+import { NotesSection } from "@/components/users/sections/notes-section"
 import { LedgerSection } from "@/components/users/sections/ledger-section"
 import {
   BlocksSection,
@@ -101,7 +102,7 @@ export default async function Page({
     <AdminShell {...shell} crumb={user.fullName}>
       <FichaProvider>
         <div className="mx-auto flex max-w-[1280px] flex-col gap-5 px-5 pt-6 pb-28 md:px-8">
-          <UserHeader user={user}>
+          <UserHeader user={user} isSelf={admin.id === user.id}>
             <KpiStrip />
           </UserHeader>
           <AccountBanner user={user} />
@@ -135,6 +136,9 @@ export default async function Page({
               </Streamed>
               <Streamed id="dispositivos">
                 <DevicesSection id={id} />
+              </Streamed>
+              <Streamed id="notas">
+                <NotesSection id={id} fullName={user.fullName} />
               </Streamed>
               <Streamed id="bitacora">
                 <AuditSection id={id} />

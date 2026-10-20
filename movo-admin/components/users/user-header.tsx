@@ -6,7 +6,6 @@ import {
   Car,
   Clock,
   Fingerprint,
-  Lock,
   Mail,
   PackageOpen,
   Phone,
@@ -24,16 +23,20 @@ import {
   ROLE_LABEL,
 } from "@/lib/users/format"
 import { cn } from "@/lib/utils"
+import { AccountActions } from "./actions/account-actions"
 import { StatusPill, TONE_BG } from "./ui"
 
 const ROLE_ICON = { sender: PackageOpen, carrier: Car, admin: ShieldCheck }
 
-/** Cabecera de la ficha: grilla y puntos de fondo, identidad, acciones reservadas y los KPIs (children). */
+/** Cabecera de la ficha: grilla y puntos de fondo, identidad, menú de acciones y los KPIs (children). */
 export function UserHeader({
   user,
+  isSelf = false,
   children,
 }: {
   user: AdminUserProfile
+  /** La ficha es la del propio admin: las acciones sobre la cuenta quedan deshabilitadas. */
+  isSelf?: boolean
   children: React.ReactNode
 }) {
   const pill = accountPill(user.accountStatus, user.bannedUntil)
@@ -57,18 +60,7 @@ export function UserHeader({
             <ArrowLeft aria-hidden className="size-4" />
             Volver a usuarios
           </Link>
-          {/* Lugar reservado para las sanciones de MOVO-36 (AC5 de MOVO-295): no hace nada todavía. */}
-          <div
-            aria-disabled="true"
-            title="Las sanciones de cuenta llegan con MOVO-36"
-            className="flex h-9 cursor-not-allowed items-center gap-2 rounded-lg border border-dashed border-border-strong bg-card px-3.5 text-sm text-fg-disabled select-none"
-          >
-            <Lock aria-hidden className="size-[15px]" />
-            Acciones
-            <span className="inline-flex h-[18px] items-center rounded-full bg-muted px-[7px] text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
-              Próximamente
-            </span>
-          </div>
+          <AccountActions user={user} isSelf={isSelf} />
         </div>
         <div className="flex min-w-0 items-center gap-[18px]">
           <Avatar

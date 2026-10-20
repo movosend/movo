@@ -52,6 +52,7 @@ export function LedgerPanel({
         id="cuenta"
         status="ready"
         count={items.length}
+        balanceArs={bal}
         kpi={{
           value: bal === 0 ? "Al día" : formatArs(bal),
           sub: debt ? "debe" : bal < 0 ? "a favor" : undefined,

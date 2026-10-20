@@ -18,6 +18,8 @@ export interface SectionState {
   count?: number
   /** Valor y subtítulo de la tira de KPIs de la cabecera. */
   kpi?: { value: string; sub?: string; tone?: "warn" }
+  /** Saldo de la cuenta corriente: lo lee el diálogo de ajuste para mostrar el saldo resultante. */
+  balanceArs?: number
 }
 
 interface Ficha {
@@ -37,6 +39,7 @@ export function FichaProvider({ children }: { children: ReactNode }) {
         old &&
         old.status === state.status &&
         old.count === state.count &&
+        old.balanceArs === state.balanceArs &&
         old.kpi?.value === state.kpi?.value &&
         old.kpi?.sub === state.kpi?.sub &&
         old.kpi?.tone === state.kpi?.tone
@@ -64,6 +67,7 @@ export function ReportSection({
   status,
   count,
   kpi,
+  balanceArs,
 }: { id: SectionId } & SectionState) {
   const { report } = useFicha()
   const kpiValue = kpi?.value
@@ -73,12 +77,13 @@ export function ReportSection({
     report(id, {
       status,
       count,
+      balanceArs,
       kpi:
         kpiValue === undefined
           ? undefined
           : { value: kpiValue, sub: kpiSub, tone: kpiTone },
     })
-  }, [report, id, status, count, kpiValue, kpiSub, kpiTone])
+  }, [report, id, status, count, balanceArs, kpiValue, kpiSub, kpiTone])
   return null
 }
 

@@ -11,5 +11,12 @@ export async function AuditSection({ id }: { id: string }) {
         <SectionError id="bitacora" userId={id} status={result.status} />
       </SectionShell>
     )
-  return <AuditPanel userId={id} initial={result.data} />
+  // La clave recrea el panel cuando entra una fila nueva (una acción de "Acciones").
+  return (
+    <AuditPanel
+      key={result.data.items[0]?.id ?? "empty"}
+      userId={id}
+      initial={result.data}
+    />
+  )
 }

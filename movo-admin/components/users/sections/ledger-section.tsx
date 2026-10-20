@@ -11,5 +11,8 @@ export async function LedgerSection({ id }: { id: string }) {
         <SectionError id="cuenta" userId={id} status={result.status} />
       </SectionShell>
     )
-  return <LedgerPanel userId={id} initial={result.data} />
+  // La clave recrea el panel cuando cambia el saldo o el movimiento más reciente (un ajuste desde
+  // "Acciones"): sin ella conservaría la lista que ya tenía en su estado.
+  const key = `${result.data.balanceArs}:${result.data.items[0]?.id ?? ""}`
+  return <LedgerPanel key={key} userId={id} initial={result.data} />
 }

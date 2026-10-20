@@ -13,6 +13,10 @@ const ACTION: Record<string, string> = {
   "user.ban": "Baneo",
   "user.lift": "Sanción levantada",
   "ledger.adjust": "Ajuste de cuenta corriente",
+  "user.ledger_adjust": "Ajuste de cuenta corriente",
+  "user.contact_update": "Cambio de email o teléfono",
+  "user.sessions_revoke": "Cierre de sesiones",
+  "user.note_add": "Nota interna",
 }
 
 /** Acciones de admins sobre esta cuenta, de la más reciente a la más vieja. Ver una ficha no deja rastro (AC4 de MOVO-293). */

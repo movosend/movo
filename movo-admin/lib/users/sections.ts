@@ -5,6 +5,7 @@ import type {
   AdminUserKyc,
   AdminUserLedger,
   AdminUserModeration,
+  AdminUserNotePage,
   AdminUserRatings,
   AdminUserSanctions,
   AdminUserShipmentPage,
@@ -24,6 +25,7 @@ export interface SectionMap {
   ledger: AdminUserLedger
   devices: AdminUserDevices
   audit: AdminUserAuditPage
+  notes: AdminUserNotePage
 }
 
 export type SectionKey = keyof SectionMap
@@ -39,6 +41,7 @@ export const SECTION_ROUTE: Record<SectionKey, string> = {
   ledger: "ledger",
   devices: "devices",
   audit: "audit-log",
+  notes: "notes",
 }
 
 export interface SectionParams {
@@ -62,4 +65,5 @@ export const SECTION_SERVICE: Record<SectionKey, string> = {
   ledger: "PAYMENTS",
   suspensions: "ADMIN",
   audit: "ADMIN",
+  notes: "ADMIN",
 }

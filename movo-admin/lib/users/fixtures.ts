@@ -14,6 +14,7 @@ import type {
   AdminShipmentRole,
   AdminShipmentStatus,
   AdminUserAuditPage,
+  AdminUserNote,
   AdminUserDevices,
   AdminUserKyc,
   AdminUserLedger,
@@ -462,7 +463,7 @@ const RAW: Raw[] = [
   ],
 ]
 
-interface Seed {
+export interface Seed {
   id: string
   name: string
   email: string
@@ -479,7 +480,7 @@ interface Seed {
   birth: string
 }
 
-const SEEDS: Seed[] = RAW.map((r) => ({
+export const SEEDS: Seed[] = RAW.map((r) => ({
   id: uuid(r[0]),
   name: r[0],
   email: r[1],
@@ -610,11 +611,24 @@ interface Extra {
   handshake?: string | null
   deletedAt?: string
   audit?: AdminUserAuditPage["items"]
+  notes?: { admin: string; body: string; at: string }[]
   mp?: "linked" | "not_linked" | "revoked"
 }
 
 const EXTRA: Record<string, Extra> = {
   "Marcos Vera": {
+    notes: [
+      {
+        admin: "Carla Benítez",
+        body: "Escribió a soporte por el reporte de acoso: ya hablé con él, entiende el criterio. Si reincide, pasar directo a suspensión.",
+        at: "2026-09-02",
+      },
+      {
+        admin: "Tomás Ferreyra",
+        body: "Pidió cambiar el teléfono por robo del celular. Validé identidad por videollamada con el DNI.",
+        at: "2026-08-21",
+      },
+    ],
     vehicle: {
       brand: "Fiat",
       model: "Cronos",
@@ -774,6 +788,13 @@ const EXTRA: Record<string, Extra> = {
   },
   "Renata Silva": { vehicle: null, ratings: [], devices: [] },
   "Hernán Molina": {
+    notes: [
+      {
+        admin: "Tomás Ferreyra",
+        body: "Disputa abierta por un paquete dañado: esperar fotos del emisor antes de resolver.",
+        at: "2026-10-12",
+      },
+    ],
     vehicle: {
       brand: "Volkswagen",
       model: "Gol Trend",
@@ -1627,6 +1648,18 @@ function ledgerRow(
     adminName: r.admin ?? null,
     createdAt: at(r.at),
   }
+}
+
+export function mockNotes(s: Seed): AdminUserNote[] {
+  return (extraOf(s).notes ?? [])
+    .map((n, i) => ({
+      id: uuid(`${s.name}n${i}`),
+      body: n.body,
+      adminId: uuid(n.admin),
+      adminName: n.admin,
+      createdAt: at(n.at),
+    }))
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
 }
 
 export function mockDevices(s: Seed): AdminUserDevices {

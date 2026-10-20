@@ -2,12 +2,16 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { ApiError } from "@movo/shared/src/errors/api-error"
 
 vi.mock("server-only", () => ({}))
-import { uuid } from "./fixtures"
+import { SEEDS, uuid } from "./fixtures"
 import {
+  mockAddNote,
+  mockAdjustLedger,
   mockEnabled,
   mockGetProfile,
   mockGetSection,
+  mockRevokeSessions,
   mockSearchUsers,
+  mockUpdateContact,
 } from "./mock"
 
 const MARCOS = uuid("Marcos Vera")
@@ -148,5 +152,169 @@ describe("listas que crecen", () => {
     const r = await mockGetSection(DIEGO, "ratings", { page: 2, pageSize: 5 })
     expect(r.count).toBe(58)
     expect(r.items.length).toBeGreaterThan(0)
+  })
+})
+
+describe("acciones de soporte en modo fixtures", () => {
+  const actor = {
+    adminId: uuid("Admin de prueba"),
+    adminName: "Admin de prueba",
+  }
+  // Hernán no lo toca ningún otro test: el estado del mock vive en memoria del proceso.
+  const HERNAN = uuid("Hernán Molina")
+  const FUNES = uuid("Diego Funes")
+  const NO_LATENCY = () => vi.stubEnv("MOVO_ADMIN_MOCK_LATENCY_MS", "0")
+
+  it("cerrar sesiones deja una fila aplicada en la bitácora", async () => {
+    NO_LATENCY()
+    const result = await mockRevokeSessions(HERNAN, "Celular robado", actor)
+    expect(result.revokedRefreshTokens).toBeGreaterThan(0)
+    const audit = await mockGetSection(HERNAN, "audit", { limit: 5 })
+    expect(audit.items[0]).toMatchObject({
+      action: "user.sessions_revoke",
+      reason: "Celular robado",
+      outcome: "succeeded",
+      adminName: "Admin de prueba",
+    })
+  })
+
+  it("un admin no puede actuar sobre su propia cuenta", async () => {
+    NO_LATENCY()
+    await expect(
+      mockRevokeSessions(HERNAN, "x", { ...actor, adminId: HERNAN })
+    ).rejects.toMatchObject({ code: "ADMIN_CONFLICT_OF_INTEREST" })
+  })
+
+  it("cambiar el email lo deja sin verificar y se ve en la ficha", async () => {
+    NO_LATENCY()
+    const before = await mockGetProfile(FUNES)
+    const result = await mockUpdateContact(
+      FUNES,
+      {
+        field: "email",
+        newValue: "nuevo.funes@gmail.com",
+        expectedCurrent: before.email,
+        reason: "Pidió el cambio",
+      },
+      actor
+    )
+    expect(result).toMatchObject({
+      email: "nuevo.funes@gmail.com",
+      emailVerified: false,
+      phone: before.phone,
+    })
+    const after = await mockGetProfile(FUNES)
+    expect(after.email).toBe("nuevo.funes@gmail.com")
+    expect(after.emailVerified).toBe(false)
+  })
+
+  it("rechaza un valor viejo, el mismo valor y uno ya usado", async () => {
+    NO_LATENCY()
+    const profile = await mockGetProfile(HERNAN)
+    const body = {
+      field: "email" as const,
+      newValue: "otro@gmail.com",
+      expectedCurrent: profile.email,
+      reason: "x",
+    }
+    await expect(
+      mockUpdateContact(
+        HERNAN,
+        { ...body, expectedCurrent: "viejo@gmail.com" },
+        actor
+      )
+    ).rejects.toMatchObject({ code: "CONTACT_CHANGED" })
+    await expect(
+      mockUpdateContact(HERNAN, { ...body, newValue: profile.email }, actor)
+    ).rejects.toMatchObject({ code: "CONTACT_UNCHANGED" })
+    const marcos = await mockGetProfile(uuid("Marcos Vera"))
+    await expect(
+      mockUpdateContact(HERNAN, { ...body, newValue: marcos.email }, actor)
+    ).rejects.toMatchObject({ code: "EMAIL_ALREADY_IN_USE" })
+    await expect(
+      mockUpdateContact(
+        HERNAN,
+        {
+          ...body,
+          field: "phone",
+          newValue: marcos.phone,
+          expectedCurrent: profile.phone,
+        },
+        actor
+      )
+    ).rejects.toMatchObject({ code: "PHONE_ALREADY_IN_USE" })
+  })
+
+  it("un ajuste mueve el saldo, aparece primero y es idempotente", async () => {
+    NO_LATENCY()
+    const ledger = await mockGetSection(HERNAN, "ledger", { limit: 20 })
+    const key = "9b2f7c1e-4d3a-4f6b-8c1d-2e5a7b9c0d1e"
+    const body = {
+      amountArs: 500,
+      reason: "Cobro que faltó",
+      idempotencyKey: key,
+    }
+    const first = await mockAdjustLedger(HERNAN, body, actor)
+    expect(first.balanceArs).toBe(ledger.balanceArs + 500)
+    expect(first.entry).toMatchObject({
+      type: "manual_adjustment",
+      amountArs: 500,
+      adminName: "Admin de prueba",
+    })
+    const again = await mockAdjustLedger(HERNAN, body, actor)
+    expect(again.entry.id).toBe(first.entry.id)
+    expect(again.balanceArs).toBe(first.balanceArs)
+    await expect(
+      mockAdjustLedger(HERNAN, { ...body, amountArs: 600 }, actor)
+    ).rejects.toMatchObject({ code: "LEDGER_IDEMPOTENCY_CONFLICT" })
+    const after = await mockGetSection(HERNAN, "ledger", { limit: 20 })
+    expect(after.balanceArs).toBe(ledger.balanceArs + 500)
+    expect(after.items[0].id).toBe(first.entry.id)
+  })
+
+  it("rechaza un ajuste en cero o por encima del tope", async () => {
+    NO_LATENCY()
+    const key = "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f"
+    for (const amountArs of [0, 1_000_000])
+      await expect(
+        mockAdjustLedger(
+          HERNAN,
+          {
+            amountArs,
+            reason: "x",
+            idempotencyKey: `${amountArs}${key}`.slice(-36),
+          },
+          actor
+        )
+      ).rejects.toMatchObject({ code: "AMOUNT_OUT_OF_RANGE" })
+  })
+
+  it("las notas nuevas van primero y una cuenta eliminada igual las admite", async () => {
+    NO_LATENCY()
+    const before = await mockGetSection(HERNAN, "notes", {})
+    const note = await mockAddNote(HERNAN, "Llamó por la disputa", actor)
+    const after = await mockGetSection(HERNAN, "notes", {})
+    expect(after.items[0]).toMatchObject({
+      id: note.id,
+      adminName: "Admin de prueba",
+    })
+    expect(after.items).toHaveLength(before.items.length + 1)
+    const deleted = SEEDS.find((u) => u.status === "deleted")
+    expect(deleted).toBeDefined()
+    await expect(mockAddNote(deleted!.id, "Nota", actor)).resolves.toBeDefined()
+    await expect(
+      mockRevokeSessions(deleted!.id, "x", actor)
+    ).rejects.toMatchObject({ code: "USER_DELETED" })
+  })
+
+  it("MOVO_ADMIN_MOCK_FAIL=actions! simula el servicio caído y deja la fila sin confirmar", async () => {
+    NO_LATENCY()
+    vi.stubEnv("MOVO_ADMIN_MOCK_FAIL", "actions!")
+    await expect(mockRevokeSessions(HERNAN, "x", actor)).rejects.toMatchObject({
+      statusCode: 502,
+    })
+    vi.stubEnv("MOVO_ADMIN_MOCK_FAIL", "")
+    const audit = await mockGetSection(HERNAN, "audit", { limit: 1 })
+    expect(audit.items[0].outcome).toBe("unknown")
   })
 })

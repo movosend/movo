@@ -16,6 +16,8 @@ vi.mock("next/link", () => ({
   ),
 }))
 
+vi.mock("@/app/users/[id]/account-actions", () => ({}))
+
 import type { AdminUserProfile } from "@movo/shared/src/types/admin-users"
 import { AccountBanner, UserHeader } from "./user-header"
 
@@ -42,15 +44,13 @@ const profile = (over: Partial<AdminUserProfile> = {}): AdminUserProfile => ({
 afterEach(cleanup)
 
 describe("cabecera de la ficha", () => {
-  it("reserva el lugar de las acciones, deshabilitado y sin hacer nada (MOVO-36)", () => {
+  it("muestra el menú de acciones y el enlace de vuelta", () => {
     render(
       <UserHeader user={profile()}>
         <div />
       </UserHeader>
     )
-    const actions = screen.getByText("Acciones").closest("div")
-    expect(actions).toHaveAttribute("aria-disabled", "true")
-    expect(screen.getByText("Próximamente")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Acciones" })).toBeEnabled()
     expect(
       screen.getByRole("link", { name: /Volver a usuarios/ })
     ).toHaveAttribute("href", "/users")

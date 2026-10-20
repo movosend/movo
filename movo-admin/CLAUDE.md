@@ -160,9 +160,43 @@ ticket y los implementa MOVO-294, que los tiene anexados en su descripción.
   pagina de a 5 en el cliente sobre las 50 más recientes que manda `/moderation` (`totals` dice cuántas hay) y
   Bloqueos muestra 6 por columna con "Ver más"; los intentos de KYC colapsan después de 3. Sanciones y
   Dispositivos no paginan: son pocos por persona. En el modo fixtures, Diego Funes trae volumen alto para probarlo.
-- **Acciones sobre la cuenta**: el botón "Acciones" queda deshabilitado (lugar reservado para MOVO-36).
+- **Acciones sobre la cuenta**: ver "Acciones de soporte sobre la cuenta" más abajo. Las sanciones (MOVO-299) siguen
+  siendo una entrada deshabilitada del mismo menú.
 - Tokens nuevos en `globals.css` (`--success-soft`, `--dot-*`, `--star`, `--shadow-1`, `.mv-grid-fade`, `.mv-dots-fade`).
 - `internalReturnPath` acepta ahora `/users[?query]` y `/users/<uuid>`.
 
 Pendiente: verificar a mano contra dev con un usuario con envíos, reportes y bloqueos (DoD de 295), que necesita
 MOVO-294 desplegado; hasta entonces la comparación visual con el prototipo se hace con `MOVO_ADMIN_MOCK=1`.
+
+## Acciones de soporte sobre la cuenta (contratos en MOVO-294)
+
+Menú "Acciones" de la cabecera de la ficha (`components/users/actions/account-actions.tsx`): cambiar email, cambiar
+teléfono, cerrar todas las sesiones, ajustar el saldo y agregar una nota interna, más "Suspender o inhabilitar"
+deshabilitado hasta MOVO-299. Cada una abre un diálogo (`components/users/actions/*-dialog.tsx`) con motivo obligatorio y
+se manda por una Server Action (`app/users/[id]/account-actions.ts`) → `lib/users/mutations.ts` → `svc-admin`
+(`POST /admin/users/:id/{sessions/revoke,contact,ledger/adjustments,notes}`). Los errores vuelven como dato
+(`ActionResult`, `lib/users/errors.ts`) y se muestran dentro del diálogo; al salir bien se hace `revalidatePath` de la ficha.
+
+- **Confirmación en dos pasos** para email/teléfono y saldo: formulario → "antes → después" con la lista de consecuencias y
+  un tilde obligatorio (email/teléfono: "cambia cómo entra a su cuenta"; saldo: "el monto y el sentido son correctos").
+  El valor que el admin vio viaja como `expectedCurrent`; si cambió, `CONTACT_CHANGED` y el diálogo solo deja cerrar.
+- **Saldo**: el diálogo lee el saldo de la sección Cuenta corriente (`balanceArs` que publica `ReportSection` en
+  `ficha-status.tsx`) y no deja revisar hasta que cargó. La `idempotencyKey` es un UUID por apertura del diálogo; se reusa
+  si el servicio no respondió (`unconfirmed`, el ajuste pudo aplicarse) y se renueva ante un rechazo definitivo.
+- **Teléfono/email nuevos quedan sin verificar** (un admin no da prueba de propiedad) y se cierran las sesiones: lo hace el
+  backend; el panel solo lo avisa antes de confirmar. `normalizeArPhone` (`lib/users/contact.ts`) es solo para validar y
+  mostrar "se guarda como": la normalización que vale es la de `svc-users`.
+- **Look de los diálogos de plata y de notas**: el ajuste de saldo usa el "hero" del saldo, tarjetas de sentido en
+  ámbar/verde (`warn-*`/`success-*`), monto grande con montos rápidos y el antes → después en vivo; al confirmar, un
+  comprobante tipo ticket. Las notas son post-its (`.mv-postit`/`.mv-postit-lines` y tokens `--postit-*` en `globals.css`,
+  claro y oscuro; `PostitPin` en `actions/postit.tsx`), tanto al escribirlas como en la sección.
+- **Notas**: sección nueva "Notas" (`notes-section.tsx`/`notes-panel.tsx`, por cursor con "Ver más"); solo se agregan.
+  Las secciones Cuenta corriente, Bitácora y Notas se recrean con `key` cuando entra un movimiento/fila/nota nueva, si no
+  conservarían la lista en su estado.
+- **Propia cuenta y cuenta eliminada**: el menú deshabilita todo sobre la propia cuenta (`isSelf`, igual lo corta
+  `ADMIN_CONFLICT_OF_INTEREST`) y deja solo notas en una cuenta `deleted` (`USER_DELETED` en el resto).
+- **Modo fixtures**: las acciones funcionan en memoria (`mock.ts`: perfil, cuenta corriente, notas y bitácora cambian de
+  verdad hasta reiniciar el server). `MOVO_ADMIN_MOCK_FAIL=actions!` las hace fallar con 502 ("Sin confirmar").
+
+Pendiente: probarlo a mano contra dev y en claro/oscuro (esta sesión no tuvo acceso al login real); contra el backend real
+falta MOVO-294. Códigos nuevos en `ApiErrorCode`: `CONTACT_CHANGED`, `CONTACT_UNCHANGED`, `USER_DELETED`, `AMOUNT_OUT_OF_RANGE`.

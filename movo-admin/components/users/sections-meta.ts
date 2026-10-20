@@ -2,6 +2,7 @@ import {
   Car,
   Flag,
   Gavel,
+  NotebookPen,
   Route,
   ScanFace,
   ScrollText,
@@ -24,6 +25,7 @@ export const SECTION_IDS = [
   "sanciones",
   "cuenta",
   "dispositivos",
+  "notas",
   "bitacora",
 ] as const
 
@@ -114,6 +116,14 @@ export const SECTION_META: Record<SectionId, SectionMeta> = {
     noun: "los dispositivos",
     icon: Smartphone,
     route: "/devices",
+  },
+  notas: {
+    title: "Notas internas",
+    label: "Notas",
+    noun: "las notas",
+    hint: "Solo las ven admins · no se editan ni se borran",
+    icon: NotebookPen,
+    route: "/notes",
   },
   bitacora: {
     title: "Bitácora",

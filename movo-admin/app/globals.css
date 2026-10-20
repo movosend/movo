@@ -86,6 +86,12 @@
   --lime-glow:
     0 0 0 4px rgba(198, 242, 74, 0.25), 0 0 24px rgba(198, 242, 74, 0.35);
   --surface-sub: #fafafb;
+  /* Post-it de las notas internas. */
+  --postit: #fff3a6;
+  --postit-ink: #4a3d00;
+  --postit-line: rgba(122, 96, 0, 0.14);
+  --postit-fold: #e9d56a;
+  --postit-shadow: rgba(122, 96, 0, 0.35);
   --fg2: #3a3a40;
   --fg-disabled: #8a8a93;
   --border-strong: rgba(10, 10, 11, 0.18);
@@ -157,6 +163,11 @@
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-ring: rgba(255, 255, 255, 0.5);
   --surface-sub: #151517;
+  --postit: #3d3515;
+  --postit-ink: #f5e7a1;
+  --postit-line: rgba(245, 231, 161, 0.13);
+  --postit-fold: #2b250e;
+  --postit-shadow: rgba(0, 0, 0, 0.6);
   --fg2: #d5d5db;
   --fg-disabled: #6a6a73;
   --border-strong: rgba(255, 255, 255, 0.16);
@@ -553,6 +564,33 @@
     linear-gradient(to right, var(--grid) 1px, transparent 1px),
     linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
   background-size: 24px 24px;
+}
+/* Post-it: papel amarillo con la esquina doblada abajo a la derecha. */
+.mv-postit {
+  position: relative;
+  background: var(--postit);
+  color: var(--postit-ink);
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.06),
+    0 10px 18px -10px var(--postit-shadow);
+}
+.mv-postit::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  background: linear-gradient(135deg, transparent 50%, var(--postit-fold) 50%);
+  box-shadow: -3px -3px 5px -3px rgba(0, 0, 0, 0.18);
+}
+/* Renglones del papel: la altura de línea del texto tiene que ser de 28px. */
+.mv-postit-lines {
+  background-image: repeating-linear-gradient(
+    transparent 0 27px,
+    var(--postit-line) 27px 28px
+  );
+  background-attachment: local;
 }
 .mv-empty-icon {
   background-color: var(--surface-sub);
