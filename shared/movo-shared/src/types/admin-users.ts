@@ -198,11 +198,17 @@ export interface AdminUserBlock {
   createdAt: string;
 }
 
-/** `GET /admin/users/:id/moderation`. */
+/**
+ * `GET /admin/users/:id/moderation`. Cada lista trae a lo sumo las `ADMIN_USER_MODERATION_LIMIT`
+ * más recientes; `totals` dice cuántas hay en total para que el panel avise que faltan.
+ */
 export interface AdminUserModeration {
   reports: { received: AdminUserReport[]; made: AdminUserReport[] };
   blocks: { made: AdminUserBlock[]; received: AdminUserBlock[] };
+  totals: { reportsReceived: number; reportsMade: number; blocksMade: number; blocksReceived: number };
 }
+
+export const ADMIN_USER_MODERATION_LIMIT = 50;
 
 export interface AdminUserSanction {
   type: "temporary" | "permanent";

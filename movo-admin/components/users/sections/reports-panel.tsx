@@ -1,5 +1,6 @@
 "use client"
 import { useState } from "react"
+import { Pager } from "../pager"
 import {
   CalendarX,
   CircleDollarSign,
@@ -40,15 +41,27 @@ function extra(r: AdminUserReport): string {
   return parts.length ? ` · ${parts.join(" · ")}` : ""
 }
 
+const PAGE_SIZE = 5
+
 export function ReportsPanel({
   received,
   made,
+  totals,
 }: {
   received: AdminUserReport[]
   made: AdminUserReport[]
+  /** Cuántos hay en total; el servidor manda solo los más recientes. */
+  totals: { received: number; made: number }
 }) {
   const [tab, setTab] = useState<Tab>("recv")
-  const list = tab === "recv" ? received : made
+  const [pages, setPages] = useState({ recv: 1, made: 1 })
+  const all = tab === "recv" ? received : made
+  const total = tab === "recv" ? totals.received : totals.made
+  const page = Math.min(
+    pages[tab],
+    Math.max(1, Math.ceil(all.length / PAGE_SIZE))
+  )
+  const list = all.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const pending = received.filter((r) => r.status === "pending").length
   return (
     <SectionShell
@@ -59,8 +72,8 @@ export function ReportsPanel({
           value={tab}
           onChange={setTab}
           options={[
-            { value: "recv", label: "Recibidos", count: received.length },
-            { value: "made", label: "Hechos", count: made.length },
+            { value: "recv", label: "Recibidos", count: totals.received },
+            { value: "made", label: "Hechos", count: totals.made },
           ]}
         />
       }
@@ -68,9 +81,9 @@ export function ReportsPanel({
       <ReportSection
         id="reportes"
         status="ready"
-        count={received.length + made.length}
+        count={totals.received + totals.made}
         kpi={{
-          value: String(received.length),
+          value: String(totals.received),
           sub: pending
             ? `${pending} pendiente${pending > 1 ? "s" : ""}`
             : undefined,
@@ -108,6 +121,21 @@ export function ReportsPanel({
           </div>
         )
       })}
+      {all.length > PAGE_SIZE && (
+        <Pager
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={all.length}
+          size={30}
+          noun="reportes"
+          onChange={(n) => setPages((p) => ({ ...p, [tab]: n }))}
+        />
+      )}
+      {total > all.length && (
+        <p className="border-t px-[18px] py-2.5 text-xs text-muted-foreground">
+          Se muestran los {all.length} más recientes de {total}.
+        </p>
+      )}
       {list.length === 0 && (
         <SectionEmpty
           icon={Flag}

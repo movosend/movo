@@ -58,6 +58,8 @@ export async function getUserSection<K extends SectionKey>(
   if (params.role) query.set("role", params.role)
   if (params.page) query.set("page", String(params.page))
   if (params.pageSize) query.set("pageSize", String(params.pageSize))
+  if (params.cursor) query.set("cursor", params.cursor)
+  if (params.limit) query.set("limit", String(params.limit))
   const qs = query.size ? `?${query}` : ""
   return gateway<SectionMap[K]>(
     `/admin/users/${encodeURIComponent(id)}/${SECTION_ROUTE[key]}${qs}`,

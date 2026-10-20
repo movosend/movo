@@ -155,6 +155,11 @@ ticket y los implementa MOVO-294, que los tiene anexados en su descripción.
 - **Fuera del prototipo, agregado por los AC de 293**: Bitácora, tarjeta de Mercado Pago dentro de KYC y pestaña
   Viajes en Actividad. Los envíos no tienen código propio: se muestra el ID corto y, cuando exista MOVO-33,
   `shipmentHref()` en `activity-panel.tsx` es el único lugar a completar para linkear al detalle.
+- **Listas que crecen**: Actividad (envíos y viajes) y Calificaciones paginan de a 5 con `page`/`total`; Cuenta
+  corriente y Bitácora por cursor con "Ver más" (`MoreRow`, acciones `loadLedgerMore`/`loadAuditMore`); Reportes
+  pagina de a 5 en el cliente sobre las 50 más recientes que manda `/moderation` (`totals` dice cuántas hay) y
+  Bloqueos muestra 6 por columna con "Ver más"; los intentos de KYC colapsan después de 3. Sanciones y
+  Dispositivos no paginan: son pocos por persona. En el modo fixtures, Diego Funes trae volumen alto para probarlo.
 - **Acciones sobre la cuenta**: el botón "Acciones" queda deshabilitado (lugar reservado para MOVO-36).
 - Tokens nuevos en `globals.css` (`--success-soft`, `--dot-*`, `--star`, `--shadow-1`, `.mv-grid-fade`, `.mv-dots-fade`).
 - `internalReturnPath` acepta ahora `/users[?query]` y `/users/<uuid>`.

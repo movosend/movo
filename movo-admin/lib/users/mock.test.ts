@@ -110,3 +110,43 @@ describe("ficha", () => {
     })
   })
 })
+
+describe("listas que crecen", () => {
+  const DIEGO = uuid("Diego Funes")
+
+  it("la cuenta corriente pagina por cursor y el saldo cuenta todo", async () => {
+    vi.stubEnv("MOVO_ADMIN_MOCK_LATENCY_MS", "0")
+    const first = await mockGetSection(DIEGO, "ledger", { limit: 20 })
+    expect(first.items).toHaveLength(20)
+    expect(first.nextCursor).toBe("20")
+    const last = await mockGetSection(DIEGO, "ledger", {
+      cursor: "40",
+      limit: 20,
+    })
+    expect(last.items).toHaveLength(5)
+    expect(last.nextCursor).toBeNull()
+    expect(last.balanceArs).toBe(first.balanceArs)
+  })
+
+  it("la bitácora pagina por cursor", async () => {
+    vi.stubEnv("MOVO_ADMIN_MOCK_LATENCY_MS", "0")
+    const first = await mockGetSection(DIEGO, "audit", { limit: 20 })
+    expect(first.items).toHaveLength(20)
+    expect(first.nextCursor).toBe("20")
+  })
+
+  it("moderación trae a lo sumo las 50 más recientes y avisa el total", async () => {
+    vi.stubEnv("MOVO_ADMIN_MOCK_LATENCY_MS", "0")
+    const mod = await mockGetSection(DIEGO, "moderation", {})
+    expect(mod.reports.received).toHaveLength(50)
+    expect(mod.totals.reportsReceived).toBe(55)
+    expect(mod.totals.blocksMade).toBe(12)
+  })
+
+  it("las calificaciones paginan hasta el total", async () => {
+    vi.stubEnv("MOVO_ADMIN_MOCK_LATENCY_MS", "0")
+    const r = await mockGetSection(DIEGO, "ratings", { page: 2, pageSize: 5 })
+    expect(r.count).toBe(58)
+    expect(r.items.length).toBeGreaterThan(0)
+  })
+})

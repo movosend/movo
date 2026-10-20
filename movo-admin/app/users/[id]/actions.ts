@@ -2,6 +2,8 @@
 import { ApiError } from "@movo/shared/src/errors/api-error"
 import type {
   AdminShipmentRole,
+  AdminUserAuditPage,
+  AdminUserLedger,
   AdminUserRatings,
   AdminUserShipmentPage,
   AdminUserTripPage,
@@ -59,4 +61,27 @@ export async function loadRatingsPage(
   const denied = await guard(userId, page)
   if (denied) return denied
   return loadSection(userId, "ratings", { page, pageSize: ACTIVITY_PAGE_SIZE })
+}
+
+const CURSOR = /^[A-Za-z0-9_=.-]{1,200}$/
+
+/** "Ver más" de la cuenta corriente: la página siguiente a `cursor`, que viene de la respuesta anterior. */
+export async function loadLedgerMore(
+  userId: string,
+  cursor: string
+): Promise<Loaded<AdminUserLedger>> {
+  const denied = await guard(userId, 1)
+  if (denied) return denied
+  if (!CURSOR.test(cursor)) return { ok: false, status: 400 }
+  return loadSection(userId, "ledger", { cursor, limit: 20 })
+}
+
+export async function loadAuditMore(
+  userId: string,
+  cursor: string
+): Promise<Loaded<AdminUserAuditPage>> {
+  const denied = await guard(userId, 1)
+  if (denied) return denied
+  if (!CURSOR.test(cursor)) return { ok: false, status: 400 }
+  return loadSection(userId, "audit", { cursor, limit: 20 })
 }

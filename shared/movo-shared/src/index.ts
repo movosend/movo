@@ -333,6 +333,7 @@ export type {
 } from "./types/admin";
 
 // admin: búsqueda de usuarios y ficha (MOVO-295, backend MOVO-294)
+export { ADMIN_USER_MODERATION_LIMIT } from "./types/admin-users";
 export type {
   AdminKycStatus,
   AdminAccountStatus,

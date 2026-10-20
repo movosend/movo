@@ -45,6 +45,9 @@ export interface SectionParams {
   role?: AdminShipmentRole
   page?: number
   pageSize?: number
+  /** Cuenta corriente y bitácora paginan por cursor (`nextCursor` de la respuesta anterior). */
+  cursor?: string
+  limit?: number
 }
 
 /** Servicio dueño de cada sección: es el que, si cae, responde 502 con su código. */

@@ -17,6 +17,33 @@ import {
 } from "../ui"
 import { cn } from "@/lib/utils"
 
+const ATTEMPTS_SHOWN = 3
+
+function Attempt({ a }: { a: AdminKycCard["attempts"][number] }) {
+  const p = KYC[a.status]
+  return (
+    <div className="flex items-baseline gap-2.5 text-[13px]">
+      <span
+        aria-hidden
+        className={cn(
+          "size-[7px] flex-none -translate-y-px rounded-full",
+          TONE_DOT[p.tone]
+        )}
+      />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span>
+          <span className="font-medium">{p.label}</span>
+          <span className="text-muted-foreground">
+            {" "}
+            · {formatDate(a.requestedAt)}
+          </span>
+        </span>
+        {a.reason && <span className="text-xs text-fg2">{a.reason}</span>}
+      </span>
+    </div>
+  )
+}
+
 function Card({
   icon: Icon,
   title,
@@ -58,32 +85,27 @@ function Card({
       {attempts && attempts.length > 0 && (
         <div className="flex flex-col gap-2 border-t pt-3">
           <Eyebrow>Intentos</Eyebrow>
-          {[...attempts].reverse().map((a, i) => {
-            const p = KYC[a.status]
-            return (
-              <div key={i} className="flex items-baseline gap-2.5 text-[13px]">
-                <span
-                  aria-hidden
-                  className={cn(
-                    "size-[7px] flex-none -translate-y-px rounded-full",
-                    TONE_DOT[p.tone]
-                  )}
-                />
-                <span className="flex min-w-0 flex-col gap-0.5">
-                  <span>
-                    <span className="font-medium">{p.label}</span>
-                    <span className="text-muted-foreground">
-                      {" "}
-                      · {formatDate(a.requestedAt)}
-                    </span>
-                  </span>
-                  {a.reason && (
-                    <span className="text-xs text-fg2">{a.reason}</span>
-                  )}
-                </span>
+          {[...attempts]
+            .reverse()
+            .slice(0, ATTEMPTS_SHOWN)
+            .map((a, i) => (
+              <Attempt key={i} a={a} />
+            ))}
+          {attempts.length > ATTEMPTS_SHOWN && (
+            <details className="group flex flex-col gap-2">
+              <summary className="cursor-pointer text-xs font-medium text-fg2 select-none hover:text-foreground">
+                Ver los {attempts.length - ATTEMPTS_SHOWN} anteriores
+              </summary>
+              <div className="mt-2 flex flex-col gap-2">
+                {[...attempts]
+                  .reverse()
+                  .slice(ATTEMPTS_SHOWN)
+                  .map((a, i) => (
+                    <Attempt key={i} a={a} />
+                  ))}
               </div>
-            )
-          })}
+            </details>
+          )}
         </div>
       )}
     </div>

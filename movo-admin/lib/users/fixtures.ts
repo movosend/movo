@@ -3,6 +3,7 @@
  * Claude Design. Solo los usa `mock.ts` mientras MOVO-294 no esté desplegado. Se arman con la
  * forma de `@movo/shared` (`AdminUser*`), así el panel no depende de que sea un mock.
  */
+import { ADMIN_USER_MODERATION_LIMIT } from "@movo/shared/src/types/admin-users"
 import type {
   AdminAccountStatus,
   AdminKycStatus,
@@ -942,6 +943,63 @@ const EXTRA: Record<string, Extra> = {
   },
 }
 
+/**
+ * Volumen alto para probar la paginación: Diego Funes tiene 55 reportes recibidos, 12 bloqueos,
+ * 45 movimientos de cuenta y 25 acciones en la bitácora.
+ */
+const BULK_NAME = "Diego Funes"
+const day = (i: number) => `2026-0${1 + (i % 9)}-${10 + (i % 18)}`
+const LEDGER_KINDS: [AdminLedgerType, number, AdminLedgerStatus][] = [
+  ["cash_commission", 980, "settled"],
+  ["fee_offset", -980, "settled"],
+  ["cancellation_penalty", 1500, "voided"],
+  ["voluntary_payment", -2000, "settled"],
+  ["payment_surcharge", 310, "pending"],
+]
+const BULK_WHO = [
+  "Ana Molina",
+  "Julián Torres",
+  "Paula Méndez",
+  "Micaela Luque",
+]
+const BULK: Extra = {
+  reportsRecv: Array.from({ length: 55 }, (_, i) => ({
+    reason: (
+      [
+        "harassment",
+        "no_show",
+        "damaged_package",
+        "payment_issue",
+        "other",
+      ] as const
+    )[i % 5],
+    status: (["pending", "reviewed", "dismissed"] as const)[i % 3],
+    who: BULK_WHO[i % BULK_WHO.length],
+    at: day(i),
+    details: `Reporte de prueba número ${i + 1}.`,
+    entries: i % 4 === 0 ? 1 : 0,
+    photos: i % 6 === 0 ? 2 : 0,
+  })),
+  blocksMade: Array.from({ length: 12 }, (_, i) => ({
+    name: `Persona bloqueada ${i + 1}`,
+    at: day(i),
+  })),
+  ledger: Array.from({ length: 45 }, (_, i) => {
+    const [type, amount, status] = LEDGER_KINDS[i % LEDGER_KINDS.length]
+    return { type, amount, status, at: day(i) }
+  }),
+  audit: Array.from({ length: 25 }, (_, i) => ({
+    id: uuid(`bulk-audit${i}`),
+    adminId: uuid("Carla Benítez"),
+    adminName: "Carla Benítez",
+    action: i % 2 ? "ledger.adjust" : "user.suspend",
+    reason: `Acción de prueba número ${i + 1}.`,
+    outcome: "succeeded" as const,
+    errorCode: null,
+    createdAt: at(day(i)),
+  })),
+}
+
 const VEH: [string, string, string][] = [
   ["Toyota", "Etios", "Baúl mediano · hasta 15 kg"],
   ["Renault", "Kangoo", "Utilitario · hasta 120 kg"],
@@ -1264,7 +1322,8 @@ const shipsOf = (name: string) => ({
 
 // --- Respuestas por sección -----------------------------------------------------------------
 
-const extraOf = (s: Seed): Extra => EXTRA[s.name] ?? {}
+const extraOf = (s: Seed): Extra =>
+  s.name === BULK_NAME ? { ...EXTRA[s.name], ...BULK } : (EXTRA[s.name] ?? {})
 const isCarrier = (s: Seed) => s.roles.includes("carrier")
 
 export function mockProfile(s: Seed): AdminUserProfile {
@@ -1444,20 +1503,25 @@ export function mockRatings(
 ): AdminUserRatings {
   const x = extraOf(s)
   const h = hash(s.name)
-  const rows =
-    x.ratings ??
-    (s.nRatings
-      ? [0, 1]
+  const explicit = x.ratings ?? []
+  const rows = [
+    ...explicit,
+    ...(s.nRatings > explicit.length
+      ? Array.from(
+          { length: s.nRatings - explicit.length },
+          (_, k) => k + explicit.length
+        )
           .map((i) => ({
-            score: 5 - ((h >> i) & 1),
+            score: 5 - ((h >> (i % 8)) & 1),
             by: RATERS[(h + i) % RATERS.length],
             role: (isCarrier(s) ? "carrier" : "sender") as AdminShipmentRole,
-            at: `2026-10-0${8 - i * 3}`,
+            at: day(i),
             comment: COMMENTS[(h + i) % COMMENTS.length],
-            ship: undefined as string | undefined,
+            ship: `${s.name}-rating-${i}`,
           }))
           .filter((r) => r.by !== s.name)
-      : [])
+      : []),
+  ]
   const start = (page - 1) * pageSize
   return {
     average: s.nRatings ? s.rating : null,
@@ -1496,16 +1560,23 @@ export function mockModeration(s: Seed): AdminUserModeration {
     user: ref(b.name),
     createdAt: at(b.at),
   })
+  const cap = <T>(list: T[]) => list.slice(0, ADMIN_USER_MODERATION_LIMIT)
+  const recv = (x.reportsRecv ?? []).map((r, i) =>
+    toReport(r, i, `${s.name}rv`)
+  )
+  const made = (x.reportsMade ?? []).map((r, i) =>
+    toReport(r, i, `${s.name}mk`)
+  )
+  const bMade = (x.blocksMade ?? []).map(block)
+  const bRecv = (x.blocksRecv ?? []).map(block)
   return {
-    reports: {
-      received: (x.reportsRecv ?? []).map((r, i) =>
-        toReport(r, i, `${s.name}rv`)
-      ),
-      made: (x.reportsMade ?? []).map((r, i) => toReport(r, i, `${s.name}mk`)),
-    },
-    blocks: {
-      made: (x.blocksMade ?? []).map(block),
-      received: (x.blocksRecv ?? []).map(block),
+    reports: { received: cap(recv), made: cap(made) },
+    blocks: { made: cap(bMade), received: cap(bRecv) },
+    totals: {
+      reportsReceived: recv.length,
+      reportsMade: made.length,
+      blocksMade: bMade.length,
+      blocksReceived: bRecv.length,
     },
   }
 }
@@ -1514,23 +1585,47 @@ export function mockSanctions(s: Seed): AdminUserSanctions {
   return { items: extraOf(s).sanctions ?? [] }
 }
 
-export function mockLedger(s: Seed): AdminUserLedger {
+/** El cursor del mock es el desplazamiento; el de `svc-admin` será opaco, el panel no lo interpreta. */
+const page = <T>(rows: T[], cursor: string | undefined, limit: number) => {
+  const start = Number(cursor) || 0
+  const end = start + limit
+  return {
+    slice: rows.slice(start, end),
+    start,
+    next: end < rows.length ? String(end) : null,
+  }
+}
+
+export function mockLedger(
+  s: Seed,
+  cursor?: string,
+  limit = 20
+): AdminUserLedger {
   const rows = extraOf(s).ledger ?? []
+  const { slice, start, next } = page(rows, cursor, limit)
   return {
     balanceArs: rows
       .filter((r) => r.status !== "voided")
       .reduce((sum, r) => sum + r.amount, 0),
-    items: rows.map((r, i) => ({
-      id: uuid(`${s.name}l${i}`),
-      type: r.type,
-      amountArs: r.amount,
-      status: r.status,
-      shipmentId: r.ship ? uuid(r.ship) : null,
-      reason: r.reason ?? null,
-      adminName: r.admin ?? null,
-      createdAt: at(r.at),
-    })),
-    nextCursor: null,
+    items: slice.map((r, k) => ledgerRow(s, r, start + k)),
+    nextCursor: next,
+  }
+}
+
+function ledgerRow(
+  s: Seed,
+  r: ExtraLedger,
+  i: number
+): AdminUserLedger["items"][number] {
+  return {
+    id: uuid(`${s.name}l${i}`),
+    type: r.type,
+    amountArs: r.amount,
+    status: r.status,
+    shipmentId: r.ship ? uuid(r.ship) : null,
+    reason: r.reason ?? null,
+    adminName: r.admin ?? null,
+    createdAt: at(r.at),
   }
 }
 
@@ -1554,6 +1649,11 @@ export function mockDevices(s: Seed): AdminUserDevices {
   }
 }
 
-export function mockAudit(s: Seed): AdminUserAuditPage {
-  return { items: extraOf(s).audit ?? [], nextCursor: null }
+export function mockAudit(
+  s: Seed,
+  cursor?: string,
+  limit = 20
+): AdminUserAuditPage {
+  const { slice, next } = page(extraOf(s).audit ?? [], cursor, limit)
+  return { items: slice, nextCursor: next }
 }

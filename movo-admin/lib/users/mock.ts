@@ -121,11 +121,11 @@ export async function mockGetSection<K extends SectionKey>(
       case "suspensions":
         return mockSanctions(seed)
       case "ledger":
-        return mockLedger(seed)
+        return mockLedger(seed, params.cursor, params.limit)
       case "devices":
         return mockDevices(seed)
       case "audit":
-        return mockAudit(seed)
+        return mockAudit(seed, params.cursor, params.limit)
     }
   })()
   return result as SectionMap[K]
