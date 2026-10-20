@@ -491,6 +491,22 @@ async function resolveSnapshotProfile(
 }
 
 /**
+ * MOVO-325: guarda los nombres visibles para el listado del panel. Best-effort, igual que los
+ * snapshots de arriba: un fallo de la base no revierte la creación que ya se confirmó.
+ */
+async function recordDisplayNamesSafely(
+  repository: Pick<ShipmentRepository, "recordDisplayNames">,
+  logger: ShipmentsServiceLogger | undefined,
+  entries: Array<{ userId: string; name: string | null | undefined }>
+): Promise<void> {
+  try {
+    await repository.recordDisplayNames(entries);
+  } catch (err) {
+    logger?.warn({ err, event: "display_names_record_failed" }, "No se pudieron guardar los nombres para el listado del panel");
+  }
+}
+
+/**
  * Mismo criterio que `resolveSnapshotProfile`, pero para el rating LOCAL
  * (`getCarrierReputationScore`/`getSenderReputationScore`, MOVO-147/187) -- un fallo
  * de `ratingsService.getReputationSummary` (ej. error de DB) tampoco debe bloquear la
@@ -1399,9 +1415,19 @@ export function createShipmentsService(
         toRealInstant(windowEndAt)
       );
 
+      // MOVO-325: ciudad del retiro y de la entrega (para filtrar en el panel) y nombre del emisor
+      // (para listar y buscar). Todo best-effort: ningún fallo de svc-users frena la creación.
+      const [pickupCity, deliveryCity, senderProfile] = await Promise.all([
+        usersClient.findCity(input.pickupLat, input.pickupLng, input.senderId),
+        usersClient.findCity(input.deliveryLat, input.deliveryLng, input.senderId),
+        resolveSnapshotProfile(usersClient, input.senderId, "emisor", logger),
+      ]);
+
       const created = await repository.create({
         senderId: input.senderId,
         receiverId: input.receiverId,
+        pickupCity,
+        deliveryCity,
         packageType: input.packageType,
         weightKg: input.weightKg,
         lengthCm: input.lengthCm,
@@ -1422,6 +1448,11 @@ export function createShipmentsService(
         highDemand: quote.highDemand,
         receiverConfirmationDeadline,
       });
+
+      await recordDisplayNamesSafely(repository, logger, [
+        { userId: input.senderId, name: senderProfile?.fullName },
+        { userId: input.receiverId, name: receiverProfile.fullName },
+      ]);
 
       // AC1/AC5 de MOVO-108: best-effort, nunca bloquea la creación ya confirmada.
       // El cliente puede rechazar (notifications-client.ts) -- mismo patrón caller-side
@@ -1824,6 +1855,11 @@ export function createShipmentsService(
         estimatedDeliveryTimeWindowStart,
         estimatedDeliveryTimeWindowEnd,
       });
+
+      await recordDisplayNamesSafely(repository, logger, [
+        { userId: input.carrierId, name: carrierProfile?.fullName },
+        { userId: shipment.senderId, name: senderProfile?.fullName },
+      ]);
 
       // AC9: best-effort, fire-and-forget -- un fallo de la notificación no revierte
       // la creación de la oferta (que ya commiteó arriba).
