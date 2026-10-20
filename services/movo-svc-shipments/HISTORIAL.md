@@ -3644,3 +3644,11 @@ auto-creaba siempre un `Trip` (MOVO-234, su AC5 "asociar a un viaje compatible" 
   barrido de expiración de viajes sin paquetes.
 
 Pendiente: el filtro "de paso" del tab Transportar en `movo-mobile` sigue comparando solo el día calendario.
+
+### MOVO-294 — Secciones de la ficha de usuario del panel
+
+`GET /internal/admin/users/:id/{shipments,trips,ratings}` en `modules/admin-internal/` (`admin-users.service.ts`):
+envíos donde participa (filtro por rol y estado, `counts` por rol con el filtro de estado aplicado, `shortId` = 8
+primeros caracteres del UUID), viajes del transportista y calificaciones recibidas con promedio simple (no el score
+de reputación). Devuelven ids de usuario: los nombres los resuelve `svc-admin`. Un usuario inexistente da listas
+vacías, no 404 — consultar a `svc-users` haría que la sección dependa de otro servicio.
