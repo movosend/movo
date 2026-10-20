@@ -22,6 +22,16 @@ jest.mock("../components/trips/trip-match-alert-banner", () => {
   return { TripMatchAlertBanner: () => <Text testID="app-guard-alert-banner-stub">stub</Text> };
 });
 
+// MOVO-169: el overlay del tutorial y el reintento de registros pendientes tienen sus
+// propios tests (`tour-overlay.test.tsx`, `use-record-tour.test.tsx`).
+jest.mock("../components/tour/tour-overlay", () => ({
+  TourOverlay: () => null,
+  useTourOverlayVisible: () => false,
+}));
+jest.mock("../src/hooks/use-record-tour", () => ({
+  usePendingToursFlush: () => undefined,
+}));
+
 describe("app/(app)/_layout — guard de navegación (AC9)", () => {
   afterEach(() => jest.clearAllMocks());
 
