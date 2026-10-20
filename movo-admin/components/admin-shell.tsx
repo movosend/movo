@@ -1,17 +1,21 @@
 "use client"
 import Link from "next/link"
-import { useActionState } from "react"
+import { startTransition, useActionState } from "react"
+import { useTheme } from "next-themes"
 import {
-  Home,
-  Users,
-  ShieldCheck,
-  Package,
+  Activity,
+  BadgeCheck,
+  ChevronDown,
   Flag,
-  MessageSquareWarning,
-  ChartNoAxesCombined,
-  UserCog,
-  ScrollText,
+  Home,
   LogOut,
+  MessagesSquare,
+  Moon,
+  Package,
+  ScrollText,
+  ShieldCheck,
+  Sun,
+  Users,
 } from "lucide-react"
 import { logout } from "@/app/login/actions"
 import {
@@ -24,173 +28,212 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  SidebarFooter,
   SidebarInset,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Brand } from "@/components/brand"
-import { ThemeToggle } from "@/components/theme-toggle"
+import { Brand, BrandMark } from "@/components/brand"
+import { UserAvatar } from "@/components/user-avatar"
+import { Skeleton } from "@/components/ui/skeleton"
 import type { ReactNode, CSSProperties } from "react"
-const LIVE_SECTIONS: Record<string, string> = { Admins: "/admins" }
-const sections = [
+
+const SOON = [
   { label: "Usuarios", icon: Users },
-  { label: "KYC", icon: ShieldCheck },
+  { label: "KYC", icon: BadgeCheck },
   { label: "Envíos", icon: Package },
   { label: "Reportes", icon: Flag },
-  { label: "Disputas", icon: MessageSquareWarning },
-  { label: "Métricas", icon: ChartNoAxesCombined },
-  { label: "Admins", icon: UserCog },
+  { label: "Disputas", icon: MessagesSquare },
+  { label: "Métricas", icon: Activity },
   { label: "Bitácora", icon: ScrollText },
 ]
+const LIVE = [
+  { href: "/", label: "Inicio", icon: Home },
+  { href: "/admins", label: "Admins", icon: ShieldCheck },
+] as const
+
+function ShellTrigger() {
+  const { isMobile, open } = useSidebar()
+  const label = isMobile
+    ? "Abrir navegación"
+    : open
+      ? "Contraer navegación"
+      : "Expandir navegación"
+  return <SidebarTrigger aria-label={label} title={`${label} (Ctrl/⌘ + B)`} />
+}
+
+/**
+ * Sin `fullName` el shell queda en modo carga (avatar y nombre como skeleton): lo usan
+ * los `loading.tsx` para mostrar el mismo marco que la pantalla real sin saltos.
+ */
 export function AdminShell({
   fullName,
+  email,
+  photoUrl,
   current = "/",
+  defaultOpen = true,
   children,
 }: {
-  fullName: string
+  fullName?: string
+  email?: string
+  photoUrl?: string | null
   current?: "/" | "/admins"
+  defaultOpen?: boolean
   children: ReactNode
 }) {
   const [state, action, pending] = useActionState(logout, {})
+  const { resolvedTheme, setTheme } = useTheme()
+  const dark = resolvedTheme === "dark"
+  const crumb = LIVE.find((item) => item.href === current)?.label ?? "Inicio"
   return (
-    <SidebarProvider style={{ "--sidebar-width": "240px" } as CSSProperties}>
+    <SidebarProvider
+      defaultOpen={defaultOpen}
+      style={{ "--sidebar-width": "240px" } as CSSProperties}
+    >
       <a className="skip-link" href="#contenido">
         Saltar al contenido
       </a>
-      <Sidebar>
-        <SidebarHeader className="h-14 justify-center px-5">
-          <Brand />
+      <Sidebar collapsible="icon">
+        <SidebarHeader className="h-14 justify-center border-b px-5 py-0 group-data-[collapsible=icon]:px-0">
+          <Link
+            href="/"
+            aria-label="Ir al inicio"
+            className="flex h-full items-center group-data-[collapsible=icon]:justify-center"
+          >
+            <span className="flex items-center group-data-[collapsible=icon]:hidden">
+              <Brand />
+            </span>
+            <span className="hidden items-center group-data-[collapsible=icon]:flex">
+              <BrandMark />
+            </span>
+          </Link>
         </SidebarHeader>
         <SidebarContent>
-          <nav aria-label="Secciones del panel">
-            <SidebarGroup>
-              <SidebarGroupLabel>Panel de administración</SidebarGroupLabel>
-              <SidebarMenu>
-                <SidebarMenuItem>
+          <nav
+            aria-label="Secciones del panel"
+            className="flex flex-col gap-0.5 p-3 group-data-[collapsible=icon]:px-2"
+          >
+            <SidebarMenu>
+              {LIVE.map(({ href, label, icon: Icon }) => (
+                <SidebarMenuItem key={href}>
                   <SidebarMenuButton
-                    isActive={current === "/"}
+                    className="h-9 px-2.5 text-fg2 group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:justify-center"
+                    isActive={current === href}
+                    tooltip={label}
                     render={
                       <Link
-                        href="/"
-                        aria-current={current === "/" ? "page" : undefined}
+                        href={href}
+                        aria-current={current === href ? "page" : undefined}
                       />
                     }
                   >
-                    <Home />
-                    <span>Inicio</span>
+                    <Icon />
+                    <span>{label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                {sections.map(({ label, icon: Icon }) => {
-                  const href = LIVE_SECTIONS[label]
-                  if (href)
-                    return (
-                      <SidebarMenuItem key={label}>
-                        <SidebarMenuButton
-                          isActive={current === href}
-                          render={
-                            <Link
-                              href={href}
-                              aria-current={
-                                current === href ? "page" : undefined
-                              }
-                            />
-                          }
-                        >
-                          <Icon />
-                          <span>{label}</span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    )
-                  return (
-                    <SidebarMenuItem key={label}>
-                      <SidebarMenuButton disabled>
-                        <Icon />
-                        <span>{label}</span>
-                        <span className="ml-auto text-xs">Pronto</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )
-                })}
+              ))}
+            </SidebarMenu>
+            <SidebarGroup className="p-0 pt-5">
+              <SidebarGroupLabel className="h-auto px-2.5 pb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                Próximamente
+              </SidebarGroupLabel>
+              <SidebarMenu>
+                {SOON.map(({ label, icon: Icon }) => (
+                  <SidebarMenuItem key={label}>
+                    <div
+                      aria-disabled="true"
+                      title="Llega en una próxima versión"
+                      className="flex h-9 cursor-not-allowed items-center gap-2.5 rounded-md px-2.5 text-sm text-fg-disabled select-none group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 [&_svg]:size-4"
+                    >
+                      <Icon />
+                      <span className="group-data-[collapsible=icon]:hidden">
+                        {label}
+                      </span>
+                    </div>
+                  </SidebarMenuItem>
+                ))}
               </SidebarMenu>
             </SidebarGroup>
           </nav>
         </SidebarContent>
-        <SidebarFooter>
-          <div className="flex items-center gap-3 p-2">
-            <Avatar>
-              <AvatarFallback>
-                {fullName
-                  .split(" ")
-                  .map((n) => n[0])
-                  .slice(0, 2)
-                  .join("")}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{fullName}</p>
-              <p className="text-xs text-muted-foreground">Administrador</p>
-            </div>
-          </div>
-          <form action={action}>
-            <Button
-              type="submit"
-              variant="ghost"
-              className="w-full justify-start"
-              disabled={pending}
-            >
-              <LogOut data-icon="inline-start" />
-              {pending ? "Cerrando…" : "Cerrar sesión"}
-            </Button>
-          </form>
-          {state.error && (
-            <Alert variant="destructive">
-              <AlertDescription>{state.error}</AlertDescription>
-            </Alert>
-          )}
-        </SidebarFooter>
       </Sidebar>
-      <SidebarInset>
-        <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
-          <div className="flex items-center gap-3">
-            <SidebarTrigger aria-label="Abrir navegación" />
-            <span className="text-sm font-medium">
-              {current === "/admins" ? "Admins" : "Inicio"}
+      <SidebarInset className="bg-background">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b bg-card px-4 md:px-6">
+          <div className="flex min-w-0 items-center gap-2 text-sm text-fg2">
+            <ShellTrigger />
+            <span>Panel</span>
+            <span className="text-muted-foreground">/</span>
+            <span className="truncate font-medium text-foreground">
+              {crumb}
             </span>
           </div>
-          <div className="flex min-w-0 items-center gap-2">
-            <Avatar>
-              <AvatarFallback>
-                {fullName
-                  .split(" ")
-                  .map((n) => n[0])
-                  .slice(0, 2)
-                  .join("")}
-              </AvatarFallback>
-            </Avatar>
-            <span className="max-w-32 truncate text-sm sm:max-w-56">
-              {fullName}
-            </span>
-            <ThemeToggle />
-            <form action={action}>
-              <Button
-                type="submit"
-                variant="ghost"
-                size="icon"
-                aria-label="Cerrar sesión"
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="flex h-11 items-center gap-2.5 rounded-lg py-0 pr-2 pl-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Menú de la cuenta"
+            >
+              {fullName ? (
+                <UserAvatar name={fullName} photoUrl={photoUrl} />
+              ) : (
+                <Skeleton className="size-8 rounded-full" />
+              )}
+              <span className="hidden min-w-0 flex-col leading-tight md:flex">
+                {fullName ? (
+                  <span className="truncate text-[13px] font-medium">
+                    {fullName}
+                  </span>
+                ) : (
+                  <Skeleton className="my-0.5 h-3.5 w-24" />
+                )}
+                <span className="text-xs text-muted-foreground">
+                  Administrador
+                </span>
+              </span>
+              <ChevronDown className="size-4 text-muted-foreground" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <div className="flex flex-col gap-0.5 px-2.5 pt-2 pb-2.5">
+                <span className="text-[13px] font-medium">{fullName}</span>
+                {email && (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {email}
+                  </span>
+                )}
+                <span className="pt-1.5 text-xs leading-snug text-muted-foreground">
+                  Por seguridad, la sesión del panel dura 8 horas.
+                </span>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setTheme(dark ? "light" : "dark")}
+              >
+                {dark ? <Sun /> : <Moon />}
+                {dark ? "Tema claro" : "Tema oscuro"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
                 disabled={pending}
+                onClick={() => startTransition(() => action())}
               >
                 <LogOut />
-              </Button>
-            </form>
-          </div>
+                {pending ? "Cerrando…" : "Cerrar sesión"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </header>
-        <main
-          id="contenido"
-          className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 md:p-10"
-        >
+        {state.error && (
+          <Alert variant="destructive" className="m-4 w-auto">
+            <AlertDescription>{state.error}</AlertDescription>
+          </Alert>
+        )}
+        <main id="contenido" className="w-full flex-1 overflow-auto">
           {children}
         </main>
       </SidebarInset>

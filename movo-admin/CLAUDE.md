@@ -13,6 +13,15 @@ La aceptación contra dev queda pendiente de desplegar las dependencias backend 
 configurar las variables de entorno; el deploy de `admin.movosend.app` lo hace GitHub
 mediante la integración existente de Vercel. No se provisiona otro proyecto.
 
+**Carga y sidebar.** Toda pantalla nueva lleva un `loading.tsx` que renderiza
+`AdminShell` sin `fullName` (modo carga, mismo marco que la real) con composites de
+`components/skeletons.tsx` (`PageHeaderSkeleton`, `ListSkeleton`, `CardGridSkeleton`,
+envueltos en `PageSkeleton`); la primitiva `Skeleton`/`SkeletonGroup` está en
+`components/ui/skeleton.tsx` (shimmer `.mv-skeleton`, respeta `prefers-reduced-motion`).
+El sidebar colapsa a íconos (`collapsible="icon"`, Ctrl/⌘+B); su estado vive en la cookie
+`sidebar_state` y cada página lo lee con `sidebarDefaultOpen()` (`lib/sidebar.ts`) para
+no parpadear al cargar.
+
 ## Estructura y seguridad
 
 - `app/login`, `app/verify`: páginas y Server Actions. Solo se serializan estados de
@@ -106,3 +115,21 @@ reusa los endpoints públicos de la app (`/auth/forgot-password`, `/verify-reset
 `passwordResetToken` viven en la cookie sellada `__Host-movo-reset`, nunca en el cliente. Al
 terminar se vuelve a `/login?reset=1`; el backend cierra todas las sesiones (app y panel).
 Es el reset de la cuenta de Movo, no algo propio del panel: funciona para cualquier usuario.
+
+## Estética del prototipo y alta de admins con doble verificación
+
+Todo el panel usa la paleta neutra del prototipo de Claude Design (`Movo Admin.dc.html`): tokens en
+`app/globals.css`, claro `#F8F8FA`/`#FFFFFF` y oscuro `#0A0A0B`/`#111113`, sin tintes verdes (el dark
+anterior no existía en el sistema de Movo). El lima solo acentúa (barra del ítem activo, "Vos", puntos
+de estado). Shell con breadcrumb y menú de cuenta (tema, cerrar sesión), Inicio con tarjeta halftone y
+secciones "Próximamente", Admins en tabla con diálogos (`components/ui/dialog.tsx`).
+
+Alta de admin en 3 pasos (`AddFlow` en `components/admins-manager.tsx`): autocompletado por nombre o email
+(`searchCandidates` → `GET /admin/admins/candidates`, que sí devuelve el email, a diferencia de
+`/users/search`), contraseña del admin que otorga y código por email. Los pasos 2 y 3 reusan
+`/auth/admin/login` + `/auth/admin/verify` con el email del propio admin; la sesión que emite esa
+verificación se cierra enseguida (es solo prueba de identidad). El destino del rol viaja en la cookie
+sellada `__Host-movo-grant`, atada al id del admin, nunca en el formulario del paso 3. Limitación
+aceptada: la exigencia vive en el BFF; quien llame al gateway con un access token robado no pasa por
+ella (los tokens no llegan al navegador). Endurecerlo en `svc-admin` queda fuera de alcance.
+Pendiente: confirmar contra dev (sin acceso desde esta sesión) y revisar visualmente claro/oscuro.

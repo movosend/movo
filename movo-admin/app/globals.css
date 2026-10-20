@@ -49,72 +49,146 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --background: #f8f8fa;
+  --foreground: #0a0a0b;
+  --card: #ffffff;
+  --card-foreground: #0a0a0b;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0b;
+  --primary: #0a0a0b;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f1f3;
+  --secondary-foreground: #0a0a0b;
+  --muted: #f1f1f3;
+  --muted-foreground: #5a5a62;
+  --accent: #f1f1f3;
+  --accent-foreground: #0a0a0b;
+  --destructive: #c42b31;
+  --border: rgba(10, 10, 11, 0.08);
+  --input: rgba(10, 10, 11, 0.18);
+  --ring: rgba(10, 10, 11, 0.45);
+  --chart-1: #d5d5db;
+  --chart-2: #8a8a93;
+  --chart-3: #5a5a62;
+  --chart-4: #3a3a40;
+  --chart-5: #27272b;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0a0a0b;
+  --sidebar-primary: #0a0a0b;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f1f1f3;
+  --sidebar-accent-foreground: #0a0a0b;
+  --sidebar-border: rgba(10, 10, 11, 0.08);
+  --sidebar-ring: rgba(10, 10, 11, 0.45);
+  /* Extras del sistema de Movo (Movo Admin, Claude Design). */
+  --lime: #c6f24a;
+  --lime-glow:
+    0 0 0 4px rgba(198, 242, 74, 0.25), 0 0 24px rgba(198, 242, 74, 0.35);
+  --surface-sub: #fafafb;
+  --fg2: #3a3a40;
+  --fg-disabled: #8a8a93;
+  --border-strong: rgba(10, 10, 11, 0.18);
+  --primary-hover: #27272b;
+  --avatar: #e6e6ea;
+  --scrim: rgba(10, 10, 11, 0.4);
+  --grid: rgba(10, 10, 11, 0.06);
+  --halftone: rgba(10, 10, 11, 0.22);
+  --danger-fg: #c42b31;
+  --danger-soft: #fdecec;
+  --danger-solid: #c9363b;
+  --danger-solid-hover: #b02d32;
+  --warn-fg: #7a4f00;
+  --warn-soft: #fef6e4;
+  --warn-border: rgba(245, 185, 58, 0.45);
+  --warn-icon: #f5b93a;
+  --info-fg: #1f4fcc;
+  --info-soft: #eef3ff;
+  --success-fg: #1c7f50;
+  --shadow-3:
+    0 8px 24px rgba(10, 10, 11, 0.08), 0 2px 6px rgba(10, 10, 11, 0.04);
+  --shadow-4:
+    0 24px 60px rgba(10, 10, 11, 0.16), 0 6px 16px rgba(10, 10, 11, 0.06);
+  --auth-fg3: #5a5a62;
+  --auth-grid: rgba(10, 10, 11, 0.06);
+  --auth-danger-soft: #fdecec;
+  --auth-shadow:
+    0 1px 2px rgba(10, 10, 11, 0.04), 0 8px 24px rgba(10, 10, 11, 0.06);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #0a0a0b;
+  --foreground: #ffffff;
+  --card: #111113;
+  --card-foreground: #ffffff;
+  --popover: #111113;
+  --popover-foreground: #ffffff;
+  --primary: #ffffff;
+  --primary-foreground: #0a0a0b;
+  --secondary: #1f1f23;
+  --secondary-foreground: #ffffff;
+  --muted: #1f1f23;
+  --muted-foreground: #8a8a93;
+  --accent: #1f1f23;
+  --accent-foreground: #ffffff;
+  --destructive: #ff7a7e;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.16);
+  --ring: rgba(255, 255, 255, 0.5);
+  --chart-1: #d5d5db;
+  --chart-2: #8a8a93;
+  --chart-3: #5a5a62;
+  --chart-4: #3a3a40;
+  --chart-5: #27272b;
+  --sidebar: #111113;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #0a0a0b;
+  --sidebar-accent: #1f1f23;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: rgba(255, 255, 255, 0.5);
+  --surface-sub: #151517;
+  --fg2: #d5d5db;
+  --fg-disabled: #6a6a73;
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --primary-hover: #e6e6ea;
+  --avatar: #27272b;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --grid: rgba(255, 255, 255, 0.05);
+  --halftone: rgba(255, 255, 255, 0.16);
+  --danger-fg: #ff7a7e;
+  --danger-soft: rgba(229, 72, 77, 0.14);
+  --danger-solid: #c9363b;
+  --danger-solid-hover: #d9454a;
+  --warn-fg: #f5c76a;
+  --warn-soft: rgba(245, 185, 58, 0.1);
+  --warn-border: rgba(245, 185, 58, 0.3);
+  --info-fg: #9db9ff;
+  --info-soft: rgba(43, 107, 255, 0.16);
+  --success-fg: #5cd39a;
+  --shadow-3: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-4: 0 24px 60px rgba(0, 0, 0, 0.6), 0 6px 16px rgba(0, 0, 0, 0.4);
+  --auth-fg3: #8a8a93;
+  --auth-grid: rgba(255, 255, 255, 0.05);
+  --auth-danger-soft: rgba(229, 72, 77, 0.14);
+  --auth-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+@theme inline {
+  --color-lime: var(--lime);
+  --color-surface-sub: var(--surface-sub);
+  --color-fg2: var(--fg2);
+  --color-fg-disabled: var(--fg-disabled);
+  --color-border-strong: var(--border-strong);
+  --color-avatar: var(--avatar);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-soft: var(--danger-soft);
+  --color-warn-fg: var(--warn-fg);
+  --color-warn-soft: var(--warn-soft);
+  --color-info-fg: var(--info-fg);
+  --color-info-soft: var(--info-soft);
+  --color-success-fg: var(--success-fg);
 }
 
 @layer base {
@@ -128,65 +202,33 @@
     @apply font-sans;
   }
 }
-@theme inline {
-  --color-lime: var(--lime);
-  --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
-}
-:root {
-  --background: #fafaf9;
-  --foreground: #1c1c1a;
-  --card: #ffffff;
-  --muted: #f1f1ee;
-  --muted-foreground: #696963;
-  --border: #e4e4de;
-  --input: #d6d6cf;
-  --ring: #77786d;
-  --lime: #c6f24a;
-  --warning: #fff3cf;
-  --warning-foreground: #6f4d00;
-  --pattern: #dfdfd6;
-  --sidebar: #f4f4f0;
-  --sidebar-accent: #e8eddb;
-  --sidebar-primary: #1c1c1a;
-  --radius: 0.625rem;
-}
-.dark {
-  --background: #151613;
-  --foreground: #f0f1e9;
-  --card: #1e201b;
-  --muted: #262922;
-  --muted-foreground: #a0a594;
-  --border: #34382d;
-  --input: #414637;
-  --ring: #a0a594;
-  --lime: #c6f24a;
-  --warning: #3e3218;
-  --warning-foreground: #f5d97e;
-  --pattern: #34382d;
-  --sidebar: #1a1c17;
-  --sidebar-accent: #303726;
-  --sidebar-primary: #f0f1e9;
-}
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: fit-content;
 }
 .brand img {
   object-fit: contain;
-  width: 94px;
-  height: auto;
+  width: auto;
+  height: 26px;
+}
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand-mark img {
+  object-fit: contain;
+  width: 100%;
+  height: 100%;
 }
 .brand > span {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  background: var(--lime);
-  color: #202419;
-  padding: 4px 6px;
-  border-radius: 4px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
 }
 .brand-dark {
   display: none;
@@ -197,26 +239,7 @@
 .dark .brand-dark {
   display: block;
 }
-/* Pantallas de acceso: paleta neutra del diseño de Movo Admin. Se remapean los tokens
-   de shadcn solo acá para que Button/Input/Alert los tomen sin tocar el resto del panel. */
 .auth-canvas {
-  --background: #f8f8fa;
-  --foreground: #0a0a0b;
-  --card: #ffffff;
-  --card-foreground: #0a0a0b;
-  --muted: #f1f1f3;
-  --muted-foreground: #3a3a40;
-  --border: rgba(10, 10, 11, 0.08);
-  --input: rgba(10, 10, 11, 0.18);
-  --ring: rgba(10, 10, 11, 0.45);
-  --primary: #0a0a0b;
-  --primary-foreground: #ffffff;
-  --destructive: #c42b31;
-  --auth-fg3: #5a5a62;
-  --auth-grid: rgba(10, 10, 11, 0.06);
-  --auth-danger-soft: #fdecec;
-  --auth-shadow:
-    0 1px 2px rgba(10, 10, 11, 0.04), 0 8px 24px rgba(10, 10, 11, 0.06);
   position: relative;
   overflow: hidden;
   min-height: 100svh;
@@ -225,24 +248,6 @@
   padding: 48px 24px;
   background: var(--background);
   color: var(--foreground);
-}
-.dark .auth-canvas {
-  --background: #0a0a0b;
-  --foreground: #ffffff;
-  --card: #111113;
-  --card-foreground: #ffffff;
-  --muted: #1f1f23;
-  --muted-foreground: #d5d5db;
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.16);
-  --ring: rgba(255, 255, 255, 0.5);
-  --primary: #ffffff;
-  --primary-foreground: #0a0a0b;
-  --destructive: #ff7a7e;
-  --auth-fg3: #8a8a93;
-  --auth-grid: rgba(255, 255, 255, 0.05);
-  --auth-danger-soft: rgba(229, 72, 77, 0.14);
-  --auth-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 .auth-canvas::before {
   content: "";
@@ -280,7 +285,6 @@
   gap: 0;
 }
 .auth-card .brand img {
-  width: auto;
   height: 28px;
 }
 .auth-card .brand > span {
@@ -495,6 +499,52 @@
 .skip-link:focus {
   top: 8px;
 }
+/* Ítem activo del menú: barra lima pegada al borde, como en el prototipo. */
 [data-sidebar="menu-button"][data-active] {
-  border-left: 3px solid var(--lime);
+  position: relative;
+  overflow: visible;
+}
+[data-sidebar="menu-button"][data-active]::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--lime);
+}
+.mv-halftone {
+  background-image: radial-gradient(var(--halftone) 1px, transparent 1.4px);
+  background-size: 8px 8px;
+  mask-image: linear-gradient(to left, black 0%, transparent 55%);
+}
+.mv-pulse-dot {
+  background: var(--lime);
+  box-shadow: var(--lime-glow);
+}
+.mv-skeleton {
+  background-color: var(--muted);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--foreground) 7%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: mv-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes mv-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-skeleton {
+    animation: none;
+  }
 }
