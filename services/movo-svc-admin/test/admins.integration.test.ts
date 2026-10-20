@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FastifyInstance } from "fastify";
-import { AdminSummary } from "@movo/shared";
+import { AdminCandidate, AdminSummary } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createFakeShipmentsClient, createFakeUsersClient } from "./fake-clients";
 
@@ -10,6 +10,7 @@ const summary = (overrides: Partial<AdminSummary> = {}): AdminSummary => ({
   fullName: "Ada Admin",
   email: `${randomUUID()}@movo.test`,
   status: "active",
+  photoUrl: null,
   grantedAt: "2026-10-01T00:00:00.000Z",
   ...overrides,
 });
@@ -19,11 +20,15 @@ describe("Gestión de admins (MOVO-292)", () => {
   const me = summary();
   const other = summary();
   const admins = [me, other];
+  const candidates: AdminCandidate[] = [
+    { id: randomUUID(), fullName: "Carla Duarte", email: "carla.duarte@movo.test", status: "active", photoUrl: null, emailVerified: true, isAdmin: false },
+    { id: other.id, fullName: other.fullName, email: other.email, status: "active", photoUrl: null, emailVerified: true, isAdmin: true },
+  ];
 
   beforeAll(async () => {
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
-    app = buildApp({ usersClient: createFakeUsersClient({ admins }), shipmentsClient: createFakeShipmentsClient() });
+    app = buildApp({ usersClient: createFakeUsersClient({ admins, candidates }), shipmentsClient: createFakeShipmentsClient() });
     await app.ready();
   });
 
@@ -37,6 +42,18 @@ describe("Gestión de admins (MOVO-292)", () => {
   it("sin rol admin responde 403", async () => {
     const res = await app.inject({ method: "GET", url: "/admin/admins", headers: { "x-user-id": randomUUID(), "x-user-roles": "sender" } });
     expect(res.statusCode).toBe(403);
+  });
+
+  it("autocompleta candidatos por nombre o email y exige rol admin", async () => {
+    const denied = await app.inject({ method: "GET", url: "/admin/admins/candidates?q=carla", headers: { "x-user-id": randomUUID(), "x-user-roles": "sender" } });
+    expect(denied.statusCode).toBe(403);
+    const byName = await app.inject({ method: "GET", url: "/admin/admins/candidates?q=carla", headers: headers(me.id) });
+    expect(byName.statusCode).toBe(200);
+    expect(byName.json().map((c: AdminCandidate) => c.email)).toEqual(["carla.duarte@movo.test"]);
+    const byEmail = await app.inject({ method: "GET", url: "/admin/admins/candidates?q=DUARTE@movo", headers: headers(me.id) });
+    expect(byEmail.json()).toHaveLength(1);
+    const short = await app.inject({ method: "GET", url: "/admin/admins/candidates?q=a", headers: headers(me.id) });
+    expect(short.statusCode).toBe(400);
   });
 
   it("lista los admins", async () => {

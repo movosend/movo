@@ -1,12 +1,13 @@
 // Autocontenido a propósito -- mismo criterio que el resto de los *.schema.ts del repo.
 const adminSummary = {
   type: "object",
-  required: ["id", "fullName", "email", "status", "grantedAt"],
+  required: ["id", "fullName", "email", "status", "photoUrl", "grantedAt"],
   properties: {
     id: { type: "string" },
     fullName: { type: "string" },
     email: { type: "string" },
     status: { type: "string", enum: ["active", "banned", "deleted"] },
+    photoUrl: { type: ["string", "null"] },
     grantedAt: { type: "string" },
   },
 };
@@ -28,6 +29,20 @@ const errorResponse = {
   },
 };
 
+const adminCandidate = {
+  type: "object",
+  required: ["id", "fullName", "email", "status", "photoUrl", "emailVerified", "isAdmin"],
+  properties: {
+    id: { type: "string" },
+    fullName: { type: "string" },
+    email: { type: "string" },
+    status: { type: "string", enum: ["active", "banned", "deleted"] },
+    photoUrl: { type: ["string", "null"] },
+    emailVerified: { type: "boolean" },
+    isAdmin: { type: "boolean" },
+  },
+};
+
 export const REVOKE_REASON_MIN_LENGTH = 3;
 export const REVOKE_REASON_MAX_LENGTH = 500;
 
@@ -35,6 +50,12 @@ export const adminsSchemas = {
   errorResponse,
   listResponse: { type: "array", items: adminSummary },
   adminSummary,
+  candidatesQuery: {
+    type: "object",
+    required: ["q"],
+    properties: { q: { type: "string", minLength: 2, maxLength: 100 } },
+  },
+  candidatesResponse: { type: "array", items: adminCandidate },
   grantBody: {
     type: "object",
     required: ["email"],

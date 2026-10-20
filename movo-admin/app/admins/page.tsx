@@ -3,11 +3,14 @@ import type { AdminSummary } from "@movo/shared/src/types/user"
 import { gateway, publicError } from "@/lib/auth/api"
 import { requireAdmin } from "@/lib/auth/session"
 import { ACCESS_COOKIE } from "@/lib/auth/policy"
+import { sidebarDefaultOpen } from "@/lib/sidebar"
 import { AdminShell } from "@/components/admin-shell"
 import { AdminsManager } from "@/components/admins-manager"
 
 const dateFormat = new Intl.DateTimeFormat("es-AR", {
-  dateStyle: "long",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
   timeZone: "America/Argentina/Cordoba",
 })
 
@@ -23,13 +26,13 @@ export default async function Page() {
     loadError = publicError(error)
   }
   return (
-    <AdminShell fullName={profile.fullName} current="/admins">
-      <section className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight">Admins</h1>
-        <p className="text-muted-foreground">
-          Quién puede entrar al panel. Cada cambio queda en la bitácora.
-        </p>
-      </section>
+    <AdminShell
+      fullName={profile.fullName}
+      email={profile.email}
+      photoUrl={profile.photoUrl}
+      defaultOpen={await sidebarDefaultOpen()}
+      current="/admins"
+    >
       <AdminsManager
         currentUserId={profile.id}
         loadError={loadError}
@@ -37,6 +40,10 @@ export default async function Page() {
           id: admin.id,
           fullName: admin.fullName,
           email: admin.email,
+          // Tu propia fila usa la foto de tu perfil aunque el listado todavía no la traiga.
+          photoUrl:
+            admin.photoUrl ??
+            (admin.id === profile.id ? (profile.photoUrl ?? null) : null),
           suspended: admin.status !== "active",
           since: dateFormat.format(new Date(admin.grantedAt)),
         }))}

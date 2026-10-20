@@ -599,3 +599,12 @@ y cobrando también con la ventana ya cerrada; `penaltyArs > 0` siempre viaja co
 
 `TransactionCard` gana `alias`/`issuerName`/`paymentType` (opcionales) y `TransactionDetail` gana `releasedAt`/`releaseReason`
 (obligatorios, `null` si no se liberó; `TRANSACTION_RELEASE_REASONS`). Rompe literales `TransactionDetail` armados a mano.
+
+### MOVO-294/295 — Acciones de soporte sobre la cuenta (`types/admin-users.ts`)
+
+`AdminSessionsRevokeBody/Result`, `AdminContactUpdateBody/Result` (`expectedCurrent` + `field`), `AdminLedgerAdjustmentBody/Result`,
+`AdminUserNote`/`AdminUserNotePage`/`AdminUserNoteBody` y las constantes `ADMIN_NOTE_MAX_LENGTH` (1000) y
+`ADMIN_ACTION_REASON_MAX_LENGTH` (500). `ApiErrorCode` suma `CONTACT_CHANGED` (409), `CONTACT_UNCHANGED` (400), `USER_DELETED` (409) y
+`AMOUNT_OUT_OF_RANGE` (422); el panel reusa `EMAIL_ALREADY_IN_USE`/`PHONE_ALREADY_IN_USE` y `LEDGER_IDEMPOTENCY_CONFLICT`.
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+

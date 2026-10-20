@@ -1,4 +1,4 @@
-import { AdminSummary, ApiError, ChatReportParties, ShipmentParties, UserReportParties } from "@movo/shared";
+import { AdminCandidate, AdminSummary, ApiError, ChatReportParties, ShipmentParties, UserReportParties } from "@movo/shared";
 import { InternalClient } from "../src/adapters/internal-client";
 import { ShipmentsClient } from "../src/adapters/shipments-client";
 import { UsersClient } from "../src/adapters/users-client";
@@ -30,7 +30,7 @@ export function createFakeShipmentsClient(data: {
 }
 
 export function createFakeUsersClient(
-  data: { userReports?: Record<string, UserReportParties>; admins?: AdminSummary[]; down?: boolean } = {},
+  data: { userReports?: Record<string, UserReportParties>; admins?: AdminSummary[]; candidates?: AdminCandidate[]; down?: boolean } = {},
 ): UsersClient {
   const admins = data.admins ?? [];
   return {
@@ -38,6 +38,11 @@ export function createFakeUsersClient(
     async listAdmins() {
       if (data.down) throw usersDown();
       return [...admins];
+    },
+    async searchAdminCandidates(query) {
+      if (data.down) throw usersDown();
+      const term = query.toLowerCase();
+      return (data.candidates ?? []).filter((c) => c.fullName.toLowerCase().includes(term) || c.email.toLowerCase().includes(term));
     },
     async grantAdmin(email) {
       if (data.down) throw usersDown();

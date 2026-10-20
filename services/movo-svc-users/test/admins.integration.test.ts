@@ -196,13 +196,14 @@ describe("Alta y baja del rol admin (MOVO-290)", () => {
       const response = await app.inject({ method: "GET", url: "/internal/admins" });
 
       expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body) as { id: string; fullName: string; email: string; status: string; grantedAt: string }[];
+      const body = JSON.parse(response.body) as { id: string; fullName: string; email: string; status: string; photoUrl: string | null; grantedAt: string }[];
       expect(body.map((admin) => admin.id)).toEqual([first.id, second.id]);
       expect(body[0]).toEqual({
         id: first.id,
         fullName: "Lucas Dalmagro",
         email: first.email,
         status: "active",
+        photoUrl: null,
         grantedAt: expect.any(String),
       });
     });
@@ -220,6 +221,27 @@ describe("Alta y baja del rol admin (MOVO-290)", () => {
       expect(body.find((a) => a.id === activeAdmin.id)?.status).toBe("active");
       expect(body.find((a) => a.id === bannedAdmin.id)?.status).toBe("banned");
       expect(body.some((a) => a.id === deletedAdmin.id)).toBe(false);
+    });
+  });
+
+  describe("GET /internal/admins/candidates", () => {
+    it("rechaza una búsqueda de menos de dos caracteres", async () => {
+      const response = await app.inject({ method: "GET", url: "/internal/admins/candidates?q=a" });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it("excluye admins y cuentas eliminadas, y marca los resultados como no admins", async () => {
+      const candidate = await createUser();
+      const admin = await createUser({ admin: true });
+      const deleted = await createUser({ status: "deleted" });
+
+      const response = await app.inject({ method: "GET", url: "/internal/admins/candidates?q=Lucas" });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { id: string; isAdmin: boolean; email: string }[];
+      expect(body.map((row) => row.id)).toEqual([candidate.id]);
+      expect(body[0]).toMatchObject({ email: candidate.email, isAdmin: false });
+      expect(body.some((row) => row.id === admin.id || row.id === deleted.id)).toBe(false);
     });
   });
 

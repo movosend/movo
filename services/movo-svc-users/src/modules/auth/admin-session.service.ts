@@ -7,6 +7,7 @@ import { createUserRepository } from "../../repositories/user-repository";
 import { SessionRepository } from "../../repositories/session-repository";
 import { OtpService } from "../../services/otp-service";
 import { User } from "../../models/user";
+import { normalizePhoneToE164Ar } from "./auth.service";
 import {
   DUMMY_HASH,
   hashRefreshSecret,
@@ -45,10 +46,14 @@ return attempts
 const INVALID_CREDENTIALS = () => new ApiError(401, "AUTH_INVALID_CREDENTIALS", "Credenciales inválidas.");
 const REFRESH_INVALID = () => new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
 
+export type AdminLoginIdentifier = { email: string } | { phone: string };
+
 export interface AdminLoginResult {
   /** otpId del código enviado por email: el paso 2 lo devuelve junto con el código. */
   challengeId: string;
   cooldownSeconds: number;
+  /** Email al que salió el código, enmascarado: con login por teléfono el panel no lo conoce. */
+  maskedEmail: string;
 }
 
 /**
@@ -170,13 +175,20 @@ export function createAdminSessionService(
      * pasan exactamente por un Argon2id antes de mirar rol y estado, así el tiempo de
      * respuesta no delata cuál fue. Mismo `DUMMY_HASH` que el login de la app (MOVO-74).
      */
-    async startLogin(rawEmail: string, password: string, clientIp: string): Promise<AdminLoginResult> {
-      const email = rawEmail.trim().toLowerCase();
-      await consumeLoginAttempt(email, clientIp);
+    async startLogin(login: AdminLoginIdentifier, password: string, clientIp: string): Promise<AdminLoginResult> {
+      // Email o teléfono (mismo formato que el login de la app). El código siempre sale al
+      // email verificado de la cuenta, entre por el canal que entre.
+      const identity = "phone" in login ? normalizePhoneToE164Ar(login.phone) : login.email.trim().toLowerCase();
+      await consumeLoginAttempt(identity, clientIp);
 
       // Un ":" en el email no puede ser target de un OTP (`otp-repository.ts`); se trata
       // como una cuenta inexistente.
-      const user = email.includes(":") ? null : await repository.findByEmail(email);
+      const user =
+        "phone" in login
+          ? await repository.findByPhone(identity)
+          : identity.includes(":")
+            ? null
+            : await repository.findByEmail(identity);
       const passwordMatches = await verify(user?.passwordHash ?? DUMMY_HASH, password).catch(() => false);
       if (!user || !passwordMatches || !isPanelEligible(user)) {
         throw INVALID_CREDENTIALS();
@@ -190,7 +202,8 @@ export function createAdminSessionService(
         { userId: user.id },
         "email"
       );
-      return { challengeId: otpId, cooldownSeconds };
+      const [name, domain] = user.email.split("@");
+      return { challengeId: otpId, cooldownSeconds, maskedEmail: `${name?.[0] ?? ""}***@${domain}` };
     },
 
     /**

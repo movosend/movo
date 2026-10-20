@@ -137,6 +137,18 @@ export interface AdminSummary {
   fullName: string;
   email: string;
   status: AccountStatus;
+  photoUrl: string | null;
   /** ISO date en que se otorgó el rol. */
   grantedAt: string;
+}
+
+/** Candidato a admin en el autocompletado del panel (`GET /admin/admins/candidates`). */
+export interface AdminCandidate {
+  id: string;
+  fullName: string;
+  email: string;
+  status: AccountStatus;
+  photoUrl: string | null;
+  emailVerified: boolean;
+  isAdmin: boolean;
 }

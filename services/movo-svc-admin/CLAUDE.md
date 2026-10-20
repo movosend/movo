@@ -91,3 +91,10 @@ relanzan con su código para que el panel muestre el motivo concreto.
   (antes cualquier 204 era "respuesta inválida" → 502).
 - Pendiente: verificar a mano contra dev que el admin revocado pierde el acceso en su próxima acción
   (necesita `svc-users`/`svc-admin` desplegados); pantalla de la bitácora (fuera de alcance).
+
+### Autocompletado de candidatos a admin
+
+`GET /admin/admins/candidates?q=` (mín. 2 letras, solo rol admin) → `GET /internal/admins/candidates` de
+`svc-users` (`searchCandidates` en `admin-roles.service.ts`): nombre o email, sin cuentas dadas de baja,
+máx. 8, con `emailVerified`/`isAdmin`/`status` para que el panel deshabilite a quien no se puede elegir.
+Tipo `AdminCandidate` en `@movo/shared`. Sin bitácora: es una lectura.

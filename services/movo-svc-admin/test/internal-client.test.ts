@@ -136,7 +136,7 @@ describe("clientes internos de svc-admin (MOVO-288)", () => {
 
 describe("gestión de admins en el cliente de usuarios (MOVO-292)", () => {
   const users = createUsersClient({ USERS_SERVICE_URL: "http://users" });
-  const admin = { id: "u-1", fullName: "Ada", email: "ada@movo.test", status: "active", grantedAt: "2026-10-01T00:00:00.000Z" };
+  const admin = { id: "u-1", fullName: "Ada", email: "ada@movo.test", status: "active", photoUrl: null, grantedAt: "2026-10-01T00:00:00.000Z" };
 
   afterEach(() => {
     globalThis.fetch = originalFetch;

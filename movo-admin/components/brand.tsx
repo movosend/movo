@@ -24,3 +24,26 @@ export function Brand() {
     </span>
   )
 }
+
+export function BrandMark({ size = 28 }: { size?: number }) {
+  return (
+    <span className="brand-mark" style={{ height: size, width: size }}>
+      <Image
+        className="brand-light"
+        src="/brand/movo-iso.png"
+        alt="Movo"
+        width={2683}
+        height={2693}
+        sizes={`${size}px`}
+      />
+      <Image
+        className="brand-dark"
+        src="/brand/movo-iso-dark.png"
+        alt="Movo"
+        width={2713}
+        height={2693}
+        sizes={`${size}px`}
+      />
+    </span>
+  )
+}
