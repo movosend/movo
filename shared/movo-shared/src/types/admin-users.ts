@@ -287,3 +287,71 @@ export interface AdminUserAuditPage {
   items: AdminUserAuditEntry[];
   nextCursor: string | null;
 }
+
+/**
+ * Acciones de soporte sobre la cuenta (sección "Acciones de soporte" de MOVO-294). Cada una es una
+ * escritura de `svc-admin`: pasa por `runAdminAction`, exige motivo y deja una fila en la bitácora.
+ */
+export interface AdminSessionsRevokeBody {
+  reason: string;
+}
+
+/** `POST /admin/users/:id/sessions/revoke`. */
+export interface AdminSessionsRevokeResult {
+  revokedRefreshTokens: number;
+}
+
+export type AdminContactField = "email" | "phone";
+
+/** `expectedCurrent` es el valor que el admin vio al abrir el diálogo: si cambió, 409 `CONTACT_CHANGED`. */
+export interface AdminContactUpdateBody {
+  field: AdminContactField;
+  newValue: string;
+  expectedCurrent: string;
+  reason: string;
+}
+
+/** `POST /admin/users/:id/contact`. El valor nuevo queda sin verificar. */
+export interface AdminContactUpdateResult {
+  email: string;
+  emailVerified: boolean;
+  phone: string;
+  phoneVerified: boolean;
+  revokedRefreshTokens: number;
+}
+
+/** `amountArs` con signo y distinto de cero: positivo es lo que la persona debe. */
+export interface AdminLedgerAdjustmentBody {
+  amountArs: number;
+  reason: string;
+  /** UUID que genera el panel al abrir el diálogo: un doble envío no duplica el movimiento. */
+  idempotencyKey: string;
+}
+
+/** `POST /admin/users/:id/ledger/adjustments`. */
+export interface AdminLedgerAdjustmentResult {
+  entry: AdminUserLedgerEntry;
+  balanceArs: number;
+}
+
+export interface AdminUserNote {
+  id: string;
+  body: string;
+  adminId: string;
+  adminName: string;
+  createdAt: string;
+}
+
+/** `GET /admin/users/:id/notes?limit=&cursor=`. */
+export interface AdminUserNotePage {
+  items: AdminUserNote[];
+  nextCursor: string | null;
+}
+
+export interface AdminUserNoteBody {
+  body: string;
+}
+
+/** Tope de caracteres de la nota y del motivo de una acción. */
+export const ADMIN_NOTE_MAX_LENGTH = 1000;
+export const ADMIN_ACTION_REASON_MAX_LENGTH = 500;

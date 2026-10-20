@@ -291,7 +291,16 @@ export type ApiErrorCode =
   | "ADMIN_GRANT_CONFLICT"
   // MOVO-288: el admin intenta una acción de escritura sobre algo en lo que es parte
   // (él mismo, su rol, un envío suyo o un reporte que lo involucra). Leer sí puede.
-  | "ADMIN_CONFLICT_OF_INTEREST";
+  | "ADMIN_CONFLICT_OF_INTEREST"
+  // MOVO-294 (acciones de soporte sobre la cuenta). `expectedCurrent` ya no es el valor
+  // guardado: alguien lo cambió mientras el admin editaba (409).
+  | "CONTACT_CHANGED"
+  // El email o teléfono nuevo es igual al actual (400).
+  | "CONTACT_UNCHANGED"
+  // La cuenta está eliminada: no admite acciones de soporte salvo notas (409).
+  | "USER_DELETED"
+  // Ajuste manual de saldo en cero o por encima de `ADMIN_LEDGER_ADJUSTMENT_MAX_ARS` (422).
+  | "AMOUNT_OUT_OF_RANGE";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el
