@@ -216,6 +216,70 @@ export function buildAdminGrantedNotice(): EmailMessage {
   return { subject: "Ahora tenés acceso al panel de Movo", text, html };
 }
 
+export type AccountSanctionNotice =
+  | { kind: "suspended"; reason: string; until: Date | null }
+  | { kind: "disabled"; reason: string }
+  | { kind: "lifted" }
+  | { kind: "expired" };
+
+function formatNoticeDate(date: Date): string {
+  return date.toLocaleDateString("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+/**
+ * MOVO-296 (AC8): aviso por mail de una sanción de cuenta. Lleva el motivo visible y el plazo,
+ * nunca la nota interna (ni siquiera recibe ese dato).
+ */
+export function buildAccountSanctionNotice(notice: AccountSanctionNotice): EmailMessage {
+  let subject: string;
+  let lines: string[];
+  switch (notice.kind) {
+    case "suspended":
+      subject = "Suspendimos tu cuenta de Movo";
+      lines = [
+        notice.until
+          ? `Tu cuenta de Movo está suspendida hasta el ${formatNoticeDate(notice.until)}.`
+          : "Tu cuenta de Movo está suspendida.",
+        `Motivo: ${notice.reason}`,
+        "Mientras dure la suspensión podés entrar a la app, pero no operar. Si pensás que es un error, escribinos.",
+      ];
+      break;
+    case "disabled":
+      subject = "Inhabilitamos tu cuenta de Movo";
+      lines = [
+        "Tu cuenta de Movo fue inhabilitada y ya no podés ingresar.",
+        `Motivo: ${notice.reason}`,
+        "Si pensás que es un error, escribinos.",
+      ];
+      break;
+    case "lifted":
+      subject = "Levantamos la restricción de tu cuenta de Movo";
+      lines = ["Levantamos la restricción de tu cuenta. Ya podés volver a usar Movo con normalidad."];
+      break;
+    case "expired":
+      subject = "Terminó la suspensión de tu cuenta de Movo";
+      lines = ["Terminó la suspensión de tu cuenta. Ya podés volver a usar Movo con normalidad."];
+      break;
+  }
+  const text = lines.join("\n\n");
+  const html = wrapHtml(
+    subject,
+    lines[0] ?? subject,
+    lines
+      .map(
+        (line) =>
+          `<p style="margin:0 0 16px;font-size:15px;line-height:22px;color:${INK_700};">${escapeHtml(line)}</p>`
+      )
+      .join("")
+  );
+  return { subject, text, html };
+}
+
 /**
  * `maskEmail()` no enmascara el dominio (se muestra tal cual, solo el local-part se
  * oculta) y viaja interpolado directo en el HTML del mail — hay que escaparlo antes:
