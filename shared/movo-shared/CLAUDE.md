@@ -615,3 +615,12 @@ a mano, tocó fixtures de `movo-mobile`. Recordatorio habitual: `npm run build` 
 `AMOUNT_OUT_OF_RANGE` (422); el panel reusa `EMAIL_ALREADY_IN_USE`/`PHONE_ALREADY_IN_USE` y `LEDGER_IDEMPOTENCY_CONFLICT`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+
+### MOVO-323 — Contrato de la bandeja de soporte (`types/admin-support.ts`)
+
+`Support*` (estado, prioridad, tema, mensajes por `kind`, fila/detalle de la conversación, contadores, contexto del usuario, adjuntos,
+eventos de tiempo real y ticket del WS), las constantes (`SUPPORT_TAGS`, `SUPPORT_ATTACHMENT_*`, `SUPPORT_WS_PROTOCOL`…) y las
+respuestas rápidas con `resolveQuickReply`. Lo define el panel y lo implementan MOVO-322/321; rutas y reglas en `docs/support/README.md`.
+`ApiErrorCode` suma `SUPPORT_CONVERSATION_NOT_FOUND`, `SUPPORT_ATTACHMENT_INVALID`, `SUPPORT_SHIPMENT_NOT_PARTY`,
+`SUPPORT_TICKET_INVALID` y `SUPPORT_SERVICE_UNAVAILABLE`. Pendiente para 322: sumar `support_conversation` a `AdminTargetType`.
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

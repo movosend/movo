@@ -6,10 +6,13 @@ import {
   type SerializedApiError,
 } from "@movo/shared/src/errors/api-error"
 
+export const gatewayBaseUrl = () =>
+  process.env.MOVO_GATEWAY_URL ?? "https://api-dev.movosend.app"
+
 export async function gateway<T>(
   path: string,
   options: {
-    method?: "GET" | "POST" | "DELETE"
+    method?: "GET" | "POST" | "PATCH" | "DELETE"
     body?: unknown
     accessToken?: string
     idempotencyKey?: string
@@ -18,27 +21,24 @@ export async function gateway<T>(
   const requestId = (await headers()).get("x-request-id") || randomUUID()
   let response: Response
   try {
-    response = await fetch(
-      `${process.env.MOVO_GATEWAY_URL ?? "https://api-dev.movosend.app"}/api/v1${path}`,
-      {
-        method: options.method ?? (options.body === undefined ? "GET" : "POST"),
-        headers: {
-          "Content-Type": "application/json",
-          "x-request-id": requestId,
-          ...(options.accessToken
-            ? { Authorization: `Bearer ${options.accessToken}` }
-            : {}),
-          ...(options.idempotencyKey
-            ? { "Idempotency-Key": options.idempotencyKey }
-            : {}),
-        },
-        body:
-          options.body === undefined ? undefined : JSON.stringify(options.body),
-        cache: "no-store",
-        signal: AbortSignal.timeout(10000),
-        redirect: "error",
-      }
-    )
+    response = await fetch(`${gatewayBaseUrl()}/api/v1${path}`, {
+      method: options.method ?? (options.body === undefined ? "GET" : "POST"),
+      headers: {
+        "Content-Type": "application/json",
+        "x-request-id": requestId,
+        ...(options.accessToken
+          ? { Authorization: `Bearer ${options.accessToken}` }
+          : {}),
+        ...(options.idempotencyKey
+          ? { "Idempotency-Key": options.idempotencyKey }
+          : {}),
+      },
+      body:
+        options.body === undefined ? undefined : JSON.stringify(options.body),
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000),
+      redirect: "error",
+    })
   } catch {
     throw new ApiError(
       503,
