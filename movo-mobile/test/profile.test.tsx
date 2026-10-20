@@ -367,6 +367,44 @@ describe("ProfileScreen", () => {
     expect(queryByTestId("profile-activity-card-reputation")).toBeNull();
   });
 
+  it("MOVO-168: mientras la reputación carga, la card muestra su skeleton y el resto del perfil ya está a la vista", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile(),
+      refetch: mockRefetch,
+    });
+    mockUsePublicProfile.mockReturnValue({ isLoading: true, isError: false, data: undefined });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+
+    expect(getByTestId("profile-activity-card-reputation-skeleton")).toBeTruthy();
+    expect(getByTestId("profile-full-name")).toBeTruthy();
+    expect(getByTestId("profile-settings-section")).toBeTruthy();
+  });
+
+  it("MOVO-168: si la reputación falla, el reintento local vuelve a pedirla sin recargar el perfil", async () => {
+    const refetchReputation = jest.fn();
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile(),
+      refetch: mockRefetch,
+    });
+    mockUsePublicProfile.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      data: undefined,
+      refetch: refetchReputation,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId("profile-activity-card-reputation-error-retry"));
+    expect(refetchReputation).toHaveBeenCalledTimes(1);
+    expect(mockRefetch).not.toHaveBeenCalled();
+  });
+
   it("'Ver todas' navega a /profile/ratings cuando hay comentarios", async () => {
     mockUseMyProfile.mockReturnValue({
       isLoading: false,

@@ -37,7 +37,12 @@ export default function ProfileScreen() {
   // una segunda query, propia y degradable, sin bloquear el resto del perfil si
   // falla. `GET /users/:id` no distingue self-lookup de cualquier otro (verificado
   // en `users.routes.ts`), así que no hace falta un endpoint nuevo.
-  const { data: publicProfile } = usePublicProfile(data?.id);
+  const {
+    data: publicProfile,
+    isLoading: reputationLoading,
+    isError: reputationError,
+    refetch: refetchReputation,
+  } = usePublicProfile(data?.id);
 
   // MOVO-168: ni la carga ni la falla del perfil reemplazan la pantalla -- Configuración y
   // "Cerrar sesión" no dependen de `GET /users/me` y siguen a la vista y usables.
@@ -123,7 +128,10 @@ export default function ProfileScreen() {
                     }
                   : undefined
               }
-              onViewAllRatings={() => router.push('/profile/ratings')}
+              reputationLoading={reputationLoading}
+          reputationError={reputationError}
+          onRetryReputation={() => void refetchReputation()}
+          onViewAllRatings={() => router.push('/profile/ratings')}
             />
           </>
         )}

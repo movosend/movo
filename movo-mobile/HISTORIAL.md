@@ -4895,7 +4895,8 @@ con las que faltan (la baja es idempotente en el backend). Candidato a endpoint 
 casos, indistinguible de "no tenés nada"); con datos ya cargados la lista manda aunque un refetch falle. "Actividad reciente" cambió el spinner
 por filas skeleton. Estados compartidos en `components/home/home-section-states.tsx`; `useAttentionSourceShipments` ahora expone `isError`/`refetch`.
 **Perfil** ya no reemplaza la pantalla entera: cabecera y actividad tienen skeleton y error propios (`profile-section-states.tsx`) y Configuración y
-"Cerrar sesión" quedan usables aunque `GET /users/me` falle. **Detalle del envío** y **detalle disponible** muestran el header de entrada y el skeleton
+"Cerrar sesión" quedan usables aunque `GET /users/me` falle. La reputación (segunda query, `usePublicProfile`) también: skeleton con la
+silueta de "Tu reputación" y, si falla, un aviso con reintento local dentro de `ProfileActivityCard` (`reputationLoading`/`reputationError`). **Detalle del envío** y **detalle disponible** muestran el header de entrada y el skeleton
 va solo en el cuerpo (`ShipmentDetailBodySkeleton`, con `tabs={false}` para el segundo). **Mis envíos**: conteos de las tarjetas de rol en skeleton
 (antes decían "0 activos" mientras cargaban) y el footer de paginación, también el de Transportar, es una fila skeleton. `SkeletonBlock` respeta
 "reducir movimiento" (queda quieto).
