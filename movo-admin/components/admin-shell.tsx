@@ -46,7 +46,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import type { ReactNode, CSSProperties } from "react"
 
 const SOON = [
-  { label: "Usuarios", icon: Users },
   { label: "KYC", icon: BadgeCheck },
   { label: "Envíos", icon: Package },
   { label: "Reportes", icon: Flag },
@@ -57,6 +56,7 @@ const SOON = [
 const LIVE = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/admins", label: "Admins", icon: ShieldCheck },
+  { href: "/users", label: "Usuarios", icon: Users },
 ] as const
 
 function ShellTrigger() {
@@ -79,19 +79,22 @@ export function AdminShell({
   photoUrl,
   current = "/",
   defaultOpen = true,
+  crumb: detailCrumb,
   children,
 }: {
   fullName?: string
   email?: string
   photoUrl?: string | null
-  current?: "/" | "/admins"
+  current?: "/" | "/admins" | "/users"
   defaultOpen?: boolean
+  /** Último tramo del breadcrumb (p. ej. el nombre en la ficha); la sección pasa a ser un link. */
+  crumb?: string
   children: ReactNode
 }) {
   const [state, action, pending] = useActionState(logout, {})
   const { resolvedTheme, setTheme } = useTheme()
   const dark = resolvedTheme === "dark"
-  const crumb = LIVE.find((item) => item.href === current)?.label ?? "Inicio"
+  const section = LIVE.find((item) => item.href === current)
   return (
     <SidebarProvider
       defaultOpen={defaultOpen}
@@ -170,9 +173,24 @@ export function AdminShell({
             <ShellTrigger />
             <span>Panel</span>
             <span className="text-muted-foreground">/</span>
-            <span className="truncate font-medium text-foreground">
-              {crumb}
-            </span>
+            {detailCrumb && section ? (
+              <>
+                <Link
+                  href={section.href}
+                  className="hover:text-foreground"
+                >
+                  {section.label}
+                </Link>
+                <span className="text-muted-foreground">/</span>
+                <span className="truncate font-medium text-foreground">
+                  {detailCrumb}
+                </span>
+              </>
+            ) : (
+              <span className="truncate font-medium text-foreground">
+                {section?.label ?? "Inicio"}
+              </span>
+            )}
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger

@@ -15,7 +15,6 @@ import { sidebarDefaultOpen } from "@/lib/sidebar"
 import { AdminShell } from "@/components/admin-shell"
 
 const SOON = [
-  { label: "Usuarios", desc: "Cuentas y perfiles de la red", icon: Users },
   { label: "KYC", desc: "Verificaciones de identidad", icon: BadgeCheck },
   { label: "Envíos", desc: "Paquetes en curso y entregados", icon: Package },
   { label: "Reportes", desc: "Denuncias entre usuarios", icon: Flag },
@@ -73,6 +72,23 @@ export default async function Page() {
               <span className="text-[15px] font-semibold">Admins</span>
               <span className="text-[13px] text-fg2">
                 Quién puede entrar al panel
+              </span>
+            </div>
+          </Link>
+          <Link
+            href="/users"
+            className="flex flex-col gap-4 rounded-[10px] border border-border-strong bg-card p-5 transition-shadow hover:shadow-[var(--shadow-3)]"
+          >
+            <div className="flex items-center justify-between">
+              <span className="flex size-9 items-center justify-center rounded-lg bg-lime text-[#0a0a0b]">
+                <Users className="size-[18px]" />
+              </span>
+              <ArrowRight className="size-4 text-fg2" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[15px] font-semibold">Usuarios</span>
+              <span className="text-[13px] text-fg2">
+                Buscá a una persona y mirá su ficha
               </span>
             </div>
           </Link>

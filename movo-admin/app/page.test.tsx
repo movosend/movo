@@ -20,6 +20,10 @@ describe("Inicio", () => {
       "href",
       "/admins"
     )
-    expect(screen.getAllByText("Próximamente")).toHaveLength(7)
+    expect(screen.getByRole("link", { name: /Usuarios/ })).toHaveAttribute(
+      "href",
+      "/users"
+    )
+    expect(screen.getAllByText("Próximamente")).toHaveLength(6)
   })
 })
