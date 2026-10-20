@@ -2,6 +2,7 @@ import { MessageCircle } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { totalUnread, useChatList } from "../../src/hooks/use-chat";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { useTourAnchor } from "../../src/hooks/use-tour-anchor";
 import { pushOnce } from "../../src/lib/navigation-guard";
 import { formatUnreadCount } from "../../src/lib/chat-format";
 
@@ -10,9 +11,12 @@ export function HomeChatButton({ testID = "app-home-chats" }: { testID?: string 
   const colors = useThemeColors();
   const { data } = useChatList();
   const unread = totalUnread(data);
+  // MOVO-169: paso "Hablá con tu transportista" del tutorial.
+  const tourAnchor = useTourAnchor("home-chat-button", { radius: 18 });
 
   return (
     <Pressable
+      ref={tourAnchor.ref}
       testID={testID}
       onPress={() => pushOnce("/(app)/chats")}
       accessibilityRole="button"

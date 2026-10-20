@@ -29,6 +29,10 @@ let mockBalanceArs: number | undefined = undefined;
 jest.mock("../src/hooks/use-balance", () => ({
   useBalance: () => ({ data: mockBalanceArs === undefined ? undefined : { pages: [{ balanceArs: mockBalanceArs }] } }),
 }));
+// MOVO-169: el sheet de "Ayuda y soporte" decide si ofrece "Cómo transportar".
+jest.mock("../src/hooks/use-transport-gate", () => ({
+  useTransportGate: () => ({ canBrowse: false }),
+}));
 
 describe("ProfileSettingsSection", () => {
   beforeEach(() => {
@@ -152,16 +156,14 @@ describe("ProfileSettingsSection", () => {
     expect(queryByTestId("profile-settings-payments-pill")).toBeNull();
   });
 
-  it("sigue mostrando el placeholder 'Próximamente' para el resto de los ítems", async () => {
+  it("MOVO-169: 'Ayuda y soporte' abre el sheet para repasar el tutorial, sin el placeholder", async () => {
     const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
-    const { getByText } = await render(<ProfileSettingsSection testID="settings" />);
+    const { getByText, findByText } = await render(<ProfileSettingsSection testID="settings" />);
 
-    fireEvent.press(getByText("Ayuda y soporte"));
+    await fireEvent.press(getByText("Ayuda y soporte"));
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      "Próximamente",
-      "Estamos trabajando en esta sección.",
-    );
+    expect(await findByText("¿Qué querés repasar?")).toBeTruthy();
+    expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
   });
 });

@@ -1,10 +1,12 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { KycStatus } from "@movo/shared/dist/types/user";
-import { act, fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import type { AvailableShipment } from "../src/api/shipments-client";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 import TransportScreen from "../app/(app)/(tabs)/transport";
+import { useBlockingGatesStore } from "../src/store/blocking-gates-store";
+import { useTourStore } from "../src/store/tour-store";
 
 const mockRouterPush = jest.fn();
 const mockRouterReplace = jest.fn();
@@ -20,6 +22,7 @@ jest.mock("expo-router", () => ({
   // Sin navegador real: el refetch del perfil al volver de /license-kyc se cubre
   // aparte, acá alcanza con correr el callback una vez como si la pantalla ganara foco.
   useFocusEffect: (callback: () => void) => mockUseFocusEffect(callback),
+  useIsFocused: () => true,
 }));
 
 const mockUseFocusEffect = jest.fn();
@@ -1184,6 +1187,41 @@ describe("TransportScreen", () => {
       expect(queryByTestId("transport-trip-filter-label")).toBeNull();
       expect(mockUseTrip).toHaveBeenLastCalledWith(undefined);
       expect(mockUseTripMatches).toHaveBeenLastCalledWith(undefined);
+    });
+  });
+
+  describe("Tour 2 del tutorial (MOVO-169)", () => {
+    beforeEach(() => {
+      useTourStore.setState({ active: null, anchors: {}, pending: [], pendingLoaded: true });
+      useBlockingGatesStore.setState({ mounted: true, gateVisible: false, tripMatchVisible: false });
+    });
+
+    afterEach(() => {
+      useTourStore.setState({ active: null });
+    });
+
+    it("con todos los requisitos completos arranca solo, con el paso de la primera fila si hay envíos", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
+
+      await render(<TransportScreen />);
+
+      await waitFor(() => expect(useTourStore.getState().active?.tourId).toBe("carrier"));
+      expect(useTourStore.getState().active?.steps.map((step) => step.id)).toContain("feed");
+    });
+
+    it("con requisitos faltantes no se dispara: queda el checklist", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus: KycStatus.NOT_STARTED }));
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId } = await render(<TransportScreen />);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      });
+
+      expect(getByTestId("transport-requirements-gate")).toBeTruthy();
+      expect(useTourStore.getState().active).toBeNull();
     });
   });
 });

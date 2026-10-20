@@ -40,6 +40,9 @@ jest.mock("../src/hooks/use-saved-cards", () => ({
 jest.mock("../src/hooks/use-balance", () => ({
   useBalance: () => ({ data: undefined }),
 }));
+jest.mock("../src/hooks/use-transport-gate", () => ({
+  useTransportGate: () => ({ canBrowse: false }),
+}));
 
 function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
   return {

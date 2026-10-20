@@ -1,7 +1,7 @@
 import { KycStatus } from '@movo/shared/dist/types/user';
 import { useQueryClient } from '@tanstack/react-query';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { HomeChatButton } from '../../../components/chat/home-chat-button';
@@ -15,9 +15,11 @@ import { SuccessBanner } from '../../../components/ui/success-banner';
 import { TrackingActiveIndicator } from '../../../components/location/tracking-active-indicator';
 import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
 import { useAuth } from '../../../src/hooks/use-auth';
+import { useAutoStartTour } from '../../../src/hooks/use-auto-start-tour';
 import { useChatList } from '../../../src/hooks/use-chat';
 import { useMyProfile } from '../../../src/hooks/use-profile';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
+import { useTransportGate } from '../../../src/hooks/use-transport-gate';
 import {
   KYC_TONE_ICON_HEX,
   kycStatusIcon,
@@ -99,6 +101,20 @@ export default function AuthenticatedHomeScreen() {
     if (withdrawnNotice) setWithdrawnMessage(withdrawnNotice);
   }, [withdrawnNotice, withdrawnAt]);
 
+  // MOVO-169: Tour 1 "Primeros pasos" en la primera llegada con la identidad aprobada
+  // (sin ella no se puede enviar). Espera a saber si ya puede transportar: decide el último paso.
+  const isFocused = useIsFocused();
+  const { canBrowse, isRequirementsLoading } = useTransportGate();
+  useAutoStartTour('first_steps', {
+    enabled: isFocused && currentKycStatus === KycStatus.APPROVED && !isRequirementsLoading,
+    delayMs: 700,
+    context: { firstName: firstName ?? null, canBrowse },
+  });
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollTourAnchorIntoView = (layoutY: number) => {
+    scrollRef.current?.scrollTo({ y: Math.max(0, layoutY - 16), animated: true });
+  };
+
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
 
@@ -144,6 +160,7 @@ export default function AuthenticatedHomeScreen() {
       </SafeAreaView>
 
       <ScrollView
+        ref={scrollRef}
         {...tabBarScroll}
         contentContainerClassName="px-6 pb-32 pt-6"
         showsVerticalScrollIndicator={false}
@@ -197,11 +214,15 @@ export default function AuthenticatedHomeScreen() {
           chatByShipment={chatByShipment}
         />
 
-        <HomeSendCta testID="app-home-send-cta" kycStatus={currentKycStatus} />
+        <HomeSendCta
+          testID="app-home-send-cta"
+          kycStatus={currentKycStatus}
+          scrollIntoView={scrollTourAnchorIntoView}
+        />
 
         <AttentionSection testID="app-home-attention" />
 
-        <RecentShipmentsSection testID="app-home-recent-shipments" />
+        <RecentShipmentsSection testID="app-home-recent-shipments" scrollIntoView={scrollTourAnchorIntoView} />
       </ScrollView>
     </View>
   );
