@@ -97,6 +97,9 @@ export function AdminShell({
   const section = LIVE.find((item) => item.href === current)
   return (
     <SidebarProvider
+      // Marco de altura fija: el header queda quieto y solo `main` hace scroll. Hace falta para que
+      // el índice sticky de la ficha y su scroll-spy tengan un único contenedor de scroll.
+      className="h-svh min-h-0 overflow-hidden"
       defaultOpen={defaultOpen}
       style={{ "--sidebar-width": "240px" } as CSSProperties}
     >
@@ -167,7 +170,7 @@ export function AdminShell({
           </nav>
         </SidebarContent>
       </Sidebar>
-      <SidebarInset className="bg-background">
+      <SidebarInset className="min-h-0 overflow-hidden bg-background">
         <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b bg-card px-4 md:px-6">
           <div className="flex min-w-0 items-center gap-2 text-sm text-fg2">
             <ShellTrigger />
@@ -248,7 +251,7 @@ export function AdminShell({
             <AlertDescription>{state.error}</AlertDescription>
           </Alert>
         )}
-        <main id="contenido" className="w-full flex-1 overflow-auto">
+        <main id="contenido" className="min-h-0 w-full flex-1 overflow-auto">
           {children}
         </main>
       </SidebarInset>
