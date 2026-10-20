@@ -64,3 +64,19 @@ model AuditLog {
   @@map("audit_log")
   @@schema("admin")
 }
+
+// MOVO-294: notas internas del panel sobre un usuario (sección "Notas" de la ficha). Solo se
+// agregan filas: un trigger de la migración rechaza UPDATE y DELETE. Sin trigger de TRUNCATE
+// (a diferencia de `audit_log`) para que los tests puedan limpiar la tabla. `createdAt` en ms,
+// lo fija la app: es la precisión del cursor.
+model AdminUserNote {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  adminId   String   @map("admin_id") @db.Uuid
+  body      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "admin_user_notes_user_id_created_at_id_idx")
+  @@map("admin_user_notes")
+  @@schema("admin")
+}

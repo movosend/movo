@@ -98,3 +98,22 @@ relanzan con su código para que el panel muestre el motivo concreto.
 `svc-users` (`searchCandidates` en `admin-roles.service.ts`): nombre o email, sin cuentas dadas de baja,
 máx. 8, con `emailVerified`/`isAdmin`/`status` para que el panel deshabilite a quien no se puede elegir.
 Tipo `AdminCandidate` en `@movo/shared`. Sin bitácora: es una lectura.
+
+### MOVO-294 — Búsqueda de usuarios, ficha y acciones de soporte
+
+`modules/users/`: `GET /admin/users` y una ruta por sección de la ficha (`/:id`, `kyc`, `vehicle`, `shipments`,
+`trips`, `ratings`, `moderation`, `suspensions` —vacía hasta MOVO-36—, `ledger`, `devices`, `audit-log`, `notes`),
+cada una contra su servicio dueño (`/kyc` suma `svc-payments` para la tarjeta de MP: si cualquiera cae, 502). Acciones
+por `runAdminAction`: `user.sessions_revoke`, `user.contact_update` (contexto con valor anterior y nuevo),
+`user.ledger_adjust` y `user.note_add`. Clientes nuevos en los tres `adapters/`; `payments-client` estrena métodos.
+
+- **Nombres best-effort**: los servicios dueños solo tienen ids; `svc-admin` los resuelve con `POST
+  /internal/admin/users/names` y, si `svc-users` no responde, usa `"Nombre no disponible"` en vez de romper la sección.
+- **`runAdminAction` suma `precheck`** (lectura previa tras la regla de conflicto; si falla, la fila es `failed`, no
+  `unknown`): el ajuste de saldo y las notas verifican ahí que el usuario exista (`USER_DELETED` para el ajuste),
+  porque `svc-payments` no lo sabe. **`resolveContext`** agrega datos que solo se conocen al terminar (`noticeFailed`, `noteId`).
+- **Tabla `admin.admin_user_notes`**, de solo agregar (trigger contra `UPDATE`/`DELETE`; sin el de `TRUNCATE`, para
+  que los tests puedan limpiarla). Cursor `(createdAt, id)` en ms, el mismo de la bitácora.
+- La bitácora del usuario solo mira `targetType=user` (las filas `admin_role.*` sobre la misma persona no aparecen).
+
+Pendiente: primera corrida de la migración de notas en dev/prod (`prisma migrate deploy` del deploy).

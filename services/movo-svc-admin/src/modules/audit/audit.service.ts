@@ -19,6 +19,14 @@ export interface AdminActionInput<T = unknown> {
    * de `target`; si falla, queda el de `target` (es lo único que se sabía).
    */
   resolveTarget?: (result: T) => AdminTarget;
+  /**
+   * Lectura previa a la acción, después de la regla de conflicto (p. ej. que el usuario exista y no
+   * esté dado de baja, cuando el servicio dueño de la acción no lo sabe). Igual que la regla, no
+   * aplica nada: si falla, la fila es `failed` aunque el servicio que no respondió sea otro.
+   */
+  precheck?: () => Promise<void>;
+  /** Contexto que solo se conoce al terminar (p. ej. si falló un aviso); se suma al de `context`. */
+  resolveContext?: (result: T) => Record<string, unknown>;
 }
 
 export interface AuditService {
@@ -97,6 +105,7 @@ export function createAuditService(deps: AuditServiceDeps): AuditService {
       // que cualquier error acá es `failed` (la acción nunca se llamó).
       try {
         await conflictChecker.assertNoConflict(input.adminId, input.target, { requestId: input.requestId });
+        await input.precheck?.();
       } catch (error) {
         await recordFailure(error, "failed");
         throw error;
@@ -116,9 +125,11 @@ export function createAuditService(deps: AuditServiceDeps): AuditService {
       // la inversa (registrar como hecha una acción que no ocurrió) nunca pasa.
       try {
         const resolved = input.resolveTarget?.(result);
+        const extraContext = input.resolveContext?.(result);
         await repository.insert({
           ...base,
           ...(resolved ? { targetType: resolved.type, targetId: resolved.id } : {}),
+          ...(extraContext ? { context: { ...(base.context ?? {}), ...extraContext } } : {}),
           outcome: "succeeded",
         });
       } catch (auditError) {

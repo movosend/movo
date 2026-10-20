@@ -1,6 +1,31 @@
-import { AdminCandidate, AdminSummary, UserReportParties } from "@movo/shared";
+import {
+  AdminCandidate,
+  AdminContactUpdateBody,
+  AdminContactUpdateResult,
+  AdminKycCard,
+  AdminSessionsRevokeResult,
+  AdminSummary,
+  AdminUserDevices,
+  AdminUserKyc,
+  AdminUserListItem,
+  AdminUserModeration,
+  AdminUserNames,
+  AdminUserPage,
+  AdminUserProfile,
+  AdminUserRef,
+  AdminUserVehicle,
+  UserReportParties,
+} from "@movo/shared";
 import { ApiError } from "@movo/shared";
-import { createInternalClient, InternalClient, isRecord, isString, RequestContext } from "./internal-client";
+import {
+  createInternalClient,
+  InternalClient,
+  isNullableString,
+  isRecord,
+  isString,
+  isStringArray,
+  RequestContext,
+} from "./internal-client";
 
 export interface UsersClient extends InternalClient {
   /** `GET /internal/admins`: los usuarios con el rol `admin`. */
@@ -13,7 +38,78 @@ export interface UsersClient extends InternalClient {
   revokeAdmin(userId: string, actorId: string, ctx: RequestContext): Promise<void>;
   /** `GET /internal/user-reports/:id/parties`. `null` si el reporte no existe. */
   getUserReportParties(reportId: string, ctx: RequestContext): Promise<UserReportParties | null>;
+
+  // MOVO-294: búsqueda, ficha y acciones de soporte. Todas responden 404 `USER_NOT_FOUND` como
+  // `ApiError` (no `null`): el panel muestra ese código tal cual.
+  searchUsers(query: { q: string; page: number; pageSize: number }, ctx: RequestContext): Promise<AdminUserPage>;
+  getUserProfile(userId: string, ctx: RequestContext): Promise<AdminUserProfile>;
+  getUserKyc(userId: string, ctx: RequestContext): Promise<Omit<AdminUserKyc, "mercadoPago">>;
+  getUserVehicle(userId: string, ctx: RequestContext): Promise<AdminUserVehicle>;
+  getUserModeration(userId: string, ctx: RequestContext): Promise<AdminUserModeration>;
+  getUserDevices(userId: string, ctx: RequestContext): Promise<AdminUserDevices>;
+  /** Nombres de los ids que existen; los demás no vuelven. */
+  getUserNames(userIds: string[], ctx: RequestContext): Promise<AdminUserRef[]>;
+  revokeUserSessions(userId: string, actorId: string, ctx: RequestContext): Promise<AdminSessionsRevokeResult>;
+  updateUserContact(
+    userId: string,
+    body: Omit<AdminContactUpdateBody, "reason">,
+    actorId: string,
+    ctx: RequestContext,
+  ): Promise<AdminContactUpdateResult & { noticeFailed: boolean }>;
 }
+
+const isNumber = (value: unknown): value is number => typeof value === "number";
+const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
+const isArrayOf = <T>(value: unknown, guard: (item: unknown) => item is T): value is T[] => Array.isArray(value) && value.every(guard);
+const isUserRef = (value: unknown): value is AdminUserRef => isRecord(value) && isString(value.id) && isString(value.fullName);
+
+const isListItem = (value: unknown): value is AdminUserListItem =>
+  isRecord(value) && isString(value.id) && isString(value.fullName) && isString(value.email) && isStringArray(value.roles) && isString(value.accountStatus);
+
+const isUserPage = (body: unknown): body is AdminUserPage =>
+  isRecord(body) && isArrayOf(body.items, isListItem) && isNumber(body.page) && isNumber(body.pageSize) && isNumber(body.total);
+
+const isProfile = (body: unknown): body is AdminUserProfile =>
+  isRecord(body) &&
+  isString(body.id) &&
+  isString(body.fullName) &&
+  isString(body.email) &&
+  isString(body.phone) &&
+  isString(body.accountStatus) &&
+  isNullableString(body.deletedAt) &&
+  Array.isArray(body.roles);
+
+const isKycCard = (value: unknown): value is AdminKycCard => isRecord(value) && isString(value.status) && Array.isArray(value.attempts);
+const isKyc = (body: unknown): body is Omit<AdminUserKyc, "mercadoPago"> => isRecord(body) && isKycCard(body.identity) && isKycCard(body.license);
+
+const isVehicle = (body: unknown): body is AdminUserVehicle =>
+  isRecord(body) && (body.vehicle === null || (isRecord(body.vehicle) && isString(body.vehicle.licensePlate)));
+
+const isModeration = (body: unknown): body is AdminUserModeration =>
+  isRecord(body) &&
+  isRecord(body.reports) &&
+  Array.isArray(body.reports.received) &&
+  Array.isArray(body.reports.made) &&
+  isRecord(body.blocks) &&
+  Array.isArray(body.blocks.made) &&
+  Array.isArray(body.blocks.received) &&
+  isRecord(body.totals);
+
+const isDevices = (body: unknown): body is AdminUserDevices =>
+  isRecord(body) && Array.isArray(body.devices) && (body.handshakeKey === null || isRecord(body.handshakeKey));
+
+const isNames = (body: unknown): body is AdminUserNames => isRecord(body) && isArrayOf(body.users, isUserRef);
+
+const isRevokeResult = (body: unknown): body is AdminSessionsRevokeResult => isRecord(body) && isNumber(body.revokedRefreshTokens);
+
+const isContactResult = (body: unknown): body is AdminContactUpdateResult & { noticeFailed: boolean } =>
+  isRecord(body) &&
+  isString(body.email) &&
+  isBoolean(body.emailVerified) &&
+  isString(body.phone) &&
+  isBoolean(body.phoneVerified) &&
+  isNumber(body.revokedRefreshTokens) &&
+  isBoolean(body.noticeFailed);
 
 const isUserReportParties = (body: unknown): body is UserReportParties =>
   isRecord(body) && isString(body.reportId) && isString(body.reporterId) && isString(body.reportedId);
@@ -95,5 +191,57 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
         notFoundCodes: ["REPORT_NOT_FOUND"],
       });
     },
+
+    async searchUsers({ q, page, pageSize }, ctx) {
+      const query = new URLSearchParams({ q, page: String(page), pageSize: String(pageSize) });
+      const result = await client.request(`/internal/admin/users?${query}`, ctx, { isValid: isUserPage, notFoundCodes: [] });
+      return result ?? { items: [], page, pageSize, total: 0 };
+    },
+    getUserProfile: (userId, ctx) => userSection(userId, "", ctx, isProfile),
+    getUserKyc: (userId, ctx) => userSection(userId, "/kyc", ctx, isKyc),
+    getUserVehicle: (userId, ctx) => userSection(userId, "/vehicle", ctx, isVehicle),
+    getUserModeration: (userId, ctx) => userSection(userId, "/moderation", ctx, isModeration),
+    getUserDevices: (userId, ctx) => userSection(userId, "/devices", ctx, isDevices),
+
+    async getUserNames(userIds, ctx) {
+      const ids = [...new Set(userIds)];
+      if (ids.length === 0) return [];
+      const result = await client.request("/internal/admin/users/names", ctx, {
+        method: "POST",
+        body: { ids },
+        isValid: isNames,
+        notFoundCodes: [],
+      });
+      return result?.users ?? [];
+    },
+
+    async revokeUserSessions(userId, actorId, ctx) {
+      const result = await client.request(`${userPath(userId)}/sessions/revoke`, ctx, {
+        method: "POST",
+        actorId,
+        isValid: isRevokeResult,
+        notFoundCodes: ["USER_NOT_FOUND"],
+      });
+      return orNotFound(result, "USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE);
+    },
+
+    async updateUserContact(userId, body, actorId, ctx) {
+      const result = await client.request(`${userPath(userId)}/contact`, ctx, {
+        method: "POST",
+        body,
+        actorId,
+        isValid: isContactResult,
+        notFoundCodes: ["USER_NOT_FOUND"],
+      });
+      return orNotFound(result, "USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE);
+    },
   };
+
+  async function userSection<T>(userId: string, section: string, ctx: RequestContext, isValid: (body: unknown) => body is T): Promise<T> {
+    const result = await client.request(`${userPath(userId)}${section}`, ctx, { isValid, notFoundCodes: ["USER_NOT_FOUND"] });
+    return orNotFound(result, "USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE);
+  }
 }
+
+const USER_NOT_FOUND_MESSAGE = "Usuario no encontrado.";
+const userPath = (userId: string) => `/internal/admin/users/${encodeURIComponent(userId)}`;
