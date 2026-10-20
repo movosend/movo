@@ -200,3 +200,33 @@ se manda por una Server Action (`app/users/[id]/account-actions.ts`) → `lib/us
 
 Pendiente: probarlo a mano contra dev y en claro/oscuro (esta sesión no tuvo acceso al login real); contra el backend real
 falta MOVO-294. Códigos nuevos en `ApiErrorCode`: `CONTACT_CHANGED`, `CONTACT_UNCHANGED`, `USER_DELETED`, `AMOUNT_OUT_OF_RANGE`.
+
+## MOVO-323 — Soporte: bandeja del agente
+
+`/support` (lista) y `/support/[id]` (conversación), fieles al prototipo de Claude Design (`Movo Admin Soporte.dc.html`).
+Contratos en `shared/movo-shared/src/types/admin-support.ts` y `docs/support/README.md`; los define este ticket y los implementan
+MOVO-322 (API) y MOVO-321 (adjuntos), que los tienen anexados en su descripción.
+
+- **Filtros en la URL** (`?status=&owner=&q=`, default Abiertos/Todos); `app/support/layout.tsx` monta el shell y la lista (client,
+  `ConversationList`) y se queda al navegar entre conversaciones. La lista pide `list` + `counts` al backend (orden y filtros los resuelve
+  él). Bajo 1200 px la barra lateral pasa a íconos (`InboxFrame`); el contexto es una columna desde 1360 px y un `Sheet` antes; bajo 768 px
+  se ve una columna a la vez.
+- **Lecturas del navegador** por un Route Handler (`app/api/support/[resource]`, `lib/support/client.ts`), no por Server Actions (Next las
+  ejecuta de a una). **Escrituras** por Server Actions (`app/support/actions.ts`) con UI optimista: el mensaje sale con `clientMessageId` y, si
+  falla, queda "No se envió" con Reintentar (mismo id, así no se duplica). `gateway()` suma `PATCH`.
+- **Tiempo real** (`lib/support/realtime/feed.ts`, `components/support/support-provider.tsx`): una conexión por pestaña para todo el panel,
+  pedida por `AdminShell`. WS con ticket de un solo uso (Server Action `requestRealtimeTicket`, subprotocolo `movo-support.v1`), reconexión con
+  backoff y jitter, y polling de respaldo tras 3 fallos; al recuperar la conexión emite `resync` y lista/conversación se vuelven a pedir.
+  Alimenta el badge del menú y los toasts "Nueva consulta de …". **El WS real no existe todavía** (MOVO-322): con el mock, `mock://support`
+  simula el socket leyendo `/api/support/events`.
+- **Conflicto de interés**: una consulta cuyo usuario es el admin se abre ya bloqueada; un `403 ADMIN_CONFLICT_OF_INTEREST` al enviar o
+  modificar hace lo mismo. Sin calificación de la atención (se omitió la tarjeta de estrellas del prototipo).
+- **Fuera del prototipo, agregado por los AC**: adjuntos (selector, arrastrar, pegar, vista previa, lightbox), menú de tema, estados de
+  carga y error, reconexión. Los links a envíos pasan por `shipmentHref()` (`lib/support/shipment-href.ts`), que hoy devuelve `null` hasta
+  MOVO-33. Los menús usan `MenuHeading` y no `DropdownMenuLabel` (Base UI exige un grupo padre).
+- **Modo fixtures** (`MOVO_ADMIN_MOCK=1`): `lib/support/{mock,fixtures}.ts` portan las 9 consultas del prototipo, la que entra sola a los
+  16 s, respuestas del usuario y una consulta propia del admin logueado. `MOVO_ADMIN_MOCK_FAIL=context,list,send!,ws…`,
+  `MOVO_ADMIN_MOCK_SIMULATE=0`. Los adjuntos se suben a `/api/support/mock-upload/[id]` y se leen de `mock-image/[id]`.
+
+Pendiente: probar contra dev con 321/322 desplegados (DoD pide un screenshot contra backend real) y revisar a mano en claro/oscuro:
+esta sesión verificó con tests, lint, typecheck y build, pero no abrió el panel (el login real necesita el gateway).
