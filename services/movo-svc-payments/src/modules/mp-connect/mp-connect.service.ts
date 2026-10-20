@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 import {
+  AdminUserMercadoPago,
   ApiError,
   CarrierMpAccountStatusResponse,
   MP_CONNECT_RETURN_URL,
@@ -80,6 +81,21 @@ export function errorReturnUrl(code: MpConnectReturnErrorCode): string {
  * - Revocada desde MP (MOVO-243) → `invalid/revoked`.
  * - Token vencido sin renovar → `invalid/expired`.
  */
+/**
+ * MOVO-294: mismo criterio que `toStatusResponse`, en la forma del panel. El panel no distingue
+ * revocada de vencida: las dos son `revoked` (hoy no se puede cobrar con esa cuenta).
+ */
+export function toAdminSummary(account: CarrierMpAccount | null, now: Date): AdminUserMercadoPago {
+  if (!account) return { status: "not_linked", nickname: null, connectedAt: null, unlinkedAt: null };
+  const { status } = toStatusResponse(account, now);
+  return {
+    status: status === "linked" ? "linked" : status === "unlinked" ? "not_linked" : "revoked",
+    nickname: account.nickname,
+    connectedAt: account.connectedAt.toISOString(),
+    unlinkedAt: account.unlinkedAt?.toISOString() ?? null,
+  };
+}
+
 export function toStatusResponse(account: CarrierMpAccount | null, now: Date): MpConnectStatusResponse {
   if (!account || account.unlinkedAt) {
     return { status: "unlinked", account: null, invalidReason: null };
@@ -175,6 +191,11 @@ export function createMpConnectService(deps: MpConnectServiceDeps) {
      */
     async getCarrierAccountStatus(userId: string): Promise<CarrierMpAccountStatusResponse> {
       return { linked: await repository.hasActiveCredentials(userId, now()) };
+    },
+
+    /** MOVO-294: la tarjeta de Mercado Pago de la ficha del panel. */
+    async getAdminSummary(userId: string): Promise<AdminUserMercadoPago> {
+      return toAdminSummary(await repository.findByUserId(userId), now());
     },
 
     async buildAuthorizationUrl(userId: string): Promise<MpConnectAuthorizationUrlResponse> {

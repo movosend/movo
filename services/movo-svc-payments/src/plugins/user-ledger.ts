@@ -8,6 +8,7 @@ export default fp(async (app: FastifyInstance) => {
   app.decorate("userLedger", createUserLedgerService({
     ledger: createUserLedgerRepository(app.db), db: app.db,
     shipmentsClient: app.shipmentsClient,
+    maxManualAdjustmentArs: app.config.ADMIN_LEDGER_ADJUSTMENT_MAX_ARS,
   }));
 });
 

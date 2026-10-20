@@ -224,6 +224,38 @@ describe("/payments/mp-connect (MOVO-111)", () => {
     });
   });
 
+  describe("GET /internal/payments/mp-connect/:userId/admin-summary (MOVO-294)", () => {
+    async function getSummary(userId: string) {
+      const response = await app.inject({ method: "GET", url: `/internal/payments/mp-connect/${userId}/admin-summary` });
+      expect(response.statusCode).toBe(200);
+      return response.json();
+    }
+
+    it("not_linked sin cuenta", async () => {
+      expect(await getSummary(USER_A)).toEqual({ status: "not_linked", nickname: null, connectedAt: null, unlinkedAt: null });
+    });
+
+    it("linked con la fecha de vinculación; not_linked con la de baja después de desvincular", async () => {
+      await link(USER_A);
+      const linked = await getSummary(USER_A);
+      expect(linked).toMatchObject({ status: "linked", unlinkedAt: null });
+      expect(linked.connectedAt).toEqual(expect.any(String));
+
+      await app.inject({ method: "DELETE", url: "/payments/mp-connect", headers: as(USER_A) });
+      const unlinked = await getSummary(USER_A);
+      expect(unlinked.status).toBe("not_linked");
+      expect(unlinked.unlinkedAt).toEqual(expect.any(String));
+    });
+
+    it("revoked con la cuenta revocada o el token vencido", async () => {
+      await link(USER_A);
+      await app.db.carrierMpAccount.update({ where: { userId: USER_A }, data: { tokenExpiresAt: new Date(Date.now() - 1000) } });
+      expect((await getSummary(USER_A)).status).toBe("revoked");
+      await app.db.carrierMpAccount.update({ where: { userId: USER_A }, data: { revokedAt: new Date() } });
+      expect((await getSummary(USER_A)).status).toBe("revoked");
+    });
+  });
+
   describe("GET /authorization-url", () => {
     it("arma la URL de MP con PKCE S256 y offline_access, y guarda el state en Redis", async () => {
       const response = await app.inject({

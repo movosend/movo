@@ -14,6 +14,7 @@ export interface EnvConfig {
   MP_COLLECTOR_MP_USER_ID?: string;
   MP_HOLD_VALIDITY_DAYS: number;
   DEBT_COLLECTION_MAX_RATE: number;
+  ADMIN_LEDGER_ADJUSTMENT_MAX_ARS: number;
   MP_TRANSACTION_FEE_RATE: number;
   MP_TOKEN_REFRESH_SWEEP_ENABLED: boolean;
   MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES: number;
@@ -75,6 +76,9 @@ export const envSchema = {
     // precio del envío (descuento al transportista y recargo al emisor, cada uno con este tope). El
     // máximo de 0.5 garantiza `application_fee < transaction_amount` (si no, MP responde 4038).
     DEBT_COLLECTION_MAX_RATE: { type: "number", minimum: 0, maximum: 0.5, default: 0.3 },
+    // MOVO-294: tope (en valor absoluto) de un ajuste manual de saldo desde el panel. Nunca por encima
+    // del tope general de un movimiento (`LEDGER_MAX_ABS_AMOUNT_ARS`, 10M).
+    ADMIN_LEDGER_ADJUSTMENT_MAX_ARS: { type: "number", minimum: 1, maximum: 10000000, default: 500000 },
     // Estimado de la comisión de MP (fracción del monto, 0.0499 = 4,99%). La lee `@movo/shared` desde
     // `process.env` (define el `application_fee` de la deuda del emisor y el "Recibís aprox."): se valida acá
     // para que un `4.99` en vez de `0.0499` corte el arranque en vez de cobrar mal.

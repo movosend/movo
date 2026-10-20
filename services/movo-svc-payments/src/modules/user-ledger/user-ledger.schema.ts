@@ -145,7 +145,55 @@ export const manualAdjustmentInternalSchema = {
       shipmentId: uuid,
     },
   },
-  response: createEntryInternalSchema.response,
+  // MOVO-294: también el saldo ya con el ajuste, que el panel muestra en el diálogo.
+  response: {
+    ...createEntryInternalSchema.response,
+    200: { type: "object", required: ["entry", "created", "balanceArs"], properties: { entry, created: { type: "boolean" }, balanceArs: { type: "number" } } },
+    201: { type: "object", required: ["entry", "created", "balanceArs"], properties: { entry, created: { type: "boolean" }, balanceArs: { type: "number" } } },
+    422: errorResponse,
+  },
+} as const;
+
+/** MOVO-294: la cuenta corriente vista por un admin (`svc-admin`), con motivo y `adminId`. */
+export const adminLedgerInternalSchema = {
+  hide: true,
+  params: userIdParams,
+  querystring: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      cursor: { type: "string", minLength: 1, maxLength: 200 },
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+    },
+  },
+  response: {
+    200: {
+      type: "object",
+      required: ["balanceArs", "items", "nextCursor"],
+      properties: {
+        balanceArs: { type: "number" },
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["id", "type", "amountArs", "status", "shipmentId", "reason", "adminId", "createdAt"],
+            properties: {
+              id: uuid,
+              type: { type: "string", enum: entryTypes },
+              amountArs: { type: "number" },
+              status: { type: "string", enum: entryStatuses },
+              shipmentId: { type: ["string", "null"] },
+              reason: { type: ["string", "null"] },
+              adminId: { type: ["string", "null"] },
+              createdAt: { type: "string", format: "date-time" },
+            },
+          },
+        },
+        nextCursor: { type: ["string", "null"] },
+      },
+    },
+    400: errorResponse,
+  },
 } as const;
 
 export const getBalanceSchema = {
