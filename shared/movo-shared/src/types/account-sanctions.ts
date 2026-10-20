@@ -25,7 +25,8 @@ export interface AccountSanction {
   startedAt: string;
   /** `null` = suspensión indefinida o inhabilitación permanente. */
   endsAt: string | null;
-  appliedBy: string;
+  /** `null` en las sanciones migradas de cuentas `banned` anteriores a MOVO-296 (las aplicó el sistema). */
+  appliedBy: string | null;
   /** `null` mientras la sanción está vigente. */
   liftedAt: string | null;
   /** `null` si la cerró el sistema (vencimiento) o sigue vigente. */
