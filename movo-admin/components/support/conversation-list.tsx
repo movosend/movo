@@ -13,7 +13,13 @@ import {
   useState,
   type KeyboardEvent,
 } from "react"
-import { RotateCw, Search, TriangleAlert } from "lucide-react"
+import {
+  Check,
+  ListFilter,
+  RotateCw,
+  Search,
+  TriangleAlert,
+} from "lucide-react"
 import {
   SUPPORT_STATUSES,
   SUPPORT_WAIT_ALERT_MINUTES,
@@ -22,6 +28,12 @@ import {
   type SupportStatus,
 } from "@movo/shared/src/types/admin-support"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { UserAvatar } from "@/components/user-avatar"
 import { supportClient } from "@/lib/support/client"
@@ -39,6 +51,7 @@ import {
   previewOf,
   PRIORITY_DOT,
 } from "./format"
+import { MenuHeading } from "./menu-heading"
 import { useSupportMessages } from "./support-provider"
 import { TopicIcon } from "./topic-icon"
 
@@ -341,11 +354,11 @@ export function ConversationList({ meId }: { meId: string }) {
       aria-label="Consultas"
       className="flex min-h-0 min-w-0 flex-col border-r bg-card"
     >
-      <div className="flex flex-col gap-3 border-b px-4 pt-4 pb-3">
+      <div className="flex flex-col gap-3 border-b px-4 pt-2 pb-3">
         <div
           role="tablist"
           aria-label="Estado"
-          className="grid grid-cols-3 gap-0.5 rounded-lg bg-muted p-[3px]"
+          className="-mx-1 flex gap-1 border-b border-transparent"
         >
           {SUPPORT_STATUSES.map((value) => {
             const on = value === status
@@ -359,55 +372,15 @@ export function ConversationList({ meId }: { meId: string }) {
                   router.replace(href({ status: value }), { scroll: false })
                 }
                 className={cn(
-                  "flex h-[30px] min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-md px-1 text-xs font-medium whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "-mb-px flex h-10 items-center gap-1.5 border-b-2 px-2 text-[13px] font-medium whitespace-nowrap outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-ring",
                   on
-                    ? "bg-card text-foreground shadow-(--shadow-1)"
-                    : "text-fg2 hover:text-foreground"
+                    ? "border-foreground text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
                 {TAB_LABEL[value]}
                 <span className="text-xs text-muted-foreground tabular-nums">
                   {countOf(value) ?? ""}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-        <div
-          role="group"
-          aria-label="Asignación"
-          className="flex flex-wrap gap-1.5"
-        >
-          {OWNERS.map(({ value, label }) => {
-            const on = value === owner
-            const count = ownerCount(value)
-            return (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={on}
-                onClick={() =>
-                  router.replace(href({ owner: value }), { scroll: false })
-                }
-                className={cn(
-                  "flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  on
-                    ? "border-foreground bg-foreground text-card"
-                    : "border-border-strong bg-card text-fg2 hover:text-foreground"
-                )}
-              >
-                {label}
-                <span
-                  className={cn(
-                    "tabular-nums",
-                    on
-                      ? "text-card"
-                      : value === "none" && count
-                        ? "text-warn-fg"
-                        : "text-muted-foreground"
-                  )}
-                >
-                  {count ?? ""}
                 </span>
               </button>
             )
@@ -426,6 +399,53 @@ export function ConversationList({ meId }: { meId: string }) {
               className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label={
+                owner === "all"
+                  ? "Filtrar por asignación"
+                  : `Filtrar por asignación: ${OWNERS.find((o) => o.value === owner)?.label}`
+              }
+              title="Filtrar por asignación"
+              className={cn(
+                "flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                owner === "all"
+                  ? "w-9 justify-center border-border-strong text-fg2 hover:bg-muted hover:text-foreground"
+                  : "border-foreground bg-foreground text-card"
+              )}
+            >
+              <ListFilter aria-hidden className="size-4" />
+              {owner !== "all" && OWNERS.find((o) => o.value === owner)?.label}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <MenuHeading>Mostrar</MenuHeading>
+              {OWNERS.map(({ value, label }) => (
+                <DropdownMenuItem
+                  key={value}
+                  onClick={() =>
+                    router.replace(href({ owner: value }), { scroll: false })
+                  }
+                >
+                  <span className="w-4">
+                    {value === owner && (
+                      <Check aria-hidden className="size-4" />
+                    )}
+                  </span>
+                  <span className="flex-1">{label}</span>
+                  <span
+                    className={cn(
+                      "text-xs tabular-nums",
+                      value === "none" && ownerCount(value)
+                        ? "text-warn-fg"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {ownerCount(value) ?? ""}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       <div

@@ -58,7 +58,7 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe("lista de consultas", () => {
-  it("muestra pestañas y chips con conteo, y la fila con sus datos", async () => {
+  it("muestra pestañas con conteo, el filtro de asignación, y la fila con sus datos", async () => {
     render(withPanels(<ConversationList meId="me" />))
     expect(await screen.findByText("Carolina Sánchez")).toBeTruthy()
     expect(screen.getByRole("tab", { name: /Abiertos/ }).textContent).toContain(
@@ -67,8 +67,11 @@ describe("lista de consultas", () => {
     expect(
       screen.getByRole("tab", { name: /Esperando/ }).textContent
     ).toContain("2")
+    fireEvent.click(
+      screen.getByRole("button", { name: "Filtrar por asignación" })
+    )
     expect(
-      screen.getByRole("button", { name: /Sin asignar/ }).textContent
+      (await screen.findByRole("menuitem", { name: /Sin asignar/ })).textContent
     ).toContain("3")
     expect(screen.getByText("espera 23 min").className).toContain(
       "text-danger-fg"
@@ -101,17 +104,30 @@ describe("lista de consultas", () => {
     )
   })
 
-  it("cambiar de pestaña o chip actualiza la URL", async () => {
+  it("cambiar de pestaña o de asignación actualiza la URL", async () => {
     render(withPanels(<ConversationList meId="me" />))
     await screen.findByText("Carolina Sánchez")
     fireEvent.click(screen.getByRole("tab", { name: /Resueltos/ }))
     expect(nav.replace).toHaveBeenCalledWith("/support?status=resolved", {
       scroll: false,
     })
-    fireEvent.click(screen.getByRole("button", { name: /Míos/ }))
+    fireEvent.click(
+      screen.getByRole("button", { name: "Filtrar por asignación" })
+    )
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Míos/ }))
     expect(nav.replace).toHaveBeenCalledWith("/support?owner=mine", {
       scroll: false,
     })
+  })
+
+  it("con un filtro de asignación activo el botón lo nombra", async () => {
+    nav.search = new URLSearchParams("owner=none")
+    render(withPanels(<ConversationList meId="me" />))
+    expect(
+      await screen.findByRole("button", {
+        name: "Filtrar por asignación: Sin asignar",
+      })
+    ).toBeTruthy()
   })
 
   it("muestra el vacío de la pestaña", async () => {
