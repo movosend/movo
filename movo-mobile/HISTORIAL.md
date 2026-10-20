@@ -4901,6 +4901,10 @@ va solo en el cuerpo (`ShipmentDetailBodySkeleton`, con `tabs={false}` para el s
 (antes decían "0 activos" mientras cargaban) y el footer de paginación, también el de Transportar, es una fila skeleton. `SkeletonBlock` respeta
 "reducir movimiento" (queda quieto).
 - Los `ActivityIndicator` de `PaymentBreakdown`/`FundsStatus` se dejaron: marcan un pago "en proceso", no una carga de datos.
+- "Estoy transportando" (skeleton y error) solo se monta con el rol `CARRIER`, para que un emisor no vea un bloque que después desaparece ni el
+  error de `/trips`. El perfil usa `!!data` como criterio: un refetch fallido con datos en caché no lo tapa con el error. "Reintentar" es un
+  `Pressable` con área mínima de 44px. `useAttentionSourceShipments.isError` es true si falla cualquiera de las dos fuentes y se muestran las
+  tareas parciales: decisión consciente, mejor ver las tareas de una fuente que ocultarlas todas por la falla de la otra.
 - Las alturas de los skeletons de Inicio (`ACTIVE_CARD_SKELETON_HEIGHT` etc.) son estimadas contra las cards reales; **pendiente**: medirlas en
   dispositivo (claro y oscuro) y ajustarlas para cerrar el CLS.
 
