@@ -4907,4 +4907,5 @@ Perfil abre `TourReplaySheet` para relanzar a mano, sin escribir el registro.
 - `useTransportGate` (`src/hooks/use-transport-gate.ts`) saca de `transport.tsx` la regla de `canBrowse`, sin cambio de
   comportamiento; la usan también Inicio (último paso del Tour 1) y el sheet de Perfil.
 - La card del tooltip y del modal es siempre blanca (`bg-paper`), como el prototipo: va sobre el scrim oscuro en los dos temas.
-- Pendiente: probarlo en dispositivo (posiciones medidas, tab bar colapsada, checklist con su propio velo del 40 %).
+- Probado en dispositivo (iPhone). Un ancla sin card propia ("Actividad reciente") necesita más `padding` (12) para que el anillo
+  no quede pegado al texto.
