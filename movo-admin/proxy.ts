@@ -10,6 +10,6 @@ export function proxy(request: NextRequest) {
 }
 export const config = {
   matcher: [
-    "/((?!login(?:/|$)|verify(?:/|$)|auth/refresh(?:/|$)|_next/|favicon.ico|brand/|fonts/).*)",
+    "/((?!login(?:/|$)|verify(?:/|$)|forgot(?:/|$)|auth/refresh(?:/|$)|_next/|favicon.ico|brand/|fonts/).*)",
   ],
 }

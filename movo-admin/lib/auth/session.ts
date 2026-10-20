@@ -10,7 +10,12 @@ import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { ApiError } from "@movo/shared/src/errors/api-error"
 import { gateway } from "./api"
-import { ACCESS_COOKIE, REFRESH_COOKIE, CHALLENGE_COOKIE } from "./policy"
+import {
+  ACCESS_COOKIE,
+  REFRESH_COOKIE,
+  CHALLENGE_COOKIE,
+  RESET_COOKIE,
+} from "./policy"
 
 export interface SessionTokens {
   accessToken: string
@@ -30,6 +35,15 @@ export interface Challenge {
   email: string
   expiresAt: number
   resendAt: number
+}
+/** Recuperación de contraseña: primero el otpId, después (verificado el código) el token. */
+export interface ResetFlow {
+  otpId: string
+  target: string
+  channel: "sms" | "email"
+  expiresAt: number
+  resendAt: number
+  passwordResetToken?: string
 }
 const cookieOptions = {
   httpOnly: true,
@@ -168,4 +182,18 @@ export async function requireAdmin(
       redirect("/login?expired=1")
     }
   }
+}
+export async function writeReset(flow: ResetFlow): Promise<void> {
+  ;(await cookies()).set(RESET_COOKIE, seal(flow), {
+    ...cookieOptions,
+    maxAge: Math.max(0, Math.floor((flow.expiresAt - Date.now()) / 1000)),
+  })
+}
+export async function readReset(): Promise<ResetFlow | null> {
+  const value = (await cookies()).get(RESET_COOKIE)?.value
+  const flow = value ? unseal<ResetFlow>(value) : null
+  return flow && flow.expiresAt > Date.now() ? flow : null
+}
+export async function clearReset(): Promise<void> {
+  ;(await cookies()).set(RESET_COOKIE, "", { ...cookieOptions, maxAge: 0 })
 }

@@ -1,7 +1,7 @@
 "use client"
 import Link from "next/link"
 import { useActionState, useEffect, useState } from "react"
-import { LoaderCircle, ArrowLeft, Smartphone, Eye, EyeOff } from "lucide-react"
+import { LoaderCircle, ArrowLeft, Eye, EyeOff } from "lucide-react"
 import {
   login,
   verify,
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/input-otp"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Brand } from "@/components/brand"
+import { IdentifierField } from "@/components/identifier-field"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 export function AuthForm({
@@ -40,9 +41,7 @@ export function AuthForm({
   >(resend, {})
   const [now, setNow] = useState(0)
   const [code, setCode] = useState("")
-  const [forgot, setForgot] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [method, setMethod] = useState<"email" | "phone">("email")
   const hasChallenge = !!challenge
   useEffect(() => {
     if (!hasChallenge) return
@@ -125,67 +124,13 @@ export function AuthForm({
                 </Field>
               ) : (
                 <>
-                  <div
-                    role="tablist"
-                    aria-label="Ingresar con"
-                    className="auth-tabs"
-                  >
-                    {(["email", "phone"] as const).map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        role="tab"
-                        id={`tab-${m}`}
-                        aria-selected={method === m}
-                        disabled={pending}
-                        onClick={() => setMethod(m)}
-                      >
-                        {m === "email" ? "Email" : "Teléfono"}
-                      </button>
-                    ))}
-                  </div>
-                  <input type="hidden" name="method" value={method} />
-                  <Field data-invalid={!!state.error}>
-                    <FieldLabel htmlFor="identifier">
-                      {method === "email" ? "Email" : "Teléfono"}
-                    </FieldLabel>
-                    <div className="auth-phone-row">
-                      {method === "phone" && (
-                        <span className="auth-prefix" aria-hidden>
-                          🇦🇷 +54
-                        </span>
-                      )}
-                      <Input
-                        key={method}
-                        id="identifier"
-                        name="identifier"
-                        type={method === "email" ? "email" : "tel"}
-                        autoComplete={
-                          method === "email" ? "username" : "tel-national"
-                        }
-                        placeholder={
-                          method === "email"
-                            ? "nombre@email.com"
-                            : "351 123 4567"
-                        }
-                        required
-                        maxLength={254}
-                        disabled={pending}
-                        aria-invalid={!!state.error}
-                      />
-                    </div>
-                  </Field>
+                  <IdentifierField pending={pending} invalid={!!state.error} />
                   <Field data-invalid={!!state.error}>
                     <div className="auth-label-row">
                       <FieldLabel htmlFor="password">Contraseña</FieldLabel>
-                      <button
-                        type="button"
-                        className="auth-link"
-                        aria-expanded={forgot}
-                        onClick={() => setForgot((v) => !v)}
-                      >
+                      <Link href="/forgot" className="auth-link">
                         ¿Olvidaste tu contraseña?
-                      </button>
+                      </Link>
                     </div>
                     <div className="auth-password">
                       <Input
@@ -217,16 +162,6 @@ export function AuthForm({
                       </button>
                     </div>
                   </Field>
-                  {forgot && (
-                    <div className="auth-hint">
-                      <Smartphone aria-hidden />
-                      <p>
-                        El panel usa la misma cuenta que la app. Para cambiar tu
-                        contraseña, abrí la app de Movo y andá a{" "}
-                        <strong>Perfil → Seguridad</strong>.
-                      </p>
-                    </div>
-                  )}
                 </>
               )}
               {state.error && (

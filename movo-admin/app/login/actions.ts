@@ -13,25 +13,11 @@ import {
   type SessionTokens,
 } from "@/lib/auth/session"
 import { REFRESH_COOKIE, ACCESS_COOKIE } from "@/lib/auth/policy"
+import { parseIdentifier } from "@/lib/auth/identifier"
 export interface AuthState {
   error?: string
   resendAt?: number
   notice?: string
-}
-
-function parseIdentifier(
-  method: string,
-  value: string
-): { email: string } | { phone: string } | null {
-  if (method === "phone") {
-    // +54 9 351 123-4567, (351) 123 4567, etc.: se dejan solo los dígitos.
-    const phone = value.replace(/[\s().-]/g, "").replace(/^\+/, "")
-    return /^(54)?9?\d{10}$/.test(phone) ? { phone } : null
-  }
-  const email = value.toLowerCase()
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254
-    ? { email }
-    : null
 }
 
 export async function login(

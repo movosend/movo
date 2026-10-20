@@ -97,3 +97,12 @@ de Claude Design: paleta neutra y grilla, con los tokens de shadcn remapeados **
 Email / Teléfono (con 🇦🇷 +54 fijo) sobre un campo `identifier`; la pestaña viaja como `method` y
 `parseIdentifier` en `app/login/actions.ts` valida según ella. El backend (`/auth/admin/login`) acepta `email` o `phone` y el OTP
 sale siempre al email de la cuenta; ahora devuelve `maskedEmail`, que es lo que muestra `/verify`.
+
+## Recuperar contraseña
+
+`/forgot` → `/forgot/code` → `/forgot/new` (`app/forgot/actions.ts`, `components/forgot-form.tsx`)
+reusa los endpoints públicos de la app (`/auth/forgot-password`, `/verify-reset-otp`,
+`/reset-password`; el código sale por SMS o email según la pestaña). El `otpId` y luego el
+`passwordResetToken` viven en la cookie sellada `__Host-movo-reset`, nunca en el cliente. Al
+terminar se vuelve a `/login?reset=1`; el backend cierra todas las sesiones (app y panel).
+Es el reset de la cuenta de Movo, no algo propio del panel: funciona para cualquier usuario.

@@ -31,13 +31,24 @@ import {
   assertOrigin,
   clearSession,
   readChallenge,
+  readReset,
   renew,
   requireAdmin,
   seal,
   unseal,
   writeSession,
 } from "./session"
-import { ACCESS_COOKIE, CHALLENGE_COOKIE, REFRESH_COOKIE } from "./policy"
+import {
+  ACCESS_COOKIE,
+  CHALLENGE_COOKIE,
+  REFRESH_COOKIE,
+  RESET_COOKIE,
+} from "./policy"
+import {
+  requestReset,
+  verifyResetCode,
+  setNewPassword,
+} from "@/app/forgot/actions"
 import {
   changeAccount,
   login,
@@ -266,7 +277,8 @@ describe("acciones de autenticación", () => {
       form({ identifier: "test@movo.test", password: "secret" })
     )
     expect(result).toEqual({
-      error: "No pudimos verificar los datos. Revisalos y volvé a intentar.",
+      error:
+        "Los datos no son correctos, o esa cuenta no tiene acceso al panel (hace falta el rol admin y el email verificado).",
     })
   })
   it("OTP exige seis dígitos y escribe tokens solamente en cookies", async () => {
@@ -309,5 +321,82 @@ describe("acciones de autenticación", () => {
       expect.objectContaining({ body: { refreshToken: tokens.refreshToken } })
     )
     expect(mocks.values.size).toBe(0)
+  })
+})
+describe("recuperación de contraseña", () => {
+  it("pide el código y guarda solo el otpId en una cookie sellada", async () => {
+    mocks.gateway.mockResolvedValue({
+      otpId: "private-otp",
+      cooldownSeconds: 60,
+      channel: "sms",
+    })
+    mocks.set.mockImplementation((name: string, value: string) =>
+      mocks.values.set(name, value)
+    )
+    await expect(
+      requestReset({}, form({ method: "phone", identifier: "351 123 4567" }))
+    ).rejects.toThrow("redirect:/forgot/code")
+    expect(mocks.gateway).toHaveBeenCalledWith("/auth/forgot-password", {
+      body: { identifier: "3511234567", panelOnly: true },
+    })
+    expect(await readReset()).toMatchObject({
+      otpId: "private-otp",
+      target: "***4567",
+      channel: "sms",
+    })
+    expect(JSON.stringify(mocks.set.mock.calls)).not.toContain("private-otp")
+  })
+  it("el código correcto guarda el token y la contraseña nueva lo canjea", async () => {
+    mocks.set.mockImplementation((name: string, value: string) =>
+      mocks.values.set(name, value)
+    )
+    mocks.values.set(
+      RESET_COOKIE,
+      seal({
+        otpId: "otp",
+        target: "a***@movo.test",
+        channel: "email",
+        expiresAt: Date.now() + 600000,
+        resendAt: 0,
+      })
+    )
+    mocks.gateway.mockResolvedValueOnce({ passwordResetToken: "reset-token" })
+    await expect(verifyResetCode({}, form({ code: "123456" }))).rejects.toThrow(
+      "redirect:/forgot/new"
+    )
+    expect((await readReset())?.passwordResetToken).toBe("reset-token")
+    mocks.gateway.mockResolvedValueOnce(undefined)
+    await expect(
+      setNewPassword({}, form({ password: "nueva1234", confirm: "nueva1234" }))
+    ).rejects.toThrow("redirect:/login?reset=1")
+    expect(mocks.gateway).toHaveBeenLastCalledWith("/auth/reset-password", {
+      body: { passwordResetToken: "reset-token", newPassword: "nueva1234" },
+    })
+  })
+  it("valida política y confirmación antes de llamar al gateway", async () => {
+    mocks.values.set(
+      RESET_COOKIE,
+      seal({
+        otpId: "otp",
+        target: "x",
+        channel: "email",
+        expiresAt: Date.now() + 600000,
+        resendAt: 0,
+        passwordResetToken: "t",
+      })
+    )
+    expect(
+      (await setNewPassword({}, form({ password: "corta", confirm: "corta" })))
+        .error
+    ).toMatch(/8 caracteres/)
+    expect(
+      (
+        await setNewPassword(
+          {},
+          form({ password: "nueva1234", confirm: "otra1234" })
+        )
+      ).error
+    ).toMatch(/no coinciden/)
+    expect(mocks.gateway).not.toHaveBeenCalled()
   })
 })

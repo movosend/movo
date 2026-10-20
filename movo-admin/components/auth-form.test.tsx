@@ -94,13 +94,11 @@ describe("acceso al panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ocultar contraseña" }))
     expect(password).toHaveAttribute("type", "password")
   })
-  it("muestra la ayuda de contraseña solo al pedirla", () => {
+  it("enlaza a la recuperación de contraseña", () => {
     render(<AuthForm />)
-    expect(screen.queryByText("Perfil → Seguridad")).not.toBeInTheDocument()
-    fireEvent.click(
-      screen.getByRole("button", { name: "¿Olvidaste tu contraseña?" })
-    )
-    expect(screen.getByText("Perfil → Seguridad")).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "¿Olvidaste tu contraseña?" })
+    ).toHaveAttribute("href", "/forgot")
   })
   it("muestra el cooldown recibido y la acción de cambiar de cuenta", async () => {
     render(
