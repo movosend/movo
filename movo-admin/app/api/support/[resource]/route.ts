@@ -28,7 +28,12 @@ function parseQuery(params: URLSearchParams): SupportListQuery | null {
   const status = params.get("status") as SupportStatus | null
   if (!status || !SUPPORT_STATUSES.includes(status)) return null
   const assignee = params.get("assignee") ?? undefined
-  if (assignee && assignee !== "me" && assignee !== "none" && !UUID.test(assignee))
+  if (
+    assignee &&
+    assignee !== "me" &&
+    assignee !== "none" &&
+    !UUID.test(assignee)
+  )
     return null
   const cursor = params.get("cursor") ?? undefined
   if (cursor && !OPAQUE.test(cursor)) return null
@@ -94,7 +99,10 @@ export async function GET(
         break
       }
       default:
-        return NextResponse.json({ error: "not_found" }, { status: 404, headers: noStore })
+        return NextResponse.json(
+          { error: "not_found" },
+          { status: 404, headers: noStore }
+        )
     }
     return NextResponse.json(data, { headers: noStore })
   } catch (error) {

@@ -12,6 +12,10 @@ export async function PUT(
   if (session instanceof NextResponse) return session
   const { id } = await params
   const bytes = Buffer.from(await request.arrayBuffer())
-  const ok = mockStoreUpload(id, request.headers.get("content-type") ?? "", bytes)
+  const ok = mockStoreUpload(
+    id,
+    request.headers.get("content-type") ?? "",
+    bytes
+  )
   return new NextResponse(null, { status: ok ? 200 : 403 })
 }
