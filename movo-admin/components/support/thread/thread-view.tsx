@@ -22,7 +22,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { supportClient } from "@/lib/support/client"
 import { cn } from "@/lib/utils"
 import { ContextPanel, type ContextState } from "../context-panel"
-import { ResizeHandle, usePanels } from "../panel-layout"
+import { EdgeToggle, ResizeHandle, usePanels } from "../panel-layout"
 import { useSupportMessages } from "../support-provider"
 import { Composer, type ComposerSend } from "./composer"
 import { MessageList, type DisplayMessage } from "./message-list"
@@ -77,9 +77,7 @@ export function ThreadView({
   const payloads = useRef(new Map<string, Payload>())
   const [context, setContext] = useState<ContextState>({ status: "loading" })
   const [sheetOpen, setSheetOpen] = useState(false)
-  const { state: panels, dragging, wide, toggle } = usePanels()
-  // Ancho: la columna se puede colapsar; angosto: el Sheet.
-  const contextOpen = wide ? !panels.contextCollapsed : sheetOpen
+  const { state: panels, dragging, wide } = usePanels()
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [conflict, setConflict] = useState(
@@ -271,7 +269,7 @@ export function ThreadView({
   const blocked = conflict ? CONFLICT_TEXT : null
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1">
+    <div className="relative flex min-h-0 min-w-0 flex-1">
       <section
         aria-label={`Conversación con ${conversation.user.fullName}`}
         className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
@@ -290,11 +288,8 @@ export function ThreadView({
           readOnly={conflict}
           onPatch={patch}
           onStatus={status}
-          onToggleContext={() =>
-            wide ? toggle("context") : setSheetOpen((open) => !open)
-          }
-          contextOpen={contextOpen}
-          wide={wide}
+          onToggleContext={() => setSheetOpen((open) => !open)}
+          contextOpen={sheetOpen}
         />
         {notice && (
           <div
@@ -358,6 +353,14 @@ export function ThreadView({
           />
         </div>
       </aside>
+      <EdgeToggle
+        side="context"
+        label={{
+          hide: "Ocultar la ficha del usuario",
+          show: "Mostrar la ficha del usuario",
+        }}
+        className="max-[1359px]:hidden"
+      />
       <Sheet open={sheetOpen && !wide} onOpenChange={setSheetOpen}>
         <SheetContent
           side="right"

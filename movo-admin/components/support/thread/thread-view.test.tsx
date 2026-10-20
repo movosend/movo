@@ -244,7 +244,7 @@ describe("conversación", () => {
 })
 
 describe("columnas laterales", () => {
-  it("el botón de la ficha la oculta y la vuelve a mostrar en pantallas anchas", () => {
+  it("el botón del borde oculta la ficha y la vuelve a mostrar en pantallas anchas", () => {
     setup()
     const aside = () =>
       screen.getByLabelText("Ficha del usuario", { selector: "aside" })

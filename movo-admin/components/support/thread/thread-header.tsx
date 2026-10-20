@@ -1,13 +1,6 @@
 "use client"
 import { useState } from "react"
-import {
-  Check,
-  ChevronDown,
-  PanelRightClose,
-  PanelRightOpen,
-  RotateCcw,
-  UserRound,
-} from "lucide-react"
+import { Check, ChevronDown, RotateCcw, UserRound } from "lucide-react"
 import {
   SUPPORT_PRIORITIES,
   SUPPORT_TOPICS,
@@ -30,7 +23,6 @@ import {
   TOPIC_LABEL,
 } from "@/lib/support/labels"
 import { cn } from "@/lib/utils"
-import { ExpandListButton } from "../inbox-frame"
 import { MenuHeading } from "../menu-heading"
 import { firstName, PRIORITY_DOT, STATUS_TONE } from "../format"
 import { TopicIcon } from "../topic-icon"
@@ -52,7 +44,6 @@ export function ThreadHeader({
   onStatus,
   onToggleContext,
   contextOpen,
-  wide,
 }: {
   conversation: SupportConversation
   meId: string
@@ -62,9 +53,8 @@ export function ThreadHeader({
   onPatch: (body: SupportPatchBody) => void
   onStatus: (action: "resolve" | "reopen") => void
   onToggleContext: () => void
-  /** Abierto: el `Sheet` (pantallas angostas) o la columna (anchas). */
+  /** El `Sheet` de la ficha (pantallas angostas; desde 1360 px es una columna con su propio botón). */
   contextOpen: boolean
-  wide: boolean
 }) {
   const [agents, setAgents] = useState<SupportAgent[] | null>(null)
   const [agentsError, setAgentsError] = useState(false)
@@ -72,11 +62,6 @@ export function ThreadHeader({
   const assignee = conversation.assignee
   const resolved = conversation.status === "resolved"
   const off = busy || readOnly
-  const contextLabel = !wide
-    ? "Ficha del usuario"
-    : contextOpen
-      ? "Ocultar la ficha del usuario"
-      : "Mostrar la ficha del usuario"
 
   const loadAgents = (open: boolean) => {
     if (!open) return
@@ -89,7 +74,6 @@ export function ThreadHeader({
 
   return (
     <div className="flex min-h-16 shrink-0 flex-wrap items-center gap-3 border-b bg-card px-5 py-2.5">
-      <ExpandListButton />
       <UserAvatar name={conversation.user.fullName} size={36} />
       <div className="flex min-w-[180px] flex-1 flex-col gap-0.5">
         <div className="flex flex-wrap items-center gap-2">
@@ -250,23 +234,15 @@ export function ThreadHeader({
         <button
           type="button"
           onClick={onToggleContext}
-          aria-label={contextLabel}
+          aria-label="Ficha del usuario"
           aria-expanded={contextOpen}
-          title={contextLabel}
+          title="Ficha del usuario"
           className={cn(
-            "flex size-8 items-center justify-center rounded-lg border border-border-strong outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "flex size-8 items-center justify-center rounded-lg border border-border-strong outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1360px]:hidden",
             contextOpen ? "bg-muted" : "bg-card"
           )}
         >
-          {wide ? (
-            contextOpen ? (
-              <PanelRightClose aria-hidden className="size-4" />
-            ) : (
-              <PanelRightOpen aria-hidden className="size-4" />
-            )
-          ) : (
-            <UserRound aria-hidden className="size-4" />
-          )}
+          <UserRound aria-hidden className="size-4" />
         </button>
       </div>
     </div>

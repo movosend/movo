@@ -13,7 +13,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react"
-import { PanelLeftClose, RotateCw, Search, TriangleAlert } from "lucide-react"
+import { RotateCw, Search, TriangleAlert } from "lucide-react"
 import {
   SUPPORT_STATUSES,
   SUPPORT_WAIT_ALERT_MINUTES,
@@ -39,7 +39,6 @@ import {
   previewOf,
   PRIORITY_DOT,
 } from "./format"
-import { usePanels } from "./panel-layout"
 import { useSupportMessages } from "./support-provider"
 import { TopicIcon } from "./topic-icon"
 
@@ -189,7 +188,6 @@ function ListSkeleton() {
  */
 export function ConversationList({ meId }: { meId: string }) {
   const router = useRouter()
-  const { toggle } = usePanels()
   const pathname = usePathname()
   const { id: selectedId } = useParams<{ id?: string }>()
   const { status, owner, q } = useInboxFilters()
@@ -423,20 +421,11 @@ export function ConversationList({ meId }: { meId: string }) {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               maxLength={100}
-              placeholder="Buscá por nombre, SOP o código de envío"
+              placeholder="Nombre, SOP o envío"
               aria-label="Buscar consultas"
               className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          <button
-            type="button"
-            onClick={() => toggle("list")}
-            aria-label="Ocultar la lista de consultas"
-            title="Ocultar la lista de consultas"
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border-strong text-fg2 outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring max-md:hidden"
-          >
-            <PanelLeftClose aria-hidden className="size-4" />
-          </button>
         </div>
       </div>
       <div

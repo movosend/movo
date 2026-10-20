@@ -1,4 +1,5 @@
 "use client"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import {
   createContext,
   useCallback,
@@ -200,5 +201,50 @@ export function ResizeHandle({ side, label }: { side: Side; label: string }) {
         className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 rounded-full bg-transparent transition-colors group-hover:bg-border-strong group-focus-visible:bg-ring group-active:bg-ring"
       />
     </div>
+  )
+}
+
+/**
+ * Botón circular sobre el borde de una columna lateral: la oculta (chevron hacia ella) o la
+ * vuelve a mostrar (chevron hacia el contenido). Abierto, queda centrado sobre el borde; colapsado,
+ * se pega al costado de la pantalla para no desbordar. Va fuera de la columna, que al colapsar queda
+ * inerte. Se posiciona respecto del contenedor `relative` que lo envuelve.
+ */
+export function EdgeToggle({
+  side,
+  label,
+  className,
+}: {
+  side: Side
+  label: { hide: string; show: string }
+  className?: string
+}) {
+  const { state, toggle } = usePanels()
+  const collapsed =
+    side === "list" ? state.listCollapsed : state.contextCollapsed
+  const width = side === "list" ? state.list : state.context
+  const Icon = (side === "list") === collapsed ? ChevronRight : ChevronLeft
+  const text = collapsed ? label.show : label.hide
+  const offset = collapsed ? 6 : width
+  return (
+    <button
+      type="button"
+      onClick={() => toggle(side)}
+      aria-label={text}
+      aria-expanded={!collapsed}
+      title={text}
+      style={{
+        [side === "list" ? "left" : "right"]: offset,
+        transform: collapsed
+          ? undefined
+          : `translateX(${side === "list" ? "-50%" : "50%"})`,
+      }}
+      className={cn(
+        "absolute top-1/2 z-30 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-border-strong bg-card text-fg2 shadow-(--shadow-1) outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-safe:transition-[left,right] motion-safe:duration-200",
+        className
+      )}
+    >
+      <Icon aria-hidden className="size-3.5" />
+    </button>
   )
 }

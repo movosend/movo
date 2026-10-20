@@ -1,10 +1,15 @@
 "use client"
 import { useParams } from "next/navigation"
 import { useEffect, type CSSProperties, type ReactNode } from "react"
-import { Headset, PanelLeftOpen } from "lucide-react"
+import { Headset } from "lucide-react"
 import { useSidebar } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
-import { PanelProvider, ResizeHandle, usePanels } from "./panel-layout"
+import {
+  EdgeToggle,
+  PanelProvider,
+  ResizeHandle,
+  usePanels,
+} from "./panel-layout"
 import type { PanelState } from "@/lib/support/panels"
 
 const SIDEBAR_COLLAPSE_BELOW_PX = 1200
@@ -42,7 +47,7 @@ function Frame({ list, children }: { list: ReactNode; children: ReactNode }) {
   return (
     <div
       className={cn(
-        "grid h-full min-h-0 grid-cols-1 md:grid-cols-[var(--list-w)_minmax(0,1fr)] motion-safe:md:transition-[grid-template-columns] motion-safe:md:duration-200",
+        "relative grid h-full min-h-0 grid-cols-1 md:grid-cols-[var(--list-w)_minmax(0,1fr)] motion-safe:md:transition-[grid-template-columns] motion-safe:md:duration-200",
         dragging && "transition-none!"
       )}
       style={
@@ -67,34 +72,21 @@ function Frame({ list, children }: { list: ReactNode; children: ReactNode }) {
       <div className={cn("flex min-h-0 min-w-0", !id && "max-md:hidden")}>
         {children}
       </div>
+      <EdgeToggle
+        side="list"
+        label={{
+          hide: "Ocultar la lista de consultas",
+          show: "Mostrar la lista de consultas",
+        }}
+        className="max-md:hidden"
+      />
     </div>
-  )
-}
-
-/** Reabre la lista cuando está colapsada (si no, sin conversación elegida no habría cómo volver). */
-export function ExpandListButton({ className }: { className?: string }) {
-  const { state, toggle } = usePanels()
-  if (!state.listCollapsed) return null
-  return (
-    <button
-      type="button"
-      onClick={() => toggle("list")}
-      aria-label="Mostrar la lista de consultas"
-      title="Mostrar la lista de consultas"
-      className={cn(
-        "flex size-8 items-center justify-center rounded-lg border border-border-strong bg-card outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring max-md:hidden",
-        className
-      )}
-    >
-      <PanelLeftOpen aria-hidden className="size-4" />
-    </button>
   )
 }
 
 export function EmptyThread() {
   return (
-    <div className="relative flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-muted-foreground">
-      <ExpandListButton className="absolute top-4 left-4" />
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-muted-foreground">
       <Headset aria-hidden className="size-8" />
       <p className="text-sm font-medium text-foreground">Elegí una consulta</p>
       <p className="max-w-xs text-[13px]">
