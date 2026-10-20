@@ -615,3 +615,6 @@ a mano, tocó fixtures de `movo-mobile`. Recordatorio habitual: `npm run build` 
 `AMOUNT_OUT_OF_RANGE` (422); el panel reusa `EMAIL_ALREADY_IN_USE`/`PHONE_ALREADY_IN_USE` y `LEDGER_IDEMPOTENCY_CONFLICT`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-296 — Sanciones de cuenta (`types/account-sanctions.ts`)
+
+`AccountStatus.SUSPENDED` (al final; `BANNED` pasa a significar inhabilitada), `AccountSanction`/`ApplyAccountSanctionRequest`/`LiftAccountSanctionRequest`, `PublicAccountStatus` y `PublicProfile.accountStatus` (campo requerido: rompe literales armados a mano, tocó fixtures de `svc-shipments` y `movo-mobile`). `accountRestrictionKey(userId)` es el contrato de la marca de Redis que escribe `svc-users` y leerá el gateway (MOVO-298). `ApiErrorCode` suma `ACCOUNT_DISABLED`, `ACCOUNT_ALREADY_DISABLED`, `SANCTION_NOT_FOUND` y `SANCTION_ALREADY_CLOSED`; triggers `accountSuspended|accountDisabled|accountSanctionLifted|accountSuspensionExpired`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

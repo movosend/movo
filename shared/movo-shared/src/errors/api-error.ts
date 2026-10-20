@@ -8,6 +8,7 @@ export type ApiErrorCode =
   | "AUTH_TOKEN_INVALID"
   | "AUTH_FORBIDDEN"
   | "ACCOUNT_SUSPENDED"
+  | "ACCOUNT_DISABLED"
   | "VALIDATION_FAILED"
   | "NOT_FOUND"
   | "RATE_LIMIT_EXCEEDED"
@@ -287,6 +288,9 @@ export type ApiErrorCode =
   | "ADMIN_NOT_FOUND"
   // Revocar el rol al único admin que queda: nunca puede quedar el sistema sin admins.
   | "ADMIN_LAST_ADMIN"
+  | "ACCOUNT_ALREADY_DISABLED"
+  | "SANCTION_NOT_FOUND"
+  | "SANCTION_ALREADY_CLOSED"
   // Otorgar el rol compitió con una revocación: no es "no es admin" (404), hay que reintentar.
   | "ADMIN_GRANT_CONFLICT"
   // MOVO-288: el admin intenta una acción de escritura sobre algo en lo que es parte

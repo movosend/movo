@@ -55,6 +55,16 @@ export type {
   RatingRole,
   PendingRatingShipment,
 } from "./types/shipment";
+export { ACCOUNT_SANCTION_REASON_MAX_LENGTH, ACCOUNT_SANCTION_NOTE_MAX_LENGTH, accountRestrictionKey } from "./types/account-sanctions";
+export type {
+  AccountSanctionType,
+  AccountSanctionClosedCause,
+  PublicAccountStatus,
+  AccountSanction,
+  ApplyAccountSanctionRequest,
+  LiftAccountSanctionRequest,
+  AccountRestrictionMark,
+} from "./types/account-sanctions";
 export { OfferStatus } from "./types/offer";
 export { TripStatus } from "./types/trip";
 export type {
