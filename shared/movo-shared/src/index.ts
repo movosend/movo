@@ -248,6 +248,8 @@ export type {
   NotificationCategoryDefinition,
   NotificationCategoryId,
 } from "./config/notification-categories";
+export { TOUR_IDS, TOUR_OUTCOMES, isTourId } from "./config/tours";
+export type { TourId, TourOutcome, UserTourRecord } from "./config/tours";
 export {
   NOTIFICATION_TRIGGERS,
   notificationTriggerCopy,

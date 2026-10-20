@@ -1,4 +1,5 @@
 import { AccountStatus, KycStatus, UserRole } from "./user";
+import type { UserTourRecord } from "../config/tours";
 
 /**
  * Insignias calculadas desde el estado real del usuario (MOVO-77 AC5). `"kyc_verified"`
@@ -173,6 +174,9 @@ export interface PrivateProfile {
   termsVersion: string | null;
   privacyAcceptedAt: string | null;
   privacyVersion: string | null;
+  /** MOVO-169: tours del tutorial in-app ya completados u omitidos (`[]` si nunca
+   * terminó ninguno). Ver `config/tours.ts`. */
+  tours: UserTourRecord[];
 }
 
 /** MOVO-172: ficha de vehículo del transportista, `movo-svc-users` (`PUT`/
