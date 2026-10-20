@@ -44,6 +44,7 @@ interface RefreshBody {
 
 interface ForgotPasswordBody {
   identifier: string;
+  panelOnly?: boolean;
 }
 
 interface VerifyResetOtpBody {
@@ -326,7 +327,7 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
       },
     },
     async (request: FastifyRequest<{ Body: ForgotPasswordBody }>, reply: FastifyReply) => {
-      const result = await passwordResetService.forgotPassword(request.body.identifier);
+      const result = await passwordResetService.forgotPassword(request.body.identifier, { panelOnly: request.body.panelOnly === true });
       reply.code(200);
       return result;
     }

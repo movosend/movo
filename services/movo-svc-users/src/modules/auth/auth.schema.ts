@@ -357,6 +357,9 @@ export const authSchemas = {
         type: "string",
         anyOf: [{ pattern: EMAIL_PATTERN }, { pattern: PHONE_PATTERN }],
       },
+      // El panel de administración lo manda en true: el código solo sale si la cuenta puede
+      // tener una sesión de panel (admin, activa, email verificado); si no, es un señuelo.
+      panelOnly: { type: "boolean" },
     },
   },
   // AC2/AC5: mismo shape exista o no la cuenta (señuelo), `channel` se deriva del
