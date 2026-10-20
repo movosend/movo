@@ -207,7 +207,23 @@ export function parseAccountStatus(value: string): AccountStatus {
   return value as AccountStatus;
 }
 
+/**
+ * MOVO-296 AC7: una suspensión vencida que el barrido todavía no cerró se trata como `active`
+ * en cualquier lectura (`status`/`banned_until` son solo la caché de la sanción vigente).
+ */
+export function effectiveAccountStatus(
+  status: AccountStatus,
+  bannedUntil: Date | null,
+  now: Date = new Date()
+): { status: AccountStatus; bannedUntil: Date | null } {
+  if (status === AccountStatus.SUSPENDED && bannedUntil !== null && bannedUntil.getTime() <= now.getTime()) {
+    return { status: AccountStatus.ACTIVE, bannedUntil: null };
+  }
+  return { status, bannedUntil };
+}
+
 export function mapRowToUser(row: UserRow, roles: string[]): User {
+  const account = effectiveAccountStatus(parseAccountStatus(row.status), row.banned_until);
   return {
     id: row.id,
     email: row.email,
@@ -227,8 +243,8 @@ export function mapRowToUser(row: UserRow, roles: string[]): User {
     photoUrl: row.photo_url,
     kycStatusIdentity: parseKycStatus(row.kyc_status_identity, "kyc_status_identity"),
     kycStatusLicense: parseKycStatus(row.kyc_status_license, "kyc_status_license"),
-    status: parseAccountStatus(row.status),
-    bannedUntil: row.banned_until,
+    status: account.status,
+    bannedUntil: account.bannedUntil,
     birthdate: row.birthdate,
     roles: roles.map(parseUserRole),
     createdAt: row.created_at,
