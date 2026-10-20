@@ -9,7 +9,7 @@ import type {
 import { assertOrigin, requireAdmin } from "@/lib/auth/session"
 import { loadSection, type Loaded } from "@/lib/users/load"
 
-export const ACTIVITY_PAGE_SIZE = 5
+const ACTIVITY_PAGE_SIZE = 5
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const ROLES: readonly string[] = ["sender", "carrier", "receiver"]
