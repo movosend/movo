@@ -167,6 +167,15 @@ describe("TransportShipmentDetailScreen", () => {
     expect(queryByTestId("transport-detail-route-map")).toBeNull();
   });
 
+  it("MOVO-168: mientras el envío carga, el header (volver) ya está a la vista y es interactivo", async () => {
+    mockUseShipment.mockReturnValue({ isLoading: true, isError: false, data: undefined, error: null, refetch: jest.fn() });
+
+    const { getByTestId, getByText } = await render(<TransportShipmentDetailScreen />);
+
+    expect(getByText("Detalle del envío")).toBeTruthy();
+    expect(getByTestId("transport-detail-back")).toBeTruthy();
+  });
+
   it("un 403 se muestra como 'ya no está disponible', no como 'no te pertenece'", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,

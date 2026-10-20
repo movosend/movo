@@ -354,4 +354,121 @@ describe("AuthenticatedHomeScreen", () => {
     const scrollViewNode = findNode(toJSON(), "RCTScrollView");
     expect(scrollViewNode?.props?.refreshControl).toBeTruthy();
   });
+  // MOVO-168: cada sección carga y falla por su cuenta; el resto de Inicio no se entera.
+  describe("carga granular por sección (MOVO-168)", () => {
+    const ACTIVE_SHIPMENT = {
+      id: "s1",
+      status: "assigned",
+      pickupDate: "2026-01-15",
+      pickupTimeWindowStart: "09:00",
+      pickupTimeWindowEnd: "12:00",
+      pickupAddress: "Córdoba 1200, Córdoba",
+      deliveryAddress: "San Martín 450, Córdoba",
+      agreedPriceArs: 4500,
+      counterparty: { name: "Lucía Gómez", initials: "LG" },
+      isToday: false,
+      pickupWindowExpired: false,
+    };
+
+    it("una sección cargando muestra su skeleton y la que ya cargó se ve sin esperarla", async () => {
+      mockUseSendingShipments.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: jest.fn() });
+      mockUseReceivingShipments.mockReturnValue({ data: [ACTIVE_SHIPMENT], isLoading: false, isError: false });
+
+      const { getByTestId, getByText, queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+      expect(getByTestId("app-home-sending-skeleton")).toBeTruthy();
+      expect(getByTestId("app-home-receiving")).toBeTruthy();
+      expect(getByText("Lucía Gómez")).toBeTruthy();
+      expect(queryByTestId("app-home-receiving-skeleton")).toBeNull();
+      // La pantalla sigue viva: saludo, CTA y actividad reciente no esperan a nadie.
+      expect(getByTestId("app-home-welcome")).toBeTruthy();
+      expect(getByTestId("app-home-send-cta")).toBeTruthy();
+      expect(getByTestId("app-home-recent-shipments")).toBeTruthy();
+    });
+
+    it("una sección que falla muestra su error con Reintentar local y no toca a las demás", async () => {
+      const refetchSending = jest.fn();
+      mockUseSendingShipments.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        refetch: refetchSending,
+      });
+      mockUseReceivingShipments.mockReturnValue({ data: [ACTIVE_SHIPMENT], isLoading: false, isError: false });
+
+      const { getByTestId, getByText } = await render(<AuthenticatedHomeScreen />);
+
+      expect(getByTestId("app-home-sending-error")).toBeTruthy();
+      expect(getByText("Lucía Gómez")).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(getByTestId("app-home-sending-error-retry"));
+      });
+      expect(refetchSending).toHaveBeenCalledTimes(1);
+    });
+
+    it("con envíos ya cargados, un refetch fallido no reemplaza la lista por el error", async () => {
+      mockUseSendingShipments.mockReturnValue({
+        data: [ACTIVE_SHIPMENT],
+        isLoading: false,
+        isError: true,
+        refetch: jest.fn(),
+      });
+
+      const { getByText, queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+      expect(getByText("Lucía Gómez")).toBeTruthy();
+      expect(queryByTestId("app-home-sending-error")).toBeNull();
+    });
+
+    it("'Requiere tu atención' muestra su skeleton mientras carga", async () => {
+      mockUseAttentionTasks.mockReturnValue({ tasks: [], isLoading: true, isError: false, refetch: jest.fn() });
+
+      const { getByTestId } = await render(<AuthenticatedHomeScreen />);
+
+      expect(getByTestId("app-home-attention-skeleton")).toBeTruthy();
+    });
+
+    it("'Requiere tu atención' muestra su error con Reintentar local si falla", async () => {
+      const refetchAttention = jest.fn();
+      mockUseAttentionTasks.mockReturnValue({ tasks: [], isLoading: false, isError: true, refetch: refetchAttention });
+
+      const { getByTestId, queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+      expect(queryByTestId("app-home-attention-skeleton")).toBeNull();
+      await act(async () => {
+        fireEvent.press(getByTestId("app-home-attention-error-retry"));
+      });
+      expect(refetchAttention).toHaveBeenCalledTimes(1);
+    });
+
+    it("'Estoy transportando' muestra su skeleton mientras cargan los viajes", async () => {
+      mockUseMyTrips.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: jest.fn() });
+
+      const { getByTestId } = await render(<AuthenticatedHomeScreen />);
+
+      expect(getByTestId("app-home-transporting-skeleton")).toBeTruthy();
+    });
+
+    it("'Estoy transportando' muestra su error con Reintentar local si fallan los viajes", async () => {
+      const refetchTrips = jest.fn();
+      mockUseMyTrips.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: refetchTrips });
+
+      const { getByTestId } = await render(<AuthenticatedHomeScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByTestId("app-home-transporting-error-retry"));
+      });
+      expect(refetchTrips).toHaveBeenCalledTimes(1);
+    });
+
+    it("sin datos pero sin error ni carga (cargó vacío), las secciones no dejan rastro", async () => {
+      const { queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+      for (const id of ["sending", "receiving", "attention", "transporting"]) {
+        expect(queryByTestId(`app-home-${id}-skeleton`)).toBeNull();
+        expect(queryByTestId(`app-home-${id}-error`)).toBeNull();
+      }
+    });
+  });
 });

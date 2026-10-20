@@ -92,9 +92,43 @@ describe("ProfileScreen", () => {
       refetch: mockRefetch,
     });
 
-    const { getByTestId } = await render(<ProfileScreen />);
+    const { getByTestId, queryByTestId } = await render(<ProfileScreen />);
 
     expect(getByTestId("profile-skeleton")).toBeTruthy();
+    expect(getByTestId("profile-activity-skeleton")).toBeTruthy();
+    expect(queryByTestId("profile-full-name")).toBeNull();
+  });
+
+  // MOVO-168: Configuración y "Cerrar sesión" no dependen de GET /users/me.
+  it("MOVO-168: mientras el perfil carga, Configuración y cerrar sesión siguen visibles", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: true,
+      isError: false,
+      data: undefined,
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+
+    expect(getByTestId("profile-settings-section")).toBeTruthy();
+    expect(getByTestId("profile-logout-button")).toBeTruthy();
+  });
+
+  it("MOVO-168: si el perfil falla, el error queda en su lugar y Configuración y cerrar sesión siguen usables", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      error: new Error("network"),
+      data: undefined,
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId, queryByTestId } = await render(<ProfileScreen />);
+
+    expect(getByTestId("profile-error-state")).toBeTruthy();
+    expect(queryByTestId("profile-skeleton")).toBeNull();
+    expect(getByTestId("profile-settings-section")).toBeTruthy();
+    expect(getByTestId("profile-logout-button")).toBeTruthy();
   });
 
   it("muestra el estado de error con reintentar ante un fallo de red (AC8)", async () => {

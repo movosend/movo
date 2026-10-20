@@ -159,6 +159,15 @@ describe("MyShipmentsScreen", () => {
     expect(queryAllByTestId(/^my-shipments-row-/)).toHaveLength(0);
   });
 
+  it("MOVO-168: mientras carga, las tarjetas de rol muestran skeleton en el conteo, no un 'Sin envíos' falso", async () => {
+    mockUseMyShipments.mockReturnValue(baseResult({ isLoading: true }));
+    const { getByTestId, queryByText } = await render(<MyShipmentsScreen />);
+
+    expect(getByTestId("my-shipments-role-sending-count-skeleton")).toBeTruthy();
+    expect(getByTestId("my-shipments-role-receiving-count-skeleton")).toBeTruthy();
+    expect(queryByText(/activo|Sin envíos/)).toBeNull();
+  });
+
   it("muestra el estado de error con reintentar", async () => {
     const refetch = jest.fn();
     mockUseMyShipments.mockReturnValue(baseResult({ isError: true, refetch }));

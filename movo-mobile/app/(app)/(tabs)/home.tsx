@@ -61,8 +61,10 @@ export default function AuthenticatedHomeScreen() {
   const { user } = useAuth();
   const { data: profile } = useMyProfile();
   const colors = useThemeColors();
-  const { data: sending } = useSendingShipments();
-  const { data: receiving } = useReceivingShipments();
+  const sendingQuery = useSendingShipments();
+  const sending = sendingQuery.data;
+  const receivingQuery = useReceivingShipments();
+  const receiving = receivingQuery.data;
   const { data: chats } = useChatList();
   // Solo los envíos que ya tienen chat llevan el botón en su card.
   const chatByShipment = Object.fromEntries((chats ?? []).map((item) => [item.shipmentId, { unreadCount: item.unreadCount }]));
@@ -188,6 +190,9 @@ export default function AuthenticatedHomeScreen() {
           role="sending"
           shipments={sending ?? []}
           chatByShipment={chatByShipment}
+          isLoading={sendingQuery.isLoading}
+          isError={sendingQuery.isError}
+          onRetry={() => void sendingQuery.refetch()}
         />
         <RoleSection
           testID="app-home-receiving"
@@ -195,6 +200,9 @@ export default function AuthenticatedHomeScreen() {
           role="receiving"
           shipments={receiving ?? []}
           chatByShipment={chatByShipment}
+          isLoading={receivingQuery.isLoading}
+          isError={receivingQuery.isError}
+          onRetry={() => void receivingQuery.refetch()}
         />
 
         <HomeSendCta testID="app-home-send-cta" kycStatus={currentKycStatus} />

@@ -23,11 +23,23 @@ export function ShipmentDetailSkeleton({ testID }: { testID?: string }) {
         </View>
         <Block className="h-6 w-20 rounded-full" />
       </View>
+      <ShipmentDetailBodySkeleton />
+    </SafeAreaView>
+  );
+}
 
-      <View className="flex-row px-5 pt-3">
-        <Block className="mr-2 h-8 flex-1 rounded-md" />
-        <Block className="h-8 flex-1 rounded-md" />
-      </View>
+/** MOVO-168: solo el cuerpo (tabs + mapa + tarjetas), para las pantallas que ya renderizan su
+ * propio header -- volver y el título no esperan al envío, solo lo que depende de él.
+ * `tabs={false}` para el detalle del envío disponible, que no tiene pestañas. */
+export function ShipmentDetailBodySkeleton({ testID, tabs = true }: { testID?: string; tabs?: boolean }) {
+  return (
+    <View testID={testID} className="flex-1">
+      {tabs ? (
+        <View className="flex-row px-5 pt-3">
+          <Block className="mr-2 h-8 flex-1 rounded-md" />
+          <Block className="h-8 flex-1 rounded-md" />
+        </View>
+      ) : null}
 
       <View className="gap-5 px-5 pb-6 pt-4">
         <Block className="rounded-[14px]" style={{ height: MAP_HEIGHT }} />
@@ -38,6 +50,6 @@ export function ShipmentDetailSkeleton({ testID }: { testID?: string }) {
         </View>
         <Block className="h-[68px] rounded-[14px]" />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
