@@ -104,6 +104,8 @@ const recentRatingComment = {
 // memberSince/phoneVerified/emailVerified acá -- a diferencia de recentRatingComments,
 // SÍ viajan en `GET /users/search` (no piden I/O extra, ver @movo/shared).
 const publicProfileExtras = {
+  // MOVO-296: estado de la cuenta sin motivo ni plazo; `banned` sale como `disabled`.
+  accountStatus: { type: "string", enum: ["active", "suspended", "disabled"] },
   ratingCount: { type: "integer" },
   isNewProfile: { type: "boolean" },
   asSender: reputationBreakdown,
@@ -114,6 +116,7 @@ const publicProfileExtras = {
   emailVerified: { type: "boolean" },
 };
 const PUBLIC_PROFILE_EXTRA_REQUIRED = [
+  "accountStatus",
   "ratingCount",
   "isNewProfile",
   "asSender",

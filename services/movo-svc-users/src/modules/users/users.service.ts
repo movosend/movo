@@ -385,12 +385,12 @@ export function createUsersService(
       // aunque esa US todavía no está implementada. `USER_NOT_FOUND` genérico a
       // propósito, para no distinguir "nunca existió" de "se dio de baja".
       //
-      // `banned` sí se sirve como cualquier perfil activo: a diferencia de `deleted`,
-      // no es una baja voluntaria — es una sanción reversible (`bannedUntil` puede ser
-      // temporal) y el usuario puede tener envíos históricos con una contraparte que
-      // necesita seguir viendo con quién trató. Trade-off aceptado: no hay ninguna
-      // señal hacia afuera de que la cuenta está baneada (agregar una implicaría un
-      // cambio de contrato fuera del alcance de AC3 de MOVO-77).
+      // `suspended` y `banned` (inhabilitada) sí se sirven como cualquier perfil: a
+      // diferencia de `deleted`, no es una baja voluntaria — es una sanción y el usuario
+      // puede tener envíos históricos con una contraparte que necesita seguir viendo con
+      // quién trató. MOVO-296 revirtió el trade-off de MOVO-77 (que no daba ninguna señal
+      // de la sanción): el perfil ahora trae `accountStatus` (`active`/`suspended`/
+      // `disabled`), nunca el motivo ni el plazo.
       if (!user || user.status === AccountStatus.DELETED) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
