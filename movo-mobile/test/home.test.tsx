@@ -1,4 +1,4 @@
-import { KycStatus } from "@movo/shared/dist/types/user";
+import { KycStatus, UserRole } from "@movo/shared/dist/types/user";
 import { act, fireEvent, render } from "@testing-library/react-native";
 import { router } from "expo-router";
 import { RefreshControl } from "react-native";
@@ -106,7 +106,9 @@ jest.mock("../src/store/auth-store", () => ({
 describe("AuthenticatedHomeScreen", () => {
   beforeEach(() => {
     mockUseChatList.mockReturnValue({ data: [] });
-    mockUseMyProfile.mockReturnValue({ data: { kycStatus: KycStatus.APPROVED, firstName: "Martina" } });
+    mockUseMyProfile.mockReturnValue({
+      data: { kycStatus: KycStatus.APPROVED, firstName: "Martina", roles: [UserRole.SENDER, UserRole.CARRIER] },
+    });
     mockUseRecentShipments.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -448,6 +450,18 @@ describe("AuthenticatedHomeScreen", () => {
       const { getByTestId } = await render(<AuthenticatedHomeScreen />);
 
       expect(getByTestId("app-home-transporting-skeleton")).toBeTruthy();
+    });
+
+    it("un emisor sin rol de transportista no ve skeleton ni error de 'Estoy transportando'", async () => {
+      mockUseMyProfile.mockReturnValue({
+        data: { kycStatus: KycStatus.APPROVED, firstName: "Martina", roles: [UserRole.SENDER] },
+      });
+      mockUseMyTrips.mockReturnValue({ data: undefined, isLoading: true, isError: true, refetch: jest.fn() });
+
+      const { queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+      expect(queryByTestId("app-home-transporting-skeleton")).toBeNull();
+      expect(queryByTestId("app-home-transporting-error")).toBeNull();
     });
 
     it("'Estoy transportando' muestra su error con Reintentar local si fallan los viajes", async () => {
