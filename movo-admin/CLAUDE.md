@@ -227,6 +227,12 @@ MOVO-322 (API) y MOVO-321 (adjuntos), que los tienen anexados en su descripción
 - **Modo fixtures** (`MOVO_ADMIN_MOCK=1`): `lib/support/{mock,fixtures}.ts` portan las 9 consultas del prototipo, la que entra sola a los
   16 s, respuestas del usuario y una consulta propia del admin logueado. `MOVO_ADMIN_MOCK_FAIL=context,list,send!,ws…`,
   `MOVO_ADMIN_MOCK_SIMULATE=0`. Los adjuntos se suben a `/api/support/mock-upload/[id]` y se leen de `mock-image/[id]`.
+- **Columnas redimensionables y colapsables**: la lista (260–480 px) y la ficha del usuario (280–480 px) se arrastran por su borde
+  (`ResizeHandle`, patrón *window splitter*: ←/→ de a 16 px, Shift 48, Inicio/Fin, Enter colapsa, doble clic restablece) y se ocultan por
+  completo (botón en la lista, y en el encabezado de la conversación para la ficha; si la lista está oculta, el botón para reabrirla vive
+  en el encabezado y en el estado vacío). El estado va en la cookie `support_panels` (`lib/support/panels.ts`, leída en
+  `app/support/layout.tsx`) para que el servidor dibuje el ancho correcto sin parpadeo; `PanelProvider` está en `panel-layout.tsx`. Bajo
+  1360 px la ficha sigue siendo un `Sheet`, y bajo 768 px no hay arrastre.
 
 Pendiente: probar contra dev con 321/322 desplegados (DoD pide un screenshot contra backend real) y revisar a mano en claro/oscuro:
 esta sesión verificó con tests, lint, typecheck y build, pero no abrió el panel (el login real necesita el gateway).
