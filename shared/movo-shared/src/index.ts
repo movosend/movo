@@ -333,7 +333,11 @@ export type {
 } from "./types/admin";
 
 // admin: búsqueda de usuarios y ficha (MOVO-295, backend MOVO-294)
-export { ADMIN_USER_MODERATION_LIMIT } from "./types/admin-users";
+export {
+  ADMIN_USER_MODERATION_LIMIT,
+  ADMIN_NOTE_MAX_LENGTH,
+  ADMIN_ACTION_REASON_MAX_LENGTH,
+} from "./types/admin-users";
 export type {
   AdminKycStatus,
   AdminAccountStatus,
@@ -372,4 +376,14 @@ export type {
   AdminUserDevices,
   AdminUserAuditEntry,
   AdminUserAuditPage,
+  AdminSessionsRevokeBody,
+  AdminSessionsRevokeResult,
+  AdminContactField,
+  AdminContactUpdateBody,
+  AdminContactUpdateResult,
+  AdminLedgerAdjustmentBody,
+  AdminLedgerAdjustmentResult,
+  AdminUserNote,
+  AdminUserNotePage,
+  AdminUserNoteBody,
 } from "./types/admin-users";

@@ -272,6 +272,18 @@ describe("acciones de soporte en modo fixtures", () => {
     expect(after.items[0].id).toBe(first.entry.id)
   })
 
+  it("redondea a centavos el saldo nuevo y el reintento del ajuste", async () => {
+    NO_LATENCY()
+    const before = await mockGetSection(HERNAN, "ledger", { limit: 20 })
+    const key = "2b2f7c1e-4d3a-4f6b-8c1d-2e5a7b9c0d1e"
+    const body = { amountArs: 0.3, reason: "Centavos", idempotencyKey: key }
+    const result = await mockAdjustLedger(HERNAN, body, actor)
+    const expected = Math.round((before.balanceArs + 0.3) * 100) / 100
+    expect(result.balanceArs).toBe(expected)
+    expect((await mockAdjustLedger(HERNAN, body, actor)).balanceArs).toBe(expected)
+    expect((await mockGetSection(HERNAN, "ledger", { limit: 20 })).balanceArs).toBe(expected)
+  })
+
   it("rechaza un ajuste en cero o por encima del tope", async () => {
     NO_LATENCY()
     const key = "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f"

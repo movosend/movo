@@ -193,6 +193,23 @@ describe("cambiar email o teléfono", () => {
 })
 
 describe("ajustar el saldo", () => {
+  it.each([19.99, 1.15, 9.95, 124.55])(
+    "acepta el monto válido con centavos %s",
+    async (amountArs) => {
+      const result = await adjustLedger(USER, {
+        amountArs,
+        reason: "Corrección de saldo",
+        idempotencyKey: KEY,
+      })
+      expect(result.ok).toBe(true)
+      expect(mocks.adjustUserLedger).toHaveBeenCalledWith(
+        USER,
+        expect.objectContaining({ amountArs }),
+        ACTOR
+      )
+    }
+  )
+
   it("manda el monto con signo y la clave de idempotencia", async () => {
     await adjustLedger(USER, {
       amountArs: -120.5,

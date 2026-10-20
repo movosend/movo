@@ -226,7 +226,10 @@ function LedgerForm({
   const amount = parseAmountArs(raw)
   const signed =
     amount === null ? null : direction === "owes" ? amount : -amount
-  const after = balance !== null && signed !== null ? balance + signed : null
+  const after =
+    balance !== null && signed !== null
+      ? Math.round((balance + signed) * 100) / 100
+      : null
   const invalid = touched && raw.trim() !== "" && amount === null
   const canReview = balance !== null && signed !== null && reason.trim() !== ""
 

@@ -43,12 +43,12 @@ const user = (over: Partial<AdminUserListItem> = {}): AdminUserListItem => ({
 })
 
 beforeEach(() => {
-  vi.useFakeTimers()
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
   nav.replace.mockClear()
 })
 afterEach(() => {
-  cleanup()
   vi.useRealTimers()
+  cleanup()
 })
 
 describe("buscador de usuarios", () => {

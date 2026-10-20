@@ -138,7 +138,11 @@ export default async function Page({
                 <DevicesSection id={id} />
               </Streamed>
               <Streamed id="notas">
-                <NotesSection id={id} fullName={user.fullName} />
+                <NotesSection
+                  id={id}
+                  fullName={user.fullName}
+                  isSelf={admin.id === user.id}
+                />
               </Streamed>
               <Streamed id="bitacora">
                 <AuditSection id={id} />

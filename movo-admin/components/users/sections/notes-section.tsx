@@ -6,9 +6,11 @@ import { NotesPanel } from "./notes-panel"
 export async function NotesSection({
   id,
   fullName,
+  isSelf,
 }: {
   id: string
   fullName: string
+  isSelf: boolean
 }) {
   const result = await loadSection(id, "notes", { limit: 20 })
   if (!result.ok)
@@ -24,6 +26,7 @@ export async function NotesSection({
       userId={id}
       fullName={fullName}
       initial={result.data}
+      isSelf={isSelf}
     />
   )
 }

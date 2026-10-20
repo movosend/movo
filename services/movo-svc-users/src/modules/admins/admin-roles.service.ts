@@ -139,7 +139,13 @@ export function createAdminRolesService(deps: AdminRolesServiceDeps) {
       or.push({ AND: [{ lastName: { contains: first, mode: "insensitive" } }, { firstName: { contains: tail, mode: "insensitive" } }] });
     }
     const rows = await db.user.findMany({
-      where: { AND: [{ status: { not: PrismaAccountStatus.deleted } }, { OR: or }] },
+      where: {
+        AND: [
+          { status: { not: PrismaAccountStatus.deleted } },
+          { roles: { none: { role: PrismaUserRole.admin } } },
+          { OR: or },
+        ],
+      },
       include: { roles: true },
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
       take: limit,

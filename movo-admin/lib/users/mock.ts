@@ -170,7 +170,7 @@ export async function mockGetSection<K extends SectionKey>(
         const mine = changes.get(id)?.ledger ?? []
         return {
           ...base,
-          balanceArs: base.balanceArs + sum(mine),
+          balanceArs: Math.round((base.balanceArs + sum(mine)) * 100) / 100,
           items: params.cursor ? base.items : [...mine, ...base.items],
         }
       }
@@ -338,7 +338,10 @@ export function mockAdjustLedger(
           "LEDGER_IDEMPOTENCY_CONFLICT",
           "La operación ya existe con otro monto."
         )
-      return { entry: existing, balanceArs: base + sum(state.ledger) }
+      return {
+        entry: existing,
+        balanceArs: Math.round((base + sum(state.ledger)) * 100) / 100,
+      }
     }
     if (
       body.amountArs === 0 ||
@@ -356,7 +359,10 @@ export function mockAdjustLedger(
       createdAt: new Date().toISOString(),
     }
     state.ledger.unshift(entry)
-    return { entry, balanceArs: base + sum(state.ledger) }
+    return {
+      entry,
+      balanceArs: Math.round((base + sum(state.ledger)) * 100) / 100,
+    }
   })
 }
 

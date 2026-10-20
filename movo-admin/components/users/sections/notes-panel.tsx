@@ -17,11 +17,13 @@ export function NotesPanel({
   userId,
   fullName,
   initial,
+  isSelf,
 }: {
   userId: string
   /** Para el diálogo de nueva nota. */
   fullName: string
   initial: AdminUserNotePage
+  isSelf: boolean
 }) {
   const [items, setItems] = useState(initial.items)
   const [nextCursor, setNextCursor] = useState(initial.nextCursor)
@@ -47,6 +49,7 @@ export function NotesPanel({
           size="sm"
           className="h-8"
           onClick={() => setAdding(true)}
+          disabled={isSelf}
         >
           <Plus aria-hidden />
           Agregar nota

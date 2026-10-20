@@ -151,7 +151,7 @@ export async function adjustLedger(
     !Number.isFinite(amountArs) ||
     amountArs === 0 ||
     Math.abs(amountArs) > MAX_AMOUNT_ARS ||
-    Math.round(amountArs * 100) !== amountArs * 100
+    Math.abs(Math.round(amountArs * 100) - amountArs * 100) > 1e-6
   )
     return invalid(
       "Ingresá un monto distinto de cero, con hasta dos decimales."

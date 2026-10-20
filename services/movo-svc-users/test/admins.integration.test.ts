@@ -224,6 +224,27 @@ describe("Alta y baja del rol admin (MOVO-290)", () => {
     });
   });
 
+  describe("GET /internal/admins/candidates", () => {
+    it("rechaza una búsqueda de menos de dos caracteres", async () => {
+      const response = await app.inject({ method: "GET", url: "/internal/admins/candidates?q=a" });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it("excluye admins y cuentas eliminadas, y marca los resultados como no admins", async () => {
+      const candidate = await createUser();
+      const admin = await createUser({ admin: true });
+      const deleted = await createUser({ status: "deleted" });
+
+      const response = await app.inject({ method: "GET", url: "/internal/admins/candidates?q=Lucas" });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { id: string; isAdmin: boolean; email: string }[];
+      expect(body.map((row) => row.id)).toEqual([candidate.id]);
+      expect(body[0]).toMatchObject({ email: candidate.email, isAdmin: false });
+      expect(body.some((row) => row.id === admin.id || row.id === deleted.id)).toBe(false);
+    });
+  });
+
   describe("POST /internal/admins (AC1, AC2, AC5)", () => {
     it("otorga el rol y avisa por email", async () => {
       const user = await createUser();

@@ -362,6 +362,15 @@ describe("ajustar el saldo", () => {
     expect(screen.getAllByText("Debe $1.000").length).toBeGreaterThan(0)
   })
 
+  it("muestra al día cuando los centavos saldan la cuenta", async () => {
+    mount(0.1 + 0.2)
+    fireEvent.click(screen.getByRole("radio", { name: /Debe menos/ }))
+    type(/Monto/, "0,30")
+    type("Motivo", "Saldo cancelado")
+    fireEvent.click(screen.getByRole("button", { name: "Revisar ajuste" }))
+    expect(await screen.findByText("Al día")).toBeInTheDocument()
+  })
+
   it("reintenta con la misma clave si el servicio no respondió y con otra si lo rechazó", async () => {
     actions.adjustLedger
       .mockResolvedValueOnce({ ok: false, error: "caído", unconfirmed: true })
