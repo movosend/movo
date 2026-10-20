@@ -526,6 +526,8 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
           where: { id },
           data: {
             status: PrismaAccountStatus.deleted,
+            // MOVO-294: la ficha del panel muestra cuándo se dio de baja.
+            deletedAt: new Date(),
             email: `deleted+${id}@movo.invalid`,
             phone: `deleted-${id}`,
             firstName: "Usuario",

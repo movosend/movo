@@ -326,6 +326,8 @@ model User {
   kycStatusLicense  KycStatus     @default(not_started) @map("kyc_status_license")
   status            AccountStatus @default(active) @map("status")
   bannedUntil       DateTime?     @map("banned_until") @db.Timestamptz
+  // MOVO-294: la fija `anonymizeAndDelete`. NULL en las bajas anteriores (sin backfill).
+  deletedAt         DateTime?     @map("deleted_at") @db.Timestamptz
   birthdate         DateTime?     @db.Date
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz
   // El trigger users.update_updated_at_column() de la migración original ya mantiene

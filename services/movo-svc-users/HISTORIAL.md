@@ -1297,3 +1297,20 @@ Tabla `users.user_tour` (PK `(user_id, tour_id)`, `version`, `outcome` enum `com
 **La versión nunca baja**: un PUT con versión menor a la registrada no pisa y devuelve la vigente, para que una
 instalación vieja no haga reaparecer un tour en la nueva. Relanzar un tour a mano no escribe acá (lo resuelve el
 cliente). La parte mobile (coach marks, disparo de los tours, sheet de "Ayuda y soporte") va en una PR aparte.
+
+### MOVO-294 — Búsqueda y ficha de usuarios del panel, acciones de soporte
+
+Internos para `svc-admin` en `src/modules/admin-users/` (`/internal/admin/users`, sin ruta en el gateway): búsqueda
+paginada, perfil, KYC (intentos con el motivo derivado de `raw_decision.warnings`, sin biometría), vehículo,
+moderación (las 50 más recientes por lista + totales), dispositivos (sin token de Expo ni clave pública), nombres en
+batch (`POST .../names`) y las acciones de cerrar sesiones y cambiar email/teléfono.
+
+- **Búsqueda en SQL crudo**: nombre sin tildes con `translate()` (la extensión `unaccent` no está instalada), en los
+  dos órdenes; teléfono normalizado con `normalizePhoneToE164Ar` sacando antes el `0` de larga distancia, que el
+  login no contempla; teléfono/DNI parcial desde 3 dígitos. `matchedBy` con prioridad nombre → email → DNI → teléfono.
+- **Columna `deleted_at`** (la fija `anonymizeAndDelete`), sin backfill: `updated_at` no sirve de aproximación.
+- **Cambio de contacto**: `UPDATE` condicionado al valor que vio el admin (`expectedCurrent`, 409 `CONTACT_CHANGED`),
+  queda sin verificar, corta app + panel + access tokens emitidos, y avisa por email (anterior y nuevo); si el aviso
+  falla el cambio queda y se informa `noticeFailed` para la bitácora.
+- **Re-verificar el teléfono**: el login no exige `phoneVerified`, pero no había forma de verificar el número actual.
+  `requestPhoneChange` ahora acepta el mismo número si está sin verificar (reusa la pantalla de mobile, sin gateway).

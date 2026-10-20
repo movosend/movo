@@ -987,12 +987,14 @@ export function createUsersService(
       }
 
       const normalizedPhone = normalizePhoneToE164Ar(phone);
-      if (normalizedPhone === user.phone) {
+      // MOVO-294: el mismo número sí se acepta si está sin verificar (un admin lo cambió desde
+      // el panel): es la única forma de volver a verificarlo, y el paso 2 marca phoneVerified.
+      if (normalizedPhone === user.phone && user.phoneVerified) {
         throw new ApiError(400, "VALIDATION_FAILED", "El teléfono nuevo es igual al actual.");
       }
 
       const existing = await repository.findByPhone(normalizedPhone);
-      if (existing) {
+      if (existing && existing.id !== userId) {
         throw new ApiError(409, "PHONE_ALREADY_IN_USE", PHONE_ALREADY_IN_USE_MESSAGE);
       }
 
