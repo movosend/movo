@@ -263,3 +263,21 @@ export interface AdminUserDevices {
   devices: AdminUserDevice[];
   handshakeKey: { registeredAt: string } | null;
 }
+
+/** Fila de la bitácora de una persona: la de `GET /admin/audit-log` más el nombre del admin. */
+export interface AdminUserAuditEntry {
+  id: string;
+  adminId: string;
+  adminName: string;
+  action: string;
+  reason: string | null;
+  outcome: "succeeded" | "failed" | "unknown";
+  errorCode: string | null;
+  createdAt: string;
+}
+
+/** `GET /admin/users/:id/audit-log?limit=&cursor=`. Acciones de admins sobre este usuario. */
+export interface AdminUserAuditPage {
+  items: AdminUserAuditEntry[];
+  nextCursor: string | null;
+}

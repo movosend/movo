@@ -178,3 +178,15 @@ export const AUDIT_OUTCOME: Record<"succeeded" | "failed" | "unknown", Pill> = {
   failed: { label: "Rechazada", tone: "danger" },
   unknown: { label: "Sin confirmar", tone: "warning" },
 }
+
+/** `+5493516124410` → `+54 9 351 612-4410`. Si no tiene la forma esperada, se muestra tal cual. */
+export function formatPhone(e164: string): string {
+  const m = /^\+549(\d{3})(\d{3})(\d{4})$/.exec(e164)
+  return m ? `+54 9 ${m[1]} ${m[2]}-${m[3]}` : e164
+}
+
+/** `33812405` → `33.812.405`. */
+export function formatDni(dni: string | null): string {
+  if (!dni) return "—"
+  return /^\d{7,8}$/.test(dni) ? dni.replace(/\B(?=(\d{3})+(?!\d))/g, ".") : dni
+}

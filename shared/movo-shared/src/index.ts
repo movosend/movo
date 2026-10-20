@@ -369,4 +369,6 @@ export type {
   AdminUserLedger,
   AdminUserDevice,
   AdminUserDevices,
+  AdminUserAuditEntry,
+  AdminUserAuditPage,
 } from "./types/admin-users";

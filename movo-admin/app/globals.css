@@ -105,6 +105,14 @@
   --info-fg: #1f4fcc;
   --info-soft: #eef3ff;
   --success-fg: #1c7f50;
+  --success-soft: #e7f6ee;
+  /* Puntos de estado de las pills (Usuarios, MOVO-295). */
+  --dot-success: #2bb673;
+  --dot-warning: #f5b93a;
+  --dot-danger: #e5484d;
+  --dot-info: #2b6bff;
+  --star: #f5b93a;
+  --shadow-1: 0 1px 2px rgba(10, 10, 11, 0.12);
   --shadow-3:
     0 8px 24px rgba(10, 10, 11, 0.08), 0 2px 6px rgba(10, 10, 11, 0.04);
   --shadow-4:
@@ -167,6 +175,8 @@
   --info-fg: #9db9ff;
   --info-soft: rgba(43, 107, 255, 0.16);
   --success-fg: #5cd39a;
+  --success-soft: rgba(43, 182, 115, 0.14);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow-3: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
   --shadow-4: 0 24px 60px rgba(0, 0, 0, 0.6), 0 6px 16px rgba(0, 0, 0, 0.4);
   --auth-fg3: #8a8a93;
@@ -189,6 +199,12 @@
   --color-info-fg: var(--info-fg);
   --color-info-soft: var(--info-soft);
   --color-success-fg: var(--success-fg);
+  --color-success-soft: var(--success-soft);
+  --color-dot-success: var(--dot-success);
+  --color-dot-warning: var(--dot-warning);
+  --color-dot-danger: var(--dot-danger);
+  --color-dot-info: var(--dot-info);
+  --color-star: var(--star);
 }
 
 @layer base {
@@ -518,6 +534,30 @@
   background-image: radial-gradient(var(--halftone) 1px, transparent 1.4px);
   background-size: 8px 8px;
   mask-image: linear-gradient(to left, black 0%, transparent 55%);
+}
+/* Cabecera de la ficha (Usuarios): grilla arriba a la izquierda y puntos arriba a la derecha. */
+.mv-grid-fade {
+  background-image:
+    linear-gradient(to right, var(--grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(90% 120% at 0% 0%, #000 0%, transparent 65%);
+}
+.mv-dots-fade {
+  background-image: radial-gradient(var(--halftone) 1px, transparent 1.4px);
+  background-size: 8px 8px;
+  mask-image: radial-gradient(70% 100% at 100% 0%, #000 0%, transparent 70%);
+}
+.mv-grid-flat {
+  background-image:
+    linear-gradient(to right, var(--grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.mv-empty-icon {
+  background-color: var(--surface-sub);
+  background-image: radial-gradient(var(--halftone) 1px, transparent 1.3px);
+  background-size: 6px 6px;
 }
 .mv-pulse-dot {
   background: var(--lime);
