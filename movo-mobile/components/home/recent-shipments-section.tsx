@@ -41,7 +41,9 @@ export function RecentShipmentsSection({
   scrollIntoView?: (layoutY: number) => void;
 }) {
   const colors = useThemeColors();
-  const tourAnchor = useTourAnchor("home-recent-activity", { radius: 16, scrollIntoView });
+  // La sección no tiene card propia: sin más aire el anillo queda pegado al texto
+  // (en el prototipo el recorte la rodea con ~12px de margen y radio 22).
+  const tourAnchor = useTourAnchor("home-recent-activity", { radius: 10, padding: 12, scrollIntoView });
   const { data, isLoading, isError, refetch } = useRecentShipments();
   const { data: myTripsData } = useMyTrips();
   const { otherTrips } = splitCarrierHomeTrips(myTripsData?.items ?? []);
