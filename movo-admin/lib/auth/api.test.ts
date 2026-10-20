@@ -31,6 +31,21 @@ describe("cliente del gateway", () => {
       })
     )
   })
+  it("soporta PATCH con cuerpo JSON (bandeja de soporte)", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true })))
+    await gateway("/admin/support/conversations/1", {
+      method: "PATCH",
+      body: { priority: "high" },
+      accessToken: "private",
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.test/api/v1/admin/support/conversations/1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ priority: "high" }),
+      })
+    )
+  })
   it("normaliza ApiError sin reenviar mensajes sensibles", async () => {
     fetchMock.mockResolvedValue(
       new Response(

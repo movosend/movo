@@ -9,7 +9,7 @@ import {
 export async function gateway<T>(
   path: string,
   options: {
-    method?: "GET" | "POST" | "DELETE"
+    method?: "GET" | "POST" | "PATCH" | "DELETE"
     body?: unknown
     accessToken?: string
     idempotencyKey?: string
