@@ -1287,3 +1287,13 @@ rotación y comparte su respuesta cifrada por 10 segundos con la misma clave/tok
 Revalida elegibilidad, expiración y revocación; logout invalida la publicación y su hijo.
 Otras claves, solicitudes sin clave y fuera de ventana conservan detección de reuso;
 una rotación incompleta falla cerrado. Política y límites: `docs/auth/adr-043-refresh-idempotente-panel.md`.
+
+### MOVO-169 — Persistencia de los tours del tutorial in-app (backend)
+
+Tabla `users.user_tour` (PK `(user_id, tour_id)`, `version`, `outcome` enum `completed|skipped`, `recorded_at`),
+`PUT /users/me/tours/:tourId` (`src/modules/tours/`, repo `user-tour-repository.ts`) y `tours` en el perfil privado
+(`composePrivateProfile`, así que viaja en `GET /users/me` y en los demás endpoints que devuelven el perfil).
+`tour_id` es texto validado contra `TOUR_IDS` de `@movo/shared`, no enum: sumar un tour no pide migración.
+**La versión nunca baja**: un PUT con versión menor a la registrada no pisa y devuelve la vigente, para que una
+instalación vieja no haga reaparecer un tour en la nueva. Relanzar un tour a mano no escribe acá (lo resuelve el
+cliente). La parte mobile (coach marks, disparo de los tours, sheet de "Ayuda y soporte") va en una PR aparte.

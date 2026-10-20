@@ -50,6 +50,11 @@ vi.mock("../src/repositories/session-repository", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/repositories/session-repository")>()),
   createSessionRepository: () => fakeSessionRepository(),
 }));
+// MOVO-169: el perfil que devuelven phone/email trae `tours`, sin Postgres acá.
+vi.mock("../src/repositories/user-tour-repository", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/repositories/user-tour-repository")>()),
+  createUserTourRepository: () => ({ listByUserId: vi.fn().mockResolvedValue([]), record: vi.fn() }),
+}));
 
 function fakeSessionRepository(): SessionRepository {
   return {

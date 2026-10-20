@@ -4,6 +4,9 @@ const KYC_STATUS_VALUES = ["not_started", "pending", "approved", "rejected", "ex
 const ACCOUNT_STATUS_VALUES = ["active", "banned", "deleted"];
 const USER_ROLE_VALUES = ["sender", "carrier", "admin"];
 const PROFILE_BADGE_VALUES = ["kyc_verified", "license_verified"];
+// MOVO-169: mismos valores que TOUR_IDS/TOUR_OUTCOMES de @movo/shared.
+const TOUR_ID_VALUES = ["first_steps", "carrier"];
+const TOUR_OUTCOME_VALUES = ["completed", "skipped"];
 // MOVO-97 AC2: mismos valores que ALLOWED_PHOTO_CONTENT_TYPES/MAX_PHOTO_CONTENT_LENGTH_BYTES
 // de users.service.ts — duplicados acá por el mismo criterio de "autocontenido" de arriba.
 const PHOTO_CONTENT_TYPE_VALUES = ["image/jpeg", "image/png", "image/webp"];
@@ -176,6 +179,7 @@ export const usersSchemas = {
       "termsVersion",
       "privacyAcceptedAt",
       "privacyVersion",
+      "tours",
     ],
     properties: {
       id: { type: "string" },
@@ -201,6 +205,19 @@ export const usersSchemas = {
       termsVersion: { type: ["string", "null"] },
       privacyAcceptedAt: { type: ["string", "null"], format: "date-time" },
       privacyVersion: { type: ["string", "null"] },
+      // MOVO-169: tours del tutorial ya completados u omitidos.
+      tours: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["tourId", "version", "outcome"],
+          properties: {
+            tourId: { type: "string", enum: TOUR_ID_VALUES },
+            version: { type: "integer" },
+            outcome: { type: "string", enum: TOUR_OUTCOME_VALUES },
+          },
+        },
+      },
     },
   },
 

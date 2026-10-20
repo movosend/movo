@@ -19,6 +19,7 @@ import { createDeviceKeyRepository } from "../../repositories/device-key-reposit
 import { createVehicleProfileRepository } from "../../repositories/vehicle-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
 import { createModerationRepository } from "../../repositories/moderation-repository";
+import { createUserTourRepository } from "../../repositories/user-tour-repository";
 import {
   PrivateProfile,
   PublicProfile,
@@ -227,6 +228,7 @@ export function createUsersService(
   const vehicleProfileRepository = createVehicleProfileRepository(db);
   const sessionRepository = createSessionRepository(redis);
   const moderationRepository = createModerationRepository(db);
+  const userTourRepository = createUserTourRepository(db);
 
   /**
    * MOVO-152 AC3/AC5: agregado de reputación de `userId`, leído de Redis primero (TTL
@@ -310,8 +312,16 @@ export function createUsersService(
   }
 
   async function composePrivateProfile(user: User): Promise<PrivateProfile> {
-    const summary = await resolveReputationSummary(user.id);
-    return toPrivateProfile(user, summary ?? NO_REPUTATION, summary?.transactionCounts ?? NO_TRANSACTION_COUNTS);
+    const [summary, tours] = await Promise.all([
+      resolveReputationSummary(user.id),
+      userTourRepository.listByUserId(user.id),
+    ]);
+    return toPrivateProfile(
+      user,
+      summary ?? NO_REPUTATION,
+      summary?.transactionCounts ?? NO_TRANSACTION_COUNTS,
+      tours
+    );
   }
 
   async function composePublicProfile(user: User, includeComments: boolean): Promise<PublicProfile> {
