@@ -290,6 +290,7 @@ export function ThreadView({
           onStatus={status}
           onToggleContext={() => setSheetOpen((open) => !open)}
           contextOpen={sheetOpen}
+          showIdentity={!wide || panels.contextCollapsed}
         />
         {notice && (
           <div

@@ -259,3 +259,18 @@ describe("columnas laterales", () => {
     expect(aside().hasAttribute("inert")).toBe(false)
   })
 })
+
+describe("encabezado", () => {
+  it("no repite el nombre cuando la ficha está a la vista y lo muestra al ocultarla", () => {
+    setup()
+    const heading = () =>
+      screen
+        .getByRole("heading", { name: "Carolina Sánchez" })
+        .closest("div.grid")!
+    expect(heading().className).toContain("grid-cols-[0fr]")
+    fireEvent.click(
+      screen.getByRole("button", { name: "Ocultar la ficha del usuario" })
+    )
+    expect(heading().className).toContain("grid-cols-[1fr]")
+  })
+})

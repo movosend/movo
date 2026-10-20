@@ -85,3 +85,14 @@ describe("panel de contexto", () => {
     expect(document.querySelector("[aria-busy]")).toBeTruthy()
   })
 })
+
+describe("ficha del usuario", () => {
+  it("enlaza a la ficha de detalle del usuario", () => {
+    setup({ status: "loading" })
+    expect(
+      screen
+        .getByRole("link", { name: /Ver ficha del usuario/ })
+        .getAttribute("href")
+    ).toBe(`/users/${conversation().user.id}`)
+  })
+})

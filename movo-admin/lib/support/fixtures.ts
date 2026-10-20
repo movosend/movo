@@ -530,7 +530,8 @@ export const OWN: FixtureConversation = {
 }
 
 export const convId = (num: number) => uuid(`support-${num}`)
-export const userId = (name: string) => uuid(`support-user-${name}`)
+/** Mismo id que en `lib/users/fixtures`: el link a la ficha abre al usuario si existe allá. */
+export const userId = (name: string) => uuid(name)
 export const shipmentId = (code: string) => uuid(`support-ship-${code}`)
 export const agentId = (key: string) => uuid(`support-agent-${key}`)
 

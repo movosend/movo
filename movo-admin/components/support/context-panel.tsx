@@ -1,7 +1,9 @@
 "use client"
+import Link from "next/link"
 import { useState } from "react"
 import {
   ArrowRight,
+  ArrowUpRight,
   BadgeCheck,
   Check,
   Clock,
@@ -368,6 +370,13 @@ export function ContextPanel({
               ` · en Movo desde ${formatMonthYear(profile.memberSince)}`}
           </span>
         </div>
+        <Link
+          href={`/users/${conversation.user.id}`}
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-border-strong px-2.5 text-xs font-medium outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Ver ficha del usuario
+          <ArrowUpRight aria-hidden className="size-3.5" />
+        </Link>
         {context.status === "loading" && <Loading />}
         {context.status === "error" && (
           <div

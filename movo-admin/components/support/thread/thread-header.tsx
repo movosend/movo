@@ -1,5 +1,5 @@
 "use client"
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { Check, ChevronDown, RotateCcw, UserRound } from "lucide-react"
 import {
   SUPPORT_PRIORITIES,
@@ -27,6 +27,32 @@ import { MenuHeading } from "../menu-heading"
 import { firstName, PRIORITY_DOT, STATUS_TONE } from "../format"
 import { TopicIcon } from "../topic-icon"
 
+/** Aparece y desaparece con un fade, achicando su ancho a 0 para que lo demás se acomode. */
+function FadeWidth({
+  show,
+  gap,
+  children,
+}: {
+  show: boolean
+  /** Margen negativo que compensa el `gap` del padre cuando se oculta. */
+  gap: string
+  children: ReactNode
+}) {
+  return (
+    <div
+      aria-hidden={undefined}
+      className={cn(
+        "grid motion-safe:transition-[grid-template-columns,opacity,margin] motion-safe:duration-200",
+        show
+          ? "grid-cols-[1fr] opacity-100"
+          : cn("grid-cols-[0fr] opacity-0", gap)
+      )}
+    >
+      <div className="min-w-0 overflow-hidden">{children}</div>
+    </div>
+  )
+}
+
 const trigger =
   "flex h-8 items-center gap-1.5 rounded-lg border border-border-strong bg-card px-2.5 text-[13px] font-medium whitespace-nowrap outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
 
@@ -44,6 +70,7 @@ export function ThreadHeader({
   onStatus,
   onToggleContext,
   contextOpen,
+  showIdentity,
 }: {
   conversation: SupportConversation
   meId: string
@@ -55,6 +82,8 @@ export function ThreadHeader({
   onToggleContext: () => void
   /** El `Sheet` de la ficha (pantallas angostas; desde 1360 px es una columna con su propio botón). */
   contextOpen: boolean
+  /** `false` cuando la ficha ya está a la vista: el nombre y el avatar se ven ahí y no se repiten. */
+  showIdentity: boolean
 }) {
   const [agents, setAgents] = useState<SupportAgent[] | null>(null)
   const [agentsError, setAgentsError] = useState(false)
@@ -74,12 +103,17 @@ export function ThreadHeader({
 
   return (
     <div className="flex min-h-16 shrink-0 flex-wrap items-center gap-3 border-b bg-card px-5 py-2.5">
-      <UserAvatar name={conversation.user.fullName} size={36} />
+      <FadeWidth show={showIdentity} gap="mr-[-12px]">
+        <UserAvatar name={conversation.user.fullName} size={36} />
+      </FadeWidth>
       <div className="flex min-w-[180px] flex-1 flex-col gap-0.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-[15px] font-semibold">
-            {conversation.user.fullName}
-          </h1>
+          {/* Sigue en el árbol de accesibilidad aunque no se vea: es el título de la conversación. */}
+          <FadeWidth show={showIdentity} gap="mr-[-8px]">
+            <h1 className="text-[15px] font-semibold whitespace-nowrap">
+              {conversation.user.fullName}
+            </h1>
+          </FadeWidth>
           <span
             className={cn(
               "inline-flex h-[22px] items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
