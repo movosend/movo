@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import localFont from "next/font/local"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -11,6 +12,26 @@ const inter = localFont({
   variable: "--font-inter",
   display: "swap",
 })
+
+export const metadata: Metadata = {
+  title: { default: "Movo Admin", template: "%s · Movo Admin" },
+  description: "Panel de administración de Movo",
+  icons: {
+    icon: [
+      {
+        url: "/brand/favicon-light.png",
+        type: "image/png",
+        media: "(prefers-color-scheme: light)",
+      },
+      {
+        url: "/brand/favicon-dark.png",
+        type: "image/png",
+        media: "(prefers-color-scheme: dark)",
+      },
+    ],
+    apple: "/brand/favicon-light.png",
+  },
+}
 
 export default function RootLayout({
   children,

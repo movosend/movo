@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { cookies } from "next/headers"
 import type { AdminSummary } from "@movo/shared/src/types/user"
 import { gateway, publicError } from "@/lib/auth/api"
@@ -13,6 +14,8 @@ const dateFormat = new Intl.DateTimeFormat("es-AR", {
   year: "numeric",
   timeZone: "America/Argentina/Cordoba",
 })
+
+export const metadata: Metadata = { title: "Administradores" }
 
 export default async function Page() {
   const profile = await requireAdmin(false, "/admins")

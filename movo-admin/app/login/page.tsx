@@ -1,5 +1,8 @@
+import type { Metadata } from "next"
 import { AuthForm } from "@/components/auth-form"
 import { PASSWORD_CHANGED, SESSION_EXPIRED } from "@/lib/auth/policy"
+export const metadata: Metadata = { title: "Ingresar" }
+
 export default async function LoginPage({
   searchParams,
 }: {

@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { ApiError } from "@movo/shared/src/errors/api-error"
 import { ThreadView } from "@/components/support/thread/thread-view"
@@ -5,6 +6,8 @@ import { requireAdmin } from "@/lib/auth/session"
 import { getConversation, getMessages } from "@/lib/support/api"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export const metadata: Metadata = { title: "Conversación de soporte" }
 
 export default async function Page({
   params,
