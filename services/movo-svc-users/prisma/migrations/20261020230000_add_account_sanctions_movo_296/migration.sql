@@ -18,7 +18,7 @@ CREATE TABLE "users"."account_sanctions" (
     "internal_note" TEXT,
     "started_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "ends_at" TIMESTAMPTZ,
-    "applied_by" UUID NOT NULL,
+    "applied_by" UUID,
     "lifted_at" TIMESTAMPTZ,
     "lifted_by" UUID,
     "lift_reason" TEXT,
@@ -35,6 +35,14 @@ CREATE UNIQUE INDEX "account_sanctions_one_open_per_user_idx" ON "users"."accoun
 
 -- AddForeignKey
 ALTER TABLE "users"."account_sanctions" ADD CONSTRAINT "account_sanctions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"."users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Backfill: las cuentas `banned` previas pasan a ser inhabilitadas con su fila de historial, así
+-- se pueden levantar por la API y aparecen en la ficha. `applied_by` NULL = sistema (se migró).
+INSERT INTO "users"."account_sanctions" ("user_id", "type", "reason", "internal_note", "started_at", "applied_by")
+SELECT "id", 'disable', 'Cuenta inhabilitada antes de la incorporación de las sanciones.',
+       'Migrada desde users.status = banned (MOVO-296).', "updated_at", NULL
+FROM "users"."users"
+WHERE "status" = 'banned';
 
 -- Solo se agregan filas (el borrado en cascada de un usuario se deja pasar, como en el resto de
 -- las tablas del esquema) y se completan los campos de levantamiento (una sola vez).

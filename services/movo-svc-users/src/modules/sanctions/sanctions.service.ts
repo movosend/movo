@@ -107,6 +107,27 @@ export function createSanctionsService(deps: SanctionsServiceDeps) {
     await redis.unlink(accountRestrictionKey(userId));
   }
 
+  /**
+   * Deja la marca de `userId` igual a su sanción vigente HOY (la lee de Postgres, no de una
+   * lectura vieja). Escribe y vuelve a leer: si entre medio un lift/apply cambió la vigente,
+   * corrige. Cierra la carrera del barrido contra `applySanction`/`liftSanction`, que escriben
+   * la marca después de su commit.
+   */
+  async function syncMark(userId: string, now = new Date()): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const current = await db.accountSanction.findFirst({ where: { userId, liftedAt: null } });
+      if (current) {
+        await writeMark(userId, current.type as AccountSanctionType, current.endsAt, now);
+      } else {
+        await clearMark(userId);
+      }
+      const verify = await db.accountSanction.findFirst({ where: { userId, liftedAt: null }, select: { id: true } });
+      if ((verify?.id ?? null) === (current?.id ?? null)) {
+        return;
+      }
+    }
+  }
+
   /** AC6: reescribe la marca de cada sanción vigente, por si Redis perdió datos. */
   async function rewriteMarks(now = new Date()): Promise<number> {
     let written = 0;
@@ -119,7 +140,7 @@ export function createSanctionsService(deps: SanctionsServiceDeps) {
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       });
       for (const row of rows) {
-        await writeMark(row.userId, row.type as AccountSanctionType, row.endsAt, now);
+        await syncMark(row.userId, now);
         written += 1;
       }
       if (rows.length < SWEEP_BATCH_SIZE) {
@@ -133,6 +154,8 @@ export function createSanctionsService(deps: SanctionsServiceDeps) {
 
   async function pushNotice(userId: string, notice: AccountSanctionNotice, event: string) {
     const onErrorContext = { event: `${event}_push_failed`, message: "no se pudo enviar el push de la sanción" };
+    // Una sanción no se puede silenciar desde las preferencias del usuario.
+    const ignorePreferences = true;
     switch (notice.kind) {
       case "suspended":
         return sendTriggerPush({
@@ -142,6 +165,7 @@ export function createSanctionsService(deps: SanctionsServiceDeps) {
           params: { reason: notice.reason, until: notice.until ? notice.until.toISOString() : null },
           data: { type: "account_suspended" },
           logger,
+          ignorePreferences,
           onErrorContext,
         });
       case "disabled":
@@ -152,6 +176,7 @@ export function createSanctionsService(deps: SanctionsServiceDeps) {
           params: { reason: notice.reason },
           data: { type: "account_disabled" },
           logger,
+          ignorePreferences,
           onErrorContext,
         });
       case "lifted":
@@ -162,6 +187,7 @@ export function createSanctionsService(deps: SanctionsServiceDeps) {
           params: undefined,
           data: { type: "account_sanction_lifted" },
           logger,
+          ignorePreferences,
           onErrorContext,
         });
       case "expired":
@@ -172,9 +198,20 @@ export function createSanctionsService(deps: SanctionsServiceDeps) {
           params: undefined,
           data: { type: "account_suspension_expired" },
           logger,
+          ignorePreferences,
           onErrorContext,
         });
     }
+  }
+
+  /**
+   * Avisa en segundo plano: el panel no espera al push ni a Resend. Nunca rechaza, así que un
+   * fallo (ya logueado adentro) no puede volverse una promesa sin manejar.
+   */
+  function notifyUserInBackground(userId: string, notice: AccountSanctionNotice, event: string): void {
+    notifyUser(userId, notice, event).catch((err: unknown) => {
+      logger.warn({ err, event: `${event}_failed`, userId }, "no se pudo avisar al usuario de la sanción");
+    });
   }
 
   async function notifyUser(userId: string, notice: AccountSanctionNotice, event: string) {
@@ -320,7 +357,7 @@ export function createSanctionsService(deps: SanctionsServiceDeps) {
       logger.error({ err, userId, event: "account_sanction_session_cut_failed" }, "No se pudieron cortar las sesiones");
     }
 
-    await notifyUser(
+    notifyUserInBackground(
       userId,
       input.type === "disable" ? { kind: "disabled", reason } : { kind: "suspended", reason, until: endsAt },
       "account_sanction_applied"
@@ -375,7 +412,7 @@ export function createSanctionsService(deps: SanctionsServiceDeps) {
     } catch (err) {
       logger.error({ err, userId, event: "account_sanction_mark_failed" }, "No se pudo borrar la marca de restricción");
     }
-    await notifyUser(userId, { kind: "lifted" }, "account_sanction_lifted");
+    notifyUserInBackground(userId, { kind: "lifted" }, "account_sanction_lifted");
     return toAccountSanction(lifted);
   }
 
@@ -438,7 +475,7 @@ export function createSanctionsService(deps: SanctionsServiceDeps) {
             "No se pudo borrar la marca de restricción"
           );
         }
-        await notifyUser(sanction.userId, { kind: "expired" }, "account_suspension_expired");
+        notifyUserInBackground(sanction.userId, { kind: "expired" }, "account_suspension_expired");
       }
       if (due.length < SWEEP_BATCH_SIZE || closedInPass === 0) {
         return expired;

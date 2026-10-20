@@ -1,7 +1,7 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa el resto de los módulos: cada schema no comparte definiciones entre sí.
 const KYC_STATUS_VALUES = ["not_started", "pending", "approved", "rejected", "expired", "manual_review"];
-const ACCOUNT_STATUS_VALUES = ["active", "banned", "deleted"];
+const ACCOUNT_STATUS_VALUES = ["active", "banned", "deleted", "suspended"];
 const USER_ROLE_VALUES = ["sender", "carrier", "admin"];
 const PROFILE_BADGE_VALUES = ["kyc_verified", "license_verified"];
 // MOVO-169: mismos valores que TOUR_IDS/TOUR_OUTCOMES de @movo/shared.

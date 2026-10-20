@@ -502,7 +502,7 @@ model DriversLicense {
 // campos de levantamiento (lo garantiza un trigger). `User.status`/`bannedUntil` son la caché
 // de lectura rápida de la sanción vigente (la fila con `lifted_at` NULL, una por usuario por
 // un índice único parcial que está solo en la migración, Prisma no lo expresa).
-// `applied_by`/`lifted_by` son ids de admin sin FK: el historial no depende de que la cuenta
+// `applied_by`/`lifted_by` son ids de admin sin FK (`applied_by` es NULL en las filas migradas de cuentas `banned` previas): el historial no depende de que la cuenta
 // del admin siga existiendo.
 model AccountSanction {
   id           String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -512,7 +512,7 @@ model AccountSanction {
   internalNote String?                     @map("internal_note") @db.Text
   startedAt    DateTime                    @default(now()) @map("started_at") @db.Timestamptz
   endsAt       DateTime?                   @map("ends_at") @db.Timestamptz
-  appliedBy    String                      @map("applied_by") @db.Uuid
+  appliedBy    String?                     @map("applied_by") @db.Uuid
   liftedAt     DateTime?                   @map("lifted_at") @db.Timestamptz
   liftedBy     String?                     @map("lifted_by") @db.Uuid
   liftReason   String?                     @map("lift_reason") @db.Text

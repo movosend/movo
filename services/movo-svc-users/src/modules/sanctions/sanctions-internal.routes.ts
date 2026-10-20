@@ -44,7 +44,7 @@ const sanctionObject = {
     internalNote: { type: ["string", "null"] },
     startedAt: { type: "string" },
     endsAt: { type: ["string", "null"] },
-    appliedBy: { type: "string" },
+    appliedBy: { type: ["string", "null"] },
     liftedAt: { type: ["string", "null"] },
     liftedBy: { type: ["string", "null"] },
     liftReason: { type: ["string", "null"] },

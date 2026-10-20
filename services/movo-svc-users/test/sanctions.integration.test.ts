@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { hash } from "@node-rs/argon2";
@@ -116,22 +118,44 @@ describe("Sanciones de cuenta (MOVO-296)", () => {
     return user;
   }
 
+  /**
+   * Los avisos salen en segundo plano (no demoran la respuesta): una operación que sanciona o
+   * levanta manda exactamente un push y un mail, y se espera a que lleguen para que ninguno se
+   * filtre al test siguiente.
+   */
+  async function withNotices<T extends { statusCode: number }>(run: () => Promise<T>): Promise<T> {
+    const pushes = push.__sentNotifications.length;
+    const mails = sentEmails.length;
+    const response = await run();
+    if (response.statusCode < 300) {
+      await vi.waitFor(() => {
+        expect(push.__sentNotifications.length).toBe(pushes + 1);
+        expect(sentEmails.length).toBe(mails + 1);
+      });
+    }
+    return response;
+  }
+
   function sanction(userId: string, payload: Record<string, unknown>) {
-    return app.inject({
-      method: "POST",
-      url: `/internal/users/${userId}/sanctions`,
-      headers: { "x-user-id": adminId },
-      payload,
-    });
+    return withNotices(() =>
+      app.inject({
+        method: "POST",
+        url: `/internal/users/${userId}/sanctions`,
+        headers: { "x-user-id": adminId },
+        payload,
+      })
+    );
   }
 
   function lift(userId: string, sanctionId: string, reason = "Revisado, se levanta") {
-    return app.inject({
-      method: "POST",
-      url: `/internal/users/${userId}/sanctions/${sanctionId}/lift`,
-      headers: { "x-user-id": adminId },
-      payload: { reason },
-    });
+    return withNotices(() =>
+      app.inject({
+        method: "POST",
+        url: `/internal/users/${userId}/sanctions/${sanctionId}/lift`,
+        headers: { "x-user-id": adminId },
+        payload: { reason },
+      })
+    );
   }
 
   async function history(userId: string): Promise<AccountSanction[]> {
@@ -375,17 +399,19 @@ describe("Sanciones de cuenta (MOVO-296)", () => {
     });
   });
 
+  function buildSyncService() {
+    return createSanctionsService({
+      db: app.db,
+      redis: app.redis,
+      sessionRepository: createSessionRepository(app.redis),
+      notifications: createNotificationsService(app.db, push, app.log),
+      emailProvider,
+      logger: app.log,
+    });
+  }
+
   describe("barrido", () => {
-    function buildService() {
-      return createSanctionsService({
-        db: app.db,
-        redis: app.redis,
-        sessionRepository: createSessionRepository(app.redis),
-        notifications: createNotificationsService(app.db, push, app.log),
-        emailProvider,
-        logger: app.log,
-      });
-    }
+    const buildService = buildSyncService;
 
     it("levanta la suspensión vencida: active, historial cerrado con el fin y aviso al usuario", async () => {
       const user = await createUser();
@@ -404,6 +430,7 @@ describe("Sanciones de cuenta (MOVO-296)", () => {
       const expired = await buildService().expireDueSuspensions();
 
       expect(expired).toBe(1);
+      await vi.waitFor(() => expect(sentEmails).toHaveLength(1));
       const stored = await app.db.user.findUniqueOrThrow({ where: { id: user.id } });
       expect(stored.status).toBe("active");
       expect(stored.bannedUntil).toBeNull();
@@ -512,6 +539,64 @@ describe("Sanciones de cuenta (MOVO-296)", () => {
         "Levantamos la restricción de tu cuenta de Movo",
       ]);
       expect(JSON.stringify([push.__sentNotifications, sentEmails])).not.toContain(INTERNAL_NOTE);
+    });
+  });
+
+  describe("GET /users/me", () => {
+    it("una cuenta suspendida o inhabilitada recibe su perfil con el estado, no un 500", async () => {
+      const user = await createUser();
+      const me = () => app.inject({ method: "GET", url: "/users/me", headers: { "x-user-id": user.id } });
+
+      expect(JSON.parse((await me()).body).accountStatus).toBe("active");
+
+      await sanction(user.id, suspendPayload(new Date(Date.now() + HOUR_MS)));
+      let response = await me();
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body).accountStatus).toBe("suspended");
+
+      await sanction(user.id, { type: "disable", reason: "Fraude" });
+      response = await me();
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body).accountStatus).toBe("banned");
+    });
+  });
+
+  describe("avisos que el usuario no puede apagar", () => {
+    it("el push de una sanción sale aunque tenga el push apagado y esté en horario de silencio", async () => {
+      const user = await createUser();
+      await app.db.notificationPreference.upsert({
+        where: { userId: user.id },
+        create: { userId: user.id, pushEnabled: false },
+        update: { pushEnabled: false },
+      });
+
+      await sanction(user.id, { type: "disable", reason: "Fraude" });
+
+      expect(push.__sentNotifications.map((n) => n.title)).toEqual(["Inhabilitamos tu cuenta"]);
+    });
+  });
+
+  describe("migración de cuentas banned previas", () => {
+    it("el backfill da una sanción `disable` del sistema a cada banned sin historial, que se puede levantar", async () => {
+      const user = await createUser();
+      await app.db.user.update({ where: { id: user.id }, data: { status: "banned" } });
+      const migration = readFileSync(
+        join(__dirname, "../prisma/migrations/20261020230000_add_account_sanctions_movo_296/migration.sql"),
+        "utf8"
+      );
+      const backfill = migration.match(/INSERT INTO "users"\."account_sanctions"[\s\S]*?;/)?.[0];
+      expect(backfill).toBeTruthy();
+
+      await app.db.$executeRawUnsafe(backfill as string);
+
+      const [row] = await history(user.id);
+      expect(row).toMatchObject({ type: "disable", appliedBy: null, endsAt: null, liftedAt: null });
+      expect(await buildSyncService().rewriteMarks()).toBe(1);
+      expect(await app.redis.get(accountRestrictionKey(user.id))).toBe("disabled");
+
+      const lifted = await lift(user.id, row?.id ?? "");
+      expect(lifted.statusCode).toBe(200);
+      expect((await app.db.user.findUniqueOrThrow({ where: { id: user.id } })).status).toBe("active");
     });
   });
 
