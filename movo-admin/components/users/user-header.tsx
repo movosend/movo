@@ -24,15 +24,9 @@ import {
   ROLE_LABEL,
 } from "@/lib/users/format"
 import { cn } from "@/lib/utils"
-import { StatusPill, TONE_BG, TONE_DOT } from "./ui"
+import { StatusPill, TONE_BG } from "./ui"
 
 const ROLE_ICON = { sender: PackageOpen, carrier: Car, admin: ShieldCheck }
-
-function ringOf(u: AdminUserProfile): string {
-  if (u.accountStatus === "active") return "var(--lime)"
-  if (u.accountStatus === "deleted") return "var(--border-strong)"
-  return u.bannedUntil ? "var(--dot-warning)" : "var(--dot-danger)"
-}
 
 /** Cabecera de la ficha: grilla y puntos de fondo, identidad, acciones reservadas y los KPIs (children). */
 export function UserHeader({
@@ -77,33 +71,21 @@ export function UserHeader({
           </div>
         </div>
         <div className="flex min-w-0 items-center gap-[18px]">
-          <span className="relative flex-none">
-            <Avatar
-              aria-hidden
-              className={cn("size-16", deleted && "opacity-50")}
-              style={{
-                boxShadow: `0 0 0 3px var(--card), 0 0 0 5px ${ringOf(user)}`,
-              }}
-            >
-              {user.photoUrl && (
-                <AvatarImage
-                  src={user.photoUrl}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                />
-              )}
-              <AvatarFallback className="bg-avatar text-xl font-semibold text-foreground">
-                {initialsOf(user.fullName)}
-              </AvatarFallback>
-            </Avatar>
-            <span
-              aria-hidden
-              className={cn(
-                "absolute right-0 bottom-0.5 size-3.5 rounded-full border-[2.5px] border-card",
-                TONE_DOT[pill.tone]
-              )}
-            />
-          </span>
+          <Avatar
+            aria-hidden
+            className={cn("size-16 flex-none", deleted && "opacity-50")}
+          >
+            {user.photoUrl && (
+              <AvatarImage
+                src={user.photoUrl}
+                alt=""
+                referrerPolicy="no-referrer"
+              />
+            )}
+            <AvatarFallback className="bg-avatar text-xl font-semibold text-foreground">
+              {initialsOf(user.fullName)}
+            </AvatarFallback>
+          </Avatar>
           <div className="flex min-w-0 flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="mr-1.5 text-[28px] leading-[1.15] font-semibold tracking-[-0.025em]">
