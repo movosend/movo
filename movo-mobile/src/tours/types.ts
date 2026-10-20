@@ -36,10 +36,17 @@ export interface TourDefinition {
   steps: TourStep[];
 }
 
-/** El tour se muestra solo si no hay registro, o si el registrado es de una versión anterior. */
+/**
+ * El tour se muestra solo si no hay registro, o si el registrado es de una versión anterior.
+ * `recorded` puede traer varios registros del mismo tour (perfil + pendientes locales): vale
+ * la mayor versión, así un refetch del perfil con una versión vieja no pisa un pendiente más nuevo.
+ */
 export function shouldAutoShowTour(definition: TourDefinition, recorded: readonly UserTourRecord[]): boolean {
-  const record = recorded.find((item) => item.tourId === definition.id);
-  return !record || record.version < definition.version;
+  const seenVersion = recorded.reduce(
+    (max, item) => (item.tourId === definition.id ? Math.max(max, item.version) : max),
+    0,
+  );
+  return seenVersion < definition.version;
 }
 
 export function resolveStepTitle(step: TourStep, context: TourContext): string {

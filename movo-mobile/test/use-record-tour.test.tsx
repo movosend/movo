@@ -26,8 +26,12 @@ jest.mock("../src/api/users-client", () => ({
 }));
 const mockRecordTour = usersClient.recordTour as jest.Mock;
 
+let mockUserId = "user-1";
 jest.mock("../src/store/auth-store", () => ({
-  useAuthStore: (selector: (s: { user: { userId: string } }) => unknown) => selector({ user: { userId: "user-1" } }),
+  useAuthStore: Object.assign(
+    (selector: (s: { user: { userId: string } }) => unknown) => selector({ user: { userId: mockUserId } }),
+    { getState: () => ({ user: { userId: mockUserId } }) },
+  ),
 }));
 
 const PENDING_KEY = "movo.tours.pending.user-1";
@@ -53,6 +57,7 @@ describe("useRecordTour / usePendingToursFlush (MOVO-169)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockStorage.clear();
+    mockUserId = "user-1";
     useTourStore.setState({ active: null, anchors: {}, pending: [], pendingLoaded: false });
   });
 
@@ -120,5 +125,46 @@ describe("useRecordTour / usePendingToursFlush (MOVO-169)", () => {
     expect(useTourStore.getState().pendingLoaded).toBe(true);
     expect(useTourStore.getState().pending).toEqual([RECORD]);
     expect(mockStorage.get(PENDING_KEY)).toBe(JSON.stringify([RECORD]));
+  });
+
+  it("si la cuenta cambia con el PUT en vuelo, la respuesta no toca el store ni el cache de la nueva cuenta", async () => {
+    let resolvePut: (value: unknown) => void = () => undefined;
+    mockRecordTour.mockReturnValue(new Promise((resolve) => (resolvePut = resolve)));
+    const { queryClient, wrapper } = setup();
+    const { result } = await renderHook(() => useRecordTour(), { wrapper });
+
+    await act(async () => {
+      result.current.mutate(RECORD);
+    });
+    await waitFor(() => expect(mockRecordTour).toHaveBeenCalled());
+
+    // Logout de user-1 y login de user-2, con un pendiente propio del mismo tour.
+    const other = { tourId: "first_steps", version: 2, outcome: "completed" } as const;
+    mockUserId = "user-2";
+    queryClient.setQueryData(MY_PROFILE_QUERY_KEY, { id: "user-2", tours: [] } as unknown as PrivateProfile);
+    useTourStore.setState({ pending: [other], pendingLoaded: true });
+
+    await act(async () => {
+      resolvePut(RECORD);
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockStorage.has(PENDING_KEY)).toBe(false);
+    expect(useTourStore.getState().pending).toEqual([other]);
+    expect(cachedTours(queryClient)).toEqual([]);
+  });
+
+  it("al desmontar (cambio de cuenta) reinicia los pendientes y pendingLoaded", async () => {
+    mockRecordTour.mockResolvedValue(RECORD);
+    const { wrapper } = setup();
+    const { unmount } = await renderHook(() => usePendingToursFlush(), { wrapper });
+    await waitFor(() => expect(useTourStore.getState().pendingLoaded).toBe(true));
+
+    await act(async () => {
+      unmount();
+    });
+
+    expect(useTourStore.getState().pendingLoaded).toBe(false);
+    expect(useTourStore.getState().pending).toEqual([]);
   });
 });

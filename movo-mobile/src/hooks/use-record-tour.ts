@@ -20,7 +20,10 @@ function applyTourToProfileCache(queryClient: QueryClient, record: UserTourRecor
 
 async function sendTourRecord(queryClient: QueryClient, userId: string | undefined, record: UserTourRecord) {
   const saved = await usersClient.recordTour(record.tourId, { version: record.version, outcome: record.outcome });
+  // El pendiente persistido es de `userId`, se borra siempre; el store y el cache son de la
+  // sesión en curso: si la cuenta cambió mientras el PUT estaba en vuelo, no son de este registro.
   if (userId) await removePendingTour(userId, record.tourId);
+  if (useAuthStore.getState().user?.userId !== userId) return saved;
   useTourStore.getState().removePending(record.tourId);
   applyTourToProfileCache(queryClient, saved);
   return saved;
@@ -75,6 +78,7 @@ export function usePendingToursFlush() {
     })();
     return () => {
       cancelled = true;
+      useTourStore.getState().resetPending();
     };
   }, [userId, queryClient]);
 }

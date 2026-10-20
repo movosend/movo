@@ -96,5 +96,13 @@ describe("tour-store (MOVO-169)", () => {
         ]),
       ).toBe(true);
     });
+
+    it("con dos registros del mismo tour (perfil v1 + pendiente v2) vale la mayor versión", () => {
+      const tour = { ...TOURS.first_steps, version: 2 };
+      const profileV1 = { tourId: "first_steps", version: 1, outcome: "completed" } as const;
+      const pendingV2 = { tourId: "first_steps", version: 2, outcome: "skipped" } as const;
+      expect(shouldAutoShowTour(tour, [profileV1, pendingV2])).toBe(false);
+      expect(shouldAutoShowTour(tour, [pendingV2, profileV1])).toBe(false);
+    });
   });
 });

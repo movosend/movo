@@ -55,6 +55,8 @@ interface TourState {
   setPending: (pending: UserTourRecord[]) => void;
   addPending: (record: UserTourRecord) => void;
   removePending: (tourId: TourId) => void;
+  /** Cambio de cuenta: los pendientes son de la sesión anterior y todavía no se leyeron los nuevos. */
+  resetPending: () => void;
 }
 
 export const useTourStore = create<TourState>((set, get) => ({
@@ -114,6 +116,7 @@ export const useTourStore = create<TourState>((set, get) => ({
   addPending: (record) =>
     set((state) => ({ pending: [...state.pending.filter((item) => item.tourId !== record.tourId), record] })),
   removePending: (tourId) => set((state) => ({ pending: state.pending.filter((item) => item.tourId !== tourId) })),
+  resetPending: () => set({ pending: [], pendingLoaded: false }),
 }));
 
 export function selectCurrentStep(state: Pick<TourState, "active">): TourStep | null {
