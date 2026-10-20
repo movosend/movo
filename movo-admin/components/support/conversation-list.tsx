@@ -178,15 +178,33 @@ function Row({
   )
 }
 
+const SKELETON_ROWS = [
+  ["w-28", "w-24", "w-4/5"],
+  ["w-36", "w-28", "w-2/3"],
+  ["w-24", "w-32", "w-11/12"],
+  ["w-32", "w-24", "w-3/5"],
+  ["w-28", "w-28", "w-4/5"],
+  ["w-36", "w-24", "w-2/3"],
+  ["w-24", "w-32", "w-5/6"],
+]
+
+/** Mismas tres líneas y alturas que `Row`, para que no salte al cargar. */
 function ListSkeleton() {
   return (
     <div aria-hidden className="flex flex-col">
-      {[0, 1, 2, 3, 4, 5].map((i) => (
-        <div key={i} className="flex items-center gap-3 border-b px-4 py-3">
+      {SKELETON_ROWS.map(([name, meta, preview], i) => (
+        <div
+          key={i}
+          className="grid grid-cols-[36px_minmax(0,1fr)] items-center gap-3 border-b px-4 py-3"
+        >
           <Skeleton className="size-9 rounded-full" />
-          <div className="flex flex-1 flex-col gap-2">
-            <Skeleton className="h-3.5 w-2/3" />
-            <Skeleton className="h-3 w-full" />
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Skeleton className={cn("h-3.5 max-w-[60%]", name)} />
+              <Skeleton className="h-3 w-9" />
+            </div>
+            <Skeleton className={cn("h-2.5 max-w-full", meta)} />
+            <Skeleton className={cn("h-3 max-w-full", preview)} />
           </div>
         </div>
       ))}
