@@ -30,6 +30,7 @@ import adminsInternalRoutes, { AdminsInternalRoutesOptions } from "./modules/adm
 import adminUsersInternalRoutes, { AdminUsersInternalRoutesOptions } from "./modules/admin-users/admin-users-internal.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import sanctionSweepPlugin from "./plugins/sanction-sweep";
+import partyCardsInternalRoutes, { PartyCardsInternalRoutesOptions } from "./modules/users/party-cards-internal.routes";
 import sanctionsInternalRoutes, { SanctionsInternalRoutesOptions } from "./modules/sanctions/sanctions-internal.routes";
 import { SmsProvider } from "./adapters/sms-provider";
 import { EmailProvider } from "./adapters/email-provider";
@@ -214,6 +215,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
   };
   app.register(sanctionsInternalRoutes, sanctionsInternalRouteOpts);
+
+  // MOVO-325: fichas (verificación y reputación) de las partes de un envío para el detalle del panel.
+  const partyCardsRouteOpts: PartyCardsInternalRoutesOptions = {
+    prefix: "/internal",
+    ...(opts.shipmentsClient ? { shipmentsClient: opts.shipmentsClient } : {}),
+  };
+  app.register(partyCardsInternalRoutes, partyCardsRouteOpts);
 
   return app;
 }
