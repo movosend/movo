@@ -1,6 +1,7 @@
 import { ActivityIndicator, Text, View } from "react-native";
 import { PackageX, WifiOff } from "lucide-react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { useTourAnchor } from "../../src/hooks/use-tour-anchor";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
 import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
@@ -31,8 +32,16 @@ import { ViewAllShipmentsLink } from "./view-all-shipments-link";
  * fecha pero nunca pasan por delante de un envío que requiere acción. La lista mezclada
  * respeta el mismo tope que los envíos.
  */
-export function RecentShipmentsSection({ testID }: { testID?: string }) {
+export function RecentShipmentsSection({
+  testID,
+  scrollIntoView,
+}: {
+  testID?: string;
+  /** MOVO-169: lleva la sección a la vista para el paso "Seguí tus envíos" del tutorial. */
+  scrollIntoView?: (layoutY: number) => void;
+}) {
   const colors = useThemeColors();
+  const tourAnchor = useTourAnchor("home-recent-activity", { radius: 16, scrollIntoView });
   const { data, isLoading, isError, refetch } = useRecentShipments();
   const { data: myTripsData } = useMyTrips();
   const { otherTrips } = splitCarrierHomeTrips(myTripsData?.items ?? []);
@@ -48,7 +57,7 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
   ).length;
 
   return (
-    <View testID={testID}>
+    <View testID={testID} ref={tourAnchor.ref} onLayout={tourAnchor.onLayout}>
       {/* ── Encabezado ── */}
       <View className="mb-3 flex-row items-center justify-between">
         <Text className="font-sans-medium text-caption uppercase text-fg-3">

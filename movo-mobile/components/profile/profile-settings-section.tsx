@@ -9,12 +9,14 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react-native";
+import { useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import { useBalance } from "../../src/hooks/use-balance";
 import { useMpConnectStatus } from "../../src/hooks/use-mp-connect";
 import { useMyProfile } from "../../src/hooks/use-profile";
 import { useSavedCards } from "../../src/hooks/use-saved-cards";
 import { PaymentsAttentionPill } from "../payments/payments-attention-pill";
+import { TourReplaySheet } from "../tour/tour-replay-sheet";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { hasPendingLegalAcceptance } from "../../src/lib/legal-acceptance";
 import { paymentsAttention } from "../../src/lib/payments-attention";
@@ -34,11 +36,12 @@ interface SettingsItem {
  * pantalla real (MOVO-121), "Cuenta y seguridad" el segundo (MOVO-136), "Legal"
  * el tercero (MOVO-224), "Notificaciones" el cuarto (MOVO-246) y "Pagos y cobros" el
  * quinto (MOVO-112, con un aviso en la fila si hay algo que resolver) — a diferencia del resto,
- * no llevan `opacity-60`.
+ * no llevan `opacity-60`. "Ayuda y soporte" abre el sheet para repasar el tutorial (MOVO-169).
  */
 export function ProfileSettingsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
   const { data: profile } = useMyProfile();
+  const [tourSheetOpen, setTourSheetOpen] = useState(false);
   const legalPending = hasPendingLegalAcceptance(profile);
   // MOVO-112/101/315: aviso en la fila solo si Mercado Pago dejó de funcionar, hay saldo
   // pendiente con Movo o todas las tarjetas vencieron. Sin aviso mientras carga o si falla.
@@ -52,7 +55,7 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
     { label: "Notificaciones", Icon: Bell, onPress: () => router.push("/profile/notifications" as any) },
     { label: "Pagos y cobros", Icon: Wallet, onPress: () => router.push(paymentsRoute as any) },
     { label: "Direcciones guardadas", Icon: MapPin, onPress: () => router.push("/addresses") },
-    { label: "Ayuda y soporte", Icon: HelpCircle },
+    { label: "Ayuda y soporte", Icon: HelpCircle, onPress: () => setTourSheetOpen(true) },
     { label: "Legal", Icon: FileText, onPress: () => router.push("/profile/legal" as any) },
   ];
 
@@ -88,6 +91,7 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
           </Pressable>
         ))}
       </View>
+      <TourReplaySheet visible={tourSheetOpen} onClose={() => setTourSheetOpen(false)} />
     </View>
   );
 }

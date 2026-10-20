@@ -31,6 +31,7 @@ import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
 import { useAuthStore } from '../src/store/auth-store';
+import { useBlockingGatesStore } from '../src/store/blocking-gates-store';
 import { useBootStore } from '../src/store/boot-store';
 import { useCarrierTrackingCoordinator, useIsCarrierTracking } from '../src/hooks/use-carrier-tracking';
 import { CarrierLocationGate } from '../components/location/carrier-location-gate';
@@ -110,6 +111,13 @@ function BlockingGatesMount() {
     (requested || carrierBlocking);
 
   const legalVisible = legal.visible && !permissionsVisible && !carrierVisible;
+
+  // MOVO-169: el tutorial espera a que no haya ninguna de estas pantallas encima.
+  const anyGateVisible = permissionsVisible || carrierVisible || legalVisible;
+  useEffect(() => {
+    useBlockingGatesStore.getState().setGates({ mounted: true, gateVisible: anyGateVisible });
+  }, [anyGateVisible]);
+  useEffect(() => () => useBlockingGatesStore.getState().setGates({ mounted: false, gateVisible: false }), []);
 
   const runPendingAction = useCallback(() => {
     const action = useCarrierLocationGateStore.getState().take();

@@ -12,6 +12,7 @@ import { AvailableShipmentCard } from "../transport/available-shipment-card";
 import { useActiveTripMatchAlert, type TripMatchAlert } from "../../src/hooks/use-active-trip-match-alert";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { useBlockingGatesStore } from "../../src/store/blocking-gates-store";
 
 const CARD_MARGIN = 16;
 
@@ -91,8 +92,15 @@ export function TripMatchAlertBanner() {
   // Oculta (sin descartar) mientras se ve el detalle de un envío — ver punto 2 del
   // comentario de arriba.
   const isViewingShipmentDetail = pathname?.startsWith("/transport/") ?? false;
+  const visible = isMounted && !!displayAlert && !isViewingShipmentDetail;
 
-  if (!isMounted || !displayAlert || isViewingShipmentDetail) return null;
+  // MOVO-169: el tutorial espera a que este aviso (un `Modal`) no esté a la vista.
+  useEffect(() => {
+    useBlockingGatesStore.getState().setTripMatchVisible(visible);
+  }, [visible]);
+  useEffect(() => () => useBlockingGatesStore.getState().setTripMatchVisible(false), []);
+
+  if (!visible || !displayAlert) return null;
 
   const cardWidth = windowWidth - CARD_MARGIN * 2;
   const { shipments } = displayAlert;

@@ -4,10 +4,13 @@ import { router } from "expo-router";
 import { Lock, Package } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { useTourAnchor } from "../../src/hooks/use-tour-anchor";
 
 export interface HomeSendCtaProps {
   kycStatus: KycStatus | undefined;
   testID?: string;
+  /** MOVO-169: lleva la CTA a la vista para el paso "Publicá un envío" del tutorial. */
+  scrollIntoView?: (layoutY: number) => void;
 }
 
 /**
@@ -22,8 +25,9 @@ export interface HomeSendCtaProps {
  * placeholder: el wizard real de MOVO-83 depende del backend de creación de envío
  * (MOVO-80, ya Done) pero se implementa en un ticket aparte.
  */
-export function HomeSendCta({ kycStatus, testID }: HomeSendCtaProps) {
+export function HomeSendCta({ kycStatus, testID, scrollIntoView }: HomeSendCtaProps) {
   const colors = useThemeColors();
+  const tourAnchor = useTourAnchor("home-send-cta", { radius: 20, scrollIntoView });
   const isLocked = kycStatus !== KycStatus.APPROVED;
 
   const handlePress = () => {
@@ -34,6 +38,8 @@ export function HomeSendCta({ kycStatus, testID }: HomeSendCtaProps) {
 
   return (
     <Pressable
+      ref={tourAnchor.ref}
+      onLayout={tourAnchor.onLayout}
       testID={testID}
       onPress={handlePress}
       disabled={isLocked}

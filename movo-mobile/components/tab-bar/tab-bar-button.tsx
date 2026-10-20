@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { type LucideIcon } from "lucide-react-native";
-import { useEffect } from "react";
+import { useEffect, type Ref } from "react";
 import { Pressable, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
   Easing,
@@ -24,6 +24,8 @@ interface TabBarButtonProps {
   onPressOut: () => void;
   onLayout: (event: LayoutChangeEvent) => void;
   testID?: string;
+  /** MOVO-169: el tab Transportar es ancla de un paso del tutorial. */
+  ref?: Ref<View>;
 }
 
 /**
@@ -42,6 +44,7 @@ export function TabBarButton({
   onPressOut,
   onLayout,
   testID,
+  ref,
 }: TabBarButtonProps) {
   const colors = useThemeColors();
   const progress = useSharedValue(isHighlighted ? 1 : 0);
@@ -67,6 +70,7 @@ export function TabBarButton({
 
   return (
     <Pressable
+      ref={ref}
       onPress={handlePress}
       onPressIn={onPressIn}
       onPressOut={onPressOut}

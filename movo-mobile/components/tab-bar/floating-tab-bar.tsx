@@ -16,6 +16,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { useTourAnchor } from "../../src/hooks/use-tour-anchor";
 import { expandTabBar, useTabBarStore } from "../../src/store/tab-bar-store";
 import { TAB_BAR_ITEMS } from "./tab-config";
 import { TabBarButton } from "./tab-bar-button";
@@ -67,6 +68,8 @@ export function FloatingTabBar({ state, navigation, insets }: BottomTabBarProps)
   const colors = useThemeColors();
   const [layouts, setLayouts] = useState<Record<number, LayoutRectangle>>({});
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  // MOVO-169: paso "¿Ya hacés un recorrido seguido?" del Tour 1, sobre el tab Transportar.
+  const transportTourAnchor = useTourAnchor("tab-transport", { radius: 22, padding: 4 });
 
   const indicatorX = useSharedValue(0);
   const indicatorW = useSharedValue(0);
@@ -262,6 +265,7 @@ export function FloatingTabBar({ state, navigation, insets }: BottomTabBarProps)
           return (
             <TabBarButton
               key={route.key}
+              ref={config.name === "transport" ? transportTourAnchor.ref : undefined}
               testID={`tab-bar-button-${config.name}`}
               label={config.label}
               Icon={config.Icon}
