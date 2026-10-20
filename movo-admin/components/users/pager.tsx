@@ -65,8 +65,18 @@ export function Pager({
         : "border-border-strong bg-card text-foreground hover:bg-muted",
       off && !on && "pointer-events-none text-fg-disabled"
     )
-    if (href && !off)
-      return (
+    // En modo links (lo renderiza el servidor) no puede haber handlers: lo deshabilitado es un span.
+    if (href)
+      return off && !on ? (
+        <span
+          key={label}
+          aria-label={label}
+          aria-disabled="true"
+          className={cls}
+        >
+          {content}
+        </span>
+      ) : (
         <Link
           key={label}
           href={href(n)}
