@@ -1,4 +1,4 @@
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { WifiOff } from "lucide-react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { SkeletonBlock } from "../ui/skeleton-block";
@@ -68,14 +68,15 @@ export function HomeSectionError({
       <View className="items-center gap-2 rounded-[10px] border border-border py-5">
         <WifiOff size={20} strokeWidth={1.8} color={colors.fg3} />
         <Text className="text-center font-sans text-small text-fg-2">{message}</Text>
-        <Text
+        <Pressable
           onPress={onRetry}
           accessibilityRole="button"
+          hitSlop={8}
           testID={testID ? `${testID}-retry` : undefined}
-          className="font-sans-medium text-small text-fg"
+          className="min-h-[44px] items-center justify-center px-4"
         >
-          Reintentar
-        </Text>
+          <Text className="font-sans-medium text-small text-fg">Reintentar</Text>
+        </Pressable>
       </View>
     </View>
   );

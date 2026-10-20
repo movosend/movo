@@ -1,5 +1,5 @@
 import { WifiOff } from "lucide-react-native";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { SkeletonBlock as Block } from "../ui/skeleton-block";
 
@@ -61,14 +61,15 @@ export function ProfileSectionError({
       <WifiOff size={24} strokeWidth={1.8} color={colors.fg3} />
       <Text className="text-center font-sans-semibold text-h3 text-fg">No pudimos cargar tu perfil</Text>
       <Text className="text-center font-sans text-small text-fg-2">{message}</Text>
-      <Text
+      <Pressable
         testID="profile-error-retry"
         accessibilityRole="button"
         onPress={onRetry}
-        className="mt-1 font-sans-medium text-small text-fg"
+        hitSlop={8}
+        className="mt-1 min-h-[44px] items-center justify-center px-4"
       >
-        Reintentar
-      </Text>
+        <Text className="font-sans-medium text-small text-fg">Reintentar</Text>
+      </Pressable>
     </View>
   );
 }

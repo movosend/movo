@@ -326,14 +326,15 @@ function ReputationError({ testID, onRetry }: { testID?: string; onRetry?: () =>
         <WifiOff size={20} strokeWidth={1.8} color={colors.fg3} />
         <Text className="text-center font-sans text-small text-fg-2">No pudimos cargar tu reputación.</Text>
         {onRetry ? (
-          <Text
+          <Pressable
             testID={testID ? `${testID}-retry` : undefined}
             accessibilityRole="button"
             onPress={onRetry}
-            className="font-sans-medium text-small text-fg"
+            hitSlop={8}
+            className="min-h-[44px] items-center justify-center px-4"
           >
-            Reintentar
-          </Text>
+            <Text className="font-sans-medium text-small text-fg">Reintentar</Text>
+          </Pressable>
         ) : null}
       </View>
     </View>
