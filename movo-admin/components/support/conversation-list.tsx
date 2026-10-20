@@ -352,7 +352,7 @@ export function ConversationList({ meId }: { meId: string }) {
   return (
     <section
       aria-label="Consultas"
-      className="flex min-h-0 min-w-0 flex-col border-r bg-card"
+      className="flex min-h-0 min-w-0 flex-1 flex-col border-r bg-card"
     >
       <div className="flex flex-col gap-3 border-b px-4 pt-2 pb-3">
         <div
