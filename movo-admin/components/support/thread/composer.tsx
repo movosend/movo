@@ -9,7 +9,15 @@ import {
   type DragEvent,
   type KeyboardEvent,
 } from "react"
-import { ImagePlus, Lock, MessageSquare, SendHorizontal, TriangleAlert, X, Zap } from "lucide-react"
+import {
+  ImagePlus,
+  Lock,
+  MessageSquare,
+  SendHorizontal,
+  TriangleAlert,
+  X,
+  Zap,
+} from "lucide-react"
 import {
   SUPPORT_ATTACHMENT_MAX_BYTES,
   SUPPORT_ATTACHMENT_MAX_PER_MESSAGE,
@@ -102,15 +110,21 @@ export function Composer({
           contentType: file.type,
           sizeBytes: blob.size,
         })
-        if (!created.ok) return patch(key, { state: "failed", error: created.error })
+        if (!created.ok)
+          return patch(key, { state: "failed", error: created.error })
         const response = await fetch(created.data.uploadUrl, {
           method: "PUT",
           headers: { "Content-Type": file.type },
           body: blob,
-          credentials: created.data.uploadUrl.startsWith("/") ? "same-origin" : "omit",
+          credentials: created.data.uploadUrl.startsWith("/")
+            ? "same-origin"
+            : "omit",
         })
         if (!response.ok)
-          return patch(key, { state: "failed", error: "No pudimos subir la imagen." })
+          return patch(key, {
+            state: "failed",
+            error: "No pudimos subir la imagen.",
+          })
         patch(key, { state: "ready", attachmentId: created.data.attachmentId })
       } catch {
         patch(key, { state: "failed", error: "No pudimos subir la imagen." })
@@ -131,7 +145,9 @@ export function Composer({
         continue
       }
       if (room <= 0) {
-        setNotice(`Podés adjuntar hasta ${SUPPORT_ATTACHMENT_MAX_PER_MESSAGE} imágenes por mensaje.`)
+        setNotice(
+          `Podés adjuntar hasta ${SUPPORT_ATTACHMENT_MAX_PER_MESSAGE} imágenes por mensaje.`
+        )
         break
       }
       room--
@@ -174,7 +190,9 @@ export function Composer({
     }
   }
   const onPaste = (e: ClipboardEvent) => {
-    const images = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"))
+    const images = [...e.clipboardData.files].filter((f) =>
+      f.type.startsWith("image/")
+    )
     if (!images.length) return
     e.preventDefault()
     addFiles(images)
@@ -223,7 +241,11 @@ export function Composer({
         )}
       >
         <div className="flex items-center gap-0.5 px-2 pt-1.5">
-          <div role="tablist" aria-label="Tipo de mensaje" className="flex gap-0.5">
+          <div
+            role="tablist"
+            aria-label="Tipo de mensaje"
+            className="flex gap-0.5"
+          >
             {modes.map(({ value, label, Icon }) => {
               const on = mode === value
               return (
@@ -254,7 +276,9 @@ export function Composer({
             type="button"
             title="Adjuntar imágenes"
             aria-label="Adjuntar imágenes"
-            disabled={!!blocked || files.length >= SUPPORT_ATTACHMENT_MAX_PER_MESSAGE}
+            disabled={
+              !!blocked || files.length >= SUPPORT_ATTACHMENT_MAX_PER_MESSAGE
+            }
             onClick={() => input.current?.click()}
             className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-fg2 outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
@@ -280,13 +304,19 @@ export function Composer({
               className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium whitespace-nowrap text-fg2 outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             >
               <Zap aria-hidden className="size-[13px]" />
-              <span className="hidden min-[1100px]:inline">Respuestas rápidas</span>
-              <span className="sr-only min-[1100px]:hidden">Respuestas rápidas</span>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top" className="w-[min(520px,90vw)]">
-              <MenuHeading>
+              <span className="hidden min-[1100px]:inline">
                 Respuestas rápidas
-              </MenuHeading>
+              </span>
+              <span className="sr-only min-[1100px]:hidden">
+                Respuestas rápidas
+              </span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              side="top"
+              className="w-[min(520px,90vw)]"
+            >
+              <MenuHeading>Respuestas rápidas</MenuHeading>
               {SUPPORT_QUICK_REPLIES.map((reply) => {
                 const resolvedText = resolveQuickReply(reply.text, {
                   nombre: firstName(userName),
@@ -302,7 +332,9 @@ export function Composer({
                     }}
                     className="flex-col items-start gap-0.5"
                   >
-                    <span className="text-[13px] font-medium">{reply.title}</span>
+                    <span className="text-[13px] font-medium">
+                      {reply.title}
+                    </span>
                     <span className="w-full truncate text-xs text-muted-foreground">
                       {resolvedText}
                     </span>
@@ -313,14 +345,21 @@ export function Composer({
           </DropdownMenu>
         </div>
         {files.length > 0 && (
-          <ul className="flex flex-wrap gap-2 px-3.5 pt-2" aria-label="Imágenes adjuntas">
+          <ul
+            className="flex flex-wrap gap-2 px-3.5 pt-2"
+            aria-label="Imágenes adjuntas"
+          >
             {files.map((f) => (
               <li
                 key={f.key}
                 className="relative size-16 overflow-hidden rounded-lg border bg-muted"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={f.preview} alt={f.name} className="size-full object-cover" />
+                <img
+                  src={f.preview}
+                  alt={f.name}
+                  className="size-full object-cover"
+                />
                 {f.state !== "ready" && (
                   <span
                     className={cn(

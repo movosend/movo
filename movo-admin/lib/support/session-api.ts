@@ -29,15 +29,22 @@ export async function adminForApi(
     (site && site !== "same-origin") ||
     (origin && origin !== new URL(allowed).origin)
   )
-    return NextResponse.json({ error: "forbidden" }, { status: 403, headers: noStore })
+    return NextResponse.json(
+      { error: "forbidden" },
+      { status: 403, headers: noStore }
+    )
   try {
     let access = (await cookies()).get(ACCESS_COOKIE)?.value
     try {
-      if (!access) throw new ApiError(401, "AUTH_TOKEN_INVALID", "Sesión vencida.")
+      if (!access)
+        throw new ApiError(401, "AUTH_TOKEN_INVALID", "Sesión vencida.")
       const admin = await validateAdmin(access)
       return { admin, actor: { adminId: admin.id, adminName: admin.fullName } }
     } catch (error) {
-      if (!(error instanceof ApiError) || ![401, 403].includes(error.statusCode))
+      if (
+        !(error instanceof ApiError) ||
+        ![401, 403].includes(error.statusCode)
+      )
         throw error
       access = await renew()
       const admin = await validateAdmin(access)
@@ -46,8 +53,14 @@ export async function adminForApi(
   } catch (error) {
     if (error instanceof ApiError && [401, 403].includes(error.statusCode)) {
       await clearSession()
-      return NextResponse.json({ error: "session" }, { status: 401, headers: noStore })
+      return NextResponse.json(
+        { error: "session" },
+        { status: 401, headers: noStore }
+      )
     }
-    return NextResponse.json({ error: "unavailable" }, { status: 503, headers: noStore })
+    return NextResponse.json(
+      { error: "unavailable" },
+      { status: 503, headers: noStore }
+    )
   }
 }

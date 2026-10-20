@@ -14,15 +14,10 @@ import type {
  * - `stopped`: sin sesión o sin suscriptores.
  */
 export type FeedStatus =
-  | "connecting"
-  | "live"
-  | "reconnecting"
-  | "polling"
-  | "stopped"
+  "connecting" | "live" | "reconnecting" | "polling" | "stopped"
 
 export type FeedMessage =
-  | { type: "event"; event: SupportEvent }
-  | { type: "resync" }
+  { type: "event"; event: SupportEvent } | { type: "resync" }
 
 /** Lo mínimo de un `WebSocket` que usa el feed (así se prueba y se reemplaza por el simulado). */
 export interface SocketLike {
@@ -112,7 +107,11 @@ export class SupportFeed {
     this.retry = null
     this.poll = null
     if (this.socket) {
-      this.socket.onopen = this.socket.onmessage = this.socket.onclose = this.socket.onerror = null
+      this.socket.onopen =
+        this.socket.onmessage =
+        this.socket.onclose =
+        this.socket.onerror =
+          null
       this.socket.close()
       this.socket = null
     }
@@ -176,16 +175,23 @@ export class SupportFeed {
       BACKOFF_BASE_MS * 2 ** (this.failures - 1)
     )
     const epoch = this.epoch
-    this.retry = setTimeout(() => {
-      if (epoch === this.epoch && this.running) void this.connect()
-    }, delay * (0.5 + random() * 0.5))
+    this.retry = setTimeout(
+      () => {
+        if (epoch === this.epoch && this.running) void this.connect()
+      },
+      delay * (0.5 + random() * 0.5)
+    )
   }
 
   private teardownSocketOnly() {
     if (this.retry) clearTimeout(this.retry)
     this.retry = null
     if (this.socket) {
-      this.socket.onopen = this.socket.onmessage = this.socket.onclose = this.socket.onerror = null
+      this.socket.onopen =
+        this.socket.onmessage =
+        this.socket.onclose =
+        this.socket.onerror =
+          null
       this.socket.close()
       this.socket = null
     }

@@ -106,7 +106,10 @@ export function SupportProvider({ children }: { children: ReactNode }) {
   const toast = useCallback((title: string, body: string, href: string) => {
     const key = ++nextKey.current
     setToasts((all) => [...all.slice(-2), { key, title, body, href }])
-    setTimeout(() => setToasts((all) => all.filter((t) => t.key !== key)), TOAST_MS)
+    setTimeout(
+      () => setToasts((all) => all.filter((t) => t.key !== key)),
+      TOAST_MS
+    )
   }, [])
 
   const loadUnread = useCallback(() => {
@@ -193,7 +196,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
               setToasts((all) => all.filter((x) => x.key !== t.key))
               router.push(t.href)
             }}
-            className="pointer-events-auto flex items-start gap-3 rounded-[10px] border bg-card/90 px-3.5 py-3 text-left shadow-(--shadow-4) backdrop-blur-md animate-in fade-in slide-in-from-bottom-2"
+            className="pointer-events-auto flex animate-in items-start gap-3 rounded-[10px] border bg-card/90 px-3.5 py-3 text-left shadow-(--shadow-4) backdrop-blur-md fade-in slide-in-from-bottom-2"
           >
             <span className="mt-1.5 size-2 shrink-0 rounded-full bg-lime shadow-(--lime-glow)" />
             <span className="flex min-w-0 flex-col gap-0.5">

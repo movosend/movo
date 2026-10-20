@@ -129,7 +129,11 @@ export const SEED: FixtureConversation[] = [
       [{ topic: "shipment", status: "resolved", daysAgo: 59 }]
     ),
     msgs: [
-      { k: "u", ago: 52, b: "Hola, me llegó la lámpara partida al medio. ¿Qué hago?" },
+      {
+        k: "u",
+        ago: 52,
+        b: "Hola, me llegó la lámpara partida al medio. ¿Qué hago?",
+      },
       { k: "sys", ago: 51, b: "Tomás Ferreyra tomó la conversación", by: "tf" },
       {
         k: "a",
@@ -181,10 +185,17 @@ export const SEED: FixtureConversation[] = [
       ]
     ),
     msgs: [
-      { k: "u", ago: 10, b: "Hice 3 entregas ayer y no me aparece la plata en Mercado Pago." },
+      {
+        k: "u",
+        ago: 10,
+        b: "Hice 3 entregas ayer y no me aparece la plata en Mercado Pago.",
+      },
       { k: "u", ago: 9, b: "La última fue la MOVO-48162." },
     ],
-    replies: ["Ah, buenísimo. Entonces espero a mañana.", "Gracias por la rapidez."],
+    replies: [
+      "Ah, buenísimo. Entonces espero a mañana.",
+      "Gracias por la rapidez.",
+    ],
   },
   {
     num: 1039,
@@ -251,7 +262,10 @@ export const SEED: FixtureConversation[] = [
         b: "Mismo envío que SOP-1042. Coordinar con Tomás antes de responder.",
       },
     ],
-    replies: ["Ok, no le respondo más por fuera.", "Gracias, me quedo más tranquilo."],
+    replies: [
+      "Ok, no le respondo más por fuera.",
+      "Gracias, me quedo más tranquilo.",
+    ],
   },
   {
     num: 1036,
@@ -271,7 +285,14 @@ export const SEED: FixtureConversation[] = [
       "+54 351 590 3317",
       [null, 0, 0, 0],
       ["identity"],
-      [S("MOVO-48224", "Esperando receptor", "warning", "Nueva Córdoba → General Paz")],
+      [
+        S(
+          "MOVO-48224",
+          "Esperando receptor",
+          "warning",
+          "Nueva Córdoba → General Paz"
+        ),
+      ],
       []
     ),
     msgs: [
@@ -307,7 +328,14 @@ export const SEED: FixtureConversation[] = [
       "+54 351 433 9065",
       [5, 8, 8, 0],
       ["identity", "kyc_approved"],
-      [S("MOVO-48224", "Esperando receptor", "warning", "Nueva Córdoba → General Paz")],
+      [
+        S(
+          "MOVO-48224",
+          "Esperando receptor",
+          "warning",
+          "Nueva Córdoba → General Paz"
+        ),
+      ],
       []
     ),
     msgs: [
@@ -373,7 +401,11 @@ export const SEED: FixtureConversation[] = [
       []
     ),
     msgs: [
-      { k: "u", ago: 1170, b: "El receptor no me abre y no contesta el teléfono." },
+      {
+        k: "u",
+        ago: 1170,
+        b: "El receptor no me abre y no contesta el teléfono.",
+      },
       {
         k: "a",
         ago: 1167,
@@ -381,7 +413,12 @@ export const SEED: FixtureConversation[] = [
         b: "Le escribimos desde soporte. Esperá 10 minutos y si no aparece, coordinamos la devolución.",
       },
       { k: "u", ago: 1159, b: "Ya bajó, listo. Gracias." },
-      { k: "sys", ago: 1158, b: "Tomás Ferreyra resolvió la conversación", by: "tf" },
+      {
+        k: "sys",
+        ago: 1158,
+        b: "Tomás Ferreyra resolvió la conversación",
+        by: "tf",
+      },
     ],
     replies: [],
   },
@@ -414,7 +451,12 @@ export const SEED: FixtureConversation[] = [
         by: "lb",
         b: "Desde Perfil → Datos personales. Te va a llegar un código al número nuevo.",
       },
-      { k: "sys", ago: 1290, b: "Lucía Bustos resolvió la conversación", by: "lb" },
+      {
+        k: "sys",
+        ago: 1290,
+        b: "Lucía Bustos resolvió la conversación",
+        by: "lb",
+      },
     ],
     replies: [],
   },
@@ -477,7 +519,13 @@ export const OWN: FixtureConversation = {
     [],
     []
   ),
-  msgs: [{ k: "u", ago: 4, b: "Probando cómo se ve una consulta mía en la bandeja." }],
+  msgs: [
+    {
+      k: "u",
+      ago: 4,
+      b: "Probando cómo se ve una consulta mía en la bandeja.",
+    },
+  ],
   replies: [],
 }
 

@@ -26,7 +26,9 @@ class MockSocket implements SocketLike {
   private misses = 0
 
   constructor(
-    private readonly fetchEvents: (since: string | undefined) => Promise<SupportEventsPage | null>
+    private readonly fetchEvents: (
+      since: string | undefined
+    ) => Promise<SupportEventsPage | null>
   ) {
     queueMicrotask(() => {
       if (this.closed) return
@@ -79,7 +81,11 @@ class NativeSocket implements SocketLike {
   }
 
   close() {
-    this.ws.onopen = this.ws.onmessage = this.ws.onclose = this.ws.onerror = null
+    this.ws.onopen =
+      this.ws.onmessage =
+      this.ws.onclose =
+      this.ws.onerror =
+        null
     this.ws.close()
   }
 }

@@ -68,14 +68,15 @@ export const PRIORITY_DOT: Record<SupportPriority, string> = {
 }
 
 /** Colores del estado (píldora del encabezado). */
-export const STATUS_TONE: Record<
-  SupportStatus,
-  { pill: string; dot: string }
-> = {
-  open: { pill: "bg-info-soft text-info-fg", dot: "bg-dot-info" },
-  awaiting_user: { pill: "bg-muted text-fg2", dot: "bg-muted-foreground" },
-  resolved: { pill: "bg-success-soft text-success-fg", dot: "bg-dot-success" },
-}
+export const STATUS_TONE: Record<SupportStatus, { pill: string; dot: string }> =
+  {
+    open: { pill: "bg-info-soft text-info-fg", dot: "bg-dot-info" },
+    awaiting_user: { pill: "bg-muted text-fg2", dot: "bg-muted-foreground" },
+    resolved: {
+      pill: "bg-success-soft text-success-fg",
+      dot: "bg-dot-success",
+    },
+  }
 
 export const SHIPMENT_TONE = {
   success: "bg-success-soft text-success-fg",

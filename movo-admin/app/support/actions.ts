@@ -41,7 +41,9 @@ import {
  * lecturas van por `app/api/support/[resource]` (Route Handler), no por acá.
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const invalid = (error = "Revisá los datos e intentá de nuevo."): SupportFailure => ({
+const invalid = (
+  error = "Revisá los datos e intentá de nuevo."
+): SupportFailure => ({
   ok: false,
   error,
   status: 400,
@@ -113,7 +115,8 @@ export async function patchSupportConversation(
   if (isDenied(actor)) return actor
   const body: SupportPatchBody = {}
   if (input?.assignedTo !== undefined) {
-    if (input.assignedTo !== null && !UUID.test(input.assignedTo)) return invalid()
+    if (input.assignedTo !== null && !UUID.test(input.assignedTo))
+      return invalid()
     body.assignedTo = input.assignedTo
   }
   if (input?.priority !== undefined) {
@@ -133,7 +136,8 @@ export async function patchSupportConversation(
     body.tags = input.tags
   }
   if (input?.shipmentId !== undefined) {
-    if (input.shipmentId !== null && !UUID.test(input.shipmentId)) return invalid()
+    if (input.shipmentId !== null && !UUID.test(input.shipmentId))
+      return invalid()
     body.shipmentId = input.shipmentId
   }
   if (Object.keys(body).length === 0) return invalid()
@@ -147,7 +151,9 @@ export async function setSupportStatus(
   const actor = await admin(conversationId)
   if (isDenied(actor)) return actor
   if (action !== "resolve" && action !== "reopen") return invalid()
-  return run(() => setConversationStatus(conversationId, action, actorOf(actor)))
+  return run(() =>
+    setConversationStatus(conversationId, action, actorOf(actor))
+  )
 }
 
 /** Lectura (abrir la conversación): no entra en bitácora, pero necesita sesión y origen. */
@@ -175,9 +181,7 @@ export async function createSupportAttachment(
     input.sizeBytes <= 0 ||
     input.sizeBytes > SUPPORT_ATTACHMENT_MAX_BYTES
   )
-    return invalid(
-      "Solo se admiten imágenes JPG, PNG o WebP de hasta 5 MB."
-    )
+    return invalid("Solo se admiten imágenes JPG, PNG o WebP de hasta 5 MB.")
   return run(() =>
     createAttachment(
       { contentType: type, sizeBytes: input.sizeBytes, conversationId },

@@ -101,7 +101,9 @@ function Delivery({
   if (!message.pending) return null
   const id = message.clientMessageId ?? message.id
   if (message.pending.state === "sending")
-    return <span className="px-1 text-[11px] text-muted-foreground">Enviando…</span>
+    return (
+      <span className="px-1 text-[11px] text-muted-foreground">Enviando…</span>
+    )
   return (
     <span
       role="alert"
@@ -117,7 +119,11 @@ function Delivery({
         <RotateCw aria-hidden className="size-3" />
         Reintentar
       </button>
-      <button type="button" onClick={() => onDiscard(id)} className="font-medium underline">
+      <button
+        type="button"
+        onClick={() => onDiscard(id)}
+        className="font-medium underline"
+      >
         Descartar
       </button>
     </span>
@@ -221,14 +227,19 @@ export function MessageList({
           : firstName(m.author.fullName)
     if (m.kind === "user") {
       rendered.push(
-        <div key={m.id} className={cn("flex max-w-[min(78%,560px)] items-end gap-2", mt)}>
+        <div
+          key={m.id}
+          className={cn("flex max-w-[min(78%,560px)] items-end gap-2", mt)}
+        >
           <UserAvatar name={userName} size={28} />
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-col gap-1.5 rounded-[18px_18px_18px_6px] border bg-card px-3.5 py-2.5 text-sm leading-[1.45] text-pretty">
               {m.body && <span className="whitespace-pre-wrap">{m.body}</span>}
               <Images attachments={m.attachments} onOpen={setLightbox} />
             </div>
-            <span className="px-1 text-[11px] text-muted-foreground">{time}</span>
+            <span className="px-1 text-[11px] text-muted-foreground">
+              {time}
+            </span>
           </div>
         </div>
       )
@@ -287,7 +298,8 @@ export function MessageList({
         aria-live="polite"
         onScroll={(e) => {
           const el = e.currentTarget
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+          stick.current =
+            el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
         }}
         className="min-h-0 flex-1 overflow-auto px-6 pt-5 pb-3"
       >
@@ -308,7 +320,11 @@ export function MessageList({
                   onLoadOlder()
                 }}
               >
-                {loadingOlder ? "Cargando…" : olderError ? "Reintentar" : "Ver anteriores"}
+                {loadingOlder
+                  ? "Cargando…"
+                  : olderError
+                    ? "Reintentar"
+                    : "Ver anteriores"}
               </Button>
             </div>
           )}

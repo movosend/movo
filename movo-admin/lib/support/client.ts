@@ -35,8 +35,13 @@ async function get<T>(
     signal,
   })
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null
-    throw new SupportFetchError(response.status, body?.error ?? "INTERNAL_ERROR")
+    const body = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new SupportFetchError(
+      response.status,
+      body?.error ?? "INTERNAL_ERROR"
+    )
   }
   return response.json() as Promise<T>
 }

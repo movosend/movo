@@ -55,13 +55,30 @@ const BADGES: Record<
   SupportVerificationBadge,
   { label: string; tone: string; Icon: LucideIcon }
 > = {
-  identity: { label: "Identidad verificada", tone: "bg-success-soft text-success-fg", Icon: BadgeCheck },
-  kyc_approved: { label: "KYC aprobado", tone: "bg-success-soft text-success-fg", Icon: ShieldCheck },
-  kyc_pending: { label: "KYC pendiente", tone: "bg-warn-soft text-warn-fg", Icon: Clock },
-  license_valid: { label: "Licencia vigente", tone: "bg-info-soft text-info-fg", Icon: IdCard },
+  identity: {
+    label: "Identidad verificada",
+    tone: "bg-success-soft text-success-fg",
+    Icon: BadgeCheck,
+  },
+  kyc_approved: {
+    label: "KYC aprobado",
+    tone: "bg-success-soft text-success-fg",
+    Icon: ShieldCheck,
+  },
+  kyc_pending: {
+    label: "KYC pendiente",
+    tone: "bg-warn-soft text-warn-fg",
+    Icon: Clock,
+  },
+  license_valid: {
+    label: "Licencia vigente",
+    tone: "bg-info-soft text-info-fg",
+    Icon: IdCard,
+  },
 }
 
-const heading = "text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase"
+const heading =
+  "text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase"
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [done, setDone] = useState(false)
@@ -78,7 +95,11 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       }}
       className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
     >
-      {done ? <Check aria-hidden className="size-3.5" /> : <Copy aria-hidden className="size-3.5" />}
+      {done ? (
+        <Check aria-hidden className="size-3.5" />
+      ) : (
+        <Copy aria-hidden className="size-3.5" />
+      )}
     </button>
   )
 }
@@ -93,7 +114,10 @@ function Tags({
   onChange: (tags: SupportTag[]) => void
 }) {
   return (
-    <section className="flex flex-col gap-2.5 border-b px-5 py-4" aria-label="Etiquetas">
+    <section
+      className="flex flex-col gap-2.5 border-b px-5 py-4"
+      aria-label="Etiquetas"
+    >
       <h2 className={heading}>Etiquetas</h2>
       <div className="flex flex-wrap items-center gap-1.5">
         {tags.map((tag) => (
@@ -122,17 +146,21 @@ function Tags({
             Agregar
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
-            <MenuHeading>
-              Etiquetas
-            </MenuHeading>
+            <MenuHeading>Etiquetas</MenuHeading>
             {SUPPORT_TAGS.map((tag) => {
               const on = tags.includes(tag)
               return (
                 <DropdownMenuItem
                   key={tag}
-                  onClick={() => onChange(on ? tags.filter((t) => t !== tag) : [...tags, tag])}
+                  onClick={() =>
+                    onChange(
+                      on ? tags.filter((t) => t !== tag) : [...tags, tag]
+                    )
+                  }
                 >
-                  <span className="w-4">{on && <Check aria-hidden className="size-4" />}</span>
+                  <span className="w-4">
+                    {on && <Check aria-hidden className="size-4" />}
+                  </span>
                   {tag}
                 </DropdownMenuItem>
               )
@@ -156,7 +184,8 @@ function LinkedShipment({
   onPatch: (body: SupportPatchBody) => void
 }) {
   const linked = conversation.shipment
-  const info = linked && context?.recentShipments.find((s) => s.id === linked.id)
+  const info =
+    linked && context?.recentShipments.find((s) => s.id === linked.id)
   const href = linked ? shipmentHref(linked.id) : null
   const menu = (
     <DropdownMenuContent align="end" className="w-[min(300px,85vw)]">
@@ -168,17 +197,24 @@ function LinkedShipment({
           Los envíos del usuario no están disponibles ahora.
         </div>
       ) : context.recentShipments.length === 0 ? (
-        <div className="px-2.5 py-2 text-xs text-muted-foreground">No tiene envíos todavía.</div>
+        <div className="px-2.5 py-2 text-xs text-muted-foreground">
+          No tiene envíos todavía.
+        </div>
       ) : (
         context.recentShipments.map((s) => (
           <DropdownMenuItem
             key={s.id}
             onClick={() => linked?.id !== s.id && onPatch({ shipmentId: s.id })}
-            className={cn("flex-col items-start gap-0.5", linked?.id === s.id && "bg-muted")}
+            className={cn(
+              "flex-col items-start gap-0.5",
+              linked?.id === s.id && "bg-muted"
+            )}
           >
             <span className="flex w-full justify-between gap-2">
               <span className="font-mono text-xs font-semibold">#{s.code}</span>
-              <span className="text-[11px] text-muted-foreground">{s.statusLabel}</span>
+              <span className="text-[11px] text-muted-foreground">
+                {s.statusLabel}
+              </span>
             </span>
             <span className="text-xs text-fg2">{s.route}</span>
           </DropdownMenuItem>
@@ -195,7 +231,10 @@ function LinkedShipment({
     </DropdownMenuContent>
   )
   return (
-    <section className="flex flex-col gap-2.5 border-b px-5 py-4" aria-label="Envío vinculado">
+    <section
+      className="flex flex-col gap-2.5 border-b px-5 py-4"
+      aria-label="Envío vinculado"
+    >
       <div className="flex items-center justify-between">
         <h2 className={heading}>Envío vinculado</h2>
         {linked && (
@@ -213,7 +252,9 @@ function LinkedShipment({
       {linked ? (
         <div className="flex flex-col gap-1.5 rounded-lg border bg-surface-sub p-3">
           <span className="flex items-center justify-between gap-2">
-            <span className="font-mono text-[13px] font-semibold">#{linked.code}</span>
+            <span className="font-mono text-[13px] font-semibold">
+              #{linked.code}
+            </span>
             {info && (
               <span
                 className={cn(
@@ -227,7 +268,10 @@ function LinkedShipment({
           </span>
           {info && <span className="text-[13px] text-fg2">{info.route}</span>}
           {href ? (
-            <a href={href} className="flex items-center gap-1 text-xs font-medium">
+            <a
+              href={href}
+              className="flex items-center gap-1 text-xs font-medium"
+            >
               Abrir en Envíos <ArrowRight aria-hidden className="size-[13px]" />
             </a>
           ) : (
@@ -297,7 +341,10 @@ export function ContextPanel({
   const profile = data?.profile
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-      <section className="flex flex-col items-start gap-3 border-b p-5" aria-label="Perfil">
+      <section
+        className="flex flex-col items-start gap-3 border-b p-5"
+        aria-label="Perfil"
+      >
         <div className="flex w-full items-start justify-between">
           <UserAvatar name={conversation.user.fullName} size={52} />
           {onClose && (
@@ -312,10 +359,13 @@ export function ContextPanel({
           )}
         </div>
         <div className="flex flex-col gap-0.5">
-          <span className="text-base font-semibold">{conversation.user.fullName}</span>
+          <span className="text-base font-semibold">
+            {conversation.user.fullName}
+          </span>
           <span className="text-[13px] text-muted-foreground">
             {ROLE_LABEL[conversation.user.role]}
-            {profile && ` · en Movo desde ${formatMonthYear(profile.memberSince)}`}
+            {profile &&
+              ` · en Movo desde ${formatMonthYear(profile.memberSince)}`}
           </span>
         </div>
         {context.status === "loading" && <Loading />}
@@ -341,7 +391,9 @@ export function ContextPanel({
                   Verificaciones no disponibles por ahora.
                 </span>
               ) : data.badges.length === 0 ? (
-                <span className="text-xs text-muted-foreground">Sin verificaciones.</span>
+                <span className="text-xs text-muted-foreground">
+                  Sin verificaciones.
+                </span>
               ) : (
                 data.badges.map((b) => {
                   const { label, tone, Icon } = BADGES[b]
@@ -371,7 +423,11 @@ export function ContextPanel({
               <Mail aria-hidden className="size-3.5 text-muted-foreground" />
               <dt className="sr-only">Email</dt>
               <dd className="truncate">{profile.email || "—"}</dd>
-              {profile.email ? <CopyButton value={profile.email} label="email" /> : <span />}
+              {profile.email ? (
+                <CopyButton value={profile.email} label="email" />
+              ) : (
+                <span />
+              )}
               <Phone aria-hidden className="size-3.5 text-muted-foreground" />
               <dt className="sr-only">Teléfono</dt>
               <dd className="font-mono text-xs">{profile.phone}</dd>
@@ -395,17 +451,24 @@ export function ContextPanel({
 
       {data && (
         <>
-          <section className="flex flex-col gap-2 border-b px-5 py-4" aria-label="Envíos recientes">
+          <section
+            className="flex flex-col gap-2 border-b px-5 py-4"
+            aria-label="Envíos recientes"
+          >
             <h2 className={heading}>Envíos recientes</h2>
             {data.recentShipments.length === 0 ? (
-              <span className="text-[13px] text-muted-foreground">Todavía no tiene envíos.</span>
+              <span className="text-[13px] text-muted-foreground">
+                Todavía no tiene envíos.
+              </span>
             ) : (
               data.recentShipments.map((s) => {
                 const href = shipmentHref(s.id)
                 const row = (
                   <>
                     <span className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs font-semibold">#{s.code}</span>
+                      <span className="font-mono text-xs font-semibold">
+                        #{s.code}
+                      </span>
                       <span
                         className={cn(
                           "inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium",
@@ -419,31 +482,48 @@ export function ContextPanel({
                   </>
                 )
                 return href ? (
-                  <a key={s.id} href={href} className="flex flex-col gap-0.5 rounded-lg border p-2.5 hover:border-border-strong">
+                  <a
+                    key={s.id}
+                    href={href}
+                    className="flex flex-col gap-0.5 rounded-lg border p-2.5 hover:border-border-strong"
+                  >
                     {row}
                   </a>
                 ) : (
-                  <div key={s.id} className="flex flex-col gap-0.5 rounded-lg border p-2.5">
+                  <div
+                    key={s.id}
+                    className="flex flex-col gap-0.5 rounded-lg border p-2.5"
+                  >
                     {row}
                   </div>
                 )
               })
             )}
           </section>
-          <section className="flex flex-col gap-1.5 px-5 pt-4 pb-6" aria-label="Conversaciones anteriores">
+          <section
+            className="flex flex-col gap-1.5 px-5 pt-4 pb-6"
+            aria-label="Conversaciones anteriores"
+          >
             <h2 className={cn(heading, "mb-1")}>Conversaciones anteriores</h2>
             {data.otherConversations.length === 0 ? (
-              <span className="text-[13px] text-muted-foreground">Es su primera consulta.</span>
+              <span className="text-[13px] text-muted-foreground">
+                Es su primera consulta.
+              </span>
             ) : (
               data.otherConversations.map((h) => (
                 <div
                   key={h.conversationId}
                   className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-0.5 border-b py-2"
                 >
-                  <span className="text-[13px] font-medium">{TOPIC_LABEL[h.topic]}</span>
-                  <span className="text-xs text-muted-foreground">{formatShortDate(h.createdAt)}</span>
+                  <span className="text-[13px] font-medium">
+                    {TOPIC_LABEL[h.topic]}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatShortDate(h.createdAt)}
+                  </span>
                   <span className="truncate text-xs text-muted-foreground">
-                    <span className="font-mono">{h.code}</span> · {STATUS_LABEL[h.status]}
+                    <span className="font-mono">{h.code}</span> ·{" "}
+                    {STATUS_LABEL[h.status]}
                   </span>
                 </div>
               ))

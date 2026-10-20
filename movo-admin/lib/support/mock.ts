@@ -175,8 +175,7 @@ function build(store: Store, fx: FixtureConversation, now: number): Rec {
       ? { ...fx, user: { ...fx.user, name: store.meName, email: "" } }
       : fx,
     createdAt: ago(fx.msgs[0]?.ago ?? 0, now),
-    resolvedAt:
-      fx.status === "resolved" ? lastAt : null,
+    resolvedAt: fx.status === "resolved" ? lastAt : null,
     waitAt,
     lastActivityAt: lastAt,
     messages,
@@ -267,7 +266,8 @@ function getStore(actor: MockActor): Store {
   if (!store.seeded) {
     store.seeded = true
     const now = Date.now()
-    for (const fx of [...SEED, OWN]) store.recs.set(convId(fx.num), build(store, fx, now))
+    for (const fx of [...SEED, OWN])
+      store.recs.set(convId(fx.num), build(store, fx, now))
     if (simulate()) store.timers.push(setTimeout(() => incoming(store), 16_000))
   }
   return store
@@ -313,15 +313,23 @@ function lastVisible(rec: Rec) {
 
 function toRow(store: Store, rec: Rec): SupportConversationRow {
   const assignee =
-    rec.assigneeId === null ? null : (agents(store).find((a) => a.id === rec.assigneeId) ?? null)
+    rec.assigneeId === null
+      ? null
+      : (agents(store).find((a) => a.id === rec.assigneeId) ?? null)
   return {
     id: rec.id,
     code: `SOP-${rec.num}`,
-    user: { id: rec.userId, fullName: rec.fx.user.name, role: rec.fx.user.role },
+    user: {
+      id: rec.userId,
+      fullName: rec.fx.user.name,
+      role: rec.fx.user.role,
+    },
     topic: rec.topic,
     priority: rec.priority,
     status: rec.status,
-    assignee: assignee ? { id: assignee.id, fullName: assignee.fullName } : null,
+    assignee: assignee
+      ? { id: assignee.id, fullName: assignee.fullName }
+      : null,
     unread: rec.unread,
     lastMessage: lastVisible(rec),
     waitMinutes: waitMinutes(rec),
@@ -368,7 +376,10 @@ type DistributiveOmit<T, K extends keyof never> = T extends unknown
   : never
 
 function emitCounts(store: Store) {
-  emit(store, { type: "counts_updated", counts: computeCounts(store, { status: "open" }) })
+  emit(store, {
+    type: "counts_updated",
+    counts: computeCounts(store, { status: "open" }),
+  })
 }
 
 function pushMessage(store: Store, rec: Rec, message: SupportMessage) {
@@ -382,7 +393,12 @@ function pushMessage(store: Store, rec: Rec, message: SupportMessage) {
   })
 }
 
-function sys(store: Store, rec: Rec, body: string, actor: SupportAgentRef | null) {
+function sys(
+  store: Store,
+  rec: Rec,
+  body: string,
+  actor: SupportAgentRef | null
+) {
   pushMessage(store, rec, {
     kind: "system",
     id: randomUUID(),
@@ -401,7 +417,11 @@ function touched(store: Store, rec: Rec) {
 function incoming(store: Store) {
   const now = Date.now()
   const num = store.nextNum++
-  const fx: FixtureConversation = { ...NEWCOMER, num, msgs: [{ ...NEWCOMER.msgs[0] }] }
+  const fx: FixtureConversation = {
+    ...NEWCOMER,
+    num,
+    msgs: [{ ...NEWCOMER.msgs[0] }],
+  }
   const rec = build(store, fx, now)
   rec.waitAt = now
   store.recs.set(rec.id, rec)
@@ -715,7 +735,12 @@ export async function mockPatch(
   }
   if (body.priority && body.priority !== rec.priority) {
     rec.priority = body.priority
-    sys(store, rec, `Prioridad: ${PRIORITY_LABEL[body.priority].toLowerCase()}`, me)
+    sys(
+      store,
+      rec,
+      `Prioridad: ${PRIORITY_LABEL[body.priority].toLowerCase()}`,
+      me
+    )
   }
   if (body.topic && body.topic !== rec.topic) {
     rec.topic = body.topic
@@ -727,7 +752,9 @@ export async function mockPatch(
       if (rec.shipmentCode) sys(store, rec, "Envío desvinculado", me)
       rec.shipmentCode = null
     } else {
-      const ship = rec.fx.user.ships.find((s) => shipmentId(s.code) === body.shipmentId)
+      const ship = rec.fx.user.ships.find(
+        (s) => shipmentId(s.code) === body.shipmentId
+      )
       if (!ship)
         throw new ApiError(
           422,
@@ -779,7 +806,10 @@ export async function mockSetStatus(
 }
 
 /** Marcar como leída es una lectura: no pasa por el conflicto de interés ni la bitácora. */
-export async function mockMarkRead(id: string, actor: MockActor): Promise<void> {
+export async function mockMarkRead(
+  id: string,
+  actor: MockActor
+): Promise<void> {
   const store = getStore(actor)
   const rec = need(store, id)
   if (rec.unread === 0) return
@@ -797,7 +827,9 @@ export async function mockCreateAttachment(
   const store = getStore(actor)
   const rec = need(store, body.conversationId)
   guardWrite(store, rec)
-  if (!(SUPPORT_ATTACHMENT_TYPES as readonly string[]).includes(body.contentType))
+  if (
+    !(SUPPORT_ATTACHMENT_TYPES as readonly string[]).includes(body.contentType)
+  )
     throw invalidAttachment("Solo se admiten imágenes JPG, PNG o WebP.")
   if (
     !Number.isInteger(body.sizeBytes) ||
@@ -864,7 +896,9 @@ export async function mockEvents(
   const cursor = String(store.seq)
   if (!since) return { events: [], cursor, reset: false }
   const from = Number(since)
-  const oldest = store.events[0] ? Number(store.events[0].cursor) : store.seq + 1
+  const oldest = store.events[0]
+    ? Number(store.events[0].cursor)
+    : store.seq + 1
   if (!Number.isFinite(from) || from < oldest - 1)
     return { events: [], cursor, reset: from < store.seq }
   return {

@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { SupportEvent, SupportEventsPage, SupportRealtimeTicket } from "@movo/shared/src/types/admin-support"
+import type {
+  SupportEvent,
+  SupportEventsPage,
+  SupportRealtimeTicket,
+} from "@movo/shared/src/types/admin-support"
 import {
   POLL_MS,
   SupportFeed,
@@ -19,16 +23,31 @@ class FakeSocket implements SocketLike {
   }
 }
 
-const ticket: SupportRealtimeTicket = { ticket: "t", url: "wss://x", expiresAt: "" }
+const ticket: SupportRealtimeTicket = {
+  ticket: "t",
+  url: "wss://x",
+  expiresAt: "",
+}
 const event = (cursor: string): SupportEvent => ({
   type: "counts_updated",
   cursor,
-  counts: { byStatus: { open: 1, awaiting_user: 0, resolved: 0 }, byOwner: { all: 1, mine: 0, none: 1 }, unreadTotal: 1 },
+  counts: {
+    byStatus: { open: 1, awaiting_user: 0, resolved: 0 },
+    byOwner: { all: 1, mine: 0, none: 1 },
+    unreadTotal: 1,
+  },
 })
 
-function setup(over: { ticket?: () => Promise<SupportRealtimeTicket | null>; events?: (since: string | undefined) => Promise<SupportEventsPage | null> } = {}) {
+function setup(
+  over: {
+    ticket?: () => Promise<SupportRealtimeTicket | null>
+    events?: (since: string | undefined) => Promise<SupportEventsPage | null>
+  } = {}
+) {
   const sockets: FakeSocket[] = []
-  const fetchEvents = vi.fn(over.events ?? (async () => ({ events: [], cursor: "0", reset: false })))
+  const fetchEvents = vi.fn(
+    over.events ?? (async () => ({ events: [], cursor: "0", reset: false }))
+  )
   const feed = new SupportFeed({
     requestTicket: over.ticket ?? (async () => ticket),
     openSocket: () => {
@@ -75,14 +94,17 @@ describe("SupportFeed", () => {
   })
 
   it("cae a polling tras fallos seguidos y sigue leyendo desde el cursor", async () => {
-    const events = vi.fn(async (since: string | undefined): Promise<SupportEventsPage | null> => ({
-      events: since ? [] : [event("7")],
-      cursor: "7",
-      reset: false,
-    }))
+    const events = vi.fn(
+      async (since: string | undefined): Promise<SupportEventsPage | null> => ({
+        events: since ? [] : [event("7")],
+        cursor: "7",
+        reset: false,
+      })
+    )
     const { feed, messages } = setup({ ticket: async () => null, events })
     feed.start()
-    for (let i = 0; i < WS_FAILURES_BEFORE_POLLING; i++) await vi.advanceTimersByTimeAsync(40_000)
+    for (let i = 0; i < WS_FAILURES_BEFORE_POLLING; i++)
+      await vi.advanceTimersByTimeAsync(40_000)
     expect(feed.status).toBe("polling")
     expect(messages.some((m) => m.type === "event")).toBe(true)
     await vi.advanceTimersByTimeAsync(POLL_MS)
@@ -93,7 +115,8 @@ describe("SupportFeed", () => {
     const events = async () => ({ events: [], cursor: "9", reset: true })
     const { feed, messages } = setup({ ticket: async () => null, events })
     feed.start()
-    for (let i = 0; i < WS_FAILURES_BEFORE_POLLING; i++) await vi.advanceTimersByTimeAsync(40_000)
+    for (let i = 0; i < WS_FAILURES_BEFORE_POLLING; i++)
+      await vi.advanceTimersByTimeAsync(40_000)
     expect(messages).toContainEqual({ type: "resync" })
   })
 
