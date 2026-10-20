@@ -1268,6 +1268,10 @@ Pendiente / fuera de alcance: alta y baja del rol (MOVO-290), UI del login (MOVO
 
 `src/modules/admins/admin-roles.service.ts` concentra las reglas para endpoints internos (`GET`/`POST /internal/admins`, `DELETE /internal/admins/:userId`) y el script `src/scripts/admin-role.ts`. Otorgar exige email verificado y cuenta `active` (idempotente, best-effort email notice). Revocar y baja de cuenta (`deleteAccount`) respetan la invariante compartida de nunca cero admins elegibles (`FOR UPDATE OF ur, u ORDER BY ur.user_id` -> 409 `ADMIN_LAST_ADMIN`) y cortan sesiones de panel en Redis. El CLI valida solo su configuración y `grant` no depende de Redis. Baneo pendiente en MOVO-296: deberá usar el mismo invariante. Procedimiento para el primer admin: ver `docs/admin/primer-admin.md`.
 
+La búsqueda `GET /internal/admins/candidates` autocompleta por nombre o email para el alta desde el panel. Excluye cuentas eliminadas y usuarios que ya tienen el rol admin; devuelve `isAdmin: false` para los candidatos. Requiere al menos dos caracteres y tiene cobertura de integración en `test/admins.integration.test.ts`.
+
+El login del panel acepta email o teléfono argentino normalizado. `POST /auth/forgot-password` acepta `panelOnly` para devolver una respuesta señuelo sin enviar OTP cuando la cuenta no puede entrar al panel; así el flujo de recuperación del panel no dispara correos a usuarios comunes.
+
 ### MOVO-288 — `GET /internal/user-reports/:id/parties`
 
 Interno (en `internalModerationRoutes`, `hide: true`, sin ruta en el gateway): devuelve
@@ -1283,3 +1287,13 @@ rotación y comparte su respuesta cifrada por 10 segundos con la misma clave/tok
 Revalida elegibilidad, expiración y revocación; logout invalida la publicación y su hijo.
 Otras claves, solicitudes sin clave y fuera de ventana conservan detección de reuso;
 una rotación incompleta falla cerrado. Política y límites: `docs/auth/adr-043-refresh-idempotente-panel.md`.
+
+### MOVO-169 — Persistencia de los tours del tutorial in-app (backend)
+
+Tabla `users.user_tour` (PK `(user_id, tour_id)`, `version`, `outcome` enum `completed|skipped`, `recorded_at`),
+`PUT /users/me/tours/:tourId` (`src/modules/tours/`, repo `user-tour-repository.ts`) y `tours` en el perfil privado
+(`composePrivateProfile`, así que viaja en `GET /users/me` y en los demás endpoints que devuelven el perfil).
+`tour_id` es texto validado contra `TOUR_IDS` de `@movo/shared`, no enum: sumar un tour no pide migración.
+**La versión nunca baja**: un PUT con versión menor a la registrada no pisa y devuelve la vigente, para que una
+instalación vieja no haga reaparecer un tour en la nueva. Relanzar un tour a mano no escribe acá (lo resuelve el
+cliente). La parte mobile (coach marks, disparo de los tours, sheet de "Ayuda y soporte") va en una PR aparte.

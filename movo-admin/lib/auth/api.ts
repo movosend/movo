@@ -86,6 +86,11 @@ export function publicError(error: unknown): string {
     return "Demasiados intentos. Esperá antes de volver a intentar."
   if (error.statusCode >= 500)
     return "Movo no está disponible en este momento. Volvé a intentar."
+  // El backend responde igual con credenciales malas, cuenta sin rol admin, email sin
+  // verificar o cuenta inactiva (a propósito, para no revelar cuál). El texto las nombra
+  // a todas para que el error no quede ambiguo.
+  if (error.code === "AUTH_INVALID_CREDENTIALS")
+    return "Los datos no son correctos, o esa cuenta no tiene acceso al panel (hace falta el rol admin y el email verificado)."
   if (error.code === "AUTH_OTP_EXPIRED")
     return "El código venció. Solicitá uno nuevo."
   if (error.code === "AUTH_OTP_INVALID")

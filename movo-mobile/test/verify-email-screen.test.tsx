@@ -47,6 +47,7 @@ function baseProfile(): PrivateProfile {
     termsVersion: "2026-01-01",
     privacyAcceptedAt: "2026-01-01T00:00:00.000Z",
     privacyVersion: "2026-01-01",
+    tours: [],
   };
 }
 

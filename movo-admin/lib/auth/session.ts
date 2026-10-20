@@ -10,7 +10,13 @@ import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { ApiError } from "@movo/shared/src/errors/api-error"
 import { gateway } from "./api"
-import { ACCESS_COOKIE, REFRESH_COOKIE, CHALLENGE_COOKIE } from "./policy"
+import {
+  ACCESS_COOKIE,
+  REFRESH_COOKIE,
+  CHALLENGE_COOKIE,
+  RESET_COOKIE,
+  GRANT_COOKIE,
+} from "./policy"
 
 export interface SessionTokens {
   accessToken: string
@@ -21,6 +27,8 @@ export interface SessionTokens {
 export interface AdminProfile {
   id: string
   fullName: string
+  email: string
+  photoUrl?: string | null
   roles: string[]
   accountStatus: string
   emailVerified: boolean
@@ -30,6 +38,15 @@ export interface Challenge {
   email: string
   expiresAt: number
   resendAt: number
+}
+/** Recuperación de contraseña: primero el otpId, después (verificado el código) el token. */
+export interface ResetFlow {
+  otpId: string
+  target: string
+  channel: "sms" | "email"
+  expiresAt: number
+  resendAt: number
+  passwordResetToken?: string
 }
 const cookieOptions = {
   httpOnly: true,
@@ -98,7 +115,12 @@ export async function writeSession(session: SessionTokens): Promise<void> {
 }
 export async function clearSession(): Promise<void> {
   const jar = await cookies()
-  for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, CHALLENGE_COOKIE])
+  for (const name of [
+    ACCESS_COOKIE,
+    REFRESH_COOKIE,
+    CHALLENGE_COOKIE,
+    GRANT_COOKIE,
+  ])
     jar.set(name, "", { ...cookieOptions, maxAge: 0 })
 }
 export async function writeChallenge(challenge: Challenge): Promise<void> {
@@ -168,4 +190,46 @@ export async function requireAdmin(
       redirect("/login?expired=1")
     }
   }
+}
+export async function writeReset(flow: ResetFlow): Promise<void> {
+  ;(await cookies()).set(RESET_COOKIE, seal(flow), {
+    ...cookieOptions,
+    maxAge: Math.max(0, Math.floor((flow.expiresAt - Date.now()) / 1000)),
+  })
+}
+export async function readReset(): Promise<ResetFlow | null> {
+  const value = (await cookies()).get(RESET_COOKIE)?.value
+  const flow = value ? unseal<ResetFlow>(value) : null
+  return flow && flow.expiresAt > Date.now() ? flow : null
+}
+export async function clearReset(): Promise<void> {
+  ;(await cookies()).set(RESET_COOKIE, "", { ...cookieOptions, maxAge: 0 })
+}
+/**
+ * Doble verificación para otorgar el rol admin: el desafío (contraseña ya validada, código
+ * enviado al email del admin) y a quién se le va a dar el rol. El destino sale de acá, nunca del
+ * formulario del segundo paso, y queda atado al admin que lo pidió.
+ */
+export interface GrantFlow {
+  adminId: string
+  challengeId: string
+  targetEmail: string
+  targetName: string
+  maskedEmail: string
+  expiresAt: number
+  resendAt: number
+}
+export async function writeGrant(flow: GrantFlow): Promise<void> {
+  ;(await cookies()).set(GRANT_COOKIE, seal(flow), {
+    ...cookieOptions,
+    maxAge: Math.max(0, Math.floor((flow.expiresAt - Date.now()) / 1000)),
+  })
+}
+export async function readGrant(): Promise<GrantFlow | null> {
+  const value = (await cookies()).get(GRANT_COOKIE)?.value
+  const flow = value ? unseal<GrantFlow>(value) : null
+  return flow && flow.expiresAt > Date.now() ? flow : null
+}
+export async function clearGrant(): Promise<void> {
+  ;(await cookies()).set(GRANT_COOKIE, "", { ...cookieOptions, maxAge: 0 })
 }

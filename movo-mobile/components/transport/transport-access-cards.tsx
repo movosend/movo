@@ -1,6 +1,7 @@
 import { ArrowUpRight, HandCoins, Route } from "lucide-react-native";
 import { Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { useTourAnchor } from "../../src/hooks/use-tour-anchor";
 import { PressableScale } from "../trips/pressable-scale";
 
 interface TransportAccessCardsProps {
@@ -32,9 +33,13 @@ export function TransportAccessCards({
   onPressOffers,
 }: TransportAccessCardsProps) {
   const colors = useThemeColors();
+  // MOVO-169: pasos "Declará tu recorrido" y "Seguí tus ofertas" del Tour 2.
+  const tripsAnchor = useTourAnchor("transport-my-trips", { radius: 10 });
+  const offersAnchor = useTourAnchor("transport-my-offers", { radius: 10 });
   return (
     <View className="flex-row gap-2.5 px-5 pb-5">
       <PressableScale
+        ref={tripsAnchor.ref}
         testID="transport-my-trips-cta"
         onPress={onPressTrips}
         accessibilityRole="button"
@@ -54,6 +59,7 @@ export function TransportAccessCards({
       </PressableScale>
 
       <PressableScale
+        ref={offersAnchor.ref}
         testID="transport-my-offers-cta"
         onPress={onPressOffers}
         accessibilityRole="button"

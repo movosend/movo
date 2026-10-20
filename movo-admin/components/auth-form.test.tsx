@@ -24,9 +24,10 @@ afterEach(() => {
 describe("acceso al panel", () => {
   it("tiene campos accesibles y validación nativa", () => {
     render(<AuthForm />)
-    const email = screen.getByLabelText("Email")
-    expect(email).toHaveAttribute("type", "email")
-    expect(email).toBeRequired()
+    const identifier = screen.getByLabelText("Email")
+    expect(identifier).toHaveAttribute("name", "identifier")
+    expect(identifier).toHaveAttribute("type", "email")
+    expect(identifier).toBeRequired()
     expect(screen.getByLabelText("Contraseña")).toHaveAttribute(
       "autocomplete",
       "current-password"
@@ -76,13 +77,36 @@ describe("acceso al panel", () => {
     expect(screen.getByRole("button", { name: "Verificar" })).toBeEnabled()
     expect(input).toHaveAttribute("autocomplete", "one-time-code")
   })
+  it("la pestaña Teléfono cambia el campo, el placeholder y muestra la bandera", () => {
+    render(<AuthForm />)
+    fireEvent.click(screen.getByRole("tab", { name: "Teléfono" }))
+    const phone = screen.getByLabelText("Teléfono")
+    expect(phone).toHaveAttribute("type", "tel")
+    expect(phone).toHaveAttribute("placeholder", "351 123 4567")
+    expect(screen.getByText(/🇦🇷/)).toBeInTheDocument()
+  })
+  it("el botón del ojo alterna la visibilidad de la contraseña", () => {
+    render(<AuthForm />)
+    const password = screen.getByLabelText("Contraseña")
+    expect(password).toHaveAttribute("type", "password")
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar contraseña" }))
+    expect(password).toHaveAttribute("type", "text")
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar contraseña" }))
+    expect(password).toHaveAttribute("type", "password")
+  })
+  it("enlaza a la recuperación de contraseña", () => {
+    render(<AuthForm />)
+    expect(
+      screen.getByRole("link", { name: "¿Olvidaste tu contraseña?" })
+    ).toHaveAttribute("href", "/forgot")
+  })
   it("muestra el cooldown recibido y la acción de cambiar de cuenta", async () => {
     render(
       <AuthForm
         challenge={{ email: "a***@movo.test", resendAt: Date.now() + 60000 }}
       />
     )
-    expect(screen.getByRole("button", { name: /Reenviar en/ })).toBeDisabled()
+    expect(screen.getByText(/Podés pedir otro en/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Usar otra cuenta" }))
     await waitFor(() => expect(actions.changeAccount).toHaveBeenCalled())
   })

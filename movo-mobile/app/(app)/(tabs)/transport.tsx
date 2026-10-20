@@ -1,6 +1,6 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from "expo-router";
 import {
   ArrowRight,
   ChevronDown,
@@ -11,13 +11,12 @@ import {
   ShieldAlert,
   SlidersHorizontal,
 } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { FlatList } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CarrierRequirementGate } from "../../../components/carrier/carrier-requirement-gate";
 import { CarrierRequirementsScreen } from "../../../components/carrier/carrier-requirements-checklist";
-import { useCarrierEligibility } from "../../../src/hooks/use-carrier-eligibility";
 import { AddressSearchSheet } from "../../../components/send/address-search-sheet";
 import { AvailableShipmentCard } from "../../../components/transport/available-shipment-card";
 import { AvailableShipmentRow } from "../../../components/transport/available-shipment-row";
@@ -37,8 +36,9 @@ import type { MyOfferSummary } from "../../../src/api/offers-client";
 import type { AvailableShipment } from "../../../src/api/shipments-client";
 import { useAddresses } from "../../../src/hooks/use-addresses";
 import { useMyOffers } from "../../../src/hooks/use-offers";
-import { useMpConnectStatus } from "../../../src/hooks/use-mp-connect";
-import { useMyProfile } from "../../../src/hooks/use-profile";
+import { useAutoStartTour } from "../../../src/hooks/use-auto-start-tour";
+import { useTourAnchor } from "../../../src/hooks/use-tour-anchor";
+import { useTransportGate } from "../../../src/hooks/use-transport-gate";
 import { useTabBarScrollHandler } from "../../../src/store/tab-bar-store";
 import { TRANSPORT_RADIUS_OPTIONS_KM, useAvailableShipments } from "../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
@@ -46,10 +46,7 @@ import { useTransportOrigin } from "../../../src/hooks/use-transport-origin";
 import { useTransportRadius } from "../../../src/hooks/use-transport-radius";
 import { TripStatus } from "../../../src/api/trips-client";
 import { useMyTrips, useTrip, useTripMatches } from "../../../src/hooks/use-trips";
-import {
-  IDENTITY_GATE_COPY,
-  resolveTransportGate,
-} from "../../../src/lib/carrier-requirements";
+import { IDENTITY_GATE_COPY } from "../../../src/lib/carrier-requirements";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
 import {
   computeOnTripDetour,
@@ -113,41 +110,68 @@ function RadiusAndFiltersRow({
   onOpenFilters: () => void;
 }) {
   const colors = useThemeColors();
+  // MOVO-169: paso "Explorá envíos cerca" del Tour 2 (chips de radio + filtros).
+  const tourAnchor = useTourAnchor("transport-radius-filters", { radius: 17 });
   return (
-    <View className="flex-row items-center gap-2 px-5 pb-4">
-      <View className="flex-1 flex-row gap-2">
-        {TRANSPORT_RADIUS_OPTIONS_KM.map((option) => {
-          const selected = option === radiusKm;
-          return (
-            <Pressable
-              key={option}
-              testID={`transport-radius-${option}`}
-              onPress={() => onChangeRadius(option)}
-              className={`rounded-full px-4 py-2 ${selected ? "bg-fg" : "bg-bg-mute"}`}
+    <View className="px-5 pb-4">
+      <View ref={tourAnchor.ref} className="flex-row items-center gap-2">
+        <View className="flex-1 flex-row gap-2">
+          {TRANSPORT_RADIUS_OPTIONS_KM.map((option) => {
+            const selected = option === radiusKm;
+            return (
+              <Pressable
+                key={option}
+                testID={`transport-radius-${option}`}
+                onPress={() => onChangeRadius(option)}
+                className={`rounded-full px-4 py-2 ${selected ? "bg-fg" : "bg-bg-mute"}`}
+              >
+                <Text className={`font-sans-medium text-small ${selected ? "text-bg" : "text-fg-2"}`}>
+                  {option} km
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Pressable
+          testID="transport-open-filters"
+          onPress={onOpenFilters}
+          className={`h-[34px] w-[34px] items-center justify-center rounded-full ${filterCount > 0 ? "bg-fg" : "bg-bg-mute"
+            }`}
+        >
+          <SlidersHorizontal size={16} strokeWidth={1.8} color={filterCount > 0 ? colors.bg : colors.fg1} />
+          {filterCount > 0 ? (
+            <View
+              testID="transport-filter-count-badge"
+              className="absolute -right-1 -top-1 h-4 min-w-[16px] items-center justify-center rounded-full bg-lime-500 px-1"
             >
-              <Text className={`font-sans-medium text-small ${selected ? "text-bg" : "text-fg-2"}`}>
-                {option} km
-              </Text>
-            </Pressable>
-          );
-        })}
+              <Text className="font-sans-semibold text-[10px] text-ink-950">{filterCount}</Text>
+            </View>
+          ) : null}
+        </Pressable>
       </View>
-      <Pressable
-        testID="transport-open-filters"
-        onPress={onOpenFilters}
-        className={`h-[34px] w-[34px] items-center justify-center rounded-full ${filterCount > 0 ? "bg-fg" : "bg-bg-mute"
-          }`}
-      >
-        <SlidersHorizontal size={16} strokeWidth={1.8} color={filterCount > 0 ? colors.bg : colors.fg1} />
-        {filterCount > 0 ? (
-          <View
-            testID="transport-filter-count-badge"
-            className="absolute -right-1 -top-1 h-4 min-w-[16px] items-center justify-center rounded-full bg-lime-500 px-1"
-          >
-            <Text className="font-sans-semibold text-[10px] text-ink-950">{filterCount}</Text>
-          </View>
-        ) : null}
-      </Pressable>
+    </View>
+  );
+}
+
+/** MOVO-169: la primera fila del feed es ancla del paso "Mirá el desvío y el pago" del Tour 2. */
+function FirstRowTourAnchor({
+  enabled,
+  scrollIntoView,
+  children,
+}: {
+  enabled: boolean;
+  scrollIntoView: () => void;
+  children: ReactNode;
+}) {
+  if (!enabled) return <>{children}</>;
+  return <FirstRowAnchorView scrollIntoView={scrollIntoView}>{children}</FirstRowAnchorView>;
+}
+
+function FirstRowAnchorView({ scrollIntoView, children }: { scrollIntoView: () => void; children: ReactNode }) {
+  const tourAnchor = useTourAnchor("transport-first-row", { radius: 12, scrollIntoView });
+  return (
+    <View ref={tourAnchor.ref} onLayout={tourAnchor.onLayout} collapsable={false}>
+      {children}
     </View>
   );
 }
@@ -258,36 +282,19 @@ export default function TransportScreen() {
   // no se resuelve el origen (evita pedir permiso de GPS a quien igual no va a poder ver el
   // listado) ni se piden envíos. Si no se puede consultar el perfil o MP no se deja pasar:
   // sin ellos no se sabe qué falta, así que se muestra el error con "Reintentar".
+  // MOVO-169: la regla vive en `useTransportGate`, compartida con el tutorial.
   const {
-    data: profile,
-    isLoading: isProfileLoading,
-    isError: isProfileError,
-    error: profileError,
-    dataUpdatedAt: profileUpdatedAt,
-    refetch: refetchProfile,
-  } = useMyProfile();
-  const {
-    data: mpConnect,
-    isLoading: isMpLoading,
-    isError: isMpError,
-    error: mpError,
-    dataUpdatedAt: mpUpdatedAt,
-    refetch: refetchMp,
-  } = useMpConnectStatus();
-  const eligibilityQuery = useCarrierEligibility();
-  const profileGate = resolveTransportGate({
-    kycStatus: profile?.kycStatus ?? null,
-    licenseKycStatus: profile?.licenseKycStatus ?? null,
-    mpStatus: mpConnect?.status ?? null,
-    debtOverdue: eligibilityQuery.data?.missingRequirements.includes("no_overdue_debt") ?? false,
-  });
-  // Sin identidad aprobada la checklist no se muestra, así que MP no hace falta para decidir.
-  const profileUnavailable = !profile && isProfileError;
-  const mpUnavailable = !mpConnect && isMpError && profileGate !== "identity";
-  const eligibilityUnavailable = !eligibilityQuery.data && eligibilityQuery.isError && profileGate !== "identity";
-  const requirementsError = profileUnavailable ? profileError : mpUnavailable ? mpError : eligibilityQuery.error;
-  const isRequirementsLoading = isProfileLoading || (isMpLoading && profileGate !== "identity") || (eligibilityQuery.isLoading && profileGate !== "identity");
-  const canBrowse = !isRequirementsLoading && !(profileUnavailable || mpUnavailable || eligibilityUnavailable) && profileGate === null;
+    profileQuery: { data: profile, dataUpdatedAt: profileUpdatedAt, refetch: refetchProfile },
+    mpQuery: { data: mpConnect, dataUpdatedAt: mpUpdatedAt, refetch: refetchMp },
+    eligibilityQuery,
+    profileGate,
+    profileUnavailable,
+    mpUnavailable,
+    eligibilityUnavailable,
+    requirementsError,
+    isRequirementsLoading,
+    canBrowse,
+  } = useTransportGate();
 
   const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!isTripMode && canBrowse);
   const { radiusKm, setRadiusKm } = useTransportRadius();
@@ -477,6 +484,18 @@ export default function TransportScreen() {
   const showBrowseChrome = canBrowse && gate === null;
   const showRequirementsGate = !isInitialLoading && !requirementsUnavailable && Array.isArray(gate);
   const isGateOverlayVisible = showRequirementsGate && !!profile;
+
+  // MOVO-169: Tour 2 "Cómo transportar" con el tab a la vista y todos los requisitos completos.
+  // Se reevalúa cada vez que cambia `canBrowse` (ej. el gate se refresca al foco), no solo al
+  // montar. Espera a que el feed resuelva: decide si va el paso de la primera fila.
+  const isFocused = useIsFocused();
+  const feedResolved = isReady && !isLoading && !isError && !shouldCascadeNextPage;
+  useAutoStartTour("carrier", {
+    enabled: isFocused && showBrowseChrome && !isTripMode && !isInitialLoading && feedResolved,
+    delayMs: 450,
+    context: { canBrowse, hasFeed: sortedItems.length > 0 },
+  });
+  const listRef = useRef<FlatList<(typeof sortedItems)[number]>>(null);
   const zoneLabel = origin ? origin.city ?? zoneLabelFromAddress(origin.address) : null;
 
   return (
@@ -655,6 +674,7 @@ export default function TransportScreen() {
         )
       ) : isReady ? (
         <FlatList
+          ref={listRef}
           {...tabBarScroll}
           testID="transport-list"
           data={sortedItems}
@@ -679,7 +699,7 @@ export default function TransportScreen() {
               />
             ) : null
           }
-          renderItem={({ item: { item, detour } }) =>
+          renderItem={({ item: { item, detour }, index }) =>
             isTripMode ? (
               <AvailableShipmentCard
                 shipment={item}
@@ -694,15 +714,20 @@ export default function TransportScreen() {
                 }
               />
             ) : (
-              <AvailableShipmentRow
-                shipment={item}
-                testID={`transport-card-${item.id}`}
-                detour={detour ? { detourKm: detour.detourKm } : null}
-                // Gateado por `item.hasMyOffer` (calculado por el backend, no por
-                // este cache local) -- evita mostrar una oferta ya retirada/
-                // rechazada/vencida que igual siga en el historial de `useMyOffers`.
-                myOffer={item.hasMyOffer ? offersByShipmentId.get(item.id) ?? null : null}
-              />
+              <FirstRowTourAnchor
+                enabled={index === 0}
+                scrollIntoView={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+              >
+                <AvailableShipmentRow
+                  shipment={item}
+                  testID={`transport-card-${item.id}`}
+                  detour={detour ? { detourKm: detour.detourKm } : null}
+                  // Gateado por `item.hasMyOffer` (calculado por el backend, no por
+                  // este cache local) -- evita mostrar una oferta ya retirada/
+                  // rechazada/vencida que igual siga en el historial de `useMyOffers`.
+                  myOffer={item.hasMyOffer ? offersByShipmentId.get(item.id) ?? null : null}
+                />
+              </FirstRowTourAnchor>
             )
           }
           onEndReachedThreshold={0.4}

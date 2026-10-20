@@ -177,8 +177,43 @@ describe("Sesión de panel (MOVO-287)", () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(Object.keys(body).sort()).toEqual(["challengeId", "cooldownSeconds"]);
+      expect(Object.keys(body).sort()).toEqual(["challengeId", "cooldownSeconds", "maskedEmail"]);
       expect(emailCaptor.sentCodes.get(user.email)).toMatch(/^\d{6}$/);
+    });
+
+    it("acepta el teléfono (formato de la app) en vez del email y el código sale al email", async () => {
+      const user = await createUser();
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/admin/login",
+        headers: { "x-client-ip": "10.0.0.1" },
+        payload: { phone: user.phone.replace("+549", ""), password: PASSWORD },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(emailCaptor.sentCodes.get(user.email)).toMatch(/^\d{6}$/);
+    });
+
+    it("un teléfono desconocido responde el mismo 401 que una contraseña mala", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/admin/login",
+        headers: { "x-client-ip": "10.0.0.1" },
+        payload: { phone: "3519999999", password: PASSWORD },
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("rechaza el body sin email ni teléfono", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/admin/login",
+        payload: { password: PASSWORD },
+      });
+
+      expect(response.statusCode).toBe(400);
     });
 
     it("el paso 2 emite un access token de 15 min con admin y una sesión de 8 h", async () => {

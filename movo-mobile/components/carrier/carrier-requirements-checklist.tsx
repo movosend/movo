@@ -7,6 +7,7 @@ import { useCallback, useRef } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { useTourAnchor } from "../../src/hooks/use-tour-anchor";
 import {
   licenseRowCopy,
   mpRowCopy,
@@ -218,6 +219,8 @@ export function CarrierRequirementsScreen({
   ...checklist
 }: CarrierRequirementsScreenProps) {
   const insets = useSafeAreaInsets();
+  // MOVO-169: último paso del Tour 1 ("Esto te falta para transportar").
+  const tourAnchor = useTourAnchor("carrier-requirements-card", { radius: 24 });
   return (
     <View testID={`${testID}-overlay`} style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <View pointerEvents="none" style={StyleSheet.absoluteFill} className="bg-black/40" />
@@ -229,7 +232,7 @@ export function CarrierRequirementsScreen({
         contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FFFFFF" />}
       >
-        <View className="gap-[14px] rounded-[24px] bg-bg px-5 pb-4 pt-5">
+        <View ref={tourAnchor.ref} className="gap-[14px] rounded-[24px] bg-bg px-5 pb-4 pt-5">
           <View className="-mt-2 items-center">
             <View className="h-[5px] w-9 rounded-full bg-ink-200" />
           </View>

@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
-import { AdminSummary, ApiError } from "@movo/shared";
+import { AdminCandidate, AdminSummary, ApiError } from "@movo/shared";
 import { requireAdmin } from "../../utils/require-admin";
 import { adminsSchemas, REVOKE_REASON_MIN_LENGTH } from "./admins.schema";
 
@@ -34,6 +34,24 @@ export default async function adminsRoutes(app: FastifyInstance, _opts: FastifyP
     async (request: FastifyRequest): Promise<AdminSummary[]> => {
       requireAdmin(request);
       return app.usersClient.listAdmins({ requestId: request.requestId });
+    },
+  );
+
+  app.get(
+    "/admins/candidates",
+    {
+      schema: {
+        tags: ["admin"],
+        summary: "Buscar usuarios por nombre o email para otorgar el rol admin",
+        querystring: adminsSchemas.candidatesQuery,
+        response: { 200: adminsSchemas.candidatesResponse, ...errors },
+      },
+    },
+    async (request: FastifyRequest): Promise<AdminCandidate[]> => {
+      requireAdmin(request);
+      const { q } = request.query as { q: string };
+      if (q.trim().length < 2) return [];
+      return app.usersClient.searchAdminCandidates(q.trim(), { requestId: request.requestId });
     },
   );
 

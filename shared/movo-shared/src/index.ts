@@ -43,6 +43,7 @@ export type {
   UserReportEntry,
   UserReportPhoto,
   UserReportSummary,
+  AdminCandidate,
   AdminSummary,
 } from "./types/user";
 export { ShipmentStatus } from "./types/shipment";
@@ -248,6 +249,8 @@ export type {
   NotificationCategoryDefinition,
   NotificationCategoryId,
 } from "./config/notification-categories";
+export { TOUR_IDS, TOUR_OUTCOMES, isTourId } from "./config/tours";
+export type { TourId, TourOutcome, UserTourRecord } from "./config/tours";
 export {
   NOTIFICATION_TRIGGERS,
   notificationTriggerCopy,
@@ -330,3 +333,59 @@ export type {
   ChatReportParties,
   UserReportParties,
 } from "./types/admin";
+
+// admin: búsqueda de usuarios y ficha (MOVO-295, backend MOVO-294)
+export {
+  ADMIN_USER_MODERATION_LIMIT,
+  ADMIN_NOTE_MAX_LENGTH,
+  ADMIN_ACTION_REASON_MAX_LENGTH,
+} from "./types/admin-users";
+export type {
+  AdminKycStatus,
+  AdminAccountStatus,
+  AdminUserRoleName,
+  AdminReportReason,
+  AdminReportStatus,
+  AdminShipmentStatus,
+  AdminTripStatus,
+  AdminUserRef,
+  AdminUserMatch,
+  AdminUserListItem,
+  AdminUserPage,
+  AdminUserProfile,
+  AdminKycAttempt,
+  AdminKycCard,
+  AdminUserMercadoPago,
+  AdminUserKyc,
+  AdminUserVehicle,
+  AdminShipmentRole,
+  AdminUserShipment,
+  AdminUserShipmentPage,
+  AdminUserTrip,
+  AdminUserTripPage,
+  AdminUserRating,
+  AdminUserRatings,
+  AdminUserReport,
+  AdminUserBlock,
+  AdminUserModeration,
+  AdminUserSanction,
+  AdminUserSanctions,
+  AdminLedgerType,
+  AdminLedgerStatus,
+  AdminUserLedgerEntry,
+  AdminUserLedger,
+  AdminUserDevice,
+  AdminUserDevices,
+  AdminUserAuditEntry,
+  AdminUserAuditPage,
+  AdminSessionsRevokeBody,
+  AdminSessionsRevokeResult,
+  AdminContactField,
+  AdminContactUpdateBody,
+  AdminContactUpdateResult,
+  AdminLedgerAdjustmentBody,
+  AdminLedgerAdjustmentResult,
+  AdminUserNote,
+  AdminUserNotePage,
+  AdminUserNoteBody,
+} from "./types/admin-users";

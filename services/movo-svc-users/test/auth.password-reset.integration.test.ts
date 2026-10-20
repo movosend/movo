@@ -198,6 +198,36 @@ describe("Recuperación de contraseña por OTP (MOVO-140)", () => {
       expect(smsCaptor.sentCodes.has(`+549${fakePhone}`)).toBe(false);
     });
 
+    it("panelOnly: una cuenta que no es admin recibe el señuelo y no se le manda nada", async () => {
+      const payload = buildRegisterPayload();
+      await registerFixtureUser(payload);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/forgot-password",
+        payload: { identifier: payload.phone, panelOnly: true },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(smsCaptor.sentCodes.size).toBe(0);
+    });
+
+    it("panelOnly: un admin activo con email verificado sí recibe el código", async () => {
+      const payload = buildRegisterPayload();
+      const { userId } = await registerFixtureUser(payload);
+      await app.db.userRoleGrant.create({ data: { userId, role: "admin" } });
+      await app.db.user.update({ where: { id: userId }, data: { emailVerified: true } });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/forgot-password",
+        payload: { identifier: payload.phone, panelOnly: true },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(smsCaptor.sentCodes.size).toBe(1);
+    });
+
     it("AC2: un email inexistente es tratado como señuelo, mismo shape que uno real", async () => {
       const fake = await forgotPassword("no-existe-nadie-con-este-email@example.com");
       expect(fake.response.statusCode).toBe(200);

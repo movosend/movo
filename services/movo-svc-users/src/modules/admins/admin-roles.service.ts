@@ -1,4 +1,4 @@
-import { AccountStatus, AdminSummary, ApiError, UserRole } from "@movo/shared";
+import { AccountStatus, AdminCandidate, AdminSummary, ApiError, UserRole } from "@movo/shared";
 import {
   AccountStatus as PrismaAccountStatus,
   Prisma,
@@ -45,6 +45,7 @@ function toAdminSummary(row: AdminGrantRow): AdminSummary {
     fullName: fullName(row.user),
     email: row.user.email,
     status: parseAccountStatus(row.user.status),
+    photoUrl: row.user.photoUrl,
     grantedAt: row.grantedAt.toISOString(),
   };
 }
@@ -115,6 +116,49 @@ export function createAdminRolesService(deps: AdminRolesServiceDeps) {
       orderBy: { grantedAt: "asc" },
     });
     return rows.map(toAdminSummary);
+  }
+
+  /**
+   * Autocompletado del alta de admins: nombre o email, sin cuentas dadas de baja. A diferencia de
+   * `GET /users/search` (público, solo por nombre) acá se ve el email porque el panel otorga el rol
+   * por email; solo lo alcanza `svc-admin`, que exige rol admin.
+   */
+  async function searchCandidates(query: string, limit = 8): Promise<AdminCandidate[]> {
+    const term = query.trim();
+    if (term.length < 2) return [];
+    const words = term.split(/\s+/).filter(Boolean);
+    const or: Prisma.UserWhereInput[] = [
+      { email: { contains: term, mode: "insensitive" } },
+      { firstName: { contains: term, mode: "insensitive" } },
+      { lastName: { contains: term, mode: "insensitive" } },
+    ];
+    const [first, ...rest] = words;
+    if (first && rest.length > 0) {
+      const tail = rest.join(" ");
+      or.push({ AND: [{ firstName: { contains: first, mode: "insensitive" } }, { lastName: { contains: tail, mode: "insensitive" } }] });
+      or.push({ AND: [{ lastName: { contains: first, mode: "insensitive" } }, { firstName: { contains: tail, mode: "insensitive" } }] });
+    }
+    const rows = await db.user.findMany({
+      where: {
+        AND: [
+          { status: { not: PrismaAccountStatus.deleted } },
+          { roles: { none: { role: PrismaUserRole.admin } } },
+          { OR: or },
+        ],
+      },
+      include: { roles: true },
+      orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+      take: limit,
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      fullName: fullName(row),
+      email: row.email,
+      status: parseAccountStatus(row.status),
+      photoUrl: row.photoUrl,
+      emailVerified: row.emailVerified,
+      isAdmin: row.roles.some((grant) => grant.role === PrismaUserRole.admin),
+    }));
   }
 
   /**
@@ -241,7 +285,7 @@ export function createAdminRolesService(deps: AdminRolesServiceDeps) {
     }
   }
 
-  return { listAdmins, grantAdmin, revokeAdmin };
+  return { listAdmins, searchCandidates, grantAdmin, revokeAdmin };
 }
 
 export type AdminRolesService = ReturnType<typeof createAdminRolesService>;

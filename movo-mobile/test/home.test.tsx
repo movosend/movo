@@ -20,6 +20,11 @@ const mockSearchParams = jest.fn(() => ({}) as Record<string, string>);
 jest.mock("expo-router", () => ({
   router: { push: jest.fn() },
   useLocalSearchParams: () => mockSearchParams(),
+  useIsFocused: () => true,
+}));
+// MOVO-169: Inicio decide el último paso del tutorial según si ya puede transportar.
+jest.mock("../src/hooks/use-transport-gate", () => ({
+  useTransportGate: () => ({ canBrowse: false, isRequirementsLoading: false }),
 }));
 
 const mockUseMyProfile = jest.fn();

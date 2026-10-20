@@ -13,6 +13,15 @@ La aceptación contra dev queda pendiente de desplegar las dependencias backend 
 configurar las variables de entorno; el deploy de `admin.movosend.app` lo hace GitHub
 mediante la integración existente de Vercel. No se provisiona otro proyecto.
 
+**Carga y sidebar.** Toda pantalla nueva lleva un `loading.tsx` que renderiza
+`AdminShell` sin `fullName` (modo carga, mismo marco que la real) con composites de
+`components/skeletons.tsx` (`PageHeaderSkeleton`, `ListSkeleton`, `CardGridSkeleton`,
+envueltos en `PageSkeleton`); la primitiva `Skeleton`/`SkeletonGroup` está en
+`components/ui/skeleton.tsx` (shimmer `.mv-skeleton`, respeta `prefers-reduced-motion`).
+El sidebar colapsa a íconos (`collapsible="icon"`, Ctrl/⌘+B); su estado vive en la cookie
+`sidebar_state` y cada página lo lee con `sidebarDefaultOpen()` (`lib/sidebar.ts`) para
+no parpadear al cargar.
+
 ## Estructura y seguridad
 
 - `app/login`, `app/verify`: páginas y Server Actions. Solo se serializan estados de
@@ -88,3 +97,106 @@ lista con nombre, email y desde cuándo, alta por email y revocación con motivo
 a un texto propio (no reenvía el texto del servidor). `requireAdmin(mutable, returnTo)` y
 `internalReturnPath` aceptan `/admins` además de `/`; `AdminShell` recibe `current`.
 Si `requireAdmin` falla por infraestructura caída, las acciones devuelven el error al formulario en vez de subir al error boundary.
+
+## Rediseño del acceso + login por teléfono
+
+El login (`components/auth-form.tsx`, estilos `.auth-*` en `globals.css`) sigue el prototipo
+de Claude Design: paleta neutra y grilla, con los tokens de shadcn remapeados **solo dentro de
+`.auth-canvas`** (el resto del panel conserva la paleta actual hasta que se rediseñe). Pestañas
+Email / Teléfono (con 🇦🇷 +54 fijo) sobre un campo `identifier`; la pestaña viaja como `method` y
+`parseIdentifier` en `app/login/actions.ts` valida según ella. El backend (`/auth/admin/login`) acepta `email` o `phone` y el OTP
+sale siempre al email de la cuenta; ahora devuelve `maskedEmail`, que es lo que muestra `/verify`.
+
+## Recuperar contraseña
+
+`/forgot` → `/forgot/code` → `/forgot/new` (`app/forgot/actions.ts`, `components/forgot-form.tsx`)
+reusa los endpoints públicos de la app (`/auth/forgot-password`, `/verify-reset-otp`,
+`/reset-password`; el código sale por SMS o email según la pestaña). El `otpId` y luego el
+`passwordResetToken` viven en la cookie sellada `__Host-movo-reset`, nunca en el cliente. Al
+terminar se vuelve a `/login?reset=1`; el backend cierra todas las sesiones (app y panel).
+Es el reset de la cuenta de Movo, no algo propio del panel: funciona para cualquier usuario.
+
+## Estética del prototipo y alta de admins con doble verificación
+
+Todo el panel usa la paleta neutra del prototipo de Claude Design (`Movo Admin.dc.html`): tokens en
+`app/globals.css`, claro `#F8F8FA`/`#FFFFFF` y oscuro `#0A0A0B`/`#111113`, sin tintes verdes (el dark
+anterior no existía en el sistema de Movo). El lima solo acentúa (barra del ítem activo, "Vos", puntos
+de estado). Shell con breadcrumb y menú de cuenta (tema, cerrar sesión), Inicio con tarjeta halftone y
+secciones "Próximamente", Admins en tabla con diálogos (`components/ui/dialog.tsx`).
+
+Alta de admin en 3 pasos (`AddFlow` en `components/admins-manager.tsx`): autocompletado por nombre o email
+(`searchCandidates` → `GET /admin/admins/candidates`, que sí devuelve el email, a diferencia de
+`/users/search`), contraseña del admin que otorga y código por email. Los pasos 2 y 3 reusan
+`/auth/admin/login` + `/auth/admin/verify` con el email del propio admin; la sesión que emite esa
+verificación se cierra enseguida (es solo prueba de identidad). El destino del rol viaja en la cookie
+sellada `__Host-movo-grant`, atada al id del admin, nunca en el formulario del paso 3. Limitación
+aceptada: la exigencia vive en el BFF; quien llame al gateway con un access token robado no pasa por
+ella (los tokens no llegan al navegador). Endurecerlo en `svc-admin` queda fuera de alcance.
+Pendiente: confirmar contra dev (sin acceso desde esta sesión) y revisar visualmente claro/oscuro.
+
+## MOVO-295 — Usuarios: buscador y ficha
+
+`/users` (buscador único por nombre, email, teléfono o DNI, 10 por página, `q`/`page` en la URL) y
+`/users/[id]` (ficha), fieles al prototipo de Claude Design (`Movo Admin Usuarios.dc.html`). Contratos en
+`shared/movo-shared/src/types/admin-users.ts` (se importan por `@movo/shared/src/types/...`); los define este
+ticket y los implementa MOVO-294, que los tiene anexados en su descripción.
+
+- **Carga por sección**: la página solo bloquea con `GET /admin/users/:id` (cabecera, banner); cada sección es un
+  Server Component dentro de su `<Suspense>` que llama a su propia ruta (`lib/users/load.ts`, que no lanza: devuelve
+  `{ ok: false, status }`), así salen en paralelo y un servicio caído solo rompe la suya (`SectionError`, "Reintentar"
+  = `router.refresh()`). Reportes y Bloqueos comparten `/moderation` (`loadModeration`, cacheado por render).
+  No se usaron Server Actions para cargar: Next las ejecuta en serie. Sí para cambiar de pestaña/página en
+  Actividad y Calificaciones (`app/users/[id]/actions.ts`), que piden solo esa página.
+- **Estado compartido** (`components/users/ficha-status.tsx`): cada sección publica `loading/ready/error`, su conteo y
+  su KPI con `ReportSection`; de ahí leen el índice lateral con scroll-spy (`ficha-index.tsx`) y la tira de KPIs.
+- **Modo fixtures**: `MOVO_ADMIN_MOCK=1` (nunca en producción) cambia solo `lib/users/api.ts` por `lib/users/mock.ts` +
+  `fixtures.ts` (los usuarios del prototipo). `MOVO_ADMIN_MOCK_FAIL=kyc,ledger` inyecta 502 por sección y
+  `MOVO_ADMIN_MOCK_LATENCY_MS` la demora. Para pasar a datos reales alcanza con apagar el flag cuando 294 esté en dev.
+- **Fuera del prototipo, agregado por los AC de 293**: Bitácora, tarjeta de Mercado Pago dentro de KYC y pestaña
+  Viajes en Actividad. Los envíos no tienen código propio: se muestra el ID corto y, cuando exista MOVO-33,
+  `shipmentHref()` en `activity-panel.tsx` es el único lugar a completar para linkear al detalle.
+- **Listas que crecen**: Actividad (envíos y viajes) y Calificaciones paginan de a 5 con `page`/`total`; Cuenta
+  corriente y Bitácora por cursor con "Ver más" (`MoreRow`, acciones `loadLedgerMore`/`loadAuditMore`); Reportes
+  pagina de a 5 en el cliente sobre las 50 más recientes que manda `/moderation` (`totals` dice cuántas hay) y
+  Bloqueos muestra 6 por columna con "Ver más"; los intentos de KYC colapsan después de 3. Sanciones y
+  Dispositivos no paginan: son pocos por persona. En el modo fixtures, Diego Funes trae volumen alto para probarlo.
+- **Acciones sobre la cuenta**: ver "Acciones de soporte sobre la cuenta" más abajo. Las sanciones (MOVO-299) siguen
+  siendo una entrada deshabilitada del mismo menú.
+- Tokens nuevos en `globals.css` (`--success-soft`, `--dot-*`, `--star`, `--shadow-1`, `.mv-grid-fade`, `.mv-dots-fade`).
+- `internalReturnPath` acepta ahora `/users[?query]` y `/users/<uuid>`.
+
+Pendiente: verificar a mano contra dev con un usuario con envíos, reportes y bloqueos (DoD de 295), que necesita
+MOVO-294 desplegado; hasta entonces la comparación visual con el prototipo se hace con `MOVO_ADMIN_MOCK=1`.
+
+## Acciones de soporte sobre la cuenta (contratos en MOVO-294)
+
+Menú "Acciones" de la cabecera de la ficha (`components/users/actions/account-actions.tsx`): cambiar email, cambiar
+teléfono, cerrar todas las sesiones, ajustar el saldo y agregar una nota interna, más "Suspender o inhabilitar"
+deshabilitado hasta MOVO-299. Cada una abre un diálogo (`components/users/actions/*-dialog.tsx`) con motivo obligatorio y
+se manda por una Server Action (`app/users/[id]/account-actions.ts`) → `lib/users/mutations.ts` → `svc-admin`
+(`POST /admin/users/:id/{sessions/revoke,contact,ledger/adjustments,notes}`). Los errores vuelven como dato
+(`ActionResult`, `lib/users/errors.ts`) y se muestran dentro del diálogo; al salir bien se hace `revalidatePath` de la ficha.
+
+- **Confirmación en dos pasos** para email/teléfono y saldo: formulario → "antes → después" con la lista de consecuencias y
+  un tilde obligatorio (email/teléfono: "cambia cómo entra a su cuenta"; saldo: "el monto y el sentido son correctos").
+  El valor que el admin vio viaja como `expectedCurrent`; si cambió, `CONTACT_CHANGED` y el diálogo solo deja cerrar.
+- **Saldo**: el diálogo lee el saldo de la sección Cuenta corriente (`balanceArs` que publica `ReportSection` en
+  `ficha-status.tsx`) y no deja revisar hasta que cargó. La `idempotencyKey` es un UUID por apertura del diálogo; se reusa
+  si el servicio no respondió (`unconfirmed`, el ajuste pudo aplicarse) y se renueva ante un rechazo definitivo.
+- **Teléfono/email nuevos quedan sin verificar** (un admin no da prueba de propiedad) y se cierran las sesiones: lo hace el
+  backend; el panel solo lo avisa antes de confirmar. `normalizeArPhone` (`lib/users/contact.ts`) es solo para validar y
+  mostrar "se guarda como": la normalización que vale es la de `svc-users`.
+- **Look de los diálogos de plata y de notas**: el ajuste de saldo usa el "hero" del saldo, tarjetas de sentido en
+  ámbar/verde (`warn-*`/`success-*`), monto grande con montos rápidos y el antes → después en vivo; al confirmar, un
+  comprobante tipo ticket. Las notas son post-its (`.mv-postit`/`.mv-postit-lines` y tokens `--postit-*` en `globals.css`,
+  claro y oscuro; `PostitPin` en `actions/postit.tsx`), tanto al escribirlas como en la sección.
+- **Notas**: sección nueva "Notas" (`notes-section.tsx`/`notes-panel.tsx`, por cursor con "Ver más"); solo se agregan.
+  Las secciones Cuenta corriente, Bitácora y Notas se recrean con `key` cuando entra un movimiento/fila/nota nueva, si no
+  conservarían la lista en su estado.
+- **Propia cuenta y cuenta eliminada**: el menú deshabilita todo sobre la propia cuenta (`isSelf`, igual lo corta
+  `ADMIN_CONFLICT_OF_INTEREST`) y deja solo notas en una cuenta `deleted` (`USER_DELETED` en el resto).
+- **Modo fixtures**: las acciones funcionan en memoria (`mock.ts`: perfil, cuenta corriente, notas y bitácora cambian de
+  verdad hasta reiniciar el server). `MOVO_ADMIN_MOCK_FAIL=actions!` las hace fallar con 502 ("Sin confirmar").
+
+Pendiente: probarlo a mano contra dev y en claro/oscuro (esta sesión no tuvo acceso al login real); contra el backend real
+falta MOVO-294. Códigos nuevos en `ApiErrorCode`: `CONTACT_CHANGED`, `CONTACT_UNCHANGED`, `USER_DELETED`, `AMOUNT_OUT_OF_RANGE`.

@@ -6,6 +6,7 @@ import {
   type RecentRatingComment,
   type ReputationBreakdown,
   type TransactionCounts,
+  type UserTourRecord,
   type VehicleProfile,
 } from "@movo/shared";
 import { User, fullName } from "./user";
@@ -41,11 +42,12 @@ function computeBadges(user: User): ProfileBadge[] {
  * MOVO-152: `reputation`/`transactionCounts` ya vienen resueltos por el caller
  * (`users.service.ts#resolveReputationSummary`, cacheado y con fallback a
  * `NO_REPUTATION` si `svc-shipments` no respondió) -- esta función sigue siendo pura,
- * sin I/O. */
+ * sin I/O. MOVO-169: `tours` también lo resuelve el caller (`user_tour`). */
 export function toPrivateProfile(
   user: User,
   reputation: ReputationBreakdown,
-  transactionCounts: TransactionCounts
+  transactionCounts: TransactionCounts,
+  tours: UserTourRecord[]
 ): PrivateProfile {
   return {
     id: user.id,
@@ -70,6 +72,7 @@ export function toPrivateProfile(
     termsVersion: user.termsVersion,
     privacyAcceptedAt: user.privacyAcceptedAt?.toISOString() ?? null,
     privacyVersion: user.privacyVersion,
+    tours,
   };
 }
 
