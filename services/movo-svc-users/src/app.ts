@@ -24,6 +24,7 @@ import notificationsRoutes, {
 import addressesRoutes from "./modules/addresses/addresses.routes";
 import deviceKeysRoutes from "./modules/device-keys/device-keys.routes";
 import notificationPreferencesRoutes from "./modules/notification-preferences/notification-preferences.routes";
+import toursRoutes from "./modules/tours/tours.routes";
 import moderationRoutes, { internalModerationRoutes } from "./modules/moderation/moderation.routes";
 import adminsInternalRoutes, { AdminsInternalRoutesOptions } from "./modules/admins/admins-internal.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
@@ -168,6 +169,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-245: /users/me/notification-preferences -- protegida, ya cubierta por el
   // prefijo /users existente en gateway/src/config/routes-map.ts (sin cambios ahí).
   app.register(notificationPreferencesRoutes, { prefix: "/users" });
+
+  // MOVO-169: /users/me/tours/:tourId -- protegida, mismo criterio que la de arriba.
+  app.register(toursRoutes, { prefix: "/users" });
 
   // MOVO-175: reportar/bloquear bajo /users (ya proxeado por el gateway) + la unión
   // simétrica de bloqueos para svc-shipments bajo /internal (no proxeado).

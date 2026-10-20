@@ -172,6 +172,33 @@ model NotificationCategoryPreference {
   @@schema("users")
 }
 
+// MOVO-169: valores alineados 1:1 con `TOUR_OUTCOMES` de @movo/shared.
+enum TourOutcome {
+  completed
+  skipped
+
+  @@map("tour_outcome_enum")
+  @@schema("users")
+}
+
+// MOVO-169: registro de los tours del tutorial in-app, un upsert por (usuario, tour).
+// `tourId` es texto validado en código contra `TOUR_IDS` (@movo/shared), no un enum de
+// Postgres -- mismo criterio que `NotificationCategoryPreference.category`: sumar un
+// tour no pide migración. Ausencia de fila = el tour todavía no se mostró. `version`
+// nunca baja (ver `user-tour-repository.ts`).
+model UserTour {
+  userId     String      @map("user_id") @db.Uuid
+  tourId     String      @map("tour_id")
+  version    Int
+  outcome    TourOutcome
+  recordedAt DateTime    @default(now()) @map("recorded_at") @db.Timestamptz
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, tourId])
+  @@map("user_tour")
+  @@schema("users")
+}
+
 // MOVO-175: valores alineados 1:1 con `ReportReason`/`ReportStatus` de @movo/shared.
 enum ReportReason {
   harassment
@@ -314,6 +341,7 @@ model User {
   vehicleProfile    VehicleProfile?
   notificationPreference          NotificationPreference?
   notificationCategoryPreferences NotificationCategoryPreference[]
+  tours             UserTour[]
   blocksMade        UserBlock[]   @relation("UserBlockBlocker")
   blocksReceived    UserBlock[]   @relation("UserBlockBlocked")
   reportsMade       UserReport[]  @relation("UserReportReporter")
