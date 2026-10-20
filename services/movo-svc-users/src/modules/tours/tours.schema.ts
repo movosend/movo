@@ -26,7 +26,8 @@ export const toursSchemas = {
     type: "object",
     required: ["version", "outcome"],
     properties: {
-      version: { type: "integer", minimum: 1 },
+      // Tope del `Int` de Postgres (columna `version`): más allá sería un 500 de Prisma.
+      version: { type: "integer", minimum: 1, maximum: 2147483647 },
       outcome: { type: "string", enum: [...TOUR_OUTCOMES] },
     },
     additionalProperties: false,

@@ -83,8 +83,11 @@ describe("PUT /users/me/tours/:tourId y tours en GET /users/me (MOVO-169)", () =
     const user = await repo.create(buildInput());
 
     await putTour(user.id, "carrier", { version: 1, outcome: "completed" });
+    const before = await app.db.userTour.findFirstOrThrow({ where: { userId: user.id } });
     const second = await putTour(user.id, "carrier", { version: 1, outcome: "completed" });
+    const after = await app.db.userTour.findFirstOrThrow({ where: { userId: user.id } });
 
+    expect(after.recordedAt).toEqual(before.recordedAt);
     expect(second.statusCode).toBe(200);
     expect(JSON.parse(second.body)).toEqual({ tourId: "carrier", version: 1, outcome: "completed" });
     const count = await app.db.userTour.count({ where: { userId: user.id } });
@@ -149,6 +152,7 @@ describe("PUT /users/me/tours/:tourId y tours en GET /users/me (MOVO-169)", () =
     ["tourId desconocido", "onboarding", { version: 1, outcome: "completed" }],
     ["outcome inválido", "first_steps", { version: 1, outcome: "dismissed" }],
     ["version 0", "first_steps", { version: 0, outcome: "completed" }],
+    ["version sobre el máximo del Int de Postgres", "first_steps", { version: 2147483648, outcome: "completed" }],
     ["version no entera", "first_steps", { version: 1.5, outcome: "completed" }],
     ["sin version", "first_steps", { outcome: "completed" }],
     ["sin outcome", "first_steps", { version: 1 }],

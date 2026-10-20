@@ -34,7 +34,8 @@ export function createUserTourRepository(db: Prisma.TransactionClient): UserTour
   ): Promise<UserTourRecord> {
     const data = { version, outcome, recordedAt: new Date() };
     const { count } = await db.userTour.updateMany({
-      where: { userId, tourId, version: { lte: version } },
+      // Un request idéntico al vigente no matchea: conserva `recordedAt` (idempotente).
+      where: { userId, tourId, OR: [{ version: { lt: version } }, { version, outcome: { not: outcome } }] },
       data,
     });
     if (count === 0) {
