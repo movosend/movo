@@ -7,6 +7,9 @@ import { authClient } from "../src/api/auth-client";
 import * as secureStore from "../src/lib/secure-store";
 import { useAuthStore } from "../src/store/auth-store";
 
+// `app/index.tsx` navega solo si está enfocada; fuera de un navegador real no hay contexto.
+jest.mock("expo-router", () => ({ ...jest.requireActual("expo-router"), useIsFocused: () => true }));
+
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
   setItemAsync: jest.fn().mockResolvedValue(undefined),
