@@ -44,6 +44,7 @@ interface RefreshBody {
 
 interface ForgotPasswordBody {
   identifier: string;
+  panelOnly?: boolean;
 }
 
 interface VerifyResetOtpBody {
@@ -57,7 +58,8 @@ interface ResetPasswordBody {
 }
 
 interface AdminLoginBody {
-  email: string;
+  email?: string;
+  phone?: string;
   password: string;
 }
 
@@ -325,7 +327,7 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
       },
     },
     async (request: FastifyRequest<{ Body: ForgotPasswordBody }>, reply: FastifyReply) => {
-      const result = await passwordResetService.forgotPassword(request.body.identifier);
+      const result = await passwordResetService.forgotPassword(request.body.identifier, { panelOnly: request.body.panelOnly === true });
       reply.code(200);
       return result;
     }
@@ -392,9 +394,9 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
     "/admin/login",
     {
       schema: {
-        summary: "Login del panel (paso 1): email y contraseña",
+        summary: "Login del panel (paso 1): email o teléfono y contraseña",
         description:
-          "Si la cuenta tiene rol admin, email verificado y está activa, envía un código " +
+          "Se identifica con email o con teléfono (formato de la app). Si la cuenta tiene rol admin, email verificado y está activa, envía un código " +
           "por email y devuelve un challengeId para POST /auth/admin/verify. Nunca emite " +
           "tokens. Credenciales inválidas, falta de rol, email sin verificar y cuenta no " +
           "activa responden el mismo 401, sin revelar si el email es de un admin. Límite " +
@@ -414,7 +416,12 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
       // (tests, debug local) se usa la IP de la conexión.
       const forwardedIp = request.headers["x-client-ip"];
       const clientIp = typeof forwardedIp === "string" && forwardedIp.length > 0 ? forwardedIp : request.ip;
-      const result = await adminSessionService.startLogin(request.body.email, request.body.password, clientIp);
+      const { email, phone, password } = request.body;
+      const result = await adminSessionService.startLogin(
+        phone !== undefined ? { phone } : { email: email as string },
+        password,
+        clientIp
+      );
       reply.code(200);
       return result;
     }

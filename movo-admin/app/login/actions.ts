@@ -13,6 +13,7 @@ import {
   type SessionTokens,
 } from "@/lib/auth/session"
 import { REFRESH_COOKIE, ACCESS_COOKIE } from "@/lib/auth/policy"
+import { parseIdentifier } from "@/lib/auth/identifier"
 export interface AuthState {
   error?: string
   resendAt?: number
@@ -24,27 +25,23 @@ export async function login(
   form: FormData
 ): Promise<AuthState> {
   await assertOrigin()
-  const email = String(form.get("email") ?? "")
-    .trim()
-    .toLowerCase()
+  // La pestaña elegida define si el campo es email o teléfono argentino (formato de la app).
+  const method = String(form.get("method") ?? "email")
+  const identifier = String(form.get("identifier") ?? "").trim()
   const password = String(form.get("password") ?? "")
-  if (
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-    email.length > 254 ||
-    !password ||
-    password.length > 1024
-  )
-    return { error: "Ingresá un email válido y tu contraseña." }
+  const login = parseIdentifier(method, identifier)
+  if (!login || !password || password.length > 1024)
+    return { error: "Ingresá un email o teléfono válido y tu contraseña." }
   await clearSession()
   try {
     const result = await gateway<{
       challengeId: string
       cooldownSeconds: number
-    }>("/auth/admin/login", { body: { email, password } })
-    const [name, domain] = email.split("@")
+      maskedEmail: string
+    }>("/auth/admin/login", { body: { ...login, password } })
     await writeChallenge({
       challengeId: result.challengeId,
-      email: `${name[0]}***@${domain}`,
+      email: result.maskedEmail,
       expiresAt: Date.now() + 10 * 60 * 1000,
       resendAt: Date.now() + result.cooldownSeconds * 1000,
     })

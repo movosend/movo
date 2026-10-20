@@ -1,10 +1,12 @@
-import { AdminSummary, UserReportParties } from "@movo/shared";
+import { AdminCandidate, AdminSummary, UserReportParties } from "@movo/shared";
 import { ApiError } from "@movo/shared";
 import { createInternalClient, InternalClient, isRecord, isString, RequestContext } from "./internal-client";
 
 export interface UsersClient extends InternalClient {
   /** `GET /internal/admins`: los usuarios con el rol `admin`. */
   listAdmins(ctx: RequestContext): Promise<AdminSummary[]>;
+  /** `GET /internal/admins/candidates?q=`: usuarios por nombre o email para el autocompletado del alta. */
+  searchAdminCandidates(query: string, ctx: RequestContext): Promise<AdminCandidate[]>;
   /** `POST /internal/admins`. Idempotente: si ya era admin, devuelve el mismo resumen. 404 `USER_NOT_FOUND` si el email no tiene cuenta. */
   grantAdmin(email: string, actorId: string, ctx: RequestContext): Promise<AdminSummary>;
   /** `DELETE /internal/admins/:userId`. 404 `ADMIN_NOT_FOUND` si no era admin; 409 `ADMIN_LAST_ADMIN` si era el último. */
@@ -22,7 +24,20 @@ const isAdminSummary = (body: unknown): body is AdminSummary =>
   isString(body.fullName) &&
   isString(body.email) &&
   isString(body.status) &&
+  (body.photoUrl === null || isString(body.photoUrl)) &&
   isString(body.grantedAt);
+
+const isAdminCandidate = (body: unknown): body is AdminCandidate =>
+  isRecord(body) &&
+  isString(body.id) &&
+  isString(body.fullName) &&
+  isString(body.email) &&
+  isString(body.status) &&
+  (body.photoUrl === null || isString(body.photoUrl)) &&
+  typeof body.emailVerified === "boolean" &&
+  typeof body.isAdmin === "boolean";
+
+const isAdminCandidateList = (body: unknown): body is AdminCandidate[] => Array.isArray(body) && body.every(isAdminCandidate);
 
 const isAdminSummaryList = (body: unknown): body is AdminSummary[] => Array.isArray(body) && body.every(isAdminSummary);
 
@@ -46,6 +61,13 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
     async listAdmins(ctx) {
       const admins = await client.request("/internal/admins", ctx, { isValid: isAdminSummaryList, notFoundCodes: [] });
       return admins ?? [];
+    },
+    async searchAdminCandidates(query, ctx) {
+      const found = await client.request(`/internal/admins/candidates?q=${encodeURIComponent(query)}`, ctx, {
+        isValid: isAdminCandidateList,
+        notFoundCodes: [],
+      });
+      return found ?? [];
     },
     async grantAdmin(email, actorId, ctx) {
       const admin = await client.request("/internal/admins", ctx, {

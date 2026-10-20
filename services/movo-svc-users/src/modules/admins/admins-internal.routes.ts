@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { AdminSummary } from "@movo/shared";
+import { AdminCandidate, AdminSummary } from "@movo/shared";
 import { createEmailProvider, EmailProvider } from "../../adapters/email-provider";
 import { createSessionRepository } from "../../repositories/session-repository";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
@@ -13,13 +13,28 @@ export interface AdminsInternalRoutesOptions extends FastifyPluginOptions {
 // Autocontenido a propósito, mismo criterio que `kyc-internal.routes.ts`.
 const adminSummary = {
   type: "object",
-  required: ["id", "fullName", "email", "status", "grantedAt"],
+  required: ["id", "fullName", "email", "status", "photoUrl", "grantedAt"],
   properties: {
     id: { type: "string" },
     fullName: { type: "string" },
     email: { type: "string" },
     status: { type: "string", enum: ["active", "banned", "deleted"] },
+    photoUrl: { type: ["string", "null"] },
     grantedAt: { type: "string" },
+  },
+};
+
+const adminCandidate = {
+  type: "object",
+  required: ["id", "fullName", "email", "status", "photoUrl", "emailVerified", "isAdmin"],
+  properties: {
+    id: { type: "string" },
+    fullName: { type: "string" },
+    email: { type: "string" },
+    status: { type: "string", enum: ["active", "banned", "deleted"] },
+    photoUrl: { type: ["string", "null"] },
+    emailVerified: { type: "boolean" },
+    isAdmin: { type: "boolean" },
   },
 };
 
@@ -46,6 +61,15 @@ const adminsInternalSchemas = {
     response: {
       200: { type: "array", items: adminSummary },
     },
+  },
+  candidates: {
+    hide: true,
+    querystring: {
+      type: "object",
+      required: ["q"],
+      properties: { q: { type: "string", minLength: 2, maxLength: 100 } },
+    },
+    response: { 200: { type: "array", items: adminCandidate } },
   },
   grant: {
     hide: true,
@@ -99,6 +123,12 @@ export default async function adminsInternalRoutes(app: FastifyInstance, opts: A
 
   app.get("/admins", { schema: adminsInternalSchemas.list }, async (): Promise<AdminSummary[]> => {
     return service.listAdmins();
+  });
+
+  // Ruta estática, antes de cualquier `/admins/:userId`.
+  app.get("/admins/candidates", { schema: adminsInternalSchemas.candidates }, async (request: FastifyRequest): Promise<AdminCandidate[]> => {
+    const { q } = request.query as { q: string };
+    return service.searchCandidates(q);
   });
 
   app.post(

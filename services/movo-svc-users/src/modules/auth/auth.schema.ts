@@ -212,18 +212,22 @@ export const authSchemas = {
   adminLoginBody: {
     type: "object",
     additionalProperties: false,
-    required: ["email", "password"],
+    required: ["password"],
+    // Email o teléfono (uno de los dos), como el login de la app.
+    anyOf: [{ required: ["email"] }, { required: ["phone"] }],
     properties: {
       email: { type: "string", pattern: EMAIL_PATTERN, maxLength: 254 },
+      phone: { type: "string", pattern: PHONE_PATTERN },
       password: { type: "string", minLength: 1 },
     },
   },
   adminLoginResponse: {
     type: "object",
-    required: ["challengeId", "cooldownSeconds"],
+    required: ["challengeId", "cooldownSeconds", "maskedEmail"],
     properties: {
       challengeId: { type: "string" },
       cooldownSeconds: { type: "integer" },
+      maskedEmail: { type: "string" },
     },
   },
   // Paso 2: el challengeId del paso 1 y el código que llegó por email.
@@ -353,6 +357,9 @@ export const authSchemas = {
         type: "string",
         anyOf: [{ pattern: EMAIL_PATTERN }, { pattern: PHONE_PATTERN }],
       },
+      // El panel de administración lo manda en true: el código solo sale si la cuenta puede
+      // tener una sesión de panel (admin, activa, email verificado); si no, es un señuelo.
+      panelOnly: { type: "boolean" },
     },
   },
   // AC2/AC5: mismo shape exista o no la cuenta (señuelo), `channel` se deriva del
