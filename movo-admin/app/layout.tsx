@@ -2,6 +2,7 @@ import localFont from "next/font/local"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
 import "./globals.css"
+import { SupportProvider } from "@/components/support/support-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
 
@@ -24,7 +25,9 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>
-          <TooltipProvider>{children}</TooltipProvider>
+          <TooltipProvider>
+            <SupportProvider>{children}</SupportProvider>
+          </TooltipProvider>
         </ThemeProvider>
       </body>
     </html>
