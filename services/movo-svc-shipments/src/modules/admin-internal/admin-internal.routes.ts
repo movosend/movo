@@ -1,29 +1,165 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
 import {
+  ACTIVE_SHIPMENT_STATUSES,
   AdminShipmentRole,
   AdminUserRatingRowPage,
   AdminUserShipmentRowPage,
   AdminUserTripPage,
+  ADMIN_SHIPMENT_GROUP_STATUSES,
+  ADMIN_SHIPMENTS_DEFAULT_LIMIT,
+  AdminChatMessage,
+  AdminChatPage,
+  AdminShipmentDetail,
+  AdminShipmentEvent,
+  AdminShipmentGroup,
+  AdminShipmentPage,
+  AdminShipmentPhoto,
+  AdminShipmentRow,
   ApiError,
+  ChatParticipantRole,
   ChatReportParties,
   ShipmentParties,
+  ShipmentStatus,
 } from "@movo/shared";
-import { ShipmentStatus, TripStatus } from "../../generated/prisma/client";
+import { TripStatus } from "../../generated/prisma/client";
+import { createUsersClient, UsersClient } from "../../adapters/users-client";
+import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
+import { isChatArchived, resolveChatAccess } from "../../domain/chat-window";
+import { fundingPayUntil } from "../funding/funding.service";
+import {
+  AdminShipmentRecord,
+  createAdminShipmentRepository,
+  InvalidAdminCursorError,
+} from "../../repositories/admin-shipment-repository";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
-import { createChatRepository } from "../../repositories/chat-repository";
+import { createChatRepository, InvalidChatCursorError } from "../../repositories/chat-repository";
 import { adminInternalSchemas } from "./admin-internal.schema";
 import { createAdminUsersService } from "./admin-users.service";
 
+export interface AdminInternalRoutesOptions extends FastifyPluginOptions {
+  /** Overrides solo para tests, mismo criterio que en `shipmentsRoutes`. */
+  usersClient?: UsersClient;
+  storageProvider?: StorageProvider;
+}
+
+/** Cuánto se espera a svc-users para completar nombres faltantes: es un dato accesorio del listado. */
+const NAME_HEAL_BUDGET_MS = 2000;
+const NAME_HEAL_MAX_USERS = 30;
+
+const isoOrNull = (date: Date | null | undefined): string | null => (date ? date.toISOString() : null);
+/** Las columnas `@db.Date` / `@db.Time` guardan reloj de pared anclado en UTC (gotcha de MOVO-80). */
+const dateOnly = (date: Date): string => date.toISOString().slice(0, 10);
+const timeOnly = (date: Date): string => date.toISOString().slice(11, 16);
+
 /**
- * Módulo interno (MOVO-288): las partes de un envío o de un reporte de chat, para la regla de
- * conflicto de interés de `svc-admin` (un admin no puede actuar sobre algo en lo que es parte).
- * MOVO-294 suma las secciones de la ficha de un usuario del panel.
- * No pasa por el gateway, solo es alcanzable dentro de la red Docker interna (ADR-010), mismo
- * patrón que `mutual-connections`. De solo lectura y sin `x-user-id`: quien decide es `svc-admin`.
+ * Módulo interno de `svc-admin` (no pasa por el gateway, solo es alcanzable dentro de la red Docker
+ * interna, ADR-010; mismo patrón que `mutual-connections`). De solo lectura y sin `x-user-id`: quien
+ * decide el acceso es `svc-admin`.
+ *
+ * - MOVO-288: las partes de un envío o de un reporte de chat, para la regla de conflicto de interés
+ *   (un admin no puede actuar sobre algo en lo que es parte).
+ * - MOVO-294: las secciones de la ficha de un usuario del panel.
+ * - MOVO-325: listado, detalle, eventos, fotos y chat de los envíos para el panel.
  */
-export default async function adminInternalRoutes(app: FastifyInstance, _opts: FastifyPluginOptions) {
+export default async function adminInternalRoutes(app: FastifyInstance, opts: AdminInternalRoutesOptions) {
   const shipmentRepository = createShipmentRepository(app.db);
   const chatRepository = createChatRepository(app.db);
+  const adminShipmentRepository = createAdminShipmentRepository(app.db);
+  const usersClient = opts.usersClient ?? createUsersClient(app.config);
+  const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
+  const fundingConfig = {
+    paymentTimeoutMinutes: app.config.FUNDING_PAYMENT_TIMEOUT_MINUTES,
+    releaseHoursBeforePickup: app.config.FUNDING_RELEASE_HOURS_BEFORE_PICKUP,
+  };
+
+  function toRow({ row, names }: AdminShipmentRecord): AdminShipmentRow {
+    const status = row.status as ShipmentStatus;
+    const agreed = row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null;
+    const suggested = row.suggestedPriceArs ? row.suggestedPriceArs.toNumber() : null;
+    const hasCarrierPrice = row.carrierId !== null && agreed !== null;
+    const isFunding = status === ShipmentStatus.ASSIGNMENT_PENDING || status === ShipmentStatus.ASSIGNED_UNFUNDED;
+
+    return {
+      id: row.id,
+      code: row.id.slice(0, 8),
+      status,
+      sender: { id: row.senderId, name: names.sender },
+      carrier: row.carrierId ? { id: row.carrierId, name: names.carrier } : null,
+      receiver: { id: row.receiverId, name: names.receiver },
+      pickupCity: row.pickupCity,
+      pickupAddress: row.pickupAddress,
+      deliveryCity: row.deliveryCity,
+      deliveryAddress: row.deliveryAddress,
+      pickupDate: dateOnly(row.pickupDate),
+      pickupTimeWindowStart: timeOnly(row.pickupTimeWindowStart),
+      pickupTimeWindowEnd: timeOnly(row.pickupTimeWindowEnd),
+      priceArs: hasCarrierPrice ? agreed : suggested,
+      priceKind: hasCarrierPrice ? "agreed" : suggested !== null ? "suggested" : null,
+      lastStatusChangeAt: (row.lastStatusChangedAt ?? row.createdAt).toISOString(),
+      delayed: status === ShipmentStatus.IN_TRANSIT && row.transitAnomalyFlaggedAt !== null,
+      disputeId: null,
+      fundingDeadline: isFunding ? fundingPayUntil({ ...row, status }, fundingConfig).toISOString() : null,
+      redesignationDeadline:
+        status === ShipmentStatus.REJECTED_BY_RECEIVER ? isoOrNull(row.receiverRedesignationDeadline) : null,
+    };
+  }
+
+  /**
+   * Completa los nombres que todavía no conocemos (envíos anteriores a MOVO-325 sin oferta) con lo que
+   * diga svc-users. Best-effort y con tope de tiempo: si svc-users no contesta, el listado sale igual
+   * con el nombre en `null` y lo reintenta la próxima vez.
+   */
+  async function healMissingNames(records: AdminShipmentRecord[]): Promise<void> {
+    const missing = (await adminShipmentRepository.findMissingNames(records)).slice(0, NAME_HEAL_MAX_USERS);
+    if (missing.length === 0) return;
+
+    const found = new Map<string, string>();
+    const lookups = Promise.all(
+      missing.map(async (userId) => {
+        try {
+          const profile = await usersClient.findPublicProfile(userId, userId);
+          if (profile?.fullName) found.set(userId, profile.fullName);
+        } catch {
+          // svc-users caído: el nombre queda en null y se reintenta en el próximo listado.
+        }
+      }),
+    );
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      lookups,
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, NAME_HEAL_BUDGET_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (found.size === 0) return;
+
+    try {
+      await shipmentRepository.recordDisplayNames([...found].map(([userId, name]) => ({ userId, name })));
+    } catch (err) {
+      app.log.warn({ err, event: "display_names_record_failed" }, "No se pudieron guardar los nombres completados");
+    }
+    for (const record of records) {
+      record.names.sender ??= found.get(record.row.senderId) ?? null;
+      record.names.receiver ??= found.get(record.row.receiverId) ?? null;
+      if (record.row.carrierId) record.names.carrier ??= found.get(record.row.carrierId) ?? null;
+    }
+  }
+
+  const toEvent = (event: Awaited<ReturnType<typeof shipmentRepository.listEvents>>[number]): AdminShipmentEvent => ({
+    id: event.id,
+    fromStatus: event.fromStatus,
+    toStatus: event.toStatus,
+    actorId: event.actorId,
+    reason: event.reason,
+    createdAt: event.createdAt.toISOString(),
+  });
+
+  async function requireRecord(id: string): Promise<AdminShipmentRecord> {
+    const record = await adminShipmentRepository.findRecord(id);
+    if (!record) throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+    return record;
+  }
 
   app.get(
     "/shipments/:id/parties",
@@ -91,6 +227,54 @@ export default async function adminInternalRoutes(app: FastifyInstance, _opts: F
     },
   );
 
+  // Por defecto los activos; `status` o `group` piden otros (los cerrados incluidos). Orden: último cambio de estado.
+  app.get(
+    "/admin/shipments",
+    { schema: { hide: true, querystring: adminInternalSchemas.listQuery } },
+    async (request: FastifyRequest): Promise<AdminShipmentPage> => {
+      const query = request.query as {
+        group?: AdminShipmentGroup;
+        status?: ShipmentStatus;
+        city?: string;
+        from?: string;
+        to?: string;
+        q?: string;
+        cursor?: string;
+        limit?: number;
+      };
+      const search = {
+        ...(query.city ? { city: query.city } : {}),
+        ...(query.from ? { from: new Date(query.from) } : {}),
+        ...(query.to ? { to: new Date(query.to) } : {}),
+        ...(query.q ? { q: query.q } : {}),
+      };
+      // `status` es lo más específico; después la pestaña; sin ninguno, los activos.
+      const statuses: readonly ShipmentStatus[] = query.status
+        ? [query.status]
+        : query.group
+          ? ADMIN_SHIPMENT_GROUP_STATUSES[query.group]
+          : ACTIVE_SHIPMENT_STATUSES;
+
+      let page;
+      try {
+        page = await adminShipmentRepository.list({
+          ...search,
+          statuses,
+          limit: query.limit ?? ADMIN_SHIPMENTS_DEFAULT_LIMIT,
+          ...(query.cursor ? { cursor: query.cursor } : {}),
+        });
+      } catch (err) {
+        if (err instanceof InvalidAdminCursorError) {
+          throw new ApiError(400, "VALIDATION_FAILED", "El cursor de paginación es inválido.");
+        }
+        throw err;
+      }
+
+      const [counts] = await Promise.all([adminShipmentRepository.counts(search), healMissingNames(page.items)]);
+      return { items: page.items.map(toRow), nextCursor: page.nextCursor, counts };
+    },
+  );
+
   app.get(
     "/admin/users/:id/trips",
     {
@@ -109,6 +293,42 @@ export default async function adminInternalRoutes(app: FastifyInstance, _opts: F
   );
 
   app.get(
+    "/admin/shipments/:id",
+    { schema: { hide: true, params: adminInternalSchemas.idParam } },
+    async (request: FastifyRequest): Promise<AdminShipmentDetail> => {
+      const { id } = request.params as { id: string };
+      const record = await requireRecord(id);
+      await healMissingNames([record]);
+      const { row } = record;
+      return {
+        ...toRow(record),
+        packageType: row.packageType,
+        weightKg: row.weightKg.toNumber(),
+        lengthCm: row.lengthCm.toNumber(),
+        widthCm: row.widthCm.toNumber(),
+        heightCm: row.heightCm.toNumber(),
+        description: row.description,
+        urgent: row.urgent,
+        pickupLat: row.pickupLat.toNumber(),
+        pickupLng: row.pickupLng.toNumber(),
+        deliveryLat: row.deliveryLat.toNumber(),
+        deliveryLng: row.deliveryLng.toNumber(),
+        suggestedPriceArs: row.suggestedPriceArs ? row.suggestedPriceArs.toNumber() : null,
+        agreedPriceArs: row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null,
+        paymentMethod: row.paymentMethod,
+        highDemand: row.highDemand,
+        estimatedDeliveryDate: row.estimatedDeliveryDate ? dateOnly(row.estimatedDeliveryDate) : null,
+        deliveredAt: isoOrNull(row.deliveredAt),
+        receiverConfirmationDeadline: isoOrNull(row.receiverConfirmationDeadline),
+        transitAnomalyFlaggedAt: isoOrNull(row.transitAnomalyFlaggedAt),
+        chatStartedAt: isoOrNull(row.chatStartedAt),
+        cancellationPenaltyArs: row.cancellationPenaltyArs ? row.cancellationPenaltyArs.toNumber() : null,
+        createdAt: row.createdAt.toISOString(),
+      };
+    },
+  );
+
+  app.get(
     "/admin/users/:id/ratings",
     {
       schema: {
@@ -122,6 +342,101 @@ export default async function adminInternalRoutes(app: FastifyInstance, _opts: F
       const { id } = request.params as { id: string };
       const { page, pageSize } = request.query as { page: number; pageSize: number };
       return adminUsers.listRatings(id, { page, pageSize });
+    },
+  );
+
+  app.get(
+    "/admin/shipments/:id/events",
+    { schema: { hide: true, params: adminInternalSchemas.idParam } },
+    async (request: FastifyRequest): Promise<AdminShipmentEvent[]> => {
+      const { id } = request.params as { id: string };
+      await requireRecord(id);
+      return (await shipmentRepository.listEvents(id)).map(toEvent);
+    },
+  );
+
+  // Fotos de la evidencia con URL firmada de vida corta (la que fije el StorageProvider).
+  app.get(
+    "/admin/shipments/:id/photos",
+    { schema: { hide: true, params: adminInternalSchemas.idParam } },
+    async (request: FastifyRequest): Promise<AdminShipmentPhoto[]> => {
+      const { id } = request.params as { id: string };
+      await requireRecord(id);
+      const photos = await shipmentRepository.listPhotos(id);
+      return Promise.all(
+        photos.map(async (photo) => ({
+          id: photo.id,
+          stage: photo.stage,
+          url: (await storageProvider.createDownloadUrl(photo.s3Key)).url,
+          createdAt: photo.createdAt.toISOString(),
+        })),
+      );
+    },
+  );
+
+  // Todo el hilo, sin ocultar nada por bloqueos ni por `chat_started_at` (ADR-040: el historial es
+  // evidencia). `partiesAccess` dice qué pueden hacer hoy las partes con las reglas de docs/chat/README.md.
+  app.get(
+    "/admin/shipments/:id/chat/messages",
+    { schema: { hide: true, params: adminInternalSchemas.idParam, querystring: adminInternalSchemas.chatQuery } },
+    async (request: FastifyRequest): Promise<AdminChatPage> => {
+      const { id } = request.params as { id: string };
+      const { cursor, limit } = request.query as { cursor?: string; limit?: number };
+      const { row } = await requireRecord(id);
+
+      const roleOf = (userId: string): ChatParticipantRole | null =>
+        userId === row.senderId
+          ? "sender"
+          : userId === row.carrierId
+            ? "carrier"
+            : userId === row.receiverId
+              ? "receiver"
+              : null;
+
+      let page;
+      try {
+        page = await chatRepository.listPage(id, limit ?? ADMIN_SHIPMENTS_DEFAULT_LIMIT, cursor, null);
+      } catch (err) {
+        if (err instanceof InvalidChatCursorError) {
+          throw new ApiError(400, "VALIDATION_FAILED", "El cursor de paginación es inválido.");
+        }
+        throw err;
+      }
+
+      const facts = {
+        status: row.status as ShipmentStatus,
+        senderId: row.senderId,
+        receiverId: row.receiverId,
+        carrierId: row.carrierId,
+        deliveredAt: row.deliveredAt,
+      };
+      const [reports, events] = await Promise.all([
+        adminShipmentRepository.listChatReports(id),
+        shipmentRepository.listEvents(id),
+      ]);
+
+      const items: AdminChatMessage[] = page.items.map((message) => ({
+        id: message.id,
+        authorId: message.authorId,
+        authorName: message.authorName,
+        authorRole: roleOf(message.authorId),
+        body: message.body,
+        moderated: message.moderated,
+        createdAt: message.createdAt.toISOString(),
+      }));
+
+      return {
+        items,
+        nextCursor: page.nextCursor,
+        partiesAccess: resolveChatAccess({ shipment: facts, viewerId: row.senderId, viewerRoles: [] }),
+        archived: isChatArchived(facts, new Date()),
+        reports: reports.map((report) => ({
+          reporterId: report.reporterId,
+          reporterRole: roleOf(report.reporterId),
+          createdAt: report.createdAt.toISOString(),
+        })),
+        events: events.map(toEvent),
+      };
     },
   );
 }

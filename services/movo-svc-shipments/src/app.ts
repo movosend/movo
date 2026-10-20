@@ -282,7 +282,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // MOVO-288: partes de un envío o de un reporte de chat, para la regla de conflicto de
   // interés de movo-svc-admin. Interno.
-  app.register(adminInternalRoutes, { prefix: "/internal" });
+  // MOVO-325: también listado, detalle, eventos, fotos y chat de los envíos para el panel.
+  app.register(adminInternalRoutes, {
+    prefix: "/internal",
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+  });
 
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
   // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.
