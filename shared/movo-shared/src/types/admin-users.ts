@@ -352,6 +352,46 @@ export interface AdminUserNoteBody {
   body: string;
 }
 
+/**
+ * Contratos INTERNOS (servicio dueño → `svc-admin`). Los servicios dueños solo conocen ids de
+ * usuario: `svc-admin` los cambia por nombres con `POST /internal/admin/users/names` de
+ * `svc-users` antes de responder al panel con los tipos de arriba.
+ */
+
+/** `GET /internal/admin/users/:id/shipments` de `svc-shipments`. */
+export interface AdminUserShipmentRow extends Omit<AdminUserShipment, "sender" | "carrier" | "receiver"> {
+  senderId: string;
+  carrierId: string | null;
+  receiverId: string;
+}
+
+export interface AdminUserShipmentRowPage extends Omit<AdminUserShipmentPage, "items"> {
+  items: AdminUserShipmentRow[];
+}
+
+/** `GET /internal/admin/users/:id/ratings` de `svc-shipments`. */
+export interface AdminUserRatingRow extends Omit<AdminUserRating, "rater"> {
+  raterId: string;
+}
+
+export interface AdminUserRatingRowPage extends Omit<AdminUserRatings, "items"> {
+  items: AdminUserRatingRow[];
+}
+
+/** `GET /internal/payments/admin/users/:id/ledger` de `svc-payments`. */
+export interface AdminUserLedgerRow extends Omit<AdminUserLedgerEntry, "adminName"> {
+  adminId: string | null;
+}
+
+export interface AdminUserLedgerRowPage extends Omit<AdminUserLedger, "items"> {
+  items: AdminUserLedgerRow[];
+}
+
+/** `POST /internal/admin/users/names` de `svc-users`: los ids que no existen no vuelven. */
+export interface AdminUserNames {
+  users: AdminUserRef[];
+}
+
 /** Tope de caracteres de la nota y del motivo de una acción. */
 export const ADMIN_NOTE_MAX_LENGTH = 1000;
 export const ADMIN_ACTION_REASON_MAX_LENGTH = 500;

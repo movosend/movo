@@ -388,4 +388,11 @@ export type {
   AdminUserNote,
   AdminUserNotePage,
   AdminUserNoteBody,
+  AdminUserShipmentRow,
+  AdminUserShipmentRowPage,
+  AdminUserRatingRow,
+  AdminUserRatingRowPage,
+  AdminUserLedgerRow,
+  AdminUserLedgerRowPage,
+  AdminUserNames,
 } from "./types/admin-users";

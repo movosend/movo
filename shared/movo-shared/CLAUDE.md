@@ -615,3 +615,7 @@ a mano, tocó fixtures de `movo-mobile`. Recordatorio habitual: `npm run build` 
 `AMOUNT_OUT_OF_RANGE` (422); el panel reusa `EMAIL_ALREADY_IN_USE`/`PHONE_ALREADY_IN_USE` y `LEDGER_IDEMPOTENCY_CONFLICT`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+MOVO-294 suma los contratos **internos** (servicio dueño → `svc-admin`), con ids de usuario en vez de nombres:
+`AdminUserShipmentRow(Page)`, `AdminUserRatingRow(Page)`, `AdminUserLedgerRow(Page)` y `AdminUserNames`. Se derivan de
+los públicos con `Omit`, así un campo nuevo en el contrato del panel aparece también en el interno.
+
