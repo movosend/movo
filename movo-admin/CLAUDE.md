@@ -133,3 +133,31 @@ sellada `__Host-movo-grant`, atada al id del admin, nunca en el formulario del p
 aceptada: la exigencia vive en el BFF; quien llame al gateway con un access token robado no pasa por
 ella (los tokens no llegan al navegador). Endurecerlo en `svc-admin` queda fuera de alcance.
 Pendiente: confirmar contra dev (sin acceso desde esta sesión) y revisar visualmente claro/oscuro.
+
+## MOVO-295 — Usuarios: buscador y ficha
+
+`/users` (buscador único por nombre, email, teléfono o DNI, 10 por página, `q`/`page` en la URL) y
+`/users/[id]` (ficha), fieles al prototipo de Claude Design (`Movo Admin Usuarios.dc.html`). Contratos en
+`shared/movo-shared/src/types/admin-users.ts` (se importan por `@movo/shared/src/types/...`); los define este
+ticket y los implementa MOVO-294, que los tiene anexados en su descripción.
+
+- **Carga por sección**: la página solo bloquea con `GET /admin/users/:id` (cabecera, banner); cada sección es un
+  Server Component dentro de su `<Suspense>` que llama a su propia ruta (`lib/users/load.ts`, que no lanza: devuelve
+  `{ ok: false, status }`), así salen en paralelo y un servicio caído solo rompe la suya (`SectionError`, "Reintentar"
+  = `router.refresh()`). Reportes y Bloqueos comparten `/moderation` (`loadModeration`, cacheado por render).
+  No se usaron Server Actions para cargar: Next las ejecuta en serie. Sí para cambiar de pestaña/página en
+  Actividad y Calificaciones (`app/users/[id]/actions.ts`), que piden solo esa página.
+- **Estado compartido** (`components/users/ficha-status.tsx`): cada sección publica `loading/ready/error`, su conteo y
+  su KPI con `ReportSection`; de ahí leen el índice lateral con scroll-spy (`ficha-index.tsx`) y la tira de KPIs.
+- **Modo fixtures**: `MOVO_ADMIN_MOCK=1` (nunca en producción) cambia solo `lib/users/api.ts` por `lib/users/mock.ts` +
+  `fixtures.ts` (los usuarios del prototipo). `MOVO_ADMIN_MOCK_FAIL=kyc,ledger` inyecta 502 por sección y
+  `MOVO_ADMIN_MOCK_LATENCY_MS` la demora. Para pasar a datos reales alcanza con apagar el flag cuando 294 esté en dev.
+- **Fuera del prototipo, agregado por los AC de 293**: Bitácora, tarjeta de Mercado Pago dentro de KYC y pestaña
+  Viajes en Actividad. Los envíos no tienen código propio: se muestra el ID corto y, cuando exista MOVO-33,
+  `shipmentHref()` en `activity-panel.tsx` es el único lugar a completar para linkear al detalle.
+- **Acciones sobre la cuenta**: el botón "Acciones" queda deshabilitado (lugar reservado para MOVO-36).
+- Tokens nuevos en `globals.css` (`--success-soft`, `--dot-*`, `--star`, `--shadow-1`, `.mv-grid-fade`, `.mv-dots-fade`).
+- `internalReturnPath` acepta ahora `/users[?query]` y `/users/<uuid>`.
+
+Pendiente: verificar a mano contra dev con un usuario con envíos, reportes y bloqueos (DoD de 295), que necesita
+MOVO-294 desplegado; hasta entonces la comparación visual con el prototipo se hace con `MOVO_ADMIN_MOCK=1`.

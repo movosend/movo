@@ -19,6 +19,7 @@ export default defineConfig({
         "app/**/*.{ts,tsx}",
         "components/**/*.tsx",
         "lib/auth/**/*.ts",
+        "lib/users/**/*.ts",
         "proxy.ts",
       ],
       exclude: ["**/*.test.{ts,tsx}", "components/ui/**"],
