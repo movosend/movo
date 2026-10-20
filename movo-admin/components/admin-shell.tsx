@@ -175,10 +175,7 @@ export function AdminShell({
             <span className="text-muted-foreground">/</span>
             {detailCrumb && section ? (
               <>
-                <Link
-                  href={section.href}
-                  className="hover:text-foreground"
-                >
+                <Link href={section.href} className="hover:text-foreground">
                   {section.label}
                 </Link>
                 <span className="text-muted-foreground">/</span>
