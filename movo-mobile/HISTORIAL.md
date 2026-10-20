@@ -4887,3 +4887,26 @@ con las que faltan (la baja es idempotente en el backend). Candidato a endpoint 
 - Entrada del envío en el menú ⋮ (consistente con el emisor) en vez del link del footer del prototipo; feedback con `SuccessBanner`, no toast.
 - Pendiente: probarlo en dispositivo contra dev con un envío a < 12 h y otro a > 12 h.
 
+
+### MOVO-168 — Estados de carga granulares y mapeo de dobles redirects
+
+**Skeletons.** Cada bloque de Inicio carga y falla por su cuenta: `RoleSection` (enviando/recibiendo), `CarrierTransportingSection` y
+`AttentionTaskList` muestran su skeleton mientras la query carga y un aviso con "Reintentar" local si falla (antes devolvían `null` en los dos
+casos, indistinguible de "no tenés nada"); con datos ya cargados la lista manda aunque un refetch falle. "Actividad reciente" cambió el spinner
+por filas skeleton. Estados compartidos en `components/home/home-section-states.tsx`; `useAttentionSourceShipments` ahora expone `isError`/`refetch`.
+**Perfil** ya no reemplaza la pantalla entera: cabecera y actividad tienen skeleton y error propios (`profile-section-states.tsx`) y Configuración y
+"Cerrar sesión" quedan usables aunque `GET /users/me` falle. **Detalle del envío** y **detalle disponible** muestran el header de entrada y el skeleton
+va solo en el cuerpo (`ShipmentDetailBodySkeleton`, con `tabs={false}` para el segundo). **Mis envíos**: conteos de las tarjetas de rol en skeleton
+(antes decían "0 activos" mientras cargaban) y el footer de paginación, también el de Transportar, es una fila skeleton. `SkeletonBlock` respeta
+"reducir movimiento" (queda quieto).
+- Los `ActivityIndicator` de `PaymentBreakdown`/`FundsStatus` se dejaron: marcan un pago "en proceso", no una carga de datos.
+- Las alturas de los skeletons de Inicio (`ACTIVE_CARD_SKELETON_HEIGHT` etc.) son estimadas contra las cards reales; **pendiente**: medirlas en
+  dispositivo (claro y oscuro) y ajustarlas para cerrar el CLS.
+
+**Dobles redirects.** Inventario de navegación (todo `movo-mobile`): `app/index.tsx` es la raíz del stack y seguía montada bajo `/login`,
+`/register`, `/kyc` y `/profile-photo`, así que sus efectos de arranque hacían un `replace` a la vez que la pantalla de encima (login, registro y foto:
+dos `replace` seguidos al mismo destino; en foto, además, podía saltear el paso). Fix: esos efectos solo navegan con `useIsFocused()`. Aparte, el
+cold start de una push hacía `push(target)` antes del `replace` de `index` y el deep link se perdía; ahora espera `initialRouteResolved` y se
+descarta si el KYC no está aprobado (los destinos viven en `(app)`). Sin cambios, ya guardados o de un solo salto: `offers.tsx` (`hasAcceptedRef`),
+`pushOnce`/`isSameRoute`, `dismissTo`, los `<Redirect>` de `mp-connect`/`scan`/`qr`, el guard de `(app)/_layout.tsx`. Fuera de alcance:
+`/` → `/auth/refresh` → `/` de `movo-admin` (302 intencional) y el 80 → 443 de nginx (un salto).
