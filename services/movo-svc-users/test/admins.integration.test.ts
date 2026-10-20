@@ -196,13 +196,14 @@ describe("Alta y baja del rol admin (MOVO-290)", () => {
       const response = await app.inject({ method: "GET", url: "/internal/admins" });
 
       expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body) as { id: string; fullName: string; email: string; status: string; grantedAt: string }[];
+      const body = JSON.parse(response.body) as { id: string; fullName: string; email: string; status: string; photoUrl: string | null; grantedAt: string }[];
       expect(body.map((admin) => admin.id)).toEqual([first.id, second.id]);
       expect(body[0]).toEqual({
         id: first.id,
         fullName: "Lucas Dalmagro",
         email: first.email,
         status: "active",
+        photoUrl: null,
         grantedAt: expect.any(String),
       });
     });

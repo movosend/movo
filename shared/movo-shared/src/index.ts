@@ -43,6 +43,7 @@ export type {
   UserReportEntry,
   UserReportPhoto,
   UserReportSummary,
+  AdminCandidate,
   AdminSummary,
 } from "./types/user";
 export { ShipmentStatus } from "./types/shipment";
