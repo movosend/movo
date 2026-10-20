@@ -58,10 +58,10 @@ import {
 /** Skeleton del modo filtrado por viaje (MOVO-163) -- sigue usando `AvailableShipmentCard`
  * (card individual, sin tocar), así que el placeholder mantiene su forma de bloque
  * redondeado. */
-function TransportCardSkeleton() {
+function TransportCardSkeleton({ cards = 4 }: { cards?: number }) {
   return (
     <View className="gap-3 px-5 pt-2">
-      {[0, 1, 2, 3].map((i) => (
+      {Array.from({ length: cards }, (_, i) => i).map((i) => (
         <Block key={i} className="h-[132px] rounded-[16px]" />
       ))}
     </View>
@@ -74,10 +74,10 @@ function TransportCardSkeleton() {
  * anterior (heredado de cuando el feed usaba `AvailableShipmentCard`) prometía cards
  * que ya no se renderizan, y el salto entre "lo que se ve cargando" y "lo que aparece"
  * quedaba raro (feedback de usuario). */
-function TransportRowSkeleton() {
+function TransportRowSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <View className="px-5 pt-2">
-      {[0, 1, 2, 3, 4].map((i) => (
+      {Array.from({ length: rows }, (_, i) => i).map((i) => (
         <View
           key={i}
           className={`flex-row items-stretch justify-between gap-3 py-[18px] ${
@@ -740,9 +740,10 @@ export default function TransportScreen() {
             <RefreshControl testID="transport-refresh" refreshing={isRefetching} onRefresh={() => refetch()} />
           }
           ListFooterComponent={
+            // MOVO-168: la página que viene entra con la silueta de una fila/card, no con un spinner.
             isFetchingNextPage ? (
-              <View className="items-center py-4">
-                <ActivityIndicator color={colors.fg3} />
+              <View testID="transport-next-page-skeleton">
+                {isTripMode ? <TransportCardSkeleton cards={1} /> : <TransportRowSkeleton rows={1} />}
               </View>
             ) : null
           }

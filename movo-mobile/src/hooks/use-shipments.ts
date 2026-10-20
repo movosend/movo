@@ -85,6 +85,8 @@ export function useAttentionSourceShipments() {
   return {
     data: tasks.data || offers.data ? { items } : undefined,
     isLoading: tasks.isLoading || offers.isLoading,
+    isError: tasks.isError || offers.isError,
+    refetch: () => Promise.all([tasks.refetch(), offers.refetch()]),
   };
 }
 

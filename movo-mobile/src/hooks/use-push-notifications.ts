@@ -3,7 +3,9 @@ import * as Notifications from "expo-notifications";
 import { useEffect, useRef } from "react";
 import { claimColdStart, claimNotificationResponse } from "../lib/notification-response-log";
 import { requestPermissionAndRegisterPushToken } from "../lib/push-registration";
+import { KycStatus } from "@movo/shared/dist/types/user";
 import { useAuthStore } from "../store/auth-store";
+import { useBootStore } from "../store/boot-store";
 
 /**
  * AC5: banner nativo del SO también con la app en foreground — no se construye un
@@ -217,6 +219,8 @@ export function usePushNotifications(): void {
   locationRef.current = { pathname, params };
 
   const registeredRef = useRef(false);
+  const kycApproved = useAuthStore((s) => s.user?.kycStatus === KycStatus.APPROVED);
+  const initialRouteResolved = useBootStore((s) => s.initialRouteResolved);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated" || registeredRef.current) return;
@@ -233,16 +237,24 @@ export function usePushNotifications(): void {
   // Manejo de cold start (app abierta desde la notificación estando cerrada)
   // Gated por `isNavigatorMounted` para no disparar router.push antes de que
   // el Root Layout monte el <Stack> (evita fallo en cold start).
+  //
+  // También espera a `initialRouteResolved`: `app/index.tsx` hace su propio `replace`
+  // de arranque (a `/home` o a `/kyc`, este último tras un `await`) y un `push` que
+  // llegue antes queda pisado por ese `replace` -- el deep link se perdía. Con la ruta
+  // de arranque ya resuelta, el destino se apila sobre `/home`. Si el usuario terminó en
+  // `/kyc` (KYC no aprobado) no se navega: los destinos viven en `(app)`, que exige KYC
+  // aprobado, y el toque se descarta.
   useEffect(() => {
-    if (sessionStatus !== "authenticated" || !isNavigatorMounted || !claimColdStart()) {
+    if (sessionStatus !== "authenticated" || !isNavigatorMounted || !initialRouteResolved) {
       return;
     }
+    if (!claimColdStart() || !kycApproved) return;
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
       handleNotificationResponse(response, locationRef.current);
     });
-  }, [sessionStatus, isNavigatorMounted]);
+  }, [sessionStatus, isNavigatorMounted, initialRouteResolved, kycApproved]);
 
   // Manejo de interacción con notificación recibida en foreground / background
   useEffect(() => {

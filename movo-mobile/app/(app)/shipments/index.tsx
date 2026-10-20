@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { ChevronLeft, PackageX, WifiOff } from "lucide-react-native";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, Text, View } from "react-native";
+import { Pressable, RefreshControl, Text, View } from "react-native";
 import { FlatList } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MyShipmentHistoryRow, MyShipmentRow } from "../../../components/shipments/my-shipment-row";
@@ -223,6 +223,7 @@ export default function MyShipmentsScreen() {
                 selected={role === r}
                 countLabel={summary.countLabel}
                 needsAction={summary.needsAction}
+                loading={isLoading}
                 onPress={() => handleRolePress(r)}
               />
             );
@@ -305,8 +306,8 @@ export default function MyShipmentsScreen() {
         }
         ListFooterComponent={
           isFetchingNextPage ? (
-            <View className="items-center py-4">
-              <ActivityIndicator color={colors.fg3} />
+            <View className="px-5 pb-4 pt-3">
+              <Block className="h-[72px] rounded-[10px]" />
             </View>
           ) : null
         }

@@ -1,4 +1,4 @@
-import { KycStatus } from '@movo/shared/dist/types/user';
+import { KycStatus, UserRole } from '@movo/shared/dist/types/user';
 import { useQueryClient } from '@tanstack/react-query';
 import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -41,11 +41,11 @@ import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
  * KYC de identidad esté aprobado (mismo criterio que ya usaba el banner).
  *
  * MOVO-193: "Estoy enviando"/"Voy a recibir" (`RoleSection`) consumen `GET
- * /shipments/sending`/`/receiving` (MOVO-192, todavía sin backend — ver
- * `ActiveShipmentSummary` en `shipments-client.ts`); mientras no exista, esas
- * queries fallan y las secciones no se renderizan. `CarrierTransportingSection`
+ * /shipments/sending`/`/receiving` (MOVO-192, ya desplegado — ver
+ * `ActiveShipmentSummary` en `shipments-client.ts`); cada sección carga y falla por su
+ * cuenta (MOVO-168), con skeleton y "Reintentar" locales. `CarrierTransportingSection`
  * (MOVO-252) usa `GET /shipments/transporting` y `GET /trips` para la sección
- * "Estoy transportando" visible al transportista en el home.
+ * "Estoy transportando", que solo se monta para el rol `CARRIER`.
  */
 const KYC_BANNER_TEXT: Partial<Record<KycStatus, string>> = {
   [KycStatus.NOT_STARTED]: 'Todavía no verificaste tu identidad. Mientras tanto, tu acceso está restringido.',
@@ -63,8 +63,10 @@ export default function AuthenticatedHomeScreen() {
   const { user } = useAuth();
   const { data: profile } = useMyProfile();
   const colors = useThemeColors();
-  const { data: sending } = useSendingShipments();
-  const { data: receiving } = useReceivingShipments();
+  const sendingQuery = useSendingShipments();
+  const sending = sendingQuery.data;
+  const receivingQuery = useReceivingShipments();
+  const receiving = receivingQuery.data;
   const { data: chats } = useChatList();
   // Solo los envíos que ya tienen chat llevan el botón en su card.
   const chatByShipment = Object.fromEntries((chats ?? []).map((item) => [item.shipmentId, { unreadCount: item.unreadCount }]));
@@ -78,6 +80,9 @@ export default function AuthenticatedHomeScreen() {
       void useAuthStore.getState().updateKycStatus(profile.kycStatus);
     }
   }, [profile?.kycStatus, user?.kycStatus]);
+
+  // Skeleton y error de "Estoy transportando" solo le corresponden a quien es transportista.
+  const isCarrier = (profile?.roles ?? user?.roles)?.includes(UserRole.CARRIER) ?? false;
 
   const bannerText = currentKycStatus ? KYC_BANNER_TEXT[currentKycStatus] : undefined;
   const tone = currentKycStatus ? kycStatusTone(currentKycStatus) : "warning";
@@ -197,7 +202,7 @@ export default function AuthenticatedHomeScreen() {
 
         <TrackingActiveIndicator />
 
-        <CarrierTransportingSection testID="app-home-transporting" />
+        {isCarrier ? <CarrierTransportingSection testID="app-home-transporting" /> : null}
 
         <RoleSection
           testID="app-home-sending"
@@ -205,6 +210,9 @@ export default function AuthenticatedHomeScreen() {
           role="sending"
           shipments={sending ?? []}
           chatByShipment={chatByShipment}
+          isLoading={sendingQuery.isLoading}
+          isError={sendingQuery.isError}
+          onRetry={() => void sendingQuery.refetch()}
         />
         <RoleSection
           testID="app-home-receiving"
@@ -212,6 +220,9 @@ export default function AuthenticatedHomeScreen() {
           role="receiving"
           shipments={receiving ?? []}
           chatByShipment={chatByShipment}
+          isLoading={receivingQuery.isLoading}
+          isError={receivingQuery.isError}
+          onRetry={() => void receivingQuery.refetch()}
         />
 
         <HomeSendCta

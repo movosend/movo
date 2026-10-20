@@ -3,7 +3,7 @@ import type {
   ReputationBreakdown,
   TransactionCounts,
 } from "@movo/shared/dist/types/user-profile";
-import { ChevronRight, Package, Star, Truck } from "lucide-react-native";
+import { ChevronRight, Package, Star, Truck, WifiOff } from "lucide-react-native";
 import { useState } from "react";
 import {
   Pressable,
@@ -21,6 +21,7 @@ import {
   formatTripCount,
 } from "../../src/lib/profile-format";
 import { GradientBorderCard } from "../ui/gradient-border-card";
+import { SkeletonBlock } from "../ui/skeleton-block";
 import { StarRatingInput } from "../ui/star-rating-input";
 import { ReputationCommentCard } from "./reputation-comment-card";
 
@@ -42,6 +43,12 @@ export interface ProfileActivityCardProps {
    * `undefined` mientras no resuelve: la card se muestra igual, solo sin la sección de
    * reputación (degrada sin romper, mismo criterio que antes). */
   reputation?: ProfileActivityCardReputation;
+  /** MOVO-168: la reputación viene de una segunda query -- mientras carga se ve la silueta de su
+   * sección en vez de que aparezca de golpe y empuje lo de abajo. */
+  reputationLoading?: boolean;
+  /** MOVO-168: si esa segunda query falla, el aviso queda dentro de la card, con reintento local. */
+  reputationError?: boolean;
+  onRetryReputation?: () => void;
   onViewAllRatings?: () => void;
   testID?: string;
 }
@@ -73,6 +80,9 @@ export function ProfileActivityCard({
   reputationScore,
   isNewProfile,
   reputation,
+  reputationLoading = false,
+  reputationError = false,
+  onRetryReputation,
   onViewAllRatings,
   testID,
 }: ProfileActivityCardProps) {
@@ -145,6 +155,15 @@ export function ProfileActivityCard({
             </GradientBorderCard>
           ))}
         </View>
+
+        {!reputation && reputationLoading ? (
+          <ReputationSkeleton testID={testID ? `${testID}-reputation-skeleton` : undefined} />
+        ) : !reputation && reputationError ? (
+          <ReputationError
+            testID={testID ? `${testID}-reputation-error` : undefined}
+            onRetry={onRetryReputation}
+          />
+        ) : null}
 
         {showReputationSection && breakdown ? (
           <View testID={testID ? `${testID}-reputation` : undefined} style={{ marginTop: 18 }}>
@@ -274,5 +293,50 @@ export function ProfileActivityCard({
         ) : null}
       </View>
     </GradientBorderCard>
+  );
+}
+
+/** Silueta de "Tu reputación" (divisor, título, puntaje con estrellas, nota, y el encabezado + una
+ * card de comentario): mismos márgenes que la sección real, para que no empuje lo de abajo al llegar. */
+function ReputationSkeleton({ testID }: { testID?: string }) {
+  return (
+    <View testID={testID} style={{ marginTop: 18 }}>
+      <View className="mb-4 h-px bg-border" />
+      <SkeletonBlock className="mb-3 h-6 w-36 rounded-md" />
+      <View className="mb-2.5 flex-row items-center gap-4">
+        <View className="gap-1">
+          <SkeletonBlock className="h-[38px] w-16 rounded-md" />
+          <SkeletonBlock className="h-3 w-14 rounded" />
+        </View>
+        <SkeletonBlock className="h-4 w-28 rounded" />
+      </View>
+      <SkeletonBlock className="mb-5 h-3 w-4/5 rounded" />
+      <SkeletonBlock className="mb-2.5 h-4 w-40 rounded" />
+      <SkeletonBlock style={{ width: CARD_WIDTH }} className="h-[96px] rounded-2xl" />
+    </View>
+  );
+}
+
+function ReputationError({ testID, onRetry }: { testID?: string; onRetry?: () => void }) {
+  const colors = useThemeColors();
+  return (
+    <View testID={testID} style={{ marginTop: 18 }}>
+      <View className="mb-4 h-px bg-border" />
+      <View className="items-center gap-2 py-3">
+        <WifiOff size={20} strokeWidth={1.8} color={colors.fg3} />
+        <Text className="text-center font-sans text-small text-fg-2">No pudimos cargar tu reputación.</Text>
+        {onRetry ? (
+          <Pressable
+            testID={testID ? `${testID}-retry` : undefined}
+            accessibilityRole="button"
+            onPress={onRetry}
+            hitSlop={8}
+            className="min-h-[44px] items-center justify-center px-4"
+          >
+            <Text className="font-sans-medium text-small text-fg">Reintentar</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
   );
 }
