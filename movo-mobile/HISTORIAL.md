@@ -4887,3 +4887,24 @@ con las que faltan (la baja es idempotente en el backend). Candidato a endpoint 
 - Entrada del envío en el menú ⋮ (consistente con el emisor) en vez del link del footer del prototipo; feedback con `SuccessBanner`, no toast.
 - Pendiente: probarlo en dispositivo contra dev con un envío a < 12 h y otro a > 12 h.
 
+
+### MOVO-169 — Tutorial in-app con coach marks
+
+Dos tours (prototipo `prototipo-tutorial.dc.html`, textos y orden tal cual): "Primeros pasos" (`src/tours/first-steps.ts`)
+arranca solo en Inicio con la identidad aprobada; "Cómo transportar" (`src/tours/carrier.ts`) en Transportar con `canBrowse`.
+Motor propio: `src/store/tour-store.ts` (tour activo, pasos visibles, registro de anclas), `useTourAnchor(id)` (mide con
+`measureInWindow` recién cuando el paso es el suyo, no al hacer layout) y `components/tour/tour-overlay.tsx`, montado en
+`app/(app)/_layout.tsx` como `View` absoluto (spotlight con `Mask` de react-native-svg, `tour-spotlight.tsx`). Persistencia en
+`movo-svc-users` (`PUT /users/me/tours/:tourId`, `useRecordTour`) con update optimista del perfil cacheado. "Ayuda y soporte" de
+Perfil abre `TourReplaySheet` para relanzar a mano, sin escribir el registro.
+
+- Decisión: los `when` de cada paso se evalúan una sola vez al arrancar (`TourContext`: nombre, `canBrowse`, hay envíos en el feed),
+  así "Paso X de N" no cambia a mitad del tour. Un ancla que no aparece en 1,5 s saca el paso de la lista.
+- Decisión: el tour espera mientras haya un `Modal` bloqueante encima (`src/store/blocking-gates-store.ts`, lo publican
+  `BlockingGatesMount` y `TripMatchAlertBanner`). Antes del splash cuenta como bloqueado.
+- Decisión: un `PUT` que falla queda guardado en secure-store (`src/lib/tour-pending.ts`, por cuenta) y se reintenta al arrancar
+  (`usePendingToursFlush`); mientras tanto cuenta como visto. La app no usa AsyncStorage.
+- `useTransportGate` (`src/hooks/use-transport-gate.ts`) saca de `transport.tsx` la regla de `canBrowse`, sin cambio de
+  comportamiento; la usan también Inicio (último paso del Tour 1) y el sheet de Perfil.
+- La card del tooltip y del modal es siempre blanca (`bg-paper`), como el prototipo: va sobre el scrim oscuro en los dos temas.
+- Pendiente: probarlo en dispositivo (posiciones medidas, tab bar colapsada, checklist con su propio velo del 40 %).
