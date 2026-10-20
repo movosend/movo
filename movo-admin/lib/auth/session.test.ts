@@ -208,7 +208,7 @@ describe("sesión del BFF", () => {
   })
   it("limpia todas las cookies con sus atributos de seguridad", async () => {
     await clearSession()
-    expect(mocks.set).toHaveBeenCalledTimes(3)
+    expect(mocks.set).toHaveBeenCalledTimes(4)
     for (const [, value, options] of mocks.set.mock.calls) {
       expect(value).toBe("")
       expect(options).toMatchObject({ maxAge: 0, secure: true })

@@ -2,6 +2,7 @@ export const ACCESS_COOKIE = "__Host-movo-access"
 export const REFRESH_COOKIE = "__Host-movo-refresh"
 export const CHALLENGE_COOKIE = "__Host-movo-challenge"
 export const RESET_COOKIE = "__Host-movo-reset"
+export const GRANT_COOKIE = "__Host-movo-grant"
 export const PASSWORD_CHANGED = "Cambiaste tu contraseña. Ingresá con la nueva."
 export const SESSION_EXPIRED = "Tu sesión venció. Volvé a iniciar sesión"
 export function internalReturnPath(value: string | null): string {
