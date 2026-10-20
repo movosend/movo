@@ -13,7 +13,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react"
-import { RotateCw, Search, TriangleAlert } from "lucide-react"
+import { PanelLeftClose, RotateCw, Search, TriangleAlert } from "lucide-react"
 import {
   SUPPORT_STATUSES,
   SUPPORT_WAIT_ALERT_MINUTES,
@@ -39,6 +39,7 @@ import {
   previewOf,
   PRIORITY_DOT,
 } from "./format"
+import { usePanels } from "./panel-layout"
 import { useSupportMessages } from "./support-provider"
 import { TopicIcon } from "./topic-icon"
 
@@ -81,8 +82,7 @@ function Row({
 }) {
   const waiting = row.status === "open"
   const late = waiting && row.waitMinutes >= SUPPORT_WAIT_ALERT_MINUTES
-  const wait =
-    row.waitMinutes < 1 ? "recién" : `espera ${row.waitMinutes} min`
+  const wait = row.waitMinutes < 1 ? "recién" : `espera ${row.waitMinutes} min`
   return (
     <Link
       href={href}
@@ -102,7 +102,10 @@ function Row({
               title={`Prioridad ${PRIORITY_LABEL[row.priority].toLowerCase()}`}
               role="img"
               aria-label={`Prioridad ${PRIORITY_LABEL[row.priority].toLowerCase()}`}
-              className={cn("size-2 shrink-0 rounded-full", PRIORITY_DOT[row.priority])}
+              className={cn(
+                "size-2 shrink-0 rounded-full",
+                PRIORITY_DOT[row.priority]
+              )}
             />
           )}
           <span
@@ -137,7 +140,9 @@ function Row({
                   ? "V"
                   : firstName(row.assignee.fullName)[0]}
               </span>
-              <span className="sr-only">Asignada a {row.assignee.fullName}</span>
+              <span className="sr-only">
+                Asignada a {row.assignee.fullName}
+              </span>
             </span>
           )}
         </span>
@@ -184,6 +189,7 @@ function ListSkeleton() {
  */
 export function ConversationList({ meId }: { meId: string }) {
   const router = useRouter()
+  const { toggle } = usePanels()
   const pathname = usePathname()
   const { id: selectedId } = useParams<{ id?: string }>()
   const { status, owner, q } = useInboxFilters()
@@ -203,9 +209,11 @@ export function ConversationList({ meId }: { meId: string }) {
   const counts = fresh?.counts ?? data?.counts ?? null
   const next = fresh?.next ?? null
   const error = failedKey === key
-  const setItems = (update: (all: SupportConversationRow[] | null) => SupportConversationRow[]) =>
-    setData((d) => (d ? { ...d, items: update(d.items) } : d))
-  const setNext = (value: string | null) => setData((d) => (d ? { ...d, next: value } : d))
+  const setItems = (
+    update: (all: SupportConversationRow[] | null) => SupportConversationRow[]
+  ) => setData((d) => (d ? { ...d, items: update(d.items) } : d))
+  const setNext = (value: string | null) =>
+    setData((d) => (d ? { ...d, next: value } : d))
   const [moreError, setMoreError] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const abort = useRef<AbortController | null>(null)
@@ -228,28 +236,30 @@ export function ConversationList({ meId }: { meId: string }) {
     return `/support/${id}${query ? `?${query}` : ""}`
   }
 
-  const load = useCallback(
-    () => {
-      abort.current?.abort()
-      const controller = new AbortController()
-      abort.current = controller
-      const filters = { status, assignee: ASSIGNEE[owner], q: q || undefined }
-      Promise.all([
-        supportClient.list(filters, controller.signal),
-        supportClient.counts(filters, controller.signal),
-      ])
-        .then(([page, nextCounts]) => {
-          setData({ key, items: page.items, next: page.nextCursor, counts: nextCounts })
-          setFailedKey(null)
-          setMoreError(false)
+  const load = useCallback(() => {
+    abort.current?.abort()
+    const controller = new AbortController()
+    abort.current = controller
+    const filters = { status, assignee: ASSIGNEE[owner], q: q || undefined }
+    Promise.all([
+      supportClient.list(filters, controller.signal),
+      supportClient.counts(filters, controller.signal),
+    ])
+      .then(([page, nextCounts]) => {
+        setData({
+          key,
+          items: page.items,
+          next: page.nextCursor,
+          counts: nextCounts,
         })
-        .catch((e: unknown) => {
-          if ((e as { name?: string }).name === "AbortError") return
-          setFailedKey(key)
-        })
-    },
-    [status, owner, q, key]
-  )
+        setFailedKey(null)
+        setMoreError(false)
+      })
+      .catch((e: unknown) => {
+        if ((e as { name?: string }).name === "AbortError") return
+        setFailedKey(key)
+      })
+  }, [status, owner, q, key])
 
   // Carga inicial y al cambiar pestaña, chip o búsqueda.
   useEffect(() => {
@@ -275,23 +285,32 @@ export function ConversationList({ meId }: { meId: string }) {
   // En vivo: cualquier cambio vuelve a pedir la primera página (el orden lo decide el backend).
   const refresh = useRef<ReturnType<typeof setTimeout> | null>(null)
   useSupportMessages((message) => {
-    if (message.type === "event" && message.event.type === "counts_updated") return
+    if (message.type === "event" && message.event.type === "counts_updated")
+      return
     if (refresh.current) clearTimeout(refresh.current)
     refresh.current = setTimeout(
       () => load(),
       message.type === "resync" ? 0 : REFRESH_DEBOUNCE_MS
     )
   })
-  useEffect(() => () => {
-    if (refresh.current) clearTimeout(refresh.current)
-  }, [])
+  useEffect(
+    () => () => {
+      if (refresh.current) clearTimeout(refresh.current)
+    },
+    []
+  )
 
   const more = () => {
     if (!next || loadingMore) return
     setLoadingMore(true)
     setMoreError(false)
     supportClient
-      .list({ status, assignee: ASSIGNEE[owner], q: q || undefined, cursor: next })
+      .list({
+        status,
+        assignee: ASSIGNEE[owner],
+        q: q || undefined,
+        cursor: next,
+      })
       .then((page) => {
         setItems((all) => [...(all ?? []), ...page.items])
         setNext(page.nextCursor)
@@ -303,10 +322,15 @@ export function ConversationList({ meId }: { meId: string }) {
   // ↑/↓ mueven el foco entre filas; Enter abre (es un link).
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return
-    const rows = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-row]") ?? [])]
+    const rows = [
+      ...(listRef.current?.querySelectorAll<HTMLElement>("[data-row]") ?? []),
+    ]
     if (!rows.length) return
     const at = rows.indexOf(document.activeElement as HTMLElement)
-    const to = e.key === "ArrowDown" ? Math.min(rows.length - 1, at + 1) : Math.max(0, at - 1)
+    const to =
+      e.key === "ArrowDown"
+        ? Math.min(rows.length - 1, at + 1)
+        : Math.max(0, at - 1)
     e.preventDefault()
     rows[at < 0 ? 0 : to]?.focus()
   }
@@ -333,7 +357,9 @@ export function ConversationList({ meId }: { meId: string }) {
                 type="button"
                 role="tab"
                 aria-selected={on}
-                onClick={() => router.replace(href({ status: value }), { scroll: false })}
+                onClick={() =>
+                  router.replace(href({ status: value }), { scroll: false })
+                }
                 className={cn(
                   "flex h-[30px] min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-md px-1 text-xs font-medium whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   on
@@ -349,7 +375,11 @@ export function ConversationList({ meId }: { meId: string }) {
             )
           })}
         </div>
-        <div role="group" aria-label="Asignación" className="flex flex-wrap gap-1.5">
+        <div
+          role="group"
+          aria-label="Asignación"
+          className="flex flex-wrap gap-1.5"
+        >
           {OWNERS.map(({ value, label }) => {
             const on = value === owner
             const count = ownerCount(value)
@@ -358,7 +388,9 @@ export function ConversationList({ meId }: { meId: string }) {
                 key={value}
                 type="button"
                 aria-pressed={on}
-                onClick={() => router.replace(href({ owner: value }), { scroll: false })}
+                onClick={() =>
+                  router.replace(href({ owner: value }), { scroll: false })
+                }
                 className={cn(
                   "flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   on
@@ -383,18 +415,29 @@ export function ConversationList({ meId }: { meId: string }) {
             )
           })}
         </div>
-        <label className="flex h-9 items-center gap-2 rounded-lg border border-border-strong bg-card px-2.5 text-muted-foreground focus-within:ring-2 focus-within:ring-ring">
-          <Search aria-hidden className="size-4 shrink-0" />
-          <input
-            type="search"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            maxLength={100}
-            placeholder="Buscá por nombre, SOP o código de envío"
-            aria-label="Buscar consultas"
-            className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </label>
+        <div className="flex items-center gap-2">
+          <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border-strong bg-card px-2.5 text-muted-foreground focus-within:ring-2 focus-within:ring-ring">
+            <Search aria-hidden className="size-4 shrink-0" />
+            <input
+              type="search"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              maxLength={100}
+              placeholder="Buscá por nombre, SOP o código de envío"
+              aria-label="Buscar consultas"
+              className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => toggle("list")}
+            aria-label="Ocultar la lista de consultas"
+            title="Ocultar la lista de consultas"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border-strong text-fg2 outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring max-md:hidden"
+          >
+            <PanelLeftClose aria-hidden className="size-4" />
+          </button>
+        </div>
       </div>
       <div
         ref={listRef}
@@ -419,7 +462,9 @@ export function ConversationList({ meId }: { meId: string }) {
           <ListSkeleton />
         ) : items.length === 0 ? (
           <p className="px-5 py-8 text-center text-[13px] text-muted-foreground">
-            {q ? "No hay consultas que coincidan con la búsqueda." : EMPTY_TEXT[status]}
+            {q
+              ? "No hay consultas que coincidan con la búsqueda."
+              : EMPTY_TEXT[status]}
           </p>
         ) : (
           <>
@@ -439,8 +484,17 @@ export function ConversationList({ meId }: { meId: string }) {
                     No pudimos traer más consultas.
                   </span>
                 )}
-                <Button size="sm" variant="outline" disabled={loadingMore} onClick={more}>
-                  {loadingMore ? "Cargando…" : moreError ? "Reintentar" : "Cargar más"}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={loadingMore}
+                  onClick={more}
+                >
+                  {loadingMore
+                    ? "Cargando…"
+                    : moreError
+                      ? "Reintentar"
+                      : "Cargar más"}
                 </Button>
               </div>
             )}

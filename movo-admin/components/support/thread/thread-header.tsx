@@ -1,6 +1,13 @@
 "use client"
 import { useState } from "react"
-import { Check, ChevronDown, RotateCcw, UserRound } from "lucide-react"
+import {
+  Check,
+  ChevronDown,
+  PanelRightClose,
+  PanelRightOpen,
+  RotateCcw,
+  UserRound,
+} from "lucide-react"
 import {
   SUPPORT_PRIORITIES,
   SUPPORT_TOPICS,
@@ -23,6 +30,7 @@ import {
   TOPIC_LABEL,
 } from "@/lib/support/labels"
 import { cn } from "@/lib/utils"
+import { ExpandListButton } from "../inbox-frame"
 import { MenuHeading } from "../menu-heading"
 import { firstName, PRIORITY_DOT, STATUS_TONE } from "../format"
 import { TopicIcon } from "../topic-icon"
@@ -44,6 +52,7 @@ export function ThreadHeader({
   onStatus,
   onToggleContext,
   contextOpen,
+  wide,
 }: {
   conversation: SupportConversation
   meId: string
@@ -53,7 +62,9 @@ export function ThreadHeader({
   onPatch: (body: SupportPatchBody) => void
   onStatus: (action: "resolve" | "reopen") => void
   onToggleContext: () => void
+  /** Abierto: el `Sheet` (pantallas angostas) o la columna (anchas). */
   contextOpen: boolean
+  wide: boolean
 }) {
   const [agents, setAgents] = useState<SupportAgent[] | null>(null)
   const [agentsError, setAgentsError] = useState(false)
@@ -61,6 +72,11 @@ export function ThreadHeader({
   const assignee = conversation.assignee
   const resolved = conversation.status === "resolved"
   const off = busy || readOnly
+  const contextLabel = !wide
+    ? "Ficha del usuario"
+    : contextOpen
+      ? "Ocultar la ficha del usuario"
+      : "Mostrar la ficha del usuario"
 
   const loadAgents = (open: boolean) => {
     if (!open) return
@@ -73,22 +89,29 @@ export function ThreadHeader({
 
   return (
     <div className="flex min-h-16 shrink-0 flex-wrap items-center gap-3 border-b bg-card px-5 py-2.5">
+      <ExpandListButton />
       <UserAvatar name={conversation.user.fullName} size={36} />
       <div className="flex min-w-[180px] flex-1 flex-col gap-0.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-[15px] font-semibold">{conversation.user.fullName}</h1>
+          <h1 className="text-[15px] font-semibold">
+            {conversation.user.fullName}
+          </h1>
           <span
             className={cn(
               "inline-flex h-[22px] items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
               tone.pill
             )}
           >
-            <span aria-hidden className={cn("size-1.5 rounded-full", tone.dot)} />
+            <span
+              aria-hidden
+              className={cn("size-1.5 rounded-full", tone.dot)}
+            />
             {STATUS_LABEL[conversation.status]}
           </span>
         </div>
         <span className="text-xs text-muted-foreground">
-          {ROLE_LABEL[conversation.user.role]} · {TOPIC_LABEL[conversation.topic]} ·{" "}
+          {ROLE_LABEL[conversation.user.role]} ·{" "}
+          {TOPIC_LABEL[conversation.topic]} ·{" "}
           <span className="font-mono">{conversation.code}</span>
         </span>
       </div>
@@ -99,18 +122,22 @@ export function ThreadHeader({
               aria-hidden
               className={cn(
                 "flex size-5 items-center justify-center rounded-full text-[8px] font-semibold",
-                assignee ? "bg-avatar" : "border border-dashed border-border-strong"
+                assignee
+                  ? "bg-avatar"
+                  : "border border-dashed border-border-strong"
               )}
             >
               {assignee ? firstName(assignee.fullName)[0] : ""}
             </span>
-            {assignee ? (assignee.id === meId ? "Vos" : firstName(assignee.fullName)) : "Sin asignar"}
+            {assignee
+              ? assignee.id === meId
+                ? "Vos"
+                : firstName(assignee.fullName)
+              : "Sin asignar"}
             <ChevronDown aria-hidden className="size-3.5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
-            <MenuHeading>
-              Asignar a
-            </MenuHeading>
+            <MenuHeading>Asignar a</MenuHeading>
             <DropdownMenuItem onClick={() => onPatch({ assignedTo: null })}>
               <span className="flex size-[22px] items-center justify-center rounded-full border border-dashed border-border-strong" />
               <span className="flex-1">Sin asignar</span>
@@ -122,37 +149,60 @@ export function ThreadHeader({
               </div>
             )}
             {!agents && !agentsError && (
-              <div className="px-2.5 py-2 text-xs text-muted-foreground">Cargando…</div>
+              <div className="px-2.5 py-2 text-xs text-muted-foreground">
+                Cargando…
+              </div>
             )}
             {agents?.map((agent) => (
-              <DropdownMenuItem key={agent.id} onClick={() => onPatch({ assignedTo: agent.id })}>
+              <DropdownMenuItem
+                key={agent.id}
+                onClick={() => onPatch({ assignedTo: agent.id })}
+              >
                 <span className="flex size-[22px] items-center justify-center rounded-full bg-avatar text-[9px] font-semibold">
                   {firstName(agent.fullName)[0]}
                 </span>
                 <span className="flex-1">
-                  {agent.id === meId ? `${agent.fullName} (vos)` : agent.fullName}
+                  {agent.id === meId
+                    ? `${agent.fullName} (vos)`
+                    : agent.fullName}
                 </span>
-                <span className="text-xs text-muted-foreground">{agent.activeCount} activas</span>
-                {assignee?.id === agent.id && <Check aria-hidden className="size-4" />}
+                <span className="text-xs text-muted-foreground">
+                  {agent.activeCount} activas
+                </span>
+                {assignee?.id === agent.id && (
+                  <Check aria-hidden className="size-4" />
+                )}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
         <DropdownMenu>
           <DropdownMenuTrigger disabled={off} className={trigger}>
-            <span aria-hidden className={cn("size-2 rounded-full", PRIORITY_DOT[conversation.priority])} />
+            <span
+              aria-hidden
+              className={cn(
+                "size-2 rounded-full",
+                PRIORITY_DOT[conversation.priority]
+              )}
+            />
             {PRIORITY_LABEL[conversation.priority]}
             <ChevronDown aria-hidden className="size-3.5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            <MenuHeading>
-              Prioridad
-            </MenuHeading>
+            <MenuHeading>Prioridad</MenuHeading>
             {SUPPORT_PRIORITIES.map((p) => (
-              <DropdownMenuItem key={p} onClick={() => onPatch({ priority: p })}>
-                <span aria-hidden className={cn("size-2 rounded-full", PRIORITY_DOT[p])} />
+              <DropdownMenuItem
+                key={p}
+                onClick={() => onPatch({ priority: p })}
+              >
+                <span
+                  aria-hidden
+                  className={cn("size-2 rounded-full", PRIORITY_DOT[p])}
+                />
                 <span className="flex-1">{PRIORITY_LABEL[p]}</span>
-                {conversation.priority === p && <Check aria-hidden className="size-4" />}
+                {conversation.priority === p && (
+                  <Check aria-hidden className="size-4" />
+                )}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -164,14 +214,14 @@ export function ThreadHeader({
             <ChevronDown aria-hidden className="size-3.5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            <MenuHeading>
-              Tema
-            </MenuHeading>
+            <MenuHeading>Tema</MenuHeading>
             {SUPPORT_TOPICS.map((t) => (
               <DropdownMenuItem key={t} onClick={() => onPatch({ topic: t })}>
                 <TopicIcon topic={t} className="size-4" />
                 <span className="flex-1">{TOPIC_LABEL[t]}</span>
-                {conversation.topic === t && <Check aria-hidden className="size-4" />}
+                {conversation.topic === t && (
+                  <Check aria-hidden className="size-4" />
+                )}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -200,15 +250,23 @@ export function ThreadHeader({
         <button
           type="button"
           onClick={onToggleContext}
-          aria-label="Ficha del usuario"
+          aria-label={contextLabel}
           aria-expanded={contextOpen}
-          title="Ficha del usuario"
+          title={contextLabel}
           className={cn(
-            "flex size-8 items-center justify-center rounded-lg border border-border-strong outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1360px]:hidden",
+            "flex size-8 items-center justify-center rounded-lg border border-border-strong outline-none focus-visible:ring-2 focus-visible:ring-ring",
             contextOpen ? "bg-muted" : "bg-card"
           )}
         >
-          <UserRound aria-hidden className="size-4" />
+          {wide ? (
+            contextOpen ? (
+              <PanelRightClose aria-hidden className="size-4" />
+            ) : (
+              <PanelRightOpen aria-hidden className="size-4" />
+            )
+          ) : (
+            <UserRound aria-hidden className="size-4" />
+          )}
         </button>
       </div>
     </div>

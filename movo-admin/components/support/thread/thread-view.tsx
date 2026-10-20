@@ -20,7 +20,9 @@ import {
 } from "@/app/support/actions"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { supportClient } from "@/lib/support/client"
+import { cn } from "@/lib/utils"
 import { ContextPanel, type ContextState } from "../context-panel"
+import { ResizeHandle, usePanels } from "../panel-layout"
 import { useSupportMessages } from "../support-provider"
 import { Composer, type ComposerSend } from "./composer"
 import { MessageList, type DisplayMessage } from "./message-list"
@@ -37,7 +39,10 @@ const CONFLICT_TEXT =
   "Esta consulta es tuya: no podés responderla ni modificarla. Pedile a otra persona del equipo que la atienda."
 
 /** Une mensajes por id (sin duplicar lo que llega por evento y por respuesta) y los ordena por fecha. */
-function merge(current: SupportMessage[], incoming: SupportMessage[]): SupportMessage[] {
+function merge(
+  current: SupportMessage[],
+  incoming: SupportMessage[]
+): SupportMessage[] {
   const byId = new Map(current.map((m) => [m.id, m]))
   for (const m of incoming) byId.set(m.id, m)
   return [...byId.values()].sort(
@@ -71,10 +76,15 @@ export function ThreadView({
   const [pending, setPending] = useState<DisplayMessage[]>([])
   const payloads = useRef(new Map<string, Payload>())
   const [context, setContext] = useState<ContextState>({ status: "loading" })
-  const [contextOpen, setContextOpen] = useState(false)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const { state: panels, dragging, wide, toggle } = usePanels()
+  // Ancho: la columna se puede colapsar; angosto: el Sheet.
+  const contextOpen = wide ? !panels.contextCollapsed : sheetOpen
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  const [conflict, setConflict] = useState(initialConversation.user.id === me.id)
+  const [conflict, setConflict] = useState(
+    initialConversation.user.id === me.id
+  )
 
   const fetchContext = useCallback(() => {
     supportClient
@@ -103,11 +113,16 @@ export function ThreadView({
         const message = event.message
         if (message.clientMessageId) {
           payloads.current.delete(message.clientMessageId)
-          setPending((all) => all.filter((p) => p.clientMessageId !== message.clientMessageId))
+          setPending((all) =>
+            all.filter((p) => p.clientMessageId !== message.clientMessageId)
+          )
         }
         setMessages((all) => merge(all, [message]))
         setConversation((c) => ({ ...c, ...event.conversation }))
-      } else if (event.type === "conversation_updated" && event.conversation.id === id) {
+      } else if (
+        event.type === "conversation_updated" &&
+        event.conversation.id === id
+      ) {
         setConversation((c) => ({ ...c, ...event.conversation }))
       }
     },
@@ -154,14 +169,18 @@ export function ThreadView({
       })
       if (result.ok) {
         payloads.current.delete(clientMessageId)
-        setPending((all) => all.filter((p) => p.clientMessageId !== clientMessageId))
+        setPending((all) =>
+          all.filter((p) => p.clientMessageId !== clientMessageId)
+        )
         setMessages((all) => merge(all, [result.data]))
         return
       }
       if (result.code === SUPPORT_ERROR.CONFLICT) {
         setConflict(true)
         payloads.current.delete(clientMessageId)
-        setPending((all) => all.filter((p) => p.clientMessageId !== clientMessageId))
+        setPending((all) =>
+          all.filter((p) => p.clientMessageId !== clientMessageId)
+        )
         return
       }
       setPending((all) =>
@@ -185,7 +204,9 @@ export function ThreadView({
     const payload: Payload = {
       body: input.body,
       internal: input.internal,
-      attachmentIds: input.attachments.flatMap((a) => (a.attachmentId ? [a.attachmentId] : [])),
+      attachmentIds: input.attachments.flatMap((a) =>
+        a.attachmentId ? [a.attachmentId] : []
+      ),
       attachments,
     }
     payloads.current.set(clientMessageId, payload)
@@ -201,7 +222,9 @@ export function ThreadView({
     }
     setPending((all) => [
       ...all,
-      input.internal ? { kind: "internal_note", ...base } : { kind: "agent", ...base },
+      input.internal
+        ? { kind: "internal_note", ...base }
+        : { kind: "agent", ...base },
     ])
     void deliver(clientMessageId, payload)
   }
@@ -211,14 +234,18 @@ export function ThreadView({
     if (!payload) return
     setPending((all) =>
       all.map((p) =>
-        p.clientMessageId === clientMessageId ? { ...p, pending: { state: "sending" } } : p
+        p.clientMessageId === clientMessageId
+          ? { ...p, pending: { state: "sending" } }
+          : p
       )
     )
     void deliver(clientMessageId, payload)
   }
   const discard = (clientMessageId: string) => {
     payloads.current.delete(clientMessageId)
-    setPending((all) => all.filter((p) => p.clientMessageId !== clientMessageId))
+    setPending((all) =>
+      all.filter((p) => p.clientMessageId !== clientMessageId)
+    )
   }
 
   const write = async (
@@ -235,8 +262,10 @@ export function ThreadView({
     else if (result.code === SUPPORT_ERROR.CONFLICT) setConflict(true)
     else setNotice(result.error)
   }
-  const patch = (body: SupportPatchBody) => write(() => patchSupportConversation(id, body))
-  const status = (action: "resolve" | "reopen") => write(() => setSupportStatus(id, action))
+  const patch = (body: SupportPatchBody) =>
+    write(() => patchSupportConversation(id, body))
+  const status = (action: "resolve" | "reopen") =>
+    write(() => setSupportStatus(id, action))
 
   const display: DisplayMessage[] = [...messages, ...pending]
   const blocked = conflict ? CONFLICT_TEXT : null
@@ -261,15 +290,21 @@ export function ThreadView({
           readOnly={conflict}
           onPatch={patch}
           onStatus={status}
-          onToggleContext={() => setContextOpen((open) => !open)}
+          onToggleContext={() =>
+            wide ? toggle("context") : setSheetOpen((open) => !open)
+          }
           contextOpen={contextOpen}
+          wide={wide}
         />
         {notice && (
           <div
             role="alert"
             className="flex items-start gap-2 border-b bg-danger-soft px-5 py-2 text-[13px]"
           >
-            <TriangleAlert aria-hidden className="mt-px size-4 shrink-0 text-danger-fg" />
+            <TriangleAlert
+              aria-hidden
+              className="mt-px size-4 shrink-0 text-danger-fg"
+            />
             <span className="flex-1">{notice}</span>
             <button
               type="button"
@@ -303,17 +338,27 @@ export function ThreadView({
       </section>
       <aside
         aria-label="Ficha del usuario"
-        className="hidden w-[320px] shrink-0 flex-col border-l bg-card min-[1360px]:flex"
+        style={{ width: panels.contextCollapsed ? 0 : panels.context }}
+        inert={panels.contextCollapsed}
+        aria-hidden={panels.contextCollapsed}
+        className={cn(
+          "relative hidden shrink-0 flex-col bg-card min-[1360px]:flex",
+          !panels.contextCollapsed && "border-l",
+          !dragging && "motion-safe:transition-[width] motion-safe:duration-200"
+        )}
       >
-        <ContextPanel
-          conversation={conversation}
-          context={context}
-          disabled={busy || conflict}
-          onPatch={patch}
-          onRetry={loadContext}
-        />
+        <ResizeHandle side="context" label="Ancho de la ficha del usuario" />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <ContextPanel
+            conversation={conversation}
+            context={context}
+            disabled={busy || conflict}
+            onPatch={patch}
+            onRetry={loadContext}
+          />
+        </div>
       </aside>
-      <Sheet open={contextOpen} onOpenChange={setContextOpen}>
+      <Sheet open={sheetOpen && !wide} onOpenChange={setSheetOpen}>
         <SheetContent
           side="right"
           showCloseButton={false}
@@ -326,7 +371,7 @@ export function ThreadView({
             disabled={busy || conflict}
             onPatch={patch}
             onRetry={loadContext}
-            onClose={() => setContextOpen(false)}
+            onClose={() => setSheetOpen(false)}
           />
         </SheetContent>
       </Sheet>
