@@ -121,6 +121,16 @@ export function getServiceRoutes(env: {
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
 
+    // MOVO-320 (ADR-050): consultas del usuario a soporte (crear, listar, historial, escribir, leído) y su canal
+    // WebSocket (`GET /support/conversations/:id`, un upgrade). Protegido por defecto y sin `allowedRoles`: pedir
+    // ayuda no depende de ser emisor o transportista (un receptor también escribe). El agente NO entra por acá:
+    // usa `/admin/support/*`.
+    {
+      prefix: "/support",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+      websocket: true,
+    },
+
     // payments service (MOVO-267). Emisor (paga) y transportista (vincula su
     // cuenta de MP y cobra). Las rutas que se llaman sin JWT van en
     // getPublicRoutes(): el callback de OAuth (MOVO-111) y el webhook (MOVO-268).
