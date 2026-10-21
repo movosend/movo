@@ -29,8 +29,14 @@ jest.mock("../src/lib/notification-response-log", () => ({
 }));
 
 const mockUseAuthStore = jest.fn();
+// MOVO-300: `getState` lo usa el aviso de cuenta inhabilitada para cerrar la sesión.
+let mockAuthStatus = "authenticated";
+const mockSignOutDisabledAccount = jest.fn().mockResolvedValue(undefined);
 jest.mock("../src/store/auth-store", () => ({
-  useAuthStore: (selector: (s: { status: string }) => unknown) => mockUseAuthStore(selector),
+  useAuthStore: Object.assign(
+    (selector: (s: { status: string }) => unknown) => mockUseAuthStore(selector),
+    { getState: () => ({ status: mockAuthStatus, signOutDisabledAccount: mockSignOutDisabledAccount }) },
+  ),
 }));
 
 const mockRequestPermissionAndRegisterPushToken = jest.fn().mockResolvedValue(undefined);
@@ -60,6 +66,7 @@ describe("usePushNotifications", () => {
     mockPathname = "/home";
     mockSearchParams = {};
     mockGetLastNotificationResponseAsync.mockResolvedValue(null);
+    mockAuthStatus = "authenticated";
   });
 
   it("no pide permiso ni registra nada si la sesión no está autenticada", async () => {
@@ -392,6 +399,43 @@ describe("usePushNotifications", () => {
     // Mismo path con otro viaje es otra pantalla: sí navega.
     listener({ notification: { request: { identifier: "n2", content: { data: { type: "trip_match", tripId: "t2" } } } } });
     expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "t2" } });
+  });
+
+  it("MOVO-300 AC4: tocar el aviso de inhabilitación con la sesión abierta la cierra en vez de navegar", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    await renderHook(() => usePushNotifications());
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+
+    listener({ notification: { request: { identifier: "n_disabled", content: { data: { type: "account_disabled" } } } } });
+
+    expect(mockSignOutDisabledAccount).toHaveBeenCalledTimes(1);
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
+  it("MOVO-300 AC6: cold start sin sesión desde el aviso de inhabilitación abre su pantalla", async () => {
+    mockAuthStatus = "unauthenticated";
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: { request: { identifier: "n_cold_disabled", content: { data: { type: "account_disabled" } } } },
+    });
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "unauthenticated" }));
+
+    await renderHook(() => usePushNotifications());
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/account-disabled");
+  });
+
+  it("MOVO-300: cold start sin sesión con otro aviso no navega ni lo consume (se atiende tras el login)", async () => {
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: { request: { identifier: "n_cold_ship", content: { data: { type: "shipment", shipmentId: "shp_1" } } } },
+    });
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "unauthenticated" }));
+
+    await renderHook(() => usePushNotifications());
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
+    expect(mockColdStartResolved).toBe(false);
   });
 });
 

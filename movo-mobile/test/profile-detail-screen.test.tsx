@@ -271,4 +271,23 @@ describe("PublicProfileScreen", () => {
     expect(getByTestId("profile-detail-avatar-button")).toBeTruthy();
     expect(getByTestId("profile-detail-avatar")).toBeTruthy();
   });
+
+  it.each([
+    ["suspended", "Cuenta suspendida"],
+    ["disabled", "Cuenta inhabilitada"],
+  ] as const)("MOVO-300 AC5: una cuenta %s muestra su estado en el hero", async (accountStatus, label) => {
+    mockUsePublicProfile.mockReturnValue({ data: baseProfile({ accountStatus }), isLoading: false, isError: false });
+
+    const { getByTestId } = await render(<PublicProfileScreen />);
+
+    expect(getByTestId("profile-detail-account-status")).toHaveTextContent(label);
+  });
+
+  it("MOVO-300 AC5: una cuenta activa no muestra estado", async () => {
+    mockUsePublicProfile.mockReturnValue({ data: baseProfile(), isLoading: false, isError: false });
+
+    const { queryByTestId } = await render(<PublicProfileScreen />);
+
+    expect(queryByTestId("profile-detail-account-status")).toBeNull();
+  });
 });

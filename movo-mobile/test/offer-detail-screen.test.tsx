@@ -7,6 +7,12 @@ import type { MyOfferSummary } from "../src/api/offers-client";
 // Mismo criterio que `test/sender-actions-bar.test.tsx`: el menú nativo real no
 // tiene representación en el árbol de React -- el mock simula cada `action` como
 // una fila tocable que dispara `onPressAction` con el mismo `nativeEvent.event`.
+// MOVO-300: sin suspensión; el caso suspendido tiene sus propios tests.
+jest.mock("../src/hooks/use-account-restriction", () => ({
+  useActiveSuspension: () => null,
+  useAccountRestrictionSync: () => {},
+}));
+
 jest.mock("@react-native-menu/menu", () => {
   const { Pressable, Text, View } = require("react-native");
   return {

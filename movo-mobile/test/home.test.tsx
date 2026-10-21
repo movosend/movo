@@ -393,7 +393,7 @@ describe("AuthenticatedHomeScreen", () => {
       expect(getByTestId("app-home-recent-shipments")).toBeTruthy();
     });
 
-    it("una sección que falla muestra su error con Reintentar local y no toca a las demás", async () => {
+    it("una sección que falla sin datos no se muestra: un solo aviso para Inicio reintenta lo que falló", async () => {
       const refetchSending = jest.fn();
       mockUseSendingShipments.mockReturnValue({
         data: undefined,
@@ -401,15 +401,21 @@ describe("AuthenticatedHomeScreen", () => {
         isError: true,
         refetch: refetchSending,
       });
-      mockUseReceivingShipments.mockReturnValue({ data: [ACTIVE_SHIPMENT], isLoading: false, isError: false });
+      mockUseReceivingShipments.mockReturnValue({
+        data: [ACTIVE_SHIPMENT],
+        isLoading: false,
+        isError: false,
+        refetch: jest.fn(),
+      });
 
-      const { getByTestId, getByText } = await render(<AuthenticatedHomeScreen />);
+      const { getByTestId, getByText, queryByText } = await render(<AuthenticatedHomeScreen />);
 
-      expect(getByTestId("app-home-sending-error")).toBeTruthy();
+      expect(queryByText("Estoy enviando")).toBeNull();
       expect(getByText("Lucía Gómez")).toBeTruthy();
+      expect(getByText("No pudimos cargar parte de tu inicio.")).toBeTruthy();
 
       await act(async () => {
-        fireEvent.press(getByTestId("app-home-sending-error-retry"));
+        fireEvent.press(getByTestId("app-home-sections-error-retry"));
       });
       expect(refetchSending).toHaveBeenCalledTimes(1);
     });
@@ -425,7 +431,7 @@ describe("AuthenticatedHomeScreen", () => {
       const { getByText, queryByTestId } = await render(<AuthenticatedHomeScreen />);
 
       expect(getByText("Lucía Gómez")).toBeTruthy();
-      expect(queryByTestId("app-home-sending-error")).toBeNull();
+      expect(queryByTestId("app-home-sections-error")).toBeNull();
     });
 
     it("'Requiere tu atención' muestra su skeleton mientras carga", async () => {
@@ -436,15 +442,15 @@ describe("AuthenticatedHomeScreen", () => {
       expect(getByTestId("app-home-attention-skeleton")).toBeTruthy();
     });
 
-    it("'Requiere tu atención' muestra su error con Reintentar local si falla", async () => {
+    it("'Requiere tu atención' que falla sin tareas se oculta y lo reintenta el aviso de Inicio", async () => {
       const refetchAttention = jest.fn();
       mockUseAttentionTasks.mockReturnValue({ tasks: [], isLoading: false, isError: true, refetch: refetchAttention });
 
-      const { getByTestId, queryByTestId } = await render(<AuthenticatedHomeScreen />);
+      const { getByTestId, queryByText } = await render(<AuthenticatedHomeScreen />);
 
-      expect(queryByTestId("app-home-attention-skeleton")).toBeNull();
+      expect(queryByText("Requiere tu atención")).toBeNull();
       await act(async () => {
-        fireEvent.press(getByTestId("app-home-attention-error-retry"));
+        fireEvent.press(getByTestId("app-home-sections-error-retry"));
       });
       expect(refetchAttention).toHaveBeenCalledTimes(1);
     });
@@ -466,17 +472,19 @@ describe("AuthenticatedHomeScreen", () => {
       const { queryByTestId } = await render(<AuthenticatedHomeScreen />);
 
       expect(queryByTestId("app-home-transporting-skeleton")).toBeNull();
-      expect(queryByTestId("app-home-transporting-error")).toBeNull();
+      // Los viajes fallidos de quien no transporta no son una falla de su Inicio.
+      expect(queryByTestId("app-home-sections-error")).toBeNull();
     });
 
-    it("'Estoy transportando' muestra su error con Reintentar local si fallan los viajes", async () => {
+    it("'Estoy transportando' que falla sin viajes se oculta y lo reintenta el aviso de Inicio", async () => {
       const refetchTrips = jest.fn();
       mockUseMyTrips.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: refetchTrips });
 
-      const { getByTestId } = await render(<AuthenticatedHomeScreen />);
+      const { getByTestId, queryByText } = await render(<AuthenticatedHomeScreen />);
 
+      expect(queryByText("Estoy transportando")).toBeNull();
       await act(async () => {
-        fireEvent.press(getByTestId("app-home-transporting-error-retry"));
+        fireEvent.press(getByTestId("app-home-sections-error-retry"));
       });
       expect(refetchTrips).toHaveBeenCalledTimes(1);
     });
@@ -486,8 +494,8 @@ describe("AuthenticatedHomeScreen", () => {
 
       for (const id of ["sending", "receiving", "attention", "transporting"]) {
         expect(queryByTestId(`app-home-${id}-skeleton`)).toBeNull();
-        expect(queryByTestId(`app-home-${id}-error`)).toBeNull();
       }
+      expect(queryByTestId("app-home-sections-error")).toBeNull();
     });
   });
 });

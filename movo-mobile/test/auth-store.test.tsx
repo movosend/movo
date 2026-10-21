@@ -223,4 +223,42 @@ describe("auth-store", () => {
 
     expect(useAuthStore.getState().status).toBe("unauthenticated");
   });
+
+  describe("cuenta inhabilitada con la sesión abierta (MOVO-300 AC4)", () => {
+    it("cierra la sesión con el motivo, sin llamar al logout del backend ni desregistrar el dispositivo", async () => {
+      const { authClient } = require("../src/api/auth-client");
+      const { unregisterCurrentDevice } = require("../src/lib/push-registration");
+      const { useAuthStore } = require("../src/store/auth-store");
+      await useAuthStore.getState().setSession(REFRESHED_SESSION);
+
+      await useAuthStore.getState().signOutDisabledAccount();
+
+      expect(useAuthStore.getState()).toMatchObject({ status: "unauthenticated", signOutReason: "account_disabled" });
+      expect(authClient.logout).not.toHaveBeenCalled();
+      expect(unregisterCurrentDevice).not.toHaveBeenCalled();
+    });
+
+    it("sin sesión no hace nada (el login de una cuenta inhabilitada lo maneja su pantalla)", async () => {
+      const { useAuthStore } = require("../src/store/auth-store");
+      await useAuthStore.getState().clearSession();
+
+      await useAuthStore.getState().signOutDisabledAccount();
+
+      expect(useAuthStore.getState().signOutReason).toBeNull();
+    });
+
+    it("el motivo se limpia al mostrarse y con una sesión nueva", async () => {
+      const { useAuthStore } = require("../src/store/auth-store");
+      await useAuthStore.getState().setSession(REFRESHED_SESSION);
+      await useAuthStore.getState().signOutDisabledAccount();
+
+      useAuthStore.getState().clearSignOutReason();
+      expect(useAuthStore.getState().signOutReason).toBeNull();
+
+      await useAuthStore.getState().setSession(REFRESHED_SESSION);
+      await useAuthStore.getState().signOutDisabledAccount();
+      await useAuthStore.getState().setSession(REFRESHED_SESSION);
+      expect(useAuthStore.getState().signOutReason).toBeNull();
+    });
+  });
 });
