@@ -465,3 +465,26 @@ export type {
   SupportEventsPage,
   SupportRealtimeTicket,
 } from "./types/admin-support";
+
+// soporte del lado del usuario (MOVO-320, consumido por MOVO-324)
+export {
+  SUPPORT_WS_CLOSE,
+  SUPPORT_REOPENED_MESSAGE,
+  SUPPORT_PUSH_PREVIEW_MAX,
+  supportShipmentCode,
+  formatSupportCode,
+} from "./types/support";
+export type {
+  SupportDeliveryStatus,
+  SupportUserFacingMessage,
+  SupportConversationLastMessage,
+  SupportConversationItem,
+  SupportListResponse,
+  SupportMessagesPage as SupportUserMessagesPage,
+  SupportCreateBody,
+  SupportCreateResult,
+  SupportSendUserBody,
+  SupportReadResult,
+  SupportRealtimeEvent,
+  SupportRealtimeConnected,
+} from "./types/support";

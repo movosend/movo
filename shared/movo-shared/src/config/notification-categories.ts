@@ -130,6 +130,14 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategoryDefinition[] 
     quietHoursExempt: false,
   },
   {
+    id: "support",
+    section: "conversations",
+    title: "Soporte de Movo",
+    sub: "Respuestas del equipo de Movo a tus consultas",
+    implemented: true,
+    quietHoursExempt: false,
+  },
+  {
     id: "disputes",
     section: "conversations",
     title: "Disputas",
