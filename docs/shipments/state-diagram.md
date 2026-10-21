@@ -33,7 +33,7 @@ dispara `delivered → completed`.
 
 Al aceptar una oferta, `acceptOffer` elige la ruta según la anticipación del retiro
 acordado (inicio de la ventana de retiro efectiva, `domain/funding.ts#selectFundingRoute`).
-`N` y los plazos salen de configuración (`FUNDING_*`, provisorios hasta MOVO-215):
+`N` y los plazos salen de configuración (`FUNDING_*`; N y el plazo del hold, ADR-050):
 
 | Ruta | Condición | Al aceptar | Pago | Plazo | Si no paga |
 | --- | --- | --- | --- | --- | --- |
