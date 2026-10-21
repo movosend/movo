@@ -4936,3 +4936,30 @@ Perfil abre `TourReplaySheet` para relanzar a mano, sin escribir el registro.
 - La card del tooltip y del modal es siempre blanca (`bg-paper`), como el prototipo: va sobre el scrim oscuro en los dos temas.
 - Probado en dispositivo (iPhone). Un ancla sin card propia ("Actividad reciente") necesita más `padding` (12) para que el anillo
   no quede pegado al texto.
+
+### MOVO-324 — Ayuda y soporte: submenú, consultas y conversación con el equipo de Movo
+
+Prototipo `Movo App Soporte.dc.html` (Claude Design). "Ayuda y soporte" de Perfil deja de abrir el sheet del tutorial y empuja
+`/support`, un **submenú** (`app/(app)/support/index.tsx`, no está en el prototipo): "Escribirle a Movo" (con el total de sin leer),
+"Repasar el tutorial" (el `TourReplaySheet` de MOVO-169, que se mudó acá) y lugar para preguntas frecuentes. Pantallas: `conversations`
+(Mis consultas), `new` (modal), `pending` (la consulta que se está creando) y `[id]` (conversación). Entrada extra: "Necesito ayuda con
+este envío" al pie del detalle del envío → `/support/new?shipmentId=`.
+
+- **Reutilización.** Los componentes del chat del envío se reusan con props opcionales retrocompatibles (`ChatBubble`: `attachments`,
+  `avatarNode`, `statusLabel`; `ChatComposer`: `maxLength`, `leftAction`, `attachmentsSlot`, `allowEmpty`, `sendDisabled`; `ChatHeader`:
+  `title`, `subtitle`, `trailing`), y `buildChatTimeline`/`useLiveChatKeys` se hicieron genéricos (`buildTimeline`). Los hooks son
+  propios con el mismo molde (`use-support*`), no una versión parametrizada de `useChatConversation`: así el chat del envío no se toca.
+  Las notas internas no existen para el cliente: el hook filtra todo `kind` que no sea `user|agent|system`.
+- **Contrato del usuario** en `shared/.../types/support.ts` (nombres con otro prefijo para no pisar los `Support*` del agente) y
+  `docs/support/README.md`. Mientras no exista MOVO-320/321, `EXPO_PUBLIC_SUPPORT_MOCK=1` responde todo desde `src/api/support-mock.ts`
+  (reapertura, evento `system`, moderación, adjuntos de un solo uso) y no abre el WebSocket.
+- **Crear sin `conversationId`.** "Enviar consulta" guarda un borrador (`support-draft-store`) y pasa a `support/pending`, que hace el POST:
+  la burbuja se ve "Enviando…", si falla reintenta con el mismo `clientMessageId` (idempotente) y al salir siembra el caché y hace `replace`
+  a la conversación real. Las fotos de una consulta nueva se piden sin `conversationId` (ver MOVO-321).
+- **Selector de envíos.** `GET /shipments/mine` solo trae emisor/receptor, no transportista; se propuso `GET /support/shipments` (cualquier rol).
+- Decisiones: tildes solo `sent|read`; reabrir una resuelta se refleja cuando el POST confirma (no antes); las URLs de adjuntos vencen, así
+  que abrir el visor vuelve a pedir la primera página.
+- Pendiente / fuera de alcance: la galería elige de a una foto (el prototipo pedía multiselección), el visor no tiene el "No pudimos cargar la
+  foto. Reintentar" ni cierre deslizando hacia abajo (reusa `PhotoViewerModal`), diseño del submenú, y la prueba en dispositivo contra el backend
+  real con un agente en el panel (depende de MOVO-320/321/322).
+

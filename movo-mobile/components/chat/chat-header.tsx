@@ -1,4 +1,5 @@
 import type { ChatParticipant } from "@movo/shared/dist/types/chat";
+import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -13,19 +14,28 @@ const AVATAR = 30;
  * `onOptions` ausente oculta el menú (los estados del prototipo sin acciones).
  */
 export function ChatHeader({
-  participants,
+  participants = [],
   onBack,
   onOptions,
   onPressParticipants,
+  title = "Chat del envío",
+  subtitle,
+  trailing,
 }: {
-  participants: readonly Pick<ChatParticipant, "userId" | "firstName" | "fullName" | "photoUrl">[];
+  participants?: readonly Pick<ChatParticipant, "userId" | "firstName" | "fullName" | "photoUrl">[];
+  /** MOVO-324: el chat de soporte reusa el encabezado con otro título... */
+  title?: string;
+  /** ...otro subtítulo (código y tema en vez de los nombres)... */
+  subtitle?: string;
+  /** ...y otra cosa en vez de los avatares (el isotipo de Movo). */
+  trailing?: ReactNode;
   onBack: () => void;
   onOptions?: () => void;
   /** Tocar los avatares abre el detalle del envío. */
   onPressParticipants?: () => void;
 }) {
   const colors = useThemeColors();
-  const names = joinNames(participants.map((p) => p.firstName));
+  const names = subtitle ?? joinNames(participants.map((p) => p.firstName));
 
   return (
     <View className="flex-row items-center" style={{ gap: 8, paddingTop: 6, paddingRight: 12, paddingBottom: 8, paddingLeft: 8 }}>
@@ -36,7 +46,7 @@ export function ChatHeader({
       </Pressable>
       <View className="min-w-0 flex-1">
         <Text className="font-sans-semibold text-h3 text-fg" numberOfLines={1}>
-          Chat del envío
+          {title}
         </Text>
         {names ? (
           <Text testID="chat-header-names" className="font-sans text-small text-fg-3" numberOfLines={1}>
@@ -44,7 +54,8 @@ export function ChatHeader({
           </Text>
         ) : null}
       </View>
-      <Pressable
+      {trailing ? <View style={{ paddingRight: 4 }}>{trailing}</View> : null}
+      {trailing ? null : <Pressable
         testID="chat-header-avatars"
         accessibilityRole="button"
         accessibilityLabel="Ver el detalle del envío"
@@ -59,7 +70,7 @@ export function ChatHeader({
             <ChatAvatar fullName={p.fullName} photoUrl={p.photoUrl} size={AVATAR} fontSize={10} />
           </View>
         ))}
-      </Pressable>
+      </Pressable>}
       {onOptions ? (
         <Pressable testID="chat-options" accessibilityLabel="Más opciones" onPress={onOptions} className="items-center justify-center active:bg-bg-mute" style={{ width: 36, height: 36, borderRadius: 18 }}>
           <Svg width={20} height={20} viewBox="0 0 24 24" fill={colors.fg1}>

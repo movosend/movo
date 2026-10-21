@@ -185,6 +185,15 @@ describe("ShipmentDetailScreen — chat del envío (MOVO-284)", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/chat");
   });
 
+  it("MOVO-324: ofrece pedir ayuda con el envío ya vinculado a la consulta de soporte", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.ASSIGNED });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    await fireEvent.press(getByTestId("shipment-detail-help"));
+    expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/support/new", params: { shipmentId: "shipment-1" } });
+  });
+
   it("lo ve también el receptor", async () => {
     mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.ASSIGNED });
     mockCurrentUser.mockReturnValue({ userId: "receiver-1" });

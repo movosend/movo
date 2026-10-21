@@ -10,7 +10,8 @@ const GRID_COLUMNS = 4;
 const GRID_GAP = 6;
 
 export interface ReportDraftPhotoRowProps {
-  photos: ReportDraftPhoto[];
+  /** Solo lo que dibuja la fila: la usan los reportes (MOVO-256) y las consultas de soporte (MOVO-324). */
+  photos: Pick<ReportDraftPhoto, "id" | "localUri" | "status" | "errorMessage">[];
   max: number;
   onRemove: (id: string) => void;
   onRetry: (id: string) => void;
