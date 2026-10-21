@@ -633,3 +633,12 @@ respuestas rápidas con `resolveQuickReply`. Lo define el panel y lo implementan
 `ApiErrorCode` suma `SUPPORT_CONVERSATION_NOT_FOUND`, `SUPPORT_ATTACHMENT_INVALID`, `SUPPORT_SHIPMENT_NOT_PARTY`,
 `SUPPORT_TICKET_INVALID` y `SUPPORT_SERVICE_UNAVAILABLE`. Pendiente para 322: sumar `support_conversation` a `AdminTargetType`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-324 — Contrato de soporte del usuario (`types/support.ts`)
+
+`SupportConversationItem`, `SupportThreadMessage` (`kind`: `user|agent|system`, nunca nota interna), `SupportThreadPage` (trae la consulta para
+el encabezado), `SupportCreateBody/Result`, `SupportSendUserBody`, `SupportUserAttachmentCreateBody` (`conversationId` opcional en la primera
+consulta), `SupportShipmentOption(sPage)` (`GET /support/shipments`, cualquier rol), `SupportRealtimeEvent` y `SUPPORT_WS_CLOSE`. Prefijos
+distintos de los del agente (`SupportMessage`, `SupportMessagesPage` de `admin-support.ts`) para convivir en el barrel. Lo propone mobile y lo
+implementan MOVO-320/321. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+

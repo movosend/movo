@@ -465,3 +465,21 @@ export type {
   SupportEventsPage,
   SupportRealtimeTicket,
 } from "./types/admin-support";
+export { SUPPORT_WS_CLOSE } from "./types/support";
+export type {
+  SupportShipmentRole,
+  SupportDeliveryStatus,
+  SupportConversationShipment,
+  SupportConversationLastMessage,
+  SupportConversationItem,
+  SupportThreadMessage,
+  SupportThreadPage,
+  SupportListResponse,
+  SupportCreateBody,
+  SupportCreateResult,
+  SupportSendUserBody,
+  SupportUserAttachmentCreateBody,
+  SupportShipmentOption,
+  SupportShipmentOptionsPage,
+  SupportRealtimeEvent,
+} from "./types/support";

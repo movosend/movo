@@ -74,3 +74,46 @@ hospeda WS. Diseño:
 ## Pendiente de backend (para 321/322)
 
 Todo lo anterior. El panel funciona hoy contra `MOVO_ADMIN_MOCK=1` (ver `movo-admin/CLAUDE.md`, entrada MOVO-323).
+
+---
+
+# Soporte: lado del usuario (MOVO-324)
+
+Contrato propuesto por `movo-mobile` (prototipo `Movo App Soporte.dc.html`) para MOVO-320 (conversaciones, API del usuario, tiempo real y push)
+y MOVO-321 (adjuntos). Los tipos viven en `shared/movo-shared/src/types/support.ts`; si algo no sirve del lado del servicio se cambian ahí y en
+`movo-mobile/src/api/support-mock.ts` en el mismo PR. Con `EXPO_PUBLIC_SUPPORT_MOCK=1` la app responde desde el mock (sin WebSocket).
+
+## Rutas (`/api/v1/support/*`, usuario autenticado)
+
+Solo ve las consultas propias; una ajena responde `404 SUPPORT_CONVERSATION_NOT_FOUND` (no `403`).
+
+| Método y ruta | Cuerpo / query | Respuesta | Notas |
+| --- | --- | --- | --- |
+| `POST conversations` | `SupportCreateBody { topic, body, clientMessageId, shipmentId?, attachmentIds? }` | `201`/`200` `SupportCreateResult { conversation, message }` | Idempotente por `clientMessageId`. `shipmentId` ajeno → `422 SUPPORT_SHIPMENT_NOT_PARTY` |
+| `GET conversations` | | `SupportListResponse` | La más reciente primero. `lastMessage` nunca es nota ni evento `system` |
+| `GET conversations/:id/messages` | `cursor`, `limit` | `SupportThreadPage { items, nextCursor, conversation }` | Más recientes primero. Sin notas internas. `conversation` es para el encabezado (se abre también desde la push) |
+| `POST conversations/:id/messages` | `SupportSendUserBody { body, clientMessageId, attachmentIds? }` | `SupportThreadMessage` (201/200) | `body` vacío solo con adjuntos. Sobre `resolved` la reabre (evento `system` "Se reabrió la conversación"); `awaiting_user` → `open` |
+| `POST conversations/:id/read` | `{}` | `{ readAt }` | Baja el `unreadCount` |
+| `GET shipments` | `cursor`, `limit` | `SupportShipmentOptionsPage` | Envíos de los que el usuario es parte **en cualquier rol** (`/shipments/mine` solo trae emisor/receptor), con código, estado, ruta y rol |
+| `POST attachments` | `SupportUserAttachmentCreateBody { contentType, sizeBytes, conversationId? }` | `SupportAttachmentCreateResult` | La app sube con `PUT uploadUrl`. Sin `conversationId` (primera consulta) el objeto va a un prefijo privado "pendiente" y se asocia al crear |
+| `GET conversations/:id` (upgrade WS) | | eventos `SupportRealtimeEvent` | Ver abajo |
+
+## Reglas
+
+- `SupportThreadMessage.kind` es `user | agent | system`. **Nunca `note`**: ni en la API, ni en el WS, ni en la push (regresión explícita en los cuatro caminos).
+- `authorName` del equipo es el nombre de pila ("Lucía"). El texto de `system` lo arma el servidor en tercera persona ("Lucía Ferreyra tomó la conversación").
+- `moderated: true` en un mensaje del usuario cuando el filtro tapó palabras; la app muestra `CHAT_MODERATION_WARNING`. A los del equipo no se les aplica.
+- `deliveryStatus` solo en los propios: `sent | read` (`read` cuando un agente abrió la conversación). Un solo "otro lado", sin `delivered`.
+- Adjuntos: `image/jpeg|png|webp`, ≤ 5 MB, hasta 4 por mensaje (`SUPPORT_ATTACHMENT_*`); la app reduce a 1600 px antes de subir. URL de lectura firmada de ~15 min:
+  si venció, la app vuelve a pedir la página de mensajes (no hay endpoint de renovación).
+- Errores: `SUPPORT_CONVERSATION_NOT_FOUND` (404), `SUPPORT_ATTACHMENT_INVALID` (422), `SUPPORT_SHIPMENT_NOT_PARTY` (422).
+
+## Tiempo real y push
+
+- `GET /support/conversations/:id` (WebSocket, JWT en el handshake). Eventos: `support_message { message }`, `support_status { conversationId, status }`,
+  `support_receipt { conversationId, upTo }` y un frame `{ type: "connected" }` al conectar (la app vuelve a pedir la primera página).
+- Cierres: `4001` token (la app renueva y reconecta), `4003` sin permiso y `4004` no existe (terminales; con `4004` la app avisa "Esta consulta ya no está
+  disponible" y vuelve a la lista). La app cierra el socket con la pantalla en segundo plano para que el servidor mande la push.
+- Push `support_message` con `data: { type, conversationId }`, título "Soporte de Movo", cuerpo "Lucía: …" ("Te envió una imagen" si no hay texto). Tocarla abre la
+  consulta encima de "Mis consultas".
+
