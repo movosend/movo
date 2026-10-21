@@ -255,6 +255,12 @@ export interface TripRepository {
     scope?: "upcoming" | "history",
   ): Promise<{ items: TripWithAcceptedPackages[]; total: number }>;
   update(id: string, input: UpdateTripInput, options?: TripUpdateOptions): Promise<Trip>;
+  /**
+   * MOVO-297: corta toda serie recurrente vigente del transportista, sea cual sea el estado de su
+   * ocurrencia actual (un viaje `active` también la sigue generando al terminar). No cancela ni toca
+   * el viaje: solo deja de repetirlo. Devuelve los ids de las series cortadas.
+   */
+  stopRecurrenceForCarrier(carrierId: string): Promise<string[]>;
   delete(id: string): Promise<void>;
   findDeclaredTripsMatchingShipment(params: MatchShipmentParams): Promise<Trip[]>;
   /**
@@ -781,6 +787,20 @@ export function createTripRepository(db: PrismaClient): TripRepository {
 
       const row = await db.trip.findUniqueOrThrow({ where: { id }, include: TRIP_SERIES_INCLUDE });
       return mapTrip(row);
+    },
+
+    async stopRecurrenceForCarrier(carrierId: string): Promise<string[]> {
+      const heads = await db.trip.findMany({
+        where: { carrierId, ...ACTIVE_SERIES_HEAD_WHERE },
+        select: { id: true },
+      });
+      if (heads.length === 0) return [];
+      // Mismo filtro en el UPDATE: si una serie ya se cortó o tiene sucesor entre el SELECT y acá, no matchea.
+      await db.trip.updateMany({
+        where: { id: { in: heads.map((head) => head.id) }, ...ACTIVE_SERIES_HEAD_WHERE },
+        data: { recurrenceWeekdays: [], recurrenceUntil: null },
+      });
+      return heads.map((head) => head.id);
     },
 
     async countActiveSeries(carrierId: string): Promise<number> {

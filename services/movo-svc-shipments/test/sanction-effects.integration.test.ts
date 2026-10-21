@@ -4,7 +4,12 @@ import { FastifyInstance } from "fastify";
 import { ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
-import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
+import {
+  createShipmentRepository,
+  ShipmentConcurrentModificationError,
+  ShipmentRepository,
+} from "../src/repositories/shipment-repository";
+import { createShipmentsService } from "../src/modules/shipments/shipments.service";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { createFakeUsersClient } from "./fake-users-client";
 
@@ -72,7 +77,12 @@ describe("Efectos de una sanción (Postgres) — MOVO-297", () => {
     });
   }
 
-  const withdraw = () => app.inject({ method: "POST", url: `/internal/users/${userId}/withdraw-open-activity` });
+  const withdraw = (sanctionId?: string) =>
+    app.inject({
+      method: "POST",
+      url: `/internal/users/${userId}/withdraw-open-activity`,
+      ...(sanctionId ? { payload: { sanctionId } } : {}),
+    });
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
@@ -186,7 +196,14 @@ describe("Efectos de una sanción (Postgres) — MOVO-297", () => {
 
       expect(first.statusCode).toBe(200);
       expect(second.statusCode).toBe(200);
-      expect(second.json()).toEqual({ cancelledShipmentIds: [], withdrawnOfferIds: [], cancelledTripIds: [], notifiedCounterpartyCount: 0 });
+      expect(second.json()).toEqual({
+        cancelledShipmentIds: [],
+        withdrawnOfferIds: [],
+        cancelledTripIds: [],
+        stoppedRecurrenceTripIds: [],
+        notifiedCounterpartyCount: 0,
+        failures: [],
+      });
       expect(await app.db.shipmentEvent.count({ where: { shipmentId: published, toStatus: "cancelled" } })).toBe(1);
       expect(pushes.length).toBe(pushesAfterFirst);
     });
@@ -236,6 +253,76 @@ describe("Efectos de una sanción (Postgres) — MOVO-297", () => {
 
       expect(response.json().withdrawnOfferIds).toEqual([]);
       expect((await offerRepo.findById(received.id))?.status).toBe("shipment_cancelled");
+    });
+    it("cancela también los envíos que esperan al receptor y los rechazados por él", async () => {
+      const awaiting = await shipmentRepo.create(shipmentInput(userId, randomUUID()));
+      const rejected = await shipmentRepo.create(shipmentInput(userId, randomUUID()));
+      await app.db.shipment.update({ where: { id: rejected.id }, data: { status: "rejected_by_receiver" } });
+
+      const response = await withdraw();
+
+      expect([...response.json().cancelledShipmentIds].sort()).toEqual([awaiting.id, rejected.id].sort());
+      expect((await shipmentRepo.findById(awaiting.id))?.status).toBe("cancelled");
+      expect((await shipmentRepo.findById(rejected.id))?.status).toBe("cancelled");
+    });
+
+    it("corta la serie recurrente de un viaje en curso sin cancelarlo", async () => {
+      const active = await app.db.trip.create({
+        data: {
+          carrierId: userId,
+          status: "active",
+          originAddress: "Córdoba",
+          originLat: -31.42,
+          originLng: -64.19,
+          destinationAddress: "Rosario",
+          destinationLat: -32.95,
+          destinationLng: -60.66,
+          departureAt: new Date("2030-01-01T10:00:00Z"),
+          vehicleType: "car",
+          recurrenceWeekdays: [1, 3],
+        },
+      });
+
+      const body = (await withdraw()).json();
+
+      expect(body.stoppedRecurrenceTripIds).toEqual([active.id]);
+      expect(body.cancelledTripIds).toEqual([]);
+      const persisted = await app.db.trip.findUnique({ where: { id: active.id } });
+      expect(persisted?.status).toBe("active");
+      expect(persisted?.recurrenceWeekdays).toEqual([]);
+    });
+
+    it("con otro sanctionId vuelve a avisar a las contrapartes; con el mismo no", async () => {
+      await shipmentIn("assigned", { senderId: userId, carrierId: randomUUID(), receiverId: randomUUID() });
+      const first = randomUUID();
+
+      expect((await withdraw(first)).json().notifiedCounterpartyCount).toBe(2);
+      expect((await withdraw(first)).json().notifiedCounterpartyCount).toBe(0);
+      expect((await withdraw(randomUUID())).json().notifiedCounterpartyCount).toBe(2);
+    });
+
+    it("rechaza un sanctionId que no es un uuid", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: `/internal/users/${userId}/withdraw-open-activity`,
+        payload: { sanctionId: "no-es-uuid" },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+  });
+
+  describe("cancelShipment con onlyFrom", () => {
+    it("no cancela un envío que se comprometió entre el listado y la cancelación", async () => {
+      const shipmentId = await publishedShipment(userId);
+      // Un pago o una aceptación lo pasó a `assignment_pending` después de listarlo.
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { status: "assignment_pending", carrierId: randomUUID() } });
+      const service = createShipmentsService(shipmentRepo, createFakeUsersClient({}), undefined, undefined, { offerRepository: offerRepo });
+
+      await expect(
+        service.cancelShipment(shipmentId, userId, "cuenta suspendida", undefined, { onlyFrom: [ShipmentStatus.PUBLISHED] })
+      ).rejects.toBeInstanceOf(ShipmentConcurrentModificationError);
+
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe("assignment_pending");
     });
   });
 });

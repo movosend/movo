@@ -3691,12 +3691,20 @@ sus fotos de S3; si S3 falla, la fila queda y se reintenta. También borra los `
 ### MOVO-297 — Efectos de una sanción (`GET .../in-progress-shipments`, `POST .../withdraw-open-activity`)
 
 Endpoints internos (sin gateway) para `svc-admin` (MOVO-36/MOVO-299), en `modules/admin-internal/sanction-effects.service.ts`.
-- `withdraw-open-activity` es idempotente porque solo toma lo abierto: cancela los `published` del usuario con el
-  `cancelShipment` existente (motivo "cuenta suspendida", que ya cierra las ofertas, ADR-032), pasa a `withdrawn` sus ofertas
-  `pending` vigentes y cancela sus viajes `declared` sin paquetes aceptados (con `stopRecurrence`, ADR-029). No es una única
-  transacción: cada elemento es atómico y uno que falla (p. ej. una aceptación concurrente) se saltea y se loguea.
-- Aviso a contrapartes de los envíos en curso con la plantilla genérica `counterpartyCannotTakeNewShipments`; la clave
-  Redis `sanction-notice:{userId}:{shipmentId}:{contraparte}` (7 días) evita duplicarlo en un reintento. El sancionado no
-  recibe push por lo retirado (`cancelShipment` solo avisa a los transportistas con ofertas).
+- `withdraw-open-activity` es idempotente porque solo toma lo abierto: cancela con el `cancelShipment` existente (motivo
+  "cuenta suspendida", ADR-032) los envíos del usuario sin transportista ni hold (`awaiting_receiver_confirmation`,
+  `rejected_by_receiver` y `published`: los dos primeros podrían pasar a `published` a nombre de un suspendido), pasa a
+  `withdrawn` sus ofertas `pending` vigentes y cancela sus viajes `declared` sin paquetes aceptados. Además corta toda serie
+  recurrente vigente (`stopRecurrenceForCarrier`), también la de un viaje `active`, que no se cancela: si no, al terminar
+  generaría la siguiente ocurrencia (y el push `tripAutoCreated`) a un suspendido.
+- No es una única transacción: cada elemento es atómico. `cancelShipment` recibe `onlyFrom` y lanza
+  `ShipmentConcurrentModificationError` si el envío se comprometió entre el listado y la cancelación (el servicio se arma sin
+  `paymentsClient`, así que cancelarlo dejaría un hold sin liberar). Perder una carrera (concurrencia, transición ya hecha,
+  viaje con paquetes) se saltea y no es fallo; cualquier otro error va a `failures: [{kind, id}]` de la respuesta (200), y
+  `svc-admin` no debe dar la sanción por aplicada mientras no esté vacío: se reintenta, es idempotente.
+- Aviso a contrapartes de los envíos en curso con la plantilla genérica `counterpartyCannotTakeNewShipments`. La clave Redis
+  `sanction-notice:{userId}:{sanctionId|-}:{shipmentId}:{contraparte}` (7 días) evita duplicarlo en un reintento; el body
+  opcional `{ sanctionId }` hace que sancionar → levantar → volver a sancionar avise de nuevo (falta que MOVO-299 lo mande).
+  El sancionado no recibe push por lo retirado.
 - La constancia en la línea de tiempo es el `ShipmentEvent` de los envíos; ofertas y viajes quedan por su estado y por la
   respuesta (ids retirados) para la bitácora de `svc-admin`. Sin columna de motivo en `Offer`/`Trip`.

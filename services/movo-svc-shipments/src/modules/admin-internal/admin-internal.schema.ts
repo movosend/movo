@@ -189,14 +189,37 @@ export const adminInternalSchemas = {
     },
   },
 
+  // `sanctionId` es opcional: con él, volver a sancionar tras levantar la sanción vuelve a avisar a las contrapartes.
+  withdrawOpenActivityBody: {
+    type: ["object", "null"],
+    additionalProperties: false,
+    properties: { sanctionId: uuid },
+  },
+
   withdrawOpenActivityResponse: {
     type: "object",
-    required: ["cancelledShipmentIds", "withdrawnOfferIds", "cancelledTripIds", "notifiedCounterpartyCount"],
+    required: [
+      "cancelledShipmentIds",
+      "withdrawnOfferIds",
+      "cancelledTripIds",
+      "stoppedRecurrenceTripIds",
+      "notifiedCounterpartyCount",
+      "failures",
+    ],
     properties: {
       cancelledShipmentIds: { type: "array", items: uuid },
       withdrawnOfferIds: { type: "array", items: uuid },
       cancelledTripIds: { type: "array", items: uuid },
+      stoppedRecurrenceTripIds: { type: "array", items: uuid },
       notifiedCounterpartyCount: { type: "integer" },
+      failures: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["kind", "id"],
+          properties: { kind: { type: "string", enum: ["shipment", "offer", "trip", "series"] }, id: uuid },
+        },
+      },
     },
   },
 };

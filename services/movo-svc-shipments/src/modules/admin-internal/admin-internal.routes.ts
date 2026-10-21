@@ -64,13 +64,16 @@ const timeOnly = (date: Date): string => date.toISOString().slice(11, 16);
 
 /**
  * Módulo interno de `svc-admin` (no pasa por el gateway, solo es alcanzable dentro de la red Docker
- * interna, ADR-010; mismo patrón que `mutual-connections`). De solo lectura y sin `x-user-id`: quien
- * decide el acceso es `svc-admin`.
+ * interna, ADR-010; mismo patrón que `mutual-connections`). Sin `x-user-id`: quien decide el acceso es
+ * `svc-admin`. Casi todo es de solo lectura; la excepción es `POST /users/:id/withdraw-open-activity`
+ * (MOVO-297), que cancela envíos, retira ofertas, cancela viajes y manda push: no se reintenta a ciegas
+ * más allá de su idempotencia ni se trata como inocuo.
  *
  * - MOVO-288: las partes de un envío o de un reporte de chat, para la regla de conflicto de interés
  *   (un admin no puede actuar sobre algo en lo que es parte).
  * - MOVO-294: las secciones de la ficha de un usuario del panel.
  * - MOVO-325: listado, detalle, eventos, fotos y chat de los envíos para el panel.
+ * - MOVO-297: los efectos de una sanción sobre un usuario (envíos en curso y retiro de actividad abierta).
  */
 export default async function adminInternalRoutes(app: FastifyInstance, opts: AdminInternalRoutesOptions) {
   const shipmentRepository = createShipmentRepository(app.db);
@@ -462,7 +465,10 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
   // MOVO-297: efectos de una sanción, los llama `svc-admin` al sancionar (MOVO-36).
   const offerRepository = createOfferRepository(app.db);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
-  // Cancelar un `published` no cobra penalidad ni toca un hold: alcanza con el repositorio de ofertas.
+  // Grafo mínimo y deliberadamente distinto del de `shipmentsRoutes` (sin `paymentsClient`, `pricingClient`,
+  // `quoteStore` ni `settleCancellationPenalty`): solo se cancelan envíos sin transportista ni hold
+  // (`awaiting_receiver_confirmation`, `rejected_by_receiver`, `published`). Esa premisa no se asume: el
+  // servicio de efectos pasa `onlyFrom` y `cancelShipment` aborta si el envío se comprometió entremedio.
   const shipmentsService = createShipmentsService(
     shipmentRepository,
     usersClient,
@@ -475,7 +481,8 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     redis: app.redis,
     offerRepository,
     tripRepository: createTripRepository(app.db),
-    cancelShipment: (shipmentId, senderId, reason) => shipmentsService.cancelShipment(shipmentId, senderId, reason),
+    cancelShipment: (shipmentId, senderId, reason, onlyFrom) =>
+      shipmentsService.cancelShipment(shipmentId, senderId, reason, undefined, { onlyFrom }),
     notificationsClient,
     logger: app.log,
   });
@@ -501,12 +508,14 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
       schema: {
         hide: true,
         params: adminInternalSchemas.idParam,
+        body: adminInternalSchemas.withdrawOpenActivityBody,
         response: { 200: adminInternalSchemas.withdrawOpenActivityResponse },
       },
     },
     async (request: FastifyRequest): Promise<WithdrawOpenActivityResult> => {
       const { id } = request.params as { id: string };
-      return sanctionEffects.withdrawOpenActivity(id);
+      const body = request.body as { sanctionId?: string } | null | undefined;
+      return sanctionEffects.withdrawOpenActivity(id, body?.sanctionId);
     },
   );
 }
