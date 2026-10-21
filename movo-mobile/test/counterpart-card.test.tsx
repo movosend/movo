@@ -246,5 +246,50 @@ describe("CounterpartCard", () => {
     expect(getByTestId("counterpart-stars")).toBeTruthy();
     expect(getByText("4.6")).toBeTruthy();
   });
+
+  it.each([
+    ["suspended", "Cuenta suspendida"],
+    ["disabled", "Cuenta inhabilitada"],
+  ])("MOVO-300 AC5: una cuenta %s muestra su estado, sin motivo", async (accountStatus, label) => {
+    mockUsePublicProfile.mockReturnValue({
+      data: {
+        id: "user-2",
+        accountStatus,
+        fullName: "Marta González",
+        photoUrl: null,
+        isVerified: true,
+        badges: [],
+        transactionCounts: { asSender: 0, asCarrier: 0 },
+        reputationScore: null,
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    const { getByTestId } = await render(<CounterpartCard userId="user-2" testID="card" />);
+
+    expect(getByTestId("card-account-status")).toHaveTextContent(label);
+  });
+
+  it("MOVO-300 AC5: una cuenta activa no muestra ningún estado", async () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: {
+        id: "user-2",
+        accountStatus: "active",
+        fullName: "Marta González",
+        photoUrl: null,
+        isVerified: true,
+        badges: [],
+        transactionCounts: { asSender: 0, asCarrier: 0 },
+        reputationScore: null,
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    const { queryByTestId } = await render(<CounterpartCard userId="user-2" testID="card" />);
+
+    expect(queryByTestId("card-account-status")).toBeNull();
+  });
 });
 

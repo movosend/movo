@@ -3,6 +3,12 @@ import NewTripScreen from "../app/(app)/carrier/trips/new";
 import type { CreateTripInput } from "../src/api/trips-client";
 
 // MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
+// MOVO-300: sin suspensión; el caso suspendido tiene sus propios tests.
+jest.mock("../src/hooks/use-account-restriction", () => ({
+  useActiveSuspension: () => null,
+  useAccountRestrictionSync: () => {},
+}));
+
 jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
   require("./mocks/carrier-requirements-sheet-hook"),
 );

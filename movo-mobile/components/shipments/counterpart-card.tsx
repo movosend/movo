@@ -9,6 +9,7 @@ import { Pressable, Text, View } from "react-native";
 import { AvatarImage } from "../ui/avatar-image";
 import { SkeletonBlock } from "../ui/skeleton-block";
 import { StarRatingInput } from "../ui/star-rating-input";
+import { AccountStatusChip } from "../profile/account-status-chip";
 import { ProfileVerifiedBadge } from "../profile/profile-verified-badge";
 import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -132,6 +133,11 @@ export function CounterpartCard({
           {profile.fullName}
         </Text>
         {profile.isVerified ? <ProfileVerifiedBadge /> : null}
+        <AccountStatusChip
+          className="mt-1"
+          testID={testID ? `${testID}-account-status` : undefined}
+          status={profile.accountStatus}
+        />
         <View className="mt-1 flex-row items-center gap-1.5">
           {/* Sin calificaciones (o perfil nuevo) no se dibujan estrellas: cinco estrellas
               vacías se leen como "lo calificaron mal", no como "todavía no lo calificaron". */}

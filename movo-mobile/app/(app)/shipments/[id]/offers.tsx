@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { SuspendedActionNotice } from "../../../../components/account/suspended-action-notice";
 import { ChooseOfferModal } from "../../../../components/shipments/choose-offer-modal";
 import { ChooseOfferSuccessModal } from "../../../../components/shipments/choose-offer-success-modal";
 import { OfferCard } from "../../../../components/shipments/offer-card";
@@ -25,6 +26,7 @@ import {
   useRejectOffer,
   useShipmentOffers,
 } from "../../../../src/hooks/use-offers";
+import { useActiveSuspension } from "../../../../src/hooks/use-account-restriction";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { isFundingWindowOpen } from "../../../../src/lib/shipment-format";
@@ -124,6 +126,7 @@ export default function ShipmentOffersScreen() {
   }, [shipment, id]);
 
   const acceptMutation = useAcceptOffer();
+  const suspension = useActiveSuspension();
   const rejectMutation = useRejectOffer();
 
   const handleBack = () => {
@@ -347,26 +350,38 @@ export default function ShipmentOffersScreen() {
               </Text>
             </View>
           ) : (
-            offers?.map((offer) => (
-              <OfferCard
-                key={offer.id}
-                offer={offer}
-                onAccept={handlePromptAccept}
-                onReject={handlePromptReject}
-                onViewProfile={handleOpenCarrierProfile}
-                requestedPickup={
-                  shipment
-                    ? {
-                        pickupDate: shipment.pickupDate,
-                        pickupTimeWindowStart: shipment.pickupTimeWindowStart,
-                        pickupTimeWindowEnd: shipment.pickupTimeWindowEnd,
-                      }
-                    : undefined
-                }
-                disabled={acceptMutation.isPending || rejectMutation.isPending}
-                testID={`offer-card-${offer.id}`}
-              />
-            ))
+            <>
+              {suspension ? (
+                <SuspendedActionNotice
+                  testID="offers-accept-suspended"
+                  action="acceptOffer"
+                  suspension={suspension}
+                />
+              ) : null}
+              {offers?.map((offer) => (
+                <OfferCard
+                  key={offer.id}
+                  offer={offer}
+                  onAccept={handlePromptAccept}
+                  onReject={handlePromptReject}
+                  onViewProfile={handleOpenCarrierProfile}
+                  requestedPickup={
+                    shipment
+                      ? {
+                          pickupDate: shipment.pickupDate,
+                          pickupTimeWindowStart: shipment.pickupTimeWindowStart,
+                          pickupTimeWindowEnd: shipment.pickupTimeWindowEnd,
+                        }
+                      : undefined
+                  }
+                  disabled={
+                    acceptMutation.isPending || rejectMutation.isPending
+                  }
+                  acceptDisabled={suspension !== null}
+                  testID={`offer-card-${offer.id}`}
+                />
+              ))}
+            </>
           )}
         </ScrollView>
       )}

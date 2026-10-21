@@ -183,6 +183,7 @@ export const usersSchemas = {
       "privacyAcceptedAt",
       "privacyVersion",
       "tours",
+      "activeSanction",
     ],
     properties: {
       id: { type: "string" },
@@ -219,6 +220,17 @@ export const usersSchemas = {
             version: { type: "integer" },
             outcome: { type: "string", enum: TOUR_OUTCOME_VALUES },
           },
+        },
+      },
+      // MOVO-300: sanción vigente para el aviso de la app. Sin `internalNote` a propósito:
+      // el serializer descarta cualquier campo que no figure acá.
+      activeSanction: {
+        type: ["object", "null"],
+        required: ["type", "reason", "endsAt"],
+        properties: {
+          type: { type: "string", enum: ["suspension", "disable"] },
+          reason: { type: "string" },
+          endsAt: { type: ["string", "null"], format: "date-time" },
         },
       },
     },

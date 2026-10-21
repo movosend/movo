@@ -8,6 +8,8 @@ import { useTourAnchor } from "../../src/hooks/use-tour-anchor";
 
 export interface HomeSendCtaProps {
   kycStatus: KycStatus | undefined;
+  /** MOVO-300: cuenta suspendida, bloquea publicar (y cotizar) un envío. Gana sobre el KYC. */
+  isSuspended?: boolean;
   testID?: string;
   /** MOVO-169: lleva la CTA a la vista para el paso "Publicá un envío" del tutorial. */
   scrollIntoView?: (layoutY: number) => void;
@@ -21,14 +23,20 @@ export interface HomeSendCtaProps {
  * el banner de KYC de `home.tsx` — sin identidad verificada no tiene sentido dejar
  * arrancar el wizard.
  *
+ * MOVO-300: también bloqueada con la cuenta suspendida (el gateway rechaza crear y cotizar un
+ * envío, MOVO-298). Ese motivo gana sobre el de KYC: es el que el usuario no puede resolver solo.
+ *
  * Navega a `/send` (fuera de `(tabs)/`, sibling de `license-kyc.tsx`) — todavía un
  * placeholder: el wizard real de MOVO-83 depende del backend de creación de envío
  * (MOVO-80, ya Done) pero se implementa en un ticket aparte.
  */
-export function HomeSendCta({ kycStatus, testID, scrollIntoView }: HomeSendCtaProps) {
+export function HomeSendCta({ kycStatus, isSuspended = false, testID, scrollIntoView }: HomeSendCtaProps) {
   const colors = useThemeColors();
   const tourAnchor = useTourAnchor("home-send-cta", { radius: 20, scrollIntoView });
-  const isLocked = kycStatus !== KycStatus.APPROVED;
+  const isLocked = isSuspended || kycStatus !== KycStatus.APPROVED;
+  const lockedSubtitle = isSuspended
+    ? "Tu cuenta está suspendida: no podés publicar envíos nuevos"
+    : "Verificá tu identidad para empezar a enviar";
 
   const handlePress = () => {
     if (isLocked) return;
@@ -43,6 +51,8 @@ export function HomeSendCta({ kycStatus, testID, scrollIntoView }: HomeSendCtaPr
       testID={testID}
       onPress={handlePress}
       disabled={isLocked}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isLocked }}
       style={
         isLocked
           ? undefined
@@ -71,7 +81,7 @@ export function HomeSendCta({ kycStatus, testID, scrollIntoView }: HomeSendCtaPr
         </Text>
         <Text className={`mt-0.5 font-sans text-small ${isLocked ? "text-fg-2" : "text-ink-950/70"}`}>
           {isLocked
-            ? "Verificá tu identidad para empezar a enviar"
+            ? lockedSubtitle
             : "Coordiná un envío con un transportista verificado"}
         </Text>
       </View>

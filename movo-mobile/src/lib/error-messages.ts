@@ -14,9 +14,11 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   AUTH_FORBIDDEN: "No tenés permiso para hacer esto.",
   AUTH_OTP_INVALID: "El código ingresado no es correcto. Revisalo e intentá de nuevo.",
   AUTH_OTP_EXPIRED: "El código venció. Pedí uno nuevo.",
-  ACCOUNT_SUSPENDED: "Tu cuenta está suspendida. Contactá a soporte para más información.",
-  // MOVO-296: el login de una cuenta inhabilitada (antes respondía ACCOUNT_SUSPENDED). La pantalla
-  // dedicada llega con MOVO-300; hasta entonces este mensaje evita el genérico.
+  // MOVO-300: el gateway (MOVO-298) lo responde en las acciones que inician algo nuevo. El
+  // plazo y el motivo los muestra el aviso del inicio, que se refresca con este mismo error.
+  ACCOUNT_SUSPENDED: "Tu cuenta está suspendida: no podés iniciar envíos, ofertas ni viajes nuevos.",
+  // La pantalla `account-disabled.tsx` es el caso normal; este mensaje queda para una pantalla
+  // que muestre el error antes de que el guard la redirija.
   ACCOUNT_DISABLED: "Tu cuenta fue inhabilitada. Contactá a soporte para más información.",
   // El backend permite pedir una sesión de KYC desde cualquier estado salvo `approved`
   // (ver ALLOWED_SESSION_SOURCE_STATUSES en svc-users), así que el único caso real que

@@ -1,6 +1,7 @@
 import {
   AccountStatus,
   KycStatus,
+  type OwnAccountSanction,
   type PrivateProfile,
   type ProfileBadge,
   type PublicAccountStatus,
@@ -44,12 +45,14 @@ function computeBadges(user: User): ProfileBadge[] {
  * MOVO-152: `reputation`/`transactionCounts` ya vienen resueltos por el caller
  * (`users.service.ts#resolveReputationSummary`, cacheado y con fallback a
  * `NO_REPUTATION` si `svc-shipments` no respondió) -- esta función sigue siendo pura,
- * sin I/O. MOVO-169: `tours` también lo resuelve el caller (`user_tour`). */
+ * sin I/O. MOVO-169: `tours` también lo resuelve el caller (`user_tour`), y MOVO-300 la
+ * sanción vigente (`account_sanctions`). */
 export function toPrivateProfile(
   user: User,
   reputation: ReputationBreakdown,
   transactionCounts: TransactionCounts,
-  tours: UserTourRecord[]
+  tours: UserTourRecord[],
+  activeSanction: OwnAccountSanction | null
 ): PrivateProfile {
   return {
     id: user.id,
@@ -75,6 +78,7 @@ export function toPrivateProfile(
     privacyAcceptedAt: user.privacyAcceptedAt?.toISOString() ?? null,
     privacyVersion: user.privacyVersion,
     tours,
+    activeSanction,
   };
 }
 
