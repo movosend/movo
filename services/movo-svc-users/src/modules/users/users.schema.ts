@@ -1,7 +1,7 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa el resto de los módulos: cada schema no comparte definiciones entre sí.
 const KYC_STATUS_VALUES = ["not_started", "pending", "approved", "rejected", "expired", "manual_review"];
-const ACCOUNT_STATUS_VALUES = ["active", "banned", "deleted"];
+const ACCOUNT_STATUS_VALUES = ["active", "banned", "deleted", "suspended"];
 const USER_ROLE_VALUES = ["sender", "carrier", "admin"];
 const PROFILE_BADGE_VALUES = ["kyc_verified", "license_verified"];
 // MOVO-169: mismos valores que TOUR_IDS/TOUR_OUTCOMES de @movo/shared.
@@ -104,6 +104,8 @@ const recentRatingComment = {
 // memberSince/phoneVerified/emailVerified acá -- a diferencia de recentRatingComments,
 // SÍ viajan en `GET /users/search` (no piden I/O extra, ver @movo/shared).
 const publicProfileExtras = {
+  // MOVO-296: estado de la cuenta sin motivo ni plazo; `banned` sale como `disabled`.
+  accountStatus: { type: "string", enum: ["active", "suspended", "disabled"] },
   ratingCount: { type: "integer" },
   isNewProfile: { type: "boolean" },
   asSender: reputationBreakdown,
@@ -114,6 +116,7 @@ const publicProfileExtras = {
   emailVerified: { type: "boolean" },
 };
 const PUBLIC_PROFILE_EXTRA_REQUIRED = [
+  "accountStatus",
   "ratingCount",
   "isNewProfile",
   "asSender",

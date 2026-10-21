@@ -5,7 +5,7 @@ import {
   KycStatus as PrismaKycStatus,
   AccountStatus as PrismaAccountStatus,
 } from "../generated/prisma/client";
-import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName } from "../models/user";
+import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName, effectiveAccountStatus } from "../models/user";
 
 export interface UserRepository {
   count(): Promise<number>;
@@ -125,6 +125,7 @@ type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: true } }>;
  * rompe acá y obliga a decidir explícitamente qué hacer con ella.
  */
 function toDomainUser(row: UserWithRoles): User {
+  const account = effectiveAccountStatus(parseAccountStatus(row.status), row.bannedUntil);
   return {
     id: row.id,
     email: row.email,
@@ -144,8 +145,8 @@ function toDomainUser(row: UserWithRoles): User {
     photoUrl: row.photoUrl,
     kycStatusIdentity: parseKycStatus(row.kycStatusIdentity, "kyc_status_identity"),
     kycStatusLicense: parseKycStatus(row.kycStatusLicense, "kyc_status_license"),
-    status: parseAccountStatus(row.status),
-    bannedUntil: row.bannedUntil,
+    status: account.status,
+    bannedUntil: account.bannedUntil,
     birthdate: row.birthdate,
     roles: row.roles.map((r) => parseUserRole(r.role)),
     createdAt: row.createdAt,

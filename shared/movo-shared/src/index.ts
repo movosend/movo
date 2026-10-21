@@ -55,6 +55,16 @@ export type {
   RatingRole,
   PendingRatingShipment,
 } from "./types/shipment";
+export { ACCOUNT_SANCTION_REASON_MAX_LENGTH, ACCOUNT_SANCTION_NOTE_MAX_LENGTH, accountRestrictionKey } from "./types/account-sanctions";
+export type {
+  AccountSanctionType,
+  AccountSanctionClosedCause,
+  PublicAccountStatus,
+  AccountSanction,
+  ApplyAccountSanctionRequest,
+  LiftAccountSanctionRequest,
+  AccountRestrictionMark,
+} from "./types/account-sanctions";
 export { OfferStatus } from "./types/offer";
 export { TripStatus } from "./types/trip";
 export type {
@@ -396,3 +406,62 @@ export type {
   AdminUserLedgerRowPage,
   AdminUserNames,
 } from "./types/admin-users";
+
+// admin: bandeja de soporte (MOVO-323, backend MOVO-321/MOVO-322)
+export {
+  SUPPORT_STATUSES,
+  SUPPORT_PRIORITIES,
+  SUPPORT_TOPICS,
+  SUPPORT_TAGS,
+  SUPPORT_WAIT_ALERT_MINUTES,
+  SUPPORT_MESSAGE_MAX_LENGTH,
+  SUPPORT_LIST_PAGE_SIZE,
+  SUPPORT_MESSAGES_PAGE_SIZE,
+  SUPPORT_CODE_RE,
+  SUPPORT_ATTACHMENT_TYPES,
+  SUPPORT_ATTACHMENT_MAX_BYTES,
+  SUPPORT_ATTACHMENT_MAX_PER_MESSAGE,
+  SUPPORT_ERROR,
+  SUPPORT_QUICK_REPLIES,
+  SUPPORT_WS_PROTOCOL,
+  resolveQuickReply,
+} from "./types/admin-support";
+export type {
+  SupportStatus,
+  SupportPriority,
+  SupportTopic,
+  SupportUserRole,
+  SupportTag,
+  SupportAttachmentType,
+  SupportUserRef,
+  SupportAgentRef,
+  SupportAgent,
+  SupportAttachment,
+  SupportUserMessage,
+  SupportAgentMessage,
+  SupportInternalNote,
+  SupportSystemMessage,
+  SupportMessage,
+  SupportLastMessage,
+  SupportShipmentRef,
+  SupportConversationRow,
+  SupportConversation,
+  SupportListPage,
+  SupportMessagesPage,
+  SupportCounts,
+  SupportCountsQuery,
+  SupportListQuery,
+  SupportSendBody,
+  SupportPatchBody,
+  SupportAttachmentCreateBody,
+  SupportAttachmentCreateResult,
+  SupportBadgeTone,
+  SupportVerificationBadge,
+  SupportUserShipment,
+  SupportUserHistoryItem,
+  SupportUserContext,
+  SupportQuickReply,
+  SupportEvent,
+  SupportEventsPage,
+  SupportRealtimeTicket,
+} from "./types/admin-support";

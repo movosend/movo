@@ -83,12 +83,12 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
 describe("RecentShipmentsSection", () => {
   afterEach(() => jest.clearAllMocks());
 
-  it("muestra un indicador de carga mientras el fetch está pendiente", async () => {
+  it("muestra el skeleton de las filas mientras el fetch está pendiente (MOVO-168)", async () => {
     mockUseRecentShipments.mockReturnValue({ isLoading: true, isError: false, data: undefined, refetch: jest.fn() });
 
     const { getByTestId, queryByText } = await render(<RecentShipmentsSection testID="section" />);
 
-    expect(getByTestId("section")).toBeTruthy();
+    expect(getByTestId("section-skeleton")).toBeTruthy();
     expect(queryByText("Todavía no hiciste ningún envío.")).toBeNull();
   });
 

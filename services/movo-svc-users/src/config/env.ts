@@ -30,6 +30,8 @@ export interface EnvConfig {
   ORPHAN_PHOTO_RETENTION_HOURS: number;
   ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: number;
   ORPHAN_PHOTO_SWEEP_ENABLED?: boolean;
+  SANCTION_SWEEP_INTERVAL_MINUTES: number;
+  SANCTION_SWEEP_ENABLED?: boolean;
   REPUTATION_CACHE_TTL_SECONDS: number;
 }
 
@@ -112,6 +114,11 @@ export const envSchema = {
     ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
     // MOVO-124: flag para habilitar/deshabilitar el barrido (útil en test/CI).
     ORPHAN_PHOTO_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-296: intervalo en minutos del barrido de sanciones de cuenta (cierra las
+    // suspensiones vencidas y reescribe las marcas de Redis).
+    SANCTION_SWEEP_INTERVAL_MINUTES: { type: "number", default: 5 },
+    // MOVO-296: flag para habilitar/deshabilitar el barrido (útil en test/CI).
+    SANCTION_SWEEP_ENABLED: { type: "boolean", default: true },
     // MOVO-152 AC5: TTL del agregado de reputación cacheado en Redis por usuario --
     // arranca en 60s (sugerido del ticket). El perfil se lee muchísimo más de lo que
     // cambia una reputación; la caché se invalida sola por TTL, sin invalidación

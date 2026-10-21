@@ -39,7 +39,7 @@ export interface AdminUserListItem {
   dni: string | null;
   photoUrl: string | null;
   roles: AdminUserRoleName[];
-  /** `banned` con `bannedUntil` es una suspensión; sin fecha, un baneo permanente. */
+  /** `suspended` (con `bannedUntil` si es temporal) o `banned` (inhabilitada), MOVO-296. */
   accountStatus: AdminAccountStatus;
   bannedUntil: string | null;
   kycIdentity: AdminKycStatus;

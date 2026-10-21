@@ -29,6 +29,8 @@ import moderationRoutes, { internalModerationRoutes } from "./modules/moderation
 import adminsInternalRoutes, { AdminsInternalRoutesOptions } from "./modules/admins/admins-internal.routes";
 import adminUsersInternalRoutes, { AdminUsersInternalRoutesOptions } from "./modules/admin-users/admin-users-internal.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
+import sanctionSweepPlugin from "./plugins/sanction-sweep";
+import sanctionsInternalRoutes, { SanctionsInternalRoutesOptions } from "./modules/sanctions/sanctions-internal.routes";
 import { SmsProvider } from "./adapters/sms-provider";
 import { EmailProvider } from "./adapters/email-provider";
 import { DiditClient } from "./adapters/didit-client";
@@ -65,6 +67,8 @@ export interface BuildAppOptions {
   emailProvider?: EmailProvider;
   /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
   orphanPhotoSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el barrido de sanciones de cuenta (MOVO-296). */
+  sanctionSweepEnabled?: boolean;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -93,6 +97,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(orphanPhotoSweepPlugin, {
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
+  });
+
+  app.register(sanctionSweepPlugin, {
+    emailProvider: opts.emailProvider,
+    pushProvider: opts.pushProvider,
+    enabled: opts.sanctionSweepEnabled,
   });
 
   // Fuera de /api/v1 a propósito: lo consultan el healthcheck de Docker y el
@@ -196,6 +206,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
   };
   app.register(adminUsersInternalRoutes, adminUsersInternalRouteOpts);
+
+  // MOVO-296: sanciones de cuenta (suspender, inhabilitar, levantar, historial) para svc-admin.
+  const sanctionsInternalRouteOpts: SanctionsInternalRoutesOptions = {
+    prefix: "/internal",
+    ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+    ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
+  };
+  app.register(sanctionsInternalRoutes, sanctionsInternalRouteOpts);
 
   return app;
 }

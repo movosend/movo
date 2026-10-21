@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { publicError } from "@/lib/auth/api"
 import { requireAdmin } from "@/lib/auth/session"
 import { sidebarDefaultOpen } from "@/lib/sidebar"
@@ -10,6 +11,8 @@ import { UserRows } from "@/components/users/user-table"
 
 const first = (v: string | string[] | undefined) =>
   (Array.isArray(v) ? v[0] : v) ?? ""
+
+export const metadata: Metadata = { title: "Usuarios" }
 
 export default async function Page({
   searchParams,

@@ -38,12 +38,18 @@ export enum KycStatus {
 /**
  * Estado de la cuenta de un usuario (MOVO-92).
  *
- * `status` de la entidad User: active | banned | deleted.
+ * `status` de la entidad User: active | banned | deleted | suspended.
+ *
+ * MOVO-296: `banned` pasa a significar **inhabilitada** (sanción permanente, corta el login);
+ * `suspended` es la sanción temporal o indefinida que no bloquea el login pero sí las
+ * operaciones (la aplica el gateway por la marca en Redis). Se agregan valores al final, nunca
+ * se renombra uno existente.
  */
 export enum AccountStatus {
   ACTIVE = "active",
   BANNED = "banned",
   DELETED = "deleted",
+  SUSPENDED = "suspended",
 }
 
 /**

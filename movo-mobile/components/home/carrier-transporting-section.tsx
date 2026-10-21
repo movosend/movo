@@ -6,6 +6,7 @@ import { useMyTrips, useStartTrip } from "../../src/hooks/use-trips";
 import { formatTripStartErrorMessage, splitCarrierHomeTrips } from "../../src/lib/trip-format";
 import { CarrierRequirementsSheet } from "../carrier/carrier-requirements-checklist";
 import { CarrierTripCta } from "../trips/carrier-trip-cta";
+import { HomeSectionError, HomeSectionSkeleton, TRIP_CARD_SKELETON_HEIGHT } from "./home-section-states";
 import { requireCarrierLocation } from "../../src/store/carrier-location-gate-store";
 
 interface CarrierTransportingSectionProps {
@@ -26,7 +27,7 @@ interface CarrierTransportingSectionProps {
 export function CarrierTransportingSection({
   testID = "app-home-transporting",
 }: CarrierTransportingSectionProps) {
-  const { data: myTripsData } = useMyTrips();
+  const { data: myTripsData, isLoading, isError, refetch } = useMyTrips();
   const startTripMutation = useStartTrip();
   const requirements = useCarrierRequirementsSheet("start");
 
@@ -36,6 +37,20 @@ export function CarrierTransportingSection({
   const { primaryTrip } = splitCarrierHomeTrips(myTripsData?.items ?? []);
 
   if (!primaryTrip) {
+    // MOVO-168: cargando o fallida no es lo mismo que "sin viaje de hoy".
+    if (isLoading) {
+      return <HomeSectionSkeleton testID={`${testID}-skeleton`} cardHeight={TRIP_CARD_SKELETON_HEIGHT} />;
+    }
+    if (isError) {
+      return (
+        <HomeSectionError
+          testID={`${testID}-error`}
+          title="Estoy transportando"
+          message="No pudimos cargar tus viajes."
+          onRetry={() => void refetch()}
+        />
+      );
+    }
     return null;
   }
 

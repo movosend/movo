@@ -37,7 +37,8 @@ import { ReceiverTransferSection } from "../../../components/shipments/receiver-
 import { TransferredByYouBanner } from "../../../components/shipments/transferred-by-you-banner";
 import { CarrierActionsBar } from "../../../components/shipments/carrier-actions-bar";
 import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
-import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
+import { ShipmentDetailBodySkeleton } from "../../../components/shipments/shipment-detail-skeleton";
+import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { ShipmentPartiesCard } from "../../../components/shipments/shipment-parties-card";
 import { ShipmentRatingsCard } from "../../../components/shipments/shipment-ratings-card";
 import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
@@ -415,10 +416,8 @@ export default function ShipmentDetailScreen() {
     void refetchRatings();
   };
 
-  if (isLoading) {
-    return <ShipmentDetailSkeleton testID="shipment-detail-skeleton" />;
-  }
-
+  // MOVO-168: el header (volver + título) se ve de entrada; solo lo que depende del envío
+  // (rol, código, estado y el cuerpo) espera su skeleton.
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
@@ -433,7 +432,9 @@ export default function ShipmentDetailScreen() {
           <Text numberOfLines={1} className="font-sans-semibold text-h3 text-fg">
             Detalle del envío
           </Text>
-          {shipment ? (
+          {isLoading ? (
+            <SkeletonBlock testID="shipment-detail-header-skeleton" className="mt-1 h-2.5 w-16 rounded-md" />
+          ) : shipment ? (
             <View className="mt-0.5 flex-row items-center gap-1">
               {isFormerReceiver ? (
                 <View testID="shipment-detail-role" className="flex-row items-center gap-0.5">
@@ -462,6 +463,7 @@ export default function ShipmentDetailScreen() {
           ) : null}
         </View>
 
+        {isLoading ? <SkeletonBlock className="h-6 w-20 rounded-full" /> : null}
         {shipment ? (
           <ShipmentStatusBadge
             status={shipment.status}
@@ -498,7 +500,9 @@ export default function ShipmentDetailScreen() {
         ) : null}
       </View>
 
-      {isError || !shipment ? (
+      {isLoading ? (
+        <ShipmentDetailBodySkeleton testID="shipment-detail-skeleton" />
+      ) : isError || !shipment ? (
         <ShipmentDetailError error={error} onRetry={() => refetch()} />
       ) : (
         <View className="flex-1">

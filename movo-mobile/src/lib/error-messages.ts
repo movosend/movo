@@ -15,6 +15,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   AUTH_OTP_INVALID: "El código ingresado no es correcto. Revisalo e intentá de nuevo.",
   AUTH_OTP_EXPIRED: "El código venció. Pedí uno nuevo.",
   ACCOUNT_SUSPENDED: "Tu cuenta está suspendida. Contactá a soporte para más información.",
+  // MOVO-296: el login de una cuenta inhabilitada (antes respondía ACCOUNT_SUSPENDED). La pantalla
+  // dedicada llega con MOVO-300; hasta entonces este mensaje evita el genérico.
+  ACCOUNT_DISABLED: "Tu cuenta fue inhabilitada. Contactá a soporte para más información.",
   // El backend permite pedir una sesión de KYC desde cualquier estado salvo `approved`
   // (ver ALLOWED_SESSION_SOURCE_STATUSES en svc-users), así que el único caso real que
   // llega acá es una identidad ya verificada — un "intentá de nuevo" sería engañoso.

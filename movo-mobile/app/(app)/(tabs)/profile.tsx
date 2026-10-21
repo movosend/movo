@@ -6,12 +6,15 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AvatarPeekViewer } from '../../../components/profile/avatar-peek-viewer';
 import { ProfileBadges } from '../../../components/profile/profile-badges';
-import { ProfileErrorState } from '../../../components/profile/profile-error-state';
 import { ProfileLicenseStatusBanner } from '../../../components/profile/profile-license-status-banner';
 import { ProfileLogoutButton } from '../../../components/profile/profile-logout-button';
 import { ProfileActivityCard } from '../../../components/profile/profile-activity-card';
 import { ProfileSettingsSection } from '../../../components/profile/profile-settings-section';
-import { ProfileSkeleton } from '../../../components/profile/profile-skeleton';
+import {
+  ProfileActivitySkeleton,
+  ProfileHeaderSkeleton,
+  ProfileSectionError,
+} from '../../../components/profile/profile-section-states';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import { useMyProfile, usePublicProfile } from '../../../src/hooks/use-profile';
@@ -28,27 +31,24 @@ export default function ProfileScreen() {
   const tabBarScroll = useTabBarScrollHandler();
   const colors = useThemeColors();
   const { logout } = useAuth();
-  const { data, isLoading, isError, error, refetch } = useMyProfile();
+  const { data, isLoading, error, refetch } = useMyProfile();
   // Desglose/comentarios de reputación (MOVO-154, AC2/AC3/AC5/AC6) no viven en
   // `PrivateProfile` (MOVO-152: solo `PublicProfile` los tiene) — se resuelven con
   // una segunda query, propia y degradable, sin bloquear el resto del perfil si
   // falla. `GET /users/:id` no distingue self-lookup de cualquier otro (verificado
   // en `users.routes.ts`), así que no hace falta un endpoint nuevo.
-  const { data: publicProfile } = usePublicProfile(data?.id);
+  const {
+    data: publicProfile,
+    isLoading: reputationLoading,
+    isError: reputationError,
+    refetch: refetchReputation,
+  } = usePublicProfile(data?.id);
 
-  if (isLoading) return <ProfileSkeleton testID="profile-skeleton" />;
-
-  if (isError || !data) {
-    return (
-      <ProfileErrorState
-        testID="profile-error-state"
-        message={friendlyErrorMessage(error, 'No pudimos conectar con el servidor.')}
-        onRetry={() => refetch()}
-      />
-    );
-  }
-
-  const displayName = capitalizeName(data.fullName);
+  // MOVO-168: ni la carga ni la falla del perfil reemplazan la pantalla -- Configuración y
+  // "Cerrar sesión" no dependen de `GET /users/me` y siguen a la vista y usables. Con `data` en
+  // caché manda el perfil: un refetch fallido no lo tapa con el error.
+  const profileReady = !!data;
+  const displayName = data ? capitalizeName(data.fullName) : '';
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={['top']}>
@@ -58,66 +58,84 @@ export default function ProfileScreen() {
         contentContainerClassName="px-6 pb-32 pt-8"
         showsVerticalScrollIndicator={false}
       >
-        <View className="mb-6 flex-row items-center gap-4">
-          <AvatarPeekViewer
-            testID="profile-avatar"
-            fullName={displayName}
-            photoUrl={data.photoUrl}
-            size={88}
+        {!data && isLoading ? (
+          <>
+            <ProfileHeaderSkeleton testID="profile-skeleton" />
+            <ProfileActivitySkeleton testID="profile-activity-skeleton" />
+          </>
+        ) : !profileReady ? (
+          <ProfileSectionError
+            testID="profile-error-state"
+            message={friendlyErrorMessage(error, 'No pudimos conectar con el servidor.')}
+            onRetry={() => refetch()}
           />
-          <View className="flex-1">
-            <Text testID="profile-full-name" className="font-sans-semibold text-h2 text-fg">
-              {displayName}
-            </Text>
-            <ProfileBadges
-              testID="profile-badges"
-              kycVerified={data.badges.includes('kyc_verified') || data.kycStatus === KycStatus.APPROVED}
-              licenseVerified={data.badges.includes('license_verified') || data.licenseKycStatus === KycStatus.APPROVED}
-              showLicense={data.roles.includes(UserRole.CARRIER) || data.badges.includes('license_verified')}
-            />
-          </View>
-          {/* AC1 de MOVO-135: la edición del perfil se alcanza en un tap desde acá,
-              no desde la lista de Configuración (ahí vive "Cuenta y seguridad",
-              que es contraseña y baja de cuenta — MOVO-136). */}
-          <Pressable
-            testID="profile-edit-button"
-            onPress={() => router.push('/profile/edit')}
-            hitSlop={8}
-            className="h-9 w-9 items-center justify-center rounded-full bg-bg-mute"
-          >
-            <Pencil size={15} color={colors.fg2} strokeWidth={1.8} />
-          </Pressable>
-        </View>
+        ) : (
+          <>
+            <View className="mb-6 flex-row items-center gap-4">
+              <AvatarPeekViewer
+                testID="profile-avatar"
+                fullName={displayName}
+                photoUrl={data.photoUrl}
+                size={88}
+              />
+              <View className="flex-1">
+                <Text testID="profile-full-name" className="font-sans-semibold text-h2 text-fg">
+                  {displayName}
+                </Text>
+                <ProfileBadges
+                  testID="profile-badges"
+                  kycVerified={data.badges.includes('kyc_verified') || data.kycStatus === KycStatus.APPROVED}
+                  licenseVerified={data.badges.includes('license_verified') || data.licenseKycStatus === KycStatus.APPROVED}
+                  showLicense={data.roles.includes(UserRole.CARRIER) || data.badges.includes('license_verified')}
+                />
+              </View>
+              {/* AC1 de MOVO-135: la edición del perfil se alcanza en un tap desde acá,
+                  no desde la lista de Configuración (ahí vive "Cuenta y seguridad",
+                  que es contraseña y baja de cuenta — MOVO-136). */}
+              <Pressable
+                testID="profile-edit-button"
+                onPress={() => router.push('/profile/edit')}
+                hitSlop={8}
+                className="h-9 w-9 items-center justify-center rounded-full bg-bg-mute"
+              >
+                <Pencil size={15} color={colors.fg2} strokeWidth={1.8} />
+              </Pressable>
+            </View>
 
-        {data.roles.includes(UserRole.CARRIER) && (
-          <ProfileLicenseStatusBanner
-            testID="profile-license-banner"
-            status={data.licenseKycStatus}
-            onPrimaryAction={() =>
-              router.push({
-                pathname: '/license-kyc',
-                params: { status: data.licenseKycStatus },
-              })
-            }
-          />
-        )}
-
-        <ProfileActivityCard
-          testID="profile-activity-card"
-          transactionCounts={data.transactionCounts}
-          reputationScore={data.reputationScore}
-          isNewProfile={publicProfile?.isNewProfile}
-          reputation={
-            publicProfile
-              ? {
-                  asSender: publicProfile.asSender,
-                  asCarrier: publicProfile.asCarrier,
-                  recentRatingComments: publicProfile.recentRatingComments,
+            {data.roles.includes(UserRole.CARRIER) && (
+              <ProfileLicenseStatusBanner
+                testID="profile-license-banner"
+                status={data.licenseKycStatus}
+                onPrimaryAction={() =>
+                  router.push({
+                    pathname: '/license-kyc',
+                    params: { status: data.licenseKycStatus },
+                  })
                 }
-              : undefined
-          }
-          onViewAllRatings={() => router.push('/profile/ratings')}
-        />
+              />
+            )}
+
+            <ProfileActivityCard
+              testID="profile-activity-card"
+              transactionCounts={data.transactionCounts}
+              reputationScore={data.reputationScore}
+              isNewProfile={publicProfile?.isNewProfile}
+              reputation={
+                publicProfile
+                  ? {
+                      asSender: publicProfile.asSender,
+                      asCarrier: publicProfile.asCarrier,
+                      recentRatingComments: publicProfile.recentRatingComments,
+                    }
+                  : undefined
+              }
+              reputationLoading={reputationLoading}
+              reputationError={reputationError}
+              onRetryReputation={() => void refetchReputation()}
+              onViewAllRatings={() => router.push('/profile/ratings')}
+            />
+          </>
+        )}
 
         <ProfileSettingsSection testID="profile-settings-section" />
 

@@ -621,3 +621,15 @@ los públicos con `Omit`, así un campo nuevo en el contrato del panel aparece t
 `AdminUserMercadoPago.status` suma `expired` (vencida ≠ revocada) y `AdminUserKyc.mercadoPago` pasa a `| null`
 (`svc-payments` no respondió); los dos rompen literales armados a mano y tocaron la tarjeta de MP de `movo-admin`.
 
+### MOVO-296 — Sanciones de cuenta (`types/account-sanctions.ts`)
+
+`AccountStatus.SUSPENDED` (al final; `BANNED` pasa a significar inhabilitada), `AccountSanction`/`ApplyAccountSanctionRequest`/`LiftAccountSanctionRequest`, `PublicAccountStatus` y `PublicProfile.accountStatus` (campo requerido: rompe literales armados a mano, tocó fixtures de `svc-shipments` y `movo-mobile`). `accountRestrictionKey(userId)` es el contrato de la marca de Redis que escribe `svc-users` y leerá el gateway (MOVO-298). `ApiErrorCode` suma `ACCOUNT_DISABLED`, `ACCOUNT_ALREADY_DISABLED`, `SANCTION_NOT_FOUND` y `SANCTION_ALREADY_CLOSED`; triggers `accountSuspended|accountDisabled|accountSanctionLifted|accountSuspensionExpired`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-323 — Contrato de la bandeja de soporte (`types/admin-support.ts`)
+
+`Support*` (estado, prioridad, tema, mensajes por `kind`, fila/detalle de la conversación, contadores, contexto del usuario, adjuntos,
+eventos de tiempo real y ticket del WS), las constantes (`SUPPORT_TAGS`, `SUPPORT_ATTACHMENT_*`, `SUPPORT_WS_PROTOCOL`…) y las
+respuestas rápidas con `resolveQuickReply`. Lo define el panel y lo implementan MOVO-322/321; rutas y reglas en `docs/support/README.md`.
+`ApiErrorCode` suma `SUPPORT_CONVERSATION_NOT_FOUND`, `SUPPORT_ATTACHMENT_INVALID`, `SUPPORT_SHIPMENT_NOT_PARTY`,
+`SUPPORT_TICKET_INVALID` y `SUPPORT_SERVICE_UNAVAILABLE`. Pendiente para 322: sumar `support_conversation` a `AdminTargetType`.
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

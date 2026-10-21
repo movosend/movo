@@ -7,6 +7,7 @@ import {
   BadgeCheck,
   ChevronDown,
   Flag,
+  Headset,
   Home,
   LogOut,
   MessagesSquare,
@@ -28,6 +29,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarMenuBadge,
   SidebarInset,
   SidebarTrigger,
   useSidebar,
@@ -43,6 +45,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Brand, BrandMark } from "@/components/brand"
 import { UserAvatar } from "@/components/user-avatar"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  useSupport,
+  useSupportConnection,
+} from "@/components/support/support-provider"
 import type { ReactNode, CSSProperties } from "react"
 
 const SOON = [
@@ -57,6 +63,7 @@ const LIVE = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/admins", label: "Admins", icon: ShieldCheck },
   { href: "/users", label: "Usuarios", icon: Users },
+  { href: "/support", label: "Soporte", icon: Headset },
 ] as const
 
 function ShellTrigger() {
@@ -85,7 +92,7 @@ export function AdminShell({
   fullName?: string
   email?: string
   photoUrl?: string | null
-  current?: "/" | "/admins" | "/users"
+  current?: "/" | "/admins" | "/users" | "/support"
   defaultOpen?: boolean
   /** Último tramo del breadcrumb (p. ej. el nombre en la ficha); la sección pasa a ser un link. */
   crumb?: string
@@ -95,6 +102,9 @@ export function AdminShell({
   const { resolvedTheme, setTheme } = useTheme()
   const dark = resolvedTheme === "dark"
   const section = LIVE.find((item) => item.href === current)
+  // Una sola conexión en vivo para todo el panel (badge de Soporte y toasts de consultas nuevas).
+  useSupportConnection()
+  const { unread } = useSupport()
   return (
     <SidebarProvider
       // Marco de altura fija: el header queda quieto y solo `main` hace scroll. Hace falta para que
@@ -143,6 +153,14 @@ export function AdminShell({
                     <Icon />
                     <span>{label}</span>
                   </SidebarMenuButton>
+                  {href === "/support" && !!unread && (
+                    <SidebarMenuBadge
+                      aria-label={`${unread} sin leer`}
+                      className="top-1.5! min-w-5 rounded-full bg-lime px-1.5 text-[11px] font-semibold text-[#0a0a0b]!"
+                    >
+                      {unread}
+                    </SidebarMenuBadge>
+                  )}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>

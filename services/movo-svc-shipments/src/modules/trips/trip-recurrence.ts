@@ -162,6 +162,16 @@ async function continueSeries(
     await notifyBlockedByDebt(deps, trip);
     return "deferred";
   }
+  // MOVO-296: una suspensión (temporal o indefinida) pausa la serie igual que la deuda: salta
+  // solo la ocurrencia siguiente, sin apagar la recurrencia ni avisar de un corte. Si la cuenta
+  // vuelve a `active` se retoma sola; si la inhabilitan (`banned`) sí se corta más abajo.
+  if (eligibility.account?.status === AccountStatus.SUSPENDED) {
+    deps.logger?.info(
+      { event: "trip_recurrence_generation_paused_by_suspension", tripId: trip.id, carrierId: trip.carrierId },
+      "Cuenta suspendida: la ocurrencia siguiente se declara cuando se levante la suspensión",
+    );
+    return "deferred";
+  }
   const unavailableReason = ineligibilityReason(eligibility, now);
   if (unavailableReason) {
     return (await stopSeries(deps, trip, unavailableReason)) ? "stopped" : "deferred";

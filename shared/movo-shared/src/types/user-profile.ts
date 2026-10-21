@@ -1,4 +1,5 @@
 import { AccountStatus, KycStatus, UserRole } from "./user";
+import type { PublicAccountStatus } from "./account-sanctions";
 import type { UserTourRecord } from "../config/tours";
 
 /**
@@ -213,6 +214,9 @@ export interface VehicleProfile {
  */
 export interface PublicProfile {
   id: string;
+  /** MOVO-296: estado de la cuenta (`banned` se publica como `disabled`). Nunca el motivo
+   * ni el plazo de la sanción. */
+  accountStatus: PublicAccountStatus;
   fullName: string;
   photoUrl: string | null;
   isVerified: boolean;

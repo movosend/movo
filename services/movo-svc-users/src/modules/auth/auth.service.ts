@@ -146,6 +146,19 @@ export function normalizePhoneToE164Ar(rawPhone: string): string {
 }
 
 /**
+ * MOVO-296 AC4/AC10: login y refresh solo rechazan `banned` (inhabilitada, `ACCOUNT_DISABLED`)
+ * y `deleted`; `suspended` pasa. No-op para cualquier otro estado.
+ */
+export function assertAccountCanSignIn(status: AccountStatus): void {
+  if (status === AccountStatus.BANNED) {
+    throw new ApiError(403, "ACCOUNT_DISABLED", "La cuenta fue inhabilitada.");
+  }
+  if (status === AccountStatus.DELETED) {
+    throw new ApiError(403, "ACCOUNT_SUSPENDED", "La cuenta se encuentra suspendida o inhabilitada.");
+  }
+}
+
+/**
  * Emite un par access/refresh token nuevo para `user` y persiste la sesión. Standalone
  * (no un closure de `createAuthService`) desde MOVO-134: `users.service.ts#changePassword`
  * necesita emitir el mismo shape de tokens sin tener que instanciar
@@ -354,9 +367,9 @@ export function createAuthService(
         throw new ApiError(401, "AUTH_INVALID_CREDENTIALS", "Credenciales inválidas.");
       }
 
-      if (user.status === AccountStatus.BANNED || user.status === AccountStatus.DELETED) {
-        throw new ApiError(403, "ACCOUNT_SUSPENDED", "La cuenta se encuentra suspendida o inhabilitada.");
-      }
+      // MOVO-296 AC4: solo `banned` (inhabilitada) y `deleted` rechazan el login; una cuenta
+      // `suspended` entra y el gateway le bloquea las operaciones.
+      assertAccountCanSignIn(user.status);
 
       return issueSession(sessionRepository, user);
     },
@@ -389,7 +402,7 @@ export function createAuthService(
         if (!user) {
           throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
         }
-        throw new ApiError(403, "ACCOUNT_SUSPENDED", "La cuenta se encuentra suspendida o inhabilitada.");
+        assertAccountCanSignIn(user.status);
       }
 
       // AC5: roles/kycStatus releídos de la fila actual, no del token viejo.

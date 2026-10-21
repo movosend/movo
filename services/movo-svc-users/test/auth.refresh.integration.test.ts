@@ -274,7 +274,7 @@ describe("POST /auth/refresh", () => {
     }
   });
 
-  it("devuelve 403 ACCOUNT_SUSPENDED y revoca todas las sesiones si la cuenta fue suspendida (AC6)", async () => {
+  it("devuelve 403 ACCOUNT_DISABLED y revoca todas las sesiones si la cuenta fue inhabilitada (AC6)", async () => {
     const { userId, refreshToken } = await registerAndLogin();
 
     await app.db.user.update({
@@ -289,7 +289,7 @@ describe("POST /auth/refresh", () => {
     });
 
     expect(refreshRes.statusCode).toBe(403);
-    expect(JSON.parse(refreshRes.body).error.code).toBe("ACCOUNT_SUSPENDED");
+    expect(JSON.parse(refreshRes.body).error.code).toBe("ACCOUNT_DISABLED");
 
     const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
     expect(redisKeys.length).toBe(0);
