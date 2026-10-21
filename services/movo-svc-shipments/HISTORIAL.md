@@ -3670,3 +3670,20 @@ Todo cuelga de `modules/admin-internal` (interno, sin ruta en el gateway, sin `x
 - Los bloques de otros servicios (pago, partes) los arma `svc-admin`; ver su `CLAUDE.md`.
 
 Pendiente / fuera de alcance: seguimiento (posición y traza), escrituras sobre el envío, `disputeId` real (MOVO-34) y el desglose de captura/reembolso del pago (hoy solo el hold).
+### MOVO-230 — Purga del historial de envíos vencido (Política de Privacidad §7)
+
+`plugins/history-retention-sweep.ts` (una vez por día, `SHIPMENT_HISTORY_*`) → `services/history-retention-service.ts`.
+Borra físicamente el envío (el cascade arrastra eventos, ofertas, chat, calificaciones, handshakes y posiciones) y antes
+sus fotos de S3; si S3 falla, la fila queda y se reintenta. También borra los `Trip` cerrados de transportistas vencidos.
+
+- **Regla (`isHistoryExpired`)**: todas las partes (emisor, receptor y transportista si hubo) dadas de baja y **5 años
+  desde la baja más reciente**, no desde la primera, para que nadie pierda su antecedente antes de sus propios 5 años.
+- Las fechas de baja salen de `svc-users` (`POST /internal/users/deletion-status`, `createUserDeletionClient`), sin copia
+  local. Prefiltro en Postgres: envíos en `POSITION_PURGE_ELIGIBLE_STATUSES` (sin `disputed`) cerrados hace más de 5 años
+  (la baja exige no tener envíos activos, así que solo puede atrasar la purga). Se recorre todo el prefiltro por páginas.
+- Un `Trip` purgado deja `Offer.tripId` en null (`SetNull`) en los envíos que no se purgan: si el transportista se dio de
+  baja hace más de 5 años pero el emisor sigue activo, ese envío pierde el vínculo al viaje. Aceptado.
+- Pendiente de infra: sin `s3:DeleteObject` sobre `shipments/*` en `movo-infra`, en prod cada corrida loguea un warn por
+  envío vencido y no purga nada (dev usa `STORAGE_PROVIDER=mock` y no lo detecta). Ver pendientes del `CLAUDE.md` raíz.
+- Quedan sin tocar, a propósito: los `shipmentId` de `svc-payments` (comprobantes que la política conserva por ley) y los
+  `AuditLog` de `svc-admin`, que pasan a apuntar a un envío inexistente.

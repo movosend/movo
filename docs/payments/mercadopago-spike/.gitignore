@@ -2,3 +2,6 @@
 session-log.json
 control_input.txt
 node_modules/
+# MOVO-215: holds en medición, incluye el access_token TEST- del vendedor
+hold-watch.json
+hold-expiry-watch.out.txt

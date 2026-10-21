@@ -32,6 +32,9 @@ export interface EnvConfig {
   ORPHAN_PHOTO_SWEEP_ENABLED?: boolean;
   SANCTION_SWEEP_INTERVAL_MINUTES: number;
   SANCTION_SWEEP_ENABLED?: boolean;
+  KYC_ABANDONED_RETENTION_DAYS: number;
+  KYC_ABANDONED_SWEEP_INTERVAL_MINUTES: number;
+  KYC_ABANDONED_SWEEP_ENABLED?: boolean;
   REPUTATION_CACHE_TTL_SECONDS: number;
 }
 
@@ -119,6 +122,13 @@ export const envSchema = {
     SANCTION_SWEEP_INTERVAL_MINUTES: { type: "number", default: 5 },
     // MOVO-296: flag para habilitar/deshabilitar el barrido (útil en test/CI).
     SANCTION_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-230: antigüedad en días a partir de la cual se borra un intento de KYC que nunca
+    // llegó a un resultado (`pending`/`expired`), Política de Privacidad §7.
+    KYC_ABANDONED_RETENTION_DAYS: { type: "number", default: 30 },
+    // MOVO-230: intervalo en minutos de esa purga (una vez por día alcanza para un plazo en días).
+    KYC_ABANDONED_SWEEP_INTERVAL_MINUTES: { type: "number", default: 1440 },
+    // MOVO-230: flag para habilitar/deshabilitar la purga (útil en test/CI).
+    KYC_ABANDONED_SWEEP_ENABLED: { type: "boolean", default: true },
     // MOVO-152 AC5: TTL del agregado de reputación cacheado en Redis por usuario --
     // arranca en 60s (sugerido del ticket). El perfil se lee muchísimo más de lo que
     // cambia una reputación; la caché se invalida sola por TTL, sin invalidación

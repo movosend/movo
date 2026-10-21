@@ -35,6 +35,9 @@ export interface EnvConfig {
   CARRIER_POSITION_RETENTION_DAYS: number;
   CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: number;
   CARRIER_POSITION_PURGE_SWEEP_ENABLED?: boolean;
+  SHIPMENT_HISTORY_RETENTION_YEARS: number;
+  SHIPMENT_HISTORY_PURGE_SWEEP_INTERVAL_MINUTES: number;
+  SHIPMENT_HISTORY_PURGE_SWEEP_ENABLED?: boolean;
   TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
   TRIP_EXPIRY_SWEEP_ENABLED?: boolean;
   PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: number;
@@ -164,6 +167,13 @@ export const envSchema = {
     // sobre un plazo de 30 días no cambia nada material.
     CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
     CARRIER_POSITION_PURGE_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-230 (Política de Privacidad §7): años desde la baja de la última de las partes de un
+    // envío hasta que se purga su historial. Plazo fijado por la política (Art. 2560 CCyCN),
+    // no un valor técnico: cambiarlo es un cambio de documento.
+    SHIPMENT_HISTORY_RETENTION_YEARS: { type: "number", default: 5 },
+    // MOVO-230: una vez por día alcanza para un plazo en años.
+    SHIPMENT_HISTORY_PURGE_SWEEP_INTERVAL_MINUTES: { type: "number", default: 1440 },
+    SHIPMENT_HISTORY_PURGE_SWEEP_ENABLED: { type: "boolean", default: true },
     // MOVO-238: barrido que cancela viajes `declared` con `departureAt` vencido sin
     // paquetes aceptados -- mismo criterio que PICKUP_EXPIRY_SWEEP_*.
     TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
@@ -187,11 +197,10 @@ export const envSchema = {
     IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS: { type: "number", default: 24 },
     // MOVO-210 / MOVO-215: "N" de la saga. Un retiro a N días o menos toma la ruta cercana (el
     // emisor paga al aceptar); a más de N, la ruta lejana (`assigned_unfunded` + ventana de
-    // confirmación). PROVISORIO hasta que MOVO-215 mida el plazo real del hold de MP.
+    // confirmación). N=3 con hold de 5 días deja 2 de tránsito, el margen del ADR-050.
     // OJO: la restricción real NO es solo N < MP_HOLD_VALIDITY_DAYS (svc-payments): el hold se
     // captura al ENTREGAR (MOVO-212), así que hace falta N + duración máxima del viaje <=
-    // MP_HOLD_VALIDITY_DAYS. Con los defaults (N=3, validez 5) un emisor que paga apenas se abre
-    // la ventana deja solo 2 días de tránsito antes de que venza la reserva.
+    // MP_HOLD_VALIDITY_DAYS.
     FUNDING_NEAR_PICKUP_DAYS: { type: "number", default: 3 },
     // MOVO-210 AC5: plazo del emisor para completar el pago de la ruta cercana, desde que
     // acepta la oferta (con tope en el cierre de la ventana de retiro).

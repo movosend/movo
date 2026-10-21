@@ -226,3 +226,57 @@ export function createUsersClient(config: UsersClientConfig): UsersClient {
     },
   };
 }
+
+/**
+ * MOVO-230: fechas de baja de cuentas, para la purga de historial vencido
+ * (`services/history-retention-service.ts`). Va aparte de `UsersClient` porque solo lo usa
+ * ese barrido, así los fakes de `UsersClient` de los tests no tienen que implementarlo.
+ */
+export interface UserDeletionClient {
+  /** Mapa `userId -> fecha de baja` de las cuentas dadas de baja entre `ids`; un id ausente
+   * cuenta como no dado de baja. Lanza 502 ante cualquier falla: la purga nunca decide
+   * borrar con datos incompletos. */
+  findDeletionDates(ids: string[]): Promise<Map<string, Date>>;
+}
+
+/** Tope de ids por request de `POST /internal/users/deletion-status` en svc-users. */
+const DELETION_STATUS_MAX_IDS = 500;
+
+export function createUserDeletionClient(config: UsersClientConfig): UserDeletionClient {
+  return {
+    async findDeletionDates(ids: string[]): Promise<Map<string, Date>> {
+      const dates = new Map<string, Date>();
+      const unique = [...new Set(ids)];
+      for (let start = 0; start < unique.length; start += DELETION_STATUS_MAX_IDS) {
+        const chunk = unique.slice(start, start + DELETION_STATUS_MAX_IDS);
+        let response: Response;
+        try {
+          // Interno (MOVO-230), mismo criterio que findDeviceKey: sin `x-user-id`.
+          response = await fetch(`${config.USERS_SERVICE_URL}/internal/users/deletion-status`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ ids: chunk }),
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          });
+        } catch {
+          throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de usuarios.");
+        }
+
+        if (!response.ok) {
+          throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió un error.");
+        }
+
+        const body = (await response.json()) as { users?: unknown };
+        if (!Array.isArray(body.users)) {
+          throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió una respuesta inválida.");
+        }
+        for (const entry of body.users as { id?: unknown; deletedAt?: unknown }[]) {
+          if (typeof entry.id === "string" && typeof entry.deletedAt === "string") {
+            dates.set(entry.id, new Date(entry.deletedAt));
+          }
+        }
+      }
+      return dates;
+    },
+  };
+}
