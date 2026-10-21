@@ -100,7 +100,7 @@ export function useSupportChannel(conversationId: string | null | undefined, opt
       ws.onmessage = (event: WebSocketMessageEvent) => {
         if (socketRef.current !== ws) return;
         try {
-          const data = JSON.parse(String(event.data)) as SupportRealtimeEvent | { type: "connected" };
+          const data = JSON.parse(String(event.data)) as SupportRealtimeEvent;
           if (data.type === "connected") {
             attemptsRef.current = 0;
             setState("connected");

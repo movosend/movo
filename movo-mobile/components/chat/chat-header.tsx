@@ -22,7 +22,10 @@ export function ChatHeader({
   subtitle,
   trailing,
 }: {
-  participants?: readonly Pick<ChatParticipant, "userId" | "firstName" | "fullName" | "photoUrl">[];
+  participants?: readonly Pick<
+    ChatParticipant,
+    "userId" | "firstName" | "fullName" | "photoUrl"
+  >[];
   /** MOVO-324: el chat de soporte reusa el encabezado con otro título... */
   title?: string;
   /** ...otro subtítulo (código y tema en vez de los nombres)... */
@@ -38,9 +41,33 @@ export function ChatHeader({
   const names = subtitle ?? joinNames(participants.map((p) => p.firstName));
 
   return (
-    <View className="flex-row items-center" style={{ gap: 8, paddingTop: 6, paddingRight: 12, paddingBottom: 8, paddingLeft: 8 }}>
-      <Pressable testID="chat-back" accessibilityLabel="Volver" onPress={onBack} className="items-center justify-center active:bg-bg-mute" style={{ width: 36, height: 36, borderRadius: 18 }}>
-        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={colors.fg1} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <View
+      className="flex-row items-center"
+      style={{
+        gap: 8,
+        paddingTop: 6,
+        paddingRight: 12,
+        paddingBottom: 8,
+        paddingLeft: 8,
+      }}
+    >
+      <Pressable
+        testID="chat-back"
+        accessibilityLabel="Volver"
+        onPress={onBack}
+        className="items-center justify-center active:bg-bg-mute"
+        style={{ width: 36, height: 36, borderRadius: 18 }}
+      >
+        <Svg
+          width={22}
+          height={22}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={colors.fg1}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <Path d="m15 18-6-6 6-6" />
         </Svg>
       </Pressable>
@@ -49,30 +76,55 @@ export function ChatHeader({
           {title}
         </Text>
         {names ? (
-          <Text testID="chat-header-names" className="font-sans text-small text-fg-3" numberOfLines={1}>
+          <Text
+            testID="chat-header-names"
+            className="font-sans text-small text-fg-3"
+            numberOfLines={1}
+          >
             {names}
           </Text>
         ) : null}
       </View>
       {trailing ? <View style={{ paddingRight: 4 }}>{trailing}</View> : null}
-      {trailing ? null : <Pressable
-        testID="chat-header-avatars"
-        accessibilityRole="button"
-        accessibilityLabel="Ver el detalle del envío"
-        disabled={!onPressParticipants}
-        onPress={onPressParticipants}
-        hitSlop={6}
-        className="flex-row"
-        style={{ paddingRight: 4 }}
-      >
-        {participants.map((p, index) => (
-          <View key={p.userId} style={{ marginLeft: index === 0 ? 0 : -8, borderWidth: 2, borderColor: colors.bg, borderRadius: AVATAR / 2 + 2 }}>
-            <ChatAvatar fullName={p.fullName} photoUrl={p.photoUrl} size={AVATAR} fontSize={10} />
-          </View>
-        ))}
-      </Pressable>}
+      {trailing ? null : (
+        <Pressable
+          testID="chat-header-avatars"
+          accessibilityRole="button"
+          accessibilityLabel="Ver el detalle del envío"
+          disabled={!onPressParticipants}
+          onPress={onPressParticipants}
+          hitSlop={6}
+          className="flex-row"
+          style={{ paddingRight: 4 }}
+        >
+          {participants.map((p, index) => (
+            <View
+              key={p.userId}
+              style={{
+                marginLeft: index === 0 ? 0 : -8,
+                borderWidth: 2,
+                borderColor: colors.bg,
+                borderRadius: AVATAR / 2 + 2,
+              }}
+            >
+              <ChatAvatar
+                fullName={p.fullName}
+                photoUrl={p.photoUrl}
+                size={AVATAR}
+                fontSize={10}
+              />
+            </View>
+          ))}
+        </Pressable>
+      )}
       {onOptions ? (
-        <Pressable testID="chat-options" accessibilityLabel="Más opciones" onPress={onOptions} className="items-center justify-center active:bg-bg-mute" style={{ width: 36, height: 36, borderRadius: 18 }}>
+        <Pressable
+          testID="chat-options"
+          accessibilityLabel="Más opciones"
+          onPress={onOptions}
+          className="items-center justify-center active:bg-bg-mute"
+          style={{ width: 36, height: 36, borderRadius: 18 }}
+        >
           <Svg width={20} height={20} viewBox="0 0 24 24" fill={colors.fg1}>
             <Circle cx={12} cy={5} r={1.7} />
             <Circle cx={12} cy={12} r={1.7} />

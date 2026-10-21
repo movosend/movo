@@ -124,6 +124,7 @@ export interface SupportShipmentOptionsPage {
 
 /** Evento que el servidor empuja por `GET /support/conversations/:id` (WebSocket). */
 export type SupportRealtimeEvent =
+  | { type: "connected" }
   | { type: "support_message"; message: SupportThreadMessage }
   | { type: "support_status"; conversationId: string; status: SupportStatus }
   /** Un agente leyó hasta `upTo`: la app actualiza los tildes de sus mensajes. */

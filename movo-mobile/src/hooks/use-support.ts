@@ -122,6 +122,8 @@ export function patchSupportListWithMessage(
   message: SupportThreadMessage,
   options: { fromMe: boolean; seen: boolean },
 ): void {
+  // Defensa adicional: una nota interna nunca debe aparecer en la vista previa.
+  if (message.kind !== "user" && message.kind !== "agent" && message.kind !== "system") return;
   const current = queryClient.getQueryData<SupportListResponse>(supportKeys.list);
   if (!current || !current.items.some((item) => item.id === message.conversationId)) {
     void queryClient.invalidateQueries({ queryKey: supportKeys.list });

@@ -43,7 +43,9 @@ jest.mock("../src/hooks/use-support-conversation", () => ({
   },
 }));
 
-const mockCreateMutate = jest.fn();
+const mockCreateMutateAsync = jest.fn();
+let resolveCreate: (value: unknown) => void = () => undefined;
+let rejectCreate: (reason?: unknown) => void = () => undefined;
 const mockSetQueryData = jest.fn();
 jest.mock("@tanstack/react-query", () => ({
   ...jest.requireActual("@tanstack/react-query"),
@@ -51,7 +53,7 @@ jest.mock("@tanstack/react-query", () => ({
 }));
 jest.mock("../src/hooks/use-support", () => ({
   supportKeys: { messages: (id: string) => ["support", "messages", id] },
-  useCreateSupportConversation: () => ({ mutate: (...args: unknown[]) => mockCreateMutate(...args) }),
+  useCreateSupportConversation: () => ({ mutateAsync: (...args: unknown[]) => mockCreateMutateAsync(...args) }),
 }));
 
 function m(over: Partial<SupportThreadMessage>): SupportThreadMessage {
@@ -283,6 +285,10 @@ describe("PendingSupportConversationScreen (MOVO-324): la consulta que se está 
   beforeEach(() => {
     jest.clearAllMocks();
     useSupportDraftStore.setState({ draft });
+    mockCreateMutateAsync.mockImplementation(() => new Promise((resolve, reject) => {
+      resolveCreate = resolve;
+      rejectCreate = reject;
+    }));
   });
 
   it("muestra la burbuja 'Enviando…' con solo el tema como subtítulo y hace el POST con el borrador", async () => {
@@ -292,18 +298,14 @@ describe("PendingSupportConversationScreen (MOVO-324): la consulta que se está 
     expect(getByText("Me cobraron dos veces")).toBeTruthy();
     expect(getByText("Enviando…")).toBeTruthy();
     expect(queryByTestId("support-composer-input")).toBeNull();
-    expect(mockCreateMutate).toHaveBeenCalledWith(
-      { topic: "payments", body: "Me cobraron dos veces", clientMessageId: "cm-draft", attachmentIds: ["att-1"] },
-      expect.any(Object),
-    );
+    expect(mockCreateMutateAsync).toHaveBeenCalledWith({ topic: "payments", body: "Me cobraron dos veces", clientMessageId: "cm-draft", attachmentIds: ["att-1"] });
   });
 
   it("al crearse siembra el caché y pasa a la conversación real", async () => {
     await render(<PendingSupportConversationScreen />);
-    const { onSuccess } = mockCreateMutate.mock.calls[0][1];
     const conversation = { id: "real-1", code: "SOP-1050" };
 
-    await act(async () => onSuccess({ conversation, message: m({ moderated: true }) }));
+    await act(async () => resolveCreate({ conversation, message: m({ moderated: true }) }));
 
     expect(mockSetQueryData).toHaveBeenCalledWith(["support", "messages", "real-1"], expect.objectContaining({ pages: [expect.objectContaining({ conversation })] }));
     expect(router.replace).toHaveBeenCalledWith({ pathname: "/support/[id]", params: { id: "real-1", moderated: "1" } });
@@ -312,15 +314,14 @@ describe("PendingSupportConversationScreen (MOVO-324): la consulta que se está 
 
   it("si falla ofrece reintentar con el MISMO clientMessageId y descartar", async () => {
     const { getByText, getByTestId, findByText } = await render(<PendingSupportConversationScreen />);
-    const { onError } = mockCreateMutate.mock.calls[0][1];
-    await act(async () => onError(new Error("red")));
+    await act(async () => rejectCreate(new Error("red")));
 
     expect(await findByText("No se envió.")).toBeTruthy();
     await fireEvent.press(getByTestId("support-message-cm-draft-retry"));
-    expect(mockCreateMutate).toHaveBeenCalledTimes(2);
-    expect(mockCreateMutate.mock.calls[1][0].clientMessageId).toBe("cm-draft");
+    expect(mockCreateMutateAsync).toHaveBeenCalledTimes(2);
+    expect(mockCreateMutateAsync.mock.calls[1][0].clientMessageId).toBe("cm-draft");
     // El segundo intento también falla: queda para descartar.
-    await act(async () => mockCreateMutate.mock.calls[1][1].onError(new Error("red")));
+    await act(async () => rejectCreate(new Error("red")));
 
     await fireEvent.press(getByTestId("support-message-cm-draft-discard"));
     expect(useSupportDraftStore.getState().draft).toBeNull();
@@ -332,5 +333,18 @@ describe("PendingSupportConversationScreen (MOVO-324): la consulta que se está 
     useSupportDraftStore.setState({ draft: null });
     const { getByText } = await render(<PendingSupportConversationScreen />);
     expect(getByText("redirect:/support/conversations")).toBeTruthy();
+  });
+
+  it("si sale durante el POST, el éxito limpia el borrador y siembra el caché sin navegar", async () => {
+    const { getByTestId, unmount } = await render(<PendingSupportConversationScreen />);
+    await fireEvent.press(getByTestId("chat-back"));
+    await unmount();
+    const conversation = { id: "real-2", code: "SOP-1051" };
+
+    await act(async () => resolveCreate({ conversation, message: m({}) }));
+
+    expect(useSupportDraftStore.getState().draft).toBeNull();
+    expect(mockSetQueryData).toHaveBeenCalledWith(["support", "messages", "real-2"], expect.any(Object));
+    expect(router.replace).not.toHaveBeenCalledWith(expect.objectContaining({ pathname: "/support/[id]" }));
   });
 });

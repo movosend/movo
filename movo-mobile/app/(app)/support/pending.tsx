@@ -32,34 +32,41 @@ export default function PendingSupportConversationScreen() {
   const [failed, setFailed] = useState<unknown>(null);
   const startedRef = useRef(false);
   const doneRef = useRef(false);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const attempt = useCallback(() => {
     if (!draft) return;
     setFailed(null);
-    create.mutate(
-      {
-        topic: draft.topic,
-        body: draft.body,
-        clientMessageId: draft.clientMessageId,
-        ...(draft.shipment ? { shipmentId: draft.shipment.id } : {}),
-        ...(draft.attachments.length > 0 ? { attachmentIds: draft.attachments.map((a) => a.attachmentId) } : {}),
-      },
-      {
-        onSuccess: ({ conversation, message }) => {
-          doneRef.current = true;
-          queryClient.setQueryData<InfiniteData<SupportThreadPage>>(supportKeys.messages(conversation.id), {
-            pages: [{ items: [message], nextCursor: null, conversation }],
-            pageParams: [undefined],
-          });
+    void (async () => {
+      try {
+        const { conversation, message } = await create.mutateAsync({
+          topic: draft.topic,
+          body: draft.body,
+          clientMessageId: draft.clientMessageId,
+          ...(draft.shipment ? { shipmentId: draft.shipment.id } : {}),
+          ...(draft.attachments.length > 0 ? { attachmentIds: draft.attachments.map((a) => a.attachmentId) } : {}),
+        });
+        if (mountedRef.current) doneRef.current = true;
+        queryClient.setQueryData<InfiniteData<SupportThreadPage>>(supportKeys.messages(conversation.id), {
+          pages: [{ items: [message], nextCursor: null, conversation }],
+          pageParams: [undefined],
+        });
+        if (useSupportDraftStore.getState().draft?.clientMessageId === draft.clientMessageId) clearDraft();
+        if (mountedRef.current) {
           router.replace({ pathname: "/support/[id]", params: { id: conversation.id, ...(message.moderated ? { moderated: "1" } : {}) } } as never);
-          clearDraft();
-        },
-        onError: (error) => setFailed(error),
-      },
-    );
-    // `create` cambia en cada render: el borrador es lo único que define el intento.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, queryClient, clearDraft]);
+        }
+      } catch (error) {
+        if (mountedRef.current) setFailed(error);
+      }
+    })();
+  }, [draft, queryClient, clearDraft, create.mutateAsync]);
 
   useEffect(() => {
     if (draft && !startedRef.current) {

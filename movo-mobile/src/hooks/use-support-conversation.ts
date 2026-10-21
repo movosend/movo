@@ -1,6 +1,6 @@
 import { SUPPORT_MESSAGE_MAX_LENGTH } from "@movo/shared/dist/types/admin-support";
 import type { SupportAttachment } from "@movo/shared/dist/types/admin-support";
-import type { SupportRealtimeEvent, SupportThreadMessage } from "@movo/shared/dist/types/support";
+import { SUPPORT_WS_CLOSE, type SupportRealtimeEvent, type SupportThreadMessage } from "@movo/shared/dist/types/support";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -166,6 +166,7 @@ export function useSupportConversation(
     enabled: !!conversationId && !messagesQuery.isError && focused && !isSupportMock() && !unavailable,
     onMessage: ({ message }: Extract<SupportRealtimeEvent, { type: "support_message" }>) => {
       if (!conversationId) return;
+      if (message.kind !== "user" && message.kind !== "agent" && message.kind !== "system") return;
       queryClient.setQueryData<InfiniteData<SupportThreadPage>>(supportKeys.messages(conversationId), (data) =>
         upsertSupportMessageInCache(data, message),
       );
@@ -183,29 +184,24 @@ export function useSupportConversation(
       if (conversationId) refetchFirstSupportPage(queryClient, conversationId);
     },
     onTerminalClose: (code) => {
-      if (code === 4004) setUnavailable(true);
+      if (code === SUPPORT_WS_CLOSE.NOT_FOUND) setUnavailable(true);
     },
   });
 
   // ── Envío optimista.
   const attemptSend = useCallback(
-    (body: string, clientMessageId: string, attachmentIds: string[]) => {
+    async (body: string, clientMessageId: string, attachmentIds: string[]) => {
       setSendError(null);
-      sendMutation.mutate(
-        { body, clientMessageId, ...(attachmentIds.length > 0 ? { attachmentIds } : {}) },
-        {
-          onSuccess: (message) => {
-            setLocal((prev) => prev.filter((l) => l.message.clientMessageId !== clientMessageId));
-            if (message.moderated) setModerationWarning(true);
-          },
-          onError: (error) => {
-            setSendError(error);
-            setLocal((prev) =>
-              prev.map((l) => (l.message.clientMessageId === clientMessageId ? { ...l, localState: "failed" } : l)),
-            );
-          },
-        },
-      );
+      try {
+        const message = await sendMutation.mutateAsync({ body, clientMessageId, ...(attachmentIds.length > 0 ? { attachmentIds } : {}) });
+        setLocal((prev) => prev.filter((l) => l.message.clientMessageId !== clientMessageId));
+        if (message.moderated) setModerationWarning(true);
+      } catch (error) {
+        setSendError(error);
+        setLocal((prev) =>
+          prev.map((l) => (l.message.clientMessageId === clientMessageId ? { ...l, localState: "failed" } : l)),
+        );
+      }
     },
     [sendMutation],
   );
@@ -231,7 +227,7 @@ export function useSupportConversation(
       };
       const attachmentIds = photos.map((p) => p.attachmentId);
       setLocal((prev) => [...prev, { message: optimistic, localState: "sending", attachmentIds }]);
-      attemptSend(body, clientMessageId, attachmentIds);
+      void attemptSend(body, clientMessageId, attachmentIds);
       return true;
     },
     [conversationId, attemptSend],
@@ -242,7 +238,7 @@ export function useSupportConversation(
       const failed = local.find((l) => l.message.clientMessageId === clientMessageId);
       if (!failed) return;
       setLocal((prev) => prev.map((l) => (l.message.clientMessageId === clientMessageId ? { ...l, localState: "sending" } : l)));
-      attemptSend(failed.message.body, clientMessageId, failed.attachmentIds);
+      void attemptSend(failed.message.body, clientMessageId, failed.attachmentIds);
     },
     [local, attemptSend],
   );

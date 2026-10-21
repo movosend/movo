@@ -157,6 +157,24 @@ describe("useSupportConversation (MOVO-324)", () => {
     await waitFor(() => expect(result.current.sendError).toBeNull());
   });
 
+  it("si falla el primero de dos envíos simultáneos, permite reintentarlo", async () => {
+    let rejectFirst: (error: Error) => void = () => undefined;
+    mockSupportClient.sendMessage
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject; }))
+      .mockResolvedValueOnce(msg({ id: "srv-2", kind: "user", authorName: null, body: "Segundo", clientMessageId: "uuid-2" }));
+    const { result } = await setup();
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      result.current.send("Primero");
+      result.current.send("Segundo");
+    });
+    await act(async () => rejectFirst(new Error("red")));
+
+    await waitFor(() => expect(messagesOf(result.current.timeline).find((m) => m.clientMessageId === "uuid-1")?.localState).toBe("failed"));
+    expect(result.current.sendError).toBeTruthy();
+  });
+
   it("descartar quita el mensaje que no salió", async () => {
     mockSupportClient.sendMessage.mockRejectedValueOnce(new Error("red"));
     const { result } = await setup();
@@ -226,6 +244,19 @@ describe("useSupportConversation (MOVO-324)", () => {
     });
     await waitFor(() => expect(messagesOf(result.current.timeline).map((m) => m.body)).toContain("¿Podés mandar una foto?"));
     await waitFor(() => expect(mockSupportClient.markRead.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 4_000 });
+  });
+
+  it("ignora una nota interna que llegue por WebSocket incluso en el caché de la lista", async () => {
+    const { client, result } = await setup();
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const list = { items: [{ ...page([]).conversation, lastMessage: null }] };
+    client.setQueryData(["support", "list"], list);
+    const note = { ...msg({ id: "note-1", body: "NOTA SECRETA" }), kind: "note" } as unknown as SupportThreadMessage;
+
+    await act(async () => mockChannelOptions.onMessage?.({ type: "support_message", message: note }));
+
+    expect(client.getQueryData(["support", "list"])).toEqual(list);
+    expect(messagesOf(result.current.timeline).some((message) => message.body === "NOTA SECRETA")).toBe(false);
   });
 
   it("un cambio de estado por el WebSocket actualiza la consulta", async () => {

@@ -89,10 +89,10 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
             {label === "Ayuda y soporte" && supportUnread > 0 ? (
               <View
                 testID="profile-settings-support-unread"
-                className="items-center justify-center"
-                style={{ minWidth: 20, height: 20, borderRadius: 10, backgroundColor: "#C6F24A", paddingHorizontal: 6 }}
+                className="items-center justify-center bg-lime-500"
+                style={{ minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6 }}
               >
-                <Text className="font-sans-semibold" style={{ fontSize: 11, color: "#0A0A0B" }}>
+                <Text className="font-sans-semibold text-ink-950" style={{ fontSize: 11 }}>
                   {formatUnreadCount(supportUnread)}
                 </Text>
               </View>
