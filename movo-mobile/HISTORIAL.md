@@ -4936,3 +4936,34 @@ Perfil abre `TourReplaySheet` para relanzar a mano, sin escribir el registro.
 - La card del tooltip y del modal es siempre blanca (`bg-paper`), como el prototipo: va sobre el scrim oscuro en los dos temas.
 - Probado en dispositivo (iPhone). Un ancla sin card propia ("Actividad reciente") necesita más `padding` (12) para que el anillo
   no quede pegado al texto.
+
+
+### MOVO-300 — Cuenta suspendida o inhabilitada
+
+La suspensión vigente sale de `PrivateProfile.activeSanction` (motivo y fin, sin nota interna; se agregó en `svc-users` en esta
+misma US) y la expone `useActiveSuspension` (`src/hooks/use-account-restriction.ts`), que trata como levantada una suspensión
+ya vencida aunque el barrido no la haya cerrado. Aviso compacto en Inicio (`AccountSuspendedBanner`) que abre `/account-status`
+(motivo, qué puede y qué no, contacto `soporte@movosend.app`, `src/lib/account-restriction.ts`). Los CTA que inician algo nuevo
+se reemplazan por `SuspendedActionNotice` (publicar, ofertar, editar oferta, "Elegir" oferta, declarar viaje, invitar receptor),
+y las cuatro pantallas de formulario van envueltas en `SuspendedScreenGate`. El perfil público y las tarjetas de contraparte
+muestran `AccountStatusChip`. La pantalla de login de `ACCOUNT_SUSPENDED` pasó a ser `app/(auth)/account-disabled.tsx`.
+
+- Decisión: la app no depende del `details` del 403 de MOVO-298. `http-client.ts` avisa de `ACCOUNT_SUSPENDED` a un listener
+  que refresca el perfil, y de ahí salen el plazo y el motivo.
+- Decisión: `ACCOUNT_DISABLED` (gateway o refresh) cierra la sesión por `signOutDisabledAccount` con `signOutReason`, y el guard
+  de `app/(app)/_layout.tsx` redirige a la pantalla de inhabilitada. No llama al logout del backend ni desregistra el
+  dispositivo: el gateway rechazaría esos requests y el 403 volvería a entrar al hook. Inhabilitar revoca el access token, así
+  que la app abierta recibe 401 `AUTH_TOKEN_INVALID` y no 403: `http-client.ts` ahora refresca también ante ese código, y el
+  refresh (`svc-users`) responde `ACCOUNT_DISABLED`. Antes un token revocado dejaba la sesión abierta con todo en 401.
+- Decisión: el bloqueo de formularios es por pantalla y no solo del botón final: el wizard cotiza a mitad del flujo (también
+  bloqueado) y hay entradas secundarias a `/send` (vacío del historial de cobros).
+- AC7: el perfil se refresca al volver a primer plano (listener de `AppState` puntual, no el `focusManager` global), al recibir un
+  push de sanción y con un timer hasta `endsAt`. Se corrigió la key del pull-to-refresh de Inicio (`["users","me"]` no existía).
+- Push: `account_suspended` → `/account-status`, levantada/vencida → Inicio, `account_disabled` → cierra la sesión o, en cold
+  start sin sesión, abre la pantalla de inhabilitada.
+- "Contactar a soporte" queda deshabilitado con "No disponible hasta MOVO-324": el canal es Ayuda y soporte en la app. El email
+  `soporte@movosend.app` sigue como texto.
+- Inicio (seguimiento de MOVO-168): una sección que falla sin datos ya no muestra su error, porque no sabemos si te corresponde
+  (un emisor veía "No pudimos cargar tus viajes"). Hay un solo aviso, "No pudimos cargar parte de tu inicio", que reintenta las
+  queries que fallaron. Con datos ya cargados la sección sigue mostrándolos.
+- Pendiente: el 403 real del gateway cuando exista MOVO-298, y los push (en local el proveedor es mock).

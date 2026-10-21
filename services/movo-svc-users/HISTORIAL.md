@@ -1309,3 +1309,13 @@ cliente). La parte mobile (coach marks, disparo de los tours, sheet de "Ayuda y 
 Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `svc-admin` (MOVO-299), y mobile (MOVO-300: hasta entonces el login de una cuenta inhabilitada devuelve `ACCOUNT_DISABLED`, código que la app todavía no mapea).
 
 Fixes de review (PR #280): la migración hace backfill de las cuentas `banned` previas como una sanción `disable` con `applied_by` NULL (= sistema; por eso es nullable), así se pueden levantar por la API y salen en la ficha; la marca de Redis les llega por el barrido. `GET /users/me` serializa `accountStatus` con `suspended` (antes 500). El barrido deja cada marca igual a la sanción vigente leída de Postgres y la re-verifica tras escribir (`syncMark`), para no pisar un lift/apply concurrente. Los avisos de apply/lift/vencimiento salen en segundo plano (el panel no espera a Resend) y el push de una sanción **no es silenciable** (`ignorePreferences`; sigue necesitando un token de push y el mail sale siempre). ADR-049. La app mapea `ACCOUNT_DISABLED` a un mensaje propio hasta MOVO-300. Una suspensión pausa (no apaga) las series recurrentes de `svc-shipments`.
+
+### MOVO-300 — Sanción vigente en el perfil propio
+
+`PrivateProfile.activeSanction` (`OwnAccountSanction` de `@movo/shared`: tipo, motivo visible y fin; nunca la nota interna ni quién
+la aplicó) para el aviso de la app. `composePrivateProfile` (`users.service.ts`) solo consulta `account_sanctions` si el estado
+efectivo es `suspended` o `banned`, así una suspensión vencida que el barrido no cerró ya llega como `null`. El schema de
+respuesta lo lista explícito (el serializer descarta lo que no figura). Tests en `sanctions.integration.test.ts`.
+`POST /auth/refresh` de un refresh ya revocado responde `403 ACCOUNT_DISABLED` si la cuenta está inhabilitada (antes
+`AUTH_REFRESH_INVALID`): inhabilitar revoca todas las sesiones, y era la única forma de que la app abierta supiera por qué se
+cerraba. No revela nada que no esté ya en `PublicProfile.accountStatus`.
