@@ -199,11 +199,20 @@ export function createKycVerificationRepository(db: Prisma.TransactionClient): K
       await db.kycVerification.deleteMany({
         where: { id: { in: rows.map((row) => row.id) }, status: { in: ABANDONED_STATUSES } },
       });
-      return rows.map((row) => ({
-        userId: row.userId,
-        verificationType: parseVerificationType(row.verificationType),
-        status: parseKycStatus(row.status, "kyc_verification.status"),
-      }));
+      // Los que siguen en la tabla fueron resueltos en ese intervalo y no se borraron: no se
+      // informan, para que el conteo y el reset del caché reflejen solo lo realmente borrado.
+      const survivors = await db.kycVerification.findMany({
+        where: { id: { in: rows.map((row) => row.id) } },
+        select: { id: true },
+      });
+      const survivorIds = new Set(survivors.map((row) => row.id));
+      return rows
+        .filter((row) => !survivorIds.has(row.id))
+        .map((row) => ({
+          userId: row.userId,
+          verificationType: parseVerificationType(row.verificationType),
+          status: parseKycStatus(row.status, "kyc_verification.status"),
+        }));
     },
   };
 }

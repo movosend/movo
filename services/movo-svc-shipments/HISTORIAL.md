@@ -3668,5 +3668,9 @@ sus fotos de S3; si S3 falla, la fila queda y se reintenta. También borra los `
 - Las fechas de baja salen de `svc-users` (`POST /internal/users/deletion-status`, `createUserDeletionClient`), sin copia
   local. Prefiltro en Postgres: envíos en `POSITION_PURGE_ELIGIBLE_STATUSES` (sin `disputed`) cerrados hace más de 5 años
   (la baja exige no tener envíos activos, así que solo puede atrasar la purga). Se recorre todo el prefiltro por páginas.
+- Un `Trip` purgado deja `Offer.tripId` en null (`SetNull`) en los envíos que no se purgan: si el transportista se dio de
+  baja hace más de 5 años pero el emisor sigue activo, ese envío pierde el vínculo al viaje. Aceptado.
+- Pendiente de infra: sin `s3:DeleteObject` sobre `shipments/*` en `movo-infra`, en prod cada corrida loguea un warn por
+  envío vencido y no purga nada (dev usa `STORAGE_PROVIDER=mock` y no lo detecta). Ver pendientes del `CLAUDE.md` raíz.
 - Quedan sin tocar, a propósito: los `shipmentId` de `svc-payments` (comprobantes que la política conserva por ley) y los
   `AuditLog` de `svc-admin`, que pasan a apuntar a un envío inexistente.

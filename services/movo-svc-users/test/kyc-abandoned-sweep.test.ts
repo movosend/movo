@@ -17,10 +17,14 @@ function buildConfig(overrides: Partial<EnvConfig> = {}): EnvConfig {
 function buildDb() {
   const tx = {
     kycVerification: {
-      findMany: vi.fn().mockResolvedValue([
-        { id: "k1", userId: "u1", verificationType: "identity", status: "pending" },
-        { id: "k2", userId: "u2", verificationType: "license", status: "expired" },
-      ]),
+      // Primera llamada: los candidatos. Segunda: los que siguen en la tabla tras el borrado.
+      findMany: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { id: "k1", userId: "u1", verificationType: "identity", status: "pending" },
+          { id: "k2", userId: "u2", verificationType: "license", status: "expired" },
+        ])
+        .mockResolvedValueOnce([]),
       deleteMany: vi.fn().mockResolvedValue({ count: 2 }),
     },
     user: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
