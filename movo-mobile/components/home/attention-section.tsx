@@ -12,7 +12,7 @@ import type {
 import { useAttentionTasks } from "../../src/hooks/use-attention-tasks";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { AttentionConfirmCard } from "./attention-confirm-card";
-import { ATTENTION_CARD_SKELETON_HEIGHT, HomeSectionError, HomeSectionSkeleton } from "./home-section-states";
+import { ATTENTION_CARD_SKELETON_HEIGHT, HomeSectionSkeleton } from "./home-section-states";
 
 function AttentionInfoCard({ task, testID }: { task: AttentionInfoTask; testID?: string }) {
   const colors = useThemeColors();
@@ -170,14 +170,10 @@ export function AttentionTaskList({
   tasks,
   testID,
   isLoading = false,
-  isError = false,
-  onRetry,
 }: {
   tasks: AttentionTask[];
   testID?: string;
   isLoading?: boolean;
-  isError?: boolean;
-  onRetry?: () => void;
 }) {
   const [acceptSuccessShipmentId, setAcceptSuccessShipmentId] = useState<string | null>(null);
 
@@ -198,8 +194,8 @@ export function AttentionTaskList({
   );
 
   if (tasks.length === 0) {
-    // MOVO-168: cargando o fallida no es "sin tareas". El modal de éxito se sigue
-    // renderizando siempre (ver arriba).
+    // MOVO-168: cargando no es "sin tareas". El modal de éxito se sigue renderizando
+    // siempre (ver arriba).
     if (isLoading) {
       return (
         <>
@@ -208,19 +204,7 @@ export function AttentionTaskList({
         </>
       );
     }
-    if (isError && onRetry) {
-      return (
-        <>
-          <HomeSectionError
-            testID={`${testID}-error`}
-            title="Requiere tu atención"
-            message="No pudimos cargar tus pendientes."
-            onRetry={onRetry}
-          />
-          {successModal}
-        </>
-      );
-    }
+    // Fallida: sin tareas no hay nada que mostrar, el aviso es el de `home.tsx`.
     return successModal;
   }
 
@@ -261,14 +245,6 @@ export function AttentionTaskList({
  * deriva hoy y qué queda pendiente de un endpoint nuevo.
  */
 export function AttentionSection({ testID }: { testID?: string }) {
-  const { tasks, isLoading, isError, refetch } = useAttentionTasks();
-  return (
-    <AttentionTaskList
-      tasks={tasks}
-      testID={testID}
-      isLoading={isLoading}
-      isError={isError}
-      onRetry={() => void refetch()}
-    />
-  );
+  const { tasks, isLoading } = useAttentionTasks();
+  return <AttentionTaskList tasks={tasks} testID={testID} isLoading={isLoading} />;
 }

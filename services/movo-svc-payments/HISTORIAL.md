@@ -178,7 +178,7 @@ corre en CI): necesita `MP_SANDBOX_CARRIER_ACCESS_TOKEN` y `MP_SANDBOX_CARRIER_P
 del Vendedor (el token del OAuth del spike no se persiste, ver el encabezado del test) y las
 `MP_TEST_*` del `.env` del spike.
 
-Pendiente: cargar `MP_HOLD_VALIDITY_DAYS` en el secret si MOVO-215 define otro valor;
+MOVO-215 cerró `MP_HOLD_VALIDITY_DAYS` en 5, el default (ADR-050);
 `svc-shipments` ya los llama desde la saga de asignación (MOVO-210, ver
 `services/movo-svc-shipments/HISTORIAL.md`). El aviso a `POST /internal/shipments/:id/hold-events`
 cuando MP cancela o vence un hold lo hace el webhook (MOVO-268, abajo).

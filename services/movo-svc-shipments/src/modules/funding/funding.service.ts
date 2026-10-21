@@ -35,7 +35,7 @@ import { sendCustodyPush } from "../../utils/dispatch-push";
 import { assertIsSender } from "../shipments/assert-shipment-access";
 
 /**
- * MOVO-210: configuración de la saga (todo viene de env, MOVO-215 fija los valores reales).
+ * MOVO-210: configuración de la saga (todo viene de env, valores en ADR-050).
  */
 export interface FundingConfig {
   /** "N": retiro dentro de N días = ruta cercana; a más, ruta lejana. */

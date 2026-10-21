@@ -1344,3 +1344,12 @@ Fixes de review (PR #280): la migración hace backfill de las cuentas `banned` p
   para la purga de `svc-shipments`. Las bajas anteriores a MOVO-294 (sin `deletedAt`) devuelven `updatedAt`, que es igual o
   posterior a la baja real: la purga puede llegar tarde pero nunca antes. No se hizo backfill para no deformar la fecha que
   muestra el panel.
+### MOVO-300 — Sanción vigente en el perfil propio
+
+`PrivateProfile.activeSanction` (`OwnAccountSanction` de `@movo/shared`: tipo, motivo visible y fin; nunca la nota interna ni quién
+la aplicó) para el aviso de la app. `composePrivateProfile` (`users.service.ts`) solo consulta `account_sanctions` si el estado
+efectivo es `suspended` o `banned`, así una suspensión vencida que el barrido no cerró ya llega como `null`. El schema de
+respuesta lo lista explícito (el serializer descarta lo que no figura). Tests en `sanctions.integration.test.ts`.
+`POST /auth/refresh` de un refresh ya revocado responde `403 ACCOUNT_DISABLED` si la cuenta está inhabilitada (antes
+`AUTH_REFRESH_INVALID`): inhabilitar revoca todas las sesiones, y era la única forma de que la app abierta supiera por qué se
+cerraba. No revela nada que no esté ya en `PublicProfile.accountStatus`.

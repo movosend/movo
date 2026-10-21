@@ -1,6 +1,11 @@
 import { router, useGlobalSearchParams, usePathname, useRootNavigationState } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { useEffect, useRef } from "react";
+import {
+  ACCOUNT_DISABLED_NOTIFICATION_TYPE,
+  ACCOUNT_SANCTION_CLEARED_NOTIFICATION_TYPES,
+  notificationType,
+} from "../lib/account-restriction";
 import { claimColdStart, claimNotificationResponse } from "../lib/notification-response-log";
 import { requestPermissionAndRegisterPushToken } from "../lib/push-registration";
 import { KycStatus } from "@movo/shared/dist/types/user";
@@ -146,6 +151,10 @@ export function resolveNotificationRoute(data: unknown): NotificationRoute | nul
   }
   if (ACCOUNT_SECURITY_TYPES.includes(type)) return "/profile/security";
   if (type === "kyc_result") return resolveKycRoute(data);
+  // MOVO-300 AC6: la suspensión abre su detalle; el levantamiento y el vencimiento, el inicio.
+  if (type === "account_suspended") return "/account-status";
+  if (ACCOUNT_SANCTION_CLEARED_NOTIFICATION_TYPES.includes(type)) return "/home";
+  if (type === ACCOUNT_DISABLED_NOTIFICATION_TYPE) return "/account-disabled";
 
   return null;
 }
@@ -191,6 +200,13 @@ function handleNotificationResponse(response: Notifications.NotificationResponse
     `${notificationRouteKey(route)}-${response.notification?.date ?? Date.now()}`;
   if (!claimNotificationResponse(responseId)) return;
   if (isSameRoute(route, current)) return;
+
+  // MOVO-300 AC4: con la sesión todavía abierta, se cierra con el motivo y el guard de
+  // `app/(app)/_layout.tsx` lleva a la pantalla de cuenta inhabilitada.
+  if (notificationType(data) === ACCOUNT_DISABLED_NOTIFICATION_TYPE && useAuthStore.getState().status !== "unauthenticated") {
+    void useAuthStore.getState().signOutDisabledAccount();
+    return;
+  }
 
   // `as any`: `route` es una unión de dos formas armadas en runtime, no un literal
   // de ruta tipado — mismo criterio que el resto del repo para rutas que
@@ -255,6 +271,18 @@ export function usePushNotifications(): void {
       handleNotificationResponse(response, locationRef.current);
     });
   }, [sessionStatus, isNavigatorMounted, initialRouteResolved, kycApproved]);
+
+  // MOVO-300: el aviso de inhabilitación abre su pantalla también sin sesión (svc-users
+  // revocó todas al inhabilitar). Solo ese tipo: cualquier otro cold start sin sesión se
+  // atiende después del login, como antes, así que acá no se reclama.
+  useEffect(() => {
+    if (sessionStatus !== "unauthenticated" || !isNavigatorMounted) return;
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (notificationType(response?.notification?.request?.content?.data) !== ACCOUNT_DISABLED_NOTIFICATION_TYPE) return;
+      if (!response || !claimColdStart()) return;
+      handleNotificationResponse(response, locationRef.current);
+    });
+  }, [sessionStatus, isNavigatorMounted]);
 
   // Manejo de interacción con notificación recibida en foreground / background
   useEffect(() => {

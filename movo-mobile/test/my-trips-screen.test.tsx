@@ -4,6 +4,12 @@ import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-clie
 
 // El gate de ubicación del transportista tiene su propio test
 // (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
+// MOVO-300: sin suspensión; el caso suspendido tiene sus propios tests.
+jest.mock("../src/hooks/use-account-restriction", () => ({
+  useActiveSuspension: () => null,
+  useAccountRestrictionSync: () => {},
+}));
+
 jest.mock("../src/store/carrier-location-gate-store", () => ({
   requireCarrierLocation: (action: () => unknown) => action(),
 }));

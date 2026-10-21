@@ -15,6 +15,10 @@ export interface SessionUser {
 
 export type SessionStatus = "checking" | "authenticated" | "unauthenticated";
 
+/** MOVO-300: por qué se cerró la sesión sin que el usuario la cerrara, para mostrarle la
+ * pantalla que corresponde en vez de mandarlo al login sin explicación. */
+export type SignOutReason = "account_disabled";
+
 /** Margen antes del vencimiento real para disparar un refresh proactivo en
  * `restoreSession()` — evita el caso límite de considerar "vigente" un token que
  * vence en el segundo que toma restaurar la sesión y renderizar la primera pantalla. */
@@ -25,6 +29,8 @@ interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
   user: SessionUser | null;
+  /** Lo lee el guard de `app/(app)/_layout.tsx`; lo limpia la pantalla que lo muestra. */
+  signOutReason: SignOutReason | null;
 
   /** Se llama una sola vez desde `app/_layout.tsx` al bootear la app (AC7/AC8). */
   restoreSession: () => Promise<void>;
@@ -40,6 +46,10 @@ interface AuthState {
   clearSession: () => Promise<void>;
   /** AC10: llama al endpoint de logout y limpia la sesión local. */
   logout: () => Promise<void>;
+  /** MOVO-300 AC4: el gateway respondió `ACCOUNT_DISABLED` con la sesión abierta. */
+  signOutDisabledAccount: () => Promise<void>;
+  /** El motivo ya se mostró (se muestra una sola vez). */
+  clearSignOutReason: () => void;
 }
 
 function toSessionUser(session: SessionResponse): SessionUser {
@@ -76,6 +86,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   accessToken: null,
   refreshToken: null,
   user: null,
+  signOutReason: null,
 
   async setSession(session) {
     // Secure-store primero: si la app se mata a mitad de este `await`, la próxima
@@ -87,6 +98,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       accessToken: session.accessToken,
       refreshToken: session.refreshToken,
       user: toSessionUser(session),
+      signOutReason: null,
     });
   },
 
@@ -177,6 +189,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     await get().clearSession();
   },
+
+  async signOutDisabledAccount() {
+    // Sin sesión no hay nada que cerrar: el login de una cuenta inhabilitada también responde
+    // `ACCOUNT_DISABLED`, y ese caso lo maneja `login.tsx` con su propia navegación. Durante
+    // `restoreSession()` (status "checking") sí aplica: el refresh de una cuenta inhabilitada
+    // entra por acá.
+    if (get().status === "unauthenticated") return;
+    // A diferencia de `logout()`, no se desregistra el dispositivo ni se llama al logout del
+    // backend: con la cuenta inhabilitada el gateway rechaza esos requests (y el 403 volvería a
+    // entrar acá), y `svc-users` ya revocó todas las sesiones al inhabilitar.
+    set({ signOutReason: "account_disabled" });
+    await get().clearSession();
+  },
+
+  clearSignOutReason() {
+    set({ signOutReason: null });
+  },
 }));
 
 // Conecta la capa de red (http-client.ts) con este store sin que http-client.ts
@@ -186,4 +215,5 @@ registerAuthHooks({
   getRefreshToken: () => useAuthStore.getState().refreshToken,
   onTokensRefreshed: (session) => useAuthStore.getState().setSession(session),
   onAuthFailure: () => useAuthStore.getState().clearSession(),
+  onAccountDisabled: () => useAuthStore.getState().signOutDisabledAccount(),
 });

@@ -27,6 +27,7 @@ import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import { getFirstName } from "../../../../src/lib/profile-format";
 import { shortAddressLabel } from "../../../../src/lib/shipment-format";
 import { useAuthStore } from "../../../../src/store/auth-store";
+import { SuspendedScreenGate } from "../../../../components/account/suspended-screen-gate";
 
 /** Plazo de la persona invitada (`RECEIVER_TRANSFER_TIMEOUT_HOURS`, default del backend). */
 const INVITE_DEADLINE_HOURS = 6;
@@ -46,7 +47,7 @@ function NextStep({ icon, children }: { icon: ReactNode; children: ReactNode }) 
  * deshabilitados con el motivo (decisión de producto: que nadie se pregunte por qué no
  * los encuentra) y uno mismo no aparece. La dirección de entrega no cambia.
  */
-export default function ReceiverTransferScreen() {
+function ReceiverTransferScreenContent() {
   const colors = useThemeColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const currentUserId = useAuthStore((s) => s.user?.userId);
@@ -235,5 +236,17 @@ export default function ReceiverTransferScreen() {
         testID="receiver-transfer-confirm-sheet"
       />
     </SafeAreaView>
+  );
+}
+
+/** MOVO-300 AC2: con la cuenta suspendida no se invita a otro receptor. */
+export default function ReceiverTransferScreen() {
+  return (
+    <SuspendedScreenGate
+      testID="receiver-transfer-suspended"
+      action="inviteReceiver"
+    >
+      <ReceiverTransferScreenContent />
+    </SuspendedScreenGate>
   );
 }

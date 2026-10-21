@@ -58,7 +58,7 @@ API de Mercado Pago lo permiten (`docs/payments/mercadopago-spike/SOLUCION-FINAL
 - **El emisor tiene que estar presente** al crear el hold: la reserva de un retiro lejano
   se difiere hasta que el emisor confirma el pago cerca de la fecha (ADR-021, MOVO-210).
 - **El plazo del hold lo decide Mercado Pago** y su documentación se contradice (5 o 7
-  días). Se parametriza (`MP_HOLD_VALIDITY_DAYS`, hoy 5 provisorio) hasta que MOVO-215 lo mida.
+  días). Se parametriza (`MP_HOLD_VALIDITY_DAYS`); MOVO-215 fijó 5 días (ADR-050).
 - **Dos requests casi simultáneos o una respuesta perdida** se resuelven por idempotencia
   y por un índice único parcial, no con locks distribuidos. Un intento sin respuesta de MP
   (`creating`) se reintenta con la misma key si el cuerpo coincide; si cambió, se busca el

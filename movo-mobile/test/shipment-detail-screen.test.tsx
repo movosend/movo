@@ -11,6 +11,12 @@ const mockRouterBack = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
 
+// MOVO-300: sin suspensión; el caso suspendido tiene sus propios tests.
+jest.mock("../src/hooks/use-account-restriction", () => ({
+  useActiveSuspension: () => null,
+  useAccountRestrictionSync: () => {},
+}));
+
 jest.mock("../src/hooks/use-receiver-transfers", () => ({
   useShipmentReceiverTransfers: jest.fn(() => ({ data: [] })),
   useReceiverTransferInvitations: jest.fn(() => ({ data: [] })),

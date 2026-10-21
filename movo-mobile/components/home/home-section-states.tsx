@@ -4,10 +4,10 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { SkeletonBlock } from "../ui/skeleton-block";
 
 /**
- * MOVO-168: estados de carga y falla de una sección de Inicio, contenidos en la propia
- * sección. Antes las secciones sin datos devolvían `null` tanto mientras cargaban como si la
- * query fallaba, indistinguible de "no tenés nada" -- y un spinner a pantalla completa no
- * existe en Inicio, así que cada bloque aparece apenas llegan sus datos.
+ * MOVO-168: estados de carga y falla de Inicio. Cada sección muestra su skeleton mientras
+ * carga (antes devolvía `null`, indistinguible de "no tenés nada"), así que cada bloque
+ * aparece apenas llegan sus datos. Una sección que falla sin datos no se muestra, porque no
+ * sabemos si te corresponde: la falla es un solo aviso para todo Inicio (`home.tsx`).
  */
 
 /** Alto de `ActiveShipmentCard` (padding 20 + encabezado + stepper + retiro/entrega + CTA). */
@@ -47,8 +47,8 @@ export function HomeSectionSkeleton({
 }
 
 /**
- * Falla de una sola sección: ocupa su lugar con un aviso breve y "Reintentar" local, sin
- * tocar el resto de Inicio. Mismo patrón visual que el error de "Actividad reciente".
+ * Aviso de falla con "Reintentar". En Inicio es uno solo para todas las secciones que
+ * fallaron sin datos (`home.tsx`). Mismo patrón visual que el error de "Actividad reciente".
  */
 export function HomeSectionError({
   title,

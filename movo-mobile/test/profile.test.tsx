@@ -74,6 +74,7 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
     privacyAcceptedAt: "2026-01-01T00:00:00.000Z",
     privacyVersion: "2026-01-01",
     tours: [],
+    activeSanction: null,
     ...overrides,
   };
 }
