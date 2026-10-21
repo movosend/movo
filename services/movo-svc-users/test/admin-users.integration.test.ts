@@ -8,6 +8,7 @@ import { createSessionRepository } from "../src/repositories/session-repository"
 import { CreateUserInput, User } from "../src/models/user";
 import { EmailBody, EmailProvider } from "../src/adapters/email-provider";
 import { SmsProvider } from "../src/adapters/sms-provider";
+import { createAdminUsersService } from "../src/modules/admin-users/admin-users.service";
 
 interface SentEmail {
   to: string;
@@ -142,7 +143,18 @@ describe("Búsqueda, ficha y acciones de soporte del panel (MOVO-294)", () => {
       const user = await createUser({ phone: "+5493514567890" });
       await createUser({ phone: "+5491122223333" });
 
-      for (const q of ["+5493514567890", "+54 9 351 456-7890", "3514567890", "0351 456 7890", "0351-4567890", "549 351 4567890", "4567"]) {
+      for (const q of [
+        "+5493514567890",
+        "+54 9 351 456-7890",
+        "3514567890",
+        "0351 456 7890",
+        "0351-4567890",
+        "549 351 4567890",
+        "4567",
+        // Con el 15 de celular (review de PR #279), con y sin el 0 de larga distancia.
+        "0351 15 456 7890",
+        "351-15-4567890",
+      ]) {
         const page = await search(q);
         expect(page.items.map((item) => item.id), q).toEqual([user.id]);
         expect(page.items[0]?.matchedBy).toBe("phone");
@@ -390,6 +402,26 @@ describe("Búsqueda, ficha y acciones de soporte del panel (MOVO-294)", () => {
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body).noticeFailed).toBe(true);
       expect((await repo.findById(user.id))?.email).toBe("nuevo@movo.test");
+    });
+
+    it("si cerrar las sesiones falla después del cambio, responde igual y lo informa (nunca un error)", async () => {
+      const user = await createUser({ email: "antes@movo.test" });
+      const failing = createAdminUsersService({
+        db: app.db,
+        sessionRepository: {
+          revokeAllForUser: async () => {
+            throw new Error("redis caído");
+          },
+          revokeAccessTokensIssuedBefore: async () => undefined,
+          revokePanelSessionsForUser: async () => 0,
+        },
+        emailProvider: emailCaptor.provider,
+        logger: app.log,
+      });
+
+      const result = await failing.updateContact(user.id, { field: "email", newValue: "despues@movo.test", expectedCurrent: "antes@movo.test" }, adminId);
+      expect(result).toMatchObject({ email: "despues@movo.test", emailVerified: false, revokedRefreshTokens: 0, sessionsRevokeFailed: true, noticeFailed: false });
+      expect((await repo.findById(user.id))?.email).toBe("despues@movo.test");
     });
 
     it("las escrituras exigen x-user-id del admin", async () => {

@@ -29,7 +29,7 @@ const isNumber = (value: unknown): value is number => typeof value === "number";
 
 const isMercadoPago = (body: unknown): body is AdminUserMercadoPago =>
   isRecord(body) &&
-  (body.status === "linked" || body.status === "not_linked" || body.status === "revoked") &&
+  (body.status === "linked" || body.status === "not_linked" || body.status === "revoked" || body.status === "expired") &&
   isNullableString(body.nickname) &&
   isNullableString(body.connectedAt) &&
   isNullableString(body.unlinkedAt);

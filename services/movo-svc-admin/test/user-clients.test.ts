@@ -107,7 +107,7 @@ describe("clientes internos de la ficha del panel (MOVO-294)", () => {
       expect(fetchMock.mock.calls[0][0]).toBe(`http://users/internal/admin/users/${USER}/sessions/revoke`);
       expect(fetchMock.mock.calls[0][1].headers["x-user-id"]).toBe("admin-1");
 
-      const result = { email: "a@movo.test", emailVerified: false, phone: "+5493511234567", phoneVerified: true, revokedRefreshTokens: 1, noticeFailed: true };
+      const result = { email: "a@movo.test", emailVerified: false, phone: "+5493511234567", phoneVerified: true, revokedRefreshTokens: 1, noticeFailed: true, sessionsRevokeFailed: false };
       mockFetch(200, result);
       await expect(users.updateUserContact(USER, { field: "email", newValue: "a@movo.test", expectedCurrent: "b@movo.test" }, "admin-1", ctx)).resolves.toEqual(result);
 

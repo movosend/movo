@@ -162,6 +162,7 @@ export function createFakeUsersClient(
         phoneVerified: profile.phoneVerified,
         revokedRefreshTokens: 1,
         noticeFailed: false,
+        sessionsRevokeFailed: false,
       };
     },
     async listAdmins() {

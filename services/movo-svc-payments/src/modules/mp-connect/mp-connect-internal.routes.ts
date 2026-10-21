@@ -24,7 +24,7 @@ const adminSummarySchema = {
       type: "object",
       required: ["status", "nickname", "connectedAt", "unlinkedAt"],
       properties: {
-        status: { type: "string", enum: ["linked", "not_linked", "revoked"] },
+        status: { type: "string", enum: ["linked", "not_linked", "revoked", "expired"] },
         nickname: { type: ["string", "null"] },
         connectedAt: { type: ["string", "null"] },
         unlinkedAt: { type: ["string", "null"] },

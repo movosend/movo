@@ -217,15 +217,17 @@ describe("Búsqueda de usuarios, ficha y acciones de soporte (MOVO-294)", () => 
       }
     });
 
-    it("con svc-payments caído, /ledger y /kyc son 502 y el resto responde", async () => {
+    it("con svc-payments caído, /ledger es 502 y /kyc responde con mercadoPago en null", async () => {
       const down = build({ paymentsDown: true });
       await down.ready();
       try {
-        for (const section of ["ledger", "kyc"]) {
-          const res = await down.inject({ method: "GET", url: `/admin/users/${user.id}/${section}`, headers: headers() });
-          expect(res.statusCode, section).toBe(502);
-          expect(res.json().error.code).toBe("PAYMENTS_SERVICE_UNAVAILABLE");
-        }
+        const ledger = await down.inject({ method: "GET", url: `/admin/users/${user.id}/ledger`, headers: headers() });
+        expect(ledger.statusCode).toBe(502);
+        expect(ledger.json().error.code).toBe("PAYMENTS_SERVICE_UNAVAILABLE");
+
+        const kyc = await down.inject({ method: "GET", url: `/admin/users/${user.id}/kyc`, headers: headers() });
+        expect(kyc.statusCode).toBe(200);
+        expect(kyc.json()).toMatchObject({ identity: { status: "approved" }, mercadoPago: null });
         expect((await down.inject({ method: "GET", url: `/admin/users/${user.id}/shipments`, headers: headers() })).statusCode).toBe(200);
       } finally {
         await down.close();
@@ -300,7 +302,8 @@ describe("Búsqueda de usuarios, ficha y acciones de soporte (MOVO-294)", () => 
 
       const [row] = await rowsFor(target.id);
       expect(row).toMatchObject({ action: "user.contact_update", outcome: "succeeded", reason: "Lo pidió por soporte" });
-      expect(row?.context).toEqual({ field: "email", previous: "viejo@movo.test", next: "nuevo@movo.test", noticeFailed: false });
+      // Enmascarados: la bitácora no se puede editar y sobrevive a la baja de la cuenta.
+      expect(row?.context).toEqual({ field: "email", previous: "v***o@movo.test", next: "n***o@movo.test", noticeFailed: false, sessionsRevokeFailed: false });
     });
 
     it("un CONTACT_CHANGED de svc-users se relanza y queda como failed", async () => {
@@ -331,9 +334,10 @@ describe("Búsqueda de usuarios, ficha y acciones de soporte (MOVO-294)", () => 
       expect([...payments.adjustments.keys()]).toEqual([`admin-adjustment:${payload.idempotencyKey}`]);
 
       const rows = await rowsFor(target.id);
-      expect(rows.map((r) => [r.action, r.outcome])).toEqual([
-        ["user.ledger_adjust", "succeeded"],
-        ["user.ledger_adjust", "succeeded"],
+      // El reintento deja su fila, marcada como repetida: no aparenta un segundo ajuste.
+      expect(rows.map((r) => [r.action, r.outcome, (r.context as { repeated?: boolean } | null)?.repeated])).toEqual([
+        ["user.ledger_adjust", "succeeded", false],
+        ["user.ledger_adjust", "succeeded", true],
       ]);
     });
 

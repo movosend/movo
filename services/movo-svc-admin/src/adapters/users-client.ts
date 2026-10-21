@@ -55,7 +55,7 @@ export interface UsersClient extends InternalClient {
     body: Omit<AdminContactUpdateBody, "reason">,
     actorId: string,
     ctx: RequestContext,
-  ): Promise<AdminContactUpdateResult & { noticeFailed: boolean }>;
+  ): Promise<AdminContactUpdateOutcome>;
 }
 
 const isNumber = (value: unknown): value is number => typeof value === "number";
@@ -102,14 +102,18 @@ const isNames = (body: unknown): body is AdminUserNames => isRecord(body) && isA
 
 const isRevokeResult = (body: unknown): body is AdminSessionsRevokeResult => isRecord(body) && isNumber(body.revokedRefreshTokens);
 
-const isContactResult = (body: unknown): body is AdminContactUpdateResult & { noticeFailed: boolean } =>
+/** Además del resultado público, qué falló después del cambio ya aplicado (solo para la bitácora). */
+export type AdminContactUpdateOutcome = AdminContactUpdateResult & { noticeFailed: boolean; sessionsRevokeFailed: boolean };
+
+const isContactResult = (body: unknown): body is AdminContactUpdateOutcome =>
   isRecord(body) &&
   isString(body.email) &&
   isBoolean(body.emailVerified) &&
   isString(body.phone) &&
   isBoolean(body.phoneVerified) &&
   isNumber(body.revokedRefreshTokens) &&
-  isBoolean(body.noticeFailed);
+  isBoolean(body.noticeFailed) &&
+  isBoolean(body.sessionsRevokeFailed);
 
 const isUserReportParties = (body: unknown): body is UserReportParties =>
   isRecord(body) && isString(body.reportId) && isString(body.reporterId) && isString(body.reportedId);

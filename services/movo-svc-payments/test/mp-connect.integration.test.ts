@@ -247,10 +247,10 @@ describe("/payments/mp-connect (MOVO-111)", () => {
       expect(unlinked.unlinkedAt).toEqual(expect.any(String));
     });
 
-    it("revoked con la cuenta revocada o el token vencido", async () => {
+    it("expired con el token vencido sin renovar y revoked con la cuenta revocada (gana revocada)", async () => {
       await link(USER_A);
       await app.db.carrierMpAccount.update({ where: { userId: USER_A }, data: { tokenExpiresAt: new Date(Date.now() - 1000) } });
-      expect((await getSummary(USER_A)).status).toBe("revoked");
+      expect((await getSummary(USER_A)).status).toBe("expired");
       await app.db.carrierMpAccount.update({ where: { userId: USER_A }, data: { revokedAt: new Date() } });
       expect((await getSummary(USER_A)).status).toBe("revoked");
     });

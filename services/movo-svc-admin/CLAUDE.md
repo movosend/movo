@@ -103,9 +103,10 @@ Tipo `AdminCandidate` en `@movo/shared`. Sin bitácora: es una lectura.
 
 `modules/users/`: `GET /admin/users` y una ruta por sección de la ficha (`/:id`, `kyc`, `vehicle`, `shipments`,
 `trips`, `ratings`, `moderation`, `suspensions` —vacía hasta MOVO-36—, `ledger`, `devices`, `audit-log`, `notes`),
-cada una contra su servicio dueño (`/kyc` suma `svc-payments` para la tarjeta de MP: si cualquiera cae, 502). Acciones
-por `runAdminAction`: `user.sessions_revoke`, `user.contact_update` (contexto con valor anterior y nuevo),
-`user.ledger_adjust` y `user.note_add`. Clientes nuevos en los tres `adapters/`; `payments-client` estrena métodos.
+cada una contra su servicio dueño. `/kyc` suma `svc-payments` para la tarjeta de MP, pero si pagos cae solo esa
+tarjeta queda en `null` (review de PR #279): el KYC de identidad no depende de pagos. Acciones por `runAdminAction`:
+`user.sessions_revoke`, `user.contact_update`, `user.ledger_adjust` (un reintento con la misma key queda con
+`repeated: true`, no como un segundo ajuste) y `user.note_add`. Clientes nuevos en los tres `adapters/`.
 
 - **Nombres best-effort**: los servicios dueños solo tienen ids; `svc-admin` los resuelve con `POST
   /internal/admin/users/names` y, si `svc-users` no responde, usa `"Nombre no disponible"` en vez de romper la sección.
@@ -114,6 +115,11 @@ por `runAdminAction`: `user.sessions_revoke`, `user.contact_update` (contexto co
   porque `svc-payments` no lo sabe. **`resolveContext`** agrega datos que solo se conocen al terminar (`noticeFailed`, `noteId`).
 - **Tabla `admin.admin_user_notes`**, de solo agregar (trigger contra `UPDATE`/`DELETE`; sin el de `TRUNCATE`, para
   que los tests puedan limpiarla). Cursor `(createdAt, id)` en ms, el mismo de la bitácora.
+- **Datos personales en tablas de solo agregar** (review de PR #279): la bitácora y las notas sobreviven a la baja de
+  la cuenta (`anonymizeAndDelete` solo limpia `users`). Por eso `user.contact_update` guarda el valor anterior y el
+  nuevo enmascarados (`utils/mask-contact.ts`), nunca completos. Las notas son texto libre que escribe un admin:
+  **limitación aceptada**, no se pueden anonimizar sin perder que sean de solo agregar. La convención es no copiar
+  datos personales en ellas (el dato vigente se mira en la ficha).
 - La bitácora del usuario solo mira `targetType=user` (las filas `admin_role.*` sobre la misma persona no aparecen).
 
 Pendiente: primera corrida de la migración de notas en dev/prod (`prisma migrate deploy` del deploy).

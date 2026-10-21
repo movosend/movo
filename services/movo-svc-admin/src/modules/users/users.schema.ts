@@ -172,12 +172,16 @@ export const usersSchemas = {
       200: object({
         identity: kycCard,
         license: kycCard,
-        mercadoPago: object({
-          status: { type: "string", enum: ["linked", "not_linked", "revoked"] },
-          nickname: nullableStr,
-          connectedAt: nullableStr,
-          unlinkedAt: nullableStr,
-        }),
+        // `null` si svc-payments no respondió: el panel muestra el error solo en esa tarjeta.
+        mercadoPago: {
+          ...object({
+            status: { type: "string", enum: ["linked", "not_linked", "revoked", "expired"] },
+            nickname: nullableStr,
+            connectedAt: nullableStr,
+            unlinkedAt: nullableStr,
+          }),
+          type: ["object", "null"],
+        },
       }),
       ...errors,
     },

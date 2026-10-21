@@ -269,7 +269,7 @@ export const adminUsersSchemas = {
     response: {
       200: {
         type: "object",
-        required: ["email", "emailVerified", "phone", "phoneVerified", "revokedRefreshTokens", "noticeFailed"],
+        required: ["email", "emailVerified", "phone", "phoneVerified", "revokedRefreshTokens", "noticeFailed", "sessionsRevokeFailed"],
         properties: {
           email: { type: "string" },
           emailVerified: { type: "boolean" },
@@ -277,6 +277,7 @@ export const adminUsersSchemas = {
           phoneVerified: { type: "boolean" },
           revokedRefreshTokens: { type: "integer" },
           noticeFailed: { type: "boolean" },
+          sessionsRevokeFailed: { type: "boolean" },
         },
       },
       ...errors,

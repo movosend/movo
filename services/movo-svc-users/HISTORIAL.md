@@ -1306,11 +1306,16 @@ moderación (las 50 más recientes por lista + totales), dispositivos (sin token
 batch (`POST .../names`) y las acciones de cerrar sesiones y cambiar email/teléfono.
 
 - **Búsqueda en SQL crudo**: nombre sin tildes con `translate()` (la extensión `unaccent` no está instalada), en los
-  dos órdenes; teléfono normalizado con `normalizePhoneToE164Ar` sacando antes el `0` de larga distancia, que el
-  login no contempla; teléfono/DNI parcial desde 3 dígitos. `matchedBy` con prioridad nombre → email → DNI → teléfono.
+  dos órdenes; teléfono normalizado con `normalizePhoneToE164Ar` sacando antes el `0` de larga distancia y el `15` de
+  celular, que el login no contempla (el `15` se prueba en cada posición posible tras una característica de 2 a 4
+  dígitos); teléfono/DNI parcial desde 3 dígitos. `matchedBy` con prioridad nombre → email → DNI → teléfono.
+  **Sin índice, limitación aceptada**: `LIKE '%x%'` sobre `translate(lower(...))` de cuatro expresiones, dos veces
+  (página y `COUNT`), y un recorrido completo con `q` vacío. Alcanza para el volumen del TFG; si crece, `pg_trgm` con
+  índices GIN sobre esas expresiones.
 - **Columna `deleted_at`** (la fija `anonymizeAndDelete`), sin backfill: `updated_at` no sirve de aproximación.
 - **Cambio de contacto**: `UPDATE` condicionado al valor que vio el admin (`expectedCurrent`, 409 `CONTACT_CHANGED`),
-  queda sin verificar, corta app + panel + access tokens emitidos, y avisa por email (anterior y nuevo); si el aviso
-  falla el cambio queda y se informa `noticeFailed` para la bitácora.
+  queda sin verificar, corta app + panel + access tokens emitidos, y avisa por email (anterior y nuevo). Después del
+  `UPDATE` nada puede responder error (review de PR #279: la bitácora diría `failed` sobre un cambio aplicado): si el
+  corte de sesiones (Redis) o un aviso fallan, se loguea y se informa `sessionsRevokeFailed`/`noticeFailed`.
 - **Re-verificar el teléfono**: el login no exige `phoneVerified`, pero no había forma de verificar el número actual.
   `requestPhoneChange` ahora acepta el mismo número si está sin verificar (reusa la pantalla de mobile, sin gateway).

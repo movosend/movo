@@ -617,5 +617,7 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
 MOVO-294 suma los contratos **internos** (servicio dueño → `svc-admin`), con ids de usuario en vez de nombres:
 `AdminUserShipmentRow(Page)`, `AdminUserRatingRow(Page)`, `AdminUserLedgerRow(Page)` y `AdminUserNames`. Se derivan de
-los públicos con `Omit`, así un campo nuevo en el contrato del panel aparece también en el interno.
+los públicos con `Omit`, así un campo nuevo en el contrato del panel aparece también en el interno. Review de PR #279:
+`AdminUserMercadoPago.status` suma `expired` (vencida ≠ revocada) y `AdminUserKyc.mercadoPago` pasa a `| null`
+(`svc-payments` no respondió); los dos rompen literales armados a mano y tocaron la tarjeta de MP de `movo-admin`.
 

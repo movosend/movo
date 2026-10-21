@@ -24,6 +24,7 @@ import { AdminUserNote as AdminUserNoteRow } from "../../generated/prisma/client
 import { RequestContext } from "../../adapters/internal-client";
 import { requireAdmin } from "../../utils/require-admin";
 import { decodeCursor, encodeCursor } from "../audit/audit.service";
+import { maskContact } from "../../utils/mask-contact";
 import { createNotesRepository } from "./notes.repository";
 import { usersSchemas } from "./users.schema";
 
@@ -123,16 +124,22 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
       schema: {
         tags: ["admin"],
         summary: "Ficha: KYC de identidad y licencia (svc-users) y cuenta de Mercado Pago (svc-payments)",
-        description: "Si cualquiera de los dos servicios no responde, la sección entera responde 502 con su código.",
+        description:
+          "Si svc-users no responde, 502 `USERS_SERVICE_UNAVAILABLE`. Si el que no responde es svc-payments, " +
+          "`mercadoPago` es `null` y el resto de la sección responde igual.",
         ...usersSchemas.kyc,
       },
     },
     async (request): Promise<AdminUserKyc> => {
       requireAdmin(request);
       const ctx = ctxOf(request);
+      // Pagos no puede tirar el KYC de identidad (review de PR #279): su falla solo vacía su tarjeta.
       const [kyc, mercadoPago] = await Promise.all([
         app.usersClient.getUserKyc(idOf(request), ctx),
-        app.paymentsClient.getUserMercadoPago(idOf(request), ctx),
+        app.paymentsClient.getUserMercadoPago(idOf(request), ctx).catch((error: unknown) => {
+          app.log.warn({ err: error, event: "admin_user_mp_unavailable", requestId: ctx.requestId }, "No se pudo leer la cuenta de MP");
+          return null;
+        }),
       ]);
       return { ...kyc, mercadoPago };
     },
@@ -316,7 +323,8 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
         summary: "Cambiar el email o el teléfono del usuario",
         description:
           "El valor nuevo queda sin verificar, se cierran sus sesiones y se avisa por email. 409 `CONTACT_CHANGED` si " +
-          "el valor actual ya no es `expectedCurrent`. Bitácora: `user.contact_update`, con el valor anterior y el nuevo.",
+          "el valor actual ya no es `expectedCurrent`. Bitácora: `user.contact_update`, con el valor anterior y el " +
+          "nuevo enmascarados.",
         ...usersSchemas.updateContact,
       },
     },
@@ -331,14 +339,19 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
           action: "user.contact_update",
           target: { type: "user", id },
           reason,
-          // Dato personal: la bitácora solo la lee un admin.
-          context: { field, previous: expectedCurrent },
-          resolveContext: (updated) => ({ next: updated[field], noticeFailed: updated.noticeFailed }),
+          // Enmascarado: la bitácora no se puede editar y sobrevive a la baja de la cuenta.
+          context: { field, previous: maskContact(field, expectedCurrent) },
+          // Lo que falló después del cambio (ya aplicado): el admin lo ve en la bitácora y lo reintenta.
+          resolveContext: (updated) => ({
+            next: maskContact(field, updated[field]),
+            noticeFailed: updated.noticeFailed,
+            sessionsRevokeFailed: updated.sessionsRevokeFailed,
+          }),
           requestId: request.requestId,
         },
         () => app.usersClient.updateUserContact(id, { field, newValue, expectedCurrent }, adminId, ctxOf(request)),
       );
-      // `noticeFailed` solo va a la bitácora: el panel no lo muestra.
+      // `noticeFailed`/`sessionsRevokeFailed` solo van a la bitácora: el panel no los muestra.
       return {
         email: updated.email,
         emailVerified: updated.emailVerified,
@@ -368,7 +381,7 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
       const ctx = ctxOf(request);
       const body = request.body as AdminLedgerAdjustmentBody;
       const reason = requireReason(body.reason);
-      return app.audit.runAdminAction(
+      const { result } = await app.audit.runAdminAction(
         {
           adminId,
           action: "user.ledger_adjust",
@@ -376,17 +389,20 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
           reason,
           context: { amountArs: body.amountArs, idempotencyKey: body.idempotencyKey },
           precheck: () => assertUserExists(id, ctx, { allowDeleted: false }),
+          // Un reintento con la misma key no crea otro movimiento: la fila lo dice, así la bitácora no
+          // aparenta dos ajustes (review de PR #279).
+          resolveContext: ({ created }) => ({ repeated: !created }),
           requestId: request.requestId,
         },
         async () => {
-          const { entry, balanceArs } = await app.paymentsClient.createLedgerAdjustment(
+          const { entry, balanceArs, created } = await app.paymentsClient.createLedgerAdjustment(
             id,
             // Prefijo propio: la key de la cuenta corriente es única entre todos los movimientos.
             { idempotencyKey: `admin-adjustment:${body.idempotencyKey}`, amountArs: body.amountArs, reason, adminId },
             ctx,
           );
           const nameOf = await namesOf([adminId], ctx);
-          return {
+          const adjusted: AdminLedgerAdjustmentResult = {
             entry: {
               id: entry.id,
               type: entry.type,
@@ -399,8 +415,10 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
             },
             balanceArs,
           };
+          return { result: adjusted, created };
         },
       );
+      return result;
     },
   );
 

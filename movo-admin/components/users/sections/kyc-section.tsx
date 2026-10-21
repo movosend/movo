@@ -116,6 +116,44 @@ const MP_PILL: Record<AdminUserMercadoPago["status"], Pill> = {
   linked: { label: "Vinculada", tone: "success" },
   not_linked: { label: "Sin vincular", tone: "neutral" },
   revoked: { label: "Revocada", tone: "danger" },
+  expired: { label: "Vencida", tone: "warning" },
+}
+
+/** Tarjeta de Mercado Pago. `null` = svc-payments no respondió: falla solo esta tarjeta, no la sección. */
+function mpCard(
+  mp: AdminUserMercadoPago | null,
+  isCarrier: boolean
+): { pill: Pill; empty?: string; rows: { k: string; v: string; mono?: boolean }[] } {
+  if (!mp)
+    return {
+      pill: { label: "No disponible", tone: "neutral" },
+      empty: "No pudimos consultar Mercado Pago. Reintentá en un rato.",
+      rows: [],
+    }
+  if (mp.status === "not_linked" && !mp.connectedAt)
+    return {
+      pill: MP_PILL.not_linked,
+      empty: isCarrier
+        ? "No vinculó su cuenta de Mercado Pago, así que no puede cobrar."
+        : "Sin cuenta vinculada. Solo la necesita para cobrar como transportista.",
+      rows: [],
+    }
+  return {
+    pill: MP_PILL[mp.status],
+    ...(mp.status === "expired"
+      ? {
+          empty:
+            "El acceso venció y no se renovó solo. Es una falla nuestra: no hace falta pedirle que vuelva a vincular.",
+        }
+      : mp.status === "revoked"
+        ? { empty: "Revocó el acceso desde Mercado Pago: tiene que volver a vincular la cuenta para cobrar." }
+        : {}),
+    rows: [
+      ...(mp.nickname ? [{ k: "Cuenta", v: mp.nickname, mono: true }] : []),
+      ...(mp.connectedAt ? [{ k: "Vinculada", v: formatDate(mp.connectedAt) }] : []),
+      ...(mp.unlinkedAt ? [{ k: "Desvinculada", v: formatDate(mp.unlinkedAt) }] : []),
+    ],
+  }
 }
 
 export async function KycSection({
@@ -191,31 +229,7 @@ export async function KycSection({
           }
           attempts={license.attempts}
         />
-        <Card
-          icon={Wallet}
-          title="Mercado Pago"
-          pill={MP_PILL[mp.status]}
-          empty={
-            mp.status === "not_linked"
-              ? isCarrier
-                ? "No vinculó su cuenta de Mercado Pago, así que no puede cobrar."
-                : "Sin cuenta vinculada. Solo la necesita para cobrar como transportista."
-              : undefined
-          }
-          rows={
-            mp.status === "not_linked"
-              ? []
-              : [
-                  ...(mp.nickname
-                    ? [{ k: "Cuenta", v: mp.nickname, mono: true }]
-                    : []),
-                  { k: "Vinculada", v: formatDate(mp.connectedAt) },
-                  ...(mp.unlinkedAt
-                    ? [{ k: "Desvinculada", v: formatDate(mp.unlinkedAt) }]
-                    : []),
-                ]
-          }
-        />
+        <Card icon={Wallet} title="Mercado Pago" {...mpCard(mp, isCarrier)} />
       </div>
     </SectionShell>
   )

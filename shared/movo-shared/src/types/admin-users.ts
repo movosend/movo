@@ -93,7 +93,11 @@ export interface AdminKycCard {
 }
 
 export interface AdminUserMercadoPago {
-  status: "linked" | "not_linked" | "revoked";
+  /**
+   * `revoked`: el transportista revocó el acceso desde MP y tiene que volver a vincular.
+   * `expired`: el token venció sin renovarse (falla del refresh de Movo, no del usuario).
+   */
+  status: "linked" | "not_linked" | "revoked" | "expired";
   nickname: string | null;
   connectedAt: string | null;
   unlinkedAt: string | null;
@@ -103,8 +107,8 @@ export interface AdminUserMercadoPago {
 export interface AdminUserKyc {
   identity: AdminKycCard;
   license: AdminKycCard;
-  /** `svc-payments` responde aparte: si falla, el panel muestra el error solo en esta tarjeta. */
-  mercadoPago: AdminUserMercadoPago;
+  /** `null` si `svc-payments` no respondió: el panel muestra el error solo en esta tarjeta. */
+  mercadoPago: AdminUserMercadoPago | null;
 }
 
 /** `GET /admin/users/:id/vehicle`. */

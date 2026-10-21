@@ -77,25 +77,26 @@ export function errorReturnUrl(code: MpConnectReturnErrorCode): string {
 }
 
 /**
- * - Sin fila, o desvinculada a mano → `unlinked`.
- * - Revocada desde MP (MOVO-243) → `invalid/revoked`.
- * - Token vencido sin renovar → `invalid/expired`.
- */
-/**
- * MOVO-294: mismo criterio que `toStatusResponse`, en la forma del panel. El panel no distingue
- * revocada de vencida: las dos son `revoked` (hoy no se puede cobrar con esa cuenta).
+ * MOVO-294: mismo criterio que `toStatusResponse`, en la forma del panel. Revocada y vencida se
+ * distinguen a propósito: la primera pide que el transportista vuelva a vincular; la segunda es
+ * una falla del refresh de Movo (MOVO-243) y no hay que pedirle nada al usuario.
  */
 export function toAdminSummary(account: CarrierMpAccount | null, now: Date): AdminUserMercadoPago {
   if (!account) return { status: "not_linked", nickname: null, connectedAt: null, unlinkedAt: null };
-  const { status } = toStatusResponse(account, now);
+  const { status, invalidReason } = toStatusResponse(account, now);
   return {
-    status: status === "linked" ? "linked" : status === "unlinked" ? "not_linked" : "revoked",
+    status: status === "linked" ? "linked" : status === "unlinked" ? "not_linked" : invalidReason === "expired" ? "expired" : "revoked",
     nickname: account.nickname,
     connectedAt: account.connectedAt.toISOString(),
     unlinkedAt: account.unlinkedAt?.toISOString() ?? null,
   };
 }
 
+/**
+ * - Sin fila, o desvinculada a mano → `unlinked`.
+ * - Revocada desde MP (MOVO-243) → `invalid/revoked`.
+ * - Token vencido sin renovar → `invalid/expired`.
+ */
 export function toStatusResponse(account: CarrierMpAccount | null, now: Date): MpConnectStatusResponse {
   if (!account || account.unlinkedAt) {
     return { status: "unlinked", account: null, invalidReason: null };

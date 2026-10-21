@@ -39,6 +39,7 @@ export const ADMIN_USERS_MIN_DIGITS = 3;
 export interface AdminUsersLogger {
   info(obj: Record<string, unknown>, msg: string): void;
   warn(obj: Record<string, unknown>, msg: string): void;
+  error(obj: Record<string, unknown>, msg: string): void;
 }
 
 export interface AdminUsersServiceDeps {
@@ -57,9 +58,13 @@ export interface AdminContactUpdateInput {
   expectedCurrent: string;
 }
 
-/** Lo que responde el endpoint interno: además del resultado público, si falló algún aviso. */
+/**
+ * Lo que responde el endpoint interno: además del resultado público, qué efecto posterior al cambio
+ * falló (para la bitácora). En los dos casos el cambio ya quedó aplicado.
+ */
 export interface AdminContactUpdateOutcome extends AdminContactUpdateResult {
   noticeFailed: boolean;
+  sessionsRevokeFailed: boolean;
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -82,18 +87,28 @@ function escapeLike(value: string): string {
 
 const folded = (column: Prisma.Sql) => Prisma.sql`translate(lower(${column}), ${ACCENTED}, ${PLAIN})`;
 
+/** Un número local completo (característica + abonado) tiene 10 dígitos; con el "15" de celular, 12. */
+const LOCAL_NUMBER_DIGITS = 10;
+
 /**
- * Dígitos a buscar dentro de `users.phone` (E.164). Un número completo se normaliza con la misma
- * función del login, sacando antes el 0 de larga distancia que el login no contempla ("0351…");
- * uno parcial se busca tal cual (sin ese 0), porque quitarle un "54" o un "9" del principio
- * cambiaría qué dígitos son.
+ * Dígitos a buscar dentro de `users.phone` (E.164), uno o varios candidatos. Un número completo se
+ * normaliza con la misma función del login, sacando antes lo que el login no contempla: el 0 de
+ * larga distancia ("0351…") y el 15 de celular ("351 15 456…"). La característica mide de 2 a 4
+ * dígitos, así que el 15 puede estar en tres lugares: se prueba cada uno que coincida. Uno parcial
+ * se busca tal cual (sin el 0), porque quitarle un "54", un "9" o un "15" cambiaría qué dígitos son.
  */
-function phoneDigitsOf(query: string, digits: string): string {
+function phoneDigitsOf(query: string, digits: string): string[] {
   const withoutTrunk = digits.replace(/^0/, "");
-  if (query.trim().startsWith("+") || digits.length >= 10) {
-    return normalizePhoneToE164Ar(withoutTrunk).slice(1);
+  if (withoutTrunk.length === LOCAL_NUMBER_DIGITS + 2) {
+    const withoutMobilePrefix = [2, 3, 4]
+      .filter((at) => withoutTrunk.slice(at, at + 2) === "15")
+      .map((at) => withoutTrunk.slice(0, at) + withoutTrunk.slice(at + 2));
+    if (withoutMobilePrefix.length > 0) return withoutMobilePrefix.map((local) => normalizePhoneToE164Ar(local).slice(1));
   }
-  return withoutTrunk;
+  if (query.trim().startsWith("+") || digits.length >= LOCAL_NUMBER_DIGITS) {
+    return [normalizePhoneToE164Ar(withoutTrunk).slice(1)];
+  }
+  return [withoutTrunk];
 }
 
 interface SearchRow {
@@ -136,7 +151,10 @@ function buildMatchExpression(rawQuery: string): Prisma.Sql | null {
     ? Prisma.sql`regexp_replace(coalesce(u.dni, ''), '\\D', '', 'g') LIKE ${`%${digits}%`}`
     : Prisma.sql`FALSE`;
   const phoneMatch = isDigitQuery
-    ? Prisma.sql`u.phone LIKE ${`%${phoneDigitsOf(query, digits)}%`}`
+    ? Prisma.sql`(${Prisma.join(
+        phoneDigitsOf(query, digits).map((candidate) => Prisma.sql`u.phone LIKE ${`%${candidate}%`}`),
+        " OR ",
+      )})`
     : Prisma.sql`FALSE`;
 
   // Prioridad del chip del panel: nombre, email, DNI, teléfono.
@@ -445,7 +463,6 @@ export function createAdminUsersService(deps: AdminUsersServiceDeps) {
       });
       if (taken) throw inUse;
 
-      let updated;
       try {
         // Condicionado al valor que se leyó: si cambió entre la lectura y el UPDATE, no pisa nada.
         const { count } = await db.user.updateMany({
@@ -453,26 +470,42 @@ export function createAdminUsersService(deps: AdminUsersServiceDeps) {
           data: isEmail ? { email: newValue, emailVerified: false, emailVerifiedAt: null } : { phone: newValue, phoneVerified: false },
         });
         if (count === 0) throw new ApiError(409, "CONTACT_CHANGED", "El dato cambió mientras lo editabas. Revisalo y volvé a intentar.");
-        updated = await findUserOrThrow(id);
       } catch (error) {
         if (isUniqueViolation(error)) throw inUse;
         throw error;
       }
 
-      const isAdmin = updated.roles.some((grant) => grant.role === PrismaUserRole.admin);
-      const revokedRefreshTokens = await revokeSessions(id, isAdmin);
+      // Desde acá el cambio ya está aplicado: nada de lo que sigue puede terminar en un error, o la
+      // bitácora diría `failed` (un rechazo seguro) sobre algo que sí ocurrió (review de PR #279).
+      // Por eso el resultado se arma con lo que se escribió, sin volver a leer la fila.
+      const updated = isEmail
+        ? { email: newValue, emailVerified: false, phone: user.phone, phoneVerified: user.phoneVerified }
+        : { email: user.email, emailVerified: user.emailVerified, phone: newValue, phoneVerified: false };
+
+      const isAdmin = user.roles.some((grant) => grant.role === PrismaUserRole.admin);
+      let revokedRefreshTokens = 0;
+      let sessionsRevokeFailed = false;
+      try {
+        revokedRefreshTokens = await revokeSessions(id, isAdmin);
+      } catch (error) {
+        // Redis caído: el contacto cambió pero las sesiones siguen vivas. Queda en la bitácora para
+        // que el admin vuelva a cerrarlas con "Cerrar sesiones".
+        sessionsRevokeFailed = true;
+        logger.error(
+          { action: "admin_contact_sessions_revoke_failed", targetUserId: id, requestedBy, err: String(error) },
+          "Contacto cambiado desde el panel pero no se pudieron cerrar las sesiones"
+        );
+      }
 
       // Best-effort: el cambio ya está aplicado; si un aviso falla queda registrado en la bitácora.
-      const recipients = isEmail ? [current, newValue] : [updated.email];
+      const recipients = isEmail ? [current, newValue] : [user.email];
       const sent = await Promise.all(recipients.map((to) => sendNotice(to, input.field, newValue)));
 
       logger.info({ action: "admin_contact_updated", targetUserId: id, requestedBy, field: input.field }, "Contacto cambiado desde el panel");
       return {
-        email: updated.email,
-        emailVerified: updated.emailVerified,
-        phone: updated.phone,
-        phoneVerified: updated.phoneVerified,
+        ...updated,
         revokedRefreshTokens,
+        sessionsRevokeFailed,
         noticeFailed: sent.includes(false),
       };
     },
