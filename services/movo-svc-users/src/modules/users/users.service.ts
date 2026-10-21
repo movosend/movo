@@ -8,6 +8,7 @@ import {
   KycStatus,
   LEGAL_DOCUMENT_VERSIONS,
   MutualConnections,
+  OwnAccountSanction,
   RecentRatingComment,
   VehicleProfile as SharedVehicleProfile,
 } from "@movo/shared";
@@ -311,16 +312,35 @@ export function createUsersService(
     }
   }
 
+  /** MOVO-300: motivo y plazo de la sanción vigente, para el aviso de la app. `user.status`
+   * ya es el efectivo (`effectiveAccountStatus`): una suspensión vencida que el barrido
+   * todavía no cerró llega como `active` y no se consulta. */
+  async function resolveActiveSanction(user: User): Promise<OwnAccountSanction | null> {
+    if (user.status !== AccountStatus.SUSPENDED && user.status !== AccountStatus.BANNED) {
+      return null;
+    }
+    const open = await db.accountSanction.findFirst({
+      where: { userId: user.id, liftedAt: null },
+      select: { type: true, reason: true, endsAt: true },
+    });
+    if (!open) {
+      return null;
+    }
+    return { type: open.type, reason: open.reason, endsAt: open.endsAt?.toISOString() ?? null };
+  }
+
   async function composePrivateProfile(user: User): Promise<PrivateProfile> {
-    const [summary, tours] = await Promise.all([
+    const [summary, tours, activeSanction] = await Promise.all([
       resolveReputationSummary(user.id),
       userTourRepository.listByUserId(user.id),
+      resolveActiveSanction(user),
     ]);
     return toPrivateProfile(
       user,
       summary ?? NO_REPUTATION,
       summary?.transactionCounts ?? NO_TRANSACTION_COUNTS,
-      tours
+      tours,
+      activeSanction
     );
   }
 
