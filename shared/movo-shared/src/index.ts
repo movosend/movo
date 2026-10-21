@@ -61,6 +61,7 @@ export type {
   AccountSanctionClosedCause,
   PublicAccountStatus,
   AccountSanction,
+  OwnAccountSanction,
   ApplyAccountSanctionRequest,
   LiftAccountSanctionRequest,
   AccountRestrictionMark,
