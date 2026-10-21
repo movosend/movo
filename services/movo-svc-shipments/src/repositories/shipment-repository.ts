@@ -495,6 +495,11 @@ export interface ShipmentRepository {
   claimCarrierWithdrawal(id: string, carrierId: string, from: ShipmentStatus, penaltyArs: number): Promise<boolean>;
   listPendingCarrierWithdrawals(limit: number, afterId?: string): Promise<Shipment[]>;
   create(input: CreateShipmentInput): Promise<Shipment>;
+  /**
+   * MOVO-325: guarda el nombre visible de cada usuario (el último conocido) para listar y buscar
+   * envíos en el panel sin depender de svc-users. Nombres vacíos se ignoran; una fila por usuario.
+   */
+  recordDisplayNames(entries: Array<{ userId: string; name: string | null | undefined }>): Promise<void>;
   findById(id: string): Promise<Shipment | null>;
   /**
    * MOVO-212: envíos `delivered` con transportista cuya liquidación todavía no se cerró
@@ -934,9 +939,11 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             pickupAddress: input.pickupAddress,
             pickupLat: input.pickupLat,
             pickupLng: input.pickupLng,
+            pickupCity: input.pickupCity ?? null,
             deliveryAddress: input.deliveryAddress,
             deliveryLat: input.deliveryLat,
             deliveryLng: input.deliveryLng,
+            deliveryCity: input.deliveryCity ?? null,
             pickupDate: input.pickupDate,
             pickupTimeWindowStart: input.pickupTimeWindowStart,
             pickupTimeWindowEnd: input.pickupTimeWindowEnd,
@@ -963,6 +970,23 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       });
 
       return mapShipment(row);
+    },
+
+    async recordDisplayNames(entries) {
+      const unique = new Map<string, string>();
+      for (const { userId, name } of entries) {
+        const trimmed = name?.trim();
+        if (trimmed) unique.set(userId, trimmed);
+      }
+      await Promise.all(
+        [...unique].map(([userId, name]) =>
+          db.userDisplayName.upsert({
+            where: { userId },
+            create: { userId, name },
+            update: { name },
+          }),
+        ),
+      );
     },
 
     async findById(id: string): Promise<Shipment | null> {

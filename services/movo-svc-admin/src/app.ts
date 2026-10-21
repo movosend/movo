@@ -12,6 +12,7 @@ import auditRoutes from "./modules/audit/audit.routes";
 import adminsRoutes from "./modules/admins/admins.routes";
 import sessionRoutes from "./modules/session/session.routes";
 import usersRoutes from "./modules/users/users.routes";
+import shipmentsRoutes from "./modules/shipments/shipments.routes";
 
 export type BuildAppOptions = InternalClientsOptions;
 
@@ -58,6 +59,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(auditRoutes, { prefix: "/admin" });
   app.register(adminsRoutes, { prefix: "/admin" });
   app.register(usersRoutes, { prefix: "/admin" });
+  app.register(shipmentsRoutes, { prefix: "/admin" });
 
   return app;
 }

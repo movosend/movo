@@ -123,3 +123,13 @@ tarjeta queda en `null` (review de PR #279): el KYC de identidad no depende de p
 - La bitácora del usuario solo mira `targetType=user` (las filas `admin_role.*` sobre la misma persona no aparecen).
 
 Pendiente: primera corrida de la migración de notas en dev/prod (`prisma migrate deploy` del deploy).
+
+### MOVO-325 — Envíos para el panel: `GET /admin/shipments`, `/admin/shipments/:id`, `/admin/shipments/:id/chat/messages`
+
+`modules/shipments/` (backend de MOVO-33; la pantalla es MOVO-326). Exige rol admin y es **lectura pura: sin bitácora ni regla de conflicto**. El listado y el chat se pasan tal cual de `svc-shipments` (`/internal/admin/shipments*`, ver su `HISTORIAL.md`); la query se valida acá y se reenvía.
+
+- **Detalle por bloques** (`AdminShipmentDetailResponse`): `shipment` es obligatorio (404 si no existe, 502 si `svc-shipments` cae); `events` y `photos` (`svc-shipments`), `payment` (`svc-payments`, hold) y `parties` (`svc-users`, `GET /internal/users/party-cards`, una ficha por rol) son `AdminBlock`: `{ data, error: null }` o `{ data: null, error: { code, message } }`, así un servicio caído no tumba el resto. `payment.data` en `null` **sin error** = nunca se intentó el pago. El schema de `payment` es una lista cerrada de campos de `HoldDetailResponse` (no un objeto libre): un campo sensible nuevo en svc-payments no llega al panel sin sumarlo acá. Los bloques se piden en paralelo.
+- Clientes: `shipments-client.ts` (5 métodos nuevos), `users-client.ts#getPartyCards`, `payments-client.ts#findHoldByShipment` (primer método de ese cliente). Fakes en `test/fake-clients.ts`.
+- Los esquemas de respuesta tienen `data` nullable en los bloques: sin eso Fastify serializaba `null` como `[]`.
+
+Pendiente: el detalle del pago solo trae el hold (captura/reembolso viven en liquidaciones de `svc-payments`); `disputeId` es siempre `null` hasta MOVO-34.

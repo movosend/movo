@@ -1353,3 +1353,9 @@ respuesta lo lista explícito (el serializer descarta lo que no figura). Tests e
 `POST /auth/refresh` de un refresh ya revocado responde `403 ACCOUNT_DISABLED` si la cuenta está inhabilitada (antes
 `AUTH_REFRESH_INVALID`): inhabilitar revoca todas las sesiones, y era la única forma de que la app abierta supiera por qué se
 cerraba. No revela nada que no esté ya en `PublicProfile.accountStatus`.
+
+Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `svc-admin` (MOVO-299), y mobile (MOVO-300: hasta entonces el login de una cuenta inhabilitada devuelve `ACCOUNT_DISABLED`, código que la app todavía no mapea). Las cuentas `banned` anteriores a esta migración no tienen fila de historial ni marca.
+
+### MOVO-325 — Ciudad en el reverse geocoding y fichas de las partes para el panel
+
+`ReverseGeocodeResult.city` (`POST /geocode/reverse` responde `{ formattedAddress, city }`, `city` nullable): Google toma `locality` y, sin ella, `administrative_area_level_2`; el mock devuelve "Córdoba". Lo consume `svc-shipments` al crear un envío (filtro de ciudad del panel). Cambio aditivo: mobile ignora el campo nuevo. `GET /internal/users/party-cards?ids=` (`modules/users/party-cards-internal.routes.ts`, interno): nombre, foto, estado de cuenta, KYC de identidad/licencia aprobados y reputación de hasta 5 personas, incluidas las dadas de baja; un id inexistente queda afuera y la reputación es best-effort (`null` si `svc-shipments` no responde). Lo usa `svc-admin` para el bloque de partes del detalle de un envío.
