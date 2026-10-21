@@ -111,7 +111,34 @@ const block = (data: object) => ({
   properties: { data: { anyOf: [data, { type: "null" }] }, error: { anyOf: [errorOf, { type: "null" }] } },
 });
 
-const looseObject = { type: "object", additionalProperties: true };
+/** Hold de svc-payments (`HoldDetailResponse`): lista cerrada para que un campo nuevo no llegue al panel sin querer. */
+const payment = {
+  type: "object",
+  description: "Hold de svc-payments; null si nunca se intentó el pago.",
+  required: ["status"],
+  properties: {
+    id: { type: "string" },
+    shipmentId: { type: "string" },
+    carrierId: { type: "string" },
+    attempt: { type: "integer" },
+    mpPaymentId: { type: ["string", "null"] },
+    baseAmountArs: { type: "number" },
+    debtOffsetArs: { type: "number" },
+    debtSurchargeArs: { type: "number" },
+    amountArs: { type: "number" },
+    applicationFeeArs: { type: "number" },
+    commissionArs: { type: "number" },
+    status: { type: "string" },
+    statusDetail: { type: ["string", "null"] },
+    failureReason: { type: ["string", "null"] },
+    expiresAt: { type: ["string", "null"] },
+    createdAt: { type: "string" },
+    updatedAt: { type: "string" },
+    wasAuthorized: { type: "boolean" },
+    cardBrand: { type: ["string", "null"] },
+    cardLast4: { type: ["string", "null"] },
+  },
+};
 const event = {
   type: "object",
   required: ["id", "fromStatus", "toStatus", "actorId", "reason", "createdAt"],
@@ -189,7 +216,7 @@ export const shipmentsSchemas = {
       shipment: { ...shipmentRow, additionalProperties: true },
       events: block({ type: "array", items: event }),
       photos: block({ type: "array", items: photo }),
-      payment: block({ ...looseObject, description: "Hold de svc-payments; null si nunca se intentó el pago." }),
+      payment: block(payment),
       parties: block({ type: "array", items: partyCard }),
     },
   },

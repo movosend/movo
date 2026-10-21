@@ -124,7 +124,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
           "Todo el hilo del más reciente al más antiguo, con el contenido sin ocultar por bloqueos ni por el " +
           "inicio de la última asignación (ADR-040: es evidencia). Cada mensaje trae `moderated` y el rol de su " +
           "autor; `reports` dice quién reportó la conversación; `partiesAccess` si las partes pueden escribir " +
-          "(`open`) o solo leer (`read_only`); `events` son los eventos del envío para intercalar por fecha.",
+          "(`open`), solo leer (`read_only`) o ya no hay conversación (`closed`); `events` son los eventos del envío para intercalar por fecha.",
         params: shipmentsSchemas.idParam,
         querystring: shipmentsSchemas.chatQuery,
         response: { 200: shipmentsSchemas.chatResponse, ...errors },

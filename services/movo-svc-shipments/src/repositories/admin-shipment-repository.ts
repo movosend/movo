@@ -75,9 +75,16 @@ export function normalizeSearchText(value: string): string {
 const normalizedSql = (column: string): Prisma.Sql =>
   Prisma.sql`lower(translate(${Prisma.raw(column)}, ${TRANSLATE_FROM}, ${TRANSLATE_TO}))`;
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (char) => `\\${char}`);
 
-/** Último cambio de estado (o la creación), a ms: el cursor viaja en ISO y la base guarda µs. */
+/**
+ * Último cambio de estado (o la creación), a ms: el cursor viaja en ISO y la base guarda µs.
+ * Ojo: esta expresión no matchea `shipments_last_status_changed_at_idx` (que está sobre la columna cruda;
+ * `date_trunc` sobre timestamptz es STABLE y no se puede indexar), así que hoy el listado hace seq scan + sort.
+ * Con el volumen actual no molesta; si crece, hay que ordenar por la columna cruda y truncar solo el cursor.
+ */
 const SORT_KEY = Prisma.sql`date_trunc('milliseconds', COALESCE(s.last_status_changed_at, s.created_at))`;
 
 const FROM_SQL = Prisma.sql`
@@ -95,7 +102,9 @@ function searchConditions(search: AdminShipmentSearch): Prisma.Sql[] {
   if (search.from) conditions.push(Prisma.sql`${SORT_KEY} >= ${search.from}`);
   if (search.to) conditions.push(Prisma.sql`${SORT_KEY} <= ${search.to}`);
 
-  const q = search.q ? normalizeSearchText(search.q.replace(/^#/, "")) : "";
+  let q = search.q ? normalizeSearchText(search.q.replace(/^#/, "")) : "";
+  // El código visible son los primeros 8 caracteres del id: si pegan el UUID completo, se busca por ellos.
+  if (UUID_PATTERN.test(q)) q = q.slice(0, 8);
   if (q) {
     const like = `%${escapeLike(q)}%`;
     conditions.push(Prisma.sql`(

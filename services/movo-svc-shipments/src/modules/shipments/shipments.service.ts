@@ -1388,6 +1388,15 @@ export function createShipmentsService(
       // -- degrada a "precio a estimar" (todo `null`) ante cualquier falla de
       // movo-svc-pricing-logistics (AC6), sin cliente inyectado, o datos incompletos.
       // MOVO-138: antes cuenta la demanda de la zona de retiro.
+      // MOVO-325: ciudad del retiro y de la entrega (para filtrar en el panel) y nombre del emisor (para
+      // listar y buscar). Best-effort: ningún fallo de svc-users frena la creación. Se lanzan acá y se
+      // esperan recién antes de persistir, así su latencia se solapa con la de la cotización.
+      const enrichment = Promise.all([
+        usersClient.findCity(input.pickupLat, input.pickupLng, input.senderId),
+        usersClient.findCity(input.deliveryLat, input.deliveryLng, input.senderId),
+        resolveSnapshotProfile(usersClient, input.senderId, "emisor", logger),
+      ]);
+
       const quote =
         input.quoteId !== undefined
           ? await consumeFrozenQuote(input.quoteId, input.senderId, input)
@@ -1415,13 +1424,7 @@ export function createShipmentsService(
         toRealInstant(windowEndAt)
       );
 
-      // MOVO-325: ciudad del retiro y de la entrega (para filtrar en el panel) y nombre del emisor
-      // (para listar y buscar). Todo best-effort: ningún fallo de svc-users frena la creación.
-      const [pickupCity, deliveryCity, senderProfile] = await Promise.all([
-        usersClient.findCity(input.pickupLat, input.pickupLng, input.senderId),
-        usersClient.findCity(input.deliveryLat, input.deliveryLng, input.senderId),
-        resolveSnapshotProfile(usersClient, input.senderId, "emisor", logger),
-      ]);
+      const [pickupCity, deliveryCity, senderProfile] = await enrichment;
 
       const created = await repository.create({
         senderId: input.senderId,

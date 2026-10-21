@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
 import { AccountStatus, ApiError, KycStatus } from "@movo/shared";
 import { createShipmentsClient, ShipmentsClient } from "../../adapters/shipments-client";
-import { fullName } from "../../models/user";
+import { effectiveAccountStatus, fullName } from "../../models/user";
 
 export interface PartyCardsInternalRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests, mismo criterio que en `usersRoutes`. */
@@ -83,7 +83,8 @@ export default async function partyCardsInternalRoutes(app: FastifyInstance, opt
             id: user.id,
             fullName: fullName(user),
             photoUrl: user.photoUrl,
-            accountStatus: user.status as `${AccountStatus}`,
+            // MOVO-296 AC7: una suspensión vencida que el barrido no cerró cuenta como activa.
+            accountStatus: effectiveAccountStatus(user.status as AccountStatus, user.bannedUntil).status as `${AccountStatus}`,
             identityVerified: user.kycStatusIdentity === KycStatus.APPROVED,
             licenseVerified: user.kycStatusLicense === KycStatus.APPROVED,
             ...reputation,

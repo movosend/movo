@@ -105,7 +105,8 @@ const isAdminShipmentPage = (body: unknown): body is AdminShipmentPage =>
   isNullableString(body.nextCursor) &&
   isRecord(body.counts);
 
-const isAdminShipmentDetail = (body: unknown): body is AdminShipmentDetail => isAdminShipmentRow(body);
+const isAdminShipmentDetail = (body: unknown): body is AdminShipmentDetail =>
+  isAdminShipmentRow(body) && isRecord(body) && isString(body.packageType) && typeof body.weightKg === "number";
 const isEventList = (body: unknown): body is AdminShipmentEvent[] => Array.isArray(body) && body.every(isEvent);
 const isPhotoList = (body: unknown): body is AdminShipmentPhoto[] => Array.isArray(body) && body.every(isPhoto);
 

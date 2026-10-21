@@ -45,6 +45,9 @@ export interface AdminInternalRoutesOptions extends FastifyPluginOptions {
 /** Cuánto se espera a svc-users para completar nombres faltantes: es un dato accesorio del listado. */
 const NAME_HEAL_BUDGET_MS = 2000;
 const NAME_HEAL_MAX_USERS = 30;
+// Cuentas que svc-users no encontró (eliminadas): su nombre nunca se completa, así que no se vuelven a
+// consultar en cada listado. En memoria y con vencimiento; si se reinicia el servicio, se reintenta una vez.
+const NAME_HEAL_NOT_FOUND_TTL_MS = 60 * 60 * 1000;
 
 const isoOrNull = (date: Date | null | undefined): string | null => (date ? date.toISOString() : null);
 /** Las columnas `@db.Date` / `@db.Time` guardan reloj de pared anclado en UTC (gotcha de MOVO-80). */
@@ -109,8 +112,13 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
    * diga svc-users. Best-effort y con tope de tiempo: si svc-users no contesta, el listado sale igual
    * con el nombre en `null` y lo reintenta la próxima vez.
    */
+  const notFoundUntil = new Map<string, number>();
+
   async function healMissingNames(records: AdminShipmentRecord[]): Promise<void> {
-    const missing = (await adminShipmentRepository.findMissingNames(records)).slice(0, NAME_HEAL_MAX_USERS);
+    const now = Date.now();
+    const missing = (await adminShipmentRepository.findMissingNames(records))
+      .filter((userId) => (notFoundUntil.get(userId) ?? 0) <= now)
+      .slice(0, NAME_HEAL_MAX_USERS);
     if (missing.length === 0) return;
 
     const found = new Map<string, string>();
@@ -119,6 +127,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
         try {
           const profile = await usersClient.findPublicProfile(userId, userId);
           if (profile?.fullName) found.set(userId, profile.fullName);
+          else if (profile === null) notFoundUntil.set(userId, Date.now() + NAME_HEAL_NOT_FOUND_TTL_MS);
         } catch {
           // svc-users caído: el nombre queda en null y se reintenta en el próximo listado.
         }
@@ -375,7 +384,9 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
   );
 
   // Todo el hilo, sin ocultar nada por bloqueos ni por `chat_started_at` (ADR-040: el historial es
-  // evidencia). `partiesAccess` dice qué pueden hacer hoy las partes con las reglas de docs/chat/README.md.
+  // evidencia). `partiesAccess` dice qué pueden hacer hoy el emisor, el transportista y el receptor con las
+  // reglas de docs/chat/README.md; el receptor anterior (ADR-038) nunca pasa de `read_only`, así que no
+  // cambia ese valor y no se modela aparte.
   app.get(
     "/admin/shipments/:id/chat/messages",
     { schema: { hide: true, params: adminInternalSchemas.idParam, querystring: adminInternalSchemas.chatQuery } },
