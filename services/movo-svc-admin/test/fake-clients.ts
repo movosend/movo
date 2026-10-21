@@ -10,12 +10,18 @@ import {
   AdminUserTripPage,
   ApiError,
   ChatReportParties,
+  AdminChatPage,
+  AdminShipmentDetail,
+  AdminShipmentEvent,
+  AdminShipmentPage,
+  AdminShipmentPhoto,
+  HoldDetailResponse,
   ShipmentParties,
   UserReportParties,
 } from "@movo/shared";
 import { InternalClient } from "../src/adapters/internal-client";
 import { ShipmentsClient } from "../src/adapters/shipments-client";
-import { UsersClient } from "../src/adapters/users-client";
+import { PartyCard, UsersClient } from "../src/adapters/users-client";
 import { LedgerAdjustmentRequest, PaymentsClient } from "../src/adapters/payments-client";
 
 const unusedRequest: InternalClient["request"] = async () => {
@@ -36,6 +42,14 @@ export function createFakeShipmentsClient(data: {
   userShipments?: Record<string, AdminUserShipmentRowPage>;
   userTrips?: Record<string, AdminUserTripPage>;
   userRatings?: Record<string, AdminUserRatingRowPage>;
+  /** MOVO-325 */
+  page?: AdminShipmentPage;
+  details?: Record<string, AdminShipmentDetail>;
+  events?: Record<string, AdminShipmentEvent[]>;
+  photos?: Record<string, AdminShipmentPhoto[]>;
+  chats?: Record<string, AdminChatPage>;
+  /** Últimos query strings recibidos, para comprobar que se reenvían. */
+  seen?: { list?: string; chat?: string };
   down?: boolean;
 } = {}): ShipmentsClient {
   return {
@@ -53,6 +67,28 @@ export function createFakeShipmentsClient(data: {
     async listUserRatings(userId, query) {
       if (data.down) throw shipmentsDown();
       return data.userRatings?.[userId] ?? { average: null, count: 0, items: [], page: query.page, pageSize: query.pageSize };
+    },
+    async listAdminShipments(query) {
+      if (data.down) throw shipmentsDown();
+      if (data.seen) data.seen.list = query.toString();
+      return data.page ?? { items: [], nextCursor: null, counts: { all: 0, unassigned: 0, assigning: 0, in_progress: 0, closed: 0, disputes: 0 } };
+    },
+    async getAdminShipment(id) {
+      if (data.down) throw shipmentsDown();
+      return data.details?.[id] ?? null;
+    },
+    async getAdminShipmentEvents(id) {
+      if (data.down) throw shipmentsDown();
+      return data.events?.[id] ?? [];
+    },
+    async getAdminShipmentPhotos(id) {
+      if (data.down) throw shipmentsDown();
+      return data.photos?.[id] ?? [];
+    },
+    async getAdminShipmentChat(id, query) {
+      if (data.down) throw shipmentsDown();
+      if (data.seen) data.seen.chat = query.toString();
+      return data.chats?.[id] ?? null;
     },
     async getShipmentParties(id) {
       if (data.down) throw shipmentsDown();
@@ -74,6 +110,7 @@ export function createFakeUsersClient(
     profiles?: AdminUserProfile[];
     /** Solo la resolución de nombres falla (el resto de `svc-users` responde). */
     namesDown?: boolean;
+    cards?: PartyCard[];
     down?: boolean;
   } = {},
 ): UsersClient {
@@ -187,6 +224,10 @@ export function createFakeUsersClient(
       if (admins.length === 1) throw new ApiError(409, "ADMIN_LAST_ADMIN", "No se puede revocar el rol al último admin.");
       admins.splice(index, 1);
     },
+    async getPartyCards(ids) {
+      if (data.down) throw usersDown();
+      return (data.cards ?? []).filter((card) => ids.includes(card.id));
+    },
     async getUserReportParties(id) {
       if (data.down) throw usersDown();
       return data.userReports?.[id] ?? null;
@@ -196,11 +237,15 @@ export function createFakeUsersClient(
 
 /** MOVO-294: cuenta corriente y Mercado Pago. El ajuste es idempotente por key, como el real. */
 export function createFakePaymentsClient(
-  data: { ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
+  data: { holds?: Record<string, HoldDetailResponse>; ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
 ) {
   const adjustments = new Map<string, { body: LedgerAdjustmentRequest; id: string; createdAt: string }>();
   const client: PaymentsClient = {
     request: unusedRequest,
+    async findHoldByShipment(id) {
+      if (data.down) throw paymentsDown();
+      return data.holds?.[id] ?? null;
+    },
     async getUserMercadoPago(userId) {
       if (data.down) throw paymentsDown();
       return data.mercadoPago?.[userId] ?? { status: "not_linked", nickname: null, connectedAt: null, unlinkedAt: null };

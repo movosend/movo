@@ -293,9 +293,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // MOVO-288: partes de un envío o de un reporte de chat, para la regla de conflicto de
   // interés de movo-svc-admin. Interno.
+  // MOVO-325: también listado, detalle, eventos, fotos y chat de los envíos para el panel.
+  // MOVO-297: y los efectos de una sanción (retiro de actividad abierta y avisos).
   app.register(adminInternalRoutes, {
     prefix: "/internal",
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
   });
 

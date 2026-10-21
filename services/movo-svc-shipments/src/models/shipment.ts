@@ -163,6 +163,9 @@ export interface CreateShipmentInput {
   calculationMethod: string | null;
   highDemand: boolean | null;
   receiverConfirmationDeadline?: Date | null;
+  /** MOVO-325: ciudad del retiro/entrega (reverse geocoding), `null`/ausente si no se pudo resolver. */
+  pickupCity?: string | null;
+  deliveryCity?: string | null;
 }
 
 export interface ShipmentEvent {

@@ -4,6 +4,7 @@ import {
   AdminContactUpdateResult,
   AdminKycCard,
   AdminSessionsRevokeResult,
+  AdminShipmentPartyCard,
   AdminSummary,
   AdminUserDevices,
   AdminUserKyc,
@@ -56,6 +57,11 @@ export interface UsersClient extends InternalClient {
     actorId: string,
     ctx: RequestContext,
   ): Promise<AdminContactUpdateOutcome>;
+  /**
+   * `GET /internal/users/party-cards?ids=` (MOVO-325): verificación y reputación de las partes de un
+   * envío. Una cuenta inexistente queda afuera de la lista.
+   */
+  getPartyCards(userIds: string[], ctx: RequestContext): Promise<PartyCard[]>;
 }
 
 const isNumber = (value: unknown): value is number => typeof value === "number";
@@ -114,6 +120,21 @@ const isContactResult = (body: unknown): body is AdminContactUpdateOutcome =>
   isNumber(body.revokedRefreshTokens) &&
   isBoolean(body.noticeFailed) &&
   isBoolean(body.sessionsRevokeFailed);
+
+
+/** Ficha de una persona; el rol que cumple en el envío lo agrega quien arma el detalle. */
+export type PartyCard = Omit<AdminShipmentPartyCard, "role">;
+
+const isPartyCard = (item: unknown): item is PartyCard =>
+  isRecord(item) &&
+  isString(item.id) &&
+  isString(item.fullName) &&
+  isString(item.accountStatus) &&
+  typeof item.identityVerified === "boolean" &&
+  typeof item.licenseVerified === "boolean" &&
+  typeof item.ratingCount === "number";
+
+const isPartyCardList = (body: unknown): body is PartyCard[] => Array.isArray(body) && body.every(isPartyCard);
 
 const isUserReportParties = (body: unknown): body is UserReportParties =>
   isRecord(body) && isString(body.reportId) && isString(body.reporterId) && isString(body.reportedId);
@@ -188,6 +209,14 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
       });
       // `undefined` es el éxito (204); `null`, el 404 de negocio.
       if (result === null) throw new ApiError(404, "ADMIN_NOT_FOUND", "El usuario no es admin.");
+    },
+    async getPartyCards(userIds, ctx) {
+      const ids = userIds.map(encodeURIComponent).join(",");
+      const cards = await client.request(`/internal/users/party-cards?ids=${ids}`, ctx, {
+        isValid: isPartyCardList,
+        notFoundCodes: [],
+      });
+      return cards ?? [];
     },
     getUserReportParties(reportId, ctx) {
       return client.request(`/internal/user-reports/${encodeURIComponent(reportId)}/parties`, ctx, {

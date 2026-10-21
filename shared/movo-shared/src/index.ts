@@ -347,6 +347,32 @@ export type {
   UserReportParties,
 } from "./types/admin";
 
+// admin: envíos para el panel (MOVO-325, backend de MOVO-33)
+export {
+  ACTIVE_SHIPMENT_STATUSES,
+  ADMIN_SHIPMENT_GROUPS,
+  ADMIN_SHIPMENT_GROUP_STATUSES,
+  ADMIN_SHIPMENTS_DEFAULT_LIMIT,
+  ADMIN_SHIPMENTS_MAX_LIMIT,
+} from "./types/admin-shipments";
+export type {
+  AdminShipmentGroup,
+  AdminShipmentPartyRef,
+  AdminShipmentRow,
+  AdminShipmentCounts,
+  AdminShipmentPage,
+  AdminShipmentEvent,
+  AdminShipmentPhoto,
+  AdminShipmentPayment,
+  AdminShipmentPartyCard,
+  AdminBlock,
+  AdminShipmentDetail,
+  AdminShipmentDetailResponse,
+  AdminChatMessage,
+  AdminChatReport,
+  AdminChatPage,
+} from "./types/admin-shipments";
+
 // admin: búsqueda de usuarios y ficha (MOVO-295, backend MOVO-294)
 export {
   ADMIN_USER_MODERATION_LIMIT,

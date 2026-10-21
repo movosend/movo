@@ -32,9 +32,10 @@ export const geocodeSchemas = {
   },
   reverseGeocodeResponse: {
     type: "object",
-    required: ["formattedAddress"],
+    required: ["formattedAddress", "city"],
     properties: {
       formattedAddress: { type: "string" },
+      city: { type: ["string", "null"] },
     },
   },
   errorResponse: {

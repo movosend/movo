@@ -69,6 +69,30 @@ const adminUserRating = {
 } as const;
 
 export const adminInternalSchemas = {
+  listQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      group: { type: "string", enum: ["unassigned", "assigning", "in_progress", "closed", "disputes"] },
+      status: { type: "string", enum: SHIPMENT_STATUSES },
+      city: { type: "string", minLength: 1, maxLength: 100 },
+      from: { type: "string", format: "date-time" },
+      to: { type: "string", format: "date-time" },
+      q: { type: "string", minLength: 1, maxLength: 100 },
+      cursor: { type: "string", maxLength: 300 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+    },
+  },
+
+  chatQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      cursor: { type: "string", maxLength: 300 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+    },
+  },
+
   idParam: {
     type: "object",
     required: ["id"],

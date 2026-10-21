@@ -155,10 +155,14 @@ model Shipment {
   pickupAddress String  @map("pickup_address")
   pickupLat     Decimal @map("pickup_lat") @db.Decimal(9, 6)
   pickupLng     Decimal @map("pickup_lng") @db.Decimal(9, 6)
+  // MOVO-325: ciudad del punto, del reverse geocoding de svc-users al crear (best-effort). NULL =
+  // no resuelta todavía; `npm run backfill:cities` completa los envíos anteriores.
+  pickupCity    String? @map("pickup_city")
 
   deliveryAddress String  @map("delivery_address")
   deliveryLat     Decimal @map("delivery_lat") @db.Decimal(9, 6)
   deliveryLng     Decimal @map("delivery_lng") @db.Decimal(9, 6)
+  deliveryCity    String? @map("delivery_city")
 
   pickupDate            DateTime @map("pickup_date") @db.Date
   pickupTimeWindowStart DateTime @map("pickup_time_window_start") @db.Time
@@ -255,6 +259,9 @@ model Shipment {
   // el costo es bajo.
   @@index([status, pickupLat, pickupLng], map: "shipments_status_pickup_lat_lng_idx")
   @@index([status, deliveryLat, deliveryLng], map: "shipments_status_delivery_lat_lng_idx")
+  // MOVO-325: listado del panel (orden por último cambio de estado) y filtro por ciudad de retiro.
+  @@index([lastStatusChangedAt(sort: Desc), id(sort: Desc)], map: "shipments_last_status_changed_at_idx")
+  @@index([pickupCity], map: "shipments_pickup_city_idx")
   @@map("shipments")
   @@schema("shipments")
 }
@@ -778,5 +785,18 @@ model ChatReport {
 
   @@unique([shipmentId, reporterId], map: "chat_reports_shipment_reporter_key")
   @@map("chat_reports")
+  @@schema("shipments")
+}
+
+// MOVO-325: nombre visible de cada usuario que participó de un envío, para el listado y la búsqueda
+// del panel sin depender de svc-users. Una fila por usuario (no por envío): un cambio de receptor o
+// de transportista no deja un nombre viejo pegado. Se completa al crear envíos y ofertas, y solo
+// (best-effort) al listar. Referencia lógica a users.users, sin FK (ADR-003).
+model UserDisplayName {
+  userId    String   @id @map("user_id") @db.Uuid
+  name      String
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@map("user_display_names")
   @@schema("shipments")
 }
