@@ -45,6 +45,25 @@ export interface ShipmentParties {
   formerReceiverIds: string[];
 }
 
+/** Un envío en curso de un usuario (`GET /internal/users/:id/in-progress-shipments` de `svc-shipments`, MOVO-297). */
+export interface InProgressShipment {
+  id: string;
+  shortId: string;
+  status: "assignment_pending" | "assigned_unfunded" | "assigned" | "in_transit";
+  userRole: "sender" | "carrier" | "receiver";
+  pickupAddress: string;
+  deliveryAddress: string;
+}
+
+/** `POST /internal/users/:id/withdraw-open-activity` de `svc-shipments` (MOVO-297): lo retirado, para la bitácora. */
+export interface WithdrawOpenActivityResult {
+  cancelledShipmentIds: string[];
+  withdrawnOfferIds: string[];
+  cancelledTripIds: string[];
+  /** Contrapartes avisadas de los envíos en curso (un push por contraparte y envío; no repite en reintentos). */
+  notifiedCounterpartyCount: number;
+}
+
 /** `GET /internal/chat-reports/:id/parties` de `svc-shipments`: quien reportó y las partes del envío. */
 export interface ChatReportParties {
   reportId: string;

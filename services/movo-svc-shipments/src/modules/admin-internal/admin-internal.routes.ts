@@ -6,13 +6,21 @@ import {
   AdminUserTripPage,
   ApiError,
   ChatReportParties,
+  InProgressShipment,
   ShipmentParties,
+  WithdrawOpenActivityResult,
 } from "@movo/shared";
 import { ShipmentStatus, TripStatus } from "../../generated/prisma/client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createChatRepository } from "../../repositories/chat-repository";
 import { adminInternalSchemas } from "./admin-internal.schema";
 import { createAdminUsersService } from "./admin-users.service";
+import { createSanctionEffectsService } from "./sanction-effects.service";
+import { createOfferRepository } from "../../repositories/offer-repository";
+import { createTripRepository } from "../../repositories/trip-repository";
+import { createShipmentsService } from "../shipments/shipments.service";
+import { createUsersClient, UsersClient } from "../../adapters/users-client";
+import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 
 /**
  * Módulo interno (MOVO-288): las partes de un envío o de un reporte de chat, para la regla de
@@ -21,7 +29,12 @@ import { createAdminUsersService } from "./admin-users.service";
  * No pasa por el gateway, solo es alcanzable dentro de la red Docker interna (ADR-010), mismo
  * patrón que `mutual-connections`. De solo lectura y sin `x-user-id`: quien decide es `svc-admin`.
  */
-export default async function adminInternalRoutes(app: FastifyInstance, _opts: FastifyPluginOptions) {
+export interface AdminInternalRoutesOptions extends FastifyPluginOptions {
+  usersClient?: UsersClient;
+  notificationsClient?: NotificationsClient;
+}
+
+export default async function adminInternalRoutes(app: FastifyInstance, opts: AdminInternalRoutesOptions) {
   const shipmentRepository = createShipmentRepository(app.db);
   const chatRepository = createChatRepository(app.db);
 
@@ -122,6 +135,57 @@ export default async function adminInternalRoutes(app: FastifyInstance, _opts: F
       const { id } = request.params as { id: string };
       const { page, pageSize } = request.query as { page: number; pageSize: number };
       return adminUsers.listRatings(id, { page, pageSize });
+    },
+  );
+
+  // MOVO-297: efectos de una sanción, los llama `svc-admin` al sancionar (MOVO-36).
+  const offerRepository = createOfferRepository(app.db);
+  const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
+  // Cancelar un `published` no cobra penalidad ni toca un hold: alcanza con el repositorio de ofertas.
+  const shipmentsService = createShipmentsService(
+    shipmentRepository,
+    opts.usersClient ?? createUsersClient(app.config),
+    notificationsClient,
+    app.log,
+    { offerRepository }
+  );
+  const sanctionEffects = createSanctionEffectsService({
+    db: app.db,
+    redis: app.redis,
+    offerRepository,
+    tripRepository: createTripRepository(app.db),
+    cancelShipment: (shipmentId, senderId, reason) => shipmentsService.cancelShipment(shipmentId, senderId, reason),
+    notificationsClient,
+    logger: app.log,
+  });
+
+  app.get(
+    "/users/:id/in-progress-shipments",
+    {
+      schema: {
+        hide: true,
+        params: adminInternalSchemas.idParam,
+        response: { 200: adminInternalSchemas.inProgressShipmentsResponse },
+      },
+    },
+    async (request: FastifyRequest): Promise<InProgressShipment[]> => {
+      const { id } = request.params as { id: string };
+      return sanctionEffects.listInProgressShipments(id);
+    },
+  );
+
+  app.post(
+    "/users/:id/withdraw-open-activity",
+    {
+      schema: {
+        hide: true,
+        params: adminInternalSchemas.idParam,
+        response: { 200: adminInternalSchemas.withdrawOpenActivityResponse },
+      },
+    },
+    async (request: FastifyRequest): Promise<WithdrawOpenActivityResult> => {
+      const { id } = request.params as { id: string };
+      return sanctionEffects.withdrawOpenActivity(id);
     },
   );
 }

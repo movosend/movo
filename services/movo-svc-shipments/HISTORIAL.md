@@ -3674,3 +3674,16 @@ sus fotos de S3; si S3 falla, la fila queda y se reintenta. También borra los `
   envío vencido y no purga nada (dev usa `STORAGE_PROVIDER=mock` y no lo detecta). Ver pendientes del `CLAUDE.md` raíz.
 - Quedan sin tocar, a propósito: los `shipmentId` de `svc-payments` (comprobantes que la política conserva por ley) y los
   `AuditLog` de `svc-admin`, que pasan a apuntar a un envío inexistente.
+
+### MOVO-297 — Efectos de una sanción (`GET .../in-progress-shipments`, `POST .../withdraw-open-activity`)
+
+Endpoints internos (sin gateway) para `svc-admin` (MOVO-36/MOVO-299), en `modules/admin-internal/sanction-effects.service.ts`.
+- `withdraw-open-activity` es idempotente porque solo toma lo abierto: cancela los `published` del usuario con el
+  `cancelShipment` existente (motivo "cuenta suspendida", que ya cierra las ofertas, ADR-032), pasa a `withdrawn` sus ofertas
+  `pending` vigentes y cancela sus viajes `declared` sin paquetes aceptados (con `stopRecurrence`, ADR-029). No es una única
+  transacción: cada elemento es atómico y uno que falla (p. ej. una aceptación concurrente) se saltea y se loguea.
+- Aviso a contrapartes de los envíos en curso con la plantilla genérica `counterpartyCannotTakeNewShipments`; la clave
+  Redis `sanction-notice:{userId}:{shipmentId}:{contraparte}` (7 días) evita duplicarlo en un reintento. El sancionado no
+  recibe push por lo retirado (`cancelShipment` solo avisa a los transportistas con ofertas).
+- La constancia en la línea de tiempo es el `ShipmentEvent` de los envíos; ofertas y viajes quedan por su estado y por la
+  respuesta (ids retirados) para la bitácora de `svc-admin`. Sin columna de motivo en `Offer`/`Trip`.
