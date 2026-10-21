@@ -1331,3 +1331,16 @@ batch (`POST .../names`) y las acciones de cerrar sesiones y cambiar email/telé
 Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `svc-admin` (MOVO-299), y mobile (MOVO-300: hasta entonces el login de una cuenta inhabilitada devuelve `ACCOUNT_DISABLED`, código que la app todavía no mapea).
 
 Fixes de review (PR #280): la migración hace backfill de las cuentas `banned` previas como una sanción `disable` con `applied_by` NULL (= sistema; por eso es nullable), así se pueden levantar por la API y salen en la ficha; la marca de Redis les llega por el barrido. `GET /users/me` serializa `accountStatus` con `suspended` (antes 500). El barrido deja cada marca igual a la sanción vigente leída de Postgres y la re-verifica tras escribir (`syncMark`), para no pisar un lift/apply concurrente. Los avisos de apply/lift/vencimiento salen en segundo plano (el panel no espera a Resend) y el push de una sanción **no es silenciable** (`ignorePreferences`; sigue necesitando un token de push y el mail sale siempre). ADR-049. La app mapea `ACCOUNT_DISABLED` a un mensaje propio hasta MOVO-300. Una suspensión pausa (no apaga) las series recurrentes de `svc-shipments`.
+
+### MOVO-230 — Retención de KYC y fechas de baja para la purga de envíos
+
+- **No hay sweep de KYC de cuentas dadas de baja**: la baja (MOVO-134) ya borra `kyc_verification`/`drivers_license` en el
+  acto, más estricto que el "+2 años" que prometía la política, así que §7 se corrigió para decir eso. La baja ahora también
+  deja `kycStatusIdentity`/`kycStatusLicense` en `not_started`.
+- **`plugins/kyc-abandoned-sweep.ts`** (registros incompletos, `KYC_ABANDONED_*`): una vez por día borra los intentos
+  `pending`/`expired` pedidos hace más de 30 días; si el borrado era un `pending`, el caché de `users` vuelve a
+  `not_started`. Los intentos con resultado no se tocan.
+- **`POST /internal/users/deletion-status`** (`modules/users/users-deletion-internal.routes.ts`): fecha de baja por id
+  para la purga de `svc-shipments`. Las bajas anteriores a MOVO-294 (sin `deletedAt`) devuelven `updatedAt`, que es igual o
+  posterior a la baja real: la purga puede llegar tarde pero nunca antes. No se hizo backfill para no deformar la fecha que
+  muestra el panel.

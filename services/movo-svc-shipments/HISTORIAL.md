@@ -3656,3 +3656,17 @@ vacías, no 404 — consultar a `svc-users` haría que la sección dependa de ot
 ### MOVO-296 — Una cuenta suspendida pausa las series recurrentes
 
 `trip-recurrence.ts#continueSeries`: si `svc-users` informa `accountStatus = suspended`, la ocurrencia siguiente se posterga (`deferred`) sin apagar la recurrencia ni avisar de un corte, igual que la deuda vencida (MOVO-313); al levantarse la suspensión se retoma sola. Antes cualquier estado distinto de `active` cortaba la serie para siempre. Una cuenta `banned` (inhabilitada) sigue cortándola. Test en `test/trip-recurrence.integration.test.ts`.
+
+### MOVO-230 — Purga del historial de envíos vencido (Política de Privacidad §7)
+
+`plugins/history-retention-sweep.ts` (una vez por día, `SHIPMENT_HISTORY_*`) → `services/history-retention-service.ts`.
+Borra físicamente el envío (el cascade arrastra eventos, ofertas, chat, calificaciones, handshakes y posiciones) y antes
+sus fotos de S3; si S3 falla, la fila queda y se reintenta. También borra los `Trip` cerrados de transportistas vencidos.
+
+- **Regla (`isHistoryExpired`)**: todas las partes (emisor, receptor y transportista si hubo) dadas de baja y **5 años
+  desde la baja más reciente**, no desde la primera, para que nadie pierda su antecedente antes de sus propios 5 años.
+- Las fechas de baja salen de `svc-users` (`POST /internal/users/deletion-status`, `createUserDeletionClient`), sin copia
+  local. Prefiltro en Postgres: envíos en `POSITION_PURGE_ELIGIBLE_STATUSES` (sin `disputed`) cerrados hace más de 5 años
+  (la baja exige no tener envíos activos, así que solo puede atrasar la purga). Se recorre todo el prefiltro por páginas.
+- Quedan sin tocar, a propósito: los `shipmentId` de `svc-payments` (comprobantes que la política conserva por ley) y los
+  `AuditLog` de `svc-admin`, que pasan a apuntar a un envío inexistente.
