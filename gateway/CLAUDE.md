@@ -202,3 +202,9 @@ Se descomentó la entrada `/admin` de `getServiceRoutes()` hacia `ADMIN_SERVICE_
 `allowedRoles: [admin]`: un token de la app recibe 403 `AUTH_FORBIDDEN`, porque `admin` solo
 entra al JWT en una sesión de panel (MOVO-287). Cuarto servicio proxeado. Detalle en
 `services/movo-svc-admin/CLAUDE.md`.
+
+### MOVO-320 — Proxy de `/support` (`svc-shipments`)
+
+Entrada nueva en `getServiceRoutes()` hacia `SHIPMENTS_SERVICE_URL` con `websocket: true` (`GET /support/conversations/:id` es un upgrade), protegida por
+defecto y **sin `allowedRoles`**: pedir ayuda no depende de ser emisor o transportista. Tests en `routes-prefix.test.ts` y `websocket-proxy.test.ts`.
+Sin rate limit propio todavía (cae en el general de 200/min por IP); revisarlo si se ve abuso al crear consultas.
