@@ -4,6 +4,7 @@ import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AccountSuspendedBanner } from '../../../components/account/account-suspended-banner';
 import { HomeChatButton } from '../../../components/chat/home-chat-button';
 import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { AttentionSection } from '../../../components/home/attention-section';
@@ -14,10 +15,11 @@ import { RoleSection } from '../../../components/home/role-section';
 import { SuccessBanner } from '../../../components/ui/success-banner';
 import { TrackingActiveIndicator } from '../../../components/location/tracking-active-indicator';
 import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
+import { useActiveSuspension } from '../../../src/hooks/use-account-restriction';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useAutoStartTour } from '../../../src/hooks/use-auto-start-tour';
 import { useChatList } from '../../../src/hooks/use-chat';
-import { useMyProfile } from '../../../src/hooks/use-profile';
+import { MY_PROFILE_QUERY_KEY, useMyProfile } from '../../../src/hooks/use-profile';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import { useTransportGate } from '../../../src/hooks/use-transport-gate';
 import {
@@ -62,6 +64,7 @@ export default function AuthenticatedHomeScreen() {
   const tabBarScroll = useTabBarScrollHandler();
   const { user } = useAuth();
   const { data: profile } = useMyProfile();
+  const suspension = useActiveSuspension();
   const colors = useThemeColors();
   const sendingQuery = useSendingShipments();
   const sending = sendingQuery.data;
@@ -128,7 +131,7 @@ export default function AuthenticatedHomeScreen() {
     await Promise.allSettled([
       queryClient.invalidateQueries({ queryKey: ["shipments"] }),
       queryClient.invalidateQueries({ queryKey: ["trips"] }),
-      queryClient.invalidateQueries({ queryKey: ["users", "me"] }),
+      queryClient.invalidateQueries({ queryKey: MY_PROFILE_QUERY_KEY }),
       queryClient.invalidateQueries({ queryKey: ["attention-tasks"] }),
       queryClient.invalidateQueries({ queryKey: ["chat", "list"] }),
     ]);
@@ -190,6 +193,11 @@ export default function AuthenticatedHomeScreen() {
           </View>
         ) : null}
 
+        <AccountSuspendedBanner
+          testID="app-home-suspended-banner"
+          suspension={suspension}
+        />
+
         {bannerText && BannerIcon ? (
           <View
             testID="app-home-kyc-banner"
@@ -228,6 +236,7 @@ export default function AuthenticatedHomeScreen() {
         <HomeSendCta
           testID="app-home-send-cta"
           kycStatus={currentKycStatus}
+          isSuspended={suspension !== null}
           scrollIntoView={scrollTourAnchorIntoView}
         />
 

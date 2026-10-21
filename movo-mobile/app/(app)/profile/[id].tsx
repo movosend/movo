@@ -3,6 +3,7 @@ import { Check, ChevronLeft, ShieldCheck } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { AccountStatusChip } from "../../../components/profile/account-status-chip";
 import { AvatarPeekViewer } from "../../../components/profile/avatar-peek-viewer";
 import { MutualConnectionsRow } from "../../../components/profile/mutual-connections-row";
 import { ProfileActionsMenu } from "../../../components/profile/profile-actions-menu";
@@ -203,6 +204,10 @@ export default function PublicProfileScreen() {
               <Text className="font-sans-semibold text-[24px] leading-[27px] text-fg">
                 {profile.fullName}
               </Text>
+              <AccountStatusChip
+                testID="profile-detail-account-status"
+                status={profile.accountStatus}
+              />
               {profile.isVerified ? (
                 <View className="flex-row items-center gap-1.5">
                   <ShieldCheck size={13} strokeWidth={2.3} color="#2BB673" />

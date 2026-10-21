@@ -56,6 +56,7 @@ import {
   formatPriceArs,
   shortAddressLabel,
 } from "../../../../src/lib/shipment-format";
+import { SuspendedScreenGate } from "../../../../components/account/suspended-screen-gate";
 
 /** MOVO-177: el transportista puede proponer retirar hasta este número de días después
  * de la fecha pedida por el emisor (nunca antes) -- mismo límite que valida el backend
@@ -306,7 +307,7 @@ function OfferSuccessOverlay({
  * el emisor", pero no viaja en el body de `POST /shipments/:id/offers`: hoy es
  * pura anticipación de lo que se va a mandar cuando el backend lo soporte.
  */
-export default function CreateOfferScreen() {
+function CreateOfferScreenContent() {
   const { id, offerId } = useLocalSearchParams<{
     id: string;
     /** MOVO-182: presente solo cuando se llega desde "Modificar fecha y horario" del
@@ -1258,5 +1259,18 @@ export default function CreateOfferScreen() {
       </KeyboardAvoidingView>
       <CarrierRequirementsSheet {...requirements.sheetProps} />
     </SafeAreaView>
+  );
+}
+
+/** MOVO-300 AC2: con la cuenta suspendida no se oferta ni se edita una oferta. */
+export default function CreateOfferScreen() {
+  const { offerId } = useLocalSearchParams<{ offerId?: string }>();
+  return (
+    <SuspendedScreenGate
+      testID="create-offer-suspended"
+      action={offerId ? "editOffer" : "offer"}
+    >
+      <CreateOfferScreenContent />
+    </SuspendedScreenGate>
   );
 }
