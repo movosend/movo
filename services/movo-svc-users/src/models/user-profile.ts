@@ -1,11 +1,14 @@
 import {
+  AccountStatus,
   KycStatus,
   type PrivateProfile,
   type ProfileBadge,
+  type PublicAccountStatus,
   type PublicProfile,
   type RecentRatingComment,
   type ReputationBreakdown,
   type TransactionCounts,
+  type UserTourRecord,
   type VehicleProfile,
 } from "@movo/shared";
 import { User, fullName } from "./user";
@@ -41,11 +44,12 @@ function computeBadges(user: User): ProfileBadge[] {
  * MOVO-152: `reputation`/`transactionCounts` ya vienen resueltos por el caller
  * (`users.service.ts#resolveReputationSummary`, cacheado y con fallback a
  * `NO_REPUTATION` si `svc-shipments` no respondió) -- esta función sigue siendo pura,
- * sin I/O. */
+ * sin I/O. MOVO-169: `tours` también lo resuelve el caller (`user_tour`). */
 export function toPrivateProfile(
   user: User,
   reputation: ReputationBreakdown,
-  transactionCounts: TransactionCounts
+  transactionCounts: TransactionCounts,
+  tours: UserTourRecord[]
 ): PrivateProfile {
   return {
     id: user.id,
@@ -70,6 +74,7 @@ export function toPrivateProfile(
     termsVersion: user.termsVersion,
     privacyAcceptedAt: user.privacyAcceptedAt?.toISOString() ?? null,
     privacyVersion: user.privacyVersion,
+    tours,
   };
 }
 
@@ -81,6 +86,17 @@ export function toPrivateProfile(
  * liviana, ver el comentario del tipo en `@movo/shared`) y poblado desde
  * `getPublicProfile` -- esta función no distingue los casos, solo mapea lo que el
  * caller ya resolvió. */
+/**
+ * MOVO-296 AC9: lo único de la sanción que ve un tercero. `banned` (inhabilitada) se publica
+ * como `disabled`; nunca el motivo, el plazo ni la nota interna. `deleted` no llega acá
+ * (el perfil responde 404).
+ */
+export function toPublicAccountStatus(status: AccountStatus): PublicAccountStatus {
+  if (status === AccountStatus.SUSPENDED) return "suspended";
+  if (status === AccountStatus.BANNED) return "disabled";
+  return "active";
+}
+
 export function toPublicProfile(
   user: User,
   reputation: ReputationBreakdown & { asSender: ReputationBreakdown; asCarrier: ReputationBreakdown },
@@ -90,6 +106,7 @@ export function toPublicProfile(
 ): PublicProfile {
   return {
     id: user.id,
+    accountStatus: toPublicAccountStatus(user.status),
     fullName: fullName(user),
     photoUrl: user.photoUrl,
     isVerified: user.kycStatusIdentity === KycStatus.APPROVED,

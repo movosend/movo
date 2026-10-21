@@ -1,7 +1,8 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { computeNetFromGross } from "@movo/shared/dist/config/commission";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useIsFocused, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useColorScheme } from "nativewind";
 import {
@@ -19,18 +20,22 @@ import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import type { ReceiverConfirmationStatus } from "../../../components/shipments/counterpart-card";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { PackageCard } from "../../../components/shipments/package-card";
-import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
+import { ShipmentDetailBodySkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { RouteMapCard } from "../../../components/send/route-map-card";
 import { ProfileVerifiedBadge } from "../../../components/profile/profile-verified-badge";
 import { AvatarImage } from "../../../components/ui/avatar-image";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
+import { DebtDiscount } from "../../../components/payments/debt-discount";
 import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { useMyOffers } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useAuthStore } from "../../../src/store/auth-store";
-import { getClientCommissionRate } from "../../../src/lib/commission-config";
+import {
+  estimateReceivedArs,
+  getClientCommissionRate,
+} from "../../../src/lib/commission-config";
 import {
   useShipment,
   useShipmentRoute,
@@ -207,6 +212,7 @@ export default function TransportShipmentDetailScreen() {
     pickupDistanceKm?: string;
   }>();
   const colors = useThemeColors();
+  const isFocused = useIsFocused();
   const { colorScheme } = useColorScheme();
   // lime-600 (light) / lime-400 (dark, `tailwind.config.js`) -- mismos tonos de lime
   // que ya usa el resto del repo como acento de texto/ícono sobre fondo claro
@@ -308,9 +314,14 @@ export default function TransportShipmentDetailScreen() {
   // bruto / (1 + tasa).
   const commissionRate = getClientCommissionRate();
   const suggestedNetIfOffered = shipment
-    ? Math.round((shipment.suggestedPriceArs / (1 + commissionRate)) * 100) /
-      100
+    ? computeNetFromGross(shipment.suggestedPriceArs, commissionRate)
     : null;
+  // MOVO-225: la card principal muestra lo que recibís aprox. (neto menos el estimado
+  // de MP), el mismo monto que crear oferta y el detalle de la oferta.
+  const suggestedReceivedIfOffered =
+    shipment && suggestedNetIfOffered !== null
+      ? Math.max(0, estimateReceivedArs(suggestedNetIfOffered, shipment.suggestedPriceArs) - (shipment.debtDiscount?.amountArs ?? 0))
+      : null;
   // `RouteMapCard` de abajo ya pide esta misma ruta (mismos pickup/delivery) para
   // dibujar el mapa — TanStack Query dedupea por query key, así que pedirla acá de
   // nuevo no dispara un segundo request a la Google Routes API, solo comparte la
@@ -334,10 +345,7 @@ export default function TransportShipmentDetailScreen() {
     router.push(`/(app)/carrier/offers/${myActiveOffer.id}`);
   };
 
-  if (isLoading) {
-    return <ShipmentDetailSkeleton testID="transport-detail-skeleton" />;
-  }
-
+  // MOVO-168: el header (volver + título) se ve de entrada; el cuerpo espera su skeleton.
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
@@ -352,7 +360,9 @@ export default function TransportShipmentDetailScreen() {
           <Text className="font-sans-semibold text-h3 text-fg">
             Detalle del envío
           </Text>
-          {shipment ? (
+          {isLoading ? (
+            <SkeletonBlock className="mt-1 h-2.5 w-16 rounded-md" />
+          ) : shipment ? (
             <Text className="mt-0.5 font-sans text-[10px] uppercase tracking-wide text-fg-3">
               {shipment.id.slice(0, 8)}
             </Text>
@@ -360,7 +370,9 @@ export default function TransportShipmentDetailScreen() {
         </View>
       </View>
 
-      {isError || !shipment ? (
+      {isLoading ? (
+        <ShipmentDetailBodySkeleton testID="transport-detail-skeleton" tabs={false} />
+      ) : isError || !shipment ? (
         <TransportDetailError error={error} onRetry={() => refetch()} />
       ) : (
         <View className="flex-1">
@@ -463,6 +475,7 @@ export default function TransportShipmentDetailScreen() {
             <View>
               <Eyebrow>Ruta</Eyebrow>
               <RouteMapCard
+                paused={!isFocused}
                 testID="transport-detail-route-map"
                 pickup={{
                   address: shipment.pickupAddress,
@@ -517,22 +530,20 @@ export default function TransportShipmentDetailScreen() {
             <View className="relative overflow-hidden rounded-[16px] bg-ink-950 px-5 py-5">
               <GridPattern color="#FFFFFF" opacity={0.06} />
               <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-ink-300">
-                Te queda si ofertás el sugerido
+                Recibís aprox. si ofertás el sugerido
               </Text>
               <View className="mt-2 flex-row items-end gap-2">
                 <Text className="font-sans-semibold text-[40px] leading-[42px] text-lime-500">
-                  {formatPriceArs(suggestedNetIfOffered)}
-                </Text>
-                <Text className="pb-1.5 font-sans text-[13px] text-ink-300">
-                  neto
+                  {formatPriceArs(suggestedReceivedIfOffered)}
                 </Text>
               </View>
+              {shipment.debtDiscount?.amountArs && suggestedNetIfOffered !== null ? <View className="mt-3"><DebtDiscount dark beforeArs={estimateReceivedArs(suggestedNetIfOffered, shipment.suggestedPriceArs)} amountArs={shipment.debtDiscount.amountArs} /></View> : null}
               <Text className="mt-2.5 font-sans text-[13px] leading-[19px] text-ink-300">
                 Sobre una oferta de{" "}
                 <Text className="font-sans-semibold text-paper">
                   {formatPriceArs(shipment.suggestedPriceArs)}
                 </Text>
-                , ya descontada la comisión de Movo.
+                , ya descontadas la comisión de Movo y el procesamiento del pago (estimado).
               </Text>
               <View className="mt-4 flex-row gap-2">
                 <View className="flex-1 rounded-md border border-white/10 bg-white/[0.06] px-3 py-2.5">

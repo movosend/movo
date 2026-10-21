@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useRef, type ReactNode } from "react";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
+import { useKeyboardVisible } from "../../src/hooks/use-keyboard-visible";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
 
 const FALLBACK_METRICS = {
@@ -20,6 +21,12 @@ export interface BottomSheetModalProps {
   backdropClassName?: string;
   /** Clases del `SafeAreaView` que envuelve el contenido (ej. `gap-4`). */
   contentClassName?: string;
+  /** Se llama cuando la hoja terminó de cerrarse y su `Modal` nativo ya no está. iOS no presenta
+   * un `Modal` mientras otro se está cerrando: quien abre otro después de este tiene que esperar
+   * este aviso en vez de abrirlo en el mismo render en que lo cierra. */
+  onClosed?: () => void;
+  /** La hoja sube con el teclado (sheets con un campo de texto, ej. renombrar una tarjeta). */
+  avoidKeyboard?: boolean;
   children: ReactNode;
 }
 
@@ -36,9 +43,23 @@ export function BottomSheetModal({
   sheetClassName = "rounded-t-2xl bg-bg px-5 pt-5",
   backdropClassName = "bg-black/40",
   contentClassName,
+  onClosed,
+  avoidKeyboard = false,
   children,
 }: BottomSheetModalProps) {
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(visible);
+  // Con el teclado abierto la hoja se apoya sobre él: el margen del indicador de inicio sobra.
+  const keyboardVisible = useKeyboardVisible();
+  const bottomEdge = !(avoidKeyboard && keyboardVisible);
+
+  const onClosedRef = useRef(onClosed);
+  onClosedRef.current = onClosed;
+  const wasMountedRef = useRef(isMounted);
+  useEffect(() => {
+    if (wasMountedRef.current && !isMounted) onClosedRef.current?.();
+    wasMountedRef.current = isMounted;
+  }, [isMounted]);
+
   if (!isMounted) return null;
 
   return (
@@ -55,13 +76,18 @@ export function BottomSheetModal({
             />
           </Animated.View>
 
-          <View pointerEvents="box-none" className="flex-1 justify-end">
+          <KeyboardAvoidingView
+            pointerEvents="box-none"
+            enabled={avoidKeyboard}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            className="flex-1 justify-end"
+          >
             <Animated.View style={sheetStyle} className={sheetClassName}>
-              <SafeAreaView edges={["bottom"]} className={contentClassName}>
+              <SafeAreaView edges={bottomEdge ? ["bottom"] : []} className={contentClassName}>
                 {children}
               </SafeAreaView>
             </Animated.View>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </SafeAreaProvider>
     </Modal>

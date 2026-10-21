@@ -16,6 +16,12 @@ const mockUseShipment = jest.fn(() => ({
   refetch: mockRefetchShipment,
 }));
 const mockUsePublicProfile = jest.fn();
+// Retiro ya dentro de la ventana de pago (fecha pasada): el pago se reserva al elegir.
+const PICKUP_FIELDS = {
+  pickupDate: "2020-01-01",
+  pickupTimeWindowStart: "09:00:00",
+  pickupTimeWindowEnd: "12:00:00",
+};
 
 jest.mock("expo-router", () => ({
   router: {
@@ -104,6 +110,10 @@ describe("ShipmentOffersScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (useLocalSearchParams as jest.Mock).mockReturnValue({ id: "ship-1" });
+    mockUseShipment.mockReturnValue({
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      refetch: mockRefetchShipment,
+    });
     mockUsePublicProfile.mockReturnValue({
       data: {
         id: "carr-1",
@@ -244,6 +254,61 @@ describe("ShipmentOffersScreen", () => {
     expect(router.push).toHaveBeenCalledWith(`/profile/${sampleOffer1.carrierId}`);
   });
 
+  // MOVO-211 AC4: los dos desenlaces de la aceptación se leen como éxito.
+  async function acceptWithAssignment(assignment: unknown) {
+    mockUseShipmentOffers.mockReturnValue({
+      data: [sampleOffer1],
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetchOffers,
+      isRefetching: false,
+    });
+    mockMutateAccept.mockResolvedValueOnce({ ...sampleOffer1, status: OfferStatus.ACCEPTED, assignment });
+    const screen = await render(<ShipmentOffersScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("offer-card-off-1-accept-btn"));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("choose-offer-modal-confirm"));
+    });
+    return screen;
+  }
+
+  it("retiro cercano: el éxito lleva directo a reservar el pago con el monto (MOVO-211)", async () => {
+    const { getByText, getByTestId, queryByTestId } = await acceptWithAssignment({
+      shipmentStatus: "assignment_pending",
+      fundingRoute: "near",
+      fundingWindowOpensAt: null,
+    });
+
+    expect(getByText("Elegiste a Lucas")).toBeTruthy();
+    expect(getByTestId("choose-offer-success-modal-near-amount")).toHaveTextContent(/\$12\.000/);
+    expect(queryByTestId("choose-offer-success-modal-dismiss-btn")).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-success-modal-pay-btn"));
+    });
+    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1/pay");
+  });
+
+  it("retiro lejano: confirma la asignación y explica que el pago se confirma más adelante (MOVO-211)", async () => {
+    const { getByText, getByTestId, queryByTestId } = await acceptWithAssignment({
+      shipmentStatus: "assigned_unfunded",
+      fundingRoute: "far",
+      fundingWindowOpensAt: "2026-10-06T12:00:00.000Z",
+    });
+
+    expect(getByText("Lucas lleva tu paquete")).toBeTruthy();
+    expect(getByText(/Hoy no se retiene ni se cobra nada/)).toBeTruthy();
+    expect(getByTestId("choose-offer-success-modal-far-timeline")).toBeTruthy();
+    expect(queryByTestId("choose-offer-success-modal-pay-btn")).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
+    });
+    expect(router.dismissTo).toHaveBeenCalledWith("/shipments/ship-1");
+  });
+
   it("flujo completo de elección de oferta con confirmación y éxito", async () => {
     mockUseShipmentOffers.mockReturnValue({
       data: [sampleOffer1],
@@ -266,19 +331,19 @@ describe("ShipmentOffersScreen", () => {
 
     // 2. Verifica que se abrió el modal de confirmación
     expect(getByText("¿Elegir esta oferta?")).toBeTruthy();
+    expect(getByTestId("choose-offer-modal-payment-note")).toBeTruthy();
+    expect(getByText(/Después te pedimos reservar el pago/)).toBeTruthy();
 
     // 3. Confirmar elección
     await act(async () => {
-      fireEvent.press(getByTestId("choose-offer-modal-confirm-btn"));
+      fireEvent.press(getByTestId("choose-offer-modal-confirm"));
     });
 
     expect(mockMutateAccept).toHaveBeenCalledWith("off-1");
 
     // 4. Modal de éxito visible con copy animado "¡Oferta aceptada!"
     expect(getByText("¡Oferta aceptada!")).toBeTruthy();
-    expect(
-      getByText(/Tu envío quedó en espera de la confirmación del pago para iniciar el viaje/)
-    ).toBeTruthy();
+    expect(getByText(/Ahora reservá el pago con tu tarjeta para confirmar el viaje/)).toBeTruthy();
 
     // 5. Cerrar modal de éxito
     await act(async () => {
@@ -292,7 +357,7 @@ describe("ShipmentOffersScreen", () => {
   // `router.replace` al mismo destino apenas `shipment.carrierId` llegaba por el
   // refetch — dos instancias apiladas del detalle. Acá el refetch de `useShipment` ya
   // resolvió con `carrierId` seteado ANTES del dismiss (el caso real que lo disparaba).
-  it("no duplica la navegación al detalle si el refetch del envío ya trae carrierId antes de cerrar el modal de éxito", async () => {
+  it("no duplica la navegación si el refetch del envío ya trae carrierId antes de cerrar el modal de éxito", async () => {
     mockUseShipmentOffers.mockReturnValue({
       data: [sampleOffer1],
       isLoading: false,
@@ -306,12 +371,12 @@ describe("ShipmentOffersScreen", () => {
     // simular que la invalidación de MOVO-150 ya resolvió con `carrierId` seteado
     // justo cuando se muestra el modal de éxito — el caso real que disparaba el bug.
     mockUseShipment.mockReturnValue({
-      data: { id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
       refetch: mockRefetchShipment,
     });
     mockMutateAccept.mockImplementationOnce(async () => {
       mockUseShipment.mockReturnValue({
-        data: { id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNMENT_PENDING },
+        data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNMENT_PENDING },
         refetch: mockRefetchShipment,
       });
       return { ...sampleOffer1, status: OfferStatus.ACCEPTED };
@@ -323,7 +388,7 @@ describe("ShipmentOffersScreen", () => {
       fireEvent.press(getByTestId("offer-card-off-1-accept-btn"));
     });
     await act(async () => {
-      fireEvent.press(getByTestId("choose-offer-modal-confirm-btn"));
+      fireEvent.press(getByTestId("choose-offer-modal-confirm"));
     });
 
     expect(getByText("¡Oferta aceptada!")).toBeTruthy();
@@ -332,9 +397,79 @@ describe("ShipmentOffersScreen", () => {
       fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
     });
 
+    // MOVO-269: con retiro cercano el envío queda `assignment_pending` y el emisor paga en el
+    // mismo flujo. Una sola navegación (a la pantalla de pago), nunca también al detalle.
+    expect(router.replace).toHaveBeenCalledTimes(1);
+    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1/pay");
+    expect(router.dismissTo).not.toHaveBeenCalled();
+  });
+
+  it("decide el destino con el estado que devuelve el refetch aunque el render siga viejo (MOVO-269)", async () => {
+    mockUseShipmentOffers.mockReturnValue({
+      data: [sampleOffer1],
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetchOffers,
+      isRefetching: false,
+    });
+    // El `shipment` del render nunca se actualiza: sigue `published` al cerrar el modal.
+    mockUseShipment.mockReturnValue({
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      refetch: mockRefetchShipment,
+    });
+    mockRefetchShipment.mockResolvedValueOnce({
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNMENT_PENDING },
+    });
+    mockMutateAccept.mockImplementationOnce(async () => ({ ...sampleOffer1, status: OfferStatus.ACCEPTED }));
+
+    const { getByTestId } = await render(<ShipmentOffersScreen />);
+    await act(async () => {
+      fireEvent.press(getByTestId("offer-card-off-1-accept-btn"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-modal-confirm"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
+    });
+
+    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1/pay");
+  });
+
+  it("con retiro lejano (assigned_unfunded) vuelve al detalle: el pago se confirma más adelante (MOVO-269)", async () => {
+    mockUseShipmentOffers.mockReturnValue({
+      data: [sampleOffer1],
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetchOffers,
+      isRefetching: false,
+    });
+    mockUseShipment.mockReturnValue({
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      refetch: mockRefetchShipment,
+    });
+    mockMutateAccept.mockImplementationOnce(async () => {
+      mockUseShipment.mockReturnValue({
+        data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNED_UNFUNDED },
+        refetch: mockRefetchShipment,
+      });
+      return { ...sampleOffer1, status: OfferStatus.ACCEPTED };
+    });
+
+    const { getByTestId } = await render(<ShipmentOffersScreen />);
+    await act(async () => {
+      fireEvent.press(getByTestId("offer-card-off-1-accept-btn"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-modal-confirm"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
+    });
+
     expect(router.dismissTo).toHaveBeenCalledTimes(1);
-    expect(router.replace).not.toHaveBeenCalled();
     expect(router.dismissTo).toHaveBeenCalledWith("/shipments/ship-1");
+    expect(router.replace).not.toHaveBeenCalled();
   });
 
   it("redirige al detalle del envío si el envío ya tiene transportista asignado", async () => {
@@ -346,7 +481,7 @@ describe("ShipmentOffersScreen", () => {
       isRefetching: false,
     });
     mockUseShipment.mockReturnValue({
-      data: { id: "ship-1", carrierId: "carrier-123", status: ShipmentStatus.ASSIGNED },
+      data: { ...PICKUP_FIELDS, id: "ship-1", carrierId: "carrier-123", status: ShipmentStatus.ASSIGNED },
       refetch: mockRefetchShipment,
     });
 
@@ -373,7 +508,7 @@ describe("ShipmentOffersScreen", () => {
     });
 
     await act(async () => {
-      fireEvent.press(getByTestId("choose-offer-modal-confirm-btn"));
+      fireEvent.press(getByTestId("choose-offer-modal-confirm"));
     });
 
     expect(

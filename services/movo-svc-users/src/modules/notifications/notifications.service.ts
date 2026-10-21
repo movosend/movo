@@ -19,6 +19,11 @@ export interface SendPushInput {
    * respetar el toggle del usuario).
    */
   category: NotificationCategoryId;
+  /**
+   * MOVO-296: avisos que el usuario no puede apagar (una sanción de cuenta). Saltea el toggle
+   * maestro, el de categoría y el horario de silencio; sigue necesitando un token registrado.
+   */
+  ignorePreferences?: boolean;
 }
 
 export function createNotificationsService(
@@ -67,7 +72,7 @@ export function createNotificationsService(
      * registrados, no-op silencioso: no es un error, el usuario simplemente no tiene
      * push habilitado. */
     async sendPushToUser(userId: string, input: SendPushInput): Promise<void> {
-      const allowed = await isPushAllowed(userId, input.category);
+      const allowed = input.ignorePreferences === true || (await isPushAllowed(userId, input.category));
       if (!allowed) {
         return;
       }

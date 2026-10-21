@@ -1,0 +1,154 @@
+import { randomUUID } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { FastifyInstance } from "fastify";
+import { AdminCandidate, AdminSummary } from "@movo/shared";
+import { buildApp } from "../src/app";
+import { createFakeShipmentsClient, createFakeUsersClient } from "./fake-clients";
+
+const summary = (overrides: Partial<AdminSummary> = {}): AdminSummary => ({
+  id: randomUUID(),
+  fullName: "Ada Admin",
+  email: `${randomUUID()}@movo.test`,
+  status: "active",
+  photoUrl: null,
+  grantedAt: "2026-10-01T00:00:00.000Z",
+  ...overrides,
+});
+
+describe("Gestión de admins (MOVO-292)", () => {
+  let app: FastifyInstance;
+  const me = summary();
+  const other = summary();
+  const admins = [me, other];
+  const candidates: AdminCandidate[] = [
+    { id: randomUUID(), fullName: "Carla Duarte", email: "carla.duarte@movo.test", status: "active", photoUrl: null, emailVerified: true, isAdmin: false },
+    { id: other.id, fullName: other.fullName, email: other.email, status: "active", photoUrl: null, emailVerified: true, isAdmin: true },
+  ];
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+    app = buildApp({ usersClient: createFakeUsersClient({ admins, candidates }), shipmentsClient: createFakeShipmentsClient() });
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const headers = (userId: string) => ({ "x-user-id": userId, "x-user-roles": "admin" });
+  const rowsOf = (adminId: string) => app.db.auditLog.findMany({ where: { adminId }, orderBy: { createdAt: "asc" } });
+
+  it("sin rol admin responde 403", async () => {
+    const res = await app.inject({ method: "GET", url: "/admin/admins", headers: { "x-user-id": randomUUID(), "x-user-roles": "sender" } });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("autocompleta candidatos por nombre o email y exige rol admin", async () => {
+    const denied = await app.inject({ method: "GET", url: "/admin/admins/candidates?q=carla", headers: { "x-user-id": randomUUID(), "x-user-roles": "sender" } });
+    expect(denied.statusCode).toBe(403);
+    const byName = await app.inject({ method: "GET", url: "/admin/admins/candidates?q=carla", headers: headers(me.id) });
+    expect(byName.statusCode).toBe(200);
+    expect(byName.json().map((c: AdminCandidate) => c.email)).toEqual(["carla.duarte@movo.test"]);
+    const byEmail = await app.inject({ method: "GET", url: "/admin/admins/candidates?q=DUARTE@movo", headers: headers(me.id) });
+    expect(byEmail.json()).toHaveLength(1);
+    const short = await app.inject({ method: "GET", url: "/admin/admins/candidates?q=a", headers: headers(me.id) });
+    expect(short.statusCode).toBe(400);
+  });
+
+  it("lista los admins", async () => {
+    const res = await app.inject({ method: "GET", url: "/admin/admins", headers: headers(me.id) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().map((a: AdminSummary) => a.id)).toEqual([me.id, other.id]);
+  });
+
+  it("revocarse a uno mismo es 403 y no queda como exitoso", async () => {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/admin/admins/${me.id}`,
+      headers: headers(me.id),
+      payload: { reason: "Prueba" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("ADMIN_CONFLICT_OF_INTEREST");
+    expect(admins.some((a) => a.id === me.id)).toBe(true);
+    const rows = await rowsOf(me.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ action: "admin_role.revoke", outcome: "failed", errorCode: "ADMIN_CONFLICT_OF_INTEREST" });
+  });
+
+  it("revocar exige motivo", async () => {
+    const res = await app.inject({ method: "DELETE", url: `/admin/admins/${other.id}`, headers: headers(me.id), payload: {} });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("otorgar y revocar dejan sus filas en la bitácora", async () => {
+    const actor = summary();
+    admins.push(actor);
+    const target = summary();
+
+    const missing = await app.inject({ method: "POST", url: "/admin/admins", headers: headers(actor.id), payload: { email: "nadie@movo.test" } });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().error.code).toBe("USER_NOT_FOUND");
+
+    admins.push(target); // el fake solo "otorga" a quien ya figura
+    const grant = await app.inject({ method: "POST", url: "/admin/admins", headers: headers(actor.id), payload: { email: target.email.toUpperCase() } });
+    expect(grant.statusCode).toBe(200);
+    expect(grant.json().id).toBe(target.id);
+
+    const revoke = await app.inject({
+      method: "DELETE",
+      url: `/admin/admins/${target.id}`,
+      headers: headers(actor.id),
+      payload: { reason: "Dejó el equipo" },
+    });
+    expect(revoke.statusCode).toBe(204);
+
+    const rows = await rowsOf(actor.id);
+    expect(rows.map((r) => [r.action, r.outcome])).toEqual([
+      ["admin_role.grant", "failed"],
+      ["admin_role.grant", "succeeded"],
+      ["admin_role.revoke", "succeeded"],
+    ]);
+    // Exitoso: el objetivo es el id del usuario (como el revoke) y el email queda en el contexto.
+    expect(rows[1]).toMatchObject({ targetType: "admin_role", targetId: target.id, context: { email: target.email } });
+    expect(rows[0]).toMatchObject({ targetId: "nadie@movo.test" });
+    expect(rows[2]).toMatchObject({ targetId: target.id, reason: "Dejó el equipo" });
+  });
+
+  it("un motivo o email que queda vacío tras el trim es 400 y no deja fila", async () => {
+    const actor = summary();
+    admins.push(actor);
+    const reason = await app.inject({ method: "DELETE", url: `/admin/admins/${other.id}`, headers: headers(actor.id), payload: { reason: " a " } });
+    const email = await app.inject({ method: "POST", url: "/admin/admins", headers: headers(actor.id), payload: { email: "   " } });
+    expect([reason.statusCode, email.statusCode]).toEqual([400, 400]);
+    expect(await rowsOf(actor.id)).toHaveLength(0);
+  });
+
+  it("registra el x-request-id real del gateway, no el contador de Fastify", async () => {
+    const actor = summary();
+    admins.push(actor);
+    await app.inject({
+      method: "POST",
+      url: "/admin/admins",
+      headers: { ...headers(actor.id), "x-request-id": "req-gateway-123" },
+      payload: { email: "nadie@movo.test" },
+    });
+    expect((await rowsOf(actor.id))[0]).toMatchObject({ requestId: "req-gateway-123" });
+  });
+
+  it("propaga el motivo concreto de svc-users (último admin)", async () => {
+    const solo = summary();
+    const lone = buildApp({ usersClient: createFakeUsersClient({ admins: [solo] }), shipmentsClient: createFakeShipmentsClient() });
+    await lone.ready();
+    const res = await lone.inject({
+      method: "DELETE",
+      url: `/admin/admins/${solo.id}`,
+      headers: headers(randomUUID()),
+      payload: { reason: "Prueba" },
+    });
+    await lone.close();
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("ADMIN_LAST_ADMIN");
+  });
+});

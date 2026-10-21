@@ -1,3 +1,4 @@
+import type { OfferAcceptanceAssignment } from "@movo/shared/dist/types/funding";
 import type { OfferStatus } from "@movo/shared/dist/types/offer";
 import type { PackageType } from "../store/shipment-wizard-store";
 import { httpClient } from "./http-client";
@@ -74,6 +75,12 @@ export interface CreateOfferRequest {
  */
 export type CreateOfferResponse = OfferSummary;
 
+/** MOVO-211 AC4: `POST /offers/:id/accept` suma qué ruta de la saga se tomó. Opcional
+ * por si responde un backend anterior: sin él se muestra el mensaje de éxito genérico. */
+export interface AcceptOfferResponse extends OfferSummary {
+  assignment?: OfferAcceptanceAssignment;
+}
+
 export interface MyOfferShipmentContext {
   id: string;
   status: string;
@@ -106,6 +113,7 @@ export interface OfferCompetitiveRank {
 export interface MyOfferSummary extends OfferSummary {
   shipment: MyOfferShipmentContext;
   competitiveRank: OfferCompetitiveRank | null;
+  debtDiscount?: { amountArs: number; reason: "pending_balance" } | null;
 }
 
 export interface ListMyOffersParams {
@@ -146,11 +154,12 @@ export const offersClient = {
 
   /**
    * `POST /offers/:id/accept` (MOVO-144 / MOVO-150)
-   * El emisor acepta la oferta; el envío pasa a `assignment_pending` con el transportista
-   * asignado y las demás ofertas pasan a `superseded`.
+   * El emisor acepta la oferta; el envío pasa a `assignment_pending` (retiro cercano: paga
+   * ya) o `assigned_unfunded` (retiro lejano: paga en una ventana posterior). `assignment`
+   * dice cuál (MOVO-211 AC4).
    */
-  acceptOffer(offerId: string): Promise<OfferSummary> {
-    return httpClient.post<OfferSummary>(`/offers/${offerId}/accept`);
+  acceptOffer(offerId: string): Promise<AcceptOfferResponse> {
+    return httpClient.post<AcceptOfferResponse>(`/offers/${offerId}/accept`);
   },
 
   /**

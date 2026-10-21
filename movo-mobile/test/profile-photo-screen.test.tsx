@@ -90,6 +90,7 @@ describe("ProfilePhotoScreen", () => {
     await waitFor(() => {
       expect(mockResetRegistration).toHaveBeenCalled();
       expect(router.replace).toHaveBeenCalledWith("/home");
+      expect(router.replace).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -131,6 +132,7 @@ describe("ProfilePhotoScreen", () => {
     await waitFor(() => {
       expect(mockResetRegistration).toHaveBeenCalled();
       expect(router.replace).toHaveBeenCalledWith("/home");
+      expect(router.replace).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -1,15 +1,18 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
+import { computeNetFromGross } from "@movo/shared/dist/config/commission";
 import { router } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import type { MyOfferSummary } from "../../src/api/offers-client";
 import type { AvailableShipment } from "../../src/api/shipments-client";
 import { offerStatusLabel } from "../../src/lib/offer-format";
+import { estimateReceivedArs, getClientCommissionRate } from "../../src/lib/commission-config";
 import {
   formatDetourKm,
   formatPickupDayLabel,
   formatPriceArs,
   formatTripDistanceKm,
   haversineDistanceKm,
+  shortAddressLabel,
   zoneLabelFromAddress,
 } from "../../src/lib/shipment-format";
 
@@ -43,6 +46,15 @@ export function AvailableShipmentRow({ shipment, testID, detour, myOffer }: Avai
   const onTrip = detour != null;
   const detourKm = detour ? detour.detourKm : shipment.pickupDistanceKm;
   const offerAccepted = myOffer?.status === OfferStatus.ACCEPTED;
+  // El preview del feed se calcula sobre el precio sugerido. Si ya ofertó, ese
+  // descuento no representa el neto de su oferta y se muestra solo el precio real.
+  const discountArs = !myOffer ? shipment.debtDiscount?.amountArs ?? 0 : 0;
+  const receivedAfterDebt = discountArs > 0 && shipment.suggestedPriceArs != null
+    ? Math.max(0, estimateReceivedArs(
+        computeNetFromGross(shipment.suggestedPriceArs, getClientCommissionRate()),
+        shipment.suggestedPriceArs,
+      ) - discountArs)
+    : null;
   const tripDistanceKm = haversineDistanceKm(
     shipment.pickupLat,
     shipment.pickupLng,
@@ -97,11 +109,18 @@ export function AvailableShipmentRow({ shipment, testID, detour, myOffer }: Avai
         <Text numberOfLines={1} className="font-sans-semibold text-h3 text-fg">
           {zoneLabelFromAddress(shipment.pickupAddress)}
         </Text>
+        <Text
+          testID={testID ? `${testID}-delivery` : undefined}
+          numberOfLines={1}
+          className="font-sans text-[13px] text-fg-2"
+        >
+          Entrega en: {shortAddressLabel(shipment.deliveryAddress)}
+        </Text>
         <Text className="font-sans text-[13px] text-fg-2">
           +{formatDetourKm(detourKm)} km de desvío · {formatTripDistanceKm(tripDistanceKm)}
         </Text>
       </View>
-      <View className="justify-center">
+      <View className="items-end justify-center gap-1.5">
         {myOffer ? (
           // Gris a propósito -- pedido explícito del usuario: distingue a simple
           // vista, sin leer el chip de arriba, que este precio ya no es el sugerido
@@ -127,6 +146,13 @@ export function AvailableShipmentRow({ shipment, testID, detour, myOffer }: Avai
             <Text className="font-sans text-[10px] text-lime-700 dark:text-lime-400/80">sugerido</Text>
           </View>
         )}
+        {receivedAfterDebt !== null ? (
+          <View testID={testID ? `${testID}-debt-preview` : undefined} className="items-end gap-0.5">
+            <Text className="font-sans text-[10px] text-fg-3">Recibís aprox.</Text>
+            <Text className="font-sans-semibold text-[13px] text-fg">{formatPriceArs(receivedAfterDebt)}</Text>
+            <Text className="font-sans text-[10px] text-danger-600">−{formatPriceArs(discountArs)} por deuda</Text>
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );

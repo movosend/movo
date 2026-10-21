@@ -47,6 +47,7 @@ const VALID_TRANSITIONS: Readonly<Record<OfferStatus, ReadonlySet<OfferStatus>>>
   [OfferStatus.ACCEPTED]: new Set([
     OfferStatus.SHIPMENT_CANCELLED, // el envío se canceló después de aceptarla (MOVO-258, D7)
     OfferStatus.ASSIGNMENT_LAPSED, // la asignación no prosperó: el emisor no pagó a tiempo o se perdió el hold (MOVO-210)
+    OfferStatus.CARRIER_WITHDRAWN, // el transportista se bajó del envío asignado (MOVO-310)
   ]),
   [OfferStatus.REJECTED]: new Set(),
   [OfferStatus.WITHDRAWN]: new Set(),
@@ -54,6 +55,7 @@ const VALID_TRANSITIONS: Readonly<Record<OfferStatus, ReadonlySet<OfferStatus>>>
   [OfferStatus.SUPERSEDED]: new Set(),
   [OfferStatus.SHIPMENT_CANCELLED]: new Set(),
   [OfferStatus.ASSIGNMENT_LAPSED]: new Set(),
+  [OfferStatus.CARRIER_WITHDRAWN]: new Set(),
 };
 
 /** Solo lectura — no muta el estado, es para consultas (ej. habilitar/deshabilitar una acción en UI). */

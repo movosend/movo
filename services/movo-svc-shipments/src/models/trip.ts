@@ -21,8 +21,23 @@ export interface Trip {
   vehicleType: string;
   status: TripStatus;
   cancelledAt: Date | null;
+  /** MOVO-265 (ADR-042): días en que se repite (0 = domingo … 6 = sábado), `null` = no se repite. */
+  recurrenceWeekdays: number[] | null;
+  /** Último día de la serie (`"YYYY-MM-DD"`, inclusive, calendario argentino). */
+  recurrenceUntil: string | null;
+  seriesId: string | null;
+  generatedFromTripId: string | null;
+  /** Trip vigente de su serie: nadie lo referencia como `generatedFromTripId`. `true` también
+   * en un trip no recurrente. Solo el vigente admite editar la recurrencia. */
+  isSeriesHead: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** MOVO-265: recurrencia de un trip al crearlo o editarlo. `weekdays: null` la apaga. */
+export interface TripRecurrenceInput {
+  recurrenceWeekdays?: number[] | null;
+  recurrenceUntil?: string | null;
 }
 
 export interface CreateTripInput {
@@ -35,9 +50,15 @@ export interface CreateTripInput {
   destinationLng: number;
   departureAt: Date;
   vehicleType: string;
+  /** MOVO-265: solo cuando el trip nace recurrente. Sin `id`, lo genera Postgres. */
+  id?: string;
+  recurrenceWeekdays?: number[] | null;
+  recurrenceUntil?: string | null;
+  seriesId?: string | null;
+  generatedFromTripId?: string | null;
 }
 
-export interface UpdateTripInput {
+export interface UpdateTripInput extends TripRecurrenceInput {
   originAddress?: string;
   originLat?: number;
   originLng?: number;
@@ -64,7 +85,10 @@ export interface TripAcceptedPackage {
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
   agreedPriceArs: number;
+  senderId: string;
   senderName: string;
+  /** Foto actual del emisor (la resuelve `getTrip` contra svc-users); `null` si no tiene o no se pudo leer. */
+  senderPhotoUrl: string | null;
 }
 
 export interface TripWithAcceptedPackages extends Trip {
@@ -101,6 +125,7 @@ export function parseTripStatus(value: string, column = "status"): TripStatus {
  * `TripRepository` que solo opera sobre el `PrismaClient` de nivel superior.
  */
 export function buildTripCreateData(input: CreateTripInput): {
+  id?: string;
   carrierId: string;
   originAddress: string;
   originLat: number;
@@ -111,8 +136,13 @@ export function buildTripCreateData(input: CreateTripInput): {
   departureAt: Date;
   vehicleType: string;
   status: TripStatus;
+  recurrenceWeekdays: number[];
+  recurrenceUntil: Date | null;
+  seriesId: string | null;
+  generatedFromTripId: string | null;
 } {
   return {
+    ...(input.id ? { id: input.id } : {}),
     carrierId: input.carrierId,
     originAddress: input.originAddress,
     originLat: input.originLat,
@@ -123,10 +153,25 @@ export function buildTripCreateData(input: CreateTripInput): {
     departureAt: input.departureAt,
     vehicleType: input.vehicleType,
     status: TripStatus.DECLARED,
+    recurrenceWeekdays: input.recurrenceWeekdays ?? [],
+    recurrenceUntil: toRecurrenceUntilColumn(input.recurrenceUntil ?? null),
+    seriesId: input.seriesId ?? null,
+    generatedFromTripId: input.generatedFromTripId ?? null,
   };
 }
 
-export function mapTrip(row: TripRow): Trip {
+/** `"YYYY-MM-DD"` → `Date` anclado a medianoche UTC, como el resto de las columnas `@db.Date`. */
+export function toRecurrenceUntilColumn(until: string | null): Date | null {
+  return until === null ? null : new Date(`${until}T00:00:00.000Z`);
+}
+
+/**
+ * MOVO-265: `isSeriesHead` sale de la relación inversa `successor`. Toda query de `Trip` que
+ * pase por `mapTrip` incluye este `select`; sin él no se sabría si el trip tiene sucesor.
+ */
+export const TRIP_SERIES_INCLUDE = { successor: { select: { id: true } } } as const;
+
+export function mapTrip(row: TripRow & { successor: { id: string } | null }): Trip {
   return {
     id: row.id,
     carrierId: row.carrierId,
@@ -140,6 +185,12 @@ export function mapTrip(row: TripRow): Trip {
     vehicleType: row.vehicleType,
     status: parseTripStatus(row.status),
     cancelledAt: row.cancelledAt,
+    recurrenceWeekdays: row.recurrenceWeekdays.length > 0 ? row.recurrenceWeekdays : null,
+    // `@db.Date` anclada a medianoche UTC (mismo gotcha que `pickupDate`, MOVO-80).
+    recurrenceUntil: row.recurrenceUntil ? row.recurrenceUntil.toISOString().slice(0, 10) : null,
+    seriesId: row.seriesId,
+    generatedFromTripId: row.generatedFromTripId,
+    isSeriesHead: row.successor === null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

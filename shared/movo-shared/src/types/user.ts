@@ -38,12 +38,18 @@ export enum KycStatus {
 /**
  * Estado de la cuenta de un usuario (MOVO-92).
  *
- * `status` de la entidad User: active | banned | deleted.
+ * `status` de la entidad User: active | banned | deleted | suspended.
+ *
+ * MOVO-296: `banned` pasa a significar **inhabilitada** (sanción permanente, corta el login);
+ * `suspended` es la sanción temporal o indefinida que no bloquea el login pero sí las
+ * operaciones (la aplica el gateway por la marca en Redis). Se agregan valores al final, nunca
+ * se renombra uno existente.
  */
 export enum AccountStatus {
   ACTIVE = "active",
   BANNED = "banned",
   DELETED = "deleted",
+  SUSPENDED = "suspended",
 }
 
 /**
@@ -126,4 +132,29 @@ export interface BlockedUserSummary {
   photoUrl: string | null;
   /** ISO date del bloqueo. */
   blockedAt: string;
+}
+
+/**
+ * Fila de `GET /internal/admins` de `svc-users` (MOVO-290), del otorgamiento más viejo al
+ * más reciente. La consume `svc-admin` para la gestión de admins del panel (MOVO-292).
+ */
+export interface AdminSummary {
+  id: string;
+  fullName: string;
+  email: string;
+  status: AccountStatus;
+  photoUrl: string | null;
+  /** ISO date en que se otorgó el rol. */
+  grantedAt: string;
+}
+
+/** Candidato a admin en el autocompletado del panel (`GET /admin/admins/candidates`). */
+export interface AdminCandidate {
+  id: string;
+  fullName: string;
+  email: string;
+  status: AccountStatus;
+  photoUrl: string | null;
+  emailVerified: boolean;
+  isAdmin: boolean;
 }

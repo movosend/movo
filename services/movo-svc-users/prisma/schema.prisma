@@ -71,8 +71,31 @@ enum AccountStatus {
   active
   banned
   deleted
+  // MOVO-296: se agrega al final, nunca se renombra un valor existente. `banned` pasa a
+  // significar "inhabilitada".
+  suspended
 
   @@map("account_status_enum")
+  @@schema("users")
+}
+
+// MOVO-296: tipo de sanción de cuenta.
+enum AccountSanctionType {
+  suspension
+  disable
+
+  @@map("account_sanction_type_enum")
+  @@schema("users")
+}
+
+// MOVO-296: por qué se cerró una sanción en el historial.
+enum AccountSanctionClosedCause {
+  lifted
+  replaced
+  escalated
+  expired
+
+  @@map("account_sanction_closed_cause_enum")
   @@schema("users")
 }
 
@@ -169,6 +192,33 @@ model NotificationCategoryPreference {
 
   @@unique([userId, category], map: "notification_category_preferences_user_id_category_key")
   @@map("notification_category_preferences")
+  @@schema("users")
+}
+
+// MOVO-169: valores alineados 1:1 con `TOUR_OUTCOMES` de @movo/shared.
+enum TourOutcome {
+  completed
+  skipped
+
+  @@map("tour_outcome_enum")
+  @@schema("users")
+}
+
+// MOVO-169: registro de los tours del tutorial in-app, un upsert por (usuario, tour).
+// `tourId` es texto validado en código contra `TOUR_IDS` (@movo/shared), no un enum de
+// Postgres -- mismo criterio que `NotificationCategoryPreference.category`: sumar un
+// tour no pide migración. Ausencia de fila = el tour todavía no se mostró. `version`
+// nunca baja (ver `user-tour-repository.ts`).
+model UserTour {
+  userId     String      @map("user_id") @db.Uuid
+  tourId     String      @map("tour_id")
+  version    Int
+  outcome    TourOutcome
+  recordedAt DateTime    @default(now()) @map("recorded_at") @db.Timestamptz
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, tourId])
+  @@map("user_tour")
   @@schema("users")
 }
 
@@ -299,6 +349,8 @@ model User {
   kycStatusLicense  KycStatus     @default(not_started) @map("kyc_status_license")
   status            AccountStatus @default(active) @map("status")
   bannedUntil       DateTime?     @map("banned_until") @db.Timestamptz
+  // MOVO-294: la fija `anonymizeAndDelete`. NULL en las bajas anteriores (sin backfill).
+  deletedAt         DateTime?     @map("deleted_at") @db.Timestamptz
   birthdate         DateTime?     @db.Date
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz
   // El trigger users.update_updated_at_column() de la migración original ya mantiene
@@ -314,6 +366,8 @@ model User {
   vehicleProfile    VehicleProfile?
   notificationPreference          NotificationPreference?
   notificationCategoryPreferences NotificationCategoryPreference[]
+  tours             UserTour[]
+  sanctions         AccountSanction[]
   blocksMade        UserBlock[]   @relation("UserBlockBlocker")
   blocksReceived    UserBlock[]   @relation("UserBlockBlocked")
   reportsMade       UserReport[]  @relation("UserReportReporter")
@@ -443,5 +497,31 @@ model DriversLicense {
   kycVerification   KycVerification      @relation(fields: [kycVerificationId], references: [id], onDelete: Cascade)
 
   @@map("drivers_license")
+  @@schema("users")
+}
+
+// MOVO-296: historial de sanciones de cuenta. Solo se agregan filas y se completan los
+// campos de levantamiento (lo garantiza un trigger). `User.status`/`bannedUntil` son la caché
+// de lectura rápida de la sanción vigente (la fila con `lifted_at` NULL, una por usuario por
+// un índice único parcial que está solo en la migración, Prisma no lo expresa).
+// `applied_by`/`lifted_by` son ids de admin sin FK (`applied_by` es NULL en las filas migradas de cuentas `banned` previas): el historial no depende de que la cuenta
+// del admin siga existiendo.
+model AccountSanction {
+  id           String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String                      @map("user_id") @db.Uuid
+  type         AccountSanctionType
+  reason       String                      @db.Text
+  internalNote String?                     @map("internal_note") @db.Text
+  startedAt    DateTime                    @default(now()) @map("started_at") @db.Timestamptz
+  endsAt       DateTime?                   @map("ends_at") @db.Timestamptz
+  appliedBy    String?                     @map("applied_by") @db.Uuid
+  liftedAt     DateTime?                   @map("lifted_at") @db.Timestamptz
+  liftedBy     String?                     @map("lifted_by") @db.Uuid
+  liftReason   String?                     @map("lift_reason") @db.Text
+  closedCause  AccountSanctionClosedCause? @map("closed_cause")
+  user         User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt], map: "account_sanctions_user_id_started_at_idx")
+  @@map("account_sanctions")
   @@schema("users")
 }

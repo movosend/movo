@@ -21,11 +21,38 @@ function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShi
     counterparty: { name: "Lucía Gómez", initials: "LG" },
     isToday: false,
     pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
     ...overrides,
   };
 }
 
 describe("ActiveShipmentCard (MOVO-193)", () => {
+  describe("MOVO-278: in_transit demorado", () => {
+    it("muestra el pill 'Demorado' con la explicación, sin el halo pulsante", async () => {
+      const { getByText, getByTestId, queryByTestId } = await render(
+        <ActiveShipmentCard
+          shipment={makeShipment({ status: "in_transit", transitAnomalyFlaggedAt: "2026-10-04T10:00:00.000Z" })}
+          role="sending"
+          testID="card"
+        />,
+      );
+
+      // "En camino" sigue siendo el nombre del paso del stepper: el estado vive en el pill.
+      expect(getByTestId("card-status-pill")).toHaveTextContent("Demorado");
+      expect(getByText("La entrega está demorada. Si no se confirma pronto, vamos a abrir una disputa.")).toBeTruthy();
+      expect(queryByTestId("active-shipment-pulsing-step")).toBeNull();
+    });
+
+    it("sin marca sigue 'En camino' con el halo pulsante", async () => {
+      const { getByTestId } = await render(
+        <ActiveShipmentCard shipment={makeShipment({ status: "in_transit" })} role="sending" testID="card" />,
+      );
+
+      expect(getByTestId("card-status-pill")).toHaveTextContent("En camino");
+      expect(getByTestId("active-shipment-pulsing-step")).toBeTruthy();
+    });
+  });
+
   it("muestra la contraparte, el estado y el CTA cuando corresponde", async () => {
     const { getByText, getByTestId } = await render(
       <ActiveShipmentCard shipment={makeShipment()} role="sending" testID="card" />,
@@ -100,16 +127,29 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
     expect(getByText("Belgrano 99")).toBeTruthy();
   });
 
-  it("tocar el CTA muestra un aviso 'Muy pronto' en vez de navegar (MOVO-159/160 sin pantalla todavía)", async () => {
+  it("Generar retiro abre la pantalla del QR de retiro, la misma que el detalle del envío", async () => {
     const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    const { getByTestId } = await render(
+      <ActiveShipmentCard shipment={makeShipment({ status: "assigned" })} role="sending" testID="card" />,
+    );
 
+    await fireEvent.press(getByTestId("card-cta"));
+
+    expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/handshake");
+    expect(alertSpy).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it("Confirmar recepción abre el escaneo del QR de entrega", async () => {
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     const { getByTestId } = await render(
       <ActiveShipmentCard shipment={makeShipment({ status: "in_transit" })} role="receiving" testID="card" />,
     );
 
     await fireEvent.press(getByTestId("card-cta"));
 
-    expect(alertSpy).toHaveBeenCalledWith("Muy pronto", expect.stringContaining("MOVO-160"));
+    expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/handshake-scan");
+    expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
   });
 
@@ -162,5 +202,27 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
     for (const node of currentNodes) {
       expect(flatStyle(node.props.style).elevation).toBeUndefined();
     }
+  });
+
+  it("MOVO-284: sin chat no muestra el botón", async () => {
+    const { queryByTestId } = await render(<ActiveShipmentCard shipment={makeShipment()} role="sending" testID="card" />);
+    expect(queryByTestId("card-chat")).toBeNull();
+  });
+
+  it("MOVO-284: con chat muestra el botón con el contador y abre la conversación", async () => {
+    const { getByTestId } = await render(
+      <ActiveShipmentCard shipment={makeShipment()} role="sending" chat={{ unreadCount: 3 }} testID="card" />,
+    );
+    expect(getByTestId("card-chat-badge")).toHaveTextContent("3");
+    await fireEvent.press(getByTestId("card-chat"));
+    expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/chat");
+  });
+
+  it("MOVO-284: con chat pero sin mensajes sin leer no muestra contador", async () => {
+    const { getByTestId, queryByTestId } = await render(
+      <ActiveShipmentCard shipment={makeShipment()} role="receiving" chat={{ unreadCount: 0 }} testID="card" />,
+    );
+    expect(getByTestId("card-chat")).toBeTruthy();
+    expect(queryByTestId("card-chat-badge")).toBeNull();
   });
 });

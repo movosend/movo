@@ -26,6 +26,7 @@ import {
   formatShipmentRowTime,
   formatDurationMin,
   redesignationDeadlineLabel,
+  isFundingWindowOpen,
   shipmentDetailCta,
 } from "../src/lib/shipment-format";
 
@@ -114,14 +115,18 @@ describe("receiverConfirmationStatus", () => {
 });
 
 describe("canCancelShipment", () => {
-  it("permite cancelar desde los 3 estados sin fondos confirmados", () => {
+  it("permite cancelar desde los estados sin fondos confirmados", () => {
     expect(canCancelShipment(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe(true);
     expect(canCancelShipment(ShipmentStatus.PUBLISHED)).toBe(true);
     expect(canCancelShipment(ShipmentStatus.ASSIGNMENT_PENDING)).toBe(true);
+    expect(canCancelShipment(ShipmentStatus.ASSIGNED_UNFUNDED)).toBe(true);
   });
 
-  it("no permite cancelar desde assigned ni desde estados terminales", () => {
-    expect(canCancelShipment(ShipmentStatus.ASSIGNED)).toBe(false);
+  it("MOVO-308: permite cancelar desde assigned (con la penalidad que cotiza el sheet)", () => {
+    expect(canCancelShipment(ShipmentStatus.ASSIGNED)).toBe(true);
+  });
+
+  it("no permite cancelar con el paquete retirado ni desde estados terminales", () => {
     expect(canCancelShipment(ShipmentStatus.IN_TRANSIT)).toBe(false);
     expect(canCancelShipment(ShipmentStatus.DELIVERED)).toBe(false);
     expect(canCancelShipment(ShipmentStatus.CANCELLED)).toBe(false);
@@ -674,6 +679,32 @@ describe("shipmentDetailCta (MOVO-194)", () => {
     expect(shipmentDetailCta("receiver", ShipmentStatus.ASSIGNED_UNFUNDED, "s1")).toBeNull();
   });
 
+  it("el emisor con el pago pendiente (assignment_pending) ve el CTA de pagar y reservar (MOVO-269 AC7)", () => {
+    expect(shipmentDetailCta("sender", ShipmentStatus.ASSIGNMENT_PENDING, "s1")).toEqual({
+      kind: "action",
+      label: "Pagar y reservar fondos",
+      path: "/(app)/shipments/s1/pay?resumed=1",
+      icon: "card",
+    });
+    // El transportista y el receptor no pagan.
+    expect(shipmentDetailCta("carrier", ShipmentStatus.ASSIGNMENT_PENDING, "s1")).toBeNull();
+    expect(shipmentDetailCta("receiver", ShipmentStatus.ASSIGNMENT_PENDING, "s1")).toBeNull();
+  });
+
+  it("assigned_unfunded: el emisor confirma el pago solo con la ventana abierta; si no, ve el aviso (MOVO-269)", () => {
+    expect(
+      shipmentDetailCta("sender", ShipmentStatus.ASSIGNED_UNFUNDED, "s1", { fundingWindowOpen: true }),
+    ).toEqual({ kind: "action", label: "Confirmar el pago", path: "/(app)/shipments/s1/pay", icon: "card" });
+    expect(shipmentDetailCta("sender", ShipmentStatus.ASSIGNED_UNFUNDED, "s1", { fundingWindowOpen: false })).toEqual({
+      kind: "info",
+      text: "Los fondos se reservan antes del retiro.",
+    });
+    expect(shipmentDetailCta("carrier", ShipmentStatus.ASSIGNED_UNFUNDED, "s1", { fundingWindowOpen: true })).toEqual({
+      kind: "info",
+      text: "Los fondos se reservan antes del retiro.",
+    });
+  });
+
   it("el transportista en in_transit va al wizard de entrega, no al QR suelto", () => {
     expect(shipmentDetailCta("carrier", ShipmentStatus.IN_TRANSIT, "s1")).toEqual({
       kind: "action",
@@ -723,5 +754,32 @@ describe("liveTrackingPendingPollInterval (MOVO-271 AC5)", () => {
     expect(liveTrackingPendingPollInterval({ status: ShipmentStatus.PUBLISHED, carrierId: null }, "sender-1")).toBe(false);
     expect(liveTrackingPendingPollInterval(undefined, "sender-1")).toBe(false);
     expect(liveTrackingPendingPollInterval(pending, "carrier-1")).toBe(false);
+  });
+});
+
+describe("isFundingWindowOpen (MOVO-269)", () => {
+  const pickup = { pickupDate: "2026-10-17", pickupTimeWindowStart: "18:00:00" };
+
+  it("se abre exactamente 3 días antes del inicio de la ventana de retiro (hora argentina)", () => {
+    // Retiro 17/10 18:00 ART = 21:00 UTC -> abre el 14/10 18:00 ART = 21:00 UTC.
+    expect(isFundingWindowOpen(pickup, new Date("2026-10-14T20:59:00Z"))).toBe(false);
+    expect(isFundingWindowOpen(pickup, new Date("2026-10-14T21:00:00Z"))).toBe(true);
+  });
+
+  it("el 14/10 a las 09:00 ART todavía no está abierta aunque el retiro sea en 3 días calendario", () => {
+    expect(isFundingWindowOpen(pickup, new Date("2026-10-14T12:00:00Z"))).toBe(false);
+  });
+
+  it("sigue abierta si el retiro ya pasó", () => {
+    expect(isFundingWindowOpen({ pickupDate: "2026-10-12", pickupTimeWindowStart: "08:00" }, new Date("2026-10-14T15:00:00Z"))).toBe(true);
+  });
+});
+
+describe("shipmentEventTitle — cancelación (MOVO-308)", () => {
+  it("el emisor que canceló lee 'Cancelaste el envío'; el resto, 'Envío cancelado'", () => {
+    const from = ShipmentStatus.ASSIGNED;
+    expect(shipmentEventTitle(ShipmentStatus.CANCELLED, from, { isSender: true, isActor: true })).toBe("Cancelaste el envío");
+    expect(shipmentEventTitle(ShipmentStatus.CANCELLED, from, { isSender: true, isActor: false })).toBe("Envío cancelado");
+    expect(shipmentEventTitle(ShipmentStatus.CANCELLED, from, { isCarrier: true, isActor: false })).toBe("Envío cancelado");
   });
 });

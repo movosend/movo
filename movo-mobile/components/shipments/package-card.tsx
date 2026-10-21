@@ -36,3 +36,27 @@ export function PackageCard({ shipment, testID }: PackageCardProps) {
     </View>
   );
 }
+
+/**
+ * Versión compacta para media columna, junto a la card de retiro (detalle del receptor y de
+ * quien transfirió la recepción, que no ven el precio): tipo, peso y medidas, y la
+ * descripción en hasta dos líneas.
+ */
+export function PackageSummaryCard({ shipment, testID }: PackageCardProps) {
+  return (
+    <View testID={testID} className="flex-1 rounded-[14px] border border-border bg-bg px-4 py-3.5">
+      <Text className="mb-1 font-sans-medium text-caption uppercase text-fg-3">Paquete</Text>
+      <Text numberOfLines={1} className="font-sans-semibold text-[15px] text-fg">
+        {packageTypeLabel(shipment.packageType)}
+      </Text>
+      <Text className="mt-0.5 font-sans text-small text-fg-2">
+        {shipment.weightKg} kg · {shipment.lengthCm} × {shipment.widthCm} × {shipment.heightCm}
+      </Text>
+      {shipment.description ? (
+        <Text numberOfLines={2} className="mt-1 font-sans text-[12px] text-fg-3">
+          {shipment.description}
+        </Text>
+      ) : null}
+    </View>
+  );
+}

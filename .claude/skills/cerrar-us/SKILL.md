@@ -94,9 +94,11 @@ explicación que un 100% forzado con un test que no representa nada real.
 
 ## Paso 5 — Actualizar `CLAUDE.md`
 
-Sumá una entrada en la sección **"Estado actual de la implementación"** de
-`CLAUDE.md` (raíz del repo), siguiendo el mismo formato que ya usan las entradas de
-MOVO-67/68: qué se implementó, en qué archivos, decisiones clave tomadas (sobre todo
+Sumá una entrada al historial del paquete que tocaste: al final de `HISTORIAL.md` en
+`movo-mobile` y `services/movo-svc-{users,shipments,payments}`, o en la sección **"Estado
+actual de la implementación"** del `CLAUDE.md` del paquete en el resto; solo lo
+transversal va al `CLAUDE.md` de la raíz (ver sus reglas de mantenimiento).
+Seguí el mismo formato que ya usan las entradas de MOVO-67/68: qué se implementó, en qué archivos, decisiones clave tomadas (sobre todo
 las que no son obvias mirando el diff), y qué queda pendiente o fuera de alcance.
 3-5 líneas por decisión no obvia alcanza — no dupliques el detalle que ya vive en el
 commit o en el PR.

@@ -8,9 +8,17 @@
  */
 
 // auth
-export { signAccessToken, signRefreshToken, verifyAccessToken } from "./auth/jwt";
+export {
+  signAccessToken,
+  signRefreshToken,
+  verifyAccessToken,
+  ACCESS_TOKEN_TTL_SECONDS,
+  PANEL_ACCESS_TOKEN_TTL_SECONDS,
+  PANEL_SESSION_TTL_SECONDS,
+} from "./auth/jwt";
 export type {
   AccessTokenPayload,
+  SignAccessTokenOptions,
   RefreshTokenResult,
   VerifyAccessTokenResult,
 } from "./auth/jwt";
@@ -35,6 +43,8 @@ export type {
   UserReportEntry,
   UserReportPhoto,
   UserReportSummary,
+  AdminCandidate,
+  AdminSummary,
 } from "./types/user";
 export { ShipmentStatus } from "./types/shipment";
 export type {
@@ -45,6 +55,16 @@ export type {
   RatingRole,
   PendingRatingShipment,
 } from "./types/shipment";
+export { ACCOUNT_SANCTION_REASON_MAX_LENGTH, ACCOUNT_SANCTION_NOTE_MAX_LENGTH, accountRestrictionKey } from "./types/account-sanctions";
+export type {
+  AccountSanctionType,
+  AccountSanctionClosedCause,
+  PublicAccountStatus,
+  AccountSanction,
+  ApplyAccountSanctionRequest,
+  LiftAccountSanctionRequest,
+  AccountRestrictionMark,
+} from "./types/account-sanctions";
 export { OfferStatus } from "./types/offer";
 export { TripStatus } from "./types/trip";
 export type {
@@ -108,15 +128,88 @@ export type {
   CreateHoldRequest,
   HoldCheckoutDataRequest,
   HoldCheckoutDataResponse,
+  HoldDebtBreakdown,
   HoldFailureReason,
+  HoldDetailResponse,
   HoldResponse,
   HoldStatus,
 } from "./types/hold";
 
+// saved cards (MOVO-100)
+export { MAX_SAVED_CARDS_PER_USER, SAVED_CARD_ALIAS_MAX_LENGTH } from "./types/saved-card";
+export type {
+  CardsCheckoutDataResponse,
+  CreateSavedCardRequest,
+  SavedCard,
+  UpdateSavedCardRequest,
+} from "./types/saved-card";
+
+// historial de transacciones (MOVO-303)
+export {
+  TRANSACTION_KINDS,
+  TRANSACTION_MOVEMENT_KINDS,
+  TRANSACTION_RELEASE_REASONS,
+  TRANSACTION_ROLES,
+  TRANSACTION_STATUSES,
+  TRANSACTIONS_DEFAULT_LIMIT,
+  TRANSACTIONS_MAX_LIMIT,
+} from "./types/transaction";
+export type {
+  TransactionBreakdown,
+  TransactionCard,
+  TransactionDetail,
+  TransactionKind,
+  TransactionListItem,
+  TransactionListResponse,
+  TransactionMovement,
+  TransactionMovementKind,
+  TransactionReleaseReason,
+  TransactionRole,
+  TransactionStatus,
+} from "./types/transaction";
+
+// liquidación: captura del hold + split (MOVO-212)
+export { SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
+export type {
+  CaptureHoldRequest,
+  CaptureHoldResponse,
+  SettlementDisplayStatus,
+  SettlementFailureReason,
+  SettlementKind,
+  SettlementResponse,
+  SettlementStatus,
+  ShipmentSettlementResponse,
+} from "./types/settlement";
+// cuenta corriente del usuario (MOVO-309)
+export { USER_LEDGER_ENTRY_STATUSES, USER_LEDGER_ENTRY_TYPES, USER_LEDGER_ROLES } from "./types/user-ledger";
+export type {
+  BalancePayDataResponse,
+  CarrierDebtDiscount,
+  BalancePayRequest,
+  BalancePayResponse,
+  CreateManualAdjustmentRequest,
+  CreateUserLedgerEntryRequest,
+  CreateUserLedgerEntryResponse,
+  DebtCollectionPreviewRequest,
+  DebtCollectionPreviewResponse,
+  UserLedgerBalanceResponse,
+  UserLedgerEntry,
+  UserLedgerEntryStatus,
+  UserLedgerEntryType,
+  UserLedgerPageResponse,
+  UserLedgerRole,
+} from "./types/user-ledger";
 // funding (MOVO-210)
 export type {
+  CarrierFundingView,
+  FundingAttempt,
+  FundingCard,
+  FundingLapseReason,
   FundingRoute,
   HoldProviderEventKind,
+  OfferAcceptanceAssignment,
+  SenderFundingView,
+  ShipmentFundingView,
   HoldProviderEventRequest,
   ShipmentFundingRequest,
   ShipmentFundingResponse,
@@ -129,6 +222,8 @@ export {
   computeOfferGrossPrice,
   computeNetFromGross,
   decomposeOfferGrossPrice,
+  carrierPaymentView,
+  estimateMpFeeArs,
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
@@ -146,7 +241,11 @@ export {
 export type { RatingCategoryDefinition, RatingCategoryScoreField } from "./config/rating-categories";
 
 // utils
-export { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "./utils/argentina-date";
+export {
+  ARGENTINA_UTC_OFFSET_HOURS,
+  toArgentinaCalendarDateString,
+  toArgentinaTimeOfDayString,
+} from "./utils/argentina-date";
 
 // notification preferences (MOVO-239)
 export {
@@ -160,6 +259,8 @@ export type {
   NotificationCategoryDefinition,
   NotificationCategoryId,
 } from "./config/notification-categories";
+export { TOUR_IDS, TOUR_OUTCOMES, isTourId } from "./config/tours";
+export type { TourId, TourOutcome, UserTourRecord } from "./config/tours";
 export {
   NOTIFICATION_TRIGGERS,
   notificationTriggerCopy,
@@ -175,6 +276,48 @@ export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
 
 // trip start (MOVO-277)
 export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";
+// penalidad por cancelar un envío asignado (MOVO-307, ADR-047)
+export {
+  CANCELLATION_PENALTY_FREE_HOURS,
+  CANCELLATION_PENALTY_RATE,
+  computeCancellationPenalty,
+  computeCarrierWithdrawalPenalty,
+} from "./config/cancellation-penalty";
+export type {
+  CancellationPenaltyInput,
+  CancellationPenaltyQuote,
+  CancellationPenaltyReason,
+  CancellationQuoteResponse,
+} from "./config/cancellation-penalty";
+
+// viajes recurrentes (MOVO-265, ADR-042)
+export {
+  RECURRENCE_WEEKDAY,
+  MAX_ACTIVE_RECURRING_SERIES,
+  argentinaWeekday,
+  formatArgentinaShortDay,
+  nextRecurrenceOccurrence,
+} from "./config/trip-recurrence";
+
+// chat (MOVO-26)
+export {
+  CHAT_MESSAGE_MAX_LENGTH,
+  CHAT_POST_DELIVERY_WINDOW_HOURS,
+  CHAT_PAGE_MAX_LIMIT,
+  CHAT_MODERATION_WARNING,
+} from "./types/chat";
+export type {
+  ChatAccess,
+  ChatDeliveryStatus,
+  ChatListItem,
+  ChatListResponse,
+  ChatMessage,
+  ChatMessagesPage,
+  ChatParticipant,
+  ChatParticipantRole,
+  ChatParticipantsResponse,
+  ChatRealtimeEvent,
+} from "./types/chat";
 
 // receiver transfer (MOVO-275)
 export {
@@ -189,3 +332,136 @@ export type {
   ReceiverTransferInvitationShipment,
   ShipmentReceiverTransferSummary,
 } from "./types/receiver-transfer";
+
+// admin: bitácora y conflicto de interés (MOVO-288)
+export type {
+  AuditOutcome,
+  AdminTargetType,
+  AuditLogEntry,
+  AuditLogPage,
+  ShipmentParties,
+  ChatReportParties,
+  UserReportParties,
+} from "./types/admin";
+
+// admin: búsqueda de usuarios y ficha (MOVO-295, backend MOVO-294)
+export {
+  ADMIN_USER_MODERATION_LIMIT,
+  ADMIN_NOTE_MAX_LENGTH,
+  ADMIN_ACTION_REASON_MAX_LENGTH,
+} from "./types/admin-users";
+export type {
+  AdminKycStatus,
+  AdminAccountStatus,
+  AdminUserRoleName,
+  AdminReportReason,
+  AdminReportStatus,
+  AdminShipmentStatus,
+  AdminTripStatus,
+  AdminUserRef,
+  AdminUserMatch,
+  AdminUserListItem,
+  AdminUserPage,
+  AdminUserProfile,
+  AdminKycAttempt,
+  AdminKycCard,
+  AdminUserMercadoPago,
+  AdminUserKyc,
+  AdminUserVehicle,
+  AdminShipmentRole,
+  AdminUserShipment,
+  AdminUserShipmentPage,
+  AdminUserTrip,
+  AdminUserTripPage,
+  AdminUserRating,
+  AdminUserRatings,
+  AdminUserReport,
+  AdminUserBlock,
+  AdminUserModeration,
+  AdminUserSanction,
+  AdminUserSanctions,
+  AdminLedgerType,
+  AdminLedgerStatus,
+  AdminUserLedgerEntry,
+  AdminUserLedger,
+  AdminUserDevice,
+  AdminUserDevices,
+  AdminUserAuditEntry,
+  AdminUserAuditPage,
+  AdminSessionsRevokeBody,
+  AdminSessionsRevokeResult,
+  AdminContactField,
+  AdminContactUpdateBody,
+  AdminContactUpdateResult,
+  AdminLedgerAdjustmentBody,
+  AdminLedgerAdjustmentResult,
+  AdminUserNote,
+  AdminUserNotePage,
+  AdminUserNoteBody,
+  AdminUserShipmentRow,
+  AdminUserShipmentRowPage,
+  AdminUserRatingRow,
+  AdminUserRatingRowPage,
+  AdminUserLedgerRow,
+  AdminUserLedgerRowPage,
+  AdminUserNames,
+} from "./types/admin-users";
+
+// admin: bandeja de soporte (MOVO-323, backend MOVO-321/MOVO-322)
+export {
+  SUPPORT_STATUSES,
+  SUPPORT_PRIORITIES,
+  SUPPORT_TOPICS,
+  SUPPORT_TAGS,
+  SUPPORT_WAIT_ALERT_MINUTES,
+  SUPPORT_MESSAGE_MAX_LENGTH,
+  SUPPORT_LIST_PAGE_SIZE,
+  SUPPORT_MESSAGES_PAGE_SIZE,
+  SUPPORT_CODE_RE,
+  SUPPORT_ATTACHMENT_TYPES,
+  SUPPORT_ATTACHMENT_MAX_BYTES,
+  SUPPORT_ATTACHMENT_MAX_PER_MESSAGE,
+  SUPPORT_ERROR,
+  SUPPORT_QUICK_REPLIES,
+  SUPPORT_WS_PROTOCOL,
+  resolveQuickReply,
+} from "./types/admin-support";
+export type {
+  SupportStatus,
+  SupportPriority,
+  SupportTopic,
+  SupportUserRole,
+  SupportTag,
+  SupportAttachmentType,
+  SupportUserRef,
+  SupportAgentRef,
+  SupportAgent,
+  SupportAttachment,
+  SupportUserMessage,
+  SupportAgentMessage,
+  SupportInternalNote,
+  SupportSystemMessage,
+  SupportMessage,
+  SupportLastMessage,
+  SupportShipmentRef,
+  SupportConversationRow,
+  SupportConversation,
+  SupportListPage,
+  SupportMessagesPage,
+  SupportCounts,
+  SupportCountsQuery,
+  SupportListQuery,
+  SupportSendBody,
+  SupportPatchBody,
+  SupportAttachmentCreateBody,
+  SupportAttachmentCreateResult,
+  SupportBadgeTone,
+  SupportVerificationBadge,
+  SupportUserShipment,
+  SupportUserHistoryItem,
+  SupportUserContext,
+  SupportQuickReply,
+  SupportEvent,
+  SupportEventsPage,
+  SupportRealtimeTicket,
+} from "./types/admin-support";

@@ -1,9 +1,11 @@
+import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ActiveShipmentSummary } from "../api/shipments-client";
 import {
   FUNDS_PENDING_INFO_TEXT,
   RECEIVER_DELIVERY_CTA_LABEL,
   SENDER_PICKUP_CTA_LABEL,
   formatTimeHHMM,
+  shipmentDetailCta,
 } from "./shipment-format";
 
 /** Rol efectivo con el que se consultó el envío activo — "sending"/"receiving" son
@@ -26,9 +28,29 @@ const ACTIVE_STATUS_LABEL: Record<Exclude<ActiveShipmentSummary["status"], "assi
  * "Retiro" de más abajo, es la mejor aproximación disponible a esa hora. El resto
  * de los estados no tiene ninguna hora asociada que mostrar, quedan como texto fijo.
  */
+/**
+ * MOVO-278 (ADR-045): un envío `in_transit` que el backend marcó como demorado (pasó su
+ * entrega estimada más un margen). Se muestra "Demorado" en vez de "En camino", sin el halo
+ * pulsante: si sigue sin entregarse, el backend lo pasa a disputa.
+ */
+export function isTransitDelayed(shipment: {
+  status: string;
+  transitAnomalyFlaggedAt?: string | null;
+}): boolean {
+  return shipment.status === "in_transit" && Boolean(shipment.transitAnomalyFlaggedAt);
+}
+
+export const TRANSIT_DELAYED_LABEL = "Demorado";
+
+/** MOVO-278: texto explicativo de un envío demorado. No promete una revisión manual (no
+ * existe todavía, MOVO-33/34): describe lo que el sistema hace solo. */
+export const TRANSIT_DELAYED_INFO_TEXT =
+  "La entrega está demorada. Si no se confirma pronto, vamos a abrir una disputa.";
+
 export function activeShipmentStatusLabel(
-  shipment: Pick<ActiveShipmentSummary, "status" | "pickupTimeWindowStart">,
+  shipment: Pick<ActiveShipmentSummary, "status" | "pickupTimeWindowStart" | "transitAnomalyFlaggedAt">,
 ): string {
+  if (isTransitDelayed(shipment)) return TRANSIT_DELAYED_LABEL;
   if (shipment.status === "assigned_unfunded") {
     return `Retira ${formatTimeHHMM(shipment.pickupTimeWindowStart)}`;
   }
@@ -64,7 +86,21 @@ export interface ActiveShipmentCta {
    * (Ver en el mapa) — mismo criterio de jerarquía visual que el resto de la app
    * (un CTA por pantalla se lleva el acento lime, el resto usa `bg-fg`). */
   variant?: "primary" | "secondary";
-  action?: "live_tracking" | "coming_soon";
+  action?: "live_tracking" | "navigate" | "coming_soon";
+  /** Ruta a la que va el botón con `action: "navigate"`. Sale de `shipmentDetailCta` (la misma
+   * que el CTA del detalle del envío), así las dos pantallas no pueden divergir. */
+  path?: string;
+}
+
+/** La ruta del CTA del detalle del envío para esta combinación rol + estado, si es una acción. */
+function detailActionPath(
+  role: "sender" | "receiver",
+  status: ActiveShipmentSummary["status"],
+  shipmentId: string,
+): string | undefined {
+  // Los valores del literal de `ActiveShipmentSummary` son los del enum `ShipmentStatus`.
+  const cta = shipmentDetailCta(role, status as ShipmentStatus, shipmentId);
+  return cta?.kind === "action" ? cta.path : undefined;
 }
 
 /**
@@ -86,7 +122,12 @@ export function activeShipmentCta(
 ): ActiveShipmentCta | null {
   if (shipment.status === "assigned_unfunded") return null;
   if (role === "sending" && shipment.status === "assigned") {
-    return { label: SENDER_PICKUP_CTA_LABEL, destination: "MOVO-159 · QR de retiro" };
+    return {
+      label: SENDER_PICKUP_CTA_LABEL,
+      destination: "MOVO-159 · QR de retiro",
+      action: "navigate",
+      path: detailActionPath("sender", shipment.status, shipment.id),
+    };
   }
   if (role === "sending" && shipment.status === "in_transit") {
     return {
@@ -97,7 +138,12 @@ export function activeShipmentCta(
     };
   }
   if (role === "receiving" && shipment.status === "in_transit") {
-    return { label: RECEIVER_DELIVERY_CTA_LABEL, destination: "MOVO-160 · Escaneo de entrega" };
+    return {
+      label: RECEIVER_DELIVERY_CTA_LABEL,
+      destination: "MOVO-160 · Escaneo de entrega",
+      action: "navigate",
+      path: detailActionPath("receiver", shipment.status, shipment.id),
+    };
   }
   return null;
 }
@@ -129,6 +175,7 @@ export function activeShipmentFooterText(
   shipment: ActiveShipmentSummary,
 ): string {
   const name = shipment.counterparty.name;
+  if (isTransitDelayed(shipment)) return TRANSIT_DELAYED_INFO_TEXT;
   if (shipment.status === "assigned_unfunded") return activeShipmentInfoText(role, shipment);
   if (role === "sending") {
     return shipment.status === "assigned" ? `${name} retira con este código` : `${name} lo lleva`;

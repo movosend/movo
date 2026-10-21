@@ -115,6 +115,8 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
       expect(updatedShipment?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
       expect(updatedShipment?.carrierId).toBe(winner.carrierId);
       expect(updatedShipment?.agreedPriceArs).toBe(winner.priceOffered);
+      // MOVO-26: la asignación marca el inicio del chat (un transportista nuevo no lee lo hablado con el anterior).
+      expect(updatedShipment?.chatStartedAt).toBeInstanceOf(Date);
 
       // MOVO-210 (AC4): las demás ofertas siguen vivas hasta que se confirme el hold.
       const updatedLoser = await offerRepo.findById(loser.id);
@@ -433,6 +435,12 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
       await appWithVehicle.close();
     });
 
+    // El TRUNCATE de arriba solo vacía shipments: sin esto los viajes del mismo transportista
+    // pasan de un test al otro y MOVO-314 los reutilizaría.
+    beforeEach(async () => {
+      await appWithVehicle.db.trip.deleteMany({});
+    });
+
     it("crea un Trip declared a partir del envío (origen/destino/departureAt) y asocia Offer.tripId", async () => {
       // Fix de review (PR #176): `pickupDate` propio en el futuro -- el clamp nuevo
       // de `departureAt` a "ahora" (ver el test dedicado más abajo) pisaría el valor
@@ -623,6 +631,94 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
       expect(response.statusCode).toBe(200);
       const trip = await tripRepo.findById(response.json().tripId);
       expect(trip?.vehicleType).toBe("Vehículo sin especificar");
+    });
+
+    describe("MOVO-314: sumar la oferta a un viaje declared existente en vez de crear otro", () => {
+      const futureDate = new Date("2030-01-01T00:00:00.000Z");
+
+      async function acceptNew(overrides: Partial<CreateShipmentInput> = {}, offerOverrides: Partial<CreateOfferInput> = {}) {
+        const shipmentId = await createPublishedShipment({ pickupDate: futureDate, ...overrides });
+        const offer = await offerRepo.create(
+          baseOfferInput({ shipmentId, carrierId: carrierWithVehicleId, offeredDate: futureDate, ...offerOverrides })
+        );
+        const response = await appWithVehicle.inject({
+          method: "POST",
+          url: `/offers/${offer.id}/accept`,
+          headers: { "x-user-id": senderId },
+        });
+        expect(response.statusCode).toBe(200);
+        return { shipmentId, tripId: response.json().tripId as string };
+      }
+
+      const countTrips = () => appWithVehicle.db.trip.count({ where: { carrierId: carrierWithVehicleId } });
+
+      it("un segundo envío sobre el mismo corredor y salida se suma al viaje existente", async () => {
+        const first = await acceptNew();
+        // Mismo origen, destino algo más allá sobre el mismo eje (< 15 km del corredor).
+        const second = await acceptNew({ deliveryLat: -31.38, deliveryLng: -64.18 });
+
+        expect(second.tripId).toBe(first.tripId);
+        expect(await countTrips()).toBe(1);
+      });
+
+      it("si la asignación se cae y el transportista reoferta, reutiliza el viaje vacío en vez de crear otro", async () => {
+        const first = await acceptNew();
+        await shipmentRepo.updateStatus(first.shipmentId, ShipmentStatus.PUBLISHED, null);
+        const again = await acceptNew();
+
+        expect(again.tripId).toBe(first.tripId);
+        expect(await countTrips()).toBe(1);
+      });
+
+      it("crea un viaje nuevo si el retiro o la entrega quedan fuera del desvío máximo", async () => {
+        const first = await acceptNew();
+        // Buenos Aires: a ~650 km del corredor de Córdoba.
+        const far = await acceptNew({ deliveryLat: -34.6, deliveryLng: -58.38 });
+
+        expect(far.tripId).not.toBe(first.tripId);
+        expect(await countTrips()).toBe(2);
+      });
+
+      it("crea un viaje nuevo si la salida cae en otro día calendario", async () => {
+        const first = await acceptNew();
+        const nextDay = new Date("2030-01-02T00:00:00.000Z");
+        const other = await acceptNew({ pickupDate: nextDay }, { offeredDate: nextDay });
+
+        expect(other.tripId).not.toBe(first.tripId);
+        expect(await countTrips()).toBe(2);
+      });
+
+      it("se suma si el viaje sale dentro de la ventana de retiro, aunque el inicio de la franja quede lejos", async () => {
+        // Viaje a las 09:00 ART; el segundo envío retira entre 11:00 y 17:00 ART: el
+        // transportista sale antes del cierre, así que lo puede tomar (la salida fija de
+        // 3 h anterior lo habría rechazado).
+        const first = await acceptNew();
+        const second = await acceptNew({
+          pickupTimeWindowStart: new Date("1970-01-01T11:00:00.000Z"),
+          pickupTimeWindowEnd: new Date("1970-01-01T17:00:00.000Z"),
+        });
+
+        expect(second.tripId).toBe(first.tripId);
+      });
+
+      it("crea un viaje nuevo si el viaje sale después de que cierra la ventana de retiro", async () => {
+        // Viaje a las 09:00 ART (primer envío); el segundo retira entre 06:00 y 08:00 ART.
+        const first = await acceptNew();
+        const earlier = await acceptNew({
+          pickupTimeWindowStart: new Date("1970-01-01T06:00:00.000Z"),
+          pickupTimeWindowEnd: new Date("1970-01-01T08:00:00.000Z"),
+        });
+
+        expect(earlier.tripId).not.toBe(first.tripId);
+        expect(await countTrips()).toBe(2);
+      });
+
+      it("no se suma a un viaje de otro transportista", async () => {
+        const first = await acceptNew();
+        const otherCarrier = await acceptNew({}, { carrierId: randomUUID() });
+
+        expect(otherCarrier.tripId).not.toBe(first.tripId);
+      });
     });
   });
 });

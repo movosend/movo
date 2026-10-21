@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   updatePhone: vi.fn(),
   updateEmail: vi.fn(),
   revokeAllForUser: vi.fn(),
+  revokePanelSessionsForUser: vi.fn(),
   revokeAccessTokensIssuedBefore: vi.fn(),
   saveRefreshToken: vi.fn(),
 }));
@@ -49,10 +50,16 @@ vi.mock("../src/repositories/session-repository", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/repositories/session-repository")>()),
   createSessionRepository: () => fakeSessionRepository(),
 }));
+// MOVO-169: el perfil que devuelven phone/email trae `tours`, sin Postgres acá.
+vi.mock("../src/repositories/user-tour-repository", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/repositories/user-tour-repository")>()),
+  createUserTourRepository: () => ({ listByUserId: vi.fn().mockResolvedValue([]), record: vi.fn() }),
+}));
 
 function fakeSessionRepository(): SessionRepository {
   return {
     revokeAllForUser: mocks.revokeAllForUser,
+    revokePanelSessionsForUser: mocks.revokePanelSessionsForUser,
     revokeAccessTokensIssuedBefore: mocks.revokeAccessTokensIssuedBefore,
     saveRefreshToken: mocks.saveRefreshToken,
   } as unknown as SessionRepository;

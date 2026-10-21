@@ -29,4 +29,8 @@ export enum OfferStatus {
    * emisor: distinto de `REJECTED`, que ensuciaría "Mis ofertas" y cualquier métrica de
    * aceptación. Mismo precedente que `SHIPMENT_CANCELLED` (MOVO-258). */
   ASSIGNMENT_LAPSED = "assignment_lapsed",
+  /** MOVO-310: el transportista asignado se bajó del envío (`POST /shipments/:id/carrier-withdrawal`)
+   * y el envío volvió a `published`. Distinto de `WITHDRAWN` (retirar una oferta antes de que la
+   * acepten) y de `ASSIGNMENT_LAPSED` (la asignación se cayó por el pago, sin culpa del transportista). */
+  CARRIER_WITHDRAWN = "carrier_withdrawn",
 }

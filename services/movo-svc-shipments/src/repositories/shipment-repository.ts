@@ -1,4 +1,6 @@
+import { TRIP_PICKUP_WINDOW_LEAD_HOURS } from "../domain/trip-compatibility";
 import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import type { ShipmentParties } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
   ACTIVE_SHIPMENT_STATUSES,
@@ -91,11 +93,17 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     agreedPriceArs: row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null,
     paymentMethod: row.paymentMethod,
     status: parseShipmentStatus(row.status, "status"),
+    carrierWithdrawalPending: row.carrierWithdrawalPending,
+    carrierWithdrawalPenaltyArs: row.carrierWithdrawalPenaltyArs?.toNumber() ?? null,
     lastStatusChangedAt: row.lastStatusChangedAt,
     deliveredAt: row.deliveredAt,
     receiverConfirmationDeadline: row.receiverConfirmationDeadline,
     receiverRedesignationDeadline: row.receiverRedesignationDeadline,
     transitAnomalyFlaggedAt: row.transitAnomalyFlaggedAt,
+    transitAnomalyWarnedAt: row.transitAnomalyWarnedAt,
+    cancellationPenaltyArs: row.cancellationPenaltyArs ? row.cancellationPenaltyArs.toNumber() : null,
+    cancellationPenaltyStatus: row.cancellationPenaltyStatus,
+    chatStartedAt: row.chatStartedAt,
     rejectionReason,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -112,6 +120,7 @@ function mapEvent(row: ShipmentEventRow): ShipmentEvent {
     fromStatus: row.fromStatus ? parseShipmentStatus(row.fromStatus, "from_status") : null,
     toStatus: parseShipmentStatus(row.toStatus, "to_status"),
     actorId: row.actorId,
+    assignmentCarrierId: row.assignmentCarrierId,
     reason: row.reason,
     createdAt: row.createdAt,
   };
@@ -279,6 +288,8 @@ function availableShipmentsWhereSql(params: {
   pickupBox: { latMin: number; latMax: number; lngMin: number; lngMax: number };
   deliveryBox: { latMin: number; latMax: number; lngMin: number; lngMax: number } | null;
   pickupDate: Date | null;
+  /** MOVO-314: salida del viaje -- exige que caiga dentro de la ventana de retiro del envío. */
+  departureAt: Date | null;
   excludePartyIds: string[];
 }): Prisma.Sql {
   const deliveryBoxFilter = params.deliveryBox
@@ -293,6 +304,17 @@ function availableShipmentsWhereSql(params: {
   // argentino que `trip.departureAt` (ver `toArgentinaCalendarDate`). `pickup_date` es
   // `@db.Date`, comparable por igualdad directa contra el `Date` ya anclado.
   const pickupDateFilter = params.pickupDate ? Prisma.sql`AND pickup_date = ${params.pickupDate}::date` : Prisma.empty;
+  // MOVO-314: misma regla que `tripDepartureFitsPickupWindow` (domain/trip-compatibility.ts),
+  // expresada en SQL: salida entre (inicio de ventana - LEAD) y el fin de la ventana.
+  const departureWindowFilter = params.departureAt
+    ? Prisma.sql`
+      AND ${params.departureAt}::timestamptz >=
+        ((pickup_date + pickup_time_window_start) AT TIME ZONE 'America/Argentina/Buenos_Aires')
+        - ${TRIP_PICKUP_WINDOW_LEAD_HOURS} * interval '1 hour'
+      AND ${params.departureAt}::timestamptz <=
+        ((pickup_date + pickup_time_window_end) AT TIME ZONE 'America/Argentina/Buenos_Aires')
+    `
+    : Prisma.empty;
   // MOVO-175 (ADR-026): envíos donde el emisor o el receptor tienen un bloqueo con el
   // caller. Acá y no en un post-filtro, para que el conteo de paginación no diverja.
   const blockedPartiesFilter =
@@ -311,6 +333,7 @@ function availableShipmentsWhereSql(params: {
       AND pickup_lng BETWEEN ${params.pickupBox.lngMin} AND ${params.pickupBox.lngMax}
       ${deliveryBoxFilter}
       ${pickupDateFilter}
+      ${departureWindowFilter}
       ${blockedPartiesFilter}
   `;
 }
@@ -378,6 +401,31 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
   };
 }
 
+const WITHDRAWAL_PENALTY_SELECT = {
+  id: true,
+  shipmentId: true,
+  carrierId: true,
+  withdrawalPenaltyArs: true,
+  carrierWithdrawnAt: true,
+} as const;
+
+function mapWithdrawalPenalty(row: {
+  id: string;
+  shipmentId: string;
+  carrierId: string;
+  withdrawalPenaltyArs: Prisma.Decimal | null;
+  carrierWithdrawnAt: Date | null;
+}): PendingWithdrawalPenalty {
+  // Solo se llama sobre filas `pending`, que siempre se escriben con monto y fecha.
+  return {
+    offerId: row.id,
+    shipmentId: row.shipmentId,
+    carrierId: row.carrierId,
+    penaltyArs: row.withdrawalPenaltyArs?.toNumber() ?? 0,
+    withdrawnAt: row.carrierWithdrawnAt ?? new Date(0),
+  };
+}
+
 export interface UpdateStatusOptions {
   /** MOVO-253: se persiste junto con el paso a `rejected_by_receiver`. */
   receiverRedesignationDeadline?: Date;
@@ -393,6 +441,40 @@ export interface UpdateStatusOptions {
   expectedCarrierId?: string;
   /** MOVO-210: ...y al mismo precio acordado (condiciona el UPDATE). */
   expectedAgreedPriceArs?: number;
+  /**
+   * MOVO-307: penalidad de la cancelación (> 0), persistida junto con el paso a `cancelled`
+   * con estado `pending`. Así el envío nunca queda cancelado sin registro de lo que se debe
+   * cobrar, aunque el proceso se caiga antes de llamar a payments.
+   */
+  cancellationPenaltyArs?: number;
+  /**
+   * MOVO-310: la vuelta a `published` es porque el transportista asignado se bajó. Su oferta
+   * `accepted` pasa a `carrier_withdrawn` (en vez de `assignment_lapsed`) y, si hay penalidad
+   * (> 0), queda persistida en la oferta como `pending` en la misma transacción. Es obligatorio
+   * para `assigned -> published`: esa arista solo existe por la baja del transportista.
+   */
+  carrierWithdrawal?: { penaltyArs: number };
+}
+
+/** MOVO-310: penalidad de una baja del transportista todavía sin registrar en su cuenta corriente. */
+export interface PendingWithdrawalPenalty {
+  offerId: string;
+  shipmentId: string;
+  carrierId: string;
+  penaltyArs: number;
+  withdrawnAt: Date;
+}
+
+/** MOVO-310: cursor del barrido de penalidades de baja (orden por baja). */
+export interface WithdrawalPenaltyCursor {
+  withdrawnAt: Date;
+  offerId: string;
+}
+
+/** MOVO-307: cursor del barrido de penalidades pendientes (orden por cancelación). */
+export interface PenaltyCursor {
+  cancelledAt: Date;
+  id: string;
 }
 
 export interface RedesignateReceiverInput {
@@ -403,9 +485,54 @@ export interface RedesignateReceiverInput {
   receiverConfirmationDeadline: Date;
 }
 
+/** Cursor keyset del barrido de liquidaciones: el último envío ya visto. */
+export interface SettlementCursor {
+  deliveredAt: Date;
+  id: string;
+}
+
 export interface ShipmentRepository {
+  claimCarrierWithdrawal(id: string, carrierId: string, from: ShipmentStatus, penaltyArs: number): Promise<boolean>;
+  listPendingCarrierWithdrawals(limit: number, afterId?: string): Promise<Shipment[]>;
   create(input: CreateShipmentInput): Promise<Shipment>;
   findById(id: string): Promise<Shipment | null>;
+  /**
+   * MOVO-212: envíos `delivered` con transportista cuya liquidación todavía no se cerró
+   * (nunca pasaron a `completed`), entregados hace más de `deliveredBefore` -- el margen
+   * evita pisar la captura en línea que dispara el handshake. Los más viejos primero.
+   * `after` es el cursor keyset `(deliveredAt, id)` para paginar: sin él, 20 envíos que nunca se
+   * pueden capturar (sin hold, hold vencido, cuenta desvinculada) ocupaban siempre la primera página
+   * y los demás no se reintentaban jamás.
+   */
+  listDeliveredAwaitingSettlement(
+    deliveredBefore: Date,
+    limit: number,
+    after?: SettlementCursor
+  ): Promise<Shipment[]>;
+  /**
+   * MOVO-307: envíos `cancelled` con la penalidad todavía `pending`, cancelados antes de
+   * `cancelledBefore` (para no pisar la captura en línea). Orden estable por
+   * `(lastStatusChangedAt, id)`, mismo molde que `listDeliveredAwaitingSettlement`.
+   */
+  listCancelledAwaitingPenalty(cancelledBefore: Date, limit: number, after?: PenaltyCursor): Promise<Shipment[]>;
+  /**
+   * MOVO-307: cierra la penalidad (`pending` -> `captured`/`debt`). Condicional sobre `pending`:
+   * `false` si otro llamador (la captura en línea o el barrido) ya la cerró.
+   */
+  resolveCancellationPenalty(id: string, to: "captured" | "debt"): Promise<boolean>;
+  /** MOVO-310: penalidad de baja `pending` de una oferta (`null` si no tiene o ya se registró). */
+  findPendingWithdrawalPenalty(offerId: string): Promise<PendingWithdrawalPenalty | null>;
+  /**
+   * MOVO-310: bajas del transportista con la penalidad todavía `pending`, anteriores a
+   * `withdrawnBefore` (para no pisar el registro en línea). Orden estable por `(withdrawnAt, offerId)`.
+   */
+  listPendingWithdrawalPenalties(
+    withdrawnBefore: Date,
+    limit: number,
+    after?: WithdrawalPenaltyCursor
+  ): Promise<PendingWithdrawalPenalty[]>;
+  /** MOVO-310: `pending -> debt`. Condicional: `false` si otro llamador ya la cerró. */
+  resolveWithdrawalPenalty(offerId: string): Promise<boolean>;
   /**
    * Única vía de escritura de `status` (AC2 de MOVO-104): valida la
    * transición con `shipment-state-machine.ts` (MOVO-105) antes de tocar la
@@ -432,6 +559,7 @@ export interface ShipmentRepository {
    */
   redesignateReceiver(input: RedesignateReceiverInput): Promise<Shipment>;
   listEvents(shipmentId: string): Promise<ShipmentEvent[]>;
+  findLatestEvent(shipmentId: string): Promise<ShipmentEvent | null>;
   addPhoto(shipmentId: string, stage: PhotoStage, s3Key: string): Promise<ShipmentPhoto>;
   listPhotos(shipmentId: string): Promise<ShipmentPhoto[]>;
   /**
@@ -491,6 +619,8 @@ export interface ShipmentRepository {
     radiusKm: number;
     maxDistanceKm?: number;
     pickupDate?: Date;
+    /** MOVO-314: salida del viaje; filtra por la ventana de retiro (`tripDepartureFitsPickupWindow`). */
+    departureAt?: Date;
     excludeUserId: string;
     /** MOVO-175: usuarios con un bloqueo con el caller -- se excluyen sus envíos como emisor o receptor. */
     excludePartyIds?: string[];
@@ -566,6 +696,28 @@ export interface ShipmentRepository {
    */
   flagTransitAnomaly(id: string, now?: Date): Promise<boolean>;
   /**
+   * MOVO-278 (ADR-045): envíos `in_transit` marcados en o antes de `flaggedBefore` a los
+   * que todavía no se les mandó el aviso previo a la disputa, el marcado hace más tiempo primero.
+   */
+  findFlaggedInTransitUnwarned(limit: number, flaggedBefore: Date): Promise<Shipment[]>;
+  /**
+   * MOVO-278 (ADR-045): registra (una sola vez) que se avisó al transportista.
+   * Compare-and-swap: devuelve `false` si el envío ya no está `in_transit` o ya se avisó.
+   */
+  markTransitAnomalyWarned(id: string, now?: Date): Promise<boolean>;
+  /**
+   * MOVO-278 (ADR-045): envíos `in_transit` marcados en o antes de `flaggedBefore` Y avisados
+   * en o antes de `warnedBefore` (candidatos a pasar a `disputed`), el marcado hace más tiempo
+   * primero. Exigir el aviso previo garantiza que el transportista tuvo el plazo prometido, aun
+   * para los marcados antes del deploy o si el barrido estuvo caído más que el plazo de disputa.
+   */
+  findFlaggedInTransitBefore(limit: number, flaggedBefore: Date, warnedBefore: Date): Promise<Shipment[]>;
+  /**
+   * MOVO-278 (ADR-045, requisito de ADR-036): ¿el usuario tiene algún envío en
+   * `disputed` como transportista? Sea la disputa automática o una iniciada por un usuario.
+   */
+  hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean>;
+  /**
    * MOVO-134: soporte del endpoint interno de baja de cuenta de `svc-users` -- ¿el
    * usuario (como sender, receiver o carrier) tiene algún envío en un estado no
    * terminal? Separa `disputed` del resto (`awaiting_receiver_confirmation`,
@@ -630,6 +782,13 @@ export interface ShipmentRepository {
    * es una conexión mutua).
    */
   findMutualCounterpartyIds(userId: string, otherId: string): Promise<string[]>;
+  /**
+   * MOVO-288: las partes de un envío para la regla de conflicto de interés de `svc-admin`.
+   * Además del emisor, transportista y receptor actuales, devuelve los receptores anteriores:
+   * quien pidió una transferencia completada (ADR-038) y quien rechazó antes de que el emisor
+   * eligiera a otra persona (ADR-027, sale del evento `-> rejected_by_receiver`). `null` si no existe.
+   */
+  findParties(id: string): Promise<ShipmentParties | null>;
   /**
    * MOVO-192: envíos activos (`ACTIVE_SHIPMENT_STATUSES`) donde `userId` participa en
    * el rol de columna dado (`senderId`/`carrierId`/`receiverId` -- no los nombres de
@@ -742,6 +901,23 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
   }
 
   return {
+    async claimCarrierWithdrawal(id, carrierId, from, penaltyArs) {
+      const { count } = await db.shipment.updateMany({
+        where: { id, carrierId, status: from, carrierWithdrawalPending: false },
+        data: { carrierWithdrawalPending: true, carrierWithdrawalPenaltyArs: new Prisma.Decimal(penaltyArs) },
+      });
+      return count === 1;
+    },
+
+    async listPendingCarrierWithdrawals(limit, afterId) {
+      const rows = await db.shipment.findMany({
+        where: { carrierWithdrawalPending: true, ...(afterId && { id: { gt: afterId } }) },
+        orderBy: { id: "asc" },
+        take: limit,
+      });
+      return rows.map(mapShipment);
+    },
+
     async create(input: CreateShipmentInput): Promise<Shipment> {
       const row = await db.$transaction(async (tx) => {
         const created = await tx.shipment.create({
@@ -794,6 +970,97 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return row ? mapShipmentWithLastRejection(row) : null;
     },
 
+    async listDeliveredAwaitingSettlement(
+      deliveredBefore: Date,
+      limit: number,
+      after?: SettlementCursor
+    ): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.DELIVERED,
+          carrierId: { not: null },
+          deliveredAt: { lt: deliveredBefore },
+          ...(after
+            ? {
+                OR: [
+                  { deliveredAt: { gt: after.deliveredAt } },
+                  { deliveredAt: after.deliveredAt, id: { gt: after.id } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ deliveredAt: "asc" }, { id: "asc" }],
+        take: limit,
+      });
+      return rows.map(mapShipment);
+    },
+
+    async listCancelledAwaitingPenalty(cancelledBefore, limit, after) {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.CANCELLED,
+          cancellationPenaltyStatus: "pending",
+          lastStatusChangedAt: { lt: cancelledBefore },
+          ...(after
+            ? {
+                OR: [
+                  { lastStatusChangedAt: { gt: after.cancelledAt } },
+                  { lastStatusChangedAt: after.cancelledAt, id: { gt: after.id } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ lastStatusChangedAt: "asc" }, { id: "asc" }],
+        take: limit,
+      });
+      return rows.map(mapShipment);
+    },
+
+    async resolveCancellationPenalty(id, to) {
+      const { count } = await db.shipment.updateMany({
+        where: { id, cancellationPenaltyStatus: "pending" },
+        data: { cancellationPenaltyStatus: to },
+      });
+      return count === 1;
+    },
+
+    async findPendingWithdrawalPenalty(offerId) {
+      const row = await db.offer.findFirst({
+        where: { id: offerId, withdrawalPenaltyStatus: "pending" },
+        select: WITHDRAWAL_PENALTY_SELECT,
+      });
+      return row ? mapWithdrawalPenalty(row) : null;
+    },
+
+    async listPendingWithdrawalPenalties(withdrawnBefore, limit, after) {
+      const rows = await db.offer.findMany({
+        where: {
+          withdrawalPenaltyStatus: "pending",
+          carrierWithdrawnAt: { lt: withdrawnBefore },
+          ...(after
+            ? {
+                OR: [
+                  { carrierWithdrawnAt: { gt: after.withdrawnAt } },
+                  { carrierWithdrawnAt: after.withdrawnAt, id: { gt: after.offerId } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ carrierWithdrawnAt: "asc" }, { id: "asc" }],
+        take: limit,
+        select: WITHDRAWAL_PENALTY_SELECT,
+      });
+      return rows.map(mapWithdrawalPenalty);
+    },
+
+    async resolveWithdrawalPenalty(offerId) {
+      const { count } = await db.offer.updateMany({
+        where: { id: offerId, withdrawalPenaltyStatus: "pending" },
+        data: { withdrawalPenaltyStatus: "debt" },
+      });
+      return count === 1;
+    },
+
     async updateStatus(
       id: string,
       to: ShipmentStatus,
@@ -811,6 +1078,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       }
 
       const from = parseShipmentStatus(current.status, "status");
+      if (current.carrierWithdrawalPending && !(to === ShipmentStatus.PUBLISHED && options.carrierWithdrawal)) {
+        throw new ShipmentConcurrentModificationError(id);
+      }
+      if (options.carrierWithdrawal && !current.carrierWithdrawalPending) {
+        throw new ShipmentConcurrentModificationError(id);
+      }
       // Antes de validar la arista: si el caller decidió sobre otro estado, es una carrera
       // (409 de modificación concurrente), no una transición inválida.
       if (options.expectedFrom !== undefined && options.expectedFrom !== from) {
@@ -819,6 +1092,11 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       // Lanza InvalidShipmentTransitionError si la transición no es válida —
       // ningún UPDATE se ejecuta si esto tira.
       transition(from, to);
+      // MOVO-310: `assigned -> published` es solo la baja del transportista; sin la opción, la
+      // oferta terminaría como `assignment_lapsed` y el hold quedaría sin liberar.
+      if (from === ShipmentStatus.ASSIGNED && to === ShipmentStatus.PUBLISHED && !options.carrierWithdrawal) {
+        throw new Error("assigned -> published requiere UpdateStatusOptions.carrierWithdrawal (MOVO-310)");
+      }
 
       // AC6 de MOVO-81: precondición de negocio sobre una transición que ya es
       // estructuralmente válida — publicar exige evidencia mínima del paquete. Vive acá
@@ -859,9 +1137,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       // y el envío vuelve a la cola: se desasigna al transportista y se cierra la oferta
       // aceptada en la misma transacción. Sin esto el envío quedaba `published` con un
       // `carrierId` y un precio acordado de una asignación que ya no existe.
+      // MOVO-310: lo mismo cuando el transportista se baja, también desde `assigned`.
       const revertsAssignment =
         to === ShipmentStatus.PUBLISHED &&
-        (from === ShipmentStatus.ASSIGNMENT_PENDING || from === ShipmentStatus.ASSIGNED_UNFUNDED);
+        (from === ShipmentStatus.ASSIGNMENT_PENDING ||
+          from === ShipmentStatus.ASSIGNED_UNFUNDED ||
+          from === ShipmentStatus.ASSIGNED);
       const clearedAssignment = revertsAssignment
         ? {
             carrierId: null,
@@ -871,6 +1152,16 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             estimatedDeliveryTimeWindowEnd: null,
           }
         : {};
+
+      // MOVO-307: la penalidad se persiste junto con la cancelación y también va en la fila
+      // reconstruida al final, así `updateStatus` devuelve lo mismo que quedó en la DB.
+      const cancellationPenalty =
+        to === ShipmentStatus.CANCELLED && options.cancellationPenaltyArs !== undefined
+          ? {
+              cancellationPenaltyArs: new Prisma.Decimal(options.cancellationPenaltyArs),
+              cancellationPenaltyStatus: "pending" as const,
+            }
+          : {};
 
       const row = await db.$transaction(async (tx) => {
         // MOVO-118: compare-and-swap, mismo patrón que
@@ -883,16 +1174,20 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           where: {
             id,
             status: from,
+            carrierWithdrawalPending: options.carrierWithdrawal ? true : false,
             ...(options.expectedCarrierId !== undefined && { carrierId: options.expectedCarrierId }),
             ...(options.expectedAgreedPriceArs !== undefined && { agreedPriceArs: options.expectedAgreedPriceArs }),
           },
           data: {
             status: to,
+            carrierWithdrawalPending: false,
+            carrierWithdrawalPenaltyArs: null,
             lastStatusChangedAt: now,
             deliveredAt,
             receiverRedesignationDeadline,
             ...restoredWindow,
             ...clearedAssignment,
+            ...cancellationPenalty,
           },
         });
 
@@ -906,6 +1201,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             fromStatus: from,
             toStatus: to,
             actorId,
+            assignmentCarrierId: revertsAssignment ? current.carrierId : null,
             reason: reason ?? null,
           },
         });
@@ -914,11 +1210,25 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         // fue aceptada y no llegó a cerrarse: pasa a `assignment_lapsed`. Las demás ofertas NO
         // se tocan acá porque nunca se cerraron (solo se cierran al confirmar el hold, abajo):
         // siguen `pending`, así que el envío vuelve a `published` con sus ofertas vivas.
+        // MOVO-310: si fue el transportista quien se bajó, la oferta pasa a `carrier_withdrawn` con
+        // su penalidad `pending` (si hay): queda registrada antes de llamar a payments, así no se
+        // pierde aunque el proceso se caiga. Desde `assigned` las demás ya estaban `superseded`.
         if (revertsAssignment) {
-          offerTransition(OfferStatus.ACCEPTED, OfferStatus.ASSIGNMENT_LAPSED);
+          const withdrawal = options.carrierWithdrawal;
+          const offerTo = withdrawal ? OfferStatus.CARRIER_WITHDRAWN : OfferStatus.ASSIGNMENT_LAPSED;
+          offerTransition(OfferStatus.ACCEPTED, offerTo);
           await tx.offer.updateMany({
             where: { shipmentId: id, status: OfferStatus.ACCEPTED },
-            data: { status: OfferStatus.ASSIGNMENT_LAPSED },
+            data: {
+              status: offerTo,
+              ...(withdrawal && {
+                carrierWithdrawnAt: now,
+                ...(withdrawal.penaltyArs > 0 && {
+                  withdrawalPenaltyArs: new Prisma.Decimal(withdrawal.penaltyArs),
+                  withdrawalPenaltyStatus: "pending" as const,
+                }),
+              }),
+            },
           });
         }
 
@@ -968,11 +1278,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         return {
           ...current,
           status: to,
+          carrierWithdrawalPending: false,
+          carrierWithdrawalPenaltyArs: null,
           lastStatusChangedAt: now,
           deliveredAt,
           receiverRedesignationDeadline,
           ...restoredWindow,
           ...clearedAssignment,
+          ...cancellationPenalty,
           updatedAt: now,
         };
       });
@@ -1028,6 +1341,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         orderBy: { createdAt: "asc" },
       });
       return rows.map(mapEvent);
+    },
+
+    async findLatestEvent(shipmentId: string): Promise<ShipmentEvent | null> {
+      const row = await db.shipmentEvent.findFirst({
+        where: { shipmentId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      });
+      return row ? mapEvent(row) : null;
     },
 
     async addPhoto(shipmentId: string, stage: PhotoStage, s3Key: string): Promise<ShipmentPhoto> {
@@ -1135,6 +1456,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       radiusKm: number;
       maxDistanceKm?: number;
       pickupDate?: Date;
+      departureAt?: Date;
       excludeUserId: string;
       excludePartyIds?: string[];
       page: number;
@@ -1156,6 +1478,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         pickupBox,
         deliveryBox,
         pickupDate: params.pickupDate ?? null,
+        departureAt: params.departureAt ?? null,
         excludePartyIds: params.excludePartyIds ?? [],
       });
 
@@ -1338,6 +1661,45 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return result.count > 0;
     },
 
+    async findFlaggedInTransitUnwarned(limit: number, flaggedBefore: Date): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.IN_TRANSIT,
+          transitAnomalyFlaggedAt: { lte: flaggedBefore },
+          transitAnomalyWarnedAt: null,
+        },
+        take: limit,
+        orderBy: { transitAnomalyFlaggedAt: "asc" },
+      });
+      return rows.map(mapShipment);
+    },
+
+    async markTransitAnomalyWarned(id: string, now: Date = new Date()): Promise<boolean> {
+      const result = await db.shipment.updateMany({
+        where: { id, status: ShipmentStatus.IN_TRANSIT, transitAnomalyWarnedAt: null },
+        data: { transitAnomalyWarnedAt: now },
+      });
+      return result.count > 0;
+    },
+
+    async findFlaggedInTransitBefore(limit: number, flaggedBefore: Date, warnedBefore: Date): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.IN_TRANSIT,
+          transitAnomalyFlaggedAt: { lte: flaggedBefore },
+          transitAnomalyWarnedAt: { lte: warnedBefore },
+        },
+        take: limit,
+        orderBy: { transitAnomalyFlaggedAt: "asc" },
+      });
+      return rows.map(mapShipment);
+    },
+
+    async hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean> {
+      const count = await db.shipment.count({ where: { carrierId, status: ShipmentStatus.DISPUTED } });
+      return count > 0;
+    },
+
     /** MOVO-275: marca (una sola vez) que la entrega empezó. Idempotente. */
     async markDeliveryHandshakeStarted(id: string): Promise<void> {
       await db.shipment.updateMany({
@@ -1465,6 +1827,36 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         fulfilledCounterpartyIds(otherId),
       ]);
       return [...mine].filter((id) => id !== userId && id !== otherId && theirs.has(id));
+    },
+
+    async findParties(id: string): Promise<ShipmentParties | null> {
+      const row = await db.shipment.findUnique({
+        where: { id },
+        select: {
+          senderId: true,
+          carrierId: true,
+          receiverId: true,
+          receiverTransfers: { where: { status: "completed" }, select: { requestedBy: true } },
+          events: {
+            where: { toStatus: ShipmentStatus.REJECTED_BY_RECEIVER, actorId: { not: null } },
+            select: { actorId: true },
+          },
+        },
+      });
+      if (!row) return null;
+
+      const former = new Set<string>();
+      for (const transfer of row.receiverTransfers) former.add(transfer.requestedBy);
+      for (const event of row.events) if (event.actorId) former.add(event.actorId);
+      former.delete(row.receiverId);
+
+      return {
+        shipmentId: id,
+        senderId: row.senderId,
+        carrierId: row.carrierId,
+        receiverId: row.receiverId,
+        formerReceiverIds: [...former],
+      };
     },
 
     async listActiveShipments(

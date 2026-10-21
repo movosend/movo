@@ -74,7 +74,7 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
 async function parseErrorBody(response: Response): Promise<ApiError> {
   try {
     const body = (await response.json()) as SerializedApiError;
-    return new ApiError(response.status, body.error.code, body.error.message);
+    return new ApiError(response.status, body.error.code, body.error.message, body.error.details);
   } catch {
     return new ApiError(response.status, "INTERNAL_ERROR", response.statusText || "Error de red");
   }

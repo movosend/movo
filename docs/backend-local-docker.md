@@ -47,19 +47,16 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build \
 **Compose no corre migraciones solo.** Con la base recién creada las tablas no existen y
 los servicios responden errores de SQL.
 
-`movo-svc-users` usa Prisma (ADR-011); el resto sigue con SQL plano vía script:
+Todos los servicios Node usan Prisma (ADR-011). La CLI viaja en la imagen, se corre
+adentro del contenedor (repetir con `movo-svc-shipments`, `movo-svc-payments` y
+`movo-svc-admin`):
 
 ```bash
-# svc-users (Prisma) — la CLI viaja en la imagen, se corre adentro del contenedor
 docker compose -f docker-compose.yml -f docker-compose.local.yml \
   run --rm movo-svc-users npx prisma migrate deploy
-
-# el resto de los servicios (SQL plano), desde la raíz del repo
-DATABASE_URL=postgresql://movo:movo_local_pw@localhost:5432/movo \
-  ./scripts/run-migrations.sh services/movo-svc-shipments
 ```
 
-Ambos comandos son idempotentes: si ya está todo aplicado, no hacen nada.
+Es idempotente: si ya está todo aplicado, no hace nada.
 
 Si estás iterando sobre `movo-svc-users` nativo (`npm run dev`), desde
 `services/movo-svc-users` alcanza con `npm run migrate` (usa el `DATABASE_URL` de tu

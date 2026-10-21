@@ -1,6 +1,9 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
+import type { ShipmentFundingView } from "@movo/shared/dist/types/funding";
 import type { ShipmentQuoteRequest, ShipmentQuoteResponse } from "@movo/shared/dist/types/pricing";
+import type { ShipmentReceiverTransferSummary } from "@movo/shared/dist/types/receiver-transfer";
+import type { CancellationQuoteResponse } from "@movo/shared/dist/config/cancellation-penalty";
 import type { PackageType } from "../store/shipment-wizard-store";
 import { httpClient } from "./http-client";
 
@@ -47,15 +50,35 @@ export interface ShipmentSummary {
   receiverRedesignationDeadline?: string | null;
   /** MOVO-253: motivo del último rechazo, `null` fuera de `rejected_by_receiver`. */
   rejectionReason?: string | null;
+  /** MOVO-278 (ADR-045): ISO del momento en que el envío `in_transit` se marcó como
+   * demorado; `null` (u omitido en builds viejos del backend) si no está marcado. */
+  transitAnomalyFlaggedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   /** MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
    * un transportista ajeno viendo un envío `published` — agregado de ofertas vigentes
    * sin identidad de los competidores, `null` si no hay ninguna. */
   offersSummary?: { count: number; minPriceNetArs: number } | null;
+  debtDiscount?: { amountArs: number; reason: "pending_balance" } | null;
   /** MOVO-257: solo en `GET /shipments/mine` — ofertas vigentes de un envío
    * `published` visto por su emisor; `null` en cualquier otro caso. */
   pendingOffersCount?: number | null;
+  /** MOVO-211: solo en `GET /shipments/:id` — estado de la reserva de fondos según quién
+   * mira (emisor, transportista asignado o el que perdió la asignación). `null` para el
+   * receptor y cuando no hay nada que mostrar. */
+  funding?: ShipmentFundingView | null;
+  /** MOVO-275: solo en `GET /shipments/:id` para las partes del envío. Dice si quien
+   * mira le pasó la recepción a otra persona (solo lectura), la solicitud pendiente
+   * (solo para quien la pidió y el emisor) y la transferencia completada. */
+  receiverTransfer?: ShipmentReceiverTransferSummary | null;
+  /** MOVO-275: solo en `GET /shipments/mine` — el usuario le pasó la recepción de este
+   * envío a otra persona (badge "Transferido"). `null` en cualquier otro caso. */
+  transferredByMe?: { newReceiverId: string; newReceiverName: string | null; at: string } | null;
+  /** MOVO-307 (ADR-047): penalidad por cancelar un envío `assigned` tarde. `null` en
+   * cualquier cancelación sin cargo. `pending`: se está cobrando del hold; `captured`: ya
+   * se cobró; `debt`: el cobro falló y quedó en la cuenta corriente (el hold se liberó entero). */
+  cancellationPenaltyArs?: number | null;
+  cancellationPenaltyStatus?: "pending" | "captured" | "debt" | null;
 }
 
 export interface ListMineResponse {
@@ -207,6 +230,7 @@ export interface AvailableShipment {
   deliveryDistanceKm: number | null;
   distanceKm: number;
   hasMyOffer: boolean;
+  debtDiscount?: { amountArs: number; reason: "pending_balance" } | null;
   createdAt: string;
 }
 
@@ -255,6 +279,9 @@ export interface ActiveShipmentSummary {
   isToday: boolean;
   pickupWindowExpired: boolean;
   tripId: string | null;
+  /** MOVO-278 (ADR-045): envío `in_transit` demorado (ISO del momento en que se marcó);
+   * `null` si no está marcado. Se muestra como "Demorado". */
+  transitAnomalyFlaggedAt: string | null;
 }
 
 /**
@@ -398,11 +425,35 @@ export const shipmentsClient = {
     return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/reject`, body ?? {});
   },
 
-  /** `POST /shipments/:id/cancel` (MOVO-29, implementado en MOVO-108) — solo el
-   * emisor puede llamar a este endpoint, desde `awaiting_receiver_confirmation`,
-   * `published` o `assignment_pending`. */
-  cancel(shipmentId: string, body?: { reason?: string }): Promise<ShipmentSummary> {
+  /** `POST /shipments/:id/cancel` (MOVO-29/108) — solo el emisor, desde cualquier estado
+   * cancelable. MOVO-307: en `assigned`, `expectedPenaltyArs` es el monto que el emisor vio
+   * en la cotización; si cambió, 409 `CANCELLATION_PENALTY_MISMATCH` sin cancelar. */
+  cancel(shipmentId: string, body?: { reason?: string; expectedPenaltyArs?: number }): Promise<ShipmentSummary> {
     return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/cancel`, body ?? {});
+  },
+
+  /** `GET /shipments/:id/cancellation-quote` (MOVO-307) — solo el emisor. Cuánto le cuesta
+   * cancelar ahora; `penaltyArs: 0` fuera de `assigned` o dentro del plazo sin cargo. */
+  getCancellationQuote(shipmentId: string): Promise<CancellationQuoteResponse> {
+    return httpClient.get<CancellationQuoteResponse>(`/shipments/${shipmentId}/cancellation-quote`);
+  },
+
+  /** `GET /shipments/:id/carrier-withdrawal-quote` (MOVO-310/314) — solo el transportista asignado.
+   * Cuánto le cuesta bajarse ahora: deuda en su cuenta corriente si faltan menos de 12 h para
+   * el retiro, y desde cualquier estado con transportista (ADR-047). */
+  getCarrierWithdrawalQuote(shipmentId: string): Promise<CancellationQuoteResponse> {
+    return httpClient.get<CancellationQuoteResponse>(`/shipments/${shipmentId}/carrier-withdrawal-quote`);
+  },
+
+  /** `POST /shipments/:id/carrier-withdrawal` (MOVO-310/314) — el envío vuelve a `published`. El
+   * body siempre lleva `expectedPenaltyArs` (el monto que el transportista vio): si cambió, 409
+   * `CANCELLATION_PENALTY_MISMATCH` sin bajarlo. La respuesta es el envío republicado, al que el
+   * transportista ya no tiene acceso. */
+  withdrawCarrier(
+    shipmentId: string,
+    body: { reason?: string; expectedPenaltyArs: number },
+  ): Promise<ShipmentSummary> {
+    return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/carrier-withdrawal`, body);
   },
 
   /** `POST /shipments/:id/receiver` (MOVO-253) — el emisor elige otro receptor para un

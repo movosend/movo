@@ -27,6 +27,10 @@ export type NotificationTriggerKey =
   | "shipmentCancelledPickupMissedCarrier"
   | "offersNeedReview"
   | "transitAnomalyCheck"
+  | "transitAnomalyDisputeWarning"
+  | "transitAnomalyDisputeOpenedSender"
+  | "transitAnomalyDisputeOpenedReceiver"
+  | "transitAnomalyDisputeOpenedCarrier"
   | "offerCreated"
   | "offerAccepted"
   | "offerSuperseded"
@@ -34,6 +38,11 @@ export type NotificationTriggerKey =
   | "offerVoidedByShipmentCancellation"
   | "tripMatch"
   | "tripAutoCreated"
+  | "tripDepartureReminder"
+  | "tripRecurrenceGenerated"
+  | "tripRecurrenceStoppedPhantom"
+  | "tripRecurrenceStoppedUnavailable"
+  | "tripRecurrenceBlockedByDebt"
   | "ratingReceived"
   | "custodyPickupConfirmed"
   | "custodyPickupConfirmedReceiver"
@@ -41,6 +50,8 @@ export type NotificationTriggerKey =
   | "custodyDeliveryConfirmedCarrier"
   | "tripStartedSender"
   | "tripStartedReceiver"
+  | "carrierNearPickup"
+  | "carrierNearDelivery"
   | "kycIdentityApproved"
   | "kycIdentityRejected"
   | "kycIdentityManualReview"
@@ -50,6 +61,10 @@ export type NotificationTriggerKey =
   | "accountPasswordChanged"
   | "accountEmailChanged"
   | "accountPhoneChanged"
+  | "accountSuspended"
+  | "accountDisabled"
+  | "accountSanctionLifted"
+  | "accountSuspensionExpired"
   | "ratingPendingSender"
   | "ratingPendingReceiver"
   | "ratingPendingCarrier"
@@ -65,6 +80,13 @@ export type NotificationTriggerKey =
   | "fundingAttemptFailedSender"
   | "fundingReconfirmSender"
   | "fundingReconfirmCarrier"
+  | "settlementCreditedCarrier"
+  | "settlementProcessedSender"
+  | "cancellationPenaltyChargedSender"
+  | "cancellationPenaltyDebtSender"
+  | "cancellationPenaltyCompensationCarrier"
+  | "carrierWithdrewSender"
+  | "carrierWithdrawalPenaltyDebtCarrier"
   | "receiverTransferInvited"
   | "receiverTransferRequested"
   | "receiverTransferCompletedRequester"
@@ -74,7 +96,8 @@ export type NotificationTriggerKey =
   | "receiverTransferRejectedSender"
   | "receiverTransferExpiredRequester"
   | "receiverTransferExpiredSender"
-  | "receiverTransferCancelled";
+  | "receiverTransferCancelled"
+  | "chatMessageReceived";
 
 export interface NotificationCopy {
   title: string;
@@ -102,6 +125,21 @@ function formatEtaDuration(etaMinutes: number): string {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes === 0 ? `${hours} h` : `${hours} h ${remainingMinutes} min`;
+}
+
+/** Monto en pesos con 2 decimales, formato argentino (`1.234,50`). */
+function formatArs(amount: number): string {
+  return amount.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Fecha en horario argentino (`25/10/2026`), para los avisos de sanciones. */
+function formatArgentinaDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 function definition<TParams = void>(
@@ -204,6 +242,46 @@ export const NOTIFICATION_TRIGGERS = {
       body: "Pasó el tiempo estimado de entrega. Si tuviste un inconveniente, avisanos; si ya entregaste, confirmalo en la app",
     })
   ),
+  // MOVO-278 (ADR-045): aviso previo al transportista, antes de que el envío demorado pase a disputa.
+  transitAnomalyDisputeWarning: definition<void>(
+    "shipments",
+    {
+      title: "Confirmá la entrega",
+      body: "Si no confirmás la entrega, se abre una disputa y no vas a poder operar como transportista.",
+    },
+    () => ({
+      title: "Confirmá la entrega",
+      body: "Si no confirmás la entrega pronto, se abre una disputa y no vas a poder operar como transportista hasta que se resuelva",
+    })
+  ),
+  // MOVO-278 (ADR-045): el envío demorado pasó a disputa automáticamente.
+  transitAnomalyDisputeOpenedSender: definition<void>(
+    "shipments",
+    { title: "Envío en disputa", body: "Tu envío no se entregó a tiempo y pasó a disputa." },
+    () => ({
+      title: "Envío en disputa",
+      body: "Tu envío no se entregó dentro del plazo y pasó a disputa",
+    })
+  ),
+  transitAnomalyDisputeOpenedReceiver: definition<void>(
+    "shipments",
+    { title: "Envío en disputa", body: "El envío que ibas a recibir no se entregó a tiempo y pasó a disputa." },
+    () => ({
+      title: "Envío en disputa",
+      body: "El envío que ibas a recibir no se entregó dentro del plazo y pasó a disputa",
+    })
+  ),
+  transitAnomalyDisputeOpenedCarrier: definition<void>(
+    "shipments",
+    {
+      title: "Envío en disputa",
+      body: "No confirmaste la entrega a tiempo: el envío pasó a disputa y no podés operar hasta que se resuelva.",
+    },
+    () => ({
+      title: "Envío en disputa",
+      body: "No confirmaste la entrega a tiempo: el envío pasó a disputa y no podés operar como transportista hasta que se resuelva",
+    })
+  ),
   offerCreated: definition<{ carrierName: string | null; deliveryShort: string }>(
     "offers",
     { title: "Nueva oferta en tu envío", body: "Un transportista ofertó por tu envío." },
@@ -255,6 +333,71 @@ export const NOTIFICATION_TRIGGERS = {
     () => ({
       title: "Se creó un viaje a partir de este envío",
       body: "Armamos un viaje en tu cuenta con este envío. Vas a recibir avisos de otros paquetes compatibles con esta ruta.",
+    })
+  ),
+  /** MOVO-240: a las 19:00 del día anterior a la salida de un viaje `declared`. El copy
+   * cambia según si ya tiene paquetes aceptados: la idea es que entre a buscar más. */
+  tripDepartureReminder: definition<{ destinationShort: string; packagesCount: number }>(
+    "trips",
+    { title: "Tu viaje es mañana", body: "Entrá y mirá qué envíos te quedan de paso." },
+    ({ destinationShort, packagesCount }) =>
+      packagesCount > 0
+        ? {
+            title: "Mañana salís de viaje",
+            body: `Ya llevás ${packagesCount === 1 ? "1 paquete" : `${packagesCount} paquetes`} a ${destinationShort}. ¿Te entra uno más? Fijate qué envíos te quedan de paso.`,
+          }
+        : {
+            title: "Tu viaje es mañana",
+            body: `Todavía no tenés paquetes para llevar a ${destinationShort}. Entrá y mirá qué envíos te quedan de paso.`,
+          }
+  ),
+  /** MOVO-265 (ADR-042): el barrido declaró la ocurrencia siguiente de un viaje recurrente. */
+  tripRecurrenceGenerated: definition<{ dayLabel: string; destinationShort: string }>(
+    "trips",
+    { title: "Declaramos tu próximo viaje", body: "Declaramos tu viaje de la semana que viene. Entrá y mirá qué envíos te quedan de paso." },
+    ({ dayLabel, destinationShort }) => ({
+      title: "Declaramos tu próximo viaje",
+      body: `Declaramos tu viaje del ${dayLabel} a ${destinationShort}. Entrá y mirá qué envíos te quedan de paso.`,
+    })
+  ),
+  /** MOVO-265: corte automático por 3 ocurrencias seguidas vencidas (serie fantasma). Habla
+   * de viajes y no de semanas: con varios días por semana, 3 ocurrencias no son 3 semanas. */
+  tripRecurrenceStoppedPhantom: definition<{ destinationShort: string }>(
+    "trips",
+    {
+      title: "Dejamos de repetir tu viaje",
+      body: "Dejamos de repetir tu viaje porque no saliste en tus últimos 3 viajes.",
+    },
+    ({ destinationShort }) => ({
+      title: "Dejamos de repetir tu viaje",
+      body: `Dejamos de repetir tu viaje a ${destinationShort} porque no saliste en tus últimos 3 viajes.`,
+    })
+  ),
+  /** MOVO-265: corte automático porque no se pudo declarar en nombre del transportista
+   * (cuenta suspendida o requisitos de ADR-036). Genérico a propósito: sin detalles de
+   * moderación en una pantalla bloqueada. */
+  tripRecurrenceStoppedUnavailable: definition<{ destinationShort: string }>(
+    "trips",
+    {
+      title: "Dejamos de repetir tu viaje",
+      body: "No pudimos declarar tu próximo viaje. Revisá tu cuenta para volver a activarlo.",
+    },
+    ({ destinationShort }) => ({
+      title: "Dejamos de repetir tu viaje",
+      body: `No pudimos declarar tu próximo viaje a ${destinationShort}. Revisá tu cuenta para volver a activarlo.`,
+    })
+  ),
+  /** MOVO-313: la ocurrencia siguiente de un viaje recurrente no se declaró porque el
+   * transportista tiene una deuda vencida. La serie NO se corta: se declara sola cuando la salde. */
+  tripRecurrenceBlockedByDebt: definition<{ destinationShort: string }>(
+    "trips",
+    {
+      title: "No pudimos declarar tu próximo viaje",
+      body: "Tenés una deuda pendiente. Saldala y declaramos tu próximo viaje automáticamente.",
+    },
+    ({ destinationShort }) => ({
+      title: "No pudimos declarar tu próximo viaje",
+      body: `No pudimos declarar tu próximo viaje a ${destinationShort} porque tenés una deuda pendiente. Saldala y lo declaramos automáticamente.`,
     })
   ),
   ratingReceived: definition<void>(
@@ -355,6 +498,19 @@ export const NOTIFICATION_TRIGGERS = {
       body: `${carrierName} inició su viaje camino a retirar tu paquete. Te avisamos cuando esté en camino a vos.`,
     })
   ),
+  /** MOVO-240: el transportista entró en un radio de 2 km del punto de retiro (al emisor)
+   * o del de entrega (al receptor). Se manda a cualquier hora (`proximity` está exenta del
+   * horario de silencio). */
+  carrierNearPickup: definition<void>(
+    "proximity",
+    { title: "Tu transportista está por llegar", body: "Está a menos de 2 km del punto de retiro." },
+    () => ({ title: "Tu transportista está por llegar", body: "Está a menos de 2 km del punto de retiro." })
+  ),
+  carrierNearDelivery: definition<void>(
+    "proximity",
+    { title: "Tu paquete está por llegar", body: "El transportista está a menos de 2 km del punto de entrega." },
+    () => ({ title: "Tu paquete está por llegar", body: "El transportista está a menos de 2 km del punto de entrega." })
+  ),
   // MOVO-274: resultado de la verificación de identidad / licencia (Didit). Seis
   // triggers y no uno parametrizado por tipo: el copy tiene que dejar claro de cuál de
   // las dos verificaciones se trata, y `displayCopy` de la pantalla de Configuración
@@ -441,6 +597,31 @@ export const NOTIFICATION_TRIGGERS = {
     "account_security",
     { title: "Cambiaste tu teléfono", body: "El teléfono de tu cuenta se actualizó correctamente." },
     () => ({ title: "Cambiaste tu teléfono", body: "El teléfono de tu cuenta se actualizó correctamente." })
+  ),
+  // MOVO-296: sanciones de cuenta. El motivo es el visible al usuario, nunca la nota
+  // interna. `until` es ISO; `null` = suspensión indefinida.
+  accountSuspended: definition<{ reason: string; until: string | null }>(
+    "account_security",
+    { title: "Suspendimos tu cuenta", body: "Tu cuenta está suspendida. Entrá a la app para ver el motivo." },
+    ({ reason, until }) => ({
+      title: "Suspendimos tu cuenta",
+      body: `${until ? `Tu cuenta está suspendida hasta el ${formatArgentinaDate(until)}.` : "Tu cuenta está suspendida."} Motivo: ${reason}`,
+    })
+  ),
+  accountDisabled: definition<{ reason: string }>(
+    "account_security",
+    { title: "Inhabilitamos tu cuenta", body: "Tu cuenta fue inhabilitada. Entrá a la app para ver el motivo." },
+    ({ reason }) => ({ title: "Inhabilitamos tu cuenta", body: `Tu cuenta fue inhabilitada. Motivo: ${reason}` })
+  ),
+  accountSanctionLifted: definition<void>(
+    "account_security",
+    { title: "Levantamos la restricción de tu cuenta", body: "Tu cuenta volvió a estar activa." },
+    () => ({ title: "Levantamos la restricción de tu cuenta", body: "Tu cuenta volvió a estar activa." })
+  ),
+  accountSuspensionExpired: definition<void>(
+    "account_security",
+    { title: "Terminó la suspensión de tu cuenta", body: "Tu cuenta volvió a estar activa." },
+    () => ({ title: "Terminó la suspensión de tu cuenta", body: "Tu cuenta volvió a estar activa." })
   ),
   // MOVO-274: calificación pendiente, solo al confirmarse la entrega (sin recordatorio
   // diferido por ahora). Copy propio por rol, mismo pareo de "interacción física" que
@@ -553,8 +734,86 @@ export const NOTIFICATION_TRIGGERS = {
       body: "La reserva del pago expiró. El envío sigue asignado a vos mientras el emisor la reconfirma.",
     })
   ),
+  // MOVO-212: cierre económico (captura del hold). El monto acreditado al transportista
+  // va en el copy porque así lo pide el AC6 del ticket; el del emisor no lleva montos.
+  settlementCreditedCarrier: definition<{ netAmountArs: number }>(
+    "payments",
+    { title: "Cobraste tu envío", body: "Te acreditamos el pago de la entrega en tu cuenta de Mercado Pago." },
+    ({ netAmountArs }) => ({
+      title: "Cobraste tu envío",
+      body: `Te acreditamos $${netAmountArs.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} en tu cuenta de Mercado Pago.`,
+    })
+  ),
+  settlementProcessedSender: definition<void>(
+    "payments",
+    { title: "Pago procesado", body: "Tu envío fue entregado y el pago se procesó correctamente." },
+    () => ({ title: "Pago procesado", body: "Tu envío fue entregado y el pago se procesó correctamente." })
+  ),
+  // MOVO-307 (ADR-047): penalidad por cancelar un envío asignado con menos de 12 h. Al
+  // emisor se le dice cuánto se cobró (o que quedó como deuda, si no se pudo cobrar del
+  // hold); al transportista, lo que recibe como compensación.
+  cancellationPenaltyChargedSender: definition<{ penaltyArs: number }>(
+    "payments",
+    { title: "Cobramos la penalidad por cancelar", body: "Cancelaste un envío asignado con menos de 12 h de anticipación." },
+    ({ penaltyArs }) => ({
+      title: "Cobramos la penalidad por cancelar",
+      body: `Cancelaste con menos de 12 h de anticipación: te cobramos $${formatArs(penaltyArs)} de la reserva y liberamos el resto.`,
+    })
+  ),
+  cancellationPenaltyDebtSender: definition<{ penaltyArs: number }>(
+    "payments",
+    { title: "Tenés una penalidad pendiente", body: "La penalidad por cancelar quedó en tu cuenta para la próxima operación." },
+    ({ penaltyArs }) => ({
+      title: "Tenés una penalidad pendiente",
+      body: `No pudimos cobrar la penalidad de $${formatArs(penaltyArs)} de la reserva: quedó en tu cuenta y se cobra en tu próxima operación.`,
+    })
+  ),
+  cancellationPenaltyCompensationCarrier: definition<{ netAmountArs: number }>(
+    "payments",
+    { title: "Recibiste una compensación", body: "El emisor canceló el envío a último momento y te acreditamos una compensación." },
+    ({ netAmountArs }) => ({
+      title: "Recibiste una compensación",
+      body: `El emisor canceló a último momento: te acreditamos $${formatArs(netAmountArs)} en tu cuenta de Mercado Pago.`,
+    })
+  ),
+  // MOVO-310: el transportista asignado se bajó del envío y volvió a publicarse. Al emisor se le
+  // dice que puede cancelarlo sin cargo (desde `published` no hay penalidad); al transportista,
+  // la penalidad que quedó como deuda en su cuenta corriente si se bajó con menos de 12 h.
+  carrierWithdrewSender: definition<{ carrierName: string | null }>(
+    "shipments",
+    {
+      title: "Tu envío vuelve a estar publicado",
+      body: "El transportista se bajó del envío y ya está visible para otros transportistas. Si ya no te sirve, podés cancelarlo sin cargo.",
+    },
+    ({ carrierName }) => ({
+      title: "Tu envío vuelve a estar publicado",
+      body: `${carrierName ?? "El transportista"} se bajó del envío y ya está visible para otros transportistas. Si ya no te sirve, podés cancelarlo sin cargo.`,
+    })
+  ),
+  carrierWithdrawalPenaltyDebtCarrier: definition<{ penaltyArs: number }>(
+    "payments",
+    {
+      title: "Registramos una penalidad",
+      body: "Te bajaste de un envío con menos de 12 h para el retiro: la penalidad quedó en tu cuenta.",
+    },
+    ({ penaltyArs }) => ({
+      title: "Registramos una penalidad",
+      body: `Te bajaste con menos de 12 h para el retiro: sumamos $${formatArs(penaltyArs)} a tu cuenta. Se descuenta de tu próximo cobro.`,
+    })
+  ),
   // MOVO-275 (ADR-038): transferencia de receptor. Copy propio por destinatario: la
   // persona invitada tiene que actuar; el emisor y el transportista solo se enteran.
+  // MOVO-26 / MOVO-301: mensaje nuevo en el chat de un envío, al estilo WhatsApp: el nombre de quien escribió
+  // (con su rol) y el texto. Con una ráfaga (`count` > 1) el servidor manda un único resumen con el último mensaje.
+  // El texto viaja en la push (se ve en la pantalla bloqueada): cambia lo que decía ADR-040 ("sin el texto").
+  chatMessageReceived: definition<{ authorName: string; roleLabel?: string; messageBody: string; count?: number }>(
+    "chat",
+    { title: "Mensaje nuevo", body: "Te avisamos cuando alguien te escribe en el chat de un envío." },
+    ({ authorName, roleLabel, messageBody, count }) => ({
+      title: roleLabel ? `${authorName} · ${roleLabel}` : authorName,
+      body: count !== undefined && count > 1 ? `${count} mensajes nuevos · ${messageBody}` : messageBody,
+    })
+  ),
   receiverTransferInvited: definition<{ requesterName: string; deadlineHours: number }>(
     "shipments",
     {

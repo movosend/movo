@@ -227,10 +227,19 @@ describe("POST /shipments/quote + POST /shipments con quoteId (Postgres + Redis)
   });
 
   it("valida el body de la cotización igual que el de la creación", async () => {
-    const response = await quote(senderId, { ...quoteBody, weightKg: 999 });
+    const response = await quote(senderId, { ...quoteBody, weightKg: 0 });
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("MOVO-276: rechaza cotizar un paquete fuera de los límites duros, sin llamar a pricing", async () => {
+    const response = await quote(senderId, { ...quoteBody, lengthCm: 151 });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe("PACKAGE_LIMITS_EXCEEDED");
+    expect(response.json().error.details.violations).toEqual(["lado de 151 cm (máximo 150 cm)"]);
+    expect(pricingClient.getQuote).not.toHaveBeenCalled();
   });
 
   it("rechaza cotizar con retiro y entrega en la misma ubicación", async () => {

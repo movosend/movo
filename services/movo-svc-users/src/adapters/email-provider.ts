@@ -198,6 +198,122 @@ export function buildPasswordChangedNotice(): EmailMessage {
 }
 
 /**
+ * MOVO-290 (AC5): aviso al usuario que recibió el rol `admin`, sea por el script o desde el
+ * panel. Si no lo esperaba, se entera: el rol da acceso al panel de administración.
+ */
+export function buildAdminGrantedNotice(): EmailMessage {
+  const text =
+    "Tu cuenta de Movo ahora tiene acceso al panel de administración. " +
+    "Si no lo esperabas, escribinos cuanto antes.";
+  const html = wrapHtml(
+    "Ahora sos administrador",
+    "Tu cuenta tiene acceso al panel de administración.",
+    [
+      `<p style="margin:0 0 16px;font-size:15px;line-height:22px;color:${INK_700};">Tu cuenta de Movo ahora tiene acceso al panel de administración. Para entrar vas a usar tu email, tu contraseña y un código que te llega a este correo.</p>`,
+      `<p style="margin:0;font-size:15px;line-height:22px;color:${INK_700};">Si no lo esperabas, escribinos cuanto antes.</p>`,
+    ].join("")
+  );
+  return { subject: "Ahora tenés acceso al panel de Movo", text, html };
+}
+
+export type AccountSanctionNotice =
+  | { kind: "suspended"; reason: string; until: Date | null }
+  | { kind: "disabled"; reason: string }
+  | { kind: "lifted" }
+  | { kind: "expired" };
+
+function formatNoticeDate(date: Date): string {
+  return date.toLocaleDateString("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+/**
+ * MOVO-296 (AC8): aviso por mail de una sanción de cuenta. Lleva el motivo visible y el plazo,
+ * nunca la nota interna (ni siquiera recibe ese dato).
+ */
+export function buildAccountSanctionNotice(notice: AccountSanctionNotice): EmailMessage {
+  let subject: string;
+  let lines: string[];
+  switch (notice.kind) {
+    case "suspended":
+      subject = "Suspendimos tu cuenta de Movo";
+      lines = [
+        notice.until
+          ? `Tu cuenta de Movo está suspendida hasta el ${formatNoticeDate(notice.until)}.`
+          : "Tu cuenta de Movo está suspendida.",
+        `Motivo: ${notice.reason}`,
+        "Mientras dure la suspensión podés entrar a la app, pero no operar. Si pensás que es un error, escribinos.",
+      ];
+      break;
+    case "disabled":
+      subject = "Inhabilitamos tu cuenta de Movo";
+      lines = [
+        "Tu cuenta de Movo fue inhabilitada y ya no podés ingresar.",
+        `Motivo: ${notice.reason}`,
+        "Si pensás que es un error, escribinos.",
+      ];
+      break;
+    case "lifted":
+      subject = "Levantamos la restricción de tu cuenta de Movo";
+      lines = ["Levantamos la restricción de tu cuenta. Ya podés volver a usar Movo con normalidad."];
+      break;
+    case "expired":
+      subject = "Terminó la suspensión de tu cuenta de Movo";
+      lines = ["Terminó la suspensión de tu cuenta. Ya podés volver a usar Movo con normalidad."];
+      break;
+  }
+  const text = lines.join("\n\n");
+  const html = wrapHtml(
+    subject,
+    lines[0] ?? subject,
+    lines
+      .map(
+        (line) =>
+          `<p style="margin:0 0 16px;font-size:15px;line-height:22px;color:${INK_700};">${escapeHtml(line)}</p>`
+      )
+      .join("")
+  );
+  return { subject, text, html };
+}
+
+/**
+ * MOVO-294: aviso de que soporte cambió el email o el teléfono de la cuenta desde el panel. Va al
+ * email anterior y al nuevo (cambio de email) o al email de la cuenta (cambio de teléfono), así
+ * el dueño real se entera aunque no haya sido él quien lo pidió. El valor nuevo va enmascarado,
+ * mismo criterio que `buildEmailChangedNotice`.
+ */
+export function buildContactChangedBySupportNotice(field: "email" | "phone", newValue: string): EmailMessage {
+  const what = field === "email" ? "el email" : "el teléfono";
+  const masked = field === "email" ? maskEmail(newValue) : maskPhone(newValue);
+  const text =
+    `El equipo de soporte de Movo cambió ${what} de tu cuenta a ${masked}. ` +
+    `Vas a tener que volver a verificarlo y a iniciar sesión. Si no lo pediste, escribinos cuanto antes.`;
+  const html = wrapHtml(
+    `Soporte cambió ${what} de tu cuenta`,
+    "Vas a tener que volver a verificarlo y a iniciar sesión.",
+    [
+      `<p style="margin:0 0 16px;font-size:15px;line-height:22px;color:${INK_700};">El equipo de soporte de Movo cambió ${what} de tu cuenta a:</p>`,
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">`,
+      `<tr><td bgcolor="${INK_100}" style="background-color:${INK_100};border-left:3px solid ${LIME_500};padding:14px 16px;">`,
+      `<span style="font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:15px;color:${INK_950};">${escapeHtml(masked)}</span>`,
+      `</td></tr></table>`,
+      `<p style="margin:24px 0 0;font-size:15px;line-height:22px;color:${INK_700};">Por seguridad cerramos tus sesiones: vas a tener que volver a verificarlo y a iniciar sesión. Si no lo pediste, escribinos cuanto antes.</p>`,
+    ].join("")
+  );
+  return { subject: `Soporte cambió ${what} de tu cuenta de Movo`, text, html };
+}
+
+/** `+5493511234567` -> `•••• 4567`: alcanza para reconocer el número sin exponerlo entero. */
+function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length >= 4 ? `•••• ${digits.slice(-4)}` : "••••";
+}
+
+/**
  * `maskEmail()` no enmascara el dominio (se muestra tal cual, solo el local-part se
  * oculta) y viaja interpolado directo en el HTML del mail — hay que escaparlo antes:
  * un dominio con metacaracteres HTML no es válido en DNS/SMTP y Resend no lo

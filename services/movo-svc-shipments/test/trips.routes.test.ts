@@ -21,6 +21,11 @@ function mockTrip(overrides: Record<string, any> = {}) {
     departureAt: new Date("2030-01-01T14:00:00.000Z"),
     vehicleType: "auto",
     status: TripStatus.ACTIVE,
+    recurrenceWeekdays: null,
+    recurrenceUntil: null,
+    seriesId: null,
+    generatedFromTripId: null,
+    isSeriesHead: true,
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     hasAcceptedPackages: false,
@@ -59,7 +64,7 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
     };
 
     app = Fastify({ logger: false });
-    (app as any).config = { TRIP_DEFAULT_MAX_DETOUR_KM: 15 };
+    (app as any).config = { TRIP_DEFAULT_MAX_DETOUR_KM: 15, USER_DEBT_OVERDUE_DAYS: 14 };
     await app.register(errorHandlerPlugin);
     await app.register(tripsRoutes, { service });
     await app.ready();
@@ -243,7 +248,22 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
       tripId: TRIP_ID,
       callerId: CARRIER_ID,
       callerRoles: ["carrier"],
+      stopRecurrence: false,
     });
+  });
+
+  it("POST /:id/cancel pasa stopRecurrence del body (MOVO-265)", async () => {
+    (service.cancelTrip as any).mockResolvedValue(mockTrip({ status: TripStatus.CANCELLED }));
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/${TRIP_ID}/cancel`,
+      headers: { "x-user-id": CARRIER_ID, "x-user-roles": "carrier" },
+      payload: { stopRecurrence: true },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(service.cancelTrip).toHaveBeenCalledWith(expect.objectContaining({ stopRecurrence: true }));
   });
 
   it("POST /:id/cancel responde 409 TRIP_NOT_DECLARED si el viaje no se puede cancelar", async () => {
@@ -403,6 +423,7 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
       pickupDistanceKm: 1.2,
       deliveryDistanceKm: 2.5,
       hasMyOffer: true,
+      debtDiscount: { amountArs: 125, reason: "pending_balance" },
       detourDistanceKm: 7.5,
       detourDurationMinutes: 12,
     };
@@ -430,6 +451,7 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
     expect(body.items).toHaveLength(1);
     expect(body.items[0].id).toBe("33333333-3333-3333-3333-333333333333");
     expect(body.items[0].hasMyOffer).toBe(true);
+    expect(body.items[0].debtDiscount).toEqual({ amountArs: 125, reason: "pending_balance" });
     expect(body.items[0].detourDistanceKm).toBe(7.5);
     expect(body.items[0].detourDurationMinutes).toBe(12);
     expect(body.items[0].pickupDate).toBe("2030-01-01");

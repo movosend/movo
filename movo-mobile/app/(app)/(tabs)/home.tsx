@@ -1,20 +1,25 @@
-import { KycStatus } from '@movo/shared/dist/types/user';
+import { KycStatus, UserRole } from '@movo/shared/dist/types/user';
 import { useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { HomeChatButton } from '../../../components/chat/home-chat-button';
 import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { AttentionSection } from '../../../components/home/attention-section';
 import { CarrierTransportingSection } from '../../../components/home/carrier-transporting-section';
 import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
 import { RoleSection } from '../../../components/home/role-section';
+import { SuccessBanner } from '../../../components/ui/success-banner';
 import { TrackingActiveIndicator } from '../../../components/location/tracking-active-indicator';
 import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
 import { useAuth } from '../../../src/hooks/use-auth';
+import { useAutoStartTour } from '../../../src/hooks/use-auto-start-tour';
+import { useChatList } from '../../../src/hooks/use-chat';
 import { useMyProfile } from '../../../src/hooks/use-profile';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
+import { useTransportGate } from '../../../src/hooks/use-transport-gate';
 import {
   KYC_TONE_ICON_HEX,
   kycStatusIcon,
@@ -36,11 +41,11 @@ import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
  * KYC de identidad esté aprobado (mismo criterio que ya usaba el banner).
  *
  * MOVO-193: "Estoy enviando"/"Voy a recibir" (`RoleSection`) consumen `GET
- * /shipments/sending`/`/receiving` (MOVO-192, todavía sin backend — ver
- * `ActiveShipmentSummary` en `shipments-client.ts`); mientras no exista, esas
- * queries fallan y las secciones no se renderizan. `CarrierTransportingSection`
+ * /shipments/sending`/`/receiving` (MOVO-192, ya desplegado — ver
+ * `ActiveShipmentSummary` en `shipments-client.ts`); cada sección carga y falla por su
+ * cuenta (MOVO-168), con skeleton y "Reintentar" locales. `CarrierTransportingSection`
  * (MOVO-252) usa `GET /shipments/transporting` y `GET /trips` para la sección
- * "Estoy transportando" visible al transportista en el home.
+ * "Estoy transportando", que solo se monta para el rol `CARRIER`.
  */
 const KYC_BANNER_TEXT: Partial<Record<KycStatus, string>> = {
   [KycStatus.NOT_STARTED]: 'Todavía no verificaste tu identidad. Mientras tanto, tu acceso está restringido.',
@@ -58,8 +63,13 @@ export default function AuthenticatedHomeScreen() {
   const { user } = useAuth();
   const { data: profile } = useMyProfile();
   const colors = useThemeColors();
-  const { data: sending } = useSendingShipments();
-  const { data: receiving } = useReceivingShipments();
+  const sendingQuery = useSendingShipments();
+  const sending = sendingQuery.data;
+  const receivingQuery = useReceivingShipments();
+  const receiving = receivingQuery.data;
+  const { data: chats } = useChatList();
+  // Solo los envíos que ya tienen chat llevan el botón en su card.
+  const chatByShipment = Object.fromEntries((chats ?? []).map((item) => [item.shipmentId, { unreadCount: item.unreadCount }]));
 
   // El perfil fresco del backend prevalece sobre el snapshot estático del login
   const currentKycStatus = profile?.kycStatus ?? user?.kycStatus;
@@ -70,6 +80,9 @@ export default function AuthenticatedHomeScreen() {
       void useAuthStore.getState().updateKycStatus(profile.kycStatus);
     }
   }, [profile?.kycStatus, user?.kycStatus]);
+
+  // Skeleton y error de "Estoy transportando" solo le corresponden a quien es transportista.
+  const isCarrier = (profile?.roles ?? user?.roles)?.includes(UserRole.CARRIER) ?? false;
 
   const bannerText = currentKycStatus ? KYC_BANNER_TEXT[currentKycStatus] : undefined;
   const tone = currentKycStatus ? kycStatusTone(currentKycStatus) : "warning";
@@ -84,6 +97,29 @@ export default function AuthenticatedHomeScreen() {
   const fullName = profile?.fullName ? capitalizeName(profile.fullName) : capitalizeName(user?.fullName);
   const dateLabel = formatGreetingDateLabel(new Date());
 
+  // MOVO-314: el detalle del envío vuelve acá cuando el transportista se baja de un envío, con el
+  // aviso en `withdrawnNotice`. `withdrawnAt` lo hace único: dos bajas seguidas con el mismo texto
+  // no volverían a armar el banner.
+  const { withdrawnNotice, withdrawnAt } = useLocalSearchParams<{ withdrawnNotice?: string; withdrawnAt?: string }>();
+  const [withdrawnMessage, setWithdrawnMessage] = useState<string | null>(withdrawnNotice ?? null);
+  useEffect(() => {
+    if (withdrawnNotice) setWithdrawnMessage(withdrawnNotice);
+  }, [withdrawnNotice, withdrawnAt]);
+
+  // MOVO-169: Tour 1 "Primeros pasos" en la primera llegada con la identidad aprobada
+  // (sin ella no se puede enviar). Espera a saber si ya puede transportar: decide el último paso.
+  const isFocused = useIsFocused();
+  const { canBrowse, isRequirementsLoading } = useTransportGate();
+  useAutoStartTour('first_steps', {
+    enabled: isFocused && currentKycStatus === KycStatus.APPROVED && !isRequirementsLoading,
+    delayMs: 700,
+    context: { firstName: firstName ?? null, canBrowse },
+  });
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollTourAnchorIntoView = (layoutY: number) => {
+    scrollRef.current?.scrollTo({ y: Math.max(0, layoutY - 16), animated: true });
+  };
+
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
 
@@ -94,6 +130,7 @@ export default function AuthenticatedHomeScreen() {
       queryClient.invalidateQueries({ queryKey: ["trips"] }),
       queryClient.invalidateQueries({ queryKey: ["users", "me"] }),
       queryClient.invalidateQueries({ queryKey: ["attention-tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["chat", "list"] }),
     ]);
     setRefreshing(false);
   };
@@ -113,6 +150,8 @@ export default function AuthenticatedHomeScreen() {
               Hola{firstName ? `, ${firstName}` : ''}
             </Text>
           </View>
+          <View className="flex-row items-center gap-3">
+          <HomeChatButton />
           <Pressable
             testID="app-home-avatar"
             onPress={() => router.push('/profile')}
@@ -121,10 +160,12 @@ export default function AuthenticatedHomeScreen() {
           >
             <ProfileAvatar fullName={fullName} photoUrl={profile?.photoUrl ?? null} size={44} />
           </Pressable>
+          </View>
         </View>
       </SafeAreaView>
 
       <ScrollView
+        ref={scrollRef}
         {...tabBarScroll}
         contentContainerClassName="px-6 pb-32 pt-6"
         showsVerticalScrollIndicator={false}
@@ -139,6 +180,16 @@ export default function AuthenticatedHomeScreen() {
           />
         }
       >
+        {withdrawnMessage ? (
+          <View className="mb-6">
+            <SuccessBanner
+              message={withdrawnMessage}
+              onDismiss={() => setWithdrawnMessage(null)}
+              testID="app-home-withdrawn-banner"
+            />
+          </View>
+        ) : null}
+
         {bannerText && BannerIcon ? (
           <View
             testID="app-home-kyc-banner"
@@ -151,26 +202,38 @@ export default function AuthenticatedHomeScreen() {
 
         <TrackingActiveIndicator />
 
-        <CarrierTransportingSection testID="app-home-transporting" />
+        {isCarrier ? <CarrierTransportingSection testID="app-home-transporting" /> : null}
 
         <RoleSection
           testID="app-home-sending"
           title="Estoy enviando"
           role="sending"
           shipments={sending ?? []}
+          chatByShipment={chatByShipment}
+          isLoading={sendingQuery.isLoading}
+          isError={sendingQuery.isError}
+          onRetry={() => void sendingQuery.refetch()}
         />
         <RoleSection
           testID="app-home-receiving"
           title="Voy a recibir"
           role="receiving"
           shipments={receiving ?? []}
+          chatByShipment={chatByShipment}
+          isLoading={receivingQuery.isLoading}
+          isError={receivingQuery.isError}
+          onRetry={() => void receivingQuery.refetch()}
         />
 
-        <HomeSendCta testID="app-home-send-cta" kycStatus={currentKycStatus} />
+        <HomeSendCta
+          testID="app-home-send-cta"
+          kycStatus={currentKycStatus}
+          scrollIntoView={scrollTourAnchorIntoView}
+        />
 
         <AttentionSection testID="app-home-attention" />
 
-        <RecentShipmentsSection testID="app-home-recent-shipments" />
+        <RecentShipmentsSection testID="app-home-recent-shipments" scrollIntoView={scrollTourAnchorIntoView} />
       </ScrollView>
     </View>
   );

@@ -83,12 +83,12 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
 describe("RecentShipmentsSection", () => {
   afterEach(() => jest.clearAllMocks());
 
-  it("muestra un indicador de carga mientras el fetch está pendiente", async () => {
+  it("muestra el skeleton de las filas mientras el fetch está pendiente (MOVO-168)", async () => {
     mockUseRecentShipments.mockReturnValue({ isLoading: true, isError: false, data: undefined, refetch: jest.fn() });
 
     const { getByTestId, queryByText } = await render(<RecentShipmentsSection testID="section" />);
 
-    expect(getByTestId("section")).toBeTruthy();
+    expect(getByTestId("section-skeleton")).toBeTruthy();
     expect(queryByText("Todavía no hiciste ningún envío.")).toBeNull();
   });
 
@@ -116,6 +116,28 @@ describe("RecentShipmentsSection", () => {
     const { getByText } = await render(<RecentShipmentsSection testID="section" />);
 
     expect(getByText("Todavía no hiciste ningún envío.")).toBeTruthy();
+  });
+
+  it("con historial pero todo oculto (cancelados de más de 48h) no dice que nunca hizo un envío", async () => {
+    mockUseRecentShipments.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: {
+        items: [
+          shipment({
+            status: ShipmentStatus.CANCELLED,
+            lastStatusChangedAt: "2026-01-01T10:00:00.000Z",
+          }),
+        ],
+      },
+      refetch: jest.fn(),
+    });
+
+    const { getByText, queryByText, getByTestId } = await render(<RecentShipmentsSection testID="section" />);
+
+    expect(getByText("No tenés actividad reciente.")).toBeTruthy();
+    expect(queryByText("Todavía no hiciste ningún envío.")).toBeNull();
+    expect(getByTestId("section-view-all")).toBeTruthy();
   });
 
   it("lista los envíos recientes con su destinatario/remitente y estado", async () => {
@@ -176,6 +198,11 @@ describe("RecentShipmentsSection", () => {
       createdAt: updatedAt,
       updatedAt,
       cancelledAt: null,
+      recurrenceWeekdays: null,
+      recurrenceUntil: null,
+      seriesId: null,
+      generatedFromTripId: null,
+      isSeriesHead: true,
       hasAcceptedPackages: true,
       acceptedPackagesCount: 2,
       executablePackagesCount: 2,

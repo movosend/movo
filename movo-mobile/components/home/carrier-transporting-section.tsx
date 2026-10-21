@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
+import { useCarrierRequirementsSheet } from "../../src/hooks/use-carrier-requirements-sheet";
 import { useMyTrips, useStartTrip } from "../../src/hooks/use-trips";
 import { formatTripStartErrorMessage, splitCarrierHomeTrips } from "../../src/lib/trip-format";
+import { CarrierRequirementsSheet } from "../carrier/carrier-requirements-checklist";
 import { CarrierTripCta } from "../trips/carrier-trip-cta";
+import { HomeSectionError, HomeSectionSkeleton, TRIP_CARD_SKELETON_HEIGHT } from "./home-section-states";
 import { requireCarrierLocation } from "../../src/store/carrier-location-gate-store";
 
 interface CarrierTransportingSectionProps {
@@ -24,8 +27,9 @@ interface CarrierTransportingSectionProps {
 export function CarrierTransportingSection({
   testID = "app-home-transporting",
 }: CarrierTransportingSectionProps) {
-  const { data: myTripsData } = useMyTrips();
+  const { data: myTripsData, isLoading, isError, refetch } = useMyTrips();
   const startTripMutation = useStartTrip();
+  const requirements = useCarrierRequirementsSheet("start");
 
   const [startingTripId, setStartingTripId] = useState<string | null>(null);
   const [startTripError, setStartTripError] = useState<{ id: string; message: string } | null>(null);
@@ -33,6 +37,20 @@ export function CarrierTransportingSection({
   const { primaryTrip } = splitCarrierHomeTrips(myTripsData?.items ?? []);
 
   if (!primaryTrip) {
+    // MOVO-168: cargando o fallida no es lo mismo que "sin viaje de hoy".
+    if (isLoading) {
+      return <HomeSectionSkeleton testID={`${testID}-skeleton`} cardHeight={TRIP_CARD_SKELETON_HEIGHT} />;
+    }
+    if (isError) {
+      return (
+        <HomeSectionError
+          testID={`${testID}-error`}
+          title="Estoy transportando"
+          message="No pudimos cargar tus viajes."
+          onRetry={() => void refetch()}
+        />
+      );
+    }
     return null;
   }
 
@@ -46,6 +64,8 @@ export function CarrierTransportingSection({
       setStartTripError(null);
       await startTripMutation.mutateAsync(targetTrip.id);
     } catch (err) {
+      // MOVO-117: un 403 por licencia/MP faltante abre la checklist en vez de un error genérico.
+      if (requirements.handleError(err)) return;
       const msg = formatTripStartErrorMessage(err, targetTrip.departureAt);
       setStartTripError({ id: targetTrip.id, message: msg });
     } finally {
@@ -68,6 +88,7 @@ export function CarrierTransportingSection({
         isStarting={startingTripId === primaryTrip.id}
         errorMessage={startTripError?.id === primaryTrip.id ? startTripError.message : null}
       />
+      <CarrierRequirementsSheet {...requirements.sheetProps} />
     </View>
   );
 }

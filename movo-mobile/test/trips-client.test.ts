@@ -30,6 +30,11 @@ describe("tripsClient", () => {
     createdAt: "2026-09-03T12:00:00.000Z",
     updatedAt: "2026-09-03T12:00:00.000Z",
     cancelledAt: null,
+    recurrenceWeekdays: null,
+    recurrenceUntil: null,
+    seriesId: null,
+    generatedFromTripId: null,
+    isSeriesHead: true,
   };
 
   const mockTripWithPackages: TripWithAcceptedPackages = {

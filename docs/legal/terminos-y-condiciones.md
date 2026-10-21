@@ -1,7 +1,7 @@
 # Términos y Condiciones de Uso de MOVO
 
-**Versión**: 0.1 (borrador de trabajo)
-**Última actualización**: 2026-09-14
+**Versión**: 0.2 (borrador de trabajo)
+**Última actualización**: 2026-10-11
 **Vigencia**: aún no publicada / no vigente
 
 > ## ⚠️ Aviso académico — leer antes de usar este documento
@@ -109,7 +109,8 @@ MOVO sí:
 - Calcula un precio sugerido y optimiza rutas mediante su motor de
   precios/logística.
 - Procesa el cobro al Emisor y la liquidación al Transportista a través de
-  Mercado Pago, reteniendo su comisión.
+  Mercado Pago, reteniendo su comisión (calculada sobre el monto que el
+  Transportista quiere cobrar, ver sección 7).
 - Provee el mecanismo de confirmación de custodia (handshake criptográfico).
 - Modera disputas y calificaciones dentro de los límites descriptos en estos
   Términos.
@@ -137,8 +138,12 @@ MOVO sí:
   del paquete, y de que no contenga objetos prohibidos (sección 6).
 - Es responsable de estar disponible en el punto y ventana horaria de retiro
   acordados.
-- Es quien paga el precio acordado con el Transportista, más las comisiones
-  aplicables.
+- Es quien paga el precio acordado con el Transportista. Ese precio ya
+  incluye la comisión de MOVO, y ni MOVO ni el Transportista le suman ningún
+  otro cargo (ver sección 7). Si el Emisor elige pagar en cuotas, el costo
+  financiero de esas cuotas, si lo hay, lo fijan Mercado Pago o el emisor de
+  su tarjeta según las condiciones del medio de pago elegido, y no forma
+  parte del precio del Envío.
 
 ### 5.2 Transportista
 
@@ -197,13 +202,22 @@ suspender la cuenta del Emisor infractor (sección 14).
   sobre un precio sugerido calculado por el motor de precios de MOVO (hoy una
   implementación provisoria basada en distancia y peso, sujeta a evolución —
   ver nota de transparencia abajo).
-- MOVO cobra una **comisión del 15%** sobre el precio acordado, deducida al
-  momento de liquidar al Transportista.
+- MOVO cobra una **comisión del 15%** sobre el monto que el Transportista
+  indica que quiere cobrar. Esa comisión se suma a ese monto para formar el
+  precio que paga el Emisor (equivale a aproximadamente el 13% de ese
+  precio), y Mercado Pago la descuenta y se la acredita a MOVO cuando se
+  cobra el pago al confirmarse la entrega.
 - El procesamiento de pagos se realiza a través de **Mercado Pago**, que
-  también puede aplicar una comisión propia por transacción
-  (`[A COMPLETAR — porcentaje pendiente de confirmación contractual con
-  Mercado Pago]`). Este costo se muestra como estimado al Transportista antes
-  de confirmar su oferta.
+  cobra su propia comisión por cada transacción. Esa comisión **está a cargo
+  del Transportista**: Mercado Pago la descuenta del monto que le acredita en
+  su cuenta, y el Emisor paga exactamente el precio acordado. MOVO no fija ni
+  percibe esa comisión. Su porcentaje depende de las tarifas vigentes de
+  Mercado Pago y de cómo esté configurada la cuenta del Transportista (por
+  ejemplo, el plazo en que elige tener disponible el dinero) y del medio con
+  el que pague el Emisor; puede consultarse en Mercado Pago. Antes de
+  confirmar su oferta, la app le muestra al Transportista un estimado de este
+  costo; el monto que efectivamente se descuenta es el que informa Mercado
+  Pago en cada operación.
 - **Nota de transparencia sobre el motor de precios**: el precio sugerido que
   ve el Emisor al crear un envío usa hoy un modelo provisorio (distancia
   euclidiana + peso + tipo de paquete), no un cálculo de mercado en tiempo

@@ -5,14 +5,12 @@ import { shipmentReceiverTransferSummary } from "../receiver-transfers/receiver-
 
 const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
 
-// Placeholder de equipo, documentado explícitamente (mismo criterio que
-// MAX_PHOTO_CONTENT_LENGTH_BYTES en movo-svc-users/MOVO-97) — a confirmar con el
-// equipo qué puede transportar realmente un transportista en bici/auto. Ajustable sin
-// migración, es solo un bound de AJV.
+// Solo los mínimos: los máximos de peso y medidas (más la suma de lados) son límites duros
+// configurables por env var (MOVO-276, `domain/package-limits.ts`) y los valida el servicio
+// con un 422 `PACKAGE_LIMITS_EXCEEDED` que dice qué se excedió. Un máximo de AJV acá los
+// pisaría con un 400 genérico y quedaría desalineado si se recalibra el env.
 const WEIGHT_KG_MIN = 0.1;
-const WEIGHT_KG_MAX = 30;
 const DIMENSION_CM_MIN = 1;
-const DIMENSION_CM_MAX = 150;
 
 // "HH:MM" o "HH:MM:SS", sin offset — a propósito no se usa `format: "time"` de AJV: ese
 // format exige el time-offset de RFC 3339 (full-time), y acá se quiere una hora local
@@ -35,6 +33,45 @@ const EVIDENCE_PHOTO_STAGE_VALUES = ["pickup", "delivery"];
 // el resto del repo: si se agrega un tipo/límite acá, agregarlo también ahí.
 const PHOTO_CONTENT_TYPE_VALUES = ["image/jpeg"];
 const MAX_PHOTO_CONTENT_LENGTH_BYTES = 2 * 1024 * 1024;
+
+const shipmentFundingView = {
+  type: ["object", "null"],
+  required: ["viewer", "phase"],
+  properties: {
+    viewer: { type: "string", enum: ["sender", "carrier", "former_carrier"] },
+    phase: {
+      type: "string",
+      enum: [
+        "awaiting_window",
+        "payment_due",
+        "held",
+        "captured",
+        "released",
+        "lapsed",
+        "sender_payment_pending",
+      ],
+    },
+    route: { type: "string", enum: ["near", "far"] },
+    windowOpensAt: { type: "string", format: "date-time" },
+    payUntil: { type: "string", format: "date-time" },
+    amountArs: { type: "number" },
+    penaltyArs: { type: ["number", "null"] },
+    penaltyStatus: { type: ["string", "null"], enum: ["pending", "captured", "debt", null] },
+    lastAttempt: { type: ["string", "null"], enum: ["none", "in_process", "rejected", null] },
+    failureReason: {
+      type: ["string", "null"],
+      enum: ["insufficient_funds", "card_rejected", "invalid_data", "platform_error", null],
+    },
+    card: {
+      type: ["object", "null"],
+      required: ["brand", "lastFour"],
+      properties: { brand: { type: "string" }, lastFour: { type: "string" } },
+    },
+    holdLost: { type: "boolean" },
+    reason: { type: "string", enum: ["payment_timeout", "window_expired"] },
+    at: { type: "string", format: "date-time" },
+  },
+} as const;
 
 const shipmentResponse = {
   type: "object",
@@ -69,6 +106,9 @@ const shipmentResponse = {
     "deliveredAt",
     "receiverConfirmationDeadline",
     "receiverRedesignationDeadline",
+    "transitAnomalyFlaggedAt",
+    "cancellationPenaltyArs",
+    "cancellationPenaltyStatus",
     "rejectionReason",
     "createdAt",
     "updatedAt",
@@ -117,6 +157,14 @@ const shipmentResponse = {
     // fuera de ese estado.
     receiverRedesignationDeadline: { type: ["string", "null"], format: "date-time" },
     rejectionReason: { type: ["string", "null"] },
+    // MOVO-278 (ADR-045): cuándo el barrido marcó el envío `in_transit` como demorado
+    // (MOVO-258 D4). El mobile lo muestra como "Demorado"; `null` = nunca marcado.
+    transitAnomalyFlaggedAt: { type: ["string", "null"], format: "date-time" },
+    // MOVO-307 (ADR-047): penalidad de una cancelación tardía del emisor y qué pasó con ella
+    // (`pending` = falta cobrarla, `captured` = se cobró del hold, `debt` = quedó en su cuenta
+    // corriente). Ambas `null` en toda cancelación sin cargo.
+    cancellationPenaltyArs: { type: ["number", "null"] },
+    cancellationPenaltyStatus: { type: ["string", "null"], enum: ["pending", "captured", "debt", null] },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
     // MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
@@ -129,6 +177,16 @@ const shipmentResponse = {
         minPriceNetArs: { type: "number" },
       },
     },
+    // MOVO-311: solo para el transportista asignado mientras el cobro no se capturó: deuda de su cuenta
+    // corriente que se descuenta de lo que recibe, con el motivo.
+    debtDiscount: {
+      type: ["object", "null"],
+      required: ["amountArs", "reason"],
+      properties: {
+        amountArs: { type: "number" },
+        reason: { type: "string", enum: ["pending_balance"] },
+      },
+    },
     // MOVO-180: entrega estimada de la oferta ganadora, null hasta que el envío tenga
     // una aceptada (o si esa oferta nunca la declaró -- es opcional al ofertar).
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
@@ -138,6 +196,11 @@ const shipmentResponse = {
     // `viewerIsFormerReceiver` = quien mira le pasó la recepción a otra persona (solo
     // lectura). `pending` solo lo ven quien la pidió y el emisor.
     receiverTransfer: shipmentReceiverTransferSummary,
+    // MOVO-211: estado de la reserva de fondos según quién mira (`ShipmentFundingView` de
+    // `@movo/shared`), solo en `GET /shipments/:id`. Los campos presentes dependen de
+    // `viewer`/`phase`; el transportista nunca recibe montos, tarjeta ni motivos, y el
+    // receptor recibe `null`.
+    funding: shipmentFundingView,
   },
 };
 
@@ -172,6 +235,7 @@ const availableShipmentResponse = {
     "deliveryDistanceKm",
     "distanceKm",
     "hasMyOffer",
+    "debtDiscount",
     "createdAt",
   ],
   properties: {
@@ -202,6 +266,7 @@ const availableShipmentResponse = {
     deliveryDistanceKm: { type: ["number", "null"] },
     distanceKm: { type: "number" },
     hasMyOffer: { type: "boolean" },
+    debtDiscount: { type: ["object", "null"], required: ["amountArs", "reason"], properties: { amountArs: { type: "number" }, reason: { type: "string", enum: ["pending_balance"] } } },
     createdAt: { type: "string", format: "date-time" },
   },
 };
@@ -305,6 +370,7 @@ const activeShipmentSummaryResponse = {
     "isToday",
     "pickupWindowExpired",
     "tripId",
+    "transitAnomalyFlaggedAt",
   ],
   properties: {
     id: { type: "string" },
@@ -328,6 +394,8 @@ const activeShipmentSummaryResponse = {
     isToday: { type: "boolean" },
     pickupWindowExpired: { type: "boolean" },
     tripId: { type: ["string", "null"], format: "uuid" },
+    // MOVO-278 (ADR-045): envío `in_transit` demorado (ver shipmentResponse).
+    transitAnomalyFlaggedAt: { type: ["string", "null"], format: "date-time" },
   },
 };
 
@@ -390,10 +458,10 @@ const shipmentEventResponse = {
 // de `POST /shipments/quote` para que las dos rutas validen exactamente igual.
 const priceAffectingProperties = {
   packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
-  weightKg: { type: "number", minimum: WEIGHT_KG_MIN, maximum: WEIGHT_KG_MAX },
-  lengthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
-  widthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
-  heightCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
+  weightKg: { type: "number", minimum: WEIGHT_KG_MIN },
+  lengthCm: { type: "number", minimum: DIMENSION_CM_MIN },
+  widthCm: { type: "number", minimum: DIMENSION_CM_MIN },
+  heightCm: { type: "number", minimum: DIMENSION_CM_MIN },
   pickupLat: { type: "number", minimum: -90, maximum: 90 },
   pickupLng: { type: "number", minimum: -180, maximum: 180 },
   deliveryLat: { type: "number", minimum: -90, maximum: 90 },
@@ -464,8 +532,24 @@ export const shipmentsSchemas = {
     type: "object",
     properties: {
       reason: { type: "string", maxLength: 500 },
+      // MOVO-307: penalidad que el emisor vio en `GET /:id/cancellation-quote` y confirma.
+      // Solo cuenta para un envío `assigned`; ausente equivale a 0.
+      expectedPenaltyArs: { type: "number", minimum: 0 },
     },
     additionalProperties: false,
+  },
+
+  cancellationQuoteResponse: {
+    type: "object",
+    required: ["penaltyArs", "reason", "freeUntil"],
+    properties: {
+      penaltyArs: { type: "number" },
+      reason: {
+        type: "string",
+        enum: ["not_assigned", "before_free_deadline", "late_cancellation", "pickup_window_closed"],
+      },
+      freeUntil: { type: ["string", "null"], format: "date-time" },
+    },
   },
 
   shipmentIdParam: {

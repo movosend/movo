@@ -1,10 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { createHash } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
 import { ApiError, CLOSED_HOLD_STATUSES, LIVE_HOLD_STATUSES } from "@movo/shared";
 import {
   classifyCreateError,
   createHoldService,
+  HoldServiceDeps,
   failureReasonFromStatusDetail,
+  holdUpdateFromPayment,
+  readMpError,
   STALE_CREATING_MS,
 } from "../src/modules/holds/hold.service";
 import type { MercadoPagoClient, PaymentResponse } from "../src/adapters/mercadopago-client";
@@ -22,12 +26,22 @@ const SHIPMENT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CARRIER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const OTHER_CARRIER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const MP_USER = "1000000001";
+// MOVO-282: el emisor, su tarjeta guardada (id interno) y los ids de MP que nunca deben salir.
+const PAYER_USER = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const SAVED_CARD = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const OTHER_SAVED_CARD = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const MP_CUSTOMER = "customer-mp-secret-1";
+const MP_CARD = "card-mp-secret-1";
 const PAYER_EMAIL = "comprador@example.com";
 const NOW = new Date("2026-10-10T12:00:00.000Z");
 
 /** Repo en memoria con la misma semántica de unicidad que la base real. */
+const dec = (value: number) => ({ toNumber: () => value });
+
 class MemoryHoldRepository implements HoldRepository {
   rows: Hold[] = [];
+  /** MOVO-311: saldo de la cuenta corriente por usuario que ve `plan` al crear un intento. */
+  balances = new Map<string, number>();
   private seq = 0;
 
   async findLatestByShipment(shipmentId: string) {
@@ -42,6 +56,10 @@ class MemoryHoldRepository implements HoldRepository {
         (r.attempt === data.attempt || LIVE_HOLD_STATUSES.includes(r.status))
     );
     if (clash) throw new HoldAttemptConflictError();
+    const amounts = data.plan({
+      carrierBalanceArs: this.balances.get(data.carrierId) ?? 0,
+      payerBalanceArs: data.payerId ? (this.balances.get(data.payerId) ?? 0) : 0,
+    });
     const row = {
       id: `00000000-0000-4000-8000-${String(++this.seq).padStart(12, "0")}`,
       shipmentId: data.shipmentId,
@@ -49,12 +67,20 @@ class MemoryHoldRepository implements HoldRepository {
       carrierId: data.carrierId,
       collectorId: data.collectorId,
       mpPaymentId: null,
-      amountArs: { toNumber: () => data.amountArs },
-      applicationFeeArs: { toNumber: () => data.applicationFeeArs },
+      amountArs: dec(amounts.amountArs),
+      applicationFeeArs: dec(amounts.applicationFeeArs),
+      baseAmountArs: dec(amounts.baseAmountArs),
+      commissionArs: dec(amounts.commissionArs),
+      debtOffsetArs: dec(amounts.debtOffsetArs),
+      debtSurchargeArs: dec(amounts.debtSurchargeArs),
       status: "creating",
       statusDetail: null,
       failureReason: null,
       requestFingerprint: data.requestFingerprint,
+      savedCardId: data.savedCardId ?? null,
+      payerId: data.payerId ?? null,
+      cardLast4: null,
+      cardBrand: null,
       expiresAt: null,
       createdAt: NOW,
       updatedAt: NOW,
@@ -67,6 +93,13 @@ class MemoryHoldRepository implements HoldRepository {
     const row = this.rows.find((r) => r.id === id) as Hold;
     Object.assign(row, patch);
     return row;
+  }
+
+  async markCaptured(id: string, patch: { statusDetail: string | null }) {
+    const row = this.rows.find((r) => r.id === id);
+    if (row?.status !== "authorized") return false;
+    Object.assign(row, { status: "captured", statusDetail: patch.statusDetail, expiresAt: null });
+    return true;
   }
 }
 
@@ -101,12 +134,39 @@ describe("failureReasonFromStatusDetail (AC5 de MOVO-209)", () => {
   });
 });
 
+describe("readMpError: forma real del error del SDK (verificado en sandbox el 14/10/2026)", () => {
+  // El SDK 3.x tira una instancia de Error con `status`, `error` y las causas en `causes`.
+  class SdkBadRequestError extends Error {
+    status = 400;
+    error = "bad_request";
+    causes = [{ code: "3031", description: "security_code_id can't be null" }];
+  }
+
+  it("lee las causas de `causes` (SDK) y de `cause` (cuerpo crudo de la API)", () => {
+    const sdk = readMpError(Object.assign(new SdkBadRequestError("security_code_id can't be null")));
+    expect(sdk).toEqual({ status: 400, causeCodes: ["3031"], message: "security_code_id can't be null" });
+    expect(readMpError({ status: 400, message: "x", cause: [{ code: 2006 }] }).causeCodes).toEqual(["2006"]);
+  });
+
+  it("con el error real del SDK, un CVV ausente (3031) se clasifica como rechazo y no como transitorio", () => {
+    const info = readMpError(new SdkBadRequestError("security_code_id can't be null"));
+    expect(classifyCreateError(info)).toEqual({ kind: "rejected", failureReason: "invalid_data" });
+  });
+
+  it("un Error común (timeout, red) no trae causas", () => {
+    expect(readMpError(new Error("The operation was aborted"))).toMatchObject({ status: undefined, causeCodes: [] });
+  });
+});
+
 describe("classifyCreateError (review de PR #226, punto 2)", () => {
   const info = (status: number | undefined, causeCodes: string[] = []) => ({ status, causeCodes, message: "x" });
 
   it("solo un 400/422 con causa conocida cierra el intento", () => {
     expect(classifyCreateError(info(400, ["2006"]))).toEqual({ kind: "rejected", failureReason: "invalid_data" });
     expect(classifyCreateError(info(422, ["3003"]))).toEqual({ kind: "rejected", failureReason: "invalid_data" });
+    // MOVO-282: CVV ausente o vacío (3031) y de largo inválido (3032) con tarjeta guardada.
+    expect(classifyCreateError(info(400, ["3031"]))).toEqual({ kind: "rejected", failureReason: "invalid_data" });
+    expect(classifyCreateError(info(400, ["3032"]))).toEqual({ kind: "rejected", failureReason: "invalid_data" });
     expect(classifyCreateError(info(400, ["2034"]))).toEqual({ kind: "rejected", failureReason: "platform_error" });
   });
 
@@ -128,6 +188,42 @@ describe("classifyCreateError (review de PR #226, punto 2)", () => {
   });
 });
 
+describe("holdUpdateFromPayment: tarjeta del pago (MOVO-302)", () => {
+  const patchOf = (p: Record<string, unknown>) =>
+    holdUpdateFromPayment(p as Parameters<typeof holdUpdateFromPayment>[0], null, NOW, 5);
+
+  it("toma marca y últimos 4 del pago, en cualquier estado conocido", () => {
+    for (const status of ["authorized", "in_process", "approved", "cancelled", "rejected"]) {
+      expect(patchOf({ id: 1, status, payment_method_id: "visa", card: { last_four_digits: "4242" } })).toMatchObject({
+        cardLast4: "4242",
+        cardBrand: "visa",
+      });
+    }
+  });
+
+  it("sin tarjeta en el pago el parche no trae esas claves: no pisa un dato previo", () => {
+    const patch = patchOf({ id: 1, status: "authorized" }) as Record<string, unknown>;
+    expect(patch).not.toHaveProperty("cardLast4");
+    expect(patch).not.toHaveProperty("cardBrand");
+  });
+
+  it("descarta lo que no tiene la forma esperada y normaliza la marca a minúsculas", () => {
+    const bad = patchOf({
+      id: 1,
+      status: "authorized",
+      payment_method_id: "visa; drop table",
+      card: { last_four_digits: "12ab" },
+    }) as Record<string, unknown>;
+    expect(bad).not.toHaveProperty("cardLast4");
+    expect(bad).not.toHaveProperty("cardBrand");
+    expect(patchOf({ id: 1, status: "authorized", payment_method_id: "MASTER" })).toMatchObject({ cardBrand: "master" });
+  });
+
+  it("un estado desconocido sigue devolviendo null (no se toca la fila)", () => {
+    expect(patchOf({ id: 1, status: "charged_back", card: { last_four_digits: "4242" } })).toBeNull();
+  });
+});
+
 describe("estados de hold (review de PR #226, punto 7)", () => {
   it("vivo y cerrado particionan todos los estados, sin repetir", () => {
     expect([...LIVE_HOLD_STATUSES, ...CLOSED_HOLD_STATUSES].sort()).toEqual(
@@ -142,15 +238,19 @@ describe("HoldService (MOVO-209)", () => {
   let holds: MemoryHoldRepository;
   let mp: { [K in keyof MercadoPagoClient]: ReturnType<typeof vi.fn> };
   let accounts: { findActiveCredentials: ReturnType<typeof vi.fn>; findCredentials: ReturnType<typeof vi.fn> };
+  let savedCards: { findLive: ReturnType<typeof vi.fn>; findCustomer: ReturnType<typeof vi.fn> };
   let log: ReturnType<typeof silentLog>;
   let clock: Date;
 
   function service(holdValidityDays = 5) {
     return createHoldService({
       holdValidityDays,
+      debtCollectionMaxRate: 0.3,
+      ledgerBalance: async (userId) => holds.balances.get(userId) ?? 0,
       holds,
       accounts: accounts as unknown as CarrierMpAccountRepository,
       mercadoPago: mp as unknown as MercadoPagoClient,
+      savedCards: savedCards as unknown as HoldServiceDeps["savedCards"],
       log: log as unknown as FastifyBaseLogger,
       now: () => clock,
     });
@@ -162,6 +262,7 @@ describe("HoldService (MOVO-209)", () => {
     cardToken: "card-token-secret",
     amountArs: 1150,
     payerEmail: PAYER_EMAIL,
+    payerUserId: PAYER_USER,
     paymentMethodId: "visa",
   };
 
@@ -187,6 +288,465 @@ describe("HoldService (MOVO-209)", () => {
       findActiveCredentials: vi.fn(async () => credentials()),
       findCredentials: vi.fn(async () => credentials()),
     };
+    // Por defecto la tarjeta guardada existe, es del emisor y su customer está en MP.
+    savedCards = {
+      findLive: vi.fn(async (userId: string, id: string) =>
+        userId === PAYER_USER && (id === SAVED_CARD || id === OTHER_SAVED_CARD) ? { id, userId, mpCardId: MP_CARD } : null
+      ),
+      findCustomer: vi.fn(async (userId: string) =>
+        userId === PAYER_USER ? { userId, mpCustomerId: MP_CUSTOMER } : null
+      ),
+    };
+  });
+
+  describe("deuda de la cuenta corriente en el hold (MOVO-311)", () => {
+    it("transportista con deuda: sube el application_fee y el emisor paga lo mismo", async () => {
+      holds.balances.set(CARRIER, 100);
+      const { hold } = await service().create(input);
+
+      const [, body] = mp.createPayment.mock.calls[0];
+      expect(body).toMatchObject({ transaction_amount: 1150, application_fee: 250 });
+      expect(hold).toMatchObject({ amountArs: 1150, commissionArs: 150, debtOffsetArs: 100, debtSurchargeArs: 0 });
+    });
+
+    it("deuda mayor al tope: se descuenta el 30% del precio y el resto queda pendiente", async () => {
+      holds.balances.set(CARRIER, 1000);
+      const { hold } = await service().create(input);
+      expect(hold).toMatchObject({ applicationFeeArs: 495, debtOffsetArs: 345 });
+    });
+
+    it("emisor con deuda: el monto sube y el fee lleva el recargo menos la comisión de MP que absorbe Movo", async () => {
+      holds.balances.set(PAYER_USER, 200);
+      const { hold } = await service().create(input);
+
+      const [, body] = mp.createPayment.mock.calls[0];
+      expect(body).toMatchObject({ transaction_amount: 1350, application_fee: 340.02 });
+      expect(hold).toMatchObject({ baseAmountArs: 1150, amountArs: 1350, debtSurchargeArs: 200 });
+    });
+
+    it("un saldo a favor no descuenta nada", async () => {
+      holds.balances.set(CARRIER, -500).set(PAYER_USER, -500);
+      await service().create(input);
+      const [, body] = mp.createPayment.mock.calls[0];
+      expect(body).toMatchObject({ transaction_amount: 1150, application_fee: 150 });
+    });
+
+    it("el replay de un hold con recargo compara contra el precio, no contra el monto cobrado", async () => {
+      holds.balances.set(PAYER_USER, 200);
+      const svc = service();
+      await svc.create(input);
+      const second = await svc.create(input);
+      expect(second.replayed).toBe(true);
+      expect(mp.createPayment).toHaveBeenCalledTimes(1);
+    });
+
+    it("un reintento de un creating reusa los montos del intento aunque la deuda haya cambiado", async () => {
+      holds.balances.set(PAYER_USER, 200);
+      const svc = service();
+      await leaveCreating(svc);
+      holds.balances.set(PAYER_USER, 50);
+      await svc.create(input);
+
+      const [, first] = mp.createPayment.mock.calls[0];
+      const [, retry] = mp.createPayment.mock.calls[1];
+      expect(retry.transaction_amount).toBe(first.transaction_amount);
+      expect(retry.application_fee).toBe(first.application_fee);
+      expect(mp.createPayment.mock.calls[1][2]).toBe(mp.createPayment.mock.calls[0][2]);
+    });
+
+    it("la vista previa del transportista usa el mismo tope por precio", async () => {
+      holds.balances.set(CARRIER, 400);
+      const preview = await service().previewCarrierDebt(CARRIER, [1150, 500]);
+      expect(preview).toEqual({ pendingBalanceArs: 400, debtOffsetsArs: [345, 150] });
+    });
+  });
+
+  describe("tarjeta guardada (MOVO-282, ADR-039)", () => {
+    const withCard = { ...input, savedCardId: SAVED_CARD };
+
+    it("AC1: el pagador pasa a ser el customer de la tarjeta, no el email", async () => {
+      const { hold } = await service().create(withCard);
+
+      const [, body] = mp.createPayment.mock.calls[0];
+      expect(body.payer).toEqual({ type: "customer", id: MP_CUSTOMER });
+      expect(body.payer).not.toHaveProperty("email");
+      // El token (card_id + CVV) sigue siendo el mismo campo de siempre.
+      expect(body).toMatchObject({ token: "card-token-secret", capture: false, application_fee: 150 });
+      expect(hold.status).toBe("authorized");
+      expect(savedCards.findLive).toHaveBeenCalledWith(PAYER_USER, SAVED_CARD);
+      expect(savedCards.findCustomer).toHaveBeenCalledWith(PAYER_USER);
+    });
+
+    it("AC3: persiste la tarjeta en el hold (habilita el 409 CARD_IN_USE)", async () => {
+      await service().create(withCard);
+      expect((holds.rows[0] as unknown as { savedCardId: string }).savedCardId).toBe(SAVED_CARD);
+    });
+
+    it("sin savedCardId sigue el camino de siempre: payer con email y sin leer tarjetas", async () => {
+      await service().create(input);
+
+      const [, body] = mp.createPayment.mock.calls[0];
+      expect(body.payer).toEqual({ email: PAYER_EMAIL });
+      expect(savedCards.findLive).not.toHaveBeenCalled();
+      expect(savedCards.findCustomer).not.toHaveBeenCalled();
+      expect((holds.rows[0] as unknown as { savedCardId: string | null }).savedCardId).toBeNull();
+    });
+
+    it.each([
+      ["de otro usuario", { findLive: async () => null }],
+      ["dada de baja", { findLive: async () => null }],
+      ["con el emisor sin customer en MP", { findCustomer: async () => null }],
+    ])("AC2: una tarjeta %s responde 404 sin abrir intento ni llamar a MP", async (_label, override) => {
+      Object.assign(savedCards, Object.fromEntries(Object.entries(override).map(([k, fn]) => [k, vi.fn(fn)])));
+
+      await expect(service().create(withCard)).rejects.toMatchObject({ statusCode: 404, code: "SAVED_CARD_NOT_FOUND" });
+
+      expect(mp.createPayment).not.toHaveBeenCalled();
+      expect(accounts.findActiveCredentials).not.toHaveBeenCalled();
+      expect(holds.rows).toHaveLength(0);
+    });
+
+    it("AC2: la tarjeta de otro usuario no se distingue de una inexistente", async () => {
+      const other = await service()
+        .create({ ...withCard, payerUserId: "99999999-9999-4999-8999-999999999999" })
+        .catch((e) => e);
+      const missing = await service()
+        .create({ ...withCard, savedCardId: "00000000-0000-4000-8000-00000000000a" })
+        .catch((e) => e);
+      expect({ statusCode: other.statusCode, code: other.code, message: other.message }).toEqual({
+        statusCode: missing.statusCode,
+        code: missing.code,
+        message: missing.message,
+      });
+    });
+
+    it("AC2: la respuesta no expone customer_id ni card_id de MP", async () => {
+      const { hold } = await service().create(withCard);
+      const serialized = JSON.stringify(hold);
+      expect(serialized).not.toContain(MP_CUSTOMER);
+      expect(serialized).not.toContain(MP_CARD);
+      expect(hold).not.toHaveProperty("savedCardId");
+    });
+
+    it("los logs no incluyen customer_id, card_id ni el token (AC9)", async () => {
+      await service().create(withCard);
+      const logged = JSON.stringify([log.info.mock.calls, log.warn.mock.calls, log.error.mock.calls, log.debug.mock.calls]);
+      expect(logged).not.toContain(MP_CUSTOMER);
+      expect(logged).not.toContain(MP_CARD);
+      expect(logged).not.toContain("card-token-secret");
+    });
+
+    describe("AC4: request_fingerprint incluye savedCardId", () => {
+      it("sin tarjeta guardada la huella es la de siempre (no rompe intentos en curso)", async () => {
+        await service().create(input);
+        const legacy = createHash("sha256")
+          .update(JSON.stringify(["card-token-secret", PAYER_EMAIL.toLowerCase(), "visa"]))
+          .digest("hex");
+        expect(holds.rows[0].requestFingerprint).toBe(legacy);
+      });
+
+      it("con tarjeta guardada la huella cambia y sigue siendo un hash sin el token ni el id", async () => {
+        await service().create(withCard);
+        const fingerprint = holds.rows[0].requestFingerprint as string;
+        expect(fingerprint).toMatch(/^[0-9a-f]{64}$/);
+        expect(fingerprint).not.toContain("card-token-secret");
+        expect(fingerprint).not.toContain(SAVED_CARD);
+        const legacy = createHash("sha256")
+          .update(JSON.stringify(["card-token-secret", PAYER_EMAIL.toLowerCase(), "visa"]))
+          .digest("hex");
+        expect(fingerprint).not.toBe(legacy);
+      });
+
+      it("el reintento con la MISMA tarjeta sobre un creating reusa la idempotency key", async () => {
+        mp.createPayment.mockRejectedValueOnce(new Error("The operation was aborted"));
+        await expect(service().create(withCard)).rejects.toMatchObject({ statusCode: 502 });
+
+        await service().create(withCard);
+
+        expect(holds.rows).toHaveLength(1);
+        expect(mp.createPayment.mock.calls[1][2]).toBe(`movo-hold-${SHIPMENT}-1`);
+      });
+
+      it("el reintento con OTRA tarjeta guardada no reusa la key del intento anterior", async () => {
+        mp.createPayment.mockRejectedValueOnce(new Error("The operation was aborted"));
+        await expect(service().create(withCard)).rejects.toMatchObject({ statusCode: 502 });
+
+        await service().create({ ...withCard, savedCardId: OTHER_SAVED_CARD });
+
+        expect(holds.rows).toHaveLength(2);
+        expect(holds.rows[0]).toMatchObject({ status: "rejected", statusDetail: "superseded" });
+        expect(mp.createPayment.mock.calls[1][2]).toBe(`movo-hold-${SHIPMENT}-2`);
+      });
+
+      it("pasar de tarjeta guardada a tarjeta completa tampoco reusa la key", async () => {
+        mp.createPayment.mockRejectedValueOnce(new Error("The operation was aborted"));
+        await expect(service().create(withCard)).rejects.toMatchObject({ statusCode: 502 });
+
+        await service().create(input);
+
+        expect(mp.createPayment.mock.calls[1][2]).toBe(`movo-hold-${SHIPMENT}-2`);
+        expect(mp.createPayment.mock.calls[1][1].payer).toEqual({ email: PAYER_EMAIL });
+      });
+    });
+
+    describe("rechazos de MP con tarjeta guardada (AC6/AC7)", () => {
+      it("CVV incorrecto no es un error HTTP: vuelve como rejected/invalid_data", async () => {
+        mp.createPayment.mockResolvedValue(
+          payment({ status: "rejected", status_detail: "cc_rejected_bad_filled_security_code" })
+        );
+        const { hold } = await service().create(withCard);
+        expect(hold).toMatchObject({
+          status: "rejected",
+          statusDetail: "cc_rejected_bad_filled_security_code",
+          failureReason: "invalid_data",
+        });
+      });
+
+      it("fondos insuficientes (titular FUND) → insufficient_funds", async () => {
+        mp.createPayment.mockResolvedValue(payment({ status: "rejected", status_detail: "cc_rejected_insufficient_amount" }));
+        const { hold } = await service().create(withCard);
+        expect(hold.failureReason).toBe("insufficient_funds");
+      });
+
+      it("tarjeta guardada vencida: el emisor no tipeó la fecha, así que es card_rejected", async () => {
+        mp.createPayment.mockResolvedValue(payment({ status: "rejected", status_detail: "cc_rejected_bad_filled_date" }));
+        const { hold } = await service().create(withCard);
+        expect(hold.failureReason).toBe("card_rejected");
+      });
+
+      it("la misma fecha mal cargada con tarjeta completa sigue siendo invalid_data", async () => {
+        mp.createPayment.mockResolvedValue(payment({ status: "rejected", status_detail: "cc_rejected_bad_filled_date" }));
+        const { hold } = await service().create(input);
+        expect(hold.failureReason).toBe("invalid_data");
+      });
+
+      it.each([["2006"], ["3001"], ["3003"], ["3031"], ["3032"]])(
+        "token vencido o ya usado, o CVV ausente/de largo inválido (%s), cierra el intento como rejected, sin pasar por el 502",
+        async (code) => {
+          mp.createPayment.mockRejectedValueOnce({ status: 400, message: "Card token", cause: [{ code }] });
+          const { hold } = await service().create(withCard);
+          expect(hold).toMatchObject({ status: "rejected", failureReason: "invalid_data", statusDetail: `mp_error_${code}` });
+        }
+      );
+    });
+
+    it("AC8: liberar el hold de una tarjeta guardada cancela con el token del transportista y no toca la tarjeta", async () => {
+      await service().create(withCard);
+      const released = await service().release(SHIPMENT);
+
+      expect(released.status).toBe("cancelled");
+      expect(mp.cancelPayment).toHaveBeenCalledWith("TEST-access", "5550001", expect.stringContaining("movo-hold-release-"));
+      expect(accounts.findCredentials).toHaveBeenCalledWith(CARRIER);
+      // La tarjeta guardada no se consulta ni se modifica al liberar.
+      expect(savedCards.findLive).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("pagador y tarjeta para el historial (MOVO-302)", () => {
+    type HistoryRow = { payerId: string | null; cardLast4: string | null; cardBrand: string | null };
+    const row = () => holds.rows[0] as unknown as HistoryRow;
+
+    it("AC3: persiste al emisor (payerUserId) como pagador del hold, con tarjeta completa o guardada", async () => {
+      await service().create(input);
+      expect(row().payerId).toBe(PAYER_USER);
+
+      holds = new MemoryHoldRepository();
+      await service().create({ ...input, savedCardId: SAVED_CARD });
+      expect(row().payerId).toBe(PAYER_USER);
+    });
+
+    it("AC4: guarda marca y últimos 4 de la respuesta de MP al crear el hold", async () => {
+      mp.createPayment.mockResolvedValue(payment({ payment_method_id: "master", card: { last_four_digits: "1881" } }));
+      await service().create(input);
+      expect(row()).toMatchObject({ cardLast4: "1881", cardBrand: "master" });
+    });
+
+    it("AC4: si MP no informa la tarjeta queda en null; no se deduce del medio pedido ni del token", async () => {
+      // `input.paymentMethodId` es "visa", pero la respuesta de MP no trae ni marca ni tarjeta.
+      await service().create(input);
+      expect(row().cardLast4).toBeNull();
+      expect(row().cardBrand).toBeNull();
+    });
+
+    it("AC4: un valor con forma inesperada se descarta en vez de persistirse", async () => {
+      mp.createPayment.mockResolvedValue(
+        payment({ payment_method_id: "visa; drop table", card: { last_four_digits: "12ab" } })
+      );
+      await service().create(input);
+      expect(row().cardLast4).toBeNull();
+      expect(row().cardBrand).toBeNull();
+    });
+
+    it("AC4: al reconciliar (?sync=true) se completa lo que faltaba, y una respuesta sin tarjeta no lo borra", async () => {
+      await service().create(input);
+      expect(row().cardLast4).toBeNull();
+
+      mp.getPayment.mockResolvedValueOnce(payment({ payment_method_id: "visa", card: { last_four_digits: "4242" } }));
+      await service().getByShipment(SHIPMENT, { sync: true });
+      expect(row()).toMatchObject({ cardLast4: "4242", cardBrand: "visa" });
+
+      mp.getPayment.mockResolvedValueOnce(payment());
+      await service().getByShipment(SHIPMENT, { sync: true });
+      expect(row()).toMatchObject({ cardLast4: "4242", cardBrand: "visa" });
+    });
+
+    it("AC5: el card_token no llega a la fila ni al log, y de la tarjeta solo se guardan 4 dígitos", async () => {
+      mp.createPayment.mockResolvedValue(payment({ payment_method_id: "visa", card: { last_four_digits: "4242" } }));
+      await service().create(input);
+
+      expect(JSON.stringify(holds.rows[0])).not.toContain("card-token-secret");
+      const logged = JSON.stringify([log.info.mock.calls, log.warn.mock.calls, log.error.mock.calls]);
+      expect(logged).not.toContain("card-token-secret");
+      expect(logged).not.toContain(PAYER_USER);
+    });
+
+    // Review de PR #255, punto 6: `payerId` no entra al fingerprint, así que un reintento con otro
+    // emisor reusaba la fila y el pago quedaba atribuido al primero.
+    describe("el pagador de un hold vigente no cambia", () => {
+      const OTHER_PAYER = "99999999-9999-4999-8999-999999999999";
+
+      it("un reintento de un hold vigente con otro payerUserId se rechaza con 409 y no llama a MP", async () => {
+        await service().create(input);
+        mp.createPayment.mockClear();
+
+        await expect(service().create({ ...input, payerUserId: OTHER_PAYER })).rejects.toMatchObject({
+          statusCode: 409,
+          code: "HOLD_CONFLICT",
+        });
+        expect(mp.createPayment).not.toHaveBeenCalled();
+        expect(row().payerId).toBe(PAYER_USER);
+      });
+
+      it("lo mismo con un intento sin respuesta (creating): no reusa la key a nombre de otro emisor", async () => {
+        await leaveCreating();
+        mp.createPayment.mockClear();
+
+        await expect(service().create({ ...input, payerUserId: OTHER_PAYER })).rejects.toMatchObject({
+          statusCode: 409,
+          code: "HOLD_CONFLICT",
+        });
+        expect(mp.createPayment).not.toHaveBeenCalled();
+      });
+
+      it("el mismo emisor reintenta sin problema, y un hold anterior a MOVO-302 (sin payerId) no se compara", async () => {
+        await service().create(input);
+        expect((await service().create(input)).replayed).toBe(true);
+
+        Object.assign(holds.rows[0], { payerId: null });
+        expect((await service().create({ ...input, payerUserId: OTHER_PAYER })).replayed).toBe(true);
+      });
+
+      it("tras un rechazo el intento siguiente puede ser de otro emisor, con su propio payerId", async () => {
+        mp.createPayment.mockResolvedValueOnce(
+          payment({ status: "rejected", status_detail: "cc_rejected_other_reason" })
+        );
+        await service().create(input);
+
+        await service().create({ ...input, payerUserId: OTHER_PAYER });
+
+        expect(holds.rows.map((r) => (r as unknown as HistoryRow).payerId)).toEqual([PAYER_USER, OTHER_PAYER]);
+      });
+    });
+
+    // Review de PR #255, punto 7: un estado que no conocemos igual trae la tarjeta en la misma respuesta.
+    it("AC4: un estado de MP desconocido en el create igual deja la tarjeta (nada lo vuelve a sincronizar)", async () => {
+      mp.createPayment.mockResolvedValueOnce(
+        payment({ status: "in_mediation", payment_method_id: "visa", card: { last_four_digits: "4242" } })
+      );
+
+      await expect(service().create(input)).rejects.toMatchObject({ statusCode: 502 });
+
+      expect(holds.rows[0].status).toBe("creating");
+      expect(row()).toMatchObject({ cardLast4: "4242", cardBrand: "visa" });
+    });
+
+    // Review de PR #255, punto 4: `?sync=true` solo releía authorized/in_process.
+    describe("?sync=true completa la tarjeta de un hold que ya salió de authorized/in_process", () => {
+      const setup = async (status: "captured" | "cancelled" | "rejected", extra: Record<string, unknown> = {}) => {
+        await service().create(input);
+        Object.assign(holds.rows[0], { status, mpPaymentId: "5550001", ...extra });
+        mp.getPayment.mockReset().mockResolvedValue(
+          payment({ status: "approved", payment_method_id: "visa", card: { last_four_digits: "4242" } })
+        );
+      };
+
+      it.each(["captured", "cancelled"] as const)("un hold %s sin tarjeta la recibe, sin cambiar el estado", async (status) => {
+        await setup(status);
+
+        const res = await service().getByShipment(SHIPMENT, { sync: true });
+
+        expect(mp.getPayment).toHaveBeenCalledTimes(1);
+        expect(res.status).toBe(status);
+        expect(row()).toMatchObject({ cardLast4: "4242", cardBrand: "visa" });
+      });
+
+      it("con la tarjeta ya guardada no vuelve a consultar a MP", async () => {
+        await setup("captured", { cardLast4: "1881", cardBrand: "master" });
+
+        await service().getByShipment(SHIPMENT, { sync: true });
+
+        expect(mp.getPayment).not.toHaveBeenCalled();
+        expect(row()).toMatchObject({ cardLast4: "1881", cardBrand: "master" });
+      });
+
+      // Seguimiento de Pedro (review de PR #255): es un dato solo para el historial.
+      it("si MP falla no tira un 502: devuelve el hold como está y lo loguea", async () => {
+        await setup("captured");
+        mp.getPayment.mockReset().mockRejectedValue(new Error("The operation was aborted"));
+
+        const res = await service().getByShipment(SHIPMENT, { sync: true });
+
+        expect(res.status).toBe("captured");
+        expect(row().cardLast4).toBeNull();
+        expect(log.error).toHaveBeenCalledWith(
+          expect.objectContaining({ holdId: holds.rows[0].id }),
+          expect.stringContaining("el hold queda como está")
+        );
+      });
+
+      it("un pago sin tarjeta (marca guardada, sin últimos 4) no vuelve a consultar a MP en cada sync", async () => {
+        await setup("captured", { cardBrand: "account_money" });
+
+        await service().getByShipment(SHIPMENT, { sync: true });
+        await service().getByShipment(SHIPMENT, { sync: true });
+
+        expect(mp.getPayment).not.toHaveBeenCalled();
+      });
+
+      it("la primera consulta de un pago sin tarjeta guarda la marca y corta las siguientes", async () => {
+        await setup("captured");
+        mp.getPayment.mockReset().mockResolvedValue(payment({ status: "approved", payment_method_id: "account_money" }));
+
+        await service().getByShipment(SHIPMENT, { sync: true });
+        await service().getByShipment(SHIPMENT, { sync: true });
+
+        expect(mp.getPayment).toHaveBeenCalledTimes(1);
+        expect(row()).toMatchObject({ cardBrand: "account_money", cardLast4: null });
+      });
+
+      it("un hold rechazado no aparece en el historial: no se consulta", async () => {
+        await setup("rejected");
+        await service().getByShipment(SHIPMENT, { sync: true });
+        expect(mp.getPayment).not.toHaveBeenCalled();
+      });
+
+      it("sin sync no consulta a MP aunque falte la tarjeta", async () => {
+        await setup("captured");
+        await service().getByShipment(SHIPMENT);
+        expect(mp.getPayment).not.toHaveBeenCalled();
+      });
+    });
+
+    it("AC7: HoldResponse no expone el pagador ni la tarjeta", async () => {
+      mp.createPayment.mockResolvedValue(payment({ payment_method_id: "visa", card: { last_four_digits: "4242" } }));
+      const { hold } = await service().create(input);
+
+      for (const key of ["payerId", "payerUserId", "cardLast4", "cardBrand"]) {
+        expect(hold).not.toHaveProperty(key);
+      }
+      expect(JSON.stringify(hold)).not.toContain(PAYER_USER);
+      expect(JSON.stringify(hold)).not.toContain("4242");
+    });
   });
 
   describe("getCheckoutData (AC1)", () => {
@@ -203,9 +763,26 @@ describe("HoldService (MOVO-209)", () => {
         publicKey: "TEST-public-key",
         amountArs: 1150,
         applicationFeeArs: 150,
+        baseAmountArs: 1150,
+        debtOffsetArs: 0,
+        debtSurchargeArs: 0,
         payerEmail: "e@x.com",
       });
       expect(accounts.findActiveCredentials).toHaveBeenCalledWith(CARRIER, NOW);
+    });
+
+    it("MOVO-311: con deuda de las dos partes, la vista previa suma el recargo y sube la comisión (sin reservar)", async () => {
+      holds.balances.set(CARRIER, 100).set(PAYER_USER, 200);
+      const data = await service().getCheckoutData({
+        shipmentId: SHIPMENT,
+        carrierId: CARRIER,
+        amountArs: 1150,
+        payerEmail: "e@x.com",
+        payerUserId: PAYER_USER,
+      });
+      // Recargo 200; Movo absorbe el 4,99% de MP sobre él (9,98), así que el fee lleva 190,02.
+      expect(data).toMatchObject({ amountArs: 1350, applicationFeeArs: 440.02, debtOffsetArs: 100, debtSurchargeArs: 200 });
+      expect(holds.rows).toHaveLength(0);
     });
 
     it("409 CARRIER_MP_ACCOUNT_NOT_LINKED si no hay credenciales vigentes (una sola lectura)", async () => {
@@ -582,6 +1159,17 @@ describe("HoldService (MOVO-209)", () => {
       await svc.release(SHIPMENT);
       const next = await svc.create(input);
       expect(next.hold).toMatchObject({ attempt: 2, status: "authorized" });
+    });
+
+    it("una liberación demorada no cancela un intento posterior del mismo transportista", async () => {
+      const svc = service();
+      const first = (await svc.create(input)).hold;
+      await svc.release(SHIPMENT, CARRIER, first.id);
+      const second = (await svc.create(input)).hold;
+      await expect(svc.release(SHIPMENT, CARRIER, first.id))
+        .rejects.toMatchObject({ statusCode: 409, code: "HOLD_CONFLICT" });
+      expect(second.id).not.toBe(first.id);
+      expect(mp.cancelPayment).toHaveBeenCalledTimes(1);
     });
 
     it("un intento rechazado no retuvo fondos: se devuelve tal cual, sin llamar a MP", async () => {

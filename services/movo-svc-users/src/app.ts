@@ -24,8 +24,13 @@ import notificationsRoutes, {
 import addressesRoutes from "./modules/addresses/addresses.routes";
 import deviceKeysRoutes from "./modules/device-keys/device-keys.routes";
 import notificationPreferencesRoutes from "./modules/notification-preferences/notification-preferences.routes";
+import toursRoutes from "./modules/tours/tours.routes";
 import moderationRoutes, { internalModerationRoutes } from "./modules/moderation/moderation.routes";
+import adminsInternalRoutes, { AdminsInternalRoutesOptions } from "./modules/admins/admins-internal.routes";
+import adminUsersInternalRoutes, { AdminUsersInternalRoutesOptions } from "./modules/admin-users/admin-users-internal.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
+import sanctionSweepPlugin from "./plugins/sanction-sweep";
+import sanctionsInternalRoutes, { SanctionsInternalRoutesOptions } from "./modules/sanctions/sanctions-internal.routes";
 import { SmsProvider } from "./adapters/sms-provider";
 import { EmailProvider } from "./adapters/email-provider";
 import { DiditClient } from "./adapters/didit-client";
@@ -62,6 +67,8 @@ export interface BuildAppOptions {
   emailProvider?: EmailProvider;
   /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
   orphanPhotoSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el barrido de sanciones de cuenta (MOVO-296). */
+  sanctionSweepEnabled?: boolean;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -90,6 +97,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(orphanPhotoSweepPlugin, {
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
+  });
+
+  app.register(sanctionSweepPlugin, {
+    emailProvider: opts.emailProvider,
+    pushProvider: opts.pushProvider,
+    enabled: opts.sanctionSweepEnabled,
   });
 
   // Fuera de /api/v1 a propósito: lo consultan el healthcheck de Docker y el
@@ -168,12 +181,39 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // prefijo /users existente en gateway/src/config/routes-map.ts (sin cambios ahí).
   app.register(notificationPreferencesRoutes, { prefix: "/users" });
 
+  // MOVO-169: /users/me/tours/:tourId -- protegida, mismo criterio que la de arriba.
+  app.register(toursRoutes, { prefix: "/users" });
+
   // MOVO-175: reportar/bloquear bajo /users (ya proxeado por el gateway) + la unión
   // simétrica de bloqueos para svc-shipments bajo /internal (no proxeado).
   // MOVO-256: las fotos de reportes usan el mismo StorageProvider (override de tests).
   const storageOverride = opts.storageProvider ? { storageProvider: opts.storageProvider } : {};
   app.register(moderationRoutes, { prefix: "/users", ...storageOverride });
   app.register(internalModerationRoutes, { prefix: "/internal", ...storageOverride });
+
+  // MOVO-290: alta y baja del rol admin para svc-admin. Interno, mismo criterio que
+  // device-key: no se declara en gateway/src/config/routes-map.ts.
+  const adminsInternalRouteOpts: AdminsInternalRoutesOptions = {
+    prefix: "/internal",
+    ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+  };
+  app.register(adminsInternalRoutes, adminsInternalRouteOpts);
+
+  // MOVO-294: búsqueda y ficha de usuarios del panel, y acciones de soporte. Interno, mismo
+  // criterio que el de arriba.
+  const adminUsersInternalRouteOpts: AdminUsersInternalRoutesOptions = {
+    prefix: "/internal",
+    ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+  };
+  app.register(adminUsersInternalRoutes, adminUsersInternalRouteOpts);
+
+  // MOVO-296: sanciones de cuenta (suspender, inhabilitar, levantar, historial) para svc-admin.
+  const sanctionsInternalRouteOpts: SanctionsInternalRoutesOptions = {
+    prefix: "/internal",
+    ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+    ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
+  };
+  app.register(sanctionsInternalRoutes, sanctionsInternalRouteOpts);
 
   return app;
 }

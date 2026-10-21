@@ -159,28 +159,16 @@ jobs:
         working-directory: ${{ matrix.service.path }}
         run: npx tsc --noEmit
 
-      # movo-svc-users, movo-svc-shipments y movo-svc-payments usan Prisma Migrate
-      # (prisma migrate deploy, con tracking propio en _prisma_migrations) -- los
-      # demás servicios siguen con el runner de SQL a mano hasta que tengan dominio
-      # real (ver ADR-011; movo-svc-shipments lo adoptó en MOVO-104 y
-      # movo-svc-payments en MOVO-267).
+      # Todos los servicios Node usan Prisma Migrate (prisma migrate deploy, con
+      # tracking propio en _prisma_migrations, ADR-011): svc-shipments desde MOVO-104,
+      # svc-payments desde MOVO-267 y svc-admin desde MOVO-288, que dejó sin uso el
+      # runner de SQL a mano (scripts/run-migrations.sh, borrado).
       - name: Run migrations (Prisma)
         if: |
           (github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true') &&
-          (matrix.service.name == 'movo-svc-users' || matrix.service.name == 'movo-svc-shipments' || matrix.service.name == 'movo-svc-payments')
+          matrix.service.name != 'gateway'
         working-directory: ${{ matrix.service.path }}
         run: npx prisma migrate deploy
-
-      - name: Run migrations (SQL)
-        if: |
-          (github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true') &&
-          matrix.service.name != 'gateway' &&
-          matrix.service.name != 'movo-svc-users' &&
-          matrix.service.name != 'movo-svc-shipments' &&
-          matrix.service.name != 'movo-svc-payments'
-        run: |
-          sudo apt-get update && sudo apt-get install -y postgresql-client
-          ./scripts/run-migrations.sh ${{ matrix.service.path }}
 
       - name: Tests
         if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
@@ -373,28 +361,15 @@ jobs:
           source: ".env"
           target: "~/movo"
 
-      - name: Copiar script y migraciones a la EC2 de dev
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: api-dev.movosend.app
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "scripts/run-migrations.sh,services/movo-svc-admin/migrations"
-          target: "~/movo"
-
-      # Postgres no expone puerto público en la EC2 (ADR-010): se migra via
-      # docker exec dentro del propio contenedor, igual que hace
-      # scripts/run-migrations.sh cuando no encuentra psql en el host. Corre
-      # antes de levantar las imágenes nuevas de la app para que ningún
-      # contenedor arranque contra un schema desactualizado. El ledger
-      # schema_migrations evita reaplicar lo que ya corrió en un deploy
-      # anterior. movo-svc-users, movo-svc-shipments y movo-svc-payments usan
-      # Prisma Migrate (ADR-011, MOVO-104, MOVO-267): la imagen ya trae la CLI +
-      # prisma/migrations (ver Dockerfile), por eso no entran en el for de
-      # run-migrations.sh -- se migran aparte con `prisma migrate deploy`, pero
-      # primero hay que traer la imagen nueva (docker compose pull), porque
-      # `docker compose run` no repushea una imagen ya presente localmente con
-      # el mismo tag.
+      # Postgres no expone puerto público en la EC2 (ADR-010): cada servicio Node
+      # migra con `prisma migrate deploy` (ADR-011) desde su propia imagen, que ya
+      # trae la CLI + prisma/migrations (ver Dockerfile). Corre antes de levantar
+      # las imágenes nuevas de la app para que ningún contenedor arranque contra
+      # un schema desactualizado. Primero hay que traer la imagen nueva (docker
+      # compose pull), porque `docker compose run` no repullea una imagen ya
+      # presente localmente con el mismo tag. svc-admin se sumó en MOVO-288; hasta
+      # ahí migraba con scripts/run-migrations.sh (borrado), y su fila vieja en
+      # public.schema_migrations queda como histórico inofensivo.
       - name: Aplicar migraciones de base de datos en dev
         uses: appleboy/ssh-action@v1
         with:
@@ -411,11 +386,11 @@ jobs:
           # camino (visto en el run que rompió dev tras el merge de MOVO-102).
           # 30m desde MOVO-267: con movo-svc-payments son tres migraciones en
           # serie, y el timeout de 600s por comando (abajo) necesita entrar
-          # tres veces para que el que se cuelga se identifique solo. 45m y no 30m:
-          # 3 x 10m ya es el techo, y el pull, el prune y las migraciones SQL de
-          # svc-admin necesitan margen encima para que el timeout por comando
-          # (y no este global) sea el que corte.
-          command_timeout: 45m
+          # tres veces para que el que se cuelga se identifique solo. 55m desde
+          # MOVO-288: con movo-svc-admin son cuatro, 4 x 10m ya es el techo, y el
+          # pull y el prune necesitan margen encima para que el timeout por
+          # comando (y no este global) sea el que corte.
+          command_timeout: 55m
           script: |
             echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             cd ~/movo
@@ -426,14 +401,10 @@ jobs:
               export "$key=$value"
             done < .env
             set +a
-            chmod +x scripts/run-migrations.sh
             docker compose up -d postgres
             echo "Esperando a que Postgres esté listo..."
             until docker exec "$(docker ps --filter name=postgres --format '{{.Names}}' | head -n1)" pg_isready -U "${POSTGRES_USER:-movo}" > /dev/null 2>&1; do
               sleep 2
-            done
-            for svc in services/movo-svc-admin; do
-              ./scripts/run-migrations.sh "$svc"
             done
             # Prune ANTES del pull, no solo al final. El prune de cierre solo
             # corre si el deploy llega hasta el final: un deploy que falla en
@@ -444,7 +415,7 @@ jobs:
             # descomprimir su schema-engine. Corre con los contenedores
             # actuales arriba, así que -a solo borra lo que ya nadie usa.
             docker image prune -af
-            docker compose pull movo-svc-users movo-svc-shipments movo-svc-payments
+            docker compose pull movo-svc-users movo-svc-shipments movo-svc-payments movo-svc-admin
             # Timeout POR comando, además del command_timeout global del step.
             # Sin esto, una migración trabada se come los 20m enteros y el log
             # queda en silencio hasta que appleboy mata la sesion con un
@@ -478,6 +449,7 @@ jobs:
             migrate movo-svc-users
             migrate movo-svc-shipments
             migrate movo-svc-payments
+            migrate movo-svc-admin
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}

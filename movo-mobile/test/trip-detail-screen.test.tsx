@@ -1,6 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import { Alert } from "react-native";
 import TripDetailScreen from "../app/(app)/carrier/trips/[id]/index";
 import { TripStatus, type TripAcceptedPackage, type TripWithAcceptedPackages } from "../src/api/trips-client";
 
@@ -9,6 +10,11 @@ const mockBack = jest.fn();
 const mockReplace = jest.fn();
 const mockDismissTo = jest.fn();
 const mockCanGoBack = jest.fn(() => true);
+
+// MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
+jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
+  require("./mocks/carrier-requirements-sheet-hook"),
+);
 
 jest.mock("expo-router", () => ({
   router: {
@@ -24,10 +30,33 @@ jest.mock("expo-router", () => ({
 const mockUseTrip = jest.fn();
 const mockCancelMutate = jest.fn();
 const mockStartMutateAsync = jest.fn();
+const mockUpdateMutate = jest.fn();
 jest.mock("../src/hooks/use-trips", () => ({
   useTrip: (id: string) => mockUseTrip(id),
   useCancelTrip: () => ({ mutate: mockCancelMutate, isPending: false }),
+  useUpdateTrip: () => ({ mutate: mockUpdateMutate, isPending: false }),
   useStartTrip: () => ({ mutateAsync: mockStartMutateAsync, isPending: false }),
+}));
+
+// MOVO-314: la secuencia de bajas + cancel del viaje se testea aparte (`use-cancel-trip-with-packages.test.tsx`).
+const mockPackagesOpen = jest.fn();
+const mockPackagesRun = jest.fn();
+const mockPackagesClose = jest.fn();
+let mockPackagesState: Record<string, unknown> = {};
+jest.mock("../src/hooks/use-cancel-trip-with-packages", () => ({
+  useCancelTripWithPackages: () => ({
+    rows: [],
+    phase: "ready",
+    isRunning: false,
+    errorMessage: null,
+    mismatchNotice: null,
+    totalDebtArs: 0,
+    open: (...a: unknown[]) => mockPackagesOpen(...a),
+    retryQuotes: jest.fn(),
+    close: () => mockPackagesClose(),
+    run: (...a: unknown[]) => mockPackagesRun(...a),
+    ...mockPackagesState,
+  }),
 }));
 
 // El gate de ubicación (MOVO-279) corre la acción directo; se prueba en su propio archivo.
@@ -78,8 +107,14 @@ const TRIP: TripWithAcceptedPackages = {
   createdAt: "2026-09-20T12:00:00.000Z",
   updatedAt: "2026-09-20T12:00:00.000Z",
   cancelledAt: null,
+  recurrenceWeekdays: null,
+  recurrenceUntil: null,
+  seriesId: null,
+  generatedFromTripId: null,
+  isSeriesHead: true,
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
+  executablePackagesCount: 0,
   packages: [],
 };
 
@@ -98,7 +133,9 @@ const pkg = (id: string, price: number): TripAcceptedPackage => ({
   pickupTimeWindowStart: "07:00:00",
   pickupTimeWindowEnd: "09:00:00",
   agreedPriceArs: price,
+  senderId: "sender-1",
   senderName: "Julia Paz",
+  senderPhotoUrl: null,
 });
 
 const WITH_PACKAGES: TripWithAcceptedPackages = {
@@ -120,6 +157,7 @@ const loaded = (data: TripWithAcceptedPackages, extra: object = {}) => ({
 describe("TripDetailScreen (MOVO-263)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPackagesState = {};
     mockCanGoBack.mockReturnValue(true);
   });
 
@@ -185,7 +223,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip-1" } });
   });
 
-  it("AC2/AC5: con paquetes lista las filas y el total, sin editar/cancelar, con nota y 'Iniciar viaje'", async () => {
+  it("AC2/AC5: con paquetes lista las filas y el total, sin editar, con nota y 'Iniciar viaje'", async () => {
     mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
     const { getByText, getByTestId, queryByTestId } = await render(<TripDetailScreen />);
 
@@ -195,7 +233,89 @@ describe("TripDetailScreen (MOVO-263)", () => {
     expect(getByTestId("trip-detail-total")).toBeTruthy();
     expect(getByTestId("trip-detail-locked-note")).toBeTruthy();
     expect(getByTestId("trip-detail-start")).toBeTruthy();
-    expect(queryByTestId("trip-detail-menu")).toBeNull();
+    // MOVO-314: con paquetes retirables ya se puede cancelar el viaje (y sus envíos), pero no editarlo.
+    expect(getByTestId("trip-detail-menu-action-cancel-trip")).toBeTruthy();
+    expect(queryByTestId("trip-detail-menu-action-edit-trip")).toBeNull();
+  });
+
+  describe("MOVO-314: cancelar el viaje con paquetes", () => {
+    it("abre el sheet con la lista de envíos y arma la cotización con los paquetes del detalle", async () => {
+      mockPackagesState = {
+        rows: [
+          { shipmentId: "ship-1", senderName: "Julia Paz", route: "Nueva Córdoba → Villa María", penaltyArs: 3100, done: false },
+          { shipmentId: "ship-2", senderName: "Julia Paz", route: "Nueva Córdoba → Villa María", penaltyArs: 0, done: false },
+        ],
+        totalDebtArs: 3100,
+      };
+      mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+      const { getByTestId, getByText } = await render(<TripDetailScreen />);
+
+      await fireEvent.press(getByTestId("trip-detail-menu-action-cancel-trip"));
+
+      expect(mockPackagesOpen).toHaveBeenCalledWith(WITH_PACKAGES.packages);
+      expect(getByText(/También se cancelan los 2 envíos que aceptaste/)).toBeTruthy();
+      expect(getByTestId("trip-cancel-row-ship-1-chip")).toHaveTextContent("$3.100");
+      expect(getByTestId("trip-cancel-row-ship-2-chip")).toHaveTextContent("Sin cargo");
+      expect(getByTestId("trip-cancel-debt")).toHaveTextContent(/Se te va a registrar una deuda de \$3\.100 que se descuenta/);
+      expect(getByText("Sí, cancelar igual")).toBeTruthy();
+    });
+
+    it("confirmar corre la secuencia y vuelve a Mis viajes con los envíos y la deuda", async () => {
+      mockPackagesRun.mockResolvedValueOnce({ withdrawnCount: 2, debtArs: 3100 });
+      mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+      const { getByTestId } = await render(<TripDetailScreen />);
+
+      await fireEvent.press(getByTestId("trip-detail-menu-action-cancel-trip"));
+      await fireEvent.press(getByTestId("trip-cancel-confirm"));
+
+      await waitFor(() => expect(mockPackagesRun).toHaveBeenCalledWith("trip-1", false));
+      await waitFor(() =>
+        expect(mockDismissTo).toHaveBeenCalledWith({
+          pathname: "/carrier/trips",
+          params: {
+            cancelledTo: "Bv. España 300",
+            cancelledAt: expect.any(String),
+            cancelledPackages: "2",
+            cancelledDebt: "3100",
+          },
+        }),
+      );
+    });
+
+    it("si la secuencia falla se queda en el sheet, sin navegar", async () => {
+      mockPackagesRun.mockResolvedValueOnce(null);
+      mockPackagesState = { errorMessage: "No pudimos terminar de cancelar el viaje." };
+      mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+      const { getByTestId } = await render(<TripDetailScreen />);
+
+      await fireEvent.press(getByTestId("trip-detail-menu-action-cancel-trip"));
+      await fireEvent.press(getByTestId("trip-cancel-confirm"));
+
+      await waitFor(() => expect(mockPackagesRun).toHaveBeenCalled());
+      expect(getByTestId("trip-cancel-error")).toBeTruthy();
+      expect(mockDismissTo).not.toHaveBeenCalled();
+    });
+
+    it("con un paquete en tránsito no se ofrece cancelar el viaje", async () => {
+      const inTransit = { ...WITH_PACKAGES, packages: [pkg("ship-1", 12400), { ...pkg("ship-2", 6800), status: ShipmentStatus.IN_TRANSIT }] };
+      mockUseTrip.mockReturnValue(loaded(inTransit));
+      const { queryByTestId, getByTestId } = await render(<TripDetailScreen />);
+
+      expect(queryByTestId("trip-detail-menu-action-cancel-trip")).toBeNull();
+      expect(getByTestId("trip-detail-locked-note")).toHaveTextContent(/bajarte, hacelo desde cada envío/);
+    });
+
+    it("sin cotizar todavía el botón de confirmar no responde", async () => {
+      mockPackagesState = { phase: "quoting", rows: [{ shipmentId: "ship-1", senderName: "Julia Paz", route: "a → b", penaltyArs: null, done: false }] };
+      mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+      const { getByTestId } = await render(<TripDetailScreen />);
+
+      await fireEvent.press(getByTestId("trip-detail-menu-action-cancel-trip"));
+      expect(getByTestId("trip-cancel-quoting")).toBeTruthy();
+      await fireEvent.press(getByTestId("trip-cancel-confirm"));
+
+      expect(mockPackagesRun).not.toHaveBeenCalled();
+    });
   });
 
   it("AC2: tocar un paquete abre el detalle del envío", async () => {
@@ -225,6 +345,32 @@ describe("TripDetailScreen (MOVO-263)", () => {
 
     await waitFor(() => expect(mockStartMutateAsync).toHaveBeenCalledWith("trip-1"));
     await waitFor(() => expect(getByTestId("trip-detail-start-error")).toBeTruthy());
+  });
+
+  it("MOVO-117: iniciar con un 403 por requisitos abre la checklist en vez del error genérico", async () => {
+    mockStartMutateAsync.mockRejectedValueOnce(
+      new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "x", { missingRequirements: ["license", "mp_account"] }),
+    );
+    mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+    const { getByTestId, getByText, queryByTestId } = await render(<TripDetailScreen />);
+
+    await fireEvent.press(getByTestId("trip-detail-start"));
+
+    await waitFor(() => expect(getByText("Para iniciar tu viaje necesitás completar estos dos pasos.")).toBeTruthy());
+    expect(getByTestId("carrier-requirements-sheet-checklist-license-cta")).toBeTruthy();
+    expect(getByTestId("carrier-requirements-sheet-checklist-mp-cta")).toBeTruthy();
+    expect(queryByTestId("trip-detail-start-error")).toBeNull();
+  });
+
+  it("MOVO-117: iniciar con un 502 de verificación muestra el error para reintentar, sin checklist", async () => {
+    mockStartMutateAsync.mockRejectedValueOnce(new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "x"));
+    mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+    const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
+
+    await fireEvent.press(getByTestId("trip-detail-start"));
+
+    await waitFor(() => expect(getByTestId("trip-detail-start-error")).toBeTruthy());
+    expect(queryByTestId("carrier-requirements-sheet")).toBeNull();
   });
 
   it("viaje activo: solo 'Ver ruta en vivo', sin buscar/editar/cancelar", async () => {
@@ -265,7 +411,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
     expect(getByText("¿Cancelar el viaje a Bv. España 300?")).toBeTruthy();
     await fireEvent.press(getByTestId("trip-cancel-confirm"));
 
-    expect(mockCancelMutate).toHaveBeenCalledWith("trip-1", expect.any(Object));
+    expect(mockCancelMutate).toHaveBeenCalledWith({ id: "trip-1", stopRecurrence: false }, expect.any(Object));
     expect(mockDismissTo).toHaveBeenCalledWith({
       pathname: "/carrier/trips",
       params: { cancelledTo: "Bv. España 300", cancelledAt: expect.any(String) },
@@ -303,13 +449,6 @@ describe("TripDetailScreen (MOVO-263)", () => {
     expect(queryByTestId("trip-detail-cancel-error")).toBeNull();
   });
 
-  it("cada paquete lleva el número con el que el mapa marca su retiro y entrega", async () => {
-    mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
-    const { getByTestId } = await render(<TripDetailScreen />);
-
-    expect(getByTestId("trip-detail-package-ship-1-index")).toHaveTextContent("1");
-  });
-
   it("iniciar el viaje con éxito lleva al mapa en vivo", async () => {
     mockStartMutateAsync.mockResolvedValueOnce({});
     mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
@@ -330,5 +469,98 @@ describe("TripDetailScreen (MOVO-263)", () => {
     mockCanGoBack.mockReturnValue(false);
     await fireEvent.press(getByTestId("trip-detail-back"));
     expect(mockReplace).toHaveBeenCalledWith("/carrier/trips");
+  });
+
+  describe("MOVO-266: viajes recurrentes", () => {
+    // 2026-10-02T11:00Z es viernes 08:00 en Argentina.
+    const RECURRING: TripWithAcceptedPackages = {
+      ...TRIP,
+      recurrenceWeekdays: [1, 5],
+      seriesId: "trip-1",
+    };
+
+    it("muestra el badge de la serie junto al estado", async () => {
+      mockUseTrip.mockReturnValue(loaded(RECURRING));
+      const { getByTestId, getByText } = await render(<TripDetailScreen />);
+
+      expect(getByTestId("trip-detail-recurrence")).toBeTruthy();
+      expect(getByText("Lun y vie")).toBeTruthy();
+    });
+
+    it("un viaje no recurrente no muestra badge ni 'Dejar de repetir'", async () => {
+      mockUseTrip.mockReturnValue(loaded(TRIP));
+      const { queryByTestId } = await render(<TripDetailScreen />);
+
+      expect(queryByTestId("trip-detail-recurrence")).toBeNull();
+      expect(queryByTestId("trip-detail-menu-action-stop-recurrence")).toBeNull();
+    });
+
+    it("un viaje cancelado ('Solo este viaje') que sigue siendo cabeza de la serie ofrece 'Dejar de repetir'", async () => {
+      mockUseTrip.mockReturnValue(loaded({ ...RECURRING, status: TripStatus.CANCELLED }));
+      const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
+
+      expect(getByTestId("trip-detail-menu-action-stop-recurrence")).toBeTruthy();
+      expect(queryByTestId("trip-detail-menu-action-edit-trip")).toBeNull();
+      expect(queryByTestId("trip-detail-menu-action-cancel-trip")).toBeNull();
+    });
+
+    it("'Dejar de repetir' confirma y manda recurrenceWeekdays: null, aunque tenga paquetes", async () => {
+      const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+      mockUpdateMutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+      mockUseTrip.mockReturnValue(loaded({ ...RECURRING, ...WITH_PACKAGES, recurrenceWeekdays: [5] }));
+      const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
+
+      // Con paquetes no se edita (MOVO-314: sí se puede cancelar) y se puede dejar de repetir.
+      expect(queryByTestId("trip-detail-menu-action-cancel-trip")).toBeTruthy();
+      expect(queryByTestId("trip-detail-menu-action-edit-trip")).toBeNull();
+      await fireEvent.press(getByTestId("trip-detail-menu-action-stop-recurrence"));
+
+      expect(alertSpy).toHaveBeenCalledWith(
+        "¿Dejar de repetir este viaje?",
+        "Este viaje se mantiene; no vamos a declarar los siguientes.",
+        expect.any(Array),
+      );
+      const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress?: () => void }[];
+      await act(async () => buttons.find((b) => b.text === "Dejar de repetir")?.onPress?.());
+
+      expect(mockUpdateMutate).toHaveBeenCalledWith(
+        { id: "trip-1", body: { recurrenceWeekdays: null } },
+        expect.any(Object),
+      );
+      expect(getByTestId("trip-detail-notice")).toBeTruthy();
+      alertSpy.mockRestore();
+    });
+
+    it("con isSeriesHead = false se ve el badge pero no las acciones de recurrencia", async () => {
+      mockUseTrip.mockReturnValue(
+        loaded({ ...RECURRING, ...WITH_PACKAGES, recurrenceWeekdays: [5], status: TripStatus.ACTIVE, isSeriesHead: false }),
+      );
+      const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
+
+      expect(getByTestId("trip-detail-recurrence")).toBeTruthy();
+      expect(queryByTestId("trip-detail-menu")).toBeNull();
+    });
+
+    it("cancelar un viaje recurrente ofrece dos opciones y cada una manda su payload", async () => {
+      mockUseTrip.mockReturnValue(loaded(RECURRING));
+      const { getByTestId, getByText } = await render(<TripDetailScreen />);
+
+      await fireEvent.press(getByTestId("trip-detail-menu-action-cancel-trip"));
+      expect(getByText("Cancelás solo el viaje de este viernes; el del próximo se declara igual.")).toBeTruthy();
+      await fireEvent.press(getByTestId("trip-cancel-confirm"));
+      expect(mockCancelMutate).toHaveBeenLastCalledWith({ id: "trip-1", stopRecurrence: false }, expect.any(Object));
+
+      await fireEvent.press(getByTestId("trip-cancel-option-stop"));
+      await fireEvent.press(getByTestId("trip-cancel-confirm"));
+      expect(mockCancelMutate).toHaveBeenLastCalledWith({ id: "trip-1", stopRecurrence: true }, expect.any(Object));
+    });
+
+    it("cancelar un viaje recurrente que no es el vigente de la serie no ofrece cortarla", async () => {
+      mockUseTrip.mockReturnValue(loaded({ ...RECURRING, isSeriesHead: false }));
+      const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
+
+      await fireEvent.press(getByTestId("trip-detail-menu-action-cancel-trip"));
+      expect(queryByTestId("trip-cancel-option-stop")).toBeNull();
+    });
   });
 });

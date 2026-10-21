@@ -1,5 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { FastifyBaseLogger } from "fastify";
-import { ApiError, ShipmentStatus, UserRole, canStartTripOn, tripStartAvailableOn } from "@movo/shared";
+import {
+  ApiError,
+  MAX_ACTIVE_RECURRING_SERIES,
+  ShipmentStatus,
+  UserRole,
+  canStartTripOn,
+  tripStartAvailableOn,
+} from "@movo/shared";
 import {
   TripRepository,
   TripNotFoundError,
@@ -8,12 +16,15 @@ import {
   TripAlreadyHasActiveTripError,
   TripHasNoPackagesError,
   TripPackagesNotReadyError,
+  TripNotSeriesHeadError,
 } from "../../repositories/trip-repository";
+import { isStopRecurrencePatch, validateRecurrence } from "../../domain/trip-recurrence";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { safeBlockRelatedUserIds } from "../../utils/block-relations";
 import { PaymentsClient } from "../../adapters/payments-client";
+import { previewDebtDiscounts } from "../../utils/debt-discount";
 import { assertCarrierCanOperate, assertCarrierEligible, assertVerifiedCarrier } from "../../utils/carrier-gate";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { RoutesProvider } from "../../adapters/routes-provider";
@@ -58,6 +69,8 @@ export interface TripsService {
     tripId: string;
     callerId: string;
     callerRoles: UserRole[];
+    /** MOVO-265: además de cancelar la ocurrencia, deja de repetir el viaje. */
+    stopRecurrence?: boolean;
   }): Promise<Trip>;
 
   deleteTrip(params: {
@@ -286,7 +299,27 @@ export function createTripsService(deps: {
     notificationsClient,
     routesProvider,
   } = deps;
-  const carrierGate = { usersClient, paymentsClient };
+  const carrierGate = { usersClient, paymentsClient, shipmentRepository };
+
+  /** MOVO-265 (ADR-042, punto 9). Dos PATCH concurrentes pueden dejar una serie de más:
+   * aceptado, no justifica un lock por transportista para este volumen. */
+  async function assertSeriesLimit(carrierId: string): Promise<void> {
+    if ((await tripRepository.countActiveSeries(carrierId)) >= MAX_ACTIVE_RECURRING_SERIES) {
+      throw new ApiError(
+        409,
+        "RECURRING_SERIES_LIMIT",
+        `Ya tenés ${MAX_ACTIVE_RECURRING_SERIES} viajes que se repiten. Dejá de repetir alguno para sumar otro.`,
+      );
+    }
+  }
+
+  function notSeriesHeadError(tripId: string): ApiError {
+    return new ApiError(
+      409,
+      "TRIP_NOT_SERIES_HEAD",
+      `El viaje '${tripId}' ya tiene un viaje siguiente declarado: la recurrencia se edita en el último.`,
+    );
+  }
 
   return {
     async createTrip({ callerId, callerRoles, input }) {
@@ -305,8 +338,26 @@ export function createTripsService(deps: {
         );
       }
 
+      // MOVO-265 (ADR-042): un viaje que nace recurrente es el primero de su serie
+      // (`seriesId = id`, por eso el id se genera acá y no en Postgres).
+      let series: { id: string; seriesId: string } | null = null;
+      if (input.recurrenceWeekdays !== undefined && input.recurrenceWeekdays !== null) {
+        validateRecurrence({
+          weekdays: input.recurrenceWeekdays,
+          until: input.recurrenceUntil ?? null,
+          departureAt: input.departureAt,
+        });
+        await assertSeriesLimit(callerId);
+        const id = randomUUID();
+        series = { id, seriesId: id };
+      } else if (input.recurrenceUntil) {
+        throw new ApiError(400, "VALIDATION_FAILED", "Elegí los días en que se repite el viaje antes de la fecha de fin.");
+      }
+
       return tripRepository.create({
         ...input,
+        ...series,
+        recurrenceUntil: series ? (input.recurrenceUntil ?? null) : null,
         carrierId: callerId,
       });
     },
@@ -319,7 +370,25 @@ export function createTripsService(deps: {
 
       assertTripAccess(trip, callerId, callerRoles, { forbiddenMessage: "No tenés permiso para ver este viaje." });
 
-      return trip;
+      // Foto actual de cada emisor (no queda en el snapshot de la oferta). Si svc-users no
+      // responde la fila cae a iniciales, el detalle del viaje no se rompe por eso.
+      const photoBySender = new Map<string, Promise<string | null>>();
+      const photoOf = (senderId: string) => {
+        let found = photoBySender.get(senderId);
+        if (!found) {
+          found = usersClient
+            .findPublicProfile(senderId, callerId)
+            .then((profile) => profile?.photoUrl ?? null)
+            .catch(() => null);
+          photoBySender.set(senderId, found);
+        }
+        return found;
+      };
+      const packages = trip.packages
+        ? await Promise.all(trip.packages.map(async (pkg) => ({ ...pkg, senderPhotoUrl: await photoOf(pkg.senderId) })))
+        : trip.packages;
+
+      return { ...trip, packages };
     },
 
     async listCarrierTrips({ callerId, callerRoles, page, limit, status, scope }) {
@@ -345,13 +414,33 @@ export function createTripsService(deps: {
         forbiddenMessage: "No tenés permiso para modificar este viaje.",
       });
 
-      const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
-      if (acceptedCount > 0) {
+      // MOVO-265 (ADR-042, punto 6): la recurrencia solo se edita en el trip vigente. Con
+      // paquetes aceptados el viaje no se edita, salvo para apagar la recurrencia.
+      const touchesRecurrence = input.recurrenceWeekdays !== undefined || input.recurrenceUntil !== undefined;
+      const stopRecurrenceOnly = isStopRecurrencePatch(input);
+      if (touchesRecurrence && !trip.isSeriesHead) {
+        throw notSeriesHeadError(tripId);
+      }
+
+      // Prender o cambiar la recurrencia de un viaje terminado lo haría candidato del barrido
+      // (su `departureAt` ya pasó) y declararía uno nuevo a partir del historial.
+      if (touchesRecurrence && !stopRecurrenceOnly && ![TripStatus.DECLARED, TripStatus.ACTIVE].includes(trip.status)) {
         throw new ApiError(
           409,
-          "TRIP_HAS_ACCEPTED_PACKAGES",
-          "No podés modificar un viaje que ya tiene paquetes aceptados.",
+          "TRIP_NOT_EDITABLE",
+          "Solo podés repetir un viaje declarado o en curso. Declará un viaje nuevo.",
         );
+      }
+
+      if (!stopRecurrenceOnly) {
+        const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
+        if (acceptedCount > 0) {
+          throw new ApiError(
+            409,
+            "TRIP_HAS_ACCEPTED_PACKAGES",
+            "No podés modificar un viaje que ya tiene paquetes aceptados.",
+          );
+        }
       }
 
       if (input.departureAt && input.departureAt.getTime() <= Date.now()) {
@@ -371,11 +460,54 @@ export function createTripsService(deps: {
         );
       }
 
+      // Recurrencia efectiva después del PATCH: un cambio de `departureAt` en una serie
+      // también tiene que seguir cayendo en uno de sus días.
+      const effectiveWeekdays =
+        input.recurrenceWeekdays !== undefined ? input.recurrenceWeekdays : trip.recurrenceWeekdays;
+      const effectiveUntil = input.recurrenceUntil !== undefined ? input.recurrenceUntil : trip.recurrenceUntil;
+      const normalizedInput = { ...input };
+      let seriesId: string | undefined;
+      if (effectiveWeekdays === null) {
+        if (input.recurrenceUntil) {
+          throw new ApiError(
+            400,
+            "VALIDATION_FAILED",
+            "Elegí los días en que se repite el viaje antes de la fecha de fin.",
+          );
+        }
+        // Apagar la recurrencia limpia también la fecha de fin; `seriesId` queda como histórico.
+        if (input.recurrenceWeekdays === null) normalizedInput.recurrenceUntil = null;
+      } else if (touchesRecurrence || input.departureAt) {
+        validateRecurrence({
+          weekdays: effectiveWeekdays,
+          until: effectiveUntil,
+          departureAt: input.departureAt ?? trip.departureAt,
+        });
+        // Prender la recurrencia cuenta como serie nueva; cambiar los días de una activa, no.
+        if (trip.recurrenceWeekdays === null) {
+          await assertSeriesLimit(trip.carrierId);
+          seriesId = trip.seriesId ?? trip.id;
+        }
+      }
+
       try {
-        return await tripRepository.update(tripId, input);
+        const updated = await tripRepository.update(tripId, normalizedInput, {
+          allowWithAcceptedPackages: stopRecurrenceOnly,
+          seriesId,
+        });
+        if (trip.recurrenceWeekdays !== null && updated.recurrenceWeekdays === null) {
+          logger?.info(
+            { event: "trip_recurrence_stopped", tripId, seriesId: updated.seriesId, reason: "user_patch" },
+            "El transportista dejó de repetir el viaje",
+          );
+        }
+        return updated;
       } catch (err) {
         if (err instanceof TripNotFoundError) {
           throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
+        }
+        if (err instanceof TripNotSeriesHeadError) {
+          throw notSeriesHeadError(tripId);
         }
         if (err instanceof TripHasAcceptedPackagesError) {
           throw new ApiError(
@@ -388,7 +520,7 @@ export function createTripsService(deps: {
       }
     },
 
-    async cancelTrip({ tripId, callerId, callerRoles }) {
+    async cancelTrip({ tripId, callerId, callerRoles, stopRecurrence = false }) {
       const trip = await tripRepository.findById(tripId);
       if (!trip) {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
@@ -399,7 +531,14 @@ export function createTripsService(deps: {
       });
 
       try {
-        return await tripRepository.cancel(tripId);
+        const cancelled = await tripRepository.cancel(tripId, { stopRecurrence });
+        if (trip.recurrenceWeekdays !== null && cancelled.recurrenceWeekdays === null) {
+          logger?.info(
+            { event: "trip_recurrence_stopped", tripId, seriesId: cancelled.seriesId, reason: "user_cancel" },
+            "El transportista canceló el viaje y dejó de repetirlo",
+          );
+        }
+        return cancelled;
       } catch (err) {
         if (err instanceof TripNotFoundError) {
           throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
@@ -551,7 +690,7 @@ export function createTripsService(deps: {
       // MOVO-175 (ADR-026): mismo filtro de bloqueos que el feed "Transportar", falla abierto.
       const blockedIds = await safeBlockRelatedUserIds(usersClient, trip.carrierId, logger);
 
-      // 1. Prefiltro geométrico (corredor <= 15 km y fecha calendario argentina)
+      // 1. Prefiltro geométrico (corredor <= 15 km, fecha calendario argentina y ventana de retiro)
       const { items, total } = await shipmentRepository.listAvailable({
         originLat: trip.originLat,
         originLng: trip.originLng,
@@ -559,16 +698,20 @@ export function createTripsService(deps: {
         destinationLng: trip.destinationLng,
         radiusKm: effectiveRadiusKm,
         pickupDate: toArgentinaCalendarDate(trip.departureAt),
+        // MOVO-314: además del día, la salida tiene que caer en la ventana de retiro.
+        departureAt: trip.departureAt,
         excludeUserId: trip.carrierId,
         excludePartyIds: blockedIds,
         page,
         limit,
       });
 
-      const offeredIds = await offerRepository.listPendingOfferedShipmentIds(
-        trip.carrierId,
-        items.map((item) => item.id),
-      );
+      const priced = items.filter((item) => item.suggestedPriceArs != null && item.suggestedPriceArs > 0);
+      const [offeredIds, preview] = await Promise.all([
+        offerRepository.listPendingOfferedShipmentIds(trip.carrierId, items.map((item) => item.id)),
+        previewDebtDiscounts(paymentsClient, trip.carrierId, priced.map((item) => item.suggestedPriceArs!)),
+      ]);
+      const discounts = new Map(priced.map((item, index) => [item.id, preview[index]]));
 
       // 2. Si no hay candidatos tras el prefiltro, retorna lista vacía inmediatamente sin llamar al servicio externo
       if (items.length === 0) {
@@ -641,6 +784,7 @@ export function createTripsService(deps: {
           matchedItems.push({
             ...item,
             hasMyOffer: offeredIds.has(item.id),
+            debtDiscount: discounts.get(item.id) ?? null,
             detourDistanceKm: ev.detourDistanceKm,
             detourDurationMinutes: ev.detourDurationMinutes,
           });

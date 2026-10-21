@@ -175,7 +175,7 @@ describe("POST /auth/login", () => {
     expect(body.error.message).toBe("Credenciales inválidas.");
   });
 
-  it("devuelve 403 ACCOUNT_SUSPENDED si la cuenta está suspendida (status: banned)", async () => {
+  it("devuelve 403 ACCOUNT_DISABLED si la cuenta está inhabilitada (status: banned)", async () => {
     const regRes = await registerFixtureUser();
     const { userId } = JSON.parse(regRes.body) as { userId: string };
 
@@ -196,8 +196,25 @@ describe("POST /auth/login", () => {
 
     expect(loginRes.statusCode).toBe(403);
     const body = JSON.parse(loginRes.body);
-    expect(body.error.code).toBe("ACCOUNT_SUSPENDED");
-    expect(body.error.message).toBe("La cuenta se encuentra suspendida o inhabilitada.");
+    expect(body.error.code).toBe("ACCOUNT_DISABLED");
+    expect(body.error.message).toBe("La cuenta fue inhabilitada.");
+  });
+
+  it("MOVO-296: una cuenta suspendida (temporal o indefinida) puede loguearse", async () => {
+    const regRes = await registerFixtureUser();
+    const { userId } = JSON.parse(regRes.body) as { userId: string };
+
+    for (const bannedUntil of [new Date(Date.now() + 60 * 60 * 1000), null]) {
+      await app.db.user.update({ where: { id: userId }, data: { status: "suspended", bannedUntil } });
+
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/auth/login",
+        payload: { phone: validRegisterPayload.phone, password: validRegisterPayload.password },
+      });
+
+      expect(loginRes.statusCode).toBe(200);
+    }
   });
 
   it("permite login exitoso cuando el usuario tiene KYC pendiente", async () => {

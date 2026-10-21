@@ -13,31 +13,15 @@ import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { decodePolyline } from "../../src/lib/polyline";
 import { formatDurationMin, formatRouteDistanceKm } from "../../src/lib/shipment-format";
 import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
+import { ExpandableMap } from "../map/expandable-map";
+import { FullscreenMap } from "../map/fullscreen-map";
+import { StaticMarker } from "../map/static-marker";
 import { SkeletonBlock } from "../ui/skeleton-block";
 
 const MAP_HEIGHT = 200;
 const EDGE_PADDING = { top: 40, right: 40, bottom: 48, left: 40 };
 const MAX_ZOOM_LEVEL = 20;
 const ROUTE_BLUE = "#2B6BFF";
-
-/**
- * `Marker` con vista propia: se rasteriza una vez, así que se deja de trackear tras el primer
- * render (si no, en Android redibuja el bitmap en cada frame: parpadeo y batería), con un
- * margen para que cargue el contenido. Lo usan todos los marcadores del mapa.
- */
-function StaticMarker({ coordinate, children }: { coordinate: LatLng; children: ReactNode }) {
-  const [track, setTrack] = useState(true);
-  useEffect(() => {
-    const t = setTimeout(() => setTrack(false), 600);
-    return () => clearTimeout(t);
-  }, []);
-
-  return (
-    <Marker coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={track}>
-      {children}
-    </Marker>
-  );
-}
 
 /** Marcador numerado del mockup: relleno negro = retiro, borde negro sobre blanco = entrega. */
 function NumberedMarker({ n, kind, coordinate }: { n: number; kind: "pickup" | "delivery"; coordinate: LatLng }) {
@@ -112,11 +96,50 @@ export function TripDetailMap({ trip, testID }: { trip: TripWithAcceptedPackages
   const bg = colorScheme === "dark" ? MAP_GEOMETRY_COLOR_DARK : MAP_GEOMETRY_COLOR_LIGHT;
   const isLoading = routePoints.length === 0;
 
+  const markers = (
+    <>
+      <StaticMarker coordinate={{ latitude: origin.lat, longitude: origin.lng }}>
+        <View className="h-4 w-4 rounded-full border-[3.5px] border-ink-950 bg-white" />
+      </StaticMarker>
+      <StaticMarker coordinate={{ latitude: destination.lat, longitude: destination.lng }}>
+        <View className="h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: "rgba(43,107,255,0.18)" }}>
+          <View className="h-4 w-4 rounded-full border-[3px] border-white" style={{ backgroundColor: ROUTE_BLUE }} />
+        </View>
+      </StaticMarker>
+
+      {packages.map((p, i) => (
+        <NumberedMarker
+          key={`${p.shipmentId}-pickup`}
+          n={i + 1}
+          kind="pickup"
+          coordinate={{ latitude: p.pickupLat, longitude: p.pickupLng }}
+        />
+      ))}
+      {packages.map((p, i) => (
+        <NumberedMarker
+          key={`${p.shipmentId}-delivery`}
+          n={i + 1}
+          kind="delivery"
+          coordinate={{ latitude: p.deliveryLat, longitude: p.deliveryLng }}
+        />
+      ))}
+    </>
+  );
+
   return (
-    <View
+    <ExpandableMap
       testID={testID}
       className="overflow-hidden rounded-[10px] border border-ink-950/[0.08]"
       style={{ height: MAP_HEIGHT, backgroundColor: bg }}
+      backgroundColor={bg}
+      borderRadius={10}
+      renderFullscreen={(close) => (
+        <FullscreenMap testID={testID ? `${testID}-fullscreen` : undefined} onClose={close} fitPoints={fitPoints}>
+          <Polyline coordinates={routePoints} strokeColor="#FFFFFF" strokeWidth={8} />
+          <Polyline coordinates={routePoints} strokeColor={ROUTE_BLUE} strokeWidth={4} />
+          {markers}
+        </FullscreenMap>
+      )}
     >
       <MapView
         ref={mapRef}
@@ -151,31 +174,7 @@ export function TripDetailMap({ trip, testID }: { trip: TripWithAcceptedPackages
         <Polyline coordinates={routePoints} strokeColor="#FFFFFF" strokeWidth={8} />
         <Polyline coordinates={routePoints} strokeColor={ROUTE_BLUE} strokeWidth={4} />
 
-        <StaticMarker coordinate={{ latitude: origin.lat, longitude: origin.lng }}>
-          <View className="h-4 w-4 rounded-full border-[3.5px] border-ink-950 bg-white" />
-        </StaticMarker>
-        <StaticMarker coordinate={{ latitude: destination.lat, longitude: destination.lng }}>
-          <View className="h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: "rgba(43,107,255,0.18)" }}>
-            <View className="h-4 w-4 rounded-full border-[3px] border-white" style={{ backgroundColor: ROUTE_BLUE }} />
-          </View>
-        </StaticMarker>
-
-        {packages.map((p, i) => (
-          <NumberedMarker
-            key={`${p.shipmentId}-pickup`}
-            n={i + 1}
-            kind="pickup"
-            coordinate={{ latitude: p.pickupLat, longitude: p.pickupLng }}
-          />
-        ))}
-        {packages.map((p, i) => (
-          <NumberedMarker
-            key={`${p.shipmentId}-delivery`}
-            n={i + 1}
-            kind="delivery"
-            coordinate={{ latitude: p.deliveryLat, longitude: p.deliveryLng }}
-          />
-        ))}
+        {markers}
       </MapView>
 
       {isLoading ? <SkeletonBlock className="absolute inset-0 rounded-none" /> : null}
@@ -189,7 +188,7 @@ export function TripDetailMap({ trip, testID }: { trip: TripWithAcceptedPackages
       ) : null}
 
       {packages.length > 0 ? (
-        <View className="absolute right-2.5 top-2.5 h-[26px] flex-row items-center gap-2.5 rounded-full bg-bg/90 px-2.5">
+        <View className="absolute right-14 top-3.5 h-[26px] flex-row items-center gap-2.5 rounded-full bg-bg/90 px-2.5">
           <View className="flex-row items-center gap-[5px]">
             <View className="h-2 w-2 rounded-full bg-fg" />
             <Text className="font-sans text-[11px] text-fg-2">Retiro</Text>
@@ -200,6 +199,6 @@ export function TripDetailMap({ trip, testID }: { trip: TripWithAcceptedPackages
           </View>
         </View>
       ) : null}
-    </View>
+    </ExpandableMap>
   );
 }

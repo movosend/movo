@@ -1,9 +1,9 @@
 import { render } from "@testing-library/react-native";
-import { ShipmentDetailSkeleton } from "../components/shipments/shipment-detail-skeleton";
+import { ShipmentDetailBodySkeleton } from "../components/shipments/shipment-detail-skeleton";
 
-describe("ShipmentDetailSkeleton", () => {
+describe("ShipmentDetailBodySkeleton", () => {
   it("renderiza", async () => {
-    const { getByTestId } = await render(<ShipmentDetailSkeleton testID="skeleton" />);
+    const { getByTestId } = await render(<ShipmentDetailBodySkeleton testID="skeleton" />);
 
     expect(getByTestId("skeleton")).toBeTruthy();
   });

@@ -6,6 +6,7 @@ import { createOfferRepository } from "../repositories/offer-repository";
 import { createUsersClient, UsersClient } from "../adapters/users-client";
 import { createNotificationsClient, NotificationsClient } from "../adapters/notifications-client";
 import { createShipmentsService } from "../modules/shipments/shipments.service";
+import { createNotificationClaims } from "../utils/notification-claim";
 
 export interface PickupExpirySweepPluginOptions {
   usersClient?: UsersClient;
@@ -29,11 +30,7 @@ export default fp(async (app: FastifyInstance, opts: PickupExpirySweepPluginOpti
   // ofertas vigentes y avisa al emisor (una vez, dedupe en Redis) el día de retiro.
   const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
     offerRepository: createOfferRepository(app.db),
-    claimNotificationOnce: async (key, ttlSeconds) =>
-      (await app.redis.set(`notified:${key}`, "1", "EX", ttlSeconds, "NX")) === "OK",
-    releaseNotificationClaim: async (key) => {
-      await app.redis.del(`notified:${key}`);
-    },
+    ...createNotificationClaims(app.redis),
   });
 
   registerSweep(app, {

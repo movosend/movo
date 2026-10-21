@@ -9,12 +9,17 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react-native";
+import { useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
+import { useBalance } from "../../src/hooks/use-balance";
 import { useMpConnectStatus } from "../../src/hooks/use-mp-connect";
 import { useMyProfile } from "../../src/hooks/use-profile";
-import { MpStatusPill } from "../payments/mp-status-pill";
+import { useSavedCards } from "../../src/hooks/use-saved-cards";
+import { PaymentsAttentionPill } from "../payments/payments-attention-pill";
+import { TourReplaySheet } from "../tour/tour-replay-sheet";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { hasPendingLegalAcceptance } from "../../src/lib/legal-acceptance";
+import { paymentsAttention } from "../../src/lib/payments-attention";
 
 interface SettingsItem {
   label: string;
@@ -30,22 +35,27 @@ interface SettingsItem {
  * toast nueva solo para este caso). "Direcciones guardadas" fue el primero en tener
  * pantalla real (MOVO-121), "Cuenta y seguridad" el segundo (MOVO-136), "Legal"
  * el tercero (MOVO-224), "Notificaciones" el cuarto (MOVO-246) y "Pagos y cobros" el
- * quinto (MOVO-112, con el estado de Mercado Pago en la fila) — a diferencia del resto,
- * no llevan `opacity-60`.
+ * quinto (MOVO-112, con un aviso en la fila si hay algo que resolver) — a diferencia del resto,
+ * no llevan `opacity-60`. "Ayuda y soporte" abre el sheet para repasar el tutorial (MOVO-169).
  */
 export function ProfileSettingsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
   const { data: profile } = useMyProfile();
+  const [tourSheetOpen, setTourSheetOpen] = useState(false);
   const legalPending = hasPendingLegalAcceptance(profile);
-  // MOVO-112: estado de Mercado Pago en la fila. Sin pill mientras carga o si falla.
-  const mpStatus = useMpConnectStatus().data?.status;
+  // MOVO-112/101/315: aviso en la fila solo si Mercado Pago dejó de funcionar, hay saldo
+  // pendiente con Movo o todas las tarjetas vencieron. Sin aviso mientras carga o si falla.
+  const balanceArs = useBalance().data?.pages[0]?.balanceArs;
+  const attention = paymentsAttention(useMpConnectStatus().data?.status, useSavedCards().data, balanceArs);
+  // La pantalla abre en Saldo; un problema de Mercado Pago o de tarjetas se resuelve en la otra pestaña.
+  const paymentsRoute = attention === "mp_invalid" || attention === "cards_expired" ? "/profile/payments?tab=methods" : "/profile/payments";
 
   const settingsItems: SettingsItem[] = [
     { label: "Cuenta y seguridad", Icon: Shield, onPress: () => router.push("/profile/security" as any) },
     { label: "Notificaciones", Icon: Bell, onPress: () => router.push("/profile/notifications" as any) },
-    { label: "Pagos y cobros", Icon: Wallet, onPress: () => router.push("/profile/payments" as any) },
+    { label: "Pagos y cobros", Icon: Wallet, onPress: () => router.push(paymentsRoute as any) },
     { label: "Direcciones guardadas", Icon: MapPin, onPress: () => router.push("/addresses") },
-    { label: "Ayuda y soporte", Icon: HelpCircle },
+    { label: "Ayuda y soporte", Icon: HelpCircle, onPress: () => setTourSheetOpen(true) },
     { label: "Legal", Icon: FileText, onPress: () => router.push("/profile/legal" as any) },
   ];
 
@@ -74,13 +84,14 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
                 <View testID="profile-settings-legal-pending-dot" className="h-[7px] w-[7px] rounded-full bg-warning-500" />
               ) : null}
             </View>
-            {label === "Pagos y cobros" && mpStatus ? (
-              <MpStatusPill status={mpStatus} variant="row" testID="profile-settings-mp-pill" />
+            {label === "Pagos y cobros" && attention ? (
+              <PaymentsAttentionPill attention={attention} balanceArs={balanceArs} testID="profile-settings-payments-pill" />
             ) : null}
             <ChevronRight size={18} strokeWidth={1.8} color={colors.fg3} />
           </Pressable>
         ))}
       </View>
+      <TourReplaySheet visible={tourSheetOpen} onClose={() => setTourSheetOpen(false)} />
     </View>
   );
 }

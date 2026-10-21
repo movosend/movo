@@ -19,7 +19,7 @@ Project movo_der {
     - user_ref       -> users.user
     - shipment_ref   -> shipments.shipments
     - dispute_ref    -> admin.dispute
-    - payment_method_ref -> users.payment_method
+    - payment_method_ref -> payments.saved_cards (MOVO-100; users.payment_method ya no existe)
   '''
 }
 
@@ -422,18 +422,6 @@ Table users.user_report_photos {
   Note: 'MOVO-256: foto de evidencia de un reporte. entry_id null = reporte original, si no la entrada que la sumó. Objeto privado en S3 (reports/{reporterId}/), se lee con presigned GET'
 }
 
-Table users.payment_method {
-  id uuid [pk]
-  user_id uuid [ref: > users.user.id]
-  mp_card_token varchar
-  card_brand varchar
-  last4 varchar
-  exp_month smallint
-  exp_year smallint
-  is_default boolean
-  created_at timestamp
-}
-
 // --- stub de referencia liviana (users) ---
 Table users.shipment_ref {
   id uuid [pk, note: 'espeja shipments.shipments.id, sin FK real (ADR-003)']
@@ -478,6 +466,8 @@ Table shipments.shipments {
   status shipment_status_enum
   last_status_changed_at timestamp [null]
   delivered_at timestamp [null]
+  cancellation_penalty_ars decimal(12,2) [null, note: 'MOVO-307: penalidad de una cancelación tardía del emisor']
+  cancellation_penalty_status cancellation_penalty_status_enum [null, note: 'MOVO-307: pending, captured o debt']
   receiver_confirmation_deadline timestamp [null, note: 'MOVO-130: deadline de confirmación del receptor (48h)']
   created_at timestamp
   updated_at timestamp [note: 'mantenida por trigger de Postgres, no por código de aplicación (mismo patrón que users.users)']
@@ -638,6 +628,10 @@ Table shipments.trips {
   vehicle_type varchar [note: 'auto, moto, utilitario, camion, etc.']
   status trip_status_enum [default: 'declared', note: 'MOVO-221: default pasó de active a declared']
   cancelled_at timestamp [note: 'timestamptz, MOVO-260: fecha de cancelación lógica']
+  recurrence_weekdays "integer[]" [default: '{}', note: 'MOVO-265 (ADR-042): días en que se repite, 0 = domingo … 6 = sábado (CHECK 0-6); vacío = no se repite']
+  recurrence_until date [null, note: 'MOVO-265: último día de la serie, inclusive, calendario argentino']
+  series_id uuid [null, note: 'MOVO-265: id del primer trip de la serie; se conserva al apagar la recurrencia']
+  generated_from_trip_id uuid [null, unique, ref: - shipments.trips.id, note: 'MOVO-265: trip que lo generó (ON DELETE SET NULL). UNIQUE: a lo sumo un sucesor; el vigente de la serie es el que nadie referencia']
   created_at timestamp
   updated_at timestamp [note: 'mantenida por trigger update_updated_at_column']
 
@@ -645,6 +639,7 @@ Table shipments.trips {
     carrier_id
     status
     departure_at
+    series_id
   }
 
   Note: 'Permite al transportista declarar viajes futuros, visualizar paquetes en corredor y alimentar el solver de rutas VRPTW.'
@@ -670,18 +665,60 @@ Table payments.holds {
   carrier_id uuid [note: 'usuario de Movo del transportista, sin FK']
   collector_id varchar [note: 'user id de Mercado Pago del transportista al cobrar']
   mp_payment_id varchar [null]
-  amount_ars numeric [note: 'numeric(12,2), bruto que paga el emisor']
-  application_fee_ars numeric [note: 'numeric(12,2), comision de Movo']
+  amount_ars numeric [note: 'numeric(12,2), lo que paga el emisor: precio + recargo por su deuda (MOVO-311)']
+  application_fee_ars numeric [note: 'numeric(12,2), comision de Movo + deuda cobrada (MOVO-311)']
+  base_amount_ars numeric [note: 'MOVO-311: precio acordado; contra este se compara un reintento']
+  commission_ars numeric [note: 'MOVO-311: comision de Movo sola']
+  debt_offset_ars numeric [default: 0, note: 'MOVO-311: deuda del transportista descontada del cobro']
+  debt_surcharge_ars numeric [default: 0, note: 'MOVO-311: deuda del emisor sumada al pago']
+  debt_surcharge_fee_ars numeric [default: 0, note: 'MOVO-311: parte del application_fee retenido que corresponde al recargo del emisor']
+  carrier_gross_amount_ars numeric [note: 'MOVO-311: bruto que ve el transportista (sin el recargo del emisor), fijado al acreditar']
+  carrier_mp_fee_ars numeric [note: 'MOVO-311: fee de MP que ve el transportista (sin la parte del recargo), fijado al acreditar']
   status hold_status_enum
   status_detail varchar [null, note: 'status_detail crudo de MP']
   failure_reason hold_failure_reason_enum [null]
   expires_at timestamptz [null, note: 'created + MP_HOLD_VALIDITY_DAYS (config, MOVO-215)']
   created_at timestamptz
   updated_at timestamptz
+  saved_card_id uuid [null, note: 'MOVO-100: tarjeta guardada (payments.saved_cards.id) con la que se creo el hold, sin FK. La escribe MOVO-282; habilita el 409 CARD_IN_USE al dar de baja la tarjeta']
 
   indexes {
     (shipment_id, attempt) [unique]
     mp_payment_id
+    saved_card_id
+  }
+}
+
+// MOVO-100 (ADR-039): customer del emisor en la cuenta de Movo S.A. de Mercado Pago, uno por
+// emisor. El payer del hold con tarjeta guardada es este customer.
+Table payments.payer_customers {
+  id uuid [pk]
+  user_id uuid [unique, note: 'referencia logica a users.user, sin FK (ADR-003)']
+  mp_customer_id varchar
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+// MOVO-100 (ADR-039): tarjeta guardada del emisor. Solo ids de MP y metadatos de display:
+// nunca card_token, numero ni CVV. Baja soft (deleted_at). Indices unicos parciales a mano:
+// (user_id, mp_card_id) y una sola is_default por usuario, ambos WHERE deleted_at IS NULL.
+Table payments.saved_cards {
+  id uuid [pk]
+  user_id uuid [note: 'referencia logica a users.user, sin FK (ADR-003)']
+  mp_card_id varchar [note: 'id de la tarjeta en el customer de Movo']
+  brand varchar [note: 'payment_method.id de MP (visa, master, ...)']
+  last4 varchar
+  exp_month int
+  exp_year int
+  issuer_name text [null, note: 'MOVO-101: issuer.name de MP ("Banco Galicia"), solo para mostrar']
+  payment_type text [null, note: 'MOVO-101: payment_type_id de MP (credit_card, debit_card, prepaid_card)']
+  is_default boolean
+  alias varchar [null, note: 'nombre de referencia del usuario, 1-40 caracteres; es de Movo, no va a MP']
+  created_at timestamptz
+  deleted_at timestamptz [null]
+
+  indexes {
+    user_id
   }
 }
 
@@ -787,9 +824,46 @@ Table payments.user_ref {
 }
 
 Table payments.payment_method_ref {
-  id uuid [pk, note: 'espeja users.payment_method.id, sin FK real (ADR-003)']
+  id uuid [pk, note: 'espeja payments.saved_cards.id (MOVO-100), sin FK real (ADR-003)']
 }
 
 Table payments.dispute_ref {
   id uuid [pk, note: 'espeja admin.dispute.id, sin FK real (ADR-003)']
+}
+
+// MOVO-309 (ADR-044): cuenta corriente del usuario. Solo inserción (triggers): de un UPDATE solo pasa `status`.
+Table payments.user_ledger_entries {
+  id uuid [pk]
+  user_id uuid [note: 'usuario de Movo, sin FK (ADR-003); la deuda es del usuario, no de un rol']
+  role_at_origin varchar [null, note: 'sender | carrier, solo informativo']
+  type varchar [note: 'cancellation_penalty | penalty_capture | cash_commission | fee_offset | payment_surcharge | voluntary_payment | manual_adjustment']
+  amount_ars decimal(12,2) [note: 'con signo: positivo = el usuario debe; distinto de cero']
+  status varchar [note: 'pending | reserved | settled | voided; el saldo suma lo que no esta voided']
+  shipment_id uuid [null, note: 'referencia logica, sin FK']
+  hold_id uuid [null, ref: > payments.holds.id]
+  payment_id varchar [null, note: 'pago de MP asociado']
+  reason text [null, note: 'obligatorio en manual_adjustment']
+  admin_id uuid [null, note: 'quien hizo el ajuste manual']
+  idempotency_key varchar [unique]
+  request_fingerprint varchar [note: 'hash del cuerpo: distingue un reintento de una key reusada']
+  created_at timestamptz
+}
+
+// MOVO-312: intentos de "Pagar mi saldo" (Checkout API: tarjeta guardada + CVV). Su id es el `external_reference` del pago de MP.
+Table payments.balance_payment_attempts {
+  id uuid [pk]
+  user_id uuid [note: 'usuario de Movo, sin FK (ADR-003)']
+  amount_ars decimal(12,2) [note: 'positivo; el ledger lo asienta negativo (voluntary_payment)']
+  status varchar [note: 'creating | pending | approved | rejected | failed']
+  saved_card_id uuid [null, note: 'tarjeta guardada con la que se pagó; sin FK']
+  request_fingerprint varchar [note: 'hash de token + tarjeta + medio de pago: distingue un reintento de una key reusada']
+  mp_payment_id varchar [null, unique, note: 'pago de MP']
+  status_detail varchar [null]
+  failure_reason varchar [null, note: 'insufficient_funds | card_rejected | invalid_data | platform_error']
+  created_at timestamptz
+  updated_at timestamptz
+
+  indexes {
+    (user_id) [unique, note: 'parcial: solo mientras status IN (creating, pending); un solo intento abierto por usuario, así lo que está en vuelo no suma más que la deuda']
+  }
 }

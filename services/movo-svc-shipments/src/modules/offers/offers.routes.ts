@@ -85,7 +85,9 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
     app.log,
     ratingsService.getCarrierReputationScoresBatch,
     // MOVO-210: "N" de la saga -- elige ruta cercana/lejana al aceptar la oferta.
-    app.config.FUNDING_NEAR_PICKUP_DAYS
+    app.config.FUNDING_NEAR_PICKUP_DAYS,
+    // MOVO-314: mismo desvío que el feed de matches, para sumar el envío a un viaje existente.
+    app.config.TRIP_DEFAULT_MAX_DETOUR_KM
   );
 
   app.get(
@@ -156,9 +158,12 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
       schema: {
         summary: "Aceptar una oferta (emisor)",
         description:
-          "AC6/AC7/AC9 de MOVO-144: el envío pasa a assignment_pending con el " +
-          "transportista elegido y las demás ofertas pending del mismo envío pasan a " +
-          "superseded (todo en una transacción atómica, ver offer-repository.ts). Solo " +
+          "AC6/AC7/AC9 de MOVO-144 + MOVO-210: el envío pasa a assignment_pending (retiro " +
+          "dentro de N días, el emisor paga al aceptar) o assigned_unfunded (retiro más lejano, " +
+          "el pago se confirma en una ventana posterior) con el transportista elegido. Las " +
+          "demás ofertas pending siguen vivas hasta que se confirma el pago (ahí pasan a " +
+          "superseded). `assignment` (MOVO-211) dice qué ruta se tomó y, en la lejana, cuándo " +
+          "abre la ventana de pago. Solo " +
           "el emisor del envío dueño de la oferta puede aceptar. 409 si el envío ya no " +
           "está disponible para asignar, si otra operación concurrente ya modificó la " +
           "oferta, o si la oferta está vencida o ya resuelta. MOVO-116 (ADR-036): 409 " +
@@ -168,7 +173,7 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
         tags: ["offers"],
         params: offersSchemas.offerIdParam,
         response: {
-          200: offersSchemas.offerResponse,
+          200: offersSchemas.acceptOfferResponse,
           400: offersSchemas.errorResponse,
           401: offersSchemas.errorResponse,
           403: offersSchemas.errorResponse,
@@ -181,9 +186,9 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
     async (request: FastifyRequest, reply: FastifyReply) => {
       const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
-      const offer = await service.acceptOffer(id, callerId);
+      const { offer, assignment } = await service.acceptOffer(id, callerId);
       reply.code(200);
-      return toOfferDto(offer);
+      return { ...toOfferDto(offer), assignment };
     }
   );
 
@@ -230,7 +235,9 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
           "OFFER_DATE_OUT_OF_RANGE) y la franja horaria propuesta (both-or-neither, " +
           "422 OFFER_PICKUP_WINDOW_INVALID). MOVO-116 (ADR-036): mismo bloqueo que " +
           "crearla -- 403 CARRIER_NOT_VERIFIED sin rol o identidad, 403 " +
-          "CARRIER_LICENSE_NOT_APPROVED/CARRIER_MP_ACCOUNT_NOT_LINKED con " +
+          "CARRIER_DISPUTE_OPEN/CARRIER_LICENSE_NOT_APPROVED/CARRIER_MP_ACCOUNT_NOT_LINKED/" +
+          "USER_DEBT_OVERDUE (MOVO-313, deuda vencida; el code es el del primer requisito faltante y la " +
+          "deuda siempre va en details.missingRequirements) con " +
           "details.missingRequirements, 502 USERS_SERVICE_UNAVAILABLE/" +
           "PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar.",
         tags: ["offers"],

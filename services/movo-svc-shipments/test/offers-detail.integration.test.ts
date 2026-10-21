@@ -7,6 +7,7 @@ import { createOfferRepository, OfferRepository } from "../src/repositories/offe
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateOfferInput } from "../src/models/offer";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
+import { createFakePaymentsClient, FakePaymentsClient } from "./fake-payments-client";
 
 const PICKUP_DATE = new Date("2026-08-20T00:00:00.000Z");
 
@@ -117,6 +118,54 @@ describe("GET /offers/:id (Postgres)", () => {
       highestPriceNetArs: 1000,
     });
     expect(data.viewedAtBySender).toBeNull();
+    // MOVO-311: payments no responde en este test (cliente real sin servicio): sin descuento.
+    expect(data.debtDiscount).toBeNull();
+  });
+
+  describe("descuento por deuda de la cuenta corriente (MOVO-311)", () => {
+    let debtApp: FastifyInstance;
+    let payments: FakePaymentsClient;
+
+    beforeAll(async () => {
+      payments = createFakePaymentsClient();
+      debtApp = buildApp({ paymentsClient: payments });
+      await debtApp.ready();
+    });
+
+    afterAll(async () => {
+      await debtApp.close();
+    });
+
+    const get = (url: string, carrierId: string) =>
+      debtApp.inject({ method: "GET", url, headers: { "x-user-id": carrierId } });
+
+    it("detalle y listado restan la deuda del transportista con el motivo, con el tope por oferta", async () => {
+      const carrierId = randomUUID();
+      payments.behavior.pendingDebtByUserId.set(carrierId, 500);
+      const shipmentId = await createPublishedShipment();
+      const created = await offerRepo.create(baseOfferInput({ shipmentId, carrierId, priceOffered: 1150 }));
+
+      const detail = await get(`/offers/${created.id}`, carrierId);
+      expect(detail.statusCode).toBe(200);
+      expect(detail.json().debtDiscount).toEqual({ amountArs: 345, reason: "pending_balance" });
+
+      const mine = await get("/offers/mine", carrierId);
+      expect(mine.statusCode).toBe(200);
+      expect(mine.json().items[0].debtDiscount).toEqual({ amountArs: 345, reason: "pending_balance" });
+      // Un solo pedido a payments para toda la página.
+      expect(payments.previewCarrierDebt).toHaveBeenLastCalledWith(carrierId, [1150]);
+    });
+
+    it("sin deuda, o con la oferta ya resuelta, no hay descuento", async () => {
+      const carrierId = randomUUID();
+      const shipmentId = await createPublishedShipment();
+      const pending = await offerRepo.create(baseOfferInput({ shipmentId, carrierId, priceOffered: 1150 }));
+      expect((await get(`/offers/${pending.id}`, carrierId)).json().debtDiscount).toBeNull();
+
+      payments.behavior.pendingDebtByUserId.set(carrierId, 500);
+      await offerRepo.acceptOffer(pending.id);
+      expect((await get(`/offers/${pending.id}`, carrierId)).json().debtDiscount).toBeNull();
+    });
   });
 
   it("403 AUTH_FORBIDDEN sobre una oferta de otro transportista", async () => {

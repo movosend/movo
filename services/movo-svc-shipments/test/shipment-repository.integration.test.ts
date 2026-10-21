@@ -870,6 +870,38 @@ describe("shipment-repository (Postgres)", () => {
       expect(total).toBe(1);
     });
 
+    // MOVO-314: la salida del viaje tiene que caer en [inicio de ventana - 2 h, fin de ventana].
+    // Ventana del fixture: 09:00-12:00 ART del 2030-01-01 = 12:00Z-15:00Z.
+    it("departureAt (opcional): filtra por la ventana de retiro, con 2 h de holgura antes del inicio", async () => {
+      const shipment = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const feedFor = async (departureAt: string) =>
+        (
+          await repo.listAvailable({
+            originLat,
+            originLng,
+            destinationLat,
+            destinationLng,
+            radiusKm: 5,
+            pickupDate: FUTURE_PICKUP_DATE,
+            departureAt: new Date(departureAt),
+            excludeUserId: randomUUID(),
+            page: 1,
+            limit: 20,
+          })
+        ).items.map((i) => i.id);
+
+      expect(await feedFor("2030-01-01T10:00:00.000Z")).toEqual([shipment.id]); // 07:00 ART, justo en el borde
+      expect(await feedFor("2030-01-01T09:59:00.000Z")).toEqual([]); // más de 2 h antes
+      expect(await feedFor("2030-01-01T13:30:00.000Z")).toEqual([shipment.id]); // dentro de la ventana
+      expect(await feedFor("2030-01-01T15:00:00.000Z")).toEqual([shipment.id]); // cierre exacto
+      expect(await feedFor("2030-01-01T15:01:00.000Z")).toEqual([]); // ya cerró
+    });
+
     it("sin pickupDate: no filtra por fecha (comportamiento genérico de MOVO-142 sin cambios)", async () => {
       const day1 = await createPublished({
         pickupLat: originLat,

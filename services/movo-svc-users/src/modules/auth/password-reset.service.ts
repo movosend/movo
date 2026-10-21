@@ -13,6 +13,7 @@ import { SmsProvider, buildPasswordChangedMessage } from "../../adapters/sms-pro
 import { EmailProvider, buildPasswordChangedNotice } from "../../adapters/email-provider";
 import { PushSender, sendTriggerPush } from "../notifications/send-trigger-push";
 import { normalizePhoneToE164Ar } from "./auth.service";
+import { isPanelEligible } from "./admin-session.service";
 
 export const PASSWORD_RESET_TOKEN_PURPOSE = "password_reset" as const;
 const PASSWORD_RESET_TOKEN_TTL_SECONDS = 15 * 60; // AC6
@@ -40,7 +41,10 @@ interface PasswordResetTokenClaims {
 
 export interface PasswordResetService {
   /** AC1-AC5: nunca revela si la cuenta existe -- siempre 200 con el mismo shape. */
-  forgotPassword(identifier: string): Promise<{ otpId: string; cooldownSeconds: number; channel: OtpChannel }>;
+  forgotPassword(
+    identifier: string,
+    options?: { panelOnly?: boolean }
+  ): Promise<{ otpId: string; cooldownSeconds: number; channel: OtpChannel }>;
   /** AC6-AC8: código correcto -> passwordResetToken de un solo uso, 15min TTL. */
   verifyResetOtp(otpId: string, code: string): Promise<{ passwordResetToken: string }>;
   /** AC9-AC13: consume el token, persiste la contraseña, revoca sesiones, avisa. */
@@ -72,7 +76,7 @@ export function createPasswordResetService(
   const userRepository = createUserRepository(db);
 
   return {
-    async forgotPassword(identifier: string) {
+    async forgotPassword(identifier: string, options: { panelOnly?: boolean } = {}) {
       const channel = detectChannel(identifier);
       const target = normalizeTarget(identifier, channel);
 
@@ -87,7 +91,10 @@ export function createPasswordResetService(
         !!user &&
         user.status !== AccountStatus.BANNED &&
         user.status !== AccountStatus.DELETED &&
-        (channel !== "email" || user.emailVerified);
+        (channel !== "email" || user.emailVerified) &&
+        // Reset desde el panel: solo cuentas que pueden entrar al panel; el resto recibe el
+        // señuelo de siempre (misma respuesta, no se manda nada).
+        (!options.panelOnly || isPanelEligible(user));
 
       // meta.userId es lo que verifyResetOtp necesita para emitir el token -- un
       // señuelo no lleva userId real (no hay cuenta legítima a la que atarlo).
@@ -183,8 +190,10 @@ export function createPasswordResetService(
       // AC12: todas las sesiones activas, en todos los dispositivos -- refresh tokens
       // (revokeAllForUser) y access tokens ya emitidos (revokeAccessTokensIssuedBefore,
       // el gateway lo chequea en plugins/auth.ts), mismo mecanismo que
-      // users.service.ts#changePassword (MOVO-134).
+      // users.service.ts#changePassword (MOVO-134). Las del panel también (MOVO-287):
+      // `revokeAllForUser` solo toca la app.
       await sessionRepository.revokeAllForUser(userId);
+      await sessionRepository.revokePanelSessionsForUser(userId);
       await sessionRepository.revokeAccessTokensIssuedBefore(userId);
 
       // AC13: aviso por TODOS los canales verificados de la cuenta, no solo el usado

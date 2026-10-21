@@ -1,4 +1,5 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { computeNetFromGross } from "@movo/shared/dist/config/commission";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { MenuView } from "@react-native-menu/menu";
 import { router, useLocalSearchParams } from "expo-router";
@@ -30,16 +31,22 @@ import {
   SafeAreaView,
   initialWindowMetrics,
 } from "react-native-safe-area-context";
+import { PriceBreakdownCard } from "../../../../components/payments/price-breakdown-card";
+import { DebtDiscount } from "../../../../components/payments/debt-discount";
+import { CarrierRequirementsSheet } from "../../../../components/carrier/carrier-requirements-checklist";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { GridPattern } from "../../../../components/ui/grid-pattern";
 import { NumericKeypad } from "../../../../components/ui/numeric-keypad";
+import { SectionLabel } from "../../../../components/ui/section-label";
 import { SuccessBanner } from "../../../../components/ui/success-banner";
+import { useCarrierRequirementsSheet } from "../../../../src/hooks/use-carrier-requirements-sheet";
 import { useOfferDetail, useUpdateOffer, useWithdrawOffer } from "../../../../src/hooks/use-offers";
 import { useSheetAnimation } from "../../../../src/hooks/use-sheet-animation";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import {
   getClientCommissionRate,
-  getClientMpTransactionFeeRate,
+  estimateMpFeeArs,
+  estimateReceivedArs,
 } from "../../../../src/lib/commission-config";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import {
@@ -57,6 +64,7 @@ import {
   offerStatusBannerCopy,
   offerStatusLabel,
   ordinalLabel,
+  receivedAmountLabel,
 } from "../../../../src/lib/offer-format";
 
 const FALLBACK_METRICS = {
@@ -87,14 +95,6 @@ const BANNER_TONE_STYLES: Record<
     titleColor: "text-fg",
   },
 };
-
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <Text className="mb-2.5 font-sans-medium text-[11px] uppercase tracking-wide text-fg-3">
-      {children}
-    </Text>
-  );
-}
 
 /**
  * Pantalla de detalle de una oferta propia del transportista (MOVO-182), fiel al
@@ -136,6 +136,7 @@ export default function OfferDetailScreen() {
   const { data: offer, isLoading, isError, error, refetch } = useOfferDetail(offerId);
   const withdrawOffer = useWithdrawOffer(offer?.shipmentId);
   const updateOffer = useUpdateOffer(offerId);
+  const requirements = useCarrierRequirementsSheet("edit_offer");
 
   const { colorScheme } = useColorScheme();
 
@@ -156,11 +157,10 @@ export default function OfferDetailScreen() {
   } = useSheetAnimation(withdrawModalOpen);
 
   const commissionRate = getClientCommissionRate();
-  const mpFeeRate = getClientMpTransactionFeeRate();
 
   const draftAmount = parseInt(draftRaw || "0", 10) || 0;
-  const draftNetArs =
-    Math.round((draftAmount / (1 + commissionRate)) * 100) / 100;
+  const draftNetArs = computeNetFromGross(draftAmount, commissionRate);
+  const draftReceivedArs = estimateReceivedArs(draftNetArs, draftAmount);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -187,6 +187,11 @@ export default function OfferDetailScreen() {
         onSuccess: () => {
           setPriceSheetOpen(false);
           setUpdateSuccess(true);
+        },
+        onError: (err) => {
+          // MOVO-117: el 403 de requisitos abre la checklist en vez del texto de respaldo.
+          // iOS no presenta un `Modal` sobre otro abierto, así que se cierra antes el del precio.
+          if (requirements.handleError(err)) setPriceSheetOpen(false);
         },
       },
     );
@@ -282,8 +287,16 @@ export default function OfferDetailScreen() {
       : null;
 
   const commissionPctLabel = `${Math.round(commissionRate * 100)}%`;
-  const mpFeeEstimate =
-    Math.round(offer.priceNetArs * mpFeeRate * 100) / 100;
+  // MOVO-225: estimado de MP sobre el bruto; MP lo descuenta de lo que le acredita al
+  // transportista, así que lo que se muestra como cobro es aproximado. El monto real
+  // sale de `fee_details` al capturar (todavía no se persiste).
+  const mpFeeEstimate = estimateMpFeeArs(offer.priceOffered);
+  const receivedBeforeDebtArs = estimateReceivedArs(
+    offer.priceNetArs,
+    offer.priceOffered,
+  );
+  const receivedEstimateArs = Math.max(0, receivedBeforeDebtArs - (offer.debtDiscount?.amountArs ?? 0));
+  const receivedLabel = receivedAmountLabel(status);
 
   const rank = offer.competitiveRank;
 
@@ -456,18 +469,21 @@ export default function OfferDetailScreen() {
         <View className="relative overflow-hidden rounded-[16px] bg-ink-950 px-5 py-5">
           <GridPattern color="#FFFFFF" opacity={0.06} />
           <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-ink-300">
-            {status === OfferStatus.ACCEPTED ? "Cobraste" : "Te queda"}
+            {receivedLabel}
           </Text>
           <View className="mt-1 flex-row items-end gap-2">
             <Text
               testID="offer-detail-net-amount"
               className="font-sans-semibold text-[42px] leading-[44px] text-lime-500"
             >
-              {formatPriceArs(offer.priceNetArs)}
+              {formatPriceArs(receivedEstimateArs)}
             </Text>
             <Text className="pb-1.5 font-sans text-[13px] text-ink-300">
               de {formatPriceArs(offer.priceOffered)}
             </Text>
+          </View>
+          <View className="mt-3">
+            <DebtDiscount dark beforeArs={receivedBeforeDebtArs} amountArs={offer.debtDiscount?.amountArs} />
           </View>
           <View className="mt-3.5 flex-row gap-2">
             <View className="flex-1 rounded-md border border-white/10 bg-white/[0.06] px-3 py-2.5">
@@ -543,46 +559,25 @@ export default function OfferDetailScreen() {
                 : "congelado al ofertar"}
             </Text>
           </View>
-          <View className="overflow-hidden rounded-md border border-border">
-            <View className="flex-row items-center justify-between bg-bg-mute px-3.5 py-3.5">
-              <Text className="font-sans text-small text-fg-2">El emisor paga</Text>
-              <Text className="font-sans-semibold text-body text-fg">
-                {formatPriceArs(offer.priceOffered)}
-              </Text>
-            </View>
-            <View className="gap-2.5 px-3.5 py-3.5">
-              <View className="flex-row items-center justify-between">
-                <Text className="font-sans text-small text-fg-3">
-                  Comisión Movo ({commissionPctLabel})
-                </Text>
-                <Text className="font-sans text-small text-fg-3">
-                  − {formatPriceArs(offer.commissionAmountArs)}
-                </Text>
-              </View>
-              <View className="flex-row items-center justify-between">
-                <Text className="font-sans text-small text-fg-3">
-                  Procesamiento del pago (estimado)
-                </Text>
-                <Text className="font-sans text-small text-fg-3">
-                  − {formatPriceArs(mpFeeEstimate)}
-                </Text>
-              </View>
-            </View>
-            <View
-              className={`flex-row items-center justify-between px-3.5 py-3.5 ${
-                status === OfferStatus.PENDING || status === OfferStatus.ACCEPTED
-                  ? "bg-lime-500"
-                  : "bg-bg-mute"
-              }`}
-            >
-              <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-fg-2">
-                {status === OfferStatus.ACCEPTED ? "Cobraste" : "Te queda"}
-              </Text>
-              <Text className="font-sans-semibold text-[26px] text-fg">
-                {formatPriceArs(offer.priceNetArs)}
-              </Text>
-            </View>
-          </View>
+          <PriceBreakdownCard
+            header={{ label: "El emisor paga", value: formatPriceArs(offer.priceOffered) }}
+            lines={[
+              {
+                label: `Comisión Movo (${commissionPctLabel})`,
+                value: `− ${formatPriceArs(offer.commissionAmountArs)}`,
+              },
+              { label: "Procesamiento del pago (estimado)", value: `− ${formatPriceArs(mpFeeEstimate)}` },
+              ...(offer.debtDiscount?.amountArs
+                ? [{ label: "Descuento por saldo pendiente", value: `− ${formatPriceArs(offer.debtDiscount.amountArs)}` }]
+                : []),
+            ]}
+            total={{
+              label: receivedLabel,
+              value: formatPriceArs(receivedEstimateArs),
+              variant:
+                status === OfferStatus.PENDING || status === OfferStatus.ACCEPTED ? "highlight" : "muted",
+            }}
+          />
         </View>
 
         {/* Cuándo retirás y entregás -- sin direcciones (ya están en el header y en
@@ -792,7 +787,7 @@ export default function OfferDetailScreen() {
                         </Text>
                       </View>
                       <Text className="mt-2 font-sans text-[12px] text-fg-3">
-                        te queda {formatPriceArs(draftNetArs)}
+                        recibís aprox. {formatPriceArs(draftReceivedArs)}
                       </Text>
                     </View>
 
@@ -919,6 +914,8 @@ export default function OfferDetailScreen() {
           </View>
         </SafeAreaProvider>
       </Modal>
+
+      <CarrierRequirementsSheet {...requirements.sheetProps} />
     </SafeAreaView>
   );
 }

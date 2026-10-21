@@ -1,3 +1,4 @@
+import type { TourId, TourOutcome, UserTourRecord } from "@movo/shared/dist/config/tours";
 import type { MutualConnections, PrivateProfile, PublicProfile } from "@movo/shared/dist/types/user-profile";
 import { httpClient } from "./http-client";
 import type { SessionResponse } from "./session-types";
@@ -87,6 +88,12 @@ export const usersClient = {
    * como sí hace `authClient.logout`. */
   getMyProfile(): Promise<PrivateProfile> {
     return httpClient.get<PrivateProfile>("/users/me");
+  },
+
+  /** MOVO-169: registra que el usuario completó u omitió un tour del tutorial. Idempotente;
+   * con una versión menor a la registrada el backend no pisa y devuelve la vigente. */
+  recordTour(tourId: TourId, body: { version: number; outcome: TourOutcome }): Promise<UserTourRecord> {
+    return httpClient.put<UserTourRecord>(`/users/me/tours/${tourId}`, body);
   },
 
   /** Proyección pública de cualquier usuario (`GET /users/:id`, MOVO-77) — usada por

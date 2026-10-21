@@ -1,19 +1,46 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { fireEvent, render } from "@testing-library/react-native";
+import { KycStatus } from "@movo/shared/dist/types/user";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import type { AvailableShipment } from "../src/api/shipments-client";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 import TransportScreen from "../app/(app)/(tabs)/transport";
+import { useBlockingGatesStore } from "../src/store/blocking-gates-store";
+import { useTourStore } from "../src/store/tour-store";
 
 const mockRouterPush = jest.fn();
 const mockRouterReplace = jest.fn();
+const mockRouterNavigate = jest.fn();
 let mockLocalSearchParams: Record<string, string> = {};
 jest.mock("expo-router", () => ({
   router: {
     push: (...args: unknown[]) => mockRouterPush(...args),
     replace: (...args: unknown[]) => mockRouterReplace(...args),
+    navigate: (...args: unknown[]) => mockRouterNavigate(...args),
   },
   useLocalSearchParams: () => mockLocalSearchParams,
+  // Sin navegador real: el refetch del perfil al volver de /license-kyc se cubre
+  // aparte, acá alcanza con correr el callback una vez como si la pantalla ganara foco.
+  useFocusEffect: (callback: () => void) => mockUseFocusEffect(callback),
+  useIsFocused: () => true,
+}));
+
+const mockUseFocusEffect = jest.fn();
+
+const mockUseMyProfile = jest.fn();
+jest.mock("../src/hooks/use-profile", () => ({
+  useMyProfile: (...args: unknown[]) => mockUseMyProfile(...args),
+}));
+
+// MOVO-117: el estado de Mercado Pago también decide el gate de entrada.
+const mockUseMpConnectStatus = jest.fn();
+jest.mock("../src/hooks/use-mp-connect", () => ({
+  useMpConnectStatus: (...args: unknown[]) => mockUseMpConnectStatus(...args),
+}));
+
+const mockUseCarrierEligibility = jest.fn();
+jest.mock("../src/hooks/use-carrier-eligibility", () => ({
+  useCarrierEligibility: () => mockUseCarrierEligibility(),
 }));
 
 const mockUseTrip = jest.fn();
@@ -49,7 +76,7 @@ jest.mock("../src/hooks/use-shipments", () => {
 
 const mockUseTransportOrigin = jest.fn();
 jest.mock("../src/hooks/use-transport-origin", () => ({
-  useTransportOrigin: () => mockUseTransportOrigin(),
+  useTransportOrigin: (...args: unknown[]) => mockUseTransportOrigin(...args),
 }));
 
 const mockSetRadiusKm = jest.fn();
@@ -201,6 +228,31 @@ function baseAvailableResult(overrides: Record<string, unknown> = {}) {
 
 const RESOLVED_ORIGIN = { lat: -31.4, lng: -64.18, address: "Av. Colón 1234, X5000 Córdoba, Argentina", source: "gps" as const };
 
+function profileResult(overrides: { kycStatus?: KycStatus; licenseKycStatus?: KycStatus } = {}) {
+  return {
+    data: {
+      kycStatus: overrides.kycStatus ?? KycStatus.APPROVED,
+      licenseKycStatus: overrides.licenseKycStatus ?? KycStatus.APPROVED,
+    },
+    isLoading: false,
+    dataUpdatedAt: Date.now(),
+    refetch: mockRefetchProfile,
+  };
+}
+
+const mockRefetchProfile = jest.fn();
+const mockRefetchMp = jest.fn();
+
+function mpResult(status: "linked" | "unlinked" | "invalid" = "linked") {
+  return {
+    data: { status, account: null, invalidReason: null },
+    isLoading: false,
+    isError: false,
+    dataUpdatedAt: Date.now(),
+    refetch: mockRefetchMp,
+  };
+}
+
 function baseOriginResult(overrides: Record<string, unknown> = {}) {
   return {
     origin: RESOLVED_ORIGIN,
@@ -230,6 +282,11 @@ const TRIP_A: TripWithAcceptedPackages = {
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
   cancelledAt: null,
+  recurrenceWeekdays: null,
+  recurrenceUntil: null,
+  seriesId: null,
+  generatedFromTripId: null,
+  isSeriesHead: true,
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
   executablePackagesCount: 0,
@@ -246,6 +303,11 @@ describe("TransportScreen", () => {
     // contadores que mostrar en los accesos (MOVO-183).
     mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
     mockUseMyOffers.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
+    // Identidad y licencia aprobadas por default (MOVO-167) — los tests de gating
+    // pisan esto con el estado que necesitan.
+    mockUseMyProfile.mockReturnValue(profileResult());
+    mockUseMpConnectStatus.mockReturnValue(mpResult());
+    mockUseCarrierEligibility.mockReturnValue({ data: { identityApproved: true, missingRequirements: [] }, isLoading: false, isError: false, dataUpdatedAt: Date.now(), refetch: jest.fn() });
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -317,7 +379,7 @@ describe("TransportScreen", () => {
 
     expect(getByText("Verificá tu identidad para transportar")).toBeTruthy();
 
-    await fireEvent.press(getByTestId("transport-verify-kyc"));
+    await fireEvent.press(getByTestId("transport-identity-gate-cta"));
     expect(mockRouterPush).toHaveBeenCalledWith("/kyc");
   });
 
@@ -415,6 +477,24 @@ describe("TransportScreen", () => {
     expect(getByTestId("transport-card-offered-1")).toBeTruthy();
     expect(getByTestId("transport-card-offered-1-my-offer-price")).toHaveTextContent("$3.100tu oferta");
     expect(getByTestId("transport-card-offered-1-offer-status")).toHaveTextContent("Pendiente");
+  });
+
+  it("muestra el neto con descuento en el feed y no aplica ese preview a una oferta propia", async () => {
+    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+    mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([
+      availableShipment({ id: "new", debtDiscount: { amountArs: 300, reason: "pending_balance" } }),
+      availableShipment({ id: "offered", hasMyOffer: true,
+        debtDiscount: { amountArs: 300, reason: "pending_balance" } }),
+    ]) }));
+    mockUseMyOffers.mockReturnValue({ data: { items: [
+      myOfferSummary({ id: "o1", status: "pending", shipmentId: "offered", priceOffered: 3100 }),
+    ], page: 1, limit: 50, total: 1 } });
+
+    const { getByTestId, getByText, queryByTestId } = await render(<TransportScreen />);
+    expect(getByTestId("transport-card-new-debt-preview")).toBeTruthy();
+    expect(getByText("Recibís aprox.")).toBeTruthy();
+    expect(getByText("−$300 por deuda")).toBeTruthy();
+    expect(queryByTestId("transport-card-offered-debt-preview")).toBeNull();
   });
 
   it("bug real: una oferta retirada del historial no se muestra como si siguiera vigente", async () => {
@@ -743,15 +823,405 @@ describe("TransportScreen", () => {
       expect(getByTestId("transport-card-std")).toBeTruthy();
     });
 
-    it("el acceso 'Mi ruta de hoy' navega a /route (MOVO-207)", async () => {
+    it("no muestra el acceso 'Mi ruta de hoy' (el punto de entrada de la ruta es el viaje)", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { queryByTestId } = await render(<TransportScreen />);
+
+      expect(queryByTestId("transport-my-route-cta")).toBeNull();
+    });
+  });
+
+  describe("gating por licencia y Mercado Pago (MOVO-167 / MOVO-117)", () => {
+    // Con el bloqueo activo la pantalla no resuelve origen (no pide GPS) ni pide
+    // envíos: el hook de origen queda deshabilitado y devuelve lo mismo que en ese caso.
+    const DISABLED_ORIGIN = { origin: null, resolving: false, needsManualPick: false, setManualSelection: jest.fn() };
+
+    const blockedBy = (licenseKycStatus: KycStatus, mp: "linked" | "unlinked" | "invalid" = "linked") => {
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus }));
+      mockUseMpConnectStatus.mockReturnValue(mpResult(mp));
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+    };
+
+    it("sin licencia aprobada muestra la checklist con CTA a /license-kyc y oculta listado y controles", async () => {
+      blockedBy(KycStatus.NOT_STARTED);
+
+      const { getByTestId, getByText, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-requirements-gate")).toBeTruthy();
+      expect(getByText("Te falta completar esto\npara transportar")).toBeTruthy();
+      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([1, "/", 2]);
+      expect(queryByTestId("transport-requirements-gate-checklist-mp-cta")).toBeNull();
+      expect(queryByTestId("transport-list")).toBeNull();
+      expect(queryByTestId("transport-zone-chip")).toBeNull();
+      expect(queryByTestId("transport-radius-50")).toBeNull();
+      expect(queryByTestId("transport-open-filters")).toBeNull();
+      expect(queryByTestId("transport-my-trips-cta")).toBeNull();
+      expect(queryByTestId("transport-my-route-cta")).toBeNull();
+
+      await fireEvent.press(getByTestId("transport-requirements-gate-checklist-license-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith({
+        pathname: "/license-kyc",
+        params: { status: KycStatus.NOT_STARTED },
+      });
+    });
+
+    it("con la licencia aprobada pero sin Mercado Pago, la checklist pide solo vincular MP", async () => {
+      blockedBy(KycStatus.APPROVED, "unlinked");
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-requirements-gate")).toBeTruthy();
+      expect(queryByTestId("transport-requirements-gate-checklist-license-cta")).toBeNull();
+
+      await fireEvent.press(getByTestId("transport-requirements-gate-checklist-mp-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments?tab=methods");
+    });
+
+    it("una cuenta de Mercado Pago inválida cuenta como faltante", async () => {
+      blockedBy(KycStatus.APPROVED, "invalid");
+
+      const { getByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-requirements-gate-checklist-mp-cta")).toBeTruthy();
+    });
+
+    it("la deuda vencida abre la tercera fila antes de ofertar y lleva a Pagar mi saldo", async () => {
+      blockedBy(KycStatus.APPROVED, "linked");
+      mockUseCarrierEligibility.mockReturnValue({ data: { identityApproved: true, missingRequirements: ["no_overdue_debt"] }, isLoading: false, isError: false, dataUpdatedAt: Date.now(), refetch: jest.fn() });
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([2, "/", 3]);
+      expect(queryByTestId("transport-list")).toBeNull();
+      await fireEvent.press(getByTestId("transport-requirements-gate-checklist-debt-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments?tab=balance&pay=1");
+    });
+
+    it("sin licencia ni Mercado Pago muestra dos pendientes de dos requisitos (sin la fila de deuda)", async () => {
+      blockedBy(KycStatus.REJECTED, "unlinked");
+
+      const { getByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-requirements-gate-checklist-counter").props.children).toEqual([0, "/", 2]);
+      expect(getByTestId("transport-requirements-gate-checklist-license-cta")).toBeTruthy();
+      expect(getByTestId("transport-requirements-gate-checklist-mp-cta")).toBeTruthy();
+    });
+
+    it("bloqueado, no resuelve el origen ni pide envíos disponibles", async () => {
+      blockedBy(KycStatus.REJECTED);
+
+      await render(<TransportScreen />);
+
+      expect(mockUseTransportOrigin).toHaveBeenCalledWith(false);
+      expect(mockUseAvailableShipments).toHaveBeenLastCalledWith(null, 50);
+    });
+
+    it("con la licencia en revisión explica que se está revisando, sin pedir verificar de nuevo", async () => {
+      blockedBy(KycStatus.MANUAL_REVIEW);
+
+      const { getByText, queryByText } = await render(<TransportScreen />);
+
+      expect(getByText("En revisión")).toBeTruthy();
+      expect(getByText("Ver estado")).toBeTruthy();
+      expect(queryByText("Verificar mi licencia")).toBeNull();
+    });
+
+    it("'Después' lleva a Inicio", async () => {
+      blockedBy(KycStatus.NOT_STARTED);
+
+      const { getByTestId } = await render(<TransportScreen />);
+      await fireEvent.press(getByTestId("transport-requirements-gate-checklist-later"));
+
+      expect(mockRouterNavigate).toHaveBeenCalledWith("/home");
+    });
+
+    it("con licencia y Mercado Pago desbloquea el listado y sus controles", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(queryByTestId("transport-requirements-gate")).toBeNull();
+      expect(getByTestId("transport-list")).toBeTruthy();
+      expect(getByTestId("transport-zone-chip")).toBeTruthy();
+      expect(getByTestId("transport-my-trips-cta")).toBeTruthy();
+      expect(mockUseTransportOrigin).toHaveBeenCalledWith(true);
+    });
+
+    it("prioriza la identidad: sin KYC de identidad muestra ese CTA y no la checklist", async () => {
+      mockUseMyProfile.mockReturnValue(
+        profileResult({ kycStatus: KycStatus.REJECTED, licenseKycStatus: KycStatus.NOT_STARTED }),
+      );
+      mockUseMpConnectStatus.mockReturnValue(mpResult("unlinked"));
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-identity-gate")).toBeTruthy();
+      expect(queryByTestId("transport-requirements-gate")).toBeNull();
+    });
+
+    it("el 403 de identidad del feed gana sobre una licencia aprobada en el perfil cacheado", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          isError: true,
+          error: new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tu identidad verificada."),
+        }),
+      );
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-identity-gate")).toBeTruthy();
+      expect(queryByTestId("transport-zone-chip")).toBeNull();
+    });
+
+    it("mientras carga el perfil muestra el skeleton, sin bloqueo ni listado", async () => {
+      mockUseMyProfile.mockReturnValue({ data: undefined, isLoading: true, refetch: mockRefetchProfile });
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { queryByTestId } = await render(<TransportScreen />);
+
+      expect(queryByTestId("transport-requirements-gate")).toBeNull();
+      expect(queryByTestId("transport-identity-gate")).toBeNull();
+      expect(queryByTestId("transport-list")).toBeNull();
+      expect(mockUseTransportOrigin).toHaveBeenCalledWith(false);
+    });
+
+    it("mientras carga el estado de Mercado Pago no deja pasar ni muestra la checklist", async () => {
+      mockUseMpConnectStatus.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: mockRefetchMp });
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { queryByTestId } = await render(<TransportScreen />);
+
+      expect(queryByTestId("transport-requirements-gate")).toBeNull();
+      expect(queryByTestId("transport-list")).toBeNull();
+      expect(mockUseTransportOrigin).toHaveBeenCalledWith(false);
+    });
+
+    it("si el perfil no se pudo cargar no deja pasar: muestra el error con Reintentar", async () => {
+      mockUseMyProfile.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error("network down"),
+        refetch: mockRefetchProfile,
+      });
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId, getByText, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-profile-error")).toBeTruthy();
+      expect(queryByTestId("transport-list")).toBeNull();
+      expect(queryByTestId("transport-zone-chip")).toBeNull();
+      expect(mockUseTransportOrigin).toHaveBeenCalledWith(false);
+      expect(mockUseAvailableShipments).toHaveBeenLastCalledWith(null, 50);
+
+      await fireEvent.press(getByText("Reintentar"));
+      expect(mockRefetchProfile).toHaveBeenCalledTimes(1);
+      expect(mockRefetchMp).toHaveBeenCalledTimes(1);
+    });
+
+    it("si no se pudo consultar Mercado Pago tampoco deja pasar: muestra el error con Reintentar", async () => {
+      mockUseMpConnectStatus.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error("network down"),
+        refetch: mockRefetchMp,
+      });
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId, getByText, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-profile-error")).toBeTruthy();
+      expect(queryByTestId("transport-list")).toBeNull();
+      expect(mockUseTransportOrigin).toHaveBeenCalledWith(false);
+
+      await fireEvent.press(getByText("Reintentar"));
+      expect(mockRefetchMp).toHaveBeenCalledTimes(1);
+    });
+
+    it("sin identidad aprobada, un error de Mercado Pago no tapa el bloqueo de identidad", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ kycStatus: KycStatus.PENDING }));
+      mockUseMpConnectStatus.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error("network down"),
+        refetch: mockRefetchMp,
+      });
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-identity-gate")).toBeTruthy();
+      expect(queryByTestId("transport-profile-error")).toBeNull();
+    });
+
+    it("sin bloqueo, ganar foco solo refetchea perfil y Mercado Pago si los datos tienen más de 30 s", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+
+      await render(<TransportScreen />);
+      const onFocus = mockUseFocusEffect.mock.calls.at(-1)?.[0] as () => void;
+      // El primer foco coincide con el montaje (las queries ya arrancan solas)...
+      onFocus();
+      // ...y desde el segundo, con datos recientes, no hace falta volver a pedirlos.
+      onFocus();
+      expect(mockRefetchProfile).not.toHaveBeenCalled();
+      expect(mockRefetchMp).not.toHaveBeenCalled();
+    });
+
+    it("sin bloqueo pero con datos viejos, ganar foco refetchea perfil y Mercado Pago", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+      mockUseMyProfile.mockReturnValue({ ...profileResult(), dataUpdatedAt: Date.now() - 60_000 });
+      mockUseMpConnectStatus.mockReturnValue({ ...mpResult(), dataUpdatedAt: Date.now() - 60_000 });
+
+      await render(<TransportScreen />);
+      const onFocus = mockUseFocusEffect.mock.calls.at(-1)?.[0] as () => void;
+      onFocus();
+      onFocus();
+
+      expect(mockRefetchProfile).toHaveBeenCalledTimes(1);
+      expect(mockRefetchMp).toHaveBeenCalledTimes(1);
+    });
+
+    it("con un bloqueo activo, ganar foco refetchea aunque los datos sean recientes", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus: KycStatus.NOT_STARTED }));
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      await render(<TransportScreen />);
+      const onFocus = mockUseFocusEffect.mock.calls.at(-1)?.[0] as () => void;
+      onFocus();
+      onFocus();
+
+      expect(mockRefetchProfile).toHaveBeenCalledTimes(1);
+      expect(mockRefetchMp).toHaveBeenCalledTimes(1);
+    });
+
+    it("si el feed rechaza por identidad y la query de MP falló, manda el gate de identidad", async () => {
+      mockUseMpConnectStatus.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error("network down"),
+        dataUpdatedAt: 0,
+        refetch: mockRefetchMp,
+      });
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          isError: true,
+          error: new ApiError(403, "CARRIER_NOT_VERIFIED", "x"),
+        }),
+      );
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-identity-gate")).toBeTruthy();
+      expect(queryByTestId("transport-profile-error")).toBeNull();
+    });
+
+    it("con el bloqueo que vino del 403 del feed, ganar foco refetchea el perfil y el feed", async () => {
+      const refetchFeed = jest.fn();
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          isError: true,
+          error: new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tu identidad verificada."),
+          refetch: refetchFeed,
+        }),
+      );
+
+      await render(<TransportScreen />);
+      const onFocus = mockUseFocusEffect.mock.calls.at(-1)?.[0] as () => void;
+      onFocus();
+      onFocus();
+
+      expect(mockRefetchProfile).toHaveBeenCalled();
+      expect(refetchFeed).toHaveBeenCalled();
+    });
+
+    it("la checklist tiene pull-to-refresh que vuelve a pedir perfil y Mercado Pago", async () => {
+      blockedBy(KycStatus.MANUAL_REVIEW);
+
+      const { getByTestId } = await render(<TransportScreen />);
+      await act(async () => {
+        await getByTestId("transport-requirements-gate").props.refreshControl.props.onRefresh();
+      });
+
+      expect(mockRefetchProfile).toHaveBeenCalledTimes(1);
+      expect(mockRefetchMp).toHaveBeenCalledTimes(1);
+    });
+
+    it("el bloqueo de identidad también tiene pull-to-refresh", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ kycStatus: KycStatus.PENDING }));
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId } = await render(<TransportScreen />);
+      await act(async () => {
+        await getByTestId("transport-gate-scroll").props.refreshControl.props.onRefresh();
+      });
+
+      expect(mockRefetchProfile).toHaveBeenCalledTimes(1);
+    });
+
+    it("también bloquea el modo filtrado por viaje, sin pedir el viaje ni sus matches", async () => {
+      mockLocalSearchParams = { tripId: "trip-1" };
+      blockedBy(KycStatus.EXPIRED);
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-requirements-gate")).toBeTruthy();
+      expect(queryByTestId("transport-trip-filter-label")).toBeNull();
+      expect(mockUseTrip).toHaveBeenLastCalledWith(undefined);
+      expect(mockUseTripMatches).toHaveBeenLastCalledWith(undefined);
+    });
+  });
+
+  describe("Tour 2 del tutorial (MOVO-169)", () => {
+    beforeEach(() => {
+      useTourStore.setState({ active: null, anchors: {}, pending: [], pendingLoaded: true });
+      useBlockingGatesStore.setState({ mounted: true, gateVisible: false, tripMatchVisible: false });
+    });
+
+    afterEach(() => {
+      useTourStore.setState({ active: null });
+    });
+
+    it("con todos los requisitos completos arranca solo, con el paso de la primera fila si hay envíos", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
+
+      await render(<TransportScreen />);
+
+      await waitFor(() => expect(useTourStore.getState().active?.tourId).toBe("carrier"));
+      expect(useTourStore.getState().active?.steps.map((step) => step.id)).toContain("feed");
+    });
+
+    it("con requisitos faltantes no se dispara: queda el checklist", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus: KycStatus.NOT_STARTED }));
       mockUseTransportOrigin.mockReturnValue(baseOriginResult());
       mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
 
       const { getByTestId } = await render(<TransportScreen />);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      });
 
-      await fireEvent.press(getByTestId("transport-my-route-cta"));
-
-      expect(mockRouterPush).toHaveBeenCalledWith("/route");
+      expect(getByTestId("transport-requirements-gate")).toBeTruthy();
+      expect(useTourStore.getState().active).toBeNull();
     });
   });
 });

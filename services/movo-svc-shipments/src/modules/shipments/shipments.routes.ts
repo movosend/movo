@@ -38,6 +38,8 @@ import { ActiveShipmentRole } from "../../domain/active-shipment";
 import { toOfferDto } from "../offers/offer.dto";
 import { hasShipmentAccess } from "./assert-shipment-access";
 import { buildReceiverTransfersService } from "../receiver-transfers/receiver-transfers.routes";
+import { buildFundingService } from "../funding/funding.routes";
+import { resolveCarrierEligibility } from "../../utils/carrier-gate";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -93,6 +95,9 @@ function toShipmentDto(shipment: Shipment | ShipmentDetailResult) {
     receiverRedesignationDeadline: shipment.receiverRedesignationDeadline
       ? shipment.receiverRedesignationDeadline.toISOString()
       : null,
+    transitAnomalyFlaggedAt: shipment.transitAnomalyFlaggedAt
+      ? shipment.transitAnomalyFlaggedAt.toISOString()
+      : null,
     // MOVO-180: mismo gotcha de timezone que pickupDate (@db.Date anclada a UTC) --
     // estimatedDeliveryTimeWindowStart/End no lo necesitan, se persisten como string
     // simple (ver schema.prisma).
@@ -107,7 +112,7 @@ function toShipmentDto(shipment: Shipment | ShipmentDetailResult) {
  * AC9: sin senderId/receiverId). No se extrae a un archivo shipments.dto.ts propio a
  * diferencia de toOfferDto (MOVO-144, compartida entre dos route files): esta función
  * solo la usa esta ruta. */
-function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean }) {
+function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean; debtDiscount: { amountArs: number; reason: "pending_balance" } | null }) {
   return {
     ...item,
     pickupDate: item.pickupDate.toISOString().slice(0, 10),
@@ -126,6 +131,7 @@ function toActiveShipmentDto(item: ActiveShipmentResult) {
     pickupDate: item.pickupDate.toISOString().slice(0, 10),
     pickupTimeWindowStart: item.pickupTimeWindowStart.toISOString().slice(11, 19),
     pickupTimeWindowEnd: item.pickupTimeWindowEnd.toISOString().slice(11, 19),
+    transitAnomalyFlaggedAt: item.transitAnomalyFlaggedAt ? item.transitAnomalyFlaggedAt.toISOString() : null,
   };
 }
 
@@ -193,6 +199,16 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       // GET /trips/:id/matches, `Trip` no persiste un radiusKm propio.
       tripMatchDetourRadiusKm: app.config.TRIP_DEFAULT_MAX_DETOUR_KM,
       quoteStore: createQuoteStore(app.redis),
+      packageLimits: {
+        maxWeightKg: app.config.PACKAGE_MAX_WEIGHT_KG,
+        maxSideCm: app.config.PACKAGE_MAX_SIDE_CM,
+        maxSidesSumCm: app.config.PACKAGE_MAX_SIDES_SUM_CM,
+      },
+      // MOVO-307: cobro en línea de la penalidad de cancelación. Se resuelve al llamar
+      // (`app.settlements` se decora en un plugin registrado después de estas rutas).
+      settleCancellationPenalty: (shipmentId: string) => app.settlements.settleCancellationPenalty(shipmentId),
+      // MOVO-310: registro en línea de la penalidad por bajarse del envío, mismo criterio.
+      registerWithdrawalPenalty: (offerId: string) => app.settlements.registerWithdrawalPenalty(offerId),
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -207,6 +223,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const photosService = createPhotosService(repository, storageProvider, app.redis, app.log);
   // MOVO-275: resumen de la transferencia de receptor en el detalle y badge en `/mine`.
   const receiverTransfersService = buildReceiverTransfersService(app, { usersClient, notificationsClient });
+  const fundingService = buildFundingService(app, { usersClient, notificationsClient, paymentsClient });
 
   app.post(
     "/",
@@ -222,7 +239,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "MOVO-255: con `quoteId` (de `POST /shipments/quote`) usa ese precio congelado sin " +
           "volver a cotizar; responde 409 QUOTE_EXPIRED si no existe, venció, ya se usó o es " +
           "de otro usuario, y 409 QUOTE_MISMATCH si los datos que afectan el precio no " +
-          "coinciden con los cotizados. Sin `quoteId`, cotiza al crear.",
+          "coinciden con los cotizados. Sin `quoteId`, cotiza al crear. MOVO-276: 422 " +
+          "PACKAGE_LIMITS_EXCEEDED (con `details.violations`) si el paquete excede el peso, " +
+          "el lado o la suma de lados máximos (`PACKAGE_MAX_*`, por defecto 30 kg, 150 cm y 300 cm).",
         tags: ["shipments"],
         body: shipmentsSchemas.createShipmentBody,
         response: {
@@ -256,7 +275,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "ese precio hasta `expiresAt` (15 min) para el mismo usuario y los mismos datos. " +
           "Si pricing no responde, todos los campos vienen en null ('precio a estimar') y " +
           "sin `quoteId`. Rate limit por usuario en el gateway: cada cotización consulta " +
-          "Google Routes.",
+          "Google Routes. Mismos límites duros del paquete que `POST /shipments` (422 " +
+          "PACKAGE_LIMITS_EXCEEDED), validados antes de cotizar.",
         tags: ["shipments"],
         body: shipmentsSchemas.quoteShipmentBody,
         response: {
@@ -276,6 +296,26 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   // Ruta estática — se registra antes de "/:id" por claridad para el próximo que lea
   // el archivo, aunque el radix router de Fastify (find-my-way) ya prioriza segmentos
   // estáticos sobre paramétricos sin importar el orden de registro.
+  app.get("/carrier-eligibility", {
+    schema: {
+      tags: ["shipments"], summary: "Requisitos vigentes para operar como transportista",
+      response: {
+        200: { type: "object", required: ["identityApproved", "missingRequirements"], properties: {
+          identityApproved: { type: "boolean" },
+          missingRequirements: { type: "array", items: { type: "string", enum: [
+            "no_open_dispute", "license", "mp_account", "no_overdue_debt",
+          ] } },
+        } },
+        401: shipmentsSchemas.errorResponse,
+        502: shipmentsSchemas.errorResponse,
+      },
+    },
+  }, async (request) => {
+    const userId = requireUserIdFromHeader(request);
+    const status = await resolveCarrierEligibility({ usersClient, paymentsClient, shipmentRepository: repository }, userId);
+    return { identityApproved: status.identityApproved, missingRequirements: status.missingRequirements };
+  });
+
   app.get(
     "/mine",
     {
@@ -612,10 +652,15 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { id } = request.params as { id: string };
       const shipment = await service.getShipmentDetail(id, callerId, callerRoles);
       // MOVO-275: solo las partes del envío (no un transportista que lo está evaluando).
-      const receiverTransfer = hasShipmentAccess(shipment, callerId, callerRoles)
-        ? await receiverTransfersService.summaryForShipment(shipment, callerId)
-        : null;
-      return { ...toShipmentDto(shipment), receiverTransfer };
+      const [receiverTransfer, funding] = await Promise.all([
+        hasShipmentAccess(shipment, callerId, callerRoles)
+          ? receiverTransfersService.summaryForShipment(shipment, callerId)
+          : Promise.resolve(null),
+        fundingService.viewFor(shipment, callerId, {
+          formerCarrier: shipment.viewerIsFormerCarrier === true,
+        }),
+      ]);
+      return { ...toShipmentDto(shipment), receiverTransfer, funding };
     }
   );
 
@@ -820,7 +865,12 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "CARRIER_LICENSE_NOT_APPROVED o CARRIER_MP_ACCOUNT_NOT_LINKED, el primero que " +
           "falte, con details.missingRequirements listando todos), antes de persistir " +
           "nada; 502 USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se " +
-          "pudo verificar. Ni el emisor ni el receptor pueden ofertar " +
+          "pudo verificar. MOVO-278 (ADR-045): con un envío en disputa como " +
+          "transportista, 403 CARRIER_DISPUTE_OPEN (va primero en missingRequirements). " +
+          "MOVO-313 (ADR-044): con una deuda de la cuenta corriente sin saldar hace más de " +
+          "USER_DEBT_OVERDUE_DAYS (14), 403 USER_DEBT_OVERDUE (si es lo único que falta; con otros requisitos el code es el del " +
+          "primero, la deuda se lista al final de details.missingRequirements y el mensaje la menciona). " +
+          "Ni el emisor ni el receptor pueden ofertar " +
           "sobre su propio envío (403 AUTH_FORBIDDEN, AC3). `priceOfferedArs` es el " +
           "NETO que quiere cobrar el transportista -- el servidor calcula el bruto con " +
           "la comisión de Movo (AC6, @movo/shared#computeOfferGrossPrice) y devuelve el " +
@@ -904,13 +954,14 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       schema: {
         summary: "Cancelar un envío",
         description:
-          "MOVO-29 (alcance acotado en MOVO-108, ver CLAUDE.md): cancela un envío " +
-          "propio desde awaiting_receiver_confirmation, published o assignment_pending " +
-          "-- ninguno de los tres tiene fondos confirmados, así que no aplica " +
-          "penalización. Cancelar desde assigned todavía no está soportado (requiere " +
-          "una política de penalización real en svc-payments). Solo el emisor puede " +
-          "cancelar. Si el envío estaba published o assignment_pending, se notifica a " +
-          "cada transportista con una oferta pending sobre él.",
+          "MOVO-29/MOVO-108: cancela un envío propio. Solo el emisor puede cancelar. " +
+          "Antes de `assigned` no hay penalidad y se libera el hold que hubiera. Desde " +
+          "`assigned` (MOVO-307, ADR-047) se cobra el 25 % del precio acordado si faltan " +
+          "menos de 12 h para el retiro y la ventana sigue abierta: el emisor manda el " +
+          "monto que vio en `GET /:id/cancellation-quote` como `expectedPenaltyArs` " +
+          "(ausente = 0) y si no coincide responde 409 CANCELLATION_PENALTY_MISMATCH con " +
+          "`details.penaltyArs`, sin cancelar. Un retiro concurrente gana (409). Se notifica " +
+          "al transportista asignado y a cada uno con una oferta pending.",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,
         body: shipmentsSchemas.cancelShipmentBody,
@@ -926,9 +977,109 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     async (request: FastifyRequest) => {
       const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
-      const { reason } = request.body as { reason?: string };
-      const shipment = await service.cancelShipment(id, callerId, reason);
+      const { reason, expectedPenaltyArs } = request.body as { reason?: string; expectedPenaltyArs?: number };
+      const shipment = await service.cancelShipment(id, callerId, reason, expectedPenaltyArs);
       return toShipmentDto(shipment);
+    }
+  );
+
+  app.get(
+    "/:id/cancellation-quote",
+    {
+      schema: {
+        summary: "Penalidad por cancelar un envío",
+        description:
+          "MOVO-307 (ADR-047): lo que el emisor pagaría si cancela ahora. Solo el emisor y solo " +
+          "sobre un envío que todavía se puede cancelar (409 SHIPMENT_INVALID_TRANSITION si no). " +
+          "`penaltyArs` es 0 salvo en un envío `assigned` cancelado con menos de 12 h hasta el " +
+          "retiro y con la ventana todavía abierta (25 % del precio acordado). `freeUntil` es hasta " +
+          "cuándo se puede cancelar sin cargo. El monto se devuelve al cancelar como `expectedPenaltyArs`.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        response: {
+          200: shipmentsSchemas.cancellationQuoteResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      return service.getCancellationQuote(id, callerId);
+    }
+  );
+
+  app.post(
+    "/:id/carrier-withdrawal",
+    {
+      // Body opcional, mismo criterio que `/:id/cancel`.
+      preValidation: (request, _reply, done) => {
+        if (request.body === undefined) {
+          request.body = {};
+        }
+        done();
+      },
+      schema: {
+        summary: "Bajarse de un envío asignado (transportista)",
+        description:
+          "MOVO-310: el transportista asignado deja el envío desde `assignment_pending`, " +
+          "`assigned_unfunded` o `assigned`. El envío vuelve a `published` (carrierId y precio en " +
+          "null, ventana original restaurada), su oferta pasa a `carrier_withdrawn` y las demás " +
+          "ofertas vivas no se tocan. Se libera el hold entero: el emisor no paga nada. Con menos " +
+          "de 12 h para el retiro y la ventana abierta (desde cualquiera de los tres estados), el 25 % del precio " +
+          "acordado queda como deuda en la cuenta corriente del transportista (ADR-047/044): manda " +
+          "el monto de `GET /:id/carrier-withdrawal-quote` como `expectedPenaltyArs` (ausente = 0) y " +
+          "si no coincide responde 409 CANCELLATION_PENALTY_MISMATCH con `details.penaltyArs`. Un " +
+          "retiro o un pago concurrente gana (409). Se avisa al emisor.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        body: shipmentsSchemas.cancelShipmentBody,
+        response: {
+          200: shipmentsSchemas.shipmentResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const { reason, expectedPenaltyArs } = request.body as { reason?: string; expectedPenaltyArs?: number };
+      const shipment = await service.withdrawCarrierFromShipment(id, callerId, reason, expectedPenaltyArs);
+      return toShipmentDto(shipment);
+    }
+  );
+
+  app.get(
+    "/:id/carrier-withdrawal-quote",
+    {
+      schema: {
+        summary: "Penalidad por bajarse de un envío (transportista)",
+        description:
+          "MOVO-310: lo que el transportista asignado debería si se baja ahora. Mismos tramos que la " +
+          "cancelación del emisor, en cualquier estado con transportista: `penaltyArs` es 0 salvo con " +
+          "menos de 12 h hasta el retiro y la ventana abierta. Solo el transportista asignado (403) y solo si todavía se " +
+          "puede bajar (409 SHIPMENT_INVALID_TRANSITION).",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        response: {
+          200: shipmentsSchemas.cancellationQuoteResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      return service.getCarrierWithdrawalQuote(id, callerId);
     }
   );
 

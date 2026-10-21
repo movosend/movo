@@ -11,13 +11,15 @@ import {
   RecentRatingComment,
   VehicleProfile as SharedVehicleProfile,
 } from "@movo/shared";
-import { PrismaClient } from "../../generated/prisma/client";
+import { PrismaClient, UserRole as PrismaUserRole } from "../../generated/prisma/client";
+import { ensureNotLastEligibleAdmin } from "../admins/admin-roles.service";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createPushTokenRepository } from "../../repositories/push-token-repository";
 import { createDeviceKeyRepository } from "../../repositories/device-key-repository";
 import { createVehicleProfileRepository } from "../../repositories/vehicle-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
 import { createModerationRepository } from "../../repositories/moderation-repository";
+import { createUserTourRepository } from "../../repositories/user-tour-repository";
 import {
   PrivateProfile,
   PublicProfile,
@@ -226,6 +228,7 @@ export function createUsersService(
   const vehicleProfileRepository = createVehicleProfileRepository(db);
   const sessionRepository = createSessionRepository(redis);
   const moderationRepository = createModerationRepository(db);
+  const userTourRepository = createUserTourRepository(db);
 
   /**
    * MOVO-152 AC3/AC5: agregado de reputación de `userId`, leído de Redis primero (TTL
@@ -309,8 +312,16 @@ export function createUsersService(
   }
 
   async function composePrivateProfile(user: User): Promise<PrivateProfile> {
-    const summary = await resolveReputationSummary(user.id);
-    return toPrivateProfile(user, summary ?? NO_REPUTATION, summary?.transactionCounts ?? NO_TRANSACTION_COUNTS);
+    const [summary, tours] = await Promise.all([
+      resolveReputationSummary(user.id),
+      userTourRepository.listByUserId(user.id),
+    ]);
+    return toPrivateProfile(
+      user,
+      summary ?? NO_REPUTATION,
+      summary?.transactionCounts ?? NO_TRANSACTION_COUNTS,
+      tours
+    );
   }
 
   async function composePublicProfile(user: User, includeComments: boolean): Promise<PublicProfile> {
@@ -374,12 +385,12 @@ export function createUsersService(
       // aunque esa US todavía no está implementada. `USER_NOT_FOUND` genérico a
       // propósito, para no distinguir "nunca existió" de "se dio de baja".
       //
-      // `banned` sí se sirve como cualquier perfil activo: a diferencia de `deleted`,
-      // no es una baja voluntaria — es una sanción reversible (`bannedUntil` puede ser
-      // temporal) y el usuario puede tener envíos históricos con una contraparte que
-      // necesita seguir viendo con quién trató. Trade-off aceptado: no hay ninguna
-      // señal hacia afuera de que la cuenta está baneada (agregar una implicaría un
-      // cambio de contrato fuera del alcance de AC3 de MOVO-77).
+      // `suspended` y `banned` (inhabilitada) sí se sirven como cualquier perfil: a
+      // diferencia de `deleted`, no es una baja voluntaria — es una sanción y el usuario
+      // puede tener envíos históricos con una contraparte que necesita seguir viendo con
+      // quién trató. MOVO-296 revirtió el trade-off de MOVO-77 (que no daba ninguna señal
+      // de la sanción): el perfil ahora trae `accountStatus` (`active`/`suspended`/
+      // `disabled`), nunca el motivo ni el plazo.
       if (!user || user.status === AccountStatus.DELETED) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
@@ -728,6 +739,8 @@ export function createUsersService(
 
       await resetPasswordChangeRateLimit(redis, userId);
       await sessionRepository.revokeAllForUser(userId);
+      // MOVO-287: `revokeAllForUser` solo toca la app; un cambio de contraseña corta también el panel.
+      await sessionRepository.revokePanelSessionsForUser(userId);
       await sessionRepository.revokeAccessTokensIssuedBefore(userId);
 
       // MOVO-274: aviso push, después de revocar las sesiones y con el cambio ya
@@ -807,6 +820,8 @@ export function createUsersService(
         const previousPhotoUrl = user.photoUrl;
 
         await db.$transaction(async (tx) => {
+          // MOVO-290 (review de PR #247): el último admin elegible no puede darse de baja (409 ADMIN_LAST_ADMIN).
+          await ensureNotLastEligibleAdmin(tx, userId, "No se puede dar de baja al último admin.");
           const txUserRepository = createUserRepository(tx);
           const txPushTokenRepository = createPushTokenRepository(tx);
           await txUserRepository.anonymizeAndDelete(userId);
@@ -833,9 +848,12 @@ export function createUsersService(
           // MOVO-175 (ADR-026): mismo motivo -- los bloqueos en ambas direcciones se
           // borran a mano. Los reportes se conservan a propósito (evidencia para admin).
           await tx.userBlock.deleteMany({ where: { OR: [{ blockerId: userId }, { blockedId: userId }] } });
+          // MOVO-290 (review de PR #247): la baja de cuenta borra el rol admin si lo tenía.
+          await tx.userRoleGrant.deleteMany({ where: { userId, role: PrismaUserRole.admin } });
         });
 
         await sessionRepository.revokeAllForUser(userId);
+        await sessionRepository.revokePanelSessionsForUser(userId);
         await sessionRepository.revokeAccessTokensIssuedBefore(userId);
 
         // MOVO-202/AC7: la traza GPS del usuario como transportista vive en
@@ -969,12 +987,14 @@ export function createUsersService(
       }
 
       const normalizedPhone = normalizePhoneToE164Ar(phone);
-      if (normalizedPhone === user.phone) {
+      // MOVO-294: el mismo número sí se acepta si está sin verificar (un admin lo cambió desde
+      // el panel): es la única forma de volver a verificarlo, y el paso 2 marca phoneVerified.
+      if (normalizedPhone === user.phone && user.phoneVerified) {
         throw new ApiError(400, "VALIDATION_FAILED", "El teléfono nuevo es igual al actual.");
       }
 
       const existing = await repository.findByPhone(normalizedPhone);
-      if (existing) {
+      if (existing && existing.id !== userId) {
         throw new ApiError(409, "PHONE_ALREADY_IN_USE", PHONE_ALREADY_IN_USE_MESSAGE);
       }
 

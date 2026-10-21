@@ -23,6 +23,7 @@ function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShi
     counterparty: { name: "Lucía Gómez", initials: "LG" },
     isToday: false,
     pickupWindowExpired: false, tripId: null,
+    transitAnomalyFlaggedAt: null,
     ...overrides,
   };
 }
@@ -30,12 +31,22 @@ function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShi
 describe("activeShipmentCta (MOVO-193 AC5, recortado a sending/receiving)", () => {
   it("emisor + assigned -> Generar retiro", () => {
     const cta = activeShipmentCta("sending", makeShipment({ status: "assigned" }));
-    expect(cta).toEqual({ label: "Generar retiro", destination: "MOVO-159 · QR de retiro" });
+    expect(cta).toEqual({
+      label: "Generar retiro",
+      destination: "MOVO-159 · QR de retiro",
+      action: "navigate",
+      path: "/(app)/shipments/s1/handshake",
+    });
   });
 
   it("receptor + in_transit -> Confirmar recepción", () => {
     const cta = activeShipmentCta("receiving", makeShipment({ status: "in_transit" }));
-    expect(cta).toEqual({ label: "Confirmar recepción", destination: "MOVO-160 · Escaneo de entrega" });
+    expect(cta).toEqual({
+      label: "Confirmar recepción",
+      destination: "MOVO-160 · Escaneo de entrega",
+      action: "navigate",
+      path: "/(app)/shipments/s1/handshake-scan",
+    });
   });
 
   it("emisor + in_transit -> Ver en el mapa, variante secundaria (negra, no lime)", () => {
@@ -135,6 +146,17 @@ describe("activeShipmentStatusLabel", () => {
   it("traduce los estados sin hora asociada", () => {
     expect(activeShipmentStatusLabel(makeShipment({ status: "assigned" }))).toBe("Asignado");
     expect(activeShipmentStatusLabel(makeShipment({ status: "in_transit" }))).toBe("En camino");
+  });
+
+  it("MOVO-278: un in_transit marcado como demorado es 'Demorado'; sin marca, 'En camino'", () => {
+    expect(
+      activeShipmentStatusLabel(
+        makeShipment({ status: "in_transit", transitAnomalyFlaggedAt: "2026-10-04T10:00:00.000Z" }),
+      ),
+    ).toBe("Demorado");
+    expect(activeShipmentStatusLabel(makeShipment({ status: "in_transit", transitAnomalyFlaggedAt: null }))).toBe(
+      "En camino",
+    );
   });
 
   it("assigned_unfunded (card flat, previa a que arranque el viaje) muestra la hora de retiro, no un texto genérico", () => {

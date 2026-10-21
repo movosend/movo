@@ -1,6 +1,7 @@
 import { ArrowDownLeft, ArrowUpRight, SlidersHorizontal, X } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { SkeletonBlock } from "../ui/skeleton-block";
 import type { MyShipmentRole, MyShipmentsStage } from "../../src/lib/my-shipments-format";
 
 /** Controles de la cabecera de "Mis envíos" (MOVO-257, prototipo "Mis envíos 4a"). */
@@ -13,12 +14,15 @@ export function MyShipmentsRoleCard({
   countLabel,
   needsAction,
   onPress,
+  loading = false,
 }: {
   role: MyShipmentRole;
   selected: boolean;
   countLabel: string;
   needsAction: boolean;
   onPress: () => void;
+  /** MOVO-168: mientras carga la lista no hay conteo real -- un "Sin envíos" falso es peor que un skeleton. */
+  loading?: boolean;
 }) {
   const colors = useThemeColors();
   const sending = role === "sending";
@@ -41,7 +45,12 @@ export function MyShipmentsRoleCard({
       </View>
       <View>
         <Text className="font-sans-semibold text-[16px] text-fg">{sending ? "Enviás" : "Recibís"}</Text>
-        <Text className="font-sans text-[13px] text-fg-3">{countLabel}</Text>
+        {loading ? (
+          // `text-[13px]` ocupa ~18 de alto: mismo alto, sin salto al llegar el conteo.
+          <SkeletonBlock testID={`my-shipments-role-${role}-count-skeleton`} className="mt-px h-[16px] w-20 rounded" />
+        ) : (
+          <Text className="font-sans text-[13px] text-fg-3">{countLabel}</Text>
+        )}
       </View>
     </Pressable>
   );

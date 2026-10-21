@@ -1,3 +1,4 @@
+import type { OfferAcceptanceAssignment } from "@movo/shared/dist/types/funding";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useLocalSearchParams } from "expo-router";
@@ -26,6 +27,7 @@ import {
 } from "../../../../src/hooks/use-offers";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
+import { isFundingWindowOpen } from "../../../../src/lib/shipment-format";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 
 function OffersSkeleton() {
@@ -66,6 +68,14 @@ export default function ShipmentOffersScreen() {
   const [offerToReject, setOfferToReject] = useState<OfferSummary | null>(null);
   const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
   const [acceptedOfferCarrierName, setAcceptedOfferCarrierName] = useState<string | null>(null);
+  // MOVO-211 AC4: desenlace de la aceptación (pagar ya o más cerca del retiro) y lo que se
+  // va a reservar, para el modal de éxito.
+  const [acceptedOutcome, setAcceptedOutcome] = useState<{
+    assignment: OfferAcceptanceAssignment | null;
+    amountArs: number;
+    pickupDate: string;
+  } | null>(null);
+  const [acceptedPayNow, setAcceptedPayNow] = useState<boolean | null>(null);
   const [acceptErrorMessage, setAcceptErrorMessage] = useState<string | null>(null);
   const [rejectErrorMessage, setRejectErrorMessage] = useState<string | null>(null);
 
@@ -87,6 +97,9 @@ export default function ShipmentOffersScreen() {
   // (MOVO-244 review, PR #184).
   const hasAcceptedRef = useRef(false);
   const showSuccessOnCloseRef = useRef(false);
+  // Estado del envío DESPUÉS de aceptar: se decide con lo que devuelve el refetch, no con el
+  // `shipment` del render (el modal puede cerrarse antes de que llegue el estado nuevo).
+  const statusAfterAcceptRef = useRef<Promise<ShipmentStatus | undefined>>(Promise.resolve(undefined));
 
   // Vuelve al detalle de este envío: si ya está en la pila (se llegó desde ahí) hace pop
   // hasta él, y si no (ej. desde el aviso de ofertas del home, MOVO-184) reemplaza esta
@@ -133,15 +146,21 @@ export default function ShipmentOffersScreen() {
   const handleConfirmAccept = async () => {
     if (!offerToAccept) return;
     try {
-      await acceptMutation.mutateAsync(offerToAccept.id);
+      const accepted = await acceptMutation.mutateAsync(offerToAccept.id);
       hasAcceptedRef.current = true;
       setAcceptedOfferCarrierName(offerToAccept.carrierNameAtOffer);
+      setAcceptedOutcome({
+        assignment: accepted?.assignment ?? null,
+        amountArs: offerToAccept.priceOffered,
+        pickupDate: offerToAccept.offeredDate,
+      });
+      setAcceptedPayNow(payNowFor(offerToAccept));
       // El modal de éxito se abre recién en `onClosed` del sheet de confirmación:
       // abrirlo en este mismo render hacía que iOS lo descartara (MOVO-271 AC2).
       showSuccessOnCloseRef.current = true;
       setOfferToAccept(null);
       void refetch();
-      void refetchShipment();
+      statusAfterAcceptRef.current = Promise.resolve(refetchShipment()).then((r) => r?.data?.status);
     } catch (err) {
       if (err instanceof ApiError && err.statusCode === 409) {
         setAcceptErrorMessage(
@@ -180,9 +199,33 @@ export default function ShipmentOffersScreen() {
     }
   };
 
-  const handleSuccessDismiss = () => {
+  const handleSuccessDismiss = async () => {
     setIsSuccessModalVisible(false);
+    const status = (await statusAfterAcceptRef.current) ?? shipment?.status;
+    // Retiro cercano (MOVO-269): el envío queda `assignment_pending` y el emisor paga en el
+    // mismo flujo. `replace` deja el detalle debajo, así "volver" desde el pago cae ahí. Con
+    // retiro lejano (`assigned_unfunded`) el pago se confirma más adelante desde el detalle.
+    if (status === ShipmentStatus.ASSIGNMENT_PENDING) {
+      router.replace(`/shipments/${id}/pay` as never);
+      return;
+    }
     goToShipmentDetail();
+  };
+
+  // Ruta cercana: la aceptación lleva directo al pago. Reemplaza esta pantalla, así
+  // "volver" desde el pago cae en el detalle del envío y no de nuevo en las ofertas.
+  const handleSuccessPay = () => {
+    setIsSuccessModalVisible(false);
+    router.replace(`/shipments/${id}/pay` as never);
+  };
+
+  // Fallback para una respuesta de accept sin `assignment`.
+  const payNowFor = (offer: OfferSummary | null): boolean | null => {
+    if (!offer || !shipment) return null;
+    return isFundingWindowOpen({
+      pickupDate: offer.offeredDate.slice(0, 10),
+      pickupTimeWindowStart: offer.offeredPickupTimeWindowStart ?? shipment.pickupTimeWindowStart,
+    });
   };
 
   const offerCount = offers ? offers.length : 0;
@@ -311,6 +354,15 @@ export default function ShipmentOffersScreen() {
                 onAccept={handlePromptAccept}
                 onReject={handlePromptReject}
                 onViewProfile={handleOpenCarrierProfile}
+                requestedPickup={
+                  shipment
+                    ? {
+                        pickupDate: shipment.pickupDate,
+                        pickupTimeWindowStart: shipment.pickupTimeWindowStart,
+                        pickupTimeWindowEnd: shipment.pickupTimeWindowEnd,
+                      }
+                    : undefined
+                }
                 disabled={acceptMutation.isPending || rejectMutation.isPending}
                 testID={`offer-card-${offer.id}`}
               />
@@ -325,6 +377,7 @@ export default function ShipmentOffersScreen() {
         visible={!!offerToAccept}
         isPending={acceptMutation.isPending}
         errorMessage={acceptErrorMessage}
+        payNow={payNowFor(offerToAccept)}
         onConfirm={handleConfirmAccept}
         onClosed={() => {
           if (!showSuccessOnCloseRef.current) return;
@@ -344,7 +397,12 @@ export default function ShipmentOffersScreen() {
       <ChooseOfferSuccessModal
         visible={isSuccessModalVisible}
         carrierName={acceptedOfferCarrierName}
+          payNow={acceptedPayNow}
         onDismiss={handleSuccessDismiss}
+        assignment={acceptedOutcome?.assignment}
+        amountArs={acceptedOutcome?.amountArs}
+        pickupDate={acceptedOutcome?.pickupDate}
+        onPay={handleSuccessPay}
         testID="choose-offer-success-modal"
       />
 

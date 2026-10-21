@@ -26,10 +26,12 @@ import { RequiredPermissionsGate } from '../components/permissions/required-perm
 import { useDeviceKeyBootstrap } from '../src/hooks/use-device-key-bootstrap';
 import { useLegalAcceptanceEntry } from '../src/hooks/use-legal-acceptance-entry';
 import { useRequiredPermissionsGate } from '../src/hooks/use-required-permissions-gate';
+import { useChatUnreadSync } from '../src/hooks/use-chat-unread-sync';
 import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
 import { useAuthStore } from '../src/store/auth-store';
+import { useBlockingGatesStore } from '../src/store/blocking-gates-store';
 import { useBootStore } from '../src/store/boot-store';
 import { useCarrierTrackingCoordinator, useIsCarrierTracking } from '../src/hooks/use-carrier-tracking';
 import { CarrierLocationGate } from '../components/location/carrier-location-gate';
@@ -51,6 +53,12 @@ SplashScreen.preventAutoHideAsync();
  */
 function CarrierTrackingCoordinatorMount() {
   useCarrierTrackingCoordinator();
+  return null;
+}
+
+/** MOVO-301: contador de chats sin leer al día (push en foreground y vuelta a primer plano). */
+function ChatUnreadSyncMount() {
+  useChatUnreadSync();
   return null;
 }
 
@@ -103,6 +111,13 @@ function BlockingGatesMount() {
     (requested || carrierBlocking);
 
   const legalVisible = legal.visible && !permissionsVisible && !carrierVisible;
+
+  // MOVO-169: el tutorial espera a que no haya ninguna de estas pantallas encima.
+  const anyGateVisible = permissionsVisible || carrierVisible || legalVisible;
+  useEffect(() => {
+    useBlockingGatesStore.getState().setGates({ mounted: true, gateVisible: anyGateVisible });
+  }, [anyGateVisible]);
+  useEffect(() => () => useBlockingGatesStore.getState().setGates({ mounted: false, gateVisible: false }), []);
 
   const runPendingAction = useCallback(() => {
     const action = useCarrierLocationGateStore.getState().take();
@@ -257,6 +272,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <RegistrationProvider>
           <CarrierTrackingCoordinatorMount />
+          <ChatUnreadSyncMount />
           {!showAnimatedSplash ? <BlockingGatesMount /> : null}
           <View onLayout={onLayout} className="flex-1 bg-bg">
             <Stack screenOptions={{ headerShown: false }} />

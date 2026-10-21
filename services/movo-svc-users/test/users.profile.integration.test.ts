@@ -149,7 +149,7 @@ describe("GET /users/me y GET /users/:id (MOVO-77)", () => {
   });
 
   describe("GET /users/:id", () => {
-    it("devuelve la proyección pública sin email, phone ni accountStatus", async () => {
+    it("devuelve la proyección pública sin email ni phone, con accountStatus (MOVO-296)", async () => {
       const caller = await repo.create(buildInput());
       const target = await repo.create(buildInput({ firstName: "Juan", lastName: "Perez" }));
       await repo.updateKycStatusIdentity(target.id, KycStatus.APPROVED);
@@ -166,7 +166,7 @@ describe("GET /users/me y GET /users/:id (MOVO-77)", () => {
       // DoD explícito de MOVO-77: la respuesta pública nunca puede tener estas claves.
       expect(body).not.toHaveProperty("email");
       expect(body).not.toHaveProperty("phone");
-      expect(body).not.toHaveProperty("accountStatus");
+      expect(body.accountStatus).toBe("active");
       expect(body).not.toHaveProperty("kycStatus");
 
       expect(body).toMatchObject({
@@ -275,7 +275,8 @@ describe("GET /users/me y GET /users/:id (MOVO-77)", () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.fullName).toBe("Juan Perez");
-      expect(body).not.toHaveProperty("accountStatus");
+      // MOVO-296: banned se publica como `disabled`, sin motivo ni plazo.
+      expect(body.accountStatus).toBe("disabled");
     });
   });
 });

@@ -1,9 +1,12 @@
+import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { router } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { CarrierRequirementsSheet } from "../../../../components/carrier/carrier-requirements-checklist";
 import { TripForm } from "../../../../components/trips/trip-form";
+import { useCarrierRequirementsSheet } from "../../../../src/hooks/use-carrier-requirements-sheet";
 import { useCreateTrip } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { requireCarrierLocation } from "../../../../src/store/carrier-location-gate-store";
@@ -16,7 +19,11 @@ const CREATE_ERROR_FALLBACK = "No pudimos declarar el viaje. Probá de nuevo.";
 export default function NewTripScreen() {
   const colors = useThemeColors();
   const createTrip = useCreateTrip();
+  // MOVO-117: un 403 por licencia/MP faltante abre la checklist en vez de un error genérico.
+  const requirements = useCarrierRequirementsSheet("trip");
   const [error, setError] = useState<string | null>(null);
+  // MOVO-266: el tope de series se muestra inline en la card "Se repite", no arriba.
+  const [recurrenceError, setRecurrenceError] = useState<string | null>(null);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -34,6 +41,7 @@ export default function NewTripScreen() {
 
   const createTripNow = (input: CreateTripInput) => {
     setError(null);
+    setRecurrenceError(null);
     createTrip.mutate(input, {
       // Reemplaza (no `back()`) para garantizar que el flag de éxito llegue a "Mis
       // viajes" — mismo patrón que `forgot-password.tsx` → `login.tsx` (AC de
@@ -45,8 +53,14 @@ export default function NewTripScreen() {
           pathname: "/carrier/trips",
           params: { created: "1" },
         } as any),
-      onError: (err) =>
-        setError(friendlyErrorMessage(err, CREATE_ERROR_FALLBACK)),
+      onError: (err) => {
+        if (requirements.handleError(err)) return;
+        if (err instanceof ApiError && err.code === "RECURRING_SERIES_LIMIT") {
+          setRecurrenceError(friendlyErrorMessage(err, CREATE_ERROR_FALLBACK));
+          return;
+        }
+        setError(friendlyErrorMessage(err, CREATE_ERROR_FALLBACK));
+      },
     });
   };
 
@@ -73,10 +87,13 @@ export default function NewTripScreen() {
       <TripForm
         testID="new-trip-form"
         submitLabel="Declarar viaje"
+        recurringSubmitLabel="Declarar viaje recurrente"
         submitting={createTrip.isPending}
         error={error}
+        recurrenceError={recurrenceError}
         onSubmit={handleSubmit}
       />
+      <CarrierRequirementsSheet {...requirements.sheetProps} />
     </SafeAreaView>
   );
 }

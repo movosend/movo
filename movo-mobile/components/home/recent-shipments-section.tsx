@@ -1,6 +1,7 @@
-import { ActivityIndicator, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { PackageX, WifiOff } from "lucide-react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { useTourAnchor } from "../../src/hooks/use-tour-anchor";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
 import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
@@ -12,6 +13,7 @@ import { splitCarrierHomeTrips } from "../../src/lib/trip-format";
 import { useAuthStore } from "../../src/store/auth-store";
 import { ShipmentRow } from "../shipments/shipment-row";
 import { CarrierTripRow } from "./carrier-trip-row";
+import { RecentRowsSkeleton } from "./home-section-states";
 import { ViewAllShipmentsLink } from "./view-all-shipments-link";
 
 /**
@@ -31,8 +33,18 @@ import { ViewAllShipmentsLink } from "./view-all-shipments-link";
  * fecha pero nunca pasan por delante de un envío que requiere acción. La lista mezclada
  * respeta el mismo tope que los envíos.
  */
-export function RecentShipmentsSection({ testID }: { testID?: string }) {
+export function RecentShipmentsSection({
+  testID,
+  scrollIntoView,
+}: {
+  testID?: string;
+  /** MOVO-169: lleva la sección a la vista para el paso "Seguí tus envíos" del tutorial. */
+  scrollIntoView?: (layoutY: number) => void;
+}) {
   const colors = useThemeColors();
+  // La sección no tiene card propia: sin más aire el anillo queda pegado al texto
+  // (en el prototipo el recorte la rodea con ~12px de margen y radio 22).
+  const tourAnchor = useTourAnchor("home-recent-activity", { radius: 10, padding: 12, scrollIntoView });
   const { data, isLoading, isError, refetch } = useRecentShipments();
   const { data: myTripsData } = useMyTrips();
   const { otherTrips } = splitCarrierHomeTrips(myTripsData?.items ?? []);
@@ -48,7 +60,7 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
   ).length;
 
   return (
-    <View testID={testID}>
+    <View testID={testID} ref={tourAnchor.ref} onLayout={tourAnchor.onLayout}>
       {/* ── Encabezado ── */}
       <View className="mb-3 flex-row items-center justify-between">
         <Text className="font-sans-medium text-caption uppercase text-fg-3">
@@ -68,9 +80,7 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
 
       {/* ── Contenido ── */}
       {isLoading ? (
-        <View className="items-center justify-center py-8">
-          <ActivityIndicator color={colors.fg3} />
-        </View>
+        <RecentRowsSkeleton testID={testID ? `${testID}-skeleton` : undefined} />
       ) : isError ? (
         <View className="items-center gap-2 py-6">
           <WifiOff size={20} strokeWidth={1.8} color={colors.fg3} />
@@ -84,8 +94,13 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
       ) : visibleShipments.length + otherTrips.length === 0 ? (
         <View className="items-center gap-2 py-6">
           <PackageX size={20} strokeWidth={1.8} color={colors.fg3} />
+          {/* Si la consulta trajo envíos pero la selección no dejó ninguno (terminales
+              vencidos, MOVO-184, o todavía sin usuario en sesión), decir "todavía no
+              hiciste ningún envío" sería falso: el historial sigue en "Mis envíos", cuyo
+              link aparece debajo. "No tenés actividad reciente" vale sin importar por qué
+              quedaron afuera. */}
           <Text className="text-center font-sans text-small text-fg-2">
-            Todavía no hiciste ningún envío.
+            {(data?.items.length ?? 0) > 0 ? "No tenés actividad reciente." : "Todavía no hiciste ningún envío."}
           </Text>
         </View>
       ) : (

@@ -36,9 +36,7 @@ Que ningún Pull Request se mergee a `develop` ni a `main` sin que sus tests pas
 
 ## Migraciones en CI
 
-Las carpetas `migrations/` de cada servicio contienen archivos `.sql` numerados (`0001_init.sql`, ...). `scripts/run-migrations.sh <ruta-del-servicio>` los aplica en orden contra `$DATABASE_URL` usando `psql`. El job `node-services` de `.github/workflows/pr-checks.yml` corre este script antes de los tests, contra el Postgres efímero levantado como service container.
-
-Es deliberadamente mínimo: no se adoptó una herramienta de migraciones (`node-pg-migrate`, `knex`, etc.) porque hoy solo `movo-svc-users` tiene una migración real (la tabla `users` del ejemplo de integración); las demás son placeholders. Si la complejidad de las migraciones crece, evaluar adoptar una herramienta dedicada en un ticket aparte.
+Todos los servicios Node migran con Prisma (ADR-011): cada uno tiene `prisma/migrations/` y el job `node-services` de `.github/workflows/pr-checks.yml` corre `npx prisma migrate deploy` antes de los tests, contra el Postgres efímero levantado como service container. El runner de SQL a mano (`scripts/run-migrations.sh`) se borró en MOVO-288, cuando `movo-svc-admin`, su último consumidor, adoptó Prisma.
 
 ## Patrón de ejemplo a copiar
 

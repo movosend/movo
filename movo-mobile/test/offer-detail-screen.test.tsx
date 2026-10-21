@@ -49,6 +49,10 @@ jest.mock("expo-router", () => ({
   useLocalSearchParams: () => ({ id: "offer-1" }),
 }));
 
+jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
+  require("./mocks/carrier-requirements-sheet-hook"),
+);
+
 const mockUseOfferDetail = jest.fn();
 const mockMutateUpdate = jest.fn();
 const mockMutateWithdraw = jest.fn();
@@ -151,7 +155,8 @@ describe("OfferDetailScreen (MOVO-182)", () => {
     const { getByTestId, queryByTestId } = await render(<OfferDetailScreen />);
 
     expect(getByTestId("offer-detail-status-title")).toHaveTextContent("Esperando a Pedro");
-    expect(getByTestId("offer-detail-net-amount")).toHaveTextContent("$8.000");
+    // MOVO-225: neto ($8.000) menos el estimado de MP sobre el bruto (9200 x 4,99% = $459,08).
+    expect(getByTestId("offer-detail-net-amount")).toHaveTextContent("$7.540,92");
     expect(getByTestId("offer-detail-rank-section")).toBeTruthy();
     expect(getByTestId("offer-detail-change-price-cta")).toBeTruthy();
     expect(queryByTestId("offer-detail-modify-date-link")).toBeNull();
@@ -246,6 +251,29 @@ describe("OfferDetailScreen (MOVO-182)", () => {
     );
     expect(queryByTestId("offer-detail-price-modal-backdrop")).toBeNull();
     expect(getByTestId("offer-detail-update-success")).toBeTruthy();
+  });
+
+  it("MOVO-117: un 403 de requisitos al editar el precio cierra el sheet y abre la checklist", async () => {
+    mockMutateUpdate.mockImplementation((_input, options) => {
+      options.onError(
+        new ApiError(403, "CARRIER_MP_ACCOUNT_NOT_LINKED", "Falta MP.", {
+          missingRequirements: ["mp_account"],
+        }),
+      );
+    });
+    mockUseOfferDetail.mockReturnValue({ isLoading: false, isError: false, data: baseOffer() });
+
+    const { getByTestId, queryByTestId } = await render(<OfferDetailScreen />);
+    await act(async () => {
+      fireEvent.press(getByTestId("offer-detail-change-price-cta"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("offer-detail-price-save"));
+    });
+
+    expect(queryByTestId("offer-detail-price-modal-backdrop")).toBeNull();
+    expect(getByTestId("carrier-requirements-sheet-checklist-mp-cta")).toBeTruthy();
+    expect(queryByTestId("offer-detail-update-success")).toBeNull();
   });
 
   it("'Modificar fecha y horario' desde el menú navega a la pantalla de creación en modo edición", async () => {

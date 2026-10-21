@@ -121,18 +121,29 @@ export function receiverConfirmationStatus(
   return "confirmed";
 }
 
-/** Estados desde los que el emisor puede cancelar sin penalización (MOVO-29,
- * implementado en MOVO-108) — los únicos 3 sin fondos confirmados todavía. Cancelar
- * desde `assigned` existe en `shipment-state-machine.ts` pero el backend lo bloquea
- * con 409 hasta que `svc-payments` tenga holds/capture reales, así que acá no se
- * ofrece el botón para ese ni ningún otro estado. */
+/** Estados desde los que el emisor puede cancelar (MOVO-29/108). MOVO-308: también
+ * `assigned` (con la penalidad de ADR-047, que el sheet cotiza antes de confirmar) y
+ * `assigned_unfunded` (todavía sin reserva, sin cargo). El resto de los estados no puede
+ * pasar a `cancelled` (`shipment-state-machine.ts`). */
 export function canCancelShipment(status: ShipmentStatus): boolean {
   return (
     status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION ||
     // MOVO-253 AC4: en vez de elegir otro receptor, el emisor puede cancelar.
     status === ShipmentStatus.REJECTED_BY_RECEIVER ||
     status === ShipmentStatus.PUBLISHED ||
-    status === ShipmentStatus.ASSIGNMENT_PENDING
+    status === ShipmentStatus.ASSIGNMENT_PENDING ||
+    status === ShipmentStatus.ASSIGNED_UNFUNDED ||
+    status === ShipmentStatus.ASSIGNED
+  );
+}
+
+/** Estados desde los que el transportista asignado puede bajarse (MOVO-314 AC1, backend
+ * `CARRIER_WITHDRAWABLE_STATUSES` de MOVO-310): hasta que retira el paquete. */
+export function canCarrierWithdraw(status: ShipmentStatus): boolean {
+  return (
+    status === ShipmentStatus.ASSIGNMENT_PENDING ||
+    status === ShipmentStatus.ASSIGNED_UNFUNDED ||
+    status === ShipmentStatus.ASSIGNED
   );
 }
 
@@ -145,8 +156,28 @@ export const FUNDS_PENDING_INFO_TEXT = "Los fondos se reservan antes del retiro.
 export type ShipmentDetailRole = "sender" | "receiver" | "carrier";
 
 export type ShipmentDetailCta =
-  | { kind: "action"; label: string; path: string; icon: "qr" | "package" }
+  | { kind: "action"; label: string; path: string; icon: "qr" | "package" | "card" }
   | { kind: "info"; text: string };
+
+/** "N" de la saga de pago (MOVO-12): desde que el retiro entra en estos días el emisor puede
+ * confirmar el pago de un envío `assigned_unfunded`. Espeja `FUNDING_NEAR_PICKUP_DAYS` (3 por
+ * default) de `svc-shipments`; el backend es quien decide (409 fuera de la ventana), esto solo
+ * evita ofrecer el botón antes de tiempo. */
+export const FUNDING_WINDOW_DAYS = 3;
+
+/** ¿Ya abrió la ventana en que se confirma el pago? Igual que el backend
+ * (`fundingWindowOpensAt`): se abre exactamente `FUNDING_WINDOW_DAYS` x 24 h antes del INICIO
+ * de la ventana de retiro acordada (`pickupDate` + `pickupTimeWindowStart`, hora de Argentina,
+ * UTC-3 sin horario de verano), no al empezar el día calendario. */
+export function isFundingWindowOpen(
+  pickup: { pickupDate: string; pickupTimeWindowStart: string },
+  now: Date = new Date(),
+): boolean {
+  const time = pickup.pickupTimeWindowStart.match(/^(\d{1,2}):(\d{2})/);
+  const hhmm = time ? `${time[1].padStart(2, "0")}:${time[2]}` : "00:00";
+  const pickupStart = Date.parse(`${pickup.pickupDate}T${hhmm}:00-03:00`);
+  return !Number.isNaN(pickupStart) && pickupStart - FUNDING_WINDOW_DAYS * 86_400_000 <= now.getTime();
+}
 
 /** Acción contextual del pie del detalle del envío (MOVO-194 AC2): una sola por
  * combinación rol + estado. `assigned_unfunded` no tiene CTA porque la máquina de
@@ -155,8 +186,17 @@ export function shipmentDetailCta(
   role: ShipmentDetailRole | null,
   status: ShipmentStatus,
   shipmentId: string,
+  options?: { fundingWindowOpen?: boolean },
 ): ShipmentDetailCta | null {
   const base = `/(app)/shipments/${shipmentId}`;
+  // MOVO-269: el emisor reserva los fondos (con tarjeta guardada + CVV) al aceptar una oferta
+  // cercana, o desde acá si salió de la pantalla de pago (`resumed`) o el retiro es lejano.
+  if (role === "sender" && status === ShipmentStatus.ASSIGNMENT_PENDING) {
+    return { kind: "action", label: "Pagar y reservar fondos", path: `${base}/pay?resumed=1`, icon: "card" };
+  }
+  if (role === "sender" && status === ShipmentStatus.ASSIGNED_UNFUNDED && options?.fundingWindowOpen) {
+    return { kind: "action", label: "Confirmar el pago", path: `${base}/pay`, icon: "card" };
+  }
   if (status === ShipmentStatus.ASSIGNED_UNFUNDED && (role === "sender" || role === "carrier")) {
     return { kind: "info", text: FUNDS_PENDING_INFO_TEXT };
   }
@@ -260,6 +300,8 @@ export function shipmentEventTitle(
     isReceiver?: boolean;
     isSender?: boolean;
     isCarrier?: boolean;
+    /** Quien mira es el autor del evento (MOVO-308: "Cancelaste el envío"). */
+    isActor?: boolean;
   },
 ): string {
   if (fromStatus === null) return "Envío creado";
@@ -322,7 +364,7 @@ export function shipmentEventTitle(
     case ShipmentStatus.COMPLETED:
       return "Pago liberado, envío cerrado";
     case ShipmentStatus.CANCELLED:
-      return "Envío cancelado";
+      return options?.isSender && options.isActor ? "Cancelaste el envío" : "Envío cancelado";
     case ShipmentStatus.DISPUTED:
       return "Envío en disputa";
     default:

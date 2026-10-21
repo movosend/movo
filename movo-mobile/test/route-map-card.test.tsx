@@ -2,13 +2,15 @@ import { render } from "@testing-library/react-native";
 import { RouteMapCard } from "../components/send/route-map-card";
 
 // El mock oficial de Reanimated no incluye `useFrameCallback`; acá alcanza con un
-// callback inactivo (el barrido animado no se verifica en Jest).
+// callback inactivo (el barrido animado no se verifica en Jest). Tampoco `useReducedMotion`,
+// que usa `SkeletonBlock` (MOVO-168).
 jest.mock("react-native-reanimated", () => {
   const mock = require("react-native-reanimated/mock");
   return {
     ...mock,
     default: mock.default,
     useFrameCallback: () => ({ setActive: jest.fn(), isActive: false, callbackId: 0 }),
+    useReducedMotion: () => false,
   };
 });
 
@@ -28,6 +30,13 @@ function baseCoordinates(getByTestId: (id: string) => { props: Record<string, un
 
 describe("RouteMapCard", () => {
   beforeEach(() => mockUseShipmentRoute.mockReset());
+
+  it("ofrece expandir el mapa a pantalla completa", async () => {
+    mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+    const { getByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} />);
+
+    expect(getByTestId("map-frame-expand")).toBeTruthy();
+  });
 
   it("mientras la ruta carga no dibuja la recta y tapa el mapa con un skeleton", async () => {
     mockUseShipmentRoute.mockReturnValue({ data: undefined, isError: false });

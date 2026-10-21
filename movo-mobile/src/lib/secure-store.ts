@@ -84,6 +84,11 @@ export const SECURE_STORE_KEYS = {
    * Se almacena como JSON array de `QueuedPosition` y se drena en ráfaga
    * preservando el `capturedAt` original de cada muestra. */
   carrierLocationOfflineQueue: "movo.carrier.locationOfflineQueue",
+  /** Prefijo de los registros de tours del tutorial que todavía no confirmó el backend
+   * (MOVO-169, `src/lib/tour-pending.ts`): la key real lleva `.<userId>`, porque son de
+   * la cuenta y no del dispositivo. Sobreviven a un cierre de la app para reintentarse
+   * en el próximo arranque. */
+  pendingTourRecordsPrefix: "movo.tours.pending",
 } as const;
 
 /**

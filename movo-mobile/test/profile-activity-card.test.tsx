@@ -178,4 +178,53 @@ describe("ProfileActivityCard", () => {
 
     expect(queryByTestId("card-view-all")).toBeNull();
   });
+  // MOVO-168: la reputación es una segunda query; carga y falla dentro de la card.
+  it("MOVO-168: mientras la reputación carga muestra su skeleton, sin tocar 'Tu actividad'", async () => {
+    const { getByText, getByTestId, queryByTestId } = await render(
+      <ProfileActivityCard
+        testID="card"
+        transactionCounts={{ asSender: 2, asCarrier: 0 }}
+        reputationScore={4.5}
+        reputationLoading
+      />,
+    );
+
+    expect(getByText("Tu actividad")).toBeTruthy();
+    expect(getByTestId("card-reputation-skeleton")).toBeTruthy();
+    expect(queryByTestId("card-reputation")).toBeNull();
+  });
+
+  it("MOVO-168: si la reputación falla muestra el error con Reintentar local", async () => {
+    const onRetry = jest.fn();
+    const { getByText, getByTestId, queryByTestId } = await render(
+      <ProfileActivityCard
+        testID="card"
+        transactionCounts={{ asSender: 2, asCarrier: 0 }}
+        reputationScore={4.5}
+        reputationError
+        onRetryReputation={onRetry}
+      />,
+    );
+
+    expect(getByText("Tu actividad")).toBeTruthy();
+    expect(queryByTestId("card-reputation-skeleton")).toBeNull();
+    await act(async () => fireEvent.press(getByTestId("card-reputation-error-retry")));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("MOVO-168: con la reputación ya resuelta, ni skeleton ni error aunque un refetch falle", async () => {
+    const { getByTestId, queryByTestId } = await render(
+      <ProfileActivityCard
+        testID="card"
+        transactionCounts={{ asSender: 2, asCarrier: 0 }}
+        reputationScore={4.8}
+        reputationError
+        reputation={{ asSender: breakdown(), asCarrier: breakdown(), recentRatingComments: [comment()] }}
+      />,
+    );
+
+    expect(getByTestId("card-reputation")).toBeTruthy();
+    expect(queryByTestId("card-reputation-error")).toBeNull();
+    expect(queryByTestId("card-reputation-skeleton")).toBeNull();
+  });
 });

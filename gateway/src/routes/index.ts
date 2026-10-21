@@ -149,6 +149,10 @@ export default async function routesPlugin(
       // Ningún cliente puede mandar su propio `x-client-id`: solo lo inyecta el
       // gateway tras validar una API key (rutas demo, abajo).
       delete request.headers["x-client-id"];
+      // MOVO-287 (review de PR #244): IP real del cliente para los servicios (ej. el límite
+      // del login del panel por email + IP). `request.ip` ya resuelve `X-Forwarded-For` de
+      // nginx (`trustProxy`); el header que mande el cliente se pisa siempre.
+      request.headers["x-client-ip"] = request.ip;
 
       if (route.auth === "apiKey") {
         let clientId: string;

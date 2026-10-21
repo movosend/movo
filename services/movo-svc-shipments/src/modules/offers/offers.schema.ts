@@ -3,7 +3,7 @@
 
 // Alineado 1:1 con OfferStatus de @movo/shared (MOVO-102) — agregar un valor nuevo
 // ahí obliga a actualizar esta lista también.
-const OFFER_STATUS_VALUES = ["pending", "accepted", "rejected", "withdrawn", "expired", "superseded", "shipment_cancelled", "assignment_lapsed"];
+const OFFER_STATUS_VALUES = ["pending", "accepted", "rejected", "withdrawn", "expired", "superseded", "shipment_cancelled", "assignment_lapsed", "carrier_withdrawn"];
 
 // Alineado 1:1 con el enum `PackageType` de Prisma (MOVO-185) — mismo criterio
 // autocontenido que PACKAGE_TYPE_VALUES en shipments.schema.ts, sin importar de ahí.
@@ -132,6 +132,17 @@ const competitiveRankResponse = {
   },
 };
 
+// MOVO-311: lo que se le descontaría al transportista por la deuda de su cuenta corriente.
+// `null` si no debe nada, si la oferta no está pending o si payments no respondió.
+export const debtDiscountResponse = {
+  type: ["object", "null"],
+  required: ["amountArs", "reason"],
+  properties: {
+    amountArs: { type: "number" },
+    reason: { type: "string", enum: ["pending_balance"] },
+  },
+};
+
 // MOVO-145 (GET /offers/mine): a diferencia de `offerResponse` (accept/reject, sin
 // contexto de envío), acá `offeredDate` sale ya formateado como date-only (mismo gotcha
 // de timezone que `offerShipmentContextResponse.pickupDate`) y suma el contexto mínimo
@@ -165,6 +176,7 @@ const myOfferResponse = {
     "estimatedDeliveryTimeWindowEnd",
     "competitiveRank",
     "viewedAtBySender",
+    "debtDiscount",
   ],
   properties: {
     id: { type: "string" },
@@ -201,6 +213,8 @@ const myOfferResponse = {
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
     competitiveRank: competitiveRankResponse,
+    // MOVO-311: deuda del transportista que se descontaría de este cobro, con el motivo.
+    debtDiscount: debtDiscountResponse,
     // MOVO-189: mismo criterio que offerResponse -- instante crudo, sin copy.
     viewedAtBySender: { type: ["string", "null"], format: "date-time" },
   },
@@ -230,7 +244,27 @@ const patchOfferBody = {
   additionalProperties: false,
 };
 
+// MOVO-211 AC4: `POST /offers/:id/accept` suma qué ruta de la saga se tomó, para que el
+// mobile muestre el desenlace correcto (pagar ya o más cerca del retiro).
+const acceptOfferResponse = {
+  ...offerResponse,
+  required: [...offerResponse.required, "assignment"],
+  properties: {
+    ...offerResponse.properties,
+    assignment: {
+      type: "object",
+      required: ["shipmentStatus", "fundingRoute", "fundingWindowOpensAt"],
+      properties: {
+        shipmentStatus: { type: "string", enum: ["assignment_pending", "assigned_unfunded"] },
+        fundingRoute: { type: "string", enum: ["near", "far"] },
+        fundingWindowOpensAt: { type: ["string", "null"], format: "date-time" },
+      },
+    },
+  },
+} as const;
+
 export const offersSchemas = {
+  acceptOfferResponse,
   listMineQuery: {
     type: "object",
     properties: {

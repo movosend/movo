@@ -16,18 +16,25 @@ import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sw
 import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
 import pickupMissedSweepPlugin from "./plugins/pickup-missed-sweep";
 import transitAnomalySweepPlugin from "./plugins/transit-anomaly-sweep";
+import tripDepartureReminderSweepPlugin from "./plugins/trip-departure-reminder-sweep";
 import fundingSweepPlugin from "./plugins/funding-sweep";
+import settlementsPlugin from "./plugins/settlements";
+import settlementSweepPlugin from "./plugins/settlement-sweep";
+import settlementRoutes, { SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
 import fundingRoutes, { internalFundingRoutes, FundingRoutesOptions } from "./modules/funding/funding.routes";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
+import ledgerOriginsRoutes from "./modules/shipments/ledger-origins.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
 import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import mutualConnectionsRoutes from "./modules/mutual-connections/mutual-connections.routes";
+import adminInternalRoutes from "./modules/admin-internal/admin-internal.routes";
 import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
 import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
 import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
+import chatRoutes, { ChatRoutesOptions } from "./modules/chat/chat.routes";
 import receiverTransfersRoutes, {
   ReceiverTransfersRoutesOptions,
   shipmentReceiverTransferRoutes,
@@ -59,6 +66,10 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
    * real levantado (MOVO-108/129), mismo criterio que `usersClient`. */
   notificationsClient?: NotificationsClient;
+  /** Reloj del chat (MOVO-26), solo para probar el borde de las 24 h en tests. */
+  chatNow?: () => Date;
+  /** Agenda el resumen de avisos de una ráfaga de chat (MOVO-301); solo tests, para no esperar la ventana real. */
+  chatSchedulePush?: (run: () => void, delayMs: number) => void;
   /** Override solo para tests de integración — evita depender de un
    * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
    * `usersClient`. */
@@ -79,8 +90,12 @@ export interface BuildAppOptions {
   pickupMissedSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de `in_transit` anómalo (MOVO-258). */
   transitAnomalySweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el recordatorio del día anterior al viaje (MOVO-240). */
+  tripDepartureReminderSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de la saga de asignación (MOVO-210). */
   fundingSweepEnabled?: boolean;
+  /** MOVO-212: barrido de liquidaciones; solo corre con FUNDS_RELEASE_NOTIFIER=payments. */
+  settlementSweepEnabled?: boolean;
   /** Override solo para tests de integración -- evita depender de una integración
    * real de liberación de fondos (MOVO-158, fuera de alcance de este ticket). */
   fundsReleaseNotifier?: FundsReleaseNotifier;
@@ -158,6 +173,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
       : {}),
   });
   app.register(tripExpirySweepPlugin, {
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.tripExpirySweepEnabled !== undefined ? { enabled: opts.tripExpirySweepEnabled } : {}),
   });
   app.register(pickupMissedSweepPlugin, {
@@ -172,11 +190,29 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.transitAnomalySweepEnabled !== undefined ? { enabled: opts.transitAnomalySweepEnabled } : {}),
   });
+  app.register(tripDepartureReminderSweepPlugin, {
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.tripDepartureReminderSweepEnabled !== undefined
+      ? { enabled: opts.tripDepartureReminderSweepEnabled }
+      : {}),
+  });
   app.register(fundingSweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
     ...(opts.fundingSweepEnabled !== undefined ? { enabled: opts.fundingSweepEnabled } : {}),
+  });
+
+  // MOVO-212: el service de liquidación se arma una sola vez (`app.settlements`) para el notifier del
+  // handshake, el barrido y las rutas; tiene que registrarse antes que cualquiera de los tres.
+  app.register(settlementsPlugin, {
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+  });
+  // MOVO-212: reintenta la captura de los `delivered` sin cobrar (solo con el notifier real).
+  app.register(settlementSweepPlugin, {
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+    ...(opts.settlementSweepEnabled !== undefined ? { enabled: opts.settlementSweepEnabled } : {}),
   });
 
   app.get("/health", async () => ({ status: "ok" }));
@@ -192,6 +228,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
+  app.register(ledgerOriginsRoutes, { prefix: "/internal" });
 
   // MOVO-210: pago del emisor (`GET`/`POST /shipments/:id/funding`) y aviso interno de
   // `svc-payments` cuando MP pierde un hold (`POST /internal/shipments/:id/hold-events`).
@@ -243,6 +280,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-174: consultado por movo-svc-users para "conexiones mutuas" del perfil. Interno.
   app.register(mutualConnectionsRoutes, { prefix: "/internal" });
 
+  // MOVO-288: partes de un envío o de un reporte de chat, para la regla de conflicto de
+  // interés de movo-svc-admin. Interno.
+  app.register(adminInternalRoutes, { prefix: "/internal" });
+
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
   // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.
   app.register(internalRatingsRoutes, { prefix: "/internal" });
@@ -253,8 +294,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/shipments",
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.fundsReleaseNotifier ? { fundsReleaseNotifier: opts.fundsReleaseNotifier } : {}),
+    // MOVO-212: el notifier real captura el hold y avisa por push.
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
   };
   app.register(handshakeRoutes, handshakeRouteOpts);
+
+  // MOVO-212 AC10: `GET /shipments/:id/settlement`, el pago del envío según el rol.
+  const settlementRouteOpts: SettlementRoutesOptions = { prefix: "/shipments" };
+  app.register(settlementRoutes, settlementRouteOpts);
 
   // MOVO-201/ADR-022: canal de tiempo real (@fastify/websocket) -- mismo prefix
   // "/shipments" que shipmentsRoutes/handshakeRoutes. Reemplaza la PoC de MOVO-200 --
@@ -270,6 +318,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const positionsRouteOpts: PositionsRoutesOptions = {
     prefix: "/shipments",
     ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
   };
   app.register(positionsRoutes, positionsRouteOpts);
 
@@ -290,6 +339,18 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.register(shipmentReceiverTransferRoutes, { prefix: "/shipments", ...receiverTransfersRouteOpts });
   app.register(receiverTransfersRoutes, { prefix: "/receiver-transfers", ...receiverTransfersRouteOpts });
+
+  // MOVO-26 (ADR-040): chat del envío -- se envía por HTTP, se recibe por WebSocket, mismo
+  // prefijo "/shipments" (el gateway ya proxea HTTP y el upgrade de ese prefijo).
+  const chatRouteOpts: ChatRoutesOptions = {
+    prefix: "/shipments",
+    ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.chatNow ? { now: opts.chatNow } : {}),
+    ...(opts.chatSchedulePush ? { schedulePush: opts.chatSchedulePush } : {}),
+  };
+  app.register(chatRoutes, chatRouteOpts);
 
   return app;
 }

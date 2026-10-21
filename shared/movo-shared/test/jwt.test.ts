@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import jwt from "jsonwebtoken";
 import { __resetJwtConfigForTests } from "../src/auth/config";
-import { signAccessToken, signRefreshToken, verifyAccessToken } from "../src/auth/jwt";
+import {
+  PANEL_ACCESS_TOKEN_TTL_SECONDS,
+  signAccessToken,
+  signRefreshToken,
+  verifyAccessToken,
+} from "../src/auth/jwt";
 import { KycStatus, UserRole } from "../src/types/user";
 
 const ORIGINAL_JWT_SECRET = process.env.JWT_SECRET;
@@ -43,6 +48,19 @@ describe("auth/jwt", () => {
       expect(typeof result.claims.iat).toBe("number");
       expect(typeof result.claims.exp).toBe("number");
       expect(result.claims.exp).toBeGreaterThan(result.claims.iat);
+    });
+
+    it("usa 60 minutos por default y respeta expiresInSeconds (sesión de panel, MOVO-287)", () => {
+      const payload = { sub: "user-1", roles: [UserRole.ADMIN], kycStatus: KycStatus.APPROVED };
+
+      const appResult = verifyAccessToken(signAccessToken(payload));
+      const panelResult = verifyAccessToken(
+        signAccessToken(payload, { expiresInSeconds: PANEL_ACCESS_TOKEN_TTL_SECONDS }),
+      );
+
+      if (appResult.status !== "valid" || panelResult.status !== "valid") throw new Error("expected valid results");
+      expect(appResult.claims.exp - appResult.claims.iat).toBe(60 * 60);
+      expect(panelResult.claims.exp - panelResult.claims.iat).toBe(15 * 60);
     });
 
     it("detecta un token expirado", () => {

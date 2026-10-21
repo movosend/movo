@@ -3,6 +3,12 @@ import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { act, fireEvent, render } from "@testing-library/react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import CreateOfferScreen from "../app/(app)/transport/[id]/offer";
+jest.mock("../src/hooks/use-debt-preview", () => ({ useDebtPreview: () => 0 }));
+
+// MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
+jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
+  require("./mocks/carrier-requirements-sheet-hook"),
+);
 
 // El gate de ubicación del transportista tiene su propio test
 // (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
@@ -154,8 +160,9 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     // con `suggestedPriceArs` (que ya es el precio bruto que vio el emisor).
     expect(getByTestId("create-offer-amount-trigger")).toHaveTextContent("4.500", { exact: false });
     expect(getByTestId("create-offer-gross-preview")).toHaveTextContent("$4.500");
-    // neto = bruto / 1.15 = 3913,04
-    expect(getByTestId("create-offer-net-preview")).toHaveTextContent("$3.913,04");
+    // neto = bruto / 1.15 = 3913,04; MOVO-225: menos el estimado de MP sobre el bruto
+    // (4500 x 4,99% = 224,55) = 3688,49
+    expect(getByTestId("create-offer-received-preview")).toHaveTextContent("$3.688,49");
   });
 
   it("el toggle bruto/neto solo cambia la vista, nunca el ancla -- ida y vuelta no pierde centavos", async () => {
@@ -168,10 +175,10 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     // El trigger muestra la proyección redondeada a pesos enteros para poder seguir
     // editándola con el numpad...
     expect(getByTestId("create-offer-amount-trigger")).toHaveTextContent("3.913", { exact: false });
-    // ...pero el desglose "Te queda" sigue siendo el neto EXACTO derivado del ancla
-    // real (4500 / 1.15 = 3913,04), no el entero redondeado -- cambiar de tab no lo
-    // tocó para nada.
-    expect(getByTestId("create-offer-net-preview")).toHaveTextContent("$3.913,04");
+    // ...pero el desglose sigue saliendo del neto EXACTO derivado del ancla real
+    // (4500 / 1.15 = 3913,04, menos el estimado de MP = 3688,49), no del entero
+    // redondeado -- cambiar de tab no lo tocó para nada.
+    expect(getByTestId("create-offer-received-preview")).toHaveTextContent("$3.688,49");
 
     await act(async () => {
       fireEvent.press(getByTestId("create-offer-mode-gross"));
@@ -340,7 +347,7 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     // El círculo lima "explota" a pantalla completa con la confirmación (feedback de
     // diseño) y vuelve solo al detalle del envío -- sin botones de por medio.
     expect(getByTestId("create-offer-success-overlay")).toBeTruthy();
-    expect(getByTestId("create-offer-success-net")).toHaveTextContent("Te queda $4.500");
+    expect(getByTestId("create-offer-success-net")).toHaveTextContent("Recibís aprox. $4.241,77");
     expect(mockRouterReplace).not.toHaveBeenCalled();
 
     const autoReturnCall = (
@@ -453,6 +460,43 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/kyc");
   });
 
+  // MOVO-117 (AC5): el 403 por licencia/MP faltante abre la checklist con los faltantes del
+  // backend, en vez del error genérico.
+  it("MOVO-117: un 403 CARRIER_LICENSE_NOT_APPROVED abre la checklist con los faltantes", async () => {
+    mockMutateAsync.mockRejectedValue(
+      new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "Falta la licencia.", {
+        missingRequirements: ["license", "mp_account"],
+      }),
+    );
+
+    const { getByTestId, getByText, queryByTestId } = await render(<CreateOfferScreen />);
+    await goToPickupStep(getByTestId);
+
+    await act(async () => {
+      fireEvent.press(getByTestId("create-offer-submit"));
+    });
+
+    expect(getByText("Te falta completar esto\npara transportar")).toBeTruthy();
+    expect(getByText("Para ofertar en este envío necesitás completar estos dos pasos.")).toBeTruthy();
+    expect(getByTestId("carrier-requirements-sheet-checklist-license-cta")).toBeTruthy();
+    expect(getByTestId("carrier-requirements-sheet-checklist-mp-cta")).toBeTruthy();
+    expect(queryByTestId("create-offer-error")).toBeNull();
+  });
+
+  it("MOVO-117: un 502 de verificación es un error para reintentar, no abre la checklist", async () => {
+    mockMutateAsync.mockRejectedValue(new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No disponible."));
+
+    const { getByTestId, queryByTestId } = await render(<CreateOfferScreen />);
+    await goToPickupStep(getByTestId);
+
+    await act(async () => {
+      fireEvent.press(getByTestId("create-offer-submit"));
+    });
+
+    expect(queryByTestId("carrier-requirements-sheet")).toBeNull();
+    expect(getByTestId("create-offer-error")).toBeTruthy();
+  });
+
   it("muestra un error genérico ante otros fallos del servidor", async () => {
     mockMutateAsync.mockRejectedValue(new ApiError(409, "SHIPMENT_NOT_AVAILABLE_FOR_OFFER", "Ya no disponible."));
 
@@ -508,6 +552,25 @@ describe("CreateOfferScreen (MOVO-177)", () => {
       });
 
       expect(mockRouterBack).toHaveBeenCalled();
+    });
+
+    it("MOVO-117: al editar, un 403 CARRIER_MP_ACCOUNT_NOT_LINKED abre la checklist con el contexto de edición", async () => {
+      mockMutateUpdate.mockRejectedValue(
+        new ApiError(403, "CARRIER_MP_ACCOUNT_NOT_LINKED", "Falta Mercado Pago.", {
+          missingRequirements: ["mp_account"],
+        }),
+      );
+
+      const { getByTestId, getByText, queryByTestId } = await render(<CreateOfferScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByTestId("create-offer-submit"));
+      });
+
+      expect(getByText("Para editar tu oferta te queda un solo paso.")).toBeTruthy();
+      expect(getByTestId("carrier-requirements-sheet-checklist-mp-cta")).toBeTruthy();
+      expect(queryByTestId("carrier-requirements-sheet-checklist-license-cta")).toBeNull();
+      expect(queryByTestId("create-offer-error")).toBeNull();
     });
 
     it("el submit dispara PATCH (useUpdateOffer), no POST (useCreateOffer)", async () => {

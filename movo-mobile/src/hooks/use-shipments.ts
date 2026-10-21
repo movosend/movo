@@ -1,5 +1,7 @@
-import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient, useQuery, type QueryClient } from "@tanstack/react-query";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import type { CancellationQuoteResponse } from "@movo/shared/dist/config/cancellation-penalty";
+import { BALANCE_QUERY_KEY } from "./use-balance";
 import { shipmentsClient, type CreateShipmentInput, type EvidenceStatus, type ShipmentSummary } from "../api/shipments-client";
 
 interface LatLng {
@@ -83,6 +85,8 @@ export function useAttentionSourceShipments() {
   return {
     data: tasks.data || offers.data ? { items } : undefined,
     isLoading: tasks.isLoading || offers.isLoading,
+    isError: tasks.isError || offers.isError,
+    refetch: () => Promise.all([tasks.refetch(), offers.refetch()]),
   };
 }
 
@@ -285,19 +289,73 @@ export function useRedesignateReceiver() {
 
 /**
  * Cancela un envío como emisor (MOVO-29). En éxito invalida las listas de envíos y el
- * detalle del envío para reflejar el estado terminal `cancelled`.
+ * detalle del envío para reflejar el estado terminal `cancelled`. MOVO-308: en `assigned`
+ * viaja `expectedPenaltyArs`, el monto de la cotización que el emisor confirmó.
  */
 export function useCancelShipment() {
   const queryClient = useQueryClient();
-  return useMutation<ShipmentSummary, unknown, { id: string; reason?: string }>({
-    mutationFn: ({ id, reason }) => shipmentsClient.cancel(id, reason ? { reason } : undefined),
+  return useMutation<ShipmentSummary, unknown, { id: string; reason?: string; expectedPenaltyArs?: number }>({
+    mutationFn: ({ id, reason, expectedPenaltyArs }) =>
+      shipmentsClient.cancel(id, {
+        ...(reason ? { reason } : {}),
+        ...(expectedPenaltyArs !== undefined ? { expectedPenaltyArs } : {}),
+      }),
     onSuccess: (data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "recent"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "list"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
       queryClient.setQueryData(["shipments", "detail", id], data);
+      // Una cancelación puede generar penalidad (ADR-047): el saldo cambió.
+      queryClient.invalidateQueries({ queryKey: BALANCE_QUERY_KEY });
     },
   });
 }
 
+/**
+ * Cotización de la cancelación (MOVO-308). Mutación y no query a propósito: depende del
+ * reloj (el plazo sin cargo vence), así que se pide cada vez que se abre el sheet o se
+ * reintenta, nunca desde caché.
+ */
+export function useCancellationQuote() {
+  return useMutation<CancellationQuoteResponse, unknown, string>({
+    mutationFn: (id) => shipmentsClient.getCancellationQuote(id),
+  });
+}
+
+
+/**
+ * Cotización de la baja del transportista (MOVO-314). Mutación por la misma razón que
+ * `useCancellationQuote`: depende del reloj, se pide cada vez que se abre el sheet.
+ */
+export function useCarrierWithdrawalQuote() {
+  return useMutation<CancellationQuoteResponse, unknown, string>({
+    mutationFn: (id) => shipmentsClient.getCarrierWithdrawalQuote(id),
+  });
+}
+
+/** Qué se refresca cuando el transportista deja de tener un envío (baja de uno o de todo el viaje). */
+export function invalidateAfterCarrierWithdrawal(queryClient: QueryClient, shipmentId: string) {
+  queryClient.invalidateQueries({ queryKey: ["shipments", "active"] });
+  queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
+  queryClient.invalidateQueries({ queryKey: ["trips"] });
+  queryClient.invalidateQueries({ queryKey: ["route"] });
+  queryClient.invalidateQueries({ queryKey: ["offers", "mine"] });
+  // El transportista pierde el acceso al envío: se descarta el detalle en vez de refrescarlo (daría 403).
+  queryClient.removeQueries({ queryKey: ["shipments", "detail", shipmentId] });
+  // La penalidad queda como deuda en la cuenta corriente (ADR-044/047): el saldo cambió.
+  queryClient.invalidateQueries({ queryKey: BALANCE_QUERY_KEY });
+}
+
+/**
+ * El transportista se baja de un envío asignado (MOVO-314, `POST /shipments/:id/carrier-withdrawal`).
+ * No hace `setQueryData` del detalle: el envío vuelve a `published` y deja de ser suyo.
+ */
+export function useCarrierWithdraw() {
+  const queryClient = useQueryClient();
+  return useMutation<ShipmentSummary, unknown, { id: string; reason?: string; expectedPenaltyArs: number }>({
+    mutationFn: ({ id, reason, expectedPenaltyArs }) =>
+      shipmentsClient.withdrawCarrier(id, { ...(reason ? { reason } : {}), expectedPenaltyArs }),
+    onSuccess: (_data, { id }) => invalidateAfterCarrierWithdrawal(queryClient, id),
+  });
+}

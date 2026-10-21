@@ -1,4 +1,4 @@
-import { Flag, MapPin, Package, Route } from "lucide-react-native";
+import { Flag, MapPin, MessageCircle, Package, Route } from "lucide-react-native";
 import { Fragment, useEffect } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
@@ -11,10 +11,13 @@ import {
   activeShipmentDisplayCode,
   activeShipmentFooterText,
   activeShipmentStatusLabel,
+  isTransitDelayed,
   activeShipmentStepIndex,
   activeShipmentSubtitle,
   type ActiveShipmentRole,
 } from "../../src/lib/active-shipment-format";
+import { formatUnreadCount } from "../../src/lib/chat-format";
+import { pushOnce } from "../../src/lib/navigation-guard";
 import { formatPickupWindowLabel, pickupLocalityLabel, shortAddressLabel } from "../../src/lib/shipment-format";
 import { GradientBorderCard } from "../ui/gradient-border-card";
 
@@ -47,6 +50,7 @@ function PulsingStepRing({ color }: { color: string }) {
 
   return (
     <Animated.View
+      testID="active-shipment-pulsing-step"
       pointerEvents="none"
       style={[
         {
@@ -82,14 +86,19 @@ function PulsingStepRing({ color }: { color: string }) {
 export function ActiveShipmentCard({
   shipment,
   role,
+  chat,
   testID,
 }: {
   shipment: ActiveShipmentSummary;
   role: ActiveShipmentRole;
+  /** MOVO-284: presente solo si el envío ya tiene chat. */
+  chat?: { unreadCount: number };
   testID?: string;
 }) {
   const colors = useThemeColors();
   const isUnfunded = shipment.status === "assigned_unfunded";
+  // MOVO-278 (ADR-045): un `in_transit` demorado no pulsa ni se lee "En camino".
+  const isDelayed = isTransitDelayed(shipment);
   const cta = activeShipmentCta(role, shipment);
   const activeIndex = activeShipmentStepIndex(shipment.status);
 
@@ -104,9 +113,13 @@ export function ActiveShipmentCard({
       );
       return;
     }
-    // MOVO-159/160 todavía no tienen pantalla propia en el repo — mismo criterio que
-    // "Abrir Mis ofertas completo" en MOVO-183, un aviso explícito en vez de navegar
-    // a una ruta inventada.
+    // Generar retiro / Confirmar recepción abren la misma pantalla que el CTA del detalle.
+    if (cta.action === "navigate" && cta.path) {
+      router.push(cta.path as never);
+      return;
+    }
+    // Sin pantalla todavía: un aviso explícito en vez de navegar a una ruta inventada
+    // (mismo criterio que "Abrir Mis ofertas completo" en MOVO-183).
     Alert.alert("Muy pronto", `Esta acción todavía no está lista (${cta.destination}).`);
   };
 
@@ -128,13 +141,14 @@ export function ActiveShipmentCard({
             // — feedback del usuario, "el pill actual no se diferencia del fondo, es
             // muy clarito") — un borde explícito lo separa sin depender del contraste
             // de relleno, que en dark mode es igual de parecido entre ambos tokens.
-            className={`flex-none flex-row items-center gap-1.5 self-start rounded-full border px-3 ${isUnfunded ? "border-border-strong bg-bg-mute" : "border-transparent"}`}
-            style={{ height: 31, backgroundColor: isUnfunded ? undefined : colors.activeCardPillBg }}
+            testID={testID ? `${testID}-status-pill` : undefined}
+            className={`flex-none flex-row items-center gap-1.5 self-start rounded-full border px-3 ${isUnfunded ? "border-border-strong bg-bg-mute" : isDelayed ? "border-transparent bg-warning-100" : "border-transparent"}`}
+            style={{ height: 31, backgroundColor: isUnfunded || isDelayed ? undefined : colors.activeCardPillBg }}
           >
-            {shipment.status === "in_transit" ? (
+            {shipment.status === "in_transit" && !isDelayed ? (
               <View className="h-1.5 w-1.5 rounded-full bg-fg" />
             ) : null}
-            <Text className="font-sans-semibold text-caption text-fg">
+            <Text className={`font-sans-semibold text-caption ${isDelayed ? "text-warning-700" : "text-fg"}`}>
               {activeShipmentStatusLabel(shipment)}
             </Text>
           </View>
@@ -163,7 +177,7 @@ export function ActiveShipmentCard({
           const Icon = STEP_ICONS[index];
           const done = index < activeIndex;
           const current = index === activeIndex;
-          const pulsing = current && index === 1;
+          const pulsing = current && index === 1 && !isDelayed;
           // `done`/`current` son un par blanco+negro FIJO (nunca invertido con el
           // tema) — el nodo "actual" siempre es un círculo blanco con ícono negro,
           // así que su contraste interno no depende de si la card de alrededor es
@@ -276,6 +290,25 @@ export function ActiveShipmentCard({
         <Text className="flex-1 font-sans-medium text-small text-fg-2">
           {activeShipmentFooterText(role, shipment)}
         </Text>
+        {chat ? (
+          <Pressable
+            testID={testID ? `${testID}-chat` : undefined}
+            accessibilityRole="button"
+            accessibilityLabel={chat.unreadCount > 0 ? `Abrir chat, ${chat.unreadCount} sin leer` : "Abrir chat"}
+            onPress={() => pushOnce(`/(app)/shipments/${shipment.id}/chat`)}
+            className="h-[38px] w-[38px] flex-none items-center justify-center rounded-full border border-border-strong"
+          >
+            <MessageCircle size={17} color={colors.fg1} strokeWidth={2} />
+            {chat.unreadCount > 0 ? (
+              <View
+                testID={testID ? `${testID}-chat-badge` : undefined}
+                className="absolute -right-1 -top-1 h-[17px] min-w-[17px] items-center justify-center rounded-full bg-lime-500 px-1"
+              >
+                <Text className="font-sans-semibold text-[10px] text-ink-950">{formatUnreadCount(chat.unreadCount)}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        ) : null}
         {cta ? (
           <Pressable
             testID={testID ? `${testID}-cta` : undefined}

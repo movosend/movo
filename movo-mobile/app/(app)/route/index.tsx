@@ -32,8 +32,10 @@ import type { CarrierRoute, CarrierRouteStop } from "@movo/shared/dist/types/rou
 import { useOptimizedRoute } from "../../../src/hooks/use-optimized-route";
 import { RouteMap } from "../../../components/route/route-map";
 import { StopList } from "../../../components/route/stop-list";
+import { CarrierRequirementsSheet } from "../../../components/carrier/carrier-requirements-checklist";
 import { CarrierTripCta } from "../../../components/trips/carrier-trip-cta";
 import { TripStatus } from "../../../src/api/trips-client";
+import { useCarrierRequirementsSheet } from "../../../src/hooks/use-carrier-requirements-sheet";
 import { useStartTrip, useTrip } from "../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { decodePolyline } from "../../../src/lib/polyline";
@@ -165,6 +167,7 @@ export default function OptimizedRouteScreen() {
   const tripQuery = useTrip(tripId);
   const tripData = tripQuery?.data;
   const startTripMutation = useStartTrip();
+  const requirements = useCarrierRequirementsSheet("start");
   const [isStartingTrip, setIsStartingTrip] = useState(false);
   const [startTripError, setStartTripError] = useState<string | null>(null);
 
@@ -179,6 +182,8 @@ export default function OptimizedRouteScreen() {
       await startTripMutation.mutateAsync(tripId);
       await refetch();
     } catch (err) {
+      // MOVO-117: un 403 por licencia/MP faltante abre la checklist en vez de un error genérico.
+      if (requirements.handleError(err)) return;
       const msg = formatTripStartErrorMessage(err, tripData?.departureAt);
       setStartTripError(msg);
     } finally {
@@ -684,6 +689,7 @@ export default function OptimizedRouteScreen() {
           )}
         </>
       )}
+      <CarrierRequirementsSheet {...requirements.sheetProps} />
     </View>
   );
 }

@@ -48,14 +48,33 @@ export interface HoldCheckoutDataRequest {
   amountArs: number;
   /** Email del emisor: en sandbox tiene que ser el de una cuenta de prueba Comprador. */
   payerEmail: string;
+  /** MOVO-311: usuario de Movo del emisor, para sumar su deuda al pago. Sin él no se le cobra deuda. */
+  payerUserId?: string;
 }
 
-export interface HoldCheckoutDataResponse {
+/**
+ * MOVO-311: desglose de un pago que cobra deuda de la cuenta corriente. `amountArs` es lo que paga el
+ * emisor y `applicationFeeArs` lo que retiene Movo; acá se ve de qué se componen.
+ */
+export interface HoldDebtBreakdown {
+  /** Precio acordado del envío. */
+  baseAmountArs: number;
+  /** Deuda del transportista que se descuenta de lo que cobra (va en el `application_fee`). */
+  debtOffsetArs: number;
+  /**
+   * Deuda del emisor que se suma al pago. Va en el `application_fee` menos el estimado de la comisión de
+   * MP sobre ella (la absorbe Movo), así el transportista recibe lo mismo.
+   */
+  debtSurchargeArs: number;
+}
+
+export interface HoldCheckoutDataResponse extends HoldDebtBreakdown {
   shipmentId: string;
   /** `public_key` del transportista: con ella el mobile tokeniza la tarjeta. */
   publicKey: string;
+  /** Lo que pagaría el emisor: precio + `debtSurchargeArs` (vista previa, MOVO-311). */
   amountArs: number;
-  /** Comisión de Movo que se retendrá al capturar (`application_fee`). */
+  /** Lo que Movo retendrá al capturar (`application_fee`): comisión + deuda cobrada. */
   applicationFeeArs: number;
   payerEmail: string;
 }
@@ -65,13 +84,30 @@ export interface CreateHoldRequest {
   carrierId: string;
   /** Token de un solo uso generado por el mobile con la `public_key` del transportista. */
   cardToken: string;
+  /** Precio acordado. Lo que se cobra puede ser más si el emisor tiene deuda (MOVO-311, ver `HoldResponse`). */
   amountArs: number;
   payerEmail: string;
+  /** Usuario de Movo del emisor (MOVO-282): dueño de la tarjeta guardada, si se usa una. */
+  payerUserId: string;
+  /**
+   * MOVO-282 (ADR-039): id interno (`payments.saved_cards.id`) de la tarjeta guardada con la que se
+   * generó el token (`card_id` + CVV). El pagador del hold pasa a ser el customer de esa tarjeta
+   * (`payer: { type: "customer" }`) en vez del email. Sin él, el camino de siempre (tarjeta completa).
+   * La tarjeta tiene que ser de `payerUserId` y estar viva; si no, 404 sin revelar si existe.
+   */
+  savedCardId?: string;
   /** `visa`, `master`, etc., tal como lo devuelve el formulario de MP junto al token. */
   paymentMethodId?: string;
+  /**
+   * MOVO-311: total que el emisor vio y confirmó (`totalArs` de `GET /shipments/:id/funding`). Si al crear el
+   * intento lo que corresponde cobrar es otro monto (la deuda de su cuenta corriente cambió en el medio), se
+   * responde 409 `HOLD_AMOUNT_CHANGED` en vez de cobrar de más. Si falta (builds viejos), solo se
+   * permite cobrar el precio acordado: un recargo por deuda responde 409 sin crear el hold.
+   */
+  expectedTotalArs?: number;
 }
 
-export interface HoldResponse {
+export interface HoldResponse extends HoldDebtBreakdown {
   id: string;
   shipmentId: string;
   carrierId: string;
@@ -79,8 +115,12 @@ export interface HoldResponse {
   attempt: number;
   mpPaymentId: string | null;
   collectorId: string;
+  /** `transaction_amount`: precio + `debtSurchargeArs`. */
   amountArs: number;
+  /** `application_fee`: `commissionArs` + la deuda cobrada. */
   applicationFeeArs: number;
+  /** MOVO-311: comisión de Movo sola, sin deuda. */
+  commissionArs: number;
   status: HoldStatus;
   statusDetail: string | null;
   failureReason: HoldFailureReason | null;
@@ -88,4 +128,18 @@ export interface HoldResponse {
   expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * MOVO-211: lo que devuelve `GET /internal/payments/holds/by-shipment/:id` (único consumidor: el
+ * detalle del envío de `svc-shipments`, que se lo muestra solo al emisor). `HoldResponse` sigue sin
+ * exponer el pagador ni la tarjeta (AC7 de MOVO-302): la marca y los últimos 4 viajan únicamente acá.
+ */
+export interface HoldDetailResponse extends HoldResponse {
+  /** Si el intento llegó a retener fondos antes de terminar cancelado. */
+  wasAuthorized: boolean;
+  /** Marca de la tarjeta según MP (`visa`, `master`, ...). Nunca el BIN ni el token. */
+  cardBrand: string | null;
+  /** Últimos 4 dígitos de la tarjeta, para que el emisor la reconozca. */
+  cardLast4: string | null;
 }

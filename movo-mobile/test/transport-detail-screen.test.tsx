@@ -24,6 +24,7 @@ jest.mock("expo-router", () => ({
     canGoBack: () => mockCanGoBack(),
   },
   useLocalSearchParams: () => mockUseLocalSearchParams(),
+  useIsFocused: () => true,
 }));
 
 const mockUseShipment = jest.fn();
@@ -166,6 +167,15 @@ describe("TransportShipmentDetailScreen", () => {
     expect(queryByTestId("transport-detail-route-map")).toBeNull();
   });
 
+  it("MOVO-168: mientras el envío carga, el header (volver) ya está a la vista y es interactivo", async () => {
+    mockUseShipment.mockReturnValue({ isLoading: true, isError: false, data: undefined, error: null, refetch: jest.fn() });
+
+    const { getByTestId, getByText } = await render(<TransportShipmentDetailScreen />);
+
+    expect(getByText("Detalle del envío")).toBeTruthy();
+    expect(getByTestId("transport-detail-back")).toBeTruthy();
+  });
+
   it("un 403 se muestra como 'ya no está disponible', no como 'no te pertenece'", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,
@@ -286,12 +296,13 @@ describe("TransportShipmentDetailScreen", () => {
     );
   });
 
-  it("MOVO-177 (fix de negocio): 'Te queda si ofertás el sugerido' convierte bruto→neto, no muestra el bruto crudo", async () => {
+  it("MOVO-177 (fix de negocio): 'Recibís aprox. si ofertás el sugerido' convierte bruto→neto, no muestra el bruto crudo", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,
       isError: false,
       // suggestedPriceArs (4500) es BRUTO -- el neto real si se oferta a ese precio
-      // es 4500 / 1.15 = 3913,04, nunca 4500 tal cual (ese fue el bug).
+      // es 4500 / 1.15 = 3913,04, nunca 4500 tal cual (ese fue el bug). MOVO-225: la
+      // card muestra ese neto menos el estimado de MP (4500 * 4,99%) = 3688,49.
       data: shipment({ suggestedPriceArs: 4500 }),
       error: null,
       refetch: jest.fn(),
@@ -300,8 +311,8 @@ describe("TransportShipmentDetailScreen", () => {
     const { getByText } = await render(<TransportShipmentDetailScreen />);
 
     // El bruto (4500) sigue apareciendo como referencia ("Sobre una oferta de
-    // $4.500") -- lo que no puede pasar es que ESE número aparezca como "Te queda".
-    expect(getByText("$3.913,04")).toBeTruthy();
+    // $4.500") -- lo que no puede pasar es que ESE número aparezca como lo que recibís.
+    expect(getByText("$3.688,49")).toBeTruthy();
     expect(getByText("$4.500")).toBeTruthy();
   });
 
@@ -412,7 +423,7 @@ describe("TransportShipmentDetailScreen", () => {
       expect(mockRouterPush).toHaveBeenCalledWith("/(app)/transport/shipment-1/offer");
     });
 
-    it("si ya me asignaron este envío (mi oferta fue aceptada), oculta 'Hacer una oferta' y 'Te queda si ofertás el sugerido', y muestra 'Te eligieron para este envío'", async () => {
+    it("si ya me asignaron este envío (mi oferta fue aceptada), oculta 'Hacer una oferta' y 'Recibís aprox. si ofertás el sugerido', y muestra 'Te eligieron para este envío'", async () => {
       mockUseShipment.mockReturnValue({
         isLoading: false,
         isError: false,
@@ -428,7 +439,7 @@ describe("TransportShipmentDetailScreen", () => {
 
       expect(queryByTestId("transport-create-offer-cta")).toBeNull();
       expect(queryByTestId("transport-active-offer-card")).toBeNull();
-      expect(queryByText("Te queda si ofertás el sugerido")).toBeNull();
+      expect(queryByText("Recibís aprox. si ofertás el sugerido")).toBeNull();
       expect(getByTestId("transport-assigned-to-me-card")).toHaveTextContent(/Te eligieron para este envío/);
       // Sin pill de estado genérico ("Sin asignar" de `assignment_pending`, pensado
       // para el punto de vista del emisor -- confundía acá, donde el envío YA está
@@ -565,7 +576,7 @@ describe("TransportShipmentDetailScreen", () => {
       expect(mockRouterPush).toHaveBeenCalledWith("/(app)/carrier/offers/offer-active-1");
     });
 
-    it("con una oferta activa, oculta la card 'Te queda si ofertás el sugerido' -- ya no tiene sentido con una oferta propia hecha", async () => {
+    it("con una oferta activa, oculta la card 'Recibís aprox. si ofertás el sugerido' -- ya no tiene sentido con una oferta propia hecha", async () => {
       mockUseShipment.mockReturnValue({
         isLoading: false,
         isError: false,
@@ -588,7 +599,7 @@ describe("TransportShipmentDetailScreen", () => {
       const { getByTestId, queryByText } = await render(<TransportShipmentDetailScreen />);
 
       expect(getByTestId("transport-active-offer-card")).toBeTruthy();
-      expect(queryByText("Te queda si ofertás el sugerido")).toBeNull();
+      expect(queryByText("Recibís aprox. si ofertás el sugerido")).toBeNull();
     });
 
     it("con una oferta activa que propuso otro día/horario, 'Retirás' muestra lo confirmado en la oferta, no lo pedido por el emisor", async () => {

@@ -30,9 +30,18 @@ jest.mock("../src/hooks/use-profile", () => ({
   usePublicProfile: () => mockUsePublicProfile(),
 }));
 
-// MOVO-112: la fila "Pagos y cobros" de Configuración consulta el estado de Mercado Pago.
+// MOVO-112: la fila "Pagos y cobros" de Configuración consulta Mercado Pago y las tarjetas.
 jest.mock("../src/hooks/use-mp-connect", () => ({
   useMpConnectStatus: () => ({ data: undefined }),
+}));
+jest.mock("../src/hooks/use-saved-cards", () => ({
+  useSavedCards: () => ({ data: undefined }),
+}));
+jest.mock("../src/hooks/use-balance", () => ({
+  useBalance: () => ({ data: undefined }),
+}));
+jest.mock("../src/hooks/use-transport-gate", () => ({
+  useTransportGate: () => ({ canBrowse: false }),
 }));
 
 function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
@@ -64,6 +73,7 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
     termsVersion: "2026-01-01",
     privacyAcceptedAt: "2026-01-01T00:00:00.000Z",
     privacyVersion: "2026-01-01",
+    tours: [],
     ...overrides,
   };
 }
@@ -86,9 +96,43 @@ describe("ProfileScreen", () => {
       refetch: mockRefetch,
     });
 
-    const { getByTestId } = await render(<ProfileScreen />);
+    const { getByTestId, queryByTestId } = await render(<ProfileScreen />);
 
     expect(getByTestId("profile-skeleton")).toBeTruthy();
+    expect(getByTestId("profile-activity-skeleton")).toBeTruthy();
+    expect(queryByTestId("profile-full-name")).toBeNull();
+  });
+
+  // MOVO-168: Configuración y "Cerrar sesión" no dependen de GET /users/me.
+  it("MOVO-168: mientras el perfil carga, Configuración y cerrar sesión siguen visibles", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: true,
+      isError: false,
+      data: undefined,
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+
+    expect(getByTestId("profile-settings-section")).toBeTruthy();
+    expect(getByTestId("profile-logout-button")).toBeTruthy();
+  });
+
+  it("MOVO-168: si el perfil falla, el error queda en su lugar y Configuración y cerrar sesión siguen usables", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      error: new Error("network"),
+      data: undefined,
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId, queryByTestId } = await render(<ProfileScreen />);
+
+    expect(getByTestId("profile-error-state")).toBeTruthy();
+    expect(queryByTestId("profile-skeleton")).toBeNull();
+    expect(getByTestId("profile-settings-section")).toBeTruthy();
+    expect(getByTestId("profile-logout-button")).toBeTruthy();
   });
 
   it("muestra el estado de error con reintentar ante un fallo de red (AC8)", async () => {
@@ -325,6 +369,44 @@ describe("ProfileScreen", () => {
     const { queryByTestId } = await render(<ProfileScreen />);
 
     expect(queryByTestId("profile-activity-card-reputation")).toBeNull();
+  });
+
+  it("MOVO-168: mientras la reputación carga, la card muestra su skeleton y el resto del perfil ya está a la vista", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile(),
+      refetch: mockRefetch,
+    });
+    mockUsePublicProfile.mockReturnValue({ isLoading: true, isError: false, data: undefined });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+
+    expect(getByTestId("profile-activity-card-reputation-skeleton")).toBeTruthy();
+    expect(getByTestId("profile-full-name")).toBeTruthy();
+    expect(getByTestId("profile-settings-section")).toBeTruthy();
+  });
+
+  it("MOVO-168: si la reputación falla, el reintento local vuelve a pedirla sin recargar el perfil", async () => {
+    const refetchReputation = jest.fn();
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile(),
+      refetch: mockRefetch,
+    });
+    mockUsePublicProfile.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      data: undefined,
+      refetch: refetchReputation,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId("profile-activity-card-reputation-error-retry"));
+    expect(refetchReputation).toHaveBeenCalledTimes(1);
+    expect(mockRefetch).not.toHaveBeenCalled();
   });
 
   it("'Ver todas' navega a /profile/ratings cuando hay comentarios", async () => {

@@ -1,0 +1,1333 @@
+# Historial de implementación — services/movo-svc-users
+
+Entrada corta por US: qué se hizo, en qué archivos, decisiones no obvias, qué queda pendiente. Reglas para mantenerlo en el `CLAUDE.md` de la raíz.
+
+## Estado actual de la implementación
+
+### MOVO-70 — `POST /auth/register` (`svc-users`)
+
+`src/modules/auth/`. Hash con `@node-rs/argon2` (binarios prebuilt, portable entre SO
+del equipo). Teléfono normalizado a E.164 AR. Duplicados (409) resueltos traduciendo
+la violación de índice único de Postgres, no con un SELECT previo (evita carrera).
+`dni`/`address` y verificación de teléfono se movieron a US posteriores (MOVO-71/73).
+
+### MOVO-85 — Plugin `fastify.db` (Postgres)
+
+`src/plugins/db.ts`. `search_path` fijado vía connection param (no `SET` en el evento
+`connect`, evita carrera con la primera query del caller). `statement_timeout`/
+`query_timeout` en el `Pool` — sin esto, un Postgres colgado (no caído) agota el pool
+con healthchecks que nunca sueltan el cliente.
+
+### MOVO-87 — `user-repository`
+
+`create`/`find*`/`updateKycStatus*`, transacción única para usuario+roles.
+`InvalidEnumValueError` (un valor de enum sin equivalente en `@movo/shared` es drift
+de schema, no un error transitorio) y `PublicUser`/`toPublicUser()` (DTO explícito
+campo por campo, nunca spread, para que agregar un campo a `User` obligue a decidir si
+es público).
+
+### MOVO-91 — Alinear enums de `users.users` con `@movo/shared`
+
+Migración `ALTER TYPE ... RENAME VALUE` (preserva datos). Reemplaza la capa de mapeo
+enum DB↔dominio de MOVO-87 por el mismo string en ambos lados. Se conservó la
+validación (`parseUserRole`/`parseKycStatus`, tiran `InvalidEnumValueError`) en vez de
+un cast directo — los roles gobiernan autorización (ADR-004), un valor de Postgres sin
+equivalente en `@movo/shared` no debe colarse a los claims del JWT en silencio.
+
+### MOVO-89 — `GET /health`
+
+Compone `checkDbHealth`/`checkRedisHealth` con `Promise.all`. 200 ambas OK, 503 si
+falla una, 502 si fallan las dos. El body nunca expone el mensaje crudo del error
+(puede filtrar host/user/puerto de la conexión) — se loguea server-side, el schema de
+respuesta solo declara `status`.
+
+### MOVO-93 — Prisma como ORM en `movo-svc-users` (ADR-011)
+
+Primer servicio en adoptarlo — los demás lo suman al tener dominio real.
+`@prisma/adapter-pg` (Prisma 7 exige driver adapter para providers SQL). Prisma no
+modela `search_path` ni expression indexes (`users_email_lower_idx` sigue en la DB sin
+representación en `schema.prisma`; se usa `mode:"insensitive"` en su lugar). `prisma`
+es dependency (no dev) — la CLI corre dentro del contenedor en deploy, Postgres no
+expone puerto público (ADR-010). Gotcha: con el driver adapter, los campos de un
+conflicto único (`P2002`) vienen anidados en
+`error.meta.driverAdapterError.cause.constraint.fields`, no en `error.meta.target`.
+
+### MOVO-92 — Actualización de la entidad User
+
+`AccountStatus` (`@movo/shared`): `active`/`banned`/`deleted`. Se removieron columnas
+KYC obsoletas e `is_banned`; se agregaron `status`/`birthdate`.
+
+### MOVO-71 — Verificación de teléfono por OTP
+
+El OTP se verifica **antes** de crear la cuenta (cambia el contrato original, que lo
+pedía después). `otp-repository.ts` (Redis, genérico — reusable para reset de
+password), un solo OTP activo por target, código siempre hasheado. Emite un
+`phoneVerificationToken` (JWT de un solo uso, TTL 15min) que `register()` consume
+(MOVO-72 agregó después `releasePhoneVerificationToken` para reintentos tras un
+fallo). `SmsProvider`: `console` (dev/CI), `telegram` (develop), `twilio` (prod,
+ADR-012).
+
+### MOVO-74 — `POST /auth/login`
+
+Respuesta plana (sin anidar en `user`). Verificación contra un hash sintético si el
+usuario no existe (previene timing attack). Cuenta `banned`/`deleted` → 403. Access
+token TTL 60min, refresh en Redis (TTL ver MOVO-75).
+
+### MOVO-75 — Refresh token: rotación de un solo uso + logout/logout-all
+
+Refresh token opaco compuesto `"{userId}.{tokenId}.{secret}"` (permite ubicar la key
+en Redis a partir de lo que ve el cliente). Rotación de un solo uso: al refrescar la
+sesión vieja queda como tombstone (`used:true`); un refresh reusado revoca todas las
+sesiones del usuario (detección de robo). TTL extendido a 90 días (ADR-013). Logout
+recibe el refresh token en el body (los claims del access token no incluyen
+`tokenId`) y siempre responde 204, incluso con token ajeno/inválido (no filtra info).
+
+### MOVO-72 — Integración con Didit.me (KYC de identidad)
+
+`src/modules/kyc/`, `kyc-verification-repository.ts` (tabla `users.kyc_verification`,
+alineada al DER). `POST /kyc/session`, `GET /kyc/status`, `POST /kyc/webhook` —
+protegidas (JWT): `register()` pasó a emitir tokens de sesión igual que `login()`, lo
+que habilita estas rutas sin necesitar un diseño público aparte. Webhook idempotente
+vía `updateMany` condicionado al estado de origen (atómico a nivel DB). Redacción de
+PII con whitelist explícita (nunca se persiste el payload crudo de Didit).
+`DIDIT_MODE=mock` default (dev/test/CI); `live` valida credenciales al arrancar.
+Validado end-to-end contra el sandbox real (firma HMAC, sesión y webhook reales).
+
+### MOVO-15 — Verificación de licencia de conducir
+
+Reutiliza el mecanismo de KYC de MOVO-72 con `verification_type:"license"` (mismo
+pipeline, `workflow_id` distinto por tipo en Didit). Tabla nueva
+`users.drivers_license` (registro del carnet, ciclo de vida propio — distinto del log
+de intentos en `kyc_verification`). Insignia `license_verified` cableada. Pantalla
+`license-kyc.tsx` en mobile, desacoplada del wizard de registro (usuario ya logueado,
+usa la sesión real vía el interceptor de MOVO-76) — ver
+`movo-mobile/HISTORIAL.md`.
+
+### MOVO-97 — Foto de perfil: S3 + presigned URLs (ADR-007, ADR-016)
+
+`StorageProvider` (interfaz + `S3StorageProvider`/`MockStorageProvider`). La
+presigned URL firma también `content-type`/`content-length` (el cliente tiene que
+mandar esos headers exactos o S3 rechaza la firma). La key del objeto se deriva
+parseando `photo_url` ya guardado — no hay columna nueva. Credenciales AWS vía IAM
+role de la EC2. Bucket real (`movo-shipment-media-dev`) configurado con CORS + policy
+de lectura pública acotada a `profile-photos/*` (sin `ListBucket` público) — portado a
+Terraform (`movo-infra`), aplicado en dev; prod tiene el código listo pero sin
+`terraform apply` corrido todavía.
+
+### MOVO-120 — Proxy de Google Places Autocomplete (`svc-users`)
+
+`POST /places/autocomplete`/`/places/details` sobre `PlacesProvider` (mock default,
+`google` real vía `createGooglePlacesProvider`) — mismo criterio que
+`GeocodingProvider`/`SmsProvider`. Público a propósito, igual que `/geocode`.
+
+Fixes de review sobre la implementación inicial:
+- `details()` distinguía mal los errores de Google: cualquier respuesta no-2xx caía en
+  422 `PLACE_NOT_FOUND`, incluida una API key sin habilitar (403) o cuota excedida
+  (429) — mostraba "no encontramos esa dirección" para un error de configuración. Ahora
+  solo un 404 real mapea a `PLACE_NOT_FOUND` (consistente con el mock provider), el
+  resto a 502 `PLACES_PROVIDER_ERROR` (mismo criterio que ya usaba `autocomplete()`).
+- `input` de `/places/autocomplete` no tenía `maxLength` — endpoint público sin auth,
+  cada request es una llamada facturable a Google; se agregó `maxLength: 200`.
+- `sessionToken` opcional threadeado en `PlacesProvider`/rutas/schema: agrupa un
+  autocomplete + su details bajo billing por sesión en Places API (New), más barato
+  que facturar cada request suelto. El proxy ya lo reenvía si llega; el mobile todavía
+  no lo genera (pendiente, ver `movo-mobile/HISTORIAL.md`).
+
+### MOVO-119 — CRUD de direcciones guardadas (`/addresses`, `svc-users`)
+
+`users.address` (MOVO-73) pasó de write-only (una fila por registro, nunca marcada
+`isDefault`) a libreta de direcciones completa: `GET/POST /addresses`,
+`PATCH/DELETE /addresses/:id` en `src/modules/addresses/`.
+
+Decisiones clave:
+- **Prefijo propio `/addresses`, no anidado en `/users`**: el contrato del ticket
+  define el path externo como `/api/v1/addresses`; mismo criterio que `/kyc`/`/geocode`
+  (recurso con identidad propia aunque comparta el servicio de `svc-users`). Requirió
+  sumar la entrada a `gateway/src/config/routes-map.ts#getServiceRoutes()` — protegido
+  por defecto, sin tocar `getPublicRoutes()`.
+- **`isDefault` atómico vía transacción, más índice único parcial de defensa en
+  profundidad**: `address-repository.ts` desmarca la default anterior (`updateMany`)
+  antes del `create`/`update` dentro de `db.$transaction`, mismo patrón que
+  `offer-repository.ts#acceptOffer` (MOVO-102, ver
+  `services/movo-svc-shipments/HISTORIAL.md`) — sin `SELECT...FOR UPDATE`, confía en
+  el row-lock del `UPDATE` bajo READ COMMITTED. Se sumó además
+  `address_user_id_default_unique` (índice único parcial `WHERE is_default = true`),
+  mismo criterio que AC7 de MOVO-102: la invariante "nunca dos defaults" no depende
+  solo de la lógica de aplicación.
+- **403 sobre dirección ajena, nunca 404 filtrado**: `addresses.service.ts` resuelve
+  ownership antes de delegar a update/delete, mismo orden que
+  `shipments.service.ts#getShipmentDetail` (MOVO-80, ver
+  `services/movo-svc-shipments/HISTORIAL.md`).
+- **Migración de backfill sin diff de schema.prisma**: `UPDATE ... SET is_default =
+  true` para las filas ya creadas por `POST /auth/register` (hoy 1 por usuario, sin
+  conflicto con el índice nuevo) + el índice, escrita a mano, mismo patrón que el
+  índice parcial de la migración de `offers` (MOVO-102).
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte, el wizard de
+envío de MOVO-83 es quien lo necesita); exponer la dirección en `GET /users/me`
+(`PrivateProfile`) — no se pidió, el wizard consume `/addresses` directamente.
+
+Tests: `services/movo-svc-users/test/addresses.integration.test.ts` (19 casos, Postgres
+real) + 2 casos nuevos en `gateway/test/routes-prefix.test.ts` (`describe("Rutas de
+/addresses")`). 37/37 suites / 308/308 tests en `movo-svc-users`, 5/5 suites / 37/37
+tests en `gateway`. `tsc --noEmit` limpio en ambos paquetes.
+
+### MOVO-133 — `PATCH /users/me` y cambio verificado de teléfono/email por OTP
+
+`src/modules/users/` pasa de ser solo lectura (+foto MOVO-97, +push token MOVO-106) a
+tener su primera escritura sobre los datos propios del usuario: `PATCH /users/me`
+(nombre/apellido) y dos flujos de dos pasos cada uno para cambiar teléfono y email.
+
+Decisiones clave:
+- **`PATCH /users/me` con `additionalProperties:false` no alcanza contra el
+  `removeAdditional:true` default de AJV de Fastify**: mismo gotcha ya documentado en
+  `services/movo-svc-shipments/HISTORIAL.md` (MOVO-129) — un campo de más (`email`,
+  `roles`, etc.) se descarta en silencio en vez de devolver 400. Se agregó un
+  `preValidation` que corre antes de esa fase y rechaza explícitamente cualquier clave
+  que no sea `firstName`/`lastName`, sin tocar la configuración global de AJV del
+  resto del servicio (esa decisión de convención sigue pendiente, igual que en
+  `svc-shipments`).
+- **Nombre inmutable con KYC de identidad aprobado (AC3, decisión de refinamiento)**:
+  `409 PROFILE_NAME_LOCKED_BY_KYC` si `kyc_status_identity=approved` y el `firstName`/
+  `lastName` nuevo difiere del actual — el nombre ya quedó validado contra el
+  documento por Didit (MOVO-72), permitir cambiarlo después rompería esa garantía.
+  Reenviar el mismo nombre no cuenta como cambio (PATCH idempotente sigue permitido).
+- **Cambio de teléfono reusa `otp-service.ts` directo, no
+  `phone-verification.service.ts`**: ese servicio es específico del registro (emite un
+  `phoneVerificationToken` intermedio de un solo uso, MOVO-71/72) porque en ese punto
+  todavía no hay cuenta ni sesión. Acá el caller ya está autenticado, así que verificar
+  el OTP persiste `phone`+`phoneVerified=true` directo, sin el token intermedio. El
+  `target` del OTP **es** el teléfono nuevo (prueba de posesión).
+- **Cambio de email verificado con OTP al teléfono ACTUAL, no al email nuevo
+  (decisión de refinamiento, se aparta de la letra del AC original)**: el proyecto no
+  tiene ningún `EmailProvider` (sin nodemailer/SES/Resend, sin columna
+  `email_verified`) — construir uno es alcance de ADR nuevo, no de este ticket. Se
+  verifica la identidad del dueño de la cuenta mandando el OTP a su teléfono ya
+  verificado. El email candidato viaja en Redis atado al `otpId`
+  (`pending-email-repository.ts`, mismo TTL que el OTP) hasta que el verify lo
+  persiste. **Corregido por MOVO-139** (ADR-017): con `EmailProvider` en el proyecto, el
+  OTP pasó a ir al email nuevo y el aviso al email anterior existe — ver la entrada de
+  esa US más abajo. No revoca sesiones (el email no es credencial de sesión, a
+  diferencia de la contraseña — ver ticket hermano MOVO-134).
+- **Unicidad de email case-insensitive resuelta en el service, no en la DB**: el
+  índice único real de `users.email` es case-sensitive (MOVO-93: `users_email_lower_idx`
+  es funcional, no fuerza unicidad) — un `P2002` del `UPDATE` final solo cubre
+  colisiones de mismo casing exacto. El chequeo case-insensitive real
+  (`findByEmail`, ya usaba `mode:"insensitive"`) corre explícito tanto en el paso 1
+  como de nuevo justo antes del `UPDATE` del paso 2, para cubrir la carrera de
+  unicidad (AC5) sin depender de un constraint que no existe a nivel de DB.
+- **`UserConflictError` (ya existía para el registro, MOVO-70) reusada tal cual** para
+  las colisiones de `updatePhone`/`updateEmail` -- se traduce a los códigos nuevos
+  `PHONE_ALREADY_IN_USE`/`EMAIL_ALREADY_IN_USE` (@movo/shared), distintos de
+  `USER_PHONE_ALREADY_EXISTS`/`USER_EMAIL_ALREADY_EXISTS` del registro porque el
+  mensaje/contexto es otro (cambiar un dato de una cuenta existente, no crearla).
+
+Tests: `test/users.profile-edit.integration.test.ts` (28 casos, Postgres+Redis reales,
+mismo patrón de `SmsProvider` captor que `auth.otp.integration.test.ts`) cubriendo las
+8 AC del ticket, incluida la carrera de unicidad de teléfono/email simulada
+adelantando el `UPDATE` de otro usuario entre el paso 1 y el verify.
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte); cambio de
+contraseña y baja de cuenta (ticket hermano MOVO-134); `birthdate`/`dni` (existen en
+el schema, no se editan por ningún endpoint todavía).
+
+**Fixes de review sobre la implementación inicial (tmvergara, PR #91):**
+- **`otp-repository.ts`/`otp-service.ts` ganaron el concepto de `flow`** (namespacea
+  el índice `otp:target:{flow}:{target}`, antes solo `otp:target:{target}`) y de
+  `meta` (bag arbitrario atado al mismo hash `otp:{otpId}`, mismo TTL/rotación/
+  invalidación que el OTP). Cierra tres MEDIA juntos:
+  - **Cruce entre flujos sobre el mismo target**: `verifyOtp(otpId, code, flow)`
+    ahora exige el `flow` esperado y rechaza (401, sin tocar intentos ni invalidar)
+    un otpId real pero de otro flujo -- antes `verifyPhoneChange` aceptaba
+    ciegamente cualquier OTP válido, así que un otpId de cambio de email posteado
+    por error contra `/me/phone/change/verify` "cambiaba" el teléfono al mismo que
+    ya tenía la cuenta y consumía en el camino el OTP real del otro flujo.
+  - **TTL desincronizado del email pendiente**: `pending-email-repository.ts`
+    (key Redis paralela con TTL propio, nunca refrescado por
+    `POST /auth/resend-otp`) se borró -- el email candidato ahora es
+    `meta.pendingEmail` del propio OTP, comparte su lifetime por construcción. Cierra
+    también el cleanup en ramas no felices (comentario de review aparte): no hay
+    una segunda key que pueda quedar huérfana.
+  - **Un tercero sin autenticar podía invalidar el OTP de otro usuario**:
+    `POST /auth/send-otp` (pública, flujo `"register"`) y los flujos de cuenta ya no
+    comparten índice sobre el mismo target.
+  - `generateOtp()` devuelve `sent: boolean` (antes la rama de reuso-por-cooldown
+    devolvía la misma forma que un envío real, sin que el cliente pudiera
+    distinguir "mandé un SMS" de "reusá el que ya tenés").
+- **`user-repository.ts#uniqueConstraintFieldsInclude`**: `users_email_lower_idx`
+  (MOVO-93) es un UNIQUE INDEX de EXPRESIÓN sobre `LOWER(email)` -- verificado
+  empíricamente que Postgres SÍ lo hace cumplir (el comentario viejo decía lo
+  contrario). Para ese índice el driver adapter de Prisma 7 no devuelve
+  `fields: ["email"]` limpio, devuelve el nombre de la expresión truncado
+  (`["lower(email::text"]`) -- un `.includes("email")` exacto no matcheaba eso, así
+  que una colisión de email que difiere solo en casing (AC5, la carrera entre el
+  paso 1 y el verify) devolvía 500 en vez de 409. `.some(f => f.includes(column))`
+  matchea las dos formas.
+- **Rate limit del gateway para los dos endpoints de paso 1** (`/users/me/
+  phone/change/otp`, `/users/me/email/change/otp`, 5/15min vía
+  `getRateLimitOverrides()`, ver `gateway/CLAUDE.md`): mandan SMS reales por Twilio
+  (ADR-012) y el cooldown de `generateOtp()` es por target, no por caller -- sin el
+  override, una sola cuenta autenticada podía disparar ~200 SMS/min variando el
+  teléfono en cada request (riesgo R10 del plan de proyecto).
+- **`maxLength` agregado a `firstName`/`lastName` (`users.schema.ts`, 80) y a
+  `fullName` de registro (`auth.schema.ts`, 160)**: ninguno tenía cota superior, y
+  las columnas son `text` sin límite en Postgres -- un nombre de 1 MB se aceptaba y
+  se devolvía en cada perfil/resultado de búsqueda.
+
+### MOVO-134 — Cambio de contraseña y baja de cuenta (Cuenta y seguridad)
+
+Backend del ítem "Cuenta y seguridad" del perfil: `POST /users/me/password` y
+`DELETE /users/me`. Cierra MOVO-39 (derecho de supresión) junto con el ticket
+hermano de mobile.
+
+Decisiones clave:
+- **Bloqueo por envíos/disputas activos, sin cascada de cancelación** (decisión de
+  refinamiento con el equipo, se aparta del planteo inicial del ticket): `DELETE
+  /users/me` consulta `GET /internal/account-deletion/users/:userId/active-shipments`
+  en `svc-shipments` (primera llamada síncrona `svc-users` → `svc-shipments`, ver
+  `services/movo-svc-shipments/HISTORIAL.md`) y bloquea con `409
+  ACCOUNT_HAS_ACTIVE_DISPUTES`/`ACCOUNT_HAS_ACTIVE_SHIPMENTS` si el usuario (como
+  emisor, receptor o transportista) tiene algo en un estado no terminal —
+  **sin importar cuál** (incluye `in_transit`, evaluado y descartado agregarle una
+  transición de cancelación al grafo de MOVO-105). Es el usuario quien cancela por su
+  cuenta y reintenta la baja; sin timeout/fallback seguro si `svc-shipments` no
+  responde (la baja falla, a diferencia de la validación de receptor de MOVO-80).
+- **`issueSession()` de `auth.service.ts` pasó de closure interno a función standalone
+  exportada** (recibe `sessionRepository` explícito): `changePassword()` necesita
+  emitir el mismo shape de tokens que login/register/refresh sin instanciar
+  `phoneVerificationService` (dependencia de `createAuthService` que no le hace
+  falta acá). `login()`/`register()`/`refresh()` se actualizaron para llamarla igual.
+- **Rate limit del cambio de contraseña resuelto adentro de `svc-users`, no en el
+  gateway**: el rate-limiting del gateway corre *antes* de decodificar el JWT (así
+  están armados los 4 rate limits estrictos ya existentes en
+  `gateway/src/config/routes-map.ts`, todos keyeados por IP) — no puede limitar "por
+  usuario" sin reordenar ese hook para *todas* las rutas protegidas. Se resolvió con
+  un contador en Redis por `userId` (5 intentos / 15 min), mismo patrón que
+  `otp-repository.ts#incrementAttempts` pero con ventana fija.
+- **Anonimización de PII derivada del propio `id`** (`deleted+{id}@movo.invalid` /
+  `deleted-{id}`), no de un UUID nuevo random: ya es único (el `id` lo es), evita una
+  generación extra, y dobla como "derivado del id" tal cual pedía el ticket. Sin
+  `DELETE` físico — el `user_id` sigue referenciado desde envíos históricos en
+  `svc-shipments`, la integridad referencial del historial tiene que sobrevivir
+  (mismo motivo que ya documentaba `getPublicProfile`, MOVO-77, para tratar `deleted`
+  como "no existe" hacia afuera).
+- **`address-repository.ts#delete()` no se pudo reusar en la transacción de baja**:
+  ese método abre su propia `$transaction` (para promover un nuevo default cuando se
+  borra la default) — necesita un `PrismaClient` completo, no el `tx` que entrega
+  `db.$transaction(async (tx) => ...)`. La baja usa un `deleteMany` crudo en su
+  lugar (no hace falta preservar ningún default, no queda ningún usuario). Mismo
+  problema no aplicó a `push-token-repository.ts`: sus métodos nunca abren su propia
+  transacción, así que se pudo ensanchar su tipo a `Prisma.TransactionClient` sin
+  riesgo (mismo criterio que `user-repository.ts` desde MOVO-72).
+- **Anonimización inmediata, sin ventana de gracia** (recomendación original del
+  ticket, no revisada en el refinamiento de MOVO-134): purga diferida necesitaría un
+  job programado que hoy no existe en el proyecto.
+- **Limitación aceptada**: no se manda ningún mail de "tu contraseña cambió" ni de
+  confirmación de baja. MOVO-139 ya construyó el `EmailProvider` (ADR-017), así que hoy
+  es solo cuestión de cablear esos dos avisos — no estaba en el alcance de esa US.
+
+Tests: `test/users.account-settings.integration.test.ts` (19 casos) +
+`services/movo-svc-shipments/test/account-deletion.integration.test.ts` (11 casos,
+ver ese CLAUDE.md) — Postgres+Redis reales, `ShipmentsClient` fake inyectable vía
+`buildApp({ shipmentsClient })` (mismo criterio que `storageProvider`/`smsProvider`).
+Cubre el ciclo completo de registro→cambio de contraseña→refresh viejo invalidado,
+bloqueo por disputa/envío activo sin efecto, idempotencia de la baja, y re-registro
+post-baja con el mismo email/teléfono.
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte).
+
+**Fixes de review sobre la implementación inicial (tmvergara, PR #92):**
+- **El access token sobrevivía a la baja de cuenta y al cambio de contraseña**
+  (Medium): `revokeAllForUser` solo invalida refresh tokens -- el access token, JWT
+  stateless (ADR-004), seguía siendo válido hasta sus 60 minutos de TTL. Se agregó
+  `sessionRepository.revokeAccessTokensIssuedBefore(userId)`, que sella
+  `user-revoked-at:{userId}` en Redis (segundos Unix, TTL = TTL del access token) --
+  el gateway (`gateway/src/plugins/auth.ts#authenticate`) lo lee en cada request
+  autenticado y rechaza cualquier token con `iat` anterior. Guardado en segundos, no
+  milisegundos, a propósito: comparar contra `Date.now()` dejaría el token nuevo que
+  la propia `changePassword()` emite auto-revocado por el redondeo de `iat` al
+  segundo. Mismo mecanismo cierra `deleteAccount()` y `changePassword()`.
+- **PII de KYC/licencia sobrevivía a la baja de cuenta** (Medium): `onDelete:
+  Cascade` de `KycVerification`/`DriversLicense` nunca disparaba porque la fila de
+  `users` sobrevive a propósito (integridad referencial con envíos históricos) --
+  `rawDecision`/`external_session_id` (sesión de Didit con documento y biometría) y
+  la fecha de vencimiento del carnet quedaban en la base. Se agregó el borrado
+  explícito de ambas tablas a la `$transaction` de `deleteAccount` (sin FK entrante
+  desde envíos, a diferencia de `users`); `phoneVerified` también se resetea a
+  `false` en `anonymizeAndDelete`.
+- **TOCTOU entre el chequeo de envíos activos y la anonimización** (Low/medium):
+  se agregó un lock por usuario en Redis (`account-deletion-lock:{userId}`, `SET NX
+  EX 30`) alrededor de todo el bloque de `deleteAccount` -- cierra el caso de dos
+  bajas concurrentes del mismo usuario. **No cierra** la carrera más amplia contra un
+  envío creado desde `svc-shipments` en el medio (misma clase de problema que tuvo
+  MOVO-118 antes de su fix) -- la solución de fondo (que `svc-shipments` valide
+  `status` del sender/carrier al crear/aceptar un envío, rechazando `deleted`) queda
+  fuera de alcance de este PR, aceptada por ahora sin ticket de seguimiento dedicado.
+- **Rate limit de cambio de contraseña sin TTL ante una caída a mitad de camino**
+  (Low): `INCR` + `EXPIRE` condicional eran dos comandos separados -- un fallo entre
+  medio dejaba la key sin TTL, bloqueando al usuario para siempre. Se resolvió con
+  `SET NX EX` atómico (mismo patrón que `phone-verification.service.ts`). Secundario:
+  el contador solo se incrementa en intentos **fallidos** ahora (antes también en
+  éxitos) y se resetea en un cambio exitoso -- 5 cambios legítimos seguidos ya no
+  bloquean al usuario.
+- **Endpoint interno de `svc-shipments` sin `response` schema** (Low): se cableó
+  `response: { 200: activeShipmentsResponse }` en
+  `account-deletion.routes.ts` -- sin esto, un cambio de forma en
+  `hasActiveShipmentsForUser` podía pasar `undefined` (falsy) a `shipments-client.ts`
+  y dejar pasar la baja en la dirección insegura, en silencio.
+- Comentario desactualizado en `shipments-client.ts` corregido (decía "sin timeout
+  explícito" sobre código que sí lo tiene).
+
+### MOVO-124 — Sweep de fotos huérfanas en S3 vía tracking en Redis (`svc-users` + `svc-shipments`)
+
+Decisión completa y detalle de la implementación en
+`services/movo-svc-shipments/HISTORIAL.md` (mismo mecanismo en los dos servicios). Acá:
+`existsByPhotoUrl` nuevo en `user-repository.ts` (fuente de verdad contra Postgres que
+usa el sweep antes de borrar), `getPhotoUploadUrl`/`confirmPhoto` de `users.service.ts`
+ahora registran/destrackean la key en el sorted set `photos:pending:profile-photos` de
+Redis, y `src/plugins/orphan-photo-sweep.ts` — **primer scheduled job de este
+servicio** (mismo esqueleto `setInterval` + lock distribuido en Redis que
+`receiver-confirmation-sweep.ts` de `svc-shipments`, MOVO-130).
+
+Tests: `test/orphan-photo-sweep.test.ts` nuevo (mockeado, incluye el caso AC3: un
+candidato con `photoUrl` vigente en `users.users` nunca dispara `deleteObject`).
+`test/users.photo.integration.test.ts` ampliado con dos casos contra Redis real.
+Suite completa 385/385, `tsc --noEmit` y `eslint` limpios.
+
+**Fix de review (PR #96, tmvergara) — TOCTOU real entre `confirmPhoto()` y el sweep**:
+mismo bug y mismo fix que su gemelo de `svc-shipments` (detalle completo en
+`services/movo-svc-shipments/HISTORIAL.md`, sección MOVO-124) — lock por key de S3 en
+Redis (`photoConfirmationLockKey()` en `users.service.ts`) que se disputan
+`confirmPhoto()` y el sweep antes de tocar S3/Postgres, cierra la ventana donde una
+confirmación tardía podía terminar en `photoUrl` persistido apuntando a un objeto ya
+borrado por el sweep, sin error visible.
+
+### MOVO-115 — Race condition (TOCTOU) en `confirmPhoto()`/`deletePhoto()`
+
+Cierra la ventana de carrera documentada como aceptada desde MOVO-97 (PR #62,
+tmvergara): `confirmPhoto()`/`deletePhoto()` leían `photoUrl` con `findById()` y recién
+después escribían con un `update` aparte — dos llamadas casi simultáneas para el mismo
+usuario con objectKeys B y C distintos (ej. reintento del cliente tras timeout) podían
+leer las dos la misma foto A vigente, y el objeto que "perdía" la carrera (B, si C se
+escribía después) quedaba huérfano en S3 para siempre, sin que nadie lo borrara. Distinto
+del TOCTOU de MOVO-124 (ese era `confirmPhoto()` contra el sweep sobre la MISMA key; este
+es `confirmPhoto()`/`deletePhoto()` entre sí, con dos keys distintas — el lock de Redis
+de MOVO-124, keyeado por `objectKey`, no protege este caso).
+
+- **`user-repository.ts#swapPhotoUrl()` nuevo, reemplaza `updatePhotoUrl()`**: mismo
+  mecanismo de row-lock que `offer-repository.ts#acceptOffer`/
+  `shipment-repository.ts#updateStatus` (MOVO-102/MOVO-118, ver
+  `services/movo-svc-shipments/HISTORIAL.md`) — `updateMany({where: {id, photoUrl:
+  current}, ...})` bajo READ COMMITTED. A diferencia de esos dos casos, acá no hay una
+  transición inválida que rechazar (cualquier `photoUrl` nuevo es válido), así que en vez
+  de lanzar un error de concurrencia el método reintenta hasta ganar el compare-and-swap
+  (tope de 10 intentos, defensivo). Devuelve `{ user, previousPhotoUrl }` donde
+  `previousPhotoUrl` es siempre el valor que ESE swap realmente pisó, nunca uno leído por
+  el caller fuera de la operación atómica.
+- **`confirmPhoto()`/`deletePhoto()` ya no deciden qué borrar sobre un `photoUrl` leído
+  por adelantado**: el objeto a borrar sale de `previousPhotoUrl` del propio swap. El
+  `findById()` inicial sigue existiendo en los dos (chequeo de existencia del usuario /
+  atajo de `deletePhoto` para no escribir cuando no hay foto), pero ya no participa en la
+  decisión de qué borrar.
+
+Tests: `test/user-repository.integration.test.ts#swapPhotoUrl` (3 casos, incluye dos
+swaps concurrentes con `Promise.all` verificando que el `previousPhotoUrl` del que pierde
+la carrera es el valor que el otro escribió, nunca el original) +
+`test/users.photo.integration.test.ts` sumó el caso end-to-end del escenario del ticket
+(dos `PUT /users/me/photo` concurrentes con objectKeys B/C distintos, ninguno queda
+huérfano en S3). Suite completa 437/437, `tsc --noEmit` y `eslint` limpios.
+
+### MOVO-139 — `EmailProvider` (Resend) y verificación de email por OTP (ADR-017)
+
+Primer canal de email del proyecto. Cierra la limitación que MOVO-133/MOVO-134 dejaron
+documentada ("sin `EmailProvider` no se puede notificar al email anterior") y es
+precondición de MOVO-64 (recuperación de contraseña por email).
+
+Decisiones clave:
+- **`EmailProvider` calcado de `SmsProvider` (ADR-012)**: interfaz + factory por
+  `EMAIL_PROVIDER` + `console-email-provider.ts` como default de dev/test/CI +
+  `resend-email-provider.ts` para la demo, con fail-fast al arrancar si se pide `resend`
+  sin `RESEND_API_KEY`/`EMAIL_FROM`. Resend se consume por `fetch` contra su API HTTP,
+  no por su SDK (un solo POST con un JSON, mismo criterio que
+  `telegram-sms-provider.ts`/`expo-push-provider.ts`).
+- **El cuerpo viaja como `{ text, html }`, no como un string** (se aparta de la firma
+  literal del ticket, `send(to, subject, body)`): un mail transaccional sin parte de
+  texto plano es disparador clásico de filtros de spam, y sin HTML se ve roto en la
+  mayoría de los clientes. Los dos los arman `buildOtpEmail`/`buildEmailChangedNotice`
+  en `email-provider.ts` — templates en código, nunca en la UI de Resend (esos son para
+  Broadcasts: no se versionan, no se testean y atarían el contenido al proveedor).
+- **El canal se persiste en el registro de Redis del OTP** (`OtpRecord.channel`, nuevo):
+  `resendOtp(otpId)` solo recibe el otpId, así que sin ese campo el reenvío no sabría si
+  el target es un teléfono o un email. Mismo razonamiento por el que MOVO-133 metió
+  `flow` en el hash. `createOtpService` pasa a recibir `{ sms, email }` (los dos
+  obligatorios: `POST /auth/resend-otp` es genérica y puede tocarle cualquiera de los
+  dos). Los registros sin `channel` — los que quedaran vivos al momento del deploy, TTL
+  de 10 min — se leen como `sms`.
+- **El OTP de cambio de email pasa a ir al email NUEVO**, corrigiendo la decisión de
+  refinamiento de MOVO-133 (iba al teléfono actual, por no haber ningún canal de email):
+  eso probaba posesión de la cuenta pero no propiedad de la dirección, así que se podía
+  dejar como email de la cuenta una que no se controla. `email` + `emailVerified=true`
+  se persisten en el mismo UPDATE, mismo criterio que `phone`/`phoneVerified`.
+- **Aviso al email anterior best-effort**: se manda después del UPDATE ya persistido y
+  con el OTP ya consumido, así que un fallo de Resend no puede revertir nada — devolver
+  500 mostraría un error sobre una operación que salió bien, y el reintento fallaría con
+  "el email nuevo es igual al actual". Se loguea y sigue. La dirección nueva viaja
+  enmascarada (`j****z@gmail.com`): ese mail va a una casilla que ya no pertenece a la
+  cuenta.
+- **Flujo propio `email-verify`, separado de `email-change`** (AC8): verificar el email
+  que la cuenta ya tiene y cambiarlo por otro son casos de uso distintos, y el
+  namespacing por `flow` de MOVO-133 impide que un OTP de uno se consuma en el otro.
+- **Sin gate duro**: un email no verificado no bloquea operar, solo se refleja en
+  `PrivateProfile.emailVerified` (`@movo/shared`). Hacerlo obligatorio en el registro es
+  alcance de MOVO-7.
+
+Migración `20260823160000_add_email_verified_movo_139`: `email_verified` (default
+`false`) + `email_verified_at` (solo auditoría, nunca se lee para decidir) en
+`users.users`. Los usuarios existentes quedan sin verificar por backfill natural —
+nadie probó todavía la propiedad de esas direcciones, que es justo lo que la US arregla.
+
+Rate limit propio en el gateway para `POST /users/me/email/verify/otp` (5/15min,
+`getRateLimitOverrides()`), alineado con los dos endpoints de cambio.
+
+**Diseño de los mails y entregabilidad** (iteración posterior al primer envío real, que
+cayó en la carpeta de no deseados de Outlook):
+- Paleta de marca tomada de `movo-mobile/tailwind.config.js` (ink-950 `#0A0A0B`,
+  lime-500 `#C6F24A`) para que un mail y una pantalla no parezcan de dos productos
+  distintos: cabecera negra con el wordmark, filete lime de 3px, y el código en
+  monoespaciada lime sobre negro (la app usa JetBrains Mono para datos así; ningún
+  cliente de correo la tiene, degrada al monoespaciado del sistema).
+- **Wordmark en texto, no el PNG del logo**: los clientes bloquean imágenes remotas
+  hasta que el usuario las habilita — el logo no se vería en la primera lectura, que en
+  un OTP es la única que importa —, un PNG pesado empeora el ratio texto/imagen que
+  miran los filtros de spam, y un `data:` URI lo descartan Gmail y Outlook. Para usar el
+  logo real haría falta hostearlo en una URL pública estable: el bucket de dev
+  (`movo-shipment-media-dev`) hoy solo expone `profile-photos/*`, así que requiere un
+  prefijo `brand/*` público en la policy — cambio de Terraform en `movo-infra` (ADR-009:
+  nada de aprovisionamiento manual), no un `put-bucket-policy` a mano.
+- Tablas anidadas con `bgcolor` en vez de divs: el motor de render de Outlook para
+  Windows es Word (sin flexbox, sin grid, sin `border-radius`).
+- `preheader` explícito: sin uno, la bandeja muestra el primer texto del cuerpo — en el
+  mail de OTP eso ponía el código en la lista de mensajes, a la vista de cualquiera que
+  mirara la pantalla.
+- **DMARC agregado en `_dmarc.movosend.app`** (`p=none`, `rua=mailto:dmarc@movosend.app`)
+  desde la nota anterior de esta entrada (que decía que faltaba) — verificado con `dig`
+  que DKIM (`resend._domainkey.mail.movosend.app`), SPF (`send.mail.movosend.app`, vía
+  `include:amazonses.com`) y ahora DMARC están los tres presentes y alineados (dominio
+  organizacional `movosend.app` cubre `mail.movosend.app` por el fallback estándar de
+  DMARC, no hace falta un registro específico en el subdominio). Con la autenticación
+  completa, el filtrado que sigue viendo Outlook es consistente con reputación de un
+  dominio recién verificado sin historial de envíos (algo que Microsoft castiga
+  agresivamente incluso con SPF/DKIM/DMARC en verde) — no un problema de configuración
+  de DNS. Mejora con volumen/tiempo de envío real y con destinatarios marcando "No es
+  spam"; subir la política a `p=quarantine` más adelante ayuda al monitoreo pero no
+  acelera esto.
+- **Fix de colores invertidos en dark mode (iOS Mail), reportado por el usuario**:
+  `wrapHtml()` mandaba solo un fragmento (`<div>...</div>`) sin `<html>/<head>` — sin un
+  documento completo con `<meta name="color-scheme" content="light">` y
+  `<meta name="supported-color-schemes" content="light">`, Apple Mail (y Outlook.com)
+  asumen que el mail no declaró soporte de tema y le aplican su "smart dark mode":
+  reescribe/invierte colores que ya eran explícitos acá (fondo negro del header, texto
+  lime sobre negro del código), produciendo el mosaico raro reportado. Se envuelve todo
+  en `<!doctype html><html><head>...</head><body>...` con esas dos meta tags —
+  deliberadamente meta tags y no un `<style>` en el head (que Gmail descarta, ver
+  comentario de cabecera de `wrapHtml`).
+
+Tests: `test/users.email-verification.integration.test.ts` (18 casos, Postgres+Redis
+reales, captor de `EmailProvider` con el mismo patrón que el de SMS) + los casos de
+cambio de email de `test/users.profile-edit.integration.test.ts` actualizados al canal
+nuevo, más el aviso al email anterior y su fallo. 42/42 suites, 403/403 tests.
+
+Pendiente / fuera de alcance: UI mobile (insignia + CTA, se suman a MOVO-135, que espera
+este ticket); verificación obligatoria en el registro (MOVO-7); recuperación de
+contraseña por email (MOVO-64); mover el `EmailProvider` a `shared/` (nace acá, se
+evalúa al haber un segundo consumidor real).
+
+### MOVO-140 — Recuperación de contraseña: OTP por SMS o email, señuelo anti-enumeración
+
+`POST /auth/forgot-password`, `/auth/verify-reset-otp`, `/auth/reset-password` en
+`src/modules/auth/` (nuevo `password-reset.service.ts`) + 3 rutas públicas con rate
+limit propio en `gateway/src/config/routes-map.ts` (ver `gateway/CLAUDE.md`). Cierra
+MOVO-64 junto con MOVO-71/MOVO-139 (base de OTP por SMS/email) y MOVO-134 (patrón de
+revocación de sesiones al cambiar contraseña).
+
+Decisiones clave:
+- **Señuelo anti-enumeración persistido en el propio registro de Redis**:
+  `otp-repository.ts#OtpRecord.isDecoy` (booleano, igual criterio que `channel` de
+  MOVO-139) — `otp-service.ts#generateOtp`/`resendOtp` generan y hashean el código
+  igual que un OTP real (mismo costo de Argon2id, misma latencia) pero saltean
+  `deliver()`. Sin el flag en el registro, `resendOtp(otpId)` —genérico, solo recibe
+  el otpId— no tiene forma de saber que no debe entregar nada, y el reenvío se
+  vuelve un oráculo de enumeración por la puerta de atrás.
+- **La consulta a la DB en `forgotPassword` se hace siempre, antes de decidir
+  señuelo o no** (mismo criterio que el `DUMMY_HASH` de `login()`, MOVO-74): sin
+  esto, el camino señuelo sería más rápido y la latencia delataría qué
+  identificadores están registrados.
+- **`SmsProvider` ganó `sendText(toE164, message)`**, separado de `send(toE164,
+  code)`: ese último es específico de OTP (cada implementación arma
+  `buildOtpMessage(code)` internamente), así que no servía para un aviso de texto
+  libre como "tu contraseña cambió". `EmailProvider.send()` no necesitó cambios —
+  ya recibía el contenido armado por el caller.
+- **`passwordResetToken` es un JWT propio** (`purpose: "password_reset"`, `sub`=
+  userId, 15min TTL, single-use vía `SET NX` en Redis), copiado del patrón de
+  `phoneVerificationToken` (MOVO-71) pero deliberadamente no reusado: son propósitos
+  distintos (uno registra una cuenta nueva, el otro cambia la contraseña de una
+  existente).
+- **No se rechaza que la contraseña nueva sea igual a la anterior** (a diferencia
+  de `POST /users/me/password`, MOVO-134): acá el usuario llegó porque no la
+  recordaba, bloquearlo si acertó la vieja es fricción sin ganancia de seguridad —
+  decisión explícita del ticket, no un olvido.
+- **`newPassword`/`registerBody.password` comparten el mismo objeto de schema**
+  (`PASSWORD_SCHEMA` en `auth.schema.ts`, igual que `EMAIL_PATTERN`/`PHONE_PATTERN`):
+  a diferencia de `users.schema.ts#changePasswordBody` (MOVO-134, duplicado a
+  propósito por vivir en otro módulo), acá las dos definiciones viven en el mismo
+  archivo, así que se comparte el objeto en vez de duplicarlo.
+- **Aviso de contraseña cambiada revoca sesiones antes de mandarse, y es
+  best-effort**: mismo orden y mismo criterio que el aviso al email anterior de
+  MOVO-139 — un fallo de entrega no revierte el cambio de contraseña ni cambia el
+  204, se loguea y sigue.
+
+Tests: `test/auth.password-reset.integration.test.ts` (23 casos, Postgres+Redis
+reales) cubriendo los dos canales, el señuelo en sus cuatro variantes (inexistente,
+`emailVerified:false`, `banned`, `deleted`), el reenvío sobre un otpId señuelo, los
+casos de error del OTP y del token, y que el refresh token previo quede muerto tras
+el reset. 45/45 suites, 433/433 tests en `movo-svc-users`; 5/5 suites, 49/49 tests en
+`gateway`. `tsc --noEmit` y `eslint` limpios en ambos paquetes. Probado a mano de
+punta a punta con `SMS_PROVIDER=console`/`EMAIL_PROVIDER=console` (flujo feliz y
+señuelo).
+
+**Fixes de review sobre la implementación inicial (Pedro):**
+- **Timing side-channel real en el señuelo** (Alto): `otp-service.ts#deliver()` hace
+  una llamada de red real a Twilio/Resend solo en el camino real -- el hash Argon2id
+  del código (AC4) ya era idéntico en los dos caminos, pero eso no alcanzaba: la
+  espera de red domina por completo al hash, así que un atacante podía medir el
+  tiempo de respuesta de `forgot-password` para distinguir el señuelo del real.
+  Se agregó `DECOY_DELIVER_DELAY_MS` (200ms): el camino señuelo espera ese tiempo en
+  vez de llamar al proveedor real (no se lo puede llamar de verdad -- costaría
+  dinero y podría notificar a una cuenta baneada de que alguien está probando su
+  identificador). No es constant-time perfecto (la latencia real de un proveedor
+  externo varía), cierra la diferencia obvia reportada. Acotado a `isDecoy=true`
+  (nunca se ejecuta para register/phone-change/email-verify, que nunca pasan ese
+  flag), así que no afecta la latencia de ningún otro flujo de OTP.
+- **`resetPassword()` no revalidaba el estado de la cuenta** (Alto): el
+  `passwordResetToken` se emite con el estado de la cuenta al momento del OTP, pero
+  nada impedía que quedara baneada/eliminada durante su TTL de 15min --
+  `updatePassword()` no chequea `status`, solo hace el UPDATE por id, así que el
+  cambio se persistía igual. Se agregó el mismo chequeo que `login()`/`refresh()`
+  (MOVO-74/75): usuario inexistente -> 401 genérico, baneado/eliminado -> 403
+  `ACCOUNT_SUSPENDED` (nuevo código de respuesta para este endpoint, ya existente en
+  `@movo/shared`).
+- **`SessionRepository` duplicado** (menor, simplificación): `createAuthService`
+  creaba su propia instancia interna además de la que `auth.routes.ts` ya armaba
+  para `passwordResetService` -- sin bug real (el repositorio no tiene estado
+  propio), pero trabajo de más. `createAuthService` ahora acepta un
+  `sessionRepository` opcional (default `createSessionRepository(redis)` si no se
+  pasa, no rompe los dos call sites de test que lo instancian sin ese argumento);
+  `auth.routes.ts` crea una sola instancia y la comparte.
+- El cuarto hallazgo de la review (`sendText` requerido rompiendo ~10 tests) ya
+  estaba resuelto en el momento de la review -- los 10 fixtures de `SmsProvider` en
+  `test/` ya lo implementaban desde la primera versión de este PR.
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte).
+
+### MOVO-228 — "Firma electrónica" de aceptación de Términos/Privacidad al registrarse
+
+Cierra el pendiente que MOVO-224 (`movo-mobile`, pantallas de Legal) había dejado
+documentado: el registro solo mostraba texto informativo ("al continuar aceptás..."),
+sin checkbox ni registro de cuándo/qué versión se aceptó. Ahora `POST /auth/register`
+exige la aceptación explícita y la persiste.
+
+Decisiones clave:
+- **`termsAccepted`/`privacyAccepted` con `const: true` en el schema** (`auth.schema.ts`)
+  — rechaza con 400 tanto `false` como cualquier valor que no sea literalmente `true`,
+  sin necesitar un chequeo aparte en el service para "mandó el campo pero sin tildar".
+- **Versión validada contra `LEGAL_DOCUMENT_VERSIONS` (`@movo/shared`) ANTES de
+  consumir el `phoneVerificationToken`** (`auth.service.ts#register`, 422
+  `LEGAL_DOCUMENT_VERSION_MISMATCH`): una app desactualizada que manda una versión
+  vieja de los documentos no debe quemarle el OTP al usuario por un error que no es
+  suyo — mismo criterio de orden que ya usaba la validación de conflicto de datos.
+- **Columnas nullable sin backfill** (`terms_accepted_at`/`terms_version`/
+  `privacy_accepted_at`/`privacy_version` en `users.users`, migración
+  `20260913220000_add_legal_acceptance_movo_228`): las cuentas existentes nunca
+  aceptaron explícitamente nada, no hay forma honesta de reconstruir esa fecha
+  retroactivamente — mismo criterio que `dni`/`bio` (MOVO-73/171).
+- **Términos y Privacidad se trackean por separado**, no como una sola aceptación
+  combinada: son documentos independientes que pueden cambiar en momentos distintos
+  (decisión confirmada con el usuario).
+
+Tests nuevos en `test/auth.register.integration.test.ts` (persiste fecha+versión,
+rechaza `termsAccepted:false`/sin `privacyAccepted`, 422 por versión vieja de cada
+documento, y que el 422 NO quema el `phoneVerificationToken` — el mismo token con la
+versión corregida completa el registro). Los fixtures de registro de otros
+integration tests (`auth.login`/`auth.logout`/`auth.refresh`/`users.account-settings`/
+`auth.password-reset`/`kyc.license`/`kyc.session`) se actualizaron para incluir los 4
+campos nuevos, ahora requeridos por el schema. 49/49 suites, 509/509 tests.
+`tsc --noEmit`/`eslint` limpios.
+
+**Gotcha de entorno local encontrado en el camino (no relacionado al ticket)**: el
+Postgres local (`infra-postgres-1`) tenía un password distinto al de `.env` —
+`POSTGRES_PASSWORD` de la imagen oficial solo aplica en el `initdb` inicial, así que
+un `.env` cambiado después de la primera vez que se levantó el volumen no lo
+rotaba. Sincronizado con `ALTER USER movo WITH PASSWORD ...` (sin tocar datos) para
+poder correr la suite completa contra el Postgres real desde el host.
+
+### MOVO-229 — `POST /users/me/legal-acceptance`: re-aceptación post-registro
+
+Extiende MOVO-228 (checkbox obligatorio en el registro) al caso de una cuenta ya
+existente cuya versión aceptada de Términos y/o Privacidad quedó vieja (se publicó
+una versión nueva), o que nunca los aceptó explícitamente por haberse registrado
+antes de MOVO-228.
+
+- **`termsVersion`/`privacyVersion` viajan por separado y son ambos opcionales**
+  (`minProperties: 1` — al menos uno) — mandar solo uno no toca el otro. Reusa
+  `LEGAL_DOCUMENT_VERSIONS`/`LEGAL_DOCUMENT_VERSION_MISMATCH` (`@movo/shared`,
+  MOVO-228) para la validación, mismo criterio que `POST /auth/register`.
+- **`user-repository.ts#updateLegalAcceptance`**: mismo patrón que `updateProfile`
+  (update parcial con spreads condicionales por campo `!== undefined`) — cada par
+  fecha/versión se persiste de forma independiente.
+- **Re-aceptar simplemente pisa la fecha** (no hay historial de aceptaciones
+  previas) — una cuenta que ya había aceptado una versión vieja y ahora acepta la
+  vigente termina con `termsAcceptedAt` = ahora, `termsVersion` = la nueva; no queda
+  ningún rastro de la aceptación anterior más allá de los logs.
+- **Devuelve el `PrivateProfile` completo** (mismo criterio que `PATCH /users/me`
+  desde MOVO-133) — el mobile lo siembra directo en la cache con `setQueryData`, sin
+  refetch.
+- **Sin `preValidation` de whitelist de campos** (a diferencia de `PATCH /users/me`,
+  MOVO-133) — mismo criterio que la mayoría de los otros endpoints del archivo, que
+  tampoco lo tienen; esa decisión de convención (`removeAdditional` de AJV silencia
+  campos de más en vez de rechazarlos) sigue pendiente en general, no se resuelve acá.
+
+Tests: 10 casos nuevos en `test/users.profile-edit.integration.test.ts` (aceptación
+independiente de cada documento, ambos juntos, re-aceptar actualiza la fecha, 422 por
+versión vieja de cada uno, 400 con body vacío, 401 sin header, 404 usuario
+inexistente). 49/49 suites, 518/518 tests. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` documentado en su propio
+`CLAUDE.md`; sin historial de aceptaciones previas (solo se persiste la última).
+
+### MOVO-202 (lado `svc-users`) — `deleteAccount` extiende la supresión a la traza GPS
+
+Detalle completo (retención, purga, ADR-023) en `services/movo-svc-shipments/
+CLAUDE.md`. Acá solo lo que cambió de este lado: `shipmentsClient.
+deleteCarrierPositions(userId)` nuevo en `shipments-client.ts`, llamado desde
+`users.service.ts#deleteAccount` DESPUÉS de la `$transaction` local de anonimización —
+best-effort (try/catch + `logger.warn`, mismo criterio que el borrado de la foto de
+perfil unas líneas más abajo en el mismo método), confirmado con el usuario: un fallo
+de red hacia `movo-svc-shipments` no debe bloquear ni revertir una baja de cuenta que
+el resto ya completó, y el barrido periódico de purga de ese servicio alcanza la
+traza más tarde si esto falla.
+
+### Pendientes de este servicio
+
+- **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
+  ya está listo para tomarlas apenas se configuren: Twilio (4 vars, ADR-012), Didit
+  (`DIDIT_MODE=live` + 5 vars, incluye `DIDIT_WORKFLOW_ID_LICENSE` de MOVO-15), Google
+  Maps (server-side `GOOGLE_MAPS_API_KEY` compartida entre `svc-users`/futuros
+  consumidores), Telegram bot (`SMS_PROVIDER=telegram`, solo dev),
+  `STORAGE_PROVIDER=s3` + bucket/region de MOVO-97, Resend (`EMAIL_PROVIDER=resend` +
+  `RESEND_API_KEY`/`EMAIL_FROM`, ADR-017 — falta además verificar el dominio de envío en
+  Resend y sus registros SPF/DKIM por Terraform).
+- **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/ADR-016) aplicado
+  en dev, `terraform apply` de prod pendiente.
+- Mobile de MOVO-120 no genera/envía todavía un `sessionToken` de Places — ver
+  `movo-mobile/HISTORIAL.md`.
+
+### MOVO-135 (backend mínimo) — `dni` y `phoneVerified` en la proyección privada
+
+Cambio aditivo pedido por el frontend de MOVO-135 (editar perfil muestra el DNI como
+dato de solo lectura, y una insignia de verificado junto al teléfono):
+`toPrivateProfile()` (`src/models/user-profile.ts`) ahora mapea `user.dni` y
+`user.phoneVerified`, y `privateProfileResponse` (`src/modules/users/users.schema.ts`) los
+declara como `["string", "null"]` y `boolean`, ambos requeridos. El tipo compartido cambió en el mismo commit
+(ver `shared/movo-shared/CLAUDE.md`).
+
+No se tocó ningún endpoint de escritura: `patchProfileBody` sigue aceptando solo
+`firstName`/`lastName`, así que mandar `dni` en el `PATCH /users/me` es 400
+`VALIDATION_FAILED` igual que antes. El DNI se expone, no se edita.
+
+### MOVO-152 — Perfil con reputación y contadores de transacciones reales
+
+Reemplaza los placeholders de `models/user-profile.ts` (`reputationScore: null` y
+`placeholderTransactionCounts()` fijo) por datos reales, leídos del agregado ponderado
+de `movo-svc-shipments` (`GET /internal/users/:id/reputation`, MOVO-147) y de las
+últimas calificaciones (`GET /internal/users/:id/ratings/recent`, MOVO-146 AC10) —
+primera dependencia real entre estos dos endpoints internos, hasta ahora sin conectar.
+
+Decisiones clave:
+- **Nueva llamada nunca lanza hacia el caller** (AC3): `shipments-client.ts` ganó
+  `findReputation`/`findRecentRatingComments`, y ambos SÍ lanzan ante cualquier falla
+  (red, timeout, no-ok) — es `users.service.ts#resolveReputationSummary`/
+  `resolveRecentRatingComments` quien atrapa, loguea (`reputation_fetch_failed`) y cae
+  a `NO_REPUTATION`/`[]`. Mismo criterio de "el cliente lanza, el caller decide" que ya
+  usaba `hasActiveShipments` (MOVO-134), a diferencia de `pricing-client.ts` de
+  `svc-shipments` (que resuelve el fallback él mismo) — acá el fallback vive en el
+  service porque hay dos llamadas independientes (reputación + comentarios) con
+  distinto criterio de "cuándo pedirlas".
+- **Timeout más corto que `hasActiveShipments`** (`REPUTATION_REQUEST_TIMEOUT_MS =
+  3000` vs 5000): mismo motivo que `pricing-client.ts` — degradar a "sin reputación" es
+  gratis, no vale la pena hacer esperar la apertura de un perfil tanto tiempo.
+- **`toPrivateProfile`/`toPublicProfile` (`models/user-profile.ts`) pasan a ser
+  funciones puras que reciben el resultado ya resuelto**, sin I/O propia — el fetch +
+  caché vive en `users.service.ts#composePrivateProfile`/`composePublicProfile`,
+  llamado desde los 6 sitios que devuelven un perfil (`getPrivateProfile`,
+  `getPublicProfile`, `searchUsers`, y los 4 endpoints de escritura que devuelven
+  `PrivateProfile` tras mutar otro campo).
+- **AC2 solo se agregó a `PublicProfile`, no a `PrivateProfile`** (letra del ticket:
+  "se agrega al contrato del perfil público"): el desglose `asSender`/`asCarrier`,
+  `isNewProfile` y `recentRatingComments` viven únicamente en `GET /users/:id` y
+  `GET /users/search`. `PrivateProfile` (`GET /users/me`) sigue con el shape plano que
+  ya tenía (`reputationScore`/`transactionCounts`), ahora con datos reales.
+- **`recentRatingComments` viaja vacío desde `searchUsers`** (composición liviana,
+  AC2: "no arrastra diez textos" en un listado de hasta 20 resultados) pero el
+  desglose por rol SÍ se resuelve para cada resultado — sale del mismo
+  `resolveReputationSummary` cacheado que ya se paga por `reputationScore`/
+  `transactionCounts` (ya requeridos en el contrato desde MOVO-77), sin llamada extra.
+- **Caché en Redis por usuario** (`reputation:cache:{userId}`, TTL
+  `REPUTATION_CACHE_TTL_SECONDS`, default 60s) **solo del agregado de reputación**, no
+  de los comentarios recientes (esa query ya es liviana — 10 filas por su propio
+  índice, y solo se paga al componer un perfil completo). **El fallback nunca se
+  cachea**: si `svc-shipments` está caído, la siguiente apertura de perfil reintenta en
+  vez de esperar el TTL completo para recuperarse (verificado con test dedicado).
+  Invalidación puramente por TTL (AC6), sin mecanismo explícito desde `svc-shipments` —
+  decisión de producto documentada en el ticket: una calificación puede tardar hasta
+  60s en reflejarse, costo aceptado.
+- **Env var nueva tocada en los 3 lugares de siempre**: `REPUTATION_CACHE_TTL_SECONDS`
+  en `env.ts`/`.env.example`/`infra/docker-compose.yml` — no es un `*_PROVIDER`, pero
+  se agregó igual a Compose para poder ajustar el TTL sin rebuild de imagen.
+
+Tests: `test/users.reputation.integration.test.ts` (nuevo, `ShipmentsClient` fake
+inyectado vía `buildApp({ shipmentsClient })`, mismo patrón que MOVO-134) — perfil con
+reputación real, perfil con el servicio caído en `GET /users/me` y `GET /users/:id`
+(cae a `null`/ceros sin romper), desglose por rol e `isNewProfile` en `GET /users/:id`,
+`GET /users/search` sin pedir comentarios, hit/miss de caché, TTL positivo acotado al
+configurado, y que un fallo no se cachea (recuperación inmediata en la siguiente
+lectura). `test/adapters/shipments-client.test.ts` (nuevo, fetch mockeado) cubre el
+cliente HTTP real de los dos métodos nuevos (URL/método/query, mapeo de
+`findRecentRatingComments` a solo los campos del contrato, propagación de errores) —
+de paso sumó cobertura a `hasActiveShipments`, que no tenía un test unitario dedicado
+hasta ahora. Suite completa 456/456 tests (47 archivos) en `movo-svc-users`, 384/384
+en `movo-svc-shipments` (sin cambios de producción ahí, solo `fakePublicProfile()` de
+test actualizado con los campos nuevos de `PublicProfile`). `tsc --noEmit` y `eslint`
+limpios en los tres paquetes tocados (`shared/movo-shared`, `movo-svc-users`,
+`movo-svc-shipments`).
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (MOVO-154, bloqueado por
+este ticket); mover `ReputationBreakdown`/`RecentRatingComment` fuera de
+`shipments-client.ts` si algún otro servicio Node llega a necesitarlos (hoy solo se
+usan acá, ya viven en `@movo/shared`).
+
+### MOVO-170 — Enriquecimiento de perfil: antigüedad, verificaciones públicas, raterName, ratings paginados (`svc-users`)
+
+Expone datos ya persistidos que el rediseño de perfil de `movo-mobile` (MOVO-176) ya
+tenía tipado/renderizado oculto — sin inventar dominio nuevo. Lado `svc-shipments`
+(usageStats por rol, historial compartido, paginación del endpoint interno de
+ratings) documentado en su propio `CLAUDE.md`.
+
+Decisiones clave:
+- **`memberSince`/`phoneVerified`/`emailVerified` en `PublicProfile` sin I/O nueva**:
+  los tres salen directo de la fila de `User` ya cargada (`models/user-profile.ts
+  #toPublicProfile`) — a diferencia de `recentRatingComments`, viajan también en
+  `GET /users/search` (no piden ninguna llamada extra a `svc-shipments`, solo
+  `usageStats` depende de esa llamada, y esa llamada YA se hacía para
+  `reputationScore`/`transactionCounts` desde MOVO-152).
+- **Decisión de producto confirmada con el usuario: `raterName` SE expone**
+  (`RecentRatingComment.raterName`, `@movo/shared`) — el calificador deja de ser
+  anónimo de cara al calificado, mismo criterio que apps de reputación tipo
+  Uber/Airbnb. Resuelto **local** (`user-repository.ts#findNamesByIds`, batch lookup
+  por `raterId`, sin llamada cross-servicio -- los raters son siempre usuarios de este
+  mismo servicio) en `users.service.ts#enrichWithRaterNames`, nunca en
+  `shipments-client.ts` (que no conoce nombres). Un `raterId` sin fila real (cuenta
+  dada de baja) cae a `"Usuario de Movo"` en vez de romper el batch.
+- **`GET /users/:id/ratings?cursor=` nuevo** ("ver todas las calificaciones",
+  MOVO-176) — a diferencia de `getPublicProfile`, que degrada a `[]`/`null` si
+  `svc-shipments` falla (AC3 de MOVO-152: el resto del perfil no debe caerse por
+  esto), este endpoint SÍ propaga el error: no tiene ningún otro dato que mostrar si
+  la lista de calificaciones falla, no es un campo más de un perfil que igual
+  funciona sin él.
+- **`ShipmentsClient.findRecentRatingComments` cambió de forma** (antes
+  `Promise<RecentRatingComment[]>`, ahora `Promise<{items: RawRecentRatingComment[],
+  nextCursor}>`, con `cursor` opcional) — sigue el endpoint interno paginado de
+  `svc-shipments` (mismo ticket). `RawRecentRatingComment` (`Omit<RecentRatingComment,
+  "raterName">`) es el tipo real que devuelve ese cliente: `raterName` no existe
+  todavía en ese punto, se agrega recién en `enrichWithRaterNames`.
+
+Tests: `test/users.reputation.integration.test.ts` ampliado (raterName resuelto y su
+fallback genérico, memberSince/phoneVerified/emailVerified en el perfil público,
+`GET /users/:id/ratings` feliz y 404), `test/adapters/shipments-client.test.ts`
+ampliado (nuevo shape paginado, cursor en la query). Suite completa 475/475 tests (48
+archivos) en `movo-svc-users`, 463/463 en `movo-svc-shipments`, 49/49 en `gateway`.
+`tsc --noEmit` limpio en los 4 paquetes tocados (`shared/movo-shared`,
+`movo-svc-users`, `movo-svc-shipments`, `gateway`). Sin cambios en el gateway: `/users`
+y `/shipments` ya eran prefijos proxeados genéricamente, las rutas nuevas caen ahí
+solas.
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (MOVO-176, sub-issue
+hermana, ya tiene los hooks escritos contra este contrato); "recorridos totales" (km)
+y métricas de puntualidad/tiempo de respuesta, explícitamente excluidas del ticket por
+falta de definición de producto — ver detalle en `services/movo-svc-shipments/HISTORIAL.md`.
+
+### MOVO-157 — Registro de clave pública por dispositivo (`svc-users`)
+
+Prerrequisito del handshake criptográfico de MOVO-6 (implementado del lado de
+`svc-shipments` en el ticket hermano MOVO-158 — ver
+`services/movo-svc-shipments/HISTORIAL.md`, consumió este endpoint interno sin
+necesitar ningún mock): este servicio
+solo registra/rota la clave PÚBLICA del par asimétrico que cada dispositivo genera
+client-side (AC1, la privada nunca viaja) y la expone a `svc-shipments` para validar
+firmas. `POST /users/me/device-key` (`users.routes.ts`/`.service.ts`, mismo módulo que
+`push-token`, no uno propio — mismo criterio de "concern por-dispositivo del usuario
+propio" que MOVO-106) y `GET /internal/users/:id/device-key` (módulo nuevo
+`src/modules/device-keys/`, interno, mismo patrón que `/internal/notifications` de
+MOVO-106: no se declara en `gateway/src/config/routes-map.ts`, así que el gateway no lo
+proxea).
+
+Decisiones clave:
+- **Tabla propia `users.device_keys` con `user_id` único**, no una columna en `users.users`
+  (el ticket ofrecía las dos opciones) — mismo patrón que `DriversLicense` (MOVO-15):
+  una fila reemplazable por usuario. Rotar la clave (AC5) es un `upsert` por `userId`
+  sobre esa única fila — sin multi-dispositivo (fuera de alcance del TFG, letra
+  explícita del ticket), invalidar la anterior es implícito: nunca existe una segunda
+  fila que pudiera quedar vigente por error.
+- **Migración escrita a mano, no `prisma migrate dev`**: el Postgres local de dev es
+  compartido entre servicios (ADR-003) y ya tenía aplicadas migraciones de
+  `movo-svc-shipments` que no figuran en `prisma/migrations/` de este paquete —
+  `migrate dev` pedía resetear el schema `users` completo. Se generó el DDL con
+  `prisma migrate diff --from-config-datasource --to-schema=prisma/schema.prisma`
+  (solo lectura) y se armó la carpeta de migración a mano con únicamente el `CREATE
+  TABLE`/índice/FK de `device_keys` — el diff completo traía además drift preexistente
+  no relacionado (tipos `TEXT` vs `VARCHAR`, un `DROP DEFAULT` en `drivers_license`)
+  que no correspondía a este ticket. Aplicada con `prisma migrate deploy` (no
+  destructivo). Mismo criterio de fondo que la nota de `movo-svc-shipments/CLAUDE.md`
+  sobre `prisma migrate diff --from-empty` contra el Postgres compartido de dev.
+- **`publicKey` viaja como string, sin decodificar/validar la curva**: el servicio
+  nunca interpreta el contenido (AC2, "formato estándar, p. ej. base64 de una clave
+  EC") — valida forma (`^[A-Za-z0-9+/]+=*$`, `maxLength: 2048`, generoso para no atarse
+  a un tamaño de clave/curva específico) pero no que decodifique a una clave EC válida.
+  Esa validación real (¿la firma verifica contra esta clave?) es del handshake en sí
+  (MOVO-158), no del registro.
+- **404 `DEVICE_KEY_NOT_FOUND` (código nuevo en `@movo/shared`) explícito en el
+  endpoint interno (AC4)**, distinto de `USER_NOT_FOUND` — `svc-shipments` necesita
+  distinguir "el usuario no existe" (no debería pasar, ya lo validó antes) de "existe
+  pero no tiene clave todavía" (caso de negocio esperado: no puede iniciar/confirmar un
+  handshake).
+- **Sin endpoint de borrado**: el ticket no lo pide (AC5 solo exige que un registro
+  nuevo invalide al anterior) y el upsert ya lo resuelve — un DELETE explícito
+  dejaría al usuario sin ninguna clave, un estado sin ningún flujo que lo maneje del
+  lado del handshake.
+
+Tests: `test/users.device-key.integration.test.ts` (nuevo, Postgres real — registro,
+rotación con verificación de una sola fila vigente, aislamiento entre usuarios, 401 sin
+`x-user-id`, 404 `USER_NOT_FOUND` con un `x-user-id` de un usuario inexistente, 400 con
+`publicKey` vacío/no-base64/ausente, el endpoint interno con clave registrada y su 404
+`DEVICE_KEY_NOT_FOUND` explícito sin clave, y que no se documenta en la Swagger
+pública). Suite completa 467/467 tests (48 archivos). `tsc --noEmit` y `eslint` limpios
+en `shared/movo-shared` y `movo-svc-users`; `tsc --noEmit` verificado además en
+`gateway`/`movo-svc-shipments` (consumidores de `@movo/shared`) sin romper nada.
+
+Pendiente / fuera de alcance: la lógica del handshake en sí y su consumo de
+`GET /internal/users/:id/device-key` (MOVO-158, ticket hermano en `svc-shipments`,
+todavía sin arrancar); UI de generación de claves en mobile (se resuelve dentro de las
+pantallas de handshake, fuera de alcance explícito del ticket); multi-dispositivo por
+usuario (fuera de alcance explícito del ticket).
+
+### MOVO-171 — `bio` editable del perfil
+
+Columna nullable `bio` en `users.users` (sin backfill, migración a mano en
+`prisma/migrations/20260906125059_add_bio_movo_171/`), expuesta en `PrivateProfile`/
+`PublicProfile` (`@movo/shared`, ver su `CLAUDE.md`) y editable vía
+`PATCH /users/me` (`users.routes.ts`/`.service.ts`).
+
+Decisiones clave:
+- **Requerido, no opcional, en el wire contract** (`bio: string | null`) — a diferencia
+  de otros campos que se fueron agregando de a poco (MOVO-135/152/170), acá se optó por
+  no dejar un estado intermedio "puede no venir": todo perfil lo trae, `null` es el
+  valor explícito de "sin completar", nunca ausencia del campo.
+- **Excluida de `GET /users/search`** a nivel de schema Fastify (`usersSchemas`, no en
+  `publicProfileExtras`) — decisión de producto, no limitación técnica: el objeto que
+  compone el servidor para esa ruta ya trae `bio` poblada (mismo `PublicProfile`
+  reusado por las dos rutas), el schema de respuesta simplemente la descarta.
+- **Editable sin importar el KYC** — a diferencia de `firstName`/`lastName` (bloqueados
+  por `PROFILE_NAME_LOCKED_BY_KYC` una vez validados contra el documento), `bio` no
+  tiene ninguna validación documental que proteger.
+- **`""` nunca se persiste**: `users.service.ts` resuelve el trim a `null` antes de
+  escribir, en un solo lugar (no en el repositorio) para no duplicar la regla.
+- **Bug preexistente corregido de paso**: el `preValidation` de `PATCH /users/me` tenía
+  el whitelist de campos permitidos (`firstName`/`lastName`) hardcodeado por fuera del
+  schema AJV — agregar `bio` al schema no alcanzaba, seguía devolviendo 400
+  `VALIDATION_FAILED` hasta sumarla también a ese `Set` a mano.
+
+Review de PR #133 (Alena Ariza) marcó que el campo requerido rompe la compilación de
+consumidores que construyen `PublicProfile`/`PrivateProfile` a mano sin `bio` —
+corregido en `movo-svc-shipments` (`test/fake-users-client.ts`, agregado `bio: null` al
+fake). El ajuste equivalente del lado `movo-mobile` se resuelve en la rama de
+MOVO-154/176, fuera del alcance de esta PR.
+
+Tests: `test/users.profile-edit.integration.test.ts` (editar/vaciar/no tocar bio,
+`""` → `null`, 400 por `maxLength`/tipo, editable con KYC aprobado),
+`test/users.profile.integration.test.ts` y `test/users-search.integration.test.ts`
+(bio presente en `GET /users/me`/`GET /users/:id`, ausente en `GET /users/search`).
+`tsc --noEmit` limpio en `shared`/`movo-svc-users`/`movo-svc-shipments`.
+Pendiente / fuera de alcance: UI de generación de claves en mobile (se resuelve
+dentro de las pantallas de handshake, MOVO-159/160, fuera de alcance explícito del
+ticket); multi-dispositivo por usuario (fuera de alcance explícito del ticket). La
+lógica del handshake en sí y su consumo de `GET /internal/users/:id/device-key` ya
+se implementó -- ver MOVO-158 en `services/movo-svc-shipments/HISTORIAL.md`.
+
+### MOVO-172 — Ficha de vehículo del transportista
+
+Backend del contrato que `movo-mobile` ya había construido por adelantado en MOVO-176
+(cliente/hook/pantalla/card, todos contra un endpoint que hasta ahora no existía):
+tabla nueva `users.vehicle_profiles` (mismo patrón que `DeviceKey`, MOVO-157 —
+`userId` único, upsert reemplaza la fila anterior, sin multi-vehículo) y `PUT`/
+`GET /users/me/vehicle` en `users.routes.ts`/`.service.ts` (sin módulo propio, mismo
+criterio que `device-key`: concern self-service bajo `/me`).
+
+Decisiones clave:
+- **`GET /me/vehicle` devuelve `null` en vez de 404 cuando no hay ficha cargada** — a
+  diferencia de `registerDeviceKey` (que no tiene endpoint de lectura propio, solo el
+  interno de `svc-shipments`), acá "sin vehículo" es un estado esperado de un GET
+  self-service, no un error. El contrato lo fija el propio cliente mobile ya
+  construido (`vehicleClient.getMyVehicle(): Promise<VehicleProfile | null>`).
+- **`PUT /me/vehicle` devuelve el objeto completo, no un ack** (a diferencia de
+  `registerDeviceKey`, que devuelve `{registeredAt}`) — mismo motivo, el contrato ya
+  estaba fijado del lado mobile.
+- **`PublicProfile.vehicle` sigue el mismo patrón que `bio` (MOVO-171)**: vive en
+  `publicProfileResponse`, no en `publicProfileExtras`, así que se expone en
+  `GET /users/:id` pero se descarta a nivel de schema AJV en `GET /users/search` —
+  transparencia de seguridad para quien entrega su paquete, no un dato de listado.
+- **La query de `vehicle_profiles` en `composePublicProfile` se resuelve siempre**,
+  incluso para `GET /users/search` donde el campo se termina descartando — decisión
+  explícita (confirmada con el usuario) de priorizar consistencia con el trade-off ya
+  aceptado para `bio` en vez de agregar un flag `includeVehicle` para evitar esa query
+  extra evitable.
+- **Tipo de dominio del repo (`vehicle-repository.ts`) con nombre `VehicleProfile`,
+  distinto del `VehicleProfile` de `@movo/shared`** (solo los 4 campos de negocio, sin
+  `id`/timestamps) — `users.service.ts` importa el de `@movo/shared` con alias
+  (`SharedVehicleProfile`) para evitar la ambigüedad en el único archivo donde
+  conviven los dos.
+
+Tests: `test/users.vehicle.integration.test.ts` (17 casos — alta, rotación/upsert
+sin duplicar fila, aislamiento entre usuarios, `GET` sin ficha devuelve `null` no 404,
+401/404 en ambos endpoints, 400 de validación, y el caso explícito del DoD: perfil
+público con y sin vehículo cargado, más `GET /users/search` sin la clave `vehicle`).
+504/504 tests (49 archivos) en `movo-svc-users`. `tsc --noEmit`/`eslint` limpios en
+`movo-svc-users`, `tsc --noEmit` limpio en `gateway`/`movo-svc-shipments` (consumidores
+de `@movo/shared`, el campo nuevo es opcional y no rompe ningún fake existente).
+Del lado `movo-mobile`, se agregó el único test que faltaba (`vehicle-client.test.ts`
+— el resto ya existía desde MOVO-176); DER (`docs/movo_der.dbml`) actualizado con
+`users.vehicle_profiles`.
+
+Pendiente / fuera de alcance: prueba manual de punta a punta (cargar la ficha desde
+`vehicle-info.tsx` y verla en el perfil público de otro usuario) no verificable en
+este entorno.
+
+### MOVO-245 — Preferencias de notificación push: modelo, endpoints y enforcement
+
+Sub-issue de backend de MOVO-239/MOVO-240 (catálogo de push, ver
+`shared/movo-shared/CLAUDE.md`). Módulo nuevo `notification-preferences/`:
+
+- **Dos tablas nuevas de Prisma**: `NotificationPreference` (toggle maestro
+  `pushEnabled` + horario de silencio, una fila por usuario con defaults explícitos —
+  se crea la primera vez que hace falta, sin quedar sparse: es 1 sola fila, no hay
+  beneficio de espacio en dejarla implícita) y `NotificationCategoryPreference`
+  (sparse de verdad — solo existe una fila cuando el usuario tocó el toggle de esa
+  categoría; ausencia de fila = categoría habilitada, AC5). `setCategoryEnabled(...,
+  enabled: true)` **borra** la fila en vez de persistir `true`, para no acumular filas
+  redundantes con el default implícito.
+- **`GET`/`PUT /users/me/notification-preferences`**: `PUT` valida cada key de
+  `categories` contra `isImplementedNotificationCategory` (@movo/shared) — una
+  categoría desconocida o todavía "Pronto" es 400 (el cliente no puede inventar una
+  preferencia sobre algo que no existe), y `quietHours.from`/`.to` contra
+  `isValidTimeOfDay`.
+- **Enforcement real en `notifications.service.ts#sendPushToUser`** (único choke
+  point de push del servicio): antes de mandar, resuelve las preferencias del
+  destinatario y descarta el envío (fail-closed, no tira error, solo no manda) si el
+  toggle maestro está apagado, la categoría del push está deshabilitada, o el horario
+  de silencio está activo y la categoría no es `quietHoursExempt`. `category` pasa a
+  campo obligatorio de `POST /internal/notifications/push` — sin ella, 400.
+- **Fix post-review de PR #182 (efficiency)**: `updatePreferences` disparaba un
+  `getPreferences` extra al final incluso cuando ya tenía el row recién devuelto por
+  `upsertPreferences` — dos round-trips a Postgres por cada `PUT` que tocaba el
+  toggle maestro/horario de silencio. Ahora ese row se resuelve una sola vez (del
+  upsert si hubo cambios, de un `getPreferences` si no hubo ninguno). Los overrides de
+  categoría siguen necesitando su propio fetch aparte (tabla distinta) — eso no
+  cambió. De paso, la validación de categoría pasó a reusar
+  `isImplementedNotificationCategory` (@movo/shared) en vez de reimplementar el mismo
+  chequeo con `.includes` a mano — un solo lugar decide qué categoría es válida.
+
+Tests: unitarios verdes; los de integración (`notification-preferences.integration.
+test.ts`) quedaron escritos pero sin poder correrse en este entorno por falta de
+Postgres/Redis local — pendiente de verificar en CI.
+
+Pendiente / fuera de alcance: mobile de MOVO-246 (pantalla de configuración).
+
+### MOVO-173 — `categories` en el desglose de reputación
+
+Sin lógica nueva: `svc-shipments` calcula `asSender.categories`/`asCarrier.categories`
+(ver su `CLAUDE.md`) y este servicio ya reenviaba el desglose tal cual. Lo único
+necesario fue declarar `categories` en `reputationBreakdown` de `users.schema.ts` —
+sin eso el serializador de Fastify lo descarta en silencio y nunca llega al cliente
+(el test nuevo de `users.reputation.integration.test.ts` falla sin ese campo).
+
+### MOVO-175 — Reportar y bloquear usuarios (ADR-026)
+
+Módulo nuevo `src/modules/moderation/` + `moderation-repository.ts`, tablas
+`user_blocks`/`user_reports` (migración a mano, `prisma migrate diff` datamodel→datamodel
+con el prefijo `users.` agregado). Rutas protegidas bajo `/users` (sin cambios en el
+gateway): `POST /users/:id/report`, `POST`/`DELETE /users/:id/block`, `GET /users/me/blocked`;
+interna `GET /internal/users/:id/block-relations` (unión simétrica, la consume `svc-shipments`).
+
+- **Una fila por dirección, efecto simétrico**: la simetría la resuelve
+  `listRelatedUserIds`, no la tabla — `isBlockedByMe` (nuevo en `GET /users/:id`, solo
+  mirando a otro) necesita saber la dirección, y nunca revela si el otro bloqueó al caller.
+- **Un reporte `pending` por par, ampliable pero no editable**: reportar de nuevo da
+  409 `REPORT_ALREADY_PENDING`; lo que el reportante quiera agregar va como entrada
+  (`POST /users/:id/report/entries`, tabla `user_report_entries`, append-only) y
+  `GET /users/:id/report` devuelve el propio con sus entradas o `null`. Reportes y
+  entradas comparten el tope de 10/día por usuario (Redis `SET NX EX` + `INCR`,
+  `RATE_LIMIT_EXCEEDED`). Solo se persisten — la revisión es de admin, fuera de alcance.
+- **`deleteAccount` borra los bloqueos en ambas direcciones** dentro de su `$transaction`
+  (el `Cascade` nunca dispara por el soft delete); los reportes se conservan como evidencia.
+- `GET /users/search` excluye a cualquiera con un bloqueo en cualquier dirección
+  (`search()` pasa a recibir una lista de ids a excluir).
+
+Pendiente / fuera de alcance: revisión de reportes desde `movo-admin`/`svc-admin`.
+
+**Cambios de review (PR #193)**:
+- Alena1812: el chequeo de pendiente y el INSERT no estaban atados, así que dos pedidos
+  concurrentes creaban dos filas y consumían dos cupos. Migración
+  `20260926120000_unique_pending_report_movo_175`: índice único parcial
+  `(reporter_id, reported_id) WHERE status = 'pending'` (a mano, mismo criterio que
+  MOVO-119). Ante el `P2002` se reintegra el cupo (`DECR` en Lua, solo si la key sigue
+  viva) y se responde el mismo 409.
+- La versión original respondía 200 con el reporte existente y descartaba sin avisar el
+  motivo/detalle del segundo intento. Se reemplazó por el 409 + entradas de arriba
+  (migración `20260926130000_add_user_report_entries_movo_175`).
+
+### MOVO-256 — Fotos de evidencia en un reporte de usuario
+
+Tabla `users.user_report_photos` (migración `20260926230000_add_user_report_photos_movo_256`):
+cada foto pertenece al envío en el que se mandó (`entry_id` null = reporte original), `s3_key`
+único. `user_report_entries.details` pasa a nullable: una entrada puede ser solo fotos (el
+service exige texto o al menos una foto). `POST /users/:id/report/photos/presign` firma un PUT
+(JPEG, 2 MB, mismo criterio que MOVO-81) bajo el prefijo privado `reports/{reporterId}/`; el
+reporte y las entradas reciben `photoKeys` (hasta 4, `MAX_REPORT_PHOTOS_PER_SUBMISSION` de
+`@movo/shared`, el número del mockup de diseño) y el `GET` devuelve una presigned GET por foto
+(`StorageProvider.createDownloadUrl`, nuevo en este servicio, mismo contrato que en
+`svc-shipments`). Nunca públicas como `profile-photos/*` (ADR-016).
+
+- **Asociar una key toma el mismo lock por key que el sweep de huérfanas**
+  (`reportPhotoLockKey`) antes de validar prefijo propio + `headObject` + que no esté ya en
+  otro envío, y lo suelta después del INSERT: sin eso, el sweep podía borrar el objeto entre la
+  validación y la asociación. Las fotos se validan antes de consumir cupo diario (una foto
+  rechazada no gasta cupo); el presign no consume cupo.
+- **El índice único de `s3_key` es la red de seguridad de la carrera**: el P2002 se distingue
+  del de reporte pendiente duplicado buscando `s3_key` en todo `meta` (con el driver adapter
+  viene anidado, ver MOVO-93) — `isReportPhotoKeyConflict`, probado contra Postgres real.
+- **El sweep (`orphan-photo-sweep.ts`) pasó a una lista de prefijos**: `profile-photos` y
+  `reports`, cada uno con su sorted set, su lock global y su fuente de verdad en Postgres.
+- Sin Terraform nuevo: el bucket ya es privado salvo `profile-photos/*` y el rol de la EC2 ya
+  tiene Put/Delete/Get sobre todo el bucket. Sin env vars nuevas.
+- **`POST /users/:id/report/photos/presign` no tiene rate limit propio en el gateway, a
+  propósito**: el cupo diario real se controla al asociar la foto (`reportUser`/
+  `addReportEntry` consumen `RATE_LIMIT_EXCEEDED`, MOVO-175) y el sweep de huérfanas
+  borra las que se presignan y nunca se asocian — un presign de más no cuesta nada real
+  aparte de una fila efímera en Redis, así que no se agregó un override en
+  `gateway/src/config/routes-map.ts`.
+
+Pendiente / fuera de alcance: plazo de retención de las fotos tras la baja de cuenta (candidato
+a ADR, hoy se conservan como el resto del reporte); sumar las imágenes de reportes a la Política
+de Privacidad; revisión desde `movo-admin`.
+
+**Fixes de review (PR #198, Alena1812):**
+- **`REPORT_PHOTO_LOCK_TTL_MS` subido de 5s a 20s + `release()` con compare-and-delete
+  (Lua, token random por lock) en vez de `unlink()` a ciegas**
+  (`moderation.service.ts`): 5s era ajustado contra hasta 4 `headObject` + la consulta
+  de asociadas + el INSERT, y el `release()` viejo podía soltar un lock que ya era del
+  sweep de huérfanas si el propio venció antes de tiempo -- con eso, el sweep podía
+  borrar el objeto de S3 justo antes de que el INSERT terminara. El comentario de
+  `services/movo-svc-users/HISTORIAL.md` que decía "el rol de la EC2 ya tiene Put/Delete/
+  Get sobre todo el bucket" también estaba desactualizado desde MOVO-114 -- ver la
+  entrada transversal de "Pendientes" del `CLAUDE.md` raíz (falta sumar `"reports"` a
+  `ec2_role_s3_prefixes` en `movo-infra` antes de un deploy real).
+### MOVO-174 — `GET /users/:id/mutual-connections`
+
+"Ya envió con N personas con las que vos también enviaste" del perfil. Depende de QUIÉN MIRA
+(`x-user-id`), por eso es un endpoint propio y no un campo de `PublicProfile`.
+`users.service.ts#getMutualConnections` valida al usuario visitado (404 `USER_NOT_FOUND`, `deleted`
+cuenta como "no existe"), consulta a `svc-shipments` (`shipments-client.ts#findMutualConnectionIds`,
+endpoint interno), descarta las contrapartes con cuenta dada de baja (`user-repository.ts#
+countActiveByIds`, `status != deleted`; `banned` sí cuenta) y devuelve `{ totalCount,
+sampleFirstNames: [] }`.
+
+- **`svc-shipments` devuelve ids, no un conteo, porque no sabe qué cuentas se eliminaron** (fix de
+  review de PR #196): sin este filtro, alguien que borró su cuenta seguía contando como conexión en
+  común. Los ids no salen de `getMutualConnections`. Si la base propia falla al contar, el error se
+  propaga: solo la caída de `svc-shipments` degrada a 0.
+- **Decisión de privacidad: solo el conteo.** `sampleFirstNames` viaja SIEMPRE vacío: nombrar a un
+  tercero revelaría que transaccionó con alguien que el viewer conoce, sin su consentimiento. El campo
+  queda en el contrato para poder pasar a nombres sin romper clientes (ese cambio pediría un ADR corto).
+- **Mirar el propio perfil da 0 y no llama a `svc-shipments`** (propio usuario excluido).
+- **Si `svc-shipments` falla, degrada a 0 y loguea** (`mutual_connections_fetch_failed`), igual que la
+  reputación (AC3 de MOVO-152): el mobile oculta la fila con 0, el perfil nunca se cae por esto.
+- Sin cambios en el gateway (`/users` ya se proxea genéricamente) ni env vars nuevas.
+
+### MOVO-274 — Push de KYC y de cuenta y seguridad
+
+Cuatro avisos push nuevos, sobre el modelo de preferencias de MOVO-245: resultado de la verificación
+de identidad/licencia (aprobada, rechazada, en revisión) y cambio confirmado de contraseña, email y
+teléfono. Las categorías `kyc` y `account_security` pasan a `implemented: true` (ver
+`shared/movo-shared/CLAUDE.md`), así que aparecen con toggle real en la pantalla de MOVO-246 sin
+tocar mobile. Todo sale por `notifications/send-trigger-push.ts#sendTriggerPush` (renderiza el trigger de
+`@movo/shared`, llama a `sendPushToUser` y se traga cualquier error con un `warn`: el equivalente de
+`sendCustodyPush` de `svc-shipments`).
+
+- **KYC avisa desde `kyc.service.ts#notifyDecision`, solo con lo que devuelve `applyTerminalDecision`**:
+  webhook y pull comparten esa compuerta de idempotencia, así que un webhook repetido, o el pull que
+  llega después del webhook, no manda un segundo push. `expired` aplica la transición pero no avisa (no
+  es un resultado). El copy no lleva el motivo del rechazo ni datos del documento (AC9 de MOVO-72).
+  **`manual_review` como destino parte solo de `pending`** (review de PR #215): Didit repite `In Review`
+  mientras dura la revisión humana, y con `manual_review` también como origen la compuerta lo contaba como
+  una transición `manual_review` → `manual_review` (devolvía la fila, reescribía `resolvedAt`/`raw_decision`
+  y repetía el push en cada webhook duplicado o "actualizar estado"). Los resultados finales
+  (`approved`/`rejected`/`expired`) siguen partiendo de `pending` y `manual_review`.
+- **Cuenta y seguridad**: contraseña (`changePassword` y `resetPassword`, después de revocar las
+  sesiones), teléfono (`verifyPhoneChange`, hasta ahora sin ningún aviso) y email (`verifyEmailChange`,
+  además del mail al email anterior). El push se suma a los avisos por SMS/mail, no los reemplaza.
+  `account_security` es la primera categoría con `quietHoursExempt: true` en uso: atraviesa el horario de
+  silencio. Los textos no incluyen el email ni el número nuevo (el push se ve con el teléfono bloqueado).
+- **Siempre best-effort y después de persistir**: un push caído no revierte ni cambia la respuesta (en KYC
+  importa doble: si lanzara, el webhook respondería 5xx y Didit reintentaría un evento ya aplicado).
+- **`createKycService`, `createUsersService` y `createPasswordResetService` reciben `notifications:
+  PushSender` como parámetro obligatorio**; los tres módulos de rutas lo arman con `pushProvider`
+  inyectable (`buildApp({ pushProvider })`), el mismo override que ya usa `/internal/notifications`.
+- Tests unitarios con mocks, sin base: `send-trigger-push.test.ts`, `kyc.push.test.ts`,
+  `account-security.push.test.ts`. Los de integración de cada flujo no se tocaron.
+
+Pendiente / fuera de alcance: login desde un dispositivo nuevo (el login no tiene hoy registro de
+dispositivos conocidos); verificar en CI la suite de integración completa, que no se pudo correr en la
+máquina donde se desarrolló (la contraseña del Postgres local estaba desfasada del `.env`, ver MOVO-228).
+
+### MOVO-116 — `GET /internal/users/:id/kyc-status`
+
+Endpoint interno (`src/modules/kyc/kyc-internal.routes.ts`, `schema.hide: true`, sin ruta en el
+gateway) que devuelve `{ kycStatusIdentity, kycStatusLicense }` crudos para el bloqueo del
+transportista de `svc-shipments` (ADR-036). Más liviano que `GET /users/:id`, que además pide
+la reputación a `svc-shipments`. 404 `USER_NOT_FOUND` si no existe o está `deleted` (mismo
+criterio que MOVO-77). Test: `test/kyc.internal-status.integration.test.ts`.
+
+**MOVO-265 (ADR-042)**: la respuesta suma `accountStatus` y `bannedUntil` (ISO o `null`), así
+`svc-shipments` corta la serie de viajes recurrentes de una cuenta suspendida. `deleted` sigue
+siendo 404. Los dos campos son opcionales en `CarrierKycStatusResponse` para que un
+`svc-shipments` nuevo tolere este servicio sin actualizar durante el deploy.
+
+### MOVO-287 — Sesión de panel: login con email + OTP y `admin` solo en esa sesión
+
+`POST /auth/admin/login` (email + contraseña → OTP por email, devuelve `challengeId`, nunca
+tokens), `/auth/admin/verify`, `/auth/admin/refresh` y `/auth/admin/logout`, en
+`src/modules/auth/admin-session.service.ts`. `isPanelEligible` (rol `admin` + email verificado +
+cuenta `active`) es la única regla y se revalida en el login, en el verify y en cada refresh.
+`issueSession()` (sesión de la app: register, login, refresh y cambio de contraseña) filtra
+`admin` del JWT y de la respuesta.
+
+- **Namespace propio en Redis** (`panel-refresh:{userId}:{tokenId}`, con `absoluteExpiresAt`):
+  así se pueden revocar las sesiones de panel sin tocar las de la app
+  (`revokePanelSessionsForUser`, que usarán MOVO-290 y MOVO-296), y un refresh de un tipo no
+  sirve en el endpoint del otro. Cada rotación copia el vencimiento de 8 h y la key nueva
+  vive solo lo que le queda. `revokeAllForUser` barre los dos prefijos.
+- **Corte del access token de panel**: `panel-revoked-at:{userId}`, que el gateway mira solo
+  en tokens con `admin` (ver `gateway/CLAUDE.md`). `user-revoked-at` cortaría también la app.
+- **AC3 sin señuelo**: las cuatro causas de rechazo dan el mismo 401 y pasan por exactamente
+  un Argon2id (`DUMMY_HASH` si el email no existe) antes de mirar rol y estado.
+- **Límite por email en el servicio, no en el gateway** (desvío de la letra del AC9): el
+  gateway no parsea el body y aplica un solo limiter por request. 5 intentos cada 15 min por
+  hash del email, contando todos los intentos, así un 429 no revela si la cuenta existe.
+- El reenvío del código usa `POST /auth/resend-otp` con el `challengeId` como `otpId`.
+
+Pendiente / fuera de alcance: alta y baja del rol (MOVO-290), UI del login (MOVO-291).
+
+**Fixes de review (PR #244, PedroYorlano):**
+- **Límite del login por email + IP, no solo por email**: con solo el email, cualquiera que lo
+  conociera dejaba afuera al admin con 5 intentos cada 15 min. La IP llega en `x-client-ip`, que
+  inyecta el gateway (y pisa la del cliente). El contador es un Lua (`INCR` + `EXPIRE` si no tiene
+  TTL): con `SET NX` + `INCR` separados, si la key vencía entre los dos quedaba sin TTL y en 429 para
+  siempre.
+- **Carrera entre revocar y un refresh/verify en paralelo**: `revokePanelSessionsForUser` escribe
+  `panel-revoked-at` antes de barrer, `savePanelRefreshToken` no guarda (Lua) el refresh de una
+  sesión que arrancó antes de la marca (inicio = vencimiento absoluto − 8 h) y `issuePanelSession`
+  firma el access token antes de guardar; el gateway compara el panel con `<=`. Guardar devuelve
+  `ok | expired | revoked` y los dos últimos son 401 (antes, el último segundo de la sesión daba 500).
+- **`session: "panel"` en el access token de panel**: el gateway solo respeta `admin` con ese claim.
+- **`revokeAllForUser` solo toca la app**: el reuso de un refresh de la app o un logout-all ya no
+  cierran el panel. Cambio y reset de contraseña y baja de cuenta llaman además a
+  `revokePanelSessionsForUser`.
+- Un refresh armado a mano con `:` en los ids (`a:b.c.d`) es 401, no 500 (app y panel). Los métodos
+  de app y panel del repositorio comparten implementación (namespace como parámetro). El TTL del
+  access token de la app sale de `ACCESS_TOKEN_TTL_SECONDS` de `@movo/shared`.
+
+### MOVO-290 — Alta y baja del rol admin: script de CLI y endpoints internos
+
+`src/modules/admins/admin-roles.service.ts` concentra las reglas para endpoints internos (`GET`/`POST /internal/admins`, `DELETE /internal/admins/:userId`) y el script `src/scripts/admin-role.ts`. Otorgar exige email verificado y cuenta `active` (idempotente, best-effort email notice). Revocar y baja de cuenta (`deleteAccount`) respetan la invariante compartida de nunca cero admins elegibles (`FOR UPDATE OF ur, u ORDER BY ur.user_id` -> 409 `ADMIN_LAST_ADMIN`) y cortan sesiones de panel en Redis. El CLI valida solo su configuración y `grant` no depende de Redis. Baneo pendiente en MOVO-296: deberá usar el mismo invariante. Procedimiento para el primer admin: ver `docs/admin/primer-admin.md`.
+
+La búsqueda `GET /internal/admins/candidates` autocompleta por nombre o email para el alta desde el panel. Excluye cuentas eliminadas y usuarios que ya tienen el rol admin; devuelve `isAdmin: false` para los candidatos. Requiere al menos dos caracteres y tiene cobertura de integración en `test/admins.integration.test.ts`.
+
+El login del panel acepta email o teléfono argentino normalizado. `POST /auth/forgot-password` acepta `panelOnly` para devolver una respuesta señuelo sin enviar OTP cuando la cuenta no puede entrar al panel; así el flujo de recuperación del panel no dispara correos a usuarios comunes.
+
+### MOVO-288 — `GET /internal/user-reports/:id/parties`
+
+Interno (en `internalModerationRoutes`, `hide: true`, sin ruta en el gateway): devuelve
+`UserReportParties` (`reporterId`, `reportedId`) para la regla de conflicto de interés de
+`svc-admin` (un admin no modera un reporte que lo involucra). 404 `REPORT_NOT_FOUND` si no existe.
+`moderation-repository.ts#findReportParties`. Test:
+`test/moderation.internal-parties.integration.test.ts`.
+
+### MOVO-291 — Refresh concurrente del panel
+
+`/auth/admin/refresh` acepta `Idempotency-Key` opcional: Redis coordina una sola
+rotación y comparte su respuesta cifrada por 10 segundos con la misma clave/token.
+Revalida elegibilidad, expiración y revocación; logout invalida la publicación y su hijo.
+Otras claves, solicitudes sin clave y fuera de ventana conservan detección de reuso;
+una rotación incompleta falla cerrado. Política y límites: `docs/auth/adr-043-refresh-idempotente-panel.md`.
+
+### MOVO-169 — Persistencia de los tours del tutorial in-app (backend)
+
+Tabla `users.user_tour` (PK `(user_id, tour_id)`, `version`, `outcome` enum `completed|skipped`, `recorded_at`),
+`PUT /users/me/tours/:tourId` (`src/modules/tours/`, repo `user-tour-repository.ts`) y `tours` en el perfil privado
+(`composePrivateProfile`, así que viaja en `GET /users/me` y en los demás endpoints que devuelven el perfil).
+`tour_id` es texto validado contra `TOUR_IDS` de `@movo/shared`, no enum: sumar un tour no pide migración.
+**La versión nunca baja**: un PUT con versión menor a la registrada no pisa y devuelve la vigente, para que una
+instalación vieja no haga reaparecer un tour en la nueva. Relanzar un tour a mano no escribe acá (lo resuelve el
+cliente). La parte mobile (coach marks, disparo de los tours, sheet de "Ayuda y soporte") va en una PR aparte.
+
+### MOVO-294 — Búsqueda y ficha de usuarios del panel, acciones de soporte
+
+Internos para `svc-admin` en `src/modules/admin-users/` (`/internal/admin/users`, sin ruta en el gateway): búsqueda
+paginada, perfil, KYC (intentos con el motivo derivado de `raw_decision.warnings`, sin biometría), vehículo,
+moderación (las 50 más recientes por lista + totales), dispositivos (sin token de Expo ni clave pública), nombres en
+batch (`POST .../names`) y las acciones de cerrar sesiones y cambiar email/teléfono.
+
+- **Búsqueda en SQL crudo**: nombre sin tildes con `translate()` (la extensión `unaccent` no está instalada), en los
+  dos órdenes; teléfono normalizado con `normalizePhoneToE164Ar` sacando antes el `0` de larga distancia y el `15` de
+  celular, que el login no contempla (el `15` se prueba en cada posición posible tras una característica de 2 a 4
+  dígitos); teléfono/DNI parcial desde 3 dígitos. `matchedBy` con prioridad nombre → email → DNI → teléfono.
+  **Sin índice, limitación aceptada**: `LIKE '%x%'` sobre `translate(lower(...))` de cuatro expresiones, dos veces
+  (página y `COUNT`), y un recorrido completo con `q` vacío. Alcanza para el volumen del TFG; si crece, `pg_trgm` con
+  índices GIN sobre esas expresiones.
+- **Columna `deleted_at`** (la fija `anonymizeAndDelete`), sin backfill: `updated_at` no sirve de aproximación.
+- **Cambio de contacto**: `UPDATE` condicionado al valor que vio el admin (`expectedCurrent`, 409 `CONTACT_CHANGED`),
+  queda sin verificar, corta app + panel + access tokens emitidos, y avisa por email (anterior y nuevo). Después del
+  `UPDATE` nada puede responder error (review de PR #279: la bitácora diría `failed` sobre un cambio aplicado): si el
+  corte de sesiones (Redis) o un aviso fallan, se loguea y se informa `sessionsRevokeFailed`/`noticeFailed`.
+- **Re-verificar el teléfono**: el login no exige `phoneVerified`, pero no había forma de verificar el número actual.
+  `requestPhoneChange` ahora acepta el mismo número si está sin verificar (reusa la pantalla de mobile, sin gateway).
+
+### MOVO-296 — Sanciones de cuenta: suspensión e inhabilitación
+
+`AccountStatus` suma `suspended` al final; `banned` pasa a significar **inhabilitada**. Historial en `users.account_sanctions` (migración `20261020230000`): tipo, motivo visible, nota interna, inicio, fin, admin y los campos de levantamiento (`lifted_*`, `closed_cause`: `lifted|replaced|escalated|expired`). Un trigger deja la tabla append-only salvo los campos de cierre, y un índice único parcial garantiza una sola sanción vigente (`lifted_at IS NULL`) por usuario. `User.status`/`bannedUntil` son la caché de la vigente y `effectiveAccountStatus` (`models/user.ts`) trata una suspensión vencida como `active` en toda lectura de usuario.
+
+`src/modules/sanctions/`: servicio + `POST /internal/users/:id/sanctions`, `POST .../:sanctionId/lift`, `GET .../sanctions` (internos, sin ruta en el gateway; el admin llega en `x-user-id`). Suspender a un suspendido reemplaza la vigente; inhabilitar la escala; inhabilitar a un inhabilitado es 409 `ACCOUNT_ALREADY_DISABLED`. Sancionar a un admin pasa por `ensureNotLastEligibleAdmin` (409 `ADMIN_LAST_ADMIN`, se chequea antes de bloquear la fila para no invertir el orden de locks) y corta sus sesiones de panel; inhabilitar corta además las de la app. Login y refresh solo rechazan `banned` (`ACCOUNT_DISABLED`) y `deleted` (`ACCOUNT_SUSPENDED`, como antes) vía `assertAccountCanSignIn`; `password-reset` ya rechazaba solo esos dos, sin cambios.
+
+**Marca en Redis** `account:restriction:<userId>` = `suspended|disabled` (`accountRestrictionKey` en `@movo/shared`, para que la lea el gateway en MOVO-298). TTL = fin de la suspensión; indefinida e inhabilitación sin TTL. Los efectos fuera de Postgres corren tras el commit y son best-effort (log de error, no revierten la sanción): la verdad es la tabla. `plugins/sanction-sweep.ts` (`SANCTION_SWEEP_INTERVAL_MINUTES`=5, `SANCTION_SWEEP_ENABLED`; lock en Redis) cierra las suspensiones vencidas (cierre con el fin como fecha, aviso) y reescribe las marcas de todas las vigentes, también una vez al arrancar (`onReady`). Avisos push + email (`accountSuspended|Disabled|SanctionLifted|SuspensionExpired`, categoría `account_security`) con motivo y plazo, nunca la nota interna. `PublicProfile.accountStatus` (`active|suspended|disabled`, `banned` se publica como `disabled`) viaja también en `GET /users/search`; se actualizó el comentario de `getPublicProfile` (MOVO-77).
+
+Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `svc-admin` (MOVO-299), y mobile (MOVO-300: hasta entonces el login de una cuenta inhabilitada devuelve `ACCOUNT_DISABLED`, código que la app todavía no mapea).
+
+Fixes de review (PR #280): la migración hace backfill de las cuentas `banned` previas como una sanción `disable` con `applied_by` NULL (= sistema; por eso es nullable), así se pueden levantar por la API y salen en la ficha; la marca de Redis les llega por el barrido. `GET /users/me` serializa `accountStatus` con `suspended` (antes 500). El barrido deja cada marca igual a la sanción vigente leída de Postgres y la re-verifica tras escribir (`syncMark`), para no pisar un lift/apply concurrente. Los avisos de apply/lift/vencimiento salen en segundo plano (el panel no espera a Resend) y el push de una sanción **no es silenciable** (`ignorePreferences`; sigue necesitando un token de push y el mail sale siempre). ADR-049. La app mapea `ACCOUNT_DISABLED` a un mensaje propio hasta MOVO-300. Una suspensión pausa (no apaga) las series recurrentes de `svc-shipments`.

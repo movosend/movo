@@ -12,9 +12,11 @@ export interface DbHealthResult {
   error?: string;
 }
 
-export default fp<DbPluginOptions>(async (app: FastifyInstance, opts: DbPluginOptions) => {
-  const connectionString = opts.connectionString || app.config?.DATABASE_URL || process.env.DATABASE_URL;
-
+/**
+ * Fuera del plugin para que los scripts de CLI (MOVO-290, `src/scripts/`) armen el mismo
+ * cliente sin levantar Fastify.
+ */
+export function createPrismaClient(connectionString: string | undefined): PrismaClient {
   // El adapter de Prisma envuelve un pool de `pg` — mismos timeouts que tenía el
   // Pool a mano (MOVO-85): statement_timeout/query_timeout para que Postgres (o
   // pg-pool) corte una query colgada en vez de agotar el pool con clientes idle
@@ -28,7 +30,13 @@ export default fp<DbPluginOptions>(async (app: FastifyInstance, opts: DbPluginOp
     query_timeout: 5_000,
   });
 
-  const prisma = new PrismaClient({ adapter });
+  return new PrismaClient({ adapter });
+}
+
+export default fp<DbPluginOptions>(async (app: FastifyInstance, opts: DbPluginOptions) => {
+  const connectionString = opts.connectionString || app.config?.DATABASE_URL || process.env.DATABASE_URL;
+
+  const prisma = createPrismaClient(connectionString);
 
   const checkDbHealth = async (): Promise<DbHealthResult> => {
     try {

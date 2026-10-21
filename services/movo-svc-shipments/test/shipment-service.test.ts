@@ -104,6 +104,7 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
     findPotentiallyPickupMissed: vi.fn().mockResolvedValue([]),
     findInTransitUnflagged: vi.fn().mockResolvedValue([]),
     flagTransitAnomaly: vi.fn().mockResolvedValue(true),
+    hasOpenDisputeAsCarrier: vi.fn().mockResolvedValue(false),
     hasActiveShipmentsForUser: vi.fn().mockResolvedValue({ hasActiveDispute: false, hasActiveShipments: false }),
     countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 0, asCarrier: 0 }),
     countDeliveredAsCarrierByIds: vi.fn().mockResolvedValue(new Map()),
@@ -459,6 +460,29 @@ describe("shipments.service — createShipment", () => {
     expect(repository.create).toHaveBeenCalled();
   });
 
+  it("rechaza un paquete fuera de los límites inyectados, antes de svc-users y de pricing (MOVO-276)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({});
+    const findPublicProfileSpy = vi.spyOn(usersClient, "findPublicProfile");
+    const pricingClient = createFakePricingClient();
+    const service = createShipmentsService(repository, usersClient, createFakeNotificationsClient(), undefined, {
+      pricingClient,
+      packageLimits: { maxWeightKg: 20, maxSideCm: 150, maxSidesSumCm: 300 },
+    });
+
+    const error = await service.createShipment({ ...baseInput, weightKg: 25 }).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      statusCode: 422,
+      code: "PACKAGE_LIMITS_EXCEEDED",
+      details: { violations: ["peso de 25 kg (máximo 20 kg)"] },
+    });
+    expect(findPublicProfileSpy).not.toHaveBeenCalled();
+    expect(pricingClient.getQuote).not.toHaveBeenCalled();
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
   it("notifica al receptor tras crear el envío (AC1 de MOVO-108)", async () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({
@@ -588,7 +612,26 @@ describe("shipments.service — getShipmentDetail", () => {
 
     await expect(
       service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER])
-    ).resolves.toEqual({ ...shipment, offersSummary: null });
+    ).resolves.toEqual({ ...shipment, offersSummary: null, debtDiscount: null });
+  });
+
+  it("MOVO-315: muestra el descuento estimado al transportista en el detalle público", async () => {
+    const shipment = fakeShipment({ status: ShipmentStatus.PUBLISHED });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const paymentsClient = createFakePaymentsClient([], {}, {
+      pendingDebtByUserId: new Map([["carrier-id", 1000]]),
+    });
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+
+    const result = await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER]);
+
+    expect(paymentsClient.previewCarrierDebt).toHaveBeenCalledWith("carrier-id", [2100]);
+    expect(result.debtDiscount).toEqual({ amountArs: 630, reason: "pending_balance" });
   });
 
   it("MOVO-180: un transportista verificado ve el agregado de ofertas vigentes (sin identidad de competidores)", async () => {
@@ -778,6 +821,32 @@ describe("shipments.service — listAvailableShipments (MOVO-142)", () => {
     expect(result.limit).toBe(20);
     expect(offerRepository.listPendingOfferedShipmentIds).toHaveBeenCalledWith("carrier-id", ["shipment-1"]);
   });
+
+  it("MOVO-315: calcula los descuentos del feed en un solo preview y mantiene el orden", async () => {
+    const first = { ...fakeShipment({ id: "shipment-1", suggestedPriceArs: 2100 }), pickupDistanceKm: 1, deliveryDistanceKm: 1, distanceKm: 2 };
+    const second = { ...fakeShipment({ id: "shipment-2", suggestedPriceArs: 1000 }), pickupDistanceKm: 2, deliveryDistanceKm: 2, distanceKm: 4 };
+    const repository = fakeRepository({
+      listAvailable: vi.fn().mockResolvedValue({ items: [first, second], total: 2 }),
+    });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const paymentsClient = createFakePaymentsClient([], {}, {
+      pendingDebtByUserId: new Map([["carrier-id", 1000]]),
+    });
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+
+    const result = await service.listAvailableShipments("carrier-id", [UserRole.CARRIER], query);
+
+    expect(paymentsClient.previewCarrierDebt).toHaveBeenCalledTimes(1);
+    expect(paymentsClient.previewCarrierDebt).toHaveBeenCalledWith("carrier-id", [2100, 1000]);
+    expect(result.items.map((item) => item.debtDiscount)).toEqual([
+      { amountArs: 630, reason: "pending_balance" },
+      { amountArs: 300, reason: "pending_balance" },
+    ]);
+  });
 });
 
 describe("shipments.service — shipment interactions (events, accept, reject)", () => {
@@ -913,6 +982,11 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
           deliveryLng: shipment.deliveryLng,
           excludeCarrierIds: [shipment.senderId, shipment.receiverId],
           radiusKm: 15,
+          // MOVO-314: ventana de retiro 09:00-12:00 ART del 2030-01-01.
+          pickupWindow: {
+            start: new Date("2030-01-01T12:00:00.000Z"),
+            end: new Date("2030-01-01T15:00:00.000Z"),
+          },
         });
       });
       // Peter (comentario de Linear): solo se llama a pricing-logistics para los
@@ -1699,14 +1773,24 @@ describe("shipments.service — cancelShipment (MOVO-29/MOVO-108)", () => {
     expect(repository.updateStatus).not.toHaveBeenCalled();
   });
 
-  it("rechaza con 409 SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED cancelar desde assigned", async () => {
-    const shipment = fakeShipment({ senderId: "sender-id", status: ShipmentStatus.ASSIGNED });
+  it("MOVO-307: desde assigned con menos de 12 h, un monto confirmado distinto es 409 CANCELLATION_PENALTY_MISMATCH", async () => {
+    // Retiro en 1 h (reloj argentino anclado a UTC, como las columnas @db.Date/@db.Time).
+    const wallStart = new Date(Date.now() + 60 * 60 * 1000 - 3 * 60 * 60 * 1000);
+    const shipment = fakeShipment({
+      senderId: "sender-id",
+      status: ShipmentStatus.ASSIGNED,
+      agreedPriceArs: 1000,
+      pickupDate: new Date(Date.UTC(wallStart.getUTCFullYear(), wallStart.getUTCMonth(), wallStart.getUTCDate())),
+      pickupTimeWindowStart: new Date(Date.UTC(1970, 0, 1, wallStart.getUTCHours(), wallStart.getUTCMinutes())),
+      pickupTimeWindowEnd: new Date(Date.UTC(1970, 0, 1, 23, 59, 59)),
+    });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
     const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
-    await expect(service.cancelShipment(shipment.id, "sender-id")).rejects.toMatchObject({
+    await expect(service.cancelShipment(shipment.id, "sender-id", undefined, 100)).rejects.toMatchObject({
       statusCode: 409,
-      code: "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED",
+      code: "CANCELLATION_PENALTY_MISMATCH",
+      details: { penaltyArs: 250 },
     });
     expect(repository.updateStatus).not.toHaveBeenCalled();
   });
@@ -1761,10 +1845,16 @@ describe("shipments.service — cancelShipment (MOVO-29/MOVO-108)", () => {
       expect(offerRepository.listByShipment).toHaveBeenCalledWith(shipment.id);
       expect(notificationsClient.sendPush).toHaveBeenCalledTimes(2);
       expect(notificationsClient.sendPush).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: "carrier-1", data: { type: "shipment", shipmentId: shipment.id } })
+        expect.objectContaining({
+          userId: "carrier-1",
+          data: { type: "offer_voided", shipmentId: shipment.id, offerId: "offer-pending-1" },
+        })
       );
       expect(notificationsClient.sendPush).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: "carrier-2", data: { type: "shipment", shipmentId: shipment.id } })
+        expect.objectContaining({
+          userId: "carrier-2",
+          data: { type: "offer_voided", shipmentId: shipment.id, offerId: "offer-pending-2" },
+        })
       );
       expect(notificationsClient.sendPush).not.toHaveBeenCalledWith(expect.objectContaining({ userId: "carrier-3" }));
     }
