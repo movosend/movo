@@ -123,7 +123,8 @@ habilitantes del transportista · 037 saga de asignación · 038 transferencia d
 panel · 044 cuenta corriente del usuario · 045 salida de `in_transit` demorado ·
 046 push de chat · 047 (propuesto) penalidad de cancelación ·
 048 cuenta cobradora de Movo por credenciales · 049 sanciones de cuenta: suspensión,
-inhabilitación y marca en Redis
+inhabilitación y marca en Redis ·
+050 plazo del hold de MP (5 días) y N=3
 
 ## Convenciones de código
 
@@ -283,7 +284,7 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
   bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049 (012-018 ya están pegados en
+  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049, 050 (012-018 ya están pegados en
   el doc de Sprint 0, confirmado al buscar dónde iba ADR-022 — la lista anterior acá
   estaba desactualizada). **ADR-022 tiene su contenido completo ya redactado**, en un
   doc aparte (`ADR-022 - Canal de tiempo real (WebSocket nativo) - pegar en Sprint 0`,
@@ -320,6 +321,15 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   de negocio en el barrel en vez de en el `envSchema` de un servicio), todavía no
   escrito. `MOVO_COMMISSION_RATE` (15%) está confirmado; `MP_TRANSACTION_FEE_RATE` es un
   estimado a propósito, ver la entrada de MOVO-225 más abajo.
+
+### MOVO-215 — Plazo del hold de MP y N de la saga (spike cerrado)
+
+El sandbox de MP no vence holds: dos holds siguieron `authorized` ~188 h (13/10 al 21/10),
+más que los 5 y 7 días documentados. Se queda el mínimo documentado: `MP_HOLD_VALIDITY_DAYS=5`
+(`svc-payments`) y `FUNDING_NEAR_PICKUP_DAYS=3` (`svc-shipments`), sin cambio de defaults
+(ADR-050, `docs/payments/adr-050-plazo-del-hold.md`; medición en
+`docs/payments/mercadopago-spike/HOLD-EXPIRY-MEASUREMENT.md`). Sin confirmar: el
+`status_detail` de un hold vencido que asume el webhook de MOVO-268 (`cancelled`+`expired`).
 
 ### MOVO-225 — Comisión de Mercado Pago: estimado, no valor contractual
 
