@@ -61,6 +61,10 @@ export type NotificationTriggerKey =
   | "accountPasswordChanged"
   | "accountEmailChanged"
   | "accountPhoneChanged"
+  | "accountSuspended"
+  | "accountDisabled"
+  | "accountSanctionLifted"
+  | "accountSuspensionExpired"
   | "ratingPendingSender"
   | "ratingPendingReceiver"
   | "ratingPendingCarrier"
@@ -126,6 +130,16 @@ function formatEtaDuration(etaMinutes: number): string {
 /** Monto en pesos con 2 decimales, formato argentino (`1.234,50`). */
 function formatArs(amount: number): string {
   return amount.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Fecha en horario argentino (`25/10/2026`), para los avisos de sanciones. */
+function formatArgentinaDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 function definition<TParams = void>(
@@ -583,6 +597,31 @@ export const NOTIFICATION_TRIGGERS = {
     "account_security",
     { title: "Cambiaste tu teléfono", body: "El teléfono de tu cuenta se actualizó correctamente." },
     () => ({ title: "Cambiaste tu teléfono", body: "El teléfono de tu cuenta se actualizó correctamente." })
+  ),
+  // MOVO-296: sanciones de cuenta. El motivo es el visible al usuario, nunca la nota
+  // interna. `until` es ISO; `null` = suspensión indefinida.
+  accountSuspended: definition<{ reason: string; until: string | null }>(
+    "account_security",
+    { title: "Suspendimos tu cuenta", body: "Tu cuenta está suspendida. Entrá a la app para ver el motivo." },
+    ({ reason, until }) => ({
+      title: "Suspendimos tu cuenta",
+      body: `${until ? `Tu cuenta está suspendida hasta el ${formatArgentinaDate(until)}.` : "Tu cuenta está suspendida."} Motivo: ${reason}`,
+    })
+  ),
+  accountDisabled: definition<{ reason: string }>(
+    "account_security",
+    { title: "Inhabilitamos tu cuenta", body: "Tu cuenta fue inhabilitada. Entrá a la app para ver el motivo." },
+    ({ reason }) => ({ title: "Inhabilitamos tu cuenta", body: `Tu cuenta fue inhabilitada. Motivo: ${reason}` })
+  ),
+  accountSanctionLifted: definition<void>(
+    "account_security",
+    { title: "Levantamos la restricción de tu cuenta", body: "Tu cuenta volvió a estar activa." },
+    () => ({ title: "Levantamos la restricción de tu cuenta", body: "Tu cuenta volvió a estar activa." })
+  ),
+  accountSuspensionExpired: definition<void>(
+    "account_security",
+    { title: "Terminó la suspensión de tu cuenta", body: "Tu cuenta volvió a estar activa." },
+    () => ({ title: "Terminó la suspensión de tu cuenta", body: "Tu cuenta volvió a estar activa." })
   ),
   // MOVO-274: calificación pendiente, solo al confirmarse la entrega (sin recordatorio
   // diferido por ahora). Copy propio por rol, mismo pareo de "interacción física" que

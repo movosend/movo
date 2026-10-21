@@ -1,7 +1,9 @@
 import {
+  AccountStatus,
   KycStatus,
   type PrivateProfile,
   type ProfileBadge,
+  type PublicAccountStatus,
   type PublicProfile,
   type RecentRatingComment,
   type ReputationBreakdown,
@@ -84,6 +86,17 @@ export function toPrivateProfile(
  * liviana, ver el comentario del tipo en `@movo/shared`) y poblado desde
  * `getPublicProfile` -- esta función no distingue los casos, solo mapea lo que el
  * caller ya resolvió. */
+/**
+ * MOVO-296 AC9: lo único de la sanción que ve un tercero. `banned` (inhabilitada) se publica
+ * como `disabled`; nunca el motivo, el plazo ni la nota interna. `deleted` no llega acá
+ * (el perfil responde 404).
+ */
+export function toPublicAccountStatus(status: AccountStatus): PublicAccountStatus {
+  if (status === AccountStatus.SUSPENDED) return "suspended";
+  if (status === AccountStatus.BANNED) return "disabled";
+  return "active";
+}
+
 export function toPublicProfile(
   user: User,
   reputation: ReputationBreakdown & { asSender: ReputationBreakdown; asCarrier: ReputationBreakdown },
@@ -93,6 +106,7 @@ export function toPublicProfile(
 ): PublicProfile {
   return {
     id: user.id,
+    accountStatus: toPublicAccountStatus(user.status),
     fullName: fullName(user),
     photoUrl: user.photoUrl,
     isVerified: user.kycStatusIdentity === KycStatus.APPROVED,

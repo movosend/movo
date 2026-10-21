@@ -323,6 +323,27 @@ describe("viajes recurrentes (MOVO-265)", () => {
       expect((sendPush.mock.calls[0][0] as { body: string }).body).toContain("No pudimos declarar tu próximo viaje");
     });
 
+    it("MOVO-296: una cuenta suspendida pausa la serie sin cortarla ni avisar, y la retoma al levantarse", async () => {
+      const head = await createPastRecurringTrip();
+      const overrides: Record<string, { accountStatus: AccountStatus }> = {
+        [head.carrierId]: { accountStatus: AccountStatus.SUSPENDED },
+      };
+      const usersClient = createFakeUsersClient({}, {}, [], overrides);
+      const { deps, sendPush } = recurrenceDeps({ usersClient });
+
+      const paused = await generateRecurringOccurrences(deps);
+
+      expect(paused).toEqual({ generated: 0, stopped: 0, deferred: 1, alreadyGenerated: 0 });
+      expect(await successorOf(head.id)).toBeNull();
+      expect((await tripRepo.findById(head.id))!.recurrenceWeekdays).toEqual(head.recurrenceWeekdays);
+      expect(sendPush).not.toHaveBeenCalled();
+
+      overrides[head.carrierId] = { accountStatus: AccountStatus.ACTIVE };
+      const resumed = await generateRecurringOccurrences(deps);
+      expect(resumed.generated).toBe(1);
+      expect(await successorOf(head.id)).not.toBeNull();
+    });
+
     it("una suspensión temporal ya vencida no corta", async () => {
       const head = await createPastRecurringTrip();
       const usersClient = createFakeUsersClient({}, {}, [], {

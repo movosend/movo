@@ -58,6 +58,7 @@ export function createFakeUsersClient(
 
 export function fakePublicProfile(overrides: Partial<PublicProfile> & { id: string }): PublicProfile {
   return {
+    accountStatus: "active",
     fullName: "Receptor de Prueba",
     photoUrl: null,
     isVerified: true,

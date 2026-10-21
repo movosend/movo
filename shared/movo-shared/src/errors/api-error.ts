@@ -8,6 +8,12 @@ export type ApiErrorCode =
   | "AUTH_TOKEN_INVALID"
   | "AUTH_FORBIDDEN"
   | "ACCOUNT_SUSPENDED"
+  | "ACCOUNT_DISABLED"
+  // MOVO-296: sanciones de cuenta. Inhabilitar a una cuenta ya inhabilitada; levantar una
+  // sanción que no existe o que ya está cerrada.
+  | "ACCOUNT_ALREADY_DISABLED"
+  | "SANCTION_NOT_FOUND"
+  | "SANCTION_ALREADY_CLOSED"
   | "VALIDATION_FAILED"
   | "NOT_FOUND"
   | "RATE_LIMIT_EXCEEDED"

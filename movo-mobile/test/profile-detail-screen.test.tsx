@@ -53,6 +53,7 @@ jest.mock("@react-native-menu/menu", () => {
 function baseProfile(overrides: Partial<PublicProfile> = {}): PublicProfile {
   return {
     id: "user-2",
+    accountStatus: "active",
     fullName: "Julia Bertolino",
     photoUrl: null,
     isVerified: true,

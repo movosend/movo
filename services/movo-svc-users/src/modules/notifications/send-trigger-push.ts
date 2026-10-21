@@ -21,6 +21,8 @@ export async function sendTriggerPush<K extends NotificationTriggerKey>(params: 
   params: Parameters<typeof renderNotificationTrigger<K>>[1];
   data: Record<string, unknown>;
   logger: FastifyBaseLogger;
+  /** Avisos que el usuario no puede silenciar (MOVO-296): ignora toggles y horario de silencio. */
+  ignorePreferences?: boolean;
   /** Evento + mensaje del warn si el envío falla, y campos extra para el log — distingue
    * en las métricas "no se pudo avisar el resultado de KYC" de "...el cambio de contraseña". */
   onErrorContext: { event: string; message: string; extra?: Record<string, unknown> };
@@ -32,6 +34,7 @@ export async function sendTriggerPush<K extends NotificationTriggerKey>(params: 
       body,
       category: notificationTriggerCategory(params.triggerKey),
       data: params.data,
+      ...(params.ignorePreferences ? { ignorePreferences: true } : {}),
     });
   } catch (err) {
     params.logger.warn(

@@ -138,6 +138,10 @@ services:
       # `*_PROVIDER`/enum (no hace falta `:-` para el gotcha de var vacía documentado
       # arriba), pero se lista igual para poder ajustarlo sin rebuild de imagen.
       - REPUTATION_CACHE_TTL_SECONDS=${REPUTATION_CACHE_TTL_SECONDS:-60}
+      # MOVO-296: barrido de sanciones de cuenta (vencimiento de suspensiones + marcas de
+      # Redis del gateway). `:-` por el gotcha de var presente pero vacía documentado arriba.
+      - SANCTION_SWEEP_INTERVAL_MINUTES=${SANCTION_SWEEP_INTERVAL_MINUTES:-5}
+      - SANCTION_SWEEP_ENABLED=${SANCTION_SWEEP_ENABLED:-true}
     depends_on:
       - postgres
       - redis
