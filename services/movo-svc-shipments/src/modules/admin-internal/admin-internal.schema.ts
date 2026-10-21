@@ -171,4 +171,55 @@ export const adminInternalSchemas = {
       partyIds: { type: "array", items: uuid },
     },
   },
+
+  // MOVO-297: efectos de una sanción.
+  inProgressShipmentsResponse: {
+    type: "array",
+    items: {
+      type: "object",
+      required: ["id", "shortId", "status", "userRole", "pickupAddress", "deliveryAddress"],
+      properties: {
+        id: uuid,
+        shortId: { type: "string" },
+        status: { type: "string", enum: ["assignment_pending", "assigned_unfunded", "assigned", "in_transit"] },
+        userRole: { type: "string", enum: ROLES },
+        pickupAddress: { type: "string" },
+        deliveryAddress: { type: "string" },
+      },
+    },
+  },
+
+  // `sanctionId` es opcional: con él, volver a sancionar tras levantar la sanción vuelve a avisar a las contrapartes.
+  withdrawOpenActivityBody: {
+    type: ["object", "null"],
+    additionalProperties: false,
+    properties: { sanctionId: uuid },
+  },
+
+  withdrawOpenActivityResponse: {
+    type: "object",
+    required: [
+      "cancelledShipmentIds",
+      "withdrawnOfferIds",
+      "cancelledTripIds",
+      "stoppedRecurrenceTripIds",
+      "notifiedCounterpartyCount",
+      "failures",
+    ],
+    properties: {
+      cancelledShipmentIds: { type: "array", items: uuid },
+      withdrawnOfferIds: { type: "array", items: uuid },
+      cancelledTripIds: { type: "array", items: uuid },
+      stoppedRecurrenceTripIds: { type: "array", items: uuid },
+      notifiedCounterpartyCount: { type: "integer" },
+      failures: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["kind", "id"],
+          properties: { kind: { type: "string", enum: ["shipment", "offer", "trip", "series"] }, id: uuid },
+        },
+      },
+    },
+  },
 };

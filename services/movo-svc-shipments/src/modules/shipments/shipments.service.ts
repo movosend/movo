@@ -2186,11 +2186,19 @@ export function createShipmentsService(
       shipmentId: string,
       callerId: string,
       reason?: string,
-      expectedPenaltyArs?: number
+      expectedPenaltyArs?: number,
+      options: { onlyFrom?: readonly ShipmentStatus[] } = {}
     ): Promise<Shipment> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) {
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      // MOVO-297: quien cancela por una sanción lista los envíos antes y no debe cancelar uno que entremedio
+      // se comprometió (un pago o una aceptación lo pasó a `assignment_pending`/`assigned_unfunded`): esa
+      // vía no libera el hold. Mismo error que pierde el compare-and-swap de `updateStatus`.
+      if (options.onlyFrom && !options.onlyFrom.includes(shipment.status)) {
+        throw new ShipmentConcurrentModificationError(shipmentId);
       }
 
       // Solo el emisor puede cancelar -- a diferencia de assertShipmentAccess (lectura,

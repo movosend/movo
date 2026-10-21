@@ -5,6 +5,7 @@ import type {
   AdminUserShipmentRowPage,
   AdminUserTripPage,
 } from "@movo/shared";
+import { shortShipmentId } from "./short-id";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentStatus, TripStatus } from "../../generated/prisma/client";
 
 export interface PageQuery {
@@ -30,7 +31,7 @@ function toShipmentRow(row: ShipmentRow, userId: string): AdminUserShipmentRow {
   return {
     id: row.id,
     // No hay otro código de envío: el panel muestra los 8 primeros caracteres del UUID.
-    shortId: row.id.slice(0, 8).toUpperCase(),
+    shortId: shortShipmentId(row.id),
     status: row.status,
     pickupAddress: row.pickupAddress,
     deliveryAddress: row.deliveryAddress,

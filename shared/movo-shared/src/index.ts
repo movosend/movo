@@ -341,6 +341,8 @@ export type {
   AuditLogEntry,
   AuditLogPage,
   ShipmentParties,
+  InProgressShipment,
+  WithdrawOpenActivityResult,
   ChatReportParties,
   UserReportParties,
 } from "./types/admin";
