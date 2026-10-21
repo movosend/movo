@@ -13,6 +13,7 @@ import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-swe
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
 import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sweep";
+import historyRetentionSweepPlugin from "./plugins/history-retention-sweep";
 import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
 import pickupMissedSweepPlugin from "./plugins/pickup-missed-sweep";
 import transitAnomalySweepPlugin from "./plugins/transit-anomaly-sweep";
@@ -40,7 +41,7 @@ import receiverTransfersRoutes, {
   shipmentReceiverTransferRoutes,
 } from "./modules/receiver-transfers/receiver-transfers.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
-import { UsersClient } from "./adapters/users-client";
+import { UserDeletionClient, UsersClient } from "./adapters/users-client";
 import { PaymentsClient } from "./adapters/payments-client";
 import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
@@ -83,6 +84,11 @@ export interface BuildAppOptions {
   /** Override para habilitar/deshabilitar el sweep de purga de posiciones GPS en
    * background (MOVO-202). */
   carrierPositionPurgeSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar la purga de historial de envíos vencido (MOVO-230). */
+  historyRetentionSweepEnabled?: boolean;
+  /** Override solo para tests de integración -- evita depender de un `movo-svc-users` real
+   * para las fechas de baja (MOVO-230), mismo criterio que `usersClient`. */
+  userDeletionClient?: UserDeletionClient;
   /** Override para habilitar/deshabilitar el sweep de viajes declared vencidos en
    * background (MOVO-238). */
   tripExpirySweepEnabled?: boolean;
@@ -171,6 +177,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.carrierPositionPurgeSweepEnabled !== undefined
       ? { enabled: opts.carrierPositionPurgeSweepEnabled }
       : {}),
+  });
+  app.register(historyRetentionSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.userDeletionClient ? { deletionClient: opts.userDeletionClient } : {}),
+    ...(opts.historyRetentionSweepEnabled !== undefined ? { enabled: opts.historyRetentionSweepEnabled } : {}),
   });
   app.register(tripExpirySweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),

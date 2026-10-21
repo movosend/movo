@@ -35,6 +35,9 @@ export interface EnvConfig {
   CARRIER_POSITION_RETENTION_DAYS: number;
   CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: number;
   CARRIER_POSITION_PURGE_SWEEP_ENABLED?: boolean;
+  SHIPMENT_HISTORY_RETENTION_YEARS: number;
+  SHIPMENT_HISTORY_PURGE_SWEEP_INTERVAL_MINUTES: number;
+  SHIPMENT_HISTORY_PURGE_SWEEP_ENABLED?: boolean;
   TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
   TRIP_EXPIRY_SWEEP_ENABLED?: boolean;
   PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: number;
@@ -164,6 +167,13 @@ export const envSchema = {
     // sobre un plazo de 30 días no cambia nada material.
     CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
     CARRIER_POSITION_PURGE_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-230 (Política de Privacidad §7): años desde la baja de la última de las partes de un
+    // envío hasta que se purga su historial. Plazo fijado por la política (Art. 2560 CCyCN),
+    // no un valor técnico: cambiarlo es un cambio de documento.
+    SHIPMENT_HISTORY_RETENTION_YEARS: { type: "number", default: 5 },
+    // MOVO-230: una vez por día alcanza para un plazo en años.
+    SHIPMENT_HISTORY_PURGE_SWEEP_INTERVAL_MINUTES: { type: "number", default: 1440 },
+    SHIPMENT_HISTORY_PURGE_SWEEP_ENABLED: { type: "boolean", default: true },
     // MOVO-238: barrido que cancela viajes `declared` con `departureAt` vencido sin
     // paquetes aceptados -- mismo criterio que PICKUP_EXPIRY_SWEEP_*.
     TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },

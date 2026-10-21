@@ -313,6 +313,9 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   se renueva con `services/movo-svc-payments/scripts/collector-oauth.mjs`), `MP_WEBHOOK_SECRET` (webhook registrado en el
   panel de `movosend`) y `ALERT_*` (Telegram, grupo "Movo Team"). En prod falta cargar las credenciales productivas del panel
   de la cuenta real de Movo S.A. y borrar el legado `MERCADOPAGO_ACCESS_TOKEN`.
+- **`s3:DeleteObject` sobre `shipments/*` sin confirmar en `movo-infra`** (MOVO-124/MOVO-230): lo necesitan el sweep de
+  fotos huérfanas y la purga de historial vencido de `svc-shipments`. Sin el permiso, los dos fallan, loguean y
+  reintentan en cada corrida sin borrar nada.
 - **Credenciales de Mercado Pago de prod sin cargar** (MOVO-267): dev ya tiene todas (app
   sandbox `movosend`); en prod faltan `MP_CLIENT_ID`, `MP_CLIENT_SECRET`, `MP_REDIRECT_URI`,
   `MP_WEBHOOK_SECRET` y `MP_TOKEN_ENCRYPTION_KEY` (app de la cuenta real de Movo).
