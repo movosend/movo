@@ -5,8 +5,10 @@ import { useAuthStore } from "../src/store/auth-store";
 import { useBootStore } from "../src/store/boot-store";
 
 const mockReplace = jest.fn();
+let mockIsFocused = true;
 jest.mock("expo-router", () => ({
   router: { replace: (...args: unknown[]) => mockReplace(...args) },
+  useIsFocused: () => mockIsFocused,
   Link: ({ children }: { children: React.ReactNode }) => children,
 }));
 
@@ -68,6 +70,7 @@ describe("WelcomeScreen -- boot resuelto (MOVO-247)", () => {
     useAuthStore.setState({ status: "unauthenticated", accessToken: null, refreshToken: null, user: null });
     useBootStore.setState({ initialRouteResolved: false });
     mockHasSeenOnboarding = true;
+    mockIsFocused = true;
   });
 
   it("dispositivo nuevo sin sesión: va al carrusel y recién ahí marca resuelto (MOVO-249)", async () => {
@@ -213,5 +216,63 @@ describe("WelcomeScreen -- boot resuelto (MOVO-247)", () => {
     await flush();
 
     expect(useBootStore.getState().initialRouteResolved).toBe(false);
+  });
+  // Doble redirect (MOVO-168): `index` es la raíz del stack y sigue montada bajo
+  // `/login`, `/register` y `/profile-photo`. Desenfocada no navega: lo hace la
+  // pantalla que está arriba, una sola vez.
+  describe("desenfocada (hay otra pantalla encima)", () => {
+    beforeEach(() => {
+      mockIsFocused = false;
+    });
+
+    it("sesión autenticada con KYC aprobado: no navega ni marca resuelto", async () => {
+      useAuthStore.setState({
+        status: "authenticated",
+        accessToken: "a",
+        refreshToken: "r",
+        user: { userId: "u1", fullName: "Ana", roles: [UserRole.SENDER], kycStatus: KycStatus.APPROVED },
+      });
+      await render(<WelcomeScreen />);
+      await flush();
+
+      expect(mockReplace).not.toHaveBeenCalled();
+      expect(usersClient.getMyProfile).not.toHaveBeenCalled();
+      expect(mockRegistration.hydrateFromLogin).not.toHaveBeenCalled();
+    });
+
+    it("sesión autenticada sin KYC aprobado: no hidrata ni navega a /kyc", async () => {
+      useAuthStore.setState({
+        status: "authenticated",
+        accessToken: "a",
+        refreshToken: "r",
+        user: { userId: "u1", fullName: "Ana", roles: [UserRole.SENDER], kycStatus: KycStatus.PENDING },
+      });
+      await render(<WelcomeScreen />);
+      await flush();
+
+      expect(mockReplace).not.toHaveBeenCalled();
+      expect(mockRegistration.hydrateFromLogin).not.toHaveBeenCalled();
+    });
+
+    it("registro pendiente sin empezar: no auto-redirige a /kyc (lo hace register)", async () => {
+      mockRegistration = {
+        resumeChecked: true,
+        hasPendingRegistration: true,
+        kycStatus: KycStatus.NOT_STARTED,
+        hydrateFromLogin: jest.fn(),
+      };
+      await render(<WelcomeScreen />);
+      await flush();
+
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it("carrusel pendiente: no salta a /onboarding", async () => {
+      mockHasSeenOnboarding = false;
+      await render(<WelcomeScreen />);
+      await flush();
+
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
   });
 });

@@ -20,7 +20,7 @@ import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import type { ReceiverConfirmationStatus } from "../../../components/shipments/counterpart-card";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { PackageCard } from "../../../components/shipments/package-card";
-import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
+import { ShipmentDetailBodySkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { RouteMapCard } from "../../../components/send/route-map-card";
 import { ProfileVerifiedBadge } from "../../../components/profile/profile-verified-badge";
 import { AvatarImage } from "../../../components/ui/avatar-image";
@@ -345,10 +345,7 @@ export default function TransportShipmentDetailScreen() {
     router.push(`/(app)/carrier/offers/${myActiveOffer.id}`);
   };
 
-  if (isLoading) {
-    return <ShipmentDetailSkeleton testID="transport-detail-skeleton" />;
-  }
-
+  // MOVO-168: el header (volver + título) se ve de entrada; el cuerpo espera su skeleton.
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
@@ -363,7 +360,9 @@ export default function TransportShipmentDetailScreen() {
           <Text className="font-sans-semibold text-h3 text-fg">
             Detalle del envío
           </Text>
-          {shipment ? (
+          {isLoading ? (
+            <SkeletonBlock className="mt-1 h-2.5 w-16 rounded-md" />
+          ) : shipment ? (
             <Text className="mt-0.5 font-sans text-[10px] uppercase tracking-wide text-fg-3">
               {shipment.id.slice(0, 8)}
             </Text>
@@ -371,7 +370,9 @@ export default function TransportShipmentDetailScreen() {
         </View>
       </View>
 
-      {isError || !shipment ? (
+      {isLoading ? (
+        <ShipmentDetailBodySkeleton testID="transport-detail-skeleton" tabs={false} />
+      ) : isError || !shipment ? (
         <TransportDetailError error={error} onRetry={() => refetch()} />
       ) : (
         <View className="flex-1">

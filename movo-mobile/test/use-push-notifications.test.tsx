@@ -1,4 +1,5 @@
 import { renderHook } from "@testing-library/react-native";
+import { KycStatus } from "@movo/shared/dist/types/user";
 
 const mockRouterPush = jest.fn();
 const mockUseRootNavigationState = jest.fn().mockReturnValue({ key: "root" });
@@ -48,12 +49,14 @@ jest.mock("expo-notifications", () => ({
 }));
 
 import { isSameRoute, usePushNotifications } from "../src/hooks/use-push-notifications";
+import { useBootStore } from "../src/store/boot-store";
 
 describe("usePushNotifications", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockHandledResponses.clear();
     mockColdStartResolved = false;
+    useBootStore.setState({ initialRouteResolved: true });
     mockPathname = "/home";
     mockSearchParams = {};
     mockGetLastNotificationResponseAsync.mockResolvedValue(null);
@@ -68,7 +71,7 @@ describe("usePushNotifications", () => {
   });
 
   it("pide permiso/registra una sola vez al detectar sesión autenticada", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     const { rerender } = await renderHook(() => usePushNotifications());
     await rerender({});
@@ -78,21 +81,21 @@ describe("usePushNotifications", () => {
   });
 
   it("registra de nuevo si la sesión pasa por unauthenticated y vuelve a autenticarse", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
     const { rerender } = await renderHook(() => usePushNotifications());
     expect(mockRequestPermissionAndRegisterPushToken).toHaveBeenCalledTimes(1);
 
     mockUseAuthStore.mockImplementation((selector) => selector({ status: "unauthenticated" }));
     await rerender({});
 
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
     await rerender({});
 
     expect(mockRequestPermissionAndRegisterPushToken).toHaveBeenCalledTimes(2);
   });
 
   it("AC5 de MOVO-132: tocar una notificación de envío navega directo a /shipments/:id", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     await renderHook(() => usePushNotifications());
 
@@ -110,7 +113,7 @@ describe("usePushNotifications", () => {
     mockGetLastNotificationResponseAsync.mockResolvedValue({
       notification: { request: { identifier: "notif_cold", content: { data: { type: "shipment", shipmentId: "shp_cold" } } } },
     });
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
     mockUseRootNavigationState.mockReturnValue({ key: "root" });
 
     await renderHook(() => usePushNotifications());
@@ -121,11 +124,48 @@ describe("usePushNotifications", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_cold");
   });
 
+  // Doble redirect (MOVO-168): `app/index.tsx` hace su propio `replace` de arranque; un `push`
+  // anterior quedaba pisado y el deep link se perdía.
+  it("cold start: espera a que `index` resuelva la ruta de arranque antes de navegar", async () => {
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: { request: { identifier: "notif_cold", content: { data: { type: "shipment", shipmentId: "shp_cold" } } } },
+    });
+    mockUseAuthStore.mockImplementation((selector) =>
+      selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }),
+    );
+    useBootStore.setState({ initialRouteResolved: false });
+
+    const { rerender } = await renderHook(() => usePushNotifications());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockRouterPush).not.toHaveBeenCalled();
+
+    useBootStore.setState({ initialRouteResolved: true });
+    await rerender({});
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRouterPush).toHaveBeenCalledTimes(1);
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_cold");
+  });
+
+  it("cold start con KYC no aprobado: descarta el deep link (el usuario termina en /kyc)", async () => {
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: { request: { identifier: "notif_cold", content: { data: { type: "shipment", shipmentId: "shp_cold" } } } },
+    });
+    mockUseAuthStore.mockImplementation((selector) =>
+      selector({ status: "authenticated", user: { kycStatus: KycStatus.PENDING } }),
+    );
+
+    await renderHook(() => usePushNotifications());
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
   it("no navega en cold start si el navigator todavía no está montado", async () => {
     mockGetLastNotificationResponseAsync.mockResolvedValue({
       notification: { request: { identifier: "notif_cold", content: { data: { type: "shipment", shipmentId: "shp_cold" } } } },
     });
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
     mockUseRootNavigationState.mockReturnValue(undefined);
 
     const { rerender } = await renderHook(() => usePushNotifications());
@@ -145,7 +185,7 @@ describe("usePushNotifications", () => {
       notification: { request: { identifier: "notif_shared_1", content: { data: { type: "shipment", shipmentId: "shp_1" } } } },
     };
     mockGetLastNotificationResponseAsync.mockResolvedValue(response);
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
     mockUseRootNavigationState.mockReturnValue({ key: "root" });
 
     await renderHook(() => usePushNotifications());
@@ -160,7 +200,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-163: tocar una notificación trip_match navega al feed filtrado por tripId", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     await renderHook(() => usePushNotifications());
 
@@ -173,7 +213,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-284: tocar una push de chat abre la conversación del envío", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     await renderHook(() => usePushNotifications());
 
@@ -186,7 +226,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-284: una push de chat sin shipmentId no navega", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     await renderHook(() => usePushNotifications());
 
@@ -197,7 +237,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-163: un trip_match sin tripId en el payload no navega", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     await renderHook(() => usePushNotifications());
 
@@ -215,7 +255,7 @@ describe("usePushNotifications", () => {
         request: { identifier: "notif_trip", content: { data: { type: "trip_match", tripId: "trip_cold" } } },
       },
     });
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
     mockUseRootNavigationState.mockReturnValue({ key: "root" });
 
     await renderHook(() => usePushNotifications());
@@ -225,7 +265,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-281: tocar una notificación trip_auto_created abre el detalle del viaje", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     await renderHook(() => usePushNotifications());
 
@@ -238,7 +278,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-281: una cancelación por vencimiento abre el detalle del envío en cold start", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
     mockGetLastNotificationResponseAsync.mockResolvedValue({
       notification: {
         request: {
@@ -255,7 +295,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-236: un trip_auto_created sin tripId en el payload no navega", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     await renderHook(() => usePushNotifications());
 
@@ -268,7 +308,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-275: la invitación a recibir un paquete abre la pantalla de la invitación", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     await renderHook(() => usePushNotifications());
 
@@ -283,7 +323,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-275: una novedad de la transferencia abre el detalle del envío", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     await renderHook(() => usePushNotifications());
 
@@ -305,7 +345,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-301: tocar la push del chat que ya está abierto no apila otra copia", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
     mockPathname = "/shipments/shp_1/chat";
     await renderHook(() => usePushNotifications());
 
@@ -326,7 +366,7 @@ describe("usePushNotifications", () => {
     mockGetLastNotificationResponseAsync.mockResolvedValue({
       notification: { request: { identifier: "notif_cold", content: { data: { type: "chat_message", shipmentId: "shp_1" } } } },
     });
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
     const first = await renderHook(() => usePushNotifications());
     await new Promise((r) => setTimeout(r, 0));
@@ -339,7 +379,7 @@ describe("usePushNotifications", () => {
   });
 
   it("MOVO-301: tocar la push del feed de un viaje ya abierto no apila otra copia (ruta con objeto y grupos)", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
     // `usePathname()` no trae los grupos `(app)/(tabs)`; la ruta de la push sí.
     mockPathname = "/transport";
     mockSearchParams = { tripId: "t1" };

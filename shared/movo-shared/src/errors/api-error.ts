@@ -306,7 +306,17 @@ export type ApiErrorCode =
   // La cuenta está eliminada: no admite acciones de soporte salvo notas (409).
   | "USER_DELETED"
   // Ajuste manual de saldo en cero o por encima de `ADMIN_LEDGER_ADJUSTMENT_MAX_ARS` (422).
-  | "AMOUNT_OUT_OF_RANGE";
+  | "AMOUNT_OUT_OF_RANGE"
+  // MOVO-322/321 (bandeja de soporte, contrato definido por MOVO-323). La consulta no existe (404).
+  | "SUPPORT_CONVERSATION_NOT_FOUND"
+  // Adjunto de tipo, tamaño o cantidad inválidos, ajeno o ya usado (422).
+  | "SUPPORT_ATTACHMENT_INVALID"
+  // El usuario de la consulta no es parte del envío que se quiere vincular (422).
+  | "SUPPORT_SHIPMENT_NOT_PARTY"
+  // Ticket del WS del panel vencido, ya usado o de otro admin (401).
+  | "SUPPORT_TICKET_INVALID"
+  // `svc-shipments` (dueño del modelo de soporte) no respondió (502).
+  | "SUPPORT_SERVICE_UNAVAILABLE";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

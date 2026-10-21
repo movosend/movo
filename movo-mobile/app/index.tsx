@@ -1,5 +1,5 @@
 import { KycStatus } from "@movo/shared/dist/types/user";
-import { Link, router } from "expo-router";
+import { Link, router, useIsFocused } from "expo-router";
 import { ArrowRight } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
 import { useEffect, useRef, useState } from "react";
@@ -43,8 +43,16 @@ export default function WelcomeScreen() {
   // seguida de un push visible hacia el destino real.
   const markInitialRouteResolved = useBootStore((s) => s.markInitialRouteResolved);
 
+  // Esta pantalla es la raíz del stack y sigue montada debajo de `/login`, `/register`,
+  // `/kyc` y `/profile-photo`. Sin este chequeo, cuando una de ellas deja la sesión en
+  // `authenticated` (o la cuenta recién creada en `NOT_STARTED`) los efectos de acá
+  // navegan al mismo tiempo que la pantalla que está arriba: dos `replace` seguidos al
+  // mismo destino (remonta `/home`/`/kyc`, parpadea) y, en profile-photo, se saltea el
+  // paso. La navegación de arranque solo le toca a esta pantalla cuando está enfocada.
+  const isFocused = useIsFocused();
+
   useEffect(() => {
-    if (!isAuthenticatedSession || !authUser || authRedirectedRef.current) return;
+    if (!isFocused || !isAuthenticatedSession || !authUser || authRedirectedRef.current) return;
     authRedirectedRef.current = true;
 
     if (authUser.kycStatus === KycStatus.APPROVED) {
@@ -76,7 +84,15 @@ export default function WelcomeScreen() {
       router.replace("/kyc");
       markInitialRouteResolved();
     })();
-  }, [isAuthenticatedSession, authUser, authAccessToken, authRefreshToken, registration, markInitialRouteResolved]);
+  }, [
+    isFocused,
+    isAuthenticatedSession,
+    authUser,
+    authAccessToken,
+    authRefreshToken,
+    registration,
+    markInitialRouteResolved,
+  ]);
 
   // AC7 (MOVO-73): si ya hay una cuenta creada que **nunca llegó a intentar** el KYC
   // (`RegistrationProvider` vive en `app/_layout.tsx`, por fuera de esta pantalla, así
@@ -94,11 +110,11 @@ export default function WelcomeScreen() {
   const shouldAutoRedirect = hasPendingRegistration && kycStatus === KycStatus.NOT_STARTED;
 
   useEffect(() => {
-    if (resumeChecked && shouldAutoRedirect) {
+    if (isFocused && resumeChecked && shouldAutoRedirect) {
       router.replace("/kyc");
       markInitialRouteResolved();
     }
-  }, [resumeChecked, shouldAutoRedirect, markInitialRouteResolved]);
+  }, [isFocused, resumeChecked, shouldAutoRedirect, markInitialRouteResolved]);
 
   // MOVO-249: carrusel de onboarding, una sola vez por dispositivo, antes de esta
   // misma pantalla de bienvenida. Se ignora si ya hay una cuenta creada
@@ -187,11 +203,11 @@ export default function WelcomeScreen() {
   ]);
 
   useEffect(() => {
-    if (shouldShowOnboarding) {
+    if (isFocused && shouldShowOnboarding) {
       router.replace("/onboarding");
       markInitialRouteResolved();
     }
-  }, [shouldShowOnboarding, markInitialRouteResolved]);
+  }, [isFocused, shouldShowOnboarding, markInitialRouteResolved]);
 
   if (
     !resumeChecked ||

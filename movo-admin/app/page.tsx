@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import Link from "next/link"
 import {
   Activity,
@@ -26,6 +27,8 @@ const SOON = [
     icon: ScrollText,
   },
 ]
+
+export const metadata: Metadata = { title: "Inicio" }
 
 export default async function Page() {
   const profile = await requireAdmin()

@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { Suspense } from "react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
@@ -51,6 +52,8 @@ function Streamed({
     </Suspense>
   )
 }
+
+export const metadata: Metadata = { title: "Ficha de usuario" }
 
 export default async function Page({
   params,

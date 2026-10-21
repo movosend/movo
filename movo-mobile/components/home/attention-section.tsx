@@ -12,6 +12,7 @@ import type {
 import { useAttentionTasks } from "../../src/hooks/use-attention-tasks";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { AttentionConfirmCard } from "./attention-confirm-card";
+import { ATTENTION_CARD_SKELETON_HEIGHT, HomeSectionError, HomeSectionSkeleton } from "./home-section-states";
 
 function AttentionInfoCard({ task, testID }: { task: AttentionInfoTask; testID?: string }) {
   const colors = useThemeColors();
@@ -165,7 +166,19 @@ function AttentionTransferInviteCard({ task, testID }: { task: AttentionTransfer
  * estás viendo el envío), acá el copy "Ver detalle" tiene que llevar a algún lado de
  * verdad.
  */
-export function AttentionTaskList({ tasks, testID }: { tasks: AttentionTask[]; testID?: string }) {
+export function AttentionTaskList({
+  tasks,
+  testID,
+  isLoading = false,
+  isError = false,
+  onRetry,
+}: {
+  tasks: AttentionTask[];
+  testID?: string;
+  isLoading?: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
+}) {
   const [acceptSuccessShipmentId, setAcceptSuccessShipmentId] = useState<string | null>(null);
 
   const handleDismissAcceptSuccess = () => {
@@ -185,6 +198,29 @@ export function AttentionTaskList({ tasks, testID }: { tasks: AttentionTask[]; t
   );
 
   if (tasks.length === 0) {
+    // MOVO-168: cargando o fallida no es "sin tareas". El modal de éxito se sigue
+    // renderizando siempre (ver arriba).
+    if (isLoading) {
+      return (
+        <>
+          <HomeSectionSkeleton testID={`${testID}-skeleton`} cardHeight={ATTENTION_CARD_SKELETON_HEIGHT} />
+          {successModal}
+        </>
+      );
+    }
+    if (isError && onRetry) {
+      return (
+        <>
+          <HomeSectionError
+            testID={`${testID}-error`}
+            title="Requiere tu atención"
+            message="No pudimos cargar tus pendientes."
+            onRetry={onRetry}
+          />
+          {successModal}
+        </>
+      );
+    }
     return successModal;
   }
 
@@ -225,6 +261,14 @@ export function AttentionTaskList({ tasks, testID }: { tasks: AttentionTask[]; t
  * deriva hoy y qué queda pendiente de un endpoint nuevo.
  */
 export function AttentionSection({ testID }: { testID?: string }) {
-  const { tasks } = useAttentionTasks();
-  return <AttentionTaskList tasks={tasks} testID={testID} />;
+  const { tasks, isLoading, isError, refetch } = useAttentionTasks();
+  return (
+    <AttentionTaskList
+      tasks={tasks}
+      testID={testID}
+      isLoading={isLoading}
+      isError={isError}
+      onRetry={() => void refetch()}
+    />
+  );
 }

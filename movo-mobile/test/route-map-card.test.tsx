@@ -2,13 +2,15 @@ import { render } from "@testing-library/react-native";
 import { RouteMapCard } from "../components/send/route-map-card";
 
 // El mock oficial de Reanimated no incluye `useFrameCallback`; acá alcanza con un
-// callback inactivo (el barrido animado no se verifica en Jest).
+// callback inactivo (el barrido animado no se verifica en Jest). Tampoco `useReducedMotion`,
+// que usa `SkeletonBlock` (MOVO-168).
 jest.mock("react-native-reanimated", () => {
   const mock = require("react-native-reanimated/mock");
   return {
     ...mock,
     default: mock.default,
     useFrameCallback: () => ({ setActive: jest.fn(), isActive: false, callbackId: 0 }),
+    useReducedMotion: () => false,
   };
 });
 

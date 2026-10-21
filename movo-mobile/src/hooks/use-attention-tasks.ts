@@ -102,7 +102,7 @@ export type AttentionTask =
  *   propia card de envío activo (`ActiveShipmentCard`), no se duplica acá como tarea.
  */
 export function useAttentionTasks() {
-  const { data, isLoading } = useAttentionSourceShipments();
+  const { data, isLoading, isError, refetch } = useAttentionSourceShipments();
   const { data: invitations } = useReceiverTransferInvitations();
   const currentUserId = useAuthStore((s) => s.user?.userId);
 
@@ -221,5 +221,5 @@ export function useAttentionTasks() {
     }
   }
 
-  return { tasks, isLoading };
+  return { tasks, isLoading, isError, refetch };
 }

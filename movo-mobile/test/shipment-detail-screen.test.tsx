@@ -206,6 +206,17 @@ describe("ShipmentDetailScreen", () => {
     expect(queryByTestId("shipment-detail-route-map")).toBeNull();
   });
 
+  it("MOVO-168: mientras el envío carga, el header (volver y título) ya está a la vista", async () => {
+    mockUseShipment.mockReturnValue({ isLoading: true, isError: false, data: undefined, error: null, refetch: jest.fn() });
+
+    const { getByTestId, getByText, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByText("Detalle del envío")).toBeTruthy();
+    expect(getByTestId("shipment-detail-back")).toBeTruthy();
+    expect(getByTestId("shipment-detail-header-skeleton")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-status-badge")).toBeNull();
+  });
+
   it("distingue un envío ajeno (403) de uno inexistente (404)", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,

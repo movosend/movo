@@ -1,4 +1,4 @@
-import { ActivityIndicator, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { PackageX, WifiOff } from "lucide-react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useTourAnchor } from "../../src/hooks/use-tour-anchor";
@@ -13,6 +13,7 @@ import { splitCarrierHomeTrips } from "../../src/lib/trip-format";
 import { useAuthStore } from "../../src/store/auth-store";
 import { ShipmentRow } from "../shipments/shipment-row";
 import { CarrierTripRow } from "./carrier-trip-row";
+import { RecentRowsSkeleton } from "./home-section-states";
 import { ViewAllShipmentsLink } from "./view-all-shipments-link";
 
 /**
@@ -79,9 +80,7 @@ export function RecentShipmentsSection({
 
       {/* ── Contenido ── */}
       {isLoading ? (
-        <View className="items-center justify-center py-8">
-          <ActivityIndicator color={colors.fg3} />
-        </View>
+        <RecentRowsSkeleton testID={testID ? `${testID}-skeleton` : undefined} />
       ) : isError ? (
         <View className="items-center gap-2 py-6">
           <WifiOff size={20} strokeWidth={1.8} color={colors.fg3} />
