@@ -392,7 +392,18 @@ export function createAuthService(
         await sessionRepository.revokeAllForUser(userId);
         throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
       }
-      if (result === "not-found" || result === "hash-mismatch") {
+      if (result === "not-found") {
+        // MOVO-300 AC4: inhabilitar revoca todas las sesiones, así que el refresh de la app
+        // abierta llega acá. Sin este chequeo respondía `AUTH_REFRESH_INVALID` y la app cerraba
+        // la sesión como si hubiera vencido, sin decir por qué. No revela nada nuevo: el estado
+        // de la cuenta ya es público (`PublicProfile.accountStatus`).
+        const owner = await repository.findById(userId);
+        if (owner?.status === AccountStatus.BANNED) {
+          assertAccountCanSignIn(owner.status);
+        }
+        throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
+      }
+      if (result === "hash-mismatch") {
         throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
       }
 
