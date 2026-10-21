@@ -398,6 +398,13 @@ export type {
   AdminUserNote,
   AdminUserNotePage,
   AdminUserNoteBody,
+  AdminUserShipmentRow,
+  AdminUserShipmentRowPage,
+  AdminUserRatingRow,
+  AdminUserRatingRowPage,
+  AdminUserLedgerRow,
+  AdminUserLedgerRowPage,
+  AdminUserNames,
 } from "./types/admin-users";
 
 // admin: bandeja de soporte (MOVO-323, backend MOVO-321/MOVO-322)

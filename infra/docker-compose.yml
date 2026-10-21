@@ -277,6 +277,8 @@ services:
       # la comisión de MP que Movo absorbe sobre el recargo del emisor (lo lee @movo/shared).
       - DEBT_COLLECTION_MAX_RATE=${DEBT_COLLECTION_MAX_RATE:-0.3}
       - MP_TRANSACTION_FEE_RATE=${MP_TRANSACTION_FEE_RATE:-0.0499}
+      # MOVO-294: tope en ARS (en valor absoluto) de un ajuste manual de saldo desde el panel.
+      - ADMIN_LEDGER_ADJUSTMENT_MAX_ARS=${ADMIN_LEDGER_ADJUSTMENT_MAX_ARS:-500000}
       # MOVO-100 (ADR-039): public_key con la que el mobile tokeniza la tarjeta al guardarla
       # (no decide dónde queda: siempre un customer de Movo S.A.; en dev es la TEST- de un
       # Vendedor de prueba, no la de Movo) y (solo sandbox) el mapa userId -> email de

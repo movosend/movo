@@ -2,6 +2,72 @@
 const uuid = { type: "string", format: "uuid" } as const;
 const nullableUuid = { type: ["string", "null"], format: "uuid" } as const;
 
+const SHIPMENT_STATUSES = [
+  "awaiting_receiver_confirmation",
+  "rejected_by_receiver",
+  "published",
+  "assignment_pending",
+  "assigned_unfunded",
+  "assigned",
+  "in_transit",
+  "delivered",
+  "completed",
+  "cancelled",
+  "disputed",
+] as const;
+const TRIP_STATUSES = ["declared", "active", "cancelled", "expired", "completed"] as const;
+const ROLES = ["sender", "carrier", "receiver"] as const;
+
+// MOVO-294: secciones de la ficha del panel. Mismos topes que `svc-admin`, que es quien los expone.
+const page = { type: "integer", minimum: 1, default: 1 } as const;
+const pageSize = { type: "integer", minimum: 1, maximum: 50, default: 5 } as const;
+const pageFields = { page: { type: "integer" }, pageSize: { type: "integer" } } as const;
+
+const adminUserShipment = {
+  type: "object",
+  required: ["id", "shortId", "status", "pickupAddress", "deliveryAddress", "priceArs", "createdAt", "userRole", "senderId", "carrierId", "receiverId"],
+  properties: {
+    id: uuid,
+    shortId: { type: "string" },
+    status: { type: "string", enum: SHIPMENT_STATUSES },
+    pickupAddress: { type: "string" },
+    deliveryAddress: { type: "string" },
+    priceArs: { type: ["number", "null"] },
+    createdAt: { type: "string" },
+    userRole: { type: "string", enum: ROLES },
+    senderId: uuid,
+    carrierId: nullableUuid,
+    receiverId: uuid,
+  },
+} as const;
+
+const adminUserTrip = {
+  type: "object",
+  required: ["id", "originAddress", "destinationAddress", "departureAt", "vehicleType", "status", "recurring"],
+  properties: {
+    id: uuid,
+    originAddress: { type: "string" },
+    destinationAddress: { type: "string" },
+    departureAt: { type: "string" },
+    vehicleType: { type: "string" },
+    status: { type: "string", enum: TRIP_STATUSES },
+    recurring: { type: "boolean" },
+  },
+} as const;
+
+const adminUserRating = {
+  type: "object",
+  required: ["score", "comment", "raterId", "roleOfRated", "shipmentId", "createdAt"],
+  properties: {
+    score: { type: "integer" },
+    comment: { type: ["string", "null"] },
+    raterId: uuid,
+    roleOfRated: { type: "string", enum: ROLES },
+    shipmentId: uuid,
+    createdAt: { type: "string" },
+  },
+} as const;
+
 export const adminInternalSchemas = {
   idParam: {
     type: "object",
@@ -18,6 +84,56 @@ export const adminInternalSchemas = {
       carrierId: nullableUuid,
       receiverId: nullableUuid,
       formerReceiverIds: { type: "array", items: uuid },
+    },
+  },
+
+  userShipmentsQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: { role: { type: "string", enum: ROLES }, status: { type: "string", enum: SHIPMENT_STATUSES }, page, pageSize },
+  },
+
+  userShipmentsResponse: {
+    type: "object",
+    required: ["items", "page", "pageSize", "total", "counts"],
+    properties: {
+      items: { type: "array", items: adminUserShipment },
+      ...pageFields,
+      total: { type: "integer" },
+      counts: {
+        type: "object",
+        required: ["sender", "carrier", "receiver"],
+        properties: { sender: { type: "integer" }, carrier: { type: "integer" }, receiver: { type: "integer" } },
+      },
+    },
+  },
+
+  userTripsQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: { status: { type: "string", enum: TRIP_STATUSES }, page, pageSize },
+  },
+
+  userTripsResponse: {
+    type: "object",
+    required: ["items", "page", "pageSize", "total"],
+    properties: { items: { type: "array", items: adminUserTrip }, ...pageFields, total: { type: "integer" } },
+  },
+
+  userRatingsQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: { page, pageSize },
+  },
+
+  userRatingsResponse: {
+    type: "object",
+    required: ["average", "count", "items", "page", "pageSize"],
+    properties: {
+      average: { type: ["number", "null"] },
+      count: { type: "integer" },
+      items: { type: "array", items: adminUserRating },
+      ...pageFields,
     },
   },
 

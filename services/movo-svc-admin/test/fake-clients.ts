@@ -1,7 +1,22 @@
-import { AdminCandidate, AdminSummary, ApiError, ChatReportParties, ShipmentParties, UserReportParties } from "@movo/shared";
+import { randomUUID } from "node:crypto";
+import {
+  AdminCandidate,
+  AdminSummary,
+  AdminUserLedgerRowPage,
+  AdminUserMercadoPago,
+  AdminUserProfile,
+  AdminUserRatingRowPage,
+  AdminUserShipmentRowPage,
+  AdminUserTripPage,
+  ApiError,
+  ChatReportParties,
+  ShipmentParties,
+  UserReportParties,
+} from "@movo/shared";
 import { InternalClient } from "../src/adapters/internal-client";
 import { ShipmentsClient } from "../src/adapters/shipments-client";
 import { UsersClient } from "../src/adapters/users-client";
+import { LedgerAdjustmentRequest, PaymentsClient } from "../src/adapters/payments-client";
 
 const unusedRequest: InternalClient["request"] = async () => {
   throw new Error("request genérico fuera de alcance de este fake");
@@ -10,14 +25,35 @@ const unusedRequest: InternalClient["request"] = async () => {
 /** Servicio dueño caído: cada llamada falla con el 502 que daría el cliente real. */
 export const shipmentsDown = () => new ApiError(502, "SHIPMENTS_SERVICE_UNAVAILABLE", "El servicio de envíos no responde.");
 export const usersDown = () => new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios no responde.");
+export const paymentsDown = () => new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "El servicio de pagos no responde.");
+
+const userNotFound = () => new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
 
 export function createFakeShipmentsClient(data: {
   shipments?: Record<string, ShipmentParties>;
   chatReports?: Record<string, ChatReportParties>;
+  /** MOVO-294: secciones de la ficha, por id de usuario. */
+  userShipments?: Record<string, AdminUserShipmentRowPage>;
+  userTrips?: Record<string, AdminUserTripPage>;
+  userRatings?: Record<string, AdminUserRatingRowPage>;
   down?: boolean;
 } = {}): ShipmentsClient {
   return {
     request: unusedRequest,
+    async listUserShipments(userId, query) {
+      if (data.down) throw shipmentsDown();
+      return (
+        data.userShipments?.[userId] ?? { items: [], page: query.page, pageSize: query.pageSize, total: 0, counts: { sender: 0, carrier: 0, receiver: 0 } }
+      );
+    },
+    async listUserTrips(userId, query) {
+      if (data.down) throw shipmentsDown();
+      return data.userTrips?.[userId] ?? { items: [], page: query.page, pageSize: query.pageSize, total: 0 };
+    },
+    async listUserRatings(userId, query) {
+      if (data.down) throw shipmentsDown();
+      return data.userRatings?.[userId] ?? { average: null, count: 0, items: [], page: query.page, pageSize: query.pageSize };
+    },
     async getShipmentParties(id) {
       if (data.down) throw shipmentsDown();
       return data.shipments?.[id] ?? null;
@@ -30,11 +66,105 @@ export function createFakeShipmentsClient(data: {
 }
 
 export function createFakeUsersClient(
-  data: { userReports?: Record<string, UserReportParties>; admins?: AdminSummary[]; candidates?: AdminCandidate[]; down?: boolean } = {},
+  data: {
+    userReports?: Record<string, UserReportParties>;
+    admins?: AdminSummary[];
+    candidates?: AdminCandidate[];
+    /** MOVO-294: perfiles de la ficha; sus nombres son los que resuelve `getUserNames`. */
+    profiles?: AdminUserProfile[];
+    /** Solo la resolución de nombres falla (el resto de `svc-users` responde). */
+    namesDown?: boolean;
+    down?: boolean;
+  } = {},
 ): UsersClient {
   const admins = data.admins ?? [];
+  const profiles = data.profiles ?? [];
+  const profileOf = (id: string) => {
+    if (data.down) throw usersDown();
+    const profile = profiles.find((p) => p.id === id);
+    if (!profile) throw userNotFound();
+    return profile;
+  };
+  const assertNotDeleted = (profile: AdminUserProfile) => {
+    if (profile.accountStatus === "deleted") throw new ApiError(409, "USER_DELETED", "La cuenta está dada de baja.");
+  };
   return {
     request: unusedRequest,
+    async searchUsers({ q, page, pageSize }) {
+      if (data.down) throw usersDown();
+      const found = profiles.filter((p) => !q || p.fullName.toLowerCase().includes(q.toLowerCase()));
+      return {
+        items: found.slice((page - 1) * pageSize, page * pageSize).map((p) => ({
+          id: p.id,
+          fullName: p.fullName,
+          email: p.email,
+          phone: p.phone,
+          dni: p.dni,
+          photoUrl: p.photoUrl,
+          roles: p.roles.map((r) => r.role),
+          accountStatus: p.accountStatus,
+          bannedUntil: p.bannedUntil,
+          kycIdentity: "approved" as const,
+          kycLicense: "not_started" as const,
+          createdAt: p.createdAt,
+          matchedBy: q ? ("name" as const) : null,
+        })),
+        page,
+        pageSize,
+        total: found.length,
+      };
+    },
+    async getUserProfile(id) {
+      return profileOf(id);
+    },
+    async getUserKyc(id) {
+      profileOf(id);
+      return {
+        identity: { status: "approved" as const, lastSessionId: "s-1", attempts: [] },
+        license: { status: "not_started" as const, lastSessionId: null, expiresAt: null, attempts: [] },
+      };
+    },
+    async getUserVehicle(id) {
+      profileOf(id);
+      return { vehicle: null };
+    },
+    async getUserModeration(id) {
+      profileOf(id);
+      return {
+        reports: { received: [], made: [] },
+        blocks: { made: [], received: [] },
+        totals: { reportsReceived: 0, reportsMade: 0, blocksMade: 0, blocksReceived: 0 },
+      };
+    },
+    async getUserDevices(id) {
+      profileOf(id);
+      return { devices: [], handshakeKey: null };
+    },
+    async getUserNames(ids) {
+      if (data.down || data.namesDown) throw usersDown();
+      return profiles.filter((p) => ids.includes(p.id)).map((p) => ({ id: p.id, fullName: p.fullName }));
+    },
+    async revokeUserSessions(id) {
+      assertNotDeleted(profileOf(id));
+      return { revokedRefreshTokens: 2 };
+    },
+    async updateUserContact(id, body) {
+      const profile = profileOf(id);
+      assertNotDeleted(profile);
+      const current = body.field === "email" ? profile.email : profile.phone;
+      if (body.expectedCurrent !== current) throw new ApiError(409, "CONTACT_CHANGED", "El dato cambió.");
+      if (body.field === "email") Object.assign(profile, { email: body.newValue, emailVerified: false });
+      else Object.assign(profile, { phone: body.newValue, phoneVerified: false });
+      return {
+        email: profile.email,
+        emailVerified: profile.emailVerified,
+        phone: profile.phone,
+        phoneVerified: profile.phoneVerified,
+        revokedRefreshTokens: 1,
+        noticeFailed: false,
+        sessionsRevokeFailed: false,
+      };
+    },
     async listAdmins() {
       if (data.down) throw usersDown();
       return [...admins];
@@ -62,4 +192,47 @@ export function createFakeUsersClient(
       return data.userReports?.[id] ?? null;
     },
   };
+}
+
+/** MOVO-294: cuenta corriente y Mercado Pago. El ajuste es idempotente por key, como el real. */
+export function createFakePaymentsClient(
+  data: { ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
+) {
+  const adjustments = new Map<string, { body: LedgerAdjustmentRequest; id: string; createdAt: string }>();
+  const client: PaymentsClient = {
+    request: unusedRequest,
+    async getUserMercadoPago(userId) {
+      if (data.down) throw paymentsDown();
+      return data.mercadoPago?.[userId] ?? { status: "not_linked", nickname: null, connectedAt: null, unlinkedAt: null };
+    },
+    async getUserLedger(userId) {
+      if (data.down) throw paymentsDown();
+      return data.ledgers?.[userId] ?? { balanceArs: 0, items: [], nextCursor: null };
+    },
+    async createLedgerAdjustment(_userId, body) {
+      if (data.down) throw paymentsDown();
+      if (body.amountArs === 0) throw new ApiError(422, "AMOUNT_OUT_OF_RANGE", "Fuera de rango.");
+      const existing = adjustments.get(body.idempotencyKey);
+      if (existing && existing.body.amountArs !== body.amountArs) {
+        throw new ApiError(409, "LEDGER_IDEMPOTENCY_CONFLICT", "La idempotencyKey ya se usó con otro movimiento.");
+      }
+      const saved = existing ?? { body, id: randomUUID(), createdAt: new Date().toISOString() };
+      adjustments.set(body.idempotencyKey, saved);
+      const balanceArs = [...adjustments.values()].reduce((sum, a) => sum + a.body.amountArs, 0);
+      return {
+        entry: {
+          id: saved.id,
+          type: "manual_adjustment",
+          amountArs: body.amountArs,
+          status: "pending",
+          shipmentId: null,
+          reason: body.reason,
+          createdAt: saved.createdAt,
+        },
+        created: !existing,
+        balanceArs,
+      };
+    },
+  };
+  return { client, adjustments };
 }

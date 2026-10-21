@@ -777,3 +777,13 @@ salvo hold liberado; descuento al transportista, solo con la liquidación acredi
 ### MOVO-308 — Filtro por envío en el historial de transacciones
 
 `GET /payments/transactions` acepta `shipmentId` (uuid, opcional): las reservas de un envío, más de una si hubo reintentos del hold, con la misma visibilidad por rol que el listado. Lo usa la card "Tu pago" de un envío cancelado en el mobile para mostrar cuánto se reservó y con qué tarjeta (la tarjeta solo viaja con `role=sender`). Archivos: `transactions.schema.ts`/`.routes.ts`/`.service.ts` y `transaction-repository.ts`.
+
+### MOVO-294 — Cuenta corriente y Mercado Pago en la ficha del panel
+
+- `GET /internal/payments/users/:userId/admin-ledger`: la página de la cuenta corriente sin enmascarar `reason` y con
+  `adminId` (la de la app los oculta). `GET /internal/payments/mp-connect/:userId/admin-summary`: el `{ linked }` de
+  ADR-036 no alcanzaba. Distingue `revoked` (el transportista revocó el acceso: tiene que volver a vincular) de
+  `expired` (el token venció sin renovarse: falla del refresh de Movo, MOVO-243), porque soporte actúa distinto.
+- El ajuste manual (`.../manual-adjustments`) devuelve también `balanceArs` y responde 422 `AMOUNT_OUT_OF_RANGE` con
+  cero o por encima de `ADMIN_LEDGER_ADJUSTMENT_MAX_ARS` (env nueva, default 500000, en los tres lugares).
+  `svc-admin` prefija la key del panel (`admin-adjustment:<uuid>`) porque la `idempotencyKey` es única entre todos los movimientos.

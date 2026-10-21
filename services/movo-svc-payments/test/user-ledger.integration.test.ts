@@ -214,6 +214,53 @@ describe("cuenta corriente del usuario (MOVO-309)", () => {
       expect((await adjust({ reason: "   " })).statusCode).toBe(400);
     });
 
+    it("MOVO-294: devuelve el saldo ya con el ajuste", async () => {
+      await addEntry(USER, { amountArs: 100 });
+      const res = await adjust({ amountArs: 50 });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().balanceArs).toBe(150);
+    });
+
+    it("MOVO-294: cero o por encima del tope del panel es 422 AMOUNT_OUT_OF_RANGE", async () => {
+      for (const amountArs of [0, 500000.01, -600000]) {
+        const res = await adjust({ amountArs });
+        expect(res.statusCode, String(amountArs)).toBe(422);
+        expect(res.json().error.code).toBe("AMOUNT_OUT_OF_RANGE");
+      }
+      expect((await adjust({ amountArs: -500000 })).statusCode).toBe(201);
+    });
+
+    it("MOVO-294: la misma idempotencyKey dos veces deja un solo movimiento; con otro cuerpo es 409", async () => {
+      const payload = { idempotencyKey: `admin-adjustment:${randomUUID()}`, amountArs: 70, adminId: ADMIN, reason: "Compensación" };
+      const url = `/internal/payments/users/${USER}/manual-adjustments`;
+      const first = await app.inject({ method: "POST", url, payload });
+      const retry = await app.inject({ method: "POST", url, payload });
+      expect(first.statusCode).toBe(201);
+      expect(retry.statusCode).toBe(200);
+      expect(retry.json().entry.id).toBe(first.json().entry.id);
+      expect(retry.json().balanceArs).toBe(70);
+
+      const conflict = await app.inject({ method: "POST", url, payload: { ...payload, amountArs: 71 } });
+      expect(conflict.statusCode).toBe(409);
+      expect(conflict.json().error.code).toBe("LEDGER_IDEMPOTENCY_CONFLICT");
+    });
+
+    it("MOVO-294: la vista del admin trae el motivo y quién hizo el ajuste, con el saldo total", async () => {
+      await addEntry(USER, { amountArs: 100 });
+      await adjust({ amountArs: -30, reason: "Nota interna del admin" });
+
+      const first = await app.inject({ method: "GET", url: `/internal/payments/users/${USER}/admin-ledger?limit=1` });
+      expect(first.statusCode).toBe(200);
+      const page = first.json();
+      expect(page.balanceArs).toBe(70);
+      expect(page.items).toEqual([
+        expect.objectContaining({ type: "manual_adjustment", amountArs: -30, reason: "Nota interna del admin", adminId: ADMIN }),
+      ]);
+      const next = await app.inject({ method: "GET", url: `/internal/payments/users/${USER}/admin-ledger?limit=1&cursor=${page.nextCursor}` });
+      expect(next.json().items[0]).toMatchObject({ type: "cancellation_penalty", adminId: null });
+      expect(next.json().nextCursor).toBeNull();
+    });
+
     it("la base también lo exige, aunque se inserte por SQL directo", async () => {
       await expect(
         app.db.$executeRawUnsafe(

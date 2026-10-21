@@ -2,6 +2,7 @@ import { Prisma } from "../../generated/prisma/client";
 import type { LedgerEntryStatus } from "../../generated/prisma/client";
 import { ApiError } from "@movo/shared";
 import type {
+  AdminUserLedgerRowPage,
   CreateManualAdjustmentRequest,
   CreateUserLedgerEntryRequest,
   CreateUserLedgerEntryResponse,
@@ -23,7 +24,10 @@ export const LEDGER_MAX_ABS_AMOUNT_ARS = 10_000_000;
 export interface UserLedgerService {
   balance(userId: string): Promise<UserLedgerBalanceResponse>;
   createEntry(userId: string, input: CreateUserLedgerEntryRequest): Promise<CreateUserLedgerEntryResponse>;
-  createManualAdjustment(userId: string, input: CreateManualAdjustmentRequest): Promise<CreateUserLedgerEntryResponse>;
+  /** El saldo que devuelve ya incluye el ajuste (o el original, en un reintento). */
+  createManualAdjustment(userId: string, input: CreateManualAdjustmentRequest): Promise<CreateUserLedgerEntryResponse & { balanceArs: number }>;
+  /** MOVO-294: la cuenta corriente vista por un admin, con el motivo y quién hizo cada ajuste. */
+  adminPage(userId: string, opts: { cursor?: string; limit?: number }): Promise<AdminUserLedgerRowPage>;
   /** Movimientos del usuario con su saldo, más nuevos primero. */
   page(userId: string, opts: { cursor?: string; limit?: number }): Promise<UserLedgerPageResponse>;
   pageWithOrigins(userId: string, opts: { cursor?: string; limit?: number }): Promise<UserLedgerPageResponse>;
@@ -35,6 +39,8 @@ export interface UserLedgerServiceDeps {
   ledger: UserLedgerRepository;
   db?: PrismaClient;
   shipmentsClient?: ShipmentsClient;
+  /** MOVO-294: tope (valor absoluto) de un ajuste manual; sin él rige solo `LEDGER_MAX_ABS_AMOUNT_ARS`. */
+  maxManualAdjustmentArs?: number;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -189,11 +195,17 @@ export function createUserLedgerService(deps: UserLedgerServiceDeps): UserLedger
     },
 
     async createManualAdjustment(userId, input) {
+      // Un cero o un monto por encima del tope del panel es un error de negocio (el admin lo
+      // corrige en el diálogo), no un cuerpo mal formado: 422, antes de la validación general.
+      const cap = deps.maxManualAdjustmentArs ?? LEDGER_MAX_ABS_AMOUNT_ARS;
+      if (input.amountArs === 0 || Math.abs(input.amountArs) > cap) {
+        throw new ApiError(422, "AMOUNT_OUT_OF_RANGE", `El ajuste tiene que ser distinto de cero y de hasta $${cap} en valor absoluto.`);
+      }
       assertValidAmount(input.amountArs);
       const reason = input.reason.trim();
       if (!reason) throw invalid("reason es obligatorio en un ajuste manual");
       const amountArs = new Prisma.Decimal(input.amountArs.toFixed(2));
-      return insertIdempotent({
+      const result = await insertIdempotent({
         userId,
         roleAtOrigin: null,
         type: "manual_adjustment",
@@ -214,6 +226,31 @@ export function createUserLedgerService(deps: UserLedgerServiceDeps): UserLedger
           shipmentId: input.shipmentId ?? null,
         }),
       });
+      return { ...result, balanceArs: (await balance(userId)).balanceArs };
+    },
+
+    async adminPage(userId, opts) {
+      const limit = Math.min(Math.max(opts.limit ?? LEDGER_DEFAULT_LIMIT, 1), LEDGER_MAX_LIMIT);
+      const after = opts.cursor ? decodeCursor(opts.cursor) : undefined;
+      const { rows, balance: total } = await ledger.summaryWithPage(userId, limit + 1, after);
+      const hasMore = rows.length > limit;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const last = pageRows[pageRows.length - 1];
+      return {
+        balanceArs: total.toNumber(),
+        // A diferencia de `page`, el motivo del ajuste no se enmascara: lo lee un admin.
+        items: pageRows.map((row) => ({
+          id: row.id,
+          type: row.type,
+          amountArs: row.amountArs.toNumber(),
+          status: row.status,
+          shipmentId: row.shipmentId,
+          reason: row.reason,
+          adminId: row.adminId,
+          createdAt: row.createdAt.toISOString(),
+        })),
+        nextCursor: hasMore && last ? encodeCursor(last) : null,
+      };
     },
 
     async page(userId, opts) {

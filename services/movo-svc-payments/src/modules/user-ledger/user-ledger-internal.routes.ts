@@ -5,6 +5,7 @@ import type {
   DebtCollectionPreviewRequest,
 } from "@movo/shared";
 import {
+  adminLedgerInternalSchema,
   createEntryInternalSchema,
   debtCollectionPreviewInternalSchema,
   getBalanceInternalSchema,
@@ -40,5 +41,11 @@ export default async function userLedgerInternalRoutes(app: FastifyInstance) {
     const { userId } = request.params as { userId: string };
     const result = await app.userLedger.createManualAdjustment(userId, request.body as CreateManualAdjustmentRequest);
     return reply.code(result.created ? 201 : 200).send(result);
+  });
+
+  // MOVO-294: la cuenta corriente en la ficha del panel, con el motivo y el admin de cada ajuste.
+  app.get("/:userId/admin-ledger", { schema: adminLedgerInternalSchema }, async (request) => {
+    const { userId } = request.params as { userId: string };
+    return app.userLedger.adminPage(userId, request.query as { cursor?: string; limit?: number });
   });
 }

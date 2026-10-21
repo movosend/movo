@@ -216,6 +216,20 @@ function buildRedactedPulledDecision(decision: DiditSessionDecision): Record<str
   return redacted;
 }
 
+/**
+ * Motivo legible de un intento a partir de `raw_decision.warnings` (ya redactado por
+ * `buildRedactedRawDecision`): las descripciones unidas en un solo string, o `null` si no hay
+ * ninguna. Lo usan el estado de KYC (`manualReviewReason`) y la ficha del panel (MOVO-294).
+ */
+export function describeDecisionWarnings(rawDecision: unknown): string | null {
+  const warnings = (rawDecision as { warnings?: unknown } | null | undefined)?.warnings;
+  if (!Array.isArray(warnings)) return null;
+  const descriptions = warnings
+    .map((w) => (w && typeof w === "object" ? (w as { description?: unknown }).description : undefined))
+    .filter((d): d is string => typeof d === "string");
+  return descriptions.length > 0 ? descriptions.join("; ") : null;
+}
+
 /** Lee el `KycStatus` vigente de un usuario para un tipo de verificación dado — evita
  * repetir el `if (type === "identity") ... else ...` en cada punto que necesita leer
  * el estado (MOVO-15). */
@@ -597,12 +611,7 @@ export function createKycService(
       let manualReviewReason: string | null = null;
       if (effectiveStatus === KycStatus.MANUAL_REVIEW) {
         const latest = await kycVerificationRepository.findLatestByUserId(userId, verificationType);
-        const rawDecision = latest?.rawDecision as { warnings?: unknown } | null | undefined;
-        const warnings = Array.isArray(rawDecision?.warnings) ? rawDecision.warnings : [];
-        const descriptions = warnings
-          .map((w) => (w && typeof w === "object" ? (w as { description?: unknown }).description : undefined))
-          .filter((d): d is string => typeof d === "string");
-        manualReviewReason = descriptions.length > 0 ? descriptions.join("; ") : null;
+        manualReviewReason = describeDecisionWarnings(latest?.rawDecision);
       }
 
       return { status: effectiveStatus, manualReviewReason };

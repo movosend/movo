@@ -3645,6 +3645,14 @@ auto-creaba siempre un `Trip` (MOVO-234, su AC5 "asociar a un viaje compatible" 
 
 Pendiente: el filtro "de paso" del tab Transportar en `movo-mobile` sigue comparando solo el día calendario.
 
+### MOVO-294 — Secciones de la ficha de usuario del panel
+
+`GET /internal/admin/users/:id/{shipments,trips,ratings}` en `modules/admin-internal/` (`admin-users.service.ts`):
+envíos donde participa (filtro por rol y estado, `counts` por rol con el filtro de estado aplicado, `shortId` = 8
+primeros caracteres del UUID), viajes del transportista y calificaciones recibidas con promedio simple (no el score
+de reputación). Devuelven ids de usuario: los nombres los resuelve `svc-admin`. Un usuario inexistente da listas
+vacías, no 404 — consultar a `svc-users` haría que la sección dependa de otro servicio.
+
 ### MOVO-296 — Una cuenta suspendida pausa las series recurrentes
 
 `trip-recurrence.ts#continueSeries`: si `svc-users` informa `accountStatus = suspended`, la ocurrencia siguiente se posterga (`deferred`) sin apagar la recurrencia ni avisar de un corte, igual que la deuda vencida (MOVO-313); al levantarse la suspensión se retoma sola. Antes cualquier estado distinto de `active` cortaba la serie para siempre. Una cuenta `banned` (inhabilitada) sigue cortándola. Test en `test/trip-recurrence.integration.test.ts`.

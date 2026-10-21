@@ -27,6 +27,7 @@ import notificationPreferencesRoutes from "./modules/notification-preferences/no
 import toursRoutes from "./modules/tours/tours.routes";
 import moderationRoutes, { internalModerationRoutes } from "./modules/moderation/moderation.routes";
 import adminsInternalRoutes, { AdminsInternalRoutesOptions } from "./modules/admins/admins-internal.routes";
+import adminUsersInternalRoutes, { AdminUsersInternalRoutesOptions } from "./modules/admin-users/admin-users-internal.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import sanctionSweepPlugin from "./plugins/sanction-sweep";
 import sanctionsInternalRoutes, { SanctionsInternalRoutesOptions } from "./modules/sanctions/sanctions-internal.routes";
@@ -197,6 +198,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
   };
   app.register(adminsInternalRoutes, adminsInternalRouteOpts);
+
+  // MOVO-294: búsqueda y ficha de usuarios del panel, y acciones de soporte. Interno, mismo
+  // criterio que el de arriba.
+  const adminUsersInternalRouteOpts: AdminUsersInternalRoutesOptions = {
+    prefix: "/internal",
+    ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+  };
+  app.register(adminUsersInternalRoutes, adminUsersInternalRouteOpts);
 
   // MOVO-296: sanciones de cuenta (suspender, inhabilitar, levantar, historial) para svc-admin.
   const sanctionsInternalRouteOpts: SanctionsInternalRoutesOptions = {

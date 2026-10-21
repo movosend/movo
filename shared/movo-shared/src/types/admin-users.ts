@@ -93,7 +93,11 @@ export interface AdminKycCard {
 }
 
 export interface AdminUserMercadoPago {
-  status: "linked" | "not_linked" | "revoked";
+  /**
+   * `revoked`: el transportista revocó el acceso desde MP y tiene que volver a vincular.
+   * `expired`: el token venció sin renovarse (falla del refresh de Movo, no del usuario).
+   */
+  status: "linked" | "not_linked" | "revoked" | "expired";
   nickname: string | null;
   connectedAt: string | null;
   unlinkedAt: string | null;
@@ -103,8 +107,8 @@ export interface AdminUserMercadoPago {
 export interface AdminUserKyc {
   identity: AdminKycCard;
   license: AdminKycCard;
-  /** `svc-payments` responde aparte: si falla, el panel muestra el error solo en esta tarjeta. */
-  mercadoPago: AdminUserMercadoPago;
+  /** `null` si `svc-payments` no respondió: el panel muestra el error solo en esta tarjeta. */
+  mercadoPago: AdminUserMercadoPago | null;
 }
 
 /** `GET /admin/users/:id/vehicle`. */
@@ -350,6 +354,46 @@ export interface AdminUserNotePage {
 
 export interface AdminUserNoteBody {
   body: string;
+}
+
+/**
+ * Contratos INTERNOS (servicio dueño → `svc-admin`). Los servicios dueños solo conocen ids de
+ * usuario: `svc-admin` los cambia por nombres con `POST /internal/admin/users/names` de
+ * `svc-users` antes de responder al panel con los tipos de arriba.
+ */
+
+/** `GET /internal/admin/users/:id/shipments` de `svc-shipments`. */
+export interface AdminUserShipmentRow extends Omit<AdminUserShipment, "sender" | "carrier" | "receiver"> {
+  senderId: string;
+  carrierId: string | null;
+  receiverId: string;
+}
+
+export interface AdminUserShipmentRowPage extends Omit<AdminUserShipmentPage, "items"> {
+  items: AdminUserShipmentRow[];
+}
+
+/** `GET /internal/admin/users/:id/ratings` de `svc-shipments`. */
+export interface AdminUserRatingRow extends Omit<AdminUserRating, "rater"> {
+  raterId: string;
+}
+
+export interface AdminUserRatingRowPage extends Omit<AdminUserRatings, "items"> {
+  items: AdminUserRatingRow[];
+}
+
+/** `GET /internal/payments/admin/users/:id/ledger` de `svc-payments`. */
+export interface AdminUserLedgerRow extends Omit<AdminUserLedgerEntry, "adminName"> {
+  adminId: string | null;
+}
+
+export interface AdminUserLedgerRowPage extends Omit<AdminUserLedger, "items"> {
+  items: AdminUserLedgerRow[];
+}
+
+/** `POST /internal/admin/users/names` de `svc-users`: los ids que no existen no vuelven. */
+export interface AdminUserNames {
+  users: AdminUserRef[];
 }
 
 /** Tope de caracteres de la nota y del motivo de una acción. */

@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 import {
+  AdminUserMercadoPago,
   ApiError,
   CarrierMpAccountStatusResponse,
   MP_CONNECT_RETURN_URL,
@@ -73,6 +74,22 @@ export function successReturnUrl(): string {
 
 export function errorReturnUrl(code: MpConnectReturnErrorCode): string {
   return `${MP_CONNECT_RETURN_URL}?result=error&code=${code}`;
+}
+
+/**
+ * MOVO-294: mismo criterio que `toStatusResponse`, en la forma del panel. Revocada y vencida se
+ * distinguen a propósito: la primera pide que el transportista vuelva a vincular; la segunda es
+ * una falla del refresh de Movo (MOVO-243) y no hay que pedirle nada al usuario.
+ */
+export function toAdminSummary(account: CarrierMpAccount | null, now: Date): AdminUserMercadoPago {
+  if (!account) return { status: "not_linked", nickname: null, connectedAt: null, unlinkedAt: null };
+  const { status, invalidReason } = toStatusResponse(account, now);
+  return {
+    status: status === "linked" ? "linked" : status === "unlinked" ? "not_linked" : invalidReason === "expired" ? "expired" : "revoked",
+    nickname: account.nickname,
+    connectedAt: account.connectedAt.toISOString(),
+    unlinkedAt: account.unlinkedAt?.toISOString() ?? null,
+  };
 }
 
 /**
@@ -175,6 +192,11 @@ export function createMpConnectService(deps: MpConnectServiceDeps) {
      */
     async getCarrierAccountStatus(userId: string): Promise<CarrierMpAccountStatusResponse> {
       return { linked: await repository.hasActiveCredentials(userId, now()) };
+    },
+
+    /** MOVO-294: la tarjeta de Mercado Pago de la ficha del panel. */
+    async getAdminSummary(userId: string): Promise<AdminUserMercadoPago> {
+      return toAdminSummary(await repository.findByUserId(userId), now());
     },
 
     async buildAuthorizationUrl(userId: string): Promise<MpConnectAuthorizationUrlResponse> {

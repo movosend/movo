@@ -11,6 +11,7 @@ import auditPlugin from "./plugins/audit";
 import auditRoutes from "./modules/audit/audit.routes";
 import adminsRoutes from "./modules/admins/admins.routes";
 import sessionRoutes from "./modules/session/session.routes";
+import usersRoutes from "./modules/users/users.routes";
 
 export type BuildAppOptions = InternalClientsOptions;
 
@@ -56,6 +57,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(sessionRoutes, { prefix: "/admin" });
   app.register(auditRoutes, { prefix: "/admin" });
   app.register(adminsRoutes, { prefix: "/admin" });
+  app.register(usersRoutes, { prefix: "/admin" });
 
   return app;
 }
