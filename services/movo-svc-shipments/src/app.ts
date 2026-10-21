@@ -35,6 +35,7 @@ import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracki
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
 import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
 import chatRoutes, { ChatRoutesOptions } from "./modules/chat/chat.routes";
+import supportRoutes, { SupportRoutesOptions } from "./modules/support/support.routes";
 import receiverTransfersRoutes, {
   ReceiverTransfersRoutesOptions,
   shipmentReceiverTransferRoutes,
@@ -70,6 +71,10 @@ export interface BuildAppOptions {
   chatNow?: () => Date;
   /** Agenda el resumen de avisos de una ráfaga de chat (MOVO-301); solo tests, para no esperar la ventana real. */
   chatSchedulePush?: (run: () => void, delayMs: number) => void;
+  /** Reloj de las conversaciones de soporte (MOVO-320), solo tests. */
+  supportNow?: () => Date;
+  /** Agenda el resumen de avisos de una ráfaga de soporte (MOVO-320, ADR-046); solo tests. */
+  supportSchedulePush?: (run: () => void, delayMs: number) => void;
   /** Override solo para tests de integración — evita depender de un
    * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
    * `usersClient`. */
@@ -351,6 +356,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.chatSchedulePush ? { schedulePush: opts.chatSchedulePush } : {}),
   };
   app.register(chatRoutes, chatRouteOpts);
+
+  // MOVO-320 (ADR-050): soporte al usuario sobre el chat existente (mismo `ChatHub`, otra clave de sala). Prefijo
+  // "/support": el gateway lo proxea (HTTP y upgrade) hacia este servicio.
+  const supportRouteOpts: SupportRoutesOptions = {
+    prefix: "/support",
+    ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.supportNow ? { now: opts.supportNow } : {}),
+    ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
+  };
+  app.register(supportRoutes, supportRouteOpts);
 
   return app;
 }
