@@ -57,7 +57,19 @@ export interface KycVerificationRepository {
   /** AC10: casos en revisión manual, consultables a futuro por el panel de admin
    * (MOVO-32) — no se construye el panel acá, solo se deja el dato accesible. */
   findManualReviewCases(): Promise<KycVerification[]>;
+  /** MOVO-230: borra los intentos abandonados (`pending` o `expired`) pedidos antes de
+   * `cutoff`. Los intentos con resultado (`approved`, `rejected`, `manual_review`) no se
+   * tocan. Devuelve los intentos borrados. */
+  deleteAbandonedBefore(cutoff: Date): Promise<AbandonedKycAttempt[]>;
 }
+
+export interface AbandonedKycAttempt {
+  userId: string;
+  verificationType: VerificationType;
+  status: KycStatus;
+}
+
+const ABANDONED_STATUSES = [KycStatus.PENDING as PrismaKycStatus, KycStatus.EXPIRED as PrismaKycStatus];
 
 type KycVerificationRow = Prisma.KycVerificationGetPayload<Record<string, never>>;
 
@@ -172,6 +184,26 @@ export function createKycVerificationRepository(db: Prisma.TransactionClient): K
         orderBy: { requestedAt: "desc" },
       });
       return rows.map(toDomainKycVerification);
+    },
+
+    async deleteAbandonedBefore(cutoff: Date): Promise<AbandonedKycAttempt[]> {
+      const rows = await db.kycVerification.findMany({
+        where: { status: { in: ABANDONED_STATUSES }, requestedAt: { lt: cutoff } },
+        select: { id: true, userId: true, verificationType: true, status: true },
+      });
+      if (rows.length === 0) {
+        return [];
+      }
+      // Se vuelve a filtrar por estado: un webhook que resolvió el intento entre las dos
+      // queries lo saca del borrado.
+      await db.kycVerification.deleteMany({
+        where: { id: { in: rows.map((row) => row.id) }, status: { in: ABANDONED_STATUSES } },
+      });
+      return rows.map((row) => ({
+        userId: row.userId,
+        verificationType: parseVerificationType(row.verificationType),
+        status: parseKycStatus(row.status, "kyc_verification.status"),
+      }));
     },
   };
 }

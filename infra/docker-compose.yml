@@ -142,6 +142,10 @@ services:
       # Redis del gateway). `:-` por el gotcha de var presente pero vacía documentado arriba.
       - SANCTION_SWEEP_INTERVAL_MINUTES=${SANCTION_SWEEP_INTERVAL_MINUTES:-5}
       - SANCTION_SWEEP_ENABLED=${SANCTION_SWEEP_ENABLED:-true}
+      # MOVO-230: purga de intentos de KYC abandonados (Política de Privacidad §7).
+      - KYC_ABANDONED_RETENTION_DAYS=${KYC_ABANDONED_RETENTION_DAYS:-30}
+      - KYC_ABANDONED_SWEEP_INTERVAL_MINUTES=${KYC_ABANDONED_SWEEP_INTERVAL_MINUTES:-1440}
+      - KYC_ABANDONED_SWEEP_ENABLED=${KYC_ABANDONED_SWEEP_ENABLED:-true}
     depends_on:
       - postgres
       - redis
