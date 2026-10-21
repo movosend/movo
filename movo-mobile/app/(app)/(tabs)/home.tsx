@@ -9,6 +9,7 @@ import { HomeChatButton } from '../../../components/chat/home-chat-button';
 import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { AttentionSection } from '../../../components/home/attention-section';
 import { CarrierTransportingSection } from '../../../components/home/carrier-transporting-section';
+import { HomeSectionError } from '../../../components/home/home-section-states';
 import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
 import { RoleSection } from '../../../components/home/role-section';
@@ -17,11 +18,13 @@ import { TrackingActiveIndicator } from '../../../components/location/tracking-a
 import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
 import { useActiveSuspension } from '../../../src/hooks/use-account-restriction';
 import { useAuth } from '../../../src/hooks/use-auth';
+import { useAttentionTasks } from '../../../src/hooks/use-attention-tasks';
 import { useAutoStartTour } from '../../../src/hooks/use-auto-start-tour';
 import { useChatList } from '../../../src/hooks/use-chat';
 import { MY_PROFILE_QUERY_KEY, useMyProfile } from '../../../src/hooks/use-profile';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import { useTransportGate } from '../../../src/hooks/use-transport-gate';
+import { useMyTrips } from '../../../src/hooks/use-trips';
 import {
   KYC_TONE_ICON_HEX,
   kycStatusIcon,
@@ -84,8 +87,21 @@ export default function AuthenticatedHomeScreen() {
     }
   }, [profile?.kycStatus, user?.kycStatus]);
 
-  // Skeleton y error de "Estoy transportando" solo le corresponden a quien es transportista.
+  // El skeleton de "Estoy transportando" solo le corresponde a quien es transportista.
   const isCarrier = (profile?.roles ?? user?.roles)?.includes(UserRole.CARRIER) ?? false;
+
+  // Una sección que falla sin datos no se muestra: no sabemos si te corresponde (un emisor
+  // que nunca transportó no tiene por qué ver "No pudimos cargar tus viajes"). En su lugar,
+  // un solo aviso para todo Inicio que reintenta lo que falló. Las mismas queries que usan
+  // las secciones, así que no hay requests de más.
+  const tripsQuery = useMyTrips("upcoming", isCarrier);
+  const attentionQuery = useAttentionTasks();
+  const failedSections = [
+    { failed: sendingQuery.isError && !sending?.length, refetch: sendingQuery.refetch },
+    { failed: receivingQuery.isError && !receiving?.length, refetch: receivingQuery.refetch },
+    { failed: isCarrier && tripsQuery.isError && !tripsQuery.data, refetch: tripsQuery.refetch },
+    { failed: attentionQuery.isError && attentionQuery.tasks.length === 0, refetch: attentionQuery.refetch },
+  ].filter((section) => section.failed);
 
   const bannerText = currentKycStatus ? KYC_BANNER_TEXT[currentKycStatus] : undefined;
   const tone = currentKycStatus ? kycStatusTone(currentKycStatus) : "warning";
@@ -210,6 +226,14 @@ export default function AuthenticatedHomeScreen() {
 
         <TrackingActiveIndicator />
 
+        {failedSections.length > 0 ? (
+          <HomeSectionError
+            testID="app-home-sections-error"
+            message="No pudimos cargar parte de tu inicio."
+            onRetry={() => failedSections.forEach((section) => void section.refetch())}
+          />
+        ) : null}
+
         {isCarrier ? <CarrierTransportingSection testID="app-home-transporting" /> : null}
 
         <RoleSection
@@ -219,8 +243,6 @@ export default function AuthenticatedHomeScreen() {
           shipments={sending ?? []}
           chatByShipment={chatByShipment}
           isLoading={sendingQuery.isLoading}
-          isError={sendingQuery.isError}
-          onRetry={() => void sendingQuery.refetch()}
         />
         <RoleSection
           testID="app-home-receiving"
@@ -229,8 +251,6 @@ export default function AuthenticatedHomeScreen() {
           shipments={receiving ?? []}
           chatByShipment={chatByShipment}
           isLoading={receivingQuery.isLoading}
-          isError={receivingQuery.isError}
-          onRetry={() => void receivingQuery.refetch()}
         />
 
         <HomeSendCta
