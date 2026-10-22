@@ -11,6 +11,7 @@ import errorHandlerPlugin from "./plugins/error-handler";
 import mpConnectPlugin from "./plugins/mp-connect";
 import holdsPlugin from "./plugins/holds";
 import mpTokenRefreshSweepPlugin from "./plugins/mp-token-refresh-sweep";
+import captureRetrySweepPlugin from "./plugins/capture-retry-sweep";
 import cardsPlugin from "./plugins/cards";
 import transactionsPlugin from "./plugins/transactions";
 import userLedgerPlugin from "./plugins/user-ledger";
@@ -28,7 +29,7 @@ import { UsersClient } from "./adapters/users-client";
 import capturesPlugin from "./plugins/captures";
 import mpWebhooksPlugin from "./plugins/mp-webhooks";
 import mpWebhookRoutes from "./modules/webhooks/mp-webhook.routes";
-import settlementsRoutes from "./modules/settlements/settlements.routes";
+import settlementsRoutes, { settlementIssuesRoutes } from "./modules/settlements/settlements.routes";
 import type { ShipmentsClient } from "./adapters/shipments-client";
 import shipmentsClientPlugin from "./plugins/shipments-client";
 import type { AlertNotifier } from "./adapters/alert-notifier";
@@ -41,6 +42,9 @@ export interface BuildAppOptions {
   mercadoPagoOAuthClient?: MercadoPagoOAuthClient;
   /** Override para habilitar/deshabilitar el barrido de renovación de tokens (MOVO-243). */
   mpTokenRefreshSweepEnabled?: boolean;
+
+  /** Override para habilitar/deshabilitar el barrido de reintentos de capturas (MOVO-213). */
+  captureRetrySweepEnabled?: boolean;
 
   /** Ídem para Customers & Cards con el token de Movo (MOVO-100). */
   mercadoPagoCustomersClient?: MercadoPagoCustomersClient;
@@ -97,6 +101,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(userLedgerPlugin);
   // MOVO-212: captura del hold y liquidación, también sobre `mercadoPago`.
   app.register(capturesPlugin);
+  // MOVO-213: reintenta las capturas fallidas con backoff y escala las que no se arreglan solas.
+  app.register(captureRetrySweepPlugin, {
+    ...(opts.captureRetrySweepEnabled !== undefined ? { enabled: opts.captureRetrySweepEnabled } : {}),
+  });
   // Después de `holds`: reconcilia intentos en `creating` con su service (MOVO-268).
   app.register(mpWebhooksPlugin, { alertNotifier: opts.alertNotifier });
   // MOVO-312: "Pagar mi saldo". Después de `mpWebhooks` (usa `app.alerts`) y de `userLedger`.
@@ -127,6 +135,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(holdsRoutes, { prefix: "/internal/payments/holds" });
   // MOVO-212: captura (`/by-shipment/:id/capture`) y liquidación (`/by-shipment/:id/settlement`).
   app.register(settlementsRoutes, { prefix: "/internal/payments/holds" });
+  // MOVO-213: liquidaciones pendientes de reintento o escaladas (proceso manual).
+  app.register(settlementIssuesRoutes, { prefix: "/internal/payments/settlements" });
 
   // MOVO-100: interno, lo llama svc-users al dar de baja una cuenta (MOVO-39).
   app.register(cardsInternalRoutes, { prefix: "/internal/payments/users" });

@@ -32,6 +32,7 @@ export interface EnvConfig {
   SETTLEMENT_SWEEP_GRACE_MINUTES: number;
   SETTLEMENT_SWEEP_BATCH_SIZE: number;
   SETTLEMENT_SWEEP_ENABLED?: boolean;
+  SETTLEMENT_REVIEW_SLA_HOURS: number;
   CARRIER_POSITION_RETENTION_DAYS: number;
   CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: number;
   CARRIER_POSITION_PURGE_SWEEP_ENABLED?: boolean;
@@ -149,12 +150,15 @@ export const envSchema = {
     FUNDS_RELEASE_NOTIFIER: { type: "string", enum: ["console", "payments"], default: "console" },
     // MOVO-212: barrido que reintenta la captura de los envíos `delivered` que no llegaron a
     // `completed` (la captura en línea del handshake es best-effort). Solo corre con
-    // FUNDS_RELEASE_NOTIFIER=payments. Sin backoff ni escalado: eso es MOVO-213.
+    // FUNDS_RELEASE_NOTIFIER=payments. Es la red de seguridad: el backoff persistido y el escalado manual los hace svc-payments (MOVO-213).
     SETTLEMENT_SWEEP_INTERVAL_MINUTES: { type: "number", default: 5 },
     // Margen desde la entrega antes de que el barrido la tome, para no pisar la captura en línea.
     SETTLEMENT_SWEEP_GRACE_MINUTES: { type: "number", default: 5 },
     SETTLEMENT_SWEEP_BATCH_SIZE: { type: "number", default: 20 },
     SETTLEMENT_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-213: plazo (en horas) que se le promete al transportista cuando su cobro queda en revisión manual
+    // (push "Tu cobro está demorado"). Es un compromiso del equipo operativo, por eso es configuración.
+    SETTLEMENT_REVIEW_SLA_HOURS: { type: "number", minimum: 1, default: 48 },
     // MOVO-202/ADR-023: retención de la traza GPS del transportista -- días desde que
     // el envío cierra (`Shipment.lastStatusChangedAt` en un estado de
     // `POSITION_PURGE_ELIGIBLE_STATUSES`) hasta que la purga periódica la borra.

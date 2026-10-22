@@ -417,3 +417,88 @@ describe("settlement.service.getForUser: deuda cobrada (MOVO-311)", () => {
     expect(sender).not.toHaveProperty("commissionArs");
   });
 });
+
+describe("settlement.service.handleSettlementEvent (MOVO-213)", () => {
+  const pushes = (ctx: ReturnType<typeof setup>) =>
+    (ctx.notifications.sendPush as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+
+  it("AC7: delayed avisa al transportista que su cobro está en revisión, con el plazo, y no toca el envío", async () => {
+    const ctx = setup();
+
+    const result = await ctx.service.handleSettlementEvent(SHIPMENT, "delayed");
+
+    expect(result).toEqual({ handled: true, outcome: "carrier_notified" });
+    expect(pushes(ctx)).toHaveLength(1);
+    expect(pushes(ctx)[0]).toMatchObject({ userId: CARRIER, category: "payments", title: "Tu cobro está demorado" });
+    expect(pushes(ctx)[0].body).toContain("48 horas");
+    expect(ctx.row.status).toBe(ShipmentStatus.DELIVERED);
+    expect(ctx.payments.captureHold).not.toHaveBeenCalled();
+  });
+
+  it("delayed no se repite: el segundo aviso del mismo envío no manda otra push", async () => {
+    const ctx = setup();
+    await ctx.service.handleSettlementEvent(SHIPMENT, "delayed");
+
+    const second = await ctx.service.handleSettlementEvent(SHIPMENT, "delayed");
+
+    expect(second).toEqual({ handled: false, outcome: "already_notified" });
+    expect(pushes(ctx)).toHaveLength(1);
+  });
+
+  it("delayed sobre un envío que ya no está entregado se ignora", async () => {
+    const ctx = setup({ status: ShipmentStatus.COMPLETED });
+
+    expect(await ctx.service.handleSettlementEvent(SHIPMENT, "delayed")).toEqual({ handled: false, outcome: "ignored" });
+    expect(pushes(ctx)).toHaveLength(0);
+  });
+
+  it("credited completa el envío (la captura devuelve la liquidación ya acreditada) y avisa a las partes", async () => {
+    const ctx = setup();
+
+    const result = await ctx.service.handleSettlementEvent(SHIPMENT, "credited");
+
+    expect(result).toEqual({ handled: true, outcome: "completed" });
+    expect(ctx.row.status).toBe(ShipmentStatus.COMPLETED);
+    expect(pushes(ctx)).toHaveLength(2);
+  });
+
+  it("credited es idempotente: con el envío ya completado no hace nada más", async () => {
+    const ctx = setup();
+    await ctx.service.handleSettlementEvent(SHIPMENT, "credited");
+
+    expect(await ctx.service.handleSettlementEvent(SHIPMENT, "credited")).toEqual({ handled: true, outcome: "already_completed" });
+    expect(pushes(ctx)).toHaveLength(2);
+  });
+
+  it("un envío inexistente responde 404", async () => {
+    const ctx = setup();
+    ctx.repository.findById.mockResolvedValueOnce(null as never);
+
+    await expect(ctx.service.handleSettlementEvent(SHIPMENT, "delayed")).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe("settlement.service.retryPendingSettlements: liquidación escalada (MOVO-213)", () => {
+  it("SETTLEMENT_ESCALATED es permanente: el envío espera 24 h en vez de reintentarse cada pasada", async () => {
+    const claims = new Map<string, boolean>();
+    const retryState: SettlementRetryState = {
+      isCoolingDown: async () => false,
+      recordFailure: vi.fn(async (id: string, permanent: boolean) => void claims.set(id, permanent)),
+      clear: async () => undefined,
+    };
+    const { repository } = memoryRepository();
+    const payments = createFakePaymentsClient();
+    seedHold(payments);
+    payments.captureHold.mockRejectedValue(new ApiError(409, "SETTLEMENT_ESCALATED", "en revisión"));
+    const service = createSettlementService({
+      repository: repository as unknown as ShipmentRepository,
+      paymentsClient: payments,
+      retryState,
+      logger: { warn: vi.fn() },
+    });
+
+    await service.retryPendingSettlements({ graceMinutes: 5, batchSize: 5 });
+
+    expect(claims.get(SHIPMENT)).toBe(true);
+  });
+});

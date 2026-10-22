@@ -83,6 +83,7 @@ export type NotificationTriggerKey =
   | "fundingReconfirmCarrier"
   | "settlementCreditedCarrier"
   | "settlementProcessedSender"
+  | "settlementDelayedCarrier"
   | "cancellationPenaltyChargedSender"
   | "cancellationPenaltyDebtSender"
   | "cancellationPenaltyCompensationCarrier"
@@ -757,6 +758,16 @@ export const NOTIFICATION_TRIGGERS = {
     ({ netAmountArs }) => ({
       title: "Cobraste tu envío",
       body: `Te acreditamos $${netAmountArs.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} en tu cuenta de Mercado Pago.`,
+    })
+  ),
+  // MOVO-213 (AC7): la captura no se pudo completar tras los reintentos y el cobro pasó a revisión manual. Se le
+  // dice al transportista que no es un rechazo y en cuánto se resuelve (`SETTLEMENT_REVIEW_SLA_HOURS`).
+  settlementDelayedCarrier: definition<{ reviewHours: number }>(
+    "payments",
+    { title: "Tu cobro está demorado", body: "Estamos revisando el cobro de tu entrega. Te avisamos apenas se acredite." },
+    ({ reviewHours }) => ({
+      title: "Tu cobro está demorado",
+      body: `Estamos revisando el cobro de tu entrega y lo resolvemos en un plazo de hasta ${reviewHours} ${reviewHours === 1 ? "hora" : "horas"}. Te avisamos apenas se acredite.`,
     })
   ),
   settlementProcessedSender: definition<void>(

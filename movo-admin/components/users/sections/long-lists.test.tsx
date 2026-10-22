@@ -109,8 +109,10 @@ describe("Cuenta corriente", () => {
       "No pudimos cargar más movimientos (502)"
     )
     expect(screen.getByText(/Movimiento 1/)).toBeInTheDocument()
+    // El alert aparece con `failed`, pero el botón sigue en "Cargando…" hasta que termina la transición:
+    // se espera, no se busca en seco (fallaba de forma intermitente en CI).
     expect(
-      screen.getByRole("button", { name: "Reintentar" })
+      await screen.findByRole("button", { name: "Reintentar" })
     ).toBeInTheDocument()
   })
 })

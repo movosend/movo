@@ -3727,3 +3727,11 @@ filtro de lenguaje solo a mensajes del usuario y push de ADR-046 con claves `sup
 - Pendiente (MOVO-322): `publishStaffMessage`/`publishStatus`/`publishAgentRead` del servicio son lo que tiene que llamar el endpoint interno del agente; hoy
   solo los usan los tests. Sin plazo de retención ni purga (MOVO-224). `GET /shipments/mine` no incluye al transportista: el selector de envíos de MOVO-324
   no puede usarlo tal cual.
+
+### MOVO-213 — Aviso de la liquidación demorada o acreditada por un reintento
+
+`POST /internal/shipments/:id/settlement-events` (interno, lo llama `svc-payments`; `modules/settlements/settlements.routes.ts`, `settlement.service.handleSettlementEvent`).
+`delayed`: el cobro quedó escalado a revisión manual → push `settlementDelayedCarrier` al transportista (con `SETTLEMENT_REVIEW_SLA_HOURS`, default 48), una sola vez por
+envío (dedupe Redis `notified:settlement-delayed:<id>`); el envío sigue `delivered`. `credited`: un reintento de payments acreditó → `captureAndComplete` (la captura devuelve
+la liquidación ya acreditada) y salen los pushes de siempre. El barrido `settlement-sweep` no cambia salvo que `SETTLEMENT_ESCALATED` es un fallo permanente (cooldown de 24 h);
+el backoff y el escalado viven ahora en `svc-payments`.

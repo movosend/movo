@@ -1,7 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { ApiError, type CaptureHoldRequest } from "@movo/shared";
 import type { CaptureRequest } from "./capture.service";
-import { captureHoldSchema, getSettlementSchema } from "./settlements.schema";
+import { captureHoldSchema, getSettlementSchema, listSettlementIssuesSchema } from "./settlements.schema";
 
 /** Campos que acepta el body de la captura. */
 const CAPTURE_BODY_KEYS = new Set(["kind", "amountArs"]);
@@ -54,5 +54,17 @@ export default async function settlementsRoutes(app: FastifyInstance) {
   app.get("/by-shipment/:shipmentId/settlement", { schema: getSettlementSchema }, async (request) => {
     const { shipmentId } = request.params as { shipmentId: string };
     return service.getByShipment(shipmentId);
+  });
+}
+
+/**
+ * MOVO-213 (AC6): consulta interna de las liquidaciones que necesitan atención, el punto de partida del proceso
+ * manual. `GET /internal/payments/settlements?status=failed|escalated`. Interno como el resto (ADR-010); el panel de
+ * admin (MOVO-33) lo expondrá vía `svc-admin` cuando exista su pantalla.
+ */
+export async function settlementIssuesRoutes(app: FastifyInstance) {
+  app.get("/", { schema: listSettlementIssuesSchema }, async (request) => {
+    const { status, limit = 50, cursor } = request.query as { status: "failed" | "escalated"; limit?: number; cursor?: string };
+    return app.captures.listIssues(status, limit, cursor);
   });
 }

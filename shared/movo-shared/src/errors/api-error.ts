@@ -211,6 +211,12 @@ export type ApiErrorCode =
   | "HOLD_NOT_CAPTURABLE"
   // El envío todavía no tiene liquidación (no se pidió la captura).
   | "SETTLEMENT_NOT_FOUND"
+  // MOVO-213: la liquidación está escalada a revisión manual (se agotaron los reintentos o el fallo no
+  // se arregla reintentando): no se vuelve a capturar sola. `svc-shipments` lo trata como permanente.
+  | "SETTLEMENT_ESCALATED"
+  // MOVO-213: la captura ya falló y su reintento está programado (backoff persistido): lo hace el barrido de
+  // `svc-payments` a su hora, no se adelanta con otro pedido de captura.
+  | "SETTLEMENT_RETRY_PENDING"
   // MOVO-306: el envío ya tiene una liquidación de otro tipo (entrega vs. penalidad) o por
   // otro monto. Una por envío: no se pisa en silencio.
   | "SETTLEMENT_CONFLICT"

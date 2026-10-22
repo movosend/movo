@@ -17,7 +17,7 @@ export interface SettlementSweepPluginOptions {
  * (la captura en línea del handshake es best-effort: un corte de MP o de `svc-payments` la
  * deja pendiente). Un intento por envío y por pasada; un envío que falla se "enfría" (10 min, 20,
  * 40... hasta 6 h, 24 h si el fallo es permanente) para que los que nunca se van a poder capturar
- * no tapen a los demás. La política completa de reintentos y el escalado manual son de MOVO-213. Solo corre con `FUNDS_RELEASE_NOTIFIER=payments`:
+ * no tapen a los demás. El backoff persistido y el escalado manual son de svc-payments (MOVO-213); este barrido es la red de seguridad. Solo corre con `FUNDS_RELEASE_NOTIFIER=payments`:
  * con el notifier de consola (dev/test/CI) no hay nada que cobrar.
  */
 export default fp(async (app: FastifyInstance, opts: SettlementSweepPluginOptions = {}) => {

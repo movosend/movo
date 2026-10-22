@@ -651,3 +651,9 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 (`admin-support.ts`), por eso el del lado usuario se llama distinto; en el barrel la página de mensajes del usuario sale como `SupportUserMessagesPage`
 (`SupportMessagesPage` es la del panel). Categoría de push `support` (sección `conversations`) y trigger `supportMessageReceived`. Recordatorio habitual:
 `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-213 — Reintentos y escalado de la liquidación (`types/settlement.ts`)
+
+`SettlementEscalationReason` (`retries_exhausted` | `not_retryable`), `SettlementIssueItem`/`SettlementIssuesPage`/`SETTLEMENT_ISSUE_STATUSES` (la consulta interna de `svc-payments`),
+`SettlementEventRequest`/`SettlementEventResponse` (aviso a shipments), trigger `settlementDelayedCarrier` (categoría `payments`, con `reviewHours`) y los códigos `SETTLEMENT_ESCALATED` y
+`SETTLEMENT_RETRY_PENDING`. `SettlementStatus` ya tenía `escalated`; `SettlementResponse` no cambia.

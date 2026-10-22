@@ -170,12 +170,18 @@ export type {
 } from "./types/transaction";
 
 // liquidación: captura del hold + split (MOVO-212)
-export { SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
+export { SETTLEMENT_ISSUE_STATUSES, SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
 export type {
   CaptureHoldRequest,
   CaptureHoldResponse,
   SettlementDisplayStatus,
+  SettlementEscalationReason,
+  SettlementEventRequest,
+  SettlementEventResponse,
   SettlementFailureReason,
+  SettlementIssueItem,
+  SettlementIssuesPage,
+  SettlementIssueStatus,
   SettlementKind,
   SettlementResponse,
   SettlementStatus,
