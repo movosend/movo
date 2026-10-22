@@ -280,6 +280,9 @@ export function createSupportRepository(db: PrismaClient): SupportRepository {
 
     async appendStaffMessage(input) {
       return db.$transaction(async (tx) => {
+        // Mismo bloqueo de fila que `appendUserMessage`: si el usuario escribe sobre una `resolved` justo cuando
+        // un agente la resuelve, uno espera al otro y el `nextStatus` no pisa la reapertura.
+        await tx.$queryRaw`SELECT 1 FROM shipments.support_conversations WHERE id = ${input.conversationId}::uuid FOR UPDATE`;
         const message = await tx.supportMessage.create({
           data: {
             conversationId: input.conversationId,
@@ -294,7 +297,8 @@ export function createSupportRepository(db: PrismaClient): SupportRepository {
         const conversation = await tx.supportConversation.update({
           where: { id: input.conversationId },
           data: {
-            lastMessageAt: input.now,
+            // Una nota interna no mueve `lastMessageAt`: el usuario lo ve como `lastActivityAt` y ordena su lista.
+            ...(input.kind !== "note" ? { lastMessageAt: input.now } : {}),
             ...(input.nextStatus ? { status: input.nextStatus, resolvedAt: input.nextStatus === "resolved" ? input.now : null } : {}),
           },
         });

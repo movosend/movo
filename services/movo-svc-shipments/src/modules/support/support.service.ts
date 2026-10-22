@@ -201,6 +201,10 @@ export function createSupportService(deps: SupportServiceDeps) {
       const replay = async (message: SupportMessageRecord) => {
         const conversation = await repo.findById(message.conversationId);
         if (!conversation) throw notFound();
+        // Solo es un reintento de la creación si es el primer mensaje de su conversación (se crean con el mismo `now`).
+        if (message.createdAt.getTime() !== conversation.createdAt.getTime()) {
+          throw new ApiError(400, "VALIDATION_FAILED", "Ese clientMessageId ya se usó en otra consulta.");
+        }
         const dto = toUserFacingMessage(message, userId, conversation.lastAgentReadAt);
         if (!dto) throw notFound();
         return { conversation: await itemFor(conversation, userId), message: dto, replayed: true };

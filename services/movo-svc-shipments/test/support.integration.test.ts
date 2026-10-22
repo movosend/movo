@@ -457,6 +457,18 @@ describe("Soporte al usuario (MOVO-320)", () => {
       expect(response.statusCode).toBe(400);
     });
 
+    it("crear con un clientMessageId ya usado en un mensaje posterior de otra consulta responde 400 y no la devuelve", async () => {
+      const userId = randomUUID();
+      const a = await openConversation(userId);
+      const clientMessageId = randomUUID();
+      await write(userId, a, "Agrego un dato", clientMessageId);
+
+      const response = await open(userId, { clientMessageId });
+
+      expect(response.statusCode).toBe(400);
+      expect(await app.db.supportConversation.count({ where: { userId } })).toBe(1);
+    });
+
     it("una consulta awaiting_user vuelve a open cuando el usuario responde", async () => {
       const userId = randomUUID();
       const id = await openConversation(userId);
@@ -500,6 +512,21 @@ describe("Soporte al usuario (MOVO-320)", () => {
       await Promise.all([write(userId, id, "Uno"), write(userId, id, "Dos")]);
 
       expect(await app.db.supportMessage.count({ where: { kind: "system" } })).toBe(1);
+    });
+
+    it("una nota interna no mueve lastActivityAt ni el orden de la lista", async () => {
+      const userId = randomUUID();
+      const first = await openConversation(userId, "Primera");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const second = await openConversation(userId, "Segunda");
+      const before = (await list(userId)).json().items;
+      expect(before.map((i: { id: string }) => i.id)).toEqual([second, first]);
+
+      await internalNote(first, "NOTA-INTERNA-no-mostrar");
+
+      const after = (await list(userId)).json().items;
+      expect(after.map((i: { id: string }) => i.id)).toEqual([second, first]);
+      expect(after[1].lastActivityAt).toBe(before[1].lastActivityAt);
     });
 
     it("las conversaciones resueltas no se borran ni se archivan (sin purga)", async () => {
