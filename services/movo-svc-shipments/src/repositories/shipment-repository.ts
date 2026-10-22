@@ -1269,6 +1269,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           const withdrawal = options.carrierWithdrawal;
           const offerTo = withdrawal ? OfferStatus.CARRIER_WITHDRAWN : OfferStatus.ASSIGNMENT_LAPSED;
           offerTransition(OfferStatus.ACCEPTED, offerTo);
+          // MOVO-270: la evidencia GPS del retiro es de la asignación que se cae; la siguiente parte de cero.
+          await tx.pickupEvidence.deleteMany({ where: { shipmentId: id } });
           await tx.offer.updateMany({
             where: { shipmentId: id, status: OfferStatus.ACCEPTED },
             data: {

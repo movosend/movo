@@ -172,7 +172,7 @@ describe("atribución del no-retiro (Postgres, MOVO-270 / ADR-052)", () => {
 
       const first = await report(shipmentId, { ...metersNorth(100), accuracyM: 20, capturedAt: capturedAt.toISOString() });
       expect(first.statusCode).toBe(202);
-      await vi.waitFor(async () => expect((await evidenceRepo.find(shipmentId))?.arrivedAt).toEqual(capturedAt));
+      await vi.waitFor(async () => expect((await evidenceRepo.find(shipmentId, carrierId))?.arrivedAt).toEqual(capturedAt));
 
       // Otro tramo de 45 s, también dentro del radio: no pisa la primera llegada.
       const later = new Date(capturedAt.getTime() + 60_000);
@@ -196,7 +196,7 @@ describe("atribución del no-retiro (Postgres, MOVO-270 / ADR-052)", () => {
       expect(response.statusCode).toBe(202);
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      expect(await evidenceRepo.find(shipmentId)).toBeNull();
+      expect(await evidenceRepo.find(shipmentId, carrierId)).toBeNull();
     });
 
     it("las posiciones lejanas y las de zona gris suman a su contador", async () => {
@@ -208,7 +208,7 @@ describe("atribución del no-retiro (Postgres, MOVO-270 / ADR-052)", () => {
       await report(shipmentId, { ...metersNorth(800), accuracyM: 20, capturedAt: new Date(capturedAt.getTime() + 60_000).toISOString() });
 
       await vi.waitFor(async () =>
-        expect(await evidenceRepo.find(shipmentId)).toEqual({ arrivedAt: null, farPositionsInWindow: 1, grayPositionsInWindow: 1 })
+        expect(await evidenceRepo.find(shipmentId, carrierId)).toEqual({ arrivedAt: null, farPositionsInWindow: 1, grayPositionsInWindow: 1 })
       );
     });
   });
@@ -253,7 +253,7 @@ describe("atribución del no-retiro (Postgres, MOVO-270 / ADR-052)", () => {
     it("AC8: tres posiciones lejanas sin zona gris -> no llegó", async () => {
       const trip = await createTrip(TripStatus.ACTIVE, new Date("2026-08-20T11:00:00.000Z"));
       const { shipmentId } = await createShipment(trip.id);
-      await app.db.pickupEvidence.create({ data: { shipmentId, farPositionsInWindow: 3 } });
+      await app.db.pickupEvidence.create({ data: { shipmentId, carrierId, farPositionsInWindow: 3 } });
 
       await sweep();
 
@@ -263,7 +263,7 @@ describe("atribución del no-retiro (Postgres, MOVO-270 / ADR-052)", () => {
     it("AC9: llegó sin handshake -> disputa, hold liberado, sin cobro y sin bloquear al transportista", async () => {
       const trip = await createTrip(TripStatus.ACTIVE, new Date("2026-08-20T11:00:00.000Z"));
       const { shipmentId, offerId } = await createShipment(trip.id);
-      await evidenceRepo.record(shipmentId, "arrival", { arrivedAt: new Date("2026-08-20T13:30:00.000Z"), ...PICKUP, accuracyM: 15 });
+      await evidenceRepo.record(shipmentId, carrierId, "arrival", { arrivedAt: new Date("2026-08-20T13:30:00.000Z"), ...PICKUP, accuracyM: 15 });
 
       expect(await sweep()).toEqual({ expiredCount: 0, disputedCount: 1, errorsCount: 0 });
 
@@ -288,6 +288,26 @@ describe("atribución del no-retiro (Postgres, MOVO-270 / ADR-052)", () => {
     });
   });
 
+  describe("la evidencia es de la asignación vigente", () => {
+    it("la llegada de un transportista que se bajó no la hereda el siguiente", async () => {
+      const trip = await createTrip(TripStatus.ACTIVE, new Date("2026-08-20T11:00:00.000Z"));
+      const { shipmentId } = await createShipment(trip.id);
+      const arrival = { arrivedAt: new Date("2026-08-20T13:30:00.000Z"), ...PICKUP, accuracyM: 15 };
+      await evidenceRepo.record(shipmentId, carrierId, "arrival", arrival);
+
+      // Baja del transportista A: la fila se borra en la misma transacción.
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, carrierId, "se bajó", { expectedFrom: ShipmentStatus.ASSIGNED });
+      expect(await app.db.pickupEvidence.count()).toBe(0);
+
+      // Una escritura tardía de A, o la fila que quedó de A, no cuenta para B.
+      const otherCarrierId = randomUUID();
+      await app.db.pickupEvidence.create({ data: { shipmentId, carrierId, arrivedAt: arrival.arrivedAt } });
+      expect(await evidenceRepo.find(shipmentId, otherCarrierId)).toBeNull();
+      await evidenceRepo.record(shipmentId, otherCarrierId, "far", arrival);
+      expect(await evidenceRepo.find(shipmentId, otherCarrierId)).toEqual({ arrivedAt: null, farPositionsInWindow: 1, grayPositionsInWindow: 0 });
+    });
+  });
+
   describe("cancelación del emisor con la ventana cerrada (AC13)", () => {
     it("con llegada registrada la cotización y la cancelación cobran la penalidad; sin llegada, sin cargo", async () => {
       // Ventana cerrada hace menos que la gracia del barrido: el emisor todavía puede cancelar.
@@ -295,7 +315,7 @@ describe("atribución del no-retiro (Postgres, MOVO-270 / ADR-052)", () => {
       const trip = await createTrip(TripStatus.ACTIVE, new Date(Date.now() - 4 * HOUR_MS));
       const arrived = await createShipment(trip.id, ShipmentStatus.ASSIGNED, closed);
       const notArrived = await createShipment(trip.id, ShipmentStatus.ASSIGNED, closed);
-      await evidenceRepo.record(arrived.shipmentId, "arrival", { arrivedAt: new Date(Date.now() - 2 * HOUR_MS), ...PICKUP, accuracyM: 10 });
+      await evidenceRepo.record(arrived.shipmentId, carrierId, "arrival", { arrivedAt: new Date(Date.now() - 2 * HOUR_MS), ...PICKUP, accuracyM: 10 });
 
       const quote = (shipmentId: string, senderId: string) =>
         app.inject({ method: "GET", url: `/shipments/${shipmentId}/cancellation-quote`, headers: { "x-user-id": senderId } });

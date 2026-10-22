@@ -1334,8 +1334,8 @@ export function createShipmentsService(
 
   /** MOVO-270 (AC13): ¿hay evidencia GPS de que el transportista llegó al retiro? Solo importa en `assigned`. */
   async function carrierArrivedAtPickup(shipment: Shipment): Promise<boolean> {
-    if (shipment.status !== ShipmentStatus.ASSIGNED || !opts.pickupEvidenceRepository) return false;
-    return Boolean((await opts.pickupEvidenceRepository.find(shipment.id))?.arrivedAt);
+    if (shipment.status !== ShipmentStatus.ASSIGNED || !shipment.carrierId || !opts.pickupEvidenceRepository) return false;
+    return Boolean((await opts.pickupEvidenceRepository.find(shipment.id, shipment.carrierId))?.arrivedAt);
   }
   const ratingRepository = opts.ratingRepository;
   const tripMatchDetourRadiusKm = opts.tripMatchDetourRadiusKm;
@@ -2799,7 +2799,10 @@ export function createShipmentsService(
             ? attributePickupMiss({
                 shipmentStatus: shipment.status,
                 trip: acceptedOffer?.trip ?? null,
-                evidence: opts.pickupEvidenceRepository ? await opts.pickupEvidenceRepository.find(shipment.id) : null,
+                evidence:
+                  opts.pickupEvidenceRepository && shipment.carrierId
+                    ? await opts.pickupEvidenceRepository.find(shipment.id, shipment.carrierId)
+                    : null,
                 pickupWindowEnd: pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
               })
             : "no_evidence";

@@ -542,6 +542,10 @@ model CarrierPosition {
 model PickupEvidence {
   shipmentId String @id @map("shipment_id") @db.Uuid
 
+  // Transportista de la asignación a la que pertenece la evidencia: si el envío se reasigna, la
+  // fila de otro transportista no se lee ni se suma (se descarta al primer registro del nuevo).
+  carrierId String @map("carrier_id") @db.Uuid
+
   // Timestamp del DISPOSITIVO de la primera posición dentro del radio de llegada.
   arrivedAt        DateTime? @map("arrived_at") @db.Timestamptz
   arrivedLat       Decimal?  @map("arrived_lat") @db.Decimal(9, 6)

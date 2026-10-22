@@ -14,6 +14,7 @@ ALTER TABLE "shipments"."carrier_positions" ADD COLUMN "mocked" BOOLEAN;
 -- Evidencia GPS pasiva del retiro, una fila por envío (sin traza).
 CREATE TABLE "shipments"."pickup_evidence" (
     "shipment_id" UUID NOT NULL,
+    "carrier_id" UUID NOT NULL,
     "arrived_at" TIMESTAMPTZ,
     "arrived_lat" DECIMAL(9,6),
     "arrived_lng" DECIMAL(9,6),

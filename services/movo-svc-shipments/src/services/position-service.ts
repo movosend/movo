@@ -327,41 +327,33 @@ export function createPositionService(
    * del viaje y la suma a su `pickup_evidence`. A diferencia del aviso de proximidad, corre por
    * CADA tramo de 45s con claim, incluidas las posiciones viejas de una cola offline: una llegada
    * encolada mientras no había señal tiene que contar igual. Cada envío se relee (nada cacheado) y
-   * un fallo en uno no corta los demás.
+   * solo suma si sigue asignado al transportista que reportó: una escritura tardía de quien se bajó
+   * no contamina la asignación siguiente. Corre en línea con la ingesta y propaga el fallo: el
+   * caller libera el claim del tramo y el cliente reintenta, así el barrido nunca decide sin una
+   * evidencia que ya se había aceptado.
    */
-  async function recordPickupEvidence(context: ShipmentTrackingContext, position: ReportPositionInput): Promise<void> {
-    if (!pickupEvidenceRepository) return;
+  async function recordPickupEvidence(
+    context: ShipmentTrackingContext,
+    position: ReportPositionInput,
+    carrierId: string | null
+  ): Promise<void> {
+    if (!pickupEvidenceRepository || !carrierId) return;
     const ids = context.activeShipmentIds?.length ? context.activeShipmentIds : [context.shipment.id];
     for (const id of ids) {
-      try {
-        const shipment = await shipmentRepository.findById(id);
-        if (!shipment || shipment.status !== ShipmentStatus.ASSIGNED) continue;
-        const evidence = classifyPickupPosition(shipment, position);
-        if (!evidence) continue;
-        const arrived = await pickupEvidenceRepository.record(id, evidence, {
-          arrivedAt: position.capturedAt,
-          lat: position.lat,
-          lng: position.lng,
-          accuracyM: position.accuracyM,
-        });
-        if (arrived) {
-          logger?.info?.({ event: "carrier_arrived_pickup", shipmentId: id, accuracyM: position.accuracyM }, "Llegada del transportista al retiro registrada");
-        }
-      } catch (err) {
-        logger?.warn({ err, event: "pickup_evidence_failed", shipmentId: id }, "Falló el registro de evidencia del retiro");
+      const shipment = await shipmentRepository.findById(id);
+      if (!shipment || shipment.status !== ShipmentStatus.ASSIGNED || shipment.carrierId !== carrierId) continue;
+      const evidence = classifyPickupPosition(shipment, position);
+      if (!evidence) continue;
+      const arrived = await pickupEvidenceRepository.record(id, carrierId, evidence, {
+        arrivedAt: position.capturedAt,
+        lat: position.lat,
+        lng: position.lng,
+        accuracyM: position.accuracyM,
+      });
+      if (arrived) {
+        logger?.info?.({ event: "carrier_arrived_pickup", shipmentId: id, accuracyM: position.accuracyM }, "Llegada del transportista al retiro registrada");
       }
     }
-  }
-
-  function schedulePickupEvidence(evaluations: Array<{ context: ShipmentTrackingContext; position: ReportPositionInput }>): void {
-    if (!pickupEvidenceRepository || evaluations.length === 0) return;
-    void (async () => {
-      for (const { context, position } of evaluations) {
-        await recordPickupEvidence(context, position);
-      }
-    })().catch((err: unknown) => {
-      logger?.warn({ err, event: "pickup_evidence_failed" }, "Falló el registro de evidencia del retiro");
-    });
   }
 
   /**
@@ -389,7 +381,7 @@ export function createPositionService(
     context: ShipmentTrackingContext & { trip: NonNullable<ShipmentTrackingContext["trip"]> },
     input: ReportPositionInput,
     now: Date
-  ): Promise<{ persisted: boolean; claimedBucket: boolean; evaluateProximity: boolean }> {
+  ): Promise<{ persisted: boolean; evaluateProximity: boolean }> {
     const shipmentId = context.shipment.id;
     const tripId = context.trip.id;
     const activeShipmentIds = context.activeShipmentIds;
@@ -398,6 +390,17 @@ export function createPositionService(
     const claimed = await redis.set(cadenceKey, "1", "PX", CADENCE_BUCKET_TTL_MS, "NX");
     const claimedBucket = claimed === "OK";
     const targetShipmentId = claimedBucket ? persistenceTarget(context) : null;
+
+    if (claimedBucket) {
+      try {
+        await recordPickupEvidence(context, input, context.shipment.carrierId);
+      } catch (err) {
+        await redis.del(cadenceKey).catch((delErr: unknown) => {
+          logger?.warn({ err: delErr, tripId, shipmentId }, "No se pudo liberar el claim de cadencia tras fallar la evidencia del retiro");
+        });
+        throw err;
+      }
+    }
 
     if (targetShipmentId) {
       try {
@@ -452,7 +455,6 @@ export function createPositionService(
     // limita la evaluación a una por tramo. La dispara el caller (`scheduleProximity`).
     return {
       persisted: targetShipmentId !== null,
-      claimedBucket,
       evaluateProximity: claimedBucket && advanced,
     };
   }
@@ -466,9 +468,8 @@ export function createPositionService(
       const context = await resolveTrackingContext(shipmentId);
       const now = new Date();
       const valid = assertCanReport(context, callerId, input.capturedAt, now);
-      const { persisted, claimedBucket, evaluateProximity } = await ingest(valid, input, now);
+      const { persisted, evaluateProximity } = await ingest(valid, input, now);
       if (evaluateProximity) scheduleProximity([{ context: valid, position: input }]);
-      if (claimedBucket) schedulePickupEvidence([{ context: valid, position: input }]);
       return { persisted };
     },
 
@@ -478,7 +479,6 @@ export function createPositionService(
       // Una sola evaluación de proximidad por viaje y por lote, con la posición más reciente:
       // una cola offline vaciada de golpe no dispara una evaluación por tramo.
       const proximityByTrip = new Map<string, { context: ShipmentTrackingContext; position: ReportPositionInput }>();
-      const evidenceEvaluations: Array<{ context: ShipmentTrackingContext; position: ReportPositionInput }> = [];
       const results: PositionBatchItemResult[] = [];
 
       for (const [index, item] of items.entries()) {
@@ -498,9 +498,8 @@ export function createPositionService(
           continue;
         }
 
-        const { persisted, claimedBucket, evaluateProximity } = await ingest(valid, item, now);
+        const { persisted, evaluateProximity } = await ingest(valid, item, now);
         results.push({ index, shipmentId: item.shipmentId, status: "accepted", persisted });
-        if (claimedBucket) evidenceEvaluations.push({ context: valid, position: item });
         const previous = proximityByTrip.get(valid.trip.id);
         if (evaluateProximity && (!previous || previous.position.capturedAt < item.capturedAt)) {
           proximityByTrip.set(valid.trip.id, { context: valid, position: item });
@@ -508,7 +507,6 @@ export function createPositionService(
       }
 
       scheduleProximity([...proximityByTrip.values()]);
-      schedulePickupEvidence(evidenceEvaluations);
       return results;
     },
 

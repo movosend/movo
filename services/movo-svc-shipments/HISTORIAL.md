@@ -3743,6 +3743,10 @@ cada tramo de 45 s con claim clasifica la posición contra el retiro de cada `as
 zona gris en el medio, todo restando `accuracyM`). El barrido de retiro no realizado atribuye con `attributePickupMiss`: no llegó →
 cancela con `shipment_events.attribution = carrier` y penalidad `pending` en la oferta (reintento por `retryPendingWithdrawalPenalties`,
 el cursor reusa `carrierWithdrawnAt`); llegó → `assigned → disputed` con el hold liberado antes; sin evidencia → como antes.
+- La evidencia es de la asignación vigente (review de la PR #291): `pickup_evidence.carrier_id`, `find`/`record` reciben el transportista,
+  la baja (`revertsAssignment`) borra la fila en la misma transacción y `record` descarta la de otro transportista. Se escribe en línea
+  dentro de `ingest`, antes de la traza y bajo el claim de cadencia: si falla se libera el claim y el cliente reintenta, así el barrido
+  no decide sin una evidencia ya aceptada.
 - `hasOpenDisputeAsCarrier` filtra por el `fromStatus` del evento de entrada: la disputa de un no-retiro no bloquea.
 - La traza (`carrier_positions`) solo se escribe con algún `in_transit` en el viaje (`POSITION_PERSISTABLE_SHIPMENT_STATUSES`,
   `persistableShipmentIds` del contexto) y se lee por viaje + rango de custodia (`listCustodyTrace`, sin endpoint: lo expone MOVO-337).
