@@ -28,3 +28,29 @@ describe("avisos de proximidad (MOVO-240)", () => {
     expect(getNotificationCategory("proximity")).toMatchObject({ implemented: true, quietHoursExempt: true });
   });
 });
+
+describe("respuesta de soporte (MOVO-320)", () => {
+  it("va en la categoría support, implementada y que respeta el horario de silencio", () => {
+    expect(notificationTriggerCategory("supportMessageReceived")).toBe("support");
+    expect(getNotificationCategory("support")).toMatchObject({ implemented: true, quietHoursExempt: false });
+  });
+
+  it("muestra el nombre del agente y el texto", () => {
+    expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "Ya lo revisé" })).toEqual({
+      title: "Soporte de Movo",
+      body: "Lucía: Ya lo revisé",
+    });
+  });
+
+  it("sin texto (solo adjuntos) avisa que mandó una imagen", () => {
+    expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "" }).body).toBe(
+      "Lucía: Te envió una imagen"
+    );
+  });
+
+  it("con una ráfaga resume la cantidad y deja el último mensaje", () => {
+    expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "Listo", count: 3 }).body).toBe(
+      "3 mensajes nuevos · Lucía: Listo"
+    );
+  });
+});
