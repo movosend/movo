@@ -641,3 +641,9 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 ### MOVO-325 — Envíos para el panel (`types/admin-shipments.ts`)
 
 `ACTIVE_SHIPMENT_STATUSES` (los 8 no terminales), `ADMIN_SHIPMENT_GROUPS`/`ADMIN_SHIPMENT_GROUP_STATUSES` (pestañas: cada estado está en exactamente una) y los tipos `AdminShipmentRow`/`AdminShipmentPage` (con `counts`), `AdminShipmentDetail`, `AdminShipmentDetailResponse` con sus bloques (`AdminBlock<T>`, `AdminShipmentEvent|Photo|Payment|PartyCard`) y `AdminChatMessage`/`AdminChatPage`. Aditivo. `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-213 — Reintentos y escalado de la liquidación (`types/settlement.ts`)
+
+`SettlementEscalationReason` (`retries_exhausted` | `not_retryable`), `SettlementIssueItem`/`SettlementIssuesPage`/`SETTLEMENT_ISSUE_STATUSES` (la consulta interna de `svc-payments`),
+`SettlementEventRequest`/`SettlementEventResponse` (aviso a shipments), trigger `settlementDelayedCarrier` (categoría `payments`, con `reviewHours`) y los códigos `SETTLEMENT_ESCALATED` y
+`SETTLEMENT_RETRY_PENDING`. `SettlementStatus` ya tenía `escalated`; `SettlementResponse` no cambia.

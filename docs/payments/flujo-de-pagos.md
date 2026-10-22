@@ -293,15 +293,22 @@ sequenceDiagram
         S->>S: delivered → completed
         S-)T: push con el monto acreditado
     else falla
-        P->>P: liquidación pendiente de reintento
-        loop reintentos con backoff (MOVO-213)
+        P->>P: liquidación failed con intentos, último error y próxima hora
+        Note over P: ¿expires_at ya pasó? → no reintentable, escala sin llamar a MP
+        loop hasta 3 reintentos (5 min, 30 min, 2 h) — MOVO-213
             P->>MP: Payment.get (¿la captura ya ocurrió?)
             P->>MP: Payment.capture si hace falta
         end
-        P-)T: si se agotan: "tu cobro está en revisión" + alerta al equipo
+        P-)T: si se agotan (o el fallo no se arregla reintentando): "tu cobro está en revisión" + alerta al equipo
         Note over S: El envío queda en delivered. Nunca vuelve atrás.
     end
 ```
+
+**Consulta de liquidaciones pendientes o escaladas (MOVO-213).** `GET /internal/payments/settlements?status=failed|escalated`
+(interno): `failed` espera su reintento (`nextAttemptAt`), `escalated` la resuelve una persona; cada fila trae `failureReason`,
+`escalationReason`, `lastError`, `attempts` y `holdExpiresAt`. Equivalente en SQL:
+`SELECT * FROM payments.settlements WHERE status IN ('failed','escalated') ORDER BY updated_at DESC`. Un hold escalado por
+`expires_at` pudo seguir vivo en MP (el plazo es el mínimo documentado, ADR-050): conviene probar la captura a mano antes de darlo por perdido.
 
 ### 5.5 Eventos que inicia Mercado Pago (MOVO-268)
 

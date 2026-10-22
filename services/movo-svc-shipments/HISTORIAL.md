@@ -3708,3 +3708,11 @@ Endpoints internos (sin gateway) para `svc-admin` (MOVO-36/MOVO-299), en `module
   El sancionado no recibe push por lo retirado.
 - La constancia en la línea de tiempo es el `ShipmentEvent` de los envíos; ofertas y viajes quedan por su estado y por la
   respuesta (ids retirados) para la bitácora de `svc-admin`. Sin columna de motivo en `Offer`/`Trip`.
+
+### MOVO-213 — Aviso de la liquidación demorada o acreditada por un reintento
+
+`POST /internal/shipments/:id/settlement-events` (interno, lo llama `svc-payments`; `modules/settlements/settlements.routes.ts`, `settlement.service.handleSettlementEvent`).
+`delayed`: el cobro quedó escalado a revisión manual → push `settlementDelayedCarrier` al transportista (con `SETTLEMENT_REVIEW_SLA_HOURS`, default 48), una sola vez por
+envío (dedupe Redis `notified:settlement-delayed:<id>`); el envío sigue `delivered`. `credited`: un reintento de payments acreditó → `captureAndComplete` (la captura devuelve
+la liquidación ya acreditada) y salen los pushes de siempre. El barrido `settlement-sweep` no cambia salvo que `SETTLEMENT_ESCALATED` es un fallo permanente (cooldown de 24 h);
+el backoff y el escalado viven ahora en `svc-payments`.
