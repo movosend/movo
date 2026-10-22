@@ -101,6 +101,33 @@ describe("Proxy de WebSocket hacia /shipments (MOVO-201)", () => {
     await new Promise((resolve) => ws.once("close", resolve));
   });
 
+  it("también reenvía el upgrade de /support (WebSocket de una consulta, MOVO-320) con la identidad inyectada", async () => {
+    const token = signAccessToken({
+      sub: "66666666-6666-6666-6666-666666666666",
+      roles: [UserRole.SENDER],
+      kycStatus: KycStatus.NOT_STARTED,
+    });
+
+    const ws = new WebSocket(`${gatewayBaseUrl}/api/v1/support/conversations/some-id`, {
+      headers: { authorization: `Bearer ${token}`, "x-user-id": "attacker-controlled" },
+    });
+
+    const message = await new Promise<unknown>((resolve, reject) => {
+      ws.once("message", (data: Buffer) => resolve(JSON.parse(data.toString())));
+      ws.once("error", reject);
+      ws.once("unexpected-response", (_req, res) => reject(new Error(`unexpected-response: ${res.statusCode}`)));
+    });
+
+    expect(message).toEqual({ type: "connected" });
+    expect(capturedUrl).toBe("/support/conversations/some-id");
+    // `svc-shipments` autoriza el handshake con el JWT: tiene que llegar el `authorization`.
+    expect(capturedHeaders["authorization"]).toBe(`Bearer ${token}`);
+    expect(capturedHeaders["x-user-id"]).toBe("66666666-6666-6666-6666-666666666666");
+
+    ws.close();
+    await new Promise((resolve) => ws.once("close", resolve));
+  });
+
   it("una conexión sin token no propaga x-user-* (preHandler la corta antes del upgrade)", async () => {
     const ws = new WebSocket(`${gatewayBaseUrl}/api/v1/shipments/some-id/track`);
 

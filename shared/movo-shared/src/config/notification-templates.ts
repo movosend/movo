@@ -99,7 +99,8 @@ export type NotificationTriggerKey =
   | "receiverTransferExpiredRequester"
   | "receiverTransferExpiredSender"
   | "receiverTransferCancelled"
-  | "chatMessageReceived";
+  | "chatMessageReceived"
+  | "supportMessageReceived";
 
 export interface NotificationCopy {
   title: string;
@@ -838,6 +839,20 @@ export const NOTIFICATION_TRIGGERS = {
       title: roleLabel ? `${authorName} · ${roleLabel}` : authorName,
       body: count !== undefined && count > 1 ? `${count} mensajes nuevos · ${messageBody}` : messageBody,
     })
+  ),
+  // MOVO-320: respuesta de un agente de Movo en una consulta de soporte. Como el chat (MOVO-301), el texto viaja
+  // en la push; `messageBody` vacío = el agente mandó solo adjuntos. Con una ráfaga (`count` > 1) sale un único resumen.
+  supportMessageReceived: definition<{ agentName?: string; messageBody: string; count?: number }>(
+    "support",
+    { title: "Soporte de Movo", body: "Te avisamos cuando el equipo de Movo responde una consulta tuya." },
+    ({ agentName, messageBody, count }) => {
+      const text = messageBody.trim() === "" ? "Te envió una imagen" : messageBody;
+      const line = agentName ? `${agentName}: ${text}` : text;
+      return {
+        title: "Soporte de Movo",
+        body: count !== undefined && count > 1 ? `${count} mensajes nuevos · ${line}` : line,
+      };
+    }
   ),
   receiverTransferInvited: definition<{ requesterName: string; deadlineHours: number }>(
     "shipments",

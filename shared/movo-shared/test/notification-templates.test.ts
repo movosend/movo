@@ -29,6 +29,30 @@ describe("avisos de proximidad (MOVO-240)", () => {
   });
 });
 
+describe("respuesta de soporte (MOVO-320)", () => {
+  it("va en la categoría support, implementada y que respeta el horario de silencio", () => {
+    expect(notificationTriggerCategory("supportMessageReceived")).toBe("support");
+    expect(getNotificationCategory("support")).toMatchObject({ implemented: true, quietHoursExempt: false });
+  });
+
+  it("muestra el nombre del agente y el texto", () => {
+    expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "Ya lo revisé" })).toEqual({
+      title: "Soporte de Movo",
+      body: "Lucía: Ya lo revisé",
+    });
+  });
+
+  it("sin texto (solo adjuntos) avisa que mandó una imagen", () => {
+    expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "" }).body).toBe(
+      "Lucía: Te envió una imagen"
+    );
+  });
+
+  it("con una ráfaga resume la cantidad y deja el último mensaje", () => {
+    expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "Listo", count: 3 }).body).toBe(
+      "3 mensajes nuevos · Lucía: Listo"
+    );
+
 describe("settlementDelayedCarrier (MOVO-213)", () => {
   it("avisa que el cobro está en revisión y en cuánto se resuelve", () => {
     const rendered = renderNotificationTrigger("settlementDelayedCarrier", { reviewHours: 48 });

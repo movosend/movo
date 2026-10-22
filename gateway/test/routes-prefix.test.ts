@@ -244,6 +244,53 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     });
   });
 
+  describe("Rutas de /support (MOVO-320)", () => {
+    function issueToken(roles: UserRole[]): string {
+      return signAccessToken({
+        sub: "99999999-9999-9999-9999-999999999999",
+        roles,
+        kycStatus: KycStatus.NOT_STARTED,
+      });
+    }
+
+    it("exige token (401 sin Authorization)", async () => {
+      const response = await app.inject({ method: "GET", url: "/api/v1/support/conversations" });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it.each([[[UserRole.SENDER]], [[UserRole.CARRIER]], [[UserRole.SENDER, UserRole.CARRIER]]])(
+      "un usuario con roles %j llega al upstream con el prefijo /support y la identidad inyectada",
+      async (roles) => {
+        const response = await app.inject({
+          method: "GET",
+          url: "/api/v1/support/conversations?limit=5",
+          headers: {
+            authorization: `Bearer ${issueToken(roles)}`,
+            "x-user-id": "33333333-3333-3333-3333-333333333333",
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(capturedUrl).toBe("/support/conversations?limit=5");
+        // El header que mandó el cliente se pisa con el `sub` del JWT.
+        expect(capturedHeaders["x-user-id"]).toBe("99999999-9999-9999-9999-999999999999");
+      }
+    );
+
+    it("también proxea las escrituras (POST /conversations/:id/messages)", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/support/conversations/c0f5596d-6d6d-42f6-a1a7-7d81f982a0ac/messages",
+        headers: { authorization: `Bearer ${issueToken([UserRole.SENDER])}`, "content-type": "application/json" },
+        payload: { body: "Hola", clientMessageId: "c0f5596d-6d6d-42f6-a1a7-7d81f982a0ac" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/support/conversations/c0f5596d-6d6d-42f6-a1a7-7d81f982a0ac/messages");
+    });
+  });
+
   describe("Rutas de /kyc (MOVO-72, protegidas desde la revisión de PR #51)", () => {
     function issueToken(): string {
       return signAccessToken({

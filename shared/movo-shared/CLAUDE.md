@@ -642,6 +642,16 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
 `ACTIVE_SHIPMENT_STATUSES` (los 8 no terminales), `ADMIN_SHIPMENT_GROUPS`/`ADMIN_SHIPMENT_GROUP_STATUSES` (pestañas: cada estado está en exactamente una) y los tipos `AdminShipmentRow`/`AdminShipmentPage` (con `counts`), `AdminShipmentDetail`, `AdminShipmentDetailResponse` con sus bloques (`AdminBlock<T>`, `AdminShipmentEvent|Photo|Payment|PartyCard`) y `AdminChatMessage`/`AdminChatPage`. Aditivo. `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-320 — Soporte del lado del usuario (`types/support.ts`)
+
+`SupportUserFacingMessage` (kind `user`/`agent`/`system`, **nunca** `note`), `SupportConversationItem`, `SupportCreateBody/Result`,
+`SupportSendUserBody`, `SupportRealtimeEvent` (`support_message`/`support_status`/`support_receipt`), `SUPPORT_WS_CLOSE`,
+`SUPPORT_REOPENED_MESSAGE`, y los helpers `formatSupportCode` (`SOP-1042`) y `supportShipmentCode` (`MOVO-48213`, últimos 5 dígitos del UUID, igual que
+`activeShipmentDisplayCode` del mobile pero sin el `#`). Ojo con los nombres: `SupportUserMessage` ya era el mensaje del usuario visto desde el panel
+(`admin-support.ts`), por eso el del lado usuario se llama distinto; en el barrel la página de mensajes del usuario sale como `SupportUserMessagesPage`
+(`SupportMessagesPage` es la del panel). Categoría de push `support` (sección `conversations`) y trigger `supportMessageReceived`. Recordatorio habitual:
+`npm run build` acá antes de tipar desde otro workspace.
+
 ### MOVO-213 — Reintentos y escalado de la liquidación (`types/settlement.ts`)
 
 `SettlementEscalationReason` (`retries_exhausted` | `not_retryable`), `SettlementIssueItem`/`SettlementIssuesPage`/`SETTLEMENT_ISSUE_STATUSES` (la consulta interna de `svc-payments`),

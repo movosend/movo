@@ -3709,6 +3709,25 @@ Endpoints internos (sin gateway) para `svc-admin` (MOVO-36/MOVO-299), en `module
 - La constancia en la línea de tiempo es el `ShipmentEvent` de los envíos; ofertas y viajes quedan por su estado y por la
   respuesta (ids retirados) para la bitácora de `svc-admin`. Sin columna de motivo en `Offer`/`Trip`.
 
+### MOVO-320 — Conversaciones de soporte del usuario (ADR-051)
+
+Módulo `modules/support/` (`/support/*`, ver `docs/support/README.md`) sobre el chat existente: mismo `ChatHub` con la clave de sala
+`support:<id>`, mismo handshake WS (autorizador propio en `support.service.ts#authorizeConnection`: dueño ok, admin ajeno 4003, el resto 4004),
+filtro de lenguaje solo a mensajes del usuario y push de ADR-046 con claves `support-push:*` (reusa `chat-push-buffer.ts`). Tablas
+`support_conversations` / `support_messages` / `support_participant_states` (migración `20261021200000`), con la secuencia
+`support_conversation_code_seq` (arranca en 1001) para `SOP-NNNN`. El cursor del chat pasó a `utils/cursor.ts`, compartido.
+- **Notas internas**: un único punto, `domain/support-rules.ts#toUserFacingMessage` (devuelve `null` para una nota), más lista blanca de `kind` en la
+  query del historial y en el último mensaje; no se filtra "todo menos nota". Test de regresión por camino (historial, lista, WS, push).
+- **Idempotencia de crear**: índice único parcial `(author_id, client_message_id) WHERE kind = 'user'` escrito a mano en la migración (Prisma no lo
+  expresa): sin él dos creaciones simultáneas con el mismo `clientMessageId` abren dos consultas. Un `clientMessageId` repetido en otra consulta propia es 400.
+- **Reapertura**: `appendUserMessage` bloquea la fila (`FOR UPDATE`) para que dos mensajes simultáneos sobre una `resolved` dejen un solo evento `system`;
+  el evento queda 1 ms después del mensaje del usuario para que el historial los ordene bien.
+- **Envío ajeno = 422 `SUPPORT_SHIPMENT_NOT_PARTY`** (no el 403 del AC1 del ticket, por acuerdo con el contrato de MOVO-324 y porque el código ya existía).
+  `attachmentIds` se acepta pero no vacío da 422 `SUPPORT_ATTACHMENT_INVALID` hasta MOVO-321.
+- Pendiente (MOVO-322): `publishStaffMessage`/`publishStatus`/`publishAgentRead` del servicio son lo que tiene que llamar el endpoint interno del agente; hoy
+  solo los usan los tests. Sin plazo de retención ni purga (MOVO-224). `GET /shipments/mine` no incluye al transportista: el selector de envíos de MOVO-324
+  no puede usarlo tal cual.
+
 ### MOVO-213 — Aviso de la liquidación demorada o acreditada por un reintento
 
 `POST /internal/shipments/:id/settlement-events` (interno, lo llama `svc-payments`; `modules/settlements/settlements.routes.ts`, `settlement.service.handleSettlementEvent`).
