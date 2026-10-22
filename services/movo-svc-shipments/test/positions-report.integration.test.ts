@@ -182,13 +182,27 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
     }
   );
 
-  it("MOVO-251: 202 si el envío está en 'assigned' y el viaje asociado está 'active'", async () => {
+  it("MOVO-251/MOVO-270: 202 si el envío está en 'assigned' y el viaje está 'active', pero sin guardar traza", async () => {
     const { shipmentId } = await createShipmentWithStatus("assigned");
 
     const response = await report(shipmentId, carrierId);
 
     expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual({ persisted: false });
+    expect(await app.db.carrierPosition.count()).toBe(0);
+  });
+
+  it("MOVO-270 (AC2): en un viaje mixto la fila se asocia al envío in_transit aunque reporte el assigned", async () => {
+    const assigned = await createShipmentWithStatus("assigned");
+    const inTransit = await createShipmentWithStatus("in_transit");
+    expect(inTransit.tripId).toBe(assigned.tripId);
+
+    const response = await report(assigned.shipmentId, carrierId, { mocked: false });
+
+    expect(response.statusCode).toBe(202);
     expect(response.json()).toEqual({ persisted: true });
+    const rows = await app.db.carrierPosition.findMany();
+    expect(rows).toEqual([expect.objectContaining({ shipmentId: inTransit.shipmentId, tripId: assigned.tripId, mocked: false })]);
   });
 
   it("MOVO-251: 403 SHIPMENT_NOT_TRACKABLE si el envío está en 'assigned' pero el viaje está 'declared'", async () => {

@@ -378,14 +378,32 @@ describe("trip-repository (Postgres) — countAvailableCarriersNear (MOVO-138)",
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.trips RESTART IDENTITY CASCADE");
   });
 
-  it("cuenta viajes declared y active cuyo corredor pasa por el retiro", async () => {
+  it("MOVO-270 (ADR-053): cuenta los declared y no los active, que ya no toman paquetes", async () => {
     await tripRepo.create(tripInput());
-    // MOVO-258: `start()` exige paquetes; este test mide solo el conteo (que sigue sumando
-    // `active`, ADR-025), así que se fuerza el estado directo en la base.
+    // `start()` exige paquetes; este test mide solo el conteo, así que se fuerza el estado directo.
     const active = await tripRepo.create(tripInput({ departureAt: new Date(now - 2 * HOUR_MS) }));
     await app.db.trip.update({ where: { id: active.id }, data: { status: "active" } });
 
-    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(2);
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(1);
+  });
+
+  it("MOVO-270 (ADR-053): una ocurrencia autogenerada de un viaje recurrente cuenta como cualquier declared", async () => {
+    const carrierId = randomUUID();
+    const parentId = randomUUID();
+    const parent = await tripRepo.create(
+      tripInput({ id: parentId, carrierId, seriesId: parentId, recurrenceWeekdays: [1], departureAt: new Date(now - 12 * HOUR_MS) })
+    );
+    await app.db.trip.update({ where: { id: parent.id }, data: { status: TripStatus.EXPIRED } });
+    // Otro transportista con una ocurrencia generada dentro de la ventana.
+    const otherParentId = randomUUID();
+    await tripRepo.create(tripInput({ id: otherParentId, seriesId: otherParentId, recurrenceWeekdays: [1], departureAt: new Date(now - 12 * HOUR_MS) }));
+    await tripRepo.create(
+      tripInput({ carrierId, seriesId: parentId, recurrenceWeekdays: [1], generatedFromTripId: parent.id })
+    );
+
+    // La ocurrencia generada (declared, en la ventana) cuenta; el origen vencido no; el
+    // otro origen sale hace 12 h, fuera de la ventana de -6 h.
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(1);
   });
 
   it("un transportista con dos viajes en la ventana cuenta una sola vez (DISTINCT carrier_id)", async () => {
