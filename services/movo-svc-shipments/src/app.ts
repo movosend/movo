@@ -21,7 +21,7 @@ import tripDepartureReminderSweepPlugin from "./plugins/trip-departure-reminder-
 import fundingSweepPlugin from "./plugins/funding-sweep";
 import settlementsPlugin from "./plugins/settlements";
 import settlementSweepPlugin from "./plugins/settlement-sweep";
-import settlementRoutes, { SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
+import settlementRoutes, { internalSettlementRoutes, SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
 import fundingRoutes, { internalFundingRoutes, FundingRoutesOptions } from "./modules/funding/funding.routes";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import ledgerOriginsRoutes from "./modules/shipments/ledger-origins.routes";
@@ -321,6 +321,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-212 AC10: `GET /shipments/:id/settlement`, el pago del envío según el rol.
   const settlementRouteOpts: SettlementRoutesOptions = { prefix: "/shipments" };
   app.register(settlementRoutes, settlementRouteOpts);
+  // MOVO-213: aviso interno de svc-payments (cobro demorado / acreditado por un reintento).
+  app.register(internalSettlementRoutes, { prefix: "/internal" });
 
   // MOVO-201/ADR-022: canal de tiempo real (@fastify/websocket) -- mismo prefix
   // "/shipments" que shipmentsRoutes/handshakeRoutes. Reemplaza la PoC de MOVO-200 --
