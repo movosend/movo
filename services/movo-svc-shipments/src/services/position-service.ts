@@ -12,7 +12,9 @@ import { haversineKm } from "../domain/geo";
 import { PositionRepository } from "../repositories/position-repository";
 import { assertIsCarrier } from "../modules/shipments/assert-shipment-access";
 import { CarrierPosition, LastKnownCarrierPosition } from "../models/carrier-position";
-import { TRACKABLE_SHIPMENT_STATUSES } from "../domain/shipment-state-machine";
+import { POSITION_PERSISTABLE_SHIPMENT_STATUSES, TRACKABLE_SHIPMENT_STATUSES } from "../domain/shipment-state-machine";
+import { classifyPickupPosition } from "../domain/pickup-attribution";
+import { PickupEvidenceRepository } from "../repositories/pickup-evidence-repository";
 
 /**
  * MOVO-202/AC4: cadencia de persistencia en Postgres. Constante, no env var -- es una
@@ -113,6 +115,9 @@ export interface ReportPositionInput {
   lng: number;
   accuracyM: number;
   capturedAt: Date;
+  /** MOVO-270: flag `mocked` de expo-location (solo Android). Se acepta y difunde, pero una
+   * posición simulada nunca cuenta como evidencia del retiro. */
+  mocked?: boolean;
 }
 
 export interface BatchPositionInput extends ReportPositionInput {
@@ -152,7 +157,9 @@ export function createPositionService(
   realtime: RealtimePublisher,
   logger?: PositionServiceLogger,
   /** MOVO-240: sin cliente no se evalúa la proximidad (lectura de tracking, purga). */
-  notificationsClient?: NotificationsClient
+  notificationsClient?: NotificationsClient,
+  /** MOVO-270: sin repositorio no se registra la evidencia del retiro (lectura de tracking, purga). */
+  pickupEvidenceRepository?: PickupEvidenceRepository
 ): PositionService {
   async function resolveTrackingContext(shipmentId: string): Promise<ShipmentTrackingContext | null> {
     if (shipmentRepository.findTrackingContext) {
@@ -316,32 +323,92 @@ export function createPositionService(
   }
 
   /**
+   * MOVO-270 (ADR-052, AC4/AC8): clasifica la posición contra el retiro de cada envío `assigned`
+   * del viaje y la suma a su `pickup_evidence`. A diferencia del aviso de proximidad, corre por
+   * CADA tramo de 45s con claim, incluidas las posiciones viejas de una cola offline: una llegada
+   * encolada mientras no había señal tiene que contar igual. Cada envío se relee (nada cacheado) y
+   * un fallo en uno no corta los demás.
+   */
+  async function recordPickupEvidence(context: ShipmentTrackingContext, position: ReportPositionInput): Promise<void> {
+    if (!pickupEvidenceRepository) return;
+    const ids = context.activeShipmentIds?.length ? context.activeShipmentIds : [context.shipment.id];
+    for (const id of ids) {
+      try {
+        const shipment = await shipmentRepository.findById(id);
+        if (!shipment || shipment.status !== ShipmentStatus.ASSIGNED) continue;
+        const evidence = classifyPickupPosition(shipment, position);
+        if (!evidence) continue;
+        const arrived = await pickupEvidenceRepository.record(id, evidence, {
+          arrivedAt: position.capturedAt,
+          lat: position.lat,
+          lng: position.lng,
+          accuracyM: position.accuracyM,
+        });
+        if (arrived) {
+          logger?.info?.({ event: "carrier_arrived_pickup", shipmentId: id, accuracyM: position.accuracyM }, "Llegada del transportista al retiro registrada");
+        }
+      } catch (err) {
+        logger?.warn({ err, event: "pickup_evidence_failed", shipmentId: id }, "Falló el registro de evidencia del retiro");
+      }
+    }
+  }
+
+  function schedulePickupEvidence(evaluations: Array<{ context: ShipmentTrackingContext; position: ReportPositionInput }>): void {
+    if (!pickupEvidenceRepository || evaluations.length === 0) return;
+    void (async () => {
+      for (const { context, position } of evaluations) {
+        await recordPickupEvidence(context, position);
+      }
+    })().catch((err: unknown) => {
+      logger?.warn({ err, event: "pickup_evidence_failed" }, "Falló el registro de evidencia del retiro");
+    });
+  }
+
+  /**
+   * MOVO-270 (AC2): a qué envío se asocia una fila de traza. Solo se guarda con custodia: el
+   * reportado si está `in_transit`, si no el primer `in_transit` del viaje; `null` si el viaje solo
+   * tiene envíos `assigned` (la posición se difunde pero no se escribe). La lectura para disputas
+   * va por `trip_id` + rango de custodia, así que la fila no tiene que ser del envío reportado.
+   */
+  function persistenceTarget(context: ShipmentTrackingContext): string | null {
+    const ids =
+      context.persistableShipmentIds ??
+      (POSITION_PERSISTABLE_SHIPMENT_STATUSES.includes(context.shipment.status) ? [context.shipment.id] : []);
+    if (ids.includes(context.shipment.id)) return context.shipment.id;
+    return ids[0] ?? null;
+  }
+
+  /**
    * AC4/AC5 de MOVO-202 con el orden de MOVO-250 y agrupamiento por viaje de MOVO-251.
    * La cadencia se decide con un claim atómico por TRAMO de `capturedAt` (`SET NX`) en Redis por `tripId`.
    * La última posición conocida se indexa por `tripId` y la difusión llega a los envíos activos del viaje.
+   * MOVO-270: el claim marca el tramo como evaluado aunque no se escriba (viaje solo con envíos
+   * `assigned`); si un envío pasa a `in_transit` a mitad del tramo, se guarda desde el siguiente.
    */
   async function ingest(
     context: ShipmentTrackingContext & { trip: NonNullable<ShipmentTrackingContext["trip"]> },
     input: ReportPositionInput,
     now: Date
-  ): Promise<{ persisted: boolean; evaluateProximity: boolean }> {
+  ): Promise<{ persisted: boolean; claimedBucket: boolean; evaluateProximity: boolean }> {
     const shipmentId = context.shipment.id;
     const tripId = context.trip.id;
     const activeShipmentIds = context.activeShipmentIds;
     const bucket = Math.floor(input.capturedAt.getTime() / CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS);
     const cadenceKey = persistCadenceBucketKey(tripId, bucket);
     const claimed = await redis.set(cadenceKey, "1", "PX", CADENCE_BUCKET_TTL_MS, "NX");
-    const shouldPersist = claimed === "OK";
+    const claimedBucket = claimed === "OK";
+    const targetShipmentId = claimedBucket ? persistenceTarget(context) : null;
 
-    if (shouldPersist) {
+    if (targetShipmentId) {
       try {
         await positionRepository.create({
-          shipmentId,
+          shipmentId: targetShipmentId,
           tripId,
           lat: input.lat,
           lng: input.lng,
           accuracyM: input.accuracyM,
           capturedAt: input.capturedAt,
+          mocked: input.mocked,
         });
       } catch (err) {
         await redis.del(cadenceKey).catch((delErr: unknown) => {
@@ -383,7 +450,11 @@ export function createPositionService(
     // MOVO-240: la proximidad se evalúa solo con una posición nueva (avanzó el marcador) que
     // además abrió un tramo de 45s -- deja afuera las posiciones viejas de la cola offline y
     // limita la evaluación a una por tramo. La dispara el caller (`scheduleProximity`).
-    return { persisted: shouldPersist, evaluateProximity: shouldPersist && advanced };
+    return {
+      persisted: targetShipmentId !== null,
+      claimedBucket,
+      evaluateProximity: claimedBucket && advanced,
+    };
   }
 
   return {
@@ -395,8 +466,9 @@ export function createPositionService(
       const context = await resolveTrackingContext(shipmentId);
       const now = new Date();
       const valid = assertCanReport(context, callerId, input.capturedAt, now);
-      const { persisted, evaluateProximity } = await ingest(valid, input, now);
+      const { persisted, claimedBucket, evaluateProximity } = await ingest(valid, input, now);
       if (evaluateProximity) scheduleProximity([{ context: valid, position: input }]);
+      if (claimedBucket) schedulePickupEvidence([{ context: valid, position: input }]);
       return { persisted };
     },
 
@@ -406,6 +478,7 @@ export function createPositionService(
       // Una sola evaluación de proximidad por viaje y por lote, con la posición más reciente:
       // una cola offline vaciada de golpe no dispara una evaluación por tramo.
       const proximityByTrip = new Map<string, { context: ShipmentTrackingContext; position: ReportPositionInput }>();
+      const evidenceEvaluations: Array<{ context: ShipmentTrackingContext; position: ReportPositionInput }> = [];
       const results: PositionBatchItemResult[] = [];
 
       for (const [index, item] of items.entries()) {
@@ -425,8 +498,9 @@ export function createPositionService(
           continue;
         }
 
-        const { persisted, evaluateProximity } = await ingest(valid, item, now);
+        const { persisted, claimedBucket, evaluateProximity } = await ingest(valid, item, now);
         results.push({ index, shipmentId: item.shipmentId, status: "accepted", persisted });
+        if (claimedBucket) evidenceEvaluations.push({ context: valid, position: item });
         const previous = proximityByTrip.get(valid.trip.id);
         if (evaluateProximity && (!previous || previous.position.capturedAt < item.capturedAt)) {
           proximityByTrip.set(valid.trip.id, { context: valid, position: item });
@@ -434,6 +508,7 @@ export function createPositionService(
       }
 
       scheduleProximity([...proximityByTrip.values()]);
+      schedulePickupEvidence(evidenceEvaluations);
       return results;
     },
 

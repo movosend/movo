@@ -63,7 +63,8 @@ export default async function handshakeRoutes(app: FastifyInstance, opts: Handsh
     app.log,
     notificationsClient,
     routesProvider,
-    (shipmentId) => receiverTransfersService.cancelPendingForDelivery(shipmentId)
+    (shipmentId) => receiverTransfersService.cancelPendingForDelivery(shipmentId),
+    app.config.PICKUP_MISSED_GRACE_HOURS
   );
 
   app.post(

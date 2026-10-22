@@ -132,6 +132,15 @@ enum TripStatus {
   @@schema("shipments")
 }
 
+// MOVO-270 (ADR-052): a quién atribuye el barrido de retiro no realizado la cancelación.
+enum PickupMissedAttribution {
+  carrier
+  none
+
+  @@map("pickup_missed_attribution_enum")
+  @@schema("shipments")
+}
+
 // MOVO-104 AC2 + superset acordado con el usuario del DER original
 // (docs/movo_der.dbml): carrier_id/urgent/agreedPriceArs/paymentMethod/
 // deliveredAt/lastStatusChangedAt no estaban en el AC literal pero sí en el
@@ -240,6 +249,7 @@ model Shipment {
   ratings          Rating[]
   handshakeEvents  HandshakeEvent[]
   carrierPositions CarrierPosition[]
+  pickupEvidence   PickupEvidence?
   receiverTransfers ReceiverTransferRequest[]
   chatMessages      ChatMessage[]
   chatStates        ChatParticipantState[]
@@ -283,6 +293,9 @@ model ShipmentEvent {
   // Transportista cuya asignación terminó al volver a published por falta de pago.
   assignmentCarrierId String? @map("assignment_carrier_id") @db.Uuid
   reason     String?
+  // MOVO-270: solo en la cancelación del barrido de retiro no realizado. `carrier` habilita que
+  // el emisor califique al transportista (MOVO-337); NULL en cualquier otra transición.
+  attribution PickupMissedAttribution?
   createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
@@ -383,7 +396,9 @@ model Offer {
   // MOVO-310: el transportista se bajó del envío ya asignado (`carrier_withdrawn`). La penalidad
   // (< 12 h, ADR-047) es deuda en su cuenta corriente: `pending` hasta registrarla en payments,
   // `debt` después. NULL en una baja sin cargo. Vive en la oferta y no en el envío porque el envío
-  // vuelve a `published` y puede tener otra asignación (y otra baja) después.
+  // vuelve a `published` y puede tener otra asignación (y otra baja) después. MOVO-270: también
+  // se usan en un no-retiro atribuido al transportista (ADR-052), con la oferta en
+  // `shipment_cancelled`: `carrierWithdrawnAt` es cuándo el barrido le atribuyó la falta.
   carrierWithdrawnAt      DateTime?                  @map("carrier_withdrawn_at") @db.Timestamptz
   withdrawalPenaltyArs    Decimal?                   @map("withdrawal_penalty_ars") @db.Decimal(12, 2)
   withdrawalPenaltyStatus CancellationPenaltyStatus? @map("withdrawal_penalty_status")
@@ -507,6 +522,9 @@ model CarrierPosition {
   // Timestamp del SERVIDOR al persistir -- ancla real de la cadencia de ~45s y de la
   // retención (AC6/AC8), nunca `capturedAt` (no confiable, viene del cliente).
   recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+  // MOVO-270: flag `mocked` de expo-location (solo Android; NULL si el dispositivo no lo informa).
+  // Una posición simulada se guarda igual, para que quien revise una disputa vea la calidad de la traza.
+  mocked     Boolean?
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   trip     Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
@@ -514,6 +532,31 @@ model CarrierPosition {
   @@index([shipmentId, recordedAt], map: "carrier_positions_shipment_id_recorded_at_idx")
   @@index([tripId, recordedAt], map: "carrier_positions_trip_id_recorded_at_idx")
   @@map("carrier_positions")
+  @@schema("shipments")
+}
+
+// MOVO-270 (ADR-052): evidencia GPS pasiva del retiro de un envío `assigned`, sin guardar la
+// traza (la traza solo se guarda con custodia, ADR-023). Una fila por envío: la llegada se
+// registra una sola vez (`arrivedAt IS NULL` en el UPDATE) y los contadores clasifican cada
+// posición válida dentro de la ventana de retiro como lejana (> 2 km) o zona gris.
+model PickupEvidence {
+  shipmentId String @id @map("shipment_id") @db.Uuid
+
+  // Timestamp del DISPOSITIVO de la primera posición dentro del radio de llegada.
+  arrivedAt        DateTime? @map("arrived_at") @db.Timestamptz
+  arrivedLat       Decimal?  @map("arrived_lat") @db.Decimal(9, 6)
+  arrivedLng       Decimal?  @map("arrived_lng") @db.Decimal(9, 6)
+  arrivedAccuracyM Decimal?  @map("arrived_accuracy_m") @db.Decimal(8, 2)
+
+  farPositionsInWindow  Int @default(0) @map("far_positions_in_window")
+  grayPositionsInWindow Int @default(0) @map("gray_positions_in_window")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@map("pickup_evidence")
   @@schema("shipments")
 }
 
@@ -538,6 +581,9 @@ model Trip {
   status             TripStatus @default(declared)
 
   cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz
+  // MOVO-270: cuándo pasó a `active` (lo escribe `start()`). NULL en los viajes iniciados antes
+  // de esta columna: para la atribución del no-retiro eso es "sin evidencia", nunca "no inició".
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
 
   // MOVO-265 (ADR-042): recurrencia como atributo del trip. `recurrenceWeekdays` usa
   // 0 = domingo … 6 = sábado (`RECURRENCE_WEEKDAY`, @movo/shared). Prisma no admite listas

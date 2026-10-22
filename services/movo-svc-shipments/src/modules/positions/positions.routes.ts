@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import { createShipmentRepository, ShipmentRepository } from "../../repositories/shipment-repository";
 import { createPositionRepository } from "../../repositories/position-repository";
+import { createPickupEvidenceRepository } from "../../repositories/pickup-evidence-repository";
 import { BatchPositionInput, createPositionService, PositionService, ReportPositionInput } from "../../services/position-service";
 import { positionsSchemas } from "./positions.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
@@ -30,6 +31,7 @@ interface ReportPositionBody {
   lng: number;
   accuracyM: number;
   capturedAt: string;
+  mocked?: boolean;
 }
 
 /**
@@ -57,7 +59,9 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
       app.realtimeRegistry,
       app.log,
       // MOVO-240: aviso de "está por llegar" a emisor y receptor.
-      opts.notificationsClient ?? createNotificationsClient(app.config)
+      opts.notificationsClient ?? createNotificationsClient(app.config),
+      // MOVO-270: evidencia de llegada/ausencia al retiro (ADR-052).
+      createPickupEvidenceRepository(app.db)
     );
 
   // MOVO-250/AC4: lote para la tarea de segundo plano de MOVO-242 y el vaciado de la cola
@@ -89,6 +93,7 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
         lng: p.lng,
         accuracyM: p.accuracyM,
         capturedAt: new Date(p.capturedAt),
+        mocked: p.mocked,
       }));
       return { results: await service.reportPositions(callerId, items) };
     }
@@ -103,7 +108,9 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
           "MOVO-202 y MOVO-251: el transportista asignado de un envío en viaje activo (`assigned` o `in_transit`) puede " +
           "reportar -- 403 SHIPMENT_NOT_TRACKABLE si el viaje no está activo o el envío ya no es trackeable. El servidor " +
           "descarta la cadencia (persiste como mucho una posición por tramo de 45s de `capturedAt` en " +
-          "Postgres por viaje, evidencia para disputas) sin confiar en el cliente; 422 INVALID_CAPTURED_AT si " +
+          "Postgres por viaje, evidencia para disputas) sin confiar en el cliente; MOVO-270: solo se persiste si el viaje " +
+          "tiene algún envío `in_transit` (antes del retiro se difunde sin guardar traza) y `mocked` (opcional, solo " +
+          "Android) nunca cuenta como evidencia del retiro; 422 INVALID_CAPTURED_AT si " +
           "`capturedAt` está en el futuro o es anterior al inicio del tránsito; la última posición conocida en Redis por viaje y la " +
           "difusión a los suscriptores del canal de tiempo real (MOVO-201) pasan siempre, sin esperar " +
           "esa persistencia.",
@@ -118,12 +125,12 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
     async (request: FastifyRequest<{ Params: ShipmentIdParams; Body: ReportPositionBody }>, reply: FastifyReply) => {
       const callerId = requireUserIdFromHeader(request);
       const { id: shipmentId } = request.params;
-      const { lat, lng, accuracyM, capturedAt } = request.body;
+      const { lat, lng, accuracyM, capturedAt, mocked } = request.body;
 
       // El schema (`format: "date-time"`) ya rechaza con 400 cualquier string no
       // parseable antes de llegar acá -- `new Date(capturedAt)` nunca resulta en
       // Invalid Date en este punto.
-      const input: ReportPositionInput = { lat, lng, accuracyM, capturedAt: new Date(capturedAt) };
+      const input: ReportPositionInput = { lat, lng, accuracyM, capturedAt: new Date(capturedAt), mocked };
       const result = await service.reportPosition(shipmentId, callerId, input);
       reply.code(202);
       return result;
