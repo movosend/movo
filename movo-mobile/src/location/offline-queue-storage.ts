@@ -7,6 +7,9 @@ export interface QueuedPosition {
   lng: number;
   accuracyM: number;
   capturedAt: string; // ISO-8601
+  /** MOVO-270: `mocked` de expo-location (solo Android). Una posición simulada no cuenta como
+   * evidencia del retiro (ADR-052). Ausente en iOS y en colas guardadas antes de este cambio. */
+  mocked?: boolean;
 }
 
 export interface TrackingContextData {

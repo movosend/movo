@@ -324,6 +324,8 @@ export class LocationService {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
       const accuracyM = position.coords.accuracy ?? 0;
+      // MOVO-270: solo Android lo informa; en iOS queda `undefined` y no se manda.
+      const mocked = position.mocked;
 
       // 3. Encolar y reportar para cada envío activo
       const newPositions: QueuedPosition[] = [];
@@ -334,6 +336,7 @@ export class LocationService {
           lng,
           accuracyM,
           capturedAt,
+          ...(mocked !== undefined ? { mocked } : {}),
         });
       }
 

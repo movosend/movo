@@ -13,17 +13,30 @@ import { formatSettlementAmount, formatSettlementDateTime } from "./settlement-f
  * - `free`: falta más de 12 h para la franja de retiro, se libera la reserva entera.
  * - `penalty`: cancelación tardía, se cobra `penaltyArs` de la reserva y se libera el resto.
  * - `expired`: la franja de retiro ya terminó sin que el transportista retire: sin cargo.
+ *   Si el transportista llegó al retiro (MOVO-270, `carrier_arrived`) se cobra: vista `penalty`.
  * - `noHold`: el envío todavía no tiene reserva (cualquier estado previo a `assigned`).
  */
 export type CancellationQuoteView =
   | { kind: "free"; reservedArs: number | null; freeUntilLabel: string | null }
-  | { kind: "penalty"; reservedArs: number; penaltyArs: number; releasedArs: number; penaltyRatio: number }
+  | {
+      kind: "penalty";
+      reservedArs: number;
+      penaltyArs: number;
+      releasedArs: number;
+      penaltyRatio: number;
+      /** MOVO-270: por qué se cobra con la franja ya terminada (`carrier_arrived`); ausente en una cancelación tardía. */
+      reasonText?: string;
+    }
   | { kind: "expired"; reservedArs: number | null; reasonText: string }
   | { kind: "noHold" };
 
 /** El backend solo manda el enum (`pickup_window_closed`); el texto es nuestro. */
 export const PICKUP_WINDOW_CLOSED_REASON =
   "La franja de retiro ya terminó y el transportista no retiró el paquete, así que no corresponde cobrarte.";
+
+/** MOVO-270 (`carrier_arrived`): la franja terminó, pero registramos que el transportista llegó al retiro. */
+export const CARRIER_ARRIVED_REASON =
+  "El transportista llegó al punto de retiro dentro de la franja, así que cancelar tiene un cargo.";
 
 /** "jue 16 oct a las 08:00", en la zona del dispositivo (mismo criterio que el resto de los
  * horarios de la app). `null` ante una fecha inválida. */
@@ -42,7 +55,8 @@ export function cancellationQuoteView(
       return { kind: "free", reservedArs: agreedPriceArs, freeUntilLabel: formatCancellationDateTime(quote.freeUntil) };
     case "pickup_window_closed":
       return { kind: "expired", reservedArs: agreedPriceArs, reasonText: PICKUP_WINDOW_CLOSED_REASON };
-    case "late_cancellation": {
+    case "late_cancellation":
+    case "carrier_arrived": {
       // El backend calcula la penalidad sobre el precio pactado, así que siempre existe acá.
       const reservedArs = agreedPriceArs ?? quote.penaltyArs;
       return {
@@ -51,6 +65,7 @@ export function cancellationQuoteView(
         penaltyArs: quote.penaltyArs,
         releasedArs: Math.round((reservedArs - quote.penaltyArs) * 100) / 100,
         penaltyRatio: reservedArs > 0 ? Math.min(1, quote.penaltyArs / reservedArs) : 0,
+        ...(quote.reason === "carrier_arrived" ? { reasonText: CARRIER_ARRIVED_REASON } : {}),
       };
     }
     case "not_assigned":
