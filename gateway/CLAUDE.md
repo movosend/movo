@@ -208,3 +208,13 @@ entra al JWT en una sesión de panel (MOVO-287). Cuarto servicio proxeado. Detal
 Entrada nueva en `getServiceRoutes()` hacia `SHIPMENTS_SERVICE_URL` con `websocket: true` (`GET /support/conversations/:id` es un upgrade), protegida por
 defecto y **sin `allowedRoles`**: pedir ayuda no depende de ser emisor o transportista. Tests en `routes-prefix.test.ts` y `websocket-proxy.test.ts`.
 Sin rate limit propio todavía (cae en el general de 200/min por IP); revisarlo si se ve abuso al crear consultas.
+
+### MOVO-298 — Suspensión e inhabilitación en cada request
+
+`plugins/account-restriction.ts#enforceAccountRestriction` corre en el `preHandler` de `routes/index.ts` justo después de
+`authenticate`: lee `account:restriction:<sub>` (marca que escribe `svc-users`, MOVO-296) con `GET` + `PTTL` en un `MULTI`.
+`disabled` → 403 `ACCOUNT_DISABLED` en cualquier ruta; `suspended` → 403 `ACCOUNT_SUSPENDED` solo si método+path está en
+`SUSPENDED_BLOCKED_ROUTES` (`config/routes-map.ts`, lista de bloqueadas, con el porqué en el comentario). `details.endsAt` sale de
+`ahora + PTTL` (sin TTL = indefinida, `null`), así que la marca no necesita guardar la fecha. Si Redis falla, falla abierto y loguea.
+La lista suma, además de lo del ticket, `POST /shipments/:id/accept` y `POST /receiver-transfers/:id/accept` (aceptar ser receptor);
+`POST /shipments/:id/receiver` (re-designar) queda permitido. Tests en `test/account-restriction.test.ts`.
