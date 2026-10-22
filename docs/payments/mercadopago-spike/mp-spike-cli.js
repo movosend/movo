@@ -162,7 +162,8 @@ const CONFIG = {
   // Datos de la tarjeta de prueba a usar (por defecto, la Visa de crédito
   // AR documentada por MP). "APRO" en el titular = pago aprobado.
   testCard: {
-    number: env.MP_TEST_CARD_NUMBER || '4509953566233704',
+    // La 4509953566233704 da 500 con un vendedor conectado desde 10/2026 (MOVO-215).
+    number: env.MP_TEST_CARD_NUMBER || '4075595716483764',
     cvv: env.MP_TEST_CARD_CVV || '123',
     expirationMonth: env.MP_TEST_CARD_EXP_MONTH || '11',
     expirationYear: env.MP_TEST_CARD_EXP_YEAR || '2030',
@@ -1188,6 +1189,66 @@ GET /v1/payments/{id}. Prestar atención a:
 }
 
 // ----------------------------------------------------------------------------
+// 9b. PASO — MOVO-215: dejar el hold registrado para medir cuándo vence
+// ----------------------------------------------------------------------------
+//
+// Guarda el último hold creado (opción 5 o s5) en `hold-watch.json`, junto con
+// el access_token del vendedor que hace falta para consultarlo. Después
+// `hold-expiry-watch.js` lo consulta solo, sin este menú, hasta que MP lo
+// cancele. El hold NO hay que capturarlo ni cancelarlo: la idea es justamente
+// ver cuánto tarda MP en soltarlo.
+
+const HOLD_WATCH_PATH = path.join(__dirname, 'hold-watch.json');
+
+async function stepRegisterHoldForWatch() {
+  const source = state.holdPaymentId ? state : sdkState;
+  if (!source.holdPaymentId || !source.sellerAccessToken) {
+    console.log('[error] No hay un hold creado en esta sesión (opción 5 o s5).');
+    return;
+  }
+
+  const label = (await ask('Etiqueta del hold (ej. "visa-credito", "maestro-debito"): ')).trim() || 'sin-etiqueta';
+
+  const { ok, data } = await mpRequest('GET', `/v1/payments/${source.holdPaymentId}`, {
+    token: source.sellerAccessToken,
+  });
+  if (!ok) {
+    console.log('[error] No se pudo consultar el pago, no se registra.');
+    return;
+  }
+  if (data.status !== 'authorized') {
+    console.log(`[error] El pago está en "${data.status}", no en "authorized": no es un hold vivo.`);
+    return;
+  }
+
+  let watch = [];
+  if (fs.existsSync(HOLD_WATCH_PATH)) watch = JSON.parse(fs.readFileSync(HOLD_WATCH_PATH, 'utf8'));
+  if (watch.some((h) => String(h.paymentId) === String(data.id))) {
+    console.log('Ese hold ya estaba registrado.');
+    return;
+  }
+  watch.push({
+    paymentId: data.id,
+    label,
+    paymentMethodId: data.payment_method_id,
+    paymentTypeId: data.payment_type_id,
+    dateCreated: data.date_created,
+    sellerAccessToken: source.sellerAccessToken,
+  });
+  fs.writeFileSync(HOLD_WATCH_PATH, JSON.stringify(watch, null, 2));
+
+  console.log(`\n✅ Hold ${data.id} (${data.payment_method_id} / ${data.payment_type_id}) registrado en hold-watch.json.`);
+  console.log('   No lo captures ni lo canceles. Consultalo con: node hold-expiry-watch.js');
+  appendToSessionLog('MOVO-215:register-hold-for-watch', {
+    paymentId: data.id,
+    label,
+    paymentMethodId: data.payment_method_id,
+    paymentTypeId: data.payment_type_id,
+    dateCreated: data.date_created,
+  });
+}
+
+// ----------------------------------------------------------------------------
 // 10. PASO — AC1/AC3: capturar el hold (cobrar de verdad)
 // ----------------------------------------------------------------------------
 
@@ -2052,6 +2113,7 @@ const MENU = [
   { key: 'c2', label: '[card-on-file] Hold + split con esa tarjeta guardada, sin CVV', run: stepSellerHoldFromSavedCard },
   { key: 'c3', label: '[card-on-file] Tarjeta guardada en la cuenta de Movo, cobrada con token del vendedor', run: stepCrossAccountSavedCard },
   { key: '6', label: 'AC3 — Consultar el pago (ver cómo quedó repartido el split)', run: stepInspectPayment },
+  { key: 'w', label: '[MOVO-215] Registrar el último hold (5 o s5) para medir cuándo vence', run: stepRegisterHoldForWatch },
   { key: '7', label: 'AC1/AC3 — Capturar el pago (cobrar de verdad)', run: stepCapturePayment },
   { key: '8', label: 'AC4 — Cancelar el hold (liberar fondos sin cobrar)', run: stepCancelHold },
   { key: '9', label: '[bonus] Reembolsar un pago ya capturado', run: stepRefundCapturedPayment },

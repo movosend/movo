@@ -381,7 +381,26 @@ describe("Sanciones de cuenta (MOVO-296)", () => {
         url: "/auth/refresh",
         payload: { refreshToken: session.refreshToken },
       });
-      expect(disabledRefresh.statusCode).toBeGreaterThanOrEqual(401);
+      // MOVO-300 AC4: el refresh de la sesión que quedó abierta dice por qué se cerró.
+      expect(disabledRefresh.statusCode).toBe(403);
+      expect(JSON.parse(disabledRefresh.body).error.code).toBe("ACCOUNT_DISABLED");
+    });
+
+    it("un refresh revocado de una cuenta activa sigue siendo AUTH_REFRESH_INVALID", async () => {
+      const user = await createUser();
+      const session = JSON.parse((await login(user)).body) as { refreshToken: string };
+      for (const key of await app.redis.keys(`refresh:${user.id}:*`)) {
+        await app.redis.del(key);
+      }
+
+      const refreshed = await app.inject({
+        method: "POST",
+        url: "/auth/refresh",
+        payload: { refreshToken: session.refreshToken },
+      });
+
+      expect(refreshed.statusCode).toBe(401);
+      expect(JSON.parse(refreshed.body).error.code).toBe("AUTH_REFRESH_INVALID");
     });
 
     it("una suspensión vencida que el barrido no cerró se trata como active en cualquier lectura", async () => {
@@ -558,6 +577,42 @@ describe("Sanciones de cuenta (MOVO-296)", () => {
       response = await me();
       expect(response.statusCode).toBe(200);
       expect(JSON.parse(response.body).accountStatus).toBe("banned");
+    });
+
+    it("MOVO-300: trae el motivo y el plazo de la sanción vigente, nunca la nota interna", async () => {
+      const user = await createUser();
+      const me = async () =>
+        JSON.parse((await app.inject({ method: "GET", url: "/users/me", headers: { "x-user-id": user.id } })).body);
+
+      expect((await me()).activeSanction).toBeNull();
+
+      const endsAt = new Date(Date.now() + HOUR_MS);
+      await sanction(user.id, suspendPayload(endsAt));
+      const body = await me();
+      expect(body.activeSanction).toEqual({
+        type: "suspension",
+        reason: "Conducta inapropiada",
+        endsAt: endsAt.toISOString(),
+      });
+      expect(JSON.stringify(body)).not.toContain(INTERNAL_NOTE);
+
+      await sanction(user.id, suspendPayload());
+      expect((await me()).activeSanction).toEqual({ type: "suspension", reason: "Conducta inapropiada", endsAt: null });
+
+      const [open] = (await history(user.id)).filter((s) => s.liftedAt === null);
+      await lift(user.id, open?.id ?? "");
+      expect((await me()).activeSanction).toBeNull();
+    });
+
+    it("MOVO-300: una suspensión vencida que el barrido no cerró ya no aparece", async () => {
+      const user = await createUser();
+      await sanction(user.id, suspendPayload(new Date(Date.now() + HOUR_MS)));
+      // La tabla es append-only (trigger): se vence la caché de `users`, que es la que decide
+      // el estado efectivo; la fila del historial sigue abierta como antes del barrido.
+      await app.db.user.update({ where: { id: user.id }, data: { bannedUntil: new Date(Date.now() - 1000) } });
+
+      const body = JSON.parse((await app.inject({ method: "GET", url: "/users/me", headers: { "x-user-id": user.id } })).body);
+      expect(body).toMatchObject({ accountStatus: "active", activeSanction: null });
     });
   });
 

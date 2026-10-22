@@ -11,7 +11,7 @@ import { buildSupportService } from "../src/modules/support/support.routes";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 
 /**
- * MOVO-320 (ADR-050): conversaciones de soporte del lado del usuario. Servidor TCP real (`app.listen`) y clientes
+ * MOVO-320 (ADR-051): conversaciones de soporte del lado del usuario. Servidor TCP real (`app.listen`) y clientes
  * `ws` reales, mismo criterio que `chat.integration.test.ts`; HTTP por `app.inject` con los headers que inyecta el
  * gateway. Postgres y Redis reales. Lo que escribe el lado del agente (MOVO-322, todavía no existe) se simula
  * con el repositorio y `publishStaffMessage`, que es lo que va a llamar ese ticket.

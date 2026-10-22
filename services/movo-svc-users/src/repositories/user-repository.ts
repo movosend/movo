@@ -5,6 +5,7 @@ import {
   KycStatus as PrismaKycStatus,
   AccountStatus as PrismaAccountStatus,
 } from "../generated/prisma/client";
+import { VerificationType } from "../models/kyc-verification";
 import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName, effectiveAccountStatus } from "../models/user";
 
 export interface UserRepository {
@@ -15,6 +16,12 @@ export interface UserRepository {
   create(input: CreateUserInput): Promise<User>;
   updateKycStatusIdentity(id: string, status: KycStatus): Promise<User | null>;
   updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null>;
+  /**
+   * MOVO-230: vuelve a `not_started` el caché de KYC de estos usuarios para el tipo dado, solo
+   * si sigue en `pending`. Lo usa la purga de intentos abandonados: sin la fila del intento,
+   * un `pending` en caché ya no apunta a nada. Devuelve cuántos usuarios cambiaron.
+   */
+  resetPendingKycStatus(ids: string[], verificationType: VerificationType): Promise<number>;
   /**
    * MOVO-115: swap atómico de `photo_url` -- lee el valor vigente y lo compara-y-
    * reemplaza en la misma operación (compare-and-swap con reintento si otro
@@ -114,6 +121,12 @@ export interface UserRepository {
    * antes de contarlas. `banned` sí cuenta: es una sanción reversible, no una baja.
    */
   countActiveByIds(ids: string[]): Promise<number>;
+  /**
+   * MOVO-230: fecha de baja de las cuentas dadas de baja entre estos ids, para la purga de
+   * historial de `svc-shipments`. Un id que no está en el mapa (cuenta activa, sancionada o
+   * inexistente) cuenta como no dado de baja.
+   */
+  findDeletionDatesByIds(ids: string[]): Promise<Map<string, Date>>;
 }
 
 type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: true } }>;
@@ -298,6 +311,25 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         }
         throw error;
       }
+    },
+
+    async resetPendingKycStatus(ids: string[], verificationType: VerificationType): Promise<number> {
+      if (ids.length === 0) {
+        return 0;
+      }
+      const pending = KycStatus.PENDING as PrismaKycStatus;
+      const notStarted = KycStatus.NOT_STARTED as PrismaKycStatus;
+      const result =
+        verificationType === "identity"
+          ? await db.user.updateMany({
+              where: { id: { in: ids }, kycStatusIdentity: pending },
+              data: { kycStatusIdentity: notStarted },
+            })
+          : await db.user.updateMany({
+              where: { id: { in: ids }, kycStatusLicense: pending },
+              data: { kycStatusLicense: notStarted },
+            });
+      return result.count;
     },
 
     async updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null> {
@@ -541,6 +573,10 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
             // (`deleted+{id}@movo.invalid`) nunca estuvo verificado.
             emailVerified: false,
             emailVerifiedAt: null,
+            // MOVO-230: la baja ya borra los intentos de KYC (Política de Privacidad §7),
+            // así que el caché tampoco conserva el resultado.
+            kycStatusIdentity: KycStatus.NOT_STARTED as PrismaKycStatus,
+            kycStatusLicense: KycStatus.NOT_STARTED as PrismaKycStatus,
           },
           include: { roles: true },
         });
@@ -569,6 +605,20 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         return 0;
       }
       return db.user.count({ where: { id: { in: ids }, status: { not: PrismaAccountStatus.deleted } } });
+    },
+
+    async findDeletionDatesByIds(ids: string[]): Promise<Map<string, Date>> {
+      if (ids.length === 0) {
+        return new Map();
+      }
+      const rows = await db.user.findMany({
+        where: { id: { in: ids }, status: PrismaAccountStatus.deleted },
+        select: { id: true, deletedAt: true, updatedAt: true },
+      });
+      // Las bajas anteriores a MOVO-294 no tienen `deletedAt`. `updatedAt` es igual o
+      // posterior a la baja real, así que la purga puede llegar tarde pero nunca antes de
+      // tiempo. No se persiste como backfill para no deformar la fecha que muestra el panel.
+      return new Map(rows.map((row) => [row.id, row.deletedAt ?? row.updatedAt]));
     },
   };
 }

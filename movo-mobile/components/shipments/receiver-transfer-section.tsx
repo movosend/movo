@@ -3,7 +3,9 @@ import { router } from "expo-router";
 import { ArrowLeftRight, ChevronRight, Lock } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
+import { useActiveSuspension } from "../../src/hooks/use-account-restriction";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { SuspendedActionNotice } from "../account/suspended-action-notice";
 import { getFirstName } from "../../src/lib/profile-format";
 
 interface ReceiverTransferSectionProps {
@@ -20,6 +22,7 @@ interface ReceiverTransferSectionProps {
  */
 export function ReceiverTransferSection({ shipment, currentUserId, testID }: ReceiverTransferSectionProps) {
   const colors = useThemeColors();
+  const suspension = useActiveSuspension();
   const pending = shipment.receiverTransfer?.pending ?? null;
   const completed = shipment.receiverTransfer?.completed ?? null;
 
@@ -53,6 +56,20 @@ export function ReceiverTransferSection({ shipment, currentUserId, testID }: Rec
 
   if (!RECEIVER_TRANSFER_ALLOWED_SHIPMENT_STATUSES.includes(shipment.status)) {
     return null;
+  }
+
+  // MOVO-300 AC2: invitar a otro receptor inicia un compromiso nuevo.
+  if (suspension) {
+    return (
+      <View testID={testID}>
+        {eyebrow}
+        <SuspendedActionNotice
+          testID={testID ? `${testID}-suspended` : undefined}
+          action="inviteReceiver"
+          suspension={suspension}
+        />
+      </View>
+    );
   }
 
   return (

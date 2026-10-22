@@ -2,6 +2,7 @@ import { Redirect, Stack } from 'expo-router';
 import { View } from 'react-native';
 import { TourOverlay, useTourOverlayVisible } from '../../components/tour/tour-overlay';
 import { TripMatchAlertBanner } from '../../components/trips/trip-match-alert-banner';
+import { useAccountRestrictionSync } from '../../src/hooks/use-account-restriction';
 import { usePendingToursFlush } from '../../src/hooks/use-record-tour';
 import { useAuthStore } from '../../src/store/auth-store';
 
@@ -19,12 +20,18 @@ import { useAuthStore } from '../../src/store/auth-store';
  *
  * `TourOverlay` (MOVO-169) también: el tutorial cruza tabs y tiene que tapar la tab bar.
  * Mientras está a la vista, el resto de la app queda oculto a los lectores de pantalla.
+ *
+ * MOVO-300: si la sesión se cerró porque la cuenta se inhabilitó con la app abierta, el guard
+ * manda a la pantalla que lo explica en vez de al login. `useAccountRestrictionSync` mantiene
+ * al día el aviso de suspensión.
  */
 export default function AuthenticatedLayout() {
   const status = useAuthStore((s) => s.status);
+  const signOutReason = useAuthStore((s) => s.signOutReason);
 
   if (status !== 'authenticated') {
-    return <Redirect href="/login" />;
+    // `as any`: ruta nueva de MOVO-300, todavía fuera de los tipos generados de expo-router.
+    return <Redirect href={(signOutReason === 'account_disabled' ? '/account-disabled' : '/login') as any} />;
   }
 
   return <AuthenticatedContent />;
@@ -32,6 +39,7 @@ export default function AuthenticatedLayout() {
 
 function AuthenticatedContent() {
   usePendingToursFlush();
+  useAccountRestrictionSync();
   const tourVisible = useTourOverlayVisible();
 
   return (

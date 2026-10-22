@@ -69,6 +69,30 @@ const adminUserRating = {
 } as const;
 
 export const adminInternalSchemas = {
+  listQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      group: { type: "string", enum: ["unassigned", "assigning", "in_progress", "closed", "disputes"] },
+      status: { type: "string", enum: SHIPMENT_STATUSES },
+      city: { type: "string", minLength: 1, maxLength: 100 },
+      from: { type: "string", format: "date-time" },
+      to: { type: "string", format: "date-time" },
+      q: { type: "string", minLength: 1, maxLength: 100 },
+      cursor: { type: "string", maxLength: 300 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+    },
+  },
+
+  chatQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      cursor: { type: "string", maxLength: 300 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+    },
+  },
+
   idParam: {
     type: "object",
     required: ["id"],
@@ -145,6 +169,57 @@ export const adminInternalSchemas = {
       shipmentId: uuid,
       reporterId: uuid,
       partyIds: { type: "array", items: uuid },
+    },
+  },
+
+  // MOVO-297: efectos de una sanción.
+  inProgressShipmentsResponse: {
+    type: "array",
+    items: {
+      type: "object",
+      required: ["id", "shortId", "status", "userRole", "pickupAddress", "deliveryAddress"],
+      properties: {
+        id: uuid,
+        shortId: { type: "string" },
+        status: { type: "string", enum: ["assignment_pending", "assigned_unfunded", "assigned", "in_transit"] },
+        userRole: { type: "string", enum: ROLES },
+        pickupAddress: { type: "string" },
+        deliveryAddress: { type: "string" },
+      },
+    },
+  },
+
+  // `sanctionId` es opcional: con él, volver a sancionar tras levantar la sanción vuelve a avisar a las contrapartes.
+  withdrawOpenActivityBody: {
+    type: ["object", "null"],
+    additionalProperties: false,
+    properties: { sanctionId: uuid },
+  },
+
+  withdrawOpenActivityResponse: {
+    type: "object",
+    required: [
+      "cancelledShipmentIds",
+      "withdrawnOfferIds",
+      "cancelledTripIds",
+      "stoppedRecurrenceTripIds",
+      "notifiedCounterpartyCount",
+      "failures",
+    ],
+    properties: {
+      cancelledShipmentIds: { type: "array", items: uuid },
+      withdrawnOfferIds: { type: "array", items: uuid },
+      cancelledTripIds: { type: "array", items: uuid },
+      stoppedRecurrenceTripIds: { type: "array", items: uuid },
+      notifiedCounterpartyCount: { type: "integer" },
+      failures: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["kind", "id"],
+          properties: { kind: { type: "string", enum: ["shipment", "offer", "trip", "series"] }, id: uuid },
+        },
+      },
     },
   },
 };

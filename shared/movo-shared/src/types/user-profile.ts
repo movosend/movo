@@ -1,5 +1,5 @@
 import { AccountStatus, KycStatus, UserRole } from "./user";
-import type { PublicAccountStatus } from "./account-sanctions";
+import type { OwnAccountSanction, PublicAccountStatus } from "./account-sanctions";
 import type { UserTourRecord } from "../config/tours";
 
 /**
@@ -151,6 +151,10 @@ export interface PrivateProfile {
    * criterio que `kycStatus` (identidad) tampoco vive en esa proyección. */
   licenseKycStatus: KycStatus;
   accountStatus: AccountStatus;
+  /** MOVO-300: la sanción vigente (`null` si la cuenta está activa), para el aviso de la
+   * app con el motivo y el plazo. Una suspensión vencida que el barrido todavía no cerró
+   * ya llega como `null`. */
+  activeSanction: OwnAccountSanction | null;
   roles: UserRole[];
   badges: ProfileBadge[];
   transactionCounts: TransactionCounts;

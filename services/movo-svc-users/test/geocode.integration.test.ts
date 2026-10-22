@@ -56,7 +56,7 @@ describe("POST /geocode", () => {
         return { lat: 1, long: 2, formattedAddress: "Fake address" };
       },
       async reverseGeocode() {
-        return { formattedAddress: "Fake reverse address" };
+        return { formattedAddress: "Fake reverse address", city: "Villa Carlos Paz" };
       },
     };
     const appWithFake = buildApp({ geocodingProvider: fakeProvider });
@@ -136,7 +136,7 @@ describe("POST /geocode/reverse (MOVO-125)", () => {
         return { lat: 1, long: 2, formattedAddress: "Fake address" };
       },
       async reverseGeocode() {
-        return { formattedAddress: "Fake reverse address" };
+        return { formattedAddress: "Fake reverse address", city: "Villa Carlos Paz" };
       },
     };
     const appWithFake = buildApp({ geocodingProvider: fakeProvider });
@@ -148,7 +148,7 @@ describe("POST /geocode/reverse (MOVO-125)", () => {
       headers: AUTH_HEADERS,
       payload: { lat: -31.4201, long: -64.1888 },
     });
-    expect(JSON.parse(response.body)).toEqual({ formattedAddress: "Fake reverse address" });
+    expect(JSON.parse(response.body)).toEqual({ formattedAddress: "Fake reverse address", city: "Villa Carlos Paz" });
 
     await appWithFake.close();
   });

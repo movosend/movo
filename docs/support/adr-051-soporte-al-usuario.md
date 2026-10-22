@@ -1,4 +1,4 @@
-# ADR-050 — Soporte al usuario sobre el chat existente (MOVO-320)
+# ADR-051 — Soporte al usuario sobre el chat existente (MOVO-320)
 
 > Borrador para pegar en `[Movo] 004 - Sprint 0.md`. Complementa ADR-040 (chat) y ADR-046 (push del chat) sin
 > modificarlos. El número lo fija el ticket como "el siguiente libre": 049 era el último vigente.

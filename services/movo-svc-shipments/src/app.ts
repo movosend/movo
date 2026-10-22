@@ -13,6 +13,7 @@ import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-swe
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
 import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sweep";
+import historyRetentionSweepPlugin from "./plugins/history-retention-sweep";
 import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
 import pickupMissedSweepPlugin from "./plugins/pickup-missed-sweep";
 import transitAnomalySweepPlugin from "./plugins/transit-anomaly-sweep";
@@ -41,7 +42,7 @@ import receiverTransfersRoutes, {
   shipmentReceiverTransferRoutes,
 } from "./modules/receiver-transfers/receiver-transfers.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
-import { UsersClient } from "./adapters/users-client";
+import { UserDeletionClient, UsersClient } from "./adapters/users-client";
 import { PaymentsClient } from "./adapters/payments-client";
 import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
@@ -88,6 +89,11 @@ export interface BuildAppOptions {
   /** Override para habilitar/deshabilitar el sweep de purga de posiciones GPS en
    * background (MOVO-202). */
   carrierPositionPurgeSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar la purga de historial de envíos vencido (MOVO-230). */
+  historyRetentionSweepEnabled?: boolean;
+  /** Override solo para tests de integración -- evita depender de un `movo-svc-users` real
+   * para las fechas de baja (MOVO-230), mismo criterio que `usersClient`. */
+  userDeletionClient?: UserDeletionClient;
   /** Override para habilitar/deshabilitar el sweep de viajes declared vencidos en
    * background (MOVO-238). */
   tripExpirySweepEnabled?: boolean;
@@ -176,6 +182,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.carrierPositionPurgeSweepEnabled !== undefined
       ? { enabled: opts.carrierPositionPurgeSweepEnabled }
       : {}),
+  });
+  app.register(historyRetentionSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.userDeletionClient ? { deletionClient: opts.userDeletionClient } : {}),
+    ...(opts.historyRetentionSweepEnabled !== undefined ? { enabled: opts.historyRetentionSweepEnabled } : {}),
   });
   app.register(tripExpirySweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
@@ -287,7 +298,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // MOVO-288: partes de un envío o de un reporte de chat, para la regla de conflicto de
   // interés de movo-svc-admin. Interno.
-  app.register(adminInternalRoutes, { prefix: "/internal" });
+  // MOVO-325: también listado, detalle, eventos, fotos y chat de los envíos para el panel.
+  // MOVO-297: y los efectos de una sanción (retiro de actividad abierta y avisos).
+  app.register(adminInternalRoutes, {
+    prefix: "/internal",
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+  });
 
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
   // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.
@@ -357,7 +375,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.register(chatRoutes, chatRouteOpts);
 
-  // MOVO-320 (ADR-050): soporte al usuario sobre el chat existente (mismo `ChatHub`, otra clave de sala). Prefijo
+  // MOVO-320 (ADR-051): soporte al usuario sobre el chat existente (mismo `ChatHub`, otra clave de sala). Prefijo
   // "/support": el gateway lo proxea (HTTP y upgrade) hacia este servicio.
   const supportRouteOpts: SupportRoutesOptions = {
     prefix: "/support",

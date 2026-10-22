@@ -33,12 +33,14 @@ import {
 } from "react-native-safe-area-context";
 import { PriceBreakdownCard } from "../../../../components/payments/price-breakdown-card";
 import { DebtDiscount } from "../../../../components/payments/debt-discount";
+import { SuspendedActionNotice } from "../../../../components/account/suspended-action-notice";
 import { CarrierRequirementsSheet } from "../../../../components/carrier/carrier-requirements-checklist";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { GridPattern } from "../../../../components/ui/grid-pattern";
 import { NumericKeypad } from "../../../../components/ui/numeric-keypad";
 import { SectionLabel } from "../../../../components/ui/section-label";
 import { SuccessBanner } from "../../../../components/ui/success-banner";
+import { useActiveSuspension } from "../../../../src/hooks/use-account-restriction";
 import { useCarrierRequirementsSheet } from "../../../../src/hooks/use-carrier-requirements-sheet";
 import { useOfferDetail, useUpdateOffer, useWithdrawOffer } from "../../../../src/hooks/use-offers";
 import { useSheetAnimation } from "../../../../src/hooks/use-sheet-animation";
@@ -137,6 +139,7 @@ export default function OfferDetailScreen() {
   const withdrawOffer = useWithdrawOffer(offer?.shipmentId);
   const updateOffer = useUpdateOffer(offerId);
   const requirements = useCarrierRequirementsSheet("edit_offer");
+  const suspension = useActiveSuspension();
 
   const { colorScheme } = useColorScheme();
 
@@ -320,6 +323,9 @@ export default function OfferDetailScreen() {
   }
 
   const canModify = status === OfferStatus.PENDING;
+  // MOVO-300 AC2: con la cuenta suspendida no se edita (precio, fecha y horario), pero sí se
+  // puede retirar: retirar no inicia nada nuevo.
+  const canEdit = canModify && !suspension;
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
@@ -365,7 +371,7 @@ export default function OfferDetailScreen() {
                 }
               }}
               actions={[
-                ...(canModify
+                ...(canEdit
                   ? [
                       {
                         id: "modify-date",
@@ -704,7 +710,13 @@ export default function OfferDetailScreen() {
           elevation: 8,
         }}
       >
-        {canModify ? (
+        {canModify && suspension ? (
+          <SuspendedActionNotice
+            testID="offer-detail-edit-suspended"
+            action="editOffer"
+            suspension={suspension}
+          />
+        ) : canModify ? (
           <Pressable
             testID="offer-detail-change-price-cta"
             onPress={openPriceSheet}

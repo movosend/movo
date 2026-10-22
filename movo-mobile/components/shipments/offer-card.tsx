@@ -26,6 +26,9 @@ export interface OfferCardProps {
     pickupTimeWindowEnd: string;
   };
   disabled?: boolean;
+  /** MOVO-300 AC2: cuenta suspendida, solo "Elegir" queda deshabilitado. Rechazar no inicia nada
+   * nuevo y sigue disponible; la explicación la muestra la pantalla arriba de la lista. */
+  acceptDisabled?: boolean;
   testID?: string;
 }
 
@@ -36,6 +39,7 @@ export function OfferCard({
   onViewProfile,
   requestedPickup,
   disabled = false,
+  acceptDisabled = false,
   testID,
 }: OfferCardProps) {
   const colors = useThemeColors();
@@ -182,10 +186,17 @@ export function OfferCard({
         <Pressable
           testID={testID ? `${testID}-accept-btn` : `offer-card-${offer.id}-accept-btn`}
           onPress={() => onAccept(offer)}
-          disabled={disabled}
-          className="h-11 flex-1 items-center justify-center rounded-[10px] bg-lime-500 active:bg-lime-400"
+          disabled={disabled || acceptDisabled}
+          accessibilityState={{ disabled: disabled || acceptDisabled }}
+          className={`h-11 flex-1 items-center justify-center rounded-[10px] ${
+            acceptDisabled ? "bg-bg-mute" : "bg-lime-500 active:bg-lime-400"
+          }`}
         >
-          <Text className="font-sans-semibold text-[14px] text-ink-950">Elegir</Text>
+          <Text
+            className={`font-sans-semibold text-[14px] ${acceptDisabled ? "text-fg-3" : "text-ink-950"}`}
+          >
+            Elegir
+          </Text>
         </Pressable>
       </View>
     </View>

@@ -36,6 +36,7 @@ export type NotificationTriggerKey =
   | "offerSuperseded"
   | "offerRejected"
   | "offerVoidedByShipmentCancellation"
+  | "counterpartyCannotTakeNewShipments"
   | "tripMatch"
   | "tripAutoCreated"
   | "tripDepartureReminder"
@@ -316,6 +317,19 @@ export const NOTIFICATION_TRIGGERS = {
     "offers",
     { title: "Tu oferta fue cancelada", body: "El envío ya no está disponible." },
     () => ({ title: "Tu oferta fue cancelada", body: "El envío ya no está disponible." })
+  ),
+  // MOVO-297: a las contrapartes de un envío en curso de alguien sancionado. Genérico a
+  // propósito: no revela el motivo ni que hubo una sanción.
+  counterpartyCannotTakeNewShipments: definition<void>(
+    "shipments",
+    {
+      title: "Novedad en tu envío",
+      body: "Esta persona no puede tomar nuevos envíos por ahora. Tu envío sigue en curso; si preferís, podés cancelarlo.",
+    },
+    () => ({
+      title: "Novedad en tu envío",
+      body: "Esta persona no puede tomar nuevos envíos por ahora. Tu envío sigue en curso; si preferís, podés cancelarlo.",
+    })
   ),
   tripMatch: definition<{ originShort: string; destinationShort: string }>(
     "trips",

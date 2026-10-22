@@ -1,4 +1,4 @@
-import { AdminUserLedgerRow, AdminUserLedgerRowPage, AdminUserMercadoPago } from "@movo/shared";
+import { AdminUserLedgerRow, AdminUserLedgerRowPage, AdminUserMercadoPago, HoldDetailResponse } from "@movo/shared";
 import { createInternalClient, InternalClient, isNullableString, isRecord, isString, RequestContext } from "./internal-client";
 
 /** Lo que manda `svc-admin` al alta de un ajuste manual (ADR-044). */
@@ -23,6 +23,8 @@ export interface PaymentsClient extends InternalClient {
   getUserLedger(userId: string, query: { limit?: number; cursor?: string }, ctx: RequestContext): Promise<AdminUserLedgerRowPage>;
   /** MOVO-294: `POST /internal/payments/users/:userId/manual-adjustments` (ADR-044, idempotente). */
   createLedgerAdjustment(userId: string, body: LedgerAdjustmentRequest, ctx: RequestContext): Promise<LedgerAdjustmentResponse>;
+  /** `GET /internal/payments/holds/by-shipment/:id` (MOVO-325). `null` si nunca se intentó el pago. */
+  findHoldByShipment(shipmentId: string, ctx: RequestContext): Promise<HoldDetailResponse | null>;
 }
 
 const isNumber = (value: unknown): value is number => typeof value === "number";
@@ -44,6 +46,7 @@ const isAdjustment = (body: unknown): body is LedgerAdjustmentResponse =>
   isRecord(body) && isRecord(body.entry) && isString(body.entry.id) && typeof body.created === "boolean" && isNumber(body.balanceArs);
 
 const userPath = (userId: string) => `/internal/payments/users/${encodeURIComponent(userId)}`;
+const isHoldDetail = (body: unknown): body is HoldDetailResponse => isRecord(body) && isString(body.status);
 
 export function createPaymentsClient(config: { PAYMENTS_SERVICE_URL: string }): PaymentsClient {
   const client = createInternalClient({
@@ -81,6 +84,12 @@ export function createPaymentsClient(config: { PAYMENTS_SERVICE_URL: string }): 
       // Sin `notFoundCodes`, `request` nunca devuelve `null` (un 404 es 502).
       if (!result) throw new Error("respuesta vacía de svc-payments");
       return result;
+    },
+    findHoldByShipment(shipmentId, ctx) {
+      return client.request(`/internal/payments/holds/by-shipment/${encodeURIComponent(shipmentId)}`, ctx, {
+        isValid: isHoldDetail,
+        notFoundCodes: ["HOLD_NOT_FOUND"],
+      });
     },
   };
 }

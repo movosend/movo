@@ -13,7 +13,18 @@ interface GoogleGeocodeResponse {
   results: Array<{
     formatted_address: string;
     geometry: { location: { lat: number; lng: number } };
+    address_components?: Array<{ long_name: string; types: string[] }>;
   }>;
+}
+
+/** MOVO-325: la localidad del primer resultado; sin `locality`, el departamento (`administrative_area_level_2`). */
+function extractCity(components: Array<{ long_name: string; types: string[] }> | undefined): string | null {
+  if (!components) return null;
+  for (const type of ["locality", "administrative_area_level_2"]) {
+    const found = components.find((component) => component.types.includes(type));
+    if (found) return found.long_name;
+  }
+  return null;
 }
 
 function buildAddressLine(input: GeocodeAddressInput): string {
@@ -84,7 +95,7 @@ export function createGoogleGeocodingProvider(config: GoogleGeocodingProviderCon
         throw new ApiError(422, "GEOCODING_ADDRESS_NOT_FOUND", "No pudimos ubicar una dirección para esa posición.");
       }
 
-      return { formattedAddress: first.formatted_address };
+      return { formattedAddress: first.formatted_address, city: extractCity(first.address_components) };
     },
   };
 }

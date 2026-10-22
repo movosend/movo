@@ -71,7 +71,7 @@ hospeda WS. Diseño:
    Alcanza con retener unos minutos de eventos.
 6. Los eventos nunca llevan notas internas hacia el usuario; el canal del usuario (mobile, MOVO-319) es otro.
 
-## Soporte del lado del usuario (MOVO-320, ADR-050)
+## Soporte del lado del usuario (MOVO-320, ADR-051)
 
 El usuario le escribe a Movo desde la app (MOVO-324). Vive en `svc-shipments` (módulo `modules/support/`), sobre el chat existente
 (ADR-040/046): mismo `ChatHub` (otra clave de sala, `support:<id>`), mismo handshake WS, mismo filtro de lenguaje. Los tipos son

@@ -46,4 +46,27 @@ describe("HomeSendCta", () => {
 
     expect(getByText("Coordiná un envío con un transportista verificado")).toBeTruthy();
   });
+
+  describe("cuenta suspendida (MOVO-300 AC2)", () => {
+    it("queda bloqueada con su explicación, aunque el KYC esté aprobado", async () => {
+      const { getByTestId, getByText } = await render(
+        <HomeSendCta testID="cta" kycStatus={KycStatus.APPROVED} isSuspended />,
+      );
+
+      fireEvent.press(getByTestId("cta"));
+
+      expect(router.push).not.toHaveBeenCalled();
+      expect(getByTestId("cta")).toBeDisabled();
+      expect(getByText("Tu cuenta está suspendida: no podés publicar envíos nuevos")).toBeTruthy();
+    });
+
+    it("el motivo de la suspensión gana sobre el del KYC", async () => {
+      const { getByText, queryByText } = await render(
+        <HomeSendCta testID="cta" kycStatus={KycStatus.PENDING} isSuspended />,
+      );
+
+      expect(getByText("Tu cuenta está suspendida: no podés publicar envíos nuevos")).toBeTruthy();
+      expect(queryByText("Verificá tu identidad para empezar a enviar")).toBeNull();
+    });
+  });
 });

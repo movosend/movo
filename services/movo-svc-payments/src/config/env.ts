@@ -68,9 +68,9 @@ export const envSchema = {
     MP_COLLECTOR_PUBLIC_KEY: { type: "string" },
     MP_COLLECTOR_MP_USER_ID: { type: "string" },
     // MOVO-209 AC4: cuánto sostiene MP un hold sin capturar, y de ahí el `expires_at`
-    // que se persiste. Configuración y no constante en el código: el valor real sale
-    // de la medición de MOVO-215 (la documentación de MP dice 5 o 7 días según la
-    // página). 5 es el mínimo de los documentados: provisorio hasta que cierre el spike.
+    // que se persiste. Configuración y no constante en el código. 5 es el mínimo que
+    // documenta MP (5 o 7 según la página): el sandbox no vence holds, así que la
+    // medición de MOVO-215 no lo pudo confirmar (ADR-050).
     MP_HOLD_VALIDITY_DAYS: { type: "number", minimum: 1, default: 5 },
     // MOVO-311: cuánto de la deuda de la cuenta corriente se cobra en un hold, como fracción del
     // precio del envío (descuento al transportista y recargo al emisor, cada uno con este tope). El

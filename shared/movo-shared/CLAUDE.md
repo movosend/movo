@@ -634,6 +634,14 @@ respuestas rápidas con `resolveQuickReply`. Lo define el panel y lo implementan
 `SUPPORT_TICKET_INVALID` y `SUPPORT_SERVICE_UNAVAILABLE`. Pendiente para 322: sumar `support_conversation` a `AdminTargetType`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-300 — Sanción vigente en el perfil propio
+
+`OwnAccountSanction` (`types/account-sanctions.ts`) y `PrivateProfile.activeSanction` (requerido, `null` si la cuenta está activa): motivo y fin para el aviso de la app, sin nota interna. Tocó fixtures de `movo-mobile`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-325 — Envíos para el panel (`types/admin-shipments.ts`)
+
+`ACTIVE_SHIPMENT_STATUSES` (los 8 no terminales), `ADMIN_SHIPMENT_GROUPS`/`ADMIN_SHIPMENT_GROUP_STATUSES` (pestañas: cada estado está en exactamente una) y los tipos `AdminShipmentRow`/`AdminShipmentPage` (con `counts`), `AdminShipmentDetail`, `AdminShipmentDetailResponse` con sus bloques (`AdminBlock<T>`, `AdminShipmentEvent|Photo|Payment|PartyCard`) y `AdminChatMessage`/`AdminChatPage`. Aditivo. `npm run build` acá antes de tipar desde otro workspace.
+
 ### MOVO-320 — Soporte del lado del usuario (`types/support.ts`)
 
 `SupportUserFacingMessage` (kind `user`/`agent`/`system`, **nunca** `note`), `SupportConversationItem`, `SupportCreateBody/Result`,

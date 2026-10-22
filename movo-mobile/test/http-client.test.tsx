@@ -149,6 +149,10 @@ describe("http-client — interceptor de sesión (MOVO-76)", () => {
         state.accessToken = null;
         state.refreshToken = null;
       }),
+      onAccountDisabled: jest.fn(async () => {
+        state.accessToken = null;
+        state.refreshToken = null;
+      }),
     };
     return { hooks, state };
   }
@@ -207,6 +211,27 @@ describe("http-client — interceptor de sesión (MOVO-76)", () => {
     expect(hooks.onTokensRefreshed).toHaveBeenCalledTimes(1);
     const refreshCalls = fetchMock.mock.calls.filter((call) => call[0].includes("/auth/refresh"));
     expect(refreshCalls).toHaveLength(1);
+  });
+
+  it("un token revocado (401 AUTH_TOKEN_INVALID) refresca, y si la sesión murió la cierra", async () => {
+    const fetchMock = jest.fn((url: string) =>
+      Promise.resolve(
+        url.includes("/auth/refresh")
+          ? jsonRes(401, { error: { code: "AUTH_REFRESH_INVALID", message: "Refresh inválido", statusCode: 401 } })
+          : jsonRes(401, { error: { code: "AUTH_TOKEN_INVALID", message: "Token revocado", statusCode: 401 } }),
+      ),
+    );
+    // @ts-expect-error mock global
+    global.fetch = fetchMock;
+
+    const { httpClient, registerAuthHooks } = require("../src/api/http-client");
+    const { hooks } = buildHooks({ accessToken: "revoked-token", refreshToken: "refresh-1" });
+    registerAuthHooks(hooks);
+
+    await expect(httpClient.get("/shipments/sending")).rejects.toMatchObject({ code: "AUTH_REFRESH_INVALID" });
+
+    expect(fetchMock.mock.calls.filter((call) => call[0].includes("/auth/refresh"))).toHaveLength(1);
+    expect(hooks.onAuthFailure).toHaveBeenCalledTimes(1);
   });
 
   it("no reintenta si el que falló es el propio /auth/refresh (evita loop infinito)", async () => {
@@ -290,5 +315,91 @@ describe("http-client — interceptor de sesión (MOVO-76)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(hooks.getRefreshToken).not.toHaveBeenCalled();
     expect(hooks.onAuthFailure).not.toHaveBeenCalled();
+  });
+
+  describe("sanciones de cuenta (MOVO-300)", () => {
+    const errorBody = (code: string) => ({ error: { code, message: code, statusCode: 403 } });
+
+    it("un 403 ACCOUNT_SUSPENDED avisa al listener y relanza el error", async () => {
+      // @ts-expect-error mock global
+      global.fetch = jest.fn().mockResolvedValue(jsonRes(403, errorBody("ACCOUNT_SUSPENDED")));
+      const { httpClient, registerAuthHooks, registerAccountSuspendedListener } = require("../src/api/http-client");
+      const { hooks } = buildHooks({ accessToken: "token", refreshToken: "refresh" });
+      registerAuthHooks(hooks);
+      const listener = jest.fn();
+      registerAccountSuspendedListener(listener);
+
+      await expect(httpClient.post("/trips", {})).rejects.toMatchObject({ code: "ACCOUNT_SUSPENDED" });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(hooks.onAccountDisabled).not.toHaveBeenCalled();
+    });
+
+    it("un 403 ACCOUNT_DISABLED cierra la sesión por el hook y relanza el error", async () => {
+      // @ts-expect-error mock global
+      global.fetch = jest.fn().mockResolvedValue(jsonRes(403, errorBody("ACCOUNT_DISABLED")));
+      const { httpClient, registerAuthHooks } = require("../src/api/http-client");
+      const { hooks } = buildHooks({ accessToken: "token", refreshToken: "refresh" });
+      registerAuthHooks(hooks);
+
+      await expect(httpClient.get("/shipments/mine")).rejects.toMatchObject({ code: "ACCOUNT_DISABLED" });
+
+      expect(hooks.onAccountDisabled).toHaveBeenCalledTimes(1);
+    });
+
+    it("un refresh rechazado con ACCOUNT_DISABLED cierra la sesión con ese motivo, no como un fallo genérico", async () => {
+      // @ts-expect-error mock global
+      global.fetch = jest.fn((url: string) =>
+        Promise.resolve(
+          url.includes("/auth/refresh")
+            ? jsonRes(403, errorBody("ACCOUNT_DISABLED"))
+            : jsonRes(401, EXPIRED_ERROR_BODY),
+        ),
+      );
+      const { httpClient, registerAuthHooks } = require("../src/api/http-client");
+      const { hooks } = buildHooks({ accessToken: "token", refreshToken: "refresh" });
+      registerAuthHooks(hooks);
+
+      await expect(httpClient.get("/users/me")).rejects.toMatchObject({ code: "ACCOUNT_DISABLED" });
+
+      expect(hooks.onAccountDisabled).toHaveBeenCalledTimes(1);
+      expect(hooks.onAuthFailure).not.toHaveBeenCalled();
+    });
+
+    it("un token revocado (401 AUTH_TOKEN_INVALID) de una cuenta inhabilitada cierra la sesión con ese motivo", async () => {
+      // Inhabilitar revoca el access token: el gateway responde 401, no 403, y el refresh
+      // es el que dice por qué.
+      // @ts-expect-error mock global
+      global.fetch = jest.fn((url: string) =>
+        Promise.resolve(
+          url.includes("/auth/refresh")
+            ? jsonRes(403, errorBody("ACCOUNT_DISABLED"))
+            : jsonRes(401, { error: { code: "AUTH_TOKEN_INVALID", message: "Token revocado", statusCode: 401 } }),
+        ),
+      );
+      const { httpClient, registerAuthHooks } = require("../src/api/http-client");
+      const { hooks } = buildHooks({ accessToken: "token", refreshToken: "refresh" });
+      registerAuthHooks(hooks);
+
+      await expect(httpClient.get("/shipments/sending")).rejects.toMatchObject({ code: "ACCOUNT_DISABLED" });
+
+      expect(hooks.onAccountDisabled).toHaveBeenCalledTimes(1);
+      expect(hooks.onAuthFailure).not.toHaveBeenCalled();
+    });
+
+    it("otro 403 (p. ej. requisitos del transportista) no toca la sesión ni el listener", async () => {
+      // @ts-expect-error mock global
+      global.fetch = jest.fn().mockResolvedValue(jsonRes(403, errorBody("CARRIER_LICENSE_NOT_APPROVED")));
+      const { httpClient, registerAuthHooks, registerAccountSuspendedListener } = require("../src/api/http-client");
+      const { hooks } = buildHooks({ accessToken: "token", refreshToken: "refresh" });
+      registerAuthHooks(hooks);
+      const listener = jest.fn();
+      registerAccountSuspendedListener(listener);
+
+      await expect(httpClient.post("/trips", {})).rejects.toMatchObject({ code: "CARRIER_LICENSE_NOT_APPROVED" });
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(hooks.onAccountDisabled).not.toHaveBeenCalled();
+    });
   });
 });

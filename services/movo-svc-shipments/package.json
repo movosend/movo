@@ -14,7 +14,9 @@
     "lint": "eslint src",
     "postinstall": "prisma generate",
     "migrate": "prisma migrate deploy",
-    "migrate:dev": "prisma migrate dev"
+    "migrate:dev": "prisma migrate dev",
+    "backfill:cities": "node dist/scripts/backfill-cities.js",
+    "backfill:cities:dev": "tsx src/scripts/backfill-cities.ts"
   },
   "keywords": [],
   "author": "",

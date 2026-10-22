@@ -197,4 +197,23 @@ describe("OfferCard", () => {
       expect(queryByTestId("offer-card-offer-123-schedule-note")).toBeNull();
     });
   });
+
+  it("MOVO-300 AC2: con acceptDisabled no se puede elegir, pero sí rechazar", async () => {
+    const { getByTestId } = await render(
+      <OfferCard
+        offer={mockOffer}
+        onAccept={mockOnAccept}
+        onReject={mockOnReject}
+        onViewProfile={mockOnViewProfile}
+        acceptDisabled
+      />,
+    );
+
+    fireEvent.press(getByTestId("offer-card-offer-123-accept-btn"));
+    fireEvent.press(getByTestId("offer-card-offer-123-reject-btn"));
+
+    expect(getByTestId("offer-card-offer-123-accept-btn")).toBeDisabled();
+    expect(mockOnAccept).not.toHaveBeenCalled();
+    expect(mockOnReject).toHaveBeenCalledWith(mockOffer);
+  });
 });

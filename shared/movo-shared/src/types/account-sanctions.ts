@@ -35,6 +35,18 @@ export interface AccountSanction {
   closedCause: AccountSanctionClosedCause | null;
 }
 
+/**
+ * La sanción vigente tal como la ve el propio usuario (`PrivateProfile.activeSanction`,
+ * MOVO-300): el motivo visible y el plazo para el aviso de la app. Nunca la nota interna ni
+ * quién la aplicó.
+ */
+export interface OwnAccountSanction {
+  type: AccountSanctionType;
+  reason: string;
+  /** ISO. `null` = suspensión indefinida o inhabilitación permanente. */
+  endsAt: string | null;
+}
+
 export interface ApplyAccountSanctionRequest {
   type: AccountSanctionType;
   reason: string;
