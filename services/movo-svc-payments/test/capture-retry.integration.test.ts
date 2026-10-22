@@ -336,7 +336,7 @@ describe("reintentos de la captura y escalado (MOVO-213)", () => {
     );
   });
 
-  it("AC8: el vencimiento se mira antes de CADA reintento, no solo del primero", async () => {
+  it("AC8: el vencimiento se mira antes de CADA reintento: con el pago aún sin capturar en MP, escala sin capturar", async () => {
     await seedHold();
     mpTimesOut();
     await capture();
@@ -347,9 +347,42 @@ describe("reintentos de la captura y escalado (MOVO-213)", () => {
 
     await app.captureRetry.runOnce();
 
-    expect(mp.getPayment).not.toHaveBeenCalled();
+    // Hubo un intento anterior: se consulta el pago (puede haberse capturado), pero `authorized` + vencido no se captura.
+    expect(mp.getPayment).toHaveBeenCalledTimes(1);
     expect(mp.capturePayment).not.toHaveBeenCalled();
     expect(await settlement()).toMatchObject({ status: "escalated", failureReason: "hold_expired", attempts: 1 });
+  });
+
+  it("review: una captura que MP SÍ aprobó no se escala como vencida aunque expires_at ya haya pasado", async () => {
+    // Intento anterior ambiguo: MP capturó pero el servicio no pudo leer el desglose; el hold sigue `authorized` en la base.
+    await seedHold();
+    mpTimesOut();
+    await capture();
+    await app.db.hold.updateMany({ where: { shipmentId: SHIPMENT }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    mp.getPayment.mockImplementation(async () => payment());
+    mp.capturePayment.mockClear();
+    await makeDue();
+
+    const run = await app.captureRetry.runOnce();
+
+    expect(run).toMatchObject({ attempted: 1, credited: 1 });
+    expect(mp.capturePayment).not.toHaveBeenCalled();
+    expect(await settlement()).toMatchObject({ status: "credited", failureReason: null });
+    expect(shipments.notifySettlementEvent).toHaveBeenCalledWith(SHIPMENT, "credited");
+    expect(alerts.send).not.toHaveBeenCalled();
+  });
+
+  it("review: un hold vencido que MP ya canceló escala como vencido tras consultar el pago", async () => {
+    await seedHold();
+    mpTimesOut();
+    await capture();
+    await app.db.hold.updateMany({ where: { shipmentId: SHIPMENT }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    mp.getPayment.mockImplementation(async () => payment({ status: "cancelled", fee_details: [] }));
+    await makeDue();
+
+    await app.captureRetry.runOnce();
+
+    expect(await settlement()).toMatchObject({ status: "escalated", failureReason: "hold_expired" });
   });
 
   it("un hold ya capturado no se descarta por su expires_at: solo falta completar la liquidación", async () => {
@@ -394,6 +427,21 @@ describe("reintentos de la captura y escalado (MOVO-213)", () => {
     expect(escalated.nextCursor).toBeNull();
     expect((await list("status=failed")).json().items).toEqual([]);
     expect((await list("status=credited")).statusCode).toBe(400);
+  });
+
+  it("review: las penalidades de cancelación `failed` no aparecen: las maneja shipments, no son un cobro demorado", async () => {
+    await seedHold();
+    await app.db.settlement.create({
+      data: {
+        shipmentId: SHIPMENT, holdId: (await app.db.hold.findFirstOrThrow({ where: { shipmentId: SHIPMENT } })).id, carrierId: CARRIER,
+        mpPaymentId: MP_PAYMENT, grossAmountArs: 300, commissionArs: 150, status: "failed", kind: "cancellation_penalty",
+        failureReason: "provider_error",
+      },
+    });
+
+    const res = await app.inject({ method: "GET", url: "/internal/payments/settlements?status=failed" });
+
+    expect(res.json().items).toEqual([]);
   });
 
   it("AC6: el listado recorre más de una página con el cursor", async () => {

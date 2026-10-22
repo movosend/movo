@@ -66,7 +66,11 @@ export interface SettlementRepository {
    * leyó el barrido. `false` si otra réplica (o la captura en línea) ya la tomó: no se reintenta dos veces a la vez.
    */
   claimRetry(id: string, expectedNextAttemptAt: Date, leaseUntil: Date): Promise<boolean>;
-  /** MOVO-213 (AC6): liquidaciones en un estado, las más recientes primero, con cursor keyset `(updated_at, id)`. */
+  /**
+   * MOVO-213 (AC6): entregas en un estado, las más recientes primero, con cursor keyset `(updated_at, id)`. Solo
+   * `delivery`: la penalidad de cancelación también puede quedar `failed`, pero la maneja `svc-shipments` (plan B,
+   * deuda del emisor) y no es un cobro demorado al transportista.
+   */
   listByStatus(
     status: SettlementStatus,
     limit: number,
@@ -137,6 +141,7 @@ export function createSettlementRepository(db: PrismaClient): SettlementReposito
       return db.settlement.findMany({
         where: {
           status,
+          kind: "delivery",
           ...(cursor
             ? { OR: [{ updatedAt: { lt: cursor.updatedAt } }, { updatedAt: cursor.updatedAt, id: { lt: cursor.id } }] }
             : {}),

@@ -685,15 +685,21 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       // MOVO-213 (AC8): el vencimiento se mira ANTES de hablar con MP, no después de que rechace. Un hold vencido
       // escala de inmediato sin gastar intentos. `expires_at` sale de `MP_HOLD_VALIDITY_DAYS` (MOVO-209/ADR-050).
       // Un hold ya `captured` no se mira: la plata se cobró y solo falta completar la liquidación.
-      if (hold.status === "authorized" && hold.expiresAt !== null && hold.expiresAt <= now()) {
-        return fail(
+      //
+      // Salvo que ya haya habido un intento anterior (la liquidación existía): ese intento pudo haber capturado en MP
+      // y perder la respuesta o fallar al leer el desglose, con el hold todavía `authorized` en la base. Declararlo
+      // vencido sin mirar sería escalar un cobro que ya se hizo, así que ahí se consulta el pago primero (más abajo).
+      const priorAttempt = existing !== null && request.kind === "delivery";
+      const pastDeadline = hold.status === "authorized" && hold.expiresAt !== null && hold.expiresAt <= now();
+      const expiredByDeadline = () =>
+        fail(
           settlement,
           "hold_expired",
           new ApiError(409, "HOLD_NOT_CAPTURABLE", "La reserva venció: no se puede capturar"),
           { expiresAt: hold.expiresAt, expiredByDeadline: true },
           hold
         );
-      }
+      if (pastDeadline && !priorAttempt) return expiredByDeadline();
 
       if (!usable) {
         // Token vencido: MP respondería 401 y el refresco es de MOVO-243 (no hay flujo en este
@@ -721,7 +727,7 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         // Un hold ya `captured` (la plata se cobró pero se cortó antes del desglose) no
         // vuelve a capturarse: solo se completa la liquidación.
         let alreadyCaptured = hold.status !== "authorized";
-        if (!alreadyCaptured && settlement.attempts > 0) {
+        if (!alreadyCaptured && priorAttempt) {
           // MOVO-213 (AC3): en un reintento se pregunta a MP antes de capturar. Un timeout no significa que la
           // captura no ocurrió: si el pago ya está `approved` se completa la liquidación sin volver a capturar.
           const current = await currentPayment(settlement, hold, credentials.accessToken);
@@ -736,6 +742,9 @@ export function createCaptureService(deps: CaptureServiceDeps) {
             );
           }
         }
+        // Con el pago todavía sin capturar, un hold vencido por `expires_at` no se captura: escala (AC8). Va después de
+        // consultar a MP para no descartar un cobro que el intento anterior ya había hecho.
+        if (!alreadyCaptured && pastDeadline) return expiredByDeadline();
         if (!alreadyCaptured) await captureInMp(settlement, hold, credentials.accessToken);
         const credited = await finalize(settlement, hold, credentials.accessToken);
         return { settlement: toSettlementResponse(credited), replayed: false };

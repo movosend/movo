@@ -804,7 +804,9 @@ Una entrega cuya captura falla ya no queda a la deriva: `settlements` guarda `at
   completa la liquidación sin volver a capturar (un timeout no significa que no capturó); `cancelled` → `hold_expired`; si no se puede consultar, el intento falla y se
   reprograma (no se captura a ciegas). La key `movo-hold-capture-<holdId>` se mantiene. Un fallo al leer el desglose tras capturar ahora es un fallo reintentable
   (`failed`), ya no queda `processing` esperando que alguien vuelva a llamar.
-- **AC8 (decisión que cambia MOVO-212)**: `hold.expires_at` se compara contra `now` antes de CADA intento y un hold vencido escala sin llamar a MP. Es el piso
+- **AC8 (decisión que cambia MOVO-212)**: `hold.expires_at` se compara contra `now` antes de cada intento y un hold vencido escala. En el primer intento
+  (la liquidación no existía) sin llamar a MP; si ya hubo un intento anterior, primero se consulta el pago, porque ese intento pudo haber capturado y perder la
+  respuesta (review de PR #290): `approved` se acredita aunque `expires_at` haya pasado, y solo un pago aún sin capturar se escala como vencido. Es el piso
   conservador de ADR-050 (5 días; la doc de MP también dice 7): se puede escalar un hold que en MP seguía vivo, y por eso la alerta y el listado traen `holdExpiresAt`
   para probar la captura a mano. Un hold ya `captured` no se descarta por la fecha. El sandbox no vence holds (ADR-050), así que el test es sintético; la detección
   posterior (MP rechaza o el pago está `cancelled`) se apoya en `status`, no en `status_detail` (sin confirmar).
@@ -812,6 +814,6 @@ Una entrega cuya captura falla ya no queda a la deriva: `settlements` guarda `at
   plugin posterior) y aviso a `svc-shipments` (`POST /internal/shipments/:id/settlement-events {event:"delayed"}`) para el push "Tu cobro está demorado" con el plazo
   `SETTLEMENT_REVIEW_SLA_HOURS` (shipments, default 48). Los dos son best-effort e independientes. Si un reintento acredita, avisa `{event:"credited"}` y shipments pasa el
   envío a `completed`. Un aviso perdido no se reintenta: la alerta y el listado cubren el caso, y el barrido de shipments igual completa los acreditados.
-- **Consulta (AC6)**: `GET /internal/payments/settlements?status=failed|escalated&limit&cursor` (interno, keyset por `updated_at,id`); el proxy en `svc-admin` queda para MOVO-33.
+- **Consulta (AC6)**: `GET /internal/payments/settlements?status=failed|escalated&limit&cursor` (interno, keyset por `updated_at,id`, solo entregas: la penalidad `failed` es de shipments); el proxy en `svc-admin` queda para MOVO-33.
   Re-vincular la cuenta de MP reabre una escalada por `carrier_account_unavailable` en el próximo pedido de captura; el resto lo resuelve una persona.
 - **Pendiente / fuera de alcance**: refresco del token antes de capturar (MOVO-243), una acción manual de reintento o cierre desde el panel (MOVO-33) y reembolsos.
