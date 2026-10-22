@@ -236,3 +236,31 @@ MOVO-322 (API) y MOVO-321 (adjuntos), que los tienen anexados en su descripción
 
 Pendiente: probar contra dev con 321/322 desplegados (DoD pide un screenshot contra backend real) y revisar a mano en claro/oscuro:
 esta sesión verificó con tests, lint, typecheck y build, pero no abrió el panel (el login real necesita el gateway).
+
+## MOVO-328 — Mapa de seguimiento del envío
+
+`<ShipmentTrackingMap shipmentId />` (`components/shipments/tracking/tracking-panel.tsx`) es el bloque de seguimiento del detalle de
+envíos (MOVO-33, prototipo `Movo Admin Envios.dc.html`). **Todavía no está montado en ninguna página**: el detalle es de MOVO-326; al
+mergear, se monta en la columna principal y se conecta `shipmentHref()` (`lib/support/shipment-href.ts`).
+
+- **Datos**: `GET /admin/shipments/:id/tracking` (MOVO-327) por `lib/shipments/tracking/api.ts`; el navegador lee por el Route Handler
+  `app/api/shipments/[id]/tracking` (mismo patrón que soporte). El contrato es **provisorio** (`lib/shipments/tracking/types.ts`, la forma
+  propuesta en el comentario de MOVO-327): cuando `AdminShipmentTracking` exista en `@movo/shared` se borra ese archivo y se importa de ahí.
+- **Actualización**: polling (`lib/shipments/tracking/poller.ts`, sin React) cada `pollIntervalSeconds` del backend (15 s por defecto), solo
+  mientras el envío está `live`; backoff con jitter si falla (conserva el último dato y muestra "Reconectando…"), pausa con la pestaña oculta
+  y retoma al volver. Es lo único del panel que se refresca solo. El WS de tracking no se usa: un navegador no puede mandar `Authorization`.
+- **Mapa** (`tracking-map.tsx`, único que toca Leaflet, cargado con `dynamic(ssr:false)`): tramo recorrido = traza real (azul sólido), faltante
+  = ruta planificada desde el vértice más cercano a la última posición (punteado), retiro/entrega con etiqueta, transportista con pulso y, con
+  `signalLost` o `delayed`, ámbar con "sin señal · hora del último ping". Encuadra la ruta completa una vez por envío; "Seguir al
+  transportista" hace `panTo` en cada actualización. La rueda del mouse no hace zoom (hace scroll de la página).
+- **Estados sin mapa** (`copy.ts`): "Todavía no arrancó", "Seguimiento cerrado", "Seguimiento cortado", "Sin seguimiento". Cerrado/disputa
+  con traza dibuja la traza como evidencia; traza purgada muestra el aviso sin mapa.
+- **Teselas**: ArcGIS Location Platform (gris claro/oscuro, `lib/shipments/tracking/tiles.ts`) con `NEXT_PUBLIC_ESRI_API_KEY`, restringida por
+  referrer; reemplaza al `server.arcgisonline.com` público del prototipo, cuyos términos no cubren un panel productivo (AC8). Sin key el
+  mapa se dibuja sin teselas. **Pendiente**: crear la key y cargarla en Vercel (dev y prod).
+- **Modo fixtures** (`MOVO_ADMIN_MOCK=1`): ocho envíos de prueba, `00000000-0000-4000-8000-00000000000{1..8}` (`MOCK_TRACKING_IDS`: en camino,
+  sin señal, sin arrancar, sin fondos, entregado, disputa, sin transportista, traza purgada); el que está en camino se mueve entre lecturas.
+- **Tokens nuevos** en `globals.css`: `--map-bg`, `--glass`, `--track-done`, `--track-todo` y las clases `.mv-track-*`.
+
+Pendiente: captura contra un envío real en dev (DoD), que necesita MOVO-327 desplegado; la etiqueta de retiro/entrega es el "barrio" del
+prototipo solo si el backend lo resuelve (hoy el modelo tiene ciudad y dirección).
