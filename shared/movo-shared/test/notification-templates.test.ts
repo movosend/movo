@@ -28,3 +28,16 @@ describe("avisos de proximidad (MOVO-240)", () => {
     expect(getNotificationCategory("proximity")).toMatchObject({ implemented: true, quietHoursExempt: true });
   });
 });
+
+describe("settlementDelayedCarrier (MOVO-213)", () => {
+  it("avisa que el cobro está en revisión y en cuánto se resuelve", () => {
+    const rendered = renderNotificationTrigger("settlementDelayedCarrier", { reviewHours: 48 });
+    expect(rendered.title).toBe("Tu cobro está demorado");
+    expect(rendered.body).toContain("plazo de hasta 48 horas");
+    expect(renderNotificationTrigger("settlementDelayedCarrier", { reviewHours: 1 }).body).toContain("hasta 1 hora.");
+  });
+
+  it("va en la categoría de pagos", () => {
+    expect(notificationTriggerCategory("settlementDelayedCarrier")).toBe("payments");
+  });
+});
