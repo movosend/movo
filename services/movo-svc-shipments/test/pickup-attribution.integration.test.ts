@@ -296,7 +296,13 @@ describe("atribución del no-retiro (Postgres, MOVO-270 / ADR-052)", () => {
       await evidenceRepo.record(shipmentId, carrierId, "arrival", arrival);
 
       // Baja del transportista A: la fila se borra en la misma transacción.
-      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, carrierId, "se bajó", { expectedFrom: ShipmentStatus.ASSIGNED });
+      // Volver a `published` exige las 2 fotos de creación mínimas; el helper deja 1.
+      await shipmentRepo.addPhoto(shipmentId, PhotoStage.creation, `shipments/${shipmentId}/creation/${randomUUID()}.jpg`);
+      await shipmentRepo.claimCarrierWithdrawal(shipmentId, carrierId, ShipmentStatus.ASSIGNED, 0);
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, carrierId, "se bajó", {
+        expectedFrom: ShipmentStatus.ASSIGNED,
+        carrierWithdrawal: { penaltyArs: 0 },
+      });
       expect(await app.db.pickupEvidence.count()).toBe(0);
 
       // Una escritura tardía de A, o la fila que quedó de A, no cuenta para B.
