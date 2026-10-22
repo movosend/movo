@@ -657,3 +657,11 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 `SettlementEscalationReason` (`retries_exhausted` | `not_retryable`), `SettlementIssueItem`/`SettlementIssuesPage`/`SETTLEMENT_ISSUE_STATUSES` (la consulta interna de `svc-payments`),
 `SettlementEventRequest`/`SettlementEventResponse` (aviso a shipments), trigger `settlementDelayedCarrier` (categoría `payments`, con `reviewHours`) y los códigos `SETTLEMENT_ESCALATED` y
 `SETTLEMENT_RETRY_PENDING`. `SettlementStatus` ya tenía `escalated`; `SettlementResponse` no cambia.
+
+### MOVO-270 — `config/pickup-attribution.ts`, `carrier_arrived` y triggers del no-retiro (ADR-052)
+
+`ARRIVAL_RADIUS_M` (250), `ARRIVAL_MAX_ACCURACY_M` (100), `ABSENCE_MIN_DISTANCE_M` (2000), `ARRIVAL_EARLY_MARGIN_MIN` (30),
+`MIN_ABSENCE_POSITIONS` (3) y `PickupMissedAttribution`. `computeCancellationPenalty` suma `carrierArrivedAtPickup` y el motivo
+`carrier_arrived` (ventana cerrada con llegada: 25 %). Triggers `pickupNoShow{Sender,Carrier,PenaltyDebtCarrier}` y
+`pickupDisputeOpened{Sender,Receiver,Carrier}`; código `HANDSHAKE_PICKUP_DEADLINE_PASSED`. Recordatorio habitual: `npm run build`
+acá antes de tipar desde otro workspace.
