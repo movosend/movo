@@ -23,6 +23,7 @@ import { Pager } from "../pager"
 import { Segmented } from "../segmented"
 import { SectionEmpty, SectionShell, StatusPill } from "../ui"
 import { cn } from "@/lib/utils"
+import { shipmentHref } from "@/lib/support/shipment-href"
 
 const PAGE_SIZE = 5
 
@@ -35,12 +36,6 @@ const EMPTY: Record<ActivityTab, [string, string]> = {
   receiver: ["Nunca recibió", "Nadie le mandó un paquete por Movo."],
   trips: ["Sin viajes", "Nunca declaró un viaje."],
 }
-
-/**
- * Cuando exista la pantalla de envíos (MOVO-33) acá va el link a su detalle. Mientras tanto la fila
- * muestra el ID corto y deja el completo en el tooltip (AC3 de MOVO-295).
- */
-const shipmentHref = (): string | null => null
 
 function others(s: AdminUserShipment): string {
   const carrier = s.carrier?.fullName ?? "sin asignar"
@@ -55,7 +50,7 @@ const COLS =
   "grid-cols-[110px_136px_minmax(0,1fr)_76px] min-[1180px]:grid-cols-[130px_150px_minmax(0,1fr)_110px_90px]"
 
 function ShipmentRow({ s }: { s: AdminUserShipment }) {
-  const href = shipmentHref()
+  const href = shipmentHref(s.id)
   const pill = SHIPMENT_STATUS[s.status]
   const code = (
     <span

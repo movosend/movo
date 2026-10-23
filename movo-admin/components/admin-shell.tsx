@@ -53,7 +53,6 @@ import type { ReactNode, CSSProperties } from "react"
 
 const SOON = [
   { label: "KYC", icon: BadgeCheck },
-  { label: "Envíos", icon: Package },
   { label: "Reportes", icon: Flag },
   { label: "Disputas", icon: MessagesSquare },
   { label: "Métricas", icon: Activity },
@@ -62,6 +61,7 @@ const SOON = [
 const LIVE = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/admins", label: "Admins", icon: ShieldCheck },
+  { href: "/shipments", label: "Envíos", icon: Package },
   { href: "/users", label: "Usuarios", icon: Users },
   { href: "/support", label: "Soporte", icon: Headset },
 ] as const
@@ -92,7 +92,7 @@ export function AdminShell({
   fullName?: string
   email?: string
   photoUrl?: string | null
-  current?: "/" | "/admins" | "/users" | "/support"
+  current?: "/" | "/admins" | "/shipments" | "/users" | "/support"
   defaultOpen?: boolean
   /** Último tramo del breadcrumb (p. ej. el nombre en la ficha); la sección pasa a ser un link. */
   crumb?: string

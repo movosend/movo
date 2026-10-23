@@ -23,10 +23,13 @@ export const TONE_DOT: Record<Tone, string> = {
 export function StatusPill({
   pill,
   dot = false,
+  dotClassName,
   className,
 }: {
   pill: Pill
   dot?: boolean
+  /** Color propio del punto (p. ej. `mv-pulse-dot`, el lima "en vivo" de Envíos); por defecto, el del tono. */
+  dotClassName?: string
   className?: string
 }) {
   return (
@@ -38,7 +41,12 @@ export function StatusPill({
       )}
     >
       {dot && (
-        <span className={cn("size-1.5 rounded-full", TONE_DOT[pill.tone])} />
+        <span
+          className={cn(
+            "size-1.5 rounded-full",
+            dotClassName ?? TONE_DOT[pill.tone]
+          )}
+        />
       )}
       {pill.label}
     </span>
