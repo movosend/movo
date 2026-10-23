@@ -218,3 +218,8 @@ Sin rate limit propio todavía (cae en el general de 200/min por IP); revisarlo 
 `ahora + PTTL` (sin TTL = indefinida, `null`), así que la marca no necesita guardar la fecha. Si Redis falla, falla abierto y loguea.
 La lista suma, además de lo del ticket, `POST /shipments/:id/accept` y `POST /receiver-transfers/:id/accept` (aceptar ser receptor);
 `POST /shipments/:id/receiver` (re-designar) queda permitido. Tests en `test/account-restriction.test.ts`.
+Limitaciones aceptadas (review de PR #294): con Redis caído el chequeo falla abierto también para `disabled` (la cuenta conserva
+acceso hasta que vence su access token, 60 min); y solo se evalúa en cada request HTTP y en el upgrade de WebSocket, no sobre
+conexiones ya abiertas (chat, tracking, soporte), que sobreviven hasta que vence el token. Nada fuerza que un endpoint nuevo se
+sume a `SUSPENDED_BLOCKED_ROUTES`: se revisa en el PR (ver la convención en el `CLAUDE.md` raíz). `PATCH /trips/:id` queda
+permitido a propósito (el ticket solo bloquea declarar un viaje nuevo).

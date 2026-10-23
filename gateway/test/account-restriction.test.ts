@@ -103,9 +103,9 @@ describe("Restricciones de cuenta (MOVO-298)", () => {
   });
 
   it("la marca vencida por TTL deja de bloquear", async () => {
-    await app.redis.set(accountRestrictionKey(userId), "suspended", "PX", 100);
+    await app.redis.set(accountRestrictionKey(userId), "suspended", "PX", 500);
     expect((await call("POST", "/trips")).statusCode).toBe(403);
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 600));
     expect((await call("POST", "/trips")).statusCode).toBe(200);
   });
 
