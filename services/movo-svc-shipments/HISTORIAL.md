@@ -3687,3 +3687,11 @@ sus fotos de S3; si S3 falla, la fila queda y se reintenta. También borra los `
   envío vencido y no purga nada (dev usa `STORAGE_PROVIDER=mock` y no lo detecta). Ver pendientes del `CLAUDE.md` raíz.
 - Quedan sin tocar, a propósito: los `shipmentId` de `svc-payments` (comprobantes que la política conserva por ley) y los
   `AuditLog` de `svc-admin`, que pasan a apuntar a un envío inexistente.
+
+### MOVO-326 — Conteos por estado y de avisos, filtro `alert` en `GET /internal/admin/shipments`
+
+El panel necesitaba los chips por estado y el toggle "Solo con alerta" con su conteo. `counts()` de
+`admin-shipment-repository.ts` ahora devuelve también `statusCounts` (los 11 estados) y `alertCounts` (por pestaña) en la misma
+consulta agrupada (`COUNT(*) FILTER`), y `alert=true` filtra la lista y los conteos. La regla es `ALERT_SQL`, el espejo SQL de
+`isAdminShipmentAlert` de `@movo/shared`: `assigned_unfunded`, `rejected_by_receiver`, `disputed` o `in_transit` con
+`transit_anomaly_flagged_at`. Si cambia una, cambia la otra.

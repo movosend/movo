@@ -236,3 +236,31 @@ MOVO-322 (API) y MOVO-321 (adjuntos), que los tienen anexados en su descripción
 
 Pendiente: probar contra dev con 321/322 desplegados (DoD pide un screenshot contra backend real) y revisar a mano en claro/oscuro:
 esta sesión verificó con tests, lint, typecheck y build, pero no abrió el panel (el login real necesita el gateway).
+
+## MOVO-326 — Envíos: listado y detalle en solo lectura
+
+`/shipments` y `/shipments/[id]`, fieles al prototipo `Movo Admin Envios.dc.html` sin la vista "En vivo" ni el modal de
+cambio de estado (MOVO-333). Contrato de MOVO-325 (`shared/movo-shared/src/types/admin-shipments.ts`), que esta US amplió con
+`statusCounts`, `alertCounts` y el filtro `alert` para los chips por estado y el toggle "Solo con alerta".
+
+- **Estado del listado en la URL** (`lib/shipments/params.ts`): pestaña, estado, `q`, ciudad, fechas (días argentinos sobre el
+  último cambio de estado), `alert` y la página. El paginado es por cursor: las páginas anteriores viajan en `back`, así
+  "Anterior" no le pide nada al servidor. El detalle recibe el listado en `?from=` y lo rearma con `parseListState` para "Volver".
+  Recarga manual con la hora de la carga; sin refresco automático.
+- **Detalle por bloques**: solo `GET /admin/shipments/:id` bloquea; partes, pago y eventos son `AdminBlock` y cada uno muestra
+  su error con "Reintentar" (`BlockError`, `router.refresh()`). El chat se pide aparte dentro de su `<Suspense>` (botón "Ver chat"
+  del encabezado) y abre un `Sheet` sin compositor; "Ver mensajes anteriores" usa la Server Action `loadChatPage`.
+- **Avisos**: `rowAlert` (`lib/shipments/format.ts`) aplica la misma regla que `isAdminShipmentAlert` de `@movo/shared`, que es la
+  que usa el filtro del backend; un test verifica que coincidan. El handshake ("Retiro confirmado con QR · 09:24") sale del
+  evento `→ in_transit`/`→ delivered`. "Marcado por el equipo, sin QR" y las marcas Forzado/Manual esperan a que los eventos
+  traigan la marca de admin (MOVO-333). El mapa (MOVO-328) es un lugar con el mensaje por estado (`TrackingPlaceholder`).
+- **Ruta por ciudad, no por barrio** (el prototipo muestra barrios): el backend solo guarda la ciudad (`pickupCity`/`deliveryCity`)
+  y el barrio no es un dato aparte. Mostrarlo pediría columnas nuevas, sacarlo del geocoding y un backfill; se decidió no hacerlo.
+  Las calles van en la segunda línea desde 1320 px. Ese corte se escribe en rem (`min-[82.5rem]`): Tailwind no ordena un
+  `min-[…px]` contra `md` (rem) y el `md:` le ganaba a la grilla de 6 columnas.
+- `shipmentHref()` (`lib/support/shipment-href.ts`) ya linkea al detalle, también desde Actividad de la ficha de usuario.
+- **Modo fixtures**: `MOVO_ADMIN_MOCK=1` usa `lib/shipments/{mock,fixtures}.ts` (los envíos del prototipo más 40 cerrados para
+  paginar). `MOVO_ADMIN_MOCK_FAIL=list,events,payment,parties,chat` (con `!` falla siempre).
+
+Pendiente: screenshots contra dev (DoD) y revisión a mano en claro/oscuro; necesita desplegados MOVO-325 y la ampliación de
+`svc-shipments`/`svc-admin` de esta misma PR.
