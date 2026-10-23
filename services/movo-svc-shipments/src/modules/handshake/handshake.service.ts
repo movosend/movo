@@ -8,7 +8,8 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { RoutesProvider } from "../../adapters/routes-provider";
 import { sendCustodyPush } from "../../utils/dispatch-push";
 import { HandshakeStage } from "../../models/handshake";
-import { PhotoStage } from "../../models/shipment";
+import { PhotoStage, Shipment } from "../../models/shipment";
+import { isPickupMissed } from "../../domain/expiration";
 import {
   HANDSHAKE_QR_TTL_SECONDS,
   buildHandshakeCanonicalPayload,
@@ -109,6 +110,24 @@ function inferHandshakeStage(status: ShipmentStatus): HandshakeStage {
   );
 }
 
+/**
+ * MOVO-270 (ADR-052): pasado el plazo del barrido de retiro no realizado (ventana acordada +
+ * `PICKUP_MISSED_GRACE_HOURS`) el retiro ya no se puede confirmar. El barrido libera el hold antes
+ * de cerrar el envío: sin este corte, un handshake tardío que confirma entre la liberación y la
+ * transición dejaría un `in_transit` sin fondos con los que pagarle al transportista. Sin
+ * `graceHours` (tests aislados) no se corta.
+ */
+function assertPickupStillAllowed(shipment: Shipment, graceHours: number | undefined, now: Date = new Date()): void {
+  if (graceHours === undefined) return;
+  if (isPickupMissed(shipment.pickupDate, shipment.pickupTimeWindowEnd, graceHours, now)) {
+    throw new ApiError(
+      409,
+      "HANDSHAKE_PICKUP_DEADLINE_PASSED",
+      "Ya pasó el plazo para retirar este paquete: el retiro no se puede confirmar."
+    );
+  }
+}
+
 export function createHandshakeService(
   shipmentRepository: ShipmentRepository,
   handshakeRepository: HandshakeRepository,
@@ -128,7 +147,9 @@ export function createHandshakeService(
   /** MOVO-275 (AC6): al empezar el handshake de entrega se cancela la transferencia de
    * receptor pendiente; la entrega sigue con el receptor vigente. Se espera (no es
    * best-effort): si falla, no se genera el desafío. */
-  cancelPendingReceiverTransfer?: (shipmentId: string) => Promise<void>
+  cancelPendingReceiverTransfer?: (shipmentId: string) => Promise<void>,
+  /** MOVO-270: margen de gracia del barrido de retiro no realizado (`PICKUP_MISSED_GRACE_HOURS`). */
+  pickupMissedGraceHours?: number
 ) {
   return {
     /**
@@ -146,6 +167,7 @@ export function createHandshakeService(
       const stage = inferHandshakeStage(shipment.status);
       if (stage === "pickup") {
         assertIsSender(shipment, input.callerId, "Solo el emisor del envío puede generar el código de handshake de retiro.");
+        assertPickupStillAllowed(shipment, pickupMissedGraceHours);
       } else {
         assertIsCarrier(shipment, input.callerId);
         await cancelPendingReceiverTransfer?.(input.shipmentId);
@@ -303,6 +325,9 @@ export function createHandshakeService(
       // cuando llega el CAS de `confirmAndPersist` el envío ya no está en `from`
       // (una confirmación concurrente ganó la carrera), ese método lanza
       // `ShipmentConcurrentModificationError` (409), que es la señal correcta.
+      // MOVO-270: se vuelve a chequear justo antes del commit, no solo en `/generate` (el desafío
+      // pudo crearse antes del plazo y confirmarse después).
+      if (stage === "pickup") assertPickupStillAllowed(shipment, pickupMissedGraceHours);
       const from = stage === "pickup" ? ShipmentStatus.ASSIGNED : ShipmentStatus.IN_TRANSIT;
       const to = stage === "pickup" ? ShipmentStatus.IN_TRANSIT : ShipmentStatus.DELIVERED;
       const reason = stage === "pickup" ? "Handshake de retiro confirmado" : "Handshake de entrega confirmado";

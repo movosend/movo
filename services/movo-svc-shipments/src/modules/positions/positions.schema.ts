@@ -19,6 +19,9 @@ const reportPositionBody = {
     lng: { type: "number", minimum: -180, maximum: 180 },
     accuracyM: { type: "number", minimum: 0 },
     capturedAt: { type: "string", format: "date-time" },
+    // MOVO-270: flag `mocked` de expo-location (solo Android, opcional). Una posición simulada se
+    // acepta y difunde, pero nunca cuenta como evidencia del retiro (ADR-052).
+    mocked: { type: "boolean" },
   },
   additionalProperties: false,
 };
@@ -29,7 +32,8 @@ const reportPositionResponse = {
   properties: {
     // Diagnóstico para el cliente: si esta posición puntual cayó dentro de la
     // cadencia de ~45s (AC4) y se persistió en Postgres, o si solo actualizó la
-    // última posición conocida (AC3) y se difundió (AC5) sin tocar la base.
+    // última posición conocida (AC3) y se difundió (AC5) sin tocar la base. MOVO-270:
+    // antes del retiro (viaje sin envíos `in_transit`) nunca se persiste.
     persisted: { type: "boolean" },
   },
 };
