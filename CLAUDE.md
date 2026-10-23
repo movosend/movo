@@ -154,6 +154,9 @@ inhabilitación y marca en Redis ·
   Squash merge siempre. Al menos un integrante distinto al autor revisa antes de
   aprobar, más el auto-review de GitHub Copilot/agentes de IA para calidad y
   vulnerabilidades.
+- Un endpoint nuevo que inicie un compromiso nuevo (crear, ofertar, aceptar, declarar un viaje) se suma a
+  `SUSPENDED_BLOCKED_ROUTES` (`gateway/src/config/routes-map.ts`, MOVO-298), o una cuenta suspendida lo usa sin que
+  falle ningún test. Revisarlo en el PR.
 - `.env.example` se actualiza en el mismo PR que introduce la variable — un PR que
   agrega una env var sin documentarla no se aprueba.
 - **Una env var nueva se toca en tres lugares, siempre en el mismo PR**: (1)
