@@ -3756,3 +3756,18 @@ el cursor reusa `carrierWithdrawnAt`); llegó → `assigned → disputed` con el
 - `countAvailableCarriersNear` cuenta solo `declared` (ADR-053). `GET /shipments/:id` expone `carrierTripActive`. Env nueva
   `PICKUP_NO_SHOW_RATING_INVITE_ENABLED` (AC12, apagada hasta MOVO-337). Pendiente: motivo de sistema y migración de estas disputas
   en MOVO-334, y `assigned` sin hold en la matriz de MOVO-337.
+
+### MOVO-334 — Disputas: entidad, apertura, descargos, avisos y bloqueo (ADR-054)
+
+Entidad `shipments.disputes` (+ `dispute_statements`, `dispute_photos`; migración `20261023120000_disputes` con el índice único parcial de
+una abierta por envío y el backfill de los envíos ya `disputed`, motivo según el `fromStatus` del último evento). `updateStatus` exige
+`UpdateStatusOptions.dispute` para cualquier transición a `disputed` y crea el expediente en la misma transacción: los dos barridos
+pasan `transit_anomaly`/`pickup_no_show` con `openedBy: null`. Módulo `modules/disputes/` (`POST /shipments/:id/disputes`, presign
+de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `completed → disputed` (ventana de 7 días desde `deliveredAt`).
+- `hasOpenDisputeAsCarrier` lee de la entidad (`open`, motivo distinto de `pickup_no_show`). La baja de cuenta sigue leyendo el estado
+  `disputed`, que existe si y solo si hay una disputa abierta mientras MOVO-34 no resuelva: bloquea sin excepción por motivo.
+- `AlertNotifier` replicado en `src/adapters/alert-notifier.ts` (mismas `ALERT_*` que payments) en vez de moverlo a shared, para que shared
+  siga sin I/O. Tope de fotos: `MAX_REPORT_PHOTOS_PER_SUBMISSION` (4) por envío de evidencia (apertura, descargo o ampliación), el mismo
+  concepto que los reportes de MOVO-256; las fotos van bajo `shipments/{id}/disputes/{userId}/` y comparten el tracking del sweep de huérfanas.
+- La disputa de una parte avisa con `disputeOpened*` (categoría `disputes`, `data.type: dispute_opened`); las de sistema siguen con sus
+  templates. Pendiente: la resolución y sus campos (MOVO-34), la matriz de reembolsos con el cobro ya acreditado (MOVO-337) y la UI mobile.
