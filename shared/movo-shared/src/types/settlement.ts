@@ -8,8 +8,10 @@
  * - `credited`: capturado y acreditado; `mpFeeArs`/`commissionArs`/`netAmountArs` son los
  *   `fee_details` reales que devolvió MP.
  * - `failed`: la captura no se pudo completar; `failureReason` dice por qué. El envío
- *   NO vuelve atrás (la entrega ya ocurrió); el reintento y el escalado son MOVO-213.
- * - `escalated`: reservado para MOVO-213 (proceso manual); 212 nunca lo escribe.
+ *   NO vuelve atrás (la entrega ya ocurrió). Si el fallo es reintentable la liquidación espera su
+ *   próximo intento (`nextAttemptAt`, MOVO-213).
+ * - `escalated`: MOVO-213. Se agotaron los reintentos o el fallo no se arregla reintentando: la
+ *   resuelve una persona (se avisa al equipo). El envío sigue `delivered`.
  */
 export const SETTLEMENT_STATUSES = ["processing", "credited", "failed", "escalated"] as const;
 
@@ -39,12 +41,69 @@ export interface CaptureHoldRequest {
   amountArs?: number;
 }
 
-/** Por qué una liquidación quedó `failed`. */
+/** Por qué una liquidación quedó `failed` (o `escalated`). */
 export type SettlementFailureReason =
   | "hold_expired"
   | "carrier_account_unavailable"
   | "provider_error"
   | "unexpected_payment_status";
+
+/**
+ * MOVO-213: por qué una liquidación pasó a `escalated`. `retries_exhausted`: se agotaron los reintentos
+ * automáticos de un fallo reintentable. `not_retryable`: el fallo no se arregla reintentando (hold vencido o
+ * cancelado, cuenta del transportista desvinculada) y escala sin gastar intentos.
+ */
+export type SettlementEscalationReason = "retries_exhausted" | "not_retryable";
+
+/** MOVO-213: estados de la consulta de liquidaciones que necesitan atención. */
+export const SETTLEMENT_ISSUE_STATUSES = ["failed", "escalated"] as const;
+export type SettlementIssueStatus = (typeof SETTLEMENT_ISSUE_STATUSES)[number];
+
+/**
+ * MOVO-213 (AC6): una liquidación pendiente de reintento o escalada, para el proceso manual.
+ * `GET /internal/payments/settlements?status=failed|escalated`.
+ */
+export interface SettlementIssueItem {
+  id: string;
+  shipmentId: string;
+  carrierId: string;
+  holdId: string;
+  mpPaymentId: string;
+  status: SettlementIssueStatus;
+  failureReason: SettlementFailureReason | null;
+  escalationReason: SettlementEscalationReason | null;
+  /** Último error crudo (código/mensaje de MP o el motivo del chequeo previo). */
+  lastError: string | null;
+  attempts: number;
+  /** Próximo reintento automático; `null` si está escalada. */
+  nextAttemptAt: string | null;
+  escalatedAt: string | null;
+  /** Cuándo vence el hold según lo persistido (MOVO-209): ayuda a decidir si vale probar la captura a mano. */
+  holdExpiresAt: string | null;
+  grossAmountArs: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SettlementIssuesPage {
+  items: SettlementIssueItem[];
+  nextCursor: string | null;
+}
+
+/**
+ * MOVO-213 (AC7): `POST /internal/shipments/:id/settlement-events`. `svc-payments` avisa a `svc-shipments`,
+ * dueño del envío y de los pushes, qué pasó con la liquidación.
+ * - `delayed`: el cobro quedó escalado; se le avisa al transportista que está en revisión (con plazo).
+ * - `credited`: un reintento acreditó el cobro; el envío puede pasar a `completed`.
+ */
+export interface SettlementEventRequest {
+  event: "delayed" | "credited";
+}
+
+export interface SettlementEventResponse {
+  handled: boolean;
+  outcome: string;
+}
 
 export interface SettlementResponse {
   id: string;

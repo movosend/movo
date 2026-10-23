@@ -117,3 +117,60 @@ export const getSettlementSchema = {
   params: shipmentIdParams,
   response: { 200: settlement, 404: errorResponse },
 } as const;
+
+// MOVO-213 (AC6): liquidaciones pendientes de reintento o escaladas, para el proceso manual.
+const settlementIssue = {
+  type: "object",
+  required: [
+    "id", "shipmentId", "carrierId", "holdId", "mpPaymentId", "status", "failureReason", "escalationReason",
+    "lastError", "attempts", "nextAttemptAt", "escalatedAt", "holdExpiresAt", "grossAmountArs", "createdAt", "updatedAt",
+  ],
+  properties: {
+    id: uuid,
+    shipmentId: uuid,
+    carrierId: uuid,
+    holdId: uuid,
+    mpPaymentId: { type: "string" },
+    status: { type: "string", enum: ["failed", "escalated"] },
+    failureReason: {
+      type: ["string", "null"],
+      enum: ["hold_expired", "carrier_account_unavailable", "provider_error", "unexpected_payment_status", null],
+    },
+    escalationReason: { type: ["string", "null"], enum: ["retries_exhausted", "not_retryable", null] },
+    lastError: { type: ["string", "null"] },
+    attempts: { type: "integer" },
+    nextAttemptAt: { type: ["string", "null"], format: "date-time" },
+    escalatedAt: { type: ["string", "null"], format: "date-time" },
+    holdExpiresAt: { type: ["string", "null"], format: "date-time" },
+    grossAmountArs: { type: "number" },
+    createdAt: { type: "string", format: "date-time" },
+    updatedAt: { type: "string", format: "date-time" },
+  },
+} as const;
+
+export const listSettlementIssuesSchema = {
+  hide: true,
+  tags: ["settlements"],
+  summary: "Liquidaciones pendientes de reintento (`failed`) o escaladas a proceso manual (`escalated`)",
+  description:
+    "Las más recientes primero, paginadas con `cursor` opaco. `failed` son entregas con un fallo reintentable que el " +
+    "barrido va a reintentar en `nextAttemptAt`; `escalated` las resuelve una persona (se alertó al equipo).",
+  querystring: {
+    type: "object",
+    additionalProperties: false,
+    required: ["status"],
+    properties: {
+      status: { type: "string", enum: ["failed", "escalated"] },
+      limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+      cursor: { type: "string", maxLength: 200 },
+    },
+  },
+  response: {
+    200: {
+      type: "object",
+      required: ["items", "nextCursor"],
+      properties: { items: { type: "array", items: settlementIssue }, nextCursor: { type: ["string", "null"] } },
+    },
+    400: errorResponse,
+  },
+} as const;

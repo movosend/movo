@@ -124,7 +124,7 @@ panel · 044 cuenta corriente del usuario · 045 salida de `in_transit` demorado
 046 push de chat · 047 (propuesto) penalidad de cancelación ·
 048 cuenta cobradora de Movo por credenciales · 049 sanciones de cuenta: suspensión,
 inhabilitación y marca en Redis ·
-050 plazo del hold de MP (5 días) y N=3
+050 plazo del hold de MP (5 días) y N=3 · 051 soporte al usuario sobre el chat existente
 
 ## Convenciones de código
 
@@ -154,6 +154,9 @@ inhabilitación y marca en Redis ·
   Squash merge siempre. Al menos un integrante distinto al autor revisa antes de
   aprobar, más el auto-review de GitHub Copilot/agentes de IA para calidad y
   vulnerabilidades.
+- Un endpoint nuevo que inicie un compromiso nuevo (crear, ofertar, aceptar, declarar un viaje) se suma a
+  `SUSPENDED_BLOCKED_ROUTES` (`gateway/src/config/routes-map.ts`, MOVO-298), o una cuenta suspendida lo usa sin que
+  falle ningún test. Revisarlo en el PR.
 - `.env.example` se actualiza en el mismo PR que introduce la variable — un PR que
   agrega una env var sin documentarla no se aprueba.
 - **Una env var nueva se toca en tres lugares, siempre en el mismo PR**: (1)
@@ -284,7 +287,7 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
   bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049, 050 (012-018 ya están pegados en
+  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049, 050, 051 (012-018 ya están pegados en
   el doc de Sprint 0, confirmado al buscar dónde iba ADR-022 — la lista anterior acá
   estaba desactualizada). **ADR-022 tiene su contenido completo ya redactado**, en un
   doc aparte (`ADR-022 - Canal de tiempo real (WebSocket nativo) - pegar en Sprint 0`,

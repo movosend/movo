@@ -36,6 +36,7 @@ export type NotificationTriggerKey =
   | "offerSuperseded"
   | "offerRejected"
   | "offerVoidedByShipmentCancellation"
+  | "counterpartyCannotTakeNewShipments"
   | "tripMatch"
   | "tripAutoCreated"
   | "tripDepartureReminder"
@@ -82,6 +83,7 @@ export type NotificationTriggerKey =
   | "fundingReconfirmCarrier"
   | "settlementCreditedCarrier"
   | "settlementProcessedSender"
+  | "settlementDelayedCarrier"
   | "cancellationPenaltyChargedSender"
   | "cancellationPenaltyDebtSender"
   | "cancellationPenaltyCompensationCarrier"
@@ -97,7 +99,8 @@ export type NotificationTriggerKey =
   | "receiverTransferExpiredRequester"
   | "receiverTransferExpiredSender"
   | "receiverTransferCancelled"
-  | "chatMessageReceived";
+  | "chatMessageReceived"
+  | "supportMessageReceived";
 
 export interface NotificationCopy {
   title: string;
@@ -315,6 +318,19 @@ export const NOTIFICATION_TRIGGERS = {
     "offers",
     { title: "Tu oferta fue cancelada", body: "El envío ya no está disponible." },
     () => ({ title: "Tu oferta fue cancelada", body: "El envío ya no está disponible." })
+  ),
+  // MOVO-297: a las contrapartes de un envío en curso de alguien sancionado. Genérico a
+  // propósito: no revela el motivo ni que hubo una sanción.
+  counterpartyCannotTakeNewShipments: definition<void>(
+    "shipments",
+    {
+      title: "Novedad en tu envío",
+      body: "Esta persona no puede tomar nuevos envíos por ahora. Tu envío sigue en curso; si preferís, podés cancelarlo.",
+    },
+    () => ({
+      title: "Novedad en tu envío",
+      body: "Esta persona no puede tomar nuevos envíos por ahora. Tu envío sigue en curso; si preferís, podés cancelarlo.",
+    })
   ),
   tripMatch: definition<{ originShort: string; destinationShort: string }>(
     "trips",
@@ -744,6 +760,16 @@ export const NOTIFICATION_TRIGGERS = {
       body: `Te acreditamos $${netAmountArs.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} en tu cuenta de Mercado Pago.`,
     })
   ),
+  // MOVO-213 (AC7): la captura no se pudo completar tras los reintentos y el cobro pasó a revisión manual. Se le
+  // dice al transportista que no es un rechazo y en cuánto se resuelve (`SETTLEMENT_REVIEW_SLA_HOURS`).
+  settlementDelayedCarrier: definition<{ reviewHours: number }>(
+    "payments",
+    { title: "Tu cobro está demorado", body: "Estamos revisando el cobro de tu entrega. Te avisamos apenas se acredite." },
+    ({ reviewHours }) => ({
+      title: "Tu cobro está demorado",
+      body: `Estamos revisando el cobro de tu entrega y lo resolvemos en un plazo de hasta ${reviewHours} ${reviewHours === 1 ? "hora" : "horas"}. Te avisamos apenas se acredite.`,
+    })
+  ),
   settlementProcessedSender: definition<void>(
     "payments",
     { title: "Pago procesado", body: "Tu envío fue entregado y el pago se procesó correctamente." },
@@ -813,6 +839,20 @@ export const NOTIFICATION_TRIGGERS = {
       title: roleLabel ? `${authorName} · ${roleLabel}` : authorName,
       body: count !== undefined && count > 1 ? `${count} mensajes nuevos · ${messageBody}` : messageBody,
     })
+  ),
+  // MOVO-320: respuesta de un agente de Movo en una consulta de soporte. Como el chat (MOVO-301), el texto viaja
+  // en la push; `messageBody` vacío = el agente mandó solo adjuntos. Con una ráfaga (`count` > 1) sale un único resumen.
+  supportMessageReceived: definition<{ agentName?: string; messageBody: string; count?: number }>(
+    "support",
+    { title: "Soporte de Movo", body: "Te avisamos cuando el equipo de Movo responde una consulta tuya." },
+    ({ agentName, messageBody, count }) => {
+      const text = messageBody.trim() === "" ? "Te envió una imagen" : messageBody;
+      const line = agentName ? `${agentName}: ${text}` : text;
+      return {
+        title: "Soporte de Movo",
+        body: count !== undefined && count > 1 ? `${count} mensajes nuevos · ${line}` : line,
+      };
+    }
   ),
   receiverTransferInvited: definition<{ requesterName: string; deadlineHours: number }>(
     "shipments",

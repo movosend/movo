@@ -21,7 +21,7 @@ import tripDepartureReminderSweepPlugin from "./plugins/trip-departure-reminder-
 import fundingSweepPlugin from "./plugins/funding-sweep";
 import settlementsPlugin from "./plugins/settlements";
 import settlementSweepPlugin from "./plugins/settlement-sweep";
-import settlementRoutes, { SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
+import settlementRoutes, { internalSettlementRoutes, SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
 import fundingRoutes, { internalFundingRoutes, FundingRoutesOptions } from "./modules/funding/funding.routes";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import ledgerOriginsRoutes from "./modules/shipments/ledger-origins.routes";
@@ -36,6 +36,7 @@ import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracki
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
 import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
 import chatRoutes, { ChatRoutesOptions } from "./modules/chat/chat.routes";
+import supportRoutes, { SupportRoutesOptions } from "./modules/support/support.routes";
 import receiverTransfersRoutes, {
   ReceiverTransfersRoutesOptions,
   shipmentReceiverTransferRoutes,
@@ -71,6 +72,10 @@ export interface BuildAppOptions {
   chatNow?: () => Date;
   /** Agenda el resumen de avisos de una ráfaga de chat (MOVO-301); solo tests, para no esperar la ventana real. */
   chatSchedulePush?: (run: () => void, delayMs: number) => void;
+  /** Reloj de las conversaciones de soporte (MOVO-320), solo tests. */
+  supportNow?: () => Date;
+  /** Agenda el resumen de avisos de una ráfaga de soporte (MOVO-320, ADR-046); solo tests. */
+  supportSchedulePush?: (run: () => void, delayMs: number) => void;
   /** Override solo para tests de integración — evita depender de un
    * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
    * `usersClient`. */
@@ -294,10 +299,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-288: partes de un envío o de un reporte de chat, para la regla de conflicto de
   // interés de movo-svc-admin. Interno.
   // MOVO-325: también listado, detalle, eventos, fotos y chat de los envíos para el panel.
+  // MOVO-297: y los efectos de una sanción (retiro de actividad abierta y avisos).
   app.register(adminInternalRoutes, {
     prefix: "/internal",
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
   });
 
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
@@ -319,6 +326,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-212 AC10: `GET /shipments/:id/settlement`, el pago del envío según el rol.
   const settlementRouteOpts: SettlementRoutesOptions = { prefix: "/shipments" };
   app.register(settlementRoutes, settlementRouteOpts);
+  // MOVO-213: aviso interno de svc-payments (cobro demorado / acreditado por un reintento).
+  app.register(internalSettlementRoutes, { prefix: "/internal" });
 
   // MOVO-201/ADR-022: canal de tiempo real (@fastify/websocket) -- mismo prefix
   // "/shipments" que shipmentsRoutes/handshakeRoutes. Reemplaza la PoC de MOVO-200 --
@@ -367,6 +376,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.chatSchedulePush ? { schedulePush: opts.chatSchedulePush } : {}),
   };
   app.register(chatRoutes, chatRouteOpts);
+
+  // MOVO-320 (ADR-051): soporte al usuario sobre el chat existente (mismo `ChatHub`, otra clave de sala). Prefijo
+  // "/support": el gateway lo proxea (HTTP y upgrade) hacia este servicio.
+  const supportRouteOpts: SupportRoutesOptions = {
+    prefix: "/support",
+    ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.supportNow ? { now: opts.supportNow } : {}),
+    ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
+  };
+  app.register(supportRoutes, supportRouteOpts);
 
   return app;
 }

@@ -3688,6 +3688,54 @@ sus fotos de S3; si S3 falla, la fila queda y se reintenta. También borra los `
 - Quedan sin tocar, a propósito: los `shipmentId` de `svc-payments` (comprobantes que la política conserva por ley) y los
   `AuditLog` de `svc-admin`, que pasan a apuntar a un envío inexistente.
 
+### MOVO-297 — Efectos de una sanción (`GET .../in-progress-shipments`, `POST .../withdraw-open-activity`)
+
+Endpoints internos (sin gateway) para `svc-admin` (MOVO-36/MOVO-299), en `modules/admin-internal/sanction-effects.service.ts`.
+- `withdraw-open-activity` es idempotente porque solo toma lo abierto: cancela con el `cancelShipment` existente (motivo
+  "cuenta suspendida", ADR-032) los envíos del usuario sin transportista ni hold (`awaiting_receiver_confirmation`,
+  `rejected_by_receiver` y `published`: los dos primeros podrían pasar a `published` a nombre de un suspendido), pasa a
+  `withdrawn` sus ofertas `pending` vigentes y cancela sus viajes `declared` sin paquetes aceptados. Además corta toda serie
+  recurrente vigente (`stopRecurrenceForCarrier`), también la de un viaje `active`, que no se cancela: si no, al terminar
+  generaría la siguiente ocurrencia (y el push `tripAutoCreated`) a un suspendido.
+- No es una única transacción: cada elemento es atómico. `cancelShipment` recibe `onlyFrom` y lanza
+  `ShipmentConcurrentModificationError` si el envío se comprometió entre el listado y la cancelación (el servicio se arma sin
+  `paymentsClient`, así que cancelarlo dejaría un hold sin liberar). Perder una carrera (concurrencia, transición ya hecha,
+  viaje con paquetes) se saltea y no es fallo; cualquier otro error va a `failures: [{kind, id}]` de la respuesta (200), y
+  `svc-admin` no debe dar la sanción por aplicada mientras no esté vacío: se reintenta, es idempotente.
+- Aviso a contrapartes de los envíos en curso con la plantilla genérica `counterpartyCannotTakeNewShipments`. La clave Redis
+  `sanction-notice:{userId}:{sanctionId|-}:{shipmentId}:{contraparte}` (7 días) evita duplicarlo en un reintento; el body
+  opcional `{ sanctionId }` hace que sancionar → levantar → volver a sancionar avise de nuevo (falta que MOVO-299 lo mande).
+  El sancionado no recibe push por lo retirado.
+- La constancia en la línea de tiempo es el `ShipmentEvent` de los envíos; ofertas y viajes quedan por su estado y por la
+  respuesta (ids retirados) para la bitácora de `svc-admin`. Sin columna de motivo en `Offer`/`Trip`.
+
+### MOVO-320 — Conversaciones de soporte del usuario (ADR-051)
+
+Módulo `modules/support/` (`/support/*`, ver `docs/support/README.md`) sobre el chat existente: mismo `ChatHub` con la clave de sala
+`support:<id>`, mismo handshake WS (autorizador propio en `support.service.ts#authorizeConnection`: dueño ok, admin ajeno 4003, el resto 4004),
+filtro de lenguaje solo a mensajes del usuario y push de ADR-046 con claves `support-push:*` (reusa `chat-push-buffer.ts`). Tablas
+`support_conversations` / `support_messages` / `support_participant_states` (migración `20261021200000`), con la secuencia
+`support_conversation_code_seq` (arranca en 1001) para `SOP-NNNN`. El cursor del chat pasó a `utils/cursor.ts`, compartido.
+- **Notas internas**: un único punto, `domain/support-rules.ts#toUserFacingMessage` (devuelve `null` para una nota), más lista blanca de `kind` en la
+  query del historial y en el último mensaje; no se filtra "todo menos nota". Test de regresión por camino (historial, lista, WS, push).
+- **Idempotencia de crear**: índice único parcial `(author_id, client_message_id) WHERE kind = 'user'` escrito a mano en la migración (Prisma no lo
+  expresa): sin él dos creaciones simultáneas con el mismo `clientMessageId` abren dos consultas. Un `clientMessageId` repetido en otra consulta propia es 400.
+- **Reapertura**: `appendUserMessage` bloquea la fila (`FOR UPDATE`) para que dos mensajes simultáneos sobre una `resolved` dejen un solo evento `system`;
+  el evento queda 1 ms después del mensaje del usuario para que el historial los ordene bien.
+- **Envío ajeno = 422 `SUPPORT_SHIPMENT_NOT_PARTY`** (no el 403 del AC1 del ticket, por acuerdo con el contrato de MOVO-324 y porque el código ya existía).
+  `attachmentIds` se acepta pero no vacío da 422 `SUPPORT_ATTACHMENT_INVALID` hasta MOVO-321.
+- Pendiente (MOVO-322): `publishStaffMessage`/`publishStatus`/`publishAgentRead` del servicio son lo que tiene que llamar el endpoint interno del agente; hoy
+  solo los usan los tests. Sin plazo de retención ni purga (MOVO-224). `GET /shipments/mine` no incluye al transportista: el selector de envíos de MOVO-324
+  no puede usarlo tal cual.
+
+### MOVO-213 — Aviso de la liquidación demorada o acreditada por un reintento
+
+`POST /internal/shipments/:id/settlement-events` (interno, lo llama `svc-payments`; `modules/settlements/settlements.routes.ts`, `settlement.service.handleSettlementEvent`).
+`delayed`: el cobro quedó escalado a revisión manual → push `settlementDelayedCarrier` al transportista (con `SETTLEMENT_REVIEW_SLA_HOURS`, default 48), una sola vez por
+envío (dedupe Redis `notified:settlement-delayed:<id>`); el envío sigue `delivered`. `credited`: un reintento de payments acreditó → `captureAndComplete` (la captura devuelve
+la liquidación ya acreditada) y salen los pushes de siempre. El barrido `settlement-sweep` no cambia salvo que `SETTLEMENT_ESCALATED` es un fallo permanente (cooldown de 24 h);
+el backoff y el escalado viven ahora en `svc-payments`.
+
 ### MOVO-326 — Conteos por estado y de avisos, filtro `alert` en `GET /internal/admin/shipments`
 
 El panel necesitaba los chips por estado y el toggle "Solo con alerta" con su conteo. `counts()` de

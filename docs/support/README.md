@@ -71,6 +71,75 @@ hospeda WS. Diseño:
    Alcanza con retener unos minutos de eventos.
 6. Los eventos nunca llevan notas internas hacia el usuario; el canal del usuario (mobile, MOVO-319) es otro.
 
+## Soporte del lado del usuario (MOVO-320, ADR-051)
+
+El usuario le escribe a Movo desde la app (MOVO-324). Vive en `svc-shipments` (módulo `modules/support/`), sobre el chat existente
+(ADR-040/046): mismo `ChatHub` (otra clave de sala, `support:<id>`), mismo handshake WS, mismo filtro de lenguaje. Los tipos son
+`shared/movo-shared/src/types/support.ts` (se importan por `@movo/shared/src/types/support`; ojo que `SupportUserMessage` es del panel: el
+mensaje que ve el usuario es `SupportUserFacingMessage`). El agente **no** entra por acá: usa `/admin/support/*`.
+
+### Rutas (`/api/v1/support/*`, usuario autenticado; solo ve las suyas, ajena o inexistente = 404)
+
+| Método y ruta | Cuerpo / query | Respuesta | Notas |
+| --- | --- | --- | --- |
+| `POST conversations` | `SupportCreateBody` (`topic`, `body`, `clientMessageId`, `shipmentId?`, `attachmentIds?`) | `SupportCreateResult` (201; 200 si se reenvía el `clientMessageId`) | Crea la consulta y su primer mensaje en una transacción. Con `shipmentId` el usuario tiene que ser parte (emisor, transportista, receptor o ex receptor): si no, **422** `SUPPORT_SHIPMENT_NOT_PARTY` (inexistente da lo mismo). `attachmentIds` no vacío da 422 `SUPPORT_ATTACHMENT_INVALID` hasta MOVO-321 |
+| `GET conversations` | | `SupportListResponse` | La de actividad más reciente primero (hasta 100). `lastMessage` nunca es una nota ni un evento `system`; `unreadCount` cuenta solo respuestas del equipo |
+| `GET conversations/:id/messages` | `limit` (1-100, 30), `cursor` | `SupportUserMessagesPage` | Más recientes primero, cursor opaco (mismo formato que el chat). Trae `conversation` para el encabezado. Abrir la primera página marca lo recibido |
+| `POST conversations/:id/messages` | `SupportSendUserBody` | `SupportUserFacingMessage` (201 / 200) | Idempotente por `clientMessageId`. Sobre una `resolved` la reabre; sobre una `awaiting_user` la pasa a `open` |
+| `POST conversations/:id/read` | | `{ readAt }` | Baja el `unreadCount` a cero |
+| `GET conversations/:id` (WS) | header `Authorization: Bearer` | frames de abajo | Mismo mecanismo que `/track` y el chat del envío |
+
+Texto de 1 a `SUPPORT_MESSAGE_MAX_LENGTH` (2000) caracteres, recortado. Las palabras ofensivas se tapan con asteriscos y el mensaje
+sale con `moderated: true`; a los de un agente no se les aplica el filtro. No hay chequeo de bloqueo (ADR-026): la otra parte es Movo.
+
+### Estados
+
+`open` (le toca al equipo) → `awaiting_user` (respondió un agente) → vuelve a `open` cuando el usuario escribe. Una `resolved` se **reabre**
+si el usuario escribe: pasa a `open`, se limpia `resolved_at` y se guarda un mensaje `system` "Se reabrió la conversación" (queda a
+continuación del mensaje del usuario). La conversación no se borra ni se archiva al resolverse y no hay job de purga: el plazo de retención
+está pendiente de definir con el equipo legal (MOVO-224).
+
+### WebSocket (`GET /api/v1/support/conversations/:id`)
+
+Frames: `{ "type": "connected", "conversationId" }` al aceptar (la app refresca la primera página), y después `support_message`
+(`{ message }`), `support_status` (`{ conversationId, status }`) y `support_receipt` (`{ conversationId, upTo }`: un agente leyó hasta
+`upTo`, la app actualiza los tildes). El cliente no manda nada. Cierres: `4001` token inválido o vencido (la app renueva y reconecta; también
+se corta sola al `exp` del JWT), `4003` sin permiso (un admin que no es el dueño: los agentes usan el canal del panel), `4004` la
+conversación no existe o no es del usuario (terminal). Heartbeat de 30 s. Registro en memoria y una sola réplica (ADR-022).
+
+### Notas internas
+
+Una nota (`kind = note`) **nunca** llega al usuario: se excluye en la query del historial (lista blanca de `kind`), en la lista (último mensaje
+y no leídos), en el WebSocket y en la push. Todo mensaje hacia el usuario pasa por `toUserFacingMessage` (`domain/support-rules.ts`), que
+devuelve `null` para una nota. Cada camino tiene su test de regresión en `test/support.integration.test.ts`.
+
+### Push
+
+Cuando contesta un agente (no una nota, no un evento `system`) y el usuario no tiene la conversación abierta por WebSocket:
+título "Soporte de Movo", cuerpo "Lucía: …" (o "Lucía: Te envió una imagen" si no hay texto), `data: { type: "support_message", conversationId }`,
+categoría `support` (respeta el toggle maestro, el de la categoría y el horario de silencio, MOVO-245). Ráfagas como en ADR-046: la primera
+avisa enseguida y las de los 30 s siguientes salen en un único resumen ("N mensajes nuevos · …") que se omite si ya se leyó o si el usuario
+abrió la conversación.
+
+### Lo que le falta al lado del agente (MOVO-322)
+
+`createSupportService` expone `publishStaffMessage(conversation, message)`, `publishStatus(conversation)` y `publishAgentRead(conversationId,
+userId, upTo)`: lo que hay que llamar después de guardar una respuesta, un cambio de estado o una lectura del agente para que le llegue al
+usuario (WebSocket y push). Hoy nada las llama desde un endpoint; los tests las usan para simular al agente. Tampoco hay todavía un
+endpoint interno para que `svc-admin` se suscriba a los mensajes del usuario (los agentes los ven por `GET events`, que implementa 322).
+
+### Probarlo a mano
+
+```bash
+# abrir una consulta (por el gateway; $TOKEN es el access token del usuario)
+curl -s -X POST "$API/api/v1/support/conversations" -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"topic":"payments","body":"Me cobraron dos veces","clientMessageId":"'$(uuidgen)'"}'
+# escuchar la conversación
+wscat -c "wss://$HOST/api/v1/support/conversations/$ID" -H "authorization: Bearer $TOKEN"
+```
+
 ## Pendiente de backend (para 321/322)
 
-Todo lo anterior. El panel funciona hoy contra `MOVO_ADMIN_MOCK=1` (ver `movo-admin/CLAUDE.md`, entrada MOVO-323).
+El lado del usuario (320) está implementado, ver la sección anterior.
+
+Todo lo de la bandeja del agente. El panel funciona hoy contra `MOVO_ADMIN_MOCK=1` (ver `movo-admin/CLAUDE.md`, entrada MOVO-323).

@@ -644,3 +644,20 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 MOVO-326: `AdminShipmentPage` suma `statusCounts` y `alertCounts` (requeridos: rompen literales armados a mano, tocó fakes de
 `svc-admin`), y `ADMIN_SHIPMENT_ALERT_STATUSES` + `isAdminShipmentAlert(row)` definen qué fila lleva aviso. Es la fuente única
 de la regla: el filtro `alert` de `svc-shipments` (SQL) y el panel la siguen.
+
+
+### MOVO-320 — Soporte del lado del usuario (`types/support.ts`)
+
+`SupportUserFacingMessage` (kind `user`/`agent`/`system`, **nunca** `note`), `SupportConversationItem`, `SupportCreateBody/Result`,
+`SupportSendUserBody`, `SupportRealtimeEvent` (`support_message`/`support_status`/`support_receipt`), `SUPPORT_WS_CLOSE`,
+`SUPPORT_REOPENED_MESSAGE`, y los helpers `formatSupportCode` (`SOP-1042`) y `supportShipmentCode` (`MOVO-48213`, últimos 5 dígitos del UUID, igual que
+`activeShipmentDisplayCode` del mobile pero sin el `#`). Ojo con los nombres: `SupportUserMessage` ya era el mensaje del usuario visto desde el panel
+(`admin-support.ts`), por eso el del lado usuario se llama distinto; en el barrel la página de mensajes del usuario sale como `SupportUserMessagesPage`
+(`SupportMessagesPage` es la del panel). Categoría de push `support` (sección `conversations`) y trigger `supportMessageReceived`. Recordatorio habitual:
+`npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-213 — Reintentos y escalado de la liquidación (`types/settlement.ts`)
+
+`SettlementEscalationReason` (`retries_exhausted` | `not_retryable`), `SettlementIssueItem`/`SettlementIssuesPage`/`SETTLEMENT_ISSUE_STATUSES` (la consulta interna de `svc-payments`),
+`SettlementEventRequest`/`SettlementEventResponse` (aviso a shipments), trigger `settlementDelayedCarrier` (categoría `payments`, con `reviewHours`) y los códigos `SETTLEMENT_ESCALATED` y
+`SETTLEMENT_RETRY_PENDING`. `SettlementStatus` ya tenía `escalated`; `SettlementResponse` no cambia.

@@ -170,12 +170,18 @@ export type {
 } from "./types/transaction";
 
 // liquidación: captura del hold + split (MOVO-212)
-export { SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
+export { SETTLEMENT_ISSUE_STATUSES, SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
 export type {
   CaptureHoldRequest,
   CaptureHoldResponse,
   SettlementDisplayStatus,
+  SettlementEscalationReason,
+  SettlementEventRequest,
+  SettlementEventResponse,
   SettlementFailureReason,
+  SettlementIssueItem,
+  SettlementIssuesPage,
+  SettlementIssueStatus,
   SettlementKind,
   SettlementResponse,
   SettlementStatus,
@@ -341,6 +347,8 @@ export type {
   AuditLogEntry,
   AuditLogPage,
   ShipmentParties,
+  InProgressShipment,
+  WithdrawOpenActivityResult,
   ChatReportParties,
   UserReportParties,
 } from "./types/admin";
@@ -494,3 +502,26 @@ export type {
   SupportEventsPage,
   SupportRealtimeTicket,
 } from "./types/admin-support";
+
+// soporte del lado del usuario (MOVO-320, consumido por MOVO-324)
+export {
+  SUPPORT_WS_CLOSE,
+  SUPPORT_REOPENED_MESSAGE,
+  SUPPORT_PUSH_PREVIEW_MAX,
+  supportShipmentCode,
+  formatSupportCode,
+} from "./types/support";
+export type {
+  SupportDeliveryStatus,
+  SupportUserFacingMessage,
+  SupportConversationLastMessage,
+  SupportConversationItem,
+  SupportListResponse,
+  SupportMessagesPage as SupportUserMessagesPage,
+  SupportCreateBody,
+  SupportCreateResult,
+  SupportSendUserBody,
+  SupportReadResult,
+  SupportRealtimeEvent,
+  SupportRealtimeConnected,
+} from "./types/support";

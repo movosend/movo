@@ -3,6 +3,9 @@ import type { Settlement, SettlementKind, SettlementStatus } from "../generated/
 
 export type { Settlement };
 
+/** MOVO-213: una liquidación pendiente de reintento o escalada, con el vencimiento del hold que la respalda. */
+export type SettlementWithHold = Settlement & { hold: { expiresAt: Date | null } };
+
 /** Lo que se sabe de la liquidación ANTES de hablar con MP: sale del hold (y del pedido, MOVO-306). */
 export interface NewSettlement {
   shipmentId: string;
@@ -29,6 +32,12 @@ export interface SettlementUpdate {
   carrierMpFeeArs?: Prisma.Decimal | null;
   netAmountArs?: Prisma.Decimal | null;
   capturedAt?: Date | null;
+  /** MOVO-213: reintentos de la captura (ver el modelo `Settlement`). */
+  attempts?: number;
+  nextAttemptAt?: Date | null;
+  lastError?: string | null;
+  escalatedAt?: Date | null;
+  escalationReason?: string | null;
 }
 
 export interface SettlementRepository {
@@ -47,6 +56,26 @@ export interface SettlementRepository {
    * el reintento (mismo patrón que `holds.markCaptured`).
    */
   updateIfStatus(id: string, expected: SettlementStatus, patch: SettlementUpdate): Promise<boolean>;
+  /**
+   * MOVO-213: entregas `failed` cuyo próximo intento ya llegó, las más atrasadas primero. Solo `delivery`: la
+   * penalidad la reintenta `svc-shipments` (que decide el plan B), no este barrido.
+   */
+  findDueForRetry(now: Date, limit: number): Promise<Settlement[]>;
+  /**
+   * MOVO-213: reserva un reintento corriendo `next_attempt_at` al fin de un lease, condicional sobre el valor que
+   * leyó el barrido. `false` si otra réplica (o la captura en línea) ya la tomó: no se reintenta dos veces a la vez.
+   */
+  claimRetry(id: string, expectedNextAttemptAt: Date, leaseUntil: Date): Promise<boolean>;
+  /**
+   * MOVO-213 (AC6): entregas en un estado, las más recientes primero, con cursor keyset `(updated_at, id)`. Solo
+   * `delivery`: la penalidad de cancelación también puede quedar `failed`, pero la maneja `svc-shipments` (plan B,
+   * deuda del emisor) y no es un cobro demorado al transportista.
+   */
+  listByStatus(
+    status: SettlementStatus,
+    limit: number,
+    cursor?: { updatedAt: Date; id: string }
+  ): Promise<SettlementWithHold[]>;
 }
 
 export function createSettlementRepository(db: PrismaClient): SettlementRepository {
@@ -90,6 +119,37 @@ export function createSettlementRepository(db: PrismaClient): SettlementReposito
     async updateIfStatus(id, expected, patch) {
       const { count } = await db.settlement.updateMany({ where: { id, status: expected }, data: patch });
       return count === 1;
+    },
+
+    findDueForRetry(now, limit) {
+      return db.settlement.findMany({
+        where: { status: "failed", kind: "delivery", nextAttemptAt: { lte: now } },
+        orderBy: [{ nextAttemptAt: "asc" }, { id: "asc" }],
+        take: limit,
+      });
+    },
+
+    async claimRetry(id, expectedNextAttemptAt, leaseUntil) {
+      const { count } = await db.settlement.updateMany({
+        where: { id, status: "failed", nextAttemptAt: expectedNextAttemptAt },
+        data: { nextAttemptAt: leaseUntil },
+      });
+      return count === 1;
+    },
+
+    listByStatus(status, limit, cursor) {
+      return db.settlement.findMany({
+        where: {
+          status,
+          kind: "delivery",
+          ...(cursor
+            ? { OR: [{ updatedAt: { lt: cursor.updatedAt } }, { updatedAt: cursor.updatedAt, id: { lt: cursor.id } }] }
+            : {}),
+        },
+        include: { hold: { select: { expiresAt: true } } },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: limit,
+      });
     },
   };
 }

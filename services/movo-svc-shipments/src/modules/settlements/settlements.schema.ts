@@ -44,4 +44,24 @@ const settlementResponse = {
   },
 } as const;
 
-export const settlementSchemas = { errorResponse, shipmentIdParam, settlementResponse };
+// MOVO-213: aviso interno de svc-payments sobre la liquidación (`SettlementEventRequest` de @movo/shared).
+const settlementEventBody = {
+  type: "object",
+  required: ["event"],
+  additionalProperties: false,
+  properties: { event: { type: "string", enum: ["delayed", "credited"] } },
+} as const;
+
+const settlementEventResponse = {
+  type: "object",
+  required: ["handled", "outcome"],
+  properties: { handled: { type: "boolean" }, outcome: { type: "string" } },
+} as const;
+
+export const settlementSchemas = {
+  errorResponse,
+  shipmentIdParam,
+  settlementResponse,
+  settlementEventBody,
+  settlementEventResponse,
+};
