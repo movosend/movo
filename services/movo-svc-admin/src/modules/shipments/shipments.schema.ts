@@ -98,6 +98,13 @@ const counts = {
   },
 };
 
+const statusCounts = {
+  type: "object",
+  description: "Conteo de cada estado con los mismos filtros, para los chips de una pestaña.",
+  required: shipmentStatuses,
+  properties: Object.fromEntries(shipmentStatuses.map((status) => [status, { type: "integer" }])),
+};
+
 const errorOf = {
   type: "object",
   required: ["code", "message"],
@@ -199,14 +206,21 @@ export const shipmentsSchemas = {
       from: { type: "string", format: "date-time" },
       to: { type: "string", format: "date-time" },
       q: { type: "string", minLength: 1, maxLength: 100 },
+      alert: { type: "boolean", description: "Solo los que llevan aviso (`isAdminShipmentAlert`)." },
       cursor: { type: "string", maxLength: 300 },
       limit: { type: "integer", minimum: 1, maximum: 100 },
     },
   },
   listResponse: {
     type: "object",
-    required: ["items", "nextCursor", "counts"],
-    properties: { items: { type: "array", items: shipmentRow }, nextCursor: { type: ["string", "null"] }, counts },
+    required: ["items", "nextCursor", "counts", "statusCounts", "alertCounts"],
+    properties: {
+      items: { type: "array", items: shipmentRow },
+      nextCursor: { type: ["string", "null"] },
+      counts,
+      statusCounts,
+      alertCounts: { ...counts, description: "De cada pestaña, cuántos llevan aviso." },
+    },
   },
   idParam: { type: "object", required: ["id"], properties: { id: { type: "string", format: "uuid" } } },
   detailResponse: {
