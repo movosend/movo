@@ -1,0 +1,56 @@
+@startuml seq-aceptar-oferta
+' MOVO-17 (aceptar/rechazar), MOVO-210/211 (ruta cercana o lejana de la saga, ADR-037), MOVO-234 (viaje automático).
+autonumber
+actor "Emisor" as E
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-users" as U
+participant "svc-payments" as PA
+database "PostgreSQL\n(esquema shipments)" as DB
+
+E -> M : Elige una oferta y confirma
+M -> G : POST /offers/{id}/accept
+G -> S : reenvía con x-user-id del emisor
+S -> DB : lee la oferta y el envío
+alt el caller no es el emisor
+  S --> M : 403 AUTH_FORBIDDEN
+else es el emisor
+  S -> U : verifica que no exista bloqueo entre las partes
+  S -> U : revalida licencia y KYC del transportista
+  S -> PA : revalida la cuenta de Mercado Pago del transportista
+  alt el transportista ya no cumple los requisitos
+    S --> M : 409 OFFER_CARRIER_NOT_ELIGIBLE\n(la oferta sigue pending)
+  else cumple
+    S -> U : resuelve el tipo de vehículo para el viaje automático (best-effort)
+    S -> DB : BEGIN
+    S -> DB : compare-and-swap: oferta pending -> accepted
+    alt oferta vencida o ya resuelta
+      S --> M : 409 OFFER_INVALID_TRANSITION
+    else oferta vigente
+      S -> DB : asocia un viaje: usa el declarado compatible\n(desvío máximo configurable) o crea uno automático
+      S -> S : elige la ruta de la saga según los días al retiro:\ncercana (retiro dentro de N días) o lejana
+      S -> DB : UPDATE envío SET status=... WHERE status='published'
+      alt otra aceptación ganó primero
+        S -> DB : ROLLBACK
+        S --> M : 409 SHIPMENT_NOT_AVAILABLE_FOR_ASSIGNMENT
+      else gana esta aceptación
+        alt ruta cercana
+          S -> DB : envío -> assignment_pending (carrierId, precio acordado)
+        else ruta lejana
+          S -> DB : envío -> assigned_unfunded (carrierId, precio acordado)
+        end
+        S -> DB : COMMIT
+        S -> U : push al transportista elegido (best-effort)
+        S -> U : push de viaje creado automáticamente, si corresponde
+        S --> M : 200 {oferta, ruta de fondeo y fecha de apertura de la ventana}
+      end
+    end
+  end
+end
+note over S, DB
+  Las demás ofertas siguen vivas hasta que se confirme el hold:
+  el pago y el aviso de "ya no disponible" a los otros
+  transportistas se resuelven en el tema Pagos (MOVO-12).
+end note
+@enduml

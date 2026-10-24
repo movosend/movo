@@ -1,0 +1,54 @@
+@startuml seq-crear-oferta
+' MOVO-23 (MOVO-143, MOVO-149, MOVO-166, MOVO-177), MOVO-17 (MOVO-144, MOVO-150), MOVO-188, MOVO-189.
+autonumber
+actor "Transportista" as T
+actor "Emisor" as E
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-users" as U
+participant "svc-payments" as PA
+database "PostgreSQL\n(esquema shipments)" as DB
+
+== Oferta del transportista ==
+T -> M : Indica monto neto, fecha de retiro propuesta\ny, opcionalmente, franja y entrega estimada
+M -> G : POST /shipments/{id}/offers
+G -> S : reenvía con x-user-id y roles del token
+S -> U : verifica KYC de identidad y requisitos del transportista
+S -> PA : verifica la cuenta de Mercado Pago vinculada
+alt transportista no habilitado
+  S --> M : 403 CARRIER_NOT_VERIFIED
+else habilitado
+  S -> DB : lee el envío
+  alt envío no publicado o ventana de retiro cerrada
+    S --> M : 409 SHIPMENT_NOT_AVAILABLE_FOR_OFFER
+  else envío ofertable
+    S -> S : valida: no es emisor ni receptor, sin bloqueos entre las partes,\nprecio > 0, fecha dentro de retiro + 3 días,\nfranja coherente (inicio < fin)
+    S -> S : calcula el bruto = neto + comisión de Movo
+    S -> DB : inserta la oferta pending con snapshot de reputación\ny vencimiento (expiresAt)
+    alt ya tiene una oferta pending sobre el envío
+      S --> M : 409 OFFER_DUPLICATE_ACTIVE
+    else oferta creada
+      S -> U : push al emisor (best-effort)
+      S --> M : 201 {oferta con desglose neto, comisión y bruto}
+    end
+  end
+end
+
+== Selección por el emisor ==
+E -> M : Abre las ofertas de su envío
+M -> G : GET /shipments/{id}/offers?sort=price|rating
+G -> S : reenvía
+S -> S : solo el emisor (o un admin) puede leer la lista
+S -> DB : ofertas vigentes con snapshot del transportista\n(las vencidas se resuelven en lectura)
+S -> DB : marca viewedAtBySender en las no vistas
+S --> M : 200 {ofertas ordenadas por precio o por reputación}
+
+== Seguimiento por el transportista ==
+T -> M : Abre "Mis ofertas"
+M -> G : GET /offers/mine
+G -> S : reenvía
+S -> DB : ofertas propias, estado efectivo y contexto del envío
+S -> S : calcula competitiveRank en una consulta por lote\n(reputación, entregas y antigüedad como desempate)
+S --> M : 200 {ofertas con competitiveRank y viewedAtBySender}
+@enduml
