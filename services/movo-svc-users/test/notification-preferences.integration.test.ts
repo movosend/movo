@@ -148,14 +148,15 @@ describe("GET/PUT /users/me/notification-preferences (MOVO-245)", () => {
       expect(JSON.parse(response.body).quietHours).toEqual({ enabled: true, from: "22:00", to: "07:30" });
     });
 
-    it("400 con una categoría desconocida (ej. una 'Pronto' del catálogo de MOVO-240)", async () => {
+    // MOVO-334: `disputes` era la última categoría "Pronto"; ya no queda ninguna.
+    it("400 con una categoría desconocida", async () => {
       const user = await repo.create(buildInput());
 
       const response = await app.inject({
         method: "PUT",
         url: "/users/me/notification-preferences",
         headers: { "x-user-id": user.id },
-        payload: { categories: { disputes: false } },
+        payload: { categories: { unknown_category: false } },
       });
 
       expect(response.statusCode).toBe(400);

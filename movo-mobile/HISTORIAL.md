@@ -4968,6 +4968,14 @@ muestran `AccountStatusChip`. La pantalla de login de `ACCOUNT_SUSPENDED` pasó 
   queries que fallaron. Con datos ya cargados la sección sigue mostrándolos.
 - Pendiente: el 403 real del gateway cuando exista MOVO-298, y los push (en local el proveedor es mock).
 
+### MOVO-270 — Seguimiento en vivo antes del retiro y cancelación con llegada registrada
+
+`liveTrackingAvailability(status, carrierTripActive)` habilita el seguimiento de un `assigned` cuando el viaje del transportista
+está activo (`carrierTripActive` de `GET /shipments/:id`); `assignment_pending`/`assigned_unfunded` siguen en "pending". La tarea
+en segundo plano y la captura en primer plano mandan `mocked` de expo-location (solo Android, se omite si no viene). El sheet de
+cancelación muestra el motivo `carrier_arrived` (vista `penalty` con `reasonText`) y `HANDSHAKE_PICKUP_DEADLINE_PASSED` tiene copy.
+Pendiente: subir la precisión del GPS cerca del retiro (ADR-052, toca la medición de batería de MOVO-242).
+
 ### MOVO-285 — Monto exacto del transportista con el fee real de MP
 
 - `shipments/[id].tsx`: si el detalle trae `carrierReceivedArs` (calculado por el backend con el hold), la card muestra "Recibís" con ese

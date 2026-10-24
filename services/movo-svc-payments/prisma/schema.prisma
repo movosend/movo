@@ -249,11 +249,20 @@ model Settlement {
   failureReason         String?          @map("failure_reason")
   // `status_detail` crudo de MP al capturar (`accredited`, ...).
   statusDetail          String?          @map("status_detail")
+  // MOVO-213: reintentos de la captura. `attempts` cuenta los intentos fallidos con fallo reintentable (un fallo
+  // que no se arregla reintentando escala sin sumar); `next_attempt_at` es cuándo toca el próximo (null si no hay);
+  // `last_error` el último error crudo; `escalated_at`/`escalation_reason` si pasó a proceso manual.
+  attempts              Int              @default(0)
+  nextAttemptAt         DateTime?        @map("next_attempt_at") @db.Timestamptz
+  lastError             String?          @map("last_error")
+  escalatedAt           DateTime?        @map("escalated_at") @db.Timestamptz
+  escalationReason      String?          @map("escalation_reason")
   capturedAt            DateTime?        @map("captured_at") @db.Timestamptz
   createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz
   hold                  Hold             @relation(fields: [holdId], references: [id])
 
+  @@index([status, nextAttemptAt], map: "settlements_status_next_attempt_idx")
   @@map("settlements")
   @@schema("payments")
 }

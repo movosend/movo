@@ -63,7 +63,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
     async (request: FastifyRequest): Promise<AdminShipmentPage> => {
       requireAdmin(request);
       const query = new URLSearchParams();
-      for (const [key, value] of Object.entries(request.query as Record<string, string | number | undefined>)) {
+      for (const [key, value] of Object.entries(request.query as Record<string, string | number | boolean | undefined>)) {
         if (value !== undefined) query.set(key, String(value));
       }
       return app.shipmentsClient.listAdminShipments(query, { requestId: request.requestId });

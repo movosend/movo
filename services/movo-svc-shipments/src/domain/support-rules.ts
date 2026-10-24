@@ -4,6 +4,7 @@ import {
   SupportConversationItem,
   SupportConversationLastMessage,
   SupportDeliveryStatus,
+  SupportAttachment,
   SupportStatus,
   SupportUserFacingMessage,
 } from "@movo/shared";
@@ -27,6 +28,8 @@ export interface SupportMessageFacts {
   body: string;
   clientMessageId: string | null;
   moderated: boolean;
+  /** MOVO-321: adjuntos asociados al crearlo (no cambia). */
+  attachmentCount: number;
   createdAt: Date;
 }
 
@@ -63,7 +66,9 @@ export function userDeliveryStatus(messageCreatedAt: Date, lastAgentReadAt: Date
 export function toUserFacingMessage(
   record: SupportMessageFacts,
   viewerId: string,
-  lastAgentReadAt: Date | null
+  lastAgentReadAt: Date | null,
+  /** MOVO-321: ya con su URL firmada; quien llama los resuelve (las reglas puras no tocan el storage). */
+  attachments: SupportAttachment[] = []
 ): SupportUserFacingMessage | null {
   if (record.kind === "note") return null;
   const own = record.kind === "user" && record.authorId === viewerId;
@@ -76,7 +81,7 @@ export function toUserFacingMessage(
     clientMessageId: record.clientMessageId,
     moderated: record.kind === "user" ? record.moderated : false,
     deliveryStatus: own ? userDeliveryStatus(record.createdAt, lastAgentReadAt) : null,
-    attachments: [],
+    attachments,
     createdAt: record.createdAt.toISOString(),
   };
 }
@@ -88,7 +93,7 @@ export function toLastMessage(record: SupportMessageFacts | null): SupportConver
     from: record.kind,
     authorName: record.kind === "agent" ? record.authorName : null,
     body: record.body,
-    hasAttachments: false,
+    hasAttachments: record.attachmentCount > 0,
     createdAt: record.createdAt.toISOString(),
   };
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FastifyInstance } from "fastify";
-import { AdminChatPage, AdminShipmentDetail, AdminShipmentPage, HoldDetailResponse } from "@movo/shared";
+import { AdminChatPage, AdminShipmentDetail, AdminShipmentPage, HoldDetailResponse, ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createFakePaymentsClient, createFakeShipmentsClient, createFakeUsersClient } from "./fake-clients";
 
@@ -54,6 +54,12 @@ describe("Envíos para el panel (MOVO-325)", () => {
     items: [detail],
     nextCursor: "cursor-2",
     counts: { all: 8, unassigned: 3, assigning: 1, in_progress: 3, closed: 12, disputes: 1 },
+    statusCounts: {
+      ...(Object.fromEntries(Object.values(ShipmentStatus).map((status) => [status, 0])) as AdminShipmentPage["statusCounts"]),
+      published: 3,
+      in_transit: 2,
+    },
+    alertCounts: { all: 2, unassigned: 0, assigning: 1, in_progress: 1, closed: 0, disputes: 0 },
   };
   const chat: AdminChatPage = {
     items: [{ id: randomUUID(), authorId: sender.id, authorName: "Ana", authorRole: "sender", body: "Hola", moderated: true, createdAt: "2030-01-01T10:00:00.000Z" }],
@@ -106,17 +112,18 @@ describe("Envíos para el panel (MOVO-325)", () => {
   });
 
   it("lista los envíos con sus conteos y reenvía los filtros a svc-shipments", async () => {
-    const res = await get("/admin/shipments?group=closed&city=C%C3%B3rdoba&q=ana&limit=10&cursor=abc");
+    const res = await get("/admin/shipments?group=closed&city=C%C3%B3rdoba&q=ana&alert=true&limit=10&cursor=abc");
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual(page);
     const forwarded = new URLSearchParams(seen.list);
-    expect(Object.fromEntries(forwarded)).toEqual({ group: "closed", city: "Córdoba", q: "ana", limit: "10", cursor: "abc" });
+    expect(Object.fromEntries(forwarded)).toEqual({ group: "closed", city: "Córdoba", q: "ana", alert: "true", limit: "10", cursor: "abc" });
   });
 
   it("rechaza filtros inválidos con 400", async () => {
     expect((await get("/admin/shipments?group=otro")).statusCode).toBe(400);
     expect((await get("/admin/shipments?status=otro")).statusCode).toBe(400);
     expect((await get("/admin/shipments?limit=500")).statusCode).toBe(400);
+    expect((await get("/admin/shipments?alert=quizas")).statusCode).toBe(400);
   });
 
   it("si svc-shipments no responde, el listado es 502", async () => {

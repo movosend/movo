@@ -24,6 +24,7 @@ function message(overrides: Partial<SupportMessageFacts> = {}): SupportMessageFa
     body: "Hola",
     clientMessageId: "55555555-5555-4555-8555-555555555555",
     moderated: false,
+    attachmentCount: 0,
     createdAt: at("2026-10-21T12:00:00.000Z"),
     ...overrides,
   };
@@ -87,6 +88,17 @@ describe("soporte: reglas de dominio (MOVO-320)", () => {
     });
   });
 
+  describe("toUserFacingMessage con adjuntos (MOVO-321)", () => {
+    it("devuelve los adjuntos que le pasan, ya firmados", () => {
+      const attachments = [{ id: "a1", contentType: "image/png" as const, url: "https://firmada" }];
+      expect(toUserFacingMessage(message({ attachmentCount: 1 }), USER, null, attachments)?.attachments).toEqual(attachments);
+    });
+    it("una nota con adjuntos sigue sin llegar al usuario", () => {
+      const attachments = [{ id: "a1", contentType: "image/png" as const, url: "https://firmada" }];
+      expect(toUserFacingMessage(message({ kind: "note", attachmentCount: 1 }), USER, null, attachments)).toBeNull();
+    });
+  });
+
   describe("toLastMessage", () => {
     it("nunca es una nota ni un evento del sistema", () => {
       expect(toLastMessage(message({ kind: "note" }))).toBeNull();
@@ -96,6 +108,9 @@ describe("soporte: reglas de dominio (MOVO-320)", () => {
     it("de un agente trae su nombre; del usuario, no", () => {
       expect(toLastMessage(message({ kind: "agent", authorName: "Lucía" }))).toMatchObject({ from: "agent", authorName: "Lucía" });
       expect(toLastMessage(message())).toMatchObject({ from: "user", authorName: null, hasAttachments: false });
+    });
+    it("marca hasAttachments si el mensaje llevó imágenes (MOVO-321)", () => {
+      expect(toLastMessage(message({ body: "", attachmentCount: 2 }))).toMatchObject({ body: "", hasAttachments: true });
     });
   });
 

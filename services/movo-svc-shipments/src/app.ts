@@ -11,6 +11,7 @@ import realtimePlugin from "./plugins/realtime";
 import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
+import supportAttachmentSweepPlugin from "./plugins/support-attachment-sweep";
 import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
 import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sweep";
 import historyRetentionSweepPlugin from "./plugins/history-retention-sweep";
@@ -21,7 +22,7 @@ import tripDepartureReminderSweepPlugin from "./plugins/trip-departure-reminder-
 import fundingSweepPlugin from "./plugins/funding-sweep";
 import settlementsPlugin from "./plugins/settlements";
 import settlementSweepPlugin from "./plugins/settlement-sweep";
-import settlementRoutes, { SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
+import settlementRoutes, { internalSettlementRoutes, SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
 import fundingRoutes, { internalFundingRoutes, FundingRoutesOptions } from "./modules/funding/funding.routes";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import ledgerOriginsRoutes from "./modules/shipments/ledger-origins.routes";
@@ -41,6 +42,7 @@ import receiverTransfersRoutes, {
   ReceiverTransfersRoutesOptions,
   shipmentReceiverTransferRoutes,
 } from "./modules/receiver-transfers/receiver-transfers.routes";
+import { disputeRoutes, DisputesRoutesOptions, shipmentDisputeRoutes } from "./modules/disputes/disputes.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
 import { UserDeletionClient, UsersClient } from "./adapters/users-client";
 import { PaymentsClient } from "./adapters/payments-client";
@@ -50,6 +52,7 @@ import { NotificationsClient } from "./adapters/notifications-client";
 import { PricingClient } from "./adapters/pricing-client";
 import { PricingLogisticsClient } from "./adapters/pricing-logistics-client";
 import { FundsReleaseNotifier } from "./adapters/funds-release-notifier";
+import { AlertNotifier } from "./adapters/alert-notifier";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -84,6 +87,8 @@ export interface BuildAppOptions {
   sweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
   orphanPhotoSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de adjuntos de soporte huérfanos (MOVO-321). */
+  supportAttachmentSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de retiro vencido en background. */
   pickupExpirySweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de purga de posiciones GPS en
@@ -115,6 +120,10 @@ export interface BuildAppOptions {
   /** Override solo para tests -- canal de tiempo real (MOVO-201/ADR-022), evita
    * depender de Postgres real para probar el rechazo de una conexión WS. */
   shipmentRepository?: ShipmentRepository;
+  /** Override solo para tests -- alerta al equipo al abrirse una disputa (MOVO-334). */
+  alertNotifier?: AlertNotifier;
+  /** Reloj de la ventana para abrir una disputa (MOVO-334, ADR-054), solo tests. */
+  disputesNow?: () => Date;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -172,6 +181,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(orphanPhotoSweepPlugin, {
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
+  });
+  app.register(supportAttachmentSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.supportAttachmentSweepEnabled !== undefined ? { enabled: opts.supportAttachmentSweepEnabled } : {}),
   });
   app.register(pickupExpirySweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
@@ -326,6 +339,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-212 AC10: `GET /shipments/:id/settlement`, el pago del envío según el rol.
   const settlementRouteOpts: SettlementRoutesOptions = { prefix: "/shipments" };
   app.register(settlementRoutes, settlementRouteOpts);
+  // MOVO-213: aviso interno de svc-payments (cobro demorado / acreditado por un reintento).
+  app.register(internalSettlementRoutes, { prefix: "/internal" });
 
   // MOVO-201/ADR-022: canal de tiempo real (@fastify/websocket) -- mismo prefix
   // "/shipments" que shipmentsRoutes/handshakeRoutes. Reemplaza la PoC de MOVO-200 --
@@ -344,6 +359,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
   };
   app.register(positionsRoutes, positionsRouteOpts);
+
+  // MOVO-334 (ADR-054): apertura de disputas (`/shipments/:id/disputes`) y expediente/descargos
+  // (`/disputes/:disputeId`, prefijo propio como `/offers`).
+  const disputesRouteOpts: DisputesRoutesOptions = {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.alertNotifier ? { alertNotifier: opts.alertNotifier } : {}),
+    ...(opts.disputesNow ? { now: opts.disputesNow } : {}),
+  };
+  app.register(shipmentDisputeRoutes, { ...disputesRouteOpts, prefix: "/shipments" });
+  app.register(disputeRoutes, { ...disputesRouteOpts, prefix: "/disputes" });
 
   // Juegos del sitio institucional (/juegos): autenticados por API key en el gateway
   // (prefijo /demo), no por JWT -- ver demo.routes.ts.
@@ -380,6 +406,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const supportRouteOpts: SupportRoutesOptions = {
     prefix: "/support",
     ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.supportNow ? { now: opts.supportNow } : {}),
     ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),

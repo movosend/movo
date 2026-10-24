@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { ShipmentQuoteRequest, ShipmentStatus } from "@movo/shared";
+import { ShipmentQuoteRequest, ShipmentStatus, TripStatus } from "@movo/shared";
+import { TRACKABLE_SHIPMENT_STATUSES } from "../../domain/shipment-state-machine";
 import {
   createShipmentsService,
   CreateShipmentServiceInput,
@@ -22,6 +23,7 @@ import {
 } from "../../adapters/pricing-logistics-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
+import { createPickupEvidenceRepository } from "../../repositories/pickup-evidence-repository";
 import { createTripRepository, TripRepository } from "../../repositories/trip-repository";
 import { createRatingRepository } from "../../repositories/rating-repository";
 import { createRatingsService } from "../ratings/ratings.service";
@@ -209,6 +211,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       settleCancellationPenalty: (shipmentId: string) => app.settlements.settleCancellationPenalty(shipmentId),
       // MOVO-310: registro en línea de la penalidad por bajarse del envío, mismo criterio.
       registerWithdrawalPenalty: (offerId: string) => app.settlements.registerWithdrawalPenalty(offerId),
+      // MOVO-270 (AC13): la llegada del transportista al retiro cambia la cotización con la ventana cerrada.
+      pickupEvidenceRepository: createPickupEvidenceRepository(app.db),
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -652,15 +656,20 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { id } = request.params as { id: string };
       const shipment = await service.getShipmentDetail(id, callerId, callerRoles);
       // MOVO-275: solo las partes del envío (no un transportista que lo está evaluando).
-      const [receiverTransfer, funding] = await Promise.all([
+      const [receiverTransfer, funding, acceptedOffer] = await Promise.all([
         hasShipmentAccess(shipment, callerId, callerRoles)
           ? receiverTransfersService.summaryForShipment(shipment, callerId)
           : Promise.resolve(null),
         fundingService.viewFor(shipment, callerId, {
           formerCarrier: shipment.viewerIsFormerCarrier === true,
         }),
+        // MOVO-270 (AC14): mismo criterio que la ingesta de posiciones (estado trackeable + viaje activo).
+        TRACKABLE_SHIPMENT_STATUSES.includes(shipment.status)
+          ? repository.findAcceptedOfferTrip(shipment.id)
+          : Promise.resolve(null),
       ]);
-      return { ...toShipmentDto(shipment), receiverTransfer, funding };
+      const carrierTripActive = acceptedOffer?.trip?.status === TripStatus.ACTIVE;
+      return { ...toShipmentDto(shipment), receiverTransfer, funding, carrierTripActive };
     }
   );
 

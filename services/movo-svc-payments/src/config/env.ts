@@ -27,6 +27,9 @@ export interface EnvConfig {
   MP_WEBHOOK_MAX_ATTEMPTS: number;
   MP_WEBHOOK_SWEEP_INTERVAL_MINUTES: number;
   MP_WEBHOOK_SWEEP_ENABLED: boolean;
+  SETTLEMENT_RETRY_DELAYS_MINUTES: string;
+  SETTLEMENT_RETRY_SWEEP_ENABLED: boolean;
+  SETTLEMENT_RETRY_SWEEP_INTERVAL_MINUTES: number;
   ALERT_PROVIDER: "console" | "telegram";
   ALERT_TELEGRAM_BOT_TOKEN?: string;
   ALERT_TELEGRAM_CHAT_ID?: string;
@@ -117,9 +120,15 @@ export const envSchema = {
     MP_WEBHOOK_MAX_ATTEMPTS: { type: "number", minimum: 1, default: 10 },
     MP_WEBHOOK_SWEEP_INTERVAL_MINUTES: { type: "number", minimum: 0, default: 1 },
     MP_WEBHOOK_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-213 (AC2): reintentos de una captura fallida tras la entrega. Cada valor es la espera (en minutos)
+    // antes del reintento N; su largo es el máximo de reintentos (3 con el default) y, agotados, la
+    // liquidación pasa a `escalated` y se alerta al equipo. Un fallo que reintentar no arregla escala sin gastarlos.
+    SETTLEMENT_RETRY_DELAYS_MINUTES: { type: "string", default: "5,30,120" },
+    SETTLEMENT_RETRY_SWEEP_ENABLED: { type: "boolean", default: true },
+    SETTLEMENT_RETRY_SWEEP_INTERVAL_MINUTES: { type: "number", minimum: 1, default: 1 },
     // MOVO-268: alertas al equipo (contracargos, holds perdidos con el paquete en camino,
     // notificaciones que no se pudieron procesar). `console` = solo log (dev/test/CI);
-    // `telegram` = además al chat del equipo. La reusa MOVO-213 (liquidación escalada).
+    // `telegram` = además al chat del equipo. La reusa MOVO-213 (`settlement_escalated`).
     ALERT_PROVIDER: { type: "string", enum: ["console", "telegram"], default: "console" },
     ALERT_TELEGRAM_BOT_TOKEN: { type: "string" },
     ALERT_TELEGRAM_CHAT_ID: { type: "string" },

@@ -3,6 +3,7 @@ import { FastifyInstance } from "fastify";
 import { registerSweep } from "./register-sweep";
 import { createShipmentRepository } from "../repositories/shipment-repository";
 import { createOfferRepository } from "../repositories/offer-repository";
+import { createPickupEvidenceRepository } from "../repositories/pickup-evidence-repository";
 import { createUsersClient, UsersClient } from "../adapters/users-client";
 import { createNotificationsClient, NotificationsClient } from "../adapters/notifications-client";
 import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
@@ -22,6 +23,7 @@ export interface PickupMissedSweepPluginOptions {
  * más del margen de gracia (`PICKUP_MISSED_GRACE_HOURS`, 24h). Mismo esqueleto `setInterval`
  * + lock distribuido en Redis que `pickup-expiry-sweep.ts`/`receiver-confirmation-sweep.ts`;
  * la regla de negocio vive en `shipments.service.ts#expireUnpickedAssignedShipments`.
+ * MOVO-270 (ADR-052): atribuye el no-retiro (no llegó / llegó / sin evidencia).
  */
 export default fp(async (app: FastifyInstance, opts: PickupMissedSweepPluginOptions = {}) => {
   const repository = createShipmentRepository(app.db);
@@ -32,6 +34,11 @@ export default fp(async (app: FastifyInstance, opts: PickupMissedSweepPluginOpti
     paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
     // MOVO-210: avisar a los transportistas con ofertas `pending` de una asignación que esperaba el pago.
     offerRepository: createOfferRepository(app.db),
+    // MOVO-270 (ADR-052): atribución del no-retiro con la evidencia GPS del retiro.
+    pickupEvidenceRepository: createPickupEvidenceRepository(app.db),
+    pickupNoShowRatingInviteEnabled: app.config.PICKUP_NO_SHOW_RATING_INVITE_ENABLED ?? false,
+    // Perezoso: `app.settlements` se decora después que este plugin (ver `app.ts`).
+    registerWithdrawalPenalty: (offerId) => app.settlements.registerWithdrawalPenalty(offerId),
   });
 
   registerSweep(app, {

@@ -132,6 +132,15 @@ enum TripStatus {
   @@schema("shipments")
 }
 
+// MOVO-270 (ADR-052): a quién atribuye el barrido de retiro no realizado la cancelación.
+enum PickupMissedAttribution {
+  carrier
+  none
+
+  @@map("pickup_missed_attribution_enum")
+  @@schema("shipments")
+}
+
 // MOVO-104 AC2 + superset acordado con el usuario del DER original
 // (docs/movo_der.dbml): carrier_id/urgent/agreedPriceArs/paymentMethod/
 // deliveredAt/lastStatusChangedAt no estaban en el AC literal pero sí en el
@@ -240,11 +249,13 @@ model Shipment {
   ratings          Rating[]
   handshakeEvents  HandshakeEvent[]
   carrierPositions CarrierPosition[]
+  pickupEvidence   PickupEvidence?
   receiverTransfers ReceiverTransferRequest[]
   chatMessages      ChatMessage[]
   chatStates        ChatParticipantState[]
   chatReports       ChatReport[]
   supportConversations SupportConversation[]
+  disputes          Dispute[]
 
   @@index([senderId], map: "shipments_sender_id_idx")
   @@index([receiverId], map: "shipments_receiver_id_idx")
@@ -283,6 +294,9 @@ model ShipmentEvent {
   // Transportista cuya asignación terminó al volver a published por falta de pago.
   assignmentCarrierId String? @map("assignment_carrier_id") @db.Uuid
   reason     String?
+  // MOVO-270: solo en la cancelación del barrido de retiro no realizado. `carrier` habilita que
+  // el emisor califique al transportista (MOVO-337); NULL en cualquier otra transición.
+  attribution PickupMissedAttribution?
   createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
@@ -383,7 +397,9 @@ model Offer {
   // MOVO-310: el transportista se bajó del envío ya asignado (`carrier_withdrawn`). La penalidad
   // (< 12 h, ADR-047) es deuda en su cuenta corriente: `pending` hasta registrarla en payments,
   // `debt` después. NULL en una baja sin cargo. Vive en la oferta y no en el envío porque el envío
-  // vuelve a `published` y puede tener otra asignación (y otra baja) después.
+  // vuelve a `published` y puede tener otra asignación (y otra baja) después. MOVO-270: también
+  // se usan en un no-retiro atribuido al transportista (ADR-052), con la oferta en
+  // `shipment_cancelled`: `carrierWithdrawnAt` es cuándo el barrido le atribuyó la falta.
   carrierWithdrawnAt      DateTime?                  @map("carrier_withdrawn_at") @db.Timestamptz
   withdrawalPenaltyArs    Decimal?                   @map("withdrawal_penalty_ars") @db.Decimal(12, 2)
   withdrawalPenaltyStatus CancellationPenaltyStatus? @map("withdrawal_penalty_status")
@@ -507,6 +523,9 @@ model CarrierPosition {
   // Timestamp del SERVIDOR al persistir -- ancla real de la cadencia de ~45s y de la
   // retención (AC6/AC8), nunca `capturedAt` (no confiable, viene del cliente).
   recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+  // MOVO-270: flag `mocked` de expo-location (solo Android; NULL si el dispositivo no lo informa).
+  // Una posición simulada se guarda igual, para que quien revise una disputa vea la calidad de la traza.
+  mocked     Boolean?
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   trip     Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
@@ -514,6 +533,35 @@ model CarrierPosition {
   @@index([shipmentId, recordedAt], map: "carrier_positions_shipment_id_recorded_at_idx")
   @@index([tripId, recordedAt], map: "carrier_positions_trip_id_recorded_at_idx")
   @@map("carrier_positions")
+  @@schema("shipments")
+}
+
+// MOVO-270 (ADR-052): evidencia GPS pasiva del retiro de un envío `assigned`, sin guardar la
+// traza (la traza solo se guarda con custodia, ADR-023). Una fila por envío: la llegada se
+// registra una sola vez (`arrivedAt IS NULL` en el UPDATE) y los contadores clasifican cada
+// posición válida dentro de la ventana de retiro como lejana (> 2 km) o zona gris.
+model PickupEvidence {
+  shipmentId String @id @map("shipment_id") @db.Uuid
+
+  // Transportista de la asignación a la que pertenece la evidencia: si el envío se reasigna, la
+  // fila de otro transportista no se lee ni se suma (se descarta al primer registro del nuevo).
+  carrierId String @map("carrier_id") @db.Uuid
+
+  // Timestamp del DISPOSITIVO de la primera posición dentro del radio de llegada.
+  arrivedAt        DateTime? @map("arrived_at") @db.Timestamptz
+  arrivedLat       Decimal?  @map("arrived_lat") @db.Decimal(9, 6)
+  arrivedLng       Decimal?  @map("arrived_lng") @db.Decimal(9, 6)
+  arrivedAccuracyM Decimal?  @map("arrived_accuracy_m") @db.Decimal(8, 2)
+
+  farPositionsInWindow  Int @default(0) @map("far_positions_in_window")
+  grayPositionsInWindow Int @default(0) @map("gray_positions_in_window")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@map("pickup_evidence")
   @@schema("shipments")
 }
 
@@ -538,6 +586,9 @@ model Trip {
   status             TripStatus @default(declared)
 
   cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz
+  // MOVO-270: cuándo pasó a `active` (lo escribe `start()`). NULL en los viajes iniciados antes
+  // de esta columna: para la atribución del no-retiro eso es "sin evidencia", nunca "no inició".
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
 
   // MOVO-265 (ADR-042): recurrencia como atributo del trip. `recurrenceWeekdays` usa
   // 0 = domingo … 6 = sábado (`RECURRENCE_WEEKDAY`, @movo/shared). Prisma no admite listas
@@ -857,6 +908,7 @@ model SupportConversation {
   shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
   messages SupportMessage[]
   states   SupportParticipantState[]
+  attachments SupportAttachment[]
 
   @@index([userId, lastMessageAt(sort: Desc), id], map: "support_conversations_user_last_message_idx")
   @@index([status, lastMessageAt], map: "support_conversations_status_last_message_idx")
@@ -878,15 +930,64 @@ model SupportMessage {
   clientMessageId String?           @map("client_message_id") @db.Uuid
   // El filtro de lenguaje tapó alguna palabra de `body` (solo mensajes del usuario).
   moderated      Boolean            @default(false)
+  // MOVO-321: cuántos adjuntos se asociaron al crearlo (se fija en la misma transacción y no cambia). Alimenta
+  // `lastMessage.hasAttachments` sin un JOIN contra `support_attachments`.
+  attachmentCount Int               @default(0) @map("attachment_count")
   createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
 
   conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments  SupportAttachment[]
 
   // Además, un índice único parcial (autor, clientMessageId) WHERE kind = 'user', escrito a mano en la
   // migración: hace atómica la idempotencia de `POST /support/conversations`, que todavía no tiene conversación.
   @@unique([conversationId, clientMessageId], map: "support_messages_conversation_client_key")
   @@index([conversationId, createdAt, id], map: "support_messages_conversation_created_at_idx")
   @@map("support_messages")
+  @@schema("shipments")
+}
+
+// MOVO-321: quién subió un adjunto. Un adjunto del usuario solo lo usa el usuario y uno del agente solo un agente.
+enum SupportAttachmentUploader {
+  user
+  staff
+
+  @@map("support_attachment_uploader_enum")
+  @@schema("shipments")
+}
+
+// MOVO-321: imagen adjunta a un mensaje de soporte (S3 privado, ADR-007). Se crea al pedir la URL de subida, sin
+// mensaje; al enviar el mensaje se asocia una sola vez (`message_id` pasa de nulo a fijo y no cambia más). Las que
+// nunca se asocian las borra el sweep de huérfanos. La key vive en `support/<conversationId>/…` o, si se subió antes
+// de que existiera la consulta, en `support/pending/<userId>/…`, y no se mueve al asociarla.
+model SupportAttachment {
+  id             String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Referencia lógica a users.users (sin FK real, ADR-003).
+  uploaderId     String                    @map("uploader_id") @db.Uuid
+  uploaderKind   SupportAttachmentUploader @map("uploader_kind")
+  // Nulo solo mientras es de la primera consulta del usuario y todavía no se envió.
+  conversationId String?                   @map("conversation_id") @db.Uuid
+  messageId      String?                   @map("message_id") @db.Uuid
+  // Orden dentro del mensaje (el de `attachmentIds`).
+  position       Int?
+  s3Key          String                    @unique(map: "support_attachments_s3_key_key") @map("s3_key")
+  contentType    String                    @map("content_type")
+  sizeBytes      Int                       @map("size_bytes")
+  width          Int?
+  height         Int?
+  createdAt      DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+  // El sweep lo marcó para borrar: ya no se puede asociar. La fila se borra recién cuando S3 confirmó el borrado del
+  // objeto; si S3 falla, la marca queda y la próxima corrida reintenta.
+  deletingAt     DateTime?                 @map("deleting_at") @db.Timestamptz
+
+  conversation SupportConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      SupportMessage?      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  // Además, un índice parcial (created_at) WHERE message_id IS NULL para el sweep, escrito a mano en la migración.
+  @@index([messageId, position], map: "support_attachments_message_idx")
+  // El cascade al borrar una consulta y el tope de pendientes por usuario.
+  @@index([conversationId], map: "support_attachments_conversation_idx")
+  @@index([uploaderId], map: "support_attachments_uploader_idx")
+  @@map("support_attachments")
   @@schema("shipments")
 }
 
@@ -915,5 +1016,102 @@ model UserDisplayName {
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
   @@map("user_display_names")
+  @@schema("shipments")
+}
+
+// MOVO-334 (ADR-054): entidad de disputa. Antes una disputa era solo el estado `disputed` del
+// envío más el `from_status` de su evento. Los campos de resolución los agrega MOVO-34.
+enum DisputeReason {
+  damaged
+  not_delivered
+  wrong_delivery
+  other
+  transit_anomaly
+  pickup_no_show
+
+  @@map("dispute_reason_enum")
+  @@schema("shipments")
+}
+
+enum DisputeStatus {
+  open
+  resolved
+
+  @@map("dispute_status_enum")
+  @@schema("shipments")
+}
+
+enum DisputePartyRole {
+  sender
+  receiver
+  carrier
+
+  @@map("dispute_party_role_enum")
+  @@schema("shipments")
+}
+
+enum DisputeStatementKind {
+  statement
+  amendment
+
+  @@map("dispute_statement_kind_enum")
+  @@schema("shipments")
+}
+
+// Una sola disputa `open` por envío: índice único parcial agregado a mano en la migración
+// (`disputes_shipment_open_key`), Prisma no los representa.
+model Dispute {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId   String            @map("shipment_id") @db.Uuid
+  // NULL: la abrió un barrido del sistema (`transit_anomaly`, `pickup_no_show`).
+  openedBy     String?           @map("opened_by") @db.Uuid
+  openedByRole DisputePartyRole? @map("opened_by_role")
+  reason       DisputeReason
+  description  String
+  status       DisputeStatus     @default(open)
+  openedAt     DateTime          @default(now()) @map("opened_at") @db.Timestamptz
+
+  shipment   Shipment           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  statements DisputeStatement[]
+  photos     DisputePhoto[]
+
+  @@index([shipmentId], map: "disputes_shipment_id_idx")
+  @@index([status], map: "disputes_status_idx")
+  @@map("disputes")
+  @@schema("shipments")
+}
+
+// Descargo de una parte que no abrió (`statement`) o ampliación única de quien abrió
+// (`amendment`). El único por (disputa, autor, tipo) es el 409 de un segundo intento.
+model DisputeStatement {
+  id         String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  disputeId  String               @map("dispute_id") @db.Uuid
+  authorId   String               @map("author_id") @db.Uuid
+  authorRole DisputePartyRole     @map("author_role")
+  kind       DisputeStatementKind
+  text       String
+  createdAt  DateTime             @default(now()) @map("created_at") @db.Timestamptz
+
+  dispute Dispute        @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  photos  DisputePhoto[]
+
+  @@unique([disputeId, authorId, kind], map: "dispute_statements_dispute_author_kind_key")
+  @@map("dispute_statements")
+  @@schema("shipments")
+}
+
+// Solo la referencia a S3 (ADR-007). `statement_id` NULL: foto de la apertura.
+model DisputePhoto {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  disputeId   String   @map("dispute_id") @db.Uuid
+  statementId String?  @map("statement_id") @db.Uuid
+  s3Key       String   @unique(map: "dispute_photos_s3_key_key") @map("s3_key")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  dispute   Dispute           @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  statement DisputeStatement? @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId], map: "dispute_photos_dispute_id_idx")
+  @@map("dispute_photos")
   @@schema("shipments")
 }

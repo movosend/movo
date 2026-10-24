@@ -75,6 +75,9 @@ export interface ShipmentSummary {
    * mira le pasó la recepción a otra persona (solo lectura), la solicitud pendiente
    * (solo para quien la pidió y el emisor) y la transferencia completada. */
   receiverTransfer?: ShipmentReceiverTransferSummary | null;
+  /** MOVO-270: solo en `GET /shipments/:id` — el envío está `assigned`/`in_transit` y el viaje
+   * del transportista ya está activo: su ubicación se difunde desde ahí, también antes del retiro. */
+  carrierTripActive?: boolean;
   /** MOVO-275: solo en `GET /shipments/mine` — el usuario le pasó la recepción de este
    * envío a otra persona (badge "Transferido"). `null` en cualquier otro caso. */
   transferredByMe?: { newReceiverId: string; newReceiverName: string | null; at: string } | null;
@@ -590,6 +593,8 @@ export interface BatchPositionItemInput {
   lng: number;
   accuracyM: number;
   capturedAt: string;
+  /** MOVO-270: `mocked` de expo-location (solo Android, opcional). */
+  mocked?: boolean;
 }
 
 export type BatchPositionRejectionCode =

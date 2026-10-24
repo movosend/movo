@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
+import type { SettlementEventRequest } from "@movo/shared";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { settlementSchemas } from "./settlements.schema";
 
@@ -35,6 +36,35 @@ export default async function settlementRoutes(app: FastifyInstance, _opts: Sett
       const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
       return service.getForUser(id, callerId);
+    }
+  );
+}
+
+/**
+ * MOVO-213: aviso INTERNO de `svc-payments` sobre la liquidación de un envío entregado
+ * (`POST /internal/shipments/:id/settlement-events`). Sin ruta en el gateway (ADR-010) ni `x-user-id`: el caller
+ * es otro servicio. `credited`: un reintento acreditó el cobro, el envío pasa a `completed`. `delayed`: el cobro
+ * quedó en revisión manual, se avisa al transportista.
+ */
+export async function internalSettlementRoutes(app: FastifyInstance) {
+  app.post(
+    "/shipments/:id/settlement-events",
+    {
+      schema: {
+        hide: true,
+        params: settlementSchemas.shipmentIdParam,
+        body: settlementSchemas.settlementEventBody,
+        response: {
+          200: settlementSchemas.settlementEventResponse,
+          404: settlementSchemas.errorResponse,
+          502: settlementSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const { id } = request.params as { id: string };
+      const { event } = request.body as SettlementEventRequest;
+      return app.settlements.handleSettlementEvent(id, event);
     }
   );
 }

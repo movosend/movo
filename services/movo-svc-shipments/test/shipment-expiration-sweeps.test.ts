@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ShipmentStatus } from "@movo/shared";
+import { DisputeReason, ShipmentStatus } from "@movo/shared";
 import { createShipmentsService } from "../src/modules/shipments/shipments.service";
 import { ShipmentConcurrentModificationError, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { OfferRepository } from "../src/repositories/offer-repository";
 import { Shipment, PackageType } from "../src/models/shipment";
 import { createFakeUsersClient } from "./fake-users-client";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
+import { PickupEvidenceRepository } from "../src/repositories/pickup-evidence-repository";
+import { PickupEvidenceSummary } from "../src/domain/pickup-attribution";
+import { TripStatus } from "@movo/shared";
 
 const NOW = new Date("2026-09-25T18:00:00.000Z"); // 15:00 AR del 25/09
 
@@ -84,14 +87,14 @@ describe("expireUnpickedAssignedShipments (MOVO-258, D1)", () => {
 
     const result = await service.expireUnpickedAssignedShipments(50);
 
-    expect(result).toEqual({ expiredCount: 1, errorsCount: 0 });
+    expect(result).toEqual({ expiredCount: 1, disputedCount: 0, errorsCount: 0 });
     expect(repository.findPotentiallyPickupMissed).toHaveBeenCalledWith(50);
     expect(repository.updateStatus).toHaveBeenCalledWith(
       "s-1",
       ShipmentStatus.CANCELLED,
       null,
       "El retiro no se realizó dentro del plazo (ventana de retiro más margen de gracia)",
-      { expectedFrom: overdue.status }
+      { expectedFrom: overdue.status, pickupMiss: { attribution: "none", carrierPenaltyArs: 0 } }
     );
     await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalledTimes(3));
     const recipients = (notifications.sendPush as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0].userId);
@@ -103,7 +106,7 @@ describe("expireUnpickedAssignedShipments (MOVO-258, D1)", () => {
     const repository = repo({ findPotentiallyPickupMissed: vi.fn().mockResolvedValue([inGrace]) });
     const service = createShipmentsService(repository, createFakeUsersClient({}));
 
-    expect(await service.expireUnpickedAssignedShipments()).toEqual({ expiredCount: 0, errorsCount: 0 });
+    expect(await service.expireUnpickedAssignedShipments()).toEqual({ expiredCount: 0, disputedCount: 0, errorsCount: 0 });
     expect(repository.updateStatus).not.toHaveBeenCalled();
   });
 
@@ -126,7 +129,7 @@ describe("expireUnpickedAssignedShipments (MOVO-258, D1)", () => {
     });
     const service = createShipmentsService(repository, createFakeUsersClient({}));
 
-    expect(await service.expireUnpickedAssignedShipments()).toEqual({ expiredCount: 1, errorsCount: 1 });
+    expect(await service.expireUnpickedAssignedShipments()).toEqual({ expiredCount: 1, disputedCount: 0, errorsCount: 1 });
   });
 });
 
@@ -406,7 +409,16 @@ describe("salida del in_transit demorado (MOVO-278, ADR-045)", () => {
         ShipmentStatus.DISPUTED,
         null,
         expect.stringContaining("no se confirmó"),
-        { expectedFrom: ShipmentStatus.IN_TRANSIT }
+        {
+          expectedFrom: ShipmentStatus.IN_TRANSIT,
+          // MOVO-334: disputa de sistema con la entidad nueva.
+          dispute: {
+            openedBy: null,
+            openedByRole: null,
+            reason: DisputeReason.TRANSIT_ANOMALY,
+            description: expect.stringContaining("no se confirmó"),
+          },
+        }
       );
       await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalledTimes(3));
       const userIds = (notifications.sendPush as ReturnType<typeof vi.fn>).mock.calls.map(([input]) => input.userId);
@@ -488,5 +500,130 @@ describe("salida del in_transit demorado (MOVO-278, ADR-045)", () => {
 
       expect(await service.disputeOverdueFlaggedShipments()).toEqual({ disputedCount: 1, errorsCount: 1 });
     });
+  });
+});
+
+describe("expireUnpickedAssignedShipments: atribución del no-retiro (MOVO-270, ADR-052)", () => {
+  const assigned = () => shipment({ status: ShipmentStatus.ASSIGNED, agreedPriceArs: 1000 });
+
+  function evidenceRepo(summary: PickupEvidenceSummary | null): PickupEvidenceRepository {
+    return { record: vi.fn(), find: vi.fn().mockResolvedValue(summary) };
+  }
+
+  function setup(options: {
+    trip: { status: TripStatus; startedAt: Date | null } | null;
+    evidence: PickupEvidenceSummary | null;
+    ratingInvite?: boolean;
+  }) {
+    const repository = repo({
+      findPotentiallyPickupMissed: vi.fn().mockResolvedValue([assigned()]),
+      findAcceptedOfferTrip: vi.fn().mockResolvedValue({
+        offerId: "offer-1",
+        trip: options.trip ? { id: "trip-1", ...options.trip } : null,
+      }),
+    });
+    const notifications = createFakeNotificationsClient();
+    const paymentsClient = { releaseHold: vi.fn().mockResolvedValue(undefined) };
+    const registerWithdrawalPenalty = vi.fn().mockResolvedValue("debt");
+    const service = createShipmentsService(repository, createFakeUsersClient({}), notifications, undefined, {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- solo se usa `releaseHold`
+      paymentsClient: paymentsClient as any,
+      pickupEvidenceRepository: evidenceRepo(options.evidence),
+      registerWithdrawalPenalty,
+      pickupNoShowRatingInviteEnabled: options.ratingInvite ?? false,
+    });
+    return { service, repository, notifications, paymentsClient, registerWithdrawalPenalty };
+  }
+
+  const noEvidence: PickupEvidenceSummary = { arrivedAt: null, farPositionsInWindow: 0, grayPositionsInWindow: 0 };
+
+  it("AC8: viaje nunca iniciado -> cancela atribuido al transportista, con la penalidad de baja", async () => {
+    const { service, repository, paymentsClient, registerWithdrawalPenalty, notifications } = setup({
+      trip: { status: TripStatus.DECLARED, startedAt: null },
+      evidence: null,
+    });
+
+    expect(await service.expireUnpickedAssignedShipments()).toEqual({ expiredCount: 1, disputedCount: 0, errorsCount: 0 });
+    expect(paymentsClient.releaseHold).toHaveBeenCalledWith("s-1");
+    expect(repository.updateStatus).toHaveBeenCalledWith(
+      "s-1",
+      ShipmentStatus.CANCELLED,
+      null,
+      expect.stringContaining("no se presentó"),
+      { expectedFrom: ShipmentStatus.ASSIGNED, pickupMiss: { attribution: "carrier", carrierPenaltyArs: 250 } }
+    );
+    expect(registerWithdrawalPenalty).toHaveBeenCalledWith("offer-1");
+    await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalledTimes(3));
+    const toSender = (notifications.sendPush as ReturnType<typeof vi.fn>).mock.calls.find((c) => c[0].userId === "sender-1")![0];
+    expect(toSender.body).toContain("no se presentó");
+    expect(toSender.data.rateCarrier).toBeUndefined();
+  });
+
+  it("AC8: 3 posiciones lejanas sin zona gris -> no llegó; AC12: con el flag invita a calificar", async () => {
+    const { service, repository, notifications } = setup({
+      trip: { status: TripStatus.ACTIVE, startedAt: new Date("2026-09-23T10:00:00.000Z") },
+      evidence: { ...noEvidence, farPositionsInWindow: 3 },
+      ratingInvite: true,
+    });
+
+    await service.expireUnpickedAssignedShipments();
+
+    expect(vi.mocked(repository.updateStatus).mock.calls[0][4]).toMatchObject({ pickupMiss: { attribution: "carrier" } });
+    await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalledTimes(3));
+    const toSender = (notifications.sendPush as ReturnType<typeof vi.fn>).mock.calls.find((c) => c[0].userId === "sender-1")![0];
+    expect(toSender.data.rateCarrier).toBe(true);
+  });
+
+  it("AC9: llegó y no hubo handshake -> libera el hold y pasa a disputa, sin cobrar nada", async () => {
+    const { service, repository, paymentsClient, registerWithdrawalPenalty, notifications } = setup({
+      trip: { status: TripStatus.ACTIVE, startedAt: new Date("2026-09-23T10:00:00.000Z") },
+      evidence: { ...noEvidence, arrivedAt: new Date("2026-09-23T13:30:00.000Z") },
+    });
+
+    expect(await service.expireUnpickedAssignedShipments()).toEqual({ expiredCount: 0, disputedCount: 1, errorsCount: 0 });
+    expect(paymentsClient.releaseHold).toHaveBeenCalledWith("s-1");
+    expect(repository.updateStatus).toHaveBeenCalledWith("s-1", ShipmentStatus.DISPUTED, null, expect.any(String), {
+      expectedFrom: ShipmentStatus.ASSIGNED,
+      // MOVO-334: disputa de sistema que no bloquea al transportista.
+      dispute: { openedBy: null, openedByRole: null, reason: DisputeReason.PICKUP_NO_SHOW, description: expect.any(String) },
+    });
+    expect(registerWithdrawalPenalty).not.toHaveBeenCalled();
+    expect(notifications.sendPush).toHaveBeenCalledTimes(3);
+  });
+
+  it("AC9: si no se puede liberar el hold no transiciona (se reintenta en la próxima corrida)", async () => {
+    const { service, repository, paymentsClient } = setup({
+      trip: { status: TripStatus.ACTIVE, startedAt: new Date("2026-09-23T10:00:00.000Z") },
+      evidence: { ...noEvidence, arrivedAt: new Date("2026-09-23T13:30:00.000Z") },
+    });
+    paymentsClient.releaseHold.mockRejectedValueOnce(new Error("payments caído"));
+
+    expect(await service.expireUnpickedAssignedShipments()).toEqual({ expiredCount: 0, disputedCount: 0, errorsCount: 1 });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["viaje activo sin posiciones", { status: TripStatus.ACTIVE, startedAt: new Date("2026-09-23T10:00:00.000Z") }, noEvidence],
+    ["una posición en zona gris", { status: TripStatus.ACTIVE, startedAt: new Date("2026-09-23T10:00:00.000Z") }, { ...noEvidence, farPositionsInWindow: 5, grayPositionsInWindow: 1 }],
+    ["viaje iniciado antes de MOVO-270 (startedAt null)", { status: TripStatus.ACTIVE, startedAt: null }, noEvidence],
+  ])("AC10: %s -> sin evidencia, cancela sin culpables", async (_label, trip, evidence) => {
+    const { service, repository, registerWithdrawalPenalty } = setup({ trip, evidence });
+
+    await service.expireUnpickedAssignedShipments();
+
+    expect(vi.mocked(repository.updateStatus).mock.calls[0][4]).toMatchObject({
+      pickupMiss: { attribution: "none", carrierPenaltyArs: 0 },
+    });
+    expect(registerWithdrawalPenalty).not.toHaveBeenCalled();
+  });
+
+  it("un retiro concurrente gana: el envío se saltea sin contar como error", async () => {
+    const { service, repository } = setup({
+      trip: { status: TripStatus.ACTIVE, startedAt: new Date("2026-09-23T10:00:00.000Z") },
+      evidence: { ...noEvidence, arrivedAt: new Date("2026-09-23T13:30:00.000Z") },
+    });
+    vi.mocked(repository.updateStatus).mockRejectedValueOnce(new ShipmentConcurrentModificationError("s-1"));
+
+    expect(await service.expireUnpickedAssignedShipments()).toEqual({ expiredCount: 0, disputedCount: 0, errorsCount: 0 });
   });
 });

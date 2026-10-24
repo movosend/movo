@@ -346,7 +346,7 @@ export function createAdminUsersService(deps: AdminUsersServiceDeps) {
     /** Reportes y bloqueos en las dos direcciones: cada lista con las más recientes, `totals` con todas. */
     async getModeration(id: string): Promise<AdminUserModeration> {
       await assertExists(id);
-      const party = { select: { id: true, firstName: true, lastName: true } } as const;
+      const party = { select: { id: true, firstName: true, lastName: true, photoUrl: true } } as const;
       const reportInclude = {
         reporter: party,
         reported: party,
@@ -372,7 +372,7 @@ export function createAdminUsersService(deps: AdminUsersServiceDeps) {
         id: row.id,
         reason: row.reason,
         status: row.status,
-        counterpart: { id: counterpart.id, fullName: fullName(counterpart) },
+        counterpart: { id: counterpart.id, fullName: fullName(counterpart), photoUrl: counterpart.photoUrl },
         details: row.details,
         createdAt: row.createdAt.toISOString(),
         extraEntries: row._count.entries,
@@ -386,8 +386,8 @@ export function createAdminUsersService(deps: AdminUsersServiceDeps) {
           made: made.map((row) => toReport(row, row.reported)),
         },
         blocks: {
-          made: blocksMade.map((row) => ({ user: { id: row.blocked.id, fullName: fullName(row.blocked) }, createdAt: row.createdAt.toISOString() })),
-          received: blocksReceived.map((row) => ({ user: { id: row.blocker.id, fullName: fullName(row.blocker) }, createdAt: row.createdAt.toISOString() })),
+          made: blocksMade.map((row) => ({ user: { id: row.blocked.id, fullName: fullName(row.blocked), photoUrl: row.blocked.photoUrl }, createdAt: row.createdAt.toISOString() })),
+          received: blocksReceived.map((row) => ({ user: { id: row.blocker.id, fullName: fullName(row.blocker), photoUrl: row.blocker.photoUrl }, createdAt: row.createdAt.toISOString() })),
         },
         totals: { reportsReceived: totals[0], reportsMade: totals[1], blocksMade: totals[2], blocksReceived: totals[3] },
       };

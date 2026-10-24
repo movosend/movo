@@ -300,7 +300,7 @@ describe("Soporte al usuario (MOVO-320)", () => {
       expect(await app.db.supportMessage.count()).toBe(1);
     });
 
-    it("rechaza un texto vacío, un tema inválido y adjuntos (todavía no existen)", async () => {
+    it("rechaza un texto vacío, un tema inválido y un adjunto inexistente", async () => {
       const userId = randomUUID();
       expect((await open(userId, { body: "   " })).statusCode).toBe(400);
       expect((await open(userId, { topic: "otro" as SupportTopic })).statusCode).toBe(400);

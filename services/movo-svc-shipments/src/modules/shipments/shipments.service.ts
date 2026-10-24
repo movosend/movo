@@ -3,6 +3,7 @@ import {
   ApiError,
   CarrierDebtDiscount,
   CancellationQuoteResponse,
+  DisputeReason,
   CarrierRoute,
   HoldDetailResponse,
   LIVE_HOLD_STATUSES,
@@ -23,6 +24,7 @@ import {
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentConcurrentModificationError, ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
+import { PickupEvidenceRepository } from "../../repositories/pickup-evidence-repository";
 import { TripRepository } from "../../repositories/trip-repository";
 import { Trip } from "../../models/trip";
 import { RatingRepository } from "../../repositories/rating-repository";
@@ -48,6 +50,7 @@ import { DEFAULT_PACKAGE_LIMITS, PackageLimits, packageLimitViolations } from ".
 import { isPickupMissed, isTransitAnomalous, isTransitAnomalyDeadlinePassed } from "../../domain/expiration";
 import { quoteShipment } from "./shipment-quote";
 import { quoteCarrierWithdrawal, quoteShipmentCancellation } from "../../domain/cancellation-penalty";
+import { attributePickupMiss, PickupMissAttribution } from "../../domain/pickup-attribution";
 import { canTransition } from "../../domain/shipment-state-machine";
 import { QuoteStore, quoteFingerprint } from "./quote-store";
 import {
@@ -967,6 +970,87 @@ async function dispatchPickupMissedPushes(
   );
 }
 
+/** MOVO-270 (ADR-052): retiro no realizado atribuido al transportista. El emisor recibe el aviso
+ * de que no se presentó (con invitación a calificar si `rateCarrier`), el receptor el neutro de
+ * siempre y el transportista uno propio (la penalidad le llega aparte, desde `registerWithdrawalPenalty`). */
+async function dispatchPickupNoShowPushes(
+  notificationsClient: NotificationsClient,
+  logger: SweepLogger,
+  shipment: Shipment,
+  rateCarrier: boolean
+): Promise<void> {
+  const sends: Array<{ userId: string | null; title: string; body: string; category: ReturnType<typeof notificationTriggerCategory>; data: Record<string, unknown> }> = [
+    {
+      userId: shipment.senderId,
+      ...renderNotificationTrigger("pickupNoShowSender", { rateCarrier }),
+      category: notificationTriggerCategory("pickupNoShowSender"),
+      data: { shipmentId: shipment.id, type: "shipment_cancelled", ...(rateCarrier ? { rateCarrier: true } : {}) },
+    },
+    {
+      userId: shipment.receiverId,
+      ...renderNotificationTrigger("shipmentCancelledPickupMissedReceiver", undefined),
+      category: notificationTriggerCategory("shipmentCancelledPickupMissedReceiver"),
+      data: { shipmentId: shipment.id, type: "shipment_cancelled" },
+    },
+    {
+      userId: shipment.carrierId,
+      ...renderNotificationTrigger("pickupNoShowCarrier", undefined),
+      category: notificationTriggerCategory("pickupNoShowCarrier"),
+      data: { shipmentId: shipment.id, type: "shipment_cancelled" },
+    },
+  ];
+  await Promise.all(
+    sends.map(async ({ userId, ...push }) => {
+      if (!userId) return;
+      try {
+        await notificationsClient.sendPush({ userId, ...push });
+      } catch (err) {
+        logger?.warn(
+          { err, event: "notification_dispatch_failed", shipmentId: shipment.id, userId },
+          "No se pudo enviar la push de no-retiro atribuido al transportista"
+        );
+      }
+    })
+  );
+}
+
+/** MOVO-270 (ADR-052): el transportista llegó al retiro y no hubo handshake -- el envío pasó a
+ * disputa. Avisa a las tres partes, cada una con su copy. Un fallo de una push no frena a las otras. */
+async function dispatchPickupDisputePushes(
+  notificationsClient: NotificationsClient,
+  logger: SweepLogger,
+  shipment: Shipment
+): Promise<void> {
+  const targets: Array<{
+    userId: string | null;
+    trigger: "pickupDisputeOpenedSender" | "pickupDisputeOpenedReceiver" | "pickupDisputeOpenedCarrier";
+  }> = [
+    { userId: shipment.senderId, trigger: "pickupDisputeOpenedSender" },
+    { userId: shipment.receiverId, trigger: "pickupDisputeOpenedReceiver" },
+    { userId: shipment.carrierId, trigger: "pickupDisputeOpenedCarrier" },
+  ];
+  await Promise.all(
+    targets.map(async ({ userId, trigger }) => {
+      if (!userId) return;
+      try {
+        const { title, body } = renderNotificationTrigger(trigger, undefined);
+        await notificationsClient.sendPush({
+          userId,
+          title,
+          body,
+          category: notificationTriggerCategory(trigger),
+          data: { shipmentId: shipment.id, type: "shipment" },
+        });
+      } catch (err) {
+        logger?.warn(
+          { err, event: "notification_dispatch_failed", shipmentId: shipment.id, userId },
+          "No se pudo enviar la push de disputa por retiro no realizado"
+        );
+      }
+    })
+  );
+}
+
 /** MOVO-108 (AC7) / MOVO-210: el envío se canceló -- avisa a cada transportista cuya oferta
  * quedó sin efecto (las `pending` vigentes y, antes de confirmarse el hold, el asignado). Un
  * fallo de una push nunca frena a las otras. MOVO-281: viaja como `offer_voided` con el
@@ -1236,6 +1320,16 @@ export interface ShipmentsServiceOptions {
    * queda `pending` hasta el barrido.
    */
   registerWithdrawalPenalty?: (offerId: string) => Promise<unknown>;
+  /**
+   * MOVO-270 (ADR-052): evidencia GPS del retiro. La usan el barrido de retiro no realizado (sin
+   * ella atribuye todo como "sin evidencia", salvo el viaje nunca iniciado) y la cotización de la
+   * cancelación del emisor (AC13).
+   */
+  pickupEvidenceRepository?: PickupEvidenceRepository;
+  /** MOVO-270 (AC12): la push al emisor de un no-retiro atribuido invita a calificar al
+   * transportista. Apagado hasta que MOVO-337 habilite calificar envíos no entregados
+   * (`PICKUP_NO_SHOW_RATING_INVITE_ENABLED`). */
+  pickupNoShowRatingInviteEnabled?: boolean;
 }
 
 export type ShipmentsService = ReturnType<typeof createShipmentsService>;
@@ -1260,6 +1354,12 @@ export function createShipmentsService(
   const getCarrierReputationScore = opts.getCarrierReputationScore;
   const getSenderReputationScore = opts.getSenderReputationScore;
   const tripRepository = opts.tripRepository;
+
+  /** MOVO-270 (AC13): ¿hay evidencia GPS de que el transportista llegó al retiro? Solo importa en `assigned`. */
+  async function carrierArrivedAtPickup(shipment: Shipment): Promise<boolean> {
+    if (shipment.status !== ShipmentStatus.ASSIGNED || !shipment.carrierId || !opts.pickupEvidenceRepository) return false;
+    return Boolean((await opts.pickupEvidenceRepository.find(shipment.id, shipment.carrierId))?.arrivedAt);
+  }
   const ratingRepository = opts.ratingRepository;
   const tripMatchDetourRadiusKm = opts.tripMatchDetourRadiusKm;
   const quoteStore = opts.quoteStore;
@@ -2189,7 +2289,7 @@ export function createShipmentsService(
       if (!canTransition(shipment.status, ShipmentStatus.CANCELLED)) {
         throw new ApiError(409, "SHIPMENT_INVALID_TRANSITION", "Este envío ya no se puede cancelar.");
       }
-      const quote = quoteShipmentCancellation(shipment);
+      const quote = quoteShipmentCancellation(shipment, new Date(), await carrierArrivedAtPickup(shipment));
       return {
         penaltyArs: quote.penaltyArs,
         reason: quote.reason,
@@ -2231,7 +2331,10 @@ export function createShipmentsService(
 
       // MOVO-307: la penalidad se calcula acá y se compara con la que confirmó el emisor.
       // `SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED` deja de usarse (sigue en el contrato).
-      const penaltyArs = shipment.status === ShipmentStatus.ASSIGNED ? quoteShipmentCancellation(shipment).penaltyArs : 0;
+      const penaltyArs =
+        shipment.status === ShipmentStatus.ASSIGNED
+          ? quoteShipmentCancellation(shipment, new Date(), await carrierArrivedAtPickup(shipment)).penaltyArs
+          : 0;
       if (shipment.status === ShipmentStatus.ASSIGNED && Math.round((expectedPenaltyArs ?? 0) * 100) !== Math.round(penaltyArs * 100)) {
         throw new ApiError(
           409,
@@ -2668,28 +2771,37 @@ export function createShipmentsService(
     },
 
     /**
-     * MOVO-258 (D1/D2): cancela los envíos con transportista asignado (`assignment_pending`/
-     * `assigned_unfunded`/`assigned`) cuya ventana de retiro efectiva (la acordada, ya
-     * copiada al envío por `acceptOffer`, D3) cerró hace más del margen de gracia. Sin
-     * culpables: el sistema no sabe si faltó el transportista o el emisor no entregó, así
-     * que no toca reputación ni penaliza (D2 -- quién faltó por geolocalización queda para
-     * un ticket aparte). Avisa a las tres partes. Al cancelar, `updateStatus` cierra las
-     * ofertas (D7) y el viaje se destraba solo (`ACCEPTED_OFFER_FILTER`).
+     * MOVO-258 (D1): cierra los envíos con transportista asignado (`assignment_pending`/
+     * `assigned_unfunded`/`assigned`) cuya ventana de retiro efectiva (la acordada, ya copiada al
+     * envío por `acceptOffer`, D3) cerró hace más del margen de gracia. Al cancelar, `updateStatus`
+     * cierra las ofertas (D7) y el viaje se destraba solo (`ACCEPTED_OFFER_FILTER`).
      *
-     * Libera el hold de fondos (MOVO-210, `paymentsClient`): desde `assigned` ANTES de cancelar
-     * (si no se puede confirmar la liberación el envío no se cancela en esa vuelta y se
-     * reintenta en la siguiente, en vez de dejar fondos del emisor retenidos sin envío); desde
-     * `assignment_pending`/`assigned_unfunded` DESPUÉS, misma razón que `cancelShipment`. En
-     * esos dos estados las demás ofertas siguen `pending` (se cierran recién al confirmarse el
-     * hold), así que también se avisa a esos transportistas (con `offerRepository` inyectado).
+     * MOVO-270 (ADR-052) reemplaza el "sin culpables" de D2 por una atribución con evidencia GPS
+     * (`attributePickupMiss`), solo para `assigned`:
+     * - **no llegó**: cancela con `attribution: carrier` y la penalidad de baja de ADR-047 como
+     *   deuda del transportista (`pending` en la oferta en la misma transacción, la reintenta el
+     *   barrido de liquidaciones si el registro en línea falla);
+     * - **llegó y no hubo handshake**: pasa a `disputed` (no cobra nada; no bloquea al transportista);
+     * - **sin evidencia**: cancela sin culpables, como antes (`attribution: none`).
+     *
+     * Libera el hold de fondos (MOVO-210, `paymentsClient`): desde `assigned` ANTES de transicionar
+     * (si no se puede confirmar la liberación el envío no se toca en esa vuelta y se reintenta en la
+     * siguiente, en vez de dejar fondos del emisor retenidos sin envío -- también al pasar a
+     * disputa: `disputed` no tiene salida hasta MOVO-34); desde `assignment_pending`/
+     * `assigned_unfunded` DESPUÉS, misma razón que `cancelShipment`. En esos dos estados las demás
+     * ofertas siguen `pending` (se cierran recién al confirmarse el hold), así que también se avisa
+     * a esos transportistas (con `offerRepository` inyectado).
      */
-    async expireUnpickedAssignedShipments(batchSize = 100): Promise<{ expiredCount: number; errorsCount: number }> {
+    async expireUnpickedAssignedShipments(
+      batchSize = 100
+    ): Promise<{ expiredCount: number; disputedCount: number; errorsCount: number }> {
       const now = new Date();
       const candidates = await repository.findPotentiallyPickupMissed(batchSize);
       const overdueShipments = candidates.filter((shipment) =>
         isPickupMissed(shipment.pickupDate, shipment.pickupTimeWindowEnd, pickupMissedGraceHours, now)
       );
       let expiredCount = 0;
+      let disputedCount = 0;
       let errorsCount = 0;
 
       for (const shipment of overdueShipments) {
@@ -2703,21 +2815,70 @@ export function createShipmentsService(
                   .filter((offer) => offer.status === OfferStatus.PENDING)
                   .map((offer) => ({ carrierId: offer.carrierId, offerId: offer.id }))
               : [];
-          // MOVO-210: cancelar un retiro no realizado tiene que liberar la reserva del emisor.
-          // Desde `assigned` nadie más puede mover el envío, así que se libera antes y, si no se
-          // puede confirmar la liberación, no se cancela (se reintenta en el próximo barrido en
-          // vez de dejar fondos retenidos sin envío).
-          if (opts.paymentsClient && shipment.status === ShipmentStatus.ASSIGNED) {
+
+          const assigned = shipment.status === ShipmentStatus.ASSIGNED;
+          const acceptedOffer = assigned ? await repository.findAcceptedOfferTrip(shipment.id) : null;
+          const attribution: PickupMissAttribution = assigned
+            ? attributePickupMiss({
+                shipmentStatus: shipment.status,
+                trip: acceptedOffer?.trip ?? null,
+                evidence:
+                  opts.pickupEvidenceRepository && shipment.carrierId
+                    ? await opts.pickupEvidenceRepository.find(shipment.id, shipment.carrierId)
+                    : null,
+                pickupWindowEnd: pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
+              })
+            : "no_evidence";
+
+          // MOVO-210: cerrar un retiro no realizado tiene que liberar la reserva del emisor. Desde
+          // `assigned` se libera antes y, si no se puede confirmar la liberación, no se transiciona
+          // (se reintenta en el próximo barrido en vez de dejar fondos retenidos sin envío). El
+          // retiro ya no se puede confirmar a esta altura (`assertPickupStillAllowed`).
+          if (opts.paymentsClient && assigned) {
             await releaseHoldBeforeCancel(opts.paymentsClient, shipment.id, logger);
           }
+
+          if (attribution === "carrier_arrived") {
+            // `expectedFrom`: un retiro concurrente gana y este envío se saltea.
+            const pickupDisputeReason =
+              "El transportista llegó al punto de retiro y no se registró el handshake dentro del plazo";
+            await repository.updateStatus(shipment.id, ShipmentStatus.DISPUTED, null, pickupDisputeReason, {
+              expectedFrom: ShipmentStatus.ASSIGNED,
+              // MOVO-334: disputa de sistema; no bloquea al transportista (`hasOpenDisputeAsCarrier`).
+              dispute: {
+                openedBy: null,
+                openedByRole: null,
+                reason: DisputeReason.PICKUP_NO_SHOW,
+                description: pickupDisputeReason,
+              },
+            });
+            disputedCount++;
+            logger?.warn(
+              { event: "pickup_no_show_disputed", shipmentId: shipment.id, carrierId: shipment.carrierId },
+              "Retiro no realizado con llegada del transportista: el envío pasó a disputa"
+            );
+            if (notificationsClient) {
+              // `await`: el envío ya no está `assigned`, ningún barrido reenvía estas pushes.
+              await dispatchPickupDisputePushes(notificationsClient, logger, shipment);
+            }
+            continue;
+          }
+
+          const carrierNoShow = attribution === "carrier_no_show";
+          const carrierPenaltyArs = carrierNoShow ? quoteCarrierWithdrawal(shipment, now).penaltyArs : 0;
           // `expectedFrom`: el estado que se evaluó. Un `assignment_pending` que un pago
           // concurrente acaba de pasar a `assigned` no se cancela (409 de modificación concurrente).
           await repository.updateStatus(
             shipment.id,
             ShipmentStatus.CANCELLED,
             null,
-            "El retiro no se realizó dentro del plazo (ventana de retiro más margen de gracia)",
-            { expectedFrom: shipment.status }
+            carrierNoShow
+              ? "El transportista no se presentó al retiro dentro del plazo (ventana de retiro más margen de gracia)"
+              : "El retiro no se realizó dentro del plazo (ventana de retiro más margen de gracia)",
+            {
+              expectedFrom: shipment.status,
+              pickupMiss: { attribution: carrierNoShow ? "carrier" : "none", carrierPenaltyArs },
+            }
           );
           expiredCount++;
 
@@ -2727,32 +2888,50 @@ export function createShipmentsService(
             await releaseHoldAfterCancel(opts.paymentsClient, shipment.id);
           }
 
+          if (carrierNoShow && carrierPenaltyArs > 0 && acceptedOffer && opts.registerWithdrawalPenalty) {
+            // Best-effort: ya quedó `pending` en la oferta, el barrido de liquidaciones la retoma.
+            try {
+              await opts.registerWithdrawalPenalty(acceptedOffer.offerId);
+            } catch (err) {
+              logger?.warn(
+                { err, event: "pickup_no_show_penalty_deferred", shipmentId: shipment.id, offerId: acceptedOffer.offerId },
+                "No se pudo registrar la penalidad por no-retiro en línea, queda para el barrido"
+              );
+            }
+          }
+
           if (notificationsClient) {
             // El transportista asignado NO recibe además `offer_voided` (a diferencia de
             // `cancelShipment`): ya le llega el aviso propio del retiro no realizado, y sigue
             // siendo `carrierId` del envío cancelado, así que su detalle le abre sin 403.
-            void dispatchPickupMissedPushes(notificationsClient, logger, shipment);
+            void (carrierNoShow
+              ? dispatchPickupNoShowPushes(notificationsClient, logger, shipment, opts.pickupNoShowRatingInviteEnabled ?? false)
+              : dispatchPickupMissedPushes(notificationsClient, logger, shipment));
             if (pendingVoidedOffers.length > 0) {
               void dispatchOfferVoidedPushes(notificationsClient, logger, shipment.id, pendingVoidedOffers);
             }
           }
         } catch (err) {
+          if (err instanceof ShipmentConcurrentModificationError) {
+            // Se retiró o cambió de estado entre la lectura y la transición: nada que hacer.
+            continue;
+          }
           errorsCount++;
           logger?.error(
             { err, shipmentId: shipment.id, event: "pickup_missed_sweep_error" },
-            "Error al cancelar envío asignado con retiro no realizado en barrido"
+            "Error al cerrar envío asignado con retiro no realizado en barrido"
           );
         }
       }
 
       if (overdueShipments.length > 0) {
         logger?.info(
-          { event: "pickup_missed_sweep", totalFound: overdueShipments.length, expiredCount, errorsCount },
-          `Barrido de retiro no realizado finalizado: ${expiredCount} cancelados, ${errorsCount} fallos`
+          { event: "pickup_missed_sweep", totalFound: overdueShipments.length, expiredCount, disputedCount, errorsCount },
+          `Barrido de retiro no realizado finalizado: ${expiredCount} cancelados, ${disputedCount} en disputa, ${errorsCount} fallos`
         );
       }
 
-      return { expiredCount, errorsCount };
+      return { expiredCount, disputedCount, errorsCount };
     },
 
     /**
@@ -2879,13 +3058,17 @@ export function createShipmentsService(
           continue;
         }
         try {
-          await repository.updateStatus(
-            shipment.id,
-            ShipmentStatus.DISPUTED,
-            null,
-            "La entrega no se confirmó dentro del plazo posterior a la demora detectada",
-            { expectedFrom: ShipmentStatus.IN_TRANSIT }
-          );
+          const transitDisputeReason = "La entrega no se confirmó dentro del plazo posterior a la demora detectada";
+          await repository.updateStatus(shipment.id, ShipmentStatus.DISPUTED, null, transitDisputeReason, {
+            expectedFrom: ShipmentStatus.IN_TRANSIT,
+            // MOVO-334: disputa de sistema con la entidad nueva.
+            dispute: {
+              openedBy: null,
+              openedByRole: null,
+              reason: DisputeReason.TRANSIT_ANOMALY,
+              description: transitDisputeReason,
+            },
+          });
           disputedCount++;
           logger?.warn(
             { event: "transit_anomaly_disputed", shipmentId: shipment.id, carrierId: shipment.carrierId },

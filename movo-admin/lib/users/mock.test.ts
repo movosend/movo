@@ -280,8 +280,12 @@ describe("acciones de soporte en modo fixtures", () => {
     const result = await mockAdjustLedger(HERNAN, body, actor)
     const expected = Math.round((before.balanceArs + 0.3) * 100) / 100
     expect(result.balanceArs).toBe(expected)
-    expect((await mockAdjustLedger(HERNAN, body, actor)).balanceArs).toBe(expected)
-    expect((await mockGetSection(HERNAN, "ledger", { limit: 20 })).balanceArs).toBe(expected)
+    expect((await mockAdjustLedger(HERNAN, body, actor)).balanceArs).toBe(
+      expected
+    )
+    expect(
+      (await mockGetSection(HERNAN, "ledger", { limit: 20 })).balanceArs
+    ).toBe(expected)
   })
 
   it("rechaza un ajuste en cero o por encima del tope", async () => {

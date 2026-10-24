@@ -37,6 +37,8 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
   const shipmentId = randomUUID();
   const penaltyShipmentId = randomUUID();
   const planBShipmentId = randomUUID();
+  const lostResponseShipmentId = randomUUID();
+  const cancelledShipmentId = randomUUID();
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
@@ -69,7 +71,7 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
 
   afterAll(async () => {
     if (!app) return;
-    for (const id of [shipmentId, penaltyShipmentId, planBShipmentId]) {
+    for (const id of [shipmentId, penaltyShipmentId, planBShipmentId, lostResponseShipmentId, cancelledShipmentId]) {
       await app.db.$executeRawUnsafe("DELETE FROM payments.settlements WHERE shipment_id = $1::uuid", id);
       await app.db.$executeRawUnsafe("DELETE FROM payments.holds WHERE shipment_id = $1::uuid", id);
     }
@@ -231,6 +233,62 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
       url: `/internal/payments/holds/by-shipment/${planBShipmentId}/release`,
     });
     expect(released.statusCode, released.body).toBe(200);
+    expect((await getMpPayment(hold.mpPaymentId)).status).toBe("cancelled");
+  }, 90_000);
+
+  /** MP captura/cancela el pago por fuera del servicio: lo que pasa cuando la respuesta de una captura se pierde. */
+  async function mpPut(mpPaymentId: string, body: object) {
+    const res = await fetch(`https://api.mercadopago.com/v1/payments/${mpPaymentId}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${ACCESS_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+  }
+
+  /** Una entrega que ya falló una vez y cuyo reintento está vencido, como la deja `capture()` tras un timeout. */
+  async function failedDelivery(forShipment: string, mpPaymentId: string) {
+    const hold = await app.db.hold.findFirstOrThrow({ where: { shipmentId: forShipment } });
+    return app.db.settlement.create({
+      data: {
+        shipmentId: forShipment, holdId: hold.id, carrierId, mpPaymentId, grossAmountArs: 1150, commissionArs: 150,
+        status: "failed", failureReason: "provider_error", lastError: "provider_error: timeout simulado", attempts: 1,
+        nextAttemptAt: new Date(Date.now() - 1000),
+      },
+    });
+  }
+
+  it("MOVO-213 AC3: si la respuesta de la captura se perdió pero MP SÍ capturó, el reintento adopta el pago sin capturar de nuevo", async () => {
+    const hold = await createHold(lostResponseShipmentId);
+    await mpPut(hold.mpPaymentId, { capture: true }); // MP cobró; al servicio nunca le llegó la respuesta
+    await failedDelivery(lostResponseShipmentId, hold.mpPaymentId);
+
+    const run = await app.captureRetry.runOnce();
+
+    expect(run).toMatchObject({ attempted: 1, credited: 1, failed: 0 });
+    const row = await app.db.settlement.findUniqueOrThrow({ where: { shipmentId: lostResponseShipmentId } });
+    expect(row.status).toBe("credited");
+    // Los montos de la liquidación son los que MP informa por el pago ya capturado, y se cobró una sola vez.
+    const direct = await getMpPayment(hold.mpPaymentId);
+    expect(direct.status).toBe("approved");
+    expect(direct.transaction_amount).toBe(1150);
+    expect(row.netAmountArs?.toNumber()).toBe(direct.transaction_details.net_received_amount);
+    expect(row.mpFeeArs?.toNumber()).toBe(direct.fee_details.find((f) => f.type === "mercadopago_fee")?.amount);
+    expect((await app.db.hold.findFirstOrThrow({ where: { shipmentId: lostResponseShipmentId } })).status).toBe("captured");
+  }, 90_000);
+
+  it("MOVO-213 AC4: si MP canceló el hold, el reintento lo ve `cancelled` y escala sin capturar", async () => {
+    const hold = await createHold(cancelledShipmentId);
+    await mpPut(hold.mpPaymentId, { status: "cancelled" });
+    await failedDelivery(cancelledShipmentId, hold.mpPaymentId);
+
+    await app.captureRetry.runOnce();
+
+    expect(await app.db.settlement.findUniqueOrThrow({ where: { shipmentId: cancelledShipmentId } })).toMatchObject({
+      status: "escalated",
+      failureReason: "hold_expired",
+      escalationReason: "not_retryable",
+    });
     expect((await getMpPayment(hold.mpPaymentId)).status).toBe("cancelled");
   }, 90_000);
 });

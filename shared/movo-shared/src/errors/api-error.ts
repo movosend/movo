@@ -99,6 +99,8 @@ export type ApiErrorCode =
   | "HANDSHAKE_INVALID_SIGNATURE"
   | "HANDSHAKE_CEDENTE_KEY_MISSING"
   | "HANDSHAKE_INVALID_SHIPMENT_STATE"
+  // MOVO-270: el plazo del retiro (ventana + gracia) ya venció; el barrido cierra el envío.
+  | "HANDSHAKE_PICKUP_DEADLINE_PASSED"
   | "ROUTING_SERVICE_ERROR"
   | "ROUTING_SERVICE_UNAVAILABLE"
   // MOVO-221 / MOVO-252: rediseño de estados de viaje (declared/active/completed).
@@ -211,6 +213,12 @@ export type ApiErrorCode =
   | "HOLD_NOT_CAPTURABLE"
   // El envío todavía no tiene liquidación (no se pidió la captura).
   | "SETTLEMENT_NOT_FOUND"
+  // MOVO-213: la liquidación está escalada a revisión manual (se agotaron los reintentos o el fallo no
+  // se arregla reintentando): no se vuelve a capturar sola. `svc-shipments` lo trata como permanente.
+  | "SETTLEMENT_ESCALATED"
+  // MOVO-213: la captura ya falló y su reintento está programado (backoff persistido): lo hace el barrido de
+  // `svc-payments` a su hora, no se adelanta con otro pedido de captura.
+  | "SETTLEMENT_RETRY_PENDING"
   // MOVO-306: el envío ya tiene una liquidación de otro tipo (entrega vs. penalidad) o por
   // otro monto. Una por envío: no se pisa en silencio.
   | "SETTLEMENT_CONFLICT"
@@ -311,12 +319,28 @@ export type ApiErrorCode =
   | "SUPPORT_CONVERSATION_NOT_FOUND"
   // Adjunto de tipo, tamaño o cantidad inválidos, ajeno o ya usado (422).
   | "SUPPORT_ATTACHMENT_INVALID"
+  // MOVO-321: el usuario ya tiene `SUPPORT_ATTACHMENT_MAX_PENDING` adjuntos pedidos sin usar (429).
+  | "SUPPORT_ATTACHMENT_PENDING_LIMIT"
   // El usuario de la consulta no es parte del envío que se quiere vincular (422).
   | "SUPPORT_SHIPMENT_NOT_PARTY"
   // Ticket del WS del panel vencido, ya usado o de otro admin (401).
   | "SUPPORT_TICKET_INVALID"
   // `svc-shipments` (dueño del modelo de soporte) no respondió (502).
-  | "SUPPORT_SERVICE_UNAVAILABLE";
+  | "SUPPORT_SERVICE_UNAVAILABLE"
+  // MOVO-334 (ADR-054): disputas abiertas por las partes.
+  // El envío no está en un estado que se pueda disputar desde la app (422).
+  | "DISPUTE_NOT_ALLOWED"
+  // `delivered`/`completed` con más de `DISPUTE_WINDOW_DAYS` desde el handshake de entrega (422).
+  | "DISPUTE_WINDOW_EXPIRED"
+  // Ya hay una disputa abierta sobre el envío (409, `details.disputeId`).
+  | "DISPUTE_ALREADY_OPEN"
+  | "DISPUTE_NOT_FOUND"
+  // La disputa ya no está abierta (409).
+  | "DISPUTE_NOT_OPEN"
+  // La parte ya cargó su descargo, o quien abrió ya amplió su evidencia (409).
+  | "DISPUTE_STATEMENT_ALREADY_SUBMITTED"
+  // Una de las fotos ya está asociada a una disputa (409).
+  | "DISPUTE_PHOTO_ALREADY_USED";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

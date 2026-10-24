@@ -261,12 +261,14 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
         q?: string;
         cursor?: string;
         limit?: number;
+        alert?: boolean;
       };
       const search = {
         ...(query.city ? { city: query.city } : {}),
         ...(query.from ? { from: new Date(query.from) } : {}),
         ...(query.to ? { to: new Date(query.to) } : {}),
         ...(query.q ? { q: query.q } : {}),
+        ...(query.alert ? { alert: true } : {}),
       };
       // `status` es lo más específico; después la pestaña; sin ninguno, los activos.
       const statuses: readonly ShipmentStatus[] = query.status
@@ -291,7 +293,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
       }
 
       const [counts] = await Promise.all([adminShipmentRepository.counts(search), healMissingNames(page.items)]);
-      return { items: page.items.map(toRow), nextCursor: page.nextCursor, counts };
+      return { items: page.items.map(toRow), nextCursor: page.nextCursor, ...counts };
     },
   );
 

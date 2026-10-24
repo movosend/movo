@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { SearchX } from "lucide-react"
 import type { AdminUserListItem } from "@movo/shared/src/types/admin-users"
-import { initialsOf } from "@/lib/initials"
+import { UserAvatar } from "@/components/user-avatar"
 import {
   accountPill,
   formatDate,
@@ -38,15 +38,11 @@ export function UserRow({ user }: { user: AdminUserListItem }) {
       )}
     >
       <span className="flex min-w-0 items-center gap-2.5">
-        <span
-          aria-hidden
-          className={cn(
-            "flex size-8 flex-none items-center justify-center rounded-full bg-avatar text-[11px] font-semibold",
-            deleted && "opacity-50"
-          )}
-        >
-          {initialsOf(user.fullName)}
-        </span>
+        <UserAvatar
+          name={user.fullName}
+          photoUrl={user.photoUrl}
+          className={cn("flex-none", deleted && "opacity-50")}
+        />
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="flex min-w-0 items-center gap-2">
             <span

@@ -3728,6 +3728,66 @@ filtro de lenguaje solo a mensajes del usuario y push de ADR-046 con claves `sup
   solo los usan los tests. Sin plazo de retención ni purga (MOVO-224). `GET /shipments/mine` no incluye al transportista: el selector de envíos de MOVO-324
   no puede usarlo tal cual.
 
+### MOVO-213 — Aviso de la liquidación demorada o acreditada por un reintento
+
+`POST /internal/shipments/:id/settlement-events` (interno, lo llama `svc-payments`; `modules/settlements/settlements.routes.ts`, `settlement.service.handleSettlementEvent`).
+`delayed`: el cobro quedó escalado a revisión manual → push `settlementDelayedCarrier` al transportista (con `SETTLEMENT_REVIEW_SLA_HOURS`, default 48), una sola vez por
+envío (dedupe Redis `notified:settlement-delayed:<id>`); el envío sigue `delivered`. `credited`: un reintento de payments acreditó → `captureAndComplete` (la captura devuelve
+la liquidación ya acreditada) y salen los pushes de siempre. El barrido `settlement-sweep` no cambia salvo que `SETTLEMENT_ESCALATED` es un fallo permanente (cooldown de 24 h);
+el backoff y el escalado viven ahora en `svc-payments`.
+
+### MOVO-270 — Atribución del no-retiro, tracking antes del retiro y conteo de oferta (ADR-052, ADR-053)
+
+Evidencia GPS pasiva en `shipments.pickup_evidence` (`domain/pickup-attribution.ts`, `repositories/pickup-evidence-repository.ts`):
+cada tramo de 45 s con claim clasifica la posición contra el retiro de cada `assigned` del viaje (llegada ≤ 250 m, lejos > 2 km,
+zona gris en el medio, todo restando `accuracyM`). El barrido de retiro no realizado atribuye con `attributePickupMiss`: no llegó →
+cancela con `shipment_events.attribution = carrier` y penalidad `pending` en la oferta (reintento por `retryPendingWithdrawalPenalties`,
+el cursor reusa `carrierWithdrawnAt`); llegó → `assigned → disputed` con el hold liberado antes; sin evidencia → como antes.
+- La evidencia es de la asignación vigente (review de la PR #291): `pickup_evidence.carrier_id`, `find`/`record` reciben el transportista,
+  la baja (`revertsAssignment`) borra la fila en la misma transacción y `record` descarta la de otro transportista. Se escribe en línea
+  dentro de `ingest`, antes de la traza y bajo el claim de cadencia: si falla se libera el claim y el cliente reintenta, así el barrido
+  no decide sin una evidencia ya aceptada.
+- `hasOpenDisputeAsCarrier` filtra por el `fromStatus` del evento de entrada: la disputa de un no-retiro no bloquea.
+- La traza (`carrier_positions`) solo se escribe con algún `in_transit` en el viaje (`POSITION_PERSISTABLE_SHIPMENT_STATUSES`,
+  `persistableShipmentIds` del contexto) y se lee por viaje + rango de custodia (`listCustodyTrace`, sin endpoint: lo expone MOVO-337).
+  La purga de ADR-023 pasa a ser por viaje.
+- El handshake de retiro se corta pasado `PICKUP_MISSED_GRACE_HOURS` (`HANDSHAKE_PICKUP_DEADLINE_PASSED`): sin eso, un retiro tardío
+  entre la liberación del hold y la transición del barrido dejaba un `in_transit` sin fondos.
+- `countAvailableCarriersNear` cuenta solo `declared` (ADR-053). `GET /shipments/:id` expone `carrierTripActive`. Env nueva
+  `PICKUP_NO_SHOW_RATING_INVITE_ENABLED` (AC12, apagada hasta MOVO-337). Pendiente: motivo de sistema y migración de estas disputas
+  en MOVO-334, y `assigned` sin hold en la matriz de MOVO-337.
+
+### MOVO-326 — Conteos por estado y de avisos, filtro `alert` en `GET /internal/admin/shipments`
+
+El panel necesitaba los chips por estado y el toggle "Solo con alerta" con su conteo. `counts()` de
+`admin-shipment-repository.ts` ahora devuelve también `statusCounts` (los 11 estados) y `alertCounts` (por pestaña) en la misma
+consulta agrupada (`COUNT(*) FILTER`), y `alert=true` filtra la lista y los conteos. La regla es `ALERT_SQL`, el espejo SQL de
+`isAdminShipmentAlert` de `@movo/shared`: `assigned_unfunded`, `rejected_by_receiver`, `disputed` o `in_transit` con
+`transit_anomaly_flagged_at`. Si cambia una, cambia la otra.
+
+### MOVO-334 — Disputas: entidad, apertura, descargos, avisos y bloqueo (ADR-054)
+
+Entidad `shipments.disputes` (+ `dispute_statements`, `dispute_photos`; migración `20261023120000_disputes` con el índice único parcial de
+una abierta por envío y el backfill de los envíos ya `disputed`, motivo según el `fromStatus` del último evento). `updateStatus` exige
+`UpdateStatusOptions.dispute` para cualquier transición a `disputed` y crea el expediente en la misma transacción: los dos barridos
+pasan `transit_anomaly`/`pickup_no_show` con `openedBy: null`. Módulo `modules/disputes/` (`POST /shipments/:id/disputes`, presign
+de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `completed → disputed` (ventana de 7 días desde `deliveredAt`).
+- `hasOpenDisputeAsCarrier` lee de la entidad (`open`, motivo distinto de `pickup_no_show`). La baja de cuenta sigue leyendo el estado
+  `disputed`, que existe si y solo si hay una disputa abierta mientras MOVO-34 no resuelva: bloquea sin excepción por motivo.
+- `AlertNotifier` replicado en `src/adapters/alert-notifier.ts` (mismas `ALERT_*` que payments) en vez de moverlo a shared, para que shared
+  siga sin I/O. Tope de fotos: `MAX_REPORT_PHOTOS_PER_SUBMISSION` (4) por envío de evidencia (apertura, descargo o ampliación), el mismo
+  concepto que los reportes de MOVO-256; las fotos van bajo `shipments/{id}/disputes/{userId}/` y comparten el tracking del sweep de huérfanas.
+- La disputa de una parte avisa con `disputeOpened*` (categoría `disputes`, `data.type: dispute_opened`); las de sistema siguen con sus
+  templates. Pendiente: la resolución y sus campos (MOVO-34), la matriz de reembolsos con el cobro ya acreditado (MOVO-337) y la UI mobile.
+
+### MOVO-321 — Adjuntos de imágenes en los mensajes de soporte
+
+`POST /support/attachments` y `attachmentIds` en los mensajes del usuario, con URLs firmadas de 15 min al leer (detalle en
+`docs/support/README.md`). Código en `modules/support/support-attachments.service.ts` (lo reusa MOVO-322 con `uploaderKind: "staff"`),
+`repositories/support-attachment-repository.ts` y `plugins/support-attachment-sweep.ts`. El objeto de `support/pending/…` no se mueve al
+crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no hay regla de lifecycle y el sweep, que reintenta, es la
+única limpieza. Pendiente: Terraform en `movo-infra` (ver el `CLAUDE.md` raíz).
+
 ### MOVO-285 — Monto exacto del transportista en el detalle del envío
 
 - `GET /shipments/:id` suma `carrierReceivedArs` para el transportista asignado: bruto − comisión de Movo − fee real de MP − su
