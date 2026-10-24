@@ -114,10 +114,33 @@ nunca quién ni por qué. `GET /internal/admin/shipments/:id/events` (el panel) 
 
 ### Segundo factor por acción (step-up)
 
-Lo implementa `svc-admin`/`svc-users` en MOVO-332; este servicio no lo valida. Propuesta: un OTP
-nuevo por acción, distinto del OTP de la jornada de MOVO-286, de **un solo uso**, con **vida de 5
-minutos** y **atado a la acción** (`shipmentId` + `targetStatus`), de modo que no sirve para otro
-envío ni para otro destino.
+Lo implementa `svc-admin`/`svc-users` (MOVO-332); `svc-shipments` no lo valida. Un OTP nuevo por
+acción, distinto del OTP de la jornada de MOVO-286:
+
+- `POST /admin/step-up` (delega en `svc-users`) manda un código de 6 dígitos al email verificado del
+  admin con el motor de OTP de MOVO-139. Su `flow` lleva la acción (`admin-step-up-<envío>-<destino>`):
+  un código pedido para otro envío o destino no verifica, y no se quema por el intento.
+- **Un solo uso y 5 minutos** de vigencia (`STEP_UP_CODE_TTL_SECONDS`, contados desde el último pedido).
+  `POST /admin/step-up/verify` lo canjea por un `stepUpToken` de un solo uso (sha256 en Redis, 5 minutos)
+  atado a (admin, envío, destino). `svc-admin` lo consume (`GETDEL`) justo antes de llamar a
+  `svc-shipments`, después de la regla de conflicto y de las validaciones: un rechazo no lo gasta.
+- **Reintentos limitados:** 5 pedidos cada 15 minutos por admin; tras 5 errores de verificación el admin
+  queda bloqueado 15 minutos (429), aunque después acierte el código.
+- **Sin enumeración:** código erróneo, vencido, ya usado, de otro envío o destino o de otro admin responden
+  igual, `401 STEP_UP_INVALID` con el mismo mensaje.
+- Cuándo se exige (`forcedTransitionFriction` en `@movo/shared`): transición `forced` o riesgo crítico. El
+  código del envío tipeado (`typedCode`), desde riesgo alto.
+
+### Bitácora del panel
+
+`POST /admin/shipments/:id/status` pasa por `runAdminAction` (acción `shipment.status_change`, objetivo
+`shipment`): regla de conflicto de interés (falla cerrado), validaciones (motivo de 20 o más caracteres,
+código tipeado, existencia del token, par permitido por la matriz, `expectedStatus`) y la llamada a
+`svc-shipments`. **Una fila por intento, rechazos incluidos**, con origen, destino, riesgo, si fue forzado y
+la `idempotencyKey`. La bitácora es de solo agregar filas (trigger), por eso no hay una fila "antes" y otra
+"después": el caso de un servicio que cae a mitad de camino lo cubre el resultado `unknown` (pudo haberse
+aplicado), que `svc-shipments` resuelve con la misma `idempotencyKey`. Rate limit: 10 cambios por minuto por
+admin y 5 por envío.
 
 ### Concurrencia e idempotencia
 

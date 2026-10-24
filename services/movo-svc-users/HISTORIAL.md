@@ -1376,3 +1376,14 @@ Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `s
 
 El body interno acepta `ignorePreferences` (boolean, opcional) y lo reenvía a `sendPushToUser`, que ya lo soportaba desde MOVO-296. Lo usa
 `svc-shipments` para avisar a las partes de un cambio forzado de estado (ADR-055).
+
+### MOVO-332 — Step-up del cambio de estado desde el panel (ADR-055)
+
+`modules/admin-step-up/` con tres endpoints internos (`POST /internal/admin/step-up/{request,verify,consume}`, `hide: true`, fuera del
+`routes-map`): los llama `svc-admin`, que pasa el `adminId` de la sesión. Reusa el motor de OTP de MOVO-139 por el canal email: el `flow` lleva la
+acción (`admin-step-up-<envío>-<destino>`, con guiones porque `otp-repository` no admite `:`), así un código no verifica para otro envío ni destino
+por construcción. `verify` canjea el código por un `stepUpToken` (32 bytes, solo su sha256 en Redis, 5 min, `GETDEL` al consumirlo).
+- **Vigencia de 5 min en el código** aunque el OTP del motor viva 10: el `issuedAt` va en el `meta` y se chequea al verificar.
+- **Sin enumeración**: código erróneo, vencido, usado o de otra acción/admin → `401 STEP_UP_INVALID`, mismo mensaje. 5 pedidos/15 min y 5 errores/15 min por
+  admin (`INCR`+`EXPIRE` en un script, como el login del panel); el bloqueo corta antes de mirar el código.
+- Sin el flag `ignorePreferences` ni mails nuevos: usa `buildOtpEmail` ("tu código de verificación"). Pendiente: copy específico para el step-up.
