@@ -177,3 +177,114 @@ describe("gestión de admins en el cliente de usuarios (MOVO-292)", () => {
     expect([error.statusCode, error.code]).toEqual([409, "ADMIN_LAST_ADMIN"]);
   });
 });
+
+describe("cambio forzado de estado en el cliente de envíos (MOVO-332)", () => {
+  const shipments = createShipmentsClient({ SHIPMENTS_SERVICE_URL: "http://shipments" });
+  const body = {
+    targetStatus: "cancelled" as const,
+    expectedStatus: "published" as const,
+    reason: "Motivo de al menos veinte caracteres",
+    adminId: "a-1",
+    adminName: "Lucía Admin",
+    idempotencyKey: "key-12345678",
+  };
+  const ok = { shipmentId: "s-1", fromStatus: "published", toStatus: "cancelled", kind: "manual", replayed: false };
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("manda el cuerpo por POST con un timeout largo (el servicio llama a payments)", async () => {
+    const fetchMock = mockFetch(200, ok);
+
+    await expect(shipments.forceShipmentStatus("s-1", body, ctx)).resolves.toEqual(ok);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://shipments/internal/admin/shipments/s-1/force-status");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual(body);
+  });
+
+  it("un 4xx de negocio se relanza con su código y sus details", async () => {
+    mockFetch(409, { error: { code: "STATUS_CHANGED", message: "cambió", statusCode: 409, details: { currentStatus: "assigned" } } });
+
+    const error = await catchApiError(shipments.forceShipmentStatus("s-1", body, ctx));
+
+    expect([error.statusCode, error.code, error.details]).toEqual([409, "STATUS_CHANGED", { currentStatus: "assigned" }]);
+  });
+
+  it("un 422 con details de otra forma (array) los descarta sin romper", async () => {
+    mockFetch(422, { error: { code: "TRANSITION_NOT_ALLOWED", message: "no", statusCode: 422, details: ["x"] } });
+
+    const error = await catchApiError(shipments.forceShipmentStatus("s-1", body, ctx));
+
+    expect([error.code, error.details]).toEqual(["TRANSITION_NOT_ALLOWED", undefined]);
+  });
+
+  it("FORCE_STATUS_EFFECT_FAILED (502 de negocio) se relanza con su código y no como servicio caído", async () => {
+    mockFetch(502, { error: { code: "FORCE_STATUS_EFFECT_FAILED", message: "falló un efecto", statusCode: 502 } });
+
+    const error = await catchApiError(shipments.forceShipmentStatus("s-1", body, ctx));
+
+    expect([error.statusCode, error.code]).toEqual([502, "FORCE_STATUS_EFFECT_FAILED"]);
+  });
+
+  it("cualquier otro 5xx sigue siendo servicio no disponible (pudo haberse aplicado)", async () => {
+    mockFetch(500, { error: { code: "INTERNAL_ERROR", message: "boom", statusCode: 500 } });
+
+    const error = await catchApiError(shipments.forceShipmentStatus("s-1", body, ctx));
+
+    expect(error.code).toBe("SHIPMENTS_SERVICE_UNAVAILABLE");
+  });
+
+  it("un envío inexistente es 404 NOT_FOUND", async () => {
+    mockFetch(404, { error: { code: "NOT_FOUND", message: "x" } });
+
+    const error = await catchApiError(shipments.forceShipmentStatus("s-1", body, ctx));
+
+    expect([error.statusCode, error.code]).toEqual([404, "NOT_FOUND"]);
+  });
+
+  it("una respuesta con forma inesperada es 502, nunca un resultado", async () => {
+    mockFetch(200, { shipmentId: "s-1" });
+
+    const error = await catchApiError(shipments.forceShipmentStatus("s-1", body, ctx));
+
+    expect(error.code).toBe("SHIPMENTS_SERVICE_UNAVAILABLE");
+  });
+});
+
+describe("step-up en el cliente de usuarios (MOVO-332)", () => {
+  const users = createUsersClient({ USERS_SERVICE_URL: "http://users" });
+  const action = { shipmentId: "s-1", targetStatus: "cancelled" as const };
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("pedir, verificar y consumir mandan el admin en el cuerpo", async () => {
+    const challenge = { challengeId: "c-1", maskedEmail: "a***@x.com", cooldownSeconds: 60, expiresInSeconds: 300 };
+    let fetchMock = mockFetch(200, challenge);
+    await expect(users.requestStepUp("a-1", action, ctx)).resolves.toEqual(challenge);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://users/internal/admin/step-up/request");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ adminId: "a-1", ...action });
+
+    fetchMock = mockFetch(200, { stepUpToken: "t", expiresInSeconds: 300 });
+    await expect(users.verifyStepUp("a-1", { ...action, challengeId: "c-1", code: "123456" }, ctx)).resolves.toEqual({
+      stepUpToken: "t",
+      expiresInSeconds: 300,
+    });
+
+    fetchMock = mockFetch(204);
+    await expect(users.consumeStepUp("a-1", { ...action, stepUpToken: "t" }, ctx)).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls[0][0]).toBe("http://users/internal/admin/step-up/consume");
+  });
+
+  it("un token inválido se relanza como 401 STEP_UP_INVALID", async () => {
+    mockFetch(401, { error: { code: "STEP_UP_INVALID", message: "inválido", statusCode: 401 } });
+
+    const error = await catchApiError(users.consumeStepUp("a-1", { ...action, stepUpToken: "t" }, ctx));
+
+    expect([error.statusCode, error.code]).toEqual([401, "STEP_UP_INVALID"]);
+  });
+});

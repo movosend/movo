@@ -1,6 +1,20 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import {
   AdminBlock,
+  AdminShipmentDetail,
+  blockedTransitionReason,
+  ChangeShipmentStatusRequest,
+  ChangeShipmentStatusResponse,
+  FORCE_STATUS_REASON_MIN_LENGTH,
+  forcedTransitionFriction,
+  getForcedTransition,
+  getForcedTransitionDetails,
+  ShipmentStatus,
+  ShipmentStatusOptions,
+  StepUpChallenge,
+  StepUpRequest,
+  StepUpToken,
+  StepUpVerifyRequest,
   AdminChatPage,
   AdminShipmentDetailResponse,
   AdminShipmentPage,
@@ -12,6 +26,7 @@ import {
 } from "@movo/shared";
 import { RequestContext } from "../../adapters/internal-client";
 import { requireAdmin } from "../../utils/require-admin";
+import { consumeRateLimit } from "../../utils/rate-limit";
 import { shipmentsSchemas } from "./shipments.schema";
 
 /**
@@ -170,4 +185,216 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
       return tracking;
     },
   );
+
+  // MOVO-332 (ADR-055): cambio de estado de un envío desde el panel. La lógica de transición es de
+  // `svc-shipments`; acá van la regla de conflicto, la bitácora, el segundo factor y los límites.
+  const ctxOf = (request: FastifyRequest): RequestContext => ({ requestId: request.requestId });
+
+  // Por admin y por envío (AC8): corta a quien reintenta en loop o a dos admins pisándose el mismo envío.
+  const STATUS_CHANGE_ADMIN_LIMIT = { max: 10, windowSeconds: 60 };
+  const STATUS_CHANGE_SHIPMENT_LIMIT = { max: 5, windowSeconds: 60 };
+
+  app.get(
+    "/shipments/:id/status-options",
+    {
+      schema: {
+        tags: ["admin"],
+        summary: "A qué estados se puede cambiar un envío",
+        description:
+          "Desde el estado actual: `options` son los destinos que permite la matriz de `@movo/shared` (ADR-055), con " +
+          "su riesgo, qué se ejecuta, a quién se avisa y si exigen el código del envío tipeado (`requiresTypedCode`) o " +
+          "un segundo factor (`requiresStepUp`); `blocked` son los demás, con su motivo. `kind` es `manual` si es una " +
+          "transición normal hecha por un admin y `forced` si se ejecuta con efectos distintos (sin penalidad). El " +
+          "panel no calcula nada: `svc-shipments` vuelve a validar el pedido.",
+        params: shipmentsSchemas.idParam,
+        response: { 200: shipmentsSchemas.statusOptionsResponse, ...errors },
+      },
+    },
+    async (request: FastifyRequest): Promise<ShipmentStatusOptions> => {
+      requireAdmin(request);
+      const { id } = request.params as { id: string };
+      const shipment = await app.shipmentsClient.getAdminShipment(id, ctxOf(request));
+      if (!shipment) throw notFound();
+
+      const current = shipment.status as ShipmentStatus;
+      const options: ShipmentStatusOptions["options"] = [];
+      const blocked: ShipmentStatusOptions["blocked"] = [];
+      for (const target of Object.values(ShipmentStatus)) {
+        if (target === current) continue;
+        const details = getForcedTransitionDetails(current, target);
+        if (!details) {
+          blocked.push({ targetStatus: target, reason: blockedTransitionReason(current, target) });
+          continue;
+        }
+        const friction = forcedTransitionFriction(details);
+        options.push({
+          targetStatus: target,
+          kind: details.kind,
+          risk: details.risk,
+          effects: details.effects,
+          notifies: details.notifies,
+          requiresTypedCode: friction.typedCode,
+          requiresStepUp: friction.stepUp,
+        });
+      }
+      return { current, code: shipment.code, options, blocked };
+    },
+  );
+
+  app.post(
+    "/step-up",
+    {
+      schema: {
+        tags: ["admin"],
+        summary: "Pedir el segundo factor de un cambio de estado",
+        description:
+          "Manda un código de 6 dígitos al email del admin, de un solo uso, con vigencia de " +
+          "`expiresInSeconds` y atado a la acción (este admin, este envío y este destino). Máximo 5 pedidos cada " +
+          "15 minutos. Se canjea por un `stepUpToken` en `POST /admin/step-up/verify`.",
+        body: shipmentsSchemas.stepUpBody,
+        response: { 200: shipmentsSchemas.stepUpChallengeResponse, 429: shipmentsSchemas.errorResponse, ...errors },
+      },
+    },
+    async (request: FastifyRequest): Promise<StepUpChallenge> => {
+      const adminId = requireAdmin(request);
+      return app.usersClient.requestStepUp(adminId, request.body as StepUpRequest, ctxOf(request));
+    },
+  );
+
+  app.post(
+    "/step-up/verify",
+    {
+      schema: {
+        tags: ["admin"],
+        summary: "Verificar el segundo factor de un cambio de estado",
+        description:
+          "Canjea el código por un `stepUpToken` de un solo uso para esa misma acción. Cualquier fallo (código " +
+          "erróneo, vencido, usado, de otro envío o destino) es `401 STEP_UP_INVALID`, sin distinguir el motivo. " +
+          "Tras 5 errores el admin queda bloqueado 15 minutos (429).",
+        body: shipmentsSchemas.stepUpVerifyBody,
+        response: { 200: shipmentsSchemas.stepUpTokenResponse, 429: shipmentsSchemas.errorResponse, ...errors },
+      },
+    },
+    async (request: FastifyRequest): Promise<StepUpToken> => {
+      const adminId = requireAdmin(request);
+      return app.usersClient.verifyStepUp(adminId, request.body as StepUpVerifyRequest, ctxOf(request));
+    },
+  );
+
+  app.post(
+    "/shipments/:id/status",
+    {
+      schema: {
+        tags: ["admin"],
+        summary: "Cambiar el estado de un envío",
+        description:
+          "Regla de conflicto de interés (403 `ADMIN_CONFLICT_OF_INTEREST` si el admin es parte del envío), " +
+          "bitácora `shipment.status_change` (incluidos los rechazos) y llamada a `svc-shipments`, que ejecuta el " +
+          "servicio de dominio de la transición, registra el evento y avisa a las partes. `reason` de al menos 20 " +
+          "caracteres; `typedCode` (el código del envío) si el riesgo del destino es alto o crítico; `stepUpToken` si " +
+          "la transición es forzada o crítica (`GET /admin/shipments/:id/status-options` lo indica). Los rechazos de " +
+          "`svc-shipments` pasan con su código: `STATUS_CHANGED` (`details.currentStatus`), `TRANSITION_NOT_ALLOWED` " +
+          "(`details.reason`), `HOLD_NOT_AUTHORIZED`, `FORCE_STATUS_EFFECT_FAILED`. Idempotente por `idempotencyKey`. " +
+          "Máximo 10 cambios por minuto por admin y 5 por envío.",
+        params: shipmentsSchemas.idParam,
+        body: shipmentsSchemas.statusChangeBody,
+        response: {
+          200: shipmentsSchemas.statusChangeResponse,
+          409: shipmentsSchemas.errorResponse,
+          422: shipmentsSchemas.errorResponse,
+          429: shipmentsSchemas.errorResponse,
+          ...errors,
+        },
+      },
+    },
+    async (request: FastifyRequest): Promise<ChangeShipmentStatusResponse> => {
+      const adminId = requireAdmin(request);
+      const { id } = request.params as { id: string };
+      const body = request.body as ChangeShipmentStatusRequest;
+      const ctx = ctxOf(request);
+
+      await consumeRateLimit(app.redis, `admin-status-change:admin:${adminId}`, STATUS_CHANGE_ADMIN_LIMIT.max, STATUS_CHANGE_ADMIN_LIMIT.windowSeconds);
+      await consumeRateLimit(app.redis, `admin-status-change:shipment:${id}`, STATUS_CHANGE_SHIPMENT_LIMIT.max, STATUS_CHANGE_SHIPMENT_LIMIT.windowSeconds);
+
+      const reason = body.reason.trim();
+      const from = body.expectedStatus as ShipmentStatus;
+      const to = body.targetStatus as ShipmentStatus;
+      const cell = getForcedTransition(from, to);
+
+      // Lo que resuelve la lectura previa y usa la acción.
+      let shipment: AdminShipmentDetail | null = null;
+      let adminName = "";
+
+      return app.audit.runAdminAction(
+        {
+          adminId,
+          action: "shipment.status_change",
+          target: { type: "shipment", id },
+          reason,
+          // Los rechazos también dejan fila: de qué estado a cuál se intentó y con qué riesgo.
+          context: {
+            from,
+            to,
+            forced: cell?.kind === "forced",
+            risk: cell?.risk ?? null,
+            idempotencyKey: body.idempotencyKey,
+          },
+          resolveContext: (result) => ({ replayed: result.replayed }),
+          requestId: request.requestId,
+          // Las validaciones corren después de la regla de conflicto y antes de gastar el segundo factor: un
+          // rechazo no quema el token, y como son lecturas quedan `failed` (nada se aplicó) aunque otro servicio no responda.
+          precheck: async () => {
+            if (reason.length < FORCE_STATUS_REASON_MIN_LENGTH) {
+              throw new ApiError(400, "VALIDATION_FAILED", `El motivo tiene que tener al menos ${FORCE_STATUS_REASON_MIN_LENGTH} caracteres.`);
+            }
+            shipment = await app.shipmentsClient.getAdminShipment(id, ctx);
+            if (!shipment) throw notFound();
+            if (shipment.status !== body.expectedStatus) {
+              throw new ApiError(409, "STATUS_CHANGED", "El estado del envío cambió mientras confirmabas.", {
+                currentStatus: shipment.status,
+              });
+            }
+            if (!cell) {
+              const blockedReason = blockedTransitionReason(from, to);
+              throw new ApiError(422, "TRANSITION_NOT_ALLOWED", blockedReason, { reason: blockedReason });
+            }
+            const friction = forcedTransitionFriction(cell);
+            if (friction.typedCode && body.typedCode?.trim().toUpperCase() !== shipment.code.toUpperCase()) {
+              throw new ApiError(422, "TYPED_CODE_MISMATCH", "El código del envío no coincide.");
+            }
+            if (friction.stepUp && !body.stepUpToken) {
+              throw new ApiError(403, "STEP_UP_REQUIRED", "Este cambio exige confirmar con un código enviado a tu email.");
+            }
+            // Falla cerrado: svc-shipments pide el nombre del admin para el evento inmutable.
+            const names = await app.usersClient.getUserNames([adminId], ctx);
+            const name = names.find((candidate) => candidate.id === adminId)?.fullName;
+            if (!name) throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "No se pudo identificar al admin.");
+            adminName = name;
+          },
+        },
+        async () => {
+          if (cell && forcedTransitionFriction(cell).stepUp) {
+            await app.usersClient.consumeStepUp(
+              adminId,
+              { shipmentId: id, targetStatus: body.targetStatus, stepUpToken: body.stepUpToken as string },
+              ctx,
+            );
+          }
+          return app.shipmentsClient.forceShipmentStatus(
+            id,
+            {
+              targetStatus: body.targetStatus,
+              expectedStatus: body.expectedStatus,
+              reason,
+              adminId,
+              adminName,
+              idempotencyKey: body.idempotencyKey,
+            },
+            ctx,
+          );
+        },
+      );
+    },
+  );
 }
+
