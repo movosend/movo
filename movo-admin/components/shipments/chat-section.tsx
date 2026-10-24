@@ -1,6 +1,10 @@
 import { Eye } from "lucide-react"
 import { ApiError } from "@movo/shared/src/errors/api-error"
-import type { AdminShipmentDetail } from "@movo/shared/src/types/admin-shipments"
+import type {
+  AdminBlock,
+  AdminShipmentDetail,
+  AdminShipmentPartyCard,
+} from "@movo/shared/src/types/admin-shipments"
 import { getShipmentChat } from "@/lib/shipments/api"
 import {
   CHAT_ACCESS_LABEL,
@@ -30,8 +34,11 @@ export function ChatButtonLoading() {
  */
 export async function ChatSection({
   shipment,
+  parties,
 }: {
   shipment: AdminShipmentDetail
+  /** Las fichas ya cargadas del detalle: de ahí salen las fotos de perfil. */
+  parties: AdminBlock<AdminShipmentPartyCard[]>
 }) {
   if (!shipment.carrier)
     return (
@@ -54,8 +61,15 @@ export async function ChatSection({
       />
     )
   }
+  const photos = Object.fromEntries(
+    (parties.data ?? []).map((p) => [p.id, p.photoUrl])
+  )
   const people = [shipment.sender, shipment.carrier, shipment.receiver].map(
-    (p) => p.name ?? "Sin nombre"
+    (p) => ({
+      id: p.id,
+      name: p.name ?? "Sin nombre",
+      photoUrl: photos[p.id] ?? null,
+    })
   )
   return (
     <ChatPanel
@@ -64,6 +78,7 @@ export async function ChatSection({
         code: shipmentDisplayCode(shipment.id),
         title: chatTitle(shipment),
         people,
+        photos,
         mode: `${CHAT_ACCESS_LABEL[page.partiesAccess]}${page.archived ? " · archivado" : ""}`,
         reports: page.reports.map((r) => reportLine(r, shipment)),
       }}

@@ -41,7 +41,7 @@ import {
   type ShipmentStatusValue,
   shipmentDisplayCode,
 } from "@/lib/shipments/format"
-import { initialsOf } from "@/lib/initials"
+import { UserAvatar } from "@/components/user-avatar"
 import { cn } from "@/lib/utils"
 import { StatusPill, TONE_BG } from "@/components/users/ui"
 import { BlockError } from "./block-error"
@@ -187,12 +187,7 @@ function PartyRow({ party }: { party: AdminShipmentPartyCard }) {
       href={`/users/${party.id}`}
       className="-mx-2 grid grid-cols-[36px_minmax(0,1fr)] items-center gap-3 rounded-lg px-2 py-1 outline-none hover:bg-surface-sub focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <span
-        aria-hidden
-        className="flex size-9 items-center justify-center rounded-full bg-avatar text-xs font-semibold"
-      >
-        {initialsOf(party.fullName)}
-      </span>
+      <UserAvatar name={party.fullName} photoUrl={party.photoUrl} size={36} />
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
           <span className="truncate">{party.fullName}</span>

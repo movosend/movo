@@ -197,6 +197,7 @@ describe("chat en solo lectura", () => {
     render(
       <ChatThread
         items={items}
+        photos={{}}
         reports={[]}
         hasMore={false}
         pending={false}
@@ -215,6 +216,7 @@ describe("chat en solo lectura", () => {
     render(
       <ChatThread
         items={items}
+        photos={{}}
         reports={["Luis reportó esta conversación · 21 oct · 12:16"]}
         hasMore
         pending={false}

@@ -29,24 +29,27 @@ describe("TrackingView", () => {
     ],
     ["unfunded", "not_started", "Todavía no arrancó", /Sin fondos reservados/],
     ["no_carrier", "no_carrier", "Sin seguimiento", /no tiene transportista/],
-  ] as const)("%s: mapa con la ruta original y mensaje", (reason, state, title, body) => {
-    render(
-      <TrackingView
-        tracking={trackingFixture({
-          state,
-          reason,
-          trace: [],
-          lastPosition: null,
-          metrics: null,
-        })}
-        status="live"
-      />
-    )
-    expect(screen.getByText(title)).toBeInTheDocument()
-    expect(screen.getByText(body)).toBeInTheDocument()
-    expect(screen.getByTestId("map")).toBeInTheDocument()
-    expect(screen.queryByText("Último ping")).not.toBeInTheDocument()
-  })
+  ] as const)(
+    "%s: mapa con la ruta original y mensaje",
+    (reason, state, title, body) => {
+      render(
+        <TrackingView
+          tracking={trackingFixture({
+            state,
+            reason,
+            trace: [],
+            lastPosition: null,
+            metrics: null,
+          })}
+          status="live"
+        />
+      )
+      expect(screen.getByText(title)).toBeInTheDocument()
+      expect(screen.getByText(body)).toBeInTheDocument()
+      expect(screen.getByTestId("map")).toBeInTheDocument()
+      expect(screen.queryByText("Último ping")).not.toBeInTheDocument()
+    }
+  )
 
   it.each([
     ["delivered", "Seguimiento cerrado"],

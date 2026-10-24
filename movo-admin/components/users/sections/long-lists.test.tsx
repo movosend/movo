@@ -53,7 +53,7 @@ const report = (i: number): AdminUserReport => ({
   id: `r${i}`,
   reason: "no_show",
   status: "pending",
-  counterpart: { id: `u${i}`, fullName: `Persona ${i}` },
+  counterpart: { id: `u${i}`, fullName: `Persona ${i}`, photoUrl: null },
   details: `Detalle ${i}`,
   createdAt: "2026-10-17T15:00:00.000Z",
   extraEntries: 0,
@@ -141,7 +141,7 @@ describe("Reportes", () => {
 describe("Bloqueos", () => {
   it("muestra los primeros y ofrece ver el resto", () => {
     const made = Array.from({ length: 9 }, (_, i) => ({
-      user: { id: `u${i}`, fullName: `Bloqueado ${i + 1}` },
+      user: { id: `u${i}`, fullName: `Bloqueado ${i + 1}`, photoUrl: null },
       createdAt: "2026-08-14T15:00:00.000Z",
     }))
     wrap(
