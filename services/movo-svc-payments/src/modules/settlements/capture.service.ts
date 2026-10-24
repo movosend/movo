@@ -306,6 +306,7 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         statusDetail: payment.status_detail ?? null,
         // MOVO-302: sin pisar una tarjeta que el hold ya tenía.
         ...missingCardFields(hold, payment),
+        mpFeeArs: breakdown.mpFeeArs.toNumber(),
       });
       if (!moved) {
         log.warn(

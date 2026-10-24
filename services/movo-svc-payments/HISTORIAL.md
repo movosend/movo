@@ -787,3 +787,16 @@ salvo hold liberado; descuento al transportista, solo con la liquidación acredi
 - El ajuste manual (`.../manual-adjustments`) devuelve también `balanceArs` y responde 422 `AMOUNT_OUT_OF_RANGE` con
   cero o por encima de `ADMIN_LEDGER_ADJUSTMENT_MAX_ARS` (env nueva, default 500000, en los tres lugares).
   `svc-admin` prefija la key del panel (`admin-adjustment:<uuid>`) porque la `idempotencyKey` es única entre todos los movimientos.
+
+### MOVO-285 — Fee real de Mercado Pago en el hold
+
+- `payments.holds.mp_fee_ars` (migración `20261024120000_hold_mp_fee`): el `mercadopago_fee` que MP informa al crear el hold
+  (`charges_details`) y, tras capturar, el de `fee_details` (la captura lo reemplaza vía `markCaptured`). Lo lee
+  `mpFeeFromPayment` (`utils/payment-fee.ts`) desde `holdUpdateFromPayment`, así que crear, consultar y webhook lo completan
+  igual; sin desglose no toca la fila. Solo cuenta lo que descuenta al transportista (cargos del pagador, como la financiación
+  en cuotas, no).
+- `HoldResponse.carrierMpFeeArs`: ese fee sin la parte que cae sobre el recargo del emisor (`carrierPaymentView`, misma regla que la
+  liquidación al acreditar), `null` si MP no lo informó. La captura (`net_received_amount` + `fee_details`) ya se guardaba en
+  `Settlement` desde MOVO-212.
+- Pendiente: validar con pagos reales que `charges_details` trae `amounts.original` (se leyó del contrato de MP, el spike solo
+  documenta que lista el `mercadopago_fee`) y la calibración opcional de `MP_TRANSACTION_FEE_RATE`.

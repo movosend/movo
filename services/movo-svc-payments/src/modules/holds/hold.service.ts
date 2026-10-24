@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import {
   ApiError,
   CLOSED_HOLD_STATUSES,
+  carrierPaymentView,
   CreateHoldRequest,
   DebtCollectionPreviewResponse,
   HoldCheckoutDataRequest,
@@ -16,6 +17,7 @@ import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-accoun
 import { SavedCardRepository } from "../../repositories/saved-card-repository";
 import { Hold, HoldAmountChangedError, HoldAttemptConflictError, HoldRepository, HoldUpdate } from "../../repositories/hold-repository";
 import { cardFromPayment, missingCardFields } from "../../utils/payment-card";
+import { mpFeeFromPayment } from "../../utils/payment-fee";
 import { computeDebtCollection } from "./debt-collection";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -162,17 +164,19 @@ export function holdUpdateFromPayment(
   // que lee un pago (crear, consultar, adoptar, webhook), así la fila se completa donde sea que
   // MP los informe primero.
   const card = cardFromPayment(payment);
+  // MOVO-285: la comisión real de MP, donde sea que la informe primero (crear, consultar, webhook).
+  const mpFee = mpFeeFromPayment(payment);
   switch (payment.status) {
     case "authorized":
-      return { status: "authorized", statusDetail, failureReason: null, mpPaymentId, expiresAt, ...card };
+      return { status: "authorized", statusDetail, failureReason: null, mpPaymentId, expiresAt, ...card, ...mpFee };
     case "in_process":
     case "pending":
-      return { status: "in_process", statusDetail, failureReason: null, mpPaymentId, expiresAt, ...card };
+      return { status: "in_process", statusDetail, failureReason: null, mpPaymentId, expiresAt, ...card, ...mpFee };
     case "approved":
       // Con `capture: false` no debería pasar; si pasa, la plata ya se cobró.
-      return { status: "captured", statusDetail, failureReason: null, mpPaymentId, expiresAt: null, ...card };
+      return { status: "captured", statusDetail, failureReason: null, mpPaymentId, expiresAt: null, ...card, ...mpFee };
     case "cancelled":
-      return { status: "cancelled", statusDetail, failureReason: null, mpPaymentId, expiresAt: null, ...card };
+      return { status: "cancelled", statusDetail, failureReason: null, mpPaymentId, expiresAt: null, ...card, ...mpFee };
     case "rejected":
       return {
         status: "rejected",
@@ -181,6 +185,7 @@ export function holdUpdateFromPayment(
         mpPaymentId,
         expiresAt: null,
         ...card,
+        ...mpFee,
       };
     default:
       return null;
@@ -217,6 +222,25 @@ function requestFingerprint(input: CreateHoldRequest): string {
     .digest("hex");
 }
 
+/**
+ * MOVO-285: la comisión real de MP tal como la ve el transportista, sin la parte que cae sobre el recargo del
+ * emisor (`carrierPaymentView`, la misma regla que usa la liquidación al acreditar). `null` si MP todavía no
+ * informó el fee del pago.
+ */
+function carrierMpFeeOf(hold: Hold): number | null {
+  if (hold.mpFeeArs === null) return null;
+  return carrierPaymentView({
+    grossAmountArs: hold.amountArs.toNumber(),
+    mpFeeArs: hold.mpFeeArs.toNumber(),
+    debtSurchargeArs: hold.debtSurchargeArs.toNumber(),
+    // La parte del `application_fee` que corresponde al recargo (misma cuenta que `splitRetainedFee`).
+    debtSurchargeFeeArs: Math.max(
+      0,
+      Math.round((hold.applicationFeeArs.toNumber() - hold.commissionArs.toNumber() - hold.debtOffsetArs.toNumber()) * 100) / 100
+    ),
+  }).mpFeeArs;
+}
+
 function toHoldResponse(hold: Hold): HoldResponse {
   return {
     id: hold.id,
@@ -231,6 +255,7 @@ function toHoldResponse(hold: Hold): HoldResponse {
     commissionArs: hold.commissionArs.toNumber(),
     debtOffsetArs: hold.debtOffsetArs.toNumber(),
     debtSurchargeArs: hold.debtSurchargeArs.toNumber(),
+    carrierMpFeeArs: carrierMpFeeOf(hold),
     status: hold.status,
     statusDetail: hold.statusDetail,
     failureReason: hold.failureReason,

@@ -99,7 +99,7 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
   }
 
   /** Hold real de $1.150 (comisión $150) para el envío, ya `authorized`. */
-  async function createHold(forShipment: string): Promise<{ mpPaymentId: string }> {
+  async function createHold(forShipment: string): Promise<{ mpPaymentId: string; carrierMpFeeArs: number | null }> {
     const created = await app.inject({
       method: "POST",
       url: "/internal/payments/holds",
@@ -158,6 +158,10 @@ describe.skipIf(!CONFIGURED)("captura y split contra el sandbox real de Mercado 
     const appFee = direct.fee_details.find((f) => f.type === "application_fee")?.amount;
     expect(settlement.mpFeeArs).toBe(mpFee);
     expect(settlement.commissionArs).toBe(appFee);
+    // MOVO-285: el fee que MP informó al crear el hold es el mismo que cobra al capturar, y la fila del hold
+    // queda con el de la captura.
+    expect(hold.carrierMpFeeArs).toBe(mpFee);
+    expect(Number((await app.db.hold.findFirstOrThrow({ where: { shipmentId } })).mpFeeArs)).toBe(mpFee);
     expect(settlement.netAmountArs).toBe(direct.transaction_details.net_received_amount);
     expect(Math.round((settlement.mpFeeArs + settlement.commissionArs + settlement.netAmountArs) * 100)).toBe(115000);
 
