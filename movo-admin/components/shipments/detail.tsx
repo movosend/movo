@@ -450,10 +450,12 @@ export function Timeline({
           </span>
         )}
       </div>
-      <ol className="overflow-auto px-[18px] pt-4 pb-5">
-        {events.error && (
+      {events.error && (
+        <div className="px-[18px] pt-4 pb-5">
           <BlockError noun="la línea de tiempo" code={blockCode(events)} />
-        )}
+        </div>
+      )}
+      <ol className="overflow-auto px-[18px] pt-4 pb-5 empty:hidden">
         {items.map((item, i) => {
           const Icon = EVENT_ICON[item.status]
           const last = i === items.length - 1

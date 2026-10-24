@@ -4,7 +4,9 @@ import {
   EMPTY_LIST_STATE,
   gatewayQuery,
   listHref,
+  MAX_BACK,
   nextPage,
+  pageNumber,
   parseListState,
   prevPage,
   withFilter,
@@ -72,6 +74,21 @@ describe("estado del listado en la URL", () => {
       back: ["c2"],
     })
     expect(withFilter(p3, { q: "x" })).toMatchObject({ cursor: null, back: [] })
+  })
+
+  it("descarta fechas que no existen en vez de romper la query", () => {
+    const state = parseListState({ from: "2026-13-45", to: "2026-02-30" })
+    expect(state).toMatchObject({ from: "", to: "" })
+    expect(() => gatewayQuery(state, 25)).not.toThrow()
+  })
+
+  it("con muchas páginas atrás, `back` se corta y el número de página no se muestra", () => {
+    let state = EMPTY_LIST_STATE
+    for (let i = 2; i <= MAX_BACK + 3; i++) state = nextPage(state, `c${i}`)
+    expect(state.back).toHaveLength(MAX_BACK)
+    expect(pageNumber(state)).toBeNull()
+    expect(pageNumber(nextPage(nextPage(EMPTY_LIST_STATE, "c2"), "c3"))).toBe(3)
+    expect(pageNumber(EMPTY_LIST_STATE)).toBe(1)
   })
 
   it("al gateway: días argentinos completos y `alert=true`", () => {

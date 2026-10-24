@@ -140,7 +140,8 @@ export function ShipmentsPager({
   prevHref,
   nextHref,
 }: {
-  page: number
+  /** `null` si no se sabe (muchas páginas atrás, ver `MAX_BACK`). */
+  page: number | null
   prevHref: string | null
   nextHref: string | null
 }) {
@@ -154,7 +155,7 @@ export function ShipmentsPager({
       className="flex items-center justify-end gap-2 border-t bg-surface-sub px-[18px] py-2.5"
     >
       <span className="mr-auto text-[13px] text-muted-foreground">
-        Página {page}
+        {page !== null && `Página ${page}`}
       </span>
       {prevHref ? (
         <Link href={prevHref} className={link} scroll={false}>

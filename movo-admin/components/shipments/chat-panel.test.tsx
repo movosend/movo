@@ -90,6 +90,47 @@ describe("panel del chat", () => {
     ).toBeNull()
   })
 
+  it("una primera página nueva (Reintentar) reemplaza lo cargado", async () => {
+    actions.loadChatPage.mockResolvedValue({
+      ok: true,
+      page: page({
+        items: [message("Mensaje viejo", "2026-10-21T10:00:00.000Z", CARRIER)],
+      }),
+    })
+    const props = {
+      shipmentId: "4800bc55-a000-4000-8000-000000048213",
+      heading,
+    }
+    const { rerender } = render(
+      <ChatPanel
+        {...props}
+        first={page({
+          items: [message("Mensaje nuevo", "2026-10-21T14:00:00.000Z")],
+          nextCursor: "o6",
+        })}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: /Ver chat/ }))
+    fireEvent.click(
+      screen.getByRole("button", { name: "Ver mensajes anteriores" })
+    )
+    await waitFor(() => expect(screen.getByText("Mensaje viejo")).toBeTruthy())
+    rerender(
+      <ChatPanel
+        {...props}
+        first={page({
+          items: [message("Recién llegado", "2026-10-21T15:00:00.000Z")],
+          nextCursor: "o9",
+        })}
+      />
+    )
+    expect(screen.getByText("Recién llegado")).toBeTruthy()
+    expect(screen.queryByText("Mensaje viejo")).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Ver mensajes anteriores" })
+    ).toBeTruthy()
+  })
+
   it("si la página siguiente falla, avisa y deja reintentar", async () => {
     actions.loadChatPage.mockResolvedValue({ ok: false, status: 502 })
     open(

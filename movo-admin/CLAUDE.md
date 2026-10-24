@@ -153,8 +153,8 @@ ticket y los implementa MOVO-294, que los tiene anexados en su descripción.
   `fixtures.ts` (los usuarios del prototipo). `MOVO_ADMIN_MOCK_FAIL=kyc,ledger` inyecta 502 por sección y
   `MOVO_ADMIN_MOCK_LATENCY_MS` la demora. Para pasar a datos reales alcanza con apagar el flag cuando 294 esté en dev.
 - **Fuera del prototipo, agregado por los AC de 293**: Bitácora, tarjeta de Mercado Pago dentro de KYC y pestaña
-  Viajes en Actividad. Los envíos no tienen código propio: se muestra el ID corto y, cuando exista MOVO-33,
-  `shipmentHref()` en `activity-panel.tsx` es el único lugar a completar para linkear al detalle.
+  Viajes en Actividad. Los envíos no tienen código propio: se muestra el ID corto, que linkea al detalle con
+  `shipmentHref()` (ver MOVO-326).
 - **Listas que crecen**: Actividad (envíos y viajes) y Calificaciones paginan de a 5 con `page`/`total`; Cuenta
   corriente y Bitácora por cursor con "Ver más" (`MoreRow`, acciones `loadLedgerMore`/`loadAuditMore`); Reportes
   pagina de a 5 en el cliente sobre las 50 más recientes que manda `/moderation` (`totals` dice cuántas hay) y
@@ -222,8 +222,8 @@ MOVO-322 (API) y MOVO-321 (adjuntos), que los tienen anexados en su descripción
 - **Conflicto de interés**: una consulta cuyo usuario es el admin se abre ya bloqueada; un `403 ADMIN_CONFLICT_OF_INTEREST` al enviar o
   modificar hace lo mismo. Sin calificación de la atención (se omitió la tarjeta de estrellas del prototipo).
 - **Fuera del prototipo, agregado por los AC**: adjuntos (selector, arrastrar, pegar, vista previa, lightbox), menú de tema, estados de
-  carga y error, reconexión. Los links a envíos pasan por `shipmentHref()` (`lib/support/shipment-href.ts`), que hoy devuelve `null` hasta
-  MOVO-33. Los menús usan `MenuHeading` y no `DropdownMenuLabel` (Base UI exige un grupo padre).
+  carga y error, reconexión. Los links a envíos pasan por `shipmentHref()` (`lib/support/shipment-href.ts`), que desde MOVO-326
+  apunta a `/shipments/:id`. Los menús usan `MenuHeading` y no `DropdownMenuLabel` (Base UI exige un grupo padre).
 - **Modo fixtures** (`MOVO_ADMIN_MOCK=1`): `lib/support/{mock,fixtures}.ts` portan las 9 consultas del prototipo, la que entra sola a los
   16 s, respuestas del usuario y una consulta propia del admin logueado. `MOVO_ADMIN_MOCK_FAIL=context,list,send!,ws…`,
   `MOVO_ADMIN_MOCK_SIMULATE=0`. Los adjuntos se suben a `/api/support/mock-upload/[id]` y se leen de `mock-image/[id]`.
@@ -250,8 +250,9 @@ cambio de estado (MOVO-333). Contrato de MOVO-325 (`shared/movo-shared/src/types
 - **Detalle por bloques**: solo `GET /admin/shipments/:id` bloquea; partes, pago y eventos son `AdminBlock` y cada uno muestra
   su error con "Reintentar" (`BlockError`, `router.refresh()`). El chat se pide aparte dentro de su `<Suspense>` (botón "Ver chat"
   del encabezado) y abre un `Sheet` sin compositor; "Ver mensajes anteriores" usa la Server Action `loadChatPage`.
-- **Avisos**: `rowAlert` (`lib/shipments/format.ts`) aplica la misma regla que `isAdminShipmentAlert` de `@movo/shared`, que es la
-  que usa el filtro del backend; un test verifica que coincidan. El handshake ("Retiro confirmado con QR · 09:24") sale del
+- **Avisos**: si una fila lleva aviso lo decide `isAdminShipmentAlert` de `@movo/shared` (la regla del filtro del backend);
+  `rowAlert` (`lib/shipments/format.ts`) solo elige el texto. El badge de "Solo con alerta" se oculta con un chip de estado
+  elegido: `alertCounts` es por pestaña. El handshake ("Retiro confirmado con QR · 09:24") sale del
   evento `→ in_transit`/`→ delivered`. "Marcado por el equipo, sin QR" y las marcas Forzado/Manual esperan a que los eventos
   traigan la marca de admin (MOVO-333). El mapa (MOVO-328) es un lugar con el mensaje por estado (`TrackingPlaceholder`).
 - **Ruta por ciudad, no por barrio** (el prototipo muestra barrios): el backend solo guarda la ciudad (`pickupCity`/`deliveryCity`)

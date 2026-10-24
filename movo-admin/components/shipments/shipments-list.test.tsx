@@ -224,6 +224,82 @@ describe("filtros", () => {
     }
   })
 
+  it("una búsqueda pendiente no pisa un filtro elegido mientras tanto", () => {
+    vi.useFakeTimers()
+    try {
+      setup()
+      fireEvent.change(screen.getByLabelText("Buscar envíos"), {
+        target: { value: "ana" },
+      })
+      fireEvent.click(screen.getAllByRole("tab")[4]!)
+      act(() => {
+        vi.advanceTimersByTime(400)
+      })
+      expect(nav.replace).toHaveBeenLastCalledWith(
+        "/shipments?group=closed&q=ana",
+        { scroll: false }
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("la ciudad que se aplica al salir del campo se suma al filtro que se clickeó", () => {
+    setup()
+    const city = screen.getByLabelText("Ciudad del retiro")
+    fireEvent.change(city, { target: { value: "Córdoba" } })
+    fireEvent.blur(city)
+    fireEvent.click(screen.getByRole("button", { name: /Solo con alerta/ }))
+    expect(nav.replace).toHaveBeenLastCalledWith(
+      "/shipments?city=C%C3%B3rdoba&alert=1",
+      { scroll: false }
+    )
+  })
+
+  it("si la URL cambia sin remontar, los campos vuelven a mostrarla", () => {
+    const { rerender } = setup({
+      ...EMPTY_LIST_STATE,
+      q: "ana",
+      city: "Córdoba",
+    })
+    rerender(
+      <ShipmentFilters
+        state={EMPTY_LIST_STATE}
+        counts={counts}
+        resultLabel="12 envíos"
+        loadedAt={NOW.toISOString()}
+      />
+    )
+    const search = screen.getByLabelText<HTMLInputElement>("Buscar envíos")
+    expect(search.value).toBe("")
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Ciudad del retiro").value
+    ).toBe("")
+    // Volver a escribir lo mismo navega de nuevo.
+    vi.useFakeTimers()
+    try {
+      fireEvent.change(search, { target: { value: "ana" } })
+      act(() => {
+        vi.advanceTimersByTime(400)
+      })
+      expect(nav.replace).toHaveBeenCalledWith("/shipments?q=ana", {
+        scroll: false,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("con un chip de estado elegido, 'Solo con alerta' no muestra el conteo de la pestaña", () => {
+    setup({
+      ...EMPTY_LIST_STATE,
+      tab: "assigning",
+      status: "assigned_unfunded",
+    })
+    const toggle = screen.getByRole("button", { name: /Solo con alerta/ })
+    expect(toggle.textContent).toBe("Solo con alerta")
+  })
+
   it("recargar pide la página de nuevo y muestra la hora de la carga", () => {
     setup()
     const reload = screen.getByRole("button", { name: /Actualizado/ })

@@ -9,6 +9,7 @@ import {
   listHref,
   listQuery,
   nextPage,
+  pageNumber,
   parseListState,
   prevPage,
 } from "@/lib/shipments/params"
@@ -42,13 +43,12 @@ export default async function Page({
   }
 
   const now = new Date()
-  // El total del resultado: el chip elegido, o la pestaña (los activos en "Todos").
+  // El total del resultado: el chip elegido, o la pestaña (los activos en "Todos"). Con `alert`
+  // activo el backend ya devuelve los conteos filtrados.
   const total = data
     ? state.status
       ? data.statusCounts[state.status]
-      : state.alert
-        ? data.alertCounts[state.tab]
-        : data.counts[state.tab]
+      : data.counts[state.tab]
     : 0
   const resultLabel = data ? (total === 1 ? "1 envío" : `${total} envíos`) : ""
   const filtered =
@@ -112,7 +112,7 @@ export default async function Page({
                 ))
               )}
               <ShipmentsPager
-                page={state.back.length + (state.cursor ? 2 : 1)}
+                page={pageNumber(state)}
                 prevHref={state.cursor ? listHref(prevPage(state)) : null}
                 nextHref={
                   data.nextCursor

@@ -41,6 +41,18 @@ const one = (v: string | string[] | undefined) =>
   (Array.isArray(v) ? v[0] : v) ?? ""
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 const CURSOR = /^[A-Za-z0-9_-]{1,300}$/
+/**
+ * Páginas anteriores que se guardan en `back`. Más allá, se descartan las más viejas: "Anterior"
+ * termina en la primera página y el pager deja de mostrar el número (`pageNumber`).
+ */
+export const MAX_BACK = 50
+
+/** Un día que existe (`2026-13-45` o `2026-02-30` no): si no, `new Date` tira al armar la query. */
+function isDay(v: string): boolean {
+  if (!DAY.test(v)) return false
+  const date = new Date(`${v}T12:00:00Z`)
+  return !isNaN(date.getTime()) && date.toISOString().slice(0, 10) === v
+}
 
 const isGroup = (v: string): v is AdminShipmentGroup =>
   (ADMIN_SHIPMENT_GROUPS as readonly string[]).includes(v)
@@ -59,18 +71,24 @@ export function parseListState(raw: Raw): ListState {
     status: statuses.includes(status) ? (status as ShipmentStatusValue) : null,
     q: one(raw.q).trim().slice(0, 100),
     city: one(raw.city).trim().slice(0, 100),
-    from: DAY.test(one(raw.from)) ? one(raw.from) : "",
-    to: DAY.test(one(raw.to)) ? one(raw.to) : "",
+    from: isDay(one(raw.from)) ? one(raw.from) : "",
+    to: isDay(one(raw.to)) ? one(raw.to) : "",
     alert: one(raw.alert) === "1",
     cursor: CURSOR.test(cursor) ? cursor : null,
     back: CURSOR.test(cursor)
       ? one(raw.back)
           .split(".")
           .filter((c) => CURSOR.test(c))
-          .slice(-20)
+          .slice(-MAX_BACK)
       : [],
   }
 }
+
+/** Número de la página actual, o `null` si `back` llegó al tope y ya no se sabe. */
+export const pageNumber = (state: ListState): number | null =>
+  state.back.length >= MAX_BACK
+    ? null
+    : state.back.length + (state.cursor ? 2 : 1)
 
 /** Querystring del panel (sin `?`), sin los valores por defecto. */
 export function listQuery(state: ListState): string {
@@ -108,7 +126,7 @@ export const withFilter = (
 export const nextPage = (state: ListState, cursor: string): ListState => ({
   ...state,
   cursor,
-  back: state.cursor ? [...state.back, state.cursor] : [],
+  back: state.cursor ? [...state.back, state.cursor].slice(-MAX_BACK) : [],
 })
 
 export function prevPage(state: ListState): ListState {

@@ -20,7 +20,12 @@ import {
   TAB_LABEL,
   type ShipmentTab,
 } from "@/lib/shipments/format"
-import { listHref, withFilter, type ListState } from "@/lib/shipments/params"
+import {
+  listHref,
+  listQuery,
+  withFilter,
+  type ListState,
+} from "@/lib/shipments/params"
 import { cn } from "@/lib/utils"
 
 type Counts = Pick<AdminShipmentPage, "counts" | "statusCounts" | "alertCounts">
@@ -47,10 +52,20 @@ export function ShipmentFilters({
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
-  const go = (patch: Partial<ListState>) =>
-    start(() =>
-      router.replace(listHref(withFilter(state, patch)), { scroll: false })
-    )
+  // El último estado pedido, no el del render: el timer de la búsqueda o un blur de la ciudad
+  // pueden navegar justo después de otro filtro, y cada cambio se suma al anterior en vez de pisarlo.
+  const latest = useRef(state)
+  const stateKey = listQuery(state)
+  useEffect(() => {
+    latest.current = state
+    // `state` es un objeto nuevo en cada render del servidor; alcanza con su querystring.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateKey])
+  const go = (patch: Partial<ListState>) => {
+    latest.current = withFilter(latest.current, patch)
+    const href = listHref(latest.current)
+    start(() => router.replace(href, { scroll: false }))
+  }
 
   // Búsqueda con debounce: escribir no navega en cada tecla.
   const [q, setQ] = useState(state.q)
@@ -62,19 +77,36 @@ export function ShipmentFilters({
       go({ q: q.trim() })
     }, 350)
     return () => clearTimeout(t)
-    // `go` cambia en cada render; solo importa el texto.
+    // `go` lee el estado de `latest`; solo importa el texto.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q])
 
   const [city, setCity] = useState(state.city)
+  const sentCity = useRef(state.city)
   const applyCity = () => {
-    if (city.trim() !== state.city) go({ city: city.trim() })
+    if (city.trim() === latest.current.city) return
+    sentCity.current = city.trim()
+    go({ city: city.trim() })
   }
+
+  // La URL cambió sin remontar (sidebar, atrás/adelante): los inputs vuelven a mostrarla. Lo que
+  // mandó este mismo componente no se toca, así no se borra lo que se siguió escribiendo.
+  useEffect(() => {
+    if (state.q === lastSent.current) return
+    lastSent.current = state.q
+    setQ(state.q)
+  }, [state.q])
+  useEffect(() => {
+    if (state.city === sentCity.current) return
+    sentCity.current = state.city
+    setCity(state.city)
+  }, [state.city])
 
   const subs =
     state.tab === "all" ? [] : ADMIN_SHIPMENT_GROUP_STATUSES[state.tab]
   const tabCount = (tab: ShipmentTab) => counts?.counts[tab]
-  const alertCount = counts?.alertCounts[state.tab]
+  // Los conteos de alerta son por pestaña: con un chip de estado elegido el número no aplica.
+  const alertCount = state.status ? undefined : counts?.alertCounts[state.tab]
 
   return (
     <div className="flex min-w-0 flex-col gap-3" aria-busy={pending}>

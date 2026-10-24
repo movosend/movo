@@ -39,6 +39,14 @@ export function ChatPanel({
   const [open, setOpen] = useState(false)
   const [pages, setPages] = useState<AdminChatPage[]>([first])
   const [failed, setFailed] = useState<number | null>(null)
+  // Un "Reintentar" (`router.refresh()`) trae una primera página nueva: se descartan las que se
+  // habían sumado con "Ver mensajes anteriores". El panel queda abierto.
+  const [base, setBase] = useState(first)
+  if (base !== first) {
+    setBase(first)
+    setPages([first])
+    setFailed(null)
+  }
   const [pending, start] = useTransition()
   const nextCursor = pages.at(-1)!.nextCursor
   const messages = useMemo(() => pages.flatMap((p) => p.items), [pages])

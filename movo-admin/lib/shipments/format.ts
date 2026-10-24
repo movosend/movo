@@ -1,10 +1,11 @@
-import type {
-  AdminChatMessage,
-  AdminChatReport,
-  AdminShipmentEvent,
-  AdminShipmentGroup,
-  AdminShipmentPayment,
-  AdminShipmentRow,
+import {
+  isAdminShipmentAlert,
+  type AdminChatMessage,
+  type AdminChatReport,
+  type AdminShipmentEvent,
+  type AdminShipmentGroup,
+  type AdminShipmentPayment,
+  type AdminShipmentRow,
 } from "@movo/shared/src/types/admin-shipments"
 import type {
   ChatAccess,
@@ -129,13 +130,14 @@ export function timeLeft(iso: string, now = new Date()): string | null {
 }
 
 /**
- * Texto del aviso de una fila, o `null`. Misma regla que `isAdminShipmentAlert` (y que el filtro
- * `alert` del listado): demorado, plazo de pago, plazo del emisor para elegir receptor o disputa.
+ * Texto del aviso de una fila, o `null`. Si lleva aviso lo decide `isAdminShipmentAlert` (la regla
+ * del filtro `alert` del listado); acá solo se elige el texto.
  */
 export function rowAlert(
   row: AdminShipmentRow,
   now = new Date()
 ): string | null {
+  if (!isAdminShipmentAlert(row)) return null
   if (row.delayed) return "Demorado · sigue en camino más de lo esperado"
   if (row.status === "assigned_unfunded") {
     if (!row.fundingDeadline) return "Esperando que el emisor reserve el pago"
@@ -153,7 +155,7 @@ export function rowAlert(
       : "El receptor rechazó el envío"
   }
   if (row.status === "disputed") return "En disputa · el pago queda retenido"
-  return null
+  return "Requiere atención"
 }
 
 /** Qué mirar según el estado, debajo del aviso del detalle (prototipo). */
