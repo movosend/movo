@@ -1,5 +1,6 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { toArgentinaCalendarDateString } from "@movo/shared/dist/utils/argentina-date";
+import { isSenderCancellableStatus } from "@movo/shared/dist/config/cancellation-penalty";
 
 /** Etiqueta en español de cada estado del ciclo de vida (`shipment-state-machine.ts`
  * en `movo-svc-shipments`, MOVO-105) — un valor nuevo en el enum obliga a decidir acá
@@ -121,20 +122,11 @@ export function receiverConfirmationStatus(
   return "confirmed";
 }
 
-/** Estados desde los que el emisor puede cancelar (MOVO-29/108). MOVO-308: también
- * `assigned` (con la penalidad de ADR-047, que el sheet cotiza antes de confirmar) y
- * `assigned_unfunded` (todavía sin reserva, sin cargo). El resto de los estados no puede
- * pasar a `cancelled` (`shipment-state-machine.ts`). */
+/** Estados desde los que el emisor puede cancelar (MOVO-29/108/308). MOVO-340: la regla
+ * vive en `@movo/shared`, la misma que `svc-shipments` verifica contra su máquina de
+ * estados; solo depende del estado, nunca de la fecha del retiro. */
 export function canCancelShipment(status: ShipmentStatus): boolean {
-  return (
-    status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION ||
-    // MOVO-253 AC4: en vez de elegir otro receptor, el emisor puede cancelar.
-    status === ShipmentStatus.REJECTED_BY_RECEIVER ||
-    status === ShipmentStatus.PUBLISHED ||
-    status === ShipmentStatus.ASSIGNMENT_PENDING ||
-    status === ShipmentStatus.ASSIGNED_UNFUNDED ||
-    status === ShipmentStatus.ASSIGNED
-  );
+  return isSenderCancellableStatus(status);
 }
 
 /** Estados desde los que el transportista asignado puede bajarse (MOVO-314 AC1, backend

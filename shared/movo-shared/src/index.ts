@@ -290,6 +290,8 @@ export {
   CANCELLATION_PENALTY_RATE,
   computeCancellationPenalty,
   computeCarrierWithdrawalPenalty,
+  isSenderCancellableStatus,
+  SENDER_CANCELLABLE_STATUSES,
 } from "./config/cancellation-penalty";
 export type {
   CancellationPenaltyInput,
