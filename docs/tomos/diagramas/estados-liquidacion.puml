@@ -1,0 +1,16 @@
+@startuml estados-liquidacion
+hide empty description
+skinparam linetype spline
+skinparam ArrowFontSize 9
+skinparam nodesep 40
+skinparam ranksep 38
+[*] --> processing : se pide la captura
+processing --> credited : captura acreditada
+processing --> failed : Mercado Pago rechaza\\no no responde
+failed --> processing : reintento (5, 30 y 120 min)
+failed --> escalated : sin reintentos o\\ncausa irrecuperable
+state credited <<terminal>>
+state escalated <<terminal>>
+credited --> [*]
+escalated --> [*]
+@enduml

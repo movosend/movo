@@ -1,0 +1,22 @@
+@startuml estados-hold
+hide empty description
+skinparam linetype spline
+skinparam ArrowFontSize 9
+skinparam nodesep 40
+skinparam ranksep 38
+[*] --> creating : el emisor paga
+creating --> authorized : Mercado Pago autoriza
+creating --> in_process : pago en revisión
+creating --> rejected : tarjeta rechazada
+in_process --> authorized : se aprueba
+in_process --> rejected : se rechaza
+in_process --> cancelled : vence o cancela
+authorized --> captured : se confirma la entrega\\n(o penalidad parcial)
+authorized --> cancelled : liberación, vencimiento\\no cancelación del envío
+state captured <<terminal>>
+state cancelled <<terminal>>
+state rejected <<terminal>>
+captured --> [*]
+cancelled --> [*]
+rejected --> [*]
+@enduml

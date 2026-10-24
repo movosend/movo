@@ -1,0 +1,107 @@
+@startuml clases-identidad
+' Dominio de identidad (movo-svc-users). Atributos del esquema Prisma; operaciones de auth.service, kyc.service y users.service.
+hide circle
+skinparam linetype ortho
+skinparam nodesep 40
+skinparam ranksep 40
+
+class User <<movo>> {
+  id : UUID
+  email : String
+  phone : String
+  firstName : String
+  lastName : String
+  dni : String
+  kycStatusIdentity : KycStatus
+  kycStatusLicense : KycStatus
+  status : AccountStatus
+  phoneVerified : Boolean
+  emailVerified : Boolean
+  photoUrl : String
+  termsVersion : String
+  privacyVersion : String
+  --
+  register()
+  login()
+  refresh()
+  logout()
+}
+class UserRoleGrant {
+  role : UserRole
+  grantedAt : DateTime
+}
+enum UserRole {
+  sender
+  carrier
+  receiver
+  admin
+}
+class KycVerification {
+  id : UUID
+  verificationType : VerificationType
+  provider : String
+  externalSessionId : String
+  status : KycStatus
+  requestedAt : DateTime
+  resolvedAt : DateTime
+  --
+  createSession()
+  handleWebhook()
+}
+class DriversLicense {
+  expirationDate : Date
+  status : DriversLicenseStatus
+}
+class VehicleProfile {
+  brand : String
+  model : String
+  cargoCapacityLabel : String
+  licensePlate : String
+}
+class Address {
+  label : String
+  street : String
+  city : String
+  province : String
+  lat : Decimal
+  long : Decimal
+  isDefault : Boolean
+}
+class AccountSanction {
+  type : AccountSanctionType
+  reason : String
+  startedAt : DateTime
+  endsAt : DateTime
+  liftedAt : DateTime
+  closedCause : AccountSanctionClosedCause
+}
+class DeviceKey {
+  publicKey : String
+  updatedAt : DateTime
+}
+class UserBlock {
+  createdAt : DateTime
+}
+class UserReport {
+  reason : ReportReason
+  details : String
+  status : ReportStatus
+}
+class UserReportEntry {
+  details : String
+  createdAt : DateTime
+}
+
+User "1" *-- "1..*" UserRoleGrant : tiene
+UserRoleGrant ..> UserRole
+User "1" *-- "0..*" KycVerification : verifica con
+User "1" *-- "0..1" DriversLicense
+KycVerification "0..1" <-- DriversLicense : se origina en
+User "1" *-- "0..1" VehicleProfile
+User "1" *-- "0..*" Address
+User "1" *-- "0..*" AccountSanction : recibe
+User "1" *-- "0..1" DeviceKey : firma el handshake con
+User "1" --> "0..*" UserBlock : bloquea
+User "1" --> "0..*" UserReport : reporta
+UserReport "1" *-- "1..*" UserReportEntry
+@enduml

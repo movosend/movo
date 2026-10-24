@@ -1,0 +1,17 @@
+@startuml estados-cuenta-corriente
+hide empty description
+skinparam linetype spline
+skinparam ArrowFontSize 9
+skinparam nodesep 40
+skinparam ranksep 38
+[*] --> pending : se registra el movimiento
+pending --> reserved : se descuenta en un hold\nde la próxima operación
+reserved --> pending : el hold se libera,\nrechaza o vence
+reserved --> settled : el hold se captura
+pending --> settled : el usuario paga su saldo
+pending --> voided : se anula
+reserved --> voided : se anula
+settled --> voided : se anula
+state voided <<terminal>>
+voided --> [*]
+@enduml

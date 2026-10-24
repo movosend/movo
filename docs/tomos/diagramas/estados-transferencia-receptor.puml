@@ -1,0 +1,16 @@
+@startuml estados-transferencia-receptor
+hide empty description
+skinparam linetype spline
+skinparam ArrowFontSize 9
+skinparam nodesep 40
+skinparam ranksep 38
+[*] --> pending_new_receiver : el receptor actual\\npide la transferencia
+pending_new_receiver --> completed : la invitada acepta\\n(cambio atómico de receptor)
+pending_new_receiver --> rejected_by_new_receiver : la invitada rechaza
+pending_new_receiver --> expired : vence el plazo
+pending_new_receiver --> cancelled : el receptor la retira\\no empieza la entrega
+state completed <<terminal>>
+state rejected_by_new_receiver <<terminal>>
+state expired <<terminal>>
+state cancelled <<terminal>>
+@enduml

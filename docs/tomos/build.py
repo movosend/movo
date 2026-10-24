@@ -31,6 +31,7 @@ BUILD = RAIZ / "build"
 SALIDA = RAIZ / "salida"
 DIAG_SRC = RAIZ / "diagramas"
 DIAG_OUT = BUILD / "diagramas"
+DIAG_GEN = BUILD / "generados"
 sys.path.insert(0, str(Path(__file__).resolve().parent / "herramientas"))
 import seccionar  # noqa: E402
 
@@ -51,9 +52,10 @@ def cargar_yaml(ruta: Path) -> dict:
 def renderizar_diagramas() -> None:
     """Renderiza a SVG los .puml que cambiaron (o cuyo tema cambió) desde el último build."""
     DIAG_OUT.mkdir(parents=True, exist_ok=True)
+    DIAG_GEN.mkdir(parents=True, exist_ok=True)
     # Diagramas no UML generados por script (mapas de procesos, etc.) y SVG hechos a mano.
     for gen in sorted(DIAG_SRC.glob("*.py")):
-        subprocess.run([sys.executable, str(gen)], check=True, env={**os.environ, "DIAG_OUT": str(DIAG_OUT)})
+        subprocess.run([sys.executable, str(gen)], check=True, env={**os.environ, "DIAG_OUT": str(DIAG_OUT), "DIAG_GEN": str(DIAG_GEN)})
     for svg in sorted(DIAG_SRC.glob("*.svg")):
         (DIAG_OUT / svg.name).write_bytes(svg.read_bytes())
     tema = TEMA_PLANTUML.read_bytes()
@@ -61,7 +63,7 @@ def renderizar_diagramas() -> None:
     fuentes = []
     PARTES_DIR = DIAG_OUT.parent / "partes"
     PARTES_DIR.mkdir(parents=True, exist_ok=True)
-    for fuente in sorted(DIAG_SRC.rglob("*.puml")):
+    for fuente in sorted(list(DIAG_SRC.rglob("*.puml")) + list(DIAG_GEN.glob("*.puml"))):
         trozos = seccionar.partes(fuente.read_text(encoding="utf-8"), fuente.stem)
         if not trozos:
             fuentes.append(fuente)

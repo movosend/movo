@@ -1,0 +1,17 @@
+titulo: Patrones de Diseño
+subtitulo: Patrones aplicados en el código de Movo, con el problema que resuelven, su ubicación y el costo aceptado.
+instancia: Producto · Modelo de diseño
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: true
+archivos:
+  - patrones.md
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: patrones relevados del código fuente vigente al cierre del Sprint 8."}
+introduccion: |
+  Este documento recopila los patrones de diseño que el código de Movo aplica efectivamente. Para
+  cada patrón se indica el problema, la solución adoptada, los archivos donde se implementa y el
+  costo que el equipo aceptó.
+audiencia: |
+  El tribunal evaluador y los futuros mantenedores, con conocimiento de patrones de diseño y de
+  arquitectura de microservicios.

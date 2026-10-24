@@ -1,0 +1,14 @@
+@startuml estados-reporte
+hide empty description
+skinparam linetype spline
+skinparam ArrowFontSize 9
+skinparam nodesep 40
+skinparam ranksep 38
+[*] --> pending : el usuario reporta
+pending --> reviewed : el equipo la revisa\\ny actúa
+pending --> dismissed : el equipo la descarta
+state reviewed <<terminal>>
+state dismissed <<terminal>>
+reviewed --> [*]
+dismissed --> [*]
+@enduml

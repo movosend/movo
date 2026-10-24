@@ -1,0 +1,12 @@
+@startuml estados-disputa
+hide empty description
+skinparam linetype spline
+skinparam ArrowFontSize 9
+skinparam nodesep 40
+skinparam ranksep 38
+[*] --> open : una parte reclama\\n(o lo abre el sistema)
+open --> open : descargos de\\nlas contrapartes
+open --> resolved : resolución del administrador\\n(MOVO-34, pendiente)
+state resolved <<terminal>>
+resolved --> [*]
+@enduml

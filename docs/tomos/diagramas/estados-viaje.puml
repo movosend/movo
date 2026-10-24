@@ -1,0 +1,18 @@
+@startuml estados-viaje
+hide empty description
+skinparam linetype spline
+skinparam ArrowFontSize 9
+skinparam nodesep 40
+skinparam ranksep 38
+[*] --> declared
+declared --> active : el transportista inicia\\n(con paquetes asignados)
+declared --> cancelled : el transportista cancela\\no vence sin paquetes
+active --> completed : todos los paquetes\\nentregados
+active --> expired : vence sin paquetes\\nejecutables
+state completed <<terminal>>
+state cancelled <<terminal>>
+state expired <<terminal>>
+completed --> [*]
+cancelled --> [*]
+expired --> [*]
+@enduml

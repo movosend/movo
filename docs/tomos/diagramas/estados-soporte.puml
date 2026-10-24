@@ -1,0 +1,13 @@
+@startuml estados-soporte
+hide empty description
+skinparam linetype spline
+skinparam ArrowFontSize 9
+skinparam nodesep 40
+skinparam ranksep 38
+[*] --> open : el usuario abre\\nla consulta
+open --> awaiting_user : responde un agente
+awaiting_user --> open : el usuario responde
+open --> resolved : el agente la resuelve
+awaiting_user --> resolved : el agente la resuelve
+resolved --> open : el usuario escribe de nuevo\\n(reapertura)
+@enduml

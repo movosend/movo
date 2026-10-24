@@ -1,0 +1,134 @@
+@startuml clases-envios
+' Dominio de envíos (movo-svc-shipments). Atributos del esquema Prisma; operaciones de los servicios del módulo.
+hide circle
+skinparam linetype ortho
+skinparam nodesep 36
+skinparam ranksep 40
+
+class Shipment <<movo>> {
+  id : UUID
+  senderId : UUID
+  receiverId : UUID
+  carrierId : UUID
+  packageType : PackageType
+  weightKg : Decimal
+  pickupAddress : String
+  deliveryAddress : String
+  pickupDate : Date
+  suggestedPriceArs : Decimal
+  agreedPriceArs : Decimal
+  status : ShipmentStatus
+  deliveredAt : DateTime
+  --
+  createShipment()
+  acceptShipment()
+  rejectShipment()
+  redesignateReceiver()
+  cancelShipment()
+  withdrawCarrierFromShipment()
+}
+class ShipmentEvent {
+  fromStatus : ShipmentStatus
+  toStatus : ShipmentStatus
+  actorId : UUID
+  reason : String
+  createdAt : DateTime
+}
+class ShipmentPhoto {
+  stage : PhotoStage
+  s3Key : String
+}
+class Offer <<movo>> {
+  carrierId : UUID
+  priceOffered : Decimal
+  offeredDate : Date
+  status : OfferStatus
+  expiresAt : DateTime
+  --
+  createOfferForShipment()
+  acceptOffer()
+  rejectOffer()
+  withdrawOffer()
+  updateOffer()
+}
+class Trip <<movo>> {
+  carrierId : UUID
+  originAddress : String
+  destinationAddress : String
+  departureAt : DateTime
+  vehicleType : String
+  status : TripStatus
+  recurrenceWeekdays : Int[]
+  --
+  createTrip()
+  startTrip()
+  cancelTrip()
+  getTripMatches()
+}
+class HandshakeEvent {
+  stage : HandshakeStage
+  actorId : UUID
+  counterpartyId : UUID
+  nonceHash : String
+  distanceM : Decimal
+  createdAt : DateTime
+  --
+  generateHandshake()
+  confirmHandshake()
+}
+class Rating {
+  raterId : UUID
+  rateeId : UUID
+  role : RatingRole
+  score : Int
+  comment : String
+  --
+  createRating()
+  updateRating()
+}
+class ReceiverTransferRequest {
+  requestedBy : UUID
+  newReceiverId : UUID
+  status : ReceiverTransferStatus
+  newReceiverDeadline : DateTime
+  --
+  requestTransfer()
+  acceptTransfer()
+  rejectTransfer()
+}
+class Dispute {
+  openedBy : UUID
+  reason : DisputeReason
+  status : DisputeStatus
+  openedAt : DateTime
+  --
+  openDispute()
+  addStatement()
+}
+class DisputeStatement {
+  kind : DisputeStatementKind
+  text : String
+}
+class ChatMessage {
+  authorId : UUID
+  body : String
+  moderated : Boolean
+}
+class CarrierPosition {
+  lat : Decimal
+  lng : Decimal
+  capturedAt : DateTime
+}
+
+Shipment "1" *-- "1..*" ShipmentEvent : línea de tiempo
+Shipment "1" *-- "0..*" ShipmentPhoto : evidencia
+Shipment "1" o-- "0..*" Offer : recibe
+Offer "0..*" --> "0..1" Trip : asociada a
+Shipment "1" *-- "0..*" HandshakeEvent : custodia
+Shipment "1" *-- "0..*" Rating : calificaciones
+Shipment "1" *-- "0..*" ReceiverTransferRequest
+Shipment "1" *-- "0..*" Dispute
+Dispute "1" *-- "0..*" DisputeStatement
+Shipment "1" *-- "0..*" ChatMessage
+Trip "1" o-- "0..*" CarrierPosition : traza
+@enduml

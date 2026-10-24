@@ -1,0 +1,16 @@
+titulo: Diagramas de Transición de Estados
+subtitulo: "Máquinas de estados de los objetos de dominio de Movo (envío, oferta, viaje, verificación, cuenta, pagos y moderación)."
+instancia: Producto · Modelo de comportamiento
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: false
+archivos:
+  - {gen: herramientas/gen_estados.py}
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: diagramas de estados reconstruidos desde el código vigente al cierre del Sprint 8 (reemplazan a los diagramas de Mermaid de los documentos de diseño previos)."}
+introduccion: |
+  Este documento reúne los diagramas de transición de estados de los objetos de dominio de Movo.
+  Para cada uno se indica el propósito de sus estados, las transiciones permitidas y el archivo del
+  código del que se obtuvo el diagrama.
+audiencia: |
+  El tribunal evaluador y los futuros mantenedores, con conocimiento de UML.

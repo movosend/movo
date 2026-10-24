@@ -1,0 +1,100 @@
+@startuml clases-servicios
+' Estructura en capas de un servicio Node y patrón de proveedores intercambiables (ADR-012, ADR-014, ADR-017).
+hide circle
+skinparam linetype ortho
+skinparam nodesep 34
+skinparam ranksep 44
+left to right direction
+
+package "Capas de un servicio" {
+  class "Routes\n(Fastify + esquemas)" as Routes <<capa>>
+  class "Service\n(reglas de negocio)" as Service <<capa>>
+  class "Repository\n(Prisma)" as Repository <<capa>>
+  class "Domain\n(máquinas de estados, reglas puras)" as Domain <<capa>>
+  class "Adapter / Client\n(servicios externos y vecinos)" as Adapter <<capa>>
+  Routes --> Service : valida y delega
+  Service --> Domain : aplica reglas
+  Service --> Repository : persiste
+  Service --> Adapter : consulta
+}
+
+interface SmsProvider {
+  send(toE164, code)
+  sendText(toE164, message)
+}
+class ConsoleSmsProvider
+class TwilioSmsProvider
+class TelegramSmsProvider
+SmsProvider <|.. ConsoleSmsProvider
+SmsProvider <|.. TwilioSmsProvider
+SmsProvider <|.. TelegramSmsProvider
+
+interface EmailProvider {
+  send(to, subject, body)
+}
+class ConsoleEmailProvider
+class ResendEmailProvider
+EmailProvider <|.. ConsoleEmailProvider
+EmailProvider <|.. ResendEmailProvider
+
+interface GeocodingProvider {
+  geocode(address)
+  reverseGeocode(lat, long)
+}
+class MockGeocodingProvider
+class GoogleGeocodingProvider
+GeocodingProvider <|.. MockGeocodingProvider
+GeocodingProvider <|.. GoogleGeocodingProvider
+
+interface RoutesProvider {
+  getRoute(input)
+  getRouteDurations(input)
+}
+class MockRoutesProvider
+class GoogleRoutesProvider
+RoutesProvider <|.. MockRoutesProvider
+RoutesProvider <|.. GoogleRoutesProvider
+
+interface StorageProvider {
+  createUploadUrl(input)
+  headObject(key)
+  createDownloadUrl(key)
+  deleteObject(key)
+}
+class MockStorageProvider
+class S3StorageProvider
+StorageProvider <|.. MockStorageProvider
+StorageProvider <|.. S3StorageProvider
+
+interface PushNotificationProvider {
+  send(input)
+}
+class MockPushProvider
+class ExpoPushProvider
+PushNotificationProvider <|.. MockPushProvider
+PushNotificationProvider <|.. ExpoPushProvider
+
+interface DiditClient {
+  createSession(input)
+  getSessionDecision(sessionId)
+}
+class MockDiditClient
+class HttpDiditClient
+DiditClient <|.. MockDiditClient
+DiditClient <|.. HttpDiditClient
+
+interface MercadoPagoClient {
+  createPayment(accessToken, body, key)
+  getPayment(accessToken, id)
+  capturePayment(accessToken, id, ...)
+}
+class SdkMercadoPagoClient
+MercadoPagoClient <|.. SdkMercadoPagoClient
+
+note bottom of SmsProvider
+  Cada interfaz tiene una fábrica create…Provider(config) que elige la
+  implementación según una variable de entorno (SMS_PROVIDER, EMAIL_PROVIDER,
+  GEOCODING_PROVIDER, STORAGE_PROVIDER, ...). El valor por defecto en
+  desarrollo, pruebas y CI es la implementación de consola o mock.
+end note
+@enduml

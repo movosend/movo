@@ -1,0 +1,84 @@
+@startuml clases-pagos
+' Dominio de pagos (movo-svc-payments). Atributos del esquema Prisma; operaciones de los servicios del módulo.
+hide circle
+skinparam linetype ortho
+skinparam nodesep 40
+skinparam ranksep 44
+
+class Hold <<movo>> {
+  id : UUID
+  shipmentId : UUID
+  carrierId : UUID
+  payerId : UUID
+  amountArs : Decimal
+  applicationFeeArs : Decimal
+  commissionArs : Decimal
+  status : HoldStatus
+  failureReason : HoldFailureReason
+  expiresAt : DateTime
+  --
+  create()
+  release()
+}
+class Settlement <<movo>> {
+  id : UUID
+  shipmentId : UUID
+  grossAmountArs : Decimal
+  commissionArs : Decimal
+  netAmountArs : Decimal
+  status : SettlementStatus
+  kind : SettlementKind
+  attempts : Int
+  nextAttemptAt : DateTime
+  --
+  capture()
+  escalateUnrecoverable()
+}
+class UserLedgerEntry <<movo>> {
+  userId : UUID
+  type : LedgerEntryType
+  amountArs : Decimal
+  status : LedgerEntryStatus
+  idempotencyKey : String
+  --
+  createEntry()
+  createManualAdjustment()
+  transition()
+}
+class SavedCard {
+  userId : UUID
+  brand : String
+  last4 : String
+  expMonth : Int
+  expYear : Int
+  isDefault : Boolean
+}
+class PayerCustomer {
+  userId : UUID
+  mpCustomerId : String
+}
+class CarrierMpAccount {
+  userId : UUID
+  mpUserId : String
+  tokenExpiresAt : DateTime
+  revokedAt : DateTime
+  unlinkedAt : DateTime
+}
+class BalancePaymentAttempt {
+  userId : UUID
+  amountArs : Decimal
+  status : BalanceAttemptStatus
+}
+class MpWebhookNotification {
+  topic : String
+  status : MpWebhookNotificationStatus
+}
+
+Hold "1" --> "0..1" Settlement : se liquida en
+Hold "0..*" --> "0..1" SavedCard : paga con
+PayerCustomer "1" *-- "0..*" SavedCard
+Hold "0..*" ..> "1" CarrierMpAccount : cobra a (split)
+UserLedgerEntry "0..*" ..> "0..1" Hold : se descuenta en
+BalancePaymentAttempt "0..*" ..> "0..*" UserLedgerEntry : salda
+MpWebhookNotification "0..*" ..> "0..1" Hold : actualiza
+@enduml

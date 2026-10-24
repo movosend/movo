@@ -1,0 +1,16 @@
+@startuml estados-kyc
+hide empty description
+skinparam linetype spline
+skinparam ArrowFontSize 9
+skinparam nodesep 40
+skinparam ranksep 38
+[*] --> not_started
+not_started --> pending : POST /kyc/session\\n(teléfono verificado)
+pending --> approved : webhook Didit\\n«Approved»
+pending --> rejected : webhook Didit\\n«Declined»
+pending --> manual_review : webhook Didit\\n«In Review»
+rejected --> pending : reintento
+manual_review --> pending : reintento
+state approved <<activo>>
+approved --> [*]
+@enduml

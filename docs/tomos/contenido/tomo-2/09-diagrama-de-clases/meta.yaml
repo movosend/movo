@@ -1,0 +1,16 @@
+titulo: Diagrama de Clases
+subtitulo: Modelo de clases del dominio por contexto delimitado y estructura en capas de los servicios.
+instancia: Producto · Modelo de diseño
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: false
+archivos:
+  - clases.md
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: diagramas de clases reconstruidos desde el esquema de datos y los servicios vigentes al cierre del Sprint 8."}
+introduccion: |
+  Este documento presenta el modelo de clases del dominio de Movo, un diagrama por contexto
+  delimitado (identidad, envíos y pagos), y la estructura en capas de los servicios con sus
+  interfaces de integración. Se construyó a partir del código fuente vigente.
+audiencia: |
+  El tribunal evaluador y los futuros mantenedores, con conocimiento de UML y diseño orientado a objetos.

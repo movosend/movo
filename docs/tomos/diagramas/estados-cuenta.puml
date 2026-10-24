@@ -1,0 +1,16 @@
+@startuml estados-cuenta
+hide empty description
+skinparam linetype spline
+skinparam ArrowFontSize 9
+skinparam nodesep 40
+skinparam ranksep 38
+[*] --> active : registro completo
+active --> suspended : sanción\\n(con o sin fecha de fin)
+suspended --> active : vence o se levanta
+suspended --> banned : se escala a inhabilitación
+active --> banned : inhabilitación
+banned --> active : se levanta
+active --> deleted : baja de la cuenta\\n(sin envíos activos)
+state deleted <<terminal>>
+deleted --> [*]
+@enduml
