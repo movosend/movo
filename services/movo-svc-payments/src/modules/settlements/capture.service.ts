@@ -1,13 +1,23 @@
 import type { FastifyBaseLogger } from "fastify";
-import { ApiError, carrierPaymentView, SettlementFailureReason, SettlementResponse, estimateMpFeeArs } from "@movo/shared";
+import {
+  ApiError,
+  carrierPaymentView,
+  SettlementEscalationReason,
+  SettlementFailureReason,
+  SettlementIssuesPage,
+  SettlementIssueStatus,
+  SettlementResponse,
+  estimateMpFeeArs,
+} from "@movo/shared";
 import { Prisma } from "../../generated/prisma/client";
 import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-client";
 import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
 import { Hold, HoldRepository } from "../../repositories/hold-repository";
-import { Settlement, SettlementRepository } from "../../repositories/settlement-repository";
+import { Settlement, SettlementRepository, SettlementWithHold } from "../../repositories/settlement-repository";
 import { HoldDebtSettlement, UserLedgerRepository } from "../../repositories/user-ledger-repository";
 import { missingCardFields } from "../../utils/payment-card";
 import { assertValidAmount, readMpError } from "../holds/hold.service";
+import { DEFAULT_RETRY_DELAYS_MINUTES, isRetryableCaptureFailure, nextRetryAt } from "./capture-failure";
 
 const { Decimal } = Prisma;
 type Decimal = Prisma.Decimal;
@@ -64,6 +74,38 @@ export function toSettlementResponse(s: Settlement): SettlementResponse {
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
   };
+}
+
+function toSettlementIssue(s: SettlementWithHold): SettlementIssuesPage["items"][number] {
+  return {
+    id: s.id,
+    shipmentId: s.shipmentId,
+    carrierId: s.carrierId,
+    holdId: s.holdId,
+    mpPaymentId: s.mpPaymentId,
+    status: s.status as SettlementIssueStatus,
+    failureReason: (s.failureReason as SettlementFailureReason | null) ?? null,
+    escalationReason: (s.escalationReason as SettlementEscalationReason | null) ?? null,
+    lastError: s.lastError,
+    attempts: s.attempts,
+    nextAttemptAt: s.nextAttemptAt?.toISOString() ?? null,
+    escalatedAt: s.escalatedAt?.toISOString() ?? null,
+    holdExpiresAt: s.hold.expiresAt?.toISOString() ?? null,
+    grossAmountArs: s.grossAmountArs.toNumber(),
+    createdAt: s.createdAt.toISOString(),
+    updatedAt: s.updatedAt.toISOString(),
+  };
+}
+
+/** Cursor opaco del listado: `base64(updatedAt ISO|id)`. */
+const encodeIssueCursor = (s: { updatedAt: Date; id: string }) =>
+  Buffer.from(`${s.updatedAt.toISOString()}|${s.id}`).toString("base64url");
+
+function decodeIssueCursor(cursor: string): { updatedAt: Date; id: string } {
+  const [iso, id] = Buffer.from(cursor, "base64url").toString().split("|");
+  const updatedAt = new Date(iso ?? "");
+  if (!id || Number.isNaN(updatedAt.getTime())) throw new ApiError(400, "VALIDATION_FAILED", "Cursor inválido");
+  return { updatedAt, id };
 }
 
 export interface FeeBreakdown {
@@ -151,6 +193,13 @@ export interface CaptureServiceDeps {
   mercadoPago: MercadoPagoClient;
   log: FastifyBaseLogger;
   now?: () => Date;
+  /** MOVO-213: esperas antes de cada reintento de una entrega fallida; su largo es el máximo de reintentos. */
+  retryDelaysMinutes?: readonly number[];
+  /**
+   * MOVO-213 (AC5/AC7): se llama cuando una entrega pasa a `escalated` (alerta al equipo y aviso al transportista).
+   * Nunca puede romper la captura: un error se loguea.
+   */
+  onEscalated?: (settlement: Settlement, hold: Hold) => Promise<void>;
 }
 
 /**
@@ -176,12 +225,19 @@ export interface CaptureServiceDeps {
  * crear la fila, con el fee de MP estimado; si igual MP la rechaza, se responde el mismo 422.
  *
  * **Fallos (AC8).** Este servicio no sabe nada del estado del envío, así que no puede
- * revertir la entrega: un fallo deja la liquidación en `failed` (o `processing`) y el
- * hold como estaba. El reintento con backoff y el escalado son MOVO-213.
+ * revertir la entrega: un fallo deja la liquidación en `failed` y el hold como estaba.
+ *
+ * **Reintentos y escalado (MOVO-213).** Una entrega con un fallo reintentable queda `failed` con
+ * `attempts`, `last_error` y `next_attempt_at` (el barrido `capture-retry` la retoma, con las esperas de
+ * `retryDelaysMinutes`). Agotadas las esperas, o ante un fallo que reintentar no arregla
+ * (`capture-failure.ts`), pasa a `escalated` y se avisa (`onEscalated`). Antes de cada intento se mira
+ * `hold.expires_at`: un hold vencido escala sin llamar a MP; y desde el segundo intento se consulta el
+ * pago en MP antes de capturar, porque un timeout no significa que la captura no ocurrió.
  */
 export function createCaptureService(deps: CaptureServiceDeps) {
   const { holds, settlements, accounts, mercadoPago, ledger, log } = deps;
   const now = deps.now ?? (() => new Date());
+  const retryDelays = deps.retryDelaysMinutes ?? DEFAULT_RETRY_DELAYS_MINUTES;
 
   const captureKey = (settlement: Settlement) =>
     settlement.kind === "cancellation_penalty"
@@ -223,15 +279,80 @@ export function createCaptureService(deps: CaptureServiceDeps) {
     return amount;
   }
 
+  /** Texto de `last_error`: el motivo, el error que se le devolvió al llamador y el detalle de MP si lo hay. */
+  function describeFailure(reason: SettlementFailureReason, error: ApiError, context: Record<string, unknown>): string {
+    const detail = [
+      context.mpHttpStatus !== undefined ? `HTTP ${String(context.mpHttpStatus)}` : null,
+      Array.isArray(context.mpCauseCodes) && context.mpCauseCodes.length > 0 ? `causas ${context.mpCauseCodes.join(",")}` : null,
+      typeof context.reason === "string" ? context.reason : null,
+      context.expiredByDeadline === true ? "expires_at vencido antes de pedir la captura" : null,
+    ].filter((part): part is string => part !== null);
+    return `${reason}: ${error.message}${detail.length > 0 ? ` (${detail.join("; ")})` : ""}`.slice(0, 500);
+  }
+
+  /** Pasa una entrega `processing` (o la `failed` indicada) a `escalated` y avisa. `false` si otro llamador ya la movió. */
+  async function escalate(
+    settlement: Settlement,
+    hold: Hold | null,
+    patch: { reason: SettlementFailureReason; escalationReason: "retries_exhausted" | "not_retryable"; lastError: string; attempts: number },
+    expected: "processing" | "failed" = "processing"
+  ): Promise<boolean> {
+    const applied = await settlements.updateIfStatus(settlement.id, expected, {
+      status: "escalated",
+      failureReason: patch.reason,
+      escalationReason: patch.escalationReason,
+      lastError: patch.lastError,
+      attempts: patch.attempts,
+      nextAttemptAt: null,
+      escalatedAt: now(),
+    });
+    if (!applied) return false;
+    log.error(
+      { shipmentId: settlement.shipmentId, holdId: settlement.holdId, reason: patch.reason, escalation: patch.escalationReason, attempts: patch.attempts },
+      "liquidación escalada a proceso manual"
+    );
+    if (deps.onEscalated && hold) {
+      try {
+        const escalated = await settlements.findByShipment(settlement.shipmentId);
+        if (escalated) await deps.onEscalated(escalated, hold);
+      } catch (error) {
+        // La liquidación ya quedó escalada y consultable; el aviso es best-effort.
+        log.error({ err: error, shipmentId: settlement.shipmentId }, "no se pudo avisar el escalado de la liquidación");
+      }
+    }
+    return true;
+  }
+
   async function fail(
     settlement: Settlement,
     reason: SettlementFailureReason,
     error: ApiError,
-    context: Record<string, unknown> = {}
+    context: Record<string, unknown> = {},
+    hold: Hold | null = null
   ): Promise<never> {
     // Condicional sobre `processing`: si otro llamador (la captura en línea, el reintento) ya la
     // acreditó, un fallo tardío no la pisa. El error igual sube; `capture()` lo resuelve releyendo.
-    const applied = await settlements.updateIfStatus(settlement.id, "processing", { status: "failed", failureReason: reason });
+    let applied: boolean;
+    const lastError = describeFailure(reason, error, context);
+    if (settlement.kind !== "delivery") {
+      // La penalidad la reintenta (o manda a deuda) svc-shipments: acá solo se registra el fallo.
+      applied = await settlements.updateIfStatus(settlement.id, "processing", { status: "failed", failureReason: reason, lastError });
+    } else if (!isRetryableCaptureFailure({ reason, mpHttpStatus: context.mpHttpStatus as number | undefined })) {
+      // Sin gastar intentos: reintentar no lo arregla (AC4).
+      applied = await escalate(settlement, hold, { reason, escalationReason: "not_retryable", lastError, attempts: settlement.attempts });
+    } else {
+      const attempts = settlement.attempts + 1;
+      const next = nextRetryAt(attempts, now(), retryDelays);
+      applied = next
+        ? await settlements.updateIfStatus(settlement.id, "processing", {
+            status: "failed",
+            failureReason: reason,
+            lastError,
+            attempts,
+            nextAttemptAt: next,
+          })
+        : await escalate(settlement, hold, { reason, escalationReason: "retries_exhausted", lastError, attempts });
+    }
     if (!applied) {
       log.warn(
         { shipmentId: settlement.shipmentId, holdId: settlement.holdId, reason },
@@ -248,13 +369,16 @@ export function createCaptureService(deps: CaptureServiceDeps) {
     try {
       payment = await mercadoPago.getPayment(accessToken, settlement.mpPaymentId);
     } catch (error) {
-      // La plata ya se cobró; falta solo el desglose. Queda `processing` y el próximo
-      // pedido de captura entra por acá (hold `captured`) sin volver a capturar.
-      log.error(
-        { shipmentId: settlement.shipmentId, holdId: hold.id, reason: readMpError(error).message },
-        "captura confirmada pero falló la consulta del desglose a MP"
+      // La plata ya se cobró; falta solo el desglose. Queda `failed` con reintento (MOVO-213): el
+      // próximo intento ve el pago `approved` en MP y completa la liquidación sin volver a capturar.
+      const info = readMpError(error);
+      return fail(
+        settlement,
+        "provider_error",
+        new ApiError(502, "PAYMENT_PROVIDER_ERROR", "El cobro se realizó pero no se pudo leer el desglose: reintentá"),
+        { mpHttpStatus: info.status, reason: info.message, capturedInMp: true },
+        hold
       );
-      throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "El cobro se realizó pero no se pudo leer el desglose: reintentá");
     }
 
     if (payment.status !== "approved") {
@@ -262,7 +386,8 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         settlement,
         "unexpected_payment_status",
         new ApiError(502, "PAYMENT_PROVIDER_ERROR", "Mercado Pago devolvió un estado de pago inesperado tras la captura"),
-        { mpStatus: payment.status }
+        { mpStatus: payment.status },
+        hold
       );
     }
 
@@ -272,7 +397,13 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         { shipmentId: settlement.shipmentId, holdId: hold.id, mpPaymentId: settlement.mpPaymentId },
         "pago capturado sin desglose de comisiones en MP"
       );
-      throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "Mercado Pago todavía no devolvió el desglose del cobro: reintentá");
+      return fail(
+        settlement,
+        "provider_error",
+        new ApiError(502, "PAYMENT_PROVIDER_ERROR", "Mercado Pago todavía no devolvió el desglose del cobro: reintentá"),
+        { mpStatus: payment.status, capturedInMp: true },
+        hold
+      );
     }
 
     // Verificaciones de coherencia: no frenan el registro (el dinero ya se movió y la
@@ -362,6 +493,25 @@ export function createCaptureService(deps: CaptureServiceDeps) {
     return credited;
   }
 
+  /** MOVO-213 (AC3): estado real del pago en MP. Si no se puede consultar, es un fallo (no se captura a ciegas). */
+  async function currentPayment(settlement: Settlement, hold: Hold, accessToken: string): Promise<PaymentSnapshot> {
+    try {
+      return await mercadoPago.getPayment(accessToken, settlement.mpPaymentId);
+    } catch (error) {
+      const info = readMpError(error);
+      const unauthorized = info.status === 401 || info.status === 403;
+      return fail(
+        settlement,
+        unauthorized ? "carrier_account_unavailable" : "provider_error",
+        unauthorized
+          ? new ApiError(409, "CARRIER_MP_ACCOUNT_NOT_LINKED", "Mercado Pago rechazó las credenciales del transportista: no se pudo consultar el pago")
+          : new ApiError(502, "PAYMENT_PROVIDER_ERROR", "No se pudo consultar el pago en Mercado Pago antes de reintentar"),
+        { mpHttpStatus: info.status, reason: info.message },
+        hold
+      );
+    }
+  }
+
   /** Pide la captura a MP; si falla, decide si el pago ya estaba capturado. */
   async function captureInMp(settlement: Settlement, hold: Hold, accessToken: string): Promise<void> {
     let payment: PaymentSnapshot;
@@ -387,14 +537,15 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       // La estimación del fee de MP no alcanzó y MP rechazó la penalidad: mismo 422 que la
       // validación previa, para que `svc-shipments` aplique el plan B en vez de reintentar.
       if (settlement.kind === "cancellation_penalty" && info.causeCodes.some((code) => CAPTURE_BELOW_FEES_CAUSES.has(code))) {
-        return fail(settlement, "provider_error", belowFeesError(settlement.grossAmountArs, hold.applicationFeeArs), context);
+        return fail(settlement, "provider_error", belowFeesError(settlement.grossAmountArs, hold.applicationFeeArs), context, hold);
       }
       if (info.status === 401 || info.status === 403) {
         return fail(
           settlement,
           "carrier_account_unavailable",
           new ApiError(409, "CARRIER_MP_ACCOUNT_NOT_LINKED", "Mercado Pago rechazó las credenciales del transportista: no se pudo capturar"),
-          context
+          context,
+          hold
         );
       }
       const expired = current?.status === "cancelled" || (hold.expiresAt !== null && hold.expiresAt <= now());
@@ -403,10 +554,17 @@ export function createCaptureService(deps: CaptureServiceDeps) {
           settlement,
           "hold_expired",
           new ApiError(409, "HOLD_NOT_CAPTURABLE", "La reserva venció o fue cancelada en Mercado Pago: no se puede capturar"),
-          context
+          context,
+          hold
         );
       }
-      return fail(settlement, "provider_error", new ApiError(502, "PAYMENT_PROVIDER_ERROR", "No se pudo capturar el hold en Mercado Pago"), context);
+      return fail(
+        settlement,
+        "provider_error",
+        new ApiError(502, "PAYMENT_PROVIDER_ERROR", "No se pudo capturar el hold en Mercado Pago"),
+        context,
+        hold
+      );
     }
 
     if (payment.status !== "approved") {
@@ -414,7 +572,8 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         settlement,
         "unexpected_payment_status",
         new ApiError(502, "PAYMENT_PROVIDER_ERROR", "Mercado Pago no confirmó la captura del hold"),
-        { mpStatus: payment.status }
+        { mpStatus: payment.status },
+        hold
       );
     }
   }
@@ -424,7 +583,12 @@ export function createCaptureService(deps: CaptureServiceDeps) {
      * Captura el hold del envío. Idempotente: acreditada → se devuelve tal cual; `failed` o
      * `processing` → se reintenta desde donde quedó.
      */
-    async capture(shipmentId: string, request: CaptureRequest = { kind: "delivery" }): Promise<CaptureResult> {
+    async capture(
+      shipmentId: string,
+      request: CaptureRequest = { kind: "delivery" },
+      /** `retryJob`: lo pide el barrido de reintentos de este servicio, a la hora que la liquidación tenía programada. */
+      options: { retryJob?: boolean } = {}
+    ): Promise<CaptureResult> {
       const existing = await settlements.findByShipment(shipmentId);
       if (existing) assertMatches(existing, request);
       if (existing?.status === "credited") {
@@ -469,7 +633,42 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       // barrido solo oscila el estado y gasta llamadas. `hold_expired` no se arregla nunca; una
       // cuenta de MP sin credenciales usables solo se arregla si el transportista se re-vincula
       // (o MOVO-243 refresca el token), o sea, si la vinculación cambió después del fallo.
-      if (settlement.status === "failed") {
+      // MOVO-213: con el reintento programado (backoff), otro pedido de captura no lo adelanta: el barrido de
+      // `svc-shipments` también llama acá, y reintentar antes de hora gastaría los intentos de una sola vez.
+      if (
+        settlement.status === "failed" &&
+        settlement.kind === "delivery" &&
+        settlement.nextAttemptAt !== null &&
+        settlement.nextAttemptAt > now() &&
+        !options.retryJob
+      ) {
+        throw new ApiError(409, "SETTLEMENT_RETRY_PENDING", "El reintento de la captura ya está programado");
+      }
+
+      if (settlement.status === "escalated") {
+        // MOVO-213: la resuelve una persona. Lo único que la retoma sola es que el transportista se re-vincule.
+        if (settlement.failureReason === "hold_expired") {
+          throw new ApiError(409, "HOLD_NOT_CAPTURABLE", "La reserva venció o fue cancelada en Mercado Pago: no se puede capturar");
+        }
+        if (settlement.failureReason === "carrier_account_unavailable") {
+          if (!usable || credentials.updatedAt <= settlement.updatedAt) {
+            throw new ApiError(
+              409,
+              "CARRIER_MP_ACCOUNT_NOT_LINKED",
+              "No hay credenciales vigentes del transportista para capturar el hold"
+            );
+          }
+          settlement = await settlements.update(settlement.id, {
+            status: "processing",
+            failureReason: null,
+            escalationReason: null,
+            escalatedAt: null,
+            nextAttemptAt: null,
+          });
+        } else {
+          throw new ApiError(409, "SETTLEMENT_ESCALATED", "La liquidación está en revisión manual: no se reintenta sola");
+        }
+      } else if (settlement.status === "failed") {
         if (settlement.failureReason === "hold_expired") {
           throw new ApiError(409, "HOLD_NOT_CAPTURABLE", "La reserva venció o fue cancelada en Mercado Pago: no se puede capturar");
         }
@@ -480,8 +679,27 @@ export function createCaptureService(deps: CaptureServiceDeps) {
             "No hay credenciales vigentes del transportista para capturar el hold"
           );
         }
-        settlement = await settlements.update(settlement.id, { status: "processing", failureReason: null });
+        settlement = await settlements.update(settlement.id, { status: "processing", failureReason: null, nextAttemptAt: null });
       }
+
+      // MOVO-213 (AC8): el vencimiento se mira ANTES de hablar con MP, no después de que rechace. Un hold vencido
+      // escala de inmediato sin gastar intentos. `expires_at` sale de `MP_HOLD_VALIDITY_DAYS` (MOVO-209/ADR-050).
+      // Un hold ya `captured` no se mira: la plata se cobró y solo falta completar la liquidación.
+      //
+      // Salvo que ya haya habido un intento anterior (la liquidación existía): ese intento pudo haber capturado en MP
+      // y perder la respuesta o fallar al leer el desglose, con el hold todavía `authorized` en la base. Declararlo
+      // vencido sin mirar sería escalar un cobro que ya se hizo, así que ahí se consulta el pago primero (más abajo).
+      const priorAttempt = existing !== null && request.kind === "delivery";
+      const pastDeadline = hold.status === "authorized" && hold.expiresAt !== null && hold.expiresAt <= now();
+      const expiredByDeadline = () =>
+        fail(
+          settlement,
+          "hold_expired",
+          new ApiError(409, "HOLD_NOT_CAPTURABLE", "La reserva venció: no se puede capturar"),
+          { expiresAt: hold.expiresAt, expiredByDeadline: true },
+          hold
+        );
+      if (pastDeadline && !priorAttempt) return expiredByDeadline();
 
       if (!usable) {
         // Token vencido: MP respondería 401 y el refresco es de MOVO-243 (no hay flujo en este
@@ -496,7 +714,8 @@ export function createCaptureService(deps: CaptureServiceDeps) {
               ? "El token de Mercado Pago del transportista venció: no se puede capturar hasta que se renueve"
               : "No hay credenciales vigentes del transportista para capturar el hold"
           ),
-          { mpPaymentId: hold.mpPaymentId, expiresAt: hold.expiresAt, tokenExpired: credentials !== null }
+          { mpPaymentId: hold.mpPaymentId, expiresAt: hold.expiresAt, tokenExpired: credentials !== null },
+          hold
         );
       }
 
@@ -507,7 +726,26 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       try {
         // Un hold ya `captured` (la plata se cobró pero se cortó antes del desglose) no
         // vuelve a capturarse: solo se completa la liquidación.
-        if (hold.status === "authorized") await captureInMp(settlement, hold, credentials.accessToken);
+        let alreadyCaptured = hold.status !== "authorized";
+        if (!alreadyCaptured && priorAttempt) {
+          // MOVO-213 (AC3): en un reintento se pregunta a MP antes de capturar. Un timeout no significa que la
+          // captura no ocurrió: si el pago ya está `approved` se completa la liquidación sin volver a capturar.
+          const current = await currentPayment(settlement, hold, credentials.accessToken);
+          alreadyCaptured = current.status === "approved";
+          if (current.status === "cancelled") {
+            return fail(
+              settlement,
+              "hold_expired",
+              new ApiError(409, "HOLD_NOT_CAPTURABLE", "La reserva venció o fue cancelada en Mercado Pago: no se puede capturar"),
+              { mpStatus: current.status },
+              hold
+            );
+          }
+        }
+        // Con el pago todavía sin capturar, un hold vencido por `expires_at` no se captura: escala (AC8). Va después de
+        // consultar a MP para no descartar un cobro que el intento anterior ya había hecho.
+        if (!alreadyCaptured && pastDeadline) return expiredByDeadline();
+        if (!alreadyCaptured) await captureInMp(settlement, hold, credentials.accessToken);
         const credited = await finalize(settlement, hold, credentials.accessToken);
         return { settlement: toSettlementResponse(credited), replayed: false };
       } catch (error) {
@@ -517,6 +755,34 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         if (latest?.status === "credited") return { settlement: toSettlementResponse(latest), replayed: true };
         throw error;
       }
+    },
+
+    /**
+     * MOVO-213: escala una entrega cuyo reintento no pudo ni empezar (el hold ya no existe o no es capturable, la
+     * liquidación pertenece a otro hold...). Son fallos que `capture()` rechaza ANTES de tocar la liquidación y que
+     * reintentar no arregla: sin esto la fila quedaría `failed` reintentándose para siempre sin que nadie lo vea.
+     * `false` si la liquidación ya no estaba `failed` (la acreditó o la escaló otro).
+     */
+    async escalateUnrecoverable(shipmentId: string, reason: SettlementFailureReason, detail: string): Promise<boolean> {
+      const settlement = await settlements.findByShipment(shipmentId);
+      if (!settlement || settlement.kind !== "delivery" || settlement.status !== "failed") return false;
+      const hold = await holds.findById(settlement.holdId);
+      return escalate(
+        settlement,
+        hold,
+        { reason, escalationReason: "not_retryable", lastError: `${reason}: ${detail}`.slice(0, 500), attempts: settlement.attempts },
+        "failed"
+      );
+    },
+
+    /** MOVO-213 (AC6): liquidaciones `failed` (esperando reintento) o `escalated` (proceso manual), las más recientes primero. */
+    async listIssues(status: SettlementIssueStatus, limit: number, cursor?: string): Promise<SettlementIssuesPage> {
+      const rows = await settlements.listByStatus(status, limit + 1, cursor ? decodeIssueCursor(cursor) : undefined);
+      const page = rows.slice(0, limit);
+      return {
+        items: page.map(toSettlementIssue),
+        nextCursor: rows.length > limit ? encodeIssueCursor(page[page.length - 1]) : null,
+      };
     },
 
     /** AC10: la liquidación del envío, completa. El filtro por rol lo aplica quien la expone. */

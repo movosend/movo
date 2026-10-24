@@ -154,6 +154,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   HANDSHAKE_CEDENTE_KEY_MISSING:
     "La otra persona todavía no puede confirmar la transferencia desde su dispositivo. Pedile que actualice la app.",
   HANDSHAKE_INVALID_SHIPMENT_STATE: "Este envío ya no está en un estado que permita confirmar esto.",
+  HANDSHAKE_PICKUP_DEADLINE_PASSED: "Ya pasó el plazo para retirar este paquete, así que no se puede confirmar el retiro.",
   SHIPMENT_NOT_TRACKABLE: "El envío no se encuentra en un viaje activo para realizar seguimiento.",
   // MOVO-111/112: vinculación de Mercado Pago. Los cuatro últimos llegan en el deep link
   // de vuelta del navegador embebido, no como respuesta HTTP.

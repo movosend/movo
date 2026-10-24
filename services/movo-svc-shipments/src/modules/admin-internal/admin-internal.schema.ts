@@ -79,6 +79,7 @@ export const adminInternalSchemas = {
       from: { type: "string", format: "date-time" },
       to: { type: "string", format: "date-time" },
       q: { type: "string", minLength: 1, maxLength: 100 },
+      alert: { type: "boolean" },
       cursor: { type: "string", maxLength: 300 },
       limit: { type: "integer", minimum: 1, maximum: 100 },
     },

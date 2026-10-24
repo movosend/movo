@@ -17,6 +17,7 @@ import {
   AdminShipmentPhoto,
   HoldDetailResponse,
   ShipmentParties,
+  ShipmentStatus,
   UserReportParties,
 } from "@movo/shared";
 import { InternalClient } from "../src/adapters/internal-client";
@@ -71,7 +72,15 @@ export function createFakeShipmentsClient(data: {
     async listAdminShipments(query) {
       if (data.down) throw shipmentsDown();
       if (data.seen) data.seen.list = query.toString();
-      return data.page ?? { items: [], nextCursor: null, counts: { all: 0, unassigned: 0, assigning: 0, in_progress: 0, closed: 0, disputes: 0 } };
+      return (
+        data.page ?? {
+          items: [],
+          nextCursor: null,
+          counts: { all: 0, unassigned: 0, assigning: 0, in_progress: 0, closed: 0, disputes: 0 },
+          statusCounts: Object.fromEntries(Object.values(ShipmentStatus).map((status) => [status, 0])) as AdminShipmentPage["statusCounts"],
+          alertCounts: { all: 0, unassigned: 0, assigning: 0, in_progress: 0, closed: 0, disputes: 0 },
+        }
+      );
     },
     async getAdminShipment(id) {
       if (data.down) throw shipmentsDown();

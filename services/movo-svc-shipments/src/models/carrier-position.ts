@@ -13,6 +13,8 @@ export interface CarrierPosition {
   capturedAt: Date;
   /** Timestamp del SERVIDOR al persistirla -- ancla real de cadencia/retención. */
   recordedAt: Date;
+  /** MOVO-270: flag `mocked` de expo-location (solo Android); `null` si no se informó. */
+  mocked: boolean | null;
 }
 
 export interface CreateCarrierPositionInput {
@@ -22,6 +24,7 @@ export interface CreateCarrierPositionInput {
   lng: number;
   accuracyM: number;
   capturedAt: Date;
+  mocked?: boolean;
 }
 
 /**

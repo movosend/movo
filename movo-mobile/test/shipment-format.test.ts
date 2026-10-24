@@ -715,15 +715,20 @@ describe("shipmentDetailCta (MOVO-194)", () => {
   });
 });
 
-describe("liveTrackingAvailability (MOVO-271 AC5)", () => {
-  it("solo se habilita en tránsito, que es cuando el backend acepta posiciones hoy", () => {
+describe("liveTrackingAvailability (MOVO-271 AC5, MOVO-270)", () => {
+  it("en tránsito siempre está disponible", () => {
     expect(liveTrackingAvailability(ShipmentStatus.IN_TRANSIT)).toBe("available");
   });
 
-  it("con transportista asignado y antes del retiro, muestra el placeholder", () => {
-    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("pending");
-    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNED_UNFUNDED)).toBe("pending");
+  it("MOVO-270: un assigned con el viaje del transportista activo ya se sigue en vivo, antes del retiro", () => {
+    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNED, true)).toBe("available");
+  });
+
+  it("con transportista asignado pero sin viaje activo (o sin reserva confirmada), muestra el placeholder", () => {
     expect(liveTrackingAvailability(ShipmentStatus.ASSIGNED)).toBe("pending");
+    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNED, false)).toBe("pending");
+    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNMENT_PENDING, true)).toBe("pending");
+    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNED_UNFUNDED, true)).toBe("pending");
   });
 
   it("sin transportista o con el envío cerrado, no hay card", () => {
@@ -754,6 +759,12 @@ describe("liveTrackingPendingPollInterval (MOVO-271 AC5)", () => {
     expect(liveTrackingPendingPollInterval({ status: ShipmentStatus.PUBLISHED, carrierId: null }, "sender-1")).toBe(false);
     expect(liveTrackingPendingPollInterval(undefined, "sender-1")).toBe(false);
     expect(liveTrackingPendingPollInterval(pending, "carrier-1")).toBe(false);
+  });
+
+  it("MOVO-270: deja de refrescar cuando el viaje del transportista ya está activo", () => {
+    const assigned = { status: ShipmentStatus.ASSIGNED, carrierId: "carrier-1" };
+    expect(liveTrackingPendingPollInterval(assigned, "sender-1")).toBe(30_000);
+    expect(liveTrackingPendingPollInterval({ ...assigned, carrierTripActive: true }, "sender-1")).toBe(false);
   });
 });
 

@@ -52,5 +52,16 @@ describe("respuesta de soporte (MOVO-320)", () => {
     expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "Listo", count: 3 }).body).toBe(
       "3 mensajes nuevos · Lucía: Listo"
     );
+
+describe("settlementDelayedCarrier (MOVO-213)", () => {
+  it("avisa que el cobro está en revisión y en cuánto se resuelve", () => {
+    const rendered = renderNotificationTrigger("settlementDelayedCarrier", { reviewHours: 48 });
+    expect(rendered.title).toBe("Tu cobro está demorado");
+    expect(rendered.body).toContain("plazo de hasta 48 horas");
+    expect(renderNotificationTrigger("settlementDelayedCarrier", { reviewHours: 1 }).body).toContain("hasta 1 hora.");
+  });
+
+  it("va en la categoría de pagos", () => {
+    expect(notificationTriggerCategory("settlementDelayedCarrier")).toBe("payments");
   });
 });

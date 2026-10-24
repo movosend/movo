@@ -307,6 +307,14 @@ export function CancelShipmentSheet({
                 <Text className="font-sans-semibold text-fg">{formatSettlementAmount(view.reservedArs)}</Text>{" "}
                 reservados. El resto se libera en tu tarjeta.
               </Text>
+              {view.reasonText ? (
+                <View className="flex-row gap-2.5 rounded-[10px] border border-dashed border-border-strong bg-bg-sub px-3.5 py-3">
+                  <Info size={16} color={colors.fg2} strokeWidth={2} style={{ marginTop: 1 }} />
+                  <Text testID={id("penalty-reason")} className="flex-1 font-sans text-[13px] leading-[18px] text-fg">
+                    {view.reasonText}
+                  </Text>
+                </View>
+              ) : null}
               <View className="overflow-hidden rounded-[10px] border border-border">
                 {/* Barra de 6 px: 14 de padding arriba + 6 de alto, como el prototipo. */}
                 <View className="flex-row gap-0.5 px-3.5 pt-3.5" style={{ height: 20 }}>

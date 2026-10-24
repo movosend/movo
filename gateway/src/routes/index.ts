@@ -208,6 +208,8 @@ export default async function routesPlugin(
 
       // Ruta protegida: autenticar, validar rol (si el prefijo lo exige), inyectar identidad
       await app.authenticate(request, reply);
+      // MOVO-298: suspensión/inhabilitación a partir de la marca en Redis.
+      await app.enforceAccountRestriction(request, path);
 
       if (deferredLimiter) {
         await deferredLimiter.call(app, request, reply);

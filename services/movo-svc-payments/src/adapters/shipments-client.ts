@@ -1,4 +1,4 @@
-import type { HoldProviderEventRequest } from "@movo/shared";
+import type { HoldProviderEventRequest, SettlementEventRequest, SettlementEventResponse } from "@movo/shared";
 
 /** Respuesta de `POST /internal/shipments/:id/hold-events` (MOVO-210 AC13). */
 export interface HoldEventResult {
@@ -33,6 +33,8 @@ export interface ShipmentsClient {
   /** Avisa que MP canceló, venció o rechazó un hold del envío. */
   notifyHoldEvent(shipmentId: string, event: HoldProviderEventRequest): Promise<HoldEventResult>;
   resolveLedgerOrigins(userId: string, shipmentIds: string[], timeoutMs?: number): Promise<LedgerOrigin[]>;
+  /** MOVO-213: avisa que la liquidación se demoró (escalada) o que un reintento la acreditó. */
+  notifySettlementEvent(shipmentId: string, event: SettlementEventRequest["event"]): Promise<SettlementEventResponse>;
 }
 
 /** Resuelve los mismos orígenes para Saldo e Historial y degrada ambos a sus etiquetas locales. */
@@ -71,6 +73,28 @@ export function createShipmentsClient(baseUrl: string): ShipmentsClient {
         throw new ShipmentsUnavailableError("svc-shipments devolvió orígenes inválidos");
       }
       return body as LedgerOrigin[];
+    },
+    async notifySettlementEvent(shipmentId, event) {
+      let response: Response;
+      try {
+        response = await fetch(`${baseUrl}/internal/shipments/${encodeURIComponent(shipmentId)}/settlement-events`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ event }),
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+      } catch (error) {
+        throw new ShipmentsUnavailableError(
+          `no se pudo conectar con svc-shipments: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      if (response.status === 404) throw new ShipmentNotFoundError();
+      if (!response.ok) throw new ShipmentsUnavailableError(`svc-shipments respondió ${response.status}`);
+      const body = (await response.json().catch(() => null)) as Partial<SettlementEventResponse> | null;
+      if (typeof body?.handled !== "boolean" || typeof body.outcome !== "string") {
+        throw new ShipmentsUnavailableError("svc-shipments devolvió una respuesta inválida");
+      }
+      return { handled: body.handled, outcome: body.outcome };
     },
     async notifyHoldEvent(shipmentId, event) {
       let response: Response;

@@ -230,7 +230,11 @@ describe("cambiar email o teléfono", () => {
     fireEvent.click(await screen.findByRole("checkbox"))
     fireEvent.click(screen.getByRole("button", { name: "Cambiar email" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(/otra cuenta/)
-    fireEvent.click(screen.getByRole("button", { name: "Volver" }))
+    // El error se pinta un render antes de que termine la transición: hasta entonces "Volver"
+    // sigue deshabilitado y el click se perdería.
+    const back = screen.getByRole("button", { name: "Volver" })
+    await waitFor(() => expect(back).toBeEnabled())
+    fireEvent.click(back)
     expect(await screen.findByLabelText("Email nuevo")).toHaveValue(
       "nuevo@gmail.com"
     )
@@ -386,9 +390,13 @@ describe("ajustar el saldo", () => {
     fireEvent.click(confirm)
     await waitFor(() => expect(actions.adjustLedger).toHaveBeenCalledTimes(1))
     await screen.findByText("caído")
+    // El error aparece antes de que termine la transición: con el botón todavía deshabilitado el clic se pierde
+    // (fallaba de forma intermitente en CI). Se espera a que vuelva a estar habilitado.
+    await waitFor(() => expect(confirm).toBeEnabled())
     fireEvent.click(confirm)
     await waitFor(() => expect(actions.adjustLedger).toHaveBeenCalledTimes(2))
     await screen.findByText("rechazado")
+    await waitFor(() => expect(confirm).toBeEnabled())
     fireEvent.click(confirm)
     await waitFor(() => expect(actions.adjustLedger).toHaveBeenCalledTimes(3))
     const keys = actions.adjustLedger.mock.calls.map((c) => c[1].idempotencyKey)

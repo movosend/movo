@@ -346,12 +346,14 @@ export default function ShipmentDetailScreen() {
   // transportista y el envío no cerró; el transportista tiene su propio mapa de ruta.
   const liveTracking =
     shipment !== undefined && !isCarrier && shipment.carrierId
-      ? liveTrackingAvailability(shipment.status)
+      ? liveTrackingAvailability(shipment.status, shipment.carrierTripActive)
       : null;
 
   // Espejo para el transportista: si su ubicación ya se comparte con emisor y receptor.
   const carrierSharing =
-    shipment !== undefined && isCarrier && shipment.carrierId ? liveTrackingAvailability(shipment.status) : null;
+    shipment !== undefined && isCarrier && shipment.carrierId
+      ? liveTrackingAvailability(shipment.status, shipment.carrierTripActive)
+      : null;
 
   // MOVO-284: el chat existe desde que hay transportista (y queda legible tras la entrega); lo ven las tres partes.
   const chatBase = shipment !== undefined ? chatAvailability(shipment.status, shipment.carrierId) : null;

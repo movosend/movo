@@ -133,3 +133,6 @@ Pendiente: primera corrida de la migración de notas en dev/prod (`prisma migrat
 - Los esquemas de respuesta tienen `data` nullable en los bloques: sin eso Fastify serializaba `null` como `[]`.
 
 Pendiente: el detalle del pago solo trae el hold (captura/reembolso viven en liquidaciones de `svc-payments`); `disputeId` es siempre `null` hasta MOVO-34.
+
+MOVO-326 suma a `GET /admin/shipments` el filtro `alert` (booleano) y, en la respuesta, `statusCounts` y `alertCounts`; se
+validan en `shipments.schema.ts` y se reenvían tal cual (ver `svc-shipments/HISTORIAL.md`).

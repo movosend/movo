@@ -179,6 +179,31 @@ describe("handshake.service", () => {
       ).rejects.toMatchObject({ statusCode: 409, code: "HANDSHAKE_INVALID_SHIPMENT_STATE" });
     });
 
+    it("MOVO-270: 409 HANDSHAKE_PICKUP_DEADLINE_PASSED si ya venció la ventana más la gracia del barrido", async () => {
+      // Ventana cerrada hace más de 24 h: el barrido de retiro no realizado ya puede cerrar el envío.
+      const shipment = fakeShipment({
+        status: ShipmentStatus.ASSIGNED,
+        pickupDate: new Date("2026-08-20T00:00:00.000Z"),
+        pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+      });
+      const service = createHandshakeService(
+        fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+        fakeHandshakeRepository(),
+        createFakeUsersClient({}),
+        createFakeRedis(),
+        createFakeFundsReleaseNotifier(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        24
+      );
+
+      await expect(
+        service.generateHandshake({ shipmentId: shipment.id, callerId: shipment.senderId, lat: 0, lng: 0 })
+      ).rejects.toMatchObject({ statusCode: 409, code: "HANDSHAKE_PICKUP_DEADLINE_PASSED" });
+    });
+
     it("403 si el caller no es el emisor en la etapa de retiro (assigned)", async () => {
       const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
       const service = createHandshakeService(

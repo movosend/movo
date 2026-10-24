@@ -329,7 +329,7 @@ export interface TripRepository {
    */
   expireActiveWithoutPackages(limit: number): Promise<string[]>;
   /**
-   * MOVO-138 (ADR-025): transportistas DISTINTOS con un viaje `declared`/`active` que
+   * MOVO-138 (ADR-025, ajustado por ADR-053): transportistas DISTINTOS con un viaje `declared` que
    * sale dentro de la ventana dada y cuyo trayecto pasa a `radiusKm` o menos del
    * retiro -- la mitad "oferta" del `demandContext` de `POST /quote`. Un transportista
    * con dos viajes en la semana cuenta una vez.
@@ -667,10 +667,9 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       // cada `createShipment`, antes de la llamada a pricing.
       const rows = await db.trip.findMany({
         where: {
-          // MOVO-258 NO toca este conteo a propósito (ADR-025): un `active` ya no puede
-          // tomar paquetes, pero cambiarlo mueve el recargo por alta demanda -- pendiente
-          // de decisión en MOVO-270.
-          status: { in: [TripStatus.DECLARED, TripStatus.ACTIVE] },
+          // MOVO-270 (ADR-053): solo `declared`. Un viaje `active` ya no toma paquetes
+          // (MOVO-258), así que no es oferta para el envío que se está cotizando.
+          status: TripStatus.DECLARED,
           departureAt: { gte: params.departureFrom, lte: params.departureTo },
           AND: tripCorridorContainsPointWhere(params.lat, params.lng, params.radiusKm),
         },
@@ -726,7 +725,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         result = await db.$transaction(async (tx) => {
           const updated = await tx.trip.updateMany({
             where: { id, status: TripStatus.DECLARED },
-            data: { status: TripStatus.ACTIVE },
+            data: { status: TripStatus.ACTIVE, startedAt: new Date() },
           });
           if (updated.count > 0) {
             // MOVO-258 (D5): los paquetes quedan fijos al iniciar -- las ofertas todavía

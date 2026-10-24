@@ -218,8 +218,9 @@ describe("position-service (MOVO-202 / MOVO-251)", () => {
         fakeRealtime()
       );
 
+      // MOVO-270 (AC2): se acepta, pero sin custodia no se guarda traza.
       await expect(service.reportPosition("shipment-1", "carrier-1", basePosition)).resolves.toEqual({
-        persisted: true,
+        persisted: false,
       });
     });
   });
@@ -569,24 +570,46 @@ describe("position-service (MOVO-202 / MOVO-251)", () => {
   });
 
   describe("MOVO-251: gateo y persistencia por Trip", () => {
-    it("un envío assigned dentro de un trip active acepta la posición", async () => {
+    it("un envío assigned dentro de un trip active acepta la posición y la difunde, sin guardar traza (MOVO-270 AC2)", async () => {
       const shipmentRepository = fakeShipmentRepository({
         findTrackingContext: vi.fn().mockResolvedValue({
           shipment: fakeShipment({ id: "shipment-assigned", status: ShipmentStatus.ASSIGNED }),
           trip: { id: "trip-active-1", status: TripStatus.ACTIVE, carrierId: "carrier-1" },
           activeShipmentIds: ["shipment-assigned"],
+          persistableShipmentIds: [],
         }),
       });
-      const service = createPositionService(
-        shipmentRepository,
-        fakePositionRepository(),
-        createFakeRedis(),
-        fakeRealtime()
-      );
+      const positionRepository = fakePositionRepository();
+      const realtime = fakeRealtime();
+      const service = createPositionService(shipmentRepository, positionRepository, createFakeRedis(), realtime);
 
       await expect(
         service.reportPosition("shipment-assigned", "carrier-1", basePosition)
+      ).resolves.toEqual({ persisted: false });
+      expect(positionRepository.create).not.toHaveBeenCalled();
+      expect(realtime.messages).toEqual([
+        { shipmentId: "shipment-assigned", message: expect.objectContaining({ type: "position" }) },
+      ]);
+    });
+
+    it("MOVO-270 (AC2): en un viaje mixto la fila se asocia al envío in_transit aunque reporte el assigned", async () => {
+      const shipmentRepository = fakeShipmentRepository({
+        findTrackingContext: vi.fn().mockResolvedValue({
+          shipment: fakeShipment({ id: "shipment-assigned", status: ShipmentStatus.ASSIGNED }),
+          trip: { id: "trip-active-1", status: TripStatus.ACTIVE, carrierId: "carrier-1" },
+          activeShipmentIds: ["shipment-assigned", "shipment-in-transit"],
+          persistableShipmentIds: ["shipment-in-transit"],
+        }),
+      });
+      const positionRepository = fakePositionRepository();
+      const service = createPositionService(shipmentRepository, positionRepository, createFakeRedis(), fakeRealtime());
+
+      await expect(
+        service.reportPosition("shipment-assigned", "carrier-1", { ...basePosition, mocked: true })
       ).resolves.toEqual({ persisted: true });
+      expect(positionRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ shipmentId: "shipment-in-transit", tripId: "trip-active-1", mocked: true })
+      );
     });
 
     it("un envío assigned cuyo trip no está active (todavía declared) rechaza con 403 SHIPMENT_NOT_TRACKABLE", async () => {
@@ -938,7 +961,7 @@ describe("position-service (MOVO-202 / MOVO-251)", () => {
       const { service } = setup([fakeShipment({ status: ShipmentStatus.ASSIGNED })], sendPush);
 
       await expect(service.reportPosition("shipment-1", "carrier-1", at(NEAR_PICKUP, 0))).resolves.toEqual({
-        persisted: true,
+        persisted: false,
       });
       await flush();
       await service.reportPosition("shipment-1", "carrier-1", at(NEAR_PICKUP, 1));

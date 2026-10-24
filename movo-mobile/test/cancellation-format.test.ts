@@ -2,6 +2,7 @@ import type { ShipmentSettlementResponse } from "@movo/shared/dist/types/settlem
 import {
   carrierDebtNotice,
   carrierWithdrawalQuoteView,
+  CARRIER_ARRIVED_REASON,
   PICKUP_WINDOW_CLOSED_REASON,
   cancellationQuoteView,
   carrierCompensationView,
@@ -44,6 +45,18 @@ describe("cancellationQuoteView", () => {
   it("pickup_window_closed → sin cargo con el motivo", () => {
     const view = cancellationQuoteView({ penaltyArs: 0, reason: "pickup_window_closed", freeUntil }, 18500);
     expect(view).toEqual({ kind: "expired", reservedArs: 18500, reasonText: PICKUP_WINDOW_CLOSED_REASON });
+  });
+
+  it("MOVO-270: carrier_arrived → penalidad con el motivo (el transportista llegó al retiro)", () => {
+    const view = cancellationQuoteView({ penaltyArs: 4625, reason: "carrier_arrived", freeUntil }, 18500);
+    expect(view).toEqual({
+      kind: "penalty",
+      reservedArs: 18500,
+      penaltyArs: 4625,
+      releasedArs: 13875,
+      penaltyRatio: 0.25,
+      reasonText: CARRIER_ARRIVED_REASON,
+    });
   });
 
   it("not_assigned → sin reserva", () => {

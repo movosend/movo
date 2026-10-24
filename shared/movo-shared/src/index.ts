@@ -170,12 +170,18 @@ export type {
 } from "./types/transaction";
 
 // liquidación: captura del hold + split (MOVO-212)
-export { SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
+export { SETTLEMENT_ISSUE_STATUSES, SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
 export type {
   CaptureHoldRequest,
   CaptureHoldResponse,
   SettlementDisplayStatus,
+  SettlementEscalationReason,
+  SettlementEventRequest,
+  SettlementEventResponse,
   SettlementFailureReason,
+  SettlementIssueItem,
+  SettlementIssuesPage,
+  SettlementIssueStatus,
   SettlementKind,
   SettlementResponse,
   SettlementStatus,
@@ -291,6 +297,16 @@ export type {
   CancellationQuoteResponse,
 } from "./config/cancellation-penalty";
 
+// atribución del no-retiro (MOVO-270, ADR-052)
+export {
+  ARRIVAL_RADIUS_M,
+  ARRIVAL_MAX_ACCURACY_M,
+  ABSENCE_MIN_DISTANCE_M,
+  ARRIVAL_EARLY_MARGIN_MIN,
+  MIN_ABSENCE_POSITIONS,
+} from "./config/pickup-attribution";
+export type { PickupMissedAttribution } from "./config/pickup-attribution";
+
 // viajes recurrentes (MOVO-265, ADR-042)
 export {
   RECURRENCE_WEEKDAY,
@@ -350,10 +366,12 @@ export type {
 // admin: envíos para el panel (MOVO-325, backend de MOVO-33)
 export {
   ACTIVE_SHIPMENT_STATUSES,
+  ADMIN_SHIPMENT_ALERT_STATUSES,
   ADMIN_SHIPMENT_GROUPS,
   ADMIN_SHIPMENT_GROUP_STATUSES,
   ADMIN_SHIPMENTS_DEFAULT_LIMIT,
   ADMIN_SHIPMENTS_MAX_LIMIT,
+  isAdminShipmentAlert,
 } from "./types/admin-shipments";
 export type {
   AdminShipmentGroup,
