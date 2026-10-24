@@ -312,6 +312,11 @@ el evento de aceptación de la línea de tiempo.
 - **Evento de aceptación**: `svc-shipments` escribe `Oferta <uuid> aceptada · ruta …` (MOVO-210). `parseAcceptance` lo convierte en
   precio, posición y etiquetas ("Ruta cercana", "Retiro en 1,7 días (N = 3)", "Paga al aceptar") con un link que abre el modal en esa
   oferta. Si cambia el formato de ese texto, el evento vuelve a mostrar el motivo tal cual.
+- **Retiro pedido ≠ retiro del envío**: al aceptar, `svc-shipments` pisa `pickupDate` y la franja con los de la ganadora
+  (MOVO-258 D3). "Retiro pedido" y las notas de cada oferta ("Propone otro día"…) comparan contra `requestedPickup*`, nunca
+  contra `pickup*`. La tasa de "Comisión Movo (15%)" viene en la oferta (`commissionRate`), no se deduce de los montos.
+- **Deploy en serie**: el panel sale solo a Vercel. `withDeployGaps` (`lib/shipments/deploy-gaps.ts`) completa lo que un backend
+  anterior no manda: sin `offers`, ese bloque viene con error (no se cae el detalle); sin `requestedPickup*`, usa el retiro actual.
 - `components/ui/dialog.tsx` suma `DialogDescription`. Modo fixtures: ofertas por envío en `lib/shipments/fixtures.ts`
   (`MOVO_ADMIN_MOCK_FAIL=offers` tumba el bloque); con transportista, el sugerido queda 8% arriba del acordado.
 

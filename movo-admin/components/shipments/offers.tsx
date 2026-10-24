@@ -4,7 +4,9 @@ import Link from "next/link"
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react"
@@ -17,6 +19,7 @@ import type {
 import { formatArs, formatRating } from "@/lib/users/format"
 import { formatStamp, shipmentDisplayCode } from "@/lib/shipments/format"
 import {
+  commissionLabel,
   deltaLabel,
   deltaShort,
   formatDuration,
@@ -410,8 +413,8 @@ function OffersDialogBody({
     list.filter((o) => inFilter(o, filter)),
     sort
   )
-  const selected =
-    list.find((o) => o.id === selectedId) ?? rows[0] ?? list[0] ?? null
+  // La elegida tiene que estar en la lista que se ve: si el filtro la saca, pasa a la primera visible.
+  const selected = rows.find((o) => o.id === selectedId) ?? rows[0] ?? null
   const filters = (Object.keys(OFFER_FILTERS) as OfferFilter[])
     .map((key) => ({
       key,
@@ -449,7 +452,7 @@ function OffersDialogBody({
         <DialogBody>
           <BlockError noun="las ofertas" code={offers.error.code} />
         </DialogBody>
-      ) : !summary || !selected ? (
+      ) : !summary ? (
         <DialogBody>
           <p className="text-[13px] text-muted-foreground">
             Este envío no recibió ofertas.
@@ -520,7 +523,7 @@ function OffersDialogBody({
                     offer.priceArs,
                     shipment.suggestedPriceArs
                   )
-                  const isSelected = offer.id === selected.id
+                  const isSelected = offer.id === selected?.id
                   return (
                     <li key={offer.id}>
                       <button
@@ -578,7 +581,7 @@ function OffersDialogBody({
                 </p>
               )}
             </div>
-            <OfferDetail offer={selected} offers={list} />
+            {selected && <OfferDetail offer={selected} offers={list} />}
           </div>
         </>
       )}
@@ -669,8 +672,9 @@ function OfferDetail({
       <div className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between gap-3">
           <h3 className={sectionLabel}>Cómo se reparte</h3>
+          {/* El precio queda fijo al ofertar; el reparto se calcula al leer con la tasa vigente. */}
           <span className="text-[11px] text-muted-foreground">
-            congelado al ofertar
+            con la comisión vigente
           </span>
         </div>
         <div className="overflow-hidden rounded-lg border bg-card">
@@ -682,10 +686,7 @@ function OfferDetail({
           </div>
           <div className="flex flex-col gap-2.5 px-3.5 py-3 text-[13px] text-muted-foreground">
             <div className="flex justify-between gap-3">
-              <span>
-                Comisión Movo (
-                {Math.round((offer.commissionArs / offer.netArs) * 100)}%)
-              </span>
+              <span>{commissionLabel(offer)}</span>
               <span className="tabular-nums">
                 − {formatArs(offer.commissionArs)}
               </span>
@@ -777,6 +778,8 @@ function Fact({
 
 function CopyId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
   return (
     <div className="mt-auto flex items-center gap-2 text-xs text-muted-foreground">
       <span>ID</span>
@@ -787,7 +790,8 @@ function CopyId({ id }: { id: string }) {
         onClick={() => {
           void navigator.clipboard?.writeText(id).then(() => {
             setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
+            clearTimeout(timer.current)
+            timer.current = setTimeout(() => setCopied(false), 1500)
           })
         }}
         className="flex size-7 flex-none items-center justify-center rounded-md outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
@@ -841,9 +845,12 @@ export function AcceptedOfferNote({
           </span>
         ))}
       </div>
-      <ViewOffersButton offerId={offerId}>
-        {list.length > 1 ? `Ver las ${list.length} ofertas` : "Ver la oferta"}
-      </ViewOffersButton>
+      {/* Sin la oferta (bloque caído o no encontrada) el modal no tendría qué mostrar. */}
+      {offer && (
+        <ViewOffersButton offerId={offerId}>
+          {list.length > 1 ? `Ver las ${list.length} ofertas` : "Ver la oferta"}
+        </ViewOffersButton>
+      )}
     </div>
   )
 }

@@ -264,6 +264,29 @@ describe("ofertas", () => {
     expect(within(dialog).getByText("Evaluadas por el emisor · 2")).toBeTruthy()
   })
 
+  it("si el filtro deja afuera a la elegida, el detalle pasa a la primera visible", () => {
+    const WITHDRAWN = offer({
+      id: "7d1e3f20-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+      carrierId: "55555555-5555-4555-8555-555555555555",
+      carrierName: "Julián Paz",
+      status: "withdrawn",
+      priceArs: 7100,
+    })
+    render(
+      withOffers(<OffersCard />, {
+        data: [ACCEPTED, CHEAPER, WITHDRAWN],
+        error: null,
+      })
+    )
+    fireEvent.click(screen.getByText("Ver todas las ofertas"))
+    const dialog = screen.getByRole("dialog")
+    const detailPanel = () =>
+      within(dialog).getByLabelText("Detalle de la oferta")
+    expect(within(detailPanel()).getByText("Diego Funes")).toBeTruthy()
+    fireEvent.click(within(dialog).getByText("Retiradas o vencidas · 1"))
+    expect(within(detailPanel()).getByText("Julián Paz")).toBeTruthy()
+  })
+
   it("sin ofertas o con el bloque caído", () => {
     render(withOffers(<OffersCard />, { data: [], error: null }))
     expect(screen.getByText("Este envío no recibió ofertas.")).toBeTruthy()
@@ -299,6 +322,28 @@ describe("ofertas", () => {
       "Detalle de la oferta"
     )
     expect(within(detailPanel).getByText("Diego Funes")).toBeTruthy()
+  })
+
+  it("con el bloque de ofertas caído, el evento deja las etiquetas pero no ofrece abrir el modal", () => {
+    render(
+      withOffers(
+        <Timeline
+          shipment={detail({ status: "assignment_pending" })}
+          events={{
+            data: [
+              event("assignment_pending", "2026-10-20T21:12:00.000Z", {
+                actorId: SENDER.id,
+                reason: `Oferta ${ACCEPTED.id} aceptada · ruta cercana: retiro en 1.7 días (dentro de 3); el emisor paga al aceptar`,
+              }),
+            ],
+            error: null,
+          }}
+        />,
+        failed
+      )
+    )
+    expect(screen.getByText("Ruta cercana")).toBeTruthy()
+    expect(screen.queryByText(/^Ver la/)).toBeNull()
   })
 })
 

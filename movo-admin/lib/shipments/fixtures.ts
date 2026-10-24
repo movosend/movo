@@ -9,6 +9,7 @@ import type {
 } from "@movo/shared/src/types/admin-shipments"
 import {
   decomposeOfferGrossPrice,
+  DEFAULT_MOVO_COMMISSION_RATE,
   estimateMpFeeArs,
   estimateReceivedArs,
 } from "@movo/shared/src/config/commission"
@@ -394,7 +395,10 @@ function offersFor(
     status: AdminShipmentOffer["status"],
     at: { created: number; responded: number | null; expires?: number }
   ): AdminShipmentOffer => {
-    const { netArs, commissionAmountArs } = decomposeOfferGrossPrice(priceArs)
+    const { netArs, commissionAmountArs } = decomposeOfferGrossPrice(
+      priceArs,
+      DEFAULT_MOVO_COMMISSION_RATE
+    )
     const otherDay = i === 1
     return {
       id: i === 0 ? acceptedId : uuid(seed.n * 10 + i, "e"),
@@ -405,6 +409,7 @@ function offersFor(
       priceArs,
       netArs,
       commissionArs: commissionAmountArs,
+      commissionRate: DEFAULT_MOVO_COMMISSION_RATE,
       mpFeeEstimateArs: estimateMpFeeArs(priceArs),
       receivedEstimateArs: estimateReceivedArs(netArs, priceArs),
       offeredDate: otherDay ? dayOffset(seed.pickup[0] + 1) : pickupDate,
@@ -575,6 +580,10 @@ function build(seed: Seed): MockShipment {
     heightCm: 15,
     description: seed.pkg[2],
     urgent: false,
+    // La oferta aceptada del mock deja el retiro como estaba, así que lo pedido coincide con lo acordado.
+    requestedPickupDate: dayOffset(seed.pickup[0]),
+    requestedPickupTimeWindowStart: seed.pickup[1],
+    requestedPickupTimeWindowEnd: seed.pickup[2],
     pickupLat,
     pickupLng,
     deliveryLat,

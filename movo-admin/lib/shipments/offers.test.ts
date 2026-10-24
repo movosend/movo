@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { detail, offer } from "./test-fixtures"
 import {
+  commissionLabel,
   deltaLabel,
   deltaShort,
   formatDuration,
@@ -10,6 +11,7 @@ import {
   priceRank,
   rankLabel,
   receivedLabel,
+  requestedPickup,
   sortOffers,
   suggestedDelta,
   summarizeOffers,
@@ -97,6 +99,34 @@ describe("ofertas del envío", () => {
     ).toBe("Propone otro día")
   })
 
+  it("tras aceptar, compara contra lo pedido y no contra el retiro acordado que quedó en el envío", () => {
+    // `acceptOffer` pisó `pickupDate` y la franja con los de la ganadora (MOVO-258 D3).
+    const shipment = detail({
+      pickupDate: "2026-10-22",
+      pickupTimeWindowStart: "14:00",
+      pickupTimeWindowEnd: "18:00",
+    })
+    const winner = offer({
+      offeredDate: "2026-10-22",
+      pickupTimeWindowStart: "14:00",
+      pickupTimeWindowEnd: "18:00",
+    })
+    expect(offerPickup(winner, shipment).note).toBe("Propone otro día")
+    // Una que no propuso franja toma la pedida (09:00–12:00), no la de la ganadora.
+    expect(offerPickup(offer(), shipment)).toEqual({
+      when: expect.stringContaining("09:00–12:00"),
+      note: "Lo que pidió el emisor",
+    })
+    expect(requestedPickup(shipment)).toContain("09:00–12:00")
+  })
+
+  it("la comisión sale de la tasa del backend, no de los montos", () => {
+    expect(commissionLabel(offer())).toBe("Comisión Movo (15%)")
+    expect(
+      commissionLabel(offer({ netArs: 0, commissionArs: 0 }))
+    ).toBe("Comisión Movo (15%)")
+  })
+
   it("el total de 'Cómo se reparte' en tercera persona, en lima solo si sigue en juego", () => {
     expect(receivedLabel(offer({ status: "pending" }), "published")).toEqual({
       label: "Recibe aprox.",
@@ -180,6 +210,17 @@ describe("ofertas del envío", () => {
       parseAcceptance(`Oferta ${ID} aceptada · ruta cercana (N sin configurar)`)
         ?.tags
     ).toEqual(["Ruta cercana", "Paga al aceptar"])
+    // Días enteros o negativos (`daysToPickup` de offer-repository).
+    expect(
+      parseAcceptance(
+        `Oferta ${ID} aceptada · ruta lejana: retiro en 5 días (a más de 3); el pago se confirma al abrirse la ventana`
+      )?.tags[1]
+    ).toBe("Retiro en 5 días (N = 3)")
+    expect(
+      parseAcceptance(
+        `Oferta ${ID} aceptada · ruta cercana: retiro en -0.3 días (dentro de 3); el emisor paga al aceptar`
+      )?.tags
+    ).toEqual(["Ruta cercana", "Retiro ya empezado al aceptar", "Paga al aceptar"])
     expect(parseAcceptance("Cancelado por el emisor")).toBeNull()
     expect(parseAcceptance(null)).toBeNull()
   })

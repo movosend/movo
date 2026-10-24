@@ -211,39 +211,47 @@ export const formatCalendarDay = (date: string) =>
 
 const span = (start: string, end: string) => `${start}–${end}`
 
+/**
+ * Lo que pidió el emisor, no `pickupDate`/franja del envío: al aceptar una oferta, `svc-shipments` los pisa
+ * con los de la oferta ganadora (MOVO-258 D3).
+ */
+type RequestedPickup = Pick<
+  AdminShipmentDetail,
+  | "requestedPickupDate"
+  | "requestedPickupTimeWindowStart"
+  | "requestedPickupTimeWindowEnd"
+>
+
 /** El retiro propuesto y cómo se compara con lo que pidió el emisor. */
 export function offerPickup(
   offer: AdminShipmentOffer,
-  shipment: Pick<
-    AdminShipmentDetail,
-    "pickupDate" | "pickupTimeWindowStart" | "pickupTimeWindowEnd"
-  >
+  shipment: RequestedPickup
 ): { when: string; note: string } {
-  const start = offer.pickupTimeWindowStart ?? shipment.pickupTimeWindowStart
-  const end = offer.pickupTimeWindowEnd ?? shipment.pickupTimeWindowEnd
+  const requestedStart = shipment.requestedPickupTimeWindowStart
+  const requestedEnd = shipment.requestedPickupTimeWindowEnd
+  // Sin franja propia, la oferta toma la que pidió el emisor.
+  const start = offer.pickupTimeWindowStart ?? requestedStart
+  const end = offer.pickupTimeWindowEnd ?? requestedEnd
   const when = `${formatCalendarDay(offer.offeredDate)}, ${span(start, end)}`
-  if (offer.offeredDate !== shipment.pickupDate)
+  if (offer.offeredDate !== shipment.requestedPickupDate)
     return { when, note: "Propone otro día" }
   if (!offer.pickupTimeWindowStart)
     return { when, note: "Lo que pidió el emisor" }
   // "HH:MM" se compara bien como texto.
-  const inside =
-    start >= shipment.pickupTimeWindowStart &&
-    end <= shipment.pickupTimeWindowEnd
+  const inside = start >= requestedStart && end <= requestedEnd
   return {
     when,
     note: inside ? "Dentro de lo pedido" : "Otro horario, mismo día",
   }
 }
 
-export function requestedPickup(
-  shipment: Pick<
-    AdminShipmentDetail,
-    "pickupDate" | "pickupTimeWindowStart" | "pickupTimeWindowEnd"
-  >
-): string {
-  return `${formatCalendarDay(shipment.pickupDate)}, ${span(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd)}`
+export function requestedPickup(shipment: RequestedPickup): string {
+  return `${formatCalendarDay(shipment.requestedPickupDate)}, ${span(shipment.requestedPickupTimeWindowStart, shipment.requestedPickupTimeWindowEnd)}`
 }
+
+/** "Comisión Movo (15%)": la tasa viene del backend, no se deduce de montos ya redondeados. */
+export const commissionLabel = (offer: AdminShipmentOffer) =>
+  `Comisión Movo (${Math.round(offer.commissionRate * 100)}%)`
 
 export function offerDelivery(offer: AdminShipmentOffer): string {
   if (!offer.estimatedDeliveryDate) return "Sin estimar"
@@ -326,11 +334,16 @@ export function parseAcceptance(
   if (!near && !far)
     return { offerId, tags: [route.charAt(0).toUpperCase() + route.slice(1)] }
   const tags = [near ? "Ruta cercana" : "Ruta lejana"]
+  // Los días pueden ser enteros ("2") o negativos ("-0.3": la franja de retiro ya había empezado al aceptar).
   const days = route.match(
-    /retiro en ([\d.]+) días \((?:dentro de|a más de) (\d+)\)/
+    /retiro en (-?[\d.]+) días \((?:dentro de|a más de) (\d+)\)/
   )
   if (days)
-    tags.push(`Retiro en ${days[1]!.replace(".", ",")} días (N = ${days[2]})`)
+    tags.push(
+      Number(days[1]) < 0
+        ? "Retiro ya empezado al aceptar"
+        : `Retiro en ${days[1]!.replace(".", ",")} días (N = ${days[2]})`
+    )
   tags.push(near ? "Paga al aceptar" : "Paga al abrirse la ventana")
   return { offerId, tags }
 }
