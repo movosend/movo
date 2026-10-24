@@ -1,0 +1,21 @@
+titulo: User Story Mapping y Backlog Inicial
+titulo_corto: User Story Mapping y Backlog
+subtitulo: Recorrido del usuario, corte de MVP, épicas e historias de usuario priorizadas con criterios de aceptación y estimación.
+instancia: Instancia 2 · Sprint 0
+version: "2"
+fecha: 30/05/2026
+historial:
+  - {version: "1", fecha: 06/05/2026, autor: Equipo completo, descripcion: Creación de la versión inicial del documento.}
+  - {version: "2", fecha: 30/05/2026, autor: Equipo completo, descripcion: Estimación inicial completa de las historias de usuario y cálculo de la estimación global en horas del proyecto.}
+  - {version: "2.1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Compilación en el Tomo I: el User Story Map se redibujó con la notación común de la documentación y el glosario del dominio se consolidó en el Tomo II. Sin cambios en el contenido del backlog."}
+introduccion: |
+  Este documento visualiza el recorrido del usuario en Movo y organiza el trabajo con criterio
+  de valor. Incluye el *User Story Map* (actividades del usuario, tareas por actividad y corte
+  de MVP) y el *Product Backlog* inicial: las épicas y las historias de usuario priorizadas,
+  con sus criterios de aceptación y su estimación.
+
+  El glosario del dominio que acompañaba a este documento en el Sprint 0 se consolidó, junto con
+  los términos técnicos, en el glosario del Tomo II.
+audiencia: |
+  El equipo, para planificar los sprints, y el Product Owner, para gestionar el backlog. Los
+  docentes lo usan para verificar el valor y la priorización del alcance.

@@ -1,0 +1,21 @@
+titulo: Working Agreement
+titulo_corto: Working Agreement
+subtitulo: Roles Scrum, normas de trabajo, canales, versionado, criterios de Ready y Done y política de uso de inteligencia artificial.
+instancia: Instancia 2 · Sprint 0
+version: "1.1"
+fecha: 02/11/2026
+historial:
+  - {version: "1", fecha: 06/05/2026, autor: Equipo completo, descripcion: Creación de la versión inicial del Working Agreement.}
+  - {version: "1.1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Compilación en el Tomo I: formato unificado y nota sobre la verificación de la Definition of Done en la integración continua. Sin cambios en el texto de los acuerdos."}
+introduccion: |
+  El Working Agreement establece cómo trabaja el equipo de Movo: quién cumple cada rol Scrum,
+  con qué ceremonias y canales de comunicación, bajo qué estrategia de versionado y revisión de
+  código, con qué criterios se considera lista y terminada una historia de usuario, y con qué
+  reglas se usa la inteligencia artificial como herramienta de apoyo.
+
+  Pertenece a la Instancia 2 (Sprint 0) del proyecto Movo. Según la guía
+  de la cátedra se revisa al inicio de cada sprint; los ajustes de proceso que surgieron de las
+  retrospectivas se registran como ítems de acción en cada Informe de Sprint.
+audiencia: |
+  El equipo completo, como referencia diaria, y el equipo docente, para evaluar el proceso de
+  trabajo. No se asume conocimiento técnico previo.

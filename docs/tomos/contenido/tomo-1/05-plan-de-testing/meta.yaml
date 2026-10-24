@@ -1,0 +1,20 @@
+titulo: Plan de Testing
+titulo_corto: Plan de Testing
+subtitulo: Niveles de testing y herramientas, criterios de cobertura, criticidad de incidencias y ejecución de las pruebas.
+instancia: Instancia 2 · Sprint 0
+version: "2"
+fecha: 02/11/2026
+historial:
+  - {version: "1", fecha: 06/05/2026, autor: Equipo completo, descripcion: Creación de la versión inicial del Plan de Testing.}
+  - {version: "2", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Compilación en el Tomo I: herramientas por paquete, umbrales de cobertura y estado final de las pruebas actualizados a lo implementado; se documenta el desvío respecto del plan original."}
+introduccion: |
+  El Plan de Testing define la estrategia de verificación del sistema antes de escribir código,
+  para evitar que el testing sea una actividad de último momento: qué niveles de prueba se
+  aplican y con qué herramientas, qué cobertura mínima se exige, cómo se clasifican las
+  incidencias y cuándo se ejecutan los tests y quién revisa sus resultados.
+
+  Esta versión conserva la estrategia acordada en el Sprint 0 y registra, donde corresponde, lo
+  que efectivamente se implementó y los desvíos respecto del plan.
+audiencia: |
+  El equipo de desarrollo, durante todo el proyecto, y los docentes, para evaluar la
+  cobertura real. Se asumen conocimientos básicos de testing de software.

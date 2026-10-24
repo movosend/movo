@@ -1,0 +1,23 @@
+titulo: Gestión de la Configuración
+titulo_corto: Gestión de la Configuración
+subtitulo: Estructura del repositorio, ciclo de vida de los artefactos, herramientas, política de ramas y proceso de revisión de Pull Requests.
+instancia: Instancia 2 · Sprint 0
+version: "3"
+fecha: 02/11/2026
+historial:
+  - {version: "1", fecha: 06/05/2026, autor: Equipo completo, descripcion: Creación de la versión inicial del documento.}
+  - {version: "2", fecha: 30/05/2026, autor: Equipo completo, descripcion: Modificación de la estructura de carpetas definida.}
+  - {version: "3", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Compilación en el Tomo I: estructura del repositorio y pipelines actualizados al estado final; se reemplazan las herramientas «a definir en el Sprint 1» por las efectivamente adoptadas (Prisma, PlantUML) y se agrega la regla de las tres ubicaciones para variables de entorno."}
+introduccion: |
+  Este documento define dónde vive cada artefacto del proyecto Movo y cómo evoluciona:
+  la estructura del repositorio y las convenciones de nombres, el ciclo de vida de cada tipo
+  de artefacto (quién lo crea, quién lo actualiza y cuándo), las herramientas de gestión, la
+  política de ramas y el proceso de revisión de Pull Requests.
+
+  El texto original del Sprint 0 dejaba abiertas dos decisiones (la herramienta de migraciones
+  y la de modelado de diagramas); esta versión las reemplaza por las que el equipo adoptó
+  durante el desarrollo. El resto de las reglas se mantiene como se acordó.
+audiencia: |
+  El equipo de desarrollo, durante todo el año: cualquier integrante debe poder encontrar lo
+  que necesita sin preguntar. Los docentes lo usan para ubicar los artefactos a revisar.
+  Se asume conocimiento básico de Git y de GitHub.
