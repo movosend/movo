@@ -3,6 +3,7 @@ import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-t
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../api/shipments-client";
 import { getFirstName } from "./profile-format";
+import { formatTimeOfDay } from "./time-format";
 
 /**
  * MOVO-284: formateo puro del chat. Todo lo que no depende de React vive acá para
@@ -72,13 +73,12 @@ export function shortName(fullName: string | null | undefined): string {
   return `${parts[0]} ${parts[parts.length - 1]!.charAt(0).toUpperCase()}.`;
 }
 
-const TIME_FORMAT = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
 const SHORT_DAY_FORMAT = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
 const WEEKDAY_FORMAT = new Intl.DateTimeFormat("es-AR", { weekday: "short" });
 
-/** Misma hora local que muestra el resto de la app, "15:07". */
+/** Misma hora local que muestra el resto de la app, "15:07 h". */
 export function formatChatTime(iso: string): string {
-  return TIME_FORMAT.format(new Date(iso));
+  return formatTimeOfDay(iso);
 }
 
 function startOfDay(date: Date): number {

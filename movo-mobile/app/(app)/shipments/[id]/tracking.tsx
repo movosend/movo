@@ -31,6 +31,7 @@ import {
   activeShipmentDisplayCode,
   isTransitDelayed,
 } from "../../../../src/lib/active-shipment-format";
+import { formatDuration, formatTimeOfDay } from "../../../../src/lib/time-format";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -213,14 +214,7 @@ export default function LiveTrackingScreen() {
   // Cálculo de hora ETA para Hero Card
   const now = new Date();
   const etaMinutes = demoMode ? 22 : estimatedArrivalMinutes;
-  const etaTimeString = etaMinutes != null
-    ? (() => {
-        const etaDate = new Date(now.getTime() + etaMinutes * 60000);
-        return `${String(etaDate.getHours()).padStart(2, "0")}:${String(
-          etaDate.getMinutes()
-        ).padStart(2, "0")}`;
-      })()
-    : "—";
+  const etaTimeString = etaMinutes != null ? formatTimeOfDay(new Date(now.getTime() + etaMinutes * 60000)) : "—";
 
   const displayDistance = demoMode ? 18.4 : distanceKm;
   const trackingCode = demoMode ? "MV-28491" : activeShipmentDisplayCode(shipment?.id ?? shipmentId ?? "");
@@ -427,7 +421,7 @@ export default function LiveTrackingScreen() {
                   </Text>
                   <View className="px-2.5 py-0.5 rounded-full bg-bg border border-border">
                     <Text className="font-sans-semibold text-small text-fg">
-                      {etaMinutes != null ? `~${etaMinutes} min (aprox.)` : "Calculando…"}
+                      {etaMinutes != null ? `~${formatDuration(etaMinutes)} (aprox.)` : "Calculando…"}
                     </Text>
                   </View>
                 </View>

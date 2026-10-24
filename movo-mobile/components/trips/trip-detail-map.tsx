@@ -11,7 +11,10 @@ import {
 } from "../../src/constants/map-style";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { decodePolyline } from "../../src/lib/polyline";
-import { formatDurationMin, formatRouteDistanceKm } from "../../src/lib/shipment-format";
+import {
+  formatRouteDistanceKm,
+} from "../../src/lib/shipment-format";
+import { formatDurationSeconds } from "../../src/lib/time-format";
 import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { ExpandableMap } from "../map/expandable-map";
 import { FullscreenMap } from "../map/fullscreen-map";
@@ -182,7 +185,7 @@ export function TripDetailMap({ trip, testID }: { trip: TripWithAcceptedPackages
       {route ? (
         <View className="absolute bottom-2.5 left-2.5 h-[26px] justify-center rounded-full bg-bg/90 px-2.5">
           <Text testID={testID ? `${testID}-distance` : undefined} className="font-sans text-[11px] text-fg-2">
-            {formatRouteDistanceKm(route.distanceMeters)} · {formatDurationMin(route.durationSeconds)}
+            {formatRouteDistanceKm(route.distanceMeters)} · {formatDurationSeconds(route.durationSeconds)}
           </Text>
         </View>
       ) : null}

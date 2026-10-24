@@ -85,7 +85,7 @@ describe("trip-format (MOVO-252)", () => {
     const stub = tripStubParts("2026-10-02T11:00:00.000Z");
     expect(stub.day).toBe("2");
     expect(stub.mon).toBe("OCT");
-    expect(stub.time).toMatch(/^\d{2}:\d{2}$/);
+    expect(stub.time).toMatch(/^\d{2}:\d{2} h$/);
     expect(tripHistoryDate("2026-09-26T15:00:00.000Z")).toBe("sáb 26 sep");
     expect(tripMonthLabel("2026-09-26T15:00:00.000Z")).toBe("Septiembre 2026");
     expect(tripHistorySubtext({ status: TripStatus.COMPLETED, acceptedPackagesCount: 1, cancelledAt: null })).toBeNull();

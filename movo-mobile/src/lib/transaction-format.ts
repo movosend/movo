@@ -9,6 +9,7 @@ import { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "@movo
 import { activeShipmentDisplayCode } from "./active-shipment-format";
 import { cardBrandName, paymentTypeLabel, shortBankName } from "./saved-cards";
 import { formatPriceArs } from "./shipment-format";
+import { formatTimeOfDay } from "./time-format";
 
 /**
  * Presentación del historial de pagos y cobros (MOVO-304), pura y testeable. Es la ÚNICA
@@ -85,15 +86,15 @@ export function formatShortDate(iso: string): string {
   return `${date} ${MONTHS_SHORT[month - 1]}`;
 }
 
-/** "4 oct 2026 · 14:32" en hora de Argentina. */
+/** "4 oct 2026 · 14:32 h" en hora de Argentina. */
 export function formatDateTime(iso: string): string {
   const { year, month, date } = parseDay(toArgentinaCalendarDateString(iso));
-  return `${date} ${MONTHS_SHORT[month - 1]} ${year} · ${toArgentinaTimeOfDayString(iso)}`;
+  return `${date} ${MONTHS_SHORT[month - 1]} ${year} · ${formatTimeOfDay(toArgentinaTimeOfDayString(iso))}`;
 }
 
-/** "4 oct · 14:32" en hora de Argentina (la línea de tiempo del detalle, sin el año). */
+/** "4 oct · 14:32 h" en hora de Argentina (la línea de tiempo del detalle, sin el año). */
 export function formatShortDateTime(iso: string): string {
-  return `${formatShortDate(iso)} · ${toArgentinaTimeOfDayString(iso)}`;
+  return `${formatShortDate(iso)} · ${formatTimeOfDay(toArgentinaTimeOfDayString(iso))}`;
 }
 
 /** "1 oct 2026" para un `YYYY-MM-DD` ya armado (filtros). */

@@ -8,10 +8,9 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { formatReputationScore } from "../../src/lib/profile-format";
 import {
   formatPickupDateLabel,
-  formatPickupWindowLabel,
   formatPriceArs,
-  formatTimeHHMM,
 } from "../../src/lib/shipment-format";
+import { formatTimeRange, toHHMM } from "../../src/lib/time-format";
 
 export interface OfferCardProps {
   offer: OfferSummary;
@@ -56,15 +55,15 @@ export function OfferCard({
     : offer.offeredDate;
   const formattedDate = formatPickupDateLabel(dateStr) ?? dateStr;
 
-  const offeredWindowStart = formatTimeHHMM(offer.offeredPickupTimeWindowStart);
-  const offeredWindowEnd = formatTimeHHMM(offer.offeredPickupTimeWindowEnd);
+  const offeredWindowStart = toHHMM(offer.offeredPickupTimeWindowStart);
+  const offeredWindowEnd = toHHMM(offer.offeredPickupTimeWindowEnd);
   const differsInDate = requestedPickup != null && dateStr !== requestedPickup.pickupDate;
   const differsInWindow =
     requestedPickup != null &&
     offeredWindowStart !== "" &&
     offeredWindowEnd !== "" &&
-    (offeredWindowStart !== formatTimeHHMM(requestedPickup.pickupTimeWindowStart) ||
-      offeredWindowEnd !== formatTimeHHMM(requestedPickup.pickupTimeWindowEnd));
+    (offeredWindowStart !== toHHMM(requestedPickup.pickupTimeWindowStart) ||
+      offeredWindowEnd !== toHHMM(requestedPickup.pickupTimeWindowEnd));
   const differsFromRequested = differsInDate || differsInWindow;
   const requestedDateLabel = requestedPickup
     ? (formatPickupDateLabel(requestedPickup.pickupDate) ?? requestedPickup.pickupDate)
@@ -147,13 +146,13 @@ export function OfferCard({
           <Text className="flex-1 font-sans text-[12.5px] leading-[18px] text-ink-950">
             <Text className="font-sans-semibold">Otra fecha u horario que el pedido. </Text>
             Pediste {requestedDateLabel},{" "}
-            {formatPickupWindowLabel(
+            {formatTimeRange(
               requestedPickup.pickupTimeWindowStart,
               requestedPickup.pickupTimeWindowEnd,
             )}
             .
             {offeredWindowStart && offeredWindowEnd
-              ? ` Propone ${formattedDate}, ${formatPickupWindowLabel(offeredWindowStart, offeredWindowEnd)}.`
+              ? ` Propone ${formattedDate}, ${formatTimeRange(offeredWindowStart, offeredWindowEnd)}.`
               : ` Propone ${formattedDate}.`}
           </Text>
         </View>

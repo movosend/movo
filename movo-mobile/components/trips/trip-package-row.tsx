@@ -7,11 +7,11 @@ import { packageTypeIcon } from "../send/category-grid";
 import type { PackageType } from "../../src/store/shipment-wizard-store";
 import {
   formatPickupDateLabel,
-  formatPickupWindowLabel,
   formatPriceArs,
   shipmentStatusLabel,
   shortAddressLabel,
 } from "../../src/lib/shipment-format";
+import { formatTimeRange } from "../../src/lib/time-format";
 import { AvatarImage } from "../ui/avatar-image";
 import type { TripAcceptedPackage } from "../../src/api/trips-client";
 import { PressableScale } from "./pressable-scale";
@@ -51,7 +51,7 @@ export function TripPackageRow({
   const Icon = packageTypeIcon(pkg.packageType as PackageType);
   const status = packageStatus(pkg.status, colorScheme === "dark");
   const date = formatPickupDateLabel(pkg.pickupDate);
-  const window = formatPickupWindowLabel(pkg.pickupTimeWindowStart, pkg.pickupTimeWindowEnd);
+  const window = formatTimeRange(pkg.pickupTimeWindowStart, pkg.pickupTimeWindowEnd);
 
   return (
     <PressableScale

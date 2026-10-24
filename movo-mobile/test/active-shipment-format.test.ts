@@ -164,7 +164,7 @@ describe("activeShipmentStatusLabel", () => {
       activeShipmentStatusLabel(
         makeShipment({ status: "assigned_unfunded", pickupTimeWindowStart: "09:00:00" }),
       ),
-    ).toBe("Retira 09:00");
+    ).toBe("Retira 09:00 h");
   });
 });
 

@@ -454,7 +454,7 @@ describe("TransportShipmentDetailScreen", () => {
       // alternativo en este caso).
       expect(queryByText(/Sin asignar/)).toBeNull();
       expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(
-        "El viaje arranca el jue, 20 de agosto, entre las 09:00 y las 12:00 h. Ese día retirás el paquete y arrancás el viaje hasta la entrega.",
+        "El viaje arranca el jue, 20 de agosto, de 09:00 a 12:00 h. Ese día retirás el paquete y arrancás el viaje hasta la entrega.",
       );
     });
 
@@ -533,7 +533,7 @@ describe("TransportShipmentDetailScreen", () => {
       const { getByTestId } = await render(<TransportShipmentDetailScreen />);
 
       expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(
-        "El viaje arranca el vie, 21 de agosto, entre las 15:00 y las 19:00 h. Ese día retirás el paquete y arrancás el viaje hasta la entrega.",
+        "El viaje arranca el vie, 21 de agosto, de 15:00 a 19:00 h. Ese día retirás el paquete y arrancás el viaje hasta la entrega.",
       );
     });
 
@@ -634,9 +634,9 @@ describe("TransportShipmentDetailScreen", () => {
 
       const { getByText, queryByText } = await render(<TransportShipmentDetailScreen />);
 
-      expect(getByText(/15:00–19:00/)).toBeTruthy();
+      expect(getByText(/15:00 a 19:00 h/)).toBeTruthy();
       // No debería quedar dando vueltas el horario original del envío.
-      expect(queryByText(/09:00–12:00/)).toBeNull();
+      expect(queryByText(/09:00 a 12:00 h/)).toBeNull();
     });
 
     it("con una oferta activa que aceptó la franja del emisor tal cual (sin franja propia), 'Retirás' cae al horario del envío", async () => {
@@ -663,7 +663,7 @@ describe("TransportShipmentDetailScreen", () => {
 
       const { getByText } = await render(<TransportShipmentDetailScreen />);
 
-      expect(getByText(/09:00–12:00/)).toBeTruthy();
+      expect(getByText(/09:00 a 12:00 h/)).toBeTruthy();
     });
 
     // "Retirar oferta" (con Alert.alert de confirmación) se movió a la pantalla de

@@ -57,7 +57,7 @@ describe("formateo de textos del chat", () => {
   });
 
   it("hora de la lista: hora de hoy, Ayer, día de la semana o fecha", () => {
-    expect(formatListTime(new Date(2026, 9, 14, 8, 5).toISOString(), NOW)).toBe("08:05");
+    expect(formatListTime(new Date(2026, 9, 14, 8, 5).toISOString(), NOW)).toBe("08:05 h");
     expect(formatListTime(new Date(2026, 9, 13, 8, 5).toISOString(), NOW)).toBe("Ayer");
     expect(formatListTime(new Date(2026, 9, 11, 8, 5).toISOString(), NOW)).toMatch(/^[A-ZÁÉÍÓÚ]/);
     expect(formatListTime(new Date(2026, 8, 20, 8, 5).toISOString(), NOW)).toMatch(/20 sep/);

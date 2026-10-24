@@ -12,6 +12,7 @@ import {
   todayInArgentina,
 } from "../../src/lib/pickup-windows";
 import { formatPickupDateLabel } from "../../src/lib/shipment-format";
+import { formatTimeRange } from "../../src/lib/time-format";
 
 interface TimeWindowPickerProps {
   pickupDate: string;
@@ -121,7 +122,7 @@ export function TimeWindowPicker({
               <Text
                 className={`font-sans-medium text-[11px] ${selected ? "text-white dark:text-ink-950" : "text-fg"}`}
               >
-                {`${w.start} – ${w.end}`}
+                {formatTimeRange(w.start, w.end)}
               </Text>
             </Pressable>
           );
