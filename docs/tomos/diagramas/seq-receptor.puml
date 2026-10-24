@@ -1,0 +1,40 @@
+@startuml seq-receptor
+' MOVO-16 (MOVO-129, MOVO-130, MOVO-253): decisión del receptor, expiración y nuevo receptor.
+autonumber
+actor "Receptor" as R
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+database "PostgreSQL" as DB
+participant "Notificaciones\n(svc-users, Expo Push)" as N
+participant "Barrido\nperiódico" as W
+actor "Emisor" as E
+
+R -> M : Abre la notificación y ve el envío,\nel perfil y la reputación del emisor
+alt Acepta
+  M -> G : POST /shipments/{id}/accept
+  G -> S : reenvía (solo el receptor designado)
+  S -> S : ¿venció receiver_confirmation_deadline?
+  alt plazo vencido
+    S --> M : 409 SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED
+  else en plazo
+    S -> DB : awaiting_receiver_confirmation → published\n(exige las fotos de creación)
+    S -> N : push al emisor: envío aceptado
+    S -> N : push a los transportistas con un viaje compatible
+    S --> M : 200 {shipment published}
+  end
+else Rechaza
+  M -> G : POST /shipments/{id}/reject {motivo?}
+  G -> S : reenvía
+  S -> DB : → rejected_by_receiver, con plazo para que el emisor\neliga otra persona (48 h, tope en la ventana de retiro)
+  S -> N : push al emisor: envío rechazado
+  S --> M : 200
+  E -> S : POST /shipments/{id}/receiver {nuevo receptor}\n(valida KYC y bloqueos)
+  S -> DB : rejected_by_receiver → awaiting_receiver_confirmation
+  S -> N : push al nuevo receptor
+else No responde, o el emisor no elige otro receptor a tiempo
+  W -> DB : busca envíos con el plazo vencido (lock en Redis,\nuna réplica por corrida)
+  W -> DB : awaiting_receiver_confirmation → cancelled\n(y rejected_by_receiver con plazo vencido → cancelled)
+  W -> N : push al emisor: envío cancelado
+end
+@enduml

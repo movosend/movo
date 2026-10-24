@@ -1,0 +1,5480 @@
+{
+"MOVO-6": {
+"id": "MOVO-6",
+"titulo": "Como transportista, quiero ejecutar el Cryptographic Handshake para confirmar retiro y entrega segura.",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "",
+"asignado": "",
+"ac": [
+"El emisor inicia la transferencia desde su app. El sistema genera un QR dinamico con TTL de 15 segundos.",
+"El QR expira visualmente en pantalla y muestra el tiempo restante.",
+"El backend valida firma criptografica correcta y que ambos dispositivos están dentro de 100m de distancia.",
+"Si todas las validaciones pasan, el estado del envio se actualiza y se dispara la liberacion de fondos.",
+"Si la distancia entre dispositivos supera el umbral, el handshake falla con mensaje de error explicativo.",
+"Si el TTL expiro, el cedente puede generar un nuevo QR.",
+"El evento de transferencia queda registrado con timestamp, coordenadas y hash del nonce (inmutable).",
+"El handshake aplica tanto para el retiro (emisor -> transportista) como para la entrega (transportista -> receptor)."
+],
+"hijos": [
+{
+"id": "MOVO-157",
+"titulo": "[svc-users] Registro de clave pública por dispositivo (par de claves asimétricas)",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-158",
+"titulo": "[svc-shipments] Handshake: QR dinámico, validación de firma/proximidad GPS y transición de estado",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "5",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-159",
+"titulo": "[movo-mobile] Pantalla de generación de QR con countdown (cedente de custodia)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-160",
+"titulo": "[movo-mobile] Escaneo de QR y confirmación con GPS (receptor de custodia)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-195",
+"titulo": "[movo-mobile] Par de claves en el dispositivo: generación, guardado en SecureStore y firma del nonce",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "J.C. Bordino B."
+}
+],
+"padre": ""
+},
+"MOVO-7": {
+"id": "MOVO-7",
+"titulo": "Como usuario nuevo, quiero completar el proceso de registro para poder operar en la plataforma",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "",
+"asignado": "",
+"ac": [
+"El usuario puede registrarse ingresando nombre, email y numero de telefono.",
+"El sistema valida que el email no este previamente registrado. Si lo esta, muestra error claro.",
+"El sistema valida que el numero de telefono sea valido (formato argentino).",
+"Al finalizar el formulario, el sistema invoca la API de Didit.me y redirige al flujo de KYC sin salir de la app.",
+"Si Didit.me devuelve 'approved', el usuario queda habilitado para operar.",
+"Si Didit.me devuelve 'rejected', el usuario ve un mensaje claro indicando que no pudo ser verificado.",
+"Si Didit.me devuelve 'manual_review', el usuario ve un mensaje indicando que su verificacion esta pendiente.",
+"El sistema no almacena imagenes de documentos ni datos biometricos en servidores de Movo."
+],
+"hijos": [
+{
+"id": "MOVO-70",
+"titulo": "[svc-users] Endpoint de registro de usuario: validaciones, hash de contraseña y persistencia",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-71",
+"titulo": "[svc-users] Verificación de teléfono por OTP con almacenamiento en Redis y adapter de SMS",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "5",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-72",
+"titulo": "[svc-users] Integración con Didit.me: creación de sesión KYC, webhook de resultado y máquina de estados",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "5",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-73",
+"titulo": "[movo-mobile] Pantallas de registro, verificación de OTP y flujo de KYC embebido",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "5",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-94",
+"titulo": "[svc-users] Revisar autenticación de POST /kyc/session y GET /kyc/status (hoy públicas, sin JWT)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-95",
+"titulo": "[svc-users] register() emite tokens de sesión — AC10/AC3 de MOVO-70 desactualizados (PR #51)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-97",
+"titulo": "[svc-users] Foto de perfil: subida a S3 con presigned URLs, confirmación y borrado",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-98",
+"titulo": "[movo-mobile] Paso de foto de perfil al cerrar el onboarding y edición desde el perfil",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "P. Yorlano"
+}
+],
+"padre": ""
+},
+"MOVO-8": {
+"id": "MOVO-8",
+"titulo": "Como emisor, quiero crear un envio para iniciar el proceso de envio de forma clara y estructurada",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "",
+"asignado": "",
+"ac": [
+"El emisor puede iniciar la creacion de un envio desde el tab 'Enviar'.",
+"El formulario solicita: tipo de paquete, dimensiones, peso aproximado, descripcion opcional.",
+"El emisor identificar al receptor buscando por nombre de usuario registrado en Movo.",
+"El emisor define fecha y franja horaria en la que el paquete puede ser retirado.",
+"El emisor puede tomar 2 fotos del paquete al crear el envio (requerido para evidencia).",
+"El sistema calcula y muestra el precio sugerido una vez que el emisor completa datos de peso, dimensiones y destino.",
+"El precio sugerido se muestra en ARS antes de confirmar la publicacion del envio.",
+"El calculo de precio sugerido considera al menos distancia, peso y tipo de paquete.",
+"Si alguno de los datos necesarios no esta completo, el sistema muestra 'precio a estimar' en lugar de un valor.",
+"El sistema muestra un resumen del envio antes de confirmar la publicación.",
+"Al confirmar, el sistema notifica al receptor para que acepte o rechace el envio.",
+"El envio no se publica al mercado de transportistas hasta que el receptor lo acepte.",
+"El envio queda en estado 'Esperando confirmacion del receptor'."
+],
+"hijos": [
+{
+"id": "MOVO-79",
+"titulo": "[svc-shipments] Schema, migraciones y máquina de estados del ciclo de vida del envío",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-80",
+"titulo": "[svc-shipments] Endpoint de creación de envío, búsqueda de receptor y consulta de detalle",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-81",
+"titulo": "[svc-shipments] Carga de fotos del paquete con presigned URLs de S3 y registro de evidencia",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-82",
+"titulo": "[svc-pricing-logistics] Contrato de precio sugerido con implementación lineal provisoria y fallback",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-83",
+"titulo": "[movo-mobile] Wizard de creación de envío con carga de fotos y precio sugerido",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-119",
+"titulo": "[movo-svc-users] CRUD de direcciones guardadas (/addresses)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-120",
+"titulo": "[movo-svc-users] Proxy de Google Places Autocomplete (/places)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-121",
+"titulo": "[movo-mobile] Pantalla de gestión de direcciones guardadas (Perfil)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-123",
+"titulo": "[movo-svc-shipments] Endpoint de ruta (polyline) origen→destino para el mapa del wizard de envíos",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-10": {
+"id": "MOVO-10",
+"titulo": "[movo-mobile] Pantalla y mapa de ruta optimizada multi-parada",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "",
+"asignado": "",
+"ac": [
+"**Visualización de Ruta Multi-Parada:**",
+"La pantalla del viaje activo consume el itinerario ordenado provisto por el backend (calculado por `svc-pricing-logistics` en MOVO-220).",
+"Renderiza un mapa interactivo con la polyline completa trazada.",
+"**Diferenciación de Pines:**",
+"Pines diferenciados visualmente por tipo: origen del viaje, puntos de retiro (pickup), puntos de entrega (dropoff) y destino final del viaje.",
+"**Detalle Cronológico:**",
+"Listado ordenado cronológicamente de paradas con nombre del punto/dirección y tiempo estimado de llegada (ETA).",
+"**Manejo de Estados:**",
+"La ruta se actualiza dinámicamente si el transportista completa o cancela un punto del recorrido.",
+"Si no hay señal de GPS o la ruta no puede calcularse, se notifica claramente al usuario."
+],
+"hijos": [
+{
+"id": "MOVO-205",
+"titulo": "[svc-pricing-logistics] Endpoint de optimización VRPTW multi-envío: del prototipo de ADR-013 a producción",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-206",
+"titulo": "[svc-shipments] Agregación de paradas del transportista y contrato con pricing-logistics",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-207",
+"titulo": "[movo-mobile] Mapa de ruta optimizada: paradas ordenadas, ETA y recálculo al completar una parada",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-235",
+"titulo": "[svc-shipments] Scopear GET /shipments/my-route al viaje iniciado (en vez de todos los envíos activos)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-237",
+"titulo": "[svc-shipments][movo-mobile] Navegación turn-by-turn: RouteProvider extendido con modo per-trip/live (ADR-022) + botón deep-link a Maps/Waze",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "A. Ariza"
+}
+],
+"padre": ""
+},
+"MOVO-11": {
+"id": "MOVO-11",
+"titulo": "Como emisor o receptor, quiero ver la ubicación del transportista en tiempo real en un mapa interactivo, para saber exactamente dónde está mi paquete en cada momento del envío.",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [
+{
+"id": "MOVO-200",
+"titulo": "[Spike] Canal de tiempo real: verificar qué existe hoy, elegir tecnología y escribir el ADR",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-201",
+"titulo": "[svc-shipments] Canal de tiempo real: conexión autenticada y autorización de suscripción por envío",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-202",
+"titulo": "[svc-shipments] Ingesta de posiciones del transportista: última posición en Redis, traza persistida cada 45s y purga",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-203",
+"titulo": "[movo-mobile] Emisión de ubicación del transportista en foreground y background",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-204",
+"titulo": "[movo-mobile] Mapa de seguimiento en vivo para emisor y receptor",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-242",
+"titulo": "[movo-mobile] Emisión de ubicación del transportista en background: permisos en dos etapas, cadencia reducida y medición de batería",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-250",
+"titulo": "[svc-shipments] Ajustes de ingesta y canal de tracking: orden por captured_at, cadencia sobre la traza offline, envío por lotes y eventos de estado",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-251",
+"titulo": "[svc-shipments] Gatear ingesta y lectura de tracking por Trip activo, no por Shipment.status",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-252",
+"titulo": "[movo-mobile] CTA \"Iniciar viaje\" para el transportista",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "P. Yorlano"
+}
+],
+"padre": ""
+},
+"MOVO-12": {
+"id": "MOVO-12",
+"titulo": "Como emisor, quiero que mis fondos se reserven automáticamente antes del retiro del paquete, para que el pago solo se ejecute cuando el paquete sea entregado.",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "",
+"ac": [
+"Al aceptar una oferta con retiro **dentro de N días**, el envío pasa a `assignment_pending` y el emisor ingresa su tarjeta para crear el hold por el monto acordado. Hold confirmado: `assignment_pending → assigned`.",
+"Si el hold falla o el emisor no completa el pago antes del timeout, el envío vuelve a `published`, la oferta no queda aceptada y ambas partes son notificadas con el motivo.",
+"Al aceptar una oferta con retiro a **más de N días**, el envío pasa a `assigned_unfunded` sin pedir tarjeta.",
+"Cuando el retiro entra en N días, el emisor recibe una notificación para confirmar el pago y puede hacerlo desde el detalle del envío. Éxito: `assigned_unfunded → assigned`.",
+"Si el emisor no confirma antes de T-24h de la ventana de retiro, el envío vuelve a `published` y **ambas partes** son notificadas.",
+"El emisor ve el estado de la reserva en el detalle del envío (`MOVO-211`).",
+"Los fondos reservados no se cobran hasta que se complete el handshake de entrega (`MOVO-13`).",
+"**Un envío en** `assigned_unfunded` **no puede iniciar el retiro.** El wizard de retiro exige `assigned`.",
+"Si el emisor cancela con un hold activo, el hold se libera."
+],
+"hijos": [
+{
+"id": "MOVO-209",
+"titulo": "[svc-payments] Hold (Auth & Capture con capture:false): crear, consultar y liberar la reserva de un envío",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-210",
+"titulo": "[svc-shipments] Saga de asignación: pago del emisor al aceptar o ventana de confirmación, vencimientos y reversión a published",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-211",
+"titulo": "[movo-mobile] Estado de la reserva de fondos en el detalle del envío",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-215",
+"titulo": "[Spike] Plazo real de la reserva (hold) de MP y valor de N",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-268",
+"titulo": "[svc-payments] Webhook de notificaciones de pagos de MP: holds cancelados o vencidos por MP y contracargos",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "1",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-269",
+"titulo": "[movo-mobile] Pago del envío con tarjeta guardada + CVV: al aceptar la oferta y al confirmar el pago de un retiro lejano",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "J.C. Bordino B."
+}
+],
+"padre": ""
+},
+"MOVO-13": {
+"id": "MOVO-13",
+"titulo": "Como transportista, quiero recibir el pago automático con split payment tras confirmarse la entrega, para cobrar inmediatamente después de entregar sin gestiones adicionales.",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "",
+"ac": [
+"Al completarse el handshake de entrega, el sistema ejecuta la captura del hold y el split payment automaticamente.",
+"El porcentaje de comision de Movo se acredita en la cuenta de Movo.",
+"El saldo restante se acredita directamente en la cuenta del transportista.",
+"El transportista recibe notificacion push con el monto acreditado.",
+"El emisor recibe notificacion push confirmando que el pago fue procesado.",
+"Si el split payment falla, el sistema reintenta automaticamente al menos 2 veces antes de escalar a un proceso manual.",
+"Ambas partes pueden ver el detalle del pago (monto total, comision, neto) en el historial de la transaccion."
+],
+"hijos": [
+{
+"id": "MOVO-212",
+"titulo": "[svc-payments] Captura del hold y split payment al confirmarse la entrega (FundsReleaseNotifier real)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-213",
+"titulo": "[svc-payments] Reintentos del split y escalado a proceso manual ante fallo persistente",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-214",
+"titulo": "[movo-mobile] Detalle del pago (bruto, comisión, neto) en el envío entregado",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "P. Yorlano"
+}
+],
+"padre": ""
+},
+"MOVO-14": {
+"id": "MOVO-14",
+"titulo": "Como usuario registrado, quiero ver mi perfil para ver mi información.",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "",
+"asignado": "",
+"ac": [
+"El usuario puede acceder a su perfil desde el menu principal.",
+"El perfil muestra: nombre, foto (si cargada), email, score de reputacion, cantidad de transacciones y estado de verificacion KYC.",
+"El perfil diferencia lo que es visible publicamente de lo que es solo visible para el propio usuario.",
+"El estado de verificacion KYC es visible (verificado / pendiente / no verificado).",
+"El perfil muestra las insignias activas del usuario (KYC, licencia de conducir si aplica)."
+],
+"hijos": [
+{
+"id": "MOVO-77",
+"titulo": "[svc-users] Endpoints GET /users/me y GET /users/:id con proyecciones separadas privada y pública",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-78",
+"titulo": "[movo-mobile] Pantalla de perfil propio con estado de KYC, insignias y logout",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-15": {
+"id": "MOVO-15",
+"titulo": "Como transportista quiero verificar mi licencia de conducir, para aumentar mi perfil de confianza y obtener la insignia de transportista verificado.",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [
+"**Estaban duplicados con** MOVO-65: la entidad `Payment_Method` (movo-svc-users) es agnóstica de rol, y su alta/gestión ya está cubierta ahí de forma genérica para emisor y transportista.",
+"**La justificación original no era correcta según el DER vigente**: el transportista no cobra el envío mediante una tarjeta registrada, sino vía Split Payment sobre una cuenta de Mercado Pago conectada por OAuth (`MercadoPago_Connect_Account`, ver MOVO-13/MOVO-49). El único escenario donde el transportista necesita una tarjeta precargada es para el débito automático de la comisión de Movo cuando el envío se paga en efectivo (MOVO-37), y ese alta ya se resuelve genéricamente en MOVO-65."
+],
+"hijos": [],
+"padre": ""
+},
+"MOVO-16": {
+"id": "MOVO-16",
+"titulo": "Como receptor quiero aceptar o rechazar un envío para evitar recibir paquetes indeseados.",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "",
+"asignado": "",
+"ac": [
+"El receptor recibe una notificación push cuando un emisor lo designa como destinatario.",
+"La notificación muestra: quien es el emisor, descripción del paquete y fecha estimada de retiro.",
+"El receptor puede ver el perfil y score de reputacion del emisor antes de decidir.",
+"El receptor puede aceptar o rechazar el envio desde la notificacion o desde la app.",
+"Si el receptor rechaza, el emisor recibe notificacion y el envio no se publica.",
+"Si el receptor no responde en un plazo definido, el envio se cancela automaticamente y el emisor es notificado.",
+"El receptor no puede editar los datos del envio, solo aceptar o rechazar."
+],
+"hijos": [
+{
+"id": "MOVO-129",
+"titulo": "[svc-shipments] Endpoints de aceptación y rechazo del envío por el receptor",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-130",
+"titulo": "[svc-shipments] Expiración automática del envío no confirmado por el receptor (timeout + cancelación)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-131",
+"titulo": "[movo-mobile] Vista de receptor en el detalle del envío: perfil del emisor y acciones de aceptar/rechazar",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-132",
+"titulo": "[movo-mobile] Envíos que recibo: distinción de rol en el listado y entrada desde la notificación push",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "P. Yorlano"
+}
+],
+"padre": ""
+},
+"MOVO-17": {
+"id": "MOVO-17",
+"titulo": "Como emisor quiero ver la lista de ofertas de transportistas para elegir la opción más conveniente.",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [
+{
+"id": "MOVO-144",
+"titulo": "[svc-shipments] GET /shipments/:id/offers y aceptación/rechazo de oferta por el emisor",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-150",
+"titulo": "[movo-mobile] Ofertas recibidas: listado, comparación y elección del transportista",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "P. Yorlano"
+}
+],
+"padre": ""
+},
+"MOVO-18": {
+"id": "MOVO-18",
+"titulo": "Como transportista quiero declarar un viaje para ver paquetes compatibles con mi ruta.",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "",
+"asignado": "",
+"ac": [
+"El transportista puede declarar un viaje indicando: origen, destino, fecha y hora de salida, tipo de vehículo.",
+"El sistema muestra los paquetes disponibles compatibles con la ruta declarada (dentro de un radio configurable de desvío).",
+"El transportista puede editar o cancelar un viaje declarado mientras no tenga paquetes aceptados.",
+"Si el transportista cancela un viaje con paquetes ya aceptados, se sigue el flujo de cancelacion con transportista asignado.",
+"La declaración de viaje no genera obligación hasta que el transportista acepte un paquete especifico."
+],
+"hijos": [
+{
+"id": "MOVO-161",
+"titulo": "[svc-shipments] CRUD de Viaje declarado + matching de paquetes compatibles por radio de desvío",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "5",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-162",
+"titulo": "[movo-mobile] Declarar/editar/cancelar viaje (\"Mis viajes\")",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-163",
+"titulo": "[movo-mobile] Feed de paquetes compatibles con el viaje declarado",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "5",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-179",
+"titulo": "[svc-shipments] Push notification al publicarse un envío compatible con un viaje declarado",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-221",
+"titulo": "[svc-shipments] [movo-mobile] Rediseño de estados de viaje (declarado/activo/realizado) y límite de 1 viaje activo por transportista",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-234",
+"titulo": "[svc-shipments] Auto-crear Trip al aceptar una oferta sin viaje asociado",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-236",
+"titulo": "[movo-mobile] Aviso de viaje auto-creado tras aceptar una oferta sin viaje asociado",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-238",
+"titulo": "[svc-shipments] Expiración automática de viajes declared sin ofertas aceptadas al llegar departureAt",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "L. Dalmagro"
+}
+],
+"padre": ""
+},
+"MOVO-19": {
+"id": "MOVO-19",
+"titulo": "Como transportista, quiero ver los paquetes disponibles en mi ciudad/región para encontrar oportunidades de transporte.",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "",
+"asignado": "",
+"ac": [
+"**AC1: Filtrado Geográfico por Ciudad / Región / Coordenadas**",
+"El transportista puede consultar paquetes disponibles filtrando por `city` (ciudad), `province` (provincia) o mediante coordenadas (`lat`, `lng`) y un radio en kilómetros (`radius_km`).",
+"Por defecto, si no se especifican filtros, el feed utiliza la ubicación del perfil del usuario o su última ubicación conocida.",
+"**AC2: Información Detallada en cada Item del Feed**",
+"Cada item retornado en la lista debe incluir:",
+"**Ubicación aproximada**: Barrio/Ciudad de origen y destino (sin revelar la dirección exacta de puerta por seguridad previa al acuerdo).",
+"**Propiedades del paquete**: Tipo de paquete (`DOCUMENTO`, `ESTANDAR`, `OBJETO_FRAGIL`), peso (`weight_kg`), dimensiones (`length`, `width`, `height`), descripción corta e indicador de urgencia (`urgent`).",
+"**Ventana temporal**: Franja horaria y fechas límite de retiro (`pickup_date_start` a `pickup_date_end`).",
+"**Precio ofrecido**: Monto propuesto por el emisor (`suggested_price` / `offered_price`).",
+"**Información del emisor**: Nombre público del emisor, avatar/foto y score de reputación ponderado (`rating_overall`).",
+"**AC3: Filtrado de Estados (Solo Envíos Disponibles)**",
+"Únicamente se muestran paquetes en estado `published` (disponibles para recibir ofertas).",
+"Quedan automáticamente excluidos del listado los envíos en cualquier otro estado del enum canónico definido en el AC6 de MOVO-79 (extendido de 9 a 11 valores por MOVO-208): `awaiting_receiver_confirmation`, `rejected_by_receiver`, `assignment_pending`, `assigned_unfunded`, `assigned`, `in_transit`, `delivered`, `completed`, `cancelled` y `disputed`.",
+"Los estados `draft` y `expired` que listaba la versión anterior de este AC **no existen** en el enum canónico — ver el comentario de alineación al pie de este issue.",
+"**Alineación** MOVO-208 **(12/09/2026)**: `assigned_unfunded` y `completed` (agregados al set canónico por esa US) tampoco aparecen nunca en este feed — el filtro sigue siendo exclusivamente `status = 'published'`, así que cualquier valor nuevo del enum queda excluido por construcción, sin necesidad de tocar código de `movo-svc-shipments`.",
+"**AC4: Paginación y Rendimiento**",
+"El endpoint implementa paginación (cursor-based o offset-based, por defecto `limit = 20`, max `50`) para asegurar latencias de respuesta < 200ms y bajo consumo de datos móviles.",
+"**AC5: Actualización y Mecanismo de Recarga**",
+"En la aplicación móvil se habilita pull-to-refresh para actualizar el feed a demanda.",
+"El contrato incluye un campo `updated_at` / timestamp de consulta para control de concurrencia y refresco.",
+"**AC6: Vista de Detalle del Paquete**",
+"Al seleccionar un item del feed, el transportista puede consultar el detalle completo (`GET /api/v1/shipments/:id`), incluyendo la descripción extendida, requerimientos de manipulación y fotografías adjuntas (`package_photo`).",
+"**AC7: Restricción de Seguridad, Rol y Verificación KYC**",
+"Acceso restringido exclusivamente a usuarios autenticados con JWT válido y rol `CARRIER` (o usuarios con perfil mixto sender/carrier).",
+"**Requisito de KYC de Identidad**: El transportista **debe poseer** `kyc_status_identity = 'approved'`. Si el estado es distinto (`not_started`, `pending`, `rejected`, `expired`), el backend responde `403 FORBIDDEN` con código `KYC_REQUIRED` y el cliente móvil redirige/notifica para completar el onboarding KYC.",
+"Un emisor no puede ver sus propios paquetes publicados en el feed de oportunidades de transporte como si fuera un tercero."
+],
+"hijos": [
+{
+"id": "MOVO-142",
+"titulo": "[svc-shipments] GET /shipments/available: descubrimiento por radio geográfico y apertura del detalle al transportista",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-148",
+"titulo": "[movo-mobile] Tab Transportar: listado de envíos disponibles cerca",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "5",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-183",
+"titulo": "[movo-mobile] Rediseño del tab Transportar: header, accesos y card de envío",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-21": {
+"id": "MOVO-21",
+"titulo": "Como transportista, quiero registrar fotografías al retirar y entregar cada paquete, para dejar evidencia visual del estado del paquete.",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "",
+"asignado": "",
+"ac": [
+"Al llegar al punto de retiro, el sistema solicita al transportista tomar al menos 1 foto del paquete antes de confirmar el retiro.",
+"Al llegar al punto de entrega, el sistema solicita al transportista tomar al menos 1 foto del paquete antes de iniciar el handshake.",
+"Las fotos quedan vinculadas al envio y son visibles para emisor, receptor y admin.",
+"El transportista no puede avanzar al siguiente paso del flujo sin haber cargado las fotos requeridas.",
+"Las fotos se almacenan de forma segura y no son publicamente accesibles por URL directa.",
+"Si la camara del dispositivo no esta disponible, el sistema muestra un error claro."
+],
+"hijos": [
+{
+"id": "MOVO-196",
+"titulo": "[svc-shipments] Exigir evidencia fotográfica del stage antes de permitir el handshake",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-197",
+"titulo": "[movo-mobile] Step reusable de captura de evidencia fotográfica (retiro y entrega)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-198",
+"titulo": "[movo-mobile] Wizard de retiro del transportista: evidencia, escaneo de QR y confirmación",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-199",
+"titulo": "[movo-mobile] Wizard de entrega del transportista: evidencia y generación de QR",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-22": {
+"id": "MOVO-22",
+"titulo": "Como usuario, quiero calificar y dejar un comentario a las otras partes post-entrega, para contribuir al sistema de confianza de la red.",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "",
+"asignado": "",
+"ac": [
+"Una vez completado el handshake de entrega, las tres partes (emisor, transportista, receptor) reciben habilitacion para calificar.",
+"La calificación es de 1 a 5 estrellas y un comentario de texto libre opcional.",
+"La opción de calificar expira a las 72 horas de completada la entrega.",
+"Una vez enviada, la calificación puede editarse.",
+"Las calificaciones de las dos partes son visibles en el perfil del usuario calificado.",
+"Un usuario no puede calificar a otro usuario con quien no haya tenido una transacción completada.",
+"Si hay una disputa activa, la habilitación de calificación queda suspendida hasta la resolución.",
+"Cada vez que se crea o edita una calificación en la tabla ratings, se actualiza automáticamente el campo `rating_overall` (decimal) en la tabla `User` para evitar recalcular el score de reputación en cada consulta."
+],
+"hijos": [
+{
+"id": "MOVO-146",
+"titulo": "[svc-shipments] Schema de Rating y endpoint de calificación post-entrega",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-153",
+"titulo": "[movo-mobile] Calificación post-entrega de la contraparte",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "P. Yorlano"
+}
+],
+"padre": ""
+},
+"MOVO-23": {
+"id": "MOVO-23",
+"titulo": "Como transportista, quiero crear una oferta indicando cuánto quiero cobrar por un envío, para participar en la selección del emisor con el precio que considero justo.",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "",
+"asignado": "",
+"ac": [
+"El transportista puede crear una oferta sobre un envío publicado (`shipment.status = 'published'`) indicando el monto que quiere cobrar y, opcionalmente, un mensaje.",
+"El monto que ingresa el transportista es lo que **él** quiere cobrar (neto). Antes de confirmar, el sistema le muestra también cuánto pagaría el emisor en total (bruto = neto + comisión de Movo), para que quede claro qué número está ofertando y qué número va a ver el emisor.",
+"La tasa de comisión usada para este cálculo es un valor fijo de configuración por ahora — no existe todavía integración con el modelo real de comisiones de `Payment_Transaction` / MercadoPago Split Payment.",
+"El monto bruto calculado es el que se persiste en `price_offered` (`Offer`, MOVO-102) y el que ve el emisor en la lista de ofertas (MOVO-17), en la misma unidad que `suggested_price_ars` del envío.",
+"El mensaje es opcional, texto libre, con un límite razonable de caracteres (ej. 280).",
+"**Nota técnica:** el schema de `Offer` definido en MOVO-102 no incluye hoy un campo de mensaje (`id`, `shipment_id`, `carrier_id`, `price_offered`, `offered_date`, `status`, `created_at`, `responded_at`, `expires_at`, `carrier_rating_at_offer`). Hay que sumar una columna `message` (nullable) ahí antes o junto con esta implementación — queda coordinarlo con MOVO-102.",
+"El transportista no puede crear una oferta sobre un envío que no está en estado `published` (no existe, ya asignado, cancelado, etc.). Devuelve un error de negocio explícito, no un 500 ni un 404 genérico salvo que el `shipment_id` no exista.",
+"El transportista no puede tener más de una oferta `pending` activa sobre el mismo envío. Esto ya está resuelto a nivel de base en MOVO-102 (índice único parcial); acá corresponde traducir la violación de ese índice en un error de negocio claro, no en un error genérico de base de datos.",
+"Si el transportista tuvo una oferta previa `rejected`, `withdrawn`, `expired` o `superseded` sobre el mismo envío, puede crear una nueva oferta sin restricción.",
+"`carrier_id` se toma del header `x-user-id` inyectado por el gateway, nunca del body (mismo criterio que MOVO-102 AC12 y MOVO-80 AC10).",
+"Crear una oferta exige `kyc_status_identity = 'approved'` del transportista (mismo criterio que MOVO-102 AC13).",
+"`offered_date` debe caer dentro del rango `pickup_date_start`–`pickup_date_end` del envío (mismo criterio que MOVO-102 AC10); si no, error de negocio claro.",
+"La oferta creada queda en estado `pending`.",
+"Ruta protegida, documentada en Swagger."
+],
+"hijos": [
+{
+"id": "MOVO-143",
+"titulo": "[svc-shipments] POST /shipments/:id/offers y retiro de oferta",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-149",
+"titulo": "[movo-mobile] Detalle del envío disponible y creación de la oferta",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-166",
+"titulo": "[movo-mobile] Detalle del envío disponible para el transportista (solo lectura)",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-177",
+"titulo": "Plan de mejora: creación de oferta del transportista (mobile)",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-24": {
+"id": "MOVO-24",
+"titulo": "Como emisor o receptor, quiero recibir notificaciones push en los eventos clave del envío, para estar informado durante el mismo.",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [
+{
+"id": "MOVO-106",
+"titulo": "[svc-users] Registro de push token y adapter PushNotificationProvider",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-107",
+"titulo": "[movo-mobile] Permisos, registro de push token y manejo de notificaciones recibidas",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-108",
+"titulo": "[svc-shipments] Disparo de notificaciones push en creación de envío y ofertas",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-239",
+"titulo": "[svc-users] [movo-mobile] Notificaciones: pantalla de configuración con toggle maestro y desglose granular (push existentes)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-240",
+"titulo": "Notificaciones: catálogo de notificaciones faltantes",
+"estado": "Todo",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": ""
+},
+{
+"id": "MOVO-274",
+"titulo": "[svc-users] [svc-shipments] Notificaciones push: KYC, cuenta y seguridad, y calificación pendiente",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-281",
+"titulo": "[movo-mobile] [svc-shipments] Navegación al tocar las notificaciones push que hoy no llevan a ningún lado",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "P. Yorlano"
+}
+],
+"padre": ""
+},
+"MOVO-25": {
+"id": "MOVO-25",
+"titulo": "Como usuario, quiero ver el score de reputación ponderado en el perfil de cualquier otro usuario, para tomar decisiones informadas.",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "",
+"asignado": "",
+"ac": [
+"El perfil de cualquier usuario muestra su score de reputacion promedio (1-5) y el numero de transacciones calificadas.",
+"El score de reputación se consulta directamente desde el campo `rating_overall` (decimal) almacenado en la entidad `User`, evitando recalcular el promedio sobre la tabla de ratings en cada petición.",
+"El score se calcula con un promedio ponderado que da mas peso a calificaciones recientes.",
+"El perfil diferencia las calificaciones recibidas como emisor, transportista y receptor.",
+"Los comentarios de las ultimas 10 calificaciones son visibles en el perfil.",
+"El perfil muestra insignias de verificación (KYC completado, licencia verificada si aplica).",
+"Un usuario con menos de 3 transacciones muestra 'perfil nuevo' en lugar de un score.",
+"El score se actualiza en tiempo real al recibir nuevas calificaciones."
+],
+"hijos": [
+{
+"id": "MOVO-147",
+"titulo": "[svc-shipments] Score de reputación ponderado y endpoint interno de agregado",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-152",
+"titulo": "[svc-users] Perfil con reputación y contadores de transacciones reales",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-154",
+"titulo": "[movo-mobile] Reputación visible: perfil propio, perfil público y tarjetas de oferta",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-170",
+"titulo": "[svc-users][svc-shipments] Enriquecimiento de perfil con datos ya existentes (antigüedad, verificaciones públicas, historial compartido, stats básicas)",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-171",
+"titulo": "[movo-mobile][svc-users] Bio editable del perfil",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-172",
+"titulo": "[movo-mobile][svc-users] Ficha de vehículo del transportista",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-173",
+"titulo": "[movo-mobile][svc-shipments] Calificación por categorías (puntualidad/cuidado/comunicación)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-174",
+"titulo": "[movo-mobile][svc-users] Conexiones mutuas en el perfil (\"ya envió con X personas con las que vos también enviaste\")",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-175",
+"titulo": "[movo-mobile][svc-users] Reportar y bloquear usuarios",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-176",
+"titulo": "[movo-mobile] Rediseño de pantalla de perfil (prototipo Claude Design): sheet → pantalla completa",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-26": {
+"id": "MOVO-26",
+"titulo": "[svc-shipments] Chat en tiempo real entre las partes de un envío (emisor, receptor y transportista)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [
+"**Disponibilidad.** Las partes (emisor, receptor y transportista asignado) escriben desde que el transportista es asignado (`assignment_pending`, `assigned_unfunded`, `assigned`, `in_transit`) hasta la entrega. Entregado (`delivered`/`completed`) el chat queda en **solo lectura** (`403 CHAT_READ_ONLY` al escribir); a las 24 h de la entrega se **archiva** (`archived: true`): sigue legible, nunca se cierra. Un envío en disputa también queda en solo lectura.",
+"**Texto.** Los mensajes son de texto, de 1 a 1000 caracteres después de recortar espacios. Las imágenes quedan fuera del MVP.",
+"**Tiempo real.** Los mensajes se envían por `POST /shipments/:id/chat/messages` y se reciben por el WebSocket `GET /shipments/:id/chat`, que los empuja a todos los dispositivos conectados de las partes, incluido el del autor. El envío es **idempotente** por `clientMessageId`: un reenvío devuelve el mensaje ya guardado (200) sin duplicarlo ni volver a difundirlo.",
+"**Historial.** `GET /shipments/:id/chat/messages` pagina por cursor, del más reciente al más antiguo, e informa `access` (`open`/`read_only`), `archived` y si quien lo pide ya reportó la conversación (`reportedByMe`). El historial queda vinculado al envío y se conserva como evidencia.",
+"**Integrantes.** `GET /shipments/:id/chat/participants` devuelve emisor, transportista y receptor con nombre, primer nombre, foto y rol, para el encabezado (\"Ana, Diego y Luis\") y los avatares. Cada mensaje trae además `authorName` (primer nombre al escribir).",
+"**Admin.** El administrador puede leer el historial de cualquier envío, aun cancelado, para resolver una disputa. Nunca escribe.",
+"**Sin transacción en común, sin chat.** Un usuario que no es parte del envío (ni admin) no puede leer, escribir, ver los integrantes, reportar ni conectarse (403; el WebSocket cierra con `4003`). Los envíos sin transportista asignado no tienen chat.",
+"**Cierre por cancelación.** Si el envío se cancela (o el receptor lo rechaza), el chat se cierra en el acto: enviar y leer responden `409 CHAT_CLOSED` y se cortan los sockets abiertos (`4009`).",
+"**Receptor original.** Quien transfirió la recepción (ADR-038) conserva el acceso en solo lectura; no puede escribir (`403 CHAT_READ_ONLY`).",
+"**Bloqueo (ADR-026).** Un bloqueo, en cualquier dirección, **no impide escribir**. A quien tiene un bloqueo con el autor el mensaje le llega con `hidden: true` y contenido vacío (historial, tiempo real y último mensaje de la lista), para que la app muestre \"Mensaje de un usuario bloqueado\". Ese mensaje no genera push, no suma a los no leídos y no cuenta para los tildes. Si `svc-users` no responde no se oculta nada (falla abierto).",
+"**Tildes de entregado y leído.** Cada mensaje propio trae `deliveryStatus`: `sent` (enviado), `delivered` (todos los demás lo recibieron) o `read` (\"Leído por todos\"). Recibir es tener el chat abierto por WebSocket cuando llega el mensaje, abrir el historial o conectarse; leer es `POST /shipments/:id/chat/read`. El WebSocket empuja `chat_receipt` (`userId`, `delivered|read`, `upTo`) para actualizar los tildes en vivo. \"Los demás\" excluye a quienes tienen un bloqueo con el autor.",
+"**Lista de chats.** `GET /shipments/chats` devuelve un chat por envío con transportista (en curso, entregado o en disputa; no los cancelados), el más reciente primero, con la ruta (\"Av. Colón 1234 → Bv. San Juan 500\"), el último mensaje con su autor, el contador de no leídos, `access` y `archived` (para atenuar los finalizados).",
+"**Reportar conversación.** `POST /shipments/:id/chat/report` registra un reporte por persona y envío (201 la primera vez, 200 después). Solo las partes. El equipo lo revisa; el historial queda como evidencia.",
+"**Notificaciones.** Cada mensaje nuevo genera una push (`chatMessageReceived`, categoría `chat`, respeta las preferencias y el horario de silencio) a las otras partes que **no** tengan el chat abierto ni un bloqueo con el autor, como máximo una por minuto y por destinatario. La push lleva el nombre de quien escribe y nunca el texto. Un fallo de la push no afecta el envío del mensaje.",
+"**Conexión.** El WebSocket se autentica con el JWT en el handshake, manda heartbeat, se cierra con `4001` al vencer el token (el cliente reconecta con uno renovado) y con `4009` cuando el chat deja de estar disponible (el cliente no reconecta).",
+"**Lenguaje ofensivo.** Las palabras ofensivas se tapan con asteriscos del mismo largo antes de guardar y de difundir (\"sos un pelotudo\" → \"sos un ********\"): nadie más llega a ver la palabra. El mensaje se envía igual, con `moderated: true`, y el cliente le muestra al autor el aviso `CHAT_MODERATION_WARNING` (hay que respetar a los demás miembros de la comunidad). Compara por palabra entera, ignora mayúsculas, tildes y letras repetidas, y entiende números y símbolos por letra (\"put4\"). La lista es acotada (insultos y agravios fuertes, no \"boludo\" ni \"mierda\", ni palabras legítimas como \"retrasado\") y la ajusta el equipo en `chat-moderation.ts`.",
+"**Contrato para el cliente.** Los tipos (`ChatMessage`, `ChatMessagesPage`, `ChatParticipant`, `ChatListItem`, `ChatRealtimeEvent`, `ChatAccess`, `ChatDeliveryStatus`), las constantes (incluido `CHAT_MODERATION_WARNING`) y los códigos de error (`CHAT_CLOSED`, `CHAT_READ_ONLY`) quedan en `@movo/shared`, y la guía de uso en `docs/chat/README.md`, para que las pantallas de mobile (MOVO-284) los consuman."
+],
+"hijos": [],
+"padre": ""
+},
+"MOVO-27": {
+"id": "MOVO-27",
+"titulo": "Como emisor, quiero consultar el historial de mis envíos con estados y línea de tiempo, para hacer seguimiento de todos mis envíos pasados y actuales desde un solo lugar.",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "",
+"asignado": "",
+"ac": [
+"El emisor puede acceder al historial de todos sus envios (activos, completados, cancelados).",
+"Cada envio en el historial muestra: id, origen/destino, estado actual, fecha de creacion y fecha de entrega (si aplica).",
+"Al seleccionar un envio, el emisor ve la linea de tiempo con todos los cambios de estado y sus timestamps.",
+"El historial permite filtrar por estado y ordenar por fecha.",
+"El emisor puede acceder a las fotos de evidencia de cada envio desde el historial.",
+"El historial muestra envios de al menos los ultimos 12 meses."
+],
+"hijos": [
+{
+"id": "MOVO-127",
+"titulo": "[movo-mobile] Pantalla de detalle de un envío específico (ruta, paquete, receptor, línea de tiempo)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-128",
+"titulo": "[svc-shipments] Endpoint GET /shipments/:id/events — historial de estados para la línea de tiempo",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-257",
+"titulo": "[movo-mobile] Rediseño de \"Mis envíos\" para emisor y receptor: accesos por rol, En curso/Historial y cards con acción",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "1",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-28": {
+"id": "MOVO-28",
+"titulo": "Como usuario, quiero ver el historial de mis pagos y cobros, para llevar registro de lo que gasté y cobré en envíos.",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "",
+"asignado": "",
+"ac": [
+"El tab **Pagos** muestra las transacciones del usuario como emisor y el tab **Cobros** las del usuario como transportista. Solo ve las propias.",
+"Orden del más reciente al más viejo, agrupado por mes y paginado.",
+"Cada ítem muestra fecha de pago (hora de Argentina), monto, estado y referencia corta al envío (`#MOVO-xxxxx`). En Pagos suma marca y últimos 4 de la tarjeta. Tocar un ítem abre el detalle.",
+"Los intentos de pago rechazados o sin respuesta no aparecen."
+],
+"hijos": [
+{
+"id": "MOVO-302",
+"titulo": "[svc-payments] Historial: guardar el pagador y la tarjeta en el hold (payer_id, card_last4, card_brand)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-303",
+"titulo": "[svc-payments] Historial: endpoints de listado y detalle por rol (GET /payments/transactions)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-304",
+"titulo": "[movo-mobile] Historial de pagos y cobros: tabs, filtros, detalle y estados de lista",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro"
+}
+],
+"padre": ""
+},
+"MOVO-29": {
+"id": "MOVO-29",
+"titulo": "Como emisor, quiero cancelar un envío publicado antes de que sea asignado a un transportista, para poder corregir errores o desistir del envío sin penalización.",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [
+"El emisor puede cancelar mientras el envío esté en `awaiting_receiver_confirmation`, `published` o `assignment_pending` (ver enum canónico de MOVO-79). Ninguno de estos tres estados tiene fondos confirmados todavía — `assignment_pending` es el hold de MercadoPago en curso, no un hold ya exitoso — así que la cancelación en cualquiera de los tres **no genera penalización**.",
+"Al cancelar desde `published` o `assignment_pending`, todos los transportistas que habían ofertado reciben notificación de que el envío fue cancelado; en `assignment_pending` además debe dispararse la liberación/cancelación del hold en curso en `svc-payments`.",
+"Si el emisor cancela un envío que ya está en `assigned` (fondos ya confirmados, `carrier_id` y `agreed_price` fijados), se aplica la política de cancelación **con penalización**.",
+"El estado del envio cambia a 'cancelado' y no puede ser reactivado.",
+"El emisor ve el envio cancelado en su historial con el motivo si lo indico."
+],
+"hijos": [],
+"padre": ""
+},
+"MOVO-30": {
+"id": "MOVO-30",
+"titulo": "Como parte de un envío, quiero iniciar una disputa sobre un envío finalizado o en curso, para reclamar formalmente ante un problema con el paquete o con la entrega.",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [
+{
+"id": "MOVO-334",
+"titulo": "[svc-shipments] Disputas: entidad, apertura, descargos, notificaciones y bloqueo del transportista",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-335",
+"titulo": "[movo-mobile] Disputas: botón de reclamo, wizard de apertura, detalle con descargo y pill \"En disputa\"",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": ""
+}
+],
+"padre": ""
+},
+"MOVO-31": {
+"id": "MOVO-31",
+"titulo": "Como usuario registrado, quiero editar mis datos personales y de contacto en mi perfil, para mantener mi información actualizada dentro de la plataforma.",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "",
+"asignado": "",
+"ac": [
+"El usuario puede editar su **nombre y apellido**, salvo que su KYC de identidad esté aprobado — en ese caso quedan bloqueados, porque fueron validados contra su documento por Didit.",
+"El usuario puede cambiar su **foto de perfil**. *(Ya implementado por* MOVO-97*/98 — se reusa, no se rehace.)*",
+"El usuario puede cambiar su **número de teléfono**, y el sistema envía un código de verificación **al número nuevo**: el cambio no se aplica hasta que ese código se verifica.",
+"El usuario puede cambiar su **email**, y el cambio exige una verificación previa: se envía un código **al teléfono ya verificado de la cuenta**. *(Ver \"Decisiones de refinamiento\" — el AC original pedía verificar el email nuevo por email.)*",
+"El usuario **no puede editar su estado de KYC** directamente por ningún camino: la API rechaza el campo y la única forma de cambiarlo es reiniciar la verificación.",
+"Un teléfono o email que ya pertenece a otra cuenta se rechaza con un mensaje claro, sin dejar la pantalla en un estado roto.",
+"Todo cambio guardado tiene **confirmación visual** explícita, y el perfil muestra el dato actualizado al volver.",
+"El usuario puede **cambiar su contraseña** ingresando la actual; al hacerlo se cierran las sesiones de los demás dispositivos.",
+"El usuario puede **dar de baja su cuenta** confirmando con su contraseña; la acción es irreversible y anonimiza sus datos personales."
+],
+"hijos": [
+{
+"id": "MOVO-133",
+"titulo": "[svc-users] PATCH /users/me y cambio verificado de teléfono y email por OTP",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-134",
+"titulo": "[svc-users] Cambio de contraseña y baja de cuenta (Cuenta y seguridad)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-135",
+"titulo": "[movo-mobile] Pantalla \"Editar perfil\" con cambio verificado de teléfono y email",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-136",
+"titulo": "[movo-mobile] Pantalla \"Cuenta y seguridad\": cambiar contraseña y dar de baja la cuenta",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-139",
+"titulo": "[svc-users] EmailProvider (Resend) y verificación de email por OTP",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-32": {
+"id": "MOVO-32",
+"titulo": "Como administrador, quiero revisar y aprobar o rechazar los casos de KYC pendientes, para asegurar que solo usuarios verificados operen en la plataforma.",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [
+"**Procedimiento operativo documentado** (`docs/operations/kyc-revision-manual.md` o equivalente): quién revisa, cómo se accede a la consola de Didit, qué mirar en cada caso y cómo dejar el motivo de rechazo para que le llegue al usuario.",
+"**Acceso a la consola restringido** a los admins designados. La consola muestra imágenes del documento y biométricas, así que el acceso se trata como dato sensible: lista nominal de quién tiene acceso, sin cuentas compartidas. La Política de Privacidad tiene que reflejar que el proveedor y personal autorizado revisan esos casos.",
+"**La decisión manual se aplica en Movo:** cuando un caso en revisión manual se aprueba o rechaza en la consola, el webhook de `MOVO-72` actualiza el estado cacheado (`kyc_status_identity` o `kyc_status_license`) y agrega una fila nueva en `KYC_VERIFICATION` (append-only). Verificar con un caso real de sandbox que Didit manda el webhook al cambiar el estado desde la consola, y con qué payload. Si no lo manda, definir el mecanismo alternativo (por ejemplo, consulta del estado de la sesión) antes de implementar.",
+"**Notificación al usuario:** al aprobarse, push y el usuario queda habilitado para operar. Al rechazarse, push con el motivo. `MOVO-274` ya cubre el push de resultado; verificar que el motivo del rechazo manual llegue y se muestre en la app.",
+"**Sin apelación:** si se rechaza, el usuario **puede reintentar** el KYC desde la app. La pantalla de rechazo explica el motivo y ofrece el reintento.",
+"Mientras el caso está en revisión manual, la app muestra el estado \"En revisión\" (ya existe para identidad; confirmar que también aplica a la licencia)."
+],
+"hijos": [],
+"padre": ""
+},
+"MOVO-33": {
+"id": "MOVO-33",
+"titulo": "Como administrador, quiero consultar los envíos de la plataforma con su estado y el detalle de cada uno, para monitorear la operación y detectar incidentes.",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [
+{
+"id": "MOVO-325",
+"titulo": "[svc-shipments][svc-admin] Envíos para el panel: listado con filtros, detalle completo y chat en solo lectura",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-326",
+"titulo": "[movo-admin] Listado y detalle de envíos (prototipo \"Movo Admin Envíos\"): pestañas, tabla, línea de tiempo y chat en solo lectura",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-327",
+"titulo": "[svc-shipments][svc-admin] Seguimiento de un envío en camino para el panel: última posición, traza y métricas",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-328",
+"titulo": "[movo-admin] Mapa de seguimiento del envío en el detalle: ruta recorrida, posición del transportista y métricas",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "2",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-34": {
+"id": "MOVO-34",
+"titulo": "Como administrador, quiero gestionar las disputas abiertas para actuar como árbitro entre las partes",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [
+"El detalle de la disputa resuelta muestra el resultado, el razonamiento del admin y qué pasa con la plata en lenguaje simple, según el rol (\"Te devolvemos el pago\", \"Se liberó la reserva\", \"Se te descuenta de tu cuenta corriente\").",
+"**CTA para quien ganó:** mensaje en la línea de \"Ganaste la disputa, ahora contá cómo te fue con esta persona\" con acceso directo a la calificación de `MOVO-153`. Se muestra en el detalle de la disputa y en el destino del push.",
+"El push `dispute_resolved` navega al detalle de la disputa (`resolveNotificationRoute`).",
+"Los reembolsos aparecen en el historial de pagos y cobros (`MOVO-304`) con su tipo propio.",
+"El pill \"En disputa\" se reemplaza por el estado final del envío.",
+"Tests RNTL de textos por resultado y rol, CTA solo para quien ganó y navegación del push."
+],
+"hijos": [
+{
+"id": "MOVO-336",
+"titulo": "[svc-payments] Reembolsos total y parcial de un pago capturado, con fallback a la cuenta corriente del transportista",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": ""
+},
+{
+"id": "MOVO-337",
+"titulo": "[svc-admin][svc-shipments] Resolución de disputas: matriz de resolución, estado final del envío, desbloqueo y notificaciones",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": ""
+},
+{
+"id": "MOVO-338",
+"titulo": "[movo-admin] Bandeja de disputas, expediente y pantalla de resolución",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": ""
+}
+],
+"padre": ""
+},
+"MOVO-35": {
+"id": "MOVO-35",
+"titulo": "Como administrador, quiero ver métricas de oferta y demanda por ruta y región, para tomar decisiones operativas.",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-36": {
+"id": "MOVO-36",
+"titulo": "Como administrador, quiero suspender o inhabilitar una cuenta de usuario ante comportamiento fraudulento o violación de términos, para proteger la integridad de la red.",
+"estado": "In Progress",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "T. Vergara",
+"ac": [
+"Desde la ficha del usuario en el panel, un admin puede suspender (con fecha de fin o indefinida) o inhabilitar una cuenta. El motivo es obligatorio. Opcionalmente puede agregar una nota interna, que el usuario no ve.",
+"Un usuario suspendido entra a la app, ve sus envíos, viajes y chats, y puede completar lo que tiene en curso. Cualquier acción que inicia algo nuevo responde `403 ACCOUNT_SUSPENDED` y la app explica por qué y hasta cuándo.",
+"El efecto es inmediato: ni un token ya emitido permite iniciar algo nuevo después de suspender.",
+"Al suspender se cancelan sus publicaciones y viajes `declared` sin paquetes, y se retiran sus ofertas pendientes.",
+"Una cuenta inhabilitada no puede loguearse ni usar un token ya emitido. Inhabilitar con envíos en curso responde 409 con la lista.",
+"El usuario sancionado recibe push y email con el motivo y el plazo. Las contrapartes de sus envíos en curso reciben un aviso sin el motivo.",
+"El perfil público muestra el estado de la cuenta, sin el motivo.",
+"Una suspensión temporal vence sola en la fecha de fin, y el usuario recibe un aviso.",
+"Un admin puede levantar una suspensión o una inhabilitación antes de tiempo, con motivo. El usuario recibe un aviso.",
+"Cada sanción queda en el historial del usuario: tipo, motivo, nota interna, inicio, fin, admin que la aplicó, y si se levantó, quién, cuándo y por qué. La acción también queda en la bitácora de `svc-admin`.",
+"Un admin no puede sancionar ni levantar su propia sanción (`403 ADMIN_CONFLICT_OF_INTEREST`). Sancionar a otro admin le corta las sesiones del panel."
+],
+"hijos": [
+{
+"id": "MOVO-296",
+"titulo": "[svc-users][shared] Sanciones de cuenta: suspensión e inhabilitación, historial, marca en Redis y vencimiento automático",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-297",
+"titulo": "[svc-shipments] Efectos de una sanción: retirar lo no comprometido, avisar a contrapartes y listar envíos en curso",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-298",
+"titulo": "[gateway] Aplicar suspensión e inhabilitación en cada request a partir de la marca en Redis",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "2",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-299",
+"titulo": "[svc-admin][movo-admin] Suspender, inhabilitar y levantar sanciones desde la ficha del usuario",
+"estado": "In Progress",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-300",
+"titulo": "[movo-mobile] Experiencia de una cuenta suspendida o inhabilitada y estado en el perfil público",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "P. Yorlano"
+}
+],
+"padre": ""
+},
+"MOVO-37": {
+"id": "MOVO-37",
+"titulo": "Como emisor, quiero declarar que voy a pagar la comisión de Movo en efectivo al momento de la entrega, para poder pagar sin una tarjeta de crédito.",
+"estado": "Todo",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-39": {
+"id": "MOVO-39",
+"titulo": "Como usuario registrado, quiero solicitar la baja de mi cuenta para ejercer mi derecho de supresión conforme a la normativa de protección de datos vigente.",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [
+"El usuario puede solicitar la baja de su cuenta.",
+"El sistema no permite la baja si el usuario tiene envíos activos o disputas abiertas.",
+"El usuario debe confirmar la decision con un paso adicional (ingreso de contraseña o confirmación por email).",
+"Tras confirmar, el sistema elimina los datos de identificación personal del usuario.",
+"Los registros de transacciones completadas se anonimizan pero no se eliminan (auditoria).",
+"El usuario recibe confirmación por email de que la baja fue procesada.",
+"La baja es irreversible: el usuario no puede recuperar la cuenta luego de confirmar."
+],
+"hijos": [],
+"padre": ""
+},
+"MOVO-40": {
+"id": "MOVO-40",
+"titulo": "Diseño y Entrega de Paper",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-41": {
+"id": "MOVO-41",
+"titulo": "Creación de DER de Usuarios",
+"estado": "Done",
+"ciclo": "Cycle 2",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-42": {
+"id": "MOVO-42",
+"titulo": "Creación de DER de Admin",
+"estado": "Done",
+"ciclo": "Cycle 2",
+"sp": "2",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-43": {
+"id": "MOVO-43",
+"titulo": "Configuración inicial de repositorios",
+"estado": "Done",
+"ciclo": "Cycle 2",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-44": {
+"id": "MOVO-44",
+"titulo": "Creación de cuentas de AWS",
+"estado": "Done",
+"ciclo": "Cycle 2",
+"sp": "1",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-45": {
+"id": "MOVO-45",
+"titulo": "Diseño y Entrega del Póster",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-46": {
+"id": "MOVO-46",
+"titulo": "Creación de DER de Shipments",
+"estado": "Done",
+"ciclo": "Cycle 2",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-48": {
+"id": "MOVO-48",
+"titulo": "Didit.me",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-49": {
+"id": "MOVO-49",
+"titulo": "MercadoPago (Auth & Capture + Split)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-50": {
+"id": "MOVO-50",
+"titulo": "OR-Tools VRPTW",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "8",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-51": {
+"id": "MOVO-51",
+"titulo": "Creación de DER de Payments",
+"estado": "Done",
+"ciclo": "Cycle 2",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-53": {
+"id": "MOVO-53",
+"titulo": "Completar Verificación de Status de Repositorios y Flujos de CI/CD",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-54": {
+"id": "MOVO-54",
+"titulo": "Creación del entorno completo en AWS con Terraform (dev y prod)",
+"estado": "Done",
+"ciclo": "Cycle 2",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-57": {
+"id": "MOVO-57",
+"titulo": "Actualizar documentación - Cambios por el DER (shipments)",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-58": {
+"id": "MOVO-58",
+"titulo": "Armar .MD del DER",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "1",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-59": {
+"id": "MOVO-59",
+"titulo": "Configurar pipeline de CI/CD para movo-admin y movo-mobile",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-60": {
+"id": "MOVO-60",
+"titulo": "Diagrama de Estado User",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-63": {
+"id": "MOVO-63",
+"titulo": "Como usuario registrado, quiero iniciar sesión en la aplicación con mis credenciales, para acceder a mi cuenta y operar en la plataforma sin tener que registrarme nuevamente.",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [
+"El usuario puede iniciar sesión ingresando email/teléfono y contraseña.",
+"El sistema valida las credenciales contra el usuario registrado.",
+"Si las credenciales son incorrectas, el sistema muestra un error claro sin especificar si el email existe o no (seguridad).",
+"Al iniciar sesión correctamente, el sistema genera un access token y un refresh token, almacenando el estado de sesión en Redis.",
+"Si el usuario no completó el KYC, el login lo redirige al flujo de verificación pendiente en lugar de al home.",
+"El sistema maneja la expiración del access token renovándolo automáticamente vía refresh token mientras la sesión sea válida.",
+"Si el refresh token expira o es inválido, el usuario es redirigido al login."
+],
+"hijos": [
+{
+"id": "MOVO-74",
+"titulo": "[svc-users] Endpoint de login: validación de credenciales y emisión de access + refresh token",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-75",
+"titulo": "[svc-users] Endpoints de refresh token con rotación y de logout con revocación en Redis",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-76",
+"titulo": "[movo-mobile] Pantalla de login, secure storage de tokens, refresh automático y guard de navegación",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-247",
+"titulo": "[movo-mobile] Splash screen (prototipo Claude Design)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-64": {
+"id": "MOVO-64",
+"titulo": "Como usuario registrado, quiero recuperar el acceso a mi cuenta si olvido mi contraseña, para poder volver a operar en la plataforma sin necesidad de crear una cuenta nueva.",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "",
+"asignado": "T. Vergara",
+"ac": [
+"Desde la pantalla de login, un enlace **\"¿Olvidaste tu contraseña?\"** lleva a un flujo de recuperación dentro de la app (hoy es un texto inerte que dice \"Recuperar contraseña (próximamente)\" — `movo-mobile/app/(auth)/login.tsx:161`).",
+"El usuario se identifica con **su teléfono o su email**, indistintamente, en un único campo.",
+"Recibe un código de 6 dígitos por el canal que usó para identificarse, con la misma vigencia y las mismas reglas de reenvío que el OTP del registro (10 min, reenvío con cooldown de 60s, 5 intentos).",
+"Con el código válido, define una contraseña nueva sujeta a **las mismas reglas de política que el registro**.",
+"**El flujo nunca revela si una cuenta existe**: la respuesta es indistinguible —en status, forma y latencia— para un identificador registrado y uno que no. Una cuenta suspendida o dada de baja se comporta como inexistente.",
+"Al completar el cambio se cierran **todas** las sesiones activas del usuario, en todos sus dispositivos.",
+"El usuario recibe un aviso de que su contraseña fue cambiada, con indicación de contactar a soporte si no fue él. El aviso va **por todos los canales verificados de la cuenta** (SMS siempre; email además, si está verificado), no solo por el que se usó para recuperar: es lo que le permite al dueño real enterarse de un intento ajeno.",
+"Al terminar con éxito el usuario **no** queda logueado automáticamente: vuelve al login con un aviso de éxito. Es coherente con el punto 6 y evita emitir tokens en un flujo sin segundo factor real.",
+"Si el proceso se vence a mitad de camino, la app lo explica y permite volver a pedir un código desde cero."
+],
+"hijos": [
+{
+"id": "MOVO-140",
+"titulo": "[svc-users] Recuperación de contraseña: OTP por SMS o email, señuelo anti-enumeración y passwordResetToken single-use",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-141",
+"titulo": "[movo-mobile] Pantalla \"¿Olvidaste tu contraseña?\": wizard de 3 pasos con OTP por SMS o email",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-65": {
+"id": "MOVO-65",
+"titulo": "Como emisor, quiero guardar mis tarjetas en la app y pagar un envío ingresando solo el código de seguridad (CVV), para no cargar todos los datos de la tarjeta cada vez que acepto una oferta.",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "",
+"asignado": "",
+"ac": [
+"El emisor puede guardar, listar, marcar como predeterminada y eliminar tarjetas desde Pagos y cobros.",
+"Pagar un envío con una tarjeta guardada pide solo el CVV.",
+"El backend nunca recibe ni loguea número de tarjeta ni CVV; solo `card_id`/`customer_id` de MP y metadatos de display (marca, últimos 4, vencimiento). Nunca se persiste un `card_token`.",
+"Una tarjeta rechazada, vencida o con CVV incorrecto muestra un motivo claro y permite reintentar o elegir otra.",
+"No se puede eliminar una tarjeta con un hold vivo asociado.",
+"Las tarjetas guardadas del transportista para la comisión del pago en efectivo (`MOVO-37`) reutilizan esta misma infraestructura."
+],
+"hijos": [
+{
+"id": "MOVO-100",
+"titulo": "[svc-payments] Tarjetas guardadas del emisor en la cuenta de Movo: alta, listado, predeterminada, baja y datos de checkout",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-101",
+"titulo": "[movo-mobile] Pagos y cobros: tarjetas guardadas (alta, listado, predeterminada y baja)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-282",
+"titulo": "[svc-payments][svc-shipments] Hold con tarjeta guardada: el pagador pasa a ser el customer de la tarjeta (token por CVV)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+}
+],
+"padre": ""
+},
+"MOVO-66": {
+"id": "MOVO-66",
+"titulo": "Como equipo de desarrollo, quiero el schema, las migraciones y la capa de persistencia de movo-svc-users, para que las historias de identidad tengan una base de datos versionada y reproducible.",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "8",
+"asignado": "P. Yorlano",
+"ac": [
+"Existe el schema `users` en PostgreSQL, creado por migración y no manualmente.",
+"La tabla `users.users` contiene como mínimo: `id` (UUID PK), `first_name`, `last_name`, `email` (unique), `phone` (unique), `password_hash`, `dni`, `kyc_status_identity` (enum: `not_started`|`pending`|`expired`|`approved`|`rejected`), `last_kyc_verification_identity_id` (UUID), `kyc_status_license` (enum:idem identity), `last_kyc_verification_license_id`(UUID) `phone_verified`, `photo_url`, `is_banned`, `banned_until`, `created_at`, `updated_at`.",
+"La tabla `users.user_roles` permite que un mismo usuario tenga más de un rol (`emisor`, `transportista`, `admin`), ya que en Movo un usuario puede ser emisor y transportista a la vez.",
+"Existe un índice único case-insensitive sobre `email` y un índice sobre `phone`.",
+"Cada migración es un archivo con prefijo de timestamp, es idempotente al re-ejecutarse y tiene su contraparte de rollback (`down`).",
+"El plugin de PostgreSQL expone un pool de conexiones vía decorador de Fastify (`fastify.db`), con `search_path` fijado al schema del servicio.",
+"El plugin de Redis expone un cliente vía `fastify.redis` con reintento de conexión y healthcheck.",
+"El endpoint `GET /health` del servicio devuelve el estado de conectividad de PostgreSQL y Redis por separado.",
+"El `user-repository` expone al menos: `findByEmail`, `findByPhone`, `findById`, `create`, `updateKycStatus`.",
+"El `session-repository` (Redis) expone: `saveRefreshToken`, `findRefreshToken`, `revokeRefreshToken`, `revokeAllForUser`, con TTL de 7 días conforme al ADR-004.",
+"Las migraciones se ejecutan automáticamente al arrancar el contenedor en dev, o vía comando documentado en el README del servicio.",
+"El DER del proyecto queda actualizado con las tablas creadas."
+],
+"hijos": [
+{
+"id": "MOVO-84",
+"titulo": "Schema y migraciones de PostgreSQL para movo-svc-users (users, user_roles)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-85",
+"titulo": "Plugin de conexión PostgreSQL en movo-svc-users (fastify.db)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "1",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-86",
+"titulo": "Plugin de conexión Redis en movo-svc-users (fastify.redis)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-87",
+"titulo": "user-repository: capa de acceso a datos de usuarios (PostgreSQL)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-88",
+"titulo": "session-repository: refresh tokens en Redis (soporte para ADR-004)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-89",
+"titulo": "GET /health en movo-svc-users: estado de PostgreSQL y Redis",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "1",
+"asignado": "L. Dalmagro"
+}
+],
+"padre": ""
+},
+"MOVO-67": {
+"id": "MOVO-67",
+"titulo": "Como equipo de desarrollo, quiero una librería compartida de JWT, tipos de dominio y contrato de errores en movo-shared, para que todos los servicios validen identidad y respondan errores de forma homogénea sin duplicar código.",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-68": {
+"id": "MOVO-68",
+"titulo": "Como equipo de desarrollo, quiero el middleware de autenticación, autorización por rol y rate limiting en movo-api-gateway, para que todos los endpoints protegidos validen identidad en un único punto de entrada.",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-69": {
+"id": "MOVO-69",
+"titulo": "Como equipo de desarrollo, quiero el setup de testing automatizado y los quality gates en CI, para que ninguna PR se mergee a develop sin tests en verde y podamos medir cobertura real por sprint.",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-70": {
+"id": "MOVO-70",
+"titulo": "[svc-users] Endpoint de registro de usuario: validaciones, hash de contraseña y persistencia",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-7"
+},
+"MOVO-71": {
+"id": "MOVO-71",
+"titulo": "[svc-users] Verificación de teléfono por OTP con almacenamiento en Redis y adapter de SMS",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "5",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-7"
+},
+"MOVO-72": {
+"id": "MOVO-72",
+"titulo": "[svc-users] Integración con Didit.me: creación de sesión KYC, webhook de resultado y máquina de estados",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-7"
+},
+"MOVO-73": {
+"id": "MOVO-73",
+"titulo": "[movo-mobile] Pantallas de registro, verificación de OTP y flujo de KYC embebido",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-7"
+},
+"MOVO-74": {
+"id": "MOVO-74",
+"titulo": "[svc-users] Endpoint de login: validación de credenciales y emisión de access + refresh token",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-63"
+},
+"MOVO-75": {
+"id": "MOVO-75",
+"titulo": "[svc-users] Endpoints de refresh token con rotación y de logout con revocación en Redis",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-63"
+},
+"MOVO-76": {
+"id": "MOVO-76",
+"titulo": "[movo-mobile] Pantalla de login, secure storage de tokens, refresh automático y guard de navegación",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-63"
+},
+"MOVO-77": {
+"id": "MOVO-77",
+"titulo": "[svc-users] Endpoints GET /users/me y GET /users/:id con proyecciones separadas privada y pública",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-14"
+},
+"MOVO-78": {
+"id": "MOVO-78",
+"titulo": "[movo-mobile] Pantalla de perfil propio con estado de KYC, insignias y logout",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-14"
+},
+"MOVO-79": {
+"id": "MOVO-79",
+"titulo": "[svc-shipments] Schema, migraciones y máquina de estados del ciclo de vida del envío",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [
+"Existe el schema `shipments`, creado por migración, siguiendo el mismo patrón y herramienta que MOVO-66 (coordinar con ese dev para no divergir en la herramienta de migraciones).",
+"La tabla `shipments.shipments` incluye: `id` (UUID), `sender_id`, `receiver_id`, `package_type` (enum con las cinco categorías del alcance: carta/documento, encomienda estándar, ítem cotidiano, objeto frágil, ítem urgente), `weight_kg`, `length_cm`/`width_cm`/`height_cm`, `description`, `pickup_address`, `pickup_lat`/`pickup_lng`, `delivery_address`, `delivery_lat`/`delivery_lng`, `pickup_date`, `pickup_time_window_start`/`_end`, `suggested_price_ars`, `status`, `created_at`, `updated_at`.",
+"La tabla `shipments.shipment_events` registra cada transición de estado con: `shipment_id`, `from_status`, `to_status`, `actor_id`, `reason`, `created_at`. Es la base de la línea de tiempo de MOVO-27 y de la evidencia para disputas.",
+"La tabla `shipments.shipment_photos` almacena las referencias a las fotos en S3 con su `stage` (`creation`, `pickup`, `delivery`), `s3_key` y `created_at`. **Nunca la imagen en la base.**",
+"`sender_id` y `receiver_id` **no tienen foreign key** hacia `users.users`: son referencias lógicas cross-schema, conforme al ADR-003.",
+"El enum de `status` es el **set canónico del proyecto**: los 9 valores de la sección \"Set canónico de estados\" más abajo, y ningún otro. Agregar un valor nuevo obliga a actualizar, en el mismo PR, el enum `ShipmentStatus` de `@movo/shared` y el AC3 de MOVO-19.",
+"Existe un módulo de máquina de estados que define explícitamente las transiciones válidas y **rechaza** las inválidas con un error de dominio.",
+"Toda escritura de estado pasa por la máquina de estados; ningún repositorio permite un `UPDATE` directo de `status`.",
+"Índices sobre `sender_id`, `receiver_id`, `status` y `pickup_date`.",
+"El DER del proyecto queda actualizado."
+],
+"hijos": [
+{
+"id": "MOVO-104",
+"titulo": "[svc-shipments] Schema y migraciones de las tablas del ciclo de vida del envío",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-105",
+"titulo": "[svc-shipments] Máquina de estados del ciclo de vida del envío",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-118",
+"titulo": "[svc-shipments] Race condition (TOCTOU) en shipment-repository.ts#updateStatus() puede pisar transiciones concurrentes",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "1",
+"asignado": "J.C. Bordino B."
+}
+],
+"padre": "MOVO-8"
+},
+"MOVO-80": {
+"id": "MOVO-80",
+"titulo": "[svc-shipments] Endpoint de creación de envío, búsqueda de receptor y consulta de detalle",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-8"
+},
+"MOVO-81": {
+"id": "MOVO-81",
+"titulo": "[svc-shipments] Carga de fotos del paquete con presigned URLs de S3 y registro de evidencia",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "L. Dalmagro",
+"ac": [
+"`POST /api/v1/shipments/:id/photos/presign` devuelve una URL prefirmada de subida y el `s3Key` correspondiente.",
+"Solo el emisor del envío puede solicitar presign para la etapa `creation`.",
+"La URL prefirmada tiene TTL corto (sugerido: 5 minutos) y está restringida por content-type y tamaño máximo.",
+"`POST /api/v1/shipments/:id/photos/confirm` registra la foto en `shipment_photos` una vez que el cliente completó la subida.",
+"La confirmación **verifica que el objeto exista efectivamente en S3** antes de registrarlo. Sin esto, el cliente puede confirmar fotos que nunca subió y el criterio de evidencia obligatoria queda vacío.",
+"El envío no puede pasar a `awaiting_receiver_confirmation` con menos de 2 fotos de etapa `creation` registradas.",
+"`GET /api/v1/shipments/:id/photos` devuelve URLs prefirmadas de **lectura**, con TTL corto, accesibles solo para emisor, receptor y admin.",
+"El bucket es privado; ningún objeto es accesible públicamente ni por URL adivinable.",
+"La imagen nunca transita por los servidores de Movo: upload directo del dispositivo a S3.",
+"El `s3Key` sigue una convención documentada del tipo `shipments/{shipmentId}/{stage}/{uuid}.jpg`."
+],
+"hijos": [
+{
+"id": "MOVO-124",
+"titulo": "[movo-infra] Lifecycle rule S3 para objetos huérfanos de fotos no confirmadas (shipments/* y profile-photos/*)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "L. Dalmagro"
+}
+],
+"padre": "MOVO-8"
+},
+"MOVO-82": {
+"id": "MOVO-82",
+"titulo": "[svc-pricing-logistics] Contrato de precio sugerido con implementación lineal provisoria y fallback",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-8"
+},
+"MOVO-83": {
+"id": "MOVO-83",
+"titulo": "[movo-mobile] Wizard de creación de envío con carga de fotos y precio sugerido",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [
+"El flujo se inicia desde el tab \"Inicio\".",
+"Wizard multipaso: datos del paquete → receptor → direcciones y franja horaria → fotos → resumen y confirmación.",
+"El formulario solicita tipo de paquete (las cinco categorías), dimensiones, peso aproximado y descripción opcional.",
+"Búsqueda de receptor con resultados que muestran nombre, foto y score, y confirmación explícita de la selección.",
+"Selección de direcciones con obtención de coordenadas.",
+"Captura de las 2 fotos obligatorias, con compresión en el cliente antes del upload directo a S3 vía presigned URL.",
+"El precio sugerido se muestra en ARS en el paso de resumen, una vez completos peso, dimensiones y destino.",
+"Si falta algún dato necesario o el servicio de pricing no respondió, se muestra \"precio a estimar\" en lugar de un valor.",
+"Pantalla de resumen completa antes de confirmar.",
+"Al confirmar, el envío queda en \"Esperando confirmación del receptor\" y la app muestra ese estado.",
+"El progreso del wizard sobrevive a la navegación hacia atrás; el usuario no pierde lo cargado.",
+"Estados de carga y error manejados en cada paso, en particular durante el upload de fotos, que es el paso más lento y más propenso a fallar.",
+"La UI respeta el Manual de Marca de Movo."
+],
+"hijos": [
+{
+"id": "MOVO-125",
+"titulo": "[movo-svc-users] Reverse geocoding para la ubicación GPS del wizard de envíos",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-126",
+"titulo": "[movo-svc-shipments] Rechazar envíos con retiro y entrega en la misma ubicación",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara"
+}
+],
+"padre": "MOVO-8"
+},
+"MOVO-84": {
+"id": "MOVO-84",
+"titulo": "Schema y migraciones de PostgreSQL para movo-svc-users (users, user_roles)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-66"
+},
+"MOVO-85": {
+"id": "MOVO-85",
+"titulo": "Plugin de conexión PostgreSQL en movo-svc-users (fastify.db)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "1",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-66"
+},
+"MOVO-86": {
+"id": "MOVO-86",
+"titulo": "Plugin de conexión Redis en movo-svc-users (fastify.redis)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-66"
+},
+"MOVO-87": {
+"id": "MOVO-87",
+"titulo": "user-repository: capa de acceso a datos de usuarios (PostgreSQL)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-66"
+},
+"MOVO-88": {
+"id": "MOVO-88",
+"titulo": "session-repository: refresh tokens en Redis (soporte para ADR-004)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-66"
+},
+"MOVO-89": {
+"id": "MOVO-89",
+"titulo": "GET /health en movo-svc-users: estado de PostgreSQL y Redis",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "1",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-66"
+},
+"MOVO-90": {
+"id": "MOVO-90",
+"titulo": "Creación de skill en Claude para facilitar la review de US",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "1",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-91": {
+"id": "MOVO-91",
+"titulo": "Alinear enums de users.users (rol/KYC) con @movo/shared",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-92": {
+"id": "MOVO-92",
+"titulo": "Chore actualización de la Entidad User",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "1",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-93": {
+"id": "MOVO-93",
+"titulo": "Adoptar Prisma como ORM en movo-svc-users",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-94": {
+"id": "MOVO-94",
+"titulo": "[svc-users] Revisar autenticación de POST /kyc/session y GET /kyc/status (hoy públicas, sin JWT)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-7"
+},
+"MOVO-95": {
+"id": "MOVO-95",
+"titulo": "[svc-users] register() emite tokens de sesión — AC10/AC3 de MOVO-70 desactualizados (PR #51)",
+"estado": "Done",
+"ciclo": "Cycle 3",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-7"
+},
+"MOVO-96": {
+"id": "MOVO-96",
+"titulo": "[svc-users] Investigar si el DNI se puede extraer del resultado de Didit y eliminar el step manual del wizard",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-97": {
+"id": "MOVO-97",
+"titulo": "[svc-users] Foto de perfil: subida a S3 con presigned URLs, confirmación y borrado",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-7"
+},
+"MOVO-98": {
+"id": "MOVO-98",
+"titulo": "[movo-mobile] Paso de foto de perfil al cerrar el onboarding y edición desde el perfil",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-7"
+},
+"MOVO-99": {
+"id": "MOVO-99",
+"titulo": "[Spike] Investigar automatización de pruebas UAT en simuladores mobile (iOS/Android), evaluando uso de IA",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-100": {
+"id": "MOVO-100",
+"titulo": "[svc-payments] Tarjetas guardadas del emisor en la cuenta de Movo: alta, listado, predeterminada, baja y datos de checkout",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-65"
+},
+"MOVO-101": {
+"id": "MOVO-101",
+"titulo": "[movo-mobile] Pagos y cobros: tarjetas guardadas (alta, listado, predeterminada y baja)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-65"
+},
+"MOVO-102": {
+"id": "MOVO-102",
+"titulo": "[svc-shipments] Schema y máquina de estados de la oferta (Offer)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-104": {
+"id": "MOVO-104",
+"titulo": "[svc-shipments] Schema y migraciones de las tablas del ciclo de vida del envío",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-79"
+},
+"MOVO-105": {
+"id": "MOVO-105",
+"titulo": "[svc-shipments] Máquina de estados del ciclo de vida del envío",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-79"
+},
+"MOVO-106": {
+"id": "MOVO-106",
+"titulo": "[svc-users] Registro de push token y adapter PushNotificationProvider",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-24"
+},
+"MOVO-107": {
+"id": "MOVO-107",
+"titulo": "[movo-mobile] Permisos, registro de push token y manejo de notificaciones recibidas",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-24"
+},
+"MOVO-108": {
+"id": "MOVO-108",
+"titulo": "[svc-shipments] Disparo de notificaciones push en creación de envío y ofertas",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-24"
+},
+"MOVO-109": {
+"id": "MOVO-109",
+"titulo": "Como transportista, quiero ver el estado de mis ofertas activas, para hacer seguimiento de mis propuestas sobre los envíos.",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "",
+"asignado": "",
+"ac": [
+"El transportista puede ver un listado de todas las ofertas que creó, no solo las `pending`.",
+"Cada oferta del listado muestra al menos: envío asociado (referencia/origen-destino), precio ofertado, fecha de la oferta y estado actual.",
+"Los seis estados posibles son los definidos en MOVO-102: `pending`, `accepted`, `rejected`, `withdrawn`, `expired`, `superseded`.",
+"El estado `expired` se resuelve en lectura (lectura perezosa, mismo criterio que MOVO-102 AC11): una oferta con `expires_at` vencido se muestra como `expired` aunque nadie haya corrido un proceso que la actualice.",
+"El transportista puede distinguir visualmente entre ofertas activas (`pending`) y finalizadas (`accepted`, `rejected`, `withdrawn`, `expired`, `superseded`).",
+"Un transportista solo puede ver sus propias ofertas — el filtro por `carrier_id` sale del header `x-user-id` inyectado por el gateway, nunca de un parámetro de la request.",
+"Ruta protegida, documentada en Swagger."
+],
+"hijos": [
+{
+"id": "MOVO-145",
+"titulo": "[svc-shipments] GET /offers/mine: listado de las ofertas propias del transportista",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-151",
+"titulo": "[movo-mobile] \"Mis ofertas\": seguimiento de las propuestas del transportista",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-181",
+"titulo": "[svc-shipments] Modificar una oferta pending (monto y fecha/horario de retiro)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-182",
+"titulo": "[movo-mobile] Detalle de oferta: desglose completo, retirar y modificar",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "5",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-185",
+"titulo": "[svc-shipments] Contexto enriquecido de envío en \"mis ofertas\": distancia y resumen del paquete",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-186",
+"titulo": "[svc-shipments] Desglose neto/comisión en todas las respuestas de oferta (no solo al crear)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "1",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-187",
+"titulo": "[svc-shipments] Snapshot de identidad y confianza del emisor visible al transportista",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-188",
+"titulo": "[svc-shipments] Ranking competitivo de la oferta propia (posición, mínimo y máximo)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-189",
+"titulo": "[svc-shipments] Tracking de \"vista\" del emisor sobre una oferta recibida",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-190",
+"titulo": "[svc-shipments] GET /offers/:id — detalle de una oferta propia",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-110": {
+"id": "MOVO-110",
+"titulo": "Como transportista, quiero vincular mi cuenta de Mercado Pago a Movo, para poder cobrar mis envíos vía split payment",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "",
+"asignado": "",
+"ac": [
+"El transportista puede iniciar la vinculación de su cuenta de Mercado Pago desde la app, sin salir de la experiencia de Movo (navegador embebido, no una app de navegador aparte).",
+"Al completar la autorización en Mercado Pago, la app vuelve sola al estado \"vinculado\" — sin pasos manuales de copiar/pegar códigos.",
+"La vinculación se renueva sola del lado del servidor antes de expirar (180 días) — el transportista no tiene que volver a autorizar periódicamente.",
+"Si la vinculación se invalida (el transportista la revocó desde MP, o el refresh falla), el sistema lo detecta y se lo comunica claramente, ofreciendo re-vincular.",
+"El transportista puede ver el estado de su vinculación y desvincular la cuenta manualmente si quiere.",
+"Mientras no tenga una cuenta vinculada y vigente, el sistema no le permite quedar confirmado en envíos que requieran cobrar (evita que MOVO-12/13 lleguen al momento del split sin un `access_token` válido del transportista)."
+],
+"hijos": [
+{
+"id": "MOVO-111",
+"titulo": "[svc-payments] OAuth Connect: vinculación, estado y desvinculación de la cuenta de Mercado Pago del transportista",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "1",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-112",
+"titulo": "[movo-mobile] Pantalla de vinculación de cuenta de Mercado Pago (transportista)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-243",
+"titulo": "[svc-payments] OAuth Connect: renovación automática de tokens (cron) y marcado de vinculación revocada",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro"
+}
+],
+"padre": ""
+},
+"MOVO-111": {
+"id": "MOVO-111",
+"titulo": "[svc-payments] OAuth Connect: vinculación, estado y desvinculación de la cuenta de Mercado Pago del transportista",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "1",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-110"
+},
+"MOVO-112": {
+"id": "MOVO-112",
+"titulo": "[movo-mobile] Pantalla de vinculación de cuenta de Mercado Pago (transportista)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-110"
+},
+"MOVO-113": {
+"id": "MOVO-113",
+"titulo": "[movo-mobile] Paquete de fixes por bugs en UI",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-114": {
+"id": "MOVO-114",
+"titulo": "[svc-users] Acotar permisos IAM del role EC2 en movo-shipment-media al prefijo profile-photos/*",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-115": {
+"id": "MOVO-115",
+"titulo": "[svc-users] Race condition (TOCTOU) en confirmPhoto()/deletePhoto() puede dejar objetos huérfanos en S3",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "1",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-116": {
+"id": "MOVO-116",
+"titulo": "[svc-shipments] Bloquear declarar viaje y crear oferta sin licencia aprobada + Mercado Pago vinculado",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "1",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-117": {
+"id": "MOVO-117",
+"titulo": "[movo-mobile] UI de requisitos pendientes para operar como transportista (licencia + Mercado Pago)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-118": {
+"id": "MOVO-118",
+"titulo": "[svc-shipments] Race condition (TOCTOU) en shipment-repository.ts#updateStatus() puede pisar transiciones concurrentes",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "1",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-79"
+},
+"MOVO-119": {
+"id": "MOVO-119",
+"titulo": "[movo-svc-users] CRUD de direcciones guardadas (/addresses)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-8"
+},
+"MOVO-120": {
+"id": "MOVO-120",
+"titulo": "[movo-svc-users] Proxy de Google Places Autocomplete (/places)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-8"
+},
+"MOVO-121": {
+"id": "MOVO-121",
+"titulo": "[movo-mobile] Pantalla de gestión de direcciones guardadas (Perfil)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-8"
+},
+"MOVO-122": {
+"id": "MOVO-122",
+"titulo": "CI: aumentar command_timeout de migraciones (dev/prod) para dos servicios Prisma",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "1",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-123": {
+"id": "MOVO-123",
+"titulo": "[movo-svc-shipments] Endpoint de ruta (polyline) origen→destino para el mapa del wizard de envíos",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-8"
+},
+"MOVO-124": {
+"id": "MOVO-124",
+"titulo": "[movo-infra] Lifecycle rule S3 para objetos huérfanos de fotos no confirmadas (shipments/* y profile-photos/*)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-81"
+},
+"MOVO-125": {
+"id": "MOVO-125",
+"titulo": "[movo-svc-users] Reverse geocoding para la ubicación GPS del wizard de envíos",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-83"
+},
+"MOVO-126": {
+"id": "MOVO-126",
+"titulo": "[movo-svc-shipments] Rechazar envíos con retiro y entrega en la misma ubicación",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-83"
+},
+"MOVO-127": {
+"id": "MOVO-127",
+"titulo": "[movo-mobile] Pantalla de detalle de un envío específico (ruta, paquete, receptor, línea de tiempo)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-27"
+},
+"MOVO-128": {
+"id": "MOVO-128",
+"titulo": "[svc-shipments] Endpoint GET /shipments/:id/events — historial de estados para la línea de tiempo",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-27"
+},
+"MOVO-129": {
+"id": "MOVO-129",
+"titulo": "[svc-shipments] Endpoints de aceptación y rechazo del envío por el receptor",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-16"
+},
+"MOVO-130": {
+"id": "MOVO-130",
+"titulo": "[svc-shipments] Expiración automática del envío no confirmado por el receptor (timeout + cancelación)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-16"
+},
+"MOVO-131": {
+"id": "MOVO-131",
+"titulo": "[movo-mobile] Vista de receptor en el detalle del envío: perfil del emisor y acciones de aceptar/rechazar",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-16"
+},
+"MOVO-132": {
+"id": "MOVO-132",
+"titulo": "[movo-mobile] Envíos que recibo: distinción de rol en el listado y entrada desde la notificación push",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-16"
+},
+"MOVO-133": {
+"id": "MOVO-133",
+"titulo": "[svc-users] PATCH /users/me y cambio verificado de teléfono y email por OTP",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-31"
+},
+"MOVO-134": {
+"id": "MOVO-134",
+"titulo": "[svc-users] Cambio de contraseña y baja de cuenta (Cuenta y seguridad)",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-31"
+},
+"MOVO-135": {
+"id": "MOVO-135",
+"titulo": "[movo-mobile] Pantalla \"Editar perfil\" con cambio verificado de teléfono y email",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-31"
+},
+"MOVO-136": {
+"id": "MOVO-136",
+"titulo": "[movo-mobile] Pantalla \"Cuenta y seguridad\": cambiar contraseña y dar de baja la cuenta",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-31"
+},
+"MOVO-138": {
+"id": "MOVO-138",
+"titulo": "[svc-pricing-logistics] Motor de precios dinámico real (Post-Spike MOVO-216)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "A. Ariza",
+"ac": [
+"**Reemplazo de** `euclidean_linear_v1`**:**",
+"Incorporar el cálculo de distancia real mediante `RoutesProvider` (ADR-015).",
+"Nuevo `PriceCalculationMethod` en `@movo/shared` y Python: `DEMAND_FUEL_ROUTES_V1`.",
+"**Componente de Combustible:**",
+"Integración con la API de precios de combustible seleccionada en MOVO-216.",
+"Cacheo del precio por litro para resguardar la performance del endpoint.",
+"**Factor de Alta Demanda:**",
+"Cálculo del multiplicador de alta demanda si la relación entre paquetes y transportistas en la zona supera el umbral definido en el Spike.",
+"**Simplificación de la Respuesta (Contrato):**",
+"El endpoint `POST /quote` retorna:",
+"`suggestedPriceArs`: monto final calculado.",
+"`highDemand`: boolean indicando si aplica recargo por alta demanda.",
+"`calculationMethod`: `DEMAND_FUEL_ROUTES_V1`.",
+"**Sin desglose aritmético complejo** visible al usuario (el emisor solo ve el precio sugerido y si rige alta demanda).",
+"**Compatibilidad:**",
+"Mantener compatibilidad con el consumidor en `movo-svc-shipments` (`pricing-client.ts`).",
+"Cobertura de tests unitarios y de integración al 100% sobre los módulos de pricing.",
+"**Persistencia de** `highDemand` **(decidido en** MOVO-216**):**",
+"Nueva columna `shipments.high_demand BOOLEAN NULL` (migración Prisma en `movo-svc-shipments`), escrita junto a `suggested_price_ars` y `calculation_method` al crear el envío. Es una foto de la cotización y no se recalcula.",
+"`NULL` = sin cotización (\"precio a estimar\") o envío anterior a `DEMAND_FUEL_ROUTES_V1`. No equivale a `false`, y el badge solo se muestra con `true`.",
+"`QuoteResult.highDemand` en `pricing-client.ts`, expuesto en el detalle del envío para el emisor.",
+"**Degradación si falla Google Routes API en** `POST /quote` **(decidido en** MOVO-216**):**",
+"Si `RoutesProvider` falla (caído, timeout o cuota agotada), `/quote` **no** propaga el 502: calcula la distancia con Haversine × 1,3, cotiza igual y registra `distanceSource: \"haversine_fallback\"` en el log `pricing_quote_computed`.",
+"Excepción acotada a `/quote`: la política No-Fallback (MOVO-205) sigue vigente para `/optimize/route` y `/routes/evaluate-candidates`.",
+"Timeout hacia Google de \\~1,5 s, para que el fallback llegue antes de los 3 s de `pricing-client.ts`.",
+"`calculationMethod` se mantiene en `DEMAND_FUEL_ROUTES_V1`."
+],
+"hijos": [],
+"padre": ""
+},
+"MOVO-139": {
+"id": "MOVO-139",
+"titulo": "[svc-users] EmailProvider (Resend) y verificación de email por OTP",
+"estado": "Done",
+"ciclo": "Cycle 4",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-31"
+},
+"MOVO-140": {
+"id": "MOVO-140",
+"titulo": "[svc-users] Recuperación de contraseña: OTP por SMS o email, señuelo anti-enumeración y passwordResetToken single-use",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-64"
+},
+"MOVO-141": {
+"id": "MOVO-141",
+"titulo": "[movo-mobile] Pantalla \"¿Olvidaste tu contraseña?\": wizard de 3 pasos con OTP por SMS o email",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-64"
+},
+"MOVO-142": {
+"id": "MOVO-142",
+"titulo": "[svc-shipments] GET /shipments/available: descubrimiento por radio geográfico y apertura del detalle al transportista",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-19"
+},
+"MOVO-143": {
+"id": "MOVO-143",
+"titulo": "[svc-shipments] POST /shipments/:id/offers y retiro de oferta",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-23"
+},
+"MOVO-144": {
+"id": "MOVO-144",
+"titulo": "[svc-shipments] GET /shipments/:id/offers y aceptación/rechazo de oferta por el emisor",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-17"
+},
+"MOVO-145": {
+"id": "MOVO-145",
+"titulo": "[svc-shipments] GET /offers/mine: listado de las ofertas propias del transportista",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-109"
+},
+"MOVO-146": {
+"id": "MOVO-146",
+"titulo": "[svc-shipments] Schema de Rating y endpoint de calificación post-entrega",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-22"
+},
+"MOVO-147": {
+"id": "MOVO-147",
+"titulo": "[svc-shipments] Score de reputación ponderado y endpoint interno de agregado",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-25"
+},
+"MOVO-148": {
+"id": "MOVO-148",
+"titulo": "[movo-mobile] Tab Transportar: listado de envíos disponibles cerca",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-19"
+},
+"MOVO-149": {
+"id": "MOVO-149",
+"titulo": "[movo-mobile] Detalle del envío disponible y creación de la oferta",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-23"
+},
+"MOVO-150": {
+"id": "MOVO-150",
+"titulo": "[movo-mobile] Ofertas recibidas: listado, comparación y elección del transportista",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-17"
+},
+"MOVO-151": {
+"id": "MOVO-151",
+"titulo": "[movo-mobile] \"Mis ofertas\": seguimiento de las propuestas del transportista",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-109"
+},
+"MOVO-152": {
+"id": "MOVO-152",
+"titulo": "[svc-users] Perfil con reputación y contadores de transacciones reales",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-25"
+},
+"MOVO-153": {
+"id": "MOVO-153",
+"titulo": "[movo-mobile] Calificación post-entrega de la contraparte",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-22"
+},
+"MOVO-154": {
+"id": "MOVO-154",
+"titulo": "[movo-mobile] Reputación visible: perfil propio, perfil público y tarjetas de oferta",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-25"
+},
+"MOVO-156": {
+"id": "MOVO-156",
+"titulo": "[infra] Fotos de envío rotas en S3: permisos IAM del role EC2 acotados solo a profile-photos/* (regresión de MOVO-114)",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-157": {
+"id": "MOVO-157",
+"titulo": "[svc-users] Registro de clave pública por dispositivo (par de claves asimétricas)",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-6"
+},
+"MOVO-158": {
+"id": "MOVO-158",
+"titulo": "[svc-shipments] Handshake: QR dinámico, validación de firma/proximidad GPS y transición de estado",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "5",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-6"
+},
+"MOVO-159": {
+"id": "MOVO-159",
+"titulo": "[movo-mobile] Pantalla de generación de QR con countdown (cedente de custodia)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-6"
+},
+"MOVO-160": {
+"id": "MOVO-160",
+"titulo": "[movo-mobile] Escaneo de QR y confirmación con GPS (receptor de custodia)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-6"
+},
+"MOVO-161": {
+"id": "MOVO-161",
+"titulo": "[svc-shipments] CRUD de Viaje declarado + matching de paquetes compatibles por radio de desvío",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "5",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-18"
+},
+"MOVO-162": {
+"id": "MOVO-162",
+"titulo": "[movo-mobile] Declarar/editar/cancelar viaje (\"Mis viajes\")",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-18"
+},
+"MOVO-163": {
+"id": "MOVO-163",
+"titulo": "[movo-mobile] Feed de paquetes compatibles con el viaje declarado",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-18"
+},
+"MOVO-164": {
+"id": "MOVO-164",
+"titulo": "Entrega de video del proyecto",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "8",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-165": {
+"id": "MOVO-165",
+"titulo": "Presentación de estado actual",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-166": {
+"id": "MOVO-166",
+"titulo": "[movo-mobile] Detalle del envío disponible para el transportista (solo lectura)",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-23"
+},
+"MOVO-167": {
+"id": "MOVO-167",
+"titulo": "[movo-mobile] Gating del tab Transportar por licencia no verificada y pulido de UI del header",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-168": {
+"id": "MOVO-168",
+"titulo": "[movo-mobile] Estados de carga granulares y skeletons por componente en vistas principales",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-169": {
+"id": "MOVO-169",
+"titulo": "[movo-mobile] Tutorial interactivo de uso paso a paso con pop-ups guiados",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-170": {
+"id": "MOVO-170",
+"titulo": "[svc-users][svc-shipments] Enriquecimiento de perfil con datos ya existentes (antigüedad, verificaciones públicas, historial compartido, stats básicas)",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-25"
+},
+"MOVO-171": {
+"id": "MOVO-171",
+"titulo": "[movo-mobile][svc-users] Bio editable del perfil",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-25"
+},
+"MOVO-172": {
+"id": "MOVO-172",
+"titulo": "[movo-mobile][svc-users] Ficha de vehículo del transportista",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-25"
+},
+"MOVO-173": {
+"id": "MOVO-173",
+"titulo": "[movo-mobile][svc-shipments] Calificación por categorías (puntualidad/cuidado/comunicación)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-25"
+},
+"MOVO-174": {
+"id": "MOVO-174",
+"titulo": "[movo-mobile][svc-users] Conexiones mutuas en el perfil (\"ya envió con X personas con las que vos también enviaste\")",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-25"
+},
+"MOVO-175": {
+"id": "MOVO-175",
+"titulo": "[movo-mobile][svc-users] Reportar y bloquear usuarios",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [
+{
+"id": "MOVO-256",
+"titulo": "[movo-mobile][svc-users] Adjuntar imágenes a un reporte de usuario",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "T. Vergara"
+}
+],
+"padre": "MOVO-25"
+},
+"MOVO-176": {
+"id": "MOVO-176",
+"titulo": "[movo-mobile] Rediseño de pantalla de perfil (prototipo Claude Design): sheet → pantalla completa",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-25"
+},
+"MOVO-177": {
+"id": "MOVO-177",
+"titulo": "Plan de mejora: creación de oferta del transportista (mobile)",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [
+{
+"id": "MOVO-180",
+"titulo": "Contrato de backend: entrega estimada en la oferta + estadística de \"ofertas actuales\" para el transportista",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "A. Ariza"
+}
+],
+"padre": "MOVO-23"
+},
+"MOVO-179": {
+"id": "MOVO-179",
+"titulo": "[svc-shipments] Push notification al publicarse un envío compatible con un viaje declarado",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-18"
+},
+"MOVO-180": {
+"id": "MOVO-180",
+"titulo": "Contrato de backend: entrega estimada en la oferta + estadística de \"ofertas actuales\" para el transportista",
+"estado": "Done",
+"ciclo": "Cycle 5",
+"sp": "2",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-177"
+},
+"MOVO-181": {
+"id": "MOVO-181",
+"titulo": "[svc-shipments] Modificar una oferta pending (monto y fecha/horario de retiro)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-109"
+},
+"MOVO-182": {
+"id": "MOVO-182",
+"titulo": "[movo-mobile] Detalle de oferta: desglose completo, retirar y modificar",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-109"
+},
+"MOVO-183": {
+"id": "MOVO-183",
+"titulo": "[movo-mobile] Rediseño del tab Transportar: header, accesos y card de envío",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-19"
+},
+"MOVO-184": {
+"id": "MOVO-184",
+"titulo": "[movo-mobile] Actividad reciente del home no prioriza envíos por confirmar y no expira los cancelados",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-185": {
+"id": "MOVO-185",
+"titulo": "[svc-shipments] Contexto enriquecido de envío en \"mis ofertas\": distancia y resumen del paquete",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-109"
+},
+"MOVO-186": {
+"id": "MOVO-186",
+"titulo": "[svc-shipments] Desglose neto/comisión en todas las respuestas de oferta (no solo al crear)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "1",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-109"
+},
+"MOVO-187": {
+"id": "MOVO-187",
+"titulo": "[svc-shipments] Snapshot de identidad y confianza del emisor visible al transportista",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-109"
+},
+"MOVO-188": {
+"id": "MOVO-188",
+"titulo": "[svc-shipments] Ranking competitivo de la oferta propia (posición, mínimo y máximo)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-109"
+},
+"MOVO-189": {
+"id": "MOVO-189",
+"titulo": "[svc-shipments] Tracking de \"vista\" del emisor sobre una oferta recibida",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-109"
+},
+"MOVO-190": {
+"id": "MOVO-190",
+"titulo": "[svc-shipments] GET /offers/:id — detalle de una oferta propia",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-109"
+},
+"MOVO-191": {
+"id": "MOVO-191",
+"titulo": "Como usuario, quiero ver y operar mis envíos activos desde el inicio de la app, para saber qué tengo que hacer hoy sin buscar en el historial.",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "",
+"asignado": "",
+"ac": [
+"Desde el inicio de la app, el usuario ve sus envíos activos agrupados en tres secciones según su rol en cada transacción: **\"Estoy enviando\"**, **\"Estoy transportando\"** y **\"Voy a recibir\"**.",
+"Un mismo usuario puede aparecer en las tres secciones simultáneamente (puede ser emisor de un envío y transportista de otro el mismo día).",
+"Cada ítem muestra el estado del envío, la fecha y ventana de retiro, y un badge cuando el retiro es hoy o cuando la ventana ya venció.",
+"Cada ítem expone la **acción contextual correspondiente al rol y al estado**, que es el punto de entrada al flujo de custodia:",
+"emisor + `assigned` → \"Generar retiro\" (abre `MOVO-159`, generación de QR)",
+"transportista + `assigned` → \"Retirar paquete\" (abre el wizard de retiro)",
+"transportista + `in_transit` → \"Entregar paquete\" (abre el wizard de entrega)",
+"receptor + `in_transit` → \"Confirmar recepción\" (abre `MOVO-160`, escaneo de QR)",
+"Si el usuario no tiene envíos activos en un rol, esa sección no se renderiza (no se muestra vacía).",
+"La misma acción contextual está disponible también desde el detalle del envío, para que el usuario no dependa exclusivamente del home.",
+"La UI respeta el Manual de Marca de Movo."
+],
+"hijos": [
+{
+"id": "MOVO-192",
+"titulo": "[svc-shipments] Endpoints de envíos activos por rol (/sending, /transporting, /receiving)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-193",
+"titulo": "[movo-mobile] Home operativo: envíos activos por rol y acción contextual de custodia",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-194",
+"titulo": "[movo-mobile][svc-shipments] Detalle del envío: completar la vista del transportista y del receptor",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-192": {
+"id": "MOVO-192",
+"titulo": "[svc-shipments] Endpoints de envíos activos por rol (/sending, /transporting, /receiving)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-191"
+},
+"MOVO-193": {
+"id": "MOVO-193",
+"titulo": "[movo-mobile] Home operativo: envíos activos por rol y acción contextual de custodia",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [
+"El home consume los tres endpoints de `MOVO-192` y renderiza tres secciones: \"Estoy enviando\", \"Estoy transportando\", \"Voy a recibir\".",
+"Una sección sin envíos activos **no se renderiza**. No se muestran secciones vacías con placeholder.",
+"Cada tarjeta muestra estado del envío, fecha y ventana de retiro, direcciones de origen y destino en formato corto, y nombre e iniciales de la contraparte.",
+"Los badges \"Hoy\" y \"Ventana vencida\" se renderizan según los flags `is_today` y `pickup_window_expired` que **vienen del backend**. El cliente no calcula fechas.",
+"Cada tarjeta expone la acción contextual según rol y estado, y navega al destino correcto:"
+],
+"hijos": [
+{
+"id": "MOVO-222",
+"titulo": "[svc-shipments] Endpoint/flag de calificaciones pendientes de dar",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "L. Dalmagro"
+}
+],
+"padre": "MOVO-191"
+},
+"MOVO-194": {
+"id": "MOVO-194",
+"titulo": "[movo-mobile][svc-shipments] Detalle del envío: completar la vista del transportista y del receptor",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-191"
+},
+"MOVO-195": {
+"id": "MOVO-195",
+"titulo": "[movo-mobile] Par de claves en el dispositivo: generación, guardado en SecureStore y firma del nonce",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-6"
+},
+"MOVO-196": {
+"id": "MOVO-196",
+"titulo": "[svc-shipments] Exigir evidencia fotográfica del stage antes de permitir el handshake",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-21"
+},
+"MOVO-197": {
+"id": "MOVO-197",
+"titulo": "[movo-mobile] Step reusable de captura de evidencia fotográfica (retiro y entrega)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-21"
+},
+"MOVO-198": {
+"id": "MOVO-198",
+"titulo": "[movo-mobile] Wizard de retiro del transportista: evidencia, escaneo de QR y confirmación",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-21"
+},
+"MOVO-199": {
+"id": "MOVO-199",
+"titulo": "[movo-mobile] Wizard de entrega del transportista: evidencia y generación de QR",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-21"
+},
+"MOVO-200": {
+"id": "MOVO-200",
+"titulo": "[Spike] Canal de tiempo real: verificar qué existe hoy, elegir tecnología y escribir el ADR",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-11"
+},
+"MOVO-201": {
+"id": "MOVO-201",
+"titulo": "[svc-shipments] Canal de tiempo real: conexión autenticada y autorización de suscripción por envío",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-11"
+},
+"MOVO-202": {
+"id": "MOVO-202",
+"titulo": "[svc-shipments] Ingesta de posiciones del transportista: última posición en Redis, traza persistida cada 45s y purga",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-11"
+},
+"MOVO-203": {
+"id": "MOVO-203",
+"titulo": "[movo-mobile] Emisión de ubicación del transportista en foreground y background",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-11"
+},
+"MOVO-204": {
+"id": "MOVO-204",
+"titulo": "[movo-mobile] Mapa de seguimiento en vivo para emisor y receptor",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-11"
+},
+"MOVO-205": {
+"id": "MOVO-205",
+"titulo": "[svc-pricing-logistics] Endpoint de optimización VRPTW multi-envío: del prototipo de ADR-013 a producción",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-10"
+},
+"MOVO-206": {
+"id": "MOVO-206",
+"titulo": "[svc-shipments] Agregación de paradas del transportista y contrato con pricing-logistics",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-10"
+},
+"MOVO-207": {
+"id": "MOVO-207",
+"titulo": "[movo-mobile] Mapa de ruta optimizada: paradas ordenadas, ETA y recálculo al completar una parada",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-10"
+},
+"MOVO-208": {
+"id": "MOVO-208",
+"titulo": "[svc-shipments] Extensión del set canónico de estados: `assigned_unfunded` y `completed` (migración, @movo/shared, DTE, DER)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-209": {
+"id": "MOVO-209",
+"titulo": "[svc-payments] Hold (Auth & Capture con capture:false): crear, consultar y liberar la reserva de un envío",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-12"
+},
+"MOVO-210": {
+"id": "MOVO-210",
+"titulo": "[svc-shipments] Saga de asignación: pago del emisor al aceptar o ventana de confirmación, vencimientos y reversión a published",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-12"
+},
+"MOVO-211": {
+"id": "MOVO-211",
+"titulo": "[movo-mobile] Estado de la reserva de fondos en el detalle del envío",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-12"
+},
+"MOVO-212": {
+"id": "MOVO-212",
+"titulo": "[svc-payments] Captura del hold y split payment al confirmarse la entrega (FundsReleaseNotifier real)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-13"
+},
+"MOVO-213": {
+"id": "MOVO-213",
+"titulo": "[svc-payments] Reintentos del split y escalado a proceso manual ante fallo persistente",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-13"
+},
+"MOVO-214": {
+"id": "MOVO-214",
+"titulo": "[movo-mobile] Detalle del pago (bruto, comisión, neto) en el envío entregado",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-13"
+},
+"MOVO-215": {
+"id": "MOVO-215",
+"titulo": "[Spike] Plazo real de la reserva (hold) de MP y valor de N",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-12"
+},
+"MOVO-216": {
+"id": "MOVO-216",
+"titulo": "[Spike] Investigación de algoritmos de pricing dinámico y consumo de API de combustible",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-217": {
+"id": "MOVO-217",
+"titulo": "[svc-pricing-logistics] Setup de OR-Tools, cliente Redis y RoutesProvider",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "1",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-218": {
+"id": "MOVO-218",
+"titulo": "[svc-pricing-logistics] POST /routes/evaluate-candidates con cache en Redis",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-219": {
+"id": "MOVO-219",
+"titulo": "[svc-shipments] Integrar desvío marginal en el feed de viajes (GET /trips/:id/matches)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-221": {
+"id": "MOVO-221",
+"titulo": "[svc-shipments] [movo-mobile] Rediseño de estados de viaje (declarado/activo/realizado) y límite de 1 viaje activo por transportista",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-18"
+},
+"MOVO-222": {
+"id": "MOVO-222",
+"titulo": "[svc-shipments] Endpoint/flag de calificaciones pendientes de dar",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-193"
+},
+"MOVO-223": {
+"id": "MOVO-223",
+"titulo": "Revisión del Ficha/Selector de Auto",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-224": {
+"id": "MOVO-224",
+"titulo": "Legal y compliance: Términos y Condiciones, Política de Privacidad y protección de datos personales (Ley 25.326)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "1",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [
+{
+"id": "MOVO-225",
+"titulo": "Confirmar MP_TRANSACTION_FEE_RATE con Mercado Pago y reflejarlo en los Términos y Condiciones",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "1",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-226",
+"titulo": "Definir e implementar la mecánica de penalidad de cancelación con Transportista asignado (holds/liberación de pagos)",
+"estado": "In Progress",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": ""
+},
+{
+"id": "MOVO-228",
+"titulo": "Checkbox obligatorio de aceptación legal en el registro + \"firma electrónica\" en Perfil → Legal",
+"estado": "In Review",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": ""
+},
+{
+"id": "MOVO-229",
+"titulo": "Re-aceptación de Términos/Privacidad post-registro: gate al abrir la app + botón \"Aceptar\" en Perfil → Legal",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-230",
+"titulo": "Job automático de purga/anonimización de datos vencidos (Política de Privacidad §7)",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "2",
+"asignado": "P. Yorlano"
+}
+],
+"padre": ""
+},
+"MOVO-225": {
+"id": "MOVO-225",
+"titulo": "Confirmar MP_TRANSACTION_FEE_RATE con Mercado Pago y reflejarlo en los Términos y Condiciones",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "1",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-224"
+},
+"MOVO-226": {
+"id": "MOVO-226",
+"titulo": "Definir e implementar la mecánica de penalidad de cancelación con Transportista asignado (holds/liberación de pagos)",
+"estado": "In Progress",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [
+{
+"id": "MOVO-305",
+"titulo": "[svc-payments] Spike: captura parcial y application_fee variable en sandbox",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-306",
+"titulo": "[svc-payments] Captura parcial del hold por penalidad de cancelación",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-307",
+"titulo": "[svc-shipments] Cancelación del emisor desde assigned con penalidad (umbral 12 h)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-308",
+"titulo": "[mobile] Emisor: cancelar un envío asignado con confirmación de penalidad",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "1",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-309",
+"titulo": "[svc-payments] Cuenta corriente del usuario (deudas, pagos y saldo con signo)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-310",
+"titulo": "[svc-shipments] Cancelación del transportista de un envío asignado (vuelve a published + deuda si < 12 h)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-311",
+"titulo": "[svc-payments] Cobrar la deuda en la próxima operación del usuario vía application_fee (como transportista o como emisor)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-312",
+"titulo": "[svc-payments] Pagar mi saldo: el usuario salda su deuda con tarjeta guardada + CVV",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-313",
+"titulo": "[svc-shipments][svc-payments] Bloqueo por deuda vencida en la cuenta corriente",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-314",
+"titulo": "[mobile] Transportista: bajarse de un envío asignado y cancelar un viaje con paquetes",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-315",
+"titulo": "[mobile] Cuenta corriente: saldo, \"Pagar mi saldo\" y deuda al cobrar o pagar",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-316",
+"titulo": "[docs] Términos y Condiciones: penalidades de cancelación y cuenta corriente del usuario",
+"estado": "In Progress",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "T. Vergara"
+}
+],
+"padre": "MOVO-224"
+},
+"MOVO-228": {
+"id": "MOVO-228",
+"titulo": "Checkbox obligatorio de aceptación legal en el registro + \"firma electrónica\" en Perfil → Legal",
+"estado": "In Review",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-224"
+},
+"MOVO-229": {
+"id": "MOVO-229",
+"titulo": "Re-aceptación de Términos/Privacidad post-registro: gate al abrir la app + botón \"Aceptar\" en Perfil → Legal",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-224"
+},
+"MOVO-230": {
+"id": "MOVO-230",
+"titulo": "Job automático de purga/anonimización de datos vencidos (Política de Privacidad §7)",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-224"
+},
+"MOVO-232": {
+"id": "MOVO-232",
+"titulo": "Fijar identificadores de app store (android.package / ios.bundleIdentifier) para EAS/TestFlight",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-234": {
+"id": "MOVO-234",
+"titulo": "[svc-shipments] Auto-crear Trip al aceptar una oferta sin viaje asociado",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-18"
+},
+"MOVO-235": {
+"id": "MOVO-235",
+"titulo": "[svc-shipments] Scopear GET /shipments/my-route al viaje iniciado (en vez de todos los envíos activos)",
+"estado": "Done",
+"ciclo": "Cycle 6",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-10"
+},
+"MOVO-236": {
+"id": "MOVO-236",
+"titulo": "[movo-mobile] Aviso de viaje auto-creado tras aceptar una oferta sin viaje asociado",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-18"
+},
+"MOVO-237": {
+"id": "MOVO-237",
+"titulo": "[svc-shipments][movo-mobile] Navegación turn-by-turn: RouteProvider extendido con modo per-trip/live (ADR-022) + botón deep-link a Maps/Waze",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-10"
+},
+"MOVO-238": {
+"id": "MOVO-238",
+"titulo": "[svc-shipments] Expiración automática de viajes declared sin ofertas aceptadas al llegar departureAt",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-18"
+},
+"MOVO-239": {
+"id": "MOVO-239",
+"titulo": "[svc-users] [movo-mobile] Notificaciones: pantalla de configuración con toggle maestro y desglose granular (push existentes)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [
+"El toggle maestro apagado impide cualquier push, sin importar el estado de los toggles individuales — lo respeta el servidor, no solo el cliente.",
+"Cada uno de los 4 toggles de categoría apaga específicamente esos triggers y ninguno más (verificable con un test de integración por categoría en `svc-users`).",
+"Apagar el permiso del SO no rompe la pantalla ni miente sobre el estado real de las push.",
+"La preferencia se persiste server-side (sobrevive reinstalar la app / cambiar de dispositivo — a diferencia de una preferencia solo local).",
+"Toda cuenta existente arranca con todo habilitado (sin regresión para quien no toca nada)."
+],
+"hijos": [
+{
+"id": "MOVO-245",
+"titulo": "[svc-users] [svc-shipments] Notificaciones: modelo de preferencias, toggle maestro, horario de silencio y enforcement en el envío",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-246",
+"titulo": "[movo-mobile] Pantalla de configuración de notificaciones: toggle maestro, categorías y horario de silencio",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "T. Vergara"
+}
+],
+"padre": "MOVO-24"
+},
+"MOVO-240": {
+"id": "MOVO-240",
+"titulo": "Notificaciones: catálogo de notificaciones faltantes",
+"estado": "Todo",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-24"
+},
+"MOVO-241": {
+"id": "MOVO-241",
+"titulo": "[CI/CD] Build automático de movo-mobile en EAS al crear un tag (development build + TestFlight)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-242": {
+"id": "MOVO-242",
+"titulo": "[movo-mobile] Emisión de ubicación del transportista en background: permisos en dos etapas, cadencia reducida y medición de batería",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-11"
+},
+"MOVO-243": {
+"id": "MOVO-243",
+"titulo": "[svc-payments] OAuth Connect: renovación automática de tokens (cron) y marcado de vinculación revocada",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-110"
+},
+"MOVO-244": {
+"id": "MOVO-244",
+"titulo": "[Bugs] Batch: KYC, TyC obligatorios, sincronización de estado y varios de UI",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-245": {
+"id": "MOVO-245",
+"titulo": "[svc-users] [svc-shipments] Notificaciones: modelo de preferencias, toggle maestro, horario de silencio y enforcement en el envío",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-239"
+},
+"MOVO-246": {
+"id": "MOVO-246",
+"titulo": "[movo-mobile] Pantalla de configuración de notificaciones: toggle maestro, categorías y horario de silencio",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-239"
+},
+"MOVO-247": {
+"id": "MOVO-247",
+"titulo": "[movo-mobile] Splash screen (prototipo Claude Design)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-63"
+},
+"MOVO-249": {
+"id": "MOVO-249",
+"titulo": "[movo-mobile] Onboarding: carrusel explicativo de primer uso",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-250": {
+"id": "MOVO-250",
+"titulo": "[svc-shipments] Ajustes de ingesta y canal de tracking: orden por captured_at, cadencia sobre la traza offline, envío por lotes y eventos de estado",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-11"
+},
+"MOVO-251": {
+"id": "MOVO-251",
+"titulo": "[svc-shipments] Gatear ingesta y lectura de tracking por Trip activo, no por Shipment.status",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-11"
+},
+"MOVO-252": {
+"id": "MOVO-252",
+"titulo": "[movo-mobile] CTA \"Iniciar viaje\" para el transportista",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-11"
+},
+"MOVO-253": {
+"id": "MOVO-253",
+"titulo": "Elegir otro receptor tras un rechazo: acción en \"Requiere tu atención\" y vencimiento a cancelado",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-254": {
+"id": "MOVO-254",
+"titulo": "[movo-mobile] Badge \"Alta demanda en tu zona\" en el detalle del envío (highDemand de MOVO-138)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-255": {
+"id": "MOVO-255",
+"titulo": "[svc-shipments + movo-mobile] Cotización real y congelada en el resumen del wizard de envío",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-256": {
+"id": "MOVO-256",
+"titulo": "[movo-mobile][svc-users] Adjuntar imágenes a un reporte de usuario",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-175"
+},
+"MOVO-257": {
+"id": "MOVO-257",
+"titulo": "[movo-mobile] Rediseño de \"Mis envíos\" para emisor y receptor: accesos por rol, En curso/Historial y cards con acción",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "1",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-27"
+},
+"MOVO-258": {
+"id": "MOVO-258",
+"titulo": "[svc-shipments] Expiración y cierre automático de envíos y viajes en todos sus estados",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-259": {
+"id": "MOVO-259",
+"titulo": "[Transversal] Rediseño de \"Mis viajes\" para el transportista",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [
+{
+"id": "MOVO-260",
+"titulo": "[svc-shipments] Estado `expired` separado de `cancelled`, cancelación lógica de viajes y listado por scope (próximos/historial)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "P. Yorlano"
+},
+{
+"id": "MOVO-261",
+"titulo": "[svc-shipments] Paquetes aceptados en el detalle del viaje (GET /trips/:id)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": ""
+},
+{
+"id": "MOVO-262",
+"titulo": "[movo-mobile] Mis viajes: tabs Próximos/Historial y pills de estado legibles",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-263",
+"titulo": "[movo-mobile] Pantalla de detalle de viaje: paquetes aceptados, búsqueda de paquetes y cancelación",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "J.C. Bordino B."
+}
+],
+"padre": ""
+},
+"MOVO-260": {
+"id": "MOVO-260",
+"titulo": "[svc-shipments] Estado `expired` separado de `cancelled`, cancelación lógica de viajes y listado por scope (próximos/historial)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-259"
+},
+"MOVO-261": {
+"id": "MOVO-261",
+"titulo": "[svc-shipments] Paquetes aceptados en el detalle del viaje (GET /trips/:id)",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "2",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-259"
+},
+"MOVO-262": {
+"id": "MOVO-262",
+"titulo": "[movo-mobile] Mis viajes: tabs Próximos/Historial y pills de estado legibles",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-259"
+},
+"MOVO-263": {
+"id": "MOVO-263",
+"titulo": "[movo-mobile] Pantalla de detalle de viaje: paquetes aceptados, búsqueda de paquetes y cancelación",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-259"
+},
+"MOVO-264": {
+"id": "MOVO-264",
+"titulo": "[Spike] Viajes recurrentes: recurrencia como atributo del Trip con generación del siguiente viaje (ADR-042)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-265": {
+"id": "MOVO-265",
+"titulo": "[svc-shipments] Viajes recurrentes: atributo de recurrencia en Trip y generación de la siguiente ocurrencia",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-266": {
+"id": "MOVO-266",
+"titulo": "[movo-mobile] Viajes recurrentes: opción \"Se repite\" al declarar/editar y badge de serie",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-267": {
+"id": "MOVO-267",
+"titulo": "[svc-payments] Setup base del servicio: schema payments (Prisma), cliente del SDK de MP, credenciales por ambiente y ruta en el gateway",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-268": {
+"id": "MOVO-268",
+"titulo": "[svc-payments] Webhook de notificaciones de pagos de MP: holds cancelados o vencidos por MP y contracargos",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "1",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-12"
+},
+"MOVO-269": {
+"id": "MOVO-269",
+"titulo": "[movo-mobile] Pago del envío con tarjeta guardada + CVV: al aceptar la oferta y al confirmar el pago de un retiro lejano",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-12"
+},
+"MOVO-270": {
+"id": "MOVO-270",
+"titulo": "[svc-shipments] Tracking GPS antes del retiro y atribución de responsabilidad del no-retiro; revisar conteo de oferta de ADR-025",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "8",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-271": {
+"id": "MOVO-271",
+"titulo": "[movo-mobile] Paquete de fixes #2: ofertas, seguimiento en vivo y detalle de envío",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-272": {
+"id": "MOVO-272",
+"titulo": "Feria de Proyectos",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-273": {
+"id": "MOVO-273",
+"titulo": "Documentación",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "5",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-274": {
+"id": "MOVO-274",
+"titulo": "[svc-users] [svc-shipments] Notificaciones push: KYC, cuenta y seguridad, y calificación pendiente",
+"estado": "Done",
+"ciclo": "Cycle 7",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-24"
+},
+"MOVO-275": {
+"id": "MOVO-275",
+"titulo": "Transferencia de receptor: el receptor designado puede pasarle la recepción a otra persona",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [
+"**AC1**: El receptor de un envío aceptado, incluso en tránsito, puede pedir la transferencia a otro usuario con KYC aprobado. Cada validación de arriba devuelve su error.",
+"**AC2**: El nuevo receptor recibe la invitación y puede aceptarla o rechazarla dentro del plazo. Si la rechaza o vence el plazo, el envío sigue con el receptor anterior y este recibe el aviso.",
+"**AC3**: Cuando el nuevo receptor acepta, el envío cambia de receptor de forma atómica, y el transportista, el emisor y el receptor original reciben la push. El handshake de entrega lo firma el nuevo receptor.",
+"**AC4**: El emisor recibe una notificación informativa cuando se pide la transferencia y otra con el resultado. No tiene acción que tomar.",
+"**AC5**: Un envío admite una sola transferencia completada y, como máximo, una solicitud activa a la vez.",
+"**AC6**: Una solicitud pendiente se cancela si arranca el handshake de entrega o si la cancela el receptor original.",
+"**AC7**: La línea de tiempo muestra cada solicitud como **un único item** que refleja su estado (pendiente, completada, rechazada, vencida, cancelada por el receptor o por el inicio de la entrega), con actor, motivo y horarios. El receptor original y el emisor ven todas las solicitudes; el transportista y el nuevo receptor solo la completada.",
+"**AC8**: En mobile, el receptor ve la acción \"Que lo reciba otra persona\" en el detalle del envío. La invitación aparece en \"Requiere tu atención\" del nuevo receptor con el plazo restante (patrón de MOVO-253 AC5). Para el emisor es solo informativa: push y evento en la línea de tiempo, sin card de acción.",
+"**AC9**: Tests de integración con Postgres real que cubran cada validación, la carrera con el handshake, el vencimiento, el límite de una transferencia, el acceso de solo lectura del receptor original y el filtrado de la línea de tiempo por quien mira.",
+"**AC10**: Después de una transferencia completada, el receptor original ve el detalle completo en solo lectura (con tracking en vivo y un banner \"Le pasaste la recepción a X · fecha\" con el motivo), sin ninguna acción, y el envío sigue en su actividad reciente con el badge \"Transferido\". No puede firmar la entrega ni calificar."
+],
+"hijos": [],
+"padre": ""
+},
+"MOVO-276": {
+"id": "MOVO-276",
+"titulo": "[svc-pricing-logistics] Rework del motor de precios: factores de paquete (peso facturable, medidas, categoría) y límites duros",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-277": {
+"id": "MOVO-277",
+"titulo": "[svc-shipments][movo-mobile] Iniciar viaje: validar fecha de salida y exigir paquetes ejecutables (fuente única de \"paquete vivo\")",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-278": {
+"id": "MOVO-278",
+"titulo": "[svc-shipments][movo-mobile] Salida para envíos in_transit anómalos: visibilidad en la card y paso automático a disputa",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "5",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-279": {
+"id": "MOVO-279",
+"titulo": "[movo-mobile] Exigir ubicación en segundo plano para operar como transportista",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "1",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-280": {
+"id": "MOVO-280",
+"titulo": "[svc-shipments + movo-mobile] Cotas de precio en las ofertas del transportista",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-281": {
+"id": "MOVO-281",
+"titulo": "[movo-mobile] [svc-shipments] Navegación al tocar las notificaciones push que hoy no llevan a ningún lado",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-24"
+},
+"MOVO-282": {
+"id": "MOVO-282",
+"titulo": "[svc-payments][svc-shipments] Hold con tarjeta guardada: el pagador pasa a ser el customer de la tarjeta (token por CVV)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-65"
+},
+"MOVO-284": {
+"id": "MOVO-284",
+"titulo": "[movo-mobile] Pantalla de chat del envío: mensajes en tiempo real entre las partes",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-285": {
+"id": "MOVO-285",
+"titulo": "svc-payments/movo-mobile: persistir el fee real de Mercado Pago y mostrar el monto cobrado exacto",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-286": {
+"id": "MOVO-286",
+"titulo": "Como administrador, quiero ingresar al panel con un segundo factor para operar sobre la plataforma de forma segura",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "",
+"asignado": "",
+"ac": [
+"Un usuario con rol `admin`, email verificado y cuenta activa entra al panel con email, contraseña y un código OTP recibido por email.",
+"Un usuario sin rol `admin`, con la cuenta suspendida o con credenciales inválidas no entra, y el error no revela cuál de las condiciones falló.",
+"Un token emitido por el login de la app nunca lleva el rol `admin`, aunque el usuario lo tenga.",
+"La sesión del panel vence a las 8 h como máximo, sin importar la actividad.",
+"Revocar el rol `admin` o suspender la cuenta corta las sesiones del panel de inmediato.",
+"Cualquier acción de escritura desde el panel queda en la bitácora y se rechaza si el admin es parte de lo que toca.",
+"Existe al menos un admin en dev, creado con el script.",
+"Un admin puede listar, otorgar y revocar el rol `admin` desde el panel, sin dejar el sistema sin admins."
+],
+"hijos": [
+{
+"id": "MOVO-287",
+"titulo": "[svc-users] Sesión de panel: login con email + OTP y rol admin solo en esa sesión",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-288",
+"titulo": "[gateway][svc-admin] Base de svc-admin: ruta /admin, x-user-*, Prisma, bitácora y regla de conflicto de interés",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-290",
+"titulo": "[svc-users] Alta y baja del rol admin: script CLI y endpoints internos",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-291",
+"titulo": "[movo-admin] Setup del panel: layout, login con OTP, sesión en cookies httpOnly y rutas protegidas",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-292",
+"titulo": "[movo-admin][svc-admin] Gestión de admins desde el panel: listar, otorgar y revocar el rol",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "J.C. Bordino B."
+}
+],
+"padre": ""
+},
+"MOVO-287": {
+"id": "MOVO-287",
+"titulo": "[svc-users] Sesión de panel: login con email + OTP y rol admin solo en esa sesión",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-286"
+},
+"MOVO-288": {
+"id": "MOVO-288",
+"titulo": "[gateway][svc-admin] Base de svc-admin: ruta /admin, x-user-*, Prisma, bitácora y regla de conflicto de interés",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-286"
+},
+"MOVO-290": {
+"id": "MOVO-290",
+"titulo": "[svc-users] Alta y baja del rol admin: script CLI y endpoints internos",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-286"
+},
+"MOVO-291": {
+"id": "MOVO-291",
+"titulo": "[movo-admin] Setup del panel: layout, login con OTP, sesión en cookies httpOnly y rutas protegidas",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-286"
+},
+"MOVO-292": {
+"id": "MOVO-292",
+"titulo": "[movo-admin][svc-admin] Gestión de admins desde el panel: listar, otorgar y revocar el rol",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-286"
+},
+"MOVO-293": {
+"id": "MOVO-293",
+"titulo": "Como administrador, quiero buscar un usuario y ver su ficha completa, para entender su actividad antes de tomar una decisión sobre su cuenta",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "",
+"ac": [
+"**Búsqueda** por nombre, email, teléfono o DNI, con resultados paginados: nombre, email, teléfono, estado de la cuenta, KYC de identidad y fecha de alta. Las cuentas dadas de baja (`deleted`) se pueden encontrar, marcadas como tales.",
+"**Ficha** con secciones:",
+"**Datos:** nombre, email y teléfono (con su estado de verificación), DNI, fecha de nacimiento, fecha de alta, roles y estado de la cuenta.",
+"**Verificación:** KYC de identidad y de licencia, con el historial de intentos (sin imágenes biométricas, mismo criterio que `MOVO-32`). Estado de la cuenta de Mercado Pago (vinculada o no).",
+"**Actividad:** envíos donde participa (como emisor, transportista o receptor), con estado y link al detalle; viajes; calificaciones recibidas y su promedio.",
+"**Moderación:** reportes recibidos y hechos, y bloqueos en ambas direcciones.",
+"**Sanciones:** historial (se completa cuando existan, en `MOVO-36`).",
+"**Bitácora:** acciones de admins sobre este usuario.",
+"Cada sección se carga por separado: si un servicio no responde, esa sección muestra el error y el resto de la ficha se ve igual.",
+"Ver una ficha no queda en la bitácora (es lectura; la regla de conflicto no aplica)."
+],
+"hijos": [
+{
+"id": "MOVO-294",
+"titulo": "[svc-admin][svc-users][svc-shipments][svc-payments] Búsqueda de usuarios y ficha: endpoints de admin e internos",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-295",
+"titulo": "[movo-admin] Pantallas de búsqueda de usuarios y ficha",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-294": {
+"id": "MOVO-294",
+"titulo": "[svc-admin][svc-users][svc-shipments][svc-payments] Búsqueda de usuarios y ficha: endpoints de admin e internos",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-293"
+},
+"MOVO-295": {
+"id": "MOVO-295",
+"titulo": "[movo-admin] Pantallas de búsqueda de usuarios y ficha",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-293"
+},
+"MOVO-296": {
+"id": "MOVO-296",
+"titulo": "[svc-users][shared] Sanciones de cuenta: suspensión e inhabilitación, historial, marca en Redis y vencimiento automático",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-36"
+},
+"MOVO-297": {
+"id": "MOVO-297",
+"titulo": "[svc-shipments] Efectos de una sanción: retirar lo no comprometido, avisar a contrapartes y listar envíos en curso",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-36"
+},
+"MOVO-298": {
+"id": "MOVO-298",
+"titulo": "[gateway] Aplicar suspensión e inhabilitación en cada request a partir de la marca en Redis",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "2",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-36"
+},
+"MOVO-299": {
+"id": "MOVO-299",
+"titulo": "[svc-admin][movo-admin] Suspender, inhabilitar y levantar sanciones desde la ficha del usuario",
+"estado": "In Progress",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-36"
+},
+"MOVO-300": {
+"id": "MOVO-300",
+"titulo": "[movo-mobile] Experiencia de una cuenta suspendida o inhabilitada y estado en el perfil público",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-36"
+},
+"MOVO-301": {
+"id": "MOVO-301",
+"titulo": "Chat del envío: animación de mensajes, rediseño del detalle del envío y fixes de navegación/contador",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-302": {
+"id": "MOVO-302",
+"titulo": "[svc-payments] Historial: guardar el pagador y la tarjeta en el hold (payer_id, card_last4, card_brand)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-28"
+},
+"MOVO-303": {
+"id": "MOVO-303",
+"titulo": "[svc-payments] Historial: endpoints de listado y detalle por rol (GET /payments/transactions)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-28"
+},
+"MOVO-304": {
+"id": "MOVO-304",
+"titulo": "[movo-mobile] Historial de pagos y cobros: tabs, filtros, detalle y estados de lista",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-28"
+},
+"MOVO-305": {
+"id": "MOVO-305",
+"titulo": "[svc-payments] Spike: captura parcial y application_fee variable en sandbox",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-306": {
+"id": "MOVO-306",
+"titulo": "[svc-payments] Captura parcial del hold por penalidad de cancelación",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-307": {
+"id": "MOVO-307",
+"titulo": "[svc-shipments] Cancelación del emisor desde assigned con penalidad (umbral 12 h)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-308": {
+"id": "MOVO-308",
+"titulo": "[mobile] Emisor: cancelar un envío asignado con confirmación de penalidad",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "1",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-309": {
+"id": "MOVO-309",
+"titulo": "[svc-payments] Cuenta corriente del usuario (deudas, pagos y saldo con signo)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "2",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-310": {
+"id": "MOVO-310",
+"titulo": "[svc-shipments] Cancelación del transportista de un envío asignado (vuelve a published + deuda si < 12 h)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-311": {
+"id": "MOVO-311",
+"titulo": "[svc-payments] Cobrar la deuda en la próxima operación del usuario vía application_fee (como transportista o como emisor)",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-312": {
+"id": "MOVO-312",
+"titulo": "[svc-payments] Pagar mi saldo: el usuario salda su deuda con tarjeta guardada + CVV",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-313": {
+"id": "MOVO-313",
+"titulo": "[svc-shipments][svc-payments] Bloqueo por deuda vencida en la cuenta corriente",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-314": {
+"id": "MOVO-314",
+"titulo": "[mobile] Transportista: bajarse de un envío asignado y cancelar un viaje con paquetes",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-315": {
+"id": "MOVO-315",
+"titulo": "[mobile] Cuenta corriente: saldo, \"Pagar mi saldo\" y deuda al cobrar o pagar",
+"estado": "Done",
+"ciclo": "Cycle 8",
+"sp": "3",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-316": {
+"id": "MOVO-316",
+"titulo": "[docs] Términos y Condiciones: penalidades de cancelación y cuenta corriente del usuario",
+"estado": "In Progress",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-226"
+},
+"MOVO-317": {
+"id": "MOVO-317",
+"titulo": "[movo-mobile][svc-shipments][svc-pricing] Peso y dimensiones libres en publicar envío: wizard, sin límites duros y recalibración de precio",
+"estado": "In Progress",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-318": {
+"id": "MOVO-318",
+"titulo": "Mobile: el sheet de cancelación debe usar el monto real del hold como \"reservado\"",
+"estado": "Todo",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+},
+"MOVO-319": {
+"id": "MOVO-319",
+"titulo": "Como usuario, quiero escribirle al equipo de soporte desde la app, con o sin un envío asociado, para resolver un problema sin salir de Movo.",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [
+"Un usuario autenticado puede abrir una consulta de soporte desde Perfil, elegir un tema y, opcionalmente, vincular un envío en el que sea parte (emisor, transportista o receptor).",
+"Puede ver el listado de sus consultas con su estado (abierta, esperando al usuario, resuelta) y mensajes no leídos, y reabrir una resuelta escribiendo de nuevo.",
+"Los mensajes se envían por HTTP y se reciben en tiempo real por WebSocket; el usuario recibe una push cuando un agente responde.",
+"Se pueden adjuntar imágenes a los mensajes, de ambos lados.",
+"Un agente (rol `ADMIN`) ve una bandeja con todas las consultas, filtros por estado y por asignación, y puede tomarla, asignarla, cambiar prioridad, etiquetar, vincular o desvincular un envío, resolver y reabrir.",
+"Los agentes pueden dejar **notas internas** que el usuario nunca recibe (ni por API, ni por WebSocket, ni por push).",
+"El agente ve el contexto del usuario (perfil, KYC, envíos, consultas anteriores) y puede usar respuestas rápidas.",
+"El historial se conserva y es visible para los agentes (y como evidencia en una disputa, MOVO-34)."
+],
+"hijos": [
+{
+"id": "MOVO-320",
+"titulo": "[svc-shipments] Conversaciones de soporte: modelo, API del usuario, tiempo real sobre el chat existente y ADR",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "2",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-321",
+"titulo": "[svc-shipments] Adjuntos de imágenes en los mensajes de soporte (S3 con presigned URLs)",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-322",
+"titulo": "[svc-admin][svc-shipments] API de la bandeja de soporte para agentes (rol ADMIN): asignar, priorizar, etiquetar, vincular, resolver, notas y contexto del usuario",
+"estado": "In Progress",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "A. Ariza"
+},
+{
+"id": "MOVO-323",
+"titulo": "[movo-admin] Bandeja de soporte (prototipo \"Movo Admin Soporte\"): lista, conversación y panel de contexto del usuario",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "T. Vergara"
+},
+{
+"id": "MOVO-324",
+"titulo": "[movo-mobile] Ayuda y soporte: nueva consulta (con o sin envío), mis consultas y conversación con el equipo de Movo",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "T. Vergara"
+}
+],
+"padre": ""
+},
+"MOVO-320": {
+"id": "MOVO-320",
+"titulo": "[svc-shipments] Conversaciones de soporte: modelo, API del usuario, tiempo real sobre el chat existente y ADR",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-319"
+},
+"MOVO-321": {
+"id": "MOVO-321",
+"titulo": "[svc-shipments] Adjuntos de imágenes en los mensajes de soporte (S3 con presigned URLs)",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-319"
+},
+"MOVO-322": {
+"id": "MOVO-322",
+"titulo": "[svc-admin][svc-shipments] API de la bandeja de soporte para agentes (rol ADMIN): asignar, priorizar, etiquetar, vincular, resolver, notas y contexto del usuario",
+"estado": "In Progress",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-319"
+},
+"MOVO-323": {
+"id": "MOVO-323",
+"titulo": "[movo-admin] Bandeja de soporte (prototipo \"Movo Admin Soporte\"): lista, conversación y panel de contexto del usuario",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-319"
+},
+"MOVO-324": {
+"id": "MOVO-324",
+"titulo": "[movo-mobile] Ayuda y soporte: nueva consulta (con o sin envío), mis consultas y conversación con el equipo de Movo",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-319"
+},
+"MOVO-325": {
+"id": "MOVO-325",
+"titulo": "[svc-shipments][svc-admin] Envíos para el panel: listado con filtros, detalle completo y chat en solo lectura",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-33"
+},
+"MOVO-326": {
+"id": "MOVO-326",
+"titulo": "[movo-admin] Listado y detalle de envíos (prototipo \"Movo Admin Envíos\"): pestañas, tabla, línea de tiempo y chat en solo lectura",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "A. Ariza",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-33"
+},
+"MOVO-327": {
+"id": "MOVO-327",
+"titulo": "[svc-shipments][svc-admin] Seguimiento de un envío en camino para el panel: última posición, traza y métricas",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "3",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-33"
+},
+"MOVO-328": {
+"id": "MOVO-328",
+"titulo": "[movo-admin] Mapa de seguimiento del envío en el detalle: ruta recorrida, posición del transportista y métricas",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "2",
+"asignado": "T. Vergara",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-33"
+},
+"MOVO-329": {
+"id": "MOVO-329",
+"titulo": "Como administrador, quiero corregir el estado de un envío trabado o inconsistente, para destrabar casos que el flujo normal no resuelve.",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [
+"Un admin puede cambiar el estado de un envío desde el detalle, eligiendo entre las transiciones válidas y, aparte y con más fricción, las forzadas que permita el ADR.",
+"Cada cambio exige motivo, y los de riesgo alto o crítico exigen además el código del envío tipeado; las forzadas y las críticas, un OTP nuevo.",
+"El admin ve antes de confirmar qué se va a ejecutar, a quién se avisa y qué no se puede deshacer.",
+"El cambio se ejecuta con los mismos efectos que la transición normal; si no hay efecto definido, el panel no ofrece ese destino.",
+"Queda en la línea de tiempo del envío (visible para el admin, marcado como manual/forzado, con actor y motivo) y en la bitácora.",
+"Un admin que es parte del envío no puede cambiarlo. Dos cambios simultáneos no se pisan.",
+"Las partes reciben el aviso que defina el ADR."
+],
+"hijos": [
+{
+"id": "MOVO-330",
+"titulo": "[docs] ADR: cambio forzado de estado de un envío — matriz de transiciones, riesgos, efectos y bloqueos",
+"estado": "Todo",
+"ciclo": "Cycle 9",
+"sp": "2",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-331",
+"titulo": "[svc-shipments] Transición forzada de estado: endpoint interno que ejecuta los servicios de dominio, registra el evento y avisa a las partes",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "J.C. Bordino B."
+},
+{
+"id": "MOVO-332",
+"titulo": "[svc-admin][svc-users] Cambio de estado desde el panel: ruta /admin, re-autenticación con OTP por acción, conflicto de interés y bitácora",
+"estado": "Todo",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "L. Dalmagro"
+},
+{
+"id": "MOVO-333",
+"titulo": "[movo-admin] Modal de cambio de estado del envío (prototipo \"Movo Admin Envíos\"): elegir, ver impacto y confirmar",
+"estado": "Todo",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "J.C. Bordino B."
+}
+],
+"padre": ""
+},
+"MOVO-330": {
+"id": "MOVO-330",
+"titulo": "[docs] ADR: cambio forzado de estado de un envío — matriz de transiciones, riesgos, efectos y bloqueos",
+"estado": "Todo",
+"ciclo": "Cycle 9",
+"sp": "2",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-329"
+},
+"MOVO-331": {
+"id": "MOVO-331",
+"titulo": "[svc-shipments] Transición forzada de estado: endpoint interno que ejecuta los servicios de dominio, registra el evento y avisa a las partes",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-329"
+},
+"MOVO-332": {
+"id": "MOVO-332",
+"titulo": "[svc-admin][svc-users] Cambio de estado desde el panel: ruta /admin, re-autenticación con OTP por acción, conflicto de interés y bitácora",
+"estado": "Todo",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "L. Dalmagro",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-329"
+},
+"MOVO-333": {
+"id": "MOVO-333",
+"titulo": "[movo-admin] Modal de cambio de estado del envío (prototipo \"Movo Admin Envíos\"): elegir, ver impacto y confirmar",
+"estado": "Todo",
+"ciclo": "Cycle 9",
+"sp": "5",
+"asignado": "J.C. Bordino B.",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-329"
+},
+"MOVO-334": {
+"id": "MOVO-334",
+"titulo": "[svc-shipments] Disputas: entidad, apertura, descargos, notificaciones y bloqueo del transportista",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-30"
+},
+"MOVO-335": {
+"id": "MOVO-335",
+"titulo": "[movo-mobile] Disputas: botón de reclamo, wizard de apertura, detalle con descargo y pill \"En disputa\"",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-30"
+},
+"MOVO-336": {
+"id": "MOVO-336",
+"titulo": "[svc-payments] Reembolsos total y parcial de un pago capturado, con fallback a la cuenta corriente del transportista",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-34"
+},
+"MOVO-337": {
+"id": "MOVO-337",
+"titulo": "[svc-admin][svc-shipments] Resolución de disputas: matriz de resolución, estado final del envío, desbloqueo y notificaciones",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-34"
+},
+"MOVO-338": {
+"id": "MOVO-338",
+"titulo": "[movo-admin] Bandeja de disputas, expediente y pantalla de resolución",
+"estado": "Backlog",
+"ciclo": "",
+"sp": "",
+"asignado": "",
+"ac": [],
+"hijos": [],
+"padre": "MOVO-34"
+},
+"MOVO-340": {
+"id": "MOVO-340",
+"titulo": "[Bugs] Paquete de fixes #3: teclado con pantalla externa, hora sin unidades, doble redirect, búsqueda sin tildes, chat tras transferencia, fecha por defecto, cancelación del mismo día y búsqueda por coordenadas",
+"estado": "Done",
+"ciclo": "Cycle 9",
+"sp": "8",
+"asignado": "P. Yorlano",
+"ac": [],
+"hijos": [],
+"padre": ""
+}
+}

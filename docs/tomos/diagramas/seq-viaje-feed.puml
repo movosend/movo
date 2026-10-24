@@ -1,0 +1,43 @@
+@startuml seq-viaje-feed
+' MOVO-18 (MOVO-161, MOVO-163, MOVO-179) y MOVO-19 (MOVO-142): viaje declarado y paquetes disponibles.
+autonumber
+actor "Transportista" as T
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-users" as U
+participant "svc-payments" as PAY
+database "PostgreSQL" as DB
+
+== Declarar un viaje ==
+T -> M : Indica origen, destino, fecha y hora de salida,\nvehículo (y si se repite)
+M -> G : POST /trips
+G -> S : reenvía
+S -> U : requisitos del transportista (KYC y licencia aprobados)
+S -> PAY : cuenta de Mercado Pago vinculada y vigente
+S -> DB : ¿tiene una disputa abierta como transportista?
+alt falta algún requisito
+  S --> M : 403 CARRIER_LICENSE_NOT_APPROVED /\nCARRIER_MP_ACCOUNT_NOT_LINKED /\nCARRIER_DISPUTE_OPEN\n(details.missingRequirements)
+else cumple los requisitos
+  S -> DB : crea el viaje en declared
+  S --> M : 201 {trip}
+end
+
+== Ver paquetes disponibles ==
+T -> M : Abre «Transportar»
+M -> G : GET /shipments/available?originLat&originLng\n[&destinationLat&destinationLng&radiusKm]
+G -> S : reenvía
+S -> U : ¿tiene rol carrier e identidad verificada?
+alt no verificado
+  S --> M : 403 CARRIER_NOT_VERIFIED
+else verificado
+  S -> U : bloqueos relacionados con el transportista
+  S -> DB : envíos published dentro del radio o del corredor\norigen-destino, excluyendo los propios y los bloqueados
+  S -> DB : marca hasMyOffer según sus ofertas vigentes
+  S --> M : 200 {items, page, limit, total}\n(sin datos personales de emisor y receptor)
+end
+
+== Aviso de paquete compatible ==
+S -> DB : cuando un envío pasa a published, busca viajes declared\ncon retiro y entrega dentro del desvío y la ventana
+S -> U : push trip_match al transportista (una sola vez)
+@enduml

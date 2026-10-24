@@ -1,0 +1,46 @@
+@startuml seq-sesion
+' MOVO-63 / MOVO-74 / MOVO-75: inicio de sesión, renovación con rotación y detección de reuso.
+autonumber
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-users" as S <<movo>>
+database "Redis" as R
+database "PostgreSQL\n(esquema users)" as DB
+
+== Inicio de sesión ==
+M -> G : POST /auth/login {phone, password}
+G -> G : rate limit estricto (5 intentos cada 15 min)
+G -> S : reenvía
+S -> DB : findByPhone
+alt usuario inexistente o contraseña incorrecta
+  S -> S : verificación Argon2id contra un hash ficticio\n(tiempo constante)
+  S --> M : 401 AUTH_INVALID_CREDENTIALS
+else credenciales correctas
+  alt cuenta inhabilitada (banned) o dada de baja
+    S --> M : 403 ACCOUNT_DISABLED
+  else cuenta activa o suspendida
+    S -> R : guarda refresh token (hash, TTL 90 días)
+    S --> M : 200 {accessToken (60 min), refreshToken, kycStatus, roles}
+  end
+end
+
+== Uso del access token ==
+M -> G : cualquier endpoint protegido (Bearer accessToken)
+G -> R : ¿hay marca user-revoked-at posterior al iat del token?
+G -> G : valida firma y expiración; inyecta x-user-id, x-user-roles, x-kyc-status
+
+== Renovación (rotación de un solo uso) ==
+M -> G : POST /auth/refresh {refreshToken}
+G -> S : reenvía
+S -> R : consume el refresh token (script Lua atómico:\nlee, verifica hash y marca used)
+alt token ya usado (posible robo)
+  S -> R : revoca todas las sesiones del usuario
+  S --> M : 401 AUTH_REFRESH_INVALID
+else token inexistente o adulterado
+  S --> M : 401 AUTH_REFRESH_INVALID
+else token vigente
+  S -> DB : relee roles y kycStatus actuales
+  S -> R : guarda el refresh token nuevo
+  S --> M : 200 {accessToken, refreshToken}
+end
+@enduml

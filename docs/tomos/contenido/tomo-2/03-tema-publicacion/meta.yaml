@@ -1,0 +1,20 @@
+titulo: "EP-02 · Publicación y Descubrimiento"
+titulo_corto: Publicación y Descubrimiento
+subtitulo: Cotización y creación de envíos, confirmación del receptor, viajes del transportista, feed de paquetes disponibles, cancelación e historial.
+instancia: Tema 2 de 7 · Trazabilidad de historias de usuario
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: true
+archivos:
+  - intro.md
+  - {gen: herramientas/gen_tema.py, args: [ep02]}
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: trazabilidad de las historias del tema, con criterios de aceptación de Linear, diagramas de secuencia derivados del código y casos de prueba derivados de las pruebas automatizadas."}
+introduccion: |
+  Este documento presenta la trazabilidad de las historias de usuario del tema *Publicación y
+  Descubrimiento*: para cada historia, su descripción y criterios de aceptación, los tickets que
+  la implementaron, el diagrama de secuencia que muestra cómo la resuelve el sistema y los casos
+  de prueba que la verifican.
+audiencia: |
+  El tribunal evaluador y los futuros mantenedores. Se asume conocimiento de las
+  convenciones del proyecto y de UML.

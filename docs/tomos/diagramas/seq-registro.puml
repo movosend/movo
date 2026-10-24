@@ -1,0 +1,50 @@
+@startuml seq-registro
+' MOVO-7 / MOVO-70 / MOVO-71: registro con verificación de teléfono por OTP.
+autonumber
+actor "Usuario" as U
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-users" as S <<movo>>
+database "Redis" as R
+database "PostgreSQL\n(esquema users)" as DB
+participant "SmsProvider" as SMS
+
+U -> M : Ingresa su teléfono
+M -> G : POST /auth/send-otp {phone}
+G -> S : reenvía (ruta pública, rate limit)
+S -> S : normaliza a E.164 (+54 9…)
+S -> R : guarda otp (código de 6 dígitos hasheado,\nTTL 10 min, cooldown 60 s)
+S -> SMS : send(phone, código)
+S --> M : 200 {otpId, cooldownSeconds}
+
+U -> M : Ingresa el código recibido
+M -> G : POST /auth/verify-otp {otpId, code}
+G -> S : reenvía
+S -> R : verifica código (máx. 5 intentos)
+alt código válido
+  S --> M : 200 {phoneVerificationToken}\n(JWT firmado, propósito phone_verification, 15 min)
+else código inválido
+  S --> M : 401 AUTH_OTP_INVALID
+else vencido o excedió intentos
+  S --> M : 422 AUTH_OTP_EXPIRED
+end
+
+U -> M : Completa nombre, DNI, email, contraseña,\ndirección y acepta Términos y Privacidad
+M -> G : POST /auth/register {datos, phoneVerificationToken,\ntermsVersion, privacyVersion}
+G -> S : reenvía
+S -> S : valida versiones legales vigentes
+S -> R : consume el token (SET NX, un solo uso)
+alt token inválido, vencido o de otro teléfono
+  S --> M : 401 AUTH_OTP_INVALID
+else token consumido
+  S -> S : hash de la contraseña (Argon2id)
+  S -> DB : crea usuario + roles + dirección\n(transacción atómica)
+  alt email o teléfono ya registrados
+    S -> R : libera el token (reintento sin rehacer el OTP)
+    S --> M : 409 USER_EMAIL_ALREADY_EXISTS /\nUSER_PHONE_ALREADY_EXISTS
+  else alta correcta
+    S -> R : guarda refresh token (hash, TTL 90 días)
+    S --> M : 201 {accessToken, refreshToken, kycStatus: not_started}
+  end
+end
+@enduml

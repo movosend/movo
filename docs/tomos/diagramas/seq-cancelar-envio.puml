@@ -1,0 +1,39 @@
+@startuml seq-cancelar-envio
+' MOVO-29 (MOVO-108, MOVO-210, MOVO-307): cancelación del envío por el emisor.
+autonumber
+actor "Emisor" as E
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-payments" as PAY
+database "PostgreSQL" as DB
+participant "Notificaciones" as N
+
+E -> M : Cancela el envío (motivo opcional)
+M -> G : POST /shipments/{id}/cancel {reason?, expectedPenaltyArs?}
+G -> S : reenvía
+S -> DB : lee el envío
+alt el solicitante no es el emisor
+  S --> M : 403 AUTH_FORBIDDEN
+else es el emisor
+  opt estado assigned (hay transportista y fondos reservados)
+    S -> S : calcula la penalidad (sin cargo con 12 h o más de\nanticipación; 25 % del precio con menos, o si el\ntransportista ya llegó al retiro)
+    alt la penalidad difiere de la que confirmó el emisor
+      S --> M : 409 CANCELLATION_PENALTY_MISMATCH {penaltyArs}
+    end
+  end
+  S -> DB : transición a cancelled con compare-and-swap sobre el estado leído\n+ evento con el motivo; cierra las ofertas vigentes
+  alt el envío cambió de estado entre la lectura y la escritura\n(por ejemplo, retiro confirmado)
+    S --> M : 409 SHIPMENT_INVALID_TRANSITION / modificación concurrente
+  else cancelación aplicada
+    opt había hold (assignment_pending, assigned_unfunded, assigned sin penalidad)
+      S -> PAY : libera el hold (best-effort; si falla, el hold vence en Mercado Pago)
+    end
+    opt penalidad mayor a cero
+      S -> PAY : captura parcial del hold por la penalidad (si falla,\nla retoma el barrido de liquidaciones)
+    end
+    S -> N : push a cada transportista con una oferta pending\n(y al transportista asignado, si lo hay)
+    S --> M : 200 {shipment cancelled}
+  end
+end
+@enduml

@@ -166,7 +166,7 @@ def numerar(doc: dict, html: str, figuras: list, tablas: list) -> tuple[str, lis
             if img.get("alt") == titulo:
                 img["alt"] = titulo
             # pandoc deja las clases `{.apaisada}` en la imagen; el CSS las necesita en la figura
-            propias = {"apaisada", "pagina-completa", "borde"}
+            propias = {"apaisada", "pagina-completa", "borde", "sin-corte"}
             heredadas = [c for c in img.get("class", []) if c in propias]
             if heredadas:
                 fig["class"] = fig.get("class", []) + heredadas
@@ -203,6 +203,14 @@ def preparar_documento(tomo_dir: Path, ref: dict, n: int, figuras: list, tablas:
     doc["ancla"] = f"doc-{doc['id']}-inicio"
     partes = []
     for archivo in meta.get("archivos") or sorted(p.name for p in doc_dir.glob("*.md")):
+        if isinstance(archivo, dict) and "gen" in archivo:
+            # Generador con argumentos: {gen: herramientas/gen_tema.py, args: [ep01]}
+            r = subprocess.run([sys.executable, str(RAIZ / archivo["gen"]), *map(str, archivo.get("args", []))],
+                               capture_output=True, text=True, cwd=RAIZ)
+            if r.returncode != 0:
+                raise SystemExit(f"Falló el generador {archivo['gen']}:\n{r.stderr}")
+            partes.append(md_a_html(r.stdout, prefijo=doc["id"]))
+            continue
         ruta = doc_dir / archivo
         if ruta.suffix == ".py":
             # Contenido generado a partir de datos (por ejemplo, historias de usuario).

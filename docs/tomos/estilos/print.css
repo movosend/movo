@@ -651,3 +651,12 @@ table.caso td.resultado { font-weight: 600; }
 .paper-autores { font-size: 9.2pt; font-weight: 500; }
 .paper-inst { font-size: 8.6pt; color: var(--ink-600); }
 .documento h2.unnumbered + p em { color: var(--ink-800); }
+
+/* Casos de prueba: tabla de ancho fijo con celdas compactas */
+table.caso { table-layout: fixed; font-size: 7.4pt; }
+table.caso td, table.caso th { padding: 1.2mm 1.5mm; overflow-wrap: anywhere; hyphens: none; }
+table.caso td code { font-size: .88em; background: none; padding: 0; }
+table.caso td.mono { font-size: .95em; white-space: nowrap; }
+table.caso .chip { font-size: 5.8pt; padding: .7mm 1.4mm .5mm; letter-spacing: .02em; }
+table.caso th { overflow-wrap: normal; }
+table.caso .chip { white-space: nowrap; }

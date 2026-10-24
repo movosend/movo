@@ -1,0 +1,58 @@
+@startuml seq-crear-envio
+' MOVO-8 (MOVO-80, MOVO-81, MOVO-82, MOVO-255): cotización congelada, fotos y creación del envío.
+autonumber
+actor "Emisor" as E
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-users" as U
+participant "svc-pricing-\nlogistics" as P
+database "Redis" as R
+database "PostgreSQL\n(esquema shipments)" as DB
+participant "AWS S3" as S3
+
+== Cotización (resumen del wizard) ==
+E -> M : Completa tipo, medidas, peso, retiro y entrega
+M -> G : POST /shipments/quote
+G -> G : valida el JWT; rate limit por usuario (20 por ventana)
+G -> S : POST /shipments/quote
+S -> S : valida límites duros (30 kg, 150 cm por lado)\ny que retiro y entrega estén separados
+S -> DB : cuenta la oferta y la demanda de la zona de retiro
+S -> P : POST /quote {origen, destino, peso, medidas,\ncategoría, contexto de demanda}
+P --> S : {suggestedPriceArs, highDemand, calculationMethod}
+S -> R : guarda la cotización congelada (quoteId, TTL 15 min,\nhuella de los datos que afectan el precio)
+S --> M : 200 {quoteId, suggestedPriceArs, expiresAt}\n(si pricing no responde: «precio a estimar», sin quoteId)
+
+== Fotos del paquete ==
+loop por cada foto (requeridas al crear)
+  M -> G : POST /shipments/{id}/photos/presign
+  G -> S : reenvía
+  S --> M : URL prefirmada de S3 (máx. 2 MB, tipo permitido)
+  M -> S3 : PUT de la imagen
+  M -> S : POST /shipments/{id}/photos/confirm {s3Key}
+  S -> S3 : verifica que el objeto exista
+  S -> DB : registra la evidencia (idempotente por s3Key)
+end
+
+== Creación ==
+E -> M : Confirma el resumen
+M -> G : POST /shipments {datos, receiverId, quoteId}
+G -> S : reenvía con x-user-id del emisor
+S -> S : valida: receptor ≠ emisor, límites del paquete,\nfranja de retiro válida y futura
+S -> U : GET /users/{receiverId} (timeout 5 s)
+alt receptor inexistente
+  S --> M : 404 USER_NOT_FOUND
+else receptor sin KYC aprobado
+  S --> M : 422 SHIPMENT_RECEIVER_KYC_NOT_APPROVED
+else receptor válido
+  S -> U : consulta de bloqueos entre emisor y receptor
+  S -> R : consume el quoteId (un solo uso, mismo usuario, misma huella)
+  alt cotización vencida, usada o con datos distintos
+    S --> M : 409 QUOTE_EXPIRED / QUOTE_MISMATCH
+  else cotización válida
+    S -> DB : crea el envío en awaiting_receiver_confirmation\n+ evento inicial (plazo de confirmación del receptor)
+    S -> U : push al receptor (best-effort)
+    S --> M : 201 {shipment}
+  end
+end
+@enduml

@@ -1,0 +1,48 @@
+@startuml seq-kyc
+' MOVO-72: verificación de identidad delegada en Didit.me (sesión + webhook).
+autonumber
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-users" as S <<movo>>
+database "PostgreSQL\n(esquema users)" as DB
+participant "Didit.me" as D <<externo>>
+
+== Creación de la sesión ==
+M -> G : POST /kyc/session\nAuthorization: Bearer accessToken
+G -> G : valida el JWT e inyecta x-user-id
+G -> S : POST /kyc/session
+S -> DB : findById(userId)
+alt teléfono sin verificar o KYC en un estado que no admite reintento
+  S --> M : 409 KYC_SESSION_NOT_ALLOWED
+else puede iniciar la verificación
+  S -> D : POST /v3/session/ {workflow_id, vendor_data: userId, callback}
+  D --> S : 201 {session_id, session_token, url}
+  S -> DB : kyc_verification (status pending) +\nusers.kyc_status_identity = pending
+  S --> M : 201 {sessionId, sessionToken}
+  M -> D : el SDK de Didit conduce la captura de documento y selfie
+end
+
+== Resolución por webhook ==
+D -> G : POST /kyc/webhook (X-Signature-V2, X-Timestamp)
+G -> S : reenvía el cuerpo crudo (ruta pública)
+S -> S : verifica firma HMAC y ventana anti-replay (300 s)
+alt firma inválida o timestamp fuera de ventana
+  S --> D : 401 KYC_WEBHOOK_INVALID_SIGNATURE
+else firma válida
+  S -> S : mapea el estado de Didit (approved, declined, in review)
+  alt estado no terminal o sesión desconocida
+    S --> D : 200 (se ignora, sin reintentos)
+  else estado terminal de una sesión conocida
+    S -> DB : transición pending → estado final\n(compare-and-swap; idempotente)
+    S -> DB : users.kyc_status_identity = estado final
+    S --> D : 200
+  end
+end
+
+== Consulta de estado ==
+loop mientras el usuario espera
+  M -> G : GET /kyc/status
+  G -> S : GET /kyc/status
+  S --> M : 200 {status: approved | rejected | manual_review | pending}
+end
+@enduml

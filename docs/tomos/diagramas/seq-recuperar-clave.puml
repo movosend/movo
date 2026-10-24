@@ -1,0 +1,35 @@
+@startuml seq-recuperar-clave
+' MOVO-64 / MOVO-140: recuperación de contraseña por OTP sin revelar si la cuenta existe.
+autonumber
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-users" as S <<movo>>
+database "Redis" as R
+database "PostgreSQL\n(esquema users)" as DB
+participant "SmsProvider /\nEmailProvider" as P
+
+M -> G : POST /auth/forgot-password {identifier: teléfono o email}
+G -> S : reenvía (pública, rate limit estricto)
+S -> DB : busca la cuenta (activa y con canal verificado)
+alt cuenta elegible
+  S -> R : guarda otp (6 dígitos, TTL 10 min)
+  S -> P : envía el código por el canal usado
+else cuenta inexistente, baneada o sin email verificado
+  S -> S : señuelo: misma respuesta y latencia comparable, sin envío
+end
+S --> M : 200 {otpId, cooldownSeconds}
+
+M -> G : POST /auth/verify-reset-otp {otpId, code}
+G -> S : reenvía
+S -> R : verifica el código (máx. 5 intentos)
+S --> M : 200 {passwordResetToken} (JWT de un solo uso)
+
+M -> G : POST /auth/reset-password {passwordResetToken, newPassword}
+G -> S : reenvía
+S -> R : consume el token (un solo uso)
+S -> S : valida la política de contraseña y el estado de la cuenta
+S -> DB : actualiza el hash (Argon2id)
+S -> R : revoca todas las sesiones y marca user-revoked-at
+S -> P : avisa el cambio por todos los canales verificados
+S --> M : 200 (el usuario vuelve al login; no se emiten tokens)
+@enduml
