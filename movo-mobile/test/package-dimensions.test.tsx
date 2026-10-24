@@ -168,6 +168,92 @@ describe("MOVO-317: WeightStepper (pasos de 0,5 kg y teclado)", () => {
   });
 });
 
+describe("MOVO-317: el peso escrito llega al wizard sin salir del campo", () => {
+  it("cada tecla actualiza el wizard con el valor redondeado, sin esperar el blur", async () => {
+    const values: string[] = [];
+    const { getByTestId } = await render(<ControlledWeight onValue={(v) => values.push(v)} />);
+
+    await fireEvent.changeText(getByTestId("weight-input"), "3,5");
+
+    expect(values.at(-1)).toBe("3.5");
+
+    await fireEvent.changeText(getByTestId("weight-input"), "2,3");
+
+    expect(values.at(-1)).toBe("2.5");
+    // El texto crudo se conserva mientras se escribe; se reformatea recién al salir.
+    expect(getByTestId("weight-input").props.value).toBe("2,3");
+  });
+
+  it("se puede escribir el decimal: '3,' no se pisa con '3' por el eco del wizard", async () => {
+    const { getByTestId } = await render(<ControlledWeight />);
+
+    await fireEvent.changeText(getByTestId("weight-input"), "3");
+    await fireEvent.changeText(getByTestId("weight-input"), "3,");
+
+    expect(getByTestId("weight-input").props.value).toBe("3,");
+  });
+
+  it("borrar o dejar 0 vacía el wizard al instante (el paso no deja avanzar)", async () => {
+    const values: string[] = [];
+    const { getByTestId } = await render(<ControlledWeight initial="2" onValue={(v) => values.push(v)} />);
+
+    await fireEvent.changeText(getByTestId("weight-input"), "");
+    expect(values.at(-1)).toBe("");
+
+    await fireEvent.changeText(getByTestId("weight-input"), "0");
+    expect(values.at(-1)).toBe("");
+  });
+
+  it("un valor que viene de afuera (tamaño rápido, reset) reemplaza lo escrito", async () => {
+    function WithExternal() {
+      const [value, setValue] = useState("");
+      return (
+        <>
+          <WeightStepper testID="weight" value={value} onChange={setValue} />
+          <ExternalSetter onSet={setValue} />
+        </>
+      );
+    }
+    let external: (v: string) => void = () => undefined;
+    function ExternalSetter({ onSet }: { onSet: (v: string) => void }) {
+      external = onSet;
+      return null;
+    }
+    const { getByTestId } = await render(<WithExternal />);
+
+    await fireEvent.changeText(getByTestId("weight-input"), "3");
+    await act(async () => external("8"));
+
+    expect(getByTestId("weight-input").props.value).toBe("8");
+  });
+
+  it("tope de cordura: más de 10.000 kg se acota a 10.000 y '+' no lo pasa", async () => {
+    const values: string[] = [];
+    const { getByTestId } = await render(<ControlledWeight onValue={(v) => values.push(v)} />);
+
+    await fireEvent.changeText(getByTestId("weight-input"), "99999");
+    expect(values.at(-1)).toBe("10000");
+
+    await fireEvent(getByTestId("weight-input"), "blur");
+    expect(getByTestId("weight-input").props.value).toBe("10000");
+
+    await fireEvent.press(getByTestId("weight-plus"));
+    expect(values.at(-1)).toBe("10000");
+  });
+
+  it("PackageStep: escribir un peso y avanzar sin salir del campo no deja el peso anterior", async () => {
+    useShipmentWizardStore.getState().resetWizard();
+    const { getByTestId } = await render(<PackageStep onFocusInput={() => undefined} />);
+    await fireEvent.press(getByTestId("package-step-category-standard_package"));
+    expect(useShipmentWizardStore.getState().weightKg).toBe("0.5");
+
+    await fireEvent.changeText(getByTestId("package-step-weight-input"), "3,5");
+
+    // Sin blur: es lo que pasa al tocar "Siguiente" con el teclado abierto.
+    expect(useShipmentWizardStore.getState().weightKg).toBe("3.5");
+  });
+});
+
 function ControlledDimensions({ onValues }: { onValues: (values: [string, string, string]) => void }) {
   const [length, setLength] = useState("");
   const [width, setWidth] = useState("");
