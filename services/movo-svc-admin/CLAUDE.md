@@ -136,3 +136,10 @@ Pendiente: el detalle del pago solo trae el hold (captura/reembolso viven en liq
 
 MOVO-326 suma a `GET /admin/shipments` el filtro `alert` (booleano) y, en la respuesta, `statusCounts` y `alertCounts`; se
 validan en `shipments.schema.ts` y se reenvían tal cual (ver `svc-shipments/HISTORIAL.md`).
+
+### Ofertas del envío en el detalle
+
+`GET /admin/shipments/:id` suma el bloque `offers` (`AdminBlock<AdminShipmentOffer[]>`), pedido en paralelo a
+`GET /internal/admin/shipments/:id/offers` de `svc-shipments` (`shipments-client.ts#getAdminShipmentOffers`). Va como bloque y no
+como ruta propia, así no hace falta tocar el gateway; si `svc-shipments` todavía no tiene la ruta (deploy en serie), el 404 sin
+`NOT_FOUND` es 502 y solo ese bloque viene con error. Schema de respuesta con la lista cerrada de campos de la oferta.
