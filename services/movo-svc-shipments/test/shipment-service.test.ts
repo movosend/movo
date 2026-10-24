@@ -460,27 +460,43 @@ describe("shipments.service — createShipment", () => {
     expect(repository.create).toHaveBeenCalled();
   });
 
-  it("rechaza un paquete fuera de los límites inyectados, antes de svc-users y de pricing (MOVO-276)", async () => {
+  it("MOVO-317: crea un paquete de cualquier peso y medida, sin límites duros, y persiste `oversized`", async () => {
     const repository = fakeRepository();
-    const usersClient = createFakeUsersClient({});
-    const findPublicProfileSpy = vi.spyOn(usersClient, "findPublicProfile");
-    const pricingClient = createFakePricingClient();
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
     const service = createShipmentsService(repository, usersClient, createFakeNotificationsClient(), undefined, {
-      pricingClient,
-      packageLimits: { maxWeightKg: 20, maxSideCm: 150, maxSidesSumCm: 300 },
+      pricingClient: createFakePricingClient(),
     });
 
-    const error = await service.createShipment({ ...baseInput, weightKg: 25 }).catch((err: unknown) => err);
+    await expect(
+      service.createShipment({
+        ...baseInput,
+        weightKg: 250,
+        lengthCm: 300,
+        widthCm: 300,
+        heightCm: 300,
+        oversized: true,
+      })
+    ).resolves.toBeDefined();
 
-    expect(error).toBeInstanceOf(ApiError);
-    expect(error).toMatchObject({
-      statusCode: 422,
-      code: "PACKAGE_LIMITS_EXCEEDED",
-      details: { violations: ["peso de 25 kg (máximo 20 kg)"] },
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ weightKg: 250, lengthCm: 300, heightCm: 300, oversized: true })
+    );
+  });
+
+  it("MOVO-317: sin `oversized` el envío se crea con `oversized: false`", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
     });
-    expect(findPublicProfileSpy).not.toHaveBeenCalled();
-    expect(pricingClient.getQuote).not.toHaveBeenCalled();
-    expect(repository.create).not.toHaveBeenCalled();
+    const service = createShipmentsService(repository, usersClient, createFakeNotificationsClient(), undefined, {
+      pricingClient: createFakePricingClient(),
+    });
+
+    await service.createShipment(baseInput);
+
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ oversized: false }));
   });
 
   it("notifica al receptor tras crear el envío (AC1 de MOVO-108)", async () => {

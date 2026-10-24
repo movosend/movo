@@ -84,6 +84,7 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     lengthCm: row.lengthCm.toNumber(),
     widthCm: row.widthCm.toNumber(),
     heightCm: row.heightCm.toNumber(),
+    oversized: row.oversized,
     description: row.description,
     urgent: row.urgent,
     pickupAddress: row.pickupAddress,
@@ -360,6 +361,7 @@ interface AvailableShipmentRow {
   length_cm: string;
   width_cm: string;
   height_cm: string;
+  oversized: boolean;
   description: string | null;
   urgent: boolean;
   pickup_address: string;
@@ -388,6 +390,7 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
     lengthCm: Number(row.length_cm),
     widthCm: Number(row.width_cm),
     heightCm: Number(row.height_cm),
+    oversized: row.oversized,
     description: row.description,
     urgent: row.urgent,
     pickupAddress: row.pickup_address,
@@ -974,6 +977,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             lengthCm: input.lengthCm,
             widthCm: input.widthCm,
             heightCm: input.heightCm,
+            oversized: input.oversized ?? false,
             description: input.description,
             urgent: input.urgent ?? false,
             pickupAddress: input.pickupAddress,
@@ -1623,7 +1627,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         db.$queryRaw<AvailableShipmentRow[]>`
           WITH candidates AS (
             SELECT
-              id, package_type, weight_kg, length_cm, width_cm, height_cm, description,
+              id, package_type, weight_kg, length_cm, width_cm, height_cm, oversized, description,
               urgent, pickup_address, pickup_lat, pickup_lng, delivery_address,
               delivery_lat, delivery_lng, pickup_date, pickup_time_window_start,
               pickup_time_window_end, suggested_price_ars, calculation_method, status,

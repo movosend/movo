@@ -46,7 +46,6 @@ import {
   pickupWindowInstant,
 } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
-import { DEFAULT_PACKAGE_LIMITS, PackageLimits, packageLimitViolations } from "../../domain/package-limits";
 import { isPickupMissed, isTransitAnomalous, isTransitAnomalyDeadlinePassed } from "../../domain/expiration";
 import { quoteShipment } from "./shipment-quote";
 import { quoteCarrierWithdrawal, quoteShipmentCancellation } from "../../domain/cancellation-penalty";
@@ -146,6 +145,8 @@ export interface CreateShipmentServiceInput {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). */
+  oversized?: boolean;
   description?: string;
   pickupAddress: string;
   pickupLat: number;
@@ -406,23 +407,6 @@ function assertPickupDeliveryApart(
       422,
       "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE",
       "El retiro y la entrega tienen que estar en ubicaciones distintas."
-    );
-  }
-}
-
-// MOVO-276 (AC4): sin I/O, así un paquete fuera de límites no gasta un elemento de Google
-// ni consume una cotización congelada.
-function assertPackageWithinLimits(
-  input: Pick<ShipmentQuoteRequest, "weightKg" | "lengthCm" | "widthCm" | "heightCm">,
-  limits: PackageLimits
-) {
-  const violations = packageLimitViolations(input, limits);
-  if (violations.length > 0) {
-    throw new ApiError(
-      422,
-      "PACKAGE_LIMITS_EXCEEDED",
-      `El paquete excede los límites: ${violations.join("; ")}.`,
-      { violations }
     );
   }
 }
@@ -1285,8 +1269,6 @@ export interface ShipmentsServiceOptions {
   /** Requerido para `quoteShipmentPrice` y para `createShipment` con `quoteId`
    * (MOVO-255) -- cotizaciones congeladas en Redis. */
   quoteStore?: QuoteStore;
-  /** MOVO-276: límites duros del paquete (`PACKAGE_MAX_*`). Sin inyectar, los defaults. */
-  packageLimits?: PackageLimits;
   /** MOVO-258 (D1): horas de gracia tras cerrar la ventana de retiro antes de cancelar
    * un envío con transportista (`PICKUP_MISSED_GRACE_HOURS`, default 24). */
   pickupMissedGraceHours?: number;
@@ -1363,7 +1345,6 @@ export function createShipmentsService(
   const ratingRepository = opts.ratingRepository;
   const tripMatchDetourRadiusKm = opts.tripMatchDetourRadiusKm;
   const quoteStore = opts.quoteStore;
-  const packageLimits = opts.packageLimits ?? DEFAULT_PACKAGE_LIMITS;
 
   /**
    * MOVO-210 (AC12): libera el hold de un envío que YA se canceló. Nunca lanza: el envío no se
@@ -1426,7 +1407,6 @@ export function createShipmentsService(
      * `SHIPMENT_QUOTE_TTL_SECONDS`; sin precio (pricing caído) no guarda nada.
      */
     async quoteShipmentPrice(senderId: string, input: ShipmentQuoteRequest): Promise<ShipmentQuoteResponse> {
-      assertPackageWithinLimits(input, packageLimits);
       assertPickupDeliveryApart(input);
       const store = requireQuoteStore();
 
@@ -1463,9 +1443,6 @@ export function createShipmentsService(
       if (input.senderId === input.receiverId) {
         throw new ApiError(422, "SHIPMENT_RECEIVER_IS_SENDER", "No podés designarte a vos mismo como receptor.");
       }
-
-      // MOVO-276 (AC4) — límites duros de peso y medidas, sin I/O.
-      assertPackageWithinLimits(input, packageLimits);
 
       // MOVO-126 — retiro y entrega no pueden ser la misma ubicación, todavía sin I/O.
       assertPickupDeliveryApart(input);
@@ -1558,6 +1535,7 @@ export function createShipmentsService(
         lengthCm: input.lengthCm,
         widthCm: input.widthCm,
         heightCm: input.heightCm,
+        oversized: input.oversized ?? false,
         description: input.description,
         pickupAddress: input.pickupAddress,
         pickupLat: input.pickupLat,

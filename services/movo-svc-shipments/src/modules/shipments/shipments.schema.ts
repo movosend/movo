@@ -5,10 +5,8 @@ import { shipmentReceiverTransferSummary } from "../receiver-transfers/receiver-
 
 const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
 
-// Solo los mínimos: los máximos de peso y medidas (más la suma de lados) son límites duros
-// configurables por env var (MOVO-276, `domain/package-limits.ts`) y los valida el servicio
-// con un 422 `PACKAGE_LIMITS_EXCEEDED` que dice qué se excedió. Un máximo de AJV acá los
-// pisaría con un 400 genérico y quedaría desalineado si se recalibra el env.
+// Solo mínimos, sin máximos de peso ni medidas (MOVO-317): el tamaño lo decide cada
+// transportista al ofertar. Reemplaza los límites duros de MOVO-276 (ADR-041).
 const WEIGHT_KG_MIN = 0.1;
 const DIMENSION_CM_MIN = 1;
 
@@ -85,6 +83,7 @@ const shipmentResponse = {
     "lengthCm",
     "widthCm",
     "heightCm",
+    "oversized",
     "description",
     "urgent",
     "pickupAddress",
@@ -126,6 +125,7 @@ const shipmentResponse = {
     lengthCm: { type: "number" },
     widthCm: { type: "number" },
     heightCm: { type: "number" },
+    oversized: { type: "boolean" },
     description: { type: ["string", "null"] },
     urgent: { type: "boolean" },
     pickupAddress: { type: "string" },
@@ -224,6 +224,7 @@ const availableShipmentResponse = {
     "lengthCm",
     "widthCm",
     "heightCm",
+    "oversized",
     "description",
     "urgent",
     "pickupAddress",
@@ -252,6 +253,7 @@ const availableShipmentResponse = {
     lengthCm: { type: "number" },
     widthCm: { type: "number" },
     heightCm: { type: "number" },
+    oversized: { type: "boolean" },
     description: { type: ["string", "null"] },
     urgent: { type: "boolean" },
     pickupAddress: { type: "string" },
@@ -475,11 +477,14 @@ const priceAffectingProperties = {
   deliveryLng: { type: "number", minimum: -180, maximum: 180 },
 };
 
+// MOVO-317: "Más de 300 cm" en algún lado. Opcional (builds viejos del mobile no lo mandan).
+const oversizedProperty = { oversized: { type: "boolean" } };
+
 export const shipmentsSchemas = {
   quoteShipmentBody: {
     type: "object",
     required: Object.keys(priceAffectingProperties),
-    properties: priceAffectingProperties,
+    properties: { ...priceAffectingProperties, ...oversizedProperty },
     additionalProperties: false,
   },
 
@@ -517,6 +522,7 @@ export const shipmentsSchemas = {
     ],
     properties: {
       ...priceAffectingProperties,
+      ...oversizedProperty,
       description: { type: "string", maxLength: 500 },
       // `senderId` NUNCA se acepta acá (AC10 de MOVO-80) — si el cliente lo manda
       // igual, `additionalProperties: false` lo rechaza en vez de ignorarlo en

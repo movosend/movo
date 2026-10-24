@@ -186,34 +186,28 @@ describe("POST /shipments (Postgres)", () => {
     expect(response.json().error.code).toBe("SHIPMENT_PICKUP_WINDOW_IN_PAST");
   });
 
-  it("MOVO-276 (AC4): rechaza con 422 y el detalle un paquete fuera de los límites duros", async () => {
+  it("MOVO-317: crea un paquete por encima de los antiguos límites (ya no hay 422) y devuelve `oversized`", async () => {
     const response = await app.inject({
       method: "POST",
       url: "/shipments",
       headers: { "x-user-id": senderId },
-      payload: { ...validBody, weightKg: 999 },
+      payload: { ...validBody, weightKg: 999, lengthCm: 300, widthCm: 200, heightCm: 300, oversized: true },
     });
 
-    expect(response.statusCode).toBe(422);
-    expect(response.json().error).toMatchObject({
-      code: "PACKAGE_LIMITS_EXCEEDED",
-      message: "El paquete excede los límites: peso de 999 kg (máximo 30 kg).",
-      details: { violations: ["peso de 999 kg (máximo 30 kg)"] },
-    });
-    expect(pricingClient.getQuote).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({ weightKg: 999, lengthCm: 300, heightCm: 300, oversized: true });
   });
 
-  it("MOVO-276 (AC4): rechaza un paquete con lados válidos pero suma de lados mayor a 300 cm", async () => {
+  it("MOVO-317: `oversized` es opcional y por defecto es false", async () => {
     const response = await app.inject({
       method: "POST",
       url: "/shipments",
       headers: { "x-user-id": senderId },
-      payload: { ...validBody, lengthCm: 150, widthCm: 100, heightCm: 51 },
+      payload: validBody,
     });
 
-    expect(response.statusCode).toBe(422);
-    expect(response.json().error.code).toBe("PACKAGE_LIMITS_EXCEEDED");
-    expect(response.json().error.details.violations).toEqual(["suma de lados de 301 cm (máximo 300 cm)"]);
+    expect(response.statusCode).toBe(201);
+    expect(response.json().oversized).toBe(false);
   });
 
   it("sigue respondiendo 400 de AJV para un peso por debajo del mínimo", async () => {
