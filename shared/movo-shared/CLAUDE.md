@@ -670,6 +670,13 @@ de la regla: el filtro `alert` de `svc-shipments` (SQL) y el panel la siguen.
 `pickupDisputeOpened{Sender,Receiver,Carrier}`; código `HANDSHAKE_PICKUP_DEADLINE_PASSED`. Recordatorio habitual: `npm run build`
 acá antes de tipar desde otro workspace.
 
+### MOVO-340 — `PlacePrediction`, `SENDER_CANCELLABLE_STATUSES` y `chat_participants_changed`
+
+`types/places.ts`: `PlacePrediction` (`lat`/`long` opcionales, solo en una búsqueda por coordenadas), antes duplicado en
+`svc-users` y mobile. `config/cancellation-penalty.ts` suma `SENDER_CANCELLABLE_STATUSES`/`isSenderCancellableStatus` (desde
+qué estados cancela el emisor; no depende de la hora del retiro). `ChatRealtimeEvent` suma `chat_participants_changed`.
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
 ### MOVO-334 — Contrato de disputas (`types/dispute.ts`, ADR-054)
 
 `DisputeReason` (los cuatro elegibles desde la app en `USER_SELECTABLE_DISPUTE_REASONS`, más `transit_anomaly`/`pickup_no_show` de

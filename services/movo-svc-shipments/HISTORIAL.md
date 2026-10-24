@@ -3765,6 +3765,16 @@ consulta agrupada (`COUNT(*) FILTER`), y `alert=true` filtra la lista y los cont
 `isAdminShipmentAlert` de `@movo/shared`: `assigned_unfunded`, `rejected_by_receiver`, `disputed` o `in_transit` con
 `transit_anomaly_flagged_at`. Si cambia una, cambia la otra.
 
+### MOVO-340 — Chat tras una transferencia de receptor y estados cancelables
+
+- La membresía del chat ya salía de `receiverId` en cada request; faltaba avisar. Al completarse la transferencia,
+  `complete()` siembra `chat_participant_states` del receptor nuevo en `resolved_at` (solo le cuentan como no leídos los
+  mensajes posteriores) y emite `chat_participants_changed` (`realtime/chat-participants-events.ts`) a los sockets abiertos, sin
+  cerrar el del receptor original. Los tildes de un mensaje previo se miden contra los integrantes de ese momento
+  (`Shipment.receiverTransferredAt`). El receptor nuevo ve el historial (ADR-038).
+- Cancelación con retiro el mismo día: no se reprodujo en `develop` (no hay guard por fecha). `SENDER_CANCELLABLE_STATUSES` de
+  `@movo/shared` es la regla del mobile y un test la ata a `canTransition(*, cancelled)`.
+
 ### MOVO-334 — Disputas: entidad, apertura, descargos, avisos y bloqueo (ADR-054)
 
 Entidad `shipments.disputes` (+ `dispute_statements`, `dispute_photos`; migración `20261023120000_disputes` con el índice único parcial de
@@ -3790,3 +3800,17 @@ Sin historial de precios: modificar una oferta (MOVO-181) pisa el monto en la mi
 Review de PR #302: cada oferta suma `commissionRate` (la tasa con la que se calculó el desglose, que no se guarda con la oferta)
 y el detalle `GET /internal/admin/shipments/:id` suma `requestedPickup*`, el retiro que pidió el emisor: sale de `originalPickup*`
 (lo guarda `acceptOffer` antes de pisar `pickupDate` y la franja con los de la ganadora, MOVO-258 D3) o del actual si no hay.
+### MOVO-321 — Adjuntos de imágenes en los mensajes de soporte
+
+`POST /support/attachments` y `attachmentIds` en los mensajes del usuario, con URLs firmadas de 15 min al leer (detalle en
+`docs/support/README.md`). Código en `modules/support/support-attachments.service.ts` (lo reusa MOVO-322 con `uploaderKind: "staff"`),
+`repositories/support-attachment-repository.ts` y `plugins/support-attachment-sweep.ts`. El objeto de `support/pending/…` no se mueve al
+crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no hay regla de lifecycle y el sweep, que reintenta, es la
+única limpieza. Pendiente: Terraform en `movo-infra` (ver el `CLAUDE.md` raíz).
+
+### MOVO-285 — Monto exacto del transportista en el detalle del envío
+
+- `GET /shipments/:id` suma `carrierReceivedArs` para el transportista asignado: bruto − comisión de Movo − fee real de MP − su
+  descuento por deuda, todo del hold vivo que ya se consultaba para `debtDiscount` (`resolveCarrierPaymentDisplay`; una sola
+  llamada a payments, mismo timeout). Lo calcula el backend para que "exacto" no dependa de la tasa de comisión de la app. `null`
+  sin hold o sin fee informado. No se tocó el detalle de la oferta: el hold no existe hasta que el emisor acepta.

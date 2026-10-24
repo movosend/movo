@@ -40,6 +40,8 @@ export interface HoldUpdate {
   failureReason?: HoldFailureReason | null;
   mpPaymentId?: string | null;
   expiresAt?: Date | null;
+  /** MOVO-285: comisión real de MP del pago; solo se escribe cuando MP la informa (`undefined` = no tocar). */
+  mpFeeArs?: number;
   /**
    * MOVO-302: últimos 4 y marca de la tarjeta, tal como los informa MP en el pago. Solo se
    * escriben cuando MP los trae (`undefined` = no tocar): una respuesta sin `card` nunca borra
@@ -98,7 +100,7 @@ export interface HoldRepository {
    */
   markCaptured(
     id: string,
-    patch: { statusDetail: string | null; cardLast4?: string; cardBrand?: string }
+    patch: { statusDetail: string | null; cardLast4?: string; cardBrand?: string; mpFeeArs?: number }
   ): Promise<boolean>;
 }
 
@@ -200,6 +202,8 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
           // MOVO-302: la captura es la última lectura del pago; completa la tarjeta si faltaba.
           ...(patch.cardLast4 ? { cardLast4: patch.cardLast4 } : {}),
           ...(patch.cardBrand ? { cardBrand: patch.cardBrand } : {}),
+          // MOVO-285: el fee final de la captura reemplaza al que informó el hold.
+          ...(patch.mpFeeArs !== undefined ? { mpFeeArs: patch.mpFeeArs } : {}),
         },
       });
       return count === 1;

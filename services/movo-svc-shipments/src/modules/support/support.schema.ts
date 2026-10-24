@@ -71,20 +71,50 @@ const conversationItemResponse = {
   },
 };
 
-// `body` va con `maxLength` de AJV como primera barrera; el `trim` y el mínimo de 1 carácter real los valida
-// el servicio (AJV no recorta antes de contar).
+// `body` va con `maxLength` de AJV como primera barrera; el `trim` y el mínimo de 1 carácter real (o 0 si hay
+// adjuntos, MOVO-321) los valida el servicio (AJV no recorta antes de contar).
+const messageBody = { type: "string", maxLength: SUPPORT_MESSAGE_MAX_LENGTH * 2 };
+
+// MOVO-321: el tope de 4 lo valida el servicio para responder 422 SUPPORT_ATTACHMENT_INVALID (el contrato), no el
+// 400 de AJV; acá solo una barrera holgada.
+const attachmentIds = { type: "array", maxItems: 16, items: { type: "string", format: "uuid" } };
+
 const createConversationBody = {
   type: "object",
   required: ["topic", "body", "clientMessageId"],
   properties: {
     topic,
-    body: { type: "string", minLength: 1, maxLength: SUPPORT_MESSAGE_MAX_LENGTH * 2 },
+    body: messageBody,
     clientMessageId: { type: "string", format: "uuid" },
     shipmentId: { type: "string", format: "uuid" },
-    // Reservado para MOVO-321: hasta entonces un valor no vacío responde 422.
-    attachmentIds: { type: "array", maxItems: 4, items: { type: "string", format: "uuid" } },
+    attachmentIds,
   },
   additionalProperties: false,
+};
+
+// MOVO-321 AC1. Tipo y tamaño sin `enum`/`maximum` a propósito: fuera de rango es 422 SUPPORT_ATTACHMENT_INVALID
+// (lo valida el servicio con las constantes de @movo/shared), no un 400 de AJV.
+const createAttachmentBody = {
+  type: "object",
+  required: ["contentType", "sizeBytes"],
+  properties: {
+    contentType: { type: "string", maxLength: 100 },
+    sizeBytes: { type: "integer" },
+    conversationId: { type: "string", format: "uuid" },
+    width: { type: "integer", minimum: 1, maximum: 20000 },
+    height: { type: "integer", minimum: 1, maximum: 20000 },
+  },
+  additionalProperties: false,
+};
+
+const createAttachmentResponse = {
+  type: "object",
+  required: ["attachmentId", "uploadUrl", "expiresAt"],
+  properties: {
+    attachmentId: { type: "string" },
+    uploadUrl: { type: "string" },
+    expiresAt: { type: "string", format: "date-time" },
+  },
 };
 
 const createConversationResponse = {
@@ -103,9 +133,9 @@ const sendMessageBody = {
   type: "object",
   required: ["body", "clientMessageId"],
   properties: {
-    body: { type: "string", minLength: 1, maxLength: SUPPORT_MESSAGE_MAX_LENGTH * 2 },
+    body: messageBody,
     clientMessageId: { type: "string", format: "uuid" },
-    attachmentIds: { type: "array", maxItems: 4, items: { type: "string", format: "uuid" } },
+    attachmentIds,
   },
   additionalProperties: false,
 };
@@ -156,6 +186,8 @@ export const supportSchemas = {
   conversationIdParam,
   createConversationBody,
   createConversationResponse,
+  createAttachmentBody,
+  createAttachmentResponse,
   listConversationsResponse,
   sendMessageBody,
   supportMessageResponse,

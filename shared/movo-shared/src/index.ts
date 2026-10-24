@@ -80,6 +80,7 @@ export type {
   VehicleProfile,
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
+export type { PlacePrediction } from "./types/places";
 export { PriceCalculationMethod } from "./types/pricing";
 export type {
   DemandContext,
@@ -290,6 +291,8 @@ export {
   CANCELLATION_PENALTY_RATE,
   computeCancellationPenalty,
   computeCarrierWithdrawalPenalty,
+  isSenderCancellableStatus,
+  SENDER_CANCELLABLE_STATUSES,
 } from "./config/cancellation-penalty";
 export type {
   CancellationPenaltyInput,
@@ -470,6 +473,7 @@ export {
   SUPPORT_ATTACHMENT_TYPES,
   SUPPORT_ATTACHMENT_MAX_BYTES,
   SUPPORT_ATTACHMENT_MAX_PER_MESSAGE,
+  SUPPORT_ATTACHMENT_MAX_PENDING,
   SUPPORT_ERROR,
   SUPPORT_QUICK_REPLIES,
   SUPPORT_WS_PROTOCOL,
@@ -533,6 +537,7 @@ export type {
   SupportCreateBody,
   SupportCreateResult,
   SupportSendUserBody,
+  SupportUserAttachmentCreateBody,
   SupportReadResult,
   SupportRealtimeEvent,
   SupportRealtimeConnected,

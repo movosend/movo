@@ -4,34 +4,15 @@ import DateTimePicker, {
 import { Calendar } from "lucide-react-native";
 import { Platform, Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import {
+  availableWindowsFor,
+  pickerValueToPickupDate,
+  pickupDateToPickerValue,
+  PICKUP_TIME_WINDOWS,
+  todayInArgentina,
+} from "../../src/lib/pickup-windows";
 import { formatPickupDateLabel } from "../../src/lib/shipment-format";
-
-const TIME_WINDOWS: { start: string; end: string; label: string }[] = [
-  { start: "09:00", end: "12:00", label: "09:00 – 12:00" },
-  { start: "12:00", end: "18:00", label: "12:00 – 18:00" },
-  { start: "18:00", end: "22:00", label: "18:00 – 22:00" },
-];
-
-function startOfToday(): Date {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today;
-}
-
-function parsePickupDate(pickupDate: string): Date {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(pickupDate)) {
-    const [year, month, day] = pickupDate.split("-").map(Number);
-    return new Date(year, month - 1, day);
-  }
-  return startOfToday();
-}
-
-function formatPickupDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
+import { formatTimeRange } from "../../src/lib/time-format";
 
 interface TimeWindowPickerProps {
   pickupDate: string;
@@ -61,9 +42,17 @@ export function TimeWindowPicker({
   testID,
 }: TimeWindowPickerProps) {
   const colors = useThemeColors();
-  const dateValue = parsePickupDate(pickupDate);
+  // MOVO-340: selector controlado — lo que se ve elegido sale solo de `pickupDate` (el
+  // wizard lo inicializa con `defaultPickupDate`), sin un "hoy" visual propio que el
+  // formulario no tenía cargado.
+  const today = todayInArgentina();
+  const selectedDate = pickupDate || today;
+  const dateValue = pickupDateToPickerValue(selectedDate);
   const displayDate = formatPickupDateLabel(pickupDate);
-  const minimumDate = startOfToday();
+  const minimumDate = pickupDateToPickerValue(today);
+  const available = availableWindowsFor(selectedDate);
+  const isAvailable = (w: { start: string; end: string }) =>
+    available.some((a) => a.start === w.start && a.end === w.end);
 
   const handleAndroidPress = () => {
     DateTimePickerAndroid.open({
@@ -72,7 +61,7 @@ export function TimeWindowPicker({
       minimumDate,
       onChange: (event, selectedDate) => {
         if (event.type === "set" && selectedDate)
-          onChangeDate(formatPickupDate(selectedDate));
+          onChangeDate(pickerValueToPickupDate(selectedDate));
       },
     });
   };
@@ -108,28 +97,32 @@ export function TimeWindowPicker({
             minimumDate={minimumDate}
             onChange={(event, selectedDate) => {
               if (event.type === "set" && selectedDate)
-                onChangeDate(formatPickupDate(selectedDate));
+                onChangeDate(pickerValueToPickupDate(selectedDate));
             }}
           />
         </View>
       )}
       <View className="flex-row gap-2">
-        {TIME_WINDOWS.map((w) => {
+        {PICKUP_TIME_WINDOWS.map((w) => {
           const selected =
             w.start === timeWindowStart && w.end === timeWindowEnd;
+          // MOVO-340: una franja de hoy que ya empezó no se puede elegir (el backend la rechaza).
+          const disabled = !isAvailable(w);
           return (
             <Pressable
-              key={w.label}
+              key={w.start}
               testID={testID ? `${testID}-window-${w.start}` : undefined}
               onPress={() => onChangeWindow(w.start, w.end)}
+              disabled={disabled}
+              accessibilityState={{ disabled, selected }}
               className={`flex-1 items-center rounded-lg border py-2.5 ${
                 selected ? "border-fg bg-fg" : "border-border-strong bg-bg"
-              }`}
+              } ${disabled ? "opacity-40" : ""}`}
             >
               <Text
                 className={`font-sans-medium text-[11px] ${selected ? "text-white dark:text-ink-950" : "text-fg"}`}
               >
-                {w.label}
+                {formatTimeRange(w.start, w.end)}
               </Text>
             </Pressable>
           );

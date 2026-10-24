@@ -23,6 +23,17 @@ export interface PaymentSnapshot {
    * `mercadopago_fee` y `application_fee`, ambos con `fee_payer: collector`.
    */
   fee_details?: Array<{ type?: string; amount?: number; fee_payer?: string }>;
+  /**
+   * MOVO-285: comisiones que MP ya calculó para un pago sin capturar (el hold). Solo lista el
+   * `mercadopago_fee` (`name`), con el monto en `amounts.original`; el `application_fee` recién
+   * aparece en `fee_details` tras la captura (SOLUCION-FINAL §3).
+   */
+  charges_details?: Array<{
+    name?: string;
+    type?: string;
+    accounts?: { from?: string; to?: string };
+    amounts?: { original?: number; refunded?: number };
+  }>;
   /** `net_received_amount`: lo que le queda al transportista tras ambas comisiones. */
   transaction_details?: { net_received_amount?: number };
   /**

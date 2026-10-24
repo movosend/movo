@@ -18,7 +18,7 @@ const mockRouterBack = jest.fn();
 const mockRouterReplace = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
-const mockUseLocalSearchParams = jest.fn(() => ({}) as { created?: string; cancelledTo?: string; cancelledAt?: string });
+const mockUseLocalSearchParams = jest.fn(() => ({}) as { created?: string; createdAt?: string; cancelledTo?: string; cancelledAt?: string });
 
 jest.mock("expo-router", () => ({
   router: {
@@ -124,6 +124,28 @@ describe("MyTripsScreen", () => {
 
     expect(getByTestId("my-trips-created-success")).toBeTruthy();
     expect(getByText("¡Viaje declarado!")).toBeTruthy();
+  });
+
+  it("MOVO-340: declarar dos viajes seguidos vuelve a mostrar el banner en la misma instancia", async () => {
+    mockUseLocalSearchParams.mockReturnValue({ created: "1", createdAt: "1" });
+    mockUseMyTrips.mockReturnValue(listOf(TRIP_A));
+
+    jest.useFakeTimers();
+    try {
+      const { getByTestId, queryByTestId, rerender } = await render(<MyTripsScreen />);
+      expect(getByTestId("my-trips-created-success")).toBeTruthy();
+
+      await act(async () => {
+        jest.advanceTimersByTime(3500);
+      });
+      expect(queryByTestId("my-trips-created-success")).toBeNull();
+
+      mockUseLocalSearchParams.mockReturnValue({ created: "1", createdAt: "2" });
+      await rerender(<MyTripsScreen />);
+      expect(getByTestId("my-trips-created-success")).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("no muestra la confirmación de éxito sin el param created", async () => {

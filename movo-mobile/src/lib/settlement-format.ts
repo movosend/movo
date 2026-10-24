@@ -1,4 +1,5 @@
 import type { ShipmentSettlementResponse } from "@movo/shared/dist/types/settlement";
+import { formatTimeOfDay } from "./time-format";
 
 /**
  * Qué muestra el detalle del pago de un envío entregado (MOVO-214), según quién mira y en qué
@@ -88,12 +89,9 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("es-AR", {
   weekday: "short",
   day: "numeric",
   month: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
 });
 
-/** "mar 14 oct, 16:42", en la zona del dispositivo. `null` ante una fecha inválida. Se arma
+/** "mar 14 oct, 16:42 h", en la zona del dispositivo. `null` ante una fecha inválida. Se arma
  * por partes porque el formato completo de `Intl` cambia comas y puntos según el motor. */
 export function formatSettlementDateTime(iso: string): string | null {
   const date = new Date(iso);
@@ -104,5 +102,5 @@ export function formatSettlementDateTime(iso: string): string | null {
       part.value.replace(".", ""),
     ]),
   ) as Partial<Record<Intl.DateTimeFormatPartTypes, string>>;
-  return `${parts.weekday} ${parts.day} ${parts.month}, ${parts.hour}:${parts.minute}`;
+  return `${parts.weekday} ${parts.day} ${parts.month}, ${formatTimeOfDay(date)}`;
 }

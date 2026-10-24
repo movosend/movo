@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
+import { chatKeys } from "./use-chat";
 import { receiverTransfersClient } from "../api/receiver-transfers-client";
 
 /** Todo lo que cambia cuando una transferencia avanza: el detalle del envío (receptor,
@@ -9,6 +10,11 @@ function invalidateTransferQueries(queryClient: QueryClient, shipmentId: string)
   queryClient.invalidateQueries({ queryKey: ["shipments", "receiver-transfers", shipmentId] });
   queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
   queryClient.invalidateQueries({ queryKey: ["receiver-transfers"] });
+  // MOVO-340: los integrantes del chat cambian al completarse; el resto de los dispositivos se entera por el
+  // WebSocket del chat (`chat_participants_changed`).
+  queryClient.invalidateQueries({ queryKey: chatKeys.participants(shipmentId) });
+  queryClient.invalidateQueries({ queryKey: chatKeys.messages(shipmentId) });
+  queryClient.invalidateQueries({ queryKey: chatKeys.list });
 }
 
 /** MOVO-275 AC7: solicitudes del envío para intercalar en la línea de tiempo. Carga y

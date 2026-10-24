@@ -319,6 +319,8 @@ export type ApiErrorCode =
   | "SUPPORT_CONVERSATION_NOT_FOUND"
   // Adjunto de tipo, tamaño o cantidad inválidos, ajeno o ya usado (422).
   | "SUPPORT_ATTACHMENT_INVALID"
+  // MOVO-321: el usuario ya tiene `SUPPORT_ATTACHMENT_MAX_PENDING` adjuntos pedidos sin usar (429).
+  | "SUPPORT_ATTACHMENT_PENDING_LIMIT"
   // El usuario de la consulta no es parte del envío que se quiere vincular (422).
   | "SUPPORT_SHIPMENT_NOT_PARTY"
   // Ticket del WS del panel vencido, ya usado o de otro admin (401).

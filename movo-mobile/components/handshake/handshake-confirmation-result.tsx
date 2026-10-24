@@ -12,13 +12,15 @@ import { Path, Svg } from "react-native-svg";
 import type { ConfirmHandshakeResult } from "../../src/api/shipments-client";
 import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useShipment, useShipmentRoute } from "../../src/hooks/use-shipments";
-import { activeShipmentDisplayCode } from "../../src/lib/active-shipment-format";
+import {
+  activeShipmentDisplayCode,
+} from "../../src/lib/active-shipment-format";
 import {
   formatConfirmedAtTime,
-  formatDurationMin,
   formatRouteDistanceKm,
   shortAddressLabel,
 } from "../../src/lib/shipment-format";
+import { formatDurationSeconds } from "../../src/lib/time-format";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -200,7 +202,7 @@ export function HandshakeConfirmationResult({
               </Text>
               {route.data ? (
                 <Text className="font-mono text-[13px] text-ink-600">
-                  {formatDurationMin(route.data.durationSeconds)} · {formatRouteDistanceKm(route.data.distanceMeters)}
+                  {formatDurationSeconds(route.data.durationSeconds)} · {formatRouteDistanceKm(route.data.distanceMeters)}
                 </Text>
               ) : null}
             </View>

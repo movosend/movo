@@ -44,15 +44,15 @@ function NewTripScreenContent() {
     setError(null);
     setRecurrenceError(null);
     createTrip.mutate(input, {
-      // Reemplaza (no `back()`) para garantizar que el flag de éxito llegue a "Mis
-      // viajes" — mismo patrón que `forgot-password.tsx` → `login.tsx` (AC de
-      // confirmación visual). De paso evita dejar el formulario ya enviado en el
-      // stack para un swipe-back accidental.
+      // MOVO-340: `dismissTo` (no `replace`) vuelve a la instancia de "Mis viajes" que ya
+      // está debajo del formulario, en vez de apilar una segunda — mismo patrón que MOVO-271.
+      // Si no hay ninguna en el stack, reemplaza. `createdAt` cambia en cada alta para que
+      // la instancia reusada vuelva a mostrar el banner de éxito.
       // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
       onSuccess: () =>
-        router.replace({
+        router.dismissTo({
           pathname: "/carrier/trips",
-          params: { created: "1" },
+          params: { created: "1", createdAt: String(Date.now()) },
         } as any),
       onError: (err) => {
         if (requirements.handleError(err)) return;

@@ -25,6 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CarrierRoute, CarrierRouteStop } from "@movo/shared/dist/types/routing";
 import { useStopCounterpartName } from "../../src/hooks/use-stop-counterpart";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { formatDuration, formatTimeOfDay, formatTimeRange } from "../../src/lib/time-format";
 import {
   ROUTE_SHEET_BEZIER,
   ROUTE_SHEET_CLOSE_FADE_MS,
@@ -63,35 +64,11 @@ interface StopListProps {
 }
 
 /**
- * Formatea una duración en minutos al formato horario (ej: 115 -> "1h55min", 45 -> "45 min").
- */
-export function formatDuration(minutes: number): string {
-  const rounded = Math.round(minutes);
-  if (rounded <= 0) return "0 min";
-  if (rounded < 60) {
-    return `${rounded} min`;
-  }
-  const hours = Math.floor(rounded / 60);
-  const remainingMinutes = rounded % 60;
-  if (remainingMinutes === 0) {
-    return `${hours}h`;
-  }
-  return `${hours}h${remainingMinutes}min`;
-}
-
-function clockTime(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return null;
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-/**
- * ETA de una parada en versión corta, para las filas compactas ("23:12" o "+1h50min").
+ * ETA de una parada en versión corta, para las filas compactas ("23:12 h" o "+1 h 50 min").
  * El encabezado del sheet aclara que todos los horarios son aproximados (AC11).
  */
 function formatEtaShort(stop: CarrierRouteStop): string {
-  const clock = clockTime(stop.estimatedArrivalAt);
+  const clock = formatTimeOfDay(stop.estimatedArrivalAt);
   if (clock) return clock;
   if (stop.estimatedArrivalMinutes > 0) return `+${formatDuration(stop.estimatedArrivalMinutes)}`;
   return "Ahora";
@@ -101,7 +78,7 @@ function formatEtaShort(stop: CarrierRouteStop): string {
  * Formatea el ETA estimado asegurando que se presente siempre como estimación (AC11: "aprox.").
  */
 export function formatEstimatedArrival(stop: CarrierRouteStop): string {
-  const clock = clockTime(stop.estimatedArrivalAt);
+  const clock = formatTimeOfDay(stop.estimatedArrivalAt);
   if (clock) return `${clock} aprox.`;
   if (stop.estimatedArrivalMinutes > 0) {
     return `+${formatDuration(stop.estimatedArrivalMinutes)} aprox.`;
@@ -109,31 +86,13 @@ export function formatEstimatedArrival(stop: CarrierRouteStop): string {
   return "Inmediato aprox.";
 }
 
-/**
- * Formatea una franja horaria a partir de ISO string o string de hora ("HH:mm").
- */
-function extractHourMinute(instantStr: string | null | undefined): string | null {
-  if (!instantStr) return null;
-  if (instantStr.includes("T")) return clockTime(instantStr);
-  const parts = instantStr.split(":");
-  if (parts.length >= 2) {
-    return `${parts[0]}:${parts[1]}`;
-  }
-  return instantStr;
-}
-
+/** Franja horaria de una parada, a partir de un ISO datetime o de una hora ("HH:mm"). */
 export function formatTimeWindow(start?: string | null, end?: string | null): string | null {
-  const startFmt = extractHourMinute(start);
-  const endFmt = extractHourMinute(end);
-  if (startFmt && endFmt) {
-    return `${startFmt} – ${endFmt}`;
-  }
-  if (startFmt) {
-    return `Desde ${startFmt}`;
-  }
-  if (endFmt) {
-    return `Hasta ${endFmt}`;
-  }
+  const startFmt = formatTimeOfDay(start);
+  const endFmt = formatTimeOfDay(end);
+  if (startFmt && endFmt) return formatTimeRange(start, end);
+  if (startFmt) return `Desde ${startFmt}`;
+  if (endFmt) return `Hasta ${endFmt}`;
   return null;
 }
 
