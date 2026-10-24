@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
-import type { ChatTimelineItem } from "../lib/chat-format";
+/** Lo único que necesita para distinguir lo que llega en vivo: el tipo y la key de cada ítem. */
+type KeyedItem = { kind: string; key: string };
 
 /**
  * Hasta cuántos mensajes nuevos al frente se consideran "en vivo" y se animan. Más que eso es una carga en bloque (el
@@ -20,13 +21,13 @@ export const MAX_ANIMATED_ARRIVALS = 3;
  * - `arrivals`: todos los mensajes nuevos al frente (para el contador de "nuevos" y el scroll al enviar).
  * - `liveKeys`: de esos, los que se animan; vacío si es una carga en bloque (> `MAX_ANIMATED_ARRIVALS`).
  */
-export function useLiveChatKeys(timeline: readonly ChatTimelineItem[], ready: boolean) {
+export function useLiveChatKeys<T extends KeyedItem>(timeline: readonly T[], ready: boolean) {
   const seenKeysRef = useRef<ReadonlySet<string>>(new Set());
   const seenHeadRef = useRef<string | undefined>(undefined);
   const baselineDoneRef = useRef(false);
 
   const result = useMemo(() => {
-    let arrivals: ChatTimelineItem[] = [];
+    let arrivals: T[] = [];
     if (baselineDoneRef.current && timeline.length > 0) {
       const headIndex = seenHeadRef.current === undefined ? timeline.length : timeline.findIndex((i) => i.key === seenHeadRef.current);
       if (headIndex > 0) {

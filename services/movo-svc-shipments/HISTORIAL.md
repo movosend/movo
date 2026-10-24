@@ -3826,3 +3826,11 @@ recibir el último ping (`TRACKING_SIGNAL_LOST_SECONDS`, 300). Los km restantes 
 planificada (`geo.ts#progressAlongPath`; `polyline-decode.ts` pasó de `test/` a `utils/`). La ETA usa la duración de Google en
 proporción a lo que falta, no la velocidad de 5 min, que es aproximada (un punto cada 45 s) y se va a ~0 en un semáforo. La ruta se
 cachea en Redis por envío y proveedor (`planned-route-store.ts`, 6 h): con polling, cada tick facturaría una llamada a Google.
+
+### MOVO-324 — `GET /support/shipments` (selector de envíos de "Nueva consulta")
+
+MOVO-320 dejó afuera el selector y `GET /shipments/mine` no trae al transportista, así que el módulo de soporte suma `GET /support/shipments`
+(`support.routes.ts`, `listShipmentOptions` en servicio y repositorio): los envíos de los que el usuario es parte (emisor, receptor,
+transportista asignado o quien transfirió la recepción, la misma regla que acepta `shipmentId` al crear), en cualquier estado, más recientes
+primero, cursor opaco (`utils/cursor.ts`, 400 si es inválido). `route` usa `pickupCity`/`deliveryCity` o el primer tramo de la dirección. Tests
+en `support.integration.test.ts`.

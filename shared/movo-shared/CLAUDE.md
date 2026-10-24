@@ -701,3 +701,9 @@ retiro acordado al aceptar una oferta). Recordatorio habitual: `npm run build` a
 `AdminTrackingMetrics`), más `ADMIN_TRACKING_POLL_INTERVAL_SECONDS` (15), compartido entre `svc-shipments` y `movo-admin`. Es el contrato
 que propuso MOVO-328, con dos cambios: `reason` suma `"cancelled"` y `shipmentStatus` va como `` `${ShipmentStatus}` ``. Recordatorio
 habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-324 — Selector de envíos de soporte (`types/support.ts`)
+
+Sobre el contrato de MOVO-320: `SupportShipmentRole`, `SupportShipmentOption` y `SupportShipmentOptionsPage`, wire contract de
+`GET /support/shipments` (envíos de los que el usuario es parte, en cualquier rol y estado, para vincular a una consulta).
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

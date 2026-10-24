@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   Clock,
   CreditCard,
+  HelpCircle,
   Package,
   QrCode,
   Truck,
@@ -835,6 +836,17 @@ export default function ShipmentDetailScreen() {
                   />
                 </View>
               ) : null}
+
+              {/* MOVO-324: entrada a soporte con este envío ya vinculado. */}
+              <Pressable
+                testID="shipment-detail-help"
+                accessibilityRole="button"
+                onPress={() => router.push({ pathname: "/support/new", params: { shipmentId: shipment.id } } as never)}
+                className="flex-row items-center justify-center gap-2 py-2"
+              >
+                <HelpCircle size={16} color={colors.fg3} strokeWidth={1.8} />
+                <Text className="font-sans-medium text-small text-fg-2">Necesito ayuda con este envío</Text>
+              </Pressable>
             </ScrollView>
           ) : (
             <View className="flex-1 px-5 pt-4">

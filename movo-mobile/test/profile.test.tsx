@@ -37,6 +37,10 @@ jest.mock("../src/hooks/use-mp-connect", () => ({
 jest.mock("../src/hooks/use-saved-cards", () => ({
   useSavedCards: () => ({ data: undefined }),
 }));
+// MOVO-324: la fila "Ayuda y soporte" muestra el total de consultas sin leer.
+jest.mock("../src/hooks/use-support", () => ({
+  useSupportList: () => ({ data: undefined }),
+}));
 jest.mock("../src/hooks/use-balance", () => ({
   useBalance: () => ({ data: undefined }),
 }));

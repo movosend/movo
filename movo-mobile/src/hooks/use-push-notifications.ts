@@ -137,6 +137,11 @@ export function resolveNotificationRoute(data: unknown): NotificationRoute | nul
     const shipmentId = stringField(data, "shipmentId");
     return shipmentId ? `/shipments/${shipmentId}/chat` : null;
   }
+  // MOVO-324: la respuesta del equipo de Movo abre la consulta (con la lista de consultas debajo, ver `handleNotificationResponse`).
+  if (type === "support_message") {
+    const conversationId = stringField(data, "conversationId");
+    return conversationId ? `/support/${conversationId}` : null;
+  }
   if (type === "receiver_transfer_invite") {
     // MOVO-275: la invitación (o su cancelación) abre su pantalla, que muestra si sigue vigente.
     const transferId = stringField(data, "transferId");
@@ -209,6 +214,12 @@ function handleNotificationResponse(response: Notifications.NotificationResponse
   if (notificationType(data) === ACCOUNT_DISABLED_NOTIFICATION_TYPE && useAuthStore.getState().status !== "unauthenticated") {
     void useAuthStore.getState().signOutDisabledAccount();
     return;
+  }
+
+  // La consulta se abre encima de "Mis consultas": volver lleva a Soporte, no a donde estaba el usuario. Si ya está
+  // dentro de Soporte (otra consulta abierta) no se apila otra lista.
+  if (typeof route === "string" && route.startsWith("/support/") && !normalizePath(current.pathname).startsWith("/support")) {
+    router.push("/support/conversations" as any);
   }
 
   // `as any`: `route` es una unión de dos formas armadas en runtime, no un literal
