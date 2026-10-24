@@ -7,6 +7,7 @@ import {
   AdminChatPage,
   AdminShipmentDetail,
   AdminShipmentEvent,
+  AdminShipmentOffer,
   AdminShipmentPage,
   AdminShipmentPhoto,
   ChatReportParties,
@@ -38,6 +39,8 @@ export interface ShipmentsClient extends InternalClient {
   getAdminShipment(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentDetail | null>;
   /** `GET /internal/admin/shipments/:id/events`. `null` si el envío no existe. */
   getAdminShipmentEvents(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentEvent[] | null>;
+  /** `GET /internal/admin/shipments/:id/offers`, todas (cerradas incluidas). `null` si el envío no existe. */
+  getAdminShipmentOffers(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentOffer[] | null>;
   /** `GET /internal/admin/shipments/:id/photos`, con URL firmada de vida corta. `null` si el envío no existe. */
   getAdminShipmentPhotos(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentPhoto[] | null>;
   /** `GET /internal/admin/shipments/:id/chat/messages`. `null` si el envío no existe. */
@@ -97,6 +100,8 @@ const isEvent = (item: unknown): item is AdminShipmentEvent =>
   isRecord(item) && isString(item.id) && isString(item.toStatus);
 const isPhoto = (item: unknown): item is AdminShipmentPhoto =>
   isRecord(item) && isString(item.id) && isString(item.url);
+const isOffer = (item: unknown): item is AdminShipmentOffer =>
+  isRecord(item) && isString(item.id) && isString(item.status) && isNumber(item.priceArs) && isNumber(item.receivedEstimateArs);
 
 const isAdminShipmentPage = (body: unknown): body is AdminShipmentPage =>
   isRecord(body) &&
@@ -109,6 +114,7 @@ const isAdminShipmentDetail = (body: unknown): body is AdminShipmentDetail =>
   isAdminShipmentRow(body) && isRecord(body) && isString(body.packageType) && typeof body.weightKg === "number";
 const isEventList = (body: unknown): body is AdminShipmentEvent[] => Array.isArray(body) && body.every(isEvent);
 const isPhotoList = (body: unknown): body is AdminShipmentPhoto[] => Array.isArray(body) && body.every(isPhoto);
+const isOfferList = (body: unknown): body is AdminShipmentOffer[] => Array.isArray(body) && body.every(isOffer);
 
 const isAdminChatPage = (body: unknown): body is AdminChatPage =>
   isRecord(body) &&
@@ -190,6 +196,12 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
     getAdminShipmentEvents(shipmentId, ctx) {
       return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/events`, ctx, {
         isValid: isEventList,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+    },
+    getAdminShipmentOffers(shipmentId, ctx) {
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/offers`, ctx, {
+        isValid: isOfferList,
         notFoundCodes: ["NOT_FOUND"],
       });
     },

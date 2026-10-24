@@ -13,6 +13,7 @@ import {
   AdminChatPage,
   AdminShipmentDetail,
   AdminShipmentEvent,
+  AdminShipmentOffer,
   AdminShipmentPage,
   AdminShipmentPhoto,
   HoldDetailResponse,
@@ -48,6 +49,9 @@ export function createFakeShipmentsClient(data: {
   details?: Record<string, AdminShipmentDetail>;
   events?: Record<string, AdminShipmentEvent[]>;
   photos?: Record<string, AdminShipmentPhoto[]>;
+  offers?: Record<string, AdminShipmentOffer[]>;
+  /** Solo el endpoint de ofertas falla (deploy en serie: svc-shipments todavía sin la ruta). */
+  offersDown?: boolean;
   chats?: Record<string, AdminChatPage>;
   /** Últimos query strings recibidos, para comprobar que se reenvían. */
   seen?: { list?: string; chat?: string };
@@ -89,6 +93,10 @@ export function createFakeShipmentsClient(data: {
     async getAdminShipmentEvents(id) {
       if (data.down) throw shipmentsDown();
       return data.events?.[id] ?? [];
+    },
+    async getAdminShipmentOffers(id) {
+      if (data.down || data.offersDown) throw shipmentsDown();
+      return data.offers?.[id] ?? [];
     },
     async getAdminShipmentPhotos(id) {
       if (data.down) throw shipmentsDown();

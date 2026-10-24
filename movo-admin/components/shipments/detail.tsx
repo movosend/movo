@@ -40,11 +40,14 @@ import {
   timeAgo,
   type ShipmentStatusValue,
   shipmentDisplayCode,
+  type TimelineItem,
 } from "@/lib/shipments/format"
+import { parseAcceptance } from "@/lib/shipments/offers"
 import { UserAvatar } from "@/components/user-avatar"
 import { cn } from "@/lib/utils"
 import { StatusPill, TONE_BG } from "@/components/users/ui"
 import { BlockError } from "./block-error"
+import { AcceptedOfferNote } from "./offers"
 
 const card = "flex flex-col gap-3.5 rounded-[10px] border bg-card p-[18px]"
 
@@ -387,6 +390,12 @@ export function PackagePaymentCard({
   )
 }
 
+/** El evento de aceptación trae `Oferta <id> aceptada · …`: en vez del texto crudo, la oferta elegida. */
+const acceptance = (item: TimelineItem) =>
+  item.status === "assignment_pending" || item.status === "assigned_unfunded"
+    ? parseAcceptance(item.reason)
+    : null
+
 export function Timeline({
   shipment,
   events,
@@ -423,6 +432,7 @@ export function Timeline({
           const Icon = EVENT_ICON[item.status]
           const last = i === items.length - 1
           const tone = SHIPMENT_STATUS[item.status].tone
+          const accepted = acceptance(item)
           return (
             <li
               key={item.key}
@@ -491,10 +501,14 @@ export function Timeline({
                     {item.detail}
                   </span>
                 )}
-                {item.reason && (
-                  <span className="mt-1 rounded-md border bg-surface-sub px-2.5 py-2 text-[13px] leading-[1.45] text-pretty text-fg2">
-                    {item.reason}
-                  </span>
+                {accepted ? (
+                  <AcceptedOfferNote {...accepted} />
+                ) : (
+                  item.reason && (
+                    <span className="mt-1 rounded-md border bg-surface-sub px-2.5 py-2 text-[13px] leading-[1.45] text-pretty text-fg2">
+                      {item.reason}
+                    </span>
+                  )
                 )}
               </div>
             </li>

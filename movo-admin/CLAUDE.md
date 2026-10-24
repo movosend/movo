@@ -297,3 +297,27 @@ ahora en `lib/shipments/tracking/copy.ts`).
 
 Pendiente: captura contra un envío real en dev (DoD), que necesita MOVO-327 desplegado; la etiqueta de retiro/entrega es el "barrio" del
 prototipo solo si el backend lo resuelve (hoy el modelo tiene ciudad y dirección).
+
+## Ofertas del envío (sección y modal)
+
+Sección "Ofertas" del detalle (debajo del mapa) y modal con todas las ofertas, del prototipo `Movo Admin · Ofertas del envío` de Claude
+Design. Datos: bloque `offers` de `GET /admin/shipments/:id`. Lógica pura en `lib/shipments/offers.ts`, UI en
+`components/shipments/offers.tsx`. `OffersProvider` envuelve la grilla del detalle y es dueño del único `Dialog`: lo abren la sección y
+el evento de aceptación de la línea de tiempo.
+
+- **Precios como en mobile**: `$17.200`, "-7% vs. sugerido" en % entero, "Cómo se compara" (posición por precio, la barra de
+  `carrier/offers/[id].tsx`) y "Cómo se reparte" con la forma de `PriceBreakdownCard`. El total va en lima solo con la oferta abierta o
+  aceptada. Dos diferencias a propósito: el total está en tercera persona ("Va a recibir aprox."), porque lo lee el admin, y la posición
+  se cuenta sobre el bruto (mobile usa el neto; el orden es el mismo). El desglose lo calcula `svc-shipments`, no el panel.
+- **Evento de aceptación**: `svc-shipments` escribe `Oferta <uuid> aceptada · ruta …` (MOVO-210). `parseAcceptance` lo convierte en
+  precio, posición y etiquetas ("Ruta cercana", "Retiro en 1,7 días (N = 3)", "Paga al aceptar") con un link que abre el modal en esa
+  oferta. Si cambia el formato de ese texto, el evento vuelve a mostrar el motivo tal cual.
+- **Retiro pedido ≠ retiro del envío**: al aceptar, `svc-shipments` pisa `pickupDate` y la franja con los de la ganadora
+  (MOVO-258 D3). "Retiro pedido" y las notas de cada oferta ("Propone otro día"…) comparan contra `requestedPickup*`, nunca
+  contra `pickup*`. La tasa de "Comisión Movo (15%)" viene en la oferta (`commissionRate`), no se deduce de los montos.
+- **Deploy en serie**: el panel sale solo a Vercel. `withDeployGaps` (`lib/shipments/deploy-gaps.ts`) completa lo que un backend
+  anterior no manda: sin `offers`, ese bloque viene con error (no se cae el detalle); sin `requestedPickup*`, usa el retiro actual.
+- `components/ui/dialog.tsx` suma `DialogDescription`. Modo fixtures: ofertas por envío en `lib/shipments/fixtures.ts`
+  (`MOVO_ADMIN_MOCK_FAIL=offers` tumba el bloque); con transportista, el sugerido queda 8% arriba del acordado.
+
+Pendiente: revisar a mano en claro/oscuro y contra dev con un envío real con varias ofertas.

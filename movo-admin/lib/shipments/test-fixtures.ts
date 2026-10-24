@@ -2,6 +2,7 @@ import type {
   AdminChatMessage,
   AdminShipmentDetail,
   AdminShipmentEvent,
+  AdminShipmentOffer,
   AdminShipmentRow,
 } from "@movo/shared/src/types/admin-shipments"
 
@@ -58,6 +59,9 @@ export const detail = (
   heightCm: 15,
   description: "Ropa",
   urgent: false,
+  requestedPickupDate: "2026-10-21",
+  requestedPickupTimeWindowStart: "09:00",
+  requestedPickupTimeWindowEnd: "12:00",
   pickupLat: -31.41,
   pickupLng: -64.2,
   deliveryLat: -31.29,
@@ -73,6 +77,36 @@ export const detail = (
   chatStartedAt: "2026-10-20T21:10:00.000Z",
   cancellationPenaltyArs: null,
   createdAt: "2026-10-20T18:42:00.000Z",
+  ...over,
+})
+
+/** Oferta aceptada de Diego por $6.800 (bruto); el resto con el 15% de Movo y el 4,99% estimado de MP. */
+export const offer = (
+  over: Partial<AdminShipmentOffer> = {}
+): AdminShipmentOffer => ({
+  id: "af26aeae-0695-409d-a5df-d5d9665f59b9",
+  carrierId: CARRIER.id,
+  carrierName: CARRIER.name,
+  carrierRatingAtOffer: 4.8,
+  status: "accepted",
+  priceArs: 6800,
+  netArs: 5913.04,
+  commissionArs: 886.96,
+  commissionRate: 0.15,
+  mpFeeEstimateArs: 339.32,
+  receivedEstimateArs: 5573.72,
+  offeredDate: "2026-10-21",
+  pickupTimeWindowStart: null,
+  pickupTimeWindowEnd: null,
+  estimatedDeliveryDate: "2026-10-21",
+  estimatedDeliveryTimeWindowStart: "16:00",
+  estimatedDeliveryTimeWindowEnd: "19:00",
+  message: "Paso temprano",
+  tripId: null,
+  createdAt: "2026-10-20T19:00:00.000Z",
+  viewedAtBySender: "2026-10-20T19:20:00.000Z",
+  respondedAt: "2026-10-20T21:12:00.000Z",
+  expiresAt: null,
   ...over,
 })
 

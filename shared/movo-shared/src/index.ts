@@ -232,6 +232,7 @@ export {
   decomposeOfferGrossPrice,
   carrierPaymentView,
   estimateMpFeeArs,
+  estimateReceivedArs,
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
@@ -384,6 +385,7 @@ export type {
   AdminShipmentPage,
   AdminShipmentEvent,
   AdminShipmentPhoto,
+  AdminShipmentOffer,
   AdminShipmentPayment,
   AdminShipmentPartyCard,
   AdminBlock,

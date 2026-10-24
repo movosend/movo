@@ -3790,6 +3790,16 @@ de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `comple
 - La disputa de una parte avisa con `disputeOpened*` (categoría `disputes`, `data.type: dispute_opened`); las de sistema siguen con sus
   templates. Pendiente: la resolución y sus campos (MOVO-34), la matriz de reembolsos con el cobro ya acreditado (MOVO-337) y la UI mobile.
 
+### Ofertas del envío para el panel — `GET /internal/admin/shipments/:id/offers`
+
+Todas las ofertas del envío (cerradas incluidas, de la más vieja a la más nueva) con el estado efectivo de `listByShipment`
+(una `pending` vencida sale `expired`), el snapshot del transportista y el desglose de "Cómo se reparte" de mobile:
+`netArs`/`commissionArs` con `decomposeOfferGrossPrice` y `mpFeeEstimateArs`/`receivedEstimateArs` con las tasas de este servicio.
+Las franjas se recortan a `HH:MM`. 404 si el envío no existe, igual que `/events`. Contrato `AdminShipmentOffer` en `@movo/shared`.
+Sin historial de precios: modificar una oferta (MOVO-181) pisa el monto en la misma fila.
+Review de PR #302: cada oferta suma `commissionRate` (la tasa con la que se calculó el desglose, que no se guarda con la oferta)
+y el detalle `GET /internal/admin/shipments/:id` suma `requestedPickup*`, el retiro que pidió el emisor: sale de `originalPickup*`
+(lo guarda `acceptOffer` antes de pisar `pickupDate` y la franja con los de la ganadora, MOVO-258 D3) o del actual si no hay.
 ### MOVO-321 — Adjuntos de imágenes en los mensajes de soporte
 
 `POST /support/attachments` y `attachmentIds` en los mensajes del usuario, con URLs firmadas de 15 min al leer (detalle en

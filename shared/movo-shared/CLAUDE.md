@@ -686,3 +686,11 @@ y las constantes `DISPUTE_WINDOW_DAYS` (7, desde `deliveredAt`) y `DISPUTE_TEXT_
 `DISPUTE_STATEMENT_ALREADY_SUBMITTED` y `DISPUTE_PHOTO_ALREADY_USED`. Triggers `disputeOpened{Sender,Receiver,Carrier}`: la categoría
 `disputes` pasa a `implemented: true` y ya no queda ninguna "Pronto" (tocó tres tests de `movo-mobile`). Recordatorio habitual:
 `npm run build` acá antes de tipar desde otro workspace.
+
+### Ofertas del envío para el panel (`types/admin-shipments.ts`)
+
+`AdminShipmentOffer` (estado efectivo, snapshot del transportista, bruto/neto/comisión y el estimado de MP y de lo que recibe) y el
+bloque `offers` en `AdminShipmentDetailResponse` (requerido: rompe literales armados a mano). El barrel suma `estimateReceivedArs`,
+que solo se exportaba por subpath. Review de PR #302: `AdminShipmentOffer.commissionRate` y
+`AdminShipmentDetail.requestedPickupDate`/`requestedPickupTimeWindowStart`/`End` (lo que pidió el emisor; `pickupDate` pasa a ser el
+retiro acordado al aceptar una oferta). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

@@ -3,9 +3,16 @@ import type {
   AdminChatPage,
   AdminShipmentDetail,
   AdminShipmentEvent,
+  AdminShipmentOffer,
   AdminShipmentPartyCard,
   AdminShipmentPayment,
 } from "@movo/shared/src/types/admin-shipments"
+import {
+  decomposeOfferGrossPrice,
+  DEFAULT_MOVO_COMMISSION_RATE,
+  estimateMpFeeArs,
+  estimateReceivedArs,
+} from "@movo/shared/src/config/commission"
 import type { ShipmentStatusValue } from "./format"
 
 /**
@@ -360,9 +367,122 @@ const PATH: Record<ShipmentStatusValue, ShipmentStatusValue[]> = {
   ],
 }
 
+const OTHER_CARRIERS = [
+  "Martina Gómez",
+  "Juan Castro",
+  "Sofía Paz",
+  "Ana Torres",
+  "Bruno Sosa",
+]
+
+/**
+ * Ofertas del envío: con transportista, la aceptada (al precio acordado) y cuatro más que terminaron de
+ * otra forma; publicado, tres abiertas; antes de publicarse, ninguna. Los montos usan las mismas cuentas
+ * que `svc-shipments` (`decomposeOfferGrossPrice`/`estimateReceivedArs`).
+ */
+function offersFor(
+  seed: Seed,
+  carrier: { id: string; name: string } | null,
+  acceptedId: string,
+  acceptedAt: string | null,
+  pickupDate: string
+): AdminShipmentOffer[] {
+  const make = (
+    i: number,
+    name: string,
+    carrierId: string,
+    priceArs: number,
+    status: AdminShipmentOffer["status"],
+    at: { created: number; responded: number | null; expires?: number }
+  ): AdminShipmentOffer => {
+    const { netArs, commissionAmountArs } = decomposeOfferGrossPrice(
+      priceArs,
+      DEFAULT_MOVO_COMMISSION_RATE
+    )
+    const otherDay = i === 1
+    return {
+      id: i === 0 ? acceptedId : uuid(seed.n * 10 + i, "e"),
+      carrierId,
+      carrierName: name,
+      carrierRatingAtOffer: i === 3 ? null : 3.9 + ((seed.n + i * 7) % 11) / 10,
+      status,
+      priceArs,
+      netArs,
+      commissionArs: commissionAmountArs,
+      commissionRate: DEFAULT_MOVO_COMMISSION_RATE,
+      mpFeeEstimateArs: estimateMpFeeArs(priceArs),
+      receivedEstimateArs: estimateReceivedArs(netArs, priceArs),
+      offeredDate: otherDay ? dayOffset(seed.pickup[0] + 1) : pickupDate,
+      pickupTimeWindowStart: otherDay ? "14:00" : i === 4 ? "10:00" : null,
+      pickupTimeWindowEnd: otherDay ? "18:00" : i === 4 ? "11:30" : null,
+      estimatedDeliveryDate: i === 2 ? null : pickupDate,
+      estimatedDeliveryTimeWindowStart: i === 2 ? null : "16:00",
+      estimatedDeliveryTimeWindowEnd: i === 2 ? null : "19:00",
+      message:
+        i === 0
+          ? "Paso por la zona a la mañana, puedo retirarlo temprano."
+          : i === 2
+            ? "Si me confirman hoy lo llevo mañana."
+            : null,
+      tripId: null,
+      createdAt: ago(at.created),
+      viewedAtBySender: i === 2 || i === 4 ? null : ago(at.created - 15),
+      respondedAt: at.responded === null ? null : ago(at.responded),
+      expiresAt: at.expires === undefined ? null : ago(at.expires),
+    }
+  }
+  const price = (factor: number) =>
+    Math.round((seed.price * factor) / 100) * 100
+  const others = (i: number) => personId(OTHER_CARRIERS[i - 1]!)
+
+  if (!carrier || !acceptedAt) {
+    if (seed.status !== "published") return []
+    return [1, 2, 3].map((i) =>
+      make(
+        i,
+        OTHER_CARRIERS[i - 1]!,
+        others(i),
+        price(0.9 + i * 0.07),
+        "pending",
+        {
+          created: Math.max(1, seed.updated - i * 12),
+          responded: null,
+          expires: -(24 * 60),
+        }
+      )
+    )
+  }
+  // `ago` cuenta minutos hacia atrás desde ahora; la aceptación es el punto de referencia.
+  const t = Math.round((NOW - new Date(acceptedAt).getTime()) / 60_000)
+  return [
+    make(0, carrier.name, carrier.id, seed.price, "accepted", {
+      created: t + 92,
+      responded: t,
+    }),
+    make(1, OTHER_CARRIERS[0]!, others(1), price(0.96), "superseded", {
+      created: t + 77,
+      responded: t,
+    }),
+    make(2, OTHER_CARRIERS[1]!, others(2), price(1.08), "withdrawn", {
+      created: t + 97,
+      responded: t + 22,
+    }),
+    make(3, OTHER_CARRIERS[2]!, others(3), price(1.15), "rejected", {
+      created: t + 120,
+      responded: t + 37,
+    }),
+    make(4, OTHER_CARRIERS[3]!, others(4), price(1.04), "expired", {
+      created: t + 132,
+      responded: null,
+      expires: t + 72,
+    }),
+  ]
+}
+
 export interface MockShipment {
   detail: AdminShipmentDetail
   events: AdminShipmentEvent[]
+  offers: AdminShipmentOffer[]
   parties: AdminShipmentPartyCard[]
   payment: AdminShipmentPayment
   chat: Omit<AdminChatPage, "nextCursor" | "events">
@@ -395,16 +515,42 @@ function build(seed: Seed): MockShipment {
     cancelled: sender.id,
     disputed: receiver.id,
   }
+  // El mismo motivo que escribe `svc-shipments` al aceptar una oferta (MOVO-210).
+  const acceptedId = uuid(seed.n * 10, "e")
+  const acceptReason = (status: ShipmentStatusValue) =>
+    status === "assignment_pending"
+      ? `Oferta ${acceptedId} aceptada · ruta cercana: retiro en 1.7 días (dentro de 3); el emisor paga al aceptar`
+      : `Oferta ${acceptedId} aceptada · ruta lejana: retiro en 4.2 días (a más de 3); el pago se confirma al abrirse la ventana`
   const events = path.map((status, i): AdminShipmentEvent => ({
     id: `${id.slice(0, 24)}${String(i).padStart(12, "0")}`,
     fromStatus: i === 0 ? null : path[i - 1]!,
     toStatus: status,
     actorId: actorOf[status],
-    reason: i === path.length - 1 ? (seed.reason ?? null) : null,
+    reason:
+      i === path.length - 1 && seed.reason
+        ? seed.reason
+        : status === "assignment_pending" || status === "assigned_unfunded"
+          ? acceptReason(status)
+          : null,
     createdAt: ago(seed.updated + (path.length - 1 - i) * 95),
   }))
 
   const hasCarrier = carrier !== null
+  // Con transportista, el sugerido queda arriba del acordado, como pasa en general.
+  const suggestedPriceArs = hasCarrier
+    ? Math.round((seed.price * 1.08) / 100) * 100
+    : seed.price
+  const offers = offersFor(
+    seed,
+    carrier,
+    acceptedId,
+    events.find(
+      (e) =>
+        e.toStatus === "assignment_pending" ||
+        e.toStatus === "assigned_unfunded"
+    )?.createdAt ?? null,
+    dayOffset(seed.pickup[0])
+  )
   const detail: AdminShipmentDetail = {
     id,
     code: id.slice(0, 8),
@@ -434,11 +580,15 @@ function build(seed: Seed): MockShipment {
     heightCm: 15,
     description: seed.pkg[2],
     urgent: false,
+    // La oferta aceptada del mock deja el retiro como estaba, así que lo pedido coincide con lo acordado.
+    requestedPickupDate: dayOffset(seed.pickup[0]),
+    requestedPickupTimeWindowStart: seed.pickup[1],
+    requestedPickupTimeWindowEnd: seed.pickup[2],
     pickupLat,
     pickupLng,
     deliveryLat,
     deliveryLng,
-    suggestedPriceArs: seed.price,
+    suggestedPriceArs,
     agreedPriceArs: hasCarrier ? seed.price : null,
     paymentMethod: hasCarrier ? "card" : null,
     highDemand: false,
@@ -522,6 +672,7 @@ function build(seed: Seed): MockShipment {
   return {
     detail,
     events,
+    offers,
     parties,
     payment,
     chat: chat ?? {
