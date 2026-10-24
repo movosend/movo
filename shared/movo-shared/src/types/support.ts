@@ -118,6 +118,28 @@ export interface SupportUserAttachmentCreateBody {
   height?: number;
 }
 
+/** Rol del usuario en un envío vinculable a la consulta. */
+export type SupportShipmentRole = "sender" | "carrier" | "receiver";
+
+/** Un envío del que el usuario es parte (emisor, transportista o receptor), para vincularlo a una consulta (MOVO-324). */
+export interface SupportShipmentOption {
+  id: string;
+  /** `MOVO-48213` (`supportShipmentCode`). */
+  code: string;
+  /** `ShipmentStatus` del envío, cualquiera (también entregados y cancelados). */
+  status: string;
+  /** "Palermo → Quilmes". */
+  route: string;
+  role: SupportShipmentRole;
+  createdAt: string;
+}
+
+/** `GET /support/shipments`: más recientes primero, páginas por cursor opaco. */
+export interface SupportShipmentOptionsPage {
+  items: SupportShipmentOption[];
+  nextCursor: string | null;
+}
+
 /** `POST /support/conversations/:id/read`. */
 export interface SupportReadResult {
   readAt: string;

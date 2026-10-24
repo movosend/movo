@@ -158,6 +158,38 @@ const listMessagesResponse = {
   },
 };
 
+// MOVO-324: selector de envíos de "Nueva consulta" (`SupportShipmentOptionsPage`).
+const listShipmentsQuery = {
+  type: "object",
+  properties: {
+    limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+    cursor: { type: "string", minLength: 1, maxLength: 200 },
+  },
+};
+
+const listShipmentsResponse = {
+  type: "object",
+  required: ["items", "nextCursor"],
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["id", "code", "status", "route", "role", "createdAt"],
+        properties: {
+          id: { type: "string" },
+          code: { type: "string" },
+          status: { type: "string" },
+          route: { type: "string" },
+          role: { type: "string", enum: ["sender", "carrier", "receiver"] },
+          createdAt: { type: "string", format: "date-time" },
+        },
+      },
+    },
+    nextCursor: { type: ["string", "null"] },
+  },
+};
+
 const readResponse = {
   type: "object",
   required: ["readAt"],
@@ -193,6 +225,8 @@ export const supportSchemas = {
   supportMessageResponse,
   listMessagesQuery,
   listMessagesResponse,
+  listShipmentsQuery,
+  listShipmentsResponse,
   readResponse,
   errorResponse,
 };

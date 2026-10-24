@@ -173,6 +173,7 @@ export function createFakePaymentsClient(
         commissionArs: Math.round(input.amountArs * 0.13 * 100) / 100,
         debtOffsetArs: 0,
         debtSurchargeArs: 0,
+        carrierMpFeeArs: null,
         status: behavior.nextHoldStatus,
         wasAuthorized: behavior.nextHoldStatus === "authorized" || behavior.nextHoldStatus === "captured",
         statusDetail: null,

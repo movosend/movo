@@ -12,8 +12,10 @@ import {
   ApiError,
   ChatReportParties,
   AdminChatPage,
+  AdminShipmentTracking,
   AdminShipmentDetail,
   AdminShipmentEvent,
+  AdminShipmentOffer,
   AdminShipmentPage,
   AdminShipmentPhoto,
   HoldDetailResponse,
@@ -61,7 +63,12 @@ export function createFakeShipmentsClient(data: {
   details?: Record<string, AdminShipmentDetail>;
   events?: Record<string, AdminShipmentEvent[]>;
   photos?: Record<string, AdminShipmentPhoto[]>;
+  offers?: Record<string, AdminShipmentOffer[]>;
+  /** Solo el endpoint de ofertas falla (deploy en serie: svc-shipments todavía sin la ruta). */
+  offersDown?: boolean;
   chats?: Record<string, AdminChatPage>;
+  /** MOVO-327 */
+  trackings?: Record<string, AdminShipmentTracking>;
   /** Últimos query strings recibidos, para comprobar que se reenvían. */
   seen?: { list?: string; chat?: string };
   /** MOVO-299: efectos de una sanción, por id de usuario. */
@@ -125,6 +132,10 @@ export function createFakeShipmentsClient(data: {
       if (data.down) throw shipmentsDown();
       return data.events?.[id] ?? [];
     },
+    async getAdminShipmentOffers(id) {
+      if (data.down || data.offersDown) throw shipmentsDown();
+      return data.offers?.[id] ?? [];
+    },
     async getAdminShipmentPhotos(id) {
       if (data.down) throw shipmentsDown();
       return data.photos?.[id] ?? [];
@@ -133,6 +144,10 @@ export function createFakeShipmentsClient(data: {
       if (data.down) throw shipmentsDown();
       if (data.seen) data.seen.chat = query.toString();
       return data.chats?.[id] ?? null;
+    },
+    async getAdminShipmentTracking(id) {
+      if (data.down) throw shipmentsDown();
+      return data.trackings?.[id] ?? null;
     },
     async getShipmentParties(id) {
       if (data.down) throw shipmentsDown();

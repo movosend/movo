@@ -36,6 +36,7 @@ export interface EnvConfig {
   CARRIER_POSITION_RETENTION_DAYS: number;
   CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: number;
   CARRIER_POSITION_PURGE_SWEEP_ENABLED?: boolean;
+  TRACKING_SIGNAL_LOST_SECONDS: number;
   SHIPMENT_HISTORY_RETENTION_YEARS: number;
   SHIPMENT_HISTORY_PURGE_SWEEP_INTERVAL_MINUTES: number;
   SHIPMENT_HISTORY_PURGE_SWEEP_ENABLED?: boolean;
@@ -176,6 +177,9 @@ export const envSchema = {
     // sobre un plazo de 30 días no cambia nada material.
     CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
     CARRIER_POSITION_PURGE_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-327: sin un ping en este plazo, el seguimiento del panel marca `signalLost` (y no
+    // calcula velocidad ni ETA). Varios pings perdidos seguidos, no uno solo (cadencia ~45 s).
+    TRACKING_SIGNAL_LOST_SECONDS: { type: "number", minimum: 30, default: 300 },
     // MOVO-230 (Política de Privacidad §7): años desde la baja de la última de las partes de un
     // envío hasta que se purga su historial. Plazo fijado por la política (Art. 2560 CCyCN),
     // no un valor técnico: cambiarlo es un cambio de documento.

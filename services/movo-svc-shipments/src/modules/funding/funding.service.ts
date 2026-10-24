@@ -31,6 +31,7 @@ import { InvalidShipmentTransitionError } from "../../domain/shipment-state-mach
 import { Shipment } from "../../models/shipment";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentConcurrentModificationError, ShipmentRepository } from "../../repositories/shipment-repository";
+import type { AdminStatusActor } from "../../domain/admin-status-actor";
 import { sendCustodyPush } from "../../utils/dispatch-push";
 import { assertIsSender } from "../shipments/assert-shipment-access";
 
@@ -265,7 +266,12 @@ export function createFundingService(deps: FundingServiceDeps) {
    * tap / una reconciliación concurrente (AC14): si otra llamada ya lo dejó `assigned`, devuelve
    * `false` sin error. Cualquier otro estado final es un conflicto real.
    */
-  async function markAssigned(shipment: Shipment, actorId: string | null, reason: string): Promise<boolean> {
+  async function markAssigned(
+    shipment: Shipment,
+    actorId: string | null,
+    reason: string,
+    admin?: AdminStatusActor,
+  ): Promise<boolean> {
     const closingOffers = offerRepository
       ? (await offerRepository.listByShipment(shipment.id)).filter((offer) => offer.status === OfferStatus.PENDING)
       : [];
@@ -274,6 +280,7 @@ export function createFundingService(deps: FundingServiceDeps) {
         expectedFrom: shipment.status,
         ...(shipment.carrierId !== null && { expectedCarrierId: shipment.carrierId }),
         ...(shipment.agreedPriceArs !== null && { expectedAgreedPriceArs: shipment.agreedPriceArs }),
+        ...(admin && { adminActor: { kind: admin.kind, name: admin.adminName } }),
       });
     } catch (err) {
       if (err instanceof ShipmentConcurrentModificationError || err instanceof InvalidShipmentTransitionError) {
@@ -284,7 +291,9 @@ export function createFundingService(deps: FundingServiceDeps) {
       }
       throw err;
     }
-    void notifyFunded(shipment);
+    // MOVO-331: si lo confirma un admin, las partes reciben el aviso de soporte y no además el del pago.
+    // Los transportistas desplazados sí se enteran: su oferta se cerró de verdad.
+    if (!admin) void notifyFunded(shipment);
     for (const offer of closingOffers) {
       void notifyOfferClosed(offer.id, offer.carrierId, shipment.id);
     }
@@ -431,6 +440,30 @@ export function createFundingService(deps: FundingServiceDeps) {
   }
 
   return {
+    /**
+     * MOVO-331 (ADR-055): un admin pasa a `assigned` un envío que espera el pago. Nunca confía en el
+     * motivo del admin: el hold tiene que estar autorizado (o capturado) en payments, consultado con
+     * sync contra MP. Reusa `markAssigned`, así que cierra las demás ofertas y avisa como la saga.
+     */
+    async confirmAssignmentByAdmin(shipment: Shipment, admin: AdminStatusActor, reason: string): Promise<void> {
+      const hold = await paymentsClient.findHoldByShipment(shipment.id, { sync: true });
+      if (!hold || !isFundedHold(hold)) {
+        throw new ApiError(
+          422,
+          "HOLD_NOT_AUTHORIZED",
+          "El hold del envío no está autorizado en Mercado Pago: no se puede dar por asignado.",
+          { holdStatus: hold?.status ?? null },
+        );
+      }
+      const changed = await markAssigned(shipment, admin.adminId, reason, admin);
+      if (!changed) {
+        // Otra llamada (webhook de MP, saga) ya lo dejó `assigned`: el admin no cambió nada, no se avisa a nadie.
+        throw new ApiError(409, "STATUS_CHANGED", "El estado del envío cambió mientras confirmabas.", {
+          currentStatus: ShipmentStatus.ASSIGNED,
+        });
+      }
+    },
+
     /**
      * MOVO-211: estado de la reserva para el detalle del envío, según quién mira. El emisor ve
      * plazos, monto, último intento y tarjeta; el transportista asignado solo si el pago está

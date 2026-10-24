@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
+import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import {
   AdminBlock,
   AdminChatPage,
@@ -6,6 +6,7 @@ import {
   AdminShipmentPage,
   AdminShipmentPartyCard,
   AdminShipmentPayment,
+  AdminShipmentTracking,
   ApiError,
   ChatParticipantRole,
 } from "@movo/shared";
@@ -77,7 +78,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
         tags: ["admin"],
         summary: "Detalle completo de un envío",
         description:
-          "El envío y sus bloques: eventos y fotos (URL firmada de vida corta) de `svc-shipments`, pago de " +
+          "El envío y sus bloques: eventos, fotos (URL firmada de vida corta) y ofertas (todas, con el desglose " +
+          "del precio) de `svc-shipments`, pago de " +
           "`svc-payments` y partes con verificación y reputación de `svc-users`. Un bloque que no se pudo " +
           "obtener viene con `data: null` y su `error`, sin tumbar el resto. `payment.data` es `null` sin error " +
           "si nunca se intentó el pago.",
@@ -93,9 +95,10 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
       const shipment = await app.shipmentsClient.getAdminShipment(id, ctx);
       if (!shipment) throw notFound();
 
-      const [events, photos, payment, parties] = await Promise.all([
+      const [events, photos, offers, payment, parties] = await Promise.all([
         block(async () => (await app.shipmentsClient.getAdminShipmentEvents(id, ctx)) ?? []),
         block(async () => (await app.shipmentsClient.getAdminShipmentPhotos(id, ctx)) ?? []),
+        block(async () => (await app.shipmentsClient.getAdminShipmentOffers(id, ctx)) ?? []),
         block<AdminShipmentPayment>(() => app.paymentsClient.findHoldByShipment(id, ctx)),
         block(async (): Promise<AdminShipmentPartyCard[]> => {
           // Una persona puede cumplir dos roles (p. ej. emisor y receptor): una ficha por rol.
@@ -110,7 +113,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
         }),
       ]);
 
-      return { shipment, events, photos, payment, parties };
+      return { shipment, events, photos, offers, payment, parties };
     },
   );
 
@@ -140,6 +143,31 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
       const page = await app.shipmentsClient.getAdminShipmentChat(id, query, { requestId: request.requestId });
       if (!page) throw notFound();
       return page;
+    },
+  );
+
+  app.get(
+    "/shipments/:id/tracking",
+    {
+      schema: {
+        tags: ["admin"],
+        summary: "Seguimiento del envío para el mapa",
+        description:
+          "Ruta planificada, traza y, con el envío en camino, última posición y métricas (velocidad promedio de " +
+          "5 min, km restantes, % y ETA). La posición solo se ve con el transportista en viaje (`live`). Sin un " +
+          "ping reciente, `signalLost` con la hora del último y sin velocidad ni ETA. El panel lo pide por " +
+          "polling cada `pollIntervalSeconds` (MOVO-327); la respuesta no se cachea.",
+        params: shipmentsSchemas.idParam,
+        response: { 200: shipmentsSchemas.trackingResponse, ...errors },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply): Promise<AdminShipmentTracking> => {
+      requireAdmin(request);
+      const { id } = request.params as { id: string };
+      const tracking = await app.shipmentsClient.getAdminShipmentTracking(id, { requestId: request.requestId });
+      if (!tracking) throw notFound();
+      reply.header("Cache-Control", "no-store");
+      return tracking;
     },
   );
 }

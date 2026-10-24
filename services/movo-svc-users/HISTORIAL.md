@@ -1371,3 +1371,8 @@ Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `s
 - `POST /auth/register` acepta `firstName`/`lastName` (el `fullName` legado se sigue cortando en el primer espacio, para builds
   viejos). Las cuentas ya partidas mal se corrigen con `npm run user:name -- list` / `set <email> "<nombre>" "<apellido>"`
   (`src/scripts/fix-user-name.ts`): no hay de dónde recuperar el corte original.
+
+### MOVO-331 — `ignorePreferences` en `POST /internal/notifications/push`
+
+El body interno acepta `ignorePreferences` (boolean, opcional) y lo reenvía a `sendPushToUser`, que ya lo soportaba desde MOVO-296. Lo usa
+`svc-shipments` para avisar a las partes de un cambio forzado de estado (ADR-055).

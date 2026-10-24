@@ -1,4 +1,5 @@
-// Autocontenido a propósito -- mismo criterio que el resto de los *.schema.ts del repo.
+import { FORCE_STATUS_REASON_MAX_LENGTH, FORCE_STATUS_REASON_MIN_LENGTH } from "@movo/shared";
+
 const uuid = { type: "string", format: "uuid" } as const;
 const nullableUuid = { type: ["string", "null"], format: "uuid" } as const;
 
@@ -199,6 +200,33 @@ export const adminInternalSchemas = {
       trips: { type: "integer" },
       recurringSeries: { type: "integer" },
       inProgressShipments: { type: "array", items: inProgressShipment },
+    },
+  },
+
+  // MOVO-331 (ADR-055). Los topes del motivo son los de `@movo/shared` (`FORCE_STATUS_REASON_*`).
+  forceStatusBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["targetStatus", "expectedStatus", "reason", "adminId", "adminName", "idempotencyKey"],
+    properties: {
+      targetStatus: { type: "string", enum: SHIPMENT_STATUSES },
+      expectedStatus: { type: "string", enum: SHIPMENT_STATUSES },
+      reason: { type: "string", minLength: FORCE_STATUS_REASON_MIN_LENGTH, maxLength: FORCE_STATUS_REASON_MAX_LENGTH },
+      adminId: uuid,
+      adminName: { type: "string", minLength: 1, maxLength: 200 },
+      idempotencyKey: { type: "string", minLength: 8, maxLength: 128 },
+    },
+  },
+
+  forceStatusResponse: {
+    type: "object",
+    required: ["shipmentId", "fromStatus", "toStatus", "kind", "replayed"],
+    properties: {
+      shipmentId: uuid,
+      fromStatus: { type: "string", enum: SHIPMENT_STATUSES },
+      toStatus: { type: "string", enum: SHIPMENT_STATUSES },
+      kind: { type: "string", enum: ["manual", "forced"] },
+      replayed: { type: "boolean" },
     },
   },
 

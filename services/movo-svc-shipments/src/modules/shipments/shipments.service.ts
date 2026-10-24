@@ -5,6 +5,7 @@ import {
   CancellationQuoteResponse,
   DisputeReason,
   CarrierRoute,
+  HoldDetailResponse,
   LIVE_HOLD_STATUSES,
   OfferStatus,
   PublicProfile,
@@ -34,6 +35,7 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { releaseHoldBeforeCancel } from "../funding/funding.service";
+import type { AdminStatusActor } from "../../domain/admin-status-actor";
 import { isLatestFundingLapseForCarrier } from "../../domain/funding";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { RatingRole } from "../../models/rating";
@@ -243,6 +245,12 @@ export type ShipmentDetailResult = Shipment & {
   viewerIsFormerCarrier?: boolean;
   /** MOVO-311: solo para el transportista asignado, mientras el cobro no se capturó. */
   debtDiscount?: CarrierDebtDiscount | null;
+  /**
+   * MOVO-285: lo que recibe el transportista, EXACTO: bruto − comisión de Movo − comisión real de MP (la que MP
+   * informó al crear el hold) − su descuento por deuda, todo del hold. `null`/ausente mientras no hay hold con fee:
+   * la app muestra el estimado "aprox.". Tras la captura el monto sale de la liquidación (`/shipments/:id/settlement`).
+   */
+  carrierReceivedArs?: number | null;
 };
 
 /** MOVO-311: estados con transportista asignado en los que el cobro todavía no se capturó. */
@@ -265,36 +273,51 @@ const DEBT_PREVIEW_STATUSES: readonly ShipmentStatus[] = [ShipmentStatus.ASSIGNM
  * detalle del envío no puede colgarse esperando (el hold tiene un timeout de 20 s y la vista previa otro de 5 s).
  */
 /**
+ * MOVO-285: lo que recibe el transportista según el hold, o `null` si MP todavía no informó su comisión. Es la misma
+ * cuenta que la liquidación (`bruto − comisión − fee de MP − deuda propia`, con el bruto sin el recargo del emisor),
+ * con la comisión de Movo y la deuda que reservó el hold, no con las de la configuración del cliente.
+ */
+function carrierReceivedFromHold(hold: HoldDetailResponse): number | null {
+  if (hold.carrierMpFeeArs === null || hold.carrierMpFeeArs === undefined) return null;
+  const received = hold.baseAmountArs - hold.commissionArs - hold.carrierMpFeeArs - hold.debtOffsetArs;
+  return Math.max(0, Math.round(received * 100) / 100);
+}
+
+/**
  * MOVO-311: cuánto de su deuda se le descuenta al transportista asignado en este envío. Con un hold vivo es
  * lo que reservó ese hold; antes del pago, la vista previa sobre el precio acordado. Solo para mostrar: si
  * payments no responde (o tarda más de `DEBT_DISCOUNT_TIMEOUT_MS`), `null`.
  */
-async function resolveCarrierDebtDiscount(
+async function resolveCarrierPaymentDisplay(
   paymentsClient: PaymentsClient,
   shipment: Shipment
-): Promise<CarrierDebtDiscount | null> {
+): Promise<{ debtDiscount: CarrierDebtDiscount | null; carrierReceivedArs: number | null }> {
+  const none = { debtDiscount: null, carrierReceivedArs: null };
   const { carrierId, agreedPriceArs } = shipment;
-  if (!carrierId || agreedPriceArs === null) return null;
+  if (!carrierId || agreedPriceArs === null) return none;
 
-  const resolve = async (): Promise<number> => {
+  // MOVO-285: el fee real de MP sale del mismo hold que el descuento por deuda (una sola consulta).
+  const resolve = async (): Promise<{ amountArs: number; carrierReceivedArs: number | null }> => {
     const hold = await paymentsClient.findHoldByShipment(shipment.id);
-    if (hold && LIVE_HOLD_STATUSES.includes(hold.status)) return hold.debtOffsetArs;
-    if (!DEBT_PREVIEW_STATUSES.includes(shipment.status)) return 0;
+    if (hold && LIVE_HOLD_STATUSES.includes(hold.status)) {
+      return { amountArs: hold.debtOffsetArs, carrierReceivedArs: carrierReceivedFromHold(hold) };
+    }
+    if (!DEBT_PREVIEW_STATUSES.includes(shipment.status)) return { amountArs: 0, carrierReceivedArs: null };
     const preview = await paymentsClient.previewCarrierDebt(carrierId, [agreedPriceArs]);
-    return preview?.debtOffsetsArs[0] ?? 0;
+    return { amountArs: preview?.debtOffsetsArs[0] ?? 0, carrierReceivedArs: null };
   };
 
   let timer: NodeJS.Timeout | undefined;
   try {
-    const amountArs = await Promise.race([
+    const { amountArs, carrierReceivedArs } = await Promise.race([
       resolve(),
-      new Promise<number>((_, reject) => {
+      new Promise<{ amountArs: number; carrierReceivedArs: number | null }>((_, reject) => {
         timer = setTimeout(() => reject(new Error("debt discount timeout")), DEBT_DISCOUNT_TIMEOUT_MS);
       }),
     ]);
-    return debtDiscount(amountArs);
+    return { debtDiscount: debtDiscount(amountArs), carrierReceivedArs };
   } catch {
-    return null;
+    return none;
   } finally {
     clearTimeout(timer);
   }
@@ -1598,7 +1621,7 @@ export function createShipmentsService(
 
       if (hasShipmentAccess(shipment, callerId, callerRoles)) {
         if (paymentsClient && callerId === shipment.carrierId && DEBT_DISCOUNT_STATUSES.includes(shipment.status)) {
-          return { ...shipment, debtDiscount: await resolveCarrierDebtDiscount(paymentsClient, shipment) };
+          return { ...shipment, ...(await resolveCarrierPaymentDisplay(paymentsClient, shipment)) };
         }
         return shipment;
       }
@@ -2287,7 +2310,7 @@ export function createShipmentsService(
       callerId: string,
       reason?: string,
       expectedPenaltyArs?: number,
-      options: { onlyFrom?: readonly ShipmentStatus[] } = {}
+      options: { onlyFrom?: readonly ShipmentStatus[]; admin?: AdminStatusActor } = {}
     ): Promise<Shipment> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) {
@@ -2303,17 +2326,20 @@ export function createShipmentsService(
 
       // Solo el emisor puede cancelar -- a diferencia de assertShipmentAccess (lectura,
       // también habilita a receptor/admin), cancelar es una acción exclusiva del emisor.
-      if (shipment.senderId !== callerId) {
+      // MOVO-331: la cancelación de un admin (`options.admin`) no pasa por acá: la autorización la
+      // decide `svc-admin` y el servicio de cambio forzado valida el par contra la matriz.
+      if (!options.admin && shipment.senderId !== callerId) {
         throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede cancelar este envío.");
       }
 
       // MOVO-307: la penalidad se calcula acá y se compara con la que confirmó el emisor.
       // `SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED` deja de usarse (sigue en el contrato).
+      // MOVO-331 (ADR-055): una cancelación de admin no penaliza a nadie ni exige confirmar monto.
       const penaltyArs =
-        shipment.status === ShipmentStatus.ASSIGNED
+        shipment.status === ShipmentStatus.ASSIGNED && !options.admin
           ? quoteShipmentCancellation(shipment, new Date(), await carrierArrivedAtPickup(shipment)).penaltyArs
           : 0;
-      if (shipment.status === ShipmentStatus.ASSIGNED && Math.round((expectedPenaltyArs ?? 0) * 100) !== Math.round(penaltyArs * 100)) {
+      if (!options.admin && shipment.status === ShipmentStatus.ASSIGNED && Math.round((expectedPenaltyArs ?? 0) * 100) !== Math.round(penaltyArs * 100)) {
         throw new ApiError(
           409,
           "CANCELLATION_PENALTY_MISMATCH",
@@ -2361,9 +2387,21 @@ export function createShipmentsService(
       // handshake de retiro concurrente gana (el envío ya es `in_transit`) y esto da 409. La
       // penalidad queda persistida junto con la cancelación, así nunca se pierde lo que hay
       // que cobrar aunque el proceso se caiga antes de llamar a payments.
-      let cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason, {
+      //
+      // MOVO-331: desde `assigned` el hold ya está autorizado (no hay pago concurrente que pueda
+      // llegar), así que la cancelación de un admin lo libera ANTES de cancelar: si payments falla, el
+      // envío queda como estaba y el caller devuelve 502 en vez de dejar un cancelado con fondos retenidos.
+      const releasedBeforeCancel = options.admin !== undefined && previousStatus === ShipmentStatus.ASSIGNED;
+      if (releasedBeforeCancel) {
+        if (!opts.paymentsClient) {
+          throw new Error("La cancelación de un admin desde assigned requiere paymentsClient (ShipmentsServiceOptions).");
+        }
+        await releaseHoldBeforeCancel(opts.paymentsClient, shipmentId, logger);
+      }
+      let cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, options.admin?.adminId ?? callerId, reason, {
         expectedFrom: previousStatus,
         ...(penaltyArs > 0 ? { cancellationPenaltyArs: penaltyArs } : {}),
+        ...(options.admin ? { adminActor: { kind: options.admin.kind, name: options.admin.adminName } } : {}),
       });
 
       // MOVO-210 (AC12): mientras la asignación espera el pago puede haber un hold ya creado (el
@@ -2377,7 +2415,7 @@ export function createShipmentsService(
       // liberación no se puede confirmar (payments caído, un hold `creating` reciente,
       // transportista desvinculado) el envío ya está cancelado: queda logueado con evento propio
       // y el hold vence solo en MP.
-      if ((awaitingFunding || (hasAssignment && penaltyArs === 0)) && opts.paymentsClient) {
+      if (!releasedBeforeCancel && (awaitingFunding || (hasAssignment && penaltyArs === 0)) && opts.paymentsClient) {
         await releaseHoldAfterCancel(opts.paymentsClient, shipmentId);
       }
 
@@ -2400,7 +2438,9 @@ export function createShipmentsService(
         // `pending`, así que no entra en `pendingOffers`) también se entera. MOVO-307: si la
         // penalidad se capturó en línea ya recibió la push de compensación, así que no se le
         // manda además la de oferta cancelada (mismo criterio que `expireUnpickedAssignedShipments`).
-        const notifyAssignedOffer = assignedOffer && cancelled.cancellationPenaltyStatus !== "captured";
+        // MOVO-331: si lo cancela un admin, el transportista asignado recibe el aviso de soporte (lo manda el
+        // servicio de cambio forzado), no además el de oferta cancelada. Las ofertas pendientes de otros sí se avisan.
+        const notifyAssignedOffer = assignedOffer && cancelled.cancellationPenaltyStatus !== "captured" && !options.admin;
         const voidedOffers = notifyAssignedOffer ? [assignedOffer, ...pendingOffers] : pendingOffers;
         await dispatchOfferVoidedPushes(
           notificationsClient,
@@ -2442,7 +2482,8 @@ export function createShipmentsService(
       shipmentId: string,
       callerId: string,
       reason?: string,
-      expectedPenaltyArs?: number
+      expectedPenaltyArs?: number,
+      options: { admin?: AdminStatusActor } = {}
     ): Promise<Shipment> {
       if (!offerRepository) {
         throw new Error("withdrawCarrierFromShipment requiere offerRepository (ShipmentsServiceOptions).");
@@ -2452,10 +2493,13 @@ export function createShipmentsService(
       }
       const shipment = await findWithdrawableShipment(shipmentId, callerId);
 
-      const penaltyArs = shipment.carrierWithdrawalPending
-        ? (shipment.carrierWithdrawalPenaltyArs ?? 0)
-        : quoteCarrierWithdrawal(shipment).penaltyArs;
-      if (!shipment.carrierWithdrawalPending && Math.round((expectedPenaltyArs ?? 0) * 100) !== Math.round(penaltyArs * 100)) {
+      // MOVO-331 (ADR-055): la baja que ejecuta un admin condona la penalidad del transportista.
+      const penaltyArs = options.admin
+        ? 0
+        : shipment.carrierWithdrawalPending
+          ? (shipment.carrierWithdrawalPenaltyArs ?? 0)
+          : quoteCarrierWithdrawal(shipment).penaltyArs;
+      if (!options.admin && !shipment.carrierWithdrawalPending && Math.round((expectedPenaltyArs ?? 0) * 100) !== Math.round(penaltyArs * 100)) {
         throw new ApiError(
           409,
           "CANCELLATION_PENALTY_MISMATCH",
@@ -2474,24 +2518,40 @@ export function createShipmentsService(
       // El claim se persiste antes de llamar a Payments. Mientras está pendiente ninguna
       // transición (incluidos pickup y funding) puede ganar la carrera ni se puede volver
       // a aceptar una oferta. Si Payments falla, el barrido reintenta la liberación.
-      if (!shipment.carrierWithdrawalPending) {
+      const claimedHere = !shipment.carrierWithdrawalPending;
+      if (claimedHere) {
         const claimed = await repository.claimCarrierWithdrawal(shipmentId, callerId, previousStatus, penaltyArs);
         if (!claimed) throw new ShipmentConcurrentModificationError(shipmentId);
       }
 
       // Payments verifica el transportista del hold antes de liberarlo. Esto protege a
       // una asignación posterior incluso si llega una petición retrasada.
-      const hold = await opts.paymentsClient.findHoldByShipment(shipmentId, { sync: true });
-      if (hold) {
-        await opts.paymentsClient.releaseHold(shipmentId, callerId, hold.id);
+      try {
+        const hold = await opts.paymentsClient.findHoldByShipment(shipmentId, { sync: true });
+        if (hold) {
+          await opts.paymentsClient.releaseHold(shipmentId, callerId, hold.id);
+        }
+      } catch (err) {
+        // MOVO-331: si lo pidió un admin, el barrido no puede completar la baja después como si fuera
+        // del transportista (evento `normal`, aviso falso al emisor): se deshace el claim que creó esta
+        // llamada y el envío queda realmente como estaba. La baja del propio transportista sí se reintenta.
+        if (options.admin && claimedHere) {
+          await repository.releaseCarrierWithdrawalClaim(shipmentId, callerId);
+        }
+        throw err;
       }
 
       const republished = await repository.updateStatus(
         shipmentId,
         ShipmentStatus.PUBLISHED,
-        callerId,
+        options.admin?.adminId ?? callerId,
         reason ?? "El transportista se bajó del envío",
-        { expectedFrom: previousStatus, expectedCarrierId: callerId, carrierWithdrawal: { penaltyArs } }
+        {
+          expectedFrom: previousStatus,
+          expectedCarrierId: callerId,
+          carrierWithdrawal: { penaltyArs },
+          ...(options.admin ? { adminActor: { kind: options.admin.kind, name: options.admin.adminName } } : {}),
+        }
       );
 
       // AC4: la deuda ya quedó `pending` en la oferta junto con la transición; acá se registra en
@@ -2508,7 +2568,8 @@ export function createShipmentsService(
       }
 
       // AC6: aviso al emisor. El de la deuda al transportista lo manda quien la registra.
-      if (notificationsClient) {
+      // MOVO-331: si lo hizo un admin, el aviso es el de soporte (lo manda el servicio de cambio forzado).
+      if (notificationsClient && !options.admin) {
         await sendCustodyPush({
           notificationsClient,
           userId: shipment.senderId,

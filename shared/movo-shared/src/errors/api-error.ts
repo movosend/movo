@@ -343,7 +343,20 @@ export type ApiErrorCode =
   // La parte ya cargó su descargo, o quien abrió ya amplió su evidencia (409).
   | "DISPUTE_STATEMENT_ALREADY_SUBMITTED"
   // Una de las fotos ya está asociada a una disputa (409).
-  | "DISPUTE_PHOTO_ALREADY_USED";
+  | "DISPUTE_PHOTO_ALREADY_USED"
+  // MOVO-331 (ADR-055): cambio forzado de estado de un envío desde el panel.
+  // El par origen -> destino está bloqueado en `FORCED_TRANSITION_MATRIX` (422, `details.reason`).
+  | "TRANSITION_NOT_ALLOWED"
+  // El estado actual ya no es el `expectedStatus` que vio el admin (409, `details.currentStatus`).
+  | "STATUS_CHANGED"
+  // Se pidió `assigned` y el hold del envío no está autorizado en payments (422).
+  | "HOLD_NOT_AUTHORIZED"
+  // Falló un efecto externo (liberar o capturar el hold): el envío quedó en su estado original (502).
+  | "FORCE_STATUS_EFFECT_FAILED"
+  // La misma `idempotencyKey` ya se usó para otro envío o destino (409).
+  | "IDEMPOTENCY_KEY_REUSED"
+  // Hay otro cambio forzado en curso sobre el mismo envío (409).
+  | "FORCE_STATUS_IN_PROGRESS";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

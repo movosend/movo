@@ -7,8 +7,10 @@ import {
   AdminChatPage,
   AdminShipmentDetail,
   AdminShipmentEvent,
+  AdminShipmentOffer,
   AdminShipmentPage,
   AdminShipmentPhoto,
+  AdminShipmentTracking,
   ChatReportParties,
   InProgressShipment,
   OpenActivitySummary,
@@ -41,10 +43,14 @@ export interface ShipmentsClient extends InternalClient {
   getAdminShipment(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentDetail | null>;
   /** `GET /internal/admin/shipments/:id/events`. `null` si el envío no existe. */
   getAdminShipmentEvents(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentEvent[] | null>;
+  /** `GET /internal/admin/shipments/:id/offers`, todas (cerradas incluidas). `null` si el envío no existe. */
+  getAdminShipmentOffers(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentOffer[] | null>;
   /** `GET /internal/admin/shipments/:id/photos`, con URL firmada de vida corta. `null` si el envío no existe. */
   getAdminShipmentPhotos(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentPhoto[] | null>;
   /** `GET /internal/admin/shipments/:id/chat/messages`. `null` si el envío no existe. */
   getAdminShipmentChat(shipmentId: string, query: URLSearchParams, ctx: RequestContext): Promise<AdminChatPage | null>;
+  /** `GET /internal/admin/shipments/:id/tracking` (MOVO-327). `null` si el envío no existe. */
+  getAdminShipmentTracking(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentTracking | null>;
 
   // MOVO-299 sobre los internos de MOVO-297/299. Un usuario sin actividad es una lista vacía, nunca un 404.
   /** `GET /internal/users/:id/in-progress-shipments`: lo que impide inhabilitar. */
@@ -111,6 +117,8 @@ const isEvent = (item: unknown): item is AdminShipmentEvent =>
   isRecord(item) && isString(item.id) && isString(item.toStatus);
 const isPhoto = (item: unknown): item is AdminShipmentPhoto =>
   isRecord(item) && isString(item.id) && isString(item.url);
+const isOffer = (item: unknown): item is AdminShipmentOffer =>
+  isRecord(item) && isString(item.id) && isString(item.status) && isNumber(item.priceArs) && isNumber(item.receivedEstimateArs);
 
 const isAdminShipmentPage = (body: unknown): body is AdminShipmentPage =>
   isRecord(body) &&
@@ -123,6 +131,7 @@ const isAdminShipmentDetail = (body: unknown): body is AdminShipmentDetail =>
   isAdminShipmentRow(body) && isRecord(body) && isString(body.packageType) && typeof body.weightKg === "number";
 const isEventList = (body: unknown): body is AdminShipmentEvent[] => Array.isArray(body) && body.every(isEvent);
 const isPhotoList = (body: unknown): body is AdminShipmentPhoto[] => Array.isArray(body) && body.every(isPhoto);
+const isOfferList = (body: unknown): body is AdminShipmentOffer[] => Array.isArray(body) && body.every(isOffer);
 
 const isAdminChatPage = (body: unknown): body is AdminChatPage =>
   isRecord(body) &&
@@ -131,6 +140,16 @@ const isAdminChatPage = (body: unknown): body is AdminChatPage =>
   isString(body.partiesAccess) &&
   Array.isArray(body.reports) &&
   isEventList(body.events);
+
+const isAdminShipmentTracking = (body: unknown): body is AdminShipmentTracking =>
+  isRecord(body) &&
+  isString(body.shipmentId) &&
+  isString(body.state) &&
+  isRecord(body.origin) &&
+  isRecord(body.destination) &&
+  Array.isArray(body.trace) &&
+  typeof body.signalLost === "boolean" &&
+  isString(body.serverTime);
 
 const isShipmentParties = (body: unknown): body is ShipmentParties =>
   isRecord(body) &&
@@ -229,6 +248,12 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
         notFoundCodes: ["NOT_FOUND"],
       });
     },
+    getAdminShipmentOffers(shipmentId, ctx) {
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/offers`, ctx, {
+        isValid: isOfferList,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+    },
     getAdminShipmentPhotos(shipmentId, ctx) {
       return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/photos`, ctx, {
         isValid: isPhotoList,
@@ -239,6 +264,12 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
       const suffix = query.toString() ? `?${query.toString()}` : "";
       return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/chat/messages${suffix}`, ctx, {
         isValid: isAdminChatPage,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+    },
+    getAdminShipmentTracking(shipmentId, ctx) {
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/tracking`, ctx, {
+        isValid: isAdminShipmentTracking,
         notFoundCodes: ["NOT_FOUND"],
       });
     },
