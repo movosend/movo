@@ -297,3 +297,18 @@ ahora en `lib/shipments/tracking/copy.ts`).
 
 Pendiente: captura contra un envío real en dev (DoD), que necesita MOVO-327 desplegado; la etiqueta de retiro/entrega es el "barrio" del
 prototipo solo si el backend lo resuelve (hoy el modelo tiene ciudad y dirección).
+
+## MOVO-299 — Sanciones desde la ficha
+
+Menú "Acciones" → grupo Sanciones: Suspender, Inhabilitar y Levantar sanción (`components/users/actions/sanction-dialog.tsx`,
+`lift-dialog.tsx`, server actions en `app/users/[id]/account-actions.ts`). Suspender/inhabilitar son dos pasos: el formulario (motivo que
+ve la persona, nota interna, plazo con fecha o indefinido) y la confirmación con la vista previa (`lib/users/sanctions.ts#describePreview`).
+Inhabilitar con envíos en curso no llega a confirmar: lista los envíos con link y sugiere suspender primero (también si el 409 llega al
+confirmar). La fecha elegida es el último día: se manda como fin de ese día en hora de Argentina.
+
+- La página carga el historial (`loadSanctions`, con `cache`) junto con el perfil: la sanción vigente va al banner (motivo, quién) y al
+  menú (levantar). Si el retiro quedó `partial`/`failed`, el banner y la sección ofrecen "Reintentar el retiro".
+- La sección pasó de `suspensions` a `sanctions` con la forma real (`AdminUserSanction`); `accountPill` y el banner distinguen
+  suspendida con fecha, indefinida (`suspended`) e inhabilitada (`banned`).
+- Modo fixtures: suspender, inhabilitar, levantar y reintentar mutan en memoria; `MOVO_ADMIN_MOCK_FAIL=withdraw` hace fallar el primer
+  retiro (con `withdraw!`, siempre) para ver el reintento.

@@ -1,16 +1,20 @@
 import "server-only"
 import { ApiError } from "@movo/shared/src/errors/api-error"
 import type {
+  AdminApplySanctionBody,
   AdminContactUpdateBody,
   AdminContactUpdateResult,
   AdminLedgerAdjustmentBody,
   AdminLedgerAdjustmentResult,
+  AdminSanctionPreview,
+  AdminSanctionWithdrawal,
   AdminSessionsRevokeResult,
   AdminUserAuditEntry,
   AdminUserLedgerEntry,
   AdminUserListItem,
   AdminUserNote,
   AdminUserProfile,
+  AdminUserSanction,
 } from "@movo/shared/src/types/admin-users"
 import {
   MOCK_TODAY,
@@ -65,7 +69,7 @@ const STAGGER: Record<SectionKey, number> = {
   trips: 1.5,
   ratings: 2.1,
   moderation: 3.2,
-  suspensions: 1.7,
+  sanctions: 1.7,
   ledger: 3.8,
   devices: 1.4,
   audit: 2.4,
@@ -102,6 +106,10 @@ interface MockChanges {
   ledger: AdminUserLedgerEntry[]
   audit: AdminUserAuditEntry[]
   notes: AdminUserNote[]
+  /** MOVO-299: historial de sanciones una vez que se tocó (antes, el de los fixtures). */
+  sanctions?: AdminUserSanction[]
+  /** La sanción ya retiró la actividad abierta: la vista previa siguiente no la vuelve a contar. */
+  withdrawn?: boolean
 }
 const changes = new Map<string, MockChanges>()
 const changesOf = (id: string): MockChanges => {
@@ -126,7 +134,23 @@ export async function mockGetProfile(id: string) {
   await sleep(base() * 0.6)
   const seed = seedById(id)
   if (!seed) throw userNotFound()
-  return { ...mockProfile(seed), ...changes.get(id)?.contact }
+  return {
+    ...mockProfile(seed),
+    ...changes.get(id)?.contact,
+    ...statusOf(changes.get(id)?.sanctions),
+  }
+}
+
+/** Como la caché de `User.status`/`bannedUntil` de `svc-users`: la sanción vigente manda. */
+function statusOf(
+  sanctions: AdminUserSanction[] | undefined
+): Pick<AdminUserProfile, "accountStatus" | "bannedUntil"> | undefined {
+  if (!sanctions) return undefined
+  const open = sanctions.find((x) => !x.liftedAt)
+  if (!open) return { accountStatus: "active", bannedUntil: null }
+  return open.type === "disable"
+    ? { accountStatus: "banned", bannedUntil: null }
+    : { accountStatus: "suspended", bannedUntil: open.endsAt }
 }
 
 export async function mockGetSection<K extends SectionKey>(
@@ -163,8 +187,8 @@ export async function mockGetSection<K extends SectionKey>(
         return mockRatings(seed, page, params.pageSize ?? 5)
       case "moderation":
         return mockModeration(seed)
-      case "suspensions":
-        return mockSanctions(seed)
+      case "sanctions":
+        return { items: sanctionsOf(id) }
       case "ledger": {
         const base = mockLedger(seed, params.cursor, params.limit)
         const mine = changes.get(id)?.ledger ?? []
@@ -389,4 +413,226 @@ export function mockAddNote(
     },
     { allowDeleted: true }
   )
+}
+
+// ---- MOVO-299: sanciones ----
+
+const sanctionsOf = (id: string): AdminUserSanction[] =>
+  changes.get(id)?.sanctions ?? mockSanctions(seedById(id)!).items
+
+/** Copia editable del historial: la primera escritura deja de leer los fixtures. */
+function editableSanctions(id: string): AdminUserSanction[] {
+  const state = changesOf(id)
+  if (!state.sanctions) state.sanctions = sanctionsOf(id).map((x) => ({ ...x }))
+  return state.sanctions
+}
+
+const IN_PROGRESS: readonly string[] = [
+  "assignment_pending",
+  "assigned_unfunded",
+  "assigned",
+  "in_transit",
+]
+const WITHDRAWABLE: readonly string[] = [
+  "awaiting_receiver_confirmation",
+  "rejected_by_receiver",
+  "published",
+]
+
+/** Lo retirable sale de los envíos y viajes de los fixtures; las ofertas se inventan a partir del id. */
+function previewOf(id: string): AdminSanctionPreview {
+  const seed = seedById(id)!
+  const shipments = (["sender", "carrier", "receiver"] as const).flatMap(
+    (role) => mockShipments(seed, role, 1, 50).items
+  )
+  const inProgressShipments = shipments
+    .filter((x) => IN_PROGRESS.includes(x.status))
+    .map((x) => ({
+      id: x.id,
+      shortId: x.shortId,
+      status:
+        x.status as AdminSanctionPreview["inProgressShipments"][number]["status"],
+      userRole: x.userRole,
+      pickupAddress: x.pickupAddress,
+      deliveryAddress: x.deliveryAddress,
+    }))
+  if (changes.get(id)?.withdrawn)
+    return {
+      shipments: 0,
+      offers: 0,
+      trips: 0,
+      recurringSeries: 0,
+      inProgressShipments,
+    }
+  const trips = mockTrips(seed, 1, 50).items.filter(
+    (t) => t.status === "declared"
+  ).length
+  return {
+    shipments: shipments.filter(
+      (x) => x.userRole === "sender" && WITHDRAWABLE.includes(x.status)
+    ).length,
+    offers: seed.roles.includes("carrier") ? id.charCodeAt(0) % 3 : 0,
+    trips,
+    recurringSeries: trips > 0 ? 1 : 0,
+    inProgressShipments,
+  }
+}
+
+export async function mockSanctionPreview(
+  id: string
+): Promise<AdminSanctionPreview> {
+  await sleep(base())
+  if (!seedById(id)) throw userNotFound()
+  return previewOf(id)
+}
+
+/**
+ * El retiro de `svc-shipments`. Con `MOVO_ADMIN_MOCK_FAIL=withdraw` falla el primero (y el
+ * reintento anda); con `withdraw!`, siempre.
+ */
+function mockWithdraw(id: string): AdminSanctionWithdrawal {
+  const spec = (process.env.MOVO_ADMIN_MOCK_FAIL ?? "")
+    .split(",")
+    .map((x) => x.trim())
+  const attemptedAt = new Date().toISOString()
+  const key = `${id}:withdraw`
+  if (
+    spec.includes("withdraw!") ||
+    (spec.includes("withdraw") && !failed.has(key))
+  ) {
+    failed.add(key)
+    return {
+      status: "failed",
+      result: null,
+      errorCode: "SHIPMENTS_SERVICE_UNAVAILABLE",
+      attemptedAt,
+    }
+  }
+  const preview = previewOf(id)
+  const ids = (n: number, kind: string) =>
+    Array.from({ length: n }, (_, i) => uuid(`${id}${kind}${i}`))
+  changesOf(id).withdrawn = true
+  return {
+    status: "complete",
+    result: {
+      cancelledShipmentIds: ids(preview.shipments, "shipment"),
+      withdrawnOfferIds: ids(preview.offers, "offer"),
+      cancelledTripIds: ids(preview.trips, "trip"),
+      stoppedRecurrenceTripIds: ids(preview.recurringSeries, "series"),
+      notifiedCounterpartyCount: preview.inProgressShipments.length,
+      failures: [],
+    },
+    errorCode: null,
+    attemptedAt,
+  }
+}
+
+export function mockApplySanction(
+  id: string,
+  body: AdminApplySanctionBody,
+  actor: MockActor
+): Promise<AdminUserSanction> {
+  const action = body.type === "suspension" ? "user.suspend" : "user.disable"
+  return mockAction(id, actor, action, body.reason, () => {
+    if (body.type === "disable") {
+      const shipments = previewOf(id).inProgressShipments
+      if (shipments.length > 0)
+        throw new ApiError(
+          409,
+          "USER_HAS_IN_PROGRESS_SHIPMENTS",
+          "La cuenta tiene envíos en curso.",
+          { shipments }
+        )
+    }
+    const list = editableSanctions(id)
+    const now = new Date().toISOString()
+    const open = list.find((x) => !x.liftedAt)
+    if (open?.type === "disable")
+      throw new ApiError(
+        409,
+        "ACCOUNT_ALREADY_DISABLED",
+        "La cuenta ya está inhabilitada."
+      )
+    if (open)
+      Object.assign(open, {
+        liftedAt: now,
+        closedCause: body.type === "disable" ? "escalated" : "replaced",
+      })
+    const created: AdminUserSanction = {
+      id: uuid(`${id}sanction${now}${Math.random()}`),
+      userId: id,
+      type: body.type,
+      reason: body.reason,
+      internalNote: body.internalNote ?? null,
+      startedAt: now,
+      endsAt: body.endsAt ?? null,
+      appliedBy: actor.adminId,
+      appliedByName: actor.adminName,
+      liftedAt: null,
+      liftedBy: null,
+      liftedByName: null,
+      liftReason: null,
+      closedCause: null,
+      // Primero la sanción, después el retiro: si falla, la sanción queda igual (AC2).
+      withdrawal: mockWithdraw(id),
+    }
+    list.unshift(created)
+    return created
+  })
+}
+
+function openSanction(id: string, sanctionId: string): AdminUserSanction {
+  const sanction = editableSanctions(id).find((x) => x.id === sanctionId)
+  if (!sanction)
+    throw new ApiError(404, "SANCTION_NOT_FOUND", "La sanción no existe.")
+  if (sanction.liftedAt)
+    throw new ApiError(
+      409,
+      "SANCTION_ALREADY_CLOSED",
+      "La sanción ya está cerrada."
+    )
+  return sanction
+}
+
+export function mockLiftSanction(
+  id: string,
+  sanctionId: string,
+  reason: string,
+  actor: MockActor
+): Promise<AdminUserSanction> {
+  return mockAction(id, actor, "user.sanction_lift", reason, () =>
+    Object.assign(openSanction(id, sanctionId), {
+      liftedAt: new Date().toISOString(),
+      liftedBy: actor.adminId,
+      liftedByName: actor.adminName,
+      liftReason: reason,
+      closedCause: "lifted" as const,
+    })
+  )
+}
+
+export async function mockRetryWithdrawal(
+  id: string,
+  sanctionId: string,
+  actor: MockActor
+): Promise<AdminSanctionWithdrawal> {
+  const withdrawal = await mockAction(
+    id,
+    actor,
+    "user.sanction_withdraw",
+    null,
+    () => {
+      const sanction = openSanction(id, sanctionId)
+      sanction.withdrawal = mockWithdraw(id)
+      return sanction.withdrawal
+    }
+  )
+  // `svc-admin` responde 502 si `svc-shipments` no contestó el reintento.
+  if (withdrawal.status === "failed")
+    throw new ApiError(
+      502,
+      "SHIPMENTS_SERVICE_UNAVAILABLE",
+      "El servicio no respondió."
+    )
+  return withdrawal
 }

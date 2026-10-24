@@ -2,14 +2,22 @@
 import { revalidatePath } from "next/cache"
 import { ApiError } from "@movo/shared/src/errors/api-error"
 import {
+  ACCOUNT_SANCTION_NOTE_MAX_LENGTH,
+  ACCOUNT_SANCTION_REASON_MAX_LENGTH,
+  type AccountSanctionType,
+} from "@movo/shared/src/types/account-sanctions"
+import {
   ADMIN_ACTION_REASON_MAX_LENGTH,
   ADMIN_NOTE_MAX_LENGTH,
   type AdminContactField,
   type AdminContactUpdateResult,
   type AdminLedgerAdjustmentResult,
+  type AdminSanctionPreview,
+  type AdminSanctionWithdrawal,
   type AdminSessionsRevokeResult,
   type AdminUserNote,
   type AdminUserNotePage,
+  type AdminUserSanction,
 } from "@movo/shared/src/types/admin-users"
 import { publicError } from "@/lib/auth/api"
 import {
@@ -24,6 +32,10 @@ import { loadSection, type Loaded } from "@/lib/users/load"
 import {
   addUserNote,
   adjustUserLedger,
+  applyUserSanction,
+  getSanctionPreview,
+  liftUserSanction,
+  retryUserSanctionWithdrawal,
   revokeUserSessions,
   updateUserContact,
 } from "@/lib/users/mutations"
@@ -194,4 +206,109 @@ export async function loadNotesMore(
     return { ok: false, status: actor.ok ? 400 : (actor.status ?? 400) }
   if (!CURSOR.test(cursor)) return { ok: false, status: 400 }
   return loadSection(userId, "notes", { cursor, limit: NOTES_PAGE_SIZE })
+}
+
+// ---- MOVO-299: sanciones ----
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/
+const SANCTION_TYPES: readonly string[] = ["suspension", "disable"]
+
+const cleanSanctionReason = (raw: unknown): string | null => {
+  const reason = String(raw ?? "").trim()
+  return reason.length >= 1 &&
+    reason.length <= ACCOUNT_SANCTION_REASON_MAX_LENGTH
+    ? reason
+    : null
+}
+
+/** Qué retiraría la sanción hoy, para el texto previo a confirmar (AC6). */
+export async function loadSanctionPreview(
+  userId: string
+): Promise<ActionResult<AdminSanctionPreview>> {
+  const actor = await admin(userId)
+  if (isDenied(actor)) return actor
+  try {
+    return { ok: true, data: await getSanctionPreview(userId) }
+  } catch (error) {
+    return actionFailure(error)
+  }
+}
+
+/**
+ * Suspender o inhabilitar. `endsOn` es el último día de la suspensión (`YYYY-MM-DD`, hora de
+ * Argentina): la sanción termina al final de ese día. Sin `endsOn`, indefinida.
+ */
+export async function applySanction(
+  userId: string,
+  input: {
+    type: AccountSanctionType
+    reason: string
+    internalNote?: string
+    endsOn?: string | null
+  }
+): Promise<ActionResult<AdminUserSanction>> {
+  const actor = await admin(userId)
+  if (isDenied(actor)) return actor
+  if (!SANCTION_TYPES.includes(input?.type)) return invalid()
+  const reason = cleanSanctionReason(input.reason)
+  if (!reason) return invalid("Escribí el motivo que va a ver la persona.")
+  const note = String(input.internalNote ?? "").trim()
+  if (note.length > ACCOUNT_SANCTION_NOTE_MAX_LENGTH)
+    return invalid(
+      `La nota interna va hasta ${ACCOUNT_SANCTION_NOTE_MAX_LENGTH} caracteres.`
+    )
+  let endsAt: string | undefined
+  if (input.endsOn) {
+    if (input.type !== "suspension" || !DATE.test(input.endsOn))
+      return invalid()
+    const end = new Date(`${input.endsOn}T23:59:59-03:00`)
+    if (Number.isNaN(end.getTime()) || end.getTime() <= Date.now())
+      return invalid("La fecha de fin tiene que ser futura.")
+    endsAt = end.toISOString()
+  }
+  return run(userId, () =>
+    applyUserSanction(
+      userId,
+      {
+        type: input.type,
+        reason,
+        ...(note ? { internalNote: note } : {}),
+        ...(endsAt ? { endsAt } : {}),
+      },
+      { adminId: actor.id, adminName: actor.fullName }
+    )
+  )
+}
+
+export async function liftSanction(
+  userId: string,
+  sanctionId: string,
+  reason: string
+): Promise<ActionResult<AdminUserSanction>> {
+  const actor = await admin(userId)
+  if (isDenied(actor)) return actor
+  if (!UUID.test(sanctionId)) return invalid()
+  const clean = cleanSanctionReason(reason)
+  if (!clean) return invalid("Escribí el motivo.")
+  return run(userId, () =>
+    liftUserSanction(userId, sanctionId, clean, {
+      adminId: actor.id,
+      adminName: actor.fullName,
+    })
+  )
+}
+
+export async function retrySanctionWithdrawal(
+  userId: string,
+  sanctionId: string
+): Promise<ActionResult<AdminSanctionWithdrawal>> {
+  const actor = await admin(userId)
+  if (isDenied(actor)) return actor
+  if (!UUID.test(sanctionId)) return invalid()
+  return run(userId, () =>
+    retryUserSanctionWithdrawal(userId, sanctionId, {
+      adminId: actor.id,
+      adminName: actor.fullName,
+    })
+  )
 }
