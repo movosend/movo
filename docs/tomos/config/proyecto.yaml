@@ -1,0 +1,52 @@
+# Datos únicos del proyecto: se usan en todas las carátulas, la ficha para Biblioteca y los encabezados.
+universidad: Universidad Tecnológica Nacional
+facultad: Facultad Regional Córdoba
+departamento: Departamento de Ingeniería en Sistemas de Información
+carrera: Ingeniería en Sistemas de Información
+asignatura: Proyecto Final
+curso: 5K3
+turno: Noche
+grupo: 27
+anio: 2026
+categoria: Producto
+organizacion: Proyecto independiente, sin organización cliente
+software: Movo
+subtitulo: Plataforma de logística colaborativa P2P
+lema: Logística para personas
+sitio: movosend.app
+metodologia: Scrum (marco ágil iterativo, sprints de dos semanas gestionados en Linear)
+objetivo: >-
+  Desarrollar una plataforma de logística distribuida peer-to-peer que permita a cualquier
+  persona enviar un paquete a través de otra persona que ya realiza ese recorrido, con
+  seguridad verificable sobre la identidad de las partes, la transferencia de custodia y el
+  pago, sin depender de un intermediario logístico centralizado.
+ambito: >-
+  Producto de software (proyecto independiente, sin organización cliente). Logística
+  colaborativa de paquetes entre particulares, con foco en localidades del interior de
+  Argentina.
+docentes:
+  - rol: Profesor Adjunto
+    nombre: Ing. Sergio Quinteros
+  - rol: Jefa de Trabajos Prácticos
+    nombre: Ing. Cecilia Trettel
+integrantes:
+  - apellido: ARIZA
+    nombre: Alena
+    legajo: "95359"
+    email: arizaalena@gmail.com
+  - apellido: BORDINO BLANCHE
+    nombre: Juan Cruz
+    legajo: "95008"
+    email: juancruzbordino@gmail.com
+  - apellido: DALMAGRO
+    nombre: Lucas
+    legajo: "94366"
+    email: lucasdalmagro1@gmail.com
+  - apellido: VERGARA
+    nombre: Tomás Ignacio
+    legajo: "94197"
+    email: tivergara@outlook.com
+  - apellido: YORLANO
+    nombre: Pedro
+    legajo: "95197"
+    email: pedro.yorlano@gmail.com

@@ -1,0 +1,225 @@
+' Tema común de diagramas Movo · UML estándar con estilo minimalista.
+' Se aplica a todos los .puml de docs/tomos/diagramas vía `plantuml -config`.
+' Paleta del Manual de Marca: Ink 950/600/400/200/100 y Signal Lime solo como acento
+' (elementos marcados con el estereotipo <<movo>> o <<activo>>).
+
+!pragma useVerticalIf on
+skinparam defaultFontName Inter
+skinparam defaultFontSize 11
+skinparam defaultFontColor #0A0A0B
+skinparam defaultMonospacedFontName JetBrains Mono
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam backgroundColor transparent
+skinparam padding 2
+skinparam nodesep 34
+skinparam ranksep 46
+skinparam ArrowColor #3A3A40
+skinparam ArrowFontColor #3A3A40
+skinparam ArrowFontSize 10
+skinparam ArrowThickness 1
+skinparam LineType ortho
+skinparam TitleFontSize 13
+skinparam TitleFontStyle plain
+skinparam LegendBackgroundColor #F8F8F9
+skinparam LegendBorderColor #D9D9DE
+skinparam LegendFontSize 10
+
+skinparam Note {
+  BackgroundColor #F8F8F9
+  BorderColor #8A8A93
+  FontSize 10
+  FontColor #3A3A40
+}
+
+' ── Clases ──
+skinparam Class {
+  BackgroundColor #FFFFFF
+  BorderColor #0A0A0B
+  BorderThickness 1
+  HeaderBackgroundColor #F1F1F3
+  AttributeFontSize 10
+  AttributeFontColor #1F1F23
+  FontStyle bold
+  FontSize 11
+  StereotypeFontSize 8
+  StereotypeFontColor #3A3A40
+  ArrowColor #3A3A40
+}
+skinparam Class<<movo>> {
+  HeaderBackgroundColor #C6F24A
+}
+skinparam Class<<externo>> {
+  BorderColor #8A8A93
+  HeaderBackgroundColor #FFFFFF
+  FontColor #3A3A40
+}
+skinparam circledCharacterFontSize 9
+skinparam circledCharacterRadius 8
+skinparam stereotypeCBackgroundColor #FFFFFF
+skinparam stereotypeCBorderColor #0A0A0B
+skinparam stereotypeEBackgroundColor #F1F1F3
+skinparam stereotypeIBackgroundColor #FFFFFF
+skinparam stereotypeABackgroundColor #F1F1F3
+hide empty members
+
+' ── Entidades (DER) ──
+skinparam Entity {
+  BackgroundColor #FFFFFF
+  BorderColor #0A0A0B
+  HeaderBackgroundColor #F1F1F3
+  FontStyle bold
+  AttributeFontSize 9
+}
+
+' ── Secuencia ──
+skinparam Sequence {
+  ArrowColor #0A0A0B
+  ArrowThickness 1
+  LifeLineBorderColor #8A8A93
+  LifeLineBackgroundColor #F1F1F3
+  ParticipantBackgroundColor #FFFFFF
+  ParticipantBorderColor #0A0A0B
+  ParticipantFontStyle bold
+  ParticipantFontSize 10
+  ActorBackgroundColor #FFFFFF
+  ActorBorderColor #0A0A0B
+  ActorFontStyle bold
+  BoxBackgroundColor #F8F8F9
+  BoxBorderColor #D9D9DE
+  BoxFontStyle bold
+  BoxFontSize 10
+  BoxFontColor #3A3A40
+  GroupBackgroundColor #F1F1F3
+  GroupBorderColor #8A8A93
+  GroupBorderThickness 1
+  GroupFontStyle bold
+  GroupHeaderFontStyle bold
+  DividerBackgroundColor #F1F1F3
+  DividerBorderColor #8A8A93
+  DividerFontStyle bold
+  ReferenceBackgroundColor #F8F8F9
+  ReferenceBorderColor #8A8A93
+  MessageAlign left
+}
+skinparam Participant<<movo>> {
+  BackgroundColor #C6F24A
+}
+skinparam sequenceMessageAlign left
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 210
+skinparam ParticipantPadding 14
+skinparam BoxPadding 8
+
+
+' ── Estados ──
+skinparam State {
+  BackgroundColor #FFFFFF
+  BorderColor #0A0A0B
+  FontStyle bold
+  FontSize 10
+  AttributeFontSize 9
+  AttributeFontColor #3A3A40
+  StartColor #0A0A0B
+  EndColor #0A0A0B
+  ArrowColor #3A3A40
+}
+skinparam State<<activo>> {
+  BackgroundColor #C6F24A
+}
+skinparam State<<terminal>> {
+  BackgroundColor #F1F1F3
+}
+
+' ── Actividad ──
+skinparam Activity {
+  BackgroundColor #FFFFFF
+  BorderColor #0A0A0B
+  FontSize 10
+  DiamondBackgroundColor #F1F1F3
+  DiamondBorderColor #0A0A0B
+  StartColor #0A0A0B
+  EndColor #0A0A0B
+  BarColor #0A0A0B
+}
+skinparam Swimlane {
+  BorderColor #8A8A93
+  BorderThickness 1
+  TitleFontStyle bold
+  TitleFontSize 10
+}
+skinparam Partition {
+  BorderColor #8A8A93
+  BackgroundColor #F8F8F9
+  FontStyle bold
+}
+
+' ── Componentes y despliegue ──
+skinparam Component {
+  BackgroundColor #FFFFFF
+  BorderColor #0A0A0B
+  FontSize 10
+  StereotypeFontSize 8
+  StereotypeFontColor #3A3A40
+}
+skinparam Component<<movo>> {
+  BackgroundColor #C6F24A
+}
+skinparam Node {
+  BackgroundColor #F8F8F9
+  BorderColor #0A0A0B
+  FontStyle bold
+  FontSize 10
+  StereotypeFontSize 8
+}
+skinparam Artifact {
+  BackgroundColor #FFFFFF
+  BorderColor #3A3A40
+  FontSize 10
+}
+skinparam Database {
+  BackgroundColor #FFFFFF
+  BorderColor #0A0A0B
+  FontSize 10
+}
+skinparam Cloud {
+  BackgroundColor #FFFFFF
+  BorderColor #8A8A93
+  FontSize 10
+}
+skinparam Package {
+  BackgroundColor #FFFFFF
+  BorderColor #8A8A93
+  FontStyle bold
+  FontSize 10
+}
+skinparam Rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #0A0A0B
+  FontSize 10
+  StereotypeFontSize 8
+}
+skinparam Rectangle<<movo>> {
+  BackgroundColor #C6F24A
+}
+skinparam Rectangle<<externo>> {
+  BorderColor #8A8A93
+  FontColor #3A3A40
+}
+skinparam Frame {
+  BorderColor #8A8A93
+  FontStyle bold
+}
+skinparam Actor {
+  BackgroundColor #FFFFFF
+  BorderColor #0A0A0B
+  FontStyle bold
+}
+skinparam Usecase {
+  BackgroundColor #FFFFFF
+  BorderColor #0A0A0B
+}
+skinparam Queue {
+  BackgroundColor #FFFFFF
+  BorderColor #0A0A0B
+}

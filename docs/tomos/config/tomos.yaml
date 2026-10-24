@@ -1,0 +1,100 @@
+# Manifiesto de los tres tomos de la entrega final.
+# Cada documento es una carpeta en contenido/<tomo>/<dir> con un meta.yaml y sus .md
+# (o generadores .py que imprimen Markdown).
+fecha_entrega: "2026-11-02"
+
+tomos:
+  - id: tomo-1
+    numero_largo: Tomo I
+    titulo: Documentación de Proyecto
+    archivo: Movo - Tomo I - Documentacion de Proyecto.pdf
+    ficha: true
+    bajada: Estudio inicial, planificación, gestión ágil sprint a sprint, impacto ambiental y comunicación académica del proyecto.
+    resumen: Ficha para Biblioteca, Estudio Inicial, Plan de Proyecto, Informe de Impacto Ambiental, Paper y Póster, y la Gestión del Proyecto desde el Sprint 0 hasta el último sprint, con la retrospectiva final.
+    presentacion: |
+      Este tomo reúne la documentación de **gestión del proyecto** Movo, desarrollado como Proyecto
+      Final de la carrera de Ingeniería en Sistemas de Información de la Universidad Tecnológica
+      Nacional, Facultad Regional Córdoba, durante el ciclo lectivo 2026.
+
+      Los documentos se presentan en el orden en que se produjeron a lo largo del año, siguiendo las
+      instancias de la *Guía de Documentación a Presentar* de la cátedra: primero el diagnóstico del
+      problema y la propuesta (Estudio Inicial), luego la planificación (Plan de Proyecto), los
+      acuerdos y artefactos del Sprint 0, los informes de cada sprint y, por último, los entregables
+      de comunicación académica y de cierre. Cada documento conserva su propio historial de revisión,
+      introducción y audiencia, de modo que pueda leerse de forma independiente.
+
+      La **audiencia** de este tomo es el equipo docente y el tribunal evaluador, que lo usan para
+      evaluar el proceso además del producto, y futuros estudiantes de la cátedra que consulten el
+      material en Biblioteca. No se asume conocimiento técnico profundo del sistema: el detalle del
+      producto se desarrolla en el Tomo II.
+    documentos:
+      - dir: 01-estudio-inicial
+      - dir: 02-plan-de-proyecto
+      - dir: 03-working-agreement
+      - dir: 04-gestion-configuracion
+      - dir: 05-plan-de-testing
+      - dir: 06-user-story-mapping
+      - dir: 07-informes-de-sprint
+      - dir: 08-impacto-ambiental
+      - dir: 09-paper
+      - dir: 10-poster
+      - dir: 11-retrospectiva
+
+  - id: tomo-2
+    numero_largo: Tomo II
+    titulo: Documentación de Producto
+    archivo: Movo - Tomo II - Documentacion de Producto.pdf
+    ficha: false
+    bajada: Historias de usuario y su trazabilidad, modelo de diseño, modelo de datos y arquitectura del sistema.
+    resumen: Listado de épicas e historias de usuario, temas agrupadores y trazabilidad de cada historia (criterios de aceptación, diagramas de secuencia y casos de prueba), diagrama de clases, patrones de diseño, diagramas de transición de estados, DER, arquitectura del sistema (despliegue y ambiente de implementación) y glosario.
+    presentacion: |
+      Este tomo describe el **producto** Movo tal como quedó construido. Parte del backlog (épicas e
+      historias de usuario agrupadas por tema) y, para cada tema, conecta cada historia con su
+      descripción y criterios de aceptación, el diagrama de secuencia que muestra cómo la resuelve el
+      sistema y los casos de prueba que la verifican. Completan el tomo los modelos transversales de
+      diseño: diagrama de clases, patrones de diseño, diagramas de transición de estados, modelo de
+      datos (DER) y la arquitectura del sistema, con sus decisiones registradas como ADRs.
+
+      Los diagramas siguen la notación UML 2 (y el modelo C4 para la vista de arquitectura) y fueron
+      construidos a partir del código fuente del repositorio, que es la fuente de verdad: donde un
+      documento previo y el código difieren, este tomo refleja el código.
+
+      La **audiencia** es el tribunal evaluador, para valorar la calidad técnica, y los futuros
+      mantenedores del sistema. Se asume conocimiento de ingeniería de software (UML, arquitectura
+      de microservicios, bases de datos relacionales y APIs REST).
+    documentos:
+      - dir: 01-epicas-e-historias
+      - dir: 02-tema-identidad
+      - dir: 03-tema-publicacion
+      - dir: 04-tema-asignacion
+      - dir: 05-tema-ejecucion
+      - dir: 06-tema-pagos
+      - dir: 07-tema-reputacion
+      - dir: 08-tema-administracion
+      - dir: 09-diagrama-de-clases
+      - dir: 10-patrones-de-diseno
+      - dir: 11-diagramas-de-estados
+      - dir: 12-der
+      - dir: 13-arquitectura
+      - dir: 14-glosario
+
+  - id: tomo-3
+    numero_largo: Tomo III
+    titulo: Manuales
+    archivo: Movo - Tomo III - Manuales.pdf
+    ficha: false
+    bajada: Procedimientos del negocio con el sistema en funcionamiento, instalación y operación, y uso de la aplicación.
+    resumen: Manual de Procedimientos (proceso de negocio con el sistema integrado, roles y responsabilidades, procedimientos de administración), Manual de Instalación y Operación, y Manual de Usuario de la aplicación móvil y del panel de administración.
+    presentacion: |
+      Este tomo reúne los **manuales** que permiten operar Movo sin asistencia del equipo de
+      desarrollo. El *Manual de Procedimientos* describe cómo funciona el proceso de envío de
+      paquetes una vez que el sistema está integrado: quién hace qué, en qué orden y con qué
+      responsabilidades. El *Manual de Instalación y Operación* está dirigido a quien despliega y
+      mantiene la plataforma. El *Manual de Usuario* explica, pantalla por pantalla, cómo usar la
+      aplicación móvil (emisor, transportista y receptor) y el panel de administración.
+
+      La **audiencia** varía por manual y se indica al comienzo de cada uno.
+    documentos:
+      - dir: 01-manual-de-procedimientos
+      - dir: 02-manual-de-instalacion
+      - dir: 03-manual-de-usuario

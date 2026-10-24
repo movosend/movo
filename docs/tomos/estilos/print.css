@@ -1,0 +1,642 @@
+/*
+ * Movo · Documentación de Proyecto Final · hoja de estilos de impresión
+ *
+ * Se renderiza con WeasyPrint (CSS Paged Media). Criterios:
+ *  - A4, impresión simple faz: margen interno (izquierdo) mayor para la encuadernación.
+ *  - Marca aplicada de forma sutil (Manual de Marca v1.0): Inter + JetBrains Mono, base
+ *    blanco y negro (Ink), y Signal Lime solo como acento puntual (marcas, chips de número,
+ *    filetes). Nunca lime como color de texto ni de líneas finas: no se lee impreso.
+ */
+
+:root {
+  --ink-950: #0A0A0B;
+  --ink-800: #1F1F23;
+  --ink-600: #3A3A40;
+  --ink-400: #8A8A93;
+  --ink-200: #D9D9DE;
+  --ink-100: #F1F1F3;
+  --ink-50: #F8F8F9;
+  --paper: #FFFFFF;
+  --lime: #C6F24A;
+  --lime-deep: #9FC72E;
+  --exito: #2BB673;
+  --alerta: #F5B93A;
+  --error: #E5484D;
+}
+
+/* ─────────────────────────────── Página ─────────────────────────────── */
+
+@page {
+  size: A4;
+  margin: 25mm 20mm 22mm 30mm;
+
+  @top-left {
+    content: string(tomo-corto);
+    font: 500 6.8pt/1 "Inter";
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-400);
+    vertical-align: bottom;
+    padding-bottom: 3.2mm;
+    border-bottom: .4pt solid var(--ink-200);
+  }
+  @top-right {
+    content: string(doc-titulo);
+    font: 600 6.8pt/1 "Inter";
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-600);
+    vertical-align: bottom;
+    padding-bottom: 3.2mm;
+    border-bottom: .4pt solid var(--ink-200);
+  }
+  @bottom-left {
+    content: "UTN · FRC · Ingeniería en Sistemas de Información · Proyecto Final " string(anio) " · Grupo " string(grupo);
+    font: 400 6.6pt/1 "Inter";
+    color: var(--ink-400);
+    vertical-align: top;
+    padding-top: 3.4mm;
+  }
+  @bottom-right {
+    content: counter(page);
+    font: 600 7.4pt/1 "JetBrains Mono";
+    color: var(--ink-950);
+    vertical-align: top;
+    padding-top: 3mm;
+  }
+}
+
+@page :blank {
+  @top-left { content: none; border: 0; }
+  @top-right { content: none; border: 0; }
+  @bottom-left { content: none; }
+}
+
+/* Portadas y separadores: sin encabezado ni pie */
+@page portada {
+  margin: 0;
+  @top-left { content: none; border: 0; }
+  @top-right { content: none; border: 0; }
+  @bottom-left { content: none; }
+  @bottom-right { content: none; }
+}
+@page ficha {
+  margin: 18mm 18mm 18mm 26mm;
+  @top-left { content: none; border: 0; }
+  @top-right { content: none; border: 0; }
+  @bottom-left { content: none; }
+  @bottom-right { content: none; }
+}
+@page separador {
+  margin: 0;
+  @top-left { content: none; border: 0; }
+  @top-right { content: none; border: 0; }
+  @bottom-left { content: none; }
+  @bottom-right { content: none; }
+}
+@page apaisada {
+  size: A4 landscape;
+  margin: 26mm 18mm 18mm 18mm;
+}
+
+/* ─────────────────────────────── Base ─────────────────────────────── */
+
+html {
+  font-family: "Inter", sans-serif;
+  font-size: 9.6pt;
+  line-height: 1.55;
+  color: var(--ink-950);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "cv11", "ss01";
+}
+
+body { margin: 0; }
+
+p, li, dd, td, th { hyphens: auto; }
+p { margin: 0 0 2.6mm; text-align: justify; orphans: 3; widows: 3; }
+a { color: inherit; text-decoration: none; }
+strong, b { font-weight: 600; }
+em, i { font-style: italic; }
+sup, sub { line-height: 0; }
+
+ul, ol { margin: 0 0 3mm; padding-left: 5.5mm; }
+li { margin: 0 0 1.2mm; }
+li > p { margin-bottom: 1mm; }
+ul { list-style: none; }
+ul > li { position: relative; }
+ul > li::before {
+  content: "";
+  position: absolute;
+  left: -4.2mm;
+  top: .62em;
+  width: 1.5mm;
+  height: 1.5mm;
+  border-radius: .4mm;
+  background: var(--ink-950);
+}
+ul ul > li::before { background: var(--ink-400); width: 1.2mm; height: 1.2mm; }
+ol > li::marker { font-weight: 600; font-family: "JetBrains Mono"; font-size: .9em; }
+
+hr { border: 0; border-top: .5pt solid var(--ink-200); margin: 6mm 0; }
+
+code, kbd, samp {
+  font-family: "JetBrains Mono", monospace;
+  font-size: .86em;
+  background: var(--ink-100);
+  border-radius: 1mm;
+  padding: .1mm .9mm;
+  hyphens: none;
+}
+pre {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 7.6pt;
+  line-height: 1.5;
+  background: var(--ink-50);
+  border: .4pt solid var(--ink-200);
+  border-left: 2pt solid var(--ink-950);
+  border-radius: 1.2mm;
+  padding: 3mm 4mm;
+  margin: 0 0 4mm;
+  white-space: pre-wrap;
+  break-inside: avoid;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+blockquote {
+  margin: 0 0 4mm;
+  padding: 2.5mm 5mm;
+  border-left: 2pt solid var(--ink-200);
+  color: var(--ink-600);
+}
+blockquote p:last-child { margin-bottom: 0; }
+
+/* ─────────────────────────────── Títulos ─────────────────────────────── */
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  break-after: avoid;
+  hyphens: none;
+  text-align: left;
+}
+
+/* h1: título de documento, solo en la página separadora (ver .separador) */
+h1.doc-titulo {
+  bookmark-level: 1;
+  bookmark-label: attr(data-marcador);
+}
+
+/* h2: secciones numeradas del documento */
+h2 {
+  font-size: 16pt;
+  letter-spacing: -.02em;
+  margin: 0 0 6mm;
+  padding-top: 4mm;
+  border-top: 1.2pt solid var(--ink-950);
+  bookmark-level: 2;
+  bookmark-label: attr(data-marcador);
+}
+h2.nueva-pagina { break-before: page; }
+h2:not(.nueva-pagina) { margin-top: 10mm; }
+
+.num {
+  display: inline-block;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 600;
+  font-size: .62em;
+  letter-spacing: 0;
+  vertical-align: .32em;
+  margin-right: 2.6mm;
+  padding: .7mm 1.8mm .5mm;
+  border-radius: 1mm;
+}
+h2 .num { background: var(--lime); color: var(--ink-950); }
+h3 .num { background: var(--ink-100); color: var(--ink-950); font-size: .7em; vertical-align: .14em; }
+
+h3 {
+  font-size: 11.6pt;
+  margin: 7mm 0 3mm;
+  bookmark-level: 3;
+  bookmark-label: attr(data-marcador);
+}
+h4 {
+  font-size: 10pt;
+  margin: 5mm 0 2mm;
+  color: var(--ink-950);
+  bookmark-level: none;
+}
+h5 {
+  font-size: 7.4pt;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-600);
+  margin: 4mm 0 1.6mm;
+  bookmark-level: none;
+}
+h6 { font-size: 9pt; margin: 3mm 0 1mm; bookmark-level: none; }
+
+h2.unnumbered, h3.unnumbered { }
+
+/* ─────────────────────────────── Tablas ─────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 5mm;
+  font-size: 8.2pt;
+  line-height: 1.42;
+}
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 1.7mm 2.2mm;
+  border-bottom: .4pt solid var(--ink-200);
+}
+th {
+  font-weight: 600;
+  background: var(--ink-100);
+  color: var(--ink-950);
+}
+thead tr:first-child th { border-top: 1pt solid var(--ink-950); }
+tbody tr:last-child td { border-bottom: .8pt solid var(--ink-950); }
+td p, th p { margin: 0 0 1mm; text-align: left; }
+td p:last-child, th p:last-child { margin-bottom: 0; }
+td ul, td ol { margin: 0; }
+td code { font-size: .92em; }
+
+caption, .tabla-titulo {
+  caption-side: top;
+  text-align: left;
+  font-size: 8pt;
+  color: var(--ink-600);
+  padding: 0 0 1.8mm;
+}
+caption .rotulo, figcaption .rotulo { font-weight: 600; color: var(--ink-950); }
+
+table.compacta { font-size: 7.6pt; }
+table.compacta th, table.compacta td { padding: 1.1mm 1.6mm; }
+table.clave-valor th { width: 32%; background: var(--ink-50); }
+table.clave-valor tr:first-child th, table.clave-valor tr:first-child td { border-top: 1pt solid var(--ink-950); }
+
+/* ─────────────────────────────── Figuras ─────────────────────────────── */
+
+figure {
+  margin: 2mm 0 6mm;
+  break-inside: avoid;
+  text-align: center;
+}
+figure img {
+  max-width: 100%;
+  max-height: 210mm;
+  height: auto;
+}
+figure.borde img { border: .4pt solid var(--ink-200); border-radius: 1.6mm; }
+figcaption {
+  margin-top: 2.4mm;
+  font-size: 8pt;
+  line-height: 1.4;
+  color: var(--ink-600);
+  text-align: center;
+}
+figure.apaisada { page: apaisada; break-before: page; break-after: page; }
+figure.apaisada img { max-height: 150mm; }
+figure.pagina-completa img { max-height: 225mm; }
+
+/* ─────────────────────────────── Bloques destacados ─────────────────────────────── */
+
+.nota, .importante, .pendiente, .resumen {
+  break-inside: avoid;
+  margin: 0 0 5mm;
+  padding: 3mm 4.5mm;
+  border-radius: 1.4mm;
+  font-size: 8.8pt;
+}
+.nota { background: var(--ink-50); border-left: 2.4pt solid var(--ink-950); }
+.importante { background: var(--ink-50); border-left: 2.4pt solid var(--lime); }
+.resumen { background: var(--ink-100); }
+.pendiente {
+  border: .8pt dashed var(--alerta);
+  background: #FEF8EA;
+}
+.pendiente::before {
+  content: "PENDIENTE";
+  display: block;
+  font: 600 6.8pt/1 "Inter";
+  letter-spacing: .12em;
+  color: #A8740F;
+  margin-bottom: 1.6mm;
+}
+.nota > :last-child, .importante > :last-child, .pendiente > :last-child, .resumen > :last-child { margin-bottom: 0; }
+.nota p, .importante p, .pendiente p, .resumen p { text-align: left; }
+
+.eyebrow {
+  font: 600 7pt/1 "Inter";
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-600);
+}
+.mono { font-family: "JetBrains Mono", monospace; }
+.chip {
+  display: inline-block;
+  font: 600 6.8pt/1 "Inter";
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: .9mm 2mm .7mm;
+  border-radius: 10mm;
+  background: var(--ink-100);
+  color: var(--ink-950);
+}
+.chip.lime { background: var(--lime); }
+.chip.tinta { background: var(--ink-950); color: var(--paper); }
+.chip.ok { background: #DDF3E8; color: #135E3A; }
+.chip.warn { background: #FDEFD0; color: #7A520A; }
+.chip.err { background: #FBE1E2; color: #8C1F23; }
+
+.salto { break-before: page; }
+.sin-corte { break-inside: avoid; }
+
+/* ─────────────────────────────── Carátula del tomo ─────────────────────────────── */
+
+.caratula {
+  page: portada;
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  overflow: hidden;
+  break-after: page;
+}
+.caratula .motivo {
+  position: absolute;
+  right: -78mm;
+  bottom: -70mm;
+  width: 230mm;
+  height: 230mm;
+}
+.caratula .franja {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 9mm;
+  background: var(--ink-950);
+}
+.caratula .franja::after {
+  content: "";
+  position: absolute;
+  left: 0; top: 112mm;
+  width: 9mm; height: 34mm;
+  background: var(--lime);
+}
+.caratula .cabecera {
+  position: absolute;
+  left: 30mm; right: 20mm; top: 20mm;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.caratula .cabecera img.utn { height: 15mm; }
+.caratula .cabecera .institucion {
+  text-align: right;
+  font-size: 7.6pt;
+  line-height: 1.45;
+  color: var(--ink-600);
+}
+.caratula .bloque-titulo {
+  position: absolute;
+  left: 30mm; right: 24mm; top: 92mm;
+}
+.caratula .marca { display: flex; align-items: center; gap: 4.5mm; margin-bottom: 14mm; }
+.caratula .marca img { width: 15mm; height: 15mm; }
+.caratula .marca .wordmark {
+  font: 700 30pt/1 "Inter";
+  letter-spacing: -.045em;
+}
+.caratula .tomo-num {
+  font: 600 8pt/1 "Inter";
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  margin-bottom: 4mm;
+}
+.caratula .tomo-num span {
+  background: var(--lime);
+  padding: 1.2mm 2.4mm 1mm;
+  border-radius: 1mm;
+}
+.caratula h1.tomo-titulo {
+  font: 600 32pt/1.06 "Inter";
+  letter-spacing: -.035em;
+  margin: 0 0 4mm;
+  bookmark-level: none;
+}
+.caratula .tomo-sub {
+  font-size: 11.5pt;
+  line-height: 1.45;
+  color: var(--ink-600);
+  max-width: 125mm;
+}
+.caratula .tomo-contenido {
+  margin-top: 8mm;
+  font-size: 8.6pt;
+  color: var(--ink-600);
+}
+.caratula .tomo-contenido div { padding: 1.3mm 0; border-bottom: .4pt solid var(--ink-200); max-width: 110mm; }
+.caratula .tomo-contenido div span.mono { color: var(--ink-950); margin-right: 3mm; font-size: 7.4pt; }
+.caratula .datos {
+  position: absolute;
+  left: 30mm; right: 20mm; bottom: 20mm;
+  display: flex;
+  gap: 10mm;
+  font-size: 7.8pt;
+  line-height: 1.5;
+}
+.caratula .datos .col { flex: 1; }
+.caratula .datos .eyebrow { margin-bottom: 2mm; display: block; }
+.caratula .datos table { font-size: 7.8pt; margin: 0; }
+.caratula .datos td { padding: .6mm 0; border: 0; }
+.caratula .datos td.leg { font-family: "JetBrains Mono"; text-align: right; color: var(--ink-600); }
+.caratula .datos tbody tr:last-child td { border: 0; }
+
+/* ─────────────────────────────── Ficha para Biblioteca (formato oficial) ─────────────────────────────── */
+
+.ficha { page: ficha; break-after: page; font-family: "Inter"; }
+.ficha table { font-size: 8.8pt; border: .8pt solid #000; margin: 0; }
+.ficha th, .ficha td { border: .6pt solid #000; padding: 2mm 2.4mm; background: none; vertical-align: middle; }
+.ficha th { width: 30%; text-transform: uppercase; font-weight: 700; font-size: 8.4pt; }
+.ficha thead tr:first-child th, .ficha tbody tr:last-child td { border-top: .6pt solid #000; border-bottom: .6pt solid #000; }
+.ficha .encabezado td { height: 22mm; }
+.ficha .encabezado img { height: 12mm; }
+.ficha .encabezado .inst { text-align: center; font-size: 7.6pt; line-height: 1.4; }
+.ficha .equipo th.sub { width: auto; font-size: 7.6pt; text-transform: none; }
+.ficha .equipo td { font-size: 8pt; padding: 1.2mm 2mm; }
+.ficha .vacio { height: 9mm; }
+.ficha .pie { margin-top: 5mm; font-size: 7pt; color: var(--ink-600); }
+
+/* ─────────────────────────────── Separador de documento ─────────────────────────────── */
+
+.separador {
+  page: separador;
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  overflow: hidden;
+  break-before: page;
+  break-after: page;
+}
+.separador .franja {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 9mm; background: var(--ink-950);
+}
+.separador .motivo {
+  position: absolute; right: -95mm; top: -95mm; width: 210mm; height: 210mm; opacity: .8;
+}
+.separador .contenido {
+  position: absolute; left: 30mm; right: 22mm; top: 70mm;
+}
+.separador .numero {
+  font: 600 70pt/1 "Inter";
+  letter-spacing: -.05em;
+  color: var(--ink-950);
+}
+.separador .numero::after {
+  content: "";
+  display: block;
+  width: 26mm;
+  height: 2.4mm;
+  margin: 5mm 0 9mm;
+  background: var(--lime);
+}
+.separador .instancia { margin-bottom: 3mm; }
+.separador h1.doc-titulo {
+  font: 600 28pt/1.08 "Inter";
+  letter-spacing: -.035em;
+  margin: 0 0 4mm;
+}
+.separador .doc-sub { font-size: 11pt; line-height: 1.5; color: var(--ink-600); max-width: 135mm; }
+.separador .doc-meta {
+  margin-top: 9mm;
+  display: flex;
+  gap: 9mm;
+  font-size: 7.6pt;
+  color: var(--ink-600);
+}
+.separador .doc-meta b { display: block; color: var(--ink-950); font-weight: 600; font-size: 8.4pt; }
+.separador .mini-indice {
+  position: absolute; left: 30mm; right: 22mm; bottom: 24mm;
+  font-size: 8.2pt;
+}
+.separador .mini-indice .eyebrow { display: block; margin-bottom: 2.4mm; }
+.separador .mini-indice a {
+  display: block;
+  padding: 1.1mm 0;
+  border-bottom: .4pt solid var(--ink-200);
+}
+.separador .mini-indice a .n { display: inline-block; width: 10mm; font-family: "JetBrains Mono"; font-size: 7.4pt; color: var(--ink-600); }
+.separador .mini-indice a::after {
+  content: leader(" ") target-counter(attr(href url), page);
+  font-family: "JetBrains Mono"; font-size: 7.4pt;
+}
+.marca-doc { string-set: doc-titulo attr(data-titulo); height: 0; overflow: hidden; margin: 0; }
+
+/* ─────────────────────────────── Preliminares del documento ─────────────────────────────── */
+
+.preliminares h2 { border-top-width: .6pt; font-size: 12pt; padding-top: 3mm; margin: 0 0 4mm; }
+.preliminares .bloque { margin-bottom: 8mm; }
+table.historial td:first-child, table.historial th:first-child { width: 12mm; text-align: center; font-family: "JetBrains Mono"; }
+table.historial td:nth-child(2) { width: 20mm; font-family: "JetBrains Mono"; font-size: .92em; white-space: nowrap; }
+table.historial td:nth-child(3) { width: 38mm; }
+
+/* ─────────────────────────────── Índices ─────────────────────────────── */
+
+.indice { break-before: page; }
+.indice h2 { break-before: auto; }
+.indice ol { list-style: none; padding: 0; margin: 0; }
+.indice li { margin: 0; }
+.indice li::before { content: none; }
+.indice a {
+  display: block;
+  padding: .9mm 0;
+}
+.indice a .n {
+  display: inline-block;
+  font-family: "JetBrains Mono";
+  font-size: .9em;
+  color: var(--ink-600);
+}
+.indice a::after {
+  content: leader(dotted) "  " target-counter(attr(href url), page);
+  font-family: "JetBrains Mono";
+  font-size: .9em;
+  color: var(--ink-600);
+}
+.indice .nivel-1 > a {
+  font-weight: 600;
+  font-size: 10.2pt;
+  margin-top: 4.5mm;
+  padding: 1.6mm 0;
+  border-top: .8pt solid var(--ink-950);
+}
+.indice .nivel-1 > a .n { width: 12mm; color: var(--ink-950); }
+.indice .nivel-2 > a { font-size: 8.8pt; padding-left: 12mm; }
+.indice .nivel-2 > a .n { width: 12mm; }
+.indice .nivel-3 > a { font-size: 8pt; padding-left: 24mm; color: var(--ink-600); }
+.indice .nivel-3 > a .n { width: 14mm; }
+.indice.figuras a { font-size: 8.4pt; }
+.indice.figuras a .n { width: 22mm; }
+
+/* ─────────────────────────────── Componentes específicos ─────────────────────────────── */
+
+/* Ficha de historia de usuario (Tomo II) */
+.hu {
+  border: .5pt solid var(--ink-200);
+  border-radius: 1.6mm;
+  margin: 0 0 6mm;
+  break-inside: avoid-page;
+}
+.hu .hu-cab {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2.4mm 4mm;
+  background: var(--ink-950);
+  color: var(--paper);
+  border-radius: 1.4mm 1.4mm 0 0;
+}
+.hu .hu-cab .id { font: 600 8.4pt/1 "JetBrains Mono"; }
+.hu .hu-cab .chip { background: var(--ink-800); color: var(--paper); margin-left: 1.4mm; }
+.hu .hu-cab .chip.lime { background: var(--lime); color: var(--ink-950); }
+.hu .hu-cuerpo { padding: 3.4mm 4mm 2mm; }
+.hu .hu-enunciado { font-size: 10pt; font-weight: 500; line-height: 1.45; margin-bottom: 3mm; text-align: left; }
+.hu table { margin-bottom: 2mm; }
+
+/* Caso de prueba */
+table.caso th { width: 26mm; }
+table.caso td.resultado { font-weight: 600; }
+
+/* Capturas de pantalla planificadas (Tomo III) */
+.captura {
+  break-inside: avoid;
+  display: flex;
+  gap: 5mm;
+  margin: 0 0 5mm;
+}
+.captura .marco {
+  flex: none;
+  width: 46mm;
+  height: 92mm;
+  border: 1.2pt solid var(--ink-950);
+  border-radius: 6mm;
+  background: var(--ink-50);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 7pt;
+  color: var(--ink-400);
+  padding: 4mm;
+}
+.captura .marco img { width: 100%; border-radius: 4mm; }
+.captura .marco .cod { display: block; font: 600 9pt/1.2 "JetBrains Mono"; color: var(--ink-950); margin-bottom: 2mm; }
+.captura .desc { flex: 1; font-size: 8.8pt; }
+.captura.web .marco { width: 100%; height: 70mm; border-radius: 2mm; }
+
+/* Firma / créditos finales */
+.colofon { font-size: 7.6pt; color: var(--ink-600); margin-top: 20mm; }

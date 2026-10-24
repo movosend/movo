@@ -1,0 +1,51 @@
+@startuml ei-flujo-punta-a-punta
+' Estudio Inicial §4.3.2: flujo principal de un envío, de punta a punta (visión propuesta).
+|Emisor|
+start
+:Registro y KYC biométrico;
+|Transportista|
+:Registro, KYC y validación\nadicional (licencia, medio de pago);
+|Emisor|
+:Alta del paquete\n(tipo, medidas, peso, destino,\nventana de retiro);
+|Movo|
+:Calcular precio sugerido\n(distancia, peso, urgencia, demanda);
+|Receptor|
+:Aceptar ser destinatario\n(notificación push);
+|Movo|
+:Publicar el envío en el\ntablero de oportunidades;
+|Transportista|
+:Declarar viaje y ofertar\n(acepta precio o contraoferta);
+|Emisor|
+:Elegir oferta\n(ranking por reputación y precio);
+|Movo|
+:Reservar fondos en la tarjeta\ndel emisor (Auth & Capture);
+:Optimizar la ruta del viaje\n(VRPTW, paradas intermedias);
+|Transportista|
+:Retiro: foto del paquete y\nescaneo del QR firmado del emisor;
+|Movo|
+:Validar firma, vigencia y\nproximidad GPS (≤ 100 m);\nregistrar la custodia;
+fork
+  |Transportista|
+  :Trasladar el paquete\n(emisión de posición GPS);
+fork again
+  |Movo|
+  :Mostrar posición en tiempo real\na emisor y receptor;
+end fork
+|Receptor|
+:Entrega: escanear el QR firmado\ndel transportista;
+|Movo|
+:Validar handshake y\nregistrar la entrega;
+if (¿Medio de pago?) then (digital)
+  :Capturar el hold y\nrepartir (split payment);
+else (efectivo)
+  |Transportista|
+  :Cobrar en mano al receptor;
+  |Movo|
+  :Cobrar la comisión con el\nmedio de pago del transportista;
+endif
+|Emisor|
+:Calificaciones mutuas\n(emisor, transportista, receptor);
+|Movo|
+:Actualizar score de reputación;
+stop
+@enduml

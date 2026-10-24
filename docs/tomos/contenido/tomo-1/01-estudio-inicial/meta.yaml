@@ -1,0 +1,26 @@
+titulo: Estudio Inicial
+titulo_corto: Estudio Inicial
+subtitulo: Diagnóstico del problema de la logística P2P informal, procesos involucrados y propuesta del producto.
+instancia: Instancia 1 · Inicio de proyecto
+version: "3"
+fecha: 25/08/2026
+historial:
+  - {version: "1", fecha: 06/05/2026, autor: Equipo completo, descripcion: Creación de la versión inicial del Estudio.}
+  - {version: "2", fecha: 30/05/2026, autor: Equipo completo, descripcion: "Sección de procesos involucrados: se actualiza para reflejar el estado actual del problema (AS-IS)."}
+  - {version: "3", fecha: 25/08/2026, autor: "YORLANO, Pedro", descripcion: Actualización de la descripción de los procesos P9 (optimización de ruta) y P10 (seguimiento en tiempo real).}
+  - {version: "3.1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Compilación en el Tomo I: formato unificado, mapas de procesos y flujograma rehechos con la notación común de la documentación. Sin cambios de contenido."}
+introduccion: |
+  El Estudio Inicial es el primer entregable del Proyecto Final Movo. Valida que el equipo
+  entiende el problema antes de comprometerse con una solución: describe el objetivo del
+  proyecto, el ámbito de aplicación y los impulsos que lo motivan, releva los procesos de la
+  logística P2P informal tal como existen hoy (estado AS-IS) y presenta la propuesta del
+  producto, con su alcance, funcionalidades, mapa global de procesos y valor esperado.
+
+  Se conserva el contenido aprobado en la Instancia 1. Las decisiones técnicas que se
+  tomaron después y que modificaron lo planteado acá (por ejemplo, el reemplazo de la
+  Distance Matrix API por la Routes API de Google, o de Socket.io por WebSocket nativo) se
+  registran como ADRs en el Tomo II, sección Arquitectura del Sistema.
+audiencia: |
+  Docentes de la cátedra, para aprobar el inicio del proyecto, y cualquier lector que
+  necesite entender el problema y la propuesta antes de abordar el diseño. No se asume
+  conocimiento técnico previo más allá de nociones generales de sistemas de información.

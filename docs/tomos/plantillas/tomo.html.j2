@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Movo · {{ tomo.numero_largo }} · {{ tomo.titulo }}</title>
+<meta name="author" content="{% for i in p.integrantes %}{{ i.apellido|title }}, {{ i.nombre }}{% if not loop.last %}; {% endif %}{% endfor %}">
+<meta name="description" content="{{ p.software }} · {{ p.subtitulo }} · {{ tomo.numero_largo }}: {{ tomo.titulo }}">
+<meta name="keywords" content="Movo, logística P2P, Proyecto Final, UTN FRC, Ingeniería en Sistemas de Información">
+<meta name="generator" content="docs/tomos/build.py (WeasyPrint)">
+<link rel="stylesheet" href="estilos/print.css">
+<style>
+  @page {
+    @bottom-left {
+      content: "UTN FRC · Ingeniería en Sistemas de Información · Proyecto Final {{ p.anio }} · {{ p.curso }} · Grupo {{ p.grupo }}";
+    }
+  }
+  body { string-set: tomo-corto "Movo · {{ tomo.numero_largo }} · {{ tomo.titulo }}"; }
+</style>
+</head>
+<body>
+
+{# ───────────── Carátula del tomo ───────────── #}
+<section class="caratula">
+  <div class="franja"></div>
+  <img class="motivo" src="assets/logos/movo-eclipse-linea.svg" alt="">
+  <div class="cabecera">
+    <img class="utn" src="assets/logos/utn-frc-extendido.svg" alt="UTN Facultad Regional Córdoba">
+    <div class="institucion">
+      {{ p.universidad }}<br>{{ p.facultad }}<br>{{ p.carrera }}<br>Cátedra {{ p.asignatura }} · {{ p.anio }}
+    </div>
+  </div>
+  <div class="bloque-titulo">
+    <div class="marca">
+      <img src="assets/logos/movo-simbolo.svg" alt="">
+      <span class="wordmark">movo</span>
+    </div>
+    <div class="tomo-num"><span>{{ tomo.numero_largo }}</span></div>
+    <h1 class="tomo-titulo">{{ tomo.titulo }}</h1>
+    <div class="tomo-sub">{{ p.software }}: {{ p.subtitulo[0]|lower }}{{ p.subtitulo[1:] }}. {{ tomo.bajada }}</div>
+    <div class="tomo-contenido">
+      {% for d in documentos %}<div><span class="mono">{{ '%02d' % d.n }}</span>{{ d.titulo }}</div>{% endfor %}
+    </div>
+  </div>
+  <div class="datos">
+    <div class="col">
+      <span class="eyebrow">Integrantes</span>
+      <table><tbody>
+      {% for i in p.integrantes %}<tr><td>{{ i.apellido }}, {{ i.nombre }}</td><td class="leg">{{ i.legajo }}</td></tr>{% endfor %}
+      </tbody></table>
+    </div>
+    <div class="col">
+      <span class="eyebrow">Equipo docente</span>
+      {% for d in p.docentes %}{{ d.rol }}: {{ d.nombre }}<br>{% endfor %}
+      <br>
+      <span class="eyebrow">Datos de la entrega</span>
+      Curso {{ p.curso }} · Turno {{ p.turno }} · Grupo {{ p.grupo }}<br>
+      Categoría: {{ p.categoria }} · {{ p.organizacion }}<br>
+      Córdoba, {{ fecha_larga }}
+    </div>
+  </div>
+</section>
+
+{# ───────────── Ficha para Biblioteca (solo Tomo I) ───────────── #}
+{% if tomo.ficha %}
+<section class="ficha">
+  <table>
+    <tbody>
+      <tr class="encabezado">
+        <td style="width:30%"><img src="assets/logos/utn-frc-reducido.svg" alt="UTN FRC"></td>
+        <td class="inst" colspan="4">FACULTAD REGIONAL CÓRDOBA<br>Ing. en Sistemas de Información<br>Proyecto Final</td>
+      </tr>
+      <tr><th>Cátedra</th><td colspan="4" style="text-align:center;font-weight:700">Proyecto Final</td></tr>
+      <tr><th>Ámbito de aplicación</th><td colspan="4">{{ p.ambito }}</td></tr>
+      <tr><th>Nombre del software</th><td colspan="4">{{ p.software }}: {{ p.subtitulo }}</td></tr>
+      <tr><th>Objetivo</th><td colspan="4">{{ p.objetivo }}</td></tr>
+      <tr><th>Metodología</th><td colspan="4">{{ p.metodologia }}</td></tr>
+      <tr class="equipo">
+        <th rowspan="{{ p.integrantes|length + 1 }}">Equipo de trabajo</th>
+        <th class="sub">LEGAJO</th><th class="sub" colspan="2">APELLIDO, NOMBRES</th><th class="sub">MAIL DE CONTACTO</th>
+      </tr>
+      {% for i in p.integrantes %}
+      <tr class="equipo"><td class="mono">{{ i.legajo }}</td><td colspan="2">{{ i.apellido }}, {{ i.nombre }}</td><td>{{ i.email }}</td></tr>
+      {% endfor %}
+      <tr><th>Curso</th><td colspan="4">{{ p.curso }}</td></tr>
+      <tr><th>Docentes</th><td colspan="4">{% for d in p.docentes %}{{ d.nombre }} ({{ d.rol }}){% if not loop.last %}<br>{% endif %}{% endfor %}</td></tr>
+      <tr><th>Año de cursado</th><td colspan="4">{{ p.anio }}</td></tr>
+      <tr><th>Fecha de examen</th><td class="vacio"></td><th class="sub" style="width:18%">NOTA FINAL</th><td class="vacio" colspan="2"></td></tr>
+    </tbody>
+  </table>
+  <p class="pie">Ficha para la Documentación en Biblioteca, según el formato provisto por la cátedra. Fecha de examen y nota final se completan en la instancia de evaluación.</p>
+</section>
+{% endif %}
+
+{# ───────────── Presentación del tomo ───────────── #}
+<section class="presentacion">
+  <h2 class="unnumbered" id="presentacion-tomo" data-marcador="Presentación del {{ tomo.numero_largo|replace('Tomo','tomo') }}">Presentación del {{ tomo.numero_largo|replace('Tomo','tomo') }}</h2>
+  {{ tomo.presentacion_html|safe }}
+  <h3 class="unnumbered" id="organizacion-documentacion" data-marcador="Organización de la documentación">Organización de la documentación</h3>
+  <table class="compacta">
+    <thead><tr><th style="width:18%">Tomo</th><th>Contenido</th></tr></thead>
+    <tbody>
+    {% for t in todos_tomos %}
+      <tr><td><b>{{ t.numero_largo }}</b>{% if t.id == tomo.id %} <span class="chip lime">este tomo</span>{% endif %}</td><td><b>{{ t.titulo }}.</b> {{ t.resumen }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{# ───────────── Índice general ───────────── #}
+<section class="indice">
+  <h2 class="unnumbered" id="indice-general" data-marcador="Índice general">Índice general</h2>
+  <ol>
+  {% for d in documentos %}
+    <li class="nivel-1"><a href="#{{ d.ancla }}"><span class="n">{{ '%02d' % d.n }}</span><span class="t">{{ d.titulo }}</span></a>
+      <ol>
+      {% for s in d.secciones %}
+        <li class="nivel-{{ s.nivel }}"><a href="#{{ s.ancla }}"><span class="n">{{ s.numero }}</span><span class="t">{{ s.titulo }}</span></a></li>
+      {% endfor %}
+      </ol>
+    </li>
+  {% endfor %}
+  </ol>
+</section>
+
+{% if figuras %}
+<section class="indice figuras">
+  <h2 class="unnumbered" id="indice-figuras" data-marcador="Índice de figuras">Índice de figuras</h2>
+  <ol>
+  {% for f in figuras %}<li><a href="#{{ f.ancla }}"><span class="n">Figura {{ f.numero }}</span><span class="t">{{ f.titulo }}</span></a></li>{% endfor %}
+  </ol>
+  {% if tablas %}
+  <h2 class="unnumbered" id="indice-tablas" data-marcador="Índice de tablas" style="margin-top:12mm">Índice de tablas</h2>
+  <ol>
+  {% for f in tablas %}<li><a href="#{{ f.ancla }}"><span class="n">Tabla {{ f.numero }}</span><span class="t">{{ f.titulo }}</span></a></li>{% endfor %}
+  </ol>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ───────────── Documentos ───────────── #}
+{% for d in documentos %}
+<section class="separador">
+  <div class="franja"></div>
+  <img class="motivo" src="assets/logos/movo-eclipse-linea.svg" alt="">
+  <div class="contenido">
+    <div class="numero">{{ '%02d' % d.n }}</div>
+    {% if d.instancia %}<div class="eyebrow instancia">{{ d.instancia }}</div>{% endif %}
+    <h1 class="doc-titulo" id="{{ d.ancla }}" data-corto="{{ d.titulo_corto }}" data-marcador="{{ '%02d' % d.n }}. {{ d.titulo }}">{{ d.titulo }}</h1>
+    {% if d.subtitulo %}<div class="doc-sub">{{ d.subtitulo }}</div>{% endif %}
+    <div class="doc-meta">
+      <div><b>Versión {{ d.version }}</b>vigente</div>
+      <div><b>{{ d.fecha }}</b>última revisión</div>
+      <div><b>{{ tomo.numero_largo }}</b>{{ tomo.titulo }}</div>
+    </div>
+  </div>
+  {% if d.secciones %}
+  <nav class="mini-indice">
+    <span class="eyebrow">Contenido</span>
+    {% for s in d.secciones if s.nivel == 2 %}<a href="#{{ s.ancla }}"><span class="n">{{ s.numero }}</span><span class="t">{{ s.titulo }}</span></a>{% endfor %}
+  </nav>
+  {% endif %}
+</section>
+
+<section class="documento" id="doc-{{ d.id }}">
+  <div class="marca-doc" data-titulo="{{ d.titulo_corto }}"></div>
+  <div class="preliminares">
+    {% if d.historial %}
+    <div class="bloque">
+      <h2 class="unnumbered" id="{{ d.id }}-historial">Historial de revisión</h2>
+      <table class="historial compacta">
+        <thead><tr><th>Versión</th><th>Fecha</th><th>Autor</th><th>Descripción del cambio</th></tr></thead>
+        <tbody>
+        {% for h in d.historial %}<tr><td>{{ h.version }}</td><td>{{ h.fecha }}</td><td>{{ h.autor }}</td><td>{{ h.descripcion }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    {% if d.introduccion_html %}
+    <div class="bloque">
+      <h2 class="unnumbered" id="{{ d.id }}-introduccion">Introducción</h2>
+      {{ d.introduccion_html|safe }}
+    </div>
+    {% endif %}
+    {% if d.audiencia_html %}
+    <div class="bloque">
+      <h2 class="unnumbered" id="{{ d.id }}-audiencia">Audiencia</h2>
+      {{ d.audiencia_html|safe }}
+    </div>
+    {% endif %}
+  </div>
+  {{ d.html|safe }}
+</section>
+{% endfor %}
+
+</body>
+</html>

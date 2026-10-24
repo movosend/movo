@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
+  <!-- Motivo eclipse en línea, para fondos de portada (uso decorativo, muy tenue) -->
+  <g fill="none" stroke="#0A0A0B">
+    <circle cx="250" cy="250" r="240" stroke-width="1" stroke-opacity=".10"/>
+    <circle cx="250" cy="250" r="214" stroke-width="1" stroke-opacity=".14"/>
+    <circle cx="250" cy="250" r="190" stroke-width="1.2" stroke-opacity=".18"/>
+    <circle cx="250" cy="250" r="168" stroke-width="1.6" stroke-opacity=".24"/>
+  </g>
+  <circle cx="250" cy="250" r="140" fill="#0A0A0B" fill-opacity=".05"/>
+</svg>
