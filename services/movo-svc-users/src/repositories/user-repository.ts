@@ -167,6 +167,11 @@ function toDomainUser(row: UserWithRoles): User {
   };
 }
 
+/** Escapa los comodines de `LIKE` (`%`, `_`) y la barra, que es su escape por defecto. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
@@ -504,37 +509,39 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
     },
 
     async search(query: string, excludeUserIds: string[], limit: number): Promise<User[]> {
+      // MOVO-340: cada palabra tiene que aparecer (en cualquier orden) en el nombre
+      // completo, sin distinguir tildes ni mayúsculas. La expresión es la misma del índice
+      // GIN de trigramas de la migración `receiver_search_unaccent_movo_340`.
       const words = query.split(/\s+/).filter(Boolean);
-      const or: Prisma.UserWhereInput[] = [
-        { firstName: { contains: query, mode: "insensitive" } },
-        { lastName: { contains: query, mode: "insensitive" } },
-      ];
-      // "Nombre completo" (AC3 de MOVO-80): con 2+ palabras, además intenta matchear
-      // "firstName lastName" y "lastName firstName" por separado -- cubre el caso real
-      // de búsqueda ("Juan Pérez") sin una raw query concatenando columnas. Limitación
-      // aceptada: nombres de 3+ tokens no se cubren perfecto -- mejora futura con
-      // pg_trgm si el volumen de usuarios lo justifica.
-      const [first, ...restWords] = words;
-      if (first && restWords.length > 0) {
-        const rest = restWords.join(" ");
-        or.push({
-          AND: [{ firstName: { contains: first, mode: "insensitive" } }, { lastName: { contains: rest, mode: "insensitive" } }],
-        });
-        or.push({
-          AND: [{ lastName: { contains: first, mode: "insensitive" } }, { firstName: { contains: rest, mode: "insensitive" } }],
-        });
-      }
+      const fullName = Prisma.sql`users.f_unaccent(lower(u.first_name || ' ' || u.last_name))`;
+      const wordMatches = words.map(
+        (word) => Prisma.sql`${fullName} LIKE '%' || users.f_unaccent(lower(${escapeLike(word)})) || '%'`
+      );
+      const excluded =
+        excludeUserIds.length > 0
+          ? Prisma.sql`AND u.id NOT IN (${Prisma.join(excludeUserIds.map((id) => Prisma.sql`${id}::uuid`))})`
+          : Prisma.empty;
 
-      const rows = await db.user.findMany({
-        // Mismo criterio que `getPublicProfile` (users.service.ts): `deleted` es baja
-        // lógica y se trata como "no existe" hacia afuera; `banned` sí es buscable
-        // (sanción reversible, no una baja voluntaria).
-        where: { AND: [{ id: { notIn: excludeUserIds } }, { status: { not: PrismaAccountStatus.deleted } }, { OR: or }] },
-        include: { roles: true },
-        take: limit,
-        orderBy: { firstName: "asc" },
+      // Mismo criterio que `getPublicProfile` (users.service.ts): `deleted` es baja
+      // lógica y se trata como "no existe" hacia afuera; `banned` sí es buscable
+      // (sanción reversible, no una baja voluntaria).
+      const matches = await db.$queryRaw<{ id: string }[]>`
+        SELECT u.id
+        FROM users.users u
+        WHERE u.status::text <> 'deleted'
+          ${excluded}
+          AND ${Prisma.join(wordMatches, " AND ")}
+        ORDER BY u.first_name ASC, u.id ASC
+        LIMIT ${limit}`;
+      if (matches.length === 0) return [];
+
+      const ids = matches.map((row) => row.id);
+      const rows = await db.user.findMany({ where: { id: { in: ids } }, include: { roles: true } });
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      return ids.flatMap((id) => {
+        const row = byId.get(id);
+        return row ? [toDomainUser(row)] : [];
       });
-      return rows.map(toDomainUser);
     },
 
     async updatePassword(id: string, passwordHash: string): Promise<User | null> {
