@@ -145,10 +145,11 @@ export default function TrackingMap({ tracking, follow, theme }: Props) {
       previous.polyline === t.plannedRoute?.polyline
         ? previous.segment
         : 0
+    // En vivo se dibuja lo que falta de la ruta; en el resto de los estados, la ruta original completa.
     const pending = live
       ? remainingRouteProgress(planned, last, startSegment)
       : null
-    const todo = pending?.points ?? []
+    const todo = live ? (pending?.points ?? []) : planned
     if (pending)
       routeProgress.current = {
         shipmentId: t.shipmentId,

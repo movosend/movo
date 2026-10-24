@@ -284,8 +284,9 @@ ahora en `lib/shipments/tracking/copy.ts`).
   = ruta planificada desde el vértice más cercano a la última posición (punteado), retiro/entrega con etiqueta, transportista con pulso y, con
   `signalLost` o `delayed`, ámbar con "sin señal · hora del último ping". Encuadra la ruta completa una vez por envío; "Seguir al
   transportista" hace `panTo` en cada actualización. La rueda del mouse no hace zoom (hace scroll de la página).
-- **Estados sin mapa** (`copy.ts`): "Todavía no arrancó", "Seguimiento cerrado", "Seguimiento cortado", "Sin seguimiento". Cerrado/disputa
-  con traza dibuja la traza como evidencia; traza purgada muestra el aviso sin mapa.
+- **Estados sin seguimiento en vivo** (`copy.ts`): el mapa se dibuja siempre, como en el prototipo, con retiro/entrega y la ruta original
+  completa (punteada); si hay traza (cerrado/disputa) se suma como tramo recorrido. Debajo, en lugar de las métricas, el mensaje:
+  "Todavía no arrancó", "Seguimiento cerrado", "Seguimiento cortado", "Sin seguimiento" (+ "La traza GPS ya fue purgada.").
 - **Teselas**: ArcGIS Location Platform (gris claro/oscuro, `lib/shipments/tracking/tiles.ts`) con `NEXT_PUBLIC_ESRI_API_KEY`, restringida por
   referrer; reemplaza al `server.arcgisonline.com` público del prototipo, cuyos términos no cubren un panel productivo (AC8). Sin key el
   mapa se dibuja sin teselas. **Pendiente**: crear la key y cargarla en Vercel (dev y prod).

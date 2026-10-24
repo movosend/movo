@@ -202,7 +202,6 @@ const SCENARIOS: Record<string, () => AdminShipmentTracking> = {
   [MOCK_TRACKING_IDS.noCarrier]: () =>
     build(MOCK_TRACKING_IDS.noCarrier, "no_carrier", "published", {
       reason: "no_carrier",
-      plannedRoute: null,
       carrierFirstName: null,
     }),
   [MOCK_TRACKING_IDS.purged]: () =>

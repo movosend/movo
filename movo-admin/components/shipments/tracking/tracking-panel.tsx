@@ -100,39 +100,35 @@ export function TrackingView({
   const { resolvedTheme } = useTheme()
   const [follow, setFollow] = useState(false)
   const live = tracking.state === "live"
-  const showMap =
-    live || (tracking.state === "closed" && tracking.trace.length > 0)
 
   return (
     <div className="overflow-hidden rounded-[10px] border border-border bg-card">
-      {showMap && (
-        <div className={`relative isolate z-0 ${MAP_HEIGHT}`}>
-          <TrackingMap
-            tracking={tracking}
-            follow={follow}
-            theme={resolvedTheme === "dark" ? "dark" : "light"}
-          />
-          <div className="absolute top-3 left-3 z-[500] flex flex-wrap gap-2">
-            <Legend />
-            {live && <LiveIndicator status={status} />}
-          </div>
-          {live && (
-            <button
-              type="button"
-              aria-pressed={follow}
-              onClick={() => setFollow((value) => !value)}
-              className={`absolute top-3 right-3 z-[500] flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium backdrop-blur-xl focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none ${follow ? "border-foreground bg-foreground text-background" : "border-border bg-[var(--glass)] text-foreground"}`}
-            >
-              <Crosshair className="size-3.5" aria-hidden="true" />
-              Seguir al transportista
-            </button>
-          )}
+      <div className={`relative isolate z-0 ${MAP_HEIGHT}`}>
+        <TrackingMap
+          tracking={tracking}
+          follow={follow}
+          theme={resolvedTheme === "dark" ? "dark" : "light"}
+        />
+        <div className="absolute top-3 left-3 z-[500] flex flex-wrap gap-2">
+          <Legend />
+          {live && <LiveIndicator status={status} />}
         </div>
-      )}
+        {live && (
+          <button
+            type="button"
+            aria-pressed={follow}
+            onClick={() => setFollow((value) => !value)}
+            className={`absolute top-3 right-3 z-[500] flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium backdrop-blur-xl focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none ${follow ? "border-foreground bg-foreground text-background" : "border-border bg-[var(--glass)] text-foreground"}`}
+          >
+            <Crosshair className="size-3.5" aria-hidden="true" />
+            Seguir al transportista
+          </button>
+        )}
+      </div>
       {live ? (
         <TrackingMetrics tracking={tracking} receivedAt={receivedAt} />
       ) : (
-        <div className={showMap ? "border-t border-border" : ""}>
+        <div className="border-t border-border">
           <MessageStrip tracking={tracking} />
         </div>
       )}

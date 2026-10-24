@@ -29,7 +29,7 @@ describe("TrackingView", () => {
     ],
     ["unfunded", "not_started", "Todavía no arrancó", /Sin fondos reservados/],
     ["no_carrier", "no_carrier", "Sin seguimiento", /no tiene transportista/],
-  ] as const)("%s: mensaje sin mapa", (reason, state, title, body) => {
+  ] as const)("%s: mapa con la ruta original y mensaje", (reason, state, title, body) => {
     render(
       <TrackingView
         tracking={trackingFixture({
@@ -44,7 +44,7 @@ describe("TrackingView", () => {
     )
     expect(screen.getByText(title)).toBeInTheDocument()
     expect(screen.getByText(body)).toBeInTheDocument()
-    expect(screen.queryByTestId("map")).not.toBeInTheDocument()
+    expect(screen.getByTestId("map")).toBeInTheDocument()
     expect(screen.queryByText("Último ping")).not.toBeInTheDocument()
   })
 
@@ -71,7 +71,7 @@ describe("TrackingView", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("cerrado con traza purgada: aviso y sin mapa", () => {
+  it("cerrado con traza purgada: mapa con la ruta y aviso", () => {
     render(
       <TrackingView
         tracking={trackingFixture({
@@ -83,7 +83,7 @@ describe("TrackingView", () => {
         status="live"
       />
     )
-    expect(screen.queryByTestId("map")).not.toBeInTheDocument()
+    expect(screen.getByTestId("map")).toBeInTheDocument()
     expect(screen.getByText("La traza GPS ya fue purgada.")).toBeInTheDocument()
   })
 
