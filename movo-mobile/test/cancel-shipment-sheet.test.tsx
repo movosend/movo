@@ -22,12 +22,14 @@ const closedQuote = { penaltyArs: 0, reason: "pickup_window_closed", freeUntil: 
 function renderSheet(
   overrides: Partial<{
     shipment: typeof ASSIGNED;
+    holdAmountArs: number | null;
     onRefetch: jest.Mock;
     onCancelled: jest.Mock;
   }> = {},
 ) {
   const props = {
     shipment: ASSIGNED,
+    holdAmountArs: undefined as number | null | undefined,
     onRefetch: jest.fn().mockResolvedValue(ShipmentStatus.ASSIGNED),
     onCancelled: jest.fn(),
     ...overrides,
@@ -36,6 +38,7 @@ function renderSheet(
     <CancelShipmentSheet
       visible
       shipment={props.shipment}
+      holdAmountArs={props.holdAmountArs}
       carrierFirstName="Martín"
       onClose={jest.fn()}
       onCancelled={props.onCancelled}
@@ -204,5 +207,42 @@ describe("CancelShipmentSheet (MOVO-308)", () => {
     expect(await findByTestId("sheet-blocked-text")).toHaveTextContent(
       "El estado del envío cambió y ya no se puede cancelar.",
     );
+  });
+
+  it("MOVO-318: con un hold que incluye deuda, muestra el monto reservado del hold y lo que se libera a partir de él", async () => {
+    // Precio pactado $18.500 (penalidad $4.625) + deuda $3.700 = hold de $22.200; se liberan $17.575.
+    mockQuote.mockResolvedValueOnce(penaltyQuote(4625));
+    const { utils } = renderSheet({ holdAmountArs: 22200 });
+    const { findByTestId, getByTestId } = await utils;
+
+    expect(await findByTestId("sheet-penalty")).toHaveTextContent(
+      "Se te cobrará $4.625 de los $22.200 reservados. El resto se libera en tu tarjeta.",
+    );
+    expect(getByTestId("sheet-penalty-amount")).toHaveTextContent("− $4.625");
+    expect(getByTestId("sheet-released-amount")).toHaveTextContent("$17.575");
+  });
+
+  it("MOVO-318: si el hold no cargó al abrir y llega después, actualiza el monto reservado sin re-cotizar", async () => {
+    mockQuote.mockResolvedValueOnce(freeQuote);
+    const { utils } = renderSheet({ holdAmountArs: null });
+    const { findByTestId, rerender } = await utils;
+
+    expect(await findByTestId("sheet-free")).toHaveTextContent(/Te liberamos los \$18\.500 reservados/);
+
+    await rerender(
+      <CancelShipmentSheet
+        visible
+        shipment={ASSIGNED}
+        holdAmountArs={22200}
+        carrierFirstName="Martín"
+        onClose={jest.fn()}
+        onCancelled={jest.fn()}
+        onRefetch={jest.fn()}
+        testID="sheet"
+      />,
+    );
+
+    expect(await findByTestId("sheet-free")).toHaveTextContent(/Te liberamos los \$22\.200 reservados/);
+    expect(mockQuote).toHaveBeenCalledTimes(1);
   });
 });
