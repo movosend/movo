@@ -3814,3 +3814,11 @@ crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no
   descuento por deuda, todo del hold vivo que ya se consultaba para `debtDiscount` (`resolveCarrierPaymentDisplay`; una sola
   llamada a payments, mismo timeout). Lo calcula el backend para que "exacto" no dependa de la tasa de comisión de la app. `null`
   sin hold o sin fee informado. No se tocó el detalle de la oferta: el hold no existe hasta que el emisor acepta.
+
+### MOVO-324 — `GET /support/shipments` (selector de envíos de "Nueva consulta")
+
+MOVO-320 dejó afuera el selector y `GET /shipments/mine` no trae al transportista, así que el módulo de soporte suma `GET /support/shipments`
+(`support.routes.ts`, `listShipmentOptions` en servicio y repositorio): los envíos de los que el usuario es parte (emisor, receptor,
+transportista asignado o quien transfirió la recepción, la misma regla que acepta `shipmentId` al crear), en cualquier estado, más recientes
+primero, cursor opaco (`utils/cursor.ts`, 400 si es inválido). `route` usa `pickupCity`/`deliveryCity` o el primer tramo de la dirección. Tests
+en `support.integration.test.ts`.
