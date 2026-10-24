@@ -3782,13 +3782,8 @@ de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `comple
 
 ### MOVO-321 — Adjuntos de imágenes en los mensajes de soporte
 
-`POST /support/attachments` firma un `PUT` (JPEG/PNG/WebP, ≤ 5 MB; si no, 422 `SUPPORT_ATTACHMENT_INVALID`) a un prefijo privado
-(`support/<conversationId>/…`, o `support/pending/<userId>/…` para la primera consulta, que todavía no existe). Los mensajes del usuario
-aceptan `attachmentIds` (hasta 4, cuerpo vacío permitido), y la lectura (historial, WS y replay) trae cada adjunto con una URL de 15 min
-firmada al leer. Archivos: `modules/support/support-attachments.service.ts` (reutilizable por MOVO-322 con `uploaderKind: "staff"`),
-`repositories/support-attachment-repository.ts`, `plugins/support-attachment-sweep.ts`, migración `20261024120000_support_attachments`.
-- Uso único atómico: la asociación es un `UPDATE … WHERE message_id IS NULL` dentro de la transacción del mensaje (`claimSupportAttachments`).
-  El `HEAD` contra S3 va antes, fuera de la transacción. El sweep borra la fila antes que el objeto, así no necesita lock contra el envío.
-- El objeto de `pending` no se mueve al crear la consulta: la fila guarda la key (moverlo pedía `CopyObject` y no suma privacidad).
-- El sweep reusa `ORPHAN_PHOTO_*` (sin env vars nuevas). `support_messages.attachment_count` alimenta `lastMessage.hasAttachments`.
-- Pendiente: la ruta del panel (`POST /admin/support/attachments` en `svc-admin`) es de MOVO-322; Terraform en `movo-infra` (ver el `CLAUDE.md` raíz).
+`POST /support/attachments` y `attachmentIds` en los mensajes del usuario, con URLs firmadas de 15 min al leer (detalle en
+`docs/support/README.md`). Código en `modules/support/support-attachments.service.ts` (lo reusa MOVO-322 con `uploaderKind: "staff"`),
+`repositories/support-attachment-repository.ts` y `plugins/support-attachment-sweep.ts`. El objeto de `support/pending/…` no se mueve al
+crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no hay regla de lifecycle y el sweep, que reintenta, es la
+única limpieza. Pendiente: Terraform en `movo-infra` (ver el `CLAUDE.md` raíz).

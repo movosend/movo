@@ -61,12 +61,19 @@ Implementado en `svc-shipments` (MOVO-321):
   `POST /admin/support/attachments` (MOVO-322) la tiene que usar con `uploaderKind: "staff"`, y `appendStaffMessage` ya acepta `attachmentIds`
   (también en notas). Un adjunto del usuario no lo puede usar un agente, ni al revés.
 - **Tabla** `shipments.support_attachments`: la fila nace al pedir la URL, sin mensaje; al enviar el mensaje se asocia en la misma
-  transacción con un `UPDATE … WHERE message_id IS NULL`, así el uso único es atómico. `support_messages.attachment_count` alimenta
-  `lastMessage.hasAttachments`.
+  transacción con un `UPDATE … WHERE message_id IS NULL`, así el uso único es atómico. La regla de "se puede usar" es un único predicado SQL
+  (`usablePredicate`) que comparten la verificación previa y el claim; el claim además rechaza más de 4 o repetidos, así ningún camino se
+  la saltea. `support_messages.attachment_count` alimenta `lastMessage.hasAttachments`.
+- **Tope**: hasta `SUPPORT_ATTACHMENT_MAX_PENDING` (20) adjuntos pedidos y sin usar por quien sube; el siguiente da 429
+  `SUPPORT_ATTACHMENT_PENDING_LIMIT`.
+- **Fan-out**: si firmar las URLs falla después de guardar el mensaje, se difunde sin adjuntos (la app los recupera con `GET /messages`) y el
+  request no falla.
 - **Primera consulta del usuario** (sin `conversationId`, punto abierto de MOVO-324, opción A): el objeto va a `support/pending/<userId>/…` y,
   al crear la consulta, la fila queda en esa conversación **sin mover el objeto** (moverlo pediría `CopyObject` y no cambia la privacidad).
-- **Huérfanos**: `plugins/support-attachment-sweep.ts` borra la fila y después el objeto de los nunca asociados, con la ventana, el intervalo y
-  el interruptor de las fotos huérfanas (`ORPHAN_PHOTO_*`, sin env vars nuevas). Respaldo: regla de lifecycle en el bucket (pendiente en `movo-infra`).
+- **Huérfanos**: `plugins/support-attachment-sweep.ts`, con la ventana, el intervalo y el interruptor de las fotos huérfanas (`ORPHAN_PHOTO_*`,
+  sin env vars nuevas). En dos pasos: marca la fila (`deleting_at`, ya no se puede asociar), borra el objeto y recién entonces la fila; si S3
+  falla, la marca queda y la próxima corrida reintenta. Es la única limpieza: no hay regla de lifecycle sobre `support/*`, porque el objeto
+  de `pending` no se mueve al usarse y una regla por prefijo borraría fotos en uso.
 - Retención: se conservan mientras la conversación (no hay purga de soporte).
 
 ## Tiempo real

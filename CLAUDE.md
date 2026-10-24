@@ -320,8 +320,9 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   de la cuenta real de Movo S.A. y borrar el legado `MERCADOPAGO_ACCESS_TOKEN`.
 - **Adjuntos de soporte en `movo-infra` (MOVO-321)**: falta en el bucket de `svc-shipments` el prefijo privado `support/*` (sin lectura
   pública) con `s3:PutObject`/`GetObject`/`DeleteObject` para el rol de la EC2, CORS con `PUT` para `admin.movosend.app` y los previews de
-  Vercel (el panel sube desde el navegador), y una regla de lifecycle de respaldo para `support/pending/*` (el sweep de huérfanos ya borra
-  los nunca usados; la regla cubre los que fallen al borrarse). Sin `DeleteObject`, el sweep loguea y deja el objeto.
+  Vercel (el panel sube desde el navegador). **Sin regla de lifecycle sobre `support/*`**: el objeto de `support/pending/…` no se mueve
+  al usarse, así que una regla por prefijo borraría fotos en uso; los huérfanos los borra solo el sweep. Sin `DeleteObject`, el sweep
+  deja los adjuntos marcados y reintenta en cada corrida.
 - **`s3:DeleteObject` sobre `shipments/*` sin confirmar en `movo-infra`** (MOVO-124/MOVO-230): lo necesitan el sweep de
   fotos huérfanas y la purga de historial vencido de `svc-shipments`. Sin el permiso, los dos fallan, loguean y
   reintentan en cada corrida sin borrar nada.
