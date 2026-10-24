@@ -694,3 +694,9 @@ bloque `offers` en `AdminShipmentDetailResponse` (requerido: rompe literales arm
 que solo se exportaba por subpath. Review de PR #302: `AdminShipmentOffer.commissionRate` y
 `AdminShipmentDetail.requestedPickupDate`/`requestedPickupTimeWindowStart`/`End` (lo que pidió el emisor; `pickupDate` pasa a ser el
 retiro acordado al aceptar una oferta). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-324 — Selector de envíos de soporte (`types/support.ts`)
+
+Sobre el contrato de MOVO-320: `SupportShipmentRole`, `SupportShipmentOption` y `SupportShipmentOptionsPage`, wire contract de
+`GET /support/shipments` (envíos de los que el usuario es parte, en cualquier rol y estado, para vincular a una consulta).
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

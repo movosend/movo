@@ -8,9 +8,6 @@ import type { OwnAccountSanction } from "@movo/shared/dist/types/account-sanctio
 
 export const SUPPORT_EMAIL = "soporte@movosend.app";
 
-/** "Contactar a soporte" queda deshabilitado hasta que exista Ayuda y soporte en la app. */
-export const SUPPORT_UNAVAILABLE_NOTE = "No disponible hasta MOVO-324 (Ayuda y soporte).";
-
 /** Argentina no tiene horario de verano desde 2009: offset fijo en vez de `Intl` con
  * `timeZone`, que Hermes no respeta en todas las versiones. */
 const ARGENTINA_OFFSET_MS = -3 * 60 * 60 * 1000;
