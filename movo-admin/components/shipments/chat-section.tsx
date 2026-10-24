@@ -6,6 +6,7 @@ import {
   CHAT_ACCESS_LABEL,
   chatTitle,
   reportLine,
+  shipmentDisplayCode,
 } from "@/lib/shipments/format"
 import { BlockError } from "./block-error"
 import { ChatPanel } from "./chat-panel"
@@ -60,7 +61,7 @@ export async function ChatSection({
     <ChatPanel
       shipmentId={shipment.id}
       heading={{
-        code: shipment.code,
+        code: shipmentDisplayCode(shipment.id),
         title: chatTitle(shipment),
         people,
         mode: `${CHAT_ACCESS_LABEL[page.partiesAccess]}${page.archived ? " · archivado" : ""}`,

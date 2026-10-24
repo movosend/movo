@@ -43,7 +43,6 @@ import {
   PackagePaymentCard,
   PartiesCard,
   Timeline,
-  TrackingPlaceholder,
 } from "./detail"
 
 afterEach(cleanup)
@@ -157,7 +156,7 @@ describe("detalle del envío", () => {
     ).toBeTruthy()
   })
 
-  it("aviso destacado con qué mirar, y el lugar del mapa por estado", () => {
+  it("aviso destacado con qué mirar", () => {
     render(
       <>
         <AlertBanner
@@ -167,17 +166,12 @@ describe("detalle del envío", () => {
           })}
           now={NOW}
         />
-        <TrackingPlaceholder
-          shipment={detail({ status: "assigned" })}
-          now={NOW}
-        />
       </>
     )
     expect(screen.getByText("La ventana de pago vence en 5 h")).toBeTruthy()
     expect(
       screen.getByText(/el barrido devuelve el envío a Publicado/)
     ).toBeTruthy()
-    expect(screen.getByText("Todavía no arrancó")).toBeTruthy()
   })
 
   it("sin aviso no hay banner", () => {

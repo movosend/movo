@@ -104,6 +104,10 @@
   --danger-soft: #fdecec;
   --danger-solid: #c9363b;
   --danger-solid-hover: #b02d32;
+  --map-bg: #f2f2f0;
+  --glass: rgba(255, 255, 255, 0.72);
+  --track-done: #2b6bff;
+  --track-todo: rgba(10, 10, 11, 0.5);
   --warn-fg: #7a4f00;
   --warn-soft: #fef6e4;
   --warn-border: rgba(245, 185, 58, 0.45);
@@ -180,6 +184,10 @@
   --danger-soft: rgba(229, 72, 77, 0.14);
   --danger-solid: #c9363b;
   --danger-solid-hover: #d9454a;
+  --map-bg: #1a1a1c;
+  --glass: rgba(17, 17, 19, 0.72);
+  --track-done: #2b6bff;
+  --track-todo: rgba(255, 255, 255, 0.5);
   --warn-fg: #f5c76a;
   --warn-soft: rgba(245, 185, 58, 0.1);
   --warn-border: rgba(245, 185, 58, 0.3);
@@ -624,5 +632,119 @@
 @media (prefers-reduced-motion: reduce) {
   .mv-skeleton {
     animation: none;
+  }
+}
+
+/* Mapa de seguimiento (MOVO-328): Leaflet con los tokens del panel. */
+.mv-track-map.leaflet-container {
+  background: var(--map-bg);
+  font-family: var(--font-sans, inherit);
+}
+.mv-track-map .leaflet-control-attribution {
+  font-size: 10px;
+  background: var(--glass);
+  color: var(--muted-foreground);
+}
+.mv-track-map .leaflet-control-attribution a {
+  color: var(--foreground);
+}
+.mv-track-map .leaflet-bar {
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.mv-track-map .leaflet-bar a {
+  background: var(--card);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+.mv-track-map .leaflet-tooltip {
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px;
+}
+.mv-track-pin {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mv-track-map path.mv-track-done {
+  stroke: var(--track-done);
+}
+.mv-track-map path.mv-track-todo {
+  stroke: var(--track-todo);
+}
+.mv-track-origin,
+.mv-track-destination {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.mv-track-origin {
+  border-radius: 6px;
+  background: var(--foreground);
+}
+.mv-track-destination {
+  border-radius: 999px;
+  background: var(--track-done);
+}
+.mv-track-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translate(-50%, 4px);
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: var(--shadow-1);
+}
+.mv-track-courier {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--lime);
+  border: 2px solid #0a0a0b;
+}
+.mv-track-courier::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 999px;
+  border: 2px solid var(--lime);
+  animation: mv-track-ping 1.8s ease-out infinite;
+}
+.mv-track-courier[data-alert="true"] {
+  background: #f5b93a;
+}
+.mv-track-courier[data-alert="true"]::after {
+  display: none;
+}
+@keyframes mv-track-ping {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-track-courier::after {
+    animation: none;
+    opacity: 0.4;
   }
 }

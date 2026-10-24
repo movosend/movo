@@ -7,6 +7,7 @@ import { publicError } from "@/lib/auth/api"
 import { requireAdmin } from "@/lib/auth/session"
 import { sidebarDefaultOpen } from "@/lib/sidebar"
 import { getShipment } from "@/lib/shipments/api"
+import { shipmentDisplayCode } from "@/lib/shipments/format"
 import { listHref, parseListState } from "@/lib/shipments/params"
 import { AdminShell } from "@/components/admin-shell"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -21,8 +22,8 @@ import {
   PackagePaymentCard,
   PartiesCard,
   Timeline,
-  TrackingPlaceholder,
 } from "@/components/shipments/detail"
+import { ShipmentTrackingMap } from "@/components/shipments/tracking/tracking-panel"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -85,7 +86,7 @@ export default async function Page({
   const { shipment } = detail
   const now = new Date()
   return (
-    <AdminShell {...shell} crumb={`#${shipment.code}`}>
+    <AdminShell {...shell} crumb={shipmentDisplayCode(shipment.id)}>
       <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 pt-6 pb-14 md:px-8">
         <DetailHeader
           shipment={shipment}
@@ -100,7 +101,7 @@ export default async function Page({
         <AlertBanner shipment={shipment} now={now} />
         <div className="grid items-start gap-5 min-[1100px]:grid-cols-[minmax(0,1fr)_380px]">
           <div className="flex min-w-0 flex-col gap-5">
-            <TrackingPlaceholder shipment={shipment} now={now} />
+            <ShipmentTrackingMap shipmentId={shipment.id} />
             <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] items-start gap-5">
               <PartiesCard shipment={shipment} parties={detail.parties} />
               <LegsCard
