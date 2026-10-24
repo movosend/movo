@@ -6,6 +6,7 @@ import {
   AdminShipmentDetail,
   AdminShipmentOffer,
   AdminShipmentPage,
+  AdminShipmentTracking,
   ACTIVE_SHIPMENT_STATUSES,
   isAdminShipmentAlert,
   ShipmentStatus,
@@ -15,6 +16,8 @@ import { createShipmentRepository, ShipmentRepository } from "../src/repositorie
 import { CreateShipmentInput, PackageType } from "../src/models/shipment";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 import { createMockStorageProvider } from "../src/adapters/mock-storage-provider";
+import { createFakeRoutesProvider } from "./fake-routes-provider";
+import { encodePolyline } from "../src/utils/polyline-encode";
 
 /**
  * MOVO-325: listado, detalle, eventos, fotos y chat de los envíos para el panel. Contra Postgres y
@@ -25,6 +28,11 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
   let app: FastifyInstance;
   let repo: ShipmentRepository;
   const lookups: string[] = [];
+  let routeCalls = 0;
+  // Ruta recta de Córdoba a Villa María (las coordenadas de `baseInput`): ~140 km en ~2 h.
+  const PICKUP = { lat: -31.4201, lng: -64.1888 };
+  const DELIVERY = { lat: -32.4075, lng: -63.2406 };
+  const plannedRoute = { polyline: encodePolyline([PICKUP, DELIVERY]), distanceMeters: 140_000, durationSeconds: 7200 };
 
   function baseInput(tag: string, overrides: Partial<CreateShipmentInput> = {}): CreateShipmentInput {
     return {
@@ -102,7 +110,18 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
       return (await original(userId, callerId)) ?? fakePublicProfile({ id: userId, fullName: `Resuelto ${userId.slice(0, 4)}` });
     };
 
-    app = buildApp({ usersClient, storageProvider: createMockStorageProvider(), notificationsClient: { sendPush: async () => undefined } });
+    const routesProvider = createFakeRoutesProvider(plannedRoute, {
+      async getRoute() {
+        routeCalls++;
+        return plannedRoute;
+      },
+    });
+    app = buildApp({
+      usersClient,
+      storageProvider: createMockStorageProvider(),
+      notificationsClient: { sendPush: async () => undefined },
+      routesProvider,
+    });
     await app.ready();
     repo = createShipmentRepository(app.db);
   });
@@ -412,7 +431,7 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
 
     it("un envío inexistente es 404 en cada ruta", async () => {
       const id = randomUUID();
-      for (const suffix of ["", "/events", "/offers", "/photos", "/chat/messages"]) {
+      for (const suffix of ["", "/events", "/offers", "/photos", "/chat/messages", "/tracking"]) {
         const response = await app.inject({ method: "GET", url: `/internal/admin/shipments/${id}${suffix}` });
         expect(response.statusCode).toBe(404);
       }
@@ -570,6 +589,217 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
       expect(first.items.map((message) => message.body)).toEqual(["m2", "m1"]);
       expect(second.items.map((message) => message.body)).toEqual(["m0"]);
       expect(second.nextCursor).toBeNull();
+    });
+  });
+  describe("seguimiento (MOVO-327)", () => {
+    /** Punto a `fraction` del camino de retiro a entrega. */
+    const along = (fraction: number) => ({
+      lat: PICKUP.lat + (DELIVERY.lat - PICKUP.lat) * fraction,
+      lng: PICKUP.lng + (DELIVERY.lng - PICKUP.lng) * fraction,
+    });
+
+    /** Envío con transportista, viaje y oferta aceptada; con `pickedUpAt` registra el retiro (`-> in_transit`). */
+    async function seedWithTrip(status: ShipmentStatus, opts: { pickedUpAt?: Date; deliveredAt?: Date; data?: Record<string, unknown> } = {}) {
+      const carrierId = randomUUID();
+      const shipment = await seed(`trk${randomUUID().slice(0, 8)}`, status, { carrierId, data: opts.data });
+      const trip = await app.db.trip.create({
+        data: {
+          carrierId,
+          originAddress: "Av. Colón 1234, Córdoba",
+          originLat: PICKUP.lat,
+          originLng: PICKUP.lng,
+          destinationAddress: "Bv. San Juan 500, Villa María",
+          destinationLat: DELIVERY.lat,
+          destinationLng: DELIVERY.lng,
+          departureAt: new Date(),
+          vehicleType: "auto",
+          status: "active",
+        },
+      });
+      await app.db.offer.create({
+        data: {
+          shipmentId: shipment.id,
+          carrierId,
+          tripId: trip.id,
+          priceOffered: 9000,
+          status: "accepted",
+          offeredDate: new Date("2030-01-01T00:00:00.000Z"),
+        },
+      });
+      if (opts.pickedUpAt) {
+        await app.db.shipmentEvent.create({
+          data: { shipmentId: shipment.id, fromStatus: "assigned", toStatus: "in_transit", createdAt: opts.pickedUpAt },
+        });
+      }
+      if (opts.deliveredAt) {
+        await app.db.shipmentEvent.create({
+          data: { shipmentId: shipment.id, fromStatus: "in_transit", toStatus: "delivered", createdAt: opts.deliveredAt },
+        });
+      }
+      return { ...shipment, tripId: trip.id };
+    }
+
+    /** Puntos persistidos cada 45 s terminando en `lastAt`, avanzando a lo largo de la ruta. */
+    async function persistPositions(shipmentId: string, tripId: string, lastAt: Date, count: number, fromFraction: number, toFraction: number) {
+      for (let i = 0; i < count; i++) {
+        const at = new Date(lastAt.getTime() - (count - 1 - i) * 45_000);
+        const point = along(fromFraction + ((toFraction - fromFraction) * i) / Math.max(1, count - 1));
+        await app.db.carrierPosition.create({
+          data: { shipmentId, tripId, lat: point.lat, lng: point.lng, accuracyM: 10, capturedAt: at, recordedAt: at },
+        });
+      }
+    }
+
+    async function setLastKnown(tripId: string, point: { lat: number; lng: number }, at: Date) {
+      await app.redis.hset(`position:last:${tripId}`, {
+        lat: String(point.lat),
+        lng: String(point.lng),
+        accuracyM: "8",
+        capturedAt: at.toISOString(),
+        recordedAt: at.toISOString(),
+        capturedAtMs: String(at.getTime()),
+      });
+    }
+
+    const tracking = async (id: string): Promise<AdminShipmentTracking> => {
+      const response = await app.inject({ method: "GET", url: `/internal/admin/shipments/${id}/tracking` });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["cache-control"]).toBe("no-store");
+      return response.json();
+    };
+
+    it("sin retiro: `not_started`, con la ruta y sin posición aunque el viaje ya reporte", async () => {
+      const shipment = await seedWithTrip(ShipmentStatus.ASSIGNED);
+      await setLastKnown(shipment.tripId, PICKUP, new Date());
+
+      const body = await tracking(shipment.id);
+
+      expect(body).toMatchObject({
+        shipmentId: shipment.id,
+        shipmentStatus: "assigned",
+        state: "not_started",
+        reason: "awaiting_pickup",
+        origin: { lat: PICKUP.lat, lng: PICKUP.lng, label: "Córdoba" },
+        destination: { lat: DELIVERY.lat, lng: DELIVERY.lng, label: "Villa María" },
+        plannedRoute,
+        trace: [],
+        traceAvailable: false,
+        lastPosition: null,
+        lastPingAt: null,
+        signalLost: false,
+        metrics: null,
+        pollIntervalSeconds: 15,
+      });
+    });
+
+    it("sin transportista: `no_carrier`, sin pedir la ruta", async () => {
+      const shipment = await seed(`trk${randomUUID().slice(0, 8)}`, ShipmentStatus.PUBLISHED);
+      const before = routeCalls;
+
+      const body = await tracking(shipment.id);
+
+      expect(body).toMatchObject({ state: "no_carrier", reason: "no_carrier", plannedRoute: null, trace: [], metrics: null });
+      expect(routeCalls).toBe(before);
+    });
+
+    it("en camino con señal: última posición, traza y métricas", async () => {
+      const now = Date.now();
+      const shipment = await seedWithTrip(ShipmentStatus.IN_TRANSIT, { pickedUpAt: new Date(now - 30 * 60_000) });
+      // 6 puntos en ~4 min del 40 % al 42 % del recorrido (~2,8 km): ~45 km/h.
+      await persistPositions(shipment.id, shipment.tripId, new Date(now - 60_000), 6, 0.4, 0.42);
+      const lastAt = new Date(now - 20_000);
+      await setLastKnown(shipment.tripId, along(0.5), lastAt);
+
+      const body = await tracking(shipment.id);
+
+      expect(body).toMatchObject({
+        state: "live",
+        reason: null,
+        traceAvailable: true,
+        traceTruncated: false,
+        lastPosition: { ...along(0.5), accuracyM: 8, capturedAt: lastAt.toISOString() },
+        lastPingAt: lastAt.toISOString(),
+        signalLost: false,
+        delayed: false,
+      });
+      expect(body.trace).toHaveLength(6);
+      expect(body.metrics?.avgSpeedKmh5m).toBeGreaterThan(30);
+      expect(body.metrics?.avgSpeedKmh5m).toBeLessThan(60);
+      expect(body.metrics?.progressPct).toBeCloseTo(50, 0);
+      expect(body.metrics?.remainingMeters).toBeCloseTo(70_000, -3);
+      // La mitad de las 2 h planificadas desde la hora del servidor.
+      const eta = Date.parse(body.metrics!.etaAt!) - Date.parse(body.serverTime);
+      expect(eta).toBeCloseTo(3600 * 1000, -5);
+    });
+
+    it("en camino sin señal: `signalLost` con la hora del último ping, sin velocidad ni ETA", async () => {
+      const now = Date.now();
+      const shipment = await seedWithTrip(ShipmentStatus.IN_TRANSIT, {
+        pickedUpAt: new Date(now - 60 * 60_000),
+        data: { transitAnomalyFlaggedAt: new Date() },
+      });
+      const lastAt = new Date(now - 10 * 60_000);
+      await persistPositions(shipment.id, shipment.tripId, lastAt, 6, 0.2, 0.25);
+      await setLastKnown(shipment.tripId, along(0.25), lastAt);
+
+      const body = await tracking(shipment.id);
+
+      expect(body).toMatchObject({
+        state: "live",
+        signalLost: true,
+        lastPingAt: lastAt.toISOString(),
+        lastPosition: { ...along(0.25) },
+        delayed: true,
+        metrics: { avgSpeedKmh5m: null, etaAt: null },
+      });
+      expect(body.metrics?.progressPct).toBeCloseTo(25, 0);
+    });
+
+    it("entregado: la traza guardada, cerrada, sin posición ni métricas", async () => {
+      const now = Date.now();
+      const shipment = await seedWithTrip(ShipmentStatus.DELIVERED, {
+        pickedUpAt: new Date(now - 3 * 60 * 60_000),
+        deliveredAt: new Date(now - 60 * 60_000),
+      });
+      await persistPositions(shipment.id, shipment.tripId, new Date(now - 61 * 60_000), 4, 0, 1);
+      // Un punto posterior a la entrega no es parte de la custodia.
+      await persistPositions(shipment.id, shipment.tripId, new Date(now - 30 * 60_000), 1, 1, 1);
+
+      const body = await tracking(shipment.id);
+
+      expect(body).toMatchObject({
+        state: "closed",
+        reason: "delivered",
+        traceAvailable: true,
+        lastPosition: null,
+        lastPingAt: null,
+        signalLost: false,
+        metrics: null,
+        plannedRoute,
+      });
+      expect(body.trace).toHaveLength(4);
+      expect(body.trace.map((p) => p.capturedAt)).toEqual([...body.trace.map((p) => p.capturedAt)].sort());
+    });
+
+    it("traza purgada por retención: 200 con `traceAvailable: false`", async () => {
+      const shipment = await seedWithTrip(ShipmentStatus.COMPLETED, {
+        pickedUpAt: new Date(Date.now() - 40 * 24 * 60 * 60_000),
+        deliveredAt: new Date(Date.now() - 39 * 24 * 60 * 60_000),
+      });
+
+      const body = await tracking(shipment.id);
+
+      expect(body).toMatchObject({ state: "closed", reason: "completed", trace: [], traceAvailable: false, metrics: null });
+    });
+
+    it("la ruta planificada se pide una sola vez por envío", async () => {
+      const shipment = await seedWithTrip(ShipmentStatus.ASSIGNED);
+      const before = routeCalls;
+
+      await tracking(shipment.id);
+      await tracking(shipment.id);
+
+      expect(routeCalls - before).toBe(1);
     });
   });
 });

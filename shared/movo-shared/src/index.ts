@@ -377,6 +377,7 @@ export {
   ADMIN_SHIPMENTS_MAX_LIMIT,
   FORCE_STATUS_REASON_MAX_LENGTH,
   FORCE_STATUS_REASON_MIN_LENGTH,
+  ADMIN_TRACKING_POLL_INTERVAL_SECONDS,
   isAdminShipmentAlert,
 } from "./types/admin-shipments";
 export type {
@@ -399,6 +400,12 @@ export type {
   AdminChatMessage,
   AdminChatReport,
   AdminChatPage,
+  AdminTrackingState,
+  AdminTrackingReason,
+  AdminTrackingPlace,
+  AdminTrackingPoint,
+  AdminTrackingMetrics,
+  AdminShipmentTracking,
 } from "./types/admin-shipments";
 
 // admin: cambio forzado de estado de un envío (MOVO-331, ADR-055)

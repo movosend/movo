@@ -695,6 +695,13 @@ que solo se exportaba por subpath. Review de PR #302: `AdminShipmentOffer.commis
 `AdminShipmentDetail.requestedPickupDate`/`requestedPickupTimeWindowStart`/`End` (lo que pidió el emisor; `pickupDate` pasa a ser el
 retiro acordado al aceptar una oferta). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-327 — Seguimiento del envío para el panel (`types/admin-shipments.ts`)
+
+`AdminShipmentTracking` y sus piezas (`AdminTrackingState`, `AdminTrackingReason`, `AdminTrackingPlace`, `AdminTrackingPoint`,
+`AdminTrackingMetrics`), más `ADMIN_TRACKING_POLL_INTERVAL_SECONDS` (15), compartido entre `svc-shipments` y `movo-admin`. Es el contrato
+que propuso MOVO-328, con dos cambios: `reason` suma `"cancelled"` y `shipmentStatus` va como `` `${ShipmentStatus}` ``. Recordatorio
+habitual: `npm run build` acá antes de tipar desde otro workspace.
+
 ### MOVO-324 — Selector de envíos de soporte (`types/support.ts`)
 
 Sobre el contrato de MOVO-320: `SupportShipmentRole`, `SupportShipmentOption` y `SupportShipmentOptionsPage`, wire contract de

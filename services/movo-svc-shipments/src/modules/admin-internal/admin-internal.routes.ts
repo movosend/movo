@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
+import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import {
   ACTIVE_SHIPMENT_STATUSES,
   AdminShipmentRole,
@@ -16,6 +16,7 @@ import {
   AdminShipmentPage,
   AdminShipmentPhoto,
   AdminShipmentRow,
+  AdminShipmentTracking,
   ApiError,
   ChatParticipantRole,
   ChatReportParties,
@@ -55,6 +56,10 @@ import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-cl
 import { AlertNotifier, createAlertNotifier } from "../../adapters/alert-notifier";
 import { buildFundingService } from "../funding/funding.routes";
 import { createForceStatusService } from "./force-status.service";
+import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
+import { createPositionRepository } from "../../repositories/position-repository";
+import { createAdminTrackingService } from "./admin-tracking.service";
+import { createPlannedRouteStore } from "./planned-route-store";
 
 export interface AdminInternalRoutesOptions extends FastifyPluginOptions {
   /** Overrides solo para tests, mismo criterio que en `shipmentsRoutes`. */
@@ -63,6 +68,7 @@ export interface AdminInternalRoutesOptions extends FastifyPluginOptions {
   notificationsClient?: NotificationsClient;
   paymentsClient?: PaymentsClient;
   alertNotifier?: AlertNotifier;
+  routesProvider?: RoutesProvider;
 }
 
 /** Cuánto se espera a svc-users para completar nombres faltantes: es un dato accesorio del listado. */
@@ -89,6 +95,7 @@ const timeOnly = (date: Date): string => date.toISOString().slice(11, 16);
  * - MOVO-294: las secciones de la ficha de un usuario del panel.
  * - MOVO-325: listado, detalle, eventos, fotos y chat de los envíos para el panel.
  * - MOVO-297: los efectos de una sanción sobre un usuario (envíos en curso y retiro de actividad abierta).
+ * - MOVO-327: el seguimiento de un envío para el mapa del panel.
  */
 export default async function adminInternalRoutes(app: FastifyInstance, opts: AdminInternalRoutesOptions) {
   const shipmentRepository = createShipmentRepository(app.db);
@@ -97,6 +104,18 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
   const offerRepository = createOfferRepository(app.db);
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
+  const adminTracking = createAdminTrackingService({
+    shipmentRepository,
+    positionRepository: createPositionRepository(app.db),
+    redis: app.redis,
+    routeStore: createPlannedRouteStore({
+      redis: app.redis,
+      routesProvider: opts.routesProvider ?? createRoutesProvider(app.config),
+      provider: app.config.ROUTES_PROVIDER,
+      logger: app.log,
+    }),
+    signalLostSeconds: app.config.TRACKING_SIGNAL_LOST_SECONDS,
+  });
   const fundingConfig = {
     paymentTimeoutMinutes: app.config.FUNDING_PAYMENT_TIMEOUT_MINUTES,
     releaseHoursBeforePickup: app.config.FUNDING_RELEASE_HOURS_BEFORE_PICKUP,
@@ -458,6 +477,19 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
           createdAt: photo.createdAt.toISOString(),
         })),
       );
+    },
+  );
+
+  // Última posición, traza y métricas para el mapa del envío (MOVO-327). El panel lo pide por polling, así
+  // que la respuesta no se cachea en ningún intermediario.
+  app.get(
+    "/admin/shipments/:id/tracking",
+    { schema: { hide: true, params: adminInternalSchemas.idParam } },
+    async (request: FastifyRequest, reply: FastifyReply): Promise<AdminShipmentTracking> => {
+      const { id } = request.params as { id: string };
+      const { row } = await requireRecord(id);
+      reply.header("Cache-Control", "no-store");
+      return adminTracking.get(row);
     },
   );
 
