@@ -10,6 +10,7 @@ import {
   type RealtimeStatusEvent,
   type ConnectionState,
 } from "./use-shipment-channel";
+import { formatRelativeDuration } from "../lib/time-format";
 
 export interface LiveCarrierPosition {
   lat: number;
@@ -67,12 +68,7 @@ export function formatTimeAgo(isoDateString?: string | null): string {
   if (diffMs < 0) return "hace unos segundos";
   const diffSeconds = Math.floor(diffMs / 1000);
   if (diffSeconds < 45) return "hace unos segundos";
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  if (diffMinutes === 1) return "hace 1 min";
-  if (diffMinutes < 60) return `hace ${diffMinutes} min`;
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours === 1) return "hace 1 h";
-  return `hace ${diffHours} h`;
+  return `hace ${formatRelativeDuration(diffSeconds / 60)}`;
 }
 
 /**

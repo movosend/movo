@@ -52,10 +52,10 @@ import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { requireCarrierLocation } from "../../../../src/store/carrier-location-gate-store";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import {
-  formatPickupWindowLabel,
   formatPriceArs,
   shortAddressLabel,
 } from "../../../../src/lib/shipment-format";
+import { formatTimeRange } from "../../../../src/lib/time-format";
 import { SuspendedScreenGate } from "../../../../components/account/suspended-screen-gate";
 
 /** MOVO-177: el transportista puede proponer retirar hasta este número de días después
@@ -64,11 +64,11 @@ import { SuspendedScreenGate } from "../../../../components/account/suspended-sc
 const MAX_ALT_DAY_OFFSET = 3;
 
 const TIME_SLOTS = [
-  { start: "08:00", end: "12:00", label: "8:00 – 12:00" },
-  { start: "12:00", end: "15:00", label: "12:00 – 15:00" },
-  { start: "15:00", end: "19:00", label: "15:00 – 19:00" },
-  { start: "19:00", end: "22:00", label: "19:00 – 22:00" },
-];
+  { start: "08:00", end: "12:00" },
+  { start: "12:00", end: "15:00" },
+  { start: "15:00", end: "19:00" },
+  { start: "19:00", end: "22:00" },
+].map((slot) => ({ ...slot, label: formatTimeRange(slot.start, slot.end) }));
 
 const DAY_CHIP_FORMATTER = new Intl.DateTimeFormat("es-AR", {
   weekday: "short",
@@ -579,7 +579,7 @@ function CreateOfferScreenContent() {
   const pickupSummary =
     dateMode === "requested"
       ? shipment
-        ? `${dayChipLabel(parseDateOnly(shipment.pickupDate))} · ${formatPickupWindowLabel(
+        ? `${dayChipLabel(parseDateOnly(shipment.pickupDate))} · ${formatTimeRange(
             shipment.pickupTimeWindowStart,
             shipment.pickupTimeWindowEnd,
           )}`
@@ -1032,7 +1032,7 @@ function CreateOfferScreenContent() {
                       </Text>
                       <Text className="mt-0.5 font-sans text-small text-fg-2">
                         {dayChipLabel(parseDateOnly(shipment.pickupDate))} ·{" "}
-                        {formatPickupWindowLabel(
+                        {formatTimeRange(
                           shipment.pickupTimeWindowStart,
                           shipment.pickupTimeWindowEnd,
                         )}

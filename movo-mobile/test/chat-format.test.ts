@@ -6,7 +6,9 @@ import {
   buildChatTimeline,
   chatAvailability,
   chatEventCard,
+  chatTransferCard,
   eventsSinceCurrentAssignment,
+  transfersSinceCurrentAssignment,
   chatReadOnlyCopy,
   deliveryStatusLabel,
   formatDayLabel,
@@ -56,7 +58,7 @@ describe("formateo de textos del chat", () => {
   });
 
   it("hora de la lista: hora de hoy, Ayer, día de la semana o fecha", () => {
-    expect(formatListTime(new Date(2026, 9, 14, 8, 5).toISOString(), NOW)).toBe("08:05");
+    expect(formatListTime(new Date(2026, 9, 14, 8, 5).toISOString(), NOW)).toBe("08:05 h");
     expect(formatListTime(new Date(2026, 9, 13, 8, 5).toISOString(), NOW)).toBe("Ayer");
     expect(formatListTime(new Date(2026, 9, 11, 8, 5).toISOString(), NOW)).toMatch(/^[A-ZÁÉÍÓÚ]/);
     expect(formatListTime(new Date(2026, 8, 20, 8, 5).toISOString(), NOW)).toMatch(/20 sep/);
@@ -250,5 +252,51 @@ describe("chatAuthorLabel (MOVO-301)", () => {
 
   it("sin nombre ni participante no inventa una etiqueta", () => {
     expect(chatAuthorLabel({ authorId: "x", authorName: null, participants })).toBeUndefined();
+  });
+});
+
+describe("chatTransferCard (MOVO-340)", () => {
+  const transfer = {
+    id: "t1",
+    shipmentId: "s1",
+    requestedBy: "lucia",
+    requesterName: "Lucía Gómez",
+    newReceiverId: "martin",
+    newReceiverName: "Martín López",
+    reason: null,
+    responseReason: null,
+    status: "completed" as const,
+    cancelReason: null,
+    newReceiverDeadline: "2026-10-14T18:00:00.000Z",
+    createdAt: "2026-10-14T12:00:00.000Z",
+    resolvedAt: "2026-10-14T13:00:00.000Z",
+    resolvedBy: "martin",
+  };
+
+  it("el texto depende de quién mira, y la tarjeta va en el momento en que se completó", () => {
+    expect(chatTransferCard(transfer, "lucia")).toEqual({
+      id: "receiver-transfer-t1",
+      text: "Le pasaste la recepción a Martín",
+      live: false,
+      createdAt: "2026-10-14T13:00:00.000Z",
+    });
+    expect(chatTransferCard(transfer, "martin")?.text).toBe("Lucía te pasó la recepción");
+    expect(chatTransferCard(transfer, "diego")?.text).toBe("Lucía le pasó la recepción a Martín");
+  });
+
+  it("solo cuenta las transferencias de la asignación vigente", () => {
+    const events = [
+      event(ShipmentStatus.PUBLISHED, new Date("2026-10-14T10:00:00Z")),
+      event(ShipmentStatus.ASSIGNMENT_PENDING, new Date("2026-10-14T14:00:00Z"), "accept"),
+    ];
+    const before = { ...transfer, id: "before" };
+    const after = { ...transfer, id: "after", resolvedAt: "2026-10-14T15:00:00.000Z" };
+    expect(transfersSinceCurrentAssignment([before, after], events).map((t) => t.id)).toEqual(["after"]);
+    expect(transfersSinceCurrentAssignment([before, after], []).map((t) => t.id)).toEqual(["before", "after"]);
+  });
+
+  it("una solicitud que no se completó no lleva tarjeta", () => {
+    expect(chatTransferCard({ ...transfer, status: "rejected_by_new_receiver" }, "diego")).toBeNull();
+    expect(chatTransferCard({ ...transfer, status: "pending_new_receiver", resolvedAt: null }, "diego")).toBeNull();
   });
 });

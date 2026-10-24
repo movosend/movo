@@ -1359,3 +1359,15 @@ Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `s
 ### MOVO-325 — Ciudad en el reverse geocoding y fichas de las partes para el panel
 
 `ReverseGeocodeResult.city` (`POST /geocode/reverse` responde `{ formattedAddress, city }`, `city` nullable): Google toma `locality` y, sin ella, `administrative_area_level_2`; el mock devuelve "Córdoba". Lo consume `svc-shipments` al crear un envío (filtro de ciudad del panel). Cambio aditivo: mobile ignora el campo nuevo. `GET /internal/users/party-cards?ids=` (`modules/users/party-cards-internal.routes.ts`, interno): nombre, foto, estado de cuenta, KYC de identidad/licencia aprobados y reputación de hasta 5 personas, incluidas las dadas de baja; un id inexistente queda afuera y la reputación es best-effort (`null` si `svc-shipments` no responde). Lo usa `svc-admin` para el bloque de partes del detalle de un envío.
+
+### MOVO-340 — Buscador sin tildes, búsqueda por coordenadas y nombres compuestos
+
+- `GET /users/search` busca con `users.f_unaccent(lower(nombre completo))` y cada palabra en cualquier orden (la ñ cuenta como
+  n), sobre un índice GIN de trigramas. La migración `receiver_search_unaccent_movo_340` crea `unaccent` y `pg_trgm` en `public`
+  y el envoltorio inmutable: necesita permiso de `CREATE EXTENSION` en dev/prod. Prisma no representa el índice de expresión.
+- `POST /places/autocomplete` con coordenadas (decimal o grados/minutos/segundos, `modules/places/coordinates.ts`) no llama a
+  Places: devuelve una sugerencia con el punto escrito y la dirección del reverse geocoding (o las coordenadas si no hay).
+  `PlacePrediction` pasa a `@movo/shared`.
+- `POST /auth/register` acepta `firstName`/`lastName` (el `fullName` legado se sigue cortando en el primer espacio, para builds
+  viejos). Las cuentas ya partidas mal se corrigen con `npm run user:name -- list` / `set <email> "<nombre>" "<apellido>"`
+  (`src/scripts/fix-user-name.ts`): no hay de dónde recuperar el corte original.

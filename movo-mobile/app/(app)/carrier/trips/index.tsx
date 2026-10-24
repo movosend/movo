@@ -37,8 +37,9 @@ function TripsListSkeleton() {
  */
 export default function MyTripsScreen() {
   const colors = useThemeColors();
-  const { created, cancelledTo, cancelledAt, cancelledPackages, cancelledDebt } = useLocalSearchParams<{
+  const { created, createdAt, cancelledTo, cancelledAt, cancelledPackages, cancelledDebt } = useLocalSearchParams<{
     created?: string;
+    createdAt?: string;
     cancelledTo?: string;
     cancelledAt?: string;
     cancelledPackages?: string;
@@ -52,6 +53,12 @@ export default function MyTripsScreen() {
     useMyTripsPaged(scope);
   const trips = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data]);
   const [showCreatedSuccess, setShowCreatedSuccess] = useState(created === "1");
+  useEffect(() => {
+    if (created === "1") setShowCreatedSuccess(true);
+    // MOVO-340: "Declarar viaje" vuelve con `dismissTo` a esta misma instancia; `createdAt`
+    // cambia en cada alta aunque `created` ya valiera "1".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [created, createdAt]);
   // MOVO-263: el detalle de un viaje vuelve acá con el destino cancelado para avisarlo.
   // MOVO-314: si el viaje tenía paquetes, el aviso suma qué pasó con ellos y con la deuda.
   const cancelledText = cancelledTo

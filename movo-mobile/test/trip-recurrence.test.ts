@@ -32,13 +32,13 @@ describe("trip-recurrence (MOVO-266)", () => {
 
   it("preview con un día", () => {
     expect(recurrencePreview({ departureAt: FRIDAY_8AM, weekdays: [5], until: null })).toBe(
-      "Cuando salgas el vie 2/10, declaramos automáticamente tu próximo viaje (todos los viernes a las 08:00).",
+      "Cuando salgas el vie 2/10, declaramos automáticamente tu próximo viaje (todos los viernes a las 08:00 h).",
     );
   });
 
   it("preview con varios días", () => {
     const text = recurrencePreview({ departureAt: FRIDAY_8AM, weekdays: [5, 1], until: null });
-    expect(text).toContain("(los lunes y viernes a las 08:00)");
+    expect(text).toContain("(los lunes y viernes a las 08:00 h)");
   });
 
   it("con una fecha de fin que no deja otra salida, lo avisa en vez de prometer el próximo viaje", () => {

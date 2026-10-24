@@ -8,15 +8,12 @@ import Animated from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { formatTimeOfDay } from "../../src/lib/time-format";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
   weekday: "short",
   day: "numeric",
   month: "short",
-});
-const TIME_FORMATTER = new Intl.DateTimeFormat("es-AR", {
-  hour: "2-digit",
-  minute: "2-digit",
 });
 
 function combineDateAndTime(date: Date, time: Date): Date {
@@ -147,7 +144,7 @@ export function DepartureDateTimePicker({
           >
             <Clock size={16} color={colors.fg3} strokeWidth={2} />
             <Text className="flex-1 font-sans text-body text-fg" numberOfLines={1}>
-              {TIME_FORMATTER.format(value)}
+              {formatTimeOfDay(value)}
             </Text>
           </Pressable>
         </View>

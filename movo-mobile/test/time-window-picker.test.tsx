@@ -94,7 +94,7 @@ describe("TimeWindowPicker", () => {
     const { getByTestId } = await render(
       <TimeWindowPicker
         testID="time-window"
-        pickupDate=""
+        pickupDate="2099-01-01"
         timeWindowStart=""
         timeWindowEnd=""
         onChangeDate={jest.fn()}
@@ -105,5 +105,56 @@ describe("TimeWindowPicker", () => {
     fireEvent.press(getByTestId("time-window-window-09:00"));
 
     expect(onChangeWindow).toHaveBeenCalledWith("09:00", "12:00");
+  });
+
+  describe("MOVO-340: hoy con franjas que ya empezaron", () => {
+    beforeEach(() => {
+      // 13:00 del 24/10 en Argentina.
+      jest.useFakeTimers({ now: new Date("2026-10-24T16:00:00.000Z") });
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("deshabilita las franjas de hoy cuyo inicio ya pasó y deja elegir las que quedan", async () => {
+      Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
+      const onChangeWindow = jest.fn();
+
+      const { getByTestId } = await render(
+        <TimeWindowPicker
+          testID="time-window"
+          pickupDate="2026-10-24"
+          timeWindowStart=""
+          timeWindowEnd=""
+          onChangeDate={jest.fn()}
+          onChangeWindow={onChangeWindow}
+        />,
+      );
+
+      fireEvent.press(getByTestId("time-window-window-09:00"));
+      fireEvent.press(getByTestId("time-window-window-12:00"));
+      expect(onChangeWindow).not.toHaveBeenCalled();
+
+      fireEvent.press(getByTestId("time-window-window-18:00"));
+      expect(onChangeWindow).toHaveBeenCalledWith("18:00", "22:00");
+    });
+
+    it("muestra elegido el día que tiene el formulario", async () => {
+      Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
+
+      const { getByText } = await render(
+        <TimeWindowPicker
+          testID="time-window"
+          pickupDate="2026-10-24"
+          timeWindowStart=""
+          timeWindowEnd=""
+          onChangeDate={jest.fn()}
+          onChangeWindow={jest.fn()}
+        />,
+      );
+
+      expect(() => getByText("Elegí una fecha")).toThrow();
+    });
   });
 });

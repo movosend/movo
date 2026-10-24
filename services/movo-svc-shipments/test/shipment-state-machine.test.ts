@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ShipmentStatus } from "@movo/shared";
+import { SENDER_CANCELLABLE_STATUSES, ShipmentStatus } from "@movo/shared";
 import {
   canTransition,
   transition,
@@ -99,6 +99,11 @@ describe("shipment-state-machine", () => {
       expect((error as InvalidShipmentTransitionError).from).toBe(ShipmentStatus.CANCELLED);
       expect((error as InvalidShipmentTransitionError).to).toBe(ShipmentStatus.PUBLISHED);
     }
+  });
+
+  it("MOVO-340: los estados que el mobile ofrece cancelar son exactamente los que pueden pasar a cancelled", () => {
+    const cancellable = Object.values(ShipmentStatus).filter((from) => canTransition(from, ShipmentStatus.CANCELLED));
+    expect([...SENDER_CANCELLABLE_STATUSES].sort()).toEqual(cancellable.sort());
   });
 
   it("todo estado no terminal tiene al menos una transición válida definida en el DTE", () => {

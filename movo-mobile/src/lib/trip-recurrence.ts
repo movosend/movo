@@ -1,6 +1,7 @@
 import { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "@movo/shared/dist/utils/argentina-date";
 import type { Trip } from "../api/trips-client";
 import { shortAddressLabel } from "./shipment-format";
+import { formatTimeOfDay } from "./time-format";
 import {
   RECURRENCE_WEEKDAY,
   formatArgentinaShortDay,
@@ -95,7 +96,7 @@ export function recurrencePreview(params: {
   }
   return `Cuando salgas el ${firstDay}, declaramos automáticamente tu próximo viaje (${daysPhrase(
     weekdays,
-  )} a las ${toArgentinaTimeOfDayString(departureAt)}).`;
+  )} a las ${formatTimeOfDay(toArgentinaTimeOfDayString(departureAt))}).`;
 }
 
 /**

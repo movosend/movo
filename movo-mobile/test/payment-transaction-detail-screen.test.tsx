@@ -80,12 +80,12 @@ describe("PaymentTransactionDetailScreen (MOVO-304)", () => {
       expect(getByText("Pagaste")).toBeTruthy();
       expect(getByTestId("transaction-hero-amount")).toHaveTextContent("$5.200");
       expect(within(getByTestId("transaction-hero-pill")).getByText("Reembolsado parcialmente")).toBeTruthy();
-      expect(getByText("4 oct 2026 · 14:32")).toBeTruthy();
+      expect(getByText("4 oct 2026 · 14:32 h")).toBeTruthy();
       expect(within(getByTestId("transaction-card")).getByText("Mastercard •••• 1881")).toBeTruthy();
 
       const refund = getByTestId("transaction-movement-refund");
       expect(within(refund).getByText("Reembolso parcial")).toBeTruthy();
-      expect(within(refund).getByText("8 oct · 10:00 · $1.500 devueltos a tu tarjeta")).toBeTruthy();
+      expect(within(refund).getByText("8 oct · 10:00 h · $1.500 devueltos a tu tarjeta")).toBeTruthy();
       expect(within(refund).getByText("Vinculado al pago de $5.200 del 4 oct.")).toBeTruthy();
     });
 
@@ -94,9 +94,9 @@ describe("PaymentTransactionDetailScreen (MOVO-304)", () => {
       const { getByTestId } = await render(<PaymentTransactionDetailScreen />);
       const movements = getByTestId("transaction-movements");
       expect(within(movements).getByText("Fondos reservados")).toBeTruthy();
-      expect(within(movements).getByText("4 oct · 14:32 · $5.200")).toBeTruthy();
+      expect(within(movements).getByText("4 oct · 14:32 h · $5.200")).toBeTruthy();
       expect(within(movements).getByText("Pago cobrado")).toBeTruthy();
-      expect(within(movements).getByText("6 oct · 09:00 · al entregarse el envío")).toBeTruthy();
+      expect(within(movements).getByText("6 oct · 09:00 h · al entregarse el envío")).toBeTruthy();
     });
 
     it("un hold liberado muestra cuándo y por qué, y que no se cobró nada", async () => {
@@ -109,7 +109,7 @@ describe("PaymentTransactionDetailScreen (MOVO-304)", () => {
       const { getByTestId, queryByTestId } = await render(<PaymentTransactionDetailScreen />);
       const released = getByTestId("transaction-step-released");
       expect(within(released).getByText("Reserva liberada")).toBeTruthy();
-      expect(within(released).getByText("17 oct · 19:30 · El envío se canceló. No se te cobró nada")).toBeTruthy();
+      expect(within(released).getByText("17 oct · 19:30 h · El envío se canceló. No se te cobró nada")).toBeTruthy();
       expect(queryByTestId("transaction-step-pending-capture")).toBeNull();
     });
 

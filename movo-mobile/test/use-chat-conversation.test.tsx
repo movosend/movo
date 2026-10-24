@@ -26,13 +26,23 @@ jest.mock("../src/lib/dismiss-chat-notifications", () => ({
 }));
 jest.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mockUuidCounter}` }));
 
-type ChannelOptions = { onMessage?: (m: ChatMessage) => void; onReceipt?: (e: unknown) => void; onConnected?: () => void };
+type ChannelOptions = {
+  onMessage?: (m: ChatMessage) => void;
+  onReceipt?: (e: unknown) => void;
+  onConnected?: () => void;
+  onParticipantsChanged?: () => void;
+};
 let mockChannelOptions: ChannelOptions = {};
 jest.mock("../src/hooks/use-chat-channel", () => ({
   useChatChannel: (_id: string, options: ChannelOptions) => {
     mockChannelOptions = options;
     return { state: "connected", isConnected: true };
   },
+}));
+
+const mockListTransfers = jest.fn();
+jest.mock("../src/api/receiver-transfers-client", () => ({
+  receiverTransfersClient: { listForShipment: (...args: unknown[]) => mockListTransfers(...args) },
 }));
 
 jest.mock("../src/hooks/use-shipments", () => ({
@@ -77,6 +87,7 @@ async function setup(
   mockChatClient.listMessages.mockResolvedValue(first);
   mockChatClient.getParticipants.mockResolvedValue({ participants });
   mockChatClient.markRead.mockResolvedValue({ readAt: new Date().toISOString() });
+  if (!mockListTransfers.getMockImplementation()) mockListTransfers.mockResolvedValue([]);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false, gcTime: Infinity } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
   const rendered = await renderHook(() => useChatConversation("s1", options), { wrapper });
@@ -103,6 +114,45 @@ describe("useChatConversation (MOVO-284)", () => {
     expect(result.current.canWrite).toBe(true);
     // El historial del envío trae la tarjeta "Retiro confirmado" intercalada.
     expect(result.current.timeline.some((i) => i.kind === "event")).toBe(true);
+  });
+
+  it("MOVO-340: al completarse una transferencia, el receptor original queda en solo lectura y ve la tarjeta", async () => {
+    // Ana es la receptora con el chat abierto; le pasa la recepción a Martín.
+    const anaReceiver: ChatParticipant = { ...ana, role: "receiver" };
+    const { result } = await setup(undefined, [anaReceiver, diego]);
+    await waitFor(() => expect(result.current.canWrite).toBe(true));
+
+    const martin: ChatParticipant = { userId: "martin", role: "receiver", firstName: "Martín", fullName: "Martín López", photoUrl: null };
+    mockChatClient.getParticipants.mockResolvedValue({ participants: [diego, martin] });
+    mockChatClient.listMessages.mockResolvedValue(page([], { access: "read_only" }));
+    mockListTransfers.mockResolvedValue([
+      {
+        id: "t1",
+        shipmentId: "s1",
+        requestedBy: "ana",
+        requesterName: "Ana Molina",
+        newReceiverId: "martin",
+        newReceiverName: "Martín López",
+        reason: null,
+        responseReason: null,
+        status: "completed",
+        cancelReason: null,
+        newReceiverDeadline: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        resolvedAt: new Date().toISOString(),
+        resolvedBy: "martin",
+      },
+    ]);
+    await act(async () => {
+      mockChannelOptions.onParticipantsChanged?.();
+    });
+
+    await waitFor(() => expect(result.current.canWrite).toBe(false));
+    await waitFor(() =>
+      expect(
+        result.current.timeline.some((i) => i.kind === "event" && i.card.text === "Le pasaste la recepción a Martín"),
+      ).toBe(true),
+    );
   });
 
   it("un mensaje que llega dentro de la ventana de 2 s se marca leído al vencer (no se pierde)", async () => {

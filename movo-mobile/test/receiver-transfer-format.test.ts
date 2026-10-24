@@ -117,7 +117,7 @@ describe("receiver-transfer-format (MOVO-275)", () => {
     expect(receiverTransferMeta(transfer())).not.toContain("·");
     expect(receiverTransferMeta(transfer({ status: "completed", resolvedAt: RESOLVED }))).not.toContain("·");
     expect(receiverTransferMeta(transfer({ status: "rejected_by_new_receiver", resolvedAt: RESOLVED }))).toMatch(
-      / · Martín respondió \d{2}:\d{2}$/,
+      / · Martín respondió \d{2}:\d{2} h$/,
     );
     expect(receiverTransferMeta(transfer({ status: "expired", resolvedAt: RESOLVED }))).toMatch(/ · Venció /);
     expect(receiverTransferMeta(transfer({ status: "cancelled", resolvedAt: RESOLVED }))).toMatch(/ · Cancelada /);
@@ -147,6 +147,6 @@ describe("receiver-transfer-format (MOVO-275)", () => {
       "Ahora el receptor es Martín. Seguís viendo el envío en modo lectura.",
     ]);
     // Mismo día: solo la hora.
-    expect(receiverTransferSteps(completed, "sender")[1].time).toMatch(/^\d{2}:\d{2}$/);
+    expect(receiverTransferSteps(completed, "sender")[1].time).toMatch(/^\d{2}:\d{2} h$/);
   });
 });

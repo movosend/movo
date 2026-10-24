@@ -1,6 +1,9 @@
 import type { ChatDeliveryStatus, ChatMessage, ChatParticipantRole } from "@movo/shared/dist/types/chat";
+import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../api/shipments-client";
+import { getFirstName } from "./profile-format";
+import { formatTimeOfDay } from "./time-format";
 
 /**
  * MOVO-284: formateo puro del chat. Todo lo que no depende de React vive acá para
@@ -70,13 +73,12 @@ export function shortName(fullName: string | null | undefined): string {
   return `${parts[0]} ${parts[parts.length - 1]!.charAt(0).toUpperCase()}.`;
 }
 
-const TIME_FORMAT = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
 const SHORT_DAY_FORMAT = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
 const WEEKDAY_FORMAT = new Intl.DateTimeFormat("es-AR", { weekday: "short" });
 
-/** Misma hora local que muestra el resto de la app, "15:07". */
+/** Misma hora local que muestra el resto de la app, "15:07 h". */
 export function formatChatTime(iso: string): string {
-  return TIME_FORMAT.format(new Date(iso));
+  return formatTimeOfDay(iso);
 }
 
 function startOfDay(date: Date): number {
@@ -168,11 +170,35 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
 }
 
 /**
+ * MOVO-340: tarjeta de una transferencia de receptor completada, en el momento en que el receptor nuevo se
+ * sumó al chat. El texto depende de quién mira: "Le pasaste la recepción a Martín" (quien la pidió),
+ * "Lucía te pasó la recepción" (el receptor nuevo), "Lucía le pasó la recepción a Martín" (el resto).
+ * `null` para una solicitud que no se completó: esas no cambian a nadie del chat.
+ */
+export function chatTransferCard(transfer: ReceiverTransferRequest, viewerId: string | undefined): ChatEventCard | null {
+  if (transfer.status !== "completed" || !transfer.resolvedAt) return null;
+  const requester = getFirstName(transfer.requesterName) || "El receptor";
+  const invited = getFirstName(transfer.newReceiverName) || "otra persona";
+  const text =
+    viewerId === transfer.requestedBy
+      ? `Le pasaste la recepción a ${invited}`
+      : viewerId === transfer.newReceiverId
+        ? `${requester} te pasó la recepción`
+        : `${requester} le pasó la recepción a ${invited}`;
+  return { id: `receiver-transfer-${transfer.id}`, text, live: false, createdAt: transfer.resolvedAt };
+}
+
+/**
  * Eventos de la asignación vigente. Cada asignación arranca una conversación limpia (el backend corta el hilo en
  * `chat_started_at`, que fija la aceptación): si el pago caducó y entró otro transportista, las tarjetas de la
  * asignación anterior ("X aceptó el envío") no se muestran. El corte es la última entrada desde `published`.
  */
 export function eventsSinceCurrentAssignment(events: readonly ShipmentEvent[]): ShipmentEvent[] {
+  const start = currentAssignmentStartIndex(events);
+  return start === -1 ? [...events] : events.slice(start);
+}
+
+function currentAssignmentStartIndex(events: readonly ShipmentEvent[]): number {
   let start = -1;
   events.forEach((event, index) => {
     const accepted =
@@ -180,7 +206,22 @@ export function eventsSinceCurrentAssignment(events: readonly ShipmentEvent[]): 
       (event.toStatus === ShipmentStatus.ASSIGNMENT_PENDING || event.toStatus === ShipmentStatus.ASSIGNED_UNFUNDED);
     if (accepted) start = index;
   });
-  return start === -1 ? [...events] : events.slice(start);
+  return start;
+}
+
+/**
+ * Las transferencias completadas durante la asignación vigente. Misma regla que `eventsSinceCurrentAssignment`:
+ * una transferencia hecha antes de que el transportista aceptara (el envío estaba `published`) o en una asignación
+ * anterior no pertenece a esta conversación, que arranca limpia en `chat_started_at`.
+ */
+export function transfersSinceCurrentAssignment(
+  transfers: readonly ReceiverTransferRequest[],
+  events: readonly ShipmentEvent[],
+): ReceiverTransferRequest[] {
+  const start = currentAssignmentStartIndex(events);
+  if (start === -1) return [...transfers];
+  const startedAt = Date.parse(events[start]!.createdAt);
+  return transfers.filter((transfer) => transfer.resolvedAt !== null && Date.parse(transfer.resolvedAt) >= startedAt);
 }
 
 export type ChatTimelineItem =
