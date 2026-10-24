@@ -5,7 +5,7 @@ describe("formatReportTimestamp", () => {
   const now = new Date(2026, 8, 26, 18, 54);
 
   it("hoy muestra la hora", () => {
-    expect(formatReportTimestamp(new Date(2026, 8, 26, 9, 5).toISOString(), now)).toBe("Hoy 09:05");
+    expect(formatReportTimestamp(new Date(2026, 8, 26, 9, 5).toISOString(), now)).toBe("Hoy 09:05 h");
   });
 
   it("este año muestra día y mes abreviado", () => {

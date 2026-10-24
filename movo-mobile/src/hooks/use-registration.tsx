@@ -372,7 +372,8 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     setErrorBanner(null);
     try {
       const response = await authClient.register({
-        fullName: `${fields.firstName.trim()} ${fields.lastName.trim()}`.trim(),
+        firstName: fields.firstName.trim(),
+        lastName: fields.lastName.trim(),
         email: fields.email.trim().toLowerCase(),
         phone: toE164Phone(fields.phone),
         password: fields.password,

@@ -54,11 +54,10 @@ import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import {
   formatEventTimestamp,
   formatPickupDateLabel,
-  formatPickupWindowLabel,
   formatPriceArs,
-  formatTimeHHMM,
   shortAddressLabel,
 } from "../../../../src/lib/shipment-format";
+import { formatTimeRange } from "../../../../src/lib/time-format";
 import {
   formatSentAgo,
   formatViewedBySender,
@@ -283,7 +282,7 @@ export default function OfferDetailScreen() {
   // Comparación contra lo que pidió el emisor (sección "Cuándo retirás y
   // entregás") -- ver el comentario de `offerPickupMatchesRequest`.
   const pickupMatches = offerPickupMatchesRequest(offer);
-  const requestedPickupLabel = `${formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate} · ${formatPickupWindowLabel(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd)}`;
+  const requestedPickupLabel = `${formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate} · ${formatTimeRange(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd)}`;
   const perKm =
     shipment.distanceKm > 0
       ? Math.round(offer.priceNetArs / shipment.distanceKm)
@@ -604,7 +603,7 @@ export default function OfferDetailScreen() {
                 </Text>
                 <Text className="font-sans-semibold text-[15px] text-fg">
                   {hasOfferedWindow
-                    ? `${pickupDateLabel} · ${formatTimeHHMM(offer.offeredPickupTimeWindowStart)}–${formatTimeHHMM(offer.offeredPickupTimeWindowEnd)}`
+                    ? `${pickupDateLabel} · ${formatTimeRange(offer.offeredPickupTimeWindowStart, offer.offeredPickupTimeWindowEnd)}`
                     : pickupDateLabel}
                 </Text>
               </View>
@@ -620,7 +619,7 @@ export default function OfferDetailScreen() {
                 </Text>
                 <Text className="font-sans-semibold text-[15px] text-fg">
                   {offer.estimatedDeliveryDate
-                    ? `${formatPickupDateLabel(offer.estimatedDeliveryDate) ?? offer.estimatedDeliveryDate} · ${formatTimeHHMM(offer.estimatedDeliveryTimeWindowStart)}–${formatTimeHHMM(offer.estimatedDeliveryTimeWindowEnd)}`
+                    ? `${formatPickupDateLabel(offer.estimatedDeliveryDate) ?? offer.estimatedDeliveryDate} · ${formatTimeRange(offer.estimatedDeliveryTimeWindowStart, offer.estimatedDeliveryTimeWindowEnd)}`
                     : "Sin horario fijo (estimado)"}
                 </Text>
               </View>

@@ -1,10 +1,9 @@
 import { createMockPlacesProvider } from "./mock-places-provider";
 import { createGooglePlacesProvider } from "./google-places-provider";
+import type { PlacePrediction } from "@movo/shared";
 
-export interface PlacePrediction {
-  placeId: string;
-  description: string;
-}
+// MOVO-340: el contrato de la predicción vive en `@movo/shared` (lo comparte el mobile).
+export type { PlacePrediction } from "@movo/shared";
 
 export interface PlaceDetails {
   formattedAddress: string;

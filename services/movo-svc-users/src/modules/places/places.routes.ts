@@ -1,5 +1,7 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { createPlacesProvider, PlacesProvider } from "../../adapters/places-provider";
+import { createGeocodingProvider, GeocodingProvider } from "../../adapters/geocoding-provider";
+import { createPlacesProvider, PlacePrediction, PlacesProvider } from "../../adapters/places-provider";
+import { Coordinates, coordinatesPlaceId, formatCoordinates, parseCoordinates, parseCoordinatesPlaceId } from "./coordinates";
 import { placesSchemas } from "./places.schema";
 
 export interface PlacesRoutesOptions extends FastifyPluginOptions {
@@ -7,6 +9,8 @@ export interface PlacesRoutesOptions extends FastifyPluginOptions {
    * reales de Google Maps, mismo criterio que `geocodingProvider` en
    * `geocode.routes.ts`. */
   placesProvider?: PlacesProvider;
+  /** Override solo para tests: resuelve la dirección de una búsqueda por coordenadas. */
+  geocodingProvider?: GeocodingProvider;
 }
 
 interface AutocompleteBody {
@@ -33,6 +37,29 @@ interface DetailsBody {
  */
 export default async function placesRoutes(app: FastifyInstance, opts: PlacesRoutesOptions) {
   const provider = opts.placesProvider ?? createPlacesProvider(app.config);
+  const geocoding = opts.geocodingProvider ?? createGeocodingProvider(app.config);
+
+  /**
+   * MOVO-340: el autocompletado de Google busca lugares por texto y no entiende
+   * coordenadas. Si el texto lo son, no se llama a Places: se devuelve una única
+   * sugerencia con el punto tal cual lo escribió el usuario (no el de la dirección más
+   * cercana) y la dirección del reverse geocoding como etiqueta. Si no hay dirección
+   * para ese punto (o el geocoding falla), la etiqueta son las coordenadas.
+   */
+  async function coordinatesLabel(coords: Coordinates): Promise<string> {
+    try {
+      return (await geocoding.reverseGeocode(coords.lat, coords.long)).formattedAddress;
+    } catch (err) {
+      app.log.warn({ err }, "places: reverse geocoding de coordenadas sin resultado");
+      return formatCoordinates(coords);
+    }
+  }
+
+  async function coordinatesPrediction(input: string): Promise<PlacePrediction | null> {
+    const coords = parseCoordinates(input);
+    if (!coords) return null;
+    return { placeId: coordinatesPlaceId(coords), description: await coordinatesLabel(coords), ...coords };
+  }
 
   app.post<{ Body: AutocompleteBody }>(
     "/autocomplete",
@@ -43,7 +70,9 @@ export default async function placesRoutes(app: FastifyInstance, opts: PlacesRou
           "Devuelve hasta 5 sugerencias de dirección completas a partir de un texto " +
           "libre, para el paso de direcciones del wizard de creación de envío " +
           "(MOVO-83). Proxea la Places API (New) de Google server-side " +
-          "(PLACES_PROVIDER) para no exponer esa API key en el bundle del mobile.",
+          "(PLACES_PROVIDER) para no exponer esa API key en el bundle del mobile. " +
+          "Si el texto son coordenadas (decimal o grados/minutos/segundos, MOVO-340) " +
+          "devuelve una sola sugerencia con `lat`/`long`, sin pasar por Places.",
         tags: ["places"],
         body: placesSchemas.autocompleteBody,
         response: {
@@ -54,7 +83,10 @@ export default async function placesRoutes(app: FastifyInstance, opts: PlacesRou
       },
     },
     async (request: FastifyRequest<{ Body: AutocompleteBody }>, reply: FastifyReply) => {
-      const predictions = await provider.autocomplete(request.body.input, request.body.sessionToken);
+      const fromCoordinates = await coordinatesPrediction(request.body.input);
+      const predictions = fromCoordinates
+        ? [fromCoordinates]
+        : await provider.autocomplete(request.body.input, request.body.sessionToken);
       reply.code(200);
       return { predictions };
     }
@@ -68,7 +100,9 @@ export default async function placesRoutes(app: FastifyInstance, opts: PlacesRou
         description:
           "Resuelve un `placeId` devuelto por /autocomplete a su dirección formateada " +
           "y coordenadas — el paso siguiente al elegir una sugerencia en el wizard de " +
-          "envío (MOVO-83).",
+          "envío (MOVO-83). Un `placeId` `coords:` (sugerencia por coordenadas de " +
+          "/autocomplete) se resuelve con reverse geocoding, para los builds del mobile " +
+          "que no saltean este paso (MOVO-340).",
         tags: ["places"],
         body: placesSchemas.detailsBody,
         response: {
@@ -81,6 +115,11 @@ export default async function placesRoutes(app: FastifyInstance, opts: PlacesRou
       },
     },
     async (request: FastifyRequest<{ Body: DetailsBody }>, reply: FastifyReply) => {
+      const coords = parseCoordinatesPlaceId(request.body.placeId);
+      if (coords) {
+        reply.code(200);
+        return { formattedAddress: await coordinatesLabel(coords), ...coords };
+      }
       const details = await provider.details(request.body.placeId, request.body.sessionToken);
       reply.code(200);
       return details;

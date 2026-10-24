@@ -4982,3 +4982,20 @@ Pendiente: subir la precisión del GPS cerca del retiro (ADR-052, toca la medici
   monto y el desglose de `DebtDiscount` dice "Recibís antes" (prop `exact`); sin él sigue el estimado con "Recibís aprox.". Sin cambios de
   diseño. "Cobraste" sigue saliendo solo de la liquidación acreditada (`settlement-format`). Las pantallas de oferta y "Mis ofertas"
   mantienen el estimado.
+### MOVO-340 — Paquete de fixes #3
+
+- **Horas y duraciones** (`src/lib/time-format.ts`): `formatTimeOfDay` (`14:30 h`), `formatTimeRange` (`14:00 a 16:00 h`),
+  `formatDuration`/`formatDurationSeconds` (`45 min`, `2 h 15 min`) y `formatRelativeDuration` ("hace 3 h"). Reemplazan a
+  `formatTimeHHMM`/`formatPickupWindowLabel`/`formatDurationMin` y a los formateos sueltos (paradas de ruta, ETA del tracking,
+  chips de franja, chat, viajes, pagos, transferencias). `toHHMM` queda solo para comparar franjas.
+- **Declarar viaje**: vuelve a "Mis viajes" con `dismissTo` (patrón de MOVO-271) y `createdAt` para que la instancia reusada
+  muestre el banner.
+- **Fecha por defecto del wizard** (`src/lib/pickup-windows.ts`): el store arranca con `defaultPickupDate` (hoy en Argentina si
+  quedan franjas, si no mañana), el selector es controlado y las franjas ya empezadas se deshabilitan. La pantalla de oferta no
+  tenía el problema (una sola fuente de verdad).
+- **Búsqueda por coordenadas**: una predicción con `lat`/`long` se confirma sin llamar a `/places/details`.
+- **Chat tras una transferencia de receptor**: `chat_participants_changed` refresca integrantes, acceso y lista; tarjeta de
+  sistema por transferencia completada (`chatTransferCard`).
+- **Cancelar**: `canCancelShipment` usa `isSenderCancellableStatus` de `@movo/shared`.
+- **Registro**: manda `firstName`/`lastName` por separado (antes un `fullName` que el backend cortaba en el primer espacio).
+- Fuera de alcance: el ítem 1 (pantalla externa) se resolvió fuera del código.

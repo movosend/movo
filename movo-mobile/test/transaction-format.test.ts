@@ -103,7 +103,7 @@ describe("fechas en hora de Argentina (AC9)", () => {
   it("un pago de las 23:30 de Argentina queda en su día, aunque en UTC sea el siguiente", () => {
     // 2026-10-02T02:30Z = 1 oct 23:30 en Argentina.
     expect(formatShortDate("2026-10-02T02:30:00.000Z")).toBe("1 oct");
-    expect(formatDateTime("2026-10-04T17:32:00.000Z")).toBe("4 oct 2026 · 14:32");
+    expect(formatDateTime("2026-10-04T17:32:00.000Z")).toBe("4 oct 2026 · 14:32 h");
   });
 
   it("agrupa por mes argentino, del más reciente al más viejo, sumando páginas al mismo mes", () => {
@@ -177,7 +177,7 @@ describe("movimientos de la línea de tiempo (AC10)", () => {
       "2026-10-04T17:32:00.000Z",
     );
     expect(copy.title).toBe("Reembolso parcial");
-    expect(copy.detail).toBe("8 oct · 10:00 · $1.500 devueltos a tu tarjeta");
+    expect(copy.detail).toBe("8 oct · 10:00 h · $1.500 devueltos a tu tarjeta");
     expect(copy.linkedNote).toBe("Vinculado al pago de $5.200 del 4 oct.");
   });
 

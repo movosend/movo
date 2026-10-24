@@ -5,12 +5,10 @@ import {
   liveTrackingPendingPollInterval,
   computeOnTripDetour,
   formatEventTimestamp,
-  formatPickupWindowLabel,
   formatProximityDistance,
   formatReceiverConfirmationDeadline,
   receiverConfirmationRemainingFraction,
   formatShipmentPrice,
-  formatTimeHHMM,
   receiverConfirmationStatus,
   remainingLifecycleSteps,
   shipmentActorLabel,
@@ -24,7 +22,6 @@ import {
   pickupLocalityLabel,
   shortAddressLabel,
   formatShipmentRowTime,
-  formatDurationMin,
   redesignationDeadlineLabel,
   isFundingWindowOpen,
   shipmentDetailCta,
@@ -198,27 +195,6 @@ describe("shortAddressLabel", () => {
   });
 });
 
-describe("formatTimeHHMM", () => {
-  it("recorta los segundos si vienen en formato HH:MM:SS", () => {
-    expect(formatTimeHHMM("09:00:00")).toBe("09:00");
-    expect(formatTimeHHMM("18:30:45")).toBe("18:30");
-  });
-
-  it("mantiene el formato si ya viene como HH:MM", () => {
-    expect(formatTimeHHMM("09:00")).toBe("09:00");
-  });
-});
-
-describe("formatPickupWindowLabel", () => {
-  it("arma el rango horario legible", () => {
-    expect(formatPickupWindowLabel("09:00", "12:00")).toBe("09:00 a 12:00");
-  });
-
-  it("normaliza horas con segundos a HH:MM", () => {
-    expect(formatPickupWindowLabel("09:00:00", "12:00:00")).toBe("09:00 a 12:00");
-  });
-});
-
 describe("shipmentEventTitle", () => {
   it("lee el evento inicial (`fromStatus` null) como la creación del envío", () => {
     expect(shipmentEventTitle(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, null)).toBe("Envío creado");
@@ -356,21 +332,6 @@ describe("shipmentPendingStepLabel", () => {
 
   it("MOVO-208: nombra la liberación del pago como el paso pendiente tras la entrega", () => {
     expect(shipmentPendingStepLabel(ShipmentStatus.COMPLETED)).toBe("Liberación del pago");
-  });
-});
-
-describe("formatPickupWindowLabel", () => {
-  it("formatea el rango eliminando segundos", () => {
-    expect(formatPickupWindowLabel("09:00:00", "12:00:00")).toBe("09:00 a 12:00");
-  });
-
-  it("devuelve string vacío si ambos extremos están vacíos", () => {
-    expect(formatPickupWindowLabel("", "")).toBe("");
-  });
-
-  it("usa placeholder guión si falta solo un extremo", () => {
-    expect(formatPickupWindowLabel("09:00", "")).toBe("09:00 a —");
-    expect(formatPickupWindowLabel("", "12:00")).toBe("— a 12:00");
   });
 });
 
@@ -582,25 +543,6 @@ describe("formatProximityDistance", () => {
   });
 });
 
-describe("formatDurationMin (MOVO-244)", () => {
-  it("formatea en minutos para duraciones menores a 60 minutos", () => {
-    expect(formatDurationMin(0)).toBe("0 min");
-    expect(formatDurationMin(150)).toBe("3 min");
-    expect(formatDurationMin(2700)).toBe("45 min");
-    expect(formatDurationMin(3540)).toBe("59 min");
-  });
-
-  it("formatea en horas exactas si no hay minutos restantes", () => {
-    expect(formatDurationMin(3600)).toBe("1 h");
-    expect(formatDurationMin(7200)).toBe("2 h");
-  });
-
-  it("formatea en horas y minutos si supera 60 minutos con resto", () => {
-    expect(formatDurationMin(4500)).toBe("1 h 15 min");
-    expect(formatDurationMin(9000)).toBe("2 h 30 min");
-  });
-});
-
 describe("MOVO-253: elegir otro receptor", () => {
   it("titula el evento de re-designación según quién mira", () => {
     expect(
@@ -618,13 +560,13 @@ describe("MOVO-253: elegir otro receptor", () => {
 
     it("hoy, mañana o con fecha", () => {
       expect(redesignationDeadlineLabel(new Date(2026, 8, 25, 18, 0).toISOString(), now)).toBe(
-        "Tenés hasta hoy 18:00",
+        "Tenés hasta hoy 18:00 h",
       );
       expect(redesignationDeadlineLabel(new Date(2026, 8, 26, 9, 30).toISOString(), now)).toBe(
-        "Tenés hasta mañana 09:30",
+        "Tenés hasta mañana 09:30 h",
       );
       expect(redesignationDeadlineLabel(new Date(2026, 8, 27, 18, 0).toISOString(), now)).toMatch(
-        /^Tenés hasta el \S+ 27\/9 18:00$/,
+        /^Tenés hasta el \S+ 27\/9 18:00 h$/,
       );
     });
 

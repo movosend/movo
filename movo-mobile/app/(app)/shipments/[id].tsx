@@ -74,7 +74,6 @@ import {
   formatPickupDateLabel,
   formatPriceArs,
   formatShipmentPrice,
-  formatTimeHHMM,
   liveTrackingAvailability,
   liveTrackingPendingPollInterval,
   receiverConfirmationStatus,
@@ -82,6 +81,7 @@ import {
   shipmentDetailCta,
   type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
+import { formatTimeRange } from "../../../src/lib/time-format";
 import { fundingProcessingPollInterval, fundsStatusVariant } from "../../../src/lib/funds-status-format";
 
 type DetailTab = "detalle" | "timeline";
@@ -688,8 +688,7 @@ export default function ShipmentDetailScreen() {
                     <Text className="mb-1 font-sans-medium text-caption uppercase text-ink-700">Retiro</Text>
                     <Text className="font-sans-semibold text-[15px] text-ink-950">{pickupDateLabel}</Text>
                     <Text className="mt-0.5 font-sans text-small text-ink-700">
-                      {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
-                      {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
+                      {formatTimeRange(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd)}
                     </Text>
                   </View>
                   <PackageSummaryCard shipment={shipment} testID="shipment-detail-package" />
@@ -704,8 +703,7 @@ export default function ShipmentDetailScreen() {
                       </View>
                       <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
                       <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
-                        {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
-                        {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
+                        {formatTimeRange(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd)}
                       </Text>
                     </View>
                     {hidePriceCard ? null : (

@@ -160,6 +160,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const placesRouteOpts: PlacesRoutesOptions = {
     prefix: "/places",
     ...(opts.placesProvider ? { placesProvider: opts.placesProvider } : {}),
+    ...(opts.geocodingProvider ? { geocodingProvider: opts.geocodingProvider } : {}),
   };
   app.register(placesRoutes, placesRouteOpts);
 

@@ -1,6 +1,7 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import type { OfferCompetitiveRank } from "../api/offers-client";
 import { formatPriceArs } from "./shipment-format";
+import { formatRelativeDuration } from "./time-format";
 
 /**
  * Copy explicativo por estado EFECTIVO de una oferta (AC1 de MOVO-182, mismo criterio
@@ -131,10 +132,8 @@ export function formatViewedBySender(
 
   const diffMin = Math.max(0, Math.floor((now.getTime() - viewed.getTime()) / 60_000));
   if (diffMin <= 1) return "La vio recién";
-  if (diffMin < 60) return `Vista hace ${diffMin} min`;
-
   const diffH = Math.floor(diffMin / 60);
-  if (diffH < 24) return `Vista hace ${diffH} h`;
+  if (diffH < 24) return `Vista hace ${formatRelativeDuration(diffMin)}`;
 
   const diffDays = Math.floor(diffH / 24);
   return `Vista hace ${diffDays} ${diffDays === 1 ? "día" : "días"}`;
@@ -150,10 +149,8 @@ export function formatSentAgo(createdAt: string, now: Date = new Date()): string
 
   const diffMin = Math.max(0, Math.floor((now.getTime() - created.getTime()) / 60_000));
   if (diffMin <= 1) return "Recién";
-  if (diffMin < 60) return `hace ${diffMin} min`;
-
   const diffH = Math.floor(diffMin / 60);
-  if (diffH < 24) return `hace ${diffH} h`;
+  if (diffH < 24) return `hace ${formatRelativeDuration(diffMin)}`;
 
   const diffDays = Math.floor(diffH / 24);
   return `hace ${diffDays} ${diffDays === 1 ? "día" : "días"}`;

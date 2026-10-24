@@ -77,6 +77,39 @@ describe("AddressField", () => {
     );
   });
 
+  it("MOVO-340: una sugerencia por coordenadas se confirma con ese punto, sin llamar a details", async () => {
+    mockAutocomplete.mockResolvedValue([
+      { placeId: "coords:-31.4201,-64.1888", description: "Av. Colón 1234, Córdoba", lat: -31.4201, long: -64.1888 },
+    ]);
+    const onChange = jest.fn();
+
+    const { getByTestId, getByText } = await render(
+      <AddressField testID="pickup" label="Retiro" dotColor="#000" value={null} onChange={onChange} />,
+    );
+
+    await act(async () => {
+      fireEvent.press(getByTestId("pickup"));
+      await Promise.resolve();
+    });
+    fireEvent.changeText(getByTestId("pickup-sheet-input"), "-31.4201, -64.1888");
+
+    await waitFor(() => expect(getByText("Av. Colón 1234, Córdoba")).toBeTruthy(), { timeout: 1000 });
+    await act(async () => {
+      fireEvent.press(getByTestId("pickup-sheet-result-coords:-31.4201,-64.1888"));
+      await Promise.resolve();
+    });
+
+    expect(mockDetails).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({
+        address: "Av. Colón 1234, Córdoba",
+        lat: -31.4201,
+        lng: -64.1888,
+        source: "places",
+      }),
+    );
+  });
+
   it("usa la ubicación actual por GPS", async () => {
     mockGetCurrentLocation.mockResolvedValue({ granted: true, lat: -31.41, lng: -64.18 });
     const onChange = jest.fn();

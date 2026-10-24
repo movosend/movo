@@ -72,7 +72,7 @@ describe("formatSettlementAmount", () => {
 
 describe("formatSettlementDateTime", () => {
   it("arma día, mes y hora sin puntos de abreviatura", () => {
-    expect(formatSettlementDateTime("2026-10-14T19:42:00.000Z")).toMatch(/^\p{L}+ \d{1,2} \p{L}+, \d{2}:\d{2}$/u);
+    expect(formatSettlementDateTime("2026-10-14T19:42:00.000Z")).toMatch(/^\p{L}+ \d{1,2} \p{L}+, \d{2}:\d{2} h$/u);
   });
 
   it("devuelve null ante una fecha inválida", () => {

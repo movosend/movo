@@ -18,6 +18,29 @@ export const CANCELLATION_PENALTY_FREE_HOURS = 12;
 export const CANCELLATION_PENALTY_RATE = 0.25;
 
 /**
+ * MOVO-340: estados desde los que el emisor puede cancelar. Es la única regla de
+ * disponibilidad: el mobile muestra "Cancelar envío" con esto y `svc-shipments` lo
+ * verifica contra su máquina de estados (`shipment-state-machine.test.ts`). No depende de
+ * la fecha ni de la hora del retiro: un retiro el mismo día se cancela igual, y la hora
+ * solo cambia la penalidad (`computeCancellationPenalty`).
+ */
+export const SENDER_CANCELLABLE_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+  // MOVO-253 AC4: en vez de elegir otro receptor, el emisor puede cancelar.
+  ShipmentStatus.REJECTED_BY_RECEIVER,
+  ShipmentStatus.PUBLISHED,
+  ShipmentStatus.ASSIGNMENT_PENDING,
+  // MOVO-308: todavía sin reserva, sin cargo.
+  ShipmentStatus.ASSIGNED_UNFUNDED,
+  // MOVO-308: con la penalidad de ADR-047.
+  ShipmentStatus.ASSIGNED,
+];
+
+export function isSenderCancellableStatus(status: ShipmentStatus): boolean {
+  return SENDER_CANCELLABLE_STATUSES.includes(status);
+}
+
+/**
  * - `not_assigned`: el envío no está `assigned` (todavía no hay fondos reservados): sin cargo.
  * - `before_free_deadline`: faltan 12 h o más para el retiro: sin cargo.
  * - `late_cancellation`: faltan menos de 12 h y la ventana sigue abierta: hay penalidad.

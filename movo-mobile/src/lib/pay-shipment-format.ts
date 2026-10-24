@@ -6,6 +6,7 @@ import { cardBrandKey } from "./card-brand";
 import { friendlyErrorMessage } from "./error-messages";
 import type { PayShipmentOutcome } from "./pay-shipment-flow";
 import { isCardExpired, sortSavedCards } from "./saved-cards";
+import { formatRelativeDuration } from "./time-format";
 
 /**
  * Presentación pura del pago con tarjeta guardada + CVV (MOVO-269). Los textos salen del
@@ -28,9 +29,8 @@ export function formatPayTimeLeft(payUntil: string | null | undefined, now: Date
   const ms = new Date(payUntil).getTime() - now.getTime();
   if (Number.isNaN(ms) || ms <= 0) return null;
   const minutes = Math.ceil(ms / 60_000);
-  if (minutes < 60) return `Quedan ${minutes} min`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `Quedan ${hours} h`;
+  if (hours < 48) return `Quedan ${formatRelativeDuration(minutes)}`;
   return `Quedan ${Math.floor(hours / 24)} días`;
 }
 

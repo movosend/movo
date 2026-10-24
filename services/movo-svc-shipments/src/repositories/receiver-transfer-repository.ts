@@ -17,7 +17,7 @@ import {
   ReceiverTransferPendingConflictError,
 } from "../models/receiver-transfer";
 import { ShipmentConcurrentModificationError } from "./shipment-repository";
-import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
+import { emitChatParticipantsChanged, emitShipmentStatusChanged } from "../realtime/shipment-status-events";
 import { parseShipmentStatus } from "../models/shipment";
 
 const PENDING: ReceiverTransferStatus = "pending_new_receiver";
@@ -243,6 +243,15 @@ export function createReceiverTransferRepository(db: PrismaClient) {
             throw new ShipmentConcurrentModificationError(input.shipmentId);
           }
 
+          // MOVO-340: el receptor nuevo se suma al chat con todo lo anterior como recibido y leído. Ve el
+          // historial (ADR-038), pero solo le cuentan como no leídos los mensajes posteriores a su incorporación.
+          await tx.$executeRaw`
+            INSERT INTO shipments.chat_participant_states (shipment_id, user_id, last_delivered_at, last_read_at)
+            VALUES (${input.shipmentId}::uuid, ${input.newReceiverId}::uuid, ${input.now}, ${input.now})
+            ON CONFLICT (shipment_id, user_id) DO UPDATE SET
+              last_delivered_at = GREATEST(chat_participant_states.last_delivered_at, EXCLUDED.last_delivered_at),
+              last_read_at = GREATEST(chat_participant_states.last_read_at, EXCLUDED.last_read_at)`;
+
           const current = await tx.shipment.findUniqueOrThrow({
             where: { id: input.shipmentId },
             select: { status: true },
@@ -261,6 +270,7 @@ export function createReceiverTransferRepository(db: PrismaClient) {
       // fuera de `updateStatus` avisa al canal de tiempo real. El estado no cambia, pero
       // los clientes suscriptos refrescan el detalle con el receptor nuevo.
       emitShipmentStatusChanged({ shipmentId: input.shipmentId, to: shipmentStatus! });
+      emitChatParticipantsChanged({ shipmentId: input.shipmentId });
 
       return mapTransfer(row);
     },
