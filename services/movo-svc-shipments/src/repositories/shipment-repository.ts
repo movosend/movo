@@ -1,5 +1,5 @@
 import { TRIP_PICKUP_WINDOW_LEAD_HOURS } from "../domain/trip-compatibility";
-import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import { DisputeReason, DisputeStatus, OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import type { PickupMissedAttribution, ShipmentParties } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
@@ -14,6 +14,12 @@ import {
   transition,
 } from "../domain/shipment-state-machine";
 import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
+import {
+  DisputeAlreadyOpenError,
+  DisputePhotoAlreadyUsedError,
+  isUniqueViolation,
+  NewDispute,
+} from "./dispute-repository";
 import { transition as offerTransition } from "../domain/offer-state-machine";
 import { toArgentinaCalendarDate } from "../domain/pickup-window";
 import {
@@ -466,6 +472,12 @@ export interface UpdateStatusOptions {
    * baja de MOVO-310, la reintenta el barrido de liquidaciones).
    */
   pickupMiss?: { attribution: PickupMissedAttribution; carrierPenaltyArs?: number };
+  /**
+   * MOVO-334 (ADR-054): la disputa (entidad) que abre esta transición, creada en la misma
+   * transacción. Obligatoria para cualquier transición a `disputed`: así ningún envío queda en
+   * disputa sin su expediente. Lanza `DisputeAlreadyOpenError` si ya había una abierta.
+   */
+  dispute?: NewDispute;
 }
 
 /** MOVO-310: penalidad de una baja del transportista todavía sin registrar en su cuenta corriente. */
@@ -734,9 +746,9 @@ export interface ShipmentRepository {
   /**
    * MOVO-278 (ADR-045, requisito de ADR-036): ¿el usuario tiene algún envío en
    * `disputed` como transportista? Sea la disputa automática o una iniciada por un usuario.
-   * MOVO-270 (ADR-052): solo cuentan las disputas en las que tuvo la custodia (entraron desde
-   * `in_transit`/`delivered`). La de un no-retiro con llegada registrada (`assigned -> disputed`)
-   * no lo bloquea: es el que fue a la puerta.
+   * MOVO-270 (ADR-052): la de un no-retiro con llegada registrada (`pickup_no_show`) no lo
+   * bloquea: es el que fue a la puerta. MOVO-334: se lee de la entidad `disputes` (`open`), ya
+   * no del estado del envío y del `fromStatus` de su evento.
    */
   hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean>;
   /**
@@ -1149,6 +1161,9 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       if (from === ShipmentStatus.ASSIGNED && to === ShipmentStatus.PUBLISHED && !options.carrierWithdrawal) {
         throw new Error("assigned -> published requiere UpdateStatusOptions.carrierWithdrawal (MOVO-310)");
       }
+      if (to === ShipmentStatus.DISPUTED && !options.dispute) {
+        throw new Error("-> disputed requiere UpdateStatusOptions.dispute (MOVO-334)");
+      }
 
       // AC6 de MOVO-81: precondición de negocio sobre una transición que ya es
       // estructuralmente válida — publicar exige evidencia mínima del paquete. Vive acá
@@ -1259,6 +1274,23 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           },
         });
 
+        // MOVO-334: el expediente nace con la transición. El índice único parcial
+        // (`disputes_shipment_open_key`) es la red de seguridad de "una abierta por envío".
+        if (options.dispute) {
+          const dispute = options.dispute;
+          await tx.dispute.create({
+            data: {
+              ...(dispute.id !== undefined && { id: dispute.id }),
+              shipmentId: id,
+              openedBy: dispute.openedBy,
+              openedByRole: dispute.openedByRole,
+              reason: dispute.reason,
+              description: dispute.description,
+              photos: { create: (dispute.photoKeys ?? []).map((s3Key) => ({ s3Key })) },
+            },
+          });
+        }
+
         // MOVO-210: la asignación no prosperó. La oferta ganadora no fue rechazada por el emisor,
         // fue aceptada y no llegó a cerrarse: pasa a `assignment_lapsed`. Las demás ofertas NO
         // se tocan acá porque nunca se cerraron (solo se cierran al confirmar el hold, abajo):
@@ -1354,6 +1386,11 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           ...cancellationPenalty,
           updatedAt: now,
         };
+      }).catch((error: unknown) => {
+        // MOVO-334: el único `P2002` posible acá viene de la disputa que se crea con la transición.
+        if (options.dispute && isUniqueViolation(error, "s3_key")) throw new DisputePhotoAlreadyUsedError();
+        if (options.dispute && isUniqueViolation(error)) throw new DisputeAlreadyOpenError(id);
+        throw error;
       });
 
       // MOVO-201/AC4: recién después de que la transacción confirmó -- un rollback
@@ -1448,8 +1485,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     },
 
     async existsPhotoByS3Key(s3Key: string): Promise<boolean> {
-      const row = await db.shipmentPhoto.findFirst({ where: { s3Key }, select: { id: true } });
-      return row !== null;
+      // MOVO-334: las fotos de una disputa comparten el tracking de pendientes con las del envío.
+      const [photo, disputePhoto] = await Promise.all([
+        db.shipmentPhoto.findFirst({ where: { s3Key }, select: { id: true } }),
+        db.disputePhoto.findFirst({ where: { s3Key }, select: { id: true } }),
+      ]);
+      return photo !== null || disputePhoto !== null;
     },
 
     async countPhotosByStage(shipmentId: string, stage: PhotoStage): Promise<number> {
@@ -1762,16 +1803,13 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     },
 
     async hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean> {
-      const count = await db.shipment.count({
+      // MOVO-334: lee de la entidad. Cualquier disputa abierta del transportista lo bloquea, sea
+      // de sistema o de una parte, salvo el no-retiro: no tuvo la custodia (ADR-052).
+      const count = await db.dispute.count({
         where: {
-          carrierId,
-          status: ShipmentStatus.DISPUTED,
-          events: {
-            some: {
-              toStatus: ShipmentStatus.DISPUTED,
-              fromStatus: { in: [ShipmentStatus.IN_TRANSIT, ShipmentStatus.DELIVERED] },
-            },
-          },
+          status: DisputeStatus.OPEN,
+          reason: { not: DisputeReason.PICKUP_NO_SHOW },
+          shipment: { carrierId },
         },
       });
       return count > 0;

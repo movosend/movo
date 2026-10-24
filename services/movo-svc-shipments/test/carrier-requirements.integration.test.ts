@@ -367,6 +367,14 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
       await app.db.shipmentEvent.create({
         data: { shipmentId: shipment.id, fromStatus: from, toStatus: ShipmentStatus.DISPUTED, reason: "test" },
       });
+      // MOVO-334: el bloqueo lee de la entidad, con el motivo que pondría el barrido.
+      await app.db.dispute.create({
+        data: {
+          shipmentId: shipment.id,
+          reason: from === ShipmentStatus.ASSIGNED ? "pickup_no_show" : "transit_anomaly",
+          description: "test",
+        },
+      });
       return shipment.id;
     }
 
@@ -386,6 +394,7 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
 
       // La resolución (MOVO-34) todavía no existe: se simula sacando el envío de `disputed`.
       await app.db.shipment.update({ where: { id: disputedId }, data: { status: ShipmentStatus.COMPLETED } });
+      await app.db.dispute.updateMany({ where: { shipmentId: disputedId }, data: { status: "resolved" } });
       expect((await declareTrip(app, eligibleCarrier)).statusCode).toBe(201);
     });
 

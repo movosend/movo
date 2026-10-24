@@ -62,13 +62,14 @@ describe("NotificationCategoryDetailScreen", () => {
     expect(mockMutate).toHaveBeenCalledWith({ categories: { custody: false } }, expect.anything());
   });
 
-  it("una categoría 'Pronto' no lista triggers y avisa que no está disponible", async () => {
+  // MOVO-334: `disputes` era la última categoría "Pronto"; ahora lista sus avisos.
+  it("disputes lista sus avisos y no muestra la nota de 'Pronto'", async () => {
     mockParams = { categoryId: "disputes" };
 
     const { getByTestId, queryByTestId } = await render(<NotificationCategoryDetailScreen />);
 
-    expect(getByTestId("notification-detail-pending-note")).toBeTruthy();
-    expect(queryByTestId("notification-detail-trigger-0")).toBeNull();
+    expect(queryByTestId("notification-detail-pending-note")).toBeNull();
+    expect(getByTestId("notification-detail-trigger-0")).toBeTruthy();
   });
 
   it("muestra error si el id de categoría no existe en el catálogo", async () => {

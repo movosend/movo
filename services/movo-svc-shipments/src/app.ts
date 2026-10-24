@@ -41,6 +41,7 @@ import receiverTransfersRoutes, {
   ReceiverTransfersRoutesOptions,
   shipmentReceiverTransferRoutes,
 } from "./modules/receiver-transfers/receiver-transfers.routes";
+import { disputeRoutes, DisputesRoutesOptions, shipmentDisputeRoutes } from "./modules/disputes/disputes.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
 import { UserDeletionClient, UsersClient } from "./adapters/users-client";
 import { PaymentsClient } from "./adapters/payments-client";
@@ -50,6 +51,7 @@ import { NotificationsClient } from "./adapters/notifications-client";
 import { PricingClient } from "./adapters/pricing-client";
 import { PricingLogisticsClient } from "./adapters/pricing-logistics-client";
 import { FundsReleaseNotifier } from "./adapters/funds-release-notifier";
+import { AlertNotifier } from "./adapters/alert-notifier";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -115,6 +117,10 @@ export interface BuildAppOptions {
   /** Override solo para tests -- canal de tiempo real (MOVO-201/ADR-022), evita
    * depender de Postgres real para probar el rechazo de una conexión WS. */
   shipmentRepository?: ShipmentRepository;
+  /** Override solo para tests -- alerta al equipo al abrirse una disputa (MOVO-334). */
+  alertNotifier?: AlertNotifier;
+  /** Reloj de la ventana para abrir una disputa (MOVO-334, ADR-054), solo tests. */
+  disputesNow?: () => Date;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -346,6 +352,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
   };
   app.register(positionsRoutes, positionsRouteOpts);
+
+  // MOVO-334 (ADR-054): apertura de disputas (`/shipments/:id/disputes`) y expediente/descargos
+  // (`/disputes/:disputeId`, prefijo propio como `/offers`).
+  const disputesRouteOpts: DisputesRoutesOptions = {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.alertNotifier ? { alertNotifier: opts.alertNotifier } : {}),
+    ...(opts.disputesNow ? { now: opts.disputesNow } : {}),
+  };
+  app.register(shipmentDisputeRoutes, { ...disputesRouteOpts, prefix: "/shipments" });
+  app.register(disputeRoutes, { ...disputesRouteOpts, prefix: "/disputes" });
 
   // Juegos del sitio institucional (/juegos): autenticados por API key en el gateway
   // (prefijo /demo), no por JWT -- ver demo.routes.ts.

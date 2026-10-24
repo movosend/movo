@@ -9,12 +9,12 @@ import {
   partiesLine,
   paymentLabel,
   pendingSteps,
+  shipmentDisplayCode,
   pickupWindow,
   reportLine,
   rowAlert,
   shortName,
   timeAgo,
-  trackingMessage,
 } from "./format"
 import {
   CARRIER,
@@ -92,17 +92,16 @@ describe("avisos", () => {
     ).toBe("La ventana de pago ya venció")
     expect(rowAlert(row({ delayed: true }), NOW)).toMatch(/^Demorado/)
   })
+})
 
-  it("el lugar del mapa cambia el mensaje por estado", () => {
-    expect(trackingMessage(row({ status: "assigned" }), NOW)[0]).toBe(
-      "Todavía no arrancó"
+describe("código de envío", () => {
+  it("como la app: #MOVO- y los últimos 5 dígitos del id", () => {
+    expect(shipmentDisplayCode("4800bc55-a000-4000-8000-000000048213")).toBe(
+      "#MOVO-48213"
     )
-    expect(trackingMessage(row({ status: "delivered" }), NOW)[0]).toBe(
-      "Seguimiento cerrado"
+    expect(shipmentDisplayCode("abcdef12-abcd-abcd-abcd-abcdef12ab3c")).toBe(
+      "#MOVO-12123"
     )
-    expect(
-      trackingMessage(row({ status: "published", carrier: null }), NOW)[0]
-    ).toBe("Sin seguimiento")
   })
 })
 

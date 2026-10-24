@@ -120,6 +120,12 @@ export function getServiceRoutes(env: {
       prefix: "/receiver-transfers",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
+    // MOVO-334 (ADR-054): expediente y descargos de una disputa. Abrirla cuelga de /shipments.
+    // Protegido por defecto; sin `allowedRoles` (también la abre o contesta un receptor).
+    {
+      prefix: "/disputes",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+    },
 
     // MOVO-320 (ADR-051): consultas del usuario a soporte (crear, listar, historial, escribir, leído) y su canal
     // WebSocket (`GET /support/conversations/:id`, un upgrade). Protegido por defecto y sin `allowedRoles`: pedir

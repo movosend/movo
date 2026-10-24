@@ -324,7 +324,21 @@ export type ApiErrorCode =
   // Ticket del WS del panel vencido, ya usado o de otro admin (401).
   | "SUPPORT_TICKET_INVALID"
   // `svc-shipments` (dueño del modelo de soporte) no respondió (502).
-  | "SUPPORT_SERVICE_UNAVAILABLE";
+  | "SUPPORT_SERVICE_UNAVAILABLE"
+  // MOVO-334 (ADR-054): disputas abiertas por las partes.
+  // El envío no está en un estado que se pueda disputar desde la app (422).
+  | "DISPUTE_NOT_ALLOWED"
+  // `delivered`/`completed` con más de `DISPUTE_WINDOW_DAYS` desde el handshake de entrega (422).
+  | "DISPUTE_WINDOW_EXPIRED"
+  // Ya hay una disputa abierta sobre el envío (409, `details.disputeId`).
+  | "DISPUTE_ALREADY_OPEN"
+  | "DISPUTE_NOT_FOUND"
+  // La disputa ya no está abierta (409).
+  | "DISPUTE_NOT_OPEN"
+  // La parte ya cargó su descargo, o quien abrió ya amplió su evidencia (409).
+  | "DISPUTE_STATEMENT_ALREADY_SUBMITTED"
+  // Una de las fotos ya está asociada a una disputa (409).
+  | "DISPUTE_PHOTO_ALREADY_USED";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

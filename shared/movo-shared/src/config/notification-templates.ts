@@ -37,6 +37,9 @@ export type NotificationTriggerKey =
   | "transitAnomalyDisputeOpenedSender"
   | "transitAnomalyDisputeOpenedReceiver"
   | "transitAnomalyDisputeOpenedCarrier"
+  | "disputeOpenedSender"
+  | "disputeOpenedReceiver"
+  | "disputeOpenedCarrier"
   | "offerCreated"
   | "offerAccepted"
   | "offerSuperseded"
@@ -285,6 +288,36 @@ export const NOTIFICATION_TRIGGERS = {
     () => ({
       title: "Envío en disputa",
       body: "Registramos tu llegada al retiro, pero no hubo entrega del paquete. El caso pasó a revisión y podés seguir operando",
+    })
+  ),
+  // MOVO-334: disputa abierta por una de las partes desde la app. Las tres partes reciben el aviso,
+  // también quien la abrió (confirmación). Sin el motivo ni la descripción: un push se ve en la
+  // pantalla bloqueada. Las disputas del sistema siguen con `pickupDisputeOpened*`/`transitAnomaly*`.
+  disputeOpenedSender: definition<void>(
+    "disputes",
+    { title: "Envío en disputa", body: "Se abrió una disputa sobre tu envío. Tocá para ver el detalle y cargar tu descargo." },
+    () => ({
+      title: "Envío en disputa",
+      body: "Se abrió una disputa sobre tu envío. Tocá para ver el detalle y cargar tu descargo",
+    })
+  ),
+  disputeOpenedReceiver: definition<void>(
+    "disputes",
+    { title: "Envío en disputa", body: "Se abrió una disputa sobre el envío que recibís. Tocá para ver el detalle." },
+    () => ({
+      title: "Envío en disputa",
+      body: "Se abrió una disputa sobre el envío que recibís. Tocá para ver el detalle y cargar tu descargo",
+    })
+  ),
+  disputeOpenedCarrier: definition<void>(
+    "disputes",
+    {
+      title: "Envío en disputa",
+      body: "Se abrió una disputa sobre un envío que llevás. No podés operar hasta que se resuelva.",
+    },
+    () => ({
+      title: "Envío en disputa",
+      body: "Se abrió una disputa sobre un envío que llevás. Cargá tu descargo: no podés operar hasta que se resuelva",
     })
   ),
   // MOVO-258 (D6): llegó el día de retiro de un envío publicado sin oferta aceptada, pero

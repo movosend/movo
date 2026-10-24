@@ -255,6 +255,7 @@ model Shipment {
   chatStates        ChatParticipantState[]
   chatReports       ChatReport[]
   supportConversations SupportConversation[]
+  disputes          Dispute[]
 
   @@index([senderId], map: "shipments_sender_id_idx")
   @@index([receiverId], map: "shipments_receiver_id_idx")
@@ -965,5 +966,102 @@ model UserDisplayName {
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
   @@map("user_display_names")
+  @@schema("shipments")
+}
+
+// MOVO-334 (ADR-054): entidad de disputa. Antes una disputa era solo el estado `disputed` del
+// envío más el `from_status` de su evento. Los campos de resolución los agrega MOVO-34.
+enum DisputeReason {
+  damaged
+  not_delivered
+  wrong_delivery
+  other
+  transit_anomaly
+  pickup_no_show
+
+  @@map("dispute_reason_enum")
+  @@schema("shipments")
+}
+
+enum DisputeStatus {
+  open
+  resolved
+
+  @@map("dispute_status_enum")
+  @@schema("shipments")
+}
+
+enum DisputePartyRole {
+  sender
+  receiver
+  carrier
+
+  @@map("dispute_party_role_enum")
+  @@schema("shipments")
+}
+
+enum DisputeStatementKind {
+  statement
+  amendment
+
+  @@map("dispute_statement_kind_enum")
+  @@schema("shipments")
+}
+
+// Una sola disputa `open` por envío: índice único parcial agregado a mano en la migración
+// (`disputes_shipment_open_key`), Prisma no los representa.
+model Dispute {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId   String            @map("shipment_id") @db.Uuid
+  // NULL: la abrió un barrido del sistema (`transit_anomaly`, `pickup_no_show`).
+  openedBy     String?           @map("opened_by") @db.Uuid
+  openedByRole DisputePartyRole? @map("opened_by_role")
+  reason       DisputeReason
+  description  String
+  status       DisputeStatus     @default(open)
+  openedAt     DateTime          @default(now()) @map("opened_at") @db.Timestamptz
+
+  shipment   Shipment           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  statements DisputeStatement[]
+  photos     DisputePhoto[]
+
+  @@index([shipmentId], map: "disputes_shipment_id_idx")
+  @@index([status], map: "disputes_status_idx")
+  @@map("disputes")
+  @@schema("shipments")
+}
+
+// Descargo de una parte que no abrió (`statement`) o ampliación única de quien abrió
+// (`amendment`). El único por (disputa, autor, tipo) es el 409 de un segundo intento.
+model DisputeStatement {
+  id         String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  disputeId  String               @map("dispute_id") @db.Uuid
+  authorId   String               @map("author_id") @db.Uuid
+  authorRole DisputePartyRole     @map("author_role")
+  kind       DisputeStatementKind
+  text       String
+  createdAt  DateTime             @default(now()) @map("created_at") @db.Timestamptz
+
+  dispute Dispute        @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  photos  DisputePhoto[]
+
+  @@unique([disputeId, authorId, kind], map: "dispute_statements_dispute_author_kind_key")
+  @@map("dispute_statements")
+  @@schema("shipments")
+}
+
+// Solo la referencia a S3 (ADR-007). `statement_id` NULL: foto de la apertura.
+model DisputePhoto {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  disputeId   String   @map("dispute_id") @db.Uuid
+  statementId String?  @map("statement_id") @db.Uuid
+  s3Key       String   @unique(map: "dispute_photos_s3_key_key") @map("s3_key")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  dispute   Dispute           @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  statement DisputeStatement? @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId], map: "dispute_photos_dispute_id_idx")
+  @@map("dispute_photos")
   @@schema("shipments")
 }

@@ -54,16 +54,18 @@ export class InsufficientCreationPhotosError extends Error {
  *
  * `assigned -> disputed` (MOVO-270, ADR-052): el barrido de retiro no realizado tiene evidencia
  * GPS de que el transportista llegó al retiro y no hubo handshake. El hold se libera antes de
- * transicionar y esa disputa no bloquea al transportista (`hasOpenDisputeAsCarrier` solo cuenta
- * las que entraron desde `in_transit`/`delivered`).
+ * transicionar y esa disputa no bloquea al transportista (`hasOpenDisputeAsCarrier` excluye el
+ * motivo `pickup_no_show`, MOVO-334).
  *
- * `cancelled`, `disputed` y `completed` no tienen salida en este módulo — los
- * dos primeros son terminales por diseño
+ * `completed -> disputed` (MOVO-334, ADR-054): el handshake de entrega captura el hold y pasa el
+ * envío a `completed` en el momento (MOVO-212), así que un reclamo post-entrega casi nunca
+ * encuentra el envío en `delivered`. Solo la usa una de las partes dentro de los
+ * `DISPUTE_WINDOW_DAYS` desde `deliveredAt` (`disputes.service.ts`); ningún barrido la usa.
+ *
+ * `cancelled` y `disputed` no tienen salida en este módulo — son terminales por diseño
  * (MOVO-79/MOVO-208; la resolución de una disputa, a cargo de un admin
- * MOVO-30/MOVO-32, todavía no tiene ticket que defina a qué estado vuelve,
- * así que no se modela acá una transición inventada); `completed` es
- * terminal por definición (MOVO-208: entrega confirmada Y pago liberado, no
- * hay nada después).
+ * MOVO-34, todavía no define a qué estado vuelve,
+ * así que no se modela acá una transición inventada).
  *
  * `assigned_unfunded` (MOVO-208, hold anclado cerca del retiro según
  * MOVO-12): ruta ALTERNATIVA a `assignment_pending` cuando el retiro es a
@@ -111,7 +113,9 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
     ShipmentStatus.COMPLETED, // captura y split de MP confirmados (MOVO-212)
     ShipmentStatus.DISPUTED, // reclamo post-entrega (MOVO-30)
   ]),
-  [ShipmentStatus.COMPLETED]: new Set(),
+  [ShipmentStatus.COMPLETED]: new Set([
+    ShipmentStatus.DISPUTED, // reclamo post-entrega con el cobro ya capturado, dentro de la ventana (MOVO-334)
+  ]),
   [ShipmentStatus.REJECTED_BY_RECEIVER]: new Set([
     ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, // emisor elige otro receptor (MOVO-253)
     ShipmentStatus.CANCELLED, // emisor cancela o vence el plazo para elegir otro (MOVO-253)

@@ -67,3 +67,12 @@ describe("settlementDelayedCarrier (MOVO-213)", () => {
     expect(notificationTriggerCategory("settlementDelayedCarrier")).toBe("payments");
   });
 });
+
+describe("disputa abierta por una parte (MOVO-334)", () => {
+  it("va en la categoría disputes, ya implementada", () => {
+    expect(notificationTriggerCategory("disputeOpenedSender")).toBe("disputes");
+    expect(notificationTriggerCategory("disputeOpenedReceiver")).toBe("disputes");
+    expect(notificationTriggerCategory("disputeOpenedCarrier")).toBe("disputes");
+    expect(getNotificationCategory("disputes")).toMatchObject({ implemented: true });
+  });
+});

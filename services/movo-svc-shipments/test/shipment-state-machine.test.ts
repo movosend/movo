@@ -38,6 +38,8 @@ const VALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   [ShipmentStatus.IN_TRANSIT, ShipmentStatus.DISPUTED],
   [ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED],
   [ShipmentStatus.DELIVERED, ShipmentStatus.DISPUTED],
+  // MOVO-334 (ADR-054): reclamo con el cobro ya capturado, dentro de la ventana
+  [ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED],
 ];
 
 const INVALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
@@ -61,9 +63,9 @@ const INVALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.IN_TRANSIT],
   // `assigned` no vuelve a `assignment_pending` (MOVO-210 reconfirma en `assigned_unfunded`)
   [ShipmentStatus.ASSIGNED, ShipmentStatus.ASSIGNMENT_PENDING],
-  // `completed` es terminal (MOVO-208): ni reversa ni ninguna salida
+  // `completed` no vuelve atrás (MOVO-208); su única salida es la disputa (MOVO-334)
   [ShipmentStatus.COMPLETED, ShipmentStatus.DELIVERED],
-  [ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED],
+  [ShipmentStatus.COMPLETED, ShipmentStatus.CANCELLED],
   // MOVO-270: solo un `assigned` (con hold) puede ir a disputa antes del retiro
   [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.DISPUTED],
   [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.DISPUTED],
@@ -105,11 +107,7 @@ describe("shipment-state-machine", () => {
   });
 
   it("todo estado no terminal tiene al menos una transición válida definida en el DTE", () => {
-    const terminal = [
-      ShipmentStatus.CANCELLED,
-      ShipmentStatus.DISPUTED,
-      ShipmentStatus.COMPLETED,
-    ];
+    const terminal = [ShipmentStatus.CANCELLED, ShipmentStatus.DISPUTED];
     const nonTerminal = Object.values(ShipmentStatus).filter((status) => !terminal.includes(status));
 
     for (const status of nonTerminal) {

@@ -43,6 +43,7 @@ const object = (properties: Record<string, unknown>, required: string[] = Object
   ({ type: "object", required, properties }) as const;
 
 const userRef = object({ id: str, fullName: str });
+const userRefWithPhoto = object({ id: str, fullName: str, photoUrl: nullableStr });
 
 const errorResponse = object(
   {
@@ -107,13 +108,13 @@ const report = object({
   id: str,
   reason: str,
   status: str,
-  counterpart: userRef,
+  counterpart: userRefWithPhoto,
   details: nullableStr,
   createdAt: str,
   extraEntries: int,
   photos: int,
 });
-const block = object({ user: userRef, createdAt: str });
+const block = object({ user: userRefWithPhoto, createdAt: str });
 
 const ledgerEntry = object({
   id: str,

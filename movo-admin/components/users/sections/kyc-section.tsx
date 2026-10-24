@@ -123,7 +123,11 @@ const MP_PILL: Record<AdminUserMercadoPago["status"], Pill> = {
 function mpCard(
   mp: AdminUserMercadoPago | null,
   isCarrier: boolean
-): { pill: Pill; empty?: string; rows: { k: string; v: string; mono?: boolean }[] } {
+): {
+  pill: Pill
+  empty?: string
+  rows: { k: string; v: string; mono?: boolean }[]
+} {
   if (!mp)
     return {
       pill: { label: "No disponible", tone: "neutral" },
@@ -146,12 +150,19 @@ function mpCard(
             "El acceso venció y no se renovó solo. Es una falla nuestra: no hace falta pedirle que vuelva a vincular.",
         }
       : mp.status === "revoked"
-        ? { empty: "Revocó el acceso desde Mercado Pago: tiene que volver a vincular la cuenta para cobrar." }
+        ? {
+            empty:
+              "Revocó el acceso desde Mercado Pago: tiene que volver a vincular la cuenta para cobrar.",
+          }
         : {}),
     rows: [
       ...(mp.nickname ? [{ k: "Cuenta", v: mp.nickname, mono: true }] : []),
-      ...(mp.connectedAt ? [{ k: "Vinculada", v: formatDate(mp.connectedAt) }] : []),
-      ...(mp.unlinkedAt ? [{ k: "Desvinculada", v: formatDate(mp.unlinkedAt) }] : []),
+      ...(mp.connectedAt
+        ? [{ k: "Vinculada", v: formatDate(mp.connectedAt) }]
+        : []),
+      ...(mp.unlinkedAt
+        ? [{ k: "Desvinculada", v: formatDate(mp.unlinkedAt) }]
+        : []),
     ],
   }
 }

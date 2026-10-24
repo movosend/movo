@@ -4,7 +4,7 @@ import { Eye, Flag, Lock, RotateCw } from "lucide-react"
 import type { AdminChatPage } from "@movo/shared/src/types/admin-shipments"
 import { loadChatPage } from "@/app/shipments/actions"
 import { buildChatItems, type ChatItem } from "@/lib/shipments/format"
-import { initialsOf } from "@/lib/initials"
+import { UserAvatar } from "@/components/user-avatar"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,8 +18,10 @@ export interface ChatHeading {
   code: string
   /** "Ana, Diego y Luis". */
   title: string
-  /** Nombres de las partes, para los avatares del encabezado. */
-  people: string[]
+  /** Las partes, para los avatares del encabezado. */
+  people: Array<{ id: string; name: string; photoUrl: string | null }>
+  /** Foto de perfil por id de usuario, para los avatares de cada mensaje. */
+  photos: Record<string, string | null>
   /** "las partes pueden escribir" / "las partes solo leen". */
   mode: string
   /** "Luis reportó esta conversación · 21 oct · 12:16", uno por reporte. */
@@ -89,13 +91,13 @@ export function ChatPanel({
         >
           <div className="flex items-start gap-3 border-b px-[18px] py-4 pr-12">
             <div aria-hidden className="flex flex-none">
-              {heading.people.map((name) => (
-                <span
-                  key={name}
-                  className="-mr-2 flex size-8 items-center justify-center rounded-full border-2 border-card bg-avatar text-[11px] font-semibold"
-                >
-                  {initialsOf(name)}
-                </span>
+              {heading.people.map((p) => (
+                <UserAvatar
+                  key={p.id}
+                  name={p.name}
+                  photoUrl={p.photoUrl}
+                  className="-mr-2 border-2 border-card"
+                />
               ))}
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-0.5 pl-3">
@@ -103,13 +105,14 @@ export function ChatPanel({
                 {heading.title}
               </SheetTitle>
               <SheetDescription className="text-xs">
-                <span className="font-mono">#{heading.code}</span> ·{" "}
+                <span className="font-mono">{heading.code}</span> ·{" "}
                 {heading.mode} · {count} mensajes
               </SheetDescription>
             </div>
           </div>
           <ChatThread
             items={items}
+            photos={heading.photos}
             reports={heading.reports}
             hasMore={nextCursor !== null}
             pending={pending}
@@ -125,6 +128,7 @@ export function ChatPanel({
 /** Cuerpo del chat: aviso de observador, reportes, hilo y pie. No tiene compositor (AC12). */
 export function ChatThread({
   items,
+  photos,
   reports,
   hasMore,
   pending,
@@ -132,6 +136,7 @@ export function ChatThread({
   onMore,
 }: {
   items: ChatItem[]
+  photos: ChatHeading["photos"]
   reports: string[]
   hasMore: boolean
   pending: boolean
@@ -222,15 +227,12 @@ export function ChatThread({
                 item.head ? "mt-3.5" : "mt-1"
               )}
             >
-              <span
-                aria-hidden
-                className={cn(
-                  "flex size-7 flex-none items-center justify-center rounded-full bg-avatar text-[10px] font-semibold",
-                  !item.head && "invisible"
-                )}
-              >
-                {initialsOf(item.name)}
-              </span>
+              <UserAvatar
+                name={item.name}
+                photoUrl={photos[item.message.authorId]}
+                size={28}
+                className={cn("flex-none", !item.head && "invisible")}
+              />
               <div className="flex max-w-[80%] flex-col gap-[3px]">
                 {item.head && (
                   <span className="px-1 pt-1 text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
