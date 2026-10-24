@@ -230,7 +230,11 @@ describe("cambiar email o teléfono", () => {
     fireEvent.click(await screen.findByRole("checkbox"))
     fireEvent.click(screen.getByRole("button", { name: "Cambiar email" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(/otra cuenta/)
-    fireEvent.click(screen.getByRole("button", { name: "Volver" }))
+    // El error se pinta un render antes de que termine la transición: hasta entonces "Volver"
+    // sigue deshabilitado y el click se perdería.
+    const back = screen.getByRole("button", { name: "Volver" })
+    await waitFor(() => expect(back).toBeEnabled())
+    fireEvent.click(back)
     expect(await screen.findByLabelText("Email nuevo")).toHaveValue(
       "nuevo@gmail.com"
     )

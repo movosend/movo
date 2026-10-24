@@ -1,9 +1,11 @@
 import {
   ACTIVE_SHIPMENT_STATUSES,
+  ADMIN_SHIPMENT_ALERT_STATUSES,
   ADMIN_SHIPMENT_GROUPS,
   ADMIN_SHIPMENT_GROUP_STATUSES,
   AdminShipmentCounts,
   AdminShipmentGroup,
+  AdminShipmentPage,
   ShipmentStatus,
 } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow } from "../generated/prisma/client";
@@ -17,6 +19,8 @@ export interface AdminShipmentSearch {
   to?: Date;
   /** Código, nombre de cualquiera de las partes o dirección. */
   q?: string;
+  /** Solo los que llevan aviso (`isAdminShipmentAlert` de `@movo/shared`). */
+  alert?: boolean;
 }
 
 export interface AdminShipmentListParams extends AdminShipmentSearch {
@@ -32,10 +36,13 @@ export interface AdminShipmentRecord {
   names: { sender: string | null; carrier: string | null; receiver: string | null };
 }
 
+/** Conteos de las pestañas, de cada estado y de los que llevan aviso por pestaña. */
+export type AdminShipmentCountsResult = Pick<AdminShipmentPage, "counts" | "statusCounts" | "alertCounts">;
+
 export interface AdminShipmentRepository {
   list(params: AdminShipmentListParams): Promise<{ items: AdminShipmentRecord[]; nextCursor: string | null }>;
-  /** Conteo de cada pestaña con los mismos filtros de búsqueda; `all` son los activos. */
-  counts(search: AdminShipmentSearch): Promise<AdminShipmentCounts>;
+  /** Conteos con los mismos filtros de búsqueda; `all` son los activos. */
+  counts(search: AdminShipmentSearch): Promise<AdminShipmentCountsResult>;
   findRecord(id: string): Promise<AdminShipmentRecord | null>;
   /** Ids de usuarios sin nombre conocido, para completarlos desde svc-users. */
   findMissingNames(records: AdminShipmentRecord[]): Promise<string[]>;
@@ -87,6 +94,12 @@ const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (char) =>
  */
 const SORT_KEY = Prisma.sql`date_trunc('milliseconds', COALESCE(s.last_status_changed_at, s.created_at))`;
 
+/** Misma regla que `isAdminShipmentAlert`: un estado de aviso, o un `in_transit` demorado. */
+const ALERT_SQL = Prisma.sql`(
+  s.status::text = ANY(${[...ADMIN_SHIPMENT_ALERT_STATUSES]}::text[])
+  OR (s.status::text = ${ShipmentStatus.IN_TRANSIT} AND s.transit_anomaly_flagged_at IS NOT NULL)
+)`;
+
 const FROM_SQL = Prisma.sql`
   FROM shipments.shipments s
   LEFT JOIN shipments.user_display_names sn ON sn.user_id = s.sender_id
@@ -116,6 +129,8 @@ function searchConditions(search: AdminShipmentSearch): Prisma.Sql[] {
       OR ${normalizedSql("s.delivery_address")} LIKE ${like}
     )`);
   }
+
+  if (search.alert) conditions.push(ALERT_SQL);
 
   return conditions;
 }
@@ -192,20 +207,26 @@ export function createAdminShipmentRepository(db: PrismaClient): AdminShipmentRe
     },
 
     async counts(search) {
-      const grouped = await db.$queryRaw<Array<{ status: string; count: number }>>`
-        SELECT s.status::text AS status, COUNT(*)::int AS count
+      const grouped = await db.$queryRaw<Array<{ status: string; count: number; alerts: number }>>`
+        SELECT s.status::text AS status, COUNT(*)::int AS count, (COUNT(*) FILTER (WHERE ${ALERT_SQL}))::int AS alerts
         ${FROM_SQL}
         ${whereOf(searchConditions(search))}
         GROUP BY s.status`;
-      const byStatus = new Map(grouped.map((entry) => [entry.status, entry.count]));
-      const total = (statuses: readonly ShipmentStatus[]) =>
-        statuses.reduce((sum, status) => sum + (byStatus.get(status) ?? 0), 0);
+      const byStatus = new Map(grouped.map((entry) => [entry.status, entry]));
 
-      const counts = { all: total(ACTIVE_SHIPMENT_STATUSES) } as AdminShipmentCounts;
-      for (const group of ADMIN_SHIPMENT_GROUPS) {
-        counts[group as AdminShipmentGroup] = total(ADMIN_SHIPMENT_GROUP_STATUSES[group]);
-      }
-      return counts;
+      const statusCounts = {} as AdminShipmentPage["statusCounts"];
+      for (const status of Object.values(ShipmentStatus)) statusCounts[status] = byStatus.get(status)?.count ?? 0;
+
+      const tally = (field: "count" | "alerts"): AdminShipmentCounts => {
+        const total = (statuses: readonly ShipmentStatus[]) =>
+          statuses.reduce((sum, status) => sum + (byStatus.get(status)?.[field] ?? 0), 0);
+        const counts = { all: total(ACTIVE_SHIPMENT_STATUSES) } as AdminShipmentCounts;
+        for (const group of ADMIN_SHIPMENT_GROUPS) {
+          counts[group as AdminShipmentGroup] = total(ADMIN_SHIPMENT_GROUP_STATUSES[group]);
+        }
+        return counts;
+      };
+      return { counts: tally("count"), statusCounts, alertCounts: tally("alerts") };
     },
 
     async findRecord(id) {
