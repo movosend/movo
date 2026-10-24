@@ -51,6 +51,9 @@ const SHIPMENT_DETAIL_TYPES: readonly string[] = [
   "trip_started",
   // MOVO-240: el transportista está por llegar; el detalle tiene el seguimiento en vivo.
   "carrier_nearby",
+  // MOVO-334: hasta que exista la pantalla del expediente (MOVO-30), la push de disputa
+  // abierta lleva al detalle del envío, que ya muestra el estado `disputed`.
+  "dispute_opened",
 ];
 
 /** MOVO-281: el resultado de una oferta se mira en su detalle. `offer_superseded` y
