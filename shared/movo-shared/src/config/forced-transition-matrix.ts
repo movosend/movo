@@ -79,7 +79,7 @@ export const FORCED_TRANSITION_MATRIX: Readonly<Record<ShipmentStatus, Row>> = {
       kind: "manual",
       risk: "critical",
       service: "captureAndComplete",
-        },
+    },
   },
   [ShipmentStatus.REJECTED_BY_RECEIVER]: {
     [ShipmentStatus.CANCELLED]: cancel("medium"),
@@ -122,4 +122,78 @@ export function blockedTransitionReason(from: ShipmentStatus, to: ShipmentStatus
     return "Un envío en tránsito solo avanza por la entrega o la disputa.";
   }
   return "No hay un servicio de dominio que ejecute esta transición.";
+}
+
+export type ForcedTransitionRecipient = "sender" | "receiver" | "carrier";
+
+/** Estados en los que el envío tiene un transportista asignado (y por lo tanto un hold). */
+const STATUSES_WITH_CARRIER: readonly ShipmentStatus[] = [
+  ShipmentStatus.ASSIGNMENT_PENDING,
+  ShipmentStatus.ASSIGNED_UNFUNDED,
+  ShipmentStatus.ASSIGNED,
+  ShipmentStatus.IN_TRANSIT,
+  ShipmentStatus.DELIVERED,
+];
+
+/** Lo que el panel muestra antes de confirmar (ADR-055): qué se ejecuta y a quién se avisa. */
+export interface ForcedTransitionDetails extends ForcedTransitionCell {
+  /** Qué hace la transición, en el orden en que ocurre. */
+  effects: string[];
+  /** Quién recibe el aviso (siempre crítico y sin monto). El transportista solo si el envío tiene uno. */
+  notifies: ForcedTransitionRecipient[];
+}
+
+function effectsOf(from: ShipmentStatus, to: ShipmentStatus, cell: ForcedTransitionCell): string[] {
+  const hasCarrier = STATUSES_WITH_CARRIER.includes(from);
+  switch (cell.service) {
+    case "cancelShipment":
+      return [
+        hasCarrier ? "Libera el hold del pago." : "Cierra las ofertas pendientes del envío.",
+        "El envío queda cancelado y no se puede reabrir.",
+        ...(from === ShipmentStatus.ASSIGNED ? ["Sin penalidad para el emisor ni deuda para el transportista."] : []),
+      ];
+    case "withdrawCarrierFromShipment":
+      return [
+        "Libera el hold del pago.",
+        "Desasigna al transportista y restaura la ventana de retiro original.",
+        "El envío vuelve a estar publicado para otros transportistas.",
+        "Sin penalidad para el transportista.",
+      ];
+    case "confirmFunding":
+      return [
+        "Verifica en Mercado Pago que el hold esté autorizado: si no lo está, no se cambia nada.",
+        "Cierra las ofertas pendientes de otros transportistas.",
+      ];
+    case "captureAndComplete":
+      return [
+        "Captura el hold y acredita el pago al transportista.",
+        "El envío queda completado.",
+      ];
+    default: {
+      const exhaustive: never = cell.service;
+      return exhaustive;
+    }
+  }
+}
+
+/** Celda + efectos + destinatarios del aviso. `null` si el par está bloqueado. */
+export function getForcedTransitionDetails(from: ShipmentStatus, to: ShipmentStatus): ForcedTransitionDetails | null {
+  const cell = getForcedTransition(from, to);
+  if (!cell) return null;
+  return {
+    ...cell,
+    effects: effectsOf(from, to, cell),
+    notifies: STATUSES_WITH_CARRIER.includes(from) ? ["sender", "receiver", "carrier"] : ["sender", "receiver"],
+  };
+}
+
+/**
+ * Fricción que exige la celda (ADR-055). El código del envío tipeado, desde riesgo alto; el segundo
+ * factor (OTP por acción), si la transición es forzada o el riesgo es crítico.
+ */
+export function forcedTransitionFriction(cell: ForcedTransitionCell): { typedCode: boolean; stepUp: boolean } {
+  return {
+    typedCode: cell.risk === "high" || cell.risk === "critical",
+    stepUp: cell.kind === "forced" || cell.risk === "critical",
+  };
 }

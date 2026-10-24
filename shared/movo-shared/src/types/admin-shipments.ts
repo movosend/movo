@@ -359,3 +359,74 @@ export interface AdminShipmentTracking {
   serverTime: string;
   pollIntervalSeconds: number;
 }
+
+// MOVO-332: cambio de estado desde el panel (ADR-055).
+
+/** Vigencia del código de 6 dígitos del step-up y del token que se obtiene al verificarlo. */
+export const STEP_UP_CODE_TTL_SECONDS = 300;
+export const STEP_UP_TOKEN_TTL_SECONDS = 300;
+
+/** `POST /admin/shipments/:id/status`. */
+export interface ChangeShipmentStatusRequest {
+  targetStatus: `${ShipmentStatus}`;
+  /** El estado que vio el admin: si el actual es otro, 409 `STATUS_CHANGED`. */
+  expectedStatus: `${ShipmentStatus}`;
+  reason: string;
+  /** El código del envío (`AdminShipmentRow.code`), obligatorio si el riesgo del destino es alto o crítico. */
+  typedCode?: string;
+  /** El token de `POST /admin/step-up/verify`, obligatorio si la transición es forzada o crítica. */
+  stepUpToken?: string;
+  idempotencyKey: string;
+}
+
+export type ChangeShipmentStatusResponse = ForceShipmentStatusResponse;
+
+/** Un destino permitido desde el estado actual, con lo que el panel muestra antes de confirmar. */
+export interface ShipmentStatusOption {
+  targetStatus: `${ShipmentStatus}`;
+  kind: "manual" | "forced";
+  risk: "medium" | "high" | "critical";
+  effects: string[];
+  notifies: Array<"sender" | "receiver" | "carrier">;
+  requiresTypedCode: boolean;
+  requiresStepUp: boolean;
+}
+
+export interface ShipmentStatusBlocked {
+  targetStatus: `${ShipmentStatus}`;
+  reason: string;
+}
+
+/** `GET /admin/shipments/:id/status-options`. */
+export interface ShipmentStatusOptions {
+  current: `${ShipmentStatus}`;
+  /** Código para tipear cuando alguna opción lo pide (`requiresTypedCode`). */
+  code: string;
+  options: ShipmentStatusOption[];
+  blocked: ShipmentStatusBlocked[];
+}
+
+/** `POST /admin/step-up`: manda un código de 6 dígitos al email del admin, atado a esta acción. */
+export interface StepUpRequest {
+  shipmentId: string;
+  targetStatus: `${ShipmentStatus}`;
+}
+
+export interface StepUpChallenge {
+  challengeId: string;
+  /** Email al que salió el código, enmascarado. */
+  maskedEmail: string;
+  cooldownSeconds: number;
+  expiresInSeconds: number;
+}
+
+/** `POST /admin/step-up/verify`. */
+export interface StepUpVerifyRequest extends StepUpRequest {
+  challengeId: string;
+  code: string;
+}
+
+export interface StepUpToken {
+  stepUpToken: string;
+  expiresInSeconds: number;
+}
