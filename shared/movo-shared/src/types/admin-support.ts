@@ -53,6 +53,11 @@ export const SUPPORT_ATTACHMENT_TYPES = ["image/jpeg", "image/png", "image/webp"
 export type SupportAttachmentType = (typeof SUPPORT_ATTACHMENT_TYPES)[number];
 export const SUPPORT_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 export const SUPPORT_ATTACHMENT_MAX_PER_MESSAGE = 4;
+/**
+ * Tope de adjuntos pedidos y todavía sin usar por quien sube (MOVO-321): evita que un script llene la tabla y el bucket
+ * con URLs que nunca se usan. Al pasarlo, `POST attachments` responde 429 `SUPPORT_ATTACHMENT_PENDING_LIMIT`.
+ */
+export const SUPPORT_ATTACHMENT_MAX_PENDING = 20;
 
 /** Códigos de error de `/admin/support/*`. */
 export const SUPPORT_ERROR = {
