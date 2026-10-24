@@ -69,19 +69,18 @@ export function createS3StorageProvider(config: S3StorageProviderConfig): Storag
       }
     },
 
-    async createDownloadUrl(key) {
+    async createDownloadUrl(key, options) {
+      const expiresIn = options?.expiresIn ?? PRESIGNED_URL_TTL_SECONDS;
       // Bucket privado para este prefijo (AC8) -- a diferencia de `profile-photos/*` en
       // `movo-svc-users`, acá no hay URL pública estable: cada lectura pide una
       // presigned GET nueva (AC7).
       let url: string;
       try {
-        url = await getSignedUrl(client, new GetObjectCommand({ Bucket: config.bucketName, Key: key }), {
-          expiresIn: PRESIGNED_URL_TTL_SECONDS,
-        });
+        url = await getSignedUrl(client, new GetObjectCommand({ Bucket: config.bucketName, Key: key }), { expiresIn });
       } catch {
         throw new ApiError(502, "STORAGE_PROVIDER_ERROR", "No se pudo generar la URL de lectura.");
       }
-      return { url, expiresIn: PRESIGNED_URL_TTL_SECONDS };
+      return { url, expiresIn };
     },
 
     async deleteObject(key) {
