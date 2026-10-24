@@ -3787,3 +3787,6 @@ Todas las ofertas del envío (cerradas incluidas, de la más vieja a la más nue
 `netArs`/`commissionArs` con `decomposeOfferGrossPrice` y `mpFeeEstimateArs`/`receivedEstimateArs` con las tasas de este servicio.
 Las franjas se recortan a `HH:MM`. 404 si el envío no existe, igual que `/events`. Contrato `AdminShipmentOffer` en `@movo/shared`.
 Sin historial de precios: modificar una oferta (MOVO-181) pisa el monto en la misma fila.
+Review de PR #302: cada oferta suma `commissionRate` (la tasa con la que se calculó el desglose, que no se guarda con la oferta)
+y el detalle `GET /internal/admin/shipments/:id` suma `requestedPickup*`, el retiro que pidió el emisor: sale de `originalPickup*`
+(lo guarda `acceptOffer` antes de pisar `pickupDate` y la franja con los de la ganadora, MOVO-258 D3) o del actual si no hay.

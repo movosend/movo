@@ -86,6 +86,7 @@ describe("Envíos para el panel (MOVO-325)", () => {
     priceArs: 4500,
     netArs: 3913.04,
     commissionArs: 586.96,
+    commissionRate: 0.15,
     mpFeeEstimateArs: 224.55,
     receivedEstimateArs: 3688.49,
     offeredDate: "2030-01-01",

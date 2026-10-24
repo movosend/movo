@@ -379,6 +379,34 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
         agreedPriceArs: 5200,
         suggestedPriceArs: 4500,
         carrier: { id: carrierId },
+        // Sin oferta aceptada que lo pise, lo pedido es el retiro actual.
+        requestedPickupDate: "2030-01-01",
+        requestedPickupTimeWindowStart: "09:00",
+        requestedPickupTimeWindowEnd: "12:00",
+      });
+    });
+
+    it("con una oferta aceptada, el retiro pedido es el original y no el acordado (MOVO-258 D3)", async () => {
+      const shipment = await seed(`req${randomUUID().slice(0, 8)}`, ShipmentStatus.ASSIGNED, {
+        carrierId: randomUUID(),
+        data: {
+          pickupDate: new Date("2030-01-03T00:00:00.000Z"),
+          pickupTimeWindowStart: new Date("1970-01-01T14:00:00.000Z"),
+          pickupTimeWindowEnd: new Date("1970-01-01T18:00:00.000Z"),
+          originalPickupDate: new Date("2030-01-01T00:00:00.000Z"),
+          originalPickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
+          originalPickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+        },
+      });
+
+      const response = await app.inject({ method: "GET", url: `/internal/admin/shipments/${shipment.id}` });
+
+      expect(response.json() as AdminShipmentDetail).toMatchObject({
+        pickupDate: "2030-01-03",
+        pickupTimeWindowStart: "14:00",
+        requestedPickupDate: "2030-01-01",
+        requestedPickupTimeWindowStart: "09:00",
+        requestedPickupTimeWindowEnd: "12:00",
       });
     });
 
@@ -445,6 +473,7 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
         priceArs: 11500,
         netArs: 10000,
         commissionArs: 1500,
+        commissionRate: 0.15,
         offeredDate: "2030-01-01",
         pickupTimeWindowStart: null,
         estimatedDeliveryDate: "2030-01-01",

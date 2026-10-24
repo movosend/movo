@@ -22,6 +22,7 @@ import {
   decomposeOfferGrossPrice,
   estimateMpFeeArs,
   estimateReceivedArs,
+  getCommissionConfig,
   InProgressShipment,
   ShipmentParties,
   ShipmentStatus,
@@ -182,7 +183,8 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
   });
 
   function toAdminOffer(offer: Offer): AdminShipmentOffer {
-    const { netArs, commissionAmountArs } = decomposeOfferGrossPrice(offer.priceOffered);
+    const commissionRate = getCommissionConfig().movoCommissionRate;
+    const { netArs, commissionAmountArs } = decomposeOfferGrossPrice(offer.priceOffered, commissionRate);
     // Las franjas de la oferta se guardan como "HH:MM:SS" de pared, sin anclaje (no son `@db.Time`).
     const hhmm = (value: string | null): string | null => (value ? value.slice(0, 5) : null);
     return {
@@ -194,6 +196,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
       priceArs: offer.priceOffered,
       netArs,
       commissionArs: commissionAmountArs,
+      commissionRate,
       mpFeeEstimateArs: estimateMpFeeArs(offer.priceOffered),
       receivedEstimateArs: estimateReceivedArs(netArs, offer.priceOffered),
       offeredDate: dateOnly(offer.offeredDate),
@@ -367,6 +370,10 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
         heightCm: row.heightCm.toNumber(),
         description: row.description,
         urgent: row.urgent,
+        // `acceptOffer` guarda en `original*` lo pedido antes de pisarlo con lo acordado (MOVO-258 D3).
+        requestedPickupDate: dateOnly(row.originalPickupDate ?? row.pickupDate),
+        requestedPickupTimeWindowStart: timeOnly(row.originalPickupTimeWindowStart ?? row.pickupTimeWindowStart),
+        requestedPickupTimeWindowEnd: timeOnly(row.originalPickupTimeWindowEnd ?? row.pickupTimeWindowEnd),
         pickupLat: row.pickupLat.toNumber(),
         pickupLng: row.pickupLng.toNumber(),
         deliveryLat: row.deliveryLat.toNumber(),

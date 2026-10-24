@@ -145,6 +145,8 @@ export interface AdminShipmentOffer {
   priceArs: number;
   netArs: number;
   commissionArs: number;
+  /** Tasa de Movo con la que se calculó el desglose (la vigente al leer, no se guarda con la oferta). */
+  commissionRate: number;
   /** Estimado de lo que descuenta Mercado Pago (MOVO-225), no el monto real del pago. */
   mpFeeEstimateArs: number;
   receivedEstimateArs: number;
@@ -195,6 +197,13 @@ export interface AdminShipmentDetail extends AdminShipmentRow {
   heightCm: number;
   description: string | null;
   urgent: boolean;
+  /**
+   * Retiro que pidió el emisor al publicar (`YYYY-MM-DD`, `HH:MM`). Al aceptar una oferta, `pickupDate` y la
+   * franja pasan a ser los acordados (MOVO-258 D3); estos no cambian.
+   */
+  requestedPickupDate: string;
+  requestedPickupTimeWindowStart: string;
+  requestedPickupTimeWindowEnd: string;
   pickupLat: number;
   pickupLng: number;
   deliveryLat: number;
