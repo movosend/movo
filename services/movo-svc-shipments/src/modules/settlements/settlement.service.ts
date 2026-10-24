@@ -380,9 +380,9 @@ export function createSettlementService(deps: SettlementServiceDeps) {
     },
 
     /**
-     * MOVO-310: la penalidad de un transportista que se bajó con menos de 12 h va a su cuenta
-     * corriente como deuda (no hay hold suyo del que cobrarla; se descuenta de su próximo cobro,
-     * MOVO-311). Idempotente por oferta: la key del ledger es la misma en cada reintento y solo
+     * MOVO-310: la penalidad de un transportista que se bajó con menos de 12 h (o, desde MOVO-270,
+     * que no se presentó al retiro, ADR-052) va a su cuenta corriente como deuda (no hay hold suyo
+     * del que cobrarla; se descuenta de su próximo cobro, MOVO-311). Idempotente por oferta: la key del ledger es la misma en cada reintento y solo
      * quien gana `resolveWithdrawalPenalty` manda la push. Lanza si payments falla (queda `pending`).
      */
     async registerWithdrawalPenalty(offerId: string): Promise<WithdrawalPenaltyOutcome> {
@@ -403,11 +403,12 @@ export function createSettlementService(deps: SettlementServiceDeps) {
         "la penalidad por bajarse del envío quedó como deuda del transportista"
       );
       if (notificationsClient) {
-        // El envío ya no es suyo (vuelve a `published`): la push abre su oferta, no el envío.
+        // El envío ya no es suyo (vuelve a `published`, o se canceló por no-retiro): la push abre
+        // su oferta, no el envío.
         await sendCustodyPush({
           notificationsClient,
           userId: penalty.carrierId,
-          triggerKey: "carrierWithdrawalPenaltyDebtCarrier",
+          triggerKey: penalty.origin === "no_show" ? "pickupNoShowPenaltyDebtCarrier" : "carrierWithdrawalPenaltyDebtCarrier",
           params: { penaltyArs: penalty.penaltyArs },
           data: { type: "carrier_withdrawal_penalty", shipmentId: penalty.shipmentId, offerId },
           logger,

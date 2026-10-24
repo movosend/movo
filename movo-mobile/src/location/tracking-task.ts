@@ -93,6 +93,7 @@ class BackgroundTrackingManager {
       const lng = loc.coords.longitude;
       const accuracyM = loc.coords.accuracy ?? 0;
       const capturedAt = new Date(loc.timestamp).toISOString();
+      const mocked = loc.mocked;
 
       for (const shipmentId of this.activeShipmentIds) {
         newPositions.push({
@@ -101,6 +102,7 @@ class BackgroundTrackingManager {
           lng,
           accuracyM,
           capturedAt,
+          ...(mocked !== undefined ? { mocked } : {}),
         });
       }
     }
@@ -145,6 +147,7 @@ class BackgroundTrackingManager {
         lng: item.lng,
         accuracyM: item.accuracyM,
         capturedAt: item.capturedAt,
+        ...(item.mocked !== undefined ? { mocked: item.mocked } : {}),
       }));
 
       try {

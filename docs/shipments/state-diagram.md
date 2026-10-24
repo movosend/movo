@@ -18,6 +18,15 @@ es responsabilidad de un admin (MOVO-30, panel en MOVO-32) y todavía no hay tic
 defina a qué estado vuelve el envío — no se modela una transición inventada para no
 adelantar una decisión que no está tomada.
 
+`assigned → disputed` (MOVO-270, ADR-052): el barrido de retiro no realizado tiene evidencia
+GPS de que el transportista llegó al punto de retiro y no hubo handshake. El hold se libera
+antes de transicionar (no queda plata retenida en un estado sin salida) y esa disputa no
+bloquea al transportista (`no_open_dispute` solo cuenta las disputas con custodia). Si el
+barrido atribuye el no-retiro al transportista (no llegó), el envío se cancela como antes pero
+con `attribution: carrier` en el evento y la penalidad de baja de ADR-047; sin evidencia,
+`attribution: none`. Pasado el plazo del barrido (ventana + gracia) el retiro ya no se puede
+confirmar (`HANDSHAKE_PICKUP_DEADLINE_PASSED`).
+
 `assigned_unfunded` (MOVO-208, hold anclado cerca del retiro según MOVO-12): ruta
 alternativa a `assignment_pending` cuando el retiro es a más de N días. Al aceptar la
 oferta no se crea el hold: cuando el retiro entra en N días se abre una ventana y el
@@ -87,7 +96,8 @@ stateDiagram-v2
     assigned --> assigned_unfunded: MP perdió el hold\n(el emisor reconfirma el pago, MOVO-210)
     assigned --> in_transit: retiro confirmado\n(handshake, MOVO-6)
     assigned --> published: el transportista se baja\n(hold liberado, deuda si < 12 h, MOVO-310)
-    assigned --> cancelled: emisor cancela\n(con penalización)
+    assigned --> cancelled: emisor cancela\n(con penalización) o retiro no realizado\n(barrido, atribuido o sin culpables, MOVO-270)
+    assigned --> disputed: el transportista llegó al retiro\ny no hubo handshake (barrido, MOVO-270)
 
     in_transit --> delivered: entrega confirmada\n(handshake)
     in_transit --> disputed: reclamo en tránsito (MOVO-30)\no entrega demorada (barrido, MOVO-278)
@@ -162,7 +172,9 @@ stateDiagram-v2
   penalización desde `assigned_unfunded` porque todavía no hay hold que liberar; la
   penalidad desde `assigned` es el 25 % del precio acordado si faltan menos de 12 h para el
   retiro, MOVO-307/ADR-047); a
-  partir de `in_transit` la única salida de excepción es `disputed`.
+  partir de `in_transit` la única salida de excepción es `disputed`. Antes del retiro, solo
+  `assigned` puede ir a `disputed` (MOVO-270): `assignment_pending`/`assigned_unfunded` no tienen
+  hold y el retiro era imposible.
 - `assigned_unfunded` → `in_transit` directo (AC2 de MOVO-208): permitiría retirar un
   paquete sin fondos reservados.
 - Cualquier transición saliente de un estado terminal (`cancelled`, `completed`) o de
@@ -171,7 +183,7 @@ stateDiagram-v2
 - Quedarse en el mismo estado (`X` → `X`) no se modela como transición.
 
 Ver `services/movo-svc-shipments/test/shipment-state-machine.test.ts` para la cobertura
-completa: las 20 transiciones válidas del diagrama + casos inválidos representativos de
+completa: las 23 transiciones válidas del diagrama + casos inválidos representativos de
 cada categoría de arriba.
 
 ## Fuente original del diagrama

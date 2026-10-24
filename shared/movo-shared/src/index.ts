@@ -297,6 +297,16 @@ export type {
   CancellationQuoteResponse,
 } from "./config/cancellation-penalty";
 
+// atribución del no-retiro (MOVO-270, ADR-052)
+export {
+  ARRIVAL_RADIUS_M,
+  ARRIVAL_MAX_ACCURACY_M,
+  ABSENCE_MIN_DISTANCE_M,
+  ARRIVAL_EARLY_MARGIN_MIN,
+  MIN_ABSENCE_POSITIONS,
+} from "./config/pickup-attribution";
+export type { PickupMissedAttribution } from "./config/pickup-attribution";
+
 // viajes recurrentes (MOVO-265, ADR-042)
 export {
   RECURRENCE_WEEKDAY,

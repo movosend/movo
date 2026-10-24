@@ -10,13 +10,16 @@ import { pickupWindowEndInstant, pickupWindowInstant } from "./pickup-window";
  */
 export function quoteShipmentCancellation(
   shipment: Pick<Shipment, "status" | "agreedPriceArs" | "pickupDate" | "pickupTimeWindowStart" | "pickupTimeWindowEnd">,
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** MOVO-270 (AC13): con la ventana cerrada y la llegada registrada, la cancelación no es sin cargo. */
+  carrierArrivedAtPickup = false
 ): CancellationPenaltyQuote {
   return computeCancellationPenalty({
     status: shipment.status,
     agreedPriceArs: shipment.agreedPriceArs,
     pickupWindowStart: pickupWindowInstant(shipment.pickupDate, shipment.pickupTimeWindowStart),
     pickupWindowEnd: pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
+    carrierArrivedAtPickup,
     now,
   });
 }

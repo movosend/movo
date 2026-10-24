@@ -25,6 +25,12 @@ export type NotificationTriggerKey =
   | "shipmentCancelledPickupMissedSender"
   | "shipmentCancelledPickupMissedReceiver"
   | "shipmentCancelledPickupMissedCarrier"
+  | "pickupNoShowSender"
+  | "pickupNoShowCarrier"
+  | "pickupNoShowPenaltyDebtCarrier"
+  | "pickupDisputeOpenedSender"
+  | "pickupDisputeOpenedReceiver"
+  | "pickupDisputeOpenedCarrier"
   | "offersNeedReview"
   | "transitAnomalyCheck"
   | "transitAnomalyDisputeWarning"
@@ -221,6 +227,64 @@ export const NOTIFICATION_TRIGGERS = {
     () => ({
       title: "Envío cancelado",
       body: "El envío se canceló: el retiro no se realizó dentro del plazo acordado",
+    })
+  ),
+  // MOVO-270 (ADR-052): el barrido de retiro no realizado atribuye el no-retiro al transportista
+  // (nunca inició el viaje o su GPS lo ubicó lejos durante toda la ventana). El receptor recibe
+  // el aviso neutro de arriba. `rateCarrier` invita a calificar (detrás de flag hasta MOVO-337).
+  pickupNoShowSender: definition<{ rateCarrier: boolean }>(
+    "shipments",
+    { title: "Envío cancelado", body: "El transportista no se presentó al retiro. Liberamos tu reserva." },
+    ({ rateCarrier }) => ({
+      title: "Envío cancelado",
+      body: rateCarrier
+        ? "El transportista no se presentó al retiro y liberamos tu reserva. Podés calificarlo desde el detalle del envío."
+        : "El transportista no se presentó al retiro y liberamos tu reserva",
+    })
+  ),
+  pickupNoShowCarrier: definition<void>(
+    "shipments",
+    { title: "Envío cancelado", body: "El envío se canceló: no registramos tu llegada al retiro dentro del plazo." },
+    () => ({
+      title: "Envío cancelado",
+      body: "El envío se canceló: no registramos tu llegada al retiro dentro del plazo acordado",
+    })
+  ),
+  pickupNoShowPenaltyDebtCarrier: definition<{ penaltyArs: number }>(
+    "payments",
+    {
+      title: "Registramos una penalidad",
+      body: "No te presentaste al retiro de un envío: la penalidad quedó en tu cuenta.",
+    },
+    ({ penaltyArs }) => ({
+      title: "Registramos una penalidad",
+      body: `No te presentaste al retiro de un envío: sumamos $${formatArs(penaltyArs)} a tu cuenta. Se descuenta de tu próximo cobro.`,
+    })
+  ),
+  // MOVO-270 (ADR-052): el transportista llegó al retiro y no hubo handshake. No se cobra nada
+  // automáticamente: pasa a disputa y se libera la reserva del emisor.
+  pickupDisputeOpenedSender: definition<void>(
+    "shipments",
+    { title: "Envío en disputa", body: "El transportista llegó al retiro pero no se registró la entrega del paquete." },
+    () => ({
+      title: "Envío en disputa",
+      body: "El transportista llegó al punto de retiro pero no se registró la entrega del paquete. Liberamos tu reserva y el caso pasó a revisión",
+    })
+  ),
+  pickupDisputeOpenedReceiver: definition<void>(
+    "shipments",
+    { title: "Envío en disputa", body: "El envío que ibas a recibir no se retiró y pasó a revisión." },
+    () => ({
+      title: "Envío en disputa",
+      body: "El envío que ibas a recibir no se retiró y pasó a revisión",
+    })
+  ),
+  pickupDisputeOpenedCarrier: definition<void>(
+    "shipments",
+    { title: "Envío en disputa", body: "Registramos tu llegada al retiro, pero no hubo entrega del paquete. El caso pasó a revisión." },
+    () => ({
+      title: "Envío en disputa",
+      body: "Registramos tu llegada al retiro, pero no hubo entrega del paquete. El caso pasó a revisión y podés seguir operando",
     })
   ),
   // MOVO-258 (D6): llegó el día de retiro de un envío publicado sin oferta aceptada, pero

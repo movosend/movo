@@ -67,6 +67,33 @@ describe("computeCancellationPenalty (MOVO-307)", () => {
   );
 });
 
+describe("computeCancellationPenalty con llegada del transportista (MOVO-270)", () => {
+  const afterWindow = new Date(END.getTime() + 1);
+
+  it("con la ventana cerrada y el transportista que llegó cobra el 25 % con motivo propio", () => {
+    expect(quote(afterWindow, { carrierArrivedAtPickup: true })).toEqual({
+      penaltyArs: 287.5,
+      reason: "carrier_arrived",
+      freeUntil: FREE_UNTIL,
+    });
+  });
+
+  it("sin evidencia de llegada sigue sin cargo", () => {
+    expect(quote(afterWindow, { carrierArrivedAtPickup: false })).toMatchObject({ penaltyArs: 0, reason: "pickup_window_closed" });
+  });
+
+  it("con la ventana abierta la llegada no cambia nada: sigue siendo cancelación tardía", () => {
+    expect(quote(START, { carrierArrivedAtPickup: true }).reason).toBe("late_cancellation");
+    expect(quote(new Date("2026-10-14T12:00:00.000Z"), { carrierArrivedAtPickup: true }).reason).toBe("before_free_deadline");
+  });
+
+  it("un envío que no está assigned nunca paga, aunque haya llegada", () => {
+    expect(quote(afterWindow, { status: ShipmentStatus.ASSIGNMENT_PENDING, carrierArrivedAtPickup: true }).reason).toBe(
+      "not_assigned"
+    );
+  });
+});
+
 describe("computeCarrierWithdrawalPenalty (MOVO-310)", () => {
   const withdrawal = (now: Date) =>
     computeCarrierWithdrawalPenalty({ agreedPriceArs: 1150, pickupWindowStart: START, pickupWindowEnd: END, now });

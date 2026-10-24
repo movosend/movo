@@ -1,6 +1,6 @@
 import { TRIP_PICKUP_WINDOW_LEAD_HOURS } from "../domain/trip-compatibility";
 import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
-import type { ShipmentParties } from "@movo/shared";
+import type { PickupMissedAttribution, ShipmentParties } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
   ACTIVE_SHIPMENT_STATUSES,
@@ -8,6 +8,7 @@ import {
   INITIAL_SHIPMENT_STATUS,
   InsufficientCreationPhotosError,
   MIN_CREATION_PHOTOS_TO_PUBLISH,
+  POSITION_PERSISTABLE_SHIPMENT_STATUSES,
   TRACKABLE_SHIPMENT_STATUSES,
   TRIP_EXECUTABLE_SHIPMENT_STATUSES,
   transition,
@@ -407,6 +408,7 @@ const WITHDRAWAL_PENALTY_SELECT = {
   carrierId: true,
   withdrawalPenaltyArs: true,
   carrierWithdrawnAt: true,
+  status: true,
 } as const;
 
 function mapWithdrawalPenalty(row: {
@@ -415,6 +417,7 @@ function mapWithdrawalPenalty(row: {
   carrierId: string;
   withdrawalPenaltyArs: Prisma.Decimal | null;
   carrierWithdrawnAt: Date | null;
+  status: string;
 }): PendingWithdrawalPenalty {
   // Solo se llama sobre filas `pending`, que siempre se escriben con monto y fecha.
   return {
@@ -423,6 +426,7 @@ function mapWithdrawalPenalty(row: {
     carrierId: row.carrierId,
     penaltyArs: row.withdrawalPenaltyArs?.toNumber() ?? 0,
     withdrawnAt: row.carrierWithdrawnAt ?? new Date(0),
+    origin: row.status === OfferStatus.SHIPMENT_CANCELLED ? "no_show" : "withdrawal",
   };
 }
 
@@ -454,6 +458,13 @@ export interface UpdateStatusOptions {
    * para `assigned -> published`: esa arista solo existe por la baja del transportista.
    */
   carrierWithdrawal?: { penaltyArs: number };
+  /**
+   * MOVO-270 (ADR-052): solo para la cancelación del barrido de retiro no realizado. `attribution`
+   * queda en el evento (MOVO-337 decide con eso quién califica). Con `carrier` y penalidad (> 0),
+   * la oferta aceptada guarda la penalidad `pending` en la misma transacción (mismo camino que la
+   * baja de MOVO-310, la reintenta el barrido de liquidaciones).
+   */
+  pickupMiss?: { attribution: PickupMissedAttribution; carrierPenaltyArs?: number };
 }
 
 /** MOVO-310: penalidad de una baja del transportista todavía sin registrar en su cuenta corriente. */
@@ -463,6 +474,8 @@ export interface PendingWithdrawalPenalty {
   carrierId: string;
   penaltyArs: number;
   withdrawnAt: Date;
+  /** MOVO-270: `no_show` si la penalidad viene de un no-retiro atribuido (oferta `shipment_cancelled`), no de una baja. */
+  origin: "withdrawal" | "no_show";
 }
 
 /** MOVO-310: cursor del barrido de penalidades de baja (orden por baja). */
@@ -720,8 +733,18 @@ export interface ShipmentRepository {
   /**
    * MOVO-278 (ADR-045, requisito de ADR-036): ¿el usuario tiene algún envío en
    * `disputed` como transportista? Sea la disputa automática o una iniciada por un usuario.
+   * MOVO-270 (ADR-052): solo cuentan las disputas en las que tuvo la custodia (entraron desde
+   * `in_transit`/`delivered`). La de un no-retiro con llegada registrada (`assigned -> disputed`)
+   * no lo bloquea: es el que fue a la puerta.
    */
   hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean>;
+  /**
+   * MOVO-270 (AC8): oferta aceptada del envío y el viaje al que quedó asociada, para atribuir un
+   * retiro no realizado. `trip: null` si la oferta no tiene viaje; `null` si no hay oferta aceptada.
+   */
+  findAcceptedOfferTrip(
+    shipmentId: string
+  ): Promise<{ offerId: string; trip: { id: string; status: TripStatus; startedAt: Date | null } | null } | null>;
   /**
    * MOVO-134: soporte del endpoint interno de baja de cuenta de `svc-users` -- ¿el
    * usuario (como sender, receiver o carrier) tiene algún envío en un estado no
@@ -860,6 +883,10 @@ export interface ShipmentTrackingContext {
     carrierId: string;
   } | null;
   activeShipmentIds?: string[];
+  /** MOVO-270 (AC2): envíos del viaje con custodia (`POSITION_PERSISTABLE_SHIPMENT_STATUSES`),
+   * ordenados por id. Una posición se guarda solo si hay alguno, asociada al primero (o al
+   * reportado, si es uno de ellos). Ausente: se decide solo con el estado del envío reportado. */
+  persistableShipmentIds?: string[];
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -1227,6 +1254,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             actorId,
             assignmentCarrierId: revertsAssignment ? current.carrierId : null,
             reason: reason ?? null,
+            attribution: options.pickupMiss?.attribution ?? null,
           },
         });
 
@@ -1241,6 +1269,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           const withdrawal = options.carrierWithdrawal;
           const offerTo = withdrawal ? OfferStatus.CARRIER_WITHDRAWN : OfferStatus.ASSIGNMENT_LAPSED;
           offerTransition(OfferStatus.ACCEPTED, offerTo);
+          // MOVO-270: la evidencia GPS del retiro es de la asignación que se cae; la siguiente parte de cero.
+          await tx.pickupEvidence.deleteMany({ where: { shipmentId: id } });
           await tx.offer.updateMany({
             where: { shipmentId: id, status: OfferStatus.ACCEPTED },
             data: {
@@ -1279,6 +1309,17 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         // "Mis ofertas". Una `pending` ya vencida por fecha no se toca: sigue siendo
         // `expired` por lectura, no corresponde reetiquetarla como cancelación.
         if (to === ShipmentStatus.CANCELLED) {
+          const noShowPenaltyArs = options.pickupMiss?.carrierPenaltyArs ?? 0;
+          if (options.pickupMiss?.attribution === "carrier" && noShowPenaltyArs > 0) {
+            await tx.offer.updateMany({
+              where: { shipmentId: id, status: OfferStatus.ACCEPTED },
+              data: {
+                carrierWithdrawnAt: now,
+                withdrawalPenaltyArs: new Prisma.Decimal(noShowPenaltyArs),
+                withdrawalPenaltyStatus: "pending",
+              },
+            });
+          }
           // Valida contra el grafo canónico de la oferta, mismo criterio que
           // `offer-repository.ts` con el de envíos (no se enruta por su repositorio
           // para mantenerse dentro de esta transacción).
@@ -1720,8 +1761,31 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     },
 
     async hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean> {
-      const count = await db.shipment.count({ where: { carrierId, status: ShipmentStatus.DISPUTED } });
+      const count = await db.shipment.count({
+        where: {
+          carrierId,
+          status: ShipmentStatus.DISPUTED,
+          events: {
+            some: {
+              toStatus: ShipmentStatus.DISPUTED,
+              fromStatus: { in: [ShipmentStatus.IN_TRANSIT, ShipmentStatus.DELIVERED] },
+            },
+          },
+        },
+      });
       return count > 0;
+    },
+
+    async findAcceptedOfferTrip(shipmentId: string) {
+      const offer = await db.offer.findFirst({
+        where: { shipmentId, status: OfferStatus.ACCEPTED },
+        select: { id: true, trip: { select: { id: true, status: true, startedAt: true } } },
+      });
+      if (!offer) return null;
+      return {
+        offerId: offer.id,
+        trip: offer.trip ? { id: offer.trip.id, status: offer.trip.status as TripStatus, startedAt: offer.trip.startedAt } : null,
+      };
     },
 
     /** MOVO-275: marca (una sola vez) que la entrega empezó. Idempotente. */
@@ -1945,6 +2009,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           shipment,
           trip: null,
           activeShipmentIds: [shipment.id],
+          persistableShipmentIds: POSITION_PERSISTABLE_SHIPMENT_STATUSES.includes(shipment.status) ? [shipment.id] : [],
         };
       }
 
@@ -1954,7 +2019,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           status: { in: [...TRACKABLE_SHIPMENT_STATUSES] },
           offers: { some: { tripId: trip.id, status: OfferStatus.ACCEPTED } },
         },
-        select: { id: true },
+        select: { id: true, status: true },
+        orderBy: { id: "asc" },
       });
 
       return {
@@ -1965,6 +2031,9 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           carrierId: trip.carrierId,
         },
         activeShipmentIds: activeRows.map((r) => r.id),
+        persistableShipmentIds: activeRows
+          .filter((r) => POSITION_PERSISTABLE_SHIPMENT_STATUSES.includes(r.status as ShipmentStatus))
+          .map((r) => r.id),
       };
     },
   };

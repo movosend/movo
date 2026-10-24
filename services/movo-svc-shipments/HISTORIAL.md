@@ -3736,6 +3736,27 @@ envío (dedupe Redis `notified:settlement-delayed:<id>`); el envío sigue `deliv
 la liquidación ya acreditada) y salen los pushes de siempre. El barrido `settlement-sweep` no cambia salvo que `SETTLEMENT_ESCALATED` es un fallo permanente (cooldown de 24 h);
 el backoff y el escalado viven ahora en `svc-payments`.
 
+### MOVO-270 — Atribución del no-retiro, tracking antes del retiro y conteo de oferta (ADR-052, ADR-053)
+
+Evidencia GPS pasiva en `shipments.pickup_evidence` (`domain/pickup-attribution.ts`, `repositories/pickup-evidence-repository.ts`):
+cada tramo de 45 s con claim clasifica la posición contra el retiro de cada `assigned` del viaje (llegada ≤ 250 m, lejos > 2 km,
+zona gris en el medio, todo restando `accuracyM`). El barrido de retiro no realizado atribuye con `attributePickupMiss`: no llegó →
+cancela con `shipment_events.attribution = carrier` y penalidad `pending` en la oferta (reintento por `retryPendingWithdrawalPenalties`,
+el cursor reusa `carrierWithdrawnAt`); llegó → `assigned → disputed` con el hold liberado antes; sin evidencia → como antes.
+- La evidencia es de la asignación vigente (review de la PR #291): `pickup_evidence.carrier_id`, `find`/`record` reciben el transportista,
+  la baja (`revertsAssignment`) borra la fila en la misma transacción y `record` descarta la de otro transportista. Se escribe en línea
+  dentro de `ingest`, antes de la traza y bajo el claim de cadencia: si falla se libera el claim y el cliente reintenta, así el barrido
+  no decide sin una evidencia ya aceptada.
+- `hasOpenDisputeAsCarrier` filtra por el `fromStatus` del evento de entrada: la disputa de un no-retiro no bloquea.
+- La traza (`carrier_positions`) solo se escribe con algún `in_transit` en el viaje (`POSITION_PERSISTABLE_SHIPMENT_STATUSES`,
+  `persistableShipmentIds` del contexto) y se lee por viaje + rango de custodia (`listCustodyTrace`, sin endpoint: lo expone MOVO-337).
+  La purga de ADR-023 pasa a ser por viaje.
+- El handshake de retiro se corta pasado `PICKUP_MISSED_GRACE_HOURS` (`HANDSHAKE_PICKUP_DEADLINE_PASSED`): sin eso, un retiro tardío
+  entre la liberación del hold y la transición del barrido dejaba un `in_transit` sin fondos.
+- `countAvailableCarriersNear` cuenta solo `declared` (ADR-053). `GET /shipments/:id` expone `carrierTripActive`. Env nueva
+  `PICKUP_NO_SHOW_RATING_INVITE_ENABLED` (AC12, apagada hasta MOVO-337). Pendiente: motivo de sistema y migración de estas disputas
+  en MOVO-334, y `assigned` sin hold en la matriz de MOVO-337.
+
 ### MOVO-326 — Conteos por estado y de avisos, filtro `alert` en `GET /internal/admin/shipments`
 
 El panel necesitaba los chips por estado y el toggle "Solo con alerta" con su conteo. `counts()` de

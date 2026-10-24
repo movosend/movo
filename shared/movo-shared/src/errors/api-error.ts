@@ -99,6 +99,8 @@ export type ApiErrorCode =
   | "HANDSHAKE_INVALID_SIGNATURE"
   | "HANDSHAKE_CEDENTE_KEY_MISSING"
   | "HANDSHAKE_INVALID_SHIPMENT_STATE"
+  // MOVO-270: el plazo del retiro (ventana + gracia) ya venció; el barrido cierra el envío.
+  | "HANDSHAKE_PICKUP_DEADLINE_PASSED"
   | "ROUTING_SERVICE_ERROR"
   | "ROUTING_SERVICE_UNAVAILABLE"
   // MOVO-221 / MOVO-252: rediseño de estados de viaje (declared/active/completed).
