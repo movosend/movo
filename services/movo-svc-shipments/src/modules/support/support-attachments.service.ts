@@ -5,6 +5,7 @@ import {
   SupportAttachmentCreateResult,
   SupportAttachmentType,
   SUPPORT_ATTACHMENT_MAX_BYTES,
+  SUPPORT_ATTACHMENT_MAX_PENDING,
   SUPPORT_ATTACHMENT_MAX_PER_MESSAGE,
   SUPPORT_ATTACHMENT_TYPES,
 } from "@movo/shared";
@@ -88,6 +89,15 @@ export function createSupportAttachmentsService(deps: SupportAttachmentsServiceD
       if (!Number.isInteger(input.sizeBytes) || input.sizeBytes <= 0 || input.sizeBytes > SUPPORT_ATTACHMENT_MAX_BYTES) {
         throw attachmentInvalid("La imagen tiene que pesar como máximo 5 MB.");
       }
+      // Tope de pedidas sin usar (review de la PR #299): sin esto un script llena la tabla y el bucket hasta que pase
+      // el sweep. Se liberan al usarlas en un mensaje o cuando el sweep borra las vencidas.
+      if ((await deps.repository.countPending(input.uploaderId)) >= SUPPORT_ATTACHMENT_MAX_PENDING) {
+        throw new ApiError(
+          429,
+          "SUPPORT_ATTACHMENT_PENDING_LIMIT",
+          "Tenés muchas imágenes subidas sin enviar. Mandalas o esperá un rato antes de subir más."
+        );
+      }
       const attachmentId = randomUUID();
       const s3Key = supportAttachmentKey({
         attachmentId,
@@ -119,8 +129,10 @@ export function createSupportAttachmentsService(deps: SupportAttachmentsServiceD
 
     /**
      * AC3/AC4, antes de abrir la transacción del mensaje: cantidad, dueño, uso único, conversación y que el objeto
-     * esté en el bucket con el tipo y tamaño declarados (HEAD real). El uso único se vuelve a garantizar, atómico, al
-     * asociarlos (`claimSupportAttachments`); esto es para responder bien y no tener S3 dentro de la transacción.
+     * esté en el bucket con el tipo y tamaño declarados (HEAD real). La regla de "se puede usar" es la misma que aplica
+     * el claim (`findUsable`, un solo predicado SQL), que la vuelve a garantizar atómica al asociarlos; esto es para
+     * responder bien y no tener S3 dentro de la transacción. El lado del agente (MOVO-322) tiene que pasar por acá:
+     * el claim repite la cantidad y los repetidos, pero no puede hacer el HEAD.
      */
     async assertUsable(input: {
       ids: string[];
@@ -134,18 +146,13 @@ export function createSupportAttachmentsService(deps: SupportAttachmentsServiceD
       }
       if (new Set(input.ids).size !== input.ids.length) throw attachmentInvalid("Una imagen está repetida.");
 
-      const records = await deps.repository.findByIds(input.ids);
-      const usable =
-        records.length === input.ids.length &&
-        records.every(
-          (r) =>
-            r.uploaderId === input.uploaderId &&
-            r.uploaderKind === input.uploaderKind &&
-            r.messageId === null &&
-            (r.conversationId === null || r.conversationId === input.conversationId)
-        );
-      // Ajeno, inexistente, ya usado o de otra consulta: la misma respuesta, no se filtra cuál.
-      if (!usable) throw attachmentInvalid("Alguna imagen no se puede usar en este mensaje.");
+      const records = await deps.repository.findUsable(input.ids, {
+        uploaderId: input.uploaderId,
+        uploaderKind: input.uploaderKind,
+        conversationId: input.conversationId,
+      });
+      // Ajeno, inexistente, ya usado, en borrado o de otra consulta: la misma respuesta, no se filtra cuál.
+      if (records.length !== input.ids.length) throw attachmentInvalid("Alguna imagen no se puede usar en este mensaje.");
 
       const heads = await Promise.all(records.map((r) => deps.storage.headObject(r.s3Key)));
       heads.forEach((head, i) => {

@@ -2,6 +2,7 @@ import {
   ApiError,
   notificationTriggerCategory,
   renderNotificationTrigger,
+  SupportAttachment,
   SupportAttachmentCreateResult,
   SupportConversationItem,
   SupportCreateBody,
@@ -102,15 +103,6 @@ export function createSupportService(deps: SupportServiceDeps) {
     return toUserFacingMessage(record, viewerId, lastAgentReadAt, views.get(record.id) ?? []);
   }
 
-  /** Guarda el mensaje; si algún adjunto se usó en el medio (carrera con otro mensaje o con el sweep), 422. */
-  async function withAttachmentClaim<T>(write: () => Promise<T>): Promise<T> {
-    try {
-      return await write();
-    } catch (err) {
-      if (err instanceof SupportAttachmentClaimError) throw attachmentInvalid("Alguna imagen no se puede usar en este mensaje.");
-      throw err;
-    }
-  }
 
   async function ownedConversation(id: string, userId: string): Promise<SupportConversationRecord> {
     const conversation = await repo.findOwned(id, userId);
@@ -132,7 +124,19 @@ export function createSupportService(deps: SupportServiceDeps) {
     conversation: SupportConversationRecord,
     record: SupportMessageRecord
   ): Promise<SupportUserFacingMessage | null> {
-    const message = await userFacing(record, conversation.userId, conversation.lastAgentReadAt);
+    if (record.kind === "note") return null;
+    // El mensaje ya está guardado: si firmar las URLs falla, se difunde sin adjuntos (la app los recupera al pedir
+    // `GET /messages`) en vez de fallar el request y cortar lo que sigue (evento de reapertura, estado, push).
+    let attachments: SupportAttachment[] = [];
+    try {
+      attachments = (await deps.attachments.viewsFor([record])).get(record.id) ?? [];
+    } catch (err) {
+      deps.logger?.warn(
+        { err, event: "support_attachment_sign_failed", conversationId: conversation.id, messageId: record.id },
+        "No se pudieron firmar los adjuntos del mensaje de soporte; se difunde sin ellos"
+      );
+    }
+    const message = toUserFacingMessage(record, conversation.userId, conversation.lastAgentReadAt, attachments);
     if (!message) return null;
     const event: SupportRealtimeEvent = { type: "support_message", message };
     deps.hub.sendToUser(supportRoomKey(conversation.id), conversation.userId, event);
@@ -257,29 +261,31 @@ export function createSupportService(deps: SupportServiceDeps) {
       await deps.attachments.assertUsable({ ids: attachmentIds, uploaderId: userId, uploaderKind: "user", conversationId: null });
       let created;
       try {
-        created = await withAttachmentClaim(() =>
-          repo.createWithFirstMessage({
-            userId,
-            topic: input.topic,
-            shipmentId,
-            body: text,
-            moderated,
-            clientMessageId: input.clientMessageId,
-            attachmentIds,
-            now: now(),
-          })
-        );
+        created = await repo.createWithFirstMessage({
+          userId,
+          topic: input.topic,
+          shipmentId,
+          body: text,
+          moderated,
+          clientMessageId: input.clientMessageId,
+          attachmentIds,
+          now: now(),
+        });
       } catch (err) {
+        if (!(err instanceof SupportAttachmentClaimError)) throw err;
         // Un reenvío simultáneo puede perder la carrera por los adjuntos en vez de por `clientMessageId`.
         const raced = await repo.findUserMessageByClientId(userId, input.clientMessageId);
         if (raced) return replay(raced);
-        throw err;
+        throw attachmentInvalid("Alguna imagen no se puede usar en este mensaje.");
       }
       if (!created.created) return replay(created.message);
 
-      const message = await userFacing(created.message, userId, created.conversation.lastAgentReadAt);
+      const [message, conversation] = await Promise.all([
+        userFacing(created.message, userId, created.conversation.lastAgentReadAt),
+        itemFor(created.conversation, userId),
+      ]);
       if (!message) throw notFound();
-      return { conversation: await itemFor(created.conversation, userId), message, replayed: false };
+      return { conversation, message, replayed: false };
     },
 
     async listConversations(userId: string): Promise<{ items: SupportConversationItem[] }> {
@@ -301,11 +307,11 @@ export function createSupportService(deps: SupportServiceDeps) {
         throw err;
       }
       if (!input.cursor) await repo.markDelivered(conversation.id, input.userId, now());
-      const views = await deps.attachments.viewsFor(page.items);
+      const [views, item] = await Promise.all([deps.attachments.viewsFor(page.items), itemFor(conversation, input.userId)]);
       const items = page.items
         .map((m) => toUserFacingMessage(m, input.userId, conversation.lastAgentReadAt, views.get(m.id) ?? []))
         .filter((m): m is SupportUserFacingMessage => m !== null);
-      return { items, nextCursor: page.nextCursor, conversation: await itemFor(conversation, input.userId) };
+      return { items, nextCursor: page.nextCursor, conversation: item };
     },
 
     /**
@@ -343,21 +349,20 @@ export function createSupportService(deps: SupportServiceDeps) {
       });
       let appended;
       try {
-        appended = await withAttachmentClaim(() =>
-          repo.appendUserMessage({
-            conversationId: conversation.id,
-            userId: input.userId,
-            body: text,
-            moderated,
-            clientMessageId: input.clientMessageId,
-            attachmentIds,
-            now: now(),
-          })
-        );
+        appended = await repo.appendUserMessage({
+          conversationId: conversation.id,
+          userId: input.userId,
+          body: text,
+          moderated,
+          clientMessageId: input.clientMessageId,
+          attachmentIds,
+          now: now(),
+        });
       } catch (err) {
+        if (!(err instanceof SupportAttachmentClaimError)) throw err;
         const raced = await repo.findUserMessageByClientId(input.userId, input.clientMessageId);
         if (raced) return replay(raced);
-        throw err;
+        throw attachmentInvalid("Alguna imagen no se puede usar en este mensaje.");
       }
       if (!appended.created) return replay(appended.message);
 

@@ -25,6 +25,7 @@ CREATE TABLE "shipments"."support_attachments" (
     "width" INTEGER,
     "height" INTEGER,
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "deleting_at" TIMESTAMPTZ,
 
     CONSTRAINT "support_attachments_pkey" PRIMARY KEY ("id")
 );
@@ -32,6 +33,8 @@ CREATE TABLE "shipments"."support_attachments" (
 -- CreateIndex
 CREATE UNIQUE INDEX "support_attachments_s3_key_key" ON "shipments"."support_attachments"("s3_key");
 CREATE INDEX "support_attachments_message_idx" ON "shipments"."support_attachments"("message_id", "position");
+CREATE INDEX "support_attachments_conversation_idx" ON "shipments"."support_attachments"("conversation_id");
+CREATE INDEX "support_attachments_uploader_idx" ON "shipments"."support_attachments"("uploader_id");
 -- Candidatos del sweep de huérfanos: solo los que nunca se asociaron a un mensaje.
 CREATE INDEX "support_attachments_orphan_idx" ON "shipments"."support_attachments"("created_at") WHERE "message_id" IS NULL;
 

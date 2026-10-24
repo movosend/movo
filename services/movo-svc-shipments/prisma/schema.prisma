@@ -975,12 +975,18 @@ model SupportAttachment {
   width          Int?
   height         Int?
   createdAt      DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+  // El sweep lo marcó para borrar: ya no se puede asociar. La fila se borra recién cuando S3 confirmó el borrado del
+  // objeto; si S3 falla, la marca queda y la próxima corrida reintenta.
+  deletingAt     DateTime?                 @map("deleting_at") @db.Timestamptz
 
   conversation SupportConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   message      SupportMessage?      @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   // Además, un índice parcial (created_at) WHERE message_id IS NULL para el sweep, escrito a mano en la migración.
   @@index([messageId, position], map: "support_attachments_message_idx")
+  // El cascade al borrar una consulta y el tope de pendientes por usuario.
+  @@index([conversationId], map: "support_attachments_conversation_idx")
+  @@index([uploaderId], map: "support_attachments_uploader_idx")
   @@map("support_attachments")
   @@schema("shipments")
 }
