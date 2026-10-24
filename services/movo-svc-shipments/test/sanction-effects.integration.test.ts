@@ -141,6 +141,34 @@ describe("Efectos de una sanción (Postgres) — MOVO-297", () => {
     });
   });
 
+  // MOVO-299: la vista previa tiene que contar exactamente lo que después retira el POST.
+  describe("GET /internal/users/:id/open-activity", () => {
+    it("cuenta lo retirable sin tocar nada y coincide con lo que retira el POST", async () => {
+      const published = await publishedShipment(userId);
+      const foreignShipment = await publishedShipment(randomUUID());
+      const offer = await offerRepo.create({ shipmentId: foreignShipment, carrierId: userId, priceOffered: 5000, offeredDate: PICKUP_DATE });
+      const trip = await declaredTrip(userId);
+      const inTransit = await shipmentIn("in_transit", { senderId: userId });
+
+      const preview = await app.inject({ method: "GET", url: `/internal/users/${userId}/open-activity` });
+
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json()).toMatchObject({ shipments: 1, offers: 1, trips: 1, recurringSeries: 0 });
+      expect((preview.json().inProgressShipments as Array<{ id: string }>).map((s) => s.id)).toEqual([inTransit.id]);
+      expect((await shipmentRepo.findById(published))?.status).toBe("published");
+      expect((await offerRepo.findById(offer.id))?.status).toBe("pending");
+      expect((await app.db.trip.findUnique({ where: { id: trip.id } }))?.status).toBe("declared");
+
+      const result = (await withdraw()).json();
+      expect(result.cancelledShipmentIds).toHaveLength(1);
+      expect(result.withdrawnOfferIds).toHaveLength(1);
+      expect(result.cancelledTripIds).toHaveLength(1);
+
+      const after = await app.inject({ method: "GET", url: `/internal/users/${userId}/open-activity` });
+      expect(after.json()).toMatchObject({ shipments: 0, offers: 0, trips: 0, recurringSeries: 0 });
+    });
+  });
+
   describe("POST /internal/users/:id/withdraw-open-activity", () => {
     async function seed() {
       const published = await publishedShipment(userId);

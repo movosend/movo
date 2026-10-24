@@ -19,6 +19,7 @@ import {
   ChatParticipantRole,
   ChatReportParties,
   InProgressShipment,
+  OpenActivitySummary,
   ShipmentParties,
   ShipmentStatus,
   WithdrawOpenActivityResult,
@@ -74,6 +75,7 @@ const timeOnly = (date: Date): string => date.toISOString().slice(11, 16);
  * - MOVO-294: las secciones de la ficha de un usuario del panel.
  * - MOVO-325: listado, detalle, eventos, fotos y chat de los envíos para el panel.
  * - MOVO-297: los efectos de una sanción sobre un usuario (envíos en curso y retiro de actividad abierta).
+ * - MOVO-299: la vista previa de ese retiro (`GET /users/:id/open-activity`), de solo lectura.
  */
 export default async function adminInternalRoutes(app: FastifyInstance, opts: AdminInternalRoutesOptions) {
   const shipmentRepository = createShipmentRepository(app.db);
@@ -501,6 +503,22 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     async (request: FastifyRequest): Promise<InProgressShipment[]> => {
       const { id } = request.params as { id: string };
       return sanctionEffects.listInProgressShipments(id);
+    },
+  );
+
+  // MOVO-299: lo que retiraría una sanción hoy, para el texto previo a confirmar en el panel.
+  app.get(
+    "/users/:id/open-activity",
+    {
+      schema: {
+        hide: true,
+        params: adminInternalSchemas.idParam,
+        response: { 200: adminInternalSchemas.openActivityResponse },
+      },
+    },
+    async (request: FastifyRequest): Promise<OpenActivitySummary> => {
+      const { id } = request.params as { id: string };
+      return sanctionEffects.previewOpenActivity(id);
     },
   );
 

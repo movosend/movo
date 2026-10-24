@@ -3797,3 +3797,9 @@ de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `comple
 `repositories/support-attachment-repository.ts` y `plugins/support-attachment-sweep.ts`. El objeto de `support/pending/…` no se mueve al
 crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no hay regla de lifecycle y el sweep, que reintenta, es la
 única limpieza. Pendiente: Terraform en `movo-infra` (ver el `CLAUDE.md` raíz).
+
+### MOVO-299 — Vista previa del retiro por sanción
+
+`GET /internal/users/:id/open-activity` (`sanctionEffects.previewOpenActivity`): cuenta lo que retiraría `withdraw-open-activity` hoy
+(envíos sin comprometer, ofertas `pending` vigentes, viajes `declared`, series recurrentes) y lista los envíos en curso, sin tocar nada.
+Lo usa el texto previo a confirmar del panel. Los `where` del retiro y de la vista previa son los mismos helpers, para que no diverjan.

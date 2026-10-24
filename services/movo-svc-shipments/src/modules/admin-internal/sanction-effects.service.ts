@@ -4,6 +4,7 @@ import {
   ApiError,
   InProgressShipment,
   notificationTriggerCategory,
+  OpenActivitySummary,
   renderNotificationTrigger,
   ShipmentStatus,
   TripStatus,
@@ -103,6 +104,19 @@ function isLostRace(err: unknown): boolean {
 export function createSanctionEffectsService(deps: SanctionEffectsDeps) {
   const { db, redis, offerRepository, tripRepository, logger } = deps;
 
+  // Los mismos filtros en la vista previa (MOVO-299) y en el retiro: si divergen, el panel promete una cosa y hace otra.
+  const withdrawableShipmentsWhere = (userId: string): Prisma.ShipmentWhereInput => ({
+    senderId: userId,
+    status: { in: [...WITHDRAWABLE_SHIPMENT_STATUSES] },
+  });
+  // Las vencidas que siguen `pending` en la base ya no son ofertas vigentes: no se retiran.
+  const pendingOffersWhere = (userId: string): Prisma.OfferWhereInput => ({
+    carrierId: userId,
+    status: "pending",
+    OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+  });
+  const declaredTripsWhere = (userId: string): Prisma.TripWhereInput => ({ carrierId: userId, status: TripStatus.DECLARED });
+
   async function listInProgress(userId: string): Promise<InProgressRow[]> {
     const where: Prisma.ShipmentWhereInput = {
       OR: [{ senderId: userId }, { carrierId: userId }, { receiverId: userId }],
@@ -191,18 +205,32 @@ export function createSanctionEffectsService(deps: SanctionEffectsDeps) {
     return notified;
   }
 
+  async function listInProgressShipments(userId: string): Promise<InProgressShipment[]> {
+    const rows = await listInProgress(userId);
+    return rows.map((row) => ({
+      id: row.id,
+      shortId: shortShipmentId(row.id),
+      status: row.status as InProgressShipment["status"],
+      userRole: roleOf(row, userId),
+      pickupAddress: row.pickupAddress,
+      deliveryAddress: row.deliveryAddress,
+    }));
+  }
+
   return {
     /** MOVO-297 AC1: envíos en curso del usuario en cualquiera de sus tres roles. */
-    async listInProgressShipments(userId: string): Promise<InProgressShipment[]> {
-      const rows = await listInProgress(userId);
-      return rows.map((row) => ({
-        id: row.id,
-        shortId: shortShipmentId(row.id),
-        status: row.status as InProgressShipment["status"],
-        userRole: roleOf(row, userId),
-        pickupAddress: row.pickupAddress,
-        deliveryAddress: row.deliveryAddress,
-      }));
+    listInProgressShipments,
+
+    /** MOVO-299: lo que retiraría hoy `withdrawOpenActivity`, sin tocar nada. Solo lecturas. */
+    async previewOpenActivity(userId: string): Promise<OpenActivitySummary> {
+      const [shipments, offers, trips, recurringSeries, inProgressShipments] = await Promise.all([
+        db.shipment.count({ where: withdrawableShipmentsWhere(userId) }),
+        db.offer.count({ where: pendingOffersWhere(userId) }),
+        db.trip.count({ where: declaredTripsWhere(userId) }),
+        tripRepository.countActiveSeries(userId),
+        listInProgressShipments(userId),
+      ]);
+      return { shipments, offers, trips, recurringSeries, inProgressShipments };
     },
 
     /**
@@ -214,10 +242,7 @@ export function createSanctionEffectsService(deps: SanctionEffectsDeps) {
     async withdrawOpenActivity(userId: string, sanctionId?: string): Promise<WithdrawOpenActivityResult> {
       const failures: Failure[] = [];
 
-      const withdrawable = await db.shipment.findMany({
-        where: { senderId: userId, status: { in: [...WITHDRAWABLE_SHIPMENT_STATUSES] } },
-        select: { id: true },
-      });
+      const withdrawable = await db.shipment.findMany({ where: withdrawableShipmentsWhere(userId), select: { id: true } });
       const cancelledShipmentIds = await retireEach(
         withdrawable,
         "shipment",
@@ -225,11 +250,7 @@ export function createSanctionEffectsService(deps: SanctionEffectsDeps) {
         failures
       );
 
-      // Las vencidas que siguen `pending` en la base ya no son ofertas vigentes: no se retiran.
-      const pendingOffers = await db.offer.findMany({
-        where: { carrierId: userId, status: "pending", OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
-        select: { id: true },
-      });
+      const pendingOffers = await db.offer.findMany({ where: pendingOffersWhere(userId), select: { id: true } });
       // Mismo estado que si el transportista la hubiera retirado (AC5): `withdrawn`.
       const withdrawnOfferIds = await retireEach(pendingOffers, "offer", (id) => offerRepository.withdraw(id), failures);
 
@@ -243,10 +264,7 @@ export function createSanctionEffectsService(deps: SanctionEffectsDeps) {
         failures.push({ kind: "series", id: userId });
       }
 
-      const declaredTrips = await db.trip.findMany({
-        where: { carrierId: userId, status: TripStatus.DECLARED },
-        select: { id: true },
-      });
+      const declaredTrips = await db.trip.findMany({ where: declaredTripsWhere(userId), select: { id: true } });
       // Un viaje con paquetes aceptados lanza `TripHasAcceptedPackagesError`: queda, el envío sigue su curso.
       const cancelledTripIds = await retireEach(declaredTrips, "trip", (id) => tripRepository.cancel(id), failures);
 
