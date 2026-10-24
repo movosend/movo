@@ -65,12 +65,18 @@ def renderizar_diagramas() -> None:
     if not pendientes:
         return
     print(f"  PlantUML: {len(pendientes)} diagrama(s)")
-    cmd = ["java", "-Djava.awt.headless=true", "-DPLANTUML_LIMIT_SIZE=16384", "-jar", str(PLANTUML_JAR),
-           "-tsvg", "-charset", "UTF-8", "-config", str(TEMA_PLANTUML), "-o", str(DIAG_OUT)]
-    cmd += [str(f) for f, _, _ in pendientes]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    errores = [l for l in (r.stdout + r.stderr).splitlines()
-               if "Error" in l or "error" in l.lower() and "JAVA_TOOL_OPTIONS" not in l]
+    base = ["java", "-Djava.awt.headless=true", "-DPLANTUML_LIMIT_SIZE=16384", "-jar", str(PLANTUML_JAR),
+            "-tsvg", "-charset", "UTF-8", "-o", str(DIAG_OUT)]
+    # Gantt, WBS y mindmap usan <style> propio: el tema de skinparams no les aplica (y los rompe).
+    propios = ("@startgantt", "@startwbs", "@startmindmap")
+    con_tema = [f for f, _, _ in pendientes if not f.read_text(encoding="utf-8").lstrip().startswith(propios)]
+    sin_tema = [f for f, _, _ in pendientes if f not in con_tema]
+    salida = ""
+    for lote, extra in ((con_tema, ["-config", str(TEMA_PLANTUML)]), (sin_tema, [])):
+        if lote:
+            r = subprocess.run(base + extra + [str(f) for f in lote], capture_output=True, text=True)
+            salida += r.stdout + r.stderr
+    errores = [l for l in salida.splitlines() if "rror" in l and "JAVA_TOOL_OPTIONS" not in l]
     for fuente, sello, h in pendientes:
         destino = DIAG_OUT / (fuente.stem + ".svg")
         if destino.exists() and b"Syntax Error" not in destino.read_bytes():
@@ -156,8 +162,14 @@ def numerar(doc: dict, html: str, figuras: list, tablas: list) -> tuple[str, lis
         fig["id"] = fig.get("id") or f"{doc['id']}-fig-{nf}"
         figuras.append({"numero": numero, "titulo": titulo, "ancla": fig["id"]})
         img = fig.find("img")
-        if img and img.get("alt") == titulo:
-            img["alt"] = titulo
+        if img:
+            if img.get("alt") == titulo:
+                img["alt"] = titulo
+            # pandoc deja las clases `{.apaisada}` en la imagen; el CSS las necesita en la figura
+            propias = {"apaisada", "pagina-completa", "borde"}
+            heredadas = [c for c in img.get("class", []) if c in propias]
+            if heredadas:
+                fig["class"] = fig.get("class", []) + heredadas
 
     nt = 0
     for cap in cuerpo.find_all("caption"):

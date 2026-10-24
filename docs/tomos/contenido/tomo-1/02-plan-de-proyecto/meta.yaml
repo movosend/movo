@@ -1,0 +1,21 @@
+titulo: Plan de Proyecto
+subtitulo: Alcance, equipo, propuesta metodológica, WBS y cronograma, riesgos, presupuesto y estrategia de monetización.
+instancia: Instancia 1 · Inicio de proyecto
+version: "1.1"
+fecha: 02/11/2026
+historial:
+  - {version: "1", fecha: 15/06/2026, autor: Equipo completo, descripcion: Creación de la versión inicial del Plan.}
+  - {version: "1.1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Compilación en el Tomo I: WBS redibujada con la notación común, cronograma alineado al calendario académico (nuevo), notas de compilación sobre cambios de tecnología posteriores. Sin cambios en la planificación original."}
+introduccion: |
+  El Plan de Proyecto define cómo el equipo organiza el trabajo para construir Movo: qué
+  incluye el alcance y qué queda fuera, quién cumple cada rol, cómo se coordina y estima el
+  trabajo, qué métricas se siguen, cómo se descompone el proyecto (WBS) y en qué tiempos
+  (cronograma), qué riesgos se anticipan y cómo se mitigan, cuánto cuesta desarrollar y operar
+  el sistema, y cómo se sostiene económicamente.
+
+  Es un documento de la Instancia 1. Se actualiza cuando cambia la realidad: los cambios de
+  alcance, riesgos y capacidad que surgieron durante los sprints se registran en cada Informe
+  de Sprint, que funciona como su actualización periódica.
+audiencia: |
+  Docentes de la cátedra, para evaluar la viabilidad del proyecto, y el propio equipo, como
+  referencia durante el año. Se asumen nociones de gestión de proyectos ágiles (Scrum).

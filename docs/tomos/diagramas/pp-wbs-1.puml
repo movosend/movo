@@ -1,0 +1,54 @@
+@startwbs pp-wbs-1
+' Plan de Proyecto §4: Work Breakdown Structure (transcripta del WBS original del equipo).
+<style>
+wbsDiagram {
+  node { FontName Inter; FontSize 9; LineColor #8A8A93; BackgroundColor #FFFFFF; RoundCorner 6; Padding 4; MaximumWidth 120 }
+  :depth(0) { BackgroundColor #C6F24A; LineColor #0A0A0B; FontSize 13; FontStyle bold; MaximumWidth 300 }
+  :depth(1) { BackgroundColor #0A0A0B; FontColor #FFFFFF; LineColor #0A0A0B; FontSize 10; FontStyle bold }
+  arrow { LineColor #3A3A40 }
+}
+</style>
+* Movo Launch · Inicio y fundaciones
+** Estudio Inicial
+***_ Realizar encuesta para validar el producto
+***_ Definir procesos, necesidades, problemas y oportunidades
+***_ Realizar mapa de procesos
+***_ Presentación de la propuesta
+***_ Guion y práctica de la presentación
+** Gestión de Proyecto
+***_ Reuniones daily standup
+***_ Controlar progreso y métricas
+***_ Ajustar documentos, WBS y cronograma
+** S-0
+***_ Planning y refinamiento
+***_ Normas de trabajo, reuniones y frecuencias
+***_ Criterios de Ready y Definition of Done
+***_ Gestión de la configuración
+***_ Evaluar y definir tecnologías
+***_ Plan de testing
+***_ Definir y priorizar user stories
+***_ Métricas de seguimiento
+***_ Review y retrospectiva
+** S-1
+***_ Planning y sprint backlog
+***_ Investigar Didit.me
+***_ Diagrama E/R
+***_ Secuencia de transacciones principales
+***_ Estados del pedido
+***_ Review y retrospectiva
+** S-2
+***_ Planning y sprint backlog
+***_ API Gateway
+***_ Middleware de autenticación
+***_ Registro + KYC
+***_ Investigar Mercado Pago (split y reserva)
+***_ Review y retrospectiva
+** S-3
+***_ Planning y sprint backlog
+***_ Ver perfil
+***_ Tarjetas de crédito
+***_ Validación de licencias
+***_ Motor de precios dinámico
+***_ Almacenamiento multimedia
+***_ Review, retro y bugs
+@endwbs

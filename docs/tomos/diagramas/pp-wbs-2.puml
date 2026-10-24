@@ -1,0 +1,48 @@
+@startwbs pp-wbs-2
+' Plan de Proyecto §4: Work Breakdown Structure (transcripta del WBS original del equipo).
+<style>
+wbsDiagram {
+  node { FontName Inter; FontSize 9; LineColor #8A8A93; BackgroundColor #FFFFFF; RoundCorner 6; Padding 4; MaximumWidth 120 }
+  :depth(0) { BackgroundColor #C6F24A; LineColor #0A0A0B; FontSize 13; FontStyle bold; MaximumWidth 300 }
+  :depth(1) { BackgroundColor #0A0A0B; FontColor #FFFFFF; LineColor #0A0A0B; FontSize 10; FontStyle bold }
+  arrow { LineColor #3A3A40 }
+}
+</style>
+* Movo Launch · Construcción del producto
+** S-4
+***_ Planning y sprint backlog
+***_ Creación de envíos
+***_ Selección de transportistas
+***_ Cancelación de envíos
+***_ Declaración de viajes
+***_ Review, retro y bugs
+** S-5
+***_ Planning y sprint backlog
+***_ Filtrado de paquetes disponibles
+***_ Ofertas y contraofertas
+***_ Aceptación y rechazo de envíos
+***_ Hold y captura de fondos
+***_ Review, retro y bugs
+** S-6
+***_ Planning y sprint backlog
+***_ Carga de fotos de prueba
+***_ Motor de optimización logística
+***_ Tracking en tiempo real
+***_ Cryptographic handshake
+***_ Notificaciones push
+***_ Calificación post envío
+***_ Review, retro y bugs
+** S-7
+***_ Planning y sprint backlog
+***_ Historial de envíos
+***_ Sistema de disputas
+***_ Panel de monitoreo de envíos
+***_ Editar perfil
+***_ Review, retro y bugs
+** S-8
+***_ Planning y sprint backlog
+***_ Historial de pagos
+***_ Chat en tiempo real
+***_ Pago en efectivo
+***_ Review, retro y bugs
+@endwbs

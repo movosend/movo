@@ -1,0 +1,48 @@
+@startgantt pp-cronograma
+' Plan de Proyecto §5: cronograma alineado al calendario académico 2026.
+' Fechas de los sprints tomadas de los ciclos de Linear (Sprint N = Cycle N+1).
+<style>
+ganttDiagram {
+  task { FontName Inter; FontSize 9; BackGroundColor #F1F1F3; LineColor #0A0A0B }
+  milestone { FontName Inter; FontSize 9; BackGroundColor #0A0A0B; LineColor #0A0A0B }
+  separator { FontName Inter; FontSize 9; FontStyle bold; LineColor #8A8A93 }
+  timeline { FontName Inter; FontSize 8; LineColor #D9D9DE }
+  arrow { LineColor #3A3A40 }
+}
+</style>
+language es
+printscale weekly
+Project starts 2026-04-06
+saturday are closed
+sunday are closed
+
+-- Instancia 1 · Inicio de proyecto --
+[Presentación de la idea] starts 2026-04-13 and ends 2026-04-28
+[Estudio Inicial] starts 2026-04-20 and ends 2026-05-29
+[Plan de Proyecto] starts 2026-06-01 and ends 2026-06-30
+[Presentación del Estudio Inicial] happens 2026-05-30
+[Presentación del Plan de Proyecto] happens 2026-06-30
+
+-- Instancia 2 · Sprint 0 --
+[Sprint 0] starts 2026-06-29 and ends 2026-07-12
+
+-- Instancia 3 · Sprints 1 a N --
+[Sprint 1] starts 2026-07-13 and ends 2026-07-26
+[Sprint 2] starts 2026-07-27 and ends 2026-08-09
+[Sprint 3] starts 2026-08-10 and ends 2026-08-23
+[Sprint 4] starts 2026-08-24 and ends 2026-09-06
+[Sprint 5] starts 2026-09-07 and ends 2026-09-20
+[Sprint 6] starts 2026-09-21 and ends 2026-10-04
+[Sprint 7] starts 2026-10-05 and ends 2026-10-18
+[Sprint 8] starts 2026-10-19 and ends 2026-11-01
+[Control de avance y demo] happens 2026-09-09
+
+-- Instancia 4 · Jornada de presentación --
+[Paper y póster] starts 2026-07-06 and ends 2026-08-18
+[Video del proyecto] starts 2026-08-22 and ends 2026-09-01
+[Feria de proyectos] happens 2026-10-07
+
+-- Instancia 5 · Fin de proyecto --
+[Documentación final (tomos)] starts 2026-10-19 and ends 2026-11-06
+[Entrega de la documentación] happens 2026-11-06
+@endgantt
