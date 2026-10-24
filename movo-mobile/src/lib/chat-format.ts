@@ -1,6 +1,8 @@
 import type { ChatDeliveryStatus, ChatMessage, ChatParticipantRole } from "@movo/shared/dist/types/chat";
+import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../api/shipments-client";
+import { getFirstName } from "./profile-format";
 
 /**
  * MOVO-284: formateo puro del chat. Todo lo que no depende de React vive acá para
@@ -165,6 +167,25 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
     default:
       return null;
   }
+}
+
+/**
+ * MOVO-340: tarjeta de una transferencia de receptor completada, en el momento en que el receptor nuevo se
+ * sumó al chat. El texto depende de quién mira: "Le pasaste la recepción a Martín" (quien la pidió),
+ * "Lucía te pasó la recepción" (el receptor nuevo), "Lucía le pasó la recepción a Martín" (el resto).
+ * `null` para una solicitud que no se completó: esas no cambian a nadie del chat.
+ */
+export function chatTransferCard(transfer: ReceiverTransferRequest, viewerId: string | undefined): ChatEventCard | null {
+  if (transfer.status !== "completed" || !transfer.resolvedAt) return null;
+  const requester = getFirstName(transfer.requesterName) || "El receptor";
+  const invited = getFirstName(transfer.newReceiverName) || "otra persona";
+  const text =
+    viewerId === transfer.requestedBy
+      ? `Le pasaste la recepción a ${invited}`
+      : viewerId === transfer.newReceiverId
+        ? `${requester} te pasó la recepción`
+        : `${requester} le pasó la recepción a ${invited}`;
+  return { id: `receiver-transfer-${transfer.id}`, text, live: false, createdAt: transfer.resolvedAt };
 }
 
 /**

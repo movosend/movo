@@ -9,6 +9,7 @@ import { useAuthStore } from "../store/auth-store";
 import {
   buildChatTimeline,
   chatEventCard,
+  chatTransferCard,
   eventsSinceCurrentAssignment,
   type ChatEventCard,
   type LocalChatMessage,
@@ -25,6 +26,7 @@ import {
   useMarkChatRead,
   useSendChatMessage,
 } from "./use-chat";
+import { useShipmentReceiverTransfers } from "./use-receiver-transfers";
 import { useShipment, useShipmentEvents } from "./use-shipments";
 
 const READ_THROTTLE_MS = 2_000;
@@ -42,6 +44,7 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
 
   const shipmentQuery = useShipment(shipmentId);
   const eventsQuery = useShipmentEvents(shipmentId);
+  const transfersQuery = useShipmentReceiverTransfers(shipmentId);
   const participantsQuery = useChatParticipants(shipmentId);
   const messagesQuery = useChatMessages(shipmentId);
   const sendMutation = useSendChatMessage(shipmentId ?? "");
@@ -75,10 +78,10 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
       carrierFirstName: participants.find((p) => p.role === "carrier")?.firstName ?? null,
       receiverFirstName: participants.find((p) => p.role === "receiver")?.firstName ?? null,
     };
-    return eventsSinceCurrentAssignment(eventsQuery.data ?? [])
-      .map((event) => chatEventCard(event, viewer))
-      .filter((card): card is ChatEventCard => card !== null);
-  }, [eventsQuery.data, participants, me?.role]);
+    const statusCards = eventsSinceCurrentAssignment(eventsQuery.data ?? []).map((event) => chatEventCard(event, viewer));
+    const transferCards = (transfersQuery.data ?? []).map((transfer) => chatTransferCard(transfer, meId));
+    return [...statusCards, ...transferCards].filter((card): card is ChatEventCard => card !== null);
+  }, [eventsQuery.data, transfersQuery.data, participants, me?.role, meId]);
 
   const timeline = useMemo(
     () =>
@@ -173,6 +176,17 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
       // Los tildes los calcula el servidor: se pide la primera página de nuevo, con debounce.
       if (receiptTimerRef.current) clearTimeout(receiptTimerRef.current);
       receiptTimerRef.current = setTimeout(() => refetchFirstMessagesPage(queryClient, shipmentId), RECEIPT_REFETCH_DEBOUNCE_MS);
+    },
+    onParticipantsChanged: () => {
+      if (!shipmentId) return;
+      // MOVO-340: entró un receptor nuevo. Se vuelven a pedir los integrantes (encabezado, avatares) y el acceso de
+      // la primera página: el receptor original queda en solo lectura sin cerrar el socket. La tarjeta sale de las
+      // transferencias del envío.
+      void queryClient.invalidateQueries({ queryKey: chatKeys.participants(shipmentId) });
+      refetchFirstMessagesPage(queryClient, shipmentId);
+      void queryClient.invalidateQueries({ queryKey: ["shipments", "detail", shipmentId] });
+      void queryClient.invalidateQueries({ queryKey: ["shipments", "receiver-transfers", shipmentId] });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.list });
     },
     onConnected: () => {
       if (!shipmentId) return;

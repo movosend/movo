@@ -6,6 +6,7 @@ import {
   buildChatTimeline,
   chatAvailability,
   chatEventCard,
+  chatTransferCard,
   eventsSinceCurrentAssignment,
   chatReadOnlyCopy,
   deliveryStatusLabel,
@@ -250,5 +251,40 @@ describe("chatAuthorLabel (MOVO-301)", () => {
 
   it("sin nombre ni participante no inventa una etiqueta", () => {
     expect(chatAuthorLabel({ authorId: "x", authorName: null, participants })).toBeUndefined();
+  });
+});
+
+describe("chatTransferCard (MOVO-340)", () => {
+  const transfer = {
+    id: "t1",
+    shipmentId: "s1",
+    requestedBy: "lucia",
+    requesterName: "Lucía Gómez",
+    newReceiverId: "martin",
+    newReceiverName: "Martín López",
+    reason: null,
+    responseReason: null,
+    status: "completed" as const,
+    cancelReason: null,
+    newReceiverDeadline: "2026-10-14T18:00:00.000Z",
+    createdAt: "2026-10-14T12:00:00.000Z",
+    resolvedAt: "2026-10-14T13:00:00.000Z",
+    resolvedBy: "martin",
+  };
+
+  it("el texto depende de quién mira, y la tarjeta va en el momento en que se completó", () => {
+    expect(chatTransferCard(transfer, "lucia")).toEqual({
+      id: "receiver-transfer-t1",
+      text: "Le pasaste la recepción a Martín",
+      live: false,
+      createdAt: "2026-10-14T13:00:00.000Z",
+    });
+    expect(chatTransferCard(transfer, "martin")?.text).toBe("Lucía te pasó la recepción");
+    expect(chatTransferCard(transfer, "diego")?.text).toBe("Lucía le pasó la recepción a Martín");
+  });
+
+  it("una solicitud que no se completó no lleva tarjeta", () => {
+    expect(chatTransferCard({ ...transfer, status: "rejected_by_new_receiver" }, "diego")).toBeNull();
+    expect(chatTransferCard({ ...transfer, status: "pending_new_receiver", resolvedAt: null }, "diego")).toBeNull();
   });
 });

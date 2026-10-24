@@ -44,13 +44,13 @@ const LAST_REJECTION_INCLUDE = {
   receiverTransfers: {
     where: { status: "completed" },
     take: 1,
-    select: { requestedBy: true },
+    select: { requestedBy: true, resolvedAt: true },
   },
 } satisfies Prisma.ShipmentInclude;
 
 type ShipmentRowWithLastRejection = ShipmentRow & {
   events: Array<{ reason: string | null }>;
-  receiverTransfers: Array<{ requestedBy: string }>;
+  receiverTransfers: Array<{ requestedBy: string; resolvedAt: Date | null }>;
 };
 
 function mapShipmentWithLastRejection(row: ShipmentRowWithLastRejection): Shipment {
@@ -59,6 +59,7 @@ function mapShipmentWithLastRejection(row: ShipmentRowWithLastRejection): Shipme
   return {
     ...mapShipmentRow(row, rejectionReason),
     formerReceiverId: row.receiverTransfers[0]?.requestedBy ?? null,
+    receiverTransferredAt: row.receiverTransfers[0]?.resolvedAt ?? null,
   };
 }
 

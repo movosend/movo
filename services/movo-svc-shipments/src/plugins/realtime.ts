@@ -1,7 +1,7 @@
 import fp from "fastify-plugin";
 import websocket from "@fastify/websocket";
 import { FastifyInstance } from "fastify";
-import { ShipmentStatus } from "@movo/shared";
+import { ChatRealtimeEvent, ShipmentStatus } from "@movo/shared";
 import type { WebSocket } from "ws";
 import {
   onShipmentStatusChanged,
@@ -10,6 +10,7 @@ import {
 import { TRACKING_CLOSED_STATUSES } from "../domain/shipment-state-machine";
 import { CHAT_CLOSING_STATUSES } from "../domain/chat-window";
 import { ChatHub } from "../realtime/chat-hub";
+import { onChatParticipantsChanged } from "../realtime/chat-participants-events";
 
 /** Cierre WS "privado" (RFC 6455, >=4000) propio del proyecto -- el envío pasó a un
  * estado que corta el tracking (MOVO-201/AC4) mientras el socket seguía abierto.
@@ -145,5 +146,12 @@ export default fp(async (app: FastifyInstance) => {
     // del transportista anterior no pueden seguir vivos para la conversación que arranque la próxima asignación.
     if (!CHAT_CLOSING_STATUSES.includes(event.to) && event.to !== ShipmentStatus.PUBLISHED) return;
     chatHub.close(event.shipmentId, CHAT_CLOSED_WS_CODE, `El envío pasó a '${event.to}'.`);
+  });
+
+  // MOVO-340: con el chat abierto, cada quien se entera en el acto de que cambiaron los integrantes (un
+  // receptor nuevo). No se cierra ningún socket: el receptor original sigue leyendo, ahora sin escribir.
+  onChatParticipantsChanged(({ shipmentId }) => {
+    const event: ChatRealtimeEvent = { type: "chat_participants_changed", shipmentId };
+    for (const userId of chatHub.connectedUserIds(shipmentId)) chatHub.sendToUser(shipmentId, userId, event);
   });
 });
