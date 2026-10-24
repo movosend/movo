@@ -375,6 +375,7 @@ export {
   ADMIN_SHIPMENT_GROUP_STATUSES,
   ADMIN_SHIPMENTS_DEFAULT_LIMIT,
   ADMIN_SHIPMENTS_MAX_LIMIT,
+  ADMIN_TRACKING_POLL_INTERVAL_SECONDS,
   isAdminShipmentAlert,
 } from "./types/admin-shipments";
 export type {
@@ -394,6 +395,12 @@ export type {
   AdminChatMessage,
   AdminChatReport,
   AdminChatPage,
+  AdminTrackingState,
+  AdminTrackingReason,
+  AdminTrackingPlace,
+  AdminTrackingPoint,
+  AdminTrackingMetrics,
+  AdminShipmentTracking,
 } from "./types/admin-shipments";
 
 // admin: búsqueda de usuarios y ficha (MOVO-295, backend MOVO-294)

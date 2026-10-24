@@ -6,6 +6,7 @@ import {
   AdminShipmentDetail,
   AdminShipmentOffer,
   AdminShipmentPage,
+  AdminShipmentTracking,
   HoldDetailResponse,
   ShipmentStatus,
 } from "@movo/shared";
@@ -76,6 +77,25 @@ describe("Envíos para el panel (MOVO-325)", () => {
     reports: [{ reporterId: receiver.id, reporterRole: "receiver", createdAt: "2030-01-01T11:00:00.000Z" }],
     events: [],
   };
+  const tracking: AdminShipmentTracking = {
+    shipmentId: detail.id,
+    shipmentStatus: "in_transit",
+    state: "live",
+    reason: null,
+    origin: { lat: -31.4201, lng: -64.1888, label: "Córdoba" },
+    destination: { lat: -32.4075, lng: -63.2406, label: "Villa María" },
+    plannedRoute: { polyline: "abc", distanceMeters: 140000, durationSeconds: 7200 },
+    trace: [{ lat: -31.5, lng: -64.1, capturedAt: "2030-01-01T10:00:00.000Z" }],
+    traceTruncated: false,
+    traceAvailable: true,
+    lastPosition: { lat: -31.6, lng: -64.0, accuracyM: null, capturedAt: "2030-01-01T10:01:00.000Z" },
+    lastPingAt: "2030-01-01T10:01:01.000Z",
+    signalLost: true,
+    delayed: false,
+    metrics: { avgSpeedKmh5m: null, remainingMeters: 110000, progressPct: 21.4, etaAt: null },
+    serverTime: "2030-01-01T10:10:00.000Z",
+    pollIntervalSeconds: 15,
+  };
   const seen: { list?: string; chat?: string } = {};
   const offer: AdminShipmentOffer = {
     id: randomUUID(),
@@ -112,6 +132,7 @@ describe("Envíos para el panel (MOVO-325)", () => {
         details: { [detail.id]: detail },
         offers: { [detail.id]: [offer] },
         chats: { [detail.id]: chat },
+        trackings: { [detail.id]: tracking },
         seen,
         down: overrides.shipmentsDown ?? false,
         offersDown: overrides.offersDown ?? false,
@@ -140,9 +161,14 @@ describe("Envíos para el panel (MOVO-325)", () => {
   const get = (url: string, headers: Record<string, string> = admin, instance: FastifyInstance = app) =>
     instance.inject({ method: "GET", url, headers });
 
-  it("responde 403 sin rol admin en el listado, el detalle y el chat", async () => {
+  it("responde 403 sin rol admin en el listado, el detalle, el chat y el seguimiento", async () => {
     const notAdmin = { "x-user-id": randomUUID(), "x-user-roles": "sender" };
-    for (const url of ["/admin/shipments", `/admin/shipments/${detail.id}`, `/admin/shipments/${detail.id}/chat/messages`]) {
+    for (const url of [
+      "/admin/shipments",
+      `/admin/shipments/${detail.id}`,
+      `/admin/shipments/${detail.id}/chat/messages`,
+      `/admin/shipments/${detail.id}/tracking`,
+    ]) {
       expect((await get(url, notAdmin)).statusCode).toBe(403);
     }
   });
@@ -229,6 +255,21 @@ describe("Envíos para el panel (MOVO-325)", () => {
   it("un envío inexistente es 404", async () => {
     expect((await get(`/admin/shipments/${randomUUID()}`)).statusCode).toBe(404);
     expect((await get(`/admin/shipments/${randomUUID()}/chat/messages`)).statusCode).toBe(404);
+    expect((await get(`/admin/shipments/${randomUUID()}/tracking`)).statusCode).toBe(404);
+  });
+
+  it("devuelve el seguimiento tal cual, con los `null` intactos y sin cache (MOVO-327)", async () => {
+    const res = await get(`/admin/shipments/${detail.id}/tracking`);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["cache-control"]).toBe("no-store");
+    expect(res.json()).toEqual(tracking);
+  });
+
+  it("si svc-shipments no responde, el seguimiento es 502", async () => {
+    const down = build({ shipmentsDown: true });
+    await down.ready();
+    expect((await get(`/admin/shipments/${detail.id}/tracking`, admin, down)).statusCode).toBe(502);
+    await down.close();
   });
 
   it("devuelve el chat con el reporte, el rol del autor y si las partes pueden escribir", async () => {
@@ -242,6 +283,7 @@ describe("Envíos para el panel (MOVO-325)", () => {
     const adminId = randomUUID();
     await get(`/admin/shipments`, { "x-user-id": adminId, "x-user-roles": "admin" });
     await get(`/admin/shipments/${detail.id}`, { "x-user-id": adminId, "x-user-roles": "admin" });
+    await get(`/admin/shipments/${detail.id}/tracking`, { "x-user-id": adminId, "x-user-roles": "admin" });
     expect(await app.db.auditLog.count({ where: { adminId } })).toBe(0);
   });
 });

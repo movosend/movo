@@ -1,7 +1,6 @@
-/** Decodificador del algoritmo estándar de polyline de Google — usado solo en tests
- * para verificar que `encodePolyline` (src/utils/polyline-encode.ts) produce un
- * resultado round-trippable. No se shipea: el cliente real (movo-mobile) trae su
- * propio decoder. */
+/** Decodificador del algoritmo estándar de polyline de Google (inverso de `encodePolyline`).
+ * MOVO-327: el seguimiento del panel proyecta la última posición sobre la ruta planificada;
+ * antes vivía en `test/` y solo verificaba el round-trip del encoder. */
 export function decodePolyline(encoded: string): Array<{ lat: number; lng: number }> {
   const points: Array<{ lat: number; lng: number }> = [];
   let index = 0;

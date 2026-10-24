@@ -264,3 +264,68 @@ export interface AdminChatPage {
   /** Eventos del envío, para intercalar en el hilo por fecha. */
   events: AdminShipmentEvent[];
 }
+
+/** Cada cuántos segundos el panel vuelve a pedir el seguimiento (MOVO-327, polling provisorio hasta el WS del panel). */
+export const ADMIN_TRACKING_POLL_INTERVAL_SECONDS = 15;
+
+/** `no_carrier` sin transportista, `not_started` sin retiro, `live` en camino, `closed` con la traza guardada. */
+export type AdminTrackingState = "not_started" | "live" | "closed" | "no_carrier";
+
+/** Motivo de un `state` distinto de `live`; el texto lo arma el panel. */
+export type AdminTrackingReason =
+  | "awaiting_pickup"
+  | "unfunded"
+  | "delivered"
+  | "completed"
+  | "disputed"
+  | "cancelled"
+  | "no_carrier";
+
+export interface AdminTrackingPlace {
+  lat: number;
+  lng: number;
+  /** Ciudad o, si no hay, la dirección. */
+  label: string;
+}
+
+export interface AdminTrackingPoint {
+  lat: number;
+  lng: number;
+  capturedAt: string;
+}
+
+export interface AdminTrackingMetrics {
+  /** Aproximada: sale de los puntos persistidos (uno cada 45 s). `null` sin señal o con menos de 2 puntos. */
+  avgSpeedKmh5m: number | null;
+  remainingMeters: number | null;
+  progressPct: number | null;
+  /** `null` sin señal. */
+  etaAt: string | null;
+}
+
+/** `GET /admin/shipments/:id/tracking` (MOVO-327). La posición solo se ve con el envío en camino. */
+export interface AdminShipmentTracking {
+  shipmentId: string;
+  shipmentStatus: `${ShipmentStatus}`;
+  state: AdminTrackingState;
+  reason: AdminTrackingReason | null;
+  origin: AdminTrackingPlace;
+  destination: AdminTrackingPlace;
+  /** Polyline encoded de Google (5 decimales). `null` sin transportista o si el proveedor falló. */
+  plannedRoute: { polyline: string; distanceMeters: number; durationSeconds: number } | null;
+  /** Cronológica, del retiro a la entrega (o a ahora). */
+  trace: AdminTrackingPoint[];
+  /** La traza pasó el tope y se submuestreó (conserva el primer y el último punto). */
+  traceTruncated: boolean;
+  /** `false` si no hay puntos: sin retiro todavía o purgada por retención (ADR-023). */
+  traceAvailable: boolean;
+  lastPosition: { lat: number; lng: number; accuracyM: number | null; capturedAt: string } | null;
+  lastPingAt: string | null;
+  signalLost: boolean;
+  /** En camino con la anomalía de `in_transit` marcada (ADR-045). */
+  delayed: boolean;
+  /** Solo con `state: "live"`. */
+  metrics: AdminTrackingMetrics | null;
+  serverTime: string;
+  pollIntervalSeconds: number;
+}
