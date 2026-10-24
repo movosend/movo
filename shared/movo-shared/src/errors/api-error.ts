@@ -353,7 +353,15 @@ export type ApiErrorCode =
   // La misma `idempotencyKey` ya se usó para otro envío o destino (409).
   | "IDEMPOTENCY_KEY_REUSED"
   // Hay otro cambio forzado en curso sobre el mismo envío (409).
-  | "FORCE_STATUS_IN_PROGRESS";
+  | "FORCE_STATUS_IN_PROGRESS"
+  // MOVO-332: cambio de estado desde el panel con segundo factor por acción.
+  // La transición lo exige (forzada o crítica) y no vino `stepUpToken` (403).
+  | "STEP_UP_REQUIRED"
+  // Código o token del segundo factor inválido: vencido, ya usado, de otro envío o destino, o inexistente.
+  // Un solo código para todos los casos, así no se enumeran motivos (401).
+  | "STEP_UP_INVALID"
+  // El código del envío tipeado no coincide (422).
+  | "TYPED_CODE_MISMATCH";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

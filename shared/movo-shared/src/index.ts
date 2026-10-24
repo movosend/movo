@@ -377,6 +377,8 @@ export {
   ADMIN_SHIPMENTS_MAX_LIMIT,
   FORCE_STATUS_REASON_MAX_LENGTH,
   FORCE_STATUS_REASON_MIN_LENGTH,
+  STEP_UP_CODE_TTL_SECONDS,
+  STEP_UP_TOKEN_TTL_SECONDS,
   ADMIN_TRACKING_POLL_INTERVAL_SECONDS,
   isAdminShipmentAlert,
 } from "./types/admin-shipments";
@@ -389,6 +391,15 @@ export type {
   AdminShipmentEvent,
   ForceShipmentStatusRequest,
   ForceShipmentStatusResponse,
+  ChangeShipmentStatusRequest,
+  ChangeShipmentStatusResponse,
+  ShipmentStatusOption,
+  ShipmentStatusBlocked,
+  ShipmentStatusOptions,
+  StepUpRequest,
+  StepUpChallenge,
+  StepUpVerifyRequest,
+  StepUpToken,
   ShipmentEventKind,
   AdminShipmentPhoto,
   AdminShipmentOffer,
@@ -412,12 +423,16 @@ export type {
 export {
   FORCED_TRANSITION_MATRIX,
   blockedTransitionReason,
+  forcedTransitionFriction,
   getForcedTransition,
+  getForcedTransitionDetails,
   listForcedTransitionTargets,
 } from "./config/forced-transition-matrix";
 export type {
   ForcedTransitionCell,
+  ForcedTransitionDetails,
   ForcedTransitionKind,
+  ForcedTransitionRecipient,
   ForcedTransitionRisk,
   ForcedTransitionService,
 } from "./config/forced-transition-matrix";

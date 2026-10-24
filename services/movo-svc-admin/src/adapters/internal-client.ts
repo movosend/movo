@@ -18,6 +18,13 @@ export interface InternalRequestOptions<T> {
    * tiene, p. ej. en un deploy en serie, y se trata como servicio no disponible.
    */
   notFoundCodes: readonly string[];
+  /**
+   * Códigos de negocio que el servicio dueño responde con un 5xx pero que NO son una caída: el pedido
+   * llegó y se rechazó con un motivo conocido (p. ej. `FORCE_STATUS_EFFECT_FAILED`, 502). Se relanzan
+   * con su código en vez de colapsar en `<SERVICIO>_SERVICE_UNAVAILABLE`, que la bitácora toma por
+   * "pudo haberse aplicado".
+   */
+  relayServerErrorCodes?: readonly string[];
   /** Valida la forma de la respuesta: una forma inesperada nunca se lee como resultado. */
   isValid: (body: unknown) => body is T;
 }
@@ -45,7 +52,15 @@ export interface InternalClientConfig {
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
-type SerializedError = { error?: { code?: unknown; message?: unknown } };
+type SerializedError = { error?: { code?: unknown; message?: unknown; details?: unknown } };
+
+/** Los `details` de un error del servicio dueño viajan al panel (p. ej. `currentStatus` de un 409). */
+const detailsOf = (body: SerializedError): Record<string, unknown> | undefined => {
+  const details = body.error?.details;
+  return typeof details === "object" && details !== null && !Array.isArray(details)
+    ? (details as Record<string, unknown>)
+    : undefined;
+};
 
 export function createInternalClient(config: InternalClientConfig): InternalClient {
   const unavailable = (detail: string) =>
@@ -70,12 +85,19 @@ export function createInternalClient(config: InternalClientConfig): InternalClie
       }
 
       if (!response.ok) {
-        if (response.status >= 500) throw unavailable("devolvió un error");
         let body: SerializedError = {};
         try {
           body = (await response.json()) as SerializedError;
         } catch {
           // cuerpo no JSON: se trata como respuesta inválida.
+        }
+        if (response.status >= 500) {
+          const code = body.error?.code;
+          if (typeof code === "string" && opts.relayServerErrorCodes?.includes(code)) {
+            const message = typeof body.error?.message === "string" ? body.error.message : "Error del servicio.";
+            throw new ApiError(response.status, code as ApiErrorCode, message, detailsOf(body));
+          }
+          throw unavailable("devolvió un error");
         }
         if (typeof body.error?.code !== "string") throw unavailable("devolvió una respuesta inválida");
         if (response.status === 404) {
@@ -83,7 +105,7 @@ export function createInternalClient(config: InternalClientConfig): InternalClie
           throw unavailable("no tiene este endpoint");
         }
         const message = typeof body.error.message === "string" ? body.error.message : "Error del servicio.";
-        throw new ApiError(response.status, body.error.code as ApiErrorCode, message);
+        throw new ApiError(response.status, body.error.code as ApiErrorCode, message, detailsOf(body));
       }
 
       // 204: sin cuerpo (p. ej. un DELETE). `isValid` decide si `undefined` es una respuesta válida.
