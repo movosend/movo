@@ -80,6 +80,7 @@ export type {
   VehicleProfile,
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
+export type { PlacePrediction } from "./types/places";
 export { PriceCalculationMethod } from "./types/pricing";
 export type {
   DemandContext,
@@ -289,6 +290,8 @@ export {
   CANCELLATION_PENALTY_RATE,
   computeCancellationPenalty,
   computeCarrierWithdrawalPenalty,
+  isSenderCancellableStatus,
+  SENDER_CANCELLABLE_STATUSES,
 } from "./config/cancellation-penalty";
 export type {
   CancellationPenaltyInput,

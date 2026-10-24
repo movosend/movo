@@ -18,7 +18,9 @@
     "admin:grant": "node dist/scripts/admin-role.js grant",
     "admin:revoke": "node dist/scripts/admin-role.js revoke",
     "admin:grant:dev": "tsx src/scripts/admin-role.ts grant",
-    "admin:revoke:dev": "tsx src/scripts/admin-role.ts revoke"
+    "admin:revoke:dev": "tsx src/scripts/admin-role.ts revoke",
+    "user:name": "node dist/scripts/fix-user-name.js",
+    "user:name:dev": "tsx src/scripts/fix-user-name.ts"
   },
   "keywords": [],
   "author": "",

@@ -330,6 +330,11 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   escrito. `MOVO_COMMISSION_RATE` (15%) está confirmado; `MP_TRANSACTION_FEE_RATE` es un
   estimado a propósito, ver la entrada de MOVO-225 más abajo.
 
+- **MOVO-340 en dev/prod**: la migración `receiver_search_unaccent_movo_340` de `svc-users` crea `unaccent` y `pg_trgm`
+  (`CREATE EXTENSION`); confirmar que el usuario de `migrate deploy` tiene ese permiso antes del deploy. El registro del mobile
+  nuevo manda `firstName`/`lastName`, que un `svc-users` anterior rechaza: el backend se despliega antes del build. Después,
+  correr `npm run user:name -- list` y corregir con `set` las cuentas con nombre compuesto mal partido.
+
 ### MOVO-215 — Plazo del hold de MP y N de la saga (spike cerrado)
 
 El sandbox de MP no vence holds: dos holds siguieron `authorized` ~188 h (13/10 al 21/10),

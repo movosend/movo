@@ -956,4 +956,120 @@ describe("Chat del envío (MOVO-26)", () => {
       expect(await forCarrier(newer.carrierId)).toEqual([newer.shipmentId]);
     });
   });
+
+  describe("MOVO-340: transferencia de receptor completada", () => {
+    const listChats = (userId: string) =>
+      app.inject({ method: "GET", url: "/shipments/chats", headers: { "x-user-id": userId, "x-user-roles": "sender" } });
+    const participants = (shipmentId: string, userId: string) =>
+      app.inject({ method: "GET", url: `/shipments/${shipmentId}/chat/participants`, headers: { "x-user-id": userId, "x-user-roles": "sender" } });
+
+    /** Transferencia real por la API: la pide el receptor y la acepta la persona invitada. */
+    async function transferReceiver(p: Parties, newReceiverId: string): Promise<void> {
+      const requested = await app.inject({
+        method: "POST",
+        url: `/shipments/${p.shipmentId}/receiver-transfer`,
+        headers: { "x-user-id": p.receiverId },
+        payload: { newReceiverId },
+      });
+      expect(requested.statusCode).toBe(201);
+      const accepted = await app.inject({
+        method: "POST",
+        url: `/receiver-transfers/${requested.json().id}/accept`,
+        headers: { "x-user-id": newReceiverId },
+      });
+      expect(accepted.statusCode).toBe(200);
+    }
+
+    it("el receptor nuevo entra al chat en el acto y el original queda en solo lectura, con el chat abierto por todos", async () => {
+      const p = await createShipment();
+      const newReceiverId = randomUUID();
+      await send(p.shipmentId, p.senderId, "Dejalo en portería");
+      const sender = await connectedChat(p.shipmentId, p.senderId);
+      const carrier = await connectedChat(p.shipmentId, p.carrierId);
+      const formerReceiver = await connectedChat(p.shipmentId, p.receiverId);
+
+      await transferReceiver(p, newReceiverId);
+
+      // Cada socket abierto se entera del cambio sin cerrarse.
+      for (const client of [sender, carrier, formerReceiver]) {
+        await vi.waitFor(() =>
+          expect(client.messages).toContainEqual({ type: "chat_participants_changed", shipmentId: p.shipmentId })
+        );
+        expect(client.ws.readyState).toBe(WebSocket.OPEN);
+      }
+
+      const members = (await participants(p.shipmentId, p.senderId)).json().participants as Array<{ role: string; userId: string }>;
+      expect(members.map((m) => [m.role, m.userId])).toEqual([
+        ["sender", p.senderId],
+        ["carrier", p.carrierId],
+        ["receiver", newReceiverId],
+      ]);
+      expect((await listChats(newReceiverId)).json().items.map((i: { shipmentId: string }) => i.shipmentId)).toEqual([
+        p.shipmentId,
+      ]);
+
+      // El nuevo lee el historial (ADR-038) y escribe; el original lee pero ya no escribe.
+      const newHistory = await history(p.shipmentId, newReceiverId);
+      expect(newHistory.json()).toMatchObject({ access: "open" });
+      expect(newHistory.json().items).toHaveLength(1);
+      expect((await send(p.shipmentId, newReceiverId, "Hola, ahora lo recibo yo")).statusCode).toBe(201);
+      const formerWrite = await send(p.shipmentId, p.receiverId, "¿Sigo?");
+      expect(formerWrite.statusCode).toBe(403);
+      expect(formerWrite.json().error.code).toBe("CHAT_READ_ONLY");
+      // El original sigue mirando por su socket abierto.
+      await vi.waitFor(() =>
+        expect(chatMessagesOf(formerReceiver).map((m) => (m.message as { body: string }).body)).toContain(
+          "Hola, ahora lo recibo yo"
+        )
+      );
+
+      sender.ws.close();
+      carrier.ws.close();
+      formerReceiver.ws.close();
+    });
+
+    it("los tildes de un mensaje previo no retroceden y al nuevo solo le cuentan los mensajes posteriores", async () => {
+      const p = await createShipment();
+      const newReceiverId = randomUUID();
+      await send(p.shipmentId, p.senderId, "Antes de la transferencia");
+      await readChat(p.shipmentId, p.carrierId, "carrier");
+      await readChat(p.shipmentId, p.receiverId);
+      const before = (await history(p.shipmentId, p.senderId)).json().items[0];
+      expect(before.deliveryStatus).toBe("read");
+
+      await transferReceiver(p, newReceiverId);
+
+      expect((await history(p.shipmentId, p.senderId)).json().items[0].deliveryStatus).toBe("read");
+      expect((await listChats(newReceiverId)).json().items[0].unreadCount).toBe(0);
+
+      await send(p.shipmentId, p.senderId, "Después de la transferencia");
+      expect((await listChats(newReceiverId)).json().items[0].unreadCount).toBe(1);
+      // El mensaje nuevo se mide contra el receptor nuevo, que todavía no lo leyó.
+      const after = (await history(p.shipmentId, p.senderId)).json().items[0];
+      expect(after.body).toBe("Después de la transferencia");
+      expect(after.deliveryStatus).not.toBe("read");
+      await readChat(p.shipmentId, p.carrierId, "carrier");
+      await readChat(p.shipmentId, newReceiverId);
+      expect((await history(p.shipmentId, p.senderId)).json().items[0].deliveryStatus).toBe("read");
+    });
+
+    it("la push de chat le llega al receptor nuevo y deja de llegarle al original", async () => {
+      const p = await createShipment();
+      const newReceiverId = randomUUID();
+      await transferReceiver(p, newReceiverId);
+      vi.mocked(notifications.sendPush).mockClear();
+
+      await send(p.shipmentId, p.senderId, "¿Estás en casa?");
+      for (const flush of scheduledFlushes) flush();
+
+      await vi.waitFor(() => {
+        const chatPushTo = (userId: string) =>
+          vi
+            .mocked(notifications.sendPush)
+            .mock.calls.filter(([input]) => input.userId === userId && input.data?.type === "chat_message");
+        expect(chatPushTo(newReceiverId).length).toBeGreaterThan(0);
+        expect(chatPushTo(p.receiverId)).toHaveLength(0);
+      });
+    });
+  });
 });

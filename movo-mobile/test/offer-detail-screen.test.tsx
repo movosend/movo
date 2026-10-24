@@ -188,7 +188,7 @@ describe("OfferDetailScreen (MOVO-182)", () => {
 
     const { getByTestId } = await render(<OfferDetailScreen />);
     expect(getByTestId("offer-detail-pickup-comparison")).toHaveTextContent(
-      "Coincide con lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00.",
+      "Coincide con lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00 h.",
     );
   });
 
@@ -204,7 +204,7 @@ describe("OfferDetailScreen (MOVO-182)", () => {
 
     const { getByTestId } = await render(<OfferDetailScreen />);
     expect(getByTestId("offer-detail-pickup-comparison")).toHaveTextContent(
-      "Es distinto a lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00.",
+      "Es distinto a lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00 h.",
     );
   });
 

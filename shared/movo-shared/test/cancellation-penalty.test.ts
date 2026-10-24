@@ -3,6 +3,7 @@ import {
   CANCELLATION_PENALTY_FREE_HOURS,
   computeCancellationPenalty,
   computeCarrierWithdrawalPenalty,
+  isSenderCancellableStatus,
 } from "../src/config/cancellation-penalty";
 import { ShipmentStatus } from "../src/types/shipment";
 
@@ -22,6 +23,18 @@ const quote = (now: Date, overrides: Partial<Parameters<typeof computeCancellati
   });
 
 describe("computeCancellationPenalty (MOVO-307)", () => {
+  it("MOVO-340: un retiro el mismo día cuenta por instantes, aunque el día local y el UTC no coincidan", () => {
+    // 22:00 del 24/10 en Argentina (01:00 del 25/10 UTC); retiro de 23:00 a 23:59 del 24/10.
+    const sameDay = {
+      pickupWindowStart: new Date("2026-10-25T02:00:00.000Z"),
+      pickupWindowEnd: new Date("2026-10-25T02:59:00.000Z"),
+    };
+    expect(quote(new Date("2026-10-25T01:00:00.000Z"), sameDay)).toMatchObject({
+      penaltyArs: 287.5,
+      reason: "late_cancellation",
+    });
+  });
+
   it("con 12 h o más hasta el retiro es sin cargo y dice hasta cuándo", () => {
     expect(quote(new Date("2026-10-14T12:00:00.000Z"))).toEqual({
       penaltyArs: 0,
@@ -109,5 +122,14 @@ describe("computeCarrierWithdrawalPenalty (MOVO-310)", () => {
       reason: "late_cancellation",
       freeUntil: FREE_UNTIL,
     });
+  });
+});
+
+describe("isSenderCancellableStatus (MOVO-340)", () => {
+  it("se cancela antes del retiro, nunca con el paquete ya retirado", () => {
+    expect(isSenderCancellableStatus(ShipmentStatus.PUBLISHED)).toBe(true);
+    expect(isSenderCancellableStatus(ShipmentStatus.ASSIGNED)).toBe(true);
+    expect(isSenderCancellableStatus(ShipmentStatus.IN_TRANSIT)).toBe(false);
+    expect(isSenderCancellableStatus(ShipmentStatus.DISPUTED)).toBe(false);
   });
 });

@@ -105,7 +105,13 @@ export type ChatRealtimeEvent =
    * Alguien recibió o leyó los mensajes hasta `upTo`: el cliente actualiza los tildes de sus
    * mensajes propios. Para recalcular "entregado/leído por todos" guarda el último valor por usuario.
    */
-  | { type: "chat_receipt"; shipmentId: string; userId: string; status: "delivered" | "read"; upTo: string };
+  | { type: "chat_receipt"; shipmentId: string; userId: string; status: "delivered" | "read"; upTo: string }
+  /**
+   * MOVO-340: cambiaron los integrantes del hilo (se completó una transferencia de receptor). El
+   * cliente vuelve a pedir los integrantes y su acceso: el receptor nuevo escribe, el original
+   * queda en solo lectura sin que se cierre el socket.
+   */
+  | { type: "chat_participants_changed"; shipmentId: string };
 
 /**
  * Aviso que ve quien escribió un mensaje al que el filtro le tapó palabras (`moderated: true`).

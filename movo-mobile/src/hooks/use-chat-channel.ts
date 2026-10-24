@@ -19,6 +19,8 @@ export interface UseChatChannelOptions {
   onReceipt?: (event: Extract<ChatRealtimeEvent, { type: "chat_receipt" }>) => void;
   /** Cada vez que el canal (re)conecta: el historial pudo cambiar mientras estuvo caído. */
   onConnected?: () => void;
+  /** MOVO-340: cambiaron los integrantes del hilo (transferencia de receptor completada). */
+  onParticipantsChanged?: () => void;
 }
 
 const CLOSE_TOKEN_EXPIRED = 4001;
@@ -30,7 +32,7 @@ export function getChatWebSocketUrl(shipmentId: string): string {
 }
 
 export function useChatChannel(shipmentId: string | null | undefined, options: UseChatChannelOptions = {}) {
-  const { enabled = true, onMessage, onReceipt, onConnected } = options;
+  const { enabled = true, onMessage, onReceipt, onConnected, onParticipantsChanged } = options;
   const isAuthenticated = useAuthStore((state) => state.status === "authenticated");
   const [state, setState] = useState<ChatChannelState>("idle");
 
@@ -44,6 +46,8 @@ export function useChatChannel(shipmentId: string | null | undefined, options: U
   onReceiptRef.current = onReceipt;
   const onConnectedRef = useRef(onConnected);
   onConnectedRef.current = onConnected;
+  const onParticipantsChangedRef = useRef(onParticipantsChanged);
+  onParticipantsChangedRef.current = onParticipantsChanged;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -111,6 +115,8 @@ export function useChatChannel(shipmentId: string | null | undefined, options: U
             onMessageRef.current?.(data.message);
           } else if (data.type === "chat_receipt") {
             onReceiptRef.current?.(data);
+          } else if (data.type === "chat_participants_changed") {
+            onParticipantsChangedRef.current?.();
           }
         } catch {
           // Frame que no se puede parsear: se ignora.

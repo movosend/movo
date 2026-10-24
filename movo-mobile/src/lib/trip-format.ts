@@ -4,6 +4,7 @@ import { canStartTripOn, tripStartAvailableOn } from "@movo/shared/dist/config/t
 import { toArgentinaCalendarDateString } from "@movo/shared/dist/utils/argentina-date";
 import { TripStatus, type TripWithAcceptedPackages } from "../api/trips-client";
 import { friendlyErrorMessage } from "./error-messages";
+import { formatTimeOfDay } from "./time-format";
 import { pickupLocalityLabel, shortAddressLabel } from "./shipment-format";
 
 // MOVO-262 AC2: labels legibles del estado del viaje.
@@ -156,7 +157,6 @@ export function formatTripStartErrorMessage(err: unknown, departureAt?: string):
 const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("es-AR", { weekday: "short" });
 const MONTH_SHORT_FORMATTER = new Intl.DateTimeFormat("es-AR", { month: "short" });
 const DAY_FORMATTER = new Intl.DateTimeFormat("es-AR", { day: "numeric" });
-const TIME_FORMATTER = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
 const MONTH_LONG_FORMATTER = new Intl.DateTimeFormat("es-AR", { month: "long" });
 const YEAR_FORMATTER = new Intl.DateTimeFormat("es-AR", { year: "numeric" });
 
@@ -170,7 +170,7 @@ function shortWeekday(d: Date): string {
 
 /**
  * Partes del talón de la card de "Mis viajes" (mockup MOVO-262): `HOY`/`VIE`, día, `OCT` y
- * hora `08:00`. `HOY` reemplaza al día de la semana cuando la salida es hoy.
+ * hora `08:00 h`. `HOY` reemplaza al día de la semana cuando la salida es hoy.
  */
 export function tripStubParts(departureAt: string): { dow: string; day: string; mon: string; time: string } {
   const d = new Date(departureAt);
@@ -178,7 +178,7 @@ export function tripStubParts(departureAt: string): { dow: string; day: string; 
     dow: isTripDepartureToday(departureAt) ? "HOY" : shortWeekday(d).toUpperCase(),
     day: DAY_FORMATTER.format(d),
     mon: shortMonth(d).toUpperCase(),
-    time: TIME_FORMATTER.format(d),
+    time: formatTimeOfDay(d),
   };
 }
 
@@ -244,12 +244,12 @@ export function groupTripsByMonth<T extends { departureAt: string }>(
 
 const WEEKDAY_LONG_FORMATTER = new Intl.DateTimeFormat("es-AR", { weekday: "long" });
 
-/** "Viernes 2 de octubre, 08:00" — fecha de salida completa del detalle de viaje (MOVO-263). */
+/** "Viernes 2 de octubre, 08:00 h" — fecha de salida completa del detalle de viaje (MOVO-263). */
 export function formatTripDateLong(departureAt: string): string {
   const d = new Date(departureAt);
   const weekday = WEEKDAY_LONG_FORMATTER.format(d);
   const month = MONTH_LONG_FORMATTER.format(d);
-  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${DAY_FORMATTER.format(d)} de ${month}, ${TIME_FORMATTER.format(d)}`;
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${DAY_FORMATTER.format(d)} de ${month}, ${formatTimeOfDay(d)}`;
 }
 
 /** `#VJ-20418` derivado de los dígitos del `id` — solo para mostrar, nunca identifica al viaje. */
