@@ -17,8 +17,7 @@ import {
   ReceiverTransferPendingConflictError,
 } from "../models/receiver-transfer";
 import { ShipmentConcurrentModificationError } from "./shipment-repository";
-import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
-import { emitChatParticipantsChanged } from "../realtime/chat-participants-events";
+import { emitChatParticipantsChanged, emitShipmentStatusChanged } from "../realtime/shipment-status-events";
 import { parseShipmentStatus } from "../models/shipment";
 
 const PENDING: ReceiverTransferStatus = "pending_new_receiver";

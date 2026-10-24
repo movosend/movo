@@ -506,10 +506,12 @@ export function createChatService(deps: ChatServiceDeps) {
         throw new ApiError(409, "CHAT_CLOSED", "El chat de este envío ya no está disponible.");
       }
       const at = now();
-      // Quien solo mira (el receptor original o el admin) también baja su contador de no leídos: la lista le muestra
-      // el envío y, si no, su badge solo crece. Pero su lectura no avisa a los demás ni mueve sus tildes.
+      // Quien solo mira (el admin) también baja su contador de no leídos: la lista le muestra el envío y, si no, su
+      // badge solo crece. Pero su lectura no avisa a los demás ni mueve sus tildes. La excepción es el receptor
+      // anterior a una transferencia (MOVO-340): los tildes de los mensajes previos a la transferencia se miden contra
+      // él (`receiptOthers`), así que su lectura sí se avisa.
       await deps.chatRepository.markRead(shipment.id, input.callerId, at);
-      if (chatParties(shipment).includes(input.callerId)) {
+      if (chatParties(shipment).includes(input.callerId) || input.callerId === shipment.formerReceiverId) {
         await emitReceipt(shipment, input.callerId, "read", at);
       }
       return { readAt: at.toISOString() };

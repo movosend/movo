@@ -4,13 +4,13 @@ import { FastifyInstance } from "fastify";
 import { ChatRealtimeEvent, ShipmentStatus } from "@movo/shared";
 import type { WebSocket } from "ws";
 import {
+  onChatParticipantsChanged,
   onShipmentStatusChanged,
   ShipmentStatusChangedEvent,
 } from "../realtime/shipment-status-events";
 import { TRACKING_CLOSED_STATUSES } from "../domain/shipment-state-machine";
 import { CHAT_CLOSING_STATUSES } from "../domain/chat-window";
 import { ChatHub } from "../realtime/chat-hub";
-import { onChatParticipantsChanged } from "../realtime/chat-participants-events";
 
 /** Cierre WS "privado" (RFC 6455, >=4000) propio del proyecto -- el envío pasó a un
  * estado que corta el tracking (MOVO-201/AC4) mientras el socket seguía abierto.
@@ -124,7 +124,7 @@ export default fp(async (app: FastifyInstance) => {
   const chatHub = new ChatHub();
   app.decorate("chatHub", chatHub);
 
-  onShipmentStatusChanged((event: ShipmentStatusChangedEvent) => {
+  const unsubscribeTracking = onShipmentStatusChanged((event: ShipmentStatusChangedEvent) => {
     // MOVO-250/AC6: cada transición se difunde a los suscriptores -- las pantallas de QR
     // del handshake (MOVO-159) dejan de consultar cada 2,5s. Va ANTES del cierre por
     // estado terminal, para que el cliente reciba el estado final antes del `4009`.
@@ -141,7 +141,7 @@ export default fp(async (app: FastifyInstance) => {
 
   // MOVO-26: el chat tiene su propia política de cierre (cancelado o rechazado); una entrega
   // NO lo corta: pasa a solo lectura y a las 24 h solo se marca como archivado (sigue legible).
-  onShipmentStatusChanged((event: ShipmentStatusChangedEvent) => {
+  const unsubscribeChatClose = onShipmentStatusChanged((event: ShipmentStatusChangedEvent) => {
     // `published` = la asignación se cayó (pago vencido): sin transportista el chat queda cerrado y los sockets
     // del transportista anterior no pueden seguir vivos para la conversación que arranque la próxima asignación.
     if (!CHAT_CLOSING_STATUSES.includes(event.to) && event.to !== ShipmentStatus.PUBLISHED) return;
@@ -150,8 +150,16 @@ export default fp(async (app: FastifyInstance) => {
 
   // MOVO-340: con el chat abierto, cada quien se entera en el acto de que cambiaron los integrantes (un
   // receptor nuevo). No se cierra ningún socket: el receptor original sigue leyendo, ahora sin escribir.
-  onChatParticipantsChanged(({ shipmentId }) => {
+  const unsubscribeParticipants = onChatParticipantsChanged(({ shipmentId }) => {
     const event: ChatRealtimeEvent = { type: "chat_participants_changed", shipmentId };
     for (const userId of chatHub.connectedUserIds(shipmentId)) chatHub.sendToUser(shipmentId, userId, event);
+  });
+
+  // Los emisores son del proceso, no de la app: sin soltarlos, cada `buildApp` (los tests de integración levantan
+  // muchas) deja su listener y su `chatHub` vivos.
+  app.addHook("onClose", async () => {
+    unsubscribeTracking();
+    unsubscribeChatClose();
+    unsubscribeParticipants();
   });
 });
