@@ -53,6 +53,8 @@ def resultado(archivos: list[str], res: dict) -> str:
         return "Falla"
     if all(e is None for e in estados):
         return "Sin ejecutar"
+    if all(e in ("passed", "skipped") for e in estados) and all(e == "skipped" for e in estados):
+        return "Omitido"
     return "Aprobado"
 
 
@@ -60,11 +62,11 @@ def main(ep: str) -> None:
     H = json.loads((DATOS / "historias.json").read_text(encoding="utf-8"))
     res = {}
     if (DATOS / "resultados.json").exists():
-        res = json.loads((DATOS / "resultados.json").read_text(encoding="utf-8"))
+        res = json.loads((DATOS / "resultados.json").read_text(encoding="utf-8")).get("archivos", {})
     cfg = yaml.safe_load((DATOS / f"hu-{ep}.yaml").read_text(encoding="utf-8"))
     out = ["# Historias de Usuario y Trazabilidad\n"]
     out.append(cfg.get("presentacion", "").strip() + "\n")
-    out.append("| Historia | Descripción | Estado | Sprint |\n|---|---|---|---|")
+    out.append("| Historia | Descripción | Estado | Sprint |\n|----------|--------------------------------------------------|------------|--------------------|")
     for hu in cfg["historias"]:
         h = H[hu["id"]]
         est, _ = ESTADOS.get(h["estado"], (h["estado"], ""))
@@ -89,7 +91,7 @@ def main(ep: str) -> None:
         hijos = [k for k in h["hijos"]]
         if hijos:
             out.append("##### Trazabilidad de implementación\n")
-            out.append("| Ticket | Alcance | Sprint | Estado |\n|---|---|---|---|")
+            out.append("| Ticket | Alcance | Sprint | Estado |\n|----------|--------------------------------------------------------|------------|------------|")
             for k in hijos:
                 e2, _ = ESTADOS.get(k["estado"], (k["estado"], ""))
                 out.append(f"| `{k['id']}` | {esc(k['titulo'])} | {CICLO_SPRINT.get(k['ciclo'], k['ciclo'] or '–')} | {e2} |")

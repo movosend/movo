@@ -112,7 +112,8 @@ html {
 
 body { margin: 0; }
 
-p, li, dd, td, th { hyphens: auto; }
+p, li, dd { hyphens: auto; }
+td, th { hyphens: manual; }
 p { margin: 0 0 2.6mm; text-align: justify; orphans: 3; widows: 3; }
 a { color: inherit; text-decoration: none; }
 strong, b { font-weight: 600; }
@@ -267,6 +268,7 @@ td ul, td ol { margin: 0; }
 td code { font-size: .92em; }
 
 caption, .tabla-titulo {
+  break-after: avoid;
   caption-side: top;
   text-align: left;
   font-size: 8pt;

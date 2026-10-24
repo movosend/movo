@@ -1,0 +1,16 @@
+titulo: Épicas e Historias de Usuario
+subtitulo: Listado vigente del backlog de Movo, agrupado por épicas y por temas, con el estado real de cada historia.
+instancia: Producto · Backlog
+version: "1"
+fecha: 02/11/2026
+archivos:
+  - {gen: herramientas/gen_epicas.py}
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: listado completo de épicas e historias, con su estado al cierre del Sprint 8, derivado del tablero de Linear."}
+introduccion: |
+  Este documento lista las épicas y las historias de usuario de Movo en su versión vigente, con el
+  estado real de cada una al momento de la entrega. Es el índice del resto del tomo: cada épica da
+  lugar a un tema con la trazabilidad detallada de sus historias.
+audiencia: |
+  El tribunal evaluador y los futuros mantenedores, que necesitan ubicar rápidamente qué
+  funcionalidad existe, en qué estado está y dónde se documenta.
