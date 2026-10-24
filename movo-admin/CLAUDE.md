@@ -288,9 +288,13 @@ ahora en `lib/shipments/tracking/copy.ts`).
 - **Estados sin seguimiento en vivo** (`copy.ts`): el mapa se dibuja siempre, como en el prototipo, con retiro/entrega y la ruta original
   completa (punteada); si hay traza (cerrado/disputa) se suma como tramo recorrido. Debajo, en lugar de las métricas, el mensaje:
   "Todavía no arrancó", "Seguimiento cerrado", "Seguimiento cortado", "Sin seguimiento" (+ "La traza GPS ya fue purgada.").
-- **Teselas**: ArcGIS Location Platform (gris claro/oscuro, `lib/shipments/tracking/tiles.ts`) con `NEXT_PUBLIC_ESRI_API_KEY`, restringida por
-  referrer; reemplaza al `server.arcgisonline.com` público del prototipo, cuyos términos no cubren un panel productivo (AC8). Sin key el
-  mapa se dibuja sin teselas. **Pendiente**: crear la key y cargarla en Vercel (dev y prod).
+- **Teselas**: Basemap Styles Service de ArcGIS Location Platform (vectorial, `arcgis/light-gray` y `arcgis/dark-gray`) sobre Leaflet con
+  `@maplibre/maplibre-gl-leaflet` (`lib/shipments/tracking/tiles.ts`) y `NEXT_PUBLIC_ESRI_API_KEY`, restringida por referrer
+  (`admin.movosend.app`, `admin-dev.movosend.app`); reemplaza al `server.arcgisonline.com` público del prototipo, cuyos términos no cubren un
+  panel productivo (AC8). La key se suma a cada request a `*.arcgis.com` con `transformRequest`. Sin key el mapa se dibuja sin teselas.
+  Dos trampas que ya nos pasaron: las capas `Canvas/*` de `ibasemaps-api` devuelven 404 (no existen ahí), y `Referrer-Policy: same-origin`
+  hacía que ArcGIS respondiera 498 porque el navegador no mandaba Referer; `next.config.ts` usa `strict-origin-when-cross-origin`.
+  La variable se inyecta al compilar: cargarla en Vercel (dev y prod) exige redeploy.
 - **Modo fixtures** (`MOVO_ADMIN_MOCK=1`): ocho envíos de prueba (ids propios, no coinciden con los del listado de MOVO-326, así que en el detalle mock el mapa muestra el error 404), `00000000-0000-4000-8000-00000000000{1..8}` (`MOCK_TRACKING_IDS`: en camino,
   sin señal, sin arrancar, sin fondos, entregado, disputa, sin transportista, traza purgada); el que está en camino se mueve entre lecturas.
 - **Tokens nuevos** en `globals.css`: `--map-bg`, `--glass`, `--track-done`, `--track-todo` y las clases `.mv-track-*`.
