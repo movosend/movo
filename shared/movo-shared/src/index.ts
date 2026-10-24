@@ -80,6 +80,7 @@ export type {
   VehicleProfile,
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
+export type { PlacePrediction } from "./types/places";
 export { PriceCalculationMethod } from "./types/pricing";
 export type {
   DemandContext,
