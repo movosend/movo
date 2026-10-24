@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FastifyInstance } from "fastify";
-import { AdminChatPage, AdminShipmentDetail, AdminShipmentPage, HoldDetailResponse, ShipmentStatus } from "@movo/shared";
+import {
+  AdminChatPage,
+  AdminShipmentDetail,
+  AdminShipmentOffer,
+  AdminShipmentPage,
+  HoldDetailResponse,
+  ShipmentStatus,
+} from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createFakePaymentsClient, createFakeShipmentsClient, createFakeUsersClient } from "./fake-clients";
 
@@ -70,15 +77,43 @@ describe("Envíos para el panel (MOVO-325)", () => {
     events: [],
   };
   const seen: { list?: string; chat?: string } = {};
+  const offer: AdminShipmentOffer = {
+    id: randomUUID(),
+    carrierId: carrier.id,
+    carrierName: carrier.name,
+    carrierRatingAtOffer: 4.8,
+    status: "accepted",
+    priceArs: 4500,
+    netArs: 3913.04,
+    commissionArs: 586.96,
+    mpFeeEstimateArs: 224.55,
+    receivedEstimateArs: 3688.49,
+    offeredDate: "2030-01-01",
+    pickupTimeWindowStart: null,
+    pickupTimeWindowEnd: null,
+    estimatedDeliveryDate: null,
+    estimatedDeliveryTimeWindowStart: null,
+    estimatedDeliveryTimeWindowEnd: null,
+    message: "Paso temprano",
+    tripId: null,
+    createdAt: "2029-12-30T10:00:00.000Z",
+    viewedAtBySender: "2029-12-30T10:30:00.000Z",
+    respondedAt: "2029-12-30T12:00:00.000Z",
+    expiresAt: null,
+  };
 
-  const build = (overrides: { usersDown?: boolean; paymentsDown?: boolean; shipmentsDown?: boolean; withHold?: boolean } = {}) =>
+  const build = (
+    overrides: { usersDown?: boolean; paymentsDown?: boolean; shipmentsDown?: boolean; offersDown?: boolean; withHold?: boolean } = {},
+  ) =>
     buildApp({
       shipmentsClient: createFakeShipmentsClient({
         page,
         details: { [detail.id]: detail },
+        offers: { [detail.id]: [offer] },
         chats: { [detail.id]: chat },
         seen,
         down: overrides.shipmentsDown ?? false,
+        offersDown: overrides.offersDown ?? false,
       }),
       usersClient: createFakeUsersClient({
         cards: [card(sender.id, sender.name), card(carrier.id, carrier.name), card(receiver.id, receiver.name)],
@@ -140,10 +175,23 @@ describe("Envíos para el panel (MOVO-325)", () => {
     expect(body.shipment.id).toBe(detail.id);
     expect(body.events).toEqual({ data: [], error: null });
     expect(body.photos).toEqual({ data: [], error: null });
+    expect(body.offers).toEqual({ data: [offer], error: null });
     expect(body.payment.error).toBeNull();
     expect(body.payment.data.cardLast4).toBe("4242");
     expect(body.parties.data.map((p: { role: string }) => p.role)).toEqual(["sender", "carrier", "receiver"]);
     expect(body.parties.data[1]).toMatchObject({ id: carrier.id, licenseVerified: true, reputationScore: 4.8 });
+  });
+
+  it("si las ofertas no se pueden leer, el bloque viene en null con su causa y el resto se devuelve", async () => {
+    const down = build({ offersDown: true });
+    await down.ready();
+    const res = await get(`/admin/shipments/${detail.id}`, admin, down);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.offers.data).toBeNull();
+    expect(body.offers.error.code).toBe("SHIPMENTS_SERVICE_UNAVAILABLE");
+    expect(body.events).toEqual({ data: [], error: null });
+    await down.close();
   });
 
   it("un envío sin pago intentado trae el bloque de pago en null sin error", async () => {

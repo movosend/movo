@@ -12,12 +12,16 @@ import {
   AdminShipmentDetail,
   AdminShipmentEvent,
   AdminShipmentGroup,
+  AdminShipmentOffer,
   AdminShipmentPage,
   AdminShipmentPhoto,
   AdminShipmentRow,
   ApiError,
   ChatParticipantRole,
   ChatReportParties,
+  decomposeOfferGrossPrice,
+  estimateMpFeeArs,
+  estimateReceivedArs,
   InProgressShipment,
   ShipmentParties,
   ShipmentStatus,
@@ -39,6 +43,7 @@ import { adminInternalSchemas } from "./admin-internal.schema";
 import { createAdminUsersService } from "./admin-users.service";
 import { createSanctionEffectsService } from "./sanction-effects.service";
 import { createOfferRepository } from "../../repositories/offer-repository";
+import type { Offer } from "../../models/offer";
 import { createTripRepository } from "../../repositories/trip-repository";
 import { createShipmentsService } from "../shipments/shipments.service";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
@@ -79,6 +84,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
   const shipmentRepository = createShipmentRepository(app.db);
   const chatRepository = createChatRepository(app.db);
   const adminShipmentRepository = createAdminShipmentRepository(app.db);
+  const offerRepository = createOfferRepository(app.db);
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
   const fundingConfig = {
@@ -174,6 +180,36 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     reason: event.reason,
     createdAt: event.createdAt.toISOString(),
   });
+
+  function toAdminOffer(offer: Offer): AdminShipmentOffer {
+    const { netArs, commissionAmountArs } = decomposeOfferGrossPrice(offer.priceOffered);
+    // Las franjas de la oferta se guardan como "HH:MM:SS" de pared, sin anclaje (no son `@db.Time`).
+    const hhmm = (value: string | null): string | null => (value ? value.slice(0, 5) : null);
+    return {
+      id: offer.id,
+      carrierId: offer.carrierId,
+      carrierName: offer.carrierNameAtOffer,
+      carrierRatingAtOffer: offer.carrierRatingAtOffer,
+      status: offer.status,
+      priceArs: offer.priceOffered,
+      netArs,
+      commissionArs: commissionAmountArs,
+      mpFeeEstimateArs: estimateMpFeeArs(offer.priceOffered),
+      receivedEstimateArs: estimateReceivedArs(netArs, offer.priceOffered),
+      offeredDate: dateOnly(offer.offeredDate),
+      pickupTimeWindowStart: hhmm(offer.offeredPickupTimeWindowStart),
+      pickupTimeWindowEnd: hhmm(offer.offeredPickupTimeWindowEnd),
+      estimatedDeliveryDate: offer.estimatedDeliveryDate ? dateOnly(offer.estimatedDeliveryDate) : null,
+      estimatedDeliveryTimeWindowStart: hhmm(offer.estimatedDeliveryTimeWindowStart),
+      estimatedDeliveryTimeWindowEnd: hhmm(offer.estimatedDeliveryTimeWindowEnd),
+      message: offer.message,
+      tripId: offer.tripId,
+      createdAt: offer.createdAt.toISOString(),
+      viewedAtBySender: isoOrNull(offer.viewedAtBySender),
+      respondedAt: isoOrNull(offer.respondedAt),
+      expiresAt: isoOrNull(offer.expiresAt),
+    };
+  }
 
   async function requireRecord(id: string): Promise<AdminShipmentRecord> {
     const record = await adminShipmentRepository.findRecord(id);
@@ -377,6 +413,17 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     },
   );
 
+  // Todas las ofertas del envío, cerradas incluidas, con el desglose de "Cómo se reparte" de mobile.
+  app.get(
+    "/admin/shipments/:id/offers",
+    { schema: { hide: true, params: adminInternalSchemas.idParam } },
+    async (request: FastifyRequest): Promise<AdminShipmentOffer[]> => {
+      const { id } = request.params as { id: string };
+      await requireRecord(id);
+      return (await offerRepository.listByShipment(id)).map(toAdminOffer);
+    },
+  );
+
   // Fotos de la evidencia con URL firmada de vida corta (la que fije el StorageProvider).
   app.get(
     "/admin/shipments/:id/photos",
@@ -465,7 +512,6 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
   );
 
   // MOVO-297: efectos de una sanción, los llama `svc-admin` al sancionar (MOVO-36).
-  const offerRepository = createOfferRepository(app.db);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   // Grafo mínimo y deliberadamente distinto del de `shipmentsRoutes` (sin `paymentsClient`, `pricingClient`,
   // `quoteStore` ni `settleCancellationPenalty`): solo se cancelan envíos sin transportista ni hold

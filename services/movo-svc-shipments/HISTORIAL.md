@@ -3779,3 +3779,11 @@ de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `comple
   concepto que los reportes de MOVO-256; las fotos van bajo `shipments/{id}/disputes/{userId}/` y comparten el tracking del sweep de huérfanas.
 - La disputa de una parte avisa con `disputeOpened*` (categoría `disputes`, `data.type: dispute_opened`); las de sistema siguen con sus
   templates. Pendiente: la resolución y sus campos (MOVO-34), la matriz de reembolsos con el cobro ya acreditado (MOVO-337) y la UI mobile.
+
+### Ofertas del envío para el panel — `GET /internal/admin/shipments/:id/offers`
+
+Todas las ofertas del envío (cerradas incluidas, de la más vieja a la más nueva) con el estado efectivo de `listByShipment`
+(una `pending` vencida sale `expired`), el snapshot del transportista y el desglose de "Cómo se reparte" de mobile:
+`netArs`/`commissionArs` con `decomposeOfferGrossPrice` y `mpFeeEstimateArs`/`receivedEstimateArs` con las tasas de este servicio.
+Las franjas se recortan a `HH:MM`. 404 si el envío no existe, igual que `/events`. Contrato `AdminShipmentOffer` en `@movo/shared`.
+Sin historial de precios: modificar una oferta (MOVO-181) pisa el monto en la misma fila.

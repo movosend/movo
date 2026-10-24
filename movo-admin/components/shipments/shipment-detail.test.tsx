@@ -25,7 +25,11 @@ vi.mock("next/link", () => ({
 }))
 vi.mock("@/app/shipments/actions", () => ({ loadChatPage: vi.fn() }))
 
-import type { AdminShipmentPartyCard } from "@movo/shared/src/types/admin-shipments"
+import type {
+  AdminBlock,
+  AdminShipmentOffer,
+  AdminShipmentPartyCard,
+} from "@movo/shared/src/types/admin-shipments"
 import { buildChatItems } from "@/lib/shipments/format"
 import {
   CARRIER,
@@ -33,10 +37,12 @@ import {
   event,
   message,
   NOW,
+  offer,
   RECEIVER,
   SENDER,
 } from "@/lib/shipments/test-fixtures"
 import { ChatThread } from "./chat-panel"
+import { OffersCard, OffersProvider } from "./offers"
 import {
   AlertBanner,
   LegsCard,
@@ -177,6 +183,122 @@ describe("detalle del envío", () => {
   it("sin aviso no hay banner", () => {
     const { container } = render(<AlertBanner shipment={detail()} now={NOW} />)
     expect(container.textContent).toBe("")
+  })
+})
+
+describe("ofertas", () => {
+  const ACCEPTED = offer()
+  const CHEAPER = offer({
+    id: "5b0c2d6e-91d4-4c3e-8a0e-0b6f2d41c9a2",
+    carrierId: "44444444-4444-4444-8444-444444444444",
+    carrierName: "Martina Gómez",
+    carrierRatingAtOffer: 3.9,
+    status: "superseded",
+    priceArs: 6500,
+    netArs: 5652.17,
+    commissionArs: 847.83,
+    mpFeeEstimateArs: 324.35,
+    receivedEstimateArs: 5327.82,
+    offeredDate: "2026-10-22",
+    pickupTimeWindowStart: "14:00",
+    pickupTimeWindowEnd: "18:00",
+    message: null,
+  })
+  const withOffers = (
+    children: React.ReactNode,
+    offers: AdminBlock<AdminShipmentOffer[]> = {
+      data: [ACCEPTED, CHEAPER],
+      error: null,
+    }
+  ) => (
+    <OffersProvider
+      shipment={detail({ suggestedPriceArs: 7300 })}
+      offers={offers}
+      photos={{}}
+    >
+      {children}
+    </OffersProvider>
+  )
+
+  it("resumen con sugerido, acordado contra el sugerido, rango y la elegida", () => {
+    render(withOffers(<OffersCard />))
+    expect(screen.getByText("2 recibidas · 1 aceptada")).toBeTruthy()
+    expect(screen.getByText("$7.300")).toBeTruthy()
+    expect(screen.getByText("-7% vs. sugerido")).toBeTruthy()
+    expect(screen.getByText("$6.500 – $6.800")).toBeTruthy()
+    expect(
+      screen.getByRole("img", { name: /2 ofertas entre \$6\.500 y \$6\.800/ })
+    ).toBeTruthy()
+  })
+
+  it("el modal lista todas, abre en la aceptada y muestra cómo se reparte como en mobile", () => {
+    render(withOffers(<OffersCard />))
+    fireEvent.click(screen.getByText("Ver todas las ofertas"))
+    const dialog = screen.getByRole("dialog")
+    expect(within(dialog).getByText(/Ofertas del envío/)).toBeTruthy()
+    const detailPanel = within(dialog).getByLabelText("Detalle de la oferta")
+    expect(within(detailPanel).getByText("Diego Funes")).toBeTruthy()
+    expect(within(detailPanel).getByText("Va a recibir aprox.")).toBeTruthy()
+    expect(within(detailPanel).getByText("Comisión Movo (15%)")).toBeTruthy()
+    expect(within(detailPanel).getByText("− $886,96")).toBeTruthy()
+    expect(
+      within(detailPanel).getByText("de 2 · $300 más que la más barata")
+    ).toBeTruthy()
+    expect(within(detailPanel).getByText(ACCEPTED.id)).toBeTruthy()
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Martina Gómez/ })
+    )
+    expect(within(detailPanel).getByText("Habría recibido aprox.")).toBeTruthy()
+    expect(within(detailPanel).getByText("Propone otro día")).toBeTruthy()
+    expect(within(detailPanel).getByText("la más barata de 2")).toBeTruthy()
+  })
+
+  it("filtra por cómo terminó cada oferta", () => {
+    render(withOffers(<OffersCard />))
+    fireEvent.click(screen.getByText("Ver todas las ofertas"))
+    const dialog = screen.getByRole("dialog")
+    // Sin retiradas ni abiertas, esos filtros no aparecen.
+    expect(within(dialog).queryByText(/Retiradas o vencidas ·/)).toBeNull()
+    expect(within(dialog).queryByText(/Abiertas ·/)).toBeNull()
+    expect(within(dialog).getByText("Evaluadas por el emisor · 2")).toBeTruthy()
+  })
+
+  it("sin ofertas o con el bloque caído", () => {
+    render(withOffers(<OffersCard />, { data: [], error: null }))
+    expect(screen.getByText("Este envío no recibió ofertas.")).toBeTruthy()
+    expect(screen.queryByText("Ver todas las ofertas")).toBeNull()
+    cleanup()
+    render(withOffers(<OffersCard />, failed))
+    expect(screen.getByText("No pudimos cargar las ofertas.")).toBeTruthy()
+  })
+
+  it("el evento de aceptación muestra la oferta elegida en vez del motivo crudo y abre el modal en ella", () => {
+    render(
+      withOffers(
+        <Timeline
+          shipment={detail({ status: "assignment_pending" })}
+          events={{
+            data: [
+              event("assignment_pending", "2026-10-20T21:12:00.000Z", {
+                actorId: SENDER.id,
+                reason: `Oferta ${ACCEPTED.id} aceptada · ruta cercana: retiro en 1.7 días (dentro de 3); el emisor paga al aceptar`,
+              }),
+            ],
+            error: null,
+          }}
+        />
+      )
+    )
+    expect(screen.queryByText(/aceptada · ruta cercana/)).toBeNull()
+    expect(screen.getByText("Ruta cercana")).toBeTruthy()
+    expect(screen.getByText("Retiro en 1,7 días (N = 3)")).toBeTruthy()
+    expect(screen.getByText("2.ª más barata de 2")).toBeTruthy()
+    fireEvent.click(screen.getByText("Ver las 2 ofertas"))
+    const detailPanel = within(screen.getByRole("dialog")).getByLabelText(
+      "Detalle de la oferta"
+    )
+    expect(within(detailPanel).getByText("Diego Funes")).toBeTruthy()
   })
 })
 
