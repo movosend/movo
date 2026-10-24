@@ -3728,8 +3728,9 @@ filtro de lenguaje solo a mensajes del usuario y push de ADR-046 con claves `sup
   solo los usan los tests. Sin plazo de retención ni purga (MOVO-224). `GET /shipments/mine` no incluye al transportista: el selector de envíos de MOVO-324
   no puede usarlo tal cual.
 
-### MOVO-285 — Fee real de MP en el detalle del envío del transportista
+### MOVO-285 — Monto exacto del transportista en el detalle del envío
 
-- `GET /shipments/:id` suma `carrierMpFeeArs` para el transportista asignado, tomado del hold vivo que ya se consultaba para
-  `debtDiscount` (`resolveCarrierPaymentDisplay` reemplaza a `resolveCarrierDebtDiscount`; una sola llamada a payments, mismo
-  timeout). `null` sin hold o sin fee informado. No se tocó el detalle de la oferta: el hold no existe hasta que el emisor acepta.
+- `GET /shipments/:id` suma `carrierReceivedArs` para el transportista asignado: bruto − comisión de Movo − fee real de MP − su
+  descuento por deuda, todo del hold vivo que ya se consultaba para `debtDiscount` (`resolveCarrierPaymentDisplay`; una sola
+  llamada a payments, mismo timeout). Lo calcula el backend para que "exacto" no dependa de la tasa de comisión de la app. `null`
+  sin hold o sin fee informado. No se tocó el detalle de la oferta: el hold no existe hasta que el emisor acepta.
