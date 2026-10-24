@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createMockRoutesProvider } from "../src/adapters/mock-routes-provider";
-import { decodePolyline } from "./polyline-decode";
+import { decodePolyline } from "../src/utils/polyline-decode";
 
 describe("createMockRoutesProvider", () => {
   const provider = createMockRoutesProvider();

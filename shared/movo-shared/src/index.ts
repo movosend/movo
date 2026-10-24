@@ -232,6 +232,7 @@ export {
   decomposeOfferGrossPrice,
   carrierPaymentView,
   estimateMpFeeArs,
+  estimateReceivedArs,
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
@@ -384,6 +385,11 @@ export {
   ADMIN_SHIPMENT_GROUP_STATUSES,
   ADMIN_SHIPMENTS_DEFAULT_LIMIT,
   ADMIN_SHIPMENTS_MAX_LIMIT,
+  FORCE_STATUS_REASON_MAX_LENGTH,
+  FORCE_STATUS_REASON_MIN_LENGTH,
+  STEP_UP_CODE_TTL_SECONDS,
+  STEP_UP_TOKEN_TTL_SECONDS,
+  ADMIN_TRACKING_POLL_INTERVAL_SECONDS,
   isAdminShipmentAlert,
 } from "./types/admin-shipments";
 export type {
@@ -393,7 +399,20 @@ export type {
   AdminShipmentCounts,
   AdminShipmentPage,
   AdminShipmentEvent,
+  ForceShipmentStatusRequest,
+  ForceShipmentStatusResponse,
+  ChangeShipmentStatusRequest,
+  ChangeShipmentStatusResponse,
+  ShipmentStatusOption,
+  ShipmentStatusBlocked,
+  ShipmentStatusOptions,
+  StepUpRequest,
+  StepUpChallenge,
+  StepUpVerifyRequest,
+  StepUpToken,
+  ShipmentEventKind,
   AdminShipmentPhoto,
+  AdminShipmentOffer,
   AdminShipmentPayment,
   AdminShipmentPartyCard,
   AdminBlock,
@@ -402,7 +421,31 @@ export type {
   AdminChatMessage,
   AdminChatReport,
   AdminChatPage,
+  AdminTrackingState,
+  AdminTrackingReason,
+  AdminTrackingPlace,
+  AdminTrackingPoint,
+  AdminTrackingMetrics,
+  AdminShipmentTracking,
 } from "./types/admin-shipments";
+
+// admin: cambio forzado de estado de un envío (MOVO-331, ADR-055)
+export {
+  FORCED_TRANSITION_MATRIX,
+  blockedTransitionReason,
+  forcedTransitionFriction,
+  getForcedTransition,
+  getForcedTransitionDetails,
+  listForcedTransitionTargets,
+} from "./config/forced-transition-matrix";
+export type {
+  ForcedTransitionCell,
+  ForcedTransitionDetails,
+  ForcedTransitionKind,
+  ForcedTransitionRecipient,
+  ForcedTransitionRisk,
+  ForcedTransitionService,
+} from "./config/forced-transition-matrix";
 
 // admin: búsqueda de usuarios y ficha (MOVO-295, backend MOVO-294)
 export {
@@ -546,6 +589,9 @@ export type {
   SupportCreateResult,
   SupportSendUserBody,
   SupportUserAttachmentCreateBody,
+  SupportShipmentRole,
+  SupportShipmentOption,
+  SupportShipmentOptionsPage,
   SupportReadResult,
   SupportRealtimeEvent,
   SupportRealtimeConnected,

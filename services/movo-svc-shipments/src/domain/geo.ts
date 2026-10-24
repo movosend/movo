@@ -41,6 +41,19 @@ export function distanceToSegmentKm(
   segEndLat: number,
   segEndLng: number
 ): number {
+  return projectOnSegment(pointLat, pointLng, segStartLat, segStartLng, segEndLat, segEndLng).distanceKm;
+}
+
+/** Proyección de `distanceToSegmentKm` con la fracción `t` (0 en el inicio, 1 en el fin) del punto más
+ * cercano del segmento. MOVO-327 la usa para ubicar al transportista sobre la ruta planificada. */
+export function projectOnSegment(
+  pointLat: number,
+  pointLng: number,
+  segStartLat: number,
+  segStartLng: number,
+  segEndLat: number,
+  segEndLng: number
+): { distanceKm: number; t: number } {
   const midLatRad = toRadians((segStartLat + segEndLat) / 2);
   const kx = 111.32 * Math.cos(midLatRad);
   const ky = 110.574;
@@ -54,11 +67,30 @@ export function distanceToSegmentKm(
   if (ab2 === 0) {
     // Origen y destino del viaje coinciden (trayecto degenerado) -- distancia punto a
     // punto contra el origen, mismo caso límite que `haversineSegmentDistanceKm`.
-    return Math.sqrt(px * px + py * py);
+    return { distanceKm: Math.sqrt(px * px + py * py), t: 0 };
   }
 
   const t = Math.max(0, Math.min(1, (px * bx + py * by) / ab2));
   const projX = px - t * bx;
   const projY = py - t * by;
-  return Math.sqrt(projX * projX + projY * projY);
+  return { distanceKm: Math.sqrt(projX * projX + projY * projY), t };
+}
+
+/**
+ * MOVO-327: fracción (0..1) del recorrido de `path` hecha al llegar al punto de la línea más cercano a
+ * `point`. Con una ruta que vuelve sobre sí misma gana el segmento más cercano, aunque sea el de la vuelta.
+ * `null` si la línea no tiene largo.
+ */
+export function progressAlongPath(point: { lat: number; lng: number }, path: Array<{ lat: number; lng: number }>): number | null {
+  let total = 0;
+  let best = { distanceKm: Infinity, alongKm: 0 };
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1];
+    const b = path[i];
+    const segmentKm = haversineKm(a.lat, a.lng, b.lat, b.lng);
+    const { distanceKm, t } = projectOnSegment(point.lat, point.lng, a.lat, a.lng, b.lat, b.lng);
+    if (distanceKm < best.distanceKm) best = { distanceKm, alongKm: total + t * segmentKm };
+    total += segmentKm;
+  }
+  return total > 0 ? best.alongKm / total : null;
 }

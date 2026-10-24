@@ -98,6 +98,9 @@ export type NotificationTriggerKey =
   | "cancellationPenaltyCompensationCarrier"
   | "carrierWithdrewSender"
   | "carrierWithdrawalPenaltyDebtCarrier"
+  | "shipmentStatusForcedSender"
+  | "shipmentStatusForcedReceiver"
+  | "shipmentStatusForcedCarrier"
   | "receiverTransferInvited"
   | "receiverTransferRequested"
   | "receiverTransferCompletedRequester"
@@ -911,6 +914,32 @@ export const NOTIFICATION_TRIGGERS = {
     ({ carrierName }) => ({
       title: "Tu envío vuelve a estar publicado",
       body: `${carrierName ?? "El transportista"} se bajó del envío y ya está visible para otros transportistas. Si ya no te sirve, podés cancelarlo sin cargo.`,
+    })
+  ),
+  // MOVO-331 (ADR-055): un admin cambió el estado del envío. Sin el motivo (lo escribe el admin y es
+  // interno) ni montos: un push se ve en la pantalla bloqueada. Se manda ignorando las preferencias.
+  shipmentStatusForcedSender: definition(
+    "shipments",
+    { title: "Soporte actualizó el estado de tu envío", body: "El equipo de Movo cambió el estado de tu envío. Tocá para ver el detalle." },
+    () => ({
+      title: "Soporte actualizó el estado de tu envío",
+      body: "El equipo de Movo cambió el estado de tu envío. Tocá para ver el detalle",
+    })
+  ),
+  shipmentStatusForcedReceiver: definition(
+    "shipments",
+    { title: "Soporte actualizó el estado de un envío", body: "El equipo de Movo cambió el estado del envío que recibís. Tocá para ver el detalle." },
+    () => ({
+      title: "Soporte actualizó el estado de un envío",
+      body: "El equipo de Movo cambió el estado del envío que recibís. Tocá para ver el detalle",
+    })
+  ),
+  shipmentStatusForcedCarrier: definition(
+    "shipments",
+    { title: "Soporte actualizó el estado de un envío", body: "El equipo de Movo cambió el estado de un envío que llevás. Tocá para ver el detalle." },
+    () => ({
+      title: "Soporte actualizó el estado de un envío",
+      body: "El equipo de Movo cambió el estado de un envío que llevás. Tocá para ver el detalle",
     })
   ),
   carrierWithdrawalPenaltyDebtCarrier: definition<{ penaltyArs: number }>(

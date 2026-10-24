@@ -175,6 +175,11 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   HOLD_CONFLICT: "Ya hay una reserva de fondos en curso para este envío. Actualizamos los datos: revisalos e intentá de nuevo.",
   PAYMENT_PROVIDER_ERROR: "Mercado Pago no respondió. No se cobró nada: probá de nuevo en unos minutos.",
   MP_ACCOUNT_ALREADY_LINKED: "Esa cuenta de Mercado Pago ya está vinculada a otro usuario de Movo.",
+  // MOVO-324: soporte al usuario (backend MOVO-320/321).
+  SUPPORT_CONVERSATION_NOT_FOUND: "Esta consulta ya no está disponible.",
+  SUPPORT_ATTACHMENT_INVALID: "No pudimos usar una de las fotos. Quitala y probá con otra (JPG, PNG o WebP, hasta 5 MB).",
+  SUPPORT_ATTACHMENT_PENDING_LIMIT: "Tenés muchas fotos cargadas sin enviar. Mandá o quitá alguna y probá de nuevo.",
+  SUPPORT_SHIPMENT_NOT_PARTY: "No podés vincular ese envío porque no sos parte de él. Elegí otro o seguí sin vincular.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",

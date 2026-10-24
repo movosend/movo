@@ -27,6 +27,7 @@ import { useDeviceKeyBootstrap } from '../src/hooks/use-device-key-bootstrap';
 import { useLegalAcceptanceEntry } from '../src/hooks/use-legal-acceptance-entry';
 import { useRequiredPermissionsGate } from '../src/hooks/use-required-permissions-gate';
 import { useChatUnreadSync } from '../src/hooks/use-chat-unread-sync';
+import { useSupportUnreadSync } from '../src/hooks/use-support-unread-sync';
 import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
@@ -59,6 +60,7 @@ function CarrierTrackingCoordinatorMount() {
 /** MOVO-301: contador de chats sin leer al día (push en foreground y vuelta a primer plano). */
 function ChatUnreadSyncMount() {
   useChatUnreadSync();
+  useSupportUnreadSync();
   return null;
 }
 

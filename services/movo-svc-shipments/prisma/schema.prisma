@@ -132,6 +132,17 @@ enum TripStatus {
   @@schema("shipments")
 }
 
+// MOVO-331 (ADR-055): quién originó el cambio de estado. `manual` = transición normal ejecutada por un
+// admin; `forced` = ejecutada por un admin con efectos distintos del camino normal.
+enum ShipmentEventKind {
+  normal
+  manual
+  forced
+
+  @@map("shipment_event_kind_enum")
+  @@schema("shipments")
+}
+
 // MOVO-270 (ADR-052): a quién atribuye el barrido de retiro no realizado la cancelación.
 enum PickupMissedAttribution {
   carrier
@@ -300,6 +311,10 @@ model ShipmentEvent {
   // MOVO-270: solo en la cancelación del barrido de retiro no realizado. `carrier` habilita que
   // el emisor califique al transportista (MOVO-337); NULL en cualquier otra transición.
   attribution PickupMissedAttribution?
+  // MOVO-331: cambio hecho desde el panel. `actorName` es el snapshot del nombre del admin (el
+  // evento es inmutable aunque la cuenta cambie); `actorId` sigue siendo el id del admin.
+  kind       ShipmentEventKind @default(normal)
+  actorName  String?         @map("actor_name")
   createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
