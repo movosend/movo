@@ -169,6 +169,40 @@ stateDiagram-v2
 - Generar el QR de entrega cancela la solicitud pendiente (`cancelReason:
   delivery_started`) y el handshake siempre valida contra el `receiverId` vigente.
 
+## Transiciones forzadas por un admin (MOVO-331, ADR-055)
+
+Un admin puede mover un envío desde el panel, pero **solo por aristas que ya existen en el grafo de
+arriba** y ejecutando el mismo servicio de dominio que la transición normal (nunca un `UPDATE`).
+La fuente de verdad es `FORCED_TRANSITION_MATRIX` (`@movo/shared`). No agrega aristas: las celdas de
+abajo son un subconjunto de las normales. `manual` = mismos efectos que para su actor normal;
+`forced` = la cancelación o la baja se ejecutan **sin penalidad**.
+
+```mermaid
+stateDiagram-v2
+    awaiting_receiver_confirmation --> cancelled: manual
+    published --> cancelled: manual
+    rejected_by_receiver --> cancelled: manual
+    assignment_pending --> published: forced (baja del transportista)
+    assignment_pending --> assigned: manual (exige hold autorizado)
+    assignment_pending --> cancelled: manual
+    assigned_unfunded --> published: forced (baja del transportista)
+    assigned_unfunded --> assigned: manual (exige hold autorizado)
+    assigned_unfunded --> cancelled: manual
+    assigned --> published: forced (sin penalidad)
+    assigned --> cancelled: forced (sin penalidad)
+    delivered --> completed: manual (captura el hold)
+```
+
+- **Bloqueado siempre:** cualquier salida de `disputed` (la resuelve MOVO-34), `completed`
+  (se corrige desde Pagos) y `cancelled` (terminal); cualquier entrada a `disputed` (nace con su
+  expediente), `in_transit` y `delivered` (se confirman con el handshake); y todo lo que no figura
+  arriba. El rechazo es `422 TRANSITION_NOT_ALLOWED` con el motivo.
+- **Concurrencia:** `expectedStatus` obligatorio; si el estado cambió, `409 STATUS_CHANGED`.
+- **Hold:** pasar a `assigned` consulta a payments (`422 HOLD_NOT_AUTHORIZED` si no está autorizado);
+  desde `assigned` el hold se libera antes de cancelar, y si falla el envío queda como estaba (`502`).
+- **Línea de tiempo:** el evento lleva `kind` (`manual`/`forced`), el admin y el motivo (solo el
+  panel los ve; las partes ven `kind` y el cambio de estado) y es inmutable.
+
 ## Transiciones inválidas (rechazadas explícitamente, ejemplos)
 
 - Saltear estados intermedios (ej. `awaiting_receiver_confirmation` → `assigned`
