@@ -634,6 +634,44 @@ describe("shipments.service — getShipmentDetail", () => {
     expect(result.debtDiscount).toEqual({ amountArs: 630, reason: "pending_balance" });
   });
 
+  it("MOVO-285: el transportista asignado ve el fee real de MP del hold en el detalle del envío", async () => {
+    const shipment = fakeShipment({
+      status: ShipmentStatus.ASSIGNED,
+      carrierId: "carrier-id",
+      agreedPriceArs: 2000,
+    });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({});
+    const paymentsClient = createFakePaymentsClient([], {}, {});
+    paymentsClient.findHoldByShipment.mockResolvedValue({
+      status: "authorized",
+      debtOffsetArs: 0,
+      carrierMpFeeArs: 97.4,
+    } as Awaited<ReturnType<typeof paymentsClient.findHoldByShipment>>);
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+
+    const result = await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER]);
+
+    expect(result.carrierMpFeeArs).toBe(97.4);
+    expect(paymentsClient.findHoldByShipment).toHaveBeenCalledTimes(1);
+  });
+
+  it("MOVO-285: sin hold con fee informado el detalle trae carrierMpFeeArs null (la app muestra el estimado)", async () => {
+    const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED_UNFUNDED, carrierId: "carrier-id", agreedPriceArs: 2000 });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const paymentsClient = createFakePaymentsClient([], {}, {});
+    paymentsClient.findHoldByShipment.mockResolvedValue(null);
+    const service = createShipmentsService(repository, createFakeUsersClient({}), undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+
+    const result = await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER]);
+
+    expect(result.carrierMpFeeArs).toBeNull();
+  });
+
   it("MOVO-180: un transportista verificado ve el agregado de ofertas vigentes (sin identidad de competidores)", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id", status: ShipmentStatus.PUBLISHED });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
