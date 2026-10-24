@@ -7,12 +7,16 @@ import { Hold, HoldRepository } from "../../repositories/hold-repository";
 import { Settlement, SettlementRepository } from "../../repositories/settlement-repository";
 import { HoldDebtSettlement, UserLedgerRepository } from "../../repositories/user-ledger-repository";
 import { missingCardFields } from "../../utils/payment-card";
+import { splitCollectorFees, toMoney } from "../../utils/payment-fee";
 import { assertValidAmount, readMpError } from "../holds/hold.service";
+import { splitRetainedFee } from "../holds/retained-fee";
+
+// Vive en `holds/retained-fee` para que el hold y la liquidación repartan el fee con la misma regla.
+export { splitRetainedFee };
+export type { RetainedFeeSplit } from "../holds/retained-fee";
 
 const { Decimal } = Prisma;
 type Decimal = Prisma.Decimal;
-
-const toMoney = (value: number): Decimal => new Decimal(value).toDecimalPlaces(2);
 
 /**
  * Causas con las que MP rechaza una captura parcial que no deja neto para el transportista:
@@ -85,61 +89,9 @@ export function readFeeBreakdown(payment: PaymentSnapshot, fallbackCommission: D
   const fees = payment.fee_details;
   if (net === undefined || !fees || fees.length === 0) return null;
 
-  let mpFee = new Decimal(0);
-  let commission: Decimal | null = null;
-  for (const fee of fees) {
-    if (fee.amount === undefined) return null;
-    // Una entrada sin `fee_payer` (respuestas viejas) se toma como del vendedor; una que declara
-    // otro pagador (el comprador) queda afuera de la liquidación del transportista.
-    if (fee.fee_payer !== undefined && fee.fee_payer !== "collector") continue;
-    if (fee.type === "application_fee") {
-      commission = (commission ?? new Decimal(0)).plus(toMoney(fee.amount));
-    } else {
-      mpFee = mpFee.plus(toMoney(fee.amount));
-    }
-  }
-  return { mpFeeArs: mpFee, commissionArs: commission ?? fallbackCommission, netAmountArs: toMoney(net) };
-}
-
-export interface RetainedFeeSplit {
-  /** Comisión de Movo. */
-  commissionArs: Decimal;
-  /** Deuda del transportista cobrada. */
-  debtOffsetArs: Decimal;
-  /** Deuda del emisor saldada (el recargo completo, aunque el fee lleve menos por la comisión de MP). */
-  debtSurchargeArs: Decimal;
-  /** La parte del fee retenido que corresponde al recargo (lo que entró al fee por él). */
-  debtSurchargeFeeArs: Decimal;
-}
-
-/**
- * MOVO-311: reparte el `application_fee` que retuvo MP entre la comisión de Movo y la deuda que cobraba el
- * hold. Lo normal es que MP retenga exactamente lo pedido (la captura va sin `amount`); si retuvo menos, el
- * faltante se descuenta primero del recargo del emisor y después del descuento al transportista (la
- * comisión es lo último que se resigna), y la deuda saldada es la proporción efectivamente cobrada.
- */
-export function splitRetainedFee(
-  hold: Pick<Hold, "applicationFeeArs" | "commissionArs" | "debtOffsetArs" | "debtSurchargeArs">,
-  retainedArs: Decimal
-): RetainedFeeSplit {
-  const commission = Decimal.min(hold.commissionArs, retainedArs);
-  let debtRetained = Decimal.max(0, retainedArs.minus(commission));
-  const offset = Decimal.min(hold.debtOffsetArs, debtRetained);
-  debtRetained = debtRetained.minus(offset);
-  const surchargeFee = hold.applicationFeeArs.minus(hold.commissionArs).minus(hold.debtOffsetArs);
-  const surcharge =
-    surchargeFee.lessThanOrEqualTo(0) || debtRetained.greaterThanOrEqualTo(surchargeFee)
-      ? hold.debtSurchargeArs
-      : hold.debtSurchargeArs.times(debtRetained).dividedBy(surchargeFee).toDecimalPlaces(2, Decimal.ROUND_DOWN);
-  const surchargeFeeRetained = Decimal.max(0, Decimal.min(debtRetained, surchargeFee));
-  // Lo que MP haya retenido de más (no debería pasar) queda como comisión: es lo que se cobró.
-  const extra = Decimal.max(0, retainedArs.minus(hold.applicationFeeArs));
-  return {
-    commissionArs: commission.plus(extra),
-    debtOffsetArs: offset,
-    debtSurchargeArs: surcharge,
-    debtSurchargeFeeArs: surchargeFeeRetained,
-  };
+  const split = splitCollectorFees(fees);
+  if (!split) return null;
+  return { mpFeeArs: split.mpFee, commissionArs: split.commission ?? fallbackCommission, netAmountArs: toMoney(net) };
 }
 
 export interface CaptureServiceDeps {

@@ -791,12 +791,13 @@ salvo hold liberado; descuento al transportista, solo con la liquidación acredi
 ### MOVO-285 — Fee real de Mercado Pago en el hold
 
 - `payments.holds.mp_fee_ars` (migración `20261024120000_hold_mp_fee`): el `mercadopago_fee` que MP informa al crear el hold
-  (`charges_details`) y, tras capturar, el de `fee_details` (la captura lo reemplaza vía `markCaptured`). Lo lee
-  `mpFeeFromPayment` (`utils/payment-fee.ts`) desde `holdUpdateFromPayment`, así que crear, consultar y webhook lo completan
-  igual; sin desglose no toca la fila. Solo cuenta lo que descuenta al transportista (cargos del pagador, como la financiación
-  en cuotas, no).
-- `HoldResponse.carrierMpFeeArs`: ese fee sin la parte que cae sobre el recargo del emisor (`carrierPaymentView`, misma regla que la
-  liquidación al acreditar), `null` si MP no lo informó. La captura (`net_received_amount` + `fee_details`) ya se guardaba en
-  `Settlement` desde MOVO-212.
-- Pendiente: validar con pagos reales que `charges_details` trae `amounts.original` (se leyó del contrato de MP, el spike solo
-  documenta que lista el `mercadopago_fee`) y la calibración opcional de `MP_TRANSACTION_FEE_RATE`.
+  (`charges_details`, `amounts.original`: verificado contra el sandbox, el pago de $1.150 trae $47,15) y, tras capturar, el de
+  `fee_details` (la captura lo reemplaza vía `markCaptured`). `utils/payment-fee.ts` es la única definición de la regla de
+  `fee_details` (`splitCollectorFees`, en `Decimal`): la usan el hold y `readFeeBreakdown` de la liquidación, así la columna no
+  tiene dos significados. Crear, consultar y webhook completan el fee; el webhook y la consulta con `sync` lo hacen aunque el estado
+  no cambie (`missingFeeField`, igual que la tarjeta) y sin pisar uno ya guardado.
+- `HoldResponse.carrierMpFeeArs`: ese fee sin la parte que cae sobre el recargo del emisor (`carrierPaymentView`, ahora acotado en
+  0, y `splitRetainedFee`, movido a `holds/retained-fee.ts`: la misma regla que la liquidación). `null` si MP no lo informó. Los
+  schemas de respuesta de Fastify tienen que declararlo o lo descartan en silencio (los tests unitarios no lo ven: las pruebas
+  de sandbox sí). La captura (`net_received_amount` + `fee_details`) ya se guardaba en `Settlement` desde MOVO-212.
+- Pendiente: la calibración de `MP_TRANSACTION_FEE_RATE` (el sandbox cobra 4,1 % sin variar con las cuotas, la estimación usa 4,99 %).

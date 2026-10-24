@@ -17,7 +17,8 @@ import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-accoun
 import { SavedCardRepository } from "../../repositories/saved-card-repository";
 import { Hold, HoldAmountChangedError, HoldAttemptConflictError, HoldRepository, HoldUpdate } from "../../repositories/hold-repository";
 import { cardFromPayment, missingCardFields } from "../../utils/payment-card";
-import { mpFeeFromPayment } from "../../utils/payment-fee";
+import { missingFeeField, mpFeeFromPayment } from "../../utils/payment-fee";
+import { splitRetainedFee } from "./retained-fee";
 import { computeDebtCollection } from "./debt-collection";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -233,11 +234,8 @@ function carrierMpFeeOf(hold: Hold): number | null {
     grossAmountArs: hold.amountArs.toNumber(),
     mpFeeArs: hold.mpFeeArs.toNumber(),
     debtSurchargeArs: hold.debtSurchargeArs.toNumber(),
-    // La parte del `application_fee` que corresponde al recargo (misma cuenta que `splitRetainedFee`).
-    debtSurchargeFeeArs: Math.max(
-      0,
-      Math.round((hold.applicationFeeArs.toNumber() - hold.commissionArs.toNumber() - hold.debtOffsetArs.toNumber()) * 100) / 100
-    ),
+    // La parte del `application_fee` que corresponde al recargo, con la misma regla que la liquidación.
+    debtSurchargeFeeArs: splitRetainedFee(hold, hold.applicationFeeArs).debtSurchargeFeeArs.toNumber(),
   }).mpFeeArs;
 }
 
@@ -535,6 +533,7 @@ export function createHoldService(deps: HoldServiceDeps) {
         statusDetail: payment.status_detail ?? null,
         // Un estado que no conocemos igual trae la tarjeta, y nada lo vuelve a sincronizar después.
         ...cardFromPayment(payment),
+        ...mpFeeFromPayment(payment),
       });
       throw new ApiError(
         502,
@@ -864,7 +863,7 @@ export function createHoldService(deps: HoldServiceDeps) {
       );
       return hold;
     }
-    const missing = missingCardFields(hold, payment);
+    const missing = { ...missingCardFields(hold, payment), ...missingFeeField(hold, payment) };
     return Object.keys(missing).length > 0 ? holds.update(hold.id, missing) : hold;
   }
 

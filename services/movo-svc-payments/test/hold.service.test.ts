@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
+import { Prisma } from "../src/generated/prisma/client";
 import { ApiError, CLOSED_HOLD_STATUSES, LIVE_HOLD_STATUSES } from "@movo/shared";
 import {
   classifyCreateError,
@@ -36,7 +37,7 @@ const PAYER_EMAIL = "comprador@example.com";
 const NOW = new Date("2026-10-10T12:00:00.000Z");
 
 /** Repo en memoria con la misma semántica de unicidad que la base real. */
-const dec = (value: number) => ({ toNumber: () => value });
+const dec = (value: number) => new Prisma.Decimal(value);
 
 class MemoryHoldRepository implements HoldRepository {
   rows: Hold[] = [];
