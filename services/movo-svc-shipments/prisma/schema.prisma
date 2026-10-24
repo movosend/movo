@@ -908,6 +908,7 @@ model SupportConversation {
   shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
   messages SupportMessage[]
   states   SupportParticipantState[]
+  attachments SupportAttachment[]
 
   @@index([userId, lastMessageAt(sort: Desc), id], map: "support_conversations_user_last_message_idx")
   @@index([status, lastMessageAt], map: "support_conversations_status_last_message_idx")
@@ -929,15 +930,64 @@ model SupportMessage {
   clientMessageId String?           @map("client_message_id") @db.Uuid
   // El filtro de lenguaje tapó alguna palabra de `body` (solo mensajes del usuario).
   moderated      Boolean            @default(false)
+  // MOVO-321: cuántos adjuntos se asociaron al crearlo (se fija en la misma transacción y no cambia). Alimenta
+  // `lastMessage.hasAttachments` sin un JOIN contra `support_attachments`.
+  attachmentCount Int               @default(0) @map("attachment_count")
   createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
 
   conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments  SupportAttachment[]
 
   // Además, un índice único parcial (autor, clientMessageId) WHERE kind = 'user', escrito a mano en la
   // migración: hace atómica la idempotencia de `POST /support/conversations`, que todavía no tiene conversación.
   @@unique([conversationId, clientMessageId], map: "support_messages_conversation_client_key")
   @@index([conversationId, createdAt, id], map: "support_messages_conversation_created_at_idx")
   @@map("support_messages")
+  @@schema("shipments")
+}
+
+// MOVO-321: quién subió un adjunto. Un adjunto del usuario solo lo usa el usuario y uno del agente solo un agente.
+enum SupportAttachmentUploader {
+  user
+  staff
+
+  @@map("support_attachment_uploader_enum")
+  @@schema("shipments")
+}
+
+// MOVO-321: imagen adjunta a un mensaje de soporte (S3 privado, ADR-007). Se crea al pedir la URL de subida, sin
+// mensaje; al enviar el mensaje se asocia una sola vez (`message_id` pasa de nulo a fijo y no cambia más). Las que
+// nunca se asocian las borra el sweep de huérfanos. La key vive en `support/<conversationId>/…` o, si se subió antes
+// de que existiera la consulta, en `support/pending/<userId>/…`, y no se mueve al asociarla.
+model SupportAttachment {
+  id             String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Referencia lógica a users.users (sin FK real, ADR-003).
+  uploaderId     String                    @map("uploader_id") @db.Uuid
+  uploaderKind   SupportAttachmentUploader @map("uploader_kind")
+  // Nulo solo mientras es de la primera consulta del usuario y todavía no se envió.
+  conversationId String?                   @map("conversation_id") @db.Uuid
+  messageId      String?                   @map("message_id") @db.Uuid
+  // Orden dentro del mensaje (el de `attachmentIds`).
+  position       Int?
+  s3Key          String                    @unique(map: "support_attachments_s3_key_key") @map("s3_key")
+  contentType    String                    @map("content_type")
+  sizeBytes      Int                       @map("size_bytes")
+  width          Int?
+  height         Int?
+  createdAt      DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+  // El sweep lo marcó para borrar: ya no se puede asociar. La fila se borra recién cuando S3 confirmó el borrado del
+  // objeto; si S3 falla, la marca queda y la próxima corrida reintenta.
+  deletingAt     DateTime?                 @map("deleting_at") @db.Timestamptz
+
+  conversation SupportConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      SupportMessage?      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  // Además, un índice parcial (created_at) WHERE message_id IS NULL para el sweep, escrito a mano en la migración.
+  @@index([messageId, position], map: "support_attachments_message_idx")
+  // El cascade al borrar una consulta y el tope de pendientes por usuario.
+  @@index([conversationId], map: "support_attachments_conversation_idx")
+  @@index([uploaderId], map: "support_attachments_uploader_idx")
+  @@map("support_attachments")
   @@schema("shipments")
 }
 

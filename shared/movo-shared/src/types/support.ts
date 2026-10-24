@@ -1,5 +1,6 @@
 import type {
   SupportAttachment,
+  SupportAttachmentType,
   SupportShipmentRef,
   SupportStatus,
   SupportTopic,
@@ -81,7 +82,11 @@ export interface SupportCreateBody {
   body: string;
   clientMessageId: string;
   shipmentId?: string;
-  /** Reservado para MOVO-321: hasta entonces un valor no vacío responde 422 `SUPPORT_ATTACHMENT_INVALID`. */
+  /**
+   * MOVO-321: hasta `SUPPORT_ATTACHMENT_MAX_PER_MESSAGE` ids de `POST /support/attachments`, ya subidos. Con adjuntos
+   * `body` puede ir vacío. Uno ajeno, ya usado, de otra consulta o que no está en el bucket con el tipo y tamaño
+   * declarados responde 422 `SUPPORT_ATTACHMENT_INVALID`.
+   */
   attachmentIds?: string[];
 }
 
@@ -95,8 +100,22 @@ export interface SupportCreateResult {
 export interface SupportSendUserBody {
   body: string;
   clientMessageId: string;
-  /** Reservado para MOVO-321 (ver `SupportCreateBody`). */
+  /** MOVO-321: ver `SupportCreateBody`. */
   attachmentIds?: string[];
+}
+
+/**
+ * `POST /support/attachments` (MOVO-321). Sin `conversationId` (la primera foto de una consulta que todavía no
+ * existe) el objeto va a un prefijo privado del usuario y se asocia al crear la consulta. `width`/`height` son las
+ * dimensiones en px de la imagen ya redimensionada: si vienen se devuelven en `SupportAttachment`.
+ * Responde `SupportAttachmentCreateResult`; la app hace `PUT uploadUrl` con el binario y el mismo `Content-Type`.
+ */
+export interface SupportUserAttachmentCreateBody {
+  contentType: SupportAttachmentType;
+  sizeBytes: number;
+  conversationId?: string;
+  width?: number;
+  height?: number;
 }
 
 /** `POST /support/conversations/:id/read`. */

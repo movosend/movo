@@ -8,6 +8,11 @@ import {
   USER_VISIBLE_MESSAGE_KINDS,
 } from "../domain/support-rules";
 import { decodeCursor, encodeCursor } from "../utils/cursor";
+import {
+  claimSupportAttachments,
+  SupportAttachmentClaim,
+  SupportAttachmentClaimError,
+} from "./support-attachment-repository";
 
 export interface SupportConversationRecord extends SupportConversationFacts {
   priority: "urgent" | "high" | "normal" | "low";
@@ -24,10 +29,12 @@ export interface NewSupportConversation {
   userId: string;
   topic: SupportTopic;
   shipmentId: string | null;
-  /** Ya moderado. */
+  /** Ya moderado. Vacío si el mensaje va solo con adjuntos. */
   body: string;
   moderated: boolean;
   clientMessageId: string;
+  /** MOVO-321: ids de adjuntos del usuario, en orden. */
+  attachmentIds?: string[];
   now: Date;
 }
 
@@ -37,6 +44,7 @@ export interface NewUserSupportMessage {
   body: string;
   moderated: boolean;
   clientMessageId: string;
+  attachmentIds?: string[];
   now: Date;
 }
 
@@ -48,6 +56,8 @@ export interface NewStaffSupportMessage {
   authorName: string | null;
   body: string;
   clientMessageId: string | null;
+  /** MOVO-321: ids de adjuntos que subió `authorId` como agente (también en notas internas). */
+  attachmentIds?: string[];
   now: Date;
   /** Estado al que pasa la conversación con este mensaje (ej. `awaiting_user` cuando responde un agente). */
   nextStatus?: SupportStatus;
@@ -108,6 +118,8 @@ export class InvalidSupportCursorError extends Error {
   }
 }
 
+const userClaim = (ids: string[] | undefined): SupportAttachmentClaim => ({ ids: ids ?? [], uploaderKind: "user" });
+
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002";
 }
@@ -121,6 +133,7 @@ interface VisibleRow {
   body: string;
   client_message_id: string | null;
   moderated: boolean;
+  attachment_count: number;
   created_at: Date;
 }
 
@@ -134,6 +147,7 @@ function messageFromRow(r: VisibleRow): SupportMessageRecord {
     body: r.body,
     clientMessageId: r.client_message_id,
     moderated: r.moderated,
+    attachmentCount: r.attachment_count,
     createdAt: r.created_at,
   };
 }
@@ -196,8 +210,15 @@ export function createSupportRepository(db: PrismaClient): SupportRepository {
               body: input.body,
               moderated: input.moderated,
               clientMessageId: input.clientMessageId,
+              attachmentCount: input.attachmentIds?.length ?? 0,
               createdAt: input.now,
             },
+          });
+          await claimSupportAttachments(tx, {
+            claim: userClaim(input.attachmentIds),
+            uploaderId: input.userId,
+            conversationId: conversation.id,
+            messageId: message.id,
           });
           return { conversation: toConversation(conversation), message, created: true };
         });
@@ -237,8 +258,15 @@ export function createSupportRepository(db: PrismaClient): SupportRepository {
               body: input.body,
               moderated: input.moderated,
               clientMessageId: input.clientMessageId,
+              attachmentCount: input.attachmentIds?.length ?? 0,
               createdAt: input.now,
             },
+          });
+          await claimSupportAttachments(tx, {
+            claim: userClaim(input.attachmentIds),
+            uploaderId: input.userId,
+            conversationId: input.conversationId,
+            messageId: message.id,
           });
           let systemMessage: SupportMessageRecord | null = null;
           if (transition.reopened) {
@@ -291,9 +319,20 @@ export function createSupportRepository(db: PrismaClient): SupportRepository {
             authorName: input.authorName,
             body: input.body,
             clientMessageId: input.clientMessageId,
+            attachmentCount: input.attachmentIds?.length ?? 0,
             createdAt: input.now,
           },
         });
+        if (input.attachmentIds && input.attachmentIds.length > 0) {
+          // Un `system` no tiene autor y nunca lleva adjuntos.
+          if (!input.authorId) throw new SupportAttachmentClaimError();
+          await claimSupportAttachments(tx, {
+            claim: { ids: input.attachmentIds, uploaderKind: "staff" },
+            uploaderId: input.authorId,
+            conversationId: input.conversationId,
+            messageId: message.id,
+          });
+        }
         const conversation = await tx.supportConversation.update({
           where: { id: input.conversationId },
           data: {
@@ -342,7 +381,7 @@ export function createSupportRepository(db: PrismaClient): SupportRepository {
       // query cada uno en vez de dos por fila.
       const lastRows = await db.$queryRaw<VisibleRow[]>`
         SELECT DISTINCT ON (m.conversation_id)
-          m.id, m.conversation_id, m.kind::text AS kind, m.author_id, m.author_name, m.body, m.client_message_id, m.moderated, m.created_at
+          m.id, m.conversation_id, m.kind::text AS kind, m.author_id, m.author_name, m.body, m.client_message_id, m.moderated, m.attachment_count, m.created_at
         FROM shipments.support_messages m
         WHERE m.conversation_id = ANY(${ids}::uuid[]) AND m.kind::text IN ('user', 'agent')
         ORDER BY m.conversation_id, m.created_at DESC, m.id DESC`;

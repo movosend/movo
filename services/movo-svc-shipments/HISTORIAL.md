@@ -3779,3 +3779,11 @@ de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `comple
   concepto que los reportes de MOVO-256; las fotos van bajo `shipments/{id}/disputes/{userId}/` y comparten el tracking del sweep de huérfanas.
 - La disputa de una parte avisa con `disputeOpened*` (categoría `disputes`, `data.type: dispute_opened`); las de sistema siguen con sus
   templates. Pendiente: la resolución y sus campos (MOVO-34), la matriz de reembolsos con el cobro ya acreditado (MOVO-337) y la UI mobile.
+
+### MOVO-321 — Adjuntos de imágenes en los mensajes de soporte
+
+`POST /support/attachments` y `attachmentIds` en los mensajes del usuario, con URLs firmadas de 15 min al leer (detalle en
+`docs/support/README.md`). Código en `modules/support/support-attachments.service.ts` (lo reusa MOVO-322 con `uploaderKind: "staff"`),
+`repositories/support-attachment-repository.ts` y `plugins/support-attachment-sweep.ts`. El objeto de `support/pending/…` no se mueve al
+crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no hay regla de lifecycle y el sweep, que reintenta, es la
+única limpieza. Pendiente: Terraform en `movo-infra` (ver el `CLAUDE.md` raíz).

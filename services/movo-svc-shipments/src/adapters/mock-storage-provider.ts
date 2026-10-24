@@ -45,10 +45,10 @@ export function createMockStorageProvider(): MockStorageProvider {
       return { exists: true, contentType: stored.contentType, contentLength: stored.contentLength };
     },
 
-    async createDownloadUrl(key) {
+    async createDownloadUrl(key, options) {
       return {
         url: `https://${MOCK_DOWNLOAD_URL_HOST}/${key}?mock-download=${randomUUID()}`,
-        expiresIn: 300,
+        expiresIn: options?.expiresIn ?? 300,
       };
     },
 

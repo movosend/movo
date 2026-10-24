@@ -28,8 +28,9 @@ export interface StorageProvider {
   /** `HEAD` real contra el objeto -- confirma que existe y su tipo/tamaño reales (AC5). */
   headObject(key: string): Promise<{ exists: boolean; contentType?: string; contentLength?: number }>;
 
-  /** Presigned URL de `GET`, TTL corto -- el bucket es privado para este prefijo (AC7/AC8). */
-  createDownloadUrl(key: string): Promise<{ url: string; expiresIn: number }>;
+  /** Presigned URL de `GET`, TTL corto -- el bucket es privado para este prefijo (AC7/AC8).
+   * `expiresIn` (segundos) pisa el TTL por defecto: los adjuntos de soporte (MOVO-321) firman por 15 min. */
+  createDownloadUrl(key: string, options?: { expiresIn?: number }): Promise<{ url: string; expiresIn: number }>;
 
   /** MOVO-124: borra un objeto de S3. Solo lo usa el sweep de fotos huérfanas (nunca el
    * flujo normal de subida/confirmación) -- best-effort, quien llama decide si un fallo
