@@ -78,12 +78,23 @@ este servicio:
 - **Un hecho externo se verifica, no se confía en el motivo del admin.** Para `assigned`, el hold
   tiene que estar `authorized` o `captured` en payments; si no, `422 HOLD_NOT_AUTHORIZED`.
 - Desde `assigned`, el hold se libera **antes** de cancelar (ya está autorizado: no hay un pago
-  concurrente que pueda llegar). Si payments falla, el envío queda como estaba.
+  concurrente que pueda llegar). Si payments falla, el envío queda como estaba. **Riesgo aceptado:**
+  el handshake de retiro sí puede ganar la carrera entre la liberación y el `updateStatus`; en ese
+  caso el envío queda `in_transit` sin fondos retenidos (un hold no se puede volver a autorizar). El
+  panel recibe `409 STATUS_CHANGED`, se loguea `force_status_hold_released_race` y se alerta al
+  equipo con el id del envío. Es una ventana de milisegundos y el costo de invertir el orden (cancelar
+  primero) es peor: un 502 dejaría un envío cancelado con el hold sin liberar.
+- Desde `assignment_pending` y `assigned_unfunded` el orden es el de la saga (cancelar y después
+  liberar, en el mejor esfuerzo): ahí sí puede haber un pago concurrente.
 
 ### Avisos a las partes
 
 Push al emisor, al receptor y al transportista (el que tenía **antes** del cambio, porque la baja lo
-desasigna), categoría `shipments`, **sin motivo ni montos** (criterio de MOVO-210):
+desasigna), categoría `shipments`, **sin motivo ni montos** (criterio de MOVO-210). **Cada parte
+recibe un solo aviso por el cambio:** con un admin, los servicios de dominio no mandan sus propios
+pushes a las partes (baja del transportista, oferta cancelada del transportista asignado, pago
+confirmado, liquidación). Los transportistas con una oferta pendiente que se cierra sí reciben su
+aviso normal, porque es un hecho que las partes del envío no ven:
 
 - Emisor: "Soporte actualizó el estado de tu envío" / "El equipo de Movo cambió el estado de tu envío. Tocá para ver el detalle".
 - Receptor y transportista: "Soporte actualizó el estado de un envío" / "El equipo de Movo cambió el estado del envío que recibís|de un envío que llevás. Tocá para ver el detalle".
@@ -143,7 +154,12 @@ adminId, adminName, idempotencyKey }`. Solo red Docker interna (ADR-010): no est
 - Hoy no hay ninguna salida para un envío `in_transit` trabado ni para uno `disputed`: lo primero
   necesita una decisión sobre evidencia, lo segundo es MOVO-34.
 - Una baja forzada (`withdrawCarrierFromShipment`) persiste el claim del retiro antes de llamar a
-  payments; si payments falla, el envío conserva su estado pero queda con la baja pendiente que
-  retoma el barrido (MOVO-310). Si la retoma el barrido, el evento queda como `normal`.
+  payments. Si payments falla, **la llamada del admin deshace ese claim** (`releaseCarrierWithdrawalClaim`):
+  el envío queda como estaba y el barrido de MOVO-310 no la completa después como si fuera del
+  transportista (evento `normal`, aviso falso al emisor). La baja del propio transportista sí sigue
+  reintentándose por el barrido.
+- El `502 FORCE_STATUS_EFFECT_FAILED` no promete "estado original" en todos los casos: si el cambio ya
+  se aplicó y falló un efecto posterior, el servicio relee el envío y lo trata como éxito (con alerta
+  al equipo); un reintento con la misma clave lo resuelve.
 - Que los avisos sean críticos es una decisión de producto abierta a la revisión del equipo.
 - Pendiente fuera de alcance: deshacer un cambio, cambios masivos, editar otros datos del envío.

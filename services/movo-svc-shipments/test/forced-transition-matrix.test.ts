@@ -43,10 +43,11 @@ describe("FORCED_TRANSITION_MATRIX (ADR-055)", () => {
     });
   });
 
-  it("dar por asignado exige consultar el hold; ninguna otra celda lo pide", () => {
-    const needsHold = cells.filter((c) => c.cell.requiresAuthorizedHold).map((c) => c.to);
-    expect(needsHold.length).toBeGreaterThan(0);
-    expect(new Set(needsHold)).toEqual(new Set([ShipmentStatus.ASSIGNED]));
+  it("dar por asignado se ejecuta con el servicio que consulta el hold; ninguna otra celda pasa a assigned", () => {
+    const toAssigned = cells.filter((c) => c.to === ShipmentStatus.ASSIGNED);
+    expect(toAssigned.length).toBeGreaterThan(0);
+    expect(toAssigned.every((c) => c.cell.service === "confirmFunding")).toBe(true);
+    expect(cells.filter((c) => c.cell.service === "confirmFunding").every((c) => c.to === ShipmentStatus.ASSIGNED)).toBe(true);
   });
 
   it("todo par bloqueado tiene un motivo legible", () => {

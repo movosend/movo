@@ -526,6 +526,11 @@ export interface SettlementCursor {
 
 export interface ShipmentRepository {
   claimCarrierWithdrawal(id: string, carrierId: string, from: ShipmentStatus, penaltyArs: number): Promise<boolean>;
+  /**
+   * MOVO-331: deshace el claim de una baja que todavía no avanzó (falló la liberación del hold), para que el
+   * envío vuelva a su estado original. Solo toca el claim de ese transportista.
+   */
+  releaseCarrierWithdrawalClaim(id: string, carrierId: string): Promise<void>;
   listPendingCarrierWithdrawals(limit: number, afterId?: string): Promise<Shipment[]>;
   create(input: CreateShipmentInput): Promise<Shipment>;
   /**
@@ -959,6 +964,13 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         data: { carrierWithdrawalPending: true, carrierWithdrawalPenaltyArs: new Prisma.Decimal(penaltyArs) },
       });
       return count === 1;
+    },
+
+    async releaseCarrierWithdrawalClaim(id, carrierId) {
+      await db.shipment.updateMany({
+        where: { id, carrierId, carrierWithdrawalPending: true },
+        data: { carrierWithdrawalPending: false, carrierWithdrawalPenaltyArs: null },
+      });
     },
 
     async listPendingCarrierWithdrawals(limit, afterId) {

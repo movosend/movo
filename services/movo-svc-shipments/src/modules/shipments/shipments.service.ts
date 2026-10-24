@@ -2438,7 +2438,9 @@ export function createShipmentsService(
         // `pending`, así que no entra en `pendingOffers`) también se entera. MOVO-307: si la
         // penalidad se capturó en línea ya recibió la push de compensación, así que no se le
         // manda además la de oferta cancelada (mismo criterio que `expireUnpickedAssignedShipments`).
-        const notifyAssignedOffer = assignedOffer && cancelled.cancellationPenaltyStatus !== "captured";
+        // MOVO-331: si lo cancela un admin, el transportista asignado recibe el aviso de soporte (lo manda el
+        // servicio de cambio forzado), no además el de oferta cancelada. Las ofertas pendientes de otros sí se avisan.
+        const notifyAssignedOffer = assignedOffer && cancelled.cancellationPenaltyStatus !== "captured" && !options.admin;
         const voidedOffers = notifyAssignedOffer ? [assignedOffer, ...pendingOffers] : pendingOffers;
         await dispatchOfferVoidedPushes(
           notificationsClient,
@@ -2516,16 +2518,27 @@ export function createShipmentsService(
       // El claim se persiste antes de llamar a Payments. Mientras está pendiente ninguna
       // transición (incluidos pickup y funding) puede ganar la carrera ni se puede volver
       // a aceptar una oferta. Si Payments falla, el barrido reintenta la liberación.
-      if (!shipment.carrierWithdrawalPending) {
+      const claimedHere = !shipment.carrierWithdrawalPending;
+      if (claimedHere) {
         const claimed = await repository.claimCarrierWithdrawal(shipmentId, callerId, previousStatus, penaltyArs);
         if (!claimed) throw new ShipmentConcurrentModificationError(shipmentId);
       }
 
       // Payments verifica el transportista del hold antes de liberarlo. Esto protege a
       // una asignación posterior incluso si llega una petición retrasada.
-      const hold = await opts.paymentsClient.findHoldByShipment(shipmentId, { sync: true });
-      if (hold) {
-        await opts.paymentsClient.releaseHold(shipmentId, callerId, hold.id);
+      try {
+        const hold = await opts.paymentsClient.findHoldByShipment(shipmentId, { sync: true });
+        if (hold) {
+          await opts.paymentsClient.releaseHold(shipmentId, callerId, hold.id);
+        }
+      } catch (err) {
+        // MOVO-331: si lo pidió un admin, el barrido no puede completar la baja después como si fuera
+        // del transportista (evento `normal`, aviso falso al emisor): se deshace el claim que creó esta
+        // llamada y el envío queda realmente como estaba. La baja del propio transportista sí se reintenta.
+        if (options.admin && claimedHere) {
+          await repository.releaseCarrierWithdrawalClaim(shipmentId, callerId);
+        }
+        throw err;
       }
 
       const republished = await repository.updateStatus(

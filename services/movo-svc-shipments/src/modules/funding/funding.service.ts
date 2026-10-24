@@ -291,7 +291,9 @@ export function createFundingService(deps: FundingServiceDeps) {
       }
       throw err;
     }
-    void notifyFunded(shipment);
+    // MOVO-331: si lo confirma un admin, las partes reciben el aviso de soporte y no además el del pago.
+    // Los transportistas desplazados sí se enteran: su oferta se cerró de verdad.
+    if (!admin) void notifyFunded(shipment);
     for (const offer of closingOffers) {
       void notifyOfferClosed(offer.id, offer.carrierId, shipment.id);
     }
@@ -453,7 +455,13 @@ export function createFundingService(deps: FundingServiceDeps) {
           { holdStatus: hold?.status ?? null },
         );
       }
-      await markAssigned(shipment, admin.adminId, reason, admin);
+      const changed = await markAssigned(shipment, admin.adminId, reason, admin);
+      if (!changed) {
+        // Otra llamada (webhook de MP, saga) ya lo dejó `assigned`: el admin no cambió nada, no se avisa a nadie.
+        throw new ApiError(409, "STATUS_CHANGED", "El estado del envío cambió mientras confirmabas.", {
+          currentStatus: ShipmentStatus.ASSIGNED,
+        });
+      }
     },
 
     /**

@@ -697,7 +697,7 @@ retiro acordado al aceptar una oferta). Recordatorio habitual: `npm run build` a
 
 ### MOVO-331 — Contrato del cambio forzado de estado (`config/forced-transition-matrix.ts`, ADR-055)
 
-`FORCED_TRANSITION_MATRIX` (origen → destino → `{ kind, risk, service, requiresAuthorizedHold }`; una celda ausente es una transición bloqueada),
+`FORCED_TRANSITION_MATRIX` (origen → destino → `{ kind, risk, service }`; una celda ausente es una transición bloqueada),
 `getForcedTransition`, `listForcedTransitionTargets` y `blockedTransitionReason`: backend y panel la leen de acá. `types/admin-shipments.ts`:
 `ForceShipmentStatusRequest/Response`, `ShipmentEventKind` y `AdminShipmentEvent` suma `kind` y `actorName` (requeridos: rompen literales armados a
 mano, tocó fixtures de `movo-admin`). `ApiErrorCode` suma `TRANSITION_NOT_ALLOWED`, `STATUS_CHANGED`, `HOLD_NOT_AUTHORIZED`,

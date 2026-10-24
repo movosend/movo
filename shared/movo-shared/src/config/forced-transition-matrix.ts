@@ -30,8 +30,6 @@ export interface ForcedTransitionCell {
   kind: ForcedTransitionKind;
   risk: ForcedTransitionRisk;
   service: ForcedTransitionService;
-  /** Consulta a payments antes de ejecutar: `assigned` exige un hold autorizado. */
-  requiresAuthorizedHold: boolean;
 }
 
 type Row = Partial<Record<ShipmentStatus, ForcedTransitionCell>>;
@@ -40,21 +38,18 @@ const cancel = (risk: ForcedTransitionRisk, kind: ForcedTransitionKind = "manual
   kind,
   risk,
   service: "cancelShipment",
-  requiresAuthorizedHold: false,
 });
 
 const withdraw: ForcedTransitionCell = {
   kind: "forced",
   risk: "medium",
   service: "withdrawCarrierFromShipment",
-  requiresAuthorizedHold: false,
 };
 
 const confirmFunding: ForcedTransitionCell = {
   kind: "manual",
   risk: "high",
   service: "confirmFunding",
-  requiresAuthorizedHold: true,
 };
 
 export const FORCED_TRANSITION_MATRIX: Readonly<Record<ShipmentStatus, Row>> = {
@@ -84,8 +79,7 @@ export const FORCED_TRANSITION_MATRIX: Readonly<Record<ShipmentStatus, Row>> = {
       kind: "manual",
       risk: "critical",
       service: "captureAndComplete",
-      requiresAuthorizedHold: false,
-    },
+        },
   },
   [ShipmentStatus.REJECTED_BY_RECEIVER]: {
     [ShipmentStatus.CANCELLED]: cancel("medium"),

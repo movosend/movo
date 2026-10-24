@@ -1,4 +1,5 @@
-// Autocontenido a propósito -- mismo criterio que el resto de los *.schema.ts del repo.
+import { FORCE_STATUS_REASON_MAX_LENGTH, FORCE_STATUS_REASON_MIN_LENGTH } from "@movo/shared";
+
 const uuid = { type: "string", format: "uuid" } as const;
 const nullableUuid = { type: ["string", "null"], format: "uuid" } as const;
 
@@ -198,7 +199,7 @@ export const adminInternalSchemas = {
     properties: {
       targetStatus: { type: "string", enum: SHIPMENT_STATUSES },
       expectedStatus: { type: "string", enum: SHIPMENT_STATUSES },
-      reason: { type: "string", minLength: 20, maxLength: 500 },
+      reason: { type: "string", minLength: FORCE_STATUS_REASON_MIN_LENGTH, maxLength: FORCE_STATUS_REASON_MAX_LENGTH },
       adminId: uuid,
       adminName: { type: "string", minLength: 1, maxLength: 200 },
       idempotencyKey: { type: "string", minLength: 8, maxLength: 128 },

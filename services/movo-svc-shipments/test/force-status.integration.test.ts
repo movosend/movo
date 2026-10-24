@@ -375,6 +375,117 @@ describe("cambio forzado de estado de un envío (Postgres + Redis) — MOVO-331"
     });
   });
 
+  describe("comentarios de review de la PR #303", () => {
+    const pushesTo = (userId: string) =>
+      sendPush.mock.calls.filter(([input]) => input.userId === userId).map(([input]) => input as { title: string });
+
+    it("la baja forzada que falla en payments deshace su claim: el envío queda realmente como estaba y el barrido no la completa", async () => {
+      const id = await createShipment(ShipmentStatus.ASSIGNED, { withHold: true });
+      payments.behavior.releaseError = new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "payments caído");
+
+      const response = await force(id, { targetStatus: ShipmentStatus.PUBLISHED, expectedStatus: ShipmentStatus.ASSIGNED });
+
+      expect(response.statusCode).toBe(502);
+      const row = await shipmentRow(id);
+      expect(row).toMatchObject({ status: ShipmentStatus.ASSIGNED, carrierId, carrierWithdrawalPending: false });
+      // El barrido de bajas pendientes no encuentra nada que completar "como si fuera del transportista".
+      payments.behavior.releaseError = null;
+      await app.inject({ method: "GET", url: "/health" });
+      expect(await app.db.shipment.count({ where: { carrierWithdrawalPending: true } })).toBe(0);
+    });
+
+    it("assigned -> cancelled: el transportista recibe solo el aviso de soporte, no además el de oferta cancelada", async () => {
+      const id = await createShipment(ShipmentStatus.ASSIGNED, { withHold: true });
+
+      await force(id, { targetStatus: ShipmentStatus.CANCELLED, expectedStatus: ShipmentStatus.ASSIGNED });
+
+      const carrierPushes = pushesTo(carrierId);
+      expect(carrierPushes).toHaveLength(1);
+      expect(carrierPushes[0]!.title).toMatch(/^Soporte actualizó/);
+    });
+
+    it("assignment_pending -> assigned: el emisor y el transportista reciben solo el aviso de soporte, no el de pago confirmado", async () => {
+      const id = await createShipment(ShipmentStatus.ASSIGNMENT_PENDING, { withHold: true });
+
+      await force(id, { targetStatus: ShipmentStatus.ASSIGNED, expectedStatus: ShipmentStatus.ASSIGNMENT_PENDING });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      for (const userId of [senderId, carrierId]) {
+        const pushes = pushesTo(userId);
+        expect(pushes).toHaveLength(1);
+        expect(pushes[0]!.title).toMatch(/^Soporte actualizó/);
+      }
+    });
+
+    it("delivered -> completed: el transportista recibe solo el aviso de soporte, no además el de la liquidación", async () => {
+      const id = await createShipment(ShipmentStatus.DELIVERED, { withHold: true });
+
+      await force(id, { targetStatus: ShipmentStatus.COMPLETED, expectedStatus: ShipmentStatus.DELIVERED });
+
+      const pushes = pushesTo(carrierId);
+      expect(pushes).toHaveLength(1);
+      expect(pushes[0]!.title).toMatch(/^Soporte actualizó/);
+    });
+
+    it("si otra llamada ya dejó el envío assigned (webhook, saga): 409 STATUS_CHANGED, sin aviso y sin guardar la clave", async () => {
+      const id = await createShipment(ShipmentStatus.ASSIGNMENT_PENDING, { withHold: true });
+      const idempotencyKey = randomUUID();
+      // El hold se consulta con el envío ya leído: entremedio la saga lo confirma.
+      vi.mocked(payments.findHoldByShipment).mockImplementationOnce(async (shipmentId: string) => {
+        await app.db.shipment.update({ where: { id }, data: { status: ShipmentStatus.ASSIGNED } });
+        return payments.holds.get(shipmentId) ?? null;
+      });
+
+      const response = await force(id, {
+        targetStatus: ShipmentStatus.ASSIGNED,
+        expectedStatus: ShipmentStatus.ASSIGNMENT_PENDING,
+        idempotencyKey,
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error).toMatchObject({ code: "STATUS_CHANGED", details: { currentStatus: ShipmentStatus.ASSIGNED } });
+      expect(sendPush).not.toHaveBeenCalled();
+      expect(await app.redis.get(`force-status:idem:${idempotencyKey}`)).toBeNull();
+    });
+
+    it("assigned -> cancelled: si el retiro gana la carrera tras liberar el hold, 409 y alerta al equipo", async () => {
+      const id = await createShipment(ShipmentStatus.ASSIGNED, { withHold: true });
+      vi.mocked(payments.releaseHold).mockImplementationOnce(async (shipmentId: string) => {
+        // El handshake de retiro gana justo después de que se libera el hold.
+        await app.db.shipment.update({ where: { id }, data: { status: ShipmentStatus.IN_TRANSIT } });
+        return payments.holds.get(shipmentId) ?? null;
+      });
+
+      const response = await force(id, { targetStatus: ShipmentStatus.CANCELLED, expectedStatus: ShipmentStatus.ASSIGNED });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error).toMatchObject({ code: "STATUS_CHANGED", details: { currentStatus: ShipmentStatus.IN_TRANSIT } });
+      expect(sendAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "force_status_hold_released_race", context: expect.objectContaining({ shipmentId: id }) }),
+      );
+      expect(sendPush).not.toHaveBeenCalled();
+    });
+
+    it("si Redis falla al guardar la clave de idempotencia, el cambio ya hecho igual responde 200 y avisa a las partes", async () => {
+      const id = await createShipment(ShipmentStatus.PUBLISHED);
+      const realSet = app.redis.set.bind(app.redis) as (...args: unknown[]) => Promise<unknown>;
+      const spy = vi.spyOn(app.redis, "set").mockImplementation(((...args: unknown[]) =>
+        typeof args[0] === "string" && args[0].startsWith("force-status:idem:")
+          ? Promise.reject(new Error("redis caído"))
+          : realSet(...args)) as unknown as typeof app.redis.set);
+
+      try {
+        const response = await force(id, { targetStatus: ShipmentStatus.CANCELLED, expectedStatus: ShipmentStatus.PUBLISHED });
+
+        expect(response.statusCode).toBe(200);
+        expect((await shipmentRow(id)).status).toBe(ShipmentStatus.CANCELLED);
+        expect(pushesTo(senderId)).toHaveLength(1);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
   describe("idempotencia", () => {
     it("repetir la misma clave devuelve el resultado original sin volver a ejecutar efectos", async () => {
       const id = await createShipment(ShipmentStatus.ASSIGNED, { withHold: true });

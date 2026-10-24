@@ -55,7 +55,10 @@ export interface ForceStatusServiceDeps {
 }
 
 export interface ForceStatusService {
-  forceStatus(shipmentId: string, input: ForceShipmentStatusRequest): Promise<ForceShipmentStatusResponse>;
+  forceStatus(
+    shipmentId: string,
+    input: ForceShipmentStatusRequest,
+  ): Promise<ForceShipmentStatusResponse>;
 }
 
 const PARTY_TRIGGERS = {
@@ -64,17 +67,28 @@ const PARTY_TRIGGERS = {
   carrier: "shipmentStatusForcedCarrier",
 } as const satisfies Record<string, NotificationTriggerKey>;
 
-export function createForceStatusService(deps: ForceStatusServiceDeps): ForceStatusService {
+export function createForceStatusService(
+  deps: ForceStatusServiceDeps,
+): ForceStatusService {
   const { repository, shipmentsService, fundingService, redis, logger } = deps;
 
-  async function readStored(idempotencyKey: string): Promise<StoredResult | null> {
+  async function readStored(
+    idempotencyKey: string,
+  ): Promise<StoredResult | null> {
     const raw = await redis.get(idempotencyRedisKey(idempotencyKey));
     return raw ? (JSON.parse(raw) as StoredResult) : null;
   }
 
-  function replayOrNull(stored: StoredResult | null, shipmentId: string, targetStatus: string) {
+  function replayOrNull(
+    stored: StoredResult | null,
+    shipmentId: string,
+    targetStatus: string,
+  ) {
     if (!stored) return null;
-    if (stored.shipmentId !== shipmentId || stored.targetStatus !== targetStatus) {
+    if (
+      stored.shipmentId !== shipmentId ||
+      stored.targetStatus !== targetStatus
+    ) {
       throw new ApiError(
         409,
         "IDEMPOTENCY_KEY_REUSED",
@@ -85,11 +99,19 @@ export function createForceStatusService(deps: ForceStatusServiceDeps): ForceSta
   }
 
   /** El envío cambió entre la lectura y el servicio de dominio: el panel tiene que releer. */
-  async function statusChanged(shipmentId: string, fallback: ShipmentStatus): Promise<ApiError> {
+  async function statusChanged(
+    shipmentId: string,
+    fallback: ShipmentStatus,
+  ): Promise<ApiError> {
     const current = await repository.findById(shipmentId);
-    return new ApiError(409, "STATUS_CHANGED", "El estado del envío cambió mientras confirmabas.", {
-      currentStatus: current?.status ?? fallback,
-    });
+    return new ApiError(
+      409,
+      "STATUS_CHANGED",
+      "El estado del envío cambió mientras confirmabas.",
+      {
+        currentStatus: current?.status ?? fallback,
+      },
+    );
   }
 
   async function execute(
@@ -97,30 +119,62 @@ export function createForceStatusService(deps: ForceStatusServiceDeps): ForceSta
     input: ForceShipmentStatusRequest,
     cell: NonNullable<ReturnType<typeof getForcedTransition>>,
   ): Promise<void> {
-    const admin: AdminStatusActor = { adminId: input.adminId, adminName: input.adminName, kind: cell.kind };
+    const admin: AdminStatusActor = {
+      adminId: input.adminId,
+      adminName: input.adminName,
+      kind: cell.kind,
+    };
     switch (cell.service) {
       case "cancelShipment":
-        await shipmentsService.cancelShipment(shipment.id, shipment.senderId, input.reason, undefined, { admin });
+        await shipmentsService.cancelShipment(
+          shipment.id,
+          shipment.senderId,
+          input.reason,
+          undefined,
+          { admin },
+        );
         return;
       case "withdrawCarrierFromShipment":
         if (!shipment.carrierId) {
-          throw new ApiError(422, "TRANSITION_NOT_ALLOWED", "El envío no tiene transportista asignado.", {
-            reason: "El envío no tiene transportista asignado.",
-          });
+          throw new ApiError(
+            422,
+            "TRANSITION_NOT_ALLOWED",
+            "El envío no tiene transportista asignado.",
+            {
+              reason: "El envío no tiene transportista asignado.",
+            },
+          );
         }
-        await shipmentsService.withdrawCarrierFromShipment(shipment.id, shipment.carrierId, input.reason, undefined, {
-          admin,
-        });
+        await shipmentsService.withdrawCarrierFromShipment(
+          shipment.id,
+          shipment.carrierId,
+          input.reason,
+          undefined,
+          {
+            admin,
+          },
+        );
         return;
       case "confirmFunding":
-        await fundingService.confirmAssignmentByAdmin(shipment, admin, input.reason);
+        await fundingService.confirmAssignmentByAdmin(
+          shipment,
+          admin,
+          input.reason,
+        );
         return;
       case "captureAndComplete": {
-        const outcome = await deps.settlements().captureAndComplete(shipment.id, admin);
+        const outcome = await deps
+          .settlements()
+          .captureAndComplete(shipment.id, admin);
         if (outcome === "skipped") {
-          throw new ApiError(422, "TRANSITION_NOT_ALLOWED", "El envío no tiene un cobro que capturar.", {
-            reason: "El envío no tiene un cobro que capturar.",
-          });
+          throw new ApiError(
+            422,
+            "TRANSITION_NOT_ALLOWED",
+            "El envío no tiene un cobro que capturar.",
+            {
+              reason: "El envío no tiene un cobro que capturar.",
+            },
+          );
         }
         return;
       }
@@ -153,7 +207,12 @@ export function createForceStatusService(deps: ForceStatusServiceDeps): ForceSta
           });
         } catch (err) {
           logger.warn(
-            { err, event: "notification_dispatch_failed", shipmentId: shipment.id, userId },
+            {
+              err,
+              event: "notification_dispatch_failed",
+              shipmentId: shipment.id,
+              userId,
+            },
             "No se pudo avisar del cambio de estado forzado",
           );
         }
@@ -161,57 +220,133 @@ export function createForceStatusService(deps: ForceStatusServiceDeps): ForceSta
     );
   }
 
-  async function alertFailure(shipment: Shipment, input: ForceShipmentStatusRequest, err: unknown): Promise<void> {
-    logger.error(
-      { err, event: "force_status_failed", shipmentId: shipment.id, from: shipment.status, to: input.targetStatus },
-      "Falló un efecto del cambio forzado de estado: el envío quedó en su estado original",
-    );
-    await deps.alertNotifier
-      .send({
-        kind: "force_status_failed",
-        message: "Falló un cambio forzado de estado; el envío quedó en su estado original",
-        context: {
-          shipmentId: shipment.id,
-          fromStatus: shipment.status,
-          toStatus: input.targetStatus,
-          adminId: input.adminId,
+  async function sendAlert(
+    alert: Parameters<AlertNotifier["send"]>[0],
+  ): Promise<void> {
+    await deps.alertNotifier.send(alert).catch((alertErr: unknown) => {
+      logger.warn(
+        {
+          err: alertErr,
+          event: "force_status_alert_failed",
+          alert: alert.kind,
         },
-      })
-      .catch((alertErr: unknown) => {
-        logger.warn({ err: alertErr, event: "force_status_alert_failed" }, "No se pudo mandar la alerta");
-      });
+        "No se pudo mandar la alerta",
+      );
+    });
+  }
+
+  /**
+   * ADR-055 (riesgo aceptado): `assigned -> cancelled` libera el hold ANTES de cancelar, y el handshake de
+   * retiro puede ganar la carrera entre las dos cosas. Si pasó, el envío quedó `in_transit` sin fondos
+   * retenidos: no hay forma de volver a autorizar el hold, así que se alerta al equipo con los ids.
+   */
+  async function alertHoldReleasedRace(
+    shipment: Shipment,
+    input: ForceShipmentStatusRequest,
+  ): Promise<void> {
+    const current = await repository.findById(shipment.id);
+    logger.error(
+      {
+        event: "force_status_hold_released_race",
+        shipmentId: shipment.id,
+        currentStatus: current?.status,
+      },
+      "Se liberó el hold de un envío que el retiro movió a in_transit antes de cancelarlo",
+    );
+    await sendAlert({
+      kind: "force_status_hold_released_race",
+      message:
+        "Se liberó el hold de un envío que ya está en tránsito: quedó sin fondos retenidos",
+      context: {
+        shipmentId: shipment.id,
+        fromStatus: shipment.status,
+        currentStatus: current?.status,
+        adminId: input.adminId,
+      },
+    });
+  }
+
+  async function alertFailure(
+    shipment: Shipment,
+    input: ForceShipmentStatusRequest,
+    err: unknown,
+  ): Promise<void> {
+    logger.error(
+      {
+        err,
+        event: "force_status_failed",
+        shipmentId: shipment.id,
+        from: shipment.status,
+        to: input.targetStatus,
+      },
+      "Falló un efecto del cambio forzado de estado",
+    );
+    await sendAlert({
+      kind: "force_status_failed",
+      message: "Falló un cambio forzado de estado; revisar el estado del envío",
+      context: {
+        shipmentId: shipment.id,
+        fromStatus: shipment.status,
+        toStatus: input.targetStatus,
+        adminId: input.adminId,
+      },
+    });
   }
 
   return {
     async forceStatus(shipmentId, input) {
-      const replayed = replayOrNull(await readStored(input.idempotencyKey), shipmentId, input.targetStatus);
+      const replayed = replayOrNull(
+        await readStored(input.idempotencyKey),
+        shipmentId,
+        input.targetStatus,
+      );
       if (replayed) return replayed;
 
       const lockKey = lockRedisKey(shipmentId);
       const token = randomUUID();
       const locked = await redis.set(lockKey, token, "PX", LOCK_TTL_MS, "NX");
       if (locked !== "OK") {
-        throw new ApiError(409, "FORCE_STATUS_IN_PROGRESS", "Hay otro cambio de estado en curso sobre este envío.");
+        throw new ApiError(
+          409,
+          "FORCE_STATUS_IN_PROGRESS",
+          "Hay otro cambio de estado en curso sobre este envío.",
+        );
       }
 
       try {
         // Otra llamada con la misma clave pudo terminar entre la primera lectura y el lock.
-        const again = replayOrNull(await readStored(input.idempotencyKey), shipmentId, input.targetStatus);
+        const again = replayOrNull(
+          await readStored(input.idempotencyKey),
+          shipmentId,
+          input.targetStatus,
+        );
         if (again) return again;
 
         const shipment = await repository.findById(shipmentId);
-        if (!shipment) throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+        if (!shipment)
+          throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
 
         if (shipment.status !== input.expectedStatus) {
-          throw new ApiError(409, "STATUS_CHANGED", "El estado del envío cambió mientras confirmabas.", {
-            currentStatus: shipment.status,
-          });
+          throw new ApiError(
+            409,
+            "STATUS_CHANGED",
+            "El estado del envío cambió mientras confirmabas.",
+            {
+              currentStatus: shipment.status,
+            },
+          );
         }
 
         // La matriz de `@movo/shared` manda: el panel nunca es la fuente de verdad.
-        const cell = getForcedTransition(shipment.status, input.targetStatus as ShipmentStatus);
+        const cell = getForcedTransition(
+          shipment.status,
+          input.targetStatus as ShipmentStatus,
+        );
         if (!cell) {
-          const reason = blockedTransitionReason(shipment.status, input.targetStatus as ShipmentStatus);
+          const reason = blockedTransitionReason(
+            shipment.status,
+            input.targetStatus as ShipmentStatus,
+          );
           throw new ApiError(422, "TRANSITION_NOT_ALLOWED", reason, { reason });
         }
 
@@ -219,17 +354,50 @@ export function createForceStatusService(deps: ForceStatusServiceDeps): ForceSta
           await execute(shipment, input, cell);
         } catch (err) {
           if (err instanceof ApiError && err.statusCode < 500) throw err;
-          if (err instanceof ShipmentConcurrentModificationError || err instanceof InvalidShipmentTransitionError) {
+          if (
+            err instanceof ShipmentConcurrentModificationError ||
+            err instanceof InvalidShipmentTransitionError
+          ) {
+            if (
+              cell.service === "cancelShipment" &&
+              shipment.status === ShipmentStatus.ASSIGNED
+            ) {
+              await alertHoldReleasedRace(shipment, input);
+            }
             throw await statusChanged(shipmentId, shipment.status);
           }
-          // Un efecto externo falló. Los servicios de dominio ordenan el efecto ANTES del cambio de
-          // estado, así que el envío sigue como estaba: se avisa al equipo y el panel puede reintentar.
-          await alertFailure(shipment, input, err);
-          throw new ApiError(
-            502,
-            "FORCE_STATUS_EFFECT_FAILED",
-            "No se pudo completar el cambio: el envío quedó en su estado original.",
+          // Algo falló. Si el cambio alcanzó a aplicarse (falló un efecto posterior, como la liberación del
+          // hold de una cancelación desde `assignment_pending`/`assigned_unfunded`), el pedido se cumplió.
+          const after = await repository.findById(shipmentId);
+          if (after?.status !== input.targetStatus) {
+            // Si no, el servicio de dominio ordena el efecto externo ANTES del cambio de estado (y la baja
+            // deshace su claim), así que el envío sigue como estaba. Se avisa al equipo; el panel reintenta.
+            await alertFailure(shipment, input, err);
+            throw new ApiError(
+              502,
+              "FORCE_STATUS_EFFECT_FAILED",
+              "No se pudo completar el cambio. Revisá el estado del envío y reintentá.",
+            );
+          }
+          logger.error(
+            {
+              err,
+              event: "force_status_effect_failed_after_change",
+              shipmentId,
+              to: input.targetStatus,
+            },
+            "El estado ya cambió pero falló un efecto posterior del cambio forzado",
           );
+          await sendAlert({
+            kind: "force_status_effect_failed_after_change",
+            message:
+              "El estado de un envío cambió, pero falló un efecto posterior (revisar el hold)",
+            context: {
+              shipmentId,
+              toStatus: input.targetStatus,
+              adminId: input.adminId,
+            },
+          });
         }
 
         const response: ForceShipmentStatusResponse = {
@@ -239,8 +407,25 @@ export function createForceStatusService(deps: ForceStatusServiceDeps): ForceSta
           kind: cell.kind,
           replayed: false,
         };
-        const stored: StoredResult = { shipmentId, targetStatus: input.targetStatus, response };
-        await redis.set(idempotencyRedisKey(input.idempotencyKey), JSON.stringify(stored), "EX", IDEMPOTENCY_TTL_SECONDS);
+        const stored: StoredResult = {
+          shipmentId,
+          targetStatus: input.targetStatus,
+          response,
+        };
+        // Best-effort, como los avisos: el cambio ya está hecho, un Redis caído no puede convertirlo en un 500.
+        try {
+          await redis.set(
+            idempotencyRedisKey(input.idempotencyKey),
+            JSON.stringify(stored),
+            "EX",
+            IDEMPOTENCY_TTL_SECONDS,
+          );
+        } catch (err) {
+          logger.warn(
+            { err, event: "force_status_idempotency_save_failed", shipmentId },
+            "No se pudo guardar la clave de idempotencia del cambio forzado",
+          );
+        }
 
         logger.warn(
           {
@@ -256,7 +441,15 @@ export function createForceStatusService(deps: ForceStatusServiceDeps): ForceSta
         await notifyParties(shipment);
         return response;
       } finally {
-        await redis.eval(RELEASE_LOCK_IF_OWNER_SCRIPT, 1, lockKey, token);
+        // Si falla, el lock vence solo (60 s); no puede enmascarar el resultado.
+        await redis
+          .eval(RELEASE_LOCK_IF_OWNER_SCRIPT, 1, lockKey, token)
+          .catch((err: unknown) => {
+            logger.warn(
+              { err, event: "force_status_lock_release_failed", shipmentId },
+              "No se pudo liberar el lock",
+            );
+          });
       }
     },
   };

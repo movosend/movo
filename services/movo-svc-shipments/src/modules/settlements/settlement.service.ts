@@ -293,7 +293,8 @@ export function createSettlementService(deps: SettlementServiceDeps) {
         { event: "shipment_completed", shipmentId, settlementId: settlement.id },
         "envío completado: hold capturado y pago acreditado"
       );
-      await notifyParties(shipment, settlement);
+      // MOVO-331: si lo pidió un admin, las partes reciben el aviso de soporte y no además el de la liquidación.
+      if (!admin) await notifyParties(shipment, settlement);
       return "completed";
     },
 
