@@ -1,6 +1,8 @@
 import { MapPin } from "lucide-react-native";
+import { useEffect } from "react";
 import { Text, View } from "react-native";
 import { haversineKm } from "../../../src/lib/geo";
+import { availableWindowsFor, defaultPickupDate } from "../../../src/lib/pickup-windows";
 import { useShipmentWizardStore } from "../../../src/store/shipment-wizard-store";
 import type { AddressSelection } from "../../../src/types/address-selection";
 import { AddressField } from "../address-field";
@@ -42,16 +44,15 @@ export function isAddressStepValid(state: {
   pickupDate: string;
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
-}): boolean {
+}, now: Date = new Date()): boolean {
   if (!isValidSelection(state.pickup) || !isValidSelection(state.delivery))
     return false;
   if (arePickupAndDeliveryTooClose(state.pickup, state.delivery)) return false;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(state.pickupDate)) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const pickupDay = new Date(`${state.pickupDate}T00:00:00`);
-  if (pickupDay < today) return false;
-  return state.pickupTimeWindowStart !== "" && state.pickupTimeWindowEnd !== "";
+  // MOVO-340: la franja elegida tiene que seguir disponible ese día (hoy en Argentina, no
+  // en la zona del dispositivo, y sin franjas que ya empezaron).
+  return availableWindowsFor(state.pickupDate, now).some(
+    (w) => w.start === state.pickupTimeWindowStart && w.end === state.pickupTimeWindowEnd,
+  );
 }
 
 export function AddressStep() {
@@ -69,6 +70,24 @@ export function AddressStep() {
   } = useShipmentWizardStore();
 
   const tooClose = arePickupAndDeliveryTooClose(pickup, delivery);
+
+  // MOVO-340: el formulario arranca con el primer día que tiene franjas (también si quedó
+  // cargado un día que ya pasó, el store sobrevive entre aperturas del wizard), y una
+  // franja que deja de estar disponible al cambiar de día se limpia.
+  useEffect(() => {
+    const now = new Date();
+    if (availableWindowsFor(pickupDate, now).length === 0) {
+      setPickupDate(defaultPickupDate(now));
+      return;
+    }
+    const stillAvailable = availableWindowsFor(pickupDate, now).some(
+      (w) => w.start === pickupTimeWindowStart && w.end === pickupTimeWindowEnd,
+    );
+    if (pickupTimeWindowStart !== "" && !stillAvailable) {
+      setPickupTimeWindowStart("");
+      setPickupTimeWindowEnd("");
+    }
+  }, [pickupDate, pickupTimeWindowStart, pickupTimeWindowEnd, setPickupDate, setPickupTimeWindowStart, setPickupTimeWindowEnd]);
 
   return (
     <View className="gap-6">

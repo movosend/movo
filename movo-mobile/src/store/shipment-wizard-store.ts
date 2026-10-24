@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
+import { defaultPickupDate } from "../lib/pickup-windows";
 import type { AddressSelection } from "../types/address-selection";
 
 /**
@@ -137,6 +138,8 @@ const sameCoords = (a: AddressSelection | null, b: AddressSelection | null) =>
 
 export const useShipmentWizardStore = create<ShipmentWizardState>((set) => ({
   ...initialState,
+  // MOVO-340: el día que el selector muestra elegido es el que tiene el formulario.
+  pickupDate: defaultPickupDate(),
 
   setStep: (step) => set({ step }),
   // MOVO-255: un cambio real en un dato que afecta el precio descarta la cotización.
@@ -172,5 +175,5 @@ export const useShipmentWizardStore = create<ShipmentWizardState>((set) => ({
   setPriceQuote: (priceQuote) => set({ priceQuote }),
   setSubmission: (patch) => set((state) => ({ submission: { ...state.submission, ...patch } })),
 
-  resetWizard: () => set({ ...initialState, photos: [] }),
+  resetWizard: () => set({ ...initialState, pickupDate: defaultPickupDate(), photos: [] }),
 }));
