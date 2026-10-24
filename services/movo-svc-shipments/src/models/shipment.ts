@@ -179,6 +179,9 @@ export interface ShipmentEvent {
   actorId: string | null;
   assignmentCarrierId?: string | null;
   reason: string | null;
+  /** MOVO-331: `normal` salvo que lo haya hecho un admin desde el panel. */
+  kind: "normal" | "manual" | "forced";
+  actorName: string | null;
   createdAt: Date;
 }
 

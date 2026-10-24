@@ -318,6 +318,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+    ...(opts.alertNotifier ? { alertNotifier: opts.alertNotifier } : {}),
   });
 
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas

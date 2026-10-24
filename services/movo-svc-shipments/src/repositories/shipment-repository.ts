@@ -130,6 +130,8 @@ function mapEvent(row: ShipmentEventRow): ShipmentEvent {
     actorId: row.actorId,
     assignmentCarrierId: row.assignmentCarrierId,
     reason: row.reason,
+    kind: row.kind,
+    actorName: row.actorName,
     createdAt: row.createdAt,
   };
 }
@@ -478,6 +480,11 @@ export interface UpdateStatusOptions {
    * disputa sin su expediente. Lanza `DisputeAlreadyOpenError` si ya había una abierta.
    */
   dispute?: NewDispute;
+  /**
+   * MOVO-331 (ADR-055): la transición la ejecuta un admin desde el panel. Queda en el evento
+   * (inmutable), con el nombre del admin como snapshot. Sin esto el evento es `normal`.
+   */
+  adminActor?: { kind: "manual" | "forced"; name: string };
 }
 
 /** MOVO-310: penalidad de una baja del transportista todavía sin registrar en su cuenta corriente. */
@@ -1271,6 +1278,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             assignmentCarrierId: revertsAssignment ? current.carrierId : null,
             reason: reason ?? null,
             attribution: options.pickupMiss?.attribution ?? null,
+            ...(options.adminActor && { kind: options.adminActor.kind, actorName: options.adminActor.name }),
           },
         });
 

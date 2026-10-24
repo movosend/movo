@@ -446,7 +446,7 @@ const pendingRatingShipmentResponse = {
 
 const shipmentEventResponse = {
   type: "object",
-  required: ["id", "shipmentId", "fromStatus", "toStatus", "actorId", "reason", "createdAt"],
+  required: ["id", "shipmentId", "fromStatus", "toStatus", "actorId", "reason", "kind", "createdAt"],
   properties: {
     id: { type: "string" },
     shipmentId: { type: "string" },
@@ -454,6 +454,8 @@ const shipmentEventResponse = {
     toStatus: { type: "string" },
     actorId: { type: ["string", "null"] },
     reason: { type: ["string", "null"] },
+    // MOVO-331: `normal`, o `manual`/`forced` si lo hizo soporte desde el panel.
+    kind: { type: "string", enum: ["normal", "manual", "forced"] },
     createdAt: { type: "string", format: "date-time" },
   },
 };

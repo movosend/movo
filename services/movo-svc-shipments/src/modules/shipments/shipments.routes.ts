@@ -149,13 +149,17 @@ function toPendingRatingShipmentDto(item: PendingRatingResult) {
 }
 
 function toShipmentEventDto(event: ShipmentEvent) {
+  // MOVO-331 (ADR-055): el motivo y la identidad de un admin son internos. Las partes ven que fue
+  // soporte (`kind`) y el cambio de estado, nunca quién ni por qué.
+  const byAdmin = event.kind !== "normal";
   return {
     id: event.id,
     shipmentId: event.shipmentId,
     fromStatus: event.fromStatus,
     toStatus: event.toStatus,
-    actorId: event.actorId,
-    reason: event.reason,
+    actorId: byAdmin ? null : event.actorId,
+    reason: byAdmin ? null : event.reason,
+    kind: event.kind,
     createdAt: event.createdAt,
   };
 }

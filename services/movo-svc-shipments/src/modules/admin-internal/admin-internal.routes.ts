@@ -18,6 +18,9 @@ import {
   ApiError,
   ChatParticipantRole,
   ChatReportParties,
+  FORCE_STATUS_REASON_MIN_LENGTH,
+  ForceShipmentStatusRequest,
+  ForceShipmentStatusResponse,
   InProgressShipment,
   ShipmentParties,
   ShipmentStatus,
@@ -42,12 +45,18 @@ import { createOfferRepository } from "../../repositories/offer-repository";
 import { createTripRepository } from "../../repositories/trip-repository";
 import { createShipmentsService } from "../shipments/shipments.service";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
+import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
+import { AlertNotifier, createAlertNotifier } from "../../adapters/alert-notifier";
+import { buildFundingService } from "../funding/funding.routes";
+import { createForceStatusService } from "./force-status.service";
 
 export interface AdminInternalRoutesOptions extends FastifyPluginOptions {
   /** Overrides solo para tests, mismo criterio que en `shipmentsRoutes`. */
   usersClient?: UsersClient;
   storageProvider?: StorageProvider;
   notificationsClient?: NotificationsClient;
+  paymentsClient?: PaymentsClient;
+  alertNotifier?: AlertNotifier;
 }
 
 /** Cuánto se espera a svc-users para completar nombres faltantes: es un dato accesorio del listado. */
@@ -171,7 +180,9 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     fromStatus: event.fromStatus,
     toStatus: event.toStatus,
     actorId: event.actorId,
+    actorName: event.actorName,
     reason: event.reason,
+    kind: event.kind,
     createdAt: event.createdAt.toISOString(),
   });
 
@@ -518,6 +529,49 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
       const { id } = request.params as { id: string };
       const body = request.body as { sanctionId?: string } | null | undefined;
       return sanctionEffects.withdrawOpenActivity(id, body?.sanctionId);
+    },
+  );
+
+  // MOVO-331 (ADR-055): cambio de estado de un envío hecho por un admin. Lo llama `svc-admin` (que ya validó
+  // la sesión, el OTP por acción y el conflicto de interés, y dejó la bitácora); acá se valida la matriz.
+  // Grafo propio, con `paymentsClient`: el de arriba no tiene hold ni transportista a propósito.
+  const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);
+  const forceStatus = createForceStatusService({
+    repository: shipmentRepository,
+    shipmentsService: createShipmentsService(shipmentRepository, usersClient, notificationsClient, app.log, {
+      offerRepository,
+      paymentsClient,
+    }),
+    fundingService: buildFundingService(app, { usersClient, notificationsClient, paymentsClient }),
+    // Perezoso: `app.settlements` se decora después de registrar estas rutas.
+    settlements: () => app.settlements,
+    notificationsClient,
+    alertNotifier: opts.alertNotifier ?? createAlertNotifier(app.config, app.log),
+    redis: app.redis,
+    logger: app.log,
+  });
+
+  app.post(
+    "/admin/shipments/:id/force-status",
+    {
+      schema: {
+        hide: true,
+        params: adminInternalSchemas.idParam,
+        body: adminInternalSchemas.forceStatusBody,
+        response: { 200: adminInternalSchemas.forceStatusResponse },
+      },
+    },
+    async (request: FastifyRequest): Promise<ForceShipmentStatusResponse> => {
+      const { id } = request.params as { id: string };
+      const body = request.body as ForceShipmentStatusRequest;
+      if (body.reason.trim().length < FORCE_STATUS_REASON_MIN_LENGTH) {
+        throw new ApiError(
+          400,
+          "VALIDATION_FAILED",
+          `El motivo tiene que tener al menos ${FORCE_STATUS_REASON_MIN_LENGTH} caracteres.`,
+        );
+      }
+      return forceStatus.forceStatus(id, { ...body, reason: body.reason.trim() });
     },
   );
 }

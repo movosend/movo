@@ -20,6 +20,7 @@ import {
   ShipmentRepository,
 } from "../../repositories/shipment-repository";
 import { Shipment } from "../../models/shipment";
+import type { AdminStatusActor } from "../../domain/admin-status-actor";
 import { sendCustodyPush } from "../../utils/dispatch-push";
 
 type SettlementLogger = {
@@ -250,7 +251,7 @@ export function createSettlementService(deps: SettlementServiceDeps) {
      * Captura el hold del envío y lo lleva a `completed`. Lanza si la captura falla (el envío
      * queda en `delivered`); los llamadores best-effort (notifier, barrido) lo atrapan.
      */
-    async captureAndComplete(shipmentId: string): Promise<CaptureOutcome> {
+    async captureAndComplete(shipmentId: string, admin?: AdminStatusActor): Promise<CaptureOutcome> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) return "skipped";
       if (shipment.status === ShipmentStatus.COMPLETED) return "already_completed";
@@ -271,9 +272,13 @@ export function createSettlementService(deps: SettlementServiceDeps) {
         await repository.updateStatus(
           shipmentId,
           ShipmentStatus.COMPLETED,
-          null,
+          admin?.adminId ?? null,
           "Pago capturado y acreditado al transportista",
-          { expectedFrom: ShipmentStatus.DELIVERED }
+          {
+            expectedFrom: ShipmentStatus.DELIVERED,
+            // MOVO-331: el cambio lo pidió un admin desde el panel; el evento lo deja asentado.
+            ...(admin ? { adminActor: { kind: admin.kind, name: admin.adminName } } : {}),
+          }
         );
       } catch (err) {
         if (err instanceof ShipmentConcurrentModificationError || err instanceof InvalidShipmentTransitionError) {

@@ -190,6 +190,33 @@ export const adminInternalSchemas = {
     },
   },
 
+  // MOVO-331 (ADR-055). Los topes del motivo son los de `@movo/shared` (`FORCE_STATUS_REASON_*`).
+  forceStatusBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["targetStatus", "expectedStatus", "reason", "adminId", "adminName", "idempotencyKey"],
+    properties: {
+      targetStatus: { type: "string", enum: SHIPMENT_STATUSES },
+      expectedStatus: { type: "string", enum: SHIPMENT_STATUSES },
+      reason: { type: "string", minLength: 20, maxLength: 500 },
+      adminId: uuid,
+      adminName: { type: "string", minLength: 1, maxLength: 200 },
+      idempotencyKey: { type: "string", minLength: 8, maxLength: 128 },
+    },
+  },
+
+  forceStatusResponse: {
+    type: "object",
+    required: ["shipmentId", "fromStatus", "toStatus", "kind", "replayed"],
+    properties: {
+      shipmentId: uuid,
+      fromStatus: { type: "string", enum: SHIPMENT_STATUSES },
+      toStatus: { type: "string", enum: SHIPMENT_STATUSES },
+      kind: { type: "string", enum: ["manual", "forced"] },
+      replayed: { type: "boolean" },
+    },
+  },
+
   // `sanctionId` es opcional: con él, volver a sancionar tras levantar la sanción vuelve a avisar a las contrapartes.
   withdrawOpenActivityBody: {
     type: ["object", "null"],
