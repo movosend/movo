@@ -5,6 +5,7 @@ import {
   KycStatus as PrismaKycStatus,
   AccountStatus as PrismaAccountStatus,
 } from "../generated/prisma/client";
+import { escapeLike } from "../utils/escape-like";
 import { VerificationType } from "../models/kyc-verification";
 import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName, effectiveAccountStatus } from "../models/user";
 
@@ -165,11 +166,6 @@ function toDomainUser(row: UserWithRoles): User {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
-}
-
-/** Escapa los comodines de `LIKE` (`%`, `_`) y la barra, que es su escape por defecto. */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
