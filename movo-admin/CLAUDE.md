@@ -254,7 +254,7 @@ cambio de estado (MOVO-333). Contrato de MOVO-325 (`shared/movo-shared/src/types
   `rowAlert` (`lib/shipments/format.ts`) solo elige el texto. El badge de "Solo con alerta" se oculta con un chip de estado
   elegido: `alertCounts` es por pestaña. El handshake ("Retiro confirmado con QR · 09:24") sale del
   evento `→ in_transit`/`→ delivered`. "Marcado por el equipo, sin QR" y las marcas Forzado/Manual esperan a que los eventos
-  traigan la marca de admin (MOVO-333). El mapa (MOVO-328) es un lugar con el mensaje por estado (`TrackingPlaceholder`).
+  traigan la marca de admin (MOVO-333). El mapa de seguimiento es MOVO-328 (ver abajo).
 - **Ruta por ciudad, no por barrio** (el prototipo muestra barrios): el backend solo guarda la ciudad (`pickupCity`/`deliveryCity`)
   y el barrio no es un dato aparte. Mostrarlo pediría columnas nuevas, sacarlo del geocoding y un backfill; se decidió no hacerlo.
   Las calles van en la segunda línea desde 1320 px. Ese corte se escribe en rem (`min-[82.5rem]`): Tailwind no ordena un
@@ -269,8 +269,9 @@ Pendiente: screenshots contra dev (DoD) y revisión a mano en claro/oscuro; nece
 ## MOVO-328 — Mapa de seguimiento del envío
 
 `<ShipmentTrackingMap shipmentId />` (`components/shipments/tracking/tracking-panel.tsx`) es el bloque de seguimiento del detalle de
-envíos (MOVO-33, prototipo `Movo Admin Envios.dc.html`). **Todavía no está montado en ninguna página**: el detalle es de MOVO-326; al
-mergear, se monta en la columna principal y se conecta `shipmentHref()` (`lib/support/shipment-href.ts`).
+envíos (MOVO-33, prototipo `Movo Admin Envios.dc.html`). Está montado en `app/shipments/[id]/page.tsx`, en la columna principal, donde
+estaba el `TrackingPlaceholder` de MOVO-326 (borrado junto con su `trackingMessage` de `lib/shipments/format.ts`; el copy por estado vive
+ahora en `lib/shipments/tracking/copy.ts`).
 
 - **Datos**: `GET /admin/shipments/:id/tracking` (MOVO-327) por `lib/shipments/tracking/api.ts`; el navegador lee por el Route Handler
   `app/api/shipments/[id]/tracking` (mismo patrón que soporte). El contrato es **provisorio** (`lib/shipments/tracking/types.ts`, la forma
@@ -287,7 +288,7 @@ mergear, se monta en la columna principal y se conecta `shipmentHref()` (`lib/su
 - **Teselas**: ArcGIS Location Platform (gris claro/oscuro, `lib/shipments/tracking/tiles.ts`) con `NEXT_PUBLIC_ESRI_API_KEY`, restringida por
   referrer; reemplaza al `server.arcgisonline.com` público del prototipo, cuyos términos no cubren un panel productivo (AC8). Sin key el
   mapa se dibuja sin teselas. **Pendiente**: crear la key y cargarla en Vercel (dev y prod).
-- **Modo fixtures** (`MOVO_ADMIN_MOCK=1`): ocho envíos de prueba, `00000000-0000-4000-8000-00000000000{1..8}` (`MOCK_TRACKING_IDS`: en camino,
+- **Modo fixtures** (`MOVO_ADMIN_MOCK=1`): ocho envíos de prueba (ids propios, no coinciden con los del listado de MOVO-326, así que en el detalle mock el mapa muestra el error 404), `00000000-0000-4000-8000-00000000000{1..8}` (`MOCK_TRACKING_IDS`: en camino,
   sin señal, sin arrancar, sin fondos, entregado, disputa, sin transportista, traza purgada); el que está en camino se mueve entre lecturas.
 - **Tokens nuevos** en `globals.css`: `--map-bg`, `--glass`, `--track-done`, `--track-todo` y las clases `.mv-track-*`.
 

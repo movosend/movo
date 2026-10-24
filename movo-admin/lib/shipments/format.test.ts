@@ -14,7 +14,6 @@ import {
   rowAlert,
   shortName,
   timeAgo,
-  trackingMessage,
 } from "./format"
 import {
   CARRIER,
@@ -91,18 +90,6 @@ describe("avisos", () => {
       )
     ).toBe("La ventana de pago ya venció")
     expect(rowAlert(row({ delayed: true }), NOW)).toMatch(/^Demorado/)
-  })
-
-  it("el lugar del mapa cambia el mensaje por estado", () => {
-    expect(trackingMessage(row({ status: "assigned" }), NOW)[0]).toBe(
-      "Todavía no arrancó"
-    )
-    expect(trackingMessage(row({ status: "delivered" }), NOW)[0]).toBe(
-      "Seguimiento cerrado"
-    )
-    expect(
-      trackingMessage(row({ status: "published", carrier: null }), NOW)[0]
-    ).toBe("Sin seguimiento")
   })
 })
 

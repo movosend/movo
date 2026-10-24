@@ -10,7 +10,6 @@ import {
   Megaphone,
   PackageCheck,
   PackagePlus,
-  Radio,
   Star,
   TriangleAlert,
   Truck,
@@ -39,7 +38,6 @@ import {
   ROLE_LABEL,
   rowAlert,
   timeAgo,
-  trackingMessage,
   type ShipmentStatusValue,
 } from "@/lib/shipments/format"
 import { initialsOf } from "@/lib/initials"
@@ -135,37 +133,6 @@ export function AlertBanner({
         {hint && <span className="text-[13px] text-fg2">{hint}</span>}
       </div>
     </div>
-  )
-}
-
-/** Lugar del mapa de seguimiento (MOVO-328): por ahora, el mensaje por estado del prototipo. */
-export function TrackingPlaceholder({
-  shipment,
-  now,
-}: {
-  shipment: AdminShipmentDetail
-  now: Date
-}) {
-  const [title, message] = trackingMessage(shipment, now)
-  return (
-    <section
-      aria-label="Seguimiento"
-      className="overflow-hidden rounded-[10px] border bg-card"
-    >
-      <div
-        className="mv-dots-fade h-[180px] border-b bg-surface-sub"
-        aria-hidden
-      />
-      <div className="flex items-center gap-3 px-[18px] py-3.5 text-[13px] text-fg2">
-        <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-muted text-muted-foreground">
-          <Radio aria-hidden className="size-4" />
-        </span>
-        <div className="flex flex-col gap-0.5">
-          <span className="font-medium text-foreground">{title}</span>
-          <span>{message}</span>
-        </div>
-      </div>
-    </section>
   )
 }
 
