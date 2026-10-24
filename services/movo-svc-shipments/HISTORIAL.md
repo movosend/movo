@@ -3814,3 +3814,15 @@ crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no
   descuento por deuda, todo del hold vivo que ya se consultaba para `debtDiscount` (`resolveCarrierPaymentDisplay`; una sola
   llamada a payments, mismo timeout). Lo calcula el backend para que "exacto" no dependa de la tasa de comisión de la app. `null`
   sin hold o sin fee informado. No se tocó el detalle de la oferta: el hold no existe hasta que el emisor acepta.
+
+### MOVO-327 — Seguimiento de un envío para el mapa del panel
+
+`GET /internal/admin/shipments/:id/tracking` (`modules/admin-internal/admin-tracking.service.ts`, cálculos puros en
+`domain/admin-tracking.ts`, contrato `AdminShipmentTracking` en `@movo/shared`). Actualización por polling cada 15 s
+(`pollIntervalSeconds`, `Cache-Control: no-store`), sin WS del panel. MOVO-204 no calculaba métricas (solo lee la última posición), así
+que se arman acá. La posición se ve solo en `in_transit`. La traza es la de custodia de MOVO-270, submuestreada a 500 puntos
+(`traceTruncated`), y una traza purgada da `traceAvailable: false`, no error. `signalLost` se calcula con la hora del servidor al
+recibir el último ping (`TRACKING_SIGNAL_LOST_SECONDS`, 300). Los km restantes y el % salen de proyectar la posición sobre la polyline
+planificada (`geo.ts#progressAlongPath`; `polyline-decode.ts` pasó de `test/` a `utils/`). La ETA usa la duración de Google en
+proporción a lo que falta, no la velocidad de 5 min, que es aproximada (un punto cada 45 s) y se va a ~0 en un semáforo. La ruta se
+cachea en Redis por envío y proveedor (`planned-route-store.ts`, 6 h): con polling, cada tick facturaría una llamada a Google.
