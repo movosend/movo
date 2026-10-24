@@ -74,6 +74,13 @@ class Settings(BaseSettings):
         le=1,
         validation_alias=AliasChoices("PRICING_WEIGHT_TIER_RATE", "weight_tier_rate"),
     )
+    # MOVO-317 (`package_tapered_v3`): el peso volumétrico cuenta hasta este tope. Sin él, un cubo
+    # de 300 cm (5.400 kg volumétricos) cotizaba ~$1.170.000 a 700 km. El peso real no tiene tope.
+    volumetric_weight_cap_kg: float = Field(
+        default=300.0,
+        gt=0,
+        validation_alias=AliasChoices("PRICING_VOLUMETRIC_WEIGHT_CAP_KG", "volumetric_weight_cap_kg"),
+    )
 
     # Tramos decrecientes de distancia (hotfix de precios de larga distancia): la tarifa
     # lineal cotizaba ~350k para 2.300 km. En P2P el transportista ya hace el viaje, así
@@ -137,24 +144,6 @@ class Settings(BaseSettings):
         default=0.2,
         ge=0,
         validation_alias=AliasChoices("PRICING_FRAGILE_SURCHARGE", "fragile_surcharge"),
-    )
-
-    # Límites duros del paquete (MOVO-276): `/quote` responde 422 si se exceden. Mismos
-    # nombres y defaults que en `movo-svc-shipments`, que los valida antes de cotizar.
-    package_max_weight_kg: float = Field(
-        default=30.0,
-        gt=0,
-        validation_alias=AliasChoices("PACKAGE_MAX_WEIGHT_KG", "package_max_weight_kg"),
-    )
-    package_max_side_cm: float = Field(
-        default=150.0,
-        gt=0,
-        validation_alias=AliasChoices("PACKAGE_MAX_SIDE_CM", "package_max_side_cm"),
-    )
-    package_max_sides_sum_cm: float = Field(
-        default=300.0,
-        gt=0,
-        validation_alias=AliasChoices("PACKAGE_MAX_SIDES_SUM_CM", "package_max_sides_sum_cm"),
     )
 
     # Precio de combustible (MOVO-138, ADR-025). `mock` devuelve el fallback fijo sin

@@ -18,7 +18,8 @@ class PriceCalculationMethod(str, Enum):
 
     EUCLIDEAN_LINEAR_V1 = "euclidean_linear_v1"  # MOVO-82: ya no se emite, persiste en envíos viejos
     DEMAND_FUEL_ROUTES_V1 = "demand_fuel_routes_v1"  # MOVO-138: ya no se emite, persiste en envíos viejos
-    PACKAGE_TAPERED_V2 = "package_tapered_v2"  # MOVO-276: peso facturable + tramos
+    PACKAGE_TAPERED_V2 = "package_tapered_v2"  # MOVO-276: ya no se emite, persiste en envíos viejos
+    PACKAGE_TAPERED_V3 = "package_tapered_v3"  # MOVO-317: v2 con el peso volumétrico acotado
 
 
 class CamelModel(BaseModel):

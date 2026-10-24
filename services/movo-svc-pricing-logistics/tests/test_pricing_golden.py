@@ -1,4 +1,4 @@
-"""MOVO-276: golden tests de `package_tapered_v2` sobre la grilla de referencia y forma
+"""MOVO-276/MOVO-317: golden tests de `package_tapered_v3` sobre la grilla de referencia y forma
 de la curva de precio.
 
 La grilla (`tests/pricing_grid.py`) y la banda contra el Correo están documentadas en
@@ -14,11 +14,10 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.models.quote import PackageType, QuoteRequest
 from app.services.pricing import (
-    PackageLimitsExceededError,
     _round_to_10,
     compute_quote,
-    package_limit_violations,
     price_components,
+    uncalibrated_reasons,
 )
 from main import app
 from tests.pricing_grid import (
@@ -79,7 +78,7 @@ def test_grid_cells_with_a_reference_fall_in_the_band(grid: dict[tuple[str, str]
 
 def test_grid_uses_the_new_method() -> None:
     res = asyncio.run(quote_grid())
-    assert {r.calculation_method.value for r in res.values()} == {"package_tapered_v2"}
+    assert {r.calculation_method.value for r in res.values()} == {"package_tapered_v3"}
 
 
 # --- Forma de la curva (AC2) --------------------------------------------------------------
@@ -185,62 +184,162 @@ def test_weight_beyond_the_tier_is_charged_at_the_reduced_rate() -> None:
     assert c.weight == pytest.approx((10 + 20 * settings.weight_tier_rate) * per_kg)
 
 
-# --- Límites duros (AC4) ----------------------------------------------------------------
+# --- Sin límites duros (MOVO-317, R1/R2/R4) --------------------------------------------------
+
+HUGE_WEIGHTS = (50.0, 100.0, 200.0)
 
 
 @pytest.mark.parametrize(
-    ("weight", "sides"),
-    [(30.0, (150, 100, 50)), (0.1, (100, 100, 100)), (30.0, (1, 1, 1))],
+    "req",
+    [
+        _req(weight_kg=5, sides=(150, 100, 50)),
+        _req(weight_kg=30, sides=(1, 1, 1)),
+        _req(weight_kg=0.1, sides=(100, 100, 100)),
+    ],
 )
-def test_packages_at_the_limits_are_accepted(weight: float, sides: tuple[float, float, float]) -> None:
-    assert package_limit_violations(_req(weight_kg=weight, sides=sides)) == []
+def test_packages_inside_the_calibrated_zone_have_no_warning(req: QuoteRequest) -> None:
+    assert uncalibrated_reasons(req) == []
 
 
 @pytest.mark.parametrize(
     ("weight", "sides", "expected"),
     [
-        (30.5, (10, 10, 10), ["peso de 30.5 kg (máximo 30 kg)"]),
-        (5.0, (151, 10, 10), ["lado de 151 cm (máximo 150 cm)"]),
-        (5.0, (150, 100, 51), ["suma de lados de 301 cm (máximo 300 cm)"]),
-        (31.0, (160, 100, 50), [
-            "peso de 31 kg (máximo 30 kg)",
-            "lado de 160 cm (máximo 150 cm)",
-            "suma de lados de 310 cm (máximo 300 cm)",
-        ]),
+        (30.5, (10, 10, 10), ["peso de 30.5 kg (calibrado hasta 30 kg)"]),
+        (5.0, (151, 10, 10), ["lado de 151 cm (calibrado hasta 150 cm)"]),
+        (80.0, (300, 20, 20), ["peso de 80 kg (calibrado hasta 30 kg)", "lado de 300 cm (calibrado hasta 150 cm)"]),
     ],
 )
-def test_packages_over_the_limits_are_rejected(
+def test_packages_outside_the_calibrated_zone_are_flagged(
     weight: float, sides: tuple[float, float, float], expected: list[str]
 ) -> None:
-    req = _req(weight_kg=weight, sides=sides)
-    assert package_limit_violations(req) == expected
-    with pytest.raises(PackageLimitsExceededError) as exc:
-        asyncio.run(compute_quote(req, fuel_provider=GridFuel()))
-    assert exc.value.violations == expected
+    assert uncalibrated_reasons(_req(weight_kg=weight, sides=sides)) == expected
 
 
-def test_limits_come_from_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "package_max_weight_kg", 20.0)
-    assert package_limit_violations(_req(weight_kg=25)) == ["peso de 25 kg (máximo 20 kg)"]
+@pytest.mark.parametrize(
+    ("weight", "sides"),
+    [(80.0, (30, 20, 10)), (200.0, (300, 300, 300)), (1.0, (300, 300, 300)), (5000.0, (10, 10, 10))],
+)
+def test_any_weight_and_size_is_quoted_without_error(weight: float, sides: tuple[float, float, float]) -> None:
+    # Lo máximo que manda el wizard: 300 cm por lado ("Más de 300 cm" viaja como 300). El precio es una
+    # extrapolación sin referencia de mercado (R3 pendiente): acá solo se exige que sea finito y acotado.
+    result = asyncio.run(compute_quote(_req(weight_kg=weight, sides=sides), fuel_provider=GridFuel()))
+
+    assert result.suggested_price_ars > 0
+    assert result.suggested_price_ars < 5_000_000
 
 
-def test_endpoint_rejects_a_package_over_the_limits_with_a_clear_code() -> None:
+@pytest.mark.parametrize("package_type", list(PackageType))
+def test_price_never_decreases_with_very_large_weights(package_type: PackageType) -> None:
+    weights = [10.0, 30.0, 50.0, 100.0, 200.0, 500.0]
+    prices = [_subtotal(_req(package_type, w, (5, 5, 5)), 500) for w in weights]
+    assert all(b > a for a, b in zip(prices, prices[1:]))
+
+
+def test_price_stays_concave_in_weight_beyond_the_calibrated_zone() -> None:
+    # Pendiente por kg adicional: nunca crece al pasar de 50 a 100 a 200 kg.
+    p50, p100, p200 = (_subtotal(_req(weight_kg=w, sides=(5, 5, 5)), 500) for w in HUGE_WEIGHTS)
+    assert (p100 - p50) / 50 >= (p200 - p100) / 100 - 1e-9
+
+
+def test_a_huge_package_is_not_almost_free_nor_absurd() -> None:
+    small = _subtotal(_req(weight_kg=10, sides=(5, 5, 5)), 500)
+    huge = _subtotal(_req(weight_kg=200, sides=(5, 5, 5)), 500)
+    # 20x el peso: cuesta bastante más que el chico, pero muy lejos de 20x.
+    assert small < huge < small * 20
+
+
+@pytest.mark.parametrize("side", [301.0, 500.0, 1000.0])
+def test_price_never_decreases_with_volume_beyond_300_cm(side: float) -> None:
+    sides = [side, side * 1.5, side * 2, side * 4]
+    prices = [_subtotal(_req(weight_kg=1, sides=(s, s, s)), 500) for s in sides]
+    assert all(b >= a for a, b in zip(prices, prices[1:]))
+
+
+# --- Tope del peso volumétrico (MOVO-317, package_tapered_v3) --------------------------------
+
+FRIDGE = _req(weight_kg=80, sides=(70, 70, 180))  # 176,4 kg volumétricos: debajo del tope
+
+
+def test_volumetric_weight_below_the_cap_is_billed_as_before() -> None:
+    c = price_components(FRIDGE, 700, GRID_FUEL_ARS_PER_L)
+    assert c.volumetric_weight_kg == pytest.approx(176.4)
+    assert c.billable_weight_kg == pytest.approx(176.4)
+
+
+def test_volumetric_weight_is_capped() -> None:
+    c = price_components(_req(weight_kg=1, sides=(300, 300, 300)), 700, GRID_FUEL_ARS_PER_L)
+    # El desglose informa el volumétrico real, pero se factura hasta el tope.
+    assert c.volumetric_weight_kg == pytest.approx(5400)
+    assert c.billable_weight_kg == settings.volumetric_weight_cap_kg
+
+
+def test_a_huge_cube_costs_the_same_as_any_bigger_one() -> None:
+    price = lambda side: _subtotal(_req(weight_kg=1, sides=(side, side, side)), 700)  # noqa: E731
+    assert price(200) == price(300) == price(900)
+
+
+def test_a_huge_cube_stays_in_the_range_of_a_big_appliance() -> None:
+    # A 700 km (Córdoba–Buenos Aires), el cubo de 300 cm ya no pasa del millón (v2: ~$1.173.000).
+    cube = _subtotal(_req(weight_kg=1, sides=(300, 300, 300)), 700)
+    fridge = _subtotal(FRIDGE, 700)
+    assert fridge < cube < 100_000
+
+
+def test_real_weight_is_not_capped() -> None:
+    heavy = price_components(_req(weight_kg=500, sides=(10, 10, 10)), 700, GRID_FUEL_ARS_PER_L)
+    assert heavy.billable_weight_kg == 500
+    assert _subtotal(_req(weight_kg=800, sides=(10, 10, 10)), 700) > _subtotal(_req(weight_kg=500, sides=(10, 10, 10)), 700)
+
+
+def test_cap_comes_from_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "volumetric_weight_cap_kg", 100.0)
+    c = price_components(FRIDGE, 700, GRID_FUEL_ARS_PER_L)
+    assert c.billable_weight_kg == 100.0
+
+
+def test_log_flags_a_capped_volumetric_weight(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("INFO")
+    asyncio.run(compute_quote(_req(weight_kg=1, sides=(300, 300, 300)), fuel_provider=GridFuel()))
+    computed = [r.getMessage() for r in caplog.records if "pricing_quote_computed" in r.getMessage()]
+    assert computed and '"volumetricCapped": true' in computed[0]
+
+    caplog.clear()
+    asyncio.run(compute_quote(FRIDGE, fuel_provider=GridFuel()))
+    computed = [r.getMessage() for r in caplog.records if "pricing_quote_computed" in r.getMessage()]
+    assert computed and '"volumetricCapped": false' in computed[0]
+
+
+def test_log_marks_an_uncalibrated_quote(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("INFO")
+    asyncio.run(compute_quote(_req(weight_kg=80, sides=(300, 20, 20)), fuel_provider=GridFuel()))
+
+    assert any("pricing_quote_uncalibrated_package" in r.getMessage() for r in caplog.records)
+    computed = [r.getMessage() for r in caplog.records if "pricing_quote_computed" in r.getMessage()]
+    assert computed and '"calibrated": false' in computed[0]
+
+
+def test_log_marks_a_calibrated_quote(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("INFO")
+    asyncio.run(compute_quote(_req(), fuel_provider=GridFuel()))
+
+    assert not any("pricing_quote_uncalibrated_package" in r.getMessage() for r in caplog.records)
+    computed = [r.getMessage() for r in caplog.records if "pricing_quote_computed" in r.getMessage()]
+    assert computed and '"calibrated": true' in computed[0]
+
+
+def test_endpoint_accepts_a_package_beyond_the_old_limits() -> None:
     body = {
         "originLat": 0,
         "originLng": 0,
         "destinationLat": 1,
         "destinationLng": 0,
-        "weightKg": 5,
-        "lengthCm": 151,
-        "widthCm": 10,
-        "heightCm": 10,
+        "weightKg": 120,
+        "lengthCm": 300,
+        "widthCm": 200,
+        "heightCm": 150,
         "packageType": "standard_package",
     }
     response = client.post("/quote", json=body)
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == {
-        "code": "PACKAGE_LIMITS_EXCEEDED",
-        "message": "El paquete excede los límites: lado de 151 cm (máximo 150 cm).",
-        "violations": ["lado de 151 cm (máximo 150 cm)"],
-    }
+    assert response.status_code == 200
+    assert response.json()["suggestedPriceArs"] > 0

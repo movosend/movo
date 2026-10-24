@@ -255,3 +255,17 @@ nuevos en `app/config.py`; `PRICING_FACTOR_*` de MOVO-82 eliminados. `QuoteBreak
   1 m³ (200 kg volumétricos) cotizaba ~$135.000.
 - **CI exige 100% de cobertura** sobre `pricing.py`, `config.py`, `models/quote.py` y
   `routers/quote.py` (paso propio en `pr-checks.yml`, reusa el `.coverage` de pytest).
+
+### MOVO-317 — Sin límites duros y `package_tapered_v3`
+
+- `POST /quote` cotiza cualquier peso y medida: se eliminan `PackageLimitsExceededError` y el 422 `PACKAGE_LIMITS_EXCEEDED` y las env vars
+  `PACKAGE_MAX_*`. Un paquete de más de 30 kg o 150 cm por lado queda marcado como no calibrado: warning
+  `pricing_quote_uncalibrated_package` y `calibrated: false` en `pricing_quote_computed` (`uncalibrated_reasons`; solo informa, nunca
+  rechaza ni cambia el precio).
+- **`package_tapered_v3`** reemplaza a v2 (que sigue persistida en envíos viejos): igual, pero el peso volumétrico cuenta hasta
+  `PRICING_VOLUMETRIC_WEIGHT_CAP_KG` (300; el peso real no tiene tope). Sin tope, un cubo de 300 cm (5.400 kg volumétricos) cotizaba
+  ~$1.173.000 a 700 km; con tope, ~$82.000. Una heladera de 80 kg (70 × 70 × 180 cm, 176 kg volumétricos) sigue en ~$55.600 a 700 km
+  (decisión de producto: no se subió el tramo de 30 kg para llegar a $70.000). El desglose y el log informan el volumétrico real
+  (`volumetricWeightKg`) y `volumetricCapped`.
+- Pendiente (R3): recalibrar contra el Correo para más de 10 kg y ampliar la banda a `fragile_item`, `letter_document` y rutas cortas; no hay
+  tarifas de referencia por encima de 10 kg en `docs/pricing/grilla-referencia.md`. Todo precio sobre 10 kg facturables es extrapolación.
