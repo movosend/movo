@@ -315,6 +315,9 @@ export type ApiErrorCode =
   | "USER_DELETED"
   // Ajuste manual de saldo en cero o por encima de `ADMIN_LEDGER_ADJUSTMENT_MAX_ARS` (422).
   | "AMOUNT_OUT_OF_RANGE"
+  // MOVO-299: inhabilitar una cuenta con envíos en curso (409, `details.shipments` con
+  // `InProgressShipment[]`). No se aplica nada: se sugiere suspender primero.
+  | "USER_HAS_IN_PROGRESS_SHIPMENTS"
   // MOVO-322/321 (bandeja de soporte, contrato definido por MOVO-323). La consulta no existe (404).
   | "SUPPORT_CONVERSATION_NOT_FOUND"
   // Adjunto de tipo, tamaño o cantidad inválidos, ajeno o ya usado (422).

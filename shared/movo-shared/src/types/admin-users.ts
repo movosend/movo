@@ -11,6 +11,8 @@
 import type { AccountStatus, KycStatus, ReportReason, ReportStatus, UserRole } from "./user";
 import type { ShipmentStatus } from "./shipment";
 import type { TripStatus } from "./trip";
+import type { AccountSanction, ApplyAccountSanctionRequest, LiftAccountSanctionRequest } from "./account-sanctions";
+import type { OpenActivitySummary, WithdrawOpenActivityResult } from "./admin";
 
 export type AdminKycStatus = `${KycStatus}`;
 export type AdminAccountStatus = `${AccountStatus}`;
@@ -219,22 +221,50 @@ export interface AdminUserModeration {
 
 export const ADMIN_USER_MODERATION_LIMIT = 50;
 
-export interface AdminUserSanction {
-  type: "temporary" | "permanent";
-  days?: number;
-  reason: string;
-  adminId: string;
-  adminName: string;
-  createdAt: string;
-  status: "active" | "lifted";
-  liftedAt?: string;
-  liftedBy?: string;
+/**
+ * Cómo quedó el último intento de retirar la actividad abierta de una sanción (MOVO-299 AC2).
+ * `partial`: `svc-shipments` respondió con `failures`. `failed`: no respondió o rechazó el pedido
+ * (puede haber retirado algo igual). En los dos casos la sanción ya está aplicada y el retiro se
+ * reintenta (es idempotente).
+ */
+export type AdminSanctionWithdrawalStatus = "complete" | "partial" | "failed";
+
+export interface AdminSanctionWithdrawal {
+  status: AdminSanctionWithdrawalStatus;
+  /** Lo retirado en ese intento (vacío si `failed`). */
+  result: WithdrawOpenActivityResult | null;
+  /** Código del error si `failed`. */
+  errorCode: string | null;
+  attemptedAt: string;
 }
 
-/** `GET /admin/users/:id/suspensions`. Vacío hasta MOVO-36. */
+/** Una fila del historial de sanciones de la ficha, con los nombres de los admins resueltos. */
+export interface AdminUserSanction extends AccountSanction {
+  appliedByName: string | null;
+  liftedByName: string | null;
+  /**
+   * Último intento de retiro registrado en la bitácora para esta sanción. `null` si nunca se
+   * intentó (sanciones migradas o aplicadas antes de MOVO-299).
+   */
+  withdrawal: AdminSanctionWithdrawal | null;
+}
+
+/** `GET /admin/users/:id/sanctions`, de la más reciente a la más vieja. */
 export interface AdminUserSanctions {
   items: AdminUserSanction[];
 }
+
+/** `POST /admin/users/:id/sanctions`: el body de `svc-users` (`type`, `reason`, `internalNote`, `endsAt`). */
+export type AdminApplySanctionBody = ApplyAccountSanctionRequest;
+
+/** `POST /admin/users/:id/sanctions/:sanctionId/lift`. */
+export type AdminLiftSanctionBody = LiftAccountSanctionRequest;
+
+/**
+ * `GET /admin/users/:id/sanctions/preview`: qué pasaría al sancionar hoy, para el texto previo a
+ * confirmar (AC6). Es una foto: entre la vista previa y la confirmación algo puede cambiar.
+ */
+export type AdminSanctionPreview = OpenActivitySummary;
 
 export type AdminLedgerType =
   | "cancellation_penalty"

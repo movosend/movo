@@ -686,3 +686,9 @@ y las constantes `DISPUTE_WINDOW_DAYS` (7, desde `deliveredAt`) y `DISPUTE_TEXT_
 `DISPUTE_STATEMENT_ALREADY_SUBMITTED` y `DISPUTE_PHOTO_ALREADY_USED`. Triggers `disputeOpened{Sender,Receiver,Carrier}`: la categoría
 `disputes` pasa a `implemented: true` y ya no queda ninguna "Pronto" (tocó tres tests de `movo-mobile`). Recordatorio habitual:
 `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-299 — Sanciones del panel (`types/admin-users.ts`, `types/admin.ts`)
+
+`AdminUserSanction` deja la forma provisoria de MOVO-295 y pasa a ser `AccountSanction` + nombres de los admins + `withdrawal`
+(`AdminSanctionWithdrawal`). `OpenActivitySummary` (vista previa del retiro, `svc-shipments`), `AdminSanctionPreview`,
+`AdminApplySanctionBody`/`AdminLiftSanctionBody` y el código `USER_HAS_IN_PROGRESS_SHIPMENTS` (409, `details.shipments`).
