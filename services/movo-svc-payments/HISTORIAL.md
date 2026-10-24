@@ -817,3 +817,17 @@ Una entrega cuya captura falla ya no queda a la deriva: `settlements` guarda `at
 - **Consulta (AC6)**: `GET /internal/payments/settlements?status=failed|escalated&limit&cursor` (interno, keyset por `updated_at,id`, solo entregas: la penalidad `failed` es de shipments); el proxy en `svc-admin` queda para MOVO-33.
   Re-vincular la cuenta de MP reabre una escalada por `carrier_account_unavailable` en el próximo pedido de captura; el resto lo resuelve una persona.
 - **Pendiente / fuera de alcance**: refresco del token antes de capturar (MOVO-243), una acción manual de reintento o cierre desde el panel (MOVO-33) y reembolsos.
+
+### MOVO-285 — Fee real de Mercado Pago en el hold
+
+- `payments.holds.mp_fee_ars` (migración `20261024120000_hold_mp_fee`): el `mercadopago_fee` que MP informa al crear el hold
+  (`charges_details`, `amounts.original`: verificado contra el sandbox, el pago de $1.150 trae $47,15) y, tras capturar, el de
+  `fee_details` (la captura lo reemplaza vía `markCaptured`). `utils/payment-fee.ts` es la única definición de la regla de
+  `fee_details` (`splitCollectorFees`, en `Decimal`): la usan el hold y `readFeeBreakdown` de la liquidación, así la columna no
+  tiene dos significados. Crear, consultar y webhook completan el fee; el webhook y la consulta con `sync` lo hacen aunque el estado
+  no cambie (`missingFeeField`, igual que la tarjeta) y sin pisar uno ya guardado.
+- `HoldResponse.carrierMpFeeArs`: ese fee sin la parte que cae sobre el recargo del emisor (`carrierPaymentView`, ahora acotado en
+  0, y `splitRetainedFee`, movido a `holds/retained-fee.ts`: la misma regla que la liquidación). `null` si MP no lo informó. Los
+  schemas de respuesta de Fastify tienen que declararlo o lo descartan en silencio (los tests unitarios no lo ven: las pruebas
+  de sandbox sí). La captura (`net_received_amount` + `fee_details`) ya se guardaba en `Settlement` desde MOVO-212.
+- Pendiente: la calibración de `MP_TRANSACTION_FEE_RATE` (el sandbox cobra 4,1 % sin variar con las cuotas, la estimación usa 4,99 %).

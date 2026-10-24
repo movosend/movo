@@ -4,6 +4,7 @@
  * internos y completa con `svc-users` y `svc-payments`.
  */
 import { ShipmentStatus } from "./shipment";
+import type { OfferStatus } from "./offer";
 import type { ChatAccess, ChatParticipantRole } from "./chat";
 import type { HoldDetailResponse } from "./hold";
 
@@ -159,6 +160,43 @@ export interface AdminShipmentPhoto {
   createdAt: string;
 }
 
+/**
+ * Oferta de un transportista sobre el envío, con su estado efectivo (una `pending` vencida viene como
+ * `expired`). Los montos son los de la oferta: `priceArs` es el bruto que paga el emisor y el resto sale de
+ * `decomposeOfferGrossPrice`/`estimateReceivedArs`, los mismos que muestra mobile en "Cómo se reparte".
+ */
+export interface AdminShipmentOffer {
+  id: string;
+  carrierId: string;
+  /** Nombre y reputación del transportista al momento de ofertar (snapshot, no el valor actual). */
+  carrierName: string | null;
+  carrierRatingAtOffer: number | null;
+  status: `${OfferStatus}`;
+  priceArs: number;
+  netArs: number;
+  commissionArs: number;
+  /** Tasa de Movo con la que se calculó el desglose (la vigente al leer, no se guarda con la oferta). */
+  commissionRate: number;
+  /** Estimado de lo que descuenta Mercado Pago (MOVO-225), no el monto real del pago. */
+  mpFeeEstimateArs: number;
+  receivedEstimateArs: number;
+  /** `YYYY-MM-DD` del retiro propuesto. */
+  offeredDate: string;
+  /** `HH:MM`. `null` = la misma franja que pidió el emisor. */
+  pickupTimeWindowStart: string | null;
+  pickupTimeWindowEnd: string | null;
+  estimatedDeliveryDate: string | null;
+  estimatedDeliveryTimeWindowStart: string | null;
+  estimatedDeliveryTimeWindowEnd: string | null;
+  message: string | null;
+  tripId: string | null;
+  createdAt: string;
+  /** Primera vez que el emisor la vio; `null` si nunca. */
+  viewedAtBySender: string | null;
+  respondedAt: string | null;
+  expiresAt: string | null;
+}
+
 /** Estado del pago de `svc-payments`. */
 export type AdminShipmentPayment = HoldDetailResponse | null;
 
@@ -189,6 +227,13 @@ export interface AdminShipmentDetail extends AdminShipmentRow {
   heightCm: number;
   description: string | null;
   urgent: boolean;
+  /**
+   * Retiro que pidió el emisor al publicar (`YYYY-MM-DD`, `HH:MM`). Al aceptar una oferta, `pickupDate` y la
+   * franja pasan a ser los acordados (MOVO-258 D3); estos no cambian.
+   */
+  requestedPickupDate: string;
+  requestedPickupTimeWindowStart: string;
+  requestedPickupTimeWindowEnd: string;
   pickupLat: number;
   pickupLng: number;
   deliveryLat: number;
@@ -211,6 +256,8 @@ export interface AdminShipmentDetailResponse {
   shipment: AdminShipmentDetail;
   events: AdminBlock<AdminShipmentEvent[]>;
   photos: AdminBlock<AdminShipmentPhoto[]>;
+  /** Todas las ofertas, de la más vieja a la más nueva. */
+  offers: AdminBlock<AdminShipmentOffer[]>;
   payment: AdminBlock<AdminShipmentPayment>;
   parties: AdminBlock<AdminShipmentPartyCard[]>;
 }

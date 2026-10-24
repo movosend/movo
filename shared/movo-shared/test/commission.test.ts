@@ -115,5 +115,10 @@ describe("commission", () => {
       });
       expect(carrierPaymentView({ grossAmountArs: 1350, mpFeeArs: null, debtSurchargeArs: 200, debtSurchargeFeeArs: 190.02 }).mpFeeArs).toBeNull();
     });
+
+    it("MOVO-285: el fee del transportista nunca es negativo, aunque el recargo absorbido supere al fee real", () => {
+      // Fee real de MP chico (4,1 %) y un recargo grande cuyo fee estimado (4,99 %) se pasó.
+      expect(carrierPaymentView({ grossAmountArs: 1000, mpFeeArs: 5, debtSurchargeArs: 900, debtSurchargeFeeArs: 800 }).mpFeeArs).toBe(0);
+    });
   });
 });

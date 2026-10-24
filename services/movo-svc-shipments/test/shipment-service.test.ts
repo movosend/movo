@@ -634,6 +634,64 @@ describe("shipments.service — getShipmentDetail", () => {
     expect(result.debtDiscount).toEqual({ amountArs: 630, reason: "pending_balance" });
   });
 
+  it("MOVO-285: el transportista asignado ve lo que recibe, exacto, calculado con el hold", async () => {
+    const shipment = fakeShipment({
+      status: ShipmentStatus.ASSIGNED,
+      carrierId: "carrier-id",
+      agreedPriceArs: 2000,
+    });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({});
+    const paymentsClient = createFakePaymentsClient([], {}, {});
+    // Bruto 2000, comisión de Movo 260 (la del hold, no la del cliente), fee real de MP 82 y deuda propia 100.
+    paymentsClient.findHoldByShipment.mockResolvedValue({
+      status: "authorized",
+      baseAmountArs: 2000,
+      commissionArs: 260,
+      debtOffsetArs: 100,
+      carrierMpFeeArs: 82,
+    } as Awaited<ReturnType<typeof paymentsClient.findHoldByShipment>>);
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+
+    const result = await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER]);
+
+    expect(result.carrierReceivedArs).toBe(1558);
+    expect(result.debtDiscount).toEqual({ amountArs: 100, reason: "pending_balance" });
+    expect(paymentsClient.findHoldByShipment).toHaveBeenCalledTimes(1);
+  });
+
+  it("MOVO-285: nunca es negativo, y sin fee informado en el hold no hay monto exacto", async () => {
+    const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED, carrierId: "carrier-id", agreedPriceArs: 200 });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const paymentsClient = createFakePaymentsClient([], {}, {});
+    const service = createShipmentsService(repository, createFakeUsersClient({}), undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+    const hold = { status: "authorized", baseAmountArs: 200, commissionArs: 26, debtOffsetArs: 200 };
+
+    paymentsClient.findHoldByShipment.mockResolvedValue({ ...hold, carrierMpFeeArs: 8 } as never);
+    expect((await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER])).carrierReceivedArs).toBe(0);
+
+    paymentsClient.findHoldByShipment.mockResolvedValue({ ...hold, carrierMpFeeArs: null } as never);
+    expect((await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER])).carrierReceivedArs).toBeNull();
+  });
+
+  it("MOVO-285: sin hold el detalle trae carrierReceivedArs null (la app muestra el estimado)", async () => {
+    const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED_UNFUNDED, carrierId: "carrier-id", agreedPriceArs: 2000 });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const paymentsClient = createFakePaymentsClient([], {}, {});
+    paymentsClient.findHoldByShipment.mockResolvedValue(null);
+    const service = createShipmentsService(repository, createFakeUsersClient({}), undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+
+    const result = await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER]);
+
+    expect(result.carrierReceivedArs).toBeNull();
+  });
+
   it("MOVO-180: un transportista verificado ve el agregado de ofertas vigentes (sin identidad de competidores)", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id", status: ShipmentStatus.PUBLISHED });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });

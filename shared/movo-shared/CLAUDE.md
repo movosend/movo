@@ -687,6 +687,14 @@ y las constantes `DISPUTE_WINDOW_DAYS` (7, desde `deliveredAt`) y `DISPUTE_TEXT_
 `disputes` pasa a `implemented: true` y ya no queda ninguna "Pronto" (tocó tres tests de `movo-mobile`). Recordatorio habitual:
 `npm run build` acá antes de tipar desde otro workspace.
 
+### Ofertas del envío para el panel (`types/admin-shipments.ts`)
+
+`AdminShipmentOffer` (estado efectivo, snapshot del transportista, bruto/neto/comisión y el estimado de MP y de lo que recibe) y el
+bloque `offers` en `AdminShipmentDetailResponse` (requerido: rompe literales armados a mano). El barrel suma `estimateReceivedArs`,
+que solo se exportaba por subpath. Review de PR #302: `AdminShipmentOffer.commissionRate` y
+`AdminShipmentDetail.requestedPickupDate`/`requestedPickupTimeWindowStart`/`End` (lo que pidió el emisor; `pickupDate` pasa a ser el
+retiro acordado al aceptar una oferta). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
 ### MOVO-331 — Contrato del cambio forzado de estado (`config/forced-transition-matrix.ts`, ADR-055)
 
 `FORCED_TRANSITION_MATRIX` (origen → destino → `{ kind, risk, service, requiresAuthorizedHold }`; una celda ausente es una transición bloqueada),
