@@ -284,6 +284,15 @@ export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
 
 // trip start (MOVO-277)
 export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";
+export {
+  PACKAGE_WEIGHT_KG_MIN,
+  PACKAGE_WEIGHT_KG_STEP,
+  PACKAGE_DIMENSION_CM_MIN,
+  PACKAGE_DIMENSION_CM_STEP,
+  PACKAGE_DIMENSION_CM_MAX,
+  PACKAGE_DIMENSION_CM_OPTIONS,
+  roundPackageWeightKg,
+} from "./config/package-dimensions";
 // penalidad por cancelar un envío asignado (MOVO-307, ADR-047)
 export {
   CANCELLATION_PENALTY_FREE_HOURS,
