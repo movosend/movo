@@ -1,5 +1,5 @@
 import { SUPPORT_WS_CLOSE } from "@movo/shared/dist/types/support";
-import type { SupportRealtimeEvent } from "@movo/shared/dist/types/support";
+import type { SupportRealtimeConnected, SupportRealtimeEvent } from "@movo/shared/dist/types/support";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 import { refreshTokens } from "../api/http-client";
@@ -100,7 +100,7 @@ export function useSupportChannel(conversationId: string | null | undefined, opt
       ws.onmessage = (event: WebSocketMessageEvent) => {
         if (socketRef.current !== ws) return;
         try {
-          const data = JSON.parse(String(event.data)) as SupportRealtimeEvent;
+          const data = JSON.parse(String(event.data)) as SupportRealtimeEvent | SupportRealtimeConnected;
           if (data.type === "connected") {
             attemptsRef.current = 0;
             setState("connected");
@@ -128,7 +128,7 @@ export function useSupportChannel(conversationId: string | null | undefined, opt
           setState("idle");
           return;
         }
-        if (event.code === SUPPORT_WS_CLOSE.TOKEN_EXPIRED) {
+        if (event.code === SUPPORT_WS_CLOSE.TOKEN) {
           setState("reconnecting");
           void refreshTokens()
             .then(() => {

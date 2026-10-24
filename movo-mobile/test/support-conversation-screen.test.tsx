@@ -1,4 +1,4 @@
-import type { SupportThreadMessage } from "@movo/shared/dist/types/support";
+import type { SupportUserFacingMessage } from "@movo/shared/dist/types/support";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { Alert } from "react-native";
 import { router } from "expo-router";
@@ -56,7 +56,7 @@ jest.mock("../src/hooks/use-support", () => ({
   useCreateSupportConversation: () => ({ mutateAsync: (...args: unknown[]) => mockCreateMutateAsync(...args) }),
 }));
 
-function m(over: Partial<SupportThreadMessage>): SupportThreadMessage {
+function m(over: Partial<SupportUserFacingMessage>): SupportUserFacingMessage {
   return {
     id: "m1",
     conversationId: "c1",
@@ -72,7 +72,7 @@ function m(over: Partial<SupportThreadMessage>): SupportThreadMessage {
   };
 }
 
-function timelineOf(messages: SupportThreadMessage[], localState?: "sending" | "failed") {
+function timelineOf(messages: SupportUserFacingMessage[], localState?: "sending" | "failed") {
   return buildTimeline({
     messages: messages.filter((x) => x.kind !== "system").map((x) => supportToChatMessage(x, localState)),
     events: messages.filter((x) => x.kind === "system").map(supportToEventCard),

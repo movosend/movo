@@ -1,6 +1,6 @@
 import { SUPPORT_MESSAGE_MAX_LENGTH } from "@movo/shared/dist/types/admin-support";
 import type { SupportAttachment } from "@movo/shared/dist/types/admin-support";
-import { SUPPORT_WS_CLOSE, type SupportRealtimeEvent, type SupportThreadMessage } from "@movo/shared/dist/types/support";
+import { SUPPORT_WS_CLOSE, type SupportRealtimeEvent, type SupportUserFacingMessage } from "@movo/shared/dist/types/support";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,14 +27,14 @@ import {
   useSupportMessages,
 } from "./use-support";
 import type { InfiniteData } from "@tanstack/react-query";
-import type { SupportThreadPage } from "@movo/shared/dist/types/support";
+import type { SupportMessagesPage } from "@movo/shared/dist/types/support";
 
 const READ_THROTTLE_MS = 2_000;
 const RECEIPT_REFETCH_DEBOUNCE_MS = 400;
 
 /** Mensaje propio que todavía no confirmó el servidor, con lo necesario para reenviarlo con el mismo id. */
 interface LocalSupportMessage {
-  message: SupportThreadMessage;
+  message: SupportUserFacingMessage;
   localState: "sending" | "failed";
   attachmentIds: string[];
 }
@@ -167,7 +167,7 @@ export function useSupportConversation(
     onMessage: ({ message }: Extract<SupportRealtimeEvent, { type: "support_message" }>) => {
       if (!conversationId) return;
       if (message.kind !== "user" && message.kind !== "agent" && message.kind !== "system") return;
-      queryClient.setQueryData<InfiniteData<SupportThreadPage>>(supportKeys.messages(conversationId), (data) =>
+      queryClient.setQueryData<InfiniteData<SupportMessagesPage>>(supportKeys.messages(conversationId), (data) =>
         upsertSupportMessageInCache(data, message),
       );
       patchSupportListWithMessage(queryClient, message, { fromMe: message.kind === "user", seen: focused });
@@ -213,7 +213,7 @@ export function useSupportConversation(
       if (!conversationId || body.length > SUPPORT_MESSAGE_MAX_LENGTH || (body.length === 0 && photos.length === 0)) return false;
       const clientMessageId = Crypto.randomUUID();
       const attachments: SupportAttachment[] = photos.map((p) => ({ id: p.attachmentId, contentType: "image/jpeg", url: p.localUri }));
-      const optimistic: SupportThreadMessage = {
+      const optimistic: SupportUserFacingMessage = {
         id: "",
         conversationId,
         kind: "user",

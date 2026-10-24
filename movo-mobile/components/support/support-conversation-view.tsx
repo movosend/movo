@@ -1,4 +1,4 @@
-import type { SupportConversationShipment } from "@movo/shared/dist/types/support";
+import type { SupportShipmentRef } from "@movo/shared/dist/types/admin-support";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -49,7 +49,7 @@ export type SupportTimelineItem = TimelineItem<SupportChatMessage, SupportEventC
 export interface SupportConversationViewProps {
   conversationId?: string;
   subtitle: string;
-  shipment?: SupportConversationShipment | null;
+  shipment?: SupportShipmentRef | null;
   timeline: SupportTimelineItem[];
   isLoading?: boolean;
   errorMessage?: string | null;

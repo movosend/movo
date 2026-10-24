@@ -4,8 +4,8 @@ import type {
   SupportListResponse,
   SupportSendUserBody,
   SupportShipmentOptionsPage,
-  SupportThreadMessage,
-  SupportThreadPage,
+  SupportUserFacingMessage,
+  SupportMessagesPage,
   SupportUserAttachmentCreateBody,
 } from "@movo/shared/dist/types/support";
 import type { SupportAttachmentCreateResult } from "@movo/shared/dist/types/admin-support";
@@ -43,16 +43,16 @@ const realClient = {
   },
 
   /** Historial del más reciente al más antiguo, paginado por cursor opaco; trae la consulta para el encabezado. */
-  listMessages(conversationId: string, params: { cursor?: string; limit?: number } = {}): Promise<SupportThreadPage> {
-    return httpClient.get<SupportThreadPage>(`/support/conversations/${conversationId}/messages`, {
+  listMessages(conversationId: string, params: { cursor?: string; limit?: number } = {}): Promise<SupportMessagesPage> {
+    return httpClient.get<SupportMessagesPage>(`/support/conversations/${conversationId}/messages`, {
       cursor: params.cursor,
       limit: params.limit,
     });
   },
 
   /** Idempotente por `clientMessageId`. Sobre una consulta resuelta, la reabre. */
-  sendMessage(conversationId: string, body: SupportSendUserBody): Promise<SupportThreadMessage> {
-    return httpClient.post<SupportThreadMessage>(`/support/conversations/${conversationId}/messages`, body);
+  sendMessage(conversationId: string, body: SupportSendUserBody): Promise<SupportUserFacingMessage> {
+    return httpClient.post<SupportUserFacingMessage>(`/support/conversations/${conversationId}/messages`, body);
   },
 
   /** Leí todo hasta ahora: baja el contador de esa consulta. */

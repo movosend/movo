@@ -1,4 +1,4 @@
-import type { SupportConversationShipment } from "@movo/shared/dist/types/support";
+import type { SupportShipmentRef } from "@movo/shared/dist/types/admin-support";
 import { ChevronRight, Package } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -9,7 +9,7 @@ export function LinkedShipmentCard({
   onPress,
   testID,
 }: {
-  shipment: SupportConversationShipment;
+  shipment: SupportShipmentRef;
   onPress: () => void;
   testID?: string;
 }) {

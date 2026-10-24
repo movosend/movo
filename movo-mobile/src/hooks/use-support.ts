@@ -4,8 +4,8 @@ import type {
   SupportCreateBody,
   SupportListResponse,
   SupportSendUserBody,
-  SupportThreadMessage,
-  SupportThreadPage,
+  SupportUserFacingMessage,
+  SupportMessagesPage,
 } from "@movo/shared/dist/types/support";
 import { type InfiniteData, type QueryClient, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supportClient } from "../api/support-client";
@@ -63,9 +63,9 @@ export function useSupportShipments(enabled = true) {
 }
 
 /** Mensajes del caché del más nuevo al más viejo, sin repetidos (un mensaje puede llegar por HTTP y por WebSocket). */
-export function flattenSupportMessages(data: InfiniteData<SupportThreadPage> | undefined): SupportThreadMessage[] {
+export function flattenSupportMessages(data: InfiniteData<SupportMessagesPage> | undefined): SupportUserFacingMessage[] {
   const seen = new Set<string>();
-  const result: SupportThreadMessage[] = [];
+  const result: SupportUserFacingMessage[] = [];
   for (const page of data?.pages ?? []) {
     for (const message of page.items) {
       const key = message.kind === "user" && message.clientMessageId ? message.clientMessageId : message.id;
@@ -77,15 +77,15 @@ export function flattenSupportMessages(data: InfiniteData<SupportThreadPage> | u
   return result;
 }
 
-function sameMessage(a: SupportThreadMessage, b: SupportThreadMessage): boolean {
+function sameMessage(a: SupportUserFacingMessage, b: SupportUserFacingMessage): boolean {
   return a.id === b.id || (a.kind === "user" && b.kind === "user" && !!a.clientMessageId && a.clientMessageId === b.clientMessageId);
 }
 
 /** Suma o reemplaza un mensaje en la primera página del caché, sin duplicar por id ni por `clientMessageId`. */
 export function upsertSupportMessageInCache(
-  data: InfiniteData<SupportThreadPage> | undefined,
-  message: SupportThreadMessage,
-): InfiniteData<SupportThreadPage> | undefined {
+  data: InfiniteData<SupportMessagesPage> | undefined,
+  message: SupportUserFacingMessage,
+): InfiniteData<SupportMessagesPage> | undefined {
   if (!data || data.pages.length === 0) return data;
   const [first, ...rest] = data.pages;
   const exists = first.items.some((m) => sameMessage(m, message));
@@ -95,7 +95,7 @@ export function upsertSupportMessageInCache(
 
 /** Cambia el estado de la consulta en el encabezado del historial cacheado (ej.: una resuelta que se reabre). */
 export function patchSupportThreadStatus(queryClient: QueryClient, conversationId: string, status: SupportStatus): void {
-  queryClient.setQueryData<InfiniteData<SupportThreadPage>>(supportKeys.messages(conversationId), (data) =>
+  queryClient.setQueryData<InfiniteData<SupportMessagesPage>>(supportKeys.messages(conversationId), (data) =>
     data
       ? {
           ...data,
@@ -110,7 +110,7 @@ export function patchSupportThreadStatus(queryClient: QueryClient, conversationI
  * mientras el canal estuvo caído están en los mensajes recientes (también trae URLs de adjuntos recién firmadas).
  */
 export function refetchFirstSupportPage(queryClient: QueryClient, conversationId: string): void {
-  queryClient.setQueryData<InfiniteData<SupportThreadPage>>(supportKeys.messages(conversationId), (data) =>
+  queryClient.setQueryData<InfiniteData<SupportMessagesPage>>(supportKeys.messages(conversationId), (data) =>
     data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data,
   );
   void queryClient.invalidateQueries({ queryKey: supportKeys.messages(conversationId) });
@@ -119,7 +119,7 @@ export function refetchFirstSupportPage(queryClient: QueryClient, conversationId
 /** Refleja un mensaje en la lista sin volver a pedirla. Si la consulta no está en la lista, se invalida. */
 export function patchSupportListWithMessage(
   queryClient: QueryClient,
-  message: SupportThreadMessage,
+  message: SupportUserFacingMessage,
   options: { fromMe: boolean; seen: boolean },
 ): void {
   // Defensa adicional: una nota interna nunca debe aparecer en la vista previa.
@@ -174,7 +174,7 @@ export function useSendSupportMessage(conversationId: string) {
   return useMutation({
     mutationFn: (body: SupportSendUserBody) => supportClient.sendMessage(conversationId, body),
     onSuccess: (message) => {
-      queryClient.setQueryData<InfiniteData<SupportThreadPage>>(supportKeys.messages(conversationId), (data) =>
+      queryClient.setQueryData<InfiniteData<SupportMessagesPage>>(supportKeys.messages(conversationId), (data) =>
         upsertSupportMessageInCache(data, message),
       );
       // Escribir sobre una resuelta la reabre; si estaba esperando al usuario, vuelve a "Abierta".

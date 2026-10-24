@@ -1,7 +1,7 @@
 import type { InfiniteData } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import type { SupportAttachment } from "@movo/shared/dist/types/admin-support";
-import type { SupportThreadMessage, SupportThreadPage } from "@movo/shared/dist/types/support";
+import type { SupportUserFacingMessage, SupportMessagesPage } from "@movo/shared/dist/types/support";
 import { Redirect, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SupportConversationView, type SupportTimelineItem } from "../../../components/support/support-conversation-view";
@@ -54,7 +54,7 @@ export default function PendingSupportConversationScreen() {
           ...(draft.attachments.length > 0 ? { attachmentIds: draft.attachments.map((a) => a.attachmentId) } : {}),
         });
         if (mountedRef.current) doneRef.current = true;
-        queryClient.setQueryData<InfiniteData<SupportThreadPage>>(supportKeys.messages(conversation.id), {
+        queryClient.setQueryData<InfiniteData<SupportMessagesPage>>(supportKeys.messages(conversation.id), {
           pages: [{ items: [message], nextCursor: null, conversation }],
           pageParams: [undefined],
         });
@@ -78,7 +78,7 @@ export default function PendingSupportConversationScreen() {
   const timeline: SupportTimelineItem[] = useMemo(() => {
     if (!draft) return [];
     const attachments: SupportAttachment[] = draft.attachments.map((a) => ({ id: a.attachmentId, contentType: "image/jpeg", url: a.localUri }));
-    const optimistic: SupportThreadMessage = {
+    const optimistic: SupportUserFacingMessage = {
       id: "",
       conversationId: "",
       kind: "user",

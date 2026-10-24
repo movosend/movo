@@ -178,6 +178,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // MOVO-324: soporte al usuario (backend MOVO-320/321).
   SUPPORT_CONVERSATION_NOT_FOUND: "Esta consulta ya no está disponible.",
   SUPPORT_ATTACHMENT_INVALID: "No pudimos usar una de las fotos. Quitala y probá con otra (JPG, PNG o WebP, hasta 5 MB).",
+  SUPPORT_ATTACHMENT_PENDING_LIMIT: "Tenés muchas fotos cargadas sin enviar. Mandá o quitá alguna y probá de nuevo.",
   SUPPORT_SHIPMENT_NOT_PARTY: "No podés vincular ese envío porque no sos parte de él. Elegí otro o seguí sin vincular.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",

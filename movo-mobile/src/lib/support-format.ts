@@ -5,7 +5,7 @@ import type {
   SupportDeliveryStatus,
   SupportShipmentOption,
   SupportShipmentRole,
-  SupportThreadMessage,
+  SupportUserFacingMessage,
 } from "@movo/shared/dist/types/support";
 import type { ChatDeliveryStatus } from "@movo/shared/dist/types/chat";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
@@ -93,10 +93,10 @@ export function supportShipmentSummary(option: Pick<SupportShipmentOption, "code
 export type SupportChatMessage = LocalChatMessage & { attachments: SupportAttachment[] };
 
 /**
- * `SupportThreadMessage` del equipo o del usuario → mensaje del chat para reusar `ChatBubble` y el agrupado.
+ * `SupportUserFacingMessage` del equipo o del usuario → mensaje del chat para reusar `ChatBubble` y el agrupado.
  * El autor del equipo se agrupa por nombre de pila (dos agentes seguidos son dos grupos).
  */
-export function supportToChatMessage(message: SupportThreadMessage, localState?: "sending" | "failed"): SupportChatMessage {
+export function supportToChatMessage(message: SupportUserFacingMessage, localState?: "sending" | "failed"): SupportChatMessage {
   const mine = message.kind === "user";
   return {
     attachments: message.attachments,
@@ -106,7 +106,8 @@ export function supportToChatMessage(message: SupportThreadMessage, localState?:
     authorId: mine ? SUPPORT_ME_ID : `agent:${message.authorName ?? "movo"}`,
     authorName: message.authorName,
     body: message.body,
-    clientMessageId: message.clientMessageId,
+    // `null` en los `system` y en los del equipo; vacío hace que la key caiga al `id` (`buildTimeline`).
+    clientMessageId: message.clientMessageId ?? "",
     moderated: message.moderated,
     hidden: false,
     deliveryStatus: mine ? (message.deliveryStatus as ChatDeliveryStatus | null) : null,
@@ -119,7 +120,7 @@ export interface SupportEventCard extends TimelineCard {
   text: string;
 }
 
-export function supportToEventCard(message: SupportThreadMessage): SupportEventCard {
+export function supportToEventCard(message: SupportUserFacingMessage): SupportEventCard {
   return { id: message.id, text: message.body, createdAt: message.createdAt };
 }
 

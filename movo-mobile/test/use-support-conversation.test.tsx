@@ -1,4 +1,4 @@
-import type { SupportRealtimeEvent, SupportThreadMessage, SupportThreadPage } from "@movo/shared/dist/types/support";
+import type { SupportRealtimeEvent, SupportUserFacingMessage, SupportMessagesPage } from "@movo/shared/dist/types/support";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 import type { ReactNode } from "react";
@@ -46,7 +46,7 @@ jest.mock("../src/store/auth-store", () => ({
   useAuthStore: (selector: (s: unknown) => unknown) => selector({ user: { userId: "julia" }, status: "authenticated" }),
 }));
 
-function msg(over: Partial<SupportThreadMessage>): SupportThreadMessage {
+function msg(over: Partial<SupportUserFacingMessage>): SupportUserFacingMessage {
   return {
     id: "srv-x",
     conversationId: "c1",
@@ -62,7 +62,7 @@ function msg(over: Partial<SupportThreadMessage>): SupportThreadMessage {
   };
 }
 
-function page(items: SupportThreadMessage[], status: "open" | "awaiting_user" | "resolved" = "open"): SupportThreadPage {
+function page(items: SupportUserFacingMessage[], status: "open" | "awaiting_user" | "resolved" = "open"): SupportMessagesPage {
   return {
     items,
     nextCursor: null,
@@ -70,7 +70,7 @@ function page(items: SupportThreadMessage[], status: "open" | "awaiting_user" | 
   };
 }
 
-async function setup(first: SupportThreadPage = page([msg({ id: "srv-1", body: "Hola Julia" })]), options: { focused?: boolean } = {}) {
+async function setup(first: SupportMessagesPage = page([msg({ id: "srv-1", body: "Hola Julia" })]), options: { focused?: boolean } = {}) {
   mockSupportClient.listMessages.mockResolvedValue(first);
   mockSupportClient.markRead.mockResolvedValue({ readAt: new Date().toISOString() });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false, gcTime: Infinity } } });
@@ -107,7 +107,7 @@ describe("useSupportConversation (MOVO-324)", () => {
   });
 
   it("los eventos del sistema salen como tarjetas aparte y una nota interna que llegara no se dibuja", async () => {
-    const note = { ...msg({ id: "n1", body: "NOTA SECRETA" }), kind: "internal_note" } as unknown as SupportThreadMessage;
+    const note = { ...msg({ id: "n1", body: "NOTA SECRETA" }), kind: "internal_note" } as unknown as SupportUserFacingMessage;
     const { result } = await setup(
       page([msg({ id: "s1", kind: "system", authorName: null, body: "Lucía Ferreyra tomó la conversación" }), note, msg({ id: "a1", body: "Hola" })]),
     );
@@ -118,7 +118,7 @@ describe("useSupportConversation (MOVO-324)", () => {
   });
 
   it("envía de forma optimista y al confirmarse deja un solo mensaje", async () => {
-    let resolveSend: (m: SupportThreadMessage) => void = () => undefined;
+    let resolveSend: (m: SupportUserFacingMessage) => void = () => undefined;
     mockSupportClient.sendMessage.mockImplementation(() => new Promise((resolve) => (resolveSend = resolve)));
     const { result } = await setup();
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -251,7 +251,7 @@ describe("useSupportConversation (MOVO-324)", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     const list = { items: [{ ...page([]).conversation, lastMessage: null }] };
     client.setQueryData(["support", "list"], list);
-    const note = { ...msg({ id: "note-1", body: "NOTA SECRETA" }), kind: "note" } as unknown as SupportThreadMessage;
+    const note = { ...msg({ id: "note-1", body: "NOTA SECRETA" }), kind: "note" } as unknown as SupportUserFacingMessage;
 
     await act(async () => mockChannelOptions.onMessage?.({ type: "support_message", message: note }));
 

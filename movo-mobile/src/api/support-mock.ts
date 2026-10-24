@@ -9,8 +9,8 @@ import type {
   SupportSendUserBody,
   SupportShipmentOption,
   SupportShipmentOptionsPage,
-  SupportThreadMessage,
-  SupportThreadPage,
+  SupportUserFacingMessage,
+  SupportMessagesPage,
   SupportUserAttachmentCreateBody,
 } from "@movo/shared/dist/types/support";
 
@@ -29,7 +29,7 @@ const OFFENSIVE = /\b(mierda|boludo|pelotudo|hijo de puta)\b/gi;
 
 interface MockConversation {
   item: SupportConversationItem;
-  messages: SupportThreadMessage[];
+  messages: SupportUserFacingMessage[];
 }
 
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -39,11 +39,11 @@ const nextId = (prefix: string) => `${prefix}-${++counter}`;
 
 function message(
   conversationId: string,
-  kind: SupportThreadMessage["kind"],
+  kind: SupportUserFacingMessage["kind"],
   body: string,
   createdAt: string,
-  extra: Partial<SupportThreadMessage> = {},
-): SupportThreadMessage {
+  extra: Partial<SupportUserFacingMessage> = {},
+): SupportUserFacingMessage {
   return {
     id: nextId("msg"),
     conversationId,
@@ -161,7 +161,7 @@ function consumeAttachments(ids: string[] | undefined) {
   return attachmentIds.map((id) => ({ id, contentType: "image/jpeg" as const, url: `https://picsum.photos/seed/${id}/600/600` }));
 }
 
-function touch(conv: MockConversation, msg: SupportThreadMessage) {
+function touch(conv: MockConversation, msg: SupportUserFacingMessage) {
   conv.item.lastActivityAt = msg.createdAt;
   if (msg.kind === "user" || msg.kind === "agent") {
     conv.item.lastMessage = {
@@ -174,7 +174,7 @@ function touch(conv: MockConversation, msg: SupportThreadMessage) {
   }
 }
 
-function appendUserMessage(conv: MockConversation, body: string, clientMessageId: string, attachmentIds?: string[]): SupportThreadMessage {
+function appendUserMessage(conv: MockConversation, body: string, clientMessageId: string, attachmentIds?: string[]): SupportUserFacingMessage {
   const existing = conv.messages.find((m) => m.kind === "user" && m.clientMessageId === clientMessageId);
   if (existing) return existing;
   if (!body.trim() && !(attachmentIds && attachmentIds.length > 0)) {
@@ -239,7 +239,7 @@ export const supportMock = {
     }
   },
 
-  listMessages(conversationId: string, params: { cursor?: string; limit?: number } = {}): Promise<SupportThreadPage> {
+  listMessages(conversationId: string, params: { cursor?: string; limit?: number } = {}): Promise<SupportMessagesPage> {
     try {
       const conv = find(conversationId);
       const newestFirst = [...conv.messages].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -253,7 +253,7 @@ export const supportMock = {
     }
   },
 
-  sendMessage(conversationId: string, body: SupportSendUserBody): Promise<SupportThreadMessage> {
+  sendMessage(conversationId: string, body: SupportSendUserBody): Promise<SupportUserFacingMessage> {
     try {
       return delay(appendUserMessage(find(conversationId), body.body, body.clientMessageId, body.attachmentIds));
     } catch (error) {

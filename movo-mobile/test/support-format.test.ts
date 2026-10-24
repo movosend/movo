@@ -1,4 +1,4 @@
-import type { SupportConversationItem, SupportThreadMessage } from "@movo/shared/dist/types/support";
+import type { SupportConversationItem, SupportUserFacingMessage } from "@movo/shared/dist/types/support";
 import { buildTimeline } from "../src/lib/chat-format";
 import {
   SUPPORT_ME_ID,
@@ -29,7 +29,7 @@ function item(over: Partial<SupportConversationItem> = {}): SupportConversationI
   };
 }
 
-function message(over: Partial<SupportThreadMessage>): SupportThreadMessage {
+function message(over: Partial<SupportUserFacingMessage>): SupportUserFacingMessage {
   return {
     id: "m1",
     conversationId: "c1",

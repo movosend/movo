@@ -4,10 +4,7 @@ import { ShieldAlert } from "lucide-react-native";
 import { Linking, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
-import {
-  SUPPORT_EMAIL,
-  SUPPORT_UNAVAILABLE_NOTE,
-} from "../../src/lib/account-restriction";
+import { SUPPORT_EMAIL } from "../../src/lib/account-restriction";
 import { useAuthStore } from "../../src/store/auth-store";
 
 /**
@@ -59,18 +56,13 @@ export default function AccountDisabledScreen() {
         </Text>
       </View>
 
+      {/* Sin sesión no hay soporte en la app (MOVO-324 necesita token): el canal es el email. */}
       <PrimaryButton
         testID="account-disabled-contact"
         label="Contactar a soporte"
-        disabled
-        onPress={() => undefined}
+        onPress={() => void Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
       />
-      <Text
-        testID="account-disabled-contact-unavailable"
-        className="mb-4 mt-2 text-center font-sans text-[12px] text-fg-3"
-      >
-        {SUPPORT_UNAVAILABLE_NOTE}
-      </Text>
+      <View className="mb-4" />
       <Text
         testID="account-disabled-home"
         onPress={goHome}
