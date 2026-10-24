@@ -4967,3 +4967,9 @@ muestran `AccountStatusChip`. La pantalla de login de `ACCOUNT_SUSPENDED` pasó 
   (un emisor veía "No pudimos cargar tus viajes"). Hay un solo aviso, "No pudimos cargar parte de tu inicio", que reintenta las
   queries que fallaron. Con datos ya cargados la sección sigue mostrándolos.
 - Pendiente: el 403 real del gateway cuando exista MOVO-298, y los push (en local el proveedor es mock).
+
+### MOVO-285 — Monto exacto del transportista con el fee real de MP
+
+- `shipments/[id].tsx`: si el detalle trae `carrierMpFeeArs`, la card muestra "Recibís" con neto menos ese fee (`carrierReceivedBeforeDebtArs`,
+  `lib/commission-config.ts`); sin él sigue el estimado con "Recibís aprox.". Sin cambios de diseño. "Cobraste" sigue saliendo solo de la
+  liquidación acreditada (`settlement-format`). Las pantallas de oferta (`transport/[id]/offer`, `carrier/offers/*`) mantienen el estimado.

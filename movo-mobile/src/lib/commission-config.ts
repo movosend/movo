@@ -2,6 +2,7 @@ import {
   DEFAULT_MOVO_COMMISSION_RATE,
   DEFAULT_MP_TRANSACTION_FEE_RATE,
   estimateMpFeeArs as sharedEstimateMpFeeArs,
+  computeNetFromGross,
   estimateReceivedArs as sharedEstimateReceivedArs,
   parseRate,
 } from "@movo/shared/dist/config/commission";
@@ -48,4 +49,18 @@ export function estimateReceivedArs(netArs: number, grossArs: number): number {
     grossArs,
     getClientMpTransactionFeeRate(),
   );
+}
+
+/**
+ * MOVO-285: lo que el transportista recibe sobre un bruto, antes de su descuento por deuda. Con el
+ * `mercadopago_fee` real que MP informó al crear el hold es el monto exacto (neto menos ese fee); sin
+ * él cae al estimado de `estimateReceivedArs`. Quien lo muestra rotula "aprox." solo en el segundo caso.
+ */
+export function carrierReceivedBeforeDebtArs(
+  grossArs: number,
+  realMpFeeArs?: number | null,
+): number {
+  const netArs = computeNetFromGross(grossArs, getClientCommissionRate());
+  if (realMpFeeArs == null) return estimateReceivedArs(netArs, grossArs);
+  return Math.max(0, Math.round((netArs - realMpFeeArs) * 100) / 100);
 }

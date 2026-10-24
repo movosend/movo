@@ -1,5 +1,6 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import {
+  carrierReceivedBeforeDebtArs,
   estimateReceivedArs,
   getClientCommissionRate,
   getClientMpTransactionFeeRate,
@@ -54,5 +55,15 @@ describe("receivedAmountLabel (MOVO-225)", () => {
     ]) {
       expect(receivedAmountLabel(status)).toBe("Habrías recibido aprox.");
     }
+  });
+
+  it("MOVO-285: con el fee real de MP el monto es neto menos ese fee; sin él, el estimado", () => {
+    delete process.env.EXPO_PUBLIC_MOVO_COMMISSION_RATE;
+    delete process.env.EXPO_PUBLIC_MP_TRANSACTION_FEE_RATE;
+    // 15%: neto de 1150 = 1000.
+    expect(carrierReceivedBeforeDebtArs(1150, 57.4)).toBe(942.6);
+    expect(carrierReceivedBeforeDebtArs(1150, null)).toBe(estimateReceivedArs(1000, 1150));
+    expect(carrierReceivedBeforeDebtArs(1150)).toBe(estimateReceivedArs(1000, 1150));
+    expect(carrierReceivedBeforeDebtArs(1150, 5000)).toBe(0);
   });
 });

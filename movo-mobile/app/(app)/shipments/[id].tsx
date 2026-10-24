@@ -1,4 +1,3 @@
-import { computeNetFromGross } from "@movo/shared/dist/config/commission";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useFocusEffect, useIsFocused, useLocalSearchParams, type Href } from "expo-router";
@@ -62,10 +61,7 @@ import {
   activeShipmentDisplayCode,
   isTransitDelayed,
 } from "../../../src/lib/active-shipment-format";
-import {
-  estimateReceivedArs,
-  getClientCommissionRate,
-} from "../../../src/lib/commission-config";
+import { carrierReceivedBeforeDebtArs } from "../../../src/lib/commission-config";
 import { chatAvailability } from "../../../src/lib/chat-format";
 import {
   FULFILLED_SHIPMENT_STATUSES,
@@ -336,11 +332,10 @@ export default function ShipmentDetailScreen() {
   // estimado de MP (MOVO-225), el mismo monto que en el resto de las pantallas.
   const carrierReceivedArs =
     isCarrier && !isCancelled && shipment?.agreedPriceArs != null
-      ? Math.max(0, estimateReceivedArs(
-          computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
-          shipment.agreedPriceArs,
-        ) - (shipment.debtDiscount?.amountArs ?? 0))
+      ? Math.max(0, carrierReceivedBeforeDebtArs(shipment.agreedPriceArs, shipment.carrierMpFeeArs) - (shipment.debtDiscount?.amountArs ?? 0))
       : null;
+  // MOVO-285: con el fee que informó MP al reservar el pago el monto es exacto; si no, sigue siendo "aprox.".
+  const carrierReceivedIsExact = shipment?.carrierMpFeeArs != null;
 
   // MOVO-271 AC5: emisor y receptor ven el seguimiento (o su placeholder) mientras hay
   // transportista y el envío no cerró; el transportista tiene su propio mapa de ruta.
@@ -699,7 +694,7 @@ export default function ShipmentDetailScreen() {
                         <GridPattern />
                         <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
                           {carrierReceivedArs !== null
-                            ? "Recibís aprox."
+                            ? carrierReceivedIsExact ? "Recibís" : "Recibís aprox."
                             : hasAgreedPrice
                               ? "Precio pactado"
                               : "Costo aproximado"}
@@ -735,7 +730,7 @@ export default function ShipmentDetailScreen() {
                       <HighDemandHelp testID="shipment-detail-high-demand-help" />
                     </View>
                   ) : null}
-                  {!hidePriceCard && carrierReceivedArs !== null && shipment.agreedPriceArs != null ? <DebtDiscount beforeArs={estimateReceivedArs(computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()), shipment.agreedPriceArs)} amountArs={shipment.debtDiscount?.amountArs} /> : null}
+                  {!hidePriceCard && carrierReceivedArs !== null && shipment.agreedPriceArs != null ? <DebtDiscount beforeArs={carrierReceivedBeforeDebtArs(shipment.agreedPriceArs, shipment.carrierMpFeeArs)} amountArs={shipment.debtDiscount?.amountArs} /> : null}
 
                   <View>
                     <Eyebrow>Paquete</Eyebrow>

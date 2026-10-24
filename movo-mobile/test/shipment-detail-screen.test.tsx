@@ -1070,6 +1070,24 @@ describe("ShipmentDetailScreen", () => {
       expect(getByTestId("shipment-detail-price")).toHaveTextContent(amount);
     });
 
+    it("MOVO-285: con el fee real de MP el transportista ve 'Recibís' exacto, sin 'aprox.'", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-2" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        // Neto 5000 (5750 con 15 %) menos los $250 que informó MP al reservar el pago.
+        data: shipment({ carrierId: "user-2", agreedPriceArs: 5750, carrierMpFeeArs: 250, status: ShipmentStatus.ASSIGNED }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByText, queryByText, getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Recibís")).toBeTruthy();
+      expect(queryByText("Recibís aprox.")).toBeNull();
+      expect(getByTestId("shipment-detail-price")).toHaveTextContent("$4.750");
+    });
+
     it("el receptor ve el retiro y la entrega en el mapa, igual que el resto de las partes", async () => {
       mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
       mockUseShipment.mockReturnValue({
