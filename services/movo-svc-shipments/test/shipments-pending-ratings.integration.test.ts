@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
-import { ShipmentStatus } from "@movo/shared";
+import { DisputeReason, ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
@@ -246,7 +246,9 @@ describe("GET /shipments/pending-ratings (Postgres)", () => {
 
   it("AC9: envío que pasó a disputed después de entregado -- no aparece (la disputa suspende la calificación)", async () => {
     const shipmentId = await createDeliveredShipment();
-    await repo.updateStatus(shipmentId, ShipmentStatus.DISPUTED, null);
+    await repo.updateStatus(shipmentId, ShipmentStatus.DISPUTED, null, undefined, {
+      dispute: { openedBy: null, openedByRole: null, reason: DisputeReason.OTHER, description: "test" },
+    });
 
     const response = await request(senderId);
 

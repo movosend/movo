@@ -45,6 +45,8 @@ describe("orphan-photo-sweep plugin", () => {
           where.s3Key === "shipments/1/creation/confirmed-key.jpg" ? { id: "photo-1" } : null
         ),
       },
+      // MOVO-334: las fotos de disputas comparten el tracking; ninguna de estas es de una disputa.
+      disputePhoto: { findFirst: vi.fn(async () => null) },
     } as any);
 
     const mockRedisSet = vi.fn().mockResolvedValue("OK");
@@ -126,7 +128,7 @@ describe("orphan-photo-sweep plugin", () => {
       ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: 60,
       ORPHAN_PHOTO_SWEEP_ENABLED: true,
     } as EnvConfig);
-    app.decorate("db", { shipmentPhoto: { findFirst: vi.fn() } } as any);
+    app.decorate("db", { shipmentPhoto: { findFirst: vi.fn() }, disputePhoto: { findFirst: vi.fn() } } as any);
 
     const mockZrangebyscore = vi.fn();
     app.decorate("redis", {
@@ -158,7 +160,7 @@ describe("orphan-photo-sweep plugin", () => {
     } as EnvConfig);
 
     const mockFindFirst = vi.fn();
-    app.decorate("db", { shipmentPhoto: { findFirst: mockFindFirst } } as any);
+    app.decorate("db", { shipmentPhoto: { findFirst: mockFindFirst }, disputePhoto: { findFirst: vi.fn(async () => null) } } as any);
 
     const mockZrangebyscore = vi.fn().mockResolvedValue(["shipments/1/creation/contested-key.jpg"]);
     const mockZrem = vi.fn();

@@ -99,7 +99,7 @@ function assertCanRegisterPhoto(shipment: Shipment, callerId: string, stage: Pho
   assertIsCarrier(shipment, callerId);
 }
 
-function assertValidPhotoConstraints(contentType: string, contentLength: number): void {
+export function assertValidPhotoConstraints(contentType: string, contentLength: number): void {
   if (contentType !== ALLOWED_PHOTO_CONTENT_TYPE) {
     throw new ApiError(400, "VALIDATION_FAILED", "Tipo de imagen no permitido.");
   }

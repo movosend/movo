@@ -235,7 +235,7 @@ describe("Endpoint interno POST /internal/notifications/push (MOVO-106 AC6)", ()
       const response = await app.inject({
         method: "POST",
         url: "/internal/notifications/push",
-        payload: { userId: user.id, title: "t", body: "b", category: "disputes" }, // "Pronto", sin trigger real
+        payload: { userId: user.id, title: "t", body: "b", category: "unknown_category" }, // MOVO-334: ya no queda ninguna categoría "Pronto"
       });
 
       expect(response.statusCode).toBe(204);

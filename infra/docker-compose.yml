@@ -247,6 +247,11 @@ services:
       - FUNDING_SWEEP_ENABLED=${FUNDING_SWEEP_ENABLED:-true}
       # MOVO-313 (ADR-044): antigüedad (días) de una deuda sin saldar que bloquea operar como transportista.
       - USER_DEBT_OVERDUE_DAYS=${USER_DEBT_OVERDUE_DAYS:-14}
+      # MOVO-334: alerta al equipo al abrirse una disputa (mismas vars que svc-payments, MOVO-268).
+      - ALERT_PROVIDER=${ALERT_PROVIDER:-console}
+      - ALERT_TELEGRAM_BOT_TOKEN=${ALERT_TELEGRAM_BOT_TOKEN:-}
+      - ALERT_TELEGRAM_CHAT_ID=${ALERT_TELEGRAM_CHAT_ID:-}
+      - ALERT_ENVIRONMENT_LABEL=${ALERT_ENVIRONMENT_LABEL:-}
     depends_on:
       - postgres
       - redis

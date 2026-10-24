@@ -669,3 +669,13 @@ de la regla: el filtro `alert` de `svc-shipments` (SQL) y el panel la siguen.
 `carrier_arrived` (ventana cerrada con llegada: 25 %). Triggers `pickupNoShow{Sender,Carrier,PenaltyDebtCarrier}` y
 `pickupDisputeOpened{Sender,Receiver,Carrier}`; código `HANDSHAKE_PICKUP_DEADLINE_PASSED`. Recordatorio habitual: `npm run build`
 acá antes de tipar desde otro workspace.
+
+### MOVO-334 — Contrato de disputas (`types/dispute.ts`, ADR-054)
+
+`DisputeReason` (los cuatro elegibles desde la app en `USER_SELECTABLE_DISPUTE_REASONS`, más `transit_anomaly`/`pickup_no_show` de
+sistema), `DisputeStatus`, `DisputePartyRole`, `DisputeStatementKind`, `DisputeDetail`/`DisputeStatement`/`DisputePhoto`/`DisputePhotoUploadUrl`
+y las constantes `DISPUTE_WINDOW_DAYS` (7, desde `deliveredAt`) y `DISPUTE_TEXT_MAX_LENGTH` (2000). Códigos `DISPUTE_NOT_ALLOWED`,
+`DISPUTE_WINDOW_EXPIRED`, `DISPUTE_ALREADY_OPEN` (`details.disputeId`), `DISPUTE_NOT_FOUND`, `DISPUTE_NOT_OPEN`,
+`DISPUTE_STATEMENT_ALREADY_SUBMITTED` y `DISPUTE_PHOTO_ALREADY_USED`. Triggers `disputeOpened{Sender,Receiver,Carrier}`: la categoría
+`disputes` pasa a `implemented: true` y ya no queda ninguna "Pronto" (tocó tres tests de `movo-mobile`). Recordatorio habitual:
+`npm run build` acá antes de tipar desde otro workspace.

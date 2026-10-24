@@ -8,7 +8,11 @@ adjunto en el issue de Linear) y después en código
 única fuente de verdad ejecutable, este diagrama se actualiza si el código cambia, no al
 revés.
 
-`cancelled` y `completed` son terminales por diseño (MOVO-79/MOVO-208).
+`cancelled` es terminal por diseño (MOVO-79). `completed` lo fue hasta MOVO-334 (ADR-054):
+su única salida es `completed → disputed`, un reclamo de una de las partes dentro de los 7 días
+desde el handshake de entrega (`DISPUTE_WINDOW_DAYS`, desde `deliveredAt`). Hace falta porque el
+handshake de entrega captura el hold y pasa el envío a `completed` en el momento (MOVO-212): un
+envío solo queda en `delivered` hasta que se confirma la captura. Ningún barrido usa esta arista.
 `rejected_by_receiver` lo fue hasta MOVO-253 (ADR-027): ahora el emisor tiene un plazo
 (`receiver_redesignation_deadline`, 48hs con tope en la ventana de retiro) para elegir
 otro receptor o cancelar, y si no hace ninguna de las dos el barrido lo pasa a
@@ -100,20 +104,22 @@ stateDiagram-v2
     assigned --> disputed: el transportista llegó al retiro\ny no hubo handshake (barrido, MOVO-270)
 
     in_transit --> delivered: entrega confirmada\n(handshake)
-    in_transit --> disputed: reclamo en tránsito (MOVO-30)\no entrega demorada (barrido, MOVO-278)
+    in_transit --> disputed: reclamo en tránsito (MOVO-334)\no entrega demorada (barrido, MOVO-278)
 
     delivered --> completed: captura y split de MP confirmados (MOVO-212)
-    delivered --> disputed: reclamo post-entrega (MOVO-30)
+    delivered --> disputed: reclamo post-entrega dentro de 7 días\n(una de las partes, MOVO-334)
+    completed --> disputed: reclamo post-entrega dentro de 7 días\n(una de las partes, MOVO-334)
 
     rejected_by_receiver --> awaiting_receiver_confirmation: emisor elige otro receptor (MOVO-253)
     rejected_by_receiver --> cancelled: emisor cancela o vence el plazo\n(barrido, MOVO-253)
     cancelled --> [*]
-    completed --> [*]
 
     note right of disputed
         Sin transición de salida en este módulo:
-        la resolución de disputas (MOVO-30/MOVO-32)
+        la resolución de disputas (MOVO-34)
         todavía no define a qué estado vuelve.
+        Cada entrada crea una disputa (entidad,
+        MOVO-334) con su motivo.
     end note
 
     note right of assigned_unfunded
@@ -177,13 +183,13 @@ stateDiagram-v2
   hold y el retiro era imposible.
 - `assigned_unfunded` → `in_transit` directo (AC2 de MOVO-208): permitiría retirar un
   paquete sin fondos reservados.
-- Cualquier transición saliente de un estado terminal (`cancelled`, `completed`) o de
-  `disputed`.
+- Cualquier transición saliente de `cancelled` o de `disputed`, y cualquier salida de
+  `completed` que no sea `disputed` (MOVO-334).
 - `rejected_by_receiver` → `published` directo: el receptor nuevo tiene que confirmar.
 - Quedarse en el mismo estado (`X` → `X`) no se modela como transición.
 
 Ver `services/movo-svc-shipments/test/shipment-state-machine.test.ts` para la cobertura
-completa: las 23 transiciones válidas del diagrama + casos inválidos representativos de
+completa: las 24 transiciones válidas del diagrama + casos inválidos representativos de
 cada categoría de arriba.
 
 ## Fuente original del diagrama

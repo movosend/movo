@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ShipmentStatus } from "@movo/shared";
+import { DisputeReason, ShipmentStatus } from "@movo/shared";
 import { createShipmentsService } from "../src/modules/shipments/shipments.service";
 import { ShipmentConcurrentModificationError, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { OfferRepository } from "../src/repositories/offer-repository";
@@ -409,7 +409,16 @@ describe("salida del in_transit demorado (MOVO-278, ADR-045)", () => {
         ShipmentStatus.DISPUTED,
         null,
         expect.stringContaining("no se confirmó"),
-        { expectedFrom: ShipmentStatus.IN_TRANSIT }
+        {
+          expectedFrom: ShipmentStatus.IN_TRANSIT,
+          // MOVO-334: disputa de sistema con la entidad nueva.
+          dispute: {
+            openedBy: null,
+            openedByRole: null,
+            reason: DisputeReason.TRANSIT_ANOMALY,
+            description: expect.stringContaining("no se confirmó"),
+          },
+        }
       );
       await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalledTimes(3));
       const userIds = (notifications.sendPush as ReturnType<typeof vi.fn>).mock.calls.map(([input]) => input.userId);
@@ -575,6 +584,8 @@ describe("expireUnpickedAssignedShipments: atribución del no-retiro (MOVO-270, 
     expect(paymentsClient.releaseHold).toHaveBeenCalledWith("s-1");
     expect(repository.updateStatus).toHaveBeenCalledWith("s-1", ShipmentStatus.DISPUTED, null, expect.any(String), {
       expectedFrom: ShipmentStatus.ASSIGNED,
+      // MOVO-334: disputa de sistema que no bloquea al transportista.
+      dispute: { openedBy: null, openedByRole: null, reason: DisputeReason.PICKUP_NO_SHOW, description: expect.any(String) },
     });
     expect(registerWithdrawalPenalty).not.toHaveBeenCalled();
     expect(notifications.sendPush).toHaveBeenCalledTimes(3);

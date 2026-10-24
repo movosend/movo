@@ -273,6 +273,10 @@ describe("atribución del no-retiro (Postgres, MOVO-270 / ADR-052)", () => {
       expect((await app.db.offer.findUniqueOrThrow({ where: { id: offerId } })).withdrawalPenaltyStatus).toBeNull();
       expect(payments.ledgerEntries.size).toBe(0);
       expect(await shipmentRepo.hasOpenDisputeAsCarrier(carrierId)).toBe(false);
+      // MOVO-334: disputa de sistema con motivo `pickup_no_show` (la que no bloquea).
+      expect(await app.db.dispute.findMany({ where: { shipmentId } })).toEqual([
+        expect.objectContaining({ reason: "pickup_no_show", openedBy: null, status: "open" }),
+      ]);
       expect(sendPush.mock.calls.map(([input]) => input.title)).toEqual(["Envío en disputa", "Envío en disputa", "Envío en disputa"]);
     });
 
