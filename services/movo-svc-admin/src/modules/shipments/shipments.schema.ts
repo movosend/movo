@@ -248,8 +248,103 @@ const partyCard = {
   },
 };
 
+// MOVO-327: seguimiento del envío para el mapa.
+const trackingPlace = {
+  type: "object",
+  required: ["lat", "lng", "label"],
+  properties: { lat: { type: "number" }, lng: { type: "number" }, label: { type: "string" } },
+};
+const nullableNumber = { type: ["number", "null"] };
+
+const trackingResponse = {
+  type: "object",
+  required: [
+    "shipmentId",
+    "shipmentStatus",
+    "state",
+    "reason",
+    "origin",
+    "destination",
+    "plannedRoute",
+    "trace",
+    "traceTruncated",
+    "traceAvailable",
+    "lastPosition",
+    "lastPingAt",
+    "signalLost",
+    "delayed",
+    "metrics",
+    "serverTime",
+    "pollIntervalSeconds",
+  ],
+  properties: {
+    shipmentId: { type: "string" },
+    shipmentStatus: { type: "string", enum: shipmentStatuses },
+    state: {
+      type: "string",
+      enum: ["not_started", "live", "closed", "no_carrier"],
+      description: "`live` en camino (con posición); `closed` con la traza guardada; `not_started` sin retiro; `no_carrier` sin transportista.",
+    },
+    reason: {
+      type: ["string", "null"],
+      enum: ["awaiting_pickup", "unfunded", "delivered", "completed", "disputed", "cancelled", "no_carrier", null],
+    },
+    origin: trackingPlace,
+    destination: trackingPlace,
+    plannedRoute: {
+      type: ["object", "null"],
+      required: ["polyline", "distanceMeters", "durationSeconds"],
+      description: "Polyline encoded de Google (5 decimales). `null` sin transportista o si el proveedor de rutas falló.",
+      properties: {
+        polyline: { type: "string" },
+        distanceMeters: { type: "number" },
+        durationSeconds: { type: "number" },
+      },
+    },
+    trace: {
+      type: "array",
+      description: "Cronológica, del retiro a la entrega (o a ahora). Hasta 500 puntos.",
+      items: {
+        type: "object",
+        required: ["lat", "lng", "capturedAt"],
+        properties: { lat: { type: "number" }, lng: { type: "number" }, capturedAt: { type: "string" } },
+      },
+    },
+    traceTruncated: { type: "boolean", description: "Pasó el tope y se submuestreó, con el primer y el último punto." },
+    traceAvailable: { type: "boolean", description: "`false` sin puntos: sin retiro o purgada por retención (ADR-023)." },
+    lastPosition: {
+      type: ["object", "null"],
+      required: ["lat", "lng", "accuracyM", "capturedAt"],
+      description: "Solo con `live`.",
+      properties: {
+        lat: { type: "number" },
+        lng: { type: "number" },
+        accuracyM: nullableNumber,
+        capturedAt: { type: "string" },
+      },
+    },
+    lastPingAt: { type: ["string", "null"], description: "Hora del servidor al recibir el último ping." },
+    signalLost: { type: "boolean" },
+    delayed: { type: "boolean", description: "En camino con la anomalía de `in_transit` marcada (ADR-045)." },
+    metrics: {
+      type: ["object", "null"],
+      required: ["avgSpeedKmh5m", "remainingMeters", "progressPct", "etaAt"],
+      description: "Solo con `live`. Sin señal, `avgSpeedKmh5m` y `etaAt` en `null`.",
+      properties: {
+        avgSpeedKmh5m: nullableNumber,
+        remainingMeters: nullableNumber,
+        progressPct: nullableNumber,
+        etaAt: { type: ["string", "null"] },
+      },
+    },
+    serverTime: { type: "string" },
+    pollIntervalSeconds: { type: "integer" },
+  },
+};
+
 export const shipmentsSchemas = {
   errorResponse,
+  trackingResponse,
   listQuery: {
     type: "object",
     additionalProperties: false,

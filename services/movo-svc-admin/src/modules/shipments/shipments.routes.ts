@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
+import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import {
   AdminBlock,
   AdminChatPage,
@@ -6,6 +6,7 @@ import {
   AdminShipmentPage,
   AdminShipmentPartyCard,
   AdminShipmentPayment,
+  AdminShipmentTracking,
   ApiError,
   ChatParticipantRole,
 } from "@movo/shared";
@@ -142,6 +143,31 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
       const page = await app.shipmentsClient.getAdminShipmentChat(id, query, { requestId: request.requestId });
       if (!page) throw notFound();
       return page;
+    },
+  );
+
+  app.get(
+    "/shipments/:id/tracking",
+    {
+      schema: {
+        tags: ["admin"],
+        summary: "Seguimiento del envío para el mapa",
+        description:
+          "Ruta planificada, traza y, con el envío en camino, última posición y métricas (velocidad promedio de " +
+          "5 min, km restantes, % y ETA). La posición solo se ve con el transportista en viaje (`live`). Sin un " +
+          "ping reciente, `signalLost` con la hora del último y sin velocidad ni ETA. El panel lo pide por " +
+          "polling cada `pollIntervalSeconds` (MOVO-327); la respuesta no se cachea.",
+        params: shipmentsSchemas.idParam,
+        response: { 200: shipmentsSchemas.trackingResponse, ...errors },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply): Promise<AdminShipmentTracking> => {
+      requireAdmin(request);
+      const { id } = request.params as { id: string };
+      const tracking = await app.shipmentsClient.getAdminShipmentTracking(id, { requestId: request.requestId });
+      if (!tracking) throw notFound();
+      reply.header("Cache-Control", "no-store");
+      return tracking;
     },
   );
 }

@@ -10,6 +10,7 @@ import {
   AdminShipmentOffer,
   AdminShipmentPage,
   AdminShipmentPhoto,
+  AdminShipmentTracking,
   ChatReportParties,
   ShipmentParties,
 } from "@movo/shared";
@@ -45,6 +46,8 @@ export interface ShipmentsClient extends InternalClient {
   getAdminShipmentPhotos(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentPhoto[] | null>;
   /** `GET /internal/admin/shipments/:id/chat/messages`. `null` si el envío no existe. */
   getAdminShipmentChat(shipmentId: string, query: URLSearchParams, ctx: RequestContext): Promise<AdminChatPage | null>;
+  /** `GET /internal/admin/shipments/:id/tracking` (MOVO-327). `null` si el envío no existe. */
+  getAdminShipmentTracking(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentTracking | null>;
 }
 
 export interface PageParams {
@@ -123,6 +126,16 @@ const isAdminChatPage = (body: unknown): body is AdminChatPage =>
   isString(body.partiesAccess) &&
   Array.isArray(body.reports) &&
   isEventList(body.events);
+
+const isAdminShipmentTracking = (body: unknown): body is AdminShipmentTracking =>
+  isRecord(body) &&
+  isString(body.shipmentId) &&
+  isString(body.state) &&
+  isRecord(body.origin) &&
+  isRecord(body.destination) &&
+  Array.isArray(body.trace) &&
+  typeof body.signalLost === "boolean" &&
+  isString(body.serverTime);
 
 const isShipmentParties = (body: unknown): body is ShipmentParties =>
   isRecord(body) &&
@@ -215,6 +228,12 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
       const suffix = query.toString() ? `?${query.toString()}` : "";
       return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/chat/messages${suffix}`, ctx, {
         isValid: isAdminChatPage,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+    },
+    getAdminShipmentTracking(shipmentId, ctx) {
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/tracking`, ctx, {
+        isValid: isAdminShipmentTracking,
         notFoundCodes: ["NOT_FOUND"],
       });
     },
