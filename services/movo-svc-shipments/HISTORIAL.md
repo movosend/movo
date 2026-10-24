@@ -3764,3 +3764,13 @@ El panel necesitaba los chips por estado y el toggle "Solo con alerta" con su co
 consulta agrupada (`COUNT(*) FILTER`), y `alert=true` filtra la lista y los conteos. La regla es `ALERT_SQL`, el espejo SQL de
 `isAdminShipmentAlert` de `@movo/shared`: `assigned_unfunded`, `rejected_by_receiver`, `disputed` o `in_transit` con
 `transit_anomaly_flagged_at`. Si cambia una, cambia la otra.
+
+### MOVO-340 — Chat tras una transferencia de receptor y estados cancelables
+
+- La membresía del chat ya salía de `receiverId` en cada request; faltaba avisar. Al completarse la transferencia,
+  `complete()` siembra `chat_participant_states` del receptor nuevo en `resolved_at` (solo le cuentan como no leídos los
+  mensajes posteriores) y emite `chat_participants_changed` (`realtime/chat-participants-events.ts`) a los sockets abiertos, sin
+  cerrar el del receptor original. Los tildes de un mensaje previo se miden contra los integrantes de ese momento
+  (`Shipment.receiverTransferredAt`). El receptor nuevo ve el historial (ADR-038).
+- Cancelación con retiro el mismo día: no se reprodujo en `develop` (no hay guard por fecha). `SENDER_CANCELLABLE_STATUSES` de
+  `@movo/shared` es la regla del mobile y un test la ata a `canTransition(*, cancelled)`.
