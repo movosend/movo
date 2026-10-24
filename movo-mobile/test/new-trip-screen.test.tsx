@@ -3,6 +3,12 @@ import NewTripScreen from "../app/(app)/carrier/trips/new";
 import type { CreateTripInput } from "../src/api/trips-client";
 
 // MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
+// MOVO-300: sin suspensión; el caso suspendido tiene sus propios tests.
+jest.mock("../src/hooks/use-account-restriction", () => ({
+  useActiveSuspension: () => null,
+  useAccountRestrictionSync: () => {},
+}));
+
 jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
   require("./mocks/carrier-requirements-sheet-hook"),
 );
@@ -15,12 +21,14 @@ jest.mock("../src/store/carrier-location-gate-store", () => ({
 
 const mockRouterBack = jest.fn();
 const mockRouterReplace = jest.fn();
+const mockRouterDismissTo = jest.fn();
 const mockCanGoBack = jest.fn();
 
 jest.mock("expo-router", () => ({
   router: {
     back: () => mockRouterBack(),
     replace: (...args: unknown[]) => mockRouterReplace(...args),
+    dismissTo: (...args: unknown[]) => mockRouterDismissTo(...args),
     canGoBack: () => mockCanGoBack(),
     push: jest.fn(),
   },
@@ -89,10 +97,14 @@ describe("NewTripScreen", () => {
     fireEvent.press(getByTestId("tf-stub-submit"));
 
     expect(mockCreateTripMutate).toHaveBeenCalledWith(FAKE_INPUT, expect.any(Object));
-    expect(mockRouterReplace).toHaveBeenCalledWith({
+    // MOVO-340: vuelve a la instancia de "Mis viajes" que ya está en el stack (una sola
+    // navegación, sin apilar una segunda pantalla).
+    expect(mockRouterDismissTo).toHaveBeenCalledTimes(1);
+    expect(mockRouterDismissTo).toHaveBeenCalledWith({
       pathname: "/carrier/trips",
-      params: { created: "1" },
+      params: { created: "1", createdAt: expect.any(String) },
     });
+    expect(mockRouterReplace).not.toHaveBeenCalled();
     expect(mockRouterBack).not.toHaveBeenCalled();
   });
 

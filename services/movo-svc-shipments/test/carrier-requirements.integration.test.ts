@@ -359,10 +359,22 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
   });
 
   describe("disputa abierta como transportista (MOVO-278, ADR-045)", () => {
-    /** Envío del transportista en `disputed` (automática o iniciada por un usuario). */
-    async function openDisputeFor(carrierId: string) {
+    /** Envío del transportista en `disputed` (automática o iniciada por un usuario), entrando
+     * desde `in_transit` (con custodia) o, MOVO-270, desde `assigned` (no-retiro con llegada). */
+    async function openDisputeFor(carrierId: string, from: ShipmentStatus = ShipmentStatus.IN_TRANSIT) {
       const shipment = await createPublishedShipment();
       await app.db.shipment.update({ where: { id: shipment.id }, data: { carrierId, status: ShipmentStatus.DISPUTED } });
+      await app.db.shipmentEvent.create({
+        data: { shipmentId: shipment.id, fromStatus: from, toStatus: ShipmentStatus.DISPUTED, reason: "test" },
+      });
+      // MOVO-334: el bloqueo lee de la entidad, con el motivo que pondría el barrido.
+      await app.db.dispute.create({
+        data: {
+          shipmentId: shipment.id,
+          reason: from === ShipmentStatus.ASSIGNED ? "pickup_no_show" : "transit_anomaly",
+          description: "test",
+        },
+      });
       return shipment.id;
     }
 
@@ -382,6 +394,13 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
 
       // La resolución (MOVO-34) todavía no existe: se simula sacando el envío de `disputed`.
       await app.db.shipment.update({ where: { id: disputedId }, data: { status: ShipmentStatus.COMPLETED } });
+      await app.db.dispute.updateMany({ where: { shipmentId: disputedId }, data: { status: "resolved" } });
+      expect((await declareTrip(app, eligibleCarrier)).statusCode).toBe(201);
+    });
+
+    it("MOVO-270 (ADR-052): la disputa de un no-retiro con llegada (assigned -> disputed) no bloquea", async () => {
+      await openDisputeFor(eligibleCarrier, ShipmentStatus.ASSIGNED);
+
       expect((await declareTrip(app, eligibleCarrier)).statusCode).toBe(201);
     });
 

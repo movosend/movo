@@ -72,6 +72,19 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   )
 }
 
+function DialogDescription({
+  className,
+  ...props
+}: DialogPrimitive.Description.Props) {
+  return (
+    <DialogPrimitive.Description
+      data-slot="dialog-description"
+      className={cn("text-[13px] text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
 function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -97,6 +110,7 @@ export {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogBody,
   DialogFooter,
 }

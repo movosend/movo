@@ -52,6 +52,14 @@ aceptó, y puede pasar **en tránsito**.
    mobile las intercala por fecha como un solo item que cambia según su estado, con texto
    según quién mira. El emisor y quien pidió cada solicitud ven todas; el transportista y
    el receptor vigente, solo la completada.
+8. **Chat del envío (MOVO-340).** Al completarse, el receptor nuevo se suma al chat
+   (ADR-040) en el acto y **ve el historial previo**: el hilo es uno por envío, es la
+   evidencia de la coordinación y suele tener indicaciones de entrega que le sirven. Lo
+   anterior le cuenta como leído (solo suman como no leídos los mensajes posteriores), y
+   los tildes de un mensaje previo se miden contra los integrantes de ese momento, con el
+   corte en `resolved_at` de la transferencia. Los sockets abiertos reciben
+   `chat_participants_changed`; el receptor original pasa a solo lectura sin que se cierre
+   el suyo, y deja de recibir la push del chat.
 
 ## Trade-offs aceptados
 
@@ -62,6 +70,8 @@ aceptó, y puede pasar **en tránsito**.
   eligió).
 - Dos llamadas a `svc-users` más al pedir y una al aceptar (perfil y bloqueos), fallando
   cerrado si no responde.
+- El receptor nuevo lee lo que el original escribió en el chat antes de transferir
+  (por ejemplo, un teléfono). Fue el original quien eligió transferir.
 - Una solicitud pendiente cuenta como actividad de la persona invitada para la baja de
   cuenta (MOVO-134).
 

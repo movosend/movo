@@ -22,6 +22,7 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
     "custody_delivery_confirmed",
     "trip_started",
     "carrier_nearby",
+    "dispute_opened",
   ])("%s abre el detalle del envío", (type) => {
     expect(resolveNotificationRoute({ type, shipmentId: "shp_1" })).toBe("/shipments/shp_1");
   });
@@ -130,4 +131,17 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
       expect(resolveNotificationRoute(data)).toBeNull();
     },
   );
+
+  // MOVO-300 AC6: avisos de sanción de cuenta.
+  it("account_suspended abre el detalle de la suspensión", () => {
+    expect(resolveNotificationRoute({ type: "account_suspended" })).toBe("/account-status");
+  });
+
+  it.each(["account_sanction_lifted", "account_suspension_expired"])("%s abre el inicio", (type) => {
+    expect(resolveNotificationRoute({ type })).toBe("/home");
+  });
+
+  it("account_disabled abre la pantalla de cuenta inhabilitada", () => {
+    expect(resolveNotificationRoute({ type: "account_disabled" })).toBe("/account-disabled");
+  });
 });

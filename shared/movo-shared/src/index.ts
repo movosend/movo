@@ -61,6 +61,7 @@ export type {
   AccountSanctionClosedCause,
   PublicAccountStatus,
   AccountSanction,
+  OwnAccountSanction,
   ApplyAccountSanctionRequest,
   LiftAccountSanctionRequest,
   AccountRestrictionMark,
@@ -79,6 +80,7 @@ export type {
   VehicleProfile,
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
+export type { PlacePrediction } from "./types/places";
 export { PriceCalculationMethod } from "./types/pricing";
 export type {
   DemandContext,
@@ -169,12 +171,18 @@ export type {
 } from "./types/transaction";
 
 // liquidación: captura del hold + split (MOVO-212)
-export { SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
+export { SETTLEMENT_ISSUE_STATUSES, SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
 export type {
   CaptureHoldRequest,
   CaptureHoldResponse,
   SettlementDisplayStatus,
+  SettlementEscalationReason,
+  SettlementEventRequest,
+  SettlementEventResponse,
   SettlementFailureReason,
+  SettlementIssueItem,
+  SettlementIssuesPage,
+  SettlementIssueStatus,
   SettlementKind,
   SettlementResponse,
   SettlementStatus,
@@ -224,6 +232,7 @@ export {
   decomposeOfferGrossPrice,
   carrierPaymentView,
   estimateMpFeeArs,
+  estimateReceivedArs,
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
@@ -282,6 +291,8 @@ export {
   CANCELLATION_PENALTY_RATE,
   computeCancellationPenalty,
   computeCarrierWithdrawalPenalty,
+  isSenderCancellableStatus,
+  SENDER_CANCELLABLE_STATUSES,
 } from "./config/cancellation-penalty";
 export type {
   CancellationPenaltyInput,
@@ -289,6 +300,16 @@ export type {
   CancellationPenaltyReason,
   CancellationQuoteResponse,
 } from "./config/cancellation-penalty";
+
+// atribución del no-retiro (MOVO-270, ADR-052)
+export {
+  ARRIVAL_RADIUS_M,
+  ARRIVAL_MAX_ACCURACY_M,
+  ABSENCE_MIN_DISTANCE_M,
+  ARRIVAL_EARLY_MARGIN_MIN,
+  MIN_ABSENCE_POSITIONS,
+} from "./config/pickup-attribution";
+export type { PickupMissedAttribution } from "./config/pickup-attribution";
 
 // viajes recurrentes (MOVO-265, ADR-042)
 export {
@@ -340,9 +361,40 @@ export type {
   AuditLogEntry,
   AuditLogPage,
   ShipmentParties,
+  InProgressShipment,
+  WithdrawOpenActivityResult,
   ChatReportParties,
   UserReportParties,
 } from "./types/admin";
+
+// admin: envíos para el panel (MOVO-325, backend de MOVO-33)
+export {
+  ACTIVE_SHIPMENT_STATUSES,
+  ADMIN_SHIPMENT_ALERT_STATUSES,
+  ADMIN_SHIPMENT_GROUPS,
+  ADMIN_SHIPMENT_GROUP_STATUSES,
+  ADMIN_SHIPMENTS_DEFAULT_LIMIT,
+  ADMIN_SHIPMENTS_MAX_LIMIT,
+  isAdminShipmentAlert,
+} from "./types/admin-shipments";
+export type {
+  AdminShipmentGroup,
+  AdminShipmentPartyRef,
+  AdminShipmentRow,
+  AdminShipmentCounts,
+  AdminShipmentPage,
+  AdminShipmentEvent,
+  AdminShipmentPhoto,
+  AdminShipmentOffer,
+  AdminShipmentPayment,
+  AdminShipmentPartyCard,
+  AdminBlock,
+  AdminShipmentDetail,
+  AdminShipmentDetailResponse,
+  AdminChatMessage,
+  AdminChatReport,
+  AdminChatPage,
+} from "./types/admin-shipments";
 
 // admin: búsqueda de usuarios y ficha (MOVO-295, backend MOVO-294)
 export {
@@ -421,6 +473,7 @@ export {
   SUPPORT_ATTACHMENT_TYPES,
   SUPPORT_ATTACHMENT_MAX_BYTES,
   SUPPORT_ATTACHMENT_MAX_PER_MESSAGE,
+  SUPPORT_ATTACHMENT_MAX_PENDING,
   SUPPORT_ERROR,
   SUPPORT_QUICK_REPLIES,
   SUPPORT_WS_PROTOCOL,
@@ -465,21 +518,47 @@ export type {
   SupportEventsPage,
   SupportRealtimeTicket,
 } from "./types/admin-support";
-export { SUPPORT_WS_CLOSE } from "./types/support";
+
+// soporte del lado del usuario (MOVO-320, consumido por MOVO-324)
+export {
+  SUPPORT_WS_CLOSE,
+  SUPPORT_REOPENED_MESSAGE,
+  SUPPORT_PUSH_PREVIEW_MAX,
+  supportShipmentCode,
+  formatSupportCode,
+} from "./types/support";
 export type {
-  SupportShipmentRole,
   SupportDeliveryStatus,
-  SupportConversationShipment,
+  SupportUserFacingMessage,
   SupportConversationLastMessage,
   SupportConversationItem,
-  SupportThreadMessage,
-  SupportThreadPage,
   SupportListResponse,
+  SupportMessagesPage as SupportUserMessagesPage,
   SupportCreateBody,
   SupportCreateResult,
   SupportSendUserBody,
   SupportUserAttachmentCreateBody,
+  SupportShipmentRole,
   SupportShipmentOption,
   SupportShipmentOptionsPage,
+  SupportReadResult,
   SupportRealtimeEvent,
+  SupportRealtimeConnected,
 } from "./types/support";
+
+// disputas (MOVO-334, ADR-054)
+export {
+  DisputeReason,
+  DisputeStatus,
+  USER_SELECTABLE_DISPUTE_REASONS,
+  DISPUTE_WINDOW_DAYS,
+  DISPUTE_TEXT_MAX_LENGTH,
+} from "./types/dispute";
+export type {
+  DisputePartyRole,
+  DisputeStatementKind,
+  DisputePhoto,
+  DisputeStatement,
+  DisputeDetail,
+  DisputePhotoUploadUrl,
+} from "./types/dispute";

@@ -1,63 +1,39 @@
-import type { SupportAttachment, SupportAttachmentType, SupportStatus, SupportTopic } from "./admin-support";
+import type {
+  SupportAttachment,
+  SupportAttachmentType,
+  SupportShipmentRef,
+  SupportStatus,
+  SupportTopic,
+} from "./admin-support";
 
 /**
- * Soporte, lado del usuario (MOVO-324): contrato propuesto para `/api/v1/support/*` de `svc-shipments`
- * (MOVO-320 y MOVO-321). El lado del agente vive en `admin-support.ts`; estos tipos tienen otro prefijo
- * (`SupportThread*`, `SupportConversationItem`) para no pisar `SupportMessage` ni `SupportMessagesPage` de ahí.
- * Las fechas viajan en ISO-8601 UTC. Ver `docs/support/README.md`.
+ * Contrato de soporte del lado del USUARIO (MOVO-320, consumido por MOVO-324 en `movo-mobile`):
+ * `/api/v1/support/*`. El lado del agente (bandeja del panel) vive en `admin-support.ts`.
+ *
+ * Regla de oro: el usuario NUNCA recibe una nota interna. Por eso `kind` no incluye `note` y
+ * ninguno de estos tipos tiene un campo para ella: ni en la API, ni en el WebSocket, ni en la push.
+ *
+ * Las fechas viajan en ISO-8601 UTC.
  */
 
-/** Rol del usuario en un envío vinculable a la consulta. */
-export type SupportShipmentRole = "sender" | "carrier" | "receiver";
-
-/** Lo que ve el usuario sobre sus mensajes: ✓ enviado, ✓✓ leído por el equipo (hay un solo "otro lado"). */
+/** Estado de entrega de un mensaje propio: el usuario solo tiene un "otro lado" (Movo). */
 export type SupportDeliveryStatus = "sent" | "read";
 
-export interface SupportConversationShipment {
-  id: string;
-  /** `MOVO-48213`. */
-  code: string;
-}
-
-/** Último mensaje visible para el usuario: nunca una nota interna ni un evento `system`. */
-export interface SupportConversationLastMessage {
-  from: "user" | "agent";
-  /** Nombre de pila del agente; `null` si escribió el usuario. */
-  authorName: string | null;
-  /** Vacío si el mensaje es solo de imágenes (`hasAttachments`). */
-  body: string;
-  hasAttachments: boolean;
-  createdAt: string;
-}
-
-/** Una consulta del usuario (fila de "Mis consultas" y encabezado de la conversación). */
-export interface SupportConversationItem {
-  id: string;
-  /** `SOP-1042`. */
-  code: string;
-  topic: SupportTopic;
-  status: SupportStatus;
-  shipment: SupportConversationShipment | null;
-  lastMessage: SupportConversationLastMessage | null;
-  unreadCount: number;
-  lastActivityAt: string;
-}
-
 /**
- * Mensaje de la conversación tal como lo ve el usuario. Las notas internas no existen para el cliente
- * (ni por API, ni por WebSocket, ni por push).
+ * Mensaje tal como lo ve el usuario. Se llama distinto de `SupportUserMessage` (admin-support.ts),
+ * que es el "mensaje del usuario" visto desde el panel.
  */
-export interface SupportThreadMessage {
+export interface SupportUserFacingMessage {
   id: string;
   conversationId: string;
   kind: "user" | "agent" | "system";
-  /** Nombre de pila del agente ("Lucía"); `null` en los del usuario y en `system`. */
+  /** Nombre de pila del agente ("Lucía"); `null` en los propios y en los `system`. */
   authorName: string | null;
-  /** En `system` lo arma el servidor en tercera persona ("Lucía Ferreyra tomó la conversación"). */
+  /** En `system` el texto va en tercera persona, armado por el servidor. Puede ser vacío si hay adjuntos. */
   body: string;
-  /** Id generado por el cliente: reenviarlo no duplica el mensaje. Vacío en los del equipo. */
-  clientMessageId: string;
-  /** El filtro de lenguaje tapó alguna palabra de `body` (solo en mensajes del usuario). */
+  /** Id generado por el cliente: reenviarlo no duplica el mensaje. Vacío en `system`. */
+  clientMessageId: string | null;
+  /** El filtro de lenguaje tapó alguna palabra de `body` con asteriscos (solo mensajes del usuario). */
   moderated: boolean;
   /** Solo en los mensajes propios; `null` en el resto. */
   deliveryStatus: SupportDeliveryStatus | null;
@@ -65,50 +41,92 @@ export interface SupportThreadMessage {
   createdAt: string;
 }
 
-/** `GET /support/conversations/:id/messages`: más recientes primero. Lleva la consulta para el encabezado. */
-export interface SupportThreadPage {
-  items: SupportThreadMessage[];
-  nextCursor: string | null;
-  conversation: SupportConversationItem;
+/** Último mensaje visible de la conversación: nunca una nota ni un evento `system`. */
+export interface SupportConversationLastMessage {
+  from: "user" | "agent";
+  authorName: string | null;
+  body: string;
+  /** Con `body` vacío y `hasAttachments`, la app muestra "Foto". */
+  hasAttachments: boolean;
+  createdAt: string;
+}
+
+/** Fila de `GET /support/conversations` y encabezado de la conversación. */
+export interface SupportConversationItem {
+  id: string;
+  /** `SOP-1042`. */
+  code: string;
+  topic: SupportTopic;
+  status: SupportStatus;
+  shipment: SupportShipmentRef | null;
+  lastMessage: SupportConversationLastMessage | null;
+  unreadCount: number;
+  lastActivityAt: string;
 }
 
 export interface SupportListResponse {
   items: SupportConversationItem[];
 }
 
-/** `POST /support/conversations`. Idempotente por `clientMessageId`. */
+/** Página del historial, del más reciente al más antiguo. */
+export interface SupportMessagesPage {
+  items: SupportUserFacingMessage[];
+  nextCursor: string | null;
+  /** Para el encabezado: la conversación también se abre desde la push, sin pasar por la lista. */
+  conversation: SupportConversationItem;
+}
+
+/** `POST /support/conversations`. Sin `shipmentId` es una consulta libre. */
 export interface SupportCreateBody {
   topic: SupportTopic;
   body: string;
   clientMessageId: string;
   shipmentId?: string;
+  /**
+   * MOVO-321: hasta `SUPPORT_ATTACHMENT_MAX_PER_MESSAGE` ids de `POST /support/attachments`, ya subidos. Con adjuntos
+   * `body` puede ir vacío. Uno ajeno, ya usado, de otra consulta o que no está en el bucket con el tipo y tamaño
+   * declarados responde 422 `SUPPORT_ATTACHMENT_INVALID`.
+   */
   attachmentIds?: string[];
 }
 
+/** 201 al crear, 200 si `clientMessageId` ya existía (idempotente). */
 export interface SupportCreateResult {
   conversation: SupportConversationItem;
-  message: SupportThreadMessage;
+  message: SupportUserFacingMessage;
 }
 
-/** `POST /support/conversations/:id/messages`. Un mensaje puede ir solo con adjuntos (`body` vacío). */
+/** `POST /support/conversations/:id/messages`. */
 export interface SupportSendUserBody {
   body: string;
   clientMessageId: string;
+  /** MOVO-321: ver `SupportCreateBody`. */
   attachmentIds?: string[];
 }
 
-/** `POST /support/attachments`. Sin `conversationId` (primera consulta) el objeto queda en un prefijo privado "pendiente". */
+/**
+ * `POST /support/attachments` (MOVO-321). Sin `conversationId` (la primera foto de una consulta que todavía no
+ * existe) el objeto va a un prefijo privado del usuario y se asocia al crear la consulta. `width`/`height` son las
+ * dimensiones en px de la imagen ya redimensionada: si vienen se devuelven en `SupportAttachment`.
+ * Responde `SupportAttachmentCreateResult`; la app hace `PUT uploadUrl` con el binario y el mismo `Content-Type`.
+ */
 export interface SupportUserAttachmentCreateBody {
   contentType: SupportAttachmentType;
   sizeBytes: number;
   conversationId?: string;
+  width?: number;
+  height?: number;
 }
 
-/** Un envío de los que el usuario es parte (emisor, transportista o receptor), para vincularlo a una consulta. */
+/** Rol del usuario en un envío vinculable a la consulta. */
+export type SupportShipmentRole = "sender" | "carrier" | "receiver";
+
+/** Un envío del que el usuario es parte (emisor, transportista o receptor), para vincularlo a una consulta (MOVO-324). */
 export interface SupportShipmentOption {
   id: string;
-  /** `MOVO-48213`. */
+  /** `MOVO-48213` (`supportShipmentCode`). */
   code: string;
+  /** `ShipmentStatus` del envío, cualquiera (también entregados y cancelados). */
   status: string;
   /** "Palermo → Quilmes". */
   route: string;
@@ -116,23 +134,59 @@ export interface SupportShipmentOption {
   createdAt: string;
 }
 
-/** `GET /support/shipments`: más recientes primero, páginas por cursor. */
+/** `GET /support/shipments`: más recientes primero, páginas por cursor opaco. */
 export interface SupportShipmentOptionsPage {
   items: SupportShipmentOption[];
   nextCursor: string | null;
 }
 
-/** Evento que el servidor empuja por `GET /support/conversations/:id` (WebSocket). */
+/** `POST /support/conversations/:id/read`. */
+export interface SupportReadResult {
+  readAt: string;
+}
+
+/**
+ * Evento que el servidor empuja por el WebSocket de la conversación. Además, al conectar manda un
+ * frame `{ type: "connected" }` (como el chat del envío): la app refresca la primera página.
+ */
 export type SupportRealtimeEvent =
-  | { type: "connected" }
-  | { type: "support_message"; message: SupportThreadMessage }
+  | { type: "support_message"; message: SupportUserFacingMessage }
   | { type: "support_status"; conversationId: string; status: SupportStatus }
   /** Un agente leyó hasta `upTo`: la app actualiza los tildes de sus mensajes. */
   | { type: "support_receipt"; conversationId: string; upTo: string };
 
-/** Códigos de cierre del WebSocket de soporte (mismos que el chat del envío). */
+/** Frame que el servidor manda apenas acepta la conexión. */
+export interface SupportRealtimeConnected {
+  type: "connected";
+  conversationId: string;
+}
+
+/** Códigos de cierre del WebSocket de soporte (los mismos que el chat del envío y `/track`). */
 export const SUPPORT_WS_CLOSE = {
-  TOKEN_EXPIRED: 4001,
+  /** Token inválido o vencido: la app renueva y reconecta. */
+  TOKEN: 4001,
+  /** Sin permiso (terminal). */
   FORBIDDEN: 4003,
+  /** La conversación no existe o no es del usuario (terminal). */
   NOT_FOUND: 4004,
 } as const;
+
+/** Texto del evento `system` cuando el usuario escribe sobre una consulta resuelta. */
+export const SUPPORT_REOPENED_MESSAGE = "Se reabrió la conversación";
+
+/** Largo máximo del preview de la push de soporte (como `CHAT_PUSH_PREVIEW_MAX`). */
+export const SUPPORT_PUSH_PREVIEW_MAX = 140;
+
+/**
+ * Código de display de un envío en soporte (`MOVO-48213`): los últimos 5 dígitos del UUID, igual que
+ * `activeShipmentDisplayCode` del mobile (sin el `#`). No existe un correlativo persistido en el backend.
+ */
+export function supportShipmentCode(shipmentId: string): string {
+  const digits = shipmentId.replace(/\D/g, "");
+  return `MOVO-${digits.slice(-5).padStart(5, "0")}`;
+}
+
+/** `SOP-1042` a partir del número de secuencia (mínimo 4 dígitos, ver `SUPPORT_CODE_RE`). */
+export function formatSupportCode(codeNumber: number): string {
+  return `SOP-${String(codeNumber).padStart(4, "0")}`;
+}

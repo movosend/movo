@@ -1568,7 +1568,7 @@ const toReport = (
   id: uuid(`${seed}${i}${r.at}`),
   reason: r.reason,
   status: r.status,
-  counterpart: ref(r.who),
+  counterpart: { ...ref(r.who), photoUrl: null },
   details: r.details,
   createdAt: at(r.at),
   extraEntries: r.entries,
@@ -1578,7 +1578,7 @@ const toReport = (
 export function mockModeration(s: Seed): AdminUserModeration {
   const x = extraOf(s)
   const block = (b: { name: string; at: string }) => ({
-    user: ref(b.name),
+    user: { ...ref(b.name), photoUrl: null },
     createdAt: at(b.at),
   })
   const cap = <T>(list: T[]) => list.slice(0, ADMIN_USER_MODERATION_LIMIT)

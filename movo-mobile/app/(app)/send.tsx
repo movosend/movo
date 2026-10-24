@@ -29,6 +29,7 @@ import {
 import { SummaryStep } from "../../components/send/steps/summary-step";
 import { useKeyboardScroll } from "../../src/hooks/use-keyboard-scroll";
 import { useShipmentWizardStore } from "../../src/store/shipment-wizard-store";
+import { SuspendedScreenGate } from "../../components/account/suspended-screen-gate";
 
 const TOTAL_STEPS = 5;
 const STEP_LABELS = ["Paso 1", "Paso 2", "Paso 3", "Paso 4", "Paso 5"];
@@ -46,7 +47,7 @@ const STEP_LABELS = ["Paso 1", "Paso 2", "Paso 3", "Paso 4", "Paso 5"];
  * Sibling de `license-kyc.tsx` dentro de `app/(app)/` (no de `(tabs)/`) — mismo
  * criterio que la versión placeholder de esta pantalla (MOVO-83 parcial).
  */
-export default function SendShipmentScreen() {
+function SendShipmentScreenContent() {
   const store = useShipmentWizardStore();
   const { step, setStep, resetWizard } = store;
   const { scrollRef, onScroll, onFocusInput } = useKeyboardScroll();
@@ -132,5 +133,14 @@ export default function SendShipmentScreen() {
         ) : null}
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+/** MOVO-300 AC2: con la cuenta suspendida no se publica ni se cotiza un envío. */
+export default function SendShipmentScreen() {
+  return (
+    <SuspendedScreenGate testID="send-suspended" action="publish">
+      <SendShipmentScreenContent />
+    </SuspendedScreenGate>
   );
 }

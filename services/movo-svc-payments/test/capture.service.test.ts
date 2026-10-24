@@ -89,6 +89,11 @@ class MemorySettlementRepository implements SettlementRepository {
         status: "processing",
         failureReason: null,
         statusDetail: null,
+        attempts: 0,
+        nextAttemptAt: null,
+        lastError: null,
+        escalatedAt: null,
+        escalationReason: null,
         capturedAt: null,
         createdAt: NOW,
         updatedAt: NOW,
@@ -104,6 +109,15 @@ class MemorySettlementRepository implements SettlementRepository {
     if (this.row?.status !== expected) return false;
     Object.assign(this.row, patch, { updatedAt: this.clock() });
     return true;
+  }
+  async findDueForRetry() {
+    return [];
+  }
+  async claimRetry() {
+    return true;
+  }
+  async listByStatus() {
+    return [];
   }
   /** Reloj de `updatedAt`: los tests de re-vinculación lo mueven para ordenar "falló" y "se re-vinculó". */
   clock: () => Date = () => NOW;
@@ -310,7 +324,7 @@ describe("createCaptureService.capture", () => {
     ctx.mp.getPayment.mockResolvedValueOnce(payment({ status: "authorized", fee_details: [] }));
     await expectApiError(ctx.service.capture(SHIPMENT), 502, "PAYMENT_PROVIDER_ERROR");
 
-    const retry = await ctx.service.capture(SHIPMENT);
+    const retry = await ctx.service.capture(SHIPMENT, { kind: "delivery" }, { retryJob: true });
 
     expect(retry.settlement.status).toBe("credited");
     expect(ctx.settlements.creates).toBe(1);
@@ -334,24 +348,25 @@ describe("createCaptureService.capture", () => {
     expect(ctx.settlements.row?.failureReason).toBe("carrier_account_unavailable");
   });
 
-  it("sin credenciales del transportista no llama a MP y deja la liquidación failed", async () => {
+  it("sin credenciales del transportista no llama a MP y escala la liquidación (MOVO-213)", async () => {
     ctx = setup({ credentials: false });
 
     await expectApiError(ctx.service.capture(SHIPMENT), 409, "CARRIER_MP_ACCOUNT_NOT_LINKED");
 
     expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
-    expect(ctx.settlements.row?.status).toBe("failed");
+    expect(ctx.settlements.row?.status).toBe("escalated");
   });
 
-  it("captura cobrada pero sin desglose todavía: queda processing y el próximo pedido lo completa", async () => {
+  it("captura cobrada pero sin desglose todavía: queda failed con reintento y el próximo pedido lo completa sin capturar de nuevo", async () => {
     ctx.mp.getPayment.mockResolvedValueOnce(payment({ fee_details: [] }));
     await expectApiError(ctx.service.capture(SHIPMENT), 502, "PAYMENT_PROVIDER_ERROR");
-    expect(ctx.settlements.row?.status).toBe("processing");
+    expect(ctx.settlements.row).toMatchObject({ status: "failed", attempts: 1 });
+    expect(ctx.settlements.row?.nextAttemptAt).not.toBeNull();
 
-    // Falló el desglose pero MP ya cobró: el hold no se marcó, el reintento adopta el pago.
-    ctx.mp.capturePayment.mockRejectedValueOnce({ status: 409, message: "already captured" });
-    const retry = await ctx.service.capture(SHIPMENT);
+    // Falló el desglose pero MP ya cobró: el reintento consulta el pago, lo ve `approved` y lo adopta (AC3).
+    const retry = await ctx.service.capture(SHIPMENT, { kind: "delivery" }, { retryJob: true });
     expect(retry.settlement.status).toBe("credited");
+    expect(ctx.mp.capturePayment).toHaveBeenCalledTimes(1);
   });
 
   it.each(["creating", "in_process", "cancelled", "rejected"] as const)(
@@ -389,7 +404,7 @@ describe("createCaptureService: fallos permanentes y carreras (review de PR #235
     expect(ctx.settlements.row?.status).toBe("credited");
   });
 
-  it("hold_expired es permanente: la siguiente llamada no vuelve a processing ni le pega a MP", async () => {
+  it("hold_expired escala y es permanente: la siguiente llamada no vuelve a processing ni le pega a MP", async () => {
     const ctx = setup();
     ctx.mp.capturePayment.mockRejectedValue({ status: 400, message: "expired" });
     ctx.mp.getPayment.mockResolvedValue(payment({ status: "cancelled", fee_details: [] }));
@@ -401,7 +416,7 @@ describe("createCaptureService: fallos permanentes y carreras (review de PR #235
 
     expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
     expect(ctx.mp.getPayment).not.toHaveBeenCalled();
-    expect(ctx.settlements.row?.status).toBe("failed");
+    expect(ctx.settlements.row?.status).toBe("escalated");
   });
 
   it("credenciales rechazadas: no se reintenta con el mismo token, pero sí cuando el transportista se re-vincula", async () => {
@@ -415,7 +430,7 @@ describe("createCaptureService: fallos permanentes y carreras (review de PR #235
     // Sin cambios en la vinculación: corta sin llamar a MP.
     await expectApiError(ctx.service.capture(SHIPMENT), 409, "CARRIER_MP_ACCOUNT_NOT_LINKED");
     expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
-    expect(ctx.settlements.row?.status).toBe("failed");
+    expect(ctx.settlements.row?.status).toBe("escalated");
 
     // El transportista se re-vincula después del fallo: se reintenta con las credenciales nuevas.
     const relinked = setup({ account: { updatedAt: new Date("2026-10-13T00:00:00.000Z") } });
@@ -431,7 +446,7 @@ describe("createCaptureService: fallos permanentes y carreras (review de PR #235
     await expectApiError(ctx.service.capture(SHIPMENT), 409, "CARRIER_MP_ACCOUNT_NOT_LINKED");
 
     expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
-    expect(ctx.settlements.row).toMatchObject({ status: "failed", failureReason: "carrier_account_unavailable" });
+    expect(ctx.settlements.row).toMatchObject({ status: "escalated", failureReason: "carrier_account_unavailable" });
   });
 
   it("un fallo transitorio sí se sigue reintentando", async () => {
@@ -441,7 +456,7 @@ describe("createCaptureService: fallos permanentes y carreras (review de PR #235
     await expectApiError(ctx.service.capture(SHIPMENT), 502, "PAYMENT_PROVIDER_ERROR");
     expect(ctx.settlements.row?.failureReason).toBe("provider_error");
 
-    expect((await ctx.service.capture(SHIPMENT)).settlement.status).toBe("credited");
+    expect((await ctx.service.capture(SHIPMENT, { kind: "delivery" }, { retryJob: true })).settlement.status).toBe("credited");
   });
 });
 

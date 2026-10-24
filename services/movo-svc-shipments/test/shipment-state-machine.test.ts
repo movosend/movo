@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { ShipmentStatus } from "@movo/shared";
+import { SENDER_CANCELLABLE_STATUSES, ShipmentStatus } from "@movo/shared";
 import {
   canTransition,
   transition,
   InvalidShipmentTransitionError,
   INITIAL_SHIPMENT_STATUS,
   isExecutableTripPackage,
+  POSITION_PERSISTABLE_SHIPMENT_STATUSES,
   TRACKABLE_SHIPMENT_STATUSES,
-  TRIP_EXECUTABLE_SHIPMENT_STATUSES,
 } from "../src/domain/shipment-state-machine";
 
 const VALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
@@ -32,10 +32,14 @@ const VALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   // MOVO-210: MP pierde el hold de un envío ya asignado -> el emisor reconfirma el pago
   [ShipmentStatus.ASSIGNED, ShipmentStatus.ASSIGNED_UNFUNDED],
   [ShipmentStatus.ASSIGNED, ShipmentStatus.CANCELLED],
+  // MOVO-270: el transportista llegó al retiro y no hubo handshake (barrido)
+  [ShipmentStatus.ASSIGNED, ShipmentStatus.DISPUTED],
   [ShipmentStatus.IN_TRANSIT, ShipmentStatus.DELIVERED],
   [ShipmentStatus.IN_TRANSIT, ShipmentStatus.DISPUTED],
   [ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED],
   [ShipmentStatus.DELIVERED, ShipmentStatus.DISPUTED],
+  // MOVO-334 (ADR-054): reclamo con el cobro ya capturado, dentro de la ventana
+  [ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED],
 ];
 
 const INVALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
@@ -59,9 +63,12 @@ const INVALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.IN_TRANSIT],
   // `assigned` no vuelve a `assignment_pending` (MOVO-210 reconfirma en `assigned_unfunded`)
   [ShipmentStatus.ASSIGNED, ShipmentStatus.ASSIGNMENT_PENDING],
-  // `completed` es terminal (MOVO-208): ni reversa ni ninguna salida
+  // `completed` no vuelve atrás (MOVO-208); su única salida es la disputa (MOVO-334)
   [ShipmentStatus.COMPLETED, ShipmentStatus.DELIVERED],
-  [ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED],
+  [ShipmentStatus.COMPLETED, ShipmentStatus.CANCELLED],
+  // MOVO-270: solo un `assigned` (con hold) puede ir a disputa antes del retiro
+  [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.DISPUTED],
+  [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.DISPUTED],
 ];
 
 describe("shipment-state-machine", () => {
@@ -94,12 +101,13 @@ describe("shipment-state-machine", () => {
     }
   });
 
+  it("MOVO-340: los estados que el mobile ofrece cancelar son exactamente los que pueden pasar a cancelled", () => {
+    const cancellable = Object.values(ShipmentStatus).filter((from) => canTransition(from, ShipmentStatus.CANCELLED));
+    expect([...SENDER_CANCELLABLE_STATUSES].sort()).toEqual(cancellable.sort());
+  });
+
   it("todo estado no terminal tiene al menos una transición válida definida en el DTE", () => {
-    const terminal = [
-      ShipmentStatus.CANCELLED,
-      ShipmentStatus.DISPUTED,
-      ShipmentStatus.COMPLETED,
-    ];
+    const terminal = [ShipmentStatus.CANCELLED, ShipmentStatus.DISPUTED];
     const nonTerminal = Object.values(ShipmentStatus).filter((status) => !terminal.includes(status));
 
     for (const status of nonTerminal) {
@@ -132,7 +140,8 @@ describe("isExecutableTripPackage (MOVO-277)", () => {
     expect(isExecutableTripPackage(status as ShipmentStatus)).toBe(executable);
   });
 
-  it("el tracking usa el mismo set que el viaje (fuente única)", () => {
-    expect(TRACKABLE_SHIPMENT_STATUSES).toBe(TRIP_EXECUTABLE_SHIPMENT_STATUSES);
+  it("MOVO-270: se trackea en camino al retiro y en tránsito, pero solo se guarda con custodia", () => {
+    expect([...TRACKABLE_SHIPMENT_STATUSES].sort()).toEqual([ShipmentStatus.ASSIGNED, ShipmentStatus.IN_TRANSIT].sort());
+    expect(POSITION_PERSISTABLE_SHIPMENT_STATUSES).toEqual([ShipmentStatus.IN_TRANSIT]);
   });
 });

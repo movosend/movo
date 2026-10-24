@@ -11,6 +11,12 @@ const mockRouterBack = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
 
+// MOVO-300: sin suspensión; el caso suspendido tiene sus propios tests.
+jest.mock("../src/hooks/use-account-restriction", () => ({
+  useActiveSuspension: () => null,
+  useAccountRestrictionSync: () => {},
+}));
+
 jest.mock("../src/hooks/use-receiver-transfers", () => ({
   useShipmentReceiverTransfers: jest.fn(() => ({ data: [] })),
   useReceiverTransferInvitations: jest.fn(() => ({ data: [] })),
@@ -1062,6 +1068,69 @@ describe("ShipmentDetailScreen", () => {
 
       expect(getByText(label)).toBeTruthy();
       expect(getByTestId("shipment-detail-price")).toHaveTextContent(amount);
+    });
+
+    it("MOVO-285: con el monto exacto del hold el transportista ve 'Recibís', sin 'aprox.'", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-2" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        // Lo calcula el backend con el hold: no depende de la tasa de comisión de la app.
+        data: shipment({ carrierId: "user-2", agreedPriceArs: 5750, carrierReceivedArs: 4712.5, status: ShipmentStatus.ASSIGNED }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByText, queryByText, getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Recibís")).toBeTruthy();
+      expect(queryByText("Recibís aprox.")).toBeNull();
+      expect(getByTestId("shipment-detail-price")).toHaveTextContent("$4.712,5");
+    });
+
+    it("MOVO-285: con descuento por deuda el desglose también dice 'Recibís antes', no 'aprox.'", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-2" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: "user-2",
+          agreedPriceArs: 5750,
+          carrierReceivedArs: 4600,
+          debtDiscount: { amountArs: 100, reason: "pending_balance" },
+          status: ShipmentStatus.ASSIGNED,
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByText, queryByText, getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-price")).toHaveTextContent("$4.600");
+      expect(getByText("Recibís antes")).toBeTruthy();
+      expect(getByTestId("debt-discount")).toHaveTextContent(/4\.700/);
+      expect(queryByText("Recibís aprox. antes")).toBeNull();
+    });
+
+    it("MOVO-285: sin el monto exacto sigue el estimado, también en el desglose", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-2" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: "user-2",
+          agreedPriceArs: 5750,
+          debtDiscount: { amountArs: 100, reason: "pending_balance" },
+          status: ShipmentStatus.ASSIGNED,
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Recibís aprox.")).toBeTruthy();
+      expect(getByText("Recibís aprox. antes")).toBeTruthy();
     });
 
     it("el receptor ve el retiro y la entrega en el mapa, igual que el resto de las partes", async () => {

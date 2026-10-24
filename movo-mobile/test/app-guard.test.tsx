@@ -2,6 +2,12 @@ import { render } from "@testing-library/react-native";
 import AuthenticatedLayout from "../app/(app)/_layout";
 
 const mockUseAuthStore = jest.fn();
+// MOVO-300: sin suspensión; el caso suspendido tiene sus propios tests.
+jest.mock("../src/hooks/use-account-restriction", () => ({
+  useActiveSuspension: () => null,
+  useAccountRestrictionSync: () => {},
+}));
+
 jest.mock("../src/store/auth-store", () => ({
   useAuthStore: (selector: (s: { status: string }) => unknown) => mockUseAuthStore(selector),
 }));

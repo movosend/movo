@@ -20,6 +20,8 @@ export interface GeocodeResult {
 
 export interface ReverseGeocodeResult {
   formattedAddress: string;
+  /** MOVO-325: localidad del punto (`locality`, o el departamento si Google no devuelve una). `null` si no se pudo determinar. */
+  city: string | null;
 }
 
 /** Interfaz detrás de la que vive la integración de geocoding (MOVO-73), mismo

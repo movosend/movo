@@ -32,14 +32,19 @@ export interface EnvConfig {
   SETTLEMENT_SWEEP_GRACE_MINUTES: number;
   SETTLEMENT_SWEEP_BATCH_SIZE: number;
   SETTLEMENT_SWEEP_ENABLED?: boolean;
+  SETTLEMENT_REVIEW_SLA_HOURS: number;
   CARRIER_POSITION_RETENTION_DAYS: number;
   CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: number;
   CARRIER_POSITION_PURGE_SWEEP_ENABLED?: boolean;
+  SHIPMENT_HISTORY_RETENTION_YEARS: number;
+  SHIPMENT_HISTORY_PURGE_SWEEP_INTERVAL_MINUTES: number;
+  SHIPMENT_HISTORY_PURGE_SWEEP_ENABLED?: boolean;
   TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
   TRIP_EXPIRY_SWEEP_ENABLED?: boolean;
   PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: number;
   PICKUP_MISSED_SWEEP_ENABLED?: boolean;
   PICKUP_MISSED_GRACE_HOURS: number;
+  PICKUP_NO_SHOW_RATING_INVITE_ENABLED?: boolean;
   TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: number;
   TRANSIT_ANOMALY_SWEEP_ENABLED?: boolean;
   TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES: number;
@@ -54,6 +59,10 @@ export interface EnvConfig {
   FUNDING_SWEEP_INTERVAL_MINUTES: number;
   FUNDING_SWEEP_ENABLED?: boolean;
   USER_DEBT_OVERDUE_DAYS: number;
+  ALERT_PROVIDER: "console" | "telegram";
+  ALERT_TELEGRAM_BOT_TOKEN?: string;
+  ALERT_TELEGRAM_CHAT_ID?: string;
+  ALERT_ENVIRONMENT_LABEL?: string;
 }
 
 export const envSchema = {
@@ -146,12 +155,15 @@ export const envSchema = {
     FUNDS_RELEASE_NOTIFIER: { type: "string", enum: ["console", "payments"], default: "console" },
     // MOVO-212: barrido que reintenta la captura de los envíos `delivered` que no llegaron a
     // `completed` (la captura en línea del handshake es best-effort). Solo corre con
-    // FUNDS_RELEASE_NOTIFIER=payments. Sin backoff ni escalado: eso es MOVO-213.
+    // FUNDS_RELEASE_NOTIFIER=payments. Es la red de seguridad: el backoff persistido y el escalado manual los hace svc-payments (MOVO-213).
     SETTLEMENT_SWEEP_INTERVAL_MINUTES: { type: "number", default: 5 },
     // Margen desde la entrega antes de que el barrido la tome, para no pisar la captura en línea.
     SETTLEMENT_SWEEP_GRACE_MINUTES: { type: "number", default: 5 },
     SETTLEMENT_SWEEP_BATCH_SIZE: { type: "number", default: 20 },
     SETTLEMENT_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-213: plazo (en horas) que se le promete al transportista cuando su cobro queda en revisión manual
+    // (push "Tu cobro está demorado"). Es un compromiso del equipo operativo, por eso es configuración.
+    SETTLEMENT_REVIEW_SLA_HOURS: { type: "number", minimum: 1, default: 48 },
     // MOVO-202/ADR-023: retención de la traza GPS del transportista -- días desde que
     // el envío cierra (`Shipment.lastStatusChangedAt` en un estado de
     // `POSITION_PURGE_ELIGIBLE_STATUSES`) hasta que la purga periódica la borra.
@@ -164,6 +176,13 @@ export const envSchema = {
     // sobre un plazo de 30 días no cambia nada material.
     CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
     CARRIER_POSITION_PURGE_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-230 (Política de Privacidad §7): años desde la baja de la última de las partes de un
+    // envío hasta que se purga su historial. Plazo fijado por la política (Art. 2560 CCyCN),
+    // no un valor técnico: cambiarlo es un cambio de documento.
+    SHIPMENT_HISTORY_RETENTION_YEARS: { type: "number", default: 5 },
+    // MOVO-230: una vez por día alcanza para un plazo en años.
+    SHIPMENT_HISTORY_PURGE_SWEEP_INTERVAL_MINUTES: { type: "number", default: 1440 },
+    SHIPMENT_HISTORY_PURGE_SWEEP_ENABLED: { type: "boolean", default: true },
     // MOVO-238: barrido que cancela viajes `declared` con `departureAt` vencido sin
     // paquetes aceptados -- mismo criterio que PICKUP_EXPIRY_SWEEP_*.
     TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
@@ -173,6 +192,8 @@ export const envSchema = {
     PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     PICKUP_MISSED_SWEEP_ENABLED: { type: "boolean", default: true },
     PICKUP_MISSED_GRACE_HOURS: { type: "number", default: 24 },
+    // MOVO-270 (AC12): invitación a calificar en la push de no-retiro, hasta MOVO-337.
+    PICKUP_NO_SHOW_RATING_INVITE_ENABLED: { type: "boolean", default: false },
     // MOVO-258 (D4): barrido que marca para revisión los `in_transit` que no se entregaron.
     // El fallback aplica solo si la oferta aceptada no declaró entrega estimada.
     TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
@@ -187,11 +208,10 @@ export const envSchema = {
     IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS: { type: "number", default: 24 },
     // MOVO-210 / MOVO-215: "N" de la saga. Un retiro a N días o menos toma la ruta cercana (el
     // emisor paga al aceptar); a más de N, la ruta lejana (`assigned_unfunded` + ventana de
-    // confirmación). PROVISORIO hasta que MOVO-215 mida el plazo real del hold de MP.
+    // confirmación). N=3 con hold de 5 días deja 2 de tránsito, el margen del ADR-050.
     // OJO: la restricción real NO es solo N < MP_HOLD_VALIDITY_DAYS (svc-payments): el hold se
     // captura al ENTREGAR (MOVO-212), así que hace falta N + duración máxima del viaje <=
-    // MP_HOLD_VALIDITY_DAYS. Con los defaults (N=3, validez 5) un emisor que paga apenas se abre
-    // la ventana deja solo 2 días de tránsito antes de que venza la reserva.
+    // MP_HOLD_VALIDITY_DAYS.
     FUNDING_NEAR_PICKUP_DAYS: { type: "number", default: 3 },
     // MOVO-210 AC5: plazo del emisor para completar el pago de la ruta cercana, desde que
     // acepta la oferta (con tope en el cierre de la ventana de retiro).
@@ -209,6 +229,13 @@ export const envSchema = {
     // bloquea operar como transportista (declarar viaje, ofertar, editar oferta, iniciar
     // viaje). Umbral por antigüedad, sin monto mínimo. Como emisor no se bloquea.
     USER_DEBT_OVERDUE_DAYS: { type: "number", default: 14, minimum: 0 },
+    // MOVO-334: alerta al equipo cuando una parte abre una disputa. Mismas vars que
+    // `svc-payments` (MOVO-268): `console` = solo log, `telegram` = además al chat del equipo.
+    ALERT_PROVIDER: { type: "string", enum: ["console", "telegram"], default: "console" },
+    ALERT_TELEGRAM_BOT_TOKEN: { type: "string" },
+    ALERT_TELEGRAM_CHAT_ID: { type: "string" },
+    // Prefijo de cada alerta (`dev`, `prod`) para distinguir ambientes en el mismo chat.
+    ALERT_ENVIRONMENT_LABEL: { type: "string" },
   },
 };
 

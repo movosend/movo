@@ -18,7 +18,8 @@ export interface TransactionStatusInput {
  *
  * Limitación aceptada (review de PR #256): si la liquidación queda `failed` o mucho tiempo en
  * `processing`, el cobro ya capturado se ve igual como `reserved`. El ticket fija cinco estados;
- * un estado de "cobro pendiente/con error" cambiaría el contrato y la UI, y queda para MOVO-213.
+ * un estado de "cobro pendiente/con error" cambiaría el contrato y la UI. MOVO-213 (reintentos y `escalated`) tampoco lo
+ * agrega: el transportista ve el cobro demorado por `GET /shipments/:id/settlement` (`displayStatus`) y por el push.
  *
  * Esta regla tiene un espejo en SQL (`STATUS_CASE` de `transaction-repository.ts`) para
  * filtrar por estado antes de paginar (AC9): cualquier cambio acá se replica allá, y la

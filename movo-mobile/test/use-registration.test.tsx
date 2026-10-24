@@ -243,6 +243,10 @@ describe("RegistrationProvider", () => {
     expect(authClient.register).toHaveBeenCalledWith(
       expect.objectContaining({ phoneVerificationToken: "tok_abc" }),
     );
+    // MOVO-340: nombre y apellido por separado, sin un fullName que el backend vuelva a cortar.
+    const registerPayload = (authClient.register as jest.Mock).mock.calls[0][0];
+    expect(registerPayload).toMatchObject({ firstName: "Julia", lastName: "Pérez" });
+    expect(registerPayload).not.toHaveProperty("fullName");
 
     // El token es de un solo uso y ya lo consumió el `register()` de arriba — si
     // quedara en el contexto, un wizard remontado (welcome -> register de nuevo sin

@@ -12,6 +12,7 @@ import usersRoutes, { UsersRoutesOptions } from "./modules/users/users.routes";
 import authRoutes, { AuthRoutesOptions } from "./modules/auth/auth.routes";
 import kycRoutes, { KycRoutesOptions } from "./modules/kyc/kyc.routes";
 import kycInternalRoutes from "./modules/kyc/kyc-internal.routes";
+import usersDeletionInternalRoutes from "./modules/users/users-deletion-internal.routes";
 import geocodeRoutes, {
   GeocodeRoutesOptions,
 } from "./modules/geocode/geocode.routes";
@@ -30,6 +31,8 @@ import adminsInternalRoutes, { AdminsInternalRoutesOptions } from "./modules/adm
 import adminUsersInternalRoutes, { AdminUsersInternalRoutesOptions } from "./modules/admin-users/admin-users-internal.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import sanctionSweepPlugin from "./plugins/sanction-sweep";
+import partyCardsInternalRoutes, { PartyCardsInternalRoutesOptions } from "./modules/users/party-cards-internal.routes";
+import kycAbandonedSweepPlugin from "./plugins/kyc-abandoned-sweep";
 import sanctionsInternalRoutes, { SanctionsInternalRoutesOptions } from "./modules/sanctions/sanctions-internal.routes";
 import { SmsProvider } from "./adapters/sms-provider";
 import { EmailProvider } from "./adapters/email-provider";
@@ -69,6 +72,8 @@ export interface BuildAppOptions {
   orphanPhotoSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el barrido de sanciones de cuenta (MOVO-296). */
   sanctionSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar la purga de intentos de KYC abandonados (MOVO-230). */
+  kycAbandonedSweepEnabled?: boolean;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -104,6 +109,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     pushProvider: opts.pushProvider,
     enabled: opts.sanctionSweepEnabled,
   });
+
+  app.register(kycAbandonedSweepPlugin, { enabled: opts.kycAbandonedSweepEnabled });
 
   // Fuera de /api/v1 a propósito: lo consultan el healthcheck de Docker y el
   // load balancer, conviene que sea estable y no versionado.
@@ -153,6 +160,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const placesRouteOpts: PlacesRoutesOptions = {
     prefix: "/places",
     ...(opts.placesProvider ? { placesProvider: opts.placesProvider } : {}),
+    ...(opts.geocodingProvider ? { geocodingProvider: opts.geocodingProvider } : {}),
   };
   app.register(placesRoutes, placesRouteOpts);
 
@@ -176,6 +184,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-116: estado de KYC (identidad + licencia) para el bloqueo de transportista de
   // svc-shipments. Interno, mismo criterio que device-key.
   app.register(kycInternalRoutes, { prefix: "/internal" });
+
+  // MOVO-230: fechas de baja para la purga de historial de svc-shipments. Interno, mismo
+  // criterio que kyc-status.
+  app.register(usersDeletionInternalRoutes, { prefix: "/internal" });
 
   // MOVO-245: /users/me/notification-preferences -- protegida, ya cubierta por el
   // prefijo /users existente en gateway/src/config/routes-map.ts (sin cambios ahí).
@@ -214,6 +226,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
   };
   app.register(sanctionsInternalRoutes, sanctionsInternalRouteOpts);
+
+  // MOVO-325: fichas (verificación y reputación) de las partes de un envío para el detalle del panel.
+  const partyCardsRouteOpts: PartyCardsInternalRoutesOptions = {
+    prefix: "/internal",
+    ...(opts.shipmentsClient ? { shipmentsClient: opts.shipmentsClient } : {}),
+  };
+  app.register(partyCardsInternalRoutes, partyCardsRouteOpts);
 
   return app;
 }

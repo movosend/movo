@@ -105,6 +105,18 @@ describe("useChatChannel (MOVO-284)", () => {
     expect(onReceipt).toHaveBeenCalledWith(receipt);
   });
 
+  it("MOVO-340: avisa que cambiaron los integrantes del chat sin cerrar el socket", async () => {
+    const onParticipantsChanged = jest.fn();
+    const { result } = await renderHook(() => useChatChannel("s1", { onParticipantsChanged }));
+    const ws = MockWebSocket.instances[0];
+    await act(async () => ws.open());
+
+    await act(async () => ws.message({ type: "chat_participants_changed", shipmentId: "s1" }));
+
+    expect(onParticipantsChanged).toHaveBeenCalledTimes(1);
+    expect(result.current.state).toBe("connected");
+  });
+
   it("ignora un frame que no se puede parsear", async () => {
     const onMessage = jest.fn();
     await renderHook(() => useChatChannel("s1", { onMessage }));

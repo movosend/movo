@@ -4,6 +4,12 @@ import { router } from "expo-router";
 import SendShipmentScreen from "../app/(app)/send";
 import { useShipmentWizardStore } from "../src/store/shipment-wizard-store";
 
+// MOVO-300: sin suspensión; el caso suspendido tiene sus propios tests.
+jest.mock("../src/hooks/use-account-restriction", () => ({
+  useActiveSuspension: () => null,
+  useAccountRestrictionSync: () => {},
+}));
+
 jest.mock("expo-router", () => ({
   router: { back: jest.fn(), replace: jest.fn() },
 }));

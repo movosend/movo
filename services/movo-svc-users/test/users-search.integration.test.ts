@@ -81,6 +81,66 @@ describe("GET /users/search (MOVO-80)", () => {
     expect(response.json().map((u: { id: string }) => u.id)).toContain(target.id);
   });
 
+  describe("MOVO-340: insensible a tildes", () => {
+    async function searchIds(callerId: string, q: string): Promise<string[]> {
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/search?q=${encodeURIComponent(q)}`,
+        headers: { "x-user-id": callerId },
+      });
+      expect(response.statusCode).toBe(200);
+      return (response.json() as Array<{ id: string }>).map((user) => user.id);
+    }
+
+    it.each(["tomas", "Tomas", "TOMÁS", "tomás", "TOMAS"])("%j encuentra a Tomás", async (q) => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput({ firstName: "Tomás", lastName: "Vergara" }));
+
+      expect(await searchIds(caller.id, q)).toEqual([target.id]);
+    });
+
+    it("con tilde encuentra un nombre cargado sin tilde", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput({ firstName: "Jose", lastName: "Perez" }));
+
+      expect(await searchIds(caller.id, "José Pérez")).toEqual([target.id]);
+    });
+
+    it("las palabras matchean en cualquier orden, también con nombres de más de dos palabras", async () => {
+      const caller = await repo.create(buildInput());
+      const tomas = await repo.create(buildInput({ firstName: "Tomás Ignacio", lastName: "Vergara" }));
+      await repo.create(buildInput({ firstName: "Tomás", lastName: "Pérez" }));
+
+      expect(await searchIds(caller.id, "vergara tomas")).toEqual([tomas.id]);
+      expect(await searchIds(caller.id, "ignacio vergara")).toEqual([tomas.id]);
+    });
+
+    it("la ñ se busca como n", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput({ firstName: "Lucía", lastName: "Peña" }));
+
+      expect(await searchIds(caller.id, "pena")).toEqual([target.id]);
+      expect(await searchIds(caller.id, "peña")).toEqual([target.id]);
+    });
+
+    it("los comodines de LIKE se buscan literales", async () => {
+      const caller = await repo.create(buildInput());
+      await repo.create(buildInput({ firstName: "Tomás", lastName: "Vergara" }));
+
+      expect(await searchIds(caller.id, "to%as")).toEqual([]);
+      expect(await searchIds(caller.id, "t_mas")).toEqual([]);
+    });
+
+    it("sigue excluyendo al propio caller y a los usuarios bloqueados", async () => {
+      const caller = await repo.create(buildInput({ firstName: "Tomás", lastName: "Ariza" }));
+      const blocked = await repo.create(buildInput({ firstName: "Tomás", lastName: "Bordino" }));
+      const visible = await repo.create(buildInput({ firstName: "Tomás", lastName: "Vergara" }));
+      await app.db.userBlock.create({ data: { blockerId: blocked.id, blockedId: caller.id } });
+
+      expect(await searchIds(caller.id, "tomas")).toEqual([visible.id]);
+    });
+  });
+
   it("excluye al propio caller de los resultados", async () => {
     const caller = await repo.create(buildInput({ firstName: "Lucas", lastName: "Dalmagro" }));
 

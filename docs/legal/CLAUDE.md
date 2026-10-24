@@ -44,9 +44,9 @@ Condiciones`/`Política de Privacidad`) por el equipo. Decisiones no obvias:
   entradas de MOVO-224 en `shared/movo-shared/CLAUDE.md`,
   `services/movo-svc-users/HISTORIAL.md` y `movo-mobile/HISTORIAL.md`.
 - Pendiente fuera de esta issue: footer con links legales en `movo-admin`
-  (no existe todavía), purga automática de registros incompletos/KYC vencido
-  (MOVO-230), y moderación de calificaciones (TyC sección 12) sin UI de
-  reporte/edición todavía.
+  (no existe todavía) y moderación de calificaciones (TyC sección 12) sin UI
+  de reporte/edición todavía. La purga automática de §7 la cerró MOVO-230
+  (ver los `HISTORIAL.md` de `svc-users` y `svc-shipments`).
 
 ### Automatización de sync de documentos legales (`scripts/sync-legal-docs.ts`)
 

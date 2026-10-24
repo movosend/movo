@@ -37,6 +37,7 @@ export function createMockGeocodingProvider(): GeocodingProvider {
       const streetNumber = 100 + (digest.readUInt16BE(0) % 9000);
       return {
         formattedAddress: `Dirección simulada ${streetNumber}, Córdoba, Córdoba`,
+        city: "Córdoba",
       };
     },
   };

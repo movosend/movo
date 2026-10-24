@@ -4,6 +4,8 @@ import {
   renderNotificationTrigger,
   SettlementDisplayStatus,
   SettlementResponse,
+  SettlementEventRequest,
+  SettlementEventResponse,
   ShipmentSettlementResponse,
   ShipmentStatus,
 } from "@movo/shared";
@@ -65,8 +67,11 @@ export type WithdrawalPenaltyOutcome = Exclude<PenaltyOutcome, "captured">;
  */
 const PENALTY_TO_DEBT_CODES = new Set(["CAPTURE_BELOW_APPLICATION_FEE", "HOLD_NOT_FOUND", "HOLD_NOT_CAPTURABLE"]);
 
-/** Códigos con los que `svc-payments` avisa que reintentar no sirve (sin hold / hold no capturable). */
-const PERMANENT_CAPTURE_CODES = new Set(["HOLD_NOT_FOUND", "HOLD_NOT_CAPTURABLE"]);
+/**
+ * Códigos con los que `svc-payments` avisa que reintentar no sirve (sin hold / hold no capturable / liquidación
+ * escalada a revisión manual, MOVO-213).
+ */
+const PERMANENT_CAPTURE_CODES = new Set(["HOLD_NOT_FOUND", "HOLD_NOT_CAPTURABLE", "SETTLEMENT_ESCALATED"]);
 
 /** Máximo de páginas que recorre una pasada del barrido para juntar `batchSize` envíos elegibles. */
 const SWEEP_MAX_PAGES = 10;
@@ -90,10 +95,13 @@ export interface SettlementServiceDeps {
   claimNotificationOnce?: (key: string, ttlSeconds: number) => Promise<boolean>;
   /** Enfriamiento por envío del barrido; sin él (tests) todos los candidatos se reintentan. */
   retryState?: SettlementRetryState;
+  /** MOVO-213: plazo (horas) que se le promete al transportista cuando su cobro queda en revisión manual. */
+  reviewHours?: number;
   now?: () => Date;
 }
 
 const NOTIFICATION_DEDUPE_TTL_SECONDS = 7 * 24 * 60 * 60;
+const DEFAULT_REVIEW_HOURS = 48;
 
 function displayStatus(settlement: SettlementResponse): SettlementDisplayStatus {
   if (settlement.status === "credited") return "credited";
@@ -199,6 +207,45 @@ export function createSettlementService(deps: SettlementServiceDeps) {
   }
 
   return {
+    /**
+     * MOVO-213: aviso interno de `svc-payments` sobre la liquidación de un envío entregado.
+     * - `credited`: un reintento acreditó el cobro; se completa el envío con el camino de siempre (la captura
+     *   devuelve la liquidación ya acreditada, sin volver a cobrar) y salen los pushes del cierre.
+     * - `delayed`: el cobro quedó en revisión manual; se le avisa al transportista, una sola vez por envío. La
+     *   entrega no se toca: sigue `delivered` hasta que el cobro se resuelva.
+     */
+    async handleSettlementEvent(shipmentId: string, event: SettlementEventRequest["event"]): Promise<SettlementEventResponse> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+
+      if (event === "credited") {
+        return { handled: true, outcome: await this.captureAndComplete(shipmentId) };
+      }
+
+      if (shipment.status !== ShipmentStatus.DELIVERED || !shipment.carrierId) {
+        return { handled: false, outcome: "ignored" };
+      }
+      if (!notificationsClient) return { handled: false, outcome: "notifications_disabled" };
+      if (claimNotificationOnce) {
+        const claimed = await claimNotificationOnce(`settlement-delayed:${shipmentId}`, NOTIFICATION_DEDUPE_TTL_SECONDS);
+        if (!claimed) return { handled: false, outcome: "already_notified" };
+      }
+      await sendCustodyPush({
+        notificationsClient,
+        userId: shipment.carrierId,
+        triggerKey: "settlementDelayedCarrier",
+        params: { reviewHours: deps.reviewHours ?? DEFAULT_REVIEW_HOURS },
+        data: { type: "shipment", shipmentId },
+        logger,
+        onErrorContext: {
+          event: "notification_dispatch_failed",
+          message: "No se pudo avisar al transportista que su cobro está demorado",
+          extra: { shipmentId },
+        },
+      });
+      return { handled: true, outcome: "carrier_notified" };
+    },
+
     /**
      * Captura el hold del envío y lo lleva a `completed`. Lanza si la captura falla (el envío
      * queda en `delivered`); los llamadores best-effort (notifier, barrido) lo atrapan.
@@ -333,9 +380,9 @@ export function createSettlementService(deps: SettlementServiceDeps) {
     },
 
     /**
-     * MOVO-310: la penalidad de un transportista que se bajó con menos de 12 h va a su cuenta
-     * corriente como deuda (no hay hold suyo del que cobrarla; se descuenta de su próximo cobro,
-     * MOVO-311). Idempotente por oferta: la key del ledger es la misma en cada reintento y solo
+     * MOVO-310: la penalidad de un transportista que se bajó con menos de 12 h (o, desde MOVO-270,
+     * que no se presentó al retiro, ADR-052) va a su cuenta corriente como deuda (no hay hold suyo
+     * del que cobrarla; se descuenta de su próximo cobro, MOVO-311). Idempotente por oferta: la key del ledger es la misma en cada reintento y solo
      * quien gana `resolveWithdrawalPenalty` manda la push. Lanza si payments falla (queda `pending`).
      */
     async registerWithdrawalPenalty(offerId: string): Promise<WithdrawalPenaltyOutcome> {
@@ -356,11 +403,12 @@ export function createSettlementService(deps: SettlementServiceDeps) {
         "la penalidad por bajarse del envío quedó como deuda del transportista"
       );
       if (notificationsClient) {
-        // El envío ya no es suyo (vuelve a `published`): la push abre su oferta, no el envío.
+        // El envío ya no es suyo (vuelve a `published`, o se canceló por no-retiro): la push abre
+        // su oferta, no el envío.
         await sendCustodyPush({
           notificationsClient,
           userId: penalty.carrierId,
-          triggerKey: "carrierWithdrawalPenaltyDebtCarrier",
+          triggerKey: penalty.origin === "no_show" ? "pickupNoShowPenaltyDebtCarrier" : "carrierWithdrawalPenaltyDebtCarrier",
           params: { penaltyArs: penalty.penaltyArs },
           data: { type: "carrier_withdrawal_penalty", shipmentId: penalty.shipmentId, offerId },
           logger,

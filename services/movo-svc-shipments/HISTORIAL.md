@@ -3656,3 +3656,161 @@ vacías, no 404 — consultar a `svc-users` haría que la sección dependa de ot
 ### MOVO-296 — Una cuenta suspendida pausa las series recurrentes
 
 `trip-recurrence.ts#continueSeries`: si `svc-users` informa `accountStatus = suspended`, la ocurrencia siguiente se posterga (`deferred`) sin apagar la recurrencia ni avisar de un corte, igual que la deuda vencida (MOVO-313); al levantarse la suspensión se retoma sola. Antes cualquier estado distinto de `active` cortaba la serie para siempre. Una cuenta `banned` (inhabilitada) sigue cortándola. Test en `test/trip-recurrence.integration.test.ts`.
+
+### MOVO-325 — Envíos para el panel: listado, detalle, fotos y chat de solo lectura (backend de MOVO-33)
+
+Todo cuelga de `modules/admin-internal` (interno, sin ruta en el gateway, sin `x-user-id`): `svc-admin` decide el acceso. `GET /internal/admin/shipments` (filtros `group`, `status`, `city`, `from`, `to`, `q`, `cursor`, `limit`), `.../:id`, `.../:id/events`, `.../:id/photos` (URL firmada del `StorageProvider`) y `.../:id/chat/messages`. Consultas en `repositories/admin-shipment-repository.ts`.
+
+- **Activos y pestañas**: `ACTIVE_SHIPMENT_STATUSES` y `ADMIN_SHIPMENT_GROUP_STATUSES` en `@movo/shared` (`types/admin-shipments.ts`): sin `status` ni `group` salen los 8 estados no terminales (incluidos `awaiting_receiver_confirmation` y `rejected_by_receiver`). `counts` sale de una sola query agrupada con los filtros de búsqueda (sin `group`/`status`); `all` = activos. Orden y cursor: `date_trunc('milliseconds', COALESCE(last_status_changed_at, created_at))` + id (el cursor viaja en ms; mismo gotcha del chat). `from`/`to` filtran por ese mismo instante. Esa expresión no puede usar `shipments_last_status_changed_at_idx` (`date_trunc` sobre timestamptz no es inmutable): hoy el listado hace seq scan + sort, aceptado por el volumen; si crece, ordenar por la columna cruda y truncar solo el cursor. Ambos índices están declarados en `schema.prisma` para que `migrate dev` no los vea como drift.
+- **Búsqueda sin tildes ni mayúsculas** con `lower(translate(...))` en SQL (sin la extensión `unaccent`) contra el código (8 primeros caracteres del id, con o sin `#`; si pegan el UUID completo se corta a esos 8), nombres de las tres partes y direcciones; los `%`/`_` del usuario se escapan.
+- **Nombres de las partes**: `shipments.user_display_names` (una fila por usuario, no por envío, así un cambio de receptor/transportista no deja un nombre viejo). Se escribe al crear envío y al crear oferta (`recordDisplayNames`, best-effort) y la migración la rellena con los snapshots de nombre de las ofertas. Lo que falte (receptores y emisores sin oferta) se completa solo al listar o abrir el detalle con `svc-users`, con tope de 2 s y 30 usuarios por pedido: si `svc-users` no responde, la fila sale con `name: null` y se reintenta en el próximo listado. Las cuentas que `svc-users` da por inexistentes (404, eliminadas) se recuerdan 1 h en memoria para no repetir la llamada en cada listado (se pierde al reiniciar). Decisión: el listado y la búsqueda no dependen de que `svc-users` esté arriba.
+- **Ciudad**: `pickup_city`/`delivery_city` (migración `20261020120000`). Se resuelven al crear con `UsersClient.findCity` (`POST /geocode/reverse` de `svc-users`, que ahora devuelve `city`: `locality`, o el departamento si no hay), best-effort con timeout de 3 s, lanzado antes de la cotización y esperado recién antes de persistir para solapar la latencia (cada envío nuevo gasta 2 reverse geocodes de Google: costo y rate limit por usuario sin confirmar). Envíos anteriores: **`npm run backfill:cities`** (`src/scripts/backfill-cities.ts`, dentro del contenedor, idempotente, solo toca los NULL) — hay que correrlo una vez por ambiente después del deploy. El filtro `city` es solo del retiro.
+- **Fila**: `priceArs` = acordado si hay transportista, si no sugerido (`priceKind`); `delayed` solo en `in_transit` con `transitAnomalyFlaggedAt`; `fundingDeadline` (`assignment_pending`/`assigned_unfunded`) sale de `fundingPayUntil`, que se extrajo de `funding.service.ts` como función pura para no duplicar la regla; `redesignationDeadline` en `rejected_by_receiver`. `disputeId` viaja siempre `null` hasta que exista el módulo de disputas (MOVO-34).
+- **Chat**: `listPage` sin el corte de `chat_started_at` ni filtro de bloqueos (ADR-040), con `moderated`, `authorRole`, los reportes (`chat_reports`), los eventos del envío para intercalar y `partiesAccess` = `resolveChatAccess` mirado como el emisor (`open`/`read_only`/`closed`); el receptor anterior (ADR-038) nunca pasa de `read_only`, así que no se modela aparte.
+- Los bloques de otros servicios (pago, partes) los arma `svc-admin`; ver su `CLAUDE.md`.
+
+Pendiente / fuera de alcance: seguimiento (posición y traza), escrituras sobre el envío, `disputeId` real (MOVO-34) y el desglose de captura/reembolso del pago (hoy solo el hold).
+### MOVO-230 — Purga del historial de envíos vencido (Política de Privacidad §7)
+
+`plugins/history-retention-sweep.ts` (una vez por día, `SHIPMENT_HISTORY_*`) → `services/history-retention-service.ts`.
+Borra físicamente el envío (el cascade arrastra eventos, ofertas, chat, calificaciones, handshakes y posiciones) y antes
+sus fotos de S3; si S3 falla, la fila queda y se reintenta. También borra los `Trip` cerrados de transportistas vencidos.
+
+- **Regla (`isHistoryExpired`)**: todas las partes (emisor, receptor y transportista si hubo) dadas de baja y **5 años
+  desde la baja más reciente**, no desde la primera, para que nadie pierda su antecedente antes de sus propios 5 años.
+- Las fechas de baja salen de `svc-users` (`POST /internal/users/deletion-status`, `createUserDeletionClient`), sin copia
+  local. Prefiltro en Postgres: envíos en `POSITION_PURGE_ELIGIBLE_STATUSES` (sin `disputed`) cerrados hace más de 5 años
+  (la baja exige no tener envíos activos, así que solo puede atrasar la purga). Se recorre todo el prefiltro por páginas.
+- Un `Trip` purgado deja `Offer.tripId` en null (`SetNull`) en los envíos que no se purgan: si el transportista se dio de
+  baja hace más de 5 años pero el emisor sigue activo, ese envío pierde el vínculo al viaje. Aceptado.
+- Pendiente de infra: sin `s3:DeleteObject` sobre `shipments/*` en `movo-infra`, en prod cada corrida loguea un warn por
+  envío vencido y no purga nada (dev usa `STORAGE_PROVIDER=mock` y no lo detecta). Ver pendientes del `CLAUDE.md` raíz.
+- Quedan sin tocar, a propósito: los `shipmentId` de `svc-payments` (comprobantes que la política conserva por ley) y los
+  `AuditLog` de `svc-admin`, que pasan a apuntar a un envío inexistente.
+
+### MOVO-297 — Efectos de una sanción (`GET .../in-progress-shipments`, `POST .../withdraw-open-activity`)
+
+Endpoints internos (sin gateway) para `svc-admin` (MOVO-36/MOVO-299), en `modules/admin-internal/sanction-effects.service.ts`.
+- `withdraw-open-activity` es idempotente porque solo toma lo abierto: cancela con el `cancelShipment` existente (motivo
+  "cuenta suspendida", ADR-032) los envíos del usuario sin transportista ni hold (`awaiting_receiver_confirmation`,
+  `rejected_by_receiver` y `published`: los dos primeros podrían pasar a `published` a nombre de un suspendido), pasa a
+  `withdrawn` sus ofertas `pending` vigentes y cancela sus viajes `declared` sin paquetes aceptados. Además corta toda serie
+  recurrente vigente (`stopRecurrenceForCarrier`), también la de un viaje `active`, que no se cancela: si no, al terminar
+  generaría la siguiente ocurrencia (y el push `tripAutoCreated`) a un suspendido.
+- No es una única transacción: cada elemento es atómico. `cancelShipment` recibe `onlyFrom` y lanza
+  `ShipmentConcurrentModificationError` si el envío se comprometió entre el listado y la cancelación (el servicio se arma sin
+  `paymentsClient`, así que cancelarlo dejaría un hold sin liberar). Perder una carrera (concurrencia, transición ya hecha,
+  viaje con paquetes) se saltea y no es fallo; cualquier otro error va a `failures: [{kind, id}]` de la respuesta (200), y
+  `svc-admin` no debe dar la sanción por aplicada mientras no esté vacío: se reintenta, es idempotente.
+- Aviso a contrapartes de los envíos en curso con la plantilla genérica `counterpartyCannotTakeNewShipments`. La clave Redis
+  `sanction-notice:{userId}:{sanctionId|-}:{shipmentId}:{contraparte}` (7 días) evita duplicarlo en un reintento; el body
+  opcional `{ sanctionId }` hace que sancionar → levantar → volver a sancionar avise de nuevo (falta que MOVO-299 lo mande).
+  El sancionado no recibe push por lo retirado.
+- La constancia en la línea de tiempo es el `ShipmentEvent` de los envíos; ofertas y viajes quedan por su estado y por la
+  respuesta (ids retirados) para la bitácora de `svc-admin`. Sin columna de motivo en `Offer`/`Trip`.
+
+### MOVO-320 — Conversaciones de soporte del usuario (ADR-051)
+
+Módulo `modules/support/` (`/support/*`, ver `docs/support/README.md`) sobre el chat existente: mismo `ChatHub` con la clave de sala
+`support:<id>`, mismo handshake WS (autorizador propio en `support.service.ts#authorizeConnection`: dueño ok, admin ajeno 4003, el resto 4004),
+filtro de lenguaje solo a mensajes del usuario y push de ADR-046 con claves `support-push:*` (reusa `chat-push-buffer.ts`). Tablas
+`support_conversations` / `support_messages` / `support_participant_states` (migración `20261021200000`), con la secuencia
+`support_conversation_code_seq` (arranca en 1001) para `SOP-NNNN`. El cursor del chat pasó a `utils/cursor.ts`, compartido.
+- **Notas internas**: un único punto, `domain/support-rules.ts#toUserFacingMessage` (devuelve `null` para una nota), más lista blanca de `kind` en la
+  query del historial y en el último mensaje; no se filtra "todo menos nota". Test de regresión por camino (historial, lista, WS, push).
+- **Idempotencia de crear**: índice único parcial `(author_id, client_message_id) WHERE kind = 'user'` escrito a mano en la migración (Prisma no lo
+  expresa): sin él dos creaciones simultáneas con el mismo `clientMessageId` abren dos consultas. Un `clientMessageId` repetido en otra consulta propia es 400.
+- **Reapertura**: `appendUserMessage` bloquea la fila (`FOR UPDATE`) para que dos mensajes simultáneos sobre una `resolved` dejen un solo evento `system`;
+  el evento queda 1 ms después del mensaje del usuario para que el historial los ordene bien.
+- **Envío ajeno = 422 `SUPPORT_SHIPMENT_NOT_PARTY`** (no el 403 del AC1 del ticket, por acuerdo con el contrato de MOVO-324 y porque el código ya existía).
+  `attachmentIds` se acepta pero no vacío da 422 `SUPPORT_ATTACHMENT_INVALID` hasta MOVO-321.
+- Pendiente (MOVO-322): `publishStaffMessage`/`publishStatus`/`publishAgentRead` del servicio son lo que tiene que llamar el endpoint interno del agente; hoy
+  solo los usan los tests. Sin plazo de retención ni purga (MOVO-224). `GET /shipments/mine` no incluye al transportista: el selector de envíos de MOVO-324
+  no puede usarlo tal cual.
+
+### MOVO-213 — Aviso de la liquidación demorada o acreditada por un reintento
+
+`POST /internal/shipments/:id/settlement-events` (interno, lo llama `svc-payments`; `modules/settlements/settlements.routes.ts`, `settlement.service.handleSettlementEvent`).
+`delayed`: el cobro quedó escalado a revisión manual → push `settlementDelayedCarrier` al transportista (con `SETTLEMENT_REVIEW_SLA_HOURS`, default 48), una sola vez por
+envío (dedupe Redis `notified:settlement-delayed:<id>`); el envío sigue `delivered`. `credited`: un reintento de payments acreditó → `captureAndComplete` (la captura devuelve
+la liquidación ya acreditada) y salen los pushes de siempre. El barrido `settlement-sweep` no cambia salvo que `SETTLEMENT_ESCALATED` es un fallo permanente (cooldown de 24 h);
+el backoff y el escalado viven ahora en `svc-payments`.
+
+### MOVO-270 — Atribución del no-retiro, tracking antes del retiro y conteo de oferta (ADR-052, ADR-053)
+
+Evidencia GPS pasiva en `shipments.pickup_evidence` (`domain/pickup-attribution.ts`, `repositories/pickup-evidence-repository.ts`):
+cada tramo de 45 s con claim clasifica la posición contra el retiro de cada `assigned` del viaje (llegada ≤ 250 m, lejos > 2 km,
+zona gris en el medio, todo restando `accuracyM`). El barrido de retiro no realizado atribuye con `attributePickupMiss`: no llegó →
+cancela con `shipment_events.attribution = carrier` y penalidad `pending` en la oferta (reintento por `retryPendingWithdrawalPenalties`,
+el cursor reusa `carrierWithdrawnAt`); llegó → `assigned → disputed` con el hold liberado antes; sin evidencia → como antes.
+- La evidencia es de la asignación vigente (review de la PR #291): `pickup_evidence.carrier_id`, `find`/`record` reciben el transportista,
+  la baja (`revertsAssignment`) borra la fila en la misma transacción y `record` descarta la de otro transportista. Se escribe en línea
+  dentro de `ingest`, antes de la traza y bajo el claim de cadencia: si falla se libera el claim y el cliente reintenta, así el barrido
+  no decide sin una evidencia ya aceptada.
+- `hasOpenDisputeAsCarrier` filtra por el `fromStatus` del evento de entrada: la disputa de un no-retiro no bloquea.
+- La traza (`carrier_positions`) solo se escribe con algún `in_transit` en el viaje (`POSITION_PERSISTABLE_SHIPMENT_STATUSES`,
+  `persistableShipmentIds` del contexto) y se lee por viaje + rango de custodia (`listCustodyTrace`, sin endpoint: lo expone MOVO-337).
+  La purga de ADR-023 pasa a ser por viaje.
+- El handshake de retiro se corta pasado `PICKUP_MISSED_GRACE_HOURS` (`HANDSHAKE_PICKUP_DEADLINE_PASSED`): sin eso, un retiro tardío
+  entre la liberación del hold y la transición del barrido dejaba un `in_transit` sin fondos.
+- `countAvailableCarriersNear` cuenta solo `declared` (ADR-053). `GET /shipments/:id` expone `carrierTripActive`. Env nueva
+  `PICKUP_NO_SHOW_RATING_INVITE_ENABLED` (AC12, apagada hasta MOVO-337). Pendiente: motivo de sistema y migración de estas disputas
+  en MOVO-334, y `assigned` sin hold en la matriz de MOVO-337.
+
+### MOVO-326 — Conteos por estado y de avisos, filtro `alert` en `GET /internal/admin/shipments`
+
+El panel necesitaba los chips por estado y el toggle "Solo con alerta" con su conteo. `counts()` de
+`admin-shipment-repository.ts` ahora devuelve también `statusCounts` (los 11 estados) y `alertCounts` (por pestaña) en la misma
+consulta agrupada (`COUNT(*) FILTER`), y `alert=true` filtra la lista y los conteos. La regla es `ALERT_SQL`, el espejo SQL de
+`isAdminShipmentAlert` de `@movo/shared`: `assigned_unfunded`, `rejected_by_receiver`, `disputed` o `in_transit` con
+`transit_anomaly_flagged_at`. Si cambia una, cambia la otra.
+
+### MOVO-340 — Chat tras una transferencia de receptor y estados cancelables
+
+- La membresía del chat ya salía de `receiverId` en cada request; faltaba avisar. Al completarse la transferencia,
+  `complete()` siembra `chat_participant_states` del receptor nuevo en `resolved_at` (solo le cuentan como no leídos los
+  mensajes posteriores) y emite `chat_participants_changed` (`realtime/chat-participants-events.ts`) a los sockets abiertos, sin
+  cerrar el del receptor original. Los tildes de un mensaje previo se miden contra los integrantes de ese momento
+  (`Shipment.receiverTransferredAt`). El receptor nuevo ve el historial (ADR-038).
+- Cancelación con retiro el mismo día: no se reprodujo en `develop` (no hay guard por fecha). `SENDER_CANCELLABLE_STATUSES` de
+  `@movo/shared` es la regla del mobile y un test la ata a `canTransition(*, cancelled)`.
+
+### MOVO-334 — Disputas: entidad, apertura, descargos, avisos y bloqueo (ADR-054)
+
+Entidad `shipments.disputes` (+ `dispute_statements`, `dispute_photos`; migración `20261023120000_disputes` con el índice único parcial de
+una abierta por envío y el backfill de los envíos ya `disputed`, motivo según el `fromStatus` del último evento). `updateStatus` exige
+`UpdateStatusOptions.dispute` para cualquier transición a `disputed` y crea el expediente en la misma transacción: los dos barridos
+pasan `transit_anomaly`/`pickup_no_show` con `openedBy: null`. Módulo `modules/disputes/` (`POST /shipments/:id/disputes`, presign
+de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `completed → disputed` (ventana de 7 días desde `deliveredAt`).
+- `hasOpenDisputeAsCarrier` lee de la entidad (`open`, motivo distinto de `pickup_no_show`). La baja de cuenta sigue leyendo el estado
+  `disputed`, que existe si y solo si hay una disputa abierta mientras MOVO-34 no resuelva: bloquea sin excepción por motivo.
+- `AlertNotifier` replicado en `src/adapters/alert-notifier.ts` (mismas `ALERT_*` que payments) en vez de moverlo a shared, para que shared
+  siga sin I/O. Tope de fotos: `MAX_REPORT_PHOTOS_PER_SUBMISSION` (4) por envío de evidencia (apertura, descargo o ampliación), el mismo
+  concepto que los reportes de MOVO-256; las fotos van bajo `shipments/{id}/disputes/{userId}/` y comparten el tracking del sweep de huérfanas.
+- La disputa de una parte avisa con `disputeOpened*` (categoría `disputes`, `data.type: dispute_opened`); las de sistema siguen con sus
+  templates. Pendiente: la resolución y sus campos (MOVO-34), la matriz de reembolsos con el cobro ya acreditado (MOVO-337) y la UI mobile.
+
+### Ofertas del envío para el panel — `GET /internal/admin/shipments/:id/offers`
+
+Todas las ofertas del envío (cerradas incluidas, de la más vieja a la más nueva) con el estado efectivo de `listByShipment`
+(una `pending` vencida sale `expired`), el snapshot del transportista y el desglose de "Cómo se reparte" de mobile:
+`netArs`/`commissionArs` con `decomposeOfferGrossPrice` y `mpFeeEstimateArs`/`receivedEstimateArs` con las tasas de este servicio.
+Las franjas se recortan a `HH:MM`. 404 si el envío no existe, igual que `/events`. Contrato `AdminShipmentOffer` en `@movo/shared`.
+Sin historial de precios: modificar una oferta (MOVO-181) pisa el monto en la misma fila.
+Review de PR #302: cada oferta suma `commissionRate` (la tasa con la que se calculó el desglose, que no se guarda con la oferta)
+y el detalle `GET /internal/admin/shipments/:id` suma `requestedPickup*`, el retiro que pidió el emisor: sale de `originalPickup*`
+(lo guarda `acceptOffer` antes de pisar `pickupDate` y la franja con los de la ganadora, MOVO-258 D3) o del actual si no hay.
+### MOVO-321 — Adjuntos de imágenes en los mensajes de soporte
+
+`POST /support/attachments` y `attachmentIds` en los mensajes del usuario, con URLs firmadas de 15 min al leer (detalle en
+`docs/support/README.md`). Código en `modules/support/support-attachments.service.ts` (lo reusa MOVO-322 con `uploaderKind: "staff"`),
+`repositories/support-attachment-repository.ts` y `plugins/support-attachment-sweep.ts`. El objeto de `support/pending/…` no se mueve al
+crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no hay regla de lifecycle y el sweep, que reintenta, es la
+única limpieza. Pendiente: Terraform en `movo-infra` (ver el `CLAUDE.md` raíz).
+
+### MOVO-285 — Monto exacto del transportista en el detalle del envío
+
+- `GET /shipments/:id` suma `carrierReceivedArs` para el transportista asignado: bruto − comisión de Movo − fee real de MP − su
+  descuento por deuda, todo del hold vivo que ya se consultaba para `debtDiscount` (`resolveCarrierPaymentDisplay`; una sola
+  llamada a payments, mismo timeout). Lo calcula el backend para que "exacto" no dependa de la tasa de comisión de la app. `null`
+  sin hold o sin fee informado. No se tocó el detalle de la oferta: el hold no existe hasta que el emisor acepta.

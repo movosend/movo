@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
+import { Prisma } from "../src/generated/prisma/client";
 import { ApiError, CLOSED_HOLD_STATUSES, LIVE_HOLD_STATUSES } from "@movo/shared";
 import {
   classifyCreateError,
@@ -36,7 +37,7 @@ const PAYER_EMAIL = "comprador@example.com";
 const NOW = new Date("2026-10-10T12:00:00.000Z");
 
 /** Repo en memoria con la misma semántica de unicidad que la base real. */
-const dec = (value: number) => ({ toNumber: () => value });
+const dec = (value: number) => new Prisma.Decimal(value);
 
 class MemoryHoldRepository implements HoldRepository {
   rows: Hold[] = [];
@@ -81,6 +82,7 @@ class MemoryHoldRepository implements HoldRepository {
       payerId: data.payerId ?? null,
       cardLast4: null,
       cardBrand: null,
+      mpFeeArs: null,
       expiresAt: null,
       createdAt: NOW,
       updatedAt: NOW,
@@ -91,7 +93,8 @@ class MemoryHoldRepository implements HoldRepository {
 
   async update(id: string, patch: HoldUpdate) {
     const row = this.rows.find((r) => r.id === id) as Hold;
-    Object.assign(row, patch);
+    const { mpFeeArs, ...rest } = patch;
+    Object.assign(row, rest, mpFeeArs === undefined ? {} : { mpFeeArs: dec(mpFeeArs) });
     return row;
   }
 
@@ -221,6 +224,45 @@ describe("holdUpdateFromPayment: tarjeta del pago (MOVO-302)", () => {
 
   it("un estado desconocido sigue devolviendo null (no se toca la fila)", () => {
     expect(patchOf({ id: 1, status: "charged_back", card: { last_four_digits: "4242" } })).toBeNull();
+  });
+});
+
+describe("holdUpdateFromPayment: comisión real de MP (MOVO-285)", () => {
+  const patchOf = (p: Record<string, unknown>) =>
+    holdUpdateFromPayment(p as Parameters<typeof holdUpdateFromPayment>[0], null, NOW, 5);
+  const charge = (original: number, from = "collector") => ({
+    name: "mercadopago_fee",
+    accounts: { from, to: "mp" },
+    amounts: { original, refunded: 0 },
+  });
+
+  it("al crear el hold toma el mercadopago_fee de charges_details", () => {
+    expect(patchOf({ id: 1, status: "authorized", charges_details: [charge(41)] })).toMatchObject({ mpFeeArs: 41 });
+  });
+
+  it("tras capturar toma el de fee_details y no cuenta el application_fee ni el del pagador", () => {
+    const patch = patchOf({
+      id: 1,
+      status: "approved",
+      fee_details: [
+        { type: "mercadopago_fee", amount: 41.25, fee_payer: "collector" },
+        { type: "application_fee", amount: 150, fee_payer: "collector" },
+        { type: "financing_fee", amount: 9, fee_payer: "payer" },
+      ],
+    });
+    expect(patch).toMatchObject({ mpFeeArs: 41.25 });
+  });
+
+  it("sin desglose, con un cargo del pagador o con un monto inválido no trae la clave (no pisa un valor previo)", () => {
+    for (const p of [
+      { id: 1, status: "authorized" },
+      { id: 1, status: "authorized", charges_details: [] },
+      { id: 1, status: "authorized", charges_details: [charge(41, "payer")] },
+      { id: 1, status: "authorized", charges_details: [charge(-1)] },
+      { id: 1, status: "authorized", charges_details: [charge(10.123)] },
+    ]) {
+      expect(patchOf(p)).not.toHaveProperty("mpFeeArs");
+    }
   });
 });
 
@@ -808,6 +850,33 @@ describe("HoldService (MOVO-209)", () => {
       holds = new MemoryHoldRepository();
       const { hold } = await service().create({ ...input, amountArs });
       expect(hold.amountArs).toBe(amountArs);
+    });
+  });
+
+  describe("comisión real de MP en el hold (MOVO-285)", () => {
+    const withFee = (original: number) =>
+      payment({ charges_details: [{ name: "mercadopago_fee", accounts: { from: "collector" }, amounts: { original } }] });
+
+    it("guarda el mercadopago_fee que informa MP al crear y lo expone vista del transportista", async () => {
+      mp.createPayment.mockResolvedValueOnce(withFee(57.4));
+      const { hold } = await service().create(input);
+      expect(holds.rows[0].mpFeeArs?.toNumber()).toBe(57.4);
+      expect(hold.carrierMpFeeArs).toBe(57.4);
+    });
+
+    it("si MP no lo informa queda null (la app sigue con el estimado)", async () => {
+      const { hold } = await service().create(input);
+      expect(hold.carrierMpFeeArs).toBeNull();
+    });
+
+    it("con recargo al emisor, el transportista no ve la parte del fee que cae sobre el recargo", async () => {
+      holds.balances.set(PAYER_USER, 200);
+      mp.createPayment.mockResolvedValueOnce(withFee(67.4));
+      const { hold } = await service().create(input);
+      const row = holds.rows[0];
+      const surchargeFee = row.applicationFeeArs.toNumber() - row.commissionArs.toNumber() - row.debtOffsetArs.toNumber();
+      expect(hold.debtSurchargeArs).toBe(200);
+      expect(hold.carrierMpFeeArs).toBeCloseTo(67.4 - (200 - surchargeFee), 2);
     });
   });
 

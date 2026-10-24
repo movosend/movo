@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { formatReputationScore, getInitials } from "../../src/lib/profile-format";
+import { AccountStatusChip } from "../profile/account-status-chip";
 import { AvatarImage } from "../ui/avatar-image";
 import { SkeletonBlock } from "../ui/skeleton-block";
 import type { ReceiverConfirmationStatus } from "./counterpart-card";
@@ -96,6 +97,10 @@ function PartyRow({ row, isFirst }: { row: ShipmentPartyRowData; isFirst: boolea
         <Text testID={row.testID ? `${row.testID}-subtitle` : undefined} className="font-sans text-small text-fg-3">
           {subtitle}
         </Text>
+        <AccountStatusChip
+          testID={row.testID ? `${row.testID}-account-status` : undefined}
+          status={profile.accountStatus}
+        />
       </View>
       {confirmation ? (
         <View className={`flex-row items-center gap-1 rounded-full px-2.5 py-1 ${confirmation.bg}`}>

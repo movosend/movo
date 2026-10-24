@@ -8,10 +8,9 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { formatReputationScore } from "../../src/lib/profile-format";
 import {
   formatPickupDateLabel,
-  formatPickupWindowLabel,
   formatPriceArs,
-  formatTimeHHMM,
 } from "../../src/lib/shipment-format";
+import { formatTimeRange, toHHMM } from "../../src/lib/time-format";
 
 export interface OfferCardProps {
   offer: OfferSummary;
@@ -26,6 +25,9 @@ export interface OfferCardProps {
     pickupTimeWindowEnd: string;
   };
   disabled?: boolean;
+  /** MOVO-300 AC2: cuenta suspendida, solo "Elegir" queda deshabilitado. Rechazar no inicia nada
+   * nuevo y sigue disponible; la explicación la muestra la pantalla arriba de la lista. */
+  acceptDisabled?: boolean;
   testID?: string;
 }
 
@@ -36,6 +38,7 @@ export function OfferCard({
   onViewProfile,
   requestedPickup,
   disabled = false,
+  acceptDisabled = false,
   testID,
 }: OfferCardProps) {
   const colors = useThemeColors();
@@ -52,15 +55,15 @@ export function OfferCard({
     : offer.offeredDate;
   const formattedDate = formatPickupDateLabel(dateStr) ?? dateStr;
 
-  const offeredWindowStart = formatTimeHHMM(offer.offeredPickupTimeWindowStart);
-  const offeredWindowEnd = formatTimeHHMM(offer.offeredPickupTimeWindowEnd);
+  const offeredWindowStart = toHHMM(offer.offeredPickupTimeWindowStart);
+  const offeredWindowEnd = toHHMM(offer.offeredPickupTimeWindowEnd);
   const differsInDate = requestedPickup != null && dateStr !== requestedPickup.pickupDate;
   const differsInWindow =
     requestedPickup != null &&
     offeredWindowStart !== "" &&
     offeredWindowEnd !== "" &&
-    (offeredWindowStart !== formatTimeHHMM(requestedPickup.pickupTimeWindowStart) ||
-      offeredWindowEnd !== formatTimeHHMM(requestedPickup.pickupTimeWindowEnd));
+    (offeredWindowStart !== toHHMM(requestedPickup.pickupTimeWindowStart) ||
+      offeredWindowEnd !== toHHMM(requestedPickup.pickupTimeWindowEnd));
   const differsFromRequested = differsInDate || differsInWindow;
   const requestedDateLabel = requestedPickup
     ? (formatPickupDateLabel(requestedPickup.pickupDate) ?? requestedPickup.pickupDate)
@@ -143,13 +146,13 @@ export function OfferCard({
           <Text className="flex-1 font-sans text-[12.5px] leading-[18px] text-ink-950">
             <Text className="font-sans-semibold">Otra fecha u horario que el pedido. </Text>
             Pediste {requestedDateLabel},{" "}
-            {formatPickupWindowLabel(
+            {formatTimeRange(
               requestedPickup.pickupTimeWindowStart,
               requestedPickup.pickupTimeWindowEnd,
             )}
             .
             {offeredWindowStart && offeredWindowEnd
-              ? ` Propone ${formattedDate}, ${formatPickupWindowLabel(offeredWindowStart, offeredWindowEnd)}.`
+              ? ` Propone ${formattedDate}, ${formatTimeRange(offeredWindowStart, offeredWindowEnd)}.`
               : ` Propone ${formattedDate}.`}
           </Text>
         </View>
@@ -182,10 +185,17 @@ export function OfferCard({
         <Pressable
           testID={testID ? `${testID}-accept-btn` : `offer-card-${offer.id}-accept-btn`}
           onPress={() => onAccept(offer)}
-          disabled={disabled}
-          className="h-11 flex-1 items-center justify-center rounded-[10px] bg-lime-500 active:bg-lime-400"
+          disabled={disabled || acceptDisabled}
+          accessibilityState={{ disabled: disabled || acceptDisabled }}
+          className={`h-11 flex-1 items-center justify-center rounded-[10px] ${
+            acceptDisabled ? "bg-bg-mute" : "bg-lime-500 active:bg-lime-400"
+          }`}
         >
-          <Text className="font-sans-semibold text-[14px] text-ink-950">Elegir</Text>
+          <Text
+            className={`font-sans-semibold text-[14px] ${acceptDisabled ? "text-fg-3" : "text-ink-950"}`}
+          >
+            Elegir
+          </Text>
         </Pressable>
       </View>
     </View>

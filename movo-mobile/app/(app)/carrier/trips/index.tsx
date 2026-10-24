@@ -3,12 +3,14 @@ import { ChevronLeft, History, MapPinOff, Plus, WifiOff } from "lucide-react-nat
 import { useEffect, useMemo, useState } from "react";
 import { RefreshControl, ScrollView, Text, View, Pressable } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SuspendedActionNotice } from "../../../../components/account/suspended-action-notice";
 import { PressableScale } from "../../../../components/trips/pressable-scale";
 import { TripCard } from "../../../../components/trips/trip-card";
 import { TripHistoryCard } from "../../../../components/trips/trip-history-card";
 import { TripsSegmented } from "../../../../components/trips/trips-segmented";
 import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import { SuccessBanner } from "../../../../components/ui/success-banner";
+import { useActiveSuspension } from "../../../../src/hooks/use-account-restriction";
 import { useMyTripsPaged } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { groupTripsByMonth, tripCancelledMessage } from "../../../../src/lib/trip-format";
@@ -35,8 +37,9 @@ function TripsListSkeleton() {
  */
 export default function MyTripsScreen() {
   const colors = useThemeColors();
-  const { created, cancelledTo, cancelledAt, cancelledPackages, cancelledDebt } = useLocalSearchParams<{
+  const { created, createdAt, cancelledTo, cancelledAt, cancelledPackages, cancelledDebt } = useLocalSearchParams<{
     created?: string;
+    createdAt?: string;
     cancelledTo?: string;
     cancelledAt?: string;
     cancelledPackages?: string;
@@ -44,11 +47,18 @@ export default function MyTripsScreen() {
   }>();
   // MOVO-262 AC1: una query (y una query key) por tab; el default es "Próximos".
   const [scope, setScope] = useState<TripListScope>("upcoming");
+  const suspension = useActiveSuspension();
   const insets = useSafeAreaInsets();
   const { data, isLoading, isError, isRefetching, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useMyTripsPaged(scope);
   const trips = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data]);
   const [showCreatedSuccess, setShowCreatedSuccess] = useState(created === "1");
+  useEffect(() => {
+    if (created === "1") setShowCreatedSuccess(true);
+    // MOVO-340: "Declarar viaje" vuelve con `dismissTo` a esta misma instancia; `createdAt`
+    // cambia en cada alta aunque `created` ya valiera "1".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [created, createdAt]);
   // MOVO-263: el detalle de un viaje vuelve acá con el destino cancelado para avisarlo.
   // MOVO-314: si el viaje tenía paquetes, el aviso suma qué pasó con ellos y con la deuda.
   const cancelledText = cancelledTo
@@ -167,14 +177,22 @@ export default function MyTripsScreen() {
             <View className="items-center gap-3 px-8 pt-24">
               <MapPinOff size={26} strokeWidth={1.8} color={colors.fg3} />
               <Text className="text-center font-sans text-body text-fg-2">Todavía no declaraste ningún viaje.</Text>
-              <Pressable
-                testID="my-trips-empty-add"
-                // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
-                onPress={() => router.push("/carrier/trips/new" as any)}
-                className="rounded-full bg-fg px-4 py-2.5"
-              >
-                <Text className="font-sans-medium text-[13px] text-bg">Declarar viaje</Text>
-              </Pressable>
+              {suspension ? (
+                <SuspendedActionNotice
+                  testID="my-trips-empty-add-suspended"
+                  action="declareTrip"
+                  suspension={suspension}
+                />
+              ) : (
+                <Pressable
+                  testID="my-trips-empty-add"
+                  // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
+                  onPress={() => router.push("/carrier/trips/new" as any)}
+                  className="rounded-full bg-fg px-4 py-2.5"
+                >
+                  <Text className="font-sans-medium text-[13px] text-bg">Declarar viaje</Text>
+                </Pressable>
+              )}
             </View>
           )
         ) : isHistory ? (
@@ -229,6 +247,10 @@ export default function MyTripsScreen() {
         className="absolute inset-x-0 bottom-0 border-t border-border bg-bg px-5 pt-3"
         style={{ paddingBottom: barBottomPadding }}
       >
+        {suspension ? (
+          // MOVO-300 AC2: el gateway rechaza declarar un viaje con la cuenta suspendida.
+          <SuspendedActionNotice testID="my-trips-add-suspended" action="declareTrip" suspension={suspension} />
+        ) : (
         <PressableScale
           testID="my-trips-add"
           // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
@@ -238,6 +260,7 @@ export default function MyTripsScreen() {
           <Plus size={18} color="#0A0A0B" strokeWidth={2} />
           <Text className="font-sans-semibold text-[16px] text-ink-950">Declarar viaje</Text>
         </PressableScale>
+        )}
       </View>
       ) : null}
     </SafeAreaView>

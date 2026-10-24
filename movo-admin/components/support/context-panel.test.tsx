@@ -35,10 +35,11 @@ describe("panel de contexto", () => {
     expect(screen.queryByText(/Calificó la atención/)).toBeNull()
   })
 
-  it("sin permiso de enlace al detalle del envío (MOVO-33) muestra solo el código", () => {
+  it("el envío vinculado abre su detalle en Envíos (MOVO-326)", () => {
     setup({ status: "ready", data: userContext() })
-    expect(screen.queryByRole("link", { name: /Abrir en Envíos/ })).toBeNull()
-    expect(screen.getByText(/llega con la pantalla de Envíos/)).toBeTruthy()
+    const link = screen.getByRole("link", { name: /Abrir en Envíos/ })
+    expect(link.getAttribute("href")).toMatch(/^\/shipments\/[^/]+$/)
+    expect(screen.queryByText(/llega con la pantalla de Envíos/)).toBeNull()
   })
 
   it("insignias en null (svc-users caído): avisa en su lugar y muestra el resto", () => {

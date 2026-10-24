@@ -12,11 +12,12 @@ import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { requireCarrierLocation } from "../../../../src/store/carrier-location-gate-store";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import type { CreateTripInput } from "../../../../src/api/trips-client";
+import { SuspendedScreenGate } from "../../../../components/account/suspended-screen-gate";
 
 const CREATE_ERROR_FALLBACK = "No pudimos declarar el viaje. Probá de nuevo.";
 
 /** Declarar viaje (MOVO-162, AC1) — sibling de `[id]/edit.tsx`, mismo `TripForm`. */
-export default function NewTripScreen() {
+function NewTripScreenContent() {
   const colors = useThemeColors();
   const createTrip = useCreateTrip();
   // MOVO-117: un 403 por licencia/MP faltante abre la checklist en vez de un error genérico.
@@ -43,15 +44,15 @@ export default function NewTripScreen() {
     setError(null);
     setRecurrenceError(null);
     createTrip.mutate(input, {
-      // Reemplaza (no `back()`) para garantizar que el flag de éxito llegue a "Mis
-      // viajes" — mismo patrón que `forgot-password.tsx` → `login.tsx` (AC de
-      // confirmación visual). De paso evita dejar el formulario ya enviado en el
-      // stack para un swipe-back accidental.
+      // MOVO-340: `dismissTo` (no `replace`) vuelve a la instancia de "Mis viajes" que ya
+      // está debajo del formulario, en vez de apilar una segunda — mismo patrón que MOVO-271.
+      // Si no hay ninguna en el stack, reemplaza. `createdAt` cambia en cada alta para que
+      // la instancia reusada vuelva a mostrar el banner de éxito.
       // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
       onSuccess: () =>
-        router.replace({
+        router.dismissTo({
           pathname: "/carrier/trips",
-          params: { created: "1" },
+          params: { created: "1", createdAt: String(Date.now()) },
         } as any),
       onError: (err) => {
         if (requirements.handleError(err)) return;
@@ -95,5 +96,14 @@ export default function NewTripScreen() {
       />
       <CarrierRequirementsSheet {...requirements.sheetProps} />
     </SafeAreaView>
+  );
+}
+
+/** MOVO-300 AC2: con la cuenta suspendida no se declara un viaje (tampoco uno recurrente). */
+export default function NewTripScreen() {
+  return (
+    <SuspendedScreenGate testID="new-trip-suspended" action="declareTrip">
+      <NewTripScreenContent />
+    </SuspendedScreenGate>
   );
 }

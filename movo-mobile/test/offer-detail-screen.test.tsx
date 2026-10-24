@@ -7,6 +7,12 @@ import type { MyOfferSummary } from "../src/api/offers-client";
 // Mismo criterio que `test/sender-actions-bar.test.tsx`: el menú nativo real no
 // tiene representación en el árbol de React -- el mock simula cada `action` como
 // una fila tocable que dispara `onPressAction` con el mismo `nativeEvent.event`.
+// MOVO-300: sin suspensión; el caso suspendido tiene sus propios tests.
+jest.mock("../src/hooks/use-account-restriction", () => ({
+  useActiveSuspension: () => null,
+  useAccountRestrictionSync: () => {},
+}));
+
 jest.mock("@react-native-menu/menu", () => {
   const { Pressable, Text, View } = require("react-native");
   return {
@@ -182,7 +188,7 @@ describe("OfferDetailScreen (MOVO-182)", () => {
 
     const { getByTestId } = await render(<OfferDetailScreen />);
     expect(getByTestId("offer-detail-pickup-comparison")).toHaveTextContent(
-      "Coincide con lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00.",
+      "Coincide con lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00 h.",
     );
   });
 
@@ -198,7 +204,7 @@ describe("OfferDetailScreen (MOVO-182)", () => {
 
     const { getByTestId } = await render(<OfferDetailScreen />);
     expect(getByTestId("offer-detail-pickup-comparison")).toHaveTextContent(
-      "Es distinto a lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00.",
+      "Es distinto a lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00 h.",
     );
   });
 

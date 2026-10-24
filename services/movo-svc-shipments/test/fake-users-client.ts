@@ -53,6 +53,9 @@ export function createFakeUsersClient(
     async findDeviceKey(userId: string): Promise<DeviceKey | null> {
       return deviceKeys[userId] ?? null;
     },
+    async findCity(): Promise<string | null> {
+      return null;
+    },
   };
 }
 

@@ -45,6 +45,32 @@ export interface ShipmentParties {
   formerReceiverIds: string[];
 }
 
+/** Un envío en curso de un usuario (`GET /internal/users/:id/in-progress-shipments` de `svc-shipments`, MOVO-297). */
+export interface InProgressShipment {
+  id: string;
+  shortId: string;
+  status: "assignment_pending" | "assigned_unfunded" | "assigned" | "in_transit";
+  userRole: "sender" | "carrier" | "receiver";
+  pickupAddress: string;
+  deliveryAddress: string;
+}
+
+/** `POST /internal/users/:id/withdraw-open-activity` de `svc-shipments` (MOVO-297): lo retirado, para la bitácora (body opcional `{ sanctionId }`). */
+export interface WithdrawOpenActivityResult {
+  cancelledShipmentIds: string[];
+  withdrawnOfferIds: string[];
+  cancelledTripIds: string[];
+  /** Viajes cuya serie recurrente se cortó (incluye la de un viaje ya `active`, que no se cancela). */
+  stoppedRecurrenceTripIds: string[];
+  /** Contrapartes avisadas de los envíos en curso (un push por contraparte y envío; no repite en reintentos). */
+  notifiedCounterpartyCount: number;
+  /**
+   * Lo que no se pudo retirar por un error real (no por perder una carrera con otro flujo). Si no está vacío,
+   * la sanción no puede darse por aplicada: es idempotente, se reintenta. Para `series`, `id` es el usuario.
+   */
+  failures: Array<{ kind: "shipment" | "offer" | "trip" | "series"; id: string }>;
+}
+
 /** `GET /internal/chat-reports/:id/parties` de `svc-shipments`: quien reportó y las partes del envío. */
 export interface ChatReportParties {
   reportId: string;

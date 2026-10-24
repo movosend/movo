@@ -60,6 +60,10 @@ export interface ShipmentSummary {
    * sin identidad de los competidores, `null` si no hay ninguna. */
   offersSummary?: { count: number; minPriceNetArs: number } | null;
   debtDiscount?: { amountArs: number; reason: "pending_balance" } | null;
+  /** MOVO-285: solo para el transportista asignado — lo que recibe, EXACTO, calculado por el backend con el
+   * hold (comisión de Movo, fee real de MP y su descuento por deuda). `null` mientras MP no informó el fee:
+   * el monto se muestra como estimado ("aprox."). */
+  carrierReceivedArs?: number | null;
   /** MOVO-257: solo en `GET /shipments/mine` — ofertas vigentes de un envío
    * `published` visto por su emisor; `null` en cualquier otro caso. */
   pendingOffersCount?: number | null;
@@ -71,6 +75,9 @@ export interface ShipmentSummary {
    * mira le pasó la recepción a otra persona (solo lectura), la solicitud pendiente
    * (solo para quien la pidió y el emisor) y la transferencia completada. */
   receiverTransfer?: ShipmentReceiverTransferSummary | null;
+  /** MOVO-270: solo en `GET /shipments/:id` — el envío está `assigned`/`in_transit` y el viaje
+   * del transportista ya está activo: su ubicación se difunde desde ahí, también antes del retiro. */
+  carrierTripActive?: boolean;
   /** MOVO-275: solo en `GET /shipments/mine` — el usuario le pasó la recepción de este
    * envío a otra persona (badge "Transferido"). `null` en cualquier otro caso. */
   transferredByMe?: { newReceiverId: string; newReceiverName: string | null; at: string } | null;
@@ -586,6 +593,8 @@ export interface BatchPositionItemInput {
   lng: number;
   accuracyM: number;
   capturedAt: string;
+  /** MOVO-270: `mocked` de expo-location (solo Android, opcional). */
+  mocked?: boolean;
 }
 
 export type BatchPositionRejectionCode =

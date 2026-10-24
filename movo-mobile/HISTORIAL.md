@@ -4937,6 +4937,68 @@ Perfil abre `TourReplaySheet` para relanzar a mano, sin escribir el registro.
 - Probado en dispositivo (iPhone). Un ancla sin card propia ("Actividad reciente") necesita más `padding` (12) para que el anillo
   no quede pegado al texto.
 
+### MOVO-300 — Cuenta suspendida o inhabilitada
+
+La suspensión vigente sale de `PrivateProfile.activeSanction` (motivo y fin, sin nota interna; se agregó en `svc-users` en esta
+misma US) y la expone `useActiveSuspension` (`src/hooks/use-account-restriction.ts`), que trata como levantada una suspensión
+ya vencida aunque el barrido no la haya cerrado. Aviso compacto en Inicio (`AccountSuspendedBanner`) que abre `/account-status`
+(motivo, qué puede y qué no, contacto `soporte@movosend.app`, `src/lib/account-restriction.ts`). Los CTA que inician algo nuevo
+se reemplazan por `SuspendedActionNotice` (publicar, ofertar, editar oferta, "Elegir" oferta, declarar viaje, invitar receptor),
+y las cuatro pantallas de formulario van envueltas en `SuspendedScreenGate`. El perfil público y las tarjetas de contraparte
+muestran `AccountStatusChip`. La pantalla de login de `ACCOUNT_SUSPENDED` pasó a ser `app/(auth)/account-disabled.tsx`.
+
+- Decisión: la app no depende del `details` del 403 de MOVO-298. `http-client.ts` avisa de `ACCOUNT_SUSPENDED` a un listener
+  que refresca el perfil, y de ahí salen el plazo y el motivo.
+- Decisión: `ACCOUNT_DISABLED` (gateway o refresh) cierra la sesión por `signOutDisabledAccount` con `signOutReason`, y el guard
+  de `app/(app)/_layout.tsx` redirige a la pantalla de inhabilitada. No llama al logout del backend ni desregistra el
+  dispositivo: el gateway rechazaría esos requests y el 403 volvería a entrar al hook. Inhabilitar revoca el access token, así
+  que la app abierta recibe 401 `AUTH_TOKEN_INVALID` y no 403: `http-client.ts` ahora refresca también ante ese código, y el
+  refresh (`svc-users`) responde `ACCOUNT_DISABLED`. Antes un token revocado dejaba la sesión abierta con todo en 401.
+- Decisión: el bloqueo de formularios es por pantalla y no solo del botón final: el wizard cotiza a mitad del flujo (también
+  bloqueado) y hay entradas secundarias a `/send` (vacío del historial de cobros).
+- AC7: el perfil se refresca al volver a primer plano (listener de `AppState` puntual, no el `focusManager` global), al recibir un
+  push de sanción y con un timer hasta `endsAt`. Se corrigió la key del pull-to-refresh de Inicio (`["users","me"]` no existía).
+- Push: `account_suspended` → `/account-status`, levantada/vencida → Inicio, `account_disabled` → cierra la sesión o, en cold
+  start sin sesión, abre la pantalla de inhabilitada.
+- "Contactar a soporte" queda deshabilitado con "No disponible hasta MOVO-324": el canal es Ayuda y soporte en la app. El email
+  `soporte@movosend.app` sigue como texto.
+- Inicio (seguimiento de MOVO-168): una sección que falla sin datos ya no muestra su error, porque no sabemos si te corresponde
+  (un emisor veía "No pudimos cargar tus viajes"). Hay un solo aviso, "No pudimos cargar parte de tu inicio", que reintenta las
+  queries que fallaron. Con datos ya cargados la sección sigue mostrándolos.
+- Pendiente: el 403 real del gateway cuando exista MOVO-298, y los push (en local el proveedor es mock).
+
+### MOVO-270 — Seguimiento en vivo antes del retiro y cancelación con llegada registrada
+
+`liveTrackingAvailability(status, carrierTripActive)` habilita el seguimiento de un `assigned` cuando el viaje del transportista
+está activo (`carrierTripActive` de `GET /shipments/:id`); `assignment_pending`/`assigned_unfunded` siguen en "pending". La tarea
+en segundo plano y la captura en primer plano mandan `mocked` de expo-location (solo Android, se omite si no viene). El sheet de
+cancelación muestra el motivo `carrier_arrived` (vista `penalty` con `reasonText`) y `HANDSHAKE_PICKUP_DEADLINE_PASSED` tiene copy.
+Pendiente: subir la precisión del GPS cerca del retiro (ADR-052, toca la medición de batería de MOVO-242).
+
+### MOVO-285 — Monto exacto del transportista con el fee real de MP
+
+- `shipments/[id].tsx`: si el detalle trae `carrierReceivedArs` (calculado por el backend con el hold), la card muestra "Recibís" con ese
+  monto y el desglose de `DebtDiscount` dice "Recibís antes" (prop `exact`); sin él sigue el estimado con "Recibís aprox.". Sin cambios de
+  diseño. "Cobraste" sigue saliendo solo de la liquidación acreditada (`settlement-format`). Las pantallas de oferta y "Mis ofertas"
+  mantienen el estimado.
+### MOVO-340 — Paquete de fixes #3
+
+- **Horas y duraciones** (`src/lib/time-format.ts`): `formatTimeOfDay` (`14:30 h`), `formatTimeRange` (`14:00 a 16:00 h`),
+  `formatDuration`/`formatDurationSeconds` (`45 min`, `2 h 15 min`) y `formatRelativeDuration` ("hace 3 h"). Reemplazan a
+  `formatTimeHHMM`/`formatPickupWindowLabel`/`formatDurationMin` y a los formateos sueltos (paradas de ruta, ETA del tracking,
+  chips de franja, chat, viajes, pagos, transferencias). `toHHMM` queda solo para comparar franjas.
+- **Declarar viaje**: vuelve a "Mis viajes" con `dismissTo` (patrón de MOVO-271) y `createdAt` para que la instancia reusada
+  muestre el banner.
+- **Fecha por defecto del wizard** (`src/lib/pickup-windows.ts`): el store arranca con `defaultPickupDate` (hoy en Argentina si
+  quedan franjas, si no mañana), el selector es controlado y las franjas ya empezadas se deshabilitan. La pantalla de oferta no
+  tenía el problema (una sola fuente de verdad).
+- **Búsqueda por coordenadas**: una predicción con `lat`/`long` se confirma sin llamar a `/places/details`.
+- **Chat tras una transferencia de receptor**: `chat_participants_changed` refresca integrantes, acceso y lista; tarjeta de
+  sistema por transferencia completada (`chatTransferCard`).
+- **Cancelar**: `canCancelShipment` usa `isSenderCancellableStatus` de `@movo/shared`.
+- **Registro**: manda `firstName`/`lastName` por separado (antes un `fullName` que el backend cortaba en el primer espacio).
+- Fuera de alcance: el ítem 1 (pantalla externa) se resolvió fuera del código.
+
 ### MOVO-324 — Ayuda y soporte: submenú, consultas y conversación con el equipo de Movo
 
 Prototipo `Movo App Soporte.dc.html` (Claude Design). "Ayuda y soporte" de Perfil deja de abrir el sheet del tutorial y empuja
@@ -4956,10 +5018,9 @@ este envío" al pie del detalle del envío → `/support/new?shipmentId=`.
 - **Crear sin `conversationId`.** "Enviar consulta" guarda un borrador (`support-draft-store`) y pasa a `support/pending`, que hace el POST:
   la burbuja se ve "Enviando…", si falla reintenta con el mismo `clientMessageId` (idempotente) y al salir siembra el caché y hace `replace`
   a la conversación real. Las fotos de una consulta nueva se piden sin `conversationId` (ver MOVO-321).
-- **Selector de envíos.** `GET /shipments/mine` solo trae emisor/receptor, no transportista; se propuso `GET /support/shipments` (cualquier rol).
+- **Selector de envíos.** `GET /shipments/mine` solo trae emisor/receptor, no transportista; `GET /support/shipments` (cualquier rol y estado) se implementó en `svc-shipments` en esta misma rama, porque MOVO-320 lo había dejado afuera.
 - Decisiones: tildes solo `sent|read`; reabrir una resuelta se refleja cuando el POST confirma (no antes); las URLs de adjuntos vencen, así
   que abrir el visor vuelve a pedir la primera página.
 - Pendiente / fuera de alcance: la galería elige de a una foto (el prototipo pedía multiselección), el visor no tiene el "No pudimos cargar la
   foto. Reintentar" ni cierre deslizando hacia abajo (reusa `PhotoViewerModal`), diseño del submenú, y la prueba en dispositivo contra el backend
   real con un agente en el panel (depende de MOVO-320/321/322).
-

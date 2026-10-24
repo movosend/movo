@@ -178,7 +178,7 @@ corre en CI): necesita `MP_SANDBOX_CARRIER_ACCESS_TOKEN` y `MP_SANDBOX_CARRIER_P
 del Vendedor (el token del OAuth del spike no se persiste, ver el encabezado del test) y las
 `MP_TEST_*` del `.env` del spike.
 
-Pendiente: cargar `MP_HOLD_VALIDITY_DAYS` en el secret si MOVO-215 define otro valor;
+MOVO-215 cerró `MP_HOLD_VALIDITY_DAYS` en 5, el default (ADR-050);
 `svc-shipments` ya los llama desde la saga de asignación (MOVO-210, ver
 `services/movo-svc-shipments/HISTORIAL.md`). El aviso a `POST /internal/shipments/:id/hold-events`
 cuando MP cancela o vence un hold lo hace el webhook (MOVO-268, abajo).
@@ -212,7 +212,7 @@ holds, para que el `PaymentsClient` de MOVO-210 los alcance con su misma base). 
   `access_token` con el `refresh_token` antes de capturar; hoy no hay flujo de refresh en este servicio.
 - **Comisión de MP = solo lo que descuenta al vendedor** (`fee_payer: collector`): un cargo que paga el
   comprador (`financing_fee` en cuotas) queda afuera, así `mpFee + comisión + neto == bruto` sigue cerrando.
-- **Decisión no obvia**: no se rechaza de entrada por `expiresAt` vencido. `MP_HOLD_VALIDITY_DAYS` es una
+- **Decisión no obvia** (superada por MOVO-213: ahora `expires_at` se mira antes de cada intento): no se rechaza de entrada por `expiresAt` vencido. `MP_HOLD_VALIDITY_DAYS` es una
   estimación provisoria (MOVO-215), así que se intenta igual y se clasifica el fallo como `hold_expired` solo
   si MP rechaza y el hold ya pasó su fecha o MP lo tiene `cancelled`. Un hold cancelado por MP NO se sincroniza
   acá: lo refleja el webhook (MOVO-268) o `?sync=true`, y la captura solo lo clasifica.
@@ -787,3 +787,47 @@ salvo hold liberado; descuento al transportista, solo con la liquidación acredi
 - El ajuste manual (`.../manual-adjustments`) devuelve también `balanceArs` y responde 422 `AMOUNT_OUT_OF_RANGE` con
   cero o por encima de `ADMIN_LEDGER_ADJUSTMENT_MAX_ARS` (env nueva, default 500000, en los tres lugares).
   `svc-admin` prefija la key del panel (`admin-adjustment:<uuid>`) porque la `idempotencyKey` es única entre todos los movimientos.
+
+### MOVO-213 — Reintentos de la captura y escalado a proceso manual
+
+Una entrega cuya captura falla ya no queda a la deriva: `settlements` guarda `attempts`, `next_attempt_at`, `last_error`, `escalated_at` y
+`escalation_reason` (migración `20261022120000_settlement_retries`; el valor `escalated` del enum ya existía).
+
+- **Política** (`capture-failure.ts`, `SETTLEMENT_RETRY_DELAYS_MINUTES`, default `5,30,120`): intento inicial + 3 reintentos; el largo de la lista es el máximo.
+  **Reintentable**: red/timeout, 408/429/5xx, estado de pago inesperado, fallo de `getPayment`. **No reintentable** (escala sin gastar intentos): hold
+  vencido o cancelado, cuenta del transportista desvinculada o credenciales rechazadas (401/403) y cualquier otro 4xx de MP. Agotados los reintentos → `escalated`.
+- **Quién reintenta**: el barrido propio `capture-retry-sweep` (`registerSweep`, lock `locks:capture-retry-sweep`, cada minuto) toma las entregas `failed` con
+  `next_attempt_at` vencido, las reserva con un lease (UPDATE condicional) y llama a `capture(..., { retryJob: true })`. Otro pedido de captura (el barrido de
+  `svc-shipments`, que sigue de red de seguridad) NO adelanta un reintento programado: responde `409 SETTLEMENT_RETRY_PENDING`, y una escalada responde
+  `409 SETTLEMENT_ESCALATED` (permanente para el barrido de shipments). La penalidad (`cancellation_penalty`) no entra en nada de esto: la sigue manejando shipments.
+- **AC3 (idempotencia)**: desde el segundo intento, antes de capturar se consulta el pago (`Payment.get` con el token del transportista). `approved` → se adopta y se
+  completa la liquidación sin volver a capturar (un timeout no significa que no capturó); `cancelled` → `hold_expired`; si no se puede consultar, el intento falla y se
+  reprograma (no se captura a ciegas). La key `movo-hold-capture-<holdId>` se mantiene. Un fallo al leer el desglose tras capturar ahora es un fallo reintentable
+  (`failed`), ya no queda `processing` esperando que alguien vuelva a llamar.
+- **AC8 (decisión que cambia MOVO-212)**: `hold.expires_at` se compara contra `now` antes de cada intento y un hold vencido escala. En el primer intento
+  (la liquidación no existía) sin llamar a MP; si ya hubo un intento anterior, primero se consulta el pago, porque ese intento pudo haber capturado y perder la
+  respuesta (review de PR #290): `approved` se acredita aunque `expires_at` haya pasado, y solo un pago aún sin capturar se escala como vencido. Es el piso
+  conservador de ADR-050 (5 días; la doc de MP también dice 7): se puede escalar un hold que en MP seguía vivo, y por eso la alerta y el listado traen `holdExpiresAt`
+  para probar la captura a mano. Un hold ya `captured` no se descarta por la fecha. El sandbox no vence holds (ADR-050), así que el test es sintético; la detección
+  posterior (MP rechaza o el pago está `cancelled`) se apoya en `status`, no en `status_detail` (sin confirmar).
+- **Escalado** (`settlement-escalation.ts`): alerta `settlement_escalated` por el `AlertNotifier` de MOVO-268 (`app.alerts` se resuelve recién al escalar, porque lo decora un
+  plugin posterior) y aviso a `svc-shipments` (`POST /internal/shipments/:id/settlement-events {event:"delayed"}`) para el push "Tu cobro está demorado" con el plazo
+  `SETTLEMENT_REVIEW_SLA_HOURS` (shipments, default 48). Los dos son best-effort e independientes. Si un reintento acredita, avisa `{event:"credited"}` y shipments pasa el
+  envío a `completed`. Un aviso perdido no se reintenta: la alerta y el listado cubren el caso, y el barrido de shipments igual completa los acreditados.
+- **Consulta (AC6)**: `GET /internal/payments/settlements?status=failed|escalated&limit&cursor` (interno, keyset por `updated_at,id`, solo entregas: la penalidad `failed` es de shipments); el proxy en `svc-admin` queda para MOVO-33.
+  Re-vincular la cuenta de MP reabre una escalada por `carrier_account_unavailable` en el próximo pedido de captura; el resto lo resuelve una persona.
+- **Pendiente / fuera de alcance**: refresco del token antes de capturar (MOVO-243), una acción manual de reintento o cierre desde el panel (MOVO-33) y reembolsos.
+
+### MOVO-285 — Fee real de Mercado Pago en el hold
+
+- `payments.holds.mp_fee_ars` (migración `20261024120000_hold_mp_fee`): el `mercadopago_fee` que MP informa al crear el hold
+  (`charges_details`, `amounts.original`: verificado contra el sandbox, el pago de $1.150 trae $47,15) y, tras capturar, el de
+  `fee_details` (la captura lo reemplaza vía `markCaptured`). `utils/payment-fee.ts` es la única definición de la regla de
+  `fee_details` (`splitCollectorFees`, en `Decimal`): la usan el hold y `readFeeBreakdown` de la liquidación, así la columna no
+  tiene dos significados. Crear, consultar y webhook completan el fee; el webhook y la consulta con `sync` lo hacen aunque el estado
+  no cambie (`missingFeeField`, igual que la tarjeta) y sin pisar uno ya guardado.
+- `HoldResponse.carrierMpFeeArs`: ese fee sin la parte que cae sobre el recargo del emisor (`carrierPaymentView`, ahora acotado en
+  0, y `splitRetainedFee`, movido a `holds/retained-fee.ts`: la misma regla que la liquidación). `null` si MP no lo informó. Los
+  schemas de respuesta de Fastify tienen que declararlo o lo descartan en silencio (los tests unitarios no lo ven: las pruebas
+  de sandbox sí). La captura (`net_received_amount` + `fee_details`) ya se guardaba en `Settlement` desde MOVO-212.
+- Pendiente: la calibración de `MP_TRANSACTION_FEE_RATE` (el sandbox cobra 4,1 % sin variar con las cuotas, la estimación usa 4,99 %).

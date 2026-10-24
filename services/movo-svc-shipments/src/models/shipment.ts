@@ -77,6 +77,9 @@ export interface Shipment {
    * transferencia completada. Conserva acceso de solo lectura al envío. Solo lo cargan
    * `findById`/`listByUser`; ausente o `null` en el resto de las lecturas. */
   formerReceiverId?: string | null;
+  /** MOVO-340: cuándo se completó esa transferencia (el nuevo receptor se sumó al chat).
+   * Mismo alcance que `formerReceiverId`. */
+  receiverTransferredAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
   /** MOVO-180: entrega estimada (día + franja) de la oferta ganadora, copiada acá al
@@ -163,6 +166,9 @@ export interface CreateShipmentInput {
   calculationMethod: string | null;
   highDemand: boolean | null;
   receiverConfirmationDeadline?: Date | null;
+  /** MOVO-325: ciudad del retiro/entrega (reverse geocoding), `null`/ausente si no se pudo resolver. */
+  pickupCity?: string | null;
+  deliveryCity?: string | null;
 }
 
 export interface ShipmentEvent {

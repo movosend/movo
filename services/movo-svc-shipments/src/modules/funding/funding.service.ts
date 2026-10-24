@@ -35,7 +35,7 @@ import { sendCustodyPush } from "../../utils/dispatch-push";
 import { assertIsSender } from "../shipments/assert-shipment-access";
 
 /**
- * MOVO-210: configuración de la saga (todo viene de env, MOVO-215 fija los valores reales).
+ * MOVO-210: configuración de la saga (todo viene de env, valores en ADR-050).
  */
 export interface FundingConfig {
   /** "N": retiro dentro de N días = ruta cercana; a más, ruta lejana. */
@@ -108,6 +108,44 @@ export async function releaseHoldBeforeCancel(
   }
 }
 
+/** Lo del envío que decide el plazo de pago. */
+export type FundingDeadlineShipment = Pick<
+  Shipment,
+  "status" | "pickupDate" | "pickupTimeWindowStart" | "pickupTimeWindowEnd" | "lastStatusChangedAt" | "updatedAt"
+>;
+
+/**
+ * Hasta cuándo puede pagar el emisor en el estado actual del envío (`assignment_pending` o
+ * `assigned_unfunded`). Pura, la usa también el listado del panel (MOVO-325).
+ */
+export function fundingPayUntil(
+  shipment: FundingDeadlineShipment,
+  config: Pick<FundingConfig, "paymentTimeoutMinutes" | "releaseHoursBeforePickup">,
+): Date {
+  if (shipment.status === ShipmentStatus.ASSIGNMENT_PENDING) {
+    return nearRouteFundingDeadline(
+      shipment.lastStatusChangedAt ?? shipment.updatedAt,
+      config.paymentTimeoutMinutes,
+      pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
+    );
+  }
+  // Ruta lejana: T-24h del retiro. Piso: el mismo margen de pago que tiene la ruta
+  // cercana desde que el envío ENTRÓ a este estado. Sin él, un hold perdido a menos de 24h
+  // del retiro (`assigned -> assigned_unfunded`, reconfirmación) llegaría con el plazo ya
+  // vencido y el barrido lo devolvería a `published` antes de que el emisor pueda pagar.
+  // En una ruta lejana normal no cambia nada: entró días antes de T-24h.
+  const farDeadline = farRouteFundingDeadline(
+    anchorTimeOfDayToInstant(shipment.pickupDate, shipment.pickupTimeWindowStart),
+    config.releaseHoursBeforePickup,
+  );
+  const reconfirmFloor = nearRouteFundingDeadline(
+    shipment.lastStatusChangedAt ?? shipment.updatedAt,
+    config.paymentTimeoutMinutes,
+    pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
+  );
+  return farDeadline > reconfirmFloor ? farDeadline : reconfirmFloor;
+}
+
 export function createFundingService(deps: FundingServiceDeps) {
   const { repository, usersClient, paymentsClient, config, notificationsClient, logger, offerRepository } = deps;
 
@@ -115,27 +153,7 @@ export function createFundingService(deps: FundingServiceDeps) {
     anchorTimeOfDayToInstant(shipment.pickupDate, shipment.pickupTimeWindowStart);
 
   /** Hasta cuándo puede pagar el emisor en el estado actual del envío. */
-  function payUntilOf(shipment: Shipment): Date {
-    if (shipment.status === ShipmentStatus.ASSIGNMENT_PENDING) {
-      return nearRouteFundingDeadline(
-        shipment.lastStatusChangedAt ?? shipment.updatedAt,
-        config.paymentTimeoutMinutes,
-        pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
-      );
-    }
-    // Ruta lejana: T-24h del retiro. Piso: el mismo margen de pago que tiene la ruta
-    // cercana desde que el envío ENTRÓ a este estado. Sin él, un hold perdido a menos de 24h
-    // del retiro (`assigned -> assigned_unfunded`, reconfirmación) llegaría con el plazo ya
-    // vencido y el barrido lo devolvería a `published` antes de que el emisor pueda pagar.
-    // En una ruta lejana normal no cambia nada: entró días antes de T-24h.
-    const farDeadline = farRouteFundingDeadline(pickupStartOf(shipment), config.releaseHoursBeforePickup);
-    const reconfirmFloor = nearRouteFundingDeadline(
-      shipment.lastStatusChangedAt ?? shipment.updatedAt,
-      config.paymentTimeoutMinutes,
-      pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
-    );
-    return farDeadline > reconfirmFloor ? farDeadline : reconfirmFloor;
-  }
+  const payUntilOf = (shipment: Shipment): Date => fundingPayUntil(shipment, config);
 
   /**
    * AC1/AC2: ¿puede el emisor pagar AHORA? Solo `assignment_pending` (hasta el plazo) o

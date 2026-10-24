@@ -67,10 +67,12 @@ export default function LoginScreen() {
         router.replace('/kyc');
       }
     } catch (err) {
-      // Cuenta suspendida/deshabilitada tiene su propia pantalla explicativa
-      // (no un error inline) — ver `account-suspended.tsx`.
-      if (err instanceof ApiError && err.code === 'ACCOUNT_SUSPENDED') {
-        router.push('/account-suspended');
+      // Una cuenta inhabilitada tiene su propia pantalla explicativa (no un error inline),
+      // ver `account-disabled.tsx`. Desde MOVO-296 una suspendida sí puede loguearse; el
+      // `ACCOUNT_SUSPENDED` que todavía puede responder el login es de una cuenta dada de
+      // baja, y va con el mensaje genérico de abajo.
+      if (err instanceof ApiError && err.code === 'ACCOUNT_DISABLED') {
+        router.push('/account-disabled' as any); // ruta nueva de MOVO-300
         return;
       }
       setErrorBanner(friendlyErrorMessage(err, 'No pudimos iniciar sesión. Intentá de nuevo.'));

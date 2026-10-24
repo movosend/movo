@@ -387,6 +387,7 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
           rawDecision: { foo: "bar" },
         },
       });
+      await app.db.user.update({ where: { id: userId }, data: { kycStatusIdentity: "approved", kycStatusLicense: "approved" } });
       await app.db.driversLicense.create({
         data: {
           userId,
@@ -405,6 +406,10 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
 
       expect(await app.db.kycVerification.findMany({ where: { userId } })).toEqual([]);
       expect(await app.db.driversLicense.findMany({ where: { userId } })).toEqual([]);
+      // MOVO-230: el caché de `users` tampoco conserva el resultado.
+      const reloaded = await app.db.user.findUniqueOrThrow({ where: { id: userId } });
+      expect(reloaded.kycStatusIdentity).toBe("not_started");
+      expect(reloaded.kycStatusLicense).toBe("not_started");
     });
 
     // MOVO-157 (review de PedroYorlano, PR #119): igual motivo que el test de

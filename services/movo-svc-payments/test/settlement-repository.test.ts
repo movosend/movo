@@ -97,3 +97,101 @@ describe("settlement-repository#findOrCreateProcessing ante P2002 (unitario)", (
     await expect(repoWith({ create: async () => Promise.reject(other), findUnique: async () => ({}) }).findOrCreateProcessing(data)).rejects.toBe(other);
   });
 });
+
+// MOVO-213: lo que usa el barrido de reintentos y la consulta del proceso manual.
+describe("settlement-repository: reintentos (MOVO-213, Postgres real)", () => {
+  let app: FastifyInstance;
+  const MIN = 60_000;
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL ??= "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL ??= "redis://localhost:6379";
+    app = buildApp({ captureRetrySweepEnabled: false, mpTokenRefreshSweepEnabled: false });
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.settlements, payments.holds CASCADE");
+  });
+
+  let seq = 0;
+  async function seed(overrides: {
+    status?: "failed" | "escalated" | "processing" | "credited";
+    kind?: "delivery" | "cancellation_penalty";
+    nextAttemptAt?: Date | null;
+  } = {}) {
+    seq += 1;
+    const shipmentId = `00000000-0000-4000-8000-${String(seq).padStart(12, "0")}`;
+    const hold = await app.db.hold.create({
+      data: {
+        shipmentId, attempt: 1, carrierId: CARRIER, collectorId: "1", mpPaymentId: `p${seq}`, amountArs: 1000,
+        applicationFeeArs: 150, baseAmountArs: 1000, commissionArs: 150, status: "authorized",
+      },
+    });
+    return app.db.settlement.create({
+      data: {
+        shipmentId, holdId: hold.id, carrierId: CARRIER, mpPaymentId: `p${seq}`, grossAmountArs: 1000, commissionArs: 150,
+        status: overrides.status ?? "failed", kind: overrides.kind ?? "delivery",
+        nextAttemptAt: overrides.nextAttemptAt === undefined ? new Date(Date.now() - MIN) : overrides.nextAttemptAt,
+      },
+    });
+  }
+
+  it("findDueForRetry trae solo entregas `failed` con la hora cumplida, las más atrasadas primero", async () => {
+    const late = await seed({ nextAttemptAt: new Date(Date.now() - 10 * MIN) });
+    const recent = await seed({ nextAttemptAt: new Date(Date.now() - MIN) });
+    await seed({ nextAttemptAt: new Date(Date.now() + 10 * MIN) }); // todavía no toca
+    await seed({ nextAttemptAt: null }); // sin reintento programado
+    await seed({ status: "escalated" });
+    await seed({ status: "processing" });
+    await seed({ kind: "cancellation_penalty" }); // la penalidad la maneja shipments
+
+    const due = await createSettlementRepository(app.db).findDueForRetry(new Date(), 10);
+
+    expect(due.map((s) => s.id)).toEqual([late.id, recent.id]);
+    expect(await createSettlementRepository(app.db).findDueForRetry(new Date(), 1)).toHaveLength(1);
+  });
+
+  it("claimRetry: de varias réplicas a la vez, exactamente una se queda con la liquidación", async () => {
+    const repo = createSettlementRepository(app.db);
+    const row = await seed();
+    const lease = new Date(Date.now() + 10 * MIN);
+
+    const results = await Promise.all(Array.from({ length: 5 }, () => repo.claimRetry(row.id, row.nextAttemptAt!, lease)));
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const after = await app.db.settlement.findUniqueOrThrow({ where: { id: row.id } });
+    expect(after.nextAttemptAt!.getTime()).toBe(lease.getTime());
+    // Con el lease puesto, ya no figura como vencida.
+    expect(await repo.findDueForRetry(new Date(), 10)).toEqual([]);
+  });
+
+  it("claimRetry no toma una liquidación que cambió de estado o de hora desde que se leyó", async () => {
+    const repo = createSettlementRepository(app.db);
+    const row = await seed();
+    await app.db.settlement.update({ where: { id: row.id }, data: { status: "credited" } });
+
+    expect(await repo.claimRetry(row.id, row.nextAttemptAt!, new Date(Date.now() + MIN))).toBe(false);
+  });
+
+  it("listByStatus filtra por estado y respeta el cursor (updated_at, id)", async () => {
+    const repo = createSettlementRepository(app.db);
+    const a = await seed({ status: "escalated" });
+    const b = await seed({ status: "escalated" });
+    await seed({ status: "failed" });
+    await app.db.$executeRawUnsafe(
+      "UPDATE payments.settlements SET updated_at = now() - interval '1 hour' WHERE id = $1::uuid", a.id
+    );
+
+    const first = await repo.listByStatus("escalated", 1);
+    expect(first.map((s) => s.id)).toEqual([b.id]);
+    expect(first[0].hold.expiresAt).toBeNull();
+    const second = await repo.listByStatus("escalated", 5, { updatedAt: first[0].updatedAt, id: first[0].id });
+    expect(second.map((s) => s.id)).toEqual([a.id]);
+  });
+});

@@ -129,6 +129,10 @@ model Hold {
   payerId            String?            @map("payer_id") @db.Uuid
   cardLast4          String?            @map("card_last4") @db.VarChar(4)
   cardBrand          String?            @map("card_brand") @db.VarChar(32)
+  // MOVO-285: comisión de MP de este pago (`mercadopago_fee` de `charges_details`, o de `fee_details` si el pago
+  // ya se capturó) sobre el total que paga el emisor. Es el dato real de MP, no la estimación; null si MP todavía
+  // no lo informó (hold anterior a MOVO-285, o respuesta sin el desglose).
+  mpFeeArs           Decimal?           @map("mp_fee_ars") @db.Decimal(12, 2)
   expiresAt          DateTime?          @map("expires_at") @db.Timestamptz
   // MOVO-303: la fija un trigger la primera vez que el hold pasa a `cancelled` (ver la migración `hold_released_at`).
   releasedAt         DateTime?          @map("released_at") @db.Timestamptz
@@ -245,11 +249,20 @@ model Settlement {
   failureReason         String?          @map("failure_reason")
   // `status_detail` crudo de MP al capturar (`accredited`, ...).
   statusDetail          String?          @map("status_detail")
+  // MOVO-213: reintentos de la captura. `attempts` cuenta los intentos fallidos con fallo reintentable (un fallo
+  // que no se arregla reintentando escala sin sumar); `next_attempt_at` es cuándo toca el próximo (null si no hay);
+  // `last_error` el último error crudo; `escalated_at`/`escalation_reason` si pasó a proceso manual.
+  attempts              Int              @default(0)
+  nextAttemptAt         DateTime?        @map("next_attempt_at") @db.Timestamptz
+  lastError             String?          @map("last_error")
+  escalatedAt           DateTime?        @map("escalated_at") @db.Timestamptz
+  escalationReason      String?          @map("escalation_reason")
   capturedAt            DateTime?        @map("captured_at") @db.Timestamptz
   createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz
   hold                  Hold             @relation(fields: [holdId], references: [id])
 
+  @@index([status, nextAttemptAt], map: "settlements_status_next_attempt_idx")
   @@map("settlements")
   @@schema("payments")
 }

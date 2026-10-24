@@ -25,17 +25,27 @@ export type NotificationTriggerKey =
   | "shipmentCancelledPickupMissedSender"
   | "shipmentCancelledPickupMissedReceiver"
   | "shipmentCancelledPickupMissedCarrier"
+  | "pickupNoShowSender"
+  | "pickupNoShowCarrier"
+  | "pickupNoShowPenaltyDebtCarrier"
+  | "pickupDisputeOpenedSender"
+  | "pickupDisputeOpenedReceiver"
+  | "pickupDisputeOpenedCarrier"
   | "offersNeedReview"
   | "transitAnomalyCheck"
   | "transitAnomalyDisputeWarning"
   | "transitAnomalyDisputeOpenedSender"
   | "transitAnomalyDisputeOpenedReceiver"
   | "transitAnomalyDisputeOpenedCarrier"
+  | "disputeOpenedSender"
+  | "disputeOpenedReceiver"
+  | "disputeOpenedCarrier"
   | "offerCreated"
   | "offerAccepted"
   | "offerSuperseded"
   | "offerRejected"
   | "offerVoidedByShipmentCancellation"
+  | "counterpartyCannotTakeNewShipments"
   | "tripMatch"
   | "tripAutoCreated"
   | "tripDepartureReminder"
@@ -82,6 +92,7 @@ export type NotificationTriggerKey =
   | "fundingReconfirmCarrier"
   | "settlementCreditedCarrier"
   | "settlementProcessedSender"
+  | "settlementDelayedCarrier"
   | "cancellationPenaltyChargedSender"
   | "cancellationPenaltyDebtSender"
   | "cancellationPenaltyCompensationCarrier"
@@ -97,7 +108,8 @@ export type NotificationTriggerKey =
   | "receiverTransferExpiredRequester"
   | "receiverTransferExpiredSender"
   | "receiverTransferCancelled"
-  | "chatMessageReceived";
+  | "chatMessageReceived"
+  | "supportMessageReceived";
 
 export interface NotificationCopy {
   title: string;
@@ -220,6 +232,94 @@ export const NOTIFICATION_TRIGGERS = {
       body: "El envío se canceló: el retiro no se realizó dentro del plazo acordado",
     })
   ),
+  // MOVO-270 (ADR-052): el barrido de retiro no realizado atribuye el no-retiro al transportista
+  // (nunca inició el viaje o su GPS lo ubicó lejos durante toda la ventana). El receptor recibe
+  // el aviso neutro de arriba. `rateCarrier` invita a calificar (detrás de flag hasta MOVO-337).
+  pickupNoShowSender: definition<{ rateCarrier: boolean }>(
+    "shipments",
+    { title: "Envío cancelado", body: "El transportista no se presentó al retiro. Liberamos tu reserva." },
+    ({ rateCarrier }) => ({
+      title: "Envío cancelado",
+      body: rateCarrier
+        ? "El transportista no se presentó al retiro y liberamos tu reserva. Podés calificarlo desde el detalle del envío."
+        : "El transportista no se presentó al retiro y liberamos tu reserva",
+    })
+  ),
+  pickupNoShowCarrier: definition<void>(
+    "shipments",
+    { title: "Envío cancelado", body: "El envío se canceló: no registramos tu llegada al retiro dentro del plazo." },
+    () => ({
+      title: "Envío cancelado",
+      body: "El envío se canceló: no registramos tu llegada al retiro dentro del plazo acordado",
+    })
+  ),
+  pickupNoShowPenaltyDebtCarrier: definition<{ penaltyArs: number }>(
+    "payments",
+    {
+      title: "Registramos una penalidad",
+      body: "No te presentaste al retiro de un envío: la penalidad quedó en tu cuenta.",
+    },
+    ({ penaltyArs }) => ({
+      title: "Registramos una penalidad",
+      body: `No te presentaste al retiro de un envío: sumamos $${formatArs(penaltyArs)} a tu cuenta. Se descuenta de tu próximo cobro.`,
+    })
+  ),
+  // MOVO-270 (ADR-052): el transportista llegó al retiro y no hubo handshake. No se cobra nada
+  // automáticamente: pasa a disputa y se libera la reserva del emisor.
+  pickupDisputeOpenedSender: definition<void>(
+    "shipments",
+    { title: "Envío en disputa", body: "El transportista llegó al retiro pero no se registró la entrega del paquete." },
+    () => ({
+      title: "Envío en disputa",
+      body: "El transportista llegó al punto de retiro pero no se registró la entrega del paquete. Liberamos tu reserva y el caso pasó a revisión",
+    })
+  ),
+  pickupDisputeOpenedReceiver: definition<void>(
+    "shipments",
+    { title: "Envío en disputa", body: "El envío que ibas a recibir no se retiró y pasó a revisión." },
+    () => ({
+      title: "Envío en disputa",
+      body: "El envío que ibas a recibir no se retiró y pasó a revisión",
+    })
+  ),
+  pickupDisputeOpenedCarrier: definition<void>(
+    "shipments",
+    { title: "Envío en disputa", body: "Registramos tu llegada al retiro, pero no hubo entrega del paquete. El caso pasó a revisión." },
+    () => ({
+      title: "Envío en disputa",
+      body: "Registramos tu llegada al retiro, pero no hubo entrega del paquete. El caso pasó a revisión y podés seguir operando",
+    })
+  ),
+  // MOVO-334: disputa abierta por una de las partes desde la app. Las tres partes reciben el aviso,
+  // también quien la abrió (confirmación). Sin el motivo ni la descripción: un push se ve en la
+  // pantalla bloqueada. Las disputas del sistema siguen con `pickupDisputeOpened*`/`transitAnomaly*`.
+  disputeOpenedSender: definition<void>(
+    "disputes",
+    { title: "Envío en disputa", body: "Se abrió una disputa sobre tu envío. Tocá para ver el detalle y cargar tu descargo." },
+    () => ({
+      title: "Envío en disputa",
+      body: "Se abrió una disputa sobre tu envío. Tocá para ver el detalle y cargar tu descargo",
+    })
+  ),
+  disputeOpenedReceiver: definition<void>(
+    "disputes",
+    { title: "Envío en disputa", body: "Se abrió una disputa sobre el envío que recibís. Tocá para ver el detalle." },
+    () => ({
+      title: "Envío en disputa",
+      body: "Se abrió una disputa sobre el envío que recibís. Tocá para ver el detalle y cargar tu descargo",
+    })
+  ),
+  disputeOpenedCarrier: definition<void>(
+    "disputes",
+    {
+      title: "Envío en disputa",
+      body: "Se abrió una disputa sobre un envío que llevás. No podés operar hasta que se resuelva.",
+    },
+    () => ({
+      title: "Envío en disputa",
+      body: "Se abrió una disputa sobre un envío que llevás. Cargá tu descargo: no podés operar hasta que se resuelva",
+    })
+  ),
   // MOVO-258 (D6): llegó el día de retiro de un envío publicado sin oferta aceptada, pero
   // todavía hay ofertas vigentes.
   offersNeedReview: definition<{ pendingCount: number }>(
@@ -315,6 +415,19 @@ export const NOTIFICATION_TRIGGERS = {
     "offers",
     { title: "Tu oferta fue cancelada", body: "El envío ya no está disponible." },
     () => ({ title: "Tu oferta fue cancelada", body: "El envío ya no está disponible." })
+  ),
+  // MOVO-297: a las contrapartes de un envío en curso de alguien sancionado. Genérico a
+  // propósito: no revela el motivo ni que hubo una sanción.
+  counterpartyCannotTakeNewShipments: definition<void>(
+    "shipments",
+    {
+      title: "Novedad en tu envío",
+      body: "Esta persona no puede tomar nuevos envíos por ahora. Tu envío sigue en curso; si preferís, podés cancelarlo.",
+    },
+    () => ({
+      title: "Novedad en tu envío",
+      body: "Esta persona no puede tomar nuevos envíos por ahora. Tu envío sigue en curso; si preferís, podés cancelarlo.",
+    })
   ),
   tripMatch: definition<{ originShort: string; destinationShort: string }>(
     "trips",
@@ -744,6 +857,16 @@ export const NOTIFICATION_TRIGGERS = {
       body: `Te acreditamos $${netAmountArs.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} en tu cuenta de Mercado Pago.`,
     })
   ),
+  // MOVO-213 (AC7): la captura no se pudo completar tras los reintentos y el cobro pasó a revisión manual. Se le
+  // dice al transportista que no es un rechazo y en cuánto se resuelve (`SETTLEMENT_REVIEW_SLA_HOURS`).
+  settlementDelayedCarrier: definition<{ reviewHours: number }>(
+    "payments",
+    { title: "Tu cobro está demorado", body: "Estamos revisando el cobro de tu entrega. Te avisamos apenas se acredite." },
+    ({ reviewHours }) => ({
+      title: "Tu cobro está demorado",
+      body: `Estamos revisando el cobro de tu entrega y lo resolvemos en un plazo de hasta ${reviewHours} ${reviewHours === 1 ? "hora" : "horas"}. Te avisamos apenas se acredite.`,
+    })
+  ),
   settlementProcessedSender: definition<void>(
     "payments",
     { title: "Pago procesado", body: "Tu envío fue entregado y el pago se procesó correctamente." },
@@ -813,6 +936,20 @@ export const NOTIFICATION_TRIGGERS = {
       title: roleLabel ? `${authorName} · ${roleLabel}` : authorName,
       body: count !== undefined && count > 1 ? `${count} mensajes nuevos · ${messageBody}` : messageBody,
     })
+  ),
+  // MOVO-320: respuesta de un agente de Movo en una consulta de soporte. Como el chat (MOVO-301), el texto viaja
+  // en la push; `messageBody` vacío = el agente mandó solo adjuntos. Con una ráfaga (`count` > 1) sale un único resumen.
+  supportMessageReceived: definition<{ agentName?: string; messageBody: string; count?: number }>(
+    "support",
+    { title: "Soporte de Movo", body: "Te avisamos cuando el equipo de Movo responde una consulta tuya." },
+    ({ agentName, messageBody, count }) => {
+      const text = messageBody.trim() === "" ? "Te envió una imagen" : messageBody;
+      const line = agentName ? `${agentName}: ${text}` : text;
+      return {
+        title: "Soporte de Movo",
+        body: count !== undefined && count > 1 ? `${count} mensajes nuevos · ${line}` : line,
+      };
+    }
   ),
   receiverTransferInvited: definition<{ requesterName: string; deadlineHours: number }>(
     "shipments",

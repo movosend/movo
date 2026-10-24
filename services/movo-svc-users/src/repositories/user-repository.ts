@@ -5,6 +5,8 @@ import {
   KycStatus as PrismaKycStatus,
   AccountStatus as PrismaAccountStatus,
 } from "../generated/prisma/client";
+import { escapeLike } from "../utils/escape-like";
+import { VerificationType } from "../models/kyc-verification";
 import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName, effectiveAccountStatus } from "../models/user";
 
 export interface UserRepository {
@@ -15,6 +17,12 @@ export interface UserRepository {
   create(input: CreateUserInput): Promise<User>;
   updateKycStatusIdentity(id: string, status: KycStatus): Promise<User | null>;
   updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null>;
+  /**
+   * MOVO-230: vuelve a `not_started` el caché de KYC de estos usuarios para el tipo dado, solo
+   * si sigue en `pending`. Lo usa la purga de intentos abandonados: sin la fila del intento,
+   * un `pending` en caché ya no apunta a nada. Devuelve cuántos usuarios cambiaron.
+   */
+  resetPendingKycStatus(ids: string[], verificationType: VerificationType): Promise<number>;
   /**
    * MOVO-115: swap atómico de `photo_url` -- lee el valor vigente y lo compara-y-
    * reemplaza en la misma operación (compare-and-swap con reintento si otro
@@ -114,6 +122,12 @@ export interface UserRepository {
    * antes de contarlas. `banned` sí cuenta: es una sanción reversible, no una baja.
    */
   countActiveByIds(ids: string[]): Promise<number>;
+  /**
+   * MOVO-230: fecha de baja de las cuentas dadas de baja entre estos ids, para la purga de
+   * historial de `svc-shipments`. Un id que no está en el mapa (cuenta activa, sancionada o
+   * inexistente) cuenta como no dado de baja.
+   */
+  findDeletionDatesByIds(ids: string[]): Promise<Map<string, Date>>;
 }
 
 type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: true } }>;
@@ -300,6 +314,25 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
       }
     },
 
+    async resetPendingKycStatus(ids: string[], verificationType: VerificationType): Promise<number> {
+      if (ids.length === 0) {
+        return 0;
+      }
+      const pending = KycStatus.PENDING as PrismaKycStatus;
+      const notStarted = KycStatus.NOT_STARTED as PrismaKycStatus;
+      const result =
+        verificationType === "identity"
+          ? await db.user.updateMany({
+              where: { id: { in: ids }, kycStatusIdentity: pending },
+              data: { kycStatusIdentity: notStarted },
+            })
+          : await db.user.updateMany({
+              where: { id: { in: ids }, kycStatusLicense: pending },
+              data: { kycStatusLicense: notStarted },
+            });
+      return result.count;
+    },
+
     async updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null> {
       try {
         const row = await db.user.update({
@@ -472,37 +505,39 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
     },
 
     async search(query: string, excludeUserIds: string[], limit: number): Promise<User[]> {
+      // MOVO-340: cada palabra tiene que aparecer (en cualquier orden) en el nombre
+      // completo, sin distinguir tildes ni mayúsculas. La expresión es la misma del índice
+      // GIN de trigramas de la migración `receiver_search_unaccent_movo_340`.
       const words = query.split(/\s+/).filter(Boolean);
-      const or: Prisma.UserWhereInput[] = [
-        { firstName: { contains: query, mode: "insensitive" } },
-        { lastName: { contains: query, mode: "insensitive" } },
-      ];
-      // "Nombre completo" (AC3 de MOVO-80): con 2+ palabras, además intenta matchear
-      // "firstName lastName" y "lastName firstName" por separado -- cubre el caso real
-      // de búsqueda ("Juan Pérez") sin una raw query concatenando columnas. Limitación
-      // aceptada: nombres de 3+ tokens no se cubren perfecto -- mejora futura con
-      // pg_trgm si el volumen de usuarios lo justifica.
-      const [first, ...restWords] = words;
-      if (first && restWords.length > 0) {
-        const rest = restWords.join(" ");
-        or.push({
-          AND: [{ firstName: { contains: first, mode: "insensitive" } }, { lastName: { contains: rest, mode: "insensitive" } }],
-        });
-        or.push({
-          AND: [{ lastName: { contains: first, mode: "insensitive" } }, { firstName: { contains: rest, mode: "insensitive" } }],
-        });
-      }
+      const fullName = Prisma.sql`users.f_unaccent(lower(u.first_name || ' ' || u.last_name))`;
+      const wordMatches = words.map(
+        (word) => Prisma.sql`${fullName} LIKE '%' || users.f_unaccent(lower(${escapeLike(word)})) || '%'`
+      );
+      const excluded =
+        excludeUserIds.length > 0
+          ? Prisma.sql`AND u.id NOT IN (${Prisma.join(excludeUserIds.map((id) => Prisma.sql`${id}::uuid`))})`
+          : Prisma.empty;
 
-      const rows = await db.user.findMany({
-        // Mismo criterio que `getPublicProfile` (users.service.ts): `deleted` es baja
-        // lógica y se trata como "no existe" hacia afuera; `banned` sí es buscable
-        // (sanción reversible, no una baja voluntaria).
-        where: { AND: [{ id: { notIn: excludeUserIds } }, { status: { not: PrismaAccountStatus.deleted } }, { OR: or }] },
-        include: { roles: true },
-        take: limit,
-        orderBy: { firstName: "asc" },
+      // Mismo criterio que `getPublicProfile` (users.service.ts): `deleted` es baja
+      // lógica y se trata como "no existe" hacia afuera; `banned` sí es buscable
+      // (sanción reversible, no una baja voluntaria).
+      const matches = await db.$queryRaw<{ id: string }[]>`
+        SELECT u.id
+        FROM users.users u
+        WHERE u.status::text <> 'deleted'
+          ${excluded}
+          AND ${Prisma.join(wordMatches, " AND ")}
+        ORDER BY u.first_name ASC, u.id ASC
+        LIMIT ${limit}`;
+      if (matches.length === 0) return [];
+
+      const ids = matches.map((row) => row.id);
+      const rows = await db.user.findMany({ where: { id: { in: ids } }, include: { roles: true } });
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      return ids.flatMap((id) => {
+        const row = byId.get(id);
+        return row ? [toDomainUser(row)] : [];
       });
-      return rows.map(toDomainUser);
     },
 
     async updatePassword(id: string, passwordHash: string): Promise<User | null> {
@@ -541,6 +576,10 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
             // (`deleted+{id}@movo.invalid`) nunca estuvo verificado.
             emailVerified: false,
             emailVerifiedAt: null,
+            // MOVO-230: la baja ya borra los intentos de KYC (Política de Privacidad §7),
+            // así que el caché tampoco conserva el resultado.
+            kycStatusIdentity: KycStatus.NOT_STARTED as PrismaKycStatus,
+            kycStatusLicense: KycStatus.NOT_STARTED as PrismaKycStatus,
           },
           include: { roles: true },
         });
@@ -569,6 +608,20 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         return 0;
       }
       return db.user.count({ where: { id: { in: ids }, status: { not: PrismaAccountStatus.deleted } } });
+    },
+
+    async findDeletionDatesByIds(ids: string[]): Promise<Map<string, Date>> {
+      if (ids.length === 0) {
+        return new Map();
+      }
+      const rows = await db.user.findMany({
+        where: { id: { in: ids }, status: PrismaAccountStatus.deleted },
+        select: { id: true, deletedAt: true, updatedAt: true },
+      });
+      // Las bajas anteriores a MOVO-294 no tienen `deletedAt`. `updatedAt` es igual o
+      // posterior a la baja real, así que la purga puede llegar tarde pero nunca antes de
+      // tiempo. No se persiste como backfill para no deformar la fecha que muestra el panel.
+      return new Map(rows.map((row) => [row.id, row.deletedAt ?? row.updatedAt]));
     },
   };
 }

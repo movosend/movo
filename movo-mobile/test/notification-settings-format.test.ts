@@ -46,8 +46,9 @@ describe("notification-settings-format", () => {
       expect(triggers.every((t) => typeof t.title === "string" && typeof t.body === "string")).toBe(true);
     });
 
-    it("array vacío para una categoría 'Pronto' sin trigger real", () => {
-      expect(triggersForCategory("disputes")).toEqual([]);
+    // MOVO-334: `disputes` era la última categoría "Pronto"; ahora tiene sus avisos de apertura.
+    it("disputes ya trae los avisos de apertura", () => {
+      expect(triggersForCategory("disputes")).toHaveLength(3);
     });
   });
 

@@ -1,7 +1,8 @@
 import React from "react";
 import { Linking, RefreshControl } from "react-native";
 import { render, fireEvent, act } from "@testing-library/react-native";
-import { formatDuration, StopList } from "../components/route/stop-list";
+import { StopList } from "../components/route/stop-list";
+import { formatDuration } from "../src/lib/time-format";
 import { RouteMap } from "../components/route/route-map";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 
@@ -116,7 +117,7 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       );
 
       expect(getByTestId("stop-eta-1").props.children).toMatch(/aprox\.$/);
-      expect(getByTestId("stop-eta-3").props.children).toBe("+1h50min");
+      expect(getByTestId("stop-eta-3").props.children).toBe("+1 h 50 min");
     });
 
     it("AC4: la card ancla muestra la ventana horaria de la parada", async () => {
@@ -559,12 +560,12 @@ describe("Componentes de Ruta (MOVO-207)", () => {
   });
 
   describe("Funciones auxiliares y formato de StopList", () => {
-    it("formatDuration formatea minutos en horas y minutos (ej: 115 min a 1h55min)", () => {
-      expect(formatDuration(115)).toBe("1h55min");
+    it("formatDuration formatea minutos en horas y minutos (MOVO-340: 115 min a 1 h 55 min)", () => {
+      expect(formatDuration(115)).toBe("1 h 55 min");
       expect(formatDuration(45)).toBe("45 min");
-      expect(formatDuration(60)).toBe("1h");
-      expect(formatDuration(120)).toBe("2h");
-      expect(formatDuration(61)).toBe("1h1min");
+      expect(formatDuration(60)).toBe("1 h");
+      expect(formatDuration(120)).toBe("2 h");
+      expect(formatDuration(61)).toBe("1 h 1 min");
     });
 
     it("configura el spinner de refresco del bottom sheet en color negro (#0A0A0B)", async () => {

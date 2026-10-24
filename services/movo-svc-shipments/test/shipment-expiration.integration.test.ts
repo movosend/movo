@@ -139,7 +139,7 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
 
       const result = await service().expireUnpickedAssignedShipments();
 
-      expect(result).toEqual({ expiredCount: 1, errorsCount: 0 });
+      expect(result).toEqual({ expiredCount: 1, disputedCount: 0, errorsCount: 0 });
       expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.CANCELLED);
       expect((await offerRepo.findById(offerId))?.status).toBe(OfferStatus.SHIPMENT_CANCELLED);
       const events = await shipmentRepo.listEvents(shipmentId);

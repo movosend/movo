@@ -28,3 +28,51 @@ describe("avisos de proximidad (MOVO-240)", () => {
     expect(getNotificationCategory("proximity")).toMatchObject({ implemented: true, quietHoursExempt: true });
   });
 });
+
+describe("respuesta de soporte (MOVO-320)", () => {
+  it("va en la categoría support, implementada y que respeta el horario de silencio", () => {
+    expect(notificationTriggerCategory("supportMessageReceived")).toBe("support");
+    expect(getNotificationCategory("support")).toMatchObject({ implemented: true, quietHoursExempt: false });
+  });
+
+  it("muestra el nombre del agente y el texto", () => {
+    expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "Ya lo revisé" })).toEqual({
+      title: "Soporte de Movo",
+      body: "Lucía: Ya lo revisé",
+    });
+  });
+
+  it("sin texto (solo adjuntos) avisa que mandó una imagen", () => {
+    expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "" }).body).toBe(
+      "Lucía: Te envió una imagen"
+    );
+  });
+
+  it("con una ráfaga resume la cantidad y deja el último mensaje", () => {
+    expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "Listo", count: 3 }).body).toBe(
+      "3 mensajes nuevos · Lucía: Listo"
+    );
+  });
+});
+
+describe("settlementDelayedCarrier (MOVO-213)", () => {
+  it("avisa que el cobro está en revisión y en cuánto se resuelve", () => {
+    const rendered = renderNotificationTrigger("settlementDelayedCarrier", { reviewHours: 48 });
+    expect(rendered.title).toBe("Tu cobro está demorado");
+    expect(rendered.body).toContain("plazo de hasta 48 horas");
+    expect(renderNotificationTrigger("settlementDelayedCarrier", { reviewHours: 1 }).body).toContain("hasta 1 hora.");
+  });
+
+  it("va en la categoría de pagos", () => {
+    expect(notificationTriggerCategory("settlementDelayedCarrier")).toBe("payments");
+  });
+});
+
+describe("disputa abierta por una parte (MOVO-334)", () => {
+  it("va en la categoría disputes, ya implementada", () => {
+    expect(notificationTriggerCategory("disputeOpenedSender")).toBe("disputes");
+    expect(notificationTriggerCategory("disputeOpenedReceiver")).toBe("disputes");
+    expect(notificationTriggerCategory("disputeOpenedCarrier")).toBe("disputes");
+    expect(getNotificationCategory("disputes")).toMatchObject({ implemented: true });
+  });
+});

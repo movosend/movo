@@ -81,13 +81,14 @@ describe("NotificationsHubScreen", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/profile/notifications/custody");
   });
 
-  it("una categoría 'Pronto' no tiene toggle funcional", async () => {
-    const { getByTestId } = await render(<NotificationsHubScreen />);
+  // MOVO-334: `disputes` era la última categoría "Pronto"; ya no queda ninguna.
+  it("disputes tiene toggle funcional", async () => {
+    const { getByTestId, queryByTestId } = await render(<NotificationsHubScreen />);
 
-    expect(getByTestId("notifications-hub-row-disputes-pending")).toBeTruthy();
+    expect(queryByTestId("notifications-hub-row-disputes-pending")).toBeNull();
     await fireEvent.press(getByTestId("notifications-hub-row-disputes-toggle"));
 
-    expect(mockMutate).not.toHaveBeenCalled();
+    expect(mockMutate).toHaveBeenCalledWith({ categories: { disputes: false } }, expect.anything());
   });
 
   it("togglear el maestro dispara la mutación con pushEnabled", async () => {

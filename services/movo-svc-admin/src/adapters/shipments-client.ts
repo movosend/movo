@@ -4,6 +4,12 @@ import {
   AdminUserShipmentRow,
   AdminUserShipmentRowPage,
   AdminUserTripPage,
+  AdminChatPage,
+  AdminShipmentDetail,
+  AdminShipmentEvent,
+  AdminShipmentOffer,
+  AdminShipmentPage,
+  AdminShipmentPhoto,
   ChatReportParties,
   ShipmentParties,
 } from "@movo/shared";
@@ -27,6 +33,18 @@ export interface ShipmentsClient extends InternalClient {
   listUserShipments(userId: string, query: AdminUserShipmentsQuery, ctx: RequestContext): Promise<AdminUserShipmentRowPage>;
   listUserTrips(userId: string, query: AdminUserTripsQuery, ctx: RequestContext): Promise<AdminUserTripPage>;
   listUserRatings(userId: string, query: PageParams, ctx: RequestContext): Promise<AdminUserRatingRowPage>;
+  /** `GET /internal/admin/shipments` (MOVO-325): `query` ya viene validada y se reenvía tal cual. */
+  listAdminShipments(query: URLSearchParams, ctx: RequestContext): Promise<AdminShipmentPage>;
+  /** `GET /internal/admin/shipments/:id`. `null` si el envío no existe. */
+  getAdminShipment(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentDetail | null>;
+  /** `GET /internal/admin/shipments/:id/events`. `null` si el envío no existe. */
+  getAdminShipmentEvents(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentEvent[] | null>;
+  /** `GET /internal/admin/shipments/:id/offers`, todas (cerradas incluidas). `null` si el envío no existe. */
+  getAdminShipmentOffers(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentOffer[] | null>;
+  /** `GET /internal/admin/shipments/:id/photos`, con URL firmada de vida corta. `null` si el envío no existe. */
+  getAdminShipmentPhotos(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentPhoto[] | null>;
+  /** `GET /internal/admin/shipments/:id/chat/messages`. `null` si el envío no existe. */
+  getAdminShipmentChat(shipmentId: string, query: URLSearchParams, ctx: RequestContext): Promise<AdminChatPage | null>;
 }
 
 export interface PageParams {
@@ -74,6 +92,37 @@ function queryOf(params: Record<string, string | number | undefined>): string {
   for (const [key, value] of Object.entries(params)) if (value !== undefined) query.set(key, String(value));
   return query.toString();
 }
+
+const isAdminShipmentRow = (item: unknown): boolean =>
+  isRecord(item) && isString(item.id) && isString(item.status) && isRecord(item.sender) && isRecord(item.receiver);
+
+const isEvent = (item: unknown): item is AdminShipmentEvent =>
+  isRecord(item) && isString(item.id) && isString(item.toStatus);
+const isPhoto = (item: unknown): item is AdminShipmentPhoto =>
+  isRecord(item) && isString(item.id) && isString(item.url);
+const isOffer = (item: unknown): item is AdminShipmentOffer =>
+  isRecord(item) && isString(item.id) && isString(item.status) && isNumber(item.priceArs) && isNumber(item.receivedEstimateArs);
+
+const isAdminShipmentPage = (body: unknown): body is AdminShipmentPage =>
+  isRecord(body) &&
+  Array.isArray(body.items) &&
+  body.items.every(isAdminShipmentRow) &&
+  isNullableString(body.nextCursor) &&
+  isRecord(body.counts);
+
+const isAdminShipmentDetail = (body: unknown): body is AdminShipmentDetail =>
+  isAdminShipmentRow(body) && isRecord(body) && isString(body.packageType) && typeof body.weightKg === "number";
+const isEventList = (body: unknown): body is AdminShipmentEvent[] => Array.isArray(body) && body.every(isEvent);
+const isPhotoList = (body: unknown): body is AdminShipmentPhoto[] => Array.isArray(body) && body.every(isPhoto);
+const isOfferList = (body: unknown): body is AdminShipmentOffer[] => Array.isArray(body) && body.every(isOffer);
+
+const isAdminChatPage = (body: unknown): body is AdminChatPage =>
+  isRecord(body) &&
+  Array.isArray(body.items) &&
+  isNullableString(body.nextCursor) &&
+  isString(body.partiesAccess) &&
+  Array.isArray(body.reports) &&
+  isEventList(body.events);
 
 const isShipmentParties = (body: unknown): body is ShipmentParties =>
   isRecord(body) &&
@@ -128,6 +177,46 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
     async listUserRatings(userId, query, ctx) {
       const page = await client.request(`${userPath(userId)}/ratings?${queryOf({ ...query })}`, ctx, { isValid: isRatingPage, notFoundCodes: [] });
       return page ?? { average: null, count: 0, items: [], page: query.page, pageSize: query.pageSize };
+    },
+    async listAdminShipments(query, ctx) {
+      const page = await client.request(`/internal/admin/shipments?${query.toString()}`, ctx, {
+        isValid: isAdminShipmentPage,
+        notFoundCodes: [],
+      });
+      // Sin `notFoundCodes` el cliente base nunca devuelve null (un 404 es una ruta que falta: 502).
+      if (!page) throw new Error("listAdminShipments: respuesta vacía");
+      return page;
+    },
+    getAdminShipment(shipmentId, ctx) {
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}`, ctx, {
+        isValid: isAdminShipmentDetail,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+    },
+    getAdminShipmentEvents(shipmentId, ctx) {
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/events`, ctx, {
+        isValid: isEventList,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+    },
+    getAdminShipmentOffers(shipmentId, ctx) {
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/offers`, ctx, {
+        isValid: isOfferList,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+    },
+    getAdminShipmentPhotos(shipmentId, ctx) {
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/photos`, ctx, {
+        isValid: isPhotoList,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+    },
+    getAdminShipmentChat(shipmentId, query, ctx) {
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/chat/messages${suffix}`, ctx, {
+        isValid: isAdminChatPage,
+        notFoundCodes: ["NOT_FOUND"],
+      });
     },
   };
 }

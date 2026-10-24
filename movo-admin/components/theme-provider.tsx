@@ -47,7 +47,8 @@ function ThemeHotkey() {
         return
       }
 
-      if (event.key.toLowerCase() !== "d") {
+      // El autocompletado del navegador dispara un `keydown` sin `key`.
+      if (typeof event.key !== "string" || event.key.toLowerCase() !== "d") {
         return
       }
 

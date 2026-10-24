@@ -21,6 +21,8 @@ export interface Trip {
   vehicleType: string;
   status: TripStatus;
   cancelledAt: Date | null;
+  /** MOVO-270: cuándo pasó a `active`; `null` si no se inició o se inició antes de esta columna. */
+  startedAt: Date | null;
   /** MOVO-265 (ADR-042): días en que se repite (0 = domingo … 6 = sábado), `null` = no se repite. */
   recurrenceWeekdays: number[] | null;
   /** Último día de la serie (`"YYYY-MM-DD"`, inclusive, calendario argentino). */
@@ -185,6 +187,7 @@ export function mapTrip(row: TripRow & { successor: { id: string } | null }): Tr
     vehicleType: row.vehicleType,
     status: parseTripStatus(row.status),
     cancelledAt: row.cancelledAt,
+    startedAt: row.startedAt,
     recurrenceWeekdays: row.recurrenceWeekdays.length > 0 ? row.recurrenceWeekdays : null,
     // `@db.Date` anclada a medianoche UTC (mismo gotcha que `pickupDate`, MOVO-80).
     recurrenceUntil: row.recurrenceUntil ? row.recurrenceUntil.toISOString().slice(0, 10) : null,

@@ -31,7 +31,11 @@ const ARGON2ID = 2;
 export const DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$RkJWb2lMNzJ2ZzBvV0RzTE4xQ3pndw";
 
 export interface RegisterUserInput {
-  fullName: string;
+  /** MOVO-340: el cliente actual manda nombre y apellido por separado. */
+  firstName?: string;
+  lastName?: string;
+  /** Legado (builds anteriores a MOVO-340), ver `registerNames`. */
+  fullName?: string;
   email: string;
   phone: string;
   password: string;
@@ -126,6 +130,26 @@ export function splitFullName(fullName: string): { firstName: string; lastName: 
     throw new Error("fullName debe tener al menos nombre y apellido");
   }
   return { firstName, lastName: rest.join(" ") };
+}
+
+/**
+ * MOVO-340: nombre y apellido a guardar. Con `firstName`/`lastName` se respetan tal cual
+ * (solo se colapsan espacios), así un nombre compuesto no se corre al apellido; el
+ * `fullName` de los builds viejos se sigue cortando en el primer espacio.
+ */
+export function registerNames(input: Pick<RegisterUserInput, "firstName" | "lastName" | "fullName">): {
+  firstName: string;
+  lastName: string;
+} {
+  if (input.firstName !== undefined && input.lastName !== undefined) {
+    return { firstName: collapseSpaces(input.firstName), lastName: collapseSpaces(input.lastName) };
+  }
+  if (input.fullName !== undefined) return splitFullName(input.fullName);
+  throw new Error("Faltan nombre y apellido");
+}
+
+function collapseSpaces(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
 }
 
 /**
@@ -287,7 +311,7 @@ export function createAuthService(
 
       const email = input.email.trim().toLowerCase();
       const phone = normalizePhoneToE164Ar(input.phone);
-      const { firstName, lastName } = splitFullName(input.fullName);
+      const { firstName, lastName } = registerNames(input);
 
       // Valida y consume el token ANTES de crear el usuario (single-use, AC6 de
       // MOVO-71): si el token es inválido/expirado/ya usado, tira ApiError(401,
@@ -392,7 +416,18 @@ export function createAuthService(
         await sessionRepository.revokeAllForUser(userId);
         throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
       }
-      if (result === "not-found" || result === "hash-mismatch") {
+      if (result === "not-found") {
+        // MOVO-300 AC4: inhabilitar revoca todas las sesiones, así que el refresh de la app
+        // abierta llega acá. Sin este chequeo respondía `AUTH_REFRESH_INVALID` y la app cerraba
+        // la sesión como si hubiera vencido, sin decir por qué. No revela nada nuevo: el estado
+        // de la cuenta ya es público (`PublicProfile.accountStatus`).
+        const owner = await repository.findById(userId);
+        if (owner?.status === AccountStatus.BANNED) {
+          assertAccountCanSignIn(owner.status);
+        }
+        throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
+      }
+      if (result === "hash-mismatch") {
         throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
       }
 

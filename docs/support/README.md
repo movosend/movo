@@ -53,6 +53,29 @@ quiere igual, que devuelva esa misma constante).
 tipo y tamaño declarados; cada adjunto se usa una vez y solo por quien lo creó. Los mensajes devuelven
 `{ id, contentType, width?, height?, url }` con `url` firmada y de vida corta, generada al leer. Prefijo privado `support/<conversationId>/…`.
 
+Implementado en `svc-shipments` (MOVO-321):
+
+- **Servicio reutilizable** `modules/support/support-attachments.service.ts`: `create` (valida y firma el `PUT`), `assertUsable` (cantidad,
+  dueño, uso único, conversación y `HEAD` real contra el bucket) y `viewsFor` (URLs de `GET` de 15 min, firmadas en cada lectura, nunca
+  persistidas). Ninguna decide el acceso a la conversación: quien llama ya la autorizó. El lado del usuario la usa con `uploaderKind: "user"`;
+  `POST /admin/support/attachments` (MOVO-322) la tiene que usar con `uploaderKind: "staff"`, y `appendStaffMessage` ya acepta `attachmentIds`
+  (también en notas). Un adjunto del usuario no lo puede usar un agente, ni al revés.
+- **Tabla** `shipments.support_attachments`: la fila nace al pedir la URL, sin mensaje; al enviar el mensaje se asocia en la misma
+  transacción con un `UPDATE … WHERE message_id IS NULL`, así el uso único es atómico. La regla de "se puede usar" es un único predicado SQL
+  (`usablePredicate`) que comparten la verificación previa y el claim; el claim además rechaza más de 4 o repetidos, así ningún camino se
+  la saltea. `support_messages.attachment_count` alimenta `lastMessage.hasAttachments`.
+- **Tope**: hasta `SUPPORT_ATTACHMENT_MAX_PENDING` (20) adjuntos pedidos y sin usar por quien sube; el siguiente da 429
+  `SUPPORT_ATTACHMENT_PENDING_LIMIT`.
+- **Fan-out**: si firmar las URLs falla después de guardar el mensaje, se difunde sin adjuntos (la app los recupera con `GET /messages`) y el
+  request no falla.
+- **Primera consulta del usuario** (sin `conversationId`, punto abierto de MOVO-324, opción A): el objeto va a `support/pending/<userId>/…` y,
+  al crear la consulta, la fila queda en esa conversación **sin mover el objeto** (moverlo pediría `CopyObject` y no cambia la privacidad).
+- **Huérfanos**: `plugins/support-attachment-sweep.ts`, con la ventana, el intervalo y el interruptor de las fotos huérfanas (`ORPHAN_PHOTO_*`,
+  sin env vars nuevas). En dos pasos: marca la fila (`deleting_at`, ya no se puede asociar), borra el objeto y recién entonces la fila; si S3
+  falla, la marca queda y la próxima corrida reintenta. Es la única limpieza: no hay regla de lifecycle sobre `support/*`, porque el objeto
+  de `pending` no se mueve al usarse y una regla por prefijo borraría fotos en uso.
+- Retención: se conservan mientras la conversación (no hay purga de soporte).
+
 ## Tiempo real
 
 El panel no puede usar el JWT en el navegador (cookies `__Host-*` httpOnly) ni mandar `Authorization` en un `WebSocket`, y Vercel no
@@ -71,49 +94,78 @@ hospeda WS. Diseño:
    Alcanza con retener unos minutos de eventos.
 6. Los eventos nunca llevan notas internas hacia el usuario; el canal del usuario (mobile, MOVO-319) es otro.
 
-## Pendiente de backend (para 321/322)
+## Soporte del lado del usuario (MOVO-320, ADR-051)
 
-Todo lo anterior. El panel funciona hoy contra `MOVO_ADMIN_MOCK=1` (ver `movo-admin/CLAUDE.md`, entrada MOVO-323).
+El usuario le escribe a Movo desde la app (MOVO-324). Vive en `svc-shipments` (módulo `modules/support/`), sobre el chat existente
+(ADR-040/046): mismo `ChatHub` (otra clave de sala, `support:<id>`), mismo handshake WS, mismo filtro de lenguaje. Los tipos son
+`shared/movo-shared/src/types/support.ts` (se importan por `@movo/shared/src/types/support`; ojo que `SupportUserMessage` es del panel: el
+mensaje que ve el usuario es `SupportUserFacingMessage`). El agente **no** entra por acá: usa `/admin/support/*`.
 
----
-
-# Soporte: lado del usuario (MOVO-324)
-
-Contrato propuesto por `movo-mobile` (prototipo `Movo App Soporte.dc.html`) para MOVO-320 (conversaciones, API del usuario, tiempo real y push)
-y MOVO-321 (adjuntos). Los tipos viven en `shared/movo-shared/src/types/support.ts`; si algo no sirve del lado del servicio se cambian ahí y en
-`movo-mobile/src/api/support-mock.ts` en el mismo PR. Con `EXPO_PUBLIC_SUPPORT_MOCK=1` la app responde desde el mock (sin WebSocket).
-
-## Rutas (`/api/v1/support/*`, usuario autenticado)
-
-Solo ve las consultas propias; una ajena responde `404 SUPPORT_CONVERSATION_NOT_FOUND` (no `403`).
+### Rutas (`/api/v1/support/*`, usuario autenticado; solo ve las suyas, ajena o inexistente = 404)
 
 | Método y ruta | Cuerpo / query | Respuesta | Notas |
 | --- | --- | --- | --- |
-| `POST conversations` | `SupportCreateBody { topic, body, clientMessageId, shipmentId?, attachmentIds? }` | `201`/`200` `SupportCreateResult { conversation, message }` | Idempotente por `clientMessageId`. `shipmentId` ajeno → `422 SUPPORT_SHIPMENT_NOT_PARTY` |
-| `GET conversations` | | `SupportListResponse` | La más reciente primero. `lastMessage` nunca es nota ni evento `system` |
-| `GET conversations/:id/messages` | `cursor`, `limit` | `SupportThreadPage { items, nextCursor, conversation }` | Más recientes primero. Sin notas internas. `conversation` es para el encabezado (se abre también desde la push) |
-| `POST conversations/:id/messages` | `SupportSendUserBody { body, clientMessageId, attachmentIds? }` | `SupportThreadMessage` (201/200) | `body` vacío solo con adjuntos. Sobre `resolved` la reabre (evento `system` "Se reabrió la conversación"); `awaiting_user` → `open` |
-| `POST conversations/:id/read` | `{}` | `{ readAt }` | Baja el `unreadCount` |
-| `GET shipments` | `cursor`, `limit` | `SupportShipmentOptionsPage` | Envíos de los que el usuario es parte **en cualquier rol** (`/shipments/mine` solo trae emisor/receptor), con código, estado, ruta y rol |
-| `POST attachments` | `SupportUserAttachmentCreateBody { contentType, sizeBytes, conversationId? }` | `SupportAttachmentCreateResult` | La app sube con `PUT uploadUrl`. Sin `conversationId` (primera consulta) el objeto va a un prefijo privado "pendiente" y se asocia al crear |
-| `GET conversations/:id` (upgrade WS) | | eventos `SupportRealtimeEvent` | Ver abajo |
+| `POST conversations` | `SupportCreateBody` (`topic`, `body`, `clientMessageId`, `shipmentId?`, `attachmentIds?`) | `SupportCreateResult` (201; 200 si se reenvía el `clientMessageId`) | Crea la consulta y su primer mensaje en una transacción. Con `shipmentId` el usuario tiene que ser parte (emisor, transportista, receptor o ex receptor): si no, **422** `SUPPORT_SHIPMENT_NOT_PARTY` (inexistente da lo mismo). `attachmentIds`: subidos sin `conversationId` (ver Adjuntos) |
+| `GET conversations` | | `SupportListResponse` | La de actividad más reciente primero (hasta 100). `lastMessage` nunca es una nota ni un evento `system`; `unreadCount` cuenta solo respuestas del equipo |
+| `GET conversations/:id/messages` | `limit` (1-100, 30), `cursor` | `SupportUserMessagesPage` | Más recientes primero, cursor opaco (mismo formato que el chat). Trae `conversation` para el encabezado. Abrir la primera página marca lo recibido |
+| `POST conversations/:id/messages` | `SupportSendUserBody` | `SupportUserFacingMessage` (201 / 200) | Idempotente por `clientMessageId`. Sobre una `resolved` la reabre; sobre una `awaiting_user` la pasa a `open` |
+| `GET shipments` | `limit` (1-50, 20), `cursor` | `SupportShipmentOptionsPage` | MOVO-324. Envíos de los que el usuario es parte, en cualquier rol y estado, para vincular a una consulta nueva (`GET /shipments/mine` no trae al transportista). `route` es "Ciudad → Ciudad" |
+| `POST attachments` | `SupportUserAttachmentCreateBody` (`contentType`, `sizeBytes`, `conversationId?`, `width?`, `height?`) | `SupportAttachmentCreateResult` (201) | MOVO-321. Con `conversationId`, la consulta tiene que ser del usuario (404 si no); sin él, para una consulta nueva. La app hace `PUT uploadUrl` con el mismo `Content-Type` |
+| `POST conversations/:id/read` | | `{ readAt }` | Baja el `unreadCount` a cero |
+| `GET conversations/:id` (WS) | header `Authorization: Bearer` | frames de abajo | Mismo mecanismo que `/track` y el chat del envío |
 
-## Reglas
+Texto de 1 a `SUPPORT_MESSAGE_MAX_LENGTH` (2000) caracteres, recortado (vacío si el mensaje lleva imágenes, MOVO-321). Una URL de
+adjunto vencida se renueva volviendo a pedir la página de mensajes: cada lectura firma URLs nuevas. Las palabras ofensivas se tapan con asteriscos y el mensaje
+sale con `moderated: true`; a los de un agente no se les aplica el filtro. No hay chequeo de bloqueo (ADR-026): la otra parte es Movo.
 
-- `SupportThreadMessage.kind` es `user | agent | system`. **Nunca `note`**: ni en la API, ni en el WS, ni en la push (regresión explícita en los cuatro caminos).
-- `authorName` del equipo es el nombre de pila ("Lucía"). El texto de `system` lo arma el servidor en tercera persona ("Lucía Ferreyra tomó la conversación").
-- `moderated: true` en un mensaje del usuario cuando el filtro tapó palabras; la app muestra `CHAT_MODERATION_WARNING`. A los del equipo no se les aplica.
-- `deliveryStatus` solo en los propios: `sent | read` (`read` cuando un agente abrió la conversación). Un solo "otro lado", sin `delivered`.
-- Adjuntos: `image/jpeg|png|webp`, ≤ 5 MB, hasta 4 por mensaje (`SUPPORT_ATTACHMENT_*`); la app reduce a 1600 px antes de subir. URL de lectura firmada de ~15 min:
-  si venció, la app vuelve a pedir la página de mensajes (no hay endpoint de renovación).
-- Errores: `SUPPORT_CONVERSATION_NOT_FOUND` (404), `SUPPORT_ATTACHMENT_INVALID` (422), `SUPPORT_SHIPMENT_NOT_PARTY` (422).
+### Estados
 
-## Tiempo real y push
+`open` (le toca al equipo) → `awaiting_user` (respondió un agente) → vuelve a `open` cuando el usuario escribe. Una `resolved` se **reabre**
+si el usuario escribe: pasa a `open`, se limpia `resolved_at` y se guarda un mensaje `system` "Se reabrió la conversación" (queda a
+continuación del mensaje del usuario). La conversación no se borra ni se archiva al resolverse y no hay job de purga: el plazo de retención
+está pendiente de definir con el equipo legal (MOVO-224).
 
-- `GET /support/conversations/:id` (WebSocket, JWT en el handshake). Eventos: `support_message { message }`, `support_status { conversationId, status }`,
-  `support_receipt { conversationId, upTo }` y un frame `{ type: "connected" }` al conectar (la app vuelve a pedir la primera página).
-- Cierres: `4001` token (la app renueva y reconecta), `4003` sin permiso y `4004` no existe (terminales; con `4004` la app avisa "Esta consulta ya no está
-  disponible" y vuelve a la lista). La app cierra el socket con la pantalla en segundo plano para que el servidor mande la push.
-- Push `support_message` con `data: { type, conversationId }`, título "Soporte de Movo", cuerpo "Lucía: …" ("Te envió una imagen" si no hay texto). Tocarla abre la
-  consulta encima de "Mis consultas".
+### WebSocket (`GET /api/v1/support/conversations/:id`)
 
+Frames: `{ "type": "connected", "conversationId" }` al aceptar (la app refresca la primera página), y después `support_message`
+(`{ message }`), `support_status` (`{ conversationId, status }`) y `support_receipt` (`{ conversationId, upTo }`: un agente leyó hasta
+`upTo`, la app actualiza los tildes). El cliente no manda nada. Cierres: `4001` token inválido o vencido (la app renueva y reconecta; también
+se corta sola al `exp` del JWT), `4003` sin permiso (un admin que no es el dueño: los agentes usan el canal del panel), `4004` la
+conversación no existe o no es del usuario (terminal). Heartbeat de 30 s. Registro en memoria y una sola réplica (ADR-022).
+
+### Notas internas
+
+Una nota (`kind = note`) **nunca** llega al usuario: se excluye en la query del historial (lista blanca de `kind`), en la lista (último mensaje
+y no leídos), en el WebSocket y en la push. Todo mensaje hacia el usuario pasa por `toUserFacingMessage` (`domain/support-rules.ts`), que
+devuelve `null` para una nota. Cada camino tiene su test de regresión en `test/support.integration.test.ts`.
+
+### Push
+
+Cuando contesta un agente (no una nota, no un evento `system`) y el usuario no tiene la conversación abierta por WebSocket:
+título "Soporte de Movo", cuerpo "Lucía: …" (o "Lucía: Te envió una imagen" si no hay texto), `data: { type: "support_message", conversationId }`,
+categoría `support` (respeta el toggle maestro, el de la categoría y el horario de silencio, MOVO-245). Ráfagas como en ADR-046: la primera
+avisa enseguida y las de los 30 s siguientes salen en un único resumen ("N mensajes nuevos · …") que se omite si ya se leyó o si el usuario
+abrió la conversación.
+
+### Lo que le falta al lado del agente (MOVO-322)
+
+`createSupportService` expone `publishStaffMessage(conversation, message)`, `publishStatus(conversation)` y `publishAgentRead(conversationId,
+userId, upTo)`: lo que hay que llamar después de guardar una respuesta, un cambio de estado o una lectura del agente para que le llegue al
+usuario (WebSocket y push). Hoy nada las llama desde un endpoint; los tests las usan para simular al agente. Tampoco hay todavía un
+endpoint interno para que `svc-admin` se suscriba a los mensajes del usuario (los agentes los ven por `GET events`, que implementa 322).
+
+### Probarlo a mano
+
+```bash
+# abrir una consulta (por el gateway; $TOKEN es el access token del usuario)
+curl -s -X POST "$API/api/v1/support/conversations" -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"topic":"payments","body":"Me cobraron dos veces","clientMessageId":"'$(uuidgen)'"}'
+# escuchar la conversación
+wscat -c "wss://$HOST/api/v1/support/conversations/$ID" -H "authorization: Bearer $TOKEN"
+```
+
+## Pendiente de backend (para 321/322)
+
+El lado del usuario (320) está implementado, ver la sección anterior.
+
+Todo lo de la bandeja del agente. El panel funciona hoy contra `MOVO_ADMIN_MOCK=1` (ver `movo-admin/CLAUDE.md`, entrada MOVO-323).

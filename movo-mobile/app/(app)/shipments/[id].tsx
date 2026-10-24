@@ -75,7 +75,6 @@ import {
   formatPickupDateLabel,
   formatPriceArs,
   formatShipmentPrice,
-  formatTimeHHMM,
   liveTrackingAvailability,
   liveTrackingPendingPollInterval,
   receiverConfirmationStatus,
@@ -83,6 +82,7 @@ import {
   shipmentDetailCta,
   type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
+import { formatTimeRange } from "../../../src/lib/time-format";
 import { fundingProcessingPollInterval, fundsStatusVariant } from "../../../src/lib/funds-status-format";
 
 type DetailTab = "detalle" | "timeline";
@@ -332,27 +332,41 @@ export default function ShipmentDetailScreen() {
   const contextualCta =
     fundingReplacesCta ? null : detailCta;
 
-  // El precio pactado (`agreedPriceArs`) es el bruto que paga el emisor; el
-  // transportista ve lo que recibe aprox. después de la comisión de Movo (AC3) y del
-  // estimado de MP (MOVO-225), el mismo monto que en el resto de las pantallas.
-  const carrierReceivedArs =
-    isCarrier && !isCancelled && shipment?.agreedPriceArs != null
-      ? Math.max(0, estimateReceivedArs(
+  // El precio pactado (`agreedPriceArs`) es el bruto que paga el emisor. El transportista ve lo que recibe:
+  // con el hold ya creado y el fee que informó MP, el monto EXACTO que calcula el backend con los datos del hold
+  // (`carrierReceivedArs`, ya sin su descuento por deuda); antes, el estimado "aprox." de comisión de Movo (AC3)
+  // y de MP (MOVO-225), como en "Mis ofertas".
+  const carrierViewsPrice = isCarrier && !isCancelled && shipment?.agreedPriceArs != null;
+  const carrierReceivedIsExact = carrierViewsPrice && shipment?.carrierReceivedArs != null;
+  const estimatedBeforeDebtArs =
+    carrierViewsPrice && shipment?.agreedPriceArs != null
+      ? estimateReceivedArs(
           computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
           shipment.agreedPriceArs,
-        ) - (shipment.debtDiscount?.amountArs ?? 0))
+        )
       : null;
+  const carrierReceivedArs = carrierReceivedIsExact
+    ? (shipment?.carrierReceivedArs ?? null)
+    : estimatedBeforeDebtArs !== null
+      ? Math.max(0, estimatedBeforeDebtArs - (shipment?.debtDiscount?.amountArs ?? 0))
+      : null;
+  // Lo que recibiría sin el descuento por deuda (el "antes" del desglose).
+  const carrierBeforeDebtArs = carrierReceivedIsExact
+    ? (carrierReceivedArs ?? 0) + (shipment?.debtDiscount?.amountArs ?? 0)
+    : estimatedBeforeDebtArs;
 
   // MOVO-271 AC5: emisor y receptor ven el seguimiento (o su placeholder) mientras hay
   // transportista y el envío no cerró; el transportista tiene su propio mapa de ruta.
   const liveTracking =
     shipment !== undefined && !isCarrier && shipment.carrierId
-      ? liveTrackingAvailability(shipment.status)
+      ? liveTrackingAvailability(shipment.status, shipment.carrierTripActive)
       : null;
 
   // Espejo para el transportista: si su ubicación ya se comparte con emisor y receptor.
   const carrierSharing =
-    shipment !== undefined && isCarrier && shipment.carrierId ? liveTrackingAvailability(shipment.status) : null;
+    shipment !== undefined && isCarrier && shipment.carrierId
+      ? liveTrackingAvailability(shipment.status, shipment.carrierTripActive)
+      : null;
 
   // MOVO-284: el chat existe desde que hay transportista (y queda legible tras la entrega); lo ven las tres partes.
   const chatBase = shipment !== undefined ? chatAvailability(shipment.status, shipment.carrierId) : null;
@@ -675,8 +689,7 @@ export default function ShipmentDetailScreen() {
                     <Text className="mb-1 font-sans-medium text-caption uppercase text-ink-700">Retiro</Text>
                     <Text className="font-sans-semibold text-[15px] text-ink-950">{pickupDateLabel}</Text>
                     <Text className="mt-0.5 font-sans text-small text-ink-700">
-                      {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
-                      {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
+                      {formatTimeRange(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd)}
                     </Text>
                   </View>
                   <PackageSummaryCard shipment={shipment} testID="shipment-detail-package" />
@@ -691,8 +704,7 @@ export default function ShipmentDetailScreen() {
                       </View>
                       <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
                       <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
-                        {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
-                        {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
+                        {formatTimeRange(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd)}
                       </Text>
                     </View>
                     {hidePriceCard ? null : (
@@ -700,7 +712,7 @@ export default function ShipmentDetailScreen() {
                         <GridPattern />
                         <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
                           {carrierReceivedArs !== null
-                            ? "Recibís aprox."
+                            ? carrierReceivedIsExact ? "Recibís" : "Recibís aprox."
                             : hasAgreedPrice
                               ? "Precio pactado"
                               : "Costo aproximado"}
@@ -736,7 +748,7 @@ export default function ShipmentDetailScreen() {
                       <HighDemandHelp testID="shipment-detail-high-demand-help" />
                     </View>
                   ) : null}
-                  {!hidePriceCard && carrierReceivedArs !== null && shipment.agreedPriceArs != null ? <DebtDiscount beforeArs={estimateReceivedArs(computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()), shipment.agreedPriceArs)} amountArs={shipment.debtDiscount?.amountArs} /> : null}
+                  {!hidePriceCard && carrierReceivedArs !== null && carrierBeforeDebtArs !== null ? <DebtDiscount exact={carrierReceivedIsExact} beforeArs={carrierBeforeDebtArs} amountArs={shipment.debtDiscount?.amountArs} /> : null}
 
                   <View>
                     <Eyebrow>Paquete</Eyebrow>

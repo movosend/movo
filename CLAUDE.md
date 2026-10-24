@@ -123,7 +123,10 @@ habilitantes del transportista · 037 saga de asignación · 038 transferencia d
 panel · 044 cuenta corriente del usuario · 045 salida de `in_transit` demorado ·
 046 push de chat · 047 (propuesto) penalidad de cancelación ·
 048 cuenta cobradora de Movo por credenciales · 049 sanciones de cuenta: suspensión,
-inhabilitación y marca en Redis
+inhabilitación y marca en Redis ·
+050 plazo del hold de MP (5 días) y N=3 · 051 soporte al usuario sobre el chat existente ·
+052 atribución del no-retiro por GPS · 053 oferta del recargo por demanda: solo `declared` ·
+054 disputa desde `completed` (entidad de disputa, ventana de 7 días)
 
 ## Convenciones de código
 
@@ -153,6 +156,9 @@ inhabilitación y marca en Redis
   Squash merge siempre. Al menos un integrante distinto al autor revisa antes de
   aprobar, más el auto-review de GitHub Copilot/agentes de IA para calidad y
   vulnerabilidades.
+- Un endpoint nuevo que inicie un compromiso nuevo (crear, ofertar, aceptar, declarar un viaje) se suma a
+  `SUSPENDED_BLOCKED_ROUTES` (`gateway/src/config/routes-map.ts`, MOVO-298), o una cuenta suspendida lo usa sin que
+  falle ningún test. Revisarlo en el PR.
 - `.env.example` se actualiza en el mismo PR que introduce la variable — un PR que
   agrega una env var sin documentarla no se aprueba.
 - **Una env var nueva se toca en tres lugares, siempre en el mismo PR**: (1)
@@ -283,7 +289,7 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
   bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049 (012-018 ya están pegados en
+  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049, 050, 051, 052, 053, 054 (012-018 ya están pegados en
   el doc de Sprint 0, confirmado al buscar dónde iba ADR-022 — la lista anterior acá
   estaba desactualizada). **ADR-022 tiene su contenido completo ya redactado**, en un
   doc aparte (`ADR-022 - Canal de tiempo real (WebSocket nativo) - pegar en Sprint 0`,
@@ -312,6 +318,14 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   se renueva con `services/movo-svc-payments/scripts/collector-oauth.mjs`), `MP_WEBHOOK_SECRET` (webhook registrado en el
   panel de `movosend`) y `ALERT_*` (Telegram, grupo "Movo Team"). En prod falta cargar las credenciales productivas del panel
   de la cuenta real de Movo S.A. y borrar el legado `MERCADOPAGO_ACCESS_TOKEN`.
+- **Adjuntos de soporte en `movo-infra` (MOVO-321)**: falta en el bucket de `svc-shipments` el prefijo privado `support/*` (sin lectura
+  pública) con `s3:PutObject`/`GetObject`/`DeleteObject` para el rol de la EC2, CORS con `PUT` para `admin.movosend.app` y los previews de
+  Vercel (el panel sube desde el navegador). **Sin regla de lifecycle sobre `support/*`**: el objeto de `support/pending/…` no se mueve
+  al usarse, así que una regla por prefijo borraría fotos en uso; los huérfanos los borra solo el sweep. Sin `DeleteObject`, el sweep
+  deja los adjuntos marcados y reintenta en cada corrida.
+- **`s3:DeleteObject` sobre `shipments/*` sin confirmar en `movo-infra`** (MOVO-124/MOVO-230): lo necesitan el sweep de
+  fotos huérfanas y la purga de historial vencido de `svc-shipments`. Sin el permiso, los dos fallan, loguean y
+  reintentan en cada corrida sin borrar nada.
 - **Credenciales de Mercado Pago de prod sin cargar** (MOVO-267): dev ya tiene todas (app
   sandbox `movosend`); en prod faltan `MP_CLIENT_ID`, `MP_CLIENT_SECRET`, `MP_REDIRECT_URI`,
   `MP_WEBHOOK_SECRET` y `MP_TOKEN_ENCRYPTION_KEY` (app de la cuenta real de Movo).
@@ -320,6 +334,20 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   de negocio en el barrel en vez de en el `envSchema` de un servicio), todavía no
   escrito. `MOVO_COMMISSION_RATE` (15%) está confirmado; `MP_TRANSACTION_FEE_RATE` es un
   estimado a propósito, ver la entrada de MOVO-225 más abajo.
+
+- **MOVO-340 en dev/prod**: la migración `receiver_search_unaccent_movo_340` de `svc-users` crea `unaccent` y `pg_trgm`
+  (`CREATE EXTENSION`); confirmar que el usuario de `migrate deploy` tiene ese permiso antes del deploy. El registro del mobile
+  nuevo manda `firstName`/`lastName`, que un `svc-users` anterior rechaza: el backend se despliega antes del build. Después,
+  correr `npm run user:name -- list` y corregir con `set` las cuentas con nombre compuesto mal partido.
+
+### MOVO-215 — Plazo del hold de MP y N de la saga (spike cerrado)
+
+El sandbox de MP no vence holds: dos holds siguieron `authorized` ~188 h (13/10 al 21/10),
+más que los 5 y 7 días documentados. Se queda el mínimo documentado: `MP_HOLD_VALIDITY_DAYS=5`
+(`svc-payments`) y `FUNDING_NEAR_PICKUP_DAYS=3` (`svc-shipments`), sin cambio de defaults
+(ADR-050, `docs/payments/adr-050-plazo-del-hold.md`; medición en
+`docs/payments/mercadopago-spike/HOLD-EXPIRY-MEASUREMENT.md`). Sin confirmar: el
+`status_detail` de un hold vencido que asume el webhook de MOVO-268 (`cancelled`+`expired`).
 
 ### MOVO-225 — Comisión de Mercado Pago: estimado, no valor contractual
 

@@ -2,14 +2,15 @@ import { Text, View } from "react-native";
 import type { ActiveShipmentSummary } from "../../src/api/shipments-client";
 import type { ActiveShipmentRole } from "../../src/lib/active-shipment-format";
 import { ActiveShipmentCard } from "./active-shipment-card";
-import { ACTIVE_CARD_SKELETON_HEIGHT, HomeSectionError, HomeSectionSkeleton } from "./home-section-states";
+import { ACTIVE_CARD_SKELETON_HEIGHT, HomeSectionSkeleton } from "./home-section-states";
 
 /**
  * Sección de envíos activos de un rol ("Estoy enviando"/"Voy a recibir", MOVO-193
  * AC1) — no se renderiza si no hay envíos (AC2), nunca un placeholder vacío.
  *
- * MOVO-168: mientras la query carga muestra el skeleton de su card, y si falla un aviso
- * con "Reintentar" local. Con envíos ya cargados la lista manda, aunque un refetch falle.
+ * MOVO-168: mientras la query carga muestra el skeleton de su card. Si falla sin datos no se
+ * muestra: no sabemos si la sección te corresponde, y el aviso de falla es uno solo para
+ * todo Inicio (`home.tsx`). Con envíos ya cargados la lista manda, aunque un refetch falle.
  */
 export function RoleSection({
   title,
@@ -18,8 +19,6 @@ export function RoleSection({
   chatByShipment,
   testID,
   isLoading = false,
-  isError = false,
-  onRetry,
 }: {
   title: string;
   role: ActiveShipmentRole;
@@ -28,23 +27,13 @@ export function RoleSection({
   chatByShipment?: Record<string, { unreadCount: number }>;
   testID?: string;
   isLoading?: boolean;
-  isError?: boolean;
-  onRetry?: () => void;
 }) {
   if (shipments.length === 0) {
     if (isLoading) {
       return <HomeSectionSkeleton testID={`${testID}-skeleton`} cardHeight={ACTIVE_CARD_SKELETON_HEIGHT} />;
     }
-    if (isError && onRetry) {
-      return (
-        <HomeSectionError
-          testID={`${testID}-error`}
-          title={title}
-          message="No pudimos cargar esta sección."
-          onRetry={onRetry}
-        />
-      );
-    }
+    // Fallida y sin datos no sabemos si la sección te corresponde: no se muestra. El aviso
+    // de falla es uno solo para todo Inicio (`HomeSectionsError` en `home.tsx`).
     return null;
   }
 

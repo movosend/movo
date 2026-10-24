@@ -52,13 +52,20 @@ export class InsufficientCreationPhotosError extends Error {
  * cancelar, y si no hace ninguna de las dos antes de
  * `receiverRedesignationDeadline` el barrido lo pasa a `cancelled`.
  *
- * `cancelled`, `disputed` y `completed` no tienen salida en este módulo — los
- * dos primeros son terminales por diseño
+ * `assigned -> disputed` (MOVO-270, ADR-052): el barrido de retiro no realizado tiene evidencia
+ * GPS de que el transportista llegó al retiro y no hubo handshake. El hold se libera antes de
+ * transicionar y esa disputa no bloquea al transportista (`hasOpenDisputeAsCarrier` excluye el
+ * motivo `pickup_no_show`, MOVO-334).
+ *
+ * `completed -> disputed` (MOVO-334, ADR-054): el handshake de entrega captura el hold y pasa el
+ * envío a `completed` en el momento (MOVO-212), así que un reclamo post-entrega casi nunca
+ * encuentra el envío en `delivered`. Solo la usa una de las partes dentro de los
+ * `DISPUTE_WINDOW_DAYS` desde `deliveredAt` (`disputes.service.ts`); ningún barrido la usa.
+ *
+ * `cancelled` y `disputed` no tienen salida en este módulo — son terminales por diseño
  * (MOVO-79/MOVO-208; la resolución de una disputa, a cargo de un admin
- * MOVO-30/MOVO-32, todavía no tiene ticket que defina a qué estado vuelve,
- * así que no se modela acá una transición inventada); `completed` es
- * terminal por definición (MOVO-208: entrega confirmada Y pago liberado, no
- * hay nada después).
+ * MOVO-34, todavía no define a qué estado vuelve,
+ * así que no se modela acá una transición inventada).
  *
  * `assigned_unfunded` (MOVO-208, hold anclado cerca del retiro según
  * MOVO-12): ruta ALTERNATIVA a `assignment_pending` cuando el retiro es a
@@ -96,6 +103,7 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
     ShipmentStatus.ASSIGNED_UNFUNDED, // MP canceló/venció el hold ya confirmado: el emisor reconfirma el pago (MOVO-210)
     ShipmentStatus.PUBLISHED, // el transportista se baja del envío: se libera el hold y se republica (MOVO-310)
     ShipmentStatus.CANCELLED, // emisor cancela, con penalización
+    ShipmentStatus.DISPUTED, // el transportista llegó al retiro y no hubo handshake (barrido, MOVO-270)
   ]),
   [ShipmentStatus.IN_TRANSIT]: new Set([
     ShipmentStatus.DELIVERED, // entrega confirmada (handshake)
@@ -105,7 +113,9 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
     ShipmentStatus.COMPLETED, // captura y split de MP confirmados (MOVO-212)
     ShipmentStatus.DISPUTED, // reclamo post-entrega (MOVO-30)
   ]),
-  [ShipmentStatus.COMPLETED]: new Set(),
+  [ShipmentStatus.COMPLETED]: new Set([
+    ShipmentStatus.DISPUTED, // reclamo post-entrega con el cobro ya capturado, dentro de la ventana (MOVO-334)
+  ]),
   [ShipmentStatus.REJECTED_BY_RECEIVER]: new Set([
     ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, // emisor elige otro receptor (MOVO-253)
     ShipmentStatus.CANCELLED, // emisor cancela o vence el plazo para elegir otro (MOVO-253)
@@ -169,10 +179,10 @@ export const ACTIVE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
  * iniciarse con "N paquetes" y mostrar "Sin paradas asignadas".
  *
  * `assignment_pending`/`assigned_unfunded` quedan afuera a propósito: el hold de fondos
- * todavía no existe (MOVO-210) y el retiro los rechaza. Consumidores: `start()` y el
- * conteo `executablePackagesCount` (`trip-repository.ts`), la ruta del viaje
- * (`listActiveShipments(..., tripId)` + `aggregateCarrierStops`) y el tracking
- * (`TRACKABLE_SHIPMENT_STATUSES`).
+ * todavía no está confirmado (MOVO-210) y el retiro los rechaza. Consumidores: `start()` y el
+ * conteo `executablePackagesCount` (`trip-repository.ts`) y la ruta del viaje
+ * (`listActiveShipments(..., tripId)` + `aggregateCarrierStops`). El tracking tiene sus
+ * propios sets (`TRACKABLE_SHIPMENT_STATUSES`/`POSITION_PERSISTABLE_SHIPMENT_STATUSES`).
  */
 export const TRIP_EXECUTABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.ASSIGNED,
@@ -184,16 +194,28 @@ export function isExecutableTripPackage(status: ShipmentStatus): boolean {
 }
 
 /**
- * MOVO-251: estados en los que un envío es elegible para tracking en vivo (GPS en tránsito o
- * transportista en camino hacia el retiro). A diferencia de `ACTIVE_SHIPMENT_STATUSES`, excluye
- * `ASSIGNED_UNFUNDED`, ya que un envío sin hold de fondos confirmado todavía no es trackeable.
- * MOVO-277: es el mismo set que `TRIP_EXECUTABLE_SHIPMENT_STATUSES` -- un paquete que el
- * viaje puede ejecutar es exactamente uno que se puede trackear.
- * TODO(MOVO-270): si el tracking se habilita antes del retiro (`assignment_pending`), separar
- * este set de `TRIP_EXECUTABLE_SHIPMENT_STATUSES` en vez de ampliar el compartido: ampliarlo
- * arrastraría también a `start()`, la ruta del viaje y `executablePackagesCount`.
+ * MOVO-251/MOVO-270: estados en los que se ACEPTA y DIFUNDE la posición del transportista (con
+ * el viaje `active`): en camino al retiro (`assigned`) o con el paquete (`in_transit`). Lista
+ * propia, separada de `TRIP_EXECUTABLE_SHIPMENT_STATUSES` aunque hoy coincidan, para que un
+ * cambio en uno no arrastre al otro. `assignment_pending`/`assigned_unfunded` quedan afuera a
+ * propósito (decisión de MOVO-270): sin hold confirmado el retiro se rechaza, así que mostrarle
+ * al emisor un transportista "en camino" sería engañoso.
+ *
+ * Que una posición se acepte no quiere decir que se guarde: ver
+ * `POSITION_PERSISTABLE_SHIPMENT_STATUSES`.
  */
-export const TRACKABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = TRIP_EXECUTABLE_SHIPMENT_STATUSES;
+export const TRACKABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.ASSIGNED,
+  ShipmentStatus.IN_TRANSIT,
+];
+
+/**
+ * MOVO-270 (AC2, decisión de MOVO-271): la traza en `carrier_positions` solo se guarda con
+ * custodia -- desde el handshake de retiro hasta el de entrega (ADR-023). Antes del retiro la
+ * posición se difunde y actualiza la última conocida en Redis, pero no se escribe; lo único que
+ * queda del tramo previo es la evidencia agregada de `pickup_evidence` (ADR-052).
+ */
+export const POSITION_PERSISTABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [ShipmentStatus.IN_TRANSIT];
 
 /**
  * MOVO-202/AC6: estados elegibles para la purga periódica de `carrier_positions` --

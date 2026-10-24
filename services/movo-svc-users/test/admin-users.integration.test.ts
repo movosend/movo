@@ -260,7 +260,7 @@ describe("Búsqueda, ficha y acciones de soporte del panel (MOVO-294)", () => {
       expect(moderation.reports.received).toHaveLength(1);
       expect(moderation.reports.received[0]).toMatchObject({
         reason: "harassment",
-        counterpart: { id: other.id, fullName: "Juan Bordino" },
+        counterpart: { id: other.id, fullName: "Juan Bordino", photoUrl: null },
         extraEntries: 1,
         photos: 1,
       });

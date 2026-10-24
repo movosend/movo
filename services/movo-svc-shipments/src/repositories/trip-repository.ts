@@ -255,6 +255,12 @@ export interface TripRepository {
     scope?: "upcoming" | "history",
   ): Promise<{ items: TripWithAcceptedPackages[]; total: number }>;
   update(id: string, input: UpdateTripInput, options?: TripUpdateOptions): Promise<Trip>;
+  /**
+   * MOVO-297: corta toda serie recurrente vigente del transportista, sea cual sea el estado de su
+   * ocurrencia actual (un viaje `active` también la sigue generando al terminar). No cancela ni toca
+   * el viaje: solo deja de repetirlo. Devuelve los ids de las series cortadas.
+   */
+  stopRecurrenceForCarrier(carrierId: string): Promise<string[]>;
   delete(id: string): Promise<void>;
   findDeclaredTripsMatchingShipment(params: MatchShipmentParams): Promise<Trip[]>;
   /**
@@ -323,7 +329,7 @@ export interface TripRepository {
    */
   expireActiveWithoutPackages(limit: number): Promise<string[]>;
   /**
-   * MOVO-138 (ADR-025): transportistas DISTINTOS con un viaje `declared`/`active` que
+   * MOVO-138 (ADR-025, ajustado por ADR-053): transportistas DISTINTOS con un viaje `declared` que
    * sale dentro de la ventana dada y cuyo trayecto pasa a `radiusKm` o menos del
    * retiro -- la mitad "oferta" del `demandContext` de `POST /quote`. Un transportista
    * con dos viajes en la semana cuenta una vez.
@@ -661,10 +667,9 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       // cada `createShipment`, antes de la llamada a pricing.
       const rows = await db.trip.findMany({
         where: {
-          // MOVO-258 NO toca este conteo a propósito (ADR-025): un `active` ya no puede
-          // tomar paquetes, pero cambiarlo mueve el recargo por alta demanda -- pendiente
-          // de decisión en MOVO-270.
-          status: { in: [TripStatus.DECLARED, TripStatus.ACTIVE] },
+          // MOVO-270 (ADR-053): solo `declared`. Un viaje `active` ya no toma paquetes
+          // (MOVO-258), así que no es oferta para el envío que se está cotizando.
+          status: TripStatus.DECLARED,
           departureAt: { gte: params.departureFrom, lte: params.departureTo },
           AND: tripCorridorContainsPointWhere(params.lat, params.lng, params.radiusKm),
         },
@@ -720,7 +725,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         result = await db.$transaction(async (tx) => {
           const updated = await tx.trip.updateMany({
             where: { id, status: TripStatus.DECLARED },
-            data: { status: TripStatus.ACTIVE },
+            data: { status: TripStatus.ACTIVE, startedAt: new Date() },
           });
           if (updated.count > 0) {
             // MOVO-258 (D5): los paquetes quedan fijos al iniciar -- las ofertas todavía
@@ -781,6 +786,20 @@ export function createTripRepository(db: PrismaClient): TripRepository {
 
       const row = await db.trip.findUniqueOrThrow({ where: { id }, include: TRIP_SERIES_INCLUDE });
       return mapTrip(row);
+    },
+
+    async stopRecurrenceForCarrier(carrierId: string): Promise<string[]> {
+      const heads = await db.trip.findMany({
+        where: { carrierId, ...ACTIVE_SERIES_HEAD_WHERE },
+        select: { id: true },
+      });
+      if (heads.length === 0) return [];
+      // Mismo filtro en el UPDATE: si una serie ya se cortó o tiene sucesor entre el SELECT y acá, no matchea.
+      await db.trip.updateMany({
+        where: { id: { in: heads.map((head) => head.id) }, ...ACTIVE_SERIES_HEAD_WHERE },
+        data: { recurrenceWeekdays: [], recurrenceUntil: null },
+      });
+      return heads.map((head) => head.id);
     },
 
     async countActiveSeries(carrierId: string): Promise<number> {

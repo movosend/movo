@@ -378,6 +378,32 @@ describe("POST /payments/webhooks/mercadopago (MOVO-268)", () => {
       expect((await notifications())[0].outcome).toBe("no_change");
     });
 
+    // MOVO-285 (review de PR #301): el fee real de MP, igual que la tarjeta, se completa aunque el estado no cambie.
+    it("MOVO-285: estado sin cambios (no_change): igual completa el fee de MP que faltaba", async () => {
+      await seedHold({ status: "authorized" });
+      mp.getPayment.mockImplementation(async () =>
+        payment({ charges_details: [{ name: "mercadopago_fee", accounts: { from: "collector" }, amounts: { original: 47.15 } }] } as Partial<PaymentResponse>)
+      );
+
+      await notify();
+
+      const row = await hold();
+      expect(row.status).toBe("authorized");
+      expect(Number(row.mpFeeArs)).toBe(47.15);
+      expect((await notifications())[0].outcome).toBe("no_change");
+    });
+
+    it("MOVO-285: no pisa un fee que el hold ya tenía", async () => {
+      await seedHold({ status: "authorized", mpFeeArs: 40 });
+      mp.getPayment.mockImplementation(async () =>
+        payment({ charges_details: [{ name: "mercadopago_fee", accounts: { from: "collector" }, amounts: { original: 47.15 } }] } as Partial<PaymentResponse>)
+      );
+
+      await notify();
+
+      expect(Number((await hold()).mpFeeArs)).toBe(40);
+    });
+
     it("no pisa una tarjeta que el hold ya tenía", async () => {
       await seedHold({ cardBrand: "master", cardLast4: "1881" });
       mp.getPayment.mockImplementation(async () => withCard());

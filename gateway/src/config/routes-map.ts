@@ -120,6 +120,22 @@ export function getServiceRoutes(env: {
       prefix: "/receiver-transfers",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
+    // MOVO-334 (ADR-054): expediente y descargos de una disputa. Abrirla cuelga de /shipments.
+    // Protegido por defecto; sin `allowedRoles` (también la abre o contesta un receptor).
+    {
+      prefix: "/disputes",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+    },
+
+    // MOVO-320 (ADR-051): consultas del usuario a soporte (crear, listar, historial, escribir, leído) y su canal
+    // WebSocket (`GET /support/conversations/:id`, un upgrade). Protegido por defecto y sin `allowedRoles`: pedir
+    // ayuda no depende de ser emisor o transportista (un receptor también escribe). El agente NO entra por acá:
+    // usa `/admin/support/*`.
+    {
+      prefix: "/support",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+      websocket: true,
+    },
 
     // payments service (MOVO-267). Emisor (paga) y transportista (vincula su
     // cuenta de MP y cobra). Las rutas que se llaman sin JWT van en
@@ -429,4 +445,46 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       perClient: true,
     },
   ];
+}
+
+export interface SuspendedBlockedRoute {
+  method: PublicRoute["method"];
+  /** Path sin `API_PREFIX`; `:param` matchea exactamente un segmento. */
+  path: string;
+}
+
+/**
+ * MOVO-298: acciones que una cuenta SUSPENDIDA no puede hacer (`403 ACCOUNT_SUSPENDED`).
+ * Una cuenta inhabilitada no usa esta lista: se le rechaza cualquier request.
+ *
+ * Es una lista de BLOQUEADAS y no de permitidas a propósito: si un endpoint faltara en una
+ * lista de permitidas, un paquete ya en curso podría quedar trabado (un handshake, una
+ * posición GPS, el chat, una cancelación o el pago de un envío ya asignado tienen que seguir
+ * andando para cerrar lo que la cuenta ya empezó). Por eso la regla es: **un endpoint nuevo
+ * que inicie un compromiso nuevo tiene que sumarse acá**. Lo que solo cierra o continúa un
+ * compromiso existente no va.
+ *
+ * Verificada contra las rutas reales de `svc-shipments` (oferta: `PATCH /offers/:id`).
+ */
+const SUSPENDED_BLOCKED_ROUTES: SuspendedBlockedRoute[] = [
+  { method: "POST", path: "/shipments" },
+  { method: "POST", path: "/shipments/quote" },
+  { method: "POST", path: "/shipments/:id/offers" },
+  { method: "PATCH", path: "/offers/:id" },
+  { method: "POST", path: "/offers/:id/accept" },
+  { method: "POST", path: "/trips" },
+  { method: "POST", path: "/shipments/:id/receiver-transfer" },
+  // Aceptar ser receptor (de un envío nuevo o de una transferencia) también es un compromiso nuevo.
+  { method: "POST", path: "/shipments/:id/accept" },
+  { method: "POST", path: "/receiver-transfers/:id/accept" },
+];
+
+const suspendedBlockedMatchers = SUSPENDED_BLOCKED_ROUTES.map((route) => ({
+  method: route.method,
+  pattern: new RegExp(`^${route.path.replace(/:[^/]+/g, "[^/]+")}/?$`),
+}));
+
+export function isSuspendedBlockedRoute(method: string, path: string): boolean {
+  const upper = method.toUpperCase();
+  return suspendedBlockedMatchers.some((m) => m.method === upper && m.pattern.test(path));
 }

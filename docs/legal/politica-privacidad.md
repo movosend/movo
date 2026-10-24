@@ -1,7 +1,7 @@
 # Política de Privacidad de MOVO
 
 **Versión**: 0.2 (borrador de trabajo)
-**Última actualización**: 2026-10-07
+**Última actualización**: 2026-10-21
 **Vigencia**: aún no publicada / no vigente
 
 > ## ⚠️ Aviso académico — leer antes de usar este documento
@@ -159,16 +159,16 @@ Compartimos datos con los siguientes proveedores, únicamente en la medida
 necesaria para prestar el servicio, y bajo sus propias políticas de
 privacidad y medidas de seguridad:
 
-| Proveedor                     | Qué le compartimos                                                        | Para qué                                                                                        |
-| ----------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| **Didit.me**                  | Documento de identidad, selfie/liveness, licencia de conducir             | Verificación de identidad (KYC) — ver sección 3                                                 |
-| **Twilio**                    | Número de teléfono                                                        | Envío de códigos de verificación por SMS                                                        |
-| **Resend**                    | Dirección de email                                                        | Envío de emails transaccionales (verificación, notificaciones)                                  |
-| **Google (Maps Platform)**    | Direcciones de retiro/entrega (texto y coordenadas)                       | Conversión de direcciones en coordenadas y cálculo de rutas/distancias para el motor de precios |
-| **Mercado Pago**              | Datos necesarios para procesar el pago y el split entre las partes        | Procesamiento de pagos, retención de fondos (hold) y liquidación al Transportista               |
-| **Amazon Web Services (AWS)** | Fotos de perfil y de paquetes; datos de cuenta y de la aplicación         | Alojamiento de la aplicación y almacenamiento de archivos                                       |
-| **Cloudflare**                | Resolución DNS del tráfico hacia nuestros servidores                      | Enrutamiento y protección básica de red                                                         |
-| **Vercel**                    | Código y tráfico de nuestros sitios web                                   | Alojamiento de los frontends web                                                                |
+| Proveedor                                         | Qué le compartimos                                                                       | Para qué                                                                                        |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| **Didit.me**                                      | Documento de identidad, selfie/liveness, licencia de conducir                            | Verificación de identidad (KYC) — ver sección 3                                                 |
+| **Twilio**                                        | Número de teléfono                                                                       | Envío de códigos de verificación por SMS                                                        |
+| **Resend**                                        | Dirección de email                                                                       | Envío de emails transaccionales (verificación, notificaciones)                                  |
+| **Google (Maps Platform)**                        | Direcciones de retiro/entrega (texto y coordenadas)                                      | Conversión de direcciones en coordenadas y cálculo de rutas/distancias para el motor de precios |
+| **Mercado Pago**                                  | Datos necesarios para procesar el pago y el split entre las partes                       | Procesamiento de pagos, retención de fondos (hold) y liquidación al Transportista               |
+| **Amazon Web Services (AWS)**                     | Fotos de perfil y de paquetes; datos de cuenta y de la aplicación                        | Alojamiento de la aplicación y almacenamiento de archivos                                       |
+| **Cloudflare**                                    | Resolución DNS del tráfico hacia nuestros servidores                                     | Enrutamiento y protección básica de red                                                         |
+| **Vercel**                                        | Código y tráfico de nuestros sitios web                                                  | Alojamiento de los frontends web                                                                |
 | **Google Analytics** _(candidata, no integrada)_  | Datos de navegación en nuestros sitios web, si se integra (ver sección 11)               | Analítica de uso del sitio                                                                      |
 | **Microsoft Clarity** _(candidata, no integrada)_ | Datos de navegación e interacción en nuestros sitios web, si se integra (ver sección 11) | Analítica de uso del sitio                                                                      |
 
@@ -199,16 +199,16 @@ calcular rutas, procesar pagos y alojar la aplicación).
 
 ## 7. Cuánto tiempo conservamos tus datos
 
-| Dato                                               | Plazo de retención propuesto                                                                                                                                                | Motivo                                                                                                                                                                                                     |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Datos de cuenta (nombre, contacto, foto, DNI)      | Mientras la cuenta esté activa                                                                                                                                              | Necesarios para operar                                                                                                                                                                                     |
-| Resultado de verificación KYC                      | Mientras la cuenta esté activa + 2 años desde la baja                                                                                                                       | Trazabilidad ante disputas/fraude                                                                                                                                                                          |
-| Historial de envíos (ruta, precio, fotos, eventos) | Mientras la cuenta esté activa + 5 años desde la baja                                                                                                                       | Antecedente para disputas, reputación y eventuales requerimientos fiscales/legales; alineado al plazo genérico de prescripción de acciones del Código Civil y Comercial (Art. 2560)                        |
-| Ubicación GPS en tiempo real                       | Hasta 30 días desde que el envío se cierra (entregado, cancelado o rechazado); con una disputa abierta, hasta que se resuelva. Se borra al dar de baja la cuenta            | Evidencia ante disputas sobre el traslado; no se usa con fines analíticos ni de perfilado                                                                                                                  |
-| Calificaciones y comentarios                       | Indefinidamente mientras ambas cuentas existan (son parte del historial de reputación público)                                                                              | Confianza entre usuarios de la plataforma                                                                                                                                                                  |
-| Sesión activa                                      | Se renueva periódicamente y se revoca automáticamente ante actividad sospechosa                                                                                             | Seguridad de la sesión                                                                                                                                                                                     |
-| Logs de servidor                                   | Rotación automática, no se conservan indefinidamente                                                                                                                        | Operación/debugging                                                                                                                                                                                        |
-| Datos tras la baja de cuenta                       | **Anonimizados** (nombre/teléfono/email sobrescritos): el registro deja de ser identificable, salvo lo que deba conservarse por obligación legal (ej. comprobantes de pago) | Derecho de supresión (Ley 25.326, Art. 16) — implementado como anonimización en vez de borrado físico total, para preservar la integridad del historial de otros usuarios (ej. calificaciones ya emitidas) |
+| Dato                                                        | Plazo de retención propuesto                                                                                                                                                                | Motivo                                                                                                                                                                                                     |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Datos de cuenta (nombre, contacto, foto, DNI)               | Mientras la cuenta esté activa                                                                                                                                                              | Necesarios para operar                                                                                                                                                                                     |
+| Resultado de verificación KYC                               | Mientras la cuenta esté activa; se borra al dar de baja la cuenta. Un intento de verificación que no llegó a un resultado se borra a los 30 días                                            | Habilitarte a operar como Transportista y trazabilidad ante disputas/fraude                                                                                                                                |
+| Historial de envíos y viajes (ruta, precio, fotos, eventos) | Mientras alguna de las partes del envío tenga la cuenta activa + 5 años desde la baja de la última de ellas (ver nota abajo); los viajes declarados, 5 años desde la baja del Transportista | Antecedente para disputas, reputación y eventuales requerimientos fiscales/legales; alineado al plazo genérico de prescripción de acciones del Código Civil y Comercial (Art. 2560)                        |
+| Ubicación GPS en tiempo real                                | Hasta 30 días desde que el envío se cierra (entregado, cancelado o rechazado); con una disputa abierta, hasta que se resuelva. Se borra al dar de baja la cuenta                            | Evidencia ante disputas sobre el traslado; no se usa con fines analíticos ni de perfilado                                                                                                                  |
+| Calificaciones y comentarios                                | Indefinidamente mientras ambas cuentas existan (son parte del historial de reputación público)                                                                                              | Confianza entre usuarios de la plataforma                                                                                                                                                                  |
+| Sesión activa                                               | Se renueva periódicamente y se revoca automáticamente ante actividad sospechosa                                                                                                             | Seguridad de la sesión                                                                                                                                                                                     |
+| Logs de servidor                                            | Rotación automática, no se conservan indefinidamente                                                                                                                                        | Operación/debugging                                                                                                                                                                                        |
+| Datos tras la baja de cuenta                                | **Anonimizados** (nombre/teléfono/email sobrescritos): el registro deja de ser identificable, salvo lo que deba conservarse por obligación legal (ej. comprobantes de pago)                 | Derecho de supresión (Ley 25.326, Art. 16) — implementado como anonimización en vez de borrado físico total, para preservar la integridad del historial de otros usuarios (ej. calificaciones ya emitidas) |
 
 **Nota de transparencia sobre la baja de cuenta**: cuando pedís la baja de tu
 cuenta (Perfil → Cuenta y seguridad → Eliminar cuenta), tu nombre, teléfono y
@@ -218,26 +218,20 @@ te lo indicamos en el momento con un mensaje explícito.
 
 **Nota sobre el historial de envíos compartido**: un envío involucra al menos
 a dos usuarios (Emisor y Transportista, más el Receptor). Si uno de ellos da
-de baja su cuenta antes de que venza el plazo de retención, su parte de los
-datos se anonimiza, pero el registro del envío en sí puede persistir mientras
-la otra parte lo necesite como antecedente (por ejemplo, para sostener su
-propia calificación o una disputa en curso).
+de baja su cuenta, su parte de los datos se anonimiza, pero el registro del
+envío en sí persiste mientras la otra parte lo necesite como antecedente (por
+ejemplo, para sostener su propia calificación o una disputa en curso). El
+registro se borra por completo, fotos incluidas, cuando todas las partes del
+envío dieron de baja su cuenta y pasaron 5 años desde la baja de la última de
+ellas. Los comprobantes de pago se conservan aparte por obligación legal.
 
-**Nota sobre registros incompletos**: si nunca terminás de registrarte
-(por ejemplo, verificás el teléfono por OTP pero abandonás el flujo antes de
-crear la cuenta, o iniciás el KYC de Transportista y no lo completás), los
-datos ya cargados hasta ese punto quedan sujetos a los mismos plazos y
-mecanismos de esta tabla — hoy no existe una purga automática diferenciada
-para registros incompletos, es trabajo pendiente (ver el mismo estado de
-MOVO-230 más abajo).
+**Nota sobre registros incompletos**: si nunca terminás de registrarte, el
+código de verificación de tu teléfono se descarta solo a los pocos minutos. Si
+iniciás la verificación de identidad de Transportista y no la completás, el
+intento se borra automáticamente a los 30 días.
 
-El proceso automático que hace cumplir estos plazos (purga del resultado de
-KYC vencido, purga/anonimización del historial de envíos vencido, y de
-registros incompletos) está trackeado como trabajo pendiente en MOVO-230 — el
-compromiso de plazos de esta tabla es real, pero su cumplimiento automático
-todavía no está implementado. Mientras esa issue no cierre, cualquier pedido
-de supresión fuera de estos plazos se atiende igual de forma manual ante un
-reclamo
+Estos plazos se cumplen con procesos automáticos que corren todos los días.
+Cualquier pedido de supresión anterior a ellos se atiende ante un reclamo
 concreto (sección 8).
 
 ## 8. Tus derechos (ARCO) y cómo ejercerlos

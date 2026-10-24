@@ -1,4 +1,7 @@
+import type { PlacePrediction } from "@movo/shared/dist/types/places";
 import { httpClient } from "./http-client";
+
+export type { PlacePrediction };
 
 /**
  * Contrato acordado con el proxy nuevo de `movo-svc-users` (paralelo a MOVO-83,
@@ -8,11 +11,6 @@ import { httpClient } from "./http-client";
  * de una lista de direcciones completas, en vez de cargar calle/número/ciudad/CP a
  * mano por separado.
  */
-export interface PlacePrediction {
-  placeId: string;
-  description: string;
-}
-
 export interface PlaceDetails {
   formattedAddress: string;
   lat: number;

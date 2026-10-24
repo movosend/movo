@@ -47,9 +47,25 @@ export interface AuthHooks {
    * mandar a login es responsabilidad de quien registra el hook (`auth-store.ts`), no
    * de esta capa. */
   onAuthFailure: () => Promise<void>;
+  /** MOVO-300: el gateway respondió `403 ACCOUNT_DISABLED` (la cuenta se inhabilitó con la
+   * sesión abierta). Cerrar la sesión con ese motivo es del store, como `onAuthFailure`. */
+  onAccountDisabled: () => Promise<void>;
 }
 
 let authHooks: AuthHooks | null = null;
+
+/** MOVO-300: listener de `403 ACCOUNT_SUSPENDED`. Separado de `AuthHooks` porque lo que hace
+ * (refrescar el perfil propio) necesita el `QueryClient`, que vive en React y no en el store. */
+let accountSuspendedListener: (() => void) | null = null;
+
+export function registerAccountSuspendedListener(
+  listener: () => void,
+): () => void {
+  accountSuspendedListener = listener;
+  return () => {
+    if (accountSuspendedListener === listener) accountSuspendedListener = null;
+  };
+}
 
 /** `auth-store.ts` lo llama una vez al definirse — mantiene la capa de red
  * desacoplada del store de estado (Zustand) en vez de importarlo acá. */
@@ -180,19 +196,40 @@ export async function request<T>(
     authHooks
   ) {
     const error = await parseErrorBody(response);
-    if (error.code === "AUTH_TOKEN_EXPIRED") {
+    // `AUTH_TOKEN_INVALID` incluye un token revocado (`user-revoked-at` del gateway): cambio
+    // de contraseña, baja o inhabilitación de la cuenta (MOVO-300). El refresh decide: si la
+    // sesión sigue viva emite un token nuevo, y si no, falla y se cierra la sesión. Antes la
+    // app se quedaba con la sesión abierta y todos los requests en 401.
+    if (error.code === "AUTH_TOKEN_EXPIRED" || error.code === "AUTH_TOKEN_INVALID") {
       try {
         await refreshTokens();
       } catch (refreshError) {
         // El refresh en sí falló (token inválido/reusado, cuenta suspendida) — se
         // propaga el error del refresh, no el 401 original, para que el caller sepa
         // que fue un fallo de sesión y no un error de negocio del endpoint que llamó.
-        await authHooks.onAuthFailure();
+        // `ACCOUNT_DISABLED` ya cerró la sesión con su motivo (bloque del 403, abajo).
+        if (!(refreshError instanceof ApiError && refreshError.code === "ACCOUNT_DISABLED")) {
+          await authHooks.onAuthFailure();
+        }
         throw refreshError;
       }
       // Reintento único con el token nuevo — `isRetry: true` evita un segundo ciclo de
       // refresh si por algún motivo el retry también devuelve 401.
       return request<T>(path, options, true);
+    }
+    throw error;
+  }
+
+  // MOVO-300 (AC3/AC4): sanciones de cuenta que aplica el gateway (MOVO-298) en cualquier
+  // request con sesión. Se avisa y se relanza: el caller igual recibe el error y muestra su
+  // mensaje (`friendlyErrorMessage`). Incluye el refresh, que responde `ACCOUNT_DISABLED`
+  // para una cuenta inhabilitada.
+  if (response.status === 403 && usedAutoAttachedSession) {
+    const error = await parseErrorBody(response);
+    if (error.code === "ACCOUNT_SUSPENDED") {
+      accountSuspendedListener?.();
+    } else if (error.code === "ACCOUNT_DISABLED") {
+      await authHooks?.onAccountDisabled();
     }
     throw error;
   }

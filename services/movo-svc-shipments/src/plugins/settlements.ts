@@ -63,6 +63,7 @@ export default fp(async (app: FastifyInstance, opts: SettlementsPluginOptions = 
       claimNotificationOnce: async (key, ttlSeconds) =>
         (await app.redis.set(`notified:${key}`, "1", "EX", ttlSeconds, "NX")) === "OK",
       retryState: createRedisRetryState(app),
+      reviewHours: app.config.SETTLEMENT_REVIEW_SLA_HOURS,
     })
   );
 });

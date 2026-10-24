@@ -11,8 +11,10 @@ import realtimePlugin from "./plugins/realtime";
 import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
+import supportAttachmentSweepPlugin from "./plugins/support-attachment-sweep";
 import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
 import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sweep";
+import historyRetentionSweepPlugin from "./plugins/history-retention-sweep";
 import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
 import pickupMissedSweepPlugin from "./plugins/pickup-missed-sweep";
 import transitAnomalySweepPlugin from "./plugins/transit-anomaly-sweep";
@@ -20,7 +22,7 @@ import tripDepartureReminderSweepPlugin from "./plugins/trip-departure-reminder-
 import fundingSweepPlugin from "./plugins/funding-sweep";
 import settlementsPlugin from "./plugins/settlements";
 import settlementSweepPlugin from "./plugins/settlement-sweep";
-import settlementRoutes, { SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
+import settlementRoutes, { internalSettlementRoutes, SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
 import fundingRoutes, { internalFundingRoutes, FundingRoutesOptions } from "./modules/funding/funding.routes";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import ledgerOriginsRoutes from "./modules/shipments/ledger-origins.routes";
@@ -35,12 +37,14 @@ import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracki
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
 import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
 import chatRoutes, { ChatRoutesOptions } from "./modules/chat/chat.routes";
+import supportRoutes, { SupportRoutesOptions } from "./modules/support/support.routes";
 import receiverTransfersRoutes, {
   ReceiverTransfersRoutesOptions,
   shipmentReceiverTransferRoutes,
 } from "./modules/receiver-transfers/receiver-transfers.routes";
+import { disputeRoutes, DisputesRoutesOptions, shipmentDisputeRoutes } from "./modules/disputes/disputes.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
-import { UsersClient } from "./adapters/users-client";
+import { UserDeletionClient, UsersClient } from "./adapters/users-client";
 import { PaymentsClient } from "./adapters/payments-client";
 import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
@@ -48,6 +52,7 @@ import { NotificationsClient } from "./adapters/notifications-client";
 import { PricingClient } from "./adapters/pricing-client";
 import { PricingLogisticsClient } from "./adapters/pricing-logistics-client";
 import { FundsReleaseNotifier } from "./adapters/funds-release-notifier";
+import { AlertNotifier } from "./adapters/alert-notifier";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -70,6 +75,10 @@ export interface BuildAppOptions {
   chatNow?: () => Date;
   /** Agenda el resumen de avisos de una ráfaga de chat (MOVO-301); solo tests, para no esperar la ventana real. */
   chatSchedulePush?: (run: () => void, delayMs: number) => void;
+  /** Reloj de las conversaciones de soporte (MOVO-320), solo tests. */
+  supportNow?: () => Date;
+  /** Agenda el resumen de avisos de una ráfaga de soporte (MOVO-320, ADR-046); solo tests. */
+  supportSchedulePush?: (run: () => void, delayMs: number) => void;
   /** Override solo para tests de integración — evita depender de un
    * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
    * `usersClient`. */
@@ -78,11 +87,18 @@ export interface BuildAppOptions {
   sweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
   orphanPhotoSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de adjuntos de soporte huérfanos (MOVO-321). */
+  supportAttachmentSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de retiro vencido en background. */
   pickupExpirySweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de purga de posiciones GPS en
    * background (MOVO-202). */
   carrierPositionPurgeSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar la purga de historial de envíos vencido (MOVO-230). */
+  historyRetentionSweepEnabled?: boolean;
+  /** Override solo para tests de integración -- evita depender de un `movo-svc-users` real
+   * para las fechas de baja (MOVO-230), mismo criterio que `usersClient`. */
+  userDeletionClient?: UserDeletionClient;
   /** Override para habilitar/deshabilitar el sweep de viajes declared vencidos en
    * background (MOVO-238). */
   tripExpirySweepEnabled?: boolean;
@@ -104,6 +120,10 @@ export interface BuildAppOptions {
   /** Override solo para tests -- canal de tiempo real (MOVO-201/ADR-022), evita
    * depender de Postgres real para probar el rechazo de una conexión WS. */
   shipmentRepository?: ShipmentRepository;
+  /** Override solo para tests -- alerta al equipo al abrirse una disputa (MOVO-334). */
+  alertNotifier?: AlertNotifier;
+  /** Reloj de la ventana para abrir una disputa (MOVO-334, ADR-054), solo tests. */
+  disputesNow?: () => Date;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -162,6 +182,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
   });
+  app.register(supportAttachmentSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.supportAttachmentSweepEnabled !== undefined ? { enabled: opts.supportAttachmentSweepEnabled } : {}),
+  });
   app.register(pickupExpirySweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
@@ -171,6 +195,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.carrierPositionPurgeSweepEnabled !== undefined
       ? { enabled: opts.carrierPositionPurgeSweepEnabled }
       : {}),
+  });
+  app.register(historyRetentionSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.userDeletionClient ? { deletionClient: opts.userDeletionClient } : {}),
+    ...(opts.historyRetentionSweepEnabled !== undefined ? { enabled: opts.historyRetentionSweepEnabled } : {}),
   });
   app.register(tripExpirySweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
@@ -282,7 +311,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // MOVO-288: partes de un envío o de un reporte de chat, para la regla de conflicto de
   // interés de movo-svc-admin. Interno.
-  app.register(adminInternalRoutes, { prefix: "/internal" });
+  // MOVO-325: también listado, detalle, eventos, fotos y chat de los envíos para el panel.
+  // MOVO-297: y los efectos de una sanción (retiro de actividad abierta y avisos).
+  app.register(adminInternalRoutes, {
+    prefix: "/internal",
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+  });
 
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
   // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.
@@ -303,6 +339,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-212 AC10: `GET /shipments/:id/settlement`, el pago del envío según el rol.
   const settlementRouteOpts: SettlementRoutesOptions = { prefix: "/shipments" };
   app.register(settlementRoutes, settlementRouteOpts);
+  // MOVO-213: aviso interno de svc-payments (cobro demorado / acreditado por un reintento).
+  app.register(internalSettlementRoutes, { prefix: "/internal" });
 
   // MOVO-201/ADR-022: canal de tiempo real (@fastify/websocket) -- mismo prefix
   // "/shipments" que shipmentsRoutes/handshakeRoutes. Reemplaza la PoC de MOVO-200 --
@@ -321,6 +359,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
   };
   app.register(positionsRoutes, positionsRouteOpts);
+
+  // MOVO-334 (ADR-054): apertura de disputas (`/shipments/:id/disputes`) y expediente/descargos
+  // (`/disputes/:disputeId`, prefijo propio como `/offers`).
+  const disputesRouteOpts: DisputesRoutesOptions = {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.alertNotifier ? { alertNotifier: opts.alertNotifier } : {}),
+    ...(opts.disputesNow ? { now: opts.disputesNow } : {}),
+  };
+  app.register(shipmentDisputeRoutes, { ...disputesRouteOpts, prefix: "/shipments" });
+  app.register(disputeRoutes, { ...disputesRouteOpts, prefix: "/disputes" });
 
   // Juegos del sitio institucional (/juegos): autenticados por API key en el gateway
   // (prefijo /demo), no por JWT -- ver demo.routes.ts.
@@ -351,6 +400,18 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.chatSchedulePush ? { schedulePush: opts.chatSchedulePush } : {}),
   };
   app.register(chatRoutes, chatRouteOpts);
+
+  // MOVO-320 (ADR-051): soporte al usuario sobre el chat existente (mismo `ChatHub`, otra clave de sala). Prefijo
+  // "/support": el gateway lo proxea (HTTP y upgrade) hacia este servicio.
+  const supportRouteOpts: SupportRoutesOptions = {
+    prefix: "/support",
+    ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.supportNow ? { now: opts.supportNow } : {}),
+    ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
+  };
+  app.register(supportRoutes, supportRouteOpts);
 
   return app;
 }

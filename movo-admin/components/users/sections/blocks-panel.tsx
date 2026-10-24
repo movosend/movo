@@ -5,7 +5,7 @@ import type {
   AdminUserBlock,
   AdminUserModeration,
 } from "@movo/shared/src/types/admin-users"
-import { initialsOf } from "@/lib/initials"
+import { UserAvatar } from "@/components/user-avatar"
 import { formatDate } from "@/lib/users/format"
 import { Button } from "@/components/ui/button"
 import { ReportSection } from "../ficha-status"
@@ -37,9 +37,12 @@ function BlockColumn({
           href={`/users/${b.user.id}`}
           className="flex items-center gap-2.5 text-[13px]"
         >
-          <span className="flex size-7 flex-none items-center justify-center rounded-full bg-avatar text-[10px] font-semibold">
-            {initialsOf(b.user.fullName)}
-          </span>
+          <UserAvatar
+            name={b.user.fullName}
+            photoUrl={b.user.photoUrl}
+            size={28}
+            className="flex-none"
+          />
           <span className="flex-1 font-medium underline underline-offset-[3px]">
             {b.user.fullName}
           </span>

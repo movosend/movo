@@ -130,11 +130,20 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategoryDefinition[] 
     quietHoursExempt: false,
   },
   {
+    id: "support",
+    section: "conversations",
+    title: "Soporte de Movo",
+    sub: "Respuestas del equipo de Movo a tus consultas",
+    implemented: true,
+    quietHoursExempt: false,
+  },
+  {
     id: "disputes",
     section: "conversations",
     title: "Disputas",
     sub: "Apertura y resolución de un reclamo",
-    implemented: false,
+    // MOVO-334: la apertura por una de las partes (`disputeOpened*`). La resolución llega con MOVO-34.
+    implemented: true,
     quietHoursExempt: false,
   },
   {

@@ -1,0 +1,338 @@
+// Autocontenido a propósito -- mismo criterio que el resto de los *.schema.ts del repo.
+const errorResponse = {
+  type: "object",
+  required: ["error"],
+  properties: {
+    error: {
+      type: "object",
+      required: ["code", "message", "statusCode"],
+      properties: {
+        code: { type: "string" },
+        message: { type: "string" },
+        statusCode: { type: "integer" },
+      },
+    },
+    requestId: { type: "string" },
+  },
+};
+
+const shipmentStatuses = [
+  "awaiting_receiver_confirmation",
+  "rejected_by_receiver",
+  "published",
+  "assignment_pending",
+  "assigned_unfunded",
+  "assigned",
+  "in_transit",
+  "delivered",
+  "completed",
+  "cancelled",
+  "disputed",
+];
+const chatRoles = ["sender", "carrier", "receiver"];
+
+const partyRef = {
+  type: "object",
+  required: ["id", "name"],
+  properties: { id: { type: "string" }, name: { type: ["string", "null"] } },
+};
+
+const shipmentRow = {
+  type: "object",
+  required: [
+    "id",
+    "code",
+    "status",
+    "sender",
+    "carrier",
+    "receiver",
+    "pickupCity",
+    "pickupAddress",
+    "deliveryCity",
+    "deliveryAddress",
+    "pickupDate",
+    "pickupTimeWindowStart",
+    "pickupTimeWindowEnd",
+    "priceArs",
+    "priceKind",
+    "lastStatusChangeAt",
+    "delayed",
+    "disputeId",
+    "fundingDeadline",
+    "redesignationDeadline",
+  ],
+  properties: {
+    id: { type: "string" },
+    code: { type: "string", description: "Primeros 8 caracteres del id, como el '#' de la app." },
+    status: { type: "string", enum: shipmentStatuses },
+    sender: partyRef,
+    carrier: { anyOf: [partyRef, { type: "null" }] },
+    receiver: partyRef,
+    pickupCity: { type: ["string", "null"] },
+    pickupAddress: { type: "string" },
+    deliveryCity: { type: ["string", "null"] },
+    deliveryAddress: { type: "string" },
+    pickupDate: { type: "string", description: "YYYY-MM-DD" },
+    pickupTimeWindowStart: { type: "string", description: "HH:MM" },
+    pickupTimeWindowEnd: { type: "string", description: "HH:MM" },
+    priceArs: { type: ["number", "null"] },
+    priceKind: { type: ["string", "null"], enum: ["agreed", "suggested", null] },
+    lastStatusChangeAt: { type: "string" },
+    delayed: { type: "boolean" },
+    disputeId: { type: ["string", "null"] },
+    fundingDeadline: { type: ["string", "null"] },
+    redesignationDeadline: { type: ["string", "null"] },
+  },
+};
+
+const counts = {
+  type: "object",
+  required: ["all", "unassigned", "assigning", "in_progress", "closed", "disputes"],
+  properties: {
+    all: { type: "integer", description: "Envíos activos." },
+    unassigned: { type: "integer" },
+    assigning: { type: "integer" },
+    in_progress: { type: "integer" },
+    closed: { type: "integer" },
+    disputes: { type: "integer" },
+  },
+};
+
+const statusCounts = {
+  type: "object",
+  description: "Conteo de cada estado con los mismos filtros, para los chips de una pestaña.",
+  required: shipmentStatuses,
+  properties: Object.fromEntries(shipmentStatuses.map((status) => [status, { type: "integer" }])),
+};
+
+const errorOf = {
+  type: "object",
+  required: ["code", "message"],
+  properties: { code: { type: "string" }, message: { type: "string" } },
+};
+
+/** Un bloque del detalle: `{ data, error: null }` o `{ data: null, error }`. */
+const block = (data: object) => ({
+  type: "object",
+  required: ["data", "error"],
+  properties: { data: { anyOf: [data, { type: "null" }] }, error: { anyOf: [errorOf, { type: "null" }] } },
+});
+
+/** Hold de svc-payments (`HoldDetailResponse`): lista cerrada para que un campo nuevo no llegue al panel sin querer. */
+const payment = {
+  type: "object",
+  description: "Hold de svc-payments; null si nunca se intentó el pago.",
+  required: ["status"],
+  properties: {
+    id: { type: "string" },
+    shipmentId: { type: "string" },
+    carrierId: { type: "string" },
+    attempt: { type: "integer" },
+    mpPaymentId: { type: ["string", "null"] },
+    baseAmountArs: { type: "number" },
+    debtOffsetArs: { type: "number" },
+    debtSurchargeArs: { type: "number" },
+    amountArs: { type: "number" },
+    applicationFeeArs: { type: "number" },
+    commissionArs: { type: "number" },
+    status: { type: "string" },
+    statusDetail: { type: ["string", "null"] },
+    failureReason: { type: ["string", "null"] },
+    expiresAt: { type: ["string", "null"] },
+    createdAt: { type: "string" },
+    updatedAt: { type: "string" },
+    wasAuthorized: { type: "boolean" },
+    cardBrand: { type: ["string", "null"] },
+    cardLast4: { type: ["string", "null"] },
+  },
+};
+const event = {
+  type: "object",
+  required: ["id", "fromStatus", "toStatus", "actorId", "reason", "createdAt"],
+  properties: {
+    id: { type: "string" },
+    fromStatus: { type: ["string", "null"] },
+    toStatus: { type: "string" },
+    actorId: { type: ["string", "null"] },
+    reason: { type: ["string", "null"] },
+    createdAt: { type: "string" },
+  },
+};
+const photo = {
+  type: "object",
+  required: ["id", "stage", "url", "createdAt"],
+  properties: {
+    id: { type: "string" },
+    stage: { type: "string", enum: ["creation", "pickup", "delivery"] },
+    url: { type: "string", description: "URL firmada de vida corta." },
+    createdAt: { type: "string" },
+  },
+};
+const nullableString = { type: ["string", "null"] };
+const offer = {
+  type: "object",
+  required: [
+    "id",
+    "carrierId",
+    "carrierName",
+    "carrierRatingAtOffer",
+    "status",
+    "priceArs",
+    "netArs",
+    "commissionArs",
+    "commissionRate",
+    "mpFeeEstimateArs",
+    "receivedEstimateArs",
+    "offeredDate",
+    "pickupTimeWindowStart",
+    "pickupTimeWindowEnd",
+    "estimatedDeliveryDate",
+    "estimatedDeliveryTimeWindowStart",
+    "estimatedDeliveryTimeWindowEnd",
+    "message",
+    "tripId",
+    "createdAt",
+    "viewedAtBySender",
+    "respondedAt",
+    "expiresAt",
+  ],
+  properties: {
+    id: { type: "string" },
+    carrierId: { type: "string" },
+    carrierName: { ...nullableString, description: "Snapshot al momento de ofertar." },
+    carrierRatingAtOffer: { type: ["number", "null"], description: "Snapshot al momento de ofertar." },
+    status: { type: "string", description: "Estado efectivo: una `pending` vencida viene como `expired`." },
+    priceArs: { type: "number", description: "Bruto: lo que paga el emisor." },
+    netArs: { type: "number" },
+    commissionArs: { type: "number" },
+    commissionRate: { type: "number", description: "Tasa de Movo del desglose (la vigente al leer)." },
+    mpFeeEstimateArs: { type: "number", description: "Estimado (MOVO-225), no el monto real del pago." },
+    receivedEstimateArs: { type: "number" },
+    offeredDate: { type: "string", description: "`YYYY-MM-DD` del retiro propuesto." },
+    pickupTimeWindowStart: { ...nullableString, description: "`HH:MM`; `null` = la franja que pidió el emisor." },
+    pickupTimeWindowEnd: nullableString,
+    estimatedDeliveryDate: nullableString,
+    estimatedDeliveryTimeWindowStart: nullableString,
+    estimatedDeliveryTimeWindowEnd: nullableString,
+    message: nullableString,
+    tripId: nullableString,
+    createdAt: { type: "string" },
+    viewedAtBySender: nullableString,
+    respondedAt: nullableString,
+    expiresAt: nullableString,
+  },
+};
+const partyCard = {
+  type: "object",
+  required: [
+    "id",
+    "role",
+    "fullName",
+    "photoUrl",
+    "accountStatus",
+    "identityVerified",
+    "licenseVerified",
+    "reputationScore",
+    "ratingCount",
+  ],
+  properties: {
+    id: { type: "string" },
+    role: { type: "string", enum: chatRoles },
+    fullName: { type: "string" },
+    photoUrl: { type: ["string", "null"] },
+    accountStatus: { type: "string", enum: ["active", "suspended", "banned", "deleted"] },
+    identityVerified: { type: "boolean" },
+    licenseVerified: { type: "boolean" },
+    reputationScore: { type: ["number", "null"] },
+    ratingCount: { type: "integer" },
+  },
+};
+
+export const shipmentsSchemas = {
+  errorResponse,
+  listQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      group: { type: "string", enum: ["unassigned", "assigning", "in_progress", "closed", "disputes"] },
+      status: { type: "string", enum: shipmentStatuses },
+      city: { type: "string", minLength: 1, maxLength: 100 },
+      from: { type: "string", format: "date-time" },
+      to: { type: "string", format: "date-time" },
+      q: { type: "string", minLength: 1, maxLength: 100 },
+      alert: { type: "boolean", description: "Solo los que llevan aviso (`isAdminShipmentAlert`)." },
+      cursor: { type: "string", maxLength: 300 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+    },
+  },
+  listResponse: {
+    type: "object",
+    required: ["items", "nextCursor", "counts", "statusCounts", "alertCounts"],
+    properties: {
+      items: { type: "array", items: shipmentRow },
+      nextCursor: { type: ["string", "null"] },
+      counts,
+      statusCounts,
+      alertCounts: { ...counts, description: "De cada pestaña, cuántos llevan aviso." },
+    },
+  },
+  idParam: { type: "object", required: ["id"], properties: { id: { type: "string", format: "uuid" } } },
+  detailResponse: {
+    type: "object",
+    required: ["shipment", "events", "photos", "offers", "payment", "parties"],
+    properties: {
+      shipment: { ...shipmentRow, additionalProperties: true },
+      events: block({ type: "array", items: event }),
+      photos: block({ type: "array", items: photo }),
+      offers: block({ type: "array", items: offer }),
+      payment: block(payment),
+      parties: block({ type: "array", items: partyCard }),
+    },
+  },
+  chatQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      cursor: { type: "string", maxLength: 300 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+    },
+  },
+  chatResponse: {
+    type: "object",
+    required: ["items", "nextCursor", "partiesAccess", "archived", "reports", "events"],
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["id", "authorId", "authorName", "authorRole", "body", "moderated", "createdAt"],
+          properties: {
+            id: { type: "string" },
+            authorId: { type: "string" },
+            authorName: { type: ["string", "null"] },
+            authorRole: { type: ["string", "null"], enum: [...chatRoles, null] },
+            body: { type: "string" },
+            moderated: { type: "boolean" },
+            createdAt: { type: "string" },
+          },
+        },
+      },
+      nextCursor: { type: ["string", "null"] },
+      partiesAccess: { type: "string", enum: ["open", "read_only", "closed"] },
+      archived: { type: "boolean" },
+      reports: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["reporterId", "reporterRole", "createdAt"],
+          properties: {
+            reporterId: { type: "string" },
+            reporterRole: { type: ["string", "null"], enum: [...chatRoles, null] },
+            createdAt: { type: "string" },
+          },
+        },
+      },
+      events: { type: "array", items: event },
+    },
+  },
+};

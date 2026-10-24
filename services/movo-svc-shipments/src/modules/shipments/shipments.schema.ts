@@ -187,6 +187,9 @@ const shipmentResponse = {
         reason: { type: "string", enum: ["pending_balance"] },
       },
     },
+    // MOVO-285: lo que recibe el transportista, exacto según el hold, solo para el transportista asignado;
+    // null/ausente = la app muestra el estimado "aprox.".
+    carrierReceivedArs: { type: ["number", "null"] },
     // MOVO-180: entrega estimada de la oferta ganadora, null hasta que el envío tenga
     // una aceptada (o si esa oferta nunca la declaró -- es opcional al ofertar).
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
@@ -201,6 +204,10 @@ const shipmentResponse = {
     // `viewer`/`phase`; el transportista nunca recibe montos, tarjeta ni motivos, y el
     // receptor recibe `null`.
     funding: shipmentFundingView,
+    // MOVO-270 (AC14): solo en `GET /shipments/:id`. `true` si el envío está `assigned`/`in_transit`
+    // y el viaje del transportista ya está `active`: desde ahí se difunde su ubicación (antes del
+    // retiro también) y el mobile habilita el seguimiento en vivo.
+    carrierTripActive: { type: "boolean" },
   },
 };
 
@@ -546,7 +553,7 @@ export const shipmentsSchemas = {
       penaltyArs: { type: "number" },
       reason: {
         type: "string",
-        enum: ["not_assigned", "before_free_deadline", "late_cancellation", "pickup_window_closed"],
+        enum: ["not_assigned", "before_free_deadline", "late_cancellation", "pickup_window_closed", "carrier_arrived"],
       },
       freeUntil: { type: ["string", "null"], format: "date-time" },
     },

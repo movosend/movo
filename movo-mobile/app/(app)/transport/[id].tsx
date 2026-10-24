@@ -18,16 +18,19 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import type { ReceiverConfirmationStatus } from "../../../components/shipments/counterpart-card";
+import { SuspendedActionNotice } from "../../../components/account/suspended-action-notice";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { ShipmentDetailBodySkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { RouteMapCard } from "../../../components/send/route-map-card";
+import { AccountStatusChip } from "../../../components/profile/account-status-chip";
 import { ProfileVerifiedBadge } from "../../../components/profile/profile-verified-badge";
 import { AvatarImage } from "../../../components/ui/avatar-image";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
 import { DebtDiscount } from "../../../components/payments/debt-discount";
 import { SkeletonBlock } from "../../../components/ui/skeleton-block";
+import { useActiveSuspension } from "../../../src/hooks/use-account-restriction";
 import { useMyOffers } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
@@ -41,18 +44,17 @@ import {
   useShipmentRoute,
 } from "../../../src/hooks/use-shipments";
 import {
-  formatDurationMin,
   formatPickupDateLabel,
   formatPickupDistanceFromMeKm,
   formatPriceArs,
   formatRouteDistanceKm,
-  formatTimeHHMM,
   formatTripDistanceKm,
   haversineDistanceKm,
   receiverConfirmationStatus,
   shortAddressLabel,
   zoneLabelFromAddress,
 } from "../../../src/lib/shipment-format";
+import { formatDurationSeconds, formatTimeRange } from "../../../src/lib/time-format";
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
@@ -147,6 +149,11 @@ function PartyRow({
         ) : profile.isVerified ? (
           <ProfileVerifiedBadge suffix={reputationSuffix(profile)} />
         ) : null}
+        <AccountStatusChip
+          className="mt-1"
+          testID={testID ? `${testID}-account-status` : undefined}
+          status={profile.accountStatus}
+        />
       </View>
     </Pressable>
   );
@@ -246,6 +253,7 @@ export default function TransportShipmentDetailScreen() {
 
   const myActiveOffer = myPendingOffers?.items.find((offer) => offer.shipmentId === id);
   const myAcceptedOffer = myAcceptedOffers?.items.find((offer) => offer.shipmentId === id);
+  const suspension = useActiveSuspension();
 
   // Punto de entrada real al wizard de retiro (MOVO-198) desde el detalle: mismas
   // dos condiciones que el gate del wizard ("ready"), para no ofrecer un CTA que el
@@ -461,9 +469,8 @@ export default function TransportShipmentDetailScreen() {
                   testID="transport-assigned-to-me-detail"
                   className="mt-1.5 font-sans text-[13px] leading-[19px] text-lime-800/80 dark:text-lime-200/80"
                 >
-                  El viaje arranca el {effectivePickupDateLabel}, entre las{" "}
-                  {formatTimeHHMM(effectivePickupTimeWindowStart)} y las{" "}
-                  {formatTimeHHMM(effectivePickupTimeWindowEnd)} h. Ese día retirás el
+                  El viaje arranca el {effectivePickupDateLabel}, de{" "}
+                  {formatTimeRange(effectivePickupTimeWindowStart, effectivePickupTimeWindowEnd)}. Ese día retirás el
                   paquete y arrancás el viaje hasta la entrega.
                 </Text>
                 <Text className="mt-2.5 font-sans-semibold text-[13px] text-lime-800 dark:text-lime-300">
@@ -496,7 +503,7 @@ export default function TransportShipmentDetailScreen() {
                     className="font-sans-medium text-[12px] text-fg-2"
                   >
                     {route
-                      ? `${formatRouteDistanceKm(route.distanceMeters)} · ${formatDurationMin(route.durationSeconds)} de viaje`
+                      ? `${formatRouteDistanceKm(route.distanceMeters)} · ${formatDurationSeconds(route.durationSeconds)} de viaje`
                       : `${formatTripDistanceKm(tripDistanceKm!)} de viaje (aprox.)`}
                   </Text>
                 </View>
@@ -605,8 +612,7 @@ export default function TransportShipmentDetailScreen() {
                       <Clock size={13} color={colors.fg1} strokeWidth={2} />
                       <Text className="font-sans-medium text-[12px] text-fg">
                         {effectivePickupDateLabel} ·{" "}
-                        {formatTimeHHMM(effectivePickupTimeWindowStart)}–
-                        {formatTimeHHMM(effectivePickupTimeWindowEnd)}
+                        {formatTimeRange(effectivePickupTimeWindowStart, effectivePickupTimeWindowEnd)}
                       </Text>
                     </View>
                   </View>
@@ -734,7 +740,14 @@ export default function TransportShipmentDetailScreen() {
                     </Text>
                   </Pressable>
                 ) : null}
-                {myActiveOffer || isAssignedToMe ? null : (
+                {myActiveOffer || isAssignedToMe ? null : suspension ? (
+                  // MOVO-300 AC2: el gateway rechaza ofertar con la cuenta suspendida.
+                  <SuspendedActionNotice
+                    testID="transport-create-offer-suspended"
+                    action="offer"
+                    suspension={suspension}
+                  />
+                ) : (
                   <Pressable
                     testID="transport-create-offer-cta"
                     onPress={() =>

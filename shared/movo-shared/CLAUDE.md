@@ -634,11 +634,69 @@ respuestas rápidas con `resolveQuickReply`. Lo define el panel y lo implementan
 `SUPPORT_TICKET_INVALID` y `SUPPORT_SERVICE_UNAVAILABLE`. Pendiente para 322: sumar `support_conversation` a `AdminTargetType`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
-### MOVO-324 — Contrato de soporte del usuario (`types/support.ts`)
+### MOVO-300 — Sanción vigente en el perfil propio
 
-`SupportConversationItem`, `SupportThreadMessage` (`kind`: `user|agent|system`, nunca nota interna), `SupportThreadPage` (trae la consulta para
-el encabezado), `SupportCreateBody/Result`, `SupportSendUserBody`, `SupportUserAttachmentCreateBody` (`conversationId` opcional en la primera
-consulta), `SupportShipmentOption(sPage)` (`GET /support/shipments`, cualquier rol), `SupportRealtimeEvent` y `SUPPORT_WS_CLOSE`. Prefijos
-distintos de los del agente (`SupportMessage`, `SupportMessagesPage` de `admin-support.ts`) para convivir en el barrel. Lo propone mobile y lo
-implementan MOVO-320/321. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+`OwnAccountSanction` (`types/account-sanctions.ts`) y `PrivateProfile.activeSanction` (requerido, `null` si la cuenta está activa): motivo y fin para el aviso de la app, sin nota interna. Tocó fixtures de `movo-mobile`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-325 — Envíos para el panel (`types/admin-shipments.ts`)
+
+`ACTIVE_SHIPMENT_STATUSES` (los 8 no terminales), `ADMIN_SHIPMENT_GROUPS`/`ADMIN_SHIPMENT_GROUP_STATUSES` (pestañas: cada estado está en exactamente una) y los tipos `AdminShipmentRow`/`AdminShipmentPage` (con `counts`), `AdminShipmentDetail`, `AdminShipmentDetailResponse` con sus bloques (`AdminBlock<T>`, `AdminShipmentEvent|Photo|Payment|PartyCard`) y `AdminChatMessage`/`AdminChatPage`. Aditivo. `npm run build` acá antes de tipar desde otro workspace.
+MOVO-326: `AdminShipmentPage` suma `statusCounts` y `alertCounts` (requeridos: rompen literales armados a mano, tocó fakes de
+`svc-admin`), y `ADMIN_SHIPMENT_ALERT_STATUSES` + `isAdminShipmentAlert(row)` definen qué fila lleva aviso. Es la fuente única
+de la regla: el filtro `alert` de `svc-shipments` (SQL) y el panel la siguen.
+
+
+### MOVO-320 — Soporte del lado del usuario (`types/support.ts`)
+
+`SupportUserFacingMessage` (kind `user`/`agent`/`system`, **nunca** `note`), `SupportConversationItem`, `SupportCreateBody/Result`,
+`SupportSendUserBody`, `SupportRealtimeEvent` (`support_message`/`support_status`/`support_receipt`), `SUPPORT_WS_CLOSE`,
+`SUPPORT_REOPENED_MESSAGE`, y los helpers `formatSupportCode` (`SOP-1042`) y `supportShipmentCode` (`MOVO-48213`, últimos 5 dígitos del UUID, igual que
+`activeShipmentDisplayCode` del mobile pero sin el `#`). Ojo con los nombres: `SupportUserMessage` ya era el mensaje del usuario visto desde el panel
+(`admin-support.ts`), por eso el del lado usuario se llama distinto; en el barrel la página de mensajes del usuario sale como `SupportUserMessagesPage`
+(`SupportMessagesPage` es la del panel). Categoría de push `support` (sección `conversations`) y trigger `supportMessageReceived`. Recordatorio habitual:
+`npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-213 — Reintentos y escalado de la liquidación (`types/settlement.ts`)
+
+`SettlementEscalationReason` (`retries_exhausted` | `not_retryable`), `SettlementIssueItem`/`SettlementIssuesPage`/`SETTLEMENT_ISSUE_STATUSES` (la consulta interna de `svc-payments`),
+`SettlementEventRequest`/`SettlementEventResponse` (aviso a shipments), trigger `settlementDelayedCarrier` (categoría `payments`, con `reviewHours`) y los códigos `SETTLEMENT_ESCALATED` y
+`SETTLEMENT_RETRY_PENDING`. `SettlementStatus` ya tenía `escalated`; `SettlementResponse` no cambia.
+
+### MOVO-270 — `config/pickup-attribution.ts`, `carrier_arrived` y triggers del no-retiro (ADR-052)
+
+`ARRIVAL_RADIUS_M` (250), `ARRIVAL_MAX_ACCURACY_M` (100), `ABSENCE_MIN_DISTANCE_M` (2000), `ARRIVAL_EARLY_MARGIN_MIN` (30),
+`MIN_ABSENCE_POSITIONS` (3) y `PickupMissedAttribution`. `computeCancellationPenalty` suma `carrierArrivedAtPickup` y el motivo
+`carrier_arrived` (ventana cerrada con llegada: 25 %). Triggers `pickupNoShow{Sender,Carrier,PenaltyDebtCarrier}` y
+`pickupDisputeOpened{Sender,Receiver,Carrier}`; código `HANDSHAKE_PICKUP_DEADLINE_PASSED`. Recordatorio habitual: `npm run build`
+acá antes de tipar desde otro workspace.
+
+### MOVO-340 — `PlacePrediction`, `SENDER_CANCELLABLE_STATUSES` y `chat_participants_changed`
+
+`types/places.ts`: `PlacePrediction` (`lat`/`long` opcionales, solo en una búsqueda por coordenadas), antes duplicado en
+`svc-users` y mobile. `config/cancellation-penalty.ts` suma `SENDER_CANCELLABLE_STATUSES`/`isSenderCancellableStatus` (desde
+qué estados cancela el emisor; no depende de la hora del retiro). `ChatRealtimeEvent` suma `chat_participants_changed`.
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-334 — Contrato de disputas (`types/dispute.ts`, ADR-054)
+
+`DisputeReason` (los cuatro elegibles desde la app en `USER_SELECTABLE_DISPUTE_REASONS`, más `transit_anomaly`/`pickup_no_show` de
+sistema), `DisputeStatus`, `DisputePartyRole`, `DisputeStatementKind`, `DisputeDetail`/`DisputeStatement`/`DisputePhoto`/`DisputePhotoUploadUrl`
+y las constantes `DISPUTE_WINDOW_DAYS` (7, desde `deliveredAt`) y `DISPUTE_TEXT_MAX_LENGTH` (2000). Códigos `DISPUTE_NOT_ALLOWED`,
+`DISPUTE_WINDOW_EXPIRED`, `DISPUTE_ALREADY_OPEN` (`details.disputeId`), `DISPUTE_NOT_FOUND`, `DISPUTE_NOT_OPEN`,
+`DISPUTE_STATEMENT_ALREADY_SUBMITTED` y `DISPUTE_PHOTO_ALREADY_USED`. Triggers `disputeOpened{Sender,Receiver,Carrier}`: la categoría
+`disputes` pasa a `implemented: true` y ya no queda ninguna "Pronto" (tocó tres tests de `movo-mobile`). Recordatorio habitual:
+`npm run build` acá antes de tipar desde otro workspace.
+
+### Ofertas del envío para el panel (`types/admin-shipments.ts`)
+
+`AdminShipmentOffer` (estado efectivo, snapshot del transportista, bruto/neto/comisión y el estimado de MP y de lo que recibe) y el
+bloque `offers` en `AdminShipmentDetailResponse` (requerido: rompe literales armados a mano). El barrel suma `estimateReceivedArs`,
+que solo se exportaba por subpath. Review de PR #302: `AdminShipmentOffer.commissionRate` y
+`AdminShipmentDetail.requestedPickupDate`/`requestedPickupTimeWindowStart`/`End` (lo que pidió el emisor; `pickupDate` pasa a ser el
+retiro acordado al aceptar una oferta). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-324 — Selector de envíos de soporte (`types/support.ts`)
+
+Sobre el contrato de MOVO-320: `SupportShipmentRole`, `SupportShipmentOption` y `SupportShipmentOptionsPage`, wire contract de
+`GET /support/shipments` (envíos de los que el usuario es parte, en cualquier rol y estado, para vincular a una consulta).
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
