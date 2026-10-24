@@ -531,6 +531,7 @@ export type {
   SupportCreateBody,
   SupportCreateResult,
   SupportSendUserBody,
+  SupportUserAttachmentCreateBody,
   SupportReadResult,
   SupportRealtimeEvent,
   SupportRealtimeConnected,
