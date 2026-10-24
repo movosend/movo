@@ -155,8 +155,10 @@ export function createFakeUsersClient(
      */
     stepUp?: {
       requested: Array<{ adminId: string; shipmentId: string; targetStatus: string }>;
+      validated?: Array<{ adminId: string; shipmentId: string; targetStatus: string; stepUpToken: string }>;
       consumed: Array<{ adminId: string; shipmentId: string; targetStatus: string; stepUpToken: string }>;
       verifyError?: ApiError;
+      validateError?: ApiError;
       consumeError?: ApiError;
     };
     down?: boolean;
@@ -238,6 +240,11 @@ export function createFakeUsersClient(
       if (data.down) throw usersDown();
       if (data.stepUp?.verifyError) throw data.stepUp.verifyError;
       return { stepUpToken: "step-up-token-".padEnd(43, "x"), expiresInSeconds: 300 };
+    },
+    async validateStepUp(adminId, body) {
+      if (data.down) throw usersDown();
+      if (data.stepUp?.validateError) throw data.stepUp.validateError;
+      data.stepUp?.validated?.push({ adminId, ...body });
     },
     async consumeStepUp(adminId, body) {
       if (data.down) throw usersDown();

@@ -280,6 +280,14 @@ describe("step-up en el cliente de usuarios (MOVO-332)", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("http://users/internal/admin/step-up/consume");
   });
 
+  it("validar manda el token a /validate sin gastarlo", async () => {
+    const fetchMock = mockFetch(204);
+
+    await expect(users.validateStepUp("a-1", { ...action, stepUpToken: "t" }, ctx)).resolves.toBeUndefined();
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://users/internal/admin/step-up/validate");
+  });
+
   it("un token inválido se relanza como 401 STEP_UP_INVALID", async () => {
     mockFetch(401, { error: { code: "STEP_UP_INVALID", message: "inválido", statusCode: 401 } });
 

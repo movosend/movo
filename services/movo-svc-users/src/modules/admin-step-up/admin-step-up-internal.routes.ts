@@ -77,6 +77,21 @@ export default async function adminStepUpInternalRoutes(app: FastifyInstance, op
   );
 
   app.post(
+    "/admin/step-up/validate",
+    {
+      schema: {
+        hide: true,
+        body: body({ stepUpToken: { type: "string", minLength: 20, maxLength: 128 } }),
+        response: { 204: { type: "null" } },
+      },
+    },
+    async (request: FastifyRequest, reply) => {
+      await service.validate(request.body as StepUpAction & { stepUpToken: string });
+      reply.code(204);
+    },
+  );
+
+  app.post(
     "/admin/step-up/consume",
     {
       schema: {

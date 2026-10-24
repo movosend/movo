@@ -27,6 +27,7 @@ import {
 import { RequestContext } from "../../adapters/internal-client";
 import { requireAdmin } from "../../utils/require-admin";
 import { consumeRateLimit } from "../../utils/rate-limit";
+import { createStatusChangeRecords } from "./status-change-records";
 import { shipmentsSchemas } from "./shipments.schema";
 
 /**
@@ -193,6 +194,37 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
   // Por admin y por envío (AC8): corta a quien reintenta en loop o a dos admins pisándose el mismo envío.
   const STATUS_CHANGE_ADMIN_LIMIT = { max: 10, windowSeconds: 60 };
   const STATUS_CHANGE_SHIPMENT_LIMIT = { max: 5, windowSeconds: 60 };
+  const records = createStatusChangeRecords(app.redis, app.log);
+
+  /**
+   * Un 429 también es un intento que merece rastro (si no, un admin que insiste en loop no deja nada), pero una fila
+   * por cada rechazo inundaría la bitácora, que es de solo agregar: se deja UNA por admin y envío por ventana.
+   */
+  async function auditRateLimited(
+    request: FastifyRequest,
+    adminId: string,
+    shipmentId: string,
+    body: ChangeShipmentStatusRequest,
+    error: ApiError,
+  ): Promise<void> {
+    const first = await app.redis.set(`admin-status-change:limited:${adminId}:${shipmentId}`, "1", "EX", 60, "NX");
+    if (first !== "OK") return;
+    await app.audit
+      .runAdminAction(
+        {
+          adminId,
+          action: "shipment.status_change",
+          target: { type: "shipment", id: shipmentId },
+          reason: body.reason.trim(),
+          context: { from: body.expectedStatus, to: body.targetStatus, idempotencyKey: body.idempotencyKey, rateLimited: true },
+          requestId: request.requestId,
+        },
+        async () => {
+          throw error;
+        },
+      )
+      .catch(() => undefined);
+  }
 
   app.get(
     "/shipments/:id/status-options",
@@ -250,14 +282,37 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
         description:
           "Manda un código de 6 dígitos al email del admin, de un solo uso, con vigencia de " +
           "`expiresInSeconds` y atado a la acción (este admin, este envío y este destino). Máximo 5 pedidos cada " +
-          "15 minutos. Se canjea por un `stepUpToken` en `POST /admin/step-up/verify`.",
+          "15 minutos. El envío tiene que existir y la transición estar en la matriz y exigir segundo factor " +
+          "(`requiresStepUp` de `status-options`): si no, 404, 422 `TRANSITION_NOT_ALLOWED` o 400. Se canjea por un " +
+          "`stepUpToken` en `POST /admin/step-up/verify`.",
         body: shipmentsSchemas.stepUpBody,
-        response: { 200: shipmentsSchemas.stepUpChallengeResponse, 429: shipmentsSchemas.errorResponse, ...errors },
+        response: {
+          200: shipmentsSchemas.stepUpChallengeResponse,
+          422: shipmentsSchemas.errorResponse,
+          429: shipmentsSchemas.errorResponse,
+          ...errors,
+        },
       },
     },
     async (request: FastifyRequest): Promise<StepUpChallenge> => {
       const adminId = requireAdmin(request);
-      return app.usersClient.requestStepUp(adminId, request.body as StepUpRequest, ctxOf(request));
+      const body = request.body as StepUpRequest;
+      const ctx = ctxOf(request);
+      // No se manda un email por cualquier par: el envío tiene que existir y la transición, estar en la matriz
+      // y exigir segundo factor. (El 5 pedidos por 15 minutos de svc-users sigue siendo el freno de fondo.)
+      const shipment = await app.shipmentsClient.getAdminShipment(body.shipmentId, ctx);
+      if (!shipment) throw notFound();
+      const from = shipment.status as ShipmentStatus;
+      const to = body.targetStatus as ShipmentStatus;
+      const cell = getForcedTransition(from, to);
+      if (!cell) {
+        const reason = blockedTransitionReason(from, to);
+        throw new ApiError(422, "TRANSITION_NOT_ALLOWED", reason, { reason });
+      }
+      if (!forcedTransitionFriction(cell).stepUp) {
+        throw new ApiError(400, "VALIDATION_FAILED", "Esta transición no exige un segundo factor.");
+      }
+      return app.usersClient.requestStepUp(adminId, body, ctx);
     },
   );
 
@@ -313,17 +368,46 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
       const body = request.body as ChangeShipmentStatusRequest;
       const ctx = ctxOf(request);
 
-      await consumeRateLimit(app.redis, `admin-status-change:admin:${adminId}`, STATUS_CHANGE_ADMIN_LIMIT.max, STATUS_CHANGE_ADMIN_LIMIT.windowSeconds);
-      await consumeRateLimit(app.redis, `admin-status-change:shipment:${id}`, STATUS_CHANGE_SHIPMENT_LIMIT.max, STATUS_CHANGE_SHIPMENT_LIMIT.windowSeconds);
-
       const reason = body.reason.trim();
       const from = body.expectedStatus as ShipmentStatus;
       const to = body.targetStatus as ShipmentStatus;
       const cell = getForcedTransition(from, to);
+      const friction = cell ? forcedTransitionFriction(cell) : null;
+
+      // Reintento de una clave ya usada (doble clic, timeout): el cambio no se vuelve a validar ni a pedir el
+      // segundo factor. Va antes del rate limit: un replay no es un intento nuevo.
+      const previous = await records.read(adminId, id, body.idempotencyKey);
+      if (previous && (previous.targetStatus !== body.targetStatus || previous.expectedStatus !== body.expectedStatus)) {
+        throw new ApiError(409, "IDEMPOTENCY_KEY_REUSED", "Esa clave de idempotencia ya se usó para otro cambio.");
+      }
+      if (previous?.state === "done" && previous.response) return { ...previous.response, replayed: true };
+      // La llamada anterior no tuvo respuesta y pudo aplicarse: el segundo factor ya se gastó.
+      const retryAfterUnknown = previous?.state === "unknown";
+      const needsStepUp = friction?.stepUp === true && !retryAfterUnknown;
+
+      try {
+        await consumeRateLimit(app.redis, `admin-status-change:admin:${adminId}`, STATUS_CHANGE_ADMIN_LIMIT.max, STATUS_CHANGE_ADMIN_LIMIT.windowSeconds);
+        await consumeRateLimit(app.redis, `admin-status-change:shipment:${id}`, STATUS_CHANGE_SHIPMENT_LIMIT.max, STATUS_CHANGE_SHIPMENT_LIMIT.windowSeconds);
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "RATE_LIMIT_EXCEEDED") {
+          await auditRateLimited(request, adminId, id, body, error);
+        }
+        throw error;
+      }
 
       // Lo que resuelve la lectura previa y usa la acción.
-      let shipment: AdminShipmentDetail | null = null;
       let adminName = "";
+      const stepUpAction = () => ({ shipmentId: id, targetStatus: body.targetStatus, stepUpToken: body.stepUpToken as string });
+
+      /** Gasta el token del segundo factor. Nunca tira: el cambio ya se aplicó (o no se sabe), no puede fallar por esto. */
+      const spendStepUp = async () => {
+        if (!needsStepUp) return;
+        try {
+          await app.usersClient.consumeStepUp(adminId, stepUpAction(), ctx);
+        } catch (err) {
+          request.log.warn({ err, event: "step_up_consume_failed", shipmentId: id }, "No se pudo gastar el token del segundo factor");
+        }
+      };
 
       return app.audit.runAdminAction(
         {
@@ -338,32 +422,36 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
             forced: cell?.kind === "forced",
             risk: cell?.risk ?? null,
             idempotencyKey: body.idempotencyKey,
+            ...(retryAfterUnknown ? { retryAfterUnknown: true } : {}),
           },
           resolveContext: (result) => ({ replayed: result.replayed }),
           requestId: request.requestId,
-          // Las validaciones corren después de la regla de conflicto y antes de gastar el segundo factor: un
-          // rechazo no quema el token, y como son lecturas quedan `failed` (nada se aplicó) aunque otro servicio no responda.
+          // Las validaciones corren después de la regla de conflicto y sin gastar el segundo factor (solo se comprueba):
+          // un rechazo no quema el token, y como son lecturas quedan `failed` (nada se aplicó) aunque otro servicio no responda.
           precheck: async () => {
             if (reason.length < FORCE_STATUS_REASON_MIN_LENGTH) {
               throw new ApiError(400, "VALIDATION_FAILED", `El motivo tiene que tener al menos ${FORCE_STATUS_REASON_MIN_LENGTH} caracteres.`);
             }
-            shipment = await app.shipmentsClient.getAdminShipment(id, ctx);
+            const shipment: AdminShipmentDetail | null = await app.shipmentsClient.getAdminShipment(id, ctx);
             if (!shipment) throw notFound();
-            if (shipment.status !== body.expectedStatus) {
+            // Tras una llamada sin respuesta el envío puede estar ya en el destino: lo resuelve `svc-shipments` con la clave.
+            if (!retryAfterUnknown && shipment.status !== body.expectedStatus) {
               throw new ApiError(409, "STATUS_CHANGED", "El estado del envío cambió mientras confirmabas.", {
                 currentStatus: shipment.status,
               });
             }
-            if (!cell) {
+            if (!cell || !friction) {
               const blockedReason = blockedTransitionReason(from, to);
               throw new ApiError(422, "TRANSITION_NOT_ALLOWED", blockedReason, { reason: blockedReason });
             }
-            const friction = forcedTransitionFriction(cell);
             if (friction.typedCode && body.typedCode?.trim().toUpperCase() !== shipment.code.toUpperCase()) {
               throw new ApiError(422, "TYPED_CODE_MISMATCH", "El código del envío no coincide.");
             }
-            if (friction.stepUp && !body.stepUpToken) {
-              throw new ApiError(403, "STEP_UP_REQUIRED", "Este cambio exige confirmar con un código enviado a tu email.");
+            if (needsStepUp) {
+              if (!body.stepUpToken) {
+                throw new ApiError(403, "STEP_UP_REQUIRED", "Este cambio exige confirmar con un código enviado a tu email.");
+              }
+              await app.usersClient.validateStepUp(adminId, stepUpAction(), ctx);
             }
             // Falla cerrado: svc-shipments pide el nombre del admin para el evento inmutable.
             const names = await app.usersClient.getUserNames([adminId], ctx);
@@ -373,28 +461,43 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
           },
         },
         async () => {
-          if (cell && forcedTransitionFriction(cell).stepUp) {
-            await app.usersClient.consumeStepUp(
-              adminId,
-              { shipmentId: id, targetStatus: body.targetStatus, stepUpToken: body.stepUpToken as string },
+          try {
+            const result = await app.shipmentsClient.forceShipmentStatus(
+              id,
+              {
+                targetStatus: body.targetStatus,
+                expectedStatus: body.expectedStatus,
+                reason,
+                adminId,
+                adminName,
+                idempotencyKey: body.idempotencyKey,
+              },
               ctx,
             );
-          }
-          return app.shipmentsClient.forceShipmentStatus(
-            id,
-            {
+            // Recién ahora se gasta el token: con un rechazo de negocio (hold no autorizado, estado cambiado...) el
+            // admin puede corregir y reintentar con el mismo código mientras no venza.
+            await spendStepUp();
+            await records.save(adminId, id, body.idempotencyKey, {
+              state: "done",
               targetStatus: body.targetStatus,
               expectedStatus: body.expectedStatus,
-              reason,
-              adminId,
-              adminName,
-              idempotencyKey: body.idempotencyKey,
-            },
-            ctx,
-          );
+              response: result,
+            });
+            return result;
+          } catch (error) {
+            // Sin respuesta de svc-shipments: pudo haberse aplicado. El token se gasta igual y el reintento no lo pide.
+            if (error instanceof ApiError && error.code.endsWith("_SERVICE_UNAVAILABLE")) {
+              await spendStepUp();
+              await records.save(adminId, id, body.idempotencyKey, {
+                state: "unknown",
+                targetStatus: body.targetStatus,
+                expectedStatus: body.expectedStatus,
+              });
+            }
+            throw error;
+          }
         },
       );
     },
   );
 }
-

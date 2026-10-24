@@ -36,6 +36,7 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
       withCarrier?: boolean;
       forceError?: ApiError;
       forceUnavailable?: boolean;
+      validateError?: ApiError;
       consumeError?: ApiError;
       shipmentsDown?: boolean;
       noAdminProfile?: boolean;
@@ -45,7 +46,13 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
     const shipmentId = randomUUID();
     const code = shipmentId.slice(0, 8).toUpperCase();
     const force: Scenario["force"] = { calls: [], error: opts.forceError, unavailable: opts.forceUnavailable };
-    const stepUp: Scenario["stepUp"] = { requested: [], consumed: [], consumeError: opts.consumeError };
+    const stepUp: Scenario["stepUp"] = {
+      requested: [],
+      validated: [],
+      consumed: [],
+      validateError: opts.validateError,
+      consumeError: opts.consumeError,
+    };
     const withCarrier = opts.withCarrier ?? !["published", "awaiting_receiver_confirmation", "rejected_by_receiver"].includes(status);
     const detail = {
       id: shipmentId,
@@ -136,7 +143,7 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
   });
 
   describe("segundo factor y código del envío", () => {
-    it("assigned -> cancelled (forzada, riesgo alto): con el código tipeado y el token los consume antes de llamar a svc-shipments", async () => {
+    it("assigned -> cancelled (forzada, riesgo alto): valida el token antes de llamar a svc-shipments y lo gasta al aplicarse", async () => {
       const s = await setup(ShipmentStatus.ASSIGNED);
 
       const response = await change(s, {
@@ -148,7 +155,9 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().kind).toBe("forced");
-      expect(s.stepUp.consumed).toEqual([{ adminId: s.adminId, shipmentId: s.shipmentId, targetStatus: "cancelled", stepUpToken: "t".repeat(43) }]);
+      const spent = { adminId: s.adminId, shipmentId: s.shipmentId, targetStatus: "cancelled", stepUpToken: "t".repeat(43) };
+      expect(s.stepUp.validated).toEqual([spent]);
+      expect(s.stepUp.consumed).toEqual([spent]);
       expect(s.force.calls).toHaveLength(1);
       expect((await rows(s))[0]).toMatchObject({ outcome: "succeeded", context: expect.objectContaining({ forced: true, risk: "high" }) });
     });
@@ -166,7 +175,7 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
 
     it("con un token inválido, usado o de otra acción: 401 STEP_UP_INVALID, no llama a svc-shipments y queda failed", async () => {
       const s = await setup(ShipmentStatus.ASSIGNED, {
-        consumeError: new ApiError(401, "STEP_UP_INVALID", "El código ingresado es inválido o venció."),
+        validateError: new ApiError(401, "STEP_UP_INVALID", "El código ingresado es inválido o venció."),
       });
 
       const response = await change(s, {
@@ -338,6 +347,138 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
     });
   });
 
+  describe("idempotencia (comentarios de review de la PR #305)", () => {
+    const forcedBody = (s: Scenario, extra: Record<string, unknown> = {}) => ({
+      targetStatus: "cancelled",
+      expectedStatus: "assigned",
+      typedCode: s.code,
+      stepUpToken: "t".repeat(43),
+      ...extra,
+    });
+
+    it("reintentar la misma clave tras un cambio exitoso devuelve el resultado original, sin tocar svc-shipments ni el token", async () => {
+      const s = await setup(ShipmentStatus.ASSIGNED);
+      const idempotencyKey = randomUUID();
+
+      const first = await change(s, forcedBody(s, { idempotencyKey }));
+      const second = await change(s, forcedBody(s, { idempotencyKey }));
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(second.json()).toEqual({ ...first.json(), replayed: true });
+      expect(s.force.calls).toHaveLength(1);
+      expect(s.stepUp.validated).toHaveLength(1);
+      expect(s.stepUp.consumed).toHaveLength(1);
+      // Un replay no es un intento nuevo: no deja otra fila.
+      expect(await rows(s)).toHaveLength(1);
+    });
+
+    it("la misma clave para otro destino o estado esperado es 409 IDEMPOTENCY_KEY_REUSED", async () => {
+      const s = await setup(ShipmentStatus.ASSIGNED);
+      const idempotencyKey = randomUUID();
+      await change(s, forcedBody(s, { idempotencyKey }));
+
+      const response = await change(s, forcedBody(s, { idempotencyKey, targetStatus: "published" }));
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("IDEMPOTENCY_KEY_REUSED");
+      expect(s.force.calls).toHaveLength(1);
+    });
+
+    it("la misma clave de otro admin no choca con la de este", async () => {
+      const s = await setup(ShipmentStatus.PUBLISHED);
+      const idempotencyKey = randomUUID();
+      await change(s, { targetStatus: "cancelled", expectedStatus: "published", idempotencyKey });
+
+      const response = await change(s, { targetStatus: "cancelled", expectedStatus: "published", idempotencyKey }, {
+        "x-user-id": randomUUID(),
+        "x-user-roles": "admin",
+      });
+
+      // Otro admin sin perfil en el fake: falla al identificarlo, no con un replay del primero.
+      expect(response.json().replayed).toBeUndefined();
+    });
+
+    it("tras una llamada sin respuesta (pudo aplicarse) el reintento no pide otro token ni compara expectedStatus: vuelve a svc-shipments con la misma clave", async () => {
+      const s = await setup(ShipmentStatus.ASSIGNED, { forceUnavailable: true });
+      const idempotencyKey = randomUUID();
+
+      const first = await change(s, forcedBody(s, { idempotencyKey }));
+      expect(first.statusCode).toBe(502);
+      expect((await rows(s))[0]).toMatchObject({ outcome: "unknown" });
+      // El token se gastó igual: no se sabe si el cambio se aplicó.
+      expect(s.stepUp.consumed).toHaveLength(1);
+
+      // svc-shipments vuelve, el envío ya está en el destino y el panel reintenta sin token.
+      s.force.unavailable = false;
+      const retry = await change(s, { targetStatus: "cancelled", expectedStatus: "assigned", typedCode: s.code, idempotencyKey });
+
+      expect(retry.statusCode).toBe(200);
+      expect(s.force.calls).toHaveLength(1);
+      expect(s.stepUp.validated).toHaveLength(1);
+      expect(s.stepUp.consumed).toHaveLength(1);
+    });
+
+    it("el reintento tras una llamada sin respuesta sigue exigiendo el código del envío", async () => {
+      const s = await setup(ShipmentStatus.ASSIGNED, { forceUnavailable: true });
+      const idempotencyKey = randomUUID();
+      await change(s, forcedBody(s, { idempotencyKey }));
+      s.force.unavailable = false;
+
+      const retry = await change(s, { targetStatus: "cancelled", expectedStatus: "assigned", idempotencyKey });
+
+      expect(retry.statusCode).toBe(422);
+      expect(retry.json().error.code).toBe("TYPED_CODE_MISMATCH");
+    });
+  });
+
+  describe("el token del segundo factor (comentarios de review de la PR #305)", () => {
+    const forcedBody = (s: Scenario) => ({
+      targetStatus: "cancelled",
+      expectedStatus: "assigned",
+      typedCode: s.code,
+      stepUpToken: "t".repeat(43),
+    });
+
+    it.each([
+      ["HOLD_NOT_AUTHORIZED", 422],
+      ["FORCE_STATUS_EFFECT_FAILED", 502],
+      ["STATUS_CHANGED", 409],
+    ] as const)("un rechazo de svc-shipments (%s) no gasta el token: el admin puede reintentar con el mismo código", async (code, status) => {
+      const s = await setup(ShipmentStatus.ASSIGNED, { forceError: new ApiError(status, code, "rechazado") });
+
+      const response = await change(s, forcedBody(s));
+
+      expect(response.statusCode).toBe(status);
+      expect(s.stepUp.validated).toHaveLength(1);
+      expect(s.stepUp.consumed).toHaveLength(0);
+    });
+
+    it("un rechazo no deja guardado el replay: el reintento con la misma clave vuelve a intentar el cambio", async () => {
+      const s = await setup(ShipmentStatus.ASSIGNED, { forceError: new ApiError(422, "HOLD_NOT_AUTHORIZED", "x") });
+      const idempotencyKey = randomUUID();
+      await change(s, { ...forcedBody(s), idempotencyKey });
+      s.force.error = undefined;
+
+      const retry = await change(s, { ...forcedBody(s), idempotencyKey });
+
+      expect(retry.statusCode).toBe(200);
+      expect(retry.json().replayed).toBe(false);
+      expect(s.stepUp.consumed).toHaveLength(1);
+    });
+
+    it("si no se puede gastar el token después de aplicarse, el cambio igual responde 200", async () => {
+      const s = await setup(ShipmentStatus.ASSIGNED, {
+        consumeError: new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "caído"),
+      });
+
+      const response = await change(s, forcedBody(s));
+
+      expect(response.statusCode).toBe(200);
+      expect((await rows(s))[0]?.outcome).toBe("succeeded");
+    });
+  });
+
   describe("límites", () => {
     it("más de 5 intentos por minuto sobre el mismo envío son 429", async () => {
       const s = await setup(ShipmentStatus.PUBLISHED);
@@ -349,6 +490,18 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
 
       expect(codes.slice(0, 5)).toEqual([400, 400, 400, 400, 400]);
       expect(codes[5]).toBe(429);
+    });
+
+    it("el 429 deja UNA fila en la bitácora por admin y envío, no una por cada rechazo", async () => {
+      const s = await setup(ShipmentStatus.PUBLISHED);
+
+      for (let i = 0; i < 9; i += 1) {
+        await change(s, { targetStatus: "cancelled", expectedStatus: "published", reason: "corto" });
+      }
+
+      const limited = (await rows(s)).filter((row) => row.errorCode === "RATE_LIMIT_EXCEEDED");
+      expect(limited).toHaveLength(1);
+      expect(limited[0]).toMatchObject({ outcome: "failed", context: expect.objectContaining({ rateLimited: true }) });
     });
 
     it("más de 10 cambios por minuto de un mismo admin son 429, aunque sean envíos distintos", async () => {
@@ -446,6 +599,25 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ challengeId: "challenge-1", maskedEmail: "a***@movo.test", cooldownSeconds: 60, expiresInSeconds: 300 });
       expect(s.stepUp.requested).toEqual([{ adminId: s.adminId, shipmentId: s.shipmentId, targetStatus: "cancelled" }]);
+    });
+
+    it("no manda el código si el envío no existe, el par está bloqueado o la transición no exige segundo factor", async () => {
+      const post = (s: Scenario, payload: Record<string, unknown>) =>
+        app.inject({ method: "POST", url: "/admin/step-up", headers: s.headers, payload });
+
+      // Un escenario a la vez: cada `setup` reconstruye el app con los datos de ese envío.
+      const missing = await setup(ShipmentStatus.ASSIGNED);
+      expect((await post(missing, { shipmentId: randomUUID(), targetStatus: "cancelled" })).statusCode).toBe(404);
+
+      const blocked = await setup(ShipmentStatus.DISPUTED);
+      const bloqueado = await post(blocked, { shipmentId: blocked.shipmentId, targetStatus: "published" });
+      expect(bloqueado.statusCode).toBe(422);
+      expect(bloqueado.json().error).toMatchObject({ code: "TRANSITION_NOT_ALLOWED", details: { reason: expect.any(String) } });
+
+      const noStepUp = await setup(ShipmentStatus.PUBLISHED);
+      expect((await post(noStepUp, { shipmentId: noStepUp.shipmentId, targetStatus: "cancelled" })).statusCode).toBe(400);
+
+      for (const s of [missing, blocked, noStepUp]) expect(s.stepUp.requested).toHaveLength(0);
     });
 
     it("verificar devuelve el token; un código erróneo pasa como 401 STEP_UP_INVALID", async () => {

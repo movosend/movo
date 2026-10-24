@@ -72,6 +72,8 @@ export interface UsersClient extends InternalClient {
   requestStepUp(adminId: string, body: StepUpRequest, ctx: RequestContext): Promise<StepUpChallenge>;
   /** `POST /internal/admin/step-up/verify`: canjea el código por un `stepUpToken` de un solo uso. 401 `STEP_UP_INVALID`. */
   verifyStepUp(adminId: string, body: StepUpVerifyRequest, ctx: RequestContext): Promise<StepUpToken>;
+  /** `POST /internal/admin/step-up/validate`: comprueba el token sin gastarlo. 401 `STEP_UP_INVALID` si es inválido, usado o de otra acción. */
+  validateStepUp(adminId: string, body: StepUpRequest & { stepUpToken: string }, ctx: RequestContext): Promise<void>;
   /** `POST /internal/admin/step-up/consume`: gasta el token. 401 `STEP_UP_INVALID` si es inválido, usado o de otra acción. */
   consumeStepUp(adminId: string, body: StepUpRequest & { stepUpToken: string }, ctx: RequestContext): Promise<void>;
 }
@@ -288,6 +290,15 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
       });
       if (!result) throw new Error("verifyStepUp: respuesta vacía");
       return result;
+    },
+
+    async validateStepUp(adminId, body, ctx) {
+      await client.request("/internal/admin/step-up/validate", ctx, {
+        method: "POST",
+        body: { adminId, ...body },
+        isValid: (value): value is undefined => value === undefined,
+        notFoundCodes: [],
+      });
     },
 
     async consumeStepUp(adminId, body, ctx) {

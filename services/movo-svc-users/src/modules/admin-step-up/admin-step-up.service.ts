@@ -9,6 +9,7 @@ import {
 } from "@movo/shared";
 import type { OtpService } from "../../services/otp-service";
 import type { UserRepository } from "../../repositories/user-repository";
+import { OTP_TTL_SECONDS } from "../../repositories/otp-repository";
 import { isPanelEligible } from "../auth/admin-session.service";
 
 /**
@@ -40,6 +41,8 @@ return attempts
 
 const requestsKey = (adminId: string) => `admin-step-up-requests:${adminId}`;
 const failuresKey = (adminId: string) => `admin-step-up-failures:${adminId}`;
+/** Cuándo salió el código de este desafío: no vive en el `meta` del OTP porque `generateOtp` lo renueva dentro del cooldown. */
+const issuedKey = (otpId: string) => `admin-step-up-issued:${otpId}`;
 const tokenKey = (token: string) => `admin-step-up-token:${createHash("sha256").update(token).digest("hex")}`;
 
 /** El flujo del OTP lleva la acción: sin ":" porque `otp-repository` lo usa para armar sus keys. */
@@ -54,8 +57,26 @@ export interface StepUpAction {
 export interface AdminStepUpService {
   request(action: StepUpAction): Promise<StepUpChallenge>;
   verify(action: StepUpAction & { challengeId: string; code: string }): Promise<StepUpToken>;
+  /**
+   * Comprueba el token sin gastarlo: `svc-admin` lo valida antes de llamar a `svc-shipments` y lo consume
+   * recién cuando el cambio se aplicó (o no se sabe), así un rechazo de negocio no obliga a pedir otro código.
+   */
+  validate(action: StepUpAction & { stepUpToken: string }): Promise<void>;
   /** Canjea el token: un solo uso, y solo para la acción para la que se emitió. */
   consume(action: StepUpAction & { stepUpToken: string }): Promise<void>;
+}
+
+function assertTokenMatches(raw: string | null, { adminId, shipmentId, targetStatus }: StepUpAction): void {
+  if (!raw) throw INVALID();
+  let stored: Partial<StepUpAction>;
+  try {
+    stored = JSON.parse(raw) as Partial<StepUpAction>;
+  } catch {
+    throw INVALID();
+  }
+  if (stored.adminId !== adminId || stored.shipmentId !== shipmentId || stored.targetStatus !== targetStatus) {
+    throw INVALID();
+  }
 }
 
 export function createAdminStepUpService(deps: {
@@ -82,9 +103,12 @@ export function createAdminStepUpService(deps: {
       const { otpId, cooldownSeconds } = await otpService.generateOtp(
         stepUpFlow(shipmentId, targetStatus),
         user.email,
-        { adminId, issuedAt: String(Date.now()) },
+        { adminId },
         "email",
       );
+      // Solo la primera vez por desafío (NX): dentro del cooldown `generateOtp` devuelve el mismo código sin
+      // mandar uno nuevo, y pedirlo de nuevo no puede alargar su vigencia de 5 minutos.
+      await redis.set(issuedKey(otpId), String(Date.now()), "EX", OTP_TTL_SECONDS, "NX");
       const [name, domain] = user.email.split("@");
       return {
         challengeId: otpId,
@@ -95,12 +119,11 @@ export function createAdminStepUpService(deps: {
     },
 
     async verify({ adminId, shipmentId, targetStatus, challengeId, code }) {
-      // Bloqueo temporal ante varios errores, antes de tocar el código: un bloqueado no sigue adivinando.
-      const failures = Number((await redis.get(failuresKey(adminId))) ?? 0);
-      if (failures >= STEP_UP_FAILURE_LIMIT) throw RATE_LIMITED();
+      // Cada intento se cuenta ANTES de mirar el código y el bloqueo corta desde el sexto: así verificaciones
+      // concurrentes no pueden pasar todas el chequeo antes de que alguna incremente. Un acierto limpia el contador.
+      if ((await count(failuresKey(adminId))) > STEP_UP_FAILURE_LIMIT) throw RATE_LIMITED();
 
       const fail = async (): Promise<never> => {
-        await count(failuresKey(adminId));
         throw INVALID();
       };
 
@@ -115,8 +138,9 @@ export function createAdminStepUpService(deps: {
         throw error;
       }
       // El código se pidió para esta acción pero tiene que ser de este admin, y dentro de su vigencia.
-      const issuedAt = Number(meta.issuedAt);
-      if (meta.adminId !== adminId || !Number.isFinite(issuedAt) || Date.now() - issuedAt > STEP_UP_CODE_TTL_SECONDS * 1000) {
+      const issuedAt = Number(await redis.get(issuedKey(challengeId)));
+      await redis.del(issuedKey(challengeId));
+      if (meta.adminId !== adminId || !Number.isFinite(issuedAt) || issuedAt <= 0 || Date.now() - issuedAt > STEP_UP_CODE_TTL_SECONDS * 1000) {
         return fail();
       }
 
@@ -134,20 +158,14 @@ export function createAdminStepUpService(deps: {
       return { stepUpToken, expiresInSeconds: STEP_UP_TOKEN_TTL_SECONDS };
     },
 
-    async consume({ adminId, shipmentId, targetStatus, stepUpToken }) {
+    async validate(action) {
+      assertTokenMatches(await redis.get(tokenKey(action.stepUpToken)), action);
+    },
+
+    async consume(action) {
       // GETDEL: leer y borrar en un solo paso. Un token de otra acción también se quema: quien lo probó
       // en el lugar equivocado tiene que pedir otro código.
-      const raw = await redis.getdel(tokenKey(stepUpToken));
-      if (!raw) throw INVALID();
-      let stored: Partial<StepUpAction>;
-      try {
-        stored = JSON.parse(raw) as Partial<StepUpAction>;
-      } catch {
-        throw INVALID();
-      }
-      if (stored.adminId !== adminId || stored.shipmentId !== shipmentId || stored.targetStatus !== targetStatus) {
-        throw INVALID();
-      }
+      assertTokenMatches(await redis.getdel(tokenKey(action.stepUpToken)), action);
     },
   };
 }

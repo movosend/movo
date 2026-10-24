@@ -97,6 +97,9 @@ describe("Step-up del cambio de estado desde el panel (MOVO-332)", () => {
   const consume = (adminId: string, stepUpToken: string, ship = shipmentId, target = TARGET) =>
     post("consume", { adminId, shipmentId: ship, targetStatus: target, stepUpToken });
 
+  const validate = (adminId: string, stepUpToken: string, ship = shipmentId, target = TARGET) =>
+    post("validate", { adminId, shipmentId: ship, targetStatus: target, stepUpToken });
+
   /** Pide el código, lo lee del mail que habría salido y lo verifica: devuelve el token. */
   async function getToken(admin: User, ship = shipmentId, target = TARGET): Promise<string> {
     const challenge = (await requestCode(admin.id, ship, target)).json();
@@ -196,8 +199,8 @@ describe("Step-up del cambio de estado desde el panel (MOVO-332)", () => {
       const admin = await createAdmin();
       const challenge = (await requestCode(admin.id)).json();
       const code = emailCaptor.sentCodes.get(admin.email)!;
-      // Retrocede la hora de emisión guardada en el OTP (el TTL de Redis del motor es de 10 min).
-      await app.redis.hset(`otp:${challenge.challengeId}`, "meta", JSON.stringify({ adminId: admin.id, issuedAt: String(Date.now() - 301_000) }));
+      // Retrocede la hora de emisión del desafío (el TTL de Redis del motor es de 10 min).
+      await app.redis.set(`admin-step-up-issued:${challenge.challengeId}`, String(Date.now() - 301_000));
 
       const response = await verifyCode(admin.id, challenge.challengeId, code);
 
@@ -232,11 +235,72 @@ describe("Step-up del cambio de estado desde el panel (MOVO-332)", () => {
       expect(blocked.json().error.code).toBe("RATE_LIMIT_EXCEEDED");
     });
 
+    it("verificaciones concurrentes no pasan el límite: de 12 intentos erróneos en paralelo, ninguno acierta después", async () => {
+      const admin = await createAdmin();
+      const challenge = (await requestCode(admin.id)).json();
+      const code = emailCaptor.sentCodes.get(admin.email)!;
+
+      const results = await Promise.all(Array.from({ length: 12 }, () => verifyCode(admin.id, challenge.challengeId, "000000")));
+
+      // Solo los primeros 5 llegan a mirar el código (401); el resto ya está bloqueado (429).
+      expect(results.filter((r) => r.statusCode === 401)).toHaveLength(5);
+      expect(results.filter((r) => r.statusCode === 429)).toHaveLength(7);
+      expect((await verifyCode(admin.id, challenge.challengeId, code)).statusCode).toBe(429);
+    });
+
+    it("pedir el código de nuevo dentro del cooldown no alarga su vigencia de 5 minutos", async () => {
+      const admin = await createAdmin();
+      const challenge = (await requestCode(admin.id)).json();
+      const code = emailCaptor.sentCodes.get(admin.email)!;
+      await app.redis.set(`admin-step-up-issued:${challenge.challengeId}`, String(Date.now() - 301_000));
+
+      // Dentro del cooldown el motor devuelve el mismo desafío y el mismo código, sin mandar otro.
+      const again = (await requestCode(admin.id)).json();
+      expect(again.challengeId).toBe(challenge.challengeId);
+      const response = await verifyCode(admin.id, challenge.challengeId, code);
+
+      expect(response.statusCode).toBe(401);
+      expect(response.json().error.code).toBe("STEP_UP_INVALID");
+    });
+
     it("un código de formato inválido es 400", async () => {
       const admin = await createAdmin();
       const challenge = (await requestCode(admin.id)).json();
 
       expect((await verifyCode(admin.id, challenge.challengeId, "12ab56")).statusCode).toBe(400);
+    });
+  });
+
+  describe("validar el token sin gastarlo", () => {
+    it("puede validarse varias veces y sigue sirviendo para consumirlo", async () => {
+      const admin = await createAdmin();
+      const token = await getToken(admin);
+
+      expect((await validate(admin.id, token)).statusCode).toBe(204);
+      expect((await validate(admin.id, token)).statusCode).toBe(204);
+      expect((await consume(admin.id, token)).statusCode).toBe(204);
+      expect((await validate(admin.id, token)).statusCode).toBe(401);
+    });
+
+    it("un token de otro envío, destino o admin no valida, pero tampoco se quema al probarlo", async () => {
+      const admin = await createAdmin();
+      const other = await createAdmin();
+      const token = await getToken(admin);
+
+      for (const response of [
+        await validate(admin.id, token, otherShipmentId),
+        await validate(admin.id, token, shipmentId, OTHER_TARGET),
+        await validate(other.id, token),
+      ]) {
+        expect(response.statusCode).toBe(401);
+        expect(response.json().error.code).toBe("STEP_UP_INVALID");
+      }
+      expect((await consume(admin.id, token)).statusCode).toBe(204);
+    });
+
+    it("un token inexistente es 401", async () => {
+      const admin = await createAdmin();
+      expect((await validate(admin.id, "x".repeat(43))).statusCode).toBe(401);
     });
   });
 
