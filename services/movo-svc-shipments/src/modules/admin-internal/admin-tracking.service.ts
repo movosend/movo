@@ -3,7 +3,7 @@ import { ADMIN_TRACKING_POLL_INTERVAL_SECONDS, AdminShipmentTracking, AdminTrack
 import type { Shipment as ShipmentRow } from "../../generated/prisma/client";
 import { adminTrackingState, averageSpeedKmh, capTrace, trackingMetrics } from "../../domain/admin-tracking";
 import type { PositionRepository } from "../../repositories/position-repository";
-import type { ShipmentRepository } from "../../repositories/shipment-repository";
+import type { ShipmentRepository, ShipmentTrackingContext } from "../../repositories/shipment-repository";
 import { lastKnownPositionKey } from "../../services/position-service";
 import { decodePolyline } from "../../utils/polyline-decode";
 import type { PlannedRouteStore } from "./planned-route-store";
@@ -27,17 +27,19 @@ type LastPosition = NonNullable<AdminShipmentTracking["lastPosition"]> & { recei
 export function createAdminTrackingService(deps: AdminTrackingServiceDeps) {
   const now = deps.now ?? (() => new Date());
 
-  async function lastKnown(shipmentId: string): Promise<LastPosition | null> {
-    const context = await deps.shipmentRepository.findTrackingContext(shipmentId);
-    if (!context?.trip) return null;
-    const raw = await deps.redis.hgetall(lastKnownPositionKey(context.trip.id));
+  async function lastKnown(tripId: string): Promise<LastPosition | null> {
+    const raw = await deps.redis.hgetall(lastKnownPositionKey(tripId));
     if (!raw?.lat) return null;
+    // Sin `recordedAt` válido no se puede medir la antigüedad: se usa la hora del dispositivo, y si tampoco
+    // sirve el punto se descarta (cae a la traza persistida) en vez de esconder la falta de señal.
+    const receivedAt = [raw.recordedAt, raw.capturedAt].find((v) => v && !Number.isNaN(Date.parse(v)));
+    if (!receivedAt) return null;
     return {
       lat: Number(raw.lat),
       lng: Number(raw.lng),
       accuracyM: raw.accuracyM ? Number(raw.accuracyM) : null,
       capturedAt: raw.capturedAt,
-      receivedAt: raw.recordedAt,
+      receivedAt,
     };
   }
 
@@ -57,11 +59,16 @@ export function createAdminTrackingService(deps: AdminTrackingServiceDeps) {
         label: row.deliveryCity ?? row.deliveryAddress,
       };
 
+      // El contexto se resuelve una sola vez por tick; la ruta solo se pide (y factura) con viaje asignado.
+      const context: ShipmentTrackingContext | null =
+        state === "no_carrier" ? null : await deps.shipmentRepository.findTrackingContext(row.id);
+      const trip = context?.trip ?? null;
+
       const withTrace = state === "live" || state === "closed";
       const [route, positions, redisPosition] = await Promise.all([
-        state === "no_carrier" ? null : deps.routeStore.get(row.id, origin, destination),
+        trip ? deps.routeStore.get(row.id, origin, destination) : null,
         withTrace ? deps.positionRepository.listCustodyTrace(row.id) : [],
-        state === "live" ? lastKnown(row.id) : null,
+        state === "live" && trip ? lastKnown(trip.id) : null,
       ]);
 
       const fullTrace: AdminTrackingPoint[] = positions.map((p) => ({

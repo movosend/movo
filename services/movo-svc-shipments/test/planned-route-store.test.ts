@@ -7,11 +7,12 @@ const route = { polyline: "abc", distanceMeters: 1000, durationSeconds: 60 };
 const A = { lat: -31.4, lng: -64.2 };
 const B = { lat: -32.4, lng: -63.2 };
 
-function memoryRedis(initial: Record<string, string> = {}, opts: { failSet?: boolean } = {}) {
+function memoryRedis(initial: Record<string, string> = {}, opts: { failSet?: boolean; failGet?: boolean } = {}) {
   const store = new Map(Object.entries(initial));
   return {
     store,
     async get(key: string) {
+      if (opts.failGet) throw new Error("redis caído");
       return store.get(key) ?? null;
     },
     async set(key: string, value: string) {
@@ -23,20 +24,29 @@ function memoryRedis(initial: Record<string, string> = {}, opts: { failSet?: boo
 }
 
 describe("planned-route-store", () => {
-  it("si el proveedor falla devuelve `null` sin cachear", async () => {
+  it("si el proveedor falla devuelve `null`, no cachea la ruta y no reintenta durante el cooldown", async () => {
+    let calls = 0;
     const redis = memoryRedis();
     const store = createPlannedRouteStore({
       redis,
       provider: "google",
       routesProvider: createFakeRoutesProvider(route, {
         async getRoute() {
+          calls++;
           throw new Error("quota");
         },
       }),
     });
 
     expect(await store.get("s1", A, B)).toBeNull();
-    expect(redis.store.size).toBe(0);
+    expect(await store.get("s1", A, B)).toBeNull();
+    expect(calls).toBe(1);
+    expect([...redis.store.keys()].every((k) => k.endsWith(":failed"))).toBe(true);
+  });
+
+  it("si Redis falla al leer la trata como miss y pide la ruta igual", async () => {
+    const store = createPlannedRouteStore({ redis: memoryRedis({}, { failGet: true }), provider: "google", routesProvider: createFakeRoutesProvider(route) });
+    expect(await store.get("s1", A, B)).toEqual(route);
   });
 
   it("si no puede guardar en Redis devuelve la ruta igual", async () => {
