@@ -4976,6 +4976,12 @@ en segundo plano y la captura en primer plano mandan `mocked` de expo-location (
 cancelación muestra el motivo `carrier_arrived` (vista `penalty` con `reasonText`) y `HANDSHAKE_PICKUP_DEADLINE_PASSED` tiene copy.
 Pendiente: subir la precisión del GPS cerca del retiro (ADR-052, toca la medición de batería de MOVO-242).
 
+### MOVO-285 — Monto exacto del transportista con el fee real de MP
+
+- `shipments/[id].tsx`: si el detalle trae `carrierReceivedArs` (calculado por el backend con el hold), la card muestra "Recibís" con ese
+  monto y el desglose de `DebtDiscount` dice "Recibís antes" (prop `exact`); sin él sigue el estimado con "Recibís aprox.". Sin cambios de
+  diseño. "Cobraste" sigue saliendo solo de la liquidación acreditada (`settlement-format`). Las pantallas de oferta y "Mis ofertas"
+  mantienen el estimado.
 ### MOVO-340 — Paquete de fixes #3
 
 - **Horas y duraciones** (`src/lib/time-format.ts`): `formatTimeOfDay` (`14:30 h`), `formatTimeRange` (`14:00 a 16:00 h`),

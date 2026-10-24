@@ -60,6 +60,10 @@ export interface ShipmentSummary {
    * sin identidad de los competidores, `null` si no hay ninguna. */
   offersSummary?: { count: number; minPriceNetArs: number } | null;
   debtDiscount?: { amountArs: number; reason: "pending_balance" } | null;
+  /** MOVO-285: solo para el transportista asignado — lo que recibe, EXACTO, calculado por el backend con el
+   * hold (comisión de Movo, fee real de MP y su descuento por deuda). `null` mientras MP no informó el fee:
+   * el monto se muestra como estimado ("aprox."). */
+  carrierReceivedArs?: number | null;
   /** MOVO-257: solo en `GET /shipments/mine` — ofertas vigentes de un envío
    * `published` visto por su emisor; `null` en cualquier otro caso. */
   pendingOffersCount?: number | null;

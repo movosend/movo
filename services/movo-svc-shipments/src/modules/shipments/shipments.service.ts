@@ -5,6 +5,7 @@ import {
   CancellationQuoteResponse,
   DisputeReason,
   CarrierRoute,
+  HoldDetailResponse,
   LIVE_HOLD_STATUSES,
   OfferStatus,
   PublicProfile,
@@ -243,6 +244,12 @@ export type ShipmentDetailResult = Shipment & {
   viewerIsFormerCarrier?: boolean;
   /** MOVO-311: solo para el transportista asignado, mientras el cobro no se capturó. */
   debtDiscount?: CarrierDebtDiscount | null;
+  /**
+   * MOVO-285: lo que recibe el transportista, EXACTO: bruto − comisión de Movo − comisión real de MP (la que MP
+   * informó al crear el hold) − su descuento por deuda, todo del hold. `null`/ausente mientras no hay hold con fee:
+   * la app muestra el estimado "aprox.". Tras la captura el monto sale de la liquidación (`/shipments/:id/settlement`).
+   */
+  carrierReceivedArs?: number | null;
 };
 
 /** MOVO-311: estados con transportista asignado en los que el cobro todavía no se capturó. */
@@ -265,36 +272,51 @@ const DEBT_PREVIEW_STATUSES: readonly ShipmentStatus[] = [ShipmentStatus.ASSIGNM
  * detalle del envío no puede colgarse esperando (el hold tiene un timeout de 20 s y la vista previa otro de 5 s).
  */
 /**
+ * MOVO-285: lo que recibe el transportista según el hold, o `null` si MP todavía no informó su comisión. Es la misma
+ * cuenta que la liquidación (`bruto − comisión − fee de MP − deuda propia`, con el bruto sin el recargo del emisor),
+ * con la comisión de Movo y la deuda que reservó el hold, no con las de la configuración del cliente.
+ */
+function carrierReceivedFromHold(hold: HoldDetailResponse): number | null {
+  if (hold.carrierMpFeeArs === null || hold.carrierMpFeeArs === undefined) return null;
+  const received = hold.baseAmountArs - hold.commissionArs - hold.carrierMpFeeArs - hold.debtOffsetArs;
+  return Math.max(0, Math.round(received * 100) / 100);
+}
+
+/**
  * MOVO-311: cuánto de su deuda se le descuenta al transportista asignado en este envío. Con un hold vivo es
  * lo que reservó ese hold; antes del pago, la vista previa sobre el precio acordado. Solo para mostrar: si
  * payments no responde (o tarda más de `DEBT_DISCOUNT_TIMEOUT_MS`), `null`.
  */
-async function resolveCarrierDebtDiscount(
+async function resolveCarrierPaymentDisplay(
   paymentsClient: PaymentsClient,
   shipment: Shipment
-): Promise<CarrierDebtDiscount | null> {
+): Promise<{ debtDiscount: CarrierDebtDiscount | null; carrierReceivedArs: number | null }> {
+  const none = { debtDiscount: null, carrierReceivedArs: null };
   const { carrierId, agreedPriceArs } = shipment;
-  if (!carrierId || agreedPriceArs === null) return null;
+  if (!carrierId || agreedPriceArs === null) return none;
 
-  const resolve = async (): Promise<number> => {
+  // MOVO-285: el fee real de MP sale del mismo hold que el descuento por deuda (una sola consulta).
+  const resolve = async (): Promise<{ amountArs: number; carrierReceivedArs: number | null }> => {
     const hold = await paymentsClient.findHoldByShipment(shipment.id);
-    if (hold && LIVE_HOLD_STATUSES.includes(hold.status)) return hold.debtOffsetArs;
-    if (!DEBT_PREVIEW_STATUSES.includes(shipment.status)) return 0;
+    if (hold && LIVE_HOLD_STATUSES.includes(hold.status)) {
+      return { amountArs: hold.debtOffsetArs, carrierReceivedArs: carrierReceivedFromHold(hold) };
+    }
+    if (!DEBT_PREVIEW_STATUSES.includes(shipment.status)) return { amountArs: 0, carrierReceivedArs: null };
     const preview = await paymentsClient.previewCarrierDebt(carrierId, [agreedPriceArs]);
-    return preview?.debtOffsetsArs[0] ?? 0;
+    return { amountArs: preview?.debtOffsetsArs[0] ?? 0, carrierReceivedArs: null };
   };
 
   let timer: NodeJS.Timeout | undefined;
   try {
-    const amountArs = await Promise.race([
+    const { amountArs, carrierReceivedArs } = await Promise.race([
       resolve(),
-      new Promise<number>((_, reject) => {
+      new Promise<{ amountArs: number; carrierReceivedArs: number | null }>((_, reject) => {
         timer = setTimeout(() => reject(new Error("debt discount timeout")), DEBT_DISCOUNT_TIMEOUT_MS);
       }),
     ]);
-    return debtDiscount(amountArs);
+    return { debtDiscount: debtDiscount(amountArs), carrierReceivedArs };
   } catch {
-    return null;
+    return none;
   } finally {
     clearTimeout(timer);
   }
@@ -1598,7 +1620,7 @@ export function createShipmentsService(
 
       if (hasShipmentAccess(shipment, callerId, callerRoles)) {
         if (paymentsClient && callerId === shipment.carrierId && DEBT_DISCOUNT_STATUSES.includes(shipment.status)) {
-          return { ...shipment, debtDiscount: await resolveCarrierDebtDiscount(paymentsClient, shipment) };
+          return { ...shipment, ...(await resolveCarrierPaymentDisplay(paymentsClient, shipment)) };
         }
         return shipment;
       }

@@ -504,6 +504,7 @@ function build(seed: Seed): MockShipment {
         baseAmountArs: seed.price,
         debtOffsetArs: 0,
         debtSurchargeArs: 0,
+        carrierMpFeeArs: null,
         status: holdStatus,
         statusDetail:
           holdStatus === "captured" ? "accredited" : "pending_capture",
