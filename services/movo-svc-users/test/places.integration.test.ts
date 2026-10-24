@@ -180,6 +180,34 @@ describe("POST /places/autocomplete y /places/details", () => {
       ]);
     });
 
+    it("/details resuelve un placeId coords: con reverse geocoding, sin pasar por Places", async () => {
+      const geocodingProvider: GeocodingProvider = {
+        async geocode() {
+          throw new Error("no se usa");
+        },
+        async reverseGeocode() {
+          return { formattedAddress: "Av. Colón 1234, Córdoba", city: "Córdoba" };
+        },
+      };
+      const scoped = buildApp({ placesProvider: placesThatMustNotBeCalled, geocodingProvider });
+      await scoped.ready();
+      try {
+        const response = await scoped.inject({
+          method: "POST",
+          url: "/places/details",
+          payload: { placeId: "coords:-31.4201,-64.1888" },
+        });
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body)).toEqual({
+          formattedAddress: "Av. Colón 1234, Córdoba",
+          lat: -31.4201,
+          long: -64.1888,
+        });
+      } finally {
+        await scoped.close();
+      }
+    });
+
     it("un input fuera de rango sigue el camino normal del autocompletado", async () => {
       const placesProvider: PlacesProvider = {
         async autocomplete(input) {
@@ -190,9 +218,9 @@ describe("POST /places/autocomplete y /places/details", () => {
         },
       };
 
-      const { body } = await autocompleteWith("-95.1, -64.1888", { placesProvider });
+      const { body } = await autocompleteWith("-95.1234, -64.1888", { placesProvider });
 
-      expect(body.predictions).toEqual([{ placeId: "fake-1", description: "Resultado de Places para -95.1, -64.1888" }]);
+      expect(body.predictions).toEqual([{ placeId: "fake-1", description: "Resultado de Places para -95.1234, -64.1888" }]);
     });
   });
 

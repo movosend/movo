@@ -3,7 +3,10 @@ export interface Coordinates {
   long: number;
 }
 
-const DECIMAL = String.raw`[+-]?\d{1,3}(?:\.\d+)?`;
+// Ambos ejes exigen al menos 3 decimales: sin eso `12 34` o `25, 5` (calle + piso/depto)
+// pasarían por coordenadas, y un texto a medio escribir (`-31.4201, -64`) dispararía un
+// reverse geocoding facturado en cada tecla. 3 decimales son ~110 m, suficiente para un punto.
+const DECIMAL = String.raw`[+-]?\d{1,3}\.\d{3,}`;
 const DECIMAL_PAIR = new RegExp(String.raw`^(${DECIMAL})\s*(?:,\s*|\s+)(${DECIMAL})$`);
 
 // Un eje en grados/minutos/segundos con hemisferio, como lo copia Google Maps:
@@ -13,6 +16,22 @@ const DMS_AXIS = String.raw`(\d{1,3})\s*°\s*(\d{1,2})\s*['′]\s*(?:(\d{1,2}(?:
 const DMS_PAIR = new RegExp(String.raw`^${DMS_AXIS}\s*,?\s*${DMS_AXIS}$`, "i");
 
 const COORDINATE_DECIMALS = 6;
+
+/** Prefijo del `placeId` de una sugerencia por coordenadas (`coords:-31.4201,-64.1888`). */
+export const COORDINATES_PLACE_ID_PREFIX = "coords:";
+
+export function coordinatesPlaceId({ lat, long }: Coordinates): string {
+  return `${COORDINATES_PLACE_ID_PREFIX}${lat},${long}`;
+}
+
+/** Inverso de `coordinatesPlaceId`: `null` si el `placeId` no es de coordenadas. */
+export function parseCoordinatesPlaceId(placeId: string): Coordinates | null {
+  if (!placeId.startsWith(COORDINATES_PLACE_ID_PREFIX)) return null;
+  const [lat, long] = placeId.slice(COORDINATES_PLACE_ID_PREFIX.length).split(",").map(Number);
+  if (lat === undefined || long === undefined || !Number.isFinite(lat) || !Number.isFinite(long)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(long) > 180) return null;
+  return { lat, long };
+}
 
 /**
  * Interpreta un texto de búsqueda como coordenadas (MOVO-340), o devuelve `null` para
