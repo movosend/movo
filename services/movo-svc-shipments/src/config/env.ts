@@ -59,6 +59,10 @@ export interface EnvConfig {
   FUNDING_SWEEP_INTERVAL_MINUTES: number;
   FUNDING_SWEEP_ENABLED?: boolean;
   USER_DEBT_OVERDUE_DAYS: number;
+  ALERT_PROVIDER: "console" | "telegram";
+  ALERT_TELEGRAM_BOT_TOKEN?: string;
+  ALERT_TELEGRAM_CHAT_ID?: string;
+  ALERT_ENVIRONMENT_LABEL?: string;
 }
 
 export const envSchema = {
@@ -225,6 +229,13 @@ export const envSchema = {
     // bloquea operar como transportista (declarar viaje, ofertar, editar oferta, iniciar
     // viaje). Umbral por antigüedad, sin monto mínimo. Como emisor no se bloquea.
     USER_DEBT_OVERDUE_DAYS: { type: "number", default: 14, minimum: 0 },
+    // MOVO-334: alerta al equipo cuando una parte abre una disputa. Mismas vars que
+    // `svc-payments` (MOVO-268): `console` = solo log, `telegram` = además al chat del equipo.
+    ALERT_PROVIDER: { type: "string", enum: ["console", "telegram"], default: "console" },
+    ALERT_TELEGRAM_BOT_TOKEN: { type: "string" },
+    ALERT_TELEGRAM_CHAT_ID: { type: "string" },
+    // Prefijo de cada alerta (`dev`, `prod`) para distinguir ambientes en el mismo chat.
+    ALERT_ENVIRONMENT_LABEL: { type: "string" },
   },
 };
 

@@ -3,6 +3,7 @@ import {
   ApiError,
   CarrierDebtDiscount,
   CancellationQuoteResponse,
+  DisputeReason,
   CarrierRoute,
   LIVE_HOLD_STATUSES,
   OfferStatus,
@@ -2817,13 +2818,18 @@ export function createShipmentsService(
 
           if (attribution === "carrier_arrived") {
             // `expectedFrom`: un retiro concurrente gana y este envío se saltea.
-            await repository.updateStatus(
-              shipment.id,
-              ShipmentStatus.DISPUTED,
-              null,
-              "El transportista llegó al punto de retiro y no se registró el handshake dentro del plazo",
-              { expectedFrom: ShipmentStatus.ASSIGNED }
-            );
+            const pickupDisputeReason =
+              "El transportista llegó al punto de retiro y no se registró el handshake dentro del plazo";
+            await repository.updateStatus(shipment.id, ShipmentStatus.DISPUTED, null, pickupDisputeReason, {
+              expectedFrom: ShipmentStatus.ASSIGNED,
+              // MOVO-334: disputa de sistema; no bloquea al transportista (`hasOpenDisputeAsCarrier`).
+              dispute: {
+                openedBy: null,
+                openedByRole: null,
+                reason: DisputeReason.PICKUP_NO_SHOW,
+                description: pickupDisputeReason,
+              },
+            });
             disputedCount++;
             logger?.warn(
               { event: "pickup_no_show_disputed", shipmentId: shipment.id, carrierId: shipment.carrierId },
@@ -3030,13 +3036,17 @@ export function createShipmentsService(
           continue;
         }
         try {
-          await repository.updateStatus(
-            shipment.id,
-            ShipmentStatus.DISPUTED,
-            null,
-            "La entrega no se confirmó dentro del plazo posterior a la demora detectada",
-            { expectedFrom: ShipmentStatus.IN_TRANSIT }
-          );
+          const transitDisputeReason = "La entrega no se confirmó dentro del plazo posterior a la demora detectada";
+          await repository.updateStatus(shipment.id, ShipmentStatus.DISPUTED, null, transitDisputeReason, {
+            expectedFrom: ShipmentStatus.IN_TRANSIT,
+            // MOVO-334: disputa de sistema con la entidad nueva.
+            dispute: {
+              openedBy: null,
+              openedByRole: null,
+              reason: DisputeReason.TRANSIT_ANOMALY,
+              description: transitDisputeReason,
+            },
+          });
           disputedCount++;
           logger?.warn(
             { event: "transit_anomaly_disputed", shipmentId: shipment.id, carrierId: shipment.carrierId },

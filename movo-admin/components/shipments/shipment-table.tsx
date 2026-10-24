@@ -9,6 +9,7 @@ import {
   priceLabel,
   routeLine,
   rowAlert,
+  shipmentDisplayCode,
   timeAgo,
 } from "@/lib/shipments/format"
 import { cn } from "@/lib/utils"
@@ -58,13 +59,14 @@ export function ShipmentRowLink({
     >
       <span
         className={cn(
-          "grid items-center gap-4 px-[18px] pt-3 text-[13px]",
-          alert ? "pb-1.5" : "pb-3",
+          "grid items-center gap-4 px-[18px] py-3 text-[13px]",
           COLUMNS
         )}
       >
         <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="font-mono text-xs font-medium">#{row.code}</span>
+          <span className="font-mono text-xs font-medium">
+            {shipmentDisplayCode(row.id)}
+          </span>
           <span className="text-xs text-muted-foreground">
             {timeAgo(row.lastStatusChangeAt, now)}
           </span>
@@ -90,6 +92,12 @@ export function ShipmentRowLink({
           <span className="hidden truncate text-xs text-muted-foreground min-[82.5rem]:block">
             {addressLine(row)}
           </span>
+          {alert && (
+            <span className="mt-0.5 flex items-start gap-1.5 text-xs font-medium text-warn-fg">
+              <TriangleAlert aria-hidden className="mt-px size-3.5 flex-none" />
+              <span className="line-clamp-2">{alert}</span>
+            </span>
+          )}
         </span>
         <span className="hidden min-w-0 flex-col gap-0.5 min-[82.5rem]:flex">
           <span className="truncate">
@@ -111,12 +119,6 @@ export function ShipmentRowLink({
           )}
         </span>
       </span>
-      {alert && (
-        <span className="flex items-center gap-1.5 px-[18px] pb-3 text-xs font-medium text-warn-fg md:pl-[146px] min-[82.5rem]:pl-[154px]">
-          <TriangleAlert aria-hidden className="size-3.5 flex-none" />
-          {alert}
-        </span>
-      )}
     </Link>
   )
 }

@@ -128,6 +128,10 @@ describe("salida del in_transit demorado (Postgres, MOVO-278)", () => {
       expect(event).toMatchObject({ fromStatus: ShipmentStatus.IN_TRANSIT, actorId: null });
       expect(event?.reason).toContain("no se confirmó");
       await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalledTimes(3));
+      // MOVO-334: la disputa automática se crea con la entidad, como disputa de sistema.
+      expect(await app.db.dispute.findMany({ where: { shipmentId: overdue.shipmentId } })).toEqual([
+        expect.objectContaining({ reason: "transit_anomaly", openedBy: null, status: "open" }),
+      ]);
 
       expect(await service().disputeOverdueFlaggedShipments()).toEqual({ disputedCount: 0, errorsCount: 0 });
       expect(await app.db.shipmentEvent.count({ where: { toStatus: ShipmentStatus.DISPUTED } })).toBe(1);
@@ -193,6 +197,7 @@ describe("salida del in_transit demorado (Postgres, MOVO-278)", () => {
 
       // La resolución (MOVO-34) todavía no existe: se simula sacando el envío de `disputed`.
       await app.db.shipment.update({ where: { id: shipmentId }, data: { status: ShipmentStatus.COMPLETED } });
+      await app.db.dispute.updateMany({ where: { shipmentId }, data: { status: "resolved" } });
       expect((await start()).statusCode).toBe(200);
     });
   });

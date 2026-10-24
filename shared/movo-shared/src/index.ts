@@ -536,3 +536,20 @@ export type {
   SupportRealtimeEvent,
   SupportRealtimeConnected,
 } from "./types/support";
+
+// disputas (MOVO-334, ADR-054)
+export {
+  DisputeReason,
+  DisputeStatus,
+  USER_SELECTABLE_DISPUTE_REASONS,
+  DISPUTE_WINDOW_DAYS,
+  DISPUTE_TEXT_MAX_LENGTH,
+} from "./types/dispute";
+export type {
+  DisputePartyRole,
+  DisputeStatementKind,
+  DisputePhoto,
+  DisputeStatement,
+  DisputeDetail,
+  DisputePhotoUploadUrl,
+} from "./types/dispute";

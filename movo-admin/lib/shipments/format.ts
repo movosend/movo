@@ -168,52 +168,6 @@ export const ALERT_HINT: Partial<Record<ShipmentStatusValue, string>> = {
   rejected_by_receiver: "Si vence el plazo, el barrido cancela el envío.",
 }
 
-/** Lugar del mapa de seguimiento (MOVO-328): título y mensaje por estado. */
-export function trackingMessage(
-  row: AdminShipmentRow,
-  now = new Date()
-): [string, string] {
-  switch (row.status) {
-    case "assigned":
-      return [
-        "Todavía no arrancó",
-        `El seguimiento se abre con el retiro. ${firstName(row.carrier?.name ?? null)} retira ${pickupWindow(row, now).toLowerCase()}.`,
-      ]
-    case "assignment_pending":
-      return [
-        "Todavía no arrancó",
-        "Se habilita después del retiro, con el pago reservado.",
-      ]
-    case "assigned_unfunded":
-      return [
-        "Todavía no arrancó",
-        "Sin fondos reservados el envío no se puede retirar ni seguir.",
-      ]
-    case "in_transit":
-      return [
-        "En camino",
-        "El mapa con la posición del transportista se suma en este lugar.",
-      ]
-    case "delivered":
-      return [
-        "Seguimiento cerrado",
-        "Se cortó con el handshake de entrega. La traza queda guardada hasta la purga periódica.",
-      ]
-    case "completed":
-      return [
-        "Seguimiento cerrado",
-        "Se cortó con la entrega. La traza queda guardada hasta la purga periódica.",
-      ]
-    case "disputed":
-      return [
-        "Seguimiento cortado",
-        "La traza GPS se conserva como evidencia mientras dure la disputa.",
-      ]
-    default:
-      return ["Sin seguimiento", "El envío no tiene transportista asignado."]
-  }
-}
-
 // ── Partes ─────────────────────────────────────────────────────────────────────
 
 type Parties = Pick<AdminShipmentRow, "sender" | "carrier" | "receiver">
@@ -607,4 +561,13 @@ export function buildChatItems(
     prevAuthor = message.authorId
   }
   return items
+}
+
+/**
+ * Código del envío para mostrar, igual que el de la app (`activeShipmentDisplayCode` en movo-mobile):
+ * los últimos 5 dígitos del id, rellenados con ceros. Solo para mostrar: no identifica al envío ni sirve para buscarlo.
+ */
+export function shipmentDisplayCode(id: string): string {
+  const digits = id.replace(/\D/g, "").slice(-5).padStart(5, "0")
+  return `#MOVO-${digits}`
 }

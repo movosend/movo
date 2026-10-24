@@ -82,7 +82,7 @@ describe("tabla de envíos", () => {
     render(<ShipmentRowLink row={row()} href="/shipments/x" now={NOW} />)
     const link = screen.getByRole("link")
     expect(link.getAttribute("href")).toBe("/shipments/x")
-    expect(within(link).getByText("#4800bc55")).toBeTruthy()
+    expect(within(link).getByText("#MOVO-48213")).toBeTruthy()
     expect(within(link).getByText("hace 6 min")).toBeTruthy()
     expect(within(link).getAllByText("En camino").length).toBeGreaterThan(0)
     expect(within(link).getByText("Córdoba → Villa Allende")).toBeTruthy()
