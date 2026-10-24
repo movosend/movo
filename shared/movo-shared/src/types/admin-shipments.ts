@@ -40,6 +40,21 @@ export const ADMIN_SHIPMENT_GROUP_STATUSES: Readonly<Record<AdminShipmentGroup, 
   disputes: [ShipmentStatus.DISPUTED],
 };
 
+/**
+ * Estados que por sí solos piden atención de operación: plazo de pago abierto, plazo del emisor para
+ * elegir otro receptor y disputa. Un `in_transit` lo pide solo si está demorado (`delayed`).
+ */
+export const ADMIN_SHIPMENT_ALERT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.ASSIGNED_UNFUNDED,
+  ShipmentStatus.REJECTED_BY_RECEIVER,
+  ShipmentStatus.DISPUTED,
+];
+
+/** Si una fila lleva aviso en el panel. Es la misma regla que aplica el filtro `alert` del listado. */
+export function isAdminShipmentAlert(row: Pick<AdminShipmentRow, "status" | "delayed">): boolean {
+  return row.delayed || (ADMIN_SHIPMENT_ALERT_STATUSES as readonly string[]).includes(row.status);
+}
+
 /** Límites de página del listado (y del chat) del panel. */
 export const ADMIN_SHIPMENTS_DEFAULT_LIMIT = 25;
 export const ADMIN_SHIPMENTS_MAX_LIMIT = 100;
@@ -90,6 +105,10 @@ export interface AdminShipmentPage {
   items: AdminShipmentRow[];
   nextCursor: string | null;
   counts: AdminShipmentCounts;
+  /** Conteo de cada estado con los mismos filtros, para los chips dentro de una pestaña. */
+  statusCounts: Record<`${ShipmentStatus}`, number>;
+  /** De cada pestaña, cuántos llevan aviso (`isAdminShipmentAlert`), para el toggle "Con alerta". */
+  alertCounts: AdminShipmentCounts;
 }
 
 /** Evento del historial de un envío. */

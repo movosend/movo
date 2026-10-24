@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
-import { AdminChatPage, AdminShipmentDetail, AdminShipmentPage, ACTIVE_SHIPMENT_STATUSES, ShipmentStatus } from "@movo/shared";
+import {
+  AdminChatPage,
+  AdminShipmentDetail,
+  AdminShipmentPage,
+  ACTIVE_SHIPMENT_STATUSES,
+  isAdminShipmentAlert,
+  ShipmentStatus,
+} from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateShipmentInput, PackageType } from "../src/models/shipment";
@@ -161,6 +168,34 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
 
       expect(page.counts).toEqual({ all: 7, unassigned: 3, assigning: 1, in_progress: 2, closed: 1, disputes: 1 });
       expect(page.items).toHaveLength(1);
+      expect(page.statusCounts).toMatchObject({ published: 1, in_transit: 1, delivered: 1, completed: 0, cancelled: 0 });
+      expect(Object.keys(page.statusCounts).sort()).toEqual(Object.values(ShipmentStatus).sort());
+    });
+
+    it("`alert` deja los que llevan aviso y `alertCounts` los cuenta por pestaña", async () => {
+      const tag = `alr${randomUUID().slice(0, 8)}`;
+      const unfunded = await seed(tag, ShipmentStatus.ASSIGNED_UNFUNDED, { carrierId: randomUUID() });
+      const rejected = await seed(tag, ShipmentStatus.REJECTED_BY_RECEIVER);
+      const disputed = await seed(tag, ShipmentStatus.DISPUTED, { carrierId: randomUUID() });
+      const delayed = await seed(tag, ShipmentStatus.IN_TRANSIT, {
+        carrierId: randomUUID(),
+        data: { transitAnomalyFlaggedAt: new Date() },
+      });
+      // Sin aviso: un `in_transit` al día y un publicado.
+      await seed(tag, ShipmentStatus.IN_TRANSIT, { carrierId: randomUUID() });
+      await seed(tag, ShipmentStatus.PUBLISHED);
+
+      const all = await list(tag);
+      expect(all.alertCounts).toEqual({ all: 4, unassigned: 1, assigning: 1, in_progress: 1, closed: 0, disputes: 1 });
+      expect(all.counts.all).toBe(6);
+      for (const item of all.items) {
+        expect(isAdminShipmentAlert(item)).toBe([unfunded.id, rejected.id, disputed.id, delayed.id].includes(item.id));
+      }
+
+      const onlyAlerts = await list(tag, "alert=true");
+      expect(onlyAlerts.items.map((item) => item.id).sort()).toEqual([unfunded.id, rejected.id, disputed.id, delayed.id].sort());
+      // Con el filtro puesto, las pestañas cuentan solo los que tienen aviso.
+      expect(onlyAlerts.counts).toEqual(onlyAlerts.alertCounts);
     });
 
     it("ordena por último cambio de estado y pagina con cursor sin repetir ni saltear", async () => {

@@ -3756,3 +3756,11 @@ el cursor reusa `carrierWithdrawnAt`); llegó → `assigned → disputed` con el
 - `countAvailableCarriersNear` cuenta solo `declared` (ADR-053). `GET /shipments/:id` expone `carrierTripActive`. Env nueva
   `PICKUP_NO_SHOW_RATING_INVITE_ENABLED` (AC12, apagada hasta MOVO-337). Pendiente: motivo de sistema y migración de estas disputas
   en MOVO-334, y `assigned` sin hold en la matriz de MOVO-337.
+
+### MOVO-326 — Conteos por estado y de avisos, filtro `alert` en `GET /internal/admin/shipments`
+
+El panel necesitaba los chips por estado y el toggle "Solo con alerta" con su conteo. `counts()` de
+`admin-shipment-repository.ts` ahora devuelve también `statusCounts` (los 11 estados) y `alertCounts` (por pestaña) en la misma
+consulta agrupada (`COUNT(*) FILTER`), y `alert=true` filtra la lista y los conteos. La regla es `ALERT_SQL`, el espejo SQL de
+`isAdminShipmentAlert` de `@movo/shared`: `assigned_unfunded`, `rejected_by_receiver`, `disputed` o `in_transit` con
+`transit_anomaly_flagged_at`. Si cambia una, cambia la otra.
