@@ -136,3 +136,21 @@ Pendiente: el detalle del pago solo trae el hold (captura/reembolso viven en liq
 
 MOVO-326 suma a `GET /admin/shipments` el filtro `alert` (booleano) y, en la respuesta, `statusCounts` y `alertCounts`; se
 validan en `shipments.schema.ts` y se reenvían tal cual (ver `svc-shipments/HISTORIAL.md`).
+
+### MOVO-299 — Sanciones desde la ficha: suspender, inhabilitar, levantar
+
+`modules/sanctions/` sobre los internos de MOVO-296 (`svc-users`) y MOVO-297 (`svc-shipments`): `GET /admin/users/:id/sanctions`
+(reemplaza el stub `/suspensions`), `GET .../sanctions/preview`, `POST .../sanctions`, `POST .../:sanctionId/lift` y
+`POST .../:sanctionId/withdraw` (reintento). Bitácora: `user.suspend`, `user.disable`, `user.sanction_lift`, `user.sanction_withdraw`.
+
+- **Orden**: sanción en `svc-users` → retiro en `svc-shipments`, dentro de la misma `runAdminAction`. Un retiro que falla (502) o queda
+  parcial (`failures`) no hace fallar la acción: la fila es `succeeded` y lleva `context.withdrawal` (`complete`/`partial`/`failed` + lo
+  retirado). Inhabilitar consulta `in-progress-shipments` en el `precheck`: con envíos en curso, 409 `USER_HAS_IN_PROGRESS_SHIPMENTS`
+  (`details.shipments`) y fila `failed`, sin aplicar nada. Carrera aceptada: un envío que se compromete entre el chequeo y la sanción sigue.
+- **Estado del retiro sin tabla nueva**: se deriva de la bitácora (`listBySanction`, filtro por `context.sanctionId` en el JSON). Gana la
+  fila más reciente que intentó retirar: `succeeded` trae `context.withdrawal`; `unknown` es un reintento sin respuesta de `svc-shipments`
+  (cuenta como `failed`); `failed` es un rechazo previo (conflicto, sanción cerrada) y no cuenta.
+- El 409 de inhabilitar necesita `details` en el schema de error (`sanctions.schema.ts`): el `errorResponse` de `users.schema.ts` no lo
+  declara y el serializador lo descartaría. `namesOf`/`requireReason` pasaron a `modules/users/user-names.ts` para compartirlos.
+
+Pendiente: verificar a mano contra dev (suspender un usuario de prueba y comprobar en la app que no puede publicar pero sí entregar).

@@ -9,7 +9,7 @@ const int = { type: "integer" } as const;
 const uuid = { type: "string", format: "uuid" } as const;
 
 const KYC_STATUSES = ["not_started", "pending", "approved", "rejected", "expired", "manual_review"] as const;
-const ACCOUNT_STATUSES = ["active", "banned", "deleted"] as const;
+const ACCOUNT_STATUSES = ["active", "banned", "deleted", "suspended"] as const;
 const SHIPMENT_ROLES = ["sender", "carrier", "receiver"] as const;
 export const SHIPMENT_STATUSES = [
   "awaiting_receiver_confirmation",
@@ -297,32 +297,6 @@ export const usersSchemas = {
         reports: object({ received: { type: "array", items: report }, made: { type: "array", items: report } }),
         blocks: object({ made: { type: "array", items: block }, received: { type: "array", items: block } }),
         totals: object({ reportsReceived: int, reportsMade: int, blocksMade: int, blocksReceived: int }),
-      }),
-      ...errors,
-    },
-  },
-
-  suspensions: {
-    params: idParam,
-    response: {
-      200: object({
-        items: {
-          type: "array",
-          items: object(
-            {
-              type: { type: "string", enum: ["temporary", "permanent"] },
-              days: int,
-              reason: str,
-              adminId: str,
-              adminName: str,
-              createdAt: str,
-              status: { type: "string", enum: ["active", "lifted"] },
-              liftedAt: str,
-              liftedBy: str,
-            },
-            ["type", "reason", "adminId", "adminName", "createdAt", "status"],
-          ),
-        },
       }),
       ...errors,
     },

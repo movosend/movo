@@ -1,4 +1,6 @@
 import {
+  AccountSanction,
+  AdminApplySanctionBody,
   AdminCandidate,
   AdminContactUpdateBody,
   AdminContactUpdateResult,
@@ -62,6 +64,17 @@ export interface UsersClient extends InternalClient {
    * envío. Una cuenta inexistente queda afuera de la lista.
    */
   getPartyCards(userIds: string[], ctx: RequestContext): Promise<PartyCard[]>;
+
+  // MOVO-299 sobre los internos de MOVO-296 (`/internal/users/:id/sanctions`). 404 `USER_NOT_FOUND` como `ApiError`.
+  /** Historial, de la más reciente a la más vieja. */
+  listSanctions(userId: string, ctx: RequestContext): Promise<AccountSanction[]>;
+  /** 409 `ACCOUNT_ALREADY_DISABLED` si ya estaba inhabilitada. Reemplaza o escala la sanción vigente. */
+  applySanction(userId: string, body: AdminApplySanctionBody, actorId: string, ctx: RequestContext): Promise<AccountSanction>;
+  /**
+   * 409 `SANCTION_ALREADY_CLOSED`. Un 404 se informa como `SANCTION_NOT_FOUND`: quien llama ya
+   * comprobó que el usuario existe al leer el historial.
+   */
+  liftSanction(userId: string, sanctionId: string, reason: string, actorId: string, ctx: RequestContext): Promise<AccountSanction>;
 }
 
 const isNumber = (value: unknown): value is number => typeof value === "number";
@@ -163,6 +176,23 @@ const isAdminCandidateList = (body: unknown): body is AdminCandidate[] => Array.
 const isAdminSummaryList = (body: unknown): body is AdminSummary[] => Array.isArray(body) && body.every(isAdminSummary);
 
 const isNoContent = (body: unknown): body is undefined => body === undefined;
+
+const isSanction = (body: unknown): body is AccountSanction =>
+  isRecord(body) &&
+  isString(body.id) &&
+  isString(body.userId) &&
+  (body.type === "suspension" || body.type === "disable") &&
+  isString(body.reason) &&
+  isNullableString(body.internalNote) &&
+  isString(body.startedAt) &&
+  isNullableString(body.endsAt) &&
+  isNullableString(body.appliedBy) &&
+  isNullableString(body.liftedAt) &&
+  isNullableString(body.liftedBy) &&
+  isNullableString(body.liftReason) &&
+  isNullableString(body.closedCause);
+
+const isSanctionList = (body: unknown): body is AccountSanction[] => Array.isArray(body) && body.every(isSanction);
 
 export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersClient {
   const client = createInternalClient({
@@ -268,6 +298,34 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
       });
       return orNotFound(result, "USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE);
     },
+
+    async listSanctions(userId, ctx) {
+      const result = await client.request(sanctionsPath(userId), ctx, { isValid: isSanctionList, notFoundCodes: ["USER_NOT_FOUND"] });
+      return orNotFound(result, "USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE);
+    },
+
+    async applySanction(userId, body, actorId, ctx) {
+      const result = await client.request(sanctionsPath(userId), ctx, {
+        method: "POST",
+        body,
+        actorId,
+        isValid: isSanction,
+        notFoundCodes: ["USER_NOT_FOUND"],
+      });
+      return orNotFound(result, "USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE);
+    },
+
+    async liftSanction(userId, sanctionId, reason, actorId, ctx) {
+      const result = await client.request(`${sanctionsPath(userId)}/${encodeURIComponent(sanctionId)}/lift`, ctx, {
+        method: "POST",
+        body: { reason },
+        actorId,
+        isValid: isSanction,
+        notFoundCodes: ["USER_NOT_FOUND", "SANCTION_NOT_FOUND"],
+      });
+      if (result === null) throw new ApiError(404, "SANCTION_NOT_FOUND", "La sanción no existe.");
+      return result;
+    },
   };
 
   async function userSection<T>(userId: string, section: string, ctx: RequestContext, isValid: (body: unknown) => body is T): Promise<T> {
@@ -278,3 +336,4 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
 
 const USER_NOT_FOUND_MESSAGE = "Usuario no encontrado.";
 const userPath = (userId: string) => `/internal/admin/users/${encodeURIComponent(userId)}`;
+const sanctionsPath = (userId: string) => `/internal/users/${encodeURIComponent(userId)}/sanctions`;
