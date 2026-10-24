@@ -11,6 +11,7 @@ import {
   ApiError,
   ChatReportParties,
   AdminChatPage,
+  AdminShipmentTracking,
   AdminShipmentDetail,
   AdminShipmentEvent,
   AdminShipmentOffer,
@@ -53,6 +54,8 @@ export function createFakeShipmentsClient(data: {
   /** Solo el endpoint de ofertas falla (deploy en serie: svc-shipments todavía sin la ruta). */
   offersDown?: boolean;
   chats?: Record<string, AdminChatPage>;
+  /** MOVO-327 */
+  trackings?: Record<string, AdminShipmentTracking>;
   /** Últimos query strings recibidos, para comprobar que se reenvían. */
   seen?: { list?: string; chat?: string };
   down?: boolean;
@@ -106,6 +109,10 @@ export function createFakeShipmentsClient(data: {
       if (data.down) throw shipmentsDown();
       if (data.seen) data.seen.chat = query.toString();
       return data.chats?.[id] ?? null;
+    },
+    async getAdminShipmentTracking(id) {
+      if (data.down) throw shipmentsDown();
+      return data.trackings?.[id] ?? null;
     },
     async getShipmentParties(id) {
       if (data.down) throw shipmentsDown();
