@@ -1,0 +1,22 @@
+titulo: Paper Científico
+titulo_corto: Paper
+subtitulo: Movo, sistema de logística P2P. Versión actualizada del paper presentado en la jornada de proyectos.
+instancia: Instancia 4 · Jornada de presentación
+version: "2"
+fecha: 02/11/2026
+secciones_en_pagina_nueva: false
+indice_nivel_3: false
+historial:
+  - {version: "1", fecha: 18/08/2026, autor: Equipo completo, descripcion: Versión presentada en la jornada de proyectos (paper de la cátedra).}
+  - {version: "2", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Corrección de las afirmaciones técnicas que el desarrollo posterior modificó (Routes API, momento de la reserva de fondos, motor de precios, pago en efectivo, hash de custodia, cita de IA). Ver nota al final del documento."}
+introduccion: |
+  Este documento reúne el paper del proyecto Movo, elaborado según las normas previstas por la
+  cátedra para la jornada de presentación de proyectos. El paper argumenta: plantea el problema
+  de la exclusión logística, describe la solución y la metodología, presenta los resultados,
+  discute sus límites y concluye. Se acompaña del póster y del video en el documento siguiente.
+
+  Se incluye la versión original, corregida solo en los puntos técnicos que cambiaron durante el
+  desarrollo posterior a la jornada; los cambios se listan al final.
+audiencia: |
+  Comunidad académica, docentes, jurado y visitantes de la jornada. No se asume conocimiento
+  técnico profundo del sistema.

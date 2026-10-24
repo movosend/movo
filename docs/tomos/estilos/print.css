@@ -642,3 +642,12 @@ table.caso td.resultado { font-weight: 600; }
 
 /* Firma / créditos finales */
 .colofon { font-size: 7.6pt; color: var(--ink-600); margin-top: 20mm; }
+
+/* ─────────────────────────────── Paper ─────────────────────────────── */
+.paper-cab { text-align: center; margin: 2mm 0 8mm; padding-bottom: 6mm; border-bottom: .6pt solid var(--ink-200); }
+.paper-cab p { text-align: center; margin: 0 0 1.4mm; }
+.paper-titulo { font: 700 26pt/1.1 "Inter"; letter-spacing: -.04em; }
+.paper-subtitulo { font: 500 13pt/1.3 "Inter"; color: var(--ink-600); margin-bottom: 4mm !important; }
+.paper-autores { font-size: 9.2pt; font-weight: 500; }
+.paper-inst { font-size: 8.6pt; color: var(--ink-600); }
+.documento h2.unnumbered + p em { color: var(--ink-800); }

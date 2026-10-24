@@ -1,0 +1,15 @@
+titulo: Informe de Impacto Ambiental
+titulo_corto: Impacto Ambiental
+subtitulo: Consumo energético y huella de carbono, alternativas de diseño evaluadas y beneficios de la solución.
+instancia: Instancia 5 · Fin de proyecto
+version: "0"
+fecha: 02/11/2026
+indice_nivel_3: false
+historial:
+  - {version: "0", fecha: 02/11/2026, autor: "BORDINO BLANCHE, Juan Cruz", descripcion: "Reserva del documento; el contenido se incorporará cuando esté listo."}
+introduccion: |
+  Este informe evalúa cómo afecta al medio ambiente la implementación de la solución Movo:
+  cuánta energía consume y qué huella de carbono genera, qué alternativas de diseño se
+  evaluaron por su impacto ambiental y qué beneficios ambientales produce.
+audiencia: |
+  Docentes y comunidad académica.

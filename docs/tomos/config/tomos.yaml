@@ -16,11 +16,11 @@ tomos:
       Final de la carrera de Ingeniería en Sistemas de Información de la Universidad Tecnológica
       Nacional, Facultad Regional Córdoba, durante el ciclo lectivo 2026.
 
-      Los documentos se presentan en el orden en que se produjeron a lo largo del año, siguiendo las
-      instancias de la *Guía de Documentación a Presentar* de la cátedra: primero el diagnóstico del
-      problema y la propuesta (Estudio Inicial), luego la planificación (Plan de Proyecto), los
-      acuerdos y artefactos del Sprint 0, los informes de cada sprint y, por último, los entregables
-      de comunicación académica y de cierre. Cada documento conserva su propio historial de revisión,
+      Los documentos siguen la organización de la cátedra: primero el diagnóstico del problema y la
+      propuesta (Estudio Inicial), luego la planificación (Plan de Proyecto), el informe de impacto
+      ambiental, el paper y el póster de la jornada de presentación, la gestión del proyecto con los
+      acuerdos y artefactos del Sprint 0 y los informes de cada sprint, y por último la
+      retrospectiva del proyecto. Cada documento conserva su propio historial de revisión,
       introducción y audiencia, de modo que pueda leerse de forma independiente.
 
       La **audiencia** de este tomo es el equipo docente y el tribunal evaluador, que lo usan para
@@ -30,14 +30,14 @@ tomos:
     documentos:
       - dir: 01-estudio-inicial
       - dir: 02-plan-de-proyecto
-      - dir: 03-working-agreement
-      - dir: 04-gestion-configuracion
-      - dir: 05-plan-de-testing
-      - dir: 06-user-story-mapping
-      - dir: 07-informes-de-sprint
-      - dir: 08-impacto-ambiental
-      - dir: 09-paper
-      - dir: 10-poster
+      - dir: 03-impacto-ambiental
+      - dir: 04-paper
+      - dir: 05-poster
+      - dir: 06-working-agreement
+      - dir: 07-gestion-configuracion
+      - dir: 08-plan-de-testing
+      - dir: 09-user-story-mapping
+      - dir: 10-informes-de-sprint
       - dir: 11-retrospectiva
 
   - id: tomo-2

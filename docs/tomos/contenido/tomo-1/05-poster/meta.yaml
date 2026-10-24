@@ -1,0 +1,16 @@
+titulo: Póster y Video
+titulo_corto: Póster y Video
+subtitulo: Póster del proyecto, ficha de herramientas y tecnologías y video de presentación.
+instancia: Instancia 4 · Jornada de presentación
+version: "1"
+fecha: 02/11/2026
+secciones_en_pagina_nueva: false
+historial:
+  - {version: "1", fecha: 19/08/2026, autor: Equipo completo, descripcion: Póster y ficha de herramientas presentados en la jornada de proyectos.}
+  - {version: "1.1", fecha: 02/11/2026, autor: Equipo completo, descripcion: Compilación en el Tomo I y columna de estado final en la ficha de herramientas.}
+introduccion: |
+  La jornada de presentación comunica el proyecto a la comunidad académica: el paper argumenta,
+  el póster comunica visualmente y el video demuestra. Este documento reúne el póster, la ficha
+  de herramientas y tecnologías que acompaña a la presentación y el apartado del video.
+audiencia: |
+  Comunidad académica, docentes, jurado y visitantes.

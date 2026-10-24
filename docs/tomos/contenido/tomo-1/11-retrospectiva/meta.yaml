@@ -1,0 +1,16 @@
+titulo: Retrospectiva de Proyecto
+titulo_corto: Retrospectiva de Proyecto
+subtitulo: Las tres decisiones que resultaron bien, las tres cosas que haríamos diferente y recomendaciones para futuros equipos.
+instancia: Instancia 5 · Fin de proyecto
+version: "0.1"
+fecha: 02/11/2026
+indice_nivel_3: false
+historial:
+  - {version: "0.1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Borrador elaborado a partir de las retrospectivas de los Sprints 2 a 7 para su validación por el equipo."}
+introduccion: |
+  La retrospectiva de proyecto es una reflexión sobre el proceso completo, más allá de cada
+  sprint: qué decisiones valieron la pena, qué se haría de otra manera y qué se les recomienda
+  a quienes encaren un proyecto similar. Complementa las retrospectivas parciales que cada
+  Informe de Sprint registra al cierre de su ciclo.
+audiencia: |
+  El equipo, los docentes y los futuros estudiantes de la cátedra.
