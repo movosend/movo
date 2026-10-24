@@ -1,3 +1,4 @@
+import { computeNetFromGross } from "@movo/shared/dist/config/commission";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useFocusEffect, useIsFocused, useLocalSearchParams, type Href } from "expo-router";
@@ -61,7 +62,10 @@ import {
   activeShipmentDisplayCode,
   isTransitDelayed,
 } from "../../../src/lib/active-shipment-format";
-import { carrierReceivedBeforeDebtArs } from "../../../src/lib/commission-config";
+import {
+  estimateReceivedArs,
+  getClientCommissionRate,
+} from "../../../src/lib/commission-config";
 import { chatAvailability } from "../../../src/lib/chat-format";
 import {
   FULFILLED_SHIPMENT_STATUSES,
@@ -327,15 +331,28 @@ export default function ShipmentDetailScreen() {
   const contextualCta =
     fundingReplacesCta ? null : detailCta;
 
-  // El precio pactado (`agreedPriceArs`) es el bruto que paga el emisor; el
-  // transportista ve lo que recibe aprox. después de la comisión de Movo (AC3) y del
-  // estimado de MP (MOVO-225), el mismo monto que en el resto de las pantallas.
-  const carrierReceivedArs =
-    isCarrier && !isCancelled && shipment?.agreedPriceArs != null
-      ? Math.max(0, carrierReceivedBeforeDebtArs(shipment.agreedPriceArs, shipment.carrierMpFeeArs) - (shipment.debtDiscount?.amountArs ?? 0))
+  // El precio pactado (`agreedPriceArs`) es el bruto que paga el emisor. El transportista ve lo que recibe:
+  // con el hold ya creado y el fee que informó MP, el monto EXACTO que calcula el backend con los datos del hold
+  // (`carrierReceivedArs`, ya sin su descuento por deuda); antes, el estimado "aprox." de comisión de Movo (AC3)
+  // y de MP (MOVO-225), como en "Mis ofertas".
+  const carrierViewsPrice = isCarrier && !isCancelled && shipment?.agreedPriceArs != null;
+  const carrierReceivedIsExact = carrierViewsPrice && shipment?.carrierReceivedArs != null;
+  const estimatedBeforeDebtArs =
+    carrierViewsPrice && shipment?.agreedPriceArs != null
+      ? estimateReceivedArs(
+          computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
+          shipment.agreedPriceArs,
+        )
       : null;
-  // MOVO-285: con el fee que informó MP al reservar el pago el monto es exacto; si no, sigue siendo "aprox.".
-  const carrierReceivedIsExact = shipment?.carrierMpFeeArs != null;
+  const carrierReceivedArs = carrierReceivedIsExact
+    ? (shipment?.carrierReceivedArs ?? null)
+    : estimatedBeforeDebtArs !== null
+      ? Math.max(0, estimatedBeforeDebtArs - (shipment?.debtDiscount?.amountArs ?? 0))
+      : null;
+  // Lo que recibiría sin el descuento por deuda (el "antes" del desglose).
+  const carrierBeforeDebtArs = carrierReceivedIsExact
+    ? (carrierReceivedArs ?? 0) + (shipment?.debtDiscount?.amountArs ?? 0)
+    : estimatedBeforeDebtArs;
 
   // MOVO-271 AC5: emisor y receptor ven el seguimiento (o su placeholder) mientras hay
   // transportista y el envío no cerró; el transportista tiene su propio mapa de ruta.
@@ -730,7 +747,7 @@ export default function ShipmentDetailScreen() {
                       <HighDemandHelp testID="shipment-detail-high-demand-help" />
                     </View>
                   ) : null}
-                  {!hidePriceCard && carrierReceivedArs !== null && shipment.agreedPriceArs != null ? <DebtDiscount beforeArs={carrierReceivedBeforeDebtArs(shipment.agreedPriceArs, shipment.carrierMpFeeArs)} amountArs={shipment.debtDiscount?.amountArs} /> : null}
+                  {!hidePriceCard && carrierReceivedArs !== null && carrierBeforeDebtArs !== null ? <DebtDiscount exact={carrierReceivedIsExact} beforeArs={carrierBeforeDebtArs} amountArs={shipment.debtDiscount?.amountArs} /> : null}
 
                   <View>
                     <Eyebrow>Paquete</Eyebrow>
