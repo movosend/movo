@@ -53,6 +53,22 @@ quiere igual, que devuelva esa misma constante).
 tipo y tamaño declarados; cada adjunto se usa una vez y solo por quien lo creó. Los mensajes devuelven
 `{ id, contentType, width?, height?, url }` con `url` firmada y de vida corta, generada al leer. Prefijo privado `support/<conversationId>/…`.
 
+Implementado en `svc-shipments` (MOVO-321):
+
+- **Servicio reutilizable** `modules/support/support-attachments.service.ts`: `create` (valida y firma el `PUT`), `assertUsable` (cantidad,
+  dueño, uso único, conversación y `HEAD` real contra el bucket) y `viewsFor` (URLs de `GET` de 15 min, firmadas en cada lectura, nunca
+  persistidas). Ninguna decide el acceso a la conversación: quien llama ya la autorizó. El lado del usuario la usa con `uploaderKind: "user"`;
+  `POST /admin/support/attachments` (MOVO-322) la tiene que usar con `uploaderKind: "staff"`, y `appendStaffMessage` ya acepta `attachmentIds`
+  (también en notas). Un adjunto del usuario no lo puede usar un agente, ni al revés.
+- **Tabla** `shipments.support_attachments`: la fila nace al pedir la URL, sin mensaje; al enviar el mensaje se asocia en la misma
+  transacción con un `UPDATE … WHERE message_id IS NULL`, así el uso único es atómico. `support_messages.attachment_count` alimenta
+  `lastMessage.hasAttachments`.
+- **Primera consulta del usuario** (sin `conversationId`, punto abierto de MOVO-324, opción A): el objeto va a `support/pending/<userId>/…` y,
+  al crear la consulta, la fila queda en esa conversación **sin mover el objeto** (moverlo pediría `CopyObject` y no cambia la privacidad).
+- **Huérfanos**: `plugins/support-attachment-sweep.ts` borra la fila y después el objeto de los nunca asociados, con la ventana, el intervalo y
+  el interruptor de las fotos huérfanas (`ORPHAN_PHOTO_*`, sin env vars nuevas). Respaldo: regla de lifecycle en el bucket (pendiente en `movo-infra`).
+- Retención: se conservan mientras la conversación (no hay purga de soporte).
+
 ## Tiempo real
 
 El panel no puede usar el JWT en el navegador (cookies `__Host-*` httpOnly) ni mandar `Authorization` en un `WebSocket`, y Vercel no
@@ -82,14 +98,16 @@ mensaje que ve el usuario es `SupportUserFacingMessage`). El agente **no** entra
 
 | Método y ruta | Cuerpo / query | Respuesta | Notas |
 | --- | --- | --- | --- |
-| `POST conversations` | `SupportCreateBody` (`topic`, `body`, `clientMessageId`, `shipmentId?`, `attachmentIds?`) | `SupportCreateResult` (201; 200 si se reenvía el `clientMessageId`) | Crea la consulta y su primer mensaje en una transacción. Con `shipmentId` el usuario tiene que ser parte (emisor, transportista, receptor o ex receptor): si no, **422** `SUPPORT_SHIPMENT_NOT_PARTY` (inexistente da lo mismo). `attachmentIds` no vacío da 422 `SUPPORT_ATTACHMENT_INVALID` hasta MOVO-321 |
+| `POST conversations` | `SupportCreateBody` (`topic`, `body`, `clientMessageId`, `shipmentId?`, `attachmentIds?`) | `SupportCreateResult` (201; 200 si se reenvía el `clientMessageId`) | Crea la consulta y su primer mensaje en una transacción. Con `shipmentId` el usuario tiene que ser parte (emisor, transportista, receptor o ex receptor): si no, **422** `SUPPORT_SHIPMENT_NOT_PARTY` (inexistente da lo mismo). `attachmentIds`: subidos sin `conversationId` (ver Adjuntos) |
 | `GET conversations` | | `SupportListResponse` | La de actividad más reciente primero (hasta 100). `lastMessage` nunca es una nota ni un evento `system`; `unreadCount` cuenta solo respuestas del equipo |
 | `GET conversations/:id/messages` | `limit` (1-100, 30), `cursor` | `SupportUserMessagesPage` | Más recientes primero, cursor opaco (mismo formato que el chat). Trae `conversation` para el encabezado. Abrir la primera página marca lo recibido |
 | `POST conversations/:id/messages` | `SupportSendUserBody` | `SupportUserFacingMessage` (201 / 200) | Idempotente por `clientMessageId`. Sobre una `resolved` la reabre; sobre una `awaiting_user` la pasa a `open` |
+| `POST attachments` | `SupportUserAttachmentCreateBody` (`contentType`, `sizeBytes`, `conversationId?`, `width?`, `height?`) | `SupportAttachmentCreateResult` (201) | MOVO-321. Con `conversationId`, la consulta tiene que ser del usuario (404 si no); sin él, para una consulta nueva. La app hace `PUT uploadUrl` con el mismo `Content-Type` |
 | `POST conversations/:id/read` | | `{ readAt }` | Baja el `unreadCount` a cero |
 | `GET conversations/:id` (WS) | header `Authorization: Bearer` | frames de abajo | Mismo mecanismo que `/track` y el chat del envío |
 
-Texto de 1 a `SUPPORT_MESSAGE_MAX_LENGTH` (2000) caracteres, recortado. Las palabras ofensivas se tapan con asteriscos y el mensaje
+Texto de 1 a `SUPPORT_MESSAGE_MAX_LENGTH` (2000) caracteres, recortado (vacío si el mensaje lleva imágenes, MOVO-321). Una URL de
+adjunto vencida se renueva volviendo a pedir la página de mensajes: cada lectura firma URLs nuevas. Las palabras ofensivas se tapan con asteriscos y el mensaje
 sale con `moderated: true`; a los de un agente no se les aplica el filtro. No hay chequeo de bloqueo (ADR-026): la otra parte es Movo.
 
 ### Estados
