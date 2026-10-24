@@ -49,7 +49,7 @@ const CADENCE_BUCKET_TTL_MS = LAST_KNOWN_POSITION_TTL_SECONDS * 1000;
  * MOVO-251: la última posición conocida en Redis se indexa por `tripId` (no por `shipmentId`),
  * ya que la ubicación GPS física es del viaje (VRPTW).
  */
-function lastKnownPositionKey(tripId: string): string {
+export function lastKnownPositionKey(tripId: string): string {
   return `position:last:${tripId}`;
 }
 
