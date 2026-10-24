@@ -49,21 +49,23 @@ export function formatCancellationDateTime(iso: string | null | undefined): stri
 export function cancellationQuoteView(
   quote: CancellationQuoteResponse,
   agreedPriceArs: number | null,
+  holdAmountArs?: number | null,
 ): CancellationQuoteView {
+  const baseReservedArs = holdAmountArs ?? agreedPriceArs;
   switch (quote.reason) {
     case "before_free_deadline":
-      return { kind: "free", reservedArs: agreedPriceArs, freeUntilLabel: formatCancellationDateTime(quote.freeUntil) };
+      return { kind: "free", reservedArs: baseReservedArs, freeUntilLabel: formatCancellationDateTime(quote.freeUntil) };
     case "pickup_window_closed":
-      return { kind: "expired", reservedArs: agreedPriceArs, reasonText: PICKUP_WINDOW_CLOSED_REASON };
+      return { kind: "expired", reservedArs: baseReservedArs, reasonText: PICKUP_WINDOW_CLOSED_REASON };
     case "late_cancellation":
     case "carrier_arrived": {
       // El backend calcula la penalidad sobre el precio pactado, así que siempre existe acá.
-      const reservedArs = agreedPriceArs ?? quote.penaltyArs;
+      const reservedArs = baseReservedArs ?? quote.penaltyArs;
       return {
         kind: "penalty",
         reservedArs,
         penaltyArs: quote.penaltyArs,
-        releasedArs: Math.round((reservedArs - quote.penaltyArs) * 100) / 100,
+        releasedArs: Math.max(0, Math.round((reservedArs - quote.penaltyArs) * 100) / 100),
         penaltyRatio: reservedArs > 0 ? Math.min(1, quote.penaltyArs / reservedArs) : 0,
         ...(quote.reason === "carrier_arrived" ? { reasonText: CARRIER_ARRIVED_REASON } : {}),
       };

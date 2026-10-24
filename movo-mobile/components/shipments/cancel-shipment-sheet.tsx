@@ -1,3 +1,4 @@
+import type { CancellationQuoteResponse } from "@movo/shared/dist/config/cancellation-penalty";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { AlertCircle, AlertTriangle, Info } from "lucide-react-native";
@@ -35,6 +36,8 @@ function isBlockingError(err: unknown): boolean {
 export interface CancelShipmentSheetProps {
   visible: boolean;
   shipment: Pick<ShipmentSummary, "id" | "status" | "agreedPriceArs">;
+  /** Monto real reservado en el hold (incluye deuda cobrada en MOVO-311); cae a `agreedPriceArs` si no cargó. */
+  holdAmountArs?: number | null;
   /** Nombre de pila del transportista asignado, si hay. */
   carrierFirstName?: string | null;
   onClose: () => void;
@@ -60,6 +63,7 @@ export interface CancelShipmentSheetProps {
 export function CancelShipmentSheet({
   visible,
   shipment,
+  holdAmountArs,
   carrierFirstName,
   onClose,
   onCancelled,
@@ -71,7 +75,7 @@ export function CancelShipmentSheet({
   const cancelMutation = useCancelShipment();
 
   const [phase, setPhase] = useState<Phase>("loading");
-  const [view, setView] = useState<CancellationQuoteView | null>(null);
+  const [quote, setQuote] = useState<CancellationQuoteResponse | null>(null);
   const [penaltyArs, setPenaltyArs] = useState(0);
   const [previousPenaltyArs, setPreviousPenaltyArs] = useState<number | null>(null);
   const [confirmError, setConfirmError] = useState(false);
@@ -84,6 +88,12 @@ export function CancelShipmentSheet({
   const hasHold = shipment.status === ShipmentStatus.ASSIGNED;
   const isConfirming = cancelMutation.isPending || isRequoting;
   const carrierName = carrierFirstName || "el transportista";
+  const view: CancellationQuoteView | null =
+    phase !== "quote"
+      ? null
+      : quote
+        ? cancellationQuoteView(quote, shipment.agreedPriceArs, holdAmountArs)
+        : { kind: "noHold" };
 
   const goBlocked = async (session: number) => {
     const status = await onRefetch().catch(() => undefined);
@@ -99,10 +109,10 @@ export function CancelShipmentSheet({
   /** `previous`: la penalidad que el emisor había visto, cuando se re-cotiza por un 409 de monto. */
   const fetchQuote = async (session: number, previous?: number) => {
     try {
-      const quote = await quoteMutation.mutateAsync(shipment.id);
+      const nextQuote = await quoteMutation.mutateAsync(shipment.id);
       if (session !== sessionRef.current) return;
-      setView(cancellationQuoteView(quote, shipment.agreedPriceArs));
-      setPenaltyArs(quote.penaltyArs);
+      setQuote(nextQuote);
+      setPenaltyArs(nextQuote.penaltyArs);
       if (previous !== undefined) setPreviousPenaltyArs(previous);
       setPhase("quote");
     } catch (err) {
@@ -127,11 +137,11 @@ export function CancelShipmentSheet({
     setPreviousPenaltyArs(null);
     setPenaltyArs(0);
     if (hasHold) {
-      setView(null);
+      setQuote(null);
       setPhase("loading");
       void fetchQuote(session);
     } else {
-      setView({ kind: "noHold" });
+      setQuote(null);
       setPhase("quote");
     }
     // Solo al abrir o si cambia la reserva: re-cotizar en cada render pisaría lo que el emisor lee.

@@ -13,6 +13,8 @@ const CANCEL_ACTION_ID = "cancel-shipment";
 
 export interface SenderActionsBarProps {
   shipment: Pick<ShipmentSummary, "id" | "status" | "agreedPriceArs">;
+  /** Monto real reservado en el hold (MOVO-318); cae a `agreedPriceArs` si no cargó. */
+  holdAmountArs?: number | null;
   carrierFirstName?: string | null;
   /** Refresca el detalle y devuelve el estado nuevo (ante un 409 de estado del sheet). */
   onRefetch: () => Promise<ShipmentStatus | undefined>;
@@ -38,6 +40,7 @@ export interface SenderActionsBarProps {
  */
 export function SenderActionsBar({
   shipment,
+  holdAmountArs,
   carrierFirstName,
   onRefetch,
   onCancelled,
@@ -90,6 +93,7 @@ export function SenderActionsBar({
       <CancelShipmentSheet
         visible={isCancelSheetVisible}
         shipment={shipment}
+        holdAmountArs={holdAmountArs}
         carrierFirstName={carrierFirstName}
         onClose={() => setIsCancelSheetVisible(false)}
         onCancelled={(message) => {
