@@ -4,6 +4,7 @@ import { FastifyInstance } from "fastify";
 import {
   AdminChatPage,
   AdminShipmentDetail,
+  AdminShipmentOffer,
   AdminShipmentPage,
   ACTIVE_SHIPMENT_STATUSES,
   isAdminShipmentAlert,
@@ -383,7 +384,7 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
 
     it("un envío inexistente es 404 en cada ruta", async () => {
       const id = randomUUID();
-      for (const suffix of ["", "/events", "/photos", "/chat/messages"]) {
+      for (const suffix of ["", "/events", "/offers", "/photos", "/chat/messages"]) {
         const response = await app.inject({ method: "GET", url: `/internal/admin/shipments/${id}${suffix}` });
         expect(response.statusCode).toBe(404);
       }
@@ -396,6 +397,65 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual([expect.objectContaining({ fromStatus: null, toStatus: "awaiting_receiver_confirmation" })]);
+    });
+
+    it("lista todas las ofertas con su estado efectivo, el desglose y las franjas en HH:MM", async () => {
+      const carrierId = randomUUID();
+      const shipment = await seed(`ofr${randomUUID().slice(0, 8)}`, ShipmentStatus.ASSIGNMENT_PENDING, { carrierId });
+      const base = { shipmentId: shipment.id, offeredDate: new Date("2030-01-01T00:00:00.000Z") };
+      await app.db.offer.create({
+        data: {
+          ...base,
+          carrierId,
+          priceOffered: 11500,
+          status: "accepted",
+          carrierNameAtOffer: "Lucas Ferreyra",
+          carrierRatingAtOffer: 4.8,
+          message: "Paso temprano",
+          estimatedDeliveryDate: new Date("2030-01-01T00:00:00.000Z"),
+          estimatedDeliveryTimeWindowStart: "16:00:00",
+          estimatedDeliveryTimeWindowEnd: "19:00:00",
+          createdAt: new Date("2029-12-30T10:00:00.000Z"),
+          respondedAt: new Date("2029-12-30T12:00:00.000Z"),
+        },
+      });
+      // `pending` con `expiresAt` vencido: se reporta `expired` sin tocar la fila (AC11 de MOVO-104).
+      await app.db.offer.create({
+        data: {
+          ...base,
+          carrierId: randomUUID(),
+          priceOffered: 9200,
+          status: "pending",
+          offeredPickupTimeWindowStart: "14:00:00",
+          offeredPickupTimeWindowEnd: "18:00:00",
+          expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+          createdAt: new Date("2029-12-30T11:00:00.000Z"),
+        },
+      });
+
+      const response = await app.inject({ method: "GET", url: `/internal/admin/shipments/${shipment.id}/offers` });
+
+      expect(response.statusCode).toBe(200);
+      const [accepted, expired] = response.json() as AdminShipmentOffer[];
+      expect(accepted).toMatchObject({
+        carrierId,
+        carrierName: "Lucas Ferreyra",
+        carrierRatingAtOffer: 4.8,
+        status: "accepted",
+        priceArs: 11500,
+        netArs: 10000,
+        commissionArs: 1500,
+        offeredDate: "2030-01-01",
+        pickupTimeWindowStart: null,
+        estimatedDeliveryDate: "2030-01-01",
+        estimatedDeliveryTimeWindowStart: "16:00",
+        estimatedDeliveryTimeWindowEnd: "19:00",
+        message: "Paso temprano",
+        viewedAtBySender: null,
+        respondedAt: "2029-12-30T12:00:00.000Z",
+      });
+      expect(accepted.receivedEstimateArs).toBeCloseTo(accepted.netArs - accepted.mpFeeEstimateArs, 2);
+      expect(expired).toMatchObject({ status: "expired", pickupTimeWindowStart: "14:00", pickupTimeWindowEnd: "18:00" });
     });
 
     it("lista las fotos con una URL firmada", async () => {
