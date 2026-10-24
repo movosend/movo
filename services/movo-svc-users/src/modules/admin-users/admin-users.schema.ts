@@ -11,6 +11,12 @@ const userRef = {
   properties: { id: { type: "string" }, fullName: { type: "string" } },
 } as const;
 
+const userRefWithPhoto = {
+  type: "object",
+  required: ["id", "fullName", "photoUrl"],
+  properties: { id: { type: "string" }, fullName: { type: "string" }, photoUrl: nullableString },
+} as const;
+
 const errorResponse = {
   type: "object",
   required: ["error"],
@@ -77,7 +83,7 @@ const report = {
     id: { type: "string" },
     reason: { type: "string" },
     status: { type: "string" },
-    counterpart: userRef,
+    counterpart: userRefWithPhoto,
     details: nullableString,
     createdAt: { type: "string" },
     extraEntries: { type: "integer" },
@@ -88,7 +94,7 @@ const report = {
 const block = {
   type: "object",
   required: ["user", "createdAt"],
-  properties: { user: userRef, createdAt: { type: "string" } },
+  properties: { user: userRefWithPhoto, createdAt: { type: "string" } },
 } as const;
 
 export const adminUsersSchemas = {

@@ -32,7 +32,12 @@ const page = (over: Partial<AdminChatPage>): AdminChatPage => ({
 const heading = {
   code: "4800bc55",
   title: "Ana, Diego y Luis",
-  people: ["Ana Molina", "Diego Funes", "Luis Herrera"],
+  people: [
+    { id: "u1", name: "Ana Molina", photoUrl: null },
+    { id: "u2", name: "Diego Funes", photoUrl: null },
+    { id: "u3", name: "Luis Herrera", photoUrl: null },
+  ],
+  photos: {},
   mode: "las partes pueden escribir",
   reports: [],
 }

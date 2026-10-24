@@ -94,7 +94,7 @@ export default async function Page({
           now={now}
           actions={
             <Suspense fallback={<ChatButtonLoading />}>
-              <ChatSection shipment={shipment} />
+              <ChatSection shipment={shipment} parties={detail.parties} />
             </Suspense>
           }
         />

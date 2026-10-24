@@ -26,6 +26,11 @@ export interface AdminUserRef {
   fullName: string;
 }
 
+/** `AdminUserRef` con la foto de perfil (URL pública, ADR-016): la contraparte de un reporte o bloqueo se dibuja con avatar. */
+export interface AdminUserRefWithPhoto extends AdminUserRef {
+  photoUrl: string | null;
+}
+
 /** Por qué coincidió un resultado del buscador (`null` sin `q`). Prioridad: nombre, email, DNI, teléfono. */
 export type AdminUserMatch = "name" | "email" | "dni" | "phone";
 
@@ -190,7 +195,7 @@ export interface AdminUserReport {
   reason: AdminReportReason;
   status: AdminReportStatus;
   /** Quien reportó (en `received`) o a quien se reportó (en `made`). */
-  counterpart: AdminUserRef;
+  counterpart: AdminUserRefWithPhoto;
   details: string | null;
   createdAt: string;
   extraEntries: number;
@@ -198,7 +203,7 @@ export interface AdminUserReport {
 }
 
 export interface AdminUserBlock {
-  user: AdminUserRef;
+  user: AdminUserRefWithPhoto;
   createdAt: string;
 }
 
