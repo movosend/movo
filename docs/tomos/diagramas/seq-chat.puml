@@ -1,0 +1,47 @@
+@startuml seq-chat
+' MOVO-26: chat en tiempo real entre emisor, receptor y transportista asignado.
+autonumber
+actor "Parte del envío" as A
+actor "Otra parte" as B
+participant "App A" as MA
+participant "App B" as MB
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-users" as U
+database "PostgreSQL\n(esquema shipments)" as DB
+
+== Conexión ==
+MA -> G : GET /shipments/{id}/chat (WebSocket, JWT)
+G -> S : upgrade
+S -> S : valida el JWT y que el usuario sea parte del envío
+alt sin token / no es parte / inexistente
+  S --> MA : cierre 4001 / 4003 / 4004
+else conectado
+  S --> MA : conexión abierta con heartbeat
+end
+
+== Envío de un mensaje ==
+A -> MA : Escribe un mensaje (1 a 1000 caracteres)
+MA -> G : POST /shipments/{id}/chat/messages {texto, clientMessageId}
+G -> S : reenvía con x-user-id
+S -> DB : lee el envío y sus partes
+alt envío cancelado o rechazado
+  S --> MA : 409 CHAT_CLOSED
+else receptor original tras una transferencia, o admin
+  S --> MA : 403 CHAT_READ_ONLY
+else puede escribir
+  S -> S : recorta espacios y enmascara con asteriscos las palabras ofensivas
+  S -> DB : inserta el mensaje (idempotente por clientMessageId)
+  S -> U : consulta de bloqueos entre el autor y cada destinatario
+  S -> MB : difusión por WebSocket (con hidden:true y sin contenido\npara quien tiene un bloqueo con el autor)
+  S -> U : push de mensaje nuevo a las partes sin el chat abierto\n(una ráfaga se resume en un único aviso)
+  S --> MA : 201 {mensaje, deliveryStatus: sent}
+end
+
+== Lectura ==
+B -> MB : Abre el chat
+MB -> G : POST /shipments/{id}/chat/read
+G -> S : reenvía
+S -> DB : registra la lectura
+S -> MA : difunde deliveryStatus delivered / read
+@enduml

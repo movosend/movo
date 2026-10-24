@@ -14,6 +14,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import seccionar  # noqa: E402
+
 RAIZ = Path(__file__).resolve().parent.parent
 DATOS = RAIZ / "datos"
 ESTADOS = {"Done": ("Completada", "ok"), "In Progress": ("En curso", "warn"), "In Review": ("En revisión", "warn"),
@@ -93,7 +96,13 @@ def main(ep: str) -> None:
             out.append(f"\n: Tickets de implementación de {hu['id']}.\n")
         for s in hu.get("secuencias", []):
             out.append("##### Diagrama de secuencia\n")
-            out.append(f"![{s['titulo']}](diagrama:{s['id']}){{.sin-corte}}\n")
+            fuente = (RAIZ / "diagramas" / f"{s['id']}.puml").read_text(encoding="utf-8")
+            trozos = seccionar.partes(fuente, s["id"])
+            if not trozos:
+                out.append(f"![{s['titulo']}](diagrama:{s['id']}){{.sin-corte}}\n")
+            for n, (sec, _) in enumerate(trozos, 1):
+                base = s["titulo"].rstrip(".")
+                out.append(f"![{base}. Parte {n} de {len(trozos)}: {sec}.](diagrama:{s['id']}-{n}){{.sin-corte}}\n")
         casos = hu.get("casos", [])
         if casos:
             out.append("##### Casos de prueba\n")

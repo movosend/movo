@@ -31,6 +31,9 @@ BUILD = RAIZ / "build"
 SALIDA = RAIZ / "salida"
 DIAG_SRC = RAIZ / "diagramas"
 DIAG_OUT = BUILD / "diagramas"
+sys.path.insert(0, str(Path(__file__).resolve().parent / "herramientas"))
+import seccionar  # noqa: E402
+
 PLANTUML_JAR = Path(os.environ.get("PLANTUML_JAR", "/opt/tools/plantuml.jar"))
 TEMA_PLANTUML = RAIZ / "estilos" / "plantuml-tema.iuml"
 
@@ -55,7 +58,20 @@ def renderizar_diagramas() -> None:
         (DIAG_OUT / svg.name).write_bytes(svg.read_bytes())
     tema = TEMA_PLANTUML.read_bytes()
     pendientes = []
+    fuentes = []
+    PARTES_DIR = DIAG_OUT.parent / "partes"
+    PARTES_DIR.mkdir(parents=True, exist_ok=True)
     for fuente in sorted(DIAG_SRC.rglob("*.puml")):
+        trozos = seccionar.partes(fuente.read_text(encoding="utf-8"), fuente.stem)
+        if not trozos:
+            fuentes.append(fuente)
+            continue
+        for n, (_, texto) in enumerate(trozos, 1):
+            parte = PARTES_DIR / f"{fuente.stem}-{n}.puml"
+            if not parte.exists() or parte.read_text(encoding="utf-8") != texto:
+                parte.write_text(texto, encoding="utf-8")
+            fuentes.append(parte)
+    for fuente in fuentes:
         destino = DIAG_OUT / (fuente.stem + ".svg")
         sello = DIAG_OUT / (fuente.stem + ".hash")
         h = hashlib.sha1(tema + fuente.read_bytes()).hexdigest()

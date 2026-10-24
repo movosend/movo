@@ -1,0 +1,65 @@
+@startuml seq-handshake
+' MOVO-6 (MOVO-157, MOVO-158, MOVO-159, MOVO-160, MOVO-195), MOVO-21: handshake criptográfico de retiro y entrega (ADR-020).
+autonumber
+actor "Cedente\n(emisor o transportista)" as C
+actor "Cesionario\n(transportista o receptor)" as R
+participant "App del cedente" as MC
+participant "App del cesionario" as MR
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+database "Redis" as RD
+database "PostgreSQL\n(esquema shipments)" as DB
+participant "svc-payments" as PA
+
+== Generación del QR (cedente) ==
+C -> MC : Pide generar el código de la etapa (retiro o entrega)
+MC -> G : POST /shipments/{id}/handshake/generate {lat, lng}
+G -> S : reenvía con x-user-id
+S -> DB : lee el envío
+S -> S : etapa según el estado: assigned = retiro, in_transit = entrega;\nel cedente debe ser el emisor (retiro) o el transportista asignado (entrega)
+alt estado inválido, ventana de retiro vencida o cedente incorrecto
+  S --> MC : 409 HANDSHAKE_INVALID_SHIPMENT_STATE / HANDSHAKE_PICKUP_DEADLINE_PASSED\no 403 AUTH_FORBIDDEN
+else puede generar
+  S -> S : nonce aleatorio de 32 bytes;\npayload = shipmentId : etapa : nonce
+  S -> RD : SET desafío {nonce, posición del cedente} con TTL de 15 s\n(un nonce nuevo reemplaza al anterior)
+  S --> MC : 200 {canonicalPayload, expiresAt, ttlSeconds}
+  MC -> MC : firma el payload con la clave privada del dispositivo (ECDSA P-256)
+  MC -> MC : muestra el QR con cuenta regresiva
+end
+
+== Validación del desafío y de la evidencia ==
+C -> R : Muestra el QR
+R -> MR : Escanea el QR
+MR -> G : POST /shipments/{id}/handshake/confirm {nonce, firma, lat, lng}
+G -> S : reenvía con x-user-id
+S -> RD : lee el desafío vigente
+break no existe, venció o el nonce fue reemplazado
+  S --> MR : 410 HANDSHAKE_QR_EXPIRED
+end
+S -> DB : verifica la evidencia fotográfica requerida (retiro o entrega)
+break falta la evidencia
+  S --> MR : 422 PICKUP_EVIDENCE_MISSING / DELIVERY_EVIDENCE_MISSING\n(el nonce no se consume)
+end
+
+== Firma, proximidad y cierre ==
+S -> DB : clave pública registrada del cedente
+S -> S : verifica la firma ECDSA sobre el payload canónico
+break firma inválida
+  S --> MR : 422 HANDSHAKE_INVALID_SIGNATURE
+end
+S -> S : distancia entre cedente y cesionario (Haversine)
+break más de 100 m
+  S --> MR : 422 HANDSHAKE_DISTANCE_EXCEEDED
+end
+S -> RD : relee el nonce justo antes de confirmar
+S -> DB : transacción: compare-and-swap del estado del envío\n(assigned → in_transit o in_transit → delivered)\n+ evento inmutable {nonceHash, coordenadas, distancia, firma}
+break otra confirmación ganó primero
+  S --> MR : 409 / 410
+end
+S -> RD : borra el desafío (best-effort)
+opt etapa de entrega
+  S -> PA : notifica la liberación de fondos (best-effort)
+end
+S --> MR : 200 {estado nuevo}
+S -> G : push de retiro o de entrega a las partes (best-effort)
+@enduml

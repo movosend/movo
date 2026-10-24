@@ -1,0 +1,52 @@
+@startuml seq-transferir-receptor
+' MOVO-275 (ADR-038): transferencia de la recepción a otra persona.
+autonumber
+actor "Receptor actual" as R
+actor "Persona invitada" as N
+participant "App del receptor" as MR
+participant "App de la invitada" as MN
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-users" as U
+database "PostgreSQL\n(esquema shipments)" as DB
+
+== Solicitud ==
+R -> MR : "Que lo reciba otra persona"
+MR -> G : POST /shipments/{id}/receiver-transfer {toUserId}
+G -> S : reenvía con x-user-id
+S -> DB : lee el envío y la solicitud vigente
+S -> S : valida: el caller es el receptor actual, el envío está aceptado\ny sin entrega empezada, no hubo otra transferencia
+S -> U : la invitada existe, tiene KYC aprobado y no hay bloqueo con el emisor
+alt validación fallida
+  S --> MR : 403 / 409 NOT_ALLOWED / 409 LIMIT / 422 INVALID_TARGET / 403 USER_BLOCKED
+else válida
+  S -> DB : crea la solicitud pending con plazo\n(una sola activa por envío; las vencidas se cierran antes)
+  S -> U : push a la invitada; push informativo al emisor
+  S --> MR : 201 {solicitud}
+end
+
+== Respuesta de la invitada ==
+N -> MN : Abre la invitación en "Requiere tu atención"
+alt acepta
+  MN -> G : POST /receiver-transfers/{rid}/accept
+  G -> S : reenvía
+  S -> DB : transacción: valida plazo y que la entrega no haya empezado,\ncambia el receptor de forma atómica (compare-and-swap)\ny marca la solicitud completada
+  alt plazo vencido o entrega empezada
+    S --> MN : 409
+  else aceptada
+    S -> U : push a transportista, emisor y receptor original
+    S --> MN : 200 {envío con el receptor nuevo}
+  end
+else rechaza
+  MN -> G : POST /receiver-transfers/{rid}/reject
+  G -> S : reenvía
+  S -> DB : marca la solicitud rejected (el receptor anterior sigue)
+  S -> U : push a quien la pidió y al emisor
+  S --> MN : 200
+end
+note over S, DB
+  Una solicitud pendiente también se cancela si el receptor la retira
+  o si arranca el handshake de entrega; un barrido periódico
+  vence las que superan el plazo.
+end note
+@enduml

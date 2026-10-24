@@ -1,0 +1,42 @@
+@startuml seq-ruta-viaje
+' MOVO-10 (MOVO-205, MOVO-206, MOVO-207, MOVO-235, MOVO-237): ruta optimizada multi-parada del viaje activo.
+autonumber
+actor "Transportista" as T
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-pricing-\nlogistics" as P
+database "PostgreSQL\n(esquema shipments)" as DB
+participant "Google Routes API" as GR
+
+== Pedido y paradas del viaje ==
+T -> M : Abre el viaje activo
+M -> M : obtiene la ubicación actual del dispositivo
+M -> G : GET /shipments/my-route?lat&lng&tripId
+G -> S : reenvía con x-user-id (se ignora cualquier carrierId del query)
+opt viene tripId
+  S -> DB : lee el viaje
+  alt no existe / no es del transportista / no está activo
+    S --> M : 404 TRIP_NOT_FOUND / 403 / 409 TRIP_NOT_ACTIVE
+  end
+end
+S -> DB : envíos ejecutables del transportista (assigned e in_transit)
+S -> S : agrega las paradas: retiro de los assigned y entrega de todos,\ncon su ventana horaria
+break sin paradas
+  S --> M : 200 ruta vacía
+end
+
+== Optimización de la ruta ==
+S -> P : POST /optimize/route {ubicación, paradas con ventanas}
+P -> GR : Compute Route Matrix (matriz de tiempos)
+GR --> P : matriz
+P -> P : resuelve el VRPTW con OR-Tools
+alt el optimizador falla
+  S -> S : arma una ruta degradada con heurística\n(sin optimización) y la marca como tal
+  S --> M : 200 ruta degradada
+else optimización correcta
+  P --> S : orden de paradas, ETA y polyline
+  S --> M : 200 {paradas ordenadas, ETA, polyline, distancia, duración}
+end
+M -> M : dibuja el mapa con pines diferenciados\ny la lista cronológica de paradas
+@enduml

@@ -1,0 +1,51 @@
+@startuml seq-tracking
+' MOVO-11 (MOVO-200 a MOVO-204, MOVO-242, MOVO-250 a MOVO-252): tracking GPS en tiempo real (ADR-022).
+autonumber
+actor "Transportista" as T
+actor "Emisor / Receptor" as O
+participant "App del transportista" as MT
+participant "App del observador" as MO
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+database "Redis" as RD
+database "PostgreSQL\n(esquema shipments)" as DB
+
+== Reporte de posición ==
+loop mientras el envío está en tránsito
+  MT -> G : POST /shipments/{id}/positions {lat, lng, capturedAt}
+  G -> S : reenvía con x-user-id
+  S -> DB : lee el envío
+  alt el caller no es el transportista asignado
+    S --> MT : 403 AUTH_FORBIDDEN
+  else el envío no admite tracking (estado)
+    S --> MT : 403 SHIPMENT_NOT_TRACKABLE
+  else puede reportar
+    S -> RD : guarda la última posición conocida
+    S -> DB : persiste la fila solo si pasó el intervalo mínimo\n(los reportes seguidos se descartan)
+    S -> S : difunde {type: position, lat, lng} a los suscriptores
+    S --> MT : 202
+  end
+end
+
+== Seguimiento en vivo ==
+O -> MO : Abre el mapa del envío
+MO -> G : GET /shipments/{id}/track (WebSocket, JWT)
+G -> S : upgrade con x-user-id
+S -> S : valida el JWT y que sea parte del envío
+alt sin token o vencido
+  S --> MO : cierre 4001
+else no participa del envío
+  S --> MO : cierre 4003
+else envío inexistente
+  S --> MO : cierre 4004
+else envío ya entregado
+  S --> MO : cierre 4009
+else autorizado
+  S -> RD : última posición conocida
+  S --> MO : {type: position} inmediato, si existe
+  loop heartbeat y nuevas posiciones
+    S --> MO : {type: position} / ping
+  end
+  S --> MO : {type: status} al cambiar el estado y cierre 4009 al entregarse
+end
+@enduml

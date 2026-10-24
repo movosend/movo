@@ -1,0 +1,41 @@
+@startuml seq-notificaciones
+' MOVO-24 (MOVO-106, MOVO-107, MOVO-108, MOVO-239, MOVO-245, MOVO-246): notificaciones push con preferencias del usuario.
+autonumber
+actor "Usuario" as U
+participant "App móvil" as M
+participant "Gateway" as G
+participant "Servicio emisor\n(shipments, payments, ...)" as O
+participant "svc-users" as S <<movo>>
+database "PostgreSQL\n(esquema users)" as DB
+participant "Expo Push Service" as X
+
+== Registro del dispositivo y preferencias ==
+U -> M : Acepta el permiso de notificaciones
+M -> G : POST /users/me/push-token {expoPushToken}
+G -> S : reenvía con x-user-id
+S -> DB : guarda el token del dispositivo
+U -> M : Ajusta el toggle maestro, las categorías o el horario de silencio
+M -> G : PUT /users/me/notification-preferences
+G -> S : reenvía
+S -> DB : persiste (tabla dispersa: solo las categorías apagadas)
+
+== Envío de una notificación ==
+O -> S : POST /internal/notifications/push {userId, categoría, título, cuerpo, data}
+S -> S : valida que la categoría exista en el catálogo
+S -> DB : lee preferencias del usuario
+alt toggle maestro apagado, categoría apagada o dentro del horario de silencio
+  S --> O : 204 (no se envía)
+else permitido
+  S -> DB : tokens registrados del usuario
+  alt sin tokens
+    S --> O : 204 (no-op)
+  else uno o más dispositivos
+    loop por cada token
+      S -> X : envía el mensaje
+      X --> S : ticket (un token fallido no aborta al resto)
+    end
+    S --> O : 204
+  end
+end
+X -> M : entrega la notificación al dispositivo
+@enduml
