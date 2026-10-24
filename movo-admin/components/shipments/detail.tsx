@@ -39,6 +39,7 @@ import {
   rowAlert,
   timeAgo,
   type ShipmentStatusValue,
+  shipmentDisplayCode,
 } from "@/lib/shipments/format"
 import { initialsOf } from "@/lib/initials"
 import { cn } from "@/lib/utils"
@@ -85,7 +86,7 @@ export function DetailHeader({
         </Link>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-mono text-2xl leading-tight font-semibold tracking-[-0.02em]">
-            #{shipment.code}
+            {shipmentDisplayCode(shipment.id)}
           </h1>
           <StatusPill
             pill={pill}

@@ -562,3 +562,12 @@ export function buildChatItems(
   }
   return items
 }
+
+/**
+ * Código del envío para mostrar, igual que el de la app (`activeShipmentDisplayCode` en movo-mobile):
+ * los últimos 5 dígitos del id, rellenados con ceros. Solo para mostrar: no identifica al envío ni sirve para buscarlo.
+ */
+export function shipmentDisplayCode(id: string): string {
+  const digits = id.replace(/\D/g, "").slice(-5).padStart(5, "0")
+  return `#MOVO-${digits}`
+}

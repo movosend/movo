@@ -9,6 +9,7 @@ import {
   partiesLine,
   paymentLabel,
   pendingSteps,
+  shipmentDisplayCode,
   pickupWindow,
   reportLine,
   rowAlert,
@@ -90,6 +91,17 @@ describe("avisos", () => {
       )
     ).toBe("La ventana de pago ya venció")
     expect(rowAlert(row({ delayed: true }), NOW)).toMatch(/^Demorado/)
+  })
+})
+
+describe("código de envío", () => {
+  it("como la app: #MOVO- y los últimos 5 dígitos del id", () => {
+    expect(shipmentDisplayCode("4800bc55-a000-4000-8000-000000048213")).toBe(
+      "#MOVO-48213"
+    )
+    expect(shipmentDisplayCode("abcdef12-abcd-abcd-abcd-abcdef12ab3c")).toBe(
+      "#MOVO-12123"
+    )
   })
 })
 

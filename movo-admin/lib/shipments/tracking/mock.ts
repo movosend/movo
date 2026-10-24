@@ -96,7 +96,10 @@ const POLL_SECONDS = 15
 
 /** Traza cada 45 s hasta `fraction` del recorrido, con el último punto en `fraction`. */
 function traceUntil(fraction: number, endMs: number) {
-  const steps = Math.max(2, Math.round((fraction * lengthMeters) / (SPEED_MPS * 45)))
+  const steps = Math.max(
+    2,
+    Math.round((fraction * lengthMeters) / (SPEED_MPS * 45))
+  )
   return Array.from({ length: steps + 1 }, (_, i) => {
     const f = (fraction * i) / steps
     const [lat, lng] = pointAt(f)
@@ -146,13 +149,20 @@ function build(
 function liveShipment(id: string, lost: boolean): AdminShipmentTracking {
   const now = Date.now()
   // Con señal avanza ~6,5 m/s y vuelve a empezar al llegar al final; sin señal queda quieto a 55 %.
-  const fraction = lost ? 0.55 : ((now / 1000) * SPEED_MPS * 0.05) % lengthMeters / lengthMeters
+  const fraction = lost
+    ? 0.55
+    : (((now / 1000) * SPEED_MPS * 0.05) % lengthMeters) / lengthMeters
   const [lat, lng] = pointAt(fraction)
   const pingAt = lost ? now - 14 * 60_000 : now - 3_000
   const remaining = (1 - fraction) * lengthMeters
   return build(id, "live", "in_transit", {
     trace: traceUntil(fraction, pingAt),
-    lastPosition: { lat, lng, accuracyM: 8, capturedAt: new Date(pingAt).toISOString() },
+    lastPosition: {
+      lat,
+      lng,
+      accuracyM: 8,
+      capturedAt: new Date(pingAt).toISOString(),
+    },
     lastPingAt: new Date(pingAt).toISOString(),
     signalLost: lost,
     delayed: lost,
@@ -160,7 +170,9 @@ function liveShipment(id: string, lost: boolean): AdminShipmentTracking {
       avgSpeedKmh5m: lost ? null : Math.round(SPEED_MPS * 3.6),
       remainingMeters: Math.round(remaining),
       progressPct: Math.round(fraction * 100),
-      etaAt: lost ? null : new Date(now + (remaining / SPEED_MPS) * 1000).toISOString(),
+      etaAt: lost
+        ? null
+        : new Date(now + (remaining / SPEED_MPS) * 1000).toISOString(),
     },
   })
 }

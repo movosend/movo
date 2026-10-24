@@ -21,7 +21,9 @@ function setup(fetchTracking: () => Promise<AdminShipmentTracking>) {
 }
 
 describe("TrackingPoller", () => {
-  beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] }))
+  beforeEach(() =>
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] })
+  )
   afterEach(() => vi.useRealTimers())
 
   it("lee al arrancar y repite cada pollIntervalSeconds mientras está en vivo", async () => {

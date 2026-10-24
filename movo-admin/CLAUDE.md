@@ -259,6 +259,7 @@ cambio de estado (MOVO-333). Contrato de MOVO-325 (`shared/movo-shared/src/types
   y el barrio no es un dato aparte. Mostrarlo pediría columnas nuevas, sacarlo del geocoding y un backfill; se decidió no hacerlo.
   Las calles van en la segunda línea desde 1320 px. Ese corte se escribe en rem (`min-[82.5rem]`): Tailwind no ordena un
   `min-[…px]` contra `md` (rem) y el `md:` le ganaba a la grilla de 6 columnas.
+- **Código del envío**: `shipmentDisplayCode(id)` (`lib/shipments/format.ts`) = `#MOVO-` + últimos 5 dígitos del id, igual que `activeShipmentDisplayCode` de la app. Solo para mostrar: el `code` del contrato (8 hex) ya no se dibuja y la búsqueda del listado sigue por id. El aviso de fila va dentro de la celda Ruta, no en una franja aparte.
 - `shipmentHref()` (`lib/support/shipment-href.ts`) ya linkea al detalle, también desde Actividad de la ficha de usuario.
 - **Modo fixtures**: `MOVO_ADMIN_MOCK=1` usa `lib/shipments/{mock,fixtures}.ts` (los envíos del prototipo más 40 cerrados para
   paginar). `MOVO_ADMIN_MOCK_FAIL=list,events,payment,parties,chat` (con `!` falla siempre).

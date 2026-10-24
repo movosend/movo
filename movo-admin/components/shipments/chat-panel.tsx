@@ -103,7 +103,7 @@ export function ChatPanel({
                 {heading.title}
               </SheetTitle>
               <SheetDescription className="text-xs">
-                <span className="font-mono">#{heading.code}</span> ·{" "}
+                <span className="font-mono">{heading.code}</span> ·{" "}
                 {heading.mode} · {count} mensajes
               </SheetDescription>
             </div>
