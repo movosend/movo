@@ -374,6 +374,8 @@ export {
   ADMIN_SHIPMENT_GROUP_STATUSES,
   ADMIN_SHIPMENTS_DEFAULT_LIMIT,
   ADMIN_SHIPMENTS_MAX_LIMIT,
+  FORCE_STATUS_REASON_MAX_LENGTH,
+  FORCE_STATUS_REASON_MIN_LENGTH,
   isAdminShipmentAlert,
 } from "./types/admin-shipments";
 export type {
@@ -383,6 +385,9 @@ export type {
   AdminShipmentCounts,
   AdminShipmentPage,
   AdminShipmentEvent,
+  ForceShipmentStatusRequest,
+  ForceShipmentStatusResponse,
+  ShipmentEventKind,
   AdminShipmentPhoto,
   AdminShipmentPayment,
   AdminShipmentPartyCard,
@@ -393,6 +398,20 @@ export type {
   AdminChatReport,
   AdminChatPage,
 } from "./types/admin-shipments";
+
+// admin: cambio forzado de estado de un envío (MOVO-331, ADR-055)
+export {
+  FORCED_TRANSITION_MATRIX,
+  blockedTransitionReason,
+  getForcedTransition,
+  listForcedTransitionTargets,
+} from "./config/forced-transition-matrix";
+export type {
+  ForcedTransitionCell,
+  ForcedTransitionKind,
+  ForcedTransitionRisk,
+  ForcedTransitionService,
+} from "./config/forced-transition-matrix";
 
 // admin: búsqueda de usuarios y ficha (MOVO-295, backend MOVO-294)
 export {
