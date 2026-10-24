@@ -11,6 +11,7 @@ import {
   chatEventCard,
   chatTransferCard,
   eventsSinceCurrentAssignment,
+  transfersSinceCurrentAssignment,
   type ChatEventCard,
   type LocalChatMessage,
 } from "../lib/chat-format";
@@ -79,7 +80,9 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
       receiverFirstName: participants.find((p) => p.role === "receiver")?.firstName ?? null,
     };
     const statusCards = eventsSinceCurrentAssignment(eventsQuery.data ?? []).map((event) => chatEventCard(event, viewer));
-    const transferCards = (transfersQuery.data ?? []).map((transfer) => chatTransferCard(transfer, meId));
+    const transferCards = transfersSinceCurrentAssignment(transfersQuery.data ?? [], eventsQuery.data ?? []).map(
+      (transfer) => chatTransferCard(transfer, meId),
+    );
     return [...statusCards, ...transferCards].filter((card): card is ChatEventCard => card !== null);
   }, [eventsQuery.data, transfersQuery.data, participants, me?.role, meId]);
 

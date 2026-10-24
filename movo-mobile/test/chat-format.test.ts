@@ -8,6 +8,7 @@ import {
   chatEventCard,
   chatTransferCard,
   eventsSinceCurrentAssignment,
+  transfersSinceCurrentAssignment,
   chatReadOnlyCopy,
   deliveryStatusLabel,
   formatDayLabel,
@@ -281,6 +282,17 @@ describe("chatTransferCard (MOVO-340)", () => {
     });
     expect(chatTransferCard(transfer, "martin")?.text).toBe("Lucía te pasó la recepción");
     expect(chatTransferCard(transfer, "diego")?.text).toBe("Lucía le pasó la recepción a Martín");
+  });
+
+  it("solo cuenta las transferencias de la asignación vigente", () => {
+    const events = [
+      event(ShipmentStatus.PUBLISHED, new Date("2026-10-14T10:00:00Z")),
+      event(ShipmentStatus.ASSIGNMENT_PENDING, new Date("2026-10-14T14:00:00Z"), "accept"),
+    ];
+    const before = { ...transfer, id: "before" };
+    const after = { ...transfer, id: "after", resolvedAt: "2026-10-14T15:00:00.000Z" };
+    expect(transfersSinceCurrentAssignment([before, after], events).map((t) => t.id)).toEqual(["after"]);
+    expect(transfersSinceCurrentAssignment([before, after], []).map((t) => t.id)).toEqual(["before", "after"]);
   });
 
   it("una solicitud que no se completó no lleva tarjeta", () => {

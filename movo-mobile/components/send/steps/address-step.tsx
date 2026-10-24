@@ -1,5 +1,5 @@
 import { MapPin } from "lucide-react-native";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { haversineKm } from "../../../src/lib/geo";
 import { availableWindowsFor, defaultPickupDate } from "../../../src/lib/pickup-windows";
@@ -71,6 +71,14 @@ export function AddressStep() {
 
   const tooClose = arePickupAndDeliveryTooClose(pickup, delivery);
 
+  // Un tick por minuto: sin él, la franja elegida que empieza mientras el usuario sigue en el paso quedaría
+  // marcada pero inválida ("Siguiente" deshabilitado sin explicación).
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
   // MOVO-340: el formulario arranca con el primer día que tiene franjas (también si quedó
   // cargado un día que ya pasó, el store sobrevive entre aperturas del wizard), y una
   // franja que deja de estar disponible al cambiar de día se limpia.
@@ -87,7 +95,7 @@ export function AddressStep() {
       setPickupTimeWindowStart("");
       setPickupTimeWindowEnd("");
     }
-  }, [pickupDate, pickupTimeWindowStart, pickupTimeWindowEnd, setPickupDate, setPickupTimeWindowStart, setPickupTimeWindowEnd]);
+  }, [tick, pickupDate, pickupTimeWindowStart, pickupTimeWindowEnd, setPickupDate, setPickupTimeWindowStart, setPickupTimeWindowEnd]);
 
   return (
     <View className="gap-6">

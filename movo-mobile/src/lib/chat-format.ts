@@ -194,6 +194,11 @@ export function chatTransferCard(transfer: ReceiverTransferRequest, viewerId: st
  * asignación anterior ("X aceptó el envío") no se muestran. El corte es la última entrada desde `published`.
  */
 export function eventsSinceCurrentAssignment(events: readonly ShipmentEvent[]): ShipmentEvent[] {
+  const start = currentAssignmentStartIndex(events);
+  return start === -1 ? [...events] : events.slice(start);
+}
+
+function currentAssignmentStartIndex(events: readonly ShipmentEvent[]): number {
   let start = -1;
   events.forEach((event, index) => {
     const accepted =
@@ -201,7 +206,22 @@ export function eventsSinceCurrentAssignment(events: readonly ShipmentEvent[]): 
       (event.toStatus === ShipmentStatus.ASSIGNMENT_PENDING || event.toStatus === ShipmentStatus.ASSIGNED_UNFUNDED);
     if (accepted) start = index;
   });
-  return start === -1 ? [...events] : events.slice(start);
+  return start;
+}
+
+/**
+ * Las transferencias completadas durante la asignación vigente. Misma regla que `eventsSinceCurrentAssignment`:
+ * una transferencia hecha antes de que el transportista aceptara (el envío estaba `published`) o en una asignación
+ * anterior no pertenece a esta conversación, que arranca limpia en `chat_started_at`.
+ */
+export function transfersSinceCurrentAssignment(
+  transfers: readonly ReceiverTransferRequest[],
+  events: readonly ShipmentEvent[],
+): ReceiverTransferRequest[] {
+  const start = currentAssignmentStartIndex(events);
+  if (start === -1) return [...transfers];
+  const startedAt = Date.parse(events[start]!.createdAt);
+  return transfers.filter((transfer) => transfer.resolvedAt !== null && Date.parse(transfer.resolvedAt) >= startedAt);
 }
 
 export type ChatTimelineItem =
