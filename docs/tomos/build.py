@@ -209,11 +209,13 @@ def preparar_documento(tomo_dir: Path, ref: dict, n: int, figuras: list, tablas:
             r = subprocess.run([sys.executable, str(ruta)], capture_output=True, text=True, cwd=RAIZ)
             if r.returncode != 0:
                 raise SystemExit(f"Falló el generador {ruta}:\n{r.stderr}")
-            partes.append(r.stdout)
-        else:
+            partes.append(md_a_html(r.stdout, prefijo=doc["id"]))
+        elif ruta.suffix == ".html":
+            # Fragmento HTML ya limpio (por ejemplo, informes convertidos desde .docx): sin pasar por pandoc.
             partes.append(ruta.read_text(encoding="utf-8"))
-    md = "\n\n".join(partes)
-    html = sin_rayas_largas(md_a_html(md, prefijo=doc["id"]))
+        else:
+            partes.append(md_a_html(ruta.read_text(encoding="utf-8"), prefijo=doc["id"]))
+    html = sin_rayas_largas("\n".join(partes))
     doc["html"], doc["secciones"] = numerar(doc, html, figuras, tablas)
     for campo in ("introduccion", "audiencia"):
         if doc.get(campo):

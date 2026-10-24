@@ -1,0 +1,802 @@
+<h2>Sprint 2</h2>
+<table class="clave-valor compacta"><tbody>
+<tr><th>Período</th><td>27/07/2026 al 09/08/2026</td></tr>
+<tr><th>Ciclo en Linear</th><td>Cycle 3</td></tr>
+<tr><th>Autor del informe</th><td>Bordino Blanche, Juan Cruz</td></tr>
+<tr><th>Foco del sprint</th><td>Módulo de Identidad y Confianza de punta a punta: registro con OTP, KYC con Didit.me, autenticación y perfil.</td></tr>
+</tbody></table>
+<h3>Objetivo del Sprint</h3><p>El equipo se propone cerrar el módulo de Identidad y Confianza (EP-01) de punta a punta: un usuario nuevo puede completar el registro con verificación de teléfono por OTP, pasar por la verificación de identidad KYC delegada en Didit.me, iniciar sesión con emisión y revocación de tokens, y consultar/editar su perfil — todo contra la infraestructura real (PostgreSQL, Redis, API Gateway) y no contra mocks.</p><h3>Sprint Backlog y capacidad del equipo asumida</h3><p>El Cycle 3 de Linear incluyó 33 issues (historias de usuario, tareas técnicas, un spike y dos mejoras encontradas durante la revisión de código), todos con estado Done al cierre del sprint.</p><table>
+<colgroup>
+<col style="width: 33%"/>
+<col style="width: 16%"/>
+<col style="width: 50%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Tipo</strong></th>
+<th><strong>Cantidad</strong></th>
+<th><strong>Story Points</strong></th>
+</tr>
+<tr>
+<th>US</th>
+<th>13</th>
+<th>51</th>
+</tr>
+<tr>
+<th>Tarea</th>
+<th>15</th>
+<th>29</th>
+</tr>
+<tr>
+<th>Spike</th>
+<th>1</th>
+<th>5</th>
+</tr>
+<tr>
+<th>Improvement</th>
+<th>2</th>
+<th>5</th>
+</tr>
+<tr>
+<th><strong>Total</strong></th>
+<th><strong>31</strong></th>
+<th><strong>90 SP visibles (Linear reporta 95 SP de scope total del ciclo)</strong></th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>Capacidad del equipo asumida</h4><p>El Plan de Proyecto define la capacidad del equipo en horas (5 personas × 5 hs/semana = 25 hs/semana, sección 2.2 del Backlog Inicial), pero el seguimiento de ejecución se hace en Story Points vía Planning Poker (sección 3.3 del Plan de Proyecto). No hay una conversión documentada entre horas y SP, por lo que, en sentido estricto, no existe una capacidad de SP declarada de antemano contra la cual medir el compromiso de este sprint.</p><p>A falta de esa cifra, la única referencia disponible es la propia recomendación del Plan de Proyecto para el riesgo R01 ("recalibrar la capacidad por sprint usando la velocity real de los primeros dos sprints"): la velocity de Cycle 2 fue de 22 SP completados. El sprint arrancó con 50 SP de scope planificado y cerró con 90 SP — casi 8 veces la única referencia histórica disponible.</p><h4>Detalle completo del Sprint Backlog (Cycle 3)</h4><table style="width:100%;">
+<colgroup>
+<col style="width: 14%"/>
+<col style="width: 39%"/>
+<col style="width: 12%"/>
+<col style="width: 17%"/>
+<col style="width: 6%"/>
+<col style="width: 10%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Historia / Tarea</strong></th>
+<th><strong>Tipo</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>SP</strong></th>
+<th><strong>Frente</strong></th>
+</tr>
+<tr>
+<th>MOVO-63</th>
+<th>Como usuario registrado, quiero iniciar sesión en la aplicación con mis credenciales, para acceder a mi cuenta y operar en la plataforma sin tener que registrarme nuevamente.</th>
+<th>US</th>
+<th>Tomás Vergara</th>
+<th>5</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-76</th>
+<th>[movo-mobile] Pantalla de login, secure storage de tokens, refresh automático y guard de navegación</th>
+<th>US</th>
+<th>Tomás Vergara</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-77</th>
+<th>[svc-users] Endpoints GET /users/me y GET /users/:id con proyecciones separadas privada y pública</th>
+<th>Tarea</th>
+<th>Alena Ariza</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-73</th>
+<th>[movo-mobile] Pantallas de registro, verificación de OTP y flujo de KYC embebido</th>
+<th>US</th>
+<th>Tomás Vergara</th>
+<th>5</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-71</th>
+<th>[svc-users] Verificación de teléfono por OTP con almacenamiento en Redis y adapter de SMS</th>
+<th>US</th>
+<th>Alena Ariza</th>
+<th>5</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-84</th>
+<th>Schema y migraciones de PostgreSQL para movo-svc-users (users, user_roles)</th>
+<th>Tarea</th>
+<th>Pedro Yorlano</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-72</th>
+<th>[svc-users] Integración con Didit.me: creación de sesión KYC, webhook de resultado y máquina de estados</th>
+<th>US</th>
+<th>Juan Cruz Bordino Blanche</th>
+<th>5</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-74</th>
+<th>[svc-users] Endpoint de login: validación de credenciales y emisión de access + refresh token</th>
+<th>US</th>
+<th>Pedro Yorlano</th>
+<th>2</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-75</th>
+<th>[svc-users] Endpoints de refresh token con rotación y de logout con revocación en Redis</th>
+<th>US</th>
+<th>Tomás Vergara</th>
+<th>2</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-87</th>
+<th>user-repository: capa de acceso a datos de usuarios (PostgreSQL)</th>
+<th>Tarea</th>
+<th>Lucas Dalmagro</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-95</th>
+<th>[svc-users] register() emite tokens de sesión — AC10/AC3 de MOVO-70 desactualizados (PR #51)</th>
+<th>Improvement</th>
+<th>Juan Cruz Bordino Blanche</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-94</th>
+<th>[svc-users] Revisar autenticación de POST /kyc/session y GET /kyc/status (hoy públicas, sin JWT)</th>
+<th>Improvement</th>
+<th>Juan Cruz Bordino Blanche</th>
+<th>2</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-58</th>
+<th>Armar .MD del DER</th>
+<th>Tarea</th>
+<th>Lucas Dalmagro</th>
+<th>1</th>
+<th>Trazabilidad</th>
+</tr>
+<tr>
+<th>MOVO-91</th>
+<th>Alinear enums de users.users (rol/KYC) con @movo/shared</th>
+<th>Tarea</th>
+<th>Lucas Dalmagro</th>
+<th>1</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-70</th>
+<th>[svc-users] Endpoint de registro de usuario: validaciones, hash de contraseña y persistencia</th>
+<th>US</th>
+<th>Alena Ariza</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-48</th>
+<th>Didit.me — spike de validación de flujo KYC en sandbox</th>
+<th>Spike</th>
+<th>Juan Cruz Bordino Blanche</th>
+<th>5</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-93</th>
+<th>Adoptar Prisma como ORM en movo-svc-users</th>
+<th>Tarea</th>
+<th>Juan Cruz Bordino Blanche</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-68</th>
+<th>Como equipo de desarrollo, quiero el middleware de autenticación, autorización por rol y rate limiting en movo-api-gateway, para que todos los endpoints protegidos validen identidad en un único punto de entrada.</th>
+<th>US</th>
+<th>Juan Cruz Bordino Blanche</th>
+<th>5</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-45</th>
+<th>Diseño y Entrega del Póster</th>
+<th>Tarea</th>
+<th>Tomás Vergara</th>
+<th>2</th>
+<th>Académico</th>
+</tr>
+<tr>
+<th>MOVO-40</th>
+<th>Diseño y Entrega de Paper</th>
+<th>Tarea</th>
+<th>Alena Ariza</th>
+<th>3</th>
+<th>Académico</th>
+</tr>
+<tr>
+<th>MOVO-92</th>
+<th>Chore actualización de la Entidad User</th>
+<th>Tarea</th>
+<th>Pedro Yorlano</th>
+<th>1</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-66</th>
+<th>Como equipo de desarrollo, quiero el schema, las migraciones y la capa de persistencia de movo-svc-users, para que las historias de identidad tengan una base de datos versionada y reproducible.</th>
+<th>US</th>
+<th>Pedro Yorlano</th>
+<th>8</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-59</th>
+<th>Configurar pipeline de CI/CD para movo-admin y movo-mobile</th>
+<th>Tarea</th>
+<th>Tomás Vergara</th>
+<th>3</th>
+<th>Infraestructura</th>
+</tr>
+<tr>
+<th>MOVO-89</th>
+<th>GET /health en movo-svc-users: estado de PostgreSQL y Redis</th>
+<th>Tarea</th>
+<th>Lucas Dalmagro</th>
+<th>1</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-85</th>
+<th>Plugin de conexión PostgreSQL en movo-svc-users (fastify.db)</th>
+<th>Tarea</th>
+<th>Lucas Dalmagro</th>
+<th>1</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-88</th>
+<th>session-repository: refresh tokens en Redis (soporte para ADR-004)</th>
+<th>Tarea</th>
+<th>Pedro Yorlano</th>
+<th>2</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-67</th>
+<th>Como equipo de desarrollo, quiero una librería compartida de JWT, tipos de dominio y contrato de errores en movo-shared, para que todos los servicios validen identidad y respondan errores de forma homogénea sin duplicar código.</th>
+<th>US</th>
+<th>Tomás Vergara</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-86</th>
+<th>Plugin de conexión Redis en movo-svc-users (fastify.redis)</th>
+<th>US</th>
+<th>Pedro Yorlano</th>
+<th>2</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-90</th>
+<th>Creación de skill en Claude para facilitar la review de US</th>
+<th>Tarea</th>
+<th>Juan Cruz Bordino Blanche</th>
+<th>1</th>
+<th>Herramientas</th>
+</tr>
+<tr>
+<th>MOVO-69</th>
+<th>Como equipo de desarrollo, quiero el setup de testing automatizado y los quality gates en CI, para que ninguna PR se mergee a develop sin tests en verde y podamos medir cobertura real por sprint.</th>
+<th>US</th>
+<th>Tomás Vergara</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-53</th>
+<th>Completar Verificación de Status de Repositorios y Flujos de CI/CD</th>
+<th>Tarea</th>
+<th>Tomás Vergara</th>
+<th>2</th>
+<th>Infraestructura</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><p><em>Nota: MOVO-91 (alineación de enums con @movo/shared) no tiene Story Points asignados a nivel de issue en Linear, pese a estar dentro del ciclo y contribuir al total de 95 SP que reporta Linear a nivel de scope del ciclo.</em></p><h3>Resultado de la Sprint Review</h3><p>En base a lo completado, el sprint deja en condiciones de demostrarse el flujo de onboarding completo:</p><ul>
+<li>
+Registro de un usuario nuevo (nombre, DNI, dirección, teléfono) con verificación de teléfono por OTP (SMS real vía Twilio, con fallback a Telegram en desarrollo).
+</li>
+<li>
+Verificación de identidad (KYC) contra el sandbox real de Didit.me, incluyendo el caso de revisión manual (estado In Review de Didit.me, mapeado a manual_review en el dominio de Movo).
+</li>
+<li>
+Inicio de sesión con emisión de access token + refresh token, y su revocación al hacer logout.
+</li>
+<li>
+Todo el tráfico pasando por el API Gateway, con autenticación, autorización por rol y rate limiting centralizados (MOVO-68).
+</li>
+<li>
+Consulta del perfil propio y de terceros con proyecciones separadas (vista privada vs. pública).
+</li>
+</ul><h3>Métricas y análisis de tendencia</h3><table>
+<colgroup>
+<col style="width: 27%"/>
+<col style="width: 35%"/>
+<col style="width: 36%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Métrica</strong></th>
+<th><strong>Sprint 1</strong></th>
+<th><strong>Sprint 2 (Cycle 3)</strong></th>
+</tr>
+<tr>
+<th>Velocity (SP completados)</th>
+<th>22 SP</th>
+<th>90 SP</th>
+</tr>
+<tr>
+<th>Scope al inicio del sprint</th>
+<th>18 SP</th>
+<th>50 SP</th>
+</tr>
+<tr>
+<th>Scope al cierre del sprint</th>
+<th>20 SP (+43% vs. inicio)</th>
+<th>90 SP (+80% vs. inicio)</th>
+</tr>
+<tr>
+<th>Sprint Goal Achievement</th>
+<th>100% del scope final (9/9 items, segun informe de Sprint 1)</th>
+<th>100% del scope final (90/90) · 180% si se mide contra el plan original de 50 SP</th>
+</tr>
+<tr>
+<th>Lead Time</th>
+<th>≈12,8 h (aprox.) — el Informe de Sprint 1 aclara que se aproximó con el mismo dato que Cycle Time, porque no se registró la fecha de merge a develop como evento separado</th>
+<th>Sin dato distinto del Cycle Time. El action item de Sprint 1 de registrar la fecha de merge a develop no se resolvió este sprint.</th>
+</tr>
+<tr>
+<th>Cycle Time (mediana / promedio)</th>
+<th>≈12,8 h promedio (rango 40 min–30,8 h); 7 de 9 ítems (78%) con paso explícito por In Progress</th>
+<th>1.2 días / 3.0 días (excluye 2 tareas académicas con timestamps atípicos, ver nota); 28 de 31 ítems (90%) con paso explícito por In Progress</th>
+</tr>
+<tr>
+<th>Defect Rate (issues con label "Bug")</th>
+<th>0</th>
+<th>0 — ver nota crítica abajo</th>
+</tr>
+<tr>
+<th>Suite de tests automatizados (repo, rama develop)</th>
+<th>Sin dato</th>
+<th>249 casos (it blocks) en 37 archivos</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>Análisis</h4><p><strong>La comparación de velocity entre Sprint 1 y Sprint 2 no es muy significativa todavía.</strong> El Informe de Sprint 1 registra 18 SP completados sobre infraestructura y modelado de datos (cuentas de AWS, Terraform, DERs), mientras que Sprint 2 fue el primer sprint de feature delivery real (todo el módulo de identidad). Son naturalezas de trabajo distintas, así que el salto a 95 SP dice más sobre el tipo de trabajo que sobre una mejora real de productividad del equipo. El Plan de Proyecto ya anticipa esto: recién "a partir del Sprint 3 se definen criterios de alerta", que necesitan una velocity de referencia que este proyecto todavía no tiene (solo hay una muestra previa comparable).</p><p><strong>El scope creep es la señal más fuerte de este sprint y merece atención en la próxima Planning.</strong> El sprint arrancó con 50 SP planificados y cerró con 90 SP por suma de issue — un crecimiento de entre el 80% y el 86% durante las dos semanas, muy por encima del crecimiento de Sprint 1 (+43% según la referencia cruda de Linear; Sprint 1 no tuvo scope creep según su propio informe, que registra 18 SP comprometidos y 22 SP cerrados). Haber completado el 100% del scope final es un buen resultado de ejecución, pero conviene no leerlo como "se cumplió el plan": cerca de la mitad de lo que se hizo (45 de 90 SP) se agregó después de la Planning. Los tickets MOVO-91, MOVO-92, MOVO-93, MOVO-94 y MOVO-95 son ejemplos concretos de trabajo real y necesario que surgió sobre la marcha (alineación de enums, adopción de Prisma, cierre de un gap de seguridad) — el problema no es que haya aparecido, sino que no hay un registro de cuándo ni por qué se decidió meterlo al sprint en curso en vez de dejarlo para el siguiente.</p><p><strong>El Defect Rate definido en el Plan de Proyecto da 0, pero eso no significa que no hubo bugs.</strong> Durante el sprint se encontraron y corrigieron al menos tres defectos reales contra sistemas externos reales (no mocks): un bug de namespace de rate-limiting en el gateway que compartía contador entre /kyc/session y /auth/login (hallado en MOVO-72), un problema de autenticación de Twilio que obligó a migrar de Account SID/Auth Token a API Key/Secret, y un problema de formato de número argentino (+549 vs. +54) que Twilio no reconocía como el mismo destinatario (ambos en MOVO-71). Ninguno de los tres se registró como issue con label Bug — se corrigieron inline dentro del ticket donde se encontraron. La métrica, tal como está definida, no los captura. Ver acción propuesta en la retrospectiva.</p><p><strong>El Cycle Time es bueno, con una salvedad metodológica.</strong> La mediana de 1.2 días entre que un issue entra en "In Progress" y llega a "Done" está muy por debajo del umbral de alerta de 7 días que define el Plan de Proyecto. Se excluyeron del cálculo dos tareas académicas (MOVO-45, póster y MOVO-40, paper) cuyos timestamps de "In Progress" en Linear quedaron abiertos varias semanas por motivos ajenos al desarrollo — si se las incluye, el promedio sube a 3.7 días; igual sigue por debajo del umbral, pero conviene no mezclar tareas de cátedra con tareas de desarrollo en el mismo cálculo de Cycle Time hacia adelante.</p><h3>Retrospectiva</h3><h4>Estado de los action items del sprint anterior</h4><p>El Informe de Sprint 1 dejó tres action items. Estado de cada uno al cierre de este sprint, verificado contra Linear:</p><ul>
+<li>
+Actualizar el flujo de Linear para que toda tarea pase explícitamente por "In Progress" antes de "Done" (responsable: Ariza, Alena). Parcialmente resuelto. 28 de los 31 issues del ciclo (90%) registraron ese paso, frente a 7 de 9 (78%) en Sprint 1. Todavía hay excepciones: MOVO-63, MOVO-90 y MOVO-95 se cerraron directo a Done.
+</li>
+<li>
+Registrar la fecha de merge a develop como dato distinguible del cierre en Linear, para calcular el Lead Time real (responsable: Bordino Blanche, Juan Cruz). No resuelto. La fila de Lead Time agregada en la tabla de métricas de este sprint (1.4) sigue sin un dato distinto del de Cycle Time: no se incorporó una integración Linear–GitHub que distinga la fecha de merge de la fecha de cierre del issue. Se recomienda retomarlo explícitamente para Sprint 3.
+</li>
+<li>
+Eliminar las credenciales en texto plano detectadas en MOVO-43 y migrarlas a un gestor de secretos (responsable: Vergara, Tomás). Sin confirmar. Los comentarios de MOVO-43 revisados para este informe muestran un análisis detallado de la infraestructura (Secrets Manager, IAM, reverse proxy) pero no una confirmación explícita de que las credenciales en texto plano se hayan rotado o migrado. Se recomienda que Tomás Vergara confirme el cierre de este punto antes de la próxima entrega a la cátedra.
+</li>
+</ul><h4>Insights</h4><p><strong>Qué funcionó bien</strong></p><ul>
+<li>
+La convención del equipo de no editar en silencio un criterio de aceptación ya aceptado — se abre un ticket nuevo que referencia y reemplaza al anterior (MOVO-91, MOVO-95). Deja trazabilidad real de por qué cambió una decisión, que es exactamente lo que la cátedra pide poder auditar.
+</li>
+<li>
+El riesgo R02 del Plan de Proyecto (comportamiento no documentado de Didit.me) se materializó parcialmente: los estados reales del webhook (Approved / Declined / In Review) no coinciden con los asumidos en el criterio de aceptación original (approved / rejected / manual_review). El equipo lo detectó y documentó en el spike (MOVO-48) y lo resolvió dentro del mismo sprint agregando manual_review al enum compartido, a la migración de base de datos y a un test dedicado de reconciliación (MOVO-72).
+</li>
+<li>
+El gap de seguridad detectado en la revisión de PR de MOVO-72 (rutas de KYC públicas sin JWT, aceptando un userId adivinable) se cerró en el mismo sprint en el que se encontró (MOVO-94/95), no quedó arrastrado ni documentado como "deuda técnica" sin plan.
+</li>
+<li>
+Los bugs de integración externa (Twilio, rate-limit del gateway) se encontraron probando contra proveedores reales en sandbox, no solo contra mocks — validando el enfoque de MOVO-48 y MOVO-71 de no confiar únicamente en la documentación oficial de terceros.
+</li>
+<li>
+Cycle Time bajo (mediana 1.2 días), bien por debajo del umbral de alerta de 7 días del Plan de Proyecto, y con mejor cobertura del paso por "In Progress" que en Sprint 1.
+</li>
+</ul><p><strong>Qué no funcionó / puntos a mejorar</strong></p><ul>
+<li>
+Scope creep de +90% durante el sprint (50 → 90 SP), sin que quede registrado en ningún lado cuándo ni por qué se sumó cada historia a mitad de ciclo. Complica comparar "lo planificado" contra "lo logrado" de forma honesta.
+</li>
+<li>
+MOVO-84 (schema y migraciones de PostgreSQL) volvió de Done a In Progress durante el ciclo. La causa quedó documentada en los comentarios del ticket: el equipo acordó reabrirlo para alinear la estructura de usuario (nombre completo vs. first name/last name) con lo definido en el DER y con lo que salió del spike de Didit.me (MOVO-48); el ajuste de columnas obsoletas resultante se separó a un ticket dedicado, MOVO-92. Fue retrabajo real pero acotado y con causa clara, no una señal de proceso roto.
+</li>
+<li>
+El Defect Rate da 0 pese a que hubo al menos tres bugs reales corregidos — la métrica no está capturando la realidad porque el equipo no usa la label "Bug" cuando el fix es inline.
+</li>
+</ul><p><strong>Qué aprendimos</strong></p><ul>
+<li>
+Conviene validar los contratos de un proveedor externo contra su documentación oficial (o mejor, contra el sandbox real) antes de fijar los criterios de aceptación — el mismatch de estados de Didit.me se podría haber evitado si el spike (MOVO-48) no se hubiera pospuesto hasta último momento.
+</li>
+<li>
+Un ticket de "seguimiento" (como MOVO-94, abierto para no dejar una decisión de seguridad perdida en un comentario) funciona bien para que ese tipo de deuda no se pierda — vale la pena mantener el patrón.
+</li>
+</ul><h4>Action items</h4><table>
+<colgroup>
+<col style="width: 59%"/>
+<col style="width: 24%"/>
+<col style="width: 16%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Acción</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>Fecha límite</strong></th>
+</tr>
+<tr>
+<th>Revisar por qué MOVO-84 volvió de Done a In Progress durante el ciclo y dejar la causa documentada, para detectar si hace falta ajustar el DoD de tareas de schema</th>
+<th>Pedro Yorlano</th>
+<th>Sprint 4</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Product Backlog repriorizado</h3><p>Con el módulo de Identidad y Confianza (EP-01) funcionalmente completo, el candidato natural para el próximo sprint es arrancar EP-04 — Ejecución del Envío: las historias de creación de envío ya están escritas en el backlog (MOVO-79 a MOVO-83) y no dependen de nada que falte. Cycle 4 arrancó hoy con un solo issue cargado (MOVO-78, pantalla de perfil — cierre de un pendiente de EP-01), así que todavía hay lugar en el sprint para sumar el inicio de EP-04.</p><p>La tabla siguiente es una propuesta de repriorización, no una decisión tomada — la prioridad de Linear sigue siendo la fuente de verdad y el Product Owner es quien la define formalmente en la Planning.</p><table>
+<colgroup>
+<col style="width: 13%"/>
+<col style="width: 50%"/>
+<col style="width: 13%"/>
+<col style="width: 22%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Historia / Tarea</strong></th>
+<th><strong>Prioridad sugerida</strong></th>
+<th><strong>Nota</strong></th>
+</tr>
+<tr>
+<th>MOVO-78</th>
+<th>[movo-mobile] Pantalla de perfil propio con estado de KYC, insignias y logout</th>
+<th>Alta</th>
+<th>Ya en Cycle 4</th>
+</tr>
+<tr>
+<th>MOVO-79</th>
+<th>[svc-shipments] Schema, migraciones y máquina de estados del ciclo de vida del envío</th>
+<th>Alta</th>
+<th>Recomendado para Cycle 4</th>
+</tr>
+<tr>
+<th>MOVO-80</th>
+<th>[svc-shipments] Endpoint de creación de envío, búsqueda de receptor y consulta de detalle</th>
+<th>Alta</th>
+<th>Recomendado para Cycle 4</th>
+</tr>
+<tr>
+<th>MOVO-81</th>
+<th>[svc-shipments] Carga de fotos del paquete con presigned URLs de S3 y registro de evidencia</th>
+<th>Alta</th>
+<th>Recomendado para Cycle 4</th>
+</tr>
+<tr>
+<th>MOVO-82</th>
+<th>[svc-pricing-logistics] Contrato de precio sugerido con implementación lineal provisoria y fallback</th>
+<th>Alta</th>
+<th>Recomendado para Cycle 4</th>
+</tr>
+<tr>
+<th>MOVO-83</th>
+<th>[movo-mobile] Wizard de creación de envío con carga de fotos y precio sugerido</th>
+<th>Media</th>
+<th>Depende de MOVO-79/80/81/82</th>
+</tr>
+<tr>
+<th>MOVO-97</th>
+<th>[svc-users] Foto de perfil: subida a S3 con presigned URLs, confirmación y borrado</th>
+<th>Media</th>
+<th>Refinamiento de EP-01, no bloqueante</th>
+</tr>
+<tr>
+<th>MOVO-98</th>
+<th>[movo-mobile] Paso de foto de perfil al cerrar el onboarding y edición desde el perfil</th>
+<th>Media</th>
+<th>Refinamiento de EP-01, no bloqueante</th>
+</tr>
+<tr>
+<th>MOVO-96</th>
+<th>[svc-users] Investigar si el DNI se puede extraer del resultado de Didit y eliminar el step manual del wizard</th>
+<th>Baja</th>
+<th>Mejora, no crítico para el MVP</th>
+</tr>
+<tr>
+<th>MOVO-32</th>
+<th>Como administrador, quiero revisar y aprobar o rechazar los casos de KYC pendientes</th>
+<th>Alta</th>
+<th>Necesario en cuanto exista manual_review en producción</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Registro de riesgos actualizado</h3><p>Actualización de los riesgos del Plan de Proyecto (sección 5.2) en base a lo observado este sprint, más dos riesgos nuevos detectados durante la ejecución.</p><table>
+<colgroup>
+<col style="width: 8%"/>
+<col style="width: 19%"/>
+<col style="width: 9%"/>
+<col style="width: 12%"/>
+<col style="width: 13%"/>
+<col style="width: 36%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Riesgo</strong></th>
+<th><strong>Prob.</strong></th>
+<th><strong>Impacto</strong></th>
+<th><strong>Prioridad</strong></th>
+<th><strong>Estado / actualización este sprint</strong></th>
+</tr>
+<tr>
+<th><strong>R01</strong></th>
+<th>Disponibilidad real del equipo menor a la estimada.</th>
+<th>Alta</th>
+<th>Alto</th>
+<th>Crítico</th>
+<th>Sin evidencia de materialización este sprint (95 SP completados). Se recomienda seguir recalibrando con más sprints antes de bajarle la prioridad.</th>
+</tr>
+<tr>
+<th><strong>R02</strong></th>
+<th>Didit.me presenta demoras o comportamientos no documentados.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Materializado parcialmente y resuelto: el mapeo de estados reales del webhook difería del asumido (ver 1.5.2). Sugerido bajar a Medio dado que ya se validó contra el sandbox real y se cerró el gap; falta validar en producción.</th>
+</tr>
+<tr>
+<th><strong>R03</strong></th>
+<th>OR-Tools VRPTW no converge en tiempos razonables.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Sin actividad este sprint — todavía no se tocó el servicio de pricing-logistics. Sin cambios.</th>
+</tr>
+<tr>
+<th><strong>R04</strong></th>
+<th>Subestimación de horas/SP en historias complejas.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Materializado: el scope creció 90% durante el sprint (ver 1.4). Se completó igual, pero es la señal de alerta que este riesgo anticipaba. Mantener en Alto y agregar como mitigación registrar el motivo de cada historia sumada a mitad de sprint.</th>
+</tr>
+<tr>
+<th><strong>R05</strong></th>
+<th>Solapamiento con parciales/finales reduce la velocidad del equipo.</th>
+<th>Alta</th>
+<th>Medio</th>
+<th>Alto</th>
+<th>Sin evidencia de impacto este sprint.</th>
+</tr>
+<tr>
+<th><strong>R06</strong></th>
+<th>Conocimiento crítico concentrado en una sola persona por dominio.</th>
+<th>Media</th>
+<th>Medio</th>
+<th>Medio</th>
+<th>La integración con Didit.me quedó concentrada en Juan Cruz Bordino Blanche (spike + integración + fix de seguridad). Vale la pena vigilar específicamente el dominio KYC.</th>
+</tr>
+<tr>
+<th><strong>R07 (nuevo)</strong></th>
+<th>Deuda de documentación de ADRs: hay decisiones ya implementadas en producción (auth, identidad en el gateway, proveedor de SMS) sin su ADR correspondiente en Drive.</th>
+<th>Alta</th>
+<th>Medio</th>
+<th>Alto</th>
+<th>Detectado este sprint (ver 2.2). Mitigación propuesta: no cerrar un sprint con ADRs pendientes de publicar cuando ya están redactados.</th>
+</tr>
+<tr>
+<th><strong>R08 (nuevo)</strong></th>
+<th>La métrica de Defect Rate no captura bugs reales porque se corrigen inline sin usar la label "Bug".</th>
+<th>Alta</th>
+<th>Bajo</th>
+<th>Medio</th>
+<th>Detectado este sprint (ver 1.4). Mitigación: acción listada en 1.5.3.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Artefactos de trazabilidad</h3><h4>Diagramas de modelado relevantes</h4><p>Todos los diagramas de modelado del proyecto viven en Miro (convención definida en el documento de Sprint 0), no como imágenes en este documento.</p><ul>
+<li>
+<strong>DER (Modelo Entidad-Relación):</strong> armado en MOVO-58, incluye la tabla users.kyc_verification agregada este sprint en MOVO-72.
+</li>
+<li>
+<strong>Diagrama de estado de User:</strong> MOVO-60 (creado en Sprint 1).
+</li>
+<li>
+<strong>Diagrama de estado de Shipment:</strong> MOVO-61 (creado en Sprint 1).
+</li>
+</ul><p>Miro — DER del proyecto: <a href="https://miro.com/app/board/uXjVH5E57JM=/?share_link_id=27118856226"><u>https://miro.com/app/board/uXjVH5E57JM=/?share_link_id=27118856226</u></a></p><h4>ADR correspondiente</h4><p>Cuatro decisiones técnicas de este sprint tienen (o deberían tener) un ADR asociado:</p><table>
+<colgroup>
+<col style="width: 9%"/>
+<col style="width: 29%"/>
+<col style="width: 19%"/>
+<col style="width: 40%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ADR</strong></th>
+<th><strong>Tema</strong></th>
+<th><strong>Estado en Drive</strong></th>
+<th><strong>Nota</strong></th>
+</tr>
+<tr>
+<th><strong>ADR-003</strong></th>
+<th>Un schema de PostgreSQL por servicio, sin foreign keys entre schemas.</th>
+<th>Existente (Sprint 0/1)</th>
+<th>Aplicado consistentemente en MOVO-84 (schema de movo-svc-users).</th>
+</tr>
+<tr>
+<th><strong>ADR-004</strong></th>
+<th>Mecanismo de autenticación: password + refresh token opaco persistido en Redis (no JWT).</th>
+<th>No encontrado en Drive</th>
+<th>Implementado end-to-end en MOVO-63/74/75/88, pero sin documento en Drive. Referenciado desde el código (MOVO-88) como si ya existiera.</th>
+</tr>
+<tr>
+<th><strong>ADR-010</strong></th>
+<th>Propagación de identidad del usuario autenticado vía header x-user-id, inyectado por el gateway tras validar el JWT.</th>
+<th>No encontrado en Drive</th>
+<th>Implementado en MOVO-68 y confirmado como mecanismo de identidad en la resolución de MOVO-94, pero sin documento en Drive.</th>
+</tr>
+<tr>
+<th><strong>ADR-012</strong></th>
+<th>Twilio como proveedor de SMS para el envío de códigos OTP.</th>
+<th>Redactado, no publicado</th>
+<th>Alena Ariza dejó registrado en el comentario de cierre de MOVO-71 que el ADR-012 ya está redactado pero no lo pudo pegar en Drive por falta de permisos de escritura.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>DER actualizado</h4><p>Cambios al modelo de datos durante este sprint (todos con migración versionada en services/movo-svc-users/prisma/migrations/):</p><ul>
+<li>
+<strong>MOVO-84:</strong> creación del schema users con la tabla users.users y users.user_roles.
+</li>
+<li>
+<strong>MOVO-91:</strong> los enums de rol y de estado de KYC se alinearon a los valores de @movo/shared (por ejemplo 'emisor' → 'sender'), eliminando la capa de mapeo que existía en el código.
+</li>
+<li>
+<strong>MOVO-72:</strong> se agregó la tabla users.kyc_verification y el valor 'manual_review' al enum kyc_status_enum.
+</li>
+<li>
+<strong>MOVO-92:</strong> se quitaron de users.users las columnas last_kyc_verification_identity_id y last_kyc_verification_license_id, que habían quedado obsoletas frente al nuevo modelo de kyc_verification.
+</li>
+</ul><p>El comentario de cierre de MOVO-72 deja registrado el esquema exacto de kyc_verification implementado, y aclara explícitamente que se sigue el DER compartido por el equipo en Miro.</p><h4>Casos de prueba y resultados de ejecución</h4><p>El repositorio (rama develop) tiene 249 casos de test automatizados distribuidos en 37 archivos, cubriendo movo-shared, el movo-api-gateway y movo-svc-users (los tres servicios tocados este sprint). La tabla siguiente muestra una selección representativa por historia de usuario, con precondición, pasos y resultado esperado extraídos directamente del código de test real.</p><table>
+<colgroup>
+<col style="width: 10%"/>
+<col style="width: 23%"/>
+<col style="width: 21%"/>
+<col style="width: 21%"/>
+<col style="width: 22%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>US / Tarea</strong></th>
+<th><strong>Caso de prueba</strong></th>
+<th><strong>Precondición</strong></th>
+<th><strong>Pasos</strong></th>
+<th><strong>Resultado esperado</strong></th>
+</tr>
+<tr>
+<th><strong>MOVO-63/74</strong></th>
+<th><p>Login con credenciales válidas</p>
+<p>auth.login.integration.test.ts</p></th>
+<th>Usuario ya registrado y con contraseña conocida.</th>
+<th>POST /auth/login con email/teléfono + contraseña correctos.</th>
+<th>200 OK. Devuelve accessToken + refreshToken; el refresh token queda guardado en Redis con TTL de 90 días.</th>
+</tr>
+<tr>
+<th><strong>MOVO-63/74</strong></th>
+<th><p>Login con contraseña incorrecta</p>
+<p>auth.login.integration.test.ts</p></th>
+<th>Usuario ya registrado.</th>
+<th>POST /auth/login con contraseña incorrecta.</th>
+<th>401 AUTH_INVALID_CREDENTIALS. No distingue si el email existe o no (por seguridad).</th>
+</tr>
+<tr>
+<th><strong>MOVO-63/74</strong></th>
+<th><p>Login con cuenta suspendida</p>
+<p>auth.login.integration.test.ts</p></th>
+<th>Usuario con status = banned.</th>
+<th>POST /auth/login con credenciales correctas.</th>
+<th>403 ACCOUNT_SUSPENDED.</th>
+</tr>
+<tr>
+<th><strong>MOVO-71</strong></th>
+<th><p>Envío de OTP respeta el cooldown</p>
+<p>auth.otp.integration.test.ts</p></th>
+<th>Ya se pidió un OTP para ese teléfono hace menos de 60s.</th>
+<th>POST /auth/send-otp de nuevo dentro del cooldown.</th>
+<th>Devuelve el mismo otpId sin enviar un SMS nuevo.</th>
+</tr>
+<tr>
+<th><strong>MOVO-71</strong></th>
+<th><p>Verificación con código incorrecto agota intentos</p>
+<p>auth.otp.integration.test.ts</p></th>
+<th>OTP generado, código correcto conocido solo por el sistema.</th>
+<th>5 intentos con código incorrecto, luego 1 intento con el código correcto real.</th>
+<th>Los primeros 5 devuelven 401 AUTH_OTP_INVALID; el 6º (con código correcto) devuelve 422 — el otpId ya quedó invalidado por exceso de intentos.</th>
+</tr>
+<tr>
+<th><strong>MOVO-70</strong></th>
+<th><p>Registro exitoso emite tokens de sesión</p>
+<p>auth.register.integration.test.ts</p></th>
+<th>phoneVerificationToken válido (teléfono ya verificado por OTP).</th>
+<th>POST /auth/register con datos completos + el token de verificación.</th>
+<th>201 Created. Persiste roles por defecto y phoneVerified=true; devuelve accessToken + refreshToken (mismo shape que login, MOVO-95).</th>
+</tr>
+<tr>
+<th><strong>MOVO-70</strong></th>
+<th><p>Conflicto de email libera el token de verificación</p>
+<p>auth.register.integration.test.ts</p></th>
+<th>phoneVerificationToken válido; el email ya existe en otra cuenta.</th>
+<th>POST /auth/register con ese email.</th>
+<th>409 USER_EMAIL_ALREADY_EXISTS. El phoneVerificationToken se libera (no se consume), permitiendo reintentar sin rehacer el OTP.</th>
+</tr>
+<tr>
+<th><strong>MOVO-72</strong></th>
+<th><p>Creación de sesión KYC</p>
+<p>kyc.session.integration.test.ts</p></th>
+<th>Usuario con teléfono verificado y sin sesión de KYC en curso.</th>
+<th>POST /kyc/session autenticado (Bearer token).</th>
+<th>201 Created. Inserta la fila en kyc_verification y actualiza el caché de kyc_status a pending.</th>
+</tr>
+<tr>
+<th><strong>MOVO-72</strong></th>
+<th><p>Bloqueo de sesión sin teléfono verificado</p>
+<p>kyc.session.integration.test.ts</p></th>
+<th>Usuario sin teléfono verificado.</th>
+<th>POST /kyc/session.</th>
+<th>409 KYC_SESSION_NOT_ALLOWED.</th>
+</tr>
+<tr>
+<th><strong>MOVO-72 / MOVO-48</strong></th>
+<th><p>Reconciliación de manual_review a estado terminal</p>
+<p>kyc.manual-review-reconcile.test.ts</p></th>
+<th>Sesión de KYC en estado manual_review (Didit "In Review").</th>
+<th>Llega un segundo webhook terminal (operador aprueba la revisión manual).</th>
+<th>El estado transiciona de manual_review a approved (o a rejected si el operador rechaza).</th>
+</tr>
+<tr>
+<th><strong>MOVO-72 / MOVO-48</strong></th>
+<th><p>Reconciliación por pull cuando el webhook no llega</p>
+<p>kyc.manual-review-reconcile.test.ts</p></th>
+<th>Sesión en manual_review; el segundo webhook nunca llegó al backend de Movo.</th>
+<th>GET /kyc/status.</th>
+<th>El backend consulta a Didit.me activamente (pull) y reconcilia el estado en la respuesta.</th>
+</tr>
+<tr>
+<th><strong>MOVO-94</strong></th>
+<th><p>Rutas de KYC requieren autenticación</p>
+<p>kyc.session.integration.test.ts</p></th>
+<th>Sin header Authorization.</th>
+<th>POST /kyc/session sin Bearer token.</th>
+<th>401 AUTH_TOKEN_INVALID — ya no acepta userId suelto (resuelto en MOVO-94/95).</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h5>Resultados de ejecución reportados por el equipo</h5><p>Los siguientes conteos fueron reportados por los desarrolladores en los comentarios de cierre de los tickets correspondientes (no se ejecutó la suite de forma independiente para este informe):</p><ul>
+<li>
+<strong>105/105 tests en verde</strong> — cierre de MOVO-71 (verificación de OTP), reportado por Alena Ariza.
+</li>
+<li>
+<strong>114/114 tests en verde</strong> — tras resolver conflictos de merge entre MOVO-71 y MOVO-74 (login), reportado por Tomás Vergara.
+</li>
+<li>
+<strong>173/173 tests en svc-users + 32/32 en gateway</strong> — verificación de MOVO-94 (autenticación de rutas de KYC), smoke test manual de punta a punta incluido.
+</li>
+</ul>

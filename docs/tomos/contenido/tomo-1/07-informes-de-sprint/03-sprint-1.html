@@ -1,0 +1,319 @@
+<h2>Sprint 1</h2>
+<table class="clave-valor compacta"><tbody>
+<tr><th>Período</th><td>13/07/2026 al 26/07/2026</td></tr>
+<tr><th>Ciclo en Linear</th><td>Cycle 2</td></tr>
+<tr><th>Autor del informe</th><td>Ariza Alena</td></tr>
+<tr><th>Foco del sprint</th><td>Infraestructura como código (AWS y Terraform), pipeline inicial de CI/CD, DER y diagramas de máquina de estados.</td></tr>
+</tbody></table>
+<h3>Objetivo del Sprint</h3><p>Establecer la infraestructura técnica base del proyecto: aprovisionar como código (Terraform) los ambientes de AWS de desarrollo y producción, dejar configurados los repositorios con su pipeline inicial de CI/CD, y modelar el Diseño de Entidad-Relación (DER) de los dominios principales — Usuarios, Admin, Shipments y Payments — junto con su Diagrama de Máquina de Estados, de forma de habilitar el desarrollo de los microservicios a partir de Sprint 2.</p><h3>Sprint Backlog</h3><p>El sprint estuvo compuesto por tareas de infraestructura y de modelado de datos, sin historias de usuario del Product Backlog, dado que el objetivo era dejar la base técnica lista antes de comenzar el desarrollo funcional. Los siete ítems comprometidos se completaron dentro del sprint.</p><table>
+<colgroup>
+<col style="width: 14%"/>
+<col style="width: 36%"/>
+<col style="width: 22%"/>
+<col style="width: 8%"/>
+<col style="width: 16%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Ítem</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>SP</strong></th>
+<th><strong>Estado al cierre</strong></th>
+</tr>
+<tr>
+<th>MOVO-54</th>
+<th>Creación del entorno completo en AWS con Terraform (dev y prod)</th>
+<th>Bordino Blanche, Juan Cruz</th>
+<th>3</th>
+<th>Completado</th>
+</tr>
+<tr>
+<th>MOVO-44</th>
+<th>Creación de cuentas de AWS</th>
+<th>Bordino Blanche, Juan Cruz</th>
+<th>1</th>
+<th>Completado</th>
+</tr>
+<tr>
+<th>MOVO-43</th>
+<th>Configuración inicial de repositorios (Docker, CI/CD, API Gateway y pricing-logistics)</th>
+<th>Vergara, Tomás</th>
+<th>3</th>
+<th>Completado</th>
+</tr>
+<tr>
+<th>MOVO-41</th>
+<th>Creación de DER de Usuarios</th>
+<th>Yorlano, Pedro</th>
+<th>3</th>
+<th>Completado</th>
+</tr>
+<tr>
+<th>MOVO-42</th>
+<th>Creación de DER de Admin</th>
+<th>Dalmagro, Lucas</th>
+<th>2</th>
+<th>Completado</th>
+</tr>
+<tr>
+<th>MOVO-46</th>
+<th>Creación de DER de Shipments</th>
+<th>Yorlano, Pedro</th>
+<th>3</th>
+<th>Completado</th>
+</tr>
+<tr>
+<th>MOVO-51</th>
+<th>Creación de DER de Payments</th>
+<th>Dalmagro, Lucas</th>
+<th>3</th>
+<th>Completado</th>
+</tr>
+<tr>
+<th>MOVO-60</th>
+<th>Diagrama de Estado User</th>
+<th>Ariza, Alena</th>
+<th>2</th>
+<th>Completado</th>
+</tr>
+<tr>
+<th>MOVO-61</th>
+<th>Diagrama de Estado Shipments</th>
+<th>Ariza, Alena</th>
+<th>2</th>
+<th>Completado</th>
+</tr>
+<tr>
+<th></th>
+<th><strong>Total</strong></th>
+<th></th>
+<th><strong>22</strong></th>
+<th><strong>9 / 9 (100%)</strong></th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><p>El detalle del alcance de MOVO-54 (networking, cómputo, almacenamiento, secretos, IAM y DNS vía Cloudflare) quedó documentado en ADR-006, ADR-007 y ADR-009. La configuración inicial de repositorios (MOVO-43) incluyó Docker, CI/CD, el API Gateway y el servicio movo-svc-pricing-logistics (PR #2 en movosend/movo).</p><h3>Resultado del Sprint</h3><p>No hubo una Sprint Review formal con el equipo docente durante este sprint. La validación de los entregables técnicos —el plan de Terraform y los esquemas DER— se realizó de forma interna mediante revisión de Pull Requests entre integrantes distintos del autor, siguiendo la práctica habitual del equipo definida en el Working Agreement. Al cierre del sprint, el ambiente de AWS de desarrollo y producción quedó operativo y el pipeline de CI/CD configurado contra los repositorios movosend/movo y movosend/movo-infra.</p><h3>Retrospectiva</h3><h4>Qué salió bien</h4><ul>
+<li>
+El equipo completó el 100% de los ítems comprometidos (7/7, 18 SP), primer dato de referencia para calcular la velocity de los próximos sprints.
+</li>
+<li>
+La infraestructura quedó completamente definida como código (Terraform + provider de Cloudflare), reemplazando el aprovisionamiento manual.
+</li>
+<li>
+El DER de los cuatro dominios principales quedó completo, habilitando el diseño de los esquemas de cada microservicio en el próximo sprint.
+</li>
+</ul><h4>Qué se puede mejorar</h4><ul>
+<li>
+Dos tareas (MOVO-41 y MOVO-44) se registraron directamente como completadas en Linear sin pasar por el estado "In Progress", lo que impide calcular su Cycle Time real y resta precisión a la métrica.
+</li>
+<li>
+No quedó registrada una distinción clara entre la fecha de cierre en Linear y la fecha real de merge a develop, por lo que el Lead Time se aproximó con el mismo dato que el Cycle Time.
+</li>
+<li>
+El issue MOVO-43 quedó con credenciales reales (passwords, secrets y access keys) en texto plano en su descripción, un riesgo de seguridad que debe corregirse.
+</li>
+</ul><h4>Action Items</h4><table>
+<colgroup>
+<col style="width: 49%"/>
+<col style="width: 25%"/>
+<col style="width: 25%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Acción</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>Fecha objetivo</strong></th>
+</tr>
+<tr>
+<th>Actualizar el flujo de trabajo en Linear para que toda tarea pase explícitamente por el estado "In Progress" antes de "Done", de forma de contar con Cycle Time confiable desde Sprint 2.</th>
+<th>Ariza, Alena (SM)</th>
+<th>Próxima Sprint Planning</th>
+</tr>
+<tr>
+<th>Registrar la fecha de merge a develop como dato distinguible del cierre en Linear (o vía integración Linear–GitHub), para poder calcular el Lead Time real.</th>
+<th>Bordino Blanche, Juan Cruz</th>
+<th>Antes del cierre de Sprint 2</th>
+</tr>
+<tr>
+<th>Eliminar las credenciales en texto plano detectadas en la descripción del issue MOVO-43 y migrarlas a un gestor de secretos (AWS Secrets Manager), fuera del historial de Linear/Git.</th>
+<th>Vergara, Tomás (PO)</th>
+<th>Inmediato</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>Estado de los action items de Sprint 0</h4><ul>
+<li>
+Definir si corresponde un Cycle retroactivo para Sprint 0 → Resuelto: se determinó que Sprint 0 no tiene Cycle en Linear; el primer Cycle de desarrollo (Cycle 2) corresponde a Sprint 1, quedando documentada la discontinuidad numérica.
+</li>
+<li>
+Asignar responsables individuales desde la Sprint Planning → Aplicado: los siete ítems técnicos de este sprint tuvieron responsable asignado desde su creación en Linear.
+</li>
+<li>
+Incorporar revisión cruzada de consistencia entre documentos → No aplica a este sprint, dado que no hubo documentos de cátedra en el alcance de Sprint 1.
+</li>
+</ul><h3>Métricas de Flujo</h3><p>Primer registro de las métricas de flujo definidas en el Plan de Proyecto (Sección 3.3), que a partir de este sprint se completan al cierre de cada uno. Al ser el primer sprint de desarrollo, no hay valores previos con los cuales comparar la tendencia.</p><table>
+<colgroup>
+<col style="width: 22%"/>
+<col style="width: 20%"/>
+<col style="width: 57%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Métrica</strong></th>
+<th><strong>Valor Sprint 1</strong></th>
+<th><strong>Observaciones</strong></th>
+</tr>
+<tr>
+<th><strong>Velocity</strong></th>
+<th>18 SP</th>
+<th>Story Points completados sobre 18 SP comprometidos (7/7 ítems).</th>
+</tr>
+<tr>
+<th><strong>Sprint Burndown</strong></th>
+<th>Scope estable</th>
+<th>Los 7 ítems se incorporaron durante la primera semana del ciclo y el 100% se cerró antes de la fecha de fin (27/07).</th>
+</tr>
+<tr>
+<th><strong>Lead Time</strong></th>
+<th>≈ 12,8 h (aprox.)</th>
+<th>Se aproximó con el mismo dato que Cycle Time: no quedó registrada la fecha de merge a develop como evento separado (ver Retrospectiva).</th>
+</tr>
+<tr>
+<th><strong>Cycle Time</strong></th>
+<th>≈ 12,8 h promedio (rango: 40 min – 30,8 h)</th>
+<th>Calculado sobre los 5 ítems que registraron paso explícito por "In Progress" (MOVO-54, 42, 46, 51, 43). MOVO-41 y MOVO-44 se cerraron directamente sin ese estado.</th>
+</tr>
+<tr>
+<th><strong>Sprint Goal Achievement</strong></th>
+<th>100%</th>
+<th>7 de 7 ítems comprometidos alcanzaron Done.</th>
+</tr>
+<tr>
+<th><strong>Defect Rate</strong></th>
+<th>0 bugs</th>
+<th>No se registraron issues de tipo bug con fecha de creación dentro del rango del sprint (13–27/07/2026).</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Product Backlog y Registro de Riesgos</h3><p>El Product Backlog no se repriorizó durante este sprint: el alcance de Sprint 1 fue exclusivamente de infraestructura y modelado de datos, sin desarrollo de historias de usuario del backlog inicial. La primera repriorización con datos de desarrollo real se espera a partir de Sprint 2.</p><p>El registro de riesgos se actualiza respecto del establecido en el Plan de Proyecto (Sección 5.2). No se materializó ningún riesgo crítico durante el sprint; se incorpora un riesgo nuevo (R12) detectado en la revisión de este cierre.</p><table>
+<colgroup>
+<col style="width: 8%"/>
+<col style="width: 32%"/>
+<col style="width: 10%"/>
+<col style="width: 12%"/>
+<col style="width: 13%"/>
+<col style="width: 21%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Riesgo</strong></th>
+<th><strong>Prob.</strong></th>
+<th><strong>Impacto</strong></th>
+<th><strong>Prioridad</strong></th>
+<th><strong>Estado</strong></th>
+</tr>
+<tr>
+<th>R01</th>
+<th>Disponibilidad real del equipo menor a la estimada por compromisos laborales/académicos.</th>
+<th>Alta</th>
+<th>Alto</th>
+<th>Crítico</th>
+<th>Sin cambios</th>
+</tr>
+<tr>
+<th>R02</th>
+<th>Integración con Didit.me con demoras o comportamientos no documentados.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Sin cambios (sin actividad este sprint)</th>
+</tr>
+<tr>
+<th>R03</th>
+<th>OR-Tools VRPTW no converge en tiempos razonables.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Sin cambios (sin actividad este sprint)</th>
+</tr>
+<tr>
+<th>R04</th>
+<th>Subestimación de horas en historias complejas.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Sin cambios; primer dato de velocity disponible para calibrar</th>
+</tr>
+<tr>
+<th>R05</th>
+<th>Solapamiento con parciales/finales reduce la velocidad del equipo.</th>
+<th>Alta</th>
+<th>Medio</th>
+<th>Alto</th>
+<th>Sin cambios</th>
+</tr>
+<tr>
+<th>R06</th>
+<th>Conocimiento crítico concentrado en una sola persona por dominio.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>A vigilar: infraestructura Terraform concentrada en un integrante</th>
+</tr>
+<tr>
+<th>R07</th>
+<th>Scope creep sobre el alcance del MVP.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Sin cambios</th>
+</tr>
+<tr>
+<th>R08</th>
+<th>Falla de demo por dependencia de servicios externos en vivo.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Sin cambios</th>
+</tr>
+<tr>
+<th>R09</th>
+<th>Incompatibilidades de NFC en el handshake criptográfico.</th>
+<th>Media</th>
+<th>Medio</th>
+<th>Medio</th>
+<th>Sin cambios (sin actividad este sprint)</th>
+</tr>
+<tr>
+<th>R10</th>
+<th>Costos de APIs externas superan lo presupuestado al escalar.</th>
+<th>Media</th>
+<th>Medio</th>
+<th>Medio</th>
+<th>Sin cambios</th>
+</tr>
+<tr>
+<th>R11</th>
+<th>Cambios de pricing/disponibilidad de servicios de terceros.</th>
+<th>Baja</th>
+<th>Alto</th>
+<th>Medio</th>
+<th>Sin cambios</th>
+</tr>
+<tr>
+<th>R12</th>
+<th>Exposición de credenciales reales en texto plano dentro de la descripción de issues de Linear.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Nuevo — identificado en MOVO-43; mitigación en Action Items</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table>

@@ -1,0 +1,22 @@
+titulo: Informes de Sprint
+titulo_corto: Informes de Sprint
+subtitulo: Objetivo, backlog, review, métricas, retrospectiva, backlog repriorizado y riesgos de cada sprint, del Sprint 0 al Sprint 8.
+instancia: Instancia 3 · Sprints 1 a N
+version: "1"
+fecha: 02/11/2026
+archivos: [01-resumen.md, 02-sprint-0.html, 03-sprint-1.html, 04-sprint-2.html, 05-sprint-3.html, 06-sprint-4.html, 07-sprint-5.html, 08-sprint-6.html, 09-sprint-7.html, 10-sprint-8.md]
+indice_nivel_3: true
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Compilación de los Informes de los Sprints 0 a 7 (redactados al cierre de cada sprint por el Scrum Master correspondiente) y del estado del Sprint 8 en curso."}
+introduccion: |
+  Los Informes de Sprint registran qué planificó el equipo en cada sprint, qué logró, qué
+  aprendió y cómo va a mejorar. Son el insumo principal para evaluar el *proceso* de desarrollo
+  y no solamente el producto. Este documento reúne los informes de todos los sprints del
+  proyecto en orden cronológico, precedidos de un resumen comparativo.
+
+  Cada informe fue redactado al cierre de su sprint por el Scrum Master de turno (rol rotativo) y,
+  por convención del equipo, no se modifica una vez cerrado; las correcciones van en el informe
+  siguiente.
+audiencia: |
+  El equipo, para mejorar, y los docentes, para evaluar el proceso. Se asume conocimiento del
+  Plan de Proyecto (técnica de estimación y métricas de seguimiento) y del Working Agreement.

@@ -1,0 +1,1288 @@
+<h2>Sprint 7</h2>
+<table class="clave-valor compacta"><tbody>
+<tr><th>Período</th><td>05/10/2026 al 18/10/2026</td></tr>
+<tr><th>Ciclo en Linear</th><td>Cycle 8</td></tr>
+<tr><th>Autor del informe</th><td>Bordino Blanche, Juan Cruz</td></tr>
+<tr><th>Foco del sprint</th><td>Frente de Pagos con Mercado Pago: vinculación, tarjetas guardadas, hold, captura y split, penalidades y acceso al panel de administración.</td></tr>
+</tbody></table>
+<h3>Objetivo del Sprint 7</h3><p>Implementar el frente de Pagos con Mercado Pago, prioridad crítica definida en el Product Backlog repriorizado del Sprint 6: setup del servicio de pagos, vinculación de la cuenta del transportista, reserva de fondos (hold) al asignar un envío, captura y split payment al confirmarse la entrega, webhook de notificaciones y pago con tarjeta desde la app; además, cerrar los issues que pasaron en curso desde el Cycle 7.</p><p>El objetivo se cumplió. El circuito de cobro quedó funcionando de punta a punta en sandbox: el transportista vincula su cuenta de Mercado Pago, el emisor paga con una tarjeta guardada ingresando solo el CVV, los fondos quedan reservados y, al confirmarse la entrega, se capturan y se reparten entre el transportista y Movo. Se cerraron cuatro historias de usuario de pagos o asociadas (MOVO-110 vinculación de Mercado Pago, MOVO-65 tarjetas guardadas, MOVO-28 historial de pagos y MOVO-191 envíos activos desde el inicio), además de MOVO-286 (acceso al panel de administración con segundo factor) y MOVO-259 (rediseño de "Mis viajes"). Quedaron fuera los reintentos del split ante fallos persistentes (MOVO-213) y el spike del plazo real del hold (MOVO-215), ambos en el Cycle 9.</p><h3>Sprint Backlog y capacidad del equipo asumida</h3><p>El Cycle 8 de Linear cerró con 59 issues y 150 SP de scope, todos en Done: 53 issues estimados (144 SP por suma de estimaciones) y seis historias de usuario padre sin estimación propia. No hubo cancelaciones. Por segundo ciclo consecutivo no quedó ningún issue abierto dentro del ciclo.</p><p>El ciclo arrancó el 5/10 con 6 issues (11 SP) y la carga principal se hizo el 7/10, cuando el scope pasó a 30 issues (54 SP), con el frente de pagos completo y responsables asignados. Los dos issues que habían salido del Cycle 7 en In Review se cerraron el 8/10 (MOVO-194 y MOVO-249).</p><table>
+<colgroup>
+<col style="width: 33%"/>
+<col style="width: 11%"/>
+<col style="width: 14%"/>
+<col style="width: 20%"/>
+<col style="width: 21%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Tipo</strong></th>
+<th><strong>Issues</strong></th>
+<th><strong>Story Points</strong></th>
+<th><strong>Done (issues / SP)</strong></th>
+<th><strong>Cancelados (issues / SP)</strong></th>
+</tr>
+<tr>
+<th>Tarea</th>
+<th>37</th>
+<th>103</th>
+<th>37 / 103</th>
+<th>0 / 0</th>
+</tr>
+<tr>
+<th>Bug</th>
+<th>2</th>
+<th>7</th>
+<th>2 / 7</th>
+<th>0 / 0</th>
+</tr>
+<tr>
+<th>Improvement</th>
+<th>2</th>
+<th>8</th>
+<th>2 / 8</th>
+<th>0 / 0</th>
+</tr>
+<tr>
+<th>Spike</th>
+<th>1</th>
+<th>3</th>
+<th>1 / 3</th>
+<th>0 / 0</th>
+</tr>
+<tr>
+<th>Feature</th>
+<th>1</th>
+<th>2</th>
+<th>1 / 2</th>
+<th>0 / 0</th>
+</tr>
+<tr>
+<th>US con estimación (MOVO-26)</th>
+<th>1</th>
+<th>3</th>
+<th>1 / 3</th>
+<th>0 / 0</th>
+</tr>
+<tr>
+<th>Pago sin tipo (MOVO-225)</th>
+<th>1</th>
+<th>1</th>
+<th>1 / 1</th>
+<th>0 / 0</th>
+</tr>
+<tr>
+<th>Sin label</th>
+<th>8</th>
+<th>17</th>
+<th>8 / 17</th>
+<th>0 / 0</th>
+</tr>
+<tr>
+<th>US padre sin estimación</th>
+<th>6</th>
+<th>—</th>
+<th>6 / —</th>
+<th>0 / 0</th>
+</tr>
+<tr>
+<th><strong>Total</strong></th>
+<th><strong>59</strong></th>
+<th><strong>144</strong></th>
+<th><strong>59 / 144</strong></th>
+<th><strong>0 / 0</strong></th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><p>Linear informa 150 SP completados; la suma de estimaciones por issue da 144 SP. La diferencia de 6 SP no se pudo atribuir a ningún issue del listado actual, igual que en el Sprint 6. Del total, 31 issues (89 SP, 62%) llevan el label "Pago".</p><h4>Capacidad del equipo asumida</h4><p>El Plan de Proyecto define la capacidad en horas (5 personas × 5 hs/semana), sin conversión documentada a Story Points. La referencia histórica de velocity suma un sexto punto: 95 SP (Cycle 3), 121 SP (Cycle 4), 106 SP (Cycle 5), 80 SP (Cycle 6), 135 SP (Cycle 7) y 150 SP (Cycle 8), el valor más alto de la serie. A diferencia del ciclo anterior, este no incluye tickets de registro de horas académicas.</p><h4>Detalle completo del Sprint Backlog (Cycle 8)</h4><table>
+<colgroup>
+<col style="width: 10%"/>
+<col style="width: 35%"/>
+<col style="width: 7%"/>
+<col style="width: 12%"/>
+<col style="width: 4%"/>
+<col style="width: 13%"/>
+<col style="width: 15%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Historia / Tarea</strong></th>
+<th><strong>Tipo</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>SP</strong></th>
+<th><strong>Frente</strong></th>
+<th><strong>Estado al cierre</strong></th>
+</tr>
+<tr>
+<th>MOVO-111</th>
+<th>[svc-payments] OAuth Connect: vinculación, estado y desvinculación de la cuenta de MP</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>1</th>
+<th>Vinculación MP</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-112</th>
+<th>[mobile] Pantalla de vinculación de cuenta de Mercado Pago (transportista)</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Vinculación MP</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-116</th>
+<th>[svc-shipments] Bloquear declarar viaje y ofertar sin licencia aprobada + MP vinculado</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>1</th>
+<th>Vinculación MP</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-117</th>
+<th>[mobile] UI de requisitos pendientes para operar como transportista (licencia + MP)</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>Vinculación MP</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-243</th>
+<th>[svc-payments] OAuth Connect: renovación automática de tokens y vinculación revocada</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Vinculación MP</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-267</th>
+<th>[svc-payments] Setup base del servicio: schema, SDK de MP, credenciales por ambiente y ruta en el gateway</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>2</th>
+<th>Vinculación MP</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-100</th>
+<th>[svc-payments] Tarjetas guardadas del emisor en la cuenta de Movo</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>5</th>
+<th>Tarjetas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-101</th>
+<th>[mobile] Pagos y cobros: tarjetas guardadas (alta, listado, predeterminada y baja)</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>5</th>
+<th>Tarjetas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-269</th>
+<th>[mobile] Pago del envío con tarjeta guardada + CVV</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>5</th>
+<th>Tarjetas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-282</th>
+<th>[svc-payments][svc-shipments] Hold con tarjeta guardada: el pagador pasa a ser el customer</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>Tarjetas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-209</th>
+<th>[svc-payments] Hold (Auth &amp; Capture): crear, consultar y liberar la reserva</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Hold y split</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-210</th>
+<th>[svc-shipments] Saga de asignación: pago al aceptar o ventana de confirmación, vencimientos y reversión</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Hold y split</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-211</th>
+<th>[mobile] Estado de la reserva de fondos en el detalle del envío</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Hold y split</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-212</th>
+<th>[svc-payments] Captura del hold y split payment al confirmarse la entrega</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>5</th>
+<th>Hold y split</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-214</th>
+<th>[mobile] Detalle del pago (bruto, comisión, neto) en el envío entregado</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>5</th>
+<th>Hold y split</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-268</th>
+<th>[svc-payments] Webhook de notificaciones de MP: holds cancelados o vencidos y contracargos</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>1</th>
+<th>Hold y split</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-302</th>
+<th>[svc-payments] Historial: guardar el pagador y la tarjeta en el hold</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Historial</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-303</th>
+<th>[svc-payments] Historial: endpoints de listado y detalle por rol</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Historial</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-304</th>
+<th>[mobile] Historial de pagos y cobros: tabs, filtros, detalle y estados de lista</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Historial</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-225</th>
+<th>Confirmar MP_TRANSACTION_FEE_RATE y reflejarlo en los Términos y Condiciones</th>
+<th>—</th>
+<th>A. Ariza</th>
+<th>1</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-305</th>
+<th>[svc-payments] Spike: captura parcial y application_fee variable en sandbox</th>
+<th>Spike</th>
+<th>A. Ariza</th>
+<th>3</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-306</th>
+<th>[svc-payments] Captura parcial del hold por penalidad de cancelación</th>
+<th>Tarea</th>
+<th>A. Ariza</th>
+<th>3</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-307</th>
+<th>[svc-shipments] Cancelación del emisor desde assigned con penalidad (umbral 12 h)</th>
+<th>Tarea</th>
+<th>A. Ariza</th>
+<th>3</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-308</th>
+<th>[mobile] Emisor: cancelar un envío asignado con confirmación de penalidad</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>1</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-309</th>
+<th>[svc-payments] Cuenta corriente del usuario (deudas, pagos y saldo con signo)</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>2</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-310</th>
+<th>[svc-shipments] Cancelación del transportista de un envío asignado (vuelve a published + deuda si &lt; 12 h)</th>
+<th>Tarea</th>
+<th>A. Ariza</th>
+<th>3</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-311</th>
+<th>[svc-payments] Cobrar la deuda en la próxima operación vía application_fee</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>3</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-312</th>
+<th>[svc-payments] Pagar mi saldo: saldar la deuda con tarjeta guardada + CVV</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-313</th>
+<th>[svc-shipments][svc-payments] Bloqueo por deuda vencida en la cuenta corriente</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-314</th>
+<th>[mobile] Transportista: bajarse de un envío asignado y cancelar un viaje con paquetes</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-315</th>
+<th>[mobile] Cuenta corriente: saldo, "Pagar mi saldo" y deuda al cobrar o pagar</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Penalidades</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-287</th>
+<th>[svc-users] Sesión de panel: login con email + OTP y rol admin solo en esa sesión</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Admin</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-288</th>
+<th>[gateway][svc-admin] Base de svc-admin: ruta /admin, Prisma, bitácora y regla de conflicto de interés</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Admin</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-290</th>
+<th>[svc-users] Alta y baja del rol admin: script CLI y endpoints internos</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Admin</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-291</th>
+<th>[movo-admin] Setup del panel: layout, login con OTP, sesión en cookies httpOnly y rutas protegidas</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Admin</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-292</th>
+<th>[movo-admin][svc-admin] Gestión de admins desde el panel: listar, otorgar y revocar el rol</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>2</th>
+<th>Admin</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-262</th>
+<th>[mobile] Mis viajes: tabs Próximos/Historial y pills de estado</th>
+<th>—</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>Viajes</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-263</th>
+<th>[mobile] Detalle de viaje: paquetes aceptados, búsqueda de paquetes y cancelación</th>
+<th>—</th>
+<th>J.C. Bordino B.</th>
+<th>2</th>
+<th>Viajes</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-264</th>
+<th>[Spike] Viajes recurrentes (ADR-042)</th>
+<th>Mejora</th>
+<th>P. Yorlano</th>
+<th>3</th>
+<th>Viajes</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-265</th>
+<th>[svc-shipments] Viajes recurrentes: recurrencia en Trip y generación de la siguiente ocurrencia</th>
+<th>—</th>
+<th>P. Yorlano</th>
+<th>2</th>
+<th>Viajes</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-266</th>
+<th>[mobile] Viajes recurrentes: opción "Se repite" y badge de serie</th>
+<th>—</th>
+<th>P. Yorlano</th>
+<th>2</th>
+<th>Viajes</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-277</th>
+<th>[svc-shipments][mobile] Iniciar viaje: validar fecha de salida y exigir paquetes ejecutables</th>
+<th>Bug</th>
+<th>P. Yorlano</th>
+<th>2</th>
+<th>Viajes</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-278</th>
+<th>[svc-shipments][mobile] Salida para envíos in_transit anómalos: visibilidad y paso automático a disputa</th>
+<th>Bug</th>
+<th>Sin asignar</th>
+<th>5</th>
+<th>Viajes</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-279</th>
+<th>[mobile] Exigir ubicación en segundo plano para operar como transportista</th>
+<th>—</th>
+<th>T. Vergara</th>
+<th>1</th>
+<th>Viajes</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-26</th>
+<th>[svc-shipments] Chat en tiempo real entre las partes de un envío</th>
+<th>US</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>Chat</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-284</th>
+<th>[mobile] Pantalla de chat del envío: mensajes en tiempo real</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>Chat</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-301</th>
+<th>Chat del envío: animación de mensajes, rediseño del detalle y fixes de navegación</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>2</th>
+<th>Chat</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-276</th>
+<th>[svc-pricing-logistics] Rework del motor de precios: peso facturable, medidas, categoría y límites duros</th>
+<th>Mejora</th>
+<th>A. Ariza</th>
+<th>5</th>
+<th>Precios</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-167</th>
+<th>[mobile] Gating del tab Transportar por licencia no verificada y pulido del header</th>
+<th>—</th>
+<th>P. Yorlano</th>
+<th>3</th>
+<th>Envíos y UX</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-194</th>
+<th>[mobile][svc-shipments] Detalle del envío: vista del transportista y del receptor</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Envíos y UX</th>
+<th>Done (arrastre)</th>
+</tr>
+<tr>
+<th>MOVO-249</th>
+<th>[mobile] Onboarding: carrusel explicativo de primer uso</th>
+<th>—</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Envíos y UX</th>
+<th>Done (arrastre)</th>
+</tr>
+<tr>
+<th>MOVO-275</th>
+<th>Transferencia de receptor</th>
+<th>Feature</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Envíos y UX</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-281</th>
+<th>[mobile][svc-shipments] Navegación al tocar las notificaciones push</th>
+<th>—</th>
+<th>P. Yorlano</th>
+<th>2</th>
+<th>Envíos y UX</th>
+<th>Done</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><p>Historias de usuario padre cerradas en el ciclo (sin SP propios): MOVO-28, MOVO-65, MOVO-110, MOVO-191, MOVO-259 y MOVO-286. Las sub-issues de MOVO-226 (penalidades) se cerraron todas, pero la historia sigue In Progress hasta actualizar los Términos y Condiciones (MOVO-316, Cycle 9).</p><h3>Resultado de la Sprint Review</h3><p>La Sprint Review se realiza siempre, con los 5 desarrolladores presentes, como una reflexión interna del equipo sobre qué se logró en el sprint. Los docentes no participan de esa instancia y no dan feedback en ese momento — el feedback de la cátedra llega por otros canales de la materia. No se lleva un registro escrito (acta) de esta reunión; lo que sigue es un resumen de lo demostrable al cierre del sprint, no una transcripción de la reunión.</p><p>Con lo completado, el sprint deja en condiciones de demostrarse (en sandbox de Mercado Pago):</p><ul>
+<li>
+<strong>Vinculación del transportista.</strong> El transportista conecta su cuenta de Mercado Pago por OAuth, con renovación automática de tokens y marcado de vinculación revocada; sin licencia aprobada y cuenta vinculada no puede declarar viajes ni ofertar, y la app le muestra qué requisitos le faltan (MOVO-111, 112, 116, 117, 243). Se cierra MOVO-110.
+</li>
+<li>
+<strong>Tarjetas guardadas y pago con CVV.</strong> El emisor guarda sus tarjetas en la cuenta de Movo y paga a cualquier transportista ingresando solo el código de seguridad, al aceptar la oferta o al confirmar el pago de un retiro lejano (MOVO-100, 101, 269, 282). Se cierra MOVO-65.
+</li>
+<li>
+<strong>Reserva, captura y split.</strong> Al asignar el envío se crea el hold; si el pago no se concreta dentro del plazo o Mercado Pago pierde la reserva, el envío vuelve a published. Al confirmarse la entrega se captura el monto y se reparte entre transportista y Movo; el webhook refleja holds vencidos, cancelados y contracargos (MOVO-209, 210, 211, 212, 214, 268). La prueba contra Mercado Pago real del 13/10 dio un hold de $1150 con comisión de $150 y un neto de $952,85 para el transportista, coincidente con lo que informa Mercado Pago.
+</li>
+<li>
+<strong>Historial de pagos y cobros.</strong> Listado por rol con tabs, filtros y detalle de cada operación (MOVO-302, 303, 304). Se cierra MOVO-28.
+</li>
+<li>
+<strong>Penalidades de cancelación y cuenta corriente.</strong> Cancelar un envío asignado con menos de 12 h de anticipación tiene penalidad, cobrada por captura parcial del hold si cancela el emisor o como deuda si cancela el transportista; la deuda se cobra en la próxima operación, se puede saldar con tarjeta, y una deuda vencida bloquea la operación (MOVO-305 a 315).
+</li>
+<li>
+<strong>Panel de administración.</strong> Login con email, contraseña y OTP, rol admin solo dentro de la sesión del panel, bitácora de acciones, regla de conflicto de interés y gestión de admins desde el panel (MOVO-287, 288, 290, 291, 292). Se cierra MOVO-286.
+</li>
+<li>
+<strong>Operación del transportista.</strong> "Mis viajes" con tabs y detalle de viaje, viajes recurrentes, inicio de viaje solo con fecha válida y paquetes ejecutables, y salida automática a disputa para envíos in_transit demorados (MOVO-262, 263, 264, 265, 266, 277, 278). Se cierra MOVO-259.
+</li>
+<li>
+<strong>Otros.</strong> Chat en tiempo real entre las partes de un envío (MOVO-26, 284, 301), transferencia de receptor (MOVO-275), rework del motor de precios por peso facturable con límites duros de paquete (MOVO-276), detalle del envío para transportista y receptor (MOVO-194, cierra MOVO-191), onboarding (MOVO-249) y navegación desde las notificaciones push (MOVO-281).
+</li>
+</ul><p><strong>Todavía no demostrable de punta a punta:</strong> cualquier cobro con dinero real (no hay prueba en producción ni homologación del modelo Marketplace), los reintentos del split ante fallo persistente (MOVO-213), el pago con tarjeta probado en un dev build contra sandbox con los casos de rechazo (pendiente declarado en MOVO-269), la salida del bloqueo por disputa abierta (requiere la resolución de disputas, MOVO-34) y el seguimiento antes del retiro (MOVO-270, sigue en Backlog).</p><h4>Nota: Términos y Condiciones v0.2: la comisión se calcula sobre el neto</h4><p>Al cerrar MOVO-225 se detectó que la sección 7 de los Términos y Condiciones describía la comisión de Movo como un 15% deducido del precio acordado, mientras que el código la suma sobre lo que pide el transportista (precio del emisor = neto × 1,15, equivalente a un 13,04% del precio que paga el emisor). Se corrigió el texto para que refleje la fórmula real, se aclaró que la comisión de Mercado Pago queda a cargo del transportista y varía según su cuenta, y los Términos pasaron a la versión 0.2 (11/10), lo que obliga a todos los usuarios a volver a aceptarlos (MOVO-229). Las penalidades y la cuenta corriente todavía no están en el texto legal (MOVO-316, en curso).</p><h3>Métricas y análisis de tendencia</h3><table style="width:100%;">
+<colgroup>
+<col style="width: 22%"/>
+<col style="width: 16%"/>
+<col style="width: 16%"/>
+<col style="width: 20%"/>
+<col style="width: 24%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Métrica</strong></th>
+<th><strong>Sprint 4 (Cycle 5)</strong></th>
+<th><strong>Sprint 5 (Cycle 6)</strong></th>
+<th><strong>Sprint 6 (Cycle 7)</strong></th>
+<th><strong>Sprint 7 (Cycle 8)</strong></th>
+</tr>
+<tr>
+<th><strong>Velocity (SP completados)</strong></th>
+<th>106 SP (Linear) / 99 SP por issue</th>
+<th>80 SP (Linear) / 80 SP por issue</th>
+<th>135 SP (Linear) / 128 SP por issue (118 sin registros de horas)</th>
+<th><strong>150 SP (Linear) / 144 SP por issue</strong></th>
+</tr>
+<tr>
+<th><strong>Scope al inicio del sprint</strong></th>
+<th>56 SP</th>
+<th>35 SP (15 issues)</th>
+<th>64 SP (28 issues)</th>
+<th>11 SP (6 issues) el 5/10; 54 SP (30 issues) tras la carga del 7/10</th>
+</tr>
+<tr>
+<th><strong>Scope al cierre del sprint</strong></th>
+<th>106 SP (+89%)</th>
+<th>118 SP (+237%) · 43 issues</th>
+<th>135 SP (+111%) · 48 issues</th>
+<th>150 SP (+178% sobre 54 SP) · 59 issues</th>
+</tr>
+<tr>
+<th><strong>Sprint Goal Achievement</strong></th>
+<th>100% (106/106 SP)</th>
+<th>68% en SP · 74% en issues</th>
+<th>100% (48/48)</th>
+<th><strong>100%</strong> del scope final en SP e issues (59/59); 6 US padre cerradas</th>
+</tr>
+<tr>
+<th><strong>Cycle Time (mediana / promedio)</strong></th>
+<th>≈0.8 / ≈0.9 días</th>
+<th>≈1.0 / ≈1.0 día</th>
+<th>≈0.95 / ≈1.55 días</th>
+<th>≈0.8 / ≈1.4 días (53 issues)</th>
+</tr>
+<tr>
+<th><strong>Defect Rate (label "Bug")</strong></th>
+<th>2</th>
+<th>0 por label; 2 corregidos inline</th>
+<th>3 + 1 batch sin label</th>
+<th>2 (MOVO-277, 278) + 1 corregido inline en MOVO-307</th>
+</tr>
+<tr>
+<th><strong>PRs mergeados en GitHub</strong></th>
+<th>33</th>
+<th>No relevado</th>
+<th>No relevado</th>
+<th>No relevado; citados en Linear: #219, #250, #265</th>
+</tr>
+<tr>
+<th><strong>Suite de tests automatizados</strong></th>
+<th>svc-shipments 501/501</th>
+<th>svc-shipments 756/756</th>
+<th>svc-shipments 1118, cobertura 92%</th>
+<th>Sin número consolidado; tests de sandbox contra Mercado Pago real en verde (captura 13/10, captura parcial 15/10)</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>Análisis</h4><p><strong>Velocity y Sprint Goal Achievement.</strong> El sprint cerró con 150 SP según Linear (144 por suma de estimaciones), la velocity más alta de la serie: +11% respecto del Sprint 6 y +22% si al Sprint 6 se le descuentan los registros de horas. Esta vez no hay tickets de horas académicas que la inflen. El 100% de cumplimiento es real: no quedó ningún issue abierto dentro del ciclo.</p><p><strong>Scope.</strong> El scope creció de 54 SP (tras la carga del 7/10) a 150 SP: 28 de los 53 issues estimados (74 SP) se crearon durante el ciclo. Una parte son derivados directos de trabajo en curso (MOVO-277 y 278 salieron de bugs detectados al implementar la saga; MOVO-282 del ADR de tarjetas guardadas; MOVO-302 a 304 del desglose de MOVO-28). Pero dos frentes nuevos completos entraron a mitad de ciclo: el panel de administración (MOVO-286 y cinco sub-issues, creados el 14/10) y las penalidades y cuenta corriente (once sub-issues de MOVO-226, creados el 15/10). El action item de dejar los tickets nuevos para el ciclo siguiente no se cumplió. Como en el Sprint 6, el crecimiento no terminó en arrastre.</p><p><strong>Cycle Time.</strong> La mediana bajó a 0,8 días y el promedio a 1,4. Los valores altos vienen de los issues heredados del Cycle 7 (MOVO-249 con 15,3 días y MOVO-194 con 9,5) y de MOVO-211 (7,3 días), que esperó a que la captura estuviera lista. El cierre estuvo más repartido que en sprints anteriores: el pico fue el 15/10 (11 issues, 28 SP) y el último día se cerraron 8 issues (22 SP), todos del frente de penalidades, pagos e historial.</p><p><strong>Defect Rate.</strong> Dos issues con label "Bug" (7 SP), dentro del umbral del Plan. MOVO-277 corrigió que un viaje se pudiera iniciar antes de su fecha o con paquetes que todavía esperaban el pago, lo que dejaba al transportista bloqueado; MOVO-278 le dio salida a los envíos in_transit demorados. Además, al cerrar MOVO-307 se corrigió dentro del mismo ticket que el cliente de pagos de svc-shipments enviaba un content-type JSON sin body, lo que hacía responder 500 a svc-payments y rompía la captura de entrega y la liberación del hold contra el servicio real. Ese defecto no quedó registrado como bug.</p><p><strong>Tests.</strong> El ciclo sumó pruebas automatizadas que corren contra Mercado Pago real: captures.sandbox.test.ts (captura, neto y doble captura sin cobrar dos veces) y partial-capture.sandbox.test.ts (captura parcial y application_fee). Ningún comentario de cierre del ciclo informa el tamaño de la suite de svc-payments ni de svc-shipments, así que no hay un número comparable con el Sprint 6.</p><p><strong>Distribución de la carga.</strong> La diferencia entre el máximo y el mínimo se mantuvo en 22 SP, como en el Sprint 6, pero el máximo pasó a representar el 28% del scope (26% en el sprint anterior).</p><table>
+<colgroup>
+<col style="width: 37%"/>
+<col style="width: 18%"/>
+<col style="width: 18%"/>
+<col style="width: 25%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Integrante</strong></th>
+<th><strong>SP completados</strong></th>
+<th><strong>SP cancelados</strong></th>
+<th><strong>SP totales del ciclo</strong></th>
+</tr>
+<tr>
+<th>Ariza, Alena</th>
+<th>18</th>
+<th>0</th>
+<th>18</th>
+</tr>
+<tr>
+<th>Bordino Blanche, Juan Cruz</th>
+<th>34</th>
+<th>0</th>
+<th>34</th>
+</tr>
+<tr>
+<th>Dalmagro, Lucas</th>
+<th>21</th>
+<th>0</th>
+<th>21</th>
+</tr>
+<tr>
+<th>Yorlano, Pedro</th>
+<th>26</th>
+<th>0</th>
+<th>26</th>
+</tr>
+<tr>
+<th>Vergara, Tomás Ignacio</th>
+<th>40</th>
+<th>0</th>
+<th>40 (28% del scope)</th>
+</tr>
+<tr>
+<th>Sin asignar (MOVO-278)</th>
+<th>5</th>
+<th>0</th>
+<th>5</th>
+</tr>
+<tr>
+<th><strong>Total</strong></th>
+<th><strong>144</strong></th>
+<th><strong>0</strong></th>
+<th><strong>144</strong></th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Retrospectiva</h3><h4>Estado de los action items del sprint anterior</h4><table>
+<colgroup>
+<col style="width: 38%"/>
+<col style="width: 18%"/>
+<col style="width: 43%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Acción (Sprint 6)</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>Estado</strong></th>
+</tr>
+<tr>
+<th>Pegar en Drive los ADRs sin sección, resolver la colisión de ADR-029 y usar la tabla del CLAUDE.md raíz como registro único de numeración, reservando el número al abrir el ticket</th>
+<th>Alena Ariza</th>
+<th><strong>REPROGRAMADO</strong> — la actualización de los ADRs en el doc de Sprint 0 y la revisión de su numeración se realizan en el Sprint 8. La colisión de ADR-029 se resolvió: el ADR de viajes recurrentes quedó como ADR-042.</th>
+</tr>
+<tr>
+<th>Registrar en los tickets las verificaciones pendientes: handshake entre dos dispositivos, mapa en Android, deep-links de MOVO-237 y prueba manual post-merge de MOVO-258</th>
+<th>J.C. Bordino Blanche; Pedro Yorlano; Alena Ariza</th>
+<th><strong>NO CUMPLIDO</strong> (límite 14/10) — MOVO-237, 258 y 271 no tienen comentarios nuevos desde su cierre.</th>
+</tr>
+<tr>
+<th>Estimar en el Planning los registros de horas académicas o excluirlos del cálculo de velocity</th>
+<th>Todo el equipo</th>
+<th><strong>CUMPLIDO</strong> — no se cargaron registros de horas en el Cycle 8.</th>
+</tr>
+<tr>
+<th>Dejar los tickets creados a mitad de ciclo en el siguiente, salvo bugs y derivados directos de un ticket en curso</th>
+<th>Todo el equipo</th>
+<th><strong>NO CUMPLIDO</strong> — 28 issues (74 SP) creados durante el ciclo, incluidos dos frentes nuevos (panel de administración y penalidades).</th>
+</tr>
+<tr>
+<th>Aplicar label "Bug" también a los batches de correcciones y documentar en MOVO-49 la resolución del 29/9</th>
+<th>Todo el equipo; Tomás Vergara</th>
+<th><strong>PARCIAL</strong> — los dos bugs del ciclo tienen label; el defecto corregido dentro de MOVO-307 no. MOVO-49 no registra comentarios nuevos desde el 13/8.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>Insights</h4><p><strong>Qué funcionó bien</strong></p><ul>
+<li>
+El frente de Pagos, el más riesgoso del proyecto, se implementó completo en un solo ciclo y repartido entre los cinco integrantes, como se había planificado en el Sprint 6.
+</li>
+<li>
+Las decisiones de diseño se validaron contra Mercado Pago real antes de construir: el spike de captura parcial (MOVO-305) midió cómo se reparte el application_fee y qué límites tiene, y la prueba de tarjetas guardadas (MOVO-100) descartó el cobro sin CVV y cambió el modelo de datos antes de escribir la migración.
+</li>
+<li>
+Coordinación explícita entre tickets que tocaban los mismos archivos: el webhook (MOVO-268) dejó avisos en MOVO-210, 212 y 243 con los puntos de choque, y la captura se integró con el webhook antes de mergear.
+</li>
+<li>
+Los comentarios de cierre siguen documentando decisiones que no salen del diff, desvíos respecto del ticket y pendientes (MOVO-212, 264, 269, 276, 278, 305, 307).
+</li>
+<li>
+El cierre estuvo más repartido a lo largo del ciclo y no quedó trabajo en In Review fuera del ciclo identificable.
+</li>
+</ul><p><strong>Qué no funcionó / puntos a mejorar</strong></p><ul>
+<li>
+Dos frentes completos entraron a mitad de ciclo sin pasar por el Planning.
+</li>
+<li>
+Las verificaciones en dispositivo y en entorno real siguen acumulándose como pendientes declarados (MOVO-237, 258, 269, 271, 278).
+</li>
+</ul><p><strong>Qué aprendimos</strong></p><ul>
+<li>
+Un spike corto contra el proveedor real ahorra rediseños: la restricción del CVV y la comisión entera en la captura parcial no estaban en la documentación de Mercado Pago.
+</li>
+<li>
+El sandbox de un proveedor externo también falla (Mercado Pago respondió 500 a todos los pagos entre el 11 y el 13/10); conviene no dejar las pruebas contra el proveedor para el final del ticket.
+</li>
+<li>
+Un action item sin un ticket en Linear ni un responsable único no se cumple: los incumplidos de este sprint eran tareas transversales sin issue propio.
+</li>
+</ul><h4>Action items</h4><p>Responsables y fechas propuestos a partir de este relevamiento; se confirman en la retro del equipo.</p><table>
+<colgroup>
+<col style="width: 52%"/>
+<col style="width: 30%"/>
+<col style="width: 16%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Acción</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>Fecha límite</strong></th>
+</tr>
+<tr>
+<th>Actualizar los ADRs en el doc de Sprint 0 y revisar su numeración</th>
+<th>Alena Ariza</th>
+<th>01/11/2026 (cierre del Sprint 8)</th>
+</tr>
+<tr>
+<th>Abrir un ticket de verificación en dispositivo y entorno real: pago con tarjeta en dev build contra sandbox (MOVO-269), notificación real del webhook por túnel y registro en el panel de Mercado Pago (MOVO-268/212), deep-links (MOVO-237), mapa en Android y handshake entre dos dispositivos</th>
+<th>Juan Cruz Bordino Blanche (pagos); Tomás Vergara (webhook); Pedro Yorlano (Android); Alena Ariza (MOVO-237)</th>
+<th>28/10/2026</th>
+</tr>
+<tr>
+<th>Planificar en el Planning cualquier frente nuevo (historia padre con sub-issues); a mitad de ciclo solo entran bugs y derivados directos</th>
+<th>Todo el equipo</th>
+<th>Planning del Sprint 8</th>
+</tr>
+<tr>
+<th>Registrar con label "Bug" los defectos corregidos dentro de otro ticket (con un issue propio, aunque se cierre en el mismo PR)</th>
+<th>Todo el equipo</th>
+<th>A partir del Sprint 8</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Product Backlog repriorizado</h3><p>Con el cobro funcionando en sandbox, lo prioritario para el Sprint 8 (Cycle 9, 19/10 al 1/11) es cerrar lo que falta para operar con dinero real y darle salida a los bloqueos que dejó este sprint. El Cycle 9 ya tiene cargados MOVO-213, 215, 316, 317, 293, 240 y 37.</p><table>
+<colgroup>
+<col style="width: 19%"/>
+<col style="width: 37%"/>
+<col style="width: 12%"/>
+<col style="width: 29%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Historia / Tarea</strong></th>
+<th><strong>Prioridad sugerida</strong></th>
+<th><strong>Nota</strong></th>
+</tr>
+<tr>
+<th><strong>MOVO-213, 215</strong></th>
+<th>Reintentos del split y escalado a proceso manual; plazo real del hold y valor de N</th>
+<th>Crítica</th>
+<th>Ya en el Cycle 9; MOVO-215 en curso.</th>
+</tr>
+<tr>
+<th><strong>MOVO-316</strong></th>
+<th>Términos y Condiciones: penalidades y cuenta corriente</th>
+<th>Alta</th>
+<th>Cierra MOVO-226.</th>
+</tr>
+<tr>
+<th><strong>MOVO-34</strong></th>
+<th>Resolución de disputas</th>
+<th>Alta</th>
+<th>Sin ella, el bloqueo por disputa abierta de MOVO-278 no tiene salida.</th>
+</tr>
+<tr>
+<th><strong>MOVO-283 y prueba en producción</strong></th>
+<th>public_key TEST de Movo S.A., prueba con cuenta real y bajo monto, homologación Marketplace (ADR-035)</th>
+<th>Alta</th>
+<th>Condición para dar por aceptado ADR-039 (tarjetas guardadas).</th>
+</tr>
+<tr>
+<th><strong>MOVO-317</strong></th>
+<th>Peso y dimensiones libres en publicar envío y recalibración de precio</th>
+<th>Media</th>
+<th>Revisa los límites duros que agregó MOVO-276 este sprint.</th>
+</tr>
+<tr>
+<th><strong>MOVO-293</strong></th>
+<th>Admin: buscar un usuario y ver su ficha completa</th>
+<th>Media</th>
+<th>Primera US funcional del panel; habilita MOVO-32 a 36.</th>
+</tr>
+<tr>
+<th><strong>MOVO-270</strong></th>
+<th>Tracking antes del retiro y atribución del no-retiro</th>
+<th>Media</th>
+<th>Sigue en Backlog; alimenta la mecánica de penalidades.</th>
+</tr>
+<tr>
+<th><strong>MOVO-240</strong></th>
+<th>Catálogo de notificaciones faltantes</th>
+<th>Media</th>
+<th>—</th>
+</tr>
+<tr>
+<th><strong>MOVO-37</strong></th>
+<th>Pago de la comisión en efectivo</th>
+<th>Baja</th>
+<th>—</th>
+</tr>
+<tr>
+<th><strong>MOVO-233</strong></th>
+<th>Comparación automática de fotos entre creación y retiro</th>
+<th>Baja</th>
+<th>Historia futura.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Registro de riesgos actualizado</h3><table>
+<colgroup>
+<col style="width: 6%"/>
+<col style="width: 30%"/>
+<col style="width: 8%"/>
+<col style="width: 9%"/>
+<col style="width: 9%"/>
+<col style="width: 36%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Riesgo</strong></th>
+<th><strong>Prob.</strong></th>
+<th><strong>Impacto</strong></th>
+<th><strong>Prioridad</strong></th>
+<th><strong>Estado / actualización este sprint</strong></th>
+</tr>
+<tr>
+<th>R01</th>
+<th>Disponibilidad real del equipo menor a la estimada.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Sin señal: velocity de 150 SP, la más alta de la serie.</th>
+</tr>
+<tr>
+<th>R02</th>
+<th>Didit.me presenta demoras o comportamientos no documentados.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Medio</th>
+<th>Sin nueva materialización.</th>
+</tr>
+<tr>
+<th>R03</th>
+<th>OR-Tools VRPTW no converge en tiempos razonables.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Medio</th>
+<th>Sin medición de latencia con datos reales.</th>
+</tr>
+<tr>
+<th>R04</th>
+<th>Subestimación de horas/SP en historias complejas.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Scope +178% sobre la carga del 7/10, sin arrastre dentro del ciclo.</th>
+</tr>
+<tr>
+<th>R05</th>
+<th>Solapamiento con parciales/finales reduce la velocidad del equipo.</th>
+<th>Alta</th>
+<th>Medio</th>
+<th>Alto</th>
+<th>Sin impacto visible en el ciclo.</th>
+</tr>
+<tr>
+<th>R06</th>
+<th>Conocimiento crítico concentrado en una sola persona por dominio.</th>
+<th>Media</th>
+<th>Medio</th>
+<th>Medio</th>
+<th>Pagos quedó repartido entre los cinco; Tomás Vergara concentró el 28% del scope.</th>
+</tr>
+<tr>
+<th>R07</th>
+<th>Los ADRs se documentan en dos fuentes sin un paso de sincronización obligatorio.</th>
+<th>Alta</th>
+<th>Medio</th>
+<th>Alto</th>
+<th>Los ADRs de este ciclo están en el repositorio; la actualización en Drive está planificada para el Sprint 8.</th>
+</tr>
+<tr>
+<th>R08</th>
+<th>Defect Rate no captura bugs reales corregidos inline.</th>
+<th>Media</th>
+<th>Bajo</th>
+<th>Bajo</th>
+<th>Reaparece: defecto del cliente de pagos corregido dentro de MOVO-307 sin issue propio.</th>
+</tr>
+<tr>
+<th>R09</th>
+<th>El split payment de Mercado Pago está bloqueado sin plan B confirmado.</th>
+<th>Baja</th>
+<th>Alto</th>
+<th>Bajo</th>
+<th>Cerrado en sandbox: captura y split probados contra Mercado Pago real (MOVO-212). Lo pendiente pasa a R17.</th>
+</tr>
+<tr>
+<th>R10</th>
+<th>Las historias padre no se cierran cuando todas sus hijas están Done.</th>
+<th>Baja</th>
+<th>Bajo</th>
+<th>Bajo</th>
+<th>6 historias padre cerradas; MOVO-226 abierta con justificación (falta MOVO-316).</th>
+</tr>
+<tr>
+<th>R11</th>
+<th>Cierre concentrado y acumulación de issues en In Review al final del sprint.</th>
+<th>Media</th>
+<th>Medio</th>
+<th>Medio</th>
+<th>Mejoró: cierre repartido (pico el 15/10) y 8 issues el último día. Baja de Alto a Medio.</th>
+</tr>
+<tr>
+<th>R12</th>
+<th>Canal en tiempo real y custodia validados solo en entorno local.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Medio</th>
+<th>Sin cambios: no hay registros nuevos de verificación en dispositivo ni en EC2.</th>
+</tr>
+<tr>
+<th>R13</th>
+<th>Divergencia de contratos mobile/backend por trabajar contra mocks.</th>
+<th>Baja</th>
+<th>Medio</th>
+<th>Bajo</th>
+<th>Sin divergencias reportadas.</th>
+</tr>
+<tr>
+<th>R15</th>
+<th>Concentración de un frente nuevo y grande (Pagos) en un único sprint.</th>
+<th>Baja</th>
+<th>Alto</th>
+<th>Bajo</th>
+<th>No se materializó: 31 issues de pagos (89 SP) cerrados en el ciclo.</th>
+</tr>
+<tr>
+<th>R16</th>
+<th><strong>Nuevo.</strong> Indisponibilidad del sandbox de Mercado Pago.</th>
+<th>Media</th>
+<th>Medio</th>
+<th>Medio</th>
+<th>Entre el 11 y el 13/10 respondió 500 a todos los pagos. Mitigación: probar contra el proveedor al principio del ticket.</th>
+</tr>
+<tr>
+<th>R17</th>
+<th><strong>Nuevo.</strong> El cobro solo está validado en sandbox.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Falta la prueba en producción con cuenta real, la public_key de Movo (MOVO-283) y la homologación Marketplace (ADR-035).</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Artefactos de trazabilidad</h3><h4>Diagramas de modelado relevantes</h4><p>Los diagramas de modelado del proyecto viven en Miro, según la convención definida en el documento de Sprint 0. No se pudo verificar el contenido de Miro para este informe. Cambios del ciclo que afectan diagramas existentes:</p><ul>
+<li>
+<strong>Diagrama de estados del envío (DTE):</strong> la saga de asignación (MOVO-210) incorpora assignment_pending (pagar al aceptar), assigned_unfunded (ventana de confirmación) y la vuelta de assigned a assigned_unfunded cuando Mercado Pago pierde el hold; si la asignación no prospera, el envío vuelve a published. Según el comentario de MOVO-210 el detalle está en docs/shipments/state-diagram.md. MOVO-278 agrega el paso automático de in_transit demorado a disputa.
+</li>
+<li>
+<strong>Estados de la oferta:</strong> cuando la asignación se cae, la oferta aceptada pasa a rejected aunque no sea un rechazo del emisor; queda abierta la decisión de un estado propio (comentario de MOVO-210 en MOVO-269).
+</li>
+<li>
+<strong>Estados del viaje:</strong> un viaje solo se inicia el día de salida o después y con al menos un paquete ejecutable (assigned o in_transit), con una única fuente de verdad en shipment-state-machine.ts (MOVO-277). MOVO-265 agrega la generación de la siguiente ocurrencia de un viaje recurrente.
+</li>
+<li>
+<strong>Flujo de pagos:</strong> hold al asignar, captura y split al confirmar la entrega, webhook de Mercado Pago y captura parcial por penalidad. El detalle está en docs/payments/flujo-de-pagos.md del repositorio.
+</li>
+</ul><h4>ADR correspondiente</h4><p>Los ADRs completos viven en el doc de Sprint 0 (Drive) y el CLAUDE.md del repositorio mantiene el resumen de una línea de cada uno. Los ADRs de este ciclo están en el repositorio; su actualización en el doc de Sprint 0 está planificada para el Sprint 8.</p><table style="width:100%;">
+<colgroup>
+<col style="width: 25%"/>
+<col style="width: 54%"/>
+<col style="width: 19%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Situación</strong></th>
+<th><strong>Detalle</strong></th>
+<th><strong>Acción</strong></th>
+</tr>
+<tr>
+<th>ADR-036 (MOVO-116, 117)</th>
+<th>Requisitos para operar como transportista: licencia aprobada y Mercado Pago vinculado; MOVO-278 le agregó una nota con el requisito de no tener disputas abiertas.</th>
+<th>Actualizar en el Sprint 8.</th>
+</tr>
+<tr>
+<th>ADR-039 (MOVO-100)</th>
+<th>Tarjetas guardadas en la cuenta de Movo con pago por CVV; el payer del hold es el customer de la tarjeta. Estado propuesto.</th>
+<th>Actualizar en el Sprint 8.</th>
+</tr>
+<tr>
+<th>ADR de pricing (MOVO-276)</th>
+<th>Pricing por peso facturable, medidas y categoría, con límites duros de paquete; reemplaza la parte de cálculo de ADR-025.</th>
+<th>Actualizar en el Sprint 8.</th>
+</tr>
+<tr>
+<th>ADR-041 (MOVO-286)</th>
+<th>Panel de administración: mismo usuario con rol admin, OTP, rol solo en la sesión del panel, bitácora y conflicto de interés.</th>
+<th>Actualizar en el Sprint 8.</th>
+</tr>
+<tr>
+<th>ADR-042 (MOVO-264)</th>
+<th>Viajes recurrentes como atributo del Trip con generación del siguiente viaje. Resuelve la colisión de ADR-029 del sprint anterior.</th>
+<th>Actualizar en el Sprint 8.</th>
+</tr>
+<tr>
+<th>ADR-043 (MOVO-305)</th>
+<th>Limitación de Mercado Pago: en la captura parcial el application_fee se cobra entero.</th>
+<th>Actualizar en el Sprint 8.</th>
+</tr>
+<tr>
+<th>ADR-045 (MOVO-278)</th>
+<th>Salida para envíos in_transit demorados: aviso único, paso automático a disputa y bloqueo del transportista con disputa abierta.</th>
+<th>Actualizar en el Sprint 8.</th>
+</tr>
+<tr>
+<th>ADR-047 (MOVO-307)</th>
+<th>Penalidad de cancelación con umbral de 12 h y plan B cuando la penalidad no cubre comisión más fee de Mercado Pago. Estado propuesto.</th>
+<th>Actualizar en el Sprint 8.</th>
+</tr>
+<tr>
+<th>Pendientes de sprints anteriores</th>
+<th>ADR-014, 015, 016, 019, 020, 021, 029, 030 y 032.</th>
+<th>Actualizar en el Sprint 8.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>DER actualizado</h4><p>Cambios al modelo de datos reportados en los tickets de este sprint:</p><ul>
+<li>
+<strong>Schema payments (MOVO-267):</strong> nuevo schema de svc-payments con Prisma, con holds (MOVO-209) que guardan el pagador y la tarjeta usada: payer_id, card_last4 y card_brand (MOVO-302).
+</li>
+<li>
+<strong>Liquidaciones (MOVO-212):</strong> tabla settlements enlazada a holds por FK; el estado captured del hold se actualiza con un UPDATE condicional sobre authorized.
+</li>
+<li>
+<strong>Webhook (MOVO-268):</strong> tablas mp_webhook_notifications y payment_provider_events (contracargos, reembolsos y mediaciones, únicas por pago y estado de Mercado Pago), relacionadas con las liquidaciones por mp_payment_id, sin FK.
+</li>
+<li>
+<strong>Tarjetas guardadas (MOVO-100, ADR-039):</strong> se persisten customer_id y card_id de Mercado Pago más marca, últimos 4 dígitos y vencimiento, no el card_token (que es de un solo uso).
+</li>
+<li>
+<strong>Cuenta corriente (MOVO-309):</strong> deudas, pagos y saldo con signo por usuario.
+</li>
+<li>
+<strong>Envíos y viajes:</strong> columna transit_anomaly_warned_at en el envío (MOVO-278) y atributo de recurrencia en Trip (MOVO-265).
+</li>
+<li>
+<strong>svc-admin (MOVO-288):</strong> schema propio con la bitácora de acciones de los administradores.
+</li>
+</ul><p><strong>Pendiente de verificación:</strong> no se pudo confirmar el diagrama en Miro ni el detalle de cada migración. La fuente actualizada sigue siendo docs/movo_der.dbml en el repositorio; el archivo Movo_DER_1.0.md del proyecto no refleja los cambios de los últimos sprints.</p><h4>Casos de prueba y resultados de ejecución</h4><p>Selección representativa de casos reportados en los comentarios y descripciones de este sprint. Donde el resultado dice "no reportado", la fuente define el criterio pero no informa la ejecución.</p><table>
+<colgroup>
+<col style="width: 10%"/>
+<col style="width: 17%"/>
+<col style="width: 16%"/>
+<col style="width: 16%"/>
+<col style="width: 19%"/>
+<col style="width: 20%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>US / Tarea</strong></th>
+<th><strong>Caso de prueba</strong></th>
+<th><strong>Precondición</strong></th>
+<th><strong>Pasos</strong></th>
+<th><strong>Resultado esperado</strong></th>
+<th><strong>Resultado de ejecución</strong></th>
+</tr>
+<tr>
+<th>MOVO-212</th>
+<th>Captura y split al confirmar la entrega</th>
+<th>Hold de $1150 con application_fee de $150.</th>
+<th>Capturar el hold.</th>
+<th>Movo recibe $150 y el transportista el neto descontada la comisión de Mercado Pago.</th>
+<th>OK contra Mercado Pago real (13/10): neto de $952,85, igual a la consulta directa a Mercado Pago.</th>
+</tr>
+<tr>
+<th>MOVO-212</th>
+<th>Doble captura</th>
+<th>Hold ya capturado.</th>
+<th>Capturar de nuevo.</th>
+<th>No se cobra dos veces.</th>
+<th>OK: devuelve el mismo resultado sin nuevo cobro.</th>
+</tr>
+<tr>
+<th>MOVO-305</th>
+<th>Captura parcial por penalidad</th>
+<th>Hold de $1150 con fee de $150.</th>
+<th>Capturar $287,50.</th>
+<th>Se aprueba y Mercado Pago libera el resto.</th>
+<th>OK; el fee se cobra entero (Movo $150), limitación aceptada.</th>
+</tr>
+<tr>
+<th>MOVO-305</th>
+<th>Captura menor que el fee</th>
+<th>Hold con fee de $150.</th>
+<th>Capturar un monto menor a $150.</th>
+<th>Rechazo sin perder la reserva.</th>
+<th>OK: 400 4201 y el hold sigue authorized.</th>
+</tr>
+<tr>
+<th>MOVO-100</th>
+<th>Pago con tarjeta guardada sin CVV</th>
+<th>Tarjeta guardada en un customer.</th>
+<th>Tokenizar solo con card_id y crear el hold.</th>
+<th>Rechazo.</th>
+<th>OK: Visa 500 y Mastercard 400 3031; se confirma que el CVV es obligatorio.</th>
+</tr>
+<tr>
+<th>MOVO-100</th>
+<th>Tarjeta guardada en la cuenta de Movo</th>
+<th>Token TEST de Movo S.A.</th>
+<th>Guardar la tarjeta, re-tokenizar con CVV y crear el hold con un Vendedor.</th>
+<th>Hold authorized.</th>
+<th>OK (13/10). Falta probar con un segundo Vendedor y en producción.</th>
+</tr>
+<tr>
+<th>MOVO-277</th>
+<th>Iniciar viaje antes de la fecha de salida</th>
+<th>Viaje declared con salida mañana.</th>
+<th>POST /trips/:id/start.</th>
+<th>409 TRIP_START_TOO_EARLY y el viaje sigue declared.</th>
+<th>No reportado.</th>
+</tr>
+<tr>
+<th>MOVO-277</th>
+<th>Iniciar viaje sin paquetes ejecutables</th>
+<th>Único paquete en assignment_pending.</th>
+<th>POST /trips/:id/start.</th>
+<th>409 TRIP_PACKAGES_NOT_READY.</th>
+<th>No reportado.</th>
+</tr>
+<tr>
+<th>MOVO-269</th>
+<th>Rechazos de tarjeta en la app</th>
+<th>Dev build contra sandbox.</th>
+<th>Pagar con titular SECU, FUND y OTHE.</th>
+<th>Mensaje diferenciado por motivo.</th>
+<th>Pendiente declarado en el ticket.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>Fuentes y alcance del relevamiento</h4><ul>
+<li>
+<strong>Linear:</strong> los 59 issues del Cycle 8, sus fechas de creación, inicio y cierre, la serie diaria del ciclo y los comentarios de cierre de los tickets citados; además, el estado actual del Cycle 9 y de MOVO-49, 226, 237, 258, 270 y 271 para verificar los action items.
+</li>
+<li>
+<strong>Google Drive:</strong> el Informe de Sprint 6 para los action items y la serie histórica, y la fecha de última modificación del doc de Sprint 0 (27/9) para el estado de los ADRs.
+</li>
+<li>
+<strong>No consultado:</strong> el repositorio de GitHub (PRs mergeados, corridas de CI, archivos de ADRs y diagramas) y Miro. Las cifras de pruebas provienen de los comentarios de Linear.
+</li>
+</ul>

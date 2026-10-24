@@ -1,0 +1,868 @@
+<h2>Sprint 3</h2>
+<table class="clave-valor compacta"><tbody>
+<tr><th>Período</th><td>10/08/2026 al 23/08/2026</td></tr>
+<tr><th>Ciclo en Linear</th><td>Cycle 4</td></tr>
+<tr><th>Autor del informe</th><td>Dalmagro, Lucas</td></tr>
+<tr><th>Foco del sprint</th><td>Creación de envíos con el wizard móvil, aceptación del receptor, notificaciones push, cancelación e historial.</td></tr>
+</tbody></table>
+<h3>Objetivo del Sprint</h3><p>El equipo cerró de punta a punta el módulo de Ejecución del Envío (EP-04): un emisor puede crear un envío con el wizard móvil (fotos + precio sugerido), un receptor puede aceptar o rechazar ese envío viendo el perfil y la reputación de quien lo envía, ambas partes reciben notificaciones push en los eventos clave, el envío puede cancelarse o expira automáticamente si no se confirma a tiempo, y el emisor puede consultar el historial completo con línea de tiempo. En paralelo se resolvieron dos spikes de riesgo técnico alto (OR-Tools VRPTW y MercadoPago Auth &amp; Capture + Split) y se avanzó un refinamiento de EP-01 (perfil, direcciones, cuenta y seguridad).</p><h3>Sprint Backlog y capacidad del equipo asumida</h3><p>El Cycle 4 de Linear cerró con 41 issues en estado Done (historias de usuario, tareas técnicas, tres spikes, dos bugs con label y tres tareas sin label de infraestructura/CI).</p><table>
+<colgroup>
+<col style="width: 33%"/>
+<col style="width: 33%"/>
+<col style="width: 33%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Tipo</strong></th>
+<th><strong>Cantidad</strong></th>
+<th><strong>Story Points</strong></th>
+</tr>
+<tr>
+<th>US</th>
+<th>18 (13 con SP + 5 historias padre sin SP propio)</th>
+<th>45</th>
+</tr>
+<tr>
+<th>Tarea</th>
+<th>15</th>
+<th>44</th>
+</tr>
+<tr>
+<th>Spike</th>
+<th>3</th>
+<th>18</th>
+</tr>
+<tr>
+<th>Bug</th>
+<th>2</th>
+<th>4</th>
+</tr>
+<tr>
+<th>Sin label (infra/CI)</th>
+<th>3</th>
+<th>5</th>
+</tr>
+<tr>
+<th><strong>Total</strong></th>
+<th><strong>41</strong></th>
+<th><strong>116 SP por suma de issue</strong></th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><p>Linear reporta el scope del ciclo con una serie diaria: arrancó en 24 SP el primer día y cerró en 126 SP de scope total, con 121 SP completados (el desfasaje de ~5 SP contra la suma por issue de arriba es de redondeo/issues sin estimar que igual suman al scope de Linear).</p><h4>Capacidad del equipo asumida</h4><p>El Plan de Proyecto define la capacidad en horas (5 personas × 5 hs/semana), sin conversión documentada a Story Points. La única referencia histórica de velocity son los 95 SP de Cycle 3. Cycle 4 arrancó con 24 SP planificados y cerró con 126 SP de scope — más del doble del crecimiento relativo de Cycle 3.</p><h4>Detalle completo del Sprint Backlog (Cycle 4)</h4><table>
+<colgroup>
+<col style="width: 9%"/>
+<col style="width: 39%"/>
+<col style="width: 9%"/>
+<col style="width: 18%"/>
+<col style="width: 5%"/>
+<col style="width: 15%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Historia / Tarea</strong></th>
+<th><strong>Tipo</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>SP</strong></th>
+<th><strong>Frente</strong></th>
+</tr>
+<tr>
+<th>MOVO-14</th>
+<th>Como usuario registrado, quiero ver mi perfil (US padre)</th>
+<th>US</th>
+<th>—</th>
+<th>—</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-78</th>
+<th>[mobile] Pantalla de perfil propio: estado KYC, insignias, logout</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>5</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-97</th>
+<th>[svc-users] Foto de perfil: subida a S3 con presigned URLs</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>5</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-98</th>
+<th>[mobile] Foto de perfil en onboarding y edición</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-119</th>
+<th>[svc-users] CRUD de direcciones guardadas (/addresses)</th>
+<th>US</th>
+<th>J.C. Bordino B.</th>
+<th>2</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-121</th>
+<th>[mobile] Pantalla de gestión de direcciones guardadas</th>
+<th>US</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-133</th>
+<th>[svc-users] PATCH /users/me y cambio verificado de tel/email</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>2</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-134</th>
+<th>[svc-users] Cambio de contraseña y baja de cuenta</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-136</th>
+<th>[mobile] Pantalla “Cuenta y seguridad”</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-139</th>
+<th>[svc-users] EmailProvider (Resend) y verificación OTP</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-15</th>
+<th>Como transportista, quiero verificar mi licencia de conducir</th>
+<th>US</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>EP-01</th>
+</tr>
+<tr>
+<th>MOVO-8</th>
+<th>Como emisor, quiero crear un envío (US padre)</th>
+<th>US</th>
+<th>—</th>
+<th>—</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-79</th>
+<th>[svc-shipments] Schema y máquina de estados del envío</th>
+<th>US</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-104</th>
+<th>[svc-shipments] Schema y migraciones de las tablas del envío</th>
+<th>Tarea</th>
+<th>A. Ariza</th>
+<th>2</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-105</th>
+<th>[svc-shipments] Máquina de estados del ciclo de vida del envío</th>
+<th>Tarea</th>
+<th>A. Ariza</th>
+<th>2</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-118</th>
+<th>Fix: race condition (TOCTOU) en shipment-repository</th>
+<th>—</th>
+<th>J.C. Bordino B.</th>
+<th>1</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-80</th>
+<th>[svc-shipments] Creación de envío, búsqueda de receptor y detalle</th>
+<th>US</th>
+<th>J.C. Bordino B.</th>
+<th>5</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-81</th>
+<th>[svc-shipments] Carga de fotos del paquete (S3 + evidencia)</th>
+<th>US</th>
+<th>L. Dalmagro</th>
+<th>5</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-82</th>
+<th>[svc-pricing-logistics] Contrato de precio sugerido + fallback</th>
+<th>US</th>
+<th>A. Ariza</th>
+<th>5</th>
+<th>Pricing</th>
+</tr>
+<tr>
+<th>MOVO-120</th>
+<th>[svc-users] Proxy de Google Places Autocomplete</th>
+<th>US</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-123</th>
+<th>[svc-shipments] Endpoint de ruta (polyline) para el mapa</th>
+<th>US</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-125</th>
+<th>Bug: reverse geocoding en ubicación GPS del wizard</th>
+<th>Bug</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-126</th>
+<th>Bug: rechazar envíos con retiro/entrega misma ubicación</th>
+<th>Bug</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-83</th>
+<th>[mobile] Wizard de creación de envío (fotos + precio)</th>
+<th>US</th>
+<th>T. Vergara</th>
+<th>5</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-102</th>
+<th>[svc-shipments] Schema y máquina de estados de la oferta</th>
+<th>US</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-16</th>
+<th>Como receptor, quiero aceptar o rechazar un envío (US padre)</th>
+<th>US</th>
+<th>—</th>
+<th>—</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-129</th>
+<th>[svc-shipments] Endpoints de aceptación y rechazo del envío</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>3</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-130</th>
+<th>[svc-shipments] Expiración automática del envío no confirmado</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>3</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-131</th>
+<th>[mobile] Vista de receptor: perfil del emisor y acciones</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>3</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-29</th>
+<th>Cancelar un envío publicado antes de asignación</th>
+<th>US</th>
+<th>A. Ariza</th>
+<th>3</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-24</th>
+<th>Notificaciones push en eventos del envío (US padre)</th>
+<th>US</th>
+<th>—</th>
+<th>—</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-106</th>
+<th>[svc-users] Registro de push token y adapter provider</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-107</th>
+<th>[mobile] Permisos, push token y manejo de notificaciones</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-108</th>
+<th>[svc-shipments] Disparo de push en creación y ofertas</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-27</th>
+<th>Historial de envíos con línea de tiempo (US padre)</th>
+<th>US</th>
+<th>—</th>
+<th>—</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-127</th>
+<th>[mobile] Pantalla de detalle de un envío específico</th>
+<th>US</th>
+<th>T. Vergara</th>
+<th>5</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-128</th>
+<th>[svc-shipments] GET /shipments/:id/events — historial</th>
+<th>US</th>
+<th>P. Yorlano</th>
+<th>2</th>
+<th>EP-04</th>
+</tr>
+<tr>
+<th>MOVO-124</th>
+<th>[infra] Lifecycle rule S3 para objetos huérfanos</th>
+<th>—</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Infra</th>
+</tr>
+<tr>
+<th>MOVO-122</th>
+<th>CI: aumentar command_timeout de migraciones Prisma</th>
+<th>—</th>
+<th>J.C. Bordino B.</th>
+<th>1</th>
+<th>Infra</th>
+</tr>
+<tr>
+<th>MOVO-50</th>
+<th>[Spike] OR-Tools VRPTW</th>
+<th>Spike</th>
+<th>P. Yorlano</th>
+<th>8</th>
+<th>Pricing</th>
+</tr>
+<tr>
+<th>MOVO-49</th>
+<th>[Spike] MercadoPago (Auth &amp; Capture + Split)</th>
+<th>Spike</th>
+<th>T. Vergara</th>
+<th>5</th>
+<th>Pagos</th>
+</tr>
+<tr>
+<th>MOVO-99</th>
+<th>[Spike] Automatización de pruebas UAT en simuladores</th>
+<th>Spike</th>
+<th>J.C. Bordino B.</th>
+<th>5</th>
+<th>Testing</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Resultado de la Sprint Review</h3><p>Con lo completado, el sprint deja en condiciones de demostrarse el flujo de un envío de punta a punta:</p><ul>
+<li>
+Un emisor crea un envío desde el wizard móvil: carga fotos del paquete, obtiene un precio sugerido (implementación lineal provisoria con fallback) y define receptor y ruta.
+</li>
+<li>
+El receptor recibe la notificación, ve el perfil y la reputación de quien envía, y puede aceptar o rechazar el envío desde la app.
+</li>
+<li>
+Si el receptor no confirma a tiempo, el envío expira automáticamente y se cancela.
+</li>
+<li>
+El emisor puede cancelar un envío publicado antes de que se asigne un transportista (con alcance acotado, ver nota de MercadoPago abajo).
+</li>
+<li>
+El emisor consulta el historial completo de sus envíos con línea de tiempo de estados.
+</li>
+<li>
+Un transportista puede verificar su licencia de conducir para obtener la insignia de verificado.
+</li>
+<li>
+Se validó en sandbox real el mecanismo de Hold/Capture y OAuth Connect de MercadoPago — con una limitación de negocio importante, detallada en la sección siguiente.
+</li>
+</ul><h4>Hallazgo de negocio: MercadoPago (Auth &amp; Capture + Split Payment)</h4><p>El spike MOVO-49 investigó en el sandbox real de MercadoPago los cuatro mecanismos que el modelo de negocio de Movo necesita: retener el dinero del emisor sin cobrarlo (hold), conectar la cuenta del transportista para poder pagarle (OAuth), repartir automáticamente ese pago entre el transportista y la comisión de Movo (split payment) y liberar el hold si el envío se cancela.</p><p><strong>Lo que sí quedó validado y funcionando:</strong></p><ul>
+<li>
+Reservar el monto en la tarjeta del emisor sin cobrarlo todavía (hold), y cobrarlo después.
+</li>
+<li>
+Conectar la cuenta de MercadoPago de un transportista a Movo vía OAuth, para poder operar pagos en su nombre.
+</li>
+<li>
+Cancelar un hold y liberar el monto reservado, sin cobrar nada.
+</li>
+</ul><p><strong>Lo que quedó bloqueado, y es el punto más importante para la cátedra y para el equipo:</strong></p><p>El split payment — el mecanismo que le permite a Movo cobrar su comisión automáticamente, repartiendo el pago del emisor entre el transportista y Movo en la misma transacción — no se pudo hacer funcionar combinado con el hold. MercadoPago rechaza esa combinación específica con un error genérico (“usuarios inválidos”), y el equipo probó nueve variantes distintas — otra cuenta, otra app, otro desarrollador, el SDK oficial en vez de armar el pedido a mano — descartando en cada caso que fuera un problema propio de la cuenta o del código de Movo. La conclusión es que es un problema de la plataforma de MercadoPago, no de la implementación.</p><p>El equipo abrió un ticket de soporte técnico a MercadoPago el 13 de agosto. Al cierre de este sprint (24 de agosto, 11 días después) no hay registro de una respuesta ni de un seguimiento posterior en Linear.</p><h3>Métricas y análisis de tendencia</h3><table>
+<colgroup>
+<col style="width: 28%"/>
+<col style="width: 35%"/>
+<col style="width: 35%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Métrica</strong></th>
+<th><strong>Sprint 2 (Cycle 3)</strong></th>
+<th><strong>Sprint 3 (Cycle 4)</strong></th>
+</tr>
+<tr>
+<th>Velocity (SP completados)</th>
+<th>95 SP (Linear) / 94 SP por issue</th>
+<th>121 SP (Linear) / 116 SP por issue</th>
+</tr>
+<tr>
+<th>Scope al inicio del sprint</th>
+<th>50 SP</th>
+<th>24 SP</th>
+</tr>
+<tr>
+<th>Scope al cierre del sprint</th>
+<th>95 SP (+90% vs. inicio)</th>
+<th>126 SP (+425% vs. inicio)</th>
+</tr>
+<tr>
+<th>Sprint Goal Achievement</th>
+<th>100% del scope final (95/95)</th>
+<th>~96% del scope final (121/126 SP) · 41/43 issues</th>
+</tr>
+<tr>
+<th>Cycle Time (mediana / promedio)</th>
+<th>1.2 días / 3.0 días</th>
+<th>≈0.7 días / ≈1.4 días (2 outliers, ver nota)</th>
+</tr>
+<tr>
+<th>Defect Rate (issues con label “Bug”)</th>
+<th>0 (métrica no capturaba bugs reales)</th>
+<th>2 (MOVO-125, MOVO-126)</th>
+</tr>
+<tr>
+<th>Suite de tests automatizados</th>
+<th>249 casos en 37 archivos</th>
+<th>Sin corrida centralizada consultada — ver 2.4</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>Análisis</h4><p>El scope creep empeoró en vez de corregirse. Sprint 2 cerró con +90% de crecimiento de scope durante el ciclo y el equipo se propuso registrar el motivo de cada historia sumada a mitad de sprint. Este sprint el crecimiento fue de +425% (24 → 126 SP) y, otra vez, sin ese registro. Haber completado el 96% del scope final es una buena señal de ejecución, pero no compensa que la comparación contra “lo planificado en la Planning” sigue sin ser confiable.</p><p>El Defect Rate por fin refleja algo real. La adopción de la label “Bug” (action item de la retro anterior) se cumplió: MOVO-125 y MOVO-126 quedaron etiquetados como bugs reales encontrados durante el desarrollo del wizard de envío (geocoding inverso y validación de misma ubicación de retiro/entrega). Es una mejora real de la métrica, aunque 2 sobre 41 issues sigue siendo una muestra chica para sacar conclusiones de tendencia.</p><p>El Cycle Time se mantiene bajo, con dos outliers que valen la pena mirar. La mayoría de los issues se resolvieron en menos de un día y medio. Los dos outliers son MOVO-49 (11.3 días) y MOVO-29 (8.2 días) — ambos, no por casualidad, relacionados con el bloqueo de MercadoPago: el primero por la espera de soporte externo, el segundo porque tuvo que rediseñarse con alcance acotado al descubrir en el camino que svc-payments todavía no soporta holds reales. El Cycle Time bajó del resto del sprint no debería leerse como que no hay riesgo pendiente — el riesgo está concentrado en estos dos tickets.</p><p>La suite de tests no se pudo verificar de forma centralizada para este informe. A diferencia de Sprint 2, no hay un número consolidado de tests en verde reportado en un solo lugar — la evidencia está distribuida en comentarios de cierre de tickets individuales. Conviene retomar la práctica de reportar un número consolidado por sprint.</p><h3>Retrospectiva</h3><h4>Estado de los action items del sprint anterior</h4><table>
+<colgroup>
+<col style="width: 35%"/>
+<col style="width: 17%"/>
+<col style="width: 46%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Acción (Sprint 2)</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>Estado</strong></th>
+</tr>
+<tr>
+<th>Adoptar label “Bug” en Linear para todo defecto real</th>
+<th>Todo el equipo</th>
+<th>Cumplido — MOVO-125 y MOVO-126 usan la label</th>
+</tr>
+<tr>
+<th>Revisar por qué MOVO-84 volvió de Done a In Progress</th>
+<th>P. Yorlano</th>
+<th>Cumplido — documentado en comentarios: reapertura para alinear la estructura de usuario con las definiciones de Didit.me (MOVO-48), resuelto en MOVO-92</th>
+</tr>
+<tr>
+<th>Redactar el Informe de Sprint de forma incremental durante el sprint</th>
+<th>Scrum Master en curso</th>
+<th>No verificable — este informe se generó al cierre, no hay evidencia de borradores incrementales</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><p>2 de 3 action items cumplidos y 1 no verificable. Los dos que se resolvieron (label Bug, causa de reapertura de MOVO-84) fueron acciones operativas de ejecución dentro de Linear.</p><h4>Insights</h4><p><strong>Qué funcionó bien</strong></p><ul>
+<li>
+El módulo de Ejecución del Envío (EP-04) se completó de punta a punta en un solo sprint: creación, aceptación/rechazo, notificaciones, cancelación, expiración automática e historial — todo contra infraestructura real.
+</li>
+<li>
+El spike de OR-Tools VRPTW (MOVO-50, 8 SP) se resolvió en apenas 2 días, sin bloquear al resto del sprint.
+</li>
+<li>
+La adopción de la label “Bug” se cumplió y ya mejoró la visibilidad de defectos reales (MOVO-125, MOVO-126).
+</li>
+<li>
+El patrón de bloquear explícitamente con un error 409 una funcionalidad no soportada (MOVO-29 con la cancelación penalizada) es preferible a implementarla a medias o simular un comportamiento que no existe.
+</li>
+<li>
+La investigación de MercadoPago fue metódica y bien documentada: nueve variantes probadas y descartadas de forma sistemática antes de escalar a soporte, con research teórico previo que evitó al menos un error de diseño (elegir la API de Payments en vez de Orders, por soporte de captura parcial).
+</li>
+</ul><p><strong>Qué no funcionó / puntos a mejorar</strong></p><ul>
+<li>
+Scope creep de +425% durante el sprint (24 → 126 SP), peor que el +90% de Sprint 2 pese a ser un action item explícito de la retro anterior.
+</li>
+<li>
+MOVO-49 se cerró como Done con el criterio de aceptación de negocio más crítico (split payment) sin resolver y sin plan de seguimiento visible — ver sección 1.3.
+</li>
+<li>
+3 de los 4 ADRs pendientes de Sprint 2 (ADR-004, ADR-010, ADR-012) siguen sin publicarse en Drive dos sprints después.
+</li>
+<li>
+Sigue sin existir un Sprint Goal documentado antes del inicio del sprint, ni un acta de Sprint Review.
+</li>
+<li>
+El ticket de soporte a MercadoPago lleva 11 días sin respuesta registrada y sin un seguimiento visible en Linear (no hay comentario de reintento, escalamiento o plan B mientras se espera).
+</li>
+</ul><p><strong>Qué aprendimos</strong></p><ul>
+<li>
+Un spike puede validar la mayoría de los criterios de aceptación y aun así dejar el punto más riesgoso del negocio sin resolver — cerrarlo como Done sin distinguir eso genera una falsa sensación de progreso. Conviene que un spike con ACs parcialmente bloqueados por un tercero quede en un estado que lo refleje (o se abra un ticket de seguimiento en el mismo momento del cierre, no después).
+</li>
+<li>
+Bloquear explícitamente con un error de negocio (409) una funcionalidad que depende de un módulo todavía no listo es mejor que dejarla a medio implementar — permite avanzar en paralelo sin generar deuda oculta.
+</li>
+</ul><h4>Action items</h4><table>
+<colgroup>
+<col style="width: 48%"/>
+<col style="width: 22%"/>
+<col style="width: 29%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Acción</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>Fecha límite</strong></th>
+</tr>
+<tr>
+<th>Reabrir MOVO-49 o crear un ticket de seguimiento explícito para el split payment de MercadoPago, que quede abierto hasta tener una solución o un plan B confirmado</th>
+<th>Tomás Vergara</th>
+<th>Antes del próximo Sprint Planning</th>
+</tr>
+<tr>
+<th>Escalar o reintentar el ticket de soporte de MercadoPago (11 días sin respuesta al cierre de este sprint)</th>
+<th>Tomás Vergara</th>
+<th>Esta semana</th>
+</tr>
+<tr>
+<th>Registrar en cada historia sumada a mitad de sprint el motivo y la fecha en que se agregó, para poder auditar el scope creep</th>
+<th>Todo el equipo</th>
+<th>A partir de Sprint 4</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Product Backlog repriorizado</h3><p>Con EP-04 (Ejecución del Envío) funcionalmente completo, el candidato natural para Cycle 5 es cerrar el frente de Pagos (EP-05) — pero eso depende directamente de resolver el bloqueo de MercadoPago (sección 1.3). Cycle 5 ya arrancó (25/08) con un solo issue cargado (MOVO-135, edición de perfil, en In Review).</p><table>
+<colgroup>
+<col style="width: 17%"/>
+<col style="width: 28%"/>
+<col style="width: 14%"/>
+<col style="width: 39%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Historia / Tarea</strong></th>
+<th><strong>Prioridad sugerida</strong></th>
+<th><strong>Nota</strong></th>
+</tr>
+<tr>
+<th>MOVO-49 (seguimiento)</th>
+<th>Resolver split payment de MercadoPago</th>
+<th>Crítica</th>
+<th>Bloquea todo el frente de pagos; sin esto, MOVO-100/65/110/111 no se pueden implementar en serio</th>
+</tr>
+<tr>
+<th>MOVO-135</th>
+<th>[mobile] Editar perfil, cambio verificado de tel/email</th>
+<th>Alta</th>
+<th>Ya en In Review en Cycle 5, prácticamente terminado (399 tests en verde)</th>
+</tr>
+<tr>
+<th>MOVO-100</th>
+<th>[svc-users] Persistencia de Payment_Method</th>
+<th>Alta</th>
+<th>Bloqueado por MOVO-49 — no iniciar en serio hasta destrabar el split</th>
+</tr>
+<tr>
+<th>MOVO-65 / MOVO-110 / MOVO-111</th>
+<th>Registro y vinculación de método de pago del emisor/transportista</th>
+<th>Alta</th>
+<th>Mismo bloqueo que MOVO-100</th>
+</tr>
+<tr>
+<th>MOVO-18</th>
+<th>Refinamiento pendiente (dependencias a validar)</th>
+<th>Media</th>
+<th>Señalado en refinamientos previos, sin bloqueos nuevos detectados este sprint</th>
+</tr>
+<tr>
+<th>MOVO-32</th>
+<th>Revisión y aprobación de casos de KYC pendientes (admin)</th>
+<th>Media</th>
+<th>Necesario en cuanto haya volumen real de manual_review en producción</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Registro de riesgos actualizado</h3><table>
+<colgroup>
+<col style="width: 8%"/>
+<col style="width: 21%"/>
+<col style="width: 8%"/>
+<col style="width: 11%"/>
+<col style="width: 12%"/>
+<col style="width: 37%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Riesgo</strong></th>
+<th><strong>Prob.</strong></th>
+<th><strong>Impacto</strong></th>
+<th><strong>Prioridad</strong></th>
+<th><strong>Estado / actualización este sprint</strong></th>
+</tr>
+<tr>
+<th>R01</th>
+<th>Disponibilidad real del equipo menor a la estimada.</th>
+<th>Alta</th>
+<th>Alto</th>
+<th>Crítico</th>
+<th>Sin evidencia de materialización (121 SP completados). Recalibrar con más sprints antes de bajar prioridad.</th>
+</tr>
+<tr>
+<th>R02</th>
+<th>Didit.me presenta demoras o comportamientos no documentados.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Medio</th>
+<th>Sin nueva materialización este sprint. Se mantiene el mapeo cerrado en Sprint 2.</th>
+</tr>
+<tr>
+<th>R03</th>
+<th>OR-Tools VRPTW no converge en tiempos razonables.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Medio</th>
+<th>Resuelto en el spike MOVO-50 en 2 días, sin bloqueos. Bajar a Medio; falta validar con volumen real de datos.</th>
+</tr>
+<tr>
+<th>R04</th>
+<th>Subestimación de horas/SP en historias complejas.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>Materializado de nuevo, más fuerte: scope creció +425% (vs. +90% en Sprint 2). Mantener en Alto.</th>
+</tr>
+<tr>
+<th>R05</th>
+<th>Solapamiento con parciales/finales reduce la velocidad del equipo.</th>
+<th>Alta</th>
+<th>Medio</th>
+<th>Alto</th>
+<th>Sin evidencia de impacto este sprint.</th>
+</tr>
+<tr>
+<th>R06</th>
+<th>Conocimiento crítico concentrado en una sola persona por dominio.</th>
+<th>Media</th>
+<th>Medio</th>
+<th>Medio</th>
+<th>El frente de pagos (MOVO-49) quedó concentrado en Tomás Vergara. Vigilar dado que es además el bloqueo crítico actual.</th>
+</tr>
+<tr>
+<th>R07</th>
+<th>Deuda de documentación de ADRs sin publicar en Drive.</th>
+<th>Alta</th>
+<th>Medio</th>
+<th>Alto</th>
+<th>Sin resolver dos sprints después (ADR-004, ADR-010, ADR-012 siguen sin existir en Drive).</th>
+</tr>
+<tr>
+<th>R08</th>
+<th>Defect Rate no capturaba bugs reales corregidos inline.</th>
+<th>Baja</th>
+<th>Bajo</th>
+<th>Bajo</th>
+<th>Resuelto: label “Bug” adoptada y en uso (MOVO-125, MOVO-126).</th>
+</tr>
+<tr>
+<th>R09 (nuevo)</th>
+<th>El split payment de MercadoPago — mecanismo con el que Movo cobra su comisión — está bloqueado por un error de la plataforma sin resolver hace 11 días, sin plan B confirmado.</th>
+<th>Alta</th>
+<th>Crítico</th>
+<th>Crítico</th>
+<th>Detectado este sprint (ver 1.3). Bloquea directamente MOVO-100/65/110/111. Mitigación propuesta: ticket de seguimiento dedicado + evaluar plan B (cobro de comisión por fuera de application_fee).</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Artefactos de trazabilidad</h3><h4>Diagramas de modelado relevantes</h4><p>Los diagramas de modelado del proyecto viven en Miro, según la convención definida en el documento de Sprint 0.</p><ul>
+<li>
+DER (Modelo Entidad-Relación): sin cambios estructurales nuevos reportados en comentarios de cierre de este ciclo más allá de las tablas de envíos y ofertas (ver 2.3).
+</li>
+<li>
+Diagrama de estado de Shipment (MOVO-61, Cycle 2): este sprint implementó en código la máquina de estados completa del envío (MOVO-79/105) y la de la oferta (MOVO-102) — conviene confirmar que el diagrama en Miro sigue reflejando los estados reales, en particular el bloqueo explícito de “cancelación con penalización” introducido en MOVO-29.
+</li>
+</ul><h4>ADR correspondiente</h4><table>
+<colgroup>
+<col style="width: 15%"/>
+<col style="width: 28%"/>
+<col style="width: 15%"/>
+<col style="width: 40%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ADR</strong></th>
+<th><strong>Tema</strong></th>
+<th><strong>Estado en Drive</strong></th>
+<th><strong>Nota</strong></th>
+</tr>
+<tr>
+<th>ADR-003</th>
+<th>Un schema de PostgreSQL por servicio, sin FKs entre schemas.</th>
+<th>Existente</th>
+<th>Aplicado consistentemente en las nuevas tablas de svc-shipments este sprint.</th>
+</tr>
+<tr>
+<th>ADR-004</th>
+<th>Mecanismo de autenticación (password + refresh token en Redis).</th>
+<th>No encontrado en Drive</th>
+<th>Pendiente desde Sprint 2, sin avance este sprint.</th>
+</tr>
+<tr>
+<th>ADR-009</th>
+<th>Terraform como IaC y gestión de DNS en Cloudflare.</th>
+<th>Existente (Propuesto)</th>
+<th>Sin relación directa con el trabajo de este sprint.</th>
+</tr>
+<tr>
+<th>ADR-010</th>
+<th>Propagación de identidad vía header x-user-id.</th>
+<th>No encontrado en Drive</th>
+<th>Pendiente desde Sprint 2, sin avance este sprint.</th>
+</tr>
+<tr>
+<th>ADR-012</th>
+<th>Twilio como proveedor de SMS para OTP.</th>
+<th>Redactado, no publicado</th>
+<th>Sigue sin subirse por el mismo tema de permisos de Drive reportado en Sprint 2.</th>
+</tr>
+<tr>
+<th>ADR (nuevo, sugerido)</th>
+<th>Elección de la API de Payments (vs. Orders) de MercadoPago para hold/capture.</th>
+<th>No existe</th>
+<th>El research de MOVO-49 ya tiene el contenido (comparación, criterios, decisión) — falta formalizarlo como ADR.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>DER actualizado</h4><p>Cambios al modelo de datos durante este sprint (migraciones versionadas en services/movo-svc-shipments/prisma/migrations/):</p><ul>
+<li>
+MOVO-104: creación del schema de envíos con las tablas del ciclo de vida del Shipment.
+</li>
+<li>
+MOVO-102: tabla y máquina de estados de Offer (oferta de un transportista sobre un envío).
+</li>
+<li>
+MOVO-124: regla de expiración (lifecycle rule) en S3 para fotos de envío y de perfil que quedan huérfanas si no se confirma la subida.
+</li>
+</ul><h4>Casos de prueba y resultados de ejecución</h4><p>Selección representativa de casos de prueba reportados en los comentarios de cierre de los tickets de este sprint, con precondición, pasos y resultado esperado.</p><table>
+<colgroup>
+<col style="width: 11%"/>
+<col style="width: 19%"/>
+<col style="width: 18%"/>
+<col style="width: 27%"/>
+<col style="width: 22%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>US / Tarea</strong></th>
+<th><strong>Caso de prueba</strong></th>
+<th><strong>Precondición</strong></th>
+<th><strong>Pasos</strong></th>
+<th><strong>Resultado esperado</strong></th>
+</tr>
+<tr>
+<th>MOVO-80</th>
+<th>Creación de envío con receptor válido</th>
+<th>Emisor autenticado con KYC aprobado.</th>
+<th>POST /shipments con receptor, ruta y detalle del paquete.</th>
+<th>201 Created. Envío queda en estado published.</th>
+</tr>
+<tr>
+<th>MOVO-129</th>
+<th>Aceptación del envío por el receptor</th>
+<th>Envío en estado awaiting_receiver_confirmation.</th>
+<th>POST /shipments/:id/accept autenticado como receptor.</th>
+<th>200 OK. Estado pasa a published; se dispara notificación al emisor.</th>
+</tr>
+<tr>
+<th>MOVO-130</th>
+<th>Expiración automática por falta de confirmación</th>
+<th>Envío sin confirmar, timeout vencido.</th>
+<th>Job de expiración corre sobre el envío.</th>
+<th>Estado pasa a cancelled con reason=expired; notificación al emisor.</th>
+</tr>
+<tr>
+<th>MOVO-29 / MOVO-108</th>
+<th>Cancelación con penalización — bloqueo explícito</th>
+<th>Envío en estado assigned (transportista ya confirmado).</th>
+<th>POST /shipments/:id/cancel por el emisor.</th>
+<th>409 SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED — no se permite hasta tener holds reales.</th>
+</tr>
+<tr>
+<th>MOVO-49 (AC1)</th>
+<th>Autorización con capture:false en sandbox MP</th>
+<th>Cuenta de prueba tipo Vendedor conectada por OAuth.</th>
+<th>POST /v1/payments con capture:false.</th>
+<th>Status authorized. Hold reservado sin cobrar.</th>
+</tr>
+<tr>
+<th>MOVO-49 (AC3)</th>
+<th>Captura + split payment (application_fee)</th>
+<th>Mismo request de AC1 + application_fee.</th>
+<th>POST /v1/payments con capture:false + application_fee.</th>
+<th>Esperado: split correcto. Real: 400 — error 2034 “Invalid users involved” en las 9 variantes probadas.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table>

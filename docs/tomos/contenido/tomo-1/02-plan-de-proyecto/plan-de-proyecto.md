@@ -162,15 +162,15 @@ El cronograma se alinea al calendario académico 2026 de la cátedra y a las cin
 
 | Sprint | Ciclo en Linear | Desde | Hasta | Foco principal |
 |---|---|---|---|---|
-| Sprint 0 | (previo a Linear) | 29/06/2026 | 12/07/2026 | Working Agreement, gestión de la configuración, arquitectura y stack, plan de testing, user story mapping |
-| Sprint 1 | Cycle 2 | 13/07/2026 | 26/07/2026 | Spikes técnicos, DER, diagramas de secuencia y de estados iniciales |
-| Sprint 2 | Cycle 3 | 27/07/2026 | 09/08/2026 | Fundaciones: gateway, autenticación, registro con OTP y KYC |
-| Sprint 3 | Cycle 4 | 10/08/2026 | 23/08/2026 | Perfil, licencia de conducir, creación de envíos, precio sugerido, fotos |
-| Sprint 4 | Cycle 5 | 24/08/2026 | 06/09/2026 | Receptor, ofertas, paquetes disponibles, calificaciones, recuperación de cuenta |
-| Sprint 5 | Cycle 6 | 07/09/2026 | 20/09/2026 | Viajes, motor de precios real, optimización de rutas, notificaciones |
-| Sprint 6 | Cycle 7 | 21/09/2026 | 04/10/2026 | Handshake criptográfico, tracking en vivo, reputación, ruta multi-parada |
-| Sprint 7 | Cycle 8 | 05/10/2026 | 18/10/2026 | Pagos con Mercado Pago (vinculación, tarjetas, hold, captura y split), chat, panel admin |
-| Sprint 8 | Cycle 9 | 19/10/2026 | 01/11/2026 | Panel de administración, sanciones, pagos pendientes y cierre |
+| Sprint 0 | (previo a Linear) | 29/06/2026 | 12/07/2026 | Bases operativas y técnicas: Working Agreement, gestión de la configuración, arquitectura y stack, plan de testing, user story mapping |
+| Sprint 1 | Cycle 2 | 13/07/2026 | 26/07/2026 | Infraestructura como código (AWS y Terraform), CI/CD inicial, DER y diagramas de estados |
+| Sprint 2 | Cycle 3 | 27/07/2026 | 09/08/2026 | Módulo de Identidad y Confianza: gateway, autenticación, registro con OTP, KYC y perfil |
+| Sprint 3 | Cycle 4 | 10/08/2026 | 23/08/2026 | Creación de envíos (wizard con fotos y precio sugerido), aceptación del receptor, notificaciones push, cancelación e historial |
+| Sprint 4 | Cycle 5 | 24/08/2026 | 06/09/2026 | Marketplace de ofertas: paquetes disponibles, viajes, ofertas y contraofertas, y reputación y calificaciones |
+| Sprint 5 | Cycle 6 | 07/09/2026 | 20/09/2026 | Circuito del envío asignado: matching por desvío, envíos activos, evidencia fotográfica y base del handshake y del tracking |
+| Sprint 6 | Cycle 7 | 21/09/2026 | 04/10/2026 | Handshake de retiro y entrega, tracking en vivo, ruta multi-parada y reputación |
+| Sprint 7 | Cycle 8 | 05/10/2026 | 18/10/2026 | Pagos con Mercado Pago (vinculación, tarjetas, hold, captura y split), penalidades, chat y acceso al panel de administración |
+| Sprint 8 | Cycle 9 | 19/10/2026 | 01/11/2026 | Panel de administración (usuarios, sanciones, soporte y envíos), disputas, atribución del no-retiro, cierre del circuito de pagos y documentación legal |
 
 : Calendario de sprints.
 

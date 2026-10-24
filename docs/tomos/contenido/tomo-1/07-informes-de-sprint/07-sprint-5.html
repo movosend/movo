@@ -1,0 +1,1117 @@
+<h2>Sprint 5</h2>
+<table class="clave-valor compacta"><tbody>
+<tr><th>Período</th><td>07/09/2026 al 20/09/2026</td></tr>
+<tr><th>Ciclo en Linear</th><td>Cycle 6</td></tr>
+<tr><th>Autor del informe</th><td>Yorlano, Pedro</td></tr>
+<tr><th>Foco del sprint</th><td>Circuito operable de un envío asignado: matching por desvío, envíos activos, evidencia fotográfica y base del handshake y del tracking.</td></tr>
+</tbody></table>
+<h3>Objetivo del Sprint</h3><p>Dejar operable el circuito de un envío ya asignado: que el transportista reciba paquetes compatibles con su viaje ordenados por desvío marginal real, que emisor y receptor gestionen sus envíos activos desde el inicio de la app, y que la custodia del paquete (evidencia fotográfica y handshake criptográfico) y el seguimiento en tiempo real queden con su base técnica lista.</p><p>Con lo completado, el objetivo se cumplió parcialmente. Quedó terminado el lado backend y de datos: el feed de viaje con desvío marginal calculado por el solver (MOVO-205, 206, 218, 219, 235), los endpoints de envíos activos por rol (MOVO-192), la exigencia de evidencia fotográfica antes del handshake (MOVO-196) y el canal WebSocket autenticado (MOVO-201). No se cerró el circuito de punta a punta del lado mobile: los wizards de retiro y entrega (MOVO-198 y 199), las pantallas de QR (MOVO-159 y 160), la ingesta de posiciones (MOVO-202) y el mapa de ruta optimizada (MOVO-207) pasaron al Cycle 7, con siete de esos once issues ya en In Review al cierre.</p><h3>Sprint Backlog y capacidad del equipo asumida</h3><p>El Cycle 6 de Linear cerró con 43 issues y 118 SP de scope: 32 issues (80 SP) en estado Done y 11 issues (38 SP) sin terminar que pasaron al Cycle 7 (7 en In Review, 1 en In Progress y 3 en Todo). Es el primer ciclo desde el Sprint 3 que no cierra con el 100% del scope.</p><table>
+<colgroup>
+<col style="width: 35%"/>
+<col style="width: 12%"/>
+<col style="width: 15%"/>
+<col style="width: 18%"/>
+<col style="width: 18%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Tipo</strong></th>
+<th><strong>Issues</strong></th>
+<th><strong>Story Points</strong></th>
+<th><strong>Done (issues / SP)</strong></th>
+<th><strong>Arrastrados (issues / SP)</strong></th>
+</tr>
+<tr>
+<th>Tarea</th>
+<th>28</th>
+<th>80</th>
+<th>20 / 51</th>
+<th>8 / 29</th>
+</tr>
+<tr>
+<th>Spike</th>
+<th>1</th>
+<th>3</th>
+<th>1 / 3</th>
+<th>0 / 0</th>
+</tr>
+<tr>
+<th>Sin label (mejora, infra, legal, académico)</th>
+<th>14</th>
+<th>35</th>
+<th>11 / 26</th>
+<th>3 / 9</th>
+</tr>
+<tr>
+<th><strong>Total</strong></th>
+<th><strong>43</strong></th>
+<th><strong>118</strong></th>
+<th><strong>32 / 80</strong></th>
+<th><strong>11 / 38</strong></th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><p><em>No hubo historias de usuario (US) ni Bugs con label en el ciclo: siguiendo la convención del proyecto, solo las sub-issues entran a un ciclo y las US padre se cierran cuando todas sus hijas están Done.</em></p><h4>Capacidad del equipo asumida</h4><p>El Plan de Proyecto define la capacidad en horas (5 personas × 5 hs/semana), sin conversión documentada a Story Points — sigue sin resolverse. La referencia histórica de velocity incluye cuatro puntos: 95 SP (Cycle 3), 121 SP (Cycle 4), 106 SP (Cycle 5) y 80 SP (Cycle 6, el más bajo de la serie).</p><h4>Detalle completo del Sprint Backlog (Cycle 6)</h4><table style="width:100%;">
+<colgroup>
+<col style="width: 11%"/>
+<col style="width: 29%"/>
+<col style="width: 8%"/>
+<col style="width: 15%"/>
+<col style="width: 6%"/>
+<col style="width: 10%"/>
+<col style="width: 18%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Historia / Tarea</strong></th>
+<th><strong>Tipo</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>SP</strong></th>
+<th><strong>Frente</strong></th>
+<th><strong>Estado al cierre</strong></th>
+</tr>
+<tr>
+<th>MOVO-217</th>
+<th>[svc-pricing-logistics] Setup de OR-Tools, cliente Redis y RoutesProvider</th>
+<th>—</th>
+<th>P. Yorlano</th>
+<th>1</th>
+<th>Ruta y viaje</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-218</th>
+<th>[svc-pricing-logistics] POST /routes/evaluate-candidates con cache en Redis</th>
+<th>—</th>
+<th>P. Yorlano</th>
+<th>3</th>
+<th>Ruta y viaje</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-205</th>
+<th>[svc-pricing-logistics] Endpoint VRPTW multi-envío: del prototipo a producción</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>3</th>
+<th>Ruta y viaje</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-206</th>
+<th>[svc-shipments] Agregación de paradas del transportista y contrato con pricing-logistics</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>3</th>
+<th>Ruta y viaje</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-219</th>
+<th>[svc-shipments] Desvío marginal en el feed de viajes (GET /trips/:id/matches)</th>
+<th>—</th>
+<th>A. Ariza</th>
+<th>3</th>
+<th>Ruta y viaje</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-235</th>
+<th>[svc-shipments] Scopear GET /shipments/my-route al viaje iniciado</th>
+<th>—</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Ruta y viaje</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-221</th>
+<th>[svc-shipments][mobile] Rediseño de estados de viaje y límite de 1 viaje activo</th>
+<th>—</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Ruta y viaje</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-179</th>
+<th>[svc-shipments] Push al publicarse un envío compatible con un viaje declarado</th>
+<th>—</th>
+<th>A. Ariza</th>
+<th>3</th>
+<th>Ruta y viaje</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-207</th>
+<th>[mobile] Mapa de ruta optimizada: paradas ordenadas, ETA y recálculo</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>5</th>
+<th>Ruta y viaje</th>
+<th>Arrastrado (In Review)</th>
+</tr>
+<tr>
+<th>MOVO-234</th>
+<th>[svc-shipments] Auto-crear Trip al aceptar una oferta sin viaje asociado</th>
+<th>—</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Ruta y viaje</th>
+<th>Arrastrado (In Review)</th>
+</tr>
+<tr>
+<th>MOVO-236</th>
+<th>[mobile] Aviso de viaje auto-creado tras aceptar una oferta</th>
+<th>—</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Ruta y viaje</th>
+<th>Arrastrado (Todo)</th>
+</tr>
+<tr>
+<th>MOVO-200</th>
+<th>[Spike] Canal de tiempo real: verificar, elegir tecnología y escribir el ADR</th>
+<th>Spike</th>
+<th>A. Ariza</th>
+<th>3</th>
+<th>Tiempo real</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-201</th>
+<th>[svc-shipments] Canal de tiempo real: conexión autenticada y autorización por envío</th>
+<th>Tarea</th>
+<th>A. Ariza</th>
+<th>3</th>
+<th>Tiempo real</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-202</th>
+<th>[svc-shipments] Ingesta de posiciones: última posición en Redis, traza cada 45 s y purga</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>Tiempo real</th>
+<th>Arrastrado (In Review)</th>
+</tr>
+<tr>
+<th>MOVO-208</th>
+<th>[svc-shipments] Extensión del set de estados: assigned_unfunded y completed</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>2</th>
+<th>Custodia</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-195</th>
+<th>[mobile] Par de claves en el dispositivo: generación, SecureStore y firma del nonce</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>2</th>
+<th>Custodia</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-196</th>
+<th>[svc-shipments] Exigir evidencia fotográfica del stage antes del handshake</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>Custodia</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-197</th>
+<th>[mobile] Step reusable de captura de evidencia fotográfica</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Custodia</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-198</th>
+<th>[mobile] Wizard de retiro: evidencia, escaneo de QR y confirmación</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>5</th>
+<th>Custodia</th>
+<th>Arrastrado (In Review)</th>
+</tr>
+<tr>
+<th>MOVO-199</th>
+<th>[mobile] Wizard de entrega: evidencia y generación de QR</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>5</th>
+<th>Custodia</th>
+<th>Arrastrado (Todo)</th>
+</tr>
+<tr>
+<th>MOVO-159</th>
+<th>[mobile] Pantalla de generación de QR con countdown (cedente)</th>
+<th>Tarea</th>
+<th>P. Yorlano</th>
+<th>2</th>
+<th>Custodia</th>
+<th>Arrastrado (In Review)</th>
+</tr>
+<tr>
+<th>MOVO-160</th>
+<th>[mobile] Escaneo de QR y confirmación con GPS (receptor)</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Custodia</th>
+<th>Arrastrado (In Review)</th>
+</tr>
+<tr>
+<th>MOVO-192</th>
+<th>[svc-shipments] Endpoints de envíos activos por rol (/sending, /transporting, /receiving)</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>2</th>
+<th>Home operativo</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-193</th>
+<th>[mobile] Home operativo: envíos activos por rol y acción contextual de custodia</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Home operativo</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-222</th>
+<th>[svc-shipments] Endpoint de calificaciones pendientes de dar</th>
+<th>—</th>
+<th>L. Dalmagro</th>
+<th>2</th>
+<th>Home operativo</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-194</th>
+<th>[mobile] Extensión del detalle de envío a transportista y receptor</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Home operativo</th>
+<th>Arrastrado (Todo)</th>
+</tr>
+<tr>
+<th>MOVO-181</th>
+<th>[svc-shipments] Modificar una oferta pending (monto y fecha/horario de retiro)</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>2</th>
+<th>Ofertas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-182</th>
+<th>[mobile] Detalle de oferta: desglose completo, retirar y modificar</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>5</th>
+<th>Ofertas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-185</th>
+<th>[svc-shipments] Contexto enriquecido en "mis ofertas": distancia y resumen del paquete</th>
+<th>Tarea</th>
+<th>A. Ariza</th>
+<th>2</th>
+<th>Ofertas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-186</th>
+<th>[svc-shipments] Desglose neto/comisión en todas las respuestas de oferta</th>
+<th>Tarea</th>
+<th>A. Ariza</th>
+<th>1</th>
+<th>Ofertas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-187</th>
+<th>[svc-shipments] Snapshot de identidad y confianza del emisor visible al transportista</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>Ofertas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-188</th>
+<th>[svc-shipments] Ranking competitivo de la oferta propia</th>
+<th>Tarea</th>
+<th>L. Dalmagro</th>
+<th>3</th>
+<th>Ofertas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-189</th>
+<th>[svc-shipments] Tracking de "vista" del emisor sobre una oferta recibida</th>
+<th>Tarea</th>
+<th>A. Ariza</th>
+<th>2</th>
+<th>Ofertas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-190</th>
+<th>[svc-shipments] GET /offers/:id: detalle de una oferta propia</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Ofertas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-183</th>
+<th>[mobile] Rediseño del tab Transportar: header, accesos y card de envío</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Ofertas</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-151</th>
+<th>[mobile] "Mis ofertas": seguimiento de las propuestas del transportista</th>
+<th>Tarea</th>
+<th>J.C. Bordino B.</th>
+<th>3</th>
+<th>Ofertas</th>
+<th>Arrastrado (In Review)</th>
+</tr>
+<tr>
+<th>MOVO-172</th>
+<th>[mobile][svc-users] Ficha de vehículo del transportista</th>
+<th>Tarea</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Perfil y legal</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-223</th>
+<th>Revisión de la ficha y el selector de auto</th>
+<th>—</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Perfil y legal</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-224</th>
+<th>Legal: Términos y Condiciones, Privacidad y protección de datos (Ley 25.326)</th>
+<th>—</th>
+<th>T. Vergara</th>
+<th>1</th>
+<th>Perfil y legal</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-229</th>
+<th>Re-aceptación de Términos/Privacidad post-registro (gate al abrir la app)</th>
+<th>—</th>
+<th>T. Vergara</th>
+<th>2</th>
+<th>Perfil y legal</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-232</th>
+<th>Fijar identificadores de app store (android.package / ios.bundleIdentifier)</th>
+<th>—</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Infra</th>
+<th>Done</th>
+</tr>
+<tr>
+<th>MOVO-231</th>
+<th>CLI de dev tooling: seeding, simulación de handshake QR y KYC (movo-devkit)</th>
+<th>—</th>
+<th>T. Vergara</th>
+<th>3</th>
+<th>Infra</th>
+<th>Arrastrado (In Progress)</th>
+</tr>
+<tr>
+<th>MOVO-165</th>
+<th>Presentación de estado actual</th>
+<th>Tarea</th>
+<th>—</th>
+<th>2</th>
+<th>Académico</th>
+<th>Done</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Resultado de la Sprint Review</h3><p>La Sprint Review se realiza siempre, con los 5 desarrolladores presentes, como una reflexión interna del equipo sobre qué se logró en el sprint. Los docentes no participan de esa instancia y no dan feedback en ese momento — el feedback de la cátedra llega por otros canales de la materia. No se lleva un registro escrito (acta) de esta reunión; lo que sigue es un resumen de lo demostrable al cierre del sprint, no una transcripción de la reunión.</p><p>Con lo completado, el sprint deja en condiciones de demostrarse:</p><ul>
+<li>
+Un transportista con un viaje declarado obtiene del backend los paquetes compatibles ordenados de menor a mayor desvío marginal (km y minutos extra) calculado por el solver VRPTW; si el servicio de rutas falla, recibe un error explícito en lugar de estimaciones inventadas (MOVO-217, 218, 219). La agregación de paradas del transportista se acota al viaje iniciado (MOVO-206, 235).
+</li>
+<li>
+Emisor y receptor ven sus envíos activos en el inicio de la app agrupados por rol, con la acción contextual de custodia (MOVO-192, 193). Los botones que abren las pantallas de QR muestran un aviso "Muy pronto", porque esas pantallas (MOVO-159 y 160) no están terminadas. El último registro en el ticket de MOVO-193 (14/9) indica que el cliente todavía usaba datos de prueba en lugar de los endpoints reales.
+</li>
+<li>
+El transportista ve el detalle de cada oferta propia con desglose neto/comisión, ranking competitivo, si el emisor ya la vio, y puede retirarla o modificarla (MOVO-181, 182, 185 a 190).
+</li>
+<li>
+El backend exige evidencia fotográfica del stage antes de permitir el handshake, y el mobile ya cuenta con el step reusable de captura de evidencia y con el par de claves del dispositivo (MOVO-195, 196, 197).
+</li>
+<li>
+Existe un canal WebSocket autenticado, con autorización por envío y cierre automático al llegar el envío a un estado terminal (MOVO-200, 201). Se validó con tests locales; no se probó todavía en el entorno desplegado (ver riesgo R12).
+</li>
+<li>
+Un transportista con un viaje activo recibe una notificación push cuando se publica un envío compatible, incluso con la app en segundo plano (MOVO-179).
+</li>
+<li>
+Los usuarios cuentan con Términos y Condiciones y Política de Privacidad (Ley 25.326), y se les pide re-aceptarlos al abrir la app cuando cambia la versión (MOVO-224, 229).
+</li>
+<li>
+Ficha de vehículo del transportista con selector estandarizado de marca y modelo (MOVO-172, 223), identificadores definitivos de la app para las tiendas (MOVO-232) y la presentación del estado actual del sistema (MOVO-165).
+</li>
+</ul><p><strong>Todavía no demostrable de punta a punta:</strong> el handshake de custodia completo desde la app (faltan las pantallas de QR y los wizards de retiro y entrega), el seguimiento en vivo en el mapa (falta la ingesta de posiciones y el mapa de ruta) y cualquier flujo con cobro real (ver la nota siguiente).</p><h4>Nota: MercadoPago (split payment): 38 días sin ningún movimiento</h4><p>El bloqueo crítico de MOVO-49 (error 2034 "Invalid users involved" al combinar capture:false con application_fee) tampoco tuvo actividad en este sprint. El spike se cerró el 24/8 con el criterio de aceptación del split sin resolver, y el último comentario del ticket sigue siendo del 13/8: 38 días al cierre del Cycle 6 (25 en el informe anterior), sin respuesta registrada de soporte de MercadoPago ni comentarios de reintento o escalamiento.</p><p>El impacto se mantiene y crece en superficie: MOVO-100, 101, 110, 111, 112, 116 y 117 siguen en Ready for Development sin cambios desde agosto. El 8/9 se refinaron siete tickets nuevos del frente de pagos (MOVO-209 a 215: hold inmediato y programado, saga de asignación, captura y split, reintentos, detalle del pago y un spike sobre el plazo de la reserva) y el 13/9 se abrieron MOVO-225 y 226 (fee de MercadoPago y penalidad de cancelación). Ninguno se inició. El equipo diseñó en torno al bloqueo — el estado assigned_unfunded (MOVO-208) y la liberación de fondos detrás de una interfaz sin efecto (MOVO-158) permiten avanzar el flujo operativo sin pagos reales — pero eso lo posterga, no lo resuelve.</p><h3>Métricas y análisis de tendencia</h3><table>
+<colgroup>
+<col style="width: 16%"/>
+<col style="width: 20%"/>
+<col style="width: 20%"/>
+<col style="width: 20%"/>
+<col style="width: 22%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Métrica</strong></th>
+<th><strong>Sprint 2 (Cycle 3)</strong></th>
+<th><strong>Sprint 3 (Cycle 4)</strong></th>
+<th><strong>Sprint 4 (Cycle 5)</strong></th>
+<th><strong>Sprint 5 (Cycle 6)</strong></th>
+</tr>
+<tr>
+<th><strong>Velocity (SP completados)</strong></th>
+<th>95 SP (Linear) / 94 SP por issue</th>
+<th>121 SP (Linear) / 116 SP por issue</th>
+<th>106 SP (Linear) / 99 SP por issue</th>
+<th>80 SP (Linear) / 80 SP por issue</th>
+</tr>
+<tr>
+<th><strong>Scope al inicio del sprint</strong></th>
+<th>50 SP</th>
+<th>24 SP</th>
+<th>56 SP</th>
+<th>35 SP (15 issues)</th>
+</tr>
+<tr>
+<th><strong>Scope al cierre del sprint</strong></th>
+<th>95 SP (+90% vs. inicio)</th>
+<th>126 SP (+425% vs. inicio)</th>
+<th>106 SP (+89% vs. inicio)</th>
+<th>118 SP (+237% vs. inicio) · 43 issues</th>
+</tr>
+<tr>
+<th><strong>Sprint Goal Achievement</strong></th>
+<th>100% del scope final (95/95)</th>
+<th>~96% del scope final (121/126 SP) · 41/43 issues</th>
+<th>100% del scope final (106/106 SP) · 42/42 issues</th>
+<th><strong>68%</strong> del scope final en SP (80/118) · <strong>74%</strong> en issues (32/43)</th>
+</tr>
+<tr>
+<th><strong>Cycle Time (mediana / promedio)</strong></th>
+<th>1.2 días / 3.0 días</th>
+<th>≈0.7 días / ≈1.4 días</th>
+<th>≈0.8 días / ≈0.9 días</th>
+<th>≈1.0 día / ≈1.0 día (30 issues; 2 sin fecha de inicio)</th>
+</tr>
+<tr>
+<th><strong>Defect Rate (issues con label "Bug")</strong></th>
+<th>0 (la métrica no capturaba bugs reales)</th>
+<th>2 (MOVO-125, MOVO-126)</th>
+<th>2 (MOVO-156, MOVO-113)</th>
+<th>0 por label; al menos 2 defectos corregidos inline (ver análisis)</th>
+</tr>
+<tr>
+<th><strong>PRs mergeados en GitHub</strong></th>
+<th>No relevado</th>
+<th>No relevado</th>
+<th>33 (31 en movo, 2 en movo-infra)</th>
+<th>No relevado (repositorio no accesible al armar el informe)</th>
+</tr>
+<tr>
+<th><strong>Suite de tests automatizados</strong></th>
+<th>249 casos en 37 archivos</th>
+<th>Sin corrida centralizada consultada</th>
+<th>Fragmentada por repo (svc-shipments 501/501 el 5/9)</th>
+<th>svc-shipments 756/756 y gateway 51/51 (20/9); mobile sin número consolidado</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>Análisis</h4><p><strong>Velocity y Sprint Goal Achievement.</strong> El sprint cerró con 80 SP, la velocity más baja de la serie (−25% respecto del Sprint 4). Contra el promedio de los dos sprints previos (113.5 SP) la caída es de 29.5%: queda apenas por debajo del umbral de alerta del Plan de Proyecto (30%), por lo que no dispara formalmente el criterio de "revisar capacidad y compromisos", pero está al límite y conviene tratarla como señal. Con el Sprint Goal Achievement pasa algo parecido: el Plan lo define sobre historias (74%, por encima del umbral de 70%), pero medido en Story Points, como venían reportándose los sprints anteriores, es 68%, por debajo. Conviene fijar en la retro con qué unidad se mide para que la alerta no dependa de la lectura.</p><p><strong>Scope.</strong> El scope creció de 35 a 118 SP (+237%), el segundo peor control de la serie después del Sprint 3. El mayor salto (+13 issues, de 15 a 28) ocurrió el 10/9, después del relevamiento del 8/9 que detectó huecos reales del flujo posterior a la aceptación de una oferta (sin canal de tiempo real en todo el backlog, sin el lado cliente de la criptografía del handshake, sin punto de entrada a la custodia desde la app). Es crecimiento deliberado y con buen criterio, pero se aceptó sin retirar trabajo equivalente: el resultado fue el arrastre de 38 SP. Además, la serie diaria de Linear marcaba 83 SP hasta el penúltimo día y 118 SP al cierre; esos 118 coinciden exactamente con la suma de estimaciones por issue (80 completados + 38 arrastrados), lo que sugiere que parte de las estimaciones se cargó sobre el final del ciclo.</p><p><strong>Cycle Time.</strong> Se mantiene en el rango bajo del proyecto (mediana 0.96 días, promedio 1.02), con una leve suba frente al Sprint 4. 28 de los 30 issues medibles cerraron en 2.1 días o menos. Los dos outliers son MOVO-193 (5.2 días: se arrancó contra mocks porque el backend de MOVO-192 todavía no estaba, y su alcance se amplió con la sección "Requiere tu atención") y MOVO-221 (3.9 días, rediseño de estados de viaje). El cierre se concentró al final: cinco issues (15 SP) se completaron el último día y siete quedaron en In Review.</p><p><strong>Defect Rate.</strong> Sin issues con label "Bug", el umbral del Plan (más de 3 por sprint) no se activa, pero la métrica subestima lo ocurrido. Se corrigieron dentro de otros tickets al menos dos defectos: el gateway no reenviaba los headers x-user-* en conexiones WebSocket (MOVO-201) y el snapshot del transportista no toleraba una falla de usersClient pese a lo que decía su comentario (MOVO-187). Además MOVO-189 detectó que GET /shipments/:id/offers nunca expone el desglose neto/comisión que MOVO-186 decía cubrir; quedó documentado sin corregir.</p><p><strong>Tests y GitHub.</strong> El servicio svc-shipments pasó de 501 tests el 5/9 (Sprint 4) a 756 el 20/9, +255 casos (+51%) en dos semanas. Sigue sin haber un número consolidado por sprint ni un link al run de CI (tercer sprint con el mismo gap). Los PRs mergeados no pudieron relevarse porque el repositorio no fue accesible al armar este informe; en los comentarios de Linear se citan al menos el PR #155 (MOVO-192) y el #170 (MOVO-200).</p><p><strong>Distribución de la carga.</strong> El arrastre se concentra en una persona: 22 de los 38 SP no terminados (58%) están asignados a Tomás Vergara, que además tuvo el mayor volumen completado.</p><table>
+<colgroup>
+<col style="width: 35%"/>
+<col style="width: 20%"/>
+<col style="width: 20%"/>
+<col style="width: 23%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Integrantes</strong></th>
+<th><strong>SP completados</strong></th>
+<th><strong>SP arrastrados</strong></th>
+<th><strong>SP totales del ciclo</strong></th>
+</tr>
+<tr>
+<th>Ariza, Alena</th>
+<th>17</th>
+<th>0</th>
+<th>17</th>
+</tr>
+<tr>
+<th>Bordino Blanche, Juan Cruz</th>
+<th>10</th>
+<th>6</th>
+<th>16</th>
+</tr>
+<tr>
+<th>Dalmagro, Lucas</th>
+<th>15</th>
+<th>3</th>
+<th>18</th>
+</tr>
+<tr>
+<th>Yorlano, Pedro</th>
+<th>10</th>
+<th>7</th>
+<th>17</th>
+</tr>
+<tr>
+<th>Vergara, Tomás Ignacio</th>
+<th>26</th>
+<th>22</th>
+<th>48 (41% del scope)</th>
+</tr>
+<tr>
+<th>Sin asignar (MOVO-165)</th>
+<th>2</th>
+<th>0</th>
+<th>2</th>
+</tr>
+<tr>
+<th><strong>Total</strong></th>
+<th><strong>80</strong></th>
+<th><strong>38</strong></th>
+<th><strong>118</strong></th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Retrospectiva</h3><h4>Estado de los action items del sprint anterior</h4><table>
+<colgroup>
+<col style="width: 34%"/>
+<col style="width: 14%"/>
+<col style="width: 50%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Acción (Sprint 4)</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>Estado</strong></th>
+</tr>
+<tr>
+<th>Resolver el estancamiento de MercadoPago: escalar el ticket de soporte por otro canal o decidir y documentar un plan B</th>
+<th>Tomás Vergara</th>
+<th>NO cumplido — sin comentarios nuevos en MOVO-49 desde el 13/8 ni plan B o escalamiento visible en Linear. Sí se refinaron 7 tickets de pagos (8/9) y se abrieron 2 más (13/9), ninguno iniciado. No se pudo verificar el estado del ticket en el portal de MercadoPago.</th>
+</tr>
+<tr>
+<th>Pegar en el doc de Sprint 0 los 5 ADRs que solo estaban en GitHub (013, 014, 016, 017, 020) y renumerar los 3 desalineados (015, 018, 019)</th>
+<th>Alena Ariza</th>
+<th>NO cumplido — el doc de Sprint 0 en Drive no registra modificaciones desde el 16/9 a las 15:16, anterior al informe de Sprint 4.</th>
+</tr>
+<tr>
+<th>Agregar al Definition of Done: "ADR sumado al CLAUDE.md y al doc de Sprint 0"</th>
+<th>Todo el equipo</th>
+<th>PARCIAL — ADR-022 (MOVO-200) se redactó en un documento de Drive, pero aparte y sin pegar en Sprint 0; ADR-021 (MOVO-208) quedó solo en el CLAUDE.md del servicio, con la publicación en Drive pospuesta a propósito.</th>
+</tr>
+<tr>
+<th>Cerrar las historias padre (MOVO-18, 25, 6) cuando sus hijas estén Done</th>
+<th>Todo el equipo</th>
+<th>PARCIAL — MOVO-18 y MOVO-6 tienen hijas abiertas (MOVO-234 y 236; MOVO-159 y 160), por lo que no correspondía cerrarlas. MOVO-25 no registra cambios desde el 5/9 y sigue en Ready for Development.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>Insights</h4><p><strong>Qué funcionó bien</strong></p><ul>
+<li>
+El relevamiento del 8/9 encontró huecos que no figuraban en ningún ticket (MOVO-191, 195, 200) y los convirtió en trabajo con criterios de aceptación, en lugar de descubrirlos durante la defensa.
+</li>
+<li>
+Spike, ADR e implementación encadenados en el mismo ciclo: MOVO-200 dejó ADR-022 y una prueba de concepto ejecutada contra un servidor real (4 casos), y MOVO-201 se implementó sobre esa decisión incorporando los hallazgos de la revisión de Pedro Yorlano en el PR #170 (el heartbeat permitió bajar proxy_read_timeout de nginx de 3600 s a 90 s).
+</li>
+<li>
+El solver VRPTW pasó de prototipo a servicio consumido por shipments en menos de dos semanas (MOVO-217, 218, 205, 206, 219, 235), con decisiones de contrato acordadas por escrito en el refinamiento del 10 al 12/9: proveedor de rutas intercambiable con mock Haversine por default, política sin fallback silencioso, tope de 25 candidatos.
+</li>
+<li>
+Buen criterio al implementar: MOVO-195 descartó la recomendación original de Ed25519 y siguió el ADR-020 (ECDSA P-256) para no producir firmas que el backend rechazaría con 422; MOVO-208 extendió su alcance a cuatro comparaciones con DELIVERED en features ya entregadas que se habrían roto en silencio al aparecer el estado completed.
+</li>
+<li>
+Los comentarios de cierre documentan decisiones que no salen del diff (MOVO-187, 189, 196, 208, 222) y separan con claridad lo resuelto de lo pendiente y no verificable.
+</li>
+<li>
+Se dejó por escrito el marco legal (Términos, Privacidad, Ley 25.326) con una lista explícita de pendientes y un aviso académico de que requiere revisión de un abogado matriculado antes de cualquier lanzamiento.
+</li>
+</ul><p><strong>Qué no funcionó / puntos a mejorar</strong></p><ul>
+<li>
+El scope creció +237% sin retirar trabajo, el cumplimiento cayó a 68% en SP y el cierre se concentró en el último día, con siete issues en In Review al corte.
+</li>
+<li>
+MercadoPago (MOVO-49) sigue 38 días sin movimiento y el action item explícito del sprint anterior no se cumplió por segunda vez consecutiva.
+</li>
+<li>
+Los ADRs siguen divididos entre Drive y GitHub: a los 5 pendientes y 3 renumeraciones de Sprint 4 se suman ADR-021 y ADR-022.
+</li>
+<li>
+Buena parte del trabajo de custodia y tiempo real se validó solo con tests locales: el canal WebSocket no se probó en EC2, la generación de claves no se probó en un dispositivo físico y el ciclo completo del handshake contra los servicios reales no se ejecutó.
+</li>
+<li>
+Trabajar contra un mock generó divergencia de contrato: el home operativo (MOVO-193) definió su propio tipo con agreedPriceArs no nulo, mientras el backend lo devuelve siempre null porque acceptOffer nunca lo persiste. Lo encontró la revisión del PR #155.
+</li>
+<li>
+La carga quedó desbalanceada al cierre (58% del arrastre en una persona) y el Defect Rate por label no refleja los defectos corregidos inline.
+</li>
+</ul><p><strong>Qué aprendimos</strong></p><ul>
+<li>
+Un spike con prueba de concepto ejecutable (MOVO-200) permite implementar la tarea siguiente sin renegociar la decisión: conviene exigirla como parte del DoD de todo spike que habilite una implementación.
+</li>
+<li>
+Trabajar contra un mock habilitado explícitamente destraba el frente mobile, pero necesita un paso de cableado con dueño y tipos importados desde @movo/shared; si no, el tipo local miente sobre el contrato real.
+</li>
+<li>
+Agregar un valor al set canónico de estados tiene costo transversal (MOVO-208 corrigió cuatro consumidores). La regla de actualizar enum, @movo/shared y DTE en el mismo PR fue la correcta y conviene sumar un chequeo explícito de todos los consumidores del enum.
+</li>
+<li>
+Las verificaciones que dependen de infraestructura real (EC2, nginx, dispositivo físico) quedan sin dueño cuando cada ticket las declara "pendientes": hay que asignarlas como tareas con responsable.
+</li>
+</ul><h4>Action items</h4><p><em>Responsables y fechas propuestos a partir de este relevamiento; se confirman en la retro del equipo.</em></p><table>
+<colgroup>
+<col style="width: 54%"/>
+<col style="width: 27%"/>
+<col style="width: 17%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Acción</strong></th>
+<th><strong>Responsable</strong></th>
+<th><strong>Fecha límite</strong></th>
+</tr>
+<tr>
+<th>Resolver el estancamiento de MercadoPago: obtener respuesta de soporte por otro canal o decidir y documentar en Linear un plan B para cobrar la comisión, y abrir un ticket de seguimiento que reemplace a MOVO-49</th>
+<th>Tomás Vergara</th>
+<th>25/09/2026</th>
+</tr>
+<tr>
+<th>Pegar en el doc de Sprint 0 los ADRs pendientes (013, 014, 016, 017, 020, 021 y 022), renumerar los 3 desalineados (015, 018, 019) y agregar al DoD la línea "ADR sumado a CLAUDE.md y a Drive"</th>
+<th>Alena Ariza (ADRs); todo el equipo (DoD)</th>
+<th>04/10/2026</th>
+</tr>
+<tr>
+<th>Verificar en el entorno desplegado: canal WebSocket y cambios de nginx (MOVO-200 y 201) y ciclo completo del handshake con un dispositivo físico (MOVO-195)</th>
+<th>Alena Ariza (canal); Juan Cruz Bordino Blanche (claves y handshake)</th>
+<th>30/09/2026</th>
+</tr>
+<tr>
+<th>En el Planning del Sprint 6: cerrar primero los 7 issues en In Review, no sumar scope nuevo sin retirar su equivalente en SP y revisar la asignación de los 22 SP arrastrados de una sola persona</th>
+<th>Todo el equipo</th>
+<th>22/09/2026</th>
+</tr>
+<tr>
+<th>Abrir un ticket para persistir agreedPriceArs al aceptar una oferta y cablear el home operativo (MOVO-193) a los endpoints reales importando los tipos de @movo/shared</th>
+<th>Tomás Vergara</th>
+<th>28/09/2026</th>
+</tr>
+<tr>
+<th>Registrar con label "Bug" los defectos que se corrijan dentro de otro ticket y adjuntar en el comentario de cierre el link al run de CI con el resultado de la suite</th>
+<th>Todo el equipo</th>
+<th>A partir del Sprint 6</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Product Backlog repriorizado</h3><p>Con el backend del circuito operativo listo, lo prioritario para el Sprint 6 (Cycle 7, 21/9 al 4/10) es cerrar el lado mobile de la custodia y del seguimiento, que ya está en curso, y destrabar Pagos. Los 11 issues arrastrados ya están cargados en el Cycle 7.</p><table>
+<colgroup>
+<col style="width: 19%"/>
+<col style="width: 34%"/>
+<col style="width: 12%"/>
+<col style="width: 33%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Historia / Tarea</strong></th>
+<th><strong>Prioridad sugerida</strong></th>
+<th><strong>Nota</strong></th>
+</tr>
+<tr>
+<th><strong>MOVO-49 (seguimiento) y frente de pagos</strong></th>
+<th>Resolver el split de MercadoPago y destrabar MOVO-100, 101, 110, 111, 112, 116, 117 y 209 a 215</th>
+<th>Crítica</th>
+<th>38 días sin movimiento; 14 tickets técnicos de pagos listos y sin iniciar.</th>
+</tr>
+<tr>
+<th><strong>MOVO-159, 160, 198, 199</strong></th>
+<th>[mobile] Pantallas de QR y wizards de retiro y entrega (custodia)</th>
+<th>Alta</th>
+<th>Sin ellos no cierran MOVO-6 y MOVO-21; tres de los cuatro ya están en In Review.</th>
+</tr>
+<tr>
+<th><strong>MOVO-202 y 207</strong></th>
+<th>Ingesta de posiciones y mapa de ruta optimizada</th>
+<th>Alta</th>
+<th>Completan el seguimiento en vivo (MOVO-11) y la ruta multi-parada (MOVO-10); ambos en In Review.</th>
+</tr>
+<tr>
+<th><strong>MOVO-201 / 200 (verificación)</strong></th>
+<th>Probar el canal WebSocket y nginx en el entorno desplegado</th>
+<th>Alta</th>
+<th>Pendiente aceptado explícitamente al cerrar ambos tickets.</th>
+</tr>
+<tr>
+<th><strong>MOVO-151, 194, 234, 236, 231</strong></th>
+<th>Resto del arrastre del Cycle 6</th>
+<th>Alta</th>
+<th>"Mis ofertas" y la extensión del detalle de envío completan MOVO-109 y MOVO-191.</th>
+</tr>
+<tr>
+<th><strong>Sin ticket identificado</strong></th>
+<th>Persistir agreedPriceArs al aceptar una oferta</th>
+<th>Alta</th>
+<th>Hoy siempre es null; lo van a necesitar el detalle del envío y el frente de pagos.</th>
+</tr>
+<tr>
+<th><strong>MOVO-193 (fase 2)</strong></th>
+<th>[mobile] Card de "viaje del día" para el rol transportista</th>
+<th>Media</th>
+<th>Desbloqueado por MOVO-206 y 235, ya terminados.</th>
+</tr>
+<tr>
+<th><strong>MOVO-222 (consumo mobile)</strong></th>
+<th>Consumir GET /shipments/pending-ratings desde la sección "Requiere tu atención"</th>
+<th>Media</th>
+<th>El backend está Done; el consumo mobile quedó fuera de alcance.</th>
+</tr>
+<tr>
+<th><strong>MOVO-224 (pendientes), 225, 226, 230</strong></th>
+<th>Consentimiento diferenciado para KYC, fee de MercadoPago, penalidad de cancelación y purga de datos</th>
+<th>Media</th>
+<th>Varios dependen del frente de pagos.</th>
+</tr>
+<tr>
+<th><strong>MOVO-232 (siguiente paso)</strong></th>
+<th>EAS Build/Submit y push notifications reales con TestFlight</th>
+<th>Media</th>
+<th>Los identificadores de tienda ya están fijados.</th>
+</tr>
+<tr>
+<th><strong>MOVO-233</strong></th>
+<th>Comparación automática de fotos entre creación y retiro</th>
+<th>Baja</th>
+<th>Registrada como historia futura al cerrar MOVO-196.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Registro de riesgos actualizado</h3><table>
+<colgroup>
+<col style="width: 5%"/>
+<col style="width: 21%"/>
+<col style="width: 7%"/>
+<col style="width: 11%"/>
+<col style="width: 11%"/>
+<col style="width: 41%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>ID</strong></th>
+<th><strong>Riesgo</strong></th>
+<th><strong>Prob.</strong></th>
+<th><strong>Impacto</strong></th>
+<th><strong>Prioridad</strong></th>
+<th><strong>Estado / actualización este sprint</strong></th>
+</tr>
+<tr>
+<th>R01</th>
+<th>Disponibilidad real del equipo menor a la estimada.</th>
+<th>Alta</th>
+<th>Alto</th>
+<th>Crítico</th>
+<th>Señal ambigua: la velocity cayó a 80 SP (−29.5% vs. promedio de 2 sprints, umbral 30%). No hay dato de horas disponibles para atribuirlo; revisar en la retro.</th>
+</tr>
+<tr>
+<th>R02</th>
+<th>Didit.me presenta demoras o comportamientos no documentados.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Medio</th>
+<th>Sin nueva materialización este sprint.</th>
+</tr>
+<tr>
+<th>R03</th>
+<th>OR-Tools VRPTW no converge en tiempos razonables.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Medio</th>
+<th>Mitigado parcialmente: el solver está en servicio (MOVO-217, 218, 205) con tope de 25 candidatos y latencia objetivo &lt; 500 ms. No hay medición de latencia ni de convergencia con datos reales en los comentarios; se mantiene en Medio hasta medir.</th>
+</tr>
+<tr>
+<th>R04</th>
+<th>Subestimación de horas/SP en historias complejas.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>No se sostuvo la mejora: el scope creció +237% (vs. +89%) y el cumplimiento en SP fue 68%. Se mantiene en Alto.</th>
+</tr>
+<tr>
+<th>R05</th>
+<th>Solapamiento con parciales/finales reduce la velocidad del equipo.</th>
+<th>Alta</th>
+<th>Medio</th>
+<th>Alto</th>
+<th>Sin evidencia directa; ver R01.</th>
+</tr>
+<tr>
+<th>R06</th>
+<th>Conocimiento crítico concentrado en una sola persona por dominio.</th>
+<th>Media</th>
+<th>Medio</th>
+<th>Medio</th>
+<th>Se agrava: 58% del arrastre está en una persona, que además sigue siendo la única con el contexto del frente de pagos.</th>
+</tr>
+<tr>
+<th>R07</th>
+<th>Los ADRs se documentan en dos fuentes sin un paso de sincronización obligatorio.</th>
+<th>Media</th>
+<th>Medio</th>
+<th>Medio</th>
+<th>Empeoró: a los 5 ADRs y 3 renumeraciones pendientes se suman ADR-021 y ADR-022. El doc de Sprint 0 no se modificó desde el 16/9.</th>
+</tr>
+<tr>
+<th>R08</th>
+<th>Defect Rate no captura bugs reales corregidos inline.</th>
+<th>Baja</th>
+<th>Bajo</th>
+<th>Bajo</th>
+<th>Reabierto: 0 issues con label Bug, pero al menos dos defectos corregidos dentro de otros tickets y uno documentado sin corregir.</th>
+</tr>
+<tr>
+<th>R09</th>
+<th>El split payment de MercadoPago está bloqueado sin plan B confirmado.</th>
+<th>Alta</th>
+<th>Crítico</th>
+<th>Crítico</th>
+<th>Sin cambios: 38 días sin actividad (25 en Sprint 4) y 14 tickets de pagos sin iniciar. Mitigación parcial: assigned_unfunded y la liberación de fondos sin efecto permiten avanzar el flujo operativo.</th>
+</tr>
+<tr>
+<th>R10</th>
+<th>Las historias padre no se cierran en Linear cuando todas sus hijas están Done.</th>
+<th>Media</th>
+<th>Bajo</th>
+<th>Medio</th>
+<th>Parcial. Corrección al informe anterior: MOVO-6 figuraba con todas sus hijas Done, pero MOVO-159 y 160 nunca cerraron. MOVO-25 sí sigue abierta con sus hijas Done desde el 5/9.</th>
+</tr>
+<tr>
+<th>R11</th>
+<th><strong>Nuevo.</strong> Cierre concentrado y acumulación de issues en In Review al final del sprint.</th>
+<th>Alta</th>
+<th>Medio</th>
+<th>Alto</th>
+<th>5 issues (15 SP) se cerraron el último día y 7 quedaron en In Review al corte (MOVO-159 y 160 desde el 17/9). Podría indicar un cuello de botella de revisión; no hay datos de tiempos de review para confirmarlo.</th>
+</tr>
+<tr>
+<th>R12</th>
+<th><strong>Nuevo.</strong> Canal en tiempo real y custodia validados solo en entorno local.</th>
+<th>Media</th>
+<th>Alto</th>
+<th>Alto</th>
+<th>MOVO-201 no se probó en EC2 y los cambios de nginx (MOVO-200) no se aplicaron ni probaron; MOVO-195 sin dispositivo físico ni ciclo HTTP completo.</th>
+</tr>
+<tr>
+<th>R13</th>
+<th><strong>Nuevo.</strong> Divergencia de contratos mobile/backend por trabajar contra mocks.</th>
+<th>Media</th>
+<th>Medio</th>
+<th>Medio</th>
+<th>Detectada en MOVO-193 vs. MOVO-192 (agreedPriceArs). Mitigación: importar tipos de @movo/shared y dejar el cableado como paso explícito.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h3>Artefactos de trazabilidad</h3><h4>Diagramas de modelado relevantes</h4><p>Los diagramas de modelado del proyecto viven en Miro, según la convención definida en el documento de Sprint 0. Este sprint el trabajo de diagramación quedó en el repositorio y en Linear, y no se pudo verificar el contenido de Miro:</p><ul>
+<li>
+<strong>Diagrama de estados del envío (DTE):</strong> actualizado en el repositorio (docs/shipments/state-diagram.md) tras MOVO-208: 11 estados y 18 transiciones, con una nota sobre por qué no se agrega delivery_failed. El Mermaid versionado es la fuente de verdad; no se adjuntó un diagrama nuevo al ticket.
+</li>
+<li>
+<strong>Flujo de consulta de viajes:</strong> diagrama adjunto por Pedro Yorlano en un comentario de MOVO-219 (13/9). Vive en Linear y falta incorporarlo a Miro.
+</li>
+<li>
+<strong>Estados del viaje (MOVO-221):</strong> el rediseño a declarado/activo/realizado modifica la máquina de estados del Trip; no se relevó si el diagrama correspondiente se actualizó.
+</li>
+<li>
+<strong>Canal de tiempo real:</strong> la prueba de concepto de MOVO-200 quedó documentada con instrucciones de ejecución en docs/tracking-poc/README.md.
+</li>
+</ul><h4>ADR correspondiente</h4><p>Los ADRs completos viven en el doc de Sprint 0 (Drive) y el CLAUDE.md del repositorio mantiene el resumen de una línea de cada uno. Este sprint agregó dos decisiones nuevas y dejó abiertas varias divergencias:</p><table>
+<colgroup>
+<col style="width: 22%"/>
+<col style="width: 51%"/>
+<col style="width: 25%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>Situación</strong></th>
+<th><strong>Detalle</strong></th>
+<th><strong>Acción</strong></th>
+</tr>
+<tr>
+<th>ADR-022 nuevo (MOVO-200)</th>
+<th>WebSocket nativo con @fastify/websocket; un solo protocolo cubre MOVO-11, 26 y 33 y reemplaza la mención a Socket.io del ADR-005. Redactado en un documento de Drive independiente.</th>
+<th>Pegar en la sección de ADRs del doc de Sprint 0.</th>
+</tr>
+<tr>
+<th>ADR-021 nuevo (MOVO-208)</th>
+<th>Extensión del set canónico de estados del envío con assigned_unfunded y completed. Redactado en el CLAUDE.md de movo-svc-shipments.</th>
+<th>Publicar en Drive con el formato del resto.</th>
+</tr>
+<tr>
+<th>Numeración a verificar</th>
+<th>MOVO-10 cita "ADR-021" en sus referencias, pero MOVO-208 asigna ese número al ADR de estados.</th>
+<th>Confirmar a qué decisión se refiere y corregir el ticket.</th>
+</tr>
+<tr>
+<th>7 ADRs pendientes de Sprint 4</th>
+<th>ADR-013, 014, 016, 017 y 020 sin pegar en Drive; 015, 018 y 019 con numeración distinta entre Drive y GitHub. Sin cambios en este sprint.</th>
+<th>Ver action item de 1.5.3.</th>
+</tr>
+<tr>
+<th>Decisiones sin ADR propio</th>
+<th>svc-pricing-logistics: proveedor de rutas intercambiable (mock Haversine o Google Routes), política sin fallback silencioso, holgura de 120 min, tope de 25 candidatos y TTL de 30 min para las rutas en Redis. En mobile: @noble/curves para la criptografía (MOVO-195).</th>
+<th>Evaluar si merecen ADR; la política sin fallback es transversal a shipments y pricing.</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table><h4>DER actualizado</h4><p>Cambios al modelo de datos reportados en los tickets de este sprint (migraciones en services/movo-svc-shipments/prisma/migrations/ y el DBML del repositorio):</p><ul>
+<li>
+<strong>MOVO-208:</strong> el enum de estados del envío suma assigned_unfunded y completed, actualizado en la migración, en @movo/shared, en el DTE y en docs/movo_der.dbml en el mismo PR (regla de MOVO-79 AC6).
+</li>
+<li>
+<strong>MOVO-187:</strong> la entidad Offer suma el snapshot del emisor al momento de la oferta (senderNameAtOffer, senderVerifiedAtOffer, senderRatingAtOffer).
+</li>
+<li>
+<strong>MOVO-189:</strong> la entidad Offer suma viewedAtBySender, que registra cuándo el emisor vio la oferta.
+</li>
+<li>
+<strong>MOVO-221:</strong> TripStatus pasa de active | cancelled | completed a los estados declarado, activo y realizado, con límite de un viaje activo por transportista. No se relevó el detalle de la migración.
+</li>
+<li>
+<strong>MOVO-172:</strong> el ticket parte de que no existía ninguna entidad de vehículo (Trip.vehicleType era un texto libre) y agrega la ficha del vehículo del transportista en svc-users. No se relevó el detalle de la migración.
+</li>
+</ul><p><strong>Pendiente de verificación:</strong> no se pudo confirmar el diagrama en Miro. El archivo Movo_DER_1_0.md del Drive del proyecto no incluye la entidad Trip ni ninguno de los cambios de este sprint (una búsqueda de "Trip" no encuentra coincidencias, igual que en Sprint 4); la fuente actualizada es docs/movo_der.dbml en el repositorio.</p><h4>Casos de prueba y resultados de ejecución</h4><p>Selección representativa de casos reportados en los comentarios de los tickets de este sprint. Donde el resultado dice "no reportado", el comentario define el criterio pero no informa la ejecución.</p><table style="width:100%;">
+<colgroup>
+<col style="width: 11%"/>
+<col style="width: 13%"/>
+<col style="width: 16%"/>
+<col style="width: 15%"/>
+<col style="width: 22%"/>
+<col style="width: 20%"/>
+</colgroup>
+<thead>
+<tr>
+<th><strong>US / Tarea</strong></th>
+<th><strong>Caso de prueba</strong></th>
+<th><strong>Precondición</strong></th>
+<th><strong>Pasos</strong></th>
+<th><strong>Resultado esperado</strong></th>
+<th><strong>Resultado de ejecución</strong></th>
+</tr>
+<tr>
+<th>MOVO-201</th>
+<th>Suscripción a un envío ajeno por WebSocket</th>
+<th>Usuario autenticado que no es emisor, transportista ni receptor del envío.</th>
+<th>Abrir GET /shipments/:id/track (WS) con el JWT válido de ese usuario.</th>
+<th>La conexión no se autoriza: no se abre el canal ni se emiten posiciones.</th>
+<th>Cubierto en la PoC de MOVO-200 (4 casos contra servidor real) y en tracking.integration.test.ts (8 casos). Suite svc-shipments 756/756.</th>
+</tr>
+<tr>
+<th>MOVO-201</th>
+<th>Cierre del canal al llegar a un estado terminal</th>
+<th>Canal abierto sobre un envío en curso.</th>
+<th>Llevar el envío a un estado terminal mediante updateStatus().</th>
+<th>El servidor cierra la conexión de inmediato, sin esperar un intervalo de polling.</th>
+<th>Tests de integración en verde; no probado en EC2.</th>
+</tr>
+<tr>
+<th>MOVO-196</th>
+<th>Handshake sin evidencia fotográfica del stage</th>
+<th>Desafío pendiente en Redis; sin foto del stage (pickup o delivery).</th>
+<th>Confirmar el handshake con el actor autorizado.</th>
+<th>Se rechaza antes de consultar la clave pública y verificar la firma; el nonce no se borra y el intento es reintentable dentro del TTL.</th>
+<th>Test dedicado en handshake-service.test.ts que verifica que findDeviceKey nunca se llama.</th>
+</tr>
+<tr>
+<th>MOVO-222</th>
+<th>Calificaciones pendientes: casos límite</th>
+<th>Envíos entregados con ventana de 72 h vencida, ya calificado, y transportista con 2 contrapartes calificado parcialmente.</th>
+<th>GET /shipments/pending-ratings.</th>
+<th>Solo aparecen envíos con algo pendiente; el transportista ve solo el rol faltante y /shipments/mine no incluye ese envío.</th>
+<th>Tests con Postgres real: 3 casos límite más un test de regresión.</th>
+</tr>
+<tr>
+<th>MOVO-219</th>
+<th>Feed de viaje con pricing-logistics no disponible</th>
+<th>Viaje activo con candidatos; servicio caído o con más de 1000 ms.</th>
+<th>GET /trips/:id/matches.</th>
+<th>Error visible 502/503 (SERVICE_UNAVAILABLE o ROUTING_ERROR), sin estimaciones inventadas.</th>
+<th>No reportado (criterio del refinamiento del 12/9).</th>
+</tr>
+<tr>
+<th>MOVO-218</th>
+<th>Candidato inviable por ventana horaria</th>
+<th>Viaje con candidatos; uno excede la ventana horaria más la holgura de 2 h.</th>
+<th>POST /routes/evaluate-candidates (máximo 25 candidatos).</th>
+<th>El inviable vuelve como feasible: false; los viables traen desvío en km y minutos y la ruta queda en Redis por 30 min.</th>
+<th>No reportado (criterio del refinamiento del 12/9).</th>
+</tr>
+<tr>
+<th>MOVO-189</th>
+<th>Oferta vencida o consulta de admin no cuentan como "vista"</th>
+<th>Oferta pending con expires_at vencido; consulta del emisor con includeResolved=true y de un admin.</th>
+<th>GET /shipments/:id/offers.</th>
+<th>No se setea viewedAtBySender para la oferta vencida ni cuando lista un admin.</th>
+<th>Decisión documentada al cierre; cantidad de tests no detallada.</th>
+</tr>
+<tr>
+<th>MOVO-179</th>
+<th>Push por envío compatible con viaje activo</th>
+<th>Transportista con viaje activo y app en segundo plano.</th>
+<th>Publicar un envío compatible con el corredor del viaje.</th>
+<th>Se notifica solo si el corredor y la viabilidad contra pricing-logistics lo confirman; si esa consulta falla, no notifica y no propaga error.</th>
+<th>No reportado (criterio de diseño del 20/9).</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table>
