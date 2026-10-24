@@ -11,6 +11,7 @@ import realtimePlugin from "./plugins/realtime";
 import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
+import supportAttachmentSweepPlugin from "./plugins/support-attachment-sweep";
 import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
 import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sweep";
 import historyRetentionSweepPlugin from "./plugins/history-retention-sweep";
@@ -84,6 +85,8 @@ export interface BuildAppOptions {
   sweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
   orphanPhotoSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de adjuntos de soporte huérfanos (MOVO-321). */
+  supportAttachmentSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de retiro vencido en background. */
   pickupExpirySweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de purga de posiciones GPS en
@@ -172,6 +175,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(orphanPhotoSweepPlugin, {
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
+  });
+  app.register(supportAttachmentSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.supportAttachmentSweepEnabled !== undefined ? { enabled: opts.supportAttachmentSweepEnabled } : {}),
   });
   app.register(pickupExpirySweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
@@ -382,6 +389,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const supportRouteOpts: SupportRoutesOptions = {
     prefix: "/support",
     ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.supportNow ? { now: opts.supportNow } : {}),
     ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),

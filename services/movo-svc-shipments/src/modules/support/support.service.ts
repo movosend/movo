@@ -2,9 +2,11 @@ import {
   ApiError,
   notificationTriggerCategory,
   renderNotificationTrigger,
+  SupportAttachmentCreateResult,
   SupportConversationItem,
   SupportCreateBody,
   SupportCreateResult,
+  SupportUserAttachmentCreateBody,
   SupportUserMessagesPage,
   SupportRealtimeEvent,
   SupportUserFacingMessage,
@@ -19,6 +21,7 @@ import {
   SupportMessageRecord,
   SupportRepository,
 } from "../../repositories/support-repository";
+import { SupportAttachmentClaimError } from "../../repositories/support-attachment-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { ChatHub } from "../../realtime/chat-hub";
@@ -26,6 +29,7 @@ import { hasShipmentAccess } from "../shipments/assert-shipment-access";
 import { moderateChatText } from "../../domain/chat-moderation";
 import { toConversationItem, toUserFacingMessage, supportRoomKey } from "../../domain/support-rules";
 import type { ChatPushBuffer, ChatPushBufferEntry } from "../chat/chat.service";
+import { attachmentInvalid, SupportAttachmentsService } from "./support-attachments.service";
 
 type SupportLogger = { warn: (obj: unknown, msg?: string) => void };
 
@@ -40,6 +44,8 @@ const SUPPORT_LIST_LIMIT = 100;
 
 export interface SupportServiceDeps {
   supportRepository: SupportRepository;
+  /** MOVO-321: adjuntos (subida, verificación y URLs firmadas). */
+  attachments: SupportAttachmentsService;
   shipmentRepository: ShipmentRepository;
   notificationsClient: NotificationsClient;
   hub: ChatHub;
@@ -71,20 +77,38 @@ export function createSupportService(deps: SupportServiceDeps) {
   const now = deps.now ?? (() => new Date());
   const repo = deps.supportRepository;
 
-  /** Texto del usuario listo para guardar: recortado, entre 1 y el máximo, y con el filtro de lenguaje aplicado. */
-  function prepareUserText(raw: string): { text: string; moderated: boolean } {
+  /**
+   * Texto del usuario listo para guardar: recortado, hasta el máximo y con el filtro de lenguaje aplicado. Vacío solo
+   * si el mensaje lleva adjuntos (MOVO-321 AC3).
+   */
+  function prepareUserText(raw: string, hasAttachments: boolean): { text: string; moderated: boolean } {
     const trimmed = raw.trim();
-    if (trimmed.length === 0 || trimmed.length > SUPPORT_MESSAGE_MAX_LENGTH) {
+    if ((trimmed.length === 0 && !hasAttachments) || trimmed.length > SUPPORT_MESSAGE_MAX_LENGTH) {
       throw new ApiError(400, "VALIDATION_FAILED", `El mensaje debe tener entre 1 y ${SUPPORT_MESSAGE_MAX_LENGTH} caracteres.`);
     }
+    if (trimmed.length === 0) return { text: "", moderated: false };
     const { text, masked } = moderateChatText(trimmed);
     return { text, moderated: masked };
   }
 
-  /** Los adjuntos son de MOVO-321: hasta entonces un `attachmentIds` no vacío no se puede resolver. */
-  function rejectAttachments(attachmentIds: string[] | undefined): void {
-    if (attachmentIds && attachmentIds.length > 0) {
-      throw new ApiError(422, "SUPPORT_ATTACHMENT_INVALID", "Los adjuntos todavía no están disponibles.");
+  /** El mensaje tal como lo ve el usuario, con sus adjuntos y URLs recién firmadas (`null` si es una nota). */
+  async function userFacing(
+    record: SupportMessageRecord,
+    viewerId: string,
+    lastAgentReadAt: Date | null
+  ): Promise<SupportUserFacingMessage | null> {
+    if (record.kind === "note") return null;
+    const views = await deps.attachments.viewsFor([record]);
+    return toUserFacingMessage(record, viewerId, lastAgentReadAt, views.get(record.id) ?? []);
+  }
+
+  /** Guarda el mensaje; si algún adjunto se usó en el medio (carrera con otro mensaje o con el sweep), 422. */
+  async function withAttachmentClaim<T>(write: () => Promise<T>): Promise<T> {
+    try {
+      return await write();
+    } catch (err) {
+      if (err instanceof SupportAttachmentClaimError) throw attachmentInvalid("Alguna imagen no se puede usar en este mensaje.");
+      throw err;
     }
   }
 
@@ -104,8 +128,11 @@ export function createSupportService(deps: SupportServiceDeps) {
    * ÚNICO camino de fan-out por WebSocket hacia el usuario. Los mensajes pasan por `toUserFacingMessage`, que
    * descarta las notas internas: ningún evento sale sin pasar por acá.
    */
-  function emitMessage(conversation: SupportConversationRecord, record: SupportMessageRecord): SupportUserFacingMessage | null {
-    const message = toUserFacingMessage(record, conversation.userId, conversation.lastAgentReadAt);
+  async function emitMessage(
+    conversation: SupportConversationRecord,
+    record: SupportMessageRecord
+  ): Promise<SupportUserFacingMessage | null> {
+    const message = await userFacing(record, conversation.userId, conversation.lastAgentReadAt);
     if (!message) return null;
     const event: SupportRealtimeEvent = { type: "support_message", message };
     deps.hub.sendToUser(supportRoomKey(conversation.id), conversation.userId, event);
@@ -123,6 +150,7 @@ export function createSupportService(deps: SupportServiceDeps) {
   }
 
   async function sendSupportPush(conversationId: string, userId: string, entry: ChatPushBufferEntry, count: number): Promise<void> {
+    // Un `body` vacío (solo imágenes) lo convierte la plantilla en "Te envió una imagen" (MOVO-321 AC6).
     const copy = renderNotificationTrigger("supportMessageReceived", {
       agentName: entry.authorName || undefined,
       messageBody: previewOf(entry.body),
@@ -196,7 +224,7 @@ export function createSupportService(deps: SupportServiceDeps) {
      * un reintento devuelve lo ya creado (`replayed: true`).
      */
     async createConversation(userId: string, input: SupportCreateBody): Promise<SupportCreateResult & { replayed: boolean }> {
-      rejectAttachments(input.attachmentIds);
+      const attachmentIds = input.attachmentIds ?? [];
 
       const replay = async (message: SupportMessageRecord) => {
         const conversation = await repo.findById(message.conversationId);
@@ -205,7 +233,7 @@ export function createSupportService(deps: SupportServiceDeps) {
         if (message.createdAt.getTime() !== conversation.createdAt.getTime()) {
           throw new ApiError(400, "VALIDATION_FAILED", "Ese clientMessageId ya se usó en otra consulta.");
         }
-        const dto = toUserFacingMessage(message, userId, conversation.lastAgentReadAt);
+        const dto = await userFacing(message, userId, conversation.lastAgentReadAt);
         if (!dto) throw notFound();
         return { conversation: await itemFor(conversation, userId), message: dto, replayed: true };
       };
@@ -213,7 +241,7 @@ export function createSupportService(deps: SupportServiceDeps) {
       const existing = await repo.findUserMessageByClientId(userId, input.clientMessageId);
       if (existing) return replay(existing);
 
-      const { text, moderated } = prepareUserText(input.body);
+      const { text, moderated } = prepareUserText(input.body, attachmentIds.length > 0);
 
       let shipmentId: string | null = null;
       if (input.shipmentId) {
@@ -225,18 +253,31 @@ export function createSupportService(deps: SupportServiceDeps) {
         shipmentId = shipment.id;
       }
 
-      const created = await repo.createWithFirstMessage({
-        userId,
-        topic: input.topic,
-        shipmentId,
-        body: text,
-        moderated,
-        clientMessageId: input.clientMessageId,
-        now: now(),
-      });
+      // La consulta todavía no existe: solo sirven adjuntos del usuario sin conversación (`support/pending/…`).
+      await deps.attachments.assertUsable({ ids: attachmentIds, uploaderId: userId, uploaderKind: "user", conversationId: null });
+      let created;
+      try {
+        created = await withAttachmentClaim(() =>
+          repo.createWithFirstMessage({
+            userId,
+            topic: input.topic,
+            shipmentId,
+            body: text,
+            moderated,
+            clientMessageId: input.clientMessageId,
+            attachmentIds,
+            now: now(),
+          })
+        );
+      } catch (err) {
+        // Un reenvío simultáneo puede perder la carrera por los adjuntos en vez de por `clientMessageId`.
+        const raced = await repo.findUserMessageByClientId(userId, input.clientMessageId);
+        if (raced) return replay(raced);
+        throw err;
+      }
       if (!created.created) return replay(created.message);
 
-      const message = toUserFacingMessage(created.message, userId, created.conversation.lastAgentReadAt);
+      const message = await userFacing(created.message, userId, created.conversation.lastAgentReadAt);
       if (!message) throw notFound();
       return { conversation: await itemFor(created.conversation, userId), message, replayed: false };
     },
@@ -246,7 +287,10 @@ export function createSupportService(deps: SupportServiceDeps) {
       return { items: rows.map((r) => toConversationItem(r.conversation, r.lastMessage, r.unreadCount)) };
     },
 
-    /** Historial (sin notas), del más reciente al más antiguo. Abrir la primera página cuenta como recibir lo que había. */
+    /**
+     * Historial (sin notas), del más reciente al más antiguo. Abrir la primera página cuenta como recibir lo que había.
+     * Cada pedido firma de nuevo las URLs de los adjuntos (así la app renueva una vencida, MOVO-321 AC5).
+     */
     async getMessages(input: { userId: string; conversationId: string; limit: number; cursor?: string }): Promise<SupportUserMessagesPage> {
       const conversation = await ownedConversation(input.conversationId, input.userId);
       let page;
@@ -257,8 +301,9 @@ export function createSupportService(deps: SupportServiceDeps) {
         throw err;
       }
       if (!input.cursor) await repo.markDelivered(conversation.id, input.userId, now());
+      const views = await deps.attachments.viewsFor(page.items);
       const items = page.items
-        .map((m) => toUserFacingMessage(m, input.userId, conversation.lastAgentReadAt))
+        .map((m) => toUserFacingMessage(m, input.userId, conversation.lastAgentReadAt, views.get(m.id) ?? []))
         .filter((m): m is SupportUserFacingMessage => m !== null);
       return { items, nextCursor: page.nextCursor, conversation: await itemFor(conversation, input.userId) };
     },
@@ -274,14 +319,14 @@ export function createSupportService(deps: SupportServiceDeps) {
       clientMessageId: string;
       attachmentIds?: string[];
     }): Promise<{ message: SupportUserFacingMessage; replayed: boolean }> {
-      rejectAttachments(input.attachmentIds);
       const conversation = await ownedConversation(input.conversationId, input.userId);
+      const attachmentIds = input.attachmentIds ?? [];
 
-      const replay = (record: SupportMessageRecord) => {
+      const replay = async (record: SupportMessageRecord) => {
         if (record.conversationId !== conversation.id) {
           throw new ApiError(400, "VALIDATION_FAILED", "Ese clientMessageId ya se usó en otra consulta.");
         }
-        const dto = toUserFacingMessage(record, input.userId, conversation.lastAgentReadAt);
+        const dto = await userFacing(record, input.userId, conversation.lastAgentReadAt);
         if (!dto) throw notFound();
         return { message: dto, replayed: true };
       };
@@ -289,23 +334,56 @@ export function createSupportService(deps: SupportServiceDeps) {
       const existing = await repo.findUserMessageByClientId(input.userId, input.clientMessageId);
       if (existing) return replay(existing);
 
-      const { text, moderated } = prepareUserText(input.body);
-      const appended = await repo.appendUserMessage({
+      const { text, moderated } = prepareUserText(input.body, attachmentIds.length > 0);
+      await deps.attachments.assertUsable({
+        ids: attachmentIds,
+        uploaderId: input.userId,
+        uploaderKind: "user",
         conversationId: conversation.id,
-        userId: input.userId,
-        body: text,
-        moderated,
-        clientMessageId: input.clientMessageId,
-        now: now(),
       });
+      let appended;
+      try {
+        appended = await withAttachmentClaim(() =>
+          repo.appendUserMessage({
+            conversationId: conversation.id,
+            userId: input.userId,
+            body: text,
+            moderated,
+            clientMessageId: input.clientMessageId,
+            attachmentIds,
+            now: now(),
+          })
+        );
+      } catch (err) {
+        const raced = await repo.findUserMessageByClientId(input.userId, input.clientMessageId);
+        if (raced) return replay(raced);
+        throw err;
+      }
       if (!appended.created) return replay(appended.message);
 
       // Los otros dispositivos del usuario reciben lo mismo que el que escribió (el cliente deduplica por clientMessageId).
-      const message = emitMessage(appended.conversation, appended.message);
+      const message = await emitMessage(appended.conversation, appended.message);
       if (!message) throw notFound();
-      if (appended.systemMessage) emitMessage(appended.conversation, appended.systemMessage);
+      if (appended.systemMessage) await emitMessage(appended.conversation, appended.systemMessage);
       if (appended.statusChanged) emitStatus(appended.conversation);
       return { message, replayed: false };
+    },
+
+    /**
+     * MOVO-321 AC1: el usuario pide una URL de subida. Con `conversationId` la consulta tiene que ser suya (404 si no,
+     * igual que el resto); sin él es una foto de la primera consulta, que todavía no existe.
+     */
+    async createAttachment(userId: string, input: SupportUserAttachmentCreateBody): Promise<SupportAttachmentCreateResult> {
+      const conversationId = input.conversationId ? (await ownedConversation(input.conversationId, userId)).id : null;
+      return deps.attachments.create({
+        uploaderId: userId,
+        uploaderKind: "user",
+        conversationId,
+        contentType: input.contentType,
+        sizeBytes: input.sizeBytes,
+        ...(input.width !== undefined ? { width: input.width } : {}),
+        ...(input.height !== undefined ? { height: input.height } : {}),
+      });
     },
 
     async markRead(userId: string, conversationId: string): Promise<{ readAt: string }> {
@@ -348,7 +426,7 @@ export function createSupportService(deps: SupportServiceDeps) {
      * push (ADR-046). Un `system` se difunde pero nunca avisa por push.
      */
     async publishStaffMessage(conversation: SupportConversationRecord, record: SupportMessageRecord): Promise<void> {
-      const message = emitMessage(conversation, record);
+      const message = await emitMessage(conversation, record);
       if (!message || record.kind !== "agent") return;
       if (deps.hub.isUserConnected(supportRoomKey(conversation.id), conversation.userId)) return;
       await dispatchPush(conversation.id, conversation.userId, {
