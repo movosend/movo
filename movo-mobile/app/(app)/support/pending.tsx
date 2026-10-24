@@ -1,0 +1,123 @@
+import type { InfiniteData } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import type { SupportAttachment } from "@movo/shared/dist/types/admin-support";
+import type { SupportUserFacingMessage, SupportMessagesPage } from "@movo/shared/dist/types/support";
+import { Redirect, router } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SupportConversationView, type SupportTimelineItem } from "../../../components/support/support-conversation-view";
+import { supportKeys, useCreateSupportConversation } from "../../../src/hooks/use-support";
+import { buildTimeline } from "../../../src/lib/chat-format";
+import { friendlyErrorMessage } from "../../../src/lib/error-messages";
+import {
+  SUPPORT_ME_ID,
+  supportHeaderSubtitle,
+  supportToChatMessage,
+  type SupportChatMessage,
+  type SupportEventCard,
+} from "../../../src/lib/support-format";
+import { useSupportDraftStore } from "../../../src/store/support-draft-store";
+
+const CREATE_ERROR = "No pudimos enviar tu consulta.";
+
+/**
+ * MOVO-324: la consulta que se está creando. Se ve igual que una conversación (la burbuja en "Enviando…") pero
+ * todavía no hay `conversationId`: hace el POST con el borrador de `support-draft-store`; si falla ofrece reintentar
+ * con el mismo `clientMessageId` (idempotente) o descartar; si sale, pasa a la conversación real con el caché sembrado.
+ */
+export default function PendingSupportConversationScreen() {
+  const queryClient = useQueryClient();
+  const draft = useSupportDraftStore((s) => s.draft);
+  const clearDraft = useSupportDraftStore((s) => s.clearDraft);
+  const create = useCreateSupportConversation();
+  const [failed, setFailed] = useState<unknown>(null);
+  const startedRef = useRef(false);
+  const doneRef = useRef(false);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const attempt = useCallback(() => {
+    if (!draft) return;
+    setFailed(null);
+    void (async () => {
+      try {
+        const { conversation, message } = await create.mutateAsync({
+          topic: draft.topic,
+          body: draft.body,
+          clientMessageId: draft.clientMessageId,
+          ...(draft.shipment ? { shipmentId: draft.shipment.id } : {}),
+          ...(draft.attachments.length > 0 ? { attachmentIds: draft.attachments.map((a) => a.attachmentId) } : {}),
+        });
+        if (mountedRef.current) doneRef.current = true;
+        queryClient.setQueryData<InfiniteData<SupportMessagesPage>>(supportKeys.messages(conversation.id), {
+          pages: [{ items: [message], nextCursor: null, conversation }],
+          pageParams: [undefined],
+        });
+        if (useSupportDraftStore.getState().draft?.clientMessageId === draft.clientMessageId) clearDraft();
+        if (mountedRef.current) {
+          router.replace({ pathname: "/support/[id]", params: { id: conversation.id, ...(message.moderated ? { moderated: "1" } : {}) } } as never);
+        }
+      } catch (error) {
+        if (mountedRef.current) setFailed(error);
+      }
+    })();
+  }, [draft, queryClient, clearDraft, create.mutateAsync]);
+
+  useEffect(() => {
+    if (draft && !startedRef.current) {
+      startedRef.current = true;
+      attempt();
+    }
+  }, [draft, attempt]);
+
+  const timeline: SupportTimelineItem[] = useMemo(() => {
+    if (!draft) return [];
+    const attachments: SupportAttachment[] = draft.attachments.map((a) => ({ id: a.attachmentId, contentType: "image/jpeg", url: a.localUri }));
+    const optimistic: SupportUserFacingMessage = {
+      id: "",
+      conversationId: "",
+      kind: "user",
+      authorName: null,
+      body: draft.body,
+      clientMessageId: draft.clientMessageId,
+      moderated: false,
+      deliveryStatus: null,
+      attachments,
+      createdAt: draft.createdAt,
+    };
+    return buildTimeline<SupportChatMessage, SupportEventCard>({
+      messages: [supportToChatMessage(optimistic, failed ? "failed" : "sending")],
+      events: [],
+      currentUserId: SUPPORT_ME_ID,
+    });
+  }, [draft, failed]);
+
+  if (doneRef.current) return null;
+  if (!draft) return <Redirect href={"/support/conversations" as never} />;
+
+  const leave = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/support/conversations" as never);
+  };
+
+  return (
+    <SupportConversationView
+      subtitle={supportHeaderSubtitle(undefined, draft.topic)}
+      shipment={draft.shipment}
+      timeline={timeline}
+      composerHidden
+      sendError={failed ? friendlyErrorMessage(failed, CREATE_ERROR) : null}
+      onRetryMessage={attempt}
+      onDiscardMessage={() => {
+        clearDraft();
+        leave();
+      }}
+      onBack={leave}
+    />
+  );
+}
