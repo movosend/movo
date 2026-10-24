@@ -43,6 +43,7 @@ export function quoteFingerprint(input: ShipmentQuoteRequest): string {
     input.lengthCm,
     input.widthCm,
     input.heightCm,
+    input.oversized ?? false,
     coord(input.pickupLat),
     coord(input.pickupLng),
     coord(input.deliveryLat),

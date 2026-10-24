@@ -66,8 +66,10 @@ export enum PriceCalculationMethod {
   EUCLIDEAN_LINEAR_V1 = "euclidean_linear_v1",
   /** Ruta real + combustible + demanda (MOVO-138, ADR-025). Ya no se emite, pero sigue persistida en envíos viejos. */
   DEMAND_FUEL_ROUTES_V1 = "demand_fuel_routes_v1",
-  /** Peso facturable, base por categoría y recargo por frágil sobre v1 (MOVO-276). */
+  /** Peso facturable, base por categoría y recargo por frágil sobre v1 (MOVO-276). Ya no se emite, pero sigue persistida en envíos viejos. */
   PACKAGE_TAPERED_V2 = "package_tapered_v2",
+  /** Igual que v2 con el peso volumétrico acotado a un tope: los paquetes enormes ya no se disparan (MOVO-317). */
+  PACKAGE_TAPERED_V3 = "package_tapered_v3",
 }
 
 /**
@@ -94,6 +96,12 @@ export interface ShipmentQuoteRequest {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /**
+   * MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). No lo usa pricing ni cambia el
+   * precio: solo entra en la huella de la cotización congelada, así que cambiarlo entre cotizar y crear invalida
+   * el `quoteId` (409 `QUOTE_MISMATCH`).
+   */
+  oversized?: boolean;
   pickupLat: number;
   pickupLng: number;
   deliveryLat: number;

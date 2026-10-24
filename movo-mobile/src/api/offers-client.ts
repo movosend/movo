@@ -96,6 +96,11 @@ export interface MyOfferShipmentContext {
   distanceKm: number;
   packageType: PackageType;
   weightKg: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  /** MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). */
+  oversized: boolean;
   description: string | null;
 }
 

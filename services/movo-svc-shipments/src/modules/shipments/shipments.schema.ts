@@ -1,14 +1,14 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa movo-svc-users: cada schema no comparte definiciones entre sí.
-import { ShipmentStatus } from "@movo/shared";
+import { PACKAGE_INPUT_SANITY_MAX, ShipmentStatus } from "@movo/shared";
 import { shipmentReceiverTransferSummary } from "../receiver-transfers/receiver-transfers.schema";
 
 const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
 
-// Solo los mínimos: los máximos de peso y medidas (más la suma de lados) son límites duros
-// configurables por env var (MOVO-276, `domain/package-limits.ts`) y los valida el servicio
-// con un 422 `PACKAGE_LIMITS_EXCEEDED` que dice qué se excedió. Un máximo de AJV acá los
-// pisaría con un 400 genérico y quedaría desalineado si se recalibra el env.
+// Sin límites de negocio de peso ni medidas (MOVO-317): el tamaño lo decide cada transportista al
+// ofertar. Reemplaza los límites duros de MOVO-276 (ADR-041). Solo un tope de cordura
+// (`PACKAGE_INPUT_SANITY_MAX`, 10.000 kg o cm) para que un cliente directo no mande 1e9 y desborde
+// el precio; pricing lo aplica igual en `QuoteRequest`.
 const WEIGHT_KG_MIN = 0.1;
 const DIMENSION_CM_MIN = 1;
 
@@ -85,6 +85,7 @@ const shipmentResponse = {
     "lengthCm",
     "widthCm",
     "heightCm",
+    "oversized",
     "description",
     "urgent",
     "pickupAddress",
@@ -126,6 +127,7 @@ const shipmentResponse = {
     lengthCm: { type: "number" },
     widthCm: { type: "number" },
     heightCm: { type: "number" },
+    oversized: { type: "boolean" },
     description: { type: ["string", "null"] },
     urgent: { type: "boolean" },
     pickupAddress: { type: "string" },
@@ -224,6 +226,7 @@ const availableShipmentResponse = {
     "lengthCm",
     "widthCm",
     "heightCm",
+    "oversized",
     "description",
     "urgent",
     "pickupAddress",
@@ -252,6 +255,7 @@ const availableShipmentResponse = {
     lengthCm: { type: "number" },
     widthCm: { type: "number" },
     heightCm: { type: "number" },
+    oversized: { type: "boolean" },
     description: { type: ["string", "null"] },
     urgent: { type: "boolean" },
     pickupAddress: { type: "string" },
@@ -467,21 +471,24 @@ const shipmentEventResponse = {
 // de `POST /shipments/quote` para que las dos rutas validen exactamente igual.
 const priceAffectingProperties = {
   packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
-  weightKg: { type: "number", minimum: WEIGHT_KG_MIN },
-  lengthCm: { type: "number", minimum: DIMENSION_CM_MIN },
-  widthCm: { type: "number", minimum: DIMENSION_CM_MIN },
-  heightCm: { type: "number", minimum: DIMENSION_CM_MIN },
+  weightKg: { type: "number", minimum: WEIGHT_KG_MIN, maximum: PACKAGE_INPUT_SANITY_MAX },
+  lengthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: PACKAGE_INPUT_SANITY_MAX },
+  widthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: PACKAGE_INPUT_SANITY_MAX },
+  heightCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: PACKAGE_INPUT_SANITY_MAX },
   pickupLat: { type: "number", minimum: -90, maximum: 90 },
   pickupLng: { type: "number", minimum: -180, maximum: 180 },
   deliveryLat: { type: "number", minimum: -90, maximum: 90 },
   deliveryLng: { type: "number", minimum: -180, maximum: 180 },
 };
 
+// MOVO-317: "Más de 300 cm" en algún lado. Opcional (builds viejos del mobile no lo mandan).
+const oversizedProperty = { oversized: { type: "boolean" } };
+
 export const shipmentsSchemas = {
   quoteShipmentBody: {
     type: "object",
     required: Object.keys(priceAffectingProperties),
-    properties: priceAffectingProperties,
+    properties: { ...priceAffectingProperties, ...oversizedProperty },
     additionalProperties: false,
   },
 
@@ -519,6 +526,7 @@ export const shipmentsSchemas = {
     ],
     properties: {
       ...priceAffectingProperties,
+      ...oversizedProperty,
       description: { type: "string", maxLength: 500 },
       // `senderId` NUNCA se acepta acá (AC10 de MOVO-80) — si el cliente lo manda
       // igual, `additionalProperties: false` lo rechaza en vez de ignorarlo en

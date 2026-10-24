@@ -106,6 +106,10 @@ function mapOfferWithShipment(
         ) / 10,
       packageType: row.shipment.packageType,
       weightKg: row.shipment.weightKg.toNumber(),
+      lengthCm: row.shipment.lengthCm.toNumber(),
+      widthCm: row.shipment.widthCm.toNumber(),
+      heightCm: row.shipment.heightCm.toNumber(),
+      oversized: row.shipment.oversized,
       description: row.shipment.description,
     },
     // MOVO-188: resuelto aparte por `offers.service.ts` (batch sobre la página, ver

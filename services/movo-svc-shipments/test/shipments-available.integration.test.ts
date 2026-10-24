@@ -179,6 +179,27 @@ describe("GET /shipments/available (Postgres, MOVO-142)", () => {
       expect(item).not.toHaveProperty("paymentMethod");
     });
 
+    it("MOVO-317: el feed devuelve peso, medidas y oversized del envío marcado, contra Postgres", async () => {
+      await createPublishedShipment({ weightKg: 85.5, lengthCm: 300, widthCm: 120, heightCm: 80, oversized: true });
+      const response = await requestAvailable(verifiedCarrierId);
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().items[0]).toMatchObject({
+        weightKg: 85.5,
+        lengthCm: 300,
+        widthCm: 120,
+        heightCm: 80,
+        oversized: true,
+      });
+    });
+
+    it("MOVO-317: un envío sin marcar devuelve oversized: false", async () => {
+      await createPublishedShipment();
+      const response = await requestAvailable(verifiedCarrierId);
+
+      expect(response.json().items[0].oversized).toBe(false);
+    });
+
     it("AC9: la respuesta sí incluye direcciones, ventana horaria y las distancias", async () => {
       await createPublishedShipment();
       const response = await requestAvailable(verifiedCarrierId);

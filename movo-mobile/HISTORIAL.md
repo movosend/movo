@@ -4999,6 +4999,27 @@ Pendiente: subir la precisión del GPS cerca del retiro (ADR-052, toca la medici
 - **Registro**: manda `firstName`/`lastName` por separado (antes un `fullName` que el backend cortaba en el primer espacio).
 - Fuera de alcance: el ítem 1 (pantalla externa) se resolvió fuera del código.
 
+### MOVO-317 — Peso y medidas libres al publicar un envío
+
+- **Wizard** (`components/send/`): `WeightStepper` pasa a pasos de 0,5 kg con campo editable (coma o punto; al salir se redondea al
+  múltiplo de 0,5 más cercano; vacío, 0 o negativo vacían el valor y no dejan avanzar). `DimensionInputs` son tres `SelectField` de 10 a
+  300 cm de a 10 más "Más de 300 cm". Mínimo, paso y tope salen de `@movo/shared` (`config/package-dimensions.ts`, import profundo
+  `@movo/shared/dist/...`: el barrel arrastra `node:crypto` y rompe el bundle de Metro). Sin máximos: `isPackageStepValid` pide peso > 0 y
+  las tres medidas elegidas.
+- **"Más de 300 cm"** vive en el store como `"oversized"` (`src/lib/package-dimensions.ts`) y viaja como la medida tope (300) más
+  `oversized: true` en cotizar y crear. En el campo cerrado se muestra "+300 cm" (la etiqueta completa no entra en un tercio del ancho);
+  el resumen muestra `+300`.
+- Al elegir Estándar o Frágil el peso arranca cargado en 0,5 kg; al pasar de Documento a otro tipo se limpian los valores fijos de la carta
+  (30 × 21 × 1 cm no son opciones de los desplegables). Documento sigue mandando 0,1 kg fijo.
+- **Transportista** (M7): la tarjeta del feed y `PackageCard` muestran peso y medidas con el aviso "Más de 300 cm"
+  (`formatPackageDimensions`). El detalle de la oferta del transportista no repite el paquete (decisión de MOVO-182).
+- **Tamaños rápidos**: tres botones Pequeño / Mediano / Grande bajo las medidas (`components/send/package-presets.tsx`, valores en
+  `src/lib/package-presets.ts`) que cargan peso y las tres medidas de un toque (2 kg 30 × 20 × 20, 8 kg 50 × 40 × 30, 25 kg
+  100 × 60 × 60). Mismo estilo que `CategoryGrid`; queda marcado el que coincide con los cuatro valores y se desmarca al ajustar uno.
+  No aparecen con Documento. Los valores salen de los perfiles del juego de precios (pequeño y mediano); el grande es nuevo.
+- `SelectField` suma `displayValue` y espacio inferior en la lista (la última opción quedaba bajo la barra de gestos).
+- Tests: `test/package-dimensions.test.tsx` reemplaza a `package-limits.test.tsx` (límites de MOVO-276).
+- Pendiente: el copy de `PACKAGE_LIMITS_EXCEEDED` en `error-messages.ts` queda por compatibilidad con backends viejos.
 ### MOVO-324 — Ayuda y soporte: submenú, consultas y conversación con el equipo de Movo
 
 Prototipo `Movo App Soporte.dc.html` (Claude Design). "Ayuda y soporte" de Perfil deja de abrir el sheet del tutorial y empuja

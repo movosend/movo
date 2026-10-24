@@ -183,10 +183,6 @@ services:
       - REPUTATION_DECAY_HALF_LIFE_DAYS=${REPUTATION_DECAY_HALF_LIFE_DAYS:-180}
       # MOVO-161: radio de desvío ortogonal al corredor del viaje declarado (km).
       - TRIP_DEFAULT_MAX_DETOUR_KM=${TRIP_DEFAULT_MAX_DETOUR_KM:-15}
-      # MOVO-276: límites duros del paquete (mismos valores que movo-svc-pricing-logistics).
-      - PACKAGE_MAX_WEIGHT_KG=${PACKAGE_MAX_WEIGHT_KG:-30}
-      - PACKAGE_MAX_SIDE_CM=${PACKAGE_MAX_SIDE_CM:-150}
-      - PACKAGE_MAX_SIDES_SUM_CM=${PACKAGE_MAX_SIDES_SUM_CM:-300}
       # MOVO-143: comisión de Movo (confirmada, 15%) + fee de MercadoPago (placeholder,
       # pendiente de confirmar) -- leídas por @movo/shared, no por el envSchema propio
       # de este servicio (ver shared/movo-shared/src/config/commission.ts).
@@ -368,10 +364,8 @@ services:
       - PRICING_WEIGHT_TIER_KG=${PRICING_WEIGHT_TIER_KG:-10}
       - PRICING_WEIGHT_TIER_RATE=${PRICING_WEIGHT_TIER_RATE:-0.35}
       - PRICING_FRAGILE_SURCHARGE=${PRICING_FRAGILE_SURCHARGE:-0.2}
-      # MOVO-276: límites duros del paquete (mismos valores que movo-svc-shipments, que los valida antes)
-      - PACKAGE_MAX_WEIGHT_KG=${PACKAGE_MAX_WEIGHT_KG:-30}
-      - PACKAGE_MAX_SIDE_CM=${PACKAGE_MAX_SIDE_CM:-150}
-      - PACKAGE_MAX_SIDES_SUM_CM=${PACKAGE_MAX_SIDES_SUM_CM:-300}
+      # MOVO-317: tope del peso volumétrico facturable (package_tapered_v3)
+      - PRICING_VOLUMETRIC_WEIGHT_CAP_KG=${PRICING_VOLUMETRIC_WEIGHT_CAP_KG:-300}
       - PRICING_DEMAND_RATIO_THRESHOLD=${PRICING_DEMAND_RATIO_THRESHOLD:-3.0}
       - PRICING_DEMAND_MIN_SHIPMENTS=${PRICING_DEMAND_MIN_SHIPMENTS:-4}
       - PRICING_DEMAND_BASE_SURCHARGE=${PRICING_DEMAND_BASE_SURCHARGE:-0.10}

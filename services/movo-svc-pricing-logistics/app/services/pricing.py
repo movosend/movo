@@ -1,6 +1,6 @@
-"""Precio sugerido `package_tapered_v2` (MOVO-276).
+"""Precio sugerido `package_tapered_v3` (MOVO-317, sobre `package_tapered_v2` de MOVO-276).
 
-Reemplaza la parte de cálculo de `demand_fuel_routes_v1` (MOVO-138, ADR-025): misma
+v3 es v2 con el peso volumétrico acotado a `volumetric_weight_cap_kg`. Reemplaza la parte de cálculo de `demand_fuel_routes_v1` (MOVO-138, ADR-025): misma
 distancia por tramos, combustible y recargo por demanda, pero el paquete ahora cotiza por
 su peso facturable (máximo entre real y volumétrico, con un tramo decreciente), con una
 tarifa base por categoría y un recargo por frágil. Calibración contra el Correo en
@@ -114,26 +114,24 @@ def effective_distance_km(distance_km: float) -> float:
     return tier1 + tier2 * settings.distance_tier2_rate + tier3 * settings.distance_tier3_rate
 
 
-class PackageLimitsExceededError(ValueError):
-    """El paquete excede los límites duros de peso o medidas (MOVO-276)."""
+# MOVO-317: sin límites duros, `/quote` cotiza cualquier peso y medida. Hasta estos valores el
+# método está calibrado contra el Correo (ADR-041 los usaba como tope); por encima se cotiza
+# igual, pero extrapolando sin referencia de mercado, y la cotización lo avisa en el log
+# `pricing_quote_computed` para medir cuántas caen fuera de la zona validada.
+UNCALIBRATED_WEIGHT_KG = 30.0
+UNCALIBRATED_SIDE_CM = 150.0
 
-    def __init__(self, violations: list[str]):
-        self.violations = violations
-        super().__init__("El paquete excede los límites: " + "; ".join(violations) + ".")
 
-
-def package_limit_violations(req: QuoteRequest) -> list[str]:
-    sides = (req.length_cm, req.width_cm, req.height_cm)
-    violations = []
-    if req.weight_kg > settings.package_max_weight_kg:
-        violations.append(f"peso de {req.weight_kg:g} kg (máximo {settings.package_max_weight_kg:g} kg)")
-    if max(sides) > settings.package_max_side_cm:
-        violations.append(f"lado de {max(sides):g} cm (máximo {settings.package_max_side_cm:g} cm)")
-    if sum(sides) > settings.package_max_sides_sum_cm:
-        violations.append(
-            f"suma de lados de {sum(sides):g} cm (máximo {settings.package_max_sides_sum_cm:g} cm)"
-        )
-    return violations
+def uncalibrated_reasons(req: QuoteRequest) -> list[str]:
+    """Qué del paquete cae fuera de la zona donde `package_tapered_v3` se calibró; vacío si
+    está dentro. Solo informativo: nunca rechaza ni cambia el precio."""
+    reasons = []
+    if req.weight_kg > UNCALIBRATED_WEIGHT_KG:
+        reasons.append(f"peso de {req.weight_kg:g} kg (calibrado hasta {UNCALIBRATED_WEIGHT_KG:g} kg)")
+    longest = max(req.length_cm, req.width_cm, req.height_cm)
+    if longest > UNCALIBRATED_SIDE_CM:
+        reasons.append(f"lado de {longest:g} cm (calibrado hasta {UNCALIBRATED_SIDE_CM:g} cm)")
+    return reasons
 
 
 def volumetric_weight_kg(req: QuoteRequest) -> float:
@@ -171,7 +169,8 @@ def price_components(req: QuoteRequest, distance_km: float, ars_per_liter: float
     is_fragile = req.package_type == PackageType.FRAGILE_ITEM
     per_km_ars = (settings.fuel_l_per_km * settings.fuel_cost_share + settings.non_fuel_l_per_km) * p
     volumetric = volumetric_weight_kg(req)
-    billable = max(req.weight_kg, volumetric)
+    # MOVO-317: el volumétrico cuenta hasta el tope; el peso real no tiene tope.
+    billable = max(req.weight_kg, min(volumetric, settings.volumetric_weight_cap_kg))
     return PriceComponents(
         per_km_ars=per_km_ars,
         base=(settings.base_fare_document_l if is_document else settings.base_fare_l) * p,
@@ -193,11 +192,6 @@ async def compute_quote(
     fuel_provider: FuelPriceProvider | None = None,
     routes: RoutesProvider | None = None,
 ) -> QuoteResponse:
-    # Antes de consultar Google: un paquete fuera de límites no gasta un elemento facturado.
-    violations = package_limit_violations(req)
-    if violations:
-        raise PackageLimitsExceededError(violations)
-
     # Independientes entre sí: en serie, el peor caso (2s + 1,5s) pasaba los 3s de
     # `pricing-client.ts` y el envío quedaba en "precio a estimar".
     fuel, (distance_km, distance_source) = await asyncio.gather(
@@ -211,6 +205,9 @@ async def compute_quote(
 
     p = fuel.ars_per_liter
     c = price_components(req, distance_km, p)
+    uncalibrated = uncalibrated_reasons(req)
+    if uncalibrated:
+        logger.warning("pricing_quote_uncalibrated_package %s", "; ".join(uncalibrated))
     demand = demand_multiplier(req.demand_context)
     suggested_price_ars = _round_to_10(c.subtotal * demand.multiplier)
 
@@ -235,6 +232,8 @@ async def compute_quote(
                 "packageFactor": c.package_factor,
                 "volumetricWeightKg": round(c.volumetric_weight_kg, 2),
                 "billableWeightKg": round(c.billable_weight_kg, 2),
+                "calibrated": not uncalibrated,
+                "volumetricCapped": c.volumetric_weight_kg > settings.volumetric_weight_cap_kg,
                 "demandContext": req.demand_context.model_dump(by_alias=True) if req.demand_context else None,
                 "demandRatio": round(demand.ratio, 2),
                 "demandMultiplier": demand.multiplier,
@@ -265,6 +264,6 @@ async def compute_quote(
     return QuoteResponse(
         suggested_price_ars=suggested_price_ars,
         high_demand=demand.high_demand,
-        calculation_method=PriceCalculationMethod.PACKAGE_TAPERED_V2,
+        calculation_method=PriceCalculationMethod.PACKAGE_TAPERED_V3,
         breakdown=breakdown,
     )

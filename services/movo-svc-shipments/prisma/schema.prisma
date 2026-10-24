@@ -169,6 +169,9 @@ model Shipment {
   lengthCm    Decimal     @map("length_cm") @db.Decimal
   widthCm     Decimal     @map("width_cm") @db.Decimal
   heightCm    Decimal     @map("height_cm") @db.Decimal
+  // MOVO-317: el emisor eligió "Más de 300 cm" en alguno de los lados. Las medidas guardan el tope (300);
+  // el flag dice que el paquete real es más grande que eso.
+  oversized   Boolean     @default(false)
   description String?
   urgent      Boolean     @default(false)
 
