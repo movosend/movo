@@ -690,6 +690,7 @@ y las constantes `DISPUTE_WINDOW_DAYS` (7, desde `deliveredAt`) y `DISPUTE_TEXT_
 ### MOVO-317 — Constantes del wizard de paquetes y `package_tapered_v3`
 
 `config/package-dimensions.ts`: `PACKAGE_WEIGHT_KG_MIN`/`_STEP` (0,5), `PACKAGE_DIMENSION_CM_MIN`/`_STEP`/`_MAX` (10/10/300),
-`PACKAGE_DIMENSION_CM_OPTIONS` y `roundPackageWeightKg`. `ShipmentQuoteRequest.oversized` (opcional). `PriceCalculationMethod`
+`PACKAGE_DIMENSION_CM_OPTIONS`, `roundPackageWeightKg` y `PACKAGE_INPUT_SANITY_MAX` (10.000, tope de cordura del peso y de cada medida en
+`svc-shipments` y pricing; pricing lo replica en `models/quote.py`). `ShipmentQuoteRequest.oversized` (opcional). `PriceCalculationMethod`
 suma `PACKAGE_TAPERED_V3`. `PACKAGE_LIMITS_EXCEEDED` queda deprecado (ya no se emite). Movo-mobile importa con
 `@movo/shared/dist/config/package-dimensions`, no del barrel (arrastra `node:crypto`).

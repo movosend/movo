@@ -16,6 +16,14 @@ export const PACKAGE_DIMENSION_CM_MIN = 10;
 export const PACKAGE_DIMENSION_CM_STEP = 10;
 export const PACKAGE_DIMENSION_CM_MAX = 300;
 
+/**
+ * Tope de cordura (kg y cm) que aceptan `svc-shipments` y `svc-pricing-logistics` en el peso y en cada
+ * medida. No es un límite de negocio (el tamaño real lo decide cada transportista): solo evita que un
+ * cliente directo mande 1e9 y desborde el precio. Pricing lo replica en `app/models/quote.py`
+ * (`PACKAGE_INPUT_SANITY_MAX`): si cambia acá, cambiarlo allá.
+ */
+export const PACKAGE_INPUT_SANITY_MAX = 10_000;
+
 /** Opciones numéricas de una medida, en cm: 10, 20, ..., 300. */
 export const PACKAGE_DIMENSION_CM_OPTIONS: readonly number[] = Array.from(
   { length: (PACKAGE_DIMENSION_CM_MAX - PACKAGE_DIMENSION_CM_MIN) / PACKAGE_DIMENSION_CM_STEP + 1 },

@@ -44,3 +44,11 @@ describe("roundPackageWeightKg", () => {
     expect(roundPackageWeightKg(0.2)).toBe(0.5);
   });
 });
+
+describe("tope de cordura", () => {
+  it("es de 10.000 y cubre las medidas del wizard", async () => {
+    const { PACKAGE_INPUT_SANITY_MAX } = await import("../src/config/package-dimensions");
+    expect(PACKAGE_INPUT_SANITY_MAX).toBe(10_000);
+    expect(PACKAGE_INPUT_SANITY_MAX).toBeGreaterThan(PACKAGE_DIMENSION_CM_MAX);
+  });
+});

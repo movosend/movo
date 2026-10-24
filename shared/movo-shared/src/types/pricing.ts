@@ -96,7 +96,11 @@ export interface ShipmentQuoteRequest {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
-  /** MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). Afecta la cotización congelada. */
+  /**
+   * MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). No lo usa pricing ni cambia el
+   * precio: solo entra en la huella de la cotización congelada, así que cambiarlo entre cotizar y crear invalida
+   * el `quoteId` (409 `QUOTE_MISMATCH`).
+   */
   oversized?: boolean;
   pickupLat: number;
   pickupLng: number;

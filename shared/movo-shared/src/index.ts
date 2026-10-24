@@ -291,6 +291,7 @@ export {
   PACKAGE_DIMENSION_CM_STEP,
   PACKAGE_DIMENSION_CM_MAX,
   PACKAGE_DIMENSION_CM_OPTIONS,
+  PACKAGE_INPUT_SANITY_MAX,
   roundPackageWeightKg,
 } from "./config/package-dimensions";
 // penalidad por cancelar un envío asignado (MOVO-307, ADR-047)
