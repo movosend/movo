@@ -23,6 +23,8 @@ export interface ShipmentSummary {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). */
+  oversized?: boolean;
   description: string | null;
   urgent: boolean;
   pickupAddress: string;
@@ -106,6 +108,8 @@ export interface CreateShipmentInput {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). */
+  oversized?: boolean;
   description?: string;
   receiverId: string;
   pickupAddress: string;
@@ -219,6 +223,8 @@ export interface AvailableShipment {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). */
+  oversized?: boolean;
   description: string | null;
   urgent: boolean;
   pickupAddress: string;

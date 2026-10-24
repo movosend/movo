@@ -43,6 +43,18 @@ function availableShipment(overrides: Partial<AvailableShipment> = {}): Availabl
 describe("AvailableShipmentCard", () => {
   afterEach(() => jest.clearAllMocks());
 
+  it("MOVO-317: el feed muestra peso y medidas, y avisa si es 'Más de 300 cm'", async () => {
+    const plain = await render(<AvailableShipmentCard shipment={availableShipment()} />);
+    expect(plain.getByText("Encomienda estándar · 3 kg · 20 × 20 × 20 cm")).toBeTruthy();
+
+    const huge = await render(
+      <AvailableShipmentCard
+        shipment={availableShipment({ weightKg: 85.5, lengthCm: 300, oversized: true })}
+      />,
+    );
+    expect(huge.getByText("Encomienda estándar · 85.5 kg · 300 × 20 × 20 cm · Más de 300 cm")).toBeTruthy();
+  });
+
   it("tocarla navega al detalle del transportista, no al de mis envíos", async () => {
     const { getByTestId } = await render(<AvailableShipmentCard shipment={availableShipment()} testID="card" />);
 
