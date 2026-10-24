@@ -1,12 +1,14 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa movo-svc-users: cada schema no comparte definiciones entre sí.
-import { ShipmentStatus } from "@movo/shared";
+import { PACKAGE_INPUT_SANITY_MAX, ShipmentStatus } from "@movo/shared";
 import { shipmentReceiverTransferSummary } from "../receiver-transfers/receiver-transfers.schema";
 
 const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
 
-// Solo mínimos, sin máximos de peso ni medidas (MOVO-317): el tamaño lo decide cada
-// transportista al ofertar. Reemplaza los límites duros de MOVO-276 (ADR-041).
+// Sin límites de negocio de peso ni medidas (MOVO-317): el tamaño lo decide cada transportista al
+// ofertar. Reemplaza los límites duros de MOVO-276 (ADR-041). Solo un tope de cordura
+// (`PACKAGE_INPUT_SANITY_MAX`, 10.000 kg o cm) para que un cliente directo no mande 1e9 y desborde
+// el precio; pricing lo aplica igual en `QuoteRequest`.
 const WEIGHT_KG_MIN = 0.1;
 const DIMENSION_CM_MIN = 1;
 
@@ -467,10 +469,10 @@ const shipmentEventResponse = {
 // de `POST /shipments/quote` para que las dos rutas validen exactamente igual.
 const priceAffectingProperties = {
   packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
-  weightKg: { type: "number", minimum: WEIGHT_KG_MIN },
-  lengthCm: { type: "number", minimum: DIMENSION_CM_MIN },
-  widthCm: { type: "number", minimum: DIMENSION_CM_MIN },
-  heightCm: { type: "number", minimum: DIMENSION_CM_MIN },
+  weightKg: { type: "number", minimum: WEIGHT_KG_MIN, maximum: PACKAGE_INPUT_SANITY_MAX },
+  lengthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: PACKAGE_INPUT_SANITY_MAX },
+  widthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: PACKAGE_INPUT_SANITY_MAX },
+  heightCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: PACKAGE_INPUT_SANITY_MAX },
   pickupLat: { type: "number", minimum: -90, maximum: 90 },
   pickupLng: { type: "number", minimum: -180, maximum: 180 },
   deliveryLat: { type: "number", minimum: -90, maximum: 90 },

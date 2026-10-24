@@ -3809,7 +3809,8 @@ crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no
 
 - Se eliminan los límites de MOVO-276: `domain/package-limits.ts`, las env vars `PACKAGE_MAX_*` (`.env.example`, `env.ts`,
   `docker-compose.yml`) y el 422 `PACKAGE_LIMITS_EXCEEDED` en cotizar y crear. El código de error queda en `@movo/shared` como deprecado.
-  El schema sigue exigiendo solo mínimos (peso 0,1 kg, medida 1 cm).
+  El schema exige mínimos (peso 0,1 kg, medida 1 cm) y un tope de cordura de 10.000 kg o cm (`PACKAGE_INPUT_SANITY_MAX` de `@movo/shared`,
+  400 `VALIDATION_FAILED`), no un límite de negocio: evita que un cliente directo mande 1e9 y desborde el precio.
 - **"Más de 300 cm"** (decisión S3): columna `shipments.shipments.oversized` (boolean, default `false`, migración
   `20261025120000_shipment_oversized`). Las medidas guardan el tope (300) y `oversized: true` dice que el paquete real es mayor; no se
   guarda cuál lado se pasó. Opcional en `POST /shipments` y `POST /shipments/quote` (entra al fingerprint de la cotización congelada).

@@ -198,6 +198,21 @@ describe("POST /shipments (Postgres)", () => {
     expect(response.json()).toMatchObject({ weightKg: 999, lengthCm: 300, heightCm: 300, oversized: true });
   });
 
+  it("MOVO-317: tope de cordura: más de 10.000 kg o cm responde 400 y no crea el envío", async () => {
+    for (const field of ["weightKg", "lengthCm", "widthCm", "heightCm"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/shipments",
+        headers: { "x-user-id": senderId },
+        payload: { ...validBody, [field]: 10001 },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    }
+    expect(pricingClient.getQuote).not.toHaveBeenCalled();
+  });
+
   it("MOVO-317: `oversized` es opcional y por defecto es false", async () => {
     const response = await app.inject({
       method: "POST",
