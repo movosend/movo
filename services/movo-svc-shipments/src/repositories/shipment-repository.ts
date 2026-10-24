@@ -130,6 +130,8 @@ function mapEvent(row: ShipmentEventRow): ShipmentEvent {
     actorId: row.actorId,
     assignmentCarrierId: row.assignmentCarrierId,
     reason: row.reason,
+    kind: row.kind,
+    actorName: row.actorName,
     createdAt: row.createdAt,
   };
 }
@@ -478,6 +480,11 @@ export interface UpdateStatusOptions {
    * disputa sin su expediente. Lanza `DisputeAlreadyOpenError` si ya había una abierta.
    */
   dispute?: NewDispute;
+  /**
+   * MOVO-331 (ADR-055): la transición la ejecuta un admin desde el panel. Queda en el evento
+   * (inmutable), con el nombre del admin como snapshot. Sin esto el evento es `normal`.
+   */
+  adminActor?: { kind: "manual" | "forced"; name: string };
 }
 
 /** MOVO-310: penalidad de una baja del transportista todavía sin registrar en su cuenta corriente. */
@@ -519,6 +526,11 @@ export interface SettlementCursor {
 
 export interface ShipmentRepository {
   claimCarrierWithdrawal(id: string, carrierId: string, from: ShipmentStatus, penaltyArs: number): Promise<boolean>;
+  /**
+   * MOVO-331: deshace el claim de una baja que todavía no avanzó (falló la liberación del hold), para que el
+   * envío vuelva a su estado original. Solo toca el claim de ese transportista.
+   */
+  releaseCarrierWithdrawalClaim(id: string, carrierId: string): Promise<void>;
   listPendingCarrierWithdrawals(limit: number, afterId?: string): Promise<Shipment[]>;
   create(input: CreateShipmentInput): Promise<Shipment>;
   /**
@@ -954,6 +966,13 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return count === 1;
     },
 
+    async releaseCarrierWithdrawalClaim(id, carrierId) {
+      await db.shipment.updateMany({
+        where: { id, carrierId, carrierWithdrawalPending: true },
+        data: { carrierWithdrawalPending: false, carrierWithdrawalPenaltyArs: null },
+      });
+    },
+
     async listPendingCarrierWithdrawals(limit, afterId) {
       const rows = await db.shipment.findMany({
         where: { carrierWithdrawalPending: true, ...(afterId && { id: { gt: afterId } }) },
@@ -1271,6 +1290,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             assignmentCarrierId: revertsAssignment ? current.carrierId : null,
             reason: reason ?? null,
             attribution: options.pickupMiss?.attribution ?? null,
+            ...(options.adminActor && { kind: options.adminActor.kind, actorName: options.adminActor.name }),
           },
         });
 

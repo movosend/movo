@@ -17,6 +17,8 @@ export const notificationsSchemas = {
       // otro lado, ej. crear el envío; el best-effort de la push no debería poder
       // reventar esa respuesta 2xx).
       category: { type: "string", minLength: 1 },
+      // MOVO-331 (ADR-055): salta las preferencias del usuario (toggle y horario de silencio).
+      ignorePreferences: { type: "boolean" },
     },
   },
 };

@@ -118,9 +118,39 @@ export interface AdminShipmentEvent {
   fromStatus: `${ShipmentStatus}` | null;
   toStatus: `${ShipmentStatus}`;
   actorId: string | null;
+  /** MOVO-331: nombre del admin si lo hizo el panel (`kind` distinto de `normal`); `null` en el resto. */
+  actorName: string | null;
   reason: string | null;
+  /** MOVO-331 (ADR-055): `manual` = transición normal hecha por un admin, `forced` = con efectos distintos del camino normal. */
+  kind: ShipmentEventKind;
   createdAt: string;
 }
+
+/** MOVO-331 (ADR-055): quién y cómo originó el cambio de estado. Inmutable una vez escrito. */
+export type ShipmentEventKind = "normal" | "manual" | "forced";
+
+/** `POST /internal/admin/shipments/:id/force-status` (lo llama `svc-admin`). */
+export interface ForceShipmentStatusRequest {
+  targetStatus: `${ShipmentStatus}`;
+  /** El estado que vio el admin: si el actual es otro, 409 `STATUS_CHANGED`. */
+  expectedStatus: `${ShipmentStatus}`;
+  reason: string;
+  adminId: string;
+  adminName: string;
+  idempotencyKey: string;
+}
+
+export interface ForceShipmentStatusResponse {
+  shipmentId: string;
+  fromStatus: `${ShipmentStatus}`;
+  toStatus: `${ShipmentStatus}`;
+  kind: Exclude<ShipmentEventKind, "normal">;
+  /** `true` si es la respuesta guardada de una `idempotencyKey` ya ejecutada. */
+  replayed: boolean;
+}
+
+export const FORCE_STATUS_REASON_MIN_LENGTH = 20;
+export const FORCE_STATUS_REASON_MAX_LENGTH = 500;
 
 /** Foto de retiro o entrega, con URL firmada de vida corta. */
 export interface AdminShipmentPhoto {

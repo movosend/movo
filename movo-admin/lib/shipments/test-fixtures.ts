@@ -120,7 +120,9 @@ export const event = (
   fromStatus: null,
   toStatus,
   actorId: null,
+  actorName: null,
   reason: null,
+  kind: "normal",
   createdAt,
   ...over,
 })

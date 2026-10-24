@@ -706,4 +706,12 @@ habitual: `npm run build` acá antes de tipar desde otro workspace.
 
 Sobre el contrato de MOVO-320: `SupportShipmentRole`, `SupportShipmentOption` y `SupportShipmentOptionsPage`, wire contract de
 `GET /support/shipments` (envíos de los que el usuario es parte, en cualquier rol y estado, para vincular a una consulta).
+
+### MOVO-331 — Contrato del cambio forzado de estado (`config/forced-transition-matrix.ts`, ADR-055)
+
+`FORCED_TRANSITION_MATRIX` (origen → destino → `{ kind, risk, service }`; una celda ausente es una transición bloqueada),
+`getForcedTransition`, `listForcedTransitionTargets` y `blockedTransitionReason`: backend y panel la leen de acá. `types/admin-shipments.ts`:
+`ForceShipmentStatusRequest/Response`, `ShipmentEventKind` y `AdminShipmentEvent` suma `kind` y `actorName` (requeridos: rompen literales armados a
+mano, tocó fixtures de `movo-admin`). `ApiErrorCode` suma `TRANSITION_NOT_ALLOWED`, `STATUS_CHANGED`, `HOLD_NOT_AUTHORIZED`,
+`FORCE_STATUS_EFFECT_FAILED`, `IDEMPOTENCY_KEY_REUSED` y `FORCE_STATUS_IN_PROGRESS`; triggers `shipmentStatusForced{Sender,Receiver,Carrier}`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

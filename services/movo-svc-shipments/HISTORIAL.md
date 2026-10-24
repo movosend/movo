@@ -3834,3 +3834,22 @@ MOVO-320 dejó afuera el selector y `GET /shipments/mine` no trae al transportis
 transportista asignado o quien transfirió la recepción, la misma regla que acepta `shipmentId` al crear), en cualquier estado, más recientes
 primero, cursor opaco (`utils/cursor.ts`, 400 si es inválido). `route` usa `pickupCity`/`deliveryCity` o el primer tramo de la dirección. Tests
 en `support.integration.test.ts`.
+
+### MOVO-331 (+ MOVO-330) — Cambio forzado de estado de un envío (ADR-055)
+
+`POST /internal/admin/shipments/:id/force-status` (`modules/admin-internal/force-status.service.ts`, ruta en `admin-internal.routes.ts`,
+oculta del Swagger y fuera del `routes-map` del gateway). Valida el par contra `FORCED_TRANSITION_MATRIX` de `@movo/shared` y delega en el
+servicio de dominio de cada celda: `cancelShipment` y `withdrawCarrierFromShipment` ganan `options.admin` (sin chequeo de emisor/transportista,
+**penalidad 0**, evento con el admin), `captureAndComplete(id, admin)` y `fundingService.confirmAssignmentByAdmin` (consulta el hold con `sync`:
+`422 HOLD_NOT_AUTHORIZED`). Concurrencia: `expectedStatus` (409 `STATUS_CHANGED`), lock Redis por envío e `idempotencyKey` guardada 24 h.
+`shipment_events` suma `kind` y `actorName` (migración `20261024210000_shipment_event_kind`); las partes ven `kind` pero no el admin ni el motivo.
+Push `shipmentStatusForced*` con `ignorePreferences` (se extendieron `SendPushNotificationInput` y el `/internal/notifications/push` de `svc-users`).
+- **Orden de efectos**: desde `assigned` el hold se libera ANTES de cancelar (ya está autorizado, no hay pago concurrente), así una falla de
+  payments deja el envío como estaba (`502 FORCE_STATUS_EFFECT_FAILED` + alerta con el `AlertNotifier` de MOVO-334). Desde `assignment_pending`/
+  `assigned_unfunded` sigue el orden de la saga (cancelar y después liberar, best-effort), porque invertirlo reabre la carrera del pago.
+- Si una baja forzada falla en payments, la llamada deshace el claim del retiro (`releaseCarrierWithdrawalClaim`): el barrido de MOVO-310 no la
+  completa después como si fuera del transportista. Con un admin se suprimen los pushes normales a las partes (baja, oferta cancelada del
+  asignado, pago confirmado, liquidación) para que cada una reciba un solo aviso. Riesgo aceptado: el retiro puede ganar la carrera tras
+  liberar el hold en `assigned → cancelled` (alerta `force_status_hold_released_race`, ver ADR-055).
+- Pendiente: el cliente en `svc-admin` y el OTP por acción (MOVO-332), el modal del panel (MOVO-333); `in_transit`/`delivered` forzados con
+  evidencia y la salida de `disputed` (MOVO-34) quedan bloqueados.

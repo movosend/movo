@@ -319,6 +319,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+    ...(opts.alertNotifier ? { alertNotifier: opts.alertNotifier } : {}),
     ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
   });
 
