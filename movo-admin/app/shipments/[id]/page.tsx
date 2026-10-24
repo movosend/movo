@@ -7,6 +7,7 @@ import { publicError } from "@/lib/auth/api"
 import { requireAdmin } from "@/lib/auth/session"
 import { sidebarDefaultOpen } from "@/lib/sidebar"
 import { getShipment } from "@/lib/shipments/api"
+import { shipmentDisplayCode } from "@/lib/shipments/format"
 import { listHref, parseListState } from "@/lib/shipments/params"
 import { AdminShell } from "@/components/admin-shell"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -85,7 +86,7 @@ export default async function Page({
   const { shipment } = detail
   const now = new Date()
   return (
-    <AdminShell {...shell} crumb={`#${shipment.code}`}>
+    <AdminShell {...shell} crumb={shipmentDisplayCode(shipment.id)}>
       <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 pt-6 pb-14 md:px-8">
         <DetailHeader
           shipment={shipment}
