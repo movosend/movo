@@ -32,21 +32,37 @@ function createMemoryRepository(): SupportAttachmentRepository & { rows: Map<str
         width: input.width,
         height: input.height,
         createdAt: input.now,
+        deletingAt: null,
       };
       rows.set(record.id, record);
       return record;
     },
-    async findByIds(ids) {
-      return ids.flatMap((id) => (rows.has(id) ? [rows.get(id)!] : []));
+    // Copia en JS de `usablePredicate` solo para el fake: la regla real (SQL) la prueba la suite de integración.
+    async findUsable(ids, use) {
+      return ids.flatMap((id) => {
+        const r = rows.get(id);
+        const ok =
+          r &&
+          r.uploaderId === use.uploaderId &&
+          r.uploaderKind === use.uploaderKind &&
+          r.messageId === null &&
+          r.deletingAt === null &&
+          (r.conversationId === null || (use.conversationId !== null && r.conversationId === use.conversationId));
+        return ok ? [r] : [];
+      });
+    },
+    async countPending(uploaderId) {
+      return [...rows.values()].filter((r) => r.uploaderId === uploaderId && r.messageId === null && r.deletingAt === null).length;
     },
     async listForMessages(messageIds) {
       return [...rows.values()]
         .filter((r) => r.messageId !== null && messageIds.includes(r.messageId))
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     },
-    async deleteOrphans() {
+    async markOrphansForDeletion() {
       return [];
     },
+    async deleteMarked() {},
   };
 }
 
@@ -98,6 +114,16 @@ describe("servicio de adjuntos de soporte (MOVO-321)", () => {
       expect(result.uploadUrl).toContain(`support/${conversationId}/${result.attachmentId}.jpg`);
       expect(result.expiresAt).toBe(new Date(now.getTime() + 300_000).toISOString());
       expect(repository.rows.get(result.attachmentId)).toMatchObject({ width: 800, height: 600, messageId: null });
+    });
+
+    it("con 20 pendientes sin usar responde 429 SUPPORT_ATTACHMENT_PENDING_LIMIT", async () => {
+      for (let i = 0; i < 20; i++) await create();
+      const err = await create().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).statusCode).toBe(429);
+      expect((err as ApiError).code).toBe("SUPPORT_ATTACHMENT_PENDING_LIMIT");
+      // Los de otro usuario no cuentan.
+      await expect(create({ uploaderId: randomUUID() })).resolves.toBeDefined();
     });
 
     it("rechaza tipos y tamaños fuera del contrato", async () => {

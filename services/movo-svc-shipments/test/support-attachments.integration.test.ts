@@ -474,5 +474,101 @@ describe("Adjuntos de soporte (MOVO-321)", () => {
       // Ya no se puede asociar: la fila no existe.
       expect((await write(userId, conversationId, { attachmentIds: [orphan] })).statusCode).toBe(422);
     });
+
+    it("si S3 falla al borrar, la fila queda marcada (no se puede usar) y la próxima corrida reintenta", async () => {
+      const userId = randomUUID();
+      const conversationId = await openConversation(userId);
+      const orphan = await upload(userId, { conversationId });
+      const key = (await app.db.supportAttachment.findUniqueOrThrow({ where: { id: orphan } })).s3Key;
+      await app.db.supportAttachment.update({ where: { id: orphan }, data: { createdAt: new Date(Date.now() - 48 * 3600_000) } });
+      const sweep = () =>
+        sweepSupportAttachments({
+          repository: createSupportAttachmentRepository(app.db),
+          storage,
+          cutoff: new Date(Date.now() - 24 * 3600_000),
+          logger: app.log,
+        });
+      const spy = vi.spyOn(storage, "deleteObject").mockRejectedValueOnce(new Error("AccessDenied"));
+
+      expect(await sweep()).toBe(0);
+      const marked = await app.db.supportAttachment.findUniqueOrThrow({ where: { id: orphan } });
+      expect(marked.deletingAt).not.toBeNull();
+      expect((await storage.headObject(key)).exists).toBe(true);
+      expect((await write(userId, conversationId, { attachmentIds: [orphan] })).statusCode).toBe(422);
+
+      expect(await sweep()).toBe(1);
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(await app.db.supportAttachment.findUnique({ where: { id: orphan } })).toBeNull();
+      expect((await storage.headObject(key)).exists).toBe(false);
+      spy.mockRestore();
+    });
+  });
+
+  describe("review de la PR #299", () => {
+    it("con 20 adjuntos pedidos sin usar, el siguiente responde 429; usarlos libera el cupo", async () => {
+      const userId = randomUUID();
+      const conversationId = await openConversation(userId);
+      const ids: string[] = [];
+      for (let i = 0; i < 20; i++) ids.push(await upload(userId, { conversationId }));
+
+      const blocked = await presign(userId, { contentType: "image/jpeg", sizeBytes: 1000 });
+      expect(blocked.statusCode).toBe(429);
+      expect(blocked.json().error.code).toBe("SUPPORT_ATTACHMENT_PENDING_LIMIT");
+
+      expect((await write(userId, conversationId, { attachmentIds: ids.slice(0, 4) })).statusCode).toBe(201);
+      expect((await presign(userId, { contentType: "image/jpeg", sizeBytes: 1000 })).statusCode).toBe(201);
+    });
+
+    it("el claim rechaza más de 4 o repetidos aunque el camino del agente no pase por assertUsable", async () => {
+      const userId = randomUUID();
+      const agentId = randomUUID();
+      const conversationId = await openConversation(userId);
+      const attachments = createSupportAttachmentsService({ repository: createSupportAttachmentRepository(app.db), storage });
+      const ids: string[] = [];
+      for (let i = 0; i < 5; i++) {
+        const { attachmentId } = await attachments.create({
+          uploaderId: agentId,
+          uploaderKind: "staff",
+          conversationId,
+          contentType: "image/jpeg",
+          sizeBytes: 1000,
+        });
+        ids.push(attachmentId);
+      }
+      const staffMessage = (attachmentIds: string[]) =>
+        supportRepo.appendStaffMessage({
+          conversationId,
+          kind: "agent",
+          authorId: agentId,
+          authorName: "Lucía",
+          body: "",
+          clientMessageId: randomUUID(),
+          attachmentIds,
+          now: new Date(),
+        });
+
+      await expect(staffMessage(ids)).rejects.toThrow();
+      await expect(staffMessage([ids[0], ids[0]])).rejects.toThrow();
+      expect(await app.db.supportMessage.count({ where: { conversationId } })).toBe(1);
+      await expect(staffMessage(ids.slice(0, 4))).resolves.toBeDefined();
+    });
+
+    it("si firmar las URLs falla después de guardar, el mensaje se responde y difunde sin adjuntos y no se corta la reapertura", async () => {
+      const userId = randomUUID();
+      const conversationId = await openConversation(userId);
+      await app.db.supportConversation.update({ where: { id: conversationId }, data: { status: "resolved", resolvedAt: new Date() } });
+      const id = await upload(userId, { conversationId });
+      const spy = vi.spyOn(storage, "createDownloadUrl").mockRejectedValueOnce(new Error("S3 caído"));
+
+      const response = await write(userId, conversationId, { body: "Otra foto", attachmentIds: [id] });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toMatchObject({ body: "Otra foto", attachments: [] });
+      spy.mockRestore();
+      const page = (await history(userId, conversationId)).json();
+      expect(page.conversation.status).toBe("open");
+      expect(page.items.map((m: { kind: string }) => m.kind)).toContain("system");
+      expect(page.items.find((m: { id: string }) => m.id === response.json().id).attachments).toEqual([expect.objectContaining({ id })]);
+    });
   });
 });
