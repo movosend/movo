@@ -6,6 +6,8 @@ import {
   distanceMeters,
   kmLabel,
   remainingRoute,
+  remainingRouteProgress,
+  timeLabel,
   type LatLng,
 } from "./geometry"
 
@@ -29,12 +31,25 @@ describe("remainingRoute", () => {
     [0, 2],
     [0, 3],
   ]
-  it("arranca en la posición y sigue desde el vértice más cercano", () => {
+  it("conserva la esquina pendiente al proyectar sobre el segmento", () => {
     expect(remainingRoute(route, [0.01, 1.1])).toEqual([
       [0.01, 1.1],
+      [0, 1.1],
       [0, 2],
       [0, 3],
     ])
+  })
+  it("no retrocede cuando la ruta vuelve a pasar cerca de un tramo anterior", () => {
+    const loop: LatLng[] = [
+      [0, 0],
+      [0, 1],
+      [1, 1],
+      [1, 0],
+      [0.01, 0],
+    ]
+    const result = remainingRouteProgress(loop, [0.01, 0.02], 2)
+    expect(result.segment).toBe(3)
+    expect(result.points.at(-1)).toEqual([0.01, 0])
   })
   it("sin posición devuelve la ruta entera", () => {
     expect(remainingRoute(route, null)).toEqual(route)
@@ -65,5 +80,8 @@ describe("boundsOf / distanceMeters / formatos", () => {
   it("formatea km con coma", () => {
     expect(kmLabel(4230)).toBe("4,2 km")
     expect(kmLabel(null)).toBe("—")
+  })
+  it("muestra la hora de Córdoba aunque el navegador use otra zona", () => {
+    expect(timeLabel("2026-10-22T15:20:00Z")).toBe("12:20")
   })
 })

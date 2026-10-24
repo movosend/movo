@@ -6,7 +6,7 @@ import "leaflet/dist/leaflet.css"
 import {
   boundsOf,
   decodePolyline,
-  remainingRoute,
+  remainingRouteProgress,
   timeLabel,
   type LatLng,
 } from "@/lib/shipments/tracking/geometry"
@@ -17,7 +17,6 @@ import {
 } from "@/lib/shipments/tracking/tiles"
 import type { AdminShipmentTracking } from "@/lib/shipments/tracking/types"
 
-const DONE_COLOR = "#2B6BFF"
 const DEFAULT_CENTER: LatLng = [-31.4167, -64.1833]
 
 interface Layers {
@@ -26,10 +25,17 @@ interface Layers {
   origin: L.Marker
   destination: L.Marker
   courier: L.Marker | null
+  originLabel: string
+  destinationLabel: string
+  courierIconKey: string | null
 }
 
 /** Pin con disco, ícono de texto y etiqueta opcional; se arma con DOM para no interpolar HTML. */
-function pin(kind: "origin" | "destination" | "courier", label?: string, alert = false) {
+function pin(
+  kind: "origin" | "destination" | "courier",
+  label?: string,
+  alert = false
+) {
   const root = document.createElement("div")
   root.className = "mv-track-pin"
   const disc = document.createElement("span")
@@ -37,7 +43,8 @@ function pin(kind: "origin" | "destination" | "courier", label?: string, alert =
     disc.className = "mv-track-courier"
     disc.dataset.alert = String(alert)
   } else {
-    disc.style.cssText = `width:22px;height:22px;border-radius:${kind === "origin" ? "6px" : "999px"};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35);background:${kind === "origin" ? "#0A0A0B" : DONE_COLOR}`
+    disc.className =
+      kind === "origin" ? "mv-track-origin" : "mv-track-destination"
   }
   root.append(disc)
   if (label) {
@@ -72,6 +79,11 @@ export default function TrackingMap({ tracking, follow, theme }: Props) {
   const tilesRef = useRef<L.TileLayer | null>(null)
   const layersRef = useRef<Layers | null>(null)
   const fittedFor = useRef<string | null>(null)
+  const routeProgress = useRef<{
+    shipmentId: string
+    polyline: string
+    segment: number
+  } | null>(null)
 
   useEffect(() => {
     const el = containerRef.current
@@ -97,6 +109,7 @@ export default function TrackingMap({ tracking, follow, theme }: Props) {
       tilesRef.current = null
       layersRef.current = null
       fittedFor.current = null
+      routeProgress.current = null
     }
   }, [])
 
@@ -117,57 +130,91 @@ export default function TrackingMap({ tracking, follow, theme }: Props) {
     const map = mapRef.current
     if (!map) return
     const t = tracking
-    const planned = t.plannedRoute ? decodePolyline(t.plannedRoute.polyline) : []
+    const planned = t.plannedRoute
+      ? decodePolyline(t.plannedRoute.polyline)
+      : []
     const trace: LatLng[] = t.trace.map((p) => [p.lat, p.lng])
     const last: LatLng | null = t.lastPosition
       ? [t.lastPosition.lat, t.lastPosition.lng]
       : null
     const live = t.state === "live"
     const done = live && last ? [...trace, last] : trace
-    // Faltante: lo que resta de la ruta planificada. Cerrado con traza: no se dibuja (la traza es la evidencia).
-    const todo =
-      live || t.state === "not_started" || (t.state === "closed" && trace.length === 0)
-        ? remainingRoute(planned, live ? last : null)
-        : []
+    const previous = routeProgress.current
+    const startSegment =
+      previous?.shipmentId === t.shipmentId &&
+      previous.polyline === t.plannedRoute?.polyline
+        ? previous.segment
+        : 0
+    const pending = live
+      ? remainingRouteProgress(planned, last, startSegment)
+      : null
+    const todo = pending?.points ?? []
+    if (pending)
+      routeProgress.current = {
+        shipmentId: t.shipmentId,
+        polyline: t.plannedRoute?.polyline ?? "",
+        segment: pending.segment,
+      }
 
     const originAt: LatLng = [t.origin.lat, t.origin.lng]
     const destinationAt: LatLng = [t.destination.lat, t.destination.lng]
     const layers = (layersRef.current ??= {
       done: L.polyline([], {
-        color: DONE_COLOR,
+        className: "mv-track-done",
         weight: 4,
-        opacity: 0.95,
         lineCap: "round",
         lineJoin: "round",
       }).addTo(map),
       todo: L.polyline([], {
         className: "mv-track-todo",
-        color: theme === "dark" ? "#FFFFFF" : "#0A0A0B",
         weight: 3,
-        opacity: 0.5,
         dashArray: "2 8",
         lineCap: "round",
       }).addTo(map),
-      origin: L.marker(originAt, { zIndexOffset: 400 }).addTo(map),
-      destination: L.marker(destinationAt, { zIndexOffset: 400 }).addTo(map),
+      origin: L.marker(originAt, {
+        icon: pin("origin", t.origin.label),
+        zIndexOffset: 400,
+      }).addTo(map),
+      destination: L.marker(destinationAt, {
+        icon: pin("destination", t.destination.label),
+        zIndexOffset: 400,
+      }).addTo(map),
       courier: null,
+      originLabel: t.origin.label,
+      destinationLabel: t.destination.label,
+      courierIconKey: null,
     })
     layers.done.setLatLngs(done)
     layers.todo.setLatLngs(todo)
-    layers.todo.setStyle({ color: theme === "dark" ? "#FFFFFF" : "#0A0A0B" })
-    layers.origin.setLatLng(originAt).setIcon(pin("origin", t.origin.label))
-    layers.destination
-      .setLatLng(destinationAt)
-      .setIcon(pin("destination", t.destination.label))
+    layers.origin.setLatLng(originAt)
+    layers.destination.setLatLng(destinationAt)
+    if (layers.originLabel !== t.origin.label) {
+      layers.origin.setIcon(pin("origin", t.origin.label))
+      layers.originLabel = t.origin.label
+    }
+    if (layers.destinationLabel !== t.destination.label) {
+      layers.destination.setIcon(pin("destination", t.destination.label))
+      layers.destinationLabel = t.destination.label
+    }
 
     if (live && last) {
       const alert = t.signalLost || t.delayed
-      const icon = pin("courier", courierLabel(t), alert)
-      if (layers.courier) layers.courier.setLatLng(last).setIcon(icon)
-      else layers.courier = L.marker(last, { icon, zIndexOffset: 800 }).addTo(map)
+      const label = courierLabel(t)
+      const iconKey = `${label}:${alert}`
+      if (layers.courier) {
+        layers.courier.setLatLng(last)
+        if (layers.courierIconKey !== iconKey)
+          layers.courier.setIcon(pin("courier", label, alert))
+      } else
+        layers.courier = L.marker(last, {
+          icon: pin("courier", label, alert),
+          zIndexOffset: 800,
+        }).addTo(map)
+      layers.courierIconKey = iconKey
     } else if (layers.courier) {
       layers.courier.remove()
       layers.courier = null
+      layers.courierIconKey = null
     }
 
     if (fittedFor.current !== t.shipmentId) {
@@ -175,17 +222,7 @@ export default function TrackingMap({ tracking, follow, theme }: Props) {
       if (bounds) map.fitBounds(bounds, { padding: [56, 56], maxZoom: 15 })
       fittedFor.current = t.shipmentId
     } else if (follow && live && last) map.panTo(last, { animate: false })
-  }, [tracking, theme, follow])
-
-  useEffect(() => {
-    const t = tracking
-    if (follow && t.state === "live" && t.lastPosition)
-      mapRef.current?.panTo([t.lastPosition.lat, t.lastPosition.lng], {
-        animate: false,
-      })
-    // Solo al activar el toggle; las actualizaciones las cubre el efecto de dibujo.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [follow])
+  }, [tracking, follow])
 
   return (
     <div

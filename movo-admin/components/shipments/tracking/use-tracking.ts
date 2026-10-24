@@ -14,18 +14,22 @@ export function useTracking(shipmentId: string) {
   const [loaded, setLoaded] = useState<{
     id: string
     data: AdminShipmentTracking
+    receivedAt: number
   } | null>(null)
-  const [polled, setPolled] = useState<{ id: string; status: PollStatus } | null>(
-    null
-  )
+  const [polled, setPolled] = useState<{
+    id: string
+    status: PollStatus
+  } | null>(null)
   const data = loaded?.id === shipmentId ? loaded.data : null
-  const status: PollStatus = polled?.id === shipmentId ? polled.status : "connecting"
+  const status: PollStatus =
+    polled?.id === shipmentId ? polled.status : "connecting"
   const pollerRef = useRef<TrackingPoller | null>(null)
 
   useEffect(() => {
     const poller = new TrackingPoller({
       fetchTracking: (signal) => fetchTracking(shipmentId, signal),
-      onData: (next) => setLoaded({ id: shipmentId, data: next }),
+      onData: (next) =>
+        setLoaded({ id: shipmentId, data: next, receivedAt: Date.now() }),
       onStatus: (next) => setPolled({ id: shipmentId, status: next }),
       isVisible: () => document.visibilityState !== "hidden",
     })
@@ -41,5 +45,10 @@ export function useTracking(shipmentId: string) {
   }, [shipmentId])
 
   const refresh = useCallback(() => pollerRef.current?.refresh(), [])
-  return { data, status, refresh }
+  return {
+    data,
+    receivedAt: loaded?.id === shipmentId ? loaded.receivedAt : null,
+    status,
+    refresh,
+  }
 }

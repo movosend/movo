@@ -1,8 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { trackingFixture } from "./fixtures"
 
-const mapProps = vi.hoisted(() => ({ last: null as null | { follow: boolean; theme: string } }))
+const mapProps = vi.hoisted(() => ({
+  last: null as null | { follow: boolean; theme: string },
+}))
 
 vi.mock("next/dynamic", () => ({
   default: () =>
@@ -19,13 +21,24 @@ afterEach(cleanup)
 
 describe("TrackingView", () => {
   it.each([
-    ["awaiting_pickup", "not_started", "Todavía no arrancó", /retira en la ventana 09:00–11:00/],
+    [
+      "awaiting_pickup",
+      "not_started",
+      "Todavía no arrancó",
+      /retira en la ventana 09:00–11:00/,
+    ],
     ["unfunded", "not_started", "Todavía no arrancó", /Sin fondos reservados/],
     ["no_carrier", "no_carrier", "Sin seguimiento", /no tiene transportista/],
   ] as const)("%s: mensaje sin mapa", (reason, state, title, body) => {
     render(
       <TrackingView
-        tracking={trackingFixture({ state, reason, trace: [], lastPosition: null, metrics: null })}
+        tracking={trackingFixture({
+          state,
+          reason,
+          trace: [],
+          lastPosition: null,
+          metrics: null,
+        })}
         status="live"
       />
     )
@@ -42,19 +55,31 @@ describe("TrackingView", () => {
   ] as const)("%s: muestra la traza como evidencia", (reason, title) => {
     render(
       <TrackingView
-        tracking={trackingFixture({ state: "closed", reason, metrics: null, lastPosition: null })}
+        tracking={trackingFixture({
+          state: "closed",
+          reason,
+          metrics: null,
+          lastPosition: null,
+        })}
         status="live"
       />
     )
     expect(screen.getByTestId("map")).toBeInTheDocument()
     expect(screen.getByText(title)).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /Seguir/ })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Seguir/ })
+    ).not.toBeInTheDocument()
   })
 
   it("cerrado con traza purgada: aviso y sin mapa", () => {
     render(
       <TrackingView
-        tracking={trackingFixture({ state: "closed", reason: "completed", trace: [], traceAvailable: false })}
+        tracking={trackingFixture({
+          state: "closed",
+          reason: "completed",
+          trace: [],
+          traceAvailable: false,
+        })}
         status="live"
       />
     )
@@ -83,7 +108,12 @@ describe("TrackingView", () => {
           signalLost: true,
           delayed: true,
           lastPingAt: "2026-10-22T11:46:00Z",
-          metrics: { avgSpeedKmh5m: null, remainingMeters: 4230, progressPct: 53, etaAt: null },
+          metrics: {
+            avgSpeedKmh5m: null,
+            remainingMeters: 4230,
+            progressPct: 53,
+            etaAt: null,
+          },
         })}
         status="live"
       />
@@ -95,7 +125,9 @@ describe("TrackingView", () => {
 
   it("toggle 'Seguir al transportista'", () => {
     render(<TrackingView tracking={trackingFixture()} status="live" />)
-    const toggle = screen.getByRole("button", { name: "Seguir al transportista" })
+    const toggle = screen.getByRole("button", {
+      name: "Seguir al transportista",
+    })
     expect(toggle).toHaveAttribute("aria-pressed", "false")
     expect(mapProps.last?.follow).toBe(false)
     fireEvent.click(toggle)
@@ -106,5 +138,25 @@ describe("TrackingView", () => {
   it("indicador de reconexión", () => {
     render(<TrackingView tracking={trackingFixture()} status="reconnecting" />)
     expect(screen.getByText("Reconectando…")).toBeInTheDocument()
+  })
+
+  it("actualiza el tiempo del último ping mientras reconecta", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-22T12:00:00Z"))
+    try {
+      render(
+        <TrackingView
+          tracking={trackingFixture()}
+          status="reconnecting"
+          receivedAt={Date.now()}
+        />
+      )
+      expect(screen.getByText("hace 3 s")).toBeInTheDocument()
+      act(() => vi.advanceTimersByTime(60_000))
+      expect(screen.getByText("hace 1 min")).toBeInTheDocument()
+    } finally {
+      cleanup()
+      vi.useRealTimers()
+    }
   })
 })

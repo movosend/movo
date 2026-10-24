@@ -35,7 +35,9 @@ vi.mock("leaflet/dist/leaflet.css", () => ({}))
 import TrackingMap, { courierLabel } from "./tracking-map"
 
 const iconLabels = () =>
-  h.lib.divIcon.mock.calls.map(([o]) => (o as { html: HTMLElement }).html.textContent)
+  h.lib.divIcon.mock.calls.map(
+    ([o]) => (o as { html: HTMLElement }).html.textContent
+  )
 
 afterEach(cleanup)
 
@@ -47,14 +49,20 @@ beforeEach(() => {
 describe("TrackingMap", () => {
   it("encuadra la ruta completa una sola vez por envío", () => {
     const t = trackingFixture()
-    const { rerender } = render(<TrackingMap tracking={t} follow={false} theme="light" />)
+    const { rerender } = render(
+      <TrackingMap tracking={t} follow={false} theme="light" />
+    )
     expect(h.map.fitBounds).toHaveBeenCalledTimes(1)
-    rerender(<TrackingMap tracking={trackingFixture()} follow={false} theme="light" />)
+    rerender(
+      <TrackingMap tracking={trackingFixture()} follow={false} theme="light" />
+    )
     expect(h.map.fitBounds).toHaveBeenCalledTimes(1)
   })
 
   it("etiqueta retiro y entrega con su barrio", () => {
-    render(<TrackingMap tracking={trackingFixture()} follow={false} theme="light" />)
+    render(
+      <TrackingMap tracking={trackingFixture()} follow={false} theme="light" />
+    )
     expect(iconLabels()).toEqual(
       expect.arrayContaining(["Nueva Córdoba", "Cerro de las Rosas"])
     )
@@ -71,7 +79,10 @@ describe("TrackingMap", () => {
     const courier = h.lib.divIcon.mock.calls
       .map(([o]) => (o as { html: HTMLElement }).html)
       .find((el) => el.querySelector(".mv-track-courier"))
-    expect(courier?.querySelector(".mv-track-courier")).toHaveAttribute("data-alert", "true")
+    expect(courier?.querySelector(".mv-track-courier")).toHaveAttribute(
+      "data-alert",
+      "true"
+    )
     expect(courier?.textContent).toMatch(/^sin señal · /)
   })
 
@@ -85,12 +96,22 @@ describe("TrackingMap", () => {
       <TrackingMap tracking={trackingFixture()} follow={false} theme="light" />
     )
     expect(h.map.panTo).not.toHaveBeenCalled()
-    rerender(<TrackingMap tracking={trackingFixture()} follow={true} theme="light" />)
+    rerender(
+      <TrackingMap tracking={trackingFixture()} follow={true} theme="light" />
+    )
     expect(h.map.panTo).toHaveBeenCalledWith([39, -120.5], { animate: false })
+    expect(h.map.panTo).toHaveBeenCalledTimes(1)
     h.map.panTo.mockClear()
     rerender(
       <TrackingMap
-        tracking={trackingFixture({ lastPosition: { lat: 40, lng: -121, accuracyM: 5, capturedAt: "2026-10-22T12:00:10Z" } })}
+        tracking={trackingFixture({
+          lastPosition: {
+            lat: 40,
+            lng: -121,
+            accuracyM: 5,
+            capturedAt: "2026-10-22T12:00:10Z",
+          },
+        })}
         follow={true}
         theme="light"
       />
@@ -98,12 +119,33 @@ describe("TrackingMap", () => {
     expect(h.map.panTo).toHaveBeenCalledWith([40, -121], { animate: false })
   })
 
+  it("conserva los íconos cuando solo cambia la lectura o el tema", () => {
+    const { rerender } = render(
+      <TrackingMap tracking={trackingFixture()} follow={false} theme="light" />
+    )
+    expect(h.lib.divIcon).toHaveBeenCalledTimes(3)
+    rerender(
+      <TrackingMap tracking={trackingFixture()} follow={false} theme="dark" />
+    )
+    expect(h.lib.divIcon).toHaveBeenCalledTimes(3)
+    rerender(
+      <TrackingMap
+        tracking={trackingFixture({ delayed: true })}
+        follow={false}
+        theme="dark"
+      />
+    )
+    expect(h.lib.divIcon).toHaveBeenCalledTimes(4)
+  })
+
   it("cambia las teselas con el tema cuando hay API key", () => {
     vi.stubEnv("NEXT_PUBLIC_ESRI_API_KEY", "k")
     const { rerender } = render(
       <TrackingMap tracking={trackingFixture()} follow={false} theme="light" />
     )
-    rerender(<TrackingMap tracking={trackingFixture()} follow={false} theme="dark" />)
+    rerender(
+      <TrackingMap tracking={trackingFixture()} follow={false} theme="dark" />
+    )
     const urls = h.lib.tileLayer.mock.calls.map(([u]) => u as string)
     expect(urls[0]).toContain("World_Light_Gray_Base")
     expect(urls[1]).toContain("World_Dark_Gray_Base")

@@ -28,7 +28,9 @@ export function LiveIndicator({ status }: { status: PollStatus }) {
         ? "En pausa"
         : status === "reconnecting"
           ? "Reconectando…"
-          : "Conectando…"
+          : status === "error"
+            ? "Error de seguimiento"
+            : "Conectando…"
   return (
     <span
       role="status"
@@ -66,9 +68,15 @@ function MessageStrip({ tracking }: { tracking: AdminShipmentTracking }) {
 function Legend() {
   return (
     <div className="flex h-8 items-center gap-2 rounded-full border border-border bg-[var(--glass)] px-3 text-xs font-medium text-foreground backdrop-blur-xl">
-      <span aria-hidden="true" className="size-2.5 rounded-[3px] bg-foreground" />
+      <span
+        aria-hidden="true"
+        className="size-2.5 rounded-[3px] bg-foreground"
+      />
       Retiro
-      <span aria-hidden="true" className="h-0.5 w-4 rounded bg-[var(--track-done)]" />
+      <span
+        aria-hidden="true"
+        className="h-0.5 w-4 rounded bg-[var(--track-done)]"
+      />
       Recorrido
       <span
         aria-hidden="true"
@@ -83,9 +91,11 @@ function Legend() {
 export function TrackingView({
   tracking,
   status,
+  receivedAt,
 }: {
   tracking: AdminShipmentTracking
   status: PollStatus
+  receivedAt?: number
 }) {
   const { resolvedTheme } = useTheme()
   const [follow, setFollow] = useState(false)
@@ -120,7 +130,7 @@ export function TrackingView({
         </div>
       )}
       {live ? (
-        <TrackingMetrics tracking={tracking} />
+        <TrackingMetrics tracking={tracking} receivedAt={receivedAt} />
       ) : (
         <div className={showMap ? "border-t border-border" : ""}>
           <MessageStrip tracking={tracking} />
@@ -132,9 +142,9 @@ export function TrackingView({
 
 /** Seguimiento de un envío dentro del detalle (MOVO-328). */
 export function ShipmentTrackingMap({ shipmentId }: { shipmentId: string }) {
-  const { data, status, refresh } = useTracking(shipmentId)
+  const { data, receivedAt, status, refresh } = useTracking(shipmentId)
 
-  if (!data && status !== "reconnecting")
+  if (!data && status === "connecting")
     return (
       <SkeletonGroup
         label="Cargando seguimiento…"
@@ -160,5 +170,27 @@ export function ShipmentTrackingMap({ shipmentId }: { shipmentId: string }) {
       </div>
     )
 
-  return <TrackingView tracking={data} status={status} />
+  if (status === "error")
+    return (
+      <div
+        role="alert"
+        className="flex items-center justify-between gap-3 rounded-[10px] border border-border bg-card px-[18px] py-4 text-[13px]"
+      >
+        <span>
+          No pudimos cargar el seguimiento. Revisá el envío o tu sesión.
+        </span>
+        <Button variant="outline" size="sm" onClick={refresh}>
+          <RefreshCw aria-hidden="true" />
+          Reintentar
+        </Button>
+      </div>
+    )
+
+  return (
+    <TrackingView
+      tracking={data}
+      status={status}
+      receivedAt={receivedAt ?? undefined}
+    />
+  )
 }

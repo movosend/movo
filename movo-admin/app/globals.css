@@ -675,6 +675,27 @@
   align-items: center;
   justify-content: center;
 }
+.mv-track-map path.mv-track-done {
+  stroke: var(--track-done);
+}
+.mv-track-map path.mv-track-todo {
+  stroke: var(--track-todo);
+}
+.mv-track-origin,
+.mv-track-destination {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.mv-track-origin {
+  border-radius: 6px;
+  background: var(--foreground);
+}
+.mv-track-destination {
+  border-radius: 999px;
+  background: var(--track-done);
+}
 .mv-track-label {
   position: absolute;
   top: 100%;
