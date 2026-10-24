@@ -1,0 +1,54 @@
+@startuml seq-liquidacion
+' MOVO-13 (MOVO-212, MOVO-213, MOVO-214): captura del hold, split payment y cierre del envío.
+autonumber
+participant "Receptor" as R
+participant "svc-shipments" as S <<movo>>
+participant "svc-payments" as PA <<movo>>
+participant "Mercado Pago" as MP
+participant "svc-users\n(notificaciones)" as U
+database "PostgreSQL" as DB
+
+== Captura al confirmarse la entrega ==
+R -> S : confirma el handshake de entrega (tema Ejecución)
+S -> DB : envío in_transit → delivered
+S -> PA : POST /internal/payments/holds/by-shipment/{id}/capture {kind: delivery}
+PA -> DB : bloquea la liquidación del envío (una sola captura aunque lleguen dos pedidos)
+PA -> MP : captura el hold; la comisión de Movo queda como application_fee\ny el resto se acredita a la cuenta del transportista
+alt captura acreditada
+  MP --> PA : approved
+  PA -> DB : liquidación captured (monto, comisión, neto) y hold captured
+  PA --> S : 200 {liquidación}
+  S -> DB : envío delivered → completed (compare-and-swap)
+  S -> U : push al transportista con el monto acreditado\ny al emisor confirmando el pago
+else Mercado Pago rechaza o no responde
+  MP --> PA : error
+  PA -> DB : liquidación failed y el hold sigue authorized
+  PA --> S : error
+  S -> S : el envío queda en delivered (no se completa)
+end
+
+== Reintentos y escalamiento ==
+loop barrido de capturas fallidas (con lock en Redis)
+  PA -> DB : liquidaciones failed con reintento vencido
+  PA -> MP : consulta el pago antes de capturar\n(si el timeout ocultaba una captura exitosa, no la repite)
+  alt cuenta del transportista rechazada o hold cancelado por MP
+    PA -> DB : escala de inmediato a revisión manual
+  else reintentos con espera de 5, 30 y 120 minutos
+    PA -> MP : reintenta la captura
+    alt se agotaron los tres reintentos
+      PA -> DB : escala a revisión manual (panel de administración)
+    end
+  end
+end
+
+== Webhook de Mercado Pago ==
+MP -> PA : POST /payments/webhooks (firma x-signature)
+alt firma inválida o ausente
+  PA --> MP : 401
+else evento de pago válido
+  PA -> DB : actualiza el hold (vencido, cancelado, rechazado o autorizado)
+  PA -> S : avisa el evento del hold (expired / cancelled / rejected)
+  S -> DB : revierte la asignación si corresponde
+  PA --> MP : 200
+end
+@enduml

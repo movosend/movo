@@ -1,0 +1,61 @@
+@startuml seq-sancionar-cuenta
+' MOVO-36 (MOVO-296 a MOVO-300): suspensión e inhabilitación de cuentas.
+autonumber
+actor "Administrador" as A
+actor "Usuario sancionado" as X
+participant "Panel de administración" as W
+participant "svc-admin" as AD <<movo>>
+participant "svc-users" as U <<movo>>
+participant "svc-shipments" as S
+participant "Gateway" as G
+database "Redis" as R
+database "PostgreSQL" as DB
+
+== Aplicar una sanción ==
+A -> W : Abre la ficha del usuario y elige suspender o inhabilitar, con motivo
+W -> AD : solicita la sanción {tipo, fin, motivo, nota interna}
+note right of AD
+  La ruta del panel es MOVO-299 (en curso).
+  La sanción en sí ya se aplica por la API interna de svc-users.
+end note
+AD -> AD : conflicto de interés y registro en la bitácora
+AD -> U : POST /internal/users/{id}/sanctions
+break inhabilitar con envíos en curso
+  U --> W : 409 con la lista de envíos en curso
+end
+U -> DB : inserta la sanción en el historial (solo agregar filas)\ny actualiza el estado de la cuenta
+U -> R : marca de restricción (con TTL hasta el fin, o sin TTL)
+opt inhabilitación
+  U -> R : revoca las sesiones de la app y del panel
+end
+U -> S : aplica los efectos sobre lo no comprometido
+S -> DB : retira envíos publicados, ofertas pendientes y viajes sin paquetes\n(queda registro en la línea de tiempo con el motivo)
+S -> S : avisa a las contrapartes de los envíos en curso (sin el motivo)
+U -> X : push y email con el motivo y el plazo (nunca la nota interna)
+U --> W : 200 {sanción}
+
+== Efecto inmediato en cada request ==
+X -> G : cualquier request con un token ya emitido
+G -> R : consulta la marca de restricción
+alt cuenta suspendida y la acción inicia algo nuevo
+  G --> X : 403 ACCOUNT_SUSPENDED {endsAt}
+else cuenta inhabilitada
+  G --> X : 403 ACCOUNT_DISABLED
+else lectura o acción de algo en curso
+  G -> S : reenvía la request
+end
+note over G, R : Si Redis no responde, el gateway falla abierto.\nAl arrancar svc-users se reescriben las marcas vigentes.
+
+== Vencimiento y levantamiento ==
+loop barrido periódico
+  U -> DB : suspensiones con fin vencido
+  U -> DB : cierra la sanción y deja la cuenta active
+  U -> R : borra la marca
+  U -> X : aviso de que la suspensión terminó
+end
+A -> W : "Levantar sanción" con motivo
+W -> AD : solicita levantar la sanción (MOVO-299, en curso)
+AD -> U : POST /internal/users/{id}/sanctions/{sanctionId}/lift
+U -> DB : cierra la sanción en el historial y borra la marca
+U -> X : aviso de levantamiento
+@enduml

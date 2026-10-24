@@ -1,0 +1,50 @@
+@startuml seq-soporte
+' MOVO-319 (MOVO-320 a MOVO-324): soporte dentro de la app, con bandeja para agentes.
+autonumber
+actor "Usuario" as U
+actor "Agente (admin)" as AG
+participant "App móvil" as M
+participant "Panel de administración" as W
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-users\n(notificaciones)" as N
+participant "AWS S3" as S3
+database "PostgreSQL" as DB
+
+== Nueva consulta del usuario ==
+U -> M : Ayuda y soporte: elige un tema y, opcionalmente, un envío
+M -> G : GET /support/shipments
+G -> S : envíos del usuario en cualquier rol (también si transfirió la recepción)
+S --> M : lista para vincular
+opt adjunta una imagen
+  M -> G : POST /support/attachments
+  G -> S : reenvía
+  S --> M : URL prefirmada
+  M -> S3 : PUT de la imagen
+end
+M -> G : POST /support/conversations {tema, envío?, texto, clientMessageId}
+G -> S : reenvía con x-user-id
+break el envío no existe o el usuario no es parte
+  S --> M : 422 SUPPORT_SHIPMENT_NOT_PARTY (misma respuesta para ambos casos)
+end
+break texto vacío, tema inválido o adjunto inexistente
+  S --> M : 400
+end
+S -> S : enmascara lenguaje ofensivo (marca moderated)
+S -> DB : crea la consulta open con su código SOP y el primer mensaje\n(idempotente por clientMessageId)
+S --> M : 201 {consulta}
+
+== Respuesta del agente en tiempo real (bandeja en curso, MOVO-322) ==
+AG -> W : Abre la bandeja, toma la consulta y responde
+W -> G : POST /admin/support/conversations/{id}/messages (API de la bandeja, MOVO-322)
+G -> S : reenvía con el rol admin
+S -> DB : guarda el mensaje (las notas internas se marcan y nunca salen al usuario)
+S -> M : difunde por WebSocket al usuario conectado
+S -> N : push al usuario si no tiene la conversación abierta
+M -> G : POST /support/conversations/{id}/read
+G -> S : reenvía
+S -> DB : marca leídos (el contador de no leídos vuelve a cero)
+
+== Estados de la consulta ==
+note over S, DB : open → esperando al usuario cuando responde un agente;\nresuelta cuando el agente la cierra; si el usuario escribe de nuevo,\nuna resuelta se reabre y una que esperaba al usuario vuelve a open.\nEl historial se conserva y sirve de evidencia en una disputa.
+@enduml

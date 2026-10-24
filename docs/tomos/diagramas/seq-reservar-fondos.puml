@@ -1,0 +1,67 @@
+@startuml seq-reservar-fondos
+' MOVO-12 (MOVO-209, MOVO-210, MOVO-211, MOVO-215, MOVO-268, MOVO-269): saga de asignación y reserva de fondos (ADR-037).
+autonumber
+actor "Emisor" as E
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-payments" as PA <<movo>>
+participant "Mercado Pago" as MP
+database "PostgreSQL" as DB
+
+== Ruta cercana: pago al aceptar la oferta ==
+note over E, DB : Al aceptar la oferta (tema Asignación), un retiro dentro de N días deja\nel envío en assignment_pending con un plazo para pagar.
+E -> M : Abre el pago del envío
+M -> G : GET /shipments/{id}/funding
+G -> S : reenvía con x-user-id del emisor
+S -> PA : consulta de datos de pago (monto, comisión, deuda del emisor)
+PA --> S : public_key de Mercado Pago, monto y comisión
+S --> M : 200 {monto, saldo pendiente, total, plazo para pagar}
+M -> MP : tokeniza la tarjeta (SDK de Mercado Pago; nunca pasa por Movo)
+MP --> M : cardToken
+M -> G : POST /shipments/{id}/funding {cardToken | savedCardId, total confirmado}
+G -> S : reenvía
+S -> S : valida estado (assignment_pending o assigned_unfunded) y plazo vigente
+S -> PA : POST /internal/payments/holds {shipmentId, carrierId, monto, token}
+PA -> DB : inserta el hold (índice único parcial: un solo hold vivo por envío)
+PA -> MP : crea el pago con capture=false y application_fee (comisión de Movo)
+alt tarjeta rechazada o fondos insuficientes
+  MP --> PA : rejected + motivo
+  PA --> S : hold fallido con motivo
+  S --> M : 200 {funded:false, motivo, plazo}\n(el emisor puede reintentar o elegir otra tarjeta)
+else autorizado
+  MP --> PA : authorized
+  PA --> S : hold authorized
+  S -> DB : envío assignment_pending / assigned_unfunded → assigned
+  S -> M : push a emisor y transportista (best-effort)
+  S --> M : 200 {funded:true, estado assigned}
+end
+
+== Ruta lejana: ventana de pago ==
+note over E, DB : Un retiro a más de N días deja el envío en assigned_unfunded, sin pedir tarjeta.
+loop barrido periódico de asignaciones sin fondos (con lock en Redis)
+  S -> DB : envíos assigned_unfunded
+  alt el retiro entra en la ventana de N días
+    S -> M : push al emisor para confirmar el pago (una sola vez)
+  else faltan menos de 24 h del retiro y no pagó
+    S -> DB : envío → published, sin transportista, oferta no aceptada
+    S -> M : push a ambas partes
+  end
+end
+E -> M : Confirma el pago desde el detalle del envío
+M -> S : POST /shipments/{id}/funding (mismo flujo de la ruta cercana)
+
+== Vencimiento del plazo de pago ==
+loop barrido de asignaciones pendientes de pago
+  S -> DB : envíos assignment_pending con plazo vencido
+  S -> PA : consulta el hold del envío
+  alt el hold ya estaba autorizado
+    S -> DB : reconcilia a assigned (no revierte)
+  else sin hold autorizado
+    S -> PA : libera el hold en curso
+    S -> DB : envío → published, sin transportista, oferta no aceptada,\nmotivo en la línea de tiempo
+    S -> M : push a emisor y transportista
+  end
+  note right of S : si no puede consultar el hold, no revierte a ciegas:\nreintenta en el próximo barrido
+end
+@enduml

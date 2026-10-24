@@ -1,0 +1,67 @@
+@startuml seq-penalidad-cancelacion
+' MOVO-226 (MOVO-305 a MOVO-316): cancelación de un envío asignado con penalidad y cuenta corriente.
+autonumber
+actor "Emisor / Transportista" as A
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-payments" as PA <<movo>>
+participant "Mercado Pago" as MP
+database "PostgreSQL" as DB
+
+== Cancelación del emisor desde un envío asignado ==
+A -> M : "Cancelar envío"
+M -> G : GET /shipments/{id}/cancellation-quote
+G -> S : reenvía
+S -> S : calcula el cargo: sin cargo con 12 h o más,\no con la ventana cerrada; 25 % del precio si faltan menos de 12 h
+S --> M : {monto de penalidad, hasta cuándo es sin cargo}
+A -> M : Confirma la penalidad mostrada
+M -> G : POST /shipments/{id}/cancel {expectedPenaltyArs}
+G -> S : reenvía
+S -> S : recalcula el cargo vigente
+break expectedPenaltyArs no coincide con el vigente
+  S --> M : 409 CANCELLATION_PENALTY_MISMATCH con el monto vigente (no cancela)
+end
+break el retiro ya ocurrió
+  S --> M : 409 (gana el retiro; no se cobra nada)
+end
+== Efecto sobre el hold y la cuenta corriente ==
+alt sin cargo
+  S -> PA : libera el hold entero
+  S -> DB : envío → cancelled (sin tocar la cuenta corriente)
+else con penalidad
+  S -> PA : POST /internal/payments/holds/by-shipment/{id}/capture {kind: cancellation_penalty, amountArs}
+  PA -> MP : captura parcial del hold
+  alt penalidad menor a la comisión más el fee de MP, o hold vencido
+    PA -> DB : libera el hold y registra la penalidad como deuda del usuario
+  else captura parcial acreditada
+    PA -> DB : liquidación cancellation_penalty y movimiento en la cuenta corriente
+  end
+  S -> DB : envío → cancelled
+  note right of S : si la captura falla, el envío queda cancelado\ny el barrido de reintentos la completa sin duplicar
+end
+S -> M : push a las dos partes
+S --> M : 200
+
+== Baja del transportista desde un envío asignado ==
+A -> M : "Bajarme del envío"
+M -> G : POST /shipments/{id}/carrier-withdrawal {monto confirmado}
+G -> S : reenvía
+S -> S : mismo umbral de 12 h; solo el asignado y antes del retiro
+alt con cargo
+  S -> PA : libera el hold entero y registra la penalidad como deuda del transportista
+else sin cargo
+  S -> PA : libera el hold entero, sin tocar la cuenta corriente
+end
+S -> DB : envío → published (sin transportista, oferta no aceptada)
+S --> M : 200
+
+== Cuenta corriente y cobro de la deuda ==
+note over A, MP : La deuda se cobra sola en la próxima operación del usuario:\nal transportista se le descuenta de su cobro (hasta el 30 % del precio);\nal emisor se le suma como recargo, visible antes de pagar.\nUna deuda sin saldar por más de 14 días bloquea nuevas operaciones.
+A -> M : "Pagar mi saldo"
+M -> G : POST /payments/balance/pay {monto, tarjeta guardada + CVV}
+G -> PA : reenvía
+PA -> MP : cobra a la tarjeta con el token de la cuenta cobradora de Movo
+PA -> DB : asienta un voluntary_payment que reduce la deuda
+PA --> M : 200 {saldo actualizado}
+@enduml

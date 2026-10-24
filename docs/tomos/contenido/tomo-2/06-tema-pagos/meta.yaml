@@ -1,0 +1,20 @@
+titulo: "EP-05 · Pagos y Economía"
+titulo_corto: Pagos y Economía
+subtitulo: Reserva de fondos, captura y reparto del pago, tarjetas guardadas, vinculación de Mercado Pago, penalidades de cancelación y cuenta corriente.
+instancia: Tema 5 de 7 · Trazabilidad de historias de usuario
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: true
+archivos:
+  - intro.md
+  - {gen: herramientas/gen_tema.py, args: [ep05]}
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: trazabilidad de las historias del tema, con criterios de aceptación de Linear, diagramas de secuencia derivados del código y casos de prueba derivados de las pruebas automatizadas."}
+introduccion: |
+  Este documento presenta la trazabilidad de las historias de usuario del tema *Pagos y
+  Economía*: para cada historia, su descripción y criterios de aceptación, los tickets que la
+  implementaron, el diagrama de secuencia que muestra cómo la resuelve el sistema y los casos de
+  prueba que la verifican.
+audiencia: |
+  El tribunal evaluador y los futuros mantenedores. Se asume conocimiento de las
+  convenciones del proyecto y de UML.

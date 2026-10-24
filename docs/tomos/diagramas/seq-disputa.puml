@@ -1,0 +1,54 @@
+@startuml seq-disputa
+' MOVO-30 (MOVO-334): apertura de una disputa y descargos (ADR-045, ADR-052, ADR-054).
+autonumber
+actor "Parte que reclama" as P
+actor "Contraparte" as C
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-users" as U
+participant "AWS S3" as S3
+database "PostgreSQL\n(esquema shipments)" as DB
+
+== Apertura ==
+P -> M : "Reportar un problema" con motivo, descripción y fotos
+loop por cada foto (máx. 4)
+  M -> G : POST /shipments/{id}/disputes/photos/presign
+  G -> S : reenvía
+  S --> M : URL prefirmada
+  M -> S3 : PUT de la imagen
+end
+M -> G : POST /shipments/{id}/disputes {motivo, descripción, fotos}
+G -> S : reenvía con x-user-id
+break quien reclama no es parte del envío (ni siquiera un admin)
+  S --> M : 403
+end
+break motivo de sistema o sin descripción
+  S --> M : 400
+end
+break ya hay una disputa abierta
+  S --> M : 409 DISPUTE_ALREADY_OPEN {id de la existente}
+end
+S -> DB : valida la ventana: envío completed o delivered\ndentro de los 7 días desde la entrega
+S -> DB : crea la disputa open con su expediente, asocia las fotos\ny pasa el envío a disputed (sin tocar el hold)
+opt el reclamo es de una parte (no un incumplimiento de retiro)
+  S -> DB : bloquea al transportista mientras dure la disputa
+end
+S -> U : push a las partes
+S --> M : 201 {disputa}
+
+== Descargos ==
+C -> M : Abre la disputa y carga su descargo
+M -> G : POST /shipments/{id}/disputes/{disputeId}/statements
+G -> S : reenvía
+break la disputa ya se resolvió, o la contraparte no es parte
+  S --> M : 409 DISPUTE_NOT_OPEN / 403 / 404
+end
+S -> DB : registra el descargo (uno por contraparte)
+alt quien abrió la disputa
+  S -> DB : puede ampliar su reclamo una sola vez
+end
+S --> M : 201
+note over S, DB : En una disputa abierta por el sistema (por ejemplo, un transportista que\nno retiró el paquete) las tres partes cargan descargo y nadie amplía.\nUna disputa abierta bloquea además la baja de cuenta de las tres partes,\ny la calificación queda suspendida hasta la resolución.
+note over P, DB : La resolución por parte del administrador (MOVO-34) y los reembolsos\ntotal y parcial (MOVO-336) están en backlog.
+@enduml

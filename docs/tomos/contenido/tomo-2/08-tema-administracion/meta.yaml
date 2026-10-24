@@ -1,0 +1,19 @@
+titulo: "EP-07 · Gestión y Administración"
+titulo_corto: Gestión y Administración
+subtitulo: Acceso seguro al panel, ficha de usuarios, sanciones de cuenta, monitoreo de envíos, disputas, soporte y cumplimiento legal.
+instancia: Tema 7 de 7 · Trazabilidad de historias de usuario
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: true
+archivos:
+  - intro.md
+  - {gen: herramientas/gen_tema.py, args: [ep07]}
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: trazabilidad de las historias del tema, con criterios de aceptación de Linear, diagramas de secuencia derivados del código y casos de prueba derivados de las pruebas automatizadas."}
+introduccion: |
+  Este documento presenta la trazabilidad de las historias de usuario del tema *Gestión y Administración*: para cada historia, su descripción y criterios de aceptación, los tickets que la
+  implementaron, el diagrama de secuencia que muestra cómo la resuelve el sistema y los casos de
+  prueba que la verifican.
+audiencia: |
+  El tribunal evaluador y los futuros mantenedores. Se asume conocimiento de las
+  convenciones del proyecto y de UML.

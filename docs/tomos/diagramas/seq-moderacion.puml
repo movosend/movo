@@ -1,0 +1,44 @@
+@startuml seq-moderacion
+' MOVO-175 (MOVO-256): reportar y bloquear usuarios (ADR-026).
+autonumber
+actor "Usuario" as A
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-users" as U <<movo>>
+participant "svc-shipments" as S
+participant "AWS S3" as S3
+database "PostgreSQL\n(esquema users)" as DB
+
+== Reporte con fotos ==
+A -> M : "Reportar usuario" con motivo, detalle y fotos
+loop por cada foto (máx. 4, JPEG de hasta 2 MB)
+  M -> G : POST /users/{id}/report/photos/presign
+  G -> U : reenvía
+  U --> M : URL prefirmada bajo reports/{usuario}/
+  M -> S3 : PUT de la imagen
+end
+M -> G : POST /users/{id}/report {motivo, detalle, claves de las fotos}
+G -> U : reenvía con x-user-id
+break se reporta a sí mismo, el usuario no existe o fue dado de baja
+  U --> M : 400 CANNOT_MODERATE_SELF / 404 USER_NOT_FOUND
+end
+break supera el máximo diario de reportes nuevos
+  U --> M : 429 RATE_LIMIT_EXCEEDED
+end
+U -> S3 : verifica cada foto (existe, es JPEG, tamaño real)
+U -> DB : inserta el reporte en pending con sus fotos\n(una sola pendiente por par; una foto no se reusa)
+alt ya hay un reporte en revisión para ese par
+  U --> M : 409 REPORT_ALREADY_PENDING
+else reporte creado
+  U --> M : 201 {reporte}
+end
+note over U, DB : El reportante puede sumar entradas al mismo reporte\n(POST /users/{id}/report/entries) sin editar el original;\nel equipo lo revisa desde el panel de administración.
+
+== Bloqueo ==
+A -> M : "Bloquear usuario"
+M -> G : POST /users/{id}/block
+G -> U : reenvía
+U -> DB : registra el bloqueo (idempotente)
+U --> M : 204
+note over A, S : Efecto del bloqueo en shipments (consulta GET /internal/users/{id}/block-relations):\nel feed oculta los envíos del bloqueado, y no se puede ofertar, aceptar una oferta,\neditarla ni designar como receptor a alguien con bloqueo en cualquier dirección (403 USER_BLOCKED).\nEn el chat, quien tiene un bloqueo con el autor recibe el mensaje oculto.
+@enduml

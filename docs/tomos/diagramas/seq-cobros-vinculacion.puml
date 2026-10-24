@@ -1,0 +1,53 @@
+@startuml seq-cobros-vinculacion
+' MOVO-110 (vinculación de Mercado Pago) y MOVO-65 (tarjetas guardadas).
+autonumber
+actor "Usuario" as U
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-payments" as PA <<movo>>
+participant "Mercado Pago" as MP
+database "PostgreSQL\n(esquema payments)" as DB
+
+== Vinculación de la cuenta del transportista (OAuth) ==
+U -> M : "Vincular Mercado Pago"
+M -> G : GET /payments/mp-connect/authorization-url
+G -> PA : reenvía con x-user-id
+PA -> PA : genera el estado firmado de la solicitud
+PA --> M : URL de autorización
+M -> MP : abre la autorización en un navegador embebido
+U -> MP : autoriza a Movo
+MP -> PA : GET /payments/mp-connect/callback?code&state
+PA -> PA : valida el estado firmado
+PA -> MP : intercambia el código por access y refresh token
+MP --> PA : tokens y datos de la cuenta
+PA -> DB : guarda la vinculación con los tokens cifrados
+PA --> M : redirige de vuelta a la app (estado "vinculado")
+M -> G : GET /payments/mp-connect/status
+G -> PA : reenvía
+PA --> M : {linked | not_linked | invalid, cuenta}
+note over PA, MP : El token se renueva solo antes de vencer (180 días).\nSi el usuario revoca el acceso en Mercado Pago o el refresh falla,\nla vinculación pasa a invalid y el transportista no puede\nquedar confirmado en envíos que requieran cobrar.
+U -> M : "Desvincular"
+M -> G : DELETE /payments/mp-connect
+G -> PA : reenvía
+PA -> DB : marca la vinculación como dada de baja
+PA --> M : 204
+
+== Tarjetas guardadas del emisor ==
+U -> M : "Agregar tarjeta"
+M -> MP : tokeniza la tarjeta (SDK de Mercado Pago)
+MP --> M : cardToken
+M -> G : POST /payments/cards {cardToken, alias}
+G -> PA : reenvía
+PA -> DB : lee el customer de Mercado Pago del usuario
+alt sin customer, o el guardado ya no existe en Mercado Pago
+  PA -> MP : crea (o reutiliza por email) el customer
+end
+PA -> MP : guarda la tarjeta en el customer
+alt Mercado Pago la rechaza
+  PA --> M : error con el motivo
+else tarjeta guardada
+  PA -> DB : guarda marca, últimos 4 y vencimiento (nunca número ni CVV)
+  PA --> M : 201 {tarjeta, predeterminada si es la primera}
+end
+note over PA : Una tarjeta repetida devuelve 200 con la existente.\nEl total de tarjetas vivas tiene un tope.\nUna tarjeta con un hold vivo no se puede eliminar.
+@enduml

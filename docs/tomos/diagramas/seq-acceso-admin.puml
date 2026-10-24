@@ -1,0 +1,60 @@
+@startuml seq-acceso-admin
+' MOVO-286 (MOVO-287, MOVO-288, MOVO-290, MOVO-291, MOVO-292): acceso al panel con segundo factor y bitácora.
+autonumber
+actor "Administrador" as A
+participant "Panel de administración\n(Next.js)" as W
+participant "Gateway" as G
+participant "svc-users" as U <<movo>>
+participant "svc-admin" as AD <<movo>>
+participant "svc-shipments /\nsvc-payments" as D
+database "Redis" as R
+database "PostgreSQL" as DB
+
+== Paso 1: credenciales ==
+A -> W : Ingresa email (o teléfono) y contraseña
+W -> G : POST /auth/admin/login
+G -> U : reenvía
+U -> U : verifica credenciales, rol admin, email verificado y cuenta activa
+alt falla cualquiera de las cuatro condiciones
+  U --> W : 401 con el mismo error (no revela cuál falló) y sin enviar mail
+else credenciales válidas
+  U -> U : genera un código OTP de 6 dígitos y lo envía por email
+  U --> W : 200 {otpId} (sin emitir tokens)
+end
+
+== Paso 2: código ==
+A -> W : Ingresa el código recibido
+W -> G : POST /auth/admin/verify {otpId, código}
+G -> U : reenvía
+U -> R : valida el código (un solo uso, 5 intentos)
+alt código incorrecto, vencido o de otro flujo
+  U --> W : 401 (al quinto error invalida el desafío)
+else código correcto
+  U -> U : revalida que siga siendo admin
+  U -> R : crea la sesión de panel (máx. 8 h) con refresh propio
+  U --> W : access token de 15 min con el rol admin y sesión de 8 h
+end
+note over U, R : Un token de la app nunca lleva el rol admin, y un refresh del panel\nno sirve en /auth/refresh (ni al revés). Revocar el rol o suspender\nla cuenta corta las sesiones del panel de inmediato.
+
+== Acción de escritura con bitácora ==
+A -> W : Ejecuta una acción (sancionar, otorgar rol, ajustar cuenta corriente, ...)
+W -> G : POST /admin/... con motivo
+G -> AD : reenvía con el token de panel
+AD -> AD : valida el rol admin y la regla de conflicto de interés\n(no actúa sobre sí mismo ni sobre un envío del que es parte)
+break conflicto de interés
+  AD -> DB : registra el intento como failed
+  AD --> W : 403 ADMIN_CONFLICT_OF_INTEREST
+end
+AD -> D : ejecuta la acción en el servicio dueño del dato
+alt éxito
+  AD -> DB : bitácora: succeeded, admin, motivo, contexto y x-request-id
+  AD --> W : 200
+else el servicio rechaza la acción
+  AD -> DB : bitácora: failed
+  AD --> W : error de negocio
+else el servicio no responde
+  AD -> DB : bitácora: unknown (pudo haberse aplicado)
+  AD --> W : 502
+end
+note over DB : La bitácora es de solo agregar filas:\nUPDATE y DELETE fallan por trigger.
+@enduml

@@ -1,0 +1,53 @@
+@startuml seq-calificar
+' MOVO-22 (MOVO-146, MOVO-153) y MOVO-25 (MOVO-147, MOVO-152, MOVO-154, MOVO-170 a MOVO-176): calificación y reputación.
+autonumber
+actor "Parte del envío" as P
+actor "Otro usuario" as O
+participant "App móvil" as M
+participant "Gateway" as G
+participant "svc-shipments" as S <<movo>>
+participant "svc-users" as U <<movo>>
+database "PostgreSQL" as DB
+
+== Calificar tras la entrega ==
+P -> M : Abre "Calificaciones pendientes"
+M -> G : GET /shipments/pending-ratings
+G -> S : reenvía con x-user-id
+S -> DB : envíos delivered o completed donde el usuario aún no calificó
+S --> M : [{envío, a quién calificar}]
+P -> M : Elige de 1 a 5 estrellas, categorías y comentario opcional
+M -> G : POST /shipments/{id}/ratings {rateeId, score, categorías, comentario}
+G -> S : reenvía
+S -> DB : lee el envío y sus eventos
+break el envío no está entregado, o el usuario no participó o se califica a sí mismo
+  S --> M : 409 SHIPMENT_NOT_DELIVERED / 403
+end
+break pasaron 72 h desde la entrega (más lo que duró una disputa)
+  S --> M : 409 SHIPMENT_RATING_WINDOW_EXPIRED
+end
+break el envío está en disputa
+  S --> M : 409 SHIPMENT_RATING_DISPUTE_ACTIVE
+end
+S -> DB : inserta la calificación con el rol del calificado\n(única por calificador, calificado y envío)
+alt ya existe
+  S --> M : 409 SHIPMENT_RATING_ALREADY_EXISTS\n(la edición va por PATCH /shipments/{id}/ratings/{rateeId})
+else nueva
+  S -> U : push al calificado (best-effort)
+  S --> M : 201 {calificación}
+end
+
+== Reputación en el perfil ==
+O -> M : Abre el perfil de otro usuario
+M -> G : GET /users/{id}
+G -> U : reenvía
+U -> S : GET /internal/users/{id}/reputation
+S -> DB : calificaciones recibidas, por rol
+S -> S : promedio con decaimiento temporal y contracción bayesiana\n(la media global como valor previo)
+S --> U : {reputationScore, ratingCount, isNewProfile, conteo de entregas}
+U -> S : GET /internal/users/{id}/ratings/recent (últimas calificaciones)
+alt svc-shipments no responde
+  U --> M : perfil con reputationScore nulo y contadores en cero
+else respuesta correcta
+  U --> M : perfil con score, desglose por rol, comentarios\ne insignias de verificación
+end
+@enduml
