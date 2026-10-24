@@ -327,6 +327,52 @@ def test_log_marks_a_calibrated_quote(caplog: pytest.LogCaptureFixture) -> None:
     assert computed and '"calibrated": true' in computed[0]
 
 
+def test_the_largest_accepted_package_is_quoted_without_overflow() -> None:
+    # Reseña de MOVO-317: sin tope, un valor enorme desbordaba el subtotal a `inf` y `_round_to_10` lanzaba
+    # OverflowError (500). Con el tope de cordura, lo máximo que entra cotiza un número finito.
+    req = _req(weight_kg=10_000, sides=(10_000, 10_000, 10_000))
+    result = asyncio.run(compute_quote(req, fuel_provider=GridFuel()))
+
+    assert 0 < result.suggested_price_ars < float("inf")
+
+
+@pytest.mark.parametrize("field", ["weightKg", "lengthCm", "widthCm", "heightCm"])
+def test_endpoint_rejects_values_over_the_sanity_cap(field: str) -> None:
+    body = {
+        "originLat": 0,
+        "originLng": 0,
+        "destinationLat": 1,
+        "destinationLng": 0,
+        "weightKg": 5,
+        "lengthCm": 10,
+        "widthCm": 10,
+        "heightCm": 10,
+        "packageType": "standard_package",
+        field: 10_001,
+    }
+    response = client.post("/quote", json=body)
+
+    assert response.status_code == 422
+
+
+def test_endpoint_accepts_values_at_the_sanity_cap() -> None:
+    body = {
+        "originLat": 0,
+        "originLng": 0,
+        "destinationLat": 1,
+        "destinationLng": 0,
+        "weightKg": 10_000,
+        "lengthCm": 10_000,
+        "widthCm": 10_000,
+        "heightCm": 10_000,
+        "packageType": "standard_package",
+    }
+    response = client.post("/quote", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["suggestedPriceArs"] > 0
+
+
 def test_endpoint_accepts_a_package_beyond_the_old_limits() -> None:
     body = {
         "originLat": 0,

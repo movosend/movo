@@ -265,7 +265,11 @@ nuevos en `app/config.py`; `PRICING_FACTOR_*` de MOVO-82 eliminados. `QuoteBreak
 - **`package_tapered_v3`** reemplaza a v2 (que sigue persistida en envíos viejos): igual, pero el peso volumétrico cuenta hasta
   `PRICING_VOLUMETRIC_WEIGHT_CAP_KG` (300; el peso real no tiene tope). Sin tope, un cubo de 300 cm (5.400 kg volumétricos) cotizaba
   ~$1.173.000 a 700 km; con tope, ~$82.000. Una heladera de 80 kg (70 × 70 × 180 cm, 176 kg volumétricos) sigue en ~$55.600 a 700 km
-  (decisión de producto: no se subió el tramo de 30 kg para llegar a $70.000). El desglose y el log informan el volumétrico real
-  (`volumetricWeightKg`) y `volumetricCapped`.
+  (decisión de producto: no se subió el tramo de 30 kg para llegar a $70.000). El desglose (`includeBreakdown`) informa el volumétrico
+  real (`volumetricWeightKg`) y el facturable (`billableWeightKg`); `calibrated` y `volumetricCapped` solo van al log
+  `pricing_quote_computed`, no al `QuoteBreakdown`.
+- **Tope de cordura** (`PACKAGE_INPUT_SANITY_MAX`, 10.000 kg o cm en el peso y en cada medida de `QuoteRequest`, mismo valor que
+  `@movo/shared` y que el schema de `svc-shipments`): no es un límite de negocio, evita que un valor enorme desborde el subtotal a `inf` y
+  `_round_to_10` lance `OverflowError` (500).
 - Pendiente (R3): recalibrar contra el Correo para más de 10 kg y ampliar la banda a `fragile_item`, `letter_document` y rutas cortas; no hay
   tarifas de referencia por encima de 10 kg en `docs/pricing/grilla-referencia.md`. Todo precio sobre 10 kg facturables es extrapolación.

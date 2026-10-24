@@ -24,7 +24,12 @@ router = APIRouter()
         "`movo-svc-shipments` (juego de precios), nunca el flujo del emisor."
     ),
     responses={
-        422: {"description": "Body inválido. No hay topes de peso ni medidas (MOVO-317)."},
+        422: {
+            "description": (
+                "Body inválido. Sin límites de negocio de peso ni medidas (MOVO-317), solo un tope de "
+                "cordura de 10.000 kg o cm en cada valor."
+            )
+        },
     },
 )
 async def create_quote(request: QuoteRequest) -> QuoteResponse:

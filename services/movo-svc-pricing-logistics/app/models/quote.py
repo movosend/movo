@@ -22,6 +22,12 @@ class PriceCalculationMethod(str, Enum):
     PACKAGE_TAPERED_V3 = "package_tapered_v3"  # MOVO-317: v2 con el peso volumétrico acotado
 
 
+# Tope de cordura (kg y cm) del peso y de cada medida: sin límites de negocio (MOVO-317), pero un valor
+# enorme desbordaba el subtotal a `inf` y `_round_to_10` lanzaba OverflowError. Mismo valor que
+# `PACKAGE_INPUT_SANITY_MAX` de `@movo/shared`: si cambia allá, cambiarlo acá.
+PACKAGE_INPUT_SANITY_MAX = 10_000
+
+
 class CamelModel(BaseModel):
     """Primer contacto de este servicio (Python) con un consumidor TypeScript
     (`movo-svc-shipments/src/adapters/pricing-client.ts`) — el resto del repo Python
@@ -44,10 +50,10 @@ class QuoteRequest(CamelModel):
     origin_lng: float = Field(ge=-180, le=180)
     destination_lat: float = Field(ge=-90, le=90)
     destination_lng: float = Field(ge=-180, le=180)
-    weight_kg: float = Field(gt=0)
-    length_cm: float = Field(gt=0)
-    width_cm: float = Field(gt=0)
-    height_cm: float = Field(gt=0)
+    weight_kg: float = Field(gt=0, le=PACKAGE_INPUT_SANITY_MAX)
+    length_cm: float = Field(gt=0, le=PACKAGE_INPUT_SANITY_MAX)
+    width_cm: float = Field(gt=0, le=PACKAGE_INPUT_SANITY_MAX)
+    height_cm: float = Field(gt=0, le=PACKAGE_INPUT_SANITY_MAX)
     package_type: PackageType
     urgent: bool = False
     # Opcional: sin contexto de demanda no se aplica recargo.
