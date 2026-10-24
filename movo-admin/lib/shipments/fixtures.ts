@@ -400,7 +400,9 @@ function build(seed: Seed): MockShipment {
     fromStatus: i === 0 ? null : path[i - 1]!,
     toStatus: status,
     actorId: actorOf[status],
+    actorName: null,
     reason: i === path.length - 1 ? (seed.reason ?? null) : null,
+    kind: "normal",
     createdAt: ago(seed.updated + (path.length - 1 - i) * 95),
   }))
 
