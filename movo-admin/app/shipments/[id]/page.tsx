@@ -3,6 +3,7 @@ import { Suspense } from "react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ApiError } from "@movo/shared/src/errors/api-error"
+import { shipmentConfirmationCode } from "@movo/shared/src/types/admin-shipments"
 import { publicError } from "@/lib/auth/api"
 import { requireAdmin } from "@/lib/auth/session"
 import { sidebarDefaultOpen } from "@/lib/sidebar"
@@ -24,6 +25,11 @@ import {
   Timeline,
 } from "@/components/shipments/detail"
 import { OffersCard, OffersProvider } from "@/components/shipments/offers"
+import {
+  StatusChangeButton,
+  StatusChangeNotice,
+  StatusChangeProvider,
+} from "@/components/shipments/status-change/status-change"
 import { ShipmentTrackingMap } from "@/components/shipments/tracking/tracking-panel"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -86,48 +92,65 @@ export default async function Page({
 
   const { shipment } = detail
   const now = new Date()
+  // Un admin que es parte del envío no puede cambiarle el estado: se deshabilita con la explicación a la vista.
+  // El backend lo vuelve a decidir (también cuenta al receptor anterior, que acá no se conoce).
+  const isParty = [
+    shipment.sender.id,
+    shipment.carrier?.id,
+    shipment.receiver.id,
+  ].includes(admin.id)
   return (
     <AdminShell {...shell} crumb={shipmentDisplayCode(shipment.id)}>
-      <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 pt-6 pb-14 md:px-8">
-        <DetailHeader
-          shipment={shipment}
-          backHref={backHref}
-          now={now}
-          actions={
-            <Suspense fallback={<ChatButtonLoading />}>
-              <ChatSection shipment={shipment} parties={detail.parties} />
-            </Suspense>
-          }
-        />
-        <AlertBanner shipment={shipment} now={now} />
-        <OffersProvider
-          shipment={shipment}
-          offers={detail.offers}
-          photos={Object.fromEntries(
-            (detail.parties.data ?? []).map((p) => [p.id, p.photoUrl])
-          )}
-        >
-          <div className="grid items-start gap-5 min-[1100px]:grid-cols-[minmax(0,1fr)_380px]">
-            <div className="flex min-w-0 flex-col gap-5">
-              <ShipmentTrackingMap shipmentId={shipment.id} />
-              <OffersCard />
-              <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] items-start gap-5">
-                <PartiesCard shipment={shipment} parties={detail.parties} />
-                <LegsCard
-                  shipment={shipment}
-                  events={detail.events.data}
-                  now={now}
-                />
-                <PackagePaymentCard
-                  shipment={shipment}
-                  payment={detail.payment}
-                />
+      <StatusChangeProvider
+        shipmentId={shipment.id}
+        displayCode={shipmentConfirmationCode(shipment.id)}
+        currentStatus={shipment.status}
+      >
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 pt-6 pb-14 md:px-8">
+          <DetailHeader
+            shipment={shipment}
+            backHref={backHref}
+            now={now}
+            actions={
+              <>
+                <StatusChangeButton conflict={isParty} />
+                <Suspense fallback={<ChatButtonLoading />}>
+                  <ChatSection shipment={shipment} parties={detail.parties} />
+                </Suspense>
+              </>
+            }
+          />
+          <StatusChangeNotice />
+          <AlertBanner shipment={shipment} now={now} />
+          <OffersProvider
+            shipment={shipment}
+            offers={detail.offers}
+            photos={Object.fromEntries(
+              (detail.parties.data ?? []).map((p) => [p.id, p.photoUrl])
+            )}
+          >
+            <div className="grid items-start gap-5 min-[1100px]:grid-cols-[minmax(0,1fr)_380px]">
+              <div className="flex min-w-0 flex-col gap-5">
+                <ShipmentTrackingMap shipmentId={shipment.id} />
+                <OffersCard />
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] items-start gap-5">
+                  <PartiesCard shipment={shipment} parties={detail.parties} />
+                  <LegsCard
+                    shipment={shipment}
+                    events={detail.events.data}
+                    now={now}
+                  />
+                  <PackagePaymentCard
+                    shipment={shipment}
+                    payment={detail.payment}
+                  />
+                </div>
               </div>
+              <Timeline shipment={shipment} events={detail.events} />
             </div>
-            <Timeline shipment={shipment} events={detail.events} />
-          </div>
-        </OffersProvider>
-      </div>
+          </OffersProvider>
+        </div>
+      </StatusChangeProvider>
     </AdminShell>
   )
 }

@@ -11,7 +11,7 @@ import type {
   ChatAccess,
   ChatParticipantRole,
 } from "@movo/shared/src/types/chat"
-import { formatArs, type Pill } from "@/lib/users/format"
+import { formatArs, SHIPMENT_STATUS, type Pill } from "@/lib/users/format"
 
 export type ShipmentStatusValue = AdminShipmentRow["status"]
 export type ShipmentTab = "all" | AdminShipmentGroup
@@ -253,6 +253,8 @@ export interface TimelineItem {
   /** Hora y actor; `null` en un paso pendiente. */
   meta: string | null
   reason: string | null
+  /** MOVO-333: `manual`/`forced` si lo hizo un admin desde el panel. */
+  kind: "normal" | "manual" | "forced"
   pending: boolean
   current: boolean
 }
@@ -332,13 +334,22 @@ export function buildTimeline(
     a.createdAt.localeCompare(b.createdAt)
   )
   const done = sorted.map((event, i): TimelineItem => {
-    const copy = eventCopy(event, row)
+    const byAdmin = event.kind !== "normal"
+    const copy = byAdmin
+      ? {
+          title: `${event.kind === "forced" ? "Estado forzado a" : "Estado cambiado a"} ${SHIPMENT_STATUS[event.toStatus].label}`,
+          detail: event.fromStatus
+            ? `${SHIPMENT_STATUS[event.fromStatus].label} → ${SHIPMENT_STATUS[event.toStatus].label}`
+            : null,
+        }
+      : eventCopy(event, row)
     return {
       key: event.id,
       status: event.toStatus,
       ...copy,
-      meta: `${formatStamp(event.createdAt)} · ${actorLabel(event.actorId, row)}`,
+      meta: `${formatStamp(event.createdAt)} · ${byAdmin ? `${event.actorName ?? "Admin"} · Admin` : actorLabel(event.actorId, row)}`,
       reason: event.reason,
+      kind: event.kind,
       pending: false,
       current: i === sorted.length - 1,
     }
@@ -350,6 +361,7 @@ export function buildTimeline(
     detail: null,
     meta: null,
     reason: null,
+    kind: "normal",
     pending: true,
     current: false,
   }))

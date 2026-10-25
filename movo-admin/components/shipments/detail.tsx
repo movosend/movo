@@ -11,6 +11,8 @@ import {
   PackageCheck,
   PackagePlus,
   Star,
+  ShieldAlert,
+  ShieldCheck,
   TriangleAlert,
   Truck,
   UserCheck,
@@ -429,7 +431,12 @@ export function Timeline({
       )}
       <ol className="overflow-auto px-[18px] pt-4 pb-5 empty:hidden">
         {items.map((item, i) => {
-          const Icon = EVENT_ICON[item.status]
+          const Icon =
+            item.kind === "forced"
+              ? ShieldAlert
+              : item.kind === "manual"
+                ? ShieldCheck
+                : EVENT_ICON[item.status]
           const last = i === items.length - 1
           const tone = SHIPMENT_STATUS[item.status].tone
           const accepted = acceptance(item)
