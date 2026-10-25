@@ -3865,3 +3865,21 @@ Push `shipmentStatusForced*` con `ignorePreferences` (se extendieron `SendPushNo
   liberar el hold en `assigned → cancelled` (alerta `force_status_hold_released_race`, ver DD-055).
 - Pendiente: el cliente en `svc-admin` y el OTP por acción (MOVO-332), el modal del panel (MOVO-333); `in_transit`/`delivered` forzados con
   evidencia y la salida de `disputed` (MOVO-34) quedan bloqueados.
+
+### MOVO-337 — Resolución de disputas: matriz de pago, estado final, desbloqueo y avisos (DD-056)
+
+`POST /internal/admin/disputes/:id/resolve` (`modules/admin-internal/dispute-resolution.service.ts`, rutas en `admin-disputes.routes.ts`, junto con el
+listado, el expediente, `parties`, `handshake`, `trace` y `resolution-preview`; las llamó `svc-admin`). La matriz sale de `@movo/shared`
+(`config/dispute-resolution.ts`) y depende del `fromStatus` del evento que pasó el envío a `disputed` (`findStatusAtOpen`). Tres pasos idempotentes: la
+disputa pasa a `resolving` con el resultado guardado (`beginResolution`, `FOR UPDATE` + lock en Redis), se ejecuta la acción de pago y recién entonces
+`updateStatus(..., { resolveDispute })` cierra el envío y la disputa en una transacción. Migración `20261025180000_dispute_resolution` (estado
+`resolving`, `outcome`, montos, `payment_action`, `reasoning`, `resolved_by`, `resolved_at`).
+- Aristas nuevas `disputed → completed|cancelled`, solo con `resolveDispute` (el repositorio lanza sin él). Sin estados nuevos. `completed` desde
+  `in_transit` fija `deliveredAt`. `hasOpenDisputeAsCarrier` cuenta `open` y `resolving`. Una disputa resuelta es definitiva (no se abre otra sobre el `completed`).
+- `PaymentsClient` suma `createRefund`, `listRefunds` (MOVO-336) y `createManualAdjustment` (crédito al transportista en `assigned`, el hold ya se liberó).
+  Un rechazo de negocio de payments antes de mover plata devuelve la disputa a `open` (`abortResolution`); un corte o `fallback_to_ledger`/`processing`
+  la deja `resolving` con alerta. `fallback_to_ledger` resuelve, pero alerta: el emisor no cobró.
+- Calificación (AC12): `ratings.service.ts#assertRatingWindowAllowsWrite` es la única regla; el evento expone `attribution`. Ganador (o las dos partes en
+  `partial`) dentro de 72 h desde `resolvedAt`; no-retiro atribuido: solo el emisor, 72 h desde la cancelación. Template `disputeResolved`.
+- Fuera de alcance / pendiente: `PICKUP_NO_SHOW_RATING_INVITE_ENABLED` pasa a `true` por defecto (env, `.env.example` y compose); la calificación pendiente de un
+  envío disputado no entra en `GET /shipments/pending-ratings`; el mobile no muestra el resultado de la disputa.
