@@ -29,22 +29,42 @@ El panel llama **solo** a `/admin/support/*` de `svc-admin` (decisión 6 de MOVO
 
 Las respuestas rápidas **no** son una ruta para el panel: `SUPPORT_QUICK_REPLIES` y `resolveQuickReply` están en
 `@movo/shared` y las usa el panel directamente (MOVO-322 AC11 pedía `GET /admin/support/quick-replies`; si el backend la
-quiere igual, que devuelva esa misma constante).
+quiere igual, que devuelva esa misma constante). MOVO-322 la implementó así: `GET quick-replies` devuelve la constante.
 
 ## Reglas de escritura
 
 - Toda escritura (responder, nota, asignar, prioridad, tema, etiquetas, vincular, resolver, reabrir, pedir un adjunto)
   pasa por `runAdminAction` de `svc-admin`: bitácora y **conflicto de interés**. Sobre una consulta cuyo `user.id` es el admin
-  responde `403 ADMIN_CONFLICT_OF_INTEREST` (agregar `support_conversation` a `AdminTargetType` y a `conflict-of-interest.ts`).
+  responde `403 ADMIN_CONFLICT_OF_INTEREST` (objetivo `support_conversation` de `AdminTargetType`, MOVO-322).
   El panel lo muestra como aviso y deja el compositor deshabilitado.
 - Responder pasa la conversación a `awaiting_user`, la asigna al agente si no tenía y deja el evento; responder sobre una
   `resolved` la reabre con su evento.
 - Los textos de los eventos `system` los arma el servidor **en tercera persona** ("Tomás Ferreyra tomó la conversación",
   "Prioridad: alta", "Vinculada a #MOVO-48176"): el mismo mensaje lo leen todos los agentes.
-- `waitMinutes` lo calcula el servidor (desde el último mensaje del usuario sin respuesta; 0 si no espera).
+- `waitMinutes` lo calcula el servidor (desde el último mensaje del usuario sin respuesta, o desde que un agente la reabrió; 0 si no espera).
 - Vincular un envío valida que el usuario de la consulta sea parte → si no, `422 SUPPORT_SHIPMENT_NOT_PARTY`.
 - Errores propios: `SUPPORT_CONVERSATION_NOT_FOUND` (404), `SUPPORT_ATTACHMENT_INVALID` (422), `SUPPORT_SHIPMENT_NOT_PARTY` (422),
   `SUPPORT_TICKET_INVALID` (401), `SUPPORT_SERVICE_UNAVAILABLE` (502). Ya están en `ApiErrorCode`.
+
+## Implementación del lado del agente (MOVO-322)
+
+- **Dos capas**: `svc-admin` (`modules/support/`) completa nombres y roles (`POST /internal/admin/users/names`, que ahora
+  devuelve `roles`; best-effort, "Nombre no disponible" si `svc-users` cae), resuelve `assignee=me`, busca por nombre en
+  `svc-users` (los ids viajan como `userIds`) y pasa toda escritura por `runAdminAction`. `svc-shipments`
+  (`/internal/admin/support/*`, `modules/admin-support/`) aplica las reglas del modelo y avisa al usuario y al panel. El
+  contrato interno es `SupportInternal*` (`admin-support-internal.ts`), con ids en vez de nombres.
+- **Eventos del equipo**: `kind = event` en `support_messages` (actor en `author_id`/`author_name`). El panel los ve como
+  `system`; el usuario **nunca** (lista blanca de `USER_VISIBLE_MESSAGE_KINDS`): ve solo el cambio de estado
+  (`support_status`). `system` sigue siendo el evento del lado del usuario ("Se reabrió la conversación").
+- **Bitácora**: `support.reply`, `support.note`, `support.assign`, `support.priority`, `support.topic`, `support.tags`,
+  `support.link_shipment`, `support.unlink_shipment` (o `support.update` si un `PATCH` cambia varios campos),
+  `support.resolve`, `support.reopen` y `support.attachment_request`. Asignar a alguien que no es admin: 400, fila `failed`.
+- **No leídos compartidos**: mensajes del usuario posteriores a `last_agent_read_at`; `POST read` lo avanza (y le pone el ✓✓
+  al usuario).
+- **Contexto**: perfil y KYC de `svc-users`; insignias `identity` (email y teléfono verificados), `kyc_approved`/`kyc_pending`
+  y `license_valid` (aprobada y no vencida). Si el KYC no responde, `badges: null`; sin el perfil, 502.
+- **Tiempo real**: Redis Stream `support:events` (ADR-024, borrador en `adr-024-eventos-del-panel-por-redis-stream.md`);
+  `GET events` ya lee de ahí. El WebSocket con ticket es la segunda PR de MOVO-322.
 
 ## Adjuntos (MOVO-321)
 

@@ -12,7 +12,16 @@
 export type AuditOutcome = "succeeded" | "failed" | "unknown";
 
 /** Sobre qué actúa un admin. Cada tipo decide cómo se resuelve el conflicto de interés. */
-export type AdminTargetType = "user" | "admin_role" | "shipment" | "chat_report" | "user_report" | "dispute";
+export type AdminTargetType =
+  | "user"
+  | "admin_role"
+  | "shipment"
+  | "chat_report"
+  | "user_report"
+  /** MOVO-322: una consulta de soporte; el admin es parte si es el usuario que la abrió. */
+  | "support_conversation"
+  /** MOVO-337: una disputa; el admin es parte si lo es del envío disputado. */
+  | "dispute";
 
 /** Fila de `GET /admin/audit-log`. */
 export interface AuditLogEntry {
@@ -69,6 +78,23 @@ export interface WithdrawOpenActivityResult {
    * la sanción no puede darse por aplicada: es idempotente, se reintenta. Para `series`, `id` es el usuario.
    */
   failures: Array<{ kind: "shipment" | "offer" | "trip" | "series"; id: string }>;
+}
+
+/**
+ * `GET /internal/users/:id/open-activity` de `svc-shipments` (MOVO-299): lo que retiraría hoy
+ * `withdraw-open-activity`, sin tocar nada, más lo que sigue su curso. Para el texto que el panel
+ * muestra antes de confirmar una sanción.
+ */
+export interface OpenActivitySummary {
+  /** Envíos como emisor todavía sin comprometer (esperando o rechazados por el receptor, o publicados). */
+  shipments: number;
+  /** Ofertas `pending` vigentes como transportista. */
+  offers: number;
+  /** Viajes `declared`. Uno con paquetes aceptados no se cancela, pero se cuenta igual. */
+  trips: number;
+  /** Series recurrentes vigentes que se cortarían (también la de un viaje en curso). */
+  recurringSeries: number;
+  inProgressShipments: InProgressShipment[];
 }
 
 /** `GET /internal/chat-reports/:id/parties` de `svc-shipments`: quien reportó y las partes del envío. */

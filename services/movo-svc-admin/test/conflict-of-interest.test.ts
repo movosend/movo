@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@movo/shared";
 import { createConflictChecker } from "../src/modules/audit/conflict-of-interest";
-import { createFakeShipmentsClient, createFakeUsersClient } from "./fake-clients";
+import { createFakeShipmentsClient, createFakeSupportClient, createFakeUsersClient } from "./fake-clients";
 
 const ctx = { requestId: "req-1" };
 const ADMIN = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -28,8 +28,29 @@ function shipmentWith(overrides: Partial<{ senderId: string; carrierId: string |
 }
 
 describe("regla de conflicto de interés (MOVO-288)", () => {
-  const checker = (shipments = createFakeShipmentsClient(), users = createFakeUsersClient()) =>
-    createConflictChecker({ shipmentsClient: shipments, usersClient: users });
+  const checker = (shipments = createFakeShipmentsClient(), users = createFakeUsersClient(), support = createFakeSupportClient().client) =>
+    createConflictChecker({ shipmentsClient: shipments, usersClient: users, supportClient: support });
+
+  describe("consulta de soporte (MOVO-322)", () => {
+    const row = (userId: string) =>
+      ({ id: "c-1", code: "SOP-1001", userId, status: "open", priority: "normal", assignedTo: null, unread: 0, waitMinutes: 0, tags: [] }) as never;
+    const withConversation = (userId: string) => createFakeSupportClient({ rows: { "c-1": row(userId) } }).client;
+
+    it("un admin no actúa sobre su propia consulta", async () => {
+      const support = withConversation(ADMIN);
+      expect(await codeOf(checker(undefined, undefined, support).assertNoConflict(ADMIN, { type: "support_conversation", id: "c-1" }, ctx))).toBe(
+        "ADMIN_CONFLICT_OF_INTEREST"
+      );
+    });
+
+    it("sí sobre la de otro usuario; inexistente es 404 y svc-shipments caído es 502", async () => {
+      const support = withConversation(OTHER);
+      const check = (id: string, client = support) => checker(undefined, undefined, client).assertNoConflict(ADMIN, { type: "support_conversation", id }, ctx);
+      expect(await codeOf(check("c-1"))).toBeUndefined();
+      expect(await codeOf(check("nope"))).toBe("SUPPORT_CONVERSATION_NOT_FOUND");
+      expect(await codeOf(check("c-1", createFakeSupportClient({ down: true }).client))).toBe("SUPPORT_SERVICE_UNAVAILABLE");
+    });
+  });
 
   it("un admin no actúa sobre su propio usuario", async () => {
     expect(await codeOf(checker().assertNoConflict(ADMIN, { type: "user", id: ADMIN }, ctx))).toBe("ADMIN_CONFLICT_OF_INTEREST");

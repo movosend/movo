@@ -326,6 +326,13 @@ el evento de aceptación de la línea de tiempo.
 
 Pendiente: revisar a mano en claro/oscuro y contra dev con un envío real con varias ofertas.
 
+## MOVO-299 — Sanciones desde la ficha (DD-049)
+
+Menú "Acciones" → Suspender, Inhabilitar y Levantar (`components/users/actions/sanction-dialog.tsx`, `lift-dialog.tsx`). Suspender e
+inhabilitar confirman con la vista previa de lo que se retira; inhabilitar con envíos en curso no llega a confirmar (lista los envíos y
+sugiere suspender). Una respuesta sin confirmar (5xx) cierra la confirmación y manda a revisar la ficha: reintentar abriría otra sanción.
+El banner y la sección ofrecen "Reintentar el retiro" si quedó parcial, fallido o sin registrar (`needsWithdrawalRetry`).
+
 ## MOVO-333 — Modal de cambio de estado del envío
 
 Botón "Cambiar estado" en el encabezado del detalle (`/shipments/[id]`) y modal de tres pasos (Nuevo estado / Impacto /

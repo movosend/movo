@@ -152,6 +152,15 @@ por polling. Es ruta propia y no un bloque del detalle, así el polling no vuelv
 rutea `/admin/*` por prefijo. El schema declara nullable cada campo que puede venir en `null`. Deploy en serie: hasta que `svc-shipments`
 tenga la ruta, es 502.
 
+### MOVO-299 — Sanciones desde la ficha: suspender, inhabilitar, levantar (DD-049)
+
+`modules/sanctions/`: historial, vista previa, aplicar, levantar y reintentar el retiro. Orden: sanción en `svc-users` → retiro en
+`svc-shipments` en la misma `runAdminAction`; un retiro fallido o parcial no hace fallar la acción y se reintenta con `POST .../withdraw`.
+Inhabilitar con envíos en curso es 409 `USER_HAS_IN_PROGRESS_SHIPMENTS` sin aplicar nada. El estado del retiro se deriva de la bitácora
+(`context.withdrawal` por `sanctionId`), sumando los intentos, sin tabla nueva. Limitaciones aceptadas en la fila de DD-049.
+
+Pendiente: verificar a mano contra dev (suspender un usuario de prueba y comprobar en la app que no puede publicar pero sí entregar).
+
 ### MOVO-332 — Cambio de estado de un envío desde el panel (DD-055)
 
 `modules/shipments/shipments.routes.ts` suma cuatro rutas: `GET /admin/shipments/:id/status-options`, `POST /admin/step-up`,
@@ -201,3 +210,17 @@ disputado, vía `GET /internal/admin/disputes/:id/parties`).
   caída real de `svc-shipments` sí queda `unknown`. Timeout de 90 s (la captura de payments puede tardar ~50 s).
 - Pendiente: `disputeId` de `GET /admin/shipments` sigue en `null`; el panel (MOVO-338) y el reporte (MOVO-344). El contrato compartido con MOVO-341 (lecturas
   del panel) queda por acordar en esa issue.
+### MOVO-322 — Bandeja de soporte: `/admin/support/*`
+
+`modules/support/` sobre `adapters/support-client.ts` (`/internal/admin/support/*` de `svc-shipments`; un fallo es 502
+`SUPPORT_SERVICE_UNAVAILABLE` y una consulta inexistente, 404 `SUPPORT_CONVERSATION_NOT_FOUND`). Contrato y reglas en
+`docs/support/README.md`.
+- Nombres y roles best-effort (`getUserNames` ahora trae `roles`; tolera un `svc-users` que todavía no los manda). El rol de la
+  fila es `carrier` si la cuenta lo tiene, `sender` si no. La búsqueda por nombre consulta `svc-users` y manda los ids.
+  `getUserNames` parte en lotes de 200 (el `maxItems` de `svc-users`). Lo que queda grabado no depende de esa resolución: el
+  nombre del asignado sale de `listAdmins` (el mismo pedido que lo valida) y el autor sin nombre resuelto muestra el de pila del mensaje.
+- Toda escritura por `runAdminAction` con objetivo `support_conversation` (migración `20261025130000_…` del enum de la
+  bitácora; caso nuevo en `conflict-of-interest.ts`). El actor viaja en el body; si `svc-users` no responde firma "Equipo de Movo".
+- `GET events` lee el Redis Stream `support:events` (ADR-024, `support-events.ts`): cursor = id de la entrada, `reset` si es
+  más viejo que lo retenido, y los `counts_changed` se juntan en un `counts_updated` con los contadores del admin que mira.
+- Pendiente: `POST realtime-ticket` y el WebSocket del panel (segunda PR de MOVO-322).

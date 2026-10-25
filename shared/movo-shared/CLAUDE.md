@@ -723,6 +723,12 @@ mano, tocó fixtures de `movo-admin`). `ApiErrorCode` suma `TRANSITION_NOT_ALLOW
 `FORCE_STATUS_EFFECT_FAILED`, `IDEMPOTENCY_KEY_REUSED` y `FORCE_STATUS_IN_PROGRESS`; triggers `shipmentStatusForced{Sender,Receiver,Carrier}`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-299 — Sanciones del panel (`types/admin-users.ts`, `types/admin.ts`, DD-049)
+
+`AdminUserSanction` pasa a ser `AccountSanction` + nombres de los admins + `withdrawal` (`AdminSanctionWithdrawal`: en el historial, la
+suma de los intentos con el estado del último). `OpenActivitySummary`/`AdminSanctionPreview`, `AdminApplySanctionBody`/`AdminLiftSanctionBody`
+y el código `USER_HAS_IN_PROGRESS_SHIPMENTS` (409, `details.shipments`).
+
 ### MOVO-332 — Contrato del cambio de estado desde el panel y del step-up
 
 `types/admin-shipments.ts`: `ChangeShipmentStatusRequest/Response`, `ShipmentStatusOptions` (`options[]` con `kind`, `risk`, `effects`, `notifies`,
@@ -754,3 +760,9 @@ y `AdminDisputeResolutionPreview`. `config/dispute-resolution.ts` es la fuente �
 `disputeRatingWinners`, `splitDisputeStake` y `minimumPartialCaptureArs` (el piso de la captura parcial, misma cuenta que `svc-payments`). `AdminTargetType` suma `dispute`;
 códigos `DISPUTE_PARTIAL_INVALID`, `DISPUTE_RESOLUTION_MISMATCH`, `DISPUTE_RESOLUTION_IN_PROGRESS`, `DISPUTE_PAYMENT_FAILED`, `DISPUTE_PARTIAL_BELOW_MINIMUM` y
 `DISPUTE_PARTIAL_ABOVE_MAXIMUM`; trigger `disputeResolved` (categoría `disputes`, sin montos). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+### MOVO-322 — Contrato interno de la bandeja de soporte (`types/admin-support-internal.ts`, ADR-024)
+
+`SupportInternal*` (fila, mensaje con `kind` `event` para los eventos del equipo, filtros, contadores, actor, bodies) entre
+`svc-admin` y `svc-shipments`, con ids en vez de nombres, y `SupportStreamEvent` + `SUPPORT_EVENTS_STREAM_*` del Redis Stream
+`support:events`. `AdminTargetType` suma `support_conversation` y `AdminUserNames` pasa a `AdminUserNameRef` (con `roles`).
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

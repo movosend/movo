@@ -186,7 +186,7 @@ describe("Búsqueda de usuarios, ficha y acciones de soporte (MOVO-294)", () => 
         ["vehicle", { vehicle: null }],
         ["moderation", { totals: { reportsReceived: 0, reportsMade: 0, blocksMade: 0, blocksReceived: 0 } }],
         ["devices", { devices: [], handshakeKey: null }],
-        ["suspensions", { items: [] }],
+        ["sanctions", { items: [] }],
       ] as const) {
         const res = await app.inject({ method: "GET", url: `/admin/users/${user.id}/${section}`, headers: headers() });
         expect(res.statusCode, section).toBe(200);

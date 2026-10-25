@@ -2,6 +2,7 @@ import { AdminTargetType, ApiError } from "@movo/shared";
 import { RequestContext } from "../../adapters/internal-client";
 import { ShipmentsClient } from "../../adapters/shipments-client";
 import { UsersClient } from "../../adapters/users-client";
+import { SupportClient } from "../../adapters/support-client";
 
 /** Sobre qué actúa el admin. */
 export interface AdminTarget {
@@ -22,6 +23,7 @@ export interface ConflictChecker {
 export interface ConflictCheckerDeps {
   usersClient: UsersClient;
   shipmentsClient: ShipmentsClient;
+  supportClient: SupportClient;
 }
 
 export function createConflictChecker(deps: ConflictCheckerDeps): ConflictChecker {
@@ -59,6 +61,13 @@ export function createConflictChecker(deps: ConflictCheckerDeps): ConflictChecke
         const parties = await deps.usersClient.getUserReportParties(target.id, ctx);
         if (!parties) throw new ApiError(404, "NOT_FOUND", "Reporte no encontrado.");
         return [parties.reporterId, parties.reportedId];
+      }
+
+      // MOVO-322: el admin es parte de una consulta si es el usuario que la abrió (su propia consulta).
+      case "support_conversation": {
+        const parties = await deps.supportClient.getParties(target.id, ctx);
+        if (!parties) throw new ApiError(404, "SUPPORT_CONVERSATION_NOT_FOUND", "La consulta no existe.");
+        return [parties.userId];
       }
     }
   }

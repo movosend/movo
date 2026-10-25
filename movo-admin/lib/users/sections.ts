@@ -21,7 +21,7 @@ export interface SectionMap {
   trips: AdminUserTripPage
   ratings: AdminUserRatings
   moderation: AdminUserModeration
-  suspensions: AdminUserSanctions
+  sanctions: AdminUserSanctions
   ledger: AdminUserLedger
   devices: AdminUserDevices
   audit: AdminUserAuditPage
@@ -37,7 +37,7 @@ export const SECTION_ROUTE: Record<SectionKey, string> = {
   trips: "trips",
   ratings: "ratings",
   moderation: "moderation",
-  suspensions: "suspensions",
+  sanctions: "sanctions",
   ledger: "ledger",
   devices: "devices",
   audit: "audit-log",
@@ -63,7 +63,7 @@ export const SECTION_SERVICE: Record<SectionKey, string> = {
   trips: "SHIPMENTS",
   ratings: "SHIPMENTS",
   ledger: "PAYMENTS",
-  suspensions: "ADMIN",
+  sanctions: "USERS",
   audit: "ADMIN",
   notes: "ADMIN",
 }

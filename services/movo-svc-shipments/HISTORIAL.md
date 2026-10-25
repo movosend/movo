@@ -3883,3 +3883,22 @@ disputa pasa a `resolving` con el resultado guardado (`beginResolution`, `FOR UP
   `partial`) dentro de 72 h desde `resolvedAt`; no-retiro atribuido: solo el emisor, 72 h desde la cancelación. Template `disputeResolved`.
 - Fuera de alcance / pendiente: `PICKUP_NO_SHOW_RATING_INVITE_ENABLED` pasa a `true` por defecto (env, `.env.example` y compose); la calificación pendiente de un
   envío disputado no entra en `GET /shipments/pending-ratings`; el mobile no muestra el resultado de la disputa.
+### MOVO-299 — Vista previa del retiro por sanción (DD-049)
+
+`GET /internal/users/:id/open-activity` (`sanctionEffects.previewOpenActivity`): cuenta lo que retiraría `withdraw-open-activity` hoy
+(envíos sin comprometer, ofertas `pending` vigentes, viajes `declared` sin paquetes aceptados, series recurrentes) y lista los envíos en
+curso, sin tocar nada. Los `where` del retiro y de la vista previa son los mismos helpers, para que el panel no prometa otra cosa.
+
+### MOVO-322 — Lado del agente de la bandeja de soporte (`/internal/admin/support/*`, ADR-024)
+
+Endpoints internos para `svc-admin` en `modules/admin-support/` (lista con orden por prioridad y espera, búsqueda, contadores,
+mensajes con todos los `kind`, responder/nota, `PATCH`, resolver/reabrir, leer, partes, carga por agente, consultas del usuario y
+adjuntos del agente) sobre `repositories/support-admin-repository.ts`, con reglas puras en `domain/support-admin-rules.ts`.
+- Los eventos del equipo son `kind = event` (migración `20261025150000_support_staff_events`): el usuario nunca los ve
+  (`toUserFacingMessage` pasa a lista blanca) y solo recibe el cambio de estado.
+- Cada cambio (también una consulta o un mensaje del usuario) se escribe en el Redis Stream `support:events`
+  (`support-admin-feed.ts`, `realtime/support-event-stream.ts`), sin nombres; si falla, solo se loguea. Avisar al usuario
+  (WS/push) también es best-effort: un fallo ahí no puede dar 500 sobre un cambio confirmado, porque el reintento cae en el
+  replay sin publicar. Un solo feed y un solo servicio de adjuntos compartidos entre `/support` y el lado del agente.
+- Reabrir pone `last_user_message_at` en `now`: es la referencia de `waitMinutes` y del orden de la bandeja.
+- Pendiente: el WebSocket del panel con ticket (segunda PR de MOVO-322, en `svc-admin`).

@@ -1391,3 +1391,8 @@ por construcción. `verify` canjea el código por un `stepUpToken` (32 bytes, so
 - **Sin enumeración**: código erróneo, vencido, usado o de otra acción/admin → `401 STEP_UP_INVALID`, mismo mensaje. 5 pedidos/15 min y 5 errores/15 min por
   admin (`INCR`+`EXPIRE` en un script, como el login del panel); el bloqueo corta antes de mirar el código.
 - Sin el flag `ignorePreferences` ni mails nuevos: usa `buildOtpEmail` ("tu código de verificación"). Pendiente: copy específico para el step-up.
+
+### MOVO-322 — `POST /internal/admin/users/names` devuelve los roles
+
+Además de `id`/`fullName`, cada usuario trae `roles` (`admin-users.service.ts#getNames`): la bandeja de soporte del panel muestra si
+quien escribe es transportista sin una llamada por fila. Aditivo; `svc-admin` tolera la respuesta anterior.
