@@ -301,7 +301,7 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     expect(mp.createPayment).not.toHaveBeenCalled();
   });
 
-  describe("con tarjeta guardada (MOVO-282, ADR-039)", () => {
+  describe("con tarjeta guardada (MOVO-282, DD-039)", () => {
     /** Una tarjeta viva del emisor en su customer de la cuenta de Movo. */
     async function seedCard(userId = PAYER, overrides: { deletedAt?: Date } = {}) {
       await app.db.payerCustomer.upsert({

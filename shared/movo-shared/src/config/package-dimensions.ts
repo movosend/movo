@@ -1,6 +1,6 @@
 /**
  * MOVO-317: opciones de peso y medidas del wizard de publicar envío. El tamaño ya no tiene
- * topes duros (sale el 422 `PACKAGE_LIMITS_EXCEEDED` de ADR-041): lo decide cada transportista
+ * topes duros (sale el 422 `PACKAGE_LIMITS_EXCEEDED` de DD-041): lo decide cada transportista
  * viendo las medidas. Estas constantes solo definen qué puede elegir el emisor.
  *
  * "Más de 300 cm" no es una medida: el mobile manda el tope (`PACKAGE_DIMENSION_CM_MAX`) en

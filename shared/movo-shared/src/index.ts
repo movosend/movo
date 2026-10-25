@@ -295,7 +295,7 @@ export {
   PACKAGE_INPUT_SANITY_MAX,
   roundPackageWeightKg,
 } from "./config/package-dimensions";
-// penalidad por cancelar un envío asignado (MOVO-307, ADR-047)
+// penalidad por cancelar un envío asignado (MOVO-307, DD-047)
 export {
   CANCELLATION_PENALTY_FREE_HOURS,
   CANCELLATION_PENALTY_RATE,
@@ -311,7 +311,7 @@ export type {
   CancellationQuoteResponse,
 } from "./config/cancellation-penalty";
 
-// atribución del no-retiro (MOVO-270, ADR-052)
+// atribución del no-retiro (MOVO-270, DD-052)
 export {
   ARRIVAL_RADIUS_M,
   ARRIVAL_MAX_ACCURACY_M,
@@ -321,7 +321,7 @@ export {
 } from "./config/pickup-attribution";
 export type { PickupMissedAttribution } from "./config/pickup-attribution";
 
-// viajes recurrentes (MOVO-265, ADR-042)
+// viajes recurrentes (MOVO-265, DD-042)
 export {
   RECURRENCE_WEEKDAY,
   MAX_ACTIVE_RECURRING_SERIES,
@@ -431,7 +431,7 @@ export type {
   AdminShipmentTracking,
 } from "./types/admin-shipments";
 
-// admin: cambio forzado de estado de un envío (MOVO-331, ADR-055)
+// admin: cambio forzado de estado de un envío (MOVO-331, DD-055)
 export {
   FORCED_TRANSITION_MATRIX,
   blockedTransitionReason,
@@ -599,7 +599,7 @@ export type {
   SupportRealtimeConnected,
 } from "./types/support";
 
-// disputas (MOVO-334, ADR-054)
+// disputas (MOVO-334, DD-054)
 export {
   DisputeReason,
   DisputeStatus,

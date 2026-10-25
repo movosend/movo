@@ -3,7 +3,7 @@ import type { UserLedgerBalanceResponse } from "@movo/shared";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * MOVO-313 (ADR-044): ¿la deuda de la cuenta corriente está vencida?
+ * MOVO-313 (DD-044): ¿la deuda de la cuenta corriente está vencida?
  *
  * Umbral por **antigüedad**, sin monto mínimo (decisión del equipo, 15/10/2026): quien sigue
  * operando con tarjeta la salda sola con su próximo pago (MOVO-311); el bloqueo apunta a quien

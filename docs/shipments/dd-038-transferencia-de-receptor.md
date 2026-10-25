@@ -1,13 +1,13 @@
-# ADR-038 — Transferencia de receptor como entidad paralela al ciclo de vida del envío
+# DD-038 — Transferencia de receptor como entidad paralela al ciclo de vida del envío
 
-**Estado:** aceptado (MOVO-275). Borrador para pegar en la sección de ADRs de
-`[Movo] 004 - Sprint 0.md` en Drive. Complementa ADR-027 (elegir otro receptor tras un
+**Estado:** aceptado (MOVO-275). Borrador para pegar en
+`[Movo] 011-Registro de Decisiones de Diseño` en Drive. Complementa DD-027 (elegir otro receptor tras un
 rechazo) sin modificarlo.
 
 ## Contexto
 
 Una vez que el receptor aceptó un envío, y sobre todo con el paquete viajando, no había
-forma de cambiar quién lo recibe. ADR-027 resuelve otro caso: el **emisor** elige otra
+forma de cambiar quién lo recibe. DD-027 resuelve otro caso: el **emisor** elige otra
 persona después de un **rechazo**, antes del retiro, volviendo el envío a
 `awaiting_receiver_confirmation`. Acá lo inicia el **receptor**, sobre un envío que ya
 aceptó, y puede pasar **en tránsito**.
@@ -22,14 +22,14 @@ aceptó, y puede pasar **en tránsito**.
    transacción la solicitud pasa a `completed` y el envío cambia de `receiverId`
    (compare-and-swap contra el receptor que la pidió y un estado que todavía la admite).
 2. **La persona invitada tiene que aceptar** y tener KYC aprobado, sin bloqueo con el
-   emisor (ADR-026). No puede ser el receptor actual, el emisor ni el transportista.
+   emisor (DD-026). No puede ser el receptor actual, el emisor ni el transportista.
 3. **El emisor no aprueba.** Se evaluó exigir su aprobación (paga y eligió al receptor,
    y sería una defensa ante una cuenta de receptor comprometida). Se descartó por la
    fricción: si el emisor tarda, la transferencia llega tarde para quien no va a estar.
    Mitigación: KYC y aceptación de la persona invitada, push informativa al emisor en el
    momento y todo queda en la línea de tiempo como evidencia para una disputa (MOVO-30).
 4. **El receptor original conserva acceso de solo lectura** (decisión del equipo,
-   distinta de ADR-027, donde quien rechazó pierde el acceso). Sigue viendo el detalle,
+   distinta de DD-027, donde quien rechazó pierde el acceso). Sigue viendo el detalle,
    la línea de tiempo, las fotos y el tracking en vivo, y el envío sigue en su lista con
    el badge "Transferido". No tiene ninguna acción: no firma la entrega, no califica, no
    puede volver a transferir. Se implementa en `hasShipmentAccess` (lectura); los
@@ -53,7 +53,7 @@ aceptó, y puede pasar **en tránsito**.
    según quién mira. El emisor y quien pidió cada solicitud ven todas; el transportista y
    el receptor vigente, solo la completada.
 8. **Chat del envío (MOVO-340).** Al completarse, el receptor nuevo se suma al chat
-   (ADR-040) en el acto y **ve el historial previo**: el hilo es uno por envío, es la
+   (ADR-023) en el acto y **ve el historial previo**: el hilo es uno por envío, es la
    evidencia de la coordinación y suele tener indicaciones de entrega que le sirven. Lo
    anterior le cuenta como leído (solo suman como no leídos los mensajes posteriores), y
    los tildes de un mensaje previo se miden contra los integrantes de ese momento, con el
@@ -77,4 +77,4 @@ aceptó, y puede pasar **en tránsito**.
 
 ## Referencias
 
-MOVO-275, ADR-027 (MOVO-253), ADR-026 (MOVO-175), ADR-023 (traza GPS), MOVO-130, MOVO-158.
+MOVO-275, DD-027 (MOVO-253), DD-026 (MOVO-175), DD-023 (traza GPS), MOVO-130, MOVO-158.

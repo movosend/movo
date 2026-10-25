@@ -7,7 +7,7 @@ import type {
 import { httpClient } from "./http-client";
 
 /**
- * MOVO-284 (ADR-040): chat del envío. Se envía por HTTP y se recibe por WebSocket
+ * MOVO-284 (ADR-023): chat del envío. Se envía por HTTP y se recibe por WebSocket
  * (`use-chat-channel.ts`); el historial, los integrantes y la lista salen de acá.
  */
 export const chatClient = {

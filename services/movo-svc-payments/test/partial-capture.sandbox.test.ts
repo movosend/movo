@@ -275,7 +275,7 @@ ${JSON.stringify(results, null, 2)}
   );
 });
 
-/** Token `TEST-` de Movo S.A. (ADR-039): `client_credentials` con `test_token`. */
+/** Token `TEST-` de Movo S.A. (DD-039): `client_credentials` con `test_token`. */
 async function movoTestToken(): Promise<MpResponse> {
   return mp("POST", "/oauth/token", null, {
     client_id: APP_CLIENT_ID,

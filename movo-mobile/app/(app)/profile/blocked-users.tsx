@@ -22,7 +22,7 @@ import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
 
 /**
- * "Usuarios bloqueados" (MOVO-175, ADR-026), dentro de "Cuenta y seguridad". Solo los
+ * "Usuarios bloqueados" (MOVO-175, DD-026), dentro de "Cuenta y seguridad". Solo los
  * bloqueos propios — quién bloqueó al usuario nunca se expone. Desbloquear se
  * confirma con `Alert.alert`, mismo patrón que borrar una dirección (`addresses.tsx`).
  */

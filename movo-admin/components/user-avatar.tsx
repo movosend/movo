@@ -1,7 +1,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { initialsOf } from "@/lib/initials"
 
-/** Foto de perfil real (URL pública de S3, ADR-016); sin foto o si no carga, las iniciales. */
+/** Foto de perfil real (URL pública de S3, DD-016); sin foto o si no carga, las iniciales. */
 export function UserAvatar({
   name,
   photoUrl,

@@ -16,7 +16,7 @@ export const OTP_RESEND_COOLDOWN_SECONDS = 60; // AC5
 /**
  * MOVO-140 (fix de review, Pedro): el hash Argon2id del código ya es idéntico en el
  * camino señuelo y en el real (AC4), pero eso no alcanza -- `deliver()` hace una
- * llamada de red real a un proveedor externo (Twilio/Resend, ADR-012/017) solo en el
+ * llamada de red real a un proveedor externo (Twilio/Resend, ADR-012/016) solo en el
  * camino real, y esa espera de red domina por completo al hash. Sin esto, un
  * atacante mide el tiempo de respuesta de POST /auth/forgot-password y distingue el
  * señuelo del real por la ausencia de esa latencia. No es un constant-time perfecto

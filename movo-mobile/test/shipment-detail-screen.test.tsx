@@ -91,6 +91,7 @@ jest.mock("../src/hooks/use-shipment-hold", () => ({
   useShipmentHold: (...args: unknown[]) => mockUseShipmentHold(...args),
 }));
 
+const mockCancellationQuote = jest.fn();
 const mockCarrierQuote = jest.fn();
 const mockCarrierWithdraw = jest.fn();
 
@@ -102,7 +103,7 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useAcceptShipment: () => mockAcceptMutation,
   useRejectShipment: () => mockRejectMutation,
   useCancelShipment: () => mockCancelMutation,
-  useCancellationQuote: () => ({ mutateAsync: jest.fn() }),
+  useCancellationQuote: () => ({ mutateAsync: mockCancellationQuote }),
   useCarrierWithdrawalQuote: () => ({ mutateAsync: mockCarrierQuote }),
   useCarrierWithdraw: () => ({ mutateAsync: mockCarrierWithdraw, isPending: false }),
 }));
@@ -1885,6 +1886,31 @@ describe("ShipmentDetailScreen — envío cancelado (MOVO-308)", () => {
     expect(getByTestId("shipment-detail-cancelled-payment-released")).toHaveTextContent("$13.875");
     expect(getByTestId("shipment-detail-cancelled-payment-date")).toHaveTextContent(/Le avisamos a Tomás\./);
     expect(queryByTestId("shipment-detail-price")).toBeNull();
+  });
+
+  it("MOVO-318: en assigned con deuda en el hold, pide el hold y el sheet muestra el mismo monto reservado que 'Tu pago'", async () => {
+    const holdWithDebt = { ...HOLD, status: "authorized", amountArs: 22200 };
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockDetail(shipment({ status: ShipmentStatus.ASSIGNED, carrierId: "carrier-1", agreedPriceArs: 18500 }));
+    mockUseShipmentHold.mockReturnValue({ data: holdWithDebt, refetch: jest.fn() });
+    mockCancellationQuote.mockResolvedValueOnce({
+      penaltyArs: 4625,
+      reason: "late_cancellation",
+      freeUntil: "2026-10-16T11:00:00.000Z",
+    });
+
+    const { getByTestId, findByTestId, rerender } = await render(<ShipmentDetailScreen />);
+
+    expect(mockUseShipmentHold).toHaveBeenCalledWith("shipment-1", { enabled: true });
+    await fireEvent.press(getByTestId("shipment-detail-sender-actions-menu-action-cancel-shipment"));
+    expect(await findByTestId("shipment-detail-sender-actions-cancel-sheet-penalty")).toHaveTextContent(
+      "Se te cobrará $4.625 de los $22.200 reservados. El resto se libera en tu tarjeta.",
+    );
+    expect(getByTestId("shipment-detail-sender-actions-cancel-sheet-released-amount")).toHaveTextContent("$17.575");
+
+    mockDetail(cancelled({ cancellationPenaltyArs: 4625, cancellationPenaltyStatus: "captured" }));
+    rerender(<ShipmentDetailScreen />);
+    expect(await findByTestId("shipment-detail-cancelled-payment-released")).toHaveTextContent("$17.575");
   });
 
   it("emisor con la penalidad como deuda: se liberó todo y explica el saldo pendiente", async () => {

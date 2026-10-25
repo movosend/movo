@@ -33,8 +33,8 @@ export interface TripRecurrenceDeps {
   tripRepository: TripRepository;
   usersClient: UsersClient;
   paymentsClient: PaymentsClient;
-  /** MOVO-278 (ADR-045): un transportista con una disputa abierta corta la serie, como el
-   * resto de los requisitos de ADR-036. */
+  /** MOVO-278 (DD-045): un transportista con una disputa abierta corta la serie, como el
+   * resto de los requisitos de DD-036. */
   shipmentRepository: Pick<ShipmentRepository, "hasOpenDisputeAsCarrier">;
   notificationsClient?: NotificationsClient;
   /** MOVO-313: dedupe del aviso "frenado por deuda" (corre cada pasada del barrido). Requerido,
@@ -61,7 +61,7 @@ const BATCH_SIZE = 100;
 const MAX_PAGES = 20;
 
 /**
- * MOVO-265 (ADR-042): continúa las series recurrentes. Para cada trip vigente con la
+ * MOVO-265 (DD-042): continúa las series recurrentes. Para cada trip vigente con la
  * recurrencia prendida cuyo `departureAt` ya pasó (en cualquier estado), en orden:
  *
  * 1. Serie fantasma (las últimas 3 ocurrencias `expired`): apaga la recurrencia y avisa.
@@ -69,7 +69,7 @@ const MAX_PAGES = 20;
  *    serie termina sola: se apaga sin push, si no seguiría contando para el tope de 3 y se
  *    reevaluaría en cada corrida.
  * 3. Elegibilidad: generar es declarar en nombre del transportista, así que se le exige lo
- *    mismo que a `POST /trips` (ADR-036) y que su cuenta no esté suspendida. Si `svc-users`
+ *    mismo que a `POST /trips` (DD-036) y que su cuenta no esté suspendida. Si `svc-users`
  *    o `svc-payments` no responden, no se corta: se reintenta en la próxima corrida (la
  *    fecha sale de `max(departureAt, now)`, así que no nace vencida).
  * 4. Insert idempotente (`ON CONFLICT DO NOTHING` sobre `generatedFromTripId`) y push.

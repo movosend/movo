@@ -100,7 +100,7 @@ enum rating_role_enum {
 }
 
 // MOVO-104 AC6: set canónico de 9 estados acordado en MOVO-79 (extendido a 11 por
-// MOVO-208: assigned_unfunded/completed, ver ADR-021), ya vigente como ShipmentStatus
+// MOVO-208: assigned_unfunded/completed, ver DD-021), ya vigente como ShipmentStatus
 // en @movo/shared y como shipments.shipment_status_enum. Reemplaza el "status varchar
 // (pendiente)" que tenía el Miro original en shipment/offer/shipment_status_history.
 enum shipment_status_enum {
@@ -391,7 +391,7 @@ Table users.user_blocks {
     (blocker_id, blocked_id) [unique]
     blocked_id
   }
-  Note: 'MOVO-175 (ADR-026): una fila por dirección, efecto simétrico'
+  Note: 'MOVO-175 (DD-026): una fila por dirección, efecto simétrico'
 }
 
 Table users.user_reports {
@@ -472,7 +472,7 @@ Table shipments.shipments {
   created_at timestamp
   updated_at timestamp [note: 'mantenida por trigger de Postgres, no por código de aplicación (mismo patrón que users.users)']
 
-  Note: 'La oferta (Offer) vive dentro de este schema. El módulo de pricing-logistics es stateless y sólo calcula, no persiste nada acá (ADR-019).'
+  Note: 'La oferta (Offer) vive dentro de este schema. El módulo de pricing-logistics es stateless y sólo calcula, no persiste nada acá (ADR-017).'
 }
 
 Table shipments.tracking_position {
@@ -533,7 +533,7 @@ Table shipments.handshake_events {
 
 // MOVO-202: traza de posiciones GPS del transportista durante un envío in_transit.
 // Append-only (AC9, solo la purga periódica borra) -- retención acotada por
-// CARRIER_POSITION_RETENTION_DAYS (ADR-023, ver CLAUDE.md de movo-svc-shipments):
+// CARRIER_POSITION_RETENTION_DAYS (DD-023, ver CLAUDE.md de movo-svc-shipments):
 // evidencia para disputas (MOVO-30), no analítica ni perfilado. Un envío disputed
 // nunca es candidato a purga mientras siga en ese estado.
 Table shipments.carrier_positions {
@@ -628,7 +628,7 @@ Table shipments.trips {
   vehicle_type varchar [note: 'auto, moto, utilitario, camion, etc.']
   status trip_status_enum [default: 'declared', note: 'MOVO-221: default pasó de active a declared']
   cancelled_at timestamp [note: 'timestamptz, MOVO-260: fecha de cancelación lógica']
-  recurrence_weekdays "integer[]" [default: '{}', note: 'MOVO-265 (ADR-042): días en que se repite, 0 = domingo … 6 = sábado (CHECK 0-6); vacío = no se repite']
+  recurrence_weekdays "integer[]" [default: '{}', note: 'MOVO-265 (DD-042): días en que se repite, 0 = domingo … 6 = sábado (CHECK 0-6); vacío = no se repite']
   recurrence_until date [null, note: 'MOVO-265: último día de la serie, inclusive, calendario argentino']
   series_id uuid [null, note: 'MOVO-265: id del primer trip de la serie; se conserva al apagar la recurrencia']
   generated_from_trip_id uuid [null, unique, ref: - shipments.trips.id, note: 'MOVO-265: trip que lo generó (ON DELETE SET NULL). UNIQUE: a lo sumo un sucesor; el vigente de la serie es el que nadie referencia']
@@ -689,7 +689,7 @@ Table payments.holds {
   }
 }
 
-// MOVO-100 (ADR-039): customer del emisor en la cuenta de Movo S.A. de Mercado Pago, uno por
+// MOVO-100 (DD-039): customer del emisor en la cuenta de Movo S.A. de Mercado Pago, uno por
 // emisor. El payer del hold con tarjeta guardada es este customer.
 Table payments.payer_customers {
   id uuid [pk]
@@ -699,7 +699,7 @@ Table payments.payer_customers {
   updated_at timestamptz
 }
 
-// MOVO-100 (ADR-039): tarjeta guardada del emisor. Solo ids de MP y metadatos de display:
+// MOVO-100 (DD-039): tarjeta guardada del emisor. Solo ids de MP y metadatos de display:
 // nunca card_token, numero ni CVV. Baja soft (deleted_at). Indices unicos parciales a mano:
 // (user_id, mp_card_id) y una sola is_default por usuario, ambos WHERE deleted_at IS NULL.
 Table payments.saved_cards {
@@ -831,7 +831,7 @@ Table payments.dispute_ref {
   id uuid [pk, note: 'espeja admin.dispute.id, sin FK real (ADR-003)']
 }
 
-// MOVO-309 (ADR-044): cuenta corriente del usuario. Solo inserción (triggers): de un UPDATE solo pasa `status`.
+// MOVO-309 (DD-044): cuenta corriente del usuario. Solo inserción (triggers): de un UPDATE solo pasa `status`.
 Table payments.user_ledger_entries {
   id uuid [pk]
   user_id uuid [note: 'usuario de Movo, sin FK (ADR-003); la deuda es del usuario, no de un rol']

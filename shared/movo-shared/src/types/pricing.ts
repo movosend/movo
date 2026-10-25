@@ -1,7 +1,7 @@
 /**
  * Wire contract de `POST /quote` en `movo-svc-pricing-logistics` (MOVO-82, MOVO-138).
  * Consumido por `movo-svc-shipments` (`src/adapters/pricing-client.ts`). El motor
- * `demand_fuel_routes_v1` (MOVO-138, ADR-025) reemplazó la implementación provisoria
+ * `demand_fuel_routes_v1` (MOVO-138, ADR-021) reemplazó la implementación provisoria
  * detrás de este mismo contrato — por eso vive acá y no duplicado en cada servicio.
  */
 export interface QuoteRequest {
@@ -16,15 +16,15 @@ export interface QuoteRequest {
   packageType: "letter_document" | "standard_package" | "fragile_item";
   urgent: boolean;
   /**
-   * Conteos de oferta/demanda en la zona de retiro (MOVO-138, ADR-025). Los calcula
+   * Conteos de oferta/demanda en la zona de retiro (MOVO-138, ADR-021). Los calcula
    * `movo-svc-shipments`, que es dueño de esos datos — pricing sigue stateless
-   * (ADR-019). Opcional: sin este campo no se aplica recargo por alta demanda.
+   * (ADR-017). Opcional: sin este campo no se aplica recargo por alta demanda.
    */
   demandContext?: DemandContext;
   /**
    * Pide el desglose de la fórmula en `breakdown`. Solo lo usa el módulo demo de
    * `movo-svc-shipments` (juego de precios de la feria); el flujo del emisor nunca lo
-   * manda (ADR-025: el emisor ve solo el precio final).
+   * manda (ADR-021: el emisor ve solo el precio final).
    */
   includeBreakdown?: boolean;
 }
@@ -62,9 +62,9 @@ export interface DemandContext {
  * el `Enum` de `movo-svc-pricing-logistics/app/models/quote.py`.
  */
 export enum PriceCalculationMethod {
-  /** Provisoria de MOVO-82 (ADR-018). Ya no se emite, pero sigue persistida en envíos viejos. */
+  /** Provisoria de MOVO-82 (DD-018). Ya no se emite, pero sigue persistida en envíos viejos. */
   EUCLIDEAN_LINEAR_V1 = "euclidean_linear_v1",
-  /** Ruta real + combustible + demanda (MOVO-138, ADR-025). Ya no se emite, pero sigue persistida en envíos viejos. */
+  /** Ruta real + combustible + demanda (MOVO-138, ADR-021). Ya no se emite, pero sigue persistida en envíos viejos. */
   DEMAND_FUEL_ROUTES_V1 = "demand_fuel_routes_v1",
   /** Peso facturable, base por categoría y recargo por frágil sobre v1 (MOVO-276). Ya no se emite, pero sigue persistida en envíos viejos. */
   PACKAGE_TAPERED_V2 = "package_tapered_v2",
@@ -73,7 +73,7 @@ export enum PriceCalculationMethod {
 }
 
 /**
- * Sin desglose de la fórmula (MOVO-216/ADR-025): el emisor solo ve el precio final y
+ * Sin desglose de la fórmula (MOVO-216/ADR-021): el emisor solo ve el precio final y
  * si rige alta demanda. El desglose queda en el log `pricing_quote_computed` de
  * `movo-svc-pricing-logistics`.
  */
@@ -109,7 +109,7 @@ export interface ShipmentQuoteRequest {
 }
 
 /**
- * Respuesta de `POST /shipments/quote` (MOVO-255, ADR-028). Con precio, trae un
+ * Respuesta de `POST /shipments/quote` (MOVO-255, DD-028). Con precio, trae un
  * `quoteId` de un solo uso que congela ese precio hasta `expiresAt` al mandarlo en
  * `POST /shipments`. Si pricing no respondió, todo `null` ("precio a estimar") y sin
  * `quoteId`: no se congela una no-cotización.

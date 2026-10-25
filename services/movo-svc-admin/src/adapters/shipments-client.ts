@@ -52,7 +52,7 @@ export interface ShipmentsClient extends InternalClient {
   /** `GET /internal/admin/shipments/:id/tracking` (MOVO-327). `null` si el envío no existe. */
   getAdminShipmentTracking(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentTracking | null>;
   /**
-   * `POST /internal/admin/shipments/:id/force-status` (MOVO-331, ADR-055). Los rechazos de negocio
+   * `POST /internal/admin/shipments/:id/force-status` (MOVO-331, DD-055). Los rechazos de negocio
    * (`STATUS_CHANGED`, `TRANSITION_NOT_ALLOWED`, `HOLD_NOT_AUTHORIZED`, `FORCE_STATUS_EFFECT_FAILED`...)
    * se relanzan con su código y `details`; una caída es 502 `SHIPMENTS_SERVICE_UNAVAILABLE` (la bitácora
    * la toma por "pudo haberse aplicado"). 404 `NOT_FOUND` si el envío no existe.

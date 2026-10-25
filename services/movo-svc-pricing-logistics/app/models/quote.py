@@ -38,8 +38,8 @@ class CamelModel(BaseModel):
 
 
 class DemandContext(CamelModel):
-    """Conteos de la zona de retiro (MOVO-138, ADR-025). Los calcula `movo-svc-shipments`,
-    dueño de esos datos, así este servicio sigue sin base de datos (ADR-019)."""
+    """Conteos de la zona de retiro (MOVO-138, ADR-021). Los calcula `movo-svc-shipments`,
+    dueño de esos datos, así este servicio sigue sin base de datos (ADR-017)."""
 
     published_shipments: int = Field(ge=0)
     available_carriers: int = Field(ge=0)
@@ -59,7 +59,7 @@ class QuoteRequest(CamelModel):
     # Opcional: sin contexto de demanda no se aplica recargo.
     demand_context: DemandContext | None = None
     # Solo lo pide el módulo demo de `movo-svc-shipments` (juego de precios de la feria):
-    # la cotización del emisor sigue sin desglose (ADR-025).
+    # la cotización del emisor sigue sin desglose (ADR-021).
     include_breakdown: bool = False
 
 
@@ -83,7 +83,7 @@ class QuoteBreakdown(CamelModel):
 
 
 class QuoteResponse(CamelModel):
-    """Sin desglose de la fórmula (MOVO-216/ADR-025): el emisor solo ve el precio final y
+    """Sin desglose de la fórmula (MOVO-216/ADR-021): el emisor solo ve el precio final y
     si rige alta demanda. El desglose va al log `pricing_quote_computed`."""
 
     suggested_price_ars: float

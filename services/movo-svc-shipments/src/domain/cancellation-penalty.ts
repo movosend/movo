@@ -3,7 +3,7 @@ import { Shipment } from "../models/shipment";
 import { pickupWindowEndInstant, pickupWindowInstant } from "./pickup-window";
 
 /**
- * MOVO-307 (ADR-047): penalidad que correspondería si el emisor cancela el envío en `now`.
+ * MOVO-307 (DD-047): penalidad que correspondería si el emisor cancela el envío en `now`.
  * La ventana del envío ya es la ACORDADA desde que se aceptó la oferta (MOVO-258 D3), así
  * que se mide contra `pickupDate`/`pickupTimeWindow*` tal cual están persistidos. La regla
  * vive en `@movo/shared` para que el mobile muestre el mismo monto.

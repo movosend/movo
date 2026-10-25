@@ -1,4 +1,4 @@
--- MOVO-334 (ADR-054): entidad de disputa, descargos y fotos de evidencia.
+-- MOVO-334 (DD-054): entidad de disputa, descargos y fotos de evidencia.
 
 -- CreateEnum
 CREATE TYPE "shipments"."dispute_reason_enum" AS ENUM ('damaged', 'not_delivered', 'wrong_delivery', 'other', 'transit_anomaly', 'pickup_no_show');

@@ -1,7 +1,7 @@
-# ADR-054 — Disputa sobre un envío `completed`: la arista `completed → disputed`
+# DD-054 — Disputa sobre un envío `completed`: la arista `completed → disputed`
 
-**Estado:** aceptado (MOVO-334). Borrador para pegar en la sección de ADRs de
-`[Movo] 004 - Sprint 0.md` en Drive. Complementa ADR-021 (los 11 estados) y ADR-045 sin
+**Estado:** aceptado (MOVO-334). Borrador para pegar en
+`[Movo] 011-Registro de Decisiones de Diseño` en Drive. Complementa DD-021 (los 11 estados) y DD-045 sin
 modificarlos. La política de reembolso de una disputa con el cobro ya acreditado no va acá:
 la define el ADR de MOVO-337.
 
@@ -18,7 +18,7 @@ paquete y ve el daño, el envío ya está `completed` y la arista `delivered →
 se puede usar.
 
 Demorar la captura para dejar abierta una ventana de reclamo no es viable: el hold de Mercado
-Pago dura 5 días (ADR-050), menos que la ventana que se quiere dar, y retener el cobro del
+Pago dura 5 días (DD-050), menos que la ventana que se quiere dar, y retener el cobro del
 transportista en cada envío para cubrir la minoría que se disputa castiga al caso normal.
 
 ## Decisión
@@ -31,10 +31,10 @@ transportista en cada envío para cubrir la minoría que se disputa castiga al c
    alarga el plazo.
 3. **Solo la usa una de las partes** (emisor, receptor o transportista) desde
    `POST /shipments/:id/disputes`. Ningún barrido la usa: las disputas automáticas salen de
-   `in_transit` (ADR-045) o de `assigned` (ADR-052).
+   `in_transit` (DD-045) o de `assigned` (DD-052).
 4. **No se toca la plata al abrir.** Con el envío `completed` no hay hold: el cobro ya está
    capturado y acreditado al transportista. Qué se devuelve y cómo se recupera lo acreditado
-   (deuda en la cuenta corriente, ADR-044) lo decide la resolución (MOVO-34) con la matriz de
+   (deuda en la cuenta corriente, DD-044) lo decide la resolución (MOVO-34) con la matriz de
    MOVO-337.
 5. **Mientras dure la disputa, el envío deja de contar como cumplido.** `disputed` no está en
    `FULFILLED_SHIPMENT_STATUSES`: el envío sale de la reputación y el ranking
@@ -48,7 +48,7 @@ transición. Una sola abierta por envío (índice único parcial).
 
 ## Alternativas descartadas
 
-- **Demorar la captura hasta que venza la ventana.** El hold de MP no dura 7 días (ADR-050) y
+- **Demorar la captura hasta que venza la ventana.** El hold de MP no dura 7 días (DD-050) y
   posterga el cobro de todos los envíos.
 - **Un estado nuevo (`completed_disputed`).** Duplica la lógica de `disputed` (bloqueo del
   transportista, baja de cuenta, chat en solo lectura, purga de la traza) sin ganar nada: la
@@ -60,8 +60,8 @@ transición. Una sola abierta por envío (índice único parcial).
 ## Consecuencias
 
 - Una disputa resuelta a favor del emisor sobre un `completed` necesita recuperar plata ya
-  acreditada: no hay hold que liberar. Queda para MOVO-337 (cuenta corriente, ADR-044).
+  acreditada: no hay hold que liberar. Queda para MOVO-337 (cuenta corriente, DD-044).
 - La reputación de un transportista puede bajar temporalmente por una disputa que después se
   resuelve a su favor.
-- La traza GPS de un envío disputado no se purga (ADR-023), así que con una ventana de 7 días
+- La traza GPS de un envío disputado no se purga (DD-023), así que con una ventana de 7 días
   la traza todavía existe (retención de 30 días).

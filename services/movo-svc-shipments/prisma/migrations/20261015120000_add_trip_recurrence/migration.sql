@@ -1,4 +1,4 @@
--- MOVO-265 (ADR-042): viajes recurrentes como atributo del trip.
+-- MOVO-265 (DD-042): viajes recurrentes como atributo del trip.
 -- `recurrence_weekdays`: 0 = domingo … 6 = sábado. Prisma no admite listas opcionales, así que
 -- "no se repite" es el array vacío (default); la API lo expone como null.
 

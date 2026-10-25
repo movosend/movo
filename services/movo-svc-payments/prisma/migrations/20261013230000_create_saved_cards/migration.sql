@@ -1,4 +1,4 @@
--- MOVO-100 (ADR-039): tarjetas guardadas del emisor en un customer de la cuenta de Movo.
+-- MOVO-100 (DD-039): tarjetas guardadas del emisor en un customer de la cuenta de Movo.
 
 -- CreateTable
 CREATE TABLE "payments"."payer_customers" (

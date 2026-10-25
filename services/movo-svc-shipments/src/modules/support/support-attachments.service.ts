@@ -34,7 +34,7 @@ function isAttachmentType(value: string): value is SupportAttachmentType {
 }
 
 /**
- * Prefijo privado del bucket (AC2), nunca el público de fotos de perfil (ADR-016). Sin conversación (la primera
+ * Prefijo privado del bucket (AC2), nunca el público de fotos de perfil (DD-016). Sin conversación (la primera
  * consulta del usuario, que todavía no existe) va a `support/pending/<userId>/`: al asociarlo el objeto NO se mueve,
  * la fila guarda la key. Moverlo pediría `CopyObject` además de `DeleteObject` y no cambia la privacidad.
  */

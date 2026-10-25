@@ -166,7 +166,7 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
           "abre la ventana de pago. Solo " +
           "el emisor del envío dueño de la oferta puede aceptar. 409 si el envío ya no " +
           "está disponible para asignar, si otra operación concurrente ya modificó la " +
-          "oferta, o si la oferta está vencida o ya resuelta. MOVO-116 (ADR-036): 409 " +
+          "oferta, o si la oferta está vencida o ya resuelta. MOVO-116 (DD-036): 409 " +
           "OFFER_CARRIER_NOT_ELIGIBLE si el transportista ya no cumple los requisitos " +
           "para operar (licencia o cuenta de Mercado Pago); la oferta sigue pending. " +
           "502 USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar.",
@@ -233,7 +233,7 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
           "está, incluida una pending en base pero expired por lectura). Mismas " +
           "validaciones que POST /shipments/:id/offers para offeredDate (422 " +
           "OFFER_DATE_OUT_OF_RANGE) y la franja horaria propuesta (both-or-neither, " +
-          "422 OFFER_PICKUP_WINDOW_INVALID). MOVO-116 (ADR-036): mismo bloqueo que " +
+          "422 OFFER_PICKUP_WINDOW_INVALID). MOVO-116 (DD-036): mismo bloqueo que " +
           "crearla -- 403 CARRIER_NOT_VERIFIED sin rol o identidad, 403 " +
           "CARRIER_DISPUTE_OPEN/CARRIER_LICENSE_NOT_APPROVED/CARRIER_MP_ACCOUNT_NOT_LINKED/" +
           "USER_DEBT_OVERDUE (MOVO-313, deuda vencida; el code es el del primer requisito faltante y la " +

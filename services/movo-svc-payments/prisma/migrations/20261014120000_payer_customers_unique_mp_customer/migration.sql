@@ -1,4 +1,4 @@
--- MOVO-100 (ADR-039): un customer de MP pertenece a una sola cuenta de Movo. Sin esto, el
+-- MOVO-100 (DD-039): un customer de MP pertenece a una sola cuenta de Movo. Sin esto, el
 -- `101` (email con customer) podía asociar a un usuario el customer de otro.
 
 -- CreateIndex

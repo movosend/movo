@@ -36,10 +36,10 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   USER_NOT_FOUND: "No se encontró el usuario.",
   USER_EMAIL_ALREADY_EXISTS: "El email ya se encuentra registrado.",
   USER_PHONE_ALREADY_EXISTS: "El teléfono ya se encuentra registrado.",
-  // MOVO-175 (ADR-026): explícito a propósito -- el bloqueo se revela en vez de un
+  // MOVO-175 (DD-026): explícito a propósito -- el bloqueo se revela en vez de un
   // error genérico. Aplica en las dos direcciones (quien bloqueó y quien fue bloqueado).
   USER_BLOCKED: "No podés interactuar con este usuario porque hay un bloqueo entre ustedes.",
-  // MOVO-284 (ADR-040): el chat se cierra con el envío y queda en solo lectura al entregarse.
+  // MOVO-284 (ADR-023): el chat se cierra con el envío y queda en solo lectura al entregarse.
   CHAT_CLOSED: "Este chat ya no está disponible porque el envío se canceló o todavía no tiene transportista.",
   CHAT_READ_ONLY: "El envío finalizó: el chat quedó en solo lectura y ya no admite mensajes nuevos.",
   CANNOT_MODERATE_SELF: "No podés reportarte ni bloquearte a vos mismo.",
@@ -64,7 +64,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_RECEIVER_TRANSFER_INVALID_TARGET: "Esa persona no puede recibir este envío. Elegí a otra.",
   RECEIVER_TRANSFER_NOT_FOUND: "No encontramos esta solicitud.",
   RECEIVER_TRANSFER_NOT_PENDING: "Esta solicitud ya no está vigente.",
-  // MOVO-308 (ADR-047): el sheet de cancelación re-cotiza solo; este texto es para cualquier
+  // MOVO-308 (DD-047): el sheet de cancelación re-cotiza solo; este texto es para cualquier
   // otro lugar que lo reciba.
   CANCELLATION_PENALTY_MISMATCH: "El monto de la penalidad cambió. Revisalo y confirmá de nuevo.",
   SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",
@@ -123,7 +123,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_NOT_AVAILABLE_FOR_OFFER: "Este envío ya no está disponible para ofertar.",
   OFFER_DUPLICATE_ACTIVE: "Ya tenés una oferta activa sobre este envío.",
   OFFER_DATE_OUT_OF_RANGE: "La fecha del viaje tiene que coincidir con la fecha de retiro del envío.",
-  // MOVO-116 (ADR-036): lo ve el emisor al aceptar la oferta de un transportista que ya no
+  // MOVO-116 (DD-036): lo ve el emisor al aceptar la oferta de un transportista que ya no
   // cumple los requisitos para operar.
   OFFER_CARRIER_NOT_ELIGIBLE: "Este transportista ya no puede tomar envíos. Elegí otra oferta.",
   // MOVO-117: los ve el transportista. Las pantallas que pueden recibirlos abren la
@@ -131,11 +131,11 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // para quien no la monta.
   CARRIER_LICENSE_NOT_APPROVED: "Necesitás tu licencia de conducir verificada para operar como transportista.",
   CARRIER_MP_ACCOUNT_NOT_LINKED: "Necesitás vincular tu cuenta de Mercado Pago para operar como transportista.",
-  // MOVO-278 (ADR-045): no es un paso de la checklist (el transportista no lo puede
+  // MOVO-278 (DD-045): no es un paso de la checklist (el transportista no lo puede
   // completar), así que se muestra como error: se levanta cuando se resuelve la disputa.
   CARRIER_DISPUTE_OPEN:
     "Tenés una disputa abierta como transportista. Vas a poder operar cuando se resuelva.",
-  // MOVO-313 (ADR-044): tampoco es un paso de la checklist, se resuelve con un pago. Como
+  // MOVO-313 (DD-044): tampoco es un paso de la checklist, se resuelve con un pago. Como
   // emisor no se bloquea: su próximo pago ya incluye la deuda (MOVO-311).
   // Se salda desde Perfil > Pagos y cobros > Saldo (MOVO-315).
   USER_DEBT_OVERDUE:

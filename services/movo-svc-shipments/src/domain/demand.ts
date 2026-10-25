@@ -1,5 +1,5 @@
 /**
- * MOVO-138 (ADR-025): definición de la zona de demanda que `svc-shipments` cuenta y
+ * MOVO-138 (ADR-021): definición de la zona de demanda que `svc-shipments` cuenta y
  * manda como `demandContext` a `POST /quote` de `movo-svc-pricing-logistics`.
  *
  * Constantes y no env vars a propósito: definen QUÉ se mide, no cuánto se cobra. El

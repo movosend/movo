@@ -110,7 +110,7 @@ export function useTripMatches(tripId: string | undefined, radiusKm?: number, li
 
 /**
  * Cancelar un viaje declarado (`POST /trips/:id/cancel`, MOVO-260/263). Reemplaza al borrado
- * físico (`DELETE /trips/:id`, deprecado por ADR-029): el viaje pasa a "Historial" como
+ * físico (`DELETE /trips/:id`, deprecado por DD-029): el viaje pasa a "Historial" como
  * cancelado. Invalida las listas de ambos tabs, el detalle y los matches/viaje activo.
  */
 export function useCancelTrip() {

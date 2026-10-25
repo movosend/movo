@@ -1,7 +1,7 @@
-# ADR-036 — Requisitos habilitantes del transportista: licencia aprobada + cuenta de Mercado Pago vinculada
+# DD-036 — Requisitos habilitantes del transportista: licencia aprobada + cuenta de Mercado Pago vinculada
 
-**Estado:** aceptado (MOVO-116). Borrador para pegar en la sección de ADRs de
-`[Movo] 004 - Sprint 0.md` en Drive. Revierte, en ese punto, la decisión de MOVO-142
+**Estado:** aceptado (MOVO-116). Borrador para pegar en
+`[Movo] 011-Registro de Decisiones de Diseño` en Drive. Revierte, en ese punto, la decisión de MOVO-142
 ("la licencia de conducir es una insignia de confianza, no un permiso de acceso").
 
 ## Contexto
@@ -42,7 +42,7 @@ Dos problemas con eso:
 4. **Consulta síncrona REST sin cache** (ADR-001): dos endpoints internos nuevos,
    `GET /internal/users/:id/kyc-status` y `GET /internal/payments/mp-connect/:userId/status`,
    consultados en paralelo. Si cualquiera no responde, el bloqueo **falla cerrado** (502),
-   mismo criterio que el bloqueo de usuarios en escrituras (ADR-026).
+   mismo criterio que el bloqueo de usuarios en escrituras (DD-026).
 
 ## Alternativas descartadas
 
@@ -71,11 +71,11 @@ Dos problemas con eso:
 
 ## Requisitos sumados después
 
-- **`no_open_dispute`** (MOVO-278, ADR-045): ningún envío en `disputed` como transportista.
+- **`no_open_dispute`** (MOVO-278, DD-045): ningún envío en `disputed` como transportista.
   Va primero en `missingRequirements` y responde 403 `CARRIER_DISPUTE_OPEN`. Es una consulta
   local (misma DB) y falla cerrado igual que los otros dos. Se levanta cuando se resuelve la
   disputa (MOVO-34).
-- **`no_overdue_debt`** (MOVO-313, ADR-044): ninguna deuda de la cuenta corriente sin saldar hace
+- **`no_overdue_debt`** (MOVO-313, DD-044): ninguna deuda de la cuenta corriente sin saldar hace
   más de `USER_DEBT_OVERDUE_DAYS` (14, env var de `svc-shipments`). Responde 403
   `USER_DEBT_OVERDUE` y va **al final** de `missingRequirements`: es lo último que se resuelve
   (con un pago) y, como la disputa, no es un paso de la checklist de MOVO-117.
@@ -97,7 +97,7 @@ Dos problemas con eso:
     transportista con deuda vencida recibe el 409 `OFFER_CARRIER_NOT_ELIGIBLE` sin detalle
     (igual que con la licencia o una disputa). Es a propósito: el emisor solo se entera de que ese
     transportista no puede tomar el envío, no del motivo; la deuda es privada del transportista.
-  - **Viajes recurrentes (ADR-042): la deuda frena la ocurrencia, no corta la serie.** Si lo
+  - **Viajes recurrentes (DD-042): la deuda frena la ocurrencia, no corta la serie.** Si lo
     único que falta es `no_overdue_debt` (cuenta activa, identidad aprobada), el barrido
     posterga la generación (`deferred`, log `trip_recurrence_generation_blocked_by_debt`) y la
     serie queda intacta. Se avisa al transportista una sola vez por ocurrencia frenada
@@ -108,4 +108,4 @@ Dos problemas con eso:
 
 **Referencias**: MOVO-116 (este ticket), MOVO-117 (UI de requisitos pendientes), MOVO-142
 (decisión que se revierte), MOVO-15 (licencia), MOVO-111/112 (vinculación de MP), MOVO-209
-(hold), ADR-026 (criterio de fallar cerrado).
+(hold), DD-026 (criterio de fallar cerrado).

@@ -11,7 +11,7 @@ import type { HoldDetailResponse } from "./hold";
 /**
  * Estados en los que un envío se considera **activo**: todos los no terminales. Incluye
  * `awaiting_receiver_confirmation` y `rejected_by_receiver` (el receptor todavía puede decidir o
- * el emisor elegir otro, ADR-027), que el listado de operación no puede perder de vista.
+ * el emisor elegir otro, DD-027), que el listado de operación no puede perder de vista.
  */
 export const ACTIVE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
@@ -88,7 +88,7 @@ export interface AdminShipmentRow {
   priceKind: "agreed" | "suggested" | null;
   /** Último cambio de estado (o la creación si nunca cambió). */
   lastStatusChangeAt: string;
-  /** `in_transit` marcado como demorado por el barrido (ADR-045). */
+  /** `in_transit` marcado como demorado por el barrido (DD-045). */
   delayed: boolean;
   /** Disputa asociada. `null` hasta que exista el módulo de disputas (MOVO-34). */
   disputeId: string | null;
@@ -121,12 +121,12 @@ export interface AdminShipmentEvent {
   /** MOVO-331: nombre del admin si lo hizo el panel (`kind` distinto de `normal`); `null` en el resto. */
   actorName: string | null;
   reason: string | null;
-  /** MOVO-331 (ADR-055): `manual` = transición normal hecha por un admin, `forced` = con efectos distintos del camino normal. */
+  /** MOVO-331 (DD-055): `manual` = transición normal hecha por un admin, `forced` = con efectos distintos del camino normal. */
   kind: ShipmentEventKind;
   createdAt: string;
 }
 
-/** MOVO-331 (ADR-055): quién y cómo originó el cambio de estado. Inmutable una vez escrito. */
+/** MOVO-331 (DD-055): quién y cómo originó el cambio de estado. Inmutable una vez escrito. */
 export type ShipmentEventKind = "normal" | "manual" | "forced";
 
 /** `POST /internal/admin/shipments/:id/force-status` (lo llama `svc-admin`). */
@@ -155,7 +155,7 @@ export interface ForceShipmentStatusResponse {
  * validar y el panel para mostrarlo (`shipmentDisplayCode` es `#` + esto: una sola regla); no es un identificador
  * (puede repetirse entre envíos), solo una confirmación.
  *
- * Limitación aceptada (ADR-055): con 5 dígitos hay colisiones entre ~100 mil envíos y es más débil que los 8 caracteres
+ * Limitación aceptada (DD-055): con 5 dígitos hay colisiones entre ~100 mil envíos y es más débil que los 8 caracteres
  * del id que se pedían antes. Es una decisión consciente: el código tiene que ser lo que el admin VE en el encabezado
  * (con el prefijo del id nunca lo vería). No es lo que protege la acción: el pedido va atado al id del envío (tipear el de
  * otro no cambia ese), el estado esperado (`STATUS_CHANGED`), el segundo factor en lo forzado o crítico, la regla de
@@ -283,7 +283,7 @@ export interface AdminShipmentDetailResponse {
   parties: AdminBlock<AdminShipmentPartyCard[]>;
 }
 
-/** Mensaje del chat tal cual se escribió: el admin ve todo (ADR-040). */
+/** Mensaje del chat tal cual se escribió: el admin ve todo (ADR-023). */
 export interface AdminChatMessage {
   id: string;
   authorId: string;
@@ -368,12 +368,12 @@ export interface AdminShipmentTracking {
   trace: AdminTrackingPoint[];
   /** La traza pasó el tope y se submuestreó (conserva el primer y el último punto). */
   traceTruncated: boolean;
-  /** `false` si no hay puntos: sin retiro todavía o purgada por retención (ADR-023). */
+  /** `false` si no hay puntos: sin retiro todavía o purgada por retención (DD-023). */
   traceAvailable: boolean;
   lastPosition: { lat: number; lng: number; accuracyM: number | null; capturedAt: string } | null;
   lastPingAt: string | null;
   signalLost: boolean;
-  /** En camino con la anomalía de `in_transit` marcada (ADR-045). */
+  /** En camino con la anomalía de `in_transit` marcada (DD-045). */
   delayed: boolean;
   /** Solo con `state: "live"`. */
   metrics: AdminTrackingMetrics | null;
@@ -381,7 +381,7 @@ export interface AdminShipmentTracking {
   pollIntervalSeconds: number;
 }
 
-// MOVO-332: cambio de estado desde el panel (ADR-055).
+// MOVO-332: cambio de estado desde el panel (DD-055).
 
 /** Vigencia del código de 6 dígitos del step-up y del token que se obtiene al verificarlo. */
 export const STEP_UP_CODE_TTL_SECONDS = 300;

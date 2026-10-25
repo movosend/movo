@@ -6,7 +6,7 @@ import { shipmentReceiverTransferSummary } from "../receiver-transfers/receiver-
 const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
 
 // Sin límites de negocio de peso ni medidas (MOVO-317): el tamaño lo decide cada transportista al
-// ofertar. Reemplaza los límites duros de MOVO-276 (ADR-041). Solo un tope de cordura
+// ofertar. Reemplaza los límites duros de MOVO-276 (DD-041). Solo un tope de cordura
 // (`PACKAGE_INPUT_SANITY_MAX`, 10.000 kg o cm) para que un cliente directo no mande 1e9 y desborde
 // el precio; pricing lo aplica igual en `QuoteRequest`.
 const WEIGHT_KG_MIN = 0.1;
@@ -159,10 +159,10 @@ const shipmentResponse = {
     // fuera de ese estado.
     receiverRedesignationDeadline: { type: ["string", "null"], format: "date-time" },
     rejectionReason: { type: ["string", "null"] },
-    // MOVO-278 (ADR-045): cuándo el barrido marcó el envío `in_transit` como demorado
+    // MOVO-278 (DD-045): cuándo el barrido marcó el envío `in_transit` como demorado
     // (MOVO-258 D4). El mobile lo muestra como "Demorado"; `null` = nunca marcado.
     transitAnomalyFlaggedAt: { type: ["string", "null"], format: "date-time" },
-    // MOVO-307 (ADR-047): penalidad de una cancelación tardía del emisor y qué pasó con ella
+    // MOVO-307 (DD-047): penalidad de una cancelación tardía del emisor y qué pasó con ella
     // (`pending` = falta cobrarla, `captured` = se cobró del hold, `debt` = quedó en su cuenta
     // corriente). Ambas `null` en toda cancelación sin cargo.
     cancellationPenaltyArs: { type: ["number", "null"] },
@@ -197,7 +197,7 @@ const shipmentResponse = {
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
-    // MOVO-275 (ADR-038): solo en `GET /shipments/:id` para las partes del envío.
+    // MOVO-275 (DD-038): solo en `GET /shipments/:id` para las partes del envío.
     // `viewerIsFormerReceiver` = quien mira le pasó la recepción a otra persona (solo
     // lectura). `pending` solo lo ven quien la pidió y el emisor.
     receiverTransfer: shipmentReceiverTransferSummary,
@@ -405,7 +405,7 @@ const activeShipmentSummaryResponse = {
     isToday: { type: "boolean" },
     pickupWindowExpired: { type: "boolean" },
     tripId: { type: ["string", "null"], format: "uuid" },
-    // MOVO-278 (ADR-045): envío `in_transit` demorado (ver shipmentResponse).
+    // MOVO-278 (DD-045): envío `in_transit` demorado (ver shipmentResponse).
     transitAnomalyFlaggedAt: { type: ["string", "null"], format: "date-time" },
   },
 };

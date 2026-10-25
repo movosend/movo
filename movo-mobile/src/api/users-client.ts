@@ -70,7 +70,7 @@ export interface ChangePasswordInput {
 }
 
 /** Respuesta de `POST /users/me/device-key` (MOVO-157) — registra/rota la clave
- * pública del dispositivo para el handshake criptográfico (MOVO-195, ADR-020). */
+ * pública del dispositivo para el handshake criptográfico (MOVO-195, ADR-018). */
 export interface RegisterDeviceKeyResponse {
   registeredAt: string;
 }

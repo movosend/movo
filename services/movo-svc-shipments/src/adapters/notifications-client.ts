@@ -11,7 +11,7 @@ export interface SendPushNotificationInput {
    * escribir el id a mano en cada call site. */
   category: NotificationCategoryId;
   /**
-   * MOVO-331 (ADR-055): salta el toggle de categoría y el horario de silencio. Solo para avisos que
+   * MOVO-331 (DD-055): salta el toggle de categoría y el horario de silencio. Solo para avisos que
    * el usuario no puede perderse (hoy: soporte cambió el estado de su envío). Mismo flag que usan
    * las sanciones de cuenta (MOVO-296).
    */

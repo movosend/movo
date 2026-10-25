@@ -191,7 +191,7 @@ export const adminInternalSchemas = {
     },
   },
 
-  // MOVO-331 (ADR-055). Los topes del motivo son los de `@movo/shared` (`FORCE_STATUS_REASON_*`).
+  // MOVO-331 (DD-055). Los topes del motivo son los de `@movo/shared` (`FORCE_STATUS_REASON_*`).
   forceStatusBody: {
     type: "object",
     additionalProperties: false,
