@@ -87,6 +87,8 @@ export interface SubmitStatusChangeInput {
   reason: string
   typedCode?: string
   idempotencyKey: string
+  /** ADR-055: asignar sin hold real (solo destino `assigned`). */
+  simulatePayment?: boolean
   /** El código de 6 dígitos que llegó por email; se canjea por el token en el mismo paso. */
   otp?: { challengeId: string; code: string }
   /** Un token ya verificado (de un intento anterior que no lo gastó). */
@@ -119,6 +121,10 @@ export async function submitStatusChange(
     input.typedCode === undefined
       ? undefined
       : String(input.typedCode).slice(0, 32)
+  if (input.simulatePayment !== undefined && input.simulatePayment !== true)
+    return invalid()
+  if (input.simulatePayment && input.targetStatus !== "assigned")
+    return invalid("El pago simulado solo aplica al pasar a Asignado.")
   if (input.otp && !SIX_DIGITS.test(String(input.otp.code ?? "")))
     return invalid("El código tiene 6 dígitos.")
   if (input.otp && !OPAQUE.test(String(input.otp.challengeId ?? "")))
@@ -159,6 +165,7 @@ export async function submitStatusChange(
       reason,
       ...(typedCode ? { typedCode } : {}),
       ...(stepUpToken ? { stepUpToken } : {}),
+      ...(input.simulatePayment ? { simulatePayment: true } : {}),
       idempotencyKey,
     })
     revalidatePath(`/shipments/${shipmentId}`)

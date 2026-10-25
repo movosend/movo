@@ -310,12 +310,14 @@ describe("paso 3 — requisitos por riesgo", () => {
     expect(confirm).toBeDisabled()
     type("Motivo", "muy corto")
     expect(screen.getByText("9 / 20 mínimo")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     expect(confirm).toBeDisabled()
     type("Motivo", REASON)
     expect(screen.getByText(`${REASON.length} caracteres`)).toBeInTheDocument()
     expect(confirm).toBeEnabled()
-    expect(screen.getByRole("checkbox").closest("label")).toHaveTextContent(
+    expect(
+      screen.getByRole("checkbox", { name: /Entiendo/ }).closest("label")
+    ).toHaveTextContent(
       `Entiendo lo que implica pasar #${CODE} a Cancelado y que la acción queda a mi nombre.`
     )
   })
@@ -324,7 +326,7 @@ describe("paso 3 — requisitos por riesgo", () => {
     renderModal({ status: "assignment_pending" as never })
     await goToConfirm(HIGH)
     type("Motivo", REASON)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     const confirm = screen.getByRole("button", { name: "Pasar a Asignado" })
     expect(confirm).toBeDisabled()
     const typed = screen.getByLabelText(/Escribí/)
@@ -340,12 +342,38 @@ describe("paso 3 — requisitos por riesgo", () => {
     expect(confirm.className).not.toMatch(/danger-solid/)
   })
 
+  it("Asignado ofrece 'Simular el pago' y lo manda solo si se tilda (ADR-055)", async () => {
+    renderModal({ status: "assignment_pending" as never })
+    await goToConfirm(HIGH)
+    type("Motivo", REASON)
+    type(/Escribí/, CODE)
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
+    const simulate = screen.getByRole("checkbox", { name: /Simular el pago/ })
+    expect(simulate).not.toBeChecked()
+    fireEvent.click(simulate)
+    actions.submitStatusChange.mockResolvedValue({ ok: true, data: DONE })
+    fireEvent.click(screen.getByRole("button", { name: "Pasar a Asignado" }))
+    await waitFor(() => expect(actions.submitStatusChange).toHaveBeenCalled())
+    expect(actions.submitStatusChange.mock.calls[0][1]).toMatchObject({
+      targetStatus: "assigned",
+      simulatePayment: true,
+    })
+  })
+
+  it("otros destinos no ofrecen simular el pago", async () => {
+    renderModal()
+    await goToConfirm(MEDIUM)
+    expect(
+      screen.queryByRole("checkbox", { name: /Simular el pago/ })
+    ).toBeNull()
+  })
+
   it("forzada: pide además el código por email, 'Enviar código' llama al step-up y el botón final es rojo", async () => {
     renderModal({ status: "assigned" as never })
     await goToConfirm(FORCED)
     type("Motivo", REASON)
     type(/Escribí/, CODE)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     const confirm = screen.getByRole("button", { name: "Forzar a Cancelado" })
     expect(confirm.className).toMatch(/danger-solid/)
     expect(confirm).toBeDisabled()
@@ -386,7 +414,7 @@ describe("confirmar", () => {
   const fillMedium = async () => {
     await goToConfirm(MEDIUM)
     type("Motivo", REASON)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
   }
 
   it("éxito: manda estado esperado, destino y motivo, cierra el modal y muestra el aviso con a quién se avisó", async () => {
@@ -421,7 +449,7 @@ describe("confirmar", () => {
     await goToConfirm(FORCED)
     type("Motivo", REASON)
     type(/Escribí/, CODE)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     actions.sendStepUpCode.mockResolvedValue({ ok: true, data: CHALLENGE })
     fireEvent.click(screen.getByRole("button", { name: "Enviar código" }))
     await screen.findByText("t***@gmail.com")
@@ -470,7 +498,7 @@ describe("acciones del servidor que rechazan (el modal nunca queda trabado)", ()
     renderModal()
     await goToConfirm(MEDIUM)
     type("Motivo", REASON)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     actions.submitStatusChange.mockRejectedValue(
       new Error("se cortó el request")
     )
@@ -522,7 +550,7 @@ describe("un destino que ya no está disponible no arrastra lo del anterior", ()
     await goToConfirm(HIGH)
     type("Motivo", REASON)
     type(/Escribí/, CODE)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     actions.submitStatusChange.mockResolvedValue({
       ok: false,
       error: "El estado del envío cambió mientras confirmabas.",
@@ -541,7 +569,7 @@ describe("un destino que ya no está disponible no arrastra lo del anterior", ()
     next()
     next()
     expect(await screen.findByLabelText("Motivo")).toHaveValue(REASON)
-    expect(screen.getByRole("checkbox")).not.toBeChecked()
+    expect(screen.getByRole("checkbox", { name: /Entiendo/ })).not.toBeChecked()
     expect(screen.queryByLabelText(/Escribí/)).toBeNull()
     expect(
       screen.getByRole("button", { name: "Pasar a Cancelado" })
@@ -552,7 +580,7 @@ describe("un destino que ya no está disponible no arrastra lo del anterior", ()
     renderModal()
     await goToConfirm(MEDIUM)
     type("Motivo", REASON)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     actions.submitStatusChange.mockResolvedValue({
       ok: false,
       error: "El estado del envío cambió mientras confirmabas.",
@@ -565,7 +593,7 @@ describe("un destino que ya no está disponible no arrastra lo del anterior", ()
     next()
     next()
     expect(await screen.findByLabelText("Motivo")).toHaveValue(REASON)
-    expect(screen.getByRole("checkbox")).toBeChecked()
+    expect(screen.getByRole("checkbox", { name: /Entiendo/ })).toBeChecked()
   })
 })
 
@@ -575,7 +603,7 @@ describe("reintento tras un resultado desconocido (el segundo factor ya se gast�
     await goToConfirm(FORCED)
     type("Motivo", REASON)
     type(/Escribí/, CODE)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     actions.sendStepUpCode.mockResolvedValue({ ok: true, data: CHALLENGE })
     fireEvent.click(screen.getByRole("button", { name: "Enviar código" }))
     await screen.findByText("t***@gmail.com")
@@ -647,7 +675,7 @@ describe("errores (nunca se pierde lo escrito)", () => {
   const confirmMedium = async (failure: Record<string, unknown>) => {
     await goToConfirm(MEDIUM)
     type("Motivo", REASON)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     actions.submitStatusChange.mockResolvedValue({ ok: false, ...failure })
     fireEvent.click(screen.getByRole("button", { name: "Pasar a Cancelado" }))
   }
@@ -708,7 +736,7 @@ describe("errores (nunca se pierde lo escrito)", () => {
     await goToConfirm(FORCED)
     type("Motivo", REASON)
     type(/Escribí/, CODE)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     actions.sendStepUpCode.mockResolvedValue({ ok: true, data: CHALLENGE })
     fireEvent.click(screen.getByRole("button", { name: "Enviar código" }))
     await screen.findByText("t***@gmail.com")
@@ -738,7 +766,7 @@ describe("errores (nunca se pierde lo escrito)", () => {
     await goToConfirm(FORCED)
     type("Motivo", REASON)
     type(/Escribí/, CODE)
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
     actions.sendStepUpCode.mockResolvedValue({ ok: true, data: CHALLENGE })
     fireEvent.click(screen.getByRole("button", { name: "Enviar código" }))
     await screen.findByText("t***@gmail.com")

@@ -38,6 +38,8 @@ interface State {
   typed: string
   code: string
   ack: boolean
+  /** ADR-055: asignar sin hold real de Mercado Pago (el envío queda sin cobro). Solo con destino `assigned`. */
+  simulatePayment: boolean
   challenge: StepUpChallenge | null
   /** Hasta cuándo no se puede pedir otro código (epoch ms). */
   resendAt: number
@@ -67,6 +69,7 @@ const initial = (): State => ({
   typed: "",
   code: "",
   ack: false,
+  simulatePayment: false,
   challenge: null,
   resendAt: 0,
   sendingCode: false,
@@ -82,6 +85,7 @@ const resetForNewTarget = (): Partial<State> => ({
   typed: "",
   code: "",
   ack: false,
+  simulatePayment: false,
   challenge: null,
   stepUpToken: null,
   resendAt: 0,
@@ -295,6 +299,9 @@ export function useStatusChange({
           expectedStatus,
           reason: s.reason,
           idempotencyKey: s.idempotencyKey,
+          ...(s.simulatePayment && target === "assigned"
+            ? { simulatePayment: true }
+            : {}),
           ...(chosen.requiresTypedCode ? { typedCode: s.typed } : {}),
           ...(chosen.requiresStepUp && !s.retryAfterUnknown
             ? s.stepUpToken
@@ -355,6 +362,8 @@ export function useStatusChange({
     setCode: (code: string) =>
       patch({ code: code.replace(/\D/g, "").slice(0, 6) }),
     setAck: (ack: boolean) => patch({ ack }),
+    setSimulatePayment: (simulatePayment: boolean) =>
+      patch({ simulatePayment }),
     toggleForced: () => patch((s) => ({ showForced: !s.showForced })),
   }
 }
