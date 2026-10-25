@@ -32,6 +32,8 @@ enum AdminTargetType {
   shipment
   chat_report
   user_report
+  // MOVO-337: resolución de una disputa y sus notas internas.
+  dispute
 
   @@map("admin_target_type")
   @@schema("admin")
@@ -78,5 +80,20 @@ model AdminUserNote {
 
   @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "admin_user_notes_user_id_created_at_id_idx")
   @@map("admin_user_notes")
+  @@schema("admin")
+}
+
+// MOVO-337: notas internas del panel sobre una disputa (sección "Notas" del expediente). Mismo molde que
+// `AdminUserNote`: solo se agregan filas (trigger contra UPDATE/DELETE) y `createdAt` en ms, lo fija la app. Las
+// partes nunca las ven: no viven en `svc-shipments`.
+model AdminDisputeNote {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  disputeId String   @map("dispute_id") @db.Uuid
+  adminId   String   @map("admin_id") @db.Uuid
+  body      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([disputeId, createdAt(sort: Desc), id(sort: Desc)], map: "admin_dispute_notes_dispute_id_created_at_id_idx")
+  @@map("admin_dispute_notes")
   @@schema("admin")
 }
