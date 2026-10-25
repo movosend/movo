@@ -72,7 +72,7 @@ beforeEach(() =>
 afterEach(() => vi.useRealTimers())
 
 describe("SupportFeed", () => {
-  it("abre el WS, pasa a live y entrega los eventos JSON", async () => {
+  it("abre el WS, pasa a live, pide resync y entrega los eventos JSON", async () => {
     const { feed, sockets, messages } = setup()
     feed.start()
     await flush()
@@ -80,7 +80,7 @@ describe("SupportFeed", () => {
     expect(feed.status).toBe("live")
     sockets[0].onmessage?.({ data: JSON.stringify(event("5")) })
     sockets[0].onmessage?.({ data: "basura" })
-    expect(messages).toEqual([{ type: "event", event: event("5") }])
+    expect(messages).toEqual([{ type: "resync" }, { type: "event", event: event("5") }])
   })
 
   it("reconecta con backoff y avisa resync al volver", async () => {

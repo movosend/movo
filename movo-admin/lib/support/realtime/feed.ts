@@ -46,8 +46,8 @@ const BACKOFF_MAX_MS = 30_000
  * Conexión en vivo con reconexión (AC9 y AC14 de MOVO-323). Sin React: el provider la usa y los
  * tests la manejan con timers falsos. El WS se autentica con un ticket de un solo uso pedido por
  * Server Action (el token nunca llega al JS); si no hay WS, cae a polling del mismo contrato de
- * eventos. Cada vez que se recupera la conexión emite `resync`: los que muestran listas deben
- * volver a pedirlas, porque pudieron perderse eventos.
+ * eventos. Cada vez que se abre el socket (también la primera) emite `resync`: los que muestran
+ * listas deben volver a pedirlas, porque pudieron perderse eventos antes de que el socket esté listo.
  */
 export class SupportFeed {
   status: FeedStatus = "stopped"
@@ -140,7 +140,8 @@ export class SupportFeed {
       if (this.poll) clearInterval(this.poll)
       this.poll = null
       this.setStatus("live")
-      if (this.lost) this.emit({ type: "resync" })
+      // En cada apertura, también la primera: lo que pasó entre la carga de la lista y el socket no llega por él.
+      this.emit({ type: "resync" })
       this.lost = false
     }
     socket.onmessage = ({ data }) => {
