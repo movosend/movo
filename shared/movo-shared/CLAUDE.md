@@ -732,6 +732,14 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 la transición es `forced` o el riesgo es crítico): la fuente única de la fricción para el panel y para `svc-admin`. `ApiErrorCode` suma
 `STEP_UP_REQUIRED`, `STEP_UP_INVALID` y `TYPED_CODE_MISMATCH`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-336 — Contrato del reembolso (`types/refund.ts`)
+
+`REFUND_STATUSES`/`RefundStatus` (`processing`, `succeeded`, `failed`, `fallback_to_ledger`), `RefundFailureReason`, `CreateRefundRequest` (`amountArs?`, `reason`, `idempotencyKey`, `adminId`),
+`CreateRefundResponse`, `RefundResponse`, `RefundsResponse` y las constantes de largo (`REFUND_REASON_*`, `REFUND_IDEMPOTENCY_KEY_MAX_LENGTH`). Wire contract de los endpoints internos de reembolso de
+`svc-payments`, para MOVO-337. `ApiErrorCode` suma `SETTLEMENT_NOT_REFUNDABLE` (409), `REFUND_AMOUNT_EXCEEDS_REFUNDABLE` (422, `details.refundableArs`), `REFUND_IDEMPOTENCY_CONFLICT` (409),
+`REFUND_IN_PROGRESS` (409, otro pedido con la misma key está en curso) y `REFUND_NEEDS_REVIEW` (409, intento sin confirmar de más de 12 h). `RefundFailureReason` distingue `provider_rejected`
+(un 4xx de MP no reconocido como falta de saldo).
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 ### MOVO-333 — `checks`/`irreversible` en la matriz y código de confirmación
 
 `getForcedTransitionDetails` suma `checks` y `irreversible` (también en `ShipmentStatusOption`), que el modal del panel muestra en el paso de impacto.
