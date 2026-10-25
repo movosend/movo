@@ -140,6 +140,44 @@ describe("línea de tiempo", () => {
     expect(items[2]!.title).toBe("Entrega a Luis")
   })
 
+  it("un cambio de admin se ve como manual o forzado, con el admin y el motivo (MOVO-333)", () => {
+    const items = buildTimeline(
+      [
+        event("assigned", "2026-10-21T12:00:00.000Z", {
+          fromStatus: "assignment_pending",
+          actorId: "99999999-0000-4000-8000-000000000000",
+          actorName: "Lucía Admin",
+          kind: "manual",
+          reason: "El hold ya estaba autorizado",
+        }),
+        event("cancelled", "2026-10-21T13:00:00.000Z", {
+          fromStatus: "assigned",
+          actorId: "99999999-0000-4000-8000-000000000000",
+          actorName: "Lucía Admin",
+          kind: "forced",
+          reason: "El transportista no responde hace dos días",
+        }),
+      ],
+      row()
+    )
+    expect(items[0]).toMatchObject({
+      kind: "manual",
+      title: "Estado cambiado a Asignado",
+      detail: "Reservando pago → Asignado",
+      reason: "El hold ya estaba autorizado",
+    })
+    expect(items[0]!.meta).toBe("21 oct · 09:00 · Lucía Admin · Admin")
+    expect(items[1]).toMatchObject({
+      kind: "forced",
+      title: "Estado forzado a Cancelado",
+      detail: "Asignado → Cancelado",
+    })
+    // Un evento normal sigue igual: sin marca y con el texto de siempre.
+    expect(
+      buildTimeline([event("in_transit", "2026-10-21T12:24:00.000Z")], row())[0]
+    ).toMatchObject({ kind: "normal", title: "El paquete salió en camino" })
+  })
+
   it("el actor: una parte, el sistema u otra cuenta", () => {
     expect(actorLabel(null, row())).toBe("Sistema")
     expect(actorLabel(RECEIVER.id, row())).toBe("Luis Herrera · Receptor")
