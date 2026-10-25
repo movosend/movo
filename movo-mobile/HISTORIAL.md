@@ -4814,7 +4814,7 @@ Réplica del prototipo "MOVO-308 Emisor cancela" de Claude Design. `canCancelShi
 
 En el detalle cancelado, `SenderCancelledPayment` muestra la card "Tu pago" (reservado, penalidad según `cancellationPenaltyStatus`, tarjeta y liberado) solo si hubo reserva, con `useShipmentHold` sobre el filtro `shipmentId` de `/payments/transactions`. `CarrierCancellationCompensation` muestra al transportista el neto de la penalidad (`settlement.kind = cancellation_penalty`): "Recibís aprox." hasta acreditarse. El "Recibís aprox." del viaje ya no aparece en un envío cancelado. La línea de tiempo dice "Cancelaste el envío" al emisor que canceló. Lógica pura en `src/lib/cancellation-format.ts`.
 
-No se copió el pie "{transportista} retira el paquete el…" del prototipo: en `assigned`, ese lugar lo ocupa la CTA del QR de retiro. Limitación: el sheet calcula lo reservado con `agreedPriceArs`. Si el hold cobraba deuda del emisor (MOVO-311), lo liberado real difiere, y el detalle cancelado sí usa el monto real del hold.
+No se copió el pie "{transportista} retira el paquete el…" del prototipo: en `assigned`, ese lugar lo ocupa la CTA del QR de retiro. El monto reservado del sheet se unificó después con `hold.amountArs` en MOVO-318.
 
 Cambios de UI en la misma rama, a pedido de diseño:
 - **Card de precio del detalle**: el badge de alta demanda dice "Alta demanda". Su ayuda se despliega a todo el ancho debajo de la fila (`HighDemandHelp`) y no dentro de la media card, que la cortaba y estiraba.
@@ -5045,3 +5045,8 @@ este envío" al pie del detalle del envío → `/support/new?shipmentId=`.
 - Pendiente / fuera de alcance: la galería elige de a una foto (el prototipo pedía multiselección), el visor no tiene el "No pudimos cargar la
   foto. Reintentar" ni cierre deslizando hacia abajo (reusa `PhotoViewerModal`), diseño del submenú, y la prueba en dispositivo contra el backend
   real con un agente en el panel (depende de MOVO-320/321/322).
+
+### MOVO-318 — Sheet de cancelación del emisor usa el monto real del hold (`hold.amountArs`)
+
+- `shipments/[id].tsx`: `useShipmentHold` también se habilita en `assigned` para el emisor y pasa `hold.amountArs` a `SenderActionsBar` → `CancelShipmentSheet` → `cancellationQuoteView`. Así, cuando el hold incluye deuda cobrada (MOVO-311), el sheet y la card "Tu pago" del detalle cancelado muestran el mismo monto reservado y a liberar.
+- El sheet no muestra montos ni deja confirmar hasta que el hold resuelve (`holdState`: `loading` mantiene "Calculando…", `error` ofrece reintentar y re-pide el hold con `onRetryHold`): la cotización suele llegar antes y, con el fallback a `agreedPriceArs`, habría mostrado un monto erróneo confirmable. El fallback al precio pactado queda solo para el hold que resolvió sin resultado.

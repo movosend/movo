@@ -149,6 +149,27 @@ export interface ForceShipmentStatusResponse {
   replayed: boolean;
 }
 
+/**
+ * Código que el admin tipea para confirmar un cambio de riesgo alto o crítico: el mismo `#MOVO-12345` que
+ * muestra el encabezado del envío en el panel, sin el `#` (últimos 5 dígitos del id). Lo usan `svc-admin` para
+ * validar y el panel para mostrarlo (`shipmentDisplayCode` es `#` + esto: una sola regla); no es un identificador
+ * (puede repetirse entre envíos), solo una confirmación.
+ *
+ * Limitación aceptada (DD-055): con 5 dígitos hay colisiones entre ~100 mil envíos y es más débil que los 8 caracteres
+ * del id que se pedían antes. Es una decisión consciente: el código tiene que ser lo que el admin VE en el encabezado
+ * (con el prefijo del id nunca lo vería). No es lo que protege la acción: el pedido va atado al id del envío (tipear el de
+ * otro no cambia ese), el estado esperado (`STATUS_CHANGED`), el segundo factor en lo forzado o crítico, la regla de
+ * conflicto de interés y la bitácora.
+ */
+export function shipmentConfirmationCode(shipmentId: string): string {
+  return `MOVO-${shipmentId.replace(/\D/g, "").slice(-5).padStart(5, "0")}`;
+}
+
+/** Lo tipeado, comparable con `shipmentConfirmationCode`: sin espacios, sin `#` inicial y en mayúsculas. */
+export function normalizeConfirmationCode(typed: string): string {
+  return typed.trim().replace(/^#/, "").toUpperCase();
+}
+
 export const FORCE_STATUS_REASON_MIN_LENGTH = 20;
 export const FORCE_STATUS_REASON_MAX_LENGTH = 500;
 
@@ -388,6 +409,10 @@ export interface ShipmentStatusOption {
   risk: "medium" | "high" | "critical";
   effects: string[];
   notifies: Array<"sender" | "receiver" | "carrier">;
+  /** Qué conviene verificar antes de confirmar. Vacío si no hay nada puntual. */
+  checks: string[];
+  /** Qué no se puede deshacer. Vacío si el cambio no tiene nada irreversible. */
+  irreversible: string[];
   requiresTypedCode: boolean;
   requiresStepUp: boolean;
 }

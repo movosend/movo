@@ -184,15 +184,19 @@ export default function ShipmentDetailScreen() {
     paymentRole !== null && shipment !== undefined && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status);
   // MOVO-308: en un envío cancelado, el emisor ve qué pasó con su reserva y el transportista
   // la compensación si el emisor canceló tarde (settlement `cancellation_penalty`).
+  // MOVO-318: en `assigned` también se pide el hold del emisor para que el sheet de cancelación
+  // muestre como reservado el monto real (con deuda cobrada en MOVO-311) y coincida con "Tu pago".
   const isCancelled = shipment?.status === ShipmentStatus.CANCELLED;
   const showCancelledSenderPayment = paymentRole === "sender" && isCancelled;
+  const shouldFetchSenderHold =
+    showCancelledSenderPayment || (paymentRole === "sender" && shipment?.status === ShipmentStatus.ASSIGNED);
   const showCancellationCompensation = paymentRole === "carrier" && isCancelled;
   const settlementQuery = useShipmentSettlement(id, {
     enabled: showPayment || showCancellationCompensation,
     pollWhileProcessingMs: isFocused ? 15_000 : false,
   });
   const refetchSettlement = settlementQuery.refetch;
-  const holdQuery = useShipmentHold(id, { enabled: showCancelledSenderPayment });
+  const holdQuery = useShipmentHold(id, { enabled: shouldFetchSenderHold });
   const refetchHold = holdQuery.refetch;
 
   useFocusEffect(
@@ -202,7 +206,7 @@ export default function ShipmentDetailScreen() {
         void refetchRatings();
       }
       if (showPayment || showCancellationCompensation) void refetchSettlement();
-      if (showCancelledSenderPayment) void refetchHold();
+      if (shouldFetchSenderHold) void refetchHold();
     }, [
       refetch,
       refetchRatings,
@@ -210,7 +214,7 @@ export default function ShipmentDetailScreen() {
       refetchHold,
       showPayment,
       showCancellationCompensation,
-      showCancelledSenderPayment,
+      shouldFetchSenderHold,
       shipment?.status,
     ])
   );
@@ -236,7 +240,7 @@ export default function ShipmentDetailScreen() {
       refetchRatings(),
       photosQueryRef.current.refetch(),
       ...(showPayment || showCancellationCompensation ? [refetchSettlement()] : []),
-      ...(showCancelledSenderPayment ? [refetchHold()] : []),
+      ...(shouldFetchSenderHold ? [refetchHold()] : []),
     ]);
     setRefreshing(false);
   };
@@ -491,6 +495,9 @@ export default function ShipmentDetailScreen() {
         {showSenderActions && shipment ? (
           <SenderActionsBar
             shipment={shipment}
+            holdAmountArs={senderHold?.amountArs ?? null}
+            holdState={holdQuery.isError ? "error" : holdQuery.data === undefined ? "loading" : "ready"}
+            onRetryHold={() => void refetchHold()}
             carrierFirstName={carrierFirstName}
             onRefetch={async () => (await refetch()).data?.status}
             onCancelled={setSuccessMessage}
