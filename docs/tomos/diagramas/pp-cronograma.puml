@@ -8,6 +8,7 @@ ganttDiagram {
   separator { FontName Inter; FontSize 9; FontStyle bold; LineColor #8A8A93 }
   timeline { FontName Inter; FontSize 8; LineColor #D9D9DE }
   arrow { LineColor #3A3A40 }
+  closed { BackGroundColor #EEF9D2; LineColor #EEF9D2 }
 }
 </style>
 language es

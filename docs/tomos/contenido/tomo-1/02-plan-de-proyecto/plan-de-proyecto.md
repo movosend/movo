@@ -174,10 +174,6 @@ El cronograma se alinea al calendario académico 2026 de la cátedra y a las cin
 
 : Calendario de sprints.
 
-::: pendiente
-El Plan de Proyecto original remitía la planificación temporal a la WBS y no incluía un cronograma. Esta sección se incorporó en la compilación con las fechas reales de los ciclos de Linear. Las fechas de los hitos académicos (presentaciones, feria, control de avance y entrega final) se reconstruyeron a partir de las fechas de los archivos en Drive y **deben confirmarse con el calendario oficial de la cátedra**.
-:::
-
 :::
 
 # Plan de Riesgos
