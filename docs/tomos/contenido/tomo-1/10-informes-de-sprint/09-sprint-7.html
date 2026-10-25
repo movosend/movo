@@ -1087,7 +1087,7 @@ Un action item sin un ticket en Linear ni un responsable único no se cumple: lo
 </thead>
 <tbody>
 </tbody>
-</table><h3>Artefactos de trazabilidad</h3><h4>Diagramas de modelado relevantes</h4><p>Los diagramas de modelado del proyecto viven en Miro, según la convención definida en el documento de Sprint 0. No se pudo verificar el contenido de Miro para este informe. Cambios del ciclo que afectan diagramas existentes:</p><ul>
+</table><h3>Artefactos de trazabilidad</h3><h4>Diagramas de modelado relevantes</h4><p>Los diagramas de modelado del proyecto se mantienen como código en el repositorio y se reproducen en el Tomo II. Cambios del ciclo que afectan diagramas existentes:</p><ul>
 <li>
 <strong>Diagrama de estados del envío (DTE):</strong> la saga de asignación (MOVO-210) incorpora assignment_pending (pagar al aceptar), assigned_unfunded (ventana de confirmación) y la vuelta de assigned a assigned_unfunded cuando Mercado Pago pierde el hold; si la asignación no prospera, el envío vuelve a published. Según el comentario de MOVO-210 el detalle está en docs/shipments/state-diagram.md. MOVO-278 agrega el paso automático de in_transit demorado a disputa.
 </li>
@@ -1182,7 +1182,7 @@ Un action item sin un ticket en Linear ni un responsable único no se cumple: lo
 <li>
 <strong>svc-admin (MOVO-288):</strong> schema propio con la bitácora de acciones de los administradores.
 </li>
-</ul><p><strong>Pendiente de verificación:</strong> no se pudo confirmar el diagrama en Miro ni el detalle de cada migración. La fuente actualizada sigue siendo docs/movo_der.dbml en el repositorio; el archivo Movo_DER_1.0.md del proyecto no refleja los cambios de los últimos sprints.</p><h4>Casos de prueba y resultados de ejecución</h4><p>Selección representativa de casos reportados en los comentarios y descripciones de este sprint. Donde el resultado dice "no reportado", la fuente define el criterio pero no informa la ejecución.</p><table>
+</ul><p><strong>Pendiente de verificación:</strong> no se pudo confirmar ni el detalle de cada migración. La fuente actualizada sigue siendo docs/movo_der.dbml en el repositorio; el archivo Movo_DER_1.0.md del proyecto no refleja los cambios de los últimos sprints.</p><h4>Casos de prueba y resultados de ejecución</h4><p>Selección representativa de casos reportados en los comentarios y descripciones de este sprint. Donde el resultado dice "no reportado", la fuente define el criterio pero no informa la ejecución.</p><table>
 <colgroup>
 <col style="width: 10%"/>
 <col style="width: 17%"/>
@@ -1283,6 +1283,6 @@ Un action item sin un ticket en Linear ni un responsable único no se cumple: lo
 <strong>Google Drive:</strong> el Informe de Sprint 6 para los action items y la serie histórica, y la fecha de última modificación del doc de Sprint 0 (27/9) para el estado de los ADRs.
 </li>
 <li>
-<strong>No consultado:</strong> el repositorio de GitHub (PRs mergeados, corridas de CI, archivos de ADRs y diagramas) y Miro. Las cifras de pruebas provienen de los comentarios de Linear.
+<strong>No consultado:</strong> el repositorio de GitHub (PRs mergeados, corridas de CI, archivos de ADRs y diagramas). Las cifras de pruebas provienen de los comentarios de Linear.
 </li>
 </ul>

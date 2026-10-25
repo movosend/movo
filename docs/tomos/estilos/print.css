@@ -114,6 +114,7 @@ body { margin: 0; }
 
 p, li, dd { hyphens: auto; }
 td, th { hyphens: manual; }
+td code, th code { overflow-wrap: anywhere; }
 p { margin: 0 0 2.6mm; text-align: justify; orphans: 3; widows: 3; }
 a { color: inherit; text-decoration: none; }
 strong, b { font-weight: 600; }
@@ -658,3 +659,14 @@ table.caso td.mono { font-size: .95em; white-space: nowrap; }
 table.caso .chip { font-size: 5.8pt; padding: .7mm 1.4mm .5mm; letter-spacing: .02em; }
 table.caso th { overflow-wrap: normal; }
 table.caso .chip { white-space: nowrap; }
+
+/* Video del proyecto: enlace + QR */
+.video-enlace { display: flex; gap: 8mm; align-items: center; margin: 8mm 0; padding: 6mm; border: .4pt solid var(--ink-200); border-radius: 2mm; }
+.video-enlace img { width: 38mm; height: 38mm; flex: none; }
+.video-enlace p { margin: 1mm 0; }
+.video-enlace .nota-qr { color: var(--ink-600); font-size: 8.4pt; }
+
+/* Tablas con anchos declarados: layout fijo, el texto largo se parte dentro de su columna */
+table.fija { table-layout: fixed; }
+table.fija td, table.fija th { overflow-wrap: anywhere; }
+table.fija code { word-break: break-all; }

@@ -1,0 +1,93 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Propuesta de carátulas</title>
+<style>
+@page{size:A4;margin:0}
+:root{--ink:#0A0A0B;--ink2:#1F1F23;--mut:#8A8A93;--line:#D9D9DE;--lime:#C6F24A;--p:#fff}
+*{box-sizing:border-box}
+html{font-family:"Inter",sans-serif;color:var(--ink)}
+body{margin:0}
+.pg{width:210mm;height:297mm;position:relative;overflow:hidden;break-after:page}
+.mono{font-family:"JetBrains Mono",monospace}
+.eyebrow{font:600 6.8pt/1 "Inter";letter-spacing:.16em;text-transform:uppercase}
+/* ===== PORTADA DE TOMO ===== */
+.tapa .oscuro,.sep .oscuro{overflow:hidden}
+.tapa .oscuro{position:absolute;left:0;top:0;right:0;height:196mm;background:var(--ink);color:#fff}
+.tapa .eclipse{position:absolute;right:-70mm;top:-10mm;width:170mm;height:170mm}
+.tapa .marca{position:absolute;left:20mm;top:20mm;display:flex;align-items:center;gap:3.6mm}
+.tapa .marca svg{width:11mm;height:11mm}
+.tapa .marca span{font:700 21pt/1 "Inter";letter-spacing:-.045em}
+.tapa .cat{position:absolute;left:36mm;top:23.5mm;color:var(--mut)}
+.tapa .titulo{position:absolute;left:20mm;bottom:121mm;right:30mm}
+.tapa .tomo{display:inline-block;background:var(--lime);color:var(--ink);padding:1.6mm 3mm 1.3mm;border-radius:1mm;margin-bottom:7mm}
+.tapa h1{color:#fff;font:600 40pt/1.02 "Inter";letter-spacing:-.04em;margin:0 0 6mm}
+.tapa .bajada{font-size:11pt;line-height:1.5;color:#B9B9C0;max-width:118mm}
+.tapa .barra{position:absolute;left:0;right:0;top:196mm;height:2.2mm;background:var(--lime)}
+.tapa .pie{position:absolute;left:20mm;right:20mm;top:212mm;display:grid;grid-template-columns:1.1fr 1fr;gap:12mm;font-size:8.2pt;line-height:1.55}
+.tapa .pie .eyebrow{display:block;margin-bottom:2.4mm;color:var(--mut)}
+.tapa .pie table{width:100%;border-collapse:collapse}
+.tapa .pie td{padding:.8mm 0;border-bottom:.4pt solid var(--line)}
+.tapa .pie td.l{text-align:right;font-family:"JetBrains Mono";color:#3A3A40;font-size:7.6pt}
+.tapa .inst{position:absolute;left:20mm;right:20mm;bottom:14mm;display:flex;justify-content:space-between;align-items:center;font-size:7.2pt;color:#3A3A40;line-height:1.45}
+.tapa .inst img{height:11mm}
+/* ===== SEPARADOR ===== */
+.sep .oscuro{position:absolute;left:0;top:0;right:0;height:150mm;background:var(--ink);color:#fff}
+.sep .eclipse{position:absolute;right:-70mm;top:-46mm;width:170mm;height:170mm}
+.sep .ruta{position:absolute;left:20mm;top:20mm;color:var(--mut)}
+.sep .num{position:absolute;left:20mm;top:44mm;font:600 96pt/1 "Inter";letter-spacing:-.06em;color:var(--lime)}
+.sep .tit{position:absolute;left:20mm;right:40mm;bottom:167mm}
+.sep h1{color:#fff;font:600 30pt/1.06 "Inter";letter-spacing:-.035em;margin:0 0 4mm}
+.sep .sub{font-size:10.5pt;line-height:1.5;color:#B9B9C0;max-width:150mm}
+.sep .barra{position:absolute;left:0;right:0;top:150mm;height:2.2mm;background:var(--lime)}
+.sep .meta{position:absolute;left:20mm;right:20mm;top:160mm;display:flex;gap:10mm;font-size:7.6pt;color:#3A3A40}
+.sep .meta b{display:block;color:var(--ink);font-weight:600;font-size:8.4pt}
+.sep .idx{position:absolute;left:20mm;right:20mm;top:182mm;font-size:8.4pt}
+.sep .idx .eyebrow{display:block;margin-bottom:2.4mm;color:var(--mut)}
+.sep .idx div{display:flex;padding:1.2mm 0;border-bottom:.4pt solid var(--line)}
+.sep .idx .n{width:11mm;font-family:"JetBrains Mono";font-size:7.4pt;color:#3A3A40}
+.sep .idx .p{margin-left:auto;font-family:"JetBrains Mono";font-size:7.4pt}
+.sep .foot{position:absolute;left:20mm;right:20mm;bottom:12mm;display:flex;justify-content:space-between;font-size:6.8pt;color:var(--mut);letter-spacing:.09em;text-transform:uppercase}
+</style></head><body>
+
+<!-- ===== Portada de tomo ===== -->
+<section class="pg tapa">
+ <div class="oscuro"></div>
+ <svg class="eclipse" viewBox="0 0 500 500"><g fill="none" stroke="#C6F24A">
+  <circle cx="250" cy="250" r="240" stroke-width="1" stroke-opacity=".16"/><circle cx="250" cy="250" r="214" stroke-width="1" stroke-opacity=".22"/>
+  <circle cx="250" cy="250" r="190" stroke-width="1.4" stroke-opacity=".32"/><circle cx="250" cy="250" r="168" stroke-width="2" stroke-opacity=".5"/>
+  <circle cx="250" cy="250" r="146" stroke-width="3" stroke-opacity=".8"/></g>
+  <circle cx="250" cy="250" r="124" fill="#0A0A0B"/></svg>
+ <div class="marca"><svg viewBox="0 0 500 500"><rect width="500" height="500" rx="112" fill="#fff"/><circle cx="250" cy="250" r="182" fill="#0A0A0B" fill-opacity=".5"/><circle cx="250" cy="250" r="157" fill="#0A0A0B" fill-opacity=".6"/><circle cx="250" cy="250" r="140.9" fill="#0A0A0B"/><circle cx="250" cy="250" r="124" fill="#fff"/></svg><span>movo</span></div>
+ <div class="cat eyebrow">Proyecto Final 2026 · 5K3 · Grupo 27</div>
+ <div class="titulo">
+  <div class="tomo eyebrow">Tomo II</div>
+  <h1>Documentación<br>de Producto</h1>
+  <div class="bajada">Movo: plataforma de logística colaborativa P2P. Historias de usuario y su trazabilidad, modelo de diseño, modelo de datos y arquitectura del sistema.</div>
+ </div>
+ <div class="barra"></div>
+ <div class="pie">
+  <div><span class="eyebrow">Integrantes</span><table>
+   <tr><td>ARIZA, Alena</td><td class="l">95359</td></tr><tr><td>BORDINO BLANCHE, Juan Cruz</td><td class="l">95008</td></tr>
+   <tr><td>DALMAGRO, Lucas</td><td class="l">94366</td></tr><tr><td>VERGARA, Tomás Ignacio</td><td class="l">94197</td></tr><tr><td>YORLANO, Pedro</td><td class="l">95197</td></tr></table></div>
+  <div><span class="eyebrow">Equipo docente</span>Profesor Adjunto: Ing. Sergio Quinteros<br>Jefa de Trabajos Prácticos: Ing. Cecilia Trettel<br><br>
+   <span class="eyebrow">Entrega</span>Categoría: Producto · Proyecto independiente<br>Córdoba, noviembre de 2026</div>
+ </div>
+ <div class="inst"><img src="utn-frc-extendido.svg" alt=""><div style="text-align:right">Universidad Tecnológica Nacional · Facultad Regional Córdoba<br>Ingeniería en Sistemas de Información · Cátedra Proyecto Final</div></div>
+</section>
+
+<!-- ===== Separador de documento ===== -->
+<section class="pg sep">
+ <div class="oscuro"></div>
+ <svg class="eclipse" viewBox="0 0 500 500"><g fill="none" stroke="#C6F24A">
+  <circle cx="250" cy="250" r="240" stroke-width="1" stroke-opacity=".16"/><circle cx="250" cy="250" r="214" stroke-width="1" stroke-opacity=".22"/>
+  <circle cx="250" cy="250" r="190" stroke-width="1.4" stroke-opacity=".32"/><circle cx="250" cy="250" r="168" stroke-width="2" stroke-opacity=".5"/></g></svg>
+ <div class="ruta eyebrow">Tomo I · Documentación de Proyecto</div>
+ <div class="num">09</div>
+ <div class="tit"><h1>User Story Mapping y Backlog Inicial</h1><div class="sub">Mapa de historias de usuario del producto y backlog estimado en el Sprint 0.</div></div>
+ <div class="barra"></div>
+ <div class="meta"><div><b>Versión 1.0</b>vigente</div><div><b>Octubre de 2026</b>última revisión</div></div>
+ <div class="idx"><span class="eyebrow">Contenido</span>
+  <div><span class="n">9.1</span>User Story Map<span class="p">108</span></div>
+  <div><span class="n">9.2</span>Backlog Inicial<span class="p">110</span></div>
+  <div><span class="n">9.3</span>Backlog detallado por épica<span class="p">112</span></div></div>
+ <div class="foot"><span>Movo · Proyecto Final 2026</span><span>UTN FRC · ISI · 5K3 · Grupo 27</span></div>
+</section>
+</body></html>

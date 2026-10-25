@@ -960,12 +960,12 @@ Las verificaciones que dependen de infraestructura real (EC2, nginx, dispositivo
 </thead>
 <tbody>
 </tbody>
-</table><h3>Artefactos de trazabilidad</h3><h4>Diagramas de modelado relevantes</h4><p>Los diagramas de modelado del proyecto viven en Miro, según la convención definida en el documento de Sprint 0. Este sprint el trabajo de diagramación quedó en el repositorio y en Linear, y no se pudo verificar el contenido de Miro:</p><ul>
+</table><h3>Artefactos de trazabilidad</h3><h4>Diagramas de modelado relevantes</h4><p>Los diagramas de modelado del proyecto se mantienen como código en el repositorio y se reproducen en el Tomo II. Este sprint el trabajo de diagramación quedó en el repositorio y en Linear:</p><ul>
 <li>
 <strong>Diagrama de estados del envío (DTE):</strong> actualizado en el repositorio (docs/shipments/state-diagram.md) tras MOVO-208: 11 estados y 18 transiciones, con una nota sobre por qué no se agrega delivery_failed. El Mermaid versionado es la fuente de verdad; no se adjuntó un diagrama nuevo al ticket.
 </li>
 <li>
-<strong>Flujo de consulta de viajes:</strong> diagrama adjunto por Pedro Yorlano en un comentario de MOVO-219 (13/9). Vive en Linear y falta incorporarlo a Miro.
+<strong>Flujo de consulta de viajes:</strong> diagrama adjunto por Pedro Yorlano en un comentario de MOVO-219 (13/9). Vive en Linear.
 </li>
 <li>
 <strong>Estados del viaje (MOVO-221):</strong> el rediseño a declarado/activo/realizado modifica la máquina de estados del Trip; no se relevó si el diagrama correspondiente se actualizó.
@@ -1029,7 +1029,7 @@ Las verificaciones que dependen de infraestructura real (EC2, nginx, dispositivo
 <li>
 <strong>MOVO-172:</strong> el ticket parte de que no existía ninguna entidad de vehículo (Trip.vehicleType era un texto libre) y agrega la ficha del vehículo del transportista en svc-users. No se relevó el detalle de la migración.
 </li>
-</ul><p><strong>Pendiente de verificación:</strong> no se pudo confirmar el diagrama en Miro. El archivo Movo_DER_1_0.md del Drive del proyecto no incluye la entidad Trip ni ninguno de los cambios de este sprint (una búsqueda de "Trip" no encuentra coincidencias, igual que en Sprint 4); la fuente actualizada es docs/movo_der.dbml en el repositorio.</p><h4>Casos de prueba y resultados de ejecución</h4><p>Selección representativa de casos reportados en los comentarios de los tickets de este sprint. Donde el resultado dice "no reportado", el comentario define el criterio pero no informa la ejecución.</p><table style="width:100%;">
+</ul><p><strong>Pendiente de verificación:</strong> no se pudo confirmar el diagrama. El archivo Movo_DER_1_0.md del Drive del proyecto no incluye la entidad Trip ni ninguno de los cambios de este sprint (una búsqueda de "Trip" no encuentra coincidencias, igual que en Sprint 4); la fuente actualizada es docs/movo_der.dbml en el repositorio.</p><h4>Casos de prueba y resultados de ejecución</h4><p>Selección representativa de casos reportados en los comentarios de los tickets de este sprint. Donde el resultado dice "no reportado", el comentario define el criterio pero no informa la ejecución.</p><table style="width:100%;">
 <colgroup>
 <col style="width: 11%"/>
 <col style="width: 13%"/>

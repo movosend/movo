@@ -610,7 +610,7 @@ Un ticket de "seguimiento" (como MOVO-94, abierto para no dejar una decisión de
 </thead>
 <tbody>
 </tbody>
-</table><h3>Artefactos de trazabilidad</h3><h4>Diagramas de modelado relevantes</h4><p>Todos los diagramas de modelado del proyecto viven en Miro (convención definida en el documento de Sprint 0), no como imágenes en este documento.</p><ul>
+</table><h3>Artefactos de trazabilidad</h3><h4>Diagramas de modelado relevantes</h4><p>Los diagramas de modelado del proyecto se mantienen como código en el repositorio (DER en DBML y diagramas en PlantUML) y se reproducen en el Tomo II.</p><ul>
 <li>
 <strong>DER (Modelo Entidad-Relación):</strong> armado en MOVO-58, incluye la tabla users.kyc_verification agregada este sprint en MOVO-72.
 </li>
@@ -620,7 +620,7 @@ Un ticket de "seguimiento" (como MOVO-94, abierto para no dejar una decisión de
 <li>
 <strong>Diagrama de estado de Shipment:</strong> MOVO-61 (creado en Sprint 1).
 </li>
-</ul><p>Miro — DER del proyecto: <a href="https://miro.com/app/board/uXjVH5E57JM=/?share_link_id=27118856226"><u>https://miro.com/app/board/uXjVH5E57JM=/?share_link_id=27118856226</u></a></p><h4>ADR correspondiente</h4><p>Cuatro decisiones técnicas de este sprint tienen (o deberían tener) un ADR asociado:</p><table>
+</ul><p>El DER vigente se mantiene en el repositorio (docs/movo_der.dbml) y se reproduce en el Tomo II.</p><h4>ADR correspondiente</h4><p>Cuatro decisiones técnicas de este sprint tienen (o deberían tener) un ADR asociado:</p><table>
 <colgroup>
 <col style="width: 9%"/>
 <col style="width: 29%"/>
@@ -674,7 +674,7 @@ Un ticket de "seguimiento" (como MOVO-94, abierto para no dejar una decisión de
 <li>
 <strong>MOVO-92:</strong> se quitaron de users.users las columnas last_kyc_verification_identity_id y last_kyc_verification_license_id, que habían quedado obsoletas frente al nuevo modelo de kyc_verification.
 </li>
-</ul><p>El comentario de cierre de MOVO-72 deja registrado el esquema exacto de kyc_verification implementado, y aclara explícitamente que se sigue el DER compartido por el equipo en Miro.</p><h4>Casos de prueba y resultados de ejecución</h4><p>El repositorio (rama develop) tiene 249 casos de test automatizados distribuidos en 37 archivos, cubriendo movo-shared, el movo-api-gateway y movo-svc-users (los tres servicios tocados este sprint). La tabla siguiente muestra una selección representativa por historia de usuario, con precondición, pasos y resultado esperado extraídos directamente del código de test real.</p><table>
+</ul><p>El comentario de cierre de MOVO-72 deja registrado el esquema exacto de kyc_verification implementado, y aclara que se sigue el DER compartido por el equipo.</p><h4>Casos de prueba y resultados de ejecución</h4><p>El repositorio (rama develop) tiene 249 casos de test automatizados distribuidos en 37 archivos, cubriendo movo-shared, el movo-api-gateway y movo-svc-users (los tres servicios tocados este sprint). La tabla siguiente muestra una selección representativa por historia de usuario, con precondición, pasos y resultado esperado extraídos directamente del código de test real.</p><table>
 <colgroup>
 <col style="width: 10%"/>
 <col style="width: 23%"/>

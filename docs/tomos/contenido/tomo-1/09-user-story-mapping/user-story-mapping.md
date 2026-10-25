@@ -1,16 +1,17 @@
-::: apaisada
-
 # User Story Map
 
 El User Story Map organiza las funcionalidades de Movo en función del recorrido real del usuario. El eje horizontal (*backbone*) representa las actividades de alto nivel que cualquier actor realiza en la plataforma. El eje vertical, dentro de cada actividad, muestra las tareas y las historias de usuario correspondientes, ordenadas de mayor a menor prioridad. El corte horizontal de MVP define las historias que deben estar implementadas para que la plataforma sea operacionalmente viable.
 
-## Backbone del usuario
-
-![User Story Map de Movo: ocho actividades del usuario, tareas por actividad y corte de MVP.](diagrama:usm)
-
 ## Recorrido del usuario
 
 El flujo central de Movo atraviesa las ocho actividades del backbone. Un usuario comienza incorporándose a la plataforma mediante registro y verificación KYC. Según su rol, publicará un envío (emisor) o declarará un viaje y buscará paquetes (transportista). La negociación ocurre cuando los transportistas ofertan sobre envíos publicados y el emisor elige al más conveniente. Una vez asignado, el transportista ejecuta el envío navegando la ruta optimizada, registrando fotos y ejecutando el Cryptographic Handshake en el retiro y en la entrega. Al completarse la entrega, el pago se libera automáticamente vía split payment y las partes califican la experiencia. Ante cualquier incidente, cualquiera de las partes puede abrir una disputa, que resuelve un administrador.
+
+
+::: apaisada
+
+## Backbone del usuario
+
+![User Story Map de Movo: ocho actividades del usuario, tareas por actividad y corte de MVP.](diagrama:usm)
 
 :::
 

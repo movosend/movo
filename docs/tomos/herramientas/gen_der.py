@@ -55,14 +55,14 @@ def main() -> None:
             out.append(f"| `{m.tabla}` | {esc(primera_frase(m.comentario)) or '–'} | {len(m.columnas)} |")
         out.append(f"\n: Tablas del esquema `{servicio}`.\n")
         out.append("### Tipos enumerados\n")
-        out.append("| Tipo | Valores |\n|--------------------|----------------------------------------------------------------|")
+        out.append("| Tipo | Valores |\n|------------------------------|----------------------------------------------------|")
         for nombre, vals in enums.items():
             out.append(f"| `{nombre}` | {', '.join(f'`{v}`' for v in vals)} |")
         out.append(f"\n: Enumerados del esquema `{servicio}`.\n")
         out.append("### Diccionario de datos\n")
         for m in modelos:
             out.append(f"#### `{m.tabla}`\n")
-            out.append("| Columna | Tipo | Restricciones | Descripción |\n|------------------|------------------|----------------|-----------------------------------------------|")
+            out.append("| Columna | Tipo | Restricciones | Descripción |\n|----------------------------------|--------------|-----------------|-------------------------------------|")
             for c in m.columnas:
                 r = []
                 if c.pk:

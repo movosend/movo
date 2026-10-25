@@ -133,6 +133,9 @@ def numerar(doc: dict, html: str, figuras: list, tablas: list) -> tuple[str, lis
     # Las tablas convertidas desde Word llegan con todas las filas dentro de <thead>: una cabecera más alta
     # que la página no se puede partir y se pierde. Solo la primera fila es cabecera; el resto pasa al cuerpo.
     for tabla in cuerpo.find_all("table"):
+        # Con anchos de columna declarados se fija el layout: el contenido largo se parte en vez de ensanchar la tabla.
+        if tabla.find("colgroup") and "caso" not in tabla.get("class", []):
+            tabla["class"] = tabla.get("class", []) + ["fija"]
         cab = tabla.find("thead")
         filas = cab.find_all("tr", recursive=False) if cab else []
         if len(filas) > 1:

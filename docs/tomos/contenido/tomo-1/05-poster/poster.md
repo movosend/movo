@@ -27,6 +27,11 @@ La cátedra solicitó, junto con el paper y el póster, una ficha con las herram
 
 El video demuestra el funcionamiento del producto: el recorrido de un envío desde su publicación hasta la entrega, con el seguimiento en tiempo real. Forma parte de la presentación del proyecto junto con el paper y el póster.
 
-::: pendiente
-Incluir en este apartado el enlace público del video y su código QR. El video final está en la carpeta *Paper y Poster* de Drive del equipo; falta confirmar qué versión se entrega y publicar un enlace de acceso libre (el de Drive es privado).
-:::
+<div class="video-enlace sin-corte">
+<img src="assets/poster/qr-video.svg" alt="Código QR del video del proyecto">
+<div>
+<span class="eyebrow">Video del proyecto</span>
+<p><a href="https://www.youtube.com/watch?v=3ZEdCTIBn3k">https://www.youtube.com/watch?v=3ZEdCTIBn3k</a></p>
+<p class="nota-qr">Escaneá el código con la cámara del teléfono para abrir el video.</p>
+</div>
+</div>
