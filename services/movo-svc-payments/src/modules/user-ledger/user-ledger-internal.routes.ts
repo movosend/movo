@@ -13,7 +13,7 @@ import {
 } from "./user-ledger.schema";
 
 /**
- * MOVO-309 (ADR-044): cuenta corriente, endpoints INTERNOS que llama `svc-shipments` (penalidades,
+ * MOVO-309 (DD-044): cuenta corriente, endpoints INTERNOS que llama `svc-shipments` (penalidades,
  * comisión en efectivo) y `svc-admin` (ajuste manual). Sin ruta en el gateway ni hook de
  * `x-user-id`: el caller es un servicio (ADR-010). Cuelgan de `/internal/payments/users`, el mismo
  * prefijo que la baja de tarjetas.

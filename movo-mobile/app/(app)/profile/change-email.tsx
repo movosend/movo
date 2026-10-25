@@ -31,7 +31,7 @@ import { friendlyErrorMessage } from "../../../src/lib/error-messages";
  * Cambio verificado de email (MOVO-135 AC5/AC6/AC7, backend MOVO-133/MOVO-139).
  *
  * **El código llega al email NUEVO**, no al teléfono: `EmailProvider` (Resend,
- * ADR-017) existe desde MOVO-139, así que verificarlo es la prueba de propiedad
+ * ADR-016) existe desde MOVO-139, así que verificarlo es la prueba de propiedad
  * directa de la dirección que se está por confirmar — ya no hace falta apoyarse en
  * el teléfono como canal indirecto (ver la limitación que dejó MOVO-133, cerrada acá).
  */

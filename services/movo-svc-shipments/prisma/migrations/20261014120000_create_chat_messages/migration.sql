@@ -1,4 +1,4 @@
--- MOVO-26 (ADR-040): mensajes del chat de un envío. Tabla nueva, no toca datos existentes.
+-- MOVO-26 (ADR-023): mensajes del chat de un envío. Tabla nueva, no toca datos existentes.
 -- Reversión:
 --   DROP TABLE "shipments"."chat_messages";
 

@@ -5,7 +5,7 @@ import { AdminShipmentDetail, AdminUserProfile, ApiError, ForceShipmentStatusReq
 import { buildApp } from "../src/app";
 import { createFakePaymentsClient, createFakeShipmentsClient, createFakeUsersClient } from "./fake-clients";
 
-/** MOVO-332 (ADR-055): cambio de estado desde el panel, step-up, conflicto de interés y bitácora. */
+/** MOVO-332 (DD-055): cambio de estado desde el panel, step-up, conflicto de interés y bitácora. */
 
 const REASON = "El transportista no responde hace dos días y el emisor pidió destrabarlo";
 const sender = { id: randomUUID(), name: "Ana Emisora" };

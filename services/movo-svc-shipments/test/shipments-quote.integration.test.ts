@@ -8,7 +8,7 @@ import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 import { createFakePricingClient } from "./fake-pricing-client";
 
 /**
- * MOVO-255 (ADR-028): cotización congelada del resumen del wizard, contra Postgres y
+ * MOVO-255 (DD-028): cotización congelada del resumen del wizard, contra Postgres y
  * Redis reales. El precio de pricing se cambia entre la cotización y la creación para
  * probar que el envío se crea con el precio cotizado y no con el nuevo (AC2).
  */

@@ -46,4 +46,4 @@ desde GitHub. Configurar las tres variables, Node 22 e inclusión de fuentes ext
 al Root Directory según `movo-admin/CLAUDE.md`. Luego verificar con una cuenta admin
 real login → OTP → inicio → vencimiento/refresh en dos pestañas → logout. No se marca
 este punto como verificado por una prueba local ni por la mera existencia del dominio.
-El ADR-043 es propuesto y queda pendiente de aceptación/publicación en Sprint 0.
+El DD-043 es propuesto y queda pendiente de aceptación/publicación en Sprint 0.

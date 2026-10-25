@@ -24,7 +24,7 @@ const ATTENTION_STATUSES = new Set(["refunded", "charged_back", "in_mediation"])
 const WAITING_STATUSES = new Set(["pending", "in_process", "authorized"]);
 
 /**
- * Cuenta cobradora: la propia cuenta de MP de Movo S.A., configurada con sus credenciales (ADR-048). En producción son las
+ * Cuenta cobradora: la propia cuenta de MP de Movo S.A., configurada con sus credenciales (DD-048). En producción son las
  * credenciales productivas del panel; en el sandbox, el token `TEST-` del OAuth de la cuenta de prueba (`scripts/collector-oauth.mjs`).
  */
 export interface BalanceCollector {
@@ -42,7 +42,7 @@ export interface BalancePaymentDeps {
    */
   payableBalance: (userId: string) => Promise<number>;
   mercadoPago: MercadoPagoClient;
-  /** Tarjeta guardada y customer del usuario en la cuenta de Movo S.A. (ADR-039): igual que al pagar un envío. */
+  /** Tarjeta guardada y customer del usuario en la cuenta de Movo S.A. (DD-039): igual que al pagar un envío. */
   savedCards: Pick<SavedCardRepository, "findLive" | "findCustomer">;
   /** `MP_COLLECTOR_*`: `undefined` si falta alguna de las tres variables. */
   collector: BalanceCollector | undefined;

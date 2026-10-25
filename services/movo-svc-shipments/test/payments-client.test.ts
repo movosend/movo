@@ -55,7 +55,7 @@ describe("PaymentsClient.getCarrierMpAccountStatus (MOVO-116)", () => {
   });
 });
 
-describe("PaymentsClient.getUserDebtStatus (MOVO-313, ADR-044)", () => {
+describe("PaymentsClient.getUserDebtStatus (MOVO-313, DD-044)", () => {
   const originalFetch = globalThis.fetch;
   const DAY_MS = 24 * 60 * 60 * 1000;
   const NOW = new Date("2026-10-30T12:00:00.000Z");

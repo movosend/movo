@@ -5,7 +5,7 @@ import type {
 import { httpClient } from "./http-client";
 
 /**
- * MOVO-275 (ADR-037): transferencia de receptor. Pedirla y listarla cuelgan del envío
+ * MOVO-275 (DD-037): transferencia de receptor. Pedirla y listarla cuelgan del envío
  * (`/shipments/:id/...`); aceptar, rechazar, cancelar y las invitaciones viven bajo
  * `/receiver-transfers`.
  */

@@ -6,7 +6,7 @@ import { estimateReceivedArs } from "./commission-config";
 import { formatSettlementAmount, formatSettlementDateTime } from "./settlement-format";
 
 /**
- * Qué muestra el sheet de cancelación del emisor (MOVO-308, ADR-047), según la cotización de
+ * Qué muestra el sheet de cancelación del emisor (MOVO-308, DD-047), según la cotización de
  * `GET /shipments/:id/cancellation-quote`. Referencia visual: "MOVO-308 Emisor cancela" de
  * Claude Design.
  *
@@ -75,7 +75,7 @@ export function cancellationQuoteView(
 }
 
 /**
- * Qué muestra el sheet de baja del transportista (MOVO-314, ADR-047), según
+ * Qué muestra el sheet de baja del transportista (MOVO-314, DD-047), según
  * `GET /shipments/:id/carrier-withdrawal-quote`. A diferencia del emisor no hay "ventana vencida
  * sin cargo": con la franja cerrada el transportista igual paga. Toda penalidad es deuda en su
  * cuenta corriente, no un cobro de tarjeta.

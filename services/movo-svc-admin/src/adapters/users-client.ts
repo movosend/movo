@@ -67,7 +67,7 @@ export interface UsersClient extends InternalClient {
    */
   getPartyCards(userIds: string[], ctx: RequestContext): Promise<PartyCard[]>;
 
-  // MOVO-332 (ADR-055): segundo factor por acción del cambio de estado de un envío.
+  // MOVO-332 (DD-055): segundo factor por acción del cambio de estado de un envío.
   /** `POST /internal/admin/step-up/request`: manda el código al email del admin, atado a (envío, destino). */
   requestStepUp(adminId: string, body: StepUpRequest, ctx: RequestContext): Promise<StepUpChallenge>;
   /** `POST /internal/admin/step-up/verify`: canjea el código por un `stepUpToken` de un solo uso. 401 `STEP_UP_INVALID`. */

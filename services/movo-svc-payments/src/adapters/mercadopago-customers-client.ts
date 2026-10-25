@@ -18,7 +18,7 @@ export interface MpSavedCard {
 }
 
 /**
- * MOVO-100 (ADR-039): única puerta hacia Customers & Cards de MP, siempre con el token de
+ * MOVO-100 (DD-039): única puerta hacia Customers & Cards de MP, siempre con el token de
  * la cuenta de MOVO S.A. (no el de un transportista): la tarjeta del emisor vive en un
  * customer de Movo y de ahí se deriva un token por transportista al pagar.
  */

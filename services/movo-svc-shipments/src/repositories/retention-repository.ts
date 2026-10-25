@@ -15,7 +15,7 @@ export interface TripPurgeCandidate {
   carrierId: string;
 }
 
-/** Estados de un viaje que ya no van a cambiar (ADR-029). */
+/** Estados de un viaje que ya no van a cambiar (DD-029). */
 const TRIP_CLOSED_STATUSES: TripStatus[] = ["cancelled", "expired", "completed"];
 
 export interface RetentionRepository {

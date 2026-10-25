@@ -8,13 +8,13 @@ import {
 } from "@movo/shared";
 import { canTransition } from "../src/domain/shipment-state-machine";
 
-/** MOVO-331 (ADR-055): la matriz de `@movo/shared` contra la máquina de estados del servicio. */
+/** MOVO-331 (DD-055): la matriz de `@movo/shared` contra la máquina de estados del servicio. */
 const ALL = Object.values(ShipmentStatus);
 const cells = ALL.flatMap((from) =>
   listForcedTransitionTargets(from).map((to) => ({ from, to, cell: getForcedTransition(from, to)! })),
 );
 
-describe("FORCED_TRANSITION_MATRIX (ADR-055)", () => {
+describe("FORCED_TRANSITION_MATRIX (DD-055)", () => {
   it("tiene una fila por cada estado", () => {
     expect(Object.keys(FORCED_TRANSITION_MATRIX).sort()).toEqual([...ALL].sort());
   });

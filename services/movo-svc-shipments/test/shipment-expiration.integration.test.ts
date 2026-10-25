@@ -146,7 +146,7 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
       expect(events.at(-1)?.reason).toContain("El retiro no se realizó");
 
       expect(await tripRepo.cancelOverdueDeclared(new Date(), 100)).toEqual([trip.id]);
-      // ADR-029 (MOVO-260): la baja automática de un viaje es `expired`, no `cancelled`.
+      // DD-029 (MOVO-260): la baja automática de un viaje es `expired`, no `cancelled`.
       expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.EXPIRED);
     });
 

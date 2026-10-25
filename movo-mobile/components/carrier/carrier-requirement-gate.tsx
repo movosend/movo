@@ -26,7 +26,7 @@ export interface CarrierRequirementGateProps {
  * de pantalla con borde superior, no un botón para poner en medio del contenido.
  *
  * Es solo UX de entrada: la validación autoritativa sigue siendo del backend
- * (ADR-036, MOVO-116).
+ * (DD-036, MOVO-116).
  */
 export function CarrierRequirementGate({
   icon: Icon,

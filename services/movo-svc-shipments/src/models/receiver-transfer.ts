@@ -1,7 +1,7 @@
 import { ReceiverTransferCancelReason, ReceiverTransferStatus } from "@movo/shared";
 
 /**
- * MOVO-275 (ADR-038): solicitud de transferencia de receptor. Mismo shape que el wire
+ * MOVO-275 (DD-038): solicitud de transferencia de receptor. Mismo shape que el wire
  * contract de `@movo/shared` (`ReceiverTransferRequest`) pero con `Date` en vez de
  * strings -- la serialización la hace el DTO de la ruta.
  */

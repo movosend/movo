@@ -1,16 +1,16 @@
-# ADR-042 — Viajes recurrentes: recurrencia como atributo del `Trip` con generación de la siguiente ocurrencia
+# DD-042 — Viajes recurrentes: recurrencia como atributo del `Trip` con generación de la siguiente ocurrencia
 
-**Estado:** aceptado (MOVO-264, spike). Borrador para pegar en la sección de ADRs de
-`[Movo] 004 - Sprint 0.md` en Drive. Implementación en MOVO-265 (`svc-shipments`) y
-MOVO-266 (`movo-mobile`). El ticket reservaba ADR-029 (lo tomó MOVO-260) y después
-ADR-041 (lo tomó MOVO-276), así que queda 042.
+**Estado:** aceptado (MOVO-264, spike). Borrador para pegar en
+`[Movo] 011-Registro de Decisiones de Diseño` en Drive. Implementación en MOVO-265 (`svc-shipments`) y
+MOVO-266 (`movo-mobile`). El ticket reservaba DD-029 (lo tomó MOVO-260) y después
+DD-041 (lo tomó MOVO-276), así que queda 042.
 
 ## Contexto
 
 El PO pide viajes recurrentes ("todos los viernes viajo a Villa María"). Hoy un `Trip`
 es un viaje con una fecha concreta, y varias piezas dependen de eso: las ofertas
 aceptadas, el filtro de matching por día de `departureAt` (MOVO-163), el barrido de
-vencimiento (MOVO-238/ADR-032), el cierre a `completed` y el índice de un solo viaje
+vencimiento (MOVO-238/DD-032), el cierre a `completed` y el índice de un solo viaje
 `active` por transportista. Por eso un `Trip` no puede representar "todos los
 viernes" en una sola fila.
 
@@ -54,7 +54,7 @@ alcance del TFG no compensa.
 5. **Fecha de la siguiente ocurrencia.** Es el próximo día de `recurrenceWeekdays`
    **estrictamente posterior a `max(departureAt, now)`**, a la misma hora de pared,
    calculado en `America/Argentina/Cordoba` con el helper de
-   `@movo/shared/utils/argentina-date` (el mismo huso que `canStartTripOn`, ADR-034).
+   `@movo/shared/utils/argentina-date` (el mismo huso que `canStartTripOn`, DD-034).
    Nunca se suman 7×24 h en UTC. Tomar el máximo con `now` evita una cascada de trips
    que nacen vencidos si el barrido estuvo caído varios días. Si la fecha supera
    `recurrenceUntil`, no se genera nada y la serie termina sola. El trip generado copia
@@ -94,7 +94,7 @@ alcance del TFG no compensa.
      racha.
    - **No se puede generar:** la cuenta está `banned`/`deleted` o tiene
      `bannedUntil > now` (`svc-users`), o el transportista no cumple los requisitos de
-     ADR-036 (licencia aprobada y cuenta de MP, `resolveCarrierEligibility`). Generar es
+     DD-036 (licencia aprobada y cuenta de MP, `resolveCarrierEligibility`). Generar es
      declarar un viaje en su nombre, así que se le exige lo mismo que a `POST /trips`.
      Como el único disparador es el `departureAt` del vigente, saltear una ocurrencia
      equivale a cortar la serie, así que se corta de forma explícita. Hoy
@@ -116,7 +116,7 @@ alcance del TFG no compensa.
     generadas por `generatedFromTripId`.
 11. **Solapamiento: sin control.** Verificado en `develop` (14/10): `createTrip` no
     valida trips superpuestos de un mismo transportista. Solo valida los requisitos de
-    ADR-036, que `departureAt` sea futura y que origen y destino estén a 100 m o más. La
+    DD-036, que `departureAt` sea futura y que origen y destino estén a 100 m o más. La
     generación tampoco lo controla. Si algún día se agrega a `POST /trips`, la
     generación tiene que reusar esa misma validación.
 12. **Auditoría:** mismo criterio que MOVO-238. Log estructurado por generación y por
@@ -143,4 +143,4 @@ alcance del TFG no compensa.
 ## Referencias
 
 MOVO-264, MOVO-265, MOVO-266, MOVO-259, MOVO-163, MOVO-234, MOVO-236, MOVO-238, MOVO-239,
-MOVO-260 (ADR-029), ADR-032 (MOVO-258), ADR-034 (MOVO-277), ADR-036 (MOVO-116).
+MOVO-260 (DD-029), DD-032 (MOVO-258), DD-034 (MOVO-277), DD-036 (MOVO-116).

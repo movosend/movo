@@ -1,9 +1,9 @@
-# ADR-055 — Cambio forzado de estado de un envío desde el panel
+# DD-055 — Cambio forzado de estado de un envío desde el panel
 
-**Estado:** propuesto (MOVO-330 + MOVO-331, sub-issues de MOVO-329). Borrador para pegar en la
-sección de ADRs de `[Movo] 004 - Sprint 0.md` en Drive. Pendiente de la revisión de dos
+**Estado:** propuesto (MOVO-330 + MOVO-331, sub-issues de MOVO-329). Borrador para pegar en
+`[Movo] 011-Registro de Decisiones de Diseño` en Drive. Pendiente de la revisión de dos
 integrantes y de coordinar con MOVO-34, porque ambos tocan la salida de `disputed`. Complementa
-ADR-021 (los 11 estados), ADR-035 (cobro), ADR-044 (cuenta corriente), ADR-045, ADR-047, ADR-054 y
+DD-021 (los 11 estados), ADR-022 (cobro), DD-044 (cuenta corriente), DD-045, 047, 054 y
 la decisión 6 de MOVO-286 (toda escritura del panel pasa por `svc-admin`) sin modificarlos.
 
 ## Contexto
@@ -47,12 +47,12 @@ corregirlo, y es la de más riesgo: mueve plata, custodia y reputación.
 
 - `disputed → *`: la salida es la resolución de la disputa (MOVO-34), que decide el estado final y
   mueve la plata. **Entrar a `disputed` tampoco se fuerza**: una disputa nace con su expediente
-  (`shipments.disputes`, ADR-054) y lo abre una parte o un barrido.
+  (`shipments.disputes`, DD-054) y lo abre una parte o un barrido.
 - `completed → *`: el pago ya se repartió; se corrige desde Pagos. La única salida del grafo
   (`completed → disputed`) es de las partes.
 - `cancelled → *`: terminal por diseño (MOVO-79). No se reabre.
 - `in_transit → *` y `* → in_transit` / `* → delivered`: el retiro y la entrega se confirman con el
-  handshake criptográfico (ADR-020). Forzarlos sin esa evidencia rompe la garantía de custodia, y la
+  handshake criptográfico (ADR-018). Forzarlos sin esa evidencia rompe la garantía de custodia, y la
   captura del pago depende de ella. Si hace falta, será una decisión propia con su evidencia.
 - `assigned → assigned_unfunded`: refleja un hecho de Mercado Pago (hold vencido o cancelado), que
   entra por el webhook; el admin no lo declara.
@@ -72,7 +72,7 @@ este servicio:
 
 ### Efectos fijos de todo cambio forzado
 
-- **No penaliza a nadie ni genera deuda** (ADR-047, ADR-044): la cancelación y la baja que ejecuta un
+- **No penaliza a nadie ni genera deuda** (DD-047, 044): la cancelación y la baja que ejecuta un
   admin condonan la penalidad.
 - **No toca la reputación.** `disputed` es lo único que saca un envío de ella, y no se fuerza.
 - **Un hecho externo se verifica, no se confía en el motivo del admin.** Para `assigned`, el hold

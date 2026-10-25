@@ -2,7 +2,7 @@
 
 Implementación real de [MOVO-201](https://linear.app/movosend/issue/MOVO-201) sobre la
 tecnología que decidió el spike [MOVO-200](https://linear.app/movosend/issue/MOVO-200)
-(ver **ADR-022**, `CLAUDE.md` raíz). Reemplaza la PoC de MOVO-200 (antes
+(ver **ADR-019**, `CLAUDE.md` raíz). Reemplaza la PoC de MOVO-200 (antes
 `docs/tracking-poc/`) — esta carpeta documenta el canal tal como corre hoy, no un
 experimento.
 
@@ -29,7 +29,7 @@ detrás del proxy de `movo-api-gateway`, que:
    ingesta de posiciones (MOVO-202) y futuros canales (chat, MOVO-26) lo reusen sin
    rediseñarlo.
 
-### Contrato de mensajes y códigos de cierre (MOVO-250, ADR-024)
+### Contrato de mensajes y códigos de cierre (MOVO-250, ADR-020)
 
 El canal es de RECEPCIÓN: el transportista reporta por HTTP (`POST /shipments/:id/positions`
 o el lote `POST /shipments/positions`) y el server difunde por acá.

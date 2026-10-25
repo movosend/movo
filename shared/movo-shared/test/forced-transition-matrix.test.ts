@@ -7,7 +7,7 @@ import {
   ShipmentStatus,
 } from "../src";
 
-describe("forcedTransitionFriction (ADR-055)", () => {
+describe("forcedTransitionFriction (DD-055)", () => {
   it("riesgo medio manual: sin código tipeado ni segundo factor", () => {
     const cell = getForcedTransition(ShipmentStatus.PUBLISHED, ShipmentStatus.CANCELLED)!;
     expect(forcedTransitionFriction(cell)).toEqual({ typedCode: false, stepUp: false });

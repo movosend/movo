@@ -39,7 +39,7 @@ export interface CreateReportInput {
   photoKeys: string[];
 }
 
-/** MOVO-175 (ADR-026): bloqueos y reportes entre usuarios. */
+/** MOVO-175 (DD-026): bloqueos y reportes entre usuarios. */
 export interface ModerationRepository {
   /** Idempotente: bloquear dos veces al mismo usuario no crea una segunda fila. */
   block(blockerId: string, blockedId: string): Promise<void>;
@@ -51,7 +51,7 @@ export interface ModerationRepository {
   listBlockedByUser(blockerId: string): Promise<BlockedUserSummary[]>;
   /**
    * Unión de las dos direcciones (a quién bloqueó `userId` + quién bloqueó a
-   * `userId`) -- acá se resuelve la simetría del bloqueo (ADR-026). Es lo que
+   * `userId`) -- acá se resuelve la simetría del bloqueo (DD-026). Es lo que
    * consumen la búsqueda de usuarios y `svc-shipments`.
    */
   listRelatedUserIds(userId: string): Promise<string[]>;

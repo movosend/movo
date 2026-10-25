@@ -314,7 +314,7 @@ const trackingResponse = {
       },
     },
     traceTruncated: { type: "boolean", description: "Pasó el tope y se submuestreó, con el primer y el último punto." },
-    traceAvailable: { type: "boolean", description: "`false` sin puntos: sin retiro o purgada por retención (ADR-023)." },
+    traceAvailable: { type: "boolean", description: "`false` sin puntos: sin retiro o purgada por retención (DD-023)." },
     lastPosition: {
       type: ["object", "null"],
       required: ["lat", "lng", "accuracyM", "capturedAt"],
@@ -328,7 +328,7 @@ const trackingResponse = {
     },
     lastPingAt: { type: ["string", "null"], description: "Hora del servidor al recibir el último ping." },
     signalLost: { type: "boolean" },
-    delayed: { type: "boolean", description: "En camino con la anomalía de `in_transit` marcada (ADR-045)." },
+    delayed: { type: "boolean", description: "En camino con la anomalía de `in_transit` marcada (DD-045)." },
     metrics: {
       type: ["object", "null"],
       required: ["avgSpeedKmh5m", "remainingMeters", "progressPct", "etaAt"],
@@ -376,7 +376,7 @@ export const shipmentsSchemas = {
   },
   idParam: { type: "object", required: ["id"], properties: { id: { type: "string", format: "uuid" } } },
 
-  // MOVO-332: cambio de estado desde el panel (ADR-055). El largo mínimo del motivo y el código tipeado se
+  // MOVO-332: cambio de estado desde el panel (DD-055). El largo mínimo del motivo y el código tipeado se
   // validan dentro de la acción, no acá: así un rechazo por forma también queda en la bitácora.
   statusChangeBody: {
     type: "object",

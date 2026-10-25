@@ -36,7 +36,7 @@ import { attachmentInvalid, SupportAttachmentsService } from "./support-attachme
 type SupportLogger = { warn: (obj: unknown, msg?: string) => void };
 
 /**
- * Ventana de avisos por conversación (ADR-046, mismo criterio que el chat del envío): la primera respuesta del
+ * Ventana de avisos por conversación (DD-046, mismo criterio que el chat del envío): la primera respuesta del
  * equipo avisa enseguida con su texto; las que llegan seguidas dentro de la ventana se juntan y al cerrarse sale un
  * único resumen si todavía quedan sin leer.
  */
@@ -444,7 +444,7 @@ export function createSupportService(deps: SupportServiceDeps) {
     /**
      * Lo llama el lado del agente (MOVO-322) después de guardar un mensaje: lo difunde al usuario por WebSocket (las
      * notas se descartan) y, si es una respuesta de un agente y el usuario no tiene la conversación abierta, manda la
-     * push (ADR-046). Un `system` se difunde pero nunca avisa por push.
+     * push (DD-046). Un `system` se difunde pero nunca avisa por push.
      */
     async publishStaffMessage(conversation: SupportConversationRecord, record: SupportMessageRecord): Promise<void> {
       const message = await emitMessage(conversation, record);

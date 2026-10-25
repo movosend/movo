@@ -189,7 +189,7 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
 });
 
 /**
- * MOVO-282 (ADR-039), DoD: hold con una TARJETA GUARDADA contra el sandbox real. La tarjeta vive
+ * MOVO-282 (DD-039), DoD: hold con una TARJETA GUARDADA contra el sandbox real. La tarjeta vive
  * en un customer de la cuenta de Movo S.A. (MOVO-100); el mobile pide a MP un token con `card_id` +
  * CVV y la `public_key` del Vendedor, y el hold se crea con `payer: { type: "customer", id }`.
  *

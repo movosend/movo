@@ -1,7 +1,7 @@
 import { toArgentinaCalendarDateString } from "../utils/argentina-date";
 
 /**
- * MOVO-265 (ADR-042): convención de días de `Trip.recurrenceWeekdays`. `0 = domingo …
+ * MOVO-265 (DD-042): convención de días de `Trip.recurrenceWeekdays`. `0 = domingo …
  * 6 = sábado`, igual que `Date#getDay()` de JS y `EXTRACT(DOW)` de Postgres. El mobile
  * ordena los chips arrancando en lunes, pero el valor de cada chip sale de esta tabla,
  * nunca de su posición.
@@ -16,7 +16,7 @@ export const RECURRENCE_WEEKDAY = {
   SATURDAY: 6,
 } as const;
 
-/** ADR-042 (punto 9): series activas (trip vigente con `recurrenceWeekdays` no nulo) por transportista. */
+/** DD-042 (punto 9): series activas (trip vigente con `recurrenceWeekdays` no nulo) por transportista. */
 export const MAX_ACTIVE_RECURRING_SERIES = 3;
 
 // Mismo offset fijo que `utils/argentina-date.ts` (Argentina no tiene DST).
@@ -39,7 +39,7 @@ export function formatArgentinaShortDay(instant: Date | string): string {
 }
 
 /**
- * MOVO-265 (ADR-042, punto 5): fecha de la ocurrencia que sigue a un trip recurrente.
+ * MOVO-265 (DD-042, punto 5): fecha de la ocurrencia que sigue a un trip recurrente.
  * Es el próximo día de `weekdays` ESTRICTAMENTE posterior a `max(departureAt, now)`, a la
  * misma hora de pared que `departureAt` en huso argentino. Tomar el máximo con `now` evita
  * generar ocurrencias que nacen vencidas si el barrido estuvo caído varios días.

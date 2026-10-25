@@ -38,7 +38,7 @@ import {
 } from "../../../../src/dev/pay-demo-fixtures";
 
 /**
- * Pago del envío con una tarjeta guardada + código de seguridad (MOVO-269, ADR-039), fiel al
+ * Pago del envío con una tarjeta guardada + código de seguridad (MOVO-269, DD-039), fiel al
  * prototipo de Claude Design "MOVO-269 Pago con tarjeta v3". Es una **reserva de fondos, no un
  * cobro**: el monto se retiene y se cobra recién cuando se entrega el paquete.
  *

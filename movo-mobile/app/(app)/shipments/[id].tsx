@@ -246,7 +246,7 @@ export default function ShipmentDetailScreen() {
   const activeUserId = currentUser?.userId ?? "";
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
-  // MOVO-275 (ADR-037): le pasó la recepción a otra persona y ve el envío en solo
+  // MOVO-275 (DD-037): le pasó la recepción a otra persona y ve el envío en solo
   // lectura. No es ninguno de los tres roles, así que no tiene acciones ni CTA; como el
   // receptor, no ve el punto exacto de retiro ni el precio.
   const isFormerReceiver = shipment?.receiverTransfer?.viewerIsFormerReceiver === true;
@@ -370,7 +370,7 @@ export default function ShipmentDetailScreen() {
 
   // MOVO-284: el chat existe desde que hay transportista (y queda legible tras la entrega); lo ven las tres partes.
   const chatBase = shipment !== undefined ? chatAvailability(shipment.status, shipment.carrierId) : null;
-  // El receptor original (ADR-038) lee la conversación pero ya no escribe, aunque el envío siga en curso.
+  // El receptor original (DD-038) lee la conversación pero ya no escribe, aunque el envío siga en curso.
   const chatAccess = chatBase && isFormerReceiver ? "read_only" : chatBase;
 
   // Misma condición que decide "Precio pactado" en la card de precio: con transportista
@@ -655,7 +655,7 @@ export default function ShipmentDetailScreen() {
               ) : null}
 
               {isTransitDelayed(shipment) ? (
-                // MOVO-278 (ADR-045): mismo estilo que el banner de plazo vencido.
+                // MOVO-278 (DD-045): mismo estilo que el banner de plazo vencido.
                 <View
                   testID="shipment-detail-delayed-banner"
                   className="flex-row items-center gap-2 rounded-xl border border-warning-200 bg-warning-100 px-3.5 py-3"

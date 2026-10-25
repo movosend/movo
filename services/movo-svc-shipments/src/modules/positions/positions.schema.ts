@@ -20,7 +20,7 @@ const reportPositionBody = {
     accuracyM: { type: "number", minimum: 0 },
     capturedAt: { type: "string", format: "date-time" },
     // MOVO-270: flag `mocked` de expo-location (solo Android, opcional). Una posición simulada se
-    // acepta y difunde, pero nunca cuenta como evidencia del retiro (ADR-052).
+    // acepta y difunde, pero nunca cuenta como evidencia del retiro (DD-052).
     mocked: { type: "boolean" },
   },
   additionalProperties: false,

@@ -12,7 +12,7 @@ import { haversineKm } from "./geo";
 import { pickupWindowEndInstant, pickupWindowInstant } from "./pickup-window";
 
 /**
- * MOVO-270 (ADR-052): cómo cuenta una posición del transportista como evidencia del retiro de
+ * MOVO-270 (DD-052): cómo cuenta una posición del transportista como evidencia del retiro de
  * un envío `assigned`:
  * - `arrival`: dentro del radio de llegada (restando la precisión informada);
  * - `far`: claramente en otro lado (más de `ABSENCE_MIN_DISTANCE_M`, también restando la precisión);

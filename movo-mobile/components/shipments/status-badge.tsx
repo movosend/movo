@@ -14,7 +14,7 @@ const TONE_BADGE_CLASS: Record<"success" | "warning" | "danger" | "info" | "neut
 export interface ShipmentStatusBadgeProps {
   status: ShipmentStatus;
   isReceiver?: boolean;
-  /** MOVO-278 (ADR-045): `in_transit` demorado -> "Demorado" en tono warning. */
+  /** MOVO-278 (DD-045): `in_transit` demorado -> "Demorado" en tono warning. */
   delayed?: boolean;
   /** Header del detalle: pill más chica y "Por confirmar" en vez de "Esperando al
    * receptor"/"Requiere tu confirmación", que empujaban el título a dos líneas. Para el

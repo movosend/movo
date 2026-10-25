@@ -333,7 +333,7 @@ export function createHoldService(deps: HoldServiceDeps) {
   }
 
   /**
-   * Quién figura como pagador del pago (MOVO-282, ADR-039). Con `savedCardId` el pagador es el
+   * Quién figura como pagador del pago (MOVO-282, DD-039). Con `savedCardId` el pagador es el
    * customer de la tarjeta guardada en la cuenta de Movo (con `payer: { email }` MP responde 2002
    * "Customer not found"); sin él, el email del emisor de siempre. La tarjeta tiene que ser de
    * `payerUserId` y estar viva: ante cualquier otra cosa se responde el mismo 404, sin revelar si

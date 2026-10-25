@@ -32,7 +32,7 @@ export function hasShipmentAccess(shipment: Shipment, callerId: string, callerRo
 }
 
 /**
- * MOVO-275 (ADR-038): quien le pasó la recepción a otra persona sigue viendo el envío
+ * MOVO-275 (DD-038): quien le pasó la recepción a otra persona sigue viendo el envío
  * (detalle, línea de tiempo, fotos y tracking) en solo lectura. Solo da acceso de
  * lectura: los asserts de acción (`assertIsReceiver`, etc.) miran el `receiverId` vivo.
  * Requiere que la lectura haya cargado `formerReceiverId` (`findById`/`listByUser`).

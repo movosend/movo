@@ -78,7 +78,7 @@ recibe $459. Un fee alto no cambia el reparto: se descuenta entero y el MP fee s
 
 ### F. Pago directo a Movo con tarjeta (`POST /v1/payments`)
 
-El token `TEST-` de Movo S.A. se obtiene con `client_credentials` + `test_token=true` (ADR-039). Pero el
+El token `TEST-` de Movo S.A. se obtiene con `client_credentials` + `test_token=true` (DD-039). Pero el
 `card_token` hay que generarlo con una `public_key` de Movo S.A.: con la de un Vendedor, el pago responde
 `403` ("At least one policy returned UNAUTHORIZED"). La `public_key` `TEST-` de Movo sigue sin identificarse
 (`MOVO-283`, punto 2), así que este camino queda bloqueado.
@@ -90,14 +90,14 @@ usuario de Movo S.A. y devuelve `init_point` y `sandbox_init_point`. El test lo 
 necesita las credenciales de la app. El pago en el navegador, que es lo que acreditaría la plata en la
 cuenta de Movo, no se completó ni se automatiza.
 
-No contradice ADR-035, que descartó Checkout Pro **para el hold con split** (no permite reservar sin cobrar
+No contradice ADR-022, que descartó Checkout Pro **para el hold con split** (no permite reservar sin cobrar
 con split por transportista). Acá no hay hold ni split: es un cobro directo de Movo, sin transportista.
 
 ## Qué cambia en las issues
 
 Se aplica la fila "cobra la comisión entera" del plan decidido en `MOVO-305`: **se acepta y se documenta
-como limitación de MP en el ADR de la penalidad de cancelación (`MOVO-226`)**: es el ADR-047
-(`docs/payments/adr-047-penalidad-de-cancelacion.md`, MOVO-307). Además:
+como limitación de MP en el ADR de la penalidad de cancelación (`MOVO-226`)**: es el DD-047
+(`docs/payments/dd-047-penalidad-de-cancelacion.md`, MOVO-307). Además:
 
 1. **`MOVO-306`/`MOVO-307`: la captura parcial tiene que ser mayor que el `application_fee` del hold.** Con
    la penalidad del 25 % y la comisión de Movo (~13,04 % del bruto) siempre se cumple, pero deja de cumplirse si

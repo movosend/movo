@@ -306,7 +306,7 @@ export function useCancelShipment() {
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "list"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
       queryClient.setQueryData(["shipments", "detail", id], data);
-      // Una cancelación puede generar penalidad (ADR-047): el saldo cambió.
+      // Una cancelación puede generar penalidad (DD-047): el saldo cambió.
       queryClient.invalidateQueries({ queryKey: BALANCE_QUERY_KEY });
     },
   });
@@ -343,7 +343,7 @@ export function invalidateAfterCarrierWithdrawal(queryClient: QueryClient, shipm
   queryClient.invalidateQueries({ queryKey: ["offers", "mine"] });
   // El transportista pierde el acceso al envío: se descarta el detalle en vez de refrescarlo (daría 403).
   queryClient.removeQueries({ queryKey: ["shipments", "detail", shipmentId] });
-  // La penalidad queda como deuda en la cuenta corriente (ADR-044/047): el saldo cambió.
+  // La penalidad queda como deuda en la cuenta corriente (DD-044/047): el saldo cambió.
   queryClient.invalidateQueries({ queryKey: BALANCE_QUERY_KEY });
 }
 

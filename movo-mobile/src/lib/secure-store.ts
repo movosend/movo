@@ -67,7 +67,7 @@ export const SECURE_STORE_KEYS = {
    * dependencia nueva tipo AsyncStorage. */
   carrierSeenTripIds: "movo.carrierSeenTripIds",
   /** Clave privada ECDSA P-256 del dispositivo para el handshake criptográfico
-   * (MOVO-195, ADR-020) — generada una sola vez por `src/crypto/keypair.ts`, nunca en
+   * (MOVO-195, ADR-018) — generada una sola vez por `src/crypto/keypair.ts`, nunca en
    * `AsyncStorage` ni en estado de React (AC2). Mismo criterio que `pushDeviceId`:
    * identifica al DISPOSITIVO, no a la sesión — **sobrevive** a `clearSession()`/
    * `logout()`, así que si otro usuario loguea en el mismo teléfono reusa la misma

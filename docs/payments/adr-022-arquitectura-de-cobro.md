@@ -1,11 +1,11 @@
-# ADR-035 — Arquitectura de cobro: Payments API + OAuth Connect + `application_fee`
+# ADR-022 — Arquitectura de cobro: Payments API + OAuth Connect + `application_fee`
 
 **Estado:** aceptado (MOVO-209). Borrador para pegar en la sección de ADRs de
 `[Movo] 004 - Sprint 0.md` en Drive.
 
-> Numeración: el ticket MOVO-209 lo llamaba ADR-030, pero ese número ya lo ocupa el
+> Numeración: el ticket MOVO-209 lo llamaba DD-030, pero ese número ya lo ocupa el
 > juego de precios del sitio institucional, y el 034 lo tomó MOVO-277 (inicio de viaje,
-> PR #222) antes de que este se mergeara. Es el ADR-035.
+> PR #222) antes de que este se mergeara. Es el ADR-022.
 
 ## Contexto
 
@@ -56,9 +56,9 @@ API de Mercado Pago lo permiten (`docs/payments/mercadopago-spike/SOLUCION-FINAL
   hay `public_key` ni token para cobrar (`CARRIER_MP_ACCOUNT_NOT_LINKED`). Los tokens
   vencen a los 180 días; renovarlos es MOVO-243.
 - **El emisor tiene que estar presente** al crear el hold: la reserva de un retiro lejano
-  se difiere hasta que el emisor confirma el pago cerca de la fecha (ADR-021, MOVO-210).
+  se difiere hasta que el emisor confirma el pago cerca de la fecha (DD-021, MOVO-210).
 - **El plazo del hold lo decide Mercado Pago** y su documentación se contradice (5 o 7
-  días). Se parametriza (`MP_HOLD_VALIDITY_DAYS`); MOVO-215 fijó 5 días (ADR-050).
+  días). Se parametriza (`MP_HOLD_VALIDITY_DAYS`); MOVO-215 fijó 5 días (DD-050).
 - **Dos requests casi simultáneos o una respuesta perdida** se resuelven por idempotencia
   y por un índice único parcial, no con locks distribuidos. Un intento sin respuesta de MP
   (`creating`) se reintenta con la misma key si el cuerpo coincide; si cambió, se busca el
@@ -91,5 +91,5 @@ API de Mercado Pago lo permiten (`docs/payments/mercadopago-spike/SOLUCION-FINAL
 
 - `docs/payments/flujo-de-pagos.md`
 - `docs/payments/mercadopago-spike/SOLUCION-FINAL.md`
-- ADR-004 (JWT/tokens), ADR-010 (confianza perimetral), ADR-019, ADR-021
+- ADR-004 (JWT/tokens), ADR-010 (confianza perimetral), ADR-017, DD-021
 - Tickets: MOVO-49, MOVO-111, MOVO-209, MOVO-210, MOVO-212, MOVO-215, MOVO-268

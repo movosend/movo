@@ -1,9 +1,9 @@
-# ADR-041 — Pricing por peso facturable con distancia achatada
+# DD-041 — Pricing por peso facturable con distancia achatada
 
-**Estado:** aceptado (MOVO-276). Borrador para pegar en la sección de ADRs de
-`[Movo] 004 - Sprint 0.md` en Drive. Reemplaza la parte de **cálculo** de ADR-025
+**Estado:** aceptado (MOVO-276). Borrador para pegar en
+`[Movo] 011-Registro de Decisiones de Diseño` en Drive. Reemplaza la parte de **cálculo** de ADR-021
 (`demand_fuel_routes_v1`); combustible, recargo por demanda, fallback a Haversine × 1,3 y
-contrato de `/quote` siguen como los dejó ADR-025.
+contrato de `/quote` siguen como los dejó ADR-021.
 
 ## Contexto
 
@@ -40,7 +40,7 @@ números no sean públicos: **peso facturable** (máximo entre real y volumétri
    `svc-pricing-logistics`). `svc-shipments` los valida al cotizar y al crear el envío
    (422 `PACKAGE_LIMITS_EXCEEDED` con `details.violations`) antes de cualquier I/O, y
    `/quote` responde 422 con el mismo criterio como defensa.
-7. **Coeficientes en litros de nafta** (como en ADR-025), calibrados con una grilla de
+7. **Coeficientes en litros de nafta** (como en ADR-021), calibrados con una grilla de
    referencia: para `standard_package` de hasta 10 kg facturables en rutas de 200 km o
    más, el precio cae **entre 0,6× y 1,0× del Correo clásico a domicilio**. La grilla
    (`docs/pricing/grilla-referencia.md`, `tests/pricing_grid.py`) queda como golden tests
@@ -62,7 +62,7 @@ números no sean públicos: **peso facturable** (máximo entre real y volumétri
 
 - **Desvío marginal del transportista como base** (cobrar lo que le cuesta desviarse):
   exigiría un precio por transportista, distinto del que vio el emisor, y chocaría con la
-  cotización congelada de ADR-028. Descartada: el desvío se informa al transportista y él
+  cotización congelada de DD-028. Descartada: el desvío se informa al transportista y él
   lo traduce en su oferta.
 
 **Frágil: categoría o atributo**
@@ -101,5 +101,5 @@ números no sean públicos: **peso facturable** (máximo entre real y volumétri
   dos (y el mobile replica 150 cm por lado y 300 cm de suma para el aviso en línea; el 422
   del backend sigue siendo la fuente de verdad).
 
-**Referencias**: MOVO-276, MOVO-138/ADR-025, MOVO-216 (spike), MOVO-219 (desvío marginal),
-MOVO-255/ADR-028 (cotización congelada), MOVO-82/ADR-018.
+**Referencias**: MOVO-276, MOVO-138/ADR-021, MOVO-216 (spike), MOVO-219 (desvío marginal),
+MOVO-255/DD-028 (cotización congelada), MOVO-82/DD-018.

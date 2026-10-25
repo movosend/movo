@@ -1,11 +1,11 @@
 import { ApiError, argentinaWeekday, toArgentinaCalendarDateString } from "@movo/shared";
 import { TripStatus, UpdateTripInput } from "../models/trip";
 
-/** ADR-042 (punto 8): ocurrencias seguidas vencidas que cortan la serie ("serie fantasma"). */
+/** DD-042 (punto 8): ocurrencias seguidas vencidas que cortan la serie ("serie fantasma"). */
 export const PHANTOM_SERIES_STREAK = 3;
 
 /**
- * MOVO-265 (ADR-042, punto 6): reglas de una recurrencia prendida. El schema de AJV ya
+ * MOVO-265 (DD-042, punto 6): reglas de una recurrencia prendida. El schema de AJV ya
  * rechaza días repetidos o fuera de rango; se repiten acá para que la regla no dependa de
  * por dónde entre el dato. 400 `VALIDATION_FAILED`, como el resto de las validaciones de
  * negocio del servicio.
@@ -31,7 +31,7 @@ export function validateRecurrence(params: { weekdays: number[]; until: string |
 }
 
 /**
- * MOVO-265 (ADR-042, punto 6): un viaje con paquetes aceptados no se edita. La única
+ * MOVO-265 (DD-042, punto 6): un viaje con paquetes aceptados no se edita. La única
  * excepción es apagar la recurrencia (`recurrenceWeekdays: null`, con o sin
  * `recurrenceUntil: null`), porque no cambia ese viaje concreto y es la única forma de cortar
  * una serie cuyo vigente ya tiene paquetes. Cambiar los días o la fecha de fin, o prender la
@@ -46,7 +46,7 @@ export function isStopRecurrencePatch(input: UpdateTripInput): boolean {
 }
 
 /**
- * MOVO-265 (ADR-042, punto 8): la serie es fantasma si las últimas `PHANTOM_SERIES_STREAK`
+ * MOVO-265 (DD-042, punto 8): la serie es fantasma si las últimas `PHANTOM_SERIES_STREAK`
  * ocurrencias (del más nuevo al más viejo, el vigente incluido) terminaron todas `expired`.
  * Cuenta cualquier `expired` (un `declared` vencido o un `active` que se quedó sin paquetes);
  * una `cancelled` por el usuario corta la racha.

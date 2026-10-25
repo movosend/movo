@@ -105,7 +105,7 @@ enum HandshakeStage {
   @@schema("shipments")
 }
 
-// MOVO-307 (ADR-047): qué pasó con la penalidad de una cancelación tardía del emisor.
+// MOVO-307 (DD-047): qué pasó con la penalidad de una cancelación tardía del emisor.
 // pending = cancelado, falta cobrarla (la captura en línea falló o no corrió: la retoma el
 // barrido de liquidaciones); captured = se cobró del hold; debt = no se pudo cobrar del hold
 // (no supera la comisión, hold vencido o inexistente) y quedó como deuda en la cuenta corriente.
@@ -132,7 +132,7 @@ enum TripStatus {
   @@schema("shipments")
 }
 
-// MOVO-331 (ADR-055): quién originó el cambio de estado. `manual` = transición normal ejecutada por un
+// MOVO-331 (DD-055): quién originó el cambio de estado. `manual` = transición normal ejecutada por un
 // admin; `forced` = ejecutada por un admin con efectos distintos del camino normal.
 enum ShipmentEventKind {
   normal
@@ -143,7 +143,7 @@ enum ShipmentEventKind {
   @@schema("shipments")
 }
 
-// MOVO-270 (ADR-052): a quién atribuye el barrido de retiro no realizado la cancelación.
+// MOVO-270 (DD-052): a quién atribuye el barrido de retiro no realizado la cancelación.
 enum PickupMissedAttribution {
   carrier
   none
@@ -203,7 +203,7 @@ model Shipment {
   // Versión del algoritmo que produjo suggestedPriceArs (PriceCalculationMethod de
   // @movo/shared, ej. "euclidean_linear_v1") -- null junto con un precio nulo.
   calculationMethod String?  @map("calculation_method")
-  // MOVO-138 (ADR-025): true si la cotización llevó recargo por alta demanda. Misma
+  // MOVO-138 (ADR-021): true si la cotización llevó recargo por alta demanda. Misma
   // foto que suggestedPriceArs, nunca se recalcula. null = sin cotización o envío
   // anterior a demand_fuel_routes_v1 -- no equivale a false (el badge solo con true).
   highDemand        Boolean? @map("high_demand")
@@ -236,17 +236,17 @@ model Shipment {
   // MOVO-258 (D4): instante en que el barrido de `in_transit` anómalo marcó el envío
   // para revisión (no lo cancela). NULL = nunca marcado; solo se escribe una vez.
   transitAnomalyFlaggedAt DateTime? @map("transit_anomaly_flagged_at") @db.Timestamptz
-  // MOVO-278 (ADR-045): instante en que se le avisó al transportista que el envío marcado
+  // MOVO-278 (DD-045): instante en que se le avisó al transportista que el envío marcado
   // pasa a disputa si no confirma la entrega. NULL = nunca avisado; solo se escribe una vez.
   transitAnomalyWarnedAt DateTime? @map("transit_anomaly_warned_at") @db.Timestamptz
   // MOVO-26: cuándo empezó la última asignación (`acceptOffer`). El chat no muestra mensajes anteriores a este
   // instante (salvo al admin): cada transportista nuevo arranca una conversación limpia. NULL = sin corte.
   chatStartedAt DateTime? @map("chat_started_at") @db.Timestamptz
-  // MOVO-275 (ADR-038): instante en que el transportista generó por primera vez el QR de
+  // MOVO-275 (DD-038): instante en que el transportista generó por primera vez el QR de
   // entrega. Marca durable: el QR vence a los 15 s pero la entrega ya empezó y desde
   // entonces no se puede pedir ni aceptar un cambio de receptor.
   deliveryHandshakeStartedAt DateTime? @map("delivery_handshake_started_at") @db.Timestamptz
-  // MOVO-307 (ADR-047): penalidad que el emisor confirmó al cancelar un `assigned` con menos de
+  // MOVO-307 (DD-047): penalidad que el emisor confirmó al cancelar un `assigned` con menos de
   // 12 h, y qué pasó con ella. Ambas NULL en una cancelación sin cargo.
   cancellationPenaltyArs    Decimal?                   @map("cancellation_penalty_ars") @db.Decimal(12, 2)
   cancellationPenaltyStatus CancellationPenaltyStatus? @map("cancellation_penalty_status")
@@ -413,10 +413,10 @@ model Offer {
   viewedAtBySender DateTime? @map("viewed_at_by_sender") @db.Timestamptz
 
   // MOVO-310: el transportista se bajó del envío ya asignado (`carrier_withdrawn`). La penalidad
-  // (< 12 h, ADR-047) es deuda en su cuenta corriente: `pending` hasta registrarla en payments,
+  // (< 12 h, DD-047) es deuda en su cuenta corriente: `pending` hasta registrarla en payments,
   // `debt` después. NULL en una baja sin cargo. Vive en la oferta y no en el envío porque el envío
   // vuelve a `published` y puede tener otra asignación (y otra baja) después. MOVO-270: también
-  // se usan en un no-retiro atribuido al transportista (ADR-052), con la oferta en
+  // se usan en un no-retiro atribuido al transportista (DD-052), con la oferta en
   // `shipment_cancelled`: `carrierWithdrawnAt` es cuándo el barrido le atribuyó la falta.
   carrierWithdrawnAt      DateTime?                  @map("carrier_withdrawn_at") @db.Timestamptz
   withdrawalPenaltyArs    Decimal?                   @map("withdrawal_penalty_ars") @db.Decimal(12, 2)
@@ -519,7 +519,7 @@ model HandshakeEvent {
 // MOVO-202: traza de posiciones GPS del transportista durante un envío `in_transit`.
 // Append-only (AC9): ningún código de este servicio hace UPDATE de una fila ya
 // insertada, solo la purga periódica (`carrier-position-purge-sweep.ts`) borra --
-// retención acotada por `CARRIER_POSITION_RETENTION_DAYS` (ADR-023, ver CLAUDE.md).
+// retención acotada por `CARRIER_POSITION_RETENTION_DAYS` (DD-023, ver CLAUDE.md).
 // Cadencia de ~45s: el descarte de reportes más frecuentes se decide en backend
 // (`position-repository.ts`, Redis), no confiando en el cliente -- solo una fila cada
 // ~45s llega hasta acá, aunque el mobile reporte más seguido.
@@ -554,8 +554,8 @@ model CarrierPosition {
   @@schema("shipments")
 }
 
-// MOVO-270 (ADR-052): evidencia GPS pasiva del retiro de un envío `assigned`, sin guardar la
-// traza (la traza solo se guarda con custodia, ADR-023). Una fila por envío: la llegada se
+// MOVO-270 (DD-052): evidencia GPS pasiva del retiro de un envío `assigned`, sin guardar la
+// traza (la traza solo se guarda con custodia, DD-023). Una fila por envío: la llegada se
 // registra una sola vez (`arrivedAt IS NULL` en el UPDATE) y los contadores clasifican cada
 // posición válida dentro de la ventana de retiro como lejana (> 2 km) o zona gris.
 model PickupEvidence {
@@ -608,7 +608,7 @@ model Trip {
   // de esta columna: para la atribución del no-retiro eso es "sin evidencia", nunca "no inició".
   startedAt   DateTime? @map("started_at") @db.Timestamptz
 
-  // MOVO-265 (ADR-042): recurrencia como atributo del trip. `recurrenceWeekdays` usa
+  // MOVO-265 (DD-042): recurrencia como atributo del trip. `recurrenceWeekdays` usa
   // 0 = domingo … 6 = sábado (`RECURRENCE_WEEKDAY`, @movo/shared). Prisma no admite listas
   // opcionales: vacío = no se repite (la API lo expone como `null`, ver `mapTrip`).
   // El CHECK de valores 0-6 vive en la migración (no representable en Prisma).
@@ -755,7 +755,7 @@ model RouteGameSession {
   @@schema("shipments")
 }
 
-// MOVO-275 (ADR-038): transferencia de receptor. Entidad paralela al ciclo de vida del
+// MOVO-275 (DD-038): transferencia de receptor. Entidad paralela al ciclo de vida del
 // envío: el receptor actual invita a otra persona a recibir en su lugar, sin tocar
 // `Shipment.status`. Valores espejados de `RECEIVER_TRANSFER_STATUSES` (@movo/shared).
 enum ReceiverTransferStatus {
@@ -804,7 +804,7 @@ model ReceiverTransferRequest {
   @@schema("shipments")
 }
 
-// MOVO-26 (ADR-040): mensajes del chat de un envío. Solo se agregan, nunca se editan ni se
+// MOVO-26 (ADR-023): mensajes del chat de un envío. Solo se agregan, nunca se editan ni se
 // borran: el historial es evidencia para una disputa (visible para el admin).
 model ChatMessage {
   id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -858,7 +858,7 @@ model ChatReport {
   @@schema("shipments")
 }
 
-// MOVO-320 (ADR-051): soporte al usuario sobre el chat existente. Una conversación NO pertenece a un envío
+// MOVO-320 (DD-051): soporte al usuario sobre el chat existente. Una conversación NO pertenece a un envío
 // (`shipment_id` es opcional). Nunca se borran ni se archivan al resolverse (decisión 5 de MOVO-319).
 enum SupportTopic {
   shipment
@@ -912,7 +912,7 @@ model SupportConversation {
   status     SupportStatus   @default(open)
   priority   SupportPriority @default(normal)
   assignedTo String?         @map("assigned_to") @db.Uuid
-  // Sin onDelete cascade: la conversación es evidencia y sobrevive al envío (retención, ADR-051).
+  // Sin onDelete cascade: la conversación es evidencia y sobrevive al envío (retención, DD-051).
   shipmentId String?         @map("shipment_id") @db.Uuid
   tags       String[]        @default([])
   createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
@@ -1037,7 +1037,7 @@ model UserDisplayName {
   @@schema("shipments")
 }
 
-// MOVO-334 (ADR-054): entidad de disputa. Antes una disputa era solo el estado `disputed` del
+// MOVO-334 (DD-054): entidad de disputa. Antes una disputa era solo el estado `disputed` del
 // envío más el `from_status` de su evento. Los campos de resolución los agrega MOVO-34.
 enum DisputeReason {
   damaged

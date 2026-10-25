@@ -1,4 +1,4 @@
-# ADR-043 (propuesto): refresh idempotente del panel en una ventana de 10 segundos
+# DD-043 (propuesto): refresh idempotente del panel en una ventana de 10 segundos
 
 ## Contexto
 
@@ -51,4 +51,4 @@ Next solo escribe cookies host-only, httpOnly, Secure y SameSite=Lax (revisión 
 Se prueba con Redis/Postgres reales: concurrencia, igualdad de respuestas, ciphertext,
 reuso con otra clave o fuera de ventana, logout de ambos tokens, revocación durante
 emisión y resultado pendiente sin segundo consumo. Aceptación del ADR y publicación
-en el documento de Sprint 0 pendientes de revisión del equipo.
+en el registro de decisiones de diseño pendientes de revisión del equipo.

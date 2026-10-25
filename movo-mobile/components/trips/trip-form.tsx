@@ -123,7 +123,7 @@ export function TripForm(props: TripFormProps) {
   );
 
   // El día de la salida es de la fecha, no del usuario: mover el vigente de lunes a martes saca el
-  // lunes de la serie y suma el martes. Es a propósito (ADR-042, punto 6): editar el vigente define
+  // lunes de la serie y suma el martes. Es a propósito (DD-042, punto 6): editar el vigente define
   // el patrón de los próximos, no hay edición "solo de esta ocurrencia".
   const handleDepartureChange = (next: Date) => {
     setWeekdays((current) => withFixedDay(current, argentinaWeekday(departureAt), argentinaWeekday(next)));

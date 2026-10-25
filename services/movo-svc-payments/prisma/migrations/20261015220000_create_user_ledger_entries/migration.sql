@@ -1,4 +1,4 @@
--- MOVO-309 (ADR-044): cuenta corriente del usuario. Solo inserción: el monto, el tipo y
+-- MOVO-309 (DD-044): cuenta corriente del usuario. Solo inserción: el monto, el tipo y
 -- las referencias no se editan nunca y no se borra nada; lo único que cambia de una fila
 -- es `status` (pending -> reserved -> settled, o voided). Un error se corrige anulando.
 
