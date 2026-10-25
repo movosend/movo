@@ -49,6 +49,21 @@ describe("getForcedTransitionDetails", () => {
     ]);
   });
 
+  it("pasar a assigned pide verificar el hold; cancelar y bajar al transportista avisan lo que no se deshace", () => {
+    expect(getForcedTransitionDetails(ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED)!.checks).toEqual([
+      expect.stringContaining("Mercado Pago"),
+    ]);
+    expect(getForcedTransitionDetails(ShipmentStatus.ASSIGNED, ShipmentStatus.CANCELLED)!.irreversible).toEqual([
+      expect.stringContaining("terminal"),
+    ]);
+    expect(getForcedTransitionDetails(ShipmentStatus.ASSIGNED, ShipmentStatus.PUBLISHED)!.irreversible).toEqual([
+      expect.stringContaining("volver a ofertar"),
+    ]);
+    expect(getForcedTransitionDetails(ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED)!.irreversible).toEqual([
+      expect.stringContaining("reembolso"),
+    ]);
+  });
+
   it("toda celda describe sus efectos", () => {
     for (const [from, row] of Object.entries(FORCED_TRANSITION_MATRIX)) {
       for (const to of Object.keys(row)) {

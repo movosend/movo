@@ -141,6 +141,10 @@ export interface ForcedTransitionDetails extends ForcedTransitionCell {
   effects: string[];
   /** Quién recibe el aviso (siempre crítico y sin monto). El transportista solo si el envío tiene uno. */
   notifies: ForcedTransitionRecipient[];
+  /** Qué conviene verificar ANTES de confirmar (el backend igual lo valida si es un hecho externo). */
+  checks: string[];
+  /** Qué no se puede deshacer una vez hecho. */
+  irreversible: string[];
 }
 
 function effectsOf(from: ShipmentStatus, to: ShipmentStatus, cell: ForcedTransitionCell): string[] {
@@ -176,6 +180,36 @@ function effectsOf(from: ShipmentStatus, to: ShipmentStatus, cell: ForcedTransit
   }
 }
 
+function checksOf(cell: ForcedTransitionCell): string[] {
+  switch (cell.service) {
+    case "confirmFunding":
+      return ["Confirmá en Mercado Pago que el hold está autorizado. Si no lo está, el sistema rechaza el cambio."];
+    case "captureAndComplete":
+      return ["Confirmá que el paquete llegó a destino: la captura del pago no se revierte sola."];
+    default:
+      return [];
+  }
+}
+
+function irreversibleOf(from: ShipmentStatus, to: ShipmentStatus, cell: ForcedTransitionCell): string[] {
+  switch (cell.service) {
+    case "cancelShipment":
+      return ["Un envío cancelado es terminal: no se reabre. Para retomarlo, el emisor tiene que crear uno nuevo."];
+    case "withdrawCarrierFromShipment":
+      return ["El transportista pierde el envío. Para recuperarlo tiene que volver a ofertar."];
+    case "captureAndComplete":
+      return ["Una vez capturado el pago, revertirlo pide un reembolso manual desde Pagos."];
+    case "confirmFunding":
+      return to === ShipmentStatus.ASSIGNED && from !== ShipmentStatus.ASSIGNED
+        ? ["Se cierran las ofertas pendientes de otros transportistas: no vuelven a abrirse solas."]
+        : [];
+    default: {
+      const exhaustive: never = cell.service;
+      return exhaustive;
+    }
+  }
+}
+
 /** Celda + efectos + destinatarios del aviso. `null` si el par está bloqueado. */
 export function getForcedTransitionDetails(from: ShipmentStatus, to: ShipmentStatus): ForcedTransitionDetails | null {
   const cell = getForcedTransition(from, to);
@@ -184,6 +218,8 @@ export function getForcedTransitionDetails(from: ShipmentStatus, to: ShipmentSta
     ...cell,
     effects: effectsOf(from, to, cell),
     notifies: STATUSES_WITH_CARRIER.includes(from) ? ["sender", "receiver", "carrier"] : ["sender", "receiver"],
+    checks: checksOf(cell),
+    irreversible: irreversibleOf(from, to, cell),
   };
 }
 
