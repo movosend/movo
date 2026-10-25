@@ -189,15 +189,31 @@ function visibleTransactions(column: "payer_id" | "carrier_id", userId: string):
         SELECT 1 FROM payments.payment_provider_events e
         WHERE e.hold_id = h.id AND e.mp_payment_id = h.mp_payment_id AND e.kind IN ('chargeback', 'mediation')
       ) AS has_dispute,
-      EXISTS (
-        SELECT 1 FROM payments.payment_provider_events e
-        WHERE e.hold_id = h.id AND e.mp_payment_id = h.mp_payment_id AND e.kind = 'refund'
-      ) AS has_refund,
+      -- MOVO-336: un reembolso que pidió Movo (disputa resuelta) cuenta igual que uno informado por MP. Solo los
+      -- succeeded: un fallback_to_ledger no le devolvió la plata al emisor todavía.
       (
-        SELECT e.amount_ars::float8 FROM payments.payment_provider_events e
-        WHERE e.hold_id = h.id AND e.mp_payment_id = h.mp_payment_id AND e.kind = 'refund'
-        ORDER BY e.created_at DESC, e.id DESC
-        LIMIT 1
+        EXISTS (
+          SELECT 1 FROM payments.payment_provider_events e
+          WHERE e.hold_id = h.id AND e.mp_payment_id = h.mp_payment_id AND e.kind = 'refund'
+        )
+        OR EXISTS (
+          SELECT 1 FROM payments.refunds r
+          WHERE r.hold_id = h.id AND r.mp_payment_id = h.mp_payment_id AND r.status = 'succeeded'
+        )
+      ) AS has_refund,
+      -- El monto de un evento de MP es el total devuelto (transaction_amount_refunded) e incluye lo que pidió Movo:
+      -- con un reembolso propio y después uno externo, GREATEST muestra el total y no subestima. GREATEST ignora los NULL.
+      GREATEST(
+        (
+          SELECT SUM(r.amount_ars)::float8 FROM payments.refunds r
+          WHERE r.hold_id = h.id AND r.mp_payment_id = h.mp_payment_id AND r.status = 'succeeded'
+        ),
+        (
+          SELECT e.amount_ars::float8 FROM payments.payment_provider_events e
+          WHERE e.hold_id = h.id AND e.mp_payment_id = h.mp_payment_id AND e.kind = 'refund'
+          ORDER BY e.created_at DESC, e.id DESC
+          LIMIT 1
+        )
       ) AS refunded_amount_ars
     FROM payments.holds h
     LEFT JOIN payments.settlements s ON s.hold_id = h.id
@@ -296,15 +312,27 @@ export function createTransactionRepository(db: PrismaClient): TransactionReposi
     async listMovements(holdId, mpPaymentId) {
       // Sin pago no hay eventos: el estado (`has_dispute`/`has_refund`) exige el mismo `mp_payment_id`.
       if (mpPaymentId === null) return [];
-      const events = await db.paymentProviderEvent.findMany({
-        where: { holdId, mpPaymentId },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      });
-      return events.map((e) => ({
-        kind: e.kind,
-        amountArs: e.amountArs === null ? null : Number(e.amountArs),
-        date: e.createdAt,
-      }));
+      const [events, refunds] = await Promise.all([
+        db.paymentProviderEvent.findMany({
+          where: { holdId, mpPaymentId },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        }),
+        // MOVO-336: cada reembolso hecho por Movo es un movimiento propio (devolución para el emisor, descuento
+        // para el transportista). Fecha: cuando llegó a `succeeded` (`completed_at`, no `updated_at`).
+        db.refund.findMany({
+          where: { holdId, mpPaymentId, status: "succeeded" },
+          orderBy: [{ completedAt: "asc" }, { id: "asc" }],
+        }),
+      ]);
+      const movements: TransactionMovementRow[] = [
+        ...events.map((e) => ({
+          kind: e.kind,
+          amountArs: e.amountArs === null ? null : Number(e.amountArs),
+          date: e.createdAt,
+        })),
+        ...refunds.map((r) => ({ kind: "refund" as const, amountArs: Number(r.amountArs), date: r.completedAt ?? r.updatedAt })),
+      ];
+      return movements.sort((a, b) => a.date.getTime() - b.date.getTime());
     },
   };
 }

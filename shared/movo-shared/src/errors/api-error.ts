@@ -364,7 +364,19 @@ export type ApiErrorCode =
   // Un solo código para todos los casos, así no se enumeran motivos (401).
   | "STEP_UP_INVALID"
   // El código del envío tipeado no coincide (422).
-  | "TYPED_CODE_MISMATCH";
+  | "TYPED_CODE_MISMATCH"
+  // MOVO-336: reembolso de un envío cuya liquidación no está capturada (`credited`): no hay nada que devolver (409).
+  | "SETTLEMENT_NOT_REFUNDABLE"
+  // MOVO-336: el monto pedido supera lo reembolsable (capturado menos lo ya reembolsado). Viaja con
+  // `details.refundableArs` (422).
+  | "REFUND_AMOUNT_EXCEEDS_REFUNDABLE"
+  // MOVO-336: la `idempotencyKey` del reembolso ya se usó con otro monto o motivo (409).
+  | "REFUND_IDEMPOTENCY_CONFLICT"
+  // MOVO-336: otro pedido con la misma `idempotencyKey` está hablando con MP en este momento; reintentar en unos segundos (409).
+  | "REFUND_IN_PROGRESS"
+  // MOVO-336: el intento quedó sin confirmar hace más de lo que MP garantiza la key: reintentarlo podría reembolsar
+  // dos veces. Lo resuelve una persona mirando el pago en MP (409).
+  | "REFUND_NEEDS_REVIEW";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

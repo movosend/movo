@@ -157,7 +157,11 @@ const event = {
     fromStatus: { type: ["string", "null"] },
     toStatus: { type: "string" },
     actorId: { type: ["string", "null"] },
+    // MOVO-333: quién y cómo originó el cambio. Sin declararlos Fastify los recorta y el panel no distingue un
+    // cambio de admin de uno normal.
+    actorName: { type: ["string", "null"] },
     reason: { type: ["string", "null"] },
+    kind: { type: "string", enum: ["normal", "manual", "forced"] },
     createdAt: { type: "string" },
   },
 };
@@ -412,13 +416,25 @@ export const shipmentsSchemas = {
         type: "array",
         items: {
           type: "object",
-          required: ["targetStatus", "kind", "risk", "effects", "notifies", "requiresTypedCode", "requiresStepUp"],
+          required: [
+            "targetStatus",
+            "kind",
+            "risk",
+            "effects",
+            "notifies",
+            "checks",
+            "irreversible",
+            "requiresTypedCode",
+            "requiresStepUp",
+          ],
           properties: {
             targetStatus: { type: "string", enum: shipmentStatuses },
             kind: { type: "string", enum: ["manual", "forced"] },
             risk: { type: "string", enum: ["medium", "high", "critical"] },
             effects: { type: "array", items: { type: "string" } },
             notifies: { type: "array", items: { type: "string", enum: chatRoles } },
+            checks: { type: "array", items: { type: "string" } },
+            irreversible: { type: "array", items: { type: "string" } },
             requiresTypedCode: { type: "boolean" },
             requiresStepUp: { type: "boolean" },
           },

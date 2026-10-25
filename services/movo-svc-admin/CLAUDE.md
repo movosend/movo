@@ -185,4 +185,13 @@ Pendiente: verificar a mano contra dev (suspender un usuario de prueba y comprob
   `shipments.schema.ts` declaran `details`: sin eso Fastify los recortaba y el panel no podía explicar `STATUS_CHANGED`/`TRANSITION_NOT_ALLOWED`.
 - **Rate limit** (`utils/rate-limit.ts`, ventana fija en Redis): 10 cambios/min por admin y 5/min por envío; cuenta también los intentos
   rechazados y se aplica antes de la bitácora (un 429 no deja fila). El `forceShipmentStatus` espera hasta 30 s (el servicio llama a payments).
-- Pendiente: el modal del panel (MOVO-333); probar contra dev real que el email del step-up llega (Resend).
+- Pendiente: probar contra dev real que el email del step-up llega (Resend). El modal del panel (MOVO-333) ya está hecho.
+
+### MOVO-333 (backend de apoyo) — `status-options` con `checks`/`irreversible` y código de confirmación del panel
+
+`GET /admin/shipments/:id/status-options` devuelve también `checks` (qué verificar antes) e `irreversible` (qué no se deshace) por opción, y `code` pasa a
+ser el que muestra el panel (`MOVO-12345`, `shipmentConfirmationCode`), no los 8 primeros caracteres del id. `typedCode` se compara con
+`normalizeConfirmationCode` (sin `#`, sin espacios, sin distinguir mayúsculas). Los textos viven en la matriz de `@movo/shared`.
+
+**Corrección (MOVO-333): el schema de respuesta de los eventos declara `kind` y `actorName`.** Sin declararlos Fastify los recortaba y el detalle del
+panel nunca recibía la marca de manual/forzado. El test de `shipments.integration.test.ts` fija un evento forzado y falla si se pierden.

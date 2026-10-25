@@ -9,6 +9,8 @@ import {
   forcedTransitionFriction,
   getForcedTransition,
   getForcedTransitionDetails,
+  normalizeConfirmationCode,
+  shipmentConfirmationCode,
   ShipmentStatus,
   ShipmentStatusOptions,
   StepUpChallenge,
@@ -265,11 +267,13 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
           risk: details.risk,
           effects: details.effects,
           notifies: details.notifies,
+          checks: details.checks,
+          irreversible: details.irreversible,
           requiresTypedCode: friction.typedCode,
           requiresStepUp: friction.stepUp,
         });
       }
-      return { current, code: shipment.code, options, blocked };
+      return { current, code: shipmentConfirmationCode(id), options, blocked };
     },
   );
 
@@ -444,7 +448,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
               const blockedReason = blockedTransitionReason(from, to);
               throw new ApiError(422, "TRANSITION_NOT_ALLOWED", blockedReason, { reason: blockedReason });
             }
-            if (friction.typedCode && body.typedCode?.trim().toUpperCase() !== shipment.code.toUpperCase()) {
+            if (friction.typedCode && normalizeConfirmationCode(body.typedCode ?? "") !== shipmentConfirmationCode(id)) {
               throw new ApiError(422, "TYPED_CODE_MISMATCH", "El código del envío no coincide.");
             }
             if (needsStepUp) {

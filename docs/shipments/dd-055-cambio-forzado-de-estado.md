@@ -139,6 +139,15 @@ acción, distinto del OTP de la jornada de MOVO-286:
 - Cuándo se exige (`forcedTransitionFriction` en `@movo/shared`): transición `forced` o riesgo crítico. El
   código del envío tipeado (`typedCode`), desde riesgo alto.
 
+### Código del envío tipeado: limitación aceptada
+
+El código que se tipea en riesgo alto o crítico es el `#MOVO-12345` del encabezado del panel (`shipmentConfirmationCode`: los
+últimos 5 dígitos del id, con ceros a la izquierda), no el prefijo de 8 caracteres del id. Es más débil: puede repetirse entre
+envíos (colisión entre ~100 mil) y un id con pocos dígitos decimales se rellena con ceros. **Es una decisión consciente**: el admin tiene
+que poder leerlo en pantalla, y el prefijo del id nunca se muestra. No es la salvaguarda de la acción: el pedido viaja atado al
+id del envío (tipear el código de un vecino no cambia el vecino), a `expectedStatus` (409 si el estado cambió), al segundo factor
+en lo forzado o crítico, a la regla de conflicto de interés y a la bitácora. Sirve para comprobar que el admin leyó de qué envío se trata.
+
 ### Bitácora del panel
 
 `POST /admin/shipments/:id/status` pasa por `runAdminAction` (acción `shipment.status_change`, objetivo

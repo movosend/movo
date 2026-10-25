@@ -188,6 +188,21 @@ export type {
   SettlementStatus,
   ShipmentSettlementResponse,
 } from "./types/settlement";
+// reembolso de un pago capturado (MOVO-336)
+export {
+  REFUND_IDEMPOTENCY_KEY_MAX_LENGTH,
+  REFUND_REASON_MAX_LENGTH,
+  REFUND_REASON_MIN_LENGTH,
+  REFUND_STATUSES,
+} from "./types/refund";
+export type {
+  CreateRefundRequest,
+  CreateRefundResponse,
+  RefundFailureReason,
+  RefundResponse,
+  RefundsResponse,
+  RefundStatus,
+} from "./types/refund";
 // cuenta corriente del usuario (MOVO-309)
 export { USER_LEDGER_ENTRY_STATUSES, USER_LEDGER_ENTRY_TYPES, USER_LEDGER_ROLES } from "./types/user-ledger";
 export type {
@@ -388,6 +403,8 @@ export {
   ADMIN_SHIPMENTS_MAX_LIMIT,
   FORCE_STATUS_REASON_MAX_LENGTH,
   FORCE_STATUS_REASON_MIN_LENGTH,
+  normalizeConfirmationCode,
+  shipmentConfirmationCode,
   STEP_UP_CODE_TTL_SECONDS,
   STEP_UP_TOKEN_TTL_SECONDS,
   ADMIN_TRACKING_POLL_INTERVAL_SECONDS,

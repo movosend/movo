@@ -4,6 +4,7 @@ import { FastifyInstance } from "fastify";
 import {
   AdminChatPage,
   AdminShipmentDetail,
+  AdminShipmentEvent,
   AdminShipmentOffer,
   AdminShipmentPage,
   AdminShipmentTracking,
@@ -96,6 +97,17 @@ describe("Envíos para el panel (MOVO-325)", () => {
     serverTime: "2030-01-01T10:10:00.000Z",
     pollIntervalSeconds: 15,
   };
+  // Un cambio hecho por un admin: la marca y el nombre tienen que llegar al panel (MOVO-333).
+  const forcedEvent: AdminShipmentEvent = {
+    id: randomUUID(),
+    fromStatus: "assigned",
+    toStatus: "cancelled",
+    actorId: randomUUID(),
+    actorName: "Lucía Admin",
+    reason: "El transportista no responde hace dos días",
+    kind: "forced",
+    createdAt: "2030-01-01T12:00:00.000Z",
+  };
   const seen: { list?: string; chat?: string } = {};
   const offer: AdminShipmentOffer = {
     id: randomUUID(),
@@ -131,6 +143,7 @@ describe("Envíos para el panel (MOVO-325)", () => {
         page,
         details: { [detail.id]: detail },
         offers: { [detail.id]: [offer] },
+        events: { [detail.id]: [forcedEvent] },
         chats: { [detail.id]: chat },
         trackings: { [detail.id]: tracking },
         seen,
@@ -200,7 +213,9 @@ describe("Envíos para el panel (MOVO-325)", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.shipment.id).toBe(detail.id);
-    expect(body.events).toEqual({ data: [], error: null });
+    // Los campos `kind` y `actorName` no se pierden en el schema de respuesta (sin ellos el panel no distingue
+    // un cambio de admin de uno normal).
+    expect(body.events).toEqual({ data: [forcedEvent], error: null });
     expect(body.photos).toEqual({ data: [], error: null });
     expect(body.offers).toEqual({ data: [offer], error: null });
     expect(body.payment.error).toBeNull();
@@ -217,7 +232,7 @@ describe("Envíos para el panel (MOVO-325)", () => {
     const body = res.json();
     expect(body.offers.data).toBeNull();
     expect(body.offers.error.code).toBe("SHIPMENTS_SERVICE_UNAVAILABLE");
-    expect(body.events).toEqual({ data: [], error: null });
+    expect(body.events).toEqual({ data: [forcedEvent], error: null });
     await down.close();
   });
 
