@@ -38,6 +38,14 @@ export interface CancelShipmentSheetProps {
   shipment: Pick<ShipmentSummary, "id" | "status" | "agreedPriceArs">;
   /** Monto real reservado en el hold (incluye deuda cobrada en MOVO-311); cae a `agreedPriceArs` si no cargó. */
   holdAmountArs?: number | null;
+  /**
+   * Estado de la consulta del hold. En `assigned` el sheet no muestra montos hasta que sea
+   * `ready` (con o sin hold): `loading` lo deja en carga y `error` ofrece reintentar, para no
+   * presentar el precio pactado como lo reservado. Sin definir se asume `ready`.
+   */
+  holdState?: "loading" | "error" | "ready";
+  /** Vuelve a pedir el hold (al reintentar tras un `holdState` en `error`). */
+  onRetryHold?: () => void;
   /** Nombre de pila del transportista asignado, si hay. */
   carrierFirstName?: string | null;
   onClose: () => void;
@@ -64,6 +72,8 @@ export function CancelShipmentSheet({
   visible,
   shipment,
   holdAmountArs,
+  holdState = "ready",
+  onRetryHold,
   carrierFirstName,
   onClose,
   onCancelled,
@@ -74,7 +84,7 @@ export function CancelShipmentSheet({
   const quoteMutation = useCancellationQuote();
   const cancelMutation = useCancelShipment();
 
-  const [phase, setPhase] = useState<Phase>("loading");
+  const [quotePhase, setPhase] = useState<Phase>("loading");
   const [quote, setQuote] = useState<CancellationQuoteResponse | null>(null);
   const [penaltyArs, setPenaltyArs] = useState(0);
   const [previousPenaltyArs, setPreviousPenaltyArs] = useState<number | null>(null);
@@ -86,6 +96,13 @@ export function CancelShipmentSheet({
   // Una respuesta que llega con el sheet ya cerrado (o reabierto) no pisa el estado nuevo.
   const sessionRef = useRef(0);
   const hasHold = shipment.status === ShipmentStatus.ASSIGNED;
+  // La cotización puede llegar antes que el hold: hasta tener el monto real no se muestra nada confirmable.
+  const phase: Phase =
+    quotePhase === "quote" && hasHold && holdState === "loading"
+      ? "loading"
+      : quotePhase === "quote" && hasHold && holdState === "error"
+        ? "quoteError"
+        : quotePhase;
   const isConfirming = cancelMutation.isPending || isRequoting;
   const carrierName = carrierFirstName || "el transportista";
   const view: CancellationQuoteView | null =
@@ -149,6 +166,7 @@ export function CancelShipmentSheet({
   }, [visible, hasHold]);
 
   const handleRetryQuote = () => {
+    if (holdState === "error") onRetryHold?.();
     setPhase("loading");
     void fetchQuote(sessionRef.current);
   };

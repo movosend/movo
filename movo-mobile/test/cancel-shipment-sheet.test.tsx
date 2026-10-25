@@ -1,6 +1,6 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import { CancelShipmentSheet } from "../components/shipments/cancel-shipment-sheet";
 import { formatCancellationDateTime, PICKUP_WINDOW_CLOSED_REASON } from "../src/lib/cancellation-format";
 
@@ -23,6 +23,8 @@ function renderSheet(
   overrides: Partial<{
     shipment: typeof ASSIGNED;
     holdAmountArs: number | null;
+    holdState: "loading" | "error" | "ready";
+    onRetryHold: jest.Mock;
     onRefetch: jest.Mock;
     onCancelled: jest.Mock;
   }> = {},
@@ -30,6 +32,8 @@ function renderSheet(
   const props = {
     shipment: ASSIGNED,
     holdAmountArs: undefined as number | null | undefined,
+    holdState: undefined as "loading" | "error" | "ready" | undefined,
+    onRetryHold: jest.fn(),
     onRefetch: jest.fn().mockResolvedValue(ShipmentStatus.ASSIGNED),
     onCancelled: jest.fn(),
     ...overrides,
@@ -39,6 +43,8 @@ function renderSheet(
       visible
       shipment={props.shipment}
       holdAmountArs={props.holdAmountArs}
+      holdState={props.holdState}
+      onRetryHold={props.onRetryHold}
       carrierFirstName="Martín"
       onClose={jest.fn()}
       onCancelled={props.onCancelled}
@@ -222,18 +228,22 @@ describe("CancelShipmentSheet (MOVO-308)", () => {
     expect(getByTestId("sheet-released-amount")).toHaveTextContent("$17.575");
   });
 
-  it("MOVO-318: si el hold no cargó al abrir y llega después, actualiza el monto reservado sin re-cotizar", async () => {
+  it("MOVO-318: con el hold pendiente no muestra montos aunque la cotización ya haya llegado, y los muestra al llegar el hold", async () => {
     mockQuote.mockResolvedValueOnce(freeQuote);
-    const { utils } = renderSheet({ holdAmountArs: null });
-    const { findByTestId, rerender } = await utils;
+    const { utils } = renderSheet({ holdAmountArs: null, holdState: "loading" });
+    const { findByTestId, queryByTestId, rerender } = await utils;
 
-    expect(await findByTestId("sheet-free")).toHaveTextContent(/Te liberamos los \$18\.500 reservados/);
+    await findByTestId("sheet-loading");
+    await waitFor(() => expect(mockQuote).toHaveBeenCalledTimes(1));
+    expect(queryByTestId("sheet-free")).toBeNull();
+    expect(queryByTestId("sheet-confirm")).toBeNull();
 
     await rerender(
       <CancelShipmentSheet
         visible
         shipment={ASSIGNED}
         holdAmountArs={22200}
+        holdState="ready"
         carrierFirstName="Martín"
         onClose={jest.fn()}
         onCancelled={jest.fn()}
@@ -244,5 +254,17 @@ describe("CancelShipmentSheet (MOVO-308)", () => {
 
     expect(await findByTestId("sheet-free")).toHaveTextContent(/Te liberamos los \$22\.200 reservados/);
     expect(mockQuote).toHaveBeenCalledTimes(1);
+  });
+
+  it("MOVO-318: si el hold falla, no ofrece confirmar y reintentar vuelve a pedir el hold", async () => {
+    mockQuote.mockResolvedValue(freeQuote);
+    const { utils, onRetryHold } = renderSheet({ holdAmountArs: null, holdState: "error" });
+    const { findByTestId, queryByTestId, getByTestId } = await utils;
+
+    await findByTestId("sheet-quote-error");
+    expect(queryByTestId("sheet-confirm")).toBeNull();
+
+    await fireEvent.press(getByTestId("sheet-retry"));
+    expect(onRetryHold).toHaveBeenCalledTimes(1);
   });
 });

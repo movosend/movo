@@ -15,6 +15,8 @@ export interface SenderActionsBarProps {
   shipment: Pick<ShipmentSummary, "id" | "status" | "agreedPriceArs">;
   /** Monto real reservado en el hold (MOVO-318); cae a `agreedPriceArs` si no cargó. */
   holdAmountArs?: number | null;
+  holdState?: "loading" | "error" | "ready";
+  onRetryHold?: () => void;
   carrierFirstName?: string | null;
   /** Refresca el detalle y devuelve el estado nuevo (ante un 409 de estado del sheet). */
   onRefetch: () => Promise<ShipmentStatus | undefined>;
@@ -41,6 +43,8 @@ export interface SenderActionsBarProps {
 export function SenderActionsBar({
   shipment,
   holdAmountArs,
+  holdState,
+  onRetryHold,
   carrierFirstName,
   onRefetch,
   onCancelled,
@@ -94,6 +98,8 @@ export function SenderActionsBar({
         visible={isCancelSheetVisible}
         shipment={shipment}
         holdAmountArs={holdAmountArs}
+        holdState={holdState}
+        onRetryHold={onRetryHold}
         carrierFirstName={carrierFirstName}
         onClose={() => setIsCancelSheetVisible(false)}
         onCancelled={(message) => {

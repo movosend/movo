@@ -483,6 +483,8 @@ export default function ShipmentDetailScreen() {
           <SenderActionsBar
             shipment={shipment}
             holdAmountArs={senderHold?.amountArs ?? null}
+            holdState={holdQuery.isError ? "error" : holdQuery.data === undefined ? "loading" : "ready"}
+            onRetryHold={() => void refetchHold()}
             carrierFirstName={carrierFirstName}
             onRefetch={async () => (await refetch()).data?.status}
             onCancelled={setSuccessMessage}
