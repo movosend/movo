@@ -351,6 +351,9 @@ export type ApiErrorCode =
   | "STATUS_CHANGED"
   // Se pidió `assigned` y el hold del envío no está autorizado en payments (422).
   | "HOLD_NOT_AUTHORIZED"
+  // Pago simulado (DD-055): el entorno no lo permite (403) o el envío ya tiene un hold real (409).
+  | "PAYMENT_SIMULATION_DISABLED"
+  | "HOLD_ALREADY_EXISTS"
   // Falló un efecto externo (liberar o capturar el hold): el envío quedó en su estado original (502).
   | "FORCE_STATUS_EFFECT_FAILED"
   // La misma `idempotencyKey` ya se usó para otro envío o destino (409).

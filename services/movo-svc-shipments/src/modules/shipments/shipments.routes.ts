@@ -12,7 +12,8 @@ import { shipmentsSchemas } from "./shipments.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
-import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
+import { PaymentsClient } from "../../adapters/payments-client";
+import { createAppPaymentsClient } from "../../adapters/simulated-payments-client";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
@@ -166,7 +167,7 @@ function toShipmentEventDto(event: ShipmentEvent) {
 
 export default async function shipmentsRoutes(app: FastifyInstance, opts: ShipmentsRoutesOptions) {
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
-  const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);
+  const paymentsClient = opts.paymentsClient ?? createAppPaymentsClient(app);
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);

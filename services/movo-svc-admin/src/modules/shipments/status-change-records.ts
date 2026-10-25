@@ -17,6 +17,8 @@ export interface StatusChangeRecord {
   state: "done" | "unknown";
   targetStatus: string;
   expectedStatus: string;
+  /** DD-055: dos pedidos que difieren en simular el pago no son el mismo cambio. */
+  simulatePayment?: boolean;
   response?: ChangeShipmentStatusResponse;
 }
 

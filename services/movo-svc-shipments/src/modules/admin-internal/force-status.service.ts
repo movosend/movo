@@ -39,6 +39,7 @@ const lockRedisKey = (shipmentId: string) => `force-status:lock:${shipmentId}`;
 interface StoredResult {
   shipmentId: string;
   targetStatus: string;
+  simulatePayment?: boolean;
   response: ForceShipmentStatusResponse;
 }
 
@@ -83,11 +84,13 @@ export function createForceStatusService(
     stored: StoredResult | null,
     shipmentId: string,
     targetStatus: string,
+    simulatePayment: boolean,
   ) {
     if (!stored) return null;
     if (
       stored.shipmentId !== shipmentId ||
-      stored.targetStatus !== targetStatus
+      stored.targetStatus !== targetStatus ||
+      (stored.simulatePayment ?? false) !== simulatePayment
     ) {
       throw new ApiError(
         409,
@@ -160,6 +163,7 @@ export function createForceStatusService(
           shipment,
           admin,
           input.reason,
+          { simulatePayment: input.simulatePayment === true },
         );
         return;
       case "captureAndComplete": {
@@ -299,6 +303,7 @@ export function createForceStatusService(
         await readStored(input.idempotencyKey),
         shipmentId,
         input.targetStatus,
+        input.simulatePayment === true,
       );
       if (replayed) return replayed;
 
@@ -319,6 +324,7 @@ export function createForceStatusService(
           await readStored(input.idempotencyKey),
           shipmentId,
           input.targetStatus,
+          input.simulatePayment === true,
         );
         if (again) return again;
 
@@ -348,6 +354,14 @@ export function createForceStatusService(
             input.targetStatus as ShipmentStatus,
           );
           throw new ApiError(422, "TRANSITION_NOT_ALLOWED", reason, { reason });
+        }
+
+        if (input.simulatePayment && cell.service !== "confirmFunding") {
+          throw new ApiError(
+            422,
+            "VALIDATION_FAILED",
+            "El pago simulado solo aplica al pasar a Asignado.",
+          );
         }
 
         try {
@@ -410,6 +424,7 @@ export function createForceStatusService(
         const stored: StoredResult = {
           shipmentId,
           targetStatus: input.targetStatus,
+          ...(input.simulatePayment ? { simulatePayment: true } : {}),
           response,
         };
         // Best-effort, como los avisos: el cambio ya está hecho, un Redis caído no puede convertirlo en un 500.

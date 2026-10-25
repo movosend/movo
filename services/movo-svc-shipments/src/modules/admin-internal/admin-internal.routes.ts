@@ -53,7 +53,8 @@ import type { Offer } from "../../models/offer";
 import { createTripRepository } from "../../repositories/trip-repository";
 import { createShipmentsService } from "../shipments/shipments.service";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
-import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
+import { PaymentsClient } from "../../adapters/payments-client";
+import { createAppPaymentsClient } from "../../adapters/simulated-payments-client";
 import { AlertNotifier, createAlertNotifier } from "../../adapters/alert-notifier";
 import { buildFundingService } from "../funding/funding.routes";
 import { createForceStatusService } from "./force-status.service";
@@ -638,7 +639,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
   // MOVO-331 (DD-055): cambio de estado de un envío hecho por un admin. Lo llama `svc-admin` (que ya validó
   // la sesión, el OTP por acción y el conflicto de interés, y dejó la bitácora); acá se valida la matriz.
   // Grafo propio, con `paymentsClient`: el de arriba no tiene hold ni transportista a propósito.
-  const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);
+  const paymentsClient = opts.paymentsClient ?? createAppPaymentsClient(app);
   const forceStatus = createForceStatusService({
     repository: shipmentRepository,
     shipmentsService: createShipmentsService(shipmentRepository, usersClient, notificationsClient, app.log, {

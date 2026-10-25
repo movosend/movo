@@ -360,6 +360,9 @@ Confirmación) del prototipo `Movo Admin Envios.dc.html`. Código en `components
 - **Resultado**: el modal se cierra, la acción revalida el detalle (estado y línea de tiempo) y `StatusChangeNotice` muestra "#MOVO-… pasó a ….
   Quedó en la línea de tiempo y en la bitácora. Avisamos a: …". La línea de tiempo (`buildTimeline`) dibuja los eventos de admin con escudo
   (`ShieldCheck` manual, `ShieldAlert` forzado), "Estado cambiado/forzado a …", el nombre del admin y el motivo.
+- **Simular el pago** (DD-055): en el paso 3, con destino `assigned`, un check extra "Simular el pago" manda `simulatePayment: true`
+  (asigna sin hold de Mercado Pago; el envío no se cobra). Lo habilita `ALLOW_SIMULATED_PAYMENTS` en `svc-shipments`; apagado, el
+  backend responde `PAYMENT_SIMULATION_DISABLED`. Se destilda solo al cambiar de destino.
 
 Pendiente: capturas de cada paso contra dev (DoD; necesita MOVO-331/332 desplegados) y revisión a mano en claro/oscuro. El email del segundo
 factor usa el texto genérico del OTP (sin copy propio del cambio de estado).

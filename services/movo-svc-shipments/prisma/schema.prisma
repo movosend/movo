@@ -172,6 +172,8 @@ model Shipment {
   // MOVO-317: el emisor eligió "Más de 300 cm" en alguno de los lados. Las medidas guardan el tope (300);
   // el flag dice que el paquete real es más grande que eso.
   oversized   Boolean     @default(false)
+  // DD-055: un admin lo pasó a `assigned` sin hold real; payments no se consulta para este envío (nunca se cobra).
+  paymentSimulated Boolean @default(false) @map("payment_simulated")
   description String?
   urgent      Boolean     @default(false)
 

@@ -138,6 +138,12 @@ export interface ForceShipmentStatusRequest {
   adminId: string;
   adminName: string;
   idempotencyKey: string;
+  /**
+   * Solo `-> assigned` (DD-055, pago simulado): no exige hold autorizado y deja el envío marcado como sin cobro real
+   * (`paymentSimulated`). `svc-shipments` lo rechaza con 403 `PAYMENT_SIMULATION_DISABLED` si `ALLOW_SIMULATED_PAYMENTS`
+   * está apagado.
+   */
+  simulatePayment?: boolean;
 }
 
 export interface ForceShipmentStatusResponse {
@@ -398,6 +404,8 @@ export interface ChangeShipmentStatusRequest {
   /** El token de `POST /admin/step-up/verify`, obligatorio si la transición es forzada o crítica. */
   stepUpToken?: string;
   idempotencyKey: string;
+  /** Ver `ForceShipmentStatusRequest.simulatePayment`: solo con destino `assigned`. */
+  simulatePayment?: boolean;
 }
 
 export type ChangeShipmentStatusResponse = ForceShipmentStatusResponse;

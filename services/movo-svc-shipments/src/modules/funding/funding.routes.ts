@@ -1,7 +1,8 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
 import { HoldProviderEventRequest, ShipmentFundingRequest } from "@movo/shared";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
-import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
+import { PaymentsClient } from "../../adapters/payments-client";
+import { createAppPaymentsClient } from "../../adapters/simulated-payments-client";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
@@ -34,7 +35,7 @@ export function buildFundingService(
   return createFundingService({
     repository: createShipmentRepository(app.db),
     usersClient: opts.usersClient ?? createUsersClient(app.config),
-    paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
+    paymentsClient: opts.paymentsClient ?? createAppPaymentsClient(app),
     notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),
     offerRepository: createOfferRepository(app.db),
     logger: app.log,
@@ -45,6 +46,7 @@ export function buildFundingService(
       paymentTimeoutMinutes: app.config.FUNDING_PAYMENT_TIMEOUT_MINUTES,
       releaseHoursBeforePickup: app.config.FUNDING_RELEASE_HOURS_BEFORE_PICKUP,
       reminderIntervalHours: app.config.FUNDING_REMINDER_INTERVAL_HOURS,
+      allowSimulatedPayments: app.config.ALLOW_SIMULATED_PAYMENTS,
     },
   });
 }

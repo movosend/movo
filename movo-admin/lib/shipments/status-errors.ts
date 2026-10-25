@@ -10,6 +10,10 @@ const BY_CODE: Record<string, string> = {
   TRANSITION_NOT_ALLOWED: "Esta transición no está permitida.",
   HOLD_NOT_AUTHORIZED:
     "Mercado Pago no tiene el hold autorizado para este envío, así que no se puede dar por asignado. Verificalo antes de reintentar.",
+  PAYMENT_SIMULATION_DISABLED:
+    'El pago simulado no está habilitado en este entorno. Destildá "Simular el pago" o pedí que se habilite.',
+  HOLD_ALREADY_EXISTS:
+    'El envío ya tiene un hold en Mercado Pago, así que no se puede simular el pago. Destildá "Simular el pago" y confirmalo normal.',
   ADMIN_CONFLICT_OF_INTEREST:
     "Sos parte de este envío (emisor, transportista o receptor), así que no podés cambiarle el estado. Pedile a otro admin que lo haga.",
   STEP_UP_INVALID:
