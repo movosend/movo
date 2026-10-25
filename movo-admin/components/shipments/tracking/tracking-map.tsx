@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
+import "maplibre-gl/dist/maplibre-gl.css"
+import { maplibreGL } from "@maplibre/maplibre-gl-leaflet"
 import {
   boundsOf,
   decodePolyline,
@@ -12,7 +14,8 @@ import {
 } from "@/lib/shipments/tracking/geometry"
 import {
   TILE_ATTRIBUTION,
-  tileUrl,
+  basemapStyleUrl,
+  withArcgisToken,
   type MapTheme,
 } from "@/lib/shipments/tracking/tiles"
 import type { AdminShipmentTracking } from "@/lib/shipments/tracking/types"
@@ -76,7 +79,7 @@ interface Props {
 export default function TrackingMap({ tracking, follow, theme }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
-  const tilesRef = useRef<L.TileLayer | null>(null)
+  const tilesRef = useRef<L.MaplibreGL | null>(null)
   const layersRef = useRef<Layers | null>(null)
   const fittedFor = useRef<string | null>(null)
   const routeProgress = useRef<{
@@ -118,12 +121,17 @@ export default function TrackingMap({ tracking, follow, theme }: Props) {
     if (!map) return
     tilesRef.current?.remove()
     tilesRef.current = null
-    const url = tileUrl(theme, process.env.NEXT_PUBLIC_ESRI_API_KEY)
-    if (url)
-      tilesRef.current = L.tileLayer(url, {
-        attribution: TILE_ATTRIBUTION,
-        maxZoom: 16,
-      }).addTo(map)
+    const apiKey = process.env.NEXT_PUBLIC_ESRI_API_KEY
+    const style = basemapStyleUrl(theme, apiKey)
+    if (style && apiKey) {
+      const layer = maplibreGL({
+        style,
+        transformRequest: withArcgisToken(apiKey),
+      })
+      // Las opciones tipadas del plugin no incluyen `attribution`, pero Leaflet la lee de `options`.
+      layer.options.attribution = TILE_ATTRIBUTION
+      tilesRef.current = layer.addTo(map)
+    }
   }, [theme])
 
   useEffect(() => {
