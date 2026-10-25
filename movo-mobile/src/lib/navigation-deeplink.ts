@@ -8,7 +8,7 @@ export interface NavigationTarget {
 type NavigationPlatform = "ios" | "android";
 
 /**
- * URLs candidatas para navegar hasta una parada (MOVO-237, ADR-033), en el orden de
+ * URLs candidatas para navegar hasta una parada (MOVO-237, DD-033), en el orden de
  * fallback del AC2: Google Maps nativo → Waze → Google Maps web. La navegación real la
  * resuelve la app externa, así que esto nunca llama a Compute Routes ni al Navigation
  * SDK (AC3) — es la razón por la que el modo `live` del `RoutesProvider` de

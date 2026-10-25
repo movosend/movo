@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createServer, Server, IncomingMessage } from "node:http";
 import { FastifyInstance } from "fastify";
 import { WebSocketServer } from "ws";
 import WebSocket from "ws";
-import { signAccessToken, UserRole, KycStatus } from "@movo/shared";
+import { signAccessToken, UserRole, KycStatus, SUPPORT_WS_PROTOCOL } from "@movo/shared";
 import { buildApp } from "../src/app";
 
 /**
@@ -65,7 +65,16 @@ describe("Proxy de WebSocket hacia /shipments (MOVO-201)", () => {
     gatewayBaseUrl = `ws://127.0.0.1:${gatewayAddress.port}`;
   });
 
+  /** El límite propio del WS del panel (20/min por IP) vive en Redis: cada test arranca con el contador limpio. */
+  async function resetSupportWsLimit() {
+    const keys = await app.redis.keys("*GET /admin/support/ws*");
+    if (keys.length > 0) await app.redis.del(...keys);
+  }
+
+  beforeEach(resetSupportWsLimit);
+
   afterAll(async () => {
+    await resetSupportWsLimit();
     await app.close();
     upstreamWss.close();
     upstream.close();
@@ -126,6 +135,58 @@ describe("Proxy de WebSocket hacia /shipments (MOVO-201)", () => {
 
     ws.close();
     await new Promise((resolve) => ws.once("close", resolve));
+  });
+
+  it("MOVO-322: el WebSocket del panel entra sin JWT y llega al upstream con el subprotocolo completo y el origin", async () => {
+    const ticket = "t".repeat(43);
+    const ws = new WebSocket(`${gatewayBaseUrl}/api/v1/admin/support/ws`, [SUPPORT_WS_PROTOCOL, ticket], {
+      headers: { origin: "https://admin.movosend.app", "x-ws-protocols": "falsificado" },
+    });
+
+    const message = await new Promise<unknown>((resolve, reject) => {
+      ws.once("message", (data: Buffer) => resolve(JSON.parse(data.toString())));
+      ws.once("error", reject);
+      ws.once("unexpected-response", (_req, res) => reject(new Error(`unexpected-response: ${res.statusCode}`)));
+    });
+
+    expect(message).toEqual({ type: "connected" });
+    expect(capturedUrl).toBe("/admin/support/ws");
+    // El gateway le responde al navegador solo el primer subprotocolo, nunca el ticket.
+    expect(ws.protocol).toBe(SUPPORT_WS_PROTOCOL);
+    expect(capturedHeaders["x-ws-protocols"]).toBe(`${SUPPORT_WS_PROTOCOL},${ticket}`);
+    expect(capturedHeaders["origin"]).toBe("https://admin.movosend.app");
+    expect(capturedHeaders["x-user-id"]).toBeUndefined();
+
+    ws.close();
+    await new Promise((resolve) => ws.once("close", resolve));
+  });
+
+  it("MOVO-322: sin ticket el upgrade del panel se rechaza antes de abrirse", async () => {
+    for (const protocols of [[SUPPORT_WS_PROTOCOL], ["otro", "t".repeat(43)]]) {
+      const ws = new WebSocket(`${gatewayBaseUrl}/api/v1/admin/support/ws`, protocols);
+      const status = await new Promise<number | null>((resolve) => {
+        ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? null));
+        ws.once("open", () => resolve(null));
+        ws.once("error", () => resolve(-1));
+      });
+      expect(status).toBe(401);
+    }
+  });
+
+  it("MOVO-322: el WebSocket del panel tiene un límite propio de 20 intentos por minuto, con ticket o sin él", async () => {
+    const statuses: Array<number | null> = [];
+    for (let i = 0; i < 21; i++) {
+      const ws = new WebSocket(`${gatewayBaseUrl}/api/v1/admin/support/ws`, [SUPPORT_WS_PROTOCOL]);
+      statuses.push(
+        await new Promise<number | null>((resolve) => {
+          ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? null));
+          ws.once("open", () => resolve(null));
+          ws.once("error", () => resolve(-1));
+        })
+      );
+    }
+    expect(statuses.slice(0, 20).every((status) => status === 401)).toBe(true);
+    expect(statuses[20]).toBe(429);
   });
 
   it("una conexión sin token no propaga x-user-* (preHandler la corta antes del upgrade)", async () => {

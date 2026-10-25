@@ -30,6 +30,13 @@ export interface AuditRepository {
   insert(entry: NewAuditLogEntry): Promise<AuditLogEntry>;
   /** Del más reciente al más viejo, keyset sobre `(createdAt, id)`. */
   list(filters: AuditLogFilters, limit: number, cursor?: AuditLogCursor): Promise<AuditLogEntry[]>;
+  /**
+   * MOVO-299: filas de las acciones `actions` sobre el usuario cuyo `context.sanctionId` es uno de
+   * `sanctionIds`, de la más reciente a la más vieja. Para saber cómo quedó el retiro de cada sanción.
+   * Sin límite a propósito: el retiro suma todos los intentos, y el volumen lo acota `targetId` (pocas
+   * sanciones por usuario, uno o dos intentos por sanción). No reusar para listados de otro volumen.
+   */
+  listBySanction(userId: string, sanctionIds: string[], actions: readonly string[]): Promise<AuditLogEntry[]>;
 }
 
 function toEntry(row: AuditLogRow): AuditLogEntry {
@@ -88,6 +95,20 @@ export function createAuditRepository(db: PrismaClient): AuditRepository {
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: limit,
+      });
+      return rows.map(toEntry);
+    },
+
+    async listBySanction(userId, sanctionIds, actions) {
+      if (sanctionIds.length === 0) return [];
+      const rows = await db.auditLog.findMany({
+        where: {
+          targetType: "user",
+          targetId: userId,
+          action: { in: [...actions] },
+          OR: sanctionIds.map((sanctionId) => ({ context: { path: ["sanctionId"], equals: sanctionId } })),
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       });
       return rows.map(toEntry);
     },

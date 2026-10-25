@@ -1,4 +1,6 @@
 import {
+  AccountSanction,
+  AdminApplySanctionBody,
   AdminCandidate,
   AdminContactUpdateBody,
   AdminContactUpdateResult,
@@ -10,10 +12,9 @@ import {
   AdminUserKyc,
   AdminUserListItem,
   AdminUserModeration,
-  AdminUserNames,
+  AdminUserNameRef,
   AdminUserPage,
   AdminUserProfile,
-  AdminUserRef,
   AdminUserVehicle,
   StepUpChallenge,
   StepUpRequest,
@@ -53,7 +54,8 @@ export interface UsersClient extends InternalClient {
   getUserModeration(userId: string, ctx: RequestContext): Promise<AdminUserModeration>;
   getUserDevices(userId: string, ctx: RequestContext): Promise<AdminUserDevices>;
   /** Nombres de los ids que existen; los demás no vuelven. */
-  getUserNames(userIds: string[], ctx: RequestContext): Promise<AdminUserRef[]>;
+  /** Con los roles de la cuenta (MOVO-322: la bandeja de soporte distingue transportistas). */
+  getUserNames(userIds: string[], ctx: RequestContext): Promise<AdminUserNameRef[]>;
   revokeUserSessions(userId: string, actorId: string, ctx: RequestContext): Promise<AdminSessionsRevokeResult>;
   updateUserContact(
     userId: string,
@@ -67,7 +69,17 @@ export interface UsersClient extends InternalClient {
    */
   getPartyCards(userIds: string[], ctx: RequestContext): Promise<PartyCard[]>;
 
-  // MOVO-332 (ADR-055): segundo factor por acción del cambio de estado de un envío.
+  // MOVO-299 sobre los internos de MOVO-296 (`/internal/users/:id/sanctions`). 404 `USER_NOT_FOUND` como `ApiError`.
+  /** Historial, de la más reciente a la más vieja. */
+  listSanctions(userId: string, ctx: RequestContext): Promise<AccountSanction[]>;
+  /** 409 `ACCOUNT_ALREADY_DISABLED` si ya estaba inhabilitada. Reemplaza o escala la sanción vigente. */
+  applySanction(userId: string, body: AdminApplySanctionBody, actorId: string, ctx: RequestContext): Promise<AccountSanction>;
+  /**
+   * 409 `SANCTION_ALREADY_CLOSED`. Un 404 se informa como `SANCTION_NOT_FOUND`: quien llama ya
+   * comprobó que el usuario existe al leer el historial.
+   */
+  liftSanction(userId: string, sanctionId: string, reason: string, actorId: string, ctx: RequestContext): Promise<AccountSanction>;
+  // MOVO-332 (DD-055): segundo factor por acción del cambio de estado de un envío.
   /** `POST /internal/admin/step-up/request`: manda el código al email del admin, atado a (envío, destino). */
   requestStepUp(adminId: string, body: StepUpRequest, ctx: RequestContext): Promise<StepUpChallenge>;
   /** `POST /internal/admin/step-up/verify`: canjea el código por un `stepUpToken` de un solo uso. 401 `STEP_UP_INVALID`. */
@@ -81,7 +93,6 @@ export interface UsersClient extends InternalClient {
 const isNumber = (value: unknown): value is number => typeof value === "number";
 const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
 const isArrayOf = <T>(value: unknown, guard: (item: unknown) => item is T): value is T[] => Array.isArray(value) && value.every(guard);
-const isUserRef = (value: unknown): value is AdminUserRef => isRecord(value) && isString(value.id) && isString(value.fullName);
 
 const isListItem = (value: unknown): value is AdminUserListItem =>
   isRecord(value) && isString(value.id) && isString(value.fullName) && isString(value.email) && isStringArray(value.roles) && isString(value.accountStatus);
@@ -118,7 +129,14 @@ const isModeration = (body: unknown): body is AdminUserModeration =>
 const isDevices = (body: unknown): body is AdminUserDevices =>
   isRecord(body) && Array.isArray(body.devices) && (body.handshakeKey === null || isRecord(body.handshakeKey));
 
-const isNames = (body: unknown): body is AdminUserNames => isRecord(body) && isArrayOf(body.users, isUserRef);
+// `roles` llegó con MOVO-322: una versión de svc-users que todavía no lo manda (deploy en serie) no es una respuesta
+// inválida, sino una sin roles; el cliente lo completa con `[]`.
+type WireNameRef = Omit<AdminUserNameRef, "roles"> & { roles?: string[] };
+const isNameRef = (value: unknown): value is WireNameRef =>
+  isRecord(value) && isString(value.id) && isString(value.fullName) && (value.roles === undefined || isStringArray(value.roles));
+const isNames = (body: unknown): body is { users: WireNameRef[] } => isRecord(body) && isArrayOf(body.users, isNameRef);
+/** Tope de `POST /internal/admin/users/names` (el `maxItems` del schema de `svc-users`). */
+export const USER_NAMES_MAX_IDS = 200;
 
 const isStepUpChallenge = (body: unknown): body is StepUpChallenge =>
   isRecord(body) &&
@@ -185,6 +203,23 @@ const isAdminCandidateList = (body: unknown): body is AdminCandidate[] => Array.
 const isAdminSummaryList = (body: unknown): body is AdminSummary[] => Array.isArray(body) && body.every(isAdminSummary);
 
 const isNoContent = (body: unknown): body is undefined => body === undefined;
+
+const isSanction = (body: unknown): body is AccountSanction =>
+  isRecord(body) &&
+  isString(body.id) &&
+  isString(body.userId) &&
+  (body.type === "suspension" || body.type === "disable") &&
+  isString(body.reason) &&
+  isNullableString(body.internalNote) &&
+  isString(body.startedAt) &&
+  isNullableString(body.endsAt) &&
+  isNullableString(body.appliedBy) &&
+  isNullableString(body.liftedAt) &&
+  isNullableString(body.liftedBy) &&
+  isNullableString(body.liftReason) &&
+  isNullableString(body.closedCause);
+
+const isSanctionList = (body: unknown): body is AccountSanction[] => Array.isArray(body) && body.every(isSanction);
 
 export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersClient {
   const client = createInternalClient({
@@ -260,14 +295,21 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
 
     async getUserNames(userIds, ctx) {
       const ids = [...new Set(userIds)];
-      if (ids.length === 0) return [];
-      const result = await client.request("/internal/admin/users/names", ctx, {
-        method: "POST",
-        body: { ids },
-        isValid: isNames,
-        notFoundCodes: [],
-      });
-      return result?.users ?? [];
+      // `svc-users` acepta hasta 200 ids por pedido (`maxItems`); un lote más grande (p. ej. `GET /admin/support/events`)
+      // se parte, si no el 400 dejaría todo el lote sin nombres.
+      const chunks: string[][] = [];
+      for (let i = 0; i < ids.length; i += USER_NAMES_MAX_IDS) chunks.push(ids.slice(i, i + USER_NAMES_MAX_IDS));
+      const results = await Promise.all(
+        chunks.map((chunk) =>
+          client.request("/internal/admin/users/names", ctx, {
+            method: "POST",
+            body: { ids: chunk },
+            isValid: isNames,
+            notFoundCodes: [],
+          })
+        )
+      );
+      return results.flatMap((result) => (result?.users ?? []).map((user) => ({ id: user.id, fullName: user.fullName, roles: user.roles ?? [] })));
     },
 
     async requestStepUp(adminId, body, ctx) {
@@ -330,6 +372,34 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
       });
       return orNotFound(result, "USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE);
     },
+
+    async listSanctions(userId, ctx) {
+      const result = await client.request(sanctionsPath(userId), ctx, { isValid: isSanctionList, notFoundCodes: ["USER_NOT_FOUND"] });
+      return orNotFound(result, "USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE);
+    },
+
+    async applySanction(userId, body, actorId, ctx) {
+      const result = await client.request(sanctionsPath(userId), ctx, {
+        method: "POST",
+        body,
+        actorId,
+        isValid: isSanction,
+        notFoundCodes: ["USER_NOT_FOUND"],
+      });
+      return orNotFound(result, "USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE);
+    },
+
+    async liftSanction(userId, sanctionId, reason, actorId, ctx) {
+      const result = await client.request(`${sanctionsPath(userId)}/${encodeURIComponent(sanctionId)}/lift`, ctx, {
+        method: "POST",
+        body: { reason },
+        actorId,
+        isValid: isSanction,
+        notFoundCodes: ["USER_NOT_FOUND", "SANCTION_NOT_FOUND"],
+      });
+      if (result === null) throw new ApiError(404, "SANCTION_NOT_FOUND", "La sanción no existe.");
+      return result;
+    },
   };
 
   async function userSection<T>(userId: string, section: string, ctx: RequestContext, isValid: (body: unknown) => body is T): Promise<T> {
@@ -340,3 +410,4 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
 
 const USER_NOT_FOUND_MESSAGE = "Usuario no encontrado.";
 const userPath = (userId: string) => `/internal/admin/users/${encodeURIComponent(userId)}`;
+const sanctionsPath = (userId: string) => `/internal/users/${encodeURIComponent(userId)}/sanctions`;

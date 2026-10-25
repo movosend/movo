@@ -216,8 +216,9 @@ MOVO-322 (API) y MOVO-321 (adjuntos), que los tienen anexados en su descripción
   falla, queda "No se envió" con Reintentar (mismo id, así no se duplica). `gateway()` suma `PATCH`.
 - **Tiempo real** (`lib/support/realtime/feed.ts`, `components/support/support-provider.tsx`): una conexión por pestaña para todo el panel,
   pedida por `AdminShell`. WS con ticket de un solo uso (Server Action `requestRealtimeTicket`, subprotocolo `movo-support.v1`), reconexión con
-  backoff y jitter, y polling de respaldo tras 3 fallos; al recuperar la conexión emite `resync` y lista/conversación se vuelven a pedir.
-  Alimenta el badge del menú y los toasts "Nueva consulta de …". **El WS real no existe todavía** (MOVO-322): con el mock, `mock://support`
+  backoff y jitter, y polling de respaldo tras 3 fallos; en cada apertura del socket (también la primera, MOVO-322) emite `resync` y
+  lista/conversación se vuelven a pedir.
+  Alimenta el badge del menú y los toasts "Nueva consulta de …". El WS real lo sirve `svc-admin` (MOVO-322); con el mock, `mock://support`
   simula el socket leyendo `/api/support/events`.
 - **Conflicto de interés**: una consulta cuyo usuario es el admin se abre ya bloqueada; un `403 ADMIN_CONFLICT_OF_INTEREST` al enviar o
   modificar hace lo mismo. Sin calificación de la atención (se omitió la tarjeta de estrellas del prototipo).
@@ -260,7 +261,7 @@ cambio de estado (MOVO-333). Contrato de MOVO-325 (`shared/movo-shared/src/types
   Las calles van en la segunda línea desde 1320 px. Ese corte se escribe en rem (`min-[82.5rem]`): Tailwind no ordena un
   `min-[…px]` contra `md` (rem) y el `md:` le ganaba a la grilla de 6 columnas.
 - **Código del envío**: `shipmentDisplayCode(id)` (`lib/shipments/format.ts`) = `#MOVO-` + últimos 5 dígitos del id, igual que `activeShipmentDisplayCode` de la app. Solo para mostrar: el `code` del contrato (8 hex) ya no se dibuja y la búsqueda del listado sigue por id. El aviso de fila va dentro de la celda Ruta, no en una franja aparte.
-- **Fotos de perfil**: todo avatar de persona pasa por `UserAvatar` (foto pública de S3, ADR-016; iniciales si no hay o no carga). Listado de usuarios, partes del detalle y chat del envío (las fotos salen de la ficha de partes ya cargada) usan el `photoUrl` que ya viajaba. Reportes y bloqueos de un usuario no lo traían: `AdminUserRefWithPhoto` en `@movo/shared`, `svc-users` y el schema de `svc-admin`. Siguen con iniciales, porque su contrato no trae foto: lista, hilo y ficha de soporte (`svc-shipments`) y el listado de envíos (solo texto).
+- **Fotos de perfil**: todo avatar de persona pasa por `UserAvatar` (foto pública de S3, DD-016; iniciales si no hay o no carga). Listado de usuarios, partes del detalle y chat del envío (las fotos salen de la ficha de partes ya cargada) usan el `photoUrl` que ya viajaba. Reportes y bloqueos de un usuario no lo traían: `AdminUserRefWithPhoto` en `@movo/shared`, `svc-users` y el schema de `svc-admin`. Siguen con iniciales, porque su contrato no trae foto: lista, hilo y ficha de soporte (`svc-shipments`) y el listado de envíos (solo texto).
 - `shipmentHref()` (`lib/support/shipment-href.ts`) ya linkea al detalle, también desde Actividad de la ficha de usuario.
 - **Modo fixtures**: `MOVO_ADMIN_MOCK=1` usa `lib/shipments/{mock,fixtures}.ts` (los envíos del prototipo más 40 cerrados para
   paginar). `MOVO_ADMIN_MOCK_FAIL=list,events,payment,parties,chat` (con `!` falla siempre).
@@ -288,9 +289,13 @@ ahora en `lib/shipments/tracking/copy.ts`).
 - **Estados sin seguimiento en vivo** (`copy.ts`): el mapa se dibuja siempre, como en el prototipo, con retiro/entrega y la ruta original
   completa (punteada); si hay traza (cerrado/disputa) se suma como tramo recorrido. Debajo, en lugar de las métricas, el mensaje:
   "Todavía no arrancó", "Seguimiento cerrado", "Seguimiento cortado", "Sin seguimiento" (+ "La traza GPS ya fue purgada.").
-- **Teselas**: ArcGIS Location Platform (gris claro/oscuro, `lib/shipments/tracking/tiles.ts`) con `NEXT_PUBLIC_ESRI_API_KEY`, restringida por
-  referrer; reemplaza al `server.arcgisonline.com` público del prototipo, cuyos términos no cubren un panel productivo (AC8). Sin key el
-  mapa se dibuja sin teselas. **Pendiente**: crear la key y cargarla en Vercel (dev y prod).
+- **Teselas**: Basemap Styles Service de ArcGIS Location Platform (vectorial, `arcgis/light-gray` y `arcgis/dark-gray`) sobre Leaflet con
+  `@maplibre/maplibre-gl-leaflet` (`lib/shipments/tracking/tiles.ts`) y `NEXT_PUBLIC_ESRI_API_KEY`, restringida por referrer
+  (`admin.movosend.app`, `admin-dev.movosend.app`); reemplaza al `server.arcgisonline.com` público del prototipo, cuyos términos no cubren un
+  panel productivo (AC8). La key se suma a cada request a `*.arcgis.com` con `transformRequest`. Sin key el mapa se dibuja sin teselas.
+  Dos trampas que ya nos pasaron: las capas `Canvas/*` de `ibasemaps-api` devuelven 404 (no existen ahí), y `Referrer-Policy: same-origin`
+  hacía que ArcGIS respondiera 498 porque el navegador no mandaba Referer; `next.config.ts` usa `strict-origin-when-cross-origin`.
+  La variable se inyecta al compilar: cargarla en Vercel (dev y prod) exige redeploy.
 - **Modo fixtures** (`MOVO_ADMIN_MOCK=1`): ocho envíos de prueba (ids propios, no coinciden con los del listado de MOVO-326, así que en el detalle mock el mapa muestra el error 404), `00000000-0000-4000-8000-00000000000{1..8}` (`MOCK_TRACKING_IDS`: en camino,
   sin señal, sin arrancar, sin fondos, entregado, disputa, sin transportista, traza purgada); el que está en camino se mueve entre lecturas.
 - **Tokens nuevos** en `globals.css`: `--map-bg`, `--glass`, `--track-done`, `--track-todo` y las clases `.mv-track-*`.
@@ -322,6 +327,13 @@ el evento de aceptación de la línea de tiempo.
 
 Pendiente: revisar a mano en claro/oscuro y contra dev con un envío real con varias ofertas.
 
+## MOVO-299 — Sanciones desde la ficha (DD-049)
+
+Menú "Acciones" → Suspender, Inhabilitar y Levantar (`components/users/actions/sanction-dialog.tsx`, `lift-dialog.tsx`). Suspender e
+inhabilitar confirman con la vista previa de lo que se retira; inhabilitar con envíos en curso no llega a confirmar (lista los envíos y
+sugiere suspender). Una respuesta sin confirmar (5xx) cierra la confirmación y manda a revisar la ficha: reintentar abriría otra sanción.
+El banner y la sección ofrecen "Reintentar el retiro" si quedó parcial, fallido o sin registrar (`needsWithdrawalRetry`).
+
 ## MOVO-333 — Modal de cambio de estado del envío
 
 Botón "Cambiar estado" en el encabezado del detalle (`/shipments/[id]`) y modal de tres pasos (Nuevo estado / Impacto /
@@ -348,7 +360,7 @@ Confirmación) del prototipo `Movo Admin Envios.dc.html`. Código en `components
 - **Resultado**: el modal se cierra, la acción revalida el detalle (estado y línea de tiempo) y `StatusChangeNotice` muestra "#MOVO-… pasó a ….
   Quedó en la línea de tiempo y en la bitácora. Avisamos a: …". La línea de tiempo (`buildTimeline`) dibuja los eventos de admin con escudo
   (`ShieldCheck` manual, `ShieldAlert` forzado), "Estado cambiado/forzado a …", el nombre del admin y el motivo.
-- **Simular el pago** (ADR-055): en el paso 3, con destino `assigned`, un check extra "Simular el pago" manda `simulatePayment: true`
+- **Simular el pago** (DD-055): en el paso 3, con destino `assigned`, un check extra "Simular el pago" manda `simulatePayment: true`
   (asigna sin hold de Mercado Pago; el envío no se cobra). Lo habilita `ALLOW_SIMULATED_PAYMENTS` en `svc-shipments`; apagado, el
   backend responde `PAYMENT_SIMULATION_DISABLED`. Se destilda solo al cambiar de destino.
 

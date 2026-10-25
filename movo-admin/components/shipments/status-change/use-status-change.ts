@@ -38,7 +38,7 @@ interface State {
   typed: string
   code: string
   ack: boolean
-  /** ADR-055: asignar sin hold real de Mercado Pago (el envío queda sin cobro). Solo con destino `assigned`. */
+  /** DD-055: asignar sin hold real de Mercado Pago (el envío queda sin cobro). Solo con destino `assigned`. */
   simulatePayment: boolean
   challenge: StepUpChallenge | null
   /** Hasta cuándo no se puede pedir otro código (epoch ms). */

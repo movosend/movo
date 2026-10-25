@@ -120,14 +120,14 @@ export function getServiceRoutes(env: {
       prefix: "/receiver-transfers",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
-    // MOVO-334 (ADR-054): expediente y descargos de una disputa. Abrirla cuelga de /shipments.
+    // MOVO-334 (DD-054): expediente y descargos de una disputa. Abrirla cuelga de /shipments.
     // Protegido por defecto; sin `allowedRoles` (también la abre o contesta un receptor).
     {
       prefix: "/disputes",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
 
-    // MOVO-320 (ADR-051): consultas del usuario a soporte (crear, listar, historial, escribir, leído) y su canal
+    // MOVO-320 (DD-051): consultas del usuario a soporte (crear, listar, historial, escribir, leído) y su canal
     // WebSocket (`GET /support/conversations/:id`, un upgrade). Protegido por defecto y sin `allowedRoles`: pedir
     // ayuda no depende de ser emisor o transportista (un receptor también escribe). El agente NO entra por acá:
     // usa `/admin/support/*`.
@@ -148,10 +148,14 @@ export function getServiceRoutes(env: {
 
     // admin service (MOVO-288). Solo el panel: el rol admin entra al JWT
     // únicamente en una sesión de panel (MOVO-287), nunca en la de la app.
+    // MOVO-322: también el WebSocket de la bandeja de soporte (`GET /admin/support/ws`, un upgrade), que es la
+    // única ruta pública del prefijo: el navegador no tiene el JWT (cookies httpOnly del panel), así que se
+    // autentica con un ticket de un solo uso en el subprotocolo que valida svc-admin.
     {
       prefix: "/admin",
       upstream: env.ADMIN_SERVICE_URL,
       allowedRoles: [UserRole.ADMIN],
+      websocket: true,
     },
 
     // pricing-logistics service (futuro)
@@ -318,6 +322,12 @@ export function getPublicRoutes(): PublicRoute[] {
       path: "/payments/webhooks/mercadopago",
       rateLimit: { max: 300, timeWindow: "1 minute" },
     },
+    // MOVO-322: WebSocket de la bandeja de soporte del panel. Sin JWT (el navegador no puede mandarlo en un
+    // WebSocket): lo autentica svc-admin con el ticket de un solo uso del subprotocolo (`movo-support.v1`,
+    // `<ticket>`), que pidió el servidor del panel con la sesión de admin. El gateway solo rechaza el upgrade
+    // que ni siquiera trae un ticket (`routes/index.ts`). Límite propio y estricto: cada intento abre un
+    // WebSocket hacia svc-admin y gasta un `GETDEL`, y un panel legítimo conecta una vez por ticket.
+    { method: "GET", path: "/admin/support/ws", rateLimit: { max: 20, timeWindow: "1 minute" } },
   ];
 }
 
@@ -399,7 +409,7 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       path: "/users/me/email/change/otp",
       rateLimit: { max: 5, timeWindow: "15 minutes" },
     },
-    // MOVO-139: mismo criterio, ahora sobre mails reales por Resend (ADR-017) -- la
+    // MOVO-139: mismo criterio, ahora sobre mails reales por Resend (ADR-016) -- la
     // cuota del free tier (3k/mes) y la reputación del dominio son el recurso a
     // proteger. `/me/email/verify/otp` no recibe body (el target es el email de la
     // propia cuenta), así que su cooldown por target sí frena a un caller repetido;

@@ -103,7 +103,7 @@ de intentos en `kyc_verification`). Insignia `license_verified` cableada. Pantal
 usa la sesión real vía el interceptor de MOVO-76) — ver
 `movo-mobile/HISTORIAL.md`.
 
-### MOVO-97 — Foto de perfil: S3 + presigned URLs (ADR-007, ADR-016)
+### MOVO-97 — Foto de perfil: S3 + presigned URLs (ADR-007, DD-016)
 
 `StorageProvider` (interfaz + `S3StorageProvider`/`MockStorageProvider`). La
 presigned URL firma también `content-type`/`content-length` (el cliente tiene que
@@ -205,7 +205,7 @@ Decisiones clave:
   verifica la identidad del dueño de la cuenta mandando el OTP a su teléfono ya
   verificado. El email candidato viaja en Redis atado al `otpId`
   (`pending-email-repository.ts`, mismo TTL que el OTP) hasta que el verify lo
-  persiste. **Corregido por MOVO-139** (ADR-017): con `EmailProvider` en el proyecto, el
+  persiste. **Corregido por MOVO-139** (ADR-016): con `EmailProvider` en el proyecto, el
   OTP pasó a ir al email nuevo y el aviso al email anterior existe — ver la entrada de
   esa US más abajo. No revoca sesiones (el email no es credencial de sesión, a
   diferencia de la contraseña — ver ticket hermano MOVO-134).
@@ -323,7 +323,7 @@ Decisiones clave:
   ticket, no revisada en el refinamiento de MOVO-134): purga diferida necesitaría un
   job programado que hoy no existe en el proyecto.
 - **Limitación aceptada**: no se manda ningún mail de "tu contraseña cambió" ni de
-  confirmación de baja. MOVO-139 ya construyó el `EmailProvider` (ADR-017), así que hoy
+  confirmación de baja. MOVO-139 ya construyó el `EmailProvider` (ADR-016), así que hoy
   es solo cuestión de cablear esos dos avisos — no estaba en el alcance de esa US.
 
 Tests: `test/users.account-settings.integration.test.ts` (19 casos) +
@@ -437,7 +437,7 @@ la carrera es el valor que el otro escribió, nunca el original) +
 (dos `PUT /users/me/photo` concurrentes con objectKeys B/C distintos, ninguno queda
 huérfano en S3). Suite completa 437/437, `tsc --noEmit` y `eslint` limpios.
 
-### MOVO-139 — `EmailProvider` (Resend) y verificación de email por OTP (ADR-017)
+### MOVO-139 — `EmailProvider` (Resend) y verificación de email por OTP (ADR-016)
 
 Primer canal de email del proyecto. Cierra la limitación que MOVO-133/MOVO-134 dejaron
 documentada ("sin `EmailProvider` no se puede notificar al email anterior") y es
@@ -706,7 +706,7 @@ Pendiente / fuera de alcance: consumo desde `movo-mobile` documentado en su prop
 
 ### MOVO-202 (lado `svc-users`) — `deleteAccount` extiende la supresión a la traza GPS
 
-Detalle completo (retención, purga, ADR-023) en `services/movo-svc-shipments/
+Detalle completo (retención, purga, DD-023) en `services/movo-svc-shipments/
 CLAUDE.md`. Acá solo lo que cambió de este lado: `shipmentsClient.
 deleteCarrierPositions(userId)` nuevo en `shipments-client.ts`, llamado desde
 `users.service.ts#deleteAccount` DESPUÉS de la `$transaction` local de anonimización —
@@ -724,9 +724,9 @@ traza más tarde si esto falla.
   Maps (server-side `GOOGLE_MAPS_API_KEY` compartida entre `svc-users`/futuros
   consumidores), Telegram bot (`SMS_PROVIDER=telegram`, solo dev),
   `STORAGE_PROVIDER=s3` + bucket/region de MOVO-97, Resend (`EMAIL_PROVIDER=resend` +
-  `RESEND_API_KEY`/`EMAIL_FROM`, ADR-017 — falta además verificar el dominio de envío en
+  `RESEND_API_KEY`/`EMAIL_FROM`, ADR-016 — falta además verificar el dominio de envío en
   Resend y sus registros SPF/DKIM por Terraform).
-- **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/ADR-016) aplicado
+- **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/DD-016) aplicado
   en dev, `terraform apply` de prod pendiente.
 - Mobile de MOVO-120 no genera/envía todavía un `sessionToken` de Places — ver
   `movo-mobile/HISTORIAL.md`.
@@ -1068,7 +1068,7 @@ necesario fue declarar `categories` en `reputationBreakdown` de `users.schema.ts
 sin eso el serializador de Fastify lo descarta en silencio y nunca llega al cliente
 (el test nuevo de `users.reputation.integration.test.ts` falla sin ese campo).
 
-### MOVO-175 — Reportar y bloquear usuarios (ADR-026)
+### MOVO-175 — Reportar y bloquear usuarios (DD-026)
 
 Módulo nuevo `src/modules/moderation/` + `moderation-repository.ts`, tablas
 `user_blocks`/`user_reports` (migración a mano, `prisma migrate diff` datamodel→datamodel
@@ -1113,7 +1113,7 @@ service exige texto o al menos una foto). `POST /users/:id/report/photos/presign
 reporte y las entradas reciben `photoKeys` (hasta 4, `MAX_REPORT_PHOTOS_PER_SUBMISSION` de
 `@movo/shared`, el número del mockup de diseño) y el `GET` devuelve una presigned GET por foto
 (`StorageProvider.createDownloadUrl`, nuevo en este servicio, mismo contrato que en
-`svc-shipments`). Nunca públicas como `profile-photos/*` (ADR-016).
+`svc-shipments`). Nunca públicas como `profile-photos/*` (DD-016).
 
 - **Asociar una key toma el mismo lock por key que el sweep de huérfanas**
   (`reportPhotoLockKey`) antes de validar prefijo propio + `headObject` + que no esté ya en
@@ -1211,11 +1211,11 @@ máquina donde se desarrolló (la contraseña del Postgres local estaba desfasad
 
 Endpoint interno (`src/modules/kyc/kyc-internal.routes.ts`, `schema.hide: true`, sin ruta en el
 gateway) que devuelve `{ kycStatusIdentity, kycStatusLicense }` crudos para el bloqueo del
-transportista de `svc-shipments` (ADR-036). Más liviano que `GET /users/:id`, que además pide
+transportista de `svc-shipments` (DD-036). Más liviano que `GET /users/:id`, que además pide
 la reputación a `svc-shipments`. 404 `USER_NOT_FOUND` si no existe o está `deleted` (mismo
 criterio que MOVO-77). Test: `test/kyc.internal-status.integration.test.ts`.
 
-**MOVO-265 (ADR-042)**: la respuesta suma `accountStatus` y `bannedUntil` (ISO o `null`), así
+**MOVO-265 (DD-042)**: la respuesta suma `accountStatus` y `bannedUntil` (ISO o `null`), así
 `svc-shipments` corta la serie de viajes recurrentes de una cuenta suspendida. `deleted` sigue
 siendo 404. Los dos campos son opcionales en `CarrierKycStatusResponse` para que un
 `svc-shipments` nuevo tolere este servicio sin actualizar durante el deploy.
@@ -1286,7 +1286,7 @@ Interno (en `internalModerationRoutes`, `hide: true`, sin ruta en el gateway): d
 rotación y comparte su respuesta cifrada por 10 segundos con la misma clave/token.
 Revalida elegibilidad, expiración y revocación; logout invalida la publicación y su hijo.
 Otras claves, solicitudes sin clave y fuera de ventana conservan detección de reuso;
-una rotación incompleta falla cerrado. Política y límites: `docs/auth/adr-043-refresh-idempotente-panel.md`.
+una rotación incompleta falla cerrado. Política y límites: `docs/auth/dd-043-refresh-idempotente-panel.md`.
 
 ### MOVO-169 — Persistencia de los tours del tutorial in-app (backend)
 
@@ -1330,7 +1330,7 @@ batch (`POST .../names`) y las acciones de cerrar sesiones y cambiar email/telé
 
 Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `svc-admin` (MOVO-299), y mobile (MOVO-300: hasta entonces el login de una cuenta inhabilitada devuelve `ACCOUNT_DISABLED`, código que la app todavía no mapea).
 
-Fixes de review (PR #280): la migración hace backfill de las cuentas `banned` previas como una sanción `disable` con `applied_by` NULL (= sistema; por eso es nullable), así se pueden levantar por la API y salen en la ficha; la marca de Redis les llega por el barrido. `GET /users/me` serializa `accountStatus` con `suspended` (antes 500). El barrido deja cada marca igual a la sanción vigente leída de Postgres y la re-verifica tras escribir (`syncMark`), para no pisar un lift/apply concurrente. Los avisos de apply/lift/vencimiento salen en segundo plano (el panel no espera a Resend) y el push de una sanción **no es silenciable** (`ignorePreferences`; sigue necesitando un token de push y el mail sale siempre). ADR-049. La app mapea `ACCOUNT_DISABLED` a un mensaje propio hasta MOVO-300. Una suspensión pausa (no apaga) las series recurrentes de `svc-shipments`.
+Fixes de review (PR #280): la migración hace backfill de las cuentas `banned` previas como una sanción `disable` con `applied_by` NULL (= sistema; por eso es nullable), así se pueden levantar por la API y salen en la ficha; la marca de Redis les llega por el barrido. `GET /users/me` serializa `accountStatus` con `suspended` (antes 500). El barrido deja cada marca igual a la sanción vigente leída de Postgres y la re-verifica tras escribir (`syncMark`), para no pisar un lift/apply concurrente. Los avisos de apply/lift/vencimiento salen en segundo plano (el panel no espera a Resend) y el push de una sanción **no es silenciable** (`ignorePreferences`; sigue necesitando un token de push y el mail sale siempre). DD-049. La app mapea `ACCOUNT_DISABLED` a un mensaje propio hasta MOVO-300. Una suspensión pausa (no apaga) las series recurrentes de `svc-shipments`.
 
 ### MOVO-230 — Retención de KYC y fechas de baja para la purga de envíos
 
@@ -1375,9 +1375,9 @@ Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `s
 ### MOVO-331 — `ignorePreferences` en `POST /internal/notifications/push`
 
 El body interno acepta `ignorePreferences` (boolean, opcional) y lo reenvía a `sendPushToUser`, que ya lo soportaba desde MOVO-296. Lo usa
-`svc-shipments` para avisar a las partes de un cambio forzado de estado (ADR-055).
+`svc-shipments` para avisar a las partes de un cambio forzado de estado (DD-055).
 
-### MOVO-332 — Step-up del cambio de estado desde el panel (ADR-055)
+### MOVO-332 — Step-up del cambio de estado desde el panel (DD-055)
 
 `modules/admin-step-up/` con tres endpoints internos (`POST /internal/admin/step-up/{request,verify,consume}`, `hide: true`, fuera del
 `routes-map`): los llama `svc-admin`, que pasa el `adminId` de la sesión. Reusa el motor de OTP de MOVO-139 por el canal email: el `flow` lleva la
@@ -1391,3 +1391,8 @@ por construcción. `verify` canjea el código por un `stepUpToken` (32 bytes, so
 - **Sin enumeración**: código erróneo, vencido, usado o de otra acción/admin → `401 STEP_UP_INVALID`, mismo mensaje. 5 pedidos/15 min y 5 errores/15 min por
   admin (`INCR`+`EXPIRE` en un script, como el login del panel); el bloqueo corta antes de mirar el código.
 - Sin el flag `ignorePreferences` ni mails nuevos: usa `buildOtpEmail` ("tu código de verificación"). Pendiente: copy específico para el step-up.
+
+### MOVO-322 — `POST /internal/admin/users/names` devuelve los roles
+
+Además de `id`/`fullName`, cada usuario trae `roles` (`admin-users.service.ts#getNames`): la bandeja de soporte del panel muestra si
+quien escribe es transportista sin una llamada por fila. Aditivo; `svc-admin` tolera la respuesta anterior.

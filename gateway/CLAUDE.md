@@ -60,7 +60,7 @@ request bajo el límite general. Detalle completo en
 
 `getRateLimitOverrides()` suma `POST /users/me/email/verify/otp` (5/15min), alineado
 con los dos endpoints de cambio de arriba -- ahora manda mails reales por Resend
-(ADR-017): la cuota del free tier y la reputación del dominio son el recurso a
+(ADR-016): la cuota del free tier y la reputación del dominio son el recurso a
 proteger. Detalle completo en `services/movo-svc-users/HISTORIAL.md` (MOVO-139).
 
 ### MOVO-140 — Rutas públicas de recuperación de contraseña
@@ -138,9 +138,9 @@ se reenvía al upstream y cualquier `x-client-id` que mande un cliente se borra 
 las rutas. Rate limit `perClient` (cliente demo + IP real del visitante en
 `x-movo-client-ip`, que reenvía el servidor de Next): sin eso todo el sitio compartiría las
 IPs de Vercel. Cotización, stats y resto de `/demo`: 60/min por visitante (varios iPads de la feria comparten la IP del wifi). Sin
-CORS: la key vive solo en el servidor de Next, nunca en el navegador. Ver ADR-030.
+CORS: la key vive solo en el servidor de Next, nunca en el navegador. Ver DD-030.
 
-Juego del optimizador (ADR-031): `POST /demo/route-game/games` y `GET /demo/route-game/ranking`
+Juego del optimizador (DD-031): `POST /demo/route-game/games` y `GET /demo/route-game/ranking`
 con su propio límite `perClient` de 60/min (crear una partida corre OR-Tools en
 pricing-logistics); el PUT y el reset caen en el límite demo general.
 
@@ -223,3 +223,13 @@ acceso hasta que vence su access token, 60 min); y solo se evalúa en cada reque
 conexiones ya abiertas (chat, tracking, soporte), que sobreviven hasta que vence el token. Nada fuerza que un endpoint nuevo se
 sume a `SUSPENDED_BLOCKED_ROUTES`: se revisa en el PR (ver la convención en el `CLAUDE.md` raíz). `PATCH /trips/:id` queda
 permitido a propósito (el ticket solo bloquea declarar un viaje nuevo).
+
+### MOVO-322 — WebSocket de la bandeja de soporte (`/admin/support/ws`)
+
+La entrada `/admin` suma `websocket: true` y `GET /admin/support/ws` es pública (sin JWT: el navegador del panel no lo tiene); la autentica
+`svc-admin` con el ticket de un solo uso del subprotocolo. El `preHandler` rechaza con 401 `SUPPORT_TICKET_INVALID` un upgrade sin
+`movo-support.v1, <ticket>`. `@fastify/http-proxy` solo le pasa al upstream el subprotocolo que eligió (el primero), así que
+`rewriteWebSocketRequestHeaders` reenvía la lista original en `x-ws-protocols` (siempre la del request, nunca un header del cliente) y el
+`Origin`, en todos los prefijos con WebSocket. Tests en `websocket-proxy.test.ts`. Límite propio de 20 upgrades por minuto e IP (cada uno abre
+un WebSocket hacia `svc-admin` y gasta un `GETDEL`); el nombre del header y el parseo del ticket son los de `@movo/shared`
+(`SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER`, `parseSupportWsProtocols`).

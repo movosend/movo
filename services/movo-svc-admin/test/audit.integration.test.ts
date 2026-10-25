@@ -193,6 +193,12 @@ describe("Bitácora del panel (Postgres) — MOVO-288", () => {
       expect(byTarget.items[0]).toMatchObject({ adminId, targetId: target, outcome: "succeeded" });
     });
 
+    it("filtra por una consulta de soporte como objetivo (MOVO-322)", async () => {
+      const res = await list(`?targetType=support_conversation&targetId=${randomUUID()}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().items).toEqual([]);
+    });
+
     it("pagina por cursor, del más reciente al más viejo, sin repetir ni saltear", async () => {
       const adminId = randomUUID();
       await seed(adminId, 5);

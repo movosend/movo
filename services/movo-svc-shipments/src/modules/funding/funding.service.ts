@@ -36,7 +36,7 @@ import { sendCustodyPush } from "../../utils/dispatch-push";
 import { assertIsSender } from "../shipments/assert-shipment-access";
 
 /**
- * MOVO-210: configuración de la saga (todo viene de env, valores en ADR-050).
+ * MOVO-210: configuración de la saga (todo viene de env, valores en DD-050).
  */
 export interface FundingConfig {
   /** "N": retiro dentro de N días = ruta cercana; a más, ruta lejana. */
@@ -47,7 +47,7 @@ export interface FundingConfig {
   releaseHoursBeforePickup: number;
   /** AC7: cada cuántas horas se recuerda el pago con la ventana abierta. */
   reminderIntervalHours: number;
-  /** ADR-055: un admin puede dar un envío por pagado sin hold real (`ALLOW_SIMULATED_PAYMENTS`). */
+  /** DD-055: un admin puede dar un envío por pagado sin hold real (`ALLOW_SIMULATED_PAYMENTS`). */
   allowSimulatedPayments?: boolean;
 }
 
@@ -303,7 +303,7 @@ export function createFundingService(deps: FundingServiceDeps) {
   }
 
   /**
-   * ADR-055 (pago simulado): el admin da el envío por asignado sin hold. Se rechaza si el envío ya tiene un hold
+   * DD-055 (pago simulado): el admin da el envío por asignado sin hold. Se rechaza si el envío ya tiene un hold
    * real vivo o cobrado (quedaría huérfano: nadie lo capturaría ni lo liberaría). El envío se marca DESPUÉS de
    * asignarlo, así un rechazo (estado cambiado, oferta cerrada) no deja un envío sin asignar con el pago saltado.
    */
@@ -482,7 +482,7 @@ export function createFundingService(deps: FundingServiceDeps) {
 
   return {
     /**
-     * MOVO-331 (ADR-055): un admin pasa a `assigned` un envío que espera el pago. Nunca confía en el
+     * MOVO-331 (DD-055): un admin pasa a `assigned` un envío que espera el pago. Nunca confía en el
      * motivo del admin: el hold tiene que estar autorizado (o capturado) en payments, consultado con
      * sync contra MP. Reusa `markAssigned`, así que cierra las demás ofertas y avisa como la saga.
      */

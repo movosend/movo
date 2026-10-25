@@ -51,7 +51,7 @@ export function isChatArchived(shipment: ChatShipmentFacts, now: Date): boolean 
  * - Con transportista y sin entregar → `open`.
  * - Entregado/completado o en disputa → `read_only` (también pasadas las 24 h: archivado, no cerrado).
  * - Cualquier otro estado, o sin transportista → `closed` para las partes.
- * - El receptor que transfirió la recepción (ADR-038) nunca pasa de `read_only`.
+ * - El receptor que transfirió la recepción (DD-038) nunca pasa de `read_only`.
  * - El admin siempre lee (`read_only`) y nunca escribe: el historial es evidencia de disputa.
  */
 export function resolveChatAccess(input: {

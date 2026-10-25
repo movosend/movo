@@ -23,7 +23,7 @@ import {
 } from "./fake-payments-client";
 
 /**
- * ADR-055, pago simulado: `force-status` con `simulatePayment` pasa un envío a `assigned` sin hold y lo marca.
+ * DD-055, pago simulado: `force-status` con `simulatePayment` pasa un envío a `assigned` sin hold y lo marca.
  * Postgres y Redis reales. Se corre dos veces: con `ALLOW_SIMULATED_PAYMENTS` apagado (default) y encendido.
  */
 

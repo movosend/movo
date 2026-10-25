@@ -1,0 +1,30 @@
+# ADR-023 — Chat propio sobre el canal WebSocket (MOVO-26)
+
+> Borrador para pegar en `[Movo] 004 - Sprint 0.md`. El 039 (ahora DD-039) lo reserva MOVO-283.
+>
+> **Parcialmente reemplazado por DD-046** (`dd-046-notificaciones-de-chat.md`): la push del chat ahora lleva el
+> texto del mensaje y las ráfagas se juntan en un resumen. El resto de este ADR sigue vigente.
+
+**Contexto.** MOVO-26 pide chat de texto en tiempo real entre emisor, receptor y transportista, disponible
+desde la asignación hasta 24 h después de la entrega, con el historial vinculado al envío y visible para el
+admin en una disputa. Evaluamos proveedores con plan gratuito: Stream Chat (Maker Account: 2.000 MAU y 100
+conexiones simultáneas, por aprobación, para equipos chicos y de bajos ingresos; al llegar al tope los
+usuarios nuevos no pueden conectarse), Sendbird y CometChat (~100 MAU), Tencent RTC (1.000 MAU) y Firebase
+(una base en tiempo real, no un chat). Cifras de las páginas públicas de cada proveedor, a reconfirmar.
+
+**Decisión.** Chat propio dentro de `movo-svc-shipments`, sobre el canal de ADR-019. Un hilo por envío; se
+envía por HTTP (`POST /shipments/:id/chat/messages`, idempotente por `clientMessageId`) y se recibe por
+WebSocket (`GET /shipments/:id/chat`), como la ingesta de posiciones de ADR-020. Persistencia en
+`shipments.chat_messages`. Solo texto en el MVP. Instancia propia del registro de sockets para no mezclar el
+chat con el tracking. Push por mensaje, sin el texto, a quien no tiene el chat abierto.
+
+**Por qué no un proveedor.** La autorización del chat depende de datos que solo tiene `svc-shipments`
+(partes del envío, receptor transferido por DD-038, ventana de 24 h, bloqueos de DD-026). Un tercero
+obligaría a duplicar usuarios y permisos, a sincronizar el historial para el admin y a depender de un cupo y
+de una credencial más, sin ahorrar el trabajo de reglas. El canal WebSocket, la autenticación del handshake
+y el push ya existen.
+
+**Trade-offs aceptados.** Sin ack en tiempo real por el socket (el ack es la respuesta HTTP), sin presencia,
+indicador de escritura ni leído/no leído; el registro de sockets está en memoria y es de una sola réplica
+(ADR-006/019); el bloqueo (DD-026) oculta el contenido de quien tiene un bloqueo con el autor (mensaje vacío, sin push ni tildes) en vez de impedir escribir, porque es un hilo único por envío y no uno por par; entregado el envío el hilo queda en solo lectura y a las 24 h se archiva (sigue legible). cada asignación arranca una conversación limpia (`shipments.chat_started_at`, fijado por `acceptOffer`): tras un pago vencido y una reasignación el transportista nuevo no lee lo hablado con el anterior, aunque los mensajes viejos se conservan y el admin los ve. Retención y
+purga del historial: pendiente de definir con el equipo.

@@ -1,7 +1,7 @@
 # Chat entre las partes de un envío (MOVO-26)
 
 Un hilo por envío entre emisor, receptor y transportista. Se **envía por HTTP** y se **recibe por WebSocket**
-(mismo molde que la ingesta de posiciones, ADR-024). Decisión y trade-offs: `adr-040-chat-propio.md`.
+(mismo molde que la ingesta de posiciones, ADR-020). Decisión y trade-offs: `adr-023-chat-propio.md`.
 El diseño de la pantalla es el prototipo "Chat del envío · v2".
 
 ## Endpoints (`movo-svc-shipments`, prefijo `/shipments`, pasan por el gateway)
@@ -30,7 +30,7 @@ El WebSocket se autentica con `Authorization: Bearer <JWT>` en el handshake (com
 | En disputa | solo lectura | lee |
 | Cancelado, rechazado o sin transportista | `409 CHAT_CLOSED` y se cortan los sockets (`4009`) | lee |
 
-El receptor que transfirió la recepción (ADR-038) lee, no escribe. El admin lee siempre (evidencia de disputa)
+El receptor que transfirió la recepción (DD-038) lee, no escribe. El admin lee siempre (evidencia de disputa)
 y nunca escribe. Sin permiso de escritura: `403 CHAT_READ_ONLY`. Reglas puras en `src/domain/chat-window.ts`.
 
 **Cada asignación arranca una conversación limpia.** Si el emisor no paga a tiempo, el envío vuelve a `published`, el
@@ -39,7 +39,7 @@ con el anterior. `acceptOffer` guarda `chat_started_at` en el envío y el histor
 solo cuentan mensajes desde ese instante. Los mensajes viejos no se borran: el admin los ve todos (evidencia de
 disputa). `NULL` = sin corte (envíos anteriores a este cambio).
 
-## Bloqueo (ADR-026)
+## Bloqueo (DD-026)
 
 Un bloqueo **no impide escribir**. El contenido de quien tiene un bloqueo con quien mira llega vacío con
 `hidden: true` (el cliente muestra "Mensaje de un usuario bloqueado"), tanto en el historial como en tiempo
@@ -85,15 +85,15 @@ palabrotas de uso cotidiano ("boludo", "mierda") ni palabras legítimas del domi
   una push cada uno: se juntan en Redis (`chat-push-buffer:*`) y al cerrarse la ventana sale **un único resumen**
   ("3 mensajes nuevos · último texto"). El resumen se agenda para cuando cierra la ventana vigente (un solo reloj: un
   mensaje posterior nunca sale antes que uno anterior) y, al salir, relee el envío, vuelve a filtrar los autores
-  bloqueados (ADR-026) y se omite si el destinatario ya leyó la conversación. Así una ráfaga son como
+  bloqueados (DD-026) y se omite si el destinatario ya leyó la conversación. Así una ráfaga son como
   mucho dos avisos por ventana. El resumen lo agenda un `setTimeout` en el proceso: un reinicio entre medio lo pierde
-  (el primer mensaje ya avisó). **Esto reemplaza el punto de ADR-040** ("sin el texto") por ADR-046: el texto ahora se ve en la pantalla
+  (el primer mensaje ya avisó). **Esto reemplaza el punto de ADR-023** ("sin el texto") por DD-046: el texto ahora se ve en la pantalla
   bloqueada, como en WhatsApp. El mobile saca de la bandeja las
   notificaciones de un chat al abrirlo.
 - El hilo vive en `shipments.chat_messages` (solo se agrega). La retención y purga del historial no están
-  definidas: es un dato personal, hay que decidirlo con el equipo junto con ADR-023.
+  definidas: es un dato personal, hay que decidirlo con el equipo junto con DD-023.
 - El registro de sockets (`ChatHub`) está en memoria y es de una sola réplica, igual que el de tracking
-  (ADR-006/022), y es aparte del de tracking para no mezclar mensajes ni cierres.
+  (ADR-006/019), y es aparte del de tracking para no mezclar mensajes ni cierres.
 - "Reportar conversación" guarda el reporte (`chat_reports`) y deja un log `chat_conversation_reported`; todavía
   no hay un panel que lo muestre al equipo (MOVO-30/33).
 

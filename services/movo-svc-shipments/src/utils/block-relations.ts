@@ -13,7 +13,7 @@ type WarnLogger = { warn: (obj: unknown, msg?: string) => void };
 const SAFE_BLOCK_RELATIONS_TIMEOUT_MS = 1500;
 
 /**
- * MOVO-175 (ADR-026): falla CERRADO -- para escrituras (crear oferta, aceptar oferta,
+ * MOVO-175 (DD-026): falla CERRADO -- para escrituras (crear oferta, aceptar oferta,
  * crear envío). Si alguno de `otherUserIds` tiene un bloqueo con `userId` en
  * cualquier dirección, 403 `USER_BLOCKED` explícito (decisión de producto: se revela
  * el bloqueo en vez de un error genérico). Un svc-users caído propaga su 502, mismo
@@ -33,7 +33,7 @@ export async function assertNotBlocked(
 }
 
 /**
- * MOVO-175 (ADR-026): falla ABIERTO -- para listados y push. Si svc-users no
+ * MOVO-175 (DD-026): falla ABIERTO -- para listados y push. Si svc-users no
  * responde se muestra/notifica sin filtrar (y se loguea): un feed caído por un
  * servicio lateral es peor que mostrar de más, y cualquier interacción posterior
  * igual pasa por `assertNotBlocked`.

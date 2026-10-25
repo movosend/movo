@@ -7,6 +7,8 @@ import { publicError } from "@/lib/auth/api"
 import { requireAdmin } from "@/lib/auth/session"
 import { sidebarDefaultOpen } from "@/lib/sidebar"
 import { getUserProfile } from "@/lib/users/api"
+import { loadSanctions } from "@/lib/users/load"
+import { activeSanctionOf } from "@/lib/users/sanctions"
 import { AdminShell } from "@/components/admin-shell"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { FichaIndex } from "@/components/users/ficha-index"
@@ -71,7 +73,10 @@ export default async function Page({
     current: "/users" as const,
   }
 
-  // Única llamada que bloquea la página: da la cabecera, el banner y el contexto de las secciones.
+  // Bloquean la página el perfil (cabecera, banner y contexto de las secciones) y el historial de
+  // sanciones, en paralelo: la sanción vigente va en la cabecera (AC7 de MOVO-299). Si el historial
+  // falla, la cabecera sigue sin el detalle y la sección muestra su error.
+  const sanctions = loadSanctions(id)
   let user
   try {
     user = await getUserProfile(id)
@@ -101,14 +106,22 @@ export default async function Page({
   }
 
   const isCarrier = user.roles.some((r) => r.role === "carrier")
+  const history = await sanctions
+  const activeSanction = history.ok
+    ? activeSanctionOf(history.data.items)
+    : null
   return (
     <AdminShell {...shell} crumb={user.fullName}>
       <FichaProvider>
         <div className="mx-auto flex max-w-[1280px] flex-col gap-5 px-5 pt-6 pb-28 md:px-8">
-          <UserHeader user={user} isSelf={admin.id === user.id}>
+          <UserHeader
+            user={user}
+            activeSanction={activeSanction}
+            isSelf={admin.id === user.id}
+          >
             <KpiStrip />
           </UserHeader>
-          <AccountBanner user={user} />
+          <AccountBanner user={user} sanction={activeSanction} />
           <div className="grid items-start gap-6 min-[1100px]:grid-cols-[184px_minmax(0,1fr)]">
             <FichaIndex />
             <div className="flex min-w-0 flex-col gap-4">
@@ -132,7 +145,7 @@ export default async function Page({
                 <BlocksSection id={id} />
               </Streamed>
               <Streamed id="sanciones">
-                <SanctionsSection id={id} bannedUntil={user.bannedUntil} />
+                <SanctionsSection id={id} />
               </Streamed>
               <Streamed id="cuenta">
                 <LedgerSection id={id} />

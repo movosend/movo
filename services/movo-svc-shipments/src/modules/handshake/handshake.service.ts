@@ -111,7 +111,7 @@ function inferHandshakeStage(status: ShipmentStatus): HandshakeStage {
 }
 
 /**
- * MOVO-270 (ADR-052): pasado el plazo del barrido de retiro no realizado (ventana acordada +
+ * MOVO-270 (DD-052): pasado el plazo del barrido de retiro no realizado (ventana acordada +
  * `PICKUP_MISSED_GRACE_HOURS`) el retiro ya no se puede confirmar. El barrido libera el hold antes
  * de cerrar el envío: sin este corte, un handshake tardío que confirma entre la liberación y la
  * transición dejaría un `in_transit` sin fondos con los que pagarle al transportista. Sin

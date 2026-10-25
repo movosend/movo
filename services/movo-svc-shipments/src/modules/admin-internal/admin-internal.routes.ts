@@ -28,6 +28,7 @@ import {
   ForceShipmentStatusRequest,
   ForceShipmentStatusResponse,
   InProgressShipment,
+  OpenActivitySummary,
   ShipmentParties,
   ShipmentStatus,
   WithdrawOpenActivityResult,
@@ -97,6 +98,7 @@ const timeOnly = (date: Date): string => date.toISOString().slice(11, 16);
  * - MOVO-325: listado, detalle, eventos, fotos y chat de los envíos para el panel.
  * - MOVO-297: los efectos de una sanción sobre un usuario (envíos en curso y retiro de actividad abierta).
  * - MOVO-327: el seguimiento de un envío para el mapa del panel.
+ * - MOVO-299: la vista previa de ese retiro (`GET /users/:id/open-activity`), de solo lectura.
  */
 export default async function adminInternalRoutes(app: FastifyInstance, opts: AdminInternalRoutesOptions) {
   const shipmentRepository = createShipmentRepository(app.db);
@@ -494,9 +496,9 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     },
   );
 
-  // Todo el hilo, sin ocultar nada por bloqueos ni por `chat_started_at` (ADR-040: el historial es
+  // Todo el hilo, sin ocultar nada por bloqueos ni por `chat_started_at` (ADR-023: el historial es
   // evidencia). `partiesAccess` dice qué pueden hacer hoy el emisor, el transportista y el receptor con las
-  // reglas de docs/chat/README.md; el receptor anterior (ADR-038) nunca pasa de `read_only`, así que no
+  // reglas de docs/chat/README.md; el receptor anterior (DD-038) nunca pasa de `read_only`, así que no
   // cambia ese valor y no se modela aparte.
   app.get(
     "/admin/shipments/:id/chat/messages",
@@ -601,6 +603,22 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     },
   );
 
+  // MOVO-299: lo que retiraría una sanción hoy, para el texto previo a confirmar en el panel.
+  app.get(
+    "/users/:id/open-activity",
+    {
+      schema: {
+        hide: true,
+        params: adminInternalSchemas.idParam,
+        response: { 200: adminInternalSchemas.openActivityResponse },
+      },
+    },
+    async (request: FastifyRequest): Promise<OpenActivitySummary> => {
+      const { id } = request.params as { id: string };
+      return sanctionEffects.previewOpenActivity(id);
+    },
+  );
+
   app.post(
     "/users/:id/withdraw-open-activity",
     {
@@ -618,7 +636,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     },
   );
 
-  // MOVO-331 (ADR-055): cambio de estado de un envío hecho por un admin. Lo llama `svc-admin` (que ya validó
+  // MOVO-331 (DD-055): cambio de estado de un envío hecho por un admin. Lo llama `svc-admin` (que ya validó
   // la sesión, el OTP por acción y el conflicto de interés, y dejó la bitácora); acá se valida la matriz.
   // Grafo propio, con `paymentsClient`: el de arriba no tiene hold ni transportista a propósito.
   const paymentsClient = opts.paymentsClient ?? createAppPaymentsClient(app);

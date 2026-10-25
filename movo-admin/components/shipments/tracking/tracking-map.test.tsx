@@ -21,16 +21,20 @@ const h = vi.hoisted(() => {
   const lib = {
     map: vi.fn(() => map),
     control: { zoom: vi.fn(() => chain()) },
-    tileLayer: vi.fn((url: string) => (void url, chain())),
     polyline: vi.fn(() => chain()),
     marker: vi.fn(() => chain()),
     divIcon: vi.fn((o: unknown) => o),
   }
-  return { map, lib }
+  const maplibreGL = vi.fn(
+    (o: unknown) => (void o, Object.assign(chain(), { options: {} }))
+  )
+  return { map, lib, maplibreGL }
 })
 
 vi.mock("leaflet", () => ({ default: h.lib }))
 vi.mock("leaflet/dist/leaflet.css", () => ({}))
+vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}))
+vi.mock("@maplibre/maplibre-gl-leaflet", () => ({ maplibreGL: h.maplibreGL }))
 
 import TrackingMap, { courierLabel } from "./tracking-map"
 
@@ -146,9 +150,11 @@ describe("TrackingMap", () => {
     rerender(
       <TrackingMap tracking={trackingFixture()} follow={false} theme="dark" />
     )
-    const urls = h.lib.tileLayer.mock.calls.map(([u]) => u as string)
-    expect(urls[0]).toContain("World_Light_Gray_Base")
-    expect(urls[1]).toContain("World_Dark_Gray_Base")
+    const styles = h.maplibreGL.mock.calls.map(
+      ([o]) => (o as { style: string }).style
+    )
+    expect(styles[0]).toContain("/arcgis/light-gray")
+    expect(styles[1]).toContain("/arcgis/dark-gray")
   })
 
   it("destruye el mapa al desmontar", () => {

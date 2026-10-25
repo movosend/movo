@@ -16,7 +16,7 @@ Si el diseño cambia, se actualiza este documento en el mismo PR que el cambio.
 ## 1. Resumen en cinco líneas
 
 1. El **transportista** vincula su cuenta de Mercado Pago a Movo (OAuth). Sin eso no puede ofertar.
-2. Cuando el **emisor** acepta una oferta, paga con una **tarjeta guardada** escribiendo solo el CVV (ADR-039, propuesto). No se le cobra:
+2. Cuando el **emisor** acepta una oferta, paga con una **tarjeta guardada** escribiendo solo el CVV (DD-039, propuesto). No se le cobra:
    se le **reserva** el monto (hold, `capture: false`).
 3. La reserva se crea **cerca del retiro**, porque MP la cancela sola a los pocos días.
    Si el retiro está lejos, el emisor confirma el pago cuando se acerca la fecha.
@@ -111,11 +111,11 @@ Reglas que el diagrama no muestra explícitamente:
   `assignment_pending`. Ese es el caso de compensación que tienen que cubrir MOVO-209/210
   (cómo se resuelve, reintentar la transición o liberar el hold, se define ahí). Si en
   ese estado el emisor cancela, el hold se **libera**.
-- **Cancelar desde `assigned` (MOVO-307, ADR-047):** con 12 h o más hasta el retiro, o con
+- **Cancelar desde `assigned` (MOVO-307, DD-047):** con 12 h o más hasta el retiro, o con
   la ventana ya cerrada, es sin cargo y se libera el hold. Con menos de 12 h se cobra el 25 %
   del precio acordado capturando esa parte del hold (MOVO-306); MP libera el resto. Si la
   penalidad no cubre la comisión del hold más el fee de MP, se libera entero y queda como deuda del emisor
-  en su cuenta corriente (ADR-044).
+  en su cuenta corriente (DD-044).
 
 ---
 
@@ -308,7 +308,7 @@ sequenceDiagram
 (interno): `failed` espera su reintento (`nextAttemptAt`), `escalated` la resuelve una persona; cada fila trae `failureReason`,
 `escalationReason`, `lastError`, `attempts` y `holdExpiresAt`. Equivalente en SQL:
 `SELECT * FROM payments.settlements WHERE status IN ('failed','escalated') ORDER BY updated_at DESC`. Un hold escalado por
-`expires_at` pudo seguir vivo en MP (el plazo es el mínimo documentado, ADR-050): conviene probar la captura a mano antes de darlo por perdido.
+`expires_at` pudo seguir vivo en MP (el plazo es el mínimo documentado, DD-050): conviene probar la captura a mano antes de darlo por perdido.
 
 ### 5.5 Eventos que inicia Mercado Pago (MOVO-268)
 
@@ -357,14 +357,14 @@ negativo = a favor; cuenta todo lo que no está `voided`. Solo inserción (trigg
 `svc-shipments` registra los movimientos por `POST /internal/payments/users/:userId/ledger-entries` y
 consulta `GET .../balance` (`balanceArs`, `oldestUnpaidAt`, este último para el bloqueo por deuda vencida,
 MOVO-313); la app lee `GET /payments/balance`. La plata de las penalidades cobradas como deuda queda para
-Movo. MOVO-311 (§6.1) y MOVO-312 (5.7) ya la cobran; la captura parcial de MOVO-307 todavía no. ADR-044.
+Movo. MOVO-311 (§6.1) y MOVO-312 (5.7) ya la cobran; la captura parcial de MOVO-307 todavía no. DD-044.
 
 ### 5.7 Pagar mi saldo con tarjeta guardada + CVV (MOVO-312)
 
-El usuario con deuda la paga él, presente y **sin salir de la app**, con el mismo flujo que un envío (Checkout API, ADR-039):
+El usuario con deuda la paga él, presente y **sin salir de la app**, con el mismo flujo que un envío (Checkout API, DD-039):
 tarjeta guardada + CVV, token hecho en el dispositivo. El pago va **directo a la cuenta cobradora de Movo**, sin hold, sin
 `application_fee` (la plata ya es de Movo) y con captura inmediata. La cuenta cobradora es la propia cuenta de MP de Movo
-S.A., configurada con sus credenciales (`MP_COLLECTOR_*`, ADR-048): en producción las productivas del panel; en el sandbox el
+S.A., configurada con sus credenciales (`MP_COLLECTOR_*`, DD-048): en producción las productivas del panel; en el sandbox el
 token `TEST-` del OAuth de la cuenta de prueba, porque un token de la app sin login no puede crear pagos.
 
 ```mermaid
@@ -397,6 +397,58 @@ sequenceDiagram
   perdido se acredita y un `creating` viejo sin pago en MP se descarta.
 
 ---
+
+### 5.8 Reembolso de un pago ya capturado (MOVO-336)
+
+Lo pide quien resuelve una disputa (MOVO-337) cuando el cobro ya está acreditado al transportista (`delivered` o
+`completed`); antes de la captura no se reembolsa, el hold se libera (MOVO-209). Un solo endpoint interno,
+`POST /internal/payments/settlements/by-shipment/:id/refund`, con `amountArs?` (sin monto, todo lo reembolsable),
+`reason`, `idempotencyKey` del llamador y `adminId`.
+
+```mermaid
+sequenceDiagram
+    participant R as Quien resuelve (MOVO-337)
+    participant P as svc-payments
+    participant MP as Mercado Pago
+    participant L as Cuenta corriente
+
+    R->>P: refund (amountArs?, reason, idempotencyKey, adminId)
+    P->>P: liquidación credited? (si no, 409)
+    P->>P: reserva el intento en processing (lock por liquidación, tope = capturado − ya reembolsado)
+    P->>MP: POST /v1/payments/:id/refunds (token del transportista, key movo-refund-<settlementId>-<n>)
+    alt MP reembolsa
+        MP-->>P: reembolso aprobado
+        P->>P: intento succeeded
+        P-->>R: 200
+    else el transportista no tiene saldo
+        MP-->>P: error de saldo insuficiente
+        P->>L: manual_adjustment +monto al transportista (se cobra como cualquier deuda)
+        P->>P: intento fallback_to_ledger + alerta (el emisor todavía no cobró: caso manual)
+        P-->>R: 200 (status fallback_to_ledger)
+    else MP rechaza
+        P->>P: intento failed + alerta
+        P-->>R: 502 (el reintento con la misma key abre un intento nuevo)
+    else MP no responde
+        P->>P: intento sigue processing + alerta
+        P-->>R: 502 (el reintento reusa la key de MP: no devuelve dos veces)
+    end
+```
+
+El webhook de MP (5.5) reconoce los reembolsos de esta tabla y no los alerta como externos; si MP informa devuelto lo que
+un intento `processing` pedía, lo promueve a `succeeded`. El reembolso confirmado aparece en el historial de transacciones
+como movimiento propio.
+
+Reintentos: un intento `processing` lo toma un solo pedido a la vez (`409 REFUND_IN_PROGRESS` al otro), y si lleva
+sin confirmarse más de 12 h no se reintenta (`409 REFUND_NEEDS_REVIEW` y alerta): MP recuerda la key por tiempo limitado
+y un reintento de un reembolso parcial que sí se hizo lo repetiría. Un intento ya enviado nunca se da por `failed` por algo
+que pasó antes de hablar con MP (credenciales vencidas, un 401).
+
+**TODO (Paso 0 de MOVO-336, sin correr):** el fallback asienta en la cuenta corriente el monto BRUTO reembolsado al emisor,
+pero el transportista cobró menos (neto de la comisión de Movo y la de MP). Si MP no devuelve el `application_fee` en el
+reembolso, eso lo hace pagar de más; si lo devuelve, de menos. Tampoco está confirmado cuánto tiempo recuerda MP la key
+de idempotencia (el guard usa 12 h por prudencia) ni el código/texto con que MP informa "saldo insuficiente": hasta tenerlo,
+un 4xx que no se reconoce queda `failed` con `provider_rejected` y una alerta propia (`refund_rejected_unrecognized`). El detalle de las decisiones (por qué cada intento
+tiene su propia key hacia MP, el tope, el fallback) está en `services/movo-svc-payments/HISTORIAL.md` (MOVO-336).
 
 ## 6. Cómo se reparte el dinero
 
@@ -464,7 +516,7 @@ Ejemplo con precio $1150 (comisión de Movo $150), transportista que debe $100 y
   bloqueados (advisory lock) mientras se lee su saldo, así dos holds en paralelo no descuentan la
   misma deuda; "Pagar mi saldo" (5.7) toma el mismo lock y sus intentos abiertos descuentan del saldo
   cobrable, así un pago de saldo y un hold tampoco cobran dos veces. Mientras es solo una reserva, el saldo
-  que se informa (y mide el bloqueo por deuda) no baja: recién baja al capturar (ADR-044). Si el hold se rechaza, se libera o vence, un trigger de `holds` anula la reserva en la
+  que se informa (y mide el bloqueo por deuda) no baja: recién baja al capturar (DD-044). Si el hold se rechaza, se libera o vence, un trigger de `holds` anula la reserva en la
   misma transacción y la deuda vuelve a quedar pendiente. Al capturar, la reserva pasa a `settled`
   por lo que retuvo MP (`fee_details`); si retuvo menos, se anula y se asienta lo real.
 - **Liquidación:** `commission_ars` es solo la comisión de Movo; la deuda cobrada va en
@@ -476,7 +528,7 @@ Ejemplo con precio $1150 (comisión de Movo $150), transportista que debe $100 y
   `GET /shipments/:id/funding` y paga mandando `expectedTotalArs = totalArs`: si su deuda cambió en el medio,
   409 `HOLD_AMOUNT_CHANGED` en vez de cobrarle de más; el transportista, el descuento (`debtDiscount`) en sus ofertas
   `pending` y en el detalle del envío asignado.
-- **Reintegro o contracargo:** hoy no repone la deuda cobrada (limitación aceptada, ADR-044).
+- **Reintegro o contracargo:** hoy no repone la deuda cobrada (limitación aceptada, DD-044).
 - **Límite de MP** (spike MOVO-305): el fee tiene que ser `< transaction_amount` (si no, `400 4038`).
   Con el tope de 30% el fee llega a ~73% del precio y el monto a 130%; la env var acepta hasta 0,5.
 - **Penalidad (MOVO-307):** en una captura parcial el `application_fee` se cobra entero, y capturar
@@ -489,18 +541,18 @@ Ejemplo con precio $1150 (comisión de Movo $150), transportista que debe $100 y
 
 | Decisión | Motivo | Dónde |
 | --- | --- | --- |
-| Marketplace de MP: Payments API + OAuth del transportista + `application_fee` | Movo nunca toca el dinero del transportista: MP lo acredita directo en su cuenta y retiene la comisión de Movo en la misma operación. | MOVO-209, ADR-035 (`docs/payments/adr-035-arquitectura-de-cobro.md`) |
+| Marketplace de MP: Payments API + OAuth del transportista + `application_fee` | Movo nunca toca el dinero del transportista: MP lo acredita directo en su cuenta y retiene la comisión de Movo en la misma operación. | MOVO-209, ADR-022 (`docs/payments/adr-022-arquitectura-de-cobro.md`) |
 | La tarjeta se tokeniza con la `public_key` **del transportista** | Requisito de MP: el card_token tiene que pertenecer a la cuenta que cobra. Con otra key, error 2006. | Spike MOVO-49 |
-| El hold se crea **siempre con el emisor presente**, que escribe solo el CVV | Sin CVV MP no crea el hold (500 / `3031`), así que el cobro automático sin el emisor sigue descartado. Con tarjeta guardada + CVV sí funciona (13/10/2026, ADR-039 propuesto). | MOVO-12, MOVO-65, SOLUCION-FINAL §7 |
-| La tarjeta se guarda en un customer de la **cuenta de Movo**, no en la del transportista | Una sola tarjeta sirve para pagar a cualquier transportista: el mobile pide el token con `card_id` + CVV y la `public_key` del transportista del envío. El `payer` del hold tiene que ser ese customer (con `payer: {email}`, error `2002`). | ADR-039, MOVO-100, MOVO-282 |
+| El hold se crea **siempre con el emisor presente**, que escribe solo el CVV | Sin CVV MP no crea el hold (500 / `3031`), así que el cobro automático sin el emisor sigue descartado. Con tarjeta guardada + CVV sí funciona (13/10/2026, DD-039 propuesto). | MOVO-12, MOVO-65, SOLUCION-FINAL §7 |
+| La tarjeta se guarda en un customer de la **cuenta de Movo**, no en la del transportista | Una sola tarjeta sirve para pagar a cualquier transportista: el mobile pide el token con `card_id` + CVV y la `public_key` del transportista del envío. El `payer` del hold tiene que ser ese customer (con `payer: {email}`, error `2002`). | DD-039, MOVO-100, MOVO-282 |
 | El hold con tarjeta guardada lleva `payer: { type: "customer", id }` y `saved_card_id`; sin tarjeta guardada, `payer: { email }` | El hold (`POST /internal/payments/holds`) recibe `payerUserId` + `savedCardId?`: `svc-payments` valida que la tarjeta sea de ese emisor y esté viva (si no, `404` sin revelar si existe) y resuelve el customer; guarda `saved_card_id` en el hold, que habilita el `409 CARD_IN_USE` al borrar la tarjeta. `savedCardId` entra en el `request_fingerprint`. Un CVV incorrecto no es un error HTTP: vuelve como hold `rejected`/`invalid_data`. | MOVO-282 |
-| El token de Movo para customers se pide con `client_credentials` + `test_token=true` | Con el `APP_USR-` de la app MP responde `401 300 "live credentials"` en sandbox. | ADR-039, MOVO-100 |
+| El token de Movo para customers se pide con `client_credentials` + `test_token=true` | Con el `APP_USR-` de la app MP responde `401 300 "live credentials"` en sandbox. | DD-039, MOVO-100 |
 | El hold se ancla **cerca del retiro**, no en la aceptación | MP cancela el hold a los pocos días. Si falla cerca del retiro, falla antes de la custodia, cuando todavía se puede republicar el envío. | MOVO-12 |
 | **No** se renuevan holds vencidos | La renovación puede fallar con el paquete en tránsito, bloquea doble monto y parece un doble cobro. | MOVO-12 |
 | `svc-shipments` es el dueño de la saga y la puerta del mobile | Los estados del envío viven ahí. `svc-payments` queda aislado como único integrador de MP. | MOVO-210 |
 | SDK oficial `mercadopago` v3 para pagos; canje y refresh de OAuth con `fetch` propio | Mismo resultado que la API REST, con tipos, idempotencia y errores ya resueltos. El canje queda afuera porque el SDK no tipa `code_verifier`/`test_token` y exige un access token que `/oauth/token` no necesita. | MOVO-267, SOLUCION-FINAL §4 |
-| Las deudas (penalidades, comisión en efectivo) viven en una **cuenta corriente del usuario**, no del transportista | La misma persona es emisor y transportista: una penalidad generada en un rol se puede saldar en el otro. Saldo con signo, solo inserción, idempotente. Se cobra con MOVO-311 (`application_fee` del próximo hold, §6.1) y 312 (pago voluntario); la captura parcial de MOVO-307 falta. | MOVO-309, ADR-044 (`docs/payments/adr-044-cuenta-corriente-del-usuario.md`) |
-| La penalidad por cancelar un `assigned` se cobra con una **captura parcial del hold**, y si no se puede queda como deuda | El emisor ya tiene el hold autorizado: cobrar en el momento evita una deuda que puede no cobrarse. MP cobra la comisión entera en la captura parcial (el transportista recibe ≈ 11 % del precio) y rechaza capturar menos que la comisión: en ese caso se libera el hold y la penalidad queda en la cuenta corriente. | MOVO-306, MOVO-307, ADR-047 (`docs/payments/adr-047-penalidad-de-cancelacion.md`) |
+| Las deudas (penalidades, comisión en efectivo) viven en una **cuenta corriente del usuario**, no del transportista | La misma persona es emisor y transportista: una penalidad generada en un rol se puede saldar en el otro. Saldo con signo, solo inserción, idempotente. Se cobra con MOVO-311 (`application_fee` del próximo hold, §6.1) y 312 (pago voluntario); la captura parcial de MOVO-307 falta. | MOVO-309, DD-044 (`docs/payments/dd-044-cuenta-corriente-del-usuario.md`) |
+| La penalidad por cancelar un `assigned` se cobra con una **captura parcial del hold**, y si no se puede queda como deuda | El emisor ya tiene el hold autorizado: cobrar en el momento evita una deuda que puede no cobrarse. MP cobra la comisión entera en la captura parcial (el transportista recibe ≈ 11 % del precio) y rechaza capturar menos que la comisión: en ese caso se libera el hold y la penalidad queda en la cuenta corriente. | MOVO-306, MOVO-307, DD-047 (`docs/payments/dd-047-penalidad-de-cancelacion.md`) |
 | Idempotencia en hold, captura, saga y webhook | Un doble hold retiene plata dos veces; una doble captura cobra dos veces. | MOVO-209, 210, 212, 268 |
 
 **Costo aceptado de la ruta lejana:** el transportista se compromete sin fondos

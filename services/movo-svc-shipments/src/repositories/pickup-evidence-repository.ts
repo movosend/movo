@@ -9,7 +9,7 @@ export interface PickupArrivalInput {
 }
 
 /**
- * MOVO-270 (ADR-052): evidencia GPS agregada del retiro, una fila por envío (`shipments.pickup_evidence`),
+ * MOVO-270 (DD-052): evidencia GPS agregada del retiro, una fila por envío (`shipments.pickup_evidence`),
  * atada al transportista de la asignación vigente: la evidencia de otro transportista ni se lee ni se suma.
  */
 export interface PickupEvidenceRepository {

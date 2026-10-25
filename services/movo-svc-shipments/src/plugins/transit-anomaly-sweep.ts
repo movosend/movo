@@ -13,7 +13,7 @@ export interface TransitAnomalySweepPluginOptions {
 }
 
 /**
- * MOVO-278 (ADR-045): además de marcar, avisa al transportista a las
+ * MOVO-278 (DD-045): además de marcar, avisa al transportista a las
  * `IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS` de la marca y pasa el envío a `disputed` a las
  * `IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS`.
  *
@@ -29,7 +29,7 @@ export default fp(async (app: FastifyInstance, opts: TransitAnomalySweepPluginOp
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const warnAfterHours = app.config.IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS;
   const disputeAfterHours = app.config.IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS;
-  // MOVO-278 (ADR-045): un aviso que llega después (o junto con) la disputa no avisa nada.
+  // MOVO-278 (DD-045): un aviso que llega después (o junto con) la disputa no avisa nada.
   if (warnAfterHours >= disputeAfterHours) {
     throw new Error(
       `IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS (${warnAfterHours}) tiene que ser menor que IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS (${disputeAfterHours})`

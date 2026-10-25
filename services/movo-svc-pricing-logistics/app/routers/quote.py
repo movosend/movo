@@ -18,7 +18,7 @@ router = APIRouter()
         "este último con tope) con un tramo decreciente, tarifa base según `packageType` (menor para documentos) y "
         "recargo por `fragile_item`, todo en litros de nafta al precio de surtidor, más un "
         "recargo de 10% a 30% si `demandContext` indica alta demanda en la zona de retiro "
-        "(ADR-025). `highDemand` es `true` si y solo si se aplicó ese recargo. Sin desglose "
+        "(ADR-021). `highDemand` es `true` si y solo si se aplicó ese recargo. Sin desglose "
         "en la respuesta: queda en el log `pricing_quote_computed`. Excepción: "
         "`includeBreakdown: true` lo devuelve en `breakdown`; solo lo usa el módulo demo de "
         "`movo-svc-shipments` (juego de precios), nunca el flujo del emisor."

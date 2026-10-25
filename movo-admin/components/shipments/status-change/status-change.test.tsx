@@ -342,7 +342,7 @@ describe("paso 3 — requisitos por riesgo", () => {
     expect(confirm.className).not.toMatch(/danger-solid/)
   })
 
-  it("Asignado ofrece 'Simular el pago' y lo manda solo si se tilda (ADR-055)", async () => {
+  it("Asignado ofrece 'Simular el pago' y lo manda solo si se tilda (DD-055)", async () => {
     renderModal({ status: "assignment_pending" as never })
     await goToConfirm(HIGH)
     type("Motivo", REASON)

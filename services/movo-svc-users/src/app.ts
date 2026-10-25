@@ -67,7 +67,7 @@ export interface BuildAppOptions {
    * real levantado (MOVO-134), mismo criterio que `storageProvider`. */
   shipmentsClient?: ShipmentsClient;
   /** Override solo para tests de integración — evita depender de la API de Resend
-   * (MOVO-139/ADR-017), mismo criterio que `smsProvider`. */
+   * (MOVO-139/ADR-016), mismo criterio que `smsProvider`. */
   emailProvider?: EmailProvider;
   /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
   orphanPhotoSweepEnabled?: boolean;

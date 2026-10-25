@@ -403,7 +403,7 @@ describe("HoldService (MOVO-209)", () => {
     });
   });
 
-  describe("tarjeta guardada (MOVO-282, ADR-039)", () => {
+  describe("tarjeta guardada (MOVO-282, DD-039)", () => {
     const withCard = { ...input, savedCardId: SAVED_CARD };
 
     it("AC1: el pagador pasa a ser el customer de la tarjeta, no el email", async () => {

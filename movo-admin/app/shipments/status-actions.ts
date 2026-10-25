@@ -87,7 +87,7 @@ export interface SubmitStatusChangeInput {
   reason: string
   typedCode?: string
   idempotencyKey: string
-  /** ADR-055: asignar sin hold real (solo destino `assigned`). */
+  /** DD-055: asignar sin hold real (solo destino `assigned`). */
   simulatePayment?: boolean
   /** El código de 6 dígitos que llegó por email; se canjea por el token en el mismo paso. */
   otp?: { challengeId: string; code: string }

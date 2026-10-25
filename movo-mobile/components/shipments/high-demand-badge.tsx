@@ -19,7 +19,7 @@ interface HighDemandBadgeProps {
 }
 
 /**
- * Badge "Alta demanda en tu zona" (MOVO-254, ADR-025): explica el recargo por alta
+ * Badge "Alta demanda en tu zona" (MOVO-254, ADR-021): explica el recargo por alta
  * demanda del precio sugerido sin mostrar el porcentaje (el emisor no recibe el
  * desglose). Cuándo mostrarlo lo decide el caller (`highDemand === true` y precio
  * todavía sugerido). Pensado para ir sobre las cards lima de precio: pill en tinta

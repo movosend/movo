@@ -9,7 +9,7 @@ import { createShipmentRepository } from "../repositories/shipment-repository";
 import { createPaymentsClient, PaymentsClient } from "./payments-client";
 
 /**
- * ADR-055 (pago simulado): un admin puede pasar un envío a `assigned` sin hold real y el envío queda marcado
+ * DD-055 (pago simulado): un admin puede pasar un envío a `assigned` sin hold real y el envío queda marcado
  * (`shipments.payment_simulated`). Desde ahí payments no sabe nada de él, así que cada llamada sobre ese envío se
  * contesta acá, sin red: un hold `authorized` sintético, una liquidación `credited` en $0 y nada que liberar. El
  * resto de las llamadas (cuenta de MP, deuda, vista previa) no son de un envío y van tal cual.
@@ -149,7 +149,7 @@ export function withSimulatedPayments(
 
 /**
  * El cliente de payments que usan las rutas, los barridos y los servicios de `svc-shipments`: el real, con el pago
- * simulado de ADR-055 por encima. Va por envío (columna `payment_simulated`), nunca por entorno.
+ * simulado de DD-055 por encima. Va por envío (columna `payment_simulated`), nunca por entorno.
  */
 export function createAppPaymentsClient(app: FastifyInstance): PaymentsClient {
   const repository = createShipmentRepository(app.db);

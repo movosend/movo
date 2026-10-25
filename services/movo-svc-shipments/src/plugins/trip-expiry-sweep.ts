@@ -36,7 +36,7 @@ const BATCH_SIZE = 100;
  * estructurado (`trip_auto_expired`) + `updatedAt`, que el `@updatedAt` de Prisma
  * refresca en la cancelación.
  *
- * MOVO-265 (ADR-042): el último paso continúa las series de viajes recurrentes. Va al final
+ * MOVO-265 (DD-042): el último paso continúa las series de viajes recurrentes. Va al final
  * para que el vigente que venció en esta misma corrida (un `declared` sin salir o un `active`
  * vacío) ya cuente como `expired` en la racha de serie fantasma.
  */

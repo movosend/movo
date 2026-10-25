@@ -67,7 +67,7 @@ export function isTransitAnomalous(input: TransitAnomalyInput, now: Date = new D
 }
 
 /**
- * MOVO-278 (ADR-045): plazos contados desde la marca de D4 (`transitAnomalyFlaggedAt`). A
+ * MOVO-278 (DD-045): plazos contados desde la marca de D4 (`transitAnomalyFlaggedAt`). A
  * las `warnHours` se le avisa al transportista que se abre una disputa; a las
  * `disputeHours` el envío pasa a `disputed`. Sin marca no aplica ninguno de los dos.
  */

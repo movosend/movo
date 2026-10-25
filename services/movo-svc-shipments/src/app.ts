@@ -38,6 +38,7 @@ import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/pos
 import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
 import chatRoutes, { ChatRoutesOptions } from "./modules/chat/chat.routes";
 import supportRoutes, { SupportRoutesOptions } from "./modules/support/support.routes";
+import adminSupportRoutes, { AdminSupportRoutesOptions } from "./modules/admin-support/admin-support.routes";
 import receiverTransfersRoutes, {
   ReceiverTransfersRoutesOptions,
   shipmentReceiverTransferRoutes,
@@ -53,6 +54,7 @@ import { PricingClient } from "./adapters/pricing-client";
 import { PricingLogisticsClient } from "./adapters/pricing-logistics-client";
 import { FundsReleaseNotifier } from "./adapters/funds-release-notifier";
 import { AlertNotifier } from "./adapters/alert-notifier";
+import { SupportEventStream } from "./realtime/support-event-stream";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -77,8 +79,10 @@ export interface BuildAppOptions {
   chatSchedulePush?: (run: () => void, delayMs: number) => void;
   /** Reloj de las conversaciones de soporte (MOVO-320), solo tests. */
   supportNow?: () => Date;
-  /** Agenda el resumen de avisos de una ráfaga de soporte (MOVO-320, ADR-046); solo tests. */
+  /** Agenda el resumen de avisos de una ráfaga de soporte (MOVO-320, DD-046); solo tests. */
   supportSchedulePush?: (run: () => void, delayMs: number) => void;
+  /** Stream de los eventos del panel de soporte (MOVO-322, ADR-024); solo tests, para fallar o espiar la escritura. */
+  supportEventStream?: SupportEventStream;
   /** Override solo para tests de integración — evita depender de un
    * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
    * `usersClient`. */
@@ -117,12 +121,12 @@ export interface BuildAppOptions {
   fundsReleaseNotifier?: FundsReleaseNotifier;
   /** Override solo para tests de integración -- cliente de pricing-logistics (MOVO-206 / MOVO-219). */
   pricingLogisticsClient?: PricingLogisticsClient;
-  /** Override solo para tests -- canal de tiempo real (MOVO-201/ADR-022), evita
+  /** Override solo para tests -- canal de tiempo real (MOVO-201/ADR-019), evita
    * depender de Postgres real para probar el rechazo de una conexión WS. */
   shipmentRepository?: ShipmentRepository;
   /** Override solo para tests -- alerta al equipo al abrirse una disputa (MOVO-334). */
   alertNotifier?: AlertNotifier;
-  /** Reloj de la ventana para abrir una disputa (MOVO-334, ADR-054), solo tests. */
+  /** Reloj de la ventana para abrir una disputa (MOVO-334, DD-054), solo tests. */
   disputesNow?: () => Date;
 }
 
@@ -346,7 +350,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-213: aviso interno de svc-payments (cobro demorado / acreditado por un reintento).
   app.register(internalSettlementRoutes, { prefix: "/internal" });
 
-  // MOVO-201/ADR-022: canal de tiempo real (@fastify/websocket) -- mismo prefix
+  // MOVO-201/ADR-019: canal de tiempo real (@fastify/websocket) -- mismo prefix
   // "/shipments" que shipmentsRoutes/handshakeRoutes. Reemplaza la PoC de MOVO-200 --
   // ver el aviso completo en tracking.routes.ts y docs/tracking/README.md.
   const trackingRouteOpts: TrackingRoutesOptions = {
@@ -364,7 +368,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.register(positionsRoutes, positionsRouteOpts);
 
-  // MOVO-334 (ADR-054): apertura de disputas (`/shipments/:id/disputes`) y expediente/descargos
+  // MOVO-334 (DD-054): apertura de disputas (`/shipments/:id/disputes`) y expediente/descargos
   // (`/disputes/:disputeId`, prefijo propio como `/offers`).
   const disputesRouteOpts: DisputesRoutesOptions = {
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
@@ -384,7 +388,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.register(demoRoutes, demoRouteOpts);
 
-  // MOVO-275 (ADR-038): transferencia de receptor. Pedirla y listarla cuelgan del envío
+  // MOVO-275 (DD-038): transferencia de receptor. Pedirla y listarla cuelgan del envío
   // (prefijo "/shipments"); aceptar/rechazar/cancelar e invitaciones, de su prefijo propio.
   const receiverTransfersRouteOpts: ReceiverTransfersRoutesOptions = {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
@@ -393,7 +397,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(shipmentReceiverTransferRoutes, { prefix: "/shipments", ...receiverTransfersRouteOpts });
   app.register(receiverTransfersRoutes, { prefix: "/receiver-transfers", ...receiverTransfersRouteOpts });
 
-  // MOVO-26 (ADR-040): chat del envío -- se envía por HTTP, se recibe por WebSocket, mismo
+  // MOVO-26 (ADR-023): chat del envío -- se envía por HTTP, se recibe por WebSocket, mismo
   // prefijo "/shipments" (el gateway ya proxea HTTP y el upgrade de ese prefijo).
   const chatRouteOpts: ChatRoutesOptions = {
     prefix: "/shipments",
@@ -405,7 +409,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.register(chatRoutes, chatRouteOpts);
 
-  // MOVO-320 (ADR-051): soporte al usuario sobre el chat existente (mismo `ChatHub`, otra clave de sala). Prefijo
+  // MOVO-320 (DD-051): soporte al usuario sobre el chat existente (mismo `ChatHub`, otra clave de sala). Prefijo
   // "/support": el gateway lo proxea (HTTP y upgrade) hacia este servicio.
   const supportRouteOpts: SupportRoutesOptions = {
     prefix: "/support",
@@ -414,8 +418,20 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.supportNow ? { now: opts.supportNow } : {}),
     ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
+    ...(opts.supportEventStream ? { eventStream: opts.supportEventStream } : {}),
   };
   app.register(supportRoutes, supportRouteOpts);
+
+  // MOVO-322: el lado del agente de soporte, solo para svc-admin (red Docker interna, sin pasar por el gateway).
+  const adminSupportRouteOpts: AdminSupportRoutesOptions = {
+    prefix: "/internal/admin/support",
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.supportNow ? { now: opts.supportNow } : {}),
+    ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
+    ...(opts.supportEventStream ? { eventStream: opts.supportEventStream } : {}),
+  };
+  app.register(adminSupportRoutes, adminSupportRouteOpts);
 
   return app;
 }

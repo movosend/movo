@@ -61,7 +61,7 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
   const access = firstPage?.access ?? "open";
   const archived = firstPage?.archived ?? false;
   const reportedByMe = firstPage?.reportedByMe ?? false;
-  // Un integrante que ya no figura (receptor original, ADR-038) lee, pero no escribe.
+  // Un integrante que ya no figura (receptor original, DD-038) lee, pero no escribe.
   const isFormerReceiver = participantsQuery.isSuccess && !me && access === "read_only";
   const canWrite = access === "open" && !isFormerReceiver;
 

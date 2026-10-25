@@ -1,6 +1,6 @@
 import { CHAT_MESSAGE_MAX_LENGTH, CHAT_PAGE_MAX_LIMIT } from "@movo/shared";
 
-// MOVO-26 (ADR-040): wire contract de `ChatMessage`/`ChatMessagesPage` (@movo/shared).
+// MOVO-26 (ADR-023): wire contract de `ChatMessage`/`ChatMessagesPage` (@movo/shared).
 // Autocontenido a propósito, mismo criterio que ratings.schema.ts/handshake.schema.ts.
 
 const shipmentIdParam = {

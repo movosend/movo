@@ -1,5 +1,6 @@
 // Autocontenido a propósito -- mismo criterio que el resto de los *.schema.ts del repo.
-const TARGET_TYPES = ["user", "admin_role", "shipment", "chat_report", "user_report"];
+// Los valores de `AdminTargetType` (@movo/shared): uno que falte acá responde 400 al filtrar por él.
+const TARGET_TYPES = ["user", "admin_role", "shipment", "chat_report", "user_report", "support_conversation"];
 
 export const AUDIT_LOG_PAGE_MAX_LIMIT = 50;
 

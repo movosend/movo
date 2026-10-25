@@ -20,7 +20,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
 /**
- * MOVO-265 (ADR-042): viajes recurrentes contra Postgres real. La idempotencia de la
+ * MOVO-265 (DD-042): viajes recurrentes contra Postgres real. La idempotencia de la
  * generación (UNIQUE de `generated_from_trip_id`), el compare-and-swap del corte y la
  * excepción de `TRIP_HAS_ACCEPTED_PACKAGES` no se pueden probar con un repositorio fake.
  */

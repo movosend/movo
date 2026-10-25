@@ -125,7 +125,7 @@ services:
       # DIDIT_MODE/SMS_PROVIDER arriba — una var presente pero vacía no matchea el enum
       # de envSchema y tira el servicio abajo al boot.
       - PUSH_PROVIDER=${PUSH_PROVIDER:-mock}
-      # MOVO-139 (ADR-017): mismo criterio de `:-console` que SMS_PROVIDER arriba -- una
+      # MOVO-139 (ADR-016): mismo criterio de `:-console` que SMS_PROVIDER arriba -- una
       # var presente pero vacía no matchea el enum de envSchema y tira el servicio abajo
       # al boot. Faltaba todo este bloque: aunque EMAIL_PROVIDER/RESEND_API_KEY/EMAIL_FROM
       # estuvieran en Secrets Manager, compose solo pasa al contenedor lo que está listado
@@ -208,7 +208,7 @@ services:
       # USERS_SERVICE_URL -- no hace falta setearlo acá.
       # MOVO-116: PAYMENTS_SERVICE_URL, mismo criterio -- el default de código
       # (http://movo-svc-payments:3000) ya coincide con el servicio en movo-net.
-      # MOVO-202/ADR-023: retención de la traza GPS (días) y barrido de purga.
+      # MOVO-202/DD-023: retención de la traza GPS (días) y barrido de purga.
       - CARRIER_POSITION_RETENTION_DAYS=${CARRIER_POSITION_RETENTION_DAYS:-30}
       - CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES=${CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES:-60}
       - CARRIER_POSITION_PURGE_SWEEP_ENABLED=${CARRIER_POSITION_PURGE_SWEEP_ENABLED:-true}
@@ -232,20 +232,20 @@ services:
       - TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES=${TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES:-15}
       - TRIP_DEPARTURE_REMINDER_SWEEP_ENABLED=${TRIP_DEPARTURE_REMINDER_SWEEP_ENABLED:-true}
       - IN_TRANSIT_ANOMALY_FALLBACK_HOURS=${IN_TRANSIT_ANOMALY_FALLBACK_HOURS:-48}
-      # MOVO-278 (ADR-045): aviso previo y paso a disputa de un in_transit demorado.
+      # MOVO-278 (DD-045): aviso previo y paso a disputa de un in_transit demorado.
       - IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS=${IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS:-12}
       - IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS=${IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS:-24}
       # MOVO-210: saga de asignación (pago del emisor). PAYMENTS_SERVICE_URL (MOVO-116) ya coincide por
       # default con el nombre del servicio en movo-net, igual que USERS_SERVICE_URL.
       - FUNDING_NEAR_PICKUP_DAYS=${FUNDING_NEAR_PICKUP_DAYS:-3}
-      # ADR-055: pago simulado desde el panel (sin cobro real). `:-false`: vacía no matchea el boolean de AJV.
+      # DD-055: pago simulado desde el panel (sin cobro real). `:-false`: vacía no matchea el boolean de AJV.
       - ALLOW_SIMULATED_PAYMENTS=${ALLOW_SIMULATED_PAYMENTS:-false}
       - FUNDING_PAYMENT_TIMEOUT_MINUTES=${FUNDING_PAYMENT_TIMEOUT_MINUTES:-30}
       - FUNDING_RELEASE_HOURS_BEFORE_PICKUP=${FUNDING_RELEASE_HOURS_BEFORE_PICKUP:-24}
       - FUNDING_REMINDER_INTERVAL_HOURS=${FUNDING_REMINDER_INTERVAL_HOURS:-12}
       - FUNDING_SWEEP_INTERVAL_MINUTES=${FUNDING_SWEEP_INTERVAL_MINUTES:-5}
       - FUNDING_SWEEP_ENABLED=${FUNDING_SWEEP_ENABLED:-true}
-      # MOVO-313 (ADR-044): antigüedad (días) de una deuda sin saldar que bloquea operar como transportista.
+      # MOVO-313 (DD-044): antigüedad (días) de una deuda sin saldar que bloquea operar como transportista.
       - USER_DEBT_OVERDUE_DAYS=${USER_DEBT_OVERDUE_DAYS:-14}
       # MOVO-334: alerta al equipo al abrirse una disputa (mismas vars que svc-payments, MOVO-268).
       - ALERT_PROVIDER=${ALERT_PROVIDER:-console}
@@ -276,7 +276,7 @@ services:
       # MOVO-111: key para cifrar los tokens OAuth en la base (AES-256-GCM).
       - MP_TOKEN_ENCRYPTION_KEY=${MP_TOKEN_ENCRYPTION_KEY:-}
       - MP_TEST_MODE=${MP_TEST_MODE:-false}
-      # ADR-048: cuenta de MP de Movo S.A. que cobra los pagos de saldo (MOVO-312).
+      # DD-048: cuenta de MP de Movo S.A. que cobra los pagos de saldo (MOVO-312).
       - MP_COLLECTOR_ACCESS_TOKEN=${MP_COLLECTOR_ACCESS_TOKEN:-}
       - MP_COLLECTOR_PUBLIC_KEY=${MP_COLLECTOR_PUBLIC_KEY:-}
       - MP_COLLECTOR_MP_USER_ID=${MP_COLLECTOR_MP_USER_ID:-}
@@ -294,7 +294,7 @@ services:
       - MP_TRANSACTION_FEE_RATE=${MP_TRANSACTION_FEE_RATE:-0.0499}
       # MOVO-294: tope en ARS (en valor absoluto) de un ajuste manual de saldo desde el panel.
       - ADMIN_LEDGER_ADJUSTMENT_MAX_ARS=${ADMIN_LEDGER_ADJUSTMENT_MAX_ARS:-500000}
-      # MOVO-100 (ADR-039): public_key con la que el mobile tokeniza la tarjeta al guardarla
+      # MOVO-100 (DD-039): public_key con la que el mobile tokeniza la tarjeta al guardarla
       # (no decide dónde queda: siempre un customer de Movo S.A.; en dev es la TEST- de un
       # Vendedor de prueba, no la de Movo) y (solo sandbox) el mapa userId -> email de
       # Comprador de prueba. USERS_SERVICE_URL no hace falta: el default de código ya es el
@@ -327,6 +327,9 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
+      # MOVO-322: WebSocket de la bandeja de soporte (URL pública del gateway y orígenes del panel).
+      - SUPPORT_WS_PUBLIC_URL=${SUPPORT_WS_PUBLIC_URL:-wss://localhost/api/v1/admin/support/ws}
+      - SUPPORT_WS_ALLOWED_ORIGINS=${SUPPORT_WS_ALLOWED_ORIGINS:-https://localhost:3000}
     depends_on:
       - postgres
       - redis
@@ -347,11 +350,11 @@ services:
       - ROUTING_TIME_SLACK_MINUTES=${ROUTING_TIME_SLACK_MINUTES:-120}
       - ROUTING_DEFAULT_SERVICE_TIME_MINUTES=${ROUTING_DEFAULT_SERVICE_TIME_MINUTES:-10}
       - ROUTING_CACHE_TTL_SECONDS=${ROUTING_CACHE_TTL_SECONDS:-86400}
-      # MOVO-138/ADR-025: precio de la nafta (mock sin red; energia = API CKAN + cache Redis)
+      # MOVO-138/ADR-021: precio de la nafta (mock sin red; energia = API CKAN + cache Redis)
       - FUEL_PRICE_PROVIDER=${FUEL_PRICE_PROVIDER:-mock}
       - PRICING_FUEL_PRICE_FALLBACK_ARS_PER_L=${PRICING_FUEL_PRICE_FALLBACK_ARS_PER_L:-2222.5}
       - PRICING_FUEL_CACHE_TTL_SECONDS=${PRICING_FUEL_CACHE_TTL_SECONDS:-86400}
-      # MOVO-276 (package_tapered_v2)/ADR-025: coeficientes en litros de nafta y recargo por demanda
+      # MOVO-276 (package_tapered_v2)/ADR-021: coeficientes en litros de nafta y recargo por demanda
       - PRICING_BASE_FARE_L=${PRICING_BASE_FARE_L:-0.15}
       - PRICING_BASE_FARE_DOCUMENT_L=${PRICING_BASE_FARE_DOCUMENT_L:-0.0}
       - PRICING_FUEL_L_PER_KM=${PRICING_FUEL_L_PER_KM:-0.08}

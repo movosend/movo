@@ -386,7 +386,7 @@ describe("Chat del envío (MOVO-26)", () => {
       expect(archived.json().items).toHaveLength(1);
     });
 
-    it("el receptor original (ADR-038) lee pero no escribe: 403 CHAT_READ_ONLY", async () => {
+    it("el receptor original (DD-038) lee pero no escribe: 403 CHAT_READ_ONLY", async () => {
       const p = await createShipment();
       const formerReceiverId = randomUUID();
       await send(p.shipmentId, p.senderId, "Mensaje previo");
@@ -523,7 +523,7 @@ describe("Chat del envío (MOVO-26)", () => {
       expect(toUser(p.receiverId)).toHaveLength(before);
     });
 
-    it("si el destinatario bloquea al autor mientras el mensaje esperaba en la cola, el resumen no lo muestra (ADR-026)", async () => {
+    it("si el destinatario bloquea al autor mientras el mensaje esperaba en la cola, el resumen no lo muestra (DD-026)", async () => {
       const p = await createShipment();
 
       await send(p.shipmentId, p.senderId, "Primero");
@@ -1008,7 +1008,7 @@ describe("Chat del envío (MOVO-26)", () => {
         p.shipmentId,
       ]);
 
-      // El nuevo lee el historial (ADR-038) y escribe; el original lee pero ya no escribe.
+      // El nuevo lee el historial (DD-038) y escribe; el original lee pero ya no escribe.
       const newHistory = await history(p.shipmentId, newReceiverId);
       expect(newHistory.json()).toMatchObject({ access: "open" });
       expect(newHistory.json().items).toHaveLength(1);

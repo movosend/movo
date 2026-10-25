@@ -188,6 +188,21 @@ export type {
   SettlementStatus,
   ShipmentSettlementResponse,
 } from "./types/settlement";
+// reembolso de un pago capturado (MOVO-336)
+export {
+  REFUND_IDEMPOTENCY_KEY_MAX_LENGTH,
+  REFUND_REASON_MAX_LENGTH,
+  REFUND_REASON_MIN_LENGTH,
+  REFUND_STATUSES,
+} from "./types/refund";
+export type {
+  CreateRefundRequest,
+  CreateRefundResponse,
+  RefundFailureReason,
+  RefundResponse,
+  RefundsResponse,
+  RefundStatus,
+} from "./types/refund";
 // cuenta corriente del usuario (MOVO-309)
 export { USER_LEDGER_ENTRY_STATUSES, USER_LEDGER_ENTRY_TYPES, USER_LEDGER_ROLES } from "./types/user-ledger";
 export type {
@@ -295,7 +310,7 @@ export {
   PACKAGE_INPUT_SANITY_MAX,
   roundPackageWeightKg,
 } from "./config/package-dimensions";
-// penalidad por cancelar un envío asignado (MOVO-307, ADR-047)
+// penalidad por cancelar un envío asignado (MOVO-307, DD-047)
 export {
   CANCELLATION_PENALTY_FREE_HOURS,
   CANCELLATION_PENALTY_RATE,
@@ -311,7 +326,7 @@ export type {
   CancellationQuoteResponse,
 } from "./config/cancellation-penalty";
 
-// atribución del no-retiro (MOVO-270, ADR-052)
+// atribución del no-retiro (MOVO-270, DD-052)
 export {
   ARRIVAL_RADIUS_M,
   ARRIVAL_MAX_ACCURACY_M,
@@ -321,7 +336,7 @@ export {
 } from "./config/pickup-attribution";
 export type { PickupMissedAttribution } from "./config/pickup-attribution";
 
-// viajes recurrentes (MOVO-265, ADR-042)
+// viajes recurrentes (MOVO-265, DD-042)
 export {
   RECURRENCE_WEEKDAY,
   MAX_ACTIVE_RECURRING_SERIES,
@@ -373,6 +388,7 @@ export type {
   ShipmentParties,
   InProgressShipment,
   WithdrawOpenActivityResult,
+  OpenActivitySummary,
   ChatReportParties,
   UserReportParties,
 } from "./types/admin";
@@ -431,7 +447,7 @@ export type {
   AdminShipmentTracking,
 } from "./types/admin-shipments";
 
-// admin: cambio forzado de estado de un envío (MOVO-331, ADR-055)
+// admin: cambio forzado de estado de un envío (MOVO-331, DD-055)
 export {
   FORCED_TRANSITION_MATRIX,
   blockedTransitionReason,
@@ -485,6 +501,11 @@ export type {
   AdminUserModeration,
   AdminUserSanction,
   AdminUserSanctions,
+  AdminSanctionWithdrawalStatus,
+  AdminSanctionWithdrawal,
+  AdminApplySanctionBody,
+  AdminLiftSanctionBody,
+  AdminSanctionPreview,
   AdminLedgerType,
   AdminLedgerStatus,
   AdminUserLedgerEntry,
@@ -510,6 +531,7 @@ export type {
   AdminUserLedgerRow,
   AdminUserLedgerRowPage,
   AdminUserNames,
+  AdminUserNameRef,
 } from "./types/admin-users";
 
 // admin: bandeja de soporte (MOVO-323, backend MOVO-321/MOVO-322)
@@ -530,6 +552,8 @@ export {
   SUPPORT_ERROR,
   SUPPORT_QUICK_REPLIES,
   SUPPORT_WS_PROTOCOL,
+  SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER,
+  parseSupportWsProtocols,
   resolveQuickReply,
 } from "./types/admin-support";
 export type {
@@ -572,6 +596,33 @@ export type {
   SupportRealtimeTicket,
 } from "./types/admin-support";
 
+// soporte: contrato interno svc-admin ↔ svc-shipments (MOVO-322, ADR-024)
+export {
+  SUPPORT_EVENTS_STREAM_KEY,
+  SUPPORT_EVENTS_STREAM_FIELD,
+  SUPPORT_EVENTS_STREAM_MAXLEN,
+} from "./types/admin-support-internal";
+export type {
+  SupportInternalMessageKind,
+  SupportInternalLastMessage,
+  SupportInternalRow,
+  SupportInternalListPage,
+  SupportInternalMessage,
+  SupportInternalMessagesPage,
+  SupportInternalListQuery,
+  SupportInternalCountsQuery,
+  SupportInternalCounts,
+  SupportInternalActor,
+  SupportInternalSendBody,
+  SupportInternalSendResult,
+  SupportInternalPatchBody,
+  SupportInternalAttachmentBody,
+  SupportInternalAgentLoad,
+  SupportInternalParties,
+  SupportInternalUserConversations,
+  SupportStreamEvent,
+} from "./types/admin-support-internal";
+
 // soporte del lado del usuario (MOVO-320, consumido por MOVO-324)
 export {
   SUPPORT_WS_CLOSE,
@@ -599,7 +650,7 @@ export type {
   SupportRealtimeConnected,
 } from "./types/support";
 
-// disputas (MOVO-334, ADR-054)
+// disputas (MOVO-334, DD-054)
 export {
   DisputeReason,
   DisputeStatus,

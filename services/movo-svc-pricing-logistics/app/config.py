@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Coeficientes de `package_tapered_v2` (MOVO-276), en LITROS de nafta y no en pesos: la
-    # tarifa se indexa sola con el precio del surtidor (ADR-025). Los de distancia vienen
+    # tarifa se indexa sola con el precio del surtidor (ADR-021). Los de distancia vienen
     # de `demand_fuel_routes_v1`; base y peso se recalibraron contra la grilla de
     # referencia (`docs/pricing/grilla-referencia.md`, banda de 0,6x a 1,0x del Correo).
     # Tarifa base de un paquete (`standard_package`, y `fragile_item` antes del recargo).
@@ -109,7 +109,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PRICING_DISTANCE_TIER3_RATE", "distance_tier3_rate"),
     )
 
-    # Recargo por alta demanda (MOVO-138, ADR-025). Umbral calibrado con Monte Carlo en
+    # Recargo por alta demanda (MOVO-138, ADR-021). Umbral calibrado con Monte Carlo en
     # el spike MOVO-216 (§4.3): recalibrar acá con datos reales, sin tocar código.
     demand_ratio_threshold: float = Field(
         default=3.0,
@@ -146,7 +146,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PRICING_FRAGILE_SURCHARGE", "fragile_surcharge"),
     )
 
-    # Precio de combustible (MOVO-138, ADR-025). `mock` devuelve el fallback fijo sin
+    # Precio de combustible (MOVO-138, ADR-021). `mock` devuelve el fallback fijo sin
     # red ni Redis (default de dev/test/CI); `energia` consulta la API CKAN de la
     # Secretaría de Energía con cache en Redis.
     fuel_price_provider: Literal["mock", "energia"] = Field(

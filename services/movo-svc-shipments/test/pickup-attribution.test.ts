@@ -26,7 +26,7 @@ const at = (meters: number, extra: Partial<{ accuracyM: number; capturedAt: Date
   ...extra,
 });
 
-describe("classifyPickupPosition (MOVO-270, ADR-052)", () => {
+describe("classifyPickupPosition (MOVO-270, DD-052)", () => {
   it("la ventana de evidencia empieza 30 min antes de la franja y termina con ella", () => {
     expect(pickupEvidenceWindow(shipment)).toEqual({
       from: new Date("2026-10-15T16:30:00.000Z"),

@@ -29,22 +29,42 @@ El panel llama **solo** a `/admin/support/*` de `svc-admin` (decisión 6 de MOVO
 
 Las respuestas rápidas **no** son una ruta para el panel: `SUPPORT_QUICK_REPLIES` y `resolveQuickReply` están en
 `@movo/shared` y las usa el panel directamente (MOVO-322 AC11 pedía `GET /admin/support/quick-replies`; si el backend la
-quiere igual, que devuelva esa misma constante).
+quiere igual, que devuelva esa misma constante). MOVO-322 la implementó así: `GET quick-replies` devuelve la constante.
 
 ## Reglas de escritura
 
 - Toda escritura (responder, nota, asignar, prioridad, tema, etiquetas, vincular, resolver, reabrir, pedir un adjunto)
   pasa por `runAdminAction` de `svc-admin`: bitácora y **conflicto de interés**. Sobre una consulta cuyo `user.id` es el admin
-  responde `403 ADMIN_CONFLICT_OF_INTEREST` (agregar `support_conversation` a `AdminTargetType` y a `conflict-of-interest.ts`).
+  responde `403 ADMIN_CONFLICT_OF_INTEREST` (objetivo `support_conversation` de `AdminTargetType`, MOVO-322).
   El panel lo muestra como aviso y deja el compositor deshabilitado.
 - Responder pasa la conversación a `awaiting_user`, la asigna al agente si no tenía y deja el evento; responder sobre una
   `resolved` la reabre con su evento.
 - Los textos de los eventos `system` los arma el servidor **en tercera persona** ("Tomás Ferreyra tomó la conversación",
   "Prioridad: alta", "Vinculada a #MOVO-48176"): el mismo mensaje lo leen todos los agentes.
-- `waitMinutes` lo calcula el servidor (desde el último mensaje del usuario sin respuesta; 0 si no espera).
+- `waitMinutes` lo calcula el servidor (desde el último mensaje del usuario sin respuesta, o desde que un agente la reabrió; 0 si no espera).
 - Vincular un envío valida que el usuario de la consulta sea parte → si no, `422 SUPPORT_SHIPMENT_NOT_PARTY`.
 - Errores propios: `SUPPORT_CONVERSATION_NOT_FOUND` (404), `SUPPORT_ATTACHMENT_INVALID` (422), `SUPPORT_SHIPMENT_NOT_PARTY` (422),
   `SUPPORT_TICKET_INVALID` (401), `SUPPORT_SERVICE_UNAVAILABLE` (502). Ya están en `ApiErrorCode`.
+
+## Implementación del lado del agente (MOVO-322)
+
+- **Dos capas**: `svc-admin` (`modules/support/`) completa nombres y roles (`POST /internal/admin/users/names`, que ahora
+  devuelve `roles`; best-effort, "Nombre no disponible" si `svc-users` cae), resuelve `assignee=me`, busca por nombre en
+  `svc-users` (los ids viajan como `userIds`) y pasa toda escritura por `runAdminAction`. `svc-shipments`
+  (`/internal/admin/support/*`, `modules/admin-support/`) aplica las reglas del modelo y avisa al usuario y al panel. El
+  contrato interno es `SupportInternal*` (`admin-support-internal.ts`), con ids en vez de nombres.
+- **Eventos del equipo**: `kind = event` en `support_messages` (actor en `author_id`/`author_name`). El panel los ve como
+  `system`; el usuario **nunca** (lista blanca de `USER_VISIBLE_MESSAGE_KINDS`): ve solo el cambio de estado
+  (`support_status`). `system` sigue siendo el evento del lado del usuario ("Se reabrió la conversación").
+- **Bitácora**: `support.reply`, `support.note`, `support.assign`, `support.priority`, `support.topic`, `support.tags`,
+  `support.link_shipment`, `support.unlink_shipment` (o `support.update` si un `PATCH` cambia varios campos),
+  `support.resolve`, `support.reopen` y `support.attachment_request`. Asignar a alguien que no es admin: 400, fila `failed`.
+- **No leídos compartidos**: mensajes del usuario posteriores a `last_agent_read_at`; `POST read` lo avanza (y le pone el ✓✓
+  al usuario).
+- **Contexto**: perfil y KYC de `svc-users`; insignias `identity` (email y teléfono verificados), `kyc_approved`/`kyc_pending`
+  y `license_valid` (aprobada y no vencida). Si el KYC no responde, `badges: null`; sin el perfil, 502.
+- **Tiempo real**: Redis Stream `support:events` (ADR-024, borrador en `adr-024-eventos-del-panel-por-redis-stream.md`);
+  `GET events` ya lee de ahí. El WebSocket con ticket es la segunda PR de MOVO-322.
 
 ## Adjuntos (MOVO-321)
 
@@ -84,9 +104,16 @@ hospeda WS. Diseño:
 1. Server Action → `POST realtime-ticket` → `{ ticket, url, expiresAt }`. Un solo uso, ~30 s, atado al admin y al origin.
 2. El navegador conecta con `new WebSocket(url, ["movo-support.v1", ticket])`. El servidor valida el ticket, **responde solo el subprotocolo
    `movo-support.v1`** (nunca el ticket) y rechaza el upgrade si es inválido.
-3. Hospedaje: **`svc-admin`**, expuesto por el gateway en `/api/v1/admin/support/ws` (hay que habilitar el upgrade en el gateway y en
-   `infra/nginx`). `svc-admin` se suscribe al `ChatHub` de `svc-shipments` por un endpoint interno y retransmite solo eventos de soporte.
-   Los agentes reciben **todos** los eventos de soporte, incluidas las notas.
+3. Hospedaje: **`svc-admin`**, expuesto por el gateway en `/api/v1/admin/support/ws` (MOVO-322). Ruta pública en el gateway (sin JWT) que
+   rechaza el upgrade sin ticket; el gateway acepta el WebSocket del navegador y abre otro hacia `svc-admin`, al que solo le pasa el primer
+   subprotocolo, así que reenvía la lista original en `x-ws-protocols` y el `Origin`. `svc-admin` gasta el ticket (`GETDEL`, guarda solo su
+   sha256), exige un `Origin` de `SUPPORT_WS_ALLOWED_ORIGINS` (cierre 4003) y cierra con 4001 un ticket inválido, vencido o usado; la
+   conexión dura lo que una sesión de panel (15 min) y se corta con 4001 para pedir otro. nginx no cambia (su `location /` ya hace el upgrade).
+   Los eventos salen del Redis Stream de ADR-024, un lector para todas las conexiones. Los agentes reciben **todos** los eventos de soporte,
+   incluidas las notas. El gateway limita el upgrade a 20 intentos por minuto e IP (con ticket o sin él).
+   **Orden al abrir**: el socket no reenvía lo que pasó antes de existir. El lector arranca desde la última entrada que había cuando se
+   registró la primera conexión, y el panel pide lista, contadores y mensajes (`resync`) **al recibir el `open`, en cada apertura, también la
+   primera**. Así un evento que entra entre la carga de la lista y el socket llega por uno de los dos (a lo sumo, por los dos).
 4. Eventos (`SupportEvent`, cada uno con `cursor` monótono y opaco): `conversation_created`, `support_message` (trae la fila ya actualizada),
    `conversation_updated`, `counts_updated`.
 5. Respaldo: si el WS falla 3 veces seguidas el panel pasa a `GET events?since=<cursor>` cada 10 s (sigue intentando el WS). Sin `since` devuelve
@@ -94,10 +121,10 @@ hospeda WS. Diseño:
    Alcanza con retener unos minutos de eventos.
 6. Los eventos nunca llevan notas internas hacia el usuario; el canal del usuario (mobile, MOVO-319) es otro.
 
-## Soporte del lado del usuario (MOVO-320, ADR-051)
+## Soporte del lado del usuario (MOVO-320, DD-051)
 
 El usuario le escribe a Movo desde la app (MOVO-324). Vive en `svc-shipments` (módulo `modules/support/`), sobre el chat existente
-(ADR-040/046): mismo `ChatHub` (otra clave de sala, `support:<id>`), mismo handshake WS, mismo filtro de lenguaje. Los tipos son
+(ADR-023/DD-046): mismo `ChatHub` (otra clave de sala, `support:<id>`), mismo handshake WS, mismo filtro de lenguaje. Los tipos son
 `shared/movo-shared/src/types/support.ts` (se importan por `@movo/shared/src/types/support`; ojo que `SupportUserMessage` es del panel: el
 mensaje que ve el usuario es `SupportUserFacingMessage`). El agente **no** entra por acá: usa `/admin/support/*`.
 
@@ -116,7 +143,7 @@ mensaje que ve el usuario es `SupportUserFacingMessage`). El agente **no** entra
 
 Texto de 1 a `SUPPORT_MESSAGE_MAX_LENGTH` (2000) caracteres, recortado (vacío si el mensaje lleva imágenes, MOVO-321). Una URL de
 adjunto vencida se renueva volviendo a pedir la página de mensajes: cada lectura firma URLs nuevas. Las palabras ofensivas se tapan con asteriscos y el mensaje
-sale con `moderated: true`; a los de un agente no se les aplica el filtro. No hay chequeo de bloqueo (ADR-026): la otra parte es Movo.
+sale con `moderated: true`; a los de un agente no se les aplica el filtro. No hay chequeo de bloqueo (DD-026): la otra parte es Movo.
 
 ### Estados
 
@@ -131,7 +158,7 @@ Frames: `{ "type": "connected", "conversationId" }` al aceptar (la app refresca 
 (`{ message }`), `support_status` (`{ conversationId, status }`) y `support_receipt` (`{ conversationId, upTo }`: un agente leyó hasta
 `upTo`, la app actualiza los tildes). El cliente no manda nada. Cierres: `4001` token inválido o vencido (la app renueva y reconecta; también
 se corta sola al `exp` del JWT), `4003` sin permiso (un admin que no es el dueño: los agentes usan el canal del panel), `4004` la
-conversación no existe o no es del usuario (terminal). Heartbeat de 30 s. Registro en memoria y una sola réplica (ADR-022).
+conversación no existe o no es del usuario (terminal). Heartbeat de 30 s. Registro en memoria y una sola réplica (ADR-019).
 
 ### Notas internas
 
@@ -143,7 +170,7 @@ devuelve `null` para una nota. Cada camino tiene su test de regresión en `test/
 
 Cuando contesta un agente (no una nota, no un evento `system`) y el usuario no tiene la conversación abierta por WebSocket:
 título "Soporte de Movo", cuerpo "Lucía: …" (o "Lucía: Te envió una imagen" si no hay texto), `data: { type: "support_message", conversationId }`,
-categoría `support` (respeta el toggle maestro, el de la categoría y el horario de silencio, MOVO-245). Ráfagas como en ADR-046: la primera
+categoría `support` (respeta el toggle maestro, el de la categoría y el horario de silencio, MOVO-245). Ráfagas como en DD-046: la primera
 avisa enseguida y las de los 30 s siguientes salen en un único resumen ("N mensajes nuevos · …") que se omite si ya se leyó o si el usuario
 abrió la conversación.
 

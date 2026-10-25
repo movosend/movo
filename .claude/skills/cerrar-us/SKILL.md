@@ -63,10 +63,10 @@ Para cada punto marcado ⚠️ o ❌, considerá si es:
   usuario en vez de asumir.
 
 Si algo de la DoD no es un artefacto de código (ej. un ADR), decilo explícitamente en
-vez de omitirlo de la tabla — los ADRs de MOVO viven en Google Drive
+vez de omitirlo de la tabla — los ADRs de MOVO (23, criterio en `CLAUDE.md`) viven en Google Drive
 (`[Movo] 004 - Sprint 0.md`), no en este repo. Ver la sección de ADRs en `CLAUDE.md`
 para el formato y la convención (un ADR aceptado no se modifica; si hace falta
-documentar algo nuevo, se agrega un ADR nuevo con el próximo número).
+documentar algo nuevo, se agrega un ADR nuevo con el próximo número; si es una regla de negocio, un detalle de un módulo o un parámetro, es un `DD-NNN` en `docs/decisiones/README.md`).
 
 ## Paso 3 — Correr todo lo que el ticket exige verificar
 

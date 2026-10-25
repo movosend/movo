@@ -52,7 +52,7 @@ export interface ShipmentSummary {
   receiverRedesignationDeadline?: string | null;
   /** MOVO-253: motivo del último rechazo, `null` fuera de `rejected_by_receiver`. */
   rejectionReason?: string | null;
-  /** MOVO-278 (ADR-045): ISO del momento en que el envío `in_transit` se marcó como
+  /** MOVO-278 (DD-045): ISO del momento en que el envío `in_transit` se marcó como
    * demorado; `null` (u omitido en builds viejos del backend) si no está marcado. */
   transitAnomalyFlaggedAt?: string | null;
   createdAt: string;
@@ -83,7 +83,7 @@ export interface ShipmentSummary {
   /** MOVO-275: solo en `GET /shipments/mine` — el usuario le pasó la recepción de este
    * envío a otra persona (badge "Transferido"). `null` en cualquier otro caso. */
   transferredByMe?: { newReceiverId: string; newReceiverName: string | null; at: string } | null;
-  /** MOVO-307 (ADR-047): penalidad por cancelar un envío `assigned` tarde. `null` en
+  /** MOVO-307 (DD-047): penalidad por cancelar un envío `assigned` tarde. `null` en
    * cualquier cancelación sin cargo. `pending`: se está cobrando del hold; `captured`: ya
    * se cobró; `debt`: el cobro falló y quedó en la cuenta corriente (el hold se liberó entero). */
   cancellationPenaltyArs?: number | null;
@@ -292,7 +292,7 @@ export interface ActiveShipmentSummary {
   isToday: boolean;
   pickupWindowExpired: boolean;
   tripId: string | null;
-  /** MOVO-278 (ADR-045): envío `in_transit` demorado (ISO del momento en que se marcó);
+  /** MOVO-278 (DD-045): envío `in_transit` demorado (ISO del momento en que se marcó);
    * `null` si no está marcado. Se muestra como "Demorado". */
   transitAnomalyFlaggedAt: string | null;
 }
@@ -453,7 +453,7 @@ export const shipmentsClient = {
 
   /** `GET /shipments/:id/carrier-withdrawal-quote` (MOVO-310/314) — solo el transportista asignado.
    * Cuánto le cuesta bajarse ahora: deuda en su cuenta corriente si faltan menos de 12 h para
-   * el retiro, y desde cualquier estado con transportista (ADR-047). */
+   * el retiro, y desde cualquier estado con transportista (DD-047). */
   getCarrierWithdrawalQuote(shipmentId: string): Promise<CancellationQuoteResponse> {
     return httpClient.get<CancellationQuoteResponse>(`/shipments/${shipmentId}/carrier-withdrawal-quote`);
   },

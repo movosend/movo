@@ -115,18 +115,18 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       schema: {
         summary: "Declarar viaje (transportista)",
         description:
-          "MOVO-161/MOVO-116 (ADR-036): requiere rol carrier + KYC de identidad " +
+          "MOVO-161/MOVO-116 (DD-036): requiere rol carrier + KYC de identidad " +
           "aprobado (403 CARRIER_NOT_VERIFIED), licencia de conducir aprobada y cuenta " +
           "de Mercado Pago vinculada (403 CARRIER_LICENSE_NOT_APPROVED o " +
           "CARRIER_MP_ACCOUNT_NOT_LINKED, el primero que falte, con " +
           "details.missingRequirements listando todos), antes de persistir nada. 502 " +
           "USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar. " +
-          "MOVO-278 (ADR-045): con un envío en disputa como transportista, 403 " +
+          "MOVO-278 (DD-045): con un envío en disputa como transportista, 403 " +
           "CARRIER_DISPUTE_OPEN (va primero en missingRequirements). " +
-          "MOVO-313 (ADR-044): con una deuda de la cuenta corriente sin saldar hace más de " +
+          "MOVO-313 (DD-044): con una deuda de la cuenta corriente sin saldar hace más de " +
           "USER_DEBT_OVERDUE_DAYS (14), 403 USER_DEBT_OVERDUE (si es lo único que falta; con otros requisitos el code es el del " +
           "primero, la deuda se lista al final de details.missingRequirements y el mensaje la menciona). " +
-          "MOVO-265 (ADR-042): con recurrenceWeekdays el viaje nace recurrente (el día de " +
+          "MOVO-265 (DD-042): con recurrenceWeekdays el viaje nace recurrente (el día de " +
           "departureAt tiene que estar incluido, 400 VALIDATION_FAILED si no); 409 " +
           "RECURRING_SERIES_LIMIT si el transportista ya tiene 3 series activas.",
         body: tripsSchemas.createTripBody,
@@ -232,7 +232,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
           "409 TRIP_HAS_ACCEPTED_PACKAGES si el viaje tiene paquetes aceptados, sin importar qué " +
           "se edite; la única excepción es apagar la recurrencia (recurrenceWeekdays: null, con o " +
           "sin recurrenceUntil: null), la única forma de cortar una serie cuyo vigente ya tiene " +
-          "paquetes (MOVO-265, ADR-042). Prender o cambiar la recurrencia solo se puede en un " +
+          "paquetes (MOVO-265, DD-042). Prender o cambiar la recurrencia solo se puede en un " +
           "viaje declared o active (409 TRIP_NOT_EDITABLE en otro estado) y que sea el vigente de " +
           "su serie (409 TRIP_NOT_SERIES_HEAD). Prenderla con 3 series activas: 409 " +
           "RECURRING_SERIES_LIMIT.",
@@ -342,11 +342,11 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       schema: {
         summary: "Iniciar viaje declarado (transportista)",
         description:
-          "MOVO-221/277. MOVO-116 (ADR-036): el transportista dueño del viaje tiene " +
+          "MOVO-221/277. MOVO-116 (DD-036): el transportista dueño del viaje tiene " +
           "que seguir cumpliendo los requisitos para operar -- 403 CARRIER_NOT_VERIFIED, " +
           "CARRIER_LICENSE_NOT_APPROVED o CARRIER_MP_ACCOUNT_NOT_LINKED (con " +
-          "details.missingRequirements); MOVO-278 (ADR-045): 403 CARRIER_DISPUTE_OPEN con " +
-          "un envío en disputa como transportista; MOVO-313 (ADR-044): 403 USER_DEBT_OVERDUE " +
+          "details.missingRequirements); MOVO-278 (DD-045): 403 CARRIER_DISPUTE_OPEN con " +
+          "un envío en disputa como transportista; MOVO-313 (DD-044): 403 USER_DEBT_OVERDUE " +
           "con una deuda vencida; 502 si no se pudo verificar.",
         params: tripsSchemas.tripIdParam,
         response: {

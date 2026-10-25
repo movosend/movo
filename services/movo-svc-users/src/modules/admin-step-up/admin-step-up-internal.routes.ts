@@ -41,7 +41,7 @@ const body = (extra: Record<string, unknown> = {}) => ({
 });
 
 /**
- * MOVO-332 (ADR-055): segundo factor por acción del panel. Interno (solo red Docker, ADR-010): lo
+ * MOVO-332 (DD-055): segundo factor por acción del panel. Interno (solo red Docker, ADR-010): lo
  * llama `svc-admin`, que ya validó la sesión y pasa el `adminId`. No se declara en el routes-map del gateway.
  */
 export default async function adminStepUpInternalRoutes(app: FastifyInstance, opts: AdminStepUpInternalRoutesOptions) {

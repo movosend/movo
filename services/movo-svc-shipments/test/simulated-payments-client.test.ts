@@ -28,7 +28,7 @@ function build(simulated: boolean) {
   return { client, spies, clear };
 }
 
-describe("withSimulatedPayments (ADR-055)", () => {
+describe("withSimulatedPayments (DD-055)", () => {
   it("un envío simulado responde con un hold autorizado sin llamar a payments", async () => {
     const { client, spies } = build(true);
     const hold = await client.findHoldByShipment(SHIPMENT_ID, { sync: true });

@@ -48,7 +48,7 @@ function tripCorridorContainsPointWhere(lat: number, lng: number, radiusKm: numb
  * `shipment.status`, no solo por el status de la oferta. Deliberadamente solo excluye
  * `CANCELLED` — un envío `disputed`/`delivered` sí representa un paquete aceptado real.
  */
-const ACCEPTED_OFFER_FILTER = {
+export const ACCEPTED_OFFER_FILTER = {
   status: "accepted",
   shipment: { status: { not: ShipmentStatus.CANCELLED } },
 } as const;
@@ -68,7 +68,7 @@ const EXECUTABLE_OFFER_FILTER = {
 
 /**
  * MOVO-258 (D5): estados de envío que ya no retienen al viaje `active`. `disputed` cuenta
- * como terminal para el VIAJE: no tiene transición de salida modelada (ADR-023), así que
+ * como terminal para el VIAJE: no tiene transición de salida modelada (DD-023), así que
  * tratarlo como "sigue abierto" dejaba al transportista bloqueado para siempre por el
  * índice de 1 viaje activo, y una disputa es un asunto de custodia/pago, no de transporte.
  * Por el mismo criterio `delivered` también cierra, aunque admita un reclamo posterior
@@ -199,7 +199,7 @@ export class TripAlreadyHasActiveTripError extends Error {
 }
 
 /**
- * MOVO-265 (ADR-042): se intentó editar la recurrencia de un trip que ya tiene sucesor (no es
+ * MOVO-265 (DD-042): se intentó editar la recurrencia de un trip que ya tiene sucesor (no es
  * el vigente de su serie), o el barrido lo generó entre la lectura y el UPDATE.
  */
 export class TripNotSeriesHeadError extends Error {
@@ -282,7 +282,7 @@ export interface TripRepository {
   /** MOVO-265: series activas del transportista (trip vigente con recurrencia prendida). */
   countActiveSeries(carrierId: string): Promise<number>;
   /**
-   * MOVO-265 (ADR-042): trips vigentes con la recurrencia prendida cuyo `departureAt` ya pasó,
+   * MOVO-265 (DD-042): trips vigentes con la recurrencia prendida cuyo `departureAt` ya pasó,
    * en cualquier estado: son los que el barrido tiene que continuar o cortar. Paginado por
    * keyset sobre `(departureAt, id)`: `after` es el último de la página anterior.
    */
@@ -317,19 +317,19 @@ export interface TripRepository {
    * paquete aceptado vivo y cuyos paquetes quedaron TODOS en un estado final
    * (`TRIP_FINISHED_SHIPMENT_STATUSES`: `delivered`/`completed`/`cancelled`/`disputed`) -- un
    * `in_transit` o cualquier otro estado intermedio lo mantiene abierto. Un `in_transit`
-   * demorado sale por la disputa automática de MOVO-278 (ADR-045). Un viaje `active` sin paquetes no se toca. Devuelve
+   * demorado sale por la disputa automática de MOVO-278 (DD-045). Un viaje `active` sin paquetes no se toca. Devuelve
    * los ids efectivamente cerrados.
    */
   completeFinishedActive(limit: number): Promise<string[]>;
   /**
-   * MOVO-258 (D5): pasa a `expired` (baja automática, ADR-029) hasta `limit` viajes `active` que se quedaron sin ningún paquete
+   * MOVO-258 (D5): pasa a `expired` (baja automática, DD-029) hasta `limit` viajes `active` que se quedaron sin ningún paquete
    * aceptado vivo (todos sus envíos se cancelaron después de iniciarlo). `start()` exige al
    * menos uno y los paquetes quedan fijos, así que un `active` vacío no tiene nada que
    * transportar. Devuelve los ids expirados.
    */
   expireActiveWithoutPackages(limit: number): Promise<string[]>;
   /**
-   * MOVO-138 (ADR-025, ajustado por ADR-053): transportistas DISTINTOS con un viaje `declared` que
+   * MOVO-138 (ADR-021, ajustado por DD-053): transportistas DISTINTOS con un viaje `declared` que
    * sale dentro de la ventana dada y cuyo trayecto pasa a `radiusKm` o menos del
    * retiro -- la mitad "oferta" del `demandContext` de `POST /quote`. Un transportista
    * con dos viajes en la semana cuenta una vez.
@@ -667,7 +667,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       // cada `createShipment`, antes de la llamada a pricing.
       const rows = await db.trip.findMany({
         where: {
-          // MOVO-270 (ADR-053): solo `declared`. Un viaje `active` ya no toma paquetes
+          // MOVO-270 (DD-053): solo `declared`. Un viaje `active` ya no toma paquetes
           // (MOVO-258), así que no es oferta para el envío que se está cotizando.
           status: TripStatus.DECLARED,
           departureAt: { gte: params.departureFrom, lte: params.departureTo },

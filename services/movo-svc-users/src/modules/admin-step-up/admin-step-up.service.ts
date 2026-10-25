@@ -13,7 +13,7 @@ import { OTP_TTL_SECONDS } from "../../repositories/otp-repository";
 import { isPanelEligible } from "../auth/admin-session.service";
 
 /**
- * MOVO-332 (ADR-055): segundo factor por acción para el cambio de estado de un envío desde el panel.
+ * MOVO-332 (DD-055): segundo factor por acción para el cambio de estado de un envío desde el panel.
  * Distinto del OTP de la jornada (MOVO-287): ese abre la sesión de 8 h, este se pide para UNA acción
  * (admin + envío + destino) y se consume al usarla.
  *
