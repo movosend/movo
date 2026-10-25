@@ -1,0 +1,18 @@
+titulo: Manual de Instalación y Operación
+subtitulo: "Instalación local, despliegue en AWS, frontends, operación diaria y solución de problemas."
+instancia: Producto · Manual de Instalación y Operación
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: true
+archivos:
+  - instalacion.md
+  - {gen: herramientas/gen_env_vars.py}
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión, elaborada a partir de los archivos de infraestructura, los workflows de CI/CD y la documentación de operación del repositorio al cierre del Sprint 8."}
+introduccion: |
+  Este manual explica cómo instalar, desplegar y operar Movo: el entorno local, los ambientes en
+  AWS, los frontends, las tareas de operación y el diagnóstico de problemas frecuentes. Incluye un
+  apéndice con las variables de entorno de cada servicio.
+audiencia: |
+  El equipo de desarrollo y de operaciones de Movo, y quien despliegue o mantenga la plataforma,
+  con conocimientos de administración de Linux, Docker y bases de datos.

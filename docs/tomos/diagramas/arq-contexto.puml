@@ -1,0 +1,40 @@
+@startuml arq-contexto
+' Vista de contexto (C4 nivel 1): Movo, sus usuarios y los sistemas externos.
+skinparam linetype ortho
+skinparam nodesep 50
+skinparam ranksep 60
+left to right direction
+
+actor "Emisor" as E
+actor "Transportista" as T
+actor "Receptor" as R
+actor "Administrador" as A
+
+rectangle "Movo" <<movo>> as MOVO {
+  rectangle "Aplicación móvil\n(React Native + Expo)" as APP
+  rectangle "Panel de administración\n(Next.js, Vercel)" as ADMIN
+  rectangle "Backend\n(API Gateway + microservicios)" as BE
+}
+
+rectangle "Didit.me\n(verificación de identidad)" <<externo>> as DIDIT
+rectangle "Mercado Pago\n(pagos, split y OAuth)" <<externo>> as MP
+rectangle "Google Maps Platform\n(Routes, Geocoding, Places)" <<externo>> as GM
+rectangle "Twilio\n(SMS)" <<externo>> as TW
+rectangle "Resend\n(email)" <<externo>> as RS
+rectangle "Expo Push\n(notificaciones)" <<externo>> as EX
+rectangle "Amazon S3\n(imágenes)" <<externo>> as S3
+
+E --> APP
+T --> APP
+R --> APP
+A --> ADMIN
+APP --> BE : HTTPS + WebSocket
+ADMIN --> BE : HTTPS
+BE --> DIDIT
+BE --> MP
+BE --> GM
+BE --> TW
+BE --> RS
+BE --> EX
+BE --> S3
+@enduml

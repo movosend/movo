@@ -1,0 +1,15 @@
+titulo: Glosario
+subtitulo: Lenguaje ubicuo del proyecto, con las definiciones vigentes al cierre del Sprint 8.
+instancia: Producto · Glosario
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: false
+archivos:
+  - glosario.md
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: fusión del glosario del Estudio Inicial y del Sprint 0, actualizado con la terminología del producto construido."}
+introduccion: |
+  Este glosario define los términos del negocio y de la técnica que usa el equipo, con las
+  definiciones vigentes al cierre del proyecto.
+audiencia: |
+  Todos los lectores del tomo; sirve de referencia para interpretar el resto de los documentos.

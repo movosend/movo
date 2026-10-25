@@ -615,19 +615,12 @@ table.historial td:nth-child(3) { width: 38mm; }
 table.caso th { width: 26mm; }
 table.caso td.resultado { font-weight: 600; }
 
-/* Capturas de pantalla planificadas (Tomo III) */
-.captura {
-  break-inside: avoid;
-  display: flex;
-  gap: 5mm;
-  margin: 0 0 5mm;
-}
-.captura .marco {
-  flex: none;
-  width: 46mm;
-  height: 92mm;
+/* Capturas de pantalla (Tomo III): galerías de 3 pantallas móviles o 2 del panel web */
+.galeria { display: flex; gap: 4mm; margin: 3mm 0 6mm; break-inside: avoid; align-items: flex-start; }
+.galeria figure.cap { flex: 1 1 0; margin: 0; min-width: 0; break-inside: avoid; }
+.galeria .marco {
   border: 1.2pt solid var(--ink-950);
-  border-radius: 6mm;
+  border-radius: 5mm;
   background: var(--ink-50);
   display: flex;
   align-items: center;
@@ -635,12 +628,15 @@ table.caso td.resultado { font-weight: 600; }
   text-align: center;
   font-size: 7pt;
   color: var(--ink-400);
-  padding: 4mm;
+  padding: 3mm;
 }
-.captura .marco img { width: 100%; border-radius: 4mm; }
-.captura .marco .cod { display: block; font: 600 9pt/1.2 "JetBrains Mono"; color: var(--ink-950); margin-bottom: 2mm; }
-.captura .desc { flex: 1; font-size: 8.8pt; }
-.captura.web .marco { width: 100%; height: 70mm; border-radius: 2mm; }
+.galeria.movil .marco { height: 88mm; }
+.galeria.web .marco { height: 56mm; border-radius: 2mm; }
+.galeria .marco img { width: 100%; height: 100%; object-fit: contain; border-radius: 3mm; }
+.galeria .marco .cod { display: block; font: 600 9pt/1.2 "JetBrains Mono"; color: var(--ink-950); margin-bottom: 1.5mm; }
+.galeria figcaption { margin-top: 1.8mm; font-size: 7.2pt; line-height: 1.35; color: var(--ink-600); text-align: left; }
+.galeria figcaption b { display: block; color: var(--ink-950); font-weight: 600; }
+.galeria figcaption span { display: block; }
 
 /* Firma / créditos finales */
 .colofon { font-size: 7.6pt; color: var(--ink-600); margin-top: 20mm; }

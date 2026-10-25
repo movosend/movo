@@ -1,0 +1,18 @@
+titulo: Manual de Procedimientos
+subtitulo: "El proceso de negocio con el sistema integrado, plazos y reglas, y procedimientos de administración."
+instancia: Producto · Manual de Procedimientos
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: true
+archivos:
+  - procedimientos.md
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: proceso TO-BE implementado, plazos vigentes y procedimientos de administración al cierre del Sprint 8."}
+introduccion: |
+  Este manual describe cómo funciona el proceso de negocio de Movo con el sistema integrado y cómo
+  debe actuar el equipo ante las situaciones que requieren intervención humana. Detalla los roles, el
+  proceso de punta a punta, los plazos y reglas vigentes, los procedimientos de administración y las
+  contingencias.
+audiencia: |
+  El equipo de operaciones y soporte de Movo, los administradores del panel y el equipo de
+  desarrollo. También sirve al tribunal evaluador para comprender el funcionamiento operativo.

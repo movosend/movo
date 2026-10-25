@@ -1,0 +1,18 @@
+titulo: Arquitectura del Sistema
+subtitulo: "Vistas de contexto, contenedores y despliegue, ambiente de implementación, seguridad y decisiones de arquitectura (ADR)."
+instancia: Producto · Arquitectura
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: true
+archivos:
+  - arquitectura.md
+  - {gen: herramientas/gen_adr.py}
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: vistas C4, ambiente de implementación y índice de ADR vigentes al cierre del Sprint 8. El desarrollo completo de los ADR del Sprint 0 queda pendiente de incorporar."}
+introduccion: |
+  Este documento describe la arquitectura de Movo: sus tres vistas (contexto, contenedores y
+  despliegue), el ambiente de implementación (software, hardware y proceso de despliegue), las
+  decisiones de seguridad y el registro de decisiones de arquitectura.
+audiencia: |
+  El tribunal evaluador y los futuros mantenedores, con conocimiento de arquitectura de software,
+  microservicios y despliegue con contenedores.

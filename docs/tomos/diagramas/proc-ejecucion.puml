@@ -1,0 +1,59 @@
+@startuml proc-ejecucion
+' Proceso de negocio con el sistema integrado, parte 2: del retiro al cierre y la calificación.
+skinparam linetype ortho
+skinparam ActivityFontSize 10
+skinparam swimlaneWidth 150
+|Transportista|
+start
+:Inicia el viaje y sigue
+su ruta optimizada;
+:Llega al retiro (a menos de 100 m)
+y saca las fotos de evidencia;
+|Emisor|
+:Genera el código QR de retiro;
+|Transportista|
+:Escanea el código;
+|Movo|
+:Verifica firma, vigencia (15 s)
+y proximidad; registra el evento;
+:Envío «En camino»;
+:Difunde la posición
+en tiempo real;
+|Receptor|
+:Sigue el envío en el mapa
+y chatea con el transportista;
+|Transportista|
+:Llega a destino y saca
+las fotos de entrega;
+:Genera el código QR de entrega;
+|Receptor|
+:Escanea el código;
+|Movo|
+:Verifica firma, vigencia
+y proximidad; envío «Entregado»;
+:Captura el hold y reparte el pago:
+comisión de Movo y neto al transportista;
+if (¿Captura acreditada?) then (sí)
+  :Envío «Completado»
+  y avisos de cobro;
+else (falla)
+  :Reintenta (5, 30 y 120 min)
+  y escala a revisión manual;
+endif
+|Emisor|
+:Califica (72 h);
+|Receptor|
+:Califica (72 h);
+|Transportista|
+:Califica (72 h);
+|Movo|
+:Actualiza la reputación;
+|Emisor|
+if (¿Hay un problema?) then (sí, dentro de 7 días)
+  :Abre una disputa o
+  consulta a soporte;
+  |Administración|
+  :Revisa el caso;
+endif
+stop
+@enduml

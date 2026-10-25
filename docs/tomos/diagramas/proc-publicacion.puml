@@ -1,0 +1,72 @@
+@startuml proc-publicacion
+' Proceso de negocio con el sistema integrado, parte 1: del registro a la asignación del transportista.
+skinparam linetype ortho
+skinparam ActivityFontSize 10
+skinparam swimlaneWidth 150
+|Emisor|
+start
+:Se registra y verifica
+su identidad (KYC);
+:Crea el envío: paquete,
+receptor, ruta, horario y fotos;
+|Movo|
+:Calcula el precio sugerido
+y lo congela 15 minutos;
+:Publica el envío en
+«Esperando receptor»;
+|Receptor|
+:Recibe la notificación
+y revisa el envío;
+if (¿Acepta dentro de 24 h?) then (sí)
+  |Movo|
+  :Publica el envío para
+  los transportistas;
+else (no o rechaza)
+  |Movo|
+  :Cancela el envío (sin respuesta)
+  o lo marca «Rechazado»;
+  |Emisor|
+  if (¿Elige otro receptor\n(48 h)?) then (sí)
+    :Vuelve a esperar confirmación;
+    |Receptor|
+    detach
+  else (no)
+    |Movo|
+    :Cancela el envío;
+    stop
+  endif
+endif
+|Transportista|
+:Verifica identidad y licencia,
+registra su vehículo y vincula
+Mercado Pago;
+:Ve el feed, declara su viaje
+y hace una oferta;
+|Emisor|
+:Compara las ofertas
+y elige una;
+|Movo|
+:Revalida al transportista
+y asigna el envío;
+if (¿Retiro cercano?) then (sí)
+  |Emisor|
+  :Paga: se reserva el importe
+  en su tarjeta (hold);
+else (lejano)
+  |Movo|
+  :Espera la ventana de pago
+  y avisa al emisor;
+  |Emisor|
+  :Confirma el pago antes
+  de T-24 h del retiro;
+endif
+|Movo|
+if (¿Fondos reservados?) then (sí)
+  :Envío «Asignado»;
+  stop
+else (no, falla o vence)
+  :Libera el hold y vuelve
+  el envío a «Publicado»;
+  stop
+endif
+@enduml

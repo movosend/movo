@@ -21,7 +21,7 @@ historias:
     secuencias:
       - {id: seq-receptor, titulo: "Decisión del receptor, plazo de respuesta y nueva designación (MOVO-16, MOVO-130, MOVO-253)."}
     nota: |
-      **Decisión de diseño.** El receptor solo puede aceptar o rechazar, nunca editar. El plazo de respuesta (MOVO-130) lo hace cumplir un barrido periódico con lock en Redis, de modo que corra una sola réplica. Si el receptor rechaza, el emisor tiene 48 h para designar a otro (ADR-027).
+      **Decisión de diseño.** El receptor solo puede aceptar o rechazar, nunca editar. El plazo de respuesta (MOVO-130, 48 horas por defecto) lo hace cumplir un barrido periódico con lock en Redis, de modo que corra una sola réplica. Si el receptor rechaza, el emisor tiene 48 h para designar a otro (ADR-027).
     casos:
       - {ac: "4, 7", titulo: "El receptor acepta el envío", pre: "Envío en awaiting_receiver_confirmation con fotos de creación.", pasos: "POST /shipments/:id/accept con y sin campos extra en el body.", esperado: "El envío pasa a published; los campos extra se ignoran. Sin fotos de creación o ya aceptado: 409.", test: services/movo-svc-shipments/test/shipments-accept-reject.integration.test.ts}
       - {ac: "4, 5", titulo: "El receptor rechaza el envío", pre: "Envío en awaiting_receiver_confirmation.", pasos: "POST /shipments/:id/reject con y sin motivo.", esperado: "El envío pasa a rejected_by_receiver, con el motivo si se informó. Si ya fue cancelado o rechazado: 409.", test: services/movo-svc-shipments/test/shipments-accept-reject.integration.test.ts}

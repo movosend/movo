@@ -1,0 +1,44 @@
+@startuml arq-contenedores
+' Vista de contenedores (C4 nivel 2): gateway, microservicios y almacenes de datos.
+skinparam linetype ortho
+skinparam nodesep 36
+skinparam ranksep 50
+
+rectangle "Aplicación móvil\n(Expo)" as APP
+rectangle "Panel de administración\n(Next.js)" as ADMIN
+rectangle "Nginx\n(TLS)" as NGINX
+
+package "Red interna Docker" {
+  rectangle "API Gateway\n(Fastify)\nauth, límites, ruteo,\nproxy WebSocket" <<movo>> as GW
+  rectangle "movo-svc-users\nidentidad, KYC,\nperfil, moderación" as U
+  rectangle "movo-svc-shipments\nenvíos, ofertas, viajes,\nhandshake, tracking, chat,\nsoporte, disputas" as S
+  rectangle "movo-svc-payments\nholds, capturas,\ntarjetas, cuenta corriente" as P
+  rectangle "movo-svc-admin\nficha de usuarios,\nbitácora, admins" as AD
+  rectangle "movo-svc-pricing-logistics\n(Python + FastAPI)\nprecios y optimización\nde rutas" as PR
+  database "PostgreSQL 16\nun esquema por servicio" as PG
+  database "Redis 7\nsesiones, límites,\ncandados, estado" as RD
+}
+
+APP --> NGINX : HTTPS / WSS
+ADMIN --> NGINX : HTTPS
+NGINX --> GW
+GW --> U
+GW --> S
+GW --> P
+GW --> AD
+S --> PR : cotización\ny rutas
+S --> U : REST interno
+S --> P : REST interno
+P --> S : eventos de hold
+AD --> U
+AD --> S
+AD --> P
+U --> PG
+S --> PG
+P --> PG
+AD --> PG
+GW --> RD
+U --> RD
+S --> RD
+PR --> RD
+@enduml

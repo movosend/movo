@@ -1,0 +1,17 @@
+titulo: Manual de Usuario
+subtitulo: "Guía de uso de la aplicación móvil y del panel de administración de Movo."
+instancia: Producto · Manual de Usuario
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: true
+archivos:
+  - {gen: herramientas/gen_manual_usuario.py}
+historial:
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión, elaborada a partir del código de la aplicación móvil y del panel. Las capturas de pantalla figuran como pendientes con la descripción de qué mostrar."}
+introduccion: |
+  Este manual explica cómo usar Movo: la aplicación móvil para quienes envían, reciben o transportan
+  paquetes y el panel de administración para el equipo que opera la plataforma. Está organizado por
+  tareas y por rol, e incluye la lista de capturas de pantalla que ilustran cada paso.
+audiencia: |
+  Los usuarios finales de la aplicación (emisores, receptores y transportistas) y los
+  administradores del panel. No se requieren conocimientos técnicos.

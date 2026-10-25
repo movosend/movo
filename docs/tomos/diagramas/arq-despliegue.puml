@@ -1,0 +1,51 @@
+@startuml arq-despliegue
+' Vista de despliegue: un ambiente por instancia EC2 (dev y prod), frontends en Vercel, DNS en Cloudflare.
+skinparam linetype ortho
+skinparam nodesep 40
+skinparam ranksep 56
+
+actor "Usuario" as USR
+cloud "Cloudflare\nDNS (modo DNS-only)" as CF
+node "Vercel" as VC {
+  artifact "movo-admin\n(Next.js)" as ADM
+}
+node "AWS · sa-east-1" as AWS {
+  node "EC2 (un ambiente por instancia: dev y prod)\nDocker Compose" as EC2 {
+    node "Contenedor proxy\nNginx 1.27 (443)" as NG
+    node "gateway :3000" as GW
+    node "movo-svc-users" as U
+    node "movo-svc-shipments" as S
+    node "movo-svc-payments" as P
+    node "movo-svc-admin" as AD
+    node "movo-svc-pricing-logistics" as PR
+    database "postgres:16\nvolumen postgres-data" as PG
+    database "redis:7" as RD
+  }
+  artifact "Amazon S3\nbucket de imágenes" as S3
+  artifact "Secrets Manager\nmovo/<ambiente>/app-secrets" as SM
+}
+node "GitHub" as GH {
+  artifact "GitHub Actions\nCI/CD" as GA
+  artifact "GHCR\nimágenes Docker" as GHCR
+}
+
+USR --> CF
+CF --> NG : Elastic IP
+USR --> ADM
+NG --> GW
+GW --> U
+GW --> S
+GW --> P
+GW --> AD
+S --> PR
+U --> PG
+S --> PG
+P --> PG
+AD --> PG
+GW --> RD
+S --> S3
+GA --> GHCR : build y push
+GA --> SM : lee secretos
+GA --> EC2 : SSH + SCP\ndeploy
+EC2 --> GHCR : pull de imágenes
+@enduml
