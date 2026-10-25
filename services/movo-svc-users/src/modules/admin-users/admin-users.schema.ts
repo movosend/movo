@@ -5,12 +5,6 @@ import { ADMIN_USERS_MAX_PAGE_SIZE } from "./admin-users.service";
 const nullableString = { type: ["string", "null"] } as const;
 const kycStatus = { type: "string", enum: ["not_started", "pending", "approved", "rejected", "expired", "manual_review"] } as const;
 const accountStatus = { type: "string", enum: ["active", "suspended", "banned", "deleted"] } as const;
-const userRef = {
-  type: "object",
-  required: ["id", "fullName"],
-  properties: { id: { type: "string" }, fullName: { type: "string" } },
-} as const;
-
 const userRefWithPhoto = {
   type: "object",
   required: ["id", "fullName", "photoUrl"],
