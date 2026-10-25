@@ -21,34 +21,25 @@
 
 {# ───────────── Carátula del tomo ───────────── #}
 <section class="caratula">
-  <div class="franja"></div>
-  <img class="motivo" src="assets/logos/movo-eclipse-linea.svg" alt="">
-  <div class="cabecera">
-    <img class="utn" src="assets/logos/utn-frc-extendido.svg" alt="UTN Facultad Regional Córdoba">
-    <div class="institucion">
-      {{ p.universidad }}<br>{{ p.facultad }}<br>{{ p.carrera }}<br>Cátedra {{ p.asignatura }} · {{ p.anio }}
-    </div>
+  <div class="oscuro">
+    <img class="motivo" src="assets/logos/movo-eclipse-lime.svg" alt="">
   </div>
+  <div class="marca"><img src="assets/logos/movo-simbolo-claro.svg" alt=""><span class="wordmark">movo</span></div>
+  <div class="categoria eyebrow">Proyecto Final {{ p.anio }} · {{ p.curso }} · Grupo {{ p.grupo }}</div>
   <div class="bloque-titulo">
-    <div class="marca">
-      <img src="assets/logos/movo-simbolo.svg" alt="">
-      <span class="wordmark">movo</span>
-    </div>
-    <div class="tomo-num"><span>{{ tomo.numero_largo }}</span></div>
+    <div class="tomo-num eyebrow">{{ tomo.numero_largo }}</div>
     <h1 class="tomo-titulo">{{ tomo.titulo }}</h1>
     <div class="tomo-sub">{{ p.software }}: {{ p.subtitulo[0]|lower }}{{ p.subtitulo[1:] }}. {{ tomo.bajada }}</div>
-    <div class="tomo-contenido">
-      {% for d in documentos %}<div><span class="mono">{{ '%02d' % d.n }}</span>{{ d.titulo }}</div>{% endfor %}
-    </div>
   </div>
+  <div class="barra"></div>
   <div class="datos">
-    <div class="col">
+    <div>
       <span class="eyebrow">Integrantes</span>
       <table><tbody>
       {% for i in p.integrantes %}<tr><td>{{ i.apellido }}, {{ i.nombre }}</td><td class="leg">{{ i.legajo }}</td></tr>{% endfor %}
       </tbody></table>
     </div>
-    <div class="col">
+    <div>
       <span class="eyebrow">Equipo docente</span>
       {% for d in p.docentes %}{{ d.rol }}: {{ d.nombre }}<br>{% endfor %}
       <br>
@@ -57,6 +48,10 @@
       Categoría: {{ p.categoria }} · {{ p.organizacion }}<br>
       Córdoba, {{ fecha_larga }}
     </div>
+  </div>
+  <div class="inst">
+    <img src="assets/logos/utn-frc-extendido.svg" alt="UTN Facultad Regional Córdoba">
+    <div style="text-align:right">{{ p.universidad }} · {{ p.facultad }}<br>{{ p.carrera }} · Cátedra {{ p.asignatura }}</div>
   </div>
 </section>
 
@@ -140,18 +135,18 @@
 {# ───────────── Documentos ───────────── #}
 {% for d in documentos %}
 <section class="separador">
-  <div class="franja"></div>
-  <img class="motivo" src="assets/logos/movo-eclipse-linea.svg" alt="">
-  <div class="contenido">
-    <div class="numero">{{ '%02d' % d.n }}</div>
+  <div class="oscuro"><img class="motivo" src="assets/logos/movo-eclipse-lime.svg" alt=""></div>
+  <div class="ruta eyebrow">{{ tomo.numero_largo }} · {{ tomo.titulo }}</div>
+  <div class="numero">{{ '%02d' % d.n }}</div>
+  <div class="titulo">
     {% if d.instancia %}<div class="eyebrow instancia">{{ d.instancia }}</div>{% endif %}
     <h1 class="doc-titulo" id="{{ d.ancla }}" data-corto="{{ d.titulo_corto }}" data-marcador="{{ '%02d' % d.n }}. {{ d.titulo }}">{{ d.titulo }}</h1>
     {% if d.subtitulo %}<div class="doc-sub">{{ d.subtitulo }}</div>{% endif %}
-    <div class="doc-meta">
-      <div><b>Versión {{ d.version }}</b>vigente</div>
-      <div><b>{{ d.fecha }}</b>última revisión</div>
-      <div><b>{{ tomo.numero_largo }}</b>{{ tomo.titulo }}</div>
-    </div>
+  </div>
+  <div class="barra"></div>
+  <div class="doc-meta">
+    <div><b>Versión {{ d.version }}</b>vigente</div>
+    <div><b>{{ d.fecha }}</b>última revisión</div>
   </div>
   {% if d.secciones %}
   <nav class="mini-indice">
@@ -159,6 +154,7 @@
     {% for s in d.secciones if s.nivel == 2 %}<a href="#{{ s.ancla }}"><span class="n">{{ s.numero }}</span><span class="t">{{ s.titulo }}</span></a>{% endfor %}
   </nav>
   {% endif %}
+  <div class="pie-sep"><span>Movo · Proyecto Final {{ p.anio }}</span><span>UTN FRC · ISI · {{ p.curso }} · Grupo {{ p.grupo }}</span></div>
 </section>
 
 <section class="documento" id="doc-{{ d.id }}">

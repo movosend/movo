@@ -364,102 +364,26 @@ figure.pagina-completa img { max-height: 225mm; }
 
 /* ─────────────────────────────── Carátula del tomo ─────────────────────────────── */
 
-.caratula {
-  page: portada;
-  position: relative;
-  width: 210mm;
-  height: 297mm;
-  overflow: hidden;
-  break-after: page;
-}
-.caratula .motivo {
-  position: absolute;
-  right: -78mm;
-  bottom: -70mm;
-  width: 230mm;
-  height: 230mm;
-}
-.caratula .franja {
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 9mm;
-  background: var(--ink-950);
-}
-.caratula .franja::after {
-  content: "";
-  position: absolute;
-  left: 0; top: 112mm;
-  width: 9mm; height: 34mm;
-  background: var(--lime);
-}
-.caratula .cabecera {
-  position: absolute;
-  left: 30mm; right: 20mm; top: 20mm;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-.caratula .cabecera img.utn { height: 15mm; }
-.caratula .cabecera .institucion {
-  text-align: right;
-  font-size: 7.6pt;
-  line-height: 1.45;
-  color: var(--ink-600);
-}
-.caratula .bloque-titulo {
-  position: absolute;
-  left: 30mm; right: 24mm; top: 92mm;
-}
-.caratula .marca { display: flex; align-items: center; gap: 4.5mm; margin-bottom: 14mm; }
-.caratula .marca img { width: 15mm; height: 15mm; }
-.caratula .marca .wordmark {
-  font: 700 30pt/1 "Inter";
-  letter-spacing: -.045em;
-}
-.caratula .tomo-num {
-  font: 600 8pt/1 "Inter";
-  letter-spacing: .16em;
-  text-transform: uppercase;
-  margin-bottom: 4mm;
-}
-.caratula .tomo-num span {
-  background: var(--lime);
-  padding: 1.2mm 2.4mm 1mm;
-  border-radius: 1mm;
-}
-.caratula h1.tomo-titulo {
-  font: 600 32pt/1.06 "Inter";
-  letter-spacing: -.035em;
-  margin: 0 0 4mm;
-  bookmark-level: none;
-}
-.caratula .tomo-sub {
-  font-size: 11.5pt;
-  line-height: 1.45;
-  color: var(--ink-600);
-  max-width: 125mm;
-}
-.caratula .tomo-contenido {
-  margin-top: 8mm;
-  font-size: 8.6pt;
-  color: var(--ink-600);
-}
-.caratula .tomo-contenido div { padding: 1.3mm 0; border-bottom: .4pt solid var(--ink-200); max-width: 110mm; }
-.caratula .tomo-contenido div span.mono { color: var(--ink-950); margin-right: 3mm; font-size: 7.4pt; }
-.caratula .datos {
-  position: absolute;
-  left: 30mm; right: 20mm; bottom: 20mm;
-  display: flex;
-  gap: 10mm;
-  font-size: 7.8pt;
-  line-height: 1.5;
-}
-.caratula .datos .col { flex: 1; }
-.caratula .datos .eyebrow { margin-bottom: 2mm; display: block; }
-.caratula .datos table { font-size: 7.8pt; margin: 0; }
-.caratula .datos td { padding: .6mm 0; border: 0; }
-.caratula .datos td.leg { font-family: "JetBrains Mono"; text-align: right; color: var(--ink-600); }
-.caratula .datos tbody tr:last-child td { border: 0; }
+.caratula { page: portada; position: relative; width: 210mm; height: 297mm; overflow: hidden; break-after: page; }
+.caratula .oscuro { position: absolute; left: 0; top: 0; right: 0; height: 196mm; background: var(--ink-950); color: #fff; overflow: hidden; }
+.caratula .motivo { position: absolute; right: -70mm; top: -10mm; width: 170mm; height: 170mm; }
+.caratula .marca { position: absolute; left: 20mm; top: 20mm; display: flex; align-items: center; gap: 3.6mm; color: #fff; }
+.caratula .marca img { width: 11mm; height: 11mm; }
+.caratula .marca .wordmark { font: 700 21pt/1 "Inter"; letter-spacing: -.045em; }
+.caratula .categoria { position: absolute; left: 62mm; top: 23.5mm; color: var(--ink-400); }
+.caratula .bloque-titulo { position: absolute; left: 20mm; right: 30mm; bottom: 121mm; color: #fff; }
+.caratula .tomo-num { display: inline-block; background: var(--lime); color: var(--ink-950); padding: 1.6mm 3mm 1.3mm; border-radius: 1mm; margin-bottom: 7mm; }
+.caratula h1.tomo-titulo { font: 600 40pt/1.02 "Inter"; letter-spacing: -.04em; margin: 0 0 6mm; color: #fff; bookmark-level: none; border: 0; padding: 0; }
+.caratula .tomo-sub { font-size: 11pt; line-height: 1.5; color: #B9B9C0; max-width: 118mm; }
+.caratula .barra { position: absolute; left: 0; right: 0; top: 196mm; height: 2.2mm; background: var(--lime); }
+.caratula .datos { position: absolute; left: 20mm; right: 20mm; top: 212mm; display: grid; grid-template-columns: 1.1fr 1fr; gap: 12mm; font-size: 8.2pt; line-height: 1.55; }
+.caratula .datos .eyebrow { display: block; margin-bottom: 2.4mm; color: var(--ink-400); }
+.caratula .datos table { width: 100%; font-size: 8.2pt; margin: 0; }
+.caratula .datos td { padding: .8mm 0; border: 0; border-bottom: .4pt solid var(--ink-200); }
+.caratula .datos td.leg { font-family: "JetBrains Mono"; text-align: right; color: var(--ink-600); font-size: 7.6pt; }
+.caratula .datos tbody tr:last-child td { border-bottom: .4pt solid var(--ink-200); }
+.caratula .inst { position: absolute; left: 20mm; right: 20mm; bottom: 14mm; display: flex; justify-content: space-between; align-items: center; font-size: 7.2pt; color: var(--ink-600); line-height: 1.45; }
+.caratula .inst img { height: 11mm; }
 
 /* ─────────────────────────────── Ficha para Biblioteca (formato oficial) ─────────────────────────────── */
 
@@ -478,57 +402,23 @@ figure.pagina-completa img { max-height: 225mm; }
 
 /* ─────────────────────────────── Separador de documento ─────────────────────────────── */
 
-.separador {
-  page: separador;
-  position: relative;
-  width: 210mm;
-  height: 297mm;
-  overflow: hidden;
-  break-before: page;
-  break-after: page;
-}
-.separador .franja {
-  position: absolute; left: 0; top: 0; bottom: 0; width: 9mm; background: var(--ink-950);
-}
-.separador .motivo {
-  position: absolute; right: -95mm; top: -95mm; width: 210mm; height: 210mm; opacity: .8;
-}
-.separador .contenido {
-  position: absolute; left: 30mm; right: 22mm; top: 70mm;
-}
-.separador .numero {
-  font: 600 70pt/1 "Inter";
-  letter-spacing: -.05em;
-  color: var(--ink-950);
-}
-.separador .numero::after {
-  content: "";
-  display: block;
-  width: 26mm;
-  height: 2.4mm;
-  margin: 5mm 0 9mm;
-  background: var(--lime);
-}
-.separador .instancia { margin-bottom: 3mm; }
-.separador h1.doc-titulo {
-  font: 600 28pt/1.08 "Inter";
-  letter-spacing: -.035em;
-  margin: 0 0 4mm;
-}
-.separador .doc-sub { font-size: 11pt; line-height: 1.5; color: var(--ink-600); max-width: 135mm; }
-.separador .doc-meta {
-  margin-top: 9mm;
-  display: flex;
-  gap: 9mm;
-  font-size: 7.6pt;
-  color: var(--ink-600);
-}
+.separador { page: separador; position: relative; width: 210mm; height: 297mm; overflow: hidden; break-before: page; break-after: page; }
+.separador .oscuro { position: absolute; left: 0; top: 0; right: 0; height: 150mm; background: var(--ink-950); overflow: hidden; }
+.separador .motivo { position: absolute; right: -70mm; top: -46mm; width: 170mm; height: 170mm; }
+.separador .ruta { position: absolute; left: 20mm; top: 20mm; color: var(--ink-400); }
+.separador .numero { position: absolute; left: 20mm; top: 44mm; font: 600 96pt/1 "Inter"; letter-spacing: -.06em; color: var(--lime); }
+.separador .titulo { position: absolute; left: 20mm; right: 40mm; bottom: 167mm; color: #fff; }
+.separador .instancia { margin-bottom: 3mm; color: var(--ink-400); }
+.separador h1.doc-titulo { font: 600 30pt/1.06 "Inter"; letter-spacing: -.035em; margin: 0 0 4mm; color: #fff; border: 0; padding: 0; }
+.separador .doc-sub { font-size: 10.5pt; line-height: 1.5; color: #B9B9C0; max-width: 150mm; }
+.separador .barra { position: absolute; left: 0; right: 0; top: 150mm; height: 2.2mm; background: var(--lime); }
+.separador .doc-meta { position: absolute; left: 20mm; right: 20mm; top: 160mm; display: flex; gap: 10mm; font-size: 7.6pt; color: var(--ink-600); }
+.separador .doc-meta div { white-space: nowrap; }
 .separador .doc-meta b { display: block; color: var(--ink-950); font-weight: 600; font-size: 8.4pt; }
-.separador .mini-indice {
-  position: absolute; left: 30mm; right: 22mm; bottom: 24mm;
-  font-size: 8.2pt;
-}
-.separador .mini-indice .eyebrow { display: block; margin-bottom: 2.4mm; }
+.separador .mini-indice { position: absolute; left: 20mm; right: 20mm; top: 182mm; font-size: 8.4pt; }
+.separador .mini-indice .eyebrow { display: block; margin-bottom: 2.4mm; color: var(--ink-400); }
+.separador .mini-indice a { display: block; padding: 1.2mm 0; border-bottom: .4pt solid var(--ink-200); }
+.separador .pie-sep { position: absolute; left: 20mm; right: 20mm; bottom: 12mm; display: flex; justify-content: space-between; font-size: 6.8pt; color: var(--ink-400); letter-spacing: .09em; text-transform: uppercase; }
 .separador .mini-indice a {
   display: block;
   padding: 1.1mm 0;
