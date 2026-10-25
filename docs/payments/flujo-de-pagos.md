@@ -434,8 +434,20 @@ sequenceDiagram
     end
 ```
 
-El webhook de MP (5.5) reconoce los reembolsos de esta tabla y no los alerta como externos. El reembolso confirmado
-aparece en el historial de transacciones como movimiento propio. El detalle de las decisiones (por qué cada intento
+El webhook de MP (5.5) reconoce los reembolsos de esta tabla y no los alerta como externos; si MP informa devuelto lo que
+un intento `processing` pedía, lo promueve a `succeeded`. El reembolso confirmado aparece en el historial de transacciones
+como movimiento propio.
+
+Reintentos: un intento `processing` lo toma un solo pedido a la vez (`409 REFUND_IN_PROGRESS` al otro), y si lleva
+sin confirmarse más de 12 h no se reintenta (`409 REFUND_NEEDS_REVIEW` y alerta): MP recuerda la key por tiempo limitado
+y un reintento de un reembolso parcial que sí se hizo lo repetiría. Un intento ya enviado nunca se da por `failed` por algo
+que pasó antes de hablar con MP (credenciales vencidas, un 401).
+
+**TODO (Paso 0 de MOVO-336, sin correr):** el fallback asienta en la cuenta corriente el monto BRUTO reembolsado al emisor,
+pero el transportista cobró menos (neto de la comisión de Movo y la de MP). Si MP no devuelve el `application_fee` en el
+reembolso, eso lo hace pagar de más; si lo devuelve, de menos. Tampoco está confirmado cuánto tiempo recuerda MP la key
+de idempotencia (el guard usa 12 h por prudencia) ni el código/texto con que MP informa "saldo insuficiente": hasta tenerlo,
+un 4xx que no se reconoce queda `failed` con `provider_rejected` y una alerta propia (`refund_rejected_unrecognized`). El detalle de las decisiones (por qué cada intento
 tiene su propia key hacia MP, el tope, el fallback) está en `services/movo-svc-payments/HISTORIAL.md` (MOVO-336).
 
 ## 6. Cómo se reparte el dinero

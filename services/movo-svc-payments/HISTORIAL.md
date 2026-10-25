@@ -850,7 +850,15 @@ reusa su key de MP (no devuelve dos veces) y uno `failed` abre un intento nuevo,
 - **Historial (AC6)**: `has_refund`, `refundedAmountArs` y los movimientos suman los intentos `succeeded` de `payments.refunds` (un `fallback_to_ledger` no cuenta). **Webhook (AC7)**:
   un reembolso de MP que explican los intentos propios `processing`/`succeeded` no se registra como evento ni alerta (`refund_initiated_by_movo`); si MP informa más, el resto sigue siendo externo.
 
+- **Review de PR #314**: (1) un intento que ya pudo haber llegado a MP (el reintento de un `processing`) no se cierra como `failed` por credenciales vencidas ni por un 401: sigue
+  `processing`, se alerta y el siguiente reintento reusa su key de MP; abrir el intento siguiente lo habría repetido. (2) Un 4xx que no se reconoce como falta de saldo queda `failed` con
+  `provider_rejected` y alerta propia `refund_rejected_unrecognized` (con el mensaje y las causas de MP): mientras el Paso 0 no confirme el código, puede ser saldo insuficiente sin la deuda asentada.
+  (3) El webhook promueve a `succeeded` los `processing` que MP informa devueltos (`promoteConfirmed`, con cualquier estado del pago: un parcial lo deja `approved`). (4) Un reintento toma el intento
+  con `claim` (atómico; `409 REFUND_IN_PROGRESS` al otro, sin llamar a MP) y no reintenta uno de más de 12 h (`409 REFUND_NEEDS_REVIEW` + alerta): la doc de MP no dice cuánto recuerda la key
+  (se cree ~24 h), 12 h es un margen. (5) TODO del Paso 0 sobre el monto bruto del fallback. (6) El historial toma `GREATEST(propio, evento de MP)` y la fecha del movimiento es `completed_at`
+  (migración `20261025140000_refund_completed_at`).
+
 Pendiente: **el Paso 0 no se corrió** (necesita las credenciales del sandbox): `test/refund.sandbox.test.ts` lo cubre y hay que transcribir sus resultados al ticket. De ahí tiene que
 salir el código de causa de "saldo insuficiente" que falta en `INSUFFICIENT_BALANCE_CAUSES` (`refund-failure.ts`; hoy se reconoce por el mensaje), si MP devuelve el `application_fee`
 de Movo y cómo prorratea el parcial (el fallback asienta el monto entero; ajustarlo si MP no devuelve la comisión). Fuera de alcance: el cliente en `svc-shipments`/`svc-admin`
-(MOVO-337) y un barrido que retome un intento `processing` sin reintento del llamador (hoy solo queda la alerta).
+(MOVO-337) y un barrido que retome un intento `processing` sin reintento del llamador (hoy lo cierra el webhook si MP lo informa; si no, queda la alerta y, pasadas 12 h, `REFUND_NEEDS_REVIEW`).
