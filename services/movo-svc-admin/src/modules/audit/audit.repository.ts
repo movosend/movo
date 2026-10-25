@@ -33,6 +33,8 @@ export interface AuditRepository {
   /**
    * MOVO-299: filas de las acciones `actions` sobre el usuario cuyo `context.sanctionId` es uno de
    * `sanctionIds`, de la más reciente a la más vieja. Para saber cómo quedó el retiro de cada sanción.
+   * Sin límite a propósito: el retiro suma todos los intentos, y el volumen lo acota `targetId` (pocas
+   * sanciones por usuario, uno o dos intentos por sanción). No reusar para listados de otro volumen.
    */
   listBySanction(userId: string, sanctionIds: string[], actions: readonly string[]): Promise<AuditLogEntry[]>;
 }

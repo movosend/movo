@@ -222,7 +222,7 @@ export interface AdminUserModeration {
 export const ADMIN_USER_MODERATION_LIMIT = 50;
 
 /**
- * Cómo quedó el último intento de retirar la actividad abierta de una sanción (MOVO-299 AC2).
+ * Cómo quedó el retiro de la actividad abierta de una sanción (MOVO-299 AC2), según su último intento.
  * `partial`: `svc-shipments` respondió con `failures`. `failed`: no respondió o rechazó el pedido
  * (puede haber retirado algo igual). En los dos casos la sanción ya está aplicada y el retiro se
  * reintenta (es idempotente).
@@ -230,11 +230,17 @@ export const ADMIN_USER_MODERATION_LIMIT = 50;
 export type AdminSanctionWithdrawalStatus = "complete" | "partial" | "failed";
 
 export interface AdminSanctionWithdrawal {
+  /** Del último intento. */
   status: AdminSanctionWithdrawalStatus;
-  /** Lo retirado en ese intento (vacío si `failed`). */
+  /**
+   * En la respuesta de aplicar o reintentar, lo retirado en ese intento. En el historial
+   * (`AdminUserSanction`), la suma de todos los intentos de la sanción, con los `failures` del
+   * último. `null` si ningún intento llegó a retirar.
+   */
   result: WithdrawOpenActivityResult | null;
-  /** Código del error si `failed`. */
+  /** Código del error del último intento si `failed`. */
   errorCode: string | null;
+  /** Hora del último intento; la misma en la respuesta y al recargar el historial. */
   attemptedAt: string;
 }
 
@@ -243,8 +249,9 @@ export interface AdminUserSanction extends AccountSanction {
   appliedByName: string | null;
   liftedByName: string | null;
   /**
-   * Último intento de retiro registrado en la bitácora para esta sanción. `null` si nunca se
-   * intentó (sanciones migradas o aplicadas antes de MOVO-299).
+   * El retiro registrado en la bitácora para esta sanción. `null` si no hay registro: sanciones
+   * migradas, o aplicadas desde el panel con la respuesta o la bitácora caídas. En una sanción
+   * vigente, el panel lo trata como retiro pendiente.
    */
   withdrawal: AdminSanctionWithdrawal | null;
 }

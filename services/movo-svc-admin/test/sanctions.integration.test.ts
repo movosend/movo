@@ -189,6 +189,48 @@ describe("Sanciones desde la ficha (MOVO-299)", { timeout: 15_000 }, () => {
       expect((await t.list()).json().items[0].withdrawal).toMatchObject({ status: "failed", errorCode: "SHIPMENTS_SERVICE_UNAVAILABLE" });
     });
 
+    it("la hora del intento es la misma en la respuesta y al recargar el historial", async () => {
+      const t = await setup({ withdrawResults: [withdrawn()] });
+
+      const applied = (await t.suspend()).json();
+
+      expect((await t.list()).json().items[0].withdrawal.attemptedAt).toBe(applied.withdrawal.attemptedAt);
+    });
+
+    it("el historial suma lo retirado por todos los intentos y toma el estado del último", async () => {
+      const failedTrip = randomUUID();
+      const first = withdrawn({ cancelledTripIds: [randomUUID()], notifiedCounterpartyCount: 2, failures: [{ kind: "trip", id: failedTrip }] });
+      const second = { ...emptyWithdrawal(), cancelledTripIds: [failedTrip] };
+      const t = await setup({ withdrawResults: [first, second] });
+      const sanctionId = (await t.suspend()).json().id as string;
+
+      const retried = await t.retry(sanctionId);
+      expect(retried.json().result).toEqual(second);
+
+      const { withdrawal } = (await t.list()).json().items[0];
+      expect(withdrawal).toMatchObject({ status: "complete", attemptedAt: retried.json().attemptedAt });
+      expect(withdrawal.result).toEqual({
+        cancelledShipmentIds: first.cancelledShipmentIds,
+        withdrawnOfferIds: first.withdrawnOfferIds,
+        cancelledTripIds: [failedTrip, ...first.cancelledTripIds],
+        stoppedRecurrenceTripIds: [],
+        notifiedCounterpartyCount: 2,
+        failures: [],
+      });
+    });
+
+    it("un reintento que llega a svc-shipments y falla con un 4xx cuenta como intento fallido", async () => {
+      const t = await setup({ withdrawResults: [withdrawn(), new ApiError(400, "VALIDATION_FAILED", "x")] });
+      const sanctionId = (await t.suspend()).json().id as string;
+
+      expect((await t.retry(sanctionId)).statusCode).toBe(400);
+
+      const { withdrawal } = (await t.list()).json().items[0];
+      expect(withdrawal).toMatchObject({ status: "failed", errorCode: "VALIDATION_FAILED" });
+      // Lo que retiró el primer intento sigue a la vista.
+      expect(withdrawal.result.cancelledShipmentIds).toHaveLength(2);
+    });
+
     it("un admin no puede sancionarse: 403 y nada aplicado", async () => {
       const t = await setup();
 
@@ -247,14 +289,16 @@ describe("Sanciones desde la ficha (MOVO-299)", { timeout: 15_000 }, () => {
   });
 
   describe("levantar", () => {
-    it("levanta la sanción vigente con el nombre de quien la levantó", async () => {
+    it("levanta la sanción vigente y responde la sanción de svc-users; el nombre sale en el historial", async () => {
       const t = await setup();
       const sanctionId = (await t.suspend()).json().id as string;
 
       const res = await t.lift(sanctionId);
 
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ id: sanctionId, closedCause: "lifted", liftReason: "Revisado", liftedByName: "Ada Admin" });
+      expect(res.json()).toMatchObject({ id: sanctionId, closedCause: "lifted", liftReason: "Revisado", liftedBy: t.me.id });
+      expect(res.json()).not.toHaveProperty("withdrawal");
+      expect((await t.list()).json().items[0]).toMatchObject({ id: sanctionId, liftedByName: "Ada Admin" });
       expect((await t.rows()).map((r) => r.action)).toEqual(["user.suspend", "user.sanction_lift"]);
     });
 

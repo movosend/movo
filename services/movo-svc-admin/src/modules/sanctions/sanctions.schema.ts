@@ -58,7 +58,8 @@ const withdrawal = object({
   attemptedAt: str,
 });
 
-const sanction = object({
+// `AccountSanction` de svc-users, tal cual: la respuesta de levantar.
+const accountSanctionProperties = {
   id: str,
   userId: str,
   type: { type: "string", enum: ["suspension", "disable"] },
@@ -67,12 +68,17 @@ const sanction = object({
   startedAt: str,
   endsAt: nullableStr,
   appliedBy: nullableStr,
-  appliedByName: nullableStr,
   liftedAt: nullableStr,
   liftedBy: nullableStr,
-  liftedByName: nullableStr,
   liftReason: nullableStr,
   closedCause: { type: ["string", "null"], enum: ["lifted", "replaced", "escalated", "expired", null] },
+};
+const accountSanction = object(accountSanctionProperties);
+
+const sanction = object({
+  ...accountSanctionProperties,
+  appliedByName: nullableStr,
+  liftedByName: nullableStr,
   withdrawal: { anyOf: [withdrawal, { type: "null" }] },
 });
 
@@ -119,7 +125,7 @@ export const sanctionsSchemas = {
   lift: {
     params: sanctionParams,
     body: { type: "object", required: ["reason"], additionalProperties: false, properties: { reason } },
-    response: { 200: sanction, ...errors },
+    response: { 200: accountSanction, ...errors },
   },
 
   retryWithdrawal: {

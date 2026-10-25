@@ -25,11 +25,25 @@ interface SanctionParams {
   sanctionId: string;
 }
 
-/** Lo que queda en `context.withdrawal` de la bitácora. `attemptedAt` es el `createdAt` de la fila. */
-type StoredWithdrawal = Omit<AdminSanctionWithdrawal, "attemptedAt">;
+/**
+ * Rechazos de un reintento que cortan antes de llamar a `svc-shipments` (regla de conflicto y
+ * `assertOpenSanction`). Un `failed` con otro código sí llegó a intentar el retiro.
+ */
+const REJECTED_BEFORE_WITHDRAWAL = new Set([
+  "ADMIN_CONFLICT_OF_INTEREST",
+  "USER_NOT_FOUND",
+  "SANCTION_NOT_FOUND",
+  "SANCTION_ALREADY_CLOSED",
+]);
 
-function toWithdrawal(result: WithdrawOpenActivityResult): StoredWithdrawal {
-  return { status: result.failures.length > 0 ? "partial" : "complete", result, errorCode: null };
+/**
+ * Lo que queda en `context.withdrawal` de la bitácora. `attemptedAt` lo fija la ruta y es el mismo
+ * que va en la respuesta; las filas anteriores a guardarlo usan el `createdAt` de la fila.
+ */
+type StoredWithdrawal = Omit<AdminSanctionWithdrawal, "attemptedAt"> & { attemptedAt?: string };
+
+function toWithdrawal(result: WithdrawOpenActivityResult, attemptedAt: string): AdminSanctionWithdrawal {
+  return { status: result.failures.length > 0 ? "partial" : "complete", result, errorCode: null, attemptedAt };
 }
 
 function isStoredWithdrawal(value: unknown): value is StoredWithdrawal {
@@ -39,20 +53,49 @@ function isStoredWithdrawal(value: unknown): value is StoredWithdrawal {
 }
 
 /**
- * Cómo quedó el retiro según una fila de la bitácora. `succeeded` trae el resultado en el
- * contexto (también si el retiro falló al aplicar la sanción: la sanción sí salió). `unknown` es
- * un reintento en el que `svc-shipments` no respondió. `failed` es un rechazo previo (conflicto,
- * sanción cerrada): no se intentó retirar nada, así que no cuenta.
+ * Cómo quedó un intento de retiro según una fila de la bitácora. `succeeded` trae el resultado en
+ * el contexto (también si el retiro falló al aplicar la sanción: la sanción sí salió). `unknown` es
+ * un reintento en el que `svc-shipments` no respondió. `failed` es un reintento que llegó a
+ * `svc-shipments` y falló, salvo que lo haya cortado un rechazo previo (`REJECTED_BEFORE_WITHDRAWAL`,
+ * o un servicio caído en el `precheck`: en la acción eso sería `unknown`), que no cuenta.
  */
 export function withdrawalFromAudit(entry: AuditLogEntry): AdminSanctionWithdrawal | null {
   if (entry.outcome === "succeeded") {
     const stored = entry.context?.withdrawal;
-    return isStoredWithdrawal(stored) ? { ...stored, attemptedAt: entry.createdAt } : null;
+    return isStoredWithdrawal(stored) ? { ...stored, attemptedAt: stored.attemptedAt ?? entry.createdAt } : null;
   }
-  if (entry.outcome === "unknown") {
-    return { status: "failed", result: null, errorCode: entry.errorCode, attemptedAt: entry.createdAt };
+  const code = entry.errorCode ?? "INTERNAL_ERROR";
+  if (entry.outcome === "failed" && (REJECTED_BEFORE_WITHDRAWAL.has(code) || code.endsWith("_SERVICE_UNAVAILABLE"))) {
+    return null;
   }
-  return null;
+  return { status: "failed", result: null, errorCode: code, attemptedAt: entry.createdAt };
+}
+
+const union = (a: string[], b: string[]) => [...new Set([...a, ...b])];
+
+/**
+ * El retiro de una sanción sumando todos sus intentos, del más reciente al más viejo: `status`,
+ * `errorCode`, `attemptedAt` y `failures` son del último; lo retirado y los avisos se acumulan (un
+ * reintento solo encuentra lo que quedó y no repite avisos). `null` si ningún intento contó.
+ */
+export function accumulateWithdrawals(attempts: AdminSanctionWithdrawal[]): AdminSanctionWithdrawal | null {
+  const [latest] = attempts;
+  if (!latest) return null;
+  let total: WithdrawOpenActivityResult | null = null;
+  for (const { result } of attempts) {
+    if (!result) continue;
+    total = total
+      ? {
+          cancelledShipmentIds: union(total.cancelledShipmentIds, result.cancelledShipmentIds),
+          withdrawnOfferIds: union(total.withdrawnOfferIds, result.withdrawnOfferIds),
+          cancelledTripIds: union(total.cancelledTripIds, result.cancelledTripIds),
+          stoppedRecurrenceTripIds: union(total.stoppedRecurrenceTripIds, result.stoppedRecurrenceTripIds),
+          notifiedCounterpartyCount: total.notifiedCounterpartyCount + result.notifiedCounterpartyCount,
+          failures: total.failures,
+        }
+      : { ...result, failures: latest.result?.failures ?? [] };
+  }
+  return { ...latest, result: total };
 }
 
 /**
@@ -70,7 +113,7 @@ export default async function sanctionsRoutes(app: FastifyInstance, _opts: Fasti
   const namesOf = createNameResolver(app);
   const ctxOf = (request: FastifyRequest): RequestContext => ({ requestId: request.requestId });
 
-  /** Nombres de los admins y último intento de retiro de cada sanción. */
+  /** Nombres de los admins y el retiro de cada sanción, sumando sus intentos. */
   async function enrich(userId: string, sanctions: AccountSanction[], ctx: RequestContext): Promise<AdminUserSanction[]> {
     const [nameOf, rows] = await Promise.all([
       namesOf(sanctions.flatMap((s) => [s.appliedBy, s.liftedBy]), ctx),
@@ -80,19 +123,19 @@ export default async function sanctionsRoutes(app: FastifyInstance, _opts: Fasti
         WITHDRAWAL_ACTIONS,
       ),
     ]);
-    // Las filas vienen de la más reciente a la más vieja: gana el primer intento que cuenta.
-    const latest = new Map<string, AdminSanctionWithdrawal>();
+    // Las filas vienen de la más reciente a la más vieja, y en ese orden quedan los intentos.
+    const attempts = new Map<string, AdminSanctionWithdrawal[]>();
     for (const row of rows) {
       const sanctionId = row.context?.sanctionId;
-      if (typeof sanctionId !== "string" || latest.has(sanctionId)) continue;
+      if (typeof sanctionId !== "string") continue;
       const withdrawal = withdrawalFromAudit(row);
-      if (withdrawal) latest.set(sanctionId, withdrawal);
+      if (withdrawal) attempts.set(sanctionId, [...(attempts.get(sanctionId) ?? []), withdrawal]);
     }
     return sanctions.map((s) => ({
       ...s,
       appliedByName: s.appliedBy ? nameOf(s.appliedBy) : null,
       liftedByName: s.liftedBy ? nameOf(s.liftedBy) : null,
-      withdrawal: latest.get(s.id) ?? null,
+      withdrawal: accumulateWithdrawals(attempts.get(s.id) ?? []),
     }));
   }
 
@@ -167,6 +210,8 @@ export default async function sanctionsRoutes(app: FastifyInstance, _opts: Fasti
           reason: body.reason,
           context: { type: body.type, internalNote: body.internalNote ?? null, endsAt: body.endsAt ?? null },
           // AC3: inhabilitar es permanente y corta el login; con un envío en curso, la contraparte queda colgada.
+          // No es atómico con la sanción (`svc-users` no lo revalida): un envío que se compromete entre los
+          // dos sigue adelante. Carrera aceptada, DD-049.
           ...(body.type === "disable"
             ? {
                 precheck: async () => {
@@ -188,17 +233,22 @@ export default async function sanctionsRoutes(app: FastifyInstance, _opts: Fasti
         async () => {
           const applied = await app.usersClient.applySanction(id, body, adminId, ctx);
           // La sanción ya está aplicada: un retiro fallido no la deshace ni hace fallar la acción.
-          let stored: StoredWithdrawal;
+          let withdrawal: AdminSanctionWithdrawal;
           try {
-            stored = toWithdrawal(await app.shipmentsClient.withdrawOpenActivity(id, applied.id, ctx));
+            withdrawal = toWithdrawal(await app.shipmentsClient.withdrawOpenActivity(id, applied.id, ctx), new Date().toISOString());
           } catch (error) {
             app.log.warn(
               { err: error, event: "admin_sanction_withdrawal_failed", userId: id, sanctionId: applied.id, requestId: ctx.requestId },
               "Sanción aplicada pero no se pudo retirar la actividad abierta",
             );
-            stored = { status: "failed", result: null, errorCode: error instanceof ApiError ? error.code : "INTERNAL_ERROR" };
+            withdrawal = {
+              status: "failed",
+              result: null,
+              errorCode: error instanceof ApiError ? error.code : "INTERNAL_ERROR",
+              attemptedAt: new Date().toISOString(),
+            };
           }
-          return { sanction: applied, withdrawal: stored };
+          return { sanction: applied, withdrawal };
         },
       );
 
@@ -208,7 +258,7 @@ export default async function sanctionsRoutes(app: FastifyInstance, _opts: Fasti
         ...sanction,
         appliedByName: sanction.appliedBy ? nameOf(sanction.appliedBy) : null,
         liftedByName: null,
-        withdrawal: { ...withdrawal, attemptedAt: new Date().toISOString() },
+        withdrawal,
       };
     },
   );
@@ -221,16 +271,17 @@ export default async function sanctionsRoutes(app: FastifyInstance, _opts: Fasti
         summary: "Levantar una sanción vigente",
         description:
           "Lo retirado no vuelve: los envíos cancelados y las ofertas retiradas quedan así. 403 " +
-          "`ADMIN_CONFLICT_OF_INTEREST` sobre la propia sanción. Bitácora: `user.sanction_lift`.",
+          "`ADMIN_CONFLICT_OF_INTEREST` sobre la propia sanción. Responde la sanción cerrada de svc-users, sin " +
+          "nombres ni retiro: el historial completo es `GET .../sanctions`. Bitácora: `user.sanction_lift`.",
         ...sanctionsSchemas.lift,
       },
     },
-    async (request): Promise<AdminUserSanction> => {
+    async (request): Promise<AccountSanction> => {
       const adminId = requireAdmin(request);
       const { id, sanctionId } = request.params as SanctionParams;
       const ctx = ctxOf(request);
       const reason = requireReason((request.body as AdminLiftSanctionBody).reason);
-      const lifted = await app.audit.runAdminAction(
+      return app.audit.runAdminAction(
         {
           adminId,
           action: "user.sanction_lift",
@@ -242,8 +293,6 @@ export default async function sanctionsRoutes(app: FastifyInstance, _opts: Fasti
         },
         () => app.usersClient.liftSanction(id, sanctionId, reason, adminId, ctx),
       );
-      const [enriched] = await enrich(id, [lifted], ctx);
-      return enriched ?? { ...lifted, appliedByName: null, liftedByName: null, withdrawal: null };
     },
   );
 
@@ -263,7 +312,7 @@ export default async function sanctionsRoutes(app: FastifyInstance, _opts: Fasti
       const adminId = requireAdmin(request);
       const { id, sanctionId } = request.params as SanctionParams;
       const ctx = ctxOf(request);
-      const stored = await app.audit.runAdminAction(
+      return app.audit.runAdminAction(
         {
           adminId,
           action: "user.sanction_withdraw",
@@ -273,9 +322,8 @@ export default async function sanctionsRoutes(app: FastifyInstance, _opts: Fasti
           resolveContext: (withdrawal) => ({ withdrawal }),
           requestId: request.requestId,
         },
-        async () => toWithdrawal(await app.shipmentsClient.withdrawOpenActivity(id, sanctionId, ctx)),
+        async () => toWithdrawal(await app.shipmentsClient.withdrawOpenActivity(id, sanctionId, ctx), new Date().toISOString()),
       );
-      return { ...stored, attemptedAt: new Date().toISOString() };
     },
   );
 }
