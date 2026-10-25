@@ -283,6 +283,16 @@ export const supportSchemas = {
       ...errors,
     },
   },
+  realtimeTicket: {
+    response: {
+      200: {
+        type: "object",
+        required: ["ticket", "url", "expiresAt"],
+        properties: { ticket: { type: "string" }, url: { type: "string" }, expiresAt: isoDate },
+      },
+      ...errors,
+    },
+  },
   attachments: {
     body: {
       type: "object",

@@ -305,11 +305,11 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   arriba: el heartbeat ping/pong ya está implementado y `proxy_read_timeout` bajó de
   3600s a 90s. Falta la prueba contra dev/prod real (AC6 de MOVO-201), sin acceso a esa
   infra desde ninguna de las dos sesiones todavía.
-- **WS del panel de soporte (MOVO-323 → MOVO-322)**: el cliente (`movo-admin`) ya abre el WebSocket con un ticket de un
-  solo uso en el subprotocolo `movo-support.v1`, y cae a polling si falla. `GET /admin/support/events` ya existe (MOVO-322,
-  sobre el Redis Stream de ADR-024), así que el respaldo por polling anda. Falta (segunda PR de MOVO-322): `POST
-  /admin/support/realtime-ticket` y el upgrade en `svc-admin` (vía gateway `/api/v1/admin/support/ws` y `infra/nginx`).
-  Contrato en `docs/support/README.md`. Esto resuelve el diseño de la entrada siguiente para el panel.
+- **WS del panel de soporte (MOVO-322)**: implementado (ticket de un solo uso en el subprotocolo, `svc-admin`
+  `/admin/support/ws`, ruta pública en el gateway). Falta cargar en Secrets Manager `SUPPORT_WS_PUBLIC_URL`
+  (`wss://api-dev.movosend.app/...` y `wss://api.movosend.app/...`) y `SUPPORT_WS_ALLOWED_ORIGINS` (panel y previews de
+  Vercel) por ambiente, y probarlo contra un deploy real: sin ellas `svc-admin` usa los defaults locales y el panel cae a
+  polling (el ticket no pasa su chequeo de host). Ver `services/movo-svc-admin/CLAUDE.md`.
 - **Auth por header custom (`Authorization: Bearer`) no sirve para un cliente de
   navegador estándar** (`window.WebSocket` no permite headers custom, a diferencia del
   `WebSocket` de React Native) — MOVO-201 dejó el mecanismo DISEÑADO (subprotocolo

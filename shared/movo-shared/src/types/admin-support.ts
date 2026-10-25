@@ -384,3 +384,19 @@ export interface SupportRealtimeTicket {
 }
 /** Subprotocolo del WS: `new WebSocket(url, [SUPPORT_WS_PROTOCOL, ticket])`. El servidor responde solo el primero. */
 export const SUPPORT_WS_PROTOCOL = "movo-support.v1";
+/**
+ * Header con la lista original de subprotocolos que el gateway le reenvía a `svc-admin`: al upstream solo le pasa el
+ * primero, así que sin este header el ticket no llegaría.
+ */
+export const SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER = "x-ws-protocols";
+
+/**
+ * El ticket de `movo-support.v1, <ticket>` (el valor de `Sec-WebSocket-Protocol`), o `null` si la lista no tiene esa
+ * forma exacta. Lo usan el gateway (antes del upgrade) y `svc-admin` (al gastarlo): si se desalinearan, el ticket
+ * dejaría de llegar y el panel caería a polling sin otro síntoma.
+ */
+export function parseSupportWsProtocols(raw: string | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const [protocol, ticket, ...rest] = raw.split(",").map((p) => p.trim());
+  return protocol === SUPPORT_WS_PROTOCOL && ticket && rest.length === 0 ? ticket : null;
+}

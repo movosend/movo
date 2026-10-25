@@ -552,6 +552,8 @@ export {
   SUPPORT_ERROR,
   SUPPORT_QUICK_REPLIES,
   SUPPORT_WS_PROTOCOL,
+  SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER,
+  parseSupportWsProtocols,
   resolveQuickReply,
 } from "./types/admin-support";
 export type {
