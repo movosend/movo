@@ -28,9 +28,10 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { ChatHub } from "../../realtime/chat-hub";
 import { hasShipmentAccess } from "../shipments/assert-shipment-access";
 import { moderateChatText } from "../../domain/chat-moderation";
-import { toConversationItem, toUserFacingMessage, supportRoomKey } from "../../domain/support-rules";
+import { isUserVisibleKind, toConversationItem, toUserFacingMessage, supportRoomKey } from "../../domain/support-rules";
 import type { ChatPushBuffer, ChatPushBufferEntry } from "../chat/chat.service";
 import { attachmentInvalid, SupportAttachmentsService } from "./support-attachments.service";
+import type { SupportAdminFeed } from "../admin-support/support-admin-feed";
 
 type SupportLogger = { warn: (obj: unknown, msg?: string) => void };
 
@@ -61,6 +62,8 @@ export interface SupportServiceDeps {
   schedule?: (run: () => void, delayMs: number) => void;
   logger?: SupportLogger;
   now?: () => Date;
+  /** MOVO-322: avisa al panel (Redis Stream, ADR-055) de consultas y mensajes nuevos del usuario. Nunca falla. */
+  adminFeed?: SupportAdminFeed;
 }
 
 export interface AuthorizedSupportConnection {
@@ -98,7 +101,7 @@ export function createSupportService(deps: SupportServiceDeps) {
     viewerId: string,
     lastAgentReadAt: Date | null
   ): Promise<SupportUserFacingMessage | null> {
-    if (record.kind === "note") return null;
+    if (!isUserVisibleKind(record.kind)) return null;
     const views = await deps.attachments.viewsFor([record]);
     return toUserFacingMessage(record, viewerId, lastAgentReadAt, views.get(record.id) ?? []);
   }
@@ -124,7 +127,7 @@ export function createSupportService(deps: SupportServiceDeps) {
     conversation: SupportConversationRecord,
     record: SupportMessageRecord
   ): Promise<SupportUserFacingMessage | null> {
-    if (record.kind === "note") return null;
+    if (!isUserVisibleKind(record.kind)) return null;
     // El mensaje ya está guardado: si firmar las URLs falla, se difunde sin adjuntos (la app los recupera al pedir
     // `GET /messages`) en vez de fallar el request y cortar lo que sigue (evento de reapertura, estado, push).
     let attachments: SupportAttachment[] = [];
@@ -279,6 +282,7 @@ export function createSupportService(deps: SupportServiceDeps) {
         throw attachmentInvalid("Alguna imagen no se puede usar en este mensaje.");
       }
       if (!created.created) return replay(created.message);
+      await deps.adminFeed?.conversationCreated(created.conversation.id);
 
       const [message, conversation] = await Promise.all([
         userFacing(created.message, userId, created.conversation.lastAgentReadAt),
@@ -371,6 +375,10 @@ export function createSupportService(deps: SupportServiceDeps) {
       if (!message) throw notFound();
       if (appended.systemMessage) await emitMessage(appended.conversation, appended.systemMessage);
       if (appended.statusChanged) emitStatus(appended.conversation);
+      await deps.adminFeed?.messagesAdded(
+        appended.conversation.id,
+        appended.systemMessage ? [appended.message, appended.systemMessage] : [appended.message]
+      );
       return { message, replayed: false };
     },
 

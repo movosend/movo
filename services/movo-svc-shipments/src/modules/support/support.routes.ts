@@ -8,6 +8,9 @@ import { createShipmentRepository, ShipmentRepository } from "../../repositories
 import { createSupportRepository } from "../../repositories/support-repository";
 import { createSupportAttachmentRepository } from "../../repositories/support-attachment-repository";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
+import { createSupportAdminRepository } from "../../repositories/support-admin-repository";
+import { createRedisSupportEventStream } from "../../realtime/support-event-stream";
+import { createSupportAdminFeed } from "../admin-support/support-admin-feed";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createRedisChatPushBuffer } from "../../repositories/chat-push-buffer";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
@@ -35,11 +38,19 @@ const errors = {
 
 /** Arma el servicio con las dependencias reales de la app (o los overrides de test). */
 export function buildSupportService(app: FastifyInstance, opts: SupportRoutesOptions = {}): SupportService {
+  const attachments = createSupportAttachmentsService({
+    repository: createSupportAttachmentRepository(app.db),
+    storage: opts.storageProvider ?? createStorageProvider(app.config),
+    ...(opts.now ? { now: opts.now } : {}),
+  });
   return createSupportService({
     supportRepository: createSupportRepository(app.db),
-    attachments: createSupportAttachmentsService({
-      repository: createSupportAttachmentRepository(app.db),
-      storage: opts.storageProvider ?? createStorageProvider(app.config),
+    attachments,
+    adminFeed: createSupportAdminFeed({
+      repository: createSupportAdminRepository(app.db),
+      attachments,
+      stream: createRedisSupportEventStream(app.redis),
+      logger: app.log,
       ...(opts.now ? { now: opts.now } : {}),
     }),
     shipmentRepository: opts.shipmentRepository ?? createShipmentRepository(app.db),

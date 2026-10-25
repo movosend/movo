@@ -38,6 +38,7 @@ import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/pos
 import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
 import chatRoutes, { ChatRoutesOptions } from "./modules/chat/chat.routes";
 import supportRoutes, { SupportRoutesOptions } from "./modules/support/support.routes";
+import adminSupportRoutes, { AdminSupportRoutesOptions } from "./modules/admin-support/admin-support.routes";
 import receiverTransfersRoutes, {
   ReceiverTransfersRoutesOptions,
   shipmentReceiverTransferRoutes,
@@ -412,6 +413,16 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
   };
   app.register(supportRoutes, supportRouteOpts);
+
+  // MOVO-322: el lado del agente de soporte, solo para svc-admin (red Docker interna, sin pasar por el gateway).
+  const adminSupportRouteOpts: AdminSupportRoutesOptions = {
+    prefix: "/internal/admin/support",
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.supportNow ? { now: opts.supportNow } : {}),
+    ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
+  };
+  app.register(adminSupportRoutes, adminSupportRouteOpts);
 
   return app;
 }

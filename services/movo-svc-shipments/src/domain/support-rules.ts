@@ -14,10 +14,15 @@ import {
  * para poder probarlas aisladas; el repositorio y el servicio las aplican.
  */
 
-export type SupportMessageKindValue = "user" | "agent" | "note" | "system";
+export type SupportMessageKindValue = "user" | "agent" | "note" | "system" | "event";
 
 /** Los `kind` que ve el usuario. Lista blanca a propósito: un `kind` nuevo queda oculto hasta que se decida mostrarlo. */
 export const USER_VISIBLE_MESSAGE_KINDS = ["user", "agent", "system"] as const;
+
+/** Si el usuario ve ese `kind`. Nunca una nota ni un evento del equipo (MOVO-322). */
+export function isUserVisibleKind(kind: SupportMessageKindValue): kind is (typeof USER_VISIBLE_MESSAGE_KINDS)[number] {
+  return (USER_VISIBLE_MESSAGE_KINDS as readonly string[]).includes(kind);
+}
 
 export interface SupportMessageFacts {
   id: string;
@@ -70,7 +75,7 @@ export function toUserFacingMessage(
   /** MOVO-321: ya con su URL firmada; quien llama los resuelve (las reglas puras no tocan el storage). */
   attachments: SupportAttachment[] = []
 ): SupportUserFacingMessage | null {
-  if (record.kind === "note") return null;
+  if (!isUserVisibleKind(record.kind)) return null;
   const own = record.kind === "user" && record.authorId === viewerId;
   return {
     id: record.id,
