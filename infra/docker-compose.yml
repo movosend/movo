@@ -325,6 +325,9 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
+      # MOVO-322: WebSocket de la bandeja de soporte (URL pública del gateway y orígenes del panel).
+      - SUPPORT_WS_PUBLIC_URL=${SUPPORT_WS_PUBLIC_URL:-wss://localhost/api/v1/admin/support/ws}
+      - SUPPORT_WS_ALLOWED_ORIGINS=${SUPPORT_WS_ALLOWED_ORIGINS:-https://localhost:3000}
     depends_on:
       - postgres
       - redis

@@ -21,15 +21,21 @@ import {
   SupportUserContext,
   SupportUserShipment,
   SupportVerificationBadge,
+  PANEL_ACCESS_TOKEN_TTL_SECONDS,
+  SupportRealtimeTicket,
   SUPPORT_QUICK_REPLIES,
+  SUPPORT_WS_CLOSE,
   supportShipmentCode,
 } from "@movo/shared";
+import type { WebSocket } from "ws";
 import { RequestContext } from "../../adapters/internal-client";
 import { requireAdmin } from "../../utils/require-admin";
 import { UNKNOWN_USER_NAME } from "../users/users.routes";
 import { entryNameIds, readStream, toPanelEvents } from "./support-events";
-import { messageNameIds, NameDirectory, rowNameIds, toConversation, toMessage, toRow } from "./support.presenter";
+import { messageNameIds, rowNameIds, toConversation, toMessage, toRow } from "./support.presenter";
 import { supportSchemas } from "./support.schema";
+import { createNameResolver } from "./support-names";
+import { createSupportRealtimeHub, createSupportTicketStore, originAllowed, ticketFromHeaders } from "./support-realtime";
 
 /** Nombre con el que firma un agente si `svc-users` no responde (el mensaje igual sale). */
 const FALLBACK_AGENT_NAME = "Equipo de Movo";
@@ -90,25 +96,22 @@ function patchAction(body: SupportPatchBody): string {
  * usuario y toda escritura pasa por `runAdminAction` (regla de conflicto: un admin no actúa sobre su propia consulta, y
  * bitácora). Leer, marcar como leída y pedir eventos no se registran.
  */
-export default async function supportRoutes(app: FastifyInstance, _opts: FastifyPluginOptions) {
+export interface SupportRoutesOptions extends FastifyPluginOptions {
+  /** Cuánto dura como máximo una conexión del WebSocket antes de pedir un ticket nuevo (default: la sesión de panel). */
+  maxSessionMs?: number;
+  /** Espera de cada `XREAD BLOCK` del lector del stream (los tests la acortan para cerrar rápido). */
+  readerBlockMs?: number;
+}
+
+/** Heartbeat del WebSocket del panel: el mismo intervalo que los canales de svc-shipments (MOVO-201). */
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+export default async function supportRoutes(app: FastifyInstance, opts: SupportRoutesOptions) {
   const ctxOf = (request: FastifyRequest): RequestContext => ({ requestId: request.requestId });
   const idOf = (request: FastifyRequest) => (request.params as { id: string }).id;
   const target = (id: string) => ({ type: "support_conversation" as const, id });
 
-  /** Nombres y roles best-effort: si `svc-users` no responde se muestra `UNKNOWN_USER_NAME` (como la ficha). */
-  async function directory(ids: string[], ctx: RequestContext): Promise<NameDirectory> {
-    const unique = [...new Set(ids)];
-    let found: Array<{ id: string; fullName: string; roles: string[] }> = [];
-    if (unique.length > 0) {
-      try {
-        found = await app.usersClient.getUserNames(unique, ctx);
-      } catch (error) {
-        app.log.warn({ err: error, event: "support_names_unavailable", requestId: ctx.requestId }, "No se pudieron resolver los nombres");
-      }
-    }
-    const byId = new Map(found.map((user) => [user.id, user]));
-    return { nameOf: (id) => byId.get(id)?.fullName ?? UNKNOWN_USER_NAME, rolesOf: (id) => byId.get(id)?.roles ?? [] };
-  }
+  const directory = createNameResolver(app);
 
   /** Quién actúa, con su nombre para los eventos ("Lucía Bustos tomó la conversación") y el de pila para el usuario. */
   async function actorOf(adminId: string, ctx: RequestContext): Promise<SupportInternalActor & { actorFirstName: string }> {
@@ -505,6 +508,94 @@ export default async function supportRoutes(app: FastifyInstance, _opts: Fastify
       );
       reply.code(201);
       return result;
+    }
+  );
+
+  // --- Tiempo real (AC9): ticket de un solo uso + WebSocket -----------------------------------------------------
+
+  const tickets = createSupportTicketStore(app.redis);
+  const hub = createSupportRealtimeHub({
+    createReader: () => app.redis.duplicate(),
+    names: directory,
+    countsFor: (adminId, ctx) => countsFor(adminId, ctx),
+    logger: app.log,
+    ...(opts.readerBlockMs !== undefined ? { blockMs: opts.readerBlockMs } : {}),
+  });
+  app.addHook("onClose", async () => hub.close());
+
+  app.post(
+    "/support/realtime-ticket",
+    {
+      schema: {
+        tags: ["admin"],
+        summary: "Ticket del WebSocket de la bandeja",
+        description:
+          "MOVO-322 AC9: lo pide el servidor del panel con la sesión de admin (el navegador no tiene el JWT, que vive en " +
+          "cookies httpOnly). Un solo uso y 30 s. El navegador conecta con `new WebSocket(url, [\"movo-support.v1\", ticket])`: " +
+          "el ticket nunca va en la URL. Es una lectura: sin bitácora.",
+        ...supportSchemas.realtimeTicket,
+      },
+    },
+    async (request): Promise<SupportRealtimeTicket> => {
+      const adminId = requireAdmin(request);
+      const { ticket, expiresAt } = await tickets.issue(adminId, new Date());
+      return { ticket, url: app.config.SUPPORT_WS_PUBLIC_URL, expiresAt };
+    }
+  );
+
+  // Pública en el gateway (sin JWT): se autentica con el ticket. Cierres: 4003 origen no permitido, 4001 ticket
+  // inválido, vencido o ya usado (también al cumplirse `maxSessionMs`: el panel pide otro ticket y reconecta).
+  app.get(
+    "/support/ws",
+    { websocket: true, schema: { hide: true } },
+    async (socket: WebSocket, request: FastifyRequest) => {
+      const origin = typeof request.headers.origin === "string" ? request.headers.origin : undefined;
+      if (!originAllowed(origin, app.config.SUPPORT_WS_ALLOWED_ORIGINS)) {
+        app.log.warn({ origin, event: "support_ws_origin_rejected" }, "realtime: origen no permitido en el WebSocket de soporte");
+        socket.close(SUPPORT_WS_CLOSE.FORBIDDEN, "Origen no permitido.");
+        return;
+      }
+      const ticket = ticketFromHeaders(request.headers);
+      const adminId = ticket ? await tickets.consume(ticket) : null;
+      if (!adminId) {
+        socket.close(SUPPORT_WS_CLOSE.TOKEN, "SUPPORT_TICKET_INVALID");
+        return;
+      }
+      // Si el navegador cortó mientras se validaba, el `close` ya pasó: no se registra un socket muerto.
+      if (socket.readyState !== 1) return;
+
+      hub.add(adminId, socket);
+      app.log.info({ adminId, connections: hub.connections() }, "realtime: agente conectado a la bandeja de soporte");
+
+      // El ticket valida al conectar; la conexión dura lo que una sesión de panel, así un admin revocado no queda
+      // escuchando más que eso.
+      const MAX_TIMER_MS = 2 ** 31 - 1;
+      const sessionTimer = setTimeout(
+        () => socket.close(SUPPORT_WS_CLOSE.TOKEN, "Sesión vencida."),
+        Math.min(opts.maxSessionMs ?? PANEL_ACCESS_TOKEN_TTL_SECONDS * 1000, MAX_TIMER_MS)
+      );
+      sessionTimer.unref();
+
+      let isAlive = true;
+      socket.on("pong", () => {
+        isAlive = true;
+      });
+      const heartbeat = setInterval(() => {
+        if (!isAlive) {
+          socket.terminate();
+          return;
+        }
+        isAlive = false;
+        socket.ping();
+      }, HEARTBEAT_INTERVAL_MS);
+      heartbeat.unref();
+
+      socket.on("close", () => {
+        clearTimeout(sessionTimer);
+        clearInterval(heartbeat);
+        hub.remove(adminId, socket);
+      });
+      socket.on("error", (err: Error) => app.log.warn({ err }, "realtime: error de socket de soporte"));
     }
   );
 }
