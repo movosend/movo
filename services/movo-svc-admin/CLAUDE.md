@@ -189,4 +189,10 @@ tenga la ruta, es 502.
   bitácora; caso nuevo en `conflict-of-interest.ts`). El actor viaja en el body; si `svc-users` no responde firma "Equipo de Movo".
 - `GET events` lee el Redis Stream `support:events` (ADR-056, `support-events.ts`): cursor = id de la entrada, `reset` si es
   más viejo que lo retenido, y los `counts_changed` se juntan en un `counts_updated` con los contadores del admin que mira.
-- Pendiente: `POST realtime-ticket` y el WebSocket del panel (segunda PR de MOVO-322).
+- **WebSocket** (`support-realtime.ts`, segunda PR): `POST realtime-ticket` emite un ticket de 30 s (en Redis solo su sha256, atado al
+  admin) y `GET /admin/support/ws` lo gasta con `GETDEL`, exige un `Origin` de `SUPPORT_WS_ALLOWED_ORIGINS` (`*` = un tramo, para los
+  previews de Vercel) y responde solo `movo-support.v1`. Detrás del gateway el ticket llega en `x-ws-protocols`. Un lector `XREAD BLOCK`
+  (conexión Redis propia) reparte a todas las conexiones mientras haya alguna, con los contadores de cada admin. La conexión dura una sesión
+  de panel (15 min, después 4001) y tiene heartbeat de 30 s. Env nuevas `SUPPORT_WS_PUBLIC_URL` y `SUPPORT_WS_ALLOWED_ORIGINS`. Registro
+  en memoria y una réplica, como el `ChatHub` (ADR-022).
+- Pendiente: cargar las dos env vars por ambiente y probarlo contra un deploy real (ver el `CLAUDE.md` raíz).
