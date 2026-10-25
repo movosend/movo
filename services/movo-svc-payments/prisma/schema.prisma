@@ -311,6 +311,8 @@ model Refund {
   mpResponse         Json?        @map("mp_response")
   lastError          String?      @map("last_error")
   ledgerEntryId      String?      @map("ledger_entry_id") @db.Uuid
+  // Cuándo llegó a un estado final (`succeeded`, `failed` o `fallback_to_ledger`): la fecha del movimiento en el historial.
+  completedAt        DateTime?    @map("completed_at") @db.Timestamptz
   createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz
   settlement         Settlement   @relation(fields: [settlementId], references: [id])

@@ -40,6 +40,19 @@ export interface RefundServiceDeps {
   now?: () => Date;
 }
 
+/**
+ * Cuánto se confía en que MP todavía recuerde la key de un intento `processing` para reintentarlo sin riesgo. MP guarda
+ * la idempotencia por tiempo limitado (se cree ~24 h, **sin confirmar en la doc**: revisar con el Paso 0): pasado ese
+ * plazo, un reintento de un reembolso que MP sí había hecho lo repetiría. Margen conservador: la mitad.
+ */
+export const MP_IDEMPOTENCY_SAFE_WINDOW_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Mientras un pedido está hablando con MP su intento figura "en manos de alguien" (`last_error` en null y `updated_at`
+ * reciente): otro reintento no lo toma hasta pasado este plazo, que cubre el peor caso de una llamada al SDK (~22 s).
+ */
+export const REFUND_IN_FLIGHT_LEASE_MS = 60_000;
+
 /** Estados de MP de un reembolso que no se hizo ni se va a hacer. */
 const MP_REFUND_DEAD_STATUSES = new Set(["rejected", "cancelled"]);
 /** Estados de MP de un reembolso que sigue en curso: el intento queda `processing`. */
@@ -136,20 +149,43 @@ export function createRefundService(deps: RefundServiceDeps) {
     reason: RefundFailureReason,
     error: ApiError,
     lastError: string,
-    context: Record<string, string | number | null> = {}
+    context: Record<string, string | number | null> = {},
+    alertAs: { kind: string; message: string } = { kind: "refund_failed", message: "Un reembolso a favor del emisor falló y no se hizo" }
   ): Promise<never> {
     const applied = await refunds.updateIfStatus(refund.id, "processing", {
       status: "failed",
       failureReason: reason,
       lastError: lastError.slice(0, 500),
+      completedAt: now(),
     });
     log.error({ shipmentId: refund.shipmentId, refundId: refund.id, reason, applied, ...context }, "reembolso fallido");
-    await alert("refund_failed", "Un reembolso a favor del emisor falló y no se hizo", refund, { reason, lastError: lastError.slice(0, 200), ...context });
+    await alert(alertAs.kind, alertAs.message, refund, { reason, lastError: lastError.slice(0, 200), ...context });
+    throw error;
+  }
+
+  /**
+   * Un intento que ya pudo haber llegado a MP (se está reintentando uno `processing`) no se da por `failed` por algo que
+   * pasó ANTES de hablar con MP --credenciales vencidas, un 401--: MP pudo haber hecho el reembolso en el intento
+   * ambiguo, y un `failed` abriría el intento siguiente con otra key y lo repetiría. Sigue `processing` (con
+   * `last_error`, que lo deja reintentable), se alerta y el llamador recibe el error.
+   */
+  async function keepUnconfirmed(refund: Refund, error: ApiError, lastError: string, context: Record<string, string | number | null> = {}): Promise<never> {
+    await refunds.updateIfStatus(refund.id, "processing", { lastError: lastError.slice(0, 500) });
+    log.error({ shipmentId: refund.shipmentId, refundId: refund.id, ...context }, "reintento de un reembolso sin confirmar: queda en curso");
+    await alert(
+      "refund_unconfirmed",
+      "No se pudo reintentar un reembolso sin confirmar: queda en curso (pudo haberse hecho en MP), no se da por fallido",
+      refund,
+      { lastError: lastError.slice(0, 200), ...context }
+    );
     throw error;
   }
 
   /** AC4: el transportista no tiene saldo. La deuda va a su cuenta corriente y el emisor queda como caso manual. */
   async function fallbackToLedger(refund: Refund, lastError: string): Promise<Refund> {
+    // TODO(MOVO-336 Paso 0): se asienta el monto BRUTO reembolsado al emisor, pero el transportista cobró menos (neto de
+    // la comisión de Movo y la de MP). Si MP no devuelve el `application_fee` en el reembolso, esto lo hace pagar de
+    // más; si lo devuelve, de menos. Ajustar con lo que muestre `refund.sandbox.test.ts` (escenarios A y B).
     const amount = refund.amountArs;
     const reason = `Reembolso al emisor sin saldo en Mercado Pago (envío ${refund.shipmentId}): ${refund.reason}`.slice(0, REFUND_REASON_MAX_LENGTH);
     // Positivo = el transportista debe. Idempotente por la key: un reintento no suma la deuda dos veces.
@@ -179,6 +215,7 @@ export function createRefundService(deps: RefundServiceDeps) {
       failureReason: "insufficient_balance",
       lastError: lastError.slice(0, 500),
       ledgerEntryId: entry.id,
+      completedAt: now(),
     });
     const settled = (await refunds.findById(refund.id)) ?? refund;
     log.error(
@@ -194,20 +231,22 @@ export function createRefundService(deps: RefundServiceDeps) {
     return settled;
   }
 
-  /** Pide el reembolso a MP para un intento `processing` y deja el resultado persistido. */
-  async function drive(refund: Refund): Promise<Refund> {
+  /**
+   * Pide el reembolso a MP para un intento `processing` y deja el resultado persistido. `resumed` es un intento que ya
+   * existía (no lo creó este pedido): pudo haber llegado a MP, así que no se cierra como `failed` por lo que pasó antes.
+   */
+  async function drive(refund: Refund, resumed: boolean): Promise<Refund> {
     const credentials = await accounts.findCredentials(refund.carrierId);
     if (credentials === null || (credentials.tokenExpiresAt !== null && credentials.tokenExpiresAt <= now())) {
-      return fail(
-        refund,
-        "carrier_account_unavailable",
-        new ApiError(
-          409,
-          "CARRIER_MP_ACCOUNT_NOT_LINKED",
-          "No hay credenciales vigentes del transportista para reembolsar el pago"
-        ),
-        credentials ? "token de MP del transportista vencido" : "sin credenciales de MP del transportista"
+      const noCredentials = new ApiError(
+        409,
+        "CARRIER_MP_ACCOUNT_NOT_LINKED",
+        "No hay credenciales vigentes del transportista para reembolsar el pago"
       );
+      const cause = credentials ? "token de MP del transportista vencido" : "sin credenciales de MP del transportista";
+      return resumed
+        ? keepUnconfirmed(refund, noCredentials, cause)
+        : fail(refund, "carrier_account_unavailable", noCredentials, cause);
     }
 
     let snapshot: RefundSnapshot;
@@ -222,27 +261,35 @@ export function createRefundService(deps: RefundServiceDeps) {
       switch (classifyRefundError(info)) {
         case "insufficient_balance":
           return fallbackToLedger(refund, `${info.message} (HTTP ${info.status ?? "?"})`);
-        case "auth":
-          return fail(
+        case "auth": {
+          const rejected = new ApiError(409, "CARRIER_MP_ACCOUNT_NOT_LINKED", "Mercado Pago rechazó las credenciales del transportista: no se pudo reembolsar");
+          return resumed
+            ? keepUnconfirmed(refund, rejected, info.message, context)
+            : fail(refund, "carrier_account_unavailable", rejected, info.message, context);
+        }
+        case "transient":
+          // No sabemos si MP lo hizo: sigue `processing` y el reintento reusa la key (nunca `failed`, ver arriba).
+          return keepUnconfirmed(
             refund,
-            "carrier_account_unavailable",
-            new ApiError(409, "CARRIER_MP_ACCOUNT_NOT_LINKED", "Mercado Pago rechazó las credenciales del transportista: no se pudo reembolsar"),
+            new ApiError(502, "PAYMENT_PROVIDER_ERROR", "No se pudo confirmar el reembolso con Mercado Pago: reintentá"),
             info.message,
             context
           );
-        case "transient":
-          // No sabemos si MP lo hizo: sigue `processing` y el reintento reusa la key (nunca `failed`, ver arriba).
-          log.error({ shipmentId: refund.shipmentId, refundId: refund.id, ...context }, "reembolso sin confirmar: MP no respondió");
-          await refunds.updateIfStatus(refund.id, "processing", { lastError: info.message.slice(0, 500) });
-          await alert("refund_unconfirmed", "No se pudo confirmar un reembolso con Mercado Pago: queda en curso y se reintenta con la misma key", refund, context);
-          throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "No se pudo confirmar el reembolso con Mercado Pago: reintentá");
         case "rejected":
+          // Un 4xx que no se reconoce como falta de saldo. Mientras `INSUFFICIENT_BALANCE_CAUSES` esté vacío (Paso 0
+          // pendiente) puede SER falta de saldo con otro texto: sin la deuda asentada. Por eso la alerta es aparte y
+          // trae el mensaje y las causas de MP para poder reconocerlo.
           return fail(
             refund,
-            "provider_error",
+            "provider_rejected",
             new ApiError(502, "PAYMENT_PROVIDER_ERROR", "Mercado Pago rechazó el reembolso"),
             info.message,
-            context
+            context,
+            {
+              kind: "refund_rejected_unrecognized",
+              message:
+                "Mercado Pago rechazó un reembolso por una causa no reconocida (puede ser saldo insuficiente: Paso 0 de MOVO-336 pendiente). Si lo es, el transportista no quedó en deuda y el emisor no cobró",
+            }
           );
       }
     }
@@ -263,19 +310,52 @@ export function createRefundService(deps: RefundServiceDeps) {
       );
     }
     if (mpStatus !== null && MP_REFUND_PENDING_STATUSES.has(mpStatus)) {
-      // MP lo aceptó pero todavía no lo acreditó: sigue `processing` (cuenta para el tope y el webhook lo reconoce).
-      await refunds.updateIfStatus(refund.id, "processing", patch);
+      // MP lo aceptó pero todavía no lo acreditó: sigue `processing` (cuenta para el tope y el webhook lo promueve a
+      // `succeeded` cuando MP lo informa). `last_error` lo deja reintentable, no "en manos de alguien".
+      await refunds.updateIfStatus(refund.id, "processing", { ...patch, lastError: `en curso en Mercado Pago (${mpStatus})` });
       log.warn({ shipmentId: refund.shipmentId, refundId: refund.id, mpStatus }, "reembolso aceptado por MP, todavía en curso");
       return (await refunds.findById(refund.id)) ?? refund;
     }
     // Aprobado, o 2xx sin estado: MP lo creó. Es más seguro darlo por hecho que por fallido (un reintento duplicaría).
-    await refunds.updateIfStatus(refund.id, "processing", { ...patch, status: "succeeded", failureReason: null, lastError: null });
+    await refunds.updateIfStatus(refund.id, "processing", {
+      ...patch,
+      status: "succeeded",
+      failureReason: null,
+      lastError: null,
+      completedAt: now(),
+    });
     const succeeded = (await refunds.findById(refund.id)) ?? refund;
     log.info(
       { shipmentId: refund.shipmentId, refundId: refund.id, mpRefundId: patch.mpRefundId, amountArs: refund.amountArs.toString() },
       "reembolso realizado"
     );
     return succeeded;
+  }
+
+  /**
+   * Reintenta un intento `processing` de un pedido anterior. Dos guardas antes de hablar con MP:
+   * - **Antigüedad.** MP recuerda la key por tiempo limitado: pasado `MP_IDEMPOTENCY_SAFE_WINDOW_MS` un reembolso que MP
+   *   sí había hecho se repetiría (en un parcial, devolviendo de más). Se deja como está, se alerta y lo mira una persona.
+   * - **Un solo pedido a la vez.** `claim` es atómico: el que pierde recibe 409 `REFUND_IN_PROGRESS` sin llamar a MP (así no
+   *   topa con el 409 de "en curso" de MP, que se leería como un reembolso sin confirmar y alertaría de más).
+   */
+  async function resume(refund: Refund): Promise<Refund> {
+    const current = now();
+    if (current.getTime() - refund.createdAt.getTime() > MP_IDEMPOTENCY_SAFE_WINDOW_MS) {
+      log.error({ shipmentId: refund.shipmentId, refundId: refund.id, createdAt: refund.createdAt }, "reembolso sin confirmar demasiado viejo para reintentarlo");
+      await alert(
+        "refund_needs_review",
+        "Un reembolso lleva sin confirmarse más de lo que Mercado Pago garantiza la key: reintentarlo podría devolver la plata dos veces. Mirar el pago en MP",
+        refund,
+        { createdAt: refund.createdAt.toISOString() }
+      );
+      throw new ApiError(409, "REFUND_NEEDS_REVIEW", "El reembolso quedó sin confirmar hace demasiado: lo tiene que revisar una persona");
+    }
+    const claimed = await refunds.claim(refund.id, new Date(current.getTime() - REFUND_IN_FLIGHT_LEASE_MS));
+    if (!claimed) {
+      throw new ApiError(409, "REFUND_IN_PROGRESS", "Otro pedido con la misma idempotencyKey está procesando este reembolso: reintentá en unos segundos");
+    }
+    return drive(refund, true);
   }
 
   async function loadRefundable(shipmentId: string): Promise<Settlement> {
@@ -339,12 +419,13 @@ export function createRefundService(deps: RefundServiceDeps) {
         throw error;
       }
 
-      const existing = reserved.kind === "existing";
-      if (existing && reserved.refund.status !== "processing") {
+      if (reserved.kind === "created") {
+        return { refund: toRefundResponse(await drive(reserved.refund, false)), replayed: false };
+      }
+      if (reserved.refund.status !== "processing") {
         return { refund: toRefundResponse(reserved.refund), replayed: true };
       }
-      const done = await drive(reserved.refund);
-      return { refund: toRefundResponse(done), replayed: false };
+      return { refund: toRefundResponse(await resume(reserved.refund)), replayed: false };
     },
 
     /** Los intentos del envío y lo que todavía se puede reembolsar. `SETTLEMENT_NOT_FOUND` si no hay liquidación. */

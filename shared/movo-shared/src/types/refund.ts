@@ -16,11 +16,14 @@ export const REFUND_STATUSES = ["processing", "succeeded", "failed", "fallback_t
 
 export type RefundStatus = (typeof REFUND_STATUSES)[number];
 
-/** Por qué un intento no terminó en `succeeded`. */
+/**
+ * Por qué un intento no terminó en `succeeded`. `provider_rejected` es un 4xx de MP que no se reconoce como falta
+ * de saldo: mientras el Paso 0 no confirme el código real, puede ser justamente eso, y por eso alerta aparte.
+ */
 export type RefundFailureReason =
   | "insufficient_balance"
   | "carrier_account_unavailable"
-  | "provider_error"
+  | "provider_rejected"
   | "unexpected_refund_status";
 
 /** Largo del motivo del reembolso (queda en la fila y, en el fallback, en la cuenta corriente). */

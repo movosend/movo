@@ -53,6 +53,7 @@ export interface RefundUpdate {
   mpResponse?: Prisma.InputJsonValue;
   lastError?: string | null;
   ledgerEntryId?: string | null;
+  completedAt?: Date | null;
 }
 
 export interface RefundRepository {
@@ -69,6 +70,19 @@ export interface RefundRepository {
   updateIfStatus(id: string, expected: RefundStatus, patch: RefundUpdate): Promise<boolean>;
   /** Suma de lo que MP tiene reembolsado o en curso para ese pago, para que el webhook reconozca lo propio (AC7). */
   sumRefundedInMp(mpPaymentId: string): Promise<Prisma.Decimal>;
+  /**
+   * Toma un intento `processing` para reintentarlo. Atómico: solo lo gana UN pedido, así dos reintentos a la vez no le
+   * pegan los dos a MP. Se puede tomar si nadie lo está manejando (`last_error` cargado: el intento anterior terminó
+   * sin confirmar) o si el que lo manejaba lleva demasiado (`updated_at` anterior a `staleBefore`: se cayó). Al
+   * tomarlo vuelve a marcarse "en manos de alguien" (`last_error` en null y `updated_at` nuevo).
+   */
+  claim(id: string, staleBefore: Date): Promise<boolean>;
+  /**
+   * Pasa a `succeeded` los intentos `processing` que MP ya confirma como devueltos (webhook): `refundedInMpArs` es el
+   * total que MP informa para el pago. Los más viejos primero, mientras entren en lo que MP informa más allá de lo que
+   * ya figura `succeeded`. Devuelve cuántos promovió. Idempotente.
+   */
+  promoteConfirmed(mpPaymentId: string, refundedInMpArs: Prisma.Decimal, now: Date): Promise<number>;
 }
 
 const zero = () => new Prisma.Decimal(0);
@@ -138,6 +152,39 @@ export function createRefundRepository(db: PrismaClient): RefundRepository {
     async updateIfStatus(id, expected, patch) {
       const { count } = await db.refund.updateMany({ where: { id, status: expected }, data: patch });
       return count === 1;
+    },
+
+    async claim(id, staleBefore) {
+      const { count } = await db.refund.updateMany({
+        where: {
+          id,
+          status: "processing",
+          OR: [{ lastError: { not: null } }, { updatedAt: { lt: staleBefore } }],
+        },
+        data: { lastError: null },
+      });
+      return count === 1;
+    },
+
+    async promoteConfirmed(mpPaymentId, refundedInMpArs, now) {
+      const rows = await db.refund.findMany({
+        where: { mpPaymentId, status: { in: ["processing", "succeeded"] } },
+        orderBy: { attempt: "asc" },
+      });
+      let budget = refundedInMpArs.minus(
+        rows.filter((r) => r.status === "succeeded").reduce((sum, r) => sum.plus(r.amountArs), zero())
+      );
+      let promoted = 0;
+      for (const row of rows.filter((r) => r.status === "processing")) {
+        if (row.amountArs.gt(budget)) break;
+        const applied = await db.refund.updateMany({
+          where: { id: row.id, status: "processing" },
+          data: { status: "succeeded", failureReason: null, lastError: null, completedAt: now },
+        });
+        budget = budget.minus(row.amountArs);
+        promoted += applied.count;
+      }
+      return promoted;
     },
 
     async sumRefundedInMp(mpPaymentId) {

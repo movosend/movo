@@ -88,7 +88,7 @@ export interface MpWebhookServiceDeps {
    * MOVO-336 (AC7): los reembolsos que inició Movo (resolución de una disputa). Un reembolso de MP cuyo monto ya
    * explican no es "externo": no se registra como evento ni se alerta. Opcional: sin él todo reembolso es externo.
    */
-  refunds?: Pick<RefundRepository, "sumRefundedInMp">;
+  refunds?: Pick<RefundRepository, "sumRefundedInMp" | "promoteConfirmed">;
   now?: () => Date;
 }
 
@@ -177,6 +177,25 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
   }
 
   /**
+   * MOVO-336 (review de PR #314): un intento `processing` (MP lo aceptó `in_process`, o la respuesta se perdió) no lo
+   * cierra nadie más que el reintento del llamador. Si MP informa devuelto lo que ese intento pedía, se promueve a
+   * `succeeded`: así deja de contar "en curso" para siempre y aparece en el historial. Corre con cualquier estado del
+   * pago: un reembolso PARCIAL deja el pago `approved`.
+   */
+  async function promoteMovoRefunds(payment: PaymentResponse): Promise<void> {
+    if (!deps.refunds) return;
+    const refunded = payment.transaction_amount_refunded;
+    if (typeof refunded !== "number" || !(refunded > 0)) return;
+    const promoted = await deps.refunds.promoteConfirmed(String(payment.id), toMoney(refunded), now());
+    if (promoted > 0) {
+      log.info(
+        { mpPaymentId: String(payment.id), promoted, refundedArs: refunded },
+        "reembolsos de Movo confirmados por MP: pasan a succeeded"
+      );
+    }
+  }
+
+  /**
    * MOVO-336 (AC7): ¿el reembolso que informa MP es el que pidió Movo? Lo es si hay un reembolso propio `processing` o
    * `succeeded` sobre ese pago y el total que MP dice haber devuelto no pasa de la suma de los propios. Si MP informa
    * más, algo más reembolsó por fuera: sigue siendo un evento externo (con su alerta). Si no informa el monto, se
@@ -258,6 +277,7 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
     payment: PaymentResponse
   ): Promise<Resolution> {
     const hold = await fillMissingCard(current, payment);
+    await promoteMovoRefunds(payment);
     const status = payment.status ?? "";
     // `hasOwn` y no `in`: un `status` como "constructor" o "toString" no puede colarse por la cadena de prototipos.
     if (Object.prototype.hasOwnProperty.call(PROVIDER_EVENT_KINDS, status)) {

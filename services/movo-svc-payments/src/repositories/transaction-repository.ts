@@ -201,7 +201,9 @@ function visibleTransactions(column: "payer_id" | "carrier_id", userId: string):
           WHERE r.hold_id = h.id AND r.mp_payment_id = h.mp_payment_id AND r.status = 'succeeded'
         )
       ) AS has_refund,
-      COALESCE(
+      -- El monto de un evento de MP es el total devuelto (transaction_amount_refunded) e incluye lo que pidió Movo:
+      -- con un reembolso propio y después uno externo, GREATEST muestra el total y no subestima. GREATEST ignora los NULL.
+      GREATEST(
         (
           SELECT SUM(r.amount_ars)::float8 FROM payments.refunds r
           WHERE r.hold_id = h.id AND r.mp_payment_id = h.mp_payment_id AND r.status = 'succeeded'
@@ -316,10 +318,10 @@ export function createTransactionRepository(db: PrismaClient): TransactionReposi
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         }),
         // MOVO-336: cada reembolso hecho por Movo es un movimiento propio (devolución para el emisor, descuento
-        // para el transportista). Fecha: cuando MP lo confirmó.
+        // para el transportista). Fecha: cuando llegó a `succeeded` (`completed_at`, no `updated_at`).
         db.refund.findMany({
           where: { holdId, mpPaymentId, status: "succeeded" },
-          orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+          orderBy: [{ completedAt: "asc" }, { id: "asc" }],
         }),
       ]);
       const movements: TransactionMovementRow[] = [
@@ -328,7 +330,7 @@ export function createTransactionRepository(db: PrismaClient): TransactionReposi
           amountArs: e.amountArs === null ? null : Number(e.amountArs),
           date: e.createdAt,
         })),
-        ...refunds.map((r) => ({ kind: "refund" as const, amountArs: Number(r.amountArs), date: r.updatedAt })),
+        ...refunds.map((r) => ({ kind: "refund" as const, amountArs: Number(r.amountArs), date: r.completedAt ?? r.updatedAt })),
       ];
       return movements.sort((a, b) => a.date.getTime() - b.date.getTime());
     },

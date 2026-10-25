@@ -17,14 +17,17 @@ export type RefundErrorClass = "auth" | "insufficient_balance" | "transient" | "
 
 /**
  * Códigos de causa de MP que significan "saldo insuficiente". PENDIENTE del Paso 0 de MOVO-336 (reembolsar con un
- * transportista sin saldo en el sandbox, `test/refund.sandbox.test.ts`, escenario C): hasta tener el código real se
+ * transportista sin saldo en el sandbox, `test/refund.sandbox.test.ts`, escenario D): hasta tener el código real se
  * reconoce por el mensaje, que es la única señal que la doc de MP no garantiza. Sumar acá lo que devuelva el sandbox.
  */
 export const INSUFFICIENT_BALANCE_CAUSES = new Set<string>([]);
 
-/** Más estricto que "insufficient": un 403 `insufficient permissions` no es falta de saldo. */
+/**
+ * Más estricto que "insufficient": un 403 `insufficient permissions` no es falta de saldo. Incluye las variantes en
+ * español por si MP responde en el idioma de la cuenta (la de Argentina): el Paso 0 tiene que confirmar el texto real.
+ */
 const INSUFFICIENT_BALANCE_MESSAGE =
-  /insufficient (funds|balance|money)|not enough (funds|balance|money)|saldo insuficiente|fondos insuficientes/i;
+  /insufficient (funds|balance|money)|not enough (funds|balance|money)|(saldo|fondos|dinero) (insuficientes?|disponible)|sin (saldo|fondos)|no (tiene|tienes|tenés|cuenta con|cuentas con|hay) (saldo|fondos|dinero)/i;
 
 export function classifyRefundError(info: MpErrorInfo): RefundErrorClass {
   if (info.status === 401 || info.status === 403) return "auth";

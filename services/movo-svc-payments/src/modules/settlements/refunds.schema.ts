@@ -54,7 +54,7 @@ const refund = {
     status: { type: "string", enum: [...REFUND_STATUSES] },
     failureReason: {
       type: ["string", "null"],
-      enum: ["insufficient_balance", "carrier_account_unavailable", "provider_error", "unexpected_refund_status", null],
+      enum: ["insufficient_balance", "carrier_account_unavailable", "provider_rejected", "unexpected_refund_status", null],
     },
     mpRefundId: { type: ["string", "null"] },
     ledgerEntryId: { type: ["string", "null"] },
@@ -73,7 +73,9 @@ export const createRefundSchema = {
     "queda como caso manual con alerta). Sin `amountArs` es el total de lo reembolsable. Un reintento con la misma " +
     "`idempotencyKey` devuelve el intento vivo (`replayed: true` si no se le pegó a MP). 404 `SETTLEMENT_NOT_FOUND`; " +
     "409 `SETTLEMENT_NOT_REFUNDABLE` si la liquidación no está capturada, `REFUND_IDEMPOTENCY_CONFLICT` si la key " +
-    "se usó con otro monto o motivo, `CARRIER_MP_ACCOUNT_NOT_LINKED` si no hay credenciales usables; 422 " +
+    "se usó con otro monto o motivo, `REFUND_IN_PROGRESS` si otro pedido con la misma key está en curso, " +
+    "`REFUND_NEEDS_REVIEW` si el intento lleva sin confirmar más de lo que MP garantiza la key, " +
+    "`CARRIER_MP_ACCOUNT_NOT_LINKED` si no hay credenciales usables; 422 " +
     "`REFUND_AMOUNT_EXCEEDS_REFUNDABLE` (con `details.refundableArs`); 502 `PAYMENT_PROVIDER_ERROR` si MP rechazó " +
     "o no respondió (el intento queda `failed` o `processing`, consultable).",
   params: shipmentIdParams,
