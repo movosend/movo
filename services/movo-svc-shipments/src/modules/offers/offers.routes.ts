@@ -5,7 +5,8 @@ import { offersSchemas } from "./offers.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
-import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
+import { PaymentsClient } from "../../adapters/payments-client";
+import { createAppPaymentsClient } from "../../adapters/simulated-payments-client";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
@@ -64,7 +65,7 @@ function toMyOfferDto(offer: OfferWithShipmentContext) {
 export default async function offersRoutes(app: FastifyInstance, opts: OffersRoutesOptions) {
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
-  const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);
+  const paymentsClient = opts.paymentsClient ?? createAppPaymentsClient(app);
   const offerRepository = createOfferRepository(app.db);
   const shipmentRepository = createShipmentRepository(app.db);
   // MOVO-188: batch de reputación `asCarrier` para el desempate de `competitiveRank`

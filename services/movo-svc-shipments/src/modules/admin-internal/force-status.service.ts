@@ -160,6 +160,7 @@ export function createForceStatusService(
           shipment,
           admin,
           input.reason,
+          { simulatePayment: input.simulatePayment === true },
         );
         return;
       case "captureAndComplete": {
@@ -348,6 +349,14 @@ export function createForceStatusService(
             input.targetStatus as ShipmentStatus,
           );
           throw new ApiError(422, "TRANSITION_NOT_ALLOWED", reason, { reason });
+        }
+
+        if (input.simulatePayment && cell.service !== "confirmFunding") {
+          throw new ApiError(
+            422,
+            "VALIDATION_FAILED",
+            "El pago simulado solo aplica al pasar a Asignado.",
+          );
         }
 
         try {

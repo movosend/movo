@@ -5,7 +5,8 @@ import { tripsSchemas } from "./trips.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
-import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
+import { PaymentsClient } from "../../adapters/payments-client";
+import { createAppPaymentsClient } from "../../adapters/simulated-payments-client";
 import { createTripRepository, TripRepository } from "../../repositories/trip-repository";
 import { createShipmentRepository, ShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository, OfferRepository } from "../../repositories/offer-repository";
@@ -79,7 +80,7 @@ function toAvailableShipmentDto(item: MatchedShipment) {
 
 export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoutesOptions) {
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
-  const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);
+  const paymentsClient = opts.paymentsClient ?? createAppPaymentsClient(app);
   const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
   const shipmentRepository = opts.shipmentRepository ?? createShipmentRepository(app.db);
   const offerRepository = opts.offerRepository ?? createOfferRepository(app.db);

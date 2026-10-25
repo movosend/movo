@@ -51,6 +51,7 @@ export interface EnvConfig {
   IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS: number;
   IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS: number;
   FUNDING_NEAR_PICKUP_DAYS: number;
+  ALLOW_SIMULATED_PAYMENTS: boolean;
   FUNDING_PAYMENT_TIMEOUT_MINUTES: number;
   FUNDING_RELEASE_HOURS_BEFORE_PICKUP: number;
   FUNDING_REMINDER_INTERVAL_HOURS: number;
@@ -208,6 +209,8 @@ export const envSchema = {
     // captura al ENTREGAR (MOVO-212), así que hace falta N + duración máxima del viaje <=
     // MP_HOLD_VALIDITY_DAYS.
     FUNDING_NEAR_PICKUP_DAYS: { type: "number", default: 3 },
+    // ADR-055: deja que un admin pase un envío a `assigned` con el pago simulado (sin cobro real).
+    ALLOW_SIMULATED_PAYMENTS: { type: "boolean", default: false },
     // MOVO-210 AC5: plazo del emisor para completar el pago de la ruta cercana, desde que
     // acepta la oferta (con tope en el cierre de la ventana de retiro).
     FUNDING_PAYMENT_TIMEOUT_MINUTES: { type: "number", default: 30 },

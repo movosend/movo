@@ -1,7 +1,8 @@
 import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
 import { registerSweep } from "./register-sweep";
-import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
+import { PaymentsClient } from "../adapters/payments-client";
+import { createAppPaymentsClient } from "../adapters/simulated-payments-client";
 import { UsersClient } from "../adapters/users-client";
 import { NotificationsClient } from "../adapters/notifications-client";
 import { buildFundingService } from "../modules/funding/funding.routes";
@@ -24,7 +25,7 @@ export interface FundingSweepPluginOptions {
 export default fp(async (app: FastifyInstance, opts: FundingSweepPluginOptions = {}) => {
   const service = buildFundingService(app, {
     ...opts,
-    paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
+    paymentsClient: opts.paymentsClient ?? createAppPaymentsClient(app),
   });
 
   registerSweep(app, {

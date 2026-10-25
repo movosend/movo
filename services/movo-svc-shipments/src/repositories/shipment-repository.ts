@@ -542,6 +542,10 @@ export interface ShipmentRepository {
    */
   recordDisplayNames(entries: Array<{ userId: string; name: string | null | undefined }>): Promise<void>;
   findById(id: string): Promise<Shipment | null>;
+  /** ADR-055: ¿un admin dio este envío por pagado sin hold real? Un envío inexistente es `false`. */
+  isPaymentSimulated(id: string): Promise<boolean>;
+  /** ADR-055: marca (o desmarca) el envío como de pago simulado. Idempotente. */
+  setPaymentSimulated(id: string, simulated: boolean): Promise<void>;
   /**
    * MOVO-212: envíos `delivered` con transportista cuya liquidación todavía no se cerró
    * (nunca pasaron a `completed`), entregados hace más de `deliveredBefore` -- el margen
@@ -1050,6 +1054,15 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           }),
         ),
       );
+    },
+
+    async isPaymentSimulated(id: string): Promise<boolean> {
+      const row = await db.shipment.findUnique({ where: { id }, select: { paymentSimulated: true } });
+      return row?.paymentSimulated ?? false;
+    },
+
+    async setPaymentSimulated(id: string, simulated: boolean): Promise<void> {
+      await db.shipment.update({ where: { id }, data: { paymentSimulated: simulated } });
     },
 
     async findById(id: string): Promise<Shipment | null> {
