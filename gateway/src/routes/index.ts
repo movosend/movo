@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import httpProxy from "@fastify/http-proxy";
+import { ApiError, SUPPORT_WS_PROTOCOL } from "@movo/shared";
 import { EnvConfig } from "../config/env";
 import {
   getServiceRoutes,
@@ -33,6 +34,15 @@ const FORWARDED_IDENTITY_HEADERS = [
   "x-request-id",
 ] as const;
 
+/**
+ * MOVO-322: el gateway acepta él mismo el WebSocket del navegador y abre otro hacia el upstream, al que solo le
+ * pasa el subprotocolo que eligió (el primero, `movo-support.v1`), nunca la lista entera. El WebSocket del panel
+ * manda su ticket de un solo uso como segundo subprotocolo, así que la lista original viaja en `x-ws-protocols`
+ * (siempre la del request, nunca un header que mande el cliente) y `origin` también, para que svc-admin valide el
+ * ticket y el origen del panel.
+ */
+export const FORWARDED_WS_PROTOCOLS_HEADER = "x-ws-protocols";
+
 function rewriteWebSocketRequestHeaders(
   headers: Record<string, string>,
   request: FastifyRequest
@@ -44,7 +54,25 @@ function rewriteWebSocketRequestHeaders(
       rewritten[key] = value;
     }
   }
+  const protocols = request.headers["sec-websocket-protocol"];
+  if (typeof protocols === "string") rewritten[FORWARDED_WS_PROTOCOLS_HEADER] = protocols;
+  const origin = request.headers.origin;
+  if (typeof origin === "string") rewritten.origin = origin;
   return rewritten;
+}
+
+/** MOVO-322: ruta del WebSocket de la bandeja de soporte del panel (pública en `getPublicRoutes`). */
+const SUPPORT_WS_PATH = "/admin/support/ws";
+
+/**
+ * Antes del upgrade, el gateway solo comprueba que el pedido traiga un ticket con la forma esperada
+ * (`movo-support.v1, <ticket>`): uno sin ticket no llega a abrirse. Validarlo y gastarlo es de svc-admin.
+ */
+function hasSupportTicket(request: FastifyRequest): boolean {
+  const raw = request.headers["sec-websocket-protocol"];
+  if (typeof raw !== "string") return false;
+  const [protocol, ticket, ...rest] = raw.split(",").map((p) => p.trim());
+  return protocol === SUPPORT_WS_PROTOCOL && typeof ticket === "string" && /^[A-Za-z0-9_-]{20,100}$/.test(ticket) && rest.length === 0;
 }
 
 /**
@@ -193,6 +221,10 @@ export default async function routesPlugin(
       const deferredLimiter = strict?.perUser && !publicRoute ? strict.limiter : undefined;
       if (!deferredLimiter) {
         await (strict?.limiter ?? generalLimiter).call(app, request, reply);
+      }
+
+      if (publicRoute && path === SUPPORT_WS_PATH && !hasSupportTicket(request)) {
+        throw new ApiError(401, "SUPPORT_TICKET_INVALID", "Falta el ticket del canal de soporte.");
       }
 
       if (publicRoute) {
