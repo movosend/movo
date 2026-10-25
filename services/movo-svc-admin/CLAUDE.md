@@ -152,6 +152,15 @@ por polling. Es ruta propia y no un bloque del detalle, así el polling no vuelv
 rutea `/admin/*` por prefijo. El schema declara nullable cada campo que puede venir en `null`. Deploy en serie: hasta que `svc-shipments`
 tenga la ruta, es 502.
 
+### MOVO-299 — Sanciones desde la ficha: suspender, inhabilitar, levantar (DD-049)
+
+`modules/sanctions/`: historial, vista previa, aplicar, levantar y reintentar el retiro. Orden: sanción en `svc-users` → retiro en
+`svc-shipments` en la misma `runAdminAction`; un retiro fallido o parcial no hace fallar la acción y se reintenta con `POST .../withdraw`.
+Inhabilitar con envíos en curso es 409 `USER_HAS_IN_PROGRESS_SHIPMENTS` sin aplicar nada. El estado del retiro se deriva de la bitácora
+(`context.withdrawal` por `sanctionId`), sumando los intentos, sin tabla nueva. Limitaciones aceptadas en la fila de DD-049.
+
+Pendiente: verificar a mano contra dev (suspender un usuario de prueba y comprobar en la app que no puede publicar pero sí entregar).
+
 ### MOVO-332 — Cambio de estado de un envío desde el panel (DD-055)
 
 `modules/shipments/shipments.routes.ts` suma cuatro rutas: `GET /admin/shipments/:id/status-options`, `POST /admin/step-up`,

@@ -24,6 +24,19 @@ const page = { type: "integer", minimum: 1, default: 1 } as const;
 const pageSize = { type: "integer", minimum: 1, maximum: 50, default: 5 } as const;
 const pageFields = { page: { type: "integer" }, pageSize: { type: "integer" } } as const;
 
+const inProgressShipment = {
+  type: "object",
+  required: ["id", "shortId", "status", "userRole", "pickupAddress", "deliveryAddress"],
+  properties: {
+    id: uuid,
+    shortId: { type: "string" },
+    status: { type: "string", enum: ["assignment_pending", "assigned_unfunded", "assigned", "in_transit"] },
+    userRole: { type: "string", enum: ROLES },
+    pickupAddress: { type: "string" },
+    deliveryAddress: { type: "string" },
+  },
+} as const;
+
 const adminUserShipment = {
   type: "object",
   required: ["id", "shortId", "status", "pickupAddress", "deliveryAddress", "priceArs", "createdAt", "userRole", "senderId", "carrierId", "receiverId"],
@@ -175,19 +188,18 @@ export const adminInternalSchemas = {
   },
 
   // MOVO-297: efectos de una sanción.
-  inProgressShipmentsResponse: {
-    type: "array",
-    items: {
-      type: "object",
-      required: ["id", "shortId", "status", "userRole", "pickupAddress", "deliveryAddress"],
-      properties: {
-        id: uuid,
-        shortId: { type: "string" },
-        status: { type: "string", enum: ["assignment_pending", "assigned_unfunded", "assigned", "in_transit"] },
-        userRole: { type: "string", enum: ROLES },
-        pickupAddress: { type: "string" },
-        deliveryAddress: { type: "string" },
-      },
+  inProgressShipmentsResponse: { type: "array", items: inProgressShipment },
+
+  // MOVO-299: vista previa de una sanción (solo lectura).
+  openActivityResponse: {
+    type: "object",
+    required: ["shipments", "offers", "trips", "recurringSeries", "inProgressShipments"],
+    properties: {
+      shipments: { type: "integer" },
+      offers: { type: "integer" },
+      trips: { type: "integer" },
+      recurringSeries: { type: "integer" },
+      inProgressShipments: { type: "array", items: inProgressShipment },
     },
   },
 

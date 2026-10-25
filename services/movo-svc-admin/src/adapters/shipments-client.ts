@@ -13,9 +13,12 @@ import {
   AdminShipmentTracking,
   ApiError,
   ChatReportParties,
+  InProgressShipment,
+  OpenActivitySummary,
   ForceShipmentStatusRequest,
   ForceShipmentStatusResponse,
   ShipmentParties,
+  WithdrawOpenActivityResult,
 } from "@movo/shared";
 import {
   createInternalClient,
@@ -51,6 +54,17 @@ export interface ShipmentsClient extends InternalClient {
   getAdminShipmentChat(shipmentId: string, query: URLSearchParams, ctx: RequestContext): Promise<AdminChatPage | null>;
   /** `GET /internal/admin/shipments/:id/tracking` (MOVO-327). `null` si el envío no existe. */
   getAdminShipmentTracking(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentTracking | null>;
+
+  // MOVO-299 sobre los internos de MOVO-297/299. Un usuario sin actividad es una lista vacía, nunca un 404.
+  /** `GET /internal/users/:id/in-progress-shipments`: lo que impide inhabilitar. */
+  listInProgressShipments(userId: string, ctx: RequestContext): Promise<InProgressShipment[]>;
+  /** `GET /internal/users/:id/open-activity`: vista previa del retiro, sin tocar nada. */
+  getOpenActivity(userId: string, ctx: RequestContext): Promise<OpenActivitySummary>;
+  /**
+   * `POST /internal/users/:id/withdraw-open-activity`. Idempotente. Responde 200 aunque haya
+   * `failures`: el retiro parcial lo decide quien llama.
+   */
+  withdrawOpenActivity(userId: string, sanctionId: string, ctx: RequestContext): Promise<WithdrawOpenActivityResult>;
   /**
    * `POST /internal/admin/shipments/:id/force-status` (MOVO-331, DD-055). Los rechazos de negocio
    * (`STATUS_CHANGED`, `TRANSITION_NOT_ALLOWED`, `HOLD_NOT_AUTHORIZED`, `FORCE_STATUS_EFFECT_FAILED`...)
@@ -173,6 +187,28 @@ const isChatReportParties = (body: unknown): body is ChatReportParties =>
   isString(body.reporterId) &&
   isStringArray(body.partyIds);
 
+const isInProgress = (item: unknown): item is InProgressShipment =>
+  isRecord(item) && isString(item.id) && isString(item.shortId) && isString(item.status) && isString(item.userRole);
+const isInProgressList = (body: unknown): body is InProgressShipment[] => Array.isArray(body) && body.every(isInProgress);
+
+const isOpenActivity = (body: unknown): body is OpenActivitySummary =>
+  isRecord(body) &&
+  isNumber(body.shipments) &&
+  isNumber(body.offers) &&
+  isNumber(body.trips) &&
+  isNumber(body.recurringSeries) &&
+  isInProgressList(body.inProgressShipments);
+
+const isWithdrawResult = (body: unknown): body is WithdrawOpenActivityResult =>
+  isRecord(body) &&
+  isStringArray(body.cancelledShipmentIds) &&
+  isStringArray(body.withdrawnOfferIds) &&
+  isStringArray(body.cancelledTripIds) &&
+  isStringArray(body.stoppedRecurrenceTripIds) &&
+  isNumber(body.notifiedCounterpartyCount) &&
+  Array.isArray(body.failures) &&
+  body.failures.every((failure) => isRecord(failure) && isString(failure.kind) && isString(failure.id));
+
 export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string }): ShipmentsClient {
   const client = createInternalClient({
     baseUrl: config.SHIPMENTS_SERVICE_URL,
@@ -270,7 +306,31 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
         notFoundCodes: ["NOT_FOUND"],
       });
     },
+
+    async listInProgressShipments(userId, ctx) {
+      const list = await client.request(`${internalUserPath(userId)}/in-progress-shipments`, ctx, { isValid: isInProgressList, notFoundCodes: [] });
+      return list ?? [];
+    },
+    async getOpenActivity(userId, ctx) {
+      const summary = await client.request(`${internalUserPath(userId)}/open-activity`, ctx, { isValid: isOpenActivity, notFoundCodes: [] });
+      // Sin `notFoundCodes` el cliente base nunca devuelve null (un 404 es una ruta que falta: 502).
+      if (!summary) throw new Error("getOpenActivity: respuesta vacía");
+      return summary;
+    },
+    async withdrawOpenActivity(userId, sanctionId, ctx) {
+      const result = await client.request(`${internalUserPath(userId)}/withdraw-open-activity`, ctx, {
+        method: "POST",
+        body: { sanctionId },
+        isValid: isWithdrawResult,
+        notFoundCodes: [],
+        // Retira uno por uno y avisa a contrapartes: con mucha actividad abierta tarda más que una lectura.
+        timeoutMs: 20_000,
+      });
+      if (!result) throw new Error("withdrawOpenActivity: respuesta vacía");
+      return result;
+    },
   };
 }
 
 const userPath = (userId: string) => `/internal/admin/users/${encodeURIComponent(userId)}`;
+const internalUserPath = (userId: string) => `/internal/users/${encodeURIComponent(userId)}`;

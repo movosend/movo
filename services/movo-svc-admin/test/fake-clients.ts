@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  AccountSanction,
   AdminCandidate,
   AdminSummary,
   AdminUserLedgerRowPage,
@@ -20,9 +21,12 @@ import {
   AdminShipmentPage,
   AdminShipmentPhoto,
   HoldDetailResponse,
+  InProgressShipment,
+  OpenActivitySummary,
   ShipmentParties,
   ShipmentStatus,
   UserReportParties,
+  WithdrawOpenActivityResult,
 } from "@movo/shared";
 import { InternalClient } from "../src/adapters/internal-client";
 import { ShipmentsClient } from "../src/adapters/shipments-client";
@@ -39,6 +43,15 @@ export const usersDown = () => new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "E
 export const paymentsDown = () => new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "El servicio de pagos no responde.");
 
 const userNotFound = () => new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+
+export const emptyWithdrawal = (): WithdrawOpenActivityResult => ({
+  cancelledShipmentIds: [],
+  withdrawnOfferIds: [],
+  cancelledTripIds: [],
+  stoppedRecurrenceTripIds: [],
+  notifiedCounterpartyCount: 0,
+  failures: [],
+});
 
 export function createFakeShipmentsClient(data: {
   shipments?: Record<string, ShipmentParties>;
@@ -60,6 +73,12 @@ export function createFakeShipmentsClient(data: {
   trackings?: Record<string, AdminShipmentTracking>;
   /** Últimos query strings recibidos, para comprobar que se reenvían. */
   seen?: { list?: string; chat?: string };
+  /** MOVO-299: efectos de una sanción, por id de usuario. */
+  inProgress?: Record<string, InProgressShipment[]>;
+  openActivity?: Record<string, Omit<OpenActivitySummary, "inProgressShipments">>;
+  /** Respuestas del retiro, en orden; un `ApiError` se lanza. Agotadas, el retiro no encuentra nada. */
+  withdrawResults?: Array<WithdrawOpenActivityResult | ApiError>;
+  withdrawCalls?: Array<{ userId: string; sanctionId: string }>;
   /**
    * MOVO-332: `POST .../force-status`. `calls` guarda lo recibido; `error` hace que svc-shipments rechace;
    * `unavailable` simula que no responde (la bitácora lo toma por "pudo haberse aplicado").
@@ -69,6 +88,22 @@ export function createFakeShipmentsClient(data: {
 } = {}): ShipmentsClient {
   return {
     request: unusedRequest,
+    async listInProgressShipments(userId) {
+      if (data.down) throw shipmentsDown();
+      return data.inProgress?.[userId] ?? [];
+    },
+    async getOpenActivity(userId) {
+      if (data.down) throw shipmentsDown();
+      const open = data.openActivity?.[userId] ?? { shipments: 0, offers: 0, trips: 0, recurringSeries: 0 };
+      return { ...open, inProgressShipments: data.inProgress?.[userId] ?? [] };
+    },
+    async withdrawOpenActivity(userId, sanctionId) {
+      data.withdrawCalls?.push({ userId, sanctionId });
+      if (data.down) throw shipmentsDown();
+      const next = data.withdrawResults?.shift();
+      if (next instanceof ApiError) throw next;
+      return next ?? emptyWithdrawal();
+    },
     async listUserShipments(userId, query) {
       if (data.down) throw shipmentsDown();
       return (
@@ -149,6 +184,8 @@ export function createFakeUsersClient(
     /** Solo la resolución de nombres falla (el resto de `svc-users` responde). */
     namesDown?: boolean;
     cards?: PartyCard[];
+    /** MOVO-299: historial de sanciones de todos los usuarios; se muta como en `svc-users`. */
+    sanctions?: AccountSanction[];
     /**
      * MOVO-332: el segundo factor. `consumed` guarda los tokens gastados; `consumeError` hace que `svc-users`
      * rechace el token (`STEP_UP_INVALID`); `verifyError` rechaza el código.
@@ -165,6 +202,7 @@ export function createFakeUsersClient(
   } = {},
 ): UsersClient {
   const admins = data.admins ?? [];
+  const sanctions = data.sanctions ?? [];
   const profiles = data.profiles ?? [];
   const profileOf = (id: string) => {
     if (data.down) throw usersDown();
@@ -301,6 +339,43 @@ export function createFakeUsersClient(
     async getUserReportParties(id) {
       if (data.down) throw usersDown();
       return data.userReports?.[id] ?? null;
+    },
+    async listSanctions(userId) {
+      profileOf(userId);
+      return sanctions.filter((s) => s.userId === userId).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    },
+    async applySanction(userId, body, actorId) {
+      const profile = profileOf(userId);
+      const open = sanctions.filter((s) => s.userId === userId && !s.liftedAt);
+      if (open.some((s) => s.type === "disable")) throw new ApiError(409, "ACCOUNT_ALREADY_DISABLED", "La cuenta ya está inhabilitada.");
+      const now = new Date().toISOString();
+      for (const s of open) Object.assign(s, { liftedAt: now, closedCause: body.type === "disable" ? "escalated" : "replaced" });
+      const created: AccountSanction = {
+        id: randomUUID(),
+        userId,
+        type: body.type,
+        reason: body.reason,
+        internalNote: body.internalNote ?? null,
+        startedAt: now,
+        endsAt: body.endsAt ?? null,
+        appliedBy: actorId,
+        liftedAt: null,
+        liftedBy: null,
+        liftReason: null,
+        closedCause: null,
+      };
+      sanctions.push(created);
+      Object.assign(profile, { accountStatus: body.type === "disable" ? "banned" : "suspended", bannedUntil: body.endsAt ?? null });
+      return created;
+    },
+    async liftSanction(userId, sanctionId, reason, actorId) {
+      const profile = profileOf(userId);
+      const sanction = sanctions.find((s) => s.id === sanctionId && s.userId === userId);
+      if (!sanction) throw new ApiError(404, "SANCTION_NOT_FOUND", "La sanción no existe.");
+      if (sanction.liftedAt) throw new ApiError(409, "SANCTION_ALREADY_CLOSED", "La sanción ya está cerrada.");
+      Object.assign(sanction, { liftedAt: new Date().toISOString(), liftedBy: actorId, liftReason: reason, closedCause: "lifted" });
+      Object.assign(profile, { accountStatus: "active", bannedUntil: null });
+      return sanction;
     },
   };
 }

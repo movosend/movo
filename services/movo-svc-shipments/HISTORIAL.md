@@ -3865,3 +3865,9 @@ Push `shipmentStatusForced*` con `ignorePreferences` (se extendieron `SendPushNo
   liberar el hold en `assigned → cancelled` (alerta `force_status_hold_released_race`, ver DD-055).
 - Pendiente: el cliente en `svc-admin` y el OTP por acción (MOVO-332), el modal del panel (MOVO-333); `in_transit`/`delivered` forzados con
   evidencia y la salida de `disputed` (MOVO-34) quedan bloqueados.
+
+### MOVO-299 — Vista previa del retiro por sanción (DD-049)
+
+`GET /internal/users/:id/open-activity` (`sanctionEffects.previewOpenActivity`): cuenta lo que retiraría `withdraw-open-activity` hoy
+(envíos sin comprometer, ofertas `pending` vigentes, viajes `declared` sin paquetes aceptados, series recurrentes) y lista los envíos en
+curso, sin tocar nada. Los `where` del retiro y de la vista previa son los mismos helpers, para que el panel no prometa otra cosa.
