@@ -23,7 +23,7 @@ export interface ProfileActionsMenuProps {
 }
 
 /**
- * Menú "Reportar/Bloquear" del rediseño de perfil (MOVO-175, ADR-026). Reusa el patrón
+ * Menú "Reportar/Bloquear" del rediseño de perfil (MOVO-175, DD-026). Reusa el patrón
  * exacto de `MenuView` de `components/shipments/sender-actions-bar.tsx` (MOVO-29):
  * menú nativo (`UIMenu`/`PopupMenu`), y `Alert.alert` nativo como último paso de la
  * confirmación de bloqueo (mismo criterio que la baja de cuenta, MOVO-136). Reportar

@@ -389,7 +389,7 @@ Dos salvedades:
 - **Reembolso** de un pago capturado con split (opción `9`/`s9`): sin probar con esta
   configuración. Hay que ver cómo se revierte el `application_fee`.
 - **Vencimiento del hold:** cuánto dura una autorización sin capturar antes de que MP la
-  cancele sola. Condiciona dónde anclar el hold en el ciclo del envío (ADR-021,
+  cancele sola. Condiciona dónde anclar el hold en el ciclo del envío (DD-021,
   `assigned_unfunded`).
 
 ---
@@ -439,4 +439,4 @@ vinculado en dev (token `TEST-`):
 - **Sin validar**: hold con un segundo Vendedor, producción, `application_fee` real al capturar y el
   débito sin CVV con Movo como cobradora directa (MOVO-37). Todo en el spike MOVO-283.
 
-Decisión y alternativas: `docs/payments/adr-039-tarjetas-guardadas-con-cvv.md`.
+Decisión y alternativas: `docs/payments/dd-039-tarjetas-guardadas-con-cvv.md`.

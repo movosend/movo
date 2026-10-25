@@ -2,11 +2,12 @@ import { Text, View } from "react-native";
 import { packageTypeIcon, packageTypeLabel } from "../send/category-grid";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { formatPackageDimensions } from "../../src/lib/package-dimensions";
 
 export interface PackageCardProps {
   shipment: Pick<
     ShipmentSummary,
-    "id" | "packageType" | "weightKg" | "lengthCm" | "widthCm" | "heightCm" | "description"
+    "id" | "packageType" | "weightKg" | "lengthCm" | "widthCm" | "heightCm" | "oversized" | "description"
   >;
   testID?: string;
 }
@@ -26,7 +27,7 @@ export function PackageCard({ shipment, testID }: PackageCardProps) {
         <View className="flex-1">
           <Text className="font-sans-semibold text-[14px] text-fg">{packageTypeLabel(shipment.packageType)}</Text>
           <Text className="mt-0.5 font-sans-medium text-[11px] uppercase tracking-wide text-fg-3">
-            {shipment.weightKg} kg · {shipment.lengthCm} × {shipment.widthCm} × {shipment.heightCm} cm
+            {shipment.weightKg} kg · {formatPackageDimensions(shipment)}
           </Text>
           {shipment.description ? (
             <Text className="mt-1 font-sans text-small text-fg-2">{shipment.description}</Text>
@@ -50,7 +51,7 @@ export function PackageSummaryCard({ shipment, testID }: PackageCardProps) {
         {packageTypeLabel(shipment.packageType)}
       </Text>
       <Text className="mt-0.5 font-sans text-small text-fg-2">
-        {shipment.weightKg} kg · {shipment.lengthCm} × {shipment.widthCm} × {shipment.heightCm}
+        {shipment.weightKg} kg · {formatPackageDimensions(shipment)}
       </Text>
       {shipment.description ? (
         <Text numberOfLines={2} className="mt-1 font-sans text-[12px] text-fg-3">

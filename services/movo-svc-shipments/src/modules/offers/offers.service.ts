@@ -313,7 +313,7 @@ export function createOffersService(
   /**
    * MOVO-175 (fix de review, PR #193): antes opcional (último parámetro) -- un
    * `usersClient` sin inyectar saltaba en silencio el chequeo de bloqueo de
-   * `acceptOffer`/`updateOffer` (ADR-026), contra el "falla cerrado" que ambos
+   * `acceptOffer`/`updateOffer` (DD-026), contra el "falla cerrado" que ambos
    * documentan. `offers.routes.ts` siempre lo inyecta en producción
    * (`opts.usersClient ?? createUsersClient(app.config)`), así que volverlo
    * obligatorio no cambia el comportamiento real -- solo cierra la posibilidad de que
@@ -324,7 +324,7 @@ export function createOffersService(
    */
   usersClient: UsersClient,
   /**
-   * MOVO-116 (ADR-036): cuenta de MP del transportista, para revalidar los requisitos
+   * MOVO-116 (DD-036): cuenta de MP del transportista, para revalidar los requisitos
    * al editar y al aceptar una oferta. Obligatorio por el mismo motivo que `usersClient`:
    * sin él no hay forma de fallar cerrado.
    */
@@ -431,12 +431,12 @@ export function createOffersService(
       }
 
       assertIsSender(shipment, callerId);
-      // MOVO-175 (ADR-026): una oferta hecha antes del bloqueo ya no se puede aceptar.
+      // MOVO-175 (DD-026): una oferta hecha antes del bloqueo ya no se puede aceptar.
       // Falla cerrado -- `usersClient` es obligatorio (ver comentario del parámetro en
       // createOffersService), así que este chequeo siempre se ejecuta.
       await assertNotBlocked(usersClient, offer.carrierId, [shipment.senderId, shipment.receiverId]);
 
-      // MOVO-116 (ADR-036): el transportista pudo perder la licencia o la cuenta de MP
+      // MOVO-116 (DD-036): el transportista pudo perder la licencia o la cuenta de MP
       // después de ofertar. Quien llama es el emisor, que no puede resolverlo: 409 sin
       // `details` (no se le cuenta qué le falta al otro) y la oferta sigue `pending` para
       // que elija otra. Un servicio caído propaga su 502 (falla cerrado).
@@ -592,7 +592,7 @@ export function createOffersService(
         throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el transportista dueño de la oferta puede modificarla.");
       }
 
-      // MOVO-175 (ADR-026): mismo criterio que `acceptOffer` -- una oferta hecha antes
+      // MOVO-175 (DD-026): mismo criterio que `acceptOffer` -- una oferta hecha antes
       // del bloqueo tampoco se puede editar. Falla cerrado, `usersClient` es
       // obligatorio (ver comentario del parámetro en createOffersService).
       const shipment = await shipmentRepository.findById(offer.shipmentId);
@@ -601,7 +601,7 @@ export function createOffersService(
       }
       await assertNotBlocked(usersClient, offer.carrierId, [shipment.senderId, shipment.receiverId]);
 
-      // MOVO-116 (ADR-036): editar una oferta es operar como transportista, mismo
+      // MOVO-116 (DD-036): editar una oferta es operar como transportista, mismo
       // bloqueo que crearla. Hasta acá este endpoint no exigía ni el KYC de identidad.
       await assertCarrierCanOperate({ usersClient, paymentsClient, shipmentRepository }, callerId, callerRoles);
 

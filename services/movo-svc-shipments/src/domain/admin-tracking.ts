@@ -10,7 +10,7 @@ import { haversineKm, progressAlongPath } from "./geo";
 /**
  * MOVO-327: qué muestra el mapa del panel para cada estado. La posición solo se ve con `live` (el
  * transportista ya retiró y está en viaje, AC5); `closed` muestra la traza guardada sin posición actual.
- * `rejected_by_receiver` es previo a publicar (ADR-027) y `cancelled` puede haber tenido transportista, por
+ * `rejected_by_receiver` es previo a publicar (DD-027) y `cancelled` puede haber tenido transportista, por
  * eso va como `closed` (con la traza, si la hubo) y no como `no_carrier`.
  */
 export function adminTrackingState(status: ShipmentStatus): { state: AdminTrackingState; reason: AdminTrackingReason | null } {

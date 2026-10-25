@@ -151,3 +151,38 @@ Pasa tal cual el `AdminShipmentTracking` de `svc-shipments` (`shipments-client.t
 por polling. Es ruta propia y no un bloque del detalle, así el polling no vuelve a pedir el detalle entero; el gateway no se toca porque
 rutea `/admin/*` por prefijo. El schema declara nullable cada campo que puede venir en `null`. Deploy en serie: hasta que `svc-shipments`
 tenga la ruta, es 502.
+
+### MOVO-332 — Cambio de estado de un envío desde el panel (DD-055)
+
+`modules/shipments/shipments.routes.ts` suma cuatro rutas: `GET /admin/shipments/:id/status-options`, `POST /admin/step-up`,
+`POST /admin/step-up/verify` y `POST /admin/shipments/:id/status`. La lógica de transición es de `svc-shipments`
+(`POST /internal/admin/shipments/:id/force-status`, MOVO-331); acá van la regla de conflicto, la bitácora, el segundo factor y los límites.
+
+- **`status-options`** sale solo de la matriz de `@movo/shared` (`getForcedTransitionDetails`, `forcedTransitionFriction`,
+  `blockedTransitionReason`): el panel no calcula nada. Devuelve también el código del envío que hay que tipear. Lectura, sin bitácora.
+- **`POST .../status`** es `runAdminAction` (`shipment.status_change`). Las validaciones (motivo ≥ 20, `expectedStatus`, par permitido,
+  `typedCode`, falta de `stepUpToken`, **validación sin gastar** del token, identificar al admin) van en el `precheck`: corren después de la regla de
+  conflicto y, como son lecturas, la fila es `failed` aunque otro servicio no responda. `forceShipmentStatus` va en la acción y **el token se gasta
+  después**, solo si el cambio se aplicó o no se sabe (un rechazo de negocio no lo quema, review de PR #305). El nombre del admin falla cerrado (502).
+- **Idempotencia** (`status-change-records.ts`, Redis, 24 h, por admin + envío + clave): `done` devuelve la respuesta con `replayed: true` antes del rate
+  limit y sin fila nueva; `unknown` (svc-shipments no respondió) hace que el reintento no pida el token ni compare `expectedStatus` y vuelva a
+  `svc-shipments`, que resuelve el replay. Otra clave de destino distinto: 409 `IDEMPOTENCY_KEY_REUSED`. Guardar el registro es best-effort.
+- **`POST /admin/step-up`** exige que el envío exista y que el par esté en la matriz y pida segundo factor (404/422/400); no manda un email por cualquier par.
+- **Un 429 del rate limit deja una fila por admin y envío por ventana** (flag `NX` de 60 s en Redis), no una por rechazo.
+- **Bitácora: una fila por intento** (salvo los 429, ver abajo), rechazos incluidos. El "antes y después" del ticket (AC5) lo cubre `unknown`: la tabla es de solo agregar
+  filas (trigger), así que no hay una fila previa. Detalle en el DD-055.
+- **`internal-client.ts` ahora propaga `details`** de un 4xx (antes se descartaban), y tiene `relayServerErrorCodes`: `FORCE_STATUS_EFFECT_FAILED` es
+  un 502 de negocio que no debe leerse como "servicio caído" (la fila sería `unknown`, y es un `failed`). Los schemas de error de
+  `shipments.schema.ts` declaran `details`: sin eso Fastify los recortaba y el panel no podía explicar `STATUS_CHANGED`/`TRANSITION_NOT_ALLOWED`.
+- **Rate limit** (`utils/rate-limit.ts`, ventana fija en Redis): 10 cambios/min por admin y 5/min por envío; cuenta también los intentos
+  rechazados y se aplica antes de la bitácora (un 429 no deja fila). El `forceShipmentStatus` espera hasta 30 s (el servicio llama a payments).
+- Pendiente: probar contra dev real que el email del step-up llega (Resend). El modal del panel (MOVO-333) ya está hecho.
+
+### MOVO-333 (backend de apoyo) — `status-options` con `checks`/`irreversible` y código de confirmación del panel
+
+`GET /admin/shipments/:id/status-options` devuelve también `checks` (qué verificar antes) e `irreversible` (qué no se deshace) por opción, y `code` pasa a
+ser el que muestra el panel (`MOVO-12345`, `shipmentConfirmationCode`), no los 8 primeros caracteres del id. `typedCode` se compara con
+`normalizeConfirmationCode` (sin `#`, sin espacios, sin distinguir mayúsculas). Los textos viven en la matriz de `@movo/shared`.
+
+**Corrección (MOVO-333): el schema de respuesta de los eventos declara `kind` y `actorName`.** Sin declararlos Fastify los recortaba y el detalle del
+panel nunca recibía la marca de manual/forzado. El test de `shipments.integration.test.ts` fija un evento forzado y falla si se pierden.

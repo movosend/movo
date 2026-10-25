@@ -37,7 +37,7 @@ export type ApiErrorCode =
   | "SHIPMENT_PICKUP_WINDOW_IN_PAST"
   | "SHIPMENT_PICKUP_WINDOW_INVALID"
   | "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE"
-  // MOVO-276: peso o medidas fuera de los límites duros (`details.violations`).
+  // MOVO-276: peso o medidas fuera de los límites duros (`details.violations`). Deprecado por MOVO-317: ya no se emite.
   | "PACKAGE_LIMITS_EXCEEDED"
   | "USERS_SERVICE_UNAVAILABLE"
   | "PUSH_PROVIDER_ERROR"
@@ -53,7 +53,7 @@ export type ApiErrorCode =
   | "SHIPMENT_RECEIVER_ALREADY_REJECTED"
   | "ROUTES_PROVIDER_ERROR"
   | "ROUTE_NOT_FOUND"
-  // MOVO-237: modo `live` del RoutesProvider, placeholder intencional (ADR-033).
+  // MOVO-237: modo `live` del RoutesProvider, placeholder intencional (DD-033).
   | "ROUTE_MODE_NOT_IMPLEMENTED"
   | "PROFILE_NAME_LOCKED_BY_KYC"
   | "PHONE_ALREADY_IN_USE"
@@ -118,7 +118,7 @@ export type ApiErrorCode =
   // (`assigned`/`in_transit`) -- p. ej. todos esperan el hold de fondos
   // (`assignment_pending`/`assigned_unfunded`). Distinto de `TRIP_NO_PACKAGES`.
   | "TRIP_PACKAGES_NOT_READY"
-  // MOVO-265 (ADR-042): prender la recurrencia con 3 series activas ya (tope de
+  // MOVO-265 (DD-042): prender la recurrencia con 3 series activas ya (tope de
   // `MAX_ACTIVE_RECURRING_SERIES`), y editar la recurrencia de un trip que no es el
   // vigente de su serie (ya tiene sucesor).
   | "RECURRING_SERIES_LIMIT"
@@ -147,7 +147,7 @@ export type ApiErrorCode =
   // desfase de reloj) o anterior a que el envío pasara a `in_transit`.
   | "INVALID_CAPTURED_AT"
   // MOVO-175: interacción (oferta, aceptación, envío como receptor) entre dos usuarios
-  // con un bloqueo en cualquier dirección -- explícito a propósito (ADR-026).
+  // con un bloqueo en cualquier dirección -- explícito a propósito (DD-026).
   | "USER_BLOCKED"
   // MOVO-26: el chat del envío ya no está disponible (el envío se canceló, se rechazó o
   // todavía no tiene transportista). Un envío entregado NO da este error: queda en solo lectura.
@@ -190,7 +190,7 @@ export type ApiErrorCode =
   // MOVO-209: endpoints internos de holds de `svc-payments`.
   // El transportista no tiene una cuenta de MP vigente (nunca vinculó, desvinculó,
   // revocó o el token venció): sin ella no hay `public_key` ni access_token para cobrar.
-  // MOVO-116 (ADR-036): también lo devuelve `svc-shipments` (403) al bloquear declarar
+  // MOVO-116 (DD-036): también lo devuelve `svc-shipments` (403) al bloquear declarar
   // viaje, ofertar, editar oferta o iniciar viaje, con `details.missingRequirements`.
   | "CARRIER_MP_ACCOUNT_NOT_LINKED"
   // El envío no tiene ningún hold (ni siquiera un intento rechazado).
@@ -227,13 +227,13 @@ export type ApiErrorCode =
   // MOVO-306: la penalidad no supera el `application_fee` del hold; MP la rechazaría (`4201`,
   // spike MOVO-305). El hold sigue `authorized`: `svc-shipments` aplica el plan B (MOVO-307).
   | "CAPTURE_BELOW_APPLICATION_FEE"
-  // MOVO-116 (ADR-036): el transportista no tiene la licencia de conducir aprobada
+  // MOVO-116 (DD-036): el transportista no tiene la licencia de conducir aprobada
   // (`kyc_status_license`). Viaja con `details.missingRequirements`.
   | "CARRIER_LICENSE_NOT_APPROVED"
-  // MOVO-278 (ADR-045): el transportista tiene un envío en `disputed` (automática por
+  // MOVO-278 (DD-045): el transportista tiene un envío en `disputed` (automática por
   // entrega demorada o iniciada por un usuario). Viaja con `details.missingRequirements`.
   | "CARRIER_DISPUTE_OPEN"
-  // MOVO-313 (ADR-044): la cuenta tiene una deuda sin saldar hace más de 14 días
+  // MOVO-313 (DD-044): la cuenta tiene una deuda sin saldar hace más de 14 días
   // (`USER_DEBT_OVERDUE_DAYS`). Bloquea operar como transportista (declarar viaje, ofertar,
   // editar oferta, iniciar viaje); como emisor no. Viaja con `details.missingRequirements`.
   | "USER_DEBT_OVERDUE"
@@ -245,7 +245,7 @@ export type ApiErrorCode =
   // MOVO-210: el envío no está en un estado/ventana en que el emisor pueda pagar la
   // reserva (no es `assignment_pending`, o es `assigned_unfunded` con la ventana cerrada).
   | "SHIPMENT_FUNDING_NOT_AVAILABLE"
-  // MOVO-275 (ADR-038): transferencia de receptor.
+  // MOVO-275 (DD-038): transferencia de receptor.
   // El envío ya tuvo una transferencia completada (una sola por envío).
   | "SHIPMENT_RECEIVER_TRANSFER_LIMIT"
   // Ya hay una solicitud de transferencia esperando respuesta.
@@ -260,7 +260,7 @@ export type ApiErrorCode =
   | "RECEIVER_TRANSFER_NOT_FOUND"
   // La solicitud ya no está pendiente (aceptada, rechazada, vencida o cancelada).
   | "RECEIVER_TRANSFER_NOT_PENDING"
-  // MOVO-100 (ADR-039): tarjetas guardadas del emisor en `svc-payments`.
+  // MOVO-100 (DD-039): tarjetas guardadas del emisor en `svc-payments`.
   // La tarjeta tiene un hold vivo asociado: no se puede dar de baja hasta que se libere.
   | "CARD_IN_USE"
   // Tope de tarjetas vivas por usuario (`MAX_SAVED_CARDS_PER_USER`).
@@ -273,7 +273,7 @@ export type ApiErrorCode =
   | "CARD_CUSTOMER_CONFLICT"
   // Falta la `public_key` o las credenciales de Movo para operar con tarjetas (503).
   | "CARDS_NOT_CONFIGURED"
-  // MOVO-309 (ADR-044): cuenta corriente del usuario (`svc-payments`). La `idempotencyKey` ya
+  // MOVO-309 (DD-044): cuenta corriente del usuario (`svc-payments`). La `idempotencyKey` ya
   // existe con otro cuerpo (otro usuario, tipo, monto o referencia).
   | "LEDGER_IDEMPOTENCY_CONFLICT"
   // El movimiento no existe para ese usuario.
@@ -327,7 +327,7 @@ export type ApiErrorCode =
   | "SUPPORT_TICKET_INVALID"
   // `svc-shipments` (dueño del modelo de soporte) no respondió (502).
   | "SUPPORT_SERVICE_UNAVAILABLE"
-  // MOVO-334 (ADR-054): disputas abiertas por las partes.
+  // MOVO-334 (DD-054): disputas abiertas por las partes.
   // El envío no está en un estado que se pueda disputar desde la app (422).
   | "DISPUTE_NOT_ALLOWED"
   // `delivered`/`completed` con más de `DISPUTE_WINDOW_DAYS` desde el handshake de entrega (422).
@@ -340,7 +340,28 @@ export type ApiErrorCode =
   // La parte ya cargó su descargo, o quien abrió ya amplió su evidencia (409).
   | "DISPUTE_STATEMENT_ALREADY_SUBMITTED"
   // Una de las fotos ya está asociada a una disputa (409).
-  | "DISPUTE_PHOTO_ALREADY_USED";
+  | "DISPUTE_PHOTO_ALREADY_USED"
+  // MOVO-331 (DD-055): cambio forzado de estado de un envío desde el panel.
+  // El par origen -> destino está bloqueado en `FORCED_TRANSITION_MATRIX` (422, `details.reason`).
+  | "TRANSITION_NOT_ALLOWED"
+  // El estado actual ya no es el `expectedStatus` que vio el admin (409, `details.currentStatus`).
+  | "STATUS_CHANGED"
+  // Se pidió `assigned` y el hold del envío no está autorizado en payments (422).
+  | "HOLD_NOT_AUTHORIZED"
+  // Falló un efecto externo (liberar o capturar el hold): el envío quedó en su estado original (502).
+  | "FORCE_STATUS_EFFECT_FAILED"
+  // La misma `idempotencyKey` ya se usó para otro envío o destino (409).
+  | "IDEMPOTENCY_KEY_REUSED"
+  // Hay otro cambio forzado en curso sobre el mismo envío (409).
+  | "FORCE_STATUS_IN_PROGRESS"
+  // MOVO-332: cambio de estado desde el panel con segundo factor por acción.
+  // La transición lo exige (forzada o crítica) y no vino `stepUpToken` (403).
+  | "STEP_UP_REQUIRED"
+  // Código o token del segundo factor inválido: vencido, ya usado, de otro envío o destino, o inexistente.
+  // Un solo código para todos los casos, así no se enumeran motivos (401).
+  | "STEP_UP_INVALID"
+  // El código del envío tipeado no coincide (422).
+  | "TYPED_CODE_MISMATCH";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

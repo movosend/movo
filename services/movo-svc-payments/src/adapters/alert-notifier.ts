@@ -13,7 +13,7 @@ export interface TeamAlert {
 
 /**
  * MOVO-268: canal de alertas al equipo, mismo molde que `SmsProvider`/`EmailProvider`
- * (ADR-012/017): consola por default en dev/test/CI y Telegram con
+ * (ADR-012/016): consola por default en dev/test/CI y Telegram con
  * `ALERT_PROVIDER=telegram`. La reusa MOVO-213 (liquidación escalada a
  * proceso manual).
  *

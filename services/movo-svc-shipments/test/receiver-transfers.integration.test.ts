@@ -12,7 +12,7 @@ import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 
 /**
- * MOVO-275 (ADR-038): transferencia de receptor contra Postgres y Redis reales (AC9):
+ * MOVO-275 (DD-038): transferencia de receptor contra Postgres y Redis reales (AC9):
  * cada validación, aceptar/rechazar/cancelar, el límite de una transferencia, la carrera
  * con el handshake de entrega, el vencimiento, el acceso de solo lectura del receptor
  * original y el filtrado de la línea de tiempo por quien mira.

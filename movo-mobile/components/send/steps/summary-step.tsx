@@ -19,6 +19,7 @@ import {
   type WizardPhoto,
 } from "../../../src/store/shipment-wizard-store";
 import type { CreateShipmentInput } from "../../../src/api/shipments-client";
+import { dimensionShort, dimensionToCm, hasOversizedDimension } from "../../../src/lib/package-dimensions";
 import { ErrorBanner } from "../../ui/error-banner";
 import { packageTypeLabel } from "../category-grid";
 import { PricePreviewCard } from "../price-preview-card";
@@ -51,9 +52,9 @@ type WizardSnapshot = ReturnType<typeof useShipmentWizardStore.getState>;
 /** Datos que afectan el precio, o `null` si falta alguno. */
 function buildPriceInput(state: WizardSnapshot): PricingQuoteInput | null {
   const weightKg = Number(state.weightKg) || null;
-  const lengthCm = Number(state.lengthCm) || null;
-  const widthCm = Number(state.widthCm) || null;
-  const heightCm = Number(state.heightCm) || null;
+  const lengthCm = dimensionToCm(state.lengthCm);
+  const widthCm = dimensionToCm(state.widthCm);
+  const heightCm = dimensionToCm(state.heightCm);
   if (!state.packageType || !state.pickup || !state.delivery || !weightKg || !lengthCm || !widthCm || !heightCm) {
     return null;
   }
@@ -63,6 +64,7 @@ function buildPriceInput(state: WizardSnapshot): PricingQuoteInput | null {
     lengthCm,
     widthCm,
     heightCm,
+    oversized: hasOversizedDimension(state.lengthCm, state.widthCm, state.heightCm),
     pickup: { lat: state.pickup.lat, lng: state.pickup.lng },
     delivery: { lat: state.delivery.lat, lng: state.delivery.lng },
   };
@@ -193,9 +195,10 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
       const body: CreateShipmentInput = {
         packageType: packageType!,
         weightKg: Number(weightKg),
-        lengthCm: Number(lengthCm),
-        widthCm: Number(widthCm),
-        heightCm: Number(heightCm),
+        lengthCm: dimensionToCm(lengthCm) ?? 0,
+        widthCm: dimensionToCm(widthCm) ?? 0,
+        heightCm: dimensionToCm(heightCm) ?? 0,
+        oversized: hasOversizedDimension(lengthCm, widthCm, heightCm) || undefined,
         description: state.description || undefined,
         receiverId: receiver.id,
         pickupAddress: pickup.address,
@@ -300,7 +303,7 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
             <ReviewRow label="Peso" value={`${weightKg || "—"} kg`} onEdit={() => onGoToStep(0)} />
             <ReviewRow
               label="Dimensiones"
-              value={`${lengthCm || "—"} × ${widthCm || "—"} × ${heightCm || "—"} cm`}
+              value={`${dimensionShort(lengthCm)} × ${dimensionShort(widthCm)} × ${dimensionShort(heightCm)} cm`}
               onEdit={() => onGoToStep(0)}
             />
           </>

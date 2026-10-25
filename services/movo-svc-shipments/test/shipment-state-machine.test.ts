@@ -38,7 +38,7 @@ const VALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   [ShipmentStatus.IN_TRANSIT, ShipmentStatus.DISPUTED],
   [ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED],
   [ShipmentStatus.DELIVERED, ShipmentStatus.DISPUTED],
-  // MOVO-334 (ADR-054): reclamo con el cobro ya capturado, dentro de la ventana
+  // MOVO-334 (DD-054): reclamo con el cobro ya capturado, dentro de la ventana
   [ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED],
 ];
 

@@ -93,7 +93,7 @@ describe("resolveChatAccess (MOVO-26)", () => {
     });
   });
 
-  it("el receptor original (ADR-038) nunca escribe: solo lee mientras el chat esté abierto", () => {
+  it("el receptor original (DD-038) nunca escribe: solo lee mientras el chat esté abierto", () => {
     const s = shipment({ status: ShipmentStatus.IN_TRANSIT, formerReceiverId: FORMER_RECEIVER });
     expect(access(s, FORMER_RECEIVER)).toBe("read_only");
     const cancelled = shipment({ status: ShipmentStatus.CANCELLED, formerReceiverId: FORMER_RECEIVER });

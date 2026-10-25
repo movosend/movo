@@ -15,6 +15,8 @@ export interface PricingQuoteInput {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: "Más de 300 cm" en algún lado (las medidas llevan el tope de 300). */
+  oversized?: boolean;
   pickup: { lat: number; lng: number };
   delivery: { lat: number; lng: number };
 }
@@ -31,6 +33,7 @@ const realPricingProvider: PricingProvider = {
       lengthCm: input.lengthCm,
       widthCm: input.widthCm,
       heightCm: input.heightCm,
+      ...(input.oversized ? { oversized: true } : {}),
       pickupLat: input.pickup.lat,
       pickupLng: input.pickup.lng,
       deliveryLat: input.delivery.lat,

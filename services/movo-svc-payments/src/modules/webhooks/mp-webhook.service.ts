@@ -262,7 +262,7 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
 
     const statusDetail = patch.statusDetail ?? null;
     // MP no tiene un estado "vencido": un hold que no se capturó a tiempo llega como
-    // `cancelled` con `status_detail: expired` (supuesto: el sandbox no vence holds, ADR-050).
+    // `cancelled` con `status_detail: expired` (supuesto: el sandbox no vence holds, DD-050).
     const event = holdEventFor(patch.status, statusDetail);
 
     const transitioned = await repo.transitionHold({

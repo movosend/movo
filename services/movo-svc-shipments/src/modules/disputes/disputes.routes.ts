@@ -23,7 +23,7 @@ export interface DisputesRoutesOptions extends FastifyPluginOptions {
   storageProvider?: StorageProvider;
   notificationsClient?: NotificationsClient;
   alertNotifier?: AlertNotifier;
-  /** Reloj de la ventana de 7 días (ADR-054), solo tests. */
+  /** Reloj de la ventana de 7 días (DD-054), solo tests. */
   now?: () => Date;
 }
 
@@ -54,7 +54,7 @@ const errors = {
 };
 
 /**
- * MOVO-334 (ADR-054): rutas que cuelgan de un envío (prefijo `/shipments`, mismo criterio que
+ * MOVO-334 (DD-054): rutas que cuelgan de un envío (prefijo `/shipments`, mismo criterio que
  * ratings/handshake): apertura de la disputa y presign de sus fotos.
  */
 export async function shipmentDisputeRoutes(
@@ -97,7 +97,7 @@ export async function shipmentDisputeRoutes(
         description:
           "MOVO-334: el emisor, el receptor o el transportista (cualquier otro: 403). Estados: " +
           "`in_transit`, o `delivered`/`completed` dentro de los 7 días desde el handshake de " +
-          "entrega (ADR-054). 422 DISPUTE_NOT_ALLOWED fuera de esos estados, " +
+          "entrega (DD-054). 422 DISPUTE_NOT_ALLOWED fuera de esos estados, " +
           "DISPUTE_WINDOW_EXPIRED pasada la ventana; 409 DISPUTE_ALREADY_OPEN " +
           "(`details.disputeId`) si ya hay una abierta. El envío pasa a `disputed`; no libera " +
           "ni captura el hold. Avisa por push a las tres partes y alerta al equipo.",

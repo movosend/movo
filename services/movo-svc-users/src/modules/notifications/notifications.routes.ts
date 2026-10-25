@@ -29,12 +29,13 @@ export default async function notificationsRoutes(app: FastifyInstance, opts: No
       schema: { hide: true, body: notificationsSchemas.internalPushBody },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { userId, title, body, data, category } = request.body as {
+      const { userId, title, body, data, category, ignorePreferences } = request.body as {
         userId: string;
         title: string;
         body: string;
         data?: Record<string, unknown>;
         category: string;
+        ignorePreferences?: boolean;
       };
       // El schema solo valida que sea un string no vacío -- una categoría desconocida
       // la rechaza `isPushAllowed` en el service (no se envía, no rompe la request del
@@ -44,6 +45,7 @@ export default async function notificationsRoutes(app: FastifyInstance, opts: No
         body,
         category: category as NotificationCategoryId,
         ...(data !== undefined ? { data } : {}),
+        ...(ignorePreferences === true ? { ignorePreferences: true } : {}),
       });
       reply.code(204);
     },

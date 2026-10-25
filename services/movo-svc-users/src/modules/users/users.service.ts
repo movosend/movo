@@ -390,7 +390,7 @@ export function createUsersService(
       if (trimmed.length < 2) {
         throw new ApiError(400, "VALIDATION_FAILED", "El término de búsqueda debe tener al menos 2 caracteres.");
       }
-      // MOVO-175 (ADR-026): bloqueo simétrico -- ni a quien bloqueé ni a quien me
+      // MOVO-175 (DD-026): bloqueo simétrico -- ni a quien bloqueé ni a quien me
       // bloqueó (no puedo elegirlo como receptor de todas formas, svc-shipments lo rechaza).
       const blockedIds = await moderationRepository.listRelatedUserIds(callerId);
       const users = await repository.search(trimmed, [callerId, ...blockedIds], 20);
@@ -417,7 +417,7 @@ export function createUsersService(
       // MOVO-152 AC2: perfil completo -- sí pide los comentarios recientes.
       const profile = await composePublicProfile(user, true);
       // MOVO-175: solo la dirección propia (caller -> perfil). Si el otro bloqueó al
-      // caller no se revela acá: el perfil se sirve igual (ADR-026).
+      // caller no se revela acá: el perfil se sirve igual (DD-026).
       if (callerId !== id) {
         profile.isBlockedByMe = await moderationRepository.isBlockedBy(callerId, id);
       }
@@ -865,7 +865,7 @@ export function createUsersService(
           // propósito. Sin este borrado, el endpoint interno de svc-shipments seguía
           // resolviendo la clave pública de un dispositivo de un usuario ya eliminado.
           await tx.deviceKey.deleteMany({ where: { userId } });
-          // MOVO-175 (ADR-026): mismo motivo -- los bloqueos en ambas direcciones se
+          // MOVO-175 (DD-026): mismo motivo -- los bloqueos en ambas direcciones se
           // borran a mano. Los reportes se conservan a propósito (evidencia para admin).
           await tx.userBlock.deleteMany({ where: { OR: [{ blockerId: userId }, { blockedId: userId }] } });
           // MOVO-290 (review de PR #247): la baja de cuenta borra el rol admin si lo tenía.

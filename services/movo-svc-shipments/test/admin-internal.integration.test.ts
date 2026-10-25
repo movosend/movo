@@ -83,7 +83,7 @@ describe("Partes de un envío y de un reporte de chat (Postgres) — MOVO-288", 
       expect(response.json().carrierId).toBeNull();
     });
 
-    it("incluye a quien transfirió el envío (ADR-038) y a quien lo rechazó antes de una redesignación (ADR-027)", async () => {
+    it("incluye a quien transfirió el envío (DD-038) y a quien lo rechazó antes de una redesignación (DD-027)", async () => {
       const s = await createShipment();
       const transferred = randomUUID();
       const rejected = randomUUID();

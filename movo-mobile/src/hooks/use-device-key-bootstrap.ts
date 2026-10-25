@@ -14,7 +14,7 @@ export interface DeviceKeyBootstrap {
 
 /**
  * AC1 de MOVO-195: en el primer login del dispositivo, obtiene (genera si hace falta)
- * el par de claves del handshake (`src/crypto/keypair.ts`, ADR-020) y registra la
+ * el par de claves del handshake (`src/crypto/keypair.ts`, ADR-018) y registra la
  * pública contra `POST /users/me/device-key` (MOVO-157). Mismo patrón de guard con
  * `useRef` que `usePushNotifications` (dispara una sola vez por transición a
  * `sessionStatus === "authenticated"`, se resetea al des-autenticar).

@@ -151,7 +151,7 @@ model Hold {
   @@schema("payments")
 }
 
-// MOVO-100 (ADR-039): customer de la cuenta de Movo S.A. en Mercado Pago, uno por
+// MOVO-100 (DD-039): customer de la cuenta de Movo S.A. en Mercado Pago, uno por
 // emisor. El `payer` del hold con tarjeta guardada es este customer (con `payer: {email}`
 // MP responde 2002). `userId` es referencia lógica a users.users, sin FK (ADR-003).
 model PayerCustomer {
@@ -165,7 +165,7 @@ model PayerCustomer {
   @@schema("payments")
 }
 
-// MOVO-100 (ADR-039): tarjeta guardada del emisor en su customer de Movo. Solo ids de MP
+// MOVO-100 (DD-039): tarjeta guardada del emisor en su customer de Movo. Solo ids de MP
 // y metadatos de display: NUNCA el `card_token` (un solo uso), el número ni el CVV.
 // Baja soft (`deletedAt`). Dos índices únicos PARCIALES, a mano en la migración porque
 // Prisma no los representa: `(user_id, mp_card_id)` y un solo `is_default` entre las
@@ -392,7 +392,7 @@ enum LedgerRole {
   @@schema("payments")
 }
 
-// MOVO-309 (ADR-044): cuenta corriente del USUARIO (no de un rol). Solo inserción, con
+// MOVO-309 (DD-044): cuenta corriente del USUARIO (no de un rol). Solo inserción, con
 // triggers en la migración: lo único que cambia de una fila es `status`. `amount_ars` es con
 // signo (positivo = debe). `createdAt` lo pone la app (ms) y no Postgres (µs) para que el
 // cursor de paginación no pierda precisión. Referencias lógicas, sin FK (ADR-003), salvo

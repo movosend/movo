@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest"
-import { isAdminShipmentAlert } from "@movo/shared/src/types/admin-shipments"
+import {
+  isAdminShipmentAlert,
+  shipmentConfirmationCode,
+  type AdminShipmentEvent,
+} from "@movo/shared/src/types/admin-shipments"
 import {
   actorLabel,
   buildChatItems,
   buildTimeline,
   chatTitle,
   handshakes,
+  isShipmentStatus,
   partiesLine,
   paymentLabel,
   pendingSteps,
@@ -25,6 +30,32 @@ import {
   row,
   SENDER,
 } from "./test-fixtures"
+
+describe("estados y código del envío (MOVO-333)", () => {
+  it("solo los estados propios cuentan: las claves del prototipo de Object no", () => {
+    expect(isShipmentStatus("in_transit")).toBe(true)
+    for (const bad of [
+      "constructor",
+      "toString",
+      "__proto__",
+      "hasOwnProperty",
+      "volando",
+      "",
+      null,
+      7,
+    ])
+      expect(isShipmentStatus(bad)).toBe(false)
+  })
+
+  it("el código del encabezado es el que se tipea para confirmar: una sola regla", () => {
+    for (const id of [
+      "7f3c9a10-1b2c-4d3e-8f90-a1b2c3d4e548",
+      "abcdef12-aaaa-bbbb-cccc-dddddddddd7a",
+      "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    ])
+      expect(shipmentDisplayCode(id)).toBe(`#${shipmentConfirmationCode(id)}`)
+  })
+})
 
 describe("textos de la fila", () => {
   it("partes cortas, con el transportista si hay", () => {
@@ -138,6 +169,58 @@ describe("línea de tiempo", () => {
     ])
     expect(items[1]!.meta).toBe("21 oct · 09:24 · Diego Funes · Transportista")
     expect(items[2]!.title).toBe("Entrega a Luis")
+  })
+
+  it("un cambio de admin se ve como manual o forzado, con el admin y el motivo (MOVO-333)", () => {
+    const items = buildTimeline(
+      [
+        event("assigned", "2026-10-21T12:00:00.000Z", {
+          fromStatus: "assignment_pending",
+          actorId: "99999999-0000-4000-8000-000000000000",
+          actorName: "Lucía Admin",
+          kind: "manual",
+          reason: "El hold ya estaba autorizado",
+        }),
+        event("cancelled", "2026-10-21T13:00:00.000Z", {
+          fromStatus: "assigned",
+          actorId: "99999999-0000-4000-8000-000000000000",
+          actorName: "Lucía Admin",
+          kind: "forced",
+          reason: "El transportista no responde hace dos días",
+        }),
+      ],
+      row()
+    )
+    expect(items[0]).toMatchObject({
+      kind: "manual",
+      title: "Estado cambiado a Asignado",
+      detail: "Reservando pago → Asignado",
+      reason: "El hold ya estaba autorizado",
+    })
+    expect(items[0]!.meta).toBe("21 oct · 09:00 · Lucía Admin · Admin")
+    expect(items[1]).toMatchObject({
+      kind: "forced",
+      title: "Estado forzado a Cancelado",
+      detail: "Asignado → Cancelado",
+    })
+    // Un backend anterior no manda `kind` ni `actorName`: el evento es normal, no de un admin.
+    const legacy: Partial<AdminShipmentEvent> = event(
+      "published",
+      "2026-10-21T12:30:00.000Z",
+      { fromStatus: "awaiting_receiver_confirmation" }
+    )
+    delete legacy.kind
+    delete legacy.actorName
+    expect(
+      buildTimeline([legacy as AdminShipmentEvent], row())[0]
+    ).toMatchObject({
+      kind: "normal",
+      title: "Luis aceptó el envío",
+    })
+    // Un evento normal sigue igual: sin marca y con el texto de siempre.
+    expect(
+      buildTimeline([event("in_transit", "2026-10-21T12:24:00.000Z")], row())[0]
+    ).toMatchObject({ kind: "normal", title: "El paquete salió en camino" })
   })
 
   it("el actor: una parte, el sistema u otra cuenta", () => {

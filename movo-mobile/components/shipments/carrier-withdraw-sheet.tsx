@@ -41,7 +41,7 @@ export interface CarrierWithdrawSheetProps {
 }
 
 /**
- * Sheet "No puedo hacer este envío" (MOVO-314, ADR-047), réplica del prototipo "MOVO-314
+ * Sheet "No puedo hacer este envío" (MOVO-314, DD-047), réplica del prototipo "MOVO-314
  * Transportista se baja" de Claude Design. Antes de confirmar pide la cotización de la baja: sin
  * cargo, o la deuda que se le registra en la cuenta corriente (menos de 12 h para el retiro).
  *

@@ -25,7 +25,7 @@ function disputesWith(hasOpenDispute: boolean | Error) {
 
 const approved = { kycStatusIdentity: KycStatus.APPROVED, kycStatusLicense: KycStatus.APPROVED };
 
-describe("carrier-gate (MOVO-116, ADR-036)", () => {
+describe("carrier-gate (MOVO-116, DD-036)", () => {
   describe("assertCarrierCanOperate", () => {
     it("deja pasar con identidad, licencia y MP", async () => {
       const deps = { usersClient: usersClientWith(approved), paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) };
@@ -112,7 +112,7 @@ describe("carrier-gate (MOVO-116, ADR-036)", () => {
       await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).rejects.toThrow("db caída");
     });
 
-    describe("deuda vencida en la cuenta corriente (MOVO-313, ADR-044)", () => {
+    describe("deuda vencida en la cuenta corriente (MOVO-313, DD-044)", () => {
       const withDebt = () =>
         createFakePaymentsClient([], {}, { overdueDebtUserIds: new Set([CARRIER_ID]) });
 

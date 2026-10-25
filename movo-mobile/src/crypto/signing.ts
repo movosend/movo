@@ -10,7 +10,7 @@ import { bytesToBase64 } from "./bytes";
  * `p256.sign(msg, priv)` (defaults de `@noble/curves`): hashea el mensaje con SHA-256
  * (`prehash: true`) y devuelve la firma en formato `compact` -- 64 bytes `r‖s`, el
  * mismo IEEE P1363 que verifica `webcrypto.subtle.verify({name:"ECDSA",
- * hash:"SHA-256"}, ...)` en `handshake-crypto.ts` (ADR-020). Sin reencodear nada en
+ * hash:"SHA-256"}, ...)` en `handshake-crypto.ts` (ADR-018). Sin reencodear nada en
  * ningún extremo.
  *
  * Reusable por `MOVO-159` (firma el `canonicalPayload` al generar el QR) y por

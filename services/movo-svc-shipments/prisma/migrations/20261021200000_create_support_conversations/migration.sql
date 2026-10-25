@@ -1,4 +1,4 @@
--- MOVO-320 (ADR-051): conversaciones de soporte al usuario. Tablas, tipos y secuencia nuevos; no tocan datos existentes.
+-- MOVO-320 (DD-051): conversaciones de soporte al usuario. Tablas, tipos y secuencia nuevos; no tocan datos existentes.
 -- Reversión:
 --   DROP TABLE "shipments"."support_participant_states";
 --   DROP TABLE "shipments"."support_messages";

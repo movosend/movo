@@ -36,5 +36,5 @@ coverage/
 # Certs self-signed para probar el proxy en local (ver infra/local-certs.sh)
 .local-certs/
 
-# ADR-048: estado temporal del OAuth de la cuenta cobradora (code_verifier)
+# DD-048: estado temporal del OAuth de la cuenta cobradora (code_verifier)
 services/movo-svc-payments/scripts/.collector-oauth-pkce.json

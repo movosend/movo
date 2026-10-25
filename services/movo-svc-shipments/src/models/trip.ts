@@ -23,7 +23,7 @@ export interface Trip {
   cancelledAt: Date | null;
   /** MOVO-270: cuándo pasó a `active`; `null` si no se inició o se inició antes de esta columna. */
   startedAt: Date | null;
-  /** MOVO-265 (ADR-042): días en que se repite (0 = domingo … 6 = sábado), `null` = no se repite. */
+  /** MOVO-265 (DD-042): días en que se repite (0 = domingo … 6 = sábado), `null` = no se repite. */
   recurrenceWeekdays: number[] | null;
   /** Último día de la serie (`"YYYY-MM-DD"`, inclusive, calendario argentino). */
   recurrenceUntil: string | null;

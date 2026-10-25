@@ -23,7 +23,7 @@ export interface ShipmentQuoteDeps {
 export type ShipmentQuoteInput = Omit<QuoteInput, "demandContext">;
 
 /**
- * Cotización de un envío (MOVO-138, ADR-025): cuenta la demanda de la zona de retiro y
+ * Cotización de un envío (MOVO-138, ADR-021): cuenta la demanda de la zona de retiro y
  * llama a `POST /quote`. Separada de `createShipment` para que la cotización previa del
  * wizard (MOVO-255) use exactamente la misma lógica y dé el mismo número.
  *

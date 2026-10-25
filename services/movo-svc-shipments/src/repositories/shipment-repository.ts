@@ -45,7 +45,7 @@ const LAST_REJECTION_INCLUDE = {
     take: 1,
     select: { reason: true },
   },
-  // MOVO-275 (ADR-038): quien transfirió la recepción conserva acceso de solo lectura.
+  // MOVO-275 (DD-038): quien transfirió la recepción conserva acceso de solo lectura.
   // A lo sumo una transferencia completada por envío (índice único parcial).
   receiverTransfers: {
     where: { status: "completed" },
@@ -84,6 +84,7 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     lengthCm: row.lengthCm.toNumber(),
     widthCm: row.widthCm.toNumber(),
     heightCm: row.heightCm.toNumber(),
+    oversized: row.oversized,
     description: row.description,
     urgent: row.urgent,
     pickupAddress: row.pickupAddress,
@@ -130,6 +131,8 @@ function mapEvent(row: ShipmentEventRow): ShipmentEvent {
     actorId: row.actorId,
     assignmentCarrierId: row.assignmentCarrierId,
     reason: row.reason,
+    kind: row.kind,
+    actorName: row.actorName,
     createdAt: row.createdAt,
   };
 }
@@ -323,7 +326,7 @@ function availableShipmentsWhereSql(params: {
         ((pickup_date + pickup_time_window_end) AT TIME ZONE 'America/Argentina/Buenos_Aires')
     `
     : Prisma.empty;
-  // MOVO-175 (ADR-026): envíos donde el emisor o el receptor tienen un bloqueo con el
+  // MOVO-175 (DD-026): envíos donde el emisor o el receptor tienen un bloqueo con el
   // caller. Acá y no en un post-filtro, para que el conteo de paginación no diverja.
   const blockedPartiesFilter =
     params.excludePartyIds.length > 0
@@ -360,6 +363,7 @@ interface AvailableShipmentRow {
   length_cm: string;
   width_cm: string;
   height_cm: string;
+  oversized: boolean;
   description: string | null;
   urgent: boolean;
   pickup_address: string;
@@ -388,6 +392,7 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
     lengthCm: Number(row.length_cm),
     widthCm: Number(row.width_cm),
     heightCm: Number(row.height_cm),
+    oversized: row.oversized,
     description: row.description,
     urgent: row.urgent,
     pickupAddress: row.pickup_address,
@@ -466,18 +471,23 @@ export interface UpdateStatusOptions {
    */
   carrierWithdrawal?: { penaltyArs: number };
   /**
-   * MOVO-270 (ADR-052): solo para la cancelación del barrido de retiro no realizado. `attribution`
+   * MOVO-270 (DD-052): solo para la cancelación del barrido de retiro no realizado. `attribution`
    * queda en el evento (MOVO-337 decide con eso quién califica). Con `carrier` y penalidad (> 0),
    * la oferta aceptada guarda la penalidad `pending` en la misma transacción (mismo camino que la
    * baja de MOVO-310, la reintenta el barrido de liquidaciones).
    */
   pickupMiss?: { attribution: PickupMissedAttribution; carrierPenaltyArs?: number };
   /**
-   * MOVO-334 (ADR-054): la disputa (entidad) que abre esta transición, creada en la misma
+   * MOVO-334 (DD-054): la disputa (entidad) que abre esta transición, creada en la misma
    * transacción. Obligatoria para cualquier transición a `disputed`: así ningún envío queda en
    * disputa sin su expediente. Lanza `DisputeAlreadyOpenError` si ya había una abierta.
    */
   dispute?: NewDispute;
+  /**
+   * MOVO-331 (DD-055): la transición la ejecuta un admin desde el panel. Queda en el evento
+   * (inmutable), con el nombre del admin como snapshot. Sin esto el evento es `normal`.
+   */
+  adminActor?: { kind: "manual" | "forced"; name: string };
 }
 
 /** MOVO-310: penalidad de una baja del transportista todavía sin registrar en su cuenta corriente. */
@@ -519,6 +529,11 @@ export interface SettlementCursor {
 
 export interface ShipmentRepository {
   claimCarrierWithdrawal(id: string, carrierId: string, from: ShipmentStatus, penaltyArs: number): Promise<boolean>;
+  /**
+   * MOVO-331: deshace el claim de una baja que todavía no avanzó (falló la liberación del hold), para que el
+   * envío vuelva a su estado original. Solo toca el claim de ese transportista.
+   */
+  releaseCarrierWithdrawalClaim(id: string, carrierId: string): Promise<void>;
   listPendingCarrierWithdrawals(limit: number, afterId?: string): Promise<Shipment[]>;
   create(input: CreateShipmentInput): Promise<Shipment>;
   /**
@@ -659,7 +674,7 @@ export interface ShipmentRepository {
     limit: number;
   }): Promise<{ items: AvailableShipment[]; total: number }>;
   /**
-   * MOVO-138 (ADR-025): envíos `published` con retiro a `radiusKm` o menos del punto
+   * MOVO-138 (ADR-021): envíos `published` con retiro a `radiusKm` o menos del punto
    * dado -- la mitad "demanda" del `demandContext` de `POST /quote`. Sin excluir al
    * emisor: el volumen propio también es demanda de la zona.
    */
@@ -727,26 +742,26 @@ export interface ShipmentRepository {
    */
   flagTransitAnomaly(id: string, now?: Date): Promise<boolean>;
   /**
-   * MOVO-278 (ADR-045): envíos `in_transit` marcados en o antes de `flaggedBefore` a los
+   * MOVO-278 (DD-045): envíos `in_transit` marcados en o antes de `flaggedBefore` a los
    * que todavía no se les mandó el aviso previo a la disputa, el marcado hace más tiempo primero.
    */
   findFlaggedInTransitUnwarned(limit: number, flaggedBefore: Date): Promise<Shipment[]>;
   /**
-   * MOVO-278 (ADR-045): registra (una sola vez) que se avisó al transportista.
+   * MOVO-278 (DD-045): registra (una sola vez) que se avisó al transportista.
    * Compare-and-swap: devuelve `false` si el envío ya no está `in_transit` o ya se avisó.
    */
   markTransitAnomalyWarned(id: string, now?: Date): Promise<boolean>;
   /**
-   * MOVO-278 (ADR-045): envíos `in_transit` marcados en o antes de `flaggedBefore` Y avisados
+   * MOVO-278 (DD-045): envíos `in_transit` marcados en o antes de `flaggedBefore` Y avisados
    * en o antes de `warnedBefore` (candidatos a pasar a `disputed`), el marcado hace más tiempo
    * primero. Exigir el aviso previo garantiza que el transportista tuvo el plazo prometido, aun
    * para los marcados antes del deploy o si el barrido estuvo caído más que el plazo de disputa.
    */
   findFlaggedInTransitBefore(limit: number, flaggedBefore: Date, warnedBefore: Date): Promise<Shipment[]>;
   /**
-   * MOVO-278 (ADR-045, requisito de ADR-036): ¿el usuario tiene algún envío en
+   * MOVO-278 (DD-045, requisito de DD-036): ¿el usuario tiene algún envío en
    * `disputed` como transportista? Sea la disputa automática o una iniciada por un usuario.
-   * MOVO-270 (ADR-052): la de un no-retiro con llegada registrada (`pickup_no_show`) no lo
+   * MOVO-270 (DD-052): la de un no-retiro con llegada registrada (`pickup_no_show`) no lo
    * bloquea: es el que fue a la puerta. MOVO-334: se lee de la entidad `disputes` (`open`), ya
    * no del estado del envío y del `fromStatus` de su evento.
    */
@@ -766,7 +781,7 @@ export interface ShipmentRepository {
    * error del lado de `svc-users` es distinto (una disputa no la resuelve el usuario
    * cancelando, necesita a un admin).
    */
-  /** MOVO-275 (ADR-038): marca durable de que la entrega empezó (primer QR de entrega). */
+  /** MOVO-275 (DD-038): marca durable de que la entrega empezó (primer QR de entrega). */
   markDeliveryHandshakeStarted(id: string): Promise<void>;
   hasDeliveryHandshakeStarted(id: string): Promise<boolean>;
   hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }>;
@@ -826,8 +841,8 @@ export interface ShipmentRepository {
   /**
    * MOVO-288: las partes de un envío para la regla de conflicto de interés de `svc-admin`.
    * Además del emisor, transportista y receptor actuales, devuelve los receptores anteriores:
-   * quien pidió una transferencia completada (ADR-038) y quien rechazó antes de que el emisor
-   * eligiera a otra persona (ADR-027, sale del evento `-> rejected_by_receiver`). `null` si no existe.
+   * quien pidió una transferencia completada (DD-038) y quien rechazó antes de que el emisor
+   * eligiera a otra persona (DD-027, sale del evento `-> rejected_by_receiver`). `null` si no existe.
    */
   findParties(id: string): Promise<ShipmentParties | null>;
   /**
@@ -954,6 +969,13 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return count === 1;
     },
 
+    async releaseCarrierWithdrawalClaim(id, carrierId) {
+      await db.shipment.updateMany({
+        where: { id, carrierId, carrierWithdrawalPending: true },
+        data: { carrierWithdrawalPending: false, carrierWithdrawalPenaltyArs: null },
+      });
+    },
+
     async listPendingCarrierWithdrawals(limit, afterId) {
       const rows = await db.shipment.findMany({
         where: { carrierWithdrawalPending: true, ...(afterId && { id: { gt: afterId } }) },
@@ -974,6 +996,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             lengthCm: input.lengthCm,
             widthCm: input.widthCm,
             heightCm: input.heightCm,
+            oversized: input.oversized ?? false,
             description: input.description,
             urgent: input.urgent ?? false,
             pickupAddress: input.pickupAddress,
@@ -1271,6 +1294,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             assignmentCarrierId: revertsAssignment ? current.carrierId : null,
             reason: reason ?? null,
             attribution: options.pickupMiss?.attribution ?? null,
+            ...(options.adminActor && { kind: options.adminActor.kind, actorName: options.adminActor.name }),
           },
         });
 
@@ -1623,7 +1647,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         db.$queryRaw<AvailableShipmentRow[]>`
           WITH candidates AS (
             SELECT
-              id, package_type, weight_kg, length_cm, width_cm, height_cm, description,
+              id, package_type, weight_kg, length_cm, width_cm, height_cm, oversized, description,
               urgent, pickup_address, pickup_lat, pickup_lng, delivery_address,
               delivery_lat, delivery_lng, pickup_date, pickup_time_window_start,
               pickup_time_window_end, suggested_price_ars, calculation_method, status,
@@ -1804,7 +1828,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
 
     async hasOpenDisputeAsCarrier(carrierId: string): Promise<boolean> {
       // MOVO-334: lee de la entidad. Cualquier disputa abierta del transportista lo bloquea, sea
-      // de sistema o de una parte, salvo el no-retiro: no tuvo la custodia (ADR-052).
+      // de sistema o de una parte, salvo el no-retiro: no tuvo la custodia (DD-052).
       const count = await db.dispute.count({
         where: {
           status: DisputeStatus.OPEN,

@@ -15,7 +15,7 @@ OR-Tools/Google Maps). Cache de la solución del feed (0 llamados extra al acept
 oferta). SLA <50ms para 20 envíos, fallback greedy determinístico <0.2ms. Motivó
 ADR-013 (Routes API sobre Distance Matrix).
 
-### MOVO-82 — `POST /quote`: contrato de precio sugerido, implementación provisoria (ADR-018)
+### MOVO-82 — `POST /quote`: contrato de precio sugerido, implementación provisoria (DD-018)
 
 Primer endpoint de negocio real del servicio (hasta acá solo `GET /health`) y primer
 contacto real del equipo con FastAPI. Reestructurado a `app/{config,models,services,
@@ -63,7 +63,7 @@ a mano — más 1 caso de validación 422). 100% de cobertura sobre `main.py`+`a
 Pendiente / fuera de alcance: el motor real (demanda + precio de combustible +
 Google Routes API) sigue sin implementar — hueco de backlog señalado explícitamente
 por el propio ticket MOVO-82, cubierto ahora por MOVO-138 (sin refinar todavía).
-ADR-018 (resumen en `CLAUDE.md` raíz) pendiente de pegar completo en Drive.
+DD-018 (resumen en `CLAUDE.md` raíz) pendiente de pegar completo en Drive.
 
 ### MOVO-205 — `POST /optimize/route`: Endpoint de optimización VRPTW multi-envío (ADR-013 / ADR-015)
 
@@ -116,7 +116,7 @@ Decisiones clave y alcance:
   configurada, reporta la conectividad con Redis (`redis: connected` o `disconnected`)
   sin fallar ni interrumpir la disponibilidad del servicio.
 - **Limpieza de Infraestructura (`infra/docker-compose.yml`)**: conforme a la arquitectura
-  stateless del servicio (ADR-019), se removieron la variable `DATABASE_URL` y la
+  stateless del servicio (ADR-017), se removieron la variable `DATABASE_URL` y la
   dependencia `depends_on: postgres` para `movo-svc-pricing-logistics`, manteniendo
   únicamente `REDIS_URL` y `redis`.
 - **Base previa de MOVO-205**: las dependencias (`ortools==9.15.6755`, `redis==5.2.1`,
@@ -171,14 +171,14 @@ config, con degradación permitida (a diferencia de la política No-Fallback del
 Coeficientes de la tarifa en litros de nafta, así se indexan con el surtidor. Alta demanda =
 `(publicados en 15 km + 1) / transportistas distintos ≥ 3` con mínimo de 4 envíos, recargo
 de 10% a 30%, calibrado con Monte Carlo. Los conteos los calcula `svc-shipments` y los manda
-como `demandContext` opcional (ADR-019 intacto). Respuesta sin `breakdown` (no tiene
+como `demandContext` opcional (ADR-017 intacto). Respuesta sin `breakdown` (no tiene
 consumidores; pasa al log `pricing_quote_computed`) y con `highDemand`, que `svc-shipments`
 persiste en `shipments.high_demand` (nullable: `NULL` = sin cotización). Si falla Google,
 `/quote` degrada a Haversine x 1,3 (`distanceSource` en el log): excepción acotada a la
 política No-Fallback, que sigue vigente para `/optimize/route` y `/routes/evaluate-candidates`.
-Decisiones en ADR-025; implementación en MOVO-138.
+Decisiones en ADR-021; implementación en MOVO-138.
 
-### MOVO-138 — `POST /quote` con `demand_fuel_routes_v1` (ADR-025)
+### MOVO-138 — `POST /quote` con `demand_fuel_routes_v1` (ADR-021)
 
 Reemplaza `euclidean_linear_v1` según el spike MOVO-216. `app/services/pricing.py` (fórmula,
 recargo por demanda, log `pricing_quote_computed` con el desglose), `app/services/fuel_price.py`
@@ -222,9 +222,9 @@ presupuesto de 2s pero con poco margen.
 desglose que ya iba al log `pricing_quote_computed` (distancia y su fuente, nafta y su
 fuente, base/distancia/peso, factor de paquete, demanda). Sin el flag la respuesta es
 idéntica a antes (`response_model_exclude_none`). Solo lo pide el módulo `demo` de
-`movo-svc-shipments`; el flujo del emisor sigue sin desglose (ADR-025 intacto, ver ADR-030).
+`movo-svc-shipments`; el flujo del emisor sigue sin desglose (ADR-021 intacto, ver DD-030).
 
-### Juego del optimizador de la feria — `objective`/`matrix` en `/optimize/route` y `POST /routes/matrix` (ADR-031)
+### Juego del optimizador de la feria — `objective`/`matrix` en `/optimize/route` y `POST /routes/matrix` (DD-031)
 
 Dos opt-in en `OptimizeRouteRequest`, sin cambios para el flujo de transportistas:
 `objective` (`time` por default, como hasta ahora; `distance` usa un callback en metros
@@ -237,7 +237,7 @@ devuelve la matriz del provider para 2 a 25 puntos (límite de 625 elementos de 
 la matriz de cada ciudad una vez y la cachea. Tests en `tests/test_optimize_demo_opt_ins.py`.
 
 
-### MOVO-276 — `package_tapered_v2`: peso facturable, categoría y límites duros (ADR-041)
+### MOVO-276 — `package_tapered_v2`: peso facturable, categoría y límites duros (DD-041)
 
 Reemplaza el cálculo de `demand_fuel_routes_v1` (combustible, demanda y fallback de
 distancia sin cambios). `app/services/pricing.py#price_components` (parte determinística,
@@ -255,3 +255,21 @@ nuevos en `app/config.py`; `PRICING_FACTOR_*` de MOVO-82 eliminados. `QuoteBreak
   1 m³ (200 kg volumétricos) cotizaba ~$135.000.
 - **CI exige 100% de cobertura** sobre `pricing.py`, `config.py`, `models/quote.py` y
   `routers/quote.py` (paso propio en `pr-checks.yml`, reusa el `.coverage` de pytest).
+
+### MOVO-317 — Sin límites duros y `package_tapered_v3`
+
+- `POST /quote` cotiza cualquier peso y medida: se eliminan `PackageLimitsExceededError` y el 422 `PACKAGE_LIMITS_EXCEEDED` y las env vars
+  `PACKAGE_MAX_*`. Un paquete de más de 30 kg o 150 cm por lado queda marcado como no calibrado: warning
+  `pricing_quote_uncalibrated_package` y `calibrated: false` en `pricing_quote_computed` (`uncalibrated_reasons`; solo informa, nunca
+  rechaza ni cambia el precio).
+- **`package_tapered_v3`** reemplaza a v2 (que sigue persistida en envíos viejos): igual, pero el peso volumétrico cuenta hasta
+  `PRICING_VOLUMETRIC_WEIGHT_CAP_KG` (300; el peso real no tiene tope). Sin tope, un cubo de 300 cm (5.400 kg volumétricos) cotizaba
+  ~$1.173.000 a 700 km; con tope, ~$82.000. Una heladera de 80 kg (70 × 70 × 180 cm, 176 kg volumétricos) sigue en ~$55.600 a 700 km
+  (decisión de producto: no se subió el tramo de 30 kg para llegar a $70.000). El desglose (`includeBreakdown`) informa el volumétrico
+  real (`volumetricWeightKg`) y el facturable (`billableWeightKg`); `calibrated` y `volumetricCapped` solo van al log
+  `pricing_quote_computed`, no al `QuoteBreakdown`.
+- **Tope de cordura** (`PACKAGE_INPUT_SANITY_MAX`, 10.000 kg o cm en el peso y en cada medida de `QuoteRequest`, mismo valor que
+  `@movo/shared` y que el schema de `svc-shipments`): no es un límite de negocio, evita que un valor enorme desborde el subtotal a `inf` y
+  `_round_to_10` lance `OverflowError` (500).
+- Pendiente (R3): recalibrar contra el Correo para más de 10 kg y ampliar la banda a `fragile_item`, `letter_document` y rutas cortas; no hay
+  tarifas de referencia por encima de 10 kg en `docs/pricing/grilla-referencia.md`. Todo precio sobre 10 kg facturables es extrapolación.

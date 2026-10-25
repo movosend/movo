@@ -3,7 +3,7 @@ import type Redis from "ioredis";
 import { PriceCalculationMethod, ShipmentQuoteRequest } from "@movo/shared";
 
 /**
- * Vida de una cotización congelada (MOVO-255, ADR-028). El resumen es el último paso
+ * Vida de una cotización congelada (MOVO-255, DD-028). El resumen es el último paso
  * del wizard, así que alcanza para confirmar; si el emisor se va y vuelve más tarde,
  * recotiza. Constante y no env var a propósito: es una decisión de producto, no algo
  * que cambie por ambiente.
@@ -43,6 +43,7 @@ export function quoteFingerprint(input: ShipmentQuoteRequest): string {
     input.lengthCm,
     input.widthCm,
     input.heightCm,
+    input.oversized ?? false,
     coord(input.pickupLat),
     coord(input.pickupLng),
     coord(input.deliveryLat),

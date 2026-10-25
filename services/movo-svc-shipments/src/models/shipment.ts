@@ -21,6 +21,8 @@ export interface Shipment {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: el emisor eligió "Más de 300 cm"; las medidas guardan el tope (300). */
+  oversized: boolean;
   description: string | null;
   urgent: boolean;
   pickupAddress: string;
@@ -39,7 +41,7 @@ export interface Shipment {
   /** Versión del algoritmo que produjo `suggestedPriceArs` (`PriceCalculationMethod`
    * de `@movo/shared`), o `null` junto con un `suggestedPriceArs` nulo. */
   calculationMethod: string | null;
-  /** MOVO-138 (ADR-025): `true` si la cotización llevó recargo por alta demanda. Misma
+  /** MOVO-138 (ADR-021): `true` si la cotización llevó recargo por alta demanda. Misma
    * foto que `suggestedPriceArs`, nunca se recalcula. `null` = sin cotización o envío
    * anterior a `demand_fuel_routes_v1` -- no equivale a `false`. */
   highDemand: boolean | null;
@@ -57,10 +59,10 @@ export interface Shipment {
   /** MOVO-258 (D4): cuándo el barrido marcó el envío `in_transit` para revisión por no
    * haberse entregado a tiempo; `null` = nunca marcado. */
   transitAnomalyFlaggedAt: Date | null;
-  /** MOVO-278 (ADR-045): cuándo se le avisó al transportista que el envío marcado pasa a
+  /** MOVO-278 (DD-045): cuándo se le avisó al transportista que el envío marcado pasa a
    * disputa si no confirma la entrega; `null` = nunca avisado. */
   transitAnomalyWarnedAt: Date | null;
-  /** MOVO-307 (ADR-047): penalidad que el emisor confirmó al cancelar un `assigned` con menos
+  /** MOVO-307 (DD-047): penalidad que el emisor confirmó al cancelar un `assigned` con menos
    * de 12 h; `null` en toda cancelación sin cargo. */
   cancellationPenaltyArs: number | null;
   /** MOVO-307: `pending` (falta cobrarla), `captured` (se cobró del hold) o `debt` (quedó en la
@@ -73,7 +75,7 @@ export interface Shipment {
    * envío está en `rejected_by_receiver` y la lectura lo cargó (`findById`/
    * `listByUser`) -- `null` en cualquier otro caso. */
   rejectionReason: string | null;
-  /** MOVO-275 (ADR-038): quien le pasó la recepción a otra persona con una
+  /** MOVO-275 (DD-038): quien le pasó la recepción a otra persona con una
    * transferencia completada. Conserva acceso de solo lectura al envío. Solo lo cargan
    * `findById`/`listByUser`; ausente o `null` en el resto de las lecturas. */
   formerReceiverId?: string | null;
@@ -105,6 +107,8 @@ export interface AvailableShipment {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: el emisor eligió "Más de 300 cm"; las medidas guardan el tope (300). */
+  oversized: boolean;
   description: string | null;
   urgent: boolean;
   pickupAddress: string;
@@ -151,6 +155,8 @@ export interface CreateShipmentInput {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: el emisor eligió "Más de 300 cm"; las medidas guardan el tope (300). */
+  oversized?: boolean;
   description?: string;
   urgent?: boolean;
   pickupAddress: string;
@@ -179,6 +185,9 @@ export interface ShipmentEvent {
   actorId: string | null;
   assignmentCarrierId?: string | null;
   reason: string | null;
+  /** MOVO-331: `normal` salvo que lo haya hecho un admin desde el panel. */
+  kind: "normal" | "manual" | "forced";
+  actorName: string | null;
   createdAt: Date;
 }
 

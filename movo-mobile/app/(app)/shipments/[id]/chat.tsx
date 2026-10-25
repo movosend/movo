@@ -43,7 +43,7 @@ const SCROLL_AWAY_FALLBACK_PX = 600;
 
 const OPEN_ERROR = "No pudimos abrir el chat. Intentá de nuevo en unos minutos.";
 
-/** MOVO-284 (ADR-040): conversación del envío entre emisor, receptor y transportista. */
+/** MOVO-284 (ADR-023): conversación del envío entre emisor, receptor y transportista. */
 export default function ShipmentChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();

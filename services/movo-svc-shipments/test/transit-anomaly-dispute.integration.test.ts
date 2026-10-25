@@ -18,7 +18,7 @@ import { createFakePricingLogisticsClient } from "./fake-pricing-logistics-clien
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
- * MOVO-278 (ADR-045): salida de un `in_transit` demorado contra Postgres/Redis reales:
+ * MOVO-278 (DD-045): salida de un `in_transit` demorado contra Postgres/Redis reales:
  * aviso previo, disputa automática, cierre del viaje, bloqueo del transportista y la
  * marca expuesta en los endpoints de envíos activos y en el detalle.
  */

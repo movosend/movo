@@ -1,5 +1,5 @@
 /**
- * Captura de tarjeta en el dispositivo (MOVO-101, ADR-039). Decisión de captura: formulario
+ * Captura de tarjeta en el dispositivo (MOVO-101, DD-039). Decisión de captura: formulario
  * propio contra la API pública de Mercado Pago con la `public_key` de Movo, igual que la
  * prueba del 13/10. Bricks es un SDK web y no soporta cuentas de prueba; un WebView sumaba
  * una página propia sin ganar nada. Número y CVV viajan solo de acá a MP: al backend de
@@ -160,7 +160,7 @@ export interface SavedCardTokenInput {
 }
 
 /**
- * `POST /v1/card_tokens` con `card_id` + CVV (MOVO-269, ADR-039): token de un solo uso para
+ * `POST /v1/card_tokens` con `card_id` + CVV (MOVO-269, DD-039): token de un solo uso para
  * pagar con una tarjeta guardada. `publicKey` es la **del transportista** del envío
  * (`carrierPublicKey` de `GET /shipments/:id/funding`), no la de Movo: MP exige que el token
  * pertenezca a la cuenta que cobra. El CVV viaja solo de acá a MP.

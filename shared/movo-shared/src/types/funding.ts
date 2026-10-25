@@ -38,7 +38,7 @@ export interface ShipmentFundingRequest {
   /** Token de un solo uso generado con la `public_key` del transportista. */
   cardToken: string;
   /**
-   * MOVO-282 (ADR-039): id de la tarjeta guardada (`GET /payments/cards`) con la que se generó el
+   * MOVO-282 (DD-039): id de la tarjeta guardada (`GET /payments/cards`) con la que se generó el
    * token (`card_id` + CVV). El `cardToken` sigue siendo obligatorio. Sin este campo, el camino de
    * siempre (tarjeta completa).
    */

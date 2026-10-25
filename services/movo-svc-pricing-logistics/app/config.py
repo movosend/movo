@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Coeficientes de `package_tapered_v2` (MOVO-276), en LITROS de nafta y no en pesos: la
-    # tarifa se indexa sola con el precio del surtidor (ADR-025). Los de distancia vienen
+    # tarifa se indexa sola con el precio del surtidor (ADR-021). Los de distancia vienen
     # de `demand_fuel_routes_v1`; base y peso se recalibraron contra la grilla de
     # referencia (`docs/pricing/grilla-referencia.md`, banda de 0,6x a 1,0x del Correo).
     # Tarifa base de un paquete (`standard_package`, y `fragile_item` antes del recargo).
@@ -74,6 +74,13 @@ class Settings(BaseSettings):
         le=1,
         validation_alias=AliasChoices("PRICING_WEIGHT_TIER_RATE", "weight_tier_rate"),
     )
+    # MOVO-317 (`package_tapered_v3`): el peso volumétrico cuenta hasta este tope. Sin él, un cubo
+    # de 300 cm (5.400 kg volumétricos) cotizaba ~$1.170.000 a 700 km. El peso real no tiene tope.
+    volumetric_weight_cap_kg: float = Field(
+        default=300.0,
+        gt=0,
+        validation_alias=AliasChoices("PRICING_VOLUMETRIC_WEIGHT_CAP_KG", "volumetric_weight_cap_kg"),
+    )
 
     # Tramos decrecientes de distancia (hotfix de precios de larga distancia): la tarifa
     # lineal cotizaba ~350k para 2.300 km. En P2P el transportista ya hace el viaje, así
@@ -102,7 +109,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PRICING_DISTANCE_TIER3_RATE", "distance_tier3_rate"),
     )
 
-    # Recargo por alta demanda (MOVO-138, ADR-025). Umbral calibrado con Monte Carlo en
+    # Recargo por alta demanda (MOVO-138, ADR-021). Umbral calibrado con Monte Carlo en
     # el spike MOVO-216 (§4.3): recalibrar acá con datos reales, sin tocar código.
     demand_ratio_threshold: float = Field(
         default=3.0,
@@ -139,25 +146,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PRICING_FRAGILE_SURCHARGE", "fragile_surcharge"),
     )
 
-    # Límites duros del paquete (MOVO-276): `/quote` responde 422 si se exceden. Mismos
-    # nombres y defaults que en `movo-svc-shipments`, que los valida antes de cotizar.
-    package_max_weight_kg: float = Field(
-        default=30.0,
-        gt=0,
-        validation_alias=AliasChoices("PACKAGE_MAX_WEIGHT_KG", "package_max_weight_kg"),
-    )
-    package_max_side_cm: float = Field(
-        default=150.0,
-        gt=0,
-        validation_alias=AliasChoices("PACKAGE_MAX_SIDE_CM", "package_max_side_cm"),
-    )
-    package_max_sides_sum_cm: float = Field(
-        default=300.0,
-        gt=0,
-        validation_alias=AliasChoices("PACKAGE_MAX_SIDES_SUM_CM", "package_max_sides_sum_cm"),
-    )
-
-    # Precio de combustible (MOVO-138, ADR-025). `mock` devuelve el fallback fijo sin
+    # Precio de combustible (MOVO-138, ADR-021). `mock` devuelve el fallback fijo sin
     # red ni Redis (default de dev/test/CI); `energia` consulta la API CKAN de la
     # Secretaría de Energía con cache en Redis.
     fuel_price_provider: Literal["mock", "energia"] = Field(
