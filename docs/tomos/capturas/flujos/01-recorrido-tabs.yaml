@@ -1,0 +1,8 @@
+# Recorre las pestañas de solo lectura. Después de cada pantalla, sacar la captura con ./capturar.sh CODIGO.
+# Requiere sesión iniciada (00-login.yaml). Los códigos están en datos/capturas.yaml.
+appId: ${MOVO_APP_ID}
+---
+- launchApp
+- tapOn: "Inicio"          # M-14 / M-16
+- tapOn: "Transportar"     # M-47 (o M-48 si faltan requisitos)
+- tapOn: "Mi perfil"       # M-68

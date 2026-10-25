@@ -1,0 +1,16 @@
+# Inicia sesión con la cuenta de pruebas de dev. Credenciales por variables de entorno:
+#   MOVO_TEST_PHONE, MOVO_TEST_PASSWORD  (nunca en este archivo)
+# appId: el bundle identifier de la app (ver movo-mobile/app.config.js, ios.bundleIdentifier).
+appId: ${MOVO_APP_ID}
+---
+- launchApp
+- tapOn:
+    id: login-phone
+- inputText: ${MOVO_TEST_PHONE}
+- tapOn:
+    id: login-password
+- inputText: ${MOVO_TEST_PASSWORD}
+- hideKeyboard
+- tapOn:
+    id: login-primary-action
+- assertVisible: "Inicio"
