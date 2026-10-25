@@ -731,3 +731,10 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 + a quién se avisa, el transportista solo si el envío tiene uno) y `forcedTransitionFriction` (código tipeado desde riesgo alto; segundo factor si
 la transición es `forced` o el riesgo es crítico): la fuente única de la fricción para el panel y para `svc-admin`. `ApiErrorCode` suma
 `STEP_UP_REQUIRED`, `STEP_UP_INVALID` y `TYPED_CODE_MISMATCH`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-336 — Contrato del reembolso (`types/refund.ts`)
+
+`REFUND_STATUSES`/`RefundStatus` (`processing`, `succeeded`, `failed`, `fallback_to_ledger`), `RefundFailureReason`, `CreateRefundRequest` (`amountArs?`, `reason`, `idempotencyKey`, `adminId`),
+`CreateRefundResponse`, `RefundResponse`, `RefundsResponse` y las constantes de largo (`REFUND_REASON_*`, `REFUND_IDEMPOTENCY_KEY_MAX_LENGTH`). Wire contract de los endpoints internos de reembolso de
+`svc-payments`, para MOVO-337. `ApiErrorCode` suma `SETTLEMENT_NOT_REFUNDABLE` (409), `REFUND_AMOUNT_EXCEEDS_REFUNDABLE` (422, `details.refundableArs`) y `REFUND_IDEMPOTENCY_CONFLICT` (409).
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
