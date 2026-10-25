@@ -110,7 +110,10 @@ hospeda WS. Diseño:
    sha256), exige un `Origin` de `SUPPORT_WS_ALLOWED_ORIGINS` (cierre 4003) y cierra con 4001 un ticket inválido, vencido o usado; la
    conexión dura lo que una sesión de panel (15 min) y se corta con 4001 para pedir otro. nginx no cambia (su `location /` ya hace el upgrade).
    Los eventos salen del Redis Stream de ADR-024, un lector para todas las conexiones. Los agentes reciben **todos** los eventos de soporte,
-   incluidas las notas.
+   incluidas las notas. El gateway limita el upgrade a 20 intentos por minuto e IP (con ticket o sin él).
+   **Orden al abrir**: el socket no reenvía lo que pasó antes de existir. El lector arranca desde la última entrada que había cuando se
+   registró la primera conexión, y el panel pide lista, contadores y mensajes (`resync`) **al recibir el `open`, en cada apertura, también la
+   primera**. Así un evento que entra entre la carga de la lista y el socket llega por uno de los dos (a lo sumo, por los dos).
 4. Eventos (`SupportEvent`, cada uno con `cursor` monótono y opaco): `conversation_created`, `support_message` (trae la fila ya actualizada),
    `conversation_updated`, `counts_updated`.
 5. Respaldo: si el WS falla 3 veces seguidas el panel pasa a `GET events?since=<cursor>` cada 10 s (sigue intentando el WS). Sin `since` devuelve

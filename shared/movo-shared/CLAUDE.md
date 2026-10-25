@@ -757,4 +757,6 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 `SupportInternal*` (fila, mensaje con `kind` `event` para los eventos del equipo, filtros, contadores, actor, bodies) entre
 `svc-admin` y `svc-shipments`, con ids en vez de nombres, y `SupportStreamEvent` + `SUPPORT_EVENTS_STREAM_*` del Redis Stream
 `support:events`. `AdminTargetType` suma `support_conversation` y `AdminUserNames` pasa a `AdminUserNameRef` (con `roles`).
+`types/admin-support.ts` suma `SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER` y `parseSupportWsProtocols` (el ticket de `movo-support.v1, <ticket>`),
+compartidos por el gateway y `svc-admin`: si se desalinearan, el ticket dejaría de llegar y el panel caería a polling.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

@@ -216,8 +216,9 @@ MOVO-322 (API) y MOVO-321 (adjuntos), que los tienen anexados en su descripción
   falla, queda "No se envió" con Reintentar (mismo id, así no se duplica). `gateway()` suma `PATCH`.
 - **Tiempo real** (`lib/support/realtime/feed.ts`, `components/support/support-provider.tsx`): una conexión por pestaña para todo el panel,
   pedida por `AdminShell`. WS con ticket de un solo uso (Server Action `requestRealtimeTicket`, subprotocolo `movo-support.v1`), reconexión con
-  backoff y jitter, y polling de respaldo tras 3 fallos; al recuperar la conexión emite `resync` y lista/conversación se vuelven a pedir.
-  Alimenta el badge del menú y los toasts "Nueva consulta de …". **El WS real no existe todavía** (MOVO-322): con el mock, `mock://support`
+  backoff y jitter, y polling de respaldo tras 3 fallos; en cada apertura del socket (también la primera, MOVO-322) emite `resync` y
+  lista/conversación se vuelven a pedir.
+  Alimenta el badge del menú y los toasts "Nueva consulta de …". El WS real lo sirve `svc-admin` (MOVO-322); con el mock, `mock://support`
   simula el socket leyendo `/api/support/events`.
 - **Conflicto de interés**: una consulta cuyo usuario es el admin se abre ya bloqueada; un `403 ADMIN_CONFLICT_OF_INTEREST` al enviar o
   modificar hace lo mismo. Sin calificación de la atención (se omitió la tarjeta de estrellas del prototipo).

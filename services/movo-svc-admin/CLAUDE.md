@@ -214,5 +214,7 @@ panel nunca recibía la marca de manual/forzado. El test de `shipments.integrati
   previews de Vercel) y responde solo `movo-support.v1`. Detrás del gateway el ticket llega en `x-ws-protocols`. Un lector `XREAD BLOCK`
   (conexión Redis propia) reparte a todas las conexiones mientras haya alguna, con los contadores de cada admin. La conexión dura una sesión
   de panel (15 min, después 4001) y tiene heartbeat de 30 s. Env nuevas `SUPPORT_WS_PUBLIC_URL` y `SUPPORT_WS_ALLOWED_ORIGINS`. Registro
-  en memoria y una réplica, como el `ChatHub` (ADR-019).
+  en memoria y una réplica, como el `ChatHub` (ADR-019). El lector arranca desde la última entrada (`XREVRANGE` por la conexión ya
+  abierta, no `$`), los contadores de cada admin van en paralelo con tope de 2 s y un fallo al repartir una tanda se loguea aparte
+  (`support_ws_dispatch_failed`) sin la espera de un error de Redis. Header y parseo del subprotocolo en `@movo/shared`, los mismos del gateway.
 - Pendiente: cargar las dos env vars por ambiente y probarlo contra un deploy real (ver el `CLAUDE.md` raíz).

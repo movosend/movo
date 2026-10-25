@@ -230,4 +230,6 @@ La entrada `/admin` suma `websocket: true` y `GET /admin/support/ws` es pública
 `svc-admin` con el ticket de un solo uso del subprotocolo. El `preHandler` rechaza con 401 `SUPPORT_TICKET_INVALID` un upgrade sin
 `movo-support.v1, <ticket>`. `@fastify/http-proxy` solo le pasa al upstream el subprotocolo que eligió (el primero), así que
 `rewriteWebSocketRequestHeaders` reenvía la lista original en `x-ws-protocols` (siempre la del request, nunca un header del cliente) y el
-`Origin`, en todos los prefijos con WebSocket. Tests en `websocket-proxy.test.ts`.
+`Origin`, en todos los prefijos con WebSocket. Tests en `websocket-proxy.test.ts`. Límite propio de 20 upgrades por minuto e IP (cada uno abre
+un WebSocket hacia `svc-admin` y gasta un `GETDEL`); el nombre del header y el parseo del ticket son los de `@movo/shared`
+(`SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER`, `parseSupportWsProtocols`).
