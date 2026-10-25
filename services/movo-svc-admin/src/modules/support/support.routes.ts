@@ -23,6 +23,7 @@ import {
   SupportVerificationBadge,
   PANEL_ACCESS_TOKEN_TTL_SECONDS,
   SupportRealtimeTicket,
+  SUPPORT_EVENTS_STREAM_KEY,
   SUPPORT_QUICK_REPLIES,
   SUPPORT_WS_CLOSE,
   supportShipmentCode,
@@ -515,6 +516,10 @@ export default async function supportRoutes(app: FastifyInstance, opts: SupportR
   const tickets = createSupportTicketStore(app.redis);
   const hub = createSupportRealtimeHub({
     createReader: () => app.redis.duplicate(),
+    latestEntryId: async () => {
+      const [last] = await app.redis.xrevrange(SUPPORT_EVENTS_STREAM_KEY, "+", "-", "COUNT", 1);
+      return last?.[0] ?? "0-0";
+    },
     names: directory,
     countsFor: (adminId, ctx) => countsFor(adminId, ctx),
     logger: app.log,
