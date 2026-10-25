@@ -10,8 +10,9 @@ import {
   MpWebhookRepository,
   NotificationResolution,
 } from "../../repositories/mp-webhook-repository";
+import type { RefundRepository } from "../../repositories/refund-repository";
 import { missingCardFields } from "../../utils/payment-card";
-import { missingFeeField } from "../../utils/payment-fee";
+import { missingFeeField, toMoney } from "../../utils/payment-fee";
 import type { BalancePaymentService } from "../balance-payment/balance-payment.service";
 import { holdUpdateFromPayment, HoldService, readMpError } from "../holds/hold.service";
 
@@ -83,6 +84,11 @@ export interface MpWebhookServiceDeps {
    * están en `holds`. Es un getter porque el service se arma después que este (usa `app.alerts`).
    */
   balancePayments?: () => Pick<BalancePaymentService, "applyPayment" | "collectorForWebhook"> | undefined;
+  /**
+   * MOVO-336 (AC7): los reembolsos que inició Movo (resolución de una disputa). Un reembolso de MP cuyo monto ya
+   * explican no es "externo": no se registra como evento ni se alerta. Opcional: sin él todo reembolso es externo.
+   */
+  refunds?: Pick<RefundRepository, "sumRefundedInMp">;
   now?: () => Date;
 }
 
@@ -170,6 +176,20 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
     return done("processed", `hold_${event}_notified:${result.outcome}`);
   }
 
+  /**
+   * MOVO-336 (AC7): ¿el reembolso que informa MP es el que pidió Movo? Lo es si hay un reembolso propio `processing` o
+   * `succeeded` sobre ese pago y el total que MP dice haber devuelto no pasa de la suma de los propios. Si MP informa
+   * más, algo más reembolsó por fuera: sigue siendo un evento externo (con su alerta). Si no informa el monto, se
+   * confía en el registro propio.
+   */
+  async function isInitiatedByMovo(payment: PaymentResponse): Promise<boolean> {
+    if (!deps.refunds) return false;
+    const ours = await deps.refunds.sumRefundedInMp(String(payment.id));
+    if (!ours.gt(0)) return false;
+    const refunded = payment.transaction_amount_refunded;
+    return typeof refunded !== "number" || !toMoney(refunded).gt(ours);
+  }
+
   async function recordProviderEvent(
     hold: Hold,
     payment: PaymentResponse,
@@ -177,6 +197,13 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
   ): Promise<Resolution> {
     const mpStatus = payment.status ?? "unknown";
     const refunded = payment.transaction_amount_refunded;
+    if (kind === "refund" && (await isInitiatedByMovo(payment))) {
+      log.info(
+        { holdId: hold.id, shipmentId: hold.shipmentId, mpPaymentId: String(payment.id), refundedArs: refunded },
+        "reembolso de MP iniciado por Movo: no se registra como evento externo"
+      );
+      return done("processed", "refund_initiated_by_movo");
+    }
     const event = await repo.recordProviderEvent({
       holdId: hold.id,
       shipmentId: hold.shipmentId,
