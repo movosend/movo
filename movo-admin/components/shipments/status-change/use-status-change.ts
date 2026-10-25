@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import {
   FORCE_STATUS_REASON_MIN_LENGTH,
   normalizeConfirmationCode,
-  type ChangeShipmentStatusResponse,
   type ShipmentStatusOption,
   type ShipmentStatusOptions,
   type StepUpChallenge,
@@ -14,7 +13,7 @@ import {
   submitStatusChange,
 } from "@/app/shipments/status-actions"
 import type { ShipmentStatusValue } from "@/lib/shipments/format"
-import type { StatusFailure } from "@/lib/shipments/status-result"
+import type { StatusFailure, StatusResult } from "@/lib/shipments/status-result"
 import { defaultTarget, newIdempotencyKey } from "./copy"
 
 export type Step = 1 | 2 | 3
@@ -49,6 +48,11 @@ interface State {
   /** Error para mostrar arriba del paso actual. */
   error: StatusFailure | null
   idempotencyKey: string
+  /**
+   * El último intento no tuvo respuesta y pudo aplicarse: el backend ya gastó el segundo factor y registró la clave, así
+   * que el reintento con la MISMA clave no lo pide de nuevo (volver a verificar el código gastado daría `STEP_UP_INVALID`).
+   */
+  retryAfterUnknown: boolean
 }
 
 const initial = (): State => ({
@@ -70,7 +74,48 @@ const initial = (): State => ({
   submitting: false,
   error: null,
   idempotencyKey: newIdempotencyKey(),
+  retryAfterUnknown: false,
 })
+
+/** Lo que dejó de servir cuando cambia el destino: lo tipeado, el check, el código y la clave eran del anterior. */
+const resetForNewTarget = (): Partial<State> => ({
+  typed: "",
+  code: "",
+  ack: false,
+  challenge: null,
+  stepUpToken: null,
+  resendAt: 0,
+  retryAfterUnknown: false,
+  error: null,
+  // Una clave de idempotencia sirve para un solo destino.
+  idempotencyKey: newIdempotencyKey(),
+})
+
+/**
+ * Una Server Action puede rechazar con algo que no es un `ApiError` (se cortó el request a Next, falló la sesión): sin
+ * esto el modal quedaría trabado en "cargando" o "aplicando". `maybeApplied`: si es el cambio, pudo haberse aplicado.
+ */
+async function safely<T>(
+  call: () => Promise<StatusResult<T>>,
+  maybeApplied = false
+): Promise<StatusResult<T>> {
+  try {
+    return await call()
+  } catch {
+    return maybeApplied
+      ? {
+          ok: false,
+          error:
+            "No pudimos confirmar si el cambio se aplicó. Mirá la línea de tiempo antes de volver a intentar.",
+          unconfirmed: true,
+        }
+      : {
+          ok: false,
+          error:
+            "No pudimos completar la operación. Reintentá en unos momentos.",
+        }
+  }
+}
 
 /**
  * Estado y acciones del modal de cambio de estado (MOVO-333). Todo lo que decide qué es válido, su riesgo y lo que
@@ -95,11 +140,13 @@ export function useStatusChange({
   useEffect(() => {
     stateRef.current = state
   })
+  // Cada pedido de opciones lleva su número: solo vale la respuesta del último (una vieja no pisa a una nueva).
+  const loadSeq = useRef(0)
 
   /** Aplica la respuesta de `status-options`; con `keep`, conserva la elección si sigue disponible. */
   const applyOptions = useCallback(
     (
-      result: Awaited<ReturnType<typeof loadStatusOptions>>,
+      result: StatusResult<ShipmentStatusOptions>,
       keep: ShipmentStatusValue | null
     ) => {
       if (!result.ok) {
@@ -108,48 +155,59 @@ export function useStatusChange({
       }
       const { data } = result
       const still = keep && data.options.some((o) => o.targetStatus === keep)
-      patch({
+      const target = still ? keep : defaultTarget(data)
+      patch((s) => ({
         loading: false,
         loadError: null,
         options: data,
-        target: still ? keep : defaultTarget(data),
-      })
+        target,
+        // Si el destino cambió, lo del anterior no se arrastra (ni el check "Entiendo" ni un token atado a otro destino).
+        ...(target !== s.target ? resetForNewTarget() : {}),
+      }))
     },
     [patch]
+  )
+
+  /** Pide las opciones; solo la respuesta del pedido más reciente se aplica. */
+  const fetchOptions = useCallback(
+    (keep: ShipmentStatusValue | null) => {
+      const id = ++loadSeq.current
+      void safely(() => loadStatusOptions(shipmentId)).then((result) => {
+        if (id === loadSeq.current) applyOptions(result, keep)
+      })
+    },
+    [applyOptions, shipmentId]
   )
 
   /** Vuelve a pedir las opciones mostrando "cargando" (tras un `STATUS_CHANGED` o con "Reintentar"). */
   const reload = useCallback(
     (keep: ShipmentStatusValue | null) => {
       patch({ loading: true, loadError: null })
-      void loadStatusOptions(shipmentId).then((r) => applyOptions(r, keep))
+      fetchOptions(keep)
     },
-    [applyOptions, patch, shipmentId]
+    [fetchOptions, patch]
   )
 
   // El modal se monta solo mientras está abierto: el estado arranca de cero y se descarta al cerrar (incluido un token
-  // sin usar). Al montarse pide las opciones.
+  // sin usar). Al montarse pide las opciones; al desmontarse invalida lo que quede en vuelo.
   useEffect(() => {
-    let cancelled = false
-    void loadStatusOptions(shipmentId).then((result) => {
-      if (!cancelled) applyOptions(result, null)
-    })
+    fetchOptions(null)
+    const seq = loadSeq
     return () => {
-      cancelled = true
+      seq.current++
     }
-  }, [applyOptions, shipmentId])
+  }, [fetchOptions])
 
   const option =
     state.options?.options.find((o) => o.targetStatus === state.target) ?? null
-  const needCode = !!option?.requiresTypedCode
-  const needOtp = !!option?.requiresStepUp
   const reasonOk = state.reason.trim().length >= FORCE_STATUS_REASON_MIN_LENGTH
   const typedOk =
-    !needCode ||
+    !option?.requiresTypedCode ||
     (!!state.options &&
       normalizeConfirmationCode(state.typed) === state.options.code)
   const otpOk =
-    !needOtp ||
+    !option?.requiresStepUp ||
+    state.retryAfterUnknown ||
     !!state.stepUpToken ||
     (!!state.challenge && /^\d{6}$/.test(state.code))
   const canConfirm = reasonOk && typedOk && otpOk && state.ack
@@ -159,30 +217,16 @@ export function useStatusChange({
   const pick = useCallback(
     (target: ShipmentStatusValue) =>
       patch((s) =>
-        s.target === target
-          ? {}
-          : {
-              target,
-              // Lo que se tipeó, el código y el check eran de la elección anterior.
-              typed: "",
-              code: "",
-              ack: false,
-              challenge: null,
-              stepUpToken: null,
-              resendAt: 0,
-              error: null,
-              // Una clave de idempotencia sirve para un solo destino.
-              idempotencyKey: newIdempotencyKey(),
-            }
+        s.target === target ? {} : { target, ...resetForNewTarget() }
       ),
     [patch]
   )
 
   const sendCode = useCallback(async () => {
-    const s = stateRef.current
-    if (!s.target || s.sendingCode) return
+    const target = stateRef.current.target
+    if (!target || stateRef.current.sendingCode) return
     patch({ sendingCode: true, error: null })
-    const result = await sendStepUpCode(shipmentId, s.target)
+    const result = await safely(() => sendStepUpCode(shipmentId, target))
     if (!result.ok) {
       patch({ sendingCode: false, error: result })
       return
@@ -218,8 +262,19 @@ export function useStatusChange({
       patch({
         error: failure,
         ...(spentCode
-          ? { code: "", challenge: null, stepUpToken: null, resendAt: 0 }
-          : { stepUpToken: failure.stepUpToken ?? null }),
+          ? {
+              code: "",
+              challenge: null,
+              stepUpToken: null,
+              resendAt: 0,
+              retryAfterUnknown: false,
+            }
+          : {
+              stepUpToken: failure.stepUpToken ?? null,
+              // Sin respuesta del backend: pudo aplicarse y ya gastó el segundo factor. El reintento (misma clave) no lo
+              // vuelve a pedir; si igual lo exige, vuelve como `STEP_UP_REQUIRED` y se pide uno nuevo.
+              retryAfterUnknown: !!failure.unconfirmed || s.retryAfterUnknown,
+            }),
       })
     },
     [patch, reload]
@@ -231,20 +286,28 @@ export function useStatusChange({
     const chosen = s.options.options.find((o) => o.targetStatus === s.target)
     if (!chosen) return
     patch({ submitting: true, error: null })
-    const result = await submitStatusChange(shipmentId, {
-      targetStatus: s.target,
-      expectedStatus: s.options.current,
-      reason: s.reason,
-      idempotencyKey: s.idempotencyKey,
-      ...(chosen.requiresTypedCode ? { typedCode: s.typed } : {}),
-      ...(chosen.requiresStepUp
-        ? s.stepUpToken
-          ? { stepUpToken: s.stepUpToken }
-          : s.challenge
-            ? { otp: { challengeId: s.challenge.challengeId, code: s.code } }
-            : {}
-        : {}),
-    })
+    const target = s.target
+    const expectedStatus = s.options.current
+    const result = await safely(
+      () =>
+        submitStatusChange(shipmentId, {
+          targetStatus: target,
+          expectedStatus,
+          reason: s.reason,
+          idempotencyKey: s.idempotencyKey,
+          ...(chosen.requiresTypedCode ? { typedCode: s.typed } : {}),
+          ...(chosen.requiresStepUp && !s.retryAfterUnknown
+            ? s.stepUpToken
+              ? { stepUpToken: s.stepUpToken }
+              : s.challenge
+                ? {
+                    otp: { challengeId: s.challenge.challengeId, code: s.code },
+                  }
+                : {}
+            : {}),
+        }),
+      true
+    )
     patch({ submitting: false })
     if (result.ok) {
       onDone({
@@ -279,11 +342,7 @@ export function useStatusChange({
   return {
     state,
     option,
-    needCode,
-    needOtp,
-    reasonOk,
     typedOk,
-    otpOk,
     canNext,
     busy,
     pick,
@@ -299,6 +358,3 @@ export function useStatusChange({
     toggleForced: () => patch((s) => ({ showForced: !s.showForced })),
   }
 }
-
-export type StatusChange = ReturnType<typeof useStatusChange>
-export type { ChangeShipmentStatusResponse }

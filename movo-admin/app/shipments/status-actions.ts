@@ -18,8 +18,7 @@ import {
 } from "@/lib/shipments/status-change"
 import { statusFailure } from "@/lib/shipments/status-errors"
 import type { StatusResult } from "@/lib/shipments/status-result"
-import { SHIPMENT_STATUS } from "@/lib/users/format"
-import type { ShipmentStatusValue } from "@/lib/shipments/format"
+import { isShipmentStatus as isStatus } from "@/lib/shipments/format"
 
 /**
  * Acciones del modal de cambio de estado (MOVO-333). Cada una valida origen, sesión de admin y datos antes de
@@ -29,8 +28,6 @@ import type { ShipmentStatusValue } from "@/lib/shipments/format"
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const SIX_DIGITS = /^\d{6}$/
 const OPAQUE = /^[A-Za-z0-9_=.-]{1,300}$/
-const isStatus = (value: unknown): value is ShipmentStatusValue =>
-  typeof value === "string" && value in SHIPMENT_STATUS
 
 const invalid = (
   error = "Revisá los datos e intentá de nuevo."
@@ -141,7 +138,17 @@ export async function submitStatusChange(
         })
       ).stepUpToken
     } catch (error) {
-      return statusFailure(error)
+      // Verificar el código no aplica nada: un 5xx acá no es "pudo haberse aplicado el cambio".
+      const failure = statusFailure(error)
+      return failure.unconfirmed
+        ? {
+            ok: false,
+            error:
+              "No pudimos verificar el código. Reintentá en unos momentos.",
+            code: failure.code,
+            status: failure.status,
+          }
+        : failure
     }
   }
 

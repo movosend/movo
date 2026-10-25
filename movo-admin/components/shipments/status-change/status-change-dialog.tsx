@@ -168,7 +168,7 @@ export function StatusChangeDialog({
                 ack={state.ack}
                 challenge={state.challenge}
                 resendAt={state.resendAt}
-                verified={!!state.stepUpToken}
+                verified={!!state.stepUpToken || state.retryAfterUnknown}
                 sending={state.sendingCode}
                 disabled={state.submitting}
                 onReason={c.setReason}

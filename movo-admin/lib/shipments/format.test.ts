@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   isAdminShipmentAlert,
+  shipmentConfirmationCode,
   type AdminShipmentEvent,
 } from "@movo/shared/src/types/admin-shipments"
 import {
@@ -9,6 +10,7 @@ import {
   buildTimeline,
   chatTitle,
   handshakes,
+  isShipmentStatus,
   partiesLine,
   paymentLabel,
   pendingSteps,
@@ -28,6 +30,32 @@ import {
   row,
   SENDER,
 } from "./test-fixtures"
+
+describe("estados y código del envío (MOVO-333)", () => {
+  it("solo los estados propios cuentan: las claves del prototipo de Object no", () => {
+    expect(isShipmentStatus("in_transit")).toBe(true)
+    for (const bad of [
+      "constructor",
+      "toString",
+      "__proto__",
+      "hasOwnProperty",
+      "volando",
+      "",
+      null,
+      7,
+    ])
+      expect(isShipmentStatus(bad)).toBe(false)
+  })
+
+  it("el código del encabezado es el que se tipea para confirmar: una sola regla", () => {
+    for (const id of [
+      "7f3c9a10-1b2c-4d3e-8f90-a1b2c3d4e548",
+      "abcdef12-aaaa-bbbb-cccc-dddddddddd7a",
+      "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    ])
+      expect(shipmentDisplayCode(id)).toBe(`#${shipmentConfirmationCode(id)}`)
+  })
+})
 
 describe("textos de la fila", () => {
   it("partes cortas, con el transportista si hay", () => {

@@ -1,5 +1,6 @@
 import {
   isAdminShipmentAlert,
+  shipmentConfirmationCode,
   type AdminChatMessage,
   type AdminChatReport,
   type AdminShipmentEvent,
@@ -582,6 +583,18 @@ export function buildChatItems(
  * los últimos 5 dígitos del id, rellenados con ceros. Solo para mostrar: no identifica al envío ni sirve para buscarlo.
  */
 export function shipmentDisplayCode(id: string): string {
-  const digits = id.replace(/\D/g, "").slice(-5).padStart(5, "0")
-  return `#MOVO-${digits}`
+  // Una sola regla con el código que se tipea para confirmar un cambio de estado: lo que ve el admin tiene que ser
+  // lo que el backend acepta.
+  return `#${shipmentConfirmationCode(id)}`
+}
+
+/**
+ * ¿Es un estado de envío? Solo claves propias: `"constructor"` o `"toString"` están en `SHIPMENT_STATUS` por el
+ * prototipo del objeto y no lo son.
+ */
+export function isShipmentStatus(value: unknown): value is ShipmentStatusValue {
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(SHIPMENT_STATUS, value)
+  )
 }

@@ -6,14 +6,7 @@ import { StatusPill } from "@/components/users/ui"
 import { SHIPMENT_STATUS } from "@/lib/users/format"
 import { cn } from "@/lib/utils"
 import { recipientsText, RISK } from "./copy"
-
-function Eyebrow({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-      {children}
-    </span>
-  )
-}
+import { Eyebrow } from "./eyebrow"
 
 function StatusChip({ status }: { status: ShipmentStatusValue }) {
   return (

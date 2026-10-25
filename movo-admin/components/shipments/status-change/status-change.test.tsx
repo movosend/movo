@@ -465,6 +465,184 @@ describe("confirmar", () => {
   })
 })
 
+describe("acciones del servidor que rechazan (el modal nunca queda trabado)", () => {
+  it("si 'Confirmar' rechaza: sale de 'Aplicando…', avisa que pudo aplicarse y no pierde lo escrito", async () => {
+    renderModal()
+    await goToConfirm(MEDIUM)
+    type("Motivo", REASON)
+    fireEvent.click(screen.getByRole("checkbox"))
+    actions.submitStatusChange.mockRejectedValue(
+      new Error("se cortó el request")
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Pasar a Cancelado" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No pudimos confirmar si el cambio se aplicó"
+    )
+    expect(screen.queryByRole("button", { name: /Aplicando/ })).toBeNull()
+    expect(screen.getByRole("button", { name: "Atrás" })).toBeEnabled()
+    expect(screen.getByLabelText("Motivo")).toHaveValue(REASON)
+    // Y se puede cerrar: ya no hay nada en curso.
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  })
+
+  it("si 'Enviar código' rechaza: vuelve a habilitar el botón y muestra el error", async () => {
+    renderModal({ status: "assigned" as never })
+    await goToConfirm(FORCED)
+    actions.sendStepUpCode.mockRejectedValue(new Error("se cortó el request"))
+    fireEvent.click(screen.getByRole("button", { name: "Enviar código" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No pudimos completar la operación"
+    )
+    expect(screen.getByRole("button", { name: "Enviar código" })).toBeEnabled()
+  })
+
+  it("si la carga de opciones rechaza: muestra el error y 'Reintentar' funciona", async () => {
+    renderModal()
+    actions.loadStatusOptions.mockRejectedValueOnce(
+      new Error("se cortó el request")
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Cambiar estado" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No pudimos completar la operación"
+    )
+    expect(screen.queryByText("Cargando las opciones…")).toBeNull()
+    actions.loadStatusOptions.mockResolvedValue({ ok: true, data: MEDIUM })
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }))
+    expect(
+      await screen.findByRole("radio", { name: /Cancelado/ })
+    ).toBeInTheDocument()
+  })
+})
+
+describe("un destino que ya no está disponible no arrastra lo del anterior", () => {
+  it("tras STATUS_CHANGED con otro destino, el 'Entiendo' y lo tipeado vuelven vacíos (el motivo se conserva)", async () => {
+    renderModal({ status: "assignment_pending" as never })
+    // El admin eligió "Asignado" (riesgo alto), tipeó el código y tildó el check.
+    await goToConfirm(HIGH)
+    type("Motivo", REASON)
+    type(/Escribí/, CODE)
+    fireEvent.click(screen.getByRole("checkbox"))
+    actions.submitStatusChange.mockResolvedValue({
+      ok: false,
+      error: "El estado del envío cambió mientras confirmabas.",
+      code: "STATUS_CHANGED",
+      status: 409,
+      currentStatus: "cancelled",
+    })
+    // Al recargar, ese destino ya no existe: queda otro distinto.
+    actions.loadStatusOptions.mockResolvedValue({ ok: true, data: MEDIUM })
+    fireEvent.click(screen.getByRole("button", { name: "Pasar a Asignado" }))
+    await screen.findByText("Paso 1 de 3")
+    expect(
+      await screen.findByRole("radio", { name: /Cancelado/ })
+    ).toBeChecked()
+
+    next()
+    next()
+    expect(await screen.findByLabelText("Motivo")).toHaveValue(REASON)
+    expect(screen.getByRole("checkbox")).not.toBeChecked()
+    expect(screen.queryByLabelText(/Escribí/)).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Pasar a Cancelado" })
+    ).toBeDisabled()
+  })
+
+  it("si el mismo destino sigue disponible, conserva lo que había escrito", async () => {
+    renderModal()
+    await goToConfirm(MEDIUM)
+    type("Motivo", REASON)
+    fireEvent.click(screen.getByRole("checkbox"))
+    actions.submitStatusChange.mockResolvedValue({
+      ok: false,
+      error: "El estado del envío cambió mientras confirmabas.",
+      code: "STATUS_CHANGED",
+      status: 409,
+    })
+    actions.loadStatusOptions.mockResolvedValue({ ok: true, data: MEDIUM })
+    fireEvent.click(screen.getByRole("button", { name: "Pasar a Cancelado" }))
+    await screen.findByText("Paso 1 de 3")
+    next()
+    next()
+    expect(await screen.findByLabelText("Motivo")).toHaveValue(REASON)
+    expect(screen.getByRole("checkbox")).toBeChecked()
+  })
+})
+
+describe("reintento tras un resultado desconocido (el segundo factor ya se gastó)", () => {
+  const fillForced = async () => {
+    renderModal({ status: "assigned" as never })
+    await goToConfirm(FORCED)
+    type("Motivo", REASON)
+    type(/Escribí/, CODE)
+    fireEvent.click(screen.getByRole("checkbox"))
+    actions.sendStepUpCode.mockResolvedValue({ ok: true, data: CHALLENGE })
+    fireEvent.click(screen.getByRole("button", { name: "Enviar código" }))
+    await screen.findByText("t***@gmail.com")
+    type("Código de 6 dígitos", "123456")
+  }
+
+  it("el reintento con la misma clave no vuelve a mandar el código ni pide otro", async () => {
+    await fillForced()
+    actions.submitStatusChange.mockResolvedValueOnce({
+      ok: false,
+      error: "El servicio no respondió. Puede que el cambio se haya aplicado.",
+      code: "SHIPMENTS_SERVICE_UNAVAILABLE",
+      status: 502,
+      unconfirmed: true,
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Forzar a Cancelado" }))
+    await screen.findByRole("alert")
+    // No hay que pedir otro código: el botón sigue habilitado.
+    const retry = screen.getByRole("button", { name: "Forzar a Cancelado" })
+    expect(retry).toBeEnabled()
+    expect(screen.getByText("Código verificado.")).toBeInTheDocument()
+
+    actions.submitStatusChange.mockResolvedValueOnce({ ok: true, data: DONE })
+    fireEvent.click(retry)
+    await waitFor(() =>
+      expect(actions.submitStatusChange).toHaveBeenCalledTimes(2)
+    )
+    const [first, second] = actions.submitStatusChange.mock.calls.map(
+      (c) => c[1]
+    )
+    expect(first.otp).toEqual({ challengeId: "ch-1", code: "123456" })
+    expect(second).not.toHaveProperty("otp")
+    expect(second).not.toHaveProperty("stepUpToken")
+    expect(second.idempotencyKey).toBe(first.idempotencyKey)
+    expect(second.typedCode).toBe(CODE)
+  })
+
+  it("si el backend igual exige el segundo factor, se limpia y se pide uno nuevo", async () => {
+    await fillForced()
+    actions.submitStatusChange.mockResolvedValueOnce({
+      ok: false,
+      error: "El servicio no respondió.",
+      code: "SHIPMENTS_SERVICE_UNAVAILABLE",
+      status: 502,
+      unconfirmed: true,
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Forzar a Cancelado" }))
+    await screen.findByRole("alert")
+    actions.submitStatusChange.mockResolvedValueOnce({
+      ok: false,
+      error: "Este cambio pide el código que te mandamos por email.",
+      code: "STEP_UP_REQUIRED",
+      status: 403,
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Forzar a Cancelado" }))
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("pide el código")
+    )
+    expect(
+      screen.getByRole("button", { name: "Enviar código" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Forzar a Cancelado" })
+    ).toBeDisabled()
+  })
+})
+
 describe("errores (nunca se pierde lo escrito)", () => {
   const confirmMedium = async (failure: Record<string, unknown>) => {
     await goToConfirm(MEDIUM)

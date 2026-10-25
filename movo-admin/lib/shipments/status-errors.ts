@@ -1,7 +1,6 @@
 import { ApiError } from "@movo/shared/src/errors/api-error"
 import { publicError } from "@/lib/auth/api"
-import { SHIPMENT_STATUS } from "@/lib/users/format"
-import type { ShipmentStatusValue } from "./format"
+import { isShipmentStatus as isStatus } from "./format"
 import type { StatusFailure } from "./status-result"
 
 /** Errores de negocio conocidos del cambio de estado, con el texto que se muestra dentro del modal. */
@@ -29,9 +28,6 @@ const BY_CODE: Record<string, string> = {
   NOT_FOUND: "El envío ya no existe.",
   VALIDATION_FAILED: "Revisá los datos: alguno no es válido.",
 }
-
-const isStatus = (value: unknown): value is ShipmentStatusValue =>
-  typeof value === "string" && value in SHIPMENT_STATUS
 
 /**
  * Error de una acción del cambio de estado a un resultado para el modal. Un código conocido siempre tiene su texto

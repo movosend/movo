@@ -112,6 +112,11 @@ describe("sendStepUpCode", () => {
       ok: false,
       status: 400,
     })
+    // Claves del prototipo de Object: no son estados.
+    expect(await sendStepUpCode(SHIPMENT, "constructor")).toMatchObject({
+      ok: false,
+      status: 400,
+    })
     expect(mocks.requestStepUp).not.toHaveBeenCalled()
   })
 
@@ -133,6 +138,10 @@ describe("submitStatusChange — validación previa", () => {
     ["motivo de solo espacios", { reason: " ".repeat(40) }],
     ["motivo demasiado largo", { reason: "x".repeat(501) }],
     ["destino inválido", { targetStatus: "volando" }],
+    // Claves del prototipo de Object: no son estados aunque `in` las encuentre.
+    ["destino 'constructor'", { targetStatus: "constructor" }],
+    ["destino 'toString'", { targetStatus: "toString" }],
+    ["estado esperado '__proto__'", { expectedStatus: "__proto__" }],
     ["estado esperado inválido", { expectedStatus: "volando" }],
     ["clave de idempotencia corta", { idempotencyKey: "abc" }],
     [
@@ -232,6 +241,31 @@ describe("submitStatusChange", () => {
     })
     expect(result).toMatchObject({ ok: false, code: "STEP_UP_INVALID" })
     expect(result).not.toHaveProperty("stepUpToken")
+  })
+
+  it("un currentStatus que no es un estado (p. ej. 'constructor') se ignora en vez de romper el modal", async () => {
+    mocks.changeStatus.mockRejectedValue(
+      new ApiError(409, "STATUS_CHANGED", "x", { currentStatus: "constructor" })
+    )
+    const result = await submitStatusChange(SHIPMENT, base)
+    expect(result).toMatchObject({ ok: false, code: "STATUS_CHANGED" })
+    expect(result).not.toHaveProperty("currentStatus")
+  })
+
+  it("un 5xx al verificar el código no dice que el cambio pudo aplicarse (todavía no se intentó)", async () => {
+    mocks.verifyStepUp.mockRejectedValue(
+      new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "x")
+    )
+    const result = await submitStatusChange(SHIPMENT, {
+      ...base,
+      otp: { challengeId: "c1", code: "123456" },
+    })
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("verificar el código"),
+    })
+    expect(result).not.toHaveProperty("unconfirmed")
+    expect(mocks.changeStatus).not.toHaveBeenCalled()
   })
 
   it("STATUS_CHANGED trae el estado actual", async () => {

@@ -4,31 +4,21 @@ import type { ShipmentStatusOptions } from "@movo/shared/src/types/admin-shipmen
 import type { ShipmentStatusValue } from "@/lib/shipments/format"
 import { cn } from "@/lib/utils"
 import { noFlowText, RISK, statusLabel } from "./copy"
+import { Eyebrow } from "./eyebrow"
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-      {children}
-    </span>
-  )
-}
-
-/** Una transición posible o bloqueada: radio con su resumen de una línea y la pastilla de riesgo. */
+/** Una transición posible: radio con su resumen de una línea y la pastilla de riesgo. */
 function OptionCard({
   status,
   summary,
   risk,
   selected,
-  blocked,
   onPick,
   disabled,
 }: {
   status: ShipmentStatusValue
   summary: string
-  risk: keyof typeof RISK | null
+  risk: keyof typeof RISK
   selected: boolean
-  /** Motivo del bloqueo; si viene, la opción no se puede elegir. */
-  blocked?: string
   onPick: () => void
   disabled?: boolean
 }) {
@@ -37,15 +27,13 @@ function OptionCard({
       type="button"
       role="radio"
       aria-checked={selected}
-      aria-disabled={!!blocked || undefined}
-      disabled={!!blocked || disabled}
+      disabled={disabled}
       onClick={onPick}
       className={cn(
         "grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-3 rounded-lg border px-3.5 py-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
         selected
           ? "border-foreground bg-card shadow-[0_0_0_3px_var(--ring)]"
-          : "bg-card hover:bg-muted",
-        blocked && "cursor-not-allowed opacity-60 hover:bg-card"
+          : "bg-card hover:bg-muted"
       )}
     >
       <span
@@ -64,9 +52,7 @@ function OptionCard({
             {status}
           </span>
         </span>
-        <span className="text-[13px] leading-snug text-fg2">
-          {blocked ?? summary}
-        </span>
+        <span className="text-[13px] leading-snug text-fg2">{summary}</span>
       </span>
       {risk && (
         <span
