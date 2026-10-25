@@ -135,6 +135,8 @@ type WireNameRef = Omit<AdminUserNameRef, "roles"> & { roles?: string[] };
 const isNameRef = (value: unknown): value is WireNameRef =>
   isRecord(value) && isString(value.id) && isString(value.fullName) && (value.roles === undefined || isStringArray(value.roles));
 const isNames = (body: unknown): body is { users: WireNameRef[] } => isRecord(body) && isArrayOf(body.users, isNameRef);
+/** Tope de `POST /internal/admin/users/names` (el `maxItems` del schema de `svc-users`). */
+export const USER_NAMES_MAX_IDS = 200;
 
 const isStepUpChallenge = (body: unknown): body is StepUpChallenge =>
   isRecord(body) &&
@@ -293,14 +295,21 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
 
     async getUserNames(userIds, ctx) {
       const ids = [...new Set(userIds)];
-      if (ids.length === 0) return [];
-      const result = await client.request("/internal/admin/users/names", ctx, {
-        method: "POST",
-        body: { ids },
-        isValid: isNames,
-        notFoundCodes: [],
-      });
-      return (result?.users ?? []).map((user) => ({ id: user.id, fullName: user.fullName, roles: user.roles ?? [] }));
+      // `svc-users` acepta hasta 200 ids por pedido (`maxItems`); un lote más grande (p. ej. `GET /admin/support/events`)
+      // se parte, si no el 400 dejaría todo el lote sin nombres.
+      const chunks: string[][] = [];
+      for (let i = 0; i < ids.length; i += USER_NAMES_MAX_IDS) chunks.push(ids.slice(i, i + USER_NAMES_MAX_IDS));
+      const results = await Promise.all(
+        chunks.map((chunk) =>
+          client.request("/internal/admin/users/names", ctx, {
+            method: "POST",
+            body: { ids: chunk },
+            isValid: isNames,
+            notFoundCodes: [],
+          })
+        )
+      );
+      return results.flatMap((result) => (result?.users ?? []).map((user) => ({ id: user.id, fullName: user.fullName, roles: user.roles ?? [] })));
     },
 
     async requestStepUp(adminId, body, ctx) {

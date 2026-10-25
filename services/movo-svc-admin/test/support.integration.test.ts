@@ -318,6 +318,20 @@ describe("Bandeja de soporte del panel (MOVO-322)", () => {
       expect((await rowsFor(conversation.id)).at(-1)).toMatchObject({ action: "support.assign", outcome: "failed" });
     });
 
+    it("sin la resolución de nombres, el asignado sale de listAdmins y el autor de una nota, de su nombre de pila", async () => {
+      const degraded = build({ namesDown: true });
+      await degraded.ready();
+      const res = await degraded.inject({ method: "PATCH", url: `/admin/support/conversations/${conversation.id}`, headers: admin, payload: { assignedTo: other.id } });
+      expect(res.statusCode).toBe(200);
+      expect(support.seen.patch).toMatchObject({ assignedTo: other.id, assigneeFullName: "Tomás Ferreyra" });
+
+      const history = await degraded.inject({ method: "GET", url: `/admin/support/conversations/${conversation.id}/messages`, headers: admin });
+      expect(history.json().items).toContainEqual(expect.objectContaining({ kind: "internal_note", author: { id: other.id, fullName: "Tomás" } }));
+      await degraded.close();
+      app = build();
+      await app.ready();
+    });
+
     it("varios cambios juntos son support.update; resolver y reabrir tienen su acción", async () => {
       await app.inject({ method: "PATCH", url: `/admin/support/conversations/${conversation.id}`, headers: admin, payload: { priority: "urgent", tags: ["VIP"] } });
       expect((await rowsFor(conversation.id)).at(-1)).toMatchObject({ action: "support.update" });

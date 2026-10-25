@@ -8,9 +8,12 @@ import {
   SupportUserRole,
 } from "@movo/shared";
 
-/** Nombre y roles de un id, resueltos (best-effort) con `svc-users`. */
+/**
+ * Nombre y roles de un id, resueltos (best-effort) con `svc-users`. Si no se resolvió, `nameOf` devuelve `fallback`
+ * (un nombre que ya se tenga, como el de pila guardado en el mensaje) o, sin él, `UNKNOWN_USER_NAME`.
+ */
 export interface NameDirectory {
-  nameOf(id: string): string;
+  nameOf(id: string, fallback?: string | null): string;
   rolesOf(id: string): string[];
 }
 
@@ -29,7 +32,10 @@ export function messageNameIds(message: SupportInternalMessage): string[] {
   return message.authorId ? [message.authorId] : [];
 }
 
-const agentRef = (id: string, names: NameDirectory): SupportAgentRef => ({ id, fullName: names.nameOf(id) });
+const agentRef = (id: string, names: NameDirectory, fallback?: string | null): SupportAgentRef => ({
+  id,
+  fullName: names.nameOf(id, fallback),
+});
 
 export function toRow(row: SupportInternalRow, names: NameDirectory): SupportConversationRow {
   return {
@@ -68,12 +74,12 @@ export function toConversation(row: SupportInternalRow, names: NameDirectory): S
 /**
  * Mensaje del panel. La nota del modelo (`note`) es `internal_note` en el contrato; los eventos del usuario (`system`,
  * sin actor) y los del equipo (`event`, con actor) son `system`. El autor de una respuesta o nota se muestra con el
- * nombre completo (el usuario ve el de pila guardado en el mensaje).
+ * nombre completo (el usuario ve el de pila guardado en el mensaje); sin `svc-users`, con ese nombre de pila.
  */
 export function toMessage(message: SupportInternalMessage, names: NameDirectory): SupportMessage {
   const base = { id: message.id, conversationId: message.conversationId, createdAt: message.createdAt };
   const clientMessageId = message.clientMessageId ? { clientMessageId: message.clientMessageId } : {};
-  const author = message.authorId ? agentRef(message.authorId, names) : { id: "", fullName: message.authorName ?? "" };
+  const author = message.authorId ? agentRef(message.authorId, names, message.authorName) : { id: "", fullName: message.authorName ?? "" };
   switch (message.kind) {
     case "user":
       return { ...base, kind: "user", body: message.body, attachments: message.attachments };

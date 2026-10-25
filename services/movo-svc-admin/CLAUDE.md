@@ -196,8 +196,6 @@ ser el que muestra el panel (`MOVO-12345`, `shipmentConfirmationCode`), no los 8
 **Corrección (MOVO-333): el schema de respuesta de los eventos declara `kind` y `actorName`.** Sin declararlos Fastify los recortaba y el detalle del
 panel nunca recibía la marca de manual/forzado. El test de `shipments.integration.test.ts` fija un evento forzado y falla si se pierden.
 
-- Pendiente: el modal del panel (MOVO-333); probar contra dev real que el email del step-up llega (Resend).
-
 ### MOVO-322 — Bandeja de soporte: `/admin/support/*`
 
 `modules/support/` sobre `adapters/support-client.ts` (`/internal/admin/support/*` de `svc-shipments`; un fallo es 502
@@ -205,6 +203,8 @@ panel nunca recibía la marca de manual/forzado. El test de `shipments.integrati
 `docs/support/README.md`.
 - Nombres y roles best-effort (`getUserNames` ahora trae `roles`; tolera un `svc-users` que todavía no los manda). El rol de la
   fila es `carrier` si la cuenta lo tiene, `sender` si no. La búsqueda por nombre consulta `svc-users` y manda los ids.
+  `getUserNames` parte en lotes de 200 (el `maxItems` de `svc-users`). Lo que queda grabado no depende de esa resolución: el
+  nombre del asignado sale de `listAdmins` (el mismo pedido que lo valida) y el autor sin nombre resuelto muestra el de pila del mensaje.
 - Toda escritura por `runAdminAction` con objetivo `support_conversation` (migración `20261025130000_…` del enum de la
   bitácora; caso nuevo en `conflict-of-interest.ts`). El actor viaja en el body; si `svc-users` no responde firma "Equipo de Movo".
 - `GET events` lee el Redis Stream `support:events` (ADR-024, `support-events.ts`): cursor = id de la entrada, `reset` si es
