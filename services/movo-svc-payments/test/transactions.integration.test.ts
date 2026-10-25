@@ -258,6 +258,71 @@ describe("/payments/transactions (MOVO-303)", () => {
       expect(item.status).toBe("refunded");
       expect(item.refundedAmountArs).toBe(1150);
     });
+
+    // MOVO-336 (AC6): los reembolsos que pide Movo viven en `payments.refunds`, no en los eventos de MP.
+    function refundAttempt(
+      h: SeededHold,
+      settlementId: string,
+      attempt: number,
+      status: "processing" | "succeeded" | "failed" | "fallback_to_ledger",
+      amountArs: number,
+      updatedAt = new Date("2026-10-13T10:00:00Z")
+    ) {
+      return app.db.refund.create({
+        data: {
+          settlementId,
+          shipmentId: h.shipmentId,
+          holdId: h.id,
+          carrierId: CARRIER,
+          mpPaymentId: h.mpPaymentId as string,
+          attempt,
+          amountArs,
+          reason: "Disputa resuelta",
+          requestKey: `dispute-${attempt}`,
+          requestFingerprint: "fp",
+          adminId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          mpIdempotencyKey: `movo-refund-${settlementId}-${attempt}`,
+          status,
+          updatedAt,
+        },
+      });
+    }
+
+    it("un reembolso de Movo suma al estado, al monto y a los movimientos, para el emisor y el transportista (MOVO-336)", async () => {
+      const h = await createHold({ status: "captured" });
+      const s = await settle(h, "credited");
+      await refundAttempt(h, s.id, 1, "succeeded", 300, new Date("2026-10-13T10:00:00Z"));
+      await refundAttempt(h, s.id, 2, "succeeded", 200, new Date("2026-10-14T10:00:00Z"));
+
+      const asSender = (await detail(h.id, "sender", SENDER)).json();
+      expect(asSender.status).toBe("refunded");
+      expect(asSender.refundedAmountArs).toBe(500);
+      expect(asSender.movements).toEqual([
+        { kind: "refund", amountArs: 300, date: "2026-10-13T10:00:00.000Z" },
+        { kind: "refund", amountArs: 200, date: "2026-10-14T10:00:00.000Z" },
+      ]);
+
+      const asCarrier = (await detail(h.id, "carrier", CARRIER)).json();
+      expect(asCarrier.status).toBe("refunded");
+      expect(asCarrier.refundedAmountArs).toBe(500);
+      expect(asCarrier.movements).toHaveLength(2);
+      // El estado también se filtra en SQL: el espejo de `deriveTransactionStatus` tiene que ver el reembolso propio.
+      expect((await list("role=sender&status=refunded")).json().items.map((i: { id: string }) => i.id)).toEqual([h.id]);
+      expect((await list("role=sender&status=completed")).json().items).toEqual([]);
+    });
+
+    it("un intento en curso, fallido o caído al fallback no es un reembolso: el emisor todavía no recibió la plata (MOVO-336)", async () => {
+      const h = await createHold({ status: "captured" });
+      const s = await settle(h, "credited");
+      await refundAttempt(h, s.id, 1, "processing", 100);
+      await refundAttempt(h, s.id, 2, "failed", 100);
+      await refundAttempt(h, s.id, 3, "fallback_to_ledger", 100);
+
+      const asSender = (await detail(h.id, "sender", SENDER)).json();
+      expect(asSender.status).toBe("completed");
+      expect(asSender.refundedAmountArs).toBeNull();
+      expect(asSender.movements).toEqual([]);
+    });
   });
 
   describe("hold con recargo del emisor por su deuda (MOVO-311)", () => {

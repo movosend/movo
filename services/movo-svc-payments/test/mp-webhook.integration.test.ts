@@ -358,6 +358,91 @@ describe("POST /payments/webhooks/mercadopago (MOVO-268)", () => {
       expect(event.kind).toBe("refund");
       expect(alerts.send).toHaveBeenCalledWith(expect.objectContaining({ kind: "mp_refund" }));
     });
+
+    // MOVO-336 (AC7): el reembolso de una disputa resuelta lo pide Movo, no es "externo".
+    async function seedMovoRefund(amountArs: number, status: "processing" | "succeeded" | "failed" = "succeeded") {
+      const held = await hold();
+      const settlement = await app.db.settlement.create({
+        data: {
+          shipmentId: SHIPMENT,
+          holdId: held.id,
+          carrierId: CARRIER,
+          mpPaymentId: PAYMENT_ID,
+          grossAmountArs: 1150,
+          commissionArs: 150,
+          status: "credited",
+        },
+      });
+      await app.db.refund.create({
+        data: {
+          settlementId: settlement.id,
+          shipmentId: SHIPMENT,
+          holdId: held.id,
+          carrierId: CARRIER,
+          mpPaymentId: PAYMENT_ID,
+          attempt: 1,
+          amountArs,
+          reason: "Disputa resuelta a favor del emisor",
+          requestKey: "dispute-1",
+          requestFingerprint: "fp",
+          adminId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          mpIdempotencyKey: `movo-refund-${settlement.id}-1`,
+          status,
+        },
+      });
+    }
+
+    it("un reembolso iniciado por Movo no se registra como evento externo ni se alerta (MOVO-336)", async () => {
+      await seedHold({ status: "captured", statusDetail: "accredited", expiresAt: null });
+      await seedMovoRefund(1150);
+      mp.getPayment.mockImplementation(async () =>
+        payment({ status: "refunded", status_detail: "refunded", transaction_amount_refunded: 1150 })
+      );
+
+      await notify();
+
+      expect(await app.db.paymentProviderEvent.count()).toBe(0);
+      expect(alerts.send).not.toHaveBeenCalled();
+      expect((await notifications())[0].outcome).toBe("refund_initiated_by_movo");
+    });
+
+    it("un reembolso de Movo todavía en curso (processing) también se reconoce como propio (MOVO-336)", async () => {
+      await seedHold({ status: "captured", statusDetail: "accredited", expiresAt: null });
+      await seedMovoRefund(1150, "processing");
+      mp.getPayment.mockImplementation(async () =>
+        payment({ status: "refunded", status_detail: "refunded", transaction_amount_refunded: 1150 })
+      );
+
+      await notify();
+
+      expect(alerts.send).not.toHaveBeenCalled();
+    });
+
+    it("si MP informa más de lo que pidió Movo, el resto sigue siendo un reembolso externo (MOVO-336)", async () => {
+      await seedHold({ status: "captured", statusDetail: "accredited", expiresAt: null });
+      await seedMovoRefund(500);
+      mp.getPayment.mockImplementation(async () =>
+        payment({ status: "refunded", status_detail: "refunded", transaction_amount_refunded: 1150 })
+      );
+
+      await notify();
+
+      const [event] = await app.db.paymentProviderEvent.findMany();
+      expect(event.kind).toBe("refund");
+      expect(alerts.send).toHaveBeenCalledWith(expect.objectContaining({ kind: "mp_refund" }));
+    });
+
+    it("un reembolso de Movo fallido no cuenta: el de MP sigue siendo externo (MOVO-336)", async () => {
+      await seedHold({ status: "captured", statusDetail: "accredited", expiresAt: null });
+      await seedMovoRefund(1150, "failed");
+      mp.getPayment.mockImplementation(async () =>
+        payment({ status: "refunded", status_detail: "refunded", transaction_amount_refunded: 1150 })
+      );
+
+      await notify();
+
+      expect(alerts.send).toHaveBeenCalledWith(expect.objectContaining({ kind: "mp_refund" }));
+    });
   });
 
   // MOVO-302 (review de PR #255): el webhook completa la tarjeta del hold aunque el estado no cambie.
