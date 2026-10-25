@@ -17,7 +17,7 @@ import {
 import { isUserDebtOverdue } from "../domain/user-debt";
 
 /**
- * MOVO-313 (ADR-044): estado de la deuda de la cuenta corriente de una persona, ya
+ * MOVO-313 (DD-044): estado de la deuda de la cuenta corriente de una persona, ya
  * interpretado contra el umbral `USER_DEBT_OVERDUE_DAYS`. Trae el saldo y la fecha solo para
  * que el llamador pueda loguear el motivo; el contrato hacia la app es el 403 del gate.
  */
@@ -88,7 +88,7 @@ export interface PaymentsClient {
   /** MOVO-212: liquidación del envío, o `null` si todavía no se pidió la captura. */
   findSettlement(shipmentId: string): Promise<SettlementResponse | null>;
   /**
-   * MOVO-307 (ADR-044): registra un movimiento en la cuenta corriente del usuario.
+   * MOVO-307 (DD-044): registra un movimiento en la cuenta corriente del usuario.
    * Idempotente por `idempotencyKey`: reenviar el mismo cuerpo devuelve el movimiento ya creado.
    */
   createLedgerEntry(userId: string, entry: CreateUserLedgerEntryRequest): Promise<CreateUserLedgerEntryResponse>;

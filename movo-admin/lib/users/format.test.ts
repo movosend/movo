@@ -37,14 +37,21 @@ describe("formato", () => {
     expect(formatDni(null)).toBe("—")
   })
 
-  it("estado de la cuenta: suspendida lleva fecha, baneada no", () => {
+  it("estado de la cuenta: suspendida lleva fecha, indefinida e inhabilitada no", () => {
     expect(accountPill("active", null).tone).toBe("success")
     expect(accountPill("deleted", null).label).toBe("Eliminada")
     expect(accountPill("banned", "2026-11-02T12:00:00Z", true).label).toBe(
       "Suspendida · hasta 2 nov"
     )
+    expect(accountPill("suspended", "2026-11-02T12:00:00Z").label).toBe(
+      "Suspendida hasta el 2 nov"
+    )
+    expect(accountPill("suspended", null)).toEqual({
+      label: "Suspendida",
+      tone: "warning",
+    })
     expect(accountPill("banned", null)).toEqual({
-      label: "Baneada",
+      label: "Inhabilitada",
       tone: "danger",
     })
   })

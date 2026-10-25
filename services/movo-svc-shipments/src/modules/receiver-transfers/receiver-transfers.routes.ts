@@ -43,7 +43,7 @@ const errors = {
 };
 
 /**
- * MOVO-275 (ADR-038): rutas que cuelgan de un envío (prefijo `/shipments`, mismo
+ * MOVO-275 (DD-038): rutas que cuelgan de un envío (prefijo `/shipments`, mismo
  * criterio que ratings/handshake).
  */
 export async function shipmentReceiverTransferRoutes(app: FastifyInstance, opts: ReceiverTransfersRoutesOptions) {

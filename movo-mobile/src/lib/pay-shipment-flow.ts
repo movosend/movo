@@ -6,7 +6,7 @@ import { fundingClient } from "../api/funding-client";
 import { CardTokenError, createSavedCardToken } from "./mp-card-tokenizer";
 
 /**
- * Pago de un envío con una tarjeta guardada + CVV (MOVO-269, ADR-039). Función pura (sin React)
+ * Pago de un envío con una tarjeta guardada + CVV (MOVO-269, DD-039). Función pura (sin React)
  * para testearla sin montar `useMutation`, que cuelga el worker de jest-expo (ver
  * `movo-mobile/CLAUDE.md`, MOVO-136).
  *

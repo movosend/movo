@@ -37,7 +37,7 @@ const MIGRATION_SQL = readFileSync(
 );
 
 /**
- * MOVO-334 (ADR-054): disputas abiertas por las partes contra Postgres/Redis reales: apertura,
+ * MOVO-334 (DD-054): disputas abiertas por las partes contra Postgres/Redis reales: apertura,
  * ventana de 7 días desde `completed`, una abierta por envío, descargos, detalle, avisos, el
  * bloqueo del transportista y de la baja de cuenta, y el backfill de la migración.
  */
@@ -299,7 +299,7 @@ describe("disputas (Postgres, MOVO-334)", () => {
       );
     });
 
-    it("ADR-054: se abre sobre un completed dentro de los 7 días desde la entrega, sin tocar el hold", async () => {
+    it("DD-054: se abre sobre un completed dentro de los 7 días desde la entrega, sin tocar el hold", async () => {
       const { shipmentId, senderId } = await shipmentIn(
         ShipmentStatus.COMPLETED,
         6,

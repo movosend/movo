@@ -7,7 +7,7 @@ import {
   ShipmentStatus,
 } from "../src";
 
-describe("forcedTransitionFriction (ADR-055)", () => {
+describe("forcedTransitionFriction (DD-055)", () => {
   it("riesgo medio manual: sin código tipeado ni segundo factor", () => {
     const cell = getForcedTransition(ShipmentStatus.PUBLISHED, ShipmentStatus.CANCELLED)!;
     expect(forcedTransitionFriction(cell)).toEqual({ typedCode: false, stepUp: false });
@@ -46,6 +46,21 @@ describe("getForcedTransitionDetails", () => {
       "sender",
       "receiver",
       "carrier",
+    ]);
+  });
+
+  it("pasar a assigned pide verificar el hold; cancelar y bajar al transportista avisan lo que no se deshace", () => {
+    expect(getForcedTransitionDetails(ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED)!.checks).toEqual([
+      expect.stringContaining("Mercado Pago"),
+    ]);
+    expect(getForcedTransitionDetails(ShipmentStatus.ASSIGNED, ShipmentStatus.CANCELLED)!.irreversible).toEqual([
+      expect.stringContaining("terminal"),
+    ]);
+    expect(getForcedTransitionDetails(ShipmentStatus.ASSIGNED, ShipmentStatus.PUBLISHED)!.irreversible).toEqual([
+      expect.stringContaining("volver a ofertar"),
+    ]);
+    expect(getForcedTransitionDetails(ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED)!.irreversible).toEqual([
+      expect.stringContaining("reembolso"),
     ]);
   });
 

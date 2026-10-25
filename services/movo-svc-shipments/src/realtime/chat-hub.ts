@@ -4,11 +4,11 @@ import type { WebSocket } from "ws";
 const WS_READY_STATE_OPEN = 1;
 
 /**
- * MOVO-26 (ADR-040): sockets del chat, por envío y por usuario. Es una estructura propia, no el
+ * MOVO-26 (ADR-023): sockets del chat, por envío y por usuario. Es una estructura propia, no el
  * `RealtimeRegistry` de tracking: un mensaje de chat no llega a quien solo mira el mapa, el cierre `4009`
  * de tracking por un envío entregado no corta el chat, y acá cada usuario recibe SU versión del mensaje
  * (el contenido de alguien que bloqueó llega vacío, y los tildes son solo del autor).
- * En memoria y de una sola réplica, igual que el resto del canal (ADR-006/022).
+ * En memoria y de una sola réplica, igual que el resto del canal (ADR-006/019).
  */
 export class ChatHub {
   private readonly sockets = new Map<string, Map<string, Set<WebSocket>>>();

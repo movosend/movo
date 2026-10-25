@@ -1,4 +1,4 @@
--- MOVO-208: extensión del set canónico de 9 a 11 estados (ADR-021).
+-- MOVO-208: extensión del set canónico de 9 a 11 estados (DD-021).
 -- assigned_unfunded: transportista asignado, sin hold de fondos todavía (retiro
 -- lejano, decisión de arquitectura del hold de MOVO-12, "opción B"). Se inserta
 -- entre assignment_pending y assigned porque refleja su lugar en el flujo: es una

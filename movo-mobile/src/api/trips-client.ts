@@ -26,7 +26,7 @@ export interface Trip {
   status: TripStatus;
   /** Seteado al cancelar (`POST /trips/:id/cancel`, MOVO-260); `null` en cualquier otro estado. */
   cancelledAt: string | null;
-  /** MOVO-265 (ADR-042): días en que se repite (`RECURRENCE_WEEKDAY`, 0 = domingo), `null` si no se repite. */
+  /** MOVO-265 (DD-042): días en que se repite (`RECURRENCE_WEEKDAY`, 0 = domingo), `null` si no se repite. */
   recurrenceWeekdays: number[] | null;
   /** Último día (inclusive) de la serie, `"YYYY-MM-DD"` calendario argentino; `null` = sin fin. */
   recurrenceUntil: string | null;
@@ -92,7 +92,7 @@ export interface CreateTripInput {
 /** Body de `PATCH /trips/:id` — todos los campos opcionales, se manda solo lo que
  * cambió. `recurrenceWeekdays: null` apaga la recurrencia ("Dejar de repetir"). Con paquetes
  * aceptados solo se acepta apagarla; cambiar días o fecha de fin da 409
- * `TRIP_HAS_ACCEPTED_PACKAGES` (MOVO-265, ADR-042). */
+ * `TRIP_HAS_ACCEPTED_PACKAGES` (MOVO-265, DD-042). */
 export type UpdateTripInput = Partial<Omit<CreateTripInput, "recurrenceWeekdays">> & {
   recurrenceWeekdays?: number[] | null;
 };

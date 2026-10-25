@@ -9,7 +9,7 @@ function ageDays(days: number, extraMs = 0): string {
   return new Date(NOW.getTime() - days * DAY_MS - extraMs).toISOString();
 }
 
-describe("isUserDebtOverdue (MOVO-313, ADR-044)", () => {
+describe("isUserDebtOverdue (MOVO-313, DD-044)", () => {
   it("deuda sin saldar hace más de 14 días: vencida", () => {
     expect(isUserDebtOverdue({ balanceArs: 4200, oldestUnpaidAt: ageDays(15) }, NOW, OVERDUE_DAYS)).toBe(true);
   });

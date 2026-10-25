@@ -21,7 +21,7 @@ import { PaymentsClient, UserDebtStatus } from "../src/adapters/payments-client"
  * Fake en memoria de `PaymentsClient` -- evita depender de un `movo-svc-payments` real levantado.
  *
  * - MOVO-116: por default todo transportista tiene la cuenta de MP vinculada (así los fixtures
- *   existentes siguen pasando el bloqueo de ADR-036); `unlinkedUserIds` marca los que no.
+ *   existentes siguen pasando el bloqueo de DD-036); `unlinkedUserIds` marca los que no.
  * - MOVO-210: reproduce el contrato de los endpoints internos de holds que importan a la saga --
  *   un hold vivo se devuelve tal cual (idempotencia por envío), un rechazo vuelve como
  *   `status: rejected` y no como error, liberar es idempotente. `behavior` se muta desde el test

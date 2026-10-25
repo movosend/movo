@@ -29,7 +29,7 @@ const ACTIVE_STATUS_LABEL: Record<Exclude<ActiveShipmentSummary["status"], "assi
  * de los estados no tiene ninguna hora asociada que mostrar, quedan como texto fijo.
  */
 /**
- * MOVO-278 (ADR-045): un envío `in_transit` que el backend marcó como demorado (pasó su
+ * MOVO-278 (DD-045): un envío `in_transit` que el backend marcó como demorado (pasó su
  * entrega estimada más un margen). Se muestra "Demorado" en vez de "En camino", sin el halo
  * pulsante: si sigue sin entregarse, el backend lo pasa a disputa.
  */

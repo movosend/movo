@@ -636,7 +636,7 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       }
 
       // MOVO-213 (AC8): el vencimiento se mira ANTES de hablar con MP, no después de que rechace. Un hold vencido
-      // escala de inmediato sin gastar intentos. `expires_at` sale de `MP_HOLD_VALIDITY_DAYS` (MOVO-209/ADR-050).
+      // escala de inmediato sin gastar intentos. `expires_at` sale de `MP_HOLD_VALIDITY_DAYS` (MOVO-209/DD-050).
       // Un hold ya `captured` no se mira: la plata se cobró y solo falta completar la liquidación.
       //
       // Salvo que ya haya habido un intento anterior (la liquidación existía): ese intento pudo haber capturado en MP

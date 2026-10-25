@@ -13,7 +13,7 @@ import { buildApp } from "../src/app";
  *   MP_TEST_MODE=true
  *   MP_SANDBOX_BUYER_EMAIL            email de la cuenta de prueba COMPRADOR
  *   MP_TEST_CARD_NUMBER / _CVV / _EXP_MONTH / _EXP_YEAR   Visa 4075 5957 1648 3764 (la del .env del spike da 500 al guardarla)
- *   MP_COLLECTOR_ACCESS_TOKEN / _PUBLIC_KEY / _MP_USER_ID   de la cuenta cobradora (ADR-048): el token TEST- del OAuth
+ *   MP_COLLECTOR_ACCESS_TOKEN / _PUBLIC_KEY / _MP_USER_ID   de la cuenta cobradora (DD-048): el token TEST- del OAuth
  *                                     de la cuenta de prueba Movo S.A. (son las mismas que `movo/dev/app-secrets`)
  *
  * El titular de la tarjeta decide el resultado en el sandbox: APRO aprueba, FUND = fondos insuficientes, SECU = CVV

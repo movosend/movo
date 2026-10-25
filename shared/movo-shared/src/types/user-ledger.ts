@@ -1,5 +1,5 @@
 /**
- * MOVO-309 (ADR-044): contrato de la cuenta corriente del usuario, que vive en
+ * MOVO-309 (DD-044): contrato de la cuenta corriente del usuario, que vive en
  * `movo-svc-payments`. Es del USUARIO, no de un rol: la misma persona puede deber como
  * transportista y enviar mañana como emisor. Montos en ARS con 2 decimales y CON SIGNO:
  * positivo = el usuario debe, negativo = pago o saldo a favor.

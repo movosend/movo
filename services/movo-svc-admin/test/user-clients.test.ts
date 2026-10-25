@@ -184,4 +184,73 @@ describe("clientes internos de la ficha del panel (MOVO-294)", () => {
       expect([error.statusCode, error.code]).toEqual([422, "AMOUNT_OUT_OF_RANGE"]);
     });
   });
+
+  // MOVO-299: sanciones (svc-users) y sus efectos (svc-shipments).
+  describe("sanciones", () => {
+    const SANCTION = "22222222-2222-4222-8222-222222222222";
+    const sanction = {
+      id: SANCTION,
+      userId: USER,
+      type: "suspension",
+      reason: "Reportes",
+      internalNote: null,
+      startedAt: "2026-10-24T00:00:00.000Z",
+      endsAt: null,
+      appliedBy: "admin-1",
+      liftedAt: null,
+      liftedBy: null,
+      liftReason: null,
+      closedCause: null,
+    };
+    const withdrawal = {
+      cancelledShipmentIds: [],
+      withdrawnOfferIds: [],
+      cancelledTripIds: [],
+      stoppedRecurrenceTripIds: [],
+      notifiedCounterpartyCount: 0,
+      failures: [{ kind: "offer", id: "o-1" }],
+    };
+
+    it("aplicar va por POST a /internal/users/:id/sanctions con el admin como actor; el 409 se relanza", async () => {
+      const fetchMock = mockFetch(201, sanction);
+      await users.applySanction(USER, { type: "suspension", reason: "Reportes" }, "admin-1", ctx);
+      expect(fetchMock.mock.calls[0][0]).toBe(`http://users/internal/users/${USER}/sanctions`);
+      expect(fetchMock.mock.calls[0][1].headers["x-user-id"]).toBe("admin-1");
+
+      mockFetch(409, { error: { code: "ACCOUNT_ALREADY_DISABLED", message: "x" } });
+      const error = await catchApiError(users.applySanction(USER, { type: "disable", reason: "x" }, "admin-1", ctx));
+      expect([error.statusCode, error.code]).toEqual([409, "ACCOUNT_ALREADY_DISABLED"]);
+    });
+
+    it("levantar convierte cualquier 404 de negocio en SANCTION_NOT_FOUND", async () => {
+      mockFetch(404, { error: { code: "SANCTION_NOT_FOUND", message: "x" } });
+      const error = await catchApiError(users.liftSanction(USER, SANCTION, "ok", "admin-1", ctx));
+      expect([error.statusCode, error.code]).toEqual([404, "SANCTION_NOT_FOUND"]);
+    });
+
+    it("una sanción con forma inválida en el historial es 502", async () => {
+      mockFetch(200, [{ ...sanction, type: "ban" }]);
+      const error = await catchApiError(users.listSanctions(USER, ctx));
+      expect(error.code).toBe("USERS_SERVICE_UNAVAILABLE");
+    });
+
+    it("el retiro manda el sanctionId y devuelve los `failures` (200 aunque sea parcial)", async () => {
+      const fetchMock = mockFetch(200, withdrawal);
+      const result = await shipments.withdrawOpenActivity(USER, SANCTION, ctx);
+      expect(fetchMock.mock.calls[0][0]).toBe(`http://shipments/internal/users/${USER}/withdraw-open-activity`);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ sanctionId: SANCTION });
+      expect(result.failures).toEqual([{ kind: "offer", id: "o-1" }]);
+    });
+
+    it("la vista previa y los envíos en curso validan su forma; un 404 es 502", async () => {
+      mockFetch(200, { shipments: 1, offers: 0, trips: 0, recurringSeries: 0, inProgressShipments: [] });
+      expect((await shipments.getOpenActivity(USER, ctx)).shipments).toBe(1);
+
+      mockFetch(200, { shipments: "1" });
+      expect((await catchApiError(shipments.getOpenActivity(USER, ctx))).code).toBe("SHIPMENTS_SERVICE_UNAVAILABLE");
+
+      mockFetch(404, { error: { code: "NOT_FOUND", message: "x" } });
+      expect((await catchApiError(shipments.listInProgressShipments(USER, ctx))).code).toBe("SHIPMENTS_SERVICE_UNAVAILABLE");
+    });
+  });
 });

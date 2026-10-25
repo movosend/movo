@@ -181,7 +181,7 @@ export function createForceStatusService(
     }
   }
 
-  /** Aviso a las partes (ADR-055): crítico, sin el motivo ni montos. Nunca tira: el cambio ya está hecho. */
+  /** Aviso a las partes (DD-055): crítico, sin el motivo ni montos. Nunca tira: el cambio ya está hecho. */
   async function notifyParties(shipment: Shipment): Promise<void> {
     const targets = [
       { userId: shipment.senderId, role: "sender" as const },
@@ -236,7 +236,7 @@ export function createForceStatusService(
   }
 
   /**
-   * ADR-055 (riesgo aceptado): `assigned -> cancelled` libera el hold ANTES de cancelar, y el handshake de
+   * DD-055 (riesgo aceptado): `assigned -> cancelled` libera el hold ANTES de cancelar, y el handshake de
    * retiro puede ganar la carrera entre las dos cosas. Si pasó, el envío quedó `in_transit` sin fondos
    * retenidos: no hay forma de volver a autorizar el hold, así que se alerta al equipo con los ids.
    */

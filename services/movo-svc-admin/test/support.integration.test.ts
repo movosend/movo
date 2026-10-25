@@ -361,7 +361,7 @@ describe("Bandeja de soporte del panel (MOVO-322)", () => {
     });
   });
 
-  describe("eventos (Redis Stream, ADR-056)", () => {
+  describe("eventos (Redis Stream, ADR-024)", () => {
     const publish = (event: SupportStreamEvent) =>
       app.redis.xadd(SUPPORT_EVENTS_STREAM_KEY, "*", SUPPORT_EVENTS_STREAM_FIELD, JSON.stringify(event));
     const events = (since?: string) =>

@@ -67,7 +67,7 @@ export function disputePartyRole(
 }
 
 /**
- * MOVO-334 (AC2, ADR-054): desde qué estados una parte puede abrir una disputa. `in_transit`
+ * MOVO-334 (AC2, DD-054): desde qué estados una parte puede abrir una disputa. `in_transit`
  * siempre; `delivered`/`completed` dentro de `DISPUTE_WINDOW_DAYS` desde `deliveredAt`. Un
  * `assigned` no: solo lo pasa a disputa el barrido de no-retiro.
  */

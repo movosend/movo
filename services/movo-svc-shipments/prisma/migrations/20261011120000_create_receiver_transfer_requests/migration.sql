@@ -1,4 +1,4 @@
--- MOVO-275 (ADR-038): transferencia de receptor. Tabla nueva, no toca datos existentes.
+-- MOVO-275 (DD-038): transferencia de receptor. Tabla nueva, no toca datos existentes.
 -- Reversión:
 --   DROP TABLE "shipments"."receiver_transfer_requests";
 --   DROP TYPE "shipments"."receiver_transfer_status_enum";

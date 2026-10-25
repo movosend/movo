@@ -1,6 +1,6 @@
 """Precio sugerido `package_tapered_v3` (MOVO-317, sobre `package_tapered_v2` de MOVO-276).
 
-v3 es v2 con el peso volumétrico acotado a `volumetric_weight_cap_kg`. Reemplaza la parte de cálculo de `demand_fuel_routes_v1` (MOVO-138, ADR-025): misma
+v3 es v2 con el peso volumétrico acotado a `volumetric_weight_cap_kg`. Reemplaza la parte de cálculo de `demand_fuel_routes_v1` (MOVO-138, ADR-021): misma
 distancia por tramos, combustible y recargo por demanda, pero el paquete ahora cotiza por
 su peso facturable (máximo entre real y volumétrico, con un tramo decreciente), con una
 tarifa base por categoría y un recargo por frágil. Calibración contra el Correo en
@@ -115,7 +115,7 @@ def effective_distance_km(distance_km: float) -> float:
 
 
 # MOVO-317: sin límites duros, `/quote` cotiza cualquier peso y medida. Hasta estos valores el
-# método está calibrado contra el Correo (ADR-041 los usaba como tope); por encima se cotiza
+# método está calibrado contra el Correo (DD-041 los usaba como tope); por encima se cotiza
 # igual, pero extrapolando sin referencia de mercado, y la cotización lo avisa en el log
 # `pricing_quote_computed` para medir cuántas caen fuera de la zona validada.
 UNCALIBRATED_WEIGHT_KG = 30.0

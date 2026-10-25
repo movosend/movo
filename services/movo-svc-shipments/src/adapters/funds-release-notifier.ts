@@ -10,7 +10,7 @@ export interface FundsReleaseNotification {
 
 /**
  * AC7 de MOVO-158: la transición a `delivered` dispara esta interfaz, mismo molde que
- * `SmsProvider`/`EmailProvider` (ADR-012/017): implementación no-op/log en dev-test y, desde
+ * `SmsProvider`/`EmailProvider` (ADR-012/016): implementación no-op/log en dev-test y, desde
  * MOVO-212, la real (`payments-funds-release-notifier.ts`) que captura el hold.
  */
 export interface FundsReleaseNotifier {

@@ -41,7 +41,7 @@ function parseEntries(raw: Array<[string, string[]]>): StreamEntry[] {
 }
 
 /**
- * MOVO-322 (ADR-056): lectura del Redis Stream `support:events` que escribe `svc-shipments`. El id de la entrada es el
+ * MOVO-322 (ADR-024): lectura del Redis Stream `support:events` que escribe `svc-shipments`. El id de la entrada es el
  * cursor del panel (monótono y opaco para el cliente). El stream se recorta (`MAXLEN ~`): si el cursor del panel es más
  * viejo que la primera entrada que queda, se pudieron perder eventos y la respuesta es `reset: true` (el panel vuelve
  * a pedir lista, contadores y mensajes).

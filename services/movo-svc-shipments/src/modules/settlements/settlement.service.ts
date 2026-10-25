@@ -299,7 +299,7 @@ export function createSettlementService(deps: SettlementServiceDeps) {
     },
 
     /**
-     * MOVO-307 (ADR-047, AC6/AC9): cobra la penalidad de un envío cancelado con menos de 12 h.
+     * MOVO-307 (DD-047, AC6/AC9): cobra la penalidad de un envío cancelado con menos de 12 h.
      * Idempotente y retomable: la llaman la cancelación en línea y el barrido.
      *
      * Orden: (1) se registra la deuda en la cuenta corriente del emisor (`cancellation_penalty`);
@@ -387,7 +387,7 @@ export function createSettlementService(deps: SettlementServiceDeps) {
 
     /**
      * MOVO-310: la penalidad de un transportista que se bajó con menos de 12 h (o, desde MOVO-270,
-     * que no se presentó al retiro, ADR-052) va a su cuenta corriente como deuda (no hay hold suyo
+     * que no se presentó al retiro, DD-052) va a su cuenta corriente como deuda (no hay hold suyo
      * del que cobrarla; se descuenta de su próximo cobro, MOVO-311). Idempotente por oferta: la key del ledger es la misma en cada reintento y solo
      * quien gana `resolveWithdrawalPenalty` manda la push. Lanza si payments falla (queda `pending`).
      */

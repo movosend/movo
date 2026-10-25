@@ -4,7 +4,7 @@ import { ADMIN_USERS_MAX_PAGE_SIZE } from "./admin-users.service";
 // `hide: true`, el Swagger que importa es el de `svc-admin`, que es lo que ve el panel.
 const nullableString = { type: ["string", "null"] } as const;
 const kycStatus = { type: "string", enum: ["not_started", "pending", "approved", "rejected", "expired", "manual_review"] } as const;
-const accountStatus = { type: "string", enum: ["active", "banned", "deleted"] } as const;
+const accountStatus = { type: "string", enum: ["active", "suspended", "banned", "deleted"] } as const;
 const userRef = {
   type: "object",
   required: ["id", "fullName"],

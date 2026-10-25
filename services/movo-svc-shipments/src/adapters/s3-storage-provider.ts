@@ -19,7 +19,7 @@ export interface S3StorageProviderConfig {
 const PRESIGNED_URL_TTL_SECONDS = 300;
 
 /**
- * Implementación real sobre S3 (ADR-007/ADR-015). Credenciales vía el default
+ * Implementación real sobre S3 (ADR-007/015). Credenciales vía el default
  * credential provider chain del SDK -- IAM role de la instancia EC2, mismo criterio que
  * `movo-svc-users` (nada nuevo que rotar en Secrets Manager). El bucket es compartido
  * con `svc-users` (`movo-shipment-media-{env}`), distinto prefijo (`shipments/*`,

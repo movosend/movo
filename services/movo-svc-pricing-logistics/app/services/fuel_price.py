@@ -1,4 +1,4 @@
-"""Precio de referencia de la nafta para `demand_fuel_routes_v1` (MOVO-138, ADR-025).
+"""Precio de referencia de la nafta para `demand_fuel_routes_v1` (MOVO-138, ADR-021).
 
 Fuente: API CKAN de la Secretaría de Energía, dataset "Precios en surtidor"
 (Res. 314/2016). Detalle de la elección y los hallazgos empíricos en

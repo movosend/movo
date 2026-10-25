@@ -395,7 +395,7 @@ describe("Bandeja de soporte, lado del agente (MOVO-322)", () => {
     });
   });
 
-  describe("eventos para el panel (Redis Stream, ADR-056)", () => {
+  describe("eventos para el panel (Redis Stream, ADR-024)", () => {
     it("consulta nueva, mensaje del usuario, respuesta, nota y acciones quedan en el stream con la fila", async () => {
       const user = randomUUID();
       const id = await open(user);

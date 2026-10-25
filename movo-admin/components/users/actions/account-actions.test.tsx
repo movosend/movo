@@ -12,15 +12,24 @@ const actions = vi.hoisted(() => ({
   updateContact: vi.fn(),
   adjustLedger: vi.fn(),
   addNote: vi.fn(),
+  loadSanctionPreview: vi.fn(),
+  applySanction: vi.fn(),
+  liftSanction: vi.fn(),
+  retrySanctionWithdrawal: vi.fn(),
 }))
 vi.mock("@/app/users/[id]/account-actions", () => actions)
 
-import type { AdminUserProfile } from "@movo/shared/src/types/admin-users"
+import type {
+  AdminUserProfile,
+  AdminUserSanction,
+} from "@movo/shared/src/types/admin-users"
 import { FichaProvider, ReportSection } from "../ficha-status"
 import { AccountActions } from "./account-actions"
 import { ContactDialog } from "./contact-dialog"
 import { LedgerDialog } from "./ledger-dialog"
+import { LiftDialog } from "./lift-dialog"
 import { NoteDialog } from "./note-dialog"
+import { SanctionDialog } from "./sanction-dialog"
 import { SessionsDialog } from "./sessions-dialog"
 
 const user = (over: Partial<AdminUserProfile> = {}): AdminUserProfile => ({
@@ -43,6 +52,36 @@ const user = (over: Partial<AdminUserProfile> = {}): AdminUserProfile => ({
   ...over,
 })
 
+const sanction = (
+  over: Partial<AdminUserSanction> = {}
+): AdminUserSanction => ({
+  id: "0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9",
+  userId: user().id,
+  type: "suspension",
+  reason: "Tres no-show seguidos",
+  internalNote: null,
+  startedAt: "2026-10-20T15:00:00.000Z",
+  endsAt: null,
+  appliedBy: "a",
+  appliedByName: "Carla Benítez",
+  liftedAt: null,
+  liftedBy: null,
+  liftedByName: null,
+  liftReason: null,
+  closedCause: null,
+  withdrawal: null,
+  ...over,
+})
+
+const inTransit = {
+  id: "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+  shortId: "5E6F7A8B",
+  status: "in_transit" as const,
+  userRole: "carrier" as const,
+  pickupAddress: "Córdoba",
+  deliveryAddress: "Rosario",
+}
+
 afterEach(() => {
   cleanup()
   for (const fn of Object.values(actions)) fn.mockReset()
@@ -55,7 +94,7 @@ describe("menú de acciones", () => {
   const open = () =>
     fireEvent.click(screen.getByRole("button", { name: /Acciones/ }))
 
-  it("lista las acciones y deja las sanciones deshabilitadas hasta MOVO-299", async () => {
+  it("lista las acciones; sin sanción vigente no se puede levantar", async () => {
     render(<AccountActions user={user()} />)
     open()
     for (const name of [
@@ -64,14 +103,34 @@ describe("menú de acciones", () => {
       "Cerrar todas las sesiones",
       "Ajustar el saldo",
       "Agregar nota interna",
+      "Suspender",
+      "Inhabilitar",
     ])
       expect(await screen.findByRole("menuitem", { name })).not.toHaveAttribute(
         "aria-disabled",
         "true"
       )
     expect(
-      screen.getByRole("menuitem", { name: /Suspender o inhabilitar/ })
+      screen.getByRole("menuitem", { name: "Levantar sanción" })
     ).toHaveAttribute("aria-disabled", "true")
+  })
+
+  it("inhabilitada solo admite levantar la sanción", async () => {
+    render(
+      <AccountActions
+        user={user({ accountStatus: "banned" })}
+        activeSanction={sanction({ type: "disable" })}
+      />
+    )
+    open()
+    for (const name of ["Suspender", "Inhabilitar"])
+      expect(await screen.findByRole("menuitem", { name })).toHaveAttribute(
+        "aria-disabled",
+        "true"
+      )
+    expect(
+      screen.getByRole("menuitem", { name: "Levantar sanción" })
+    ).not.toHaveAttribute("aria-disabled", "true")
   })
 
   it("en la propia cuenta no permite ninguna acción y lo explica", async () => {
@@ -425,6 +484,149 @@ describe("nota interna", () => {
     expect(actions.addNote).toHaveBeenCalledWith(
       user().id,
       "Llamó por la disputa"
+    )
+  })
+})
+
+describe("suspender e inhabilitar", () => {
+  const mount = (type: "suspension" | "disable") =>
+    render(
+      <SanctionDialog
+        type={type}
+        onClose={vi.fn()}
+        userId={user().id}
+        fullName="Marcos Vera"
+      />
+    )
+
+  it("suspender explica antes qué se retira y qué sigue, y aplica sin fecha si es indefinida", async () => {
+    actions.loadSanctionPreview.mockResolvedValue({
+      ok: true,
+      data: {
+        shipments: 2,
+        offers: 1,
+        trips: 0,
+        recurringSeries: 0,
+        inProgressShipments: [inTransit, inTransit, inTransit],
+      },
+    })
+    actions.applySanction.mockResolvedValue({
+      ok: true,
+      data: sanction({
+        withdrawal: {
+          status: "failed",
+          result: null,
+          errorCode: "SHIPMENTS_SERVICE_UNAVAILABLE",
+          attemptedAt: "2026-10-20T15:00:00.000Z",
+        },
+      }),
+    })
+    mount("suspension")
+    type("Motivo", "Tres no-show seguidos")
+    expect(
+      screen.getByText(/Lo ve la persona en la app y en el email/)
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("tab", { name: "Indefinida" }))
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }))
+    expect(
+      await screen.findByText(
+        "Se van a cancelar 2 publicaciones y retirar 1 oferta."
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Los 3 envíos en curso siguen/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("button", { name: "Suspender" }))
+    await screen.findByText("Cuenta suspendida")
+    expect(actions.applySanction).toHaveBeenCalledWith(user().id, {
+      type: "suspension",
+      reason: "Tres no-show seguidos",
+      internalNote: "",
+      endsOn: null,
+    })
+    // El retiro falló: la sanción quedó aplicada y se ofrece reintentar.
+    expect(
+      screen.getByRole("button", { name: "Reintentar el retiro" })
+    ).toBeInTheDocument()
+  })
+
+  it("con fecha de fin, no deja revisar hasta elegir una fecha", async () => {
+    mount("suspension")
+    type("Motivo", "Cancelaciones tardías")
+    expect(screen.getByRole("button", { name: "Revisar" })).toBeDisabled()
+  })
+
+  it("inhabilitar con envíos en curso los lista con link y sugiere suspender, sin aplicar nada", async () => {
+    actions.loadSanctionPreview.mockResolvedValue({
+      ok: true,
+      data: {
+        shipments: 0,
+        offers: 0,
+        trips: 0,
+        recurringSeries: 0,
+        inProgressShipments: [inTransit],
+      },
+    })
+    mount("disable")
+    type("Motivo", "Fraude confirmado")
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }))
+    expect(
+      await screen.findByRole("link", { name: "5E6F7A8B" })
+    ).toHaveAttribute("href", `/shipments/${inTransit.id}`)
+    expect(screen.getByText(/Suspendé la cuenta primero/)).toBeInTheDocument()
+    expect(actions.applySanction).not.toHaveBeenCalled()
+  })
+
+  it("si el 409 llega al confirmar, muestra los envíos igual", async () => {
+    actions.loadSanctionPreview.mockResolvedValue({
+      ok: true,
+      data: {
+        shipments: 0,
+        offers: 0,
+        trips: 0,
+        recurringSeries: 0,
+        inProgressShipments: [],
+      },
+    })
+    actions.applySanction.mockResolvedValue({
+      ok: false,
+      error: "La cuenta tiene envíos en curso",
+      code: "USER_HAS_IN_PROGRESS_SHIPMENTS",
+      inProgressShipments: [inTransit],
+    })
+    mount("disable")
+    type("Motivo", "Fraude confirmado")
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }))
+    fireEvent.click(await screen.findByRole("checkbox"))
+    fireEvent.click(screen.getByRole("button", { name: "Inhabilitar" }))
+    expect(
+      await screen.findByRole("link", { name: "5E6F7A8B" })
+    ).toBeInTheDocument()
+  })
+})
+
+describe("levantar sanción", () => {
+  it("pide el motivo y levanta la vigente", async () => {
+    actions.liftSanction.mockResolvedValue({
+      ok: true,
+      data: sanction({ closedCause: "lifted" }),
+    })
+    render(
+      <LiftDialog
+        sanction={sanction()}
+        onClose={vi.fn()}
+        userId={user().id}
+        fullName="Marcos Vera"
+      />
+    )
+    const lift = screen.getByRole("button", { name: "Levantar sanción" })
+    expect(lift).toBeDisabled()
+    type("Motivo", "Se revisó el reclamo")
+    fireEvent.click(lift)
+    await screen.findByText("Sanción levantada")
+    expect(actions.liftSanction).toHaveBeenCalledWith(
+      user().id,
+      sanction().id,
+      "Se revisó el reclamo"
     )
   })
 })

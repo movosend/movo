@@ -274,7 +274,7 @@ export function createTripsService(deps: {
   shipmentRepository: ShipmentRepository;
   offerRepository: OfferRepository;
   usersClient: UsersClient;
-  /** MOVO-116 (ADR-036): cuenta de MP del transportista para el bloqueo de declarar e
+  /** MOVO-116 (DD-036): cuenta de MP del transportista para el bloqueo de declarar e
    * iniciar viaje. Requerido, no opcional: sin él no hay forma de fallar cerrado. */
   paymentsClient: PaymentsClient;
   defaultMaxDetourKm: number;
@@ -301,7 +301,7 @@ export function createTripsService(deps: {
   } = deps;
   const carrierGate = { usersClient, paymentsClient, shipmentRepository };
 
-  /** MOVO-265 (ADR-042, punto 9). Dos PATCH concurrentes pueden dejar una serie de más:
+  /** MOVO-265 (DD-042, punto 9). Dos PATCH concurrentes pueden dejar una serie de más:
    * aceptado, no justifica un lock por transportista para este volumen. */
   async function assertSeriesLimit(carrierId: string): Promise<void> {
     if ((await tripRepository.countActiveSeries(carrierId)) >= MAX_ACTIVE_RECURRING_SERIES) {
@@ -323,7 +323,7 @@ export function createTripsService(deps: {
 
   return {
     async createTrip({ callerId, callerRoles, input }) {
-      // MOVO-116 (ADR-036): identidad + licencia + MP, antes de cualquier escritura.
+      // MOVO-116 (DD-036): identidad + licencia + MP, antes de cualquier escritura.
       await assertCarrierCanOperate(carrierGate, callerId, callerRoles);
 
       if (input.departureAt.getTime() <= Date.now()) {
@@ -338,7 +338,7 @@ export function createTripsService(deps: {
         );
       }
 
-      // MOVO-265 (ADR-042): un viaje que nace recurrente es el primero de su serie
+      // MOVO-265 (DD-042): un viaje que nace recurrente es el primero de su serie
       // (`seriesId = id`, por eso el id se genera acá y no en Postgres).
       let series: { id: string; seriesId: string } | null = null;
       if (input.recurrenceWeekdays !== undefined && input.recurrenceWeekdays !== null) {
@@ -414,7 +414,7 @@ export function createTripsService(deps: {
         forbiddenMessage: "No tenés permiso para modificar este viaje.",
       });
 
-      // MOVO-265 (ADR-042, punto 6): la recurrencia solo se edita en el trip vigente. Con
+      // MOVO-265 (DD-042, punto 6): la recurrencia solo se edita en el trip vigente. Con
       // paquetes aceptados el viaje no se edita, salvo para apagar la recurrencia.
       const touchesRecurrence = input.recurrenceWeekdays !== undefined || input.recurrenceUntil !== undefined;
       const stopRecurrenceOnly = isStopRecurrencePatch(input);
@@ -614,7 +614,7 @@ export function createTripsService(deps: {
         );
       }
 
-      // MOVO-116 (ADR-036): el transportista dueño del viaje (no quien llama, que puede
+      // MOVO-116 (DD-036): el transportista dueño del viaje (no quien llama, que puede
       // ser un admin) tiene que seguir cumpliendo los requisitos al arrancar. Mismo
       // recorte que la fecha: sobre otro estado manda el `TRIP_NOT_DECLARED` de `start()`.
       if (trip.status === TripStatus.DECLARED) {
@@ -687,7 +687,7 @@ export function createTripsService(deps: {
 
       const effectiveRadiusKm = radiusKm ?? defaultMaxDetourKm;
 
-      // MOVO-175 (ADR-026): mismo filtro de bloqueos que el feed "Transportar", falla abierto.
+      // MOVO-175 (DD-026): mismo filtro de bloqueos que el feed "Transportar", falla abierto.
       const blockedIds = await safeBlockRelatedUserIds(usersClient, trip.carrierId, logger);
 
       // 1. Prefiltro geométrico (corredor <= 15 km, fecha calendario argentina y ventana de retiro)
@@ -776,7 +776,7 @@ export function createTripsService(deps: {
       }
 
       // 4. Filtrar candidatos factibles y enriquecer con métricas de desvío
-      // Fail-safe (No-Fallback ADR-021): solo se incluyen candidatos con evaluación factible explícita
+      // Fail-safe (No-Fallback DD-021): solo se incluyen candidatos con evaluación factible explícita
       const matchedItems: MatchedShipment[] = [];
       for (const item of items) {
         const ev = evaluationsMap.get(item.id);

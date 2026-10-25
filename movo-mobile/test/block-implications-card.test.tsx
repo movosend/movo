@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react-native";
 import { BlockImplicationsCard } from "../components/profile/block-implications-card";
 
-/** MOVO-175 (ADR-026): cada fila refleja una regla que el backend aplica de verdad. */
+/** MOVO-175 (DD-026): cada fila refleja una regla que el backend aplica de verdad. */
 describe("BlockImplicationsCard", () => {
   it("lista las cinco implicancias del bloqueo", async () => {
     const { getByText } = await render(<BlockImplicationsCard />);

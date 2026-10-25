@@ -36,7 +36,7 @@ import { sendCustodyPush } from "../../utils/dispatch-push";
 import { assertIsSender } from "../shipments/assert-shipment-access";
 
 /**
- * MOVO-210: configuración de la saga (todo viene de env, valores en ADR-050).
+ * MOVO-210: configuración de la saga (todo viene de env, valores en DD-050).
  */
 export interface FundingConfig {
   /** "N": retiro dentro de N días = ruta cercana; a más, ruta lejana. */
@@ -441,7 +441,7 @@ export function createFundingService(deps: FundingServiceDeps) {
 
   return {
     /**
-     * MOVO-331 (ADR-055): un admin pasa a `assigned` un envío que espera el pago. Nunca confía en el
+     * MOVO-331 (DD-055): un admin pasa a `assigned` un envío que espera el pago. Nunca confía en el
      * motivo del admin: el hold tiene que estar autorizado (o capturado) en payments, consultado con
      * sync contra MP. Reusa `markAssigned`, así que cierra las demás ofertas y avisa como la saga.
      */

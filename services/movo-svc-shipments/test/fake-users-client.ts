@@ -14,7 +14,7 @@ import { DeviceKey, UsersClient } from "../src/adapters/users-client";
  * override, la identidad sale de `profile.isVerified` (mismo dato en svc-users) y la
  * licencia es `approved`; un usuario que no está en `profiles` (muchos fixtures no
  * registran al transportista) cuenta como transportista habilitado. Así los tests
- * existentes siguen pasando el bloqueo de ADR-036 sin tocarlos.
+ * existentes siguen pasando el bloqueo de DD-036 sin tocarlos.
  */
 export function createFakeUsersClient(
   profiles: Record<string, PublicProfile>,

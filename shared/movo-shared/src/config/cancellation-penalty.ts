@@ -1,7 +1,7 @@
 import { ShipmentStatus } from "../types/shipment";
 
 /**
- * MOVO-307 (MOVO-226, ADR-047): penalidad por cancelar un envío `assigned`. Regla única,
+ * MOVO-307 (MOVO-226, DD-047): penalidad por cancelar un envío `assigned`. Regla única,
  * compartida entre `movo-svc-shipments` (cotiza y cobra) y `movo-mobile` (muestra el monto
  * antes de confirmar), así los dos calculan lo mismo.
  *
@@ -10,7 +10,7 @@ import { ShipmentStatus } from "../types/shipment";
  * - faltan 12 h o más: sin cargo;
  * - faltan menos de 12 h y la ventana sigue abierta: 25 % del precio acordado;
  * - la ventana ya cerró: sin cargo (el que faltó fue el transportista), salvo que haya
- *   evidencia GPS de que el transportista llegó al retiro (MOVO-270, ADR-052): 25 %.
+ *   evidencia GPS de que el transportista llegó al retiro (MOVO-270, DD-052): 25 %.
  */
 export const CANCELLATION_PENALTY_FREE_HOURS = 12;
 
@@ -32,7 +32,7 @@ export const SENDER_CANCELLABLE_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.ASSIGNMENT_PENDING,
   // MOVO-308: todavía sin reserva, sin cargo.
   ShipmentStatus.ASSIGNED_UNFUNDED,
-  // MOVO-308: con la penalidad de ADR-047.
+  // MOVO-308: con la penalidad de DD-047.
   ShipmentStatus.ASSIGNED,
 ];
 

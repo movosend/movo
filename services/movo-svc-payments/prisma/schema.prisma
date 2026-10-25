@@ -151,7 +151,7 @@ model Hold {
   @@schema("payments")
 }
 
-// MOVO-100 (ADR-039): customer de la cuenta de Movo S.A. en Mercado Pago, uno por
+// MOVO-100 (DD-039): customer de la cuenta de Movo S.A. en Mercado Pago, uno por
 // emisor. El `payer` del hold con tarjeta guardada es este customer (con `payer: {email}`
 // MP responde 2002). `userId` es referencia lógica a users.users, sin FK (ADR-003).
 model PayerCustomer {
@@ -165,7 +165,7 @@ model PayerCustomer {
   @@schema("payments")
 }
 
-// MOVO-100 (ADR-039): tarjeta guardada del emisor en su customer de Movo. Solo ids de MP
+// MOVO-100 (DD-039): tarjeta guardada del emisor en su customer de Movo. Solo ids de MP
 // y metadatos de display: NUNCA el `card_token` (un solo uso), el número ni el CVV.
 // Baja soft (`deletedAt`). Dos índices únicos PARCIALES, a mano en la migración porque
 // Prisma no los representa: `(user_id, mp_card_id)` y un solo `is_default` entre las
@@ -261,9 +261,66 @@ model Settlement {
   createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz
   hold                  Hold             @relation(fields: [holdId], references: [id])
+  refunds               Refund[]
 
   @@index([status, nextAttemptAt], map: "settlements_status_next_attempt_idx")
   @@map("settlements")
+  @@schema("payments")
+}
+
+// MOVO-336: estado de un intento de reembolso (ver `RefundStatus` en @movo/shared).
+enum RefundStatus {
+  processing
+  succeeded
+  failed
+  fallback_to_ledger
+
+  @@map("refund_status")
+  @@schema("payments")
+}
+
+// MOVO-336: reembolso de un pago ya capturado, una fila por INTENTO. Nace en `processing` ANTES de llamar a MP (mismo
+// criterio que `Settlement`): una caída entre el pedido y la respuesta deja rastro y se completa con la misma key.
+//
+// - `attempt` es el `<n>` de `mp_idempotency_key` (`movo-refund-<settlementId>-<n>`): MP guarda la respuesta de una key,
+//   así que un intento nuevo tras un `failed` usa otro `n` y no replica el rechazo.
+// - `request_key` es la `idempotencyKey` del llamador. Un índice único parcial a mano (`settlement_id`, `request_key`
+//   mientras no esté `failed`) deja UNA fila viva por key; Prisma no representa índices parciales.
+// - `shipment_id`/`hold_id`/`carrier_id`/`mp_payment_id` se copian de la liquidación para el historial y el webhook,
+//   que buscan por pago sin pasar por ella. `ledger_entry_id` es lógico (sin FK): lo deja el fallback.
+// - `mp_response` es el cuerpo de MP sin datos sensibles (solo campos del reembolso, nunca tokens).
+model Refund {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  settlementId       String       @map("settlement_id") @db.Uuid
+  shipmentId         String       @map("shipment_id") @db.Uuid
+  holdId             String       @map("hold_id") @db.Uuid
+  carrierId          String       @map("carrier_id") @db.Uuid
+  mpPaymentId        String       @map("mp_payment_id")
+  attempt            Int
+  amountArs          Decimal      @map("amount_ars") @db.Decimal(12, 2)
+  reason             String
+  requestKey         String       @map("request_key")
+  // Hash de (monto pedido o total, motivo): una key reusada con otro cuerpo es 409.
+  requestFingerprint String       @map("request_fingerprint")
+  adminId            String       @map("admin_id") @db.Uuid
+  mpIdempotencyKey   String       @unique(map: "refunds_mp_idempotency_key_key") @map("mp_idempotency_key")
+  status             RefundStatus @default(processing)
+  // Ver `RefundFailureReason` en @movo/shared.
+  failureReason      String?      @map("failure_reason")
+  mpRefundId         String?      @map("mp_refund_id")
+  mpResponse         Json?        @map("mp_response")
+  lastError          String?      @map("last_error")
+  ledgerEntryId      String?      @map("ledger_entry_id") @db.Uuid
+  // Cuándo llegó a un estado final (`succeeded`, `failed` o `fallback_to_ledger`): la fecha del movimiento en el historial.
+  completedAt        DateTime?    @map("completed_at") @db.Timestamptz
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+  settlement         Settlement   @relation(fields: [settlementId], references: [id])
+
+  @@unique([settlementId, attempt], map: "refunds_settlement_attempt_key")
+  @@index([mpPaymentId], map: "refunds_mp_payment_id_idx")
+  @@index([holdId], map: "refunds_hold_id_idx")
+  @@map("refunds")
   @@schema("payments")
 }
 
@@ -392,7 +449,7 @@ enum LedgerRole {
   @@schema("payments")
 }
 
-// MOVO-309 (ADR-044): cuenta corriente del USUARIO (no de un rol). Solo inserción, con
+// MOVO-309 (DD-044): cuenta corriente del USUARIO (no de un rol). Solo inserción, con
 // triggers en la migración: lo único que cambia de una fila es `status`. `amount_ars` es con
 // signo (positivo = debe). `createdAt` lo pone la app (ms) y no Postgres (µs) para que el
 // cursor de paginación no pierda precisión. Referencias lógicas, sin FK (ADR-003), salvo

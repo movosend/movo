@@ -152,7 +152,16 @@ por polling. Es ruta propia y no un bloque del detalle, así el polling no vuelv
 rutea `/admin/*` por prefijo. El schema declara nullable cada campo que puede venir en `null`. Deploy en serie: hasta que `svc-shipments`
 tenga la ruta, es 502.
 
-### MOVO-332 — Cambio de estado de un envío desde el panel (ADR-055)
+### MOVO-299 — Sanciones desde la ficha: suspender, inhabilitar, levantar (DD-049)
+
+`modules/sanctions/`: historial, vista previa, aplicar, levantar y reintentar el retiro. Orden: sanción en `svc-users` → retiro en
+`svc-shipments` en la misma `runAdminAction`; un retiro fallido o parcial no hace fallar la acción y se reintenta con `POST .../withdraw`.
+Inhabilitar con envíos en curso es 409 `USER_HAS_IN_PROGRESS_SHIPMENTS` sin aplicar nada. El estado del retiro se deriva de la bitácora
+(`context.withdrawal` por `sanctionId`), sumando los intentos, sin tabla nueva. Limitaciones aceptadas en la fila de DD-049.
+
+Pendiente: verificar a mano contra dev (suspender un usuario de prueba y comprobar en la app que no puede publicar pero sí entregar).
+
+### MOVO-332 — Cambio de estado de un envío desde el panel (DD-055)
 
 `modules/shipments/shipments.routes.ts` suma cuatro rutas: `GET /admin/shipments/:id/status-options`, `POST /admin/step-up`,
 `POST /admin/step-up/verify` y `POST /admin/shipments/:id/status`. La lógica de transición es de `svc-shipments`
@@ -170,12 +179,23 @@ tenga la ruta, es 502.
 - **`POST /admin/step-up`** exige que el envío exista y que el par esté en la matriz y pida segundo factor (404/422/400); no manda un email por cualquier par.
 - **Un 429 del rate limit deja una fila por admin y envío por ventana** (flag `NX` de 60 s en Redis), no una por rechazo.
 - **Bitácora: una fila por intento** (salvo los 429, ver abajo), rechazos incluidos. El "antes y después" del ticket (AC5) lo cubre `unknown`: la tabla es de solo agregar
-  filas (trigger), así que no hay una fila previa. Detalle en el ADR-055.
+  filas (trigger), así que no hay una fila previa. Detalle en el DD-055.
 - **`internal-client.ts` ahora propaga `details`** de un 4xx (antes se descartaban), y tiene `relayServerErrorCodes`: `FORCE_STATUS_EFFECT_FAILED` es
   un 502 de negocio que no debe leerse como "servicio caído" (la fila sería `unknown`, y es un `failed`). Los schemas de error de
   `shipments.schema.ts` declaran `details`: sin eso Fastify los recortaba y el panel no podía explicar `STATUS_CHANGED`/`TRANSITION_NOT_ALLOWED`.
 - **Rate limit** (`utils/rate-limit.ts`, ventana fija en Redis): 10 cambios/min por admin y 5/min por envío; cuenta también los intentos
   rechazados y se aplica antes de la bitácora (un 429 no deja fila). El `forceShipmentStatus` espera hasta 30 s (el servicio llama a payments).
+- Pendiente: probar contra dev real que el email del step-up llega (Resend). El modal del panel (MOVO-333) ya está hecho.
+
+### MOVO-333 (backend de apoyo) — `status-options` con `checks`/`irreversible` y código de confirmación del panel
+
+`GET /admin/shipments/:id/status-options` devuelve también `checks` (qué verificar antes) e `irreversible` (qué no se deshace) por opción, y `code` pasa a
+ser el que muestra el panel (`MOVO-12345`, `shipmentConfirmationCode`), no los 8 primeros caracteres del id. `typedCode` se compara con
+`normalizeConfirmationCode` (sin `#`, sin espacios, sin distinguir mayúsculas). Los textos viven en la matriz de `@movo/shared`.
+
+**Corrección (MOVO-333): el schema de respuesta de los eventos declara `kind` y `actorName`.** Sin declararlos Fastify los recortaba y el detalle del
+panel nunca recibía la marca de manual/forzado. El test de `shipments.integration.test.ts` fija un evento forzado y falla si se pierden.
+
 - Pendiente: el modal del panel (MOVO-333); probar contra dev real que el email del step-up llega (Resend).
 
 ### MOVO-322 — Bandeja de soporte: `/admin/support/*`
@@ -187,6 +207,6 @@ tenga la ruta, es 502.
   fila es `carrier` si la cuenta lo tiene, `sender` si no. La búsqueda por nombre consulta `svc-users` y manda los ids.
 - Toda escritura por `runAdminAction` con objetivo `support_conversation` (migración `20261025130000_…` del enum de la
   bitácora; caso nuevo en `conflict-of-interest.ts`). El actor viaja en el body; si `svc-users` no responde firma "Equipo de Movo".
-- `GET events` lee el Redis Stream `support:events` (ADR-056, `support-events.ts`): cursor = id de la entrada, `reset` si es
+- `GET events` lee el Redis Stream `support:events` (ADR-024, `support-events.ts`): cursor = id de la entrada, `reset` si es
   más viejo que lo retenido, y los `counts_changed` se juntan en un `counts_updated` con los contadores del admin que mira.
 - Pendiente: `POST realtime-ticket` y el WebSocket del panel (segunda PR de MOVO-322).
