@@ -79,7 +79,7 @@ export function normalizeSearchText(value: string): string {
     .trim();
 }
 
-const normalizedSql = (column: string): Prisma.Sql =>
+export const normalizedSql = (column: string): Prisma.Sql =>
   Prisma.sql`lower(translate(${Prisma.raw(column)}, ${TRANSLATE_FROM}, ${TRANSLATE_TO}))`;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
