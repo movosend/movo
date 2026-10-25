@@ -142,7 +142,7 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategoryDefinition[] 
     section: "conversations",
     title: "Disputas",
     sub: "Apertura y resolución de un reclamo",
-    // MOVO-334: la apertura por una de las partes (`disputeOpened*`). La resolución llega con MOVO-34.
+    // MOVO-334: la apertura por una de las partes (`disputeOpened*`). La resolución es `disputeResolved` (MOVO-337).
     implemented: true,
     quietHoursExempt: false,
   },
