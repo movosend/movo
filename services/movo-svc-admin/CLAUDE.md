@@ -178,6 +178,12 @@ tenga la ruta, es 502.
   rechazados y se aplica antes de la bitácora (un 429 no deja fila). El `forceShipmentStatus` espera hasta 30 s (el servicio llama a payments).
 - Pendiente: probar contra dev real que el email del step-up llega (Resend). El modal del panel (MOVO-333) ya está hecho.
 
+### MOVO-333 (fix) — `simulatePayment` en `POST /admin/shipments/:id/status`
+
+El body acepta `simulatePayment` (boolean, solo con destino `assigned`, si no `422`), se registra en `context` de la bitácora y se reenvía a
+`svc-shipments`, que lo valida y aplica (ADR-055, sección "Pago simulado"). No se agregó variable de entorno acá: el interruptor es
+`ALLOW_SIMULATED_PAYMENTS` de `svc-shipments`.
+
 ### MOVO-333 (backend de apoyo) — `status-options` con `checks`/`irreversible` y código de confirmación del panel
 
 `GET /admin/shipments/:id/status-options` devuelve también `checks` (qué verificar antes) e `irreversible` (qué no se deshace) por opción, y `code` pasa a

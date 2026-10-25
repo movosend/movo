@@ -393,6 +393,7 @@ export const shipmentsSchemas = {
       typedCode: { type: "string", maxLength: 32 },
       stepUpToken: { type: "string", minLength: 20, maxLength: 128 },
       idempotencyKey: { type: "string", minLength: 8, maxLength: 128 },
+      simulatePayment: { type: "boolean" },
     },
   },
   statusChangeResponse: {

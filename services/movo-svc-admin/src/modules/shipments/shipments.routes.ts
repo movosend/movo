@@ -426,6 +426,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
             forced: cell?.kind === "forced",
             risk: cell?.risk ?? null,
             idempotencyKey: body.idempotencyKey,
+            ...(body.simulatePayment ? { simulatePayment: true } : {}),
             ...(retryAfterUnknown ? { retryAfterUnknown: true } : {}),
           },
           resolveContext: (result) => ({ replayed: result.replayed }),
@@ -443,6 +444,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
               throw new ApiError(409, "STATUS_CHANGED", "El estado del envío cambió mientras confirmabas.", {
                 currentStatus: shipment.status,
               });
+            }
+            if (body.simulatePayment && to !== ShipmentStatus.ASSIGNED) {
+              throw new ApiError(422, "VALIDATION_FAILED", "El pago simulado solo aplica al pasar a Asignado.");
             }
             if (!cell || !friction) {
               const blockedReason = blockedTransitionReason(from, to);
@@ -475,6 +479,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
                 adminId,
                 adminName,
                 idempotencyKey: body.idempotencyKey,
+                ...(body.simulatePayment ? { simulatePayment: true } : {}),
               },
               ctx,
             );
