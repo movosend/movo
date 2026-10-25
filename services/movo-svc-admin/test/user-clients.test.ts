@@ -91,10 +91,14 @@ describe("clientes internos de la ficha del panel (MOVO-294)", () => {
     });
 
     it("los nombres van por POST sin repetidos, y sin ids no sale a la red", async () => {
-      const fetchMock = mockFetch(200, { users: [{ id: USER, fullName: "Ana Ariza" }] });
-      await expect(users.getUserNames([USER, USER], ctx)).resolves.toEqual([{ id: USER, fullName: "Ana Ariza" }]);
+      const fetchMock = mockFetch(200, { users: [{ id: USER, fullName: "Ana Ariza", roles: ["sender", "carrier"] }] });
+      await expect(users.getUserNames([USER, USER], ctx)).resolves.toEqual([{ id: USER, fullName: "Ana Ariza", roles: ["sender", "carrier"] }]);
       expect(fetchMock.mock.calls[0][1].method).toBe("POST");
       expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ ids: [USER] });
+
+      // Un svc-users anterior a MOVO-322 no manda `roles`: no es una respuesta inválida (deploy en serie).
+      mockFetch(200, { users: [{ id: USER, fullName: "Ana Ariza" }] });
+      await expect(users.getUserNames([USER], ctx)).resolves.toEqual([{ id: USER, fullName: "Ana Ariza", roles: [] }]);
 
       const unused = mockFetch(200, { users: [] });
       await expect(users.getUserNames([], ctx)).resolves.toEqual([]);

@@ -18,12 +18,24 @@ import {
   HoldDetailResponse,
   ShipmentParties,
   ShipmentStatus,
+  SupportInternalActor,
+  SupportInternalAgentLoad,
+  SupportInternalAttachmentBody,
+  SupportInternalCounts,
+  SupportInternalCountsQuery,
+  SupportInternalListQuery,
+  SupportInternalMessage,
+  SupportInternalPatchBody,
+  SupportInternalRow,
+  SupportInternalSendBody,
+  SupportInternalUserConversations,
   UserReportParties,
 } from "@movo/shared";
 import { InternalClient } from "../src/adapters/internal-client";
 import { ShipmentsClient } from "../src/adapters/shipments-client";
 import { PartyCard, UsersClient } from "../src/adapters/users-client";
 import { LedgerAdjustmentRequest, PaymentsClient } from "../src/adapters/payments-client";
+import { SupportClient } from "../src/adapters/support-client";
 
 const unusedRequest: InternalClient["request"] = async () => {
   throw new Error("request genérico fuera de alcance de este fake");
@@ -119,6 +131,8 @@ export function createFakeUsersClient(
     profiles?: AdminUserProfile[];
     /** Solo la resolución de nombres falla (el resto de `svc-users` responde). */
     namesDown?: boolean;
+    /** MOVO-322: solo el KYC falla (las insignias del contexto de soporte fallan abierto). */
+    kycDown?: boolean;
     cards?: PartyCard[];
     down?: boolean;
   } = {},
@@ -165,6 +179,7 @@ export function createFakeUsersClient(
     },
     async getUserKyc(id) {
       profileOf(id);
+      if (data.kycDown) throw usersDown();
       return {
         identity: { status: "approved" as const, lastSessionId: "s-1", attempts: [] },
         license: { status: "not_started" as const, lastSessionId: null, expiresAt: null, attempts: [] },
@@ -188,7 +203,7 @@ export function createFakeUsersClient(
     },
     async getUserNames(ids) {
       if (data.down || data.namesDown) throw usersDown();
-      return profiles.filter((p) => ids.includes(p.id)).map((p) => ({ id: p.id, fullName: p.fullName }));
+      return profiles.filter((p) => ids.includes(p.id)).map((p) => ({ id: p.id, fullName: p.fullName, roles: p.roles.map((r) => r.role) }));
     },
     async revokeUserSessions(id) {
       assertNotDeleted(profileOf(id));
@@ -289,4 +304,110 @@ export function createFakePaymentsClient(
     },
   };
   return { client, adjustments };
+}
+
+export const supportDown = () => new ApiError(502, "SUPPORT_SERVICE_UNAVAILABLE", "El servicio de soporte no responde.");
+const supportNotFound = () => new ApiError(404, "SUPPORT_CONVERSATION_NOT_FOUND", "La consulta no existe.");
+
+/**
+ * MOVO-322: `/internal/admin/support/*` de svc-shipments. Guarda lo que recibe (`seen`) para comprobar qué resolvió
+ * svc-admin (`assignee=me`, `userIds`, el actor) sin repetir las reglas del modelo, que prueba svc-shipments.
+ */
+export function createFakeSupportClient(
+  data: {
+    rows?: Record<string, SupportInternalRow>;
+    messages?: Record<string, SupportInternalMessage[]>;
+    userConversations?: Record<string, SupportInternalUserConversations>;
+    loads?: SupportInternalAgentLoad[];
+    counts?: SupportInternalCounts;
+    down?: boolean;
+  } = {},
+) {
+  const seen: {
+    list?: SupportInternalListQuery;
+    counts?: SupportInternalCountsQuery;
+    send?: SupportInternalSendBody;
+    patch?: SupportInternalPatchBody;
+    actor?: SupportInternalActor;
+    attachment?: SupportInternalAttachmentBody;
+    read?: string;
+  } = {};
+  const rowOf = (id: string) => {
+    if (data.down) throw supportDown();
+    const row = data.rows?.[id];
+    if (!row) throw supportNotFound();
+    return row;
+  };
+  const client: SupportClient = {
+    request: unusedRequest,
+    async list(query) {
+      if (data.down) throw supportDown();
+      seen.list = query;
+      return { items: Object.values(data.rows ?? {}).filter((r) => r.status === query.status), nextCursor: null };
+    },
+    async counts(query) {
+      if (data.down) throw supportDown();
+      seen.counts = query;
+      return data.counts ?? { byStatus: { open: 0, awaiting_user: 0, resolved: 0 }, byOwner: { all: 0, mine: 0, none: 0 }, unreadTotal: 0 };
+    },
+    async get(id) {
+      return rowOf(id);
+    },
+    async messages(id) {
+      rowOf(id);
+      return { items: data.messages?.[id] ?? [], nextCursor: null };
+    },
+    async send(id, body) {
+      const row = rowOf(id);
+      seen.send = body;
+      const message: SupportInternalMessage = {
+        id: randomUUID(),
+        conversationId: id,
+        kind: body.internal ? "note" : "agent",
+        authorId: body.actorId,
+        authorName: body.actorFirstName,
+        body: body.body,
+        clientMessageId: body.clientMessageId,
+        attachments: [],
+        createdAt: new Date().toISOString(),
+      };
+      return { message, conversation: row };
+    },
+    async patch(id, body) {
+      const row = rowOf(id);
+      seen.patch = body;
+      return { ...row, ...(body.assignedTo !== undefined ? { assignedTo: body.assignedTo } : {}), ...(body.priority ? { priority: body.priority } : {}) };
+    },
+    async resolve(id, actor) {
+      seen.actor = actor;
+      return { ...rowOf(id), status: "resolved" };
+    },
+    async reopen(id, actor) {
+      seen.actor = actor;
+      return { ...rowOf(id), status: "open" };
+    },
+    async read(id) {
+      rowOf(id);
+      seen.read = id;
+    },
+    async getParties(id) {
+      if (data.down) throw supportDown();
+      const row = data.rows?.[id];
+      return row ? { userId: row.userId } : null;
+    },
+    async userConversations(id) {
+      rowOf(id);
+      return data.userConversations?.[id] ?? { items: [] };
+    },
+    async agentLoads() {
+      if (data.down) throw supportDown();
+      return data.loads ?? [];
+    },
+    async createAttachment(id, body) {
+      rowOf(id);
+      seen.attachment = body;
+      return { attachmentId: randomUUID(), uploadUrl: "https://bucket/put", expiresAt: new Date(Date.now() + 300_000).toISOString() };
+    },
+  };
+  return { client, seen };
 }
