@@ -2,14 +2,28 @@ titulo: Informe de Impacto Ambiental
 titulo_corto: Impacto Ambiental
 subtitulo: Consumo energético y huella de carbono, alternativas de diseño evaluadas y beneficios de la solución.
 instancia: Instancia 5 · Fin de proyecto
-version: "0"
-fecha: 02/11/2026
+version: "1"
+fecha: 24/10/2026
 indice_nivel_3: false
 historial:
-  - {version: "0", fecha: 02/11/2026, autor: "BORDINO BLANCHE, Juan Cruz", descripcion: "Reserva del documento; el contenido se incorporará cuando esté listo."}
+  - {version: "1", fecha: 24/10/2026, autor: "BORDINO BLANCHE, Juan Cruz", descripcion: "Creación de la versión inicial del Análisis de Impacto Ambiental."}
 introduccion: |
-  Este informe evalúa cómo afecta al medio ambiente la implementación de la solución Movo:
-  cuánta energía consume y qué huella de carbono genera, qué alternativas de diseño se
-  evaluaron por su impacto ambiental y qué beneficios ambientales produce.
+  La infraestructura en la nube de Movo consume entre 36,5 y 145,9 kWh por año y emite entre 2,7 y 10,8 kgCO₂e,
+  sea cual sea la utilización real de CPU. Ese rango sale de la configuración verificada en el repositorio y en el
+  Terraform, y de coeficientes publicados, sin suponer ningún valor. El beneficio ambiental depende de cuántos
+  envíos reemplacen un viaje dedicado, y ese dato el sistema todavía no lo registra.
+
+  Este documento es el Análisis de Impacto Ambiental que pide la guía de documentación de la cátedra de Proyecto
+  Final (UTN FRC, 2026) para evaluar cómo afecta al medio ambiente la implementación de la solución actual. Movo es
+  una plataforma de logística distribuida P2P que conecta a quienes necesitan enviar un paquete con transportistas
+  que ya hacen ese camino. Se compone de una app móvil (React Native + Expo), un panel de administración (Next.js en
+  Vercel), un gateway y cinco microservicios de negocio (Node.js/Fastify y Python/FastAPI), PostgreSQL, Redis y
+  Nginx, desplegados con Docker Compose sobre AWS EC2 en la región de São Paulo (sa-east-1).
+
+  El análisis sigue los tres puntos que exige la guía: (1) estimación del consumo energético y de la huella de
+  carbono, (2) alternativas de diseño evaluadas por su impacto ambiental y prácticas adoptadas para reducirlo, y
+  (3) beneficios obtenidos. Como el sistema todavía no opera con usuarios reales, no hay mediciones de uso: lo que
+  se calcula son cotas y fórmulas, y lo que no se puede respaldar se declara como no estimado.
 audiencia: |
-  Docentes y comunidad académica.
+  El equipo docente (JTP Ing. Trettel Cecilia, Adjunto Ing. Sergio Quinteros) y la comunidad académica y posibles
+  futuros usuarios de Movo, que lo usan para evaluar la dimensión ambiental del proyecto y no solo el producto.

@@ -50,4 +50,4 @@ python3 docs/tomos/build.py --html     # solo el HTML intermedio (build/), más 
 - Los tres tomos compilan: `python3 docs/tomos/build.py [tomo-1|tomo-2|tomo-3]`. Salida en `salida/` (ignorada por Git).
 - Resultados de pruebas: ejecutar las suites con reporter JSON/JUnit y consolidar con `herramientas/ingerir_resultados.py paquete=ruta ...`.
 - Manual de Usuario: las capturas son marcos pendientes; al guardar `assets/capturas/M-NN.png` (o `W-NN.png`) el build las incluye solas.
-- Pendientes de contenido: Impacto Ambiental, fechas de hitos por confirmar.
+- Pendientes de contenido: fechas de hitos por confirmar.
