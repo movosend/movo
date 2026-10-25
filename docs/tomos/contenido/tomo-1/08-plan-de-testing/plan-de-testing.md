@@ -78,20 +78,31 @@ La revisión de resultados es responsabilidad del equipo de desarrollo. El *revi
 
 # Estado Final de las Pruebas Automatizadas
 
-Al cierre del proyecto, el repositorio contiene del orden de **6.600 casos de prueba automatizados**, distribuidos así (conteo aproximado de casos `it`/`test`/`def test_` por paquete):
+El 24 de octubre de 2026, sobre la rama de integración `develop`, se ejecutaron todas las suites automatizadas del repositorio contra una base PostgreSQL 16 y una instancia de Redis reales (no simuladas), con el mismo procedimiento que usa la integración continua. El resultado fue de **7.428 casos aprobados, ninguno fallido y 28 omitidos**, que son las pruebas contra el *sandbox* de Mercado Pago, que requieren credenciales de pruebas que no se cargan en el entorno de ejecución.
 
-| Paquete | Casos de prueba (aprox.) |
-|---|--:|
-| `movo-mobile` | 2.700 |
-| `movo-svc-shipments` | 1.900 |
-| `movo-svc-users` | 800 |
-| `movo-svc-payments` | 600 |
-| `movo-admin` | 350 |
-| `movo-svc-admin` | 105 |
-| `movo-svc-pricing-logistics` | 95 |
-| `gateway` | 93 |
-| `shared/movo-shared` | 84 |
+| Paquete | Casos aprobados | Omitidos | Cobertura de líneas |
+|----------------|--------:|--------:|--------:|
+| `movo-mobile` (Jest) | 2.944 | 0 | no medida |
+| `movo-svc-shipments` | 2.073 | 0 | 91,1 % |
+| `movo-svc-users` | 874 | 0 | 89,3 % |
+| `movo-svc-payments` | 663 | 28 | 95,2 % |
+| `movo-admin` (panel web) | 414 | 0 | no medida |
+| `movo-svc-pricing-logistics` | 145 | 0 | 93,1 % |
+| `gateway` | 121 | 0 | 98,8 % |
+| `movo-svc-admin` | 108 | 0 | 86,8 % |
+| `shared/movo-shared` | 86 | 0 | 50,6 % |
+| **Total** | **7.428** | **28** | |
 
-: Casos de prueba automatizados por paquete.
+: Resultado de la ejecución de las pruebas automatizadas por paquete.
+
+La cobertura se midió con el proveedor V8 de Vitest (y `pytest-cov` en el servicio de precios), sobre los archivos que cada paquete declara como medibles: servicios, repositorios, dominio y modelos. El motor de precios cumple su umbral estricto del 100 % sobre el cálculo.
+
+## Hallazgos de la medición
+
+La medición final también mostró desvíos respecto de lo planificado, que se documentan en lugar de omitirse:
+
+- **`shared/movo-shared` no alcanza su umbral declarado.** El paquete exige 95 % de líneas y funciones y 90 % de ramas, pero mide 50,6 % de líneas y 27,9 % de funciones. La diferencia se explica por archivos de configuración agregados con posterioridad a la creación del paquete (plantillas de notificaciones, categorías de calificación, textos legales, recorridos guiados) que no tienen pruebas propias en el paquete. Es una deuda técnica de prueba reconocida: el umbral no se está haciendo cumplir en la integración continua.
+- **Una prueba del gateway depende de que Redis esté limpio.** La prueba del límite de uso de la carga de fotos asume contadores en cero; si se ejecuta dos veces seguidas sobre la misma instancia de Redis dentro de la ventana de límite, la segunda falla con 403. En la integración continua no ocurre porque cada ejecución usa un Redis nuevo.
+- **No se midió la cobertura de `movo-mobile` ni del panel `movo-admin`**, que no tienen umbral de cobertura configurado; solo se verificó que sus suites pasen.
 
 La derivación de casos de prueba formales (precondición, pasos y resultado esperado) para cada historia de usuario se presenta en el **Tomo II**, junto con la trazabilidad de cada historia.
