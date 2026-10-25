@@ -1,5 +1,5 @@
 @startuml seq-disputa
-' MOVO-30 (MOVO-334): apertura de una disputa y descargos (ADR-045, ADR-052, ADR-054).
+' MOVO-30 (MOVO-334): apertura de una disputa y descargos (DD-045, DD-052, DD-054).
 autonumber
 actor "Parte que reclama" as P
 actor "Contraparte" as C

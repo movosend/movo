@@ -1,5 +1,5 @@
 @startuml seq-tracking
-' MOVO-11 (MOVO-200 a MOVO-204, MOVO-242, MOVO-250 a MOVO-252): tracking GPS en tiempo real (ADR-022).
+' MOVO-11 (MOVO-200 a MOVO-204, MOVO-242, MOVO-250 a MOVO-252): tracking GPS en tiempo real (ADR-019).
 autonumber
 actor "Transportista" as T
 actor "Emisor / Receptor" as O

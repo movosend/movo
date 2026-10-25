@@ -279,7 +279,7 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
 
 ### Documentación final (Tomos)
 
-`docs/tomos/` genera con un solo comando (`python3 docs/tomos/build.py`) los tres tomos en PDF de la entrega final (HTML + CSS de impresión, WeasyPrint, PlantUML con tema común). Tomo II (trazabilidad HU, casos de prueba, DER, estados, clases) se alimenta de `datos/historias.json` (export de Linear), `datos/hu-ep0N.yaml` y `datos/resultados.json` (ejecución real de las suites, ver `herramientas/ingerir_resultados.py`); DER y diagramas de estados se generan del código. Pendientes: ADRs finales de Pedro, Informe de Impacto Ambiental (Juan Cruz), capturas del Manual de Usuario (`datos/capturas.yaml`, placeholders). Detalle en `docs/tomos/README.md`.
+`docs/tomos/` genera con un solo comando (`python3 docs/tomos/build.py`) los tres tomos en PDF de la entrega final (HTML + CSS de impresión, WeasyPrint, PlantUML con tema común). Tomo II (trazabilidad HU, casos de prueba, DER, estados, clases) se alimenta de `datos/historias.json` (export de Linear), `datos/hu-ep0N.yaml` y `datos/resultados.json` (ejecución real de las suites, ver `herramientas/ingerir_resultados.py`); DER y diagramas de estados se generan del código. Pendientes: Informe de Impacto Ambiental (Juan Cruz), capturas del Manual de Usuario (`datos/capturas.yaml`, placeholders). Detalle en `docs/tomos/README.md`.
 
 ### Pendientes transversales
 

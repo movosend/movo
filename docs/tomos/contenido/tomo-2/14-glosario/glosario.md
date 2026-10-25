@@ -5,19 +5,19 @@ Este glosario reúne los términos del negocio y de la técnica que usa el equip
 | Término | Definición |
 |----------------|--------------------------------------------------------------------------|
 | **Emisor** | Usuario registrado que crea un envío, designa a un receptor y paga. Prepara el paquete y es quien elige al transportista entre las ofertas recibidas. |
-| **Receptor** | Usuario registrado designado por el emisor como destinatario. Debe aceptar o rechazar el envío en 48 horas, antes de que se publique; no puede editar sus datos. Puede transferir la recepción a otra persona (ADR-038). |
+| **Receptor** | Usuario registrado designado por el emisor como destinatario. Debe aceptar o rechazar el envío en 48 horas, antes de que se publique; no puede editar sus datos. Puede transferir la recepción a otra persona (DD-038). |
 | **Transportista** | Usuario con identidad y licencia de conducir verificadas y una cuenta de Mercado Pago vinculada, que traslada físicamente el paquete y cobra el neto del envío. |
 | **Administrador** | Usuario con rol `admin` que opera el panel de administración con un segundo factor; sus acciones de escritura quedan registradas en una bitácora. |
 | **Envío** | Unidad central del sistema: el acuerdo entre emisor, receptor y transportista para trasladar un paquete. Su ciclo de vida tiene 11 estados (ver el documento de diagramas de estados). |
-| **Viaje (declarado)** | Trayecto planificado por un transportista (origen, destino, salida y vehículo). Permite sugerirle paquetes compatibles con su ruta y agrupar los envíos que va a llevar. Puede repetirse semanalmente (ADR-042). |
+| **Viaje (declarado)** | Trayecto planificado por un transportista (origen, destino, salida y vehículo). Permite sugerirle paquetes compatibles con su ruta y agrupar los envíos que va a llevar. Puede repetirse semanalmente (DD-042). |
 | **Oferta** | Propuesta de un transportista para trasladar un envío publicado, con el monto neto que quiere cobrar. El sistema le suma la comisión de Movo para mostrar al emisor el precio bruto. |
-| **Precio sugerido** | Valor que calcula el motor de precios para un envío a partir del peso facturable, la distancia, el tipo de paquete y la demanda de la zona (`package_tapered_v2`, ADR-041). |
-| **Cotización congelada** | Precio sugerido que se reserva durante 15 minutos bajo un identificador de un solo uso, para que el emisor pague el valor que vio (ADR-028). |
+| **Precio sugerido** | Valor que calcula el motor de precios para un envío a partir del peso facturable, la distancia, el tipo de paquete y la demanda de la zona (`package_tapered_v2`, DD-041). |
+| **Cotización congelada** | Precio sugerido que se reserva durante 15 minutos bajo un identificador de un solo uso, para que el emisor pague el valor que vio (DD-028). |
 | **Peso facturable** | El mayor entre el peso real y el peso volumétrico del paquete, base del cálculo del precio. |
 | **Alta demanda** | Recargo que se aplica al precio sugerido cuando la relación entre paquetes y transportistas de la zona supera un umbral. |
 | **Comisión de Movo** | Porcentaje fijo y configurable del precio que retiene la plataforma al repartir el pago (15 % por defecto). |
 | **Feed de paquetes** | Lista de envíos publicados cercanos a un punto de retiro, visible para transportistas verificados, sin datos personales de las partes. |
-| **Handshake criptográfico** | Protocolo de transferencia de custodia en el retiro y en la entrega: el cedente genera un desafío efímero, lo firma con la clave de su dispositivo y el cesionario lo confirma estando a menos de 100 metros (ADR-020). |
+| **Handshake criptográfico** | Protocolo de transferencia de custodia en el retiro y en la entrega: el cedente genera un desafío efímero, lo firma con la clave de su dispositivo y el cesionario lo confirma estando a menos de 100 metros (ADR-018). |
 | **Cedente / Cesionario** | Quien entrega el paquete en una etapa del handshake (emisor en el retiro, transportista en la entrega) y quien lo recibe (transportista en el retiro, receptor en la entrega). |
 | **Nonce** | Número aleatorio de un solo uso que identifica un desafío del handshake; se guarda solo su hash en el evento de custodia. |
 | **ECDSA P-256** | Algoritmo de firma digital de curva elíptica con el que el dispositivo del cedente firma el desafío del handshake. |
@@ -29,23 +29,23 @@ Este glosario reúne los términos del negocio y de la técnica que usa el equip
 | **VRPTW** | *Vehicle Routing Problem with Time Windows*: problema de optimización de rutas con ventanas de tiempo, resuelto con Google OR-Tools. |
 | **Chat del envío** | Conversación en tiempo real entre emisor, receptor y transportista asignado, vigente mientras el envío no se cancele ni se rechace. |
 | **Transferencia de receptor** | Solicitud del receptor para que otra persona reciba el envío; se completa de forma atómica si la invitada acepta antes de que empiece la entrega. |
-| **Redesignación de receptor** | Elección de otro receptor por parte del emisor después de un rechazo, dentro de 48 horas (ADR-027). |
+| **Redesignación de receptor** | Elección de otro receptor por parte del emisor después de un rechazo, dentro de 48 horas (DD-027). |
 | **KYC (Know Your Customer)** | Verificación de identidad previa a operar, delegada en Didit.me (documento y prueba de vida). Movo no almacena documentos ni biometría. |
 | **Insignia** | Marca visual del perfil que certifica un nivel de verificación: identidad verificada y licencia verificada. |
 | **Reputación** | Score de 1 a 5 de cada usuario, calculado con contracción bayesiana hacia la media global y decaimiento temporal, discriminado por rol. Con menos de 3 calificaciones el perfil se muestra como nuevo. |
 | **Calificación** | Valoración de 1 a 5 estrellas con comentario opcional entre las partes de un envío entregado, posible durante 72 horas. |
 | **Reporte y bloqueo** | Herramientas de moderación entre usuarios: el reporte llega al equipo; el bloqueo oculta envíos y bloquea ofertas y designaciones en ambos sentidos. |
 | **Sanción** | Suspensión (temporal o indefinida) o inhabilitación de una cuenta, aplicada por un administrador y registrada en un historial de solo agregar filas. |
-| **Disputa** | Reclamo formal de una parte sobre un envío entregado o completado, dentro de 7 días, con motivo, descripción, fotos y descargos de las contrapartes (ADR-054). |
+| **Disputa** | Reclamo formal de una parte sobre un envío entregado o completado, dentro de 7 días, con motivo, descripción, fotos y descargos de las contrapartes (DD-054). |
 | **Soporte** | Conversación del usuario con el equipo de Movo desde la aplicación, con o sin un envío asociado. |
 | **Hold (reserva)** | Autorización del pago en la tarjeta del emisor sin cobrarlo. Se crea al asignar el transportista y se captura recién al confirmarse la entrega. |
 | **Captura** | Cobro efectivo de un hold. Puede ser total (al entregar) o parcial (al cobrar una penalidad). |
 | **Split payment** | Reparto automático del pago capturado: la comisión de Movo queda como *application fee* y el neto se acredita en la cuenta de Mercado Pago del transportista. |
 | **Liquidación** | Registro del resultado de una captura: montos bruto, comisión y neto, y su estado (en proceso, acreditada, fallida o escalada). |
-| **Saga de asignación** | Secuencia de pasos entre `movo-svc-shipments` y `movo-svc-payments` para asignar un transportista y reservar los fondos, con compensación si el pago falla o vence (ADR-037). |
+| **Saga de asignación** | Secuencia de pasos entre `movo-svc-shipments` y `movo-svc-payments` para asignar un transportista y reservar los fondos, con compensación si el pago falla o vence (DD-037). |
 | **Ruta cercana / lejana** | Camino de la saga según los días al retiro: con retiro cercano (dentro de 3 días) el emisor paga al aceptar la oferta, con 30 minutos de plazo; con retiro lejano el pago se confirma cuando se abre una ventana previa al retiro. |
-| **Penalidad de cancelación** | Cargo del 25 % del precio acordado cuando el emisor cancela un envío asignado con menos de 12 horas de anticipación al retiro (ADR-047). |
-| **Cuenta corriente** | Registro por usuario de penalidades, recargos, pagos voluntarios y ajustes que generan una deuda o un saldo a favor (ADR-044). |
+| **Penalidad de cancelación** | Cargo del 25 % del precio acordado cuando el emisor cancela un envío asignado con menos de 12 horas de anticipación al retiro (DD-047). |
+| **Cuenta corriente** | Registro por usuario de penalidades, recargos, pagos voluntarios y ajustes que generan una deuda o un saldo a favor (DD-044). |
 | **Deuda vencida** | Deuda sin saldar por más de 14 días, que impide al transportista ofertar y declarar viajes hasta saldarla. |
 | **Vinculación de Mercado Pago** | Autorización OAuth que permite a Movo cobrar en nombre del transportista y repartir el pago. |
 | **Tarjeta guardada** | Tarjeta del emisor registrada en Mercado Pago, con la que se paga ingresando solo el código de seguridad. Movo conserva únicamente la marca, los últimos cuatro dígitos y el vencimiento. |
@@ -59,7 +59,7 @@ Este glosario reúne los términos del negocio y de la técnica que usa el equip
 | **Barrido (*sweep*)** | Tarea periódica en segundo plano (vencimientos, reintentos, limpieza) que toma un candado en Redis para correr en una sola réplica. |
 | **Fail-open / Fail-closed** | Política ante la caída de una dependencia: dejar pasar la operación (por ejemplo, el filtro de bloqueos del feed) o rechazarla (por ejemplo, crear una oferta sin poder verificar el bloqueo). |
 | **URL prefirmada** | URL temporal de Amazon S3 para subir o leer un archivo sin exponer credenciales ni pasar el archivo por el backend (ADR-007). |
-| **WebSocket** | Canal bidireccional persistente usado para el tracking, el chat y el soporte, autenticado con el JWT en el establecimiento de la conexión (ADR-022). |
+| **WebSocket** | Canal bidireccional persistente usado para el tracking, el chat y el soporte, autenticado con el JWT en el establecimiento de la conexión (ADR-019). |
 | **Webhook** | Llamada que un proveedor externo (Didit, Mercado Pago) hace a Movo para informar un evento; se valida con una firma y una ventana de tiempo para evitar repeticiones. |
 | **TFG** | Trabajo Final de Grado: proyecto integrador de la carrera, en el que se enmarca Movo. |
 

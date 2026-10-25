@@ -1,5 +1,5 @@
 @startuml seq-transferir-receptor
-' MOVO-275 (ADR-038): transferencia de la recepción a otra persona.
+' MOVO-275 (DD-038): transferencia de la recepción a otra persona.
 autonumber
 actor "Receptor actual" as R
 actor "Persona invitada" as N

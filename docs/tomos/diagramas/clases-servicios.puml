@@ -1,5 +1,5 @@
 @startuml clases-servicios
-' Estructura en capas de un servicio Node y patrón de proveedores intercambiables (ADR-012, ADR-014, ADR-017).
+' Estructura en capas de un servicio Node y patrón de proveedores intercambiables (ADR-012, ADR-014, ADR-016).
 hide circle
 skinparam linetype ortho
 skinparam nodesep 34

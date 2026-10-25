@@ -38,7 +38,7 @@ El alcance se divide en lo que el proyecto incluye en su versión MVP y lo que q
 </table>
 
 ::: nota
-**Nota de compilación.** Dos elementos del alcance cambiaron de tecnología durante el desarrollo, sin cambiar la funcionalidad comprometida: la matriz de distancias pasó de la Distance Matrix API (declarada *Legacy* por Google) a la Routes API (ADR-015), y el canal de tiempo real pasó de Socket.io a WebSocket nativo sobre `@fastify/websocket` (ADR-022). Ambas decisiones se documentan en el Tomo II.
+**Nota de compilación.** Dos elementos del alcance cambiaron de tecnología durante el desarrollo, sin cambiar la funcionalidad comprometida: la matriz de distancias pasó de la Distance Matrix API (declarada *Legacy* por Google) a la Routes API (ADR-015), y el canal de tiempo real pasó de Socket.io a WebSocket nativo sobre `@fastify/websocket` (ADR-019). Ambas decisiones se documentan en el Tomo II.
 :::
 
 # Equipo de Trabajo y Roles

@@ -1,0 +1,17 @@
+titulo: Registro de Decisiones de Diseño
+subtitulo: "Decisiones de alcance acotado (DD) tomadas durante los sprints: reglas de módulo, contratos de endpoint y ajustes de comportamiento."
+instancia: Producto · Decisiones
+version: "1"
+fecha: 02/11/2026
+indice_nivel_3: false
+archivos:
+  - decisiones.md
+historial:
+  - {version: "1", fecha: 24/10/2026, autor: Equipo completo, descripcion: "Se trasladan desde el registro de ADR del Sprint 0 las decisiones de alcance acotado, con el prefijo DD y su número original."}
+  - {version: "2", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Incorporación al Tomo II de la documentación final."}
+introduccion: |
+  Complementa al registro de ADR del documento de Arquitectura: allí están las decisiones que fijan el stack, un proveedor,
+  una integración, la estructura entre servicios o el modelo de seguridad; acá, las de alcance acotado.
+audiencia: |
+  El tribunal evaluador y los futuros mantenedores que necesiten la justificación de una regla de negocio o de un contrato
+  puntual del sistema.

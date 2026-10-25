@@ -10,7 +10,7 @@ Cada integración crítica se precedió de un *spike* corto contra el servicio r
 
 ## Aislar a cada proveedor externo detrás de una interfaz con implementación simulada
 
-SMS (ADR-012), email (ADR-017), geocodificación (ADR-014), rutas y KYC se acceden a través de interfaces, con una implementación simulada por defecto en desarrollo, pruebas e integración continua y la real activada por configuración. **Por qué funcionó:** el desarrollo y la CI no dependieron de cuentas de pago ni de la disponibilidad de terceros (riesgos R10 y R11 del Plan de Proyecto), el frente móvil pudo avanzar contra *mocks* mientras los proveedores se configuraban, y la demostración puede activar el servicio real cambiando una variable de entorno.
+SMS (ADR-012), email (ADR-016), geocodificación (ADR-014), rutas y KYC se acceden a través de interfaces, con una implementación simulada por defecto en desarrollo, pruebas e integración continua y la real activada por configuración. **Por qué funcionó:** el desarrollo y la CI no dependieron de cuentas de pago ni de la disponibilidad de terceros (riesgos R10 y R11 del Plan de Proyecto), el frente móvil pudo avanzar contra *mocks* mientras los proveedores se configuraban, y la demostración puede activar el servicio real cambiando una variable de entorno.
 
 ## Dejar el razonamiento por escrito y no reescribir el pasado
 

@@ -61,24 +61,24 @@ Los plazos y umbrales son valores de configuración de los servicios (variables 
 
 | Regla | Valor | Origen |
 |--------------------------------------------|----------------------|------------------|
-| Vigencia de la cotización congelada | 15 minutos | ADR-028 |
+| Vigencia de la cotización congelada | 15 minutos | DD-028 |
 | Plazo del receptor para aceptar o rechazar | 48 horas | Configuración (`RECEIVER_CONFIRMATION_TIMEOUT_HOURS`) |
 | Plazo del emisor para elegir otro receptor | 48 horas | Configuración (`RECEIVER_REDESIGNATION_TIMEOUT_HOURS`) |
 | Plazo del nuevo receptor ante una transferencia | 6 horas | Configuración (`RECEIVER_TRANSFER_TIMEOUT_HOURS`) |
 | Retiro «cercano» (el emisor paga al aceptar) | Dentro de 3 días | Configuración (`FUNDING_NEAR_PICKUP_DAYS`) |
 | Plazo para completar el pago de un retiro cercano | 30 minutos | Configuración (`FUNDING_PAYMENT_TIMEOUT_MINUTES`) |
 | Límite para pagar un retiro lejano | 24 horas antes del retiro | Configuración (`FUNDING_RELEASE_HOURS_BEFORE_PICKUP`) |
-| Vigencia del código QR del handshake | 15 segundos | ADR-020 |
-| Distancia máxima entre las partes del handshake | 100 metros | ADR-020 |
+| Vigencia del código QR del handshake | 15 segundos | ADR-018 |
+| Distancia máxima entre las partes del handshake | 100 metros | ADR-018 |
 | Gracia tras el cierre de la ventana de retiro | 24 horas | Configuración (`PICKUP_MISSED_GRACE_HOURS`) |
 | Aviso y disputa de un envío en tránsito demorado | 12 y 24 horas después de la marca de demora | Configuración (`IN_TRANSIT_ANOMALY_*`) |
 | Ventana para calificar | 72 horas desde la entrega | Código |
-| Ventana para abrir una disputa | 7 días desde la entrega | ADR-054 |
-| Cancelación del emisor sin cargo | 12 horas o más antes del retiro | ADR-047 |
-| Penalidad de cancelación | 25 % del precio acordado | ADR-047 |
+| Ventana para abrir una disputa | 7 días desde la entrega | DD-054 |
+| Cancelación del emisor sin cargo | 12 horas o más antes del retiro | DD-047 |
+| Penalidad de cancelación | 25 % del precio acordado | DD-047 |
 | Tope del descuento de deuda por envío | 30 % del precio | Configuración (`DEBT_COLLECTION_MAX_RATE`) |
 | Deuda vencida (bloquea ofertar y declarar viajes) | Más de 14 días | Configuración (`USER_DEBT_OVERDUE_DAYS`) |
-| Reintentos de una captura fallida | 5, 30 y 120 minutos | ADR-044 |
+| Reintentos de una captura fallida | 5, 30 y 120 minutos | DD-044 |
 | Revisión manual de una liquidación escalada | 48 horas | Configuración (`SETTLEMENT_REVIEW_SLA_HOURS`) |
 | Vigencia de un hold en Mercado Pago | 5 días | Configuración (`MP_HOLD_VALIDITY_DAYS`) |
 | Límites del paquete | 30 kg, 150 cm por lado, 300 cm de suma | Configuración |
@@ -184,7 +184,7 @@ Cada procedimiento indica quién lo ejecuta, cuándo se dispara, los pasos y el 
 1. En **Envíos**, revisar la pestaña de activos y filtrar por ciudad de retiro o por fecha del último cambio.
 2. Abrir el detalle: línea de tiempo (cada cambio de estado con su motivo), ofertas, pago y chat.
 3. Para un envío en camino, usar el **mapa de seguimiento**.
-4. Un envío **demorado en tránsito** se marca solo: pasa la entrega estimada más el 50 % de la duración del trayecto (o 48 horas desde el retiro si no tenía entrega estimada). La aplicación lo muestra como «Demorado». A las 12 horas de la marca se avisa al transportista y a las 24 horas se abre una **disputa automática** a la que se invita a las tres partes a cargar sus descargos (ADR-045). Atenderlo por soporte con las partes.
+4. Un envío **demorado en tránsito** se marca solo: pasa la entrega estimada más el 50 % de la duración del trayecto (o 48 horas desde el retiro si no tenía entrega estimada). La aplicación lo muestra como «Demorado». A las 12 horas de la marca se avisa al transportista y a las 24 horas se abre una **disputa automática** a la que se invita a las tres partes a cargar sus descargos (DD-045). Atenderlo por soporte con las partes.
 
 ## PO-10 Atender un pago escalado a revisión manual
 

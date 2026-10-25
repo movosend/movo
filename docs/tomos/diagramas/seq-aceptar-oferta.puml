@@ -1,5 +1,5 @@
 @startuml seq-aceptar-oferta
-' MOVO-17 (aceptar/rechazar), MOVO-210/211 (ruta cercana o lejana de la saga, ADR-037), MOVO-234 (viaje automático).
+' MOVO-17 (aceptar/rechazar), MOVO-210/211 (ruta cercana o lejana de la saga, DD-037), MOVO-234 (viaje automático).
 autonumber
 actor "Emisor" as E
 participant "App móvil" as M

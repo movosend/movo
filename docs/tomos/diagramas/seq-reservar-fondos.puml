@@ -1,5 +1,5 @@
 @startuml seq-reservar-fondos
-' MOVO-12 (MOVO-209, MOVO-210, MOVO-211, MOVO-215, MOVO-268, MOVO-269): saga de asignación y reserva de fondos (ADR-037).
+' MOVO-12 (MOVO-209, MOVO-210, MOVO-211, MOVO-215, MOVO-268, MOVO-269): saga de asignación y reserva de fondos (DD-037).
 autonumber
 actor "Emisor" as E
 participant "App móvil" as M

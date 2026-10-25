@@ -33,7 +33,7 @@ Los patrones se agrupan en cuatro familias: **creacionales y estructurales** (c�
 
 **Solución.** Cada capacidad externa se expresa como una **interfaz** (por ejemplo, `SmsProvider`, `EmailProvider`, `GeocodingProvider`, `RoutesProvider`, `StorageProvider`, `PushNotificationProvider`, `DiditClient`), con una implementación real y una de consola o *mock*. Una **fábrica** `create…Provider(config)` elige la estrategia según una variable de entorno (`SMS_PROVIDER`, `EMAIL_PROVIDER`, `GEOCODING_PROVIDER`, `STORAGE_PROVIDER`, `DIDIT_MODE`). El valor por defecto es siempre el *mock*, de modo que un entorno mal configurado falla del lado seguro y barato.
 
-**Dónde.** `services/movo-svc-users/src/adapters/` y `services/movo-svc-shipments/src/adapters/`. Decisiones asociadas: ADR-012 (SMS), ADR-014 (geocoding), ADR-017 (email).
+**Dónde.** `services/movo-svc-users/src/adapters/` y `services/movo-svc-shipments/src/adapters/`. Decisiones asociadas: ADR-012 (SMS), ADR-014 (geocoding), ADR-016 (email).
 
 **Costo aceptado.** Hay que mantener la paridad de contrato entre la implementación real y el *mock*; y una variable de entorno olvidada en el despliegue hace que el servicio arranque sano pero con el *mock*, un fallo silencioso que ya ocurrió dos veces y motivó la regla de las tres ubicaciones en el `CLAUDE.md` del repositorio.
 
@@ -89,7 +89,7 @@ Los patrones se agrupan en cuatro familias: **creacionales y estructurales** (c�
 
 **Problema.** Emisor y receptor deben ver la posición del transportista y los mensajes del chat sin recargar.
 
-**Solución.** Un registro en memoria de conexiones WebSocket por envío (`realtime`) actúa como *hub*: los servicios publican eventos (nueva posición, nuevo mensaje, cambio de estado) y el registro los difunde a los suscriptores autorizados. Cuando un cambio de estado termina el seguimiento, el *hub* cierra las conexiones con un código propio (ADR-022).
+**Solución.** Un registro en memoria de conexiones WebSocket por envío (`realtime`) actúa como *hub*: los servicios publican eventos (nueva posición, nuevo mensaje, cambio de estado) y el registro los difunde a los suscriptores autorizados. Cuando un cambio de estado termina el seguimiento, el *hub* cierra las conexiones con un código propio (ADR-019).
 
 **Dónde.** `services/movo-svc-shipments/src/realtime/`.
 
@@ -99,7 +99,7 @@ Los patrones se agrupan en cuatro familias: **creacionales y estructurales** (c�
 
 **Problema.** Asignar un transportista (en `movo-svc-shipments`) y reservar el dinero del emisor (en `movo-svc-payments`) son dos operaciones en dos servicios y dos bases, sin transacción distribuida posible.
 
-**Solución.** La asignación es una **saga** orquestada por `movo-svc-shipments`: acepta la oferta y deja el envío en un estado intermedio (`assignment_pending` o `assigned_unfunded`), pide el hold a `movo-svc-payments` y, si el pago se completa, confirma la asignación; si falla, vence o llega un evento de Mercado Pago, ejecuta la **compensación**: libera el hold, devuelve el envío a `published` y deja la oferta como no aceptada. Barridos periódicos cierran los casos que quedan a mitad de camino y reconcilian el estado ante un fallo parcial (ADR-037).
+**Solución.** La asignación es una **saga** orquestada por `movo-svc-shipments`: acepta la oferta y deja el envío en un estado intermedio (`assignment_pending` o `assigned_unfunded`), pide el hold a `movo-svc-payments` y, si el pago se completa, confirma la asignación; si falla, vence o llega un evento de Mercado Pago, ejecuta la **compensación**: libera el hold, devuelve el envío a `published` y deja la oferta como no aceptada. Barridos periódicos cierran los casos que quedan a mitad de camino y reconcilian el estado ante un fallo parcial (DD-037).
 
 **Dónde.** `services/movo-svc-shipments/src/modules/funding/`.
 

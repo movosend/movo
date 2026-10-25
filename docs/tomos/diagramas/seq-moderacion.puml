@@ -1,5 +1,5 @@
 @startuml seq-moderacion
-' MOVO-175 (MOVO-256): reportar y bloquear usuarios (ADR-026).
+' MOVO-175 (MOVO-256): reportar y bloquear usuarios (DD-026).
 autonumber
 actor "Usuario" as A
 participant "App móvil" as M

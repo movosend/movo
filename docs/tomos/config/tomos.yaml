@@ -46,14 +46,14 @@ tomos:
     archivo: Movo - Tomo II - Documentacion de Producto.pdf
     ficha: false
     bajada: Historias de usuario y su trazabilidad, modelo de diseño, modelo de datos y arquitectura del sistema.
-    resumen: Listado de épicas e historias de usuario, temas agrupadores y trazabilidad de cada historia (criterios de aceptación, diagramas de secuencia y casos de prueba), diagrama de clases, patrones de diseño, diagramas de transición de estados, DER, arquitectura del sistema (despliegue y ambiente de implementación) y glosario.
+    resumen: Listado de épicas e historias de usuario, temas agrupadores y trazabilidad de cada historia (criterios de aceptación, diagramas de secuencia y casos de prueba), diagrama de clases, patrones de diseño, diagramas de transición de estados, DER, arquitectura del sistema (despliegue, ambiente de implementación y registro completo de ADR), registro de decisiones de diseño y glosario.
     presentacion: |
       Este tomo describe el **producto** Movo tal como quedó construido. Parte del backlog (épicas e
       historias de usuario agrupadas por tema) y, para cada tema, conecta cada historia con su
       descripción y criterios de aceptación, el diagrama de secuencia que muestra cómo la resuelve el
       sistema y los casos de prueba que la verifican. Completan el tomo los modelos transversales de
       diseño: diagrama de clases, patrones de diseño, diagramas de transición de estados, modelo de
-      datos (DER) y la arquitectura del sistema, con sus decisiones registradas como ADRs.
+      datos (DER) y la arquitectura del sistema, con sus decisiones registradas como ADR y como decisiones de diseño (DD).
 
       Los diagramas siguen la notación UML 2 (y el modelo C4 para la vista de arquitectura) y fueron
       construidos a partir del código fuente del repositorio, que es la fuente de verdad: donde un
@@ -76,6 +76,7 @@ tomos:
       - dir: 11-diagramas-de-estados
       - dir: 12-der
       - dir: 13-arquitectura
+      - dir: 13b-decisiones-de-diseno
       - dir: 14-glosario
 
   - id: tomo-3

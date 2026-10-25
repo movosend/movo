@@ -20,6 +20,10 @@ Esta sección sintetiza la evolución del proyecto sprint a sprint antes de pres
 
 \* Sprint 8 en curso: puntos de las issues ya completadas al 24/10/2026. La velocity es la que informa Linear al cierre de cada ciclo; difiere en unos pocos puntos de la suma de las estimaciones por issue (los informes documentan esa diferencia). El valor del Sprint 1 corresponde al registrado en el Informe del Sprint 2.
 
+::: nota
+**Sobre la numeración de los ADR.** Cada informe cita los ADR con el número vigente al momento de escribirse. El 24/10/2026 el registro se depuró a 23 ADR: los números 001 a 015 no cambiaron; los ADR 017, 019, 020, 022, 024, 025, 035 y 040 pasaron a ser el 016 a 023, y el resto de las decisiones pasó al Registro de Decisiones de Diseño (DD) con su número original. La correspondencia completa está en el documento de Arquitectura del Tomo II.
+:::
+
 ## Tendencia de la velocity
 
 ![Velocity por sprint: Story Points completados según Linear. El Sprint 8 está en curso.](diagrama:velocity)

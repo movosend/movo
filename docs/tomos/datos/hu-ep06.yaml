@@ -31,7 +31,7 @@ historias:
   - id: MOVO-175
     nombre: Reportar y bloquear usuarios
     secuencias:
-      - {id: seq-moderacion, titulo: "Reporte con fotos y bloqueo entre usuarios (MOVO-175, MOVO-256, ADR-026)."}
+      - {id: seq-moderacion, titulo: "Reporte con fotos y bloqueo entre usuarios (MOVO-175, MOVO-256, DD-026)."}
     nota: |
       **Alcance final.** La historia no tiene criterios de aceptación en Linear; su alcance quedó en el reporte con motivo, detalle y fotos (MOVO-256) y en el bloqueo bidireccional. El bloqueo no es simétrico en su efecto: oculta envíos y bloquea ofertas y designaciones en cualquier dirección, pero en el chat no impide escribir, solo oculta el contenido a quien tiene el bloqueo. Los reportes los revisa el equipo desde el panel de administración.
     casos:

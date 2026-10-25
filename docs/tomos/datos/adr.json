@@ -1,0 +1,1921 @@
+[
+ {
+  "id": "ADR-001",
+  "numero": "001",
+  "titulo": "Patrón Arquitectónico del Backend",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "Movo es una plataforma con dominios claramente diferenciados (identidad/KYC, envíos, pagos, logística/pricing) que tienen ciclos de vida, equipos responsables y tecnologías distintas. Se necesita una arquitectura que permita desarrollar, escalar y desplegar estos dominios de forma independiente. La restricción más importante es que migrar desde un monolito hacia microservicios en el futuro sería prohibitivamente costoso dado que implicaría refactoring masivo de código ya escrito."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Independencia de despliegue por dominio.",
+       "Posibilidad de usar distintas tecnologías por servicio (Node.js vs Python).",
+       "Claridad de responsabilidades y fronteras de dominio.",
+       "Complejidad operacional manejable para un equipo de 5 personas."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Opción A: Monolito modular",
+       "Un único proceso con módulos internos bien definidos.",
+       "Pros: menor complejidad operacional, un solo repositorio, deploy más simple.",
+       "Contras: imposibilita usar Python para el servicio de logística, cualquier cambio en un módulo requiere redeployar todo el sistema, escalabilidad monolítica."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Opción B: Microservicios (ELEGIDA)",
+       "Cada dominio es un servicio desplegable de forma independiente.",
+       "Pros: permite mezclar Node.js y Python según conveniencia técnica, fronteras de dominio claras, escalabilidad por servicio, un fallo no tumba toda la plataforma.",
+       "Contras: mayor complejidad operacional (gestión de múltiples contenedores, comunicación entre servicios, troubleshooting distribuido)."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Opción C: Serverless (AWS Lambda)",
+       "Funciones como servicio sin gestión de infraestructura.",
+       "Pros: escalabilidad automática, sin administración de servidores.",
+       "Contras: cold starts problemáticos para WebSockets de tracking en tiempo real, costos impredecibles con alto volumen, mayor vendor lock-in, complejidad para gestionar estado de conexiones."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Microservicios (Opción B) con 5 servicios más el API Gateway: movo-api-gateway, movo-svc-users, movo-svc-shipments, movo-svc-payments, movo-svc-pricing-logistics, movo-svc-admin. La comunicación entre servicios es sincrónica vía REST HTTP, sin message broker, para mantener la complejidad acotada al nivel del Proyecto Final."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: fronteras claras que facilitan el desarrollo paralelo del equipo.",
+       "Positivo: permite usar FastAPI + Python para el servicio de logística sin impactar el resto del stack.",
+       "Positivo: un fallo en movo-svc-pricing-logistics no afecta la capacidad de procesar pagos.",
+       "Trade-off negativo: la comunicación sincrónica entre servicios introduce acoplamiento temporal; si movo-svc-users está caído, el gateway no puede autenticar requests.",
+       "Trade-off negativo: el debugging distribuido es más complejo que en un monolito. Se mitiga con correlación de IDs de request en todos los logs.",
+       "Trade-off negativo: Docker Compose en una sola EC2 implica que un fallo de hardware tumba todos los servicios. Para el alcance del Proyecto Final se acepta este trade-off."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-002",
+  "numero": "002",
+  "titulo": "Lenguaje y Framework del Backend",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El equipo necesita elegir el lenguaje y framework para los servicios backend. Existen dos requisitos que no pueden satisfacerse con un único lenguaje: la mayoría de los servicios requieren alto throughput de I/O (requests HTTP, WebSockets, queries a base de datos), mientras que el servicio de logística y precios requiere capacidades de cómputo numérico, acceso a librerías de optimización combinatoria (OR-Tools, scipy) y consumo de la Google Maps Distance Matrix API para obtener tiempos y distancias reales de ruta entre los puntos del problema."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Conocimiento previo del equipo.",
+       "Performance en I/O concurrente.",
+       "Ecosistema de librerías para optimización combinatoria.",
+       "Consistencia de tipado y tooling.",
+       "Velocidad de desarrollo."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Opción A: Node.js + Fastify (TypeScript) - para todos los servicios",
+       "Pros: uniforme, el equipo lo conoce, excelente para I/O concurrente.",
+       "Contras: librerías de optimización combinatoria en Node.js son pobres; implementar VRPTW en TypeScript sería reinventar la rueda."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Opción B: Node.js (Fastify/TypeScript) + Python (FastAPI) - ELEGIDA",
+       "Node.js + Fastify para: api-gateway, svc-users, svc-shipments, svc-payments.",
+       "Python + FastAPI para: svc-pricing-logistics.",
+       "Pros: cada lenguaje en el dominio donde es más fuerte. FastAPI tiene validación automática con Pydantic y documentación Swagger generada automáticamente igual que Fastify.",
+       "Contras: el equipo debe mantener dos stacks tecnológicos distintos."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Opción C: Python + FastAPI para todos los servicios",
+       "Pros: acceso nativo a todas las librerías de optimización y data science.",
+       "Contras: el GIL de Python limita la concurrencia real en I/O; para WebSockets de tracking en tiempo real con muchos clientes simultáneos, Node.js es sustancialmente mejor."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 4",
+      "parrafos": [
+       "Opción D: Go para todos los servicios",
+       "Pros: performance excepcional, tipado estático, excelente para sistemas distribuidos.",
+       "Contras: el equipo no tiene experiencia en Go; la curva de aprendizaje en el contexto de un Proyecto Final es inviable."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Opción B: Node.js con Fastify y TypeScript para los servicios de I/O intensivo; Python con FastAPI para el servicio de logística y precios."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: TypeScript en todo el stack frontend/backend Node.js permite compartir tipos entre repositorios via el paquete movo-shared.",
+       "Positivo: FastAPI genera documentación OpenAPI automáticamente al igual que Fastify, lo que mantiene consistencia en la estrategia de documentación.",
+       "Trade-off negativo: el equipo debe mantener dos entornos de desarrollo distintos (Node.js y Python), con sus respectivos linters, testers y configuraciones.",
+       "Trade-off negativo: la comunicación entre el gateway y el servicio Python requiere serialización/deserialización JSON que agrega latencia marginal."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-003",
+  "numero": "003",
+  "titulo": "Motor y Estrategia de Base de Datos",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El sistema maneja datos con distintas características: datos transaccionales fuertemente relacionados (envíos, pagos, usuarios, reputación), datos de sesión y estado de WebSockets que requieren acceso extremadamente rápido, y potencialmente datos de series de tiempo para el historial de posición GPS de envíos activos."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Consistencia y soporte para transacciones ACID.",
+       "Familiaridad del equipo.",
+       "Costo operacional.",
+       "Complejidad de gestión.",
+       "Capacidad para datos relacionales complejos."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Opción A: PostgreSQL única instancia compartida (ELEGIDA para datos relacionales)",
+       "Pros: ACID completo, el equipo tiene experiencia, excelente soporte para JSON cuando se necesita flexibilidad, extensiones como PostGIS si en el futuro se incorpora análisis geoespacial complejo.",
+       "Contras: punto único de fallo; en una arquitectura de microservicios 'pura' cada servicio debería tener su propia DB."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Opción B: Una instancia de PostgreSQL por microservicio",
+       "Pros: aislamiento completo entre servicios, patrón 'correcto' para microservicios.",
+       "Contras: para el alcance del Proyecto Final es sobredimensión operacional. Gestionar 5 instancias de DB separadas implica 5 veces el costo, 5 veces la complejidad de backup y 5 veces las migraciones a coordinar."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Opción C: MongoDB para datos de dominio + Redis para caché",
+       "Pros: flexibilidad de schema para datos variables.",
+       "Contras: el dominio de Movo es inherentemente relacional (un envío tiene UN emisor, UN transportista, MÚLTIPLES pagos). Un modelo documental fuerza joins en la aplicación que PostgreSQL hace nativamente con mejor performance."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 4",
+      "parrafos": [
+       "Opción D: TimescaleDB para datos de tracking GPS",
+       "Pros: query de series de tiempo muy eficientes.",
+       "Contras: el historial de GPS de envíos activos puede manejarse razonablemente con Redis durante el envío activo y PostgreSQL para el histórico. Agregar TimescaleDB solo para esto es sobredimensión."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "PostgreSQL 16 como única base de datos relacional. Redis 7 para datos que requieren acceso en microsegundos: sesiones, refresh tokens y estado de WebSockets para tracking en tiempo real. No se usa base de datos de series de tiempo; el historial de posición GPS se persiste en PostgreSQL al finalizar cada envío."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: una sola DB simplifica enormemente las migraciones, los backups y el monitoreo.",
+       "Positivo: Redis como segunda capa resuelve el caso de uso de alta frecuencia sin contaminar la DB principal.",
+       "Trade-off negativo: una única instancia de PostgreSQL es punto único de fallo. Se mitiga con snapshots automáticos de AWS.",
+       "Trade-off negativo: no se tiene aislamiento de datos entre servicios. Un bug en movo-svc-payments podría en teoría corromper datos de movo-svc-shipments si no se usan esquemas separados por servicio dentro de la misma instancia. Se mitiga usando esquemas de PostgreSQL distintos por servicio."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-004",
+  "numero": "004",
+  "titulo": "Mecanismo de Autenticación y Autorización",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El sistema tiene tres tipos de actores (emisor, transportista, receptor/admin) con distintos permisos sobre los recursos. Se necesita un mecanismo que funcione tanto para la app móvil (clientes sin estado persistente del lado del servidor) como para el panel de administración web. Además, el tiempo de sesión debe ser gestionable: un JWT que no expira nunca es un riesgo de seguridad, pero obligar al usuario a re-loguearse frecuentemente es mala UX."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Seguridad: resistencia a robo de tokens.",
+       "Escalabilidad: no requerir consulta a DB en cada request.",
+       "Experiencia de usuario: sesiones de larga duración sin re-login constante.",
+       "Compatibilidad con entorno móvil (React Native).",
+       "Simplicidad de implementación."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Opción A: Sessions con cookies (session-based auth)",
+       "Pros: revocación inmediata de sesiones, patrón conocido.",
+       "Contras: requiere estado del lado del servidor (session store); en microservicios cada servicio necesitaría acceder al session store o el gateway debería resolver la sesión antes de rutear. Problemático con apps móviles donde las cookies tienen limitaciones."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Opción B: JWT de larga duración (sin refresh token)",
+       "Pros: simplísimo, stateless.",
+       "Contras: si el token es robado, no puede revocarse hasta que expire. Un JWT de 30 días es una ventana de ataque inaceptable."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Opción C: JWT de corta duración + Refresh Token (ELEGIDA)",
+       "Access token JWT con expiración corta (15-60 minutos). Refresh token de larga duración almacenado en Redis.",
+       "Pros: si el access token es robado, expira rápido. El refresh token puede revocarse inmediatamente eliminándolo de Redis. Stateless en la validación del access token.",
+       "Contras: mayor complejidad que un JWT simple; el cliente debe implementar la lógica de renovación automática."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 4",
+      "parrafos": [
+       "Opción D: OAuth 2.0 con proveedor externo (Google, Apple)",
+       "Pros: delega la seguridad a un tercero con más experiencia.",
+       "Contras: dependencia crítica de un tercero para el login. Si Google/Apple cambia sus condiciones de OAuth, el sistema queda afectado. Para el Proyecto Final la implementación propia es más pertinente académicamente."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Opción C: JWT de corta duración (access token, TTL 60 minutos) + Refresh Token almacenado en Redis (TTL 7 días). El API Gateway valida el access token en cada request. La autorización por roles (RBAC) se implementa vía claims en el payload del JWT. El mismo mecanismo aplica para la app mobile y el panel de administración.",
+       "Se usan los roles como array no como string singular. AccessTokenClaims.roles: UserRole[]. En Movo el mismo usuario puede ser emisor y transportista simultáneamente.",
+       "Refresh token opaco, no JWT: signRefreshToken() genera crypto.randomBytes(32).toString('base64url') + un tokenId (randomUUID()). No es autodescriptivo ni verificable sin consultar Redis. La librería no persiste nada, eso queda a cargo del servicio consumidor (guardar el hash bajo tokenId). Esto preserva la capacidad de revocación inmediata que ADR-004 declara como beneficio del diseño; un refresh como JWT firmado la hubiera anulado."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: la revocación de sesiones es inmediata (se borra el refresh token de Redis).",
+       "Positivo: el access token es stateless; el gateway puede validarlo sin consultar la DB.",
+       "Positivo: el RBAC en claims del JWT permite que cada servicio verifique permisos sin llamar a movo-svc-users.",
+       "Trade-off negativo: el access token no puede revocarse antes de su TTL de 60 minutos. Si un usuario es baneado, puede seguir operando hasta que su token actual expire. Se acepta este trade-off para el alcance del Proyecto Final.",
+       "Trade-off negativo: el cliente móvil debe implementar lógica de refresh automático, lo que agrega complejidad al código del frontend."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-005",
+  "numero": "005",
+  "titulo": "Diseño y Protocolo de la API",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El sistema necesita definir cómo se comunican los clientes (app móvil, panel admin) con el backend, y cómo se manejan las actualizaciones en tiempo real del tracking de envíos. Se debe elegir entre paradigmas de consulta/respuesta y un protocolo para comunicación bidireccional."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Curva de aprendizaje del equipo.",
+       "Soporte en React Native y Next.js.",
+       "Generación automática de documentación.",
+       "Capacidad para la comunicación en tiempo real.",
+       "Facilidad de testeo."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Opción A: REST + WebSockets (ELEGIDA)",
+       "REST para todas las operaciones CRUD y transaccionales.",
+       "Socket.io para el tracking de posición en tiempo real.",
+       "Pros: el equipo conoce REST, generación automática de Swagger con Fastify y FastAPI, Socket.io tiene abstracción sobre WebSockets nativos con fallback automático.",
+       "Contras: para casos de uso con muchos campos opcionales, REST puede resultar en over-fetching o under-fetching."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Opción B: GraphQL + Subscriptions",
+       "Pros: el cliente solicita exactamente los campos que necesita, subscriptions para tiempo real.",
+       "Contras: el equipo no tiene experiencia en GraphQL; la curva de aprendizaje en el contexto del Proyecto Final es un riesgo real de cronograma. La generación de documentación automática es más compleja. El N+1 problem requiere DataLoader para resolverse correctamente."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Opción C: gRPC entre servicios internos",
+       "Pros: performance superior para comunicación interna, contratos fuertemente tipados vía Protocol Buffers.",
+       "Contras: complejidad de setup significativa, tooling más complejo para debugging, incompatible con llamadas directas desde el browser sin grpc-web."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "REST sobre HTTP/1.1 para todas las operaciones, con prefijo de versión /api/v1/ en todas las rutas. Socket.io para el canal de tracking en tiempo real. La documentación OpenAPI/Swagger se genera automáticamente: Fastify vía @fastify/swagger, FastAPI nativamente. El versionado permite introducir /api/v2/ en el futuro sin romper clientes existentes."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: el equipo puede comenzar a desarrollar inmediatamente sin curva de aprendizaje.",
+       "Positivo: Swagger generado automáticamente reduce el riesgo de documentación desactualizada.",
+       "Positivo: Socket.io provee fallback a HTTP long-polling en redes con firewalls que bloquean WebSockets.",
+       "Trade-off negativo: REST puede generar over-fetching en endpoints que devuelven objetos grandes. Se mitiga con query params de proyección (?fields=id,status,origin).",
+       "Trade-off negativo: la comunicación interna entre microservicios también usa REST, lo que es menos eficiente que gRPC pero más simple de implementar y debuggear."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-006",
+  "numero": "006",
+  "titulo": "Infraestructura y Estrategia de Despliegue",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El sistema tiene entre 6 y 8 contenedores Docker que deben correr coordinados, con configuraciones distintas para desarrollo y producción. Se necesita una estrategia de despliegue que sea manejable por un equipo de 5 estudiantes sin experiencia previa en DevOps avanzado, que tenga costos controlados y que permita CI/CD automatizado."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Costo mensual operacional.",
+       "Complejidad de administración para el equipo.",
+       "Tiempo de setup inicial.",
+       "Soporte para CI/CD automatizado.",
+       "Capacidad de gestionar secretos de forma segura."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Opción A: EC2 + Docker Compose (ELEGIDA)",
+       "Una instancia EC2 por ambiente (dev y prod). Docker Compose orquesta todos los contenedores.",
+       "Pros: el equipo ya conoce Docker Compose de los cursos anteriores, costo predecible (se paga la instancia, no por llamada), setup inicial relativamente simple, suficiente para el volumen del Proyecto Final.",
+       "Contras: no tiene auto-scaling, Docker Compose no es un orquestador de producción enterprise."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Opción B: Kubernetes (EKS en AWS)",
+       "Pros: orquestación de nivel enterprise, auto-scaling, auto-healing.",
+       "Contras: la curva de aprendizaje de Kubernetes para un equipo sin experiencia previa es de semanas. El overhead de gestión (YAML de deployments, services, ingresses, namespaces) duplicaría el tiempo de setup. Completamente sobredimensionado para el alcance del Proyecto Final."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Opción C: Railway / Render / Fly.io (PaaS)",
+       "Pros: zero DevOps, deploy con git push.",
+       "Contras: menor control sobre la infraestructura, costos más impredecibles con escala, vendor lock-in significativo, limitaciones en la configuración de red entre servicios."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 4",
+      "parrafos": [
+       "Opción D: AWS ECS (Fargate)",
+       "Pros: orquestación de contenedores sin gestionar servidores.",
+       "Contras: precio por vCPU/hora es mayor que EC2; la configuración de task definitions, services y ALB es más compleja que Docker Compose para un resultado similar."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "EC2 + Docker Compose para el backend. Dos ambientes: dev (branch develop) y prod (branch main). GitHub Actions ejecuta el pipeline de CI/CD: en cada push a develop/main, corre lint, tests, build de imagen Docker y deploy vía SSH a la EC2 correspondiente. Los secretos del backend se gestionan en AWS Secrets Manager y se inyectan como variables de entorno al arrancar los contenedores.",
+       "Los frontends Next.js (movo-admin y movo-institucional) se despliegan en Vercel. Esta separación responde a que Next.js está optimizado para el entorno de Vercel: SSR, ISR, image optimization y CDN global funcionan de forma nativa sin configuración adicional. Correr Next.js en Docker Compose en EC2 es técnicamente viable pero introduce fricción operacional innecesaria y elimina las optimizaciones automáticas de la plataforma. Vercel se conecta directamente al repositorio GitHub y genera deploys automáticos en cada push, con URLs de preview por Pull Request. Las variables de entorno de cada frontend (principalmente la URL del API Gateway) se configuran en el dashboard de Vercel por ambiente."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: el equipo puede enfocarse en el código del producto en lugar de en la infraestructura.",
+       "Positivo: Docker Compose garantiza que el ambiente de desarrollo local es idéntico al de producción.",
+       "Positivo: sacar los dos frontends Next.js de Docker Compose simplifica el stack del EC2 y reduce la cantidad de contenedores a gestionar. Positivo: Vercel provee CDN global, previews automáticas por PR y zero-config para Next.js, sin costo operacional para el equipo.",
+       "Trade-off negativo: los frontends y el backend pasan a estar en plataformas distintas, lo que introduce CORS como requisito explícito de configuración en el API Gateway. El gateway debe aceptar requests desde los dominios de Vercel (*.vercel.app y el dominio de producción).",
+       "Trade-off negativo: los deploys de preview de Vercel generan URLs públicas accesibles para cada PR. Para movo-admin esto implica que versiones intermedias del panel de administración son accesibles en internet. Se mitiga garantizando que la autenticación en el API Gateway esté implementada desde el primer endpoint, sin rutas desprotegidas en ningún estado del desarrollo.",
+       "Trade-off negativo: una sola EC2 por ambiente es un punto único de fallo de hardware. No hay alta disponibilidad. Para el Proyecto Final esto es aceptable.",
+       "Trade-off negativo: Docker Compose no tiene capacidad de auto-scaling. Si el tráfico supera la capacidad de la instancia, se requiere intervención manual.",
+       "Trade-off negativo: los deployments tienen un breve periodo de downtime mientras los contenedores se reinician. Se acepta para el alcance del proyecto."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-007",
+  "numero": "007",
+  "titulo": "Estrategia de Almacenamiento de Imágenes y Archivos Multimedia",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El flujo operativo de Movo requiere almacenar imágenes en múltiples etapas del ciclo de vida de un envío: fotografías del paquete al momento del retiro, fotografías al momento de la entrega, e imágenes de evidencia adjuntadas durante la apertura de una disputa. Estas imágenes son generadas desde dispositivos móviles y deben ser accesibles posteriormente por emisor, receptor, transportista y administrador según corresponda. El volumen estimado es de 2 a 6 imágenes por envío activo. El sistema necesita una estrategia de almacenamiento que sea durable, segura, de bajo costo operacional y que no impacte la performance de la base de datos principal."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Durabilidad y disponibilidad.",
+       "Seguridad y control de acceso.",
+       "Costo operacional para el volumen del Proyecto Final.",
+       "Complejidad de integración con el stack existente.",
+       "Performance en upload desde dispositivos móviles con conectividad variable."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Opción A: Almacenamiento en filesystem de la EC2",
+       "Guardar las imágenes directamente en el sistema de archivos de la instancia EC2, sirviendo los archivos a través del API Gateway.",
+       "Pros: cero configuración adicional, sin costo extra.",
+       "Contras: los archivos son efímeros si se reemplaza o reinicia la instancia. No escala. Toda la transferencia de imágenes pasa por el servidor, consumiendo ancho de banda y memoria del proceso Node.js.",
+       "Inaceptable para producción."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Opción B: Almacenar imágenes como BLOBs en PostgreSQL",
+       "Guardar el binario de cada imagen directamente en la base de datos relacional.",
+       "Pros: simplifica el modelo de datos, todo en un solo lugar.",
+       "Contras: antipatrón conocido de performance. Las imágenes inflan el tamaño de la base de datos, degradan la performance de queries y complican los backups. PostgreSQL no está optimizado para servir archivos binarios grandes."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Opción C: AWS S3 con presigned URLs (ELEGIDA)",
+       "Almacenar las imágenes en un bucket S3 privado. El backend genera URLs prefirmadas de corta duración para upload y visualización. La imagen nunca transita por los servidores de Movo.",
+       "Pros: durabilidad de 99.999999999% garantizada por AWS. Costo marginal para el volumen del PY (primer GB gratis, fracciones de centavo por GB adicional). Upload directo desde el dispositivo móvil a S3 sin pasar por el servidor, eliminando latencia y carga en EC2. Control de acceso centralizado: cada URL prefirmada tiene un TTL configurable y solo puede ser generada por el backend autenticado. Integración nativa con el stack AWS ya elegido en ADR-006.",
+       "Contras: agrega una dependencia adicional de AWS. Requiere que el cliente implemente la lógica de upload directo a S3 usando la presigned URL recibida del backend."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 4",
+      "parrafos": [
+       "Opción D: Servicio de terceros (Cloudinary, Uploadcare)",
+       "Plataformas especializadas en gestión de imágenes con transformaciones automáticas (resize, compresión, CDN).",
+       "Pros: funcionalidades avanzadas como resize automático y optimización de formato. SDK mobile disponible.",
+       "Contras: dependencia externa adicional fuera del ecosistema AWS ya adoptado. Costo impredecible con escala. Las funcionalidades avanzadas están fuera del alcance del Proyecto Final. Sobredimensionado para el caso de uso."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "AWS S3 con presigned URLs (Opción C). Se crea un bucket privado por ambiente (movo-shipment-media-dev y movo-shipment-media-prod). Las imágenes se organizan con el prefijo shipments/{shipment_id}/{etapa}/{timestamp}.jpg, donde etapa puede ser order, pickup, delivery o dispute. El backend (movo-svc-shipments) es el único servicio autorizado a generar presigned URLs, tanto para upload (PUT, TTL 5 minutos) como para visualización (GET, TTL 15 minutos). La referencia a cada imagen (su S3 key) se persiste en PostgreSQL vinculada al envío. Ninguna URL de S3 se almacena en la base de datos; las URLs se generan en tiempo de request.",
+       "Flujo de upload:",
+       "1. El cliente solicita al backend una presigned URL para upload.",
+       "2. El backend valida que el usuario tiene permiso para subir una foto en esa etapa del envío y genera la URL prefirmada con TTL de 5 minutos.",
+       "3. El cliente sube la imagen directamente a S3 usando la presigned URL (PUT request).",
+       "4. El cliente notifica al backend que el upload fue completado.",
+       "5. El backend registra la S3 key en PostgreSQL y avanza el estado del envío si corresponde."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: las imágenes son durables e independientes del ciclo de vida de la EC2.",
+       "Positivo: el upload directo desde el dispositivo a S3 elimina la carga de transferencia del servidor.",
+       "Positivo: el control de acceso mediante presigned URLs con TTL garantiza que solo usuarios autenticados con permiso sobre ese envío pueden ver o subir imágenes.",
+       "Positivo: el costo operacional para el volumen esperado del PY es prácticamente cero.",
+       "Trade-off negativo: el cliente móvil debe implementar un flujo de dos pasos para el upload (solicitar URL al backend, luego hacer PUT a S3), lo que agrega complejidad al código del frontend comparado con un upload directo al API.",
+       "Trade-off negativo: si el cliente completa el upload a S3 pero falla la notificación al backend en el paso 4, la imagen existe en S3 pero no queda registrada en la base de datos. Se mitiga con un timeout en el cliente que reintenta la notificación, y con una tarea de limpieza periódica que detecta objetos S3 sin referencia en la DB."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-008",
+  "numero": "008",
+  "titulo": "Proveedor de Datos de Distancia para el Motor Logístico",
+  "estado": "Deprecado (Ver ADR-015)",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "OR-Tools resuelve el problema VRPTW trabajando sobre una matriz de costos entre puntos. Esa matriz debe representar el tiempo o distancia real de desplazamiento entre cada par de puntos (origen del transportista, puntos de retiro y entrega de paquetes). La calidad de la ruta optimizada depende directamente de la precisión de esa matriz: datos incorrectos producen rutas subóptimas que degradan la experiencia del transportista."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Precisión de los datos (considera calles reales, sentidos viales, tráfico). Costo por uso. Dependencia de red en el camino crítico. Complejidad de integración. Disponibilidad y SLA del proveedor."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Opción A: Distancia haversine con factor de corrección.",
+       "Calcula distancia en línea recta entre coordenadas GPS aplicando un factor de aproximación (~1.3x). Pros: sin dependencia de red, sin costo, implementación en una función Python de 10 líneas, testable de forma determinista.",
+       "Contras: no considera calles ni sentidos viales; en ciudades con ríos, vías de tren o zonas sin acceso directo, el error puede ser significativo."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Opción B: OSRM self-hosted (Open Source Routing Machine).",
+       "Motor de ruteo de código abierto basado en OpenStreetMap que se puede alojar en la propia infraestructura.",
+       "Pros: datos reales de calles, sin costo por llamada, sin dependencia de red externa.",
+       "Contras: requiere levantar y mantener un contenedor adicional con los datos de OSM para Argentina (~500 MB), agrega complejidad operacional al Docker Compose."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Opción C: Google Maps Distance Matrix API. (ELEGIDA)",
+       "Servicio REST de Google que devuelve tiempos y distancias reales de ruta entre múltiples orígenes y destinos.",
+       "Pros: alta precisión considerando calles, sentidos viales y tráfico en tiempo real; SDK oficial para Python; documentación extensa; sin infraestructura adicional a mantener.",
+       "Contras: costo por elemento de la matriz (N² llamadas por optimización); dependencia de red en el camino crítico del motor logístico; requiere API key con billing habilitado en Google Cloud."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Google Maps Distance Matrix API. El servicio se consume exclusivamente desde movo-svc-pricing-logistics. Cada llamada incluye un máximo configurable de puntos para acotar el costo. La API key se gestiona en AWS Secrets Manager."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: la matriz de distancias refleja condiciones reales de ruta, mejorando la calidad de las rutas optimizadas que el sistema sugiere al transportista.",
+       "Positivo: sin infraestructura adicional a operar.",
+       "Trade-off negativo: si la API de Google Maps no responde, el motor de optimización no puede completar el cálculo. Estrategia de fallback: se usa automáticamente un cálculo con distancia haversine con menos precisión.",
+       "Trade-off negativo: el costo escala cuadráticamente con la cantidad de paradas. Se mitiga definiendo un límite máximo de paradas por llamada (configurable vía variable de entorno GOOGLE_MAPS_MAX_ELEMENTS). Trade-off negativo: dependencia de un servicio externo de pago en una función crítica del producto."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-009",
+  "numero": "009",
+  "titulo": "Infraestructura como Código (Terraform) y Gestión de DNS",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El ADR-006 define que la infraestructura de backend corre en EC2 con Docker Compose, con un ambiente dev y un ambiente prod, pero no define cómo se aprovisionan esos recursos de AWS (VPC, EC2, security groups, buckets S3, secrets, roles IAM). Hasta ahora la creación de estos recursos se asume manual o ad-hoc, sin versionado ni reproducibilidad. Adicionalmente, el dominio del proyecto está registrado y gestionado en Cloudflare, y no existe una decisión documentada sobre cómo se administran los registros DNS que apuntan a cada ambiente."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Reproducibilidad del entorno (poder recrear dev o prod desde cero sin pasos manuales).",
+       "Curva de aprendizaje para un equipo de 5, uno de ellos con conocimientos de DevOps.",
+       "Costo operacional adicional.",
+       "Consistencia con las decisiones ya tomadas en ADR-006 (EC2 + Docker Compose, no contenedores gestionados).",
+       "Evitar introducir dependencias o migraciones innecesarias, como mover el dominio de proveedor de DNS sin una razón técnica real."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Opción A: Aprovisionamiento manual documentado",
+       "Crear los recursos a mano desde la consola de AWS y documentar los pasos en un runbook.",
+       "Pros: cero curva de aprendizaje adicional, no depende de una herramienta nueva.",
+       "Contras: no es reproducible de forma confiable, alto riesgo de drift entre dev y prod, recrear un ambiente ante un desastre depende de que el runbook esté perfectamente actualizado y de que alguien lo siga al pie de la letra."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Opción B: Terraform (ELEGIDA)",
+       "Herramienta de IaC declarativa, con providers oficiales tanto para AWS como para Cloudflare, lo que permite gestionar cómputo y DNS desde el mismo lugar.",
+       "Pros: reproducibilidad total de dev y prod a partir del mismo código, historial de cambios versionado en Git, el equipo puede revisar cambios de infraestructura vía Pull Request igual que el código de aplicación, un mismo módulo parametrizado sirve para ambos ambientes.",
+       "Contras: requiere que el equipo aprenda HCL y los conceptos de state management, agrega un backend remoto (S3 + DynamoDB) como nueva pieza de infraestructura a mantener."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Opción C: AWS CloudFormation",
+       "Nativo de AWS, sin necesidad de gestionar un backend de state por separado.",
+       "Pros: integración directa con la consola de AWS, sin costo adicional de backend.",
+       "Contras: sintaxis YAML/JSON más verbosa que HCL, no tiene provider nativo para Cloudflare, lo que obligaría a gestionar DNS por fuera de la herramienta de todos modos, menos portable si en el futuro se evalúa otro proveedor cloud."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Se adopta Terraform como herramienta de Infraestructura como Código para los ambientes de AWS (dev y prod), reemplazando el aprovisionamiento manual. El state se almacena en un backend remoto (S3 + DynamoDB para locking). La infraestructura se organiza en módulos reutilizables (networking, compute, storage, secrets, IAM, DNS) parametrizados por ambiente. El dominio permanece en Cloudflare y sus registros DNS se gestionan con el provider oficial de Cloudflare para Terraform, en el mismo repositorio de infraestructura. No se migra el dominio a Route53. El TLS sigue resolviéndose con Let's Encrypt en cada instancia EC2, sin cambios respecto a lo definido en ADR-006."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: dev y prod quedan definidos por el mismo código parametrizado, reduciendo el riesgo de drift entre ambientes.",
+       "Positivo: cualquier cambio de infraestructura pasa por Pull Request y queda en el historial de Git, mejorando la trazabilidad exigida por la cátedra.",
+       "Positivo: se evita una migración de dominio sin justificación técnica, ahorrando tiempo del equipo.",
+       "Positivo: gestionar AWS y Cloudflare desde el mismo Terraform simplifica el proceso de crear un ambiente nuevo desde cero.",
+       "Trade-off negativo: el equipo debe aprender Terraform y HCL, lo que consume tiempo del cronograma del Proyecto Final. Se mitiga empezando por el módulo más simple (storage o DNS) antes de abordar networking y compute."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-010",
+  "numero": "010",
+  "titulo": "Confianza en la Red Interna del API Gateway",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "Se implementó el middleware del gateway: valida el access token una única vez y propaga la identidad verificada hacia los microservicios internos mediante los headers x-user-id, x-user-roles y x-kyc-status, en vez de que cada servicio revalide el JWT por su cuenta. Esto evita duplicar la lógica de autenticación (ADR-004) en cinco servicios distintos, pero abre una pregunta de diseño: ¿deben los microservicios internos volver a validar esos headers de alguna forma (por ejemplo, una firma que solo el gateway pueda generar), o alcanza con confiar en que solo el gateway puede alcanzarlos?"
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Complejidad de implementación adicional. Latencia agregada por validaciones extra en cada request interno. Nivel de aislamiento de red real ya garantizado por la infraestructura (ADR-006, ADR-009). Alcance apropiado para un Proyecto Final frente a una arquitectura zero-trust de nivel productivo."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Opción A: Confianza total en la red interna (ELEGIDA) Los microservicios internos confían en los headers x-user-* sin revalidarlos, apoyados en que la red Docker interna no es alcanzable desde afuera: por ADR-006 y ADR-009, solo el API Gateway expone un puerto público (443), y todos los demás contenedores (svc-users, svc-shipments, svc-payments, svc-pricing-logistics, svc-admin, postgres, redis) solo son alcanzables dentro de esa red. Pros: cero overhead de validación adicional, ningún microservicio necesita conocer JWT_SECRET ni reimplementar lógica de verificación. Contras: si un atacante compromete la red interna (una vulnerabilidad en cualquier servicio, o una mala configuración de red), puede falsificar cualquier identidad hacia cualquier servicio sin que nada lo detecte. Es un modelo de seguridad perimetral, no zero-trust."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Opción B: Firma de los headers de identidad El gateway firma los headers x-user-* (HMAC con clave compartida, o los reempaqueta en un JWT interno de corta vida) y cada microservicio valida esa firma antes de confiar en la identidad recibida. Pros: aislamiento real; un atacante en la red interna no puede falsificar identidad sin la clave de firma. Contras: duplica exactamente el problema que este diseño buscaba evitar — cada servicio vuelve a implementar lógica de verificación —, agrega gestión de una clave compartida y latencia extra en cada request interno."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Opción C: mTLS entre el gateway y los servicios internos Cada contenedor tiene certificados propios; la comunicación interna se autentica y cifra mutuamente. Pros: estándar de industria para zero-trust en microservicios. Contras: requiere una CA interna y rotación de certificados, y Docker Compose no tiene soporte nativo para esto sin un service mesh (Istio, Linkerd) — completamente fuera de alcance para un equipo de 5 personas con una EC2 por ambiente (ADR-006)."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Opción A: los microservicios internos confían en los headers x-user-id, x-user-roles y x-kyc-status inyectados por el gateway, sin revalidación criptográfica adicional. Como defensa adicional, el gateway elimina explícitamente cualquier header x-user-* que llegue de un cliente externo antes de inyectar los propios derivados del JWT verificado, para que nadie pueda inyectar identidad falsa desde afuera de la red interna."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: cero overhead de validación adicional en cada microservicio; ninguno necesita conocer JWT_SECRET ni implementar verificación de tokens, coherente con el objetivo de MOVO-68 de centralizar la autenticación en un único punto. Positivo: consistente con la topología de red ya decidida en ADR-006 y ADR-009, sin introducir infraestructura nueva. Trade-off negativo (aceptado conscientemente): si un atacante logra acceso a la red Docker interna de una EC2, puede alcanzar cualquier microservicio directamente y falsificar cualquier identidad vía los headers x-user-*, sin que ningún servicio lo detecte. Es un modelo de seguridad perimetral, no zero-trust; se acepta para el alcance de un Proyecto Final y se documenta acá para que la limitación quede explícita y no implícita. Si el proyecto escalara a un entorno productivo real, correspondería evaluar la Opción B o C como siguiente paso."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-011",
+  "numero": "011",
+  "titulo": "Adopción de Prisma como ORM para los servicios de MOVO",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "Los 4 servicios Node de MOVO acceden a Postgres con pg a mano y versionan migraciones como.sql aplicados manualmente vía scripts/run-migrations.sh, que no lleva registro de qué se aplicó — solo \"funcionaba\" porque la única migración real (movo-svc-users) usa guards IF NOT EXISTS. Automatizar migraciones en el deploy expone el problema: cualquier migración futura no-idempotente rompería en el segundo deploy. movo-svc-users es hoy el único servicio con dominio real; los otros tres siguen siendo placeholders — momento más barato para fijar la convención antes de que acumulen código propio."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Costo de adopción ahora vs. después en cada servicio. Tracking automático de migraciones. Consistencia entre los 4 servicios Node — que no cada uno resuelva persistencia distinto. Curva de aprendizaje. Consistencia con el stack (ADR-002). Compatibilidad con schema-por-servicio (ADR-003)."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "SQL a mano + tracking propio en los 4. Reinventa lo que un migration runner ya resuelve, sin tipado."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Prisma como ORM estándar del proyecto (ELEGIDA). Tracking nativo, tipado end-to-end, multi-schema nativo, baselining explícito, una sola convención repetible entre servicios en vez de que cada uno la resuelva por su cuenta."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "TypeORM/Drizzle/Kysely. Ninguno tan maduro para baselinear una DB existente; sin experiencia previa del equipo, sin ventaja clara sobre Prisma."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Se adopta Prisma como ORM estándar para los 4 servicios Node (svc-users, svc-shipments, svc-payments, svc-admin) — no una decisión puntual de uno solo. svc-pricing-logistics (Python) queda fuera. Arranca en movo-svc-users por ser el único con dominio real hoy; los otros tres adoptan el mismo patrón desde el arranque cuando modelen su dominio, en vez de escribir SQL a mano y migrar después."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: idempotencia resuelta en los 4 servicios sin mantenimiento propio; tipado de punta a punta en todo el backend Node; una sola convención de persistencia; punto más barato del proyecto para fijarlo. Negativo: herramienta nueva a mitad de proyecto (mitigado escalonando la adopción, no big-bang); casos de borde de Prisma 7 no documentados oficialmente (documentados en el código para los siguientes servicios). Fuera de esta implementación: cómo correr prisma migrate deploy contra la EC2 real (Postgres no expone puerto público, ADR-010)."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-012",
+  "numero": "012",
+  "titulo": "Twilio como proveedor de SMS para verificación de OTP",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "MOVO-71 requiere enviar códigos OTP de 6 dígitos por SMS para verificar el teléfono del usuario antes del alta de cuenta (Módulo 1 del alcance). El envío de SMS real tiene costo por mensaje y requiere alta de cuenta con un proveedor externo — para el alcance de un Proyecto Final, sostener ese costo durante todo el desarrollo (múltiples sprints, testing repetido, CI) no se justifica frente al riesgo ya identificado (R10: costos de APIs externas; R11: necesidad de abstraer integraciones externas para poder testear sin red)."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Costo operativo durante desarrollo/testing. Facilidad de integración (SDK oficial, documentación). Posibilidad de reforzar la demo final con WhatsApp Business API. Testeabilidad sin red (no depender de un proveedor real en CI). Consistencia con el patrón de abstracción ya usado en el proyecto para integraciones externas (ADR-007, S3 presigned URLs)."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Enviar SMS real en todo ambiente (dev/test/CI/prod) contra un único proveedor. Simplicidad de una sola implementación, pero costo recurrente en cada corrida de tests/CI y dependencia de red en el camino crítico de testing — contradice R10/R11."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Interfaz SmsProvider con dos implementaciones — ConsoleSmsProvider (default en dev/test/CI, loguea el código sin costo) y TwilioSmsProvider (real, activado solo con SMS_PROVIDER=twilio, reservado para la demo final). Sin costo durante el desarrollo, testeable sin red, cambio de proveedor a una sola variable de entorno."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "WhatsApp Business API en vez de SMS. Requiere aprobación de plantillas de mensaje y alta de cuenta de Meta Business, con lead time y fricción mayores a los de Twilio para el alcance de este sprint — queda como opción a evaluar para la demo final, no para la implementación base."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Twilio como proveedor concreto de envío de SMS (AC8 de MOVO-71), detrás de una interfaz SmsProvider (src/adapters/sms-provider.ts en movo-svc-users) con dos implementaciones intercambiables por la variable de entorno SMS_PROVIDER (console | twilio, default console). El código de verificación nunca se expone por HTTP en ningún caso, independientemente del proveedor activo.",
+       "Autenticación contra la API de Twilio vía API Key + Secret, no Account SID + Auth Token (recomendación explícita de Twilio al crear la cuenta): el Auth Token da acceso total a la cuenta y no se puede limitar en permisos ni revocar sin regenerarlo entero; una API Key se puede acotar por producto/permiso y revocar individualmente sin afectar el resto de las integraciones. El Account SID se sigue necesitando (identifica la cuenta ante la API), pero pasa a ser un dato de configuración, no una credencial — las credenciales son TWILIO_API_KEY_SID/TWILIO_API_KEY_SECRET."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "- Positivo: cero costo de SMS durante todo el desarrollo/testing/CI; el patrón de adapter (ya usado conceptualmente en ADR-007 para S3) queda establecido como convención para integraciones externas futuras (ej. Didit.me en MOVO-72); los tests de integración corren sin red.",
+       "- Negativo / limitación aceptada: Twilio real nunca se ejercita en CI ni en desarrollo — solo se activa manualmente para la demo final, así que un bug específico de la integración real (formato de número, rate limits del proveedor, etc.) podría no detectarse hasta ese momento. Mitigado con un test unitario del adapter de Twilio con el SDK mockeado (única excepción documentada a la regla de \"nunca mockear\" del plan de testing, justificada por tratarse de una API de pago externa).",
+       "- Riesgo confirmado en la práctica: al probar contra Twilio real (cuenta trial, número de prueba verificado) apareció exactamente el tipo de problema anticipado arriba — Twilio no reconoce el \"9\" que Argentina inserta en el E.164 de un celular (+549XXXXXXXXXX, convención de marcado para voz) como el mismo destinatario que +54XXXXXXXXXX: un número verificado como recipient de la cuenta trial devolvía error 572002 (\"destinatario no verificado\") en formato +549..., y pasaba ese chequeo en +54.... Se resolvió quitando el \"9\" únicamente al armar el to de la llamada a Twilio, sin tocar la normalización +549... que el resto del sistema usa para unicidad/persistencia (MOVO-70). Vale como precedente para cualquier integración futura con un proveedor de SMS/voz externo sobre números argentinos."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-013",
+  "numero": "013",
+  "titulo": "Refresh token con TTL de 90 días, rotación de un solo uso y detección de reuso",
+  "estado": "Aceptado (MOVO-75) · redacción pendiente de revisión",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "ADR-004 fijó el refresh token en 7 días. Al implementar el login (MOVO-74/MOVO-75) el equipo priorizó minimizar cuánto tienen que volver a loguearse los usuarios en una app que no maneja datos bancarios. Un TTL más largo agranda la ventana de exposición si un refresh token es robado, por lo que la misma US agrega rotación y detección de reuso."
+      ]
+     },
+     {
+      "etiqueta": "Alcance",
+      "parrafos": [
+       "Redactado a partir del README de ADRs y del HISTORIAL de movo-svc-users; pendiente de revisión del equipo. Reemplaza el valor de TTL de ADR-004."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Mantener el TTL de 7 días (valor original de ADR-004). Descartada: obliga a loguearse con más frecuencia, contrario a la prioridad del equipo para una app sin datos bancarios."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "TTL de 90 días con rotación de un solo uso y detección de reuso (ELEGIDA). Compensa la ventana de exposición mayor con una revocación automática ante el robo."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "El refresh token vive 90 días en Redis. Es un token opaco con la forma {userId}.{tokenId}.{secret}, de modo que se puede ubicar la key en Redis a partir de lo que ve el cliente. La rotación es de un solo uso: al refrescar, la sesión vieja queda como tombstone (used: true); un refresh ya canjeado que se vuelve a presentar revoca todas las sesiones del usuario (detección de robo). El logout recibe el refresh token en el body (los claims del access token no incluyen tokenId) y siempre responde 204, incluso con un token ajeno o inválido, para no filtrar información. El access token mantiene su TTL de 60 minutos (MOVO-74).",
+       "En el mobile (MOVO-76) el interceptor HTTP refresca con single-flight ante un 401 y no reintenta si el 401 viene de un Authorization explícito del llamador, para no competir con el refresh proactivo ni disparar la detección de reuso."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Ventana de exposición mayor si un refresh token es robado; se mitiga con la rotación de un solo uso y la detección de reuso (reusar un refresh ya canjeado revoca todas las sesiones del usuario). Un cliente que dispare dos refrescos concurrentes con el mismo token puede ser interpretado como reuso; por eso el mobile usa single-flight. DD-043 (propuesto) revisa este punto para el panel web, que sí puede enviar solicitudes simultáneas con la misma cookie."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "referencias",
+    "filas": [
+     {
+      "etiqueta": "Referencias",
+      "parrafos": [
+       "MOVO-74 (login), MOVO-75 (este ticket), MOVO-76 (refresh automático en mobile), ADR-004 (valor reemplazado), DD-043 (refresh idempotente del panel)."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-014",
+  "numero": "014",
+  "titulo": "Google Maps como proveedor de geocoding detrás de GeocodingProvider",
+  "estado": "Aceptado (MOVO-73) · redacción pendiente de revisión",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El wizard de registro (MOVO-73) incluye un paso de mapa: la dirección que carga el usuario se geocodifica a latitud/longitud y se guarda en la tabla nueva users.address (una por registro). Es la primera implementación real de un servicio de Google Maps en el proyecto, aunque ADR-008 y ADR-015 ya habían decidido Google Maps para movo-svc-pricing-logistics, que todavía era un esqueleto."
+      ]
+     },
+     {
+      "etiqueta": "Alcance",
+      "parrafos": [
+       "Redactado a partir del README de ADRs y de los HISTORIAL de movo-svc-users y movo-mobile; pendiente de revisión del equipo."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Google Maps (Geocoding API) como proveedor, detrás de una interfaz GeocodingProvider en movo-svc-users. Un mock determinístico es el default de dev/test/CI y Google real se activa con GEOCODING_PROVIDER=google (mismo molde que SmsProvider, ADR-012). El mobile no llama a Google directamente para geocodificar: usa el endpoint público POST /geocode, que proxea la Geocoding API del lado del servidor. Las keys de Google Maps del cliente van en app.config.js / variables de EAS, nunca en app.json ni eas.json, porque esos archivos se trackean en git."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Hay que provisionar dos API keys de Google distintas: Geocoding API del lado servidor (restringida por IP) y Maps SDK del lado cliente del mobile (restringida por bundle id y SHA). Ninguna estaba cargada al momento de la decisión, mismo estado pendiente que las credenciales de Twilio y Didit. El endpoint /geocode es público a propósito (el registro ocurre antes de tener sesión); los proxies de Places que le siguieron (MOVO-120) siguieron el mismo criterio."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "referencias",
+    "filas": [
+     {
+      "etiqueta": "Referencias",
+      "parrafos": [
+       "MOVO-73 (onboarding mobile), MOVO-120 (proxy de Places Autocomplete), ADR-008, ADR-012 (molde de proveedor), ADR-015."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-015",
+  "numero": "015",
+  "titulo": "Migración de Distance Matrix API (Legacy) a Routes API (Compute Route Matrix)",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "ADR-008 (Aceptado) definió Google Maps Distance Matrix API como proveedor de datos de distancia para el motor VRPTW, consumido exclusivamente desde movo-svc-pricing-logistics.",
+       "En agosto de 2026 se confirmó que Distance Matrix API y Directions API fueron designadas \"Legacy\" por Google desde marzo de 2025: quedan feature-frozen (sin nuevas funcionalidades), no están disponibles para proyectos nuevos de Cloud, y no tienen fecha de baja fijada — Google se compromete a dar 12 meses de aviso antes de discontinuarlas. Google recomienda explícitamente que los proyectos nuevos usen Routes API desde el arranque.",
+       "A la fecha de esta revisión, ningún servicio del monorepo tiene código de integración real con Google Maps: movo-svc-pricing-logistics sigue usando el mock de distancia haversine definido para desarrollo (spike MOVO-50). Es el punto más barato del proyecto para fijar esta decisión, antes de escribir la integración real — mismo criterio que llevó a adoptar Prisma en ADR-011."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "criterios",
+    "filas": [
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Vigencia del producto a largo plazo (no arrancar sobre un servicio que el proveedor ya desalienta para proyectos nuevos).",
+       "Costo por elemento y previsibilidad del gasto — crítico para un equipo de estudiantes sin margen de error en USD.",
+       "Límite de elementos por request y latencia.",
+       "Consistencia con la decisión ya tomada en ADR-008 de no introducir Directions API como dependencia separada.",
+       "Mecanismos disponibles para poner topes duros de gasto (no solo alertas)."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Mantener Distance Matrix API (Legacy) — decisión original de ADR-008.",
+       "Pros: cero esfuerzo de cambio; la documentación y el presupuesto del Plan de Proyecto ya están redactados sobre esta opción.",
+       "Contras: Google no la recomienda para proyectos nuevos; está feature-frozen; ante una migración forzada eventual (sin fecha, pero con 12 meses de aviso) el trabajo se termina haciendo igual, más tarde y con código en producción para reescribir. Dado que hoy no hay código escrito, no hay ninguna razón real para no partir directamente de la opción vigente."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Routes API — método Compute Route Matrix, tier Basic.",
+       "Pros: es la opción que Google recomienda activamente para proyectos nuevos. Mismo orden de magnitud de costo que la legacy en tier Basic ($5 por 1.000 elementos, sin campos de tráfico en vivo ni peajes). Límite de 625 elementos por request contra 100 de la legacy. Respuesta en streaming. Mecanismos de control de costo documentados oficialmente por Google a nivel de plataforma (cuota diaria dura, alertas de presupuesto).",
+       "Contras: formato de request/response distinto (POST JSON + header X-Goog-FieldMask obligatorio), lo que implica escribir el cliente HTTP contra este formato desde el arranque (sin costo de migración real, porque no existía integración previa). La estructura de tier gratuito por SKU (vigente desde marzo 2025) reemplaza al crédito plano de USD 200/mes que contemplaba el Plan de Proyecto — el monto exacto para este SKU queda pendiente de confirmación (ver sección de Costos)."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Proveedor de ruteo no-Google (ej. OSRM self-hosted).",
+       "Se descarta por el mismo motivo ya documentado en ADR-008: requiere levantar y mantener un contenedor adicional con datos de OpenStreetMap para Argentina, complejidad operacional no justificada para el alcance del equipo. Sin cambios respecto al análisis original."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Se adopta Routes API, método Compute Route Matrix, consumido exclusivamente desde movo-svc-pricing-logistics (mismo aislamiento que definía ADR-008). Las requests se limitan al tier Basic (sin tráfico en tiempo real, sin peajes, sin modificadores de vehículo de dos ruedas) para mantener el costo previsible en $5 por cada 1.000 elementos facturables.",
+       "Se mantiene la variable de entorno GOOGLE_MAPS_MAX_ELEMENTS (ya prevista en ADR-008) como límite máximo configurable de elementos por request.",
+       "Como capa adicional de protección de costo — nueva respecto a ADR-008 — se configura un daily quota limit en Google Cloud Console sobre el proyecto, en dev y en prod, de forma que al alcanzar el tope diario configurado la API deja de responder en lugar de seguir facturando. Se suma un billing budget alert como alarma temprana independiente del tope de cuota.",
+       "Pendiente antes de cerrar el número final en el Plan de Proyecto: confirmar en la calculadora de precios de Google Cloud a qué categoría de SKU (Essentials/Pro/Enterprise) corresponde Compute Route Matrix en tier Basic y cuántos eventos gratuitos mensuales incluye, dado que reemplaza al crédito plano de USD 200/mes ya presupuestado."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: se evita una migración forzada más adelante, aplicando el mismo principio que llevó a adoptar Prisma en ADR-011 — fijar la convención correcta en el punto más barato del proyecto.",
+       "Positivo: el límite de 625 elementos por request (vs. 100 de la legacy) da más margen para las matrices VRPTW sin trocear llamadas.",
+       "Positivo: el mecanismo de cuota diaria dura elimina el riesgo de un cargo inesperado en USD — una preocupación legítima para un equipo de estudiantes sin margen de error presupuestario.",
+       "Positivo: académicamente defendible — la elección sigue la recomendación activa del proveedor en lugar de una API que el proveedor mismo desalienta para proyectos nuevos.",
+       "Trade-off negativo: el cliente HTTP se escribe contra Routes API sin haber podido validar antes con la legacy — se acepta porque de cualquier manera no había integración escrita todavía.",
+       "Trade-off negativo: el monto exacto del tier gratuito mensual queda pendiente de confirmación antes de cerrar el presupuesto definitivo del Plan de Proyecto — se documenta como acción de seguimiento, no como bloqueante."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-016",
+  "numero": "016",
+  "titulo": "Resend como proveedor de email detrás de EmailProvider",
+  "estado": "Aceptado (MOVO-139) · redacción pendiente de revisión",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "MOVO-139 incorpora el primer canal de email del proyecto. Cierra la limitación que MOVO-133 y MOVO-134 dejaron documentada (sin EmailProvider no se podía notificar al email anterior) y es precondición de MOVO-64 (recuperación de contraseña por email), además de habilitar la verificación de email por OTP."
+      ]
+     },
+     {
+      "etiqueta": "Alcance",
+      "parrafos": [
+       "Redactado a partir del README de ADRs y del HISTORIAL de movo-svc-users; pendiente de revisión del equipo."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "AWS SES. Descartada: salir del sandbox de SES exige una aprobación manual de AWS con tiempos impredecibles."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Resend (ELEGIDA). El free tier (3.000 mails por mes) cubre de sobra el TFG."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Resend detrás de una interfaz EmailProvider, con el molde de ADR-012: factory por EMAIL_PROVIDER, implementación de consola como default de dev/test/CI y Resend real con EMAIL_PROVIDER=resend, con fail-fast al arrancar si faltan RESEND_API_KEY o EMAIL_FROM. Resend se consume por fetch contra su API HTTP, no por su SDK (mismo criterio que otros proveedores del repo). El cuerpo viaja como { text, html } (un mail transaccional sin parte de texto plano es disparador de filtros de spam) y los templates viven en código, no en la UI de Resend, para que se versionen y se testeen. El canal se persiste en el registro de Redis del OTP (OtpRecord.channel) para que el reenvío sepa si el destino es teléfono o email. El OTP de cambio de email va al email nuevo, y el aviso al email anterior es best-effort después del UPDATE."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Un proveedor externo más del que depender. El dominio de envío necesita SPF/DKIM propios (un terraform apply en movo-infra; el DNS ya se maneja por Cloudflare) y la cuenta queda sin verificar hasta la demo, igual que Twilio y Didit."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "referencias",
+    "filas": [
+     {
+      "etiqueta": "Referencias",
+      "parrafos": [
+       "MOVO-139, MOVO-133, MOVO-134, MOVO-64, ADR-012 (molde de proveedor)."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-017",
+  "numero": "017",
+  "titulo": "Statelessness de movo-svc-pricing-logistics y ubicación de la entidad Offer",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El motor de precios y el algoritmo VRPTW de movo-svc-pricing-logistics necesitan ser invocados en dos momentos del flujo: al crear un envío (cotización sugerida, ver DD-018) y al declarar un viaje / crear una oferta (matching y optimización de ruta). La entidad Offer (oferta de un transportista sobre un envío) participa de una transacción que también actualiza el estado del envío (Shipment): al aceptar una oferta, esta pasa a `accepted`, las demás ofertas pendientes del mismo envío pasan a `superseded`, y el envío pasa a `assignment_pending` — las tres cosas en una sola operación atómica. Definir en qué servicio vive `Offer`, y si pricing-logistics necesita base de datos propia, condiciona la arquitectura de todo el dominio de negociación."
+      ]
+     },
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Atomicidad transaccional para operaciones que tocan `Offer` y `Shipment` simultáneamente. Consistencia con ADR-001 (microservicios) y ADR-003 (schema por servicio dentro de la misma instancia Postgres). Complejidad operacional de sumar un schema a un servicio que hoy es puramente de cómputo. Fijar la decisión en el punto más barato del proyecto, antes de escribir código que dependa de ella (mismo criterio que ADR-011/013/016)."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "`Offer` vive en movo-svc-pricing-logistics, con schema Postgres propio. Pros: agrupa toda la lógica de \"negociación y precio\" en un solo servicio. Contras: aceptar una oferta requeriría actualizar `Offer` (en pricing-logistics) y `Shipment` (en shipments) en la misma operación lógica — al ser schemas de servicios distintos, no hay transacción ACID nativa entre ambos, y habría que implementar un patrón de saga o compensación para algo que hoy es una sola escritura atómica. Además, pricing-logistics dejaría de ser un servicio de cómputo puro, contradiciendo la razón original de separarlo en Python (ADR-002: cómputo numérico y OR-Tools, no persistencia transaccional)."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "`Offer` vive en movo-svc-shipments, en el mismo schema que `Shipment` (ELEGIDA). Pros: aceptar una oferta es una única transacción SQL dentro del mismo schema (`shipments.offers` y `shipments.shipments`): todo o nada. pricing-logistics se mantiene sin base de datos propia — recibe un request HTTP, calcula, devuelve la respuesta, sin persistir nada. Contras: `price_offered` (en shipments) y `suggested_price_ars` calculado por pricing-logistics quedan en servicios distintos; cualquier reporte que cruce ambos requiere una llamada HTTP entre servicios (trade-off ya aceptado en ADR-001)."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "movo-svc-pricing-logistics es un servicio completamente stateless: no tiene schema propio en PostgreSQL, no persiste ofertas ni ningún otro dato entre requests. Su única responsabilidad es recibir inputs (`POST /quote`, matriz de rutas) y devolver un resultado calculado. La entidad `Offer` vive en movo-svc-shipments, en el schema `shipments`, junto a `Shipment`, precisamente para que aceptar una oferta sea una transacción atómica de base de datos y no una saga distribuida entre dos servicios."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: la operación más sensible del dominio de negociación (aceptar una oferta) es una transacción SQL simple con bloqueo optimista, sin necesidad de compensación ni sagas. Positivo: pricing-logistics es trivial de escalar horizontalmente — al no tener estado, cualquier instancia atiende cualquier request, sin sticky sessions ni replicación de datos. Positivo: consistente con la razón original de elegir Python/FastAPI para este servicio en ADR-002. Trade-off negativo: el acoplamiento de negocio entre `shipments` y la lógica de ofertas queda en el mismo servicio que el ciclo de vida del envío, en vez de aislado en un dominio de \"pricing/negociación\" separado — se acepta porque la atomicidad transaccional pesa más que la pureza de bounded context para esta operación específica.",
+       "Nota técnica: limitación de silent push notifications en iOS",
+       "El modelo de tracking on-demand (ver Estudio Inicial, sección P10) depende de que el backend pueda despertar a la app del transportista en segundo plano mediante una notificación push silenciosa (background push) para solicitar su posición actual. En iOS, Apple no garantiza la entrega ni el tiempo de entrega de este tipo de notificaciones: el sistema operativo puede demorarlas, agruparlas o directamente no entregarlas si evalúa que el dispositivo está en bajo consumo de batería, si la app fue recientemente forzada a cerrarse por el usuario, o por throttling general. Es una restricción de la plataforma, no un bug del diseño. Mitigación: el cliente define un timeout configurable (valor de referencia inicial: 10 segundos) tras el cual, si no llegó una respuesta de posición actualizada, la UI cae automáticamente al fallback ya contemplado en el diseño (última posición conocida + indicador de antigüedad), sin bloquear la pantalla ni mostrar error. En Android esta limitación es sustancialmente menor gracias a Firebase Cloud Messaging con prioridad alta (high-priority FCM), por lo que el mismo valor de timeout puede usarse en ambas plataformas sin perjudicar la experiencia en Android."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-018",
+  "numero": "018",
+  "titulo": "Handshake de custodia: firma ECDSA P-256 generada en el dispositivo",
+  "estado": "Aceptado (MOVO-158, MOVO-195) · redacción pendiente de revisión",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El Cryptographic Handshake (MOVO-6) confirma el cambio de custodia (emisor a transportista en el retiro, transportista a receptor en la entrega) combinando una firma asimétrica del dispositivo con una validación de proximidad GPS. Es la primera criptografía asimétrica del repo y no había precedente propio que reusar. MOVO-157 registra la clave pública por dispositivo en svc-users; MOVO-158 valida firma y GPS en svc-shipments; MOVO-195 genera el par de claves y firma en el mobile."
+      ]
+     },
+     {
+      "etiqueta": "Alcance",
+      "parrafos": [
+       "Redactado a partir del README de ADRs y de los HISTORIAL de movo-svc-shipments, movo-svc-users y movo-mobile; pendiente de revisión del equipo."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Ed25519 (recomendado en el ticket MOVO-195, a definir). Descartada: el backend ya validaba ECDSA P-256 desde MOVO-158 y habría rechazado toda firma Ed25519 con 422."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "react-native-quick-crypto o una clave no exportable en Keychain/Keystore nativo. Evaluadas con el usuario y descartadas: requieren módulo nativo y dev client/rebuild."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "@noble/curves (ELEGIDA para el mobile). JavaScript puro, sin módulo nativo."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "El handshake firma con ECDSA P-256 / SHA-256 vía WebCrypto (webcrypto.subtle de node:crypto en el backend). La clave pública viaja en formato raw (punto EC sin comprimir, 65 bytes) y la firma en formato IEEE P1363 (raw r‖s, 64 bytes), no DER. La clave privada nunca sale del dispositivo: por eso POST /shipments/:id/handshake/generate nunca firma, solo crea el nonce (Redis, TTL 15 s) con las coordenadas GPS del cedente y devuelve el string canónico {shipmentId}:{stage}:{nonce} para que el mobile lo firme y arme el QR. El stage se infiere del estado del envío, nunca lo manda el cliente. El estado pendiente vive en Redis y el commit de la transición es atómico en Postgres (compare-and-swap más inserts en shipment_events y handshake_events). En el mobile, @noble/curves (p256) genera y firma; el par se crea una vez, se persiste en expo-secure-store y sobrevive al logout porque identifica al dispositivo, no a la sesión."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "La firma en formato no-DER es una convención propia del proyecto: el mobile tiene que hablar exactamente el mismo formato y no hay un estándar externo que un tercero pueda verificar directamente. La clave privada pasa por JavaScript del lado mobile en vez de quedar aislada en hardware; se acepta por simplicidad y alcance del TFG (sin dev client ni rebuild nativo). El modelo de MOVO-157 no soporta múltiples dispositivos: un login en un dispositivo nuevo rota la clave pública vigente y el dispositivo viejo queda con firmas que el backend ya no valida. El handshake incluyó un bug de carrera detectado con Postgres real (el stage se releyó en vivo); se corrigió guardando el stage dentro del desafío pendiente de Redis."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "referencias",
+    "filas": [
+     {
+      "etiqueta": "Referencias",
+      "parrafos": [
+       "MOVO-6 (Cryptographic Handshake), MOVO-157 (registro de clave pública), MOVO-158 (validación en backend), MOVO-159/160 (QR y UI mobile), MOVO-195 (par de claves en el dispositivo)."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-019",
+  "numero": "019",
+  "titulo": "Canal de tiempo real -- WebSocket nativo (@fastify/websocket)",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El tracking en tiempo real es uno de los diferenciadores declarados de MOVO y no tenía una sola línea de código escrita. En el relevamiento del 08/09/2026 (MOVO-200) no apareció ninguna tarea de WebSocket en todo el backlog -- la única mención en el board era MOVO-159 AC4, en condicional (\"hace polling, o se suscribe si hay canal de Socket.io disponible\"). Ese condicional era el síntoma de que nadie sabía con certeza si el canal existía. El relevamiento del monorepo (gateway, movo-svc-shipments, movo-mobile) confirmó por escrito que no hay ninguna dependencia de WebSocket/Socket.io/SSE instalada ni código de conexión persistente en ningún lado -- se partía de cero. Se identificaron tres consumidores reales del canal: MOVO-11 (tracking, in scope de este ADR), MOVO-26 (chat, fuera de la implementación de este spike pero con un AC ya escrito por producto que el ticket pedía considerar) y MOVO-33 (panel de admin, envíos activos en tiempo real)."
+      ]
+     },
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Soporte en React Native/Expo sin polyfills; reconexión automática de fábrica vs. a mano; complejidad de autenticación con el JWT existente (MOVO-68/ADR-004); comportamiento detrás del gateway, nginx y Cloudflare; si el canal elegido sirve también para el chat (MOVO-26) sin mantener dos mecanismos de tiempo real en paralelo, porque migrar más adelante sale caro; no incorporar aparato (salas, ack, namespaces) que ningún caso de uso comprometido hoy necesita."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Server-Sent Events (SSE): Pros: cambio de infraestructura mínimo (solo timeout de nginx); nativo en el browser, sirve directo para MOVO-33 sin polyfill; no trae bidireccionalidad que hoy no se usa; auth sin cambios (Authorization Bearer). Contras: no es nativo en Expo/React Native -- requiere el polyfill react-native-sse (basado en XHR, sí soporta headers custom); el chat (MOVO-26) queda partido en dos mecanismos (SSE para recibir + un POST REST aparte para enviar, ya que el historial de todos modos se persiste en Postgres); no cumple la letra del AC de MOVO-26, que pide WebSockets explícitamente; sin margen para bidireccional a futuro (typing, presencia) sin cambiar de tecnología."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "WebSocket nativo, @fastify/websocket (ELEGIDA): Pros: bidireccional -- un solo protocolo para tracking, chat y admin, evitando mantener dos mecanismos de tiempo real y dos configuraciones de infraestructura en paralelo; nativo tanto en el browser como en Expo/React Native, sin polyfills en ningún cliente; cumple el AC de MOVO-26 tal cual está escrito, sin necesidad de justificar un desvío del requisito en la defensa del PF; menos dependencias que Socket.io; el upgrade ocurre sobre una request HTTP normal, así que el JWT viaja en el Authorization header igual que hoy, sin fricción extra de autenticación. Contras: sin reconexión automática de fábrica -- backoff y resync se programan a mano del lado del cliente; sin salas ni ack de fábrica -- si el chat los necesita en el futuro, se construyen a medida; mismo cambio de infraestructura completo en nginx que necesitaría Socket.io (headers Upgrade/Connection + subir proxy_read_timeout)."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Socket.io: Pros: reconexión automática con backoff configurable de fábrica; salas, namespaces y ack de mensajes sin código propio; fallback automático a long-polling en redes restrictivas; adapter con Redis (ya presente en el stack, ADR-003) si algún día se escala a más de una instancia de backend; librería madura y muy documentada. Contras: ninguno de los tres casos de uso comprometidos hoy (tracking, chat, admin) necesita salas, ack ni multi-instancia -- sumar esa complejidad ahora es exactamente el scope creep que el propio documento de riesgos del proyecto identifica como riesgo R07; protocolo propio sobre WebSocket -- cliente y servidor deben ser ambos Socket.io, no interopera con WS puro; dependencia más pesada de mantener y actualizar en un proyecto de un solo servidor (ADR-006); mismo requisito de infraestructura en nginx que WebSocket nativo, no ahorra nada ahí; difícil de justificar por escrito ante la cátedra sin caer en \"se eligió por comodidad\", justo lo que el ticket (MOVO-200) pedía evitar explícitamente."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Se adopta WebSocket nativo, implementado con @fastify/websocket sobre el gateway (proxy, MOVO-201) y movo-svc-shipments (origen del canal). Cubre los tres consumidores identificados (MOVO-11, MOVO-26, MOVO-33) con un solo protocolo y una sola configuración de infraestructura. Autenticación: el JWT viaja en el Authorization header de la request HTTP sobre la que ocurre el upgrade, mismo mecanismo que usa hoy el gateway para requests normales (gateway/src/plugins/auth.ts) -- sin esquema nuevo. Autorización: el cliente indica a qué envío quiere suscribirse (shipmentId); el servidor valida que el usuario autenticado sea emisor, transportista o receptor de ese envío (misma verificación que assertShipmentAccess en movo-svc-shipments) antes de agregar la conexión a cualquier grupo de difusión -- si falla, la conexión se rechaza antes de esa suscripción. Para el panel de admin (MOVO-33) el chequeo es de rol, no de pertenencia al envío. Infraestructura: nginx (infra/nginx/templates/default.conf.template) necesita sumar los headers Upgrade/Connection en el bloque de proxy y subir proxy_read_timeout (hoy 30s) a un valor acorde a la duración esperada de una conexión de tracking/chat -- Cloudflare está en modo DNS-only (confirmado en infra/docker-compose.yml) y no participa en el camino de la conexión persistente, así que no hay que investigar su comportamiento en modo proxy. Una prueba de concepto mínima (canal que empuja un mensaje desde movo-svc-shipments a un cliente Expo en dev build, con el JWT validado en el handshake) quedó implementada en una rama con instrucciones de cómo correrla (docs/tracking-poc/README.md), sin ser la implementación final. Como consecuencia directa, MOVO-159 AC4 queda resuelto a favor de reemplazar el polling por suscripción una vez que el canal esté disponible (MOVO-201) -- ese reemplazo se trata como parte de los tickets de implementación de MOVO-159/MOVO-199 cuando corresponda, no de este spike."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo -- un solo protocolo y una sola configuración de infraestructura para los tres consumidores del canal (tracking, chat, admin), en vez de mantener dos mecanismos de tiempo real en paralelo. Positivo -- nativo tanto en Expo/React Native como en el browser del panel de admin, sin polyfills en ningún cliente. Positivo -- cumple el AC de MOVO-26 (chat vía WebSockets) tal cual está escrito por producto, sin tener que justificar un desvío del requisito ante la cátedra. Positivo -- no incorpora funcionalidad (salas, ack, multi-instancia) que ningún caso de uso comprometido hoy necesita, evitando el scope creep de elegir Socket.io por comodidad (riesgo R07 del documento de riesgos del proyecto). Trade-off negativo -- sin reconexión automática ni salas/ack de fábrica: ese costo se asume conscientemente y queda documentado como decisión explícita, manejable en la escala actual del proyecto (un servidor, tres casos de uso acotados), no como una carencia no evaluada. Trade-off negativo -- nginx necesita un cambio de configuración real (headers de upgrade + timeout) antes de que el canal funcione de punta a punta en producción; es el riesgo que el propio ticket señalaba como el más caro de descubrir tarde (funciona en local, se corta en producción por un timeout de proxy) -- identificado y con la corrección puntual a aplicar, documentado como pendiente explícito en vez de una sorpresa. Alternativa a reabrir si cambian las condiciones: si el proyecto necesita escalar movo-svc-shipments a más de una instancia, o si aparecen features que dependen de lo que Socket.io da de fábrica (typing indicator, confirmación de lectura, subasta en vivo entre transportistas), ahí sí hay una razón concreta para reevaluar Socket.io -- mientras esas condiciones no existan, agregar esa complejidad no está justificada."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-020",
+  "numero": "020",
+  "titulo": "Tracking en tiempo real: ingesta por HTTP, difusión por WebSocket",
+  "estado": "Aceptado (MOVO-250) · redacción pendiente de revisión",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "ADR-019 definió el canal WebSocket nativo. MOVO-250 fija el contrato entre backend y mobile para la cola offline (MOVO-203) y el envío en segundo plano (MOVO-242): el transportista puede reportar posiciones capturadas horas antes de que lleguen al servidor, y el backend tiene que tratarlas correctamente."
+      ]
+     },
+     {
+      "etiqueta": "Alcance",
+      "parrafos": [
+       "Redactado a partir del README de ADRs, del HISTORIAL de movo-svc-shipments y de docs/tracking/README.md; pendiente de revisión del equipo. Complementa ADR-019 sin modificarlo."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "WebSocket bidireccional para emitir y recibir. Descartada: dejaría la emisión atada a un socket que el sistema operativo mata en segundo plano mucho antes que una tarea de red puntual."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Ingesta por HTTP y difusión por WebSocket (ELEGIDA). El WebSocket queda como canal de recepción."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "El transportista reporta su posición con POST /shipments/:id/positions (o el lote POST /shipments/positions, de 1 a 100 ítems, con un resultado por ítem) y el servidor la difunde por el WebSocket de ADR-019, que queda como canal de recepción (mensajes connected, position y status en cada transición de estado). Se ordena y agrupa por capturedAt (hora del dispositivo), no por hora de llegada: la última posición conocida solo avanza si capturedAt es estrictamente más reciente (script Lua atómico en Redis) y la traza persiste una posición por tramo de 45 s de capturedAt (SET NX por tramo). Se rechaza con 422 un capturedAt a más de 2 minutos en el futuro o a más de 2 minutos anterior al último cambio de estado del envío. El lote tiene su propio límite en el gateway (30 requests por minuto por IP). El socket se cierra con 4001 al vencer el JWT, 4003/4004 ante un envío ajeno o inexistente y 4009 cuando el envío llega a un estado que corta el tracking."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "La emisión no tiene ack en tiempo real; el resultado por ítem del lote lo reemplaza. La cola offline del mobile depende de que el backend sea idempotente ante reenvíos, y lo es: un tramo ya persistido no se duplica y el marcador nunca retrocede. Los claims de tramo viven 7 días en Redis, por lo que una cola vaciada después de ese plazo podría duplicar un tramo; se acepta porque coincide con el TTL de la última posición. Un error de infraestructura (base o Redis caídos) falla el request entero en vez de convertirse en un rechazo por ítem, y el cliente reintenta de forma segura."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "referencias",
+    "filas": [
+     {
+      "etiqueta": "Referencias",
+      "parrafos": [
+       "MOVO-200 y MOVO-201 (canal WebSocket), MOVO-202 (ingesta), MOVO-203 (cola offline), MOVO-242 (envío en segundo plano), MOVO-250 (este ticket), ADR-019, DD-023."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-021",
+  "numero": "021",
+  "titulo": "Motor de precios dinámico: combustible desde datos abiertos, demanda por zona y contrato simplificado",
+  "estado": "Aceptado",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El endpoint POST /quote de movo-svc-pricing-logistics calcula hoy el precio sugerido de un envío con euclidean_linear_v1 (DD-018). Es una fórmula lineal provisoria que combina la distancia en línea recta entre origen y destino, el peso y un factor según el tipo de paquete, con coeficientes fijos expresados en pesos. MOVO-138 tiene que reemplazarla por el motor de precios real. Ese motor incorpora el precio del combustible, un recargo cuando en una zona hay muchos envíos esperando y pocos transportistas disponibles, y la distancia real por ruta que provee Routes API (ADR-015).",
+       "Antes de implementarlo hacía falta resolver cuatro preguntas. La primera, de dónde sale el precio del combustible y con qué frecuencia se consulta. La segunda, cómo se mide la demanda, teniendo en cuenta que pricing-logistics no tiene base de datos propia (ADR-017) y que los datos de envíos y viajes viven en el esquema shipments. La tercera, qué información ve el emisor sobre cómo se formó el precio. La cuarta, qué pasa con la cotización si Google falla. El spike MOVO-216 respondió las cuatro de forma empírica, con consultas reales a la API y un prototipo ejecutable. El informe completo y el prototipo están en docs/pricing/ del repositorio."
+      ]
+     },
+     {
+      "etiqueta": "Criterios",
+      "parrafos": [
+       "Se priorizó un costo nulo o mínimo en proveedores externos, en línea con el riesgo R10 del plan de proyecto. También se buscó que los precios no se desactualicen con la inflación sin que alguien tenga que intervenir a mano. Hacía falta mantener pricing-logistics sin estado (ADR-017) y respetar un esquema por servicio (ADR-003). Se buscó que el emisor nunca vea un recargo sin explicación ni una explicación sin recargo. Y como el precio es solo una sugerencia que el emisor puede editar, una cotización no debería perderse por la caída de un proveedor."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Fuente del precio del combustible: Se evaluaron cuatro fuentes. La API de datos abiertos de la Secretaría de Energía (dataset \"Precios en surtidor, Resolución 314/2016\") es oficial y gratuita, no requiere API key, tiene licencia CC-BY-4.0, se actualiza a diario y permite hacer consultas SQL en el servidor. Como contra, solo responde por HTTP, no ofrece SLA y los precios los declaran las propias estaciones, así que contienen datos desactualizados. El scraping de los precios que publican las petroleras se descartó: no hay API pública, se rompe con cualquier cambio en el sitio y los términos de uso son dudosos. Las APIs privadas que agregan precios se descartaron por ser pagas o no garantizar continuidad. Un precio fijo en la configuración, actualizado a mano, es trivial, pero en Argentina queda desactualizado en semanas. Se eligió la API de la Secretaría de Energía y el precio fijo en configuración quedó solo como respaldo de último recurso."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Dónde se calcula la demanda: La primera opción era que movo-svc-shipments cuente los envíos y transportistas de la zona y los envíe dentro del request de /quote. Hoy ese endpoint solo lo llama shipments, que ya tiene los datos a mano. La segunda era que pricing-logistics le pidiera los conteos a shipments por HTTP, pero eso genera una dependencia circular dentro del mismo request (shipments llama a pricing, que llama a shipments) y agrega un salto de red al crear un envío. La tercera era que pricing-logistics leyera directamente el esquema shipments, lo que contradice ADR-003 y ADR-017. Se eligió la primera: pricing-logistics sigue siendo una función pura que recibe dos números enteros."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Forma de la función de demanda: Un multiplicador continuo sin umbral le sumaría a todo envío algún recargo mínimo sin un aviso que lo explique. Una grilla fija de zonas, como geohash o H3, tiene efecto borde: dos retiros a doscientos metros de distancia pero en celdas distintas cotizarían distinto. Se eligió una zona definida por un radio alrededor del punto de retiro, con un umbral a partir del cual se aplica un recargo escalonado y con tope. Así el aviso de alta demanda aparece si y solo si hay recargo."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 4",
+      "parrafos": [
+       "Comportamiento si falla Google Routes API al cotizar: Propagar el error es coherente con la política de no degradar que ya rige para la optimización de rutas (MOVO-205), pero deja el envío en \"precio a estimar\" cada vez que se agota la cuota diaria de Google. La alternativa es calcular una distancia aproximada (línea recta multiplicada por 1,3) y dejar registro en el log. Se eligió degradar."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "El precio de referencia del combustible es la mediana nacional de la nafta súper que publica la API de la Secretaría de Energía, calculada sólo con las declaraciones de los últimos 30 días. El filtro de frescura es obligatorio: el dataset de precios \"vigentes\" conserva la última declaración de cada estación aunque tenga años. Sin filtrar, la mediana subestima el precio real en torno al 40% (en Córdoba daba $1.346 por litro contra unos $2.249 reales al 24/09/2026). Se usa la mediana nacional y no la provincial porque varias provincias tienen apenas una o dos estaciones con datos recientes, y en las provincias con más operación la diferencia es de ±2%. Se utiliza la nafta y no el gasoil porque, al momento de cotizar, todavía no hay un transportista asignado, y el transportista típico de una plataforma P2P viaja en auto particular.",
+       "El valor se guarda en Redis durante 24 horas, que coincide con la frecuencia de actualización del dataset, así que hay a lo sumo una consulta por día. Si la API falla, se usa el último valor bueno durante 7 días, y después un valor de configuración. Como la API solo responde por HTTP, se descarta cualquier respuesta con menos de 50 muestras, con un precio fuera del rango de $500 a $10.000 por litro o con una variación mayor al 25% respecto del valor anterior.",
+       "Todos los coeficientes de la tarifa (base, costo por kilómetro y costo por kilo) se expresan en litros de nafta y no en pesos, de modo que la tarifa entera se indexa sola con el precio del surtidor. Están calibrados para que, al precio actual, el resultado coincida con euclidean_linear_v1 para una misma distancia, así el cambio de método no produce un salto de precio. El emisor paga el 60% del combustible del trayecto más un componente por desgaste, porque el viaje del transportista iba a ocurrir de todas formas, igual que en el carpooling.",
+       "La demanda se mide contando los envíos publicados a 15 km o menos del punto de retiro, más el envío que se está cotizando. La oferta se mide contando los transportistas distintos con viajes declarados o activos que salen entre 6 horas antes y 72 horas después y cuyo trayecto pasa a 15 km o menos del retiro. Es el mismo umbral que usa el prefiltro de corredor de MOVO-50. Hay alta demanda cuando se juntan al menos 4 envíos y la relación entre envíos y transportistas llega a 3. En ese caso el recargo arranca en 10%, suma 5% por cada punto de relación por encima de 3 y tiene un tope de 30%. El umbral se calibró con una simulación Monte Carlo sobre mercados sintéticos: el aviso aparece en alrededor del 9% de las zonas con oferta holgada, el 22% en un mercado equilibrado y el 49% cuando faltan transportistas. Todos los parámetros quedan en configuración. Los conteos los calcula movo-svc-shipments y los envía en un campo opcional del request. Si ese campo no llega, no se aplica recargo.",
+       "El endpoint POST /quote responde únicamente el precio sugerido, un indicador de alta demanda y la versión del método de cálculo (demand_fuel_routes_v1). El desglose que devolvía la versión anterior deja de viajar en la respuesta, porque ningún consumidor lo usaba. En su lugar, el desglose completo queda en un log estructurado que sirve como evidencia ante disputas. El texto del aviso (\"Alta demanda en tu zona\") es responsabilidad de la app mobile. El indicador de alta demanda se guarda en el envío, junto al precio sugerido, como una foto del momento de la cotización que no se recalcula. Un valor vacío significa que no hubo cotización y no equivale a que no hubiera alta demanda.",
+       "Si Google Routes API falla al cotizar, /quote no devuelve error: calcula la distancia en línea recta multiplicada por 1,3 y lo deja registrado en el log. Para que el respaldo llegue a tiempo, la llamada a Google tiene un timeout de alrededor de 1,5 segundos. Es una excepción acotada a la cotización. La política de no degradar sigue vigente para la optimización de rutas y la evaluación de candidatos, porque ahí una distancia aproximada se traduciría en instrucciones de ruta falsas para el transportista."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Positivo: los precios siguen a la inflación sin que nadie tenga que actualizar coeficientes. El proveedor de combustible no tiene costo y se consulta como mucho una vez por día. pricing-logistics sigue sin base de datos y su función de precio es determinística y fácil de testear. El emisor ve un solo precio y, como mucho, un aviso que siempre corresponde a un recargo real. Y ni la caída de Google ni la del portal de Energía dejan un envío sin precio.",
+       "Trade-off negativo: la API de Energía no tiene SLA y, al responder solo por HTTP, una respuesta podría alterarse en tránsito. Los controles de cordura y el cache lo mitigan, con el costo de que un aumento real mayor al 25% en un solo día tarda hasta 7 días en reflejarse. El umbral de demanda se calibró con datos sintéticos porque todavía no hay producción, y habrá que recalibrarlo con los logs reales cambiando la configuración. Usar el precio nacional desvía el precio final hasta un 21% en provincias con nafta más barata, como La Pampa. Cuando Google falla, la distancia es aproximada, lo que se acepta porque el precio es sugerido y editable y el caso queda identificado en el log. Por último, movo-svc-shipments suma dos consultas de conteo al crear un envío, apoyadas en índices que ya existen."
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-022",
+  "numero": "022",
+  "titulo": "Arquitectura de cobro: Payments API + OAuth Connect + application_fee",
+  "estado": "Aceptado (MOVO-209)",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "MOVO conecta a un emisor que paga con un transportista que cobra, y no quiere tocar el dinero ni ser un intermediario financiero. Hay que reservar el monto al aceptar una oferta, cobrarlo recién al entregar, y repartirlo en el mismo acto (comisión de Movo y neto del transportista). El spike MOVO-49 verificó en sandbox qué combinaciones de la API de Mercado Pago lo permiten (docs/payments/mercadopago-spike/SOLUCION-FINAL.md)."
+      ]
+     },
+     {
+      "etiqueta": "Alcance",
+      "parrafos": [
+       "Numeración: el ticket MOVO-209 lo llamaba DD-030, pero ese número ya lo ocupa el juego de precios del sitio institucional, y el 034 lo tomó MOVO-277 (inicio de viaje, PR #222) antes de que este se mergeara. Es el ADR-022."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Alternativa | Por qué no",
+       "Movo recibe el pago en su cuenta y le transfiere al transportista | Movo pasa a custodiar dinero ajeno (obligaciones regulatorias, riesgo de contraparte) y hay que programar y conciliar los payouts.",
+       "Checkout Pro / Preferences | No permite reservar sin cobrar con split por transportista con este modelo de cuentas.",
+       "Pago en efectivo con cobro de comisión posterior | Queda en el backlog (MOVO-37): no reserva nada y depende de cobrarle después al transportista.",
+       "Tarjeta guardada + hold off-session | No validado en marketplace; ver punto 5.",
+       "Renovar holds vencidos | Puede fallar con el paquete en tránsito, bloquea doble monto y parece un doble cobro (decisión de MOVO-12)."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "1. Marketplace de Mercado Pago: el pago se crea en la Payments API con el access_token OAuth del transportista (vendedor), y la comisión de Movo viaja como application_fee. MP acredita el neto directo al transportista y retiene la comisión para Movo en la misma operación: Movo nunca custodia el dinero.",
+       "2. Vinculación por OAuth Connect + PKCE (MOVO-111). Los tokens se guardan cifrados (AES-256-GCM) en svc-payments, único servicio que habla con MP.",
+       "3. Hold = Auth & Capture (capture: false): reserva sin cobrar. Se libera con status: cancelled y se captura al confirmarse la entrega (MOVO-212).",
+       "4. SDK oficial mercadopago v3 para pagos, con X-Idempotency-Key obligatoria en cada escritura. El canje y el refresh de OAuth van con fetch propio (el SDK no tipa code_verifier/test_token y exige un access token que /oauth/token no usa).",
+       "5. El hold se crea siempre con el emisor presente: el mobile tokeniza la tarjeta con la public_key del transportista y el backend nunca ve el número. Cobrar sobre una tarjeta guardada sin el emisor (card-on-file / off-session) se descartó: no se pudo validar en el modelo marketplace (error 128 al guardarla, SOLUCION-FINAL §7).",
+       "6. Un intento de reserva = una fila y una idempotency key (movo-hold-<shipmentId>-<attempt>). Un reintento del mismo intento reusa la key; un rechazo o una liberación abre el intento siguiente. Un índice único parcial en Postgres garantiza un solo hold vivo por envío.",
+       "7. Comisión: application_fee = decomposeOfferGrossPrice(monto).commissionAmountArs de @movo/shared. El monto que paga el emisor es el bruto (Offer.priceOffered) y Movo cobra su porcentaje sobre el neto del transportista (MOVO-143 AC6), no sobre el bruto."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "• Dependencia de que el transportista tenga la cuenta vinculada y vigente: sin ella no hay public_key ni token para cobrar (CARRIER_MP_ACCOUNT_NOT_LINKED). Los tokens vencen a los 180 días; renovarlos es MOVO-243.",
+       "• El emisor tiene que estar presente al crear el hold: la reserva de un retiro lejano se difiere hasta que el emisor confirma el pago cerca de la fecha (DD-021, MOVO-210).",
+       "• El plazo del hold lo decide Mercado Pago y su documentación se contradice (5 o 7 días). Se parametriza (MP_HOLD_VALIDITY_DAYS); MOVO-215 fijó 5 días (DD-050).",
+       "• Dos requests casi simultáneos o una respuesta perdida se resuelven por idempotencia y por un índice único parcial, no con locks distribuidos. Un intento sin respuesta de MP (creating) se reintenta con la misma key si el cuerpo coincide; si cambió, se busca el pago en MP por external_reference antes de abrir otro intento. Caso residual aceptado: si no hay credenciales del transportista para preguntarle a MP, el intento viejo se cierra igual y, si MP llegó a crearlo, queda un hold huérfano que vence solo (MOVO-268 lo reconcilia).",
+       "• Liberar un hold exige el access_token del transportista (MP solo deja cancelar al cobrador). Si desvinculó o MP revocó el acceso, el hold no se puede liberar desde Movo y vence solo en MP, con los fondos del emisor retenidos hasta entonces. Pendiente de decisión: impedir la desvinculación con holds vivos.",
+       "• El sandbox exige que las tres partes sean cuentas de prueba y que el pagador use el email real de una cuenta Comprador; con uno inventado MP crea un invitado y responde 2034. Producción puede requerir homologar el modelo Marketplace en la cuenta real de Movo (pregunta abierta en el hilo de soporte de MP).",
+       "• Credenciales: nunca se loguean tokens ni datos de tarjeta (redacción en el logger, MOVO-267).",
+       "• Captura y liquidación (MOVO-212): al entregarse el envío, svc-shipments pide a svc-payments capturar el hold SIN amount (cobra exactamente lo autorizado) con el access_token del transportista; application_fee ya se fijó al crear el hold. El desglose real (fee_details + net_received_amount) solo existe después de capturar y se guarda en payments.settlements (una fila por envío, numeric(12,2)), no se calcula con una tasa. Idempotencia en tres capas: fila única por envío creada en processing antes de llamar a MP, key de MP por hold y adopción de un pago ya approved. La entrega es un hecho inmutable: una captura fallida deja el envío en delivered y solo una captura acreditada lo pasa a completed; reintentos con backoff y escalado manual quedan para MOVO-213."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "referencias",
+    "filas": [
+     {
+      "etiqueta": "Referencias",
+      "parrafos": [
+       "• docs/payments/flujo-de-pagos.md",
+       "• docs/payments/mercadopago-spike/SOLUCION-FINAL.md",
+       "• ADR-004 (JWT/tokens), ADR-010 (confianza perimetral), ADR-017, DD-021",
+       "• Tickets: MOVO-49, MOVO-111, MOVO-209, MOVO-210, MOVO-212, MOVO-215, MOVO-268"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-023",
+  "numero": "023",
+  "titulo": "Chat propio sobre el canal WebSocket (MOVO-26)",
+  "estado": "Aceptado (MOVO-26); parcialmente reemplazado por DD-046",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "MOVO-26 pide chat de texto en tiempo real entre emisor, receptor y transportista, disponible desde la asignación hasta 24 h después de la entrega, con el historial vinculado al envío y visible para el admin en una disputa. Evaluamos proveedores con plan gratuito: Stream Chat (Maker Account: 2.000 MAU y 100 conexiones simultáneas, por aprobación, para equipos chicos y de bajos ingresos; al llegar al tope los usuarios nuevos no pueden conectarse), Sendbird y CometChat (~100 MAU), Tencent RTC (1.000 MAU) y Firebase (una base en tiempo real, no un chat). Cifras de las páginas públicas de cada proveedor, a reconfirmar."
+      ]
+     },
+     {
+      "etiqueta": "Alcance",
+      "parrafos": [
+       "Parcialmente reemplazado por DD-046 (dd-046-notificaciones-de-chat.md): la push del chat ahora lleva el texto del mensaje y las ráfagas se juntan en un resumen. El resto de este ADR sigue vigente."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "Chat propio dentro de movo-svc-shipments, sobre el canal de ADR-019. Un hilo por envío; se envía por HTTP (POST /shipments/:id/chat/messages, idempotente por clientMessageId) y se recibe por WebSocket (GET /shipments/:id/chat), como la ingesta de posiciones de ADR-020. Persistencia en shipments.chat_messages. Solo texto en el MVP. Instancia propia del registro de sockets para no mezclar el chat con el tracking. Push por mensaje, sin el texto, a quien no tiene el chat abierto."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "Sin ack en tiempo real por el socket (el ack es la respuesta HTTP), sin presencia, indicador de escritura ni leído/no leído; el registro de sockets está en memoria y es de una sola réplica (ADR-006/019); el bloqueo (DD-026) oculta el contenido de quien tiene un bloqueo con el autor (mensaje vacío, sin push ni tildes) en vez de impedir escribir, porque es un hilo único por envío y no uno por par; entregado el envío el hilo queda en solo lectura y a las 24 h se archiva (sigue legible). cada asignación arranca una conversación limpia (shipments.chat_started_at, fijado por acceptOffer): tras un pago vencido y una reasignación el transportista nuevo no lee lo hablado con el anterior, aunque los mensajes viejos se conservan y el admin los ve. Retención y purga del historial: pendiente de definir con el equipo."
+      ]
+     },
+     {
+      "etiqueta": "Por Qué No Un Proveedor",
+      "parrafos": []
+     },
+     {
+      "etiqueta": "Detalle",
+      "parrafos": [
+       "La autorización del chat depende de datos que solo tiene svc-shipments (partes del envío, receptor transferido por DD-038, ventana de 24 h, bloqueos de DD-026). Un tercero obligaría a duplicar usuarios y permisos, a sincronizar el historial para el admin y a depender de un cupo y de una credencial más, sin ahorrar el trabajo de reglas. El canal WebSocket, la autenticación del handshake y el push ya existen."
+      ]
+     }
+    ]
+   }
+  ]
+ }
+]

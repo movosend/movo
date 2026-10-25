@@ -2,7 +2,7 @@
 
 Movo es una plataforma de logística distribuida punto a punto: conecta a quien necesita enviar un paquete con quien ya viaja esa ruta. Su arquitectura sigue un estilo de **microservicios** con un único punto de entrada público (ADR-001): una aplicación móvil y un panel web consumen un **API Gateway** que autentica, aplica límites de uso y enruta cada pedido al servicio dueño del dominio. Los servicios se comunican entre sí por REST síncrono sobre la red interna, sin *message broker*, y comparten una única instancia de PostgreSQL con **un esquema por servicio** (ADR-003), de modo que cada servicio es el único que escribe en sus tablas.
 
-Las decisiones que más condicionan el diseño son las que sostienen las cuatro capas de confianza del producto: la **identidad** verificada por un tercero, la **custodia** probada con firma criptográfica y proximidad (ADR-020), el **pago** reservado y capturado solo al cumplirse la entrega (ADR-037) y la **reputación** acumulada. Este documento describe la arquitectura en tres vistas (contexto, contenedores y despliegue, siguiendo el modelo C4), el ambiente de implementación y el registro de decisiones.
+Las decisiones que más condicionan el diseño son las que sostienen las cuatro capas de confianza del producto: la **identidad** verificada por un tercero, la **custodia** probada con firma criptográfica y proximidad (ADR-018), el **pago** reservado y capturado solo al cumplirse la entrega (DD-037) y la **reputación** acumulada. Este documento describe la arquitectura en tres vistas (contexto, contenedores y despliegue, siguiendo el modelo C4), el ambiente de implementación y el registro de decisiones.
 
 # Vista de Contexto
 
@@ -13,13 +13,13 @@ El sistema Movo es usado por cuatro tipos de actores (emisor, transportista, rec
 | Sistema externo | Uso | Decisión |
 |------------------|--------------------------------------------------|---------|
 | Didit.me | Verificación de identidad y de licencia de conducir (documento y prueba de vida) | n/a |
-| Mercado Pago | Reserva y captura del pago, reparto entre transportista y Movo, vinculación de la cuenta del transportista por OAuth | ADR-035 |
+| Mercado Pago | Reserva y captura del pago, reparto entre transportista y Movo, vinculación de la cuenta del transportista por OAuth | ADR-022 |
 | Google Maps Platform | Distancias y matriz de tiempos (Routes API), geocodificación y autocompletado de direcciones | ADR-015, ADR-014 |
 | Twilio | Envío del código por SMS para verificar el teléfono | ADR-012 |
-| Resend | Envío de correo electrónico (códigos y avisos) | ADR-017 |
+| Resend | Envío de correo electrónico (códigos y avisos) | ADR-016 |
 | Expo Push Service | Entrega de notificaciones push a los dispositivos | n/a |
 | ArcGIS Location Platform (Esri) | Teselas del mapa de seguimiento de envíos en el panel de administración | n/a |
-| Amazon S3 | Fotos de envíos, de perfil, de reportes y adjuntos, con URLs prefirmadas | ADR-007, ADR-016 |
+| Amazon S3 | Fotos de envíos, de perfil, de reportes y adjuntos, con URLs prefirmadas | ADR-007, DD-016 |
 
 : Sistemas externos de los que depende Movo.
 
@@ -97,7 +97,7 @@ Los contenedores tienen política de reinicio automático y rotación de *logs* 
 
 - **Autenticación.** Un JWT de acceso de 60 minutos y un *refresh token* opaco de 90 días en Redis, de un solo uso con detección de reuso: presentar un refresh ya canjeado revoca todas las sesiones del usuario (ADR-004, ADR-013). El panel tiene una sesión propia, con segundo factor por correo y duración máxima de 8 horas.
 - **Autorización.** Los roles viajan en el token como un arreglo y el gateway inyecta la identidad verificada en encabezados internos que los servicios no revalidan (ADR-010). Es un modelo de confianza perimetral, no *zero-trust*.
-- **Custodia.** Firma ECDSA P-256 del dispositivo, desafío efímero de 15 segundos y verificación de proximidad a 100 metros (ADR-020).
+- **Custodia.** Firma ECDSA P-256 del dispositivo, desafío efímero de 15 segundos y verificación de proximidad a 100 metros (ADR-018).
 - **Datos sensibles.** Movo no almacena documentos ni datos biométricos de la verificación de identidad (solo el estado y la decisión redactada) ni números de tarjeta ni CVV; los tokens de Mercado Pago se guardan cifrados.
 - **Limitación de uso.** Contadores en Redis por usuario y por ruta en el gateway, más límites específicos de cada flujo sensible (envío de códigos, cotizaciones, reportes).
 - **Cumplimiento.** Términos y Condiciones y Política de Privacidad versionados con aceptación registrada, y purga automática de datos vencidos conforme a la Ley 25.326.

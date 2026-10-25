@@ -560,3 +560,20 @@ table.caso .chip { white-space: nowrap; }
 table.fija { table-layout: fixed; }
 table.fija td, table.fija th { overflow-wrap: anywhere; }
 table.fija code { word-break: break-all; }
+
+/* ─────────────────────────────── Fichas de ADR / DD ─────────────────────────────── */
+
+.adr { margin: 0 0 7mm; border-top: 1pt solid var(--ink-950); }
+.adr-cab { padding: 2mm 0 1.4mm; font-size: 8pt; color: var(--ink-600); }
+.adr-estado-nota { margin-left: 1.5mm; }
+.adr-sec { margin-top: 3.2mm; }
+.adr-rotulo { display: block; font: 600 6.8pt/1 "Inter"; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-400); padding-bottom: 1.4mm; border-bottom: .4pt solid var(--ink-200); }
+.adr-fila { display: grid; grid-template-columns: 24mm 1fr; gap: 4mm; padding: 1.8mm 0; border-bottom: .4pt solid var(--ink-100); }
+.adr-etq { font-size: 8pt; font-weight: 600; color: var(--ink-800); }
+.adr-cuerpo { min-width: 0; }
+.adr-cuerpo p { margin: 0 0 1.4mm; text-align: left; hyphens: auto; }
+.adr-cuerpo ul, .adr-cuerpo ol { margin: 0 0 1.4mm; padding-left: 4.5mm; }
+.adr-cuerpo li { margin: 0 0 .8mm; }
+.adr-cuerpo table { margin: 1mm 0 0; }
+.adr-nota { color: var(--ink-600); }
+.dd-etq { display: block; font: 600 6.8pt/1 "Inter"; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-400); margin: 4mm 0 1.6mm; padding-bottom: 1.2mm; border-bottom: .4pt solid var(--ink-200); }

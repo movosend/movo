@@ -1,5 +1,5 @@
 @startuml seq-handshake
-' MOVO-6 (MOVO-157, MOVO-158, MOVO-159, MOVO-160, MOVO-195), MOVO-21: handshake criptográfico de retiro y entrega (ADR-020).
+' MOVO-6 (MOVO-157, MOVO-158, MOVO-159, MOVO-160, MOVO-195), MOVO-21: handshake criptográfico de retiro y entrega (ADR-018).
 autonumber
 actor "Cedente\n(emisor o transportista)" as C
 actor "Cesionario\n(transportista o receptor)" as R
