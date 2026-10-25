@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import httpProxy from "@fastify/http-proxy";
-import { ApiError, SUPPORT_WS_PROTOCOL } from "@movo/shared";
+import { ApiError, parseSupportWsProtocols, SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER } from "@movo/shared";
 import { EnvConfig } from "../config/env";
 import {
   getServiceRoutes,
@@ -39,9 +39,8 @@ const FORWARDED_IDENTITY_HEADERS = [
  * pasa el subprotocolo que eligió (el primero, `movo-support.v1`), nunca la lista entera. El WebSocket del panel
  * manda su ticket de un solo uso como segundo subprotocolo, así que la lista original viaja en `x-ws-protocols`
  * (siempre la del request, nunca un header que mande el cliente) y `origin` también, para que svc-admin valide el
- * ticket y el origen del panel.
+ * ticket y el origen del panel. El nombre del header y el parseo del ticket viven en `@movo/shared`.
  */
-export const FORWARDED_WS_PROTOCOLS_HEADER = "x-ws-protocols";
 
 function rewriteWebSocketRequestHeaders(
   headers: Record<string, string>,
@@ -55,7 +54,7 @@ function rewriteWebSocketRequestHeaders(
     }
   }
   const protocols = request.headers["sec-websocket-protocol"];
-  if (typeof protocols === "string") rewritten[FORWARDED_WS_PROTOCOLS_HEADER] = protocols;
+  if (typeof protocols === "string") rewritten[SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER] = protocols;
   const origin = request.headers.origin;
   if (typeof origin === "string") rewritten.origin = origin;
   return rewritten;
@@ -69,10 +68,8 @@ const SUPPORT_WS_PATH = "/admin/support/ws";
  * (`movo-support.v1, <ticket>`): uno sin ticket no llega a abrirse. Validarlo y gastarlo es de svc-admin.
  */
 function hasSupportTicket(request: FastifyRequest): boolean {
-  const raw = request.headers["sec-websocket-protocol"];
-  if (typeof raw !== "string") return false;
-  const [protocol, ticket, ...rest] = raw.split(",").map((p) => p.trim());
-  return protocol === SUPPORT_WS_PROTOCOL && typeof ticket === "string" && /^[A-Za-z0-9_-]{20,100}$/.test(ticket) && rest.length === 0;
+  const ticket = parseSupportWsProtocols(request.headers["sec-websocket-protocol"]);
+  return ticket !== null && /^[A-Za-z0-9_-]{20,100}$/.test(ticket);
 }
 
 /**

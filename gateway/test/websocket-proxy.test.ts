@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createServer, Server, IncomingMessage } from "node:http";
 import { FastifyInstance } from "fastify";
 import { WebSocketServer } from "ws";
@@ -65,7 +65,16 @@ describe("Proxy de WebSocket hacia /shipments (MOVO-201)", () => {
     gatewayBaseUrl = `ws://127.0.0.1:${gatewayAddress.port}`;
   });
 
+  /** El límite propio del WS del panel (20/min por IP) vive en Redis: cada test arranca con el contador limpio. */
+  async function resetSupportWsLimit() {
+    const keys = await app.redis.keys("*GET /admin/support/ws*");
+    if (keys.length > 0) await app.redis.del(...keys);
+  }
+
+  beforeEach(resetSupportWsLimit);
+
   afterAll(async () => {
+    await resetSupportWsLimit();
     await app.close();
     upstreamWss.close();
     upstream.close();
@@ -162,6 +171,22 @@ describe("Proxy de WebSocket hacia /shipments (MOVO-201)", () => {
       });
       expect(status).toBe(401);
     }
+  });
+
+  it("MOVO-322: el WebSocket del panel tiene un límite propio de 20 intentos por minuto, con ticket o sin él", async () => {
+    const statuses: Array<number | null> = [];
+    for (let i = 0; i < 21; i++) {
+      const ws = new WebSocket(`${gatewayBaseUrl}/api/v1/admin/support/ws`, [SUPPORT_WS_PROTOCOL]);
+      statuses.push(
+        await new Promise<number | null>((resolve) => {
+          ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? null));
+          ws.once("open", () => resolve(null));
+          ws.once("error", () => resolve(-1));
+        })
+      );
+    }
+    expect(statuses.slice(0, 20).every((status) => status === 401)).toBe(true);
+    expect(statuses[20]).toBe(429);
   });
 
   it("una conexión sin token no propaga x-user-* (preHandler la corta antes del upgrade)", async () => {

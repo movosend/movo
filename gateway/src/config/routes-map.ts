@@ -325,8 +325,9 @@ export function getPublicRoutes(): PublicRoute[] {
     // MOVO-322: WebSocket de la bandeja de soporte del panel. Sin JWT (el navegador no puede mandarlo en un
     // WebSocket): lo autentica svc-admin con el ticket de un solo uso del subprotocolo (`movo-support.v1`,
     // `<ticket>`), que pidió el servidor del panel con la sesión de admin. El gateway solo rechaza el upgrade
-    // que ni siquiera trae un ticket (`routes/index.ts`).
-    { method: "GET", path: "/admin/support/ws" },
+    // que ni siquiera trae un ticket (`routes/index.ts`). Límite propio y estricto: cada intento abre un
+    // WebSocket hacia svc-admin y gasta un `GETDEL`, y un panel legítimo conecta una vez por ticket.
+    { method: "GET", path: "/admin/support/ws", rateLimit: { max: 20, timeWindow: "1 minute" } },
   ];
 }
 
