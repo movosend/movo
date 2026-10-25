@@ -51,6 +51,19 @@ def parrafos(celda) -> list[str]:
     return res
 
 
+BORRADOR = re.compile(r"Redactado a partir del[^.;]*(?:\.[a-z]+)*[^.;]*;\s*pendiente de revisión del equipo\.\s*")
+
+
+def limpiar_alcance(pars: list[str]) -> list[str]:
+    """Quita las marcas de borrador del Alcance y las notas internas de numeración; descarta lo que quede vacío."""
+    out = []
+    for p in pars:
+        p = BORRADOR.sub("", p).strip()
+        if p and not p.startswith("Numeración: el ticket"):
+            out.append(p)
+    return out
+
+
 def main(ruta: str) -> None:
     sopa = BeautifulSoup(Path(ruta).read_text(encoding="utf-8"), "lxml")
     adrs = []
@@ -62,6 +75,7 @@ def main(ruta: str) -> None:
         numero, titulo, estado = m.group(1), m.group(2), m.group(3)
         for mal, bien in FIX_TITULO.items():
             titulo = titulo.replace(mal, bien)
+        estado = estado.replace("· redacción pendiente de revisión", "").strip(" ·")
         adr = {"id": f"ADR-{numero}", "numero": numero, "titulo": titulo, "estado": estado.strip(), "secciones": []}
         actual = None
         for tr in tabla.find_all("tr"):
@@ -74,10 +88,13 @@ def main(ruta: str) -> None:
                 elif actual is not None and clave and not clave.startswith("ADR-"):
                     actual["filas"].append({"etiqueta": clave.title(), "parrafos": []})
             elif len(celdas) == 2 and actual is not None:
-                actual["filas"].append({
-                    "etiqueta": celdas[0].get_text(" ", strip=True),
-                    "parrafos": parrafos(celdas[1]),
-                })
+                etiqueta = celdas[0].get_text(" ", strip=True)
+                pars = parrafos(celdas[1])
+                if etiqueta == "Alcance":
+                    pars = limpiar_alcance(pars)
+                    if not pars:
+                        continue
+                actual["filas"].append({"etiqueta": etiqueta, "parrafos": pars})
         adrs.append(adr)
     SALIDA.write_text(json.dumps(adrs, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"{len(adrs)} ADR -> {SALIDA}")

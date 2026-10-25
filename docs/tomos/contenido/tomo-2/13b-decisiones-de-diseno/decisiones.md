@@ -52,7 +52,7 @@ Cada decisión lleva el prefijo **DD** y conserva el número que tenía cuando s
 
 **Situación:** MOVO-97 agrega la foto de perfil. El mobile recorta (1:1), comprime en cliente y sube directo a S3 con una presigned URL. La foto es información pública por diseño (criterio de aceptación 9 de MOVO-97): la contraparte de un envío la usa para reconocer a la persona.
 
-**Alcance:** Redactado a partir del README de ADRs y del HISTORIAL de movo-svc-users; pendiente de revisión del equipo. Primera implementación real de ADR-007.
+**Alcance:** Primera implementación real de ADR-007.
 
 <span class="dd-etq">Alternativas consideradas</span>
 
@@ -154,7 +154,7 @@ Trade-off negativo: MOVO-138 (el motor real) queda en el backlog sin refinar —
 
 **Situación:** El set de 9 estados se cerró en MOVO-79 y se modeló en el DTE de MOVO-105. Dos decisiones posteriores necesitaban estados propios: el hold de fondos anclado cerca del retiro en lugar de en la aceptación de la oferta (MOVO-12) y distinguir "entregado" de "entregado y cobrado" (MOVO-212). El diseño original de MOVO-12 (método de pago validado al aceptar más un hold programado automático a T-24h) se descartó por el spike MOVO-49: tarjeta guardada más cobro sin el emisor presente no se pudo validar en marketplace.
 
-**Alcance:** Redactado a partir del README de ADRs, del HISTORIAL de movo-svc-shipments y de docs/shipments/state-diagram.md; pendiente de revisión del equipo. Su arista assigned → assigned\_unfunded fue agregada después por DD-037.
+**Alcance:** Su arista assigned → assigned\_unfunded fue agregada después por DD-037.
 
 <span class="dd-etq">Alternativas consideradas</span>
 
@@ -271,7 +271,7 @@ Fuente: fila de resumen del registro de ADRs del repositorio; no tiene borrador 
 
 **Situación:** MOVO-255 hace que el resumen del wizard de envío muestre una cotización real y que el envío se cree exactamente a ese precio. Para eso la cotización usa la misma función que la creación (quoteShipment, extraída en MOVO-138).
 
-**Alcance:** Redactado a partir del README de ADRs y del HISTORIAL de movo-svc-shipments; pendiente de revisión del equipo. Complementa ADR-021.
+**Alcance:** Complementa ADR-021.
 
 <span class="dd-etq">Decisión</span>
 
@@ -455,7 +455,7 @@ Detalle: • no\_open\_dispute (MOVO-278, DD-045): ningún envío en disputed co
 
 **Situación:** MOVO-210 implementa la asignación: aceptar una oferta, pagar el hold de fondos del emisor en Mercado Pago (ADR-022) y recién entonces asignar. svc-shipments es dueño de la saga y única puerta del mobile; llama a los endpoints internos de holds de svc-payments. La ruta depende de cuándo es el retiro: a N días o menos va por assignment\_pending (el emisor paga al aceptar) y a más por assigned\_unfunded (ventana de confirmación, DD-021).
 
-**Alcance:** Redactado a partir del README de ADRs, del HISTORIAL de movo-svc-shipments y de docs/shipments/state-diagram.md; pendiente de revisión del equipo. Complementa ADR-022 y DD-021.
+**Alcance:** Complementa ADR-022 y DD-021.
 
 <span class="dd-etq">Decisión</span>
 

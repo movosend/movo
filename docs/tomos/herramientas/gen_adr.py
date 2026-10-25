@@ -21,6 +21,11 @@ ROTULO = {
     "consecuencias": "Consecuencias",
     "referencias": "Referencias",
 }
+# ADR cuyo texto quedó parcialmente superado por otro: la nota se muestra junto al estado, sin modificar el ADR aceptado.
+ACTUALIZADO_POR = {
+    "ADR-004": "El plazo del refresh token (7 días) fue reemplazado por 90 días en el ADR-013.",
+    "ADR-005": "La mención de Socket.io fue reemplazada por WebSocket nativo en el ADR-019.",
+}
 PREFIJOS = ("Pros:", "Contras:", "Positivo:", "Trade-off negativo:", "Negativo:", "Trade-off:")
 
 
@@ -88,7 +93,8 @@ def ficha(a: dict) -> str:
             else:
                 filas.append(f'<div class="adr-fila"><div class="adr-etq">{escape(etiqueta)}</div><div class="adr-cuerpo">{bloque(f["parrafos"])}</div></div>')
         filas.append("</div>")
-    return f'<div class="adr"><div class="adr-cab">{estado_html(a["estado"])}</div>{"".join(filas)}</div>'
+    aviso = f'<p class="adr-aviso">{escape(ACTUALIZADO_POR[a["id"]])}</p>' if a["id"] in ACTUALIZADO_POR else ""
+    return f'<div class="adr"><div class="adr-cab">{estado_html(a["estado"])}</div>{aviso}{"".join(filas)}</div>'
 
 
 def main() -> None:
@@ -109,6 +115,8 @@ def main() -> None:
     out.append("| ADR | Decisión | Estado | Núm. anterior |\n|-------------|---------------------------------------------|--------------|---------|")
     for a in adrs:
         est = re.sub(r"\s*·.*$", "", a["estado"])
+        if a["id"] in ACTUALIZADO_POR:
+            est += " (actualizado por " + re.search(r"ADR-\d+", ACTUALIZADO_POR[a["id"]].split(" en el ")[-1]).group(0) + ")"
         out.append(f"| {a['id']} | {a['titulo']} | {est} | {ANTES.get(a['numero'], '–')} |")
     out.append("\n: Índice de los ADR vigentes.\n")
     out.append(

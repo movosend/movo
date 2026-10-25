@@ -46,6 +46,8 @@ def main(ruta: str) -> None:
         resto = "\n".join(lineas[1:])
         resto = re.sub(r"^Estado: (.*)$", lambda e: estado(e.group(1)), resto, flags=re.M)
         resto = re.sub(r"^### (.*)$", lambda e: f'<span class="dd-etq">{ROTULO.get(e.group(1).strip(), e.group(1).strip().capitalize())}</span>\n', resto, flags=re.M)
+        resto = re.sub(r"Redactado a partir del[^;\n]*;\s*pendiente de revisión del equipo\.\s*", "", resto)
+        resto = re.sub(r"^\*?\*?Alcance:\*?\*?\s*\n", "", resto, flags=re.M)
         resto = re.sub(r"^(Situación|Alcance|Decisión tomada|Trade-offs|Criterios|Referencias|Alternativa \d+):", r"**\1:**", resto, flags=re.M)
         out.append(resto.strip() + "\n")
     DESTINO.parent.mkdir(parents=True, exist_ok=True)

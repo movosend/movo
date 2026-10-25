@@ -1097,7 +1097,7 @@
   "id": "ADR-013",
   "numero": "013",
   "titulo": "Refresh token con TTL de 90 días, rotación de un solo uso y detección de reuso",
-  "estado": "Aceptado (MOVO-75) · redacción pendiente de revisión",
+  "estado": "Aceptado (MOVO-75)",
   "secciones": [
    {
     "clave": "contexto",
@@ -1111,7 +1111,7 @@
      {
       "etiqueta": "Alcance",
       "parrafos": [
-       "Redactado a partir del README de ADRs y del HISTORIAL de movo-svc-users; pendiente de revisión del equipo. Reemplaza el valor de TTL de ADR-004."
+       "Reemplaza el valor de TTL de ADR-004."
       ]
      }
     ]
@@ -1173,7 +1173,7 @@
   "id": "ADR-014",
   "numero": "014",
   "titulo": "Google Maps como proveedor de geocoding detrás de GeocodingProvider",
-  "estado": "Aceptado (MOVO-73) · redacción pendiente de revisión",
+  "estado": "Aceptado (MOVO-73)",
   "secciones": [
    {
     "clave": "contexto",
@@ -1182,12 +1182,6 @@
       "etiqueta": "Situación",
       "parrafos": [
        "El wizard de registro (MOVO-73) incluye un paso de mapa: la dirección que carga el usuario se geocodifica a latitud/longitud y se guarda en la tabla nueva users.address (una por registro). Es la primera implementación real de un servicio de Google Maps en el proyecto, aunque ADR-008 y ADR-015 ya habían decidido Google Maps para movo-svc-pricing-logistics, que todavía era un esqueleto."
-      ]
-     },
-     {
-      "etiqueta": "Alcance",
-      "parrafos": [
-       "Redactado a partir del README de ADRs y de los HISTORIAL de movo-svc-users y movo-mobile; pendiente de revisión del equipo."
       ]
      }
     ]
@@ -1325,7 +1319,7 @@
   "id": "ADR-016",
   "numero": "016",
   "titulo": "Resend como proveedor de email detrás de EmailProvider",
-  "estado": "Aceptado (MOVO-139) · redacción pendiente de revisión",
+  "estado": "Aceptado (MOVO-139)",
   "secciones": [
    {
     "clave": "contexto",
@@ -1334,12 +1328,6 @@
       "etiqueta": "Situación",
       "parrafos": [
        "MOVO-139 incorpora el primer canal de email del proyecto. Cierra la limitación que MOVO-133 y MOVO-134 dejaron documentada (sin EmailProvider no se podía notificar al email anterior) y es precondición de MOVO-64 (recuperación de contraseña por email), además de habilitar la verificación de email por OTP."
-      ]
-     },
-     {
-      "etiqueta": "Alcance",
-      "parrafos": [
-       "Redactado a partir del README de ADRs y del HISTORIAL de movo-svc-users; pendiente de revisión del equipo."
       ]
      }
     ]
@@ -1466,7 +1454,7 @@
   "id": "ADR-018",
   "numero": "018",
   "titulo": "Handshake de custodia: firma ECDSA P-256 generada en el dispositivo",
-  "estado": "Aceptado (MOVO-158, MOVO-195) · redacción pendiente de revisión",
+  "estado": "Aceptado (MOVO-158, MOVO-195)",
   "secciones": [
    {
     "clave": "contexto",
@@ -1475,12 +1463,6 @@
       "etiqueta": "Situación",
       "parrafos": [
        "El Cryptographic Handshake (MOVO-6) confirma el cambio de custodia (emisor a transportista en el retiro, transportista a receptor en la entrega) combinando una firma asimétrica del dispositivo con una validación de proximidad GPS. Es la primera criptografía asimétrica del repo y no había precedente propio que reusar. MOVO-157 registra la clave pública por dispositivo en svc-users; MOVO-158 valida firma y GPS en svc-shipments; MOVO-195 genera el par de claves y firma en el mobile."
-      ]
-     },
-     {
-      "etiqueta": "Alcance",
-      "parrafos": [
-       "Redactado a partir del README de ADRs y de los HISTORIAL de movo-svc-shipments, movo-svc-users y movo-mobile; pendiente de revisión del equipo."
       ]
      }
     ]
@@ -1617,7 +1599,7 @@
   "id": "ADR-020",
   "numero": "020",
   "titulo": "Tracking en tiempo real: ingesta por HTTP, difusión por WebSocket",
-  "estado": "Aceptado (MOVO-250) · redacción pendiente de revisión",
+  "estado": "Aceptado (MOVO-250)",
   "secciones": [
    {
     "clave": "contexto",
@@ -1631,7 +1613,7 @@
      {
       "etiqueta": "Alcance",
       "parrafos": [
-       "Redactado a partir del README de ADRs, del HISTORIAL de movo-svc-shipments y de docs/tracking/README.md; pendiente de revisión del equipo. Complementa ADR-019 sin modificarlo."
+       "Complementa ADR-019 sin modificarlo."
       ]
      }
     ]
@@ -1784,12 +1766,6 @@
       "etiqueta": "Situación",
       "parrafos": [
        "MOVO conecta a un emisor que paga con un transportista que cobra, y no quiere tocar el dinero ni ser un intermediario financiero. Hay que reservar el monto al aceptar una oferta, cobrarlo recién al entregar, y repartirlo en el mismo acto (comisión de Movo y neto del transportista). El spike MOVO-49 verificó en sandbox qué combinaciones de la API de Mercado Pago lo permiten (docs/payments/mercadopago-spike/SOLUCION-FINAL.md)."
-      ]
-     },
-     {
-      "etiqueta": "Alcance",
-      "parrafos": [
-       "Numeración: el ticket MOVO-209 lo llamaba DD-030, pero ese número ya lo ocupa el juego de precios del sitio institucional, y el 034 lo tomó MOVO-277 (inicio de viaje, PR #222) antes de que este se mergeara. Es el ADR-022."
       ]
      }
     ]
