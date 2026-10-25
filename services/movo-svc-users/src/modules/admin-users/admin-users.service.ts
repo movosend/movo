@@ -8,6 +8,7 @@ import {
   AdminUserDevices,
   AdminUserListItem,
   AdminUserMatch,
+  AdminUserNameRef,
   AdminUserModeration,
   AdminUserPage,
   AdminUserProfile,
@@ -401,10 +402,13 @@ export function createAdminUsersService(deps: AdminUsersServiceDeps) {
     },
 
     /** Nombres para las contrapartes que muestran otros servicios (envíos, calificaciones, admins). */
-    async getNames(ids: string[]): Promise<{ id: string; fullName: string }[]> {
+    async getNames(ids: string[]): Promise<AdminUserNameRef[]> {
       if (ids.length === 0) return [];
-      const rows = await db.user.findMany({ where: { id: { in: ids } }, select: { id: true, firstName: true, lastName: true } });
-      return rows.map((row) => ({ id: row.id, fullName: fullName(row) }));
+      const rows = await db.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, firstName: true, lastName: true, roles: { select: { role: true } } },
+      });
+      return rows.map((row) => ({ id: row.id, fullName: fullName(row), roles: row.roles.map((grant) => grant.role) }));
     },
 
     /** No bloquea el login: para impedir que vuelva a entrar está la sanción (MOVO-36). */

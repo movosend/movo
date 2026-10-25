@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@movo/shared";
 import { createShipmentsClient } from "../src/adapters/shipments-client";
@@ -91,14 +92,31 @@ describe("clientes internos de la ficha del panel (MOVO-294)", () => {
     });
 
     it("los nombres van por POST sin repetidos, y sin ids no sale a la red", async () => {
-      const fetchMock = mockFetch(200, { users: [{ id: USER, fullName: "Ana Ariza" }] });
-      await expect(users.getUserNames([USER, USER], ctx)).resolves.toEqual([{ id: USER, fullName: "Ana Ariza" }]);
+      const fetchMock = mockFetch(200, { users: [{ id: USER, fullName: "Ana Ariza", roles: ["sender", "carrier"] }] });
+      await expect(users.getUserNames([USER, USER], ctx)).resolves.toEqual([{ id: USER, fullName: "Ana Ariza", roles: ["sender", "carrier"] }]);
       expect(fetchMock.mock.calls[0][1].method).toBe("POST");
       expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ ids: [USER] });
+
+      // Un svc-users anterior a MOVO-322 no manda `roles`: no es una respuesta inválida (deploy en serie).
+      mockFetch(200, { users: [{ id: USER, fullName: "Ana Ariza" }] });
+      await expect(users.getUserNames([USER], ctx)).resolves.toEqual([{ id: USER, fullName: "Ana Ariza", roles: [] }]);
 
       const unused = mockFetch(200, { users: [] });
       await expect(users.getUserNames([], ctx)).resolves.toEqual([]);
       expect(unused).not.toHaveBeenCalled();
+    });
+
+    it("más de 200 ids se piden en lotes de a 200 (el maxItems de svc-users) y se juntan", async () => {
+      const ids = Array.from({ length: 450 }, () => randomUUID());
+      const fetchMock = vi.fn().mockImplementation(async (_url: string, init: { body: string }) => {
+        const { ids: chunk } = JSON.parse(init.body) as { ids: string[] };
+        return { ok: true, status: 200, json: async () => ({ users: chunk.map((id) => ({ id, fullName: "Ana", roles: [] })) }) };
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const names = await users.getUserNames(ids, ctx);
+      expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body).ids.length)).toEqual([200, 200, 50]);
+      expect(names.map((n) => n.id)).toEqual(ids);
     });
 
     it("las acciones mandan el actor en x-user-id y relanzan el rechazo de negocio", async () => {

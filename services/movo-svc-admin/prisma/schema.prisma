@@ -32,6 +32,8 @@ enum AdminTargetType {
   shipment
   chat_report
   user_report
+  // MOVO-322: una consulta de soporte de la bandeja.
+  support_conversation
 
   @@map("admin_target_type")
   @@schema("admin")

@@ -434,8 +434,13 @@ export interface AdminUserLedgerRowPage extends Omit<AdminUserLedger, "items"> {
 }
 
 /** `POST /internal/admin/users/names` de `svc-users`: los ids que no existen no vuelven. */
+/** MOVO-322: `POST /internal/admin/users/names` también devuelve los roles de la cuenta. */
+export interface AdminUserNameRef extends AdminUserRef {
+  roles: string[];
+}
+
 export interface AdminUserNames {
-  users: AdminUserRef[];
+  users: AdminUserNameRef[];
 }
 
 /** Tope de caracteres de la nota y del motivo de una acción. */

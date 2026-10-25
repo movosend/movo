@@ -891,12 +891,14 @@ enum SupportPriority {
 }
 
 // `note` es interna: nunca llega al usuario (ni API, ni WebSocket, ni push). `system` son los eventos
-// ("Se reabrió la conversación"), sin autor.
+// ("Se reabrió la conversación"), sin autor. `event` (MOVO-322) es un evento del equipo (asignación, prioridad,
+// resolución...): solo lo ve el panel; `author_id`/`author_name` son el actor.
 enum SupportMessageKind {
   user
   agent
   note
   system
+  event
 
   @@map("support_message_kind_enum")
   @@schema("shipments")

@@ -751,3 +751,10 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 `getForcedTransitionDetails` suma `checks` y `irreversible` (también en `ShipmentStatusOption`), que el modal del panel muestra en el paso de impacto.
 `types/admin-shipments.ts` exporta `shipmentConfirmationCode(id)` (`MOVO-` + últimos 5 dígitos, el código del encabezado del panel) y
 `normalizeConfirmationCode(typed)`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-322 — Contrato interno de la bandeja de soporte (`types/admin-support-internal.ts`, ADR-024)
+
+`SupportInternal*` (fila, mensaje con `kind` `event` para los eventos del equipo, filtros, contadores, actor, bodies) entre
+`svc-admin` y `svc-shipments`, con ids en vez de nombres, y `SupportStreamEvent` + `SUPPORT_EVENTS_STREAM_*` del Redis Stream
+`support:events`. `AdminTargetType` suma `support_conversation` y `AdminUserNames` pasa a `AdminUserNameRef` (con `roles`).
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

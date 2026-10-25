@@ -5,12 +5,6 @@ import { ADMIN_USERS_MAX_PAGE_SIZE } from "./admin-users.service";
 const nullableString = { type: ["string", "null"] } as const;
 const kycStatus = { type: "string", enum: ["not_started", "pending", "approved", "rejected", "expired", "manual_review"] } as const;
 const accountStatus = { type: "string", enum: ["active", "suspended", "banned", "deleted"] } as const;
-const userRef = {
-  type: "object",
-  required: ["id", "fullName"],
-  properties: { id: { type: "string" }, fullName: { type: "string" } },
-} as const;
-
 const userRefWithPhoto = {
   type: "object",
   required: ["id", "fullName", "photoUrl"],
@@ -245,7 +239,21 @@ export const adminUsersSchemas = {
       properties: { ids: { type: "array", maxItems: 200, uniqueItems: true, items: { type: "string", format: "uuid" } } },
     },
     response: {
-      200: { type: "object", required: ["users"], properties: { users: { type: "array", items: userRef } } },
+      // MOVO-322: con los roles de la cuenta (la bandeja de soporte muestra si el usuario es transportista).
+      200: {
+        type: "object",
+        required: ["users"],
+        properties: {
+          users: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["id", "fullName", "roles"],
+              properties: { id: { type: "string" }, fullName: { type: "string" }, roles: { type: "array", items: { type: "string" } } },
+            },
+          },
+        },
+      },
       400: errorResponse,
     },
   },
