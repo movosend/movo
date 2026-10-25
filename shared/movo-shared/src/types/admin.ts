@@ -12,7 +12,14 @@
 export type AuditOutcome = "succeeded" | "failed" | "unknown";
 
 /** Sobre qué actúa un admin. Cada tipo decide cómo se resuelve el conflicto de interés. */
-export type AdminTargetType = "user" | "admin_role" | "shipment" | "chat_report" | "user_report";
+export type AdminTargetType =
+  | "user"
+  | "admin_role"
+  | "shipment"
+  | "chat_report"
+  | "user_report"
+  /** MOVO-322: una consulta de soporte; el admin es parte si es el usuario que la abrió. */
+  | "support_conversation";
 
 /** Fila de `GET /admin/audit-log`. */
 export interface AuditLogEntry {

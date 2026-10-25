@@ -452,6 +452,7 @@ export type {
   AdminUserLedgerRow,
   AdminUserLedgerRowPage,
   AdminUserNames,
+  AdminUserNameRef,
 } from "./types/admin-users";
 
 // admin: bandeja de soporte (MOVO-323, backend MOVO-321/MOVO-322)
@@ -513,6 +514,33 @@ export type {
   SupportEventsPage,
   SupportRealtimeTicket,
 } from "./types/admin-support";
+
+// soporte: contrato interno svc-admin ↔ svc-shipments (MOVO-322, ADR-055)
+export {
+  SUPPORT_EVENTS_STREAM_KEY,
+  SUPPORT_EVENTS_STREAM_FIELD,
+  SUPPORT_EVENTS_STREAM_MAXLEN,
+} from "./types/admin-support-internal";
+export type {
+  SupportInternalMessageKind,
+  SupportInternalLastMessage,
+  SupportInternalRow,
+  SupportInternalListPage,
+  SupportInternalMessage,
+  SupportInternalMessagesPage,
+  SupportInternalListQuery,
+  SupportInternalCountsQuery,
+  SupportInternalCounts,
+  SupportInternalActor,
+  SupportInternalSendBody,
+  SupportInternalSendResult,
+  SupportInternalPatchBody,
+  SupportInternalAttachmentBody,
+  SupportInternalAgentLoad,
+  SupportInternalParties,
+  SupportInternalUserConversations,
+  SupportStreamEvent,
+} from "./types/admin-support-internal";
 
 // soporte del lado del usuario (MOVO-320, consumido por MOVO-324)
 export {
