@@ -122,9 +122,9 @@ describe("ofertas del envío", () => {
 
   it("la comisión sale de la tasa del backend, no de los montos", () => {
     expect(commissionLabel(offer())).toBe("Comisión Movo (15%)")
-    expect(
-      commissionLabel(offer({ netArs: 0, commissionArs: 0 }))
-    ).toBe("Comisión Movo (15%)")
+    expect(commissionLabel(offer({ netArs: 0, commissionArs: 0 }))).toBe(
+      "Comisión Movo (15%)"
+    )
   })
 
   it("el total de 'Cómo se reparte' en tercera persona, en lima solo si sigue en juego", () => {
@@ -220,7 +220,11 @@ describe("ofertas del envío", () => {
       parseAcceptance(
         `Oferta ${ID} aceptada · ruta cercana: retiro en -0.3 días (dentro de 3); el emisor paga al aceptar`
       )?.tags
-    ).toEqual(["Ruta cercana", "Retiro ya empezado al aceptar", "Paga al aceptar"])
+    ).toEqual([
+      "Ruta cercana",
+      "Retiro ya empezado al aceptar",
+      "Paga al aceptar",
+    ])
     expect(parseAcceptance("Cancelado por el emisor")).toBeNull()
     expect(parseAcceptance(null)).toBeNull()
   })

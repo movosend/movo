@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { isAdminShipmentAlert } from "@movo/shared/src/types/admin-shipments"
+import {
+  isAdminShipmentAlert,
+  type AdminShipmentEvent,
+} from "@movo/shared/src/types/admin-shipments"
 import {
   actorLabel,
   buildChatItems,
@@ -171,6 +174,20 @@ describe("línea de tiempo", () => {
       kind: "forced",
       title: "Estado forzado a Cancelado",
       detail: "Asignado → Cancelado",
+    })
+    // Un backend anterior no manda `kind` ni `actorName`: el evento es normal, no de un admin.
+    const legacy: Partial<AdminShipmentEvent> = event(
+      "published",
+      "2026-10-21T12:30:00.000Z",
+      { fromStatus: "awaiting_receiver_confirmation" }
+    )
+    delete legacy.kind
+    delete legacy.actorName
+    expect(
+      buildTimeline([legacy as AdminShipmentEvent], row())[0]
+    ).toMatchObject({
+      kind: "normal",
+      title: "Luis aceptó el envío",
     })
     // Un evento normal sigue igual: sin marca y con el texto de siempre.
     expect(

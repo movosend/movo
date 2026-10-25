@@ -68,8 +68,8 @@ export function StatusChangeDialog({
         aria-describedby={undefined}
         className="max-h-[calc(100svh-48px)] max-w-[660px] overflow-hidden"
       >
-        <DialogHeader className="flex-col gap-4 border-b px-5 pb-4">
-          <div className="flex w-full items-start justify-between gap-4">
+        <DialogHeader className="border-b pb-4">
+          <div className="flex min-w-0 flex-1 flex-col gap-4">
             <div className="flex flex-col gap-1">
               <DialogTitle>Cambiar estado</DialogTitle>
               <span className="text-[13px] text-fg2">
@@ -79,36 +79,36 @@ export function StatusChangeDialog({
                 </strong>
               </span>
             </div>
-          </div>
-          <ol className="grid w-full grid-cols-3 gap-2">
-            {STEPS.map((label, i) => {
-              const n = i + 1
-              const reached = n <= state.step
-              return (
-                <li
-                  key={label}
-                  aria-current={n === state.step ? "step" : undefined}
-                  className="flex flex-col gap-1.5"
-                >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "h-[3px] rounded-full",
-                      reached ? "bg-foreground" : "bg-muted"
-                    )}
-                  />
-                  <span
-                    className={cn(
-                      "text-xs font-medium",
-                      reached ? "text-foreground" : "text-muted-foreground"
-                    )}
+            <ol className="grid grid-cols-3 gap-2">
+              {STEPS.map((label, i) => {
+                const n = i + 1
+                const reached = n <= state.step
+                return (
+                  <li
+                    key={label}
+                    aria-current={n === state.step ? "step" : undefined}
+                    className="flex flex-col gap-1.5"
                   >
-                    {n}. {label}
-                  </span>
-                </li>
-              )
-            })}
-          </ol>
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "h-[3px] rounded-full",
+                        reached ? "bg-foreground" : "bg-muted"
+                      )}
+                    />
+                    <span
+                      className={cn(
+                        "text-xs font-medium",
+                        reached ? "text-foreground" : "text-muted-foreground"
+                      )}
+                    >
+                      {n}. {label}
+                    </span>
+                  </li>
+                )
+              })}
+            </ol>
+          </div>
         </DialogHeader>
 
         <DialogBody className="min-h-0 flex-1 overflow-auto pt-5">

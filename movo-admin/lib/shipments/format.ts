@@ -334,10 +334,12 @@ export function buildTimeline(
     a.createdAt.localeCompare(b.createdAt)
   )
   const done = sorted.map((event, i): TimelineItem => {
-    const byAdmin = event.kind !== "normal"
+    // Un backend anterior no manda `kind`: sin él, el evento es normal.
+    const kind = event.kind ?? "normal"
+    const byAdmin = kind !== "normal"
     const copy = byAdmin
       ? {
-          title: `${event.kind === "forced" ? "Estado forzado a" : "Estado cambiado a"} ${SHIPMENT_STATUS[event.toStatus].label}`,
+          title: `${kind === "forced" ? "Estado forzado a" : "Estado cambiado a"} ${SHIPMENT_STATUS[event.toStatus].label}`,
           detail: event.fromStatus
             ? `${SHIPMENT_STATUS[event.fromStatus].label} → ${SHIPMENT_STATUS[event.toStatus].label}`
             : null,
@@ -349,7 +351,7 @@ export function buildTimeline(
       ...copy,
       meta: `${formatStamp(event.createdAt)} · ${byAdmin ? `${event.actorName ?? "Admin"} · Admin` : actorLabel(event.actorId, row)}`,
       reason: event.reason,
-      kind: event.kind,
+      kind,
       pending: false,
       current: i === sorted.length - 1,
     }

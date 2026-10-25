@@ -210,11 +210,12 @@ describe("paso 1 — nuevo estado", () => {
     fireEvent.click(outside)
     expect(outside).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByRole("radio", { name: /Asignado/ })).toBeInTheDocument()
-    const blocked = screen.getByRole("radio", { name: /En camino/ })
-    expect(blocked).toBeDisabled()
+    // Lo bloqueado no es una opción: se ve atenuado, con su motivo.
+    expect(screen.queryByRole("radio", { name: /En camino/ })).toBeNull()
     expect(
       screen.getByText("El retiro se confirma con el handshake.")
     ).toBeInTheDocument()
+    expect(screen.getByText("En camino")).toBeInTheDocument()
   })
 
   it("en un estado terminal explica por qué no hay pasos y muestra lo bloqueado con su motivo", async () => {
@@ -225,6 +226,27 @@ describe("paso 1 — nuevo estado", () => {
       screen.getByText("Un envío cancelado no se puede reabrir.")
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled()
+  })
+
+  it("agrupa los bloqueados con el mismo motivo en una sola nota", async () => {
+    renderModal({ status: "cancelled" as never })
+    const same = "No hay un servicio de dominio que ejecute esta transición."
+    await openModal(
+      options({
+        current: "cancelled",
+        options: [],
+        blocked: [
+          { targetStatus: "published", reason: same },
+          { targetStatus: "assigned", reason: same },
+          { targetStatus: "in_transit", reason: "Sin handshake no se fuerza." },
+        ],
+      })
+    )
+    expect(screen.getAllByText(same)).toHaveLength(1)
+    const notes = screen.getAllByRole("note")
+    expect(notes).toHaveLength(2)
+    expect(within(notes[0]!).getByText("Publicado")).toBeInTheDocument()
+    expect(within(notes[0]!).getByText("Asignado")).toBeInTheDocument()
   })
 
   it("si falla la carga de opciones muestra el error y deja reintentar", async () => {

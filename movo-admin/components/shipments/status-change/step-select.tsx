@@ -82,6 +82,44 @@ function OptionCard({
   )
 }
 
+/** Los bloqueados con el mismo motivo se muestran juntos: diez filas con el mismo texto serían ruido. */
+function blockedByReason(
+  blocked: ShipmentStatusOptions["blocked"]
+): Array<[string, ShipmentStatusValue[]]> {
+  const groups = new Map<string, ShipmentStatusValue[]>()
+  for (const b of blocked)
+    groups.set(b.reason, [...(groups.get(b.reason) ?? []), b.targetStatus])
+  return [...groups.entries()]
+}
+
+/** Estados que no se pueden elegir desde acá, atenuados, con el motivo. */
+function BlockedGroup({
+  reason,
+  statuses,
+}: {
+  reason: string
+  statuses: ShipmentStatusValue[]
+}) {
+  return (
+    <div
+      role="note"
+      className="flex flex-col gap-1.5 rounded-lg border bg-card px-3.5 py-3 opacity-60"
+    >
+      <span className="text-[13px] leading-snug text-fg2">{reason}</span>
+      <span className="flex flex-wrap gap-1.5">
+        {statuses.map((status) => (
+          <span
+            key={status}
+            className="inline-flex h-5 items-center rounded-full bg-muted px-2 text-[11px] font-medium text-fg2"
+          >
+            {statusLabel(status)}
+          </span>
+        ))}
+      </span>
+    </div>
+  )
+}
+
 /** Paso 1: a qué estado pasar. El flujo normal arriba; lo forzado y lo bloqueado, en un bloque colapsado. */
 export function StepSelect({
   options,
@@ -190,15 +228,11 @@ export function StepSelect({
                     onPick={() => onPick(o.targetStatus)}
                   />
                 ))}
-                {options.blocked.map((b) => (
-                  <OptionCard
-                    key={b.targetStatus}
-                    status={b.targetStatus}
-                    summary=""
-                    risk={null}
-                    selected={false}
-                    blocked={b.reason}
-                    onPick={() => undefined}
+                {blockedByReason(options.blocked).map(([reason, statuses]) => (
+                  <BlockedGroup
+                    key={reason}
+                    reason={reason}
+                    statuses={statuses}
                   />
                 ))}
               </div>
