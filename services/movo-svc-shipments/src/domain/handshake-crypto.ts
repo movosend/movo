@@ -38,7 +38,7 @@ function decodeBase64Lenient(value: string): ArrayBuffer {
 }
 
 /**
- * Primera criptografía asimétrica del repo (ADR-020): ECDSA P-256/SHA-256 vía
+ * Primera criptografía asimétrica del repo (ADR-018): ECDSA P-256/SHA-256 vía
  * WebCrypto, clave pública en formato `raw` (punto EC sin comprimir, 65 bytes —
  * mismo shape que ya asume MOVO-157) y firma en formato IEEE P1363 (raw r‖s), el
  * nativo de `subtle.sign`/`verify` -- evita reencodear a/desde DER en un extremo,

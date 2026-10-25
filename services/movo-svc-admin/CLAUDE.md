@@ -152,7 +152,7 @@ por polling. Es ruta propia y no un bloque del detalle, así el polling no vuelv
 rutea `/admin/*` por prefijo. El schema declara nullable cada campo que puede venir en `null`. Deploy en serie: hasta que `svc-shipments`
 tenga la ruta, es 502.
 
-### MOVO-332 — Cambio de estado de un envío desde el panel (ADR-055)
+### MOVO-332 — Cambio de estado de un envío desde el panel (DD-055)
 
 `modules/shipments/shipments.routes.ts` suma cuatro rutas: `GET /admin/shipments/:id/status-options`, `POST /admin/step-up`,
 `POST /admin/step-up/verify` y `POST /admin/shipments/:id/status`. La lógica de transición es de `svc-shipments`
@@ -170,7 +170,7 @@ tenga la ruta, es 502.
 - **`POST /admin/step-up`** exige que el envío exista y que el par esté en la matriz y pida segundo factor (404/422/400); no manda un email por cualquier par.
 - **Un 429 del rate limit deja una fila por admin y envío por ventana** (flag `NX` de 60 s en Redis), no una por rechazo.
 - **Bitácora: una fila por intento** (salvo los 429, ver abajo), rechazos incluidos. El "antes y después" del ticket (AC5) lo cubre `unknown`: la tabla es de solo agregar
-  filas (trigger), así que no hay una fila previa. Detalle en el ADR-055.
+  filas (trigger), así que no hay una fila previa. Detalle en el DD-055.
 - **`internal-client.ts` ahora propaga `details`** de un 4xx (antes se descartaban), y tiene `relayServerErrorCodes`: `FORCE_STATUS_EFFECT_FAILED` es
   un 502 de negocio que no debe leerse como "servicio caído" (la fila sería `unknown`, y es un `failed`). Los schemas de error de
   `shipments.schema.ts` declaran `details`: sin eso Fastify los recortaba y el panel no podía explicar `STATUS_CHANGED`/`TRANSITION_NOT_ALLOWED`.

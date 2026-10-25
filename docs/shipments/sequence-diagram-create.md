@@ -2,7 +2,7 @@
 
 Flujo de `POST /api/v1/shipments`, incluyendo la llamada síncrona `svc-shipments` →
 `svc-users` para validar al receptor (comunicación REST síncrona sin message broker,
-ADR-001/ADR-005). Sirve como contrato visual del acoplamiento entre servicios — se
+ADR-001/005). Sirve como contrato visual del acoplamiento entre servicios — se
 ajusta si algo cambia durante la implementación.
 
 ```mermaid

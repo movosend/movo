@@ -26,7 +26,7 @@ export interface AdminUserRef {
   fullName: string;
 }
 
-/** `AdminUserRef` con la foto de perfil (URL pública, ADR-016): la contraparte de un reporte o bloqueo se dibuja con avatar. */
+/** `AdminUserRef` con la foto de perfil (URL pública, DD-016): la contraparte de un reporte o bloqueo se dibuja con avatar. */
 export interface AdminUserRefWithPhoto extends AdminUserRef {
   photoUrl: string | null;
 }

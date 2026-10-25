@@ -227,7 +227,7 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
 
   app.get(
     "/users/:id/ledger",
-    { schema: { tags: ["admin"], summary: "Ficha: cuenta corriente (svc-payments, ADR-044)", ...usersSchemas.ledger } },
+    { schema: { tags: ["admin"], summary: "Ficha: cuenta corriente (svc-payments, DD-044)", ...usersSchemas.ledger } },
     async (request): Promise<AdminUserLedger> => {
       requireAdmin(request);
       const ctx = ctxOf(request);
@@ -367,7 +367,7 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
     {
       schema: {
         tags: ["admin"],
-        summary: "Ajuste manual de saldo (ADR-044)",
+        summary: "Ajuste manual de saldo (DD-044)",
         description:
           "`amountArs` con signo (positivo = debe), distinto de cero y dentro del tope de svc-payments (422 " +
           "`AMOUNT_OUT_OF_RANGE`). Idempotente por `idempotencyKey`: reintentar con la misma no duplica el movimiento. " +

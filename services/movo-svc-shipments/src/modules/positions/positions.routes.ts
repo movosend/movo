@@ -60,7 +60,7 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
       app.log,
       // MOVO-240: aviso de "está por llegar" a emisor y receptor.
       opts.notificationsClient ?? createNotificationsClient(app.config),
-      // MOVO-270: evidencia de llegada/ausencia al retiro (ADR-052).
+      // MOVO-270: evidencia de llegada/ausencia al retiro (DD-052).
       createPickupEvidenceRepository(app.db)
     );
 

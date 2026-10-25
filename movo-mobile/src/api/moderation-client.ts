@@ -20,7 +20,7 @@ export interface AddReportEntryInput {
 }
 
 /**
- * Reportar/bloquear usuarios (MOVO-175, ADR-026). Mismo patrón cliente que
+ * Reportar/bloquear usuarios (MOVO-175, DD-026). Mismo patrón cliente que
  * `ratings-client.ts`.
  */
 export const moderationClient = {

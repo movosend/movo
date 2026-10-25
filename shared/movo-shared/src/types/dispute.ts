@@ -1,6 +1,6 @@
 /**
  * MOVO-334: motivo de una disputa. Los cuatro primeros los elige una de las partes desde la
- * app; `transit_anomaly` (MOVO-278, ADR-045) y `pickup_no_show` (MOVO-270, ADR-052) los pone
+ * app; `transit_anomaly` (MOVO-278, DD-045) y `pickup_no_show` (MOVO-270, DD-052) los pone
  * solo el barrido del sistema.
  */
 export enum DisputeReason {
@@ -34,7 +34,7 @@ export type DisputePartyRole = "sender" | "receiver" | "carrier";
 export type DisputeStatementKind = "statement" | "amendment";
 
 /**
- * MOVO-334 (ADR-054): días desde el handshake de entrega (`deliveredAt`) en los que se puede
+ * MOVO-334 (DD-054): días desde el handshake de entrega (`deliveredAt`) en los que se puede
  * abrir una disputa sobre un envío `delivered` o `completed`.
  */
 export const DISPUTE_WINDOW_DAYS = 7;

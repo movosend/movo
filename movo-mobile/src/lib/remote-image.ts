@@ -7,7 +7,7 @@ import type { ImageSource } from "expo-image";
  * cada pedido firma de nuevo y la URL cambia aunque el objeto sea el mismo. Cachear por
  * URL completa haría que cada visita volviera a bajar la foto entera. El path (`bucket` +
  * `key`) sí identifica al objeto, y las keys llevan un UUID propio, así que una foto
- * reemplazada siempre tiene una clave nueva. Las fotos de perfil (ADR-016) ya son URLs
+ * reemplazada siempre tiene una clave nueva. Las fotos de perfil (DD-016) ya son URLs
  * públicas estables sin query, y quedan igual.
  */
 export function stableImageCacheKey(url: string): string {

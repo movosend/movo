@@ -1,7 +1,7 @@
 import { ShipmentStatus } from "../types/shipment";
 
 /**
- * MOVO-331 (ADR-055): matriz de cambios de estado de un envío hechos por un admin. Backend
+ * MOVO-331 (DD-055): matriz de cambios de estado de un envío hechos por un admin. Backend
  * (`svc-shipments` la valida) y panel (`movo-admin` decide qué ofrecer) la leen de acá: el panel
  * es solo ayuda visual, nunca la fuente de verdad.
  *
@@ -135,7 +135,7 @@ const STATUSES_WITH_CARRIER: readonly ShipmentStatus[] = [
   ShipmentStatus.DELIVERED,
 ];
 
-/** Lo que el panel muestra antes de confirmar (ADR-055): qué se ejecuta y a quién se avisa. */
+/** Lo que el panel muestra antes de confirmar (DD-055): qué se ejecuta y a quién se avisa. */
 export interface ForcedTransitionDetails extends ForcedTransitionCell {
   /** Qué hace la transición, en el orden en que ocurre. */
   effects: string[];
@@ -188,7 +188,7 @@ export function getForcedTransitionDetails(from: ShipmentStatus, to: ShipmentSta
 }
 
 /**
- * Fricción que exige la celda (ADR-055). El código del envío tipeado, desde riesgo alto; el segundo
+ * Fricción que exige la celda (DD-055). El código del envío tipeado, desde riesgo alto; el segundo
  * factor (OTP por acción), si la transición es forzada o el riesgo es crítico.
  */
 export function forcedTransitionFriction(cell: ForcedTransitionCell): { typedCode: boolean; stepUp: boolean } {

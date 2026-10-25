@@ -13,7 +13,7 @@ import {
 import { shortAddress } from "../utils/short-address";
 
 /**
- * MOVO-320 (ADR-051): reglas puras de las conversaciones de soporte del lado del usuario. Sin acceso a datos
+ * MOVO-320 (DD-051): reglas puras de las conversaciones de soporte del lado del usuario. Sin acceso a datos
  * para poder probarlas aisladas; el repositorio y el servicio las aplican.
  */
 

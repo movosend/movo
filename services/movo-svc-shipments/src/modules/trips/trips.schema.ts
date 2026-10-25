@@ -37,7 +37,7 @@ const tripResponse = {
     vehicleType: { type: "string" },
     status: { type: "string", enum: TRIP_STATUS_VALUES },
     cancelledAt: { type: ["string", "null"], format: "date-time" },
-    // MOVO-265 (ADR-042): recurrencia. 0 = domingo … 6 = sábado; null = no se repite.
+    // MOVO-265 (DD-042): recurrencia. 0 = domingo … 6 = sábado; null = no se repite.
     recurrenceWeekdays: { type: ["array", "null"], items: { type: "integer" } },
     recurrenceUntil: {
       type: ["string", "null"],

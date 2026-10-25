@@ -243,7 +243,7 @@ enum ReportStatus {
   @@schema("users")
 }
 
-// MOVO-175 (ADR-026): una fila por dirección (quién bloqueó a quién), pero el EFECTO
+// MOVO-175 (DD-026): una fila por dirección (quién bloqueó a quién), pero el EFECTO
 // es simétrico -- `listRelatedUserIds` une las dos direcciones. `deleteAccount` borra
 // explícitamente las filas en ambas direcciones: la baja es soft delete, así que el
 // `onDelete: Cascade` nunca dispara (mismo caso que KYC/licencia).

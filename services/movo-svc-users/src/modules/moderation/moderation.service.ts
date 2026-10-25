@@ -86,7 +86,7 @@ function assertValidReportPhoto(contentType: string, contentLength: number): voi
 }
 
 /**
- * MOVO-175 (ADR-026): reportar y bloquear usuarios. El efecto del bloqueo sobre
+ * MOVO-175 (DD-026): reportar y bloquear usuarios. El efecto del bloqueo sobre
  * envíos/ofertas vive en `svc-shipments`, que consulta `listRelatedUserIds` por el
  * endpoint interno -- acá solo se persiste la relación.
  */

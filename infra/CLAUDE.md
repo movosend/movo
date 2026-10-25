@@ -1,12 +1,12 @@
 # CLAUDE.md — infra
 
-Nginx, Compose y el canal WebSocket (ADR-022). Contexto general del proyecto en el `CLAUDE.md` de la raíz.
+Nginx, Compose y el canal WebSocket (ADR-019). Contexto general del proyecto en el `CLAUDE.md` de la raíz.
 
-### MOVO-200 — Spike: canal de tiempo real (ADR-022)
+### MOVO-200 — Spike: canal de tiempo real (ADR-019)
 
 Cierra la incertidumbre sobre el canal de tiempo real (ver "Pendientes transversales"
 histórico — no había ninguna línea de WebSocket/Socket.io/SSE en el repo antes de este
-spike). Decisión: **WebSocket nativo vía `@fastify/websocket`** (ADR-022), no
+spike). Decisión: **WebSocket nativo vía `@fastify/websocket`** (ADR-019), no
 Socket.io ni SSE — reemplaza la mención a Socket.io que traía ADR-005. Documento de
 conclusiones completo linkeado al issue en Linear (relevamiento, comparación de las 3
 tecnologías, impacto en infra, esbozo de auth/autorización).
@@ -46,7 +46,7 @@ tecnologías, impacto en infra, esbozo de auth/autorización).
 
 ### MOVO-201 — Canal de tiempo real: implementación real (gateway + `svc-shipments`)
 
-Reemplaza la PoC de MOVO-200 sobre la tecnología que fijó ADR-022. Detalle completo en
+Reemplaza la PoC de MOVO-200 sobre la tecnología que fijó ADR-019. Detalle completo en
 `gateway/CLAUDE.md` y `services/movo-svc-shipments/HISTORIAL.md` (ambos con entrada propia
 de MOVO-201) — acá solo lo transversal.
 

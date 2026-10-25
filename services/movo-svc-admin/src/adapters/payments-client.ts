@@ -1,7 +1,7 @@
 import { AdminUserLedgerRow, AdminUserLedgerRowPage, AdminUserMercadoPago, HoldDetailResponse } from "@movo/shared";
 import { createInternalClient, InternalClient, isNullableString, isRecord, isString, RequestContext } from "./internal-client";
 
-/** Lo que manda `svc-admin` al alta de un ajuste manual (ADR-044). */
+/** Lo que manda `svc-admin` al alta de un ajuste manual (DD-044). */
 export interface LedgerAdjustmentRequest {
   idempotencyKey: string;
   amountArs: number;
@@ -21,7 +21,7 @@ export interface PaymentsClient extends InternalClient {
   getUserMercadoPago(userId: string, ctx: RequestContext): Promise<AdminUserMercadoPago>;
   /** MOVO-294: `GET /internal/payments/users/:userId/admin-ledger`. */
   getUserLedger(userId: string, query: { limit?: number; cursor?: string }, ctx: RequestContext): Promise<AdminUserLedgerRowPage>;
-  /** MOVO-294: `POST /internal/payments/users/:userId/manual-adjustments` (ADR-044, idempotente). */
+  /** MOVO-294: `POST /internal/payments/users/:userId/manual-adjustments` (DD-044, idempotente). */
   createLedgerAdjustment(userId: string, body: LedgerAdjustmentRequest, ctx: RequestContext): Promise<LedgerAdjustmentResponse>;
   /** `GET /internal/payments/holds/by-shipment/:id` (MOVO-325). `null` si nunca se intentó el pago. */
   findHoldByShipment(shipmentId: string, ctx: RequestContext): Promise<HoldDetailResponse | null>;

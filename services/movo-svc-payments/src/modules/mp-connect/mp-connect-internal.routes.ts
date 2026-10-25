@@ -34,7 +34,7 @@ const adminSummarySchema = {
 } as const;
 
 /**
- * MOVO-116 (ADR-036): consultado por `movo-svc-shipments` para bloquear declarar viaje,
+ * MOVO-116 (DD-036): consultado por `movo-svc-shipments` para bloquear declarar viaje,
  * ofertar, editar oferta e iniciar viaje sin una cuenta de MP con la que se pueda cobrar.
  * Interno, mismo criterio que `/internal/payments/holds` (MOVO-209): sin ruta en el
  * gateway (ADR-010) y sin el hook de `x-user-id`, porque el usuario va en el path.

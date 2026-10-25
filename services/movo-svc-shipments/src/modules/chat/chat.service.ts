@@ -126,7 +126,7 @@ export function createChatService(deps: ChatServiceDeps) {
     return resolveChatAccess({ shipment, viewerId, viewerRoles });
   }
 
-  /** Quienes tienen un bloqueo con `userId` (ADR-026, simétrico). Falla abierto: sin `svc-users`, nada se oculta. */
+  /** Quienes tienen un bloqueo con `userId` (DD-026, simétrico). Falla abierto: sin `svc-users`, nada se oculta. */
   async function blockedWith(userId: string): Promise<Set<string>> {
     return new Set(await safeBlockRelatedUserIds(deps.usersClient, userId, deps.logger));
   }
@@ -238,7 +238,7 @@ export function createChatService(deps: ChatServiceDeps) {
   /**
    * Cierre de la ventana: si en el medio llegaron más mensajes y siguen sin leer, un único resumen. Se relee el envío
    * (el rol o el acceso pudieron cambiar en esos segundos por una reasignación o una transferencia de receptor) y se
-   * vuelven a filtrar los autores bloqueados (ADR-026): el bloqueo pudo ser posterior a que el mensaje entrara a la
+   * vuelven a filtrar los autores bloqueados (DD-026): el bloqueo pudo ser posterior a que el mensaje entrara a la
    * cola. Si el destinatario ya abrió la conversación no se avisa de algo que ya vio.
    */
   async function flushChatPush(shipmentId: string, userId: string): Promise<void> {
@@ -389,14 +389,14 @@ export function createChatService(deps: ChatServiceDeps) {
         moderated: moderation.masked,
       });
 
-      // ADR-026: quien tiene un bloqueo con el autor no recibe el contenido, pero el chat sigue para los demás.
+      // DD-026: quien tiene un bloqueo con el autor no recibe el contenido, pero el chat sigue para los demás.
       const blocked = await blockedWith(input.callerId);
       const recipients = chatParties(shipment).filter((id) => id !== input.callerId);
 
       if (created) {
         // Los destinatarios con el chat abierto lo reciben ya: quedan como "entregado".
         const delivered: string[] = [];
-        // También a quienes solo miran (el admin y el receptor original, ADR-038): están conectados con acceso de
+        // También a quienes solo miran (el admin y el receptor original, DD-038): están conectados con acceso de
         // lectura y, si no, verían el hilo desactualizado hasta recargar. No cuentan como "entregado" para los tildes.
         // Solo esos dos: un transportista anterior con el socket todavía vivo ya no es parte y no debe leer la
         // conversación nueva (cada asignación arranca limpia).

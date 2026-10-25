@@ -1041,7 +1041,7 @@ El equipo aclaró que el campo "¿Cuánto pedís por el viaje?" siempre se pens�
 **bruto** que se le cobra al emisor, no como el neto que se lleva el transportista
 (al revés de como se había implementado en MOVO-149/MOVO-177 originalmente, AC6 de
 MOVO-143). Esto además destapó un bug real: `shipment.suggestedPriceArs` YA es bruto
-(el mismo precio sugerido que ve el emisor al crear el envío, MOVO-82/ADR-018) — la
+(el mismo precio sugerido que ve el emisor al crear el envío, MOVO-82/DD-018) — la
 pantalla de oferta lo prefillaba y lo trataba como si fuera neto, y la card "Te queda
 si ofertás el sugerido" del detalle (`transport/[id].tsx`) le sumaba una SEGUNDA
 comisión encima del bruto, mostrando un número inflado y falso.
@@ -2346,7 +2346,7 @@ Primer código de criptografía asimétrica del lado mobile — cierra el hueco 
 validación de firma/GPS) habían dejado sin cubrir: ninguno de los dos implementaba
 quién genera el par de claves ni quién firma. Bloqueaba a `MOVO-159`/`MOVO-160`.
 
-- **Sigue ADR-020 tal cual, no reabre el algoritmo**: el propio ticket dejaba el
+- **Sigue ADR-018 tal cual, no reabre el algoritmo**: el propio ticket dejaba el
   algoritmo "a definir, recomendado Ed25519" (AC3), pero eso ya estaba resuelto al
   implementarse `MOVO-158` — ECDSA P-256/SHA-256, clave pública en formato `raw` sin
   comprimir (65 bytes), firma IEEE P1363 (raw r‖s, 64 bytes). Usar Ed25519 habría
@@ -2963,7 +2963,7 @@ shipments/[id]/pickup/` (`_layout.tsx` + `index.tsx`/`evidence.tsx`/`scan.tsx`/
 - **Gate del wizard (AC1) resuelto en `use-pickup-wizard.ts`, consumido por
   `_layout.tsx` antes de renderizar el `<Stack>` de los 4 pasos**: `assigned` es el
   único estado real ("ready"). `assigned_unfunded` explica que el hold de fondos
-  todavía no se creó (MOVO-208/ADR-021), en vez de un error genérico — es el caso
+  todavía no se creó (MOVO-208/DD-021), en vez de un error genérico — es el caso
   que el propio AC1 pide cubrir explícitamente. `in_transit` (el handshake ya se
   confirmó, reingreso idempotente tras cerrar la app justo después de escanear)
   muestra "ya confirmaste este retiro" en vez de reabrir el escaneo. Cualquier otro
@@ -3845,7 +3845,7 @@ pantallas de tabs). `expo-glass-effect` es módulo nativo: requiere rebuild del 
   `insets.bottom` en el `paddingBottom` del scroll); falta el resto de las pantallas.
 
 
-### MOVO-175 — Reportar y bloquear usuarios, cierre del lado mobile (ADR-026)
+### MOVO-175 — Reportar y bloquear usuarios, cierre del lado mobile (DD-026)
 
 Completa lo que MOVO-176 había dejado armado contra endpoints inexistentes. El menú de
 `profile-actions-menu.tsx` alterna "Bloquear"/"Desbloquear" según `isBlockedByMe`, avisa el
@@ -3960,9 +3960,9 @@ Implementación del mapa táctico y bottom sheet interactivo para emisor y recep
   - Tarjeta técnica de destino con link directo a coordenadas lat/lng en Google Maps / Apple Maps.
   - Píldora de telemetría superior flotante con estados reales ("En vivo", "Sin posición", "Reconectando", "Pausado", "Finalizado"), sin indicadores de latencia ficticios.
   - Overlay terminal al recibir entrega finalizada (`delivered` / código 4009) informando el arribo del paquete y ofreciendo regreso a la app.
-- **Cumplimiento estricto de Privacidad (ADR-023)**:
+- **Cumplimiento estricto de Privacidad (DD-023)**:
   - El componente `LiveMap` (`components/tracking/live-map.tsx`) NO renderiza trazas históricas ni polilíneas pasadas del recorrido del transportista. Únicamente muestra la posición actual del conductor y el pin del destino.
-  - Disclaimer de privacidad exacto según ADR-023: "Solo se comparte la ubicación en tiempo real mientras el envío está en camino. No se almacena historial de rutas."
+  - Disclaimer de privacidad exacto según DD-023: "Solo se comparte la ubicación en tiempo real mientras el envío está en camino. No se almacena historial de rutas."
   - Al recibir estado `delivered` o código terminal `4009` del WebSocket, la UI finaliza el seguimiento y desactiva la telemetría.
 - **Hooks de Sincronización y Resiliencia**:
   - `useShipmentChannel` (`src/hooks/use-shipment-channel.ts`): canal WebSocket resiliente con backoff exponencial progresivo (1s..30s), reconexión inmediata al volver de segundo plano (`AppState === "active"`), token dinámico vía `useAuthStore.getState().accessToken`, limpieza estricta de listeners en `unmount` para prevenir leaks de sockets concurrentes, y cierre terminal ante código `4009`.
@@ -3977,7 +3977,7 @@ Implementación del mapa táctico y bottom sheet interactivo para emisor y recep
 
 ### MOVO-253 — Elegir otro receptor tras un rechazo
 
-Lado mobile del ADR-027 (`rejected_by_receiver` deja de ser terminal, ver
+Lado mobile del DD-027 (`rejected_by_receiver` deja de ser terminal, ver
 `services/movo-svc-shipments/HISTORIAL.md`).
 
 - **"Requiere tu atención"**: la tarea de rechazo pasa a una card propia
@@ -4082,7 +4082,7 @@ MOVO-258; no probado en device tras los últimos ajustes.
 ### MOVO-254 — Badge "Alta demanda en tu zona" junto al precio sugerido
 
 `HighDemandBadge` (`components/shipments/high-demand-badge.tsx`) explica el recargo de
-`demand_fuel_routes_v1` sin mostrar el porcentaje (ADR-025): pill en tinta sobre la card
+`demand_fuel_routes_v1` sin mostrar el porcentaje (ADR-021): pill en tinta sobre la card
 lima de precio, y un tap despliega el texto de ayuda (no un tooltip flotante: medir la
 posición con `measureInWindow` no es testeable en jest-expo, mismo gap que MOVO-29). El
 componente no decide cuándo mostrarse; eso queda en cada caller.
@@ -4169,7 +4169,7 @@ entrega como "deshabilitada" aunque MOVO-199 ya existe.
 - **Seguimiento en vivo (AC3/AC5)**: `LiveTrackingCard` con el lenguaje de `OffersBanner`, en estado `available` o placeholder `pending`, según `liveTrackingAvailability` (`shipment-format.ts`). Decisión de producto: la ubicación se ve desde "Iniciar viaje" hasta la entrega y antes no se captura. Hoy se habilita recién en `in_transit`, porque el backend rechaza posiciones con el envío en `assignment_pending` (el hold de fondos sigue bloqueado). Cuando MOVO-270 habilite el tramo inicio del viaje → retiro, cambia solo ese helper. Mientras está en placeholder, el detalle se refresca cada 30 s (`liveTrackingPendingPollInterval`) para habilitarse sin salir de la pantalla.
 - **Badge de tipo de paquete (AC6)**: `PackageCard` toma el ícono de `packageTypeIcon` (`category-grid.tsx`), el mismo mapeo que el wizard.
 
-### MOVO-237 — Botón "Navegar" por parada (deep-link a Google Maps/Waze, ADR-033)
+### MOVO-237 — Botón "Navegar" por parada (deep-link a Google Maps/Waze, DD-033)
 
 La parada seleccionada de `StopList` (MOVO-207) suma `NavigateButton`
 (`components/route/navigate-button.tsx`) junto a "Ver envío" y el CTA de retiro/entrega.
@@ -4286,7 +4286,7 @@ backend: `packages[]` ahora trae `pickupLat/Lng` y `deliveryLat/Lng` (ver `svc-s
 - Cancelar usa `POST /trips/:id/cancel` (`useCancelTrip`, invalida ambos tabs, detalle, matches y viaje
   activo) y vuelve con `router.dismissTo` a "Mis viajes" con el banner "Cancelaste el viaje a {destino}"
   (param `cancelledTo`). Un 409 cierra el sheet y muestra el motivo como banner del detalle (el refresco trae los paquetes y desmonta el sheet); otros errores siguen dentro del sheet. `cancelledAt` (timestamp) viaja junto a `cancelledTo` para que dos cancelaciones al mismo destino vuelvan a mostrar el banner. `useDeleteTrip` se
-  eliminó (el `DELETE` está deprecado por ADR-029).
+  eliminó (el `DELETE` está deprecado por DD-029).
 - El footer usa botones planos del mockup con la lógica de `useStartTrip`, no `CarrierTripCta` (que es una
   card completa); ese componente sigue en el home y en "Mi ruta".
 - El vehículo muestra el logo de la marca (`BrandAvatar`, o iniciales si no hay logo); la marca sale de
@@ -4375,13 +4375,13 @@ normal para quien solo envía.
 ### MOVO-116 (lado mobile mínimo) — mensaje del emisor al aceptar una oferta
 
 Solo `OFFER_CARRIER_NOT_ELIGIBLE` en `error-messages.ts`, que ve el emisor si el transportista
-ya no cumple los requisitos para operar (ADR-036). Los códigos del lado del transportista
+ya no cumple los requisitos para operar (DD-036). Los códigos del lado del transportista
 (`CARRIER_LICENSE_NOT_APPROVED`/`CARRIER_MP_ACCOUNT_NOT_LINKED`, 403 con
 `details.missingRequirements`) y leer `details` en `http-client.ts#parseErrorBody` quedan para
 MOVO-117, que además tiene que cubrir "Iniciar viaje" y editar oferta, no solo declarar viaje y
 ofertar.
 
-### MOVO-275 — Transferencia de receptor (ADR-037)
+### MOVO-275 — Transferencia de receptor (DD-037)
 
 Sobre el mockup de Claude Design ("Transferencia de receptor v2"). Pantallas nuevas:
 `shipments/[id]/receiver-transfer.tsx` (elegir a la persona: `ReceiverSearchField` gana
@@ -4423,7 +4423,7 @@ refetchea el perfil (y el feed, si el bloqueo vino de su 403), así volver de `/
 `/license-kyc` lo destraba sin reabrir la app; el bloqueo también tiene pull-to-refresh, para
 cuando la licencia se aprueba sin salir del tab. Si el perfil falla no se deja pasar: se
 muestra el error con "Reintentar" (decisión de la review, el bloqueo es UX pero sin perfil no
-se sabe qué falta). La autoridad sigue siendo el backend (ADR-036).
+se sabe qué falta). La autoridad sigue siendo el backend (DD-036).
 
 - **`CarrierRequirementGate`** (`components/carrier/`) es genérico (ícono, título, texto, CTA).
   MOVO-117 reemplazó la rama de licencia por la checklist (licencia + Mercado Pago, ver su
@@ -4447,7 +4447,7 @@ Probado en device.
 
 ### MOVO-117 — Checklist de requisitos para operar como transportista (licencia + Mercado Pago)
 
-Frontend de ADR-036 / MOVO-116. Un solo componente, `CarrierRequirementsChecklist`
+Frontend de DD-036 / MOVO-116. Un solo componente, `CarrierRequirementsChecklist`
 (`components/carrier/carrier-requirements-checklist.tsx`), fiel al prototipo de Claude Design
 ("Requisitos para transportar": título, contador N/2 en lima, barra de 2 segmentos, una fila por
 requisito con pill Pendiente/Listo y CTA, "Después"), en dos contenedores: `CarrierRequirementsScreen`
@@ -4486,7 +4486,7 @@ después de `gate`); ganar foco sin bloqueo solo refetchea perfil + MP si pasaro
 (`GATE_STALE_MS`); la hoja del gate es `accessibilityViewIsModal` y el contenido de atrás queda con
 `no-hide-descendants`; `/license-kyc` no recibe `status=approved` si el backend dice que la licencia falta.
 
-### MOVO-269 — Pago del envío con tarjeta guardada + CVV (ADR-039 propuesto)
+### MOVO-269 — Pago del envío con tarjeta guardada + CVV (DD-039 propuesto)
 
 `app/(app)/shipments/[id]/pay.tsx`, fiel al prototipo de Claude Design "Pago con tarjeta v3": el emisor elige una
 tarjeta guardada (la predeterminada viene elegida) y escribe solo el CVV. Es una **reserva, no un cobro**. Se genera
@@ -4574,7 +4574,7 @@ avisa con `onSaved`/`onCancel` para que MOVO-269 lo reuse.
 Pendiente: probar en development build con tarjetas de test (Visa y Mastercard; el titular
 `OTHE` solo rechaza al pagar, MOVO-269) y revisar los requests.
 
-### MOVO-284 — Chat del envío: conversación, lista de chats y accesos (ADR-040)
+### MOVO-284 — Chat del envío: conversación, lista de chats y accesos (ADR-023)
 
 Lado mobile del chat de MOVO-26 (backend en `services/movo-svc-shipments/HISTORIAL.md`), sobre el prototipo
 "Chat del envío · v2". `src/api/chat-client.ts`, `src/hooks/use-chat.ts` (consultas, mutaciones y helpers del
@@ -4592,7 +4592,7 @@ caché), `use-chat-channel.ts` (WebSocket de recepción, calcado de `use-shipmen
   con los mensajes por fecha, agrupa las burbujas de una misma persona y pone separador de día. "Llegando" no
   existe: el backend no tiene evento de cercanía.
 - **Solo lectura, archivado y receptor original**: sale de `access`/`archived` de la primera página; quien ya
-  no figura entre los integrantes con `read_only` es el receptor original (ADR-038) y no escribe. `CHAT_CLOSED`
+  no figura entre los integrantes con `read_only` es el receptor original (DD-038) y no escribe. `CHAT_CLOSED`
   (409) se muestra como error con "Reintentar" y sin campo de texto.
 - **Bloqueo y reporte** desde "Tu seguridad" (`chat-safety-sheet.tsx`): bloquear o desbloquear a cada integrante
   (`useChatBlockToggle`, invalida lo mismo que el resto del bloqueo y todo `["chat"]`) y "Reportar conversación"
@@ -4672,7 +4672,7 @@ en el resumen. `SIDES_SUM_CM_MAX` replica `PACKAGE_MAX_SIDES_SUM_CM` del backend
 ese aviso; `PACKAGE_LIMITS_EXCEEDED` tiene copy propio en `error-messages.ts` para el caso de
 que el backend recalibre los límites. Test en `test/package-limits.test.tsx`.
 
-### MOVO-266 — Viajes recurrentes: "Se repite" al declarar/editar, badge de serie y avisos (ADR-042)
+### MOVO-266 — Viajes recurrentes: "Se repite" al declarar/editar, badge de serie y avisos (DD-042)
 
 UI del modelo de MOVO-264/265, sobre el artefacto de Claude Design (lo que contradice los AC
 se ignoró: anticipación de 2 semanas, calendario, "Iniciar 2 h antes", sheet de una opción).
@@ -4702,7 +4702,7 @@ PR apilada sobre la de MOVO-265 (#246), que trae los tipos y helpers de `@movo/s
 
 Pendiente: no probado en device; revisar contra el backend real cuando #246 esté en dev.
 
-### MOVO-278 — Envío demorado: "Demorado", aviso en el mapa y disputa abierta como transportista (ADR-045)
+### MOVO-278 — Envío demorado: "Demorado", aviso en el mapa y disputa abierta como transportista (DD-045)
 
 `isTransitDelayed`/`TRANSIT_DELAYED_LABEL`/`TRANSIT_DELAYED_INFO_TEXT` (`active-shipment-format.ts`)
 sobre `transitAnomalyFlaggedAt`. La card del Home muestra el pill "Demorado" en warning, sin el punto
@@ -4808,7 +4808,7 @@ el transportista, pendiente, reservado y "Este envío se liberó". AC7: ningún 
 
 Pendiente: no probado en device; copy del AC7 a revisar con el equipo (DoD).
 
-### MOVO-308 — Emisor cancela un envío asignado (penalidad de ADR-047)
+### MOVO-308 — Emisor cancela un envío asignado (penalidad de DD-047)
 
 Réplica del prototipo "MOVO-308 Emisor cancela" de Claude Design. `canCancelShipment` suma `assigned` y `assigned_unfunded`. El menú nativo de `SenderActionsBar` abre `CancelShipmentSheet`, que reemplaza al modal anterior en todos los estados cancelables. En `assigned` pide `GET /shipments/:id/cancellation-quote` al abrir. Muestra sin cargo, penalidad (con barra y desglose) o franja vencida (motivo fijo, el backend solo manda el enum). Confirma con `expectedPenaltyArs`. Ante 409 `CANCELLATION_PENALTY_MISMATCH` re-cotiza y avisa el cambio, también cuando baja a 0. Un 409 de estado refresca el detalle y explica el bloqueo según si el paquete ya se retiró. Los estados sin reserva no cotizan. El motivo opcional se mantiene. El éxito usa `SuccessBanner`, no el toast del prototipo.
 
@@ -4973,7 +4973,7 @@ muestran `AccountStatusChip`. La pantalla de login de `ACCOUNT_SUSPENDED` pasó 
 está activo (`carrierTripActive` de `GET /shipments/:id`); `assignment_pending`/`assigned_unfunded` siguen en "pending". La tarea
 en segundo plano y la captura en primer plano mandan `mocked` de expo-location (solo Android, se omite si no viene). El sheet de
 cancelación muestra el motivo `carrier_arrived` (vista `penalty` con `reasonText`) y `HANDSHAKE_PICKUP_DEADLINE_PASSED` tiene copy.
-Pendiente: subir la precisión del GPS cerca del retiro (ADR-052, toca la medición de batería de MOVO-242).
+Pendiente: subir la precisión del GPS cerca del retiro (DD-052, toca la medición de batería de MOVO-242).
 
 ### MOVO-285 — Monto exacto del transportista con el fee real de MP
 

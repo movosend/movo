@@ -15,7 +15,7 @@ OR-Tools/Google Maps). Cache de la solución del feed (0 llamados extra al acept
 oferta). SLA <50ms para 20 envíos, fallback greedy determinístico <0.2ms. Motivó
 ADR-013 (Routes API sobre Distance Matrix).
 
-### MOVO-82 — `POST /quote`: contrato de precio sugerido, implementación provisoria (ADR-018)
+### MOVO-82 — `POST /quote`: contrato de precio sugerido, implementación provisoria (DD-018)
 
 Primer endpoint de negocio real del servicio (hasta acá solo `GET /health`) y primer
 contacto real del equipo con FastAPI. Reestructurado a `app/{config,models,services,
@@ -63,7 +63,7 @@ a mano — más 1 caso de validación 422). 100% de cobertura sobre `main.py`+`a
 Pendiente / fuera de alcance: el motor real (demanda + precio de combustible +
 Google Routes API) sigue sin implementar — hueco de backlog señalado explícitamente
 por el propio ticket MOVO-82, cubierto ahora por MOVO-138 (sin refinar todavía).
-ADR-018 (resumen en `CLAUDE.md` raíz) pendiente de pegar completo en Drive.
+DD-018 (resumen en `CLAUDE.md` raíz) pendiente de pegar completo en Drive.
 
 ### MOVO-205 — `POST /optimize/route`: Endpoint de optimización VRPTW multi-envío (ADR-013 / ADR-015)
 
@@ -116,7 +116,7 @@ Decisiones clave y alcance:
   configurada, reporta la conectividad con Redis (`redis: connected` o `disconnected`)
   sin fallar ni interrumpir la disponibilidad del servicio.
 - **Limpieza de Infraestructura (`infra/docker-compose.yml`)**: conforme a la arquitectura
-  stateless del servicio (ADR-019), se removieron la variable `DATABASE_URL` y la
+  stateless del servicio (ADR-017), se removieron la variable `DATABASE_URL` y la
   dependencia `depends_on: postgres` para `movo-svc-pricing-logistics`, manteniendo
   únicamente `REDIS_URL` y `redis`.
 - **Base previa de MOVO-205**: las dependencias (`ortools==9.15.6755`, `redis==5.2.1`,
@@ -171,14 +171,14 @@ config, con degradación permitida (a diferencia de la política No-Fallback del
 Coeficientes de la tarifa en litros de nafta, así se indexan con el surtidor. Alta demanda =
 `(publicados en 15 km + 1) / transportistas distintos ≥ 3` con mínimo de 4 envíos, recargo
 de 10% a 30%, calibrado con Monte Carlo. Los conteos los calcula `svc-shipments` y los manda
-como `demandContext` opcional (ADR-019 intacto). Respuesta sin `breakdown` (no tiene
+como `demandContext` opcional (ADR-017 intacto). Respuesta sin `breakdown` (no tiene
 consumidores; pasa al log `pricing_quote_computed`) y con `highDemand`, que `svc-shipments`
 persiste en `shipments.high_demand` (nullable: `NULL` = sin cotización). Si falla Google,
 `/quote` degrada a Haversine x 1,3 (`distanceSource` en el log): excepción acotada a la
 política No-Fallback, que sigue vigente para `/optimize/route` y `/routes/evaluate-candidates`.
-Decisiones en ADR-025; implementación en MOVO-138.
+Decisiones en ADR-021; implementación en MOVO-138.
 
-### MOVO-138 — `POST /quote` con `demand_fuel_routes_v1` (ADR-025)
+### MOVO-138 — `POST /quote` con `demand_fuel_routes_v1` (ADR-021)
 
 Reemplaza `euclidean_linear_v1` según el spike MOVO-216. `app/services/pricing.py` (fórmula,
 recargo por demanda, log `pricing_quote_computed` con el desglose), `app/services/fuel_price.py`
@@ -222,9 +222,9 @@ presupuesto de 2s pero con poco margen.
 desglose que ya iba al log `pricing_quote_computed` (distancia y su fuente, nafta y su
 fuente, base/distancia/peso, factor de paquete, demanda). Sin el flag la respuesta es
 idéntica a antes (`response_model_exclude_none`). Solo lo pide el módulo `demo` de
-`movo-svc-shipments`; el flujo del emisor sigue sin desglose (ADR-025 intacto, ver ADR-030).
+`movo-svc-shipments`; el flujo del emisor sigue sin desglose (ADR-021 intacto, ver DD-030).
 
-### Juego del optimizador de la feria — `objective`/`matrix` en `/optimize/route` y `POST /routes/matrix` (ADR-031)
+### Juego del optimizador de la feria — `objective`/`matrix` en `/optimize/route` y `POST /routes/matrix` (DD-031)
 
 Dos opt-in en `OptimizeRouteRequest`, sin cambios para el flujo de transportistas:
 `objective` (`time` por default, como hasta ahora; `distance` usa un callback en metros
@@ -237,7 +237,7 @@ devuelve la matriz del provider para 2 a 25 puntos (límite de 625 elementos de 
 la matriz de cada ciudad una vez y la cachea. Tests en `tests/test_optimize_demo_opt_ins.py`.
 
 
-### MOVO-276 — `package_tapered_v2`: peso facturable, categoría y límites duros (ADR-041)
+### MOVO-276 — `package_tapered_v2`: peso facturable, categoría y límites duros (DD-041)
 
 Reemplaza el cálculo de `demand_fuel_routes_v1` (combustible, demanda y fallback de
 distancia sin cambios). `app/services/pricing.py#price_components` (parte determinística,

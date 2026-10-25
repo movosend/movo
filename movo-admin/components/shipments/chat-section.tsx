@@ -30,7 +30,7 @@ export function ChatButtonLoading() {
 
 /**
  * El chat se pide aparte del detalle (es otra ruta): si falla, solo este botón muestra el error.
- * Sin transportista no hay hilo (ADR-040).
+ * Sin transportista no hay hilo (ADR-023).
  */
 export async function ChatSection({
   shipment,

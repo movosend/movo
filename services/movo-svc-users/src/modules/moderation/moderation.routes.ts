@@ -46,7 +46,7 @@ async function toReportDto(report: UserReportRecord, storage: StorageProvider): 
 }
 
 /**
- * MOVO-175 (ADR-026): reportar y bloquear usuarios. Rutas protegidas bajo `/users`
+ * MOVO-175 (DD-026): reportar y bloquear usuarios. Rutas protegidas bajo `/users`
  * (proxeadas por el gateway sin cambios en `routes-map.ts`, mismo criterio que
  * MOVO-245); el userId sale de `x-user-id` (ADR-010).
  */
@@ -184,7 +184,7 @@ export default async function moderationRoutes(app: FastifyInstance, opts: Moder
       schema: {
         summary: "Bloquear a un usuario",
         description:
-          "MOVO-175 (ADR-026): idempotente. El efecto es simétrico: ninguno de los dos ve " +
+          "MOVO-175 (DD-026): idempotente. El efecto es simétrico: ninguno de los dos ve " +
           "al otro en listados ni puede iniciar envíos/ofertas con el otro. Los envíos ya " +
           "en curso entre ambos no se cancelan.",
         tags: ["users"],

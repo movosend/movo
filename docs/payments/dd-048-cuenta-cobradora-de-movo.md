@@ -1,10 +1,10 @@
-# ADR-048 — Cuenta cobradora de Movo configurada por credenciales
+# DD-048 — Cuenta cobradora de Movo configurada por credenciales
 
 **Estado:** aceptado (MOVO-315, 17/10/2026) · **Servicio:** `movo-svc-payments` · **Reemplaza:** la "cuenta cobradora vinculada por OAuth a un usuario interno" de MOVO-312
 
 ## Contexto
 
-"Pagar mi saldo" (MOVO-312, ADR-044) cobra directo a Movo: el pago va a la cuenta de Mercado Pago de Movo S.A., sin hold ni
+"Pagar mi saldo" (MOVO-312, DD-044) cobra directo a Movo: el pago va a la cuenta de Mercado Pago de Movo S.A., sin hold ni
 `application_fee`. MOVO-312 resolvió la cuenta cobradora como la de un transportista: un usuario interno de Movo
 (`MOVO_COLLECTOR_USER_ID`) vinculaba por OAuth una cuenta de MP en "Pagos y cobros", y el servicio leía sus credenciales de
 `carrier_mp_accounts`. La razón era que, en el sandbox, el token de la app no podía crear pagos.
@@ -35,7 +35,7 @@ La cuenta cobradora es la propia cuenta de MP de Movo S.A. y se configura con su
   tres, `pay-data` y `pay` responden 503 `BALANCE_COLLECTOR_NOT_CONFIGURED`. El user id identifica las notificaciones del
   webhook que son de la cobradora.
 - **Producción:** Access Token y Public Key productivos del panel de la cuenta real de Movo S.A. Es la integración estándar de
-  Checkout API: la misma cuenta guarda las tarjetas (ADR-039) y cobra, y esas credenciales no vencen.
+  Checkout API: la misma cuenta guarda las tarjetas (DD-039) y cobra, y esas credenciales no vencen.
 - **Sandbox (dev):** el token `TEST-` del OAuth de la cuenta de prueba Movo S.A., obtenido una vez con
   `services/movo-svc-payments/scripts/collector-oauth.mjs` (login en el navegador como Movo S.A., sin la app). Dura 180 días;
   el `refresh_token` queda en el secret (`MP_COLLECTOR_REFRESH_TOKEN`, no lo lee el servicio) para renovarlo.

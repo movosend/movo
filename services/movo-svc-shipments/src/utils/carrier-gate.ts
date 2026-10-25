@@ -20,7 +20,7 @@ import { ShipmentRepository } from "../repositories/shipment-repository";
  *
  * Las lecturas no exigen licencia ni Mercado Pago: alguien sin esos requisitos puede ver
  * qué hay disponible antes de completarlos. Para OPERAR (escrituras) se usa
- * `assertCarrierCanOperate` (MOVO-116, ADR-036).
+ * `assertCarrierCanOperate` (MOVO-116, DD-036).
  *
  * Antes vivía duplicada en `trips.service.ts` y `shipments.service.ts`, con distinto
  * mensaje para el rol faltante: `roleMessage` conserva esa diferencia.
@@ -43,7 +43,7 @@ export async function assertVerifiedCarrier(
 export interface CarrierGateDeps {
   usersClient: UsersClient;
   paymentsClient: PaymentsClient;
-  /** MOVO-278 (ADR-045): disputa abierta como transportista, consulta local (misma DB). */
+  /** MOVO-278 (DD-045): disputa abierta como transportista, consulta local (misma DB). */
   shipmentRepository: Pick<ShipmentRepository, "hasOpenDisputeAsCarrier">;
 }
 
@@ -57,17 +57,17 @@ export interface CarrierEligibility {
   /** MOVO-265: estado de la cuenta, de la misma llamada a svc-users. `null` si la cuenta no
    * existe o se dio de baja; `undefined` si svc-users no lo informó (versión anterior). Lo
    * usa la generación de viajes recurrentes; los gates de escritura no lo miran (no estaba
-   * en ADR-036). */
+   * en DD-036). */
   account: { status: AccountStatus; bannedUntil: Date | null } | null | undefined;
 }
 
 /**
- * MOVO-116 (ADR-036): consulta en paralelo los requisitos habilitantes (licencia en
- * svc-users, cuenta de MP en svc-payments, desde MOVO-278/ADR-045 ninguna disputa abierta
- * como transportista en la propia DB y, desde MOVO-313/ADR-044, ninguna deuda vencida en la
+ * MOVO-116 (DD-036): consulta en paralelo los requisitos habilitantes (licencia en
+ * svc-users, cuenta de MP en svc-payments, desde MOVO-278/DD-045 ninguna disputa abierta
+ * como transportista en la propia DB y, desde MOVO-313/DD-044, ninguna deuda vencida en la
  * cuenta corriente de svc-payments) más el KYC de identidad, que sale de la misma llamada a
  * svc-users. Lanza el 502 del servicio que no responda: quien llama falla cerrado (mismo
- * criterio que `assertNotBlocked` en escrituras, ADR-026).
+ * criterio que `assertNotBlocked` en escrituras, DD-026).
  *
  * Sin cache (criterio 4 de MOVO-116, decisión documentada): las escrituras protegidas
  * son pocas por transportista, y cachear haría que alguien recién vinculado siguiera
@@ -172,7 +172,7 @@ export async function assertCarrierEligible(deps: CarrierGateDeps, carrierId: st
 }
 
 /**
- * MOVO-116 (ADR-036): gate de las ESCRITURAS de transportista (declarar viaje, crear y
+ * MOVO-116 (DD-036): gate de las ESCRITURAS de transportista (declarar viaje, crear y
  * editar oferta). Rol primero, sin I/O; después `assertCarrierEligible`. Corre antes de
  * persistir nada en todos sus call sites (criterio 3 del ticket).
  */

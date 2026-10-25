@@ -28,7 +28,7 @@ export function chatRoleLabel(role: ChatParticipantRole): string {
   return ROLE_LABEL[role];
 }
 
-/** Rol que se muestra de alguien que ya no figura en el chat (ADR-038: sale del hilo sin perder sus mensajes). */
+/** Rol que se muestra de alguien que ya no figura en el chat (DD-038: sale del hilo sin perder sus mensajes). */
 export const FORMER_MEMBER_ROLE_LABEL = "Ex integrante";
 
 /**
@@ -150,7 +150,7 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
     case ShipmentStatus.ASSIGNMENT_PENDING:
     case ShipmentStatus.ASSIGNED_UNFUNDED:
       // Solo la entrada desde `published` es una aceptación: `assigned → assigned_unfunded` es un hold perdido
-      // (ADR-037) y nadie aceptó nada.
+      // (DD-037) y nadie aceptó nada.
       if (event.fromStatus !== ShipmentStatus.PUBLISHED) return null;
       return card(isCarrier ? "Aceptaste el envío" : `${carrier} aceptó el envío`);
     case ShipmentStatus.IN_TRANSIT:

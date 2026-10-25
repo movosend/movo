@@ -1,7 +1,7 @@
 import { ApiError } from "@movo/shared";
 
 /**
- * MOVO-100: `svc-payments` no conoce a los usuarios (ADR-003/019); el email que lleva el
+ * MOVO-100: `svc-payments` no conoce a los usuarios (ADR-003/017); el email que lleva el
  * customer de MP se lo pide a `svc-users`, que es su dueño. Versión mínima del cliente de
  * `svc-shipments` (`findAccountEmail`): solo lo que se usa acá.
  */
