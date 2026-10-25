@@ -16,7 +16,12 @@ import { InvalidShipmentTransitionError } from "../../domain/shipment-state-mach
 import { InvalidOfferTransitionError } from "../../domain/offer-state-machine";
 import { OfferConcurrentModificationError, OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentConcurrentModificationError } from "../../repositories/shipment-repository";
-import { TripHasAcceptedPackagesError, TripNotDeclaredError, TripRepository } from "../../repositories/trip-repository";
+import {
+  ACCEPTED_OFFER_FILTER,
+  TripHasAcceptedPackagesError,
+  TripNotDeclaredError,
+  TripRepository,
+} from "../../repositories/trip-repository";
 import { shortShipmentId } from "./short-id";
 
 /** Motivo que queda en la línea de tiempo de lo que se retira (MOVO-297 AC3). */
@@ -115,7 +120,12 @@ export function createSanctionEffectsService(deps: SanctionEffectsDeps) {
     status: "pending",
     OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
   });
-  const declaredTripsWhere = (userId: string): Prisma.TripWhereInput => ({ carrierId: userId, status: TripStatus.DECLARED });
+  // Un viaje con paquetes aceptados no se cancela (`TripHasAcceptedPackagesError`): el envío sigue su curso.
+  const declaredTripsWhere = (userId: string): Prisma.TripWhereInput => ({
+    carrierId: userId,
+    status: TripStatus.DECLARED,
+    offers: { none: ACCEPTED_OFFER_FILTER },
+  });
 
   async function listInProgress(userId: string): Promise<InProgressRow[]> {
     const where: Prisma.ShipmentWhereInput = {
@@ -265,7 +275,7 @@ export function createSanctionEffectsService(deps: SanctionEffectsDeps) {
       }
 
       const declaredTrips = await db.trip.findMany({ where: declaredTripsWhere(userId), select: { id: true } });
-      // Un viaje con paquetes aceptados lanza `TripHasAcceptedPackagesError`: queda, el envío sigue su curso.
+      // Si acepta un paquete entre la lectura y la cancelación, `TripHasAcceptedPackagesError` cuenta como carrera perdida.
       const cancelledTripIds = await retireEach(declaredTrips, "trip", (id) => tripRepository.cancel(id), failures);
 
       const notifiedCounterpartyCount = await notifyCounterparties(userId, sanctionId, await listInProgress(userId));

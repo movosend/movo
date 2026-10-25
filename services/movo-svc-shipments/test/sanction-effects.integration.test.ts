@@ -167,6 +167,22 @@ describe("Efectos de una sanción (Postgres) — MOVO-297", () => {
       const after = await app.inject({ method: "GET", url: `/internal/users/${userId}/open-activity` });
       expect(after.json()).toMatchObject({ shipments: 0, offers: 0, trips: 0, recurringSeries: 0 });
     });
+
+    it("no cuenta un viaje declarado con paquetes aceptados: el retiro tampoco lo cancela (review de PR #310)", async () => {
+      const free = await declaredTrip(userId);
+      const loaded = await declaredTrip(userId);
+      const assigned = await shipmentIn("assigned", { carrierId: userId });
+      const accepted = await offerRepo.create({ shipmentId: assigned.id, carrierId: userId, priceOffered: 5000, offeredDate: PICKUP_DATE });
+      await app.db.offer.update({ where: { id: accepted.id }, data: { status: "accepted", tripId: loaded.id } });
+
+      const preview = await app.inject({ method: "GET", url: `/internal/users/${userId}/open-activity` });
+      expect(preview.json()).toMatchObject({ trips: 1 });
+
+      const result = (await withdraw()).json();
+      expect(result.cancelledTripIds).toEqual([free.id]);
+      expect(result.failures).toEqual([]);
+      expect((await app.db.trip.findUnique({ where: { id: loaded.id } }))?.status).toBe("declared");
+    });
   });
 
   describe("POST /internal/users/:id/withdraw-open-activity", () => {
