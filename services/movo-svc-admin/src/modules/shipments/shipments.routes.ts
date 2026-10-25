@@ -381,7 +381,12 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
       // Reintento de una clave ya usada (doble clic, timeout): el cambio no se vuelve a validar ni a pedir el
       // segundo factor. Va antes del rate limit: un replay no es un intento nuevo.
       const previous = await records.read(adminId, id, body.idempotencyKey);
-      if (previous && (previous.targetStatus !== body.targetStatus || previous.expectedStatus !== body.expectedStatus)) {
+      if (
+        previous &&
+        (previous.targetStatus !== body.targetStatus ||
+          previous.expectedStatus !== body.expectedStatus ||
+          (previous.simulatePayment ?? false) !== (body.simulatePayment ?? false))
+      ) {
         throw new ApiError(409, "IDEMPOTENCY_KEY_REUSED", "Esa clave de idempotencia ya se usó para otro cambio.");
       }
       if (previous?.state === "done" && previous.response) return { ...previous.response, replayed: true };
@@ -490,6 +495,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
               state: "done",
               targetStatus: body.targetStatus,
               expectedStatus: body.expectedStatus,
+              ...(body.simulatePayment ? { simulatePayment: true } : {}),
               response: result,
             });
             return result;
@@ -501,6 +507,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
                 state: "unknown",
                 targetStatus: body.targetStatus,
                 expectedStatus: body.expectedStatus,
+                ...(body.simulatePayment ? { simulatePayment: true } : {}),
               });
             }
             throw error;
