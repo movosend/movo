@@ -12,7 +12,7 @@ interface TransferredByYouBannerProps {
 }
 
 /**
- * MOVO-275 (decisión del equipo, ADR-037): el receptor que le pasó la recepción a otra
+ * MOVO-275 (decisión del equipo, DD-037): el receptor que le pasó la recepción a otra
  * persona sigue viendo el envío completo en solo lectura. Este banner va arriba del
  * detalle y dice a quién se lo pasó, cuándo y por qué. Colores fijos (`ink-950`/
  * blanco): la card es oscura en los dos temas, mismo criterio que la card de precio

@@ -27,9 +27,11 @@ import { FetchMercadoPagoOAuthClient, MercadoPagoOAuthClient } from "./adapters/
 import { MercadoPagoCustomersClient } from "./adapters/mercadopago-customers-client";
 import { UsersClient } from "./adapters/users-client";
 import capturesPlugin from "./plugins/captures";
+import refundsPlugin from "./plugins/refunds";
 import mpWebhooksPlugin from "./plugins/mp-webhooks";
 import mpWebhookRoutes from "./modules/webhooks/mp-webhook.routes";
 import settlementsRoutes, { settlementIssuesRoutes } from "./modules/settlements/settlements.routes";
+import refundsRoutes from "./modules/settlements/refunds.routes";
 import type { ShipmentsClient } from "./adapters/shipments-client";
 import shipmentsClientPlugin from "./plugins/shipments-client";
 import type { AlertNotifier } from "./adapters/alert-notifier";
@@ -97,10 +99,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
   // MOVO-303: historial de transacciones (lectura de holds, liquidaciones y eventos).
   app.register(transactionsPlugin);
-  // MOVO-309 (ADR-044): cuenta corriente del usuario. Solo necesita la DB.
+  // MOVO-309 (DD-044): cuenta corriente del usuario. Solo necesita la DB.
   app.register(userLedgerPlugin);
   // MOVO-212: captura del hold y liquidación, también sobre `mercadoPago`.
   app.register(capturesPlugin);
+  // MOVO-336: reembolso de un pago ya capturado (resolución de disputas, MOVO-337).
+  app.register(refundsPlugin);
   // MOVO-213: reintenta las capturas fallidas con backoff y escala las que no se arreglan solas.
   app.register(captureRetrySweepPlugin, {
     ...(opts.captureRetrySweepEnabled !== undefined ? { enabled: opts.captureRetrySweepEnabled } : {}),
@@ -137,6 +141,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(settlementsRoutes, { prefix: "/internal/payments/holds" });
   // MOVO-213: liquidaciones pendientes de reintento o escaladas (proceso manual).
   app.register(settlementIssuesRoutes, { prefix: "/internal/payments/settlements" });
+  // MOVO-336: reembolso (`/by-shipment/:id/refund`) y sus intentos (`/refunds`); mismo prefijo que las liquidaciones.
+  app.register(refundsRoutes, { prefix: "/internal/payments/settlements" });
 
   // MOVO-100: interno, lo llama svc-users al dar de baja una cuenta (MOVO-39).
   app.register(cardsInternalRoutes, { prefix: "/internal/payments/users" });

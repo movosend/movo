@@ -8,7 +8,7 @@ import { CreateUserInput, User } from "../src/models/user";
 import { SmsProvider } from "../src/adapters/sms-provider";
 import { EmailBody, EmailProvider } from "../src/adapters/email-provider";
 
-/** MOVO-332 (ADR-055): segundo factor por acción para el cambio de estado desde el panel. */
+/** MOVO-332 (DD-055): segundo factor por acción para el cambio de estado desde el panel. */
 
 function createCaptorEmailProvider() {
   const sentCodes = new Map<string, string>();

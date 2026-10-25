@@ -44,6 +44,7 @@ export interface AdminSupportServiceDeps {
   /** Lo que ve el usuario (WebSocket, push, tildes): el mismo servicio que usan las rutas de `/support`. */
   userSide: SupportService;
   feed: SupportAdminFeed;
+  logger?: { warn: (obj: unknown, msg?: string) => void };
   now?: () => Date;
 }
 
@@ -75,10 +76,23 @@ export function createAdminSupportService(deps: AdminSupportServiceDeps) {
     });
   }
 
-  /** Avisa al panel de los eventos del equipo que dejó una acción (y la fila actualizada). */
-  async function publishEvents(conversationId: string, events: SupportMessageFacts[]): Promise<void> {
-    if (events.length > 0) await deps.feed.messagesAdded(conversationId, events);
-    else await deps.feed.conversationUpdated(conversationId);
+  /** Avisa al panel de los eventos del equipo que dejó una acción, con la fila que ya se leyó para la respuesta. */
+  async function publishEvents(conversationId: string, events: SupportMessageFacts[], row: SupportInternalRow): Promise<void> {
+    if (events.length > 0) await deps.feed.messagesAdded(conversationId, events, { row });
+    else await deps.feed.conversationUpdated(conversationId, { row });
+  }
+
+  /**
+   * Avisa al usuario (WebSocket, push) sin romper la respuesta: el cambio ya está confirmado, y un 500 acá haría que el
+   * reintento del panel caiga en el replay sin avisar a nadie y que `svc-admin` registre como fallida una acción hecha.
+   * El usuario lo ve igual al refrescar.
+   */
+  async function toUser(conversationId: string, run: () => Promise<void> | void): Promise<void> {
+    try {
+      await run();
+    } catch (err) {
+      deps.logger?.warn({ err, event: "support_user_publish_failed", conversationId }, "No se pudo avisar al usuario de soporte");
+    }
   }
 
   return {
@@ -149,16 +163,21 @@ export function createAdminSupportService(deps: AdminSupportServiceDeps) {
         throw attachmentInvalid("Alguna imagen no se puede usar en este mensaje.");
       }
 
+      // Una sola lectura de la fila y una sola firma de adjuntos, para la respuesta y para el panel (los eventos del
+      // equipo no llevan adjuntos).
+      const [views, fresh] = await Promise.all([deps.attachments.viewsFor([result.message]), existingRow(id)]);
+      const conversationRow = rowOf(fresh);
       if (result.created) {
         // Al usuario: la respuesta (WS + push) y el cambio de estado. Una nota no le llega por ningún camino
         // (`publishStaffMessage` la descarta), ni los eventos del equipo.
         const conversation = result.conversation as SupportConversationRecord;
-        await deps.userSide.publishStaffMessage(conversation, result.message);
-        if (result.statusChanged) deps.userSide.publishStatus(conversation);
-        await deps.feed.messagesAdded(id, [...result.events, result.message]);
+        await toUser(id, async () => {
+          await deps.userSide.publishStaffMessage(conversation, result.message);
+          if (result.statusChanged) deps.userSide.publishStatus(conversation);
+        });
+        await deps.feed.messagesAdded(id, [...result.events, result.message], { row: conversationRow, views });
       }
-      const [views, fresh] = await Promise.all([deps.attachments.viewsFor([result.message]), existingRow(row.conversation.id)]);
-      return { message: toInternalMessage(result.message, views.get(result.message.id) ?? []), conversation: rowOf(fresh) };
+      return { message: toInternalMessage(result.message, views.get(result.message.id) ?? []), conversation: conversationRow };
     },
 
     /** AC6/AC7: asignación, prioridad, tema, etiquetas y envío vinculado; cada cambio (salvo etiquetas) deja su evento. */
@@ -183,19 +202,21 @@ export function createAdminSupportService(deps: AdminSupportServiceDeps) {
         ...(input.shipmentId !== undefined ? { shipmentId: input.shipmentId } : {}),
         now: now(),
       });
-      if (result.changed) await publishEvents(id, result.events);
-      return rowOf(await existingRow(id));
+      if (!result.changed) return rowOf(row);
+      const fresh = rowOf(await existingRow(id));
+      await publishEvents(id, result.events, fresh);
+      return fresh;
     },
 
     /** AC8: resolver o reabrir, con su evento; el usuario ve el cambio de estado. Idempotente. */
     async setResolved(id: string, actor: SupportInternalActor, resolved: boolean): Promise<SupportInternalRow> {
-      await existingRow(id);
+      const row = await existingRow(id);
       const result = await repo.setResolved({ conversationId: id, actorId: actor.actorId, actorFullName: actor.actorFullName, resolved, now: now() });
-      if (result.changed) {
-        deps.userSide.publishStatus(result.conversation as SupportConversationRecord);
-        await publishEvents(id, result.events);
-      }
-      return rowOf(await existingRow(id));
+      if (!result.changed) return rowOf(row);
+      const fresh = rowOf(await existingRow(id));
+      await toUser(id, () => deps.userSide.publishStatus(result.conversation as SupportConversationRecord));
+      await publishEvents(id, result.events, fresh);
+      return fresh;
     },
 
     /** Un agente abrió la consulta: no leídos compartidos a cero y tildes "leído" para el usuario. Es una lectura. */

@@ -73,10 +73,10 @@ export interface SupportRealtimeHubDeps {
 }
 
 /**
- * MOVO-322 (ADR-056): reparte los eventos del Redis Stream `support:events` a los agentes conectados. Un solo lector
+ * MOVO-322 (ADR-024): reparte los eventos del Redis Stream `support:events` a los agentes conectados. Un solo lector
  * para todas las conexiones (mientras haya alguna): por cada tanda arma los eventos del panel con los nombres de una
  * sola consulta a `svc-users` y, si hubo `counts_changed`, los contadores de cada admin (`byOwner.mine` es suyo).
- * Los agentes reciben todo, notas incluidas. En memoria y con una sola réplica, como el `ChatHub` (ADR-022): un panel
+ * Los agentes reciben todo, notas incluidas. En memoria y con una sola réplica, como el `ChatHub` (ADR-019): un panel
  * que se reconecta vuelve a pedir lista, contadores y mensajes, así que no hace falta reenviar lo que pasó sin él.
  */
 export function createSupportRealtimeHub(deps: SupportRealtimeHubDeps) {

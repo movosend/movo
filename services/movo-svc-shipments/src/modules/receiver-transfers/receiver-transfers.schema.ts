@@ -1,6 +1,6 @@
 import { RECEIVER_TRANSFER_STATUSES } from "@movo/shared";
 
-// MOVO-275 (ADR-038): wire contract de `ReceiverTransferRequest` (@movo/shared).
+// MOVO-275 (DD-038): wire contract de `ReceiverTransferRequest` (@movo/shared).
 export const receiverTransferResponse = {
   type: "object",
   required: [

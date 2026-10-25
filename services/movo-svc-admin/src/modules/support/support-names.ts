@@ -19,6 +19,9 @@ export function createNameResolver(app: FastifyInstance) {
       }
     }
     const byId = new Map(found.map((user) => [user.id, user]));
-    return { nameOf: (id) => byId.get(id)?.fullName ?? UNKNOWN_USER_NAME, rolesOf: (id) => byId.get(id)?.roles ?? [] };
+    return {
+      nameOf: (id, fallback) => byId.get(id)?.fullName ?? (fallback || UNKNOWN_USER_NAME),
+      rolesOf: (id) => byId.get(id)?.roles ?? [],
+    };
   };
 }

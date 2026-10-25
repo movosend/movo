@@ -9,6 +9,8 @@ import {
   forcedTransitionFriction,
   getForcedTransition,
   getForcedTransitionDetails,
+  normalizeConfirmationCode,
+  shipmentConfirmationCode,
   ShipmentStatus,
   ShipmentStatusOptions,
   StepUpChallenge,
@@ -141,7 +143,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
         summary: "Chat del envío en solo lectura",
         description:
           "Todo el hilo del más reciente al más antiguo, con el contenido sin ocultar por bloqueos ni por el " +
-          "inicio de la última asignación (ADR-040: es evidencia). Cada mensaje trae `moderated` y el rol de su " +
+          "inicio de la última asignación (ADR-023: es evidencia). Cada mensaje trae `moderated` y el rol de su " +
           "autor; `reports` dice quién reportó la conversación; `partiesAccess` si las partes pueden escribir " +
           "(`open`), solo leer (`read_only`) o ya no hay conversación (`closed`); `events` son los eventos del envío para intercalar por fecha.",
         params: shipmentsSchemas.idParam,
@@ -187,7 +189,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
     },
   );
 
-  // MOVO-332 (ADR-055): cambio de estado de un envío desde el panel. La lógica de transición es de
+  // MOVO-332 (DD-055): cambio de estado de un envío desde el panel. La lógica de transición es de
   // `svc-shipments`; acá van la regla de conflicto, la bitácora, el segundo factor y los límites.
   const ctxOf = (request: FastifyRequest): RequestContext => ({ requestId: request.requestId });
 
@@ -233,7 +235,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
         tags: ["admin"],
         summary: "A qué estados se puede cambiar un envío",
         description:
-          "Desde el estado actual: `options` son los destinos que permite la matriz de `@movo/shared` (ADR-055), con " +
+          "Desde el estado actual: `options` son los destinos que permite la matriz de `@movo/shared` (DD-055), con " +
           "su riesgo, qué se ejecuta, a quién se avisa y si exigen el código del envío tipeado (`requiresTypedCode`) o " +
           "un segundo factor (`requiresStepUp`); `blocked` son los demás, con su motivo. `kind` es `manual` si es una " +
           "transición normal hecha por un admin y `forced` si se ejecuta con efectos distintos (sin penalidad). El " +
@@ -265,11 +267,13 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
           risk: details.risk,
           effects: details.effects,
           notifies: details.notifies,
+          checks: details.checks,
+          irreversible: details.irreversible,
           requiresTypedCode: friction.typedCode,
           requiresStepUp: friction.stepUp,
         });
       }
-      return { current, code: shipment.code, options, blocked };
+      return { current, code: shipmentConfirmationCode(id), options, blocked };
     },
   );
 
@@ -444,7 +448,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
               const blockedReason = blockedTransitionReason(from, to);
               throw new ApiError(422, "TRANSITION_NOT_ALLOWED", blockedReason, { reason: blockedReason });
             }
-            if (friction.typedCode && body.typedCode?.trim().toUpperCase() !== shipment.code.toUpperCase()) {
+            if (friction.typedCode && normalizeConfirmationCode(body.typedCode ?? "") !== shipmentConfirmationCode(id)) {
               throw new ApiError(422, "TYPED_CODE_MISMATCH", "El código del envío no coincide.");
             }
             if (needsStepUp) {

@@ -355,7 +355,13 @@ describe("Bandeja de soporte, lado del agente (MOVO-322)", () => {
       await internal("POST", `/conversations/${id}/resolve`, actorOf(agent));
       clock = new Date(clock.getTime() + 1000);
       expect((await userHistory(user, id)).json().conversation.status).toBe("resolved");
-      expect((await internal("POST", `/conversations/${id}/reopen`, actorOf(agent))).json()).toMatchObject({ status: "open", resolvedAt: null });
+      // Reabrir días después: la espera arranca ahora, no desde el último mensaje del usuario.
+      clock = new Date(clock.getTime() + 3 * 24 * 60 * 60_000);
+      expect((await internal("POST", `/conversations/${id}/reopen`, actorOf(agent))).json()).toMatchObject({
+        status: "open",
+        resolvedAt: null,
+        waitMinutes: 0,
+      });
 
       const events = (await internal("GET", `/conversations/${id}/messages`)).json().items.filter((m: { kind: string }) => m.kind === "event");
       expect(events.map((m: { body: string }) => m.body)).toEqual(["Lucía Bustos reabrió la conversación", "Lucía Bustos resolvió la conversación"]);
@@ -395,7 +401,7 @@ describe("Bandeja de soporte, lado del agente (MOVO-322)", () => {
     });
   });
 
-  describe("eventos para el panel (Redis Stream, ADR-056)", () => {
+  describe("eventos para el panel (Redis Stream, ADR-024)", () => {
     it("consulta nueva, mensaje del usuario, respuesta, nota y acciones quedan en el stream con la fila", async () => {
       const user = randomUUID();
       const id = await open(user);
@@ -425,6 +431,25 @@ describe("Bandeja de soporte, lado del agente (MOVO-322)", () => {
       const spy = vi.spyOn(app.redis, "xadd").mockRejectedValueOnce(new Error("Redis caído"));
       expect((await send(id, { body: "Igual llega" })).statusCode).toBe(200);
       spy.mockRestore();
+    });
+
+    it("si avisar al usuario falla, la respuesta se guarda, responde 200 y el panel recibe el evento", async () => {
+      const id = await open(randomUUID());
+      await app.redis.del(SUPPORT_EVENTS_STREAM_KEY);
+      const spy = vi.spyOn(app.chatHub, "sendToUser").mockImplementation(() => {
+        throw new Error("socket roto");
+      });
+      const clientMessageId = randomUUID();
+      const response = await send(id, { body: "Ya lo revisamos", clientMessageId });
+      spy.mockRestore();
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().conversation).toMatchObject({ id, status: "awaiting_user" });
+      const replies = (await streamEvents()).filter((e) => e.type === "support_message" && e.message.kind === "agent");
+      expect(replies).toEqual([expect.objectContaining({ message: expect.objectContaining({ body: "Ya lo revisamos" }) })]);
+      // El reintento del panel cae en el replay con lo guardado.
+      const replay = await send(id, { body: "Ya lo revisamos", clientMessageId });
+      expect(replay.json().message.id).toBe(response.json().message.id);
     });
   });
 });

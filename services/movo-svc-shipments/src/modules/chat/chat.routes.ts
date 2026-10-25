@@ -55,8 +55,8 @@ export function buildChatService(app: FastifyInstance, opts: ChatRoutesOptions =
 }
 
 /**
- * MOVO-26 (ADR-040): chat de un envío. Se envía por HTTP (`POST .../chat/messages`) y se recibe
- * por WebSocket (`GET .../chat`), igual que la ingesta de posiciones (ADR-024): un POST es robusto
+ * MOVO-26 (ADR-023): chat de un envío. Se envía por HTTP (`POST .../chat/messages`) y se recibe
+ * por WebSocket (`GET .../chat`), igual que la ingesta de posiciones (ADR-020): un POST es robusto
  * ante reintentos y cola offline, y el ack es la propia respuesta. Prefijo `/shipments`.
  */
 export default async function chatRoutes(app: FastifyInstance, opts: ChatRoutesOptions) {
@@ -73,7 +73,7 @@ export default async function chatRoutes(app: FastifyInstance, opts: ChatRoutesO
           "mensaje ya guardado ante un reenvío, 201 la primera vez). 409 CHAT_CLOSED con el envío " +
           "cancelado, rechazado o sin transportista; 403 CHAT_READ_ONLY para el receptor original, un envío " +
           "entregado (se puede leer y a las 24 h se archiva, nunca se cierra) o en disputa. Un reintento de un " +
-          "mensaje ya guardado devuelve 200 con ese mensaje aunque el chat haya cambiado de estado. Un bloqueo (ADR-026) " +
+          "mensaje ya guardado devuelve 200 con ese mensaje aunque el chat haya cambiado de estado. Un bloqueo (DD-026) " +
           "no impide escribir: a quien tiene un bloqueo con el autor el contenido le llega vacío (`hidden`). " +
           "Las palabras ofensivas se tapan con asteriscos antes de " +
           "guardar y difundir: el mensaje sale igual con `moderated: true` y el cliente le muestra al " +

@@ -310,7 +310,7 @@ describe("flagAnomalousInTransitShipments (MOVO-258, D4)", () => {
   });
 });
 
-describe("salida del in_transit demorado (MOVO-278, ADR-045)", () => {
+describe("salida del in_transit demorado (MOVO-278, DD-045)", () => {
   // NOW = 25/09 18:00Z. Marcado hace 13h: pasó el aviso (12h), no la disputa (24h).
   const flagged = (hoursAgo: number, overrides: Partial<Shipment> = {}) =>
     shipment({
@@ -503,7 +503,7 @@ describe("salida del in_transit demorado (MOVO-278, ADR-045)", () => {
   });
 });
 
-describe("expireUnpickedAssignedShipments: atribución del no-retiro (MOVO-270, ADR-052)", () => {
+describe("expireUnpickedAssignedShipments: atribución del no-retiro (MOVO-270, DD-052)", () => {
   const assigned = () => shipment({ status: ShipmentStatus.ASSIGNED, agreedPriceArs: 1000 });
 
   function evidenceRepo(summary: PickupEvidenceSummary | null): PickupEvidenceRepository {

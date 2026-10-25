@@ -2,7 +2,7 @@ import { createConsoleEmailProvider } from "./console-email-provider";
 import { createResendEmailProvider } from "./resend-email-provider";
 
 /**
- * MOVO-139 / ADR-017: espejo exacto de `sms-provider.ts` (ADR-012) — interfaz +
+ * MOVO-139 / ADR-016: espejo exacto de `sms-provider.ts` (ADR-012) — interfaz +
  * factory por env var + implementación de consola como default de dev/test/CI +
  * proveedor real (Resend) reservado para la demo.
  *

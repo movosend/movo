@@ -1,4 +1,4 @@
--- MOVO-270 (ADR-052): tracking antes del retiro y atribución del no-retiro.
+-- MOVO-270 (DD-052): tracking antes del retiro y atribución del no-retiro.
 
 -- Atribución que guarda el barrido de retiro no realizado en el evento de cancelación.
 CREATE TYPE "shipments"."pickup_missed_attribution_enum" AS ENUM ('carrier', 'none');

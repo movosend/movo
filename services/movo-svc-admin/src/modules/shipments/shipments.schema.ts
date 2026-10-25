@@ -157,7 +157,11 @@ const event = {
     fromStatus: { type: ["string", "null"] },
     toStatus: { type: "string" },
     actorId: { type: ["string", "null"] },
+    // MOVO-333: quién y cómo originó el cambio. Sin declararlos Fastify los recorta y el panel no distingue un
+    // cambio de admin de uno normal.
+    actorName: { type: ["string", "null"] },
     reason: { type: ["string", "null"] },
+    kind: { type: "string", enum: ["normal", "manual", "forced"] },
     createdAt: { type: "string" },
   },
 };
@@ -314,7 +318,7 @@ const trackingResponse = {
       },
     },
     traceTruncated: { type: "boolean", description: "Pasó el tope y se submuestreó, con el primer y el último punto." },
-    traceAvailable: { type: "boolean", description: "`false` sin puntos: sin retiro o purgada por retención (ADR-023)." },
+    traceAvailable: { type: "boolean", description: "`false` sin puntos: sin retiro o purgada por retención (DD-023)." },
     lastPosition: {
       type: ["object", "null"],
       required: ["lat", "lng", "accuracyM", "capturedAt"],
@@ -328,7 +332,7 @@ const trackingResponse = {
     },
     lastPingAt: { type: ["string", "null"], description: "Hora del servidor al recibir el último ping." },
     signalLost: { type: "boolean" },
-    delayed: { type: "boolean", description: "En camino con la anomalía de `in_transit` marcada (ADR-045)." },
+    delayed: { type: "boolean", description: "En camino con la anomalía de `in_transit` marcada (DD-045)." },
     metrics: {
       type: ["object", "null"],
       required: ["avgSpeedKmh5m", "remainingMeters", "progressPct", "etaAt"],
@@ -376,7 +380,7 @@ export const shipmentsSchemas = {
   },
   idParam: { type: "object", required: ["id"], properties: { id: { type: "string", format: "uuid" } } },
 
-  // MOVO-332: cambio de estado desde el panel (ADR-055). El largo mínimo del motivo y el código tipeado se
+  // MOVO-332: cambio de estado desde el panel (DD-055). El largo mínimo del motivo y el código tipeado se
   // validan dentro de la acción, no acá: así un rechazo por forma también queda en la bitácora.
   statusChangeBody: {
     type: "object",
@@ -412,13 +416,25 @@ export const shipmentsSchemas = {
         type: "array",
         items: {
           type: "object",
-          required: ["targetStatus", "kind", "risk", "effects", "notifies", "requiresTypedCode", "requiresStepUp"],
+          required: [
+            "targetStatus",
+            "kind",
+            "risk",
+            "effects",
+            "notifies",
+            "checks",
+            "irreversible",
+            "requiresTypedCode",
+            "requiresStepUp",
+          ],
           properties: {
             targetStatus: { type: "string", enum: shipmentStatuses },
             kind: { type: "string", enum: ["manual", "forced"] },
             risk: { type: "string", enum: ["medium", "high", "critical"] },
             effects: { type: "array", items: { type: "string" } },
             notifies: { type: "array", items: { type: "string", enum: chatRoles } },
+            checks: { type: "array", items: { type: "string" } },
+            irreversible: { type: "array", items: { type: "string" } },
             requiresTypedCode: { type: "boolean" },
             requiresStepUp: { type: "boolean" },
           },

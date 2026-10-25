@@ -1,11 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FastifyInstance } from "fastify";
-import { AdminShipmentDetail, AdminUserProfile, ApiError, ForceShipmentStatusRequest, ShipmentStatus } from "@movo/shared";
+import {
+  AdminShipmentDetail,
+  AdminUserProfile,
+  ApiError,
+  ForceShipmentStatusRequest,
+  ShipmentStatus,
+  shipmentConfirmationCode,
+} from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createFakePaymentsClient, createFakeShipmentsClient, createFakeUsersClient } from "./fake-clients";
 
-/** MOVO-332 (ADR-055): cambio de estado desde el panel, step-up, conflicto de interés y bitácora. */
+/** MOVO-332 (DD-055): cambio de estado desde el panel, step-up, conflicto de interés y bitácora. */
 
 const REASON = "El transportista no responde hace dos días y el emisor pidió destrabarlo";
 const sender = { id: randomUUID(), name: "Ana Emisora" };
@@ -44,7 +51,7 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
   ): Promise<Scenario> {
     const adminId = randomUUID();
     const shipmentId = randomUUID();
-    const code = shipmentId.slice(0, 8).toUpperCase();
+    const code = shipmentConfirmationCode(shipmentId);
     const force: Scenario["force"] = { calls: [], error: opts.forceError, unavailable: opts.forceUnavailable };
     const stepUp: Scenario["stepUp"] = {
       requested: [],
@@ -149,7 +156,7 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
       const response = await change(s, {
         targetStatus: "cancelled",
         expectedStatus: "assigned",
-        typedCode: s.code.toLowerCase(),
+        typedCode: `#${s.code.toLowerCase()}`,
         stepUpToken: "t".repeat(43),
       });
 
@@ -545,6 +552,9 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
         notifies: ["sender", "receiver", "carrier"],
       });
       expect(byTarget.cancelled.effects.length).toBeGreaterThan(0);
+      expect(byTarget.cancelled.irreversible).toEqual([expect.stringContaining("terminal")]);
+      expect(byTarget.published.irreversible).toEqual([expect.stringContaining("volver a ofertar")]);
+      expect(byTarget.cancelled.checks).toEqual([]);
       const blocked = Object.fromEntries(body.blocked.map((b: { targetStatus: string; reason: string }) => [b.targetStatus, b.reason]));
       expect(blocked.in_transit).toMatch(/handshake/);
       expect(blocked.disputed).toBeDefined();

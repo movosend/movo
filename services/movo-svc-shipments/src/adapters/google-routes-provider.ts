@@ -15,7 +15,7 @@ export interface GoogleRoutesProviderConfig {
 }
 
 const DEFAULT_BASE_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
-// `Compute Route Matrix` (ADR-015/ADR-008) -- distinto endpoint del `Compute Routes` de
+// `Compute Route Matrix` (ADR-015/008) -- distinto endpoint del `Compute Routes` de
 // arriba, un origen x N destinos en una sola llamada facturable.
 const DEFAULT_MATRIX_BASE_URL = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix";
 // Solo lo que el mapa necesita — Compute Routes cobra por Field Mask solicitado, pedir

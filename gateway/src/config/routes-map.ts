@@ -120,14 +120,14 @@ export function getServiceRoutes(env: {
       prefix: "/receiver-transfers",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
-    // MOVO-334 (ADR-054): expediente y descargos de una disputa. Abrirla cuelga de /shipments.
+    // MOVO-334 (DD-054): expediente y descargos de una disputa. Abrirla cuelga de /shipments.
     // Protegido por defecto; sin `allowedRoles` (también la abre o contesta un receptor).
     {
       prefix: "/disputes",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
 
-    // MOVO-320 (ADR-051): consultas del usuario a soporte (crear, listar, historial, escribir, leído) y su canal
+    // MOVO-320 (DD-051): consultas del usuario a soporte (crear, listar, historial, escribir, leído) y su canal
     // WebSocket (`GET /support/conversations/:id`, un upgrade). Protegido por defecto y sin `allowedRoles`: pedir
     // ayuda no depende de ser emisor o transportista (un receptor también escribe). El agente NO entra por acá:
     // usa `/admin/support/*`.
@@ -408,7 +408,7 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       path: "/users/me/email/change/otp",
       rateLimit: { max: 5, timeWindow: "15 minutes" },
     },
-    // MOVO-139: mismo criterio, ahora sobre mails reales por Resend (ADR-017) -- la
+    // MOVO-139: mismo criterio, ahora sobre mails reales por Resend (ADR-016) -- la
     // cuota del free tier (3k/mes) y la reputación del dominio son el recurso a
     // proteger. `/me/email/verify/otp` no recibe body (el target es el email de la
     // propia cuenta), así que su cooldown por target sí frena a un caller repetido;

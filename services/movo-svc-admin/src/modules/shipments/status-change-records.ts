@@ -3,7 +3,7 @@ import type Redis from "ioredis";
 import type { ChangeShipmentStatusResponse } from "@movo/shared";
 
 /**
- * MOVO-332 (ADR-055): lo que `svc-admin` recuerda de un cambio de estado por `idempotencyKey`, para que un reintento
+ * MOVO-332 (DD-055): lo que `svc-admin` recuerda de un cambio de estado por `idempotencyKey`, para que un reintento
  * del panel (doble clic, timeout de 30 s) no vuelva a pasar por las validaciones ni por el segundo factor.
  *
  * - `done`: el cambio se aplicó; el reintento devuelve la misma respuesta con `replayed: true`.

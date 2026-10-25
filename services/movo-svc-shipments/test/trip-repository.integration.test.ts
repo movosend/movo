@@ -378,7 +378,7 @@ describe("trip-repository (Postgres) — countAvailableCarriersNear (MOVO-138)",
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.trips RESTART IDENTITY CASCADE");
   });
 
-  it("MOVO-270 (ADR-053): cuenta los declared y no los active, que ya no toman paquetes", async () => {
+  it("MOVO-270 (DD-053): cuenta los declared y no los active, que ya no toman paquetes", async () => {
     await tripRepo.create(tripInput());
     // `start()` exige paquetes; este test mide solo el conteo, así que se fuerza el estado directo.
     const active = await tripRepo.create(tripInput({ departureAt: new Date(now - 2 * HOUR_MS) }));
@@ -387,7 +387,7 @@ describe("trip-repository (Postgres) — countAvailableCarriersNear (MOVO-138)",
     expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(1);
   });
 
-  it("MOVO-270 (ADR-053): una ocurrencia autogenerada de un viaje recurrente cuenta como cualquier declared", async () => {
+  it("MOVO-270 (DD-053): una ocurrencia autogenerada de un viaje recurrente cuenta como cualquier declared", async () => {
     const carrierId = randomUUID();
     const parentId = randomUUID();
     const parent = await tripRepo.create(

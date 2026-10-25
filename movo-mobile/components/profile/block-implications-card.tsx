@@ -10,7 +10,7 @@ interface Implication {
 }
 
 /**
- * Qué implica un bloqueo en Movo (MOVO-175, ADR-026). Cada fila describe una regla
+ * Qué implica un bloqueo en Movo (MOVO-175, DD-026). Cada fila describe una regla
  * que el backend efectivamente aplica — no agregar una promesa acá sin que exista del
  * lado de `svc-users`/`svc-shipments`.
  */

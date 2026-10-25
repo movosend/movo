@@ -6,7 +6,7 @@ import { useMyProfile } from "./use-profile";
 /**
  * MOVO-167 / MOVO-117: gating de entrada al tab Transportar por identidad, licencia,
  * Mercado Pago y deuda vencida, sobre el perfil propio, el estado de MP y la elegibilidad.
- * Es solo UX -- el backend sigue siendo la autoridad (ADR-036). Si no se puede consultar
+ * Es solo UX -- el backend sigue siendo la autoridad (DD-036). Si no se puede consultar
  * el perfil, MP o la elegibilidad no se deja pasar: sin ellos no se sabe qué falta.
  *
  * MOVO-169: extraído de `transport.tsx` para que el tutorial (último paso del Tour 1, sheet

@@ -11,7 +11,7 @@ import { buildSupportService } from "../src/modules/support/support.routes";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 
 /**
- * MOVO-320 (ADR-051): conversaciones de soporte del lado del usuario. Servidor TCP real (`app.listen`) y clientes
+ * MOVO-320 (DD-051): conversaciones de soporte del lado del usuario. Servidor TCP real (`app.listen`) y clientes
  * `ws` reales, mismo criterio que `chat.integration.test.ts`; HTTP por `app.inject` con los headers que inyecta el
  * gateway. Postgres y Redis reales. Lo que escribe el lado del agente (MOVO-322, todavía no existe) se simula
  * con el repositorio y `publishStaffMessage`, que es lo que va a llamar ese ticket.
@@ -21,7 +21,7 @@ describe("Soporte al usuario (MOVO-320)", () => {
   let shipments: ShipmentRepository;
   let supportRepo: SupportRepository;
   let baseUrl: string;
-  // Resúmenes de ráfaga agendados (ADR-046): el test los dispara a mano en vez de esperar la ventana real.
+  // Resúmenes de ráfaga agendados (DD-046): el test los dispara a mano en vez de esperar la ventana real.
   let scheduledFlushes: Array<() => void> = [];
   const notifications = createFakeNotificationsClient();
   // Servicio "del agente": el que va a usar MOVO-322 para difundir y avisar. Comparte hub y Redis con la app.
@@ -782,7 +782,7 @@ describe("Soporte al usuario (MOVO-320)", () => {
     });
   });
 
-  describe("push de la respuesta del equipo (ADR-046)", () => {
+  describe("push de la respuesta del equipo (DD-046)", () => {
     it("avisa con el nombre del agente y el texto, en la categoría support, y apunta a la consulta", async () => {
       const userId = randomUUID();
       const id = await openConversation(userId);
@@ -863,7 +863,7 @@ describe("Soporte al usuario (MOVO-320)", () => {
       expect(toUser(userId)).toHaveLength(1);
     });
 
-    it("el bloqueo de usuarios (ADR-026) no aplica: la otra parte es Movo", async () => {
+    it("el bloqueo de usuarios (DD-026) no aplica: la otra parte es Movo", async () => {
       // No hay chequeo de bloqueo en ningún camino de soporte: quien tiene bloqueos igual recibe las respuestas.
       const userId = randomUUID();
       const id = await openConversation(userId);

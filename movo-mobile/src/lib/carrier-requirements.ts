@@ -21,7 +21,7 @@ export type TransportGate = "identity" | CarrierRequirement[];
  * la checklist (nunca dos CTAs a la vez, AC3 de MOVO-167); con la identidad aprobada se
  * devuelve todo lo que falta (licencia y/o MP) para pintar la checklist completa.
  *
- * Es solo UX: la validación autoritativa es del backend (ADR-036). `unlinked` e `invalid`
+ * Es solo UX: la validación autoritativa es del backend (DD-036). `unlinked` e `invalid`
  * cuentan como MP faltante (mismo criterio que el hold: una cuenta inválida no cobra).
  * Un dato todavía no disponible (`null`) no bloquea por sí solo — el que llama decide
  * qué mostrar mientras carga o si la consulta falló.
@@ -53,11 +53,11 @@ export function resolveTransportGate(input: {
  * El `code` es solo el primer requisito que falta; la lista completa viene en
  * `details.missingRequirements`. Un 502 `*_SERVICE_UNAVAILABLE` no es un requisito.
  *
- * MOVO-278 (ADR-045): `CARRIER_DISPUTE_OPEN` (requisito `no_open_dispute`) tampoco abre la
+ * MOVO-278 (DD-045): `CARRIER_DISPUTE_OPEN` (requisito `no_open_dispute`) tampoco abre la
  * checklist: no es un paso que el transportista pueda completar, se levanta cuando se
  * resuelve la disputa. Devuelve `null` y el caller muestra el mensaje de error.
  *
- * MOVO-313 (ADR-044): `USER_DEBT_OVERDUE` (requisito `no_overdue_debt`) tampoco: se resuelve
+ * MOVO-313 (DD-044): `USER_DEBT_OVERDUE` (requisito `no_overdue_debt`) tampoco: se resuelve
  * con un pago, no con un paso de la checklist. Mismo criterio: `null` y el mensaje de error.
  * Y si llega como parte de `details.missingRequirements` de otro código (licencia/MP), el
  * filtro por `CARRIER_REQUIREMENT_ORDER` lo descarta: la checklist solo dibuja los dos pasos.

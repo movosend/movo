@@ -3,7 +3,7 @@ import type { DisputePartyRole, DisputeStatementKind } from "@movo/shared";
 import { PrismaClient } from "../generated/prisma/client";
 
 /**
- * MOVO-334 (ADR-054): datos de la disputa que `updateStatus` crea en la misma transacción que la
+ * MOVO-334 (DD-054): datos de la disputa que `updateStatus` crea en la misma transacción que la
  * transición a `disputed` (`UpdateStatusOptions.dispute`). `openedBy: null` es una disputa de
  * sistema (barrido).
  */

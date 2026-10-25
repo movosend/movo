@@ -26,7 +26,7 @@ export interface LiveMapProps {
 /**
  * Mapa interactivo de seguimiento en vivo para emisor y receptor (MOVO-204).
  *
- * Cumplimiento estricto de ADR-023:
+ * Cumplimiento estricto de DD-023:
  * - NO dibuja trazas históricas ni polilíneas del recorrido del transportista.
  * - Solo renderiza la posición actual del conductor y el pin del destino final.
  * - Muestra la pildora de telemetría de conexión y controles de recentrado táctico.
@@ -314,7 +314,7 @@ export function LiveMap({
           </Marker>
         )}
 
-        {/* MARCADOR 2: Transportista en Tiempo Real (ADR-023: Sin traza histórica) */}
+        {/* MARCADOR 2: Transportista en Tiempo Real (DD-023: Sin traza histórica) */}
         {carrierPosition && (
           <Marker
             ref={markerRef}

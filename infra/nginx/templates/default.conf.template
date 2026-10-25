@@ -8,7 +8,7 @@
 # obvios antes de que lleguen al gateway.
 limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
 
-# MOVO-200/ADR-022: soporte de upgrade de protocolo HTTP -> WebSocket. El
+# MOVO-200/ADR-019: soporte de upgrade de protocolo HTTP -> WebSocket. El
 # header Connection tiene que ser "upgrade" SOLO cuando el cliente lo pide
 # (una request WS manda el header Upgrade); para cualquier otra request
 # normal, nginx debe seguir cerrando la conexión hacia el upstream como
@@ -81,7 +81,7 @@ server {
         # no reenviamos el header Authorization salvo que venga del cliente,
         # así que no hace falta tocar nada extra.
 
-        # MOVO-200/ADR-022: headers de upgrade para el canal de tiempo real
+        # MOVO-200/ADR-019: headers de upgrade para el canal de tiempo real
         # (WebSocket nativo, MOVO-201) -- sin esto, un upgrade HTTP ->
         # WebSocket nunca llega al gateway como tal. $http_upgrade viaja tal
         # cual lo mandó el cliente (vacío en una request normal); Connection
@@ -90,7 +90,7 @@ server {
         proxy_set_header   Connection $connection_upgrade;
 
         # 30s alcanzaba cuando todo el tráfico era request/response corto.
-        # MOVO-200/ADR-022 lo subió a 3600s como valor de referencia inicial
+        # MOVO-200/ADR-019 lo subió a 3600s como valor de referencia inicial
         # (sin heartbeat propio todavía). MOVO-201 agregó el heartbeat
         # ping/pong (cada 30s, `HEARTBEAT_INTERVAL_MS` en
         # `movo-svc-shipments/src/modules/tracking/tracking.routes.ts`) que

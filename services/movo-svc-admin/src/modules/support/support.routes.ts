@@ -275,6 +275,9 @@ export default async function supportRoutes(app: FastifyInstance, opts: SupportR
       const ctx = ctxOf(request);
       const id = idOf(request);
       const body = request.body as SupportPatchBody;
+      // El nombre del asignado sale de `listAdmins` (el mismo pedido que lo valida): queda grabado en el evento, así que
+      // no puede depender de un `getUserNames` que falle y deje "Nombre no disponible" para siempre.
+      let assignee: string | undefined;
       const row = await app.audit.runAdminAction(
         {
           adminId,
@@ -286,17 +289,13 @@ export default async function supportRoutes(app: FastifyInstance, opts: SupportR
           precheck: async () => {
             if (typeof body.assignedTo !== "string" || body.assignedTo === adminId) return;
             const admins = await app.usersClient.listAdmins(ctx);
-            if (!admins.some((admin) => admin.id === body.assignedTo)) {
-              throw new ApiError(400, "VALIDATION_FAILED", "Solo se puede asignar a un administrador.");
-            }
+            const admin = admins.find((candidate) => candidate.id === body.assignedTo);
+            if (!admin) throw new ApiError(400, "VALIDATION_FAILED", "Solo se puede asignar a un administrador.");
+            assignee = admin.fullName;
           },
         },
         async () => {
           const actor = await actorOf(adminId, ctx);
-          const assignee =
-            typeof body.assignedTo === "string" && body.assignedTo !== adminId
-              ? (await directory([body.assignedTo], ctx)).nameOf(body.assignedTo)
-              : undefined;
           return app.supportClient.patch(
             id,
             { actorId: actor.actorId, actorFullName: actor.actorFullName, ...body, ...(assignee ? { assigneeFullName: assignee } : {}) },

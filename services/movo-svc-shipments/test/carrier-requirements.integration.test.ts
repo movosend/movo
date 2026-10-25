@@ -18,7 +18,7 @@ const PICKUP_DATE = new Date("2030-01-01T00:00:00.000Z");
 const PICKUP_DATE_STR = "2030-01-01";
 
 /**
- * MOVO-116 (ADR-036): bloqueo de operar como transportista sin licencia aprobada o sin
+ * MOVO-116 (DD-036): bloqueo de operar como transportista sin licencia aprobada o sin
  * cuenta de Mercado Pago vinculada, de punta a punta por HTTP contra Postgres/Redis
  * reales. Cubre el criterio 7 (sin licencia / sin MP / sin ambos / con los dos) en
  * declarar viaje y ofertar, verificando que un rechazo no deja filas, más editar oferta,
@@ -358,7 +358,7 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
     });
   });
 
-  describe("disputa abierta como transportista (MOVO-278, ADR-045)", () => {
+  describe("disputa abierta como transportista (MOVO-278, DD-045)", () => {
     /** Envío del transportista en `disputed` (automática o iniciada por un usuario), entrando
      * desde `in_transit` (con custodia) o, MOVO-270, desde `assigned` (no-retiro con llegada). */
     async function openDisputeFor(carrierId: string, from: ShipmentStatus = ShipmentStatus.IN_TRANSIT) {
@@ -398,7 +398,7 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
       expect((await declareTrip(app, eligibleCarrier)).statusCode).toBe(201);
     });
 
-    it("MOVO-270 (ADR-052): la disputa de un no-retiro con llegada (assigned -> disputed) no bloquea", async () => {
+    it("MOVO-270 (DD-052): la disputa de un no-retiro con llegada (assigned -> disputed) no bloquea", async () => {
       await openDisputeFor(eligibleCarrier, ShipmentStatus.ASSIGNED);
 
       expect((await declareTrip(app, eligibleCarrier)).statusCode).toBe(201);
@@ -494,7 +494,7 @@ describe("Requisitos habilitantes del transportista (Postgres, MOVO-116)", () =>
     });
   });
 
-  describe("deuda vencida en la cuenta corriente (MOVO-313, ADR-044)", () => {
+  describe("deuda vencida en la cuenta corriente (MOVO-313, DD-044)", () => {
     /** Marca la deuda vencida de la persona, la misma cuenta aunque cambie de rol. */
     function owesOverdueDebt(userId: string) {
       payments.behavior.overdueDebtUserIds.add(userId);

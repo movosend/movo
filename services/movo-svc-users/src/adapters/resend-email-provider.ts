@@ -5,12 +5,12 @@ const RESEND_SEND_ENDPOINT = "https://api.resend.com/emails";
 export interface ResendEmailProviderConfig {
   apiKey: string;
   /** Remitente completo, formato `Nombre <casilla@dominio>` — el dominio tiene que
-   * estar verificado en Resend (SPF/DKIM por Terraform en `movo-infra`, ADR-017). */
+   * estar verificado en Resend (SPF/DKIM por Terraform en `movo-infra`, ADR-016). */
   from: string;
 }
 
 /**
- * Implementación concreta de `EmailProvider` sobre la API HTTP de Resend (ADR-017).
+ * Implementación concreta de `EmailProvider` sobre la API HTTP de Resend (ADR-016).
  * Vía `fetch` y no vía el SDK oficial (a diferencia de `twilio-sms-provider.ts`): es
  * un solo POST con un JSON, el SDK no aporta nada acá y sería una dependencia más que
  * mantener — mismo criterio que `telegram-sms-provider.ts` y `expo-push-provider.ts`.

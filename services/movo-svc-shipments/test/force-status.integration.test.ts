@@ -9,7 +9,7 @@ import { createFakeUsersClient } from "./fake-users-client";
 import { createFakePaymentsClient, FakePaymentsClient } from "./fake-payments-client";
 
 /**
- * MOVO-331 (ADR-055): `POST /internal/admin/shipments/:id/force-status`. Postgres y Redis reales, payments
+ * MOVO-331 (DD-055): `POST /internal/admin/shipments/:id/force-status`. Postgres y Redis reales, payments
  * con el fake. Una prueba por cada celda de `FORCED_TRANSITION_MATRIX` y por cada rechazo.
  */
 

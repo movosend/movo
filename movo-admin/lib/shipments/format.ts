@@ -1,5 +1,6 @@
 import {
   isAdminShipmentAlert,
+  shipmentConfirmationCode,
   type AdminChatMessage,
   type AdminChatReport,
   type AdminShipmentEvent,
@@ -11,7 +12,7 @@ import type {
   ChatAccess,
   ChatParticipantRole,
 } from "@movo/shared/src/types/chat"
-import { formatArs, type Pill } from "@/lib/users/format"
+import { formatArs, SHIPMENT_STATUS, type Pill } from "@/lib/users/format"
 
 export type ShipmentStatusValue = AdminShipmentRow["status"]
 export type ShipmentTab = "all" | AdminShipmentGroup
@@ -253,6 +254,8 @@ export interface TimelineItem {
   /** Hora y actor; `null` en un paso pendiente. */
   meta: string | null
   reason: string | null
+  /** MOVO-333: `manual`/`forced` si lo hizo un admin desde el panel. */
+  kind: "normal" | "manual" | "forced"
   pending: boolean
   current: boolean
 }
@@ -332,13 +335,24 @@ export function buildTimeline(
     a.createdAt.localeCompare(b.createdAt)
   )
   const done = sorted.map((event, i): TimelineItem => {
-    const copy = eventCopy(event, row)
+    // Un backend anterior no manda `kind`: sin él, el evento es normal.
+    const kind = event.kind ?? "normal"
+    const byAdmin = kind !== "normal"
+    const copy = byAdmin
+      ? {
+          title: `${kind === "forced" ? "Estado forzado a" : "Estado cambiado a"} ${SHIPMENT_STATUS[event.toStatus].label}`,
+          detail: event.fromStatus
+            ? `${SHIPMENT_STATUS[event.fromStatus].label} → ${SHIPMENT_STATUS[event.toStatus].label}`
+            : null,
+        }
+      : eventCopy(event, row)
     return {
       key: event.id,
       status: event.toStatus,
       ...copy,
-      meta: `${formatStamp(event.createdAt)} · ${actorLabel(event.actorId, row)}`,
+      meta: `${formatStamp(event.createdAt)} · ${byAdmin ? `${event.actorName ?? "Admin"} · Admin` : actorLabel(event.actorId, row)}`,
       reason: event.reason,
+      kind,
       pending: false,
       current: i === sorted.length - 1,
     }
@@ -350,6 +364,7 @@ export function buildTimeline(
     detail: null,
     meta: null,
     reason: null,
+    kind: "normal",
     pending: true,
     current: false,
   }))
@@ -568,6 +583,18 @@ export function buildChatItems(
  * los últimos 5 dígitos del id, rellenados con ceros. Solo para mostrar: no identifica al envío ni sirve para buscarlo.
  */
 export function shipmentDisplayCode(id: string): string {
-  const digits = id.replace(/\D/g, "").slice(-5).padStart(5, "0")
-  return `#MOVO-${digits}`
+  // Una sola regla con el código que se tipea para confirmar un cambio de estado: lo que ve el admin tiene que ser
+  // lo que el backend acepta.
+  return `#${shipmentConfirmationCode(id)}`
+}
+
+/**
+ * ¿Es un estado de envío? Solo claves propias: `"constructor"` o `"toString"` están en `SHIPMENT_STATUS` por el
+ * prototipo del objeto y no lo son.
+ */
+export function isShipmentStatus(value: unknown): value is ShipmentStatusValue {
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(SHIPMENT_STATUS, value)
+  )
 }
