@@ -183,3 +183,6 @@ tenga la ruta, es 502.
 `GET /admin/shipments/:id/status-options` devuelve también `checks` (qué verificar antes) e `irreversible` (qué no se deshace) por opción, y `code` pasa a
 ser el que muestra el panel (`MOVO-12345`, `shipmentConfirmationCode`), no los 8 primeros caracteres del id. `typedCode` se compara con
 `normalizeConfirmationCode` (sin `#`, sin espacios, sin distinguir mayúsculas). Los textos viven en la matriz de `@movo/shared`.
+
+**Corrección (MOVO-333): el schema de respuesta de los eventos declara `kind` y `actorName`.** Sin declararlos Fastify los recortaba y el detalle del
+panel nunca recibía la marca de manual/forzado. El test de `shipments.integration.test.ts` fija un evento forzado y falla si se pierden.

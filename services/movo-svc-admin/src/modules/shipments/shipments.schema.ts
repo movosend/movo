@@ -157,7 +157,11 @@ const event = {
     fromStatus: { type: ["string", "null"] },
     toStatus: { type: "string" },
     actorId: { type: ["string", "null"] },
+    // MOVO-333: quién y cómo originó el cambio. Sin declararlos Fastify los recorta y el panel no distingue un
+    // cambio de admin de uno normal.
+    actorName: { type: ["string", "null"] },
     reason: { type: ["string", "null"] },
+    kind: { type: "string", enum: ["normal", "manual", "forced"] },
     createdAt: { type: "string" },
   },
 };
