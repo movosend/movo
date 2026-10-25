@@ -398,6 +398,46 @@ sequenceDiagram
 
 ---
 
+### 5.8 Reembolso de un pago ya capturado (MOVO-336)
+
+Lo pide quien resuelve una disputa (MOVO-337) cuando el cobro ya está acreditado al transportista (`delivered` o
+`completed`); antes de la captura no se reembolsa, el hold se libera (MOVO-209). Un solo endpoint interno,
+`POST /internal/payments/settlements/by-shipment/:id/refund`, con `amountArs?` (sin monto, todo lo reembolsable),
+`reason`, `idempotencyKey` del llamador y `adminId`.
+
+```mermaid
+sequenceDiagram
+    participant R as Quien resuelve (MOVO-337)
+    participant P as svc-payments
+    participant MP as Mercado Pago
+    participant L as Cuenta corriente
+
+    R->>P: refund (amountArs?, reason, idempotencyKey, adminId)
+    P->>P: liquidación credited? (si no, 409)
+    P->>P: reserva el intento en processing (lock por liquidación, tope = capturado − ya reembolsado)
+    P->>MP: POST /v1/payments/:id/refunds (token del transportista, key movo-refund-<settlementId>-<n>)
+    alt MP reembolsa
+        MP-->>P: reembolso aprobado
+        P->>P: intento succeeded
+        P-->>R: 200
+    else el transportista no tiene saldo
+        MP-->>P: error de saldo insuficiente
+        P->>L: manual_adjustment +monto al transportista (se cobra como cualquier deuda)
+        P->>P: intento fallback_to_ledger + alerta (el emisor todavía no cobró: caso manual)
+        P-->>R: 200 (status fallback_to_ledger)
+    else MP rechaza
+        P->>P: intento failed + alerta
+        P-->>R: 502 (el reintento con la misma key abre un intento nuevo)
+    else MP no responde
+        P->>P: intento sigue processing + alerta
+        P-->>R: 502 (el reintento reusa la key de MP: no devuelve dos veces)
+    end
+```
+
+El webhook de MP (5.5) reconoce los reembolsos de esta tabla y no los alerta como externos. El reembolso confirmado
+aparece en el historial de transacciones como movimiento propio. El detalle de las decisiones (por qué cada intento
+tiene su propia key hacia MP, el tope, el fallback) está en `services/movo-svc-payments/HISTORIAL.md` (MOVO-336).
+
 ## 6. Cómo se reparte el dinero
 
 Ejemplo real del sandbox (29/09/2026), envío de $1000 con comisión de Movo de 15%:

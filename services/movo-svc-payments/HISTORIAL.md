@@ -831,3 +831,26 @@ Una entrega cuya captura falla ya no queda a la deriva: `settlements` guarda `at
   schemas de respuesta de Fastify tienen que declararlo o lo descartan en silencio (los tests unitarios no lo ven: las pruebas
   de sandbox sí). La captura (`net_received_amount` + `fee_details`) ya se guardaba en `Settlement` desde MOVO-212.
 - Pendiente: la calibración de `MP_TRANSACTION_FEE_RATE` (el sandbox cobra 4,1 % sin variar con las cuotas, la estimación usa 4,99 %).
+
+### MOVO-336 — Reembolso de un pago ya capturado
+
+`POST /internal/payments/settlements/by-shipment/:shipmentId/refund` (+ `GET .../refunds`), interno como la captura. Solo sobre una liquidación `credited`
+(`409 SETTLEMENT_NOT_REFUNDABLE`); el tope es lo capturado menos los intentos `processing`/`succeeded`/`fallback_to_ledger` (`422 REFUND_AMOUNT_EXCEEDS_REFUNDABLE`
+con `details.refundableArs`). Tabla `payments.refunds`, una fila por **intento** (`refund-repository.ts`, `modules/settlements/refund.service.ts`): la reserva toma un
+`FOR UPDATE` sobre la liquidación, así dos pedidos a la vez no reservan de más. El `<n>` de `movo-refund-<settlementId>-<n>` es el intento: reintentar uno `processing`
+reusa su key de MP (no devuelve dos veces) y uno `failed` abre un intento nuevo, porque MP cachea el rechazo de la key anterior.
+- **`idempotencyKey` obligatoria del llamador y `adminId` en el body** (decididos con el equipo; el ticket solo pedía `amountArs?` y `reason`): la key distingue un reintento de un
+  segundo parcial del mismo monto (MOVO-337 manda `dispute-<id>`; misma key con otro monto o motivo es `409 REFUND_IDEMPOTENCY_CONFLICT`), y el `adminId` es el autor del
+  `manual_adjustment` del fallback, porque `user_ledger_entries` exige `admin_id` en ese tipo (CHECK de MOVO-309).
+- **Saldo insuficiente (AC4)**: no se reintenta contra MP; el monto queda como deuda del transportista (`manual_adjustment` positivo, idempotente), el intento en
+  `fallback_to_ledger` y alerta `refund_fallback_to_ledger`. **El emisor no cobró**: devolverle la plata es un caso manual, no hay forma automática. Sigue contando contra el tope.
+  Un error de red, 5xx, 408/409/429 deja el intento `processing` (nunca `failed`: MP pudo haberlo hecho y reintentar duplicaría) con alerta `refund_unconfirmed`;
+  un rechazo o credenciales inutilizables, `failed` con alerta `refund_failed`. Un 2xx sin estado se toma por hecho, por la misma razón.
+- El body rechaza claves desconocidas (`preValidation`, como la captura): Ajv las borra y un `amount` mal escrito reembolsaría el total.
+- **Historial (AC6)**: `has_refund`, `refundedAmountArs` y los movimientos suman los intentos `succeeded` de `payments.refunds` (un `fallback_to_ledger` no cuenta). **Webhook (AC7)**:
+  un reembolso de MP que explican los intentos propios `processing`/`succeeded` no se registra como evento ni alerta (`refund_initiated_by_movo`); si MP informa más, el resto sigue siendo externo.
+
+Pendiente: **el Paso 0 no se corrió** (necesita las credenciales del sandbox): `test/refund.sandbox.test.ts` lo cubre y hay que transcribir sus resultados al ticket. De ahí tiene que
+salir el código de causa de "saldo insuficiente" que falta en `INSUFFICIENT_BALANCE_CAUSES` (`refund-failure.ts`; hoy se reconoce por el mensaje), si MP devuelve el `application_fee`
+de Movo y cómo prorratea el parcial (el fallback asienta el monto entero; ajustarlo si MP no devuelve la comisión). Fuera de alcance: el cliente en `svc-shipments`/`svc-admin`
+(MOVO-337) y un barrido que retome un intento `processing` sin reintento del llamador (hoy solo queda la alerta).
