@@ -373,24 +373,36 @@ describe("POST /payments/webhooks/mercadopago (MOVO-268)", () => {
           status: "credited",
         },
       });
+      await addMovoRefund(settlement.id, 1, amountArs, status);
+    }
+
+    async function addMovoRefund(
+      settlementId: string,
+      attempt: number,
+      amountArs: number,
+      status: "processing" | "succeeded" | "failed" = "succeeded"
+    ) {
+      const held = await hold();
       await app.db.refund.create({
         data: {
-          settlementId: settlement.id,
+          settlementId,
           shipmentId: SHIPMENT,
           holdId: held.id,
           carrierId: CARRIER,
           mpPaymentId: PAYMENT_ID,
-          attempt: 1,
+          attempt,
           amountArs,
           reason: "Disputa resuelta a favor del emisor",
-          requestKey: "dispute-1",
+          requestKey: `dispute-${attempt}`,
           requestFingerprint: "fp",
           adminId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-          mpIdempotencyKey: `movo-refund-${settlement.id}-1`,
+          mpIdempotencyKey: `movo-refund-${settlementId}-${attempt}`,
           status,
         },
       });
     }
+
+    const refundRows = () => app.db.refund.findMany({ orderBy: { attempt: "asc" } });
 
     it("un reembolso iniciado por Movo no se registra como evento externo ni se alerta (MOVO-336)", async () => {
       await seedHold({ status: "captured", statusDetail: "accredited", expiresAt: null });
@@ -416,6 +428,65 @@ describe("POST /payments/webhooks/mercadopago (MOVO-268)", () => {
       await notify();
 
       expect(alerts.send).not.toHaveBeenCalled();
+      // Y como MP ya informa el monto devuelto, el intento deja de estar "en curso": pasa a succeeded.
+      const [row] = await refundRows();
+      expect(row.status).toBe("succeeded");
+      expect(row.completedAt).not.toBeNull();
+    });
+
+    // MOVO-336 (review de PR #314): nadie más cierra un intento que MP aceptó `in_process` o cuya respuesta se perdió.
+    it("un reembolso PARCIAL confirmado por MP (el pago sigue approved) promueve el intento processing a succeeded", async () => {
+      await seedHold({ status: "captured", statusDetail: "accredited", expiresAt: null });
+      await seedMovoRefund(300, "processing");
+      mp.getPayment.mockImplementation(async () =>
+        payment({ status: "approved", status_detail: "accredited", transaction_amount_refunded: 300 })
+      );
+
+      await notify();
+
+      const [row] = await refundRows();
+      expect(row.status).toBe("succeeded");
+      expect(row.completedAt).not.toBeNull();
+      expect(await app.db.paymentProviderEvent.count()).toBe(0);
+      expect(alerts.send).not.toHaveBeenCalled();
+    });
+
+    it("si MP informa menos de lo que pedía el intento, sigue processing", async () => {
+      await seedHold({ status: "captured", statusDetail: "accredited", expiresAt: null });
+      await seedMovoRefund(500, "processing");
+      mp.getPayment.mockImplementation(async () =>
+        payment({ status: "approved", status_detail: "accredited", transaction_amount_refunded: 300 })
+      );
+
+      await notify();
+
+      expect((await refundRows())[0].status).toBe("processing");
+    });
+
+    it("con varios intentos processing promueve los más viejos que entran en lo que MP informa", async () => {
+      await seedHold({ status: "captured", statusDetail: "accredited", expiresAt: null });
+      await seedMovoRefund(300, "processing");
+      const [first] = await refundRows();
+      await addMovoRefund(first.settlementId, 2, 200, "processing");
+      mp.getPayment.mockImplementation(async () =>
+        payment({ status: "approved", status_detail: "accredited", transaction_amount_refunded: 300 })
+      );
+
+      await notify();
+
+      expect((await refundRows()).map((r) => r.status)).toEqual(["succeeded", "processing"]);
+    });
+
+    it("un intento fallido no se promueve aunque MP informe un reembolso de ese monto", async () => {
+      await seedHold({ status: "captured", statusDetail: "accredited", expiresAt: null });
+      await seedMovoRefund(300, "failed");
+      mp.getPayment.mockImplementation(async () =>
+        payment({ status: "approved", status_detail: "accredited", transaction_amount_refunded: 300 })
+      );
+
+      await notify();
+
+      expect((await refundRows())[0].status).toBe("failed");
     });
 
     it("si MP informa más de lo que pidió Movo, el resto sigue siendo un reembolso externo (MOVO-336)", async () => {

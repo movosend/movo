@@ -266,7 +266,7 @@ describe("/payments/transactions (MOVO-303)", () => {
       attempt: number,
       status: "processing" | "succeeded" | "failed" | "fallback_to_ledger",
       amountArs: number,
-      updatedAt = new Date("2026-10-13T10:00:00Z")
+      completedAt = new Date("2026-10-13T10:00:00Z")
     ) {
       return app.db.refund.create({
         data: {
@@ -283,7 +283,9 @@ describe("/payments/transactions (MOVO-303)", () => {
           adminId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
           mpIdempotencyKey: `movo-refund-${settlementId}-${attempt}`,
           status,
-          updatedAt,
+          completedAt,
+          // Un UPDATE posterior de la fila no tiene que mover la fecha del movimiento.
+          updatedAt: new Date("2026-10-20T10:00:00Z"),
         },
       });
     }
@@ -309,6 +311,29 @@ describe("/payments/transactions (MOVO-303)", () => {
       // El estado también se filtra en SQL: el espejo de `deriveTransactionStatus` tiene que ver el reembolso propio.
       expect((await list("role=sender&status=refunded")).json().items.map((i: { id: string }) => i.id)).toEqual([h.id]);
       expect((await list("role=sender&status=completed")).json().items).toEqual([]);
+    });
+
+    it("si MP informa un total mayor al propio (hubo otro reembolso por fuera), el monto es el total y no subestima (MOVO-336)", async () => {
+      const h = await createHold({ status: "captured" });
+      const s = await settle(h, "credited");
+      await refundAttempt(h, s.id, 1, "succeeded", 300);
+      // MP informa lo devuelto en total (incluye los 300 de Movo).
+      await event(h, "refund", "refunded", 1150, new Date("2026-10-15T10:00:00Z"));
+
+      const item = (await detail(h.id, "sender", SENDER)).json();
+
+      expect(item.status).toBe("refunded");
+      expect(item.refundedAmountArs).toBe(1150);
+    });
+
+    it("la fecha del movimiento propio es completed_at, no updated_at", async () => {
+      const h = await createHold({ status: "captured" });
+      const s = await settle(h, "credited");
+      await refundAttempt(h, s.id, 1, "succeeded", 300, new Date("2026-10-13T10:00:00Z"));
+
+      const asSender = (await detail(h.id, "sender", SENDER)).json();
+
+      expect(asSender.movements).toEqual([{ kind: "refund", amountArs: 300, date: "2026-10-13T10:00:00.000Z" }]);
     });
 
     it("un intento en curso, fallido o caído al fallback no es un reembolso: el emisor todavía no recibió la plata (MOVO-336)", async () => {

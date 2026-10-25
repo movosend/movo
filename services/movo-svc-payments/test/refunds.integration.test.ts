@@ -4,6 +4,7 @@ import { buildApp } from "../src/app";
 import type { AlertNotifier } from "../src/adapters/alert-notifier";
 import type { MercadoPagoClient } from "../src/adapters/mercadopago-client";
 import { createCarrierMpAccountRepository } from "../src/repositories/carrier-mp-account-repository";
+import { fingerprintOf } from "../src/repositories/user-ledger-repository";
 import { createTokenCipher } from "../src/utils/token-cipher";
 
 // MOVO-336: integración contra Postgres y Redis reales (convención del repo); solo se reemplazan los bordes
@@ -162,6 +163,8 @@ describe("reembolso de un pago capturado (MOVO-336)", () => {
       });
       expect(alerts.send).not.toHaveBeenCalled();
       expect(await ledger()).toEqual([]);
+      // La fecha del movimiento en el historial es explícita, no `updated_at`.
+      expect((await rows())[0].completedAt).not.toBeNull();
     });
 
     it("guarda la respuesta de MP sin datos sensibles (sin `source`)", async () => {
@@ -270,18 +273,24 @@ describe("reembolso de un pago capturado (MOVO-336)", () => {
       expect(mp.refundPayment).toHaveBeenCalledTimes(1);
     });
 
-    it("dos pedidos a la vez con la misma key dejan UNA fila y usan la misma key de MP", async () => {
+    it("dos pedidos a la vez con la misma key dejan UNA fila y le pegan UNA vez a MP", async () => {
       await seedCaptured();
 
       const results = await Promise.all([refund({ amountArs: 250 }), refund({ amountArs: 250 })]);
 
-      for (const res of results) expect(res.statusCode).toBe(200);
+      // Uno hace el reembolso. El otro, o lo encuentra hecho (200 replayed) o recibe 409 REFUND_IN_PROGRESS sin tocar a MP:
+      // nunca llama a MP en paralelo, que respondería un 409 propio y se leería como un reembolso sin confirmar.
+      const statuses = results.map((res) => res.statusCode).sort();
+      expect(statuses[0]).toBe(200);
+      for (const res of results.filter((r) => r.statusCode !== 200)) {
+        expect(res.statusCode).toBe(409);
+        expect(res.json().error.code).toBe("REFUND_IN_PROGRESS");
+      }
       const all = await rows();
       expect(all).toHaveLength(1);
       expect(all[0].status).toBe("succeeded");
-      // MP deduplica por key: aunque los dos hayan llamado, es el mismo reembolso.
-      const keys = mp.refundPayment.mock.calls.map((call) => call[2].idempotencyKey);
-      expect(new Set(keys).size).toBe(1);
+      expect(mp.refundPayment).toHaveBeenCalledTimes(1);
+      expect(alerts.send).not.toHaveBeenCalled();
     });
 
     it("la misma key con otro monto o con otro motivo es 409 REFUND_IDEMPOTENCY_CONFLICT", async () => {
@@ -383,14 +392,21 @@ describe("reembolso de un pago capturado (MOVO-336)", () => {
       expect(failed.statusCode).toBe(502);
       expect(failed.json().error.code).toBe("PAYMENT_PROVIDER_ERROR");
       const [row] = await rows();
-      expect(row).toMatchObject({ status: "failed", failureReason: "provider_error", attempt: 1 });
+      expect(row).toMatchObject({ status: "failed", failureReason: "provider_rejected", attempt: 1 });
       expect(row.lastError).toContain("refund amount invalid");
+      expect(row.completedAt).not.toBeNull();
+      // Un 4xx que no se reconoce como falta de saldo alerta aparte y trae lo que dijo MP: puede SER falta de saldo
+      // con otro texto (Paso 0 pendiente), y en ese caso no quedó la deuda del transportista.
       expect(alerts.send).toHaveBeenCalledWith(
-        expect.objectContaining({ kind: "refund_failed", context: expect.objectContaining({ shipmentId: SHIPMENT, attempt: 1 }) })
+        expect.objectContaining({
+          kind: "refund_rejected_unrecognized",
+          context: expect.objectContaining({ shipmentId: SHIPMENT, attempt: 1, mpHttpStatus: 400, mpCauseCodes: "2000" }),
+        })
       );
+      expect(alerts.send).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "refund_failed" }));
       // Consultable, y lo fallido no cuenta contra el tope.
       const list = (await app.inject({ method: "GET", url: REFUNDS_URL() })).json();
-      expect(list.refunds).toEqual([expect.objectContaining({ attempt: 1, status: "failed", failureReason: "provider_error" })]);
+      expect(list.refunds).toEqual([expect.objectContaining({ attempt: 1, status: "failed", failureReason: "provider_rejected" })]);
       expect(list.refundableArs).toBe(1000);
 
       // Reintento con la misma key: intento 2 con otra key hacia MP (la del 1 tiene cacheado el rechazo).
@@ -505,6 +521,148 @@ describe("reembolso de un pago capturado (MOVO-336)", () => {
       expect(res.statusCode).toBe(502);
       expect(res.json().error.code).toBe("PAYMENT_PROVIDER_ERROR");
       expect((await rows())[0].status).toBe("failed");
+    });
+  });
+
+  describe("reintento de un intento ambiguo (review de PR #314)", () => {
+    const REASON = "Disputa resuelta a favor del emisor";
+
+    /** Un intento `processing` como el que deja un reembolso sin confirmar, con la huella que calcularía el pedido. */
+    async function seedProcessing(
+      settlementId: string,
+      holdId: string,
+      overrides: { createdAt?: Date; updatedAt?: Date; lastError?: string | null } = {}
+    ) {
+      return app.db.refund.create({
+        data: {
+          settlementId,
+          shipmentId: SHIPMENT,
+          holdId,
+          carrierId: CARRIER,
+          mpPaymentId: MP_PAYMENT,
+          attempt: 1,
+          amountArs: 400,
+          reason: REASON,
+          requestKey: "dispute-1",
+          requestFingerprint: fingerprintOf({ amount: "400.00", reason: REASON }),
+          adminId: ADMIN,
+          mpIdempotencyKey: `movo-refund-${settlementId}-1`,
+          status: "processing",
+          lastError: overrides.lastError === undefined ? null : overrides.lastError,
+          ...(overrides.createdAt ? { createdAt: overrides.createdAt } : {}),
+          ...(overrides.updatedAt ? { updatedAt: overrides.updatedAt } : {}),
+        },
+      });
+    }
+
+    it("credenciales vencidas al reintentar un processing: sigue processing (pudo haberse hecho en MP), no abre otro intento", async () => {
+      const settlement = await seedCaptured();
+      mp.refundPayment.mockRejectedValueOnce(mpError(undefined, "fetch failed"));
+      await refund({ amountArs: 400 });
+      expect((await rows())[0].status).toBe("processing");
+      alerts.send.mockClear();
+      await linkCarrier(new Date(Date.now() - 60_000));
+
+      const retry = await refund({ amountArs: 400 });
+
+      expect(retry.statusCode).toBe(409);
+      expect(retry.json().error.code).toBe("CARRIER_MP_ACCOUNT_NOT_LINKED");
+      expect(mp.refundPayment).toHaveBeenCalledTimes(1);
+      expect(await rows()).toHaveLength(1);
+      expect((await rows())[0].status).toBe("processing");
+      expect(alerts.send).toHaveBeenCalledWith(expect.objectContaining({ kind: "refund_unconfirmed" }));
+      expect(alerts.send).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "refund_failed" }));
+
+      // Re-vinculada la cuenta, el siguiente reintento retoma el MISMO intento con la MISMA key de MP: no hay doble reembolso.
+      await linkCarrier();
+      const resumed = await refund({ amountArs: 400 });
+
+      expect(resumed.statusCode).toBe(200);
+      expect(resumed.json().refund).toMatchObject({ attempt: 1, status: "succeeded" });
+      expect(await rows()).toHaveLength(1);
+      expect(mp.refundPayment).toHaveBeenLastCalledWith(expect.any(String), MP_PAYMENT, {
+        idempotencyKey: `movo-refund-${settlement.id}-1`,
+        amount: 400,
+      });
+    });
+
+    it("sin cuenta de MP vinculada al reintentar un processing: tampoco se da por fallido", async () => {
+      await seedCaptured();
+      mp.refundPayment.mockRejectedValueOnce(mpError(500, "boom"));
+      await refund({ amountArs: 400 });
+      await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.carrier_mp_accounts");
+
+      const retry = await refund({ amountArs: 400 });
+
+      expect(retry.statusCode).toBe(409);
+      expect((await rows())[0].status).toBe("processing");
+    });
+
+    it("un 401 de MP al reintentar un processing: sigue processing; en un intento recién creado sí es failed", async () => {
+      await seedCaptured();
+      mp.refundPayment.mockRejectedValueOnce(mpError(undefined, "fetch failed")).mockRejectedValueOnce(mpError(401, "invalid access token"));
+      await refund({ amountArs: 400 });
+
+      const retry = await refund({ amountArs: 400 });
+
+      expect(retry.statusCode).toBe(409);
+      expect(retry.json().error.code).toBe("CARRIER_MP_ACCOUNT_NOT_LINKED");
+      expect((await rows())[0].status).toBe("processing");
+      expect(await rows()).toHaveLength(1);
+    });
+
+    it("un intento que otro pedido está procesando (processing sin last_error, reciente): 409 REFUND_IN_PROGRESS y no se llama a MP", async () => {
+      const settlement = await seedCaptured();
+      await seedProcessing(settlement.id, settlement.holdId);
+
+      const res = await refund({ amountArs: 400 });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe("REFUND_IN_PROGRESS");
+      expect(mp.refundPayment).not.toHaveBeenCalled();
+      expect(alerts.send).not.toHaveBeenCalled();
+    });
+
+    it("si el pedido que lo manejaba se cayó (processing sin last_error y pasado el plazo), se retoma con la misma key", async () => {
+      const settlement = await seedCaptured();
+      await seedProcessing(settlement.id, settlement.holdId, { updatedAt: new Date(Date.now() - 5 * 60_000) });
+
+      const res = await refund({ amountArs: 400 });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().refund).toMatchObject({ attempt: 1, status: "succeeded" });
+      expect(mp.refundPayment).toHaveBeenCalledWith(expect.any(String), MP_PAYMENT, {
+        idempotencyKey: `movo-refund-${settlement.id}-1`,
+        amount: 400,
+      });
+    });
+
+    it("un processing con last_error (el anterior terminó sin confirmar) se retoma enseguida, sin esperar el plazo", async () => {
+      const settlement = await seedCaptured();
+      await seedProcessing(settlement.id, settlement.holdId, { lastError: "fetch failed" });
+
+      const res = await refund({ amountArs: 400 });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().refund.status).toBe("succeeded");
+    });
+
+    it("un processing más viejo de lo que MP garantiza la key no se reintenta: REFUND_NEEDS_REVIEW, alerta y no toca a MP", async () => {
+      const settlement = await seedCaptured();
+      await seedProcessing(settlement.id, settlement.holdId, {
+        createdAt: new Date(Date.now() - 13 * 60 * 60 * 1000),
+        lastError: "fetch failed",
+      });
+
+      const res = await refund({ amountArs: 400 });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe("REFUND_NEEDS_REVIEW");
+      expect(mp.refundPayment).not.toHaveBeenCalled();
+      expect((await rows())[0].status).toBe("processing");
+      expect(alerts.send).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "refund_needs_review", context: expect.objectContaining({ shipmentId: SHIPMENT }) })
+      );
     });
   });
 

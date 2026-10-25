@@ -23,6 +23,10 @@ describe("classifyRefundError (MOVO-336)", () => {
     "not enough balance",
     "Saldo insuficiente para realizar la devolución",
     "Fondos insuficientes",
+    "No tenés saldo suficiente para devolver este pago",
+    "No tienes saldo disponible",
+    "La cuenta no cuenta con fondos",
+    "Cuenta sin saldo disponible",
   ])("«%s» es saldo insuficiente", (message) => {
     expect(classifyRefundError(info(400, message))).toBe("insufficient_balance");
   });
@@ -34,6 +38,13 @@ describe("classifyRefundError (MOVO-336)", () => {
   it.each([400, 404, 422])("un %s común es un rechazo del pedido", (status) => {
     expect(classifyRefundError(info(status, "invalid refund amount", ["2000"]))).toBe("rejected");
   });
+
+  it.each(["El monto del reembolso es inválido", "El pago no se puede reembolsar", "Pago ya reembolsado por completo"])(
+    "«%s» no es falta de saldo: un rechazo común (que alerta aparte)",
+    (message) => {
+      expect(classifyRefundError(info(400, message))).toBe("rejected");
+    }
+  );
 
   it("el saldo insuficiente se reconoce también en un 5xx o sin status (gana sobre lo transitorio)", () => {
     expect(classifyRefundError(info(500, "Insufficient funds"))).toBe("insufficient_balance");
