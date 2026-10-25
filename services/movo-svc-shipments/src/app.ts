@@ -54,6 +54,7 @@ import { PricingClient } from "./adapters/pricing-client";
 import { PricingLogisticsClient } from "./adapters/pricing-logistics-client";
 import { FundsReleaseNotifier } from "./adapters/funds-release-notifier";
 import { AlertNotifier } from "./adapters/alert-notifier";
+import { SupportEventStream } from "./realtime/support-event-stream";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -80,6 +81,8 @@ export interface BuildAppOptions {
   supportNow?: () => Date;
   /** Agenda el resumen de avisos de una ráfaga de soporte (MOVO-320, DD-046); solo tests. */
   supportSchedulePush?: (run: () => void, delayMs: number) => void;
+  /** Stream de los eventos del panel de soporte (MOVO-322, ADR-024); solo tests, para fallar o espiar la escritura. */
+  supportEventStream?: SupportEventStream;
   /** Override solo para tests de integración — evita depender de un
    * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
    * `usersClient`. */
@@ -415,6 +418,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.supportNow ? { now: opts.supportNow } : {}),
     ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
+    ...(opts.supportEventStream ? { eventStream: opts.supportEventStream } : {}),
   };
   app.register(supportRoutes, supportRouteOpts);
 
@@ -425,6 +429,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.supportNow ? { now: opts.supportNow } : {}),
     ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
+    ...(opts.supportEventStream ? { eventStream: opts.supportEventStream } : {}),
   };
   app.register(adminSupportRoutes, adminSupportRouteOpts);
 

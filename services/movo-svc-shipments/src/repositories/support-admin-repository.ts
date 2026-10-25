@@ -454,9 +454,13 @@ export function createSupportAdminRepository(db: PrismaClient): SupportAdminRepo
         const actor = { id: input.actorId, fullName: input.actorFullName };
         const text = input.resolved ? supportEventText.resolved(actor.fullName) : supportEventText.reopened(actor.fullName);
         const event = await insertEvent(tx, input.conversationId, actor, text, input.now);
+        // Reabrir arranca la espera en `now`: `last_user_message_at` es la referencia de `waitMinutes` y del orden de la
+        // bandeja, y una consulta resuelta hace días no tiene a nadie esperando desde entonces.
         const conversation = await tx.supportConversation.update({
           where: { id: input.conversationId },
-          data: input.resolved ? { status: "resolved", resolvedAt: input.now } : { status: "open", resolvedAt: null },
+          data: input.resolved
+            ? { status: "resolved", resolvedAt: input.now }
+            : { status: "open", resolvedAt: null, lastUserMessageAt: input.now },
         });
         return { conversation, events: [event], changed: true };
       });

@@ -3,14 +3,14 @@ import { ApiError, SupportCreateBody, SupportUserAttachmentCreateBody, SUPPORT_W
 import type { WebSocket } from "ws";
 import { supportSchemas } from "./support.schema";
 import { createSupportService, SupportService } from "./support.service";
-import { createSupportAttachmentsService } from "./support-attachments.service";
+import { createSupportAttachmentsService, SupportAttachmentsService } from "./support-attachments.service";
 import { createShipmentRepository, ShipmentRepository } from "../../repositories/shipment-repository";
 import { createSupportRepository } from "../../repositories/support-repository";
 import { createSupportAttachmentRepository } from "../../repositories/support-attachment-repository";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
 import { createSupportAdminRepository } from "../../repositories/support-admin-repository";
-import { createRedisSupportEventStream } from "../../realtime/support-event-stream";
-import { createSupportAdminFeed } from "../admin-support/support-admin-feed";
+import { createRedisSupportEventStream, SupportEventStream } from "../../realtime/support-event-stream";
+import { createSupportAdminFeed, SupportAdminFeed } from "../admin-support/support-admin-feed";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createRedisChatPushBuffer } from "../../repositories/chat-push-buffer";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
@@ -23,6 +23,8 @@ export interface SupportRoutesOptions extends FastifyPluginOptions {
   notificationsClient?: NotificationsClient;
   /** MOVO-321: storage de los adjuntos (el mock en tests, para simular la subida con `__simulateUpload`). */
   storageProvider?: StorageProvider;
+  /** MOVO-322: stream de los eventos del panel (uno en memoria en tests). */
+  eventStream?: SupportEventStream;
   /** Reloj inyectable. */
   now?: () => Date;
   /** Agenda el resumen de avisos de una ráfaga; los tests lo reemplazan para no esperar la ventana real. */
@@ -36,23 +38,33 @@ const errors = {
   422: supportSchemas.errorResponse,
 };
 
+/** Lo que el lado del agente (MOVO-322) ya armó y comparte, para no tener dos instancias de cada cosa. */
+export interface SharedSupportDeps {
+  attachments: SupportAttachmentsService;
+  adminFeed: SupportAdminFeed;
+}
+
 /** Arma el servicio con las dependencias reales de la app (o los overrides de test). */
-export function buildSupportService(app: FastifyInstance, opts: SupportRoutesOptions = {}): SupportService {
-  const attachments = createSupportAttachmentsService({
-    repository: createSupportAttachmentRepository(app.db),
-    storage: opts.storageProvider ?? createStorageProvider(app.config),
-    ...(opts.now ? { now: opts.now } : {}),
-  });
+export function buildSupportService(app: FastifyInstance, opts: SupportRoutesOptions = {}, shared?: SharedSupportDeps): SupportService {
+  const attachments =
+    shared?.attachments ??
+    createSupportAttachmentsService({
+      repository: createSupportAttachmentRepository(app.db),
+      storage: opts.storageProvider ?? createStorageProvider(app.config),
+      ...(opts.now ? { now: opts.now } : {}),
+    });
   return createSupportService({
     supportRepository: createSupportRepository(app.db),
     attachments,
-    adminFeed: createSupportAdminFeed({
-      repository: createSupportAdminRepository(app.db),
-      attachments,
-      stream: createRedisSupportEventStream(app.redis),
-      logger: app.log,
-      ...(opts.now ? { now: opts.now } : {}),
-    }),
+    adminFeed:
+      shared?.adminFeed ??
+      createSupportAdminFeed({
+        repository: createSupportAdminRepository(app.db),
+        attachments,
+        stream: opts.eventStream ?? createRedisSupportEventStream(app.redis),
+        logger: app.log,
+        ...(opts.now ? { now: opts.now } : {}),
+      }),
     shipmentRepository: opts.shipmentRepository ?? createShipmentRepository(app.db),
     notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),
     hub: app.chatHub,

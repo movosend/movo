@@ -73,23 +73,30 @@ export default async function adminSupportRoutes(app: FastifyInstance, opts: Adm
     ...(opts.now ? { now: opts.now } : {}),
   });
   const repository = createSupportAdminRepository(app.db);
+  // Un solo feed para las dos puntas: el stream inyectado en tests cubre también lo que publica `userSide`.
+  const feed = createSupportAdminFeed({
+    repository,
+    attachments,
+    stream: opts.eventStream ?? createRedisSupportEventStream(app.redis),
+    logger: app.log,
+    ...(opts.now ? { now: opts.now } : {}),
+  });
   const service = createAdminSupportService({
     repository,
     attachments,
     shipmentRepository: createShipmentRepository(app.db),
-    userSide: buildSupportService(app, {
-      storageProvider: storage,
-      ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
-      ...(opts.now ? { now: opts.now } : {}),
-      ...(opts.schedulePush ? { schedulePush: opts.schedulePush } : {}),
-    }),
-    feed: createSupportAdminFeed({
-      repository,
-      attachments,
-      stream: opts.eventStream ?? createRedisSupportEventStream(app.redis),
-      logger: app.log,
-      ...(opts.now ? { now: opts.now } : {}),
-    }),
+    userSide: buildSupportService(
+      app,
+      {
+        storageProvider: storage,
+        ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+        ...(opts.now ? { now: opts.now } : {}),
+        ...(opts.schedulePush ? { schedulePush: opts.schedulePush } : {}),
+      },
+      { attachments, adminFeed: feed }
+    ),
+    feed,
+    logger: app.log,
     ...(opts.now ? { now: opts.now } : {}),
   });
 

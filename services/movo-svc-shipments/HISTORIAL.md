@@ -3880,5 +3880,8 @@ adjuntos del agente) sobre `repositories/support-admin-repository.ts`, con regla
 - Los eventos del equipo son `kind = event` (migración `20261025150000_support_staff_events`): el usuario nunca los ve
   (`toUserFacingMessage` pasa a lista blanca) y solo recibe el cambio de estado.
 - Cada cambio (también una consulta o un mensaje del usuario) se escribe en el Redis Stream `support:events`
-  (`support-admin-feed.ts`, `realtime/support-event-stream.ts`), sin nombres; si falla, solo se loguea.
+  (`support-admin-feed.ts`, `realtime/support-event-stream.ts`), sin nombres; si falla, solo se loguea. Avisar al usuario
+  (WS/push) también es best-effort: un fallo ahí no puede dar 500 sobre un cambio confirmado, porque el reintento cae en el
+  replay sin publicar. Un solo feed y un solo servicio de adjuntos compartidos entre `/support` y el lado del agente.
+- Reabrir pone `last_user_message_at` en `now`: es la referencia de `waitMinutes` y del orden de la bandeja.
 - Pendiente: el WebSocket del panel con ticket (segunda PR de MOVO-322, en `svc-admin`).
