@@ -362,8 +362,19 @@ export function useStatusChange({
     setCode: (code: string) =>
       patch({ code: code.replace(/\D/g, "").slice(0, 6) }),
     setAck: (ack: boolean) => patch({ ack }),
+    // La clave de idempotencia identifica UN cambio: con otra opción es otro pedido (si no, tras un intento sin
+    // respuesta el backend repetiría el resultado anterior e ignoraría el check).
     setSimulatePayment: (simulatePayment: boolean) =>
-      patch({ simulatePayment }),
+      patch({
+        simulatePayment,
+        idempotencyKey: newIdempotencyKey(),
+        // Es otro cambio: el segundo factor del anterior (gastado o no) no sirve.
+        retryAfterUnknown: false,
+        code: "",
+        challenge: null,
+        stepUpToken: null,
+        resendAt: 0,
+      }),
     toggleForced: () => patch((s) => ({ showForced: !s.showForced })),
   }
 }

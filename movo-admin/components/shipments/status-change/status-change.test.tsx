@@ -360,6 +360,32 @@ describe("paso 3 — requisitos por riesgo", () => {
     })
   })
 
+  it("cambiar 'Simular el pago' renueva la clave de idempotencia: es otro cambio (DD-055)", async () => {
+    renderModal({ status: "assignment_pending" as never })
+    await goToConfirm(HIGH)
+    type("Motivo", REASON)
+    type(/Escribí/, CODE)
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo/ }))
+    actions.submitStatusChange.mockResolvedValueOnce({
+      ok: false,
+      error: "Sin respuesta",
+      unconfirmed: true,
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Pasar a Asignado" }))
+    await waitFor(() => expect(actions.submitStatusChange).toHaveBeenCalled())
+    const firstKey = actions.submitStatusChange.mock.calls[0][1].idempotencyKey
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /Simular el pago/ }))
+    actions.submitStatusChange.mockResolvedValue({ ok: true, data: DONE })
+    fireEvent.click(screen.getByRole("button", { name: "Pasar a Asignado" }))
+    await waitFor(() =>
+      expect(actions.submitStatusChange).toHaveBeenCalledTimes(2)
+    )
+    const second = actions.submitStatusChange.mock.calls[1][1]
+    expect(second.simulatePayment).toBe(true)
+    expect(second.idempotencyKey).not.toBe(firstKey)
+  })
+
   it("otros destinos no ofrecen simular el pago", async () => {
     renderModal()
     await goToConfirm(MEDIUM)
