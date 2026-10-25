@@ -245,7 +245,21 @@ export const adminUsersSchemas = {
       properties: { ids: { type: "array", maxItems: 200, uniqueItems: true, items: { type: "string", format: "uuid" } } },
     },
     response: {
-      200: { type: "object", required: ["users"], properties: { users: { type: "array", items: userRef } } },
+      // MOVO-322: con los roles de la cuenta (la bandeja de soporte muestra si el usuario es transportista).
+      200: {
+        type: "object",
+        required: ["users"],
+        properties: {
+          users: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["id", "fullName", "roles"],
+              properties: { id: { type: "string" }, fullName: { type: "string" }, roles: { type: "array", items: { type: "string" } } },
+            },
+          },
+        },
+      },
       400: errorResponse,
     },
   },
