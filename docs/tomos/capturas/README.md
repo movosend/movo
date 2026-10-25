@@ -9,7 +9,7 @@ Cómo generar las 108 capturas del Manual de Usuario (Tomo III) contra el **back
 1. **Nada simulado:** ni `SUPPORT_MOCK` ni `MOVO_ADMIN_MOCK`. La app apunta a dev y el panel también.
 2. **Credenciales fuera del repo.** Teléfono y contraseña van en variables de entorno de tu shell (`MOVO_TEST_PHONE`, `MOVO_TEST_PASSWORD`) o en un archivo `capturas/.env.capturas` (ignorado por Git). Nunca en los flujos ni en los commits.
 3. **Datos de prueba reconocibles.** Las capturas muestran lo que haya en tu cuenta. Antes de capturar, revisá nombre, dirección y teléfono visibles; usá una cuenta con datos que puedan figurar en un documento impreso.
-4. **Efectos reales en dev.** Crear un envío o una oferta escribe en la base de dev. Los flujos de este directorio **frenan antes de confirmar** (publicar, ofertar, pagar, cancelar) salvo que lo indiques. Para las pantallas que exigen un estado intermedio (envío asignado, en camino, entregado), se arma el caso a mano con dos cuentas de prueba o se usa un envío existente.
+4. **Escribir en dev está permitido.** Los flujos pueden crear envíos, ofertas, pagos y cancelaciones reales. Para no ensuciar demasiado, usá un prefijo reconocible en las descripciones (por ejemplo «[manual]») y, si querés, cancelá lo que quede abierto al terminar.
 
 ## Requisitos
 
@@ -18,6 +18,13 @@ Cómo generar las 108 capturas del Manual de Usuario (Tomo III) contra el **back
 - Development build de la app instalado en el simulador (`docs/mobile-development-build.md`) con `movo-mobile/.env.local` en `EXPO_PUBLIC_API_URL=https://api-dev.movosend.app`.
 - [Maestro](https://maestro.mobile.dev) (`brew install maestro`), `python3` con `pillow` (`pip install pillow`).
 - Un PNG de iPhone con **pantalla transparente** (o el bezel oficial de Apple Design Resources). Guardalo como `capturas/marco-iphone.png`.
+
+## Orden recomendado
+
+1. **Solo lectura:** onboarding, login, inicio, perfil, ajustes, pagos y direcciones (la mayoría de M-01 a M-16, M-68 a M-92).
+2. **Creación:** wizard de envío completo, publicación, ofertas de la segunda cuenta, elección de oferta y pago con tarjeta de prueba.
+3. **Estados intermedios, al final:** con los envíos creados en el paso anterior se avanza el ciclo (asignado, retiro, en camino, entrega, calificación, disputa, soporte) y se captura en cada estado. Hacen falta dos cuentas de prueba (emisor y transportista) y una tercera, o la misma, como receptor.
+4. **Panel web:** al final o en paralelo, en Chrome.
 
 ## Flujo de trabajo
 
@@ -79,9 +86,9 @@ El marco de cada captura pasa de «Captura pendiente» a la imagen. La lista del
 | Registro y KYC | M-04 a M-12 | **Manual o parcial.** El registro crea una cuenta nueva (usá un teléfono de prueba extra) y el KYC real de Didit necesita la cámara, que el simulador no tiene. Para los resultados de KYC (M-11, M-12) se usan cuentas de prueba que ya estén en cada estado. |
 | Inicio, Mis envíos, perfiles, ajustes | M-14 a M-16, M-25, M-26, M-68 a M-72, M-80 a M-92 | Maestro, solo lectura. Es lo más fácil. |
 | Wizard de envío | M-17 a M-24 | Maestro hasta el resumen, sin confirmar. Las fotos (M-22) necesitan imagen: el simulador permite agregar fotos a la galería con `xcrun simctl addmedia booted foto.jpg`. |
-| Ofertas, pago, tarjeta | M-31 a M-37, M-51 a M-54, M-74 a M-79 | Requieren un envío en el estado adecuado. Se arma antes con dos cuentas de prueba (emisor y transportista). Las tarjetas de prueba de Mercado Pago están en `docs/payments/mercadopago-spike/README.md`. |
-| Retiro, entrega, QR, escaneo | M-38, M-46, M-60 a M-66 | **Manual.** El escaneo necesita la cámara y la proximidad de 100 m. En el simulador, `xcrun simctl location booted set LAT,LNG` fija la posición del transportista; el QR del emisor se captura en una pantalla y no se escanea. |
-| Seguimiento y ruta | M-39, M-59 | Necesita un envío en camino con posición reportada. El mapa depende de las claves de Google Maps (si no están cargadas, el mapa sale gris). |
+| Ofertas, pago, tarjeta | M-31 a M-37, M-51 a M-54, M-74 a M-79 | Requieren un envío en el estado adecuado: se crea con las cuentas de prueba (emisor y transportista) y se avanza en el orden del paso 3. Las tarjetas de prueba de Mercado Pago están en `docs/payments/mercadopago-spike/README.md`. |
+| Retiro, entrega, QR, escaneo | M-38, M-46, M-60 a M-66 | **Manual o parcial.** El escaneo necesita la cámara y la proximidad de 100 m. En el simulador, `xcrun simctl location booted set LAT,LNG` fija la posición del transportista; el QR del emisor se captura en una pantalla y no se escanea. |
+| Seguimiento y ruta | M-39, M-59 | Necesita un envío en camino con posición reportada. El mapa usa la clave de Google Maps del build; si sale gris, la clave del build no está cargada o no autoriza el bundle id (ver `app.config.js`). |
 | Chat y soporte | M-40, M-41, M-88 a M-90 | Maestro, con un envío asignado y una consulta existente. |
 | Push | M-93 | `xcrun simctl push booted <bundle-id> push.json` con un JSON de ejemplo. |
 | Panel web | W-01 a W-15 | Claude in Chrome (ver abajo). |
