@@ -10,10 +10,9 @@ import {
   AdminUserKyc,
   AdminUserListItem,
   AdminUserModeration,
-  AdminUserNames,
+  AdminUserNameRef,
   AdminUserPage,
   AdminUserProfile,
-  AdminUserRef,
   AdminUserVehicle,
   UserReportParties,
 } from "@movo/shared";
@@ -49,7 +48,8 @@ export interface UsersClient extends InternalClient {
   getUserModeration(userId: string, ctx: RequestContext): Promise<AdminUserModeration>;
   getUserDevices(userId: string, ctx: RequestContext): Promise<AdminUserDevices>;
   /** Nombres de los ids que existen; los demás no vuelven. */
-  getUserNames(userIds: string[], ctx: RequestContext): Promise<AdminUserRef[]>;
+  /** Con los roles de la cuenta (MOVO-322: la bandeja de soporte distingue transportistas). */
+  getUserNames(userIds: string[], ctx: RequestContext): Promise<AdminUserNameRef[]>;
   revokeUserSessions(userId: string, actorId: string, ctx: RequestContext): Promise<AdminSessionsRevokeResult>;
   updateUserContact(
     userId: string,
@@ -67,7 +67,6 @@ export interface UsersClient extends InternalClient {
 const isNumber = (value: unknown): value is number => typeof value === "number";
 const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
 const isArrayOf = <T>(value: unknown, guard: (item: unknown) => item is T): value is T[] => Array.isArray(value) && value.every(guard);
-const isUserRef = (value: unknown): value is AdminUserRef => isRecord(value) && isString(value.id) && isString(value.fullName);
 
 const isListItem = (value: unknown): value is AdminUserListItem =>
   isRecord(value) && isString(value.id) && isString(value.fullName) && isString(value.email) && isStringArray(value.roles) && isString(value.accountStatus);
@@ -104,7 +103,12 @@ const isModeration = (body: unknown): body is AdminUserModeration =>
 const isDevices = (body: unknown): body is AdminUserDevices =>
   isRecord(body) && Array.isArray(body.devices) && (body.handshakeKey === null || isRecord(body.handshakeKey));
 
-const isNames = (body: unknown): body is AdminUserNames => isRecord(body) && isArrayOf(body.users, isUserRef);
+// `roles` llegó con MOVO-322: una versión de svc-users que todavía no lo manda (deploy en serie) no es una respuesta
+// inválida, sino una sin roles; el cliente lo completa con `[]`.
+type WireNameRef = Omit<AdminUserNameRef, "roles"> & { roles?: string[] };
+const isNameRef = (value: unknown): value is WireNameRef =>
+  isRecord(value) && isString(value.id) && isString(value.fullName) && (value.roles === undefined || isStringArray(value.roles));
+const isNames = (body: unknown): body is { users: WireNameRef[] } => isRecord(body) && isArrayOf(body.users, isNameRef);
 
 const isRevokeResult = (body: unknown): body is AdminSessionsRevokeResult => isRecord(body) && isNumber(body.revokedRefreshTokens);
 
@@ -245,7 +249,7 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
         isValid: isNames,
         notFoundCodes: [],
       });
-      return result?.users ?? [];
+      return (result?.users ?? []).map((user) => ({ id: user.id, fullName: user.fullName, roles: user.roles ?? [] }));
     },
 
     async revokeUserSessions(userId, actorId, ctx) {
