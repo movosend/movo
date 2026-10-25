@@ -18,7 +18,11 @@ import {
 } from "../../src/lib/active-shipment-format";
 import { formatUnreadCount } from "../../src/lib/chat-format";
 import { pushOnce } from "../../src/lib/navigation-guard";
-import { formatPickupWindowLabel, pickupLocalityLabel, shortAddressLabel } from "../../src/lib/shipment-format";
+import {
+  pickupLocalityLabel,
+  shortAddressLabel,
+} from "../../src/lib/shipment-format";
+import { formatTimeRange } from "../../src/lib/time-format";
 import { GradientBorderCard } from "../ui/gradient-border-card";
 
 const STEP_ICONS = [MapPin, Route, Package, Flag];
@@ -271,7 +275,7 @@ export function ActiveShipmentCard({
               : shortAddressLabel(shipment.pickupAddress)}
           </Text>
           <Text className="font-mono text-caption text-fg-3">
-            {formatPickupWindowLabel(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd)}
+            {formatTimeRange(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd)}
           </Text>
         </View>
         <View className="min-w-0 flex-1 items-end gap-0.5">

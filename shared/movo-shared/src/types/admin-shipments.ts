@@ -4,6 +4,7 @@
  * internos y completa con `svc-users` y `svc-payments`.
  */
 import { ShipmentStatus } from "./shipment";
+import type { OfferStatus } from "./offer";
 import type { ChatAccess, ChatParticipantRole } from "./chat";
 import type { HoldDetailResponse } from "./hold";
 
@@ -117,9 +118,39 @@ export interface AdminShipmentEvent {
   fromStatus: `${ShipmentStatus}` | null;
   toStatus: `${ShipmentStatus}`;
   actorId: string | null;
+  /** MOVO-331: nombre del admin si lo hizo el panel (`kind` distinto de `normal`); `null` en el resto. */
+  actorName: string | null;
   reason: string | null;
+  /** MOVO-331 (ADR-055): `manual` = transición normal hecha por un admin, `forced` = con efectos distintos del camino normal. */
+  kind: ShipmentEventKind;
   createdAt: string;
 }
+
+/** MOVO-331 (ADR-055): quién y cómo originó el cambio de estado. Inmutable una vez escrito. */
+export type ShipmentEventKind = "normal" | "manual" | "forced";
+
+/** `POST /internal/admin/shipments/:id/force-status` (lo llama `svc-admin`). */
+export interface ForceShipmentStatusRequest {
+  targetStatus: `${ShipmentStatus}`;
+  /** El estado que vio el admin: si el actual es otro, 409 `STATUS_CHANGED`. */
+  expectedStatus: `${ShipmentStatus}`;
+  reason: string;
+  adminId: string;
+  adminName: string;
+  idempotencyKey: string;
+}
+
+export interface ForceShipmentStatusResponse {
+  shipmentId: string;
+  fromStatus: `${ShipmentStatus}`;
+  toStatus: `${ShipmentStatus}`;
+  kind: Exclude<ShipmentEventKind, "normal">;
+  /** `true` si es la respuesta guardada de una `idempotencyKey` ya ejecutada. */
+  replayed: boolean;
+}
+
+export const FORCE_STATUS_REASON_MIN_LENGTH = 20;
+export const FORCE_STATUS_REASON_MAX_LENGTH = 500;
 
 /** Foto de retiro o entrega, con URL firmada de vida corta. */
 export interface AdminShipmentPhoto {
@@ -127,6 +158,43 @@ export interface AdminShipmentPhoto {
   stage: "creation" | "pickup" | "delivery";
   url: string;
   createdAt: string;
+}
+
+/**
+ * Oferta de un transportista sobre el envío, con su estado efectivo (una `pending` vencida viene como
+ * `expired`). Los montos son los de la oferta: `priceArs` es el bruto que paga el emisor y el resto sale de
+ * `decomposeOfferGrossPrice`/`estimateReceivedArs`, los mismos que muestra mobile en "Cómo se reparte".
+ */
+export interface AdminShipmentOffer {
+  id: string;
+  carrierId: string;
+  /** Nombre y reputación del transportista al momento de ofertar (snapshot, no el valor actual). */
+  carrierName: string | null;
+  carrierRatingAtOffer: number | null;
+  status: `${OfferStatus}`;
+  priceArs: number;
+  netArs: number;
+  commissionArs: number;
+  /** Tasa de Movo con la que se calculó el desglose (la vigente al leer, no se guarda con la oferta). */
+  commissionRate: number;
+  /** Estimado de lo que descuenta Mercado Pago (MOVO-225), no el monto real del pago. */
+  mpFeeEstimateArs: number;
+  receivedEstimateArs: number;
+  /** `YYYY-MM-DD` del retiro propuesto. */
+  offeredDate: string;
+  /** `HH:MM`. `null` = la misma franja que pidió el emisor. */
+  pickupTimeWindowStart: string | null;
+  pickupTimeWindowEnd: string | null;
+  estimatedDeliveryDate: string | null;
+  estimatedDeliveryTimeWindowStart: string | null;
+  estimatedDeliveryTimeWindowEnd: string | null;
+  message: string | null;
+  tripId: string | null;
+  createdAt: string;
+  /** Primera vez que el emisor la vio; `null` si nunca. */
+  viewedAtBySender: string | null;
+  respondedAt: string | null;
+  expiresAt: string | null;
 }
 
 /** Estado del pago de `svc-payments`. */
@@ -159,6 +227,13 @@ export interface AdminShipmentDetail extends AdminShipmentRow {
   heightCm: number;
   description: string | null;
   urgent: boolean;
+  /**
+   * Retiro que pidió el emisor al publicar (`YYYY-MM-DD`, `HH:MM`). Al aceptar una oferta, `pickupDate` y la
+   * franja pasan a ser los acordados (MOVO-258 D3); estos no cambian.
+   */
+  requestedPickupDate: string;
+  requestedPickupTimeWindowStart: string;
+  requestedPickupTimeWindowEnd: string;
   pickupLat: number;
   pickupLng: number;
   deliveryLat: number;
@@ -181,6 +256,8 @@ export interface AdminShipmentDetailResponse {
   shipment: AdminShipmentDetail;
   events: AdminBlock<AdminShipmentEvent[]>;
   photos: AdminBlock<AdminShipmentPhoto[]>;
+  /** Todas las ofertas, de la más vieja a la más nueva. */
+  offers: AdminBlock<AdminShipmentOffer[]>;
   payment: AdminBlock<AdminShipmentPayment>;
   parties: AdminBlock<AdminShipmentPartyCard[]>;
 }
@@ -216,4 +293,140 @@ export interface AdminChatPage {
   reports: AdminChatReport[];
   /** Eventos del envío, para intercalar en el hilo por fecha. */
   events: AdminShipmentEvent[];
+}
+
+/** Cada cuántos segundos el panel vuelve a pedir el seguimiento (MOVO-327, polling provisorio hasta el WS del panel). */
+export const ADMIN_TRACKING_POLL_INTERVAL_SECONDS = 15;
+
+/** `no_carrier` sin transportista, `not_started` sin retiro, `live` en camino, `closed` con la traza guardada. */
+export type AdminTrackingState = "not_started" | "live" | "closed" | "no_carrier";
+
+/** Motivo de un `state` distinto de `live`; el texto lo arma el panel. */
+export type AdminTrackingReason =
+  | "awaiting_pickup"
+  | "unfunded"
+  | "delivered"
+  | "completed"
+  | "disputed"
+  | "cancelled"
+  | "no_carrier";
+
+export interface AdminTrackingPlace {
+  lat: number;
+  lng: number;
+  /** Ciudad o, si no hay, la dirección. */
+  label: string;
+}
+
+export interface AdminTrackingPoint {
+  lat: number;
+  lng: number;
+  capturedAt: string;
+}
+
+export interface AdminTrackingMetrics {
+  /** Aproximada: sale de los puntos persistidos (uno cada 45 s). `null` sin señal o con menos de 2 puntos. */
+  avgSpeedKmh5m: number | null;
+  remainingMeters: number | null;
+  progressPct: number | null;
+  /** `null` sin señal. */
+  etaAt: string | null;
+}
+
+/** `GET /admin/shipments/:id/tracking` (MOVO-327). La posición solo se ve con el envío en camino. */
+export interface AdminShipmentTracking {
+  shipmentId: string;
+  shipmentStatus: `${ShipmentStatus}`;
+  state: AdminTrackingState;
+  reason: AdminTrackingReason | null;
+  origin: AdminTrackingPlace;
+  destination: AdminTrackingPlace;
+  /** Polyline encoded de Google (5 decimales). `null` sin transportista o si el proveedor falló. */
+  plannedRoute: { polyline: string; distanceMeters: number; durationSeconds: number } | null;
+  /** Cronológica, del retiro a la entrega (o a ahora). */
+  trace: AdminTrackingPoint[];
+  /** La traza pasó el tope y se submuestreó (conserva el primer y el último punto). */
+  traceTruncated: boolean;
+  /** `false` si no hay puntos: sin retiro todavía o purgada por retención (ADR-023). */
+  traceAvailable: boolean;
+  lastPosition: { lat: number; lng: number; accuracyM: number | null; capturedAt: string } | null;
+  lastPingAt: string | null;
+  signalLost: boolean;
+  /** En camino con la anomalía de `in_transit` marcada (ADR-045). */
+  delayed: boolean;
+  /** Solo con `state: "live"`. */
+  metrics: AdminTrackingMetrics | null;
+  serverTime: string;
+  pollIntervalSeconds: number;
+}
+
+// MOVO-332: cambio de estado desde el panel (ADR-055).
+
+/** Vigencia del código de 6 dígitos del step-up y del token que se obtiene al verificarlo. */
+export const STEP_UP_CODE_TTL_SECONDS = 300;
+export const STEP_UP_TOKEN_TTL_SECONDS = 300;
+
+/** `POST /admin/shipments/:id/status`. */
+export interface ChangeShipmentStatusRequest {
+  targetStatus: `${ShipmentStatus}`;
+  /** El estado que vio el admin: si el actual es otro, 409 `STATUS_CHANGED`. */
+  expectedStatus: `${ShipmentStatus}`;
+  reason: string;
+  /** El código del envío (`AdminShipmentRow.code`), obligatorio si el riesgo del destino es alto o crítico. */
+  typedCode?: string;
+  /** El token de `POST /admin/step-up/verify`, obligatorio si la transición es forzada o crítica. */
+  stepUpToken?: string;
+  idempotencyKey: string;
+}
+
+export type ChangeShipmentStatusResponse = ForceShipmentStatusResponse;
+
+/** Un destino permitido desde el estado actual, con lo que el panel muestra antes de confirmar. */
+export interface ShipmentStatusOption {
+  targetStatus: `${ShipmentStatus}`;
+  kind: "manual" | "forced";
+  risk: "medium" | "high" | "critical";
+  effects: string[];
+  notifies: Array<"sender" | "receiver" | "carrier">;
+  requiresTypedCode: boolean;
+  requiresStepUp: boolean;
+}
+
+export interface ShipmentStatusBlocked {
+  targetStatus: `${ShipmentStatus}`;
+  reason: string;
+}
+
+/** `GET /admin/shipments/:id/status-options`. */
+export interface ShipmentStatusOptions {
+  current: `${ShipmentStatus}`;
+  /** Código para tipear cuando alguna opción lo pide (`requiresTypedCode`). */
+  code: string;
+  options: ShipmentStatusOption[];
+  blocked: ShipmentStatusBlocked[];
+}
+
+/** `POST /admin/step-up`: manda un código de 6 dígitos al email del admin, atado a esta acción. */
+export interface StepUpRequest {
+  shipmentId: string;
+  targetStatus: `${ShipmentStatus}`;
+}
+
+export interface StepUpChallenge {
+  challengeId: string;
+  /** Email al que salió el código, enmascarado. */
+  maskedEmail: string;
+  cooldownSeconds: number;
+  expiresInSeconds: number;
+}
+
+/** `POST /admin/step-up/verify`. */
+export interface StepUpVerifyRequest extends StepUpRequest {
+  challengeId: string;
+  code: string;
+}
+
+export interface StepUpToken {
+  stepUpToken: string;
+  expiresInSeconds: number;
 }

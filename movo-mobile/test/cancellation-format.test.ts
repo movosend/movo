@@ -18,7 +18,7 @@ describe("formatCancellationDateTime", () => {
     const date = new Date(iso);
     const hh = String(date.getHours()).padStart(2, "0");
     const mm = String(date.getMinutes()).padStart(2, "0");
-    expect(formatCancellationDateTime(iso)).toMatch(new RegExp(`^\\S+ ${date.getDate()} \\S+ a las ${hh}:${mm}$`));
+    expect(formatCancellationDateTime(iso)).toMatch(new RegExp(`^\\S+ ${date.getDate()} \\S+ a las ${hh}:${mm} h$`));
     expect(formatCancellationDateTime("no-es-fecha")).toBeNull();
     expect(formatCancellationDateTime(null)).toBeNull();
   });

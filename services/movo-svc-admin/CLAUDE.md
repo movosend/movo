@@ -137,6 +137,47 @@ Pendiente: el detalle del pago solo trae el hold (captura/reembolso viven en liq
 MOVO-326 suma a `GET /admin/shipments` el filtro `alert` (booleano) y, en la respuesta, `statusCounts` y `alertCounts`; se
 validan en `shipments.schema.ts` y se reenvían tal cual (ver `svc-shipments/HISTORIAL.md`).
 
+### Ofertas del envío en el detalle
+
+`GET /admin/shipments/:id` suma el bloque `offers` (`AdminBlock<AdminShipmentOffer[]>`), pedido en paralelo a
+`GET /internal/admin/shipments/:id/offers` de `svc-shipments` (`shipments-client.ts#getAdminShipmentOffers`). Va como bloque y no
+como ruta propia, así no hace falta tocar el gateway; si `svc-shipments` todavía no tiene la ruta (deploy en serie), el 404 sin
+`NOT_FOUND` es 502 y solo ese bloque viene con error. Schema de respuesta con la lista cerrada de campos de la oferta.
+
+### MOVO-327 — Seguimiento del envío: `GET /admin/shipments/:id/tracking`
+
+Pasa tal cual el `AdminShipmentTracking` de `svc-shipments` (`shipments-client.ts#getAdminShipmentTracking`; el cálculo está en su
+`HISTORIAL.md`) con rol admin, sin bitácora ni regla de conflicto y con `Cache-Control: no-store`, porque el panel (MOVO-328) lo pide
+por polling. Es ruta propia y no un bloque del detalle, así el polling no vuelve a pedir el detalle entero; el gateway no se toca porque
+rutea `/admin/*` por prefijo. El schema declara nullable cada campo que puede venir en `null`. Deploy en serie: hasta que `svc-shipments`
+tenga la ruta, es 502.
+
+### MOVO-332 — Cambio de estado de un envío desde el panel (ADR-055)
+
+`modules/shipments/shipments.routes.ts` suma cuatro rutas: `GET /admin/shipments/:id/status-options`, `POST /admin/step-up`,
+`POST /admin/step-up/verify` y `POST /admin/shipments/:id/status`. La lógica de transición es de `svc-shipments`
+(`POST /internal/admin/shipments/:id/force-status`, MOVO-331); acá van la regla de conflicto, la bitácora, el segundo factor y los límites.
+
+- **`status-options`** sale solo de la matriz de `@movo/shared` (`getForcedTransitionDetails`, `forcedTransitionFriction`,
+  `blockedTransitionReason`): el panel no calcula nada. Devuelve también el código del envío que hay que tipear. Lectura, sin bitácora.
+- **`POST .../status`** es `runAdminAction` (`shipment.status_change`). Las validaciones (motivo ≥ 20, `expectedStatus`, par permitido,
+  `typedCode`, falta de `stepUpToken`, **validación sin gastar** del token, identificar al admin) van en el `precheck`: corren después de la regla de
+  conflicto y, como son lecturas, la fila es `failed` aunque otro servicio no responda. `forceShipmentStatus` va en la acción y **el token se gasta
+  después**, solo si el cambio se aplicó o no se sabe (un rechazo de negocio no lo quema, review de PR #305). El nombre del admin falla cerrado (502).
+- **Idempotencia** (`status-change-records.ts`, Redis, 24 h, por admin + envío + clave): `done` devuelve la respuesta con `replayed: true` antes del rate
+  limit y sin fila nueva; `unknown` (svc-shipments no respondió) hace que el reintento no pida el token ni compare `expectedStatus` y vuelva a
+  `svc-shipments`, que resuelve el replay. Otra clave de destino distinto: 409 `IDEMPOTENCY_KEY_REUSED`. Guardar el registro es best-effort.
+- **`POST /admin/step-up`** exige que el envío exista y que el par esté en la matriz y pida segundo factor (404/422/400); no manda un email por cualquier par.
+- **Un 429 del rate limit deja una fila por admin y envío por ventana** (flag `NX` de 60 s en Redis), no una por rechazo.
+- **Bitácora: una fila por intento** (salvo los 429, ver abajo), rechazos incluidos. El "antes y después" del ticket (AC5) lo cubre `unknown`: la tabla es de solo agregar
+  filas (trigger), así que no hay una fila previa. Detalle en el ADR-055.
+- **`internal-client.ts` ahora propaga `details`** de un 4xx (antes se descartaban), y tiene `relayServerErrorCodes`: `FORCE_STATUS_EFFECT_FAILED` es
+  un 502 de negocio que no debe leerse como "servicio caído" (la fila sería `unknown`, y es un `failed`). Los schemas de error de
+  `shipments.schema.ts` declaran `details`: sin eso Fastify los recortaba y el panel no podía explicar `STATUS_CHANGED`/`TRANSITION_NOT_ALLOWED`.
+- **Rate limit** (`utils/rate-limit.ts`, ventana fija en Redis): 10 cambios/min por admin y 5/min por envío; cuenta también los intentos
+  rechazados y se aplica antes de la bitácora (un 429 no deja fila). El `forceShipmentStatus` espera hasta 30 s (el servicio llama a payments).
+- Pendiente: el modal del panel (MOVO-333); probar contra dev real que el email del step-up llega (Resend).
+
 ### MOVO-322 — Bandeja de soporte: `/admin/support/*`
 
 `modules/support/` sobre `adapters/support-client.ts` (`/internal/admin/support/*` de `svc-shipments`; un fallo es 502
@@ -146,6 +187,6 @@ validan en `shipments.schema.ts` y se reenvían tal cual (ver `svc-shipments/HIS
   fila es `carrier` si la cuenta lo tiene, `sender` si no. La búsqueda por nombre consulta `svc-users` y manda los ids.
 - Toda escritura por `runAdminAction` con objetivo `support_conversation` (migración `20261025130000_…` del enum de la
   bitácora; caso nuevo en `conflict-of-interest.ts`). El actor viaja en el body; si `svc-users` no responde firma "Equipo de Movo".
-- `GET events` lee el Redis Stream `support:events` (ADR-055, `support-events.ts`): cursor = id de la entrada, `reset` si es
+- `GET events` lee el Redis Stream `support:events` (ADR-056, `support-events.ts`): cursor = id de la entrada, `reset` si es
   más viejo que lo retenido, y los `counts_changed` se juntan en un `counts_updated` con los contadores del admin que mira.
 - Pendiente: `POST realtime-ticket` y el WebSocket del panel (segunda PR de MOVO-322).

@@ -71,3 +71,38 @@ describe("AddressStep — error inline de ubicaciones muy cercanas", () => {
     expect(queryByTestId("address-step-same-location-error")).toBeNull();
   });
 });
+
+describe("MOVO-340: fecha de retiro por defecto", () => {
+  // 13:00 del 24/10 en Argentina: todavía queda la franja de las 18:00.
+  const NOW = new Date("2026-10-24T16:00:00.000Z");
+
+  it("con la fecha que trae el formulario y una franja que queda, el paso es válido sin tocar la fecha", () => {
+    const state = { pickup: CORDOBA, delivery: FAR_AWAY, pickupDate: "2026-10-24", pickupTimeWindowStart: "18:00", pickupTimeWindowEnd: "22:00" };
+    expect(isAddressStepValid(state, NOW)).toBe(true);
+  });
+
+  it("una franja de hoy que ya empezó no es válida", () => {
+    const state = { pickup: CORDOBA, delivery: FAR_AWAY, pickupDate: "2026-10-24", pickupTimeWindowStart: "09:00", pickupTimeWindowEnd: "12:00" };
+    expect(isAddressStepValid(state, NOW)).toBe(false);
+  });
+
+  it("un día que ya pasó en Argentina no es válido aunque en UTC sea el mismo día", () => {
+    // 23:30 del 24/10 en Argentina (02:30 del 25/10 UTC).
+    const state = { pickup: CORDOBA, delivery: FAR_AWAY, pickupDate: "2026-10-23", pickupTimeWindowStart: "18:00", pickupTimeWindowEnd: "22:00" };
+    expect(isAddressStepValid(state, new Date("2026-10-25T02:30:00.000Z"))).toBe(false);
+  });
+
+  it("el wizard arranca con el primer día con franjas, y un día vencido se reemplaza al abrir el paso", async () => {
+    jest.useFakeTimers({ now: NOW });
+    try {
+      useShipmentWizardStore.getState().resetWizard();
+      expect(useShipmentWizardStore.getState().pickupDate).toBe("2026-10-24");
+
+      useShipmentWizardStore.getState().setPickupDate("2026-10-20");
+      await render(<AddressStep />);
+      expect(useShipmentWizardStore.getState().pickupDate).toBe("2026-10-24");
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

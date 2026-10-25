@@ -24,7 +24,9 @@ export interface RegisterAddress {
 }
 
 export interface RegisterRequest {
-  fullName: string;
+  /** MOVO-340: por separado, así un nombre compuesto no se corre al apellido. */
+  firstName: string;
+  lastName: string;
   email: string;
   phone: string;
   password: string;

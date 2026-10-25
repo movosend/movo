@@ -37,6 +37,9 @@ export const placesSchemas = {
           properties: {
             placeId: { type: "string" },
             description: { type: "string" },
+            // MOVO-340: solo en una búsqueda por coordenadas (el cliente no llama a /details).
+            lat: { type: "number" },
+            long: { type: "number" },
           },
         },
       },

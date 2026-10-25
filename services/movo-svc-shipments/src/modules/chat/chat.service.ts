@@ -131,12 +131,26 @@ export function createChatService(deps: ChatServiceDeps) {
     return new Set(await safeBlockRelatedUserIds(deps.usersClient, userId, deps.logger));
   }
 
-  /** Los demás integrantes que cuentan para los tildes de un mensaje de `authorId`. */
-  async function receiptOthers(shipment: Shipment, authorId: string, blocked: Set<string>): Promise<ChatReceiptState[]> {
+  /**
+   * Los demás integrantes que cuentan para los tildes de un mensaje de `authorId`, según cuándo se mandó.
+   * MOVO-340: un mensaje anterior a una transferencia de receptor se mide contra los integrantes de ese
+   * momento (con el receptor original), así no vuelve de "Leído" a "Enviado" cuando se suma el nuevo.
+   */
+  async function receiptOthers(
+    shipment: Shipment,
+    authorId: string,
+    blocked: Set<string>
+  ): Promise<(messageCreatedAt: Date) => ChatReceiptState[]> {
     const states = await deps.chatRepository.listReceiptStates(shipment.id);
-    return chatParties(shipment)
-      .filter((id) => id !== authorId && !blocked.has(id))
-      .map((userId) => states.find((s) => s.userId === userId) ?? { userId, lastDeliveredAt: null, lastReadAt: null });
+    const othersAmong = (parties: string[]) =>
+      parties
+        .filter((id) => id !== authorId && !blocked.has(id))
+        .map((userId) => states.find((s) => s.userId === userId) ?? { userId, lastDeliveredAt: null, lastReadAt: null });
+    const current = othersAmong(chatParties(shipment));
+    const transferredAt = shipment.receiverTransferredAt;
+    if (!shipment.formerReceiverId || !transferredAt) return () => current;
+    const before = othersAmong(chatParties({ ...shipment, receiverId: shipment.formerReceiverId }));
+    return (messageCreatedAt) => (messageCreatedAt < transferredAt ? before : current);
   }
 
   /** Avisa a los demás integrantes conectados que `actingUserId` recibió o leyó hasta `upTo`. */
@@ -346,7 +360,7 @@ export function createChatService(deps: ChatServiceDeps) {
       const existing = await deps.chatRepository.findByClientMessageId(shipment.id, input.callerId, input.clientMessageId);
       if (existing) {
         const blocked = await blockedWith(input.callerId);
-        const deliveryStatus = computeDeliveryStatus(existing.createdAt, await receiptOthers(shipment, input.callerId, blocked));
+        const deliveryStatus = computeDeliveryStatus(existing.createdAt, (await receiptOthers(shipment, input.callerId, blocked))(existing.createdAt));
         return { message: toChatMessageDto(existing, { deliveryStatus }), replayed: true };
       }
 
@@ -423,7 +437,7 @@ export function createChatService(deps: ChatServiceDeps) {
         );
       }
 
-      const deliveryStatus = computeDeliveryStatus(message.createdAt, await receiptOthers(shipment, input.callerId, blocked));
+      const deliveryStatus = computeDeliveryStatus(message.createdAt, (await receiptOthers(shipment, input.callerId, blocked))(message.createdAt));
       const dto = toChatMessageDto(message, { deliveryStatus });
       if (created) {
         // Los otros dispositivos del autor ven su mensaje con los tildes que ya tiene.
@@ -461,15 +475,15 @@ export function createChatService(deps: ChatServiceDeps) {
 
       // El admin ve todo (evidencia de disputa); las demás personas no ven lo de quien tienen bloqueado.
       const blocked = isAdminOnly ? new Set<string>() : await blockedWith(input.callerId);
-      const others = page.items.some((m) => m.authorId === input.callerId)
+      const othersAt = page.items.some((m) => m.authorId === input.callerId)
         ? await receiptOthers(shipment, input.callerId, blocked)
-        : [];
+        : () => [];
 
       const items = page.items.map((record) => {
         const own = record.authorId === input.callerId;
         return toChatMessageDto(record, {
           hidden: !own && blocked.has(record.authorId),
-          deliveryStatus: own ? computeDeliveryStatus(record.createdAt, others) : null,
+          deliveryStatus: own ? computeDeliveryStatus(record.createdAt, othersAt(record.createdAt)) : null,
         });
       });
 
@@ -492,10 +506,12 @@ export function createChatService(deps: ChatServiceDeps) {
         throw new ApiError(409, "CHAT_CLOSED", "El chat de este envío ya no está disponible.");
       }
       const at = now();
-      // Quien solo mira (el receptor original o el admin) también baja su contador de no leídos: la lista le muestra
-      // el envío y, si no, su badge solo crece. Pero su lectura no avisa a los demás ni mueve sus tildes.
+      // Quien solo mira (el admin) también baja su contador de no leídos: la lista le muestra el envío y, si no, su
+      // badge solo crece. Pero su lectura no avisa a los demás ni mueve sus tildes. La excepción es el receptor
+      // anterior a una transferencia (MOVO-340): los tildes de los mensajes previos a la transferencia se miden contra
+      // él (`receiptOthers`), así que su lectura sí se avisa.
       await deps.chatRepository.markRead(shipment.id, input.callerId, at);
-      if (chatParties(shipment).includes(input.callerId)) {
+      if (chatParties(shipment).includes(input.callerId) || input.callerId === shipment.formerReceiverId) {
         await emitReceipt(shipment, input.callerId, "read", at);
       }
       return { readAt: at.toISOString() };

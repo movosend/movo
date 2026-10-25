@@ -52,6 +52,8 @@ describe("respuesta de soporte (MOVO-320)", () => {
     expect(renderNotificationTrigger("supportMessageReceived", { agentName: "Lucía", messageBody: "Listo", count: 3 }).body).toBe(
       "3 mensajes nuevos · Lucía: Listo"
     );
+  });
+});
 
 describe("settlementDelayedCarrier (MOVO-213)", () => {
   it("avisa que el cobro está en revisión y en cuánto se resuelve", () => {

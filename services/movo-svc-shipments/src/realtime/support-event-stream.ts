@@ -7,7 +7,7 @@ import {
 } from "@movo/shared";
 
 /**
- * MOVO-322 (ADR-055): escribe los eventos de soporte para el panel en el Redis Stream `support:events`, que lee
+ * MOVO-322 (ADR-056): escribe los eventos de soporte para el panel en el Redis Stream `support:events`, que lee
  * `svc-admin` (WebSocket del panel y `GET /admin/support/events`). Primera comunicación asíncrona entre servicios: no
  * es un broker ni una cola de trabajo, es un registro corto (`MAXLEN ~`) que hace de cursor para el panel. El id de
  * la entrada (`<ms>-<seq>`) es monótono, que es lo que pide el cursor de `GET events`.

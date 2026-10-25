@@ -1,22 +1,20 @@
 import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import { getFirstName } from "./profile-format";
 import { formatEventTimestamp, redesignationDeadlineLabel } from "./shipment-format";
-
-/** Hora en 24 h ("09:20"), como en los pasos del prototipo: alinea en la columna mono. */
-const TIME_FORMATTER = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
+import { formatTimeOfDay } from "./time-format";
 
 const DAY_FORMATTER = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
 
+/** Hora en 24 h ("09:20 h"), como en los pasos del prototipo: alinea en la columna mono. */
 function formatTime(iso: string): string | null {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? null : TIME_FORMATTER.format(date);
+  return formatTimeOfDay(iso) || null;
 }
 
-/** "10 oct 09:20": fecha corta y hora en 24 h, mismo formato que la hora de los pasos. */
+/** "10 oct 09:20 h": fecha corta y hora en 24 h, mismo formato que la hora de los pasos. */
 function formatDayTime(iso: string): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  return `${DAY_FORMATTER.format(date).replace(".", "")} ${TIME_FORMATTER.format(date)}`;
+  return `${DAY_FORMATTER.format(date).replace(".", "")} ${formatTimeOfDay(date)}`;
 }
 
 /**
@@ -222,12 +220,12 @@ export function receiverTransferSteps(
 
 const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("es-AR", { weekday: "short" });
 
-/** Fecha para el banner del receptor original: "vie 10 oct a las 09:20". */
+/** Fecha para el banner del receptor original: "vie 10 oct a las 09:20 h". */
 export function formatTransferDate(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
   const weekday = WEEKDAY_FORMATTER.format(date).replace(".", "");
   const day = DAY_FORMATTER.format(date).replace(".", "");
-  return `${weekday} ${day} a las ${TIME_FORMATTER.format(date)}`;
+  return `${weekday} ${day} a las ${formatTimeOfDay(date)}`;
 }

@@ -50,13 +50,13 @@ const LAST_REJECTION_INCLUDE = {
   receiverTransfers: {
     where: { status: "completed" },
     take: 1,
-    select: { requestedBy: true },
+    select: { requestedBy: true, resolvedAt: true },
   },
 } satisfies Prisma.ShipmentInclude;
 
 type ShipmentRowWithLastRejection = ShipmentRow & {
   events: Array<{ reason: string | null }>;
-  receiverTransfers: Array<{ requestedBy: string }>;
+  receiverTransfers: Array<{ requestedBy: string; resolvedAt: Date | null }>;
 };
 
 function mapShipmentWithLastRejection(row: ShipmentRowWithLastRejection): Shipment {
@@ -65,6 +65,7 @@ function mapShipmentWithLastRejection(row: ShipmentRowWithLastRejection): Shipme
   return {
     ...mapShipmentRow(row, rejectionReason),
     formerReceiverId: row.receiverTransfers[0]?.requestedBy ?? null,
+    receiverTransferredAt: row.receiverTransfers[0]?.resolvedAt ?? null,
   };
 }
 
@@ -83,6 +84,7 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     lengthCm: row.lengthCm.toNumber(),
     widthCm: row.widthCm.toNumber(),
     heightCm: row.heightCm.toNumber(),
+    oversized: row.oversized,
     description: row.description,
     urgent: row.urgent,
     pickupAddress: row.pickupAddress,
@@ -129,6 +131,8 @@ function mapEvent(row: ShipmentEventRow): ShipmentEvent {
     actorId: row.actorId,
     assignmentCarrierId: row.assignmentCarrierId,
     reason: row.reason,
+    kind: row.kind,
+    actorName: row.actorName,
     createdAt: row.createdAt,
   };
 }
@@ -359,6 +363,7 @@ interface AvailableShipmentRow {
   length_cm: string;
   width_cm: string;
   height_cm: string;
+  oversized: boolean;
   description: string | null;
   urgent: boolean;
   pickup_address: string;
@@ -387,6 +392,7 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
     lengthCm: Number(row.length_cm),
     widthCm: Number(row.width_cm),
     heightCm: Number(row.height_cm),
+    oversized: row.oversized,
     description: row.description,
     urgent: row.urgent,
     pickupAddress: row.pickup_address,
@@ -477,6 +483,11 @@ export interface UpdateStatusOptions {
    * disputa sin su expediente. Lanza `DisputeAlreadyOpenError` si ya había una abierta.
    */
   dispute?: NewDispute;
+  /**
+   * MOVO-331 (ADR-055): la transición la ejecuta un admin desde el panel. Queda en el evento
+   * (inmutable), con el nombre del admin como snapshot. Sin esto el evento es `normal`.
+   */
+  adminActor?: { kind: "manual" | "forced"; name: string };
 }
 
 /** MOVO-310: penalidad de una baja del transportista todavía sin registrar en su cuenta corriente. */
@@ -518,6 +529,11 @@ export interface SettlementCursor {
 
 export interface ShipmentRepository {
   claimCarrierWithdrawal(id: string, carrierId: string, from: ShipmentStatus, penaltyArs: number): Promise<boolean>;
+  /**
+   * MOVO-331: deshace el claim de una baja que todavía no avanzó (falló la liberación del hold), para que el
+   * envío vuelva a su estado original. Solo toca el claim de ese transportista.
+   */
+  releaseCarrierWithdrawalClaim(id: string, carrierId: string): Promise<void>;
   listPendingCarrierWithdrawals(limit: number, afterId?: string): Promise<Shipment[]>;
   create(input: CreateShipmentInput): Promise<Shipment>;
   /**
@@ -953,6 +969,13 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return count === 1;
     },
 
+    async releaseCarrierWithdrawalClaim(id, carrierId) {
+      await db.shipment.updateMany({
+        where: { id, carrierId, carrierWithdrawalPending: true },
+        data: { carrierWithdrawalPending: false, carrierWithdrawalPenaltyArs: null },
+      });
+    },
+
     async listPendingCarrierWithdrawals(limit, afterId) {
       const rows = await db.shipment.findMany({
         where: { carrierWithdrawalPending: true, ...(afterId && { id: { gt: afterId } }) },
@@ -973,6 +996,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             lengthCm: input.lengthCm,
             widthCm: input.widthCm,
             heightCm: input.heightCm,
+            oversized: input.oversized ?? false,
             description: input.description,
             urgent: input.urgent ?? false,
             pickupAddress: input.pickupAddress,
@@ -1270,6 +1294,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             assignmentCarrierId: revertsAssignment ? current.carrierId : null,
             reason: reason ?? null,
             attribution: options.pickupMiss?.attribution ?? null,
+            ...(options.adminActor && { kind: options.adminActor.kind, actorName: options.adminActor.name }),
           },
         });
 
@@ -1622,7 +1647,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         db.$queryRaw<AvailableShipmentRow[]>`
           WITH candidates AS (
             SELECT
-              id, package_type, weight_kg, length_cm, width_cm, height_cm, description,
+              id, package_type, weight_kg, length_cm, width_cm, height_cm, oversized, description,
               urgent, pickup_address, pickup_lat, pickup_lng, delivery_address,
               delivery_lat, delivery_lng, pickup_date, pickup_time_window_start,
               pickup_time_window_end, suggested_price_ars, calculation_method, status,

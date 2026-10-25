@@ -7,6 +7,8 @@
 // archivo, no hay razón para no compartirlas).
 const EMAIL_PATTERN = "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$";
 const PHONE_PATTERN = "^(\\+?54)?9?\\d{10}$";
+// Mismo patrón que users.schema.ts#NAME_FIELD_PATTERN (MOVO-133): no vacío ni solo espacios.
+const NAME_FIELD_PATTERN = "^\\S+(\\s+\\S+)*$";
 const PASSWORD_SCHEMA = {
   type: "string",
   minLength: 8,
@@ -17,8 +19,9 @@ export const authSchemas = {
   registerBody: {
     type: "object",
     additionalProperties: false,
+    // MOVO-340: o firstName + lastName (cliente actual) o fullName (cliente viejo).
+    anyOf: [{ required: ["firstName", "lastName"] }, { required: ["fullName"] }],
     required: [
-      "fullName",
       "email",
       "phone",
       "password",
@@ -31,10 +34,16 @@ export const authSchemas = {
       "privacyVersion",
     ],
     properties: {
+      // MOVO-340: nombre y apellido por separado, tal como los carga el formulario, así
+      // un nombre compuesto ("Juan Cruz" + "Bordino Blanche") se guarda como se escribió.
+      // Mismos límites que users.schema.ts#patchProfileBody (MOVO-133).
+      firstName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
+      lastName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
       fullName: {
         type: "string",
-        // Nombre y apellido (al menos dos palabras): la tabla persiste
-        // first_name/last_name por separado (ver migración de MOVO-66).
+        // Legado (builds del mobile anteriores a MOVO-340): nombre y apellido en un solo
+        // campo, que se corta en el primer espacio (`splitFullName`) y por eso parte mal
+        // los nombres compuestos. Se acepta mientras queden builds viejos instalados.
         // maxLength 160 == el maxLength:80 de cada campo individual en
         // users.schema.ts#patchProfileBody (MOVO-133) x2 -- sin este límite acá, se
         // podía registrar un nombre que el PATCH de edición después rechazaba.

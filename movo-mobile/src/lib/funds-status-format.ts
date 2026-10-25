@@ -4,9 +4,10 @@ import type {
 } from "@movo/shared/dist/types/funding";
 import type { HoldFailureReason } from "@movo/shared/dist/types/hold";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { toArgentinaCalendarDateString } from "@movo/shared/dist/utils/argentina-date";
+import { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "@movo/shared/dist/utils/argentina-date";
 import type { ShipmentSummary } from "../api/shipments-client";
 import { formatPickupDayLabel } from "./shipment-format";
+import { formatTimeOfDay } from "./time-format";
 
 /**
  * MOVO-211: qué card de la reserva de fondos se muestra en el detalle del envío. La fase la
@@ -65,12 +66,9 @@ export function fundsStatusVariant(
   }
 }
 
-const AR_OFFSET_MS = 3 * 60 * 60 * 1000;
-
-/** "10:00" en hora argentina (UTC-3 fijo, mismo criterio que el resto del dominio). */
-function argentinaTimeHHMM(instant: Date): string {
-  const local = new Date(instant.getTime() - AR_OFFSET_MS);
-  return `${String(local.getUTCHours()).padStart(2, "0")}:${String(local.getUTCMinutes()).padStart(2, "0")}`;
+/** "10:00 h" en hora argentina (UTC-3 fijo, mismo criterio que el resto del dominio). */
+function argentinaTimeOfDay(instant: Date): string {
+  return formatTimeOfDay(toArgentinaTimeOfDayString(instant));
 }
 
 /** "mié 8 oct" / "Mañana" / "Hoy" para un instante ISO, en día calendario argentino. */
@@ -78,11 +76,11 @@ export function formatFundingDay(iso: string, now: Date = new Date()): string {
   return formatPickupDayLabel(toArgentinaCalendarDateString(iso), now);
 }
 
-/** Frase completa para el plazo: "el mié 8 oct a las 10:00" / "hoy a las 18:30". */
+/** Frase completa para el plazo: "el mié 8 oct a las 10:00 h" / "hoy a las 18:30 h". */
 export function formatFundingDeadline(iso: string, now: Date = new Date()): string {
   const day = formatFundingDay(iso, now);
   const dayLabel = day === "Hoy" || day === "Mañana" ? day.toLowerCase() : day;
-  return `${day === "Hoy" || day === "Mañana" ? "" : "el "}${dayLabel} a las ${argentinaTimeHHMM(new Date(iso))}`;
+  return `${day === "Hoy" || day === "Mañana" ? "" : "el "}${dayLabel} a las ${argentinaTimeOfDay(new Date(iso))}`;
 }
 
 export function formatFundingDayWithArticle(iso: string, now: Date = new Date()): string {

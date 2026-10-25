@@ -127,7 +127,8 @@ inhabilitación y marca en Redis ·
 050 plazo del hold de MP (5 días) y N=3 · 051 soporte al usuario sobre el chat existente ·
 052 atribución del no-retiro por GPS · 053 oferta del recargo por demanda: solo `declared` ·
 054 disputa desde `completed` (entidad de disputa, ventana de 7 días) ·
-055 eventos de la bandeja de soporte por Redis Stream
+055 (propuesto) cambio forzado de estado de un envío desde el panel ·
+056 eventos de la bandeja de soporte por Redis Stream
 
 ## Convenciones de código
 
@@ -290,7 +291,7 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
   bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049, 050, 051, 052, 053, 054, 055 (012-018 ya están pegados en
+  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049, 050, 051, 052, 053, 054, 056 (012-018 ya están pegados en
   el doc de Sprint 0, confirmado al buscar dónde iba ADR-022 — la lista anterior acá
   estaba desactualizada). **ADR-022 tiene su contenido completo ya redactado**, en un
   doc aparte (`ADR-022 - Canal de tiempo real (WebSocket nativo) - pegar en Sprint 0`,
@@ -307,7 +308,7 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   infra desde ninguna de las dos sesiones todavía.
 - **WS del panel de soporte (MOVO-323 → MOVO-322)**: el cliente (`movo-admin`) ya abre el WebSocket con un ticket de un
   solo uso en el subprotocolo `movo-support.v1`, y cae a polling si falla. `GET /admin/support/events` ya existe (MOVO-322,
-  sobre el Redis Stream de ADR-055), así que el respaldo por polling anda. Falta (segunda PR de MOVO-322): `POST
+  sobre el Redis Stream de ADR-056), así que el respaldo por polling anda. Falta (segunda PR de MOVO-322): `POST
   /admin/support/realtime-ticket` y el upgrade en `svc-admin` (vía gateway `/api/v1/admin/support/ws` y `infra/nginx`).
   Contrato en `docs/support/README.md`. Esto resuelve el diseño de la entrada siguiente para el panel.
 - **Auth por header custom (`Authorization: Bearer`) no sirve para un cliente de
@@ -336,6 +337,11 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   de negocio en el barrel en vez de en el `envSchema` de un servicio), todavía no
   escrito. `MOVO_COMMISSION_RATE` (15%) está confirmado; `MP_TRANSACTION_FEE_RATE` es un
   estimado a propósito, ver la entrada de MOVO-225 más abajo.
+
+- **MOVO-340 en dev/prod**: la migración `receiver_search_unaccent_movo_340` de `svc-users` crea `unaccent` y `pg_trgm`
+  (`CREATE EXTENSION`); confirmar que el usuario de `migrate deploy` tiene ese permiso antes del deploy. El registro del mobile
+  nuevo manda `firstName`/`lastName`, que un `svc-users` anterior rechaza: el backend se despliega antes del build. Después,
+  correr `npm run user:name -- list` y corregir con `set` las cuentas con nombre compuesto mal partido.
 
 ### MOVO-215 — Plazo del hold de MP y N de la saga (spike cerrado)
 

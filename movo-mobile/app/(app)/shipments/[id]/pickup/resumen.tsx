@@ -9,7 +9,11 @@ import { PrimaryButton } from "../../../../../components/auth/primary-button";
 import { ErrorBanner } from "../../../../../components/ui/error-banner";
 import { SkeletonBlock } from "../../../../../components/ui/skeleton-block";
 import { useShipment } from "../../../../../src/hooks/use-shipments";
-import { formatPickupDateLabel, formatPickupWindowLabel, shortAddressLabel } from "../../../../../src/lib/shipment-format";
+import {
+  formatPickupDateLabel,
+  shortAddressLabel,
+} from "../../../../../src/lib/shipment-format";
+import { formatTimeRange } from "../../../../../src/lib/time-format";
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return <Text className="mb-1.5 font-sans-medium text-caption uppercase text-fg-3">{children}</Text>;
@@ -60,7 +64,7 @@ export default function PickupResumenScreen() {
   }
 
   const dateLabel = formatPickupDateLabel(shipment.pickupDate);
-  const windowLabel = formatPickupWindowLabel(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd);
+  const windowLabel = formatTimeRange(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd);
 
   return (
     <SafeAreaView className="flex-1 bg-bg">

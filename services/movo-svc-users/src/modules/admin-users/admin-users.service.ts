@@ -28,6 +28,7 @@ import {
 import { buildContactChangedBySupportNotice, EmailProvider } from "../../adapters/email-provider";
 import { SessionRepository } from "../../repositories/session-repository";
 import { fullName } from "../../models/user";
+import { escapeLike } from "../../utils/escape-like";
 import { normalizePhoneToE164Ar } from "../auth/auth.service";
 import { describeDecisionWarnings } from "../kyc/kyc.service";
 
@@ -73,20 +74,9 @@ const E164_AR_PATTERN = /^\+549\d{10}$/;
 // Teléfono o DNI escrito con separadores: "+54 9 351-123", "33.812.405", "(0351) 456".
 const DIGIT_QUERY_PATTERN = /^[\d\s.+()-]+$/;
 
-// `translate` en vez de la extensión `unaccent`, que no está instalada: mismas letras que
-// pliega `foldAccents` del lado de JS (NFD), así "Núñez" y "nunez" coinciden.
-const ACCENTED = "áàäâãéèëêíìïîóòöôõúùüûñç";
-const PLAIN = "aaaaaeeeeiiiiooooouuuunc";
-
-function foldAccents(value: string): string {
-  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-}
-
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, "\\$&");
-}
-
-const folded = (column: Prisma.Sql) => Prisma.sql`translate(lower(${column}), ${ACCENTED}, ${PLAIN})`;
+// `users.f_unaccent` (MOVO-340, la misma función que usa la búsqueda de receptor): una sola regla de pliegue de
+// acentos para las dos búsquedas. "Núñez" y "nunez" coinciden.
+const folded = (column: Prisma.Sql) => Prisma.sql`users.f_unaccent(lower(${column}))`;
 
 /** Un número local completo (característica + abonado) tiene 10 dígitos; con el "15" de celular, 12. */
 const LOCAL_NUMBER_DIGITS = 10;
@@ -137,7 +127,7 @@ function buildMatchExpression(rawQuery: string): Prisma.Sql | null {
   const query = rawQuery.trim().replace(/\s+/g, " ");
   if (!query) return null;
 
-  const namePattern = `%${escapeLike(foldAccents(query))}%`;
+  const namePattern = Prisma.sql`'%' || users.f_unaccent(lower(${escapeLike(query)})) || '%'`;
   const nameMatch = Prisma.sql`(
     ${folded(Prisma.sql`u.first_name`)} LIKE ${namePattern}
     OR ${folded(Prisma.sql`u.last_name`)} LIKE ${namePattern}

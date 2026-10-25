@@ -1,6 +1,6 @@
 import { CHAT_MESSAGE_MAX_LENGTH } from "@movo/shared/dist/types/chat";
 import * as Haptics from "expo-haptics";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSequence, withSpring, withTiming } from "react-native-reanimated";
 import Svg, { Path, Rect } from "react-native-svg";
@@ -14,6 +14,16 @@ export interface ChatComposerProps {
   canWrite: boolean;
   readOnlyCopy: string;
   onSend: (body: string) => boolean;
+  /** Largo máximo del texto; el chat del envío usa 1000 y soporte 2000 (MOVO-324). */
+  maxLength?: number;
+  /** Botón a la izquierda del campo (adjuntar fotos en soporte). */
+  leftAction?: ReactNode;
+  /** Franja sobre el campo (miniaturas de las fotos pendientes). */
+  attachmentsSlot?: ReactNode;
+  /** Deja enviar sin texto (hay fotos listas). */
+  allowEmpty?: boolean;
+  /** Bloquea el envío aunque haya texto (hay una foto subiendo o con error). */
+  sendDisabled?: boolean;
   testID?: string;
 }
 
@@ -21,7 +31,17 @@ export interface ChatComposerProps {
  * MOVO-284: campo + enviar, o la franja de solo lectura. Calcado del prototipo: campo de 44 px con
  * borde (`strong`, `fg` al enfocar) y sin relleno, y botón circular lima siempre lima.
  */
-export function ChatComposer({ canWrite, readOnlyCopy, onSend, testID }: ChatComposerProps) {
+export function ChatComposer({
+  canWrite,
+  readOnlyCopy,
+  onSend,
+  maxLength = CHAT_MESSAGE_MAX_LENGTH,
+  leftAction,
+  attachmentsSlot,
+  allowEmpty = false,
+  sendDisabled = false,
+  testID,
+}: ChatComposerProps) {
   const colors = useThemeColors();
   const [text, setText] = useState("");
   const [focused, setFocused] = useState(false);
@@ -43,7 +63,7 @@ export function ChatComposer({ canWrite, readOnlyCopy, onSend, testID }: ChatCom
   }
 
   const trimmed = text.trim();
-  const canSend = trimmed.length > 0 && trimmed.length <= CHAT_MESSAGE_MAX_LENGTH;
+  const canSend = (trimmed.length > 0 || allowEmpty) && trimmed.length <= maxLength && !sendDisabled;
   const handleSend = () => {
     if (!canSend) return;
     if (onSend(trimmed)) {
@@ -55,7 +75,9 @@ export function ChatComposer({ canWrite, readOnlyCopy, onSend, testID }: ChatCom
 
   return (
     <View className="bg-bg" style={{ paddingTop: 10, paddingHorizontal: 16, paddingBottom: 10 }}>
+      {attachmentsSlot ? <View style={{ paddingBottom: 8 }}>{attachmentsSlot}</View> : null}
       <View className="flex-row items-end" style={{ gap: 8 }}>
+        {leftAction}
         <View
           className="flex-1 justify-center"
           style={{ minHeight: 44, borderWidth: 1, borderColor: focused ? colors.fg1 : colors.borderStrong, borderRadius: 22, paddingHorizontal: 16 }}
@@ -69,7 +91,7 @@ export function ChatComposer({ canWrite, readOnlyCopy, onSend, testID }: ChatCom
             placeholder="Escribí un mensaje…"
             placeholderTextColor={colors.fg3}
             multiline
-            maxLength={CHAT_MESSAGE_MAX_LENGTH + 50}
+            maxLength={maxLength + 50}
             className="font-sans text-fg"
             style={{ fontSize: 15, minHeight: 42, maxHeight: 112, paddingVertical: 10 }}
           />
@@ -89,9 +111,9 @@ export function ChatComposer({ canWrite, readOnlyCopy, onSend, testID }: ChatCom
           </Pressable>
         </Animated.View>
       </View>
-      {text.length >= COUNTER_THRESHOLD ? (
-        <Text testID={`${testID}-counter`} className={`mt-1 text-right font-mono text-[10.5px] ${text.length > CHAT_MESSAGE_MAX_LENGTH ? "text-danger-500" : "text-fg-3"}`}>
-          {text.length}/{CHAT_MESSAGE_MAX_LENGTH}
+      {text.length >= Math.round((COUNTER_THRESHOLD * maxLength) / CHAT_MESSAGE_MAX_LENGTH) ? (
+        <Text testID={`${testID}-counter`} className={`mt-1 text-right font-mono text-[10.5px] ${text.length > maxLength ? "text-danger-500" : "text-fg-3"}`}>
+          {text.length}/{maxLength}
         </Text>
       ) : null}
     </View>

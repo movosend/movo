@@ -3765,6 +3765,16 @@ consulta agrupada (`COUNT(*) FILTER`), y `alert=true` filtra la lista y los cont
 `isAdminShipmentAlert` de `@movo/shared`: `assigned_unfunded`, `rejected_by_receiver`, `disputed` o `in_transit` con
 `transit_anomaly_flagged_at`. Si cambia una, cambia la otra.
 
+### MOVO-340 — Chat tras una transferencia de receptor y estados cancelables
+
+- La membresía del chat ya salía de `receiverId` en cada request; faltaba avisar. Al completarse la transferencia,
+  `complete()` siembra `chat_participant_states` del receptor nuevo en `resolved_at` (solo le cuentan como no leídos los
+  mensajes posteriores) y emite `chat_participants_changed` (`realtime/chat-participants-events.ts`) a los sockets abiertos, sin
+  cerrar el del receptor original. Los tildes de un mensaje previo se miden contra los integrantes de ese momento
+  (`Shipment.receiverTransferredAt`). El receptor nuevo ve el historial (ADR-038).
+- Cancelación con retiro el mismo día: no se reprodujo en `develop` (no hay guard por fecha). `SENDER_CANCELLABLE_STATUSES` de
+  `@movo/shared` es la regla del mobile y un test la ata a `canTransition(*, cancelled)`.
+
 ### MOVO-334 — Disputas: entidad, apertura, descargos, avisos y bloqueo (ADR-054)
 
 Entidad `shipments.disputes` (+ `dispute_statements`, `dispute_photos`; migración `20261023120000_disputes` con el índice único parcial de
@@ -3780,6 +3790,16 @@ de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `comple
 - La disputa de una parte avisa con `disputeOpened*` (categoría `disputes`, `data.type: dispute_opened`); las de sistema siguen con sus
   templates. Pendiente: la resolución y sus campos (MOVO-34), la matriz de reembolsos con el cobro ya acreditado (MOVO-337) y la UI mobile.
 
+### Ofertas del envío para el panel — `GET /internal/admin/shipments/:id/offers`
+
+Todas las ofertas del envío (cerradas incluidas, de la más vieja a la más nueva) con el estado efectivo de `listByShipment`
+(una `pending` vencida sale `expired`), el snapshot del transportista y el desglose de "Cómo se reparte" de mobile:
+`netArs`/`commissionArs` con `decomposeOfferGrossPrice` y `mpFeeEstimateArs`/`receivedEstimateArs` con las tasas de este servicio.
+Las franjas se recortan a `HH:MM`. 404 si el envío no existe, igual que `/events`. Contrato `AdminShipmentOffer` en `@movo/shared`.
+Sin historial de precios: modificar una oferta (MOVO-181) pisa el monto en la misma fila.
+Review de PR #302: cada oferta suma `commissionRate` (la tasa con la que se calculó el desglose, que no se guarda con la oferta)
+y el detalle `GET /internal/admin/shipments/:id` suma `requestedPickup*`, el retiro que pidió el emisor: sale de `originalPickup*`
+(lo guarda `acceptOffer` antes de pisar `pickupDate` y la franja con los de la ganadora, MOVO-258 D3) o del actual si no hay.
 ### MOVO-321 — Adjuntos de imágenes en los mensajes de soporte
 
 `POST /support/attachments` y `attachmentIds` en los mensajes del usuario, con URLs firmadas de 15 min al leer (detalle en
@@ -3788,12 +3808,70 @@ de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `comple
 crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no hay regla de lifecycle y el sweep, que reintenta, es la
 única limpieza. Pendiente: Terraform en `movo-infra` (ver el `CLAUDE.md` raíz).
 
-### MOVO-322 — Lado del agente de la bandeja de soporte (`/internal/admin/support/*`, ADR-055)
+### MOVO-285 — Monto exacto del transportista en el detalle del envío
+
+- `GET /shipments/:id` suma `carrierReceivedArs` para el transportista asignado: bruto − comisión de Movo − fee real de MP − su
+  descuento por deuda, todo del hold vivo que ya se consultaba para `debtDiscount` (`resolveCarrierPaymentDisplay`; una sola
+  llamada a payments, mismo timeout). Lo calcula el backend para que "exacto" no dependa de la tasa de comisión de la app. `null`
+  sin hold o sin fee informado. No se tocó el detalle de la oferta: el hold no existe hasta que el emisor acepta.
+
+### MOVO-317 — Sin límites duros de peso y medidas; `oversized`
+
+- Se eliminan los límites de MOVO-276: `domain/package-limits.ts`, las env vars `PACKAGE_MAX_*` (`.env.example`, `env.ts`,
+  `docker-compose.yml`) y el 422 `PACKAGE_LIMITS_EXCEEDED` en cotizar y crear. El código de error queda en `@movo/shared` como deprecado.
+  El schema exige mínimos (peso 0,1 kg, medida 1 cm) y un tope de cordura de 10.000 kg o cm (`PACKAGE_INPUT_SANITY_MAX` de `@movo/shared`,
+  400 `VALIDATION_FAILED`), no un límite de negocio: evita que un cliente directo mande 1e9 y desborde el precio.
+- **"Más de 300 cm"** (decisión S3): columna `shipments.shipments.oversized` (boolean, default `false`, migración
+  `20261025120000_shipment_oversized`). Las medidas guardan el tope (300) y `oversized: true` dice que el paquete real es mayor; no se
+  guarda cuál lado se pasó. Opcional en `POST /shipments` y `POST /shipments/quote` (entra al fingerprint de la cotización congelada).
+- S4: `oversized` y las medidas viajan en el feed (`/shipments/available`), los matches de viaje y el contexto de la oferta
+  (`OfferShipmentContext`, que suma largo/ancho/alto). El backend no filtra por tamaño.
+- Pendiente: S5 (revisar matching por capacidad) no se tocó: el matching geométrico no asume tope de tamaño.
+### MOVO-327 — Seguimiento de un envío para el mapa del panel
+
+`GET /internal/admin/shipments/:id/tracking` (`modules/admin-internal/admin-tracking.service.ts`, cálculos puros en
+`domain/admin-tracking.ts`, contrato `AdminShipmentTracking` en `@movo/shared`). Actualización por polling cada 15 s
+(`pollIntervalSeconds`, `Cache-Control: no-store`), sin WS del panel. MOVO-204 no calculaba métricas (solo lee la última posición), así
+que se arman acá. La posición se ve solo en `in_transit`. La traza es la de custodia de MOVO-270, submuestreada a 500 puntos
+(`traceTruncated`), y una traza purgada da `traceAvailable: false`, no error. `signalLost` se calcula con la hora del servidor al
+recibir el último ping (`TRACKING_SIGNAL_LOST_SECONDS`, 300). Los km restantes y el % salen de proyectar la posición sobre la polyline
+planificada (`geo.ts#progressAlongPath`; `polyline-decode.ts` pasó de `test/` a `utils/`). La ETA usa la duración de Google en
+proporción a lo que falta, no la velocidad de 5 min, que es aproximada (un punto cada 45 s) y se va a ~0 en un semáforo. La ruta se
+cachea en Redis por envío y proveedor (`planned-route-store.ts`, 6 h): con polling, cada tick facturaría una llamada a Google.
+
+### MOVO-324 — `GET /support/shipments` (selector de envíos de "Nueva consulta")
+
+MOVO-320 dejó afuera el selector y `GET /shipments/mine` no trae al transportista, así que el módulo de soporte suma `GET /support/shipments`
+(`support.routes.ts`, `listShipmentOptions` en servicio y repositorio): los envíos de los que el usuario es parte (emisor, receptor,
+transportista asignado o quien transfirió la recepción, la misma regla que acepta `shipmentId` al crear), en cualquier estado, más recientes
+primero, cursor opaco (`utils/cursor.ts`, 400 si es inválido). `route` usa `pickupCity`/`deliveryCity` o el primer tramo de la dirección. Tests
+en `support.integration.test.ts`.
+
+### MOVO-331 (+ MOVO-330) — Cambio forzado de estado de un envío (ADR-055)
+
+`POST /internal/admin/shipments/:id/force-status` (`modules/admin-internal/force-status.service.ts`, ruta en `admin-internal.routes.ts`,
+oculta del Swagger y fuera del `routes-map` del gateway). Valida el par contra `FORCED_TRANSITION_MATRIX` de `@movo/shared` y delega en el
+servicio de dominio de cada celda: `cancelShipment` y `withdrawCarrierFromShipment` ganan `options.admin` (sin chequeo de emisor/transportista,
+**penalidad 0**, evento con el admin), `captureAndComplete(id, admin)` y `fundingService.confirmAssignmentByAdmin` (consulta el hold con `sync`:
+`422 HOLD_NOT_AUTHORIZED`). Concurrencia: `expectedStatus` (409 `STATUS_CHANGED`), lock Redis por envío e `idempotencyKey` guardada 24 h.
+`shipment_events` suma `kind` y `actorName` (migración `20261024210000_shipment_event_kind`); las partes ven `kind` pero no el admin ni el motivo.
+Push `shipmentStatusForced*` con `ignorePreferences` (se extendieron `SendPushNotificationInput` y el `/internal/notifications/push` de `svc-users`).
+- **Orden de efectos**: desde `assigned` el hold se libera ANTES de cancelar (ya está autorizado, no hay pago concurrente), así una falla de
+  payments deja el envío como estaba (`502 FORCE_STATUS_EFFECT_FAILED` + alerta con el `AlertNotifier` de MOVO-334). Desde `assignment_pending`/
+  `assigned_unfunded` sigue el orden de la saga (cancelar y después liberar, best-effort), porque invertirlo reabre la carrera del pago.
+- Si una baja forzada falla en payments, la llamada deshace el claim del retiro (`releaseCarrierWithdrawalClaim`): el barrido de MOVO-310 no la
+  completa después como si fuera del transportista. Con un admin se suprimen los pushes normales a las partes (baja, oferta cancelada del
+  asignado, pago confirmado, liquidación) para que cada una reciba un solo aviso. Riesgo aceptado: el retiro puede ganar la carrera tras
+  liberar el hold en `assigned → cancelled` (alerta `force_status_hold_released_race`, ver ADR-055).
+- Pendiente: el cliente en `svc-admin` y el OTP por acción (MOVO-332), el modal del panel (MOVO-333); `in_transit`/`delivered` forzados con
+  evidencia y la salida de `disputed` (MOVO-34) quedan bloqueados.
+
+### MOVO-322 — Lado del agente de la bandeja de soporte (`/internal/admin/support/*`, ADR-056)
 
 Endpoints internos para `svc-admin` en `modules/admin-support/` (lista con orden por prioridad y espera, búsqueda, contadores,
 mensajes con todos los `kind`, responder/nota, `PATCH`, resolver/reabrir, leer, partes, carga por agente, consultas del usuario y
 adjuntos del agente) sobre `repositories/support-admin-repository.ts`, con reglas puras en `domain/support-admin-rules.ts`.
-- Los eventos del equipo son `kind = event` (migración `20261025120000_support_staff_events`): el usuario nunca los ve
+- Los eventos del equipo son `kind = event` (migración `20261025150000_support_staff_events`): el usuario nunca los ve
   (`toUserFacingMessage` pasa a lista blanca) y solo recibe el cambio de estado.
 - Cada cambio (también una consulta o un mensaje del usuario) se escribe en el Redis Stream `support:events`
   (`support-admin-feed.ts`, `realtime/support-event-stream.ts`), sin nombres; si falla, solo se loguea.

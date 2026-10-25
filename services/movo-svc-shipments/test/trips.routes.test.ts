@@ -405,6 +405,7 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
       lengthCm: 30,
       widthCm: 20,
       heightCm: 15,
+      oversized: false,
       description: "Documentos",
       urgent: false,
       pickupAddress: "Córdoba",

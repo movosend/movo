@@ -4,9 +4,9 @@ import {
   FUNDS_PENDING_INFO_TEXT,
   RECEIVER_DELIVERY_CTA_LABEL,
   SENDER_PICKUP_CTA_LABEL,
-  formatTimeHHMM,
   shipmentDetailCta,
 } from "./shipment-format";
+import { formatTimeOfDay } from "./time-format";
 
 /** Rol efectivo con el que se consultó el envío activo — "sending"/"receiving" son
  * los dos únicos implementados en esta fase (ver `use-active-shipments.ts`);
@@ -52,7 +52,7 @@ export function activeShipmentStatusLabel(
 ): string {
   if (isTransitDelayed(shipment)) return TRANSIT_DELAYED_LABEL;
   if (shipment.status === "assigned_unfunded") {
-    return `Retira ${formatTimeHHMM(shipment.pickupTimeWindowStart)}`;
+    return `Retira ${formatTimeOfDay(shipment.pickupTimeWindowStart)}`;
   }
   return ACTIVE_STATUS_LABEL[shipment.status];
 }

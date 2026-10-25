@@ -24,12 +24,33 @@ export interface ShipmentStatusChangedEvent {
  */
 export const shipmentStatusEvents = new EventEmitter();
 
+export interface ChatParticipantsChangedEvent {
+  shipmentId: string;
+}
+
 export const SHIPMENT_STATUS_CHANGED_EVENT = "shipment-status-changed";
+export const CHAT_PARTICIPANTS_CHANGED_EVENT = "chat-participants-changed";
 
 export function emitShipmentStatusChanged(event: ShipmentStatusChangedEvent): void {
   shipmentStatusEvents.emit(SHIPMENT_STATUS_CHANGED_EVENT, event);
 }
 
-export function onShipmentStatusChanged(listener: (event: ShipmentStatusChangedEvent) => void): void {
+/** Devuelve la función que saca el listener: cada `buildApp` suscribe el suyo y lo tiene que soltar en `onClose`. */
+export function onShipmentStatusChanged(listener: (event: ShipmentStatusChangedEvent) => void): () => void {
   shipmentStatusEvents.on(SHIPMENT_STATUS_CHANGED_EVENT, listener);
+  return () => shipmentStatusEvents.off(SHIPMENT_STATUS_CHANGED_EVENT, listener);
+}
+
+/**
+ * MOVO-340: avisa en el mismo proceso que cambiaron los integrantes del chat de un envío (hoy, solo al
+ * completarse una transferencia de receptor), para que `realtime.ts` lo difunda a los sockets de chat abiertos.
+ * Mismo emisor y mismo criterio que el cambio de estado: se emite después de que la transacción confirma.
+ */
+export function emitChatParticipantsChanged(event: ChatParticipantsChangedEvent): void {
+  shipmentStatusEvents.emit(CHAT_PARTICIPANTS_CHANGED_EVENT, event);
+}
+
+export function onChatParticipantsChanged(listener: (event: ChatParticipantsChangedEvent) => void): () => void {
+  shipmentStatusEvents.on(CHAT_PARTICIPANTS_CHANGED_EVENT, listener);
+  return () => shipmentStatusEvents.off(CHAT_PARTICIPANTS_CHANGED_EVENT, listener);
 }

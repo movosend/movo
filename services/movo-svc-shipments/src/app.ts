@@ -314,11 +314,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // interés de movo-svc-admin. Interno.
   // MOVO-325: también listado, detalle, eventos, fotos y chat de los envíos para el panel.
   // MOVO-297: y los efectos de una sanción (retiro de actividad abierta y avisos).
+  // MOVO-327: y el seguimiento de un envío para el mapa del panel.
   app.register(adminInternalRoutes, {
     prefix: "/internal",
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+    ...(opts.alertNotifier ? { alertNotifier: opts.alertNotifier } : {}),
+    ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
   });
 
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas

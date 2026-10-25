@@ -84,7 +84,7 @@ describe("POST /auth/register", () => {
     return phoneVerificationToken;
   }
 
-  async function register(payloadOverrides: Partial<typeof basePayload> = {}) {
+  async function register(payloadOverrides: Partial<typeof basePayload> & Record<string, unknown> = {}) {
     const payload = { ...basePayload, ...payloadOverrides };
     const phoneVerificationToken = await getPhoneVerificationToken(payload.phone, normalizeForTest(payload.phone));
     return app.inject({
@@ -342,6 +342,55 @@ describe("POST /auth/register", () => {
       const row = await app.db.user.findUnique({ where: { id: userId } });
       expect(row?.phone).toBe("+5493511234567");
     }
+  });
+
+  describe("MOVO-340: nombre y apellido por separado", () => {
+    const withoutFullName = () => {
+      const rest: Partial<typeof basePayload> = { ...basePayload };
+      delete rest.fullName;
+      return rest;
+    };
+
+    async function registerWithNames(names: Record<string, unknown>) {
+      const payload = { ...withoutFullName(), ...names };
+      const phoneVerificationToken = await getPhoneVerificationToken(payload.phone, normalizeForTest(payload.phone));
+      return app.inject({ method: "POST", url: "/auth/register", payload: { ...payload, phoneVerificationToken } });
+    }
+
+    it("guarda un nombre y un apellido compuestos tal como se cargaron", async () => {
+      const response = await registerWithNames({ firstName: "Juan  Cruz", lastName: "Bordino Blanche" });
+
+      expect(response.statusCode).toBe(201);
+      const body = JSON.parse(response.body) as { userId: string; fullName: string };
+      expect(body.fullName).toBe("Juan Cruz Bordino Blanche");
+      const row = await app.db.user.findUnique({ where: { id: body.userId } });
+      expect(row).toMatchObject({ firstName: "Juan Cruz", lastName: "Bordino Blanche" });
+    });
+
+    it("un cliente viejo con fullName se sigue registrando (corte en el primer espacio)", async () => {
+      const response = await register({ fullName: "Juan Cruz Bordino" });
+
+      expect(response.statusCode).toBe(201);
+      const { userId } = JSON.parse(response.body) as { userId: string };
+      const row = await app.db.user.findUnique({ where: { id: userId } });
+      expect(row).toMatchObject({ firstName: "Juan", lastName: "Cruz Bordino" });
+    });
+
+    it.each([
+      [{}],
+      [{ firstName: "Juan Cruz" }],
+      [{ firstName: "   ", lastName: "Bordino" }],
+      [{ firstName: "a".repeat(81), lastName: "Bordino" }],
+    ])("rechaza %j con 400 VALIDATION_FAILED", async (names) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/register",
+        payload: { ...withoutFullName(), ...names, phoneVerificationToken: "irrelevante" },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+    });
   });
 
   it("rechaza un fullName de una sola palabra con 400 VALIDATION_FAILED", async () => {

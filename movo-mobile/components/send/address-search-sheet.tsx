@@ -120,6 +120,12 @@ export function AddressSearchSheet({
   }, [debouncedQuery]);
 
   const handleSelectPrediction = async (prediction: PlacePrediction) => {
+    // MOVO-340: una búsqueda por coordenadas ya trae el punto que escribió el usuario
+    // (no hay `placeId` de Google para pedirle el detalle).
+    if (prediction.lat !== undefined && prediction.long !== undefined) {
+      onSelect({ address: prediction.description, lat: prediction.lat, lng: prediction.long, source: "places" });
+      return;
+    }
     setResolving(true);
     setError(null);
     try {

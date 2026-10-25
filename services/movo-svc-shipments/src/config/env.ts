@@ -22,9 +22,6 @@ export interface EnvConfig {
   REPUTATION_CONFIDENCE_CONSTANT: number;
   REPUTATION_DECAY_HALF_LIFE_DAYS: number;
   TRIP_DEFAULT_MAX_DETOUR_KM: number;
-  PACKAGE_MAX_WEIGHT_KG: number;
-  PACKAGE_MAX_SIDE_CM: number;
-  PACKAGE_MAX_SIDES_SUM_CM: number;
   PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
   PICKUP_EXPIRY_SWEEP_ENABLED?: boolean;
   FUNDS_RELEASE_NOTIFIER: "console" | "payments";
@@ -36,6 +33,7 @@ export interface EnvConfig {
   CARRIER_POSITION_RETENTION_DAYS: number;
   CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: number;
   CARRIER_POSITION_PURGE_SWEEP_ENABLED?: boolean;
+  TRACKING_SIGNAL_LOST_SECONDS: number;
   SHIPMENT_HISTORY_RETENTION_YEARS: number;
   SHIPMENT_HISTORY_PURGE_SWEEP_INTERVAL_MINUTES: number;
   SHIPMENT_HISTORY_PURGE_SWEEP_ENABLED?: boolean;
@@ -137,12 +135,6 @@ export const envSchema = {
     REPUTATION_DECAY_HALF_LIFE_DAYS: { type: "number", default: 180 },
     // MOVO-161: radio de desvío ortogonal máximo por defecto al corredor del viaje declarado (km)
     TRIP_DEFAULT_MAX_DETOUR_KM: { type: "number", default: 15 },
-    // MOVO-276: límites duros del paquete (`domain/package-limits.ts`), validados al cotizar
-    // y al crear el envío. Mismos nombres y defaults que en movo-svc-pricing-logistics, que
-    // también responde 422 si se exceden.
-    PACKAGE_MAX_WEIGHT_KG: { type: "number", default: 30 },
-    PACKAGE_MAX_SIDE_CM: { type: "number", default: 150 },
-    PACKAGE_MAX_SIDES_SUM_CM: { type: "number", default: 300 },
     // Corrección directa sobre un bug reportado (sin ticket propio): barrido que cancela
     // envíos `published` cuya ventana de retiro venció sin que nadie los tomara —
     // mismo criterio que RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES/_ENABLED (MOVO-130).
@@ -176,6 +168,9 @@ export const envSchema = {
     // sobre un plazo de 30 días no cambia nada material.
     CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
     CARRIER_POSITION_PURGE_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-327: sin un ping en este plazo, el seguimiento del panel marca `signalLost` (y no
+    // calcula velocidad ni ETA). Varios pings perdidos seguidos, no uno solo (cadencia ~45 s).
+    TRACKING_SIGNAL_LOST_SECONDS: { type: "number", minimum: 30, default: 300 },
     // MOVO-230 (Política de Privacidad §7): años desde la baja de la última de las partes de un
     // envío hasta que se purga su historial. Plazo fijado por la política (Art. 2560 CCyCN),
     // no un valor técnico: cambiarlo es un cambio de documento.

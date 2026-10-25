@@ -1,6 +1,9 @@
 import type { ChatDeliveryStatus, ChatMessage, ChatParticipantRole } from "@movo/shared/dist/types/chat";
+import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../api/shipments-client";
+import { getFirstName } from "./profile-format";
+import { formatTimeOfDay } from "./time-format";
 
 /**
  * MOVO-284: formateo puro del chat. Todo lo que no depende de React vive acá para
@@ -70,13 +73,12 @@ export function shortName(fullName: string | null | undefined): string {
   return `${parts[0]} ${parts[parts.length - 1]!.charAt(0).toUpperCase()}.`;
 }
 
-const TIME_FORMAT = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
 const SHORT_DAY_FORMAT = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
 const WEEKDAY_FORMAT = new Intl.DateTimeFormat("es-AR", { weekday: "short" });
 
-/** Misma hora local que muestra el resto de la app, "15:07". */
+/** Misma hora local que muestra el resto de la app, "15:07 h". */
 export function formatChatTime(iso: string): string {
-  return TIME_FORMAT.format(new Date(iso));
+  return formatTimeOfDay(iso);
 }
 
 function startOfDay(date: Date): number {
@@ -168,11 +170,35 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
 }
 
 /**
+ * MOVO-340: tarjeta de una transferencia de receptor completada, en el momento en que el receptor nuevo se
+ * sumó al chat. El texto depende de quién mira: "Le pasaste la recepción a Martín" (quien la pidió),
+ * "Lucía te pasó la recepción" (el receptor nuevo), "Lucía le pasó la recepción a Martín" (el resto).
+ * `null` para una solicitud que no se completó: esas no cambian a nadie del chat.
+ */
+export function chatTransferCard(transfer: ReceiverTransferRequest, viewerId: string | undefined): ChatEventCard | null {
+  if (transfer.status !== "completed" || !transfer.resolvedAt) return null;
+  const requester = getFirstName(transfer.requesterName) || "El receptor";
+  const invited = getFirstName(transfer.newReceiverName) || "otra persona";
+  const text =
+    viewerId === transfer.requestedBy
+      ? `Le pasaste la recepción a ${invited}`
+      : viewerId === transfer.newReceiverId
+        ? `${requester} te pasó la recepción`
+        : `${requester} le pasó la recepción a ${invited}`;
+  return { id: `receiver-transfer-${transfer.id}`, text, live: false, createdAt: transfer.resolvedAt };
+}
+
+/**
  * Eventos de la asignación vigente. Cada asignación arranca una conversación limpia (el backend corta el hilo en
  * `chat_started_at`, que fija la aceptación): si el pago caducó y entró otro transportista, las tarjetas de la
  * asignación anterior ("X aceptó el envío") no se muestran. El corte es la última entrada desde `published`.
  */
 export function eventsSinceCurrentAssignment(events: readonly ShipmentEvent[]): ShipmentEvent[] {
+  const start = currentAssignmentStartIndex(events);
+  return start === -1 ? [...events] : events.slice(start);
+}
+
+function currentAssignmentStartIndex(events: readonly ShipmentEvent[]): number {
   let start = -1;
   events.forEach((event, index) => {
     const accepted =
@@ -180,16 +206,45 @@ export function eventsSinceCurrentAssignment(events: readonly ShipmentEvent[]): 
       (event.toStatus === ShipmentStatus.ASSIGNMENT_PENDING || event.toStatus === ShipmentStatus.ASSIGNED_UNFUNDED);
     if (accepted) start = index;
   });
-  return start === -1 ? [...events] : events.slice(start);
+  return start;
 }
 
-export type ChatTimelineItem =
+/**
+ * Las transferencias completadas durante la asignación vigente. Misma regla que `eventsSinceCurrentAssignment`:
+ * una transferencia hecha antes de que el transportista aceptara (el envío estaba `published`) o en una asignación
+ * anterior no pertenece a esta conversación, que arranca limpia en `chat_started_at`.
+ */
+export function transfersSinceCurrentAssignment(
+  transfers: readonly ReceiverTransferRequest[],
+  events: readonly ShipmentEvent[],
+): ReceiverTransferRequest[] {
+  const start = currentAssignmentStartIndex(events);
+  if (start === -1) return [...transfers];
+  const startedAt = Date.parse(events[start]!.createdAt);
+  return transfers.filter((transfer) => transfer.resolvedAt !== null && Date.parse(transfer.resolvedAt) >= startedAt);
+}
+
+/** Lo mínimo que necesita el armado de la conversación de un mensaje (chat del envío y soporte, MOVO-324). */
+export interface TimelineMessage {
+  id: string;
+  clientMessageId?: string;
+  authorId: string;
+  createdAt: string;
+}
+
+/** Tarjeta intercalada entre los mensajes (evento del envío, línea del sistema de soporte). */
+export interface TimelineCard {
+  id: string;
+  createdAt: string;
+}
+
+export type TimelineItem<M extends TimelineMessage, C extends TimelineCard> =
   | { kind: "day"; key: string; label: string }
-  | { kind: "event"; key: string; card: ChatEventCard }
+  | { kind: "event"; key: string; card: C }
   | {
       kind: "message";
       key: string;
-      message: LocalChatMessage;
+      message: M;
       mine: boolean;
       /** Primer mensaje de un grupo de la misma persona: lleva el nombre y el rol. */
       showName: boolean;
@@ -199,25 +254,28 @@ export type ChatTimelineItem =
       groupStart: boolean;
     };
 
+export type ChatTimelineItem = TimelineItem<LocalChatMessage, ChatEventCard>;
+
 /**
  * Conversación lista para dibujar, del MÁS NUEVO al más viejo (el `FlatList` va invertido):
- * mensajes y tarjetas de evento por fecha, con un separador de día antes del primer ítem de
- * cada día y las burbujas de una misma persona agrupadas.
+ * mensajes y tarjetas por fecha, con un separador de día antes del primer ítem de cada día y las
+ * burbujas de una misma persona agrupadas. Genérica para que el chat de soporte (MOVO-324) use el
+ * mismo agrupado que el chat del envío.
  */
-export function buildChatTimeline(params: {
-  messages: readonly LocalChatMessage[];
-  events: readonly ChatEventCard[];
+export function buildTimeline<M extends TimelineMessage, C extends TimelineCard>(params: {
+  messages: readonly M[];
+  events: readonly C[];
   currentUserId: string | undefined;
   now?: Date;
-}): ChatTimelineItem[] {
+}): TimelineItem<M, C>[] {
   const now = params.now ?? new Date();
-  type Entry = { at: number; message?: LocalChatMessage; card?: ChatEventCard };
+  type Entry = { at: number; message?: M; card?: C };
   const entries: Entry[] = [
     ...params.messages.map((message) => ({ at: Date.parse(message.createdAt), message })),
     ...params.events.map((card) => ({ at: Date.parse(card.createdAt), card })),
   ].sort((a, b) => a.at - b.at);
 
-  const chronological: ChatTimelineItem[] = [];
+  const chronological: TimelineItem<M, C>[] = [];
   let lastDay: string | null = null;
   entries.forEach((entry, index) => {
     const iso = new Date(entry.at).toISOString();
@@ -247,6 +305,16 @@ export function buildChatTimeline(params: {
     });
   });
   return chronological.reverse();
+}
+
+/** Conversación del chat del envío: mensajes y tarjetas de evento del envío, del más nuevo al más viejo. */
+export function buildChatTimeline(params: {
+  messages: readonly LocalChatMessage[];
+  events: readonly ChatEventCard[];
+  currentUserId: string | undefined;
+  now?: Date;
+}): ChatTimelineItem[] {
+  return buildTimeline(params);
 }
 
 /**

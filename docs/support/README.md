@@ -63,7 +63,7 @@ quiere igual, que devuelva esa misma constante). MOVO-322 la implementó así: `
   al usuario).
 - **Contexto**: perfil y KYC de `svc-users`; insignias `identity` (email y teléfono verificados), `kyc_approved`/`kyc_pending`
   y `license_valid` (aprobada y no vencida). Si el KYC no responde, `badges: null`; sin el perfil, 502.
-- **Tiempo real**: Redis Stream `support:events` (ADR-055, borrador en `adr-055-eventos-del-panel-por-redis-stream.md`);
+- **Tiempo real**: Redis Stream `support:events` (ADR-056, borrador en `adr-056-eventos-del-panel-por-redis-stream.md`);
   `GET events` ya lee de ahí. El WebSocket con ticket es la segunda PR de MOVO-322.
 
 ## Adjuntos (MOVO-321)
@@ -129,6 +129,7 @@ mensaje que ve el usuario es `SupportUserFacingMessage`). El agente **no** entra
 | `GET conversations` | | `SupportListResponse` | La de actividad más reciente primero (hasta 100). `lastMessage` nunca es una nota ni un evento `system`; `unreadCount` cuenta solo respuestas del equipo |
 | `GET conversations/:id/messages` | `limit` (1-100, 30), `cursor` | `SupportUserMessagesPage` | Más recientes primero, cursor opaco (mismo formato que el chat). Trae `conversation` para el encabezado. Abrir la primera página marca lo recibido |
 | `POST conversations/:id/messages` | `SupportSendUserBody` | `SupportUserFacingMessage` (201 / 200) | Idempotente por `clientMessageId`. Sobre una `resolved` la reabre; sobre una `awaiting_user` la pasa a `open` |
+| `GET shipments` | `limit` (1-50, 20), `cursor` | `SupportShipmentOptionsPage` | MOVO-324. Envíos de los que el usuario es parte, en cualquier rol y estado, para vincular a una consulta nueva (`GET /shipments/mine` no trae al transportista). `route` es "Ciudad → Ciudad" |
 | `POST attachments` | `SupportUserAttachmentCreateBody` (`contentType`, `sizeBytes`, `conversationId?`, `width?`, `height?`) | `SupportAttachmentCreateResult` (201) | MOVO-321. Con `conversationId`, la consulta tiene que ser del usuario (404 si no); sin él, para una consulta nueva. La app hace `PUT uploadUrl` con el mismo `Content-Type` |
 | `POST conversations/:id/read` | | `{ readAt }` | Baja el `unreadCount` a cero |
 | `GET conversations/:id` (WS) | header `Authorization: Bearer` | frames de abajo | Mismo mecanismo que `/track` y el chat del envío |

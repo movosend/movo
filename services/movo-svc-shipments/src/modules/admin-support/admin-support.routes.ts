@@ -63,7 +63,7 @@ const idOf = (request: FastifyRequest) => (request.params as { id: string }).id;
  * MOVO-322: el lado del agente de la bandeja de soporte, para `svc-admin` (prefijo `/internal/admin/support`, solo red
  * Docker, sin `x-user-*`: el rol, la regla de conflicto de interés y la bitácora los aplica `svc-admin`, que manda
  * quién actúa en el body). Cada escritura avisa al usuario (sin notas ni eventos del equipo) y al panel (Redis Stream,
- * ADR-055).
+ * ADR-056).
  */
 export default async function adminSupportRoutes(app: FastifyInstance, opts: AdminSupportRoutesOptions) {
   const storage = opts.storageProvider ?? createStorageProvider(app.config);

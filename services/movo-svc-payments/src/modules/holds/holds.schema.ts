@@ -47,6 +47,7 @@ const hold = {
     "commissionArs",
     "debtOffsetArs",
     "debtSurchargeArs",
+    "carrierMpFeeArs",
     "status",
     "statusDetail",
     "failureReason",
@@ -68,6 +69,8 @@ const hold = {
     commissionArs: { type: "number" },
     debtOffsetArs: { type: "number" },
     debtSurchargeArs: { type: "number" },
+    // MOVO-285: comisión real de MP (vista del transportista); null mientras MP no la informó.
+    carrierMpFeeArs: { type: ["number", "null"] },
     status: { type: "string", enum: ["creating", "in_process", "authorized", "captured", "cancelled", "rejected"] },
     statusDetail: { type: ["string", "null"] },
     failureReason: {

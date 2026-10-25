@@ -5,9 +5,12 @@ import {
   SupportConversationLastMessage,
   SupportDeliveryStatus,
   SupportAttachment,
+  SupportShipmentOption,
+  SupportShipmentRole,
   SupportStatus,
   SupportUserFacingMessage,
 } from "@movo/shared";
+import { shortAddress } from "../utils/short-address";
 
 /**
  * MOVO-320 (ADR-051): reglas puras de las conversaciones de soporte del lado del usuario. Sin acceso a datos
@@ -119,6 +122,48 @@ export function toConversationItem(
     lastMessage: toLastMessage(lastMessage),
     unreadCount,
     lastActivityAt: conversation.lastMessageAt.toISOString(),
+  };
+}
+
+/** Lo mínimo de un envío para ofrecerlo en el selector de "Nueva consulta" (MOVO-324). */
+export interface SupportShipmentOptionFacts {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  carrierId: string | null;
+  status: string;
+  pickupAddress: string;
+  pickupCity: string | null;
+  deliveryAddress: string;
+  deliveryCity: string | null;
+  createdAt: Date;
+}
+
+/**
+ * Rol del usuario en el envío. El transportista primero (un emisor no puede llevar su propio envío, pero el orden
+ * deja la regla explícita); quien transfirió la recepción figura como receptor.
+ */
+export function supportShipmentRole(shipment: SupportShipmentOptionFacts, userId: string): SupportShipmentRole {
+  if (shipment.carrierId === userId) return "carrier";
+  if (shipment.senderId === userId) return "sender";
+  return "receiver";
+}
+
+/** "Nueva Córdoba → Alta Córdoba": la ciudad resuelta o, si todavía no hay, el primer tramo de la dirección. */
+export function supportShipmentRoute(shipment: SupportShipmentOptionFacts): string {
+  const pickup = shipment.pickupCity ?? shortAddress(shipment.pickupAddress);
+  const delivery = shipment.deliveryCity ?? shortAddress(shipment.deliveryAddress);
+  return `${pickup} → ${delivery}`;
+}
+
+export function toShipmentOption(shipment: SupportShipmentOptionFacts, userId: string): SupportShipmentOption {
+  return {
+    id: shipment.id,
+    code: supportShipmentCode(shipment.id),
+    status: shipment.status,
+    route: supportShipmentRoute(shipment),
+    role: supportShipmentRole(shipment, userId),
+    createdAt: shipment.createdAt.toISOString(),
   };
 }
 

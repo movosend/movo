@@ -80,6 +80,7 @@ export type {
   VehicleProfile,
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
+export type { PlacePrediction } from "./types/places";
 export { PriceCalculationMethod } from "./types/pricing";
 export type {
   DemandContext,
@@ -231,6 +232,7 @@ export {
   decomposeOfferGrossPrice,
   carrierPaymentView,
   estimateMpFeeArs,
+  estimateReceivedArs,
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
@@ -283,12 +285,24 @@ export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
 
 // trip start (MOVO-277)
 export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";
+export {
+  PACKAGE_WEIGHT_KG_MIN,
+  PACKAGE_WEIGHT_KG_STEP,
+  PACKAGE_DIMENSION_CM_MIN,
+  PACKAGE_DIMENSION_CM_STEP,
+  PACKAGE_DIMENSION_CM_MAX,
+  PACKAGE_DIMENSION_CM_OPTIONS,
+  PACKAGE_INPUT_SANITY_MAX,
+  roundPackageWeightKg,
+} from "./config/package-dimensions";
 // penalidad por cancelar un envío asignado (MOVO-307, ADR-047)
 export {
   CANCELLATION_PENALTY_FREE_HOURS,
   CANCELLATION_PENALTY_RATE,
   computeCancellationPenalty,
   computeCarrierWithdrawalPenalty,
+  isSenderCancellableStatus,
+  SENDER_CANCELLABLE_STATUSES,
 } from "./config/cancellation-penalty";
 export type {
   CancellationPenaltyInput,
@@ -371,6 +385,11 @@ export {
   ADMIN_SHIPMENT_GROUP_STATUSES,
   ADMIN_SHIPMENTS_DEFAULT_LIMIT,
   ADMIN_SHIPMENTS_MAX_LIMIT,
+  FORCE_STATUS_REASON_MAX_LENGTH,
+  FORCE_STATUS_REASON_MIN_LENGTH,
+  STEP_UP_CODE_TTL_SECONDS,
+  STEP_UP_TOKEN_TTL_SECONDS,
+  ADMIN_TRACKING_POLL_INTERVAL_SECONDS,
   isAdminShipmentAlert,
 } from "./types/admin-shipments";
 export type {
@@ -380,7 +399,20 @@ export type {
   AdminShipmentCounts,
   AdminShipmentPage,
   AdminShipmentEvent,
+  ForceShipmentStatusRequest,
+  ForceShipmentStatusResponse,
+  ChangeShipmentStatusRequest,
+  ChangeShipmentStatusResponse,
+  ShipmentStatusOption,
+  ShipmentStatusBlocked,
+  ShipmentStatusOptions,
+  StepUpRequest,
+  StepUpChallenge,
+  StepUpVerifyRequest,
+  StepUpToken,
+  ShipmentEventKind,
   AdminShipmentPhoto,
+  AdminShipmentOffer,
   AdminShipmentPayment,
   AdminShipmentPartyCard,
   AdminBlock,
@@ -389,7 +421,31 @@ export type {
   AdminChatMessage,
   AdminChatReport,
   AdminChatPage,
+  AdminTrackingState,
+  AdminTrackingReason,
+  AdminTrackingPlace,
+  AdminTrackingPoint,
+  AdminTrackingMetrics,
+  AdminShipmentTracking,
 } from "./types/admin-shipments";
+
+// admin: cambio forzado de estado de un envío (MOVO-331, ADR-055)
+export {
+  FORCED_TRANSITION_MATRIX,
+  blockedTransitionReason,
+  forcedTransitionFriction,
+  getForcedTransition,
+  getForcedTransitionDetails,
+  listForcedTransitionTargets,
+} from "./config/forced-transition-matrix";
+export type {
+  ForcedTransitionCell,
+  ForcedTransitionDetails,
+  ForcedTransitionKind,
+  ForcedTransitionRecipient,
+  ForcedTransitionRisk,
+  ForcedTransitionService,
+} from "./config/forced-transition-matrix";
 
 // admin: búsqueda de usuarios y ficha (MOVO-295, backend MOVO-294)
 export {
@@ -515,7 +571,7 @@ export type {
   SupportRealtimeTicket,
 } from "./types/admin-support";
 
-// soporte: contrato interno svc-admin ↔ svc-shipments (MOVO-322, ADR-055)
+// soporte: contrato interno svc-admin ↔ svc-shipments (MOVO-322, ADR-056)
 export {
   SUPPORT_EVENTS_STREAM_KEY,
   SUPPORT_EVENTS_STREAM_FIELD,
@@ -561,6 +617,9 @@ export type {
   SupportCreateResult,
   SupportSendUserBody,
   SupportUserAttachmentCreateBody,
+  SupportShipmentRole,
+  SupportShipmentOption,
+  SupportShipmentOptionsPage,
   SupportReadResult,
   SupportRealtimeEvent,
   SupportRealtimeConnected,

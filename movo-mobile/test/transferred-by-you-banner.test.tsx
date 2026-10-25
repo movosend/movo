@@ -40,6 +40,6 @@ describe("TransferredByYouBanner (MOVO-275)", () => {
     const { getByTestId } = await render(<TransferredByYouBanner transfer={transfer} testID="banner" />);
 
     expect(getByTestId("banner-avatar-initials")).toHaveTextContent("ML");
-    expect(getByTestId("banner-date")).toHaveTextContent(/^Aceptó el \S+ 10 oct a las \d{2}:\d{2}$/);
+    expect(getByTestId("banner-date")).toHaveTextContent(/^Aceptó el \S+ 10 oct a las \d{2}:\d{2} h$/);
   });
 });

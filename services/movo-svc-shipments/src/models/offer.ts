@@ -81,6 +81,11 @@ export interface OfferShipmentContext {
   distanceKm: number;
   packageType: PackageType;
   weightKg: number;
+  /** MOVO-317: medidas declaradas; con `oversized` son el tope (300) y el paquete real es más grande. */
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  oversized: boolean;
   description: string | null;
 }
 

@@ -10,6 +10,7 @@ import {
   SupportUserAttachmentCreateBody,
   SupportUserMessagesPage,
   SupportRealtimeEvent,
+  SupportShipmentOptionsPage,
   SupportUserFacingMessage,
   SUPPORT_MESSAGE_MAX_LENGTH,
   SUPPORT_PUSH_PREVIEW_MAX,
@@ -28,7 +29,7 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { ChatHub } from "../../realtime/chat-hub";
 import { hasShipmentAccess } from "../shipments/assert-shipment-access";
 import { moderateChatText } from "../../domain/chat-moderation";
-import { isUserVisibleKind, toConversationItem, toUserFacingMessage, supportRoomKey } from "../../domain/support-rules";
+import { isUserVisibleKind, toConversationItem, toShipmentOption, toUserFacingMessage, supportRoomKey } from "../../domain/support-rules";
 import type { ChatPushBuffer, ChatPushBufferEntry } from "../chat/chat.service";
 import { attachmentInvalid, SupportAttachmentsService } from "./support-attachments.service";
 import type { SupportAdminFeed } from "../admin-support/support-admin-feed";
@@ -62,7 +63,7 @@ export interface SupportServiceDeps {
   schedule?: (run: () => void, delayMs: number) => void;
   logger?: SupportLogger;
   now?: () => Date;
-  /** MOVO-322: avisa al panel (Redis Stream, ADR-055) de consultas y mensajes nuevos del usuario. Nunca falla. */
+  /** MOVO-322: avisa al panel (Redis Stream, ADR-056) de consultas y mensajes nuevos del usuario. Nunca falla. */
   adminFeed?: SupportAdminFeed;
 }
 
@@ -397,6 +398,21 @@ export function createSupportService(deps: SupportServiceDeps) {
         ...(input.width !== undefined ? { width: input.width } : {}),
         ...(input.height !== undefined ? { height: input.height } : {}),
       });
+    },
+
+    /**
+     * MOVO-324: envíos que el usuario puede vincular a una consulta nueva (los mismos que acepta `createConversation`),
+     * en cualquier rol y estado: también se consulta por uno entregado o cancelado.
+     */
+    async listShipmentOptions(input: { userId: string; limit: number; cursor?: string }): Promise<SupportShipmentOptionsPage> {
+      let page;
+      try {
+        page = await repo.listShipmentOptions(input.userId, input.limit, input.cursor);
+      } catch (err) {
+        if (err instanceof InvalidSupportCursorError) throw new ApiError(400, "VALIDATION_FAILED", err.message);
+        throw err;
+      }
+      return { items: page.items.map((s) => toShipmentOption(s, input.userId)), nextCursor: page.nextCursor };
     },
 
     async markRead(userId: string, conversationId: string): Promise<{ readAt: string }> {

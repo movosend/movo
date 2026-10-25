@@ -8,7 +8,9 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
+import type { ChatDeliveryStatus } from "@movo/shared/dist/types/chat";
 import { deliveryStatusLabel, formatChatTime, type LocalChatMessage } from "../../src/lib/chat-format";
+import { RemoteImage } from "../ui/remote-image";
 import { ChatAvatar } from "./chat-avatar";
 
 export interface ChatBubbleProps {
@@ -21,6 +23,13 @@ export interface ChatBubbleProps {
   showAvatar: boolean;
   groupStart: boolean;
   avatar?: { fullName: string; photoUrl: string | null };
+  /** Reemplaza al avatar de iniciales (el isotipo de Movo en el chat de soporte, MOVO-324). */
+  avatarNode?: ReactNode;
+  /** Imágenes adjuntas (soporte, MOVO-324): miniaturas dentro de la burbuja. */
+  attachments?: readonly { id: string; url: string }[];
+  onPressAttachment?: (index: number) => void;
+  /** Texto de los tildes; por defecto el del chat del envío ("Leído por todos"). */
+  statusLabel?: (status: ChatDeliveryStatus) => string;
   /** Tocar el avatar de quien escribió abre el detalle del envío. */
   onPressAvatar?: () => void;
   onRetry?: (clientMessageId: string) => void;
@@ -31,6 +40,7 @@ export interface ChatBubbleProps {
 }
 
 const AVATAR = 28;
+const ATTACHMENT_SIZE = 112;
 export const CHAT_ENTER_MS = 220;
 const SENDING_OPACITY = 0.6;
 const SPRING = { damping: 16, stiffness: 240, mass: 0.8 };
@@ -125,6 +135,10 @@ function BubbleRow({
   showAvatar,
   groupStart,
   avatar,
+  avatarNode,
+  attachments,
+  onPressAttachment,
+  statusLabel = deliveryStatusLabel,
   onPressAvatar,
   onRetry,
   onDiscard,
@@ -151,7 +165,7 @@ function BubbleRow({
           onPress={onPressAvatar}
           style={{ width: AVATAR, height: AVATAR, opacity: showAvatar ? 1 : 0 }}
         >
-          {avatar ? <ChatAvatar fullName={avatar.fullName} photoUrl={avatar.photoUrl} size={AVATAR} fontSize={9} /> : null}
+          {avatarNode ?? (avatar ? <ChatAvatar fullName={avatar.fullName} photoUrl={avatar.photoUrl} size={AVATAR} fontSize={9} /> : null)}
         </Pressable>
       ) : null}
 
@@ -173,11 +187,31 @@ function BubbleRow({
             opacity: dimWhileSending && sending ? SENDING_OPACITY : 1,
           }}
         >
+          {attachments && attachments.length > 0 ? (
+            <View
+              testID={`${testID}-attachments`}
+              className="flex-row flex-wrap"
+              style={{ gap: 6, marginBottom: message.body ? 8 : 0 }}
+            >
+              {attachments.map((attachment, index) => (
+                <Pressable
+                  key={attachment.id}
+                  testID={`${testID}-attachment-${index}`}
+                  accessibilityRole="imagebutton"
+                  accessibilityLabel="Ver la foto"
+                  disabled={!onPressAttachment}
+                  onPress={() => onPressAttachment?.(index)}
+                >
+                  <RemoteImage uri={attachment.url} style={{ width: ATTACHMENT_SIZE, height: ATTACHMENT_SIZE, borderRadius: 12 }} />
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
           {message.hidden ? (
             <Text className="font-sans text-body italic text-fg-3">Mensaje de un usuario bloqueado</Text>
-          ) : (
+          ) : message.body ? (
             <Text className={`font-sans text-body ${mine ? "text-bg" : "text-fg"}`}>{message.body}</Text>
-          )}
+          ) : null}
         </View>
 
         {failed ? (
@@ -197,7 +231,7 @@ function BubbleRow({
               <Pressable
                 testID={`${testID}-ticks`}
                 accessibilityRole="button"
-                accessibilityLabel={deliveryStatusLabel(status)}
+                accessibilityLabel={statusLabel(status)}
                 onPress={() => setStatusOpen((open) => !open)}
                 className="flex-row items-center"
                 style={{ gap: 5 }}
@@ -206,7 +240,7 @@ function BubbleRow({
                 <Ticks double={status !== "sent"} />
                 {statusOpen ? (
                   <Text testID={`${testID}-status`} className="font-sans text-[11px] text-fg-3">
-                    {deliveryStatusLabel(status)}
+                    {statusLabel(status)}
                   </Text>
                 ) : null}
               </Pressable>

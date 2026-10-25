@@ -670,6 +670,13 @@ de la regla: el filtro `alert` de `svc-shipments` (SQL) y el panel la siguen.
 `pickupDisputeOpened{Sender,Receiver,Carrier}`; código `HANDSHAKE_PICKUP_DEADLINE_PASSED`. Recordatorio habitual: `npm run build`
 acá antes de tipar desde otro workspace.
 
+### MOVO-340 — `PlacePrediction`, `SENDER_CANCELLABLE_STATUSES` y `chat_participants_changed`
+
+`types/places.ts`: `PlacePrediction` (`lat`/`long` opcionales, solo en una búsqueda por coordenadas), antes duplicado en
+`svc-users` y mobile. `config/cancellation-penalty.ts` suma `SENDER_CANCELLABLE_STATUSES`/`isSenderCancellableStatus` (desde
+qué estados cancela el emisor; no depende de la hora del retiro). `ChatRealtimeEvent` suma `chat_participants_changed`.
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
 ### MOVO-334 — Contrato de disputas (`types/dispute.ts`, ADR-054)
 
 `DisputeReason` (los cuatro elegibles desde la app en `USER_SELECTABLE_DISPUTE_REASONS`, más `transit_anomaly`/`pickup_no_show` de
@@ -680,7 +687,52 @@ y las constantes `DISPUTE_WINDOW_DAYS` (7, desde `deliveredAt`) y `DISPUTE_TEXT_
 `disputes` pasa a `implemented: true` y ya no queda ninguna "Pronto" (tocó tres tests de `movo-mobile`). Recordatorio habitual:
 `npm run build` acá antes de tipar desde otro workspace.
 
-### MOVO-322 — Contrato interno de la bandeja de soporte (`types/admin-support-internal.ts`, ADR-055)
+### MOVO-317 — Constantes del wizard de paquetes y `package_tapered_v3`
+
+`config/package-dimensions.ts`: `PACKAGE_WEIGHT_KG_MIN`/`_STEP` (0,5), `PACKAGE_DIMENSION_CM_MIN`/`_STEP`/`_MAX` (10/10/300),
+`PACKAGE_DIMENSION_CM_OPTIONS`, `roundPackageWeightKg` y `PACKAGE_INPUT_SANITY_MAX` (10.000, tope de cordura del peso y de cada medida en
+`svc-shipments` y pricing; pricing lo replica en `models/quote.py`). `ShipmentQuoteRequest.oversized` (opcional). `PriceCalculationMethod`
+suma `PACKAGE_TAPERED_V3`. `PACKAGE_LIMITS_EXCEEDED` queda deprecado (ya no se emite). Movo-mobile importa con
+`@movo/shared/dist/config/package-dimensions`, no del barrel (arrastra `node:crypto`).
+### Ofertas del envío para el panel (`types/admin-shipments.ts`)
+
+`AdminShipmentOffer` (estado efectivo, snapshot del transportista, bruto/neto/comisión y el estimado de MP y de lo que recibe) y el
+bloque `offers` en `AdminShipmentDetailResponse` (requerido: rompe literales armados a mano). El barrel suma `estimateReceivedArs`,
+que solo se exportaba por subpath. Review de PR #302: `AdminShipmentOffer.commissionRate` y
+`AdminShipmentDetail.requestedPickupDate`/`requestedPickupTimeWindowStart`/`End` (lo que pidió el emisor; `pickupDate` pasa a ser el
+retiro acordado al aceptar una oferta). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-327 — Seguimiento del envío para el panel (`types/admin-shipments.ts`)
+
+`AdminShipmentTracking` y sus piezas (`AdminTrackingState`, `AdminTrackingReason`, `AdminTrackingPlace`, `AdminTrackingPoint`,
+`AdminTrackingMetrics`), más `ADMIN_TRACKING_POLL_INTERVAL_SECONDS` (15), compartido entre `svc-shipments` y `movo-admin`. Es el contrato
+que propuso MOVO-328, con dos cambios: `reason` suma `"cancelled"` y `shipmentStatus` va como `` `${ShipmentStatus}` ``. Recordatorio
+habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-324 — Selector de envíos de soporte (`types/support.ts`)
+
+Sobre el contrato de MOVO-320: `SupportShipmentRole`, `SupportShipmentOption` y `SupportShipmentOptionsPage`, wire contract de
+`GET /support/shipments` (envíos de los que el usuario es parte, en cualquier rol y estado, para vincular a una consulta).
+
+### MOVO-331 — Contrato del cambio forzado de estado (`config/forced-transition-matrix.ts`, ADR-055)
+
+`FORCED_TRANSITION_MATRIX` (origen → destino → `{ kind, risk, service }`; una celda ausente es una transición bloqueada),
+`getForcedTransition`, `listForcedTransitionTargets` y `blockedTransitionReason`: backend y panel la leen de acá. `types/admin-shipments.ts`:
+`ForceShipmentStatusRequest/Response`, `ShipmentEventKind` y `AdminShipmentEvent` suma `kind` y `actorName` (requeridos: rompen literales armados a
+mano, tocó fixtures de `movo-admin`). `ApiErrorCode` suma `TRANSITION_NOT_ALLOWED`, `STATUS_CHANGED`, `HOLD_NOT_AUTHORIZED`,
+`FORCE_STATUS_EFFECT_FAILED`, `IDEMPOTENCY_KEY_REUSED` y `FORCE_STATUS_IN_PROGRESS`; triggers `shipmentStatusForced{Sender,Receiver,Carrier}`.
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-332 — Contrato del cambio de estado desde el panel y del step-up
+
+`types/admin-shipments.ts`: `ChangeShipmentStatusRequest/Response`, `ShipmentStatusOptions` (`options[]` con `kind`, `risk`, `effects`, `notifies`,
+`requiresTypedCode`, `requiresStepUp`; `blocked[]` con su motivo), `StepUpRequest`, `StepUpChallenge`, `StepUpVerifyRequest`, `StepUpToken` y
+`STEP_UP_CODE_TTL_SECONDS`/`STEP_UP_TOKEN_TTL_SECONDS` (300). `config/forced-transition-matrix.ts` suma `getForcedTransitionDetails` (celda + efectos
++ a quién se avisa, el transportista solo si el envío tiene uno) y `forcedTransitionFriction` (código tipeado desde riesgo alto; segundo factor si
+la transición es `forced` o el riesgo es crítico): la fuente única de la fricción para el panel y para `svc-admin`. `ApiErrorCode` suma
+`STEP_UP_REQUIRED`, `STEP_UP_INVALID` y `TYPED_CODE_MISMATCH`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-322 — Contrato interno de la bandeja de soporte (`types/admin-support-internal.ts`, ADR-056)
 
 `SupportInternal*` (fila, mensaje con `kind` `event` para los eventos del equipo, filtros, contadores, actor, bodies) entre
 `svc-admin` y `svc-shipments`, con ids en vez de nombres, y `SupportStreamEvent` + `SUPPORT_EVENTS_STREAM_*` del Redis Stream

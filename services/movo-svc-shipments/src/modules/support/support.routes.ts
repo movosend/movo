@@ -174,6 +174,28 @@ export default async function supportRoutes(app: FastifyInstance, opts: SupportR
     }
   );
 
+  app.get(
+    "/shipments",
+    {
+      schema: {
+        summary: "Envíos para vincular a una consulta",
+        description:
+          "MOVO-324: los envíos de los que el usuario es parte (emisor, receptor, transportista asignado o quien " +
+          "transfirió la recepción), en cualquier estado, del más reciente al más antiguo, con cursor opaco " +
+          "(`nextCursor`). Son los mismos que acepta `shipmentId` al crear una consulta. `route` usa la ciudad del " +
+          "retiro y de la entrega (o el primer tramo de la dirección si no está resuelta).",
+        tags: ["support"],
+        querystring: supportSchemas.listShipmentsQuery,
+        response: { 200: supportSchemas.listShipmentsResponse, 400: supportSchemas.errorResponse, 401: supportSchemas.errorResponse },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const { limit, cursor } = request.query as { limit: number; cursor?: string };
+      return service.listShipmentOptions({ userId, limit, cursor });
+    }
+  );
+
   app.post(
     "/attachments",
     {

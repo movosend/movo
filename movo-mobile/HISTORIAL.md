@@ -4937,7 +4937,6 @@ Perfil abre `TourReplaySheet` para relanzar a mano, sin escribir el registro.
 - Probado en dispositivo (iPhone). Un ancla sin card propia ("Actividad reciente") necesita más `padding` (12) para que el anillo
   no quede pegado al texto.
 
-
 ### MOVO-300 — Cuenta suspendida o inhabilitada
 
 La suspensión vigente sale de `PrivateProfile.activeSanction` (motivo y fin, sin nota interna; se agregó en `svc-users` en esta
@@ -4975,3 +4974,74 @@ está activo (`carrierTripActive` de `GET /shipments/:id`); `assignment_pending`
 en segundo plano y la captura en primer plano mandan `mocked` de expo-location (solo Android, se omite si no viene). El sheet de
 cancelación muestra el motivo `carrier_arrived` (vista `penalty` con `reasonText`) y `HANDSHAKE_PICKUP_DEADLINE_PASSED` tiene copy.
 Pendiente: subir la precisión del GPS cerca del retiro (ADR-052, toca la medición de batería de MOVO-242).
+
+### MOVO-285 — Monto exacto del transportista con el fee real de MP
+
+- `shipments/[id].tsx`: si el detalle trae `carrierReceivedArs` (calculado por el backend con el hold), la card muestra "Recibís" con ese
+  monto y el desglose de `DebtDiscount` dice "Recibís antes" (prop `exact`); sin él sigue el estimado con "Recibís aprox.". Sin cambios de
+  diseño. "Cobraste" sigue saliendo solo de la liquidación acreditada (`settlement-format`). Las pantallas de oferta y "Mis ofertas"
+  mantienen el estimado.
+### MOVO-340 — Paquete de fixes #3
+
+- **Horas y duraciones** (`src/lib/time-format.ts`): `formatTimeOfDay` (`14:30 h`), `formatTimeRange` (`14:00 a 16:00 h`),
+  `formatDuration`/`formatDurationSeconds` (`45 min`, `2 h 15 min`) y `formatRelativeDuration` ("hace 3 h"). Reemplazan a
+  `formatTimeHHMM`/`formatPickupWindowLabel`/`formatDurationMin` y a los formateos sueltos (paradas de ruta, ETA del tracking,
+  chips de franja, chat, viajes, pagos, transferencias). `toHHMM` queda solo para comparar franjas.
+- **Declarar viaje**: vuelve a "Mis viajes" con `dismissTo` (patrón de MOVO-271) y `createdAt` para que la instancia reusada
+  muestre el banner.
+- **Fecha por defecto del wizard** (`src/lib/pickup-windows.ts`): el store arranca con `defaultPickupDate` (hoy en Argentina si
+  quedan franjas, si no mañana), el selector es controlado y las franjas ya empezadas se deshabilitan. La pantalla de oferta no
+  tenía el problema (una sola fuente de verdad).
+- **Búsqueda por coordenadas**: una predicción con `lat`/`long` se confirma sin llamar a `/places/details`.
+- **Chat tras una transferencia de receptor**: `chat_participants_changed` refresca integrantes, acceso y lista; tarjeta de
+  sistema por transferencia completada (`chatTransferCard`).
+- **Cancelar**: `canCancelShipment` usa `isSenderCancellableStatus` de `@movo/shared`.
+- **Registro**: manda `firstName`/`lastName` por separado (antes un `fullName` que el backend cortaba en el primer espacio).
+- Fuera de alcance: el ítem 1 (pantalla externa) se resolvió fuera del código.
+
+### MOVO-317 — Peso y medidas libres al publicar un envío
+
+- **Wizard** (`components/send/`): `WeightStepper` pasa a pasos de 0,5 kg con campo editable (coma o punto; al salir se redondea al
+  múltiplo de 0,5 más cercano; vacío, 0 o negativo vacían el valor y no dejan avanzar). `DimensionInputs` son tres `SelectField` de 10 a
+  300 cm de a 10 más "Más de 300 cm". Mínimo, paso y tope salen de `@movo/shared` (`config/package-dimensions.ts`, import profundo
+  `@movo/shared/dist/...`: el barrel arrastra `node:crypto` y rompe el bundle de Metro). Sin máximos: `isPackageStepValid` pide peso > 0 y
+  las tres medidas elegidas.
+- **"Más de 300 cm"** vive en el store como `"oversized"` (`src/lib/package-dimensions.ts`) y viaja como la medida tope (300) más
+  `oversized: true` en cotizar y crear. En el campo cerrado se muestra "+300 cm" (la etiqueta completa no entra en un tercio del ancho);
+  el resumen muestra `+300`.
+- Al elegir Estándar o Frágil el peso arranca cargado en 0,5 kg; al pasar de Documento a otro tipo se limpian los valores fijos de la carta
+  (30 × 21 × 1 cm no son opciones de los desplegables). Documento sigue mandando 0,1 kg fijo.
+- **Transportista** (M7): la tarjeta del feed y `PackageCard` muestran peso y medidas con el aviso "Más de 300 cm"
+  (`formatPackageDimensions`). El detalle de la oferta del transportista no repite el paquete (decisión de MOVO-182).
+- **Tamaños rápidos**: tres botones Pequeño / Mediano / Grande bajo las medidas (`components/send/package-presets.tsx`, valores en
+  `src/lib/package-presets.ts`) que cargan peso y las tres medidas de un toque (2 kg 30 × 20 × 20, 8 kg 50 × 40 × 30, 25 kg
+  100 × 60 × 60). Mismo estilo que `CategoryGrid`; queda marcado el que coincide con los cuatro valores y se desmarca al ajustar uno.
+  No aparecen con Documento. Los valores salen de los perfiles del juego de precios (pequeño y mediano); el grande es nuevo.
+- `SelectField` suma `displayValue` y espacio inferior en la lista (la última opción quedaba bajo la barra de gestos).
+- Tests: `test/package-dimensions.test.tsx` reemplaza a `package-limits.test.tsx` (límites de MOVO-276).
+- Pendiente: el copy de `PACKAGE_LIMITS_EXCEEDED` en `error-messages.ts` queda por compatibilidad con backends viejos.
+### MOVO-324 — Ayuda y soporte: submenú, consultas y conversación con el equipo de Movo
+
+Prototipo `Movo App Soporte.dc.html` (Claude Design). "Ayuda y soporte" de Perfil deja de abrir el sheet del tutorial y empuja
+`/support`, un **submenú** (`app/(app)/support/index.tsx`, no está en el prototipo): "Escribirle a Movo" (con el total de sin leer),
+"Repasar el tutorial" (el `TourReplaySheet` de MOVO-169, que se mudó acá) y lugar para preguntas frecuentes. Pantallas: `conversations`
+(Mis consultas), `new` (modal), `pending` (la consulta que se está creando) y `[id]` (conversación). Entrada extra: "Necesito ayuda con
+este envío" al pie del detalle del envío → `/support/new?shipmentId=`.
+
+- **Reutilización.** Los componentes del chat del envío se reusan con props opcionales retrocompatibles (`ChatBubble`: `attachments`,
+  `avatarNode`, `statusLabel`; `ChatComposer`: `maxLength`, `leftAction`, `attachmentsSlot`, `allowEmpty`, `sendDisabled`; `ChatHeader`:
+  `title`, `subtitle`, `trailing`), y `buildChatTimeline`/`useLiveChatKeys` se hicieron genéricos (`buildTimeline`). Los hooks son
+  propios con el mismo molde (`use-support*`), no una versión parametrizada de `useChatConversation`: así el chat del envío no se toca.
+  Las notas internas no existen para el cliente: el hook filtra todo `kind` que no sea `user|agent|system`.
+- **Contrato del usuario** en `shared/.../types/support.ts` (nombres con otro prefijo para no pisar los `Support*` del agente) y
+  `docs/support/README.md`. Mientras no exista MOVO-320/321, `EXPO_PUBLIC_SUPPORT_MOCK=1` responde todo desde `src/api/support-mock.ts`
+  (reapertura, evento `system`, moderación, adjuntos de un solo uso) y no abre el WebSocket.
+- **Crear sin `conversationId`.** "Enviar consulta" guarda un borrador (`support-draft-store`) y pasa a `support/pending`, que hace el POST:
+  la burbuja se ve "Enviando…", si falla reintenta con el mismo `clientMessageId` (idempotente) y al salir siembra el caché y hace `replace`
+  a la conversación real. Las fotos de una consulta nueva se piden sin `conversationId` (ver MOVO-321).
+- **Selector de envíos.** `GET /shipments/mine` solo trae emisor/receptor, no transportista; `GET /support/shipments` (cualquier rol y estado) se implementó en `svc-shipments` en esta misma rama, porque MOVO-320 lo había dejado afuera.
+- Decisiones: tildes solo `sent|read`; reabrir una resuelta se refleja cuando el POST confirma (no antes); las URLs de adjuntos vencen, así
+  que abrir el visor vuelve a pedir la primera página.
+- Pendiente / fuera de alcance: la galería elige de a una foto (el prototipo pedía multiselección), el visor no tiene el "No pudimos cargar la
+  foto. Reintentar" ni cierre deslizando hacia abajo (reusa `PhotoViewerModal`), diseño del submenú, y la prueba en dispositivo contra el backend
+  real con un agente en el panel (depende de MOVO-320/321/322).

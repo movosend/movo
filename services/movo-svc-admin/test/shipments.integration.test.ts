@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FastifyInstance } from "fastify";
-import { AdminChatPage, AdminShipmentDetail, AdminShipmentPage, HoldDetailResponse, ShipmentStatus } from "@movo/shared";
+import {
+  AdminChatPage,
+  AdminShipmentDetail,
+  AdminShipmentOffer,
+  AdminShipmentPage,
+  AdminShipmentTracking,
+  HoldDetailResponse,
+  ShipmentStatus,
+} from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createFakePaymentsClient, createFakeShipmentsClient, createFakeUsersClient } from "./fake-clients";
 
@@ -69,16 +77,65 @@ describe("Envíos para el panel (MOVO-325)", () => {
     reports: [{ reporterId: receiver.id, reporterRole: "receiver", createdAt: "2030-01-01T11:00:00.000Z" }],
     events: [],
   };
+  const tracking: AdminShipmentTracking = {
+    shipmentId: detail.id,
+    shipmentStatus: "in_transit",
+    state: "live",
+    reason: null,
+    origin: { lat: -31.4201, lng: -64.1888, label: "Córdoba" },
+    destination: { lat: -32.4075, lng: -63.2406, label: "Villa María" },
+    plannedRoute: { polyline: "abc", distanceMeters: 140000, durationSeconds: 7200 },
+    trace: [{ lat: -31.5, lng: -64.1, capturedAt: "2030-01-01T10:00:00.000Z" }],
+    traceTruncated: false,
+    traceAvailable: true,
+    lastPosition: { lat: -31.6, lng: -64.0, accuracyM: null, capturedAt: "2030-01-01T10:01:00.000Z" },
+    lastPingAt: "2030-01-01T10:01:01.000Z",
+    signalLost: true,
+    delayed: false,
+    metrics: { avgSpeedKmh5m: null, remainingMeters: 110000, progressPct: 21.4, etaAt: null },
+    serverTime: "2030-01-01T10:10:00.000Z",
+    pollIntervalSeconds: 15,
+  };
   const seen: { list?: string; chat?: string } = {};
+  const offer: AdminShipmentOffer = {
+    id: randomUUID(),
+    carrierId: carrier.id,
+    carrierName: carrier.name,
+    carrierRatingAtOffer: 4.8,
+    status: "accepted",
+    priceArs: 4500,
+    netArs: 3913.04,
+    commissionArs: 586.96,
+    commissionRate: 0.15,
+    mpFeeEstimateArs: 224.55,
+    receivedEstimateArs: 3688.49,
+    offeredDate: "2030-01-01",
+    pickupTimeWindowStart: null,
+    pickupTimeWindowEnd: null,
+    estimatedDeliveryDate: null,
+    estimatedDeliveryTimeWindowStart: null,
+    estimatedDeliveryTimeWindowEnd: null,
+    message: "Paso temprano",
+    tripId: null,
+    createdAt: "2029-12-30T10:00:00.000Z",
+    viewedAtBySender: "2029-12-30T10:30:00.000Z",
+    respondedAt: "2029-12-30T12:00:00.000Z",
+    expiresAt: null,
+  };
 
-  const build = (overrides: { usersDown?: boolean; paymentsDown?: boolean; shipmentsDown?: boolean; withHold?: boolean } = {}) =>
+  const build = (
+    overrides: { usersDown?: boolean; paymentsDown?: boolean; shipmentsDown?: boolean; offersDown?: boolean; withHold?: boolean } = {},
+  ) =>
     buildApp({
       shipmentsClient: createFakeShipmentsClient({
         page,
         details: { [detail.id]: detail },
+        offers: { [detail.id]: [offer] },
         chats: { [detail.id]: chat },
+        trackings: { [detail.id]: tracking },
         seen,
         down: overrides.shipmentsDown ?? false,
+        offersDown: overrides.offersDown ?? false,
       }),
       usersClient: createFakeUsersClient({
         cards: [card(sender.id, sender.name), card(carrier.id, carrier.name), card(receiver.id, receiver.name)],
@@ -104,9 +161,14 @@ describe("Envíos para el panel (MOVO-325)", () => {
   const get = (url: string, headers: Record<string, string> = admin, instance: FastifyInstance = app) =>
     instance.inject({ method: "GET", url, headers });
 
-  it("responde 403 sin rol admin en el listado, el detalle y el chat", async () => {
+  it("responde 403 sin rol admin en el listado, el detalle, el chat y el seguimiento", async () => {
     const notAdmin = { "x-user-id": randomUUID(), "x-user-roles": "sender" };
-    for (const url of ["/admin/shipments", `/admin/shipments/${detail.id}`, `/admin/shipments/${detail.id}/chat/messages`]) {
+    for (const url of [
+      "/admin/shipments",
+      `/admin/shipments/${detail.id}`,
+      `/admin/shipments/${detail.id}/chat/messages`,
+      `/admin/shipments/${detail.id}/tracking`,
+    ]) {
       expect((await get(url, notAdmin)).statusCode).toBe(403);
     }
   });
@@ -140,10 +202,23 @@ describe("Envíos para el panel (MOVO-325)", () => {
     expect(body.shipment.id).toBe(detail.id);
     expect(body.events).toEqual({ data: [], error: null });
     expect(body.photos).toEqual({ data: [], error: null });
+    expect(body.offers).toEqual({ data: [offer], error: null });
     expect(body.payment.error).toBeNull();
     expect(body.payment.data.cardLast4).toBe("4242");
     expect(body.parties.data.map((p: { role: string }) => p.role)).toEqual(["sender", "carrier", "receiver"]);
     expect(body.parties.data[1]).toMatchObject({ id: carrier.id, licenseVerified: true, reputationScore: 4.8 });
+  });
+
+  it("si las ofertas no se pueden leer, el bloque viene en null con su causa y el resto se devuelve", async () => {
+    const down = build({ offersDown: true });
+    await down.ready();
+    const res = await get(`/admin/shipments/${detail.id}`, admin, down);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.offers.data).toBeNull();
+    expect(body.offers.error.code).toBe("SHIPMENTS_SERVICE_UNAVAILABLE");
+    expect(body.events).toEqual({ data: [], error: null });
+    await down.close();
   });
 
   it("un envío sin pago intentado trae el bloque de pago en null sin error", async () => {
@@ -180,6 +255,21 @@ describe("Envíos para el panel (MOVO-325)", () => {
   it("un envío inexistente es 404", async () => {
     expect((await get(`/admin/shipments/${randomUUID()}`)).statusCode).toBe(404);
     expect((await get(`/admin/shipments/${randomUUID()}/chat/messages`)).statusCode).toBe(404);
+    expect((await get(`/admin/shipments/${randomUUID()}/tracking`)).statusCode).toBe(404);
+  });
+
+  it("devuelve el seguimiento tal cual, con los `null` intactos y sin cache (MOVO-327)", async () => {
+    const res = await get(`/admin/shipments/${detail.id}/tracking`);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["cache-control"]).toBe("no-store");
+    expect(res.json()).toEqual(tracking);
+  });
+
+  it("si svc-shipments no responde, el seguimiento es 502", async () => {
+    const down = build({ shipmentsDown: true });
+    await down.ready();
+    expect((await get(`/admin/shipments/${detail.id}/tracking`, admin, down)).statusCode).toBe(502);
+    await down.close();
   });
 
   it("devuelve el chat con el reporte, el rol del autor y si las partes pueden escribir", async () => {
@@ -193,6 +283,7 @@ describe("Envíos para el panel (MOVO-325)", () => {
     const adminId = randomUUID();
     await get(`/admin/shipments`, { "x-user-id": adminId, "x-user-roles": "admin" });
     await get(`/admin/shipments/${detail.id}`, { "x-user-id": adminId, "x-user-roles": "admin" });
+    await get(`/admin/shipments/${detail.id}/tracking`, { "x-user-id": adminId, "x-user-roles": "admin" });
     expect(await app.db.auditLog.count({ where: { adminId } })).toBe(0);
   });
 });

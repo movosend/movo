@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { ApiError, ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
@@ -176,6 +176,43 @@ describe("cancelación con penalidad desde assigned (Postgres) — MOVO-307", ()
       const response = await quote(inTransit);
       expect(response.statusCode).toBe(409);
       expect(response.json().error.code).toBe("SHIPMENT_INVALID_TRANSITION");
+    });
+  });
+
+  describe("MOVO-340: retiro el mismo día con el día local distinto del día UTC", () => {
+    // 22:00 del 24/10 en Argentina = 01:00 del 25/10 en UTC. Retiro el 24/10 de 23:00 a 23:59.
+    const NOW = new Date("2026-10-25T01:00:00.000Z");
+    const SAME_DAY_WINDOW = windowColumns(new Date("2026-10-25T02:00:00.000Z"), new Date("2026-10-25T02:59:00.000Z"));
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(NOW);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it.each([ShipmentStatus.PUBLISHED, ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED])(
+      "desde %s se cancela sin cargo",
+      async (status) => {
+        const shipmentId = await createAssigned(SAME_DAY_WINDOW, status);
+
+        expect((await quote(shipmentId)).json()).toMatchObject({ penaltyArs: 0, reason: "not_assigned" });
+        const response = await cancel(shipmentId);
+        expect(response.statusCode).toBe(200);
+        expect(response.json().status).toBe(ShipmentStatus.CANCELLED);
+      }
+    );
+
+    it("desde assigned se cancela con la penalidad del 25 %", async () => {
+      expect(SAME_DAY_WINDOW.pickupDate.toISOString()).toBe("2026-10-24T00:00:00.000Z");
+      const shipmentId = await createAssigned(SAME_DAY_WINDOW);
+
+      expect((await quote(shipmentId)).json()).toMatchObject({ penaltyArs: PENALTY, reason: "late_cancellation" });
+      const response = await cancel(shipmentId, { expectedPenaltyArs: PENALTY });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ status: ShipmentStatus.CANCELLED, cancellationPenaltyArs: PENALTY });
     });
   });
 

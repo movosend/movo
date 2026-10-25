@@ -120,7 +120,7 @@ describe("presentMyShipment", () => {
     expect(p.pill?.label).toBe("ELEGÍ RECEPTOR");
     expect(p.strip).toEqual({
       kind: "action",
-      text: "Paul no aceptó el envío. Tenés hasta mañana 18:00 para elegir a otra persona.",
+      text: "Paul no aceptó el envío. Tenés hasta mañana 18:00 h para elegir a otra persona.",
       target: "change_receiver",
     });
   });

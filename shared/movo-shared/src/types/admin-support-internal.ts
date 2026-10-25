@@ -133,7 +133,7 @@ export interface SupportInternalUserConversations {
 }
 
 /**
- * Entrada del Redis Stream `support:events` (ADR-055): la escribe `svc-shipments` en cada cambio y la lee `svc-admin`
+ * Entrada del Redis Stream `support:events` (ADR-056): la escribe `svc-shipments` en cada cambio y la lee `svc-admin`
  * para el WebSocket y `GET /admin/support/events`. Viaja sin nombres; `counts_changed` no trae contadores porque
  * `byOwner.mine` depende de quién mira: `svc-admin` los calcula por admin.
  */

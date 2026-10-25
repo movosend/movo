@@ -1,5 +1,7 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { toArgentinaCalendarDateString } from "@movo/shared/dist/utils/argentina-date";
+import { isSenderCancellableStatus } from "@movo/shared/dist/config/cancellation-penalty";
+import { formatDuration, formatRelativeDuration, formatTimeOfDay } from "./time-format";
 
 /** Etiqueta en español de cada estado del ciclo de vida (`shipment-state-machine.ts`
  * en `movo-svc-shipments`, MOVO-105) — un valor nuevo en el enum obliga a decidir acá
@@ -121,20 +123,11 @@ export function receiverConfirmationStatus(
   return "confirmed";
 }
 
-/** Estados desde los que el emisor puede cancelar (MOVO-29/108). MOVO-308: también
- * `assigned` (con la penalidad de ADR-047, que el sheet cotiza antes de confirmar) y
- * `assigned_unfunded` (todavía sin reserva, sin cargo). El resto de los estados no puede
- * pasar a `cancelled` (`shipment-state-machine.ts`). */
+/** Estados desde los que el emisor puede cancelar (MOVO-29/108/308). MOVO-340: la regla
+ * vive en `@movo/shared`, la misma que `svc-shipments` verifica contra su máquina de
+ * estados; solo depende del estado, nunca de la fecha del retiro. */
 export function canCancelShipment(status: ShipmentStatus): boolean {
-  return (
-    status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION ||
-    // MOVO-253 AC4: en vez de elegir otro receptor, el emisor puede cancelar.
-    status === ShipmentStatus.REJECTED_BY_RECEIVER ||
-    status === ShipmentStatus.PUBLISHED ||
-    status === ShipmentStatus.ASSIGNMENT_PENDING ||
-    status === ShipmentStatus.ASSIGNED_UNFUNDED ||
-    status === ShipmentStatus.ASSIGNED
-  );
+  return isSenderCancellableStatus(status);
 }
 
 /** Estados desde los que el transportista asignado puede bajarse (MOVO-314 AC1, backend
@@ -491,12 +484,7 @@ export function shipmentPendingStepLabel(
   }
 }
 
-const EVENT_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("es-AR", {
-  day: "numeric",
-  month: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-});
+const EVENT_DAY_FORMATTER = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
 
 /** `createdAt` de un evento viaja como ISO datetime completo (con offset), a
  * diferencia de `pickupDate` — acá sí se parsea con `new Date` y se muestra en la
@@ -506,18 +494,16 @@ const EVENT_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("es-AR", {
 export function formatEventTimestamp(iso: string): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  return EVENT_TIMESTAMP_FORMATTER.format(date);
+  return `${EVENT_DAY_FORMATTER.format(date)}, ${formatTimeOfDay(date)}`;
 }
 
-const TIME_OF_DAY_FORMATTER = new Intl.DateTimeFormat("es-AR", { hour: "numeric", minute: "2-digit" });
-
 /** Solo la hora (sin fecha) de un ISO datetime -- para el eyebrow de la pantalla de
- * éxito del handshake ("Retiro confirmado · 9:41", MOVO-198 rediseño), donde la
+ * éxito del handshake ("Retiro confirmado · 09:41 h", MOVO-198 rediseño), donde la
  * fecha no aporta nada (el usuario acaba de escanear, obviamente es "ahora"). */
 export function formatConfirmedAtTime(iso: string): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  return TIME_OF_DAY_FORMATTER.format(date);
+  return formatTimeOfDay(date);
 }
 
 /** Quién disparó la transición, resuelto contra los ids que ya tiene el envío en vez
@@ -681,20 +667,6 @@ export function formatProximityDistance(distanceMeters: number): string {
   return `${(distanceMeters / 1000).toFixed(1)} km`;
 }
 
-/** Duración estimada de la ruta real (`GET /shipments/route`), redondeada al minuto o en horas si es >= 60 min (MOVO-244). */
-export function formatDurationMin(durationSeconds: number): string {
-  const totalMin = Math.round(durationSeconds / 60);
-  if (totalMin < 60) {
-    return `${Math.max(0, totalMin)} min`;
-  }
-  const hours = Math.floor(totalMin / 60);
-  const remainingMin = totalMin % 60;
-  if (remainingMin === 0) {
-    return `${hours} h`;
-  }
-  return `${hours} h ${remainingMin} min`;
-}
-
 /** Distancia entre la ubicación del transportista y el punto de retiro (MOVO-166/177,
  * feedback de UI) — la misma aproximación en línea recta que ya calcula el backend
  * para `AvailableShipment.pickupDistanceKm` (`GET /shipments/available`, MOVO-142),
@@ -779,24 +751,6 @@ export function shortAddressLabel(address: string): string {
   return address.split(",")[0].trim();
 }
 
-/** Normaliza un string de hora a formato "HH:MM", eliminando segundos si vienen ("09:00:00" -> "09:00"). */
-export function formatTimeHHMM(time: string | null | undefined): string {
-  if (!time) return "";
-  const match = time.match(/^(\d{1,2}:\d{2})/);
-  return match ? match[1] : time;
-}
-
-/** Ventana horaria de retiro formateada para la card de listado (MOVO-127) — deja el
- * rango explícito ("09:00 a 12:00") en vez de inventar frases relativas tipo "antes de
- * las 15h", que requerirían comparar `pickupDate` contra "hoy" y reabrir el mismo
- * riesgo de desfasaje de huso horario que ya documenta `formatPickupDateLabel`. */
-export function formatPickupWindowLabel(start: string, end: string): string {
-  const s = formatTimeHHMM(start);
-  const e = formatTimeHHMM(end);
-  if (!s && !e) return "";
-  return `${s || "—"} a ${e || "—"}`;
-}
-
 /**
  * Formatea el tiempo restante para responder a la confirmación de un envío (MOVO-131 / MOVO-130).
  * Calcula el plazo en horas entre `deadlineIso` y `now` (por defecto `new Date()`).
@@ -821,8 +775,7 @@ export function formatReceiverConfirmationDeadline(
 
   const hours = Math.ceil(diffMs / (1000 * 60 * 60));
   if (hours <= 0) return null;
-  if (hours === 1) return "Te queda 1 h para confirmar";
-  return `Te quedan ${hours} h para confirmar`;
+  return `${hours === 1 ? "Te queda" : "Te quedan"} ${formatDuration(hours * 60)} para confirmar`;
 }
 
 /**
@@ -839,7 +792,7 @@ export function redesignationDeadlineLabel(
   const deadline = new Date(deadlineIso);
   if (Number.isNaN(deadline.getTime()) || deadline <= now) return null;
 
-  const time = deadline.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const time = formatTimeOfDay(deadline);
   const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const dayDiff = Math.round((startOfDay(deadline) - startOfDay(now)) / (24 * 60 * 60 * 1000));
 
@@ -866,7 +819,7 @@ export function receiverConfirmationDeadlineShortLabel(
 
   const hours = Math.ceil(diffMs / (1000 * 60 * 60));
   if (hours <= 0) return null;
-  return `vence en ${hours} h`;
+  return `vence en ${formatDuration(hours * 60)}`;
 }
 
 /**
@@ -919,7 +872,7 @@ export function formatShipmentRowTime(
   now: Date = new Date(),
 ): string {
   if (shipment.status === ShipmentStatus.IN_TRANSIT && shipment.pickupTimeWindowEnd) {
-    return `llega ${formatTimeHHMM(shipment.pickupTimeWindowEnd)}`;
+    return `llega ${formatTimeOfDay(shipment.pickupTimeWindowEnd)}`;
   }
 
   const referenceIso = shipment.lastStatusChangedAt ?? shipment.createdAt;
@@ -930,10 +883,8 @@ export function formatShipmentRowTime(
   const diffMin = Math.max(0, Math.floor(diffMs / 60_000));
 
   if (diffMin <= 1) return "Recién";
-  if (diffMin < 60) return `hace ${diffMin} min`;
-
   const diffH = Math.floor(diffMin / 60);
-  if (diffH < 24) return `hace ${diffH} h`;
+  if (diffH < 24) return `hace ${formatRelativeDuration(diffMin)}`;
 
   // ¿Es ayer en la zona local del dispositivo?
   const yesterday = new Date(now);
@@ -943,9 +894,7 @@ export function formatShipmentRowTime(
     ref.getMonth() === yesterday.getMonth() &&
     ref.getFullYear() === yesterday.getFullYear()
   ) {
-    const hh = String(ref.getHours()).padStart(2, "0");
-    const mm = String(ref.getMinutes()).padStart(2, "0");
-    return `ayer, ${hh}:${mm}`;
+    return `ayer, ${formatTimeOfDay(ref)}`;
   }
 
   return ref.toLocaleDateString("es-AR", { day: "numeric", month: "short" });

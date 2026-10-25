@@ -21,6 +21,8 @@ export interface Shipment {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: el emisor eligió "Más de 300 cm"; las medidas guardan el tope (300). */
+  oversized: boolean;
   description: string | null;
   urgent: boolean;
   pickupAddress: string;
@@ -77,6 +79,9 @@ export interface Shipment {
    * transferencia completada. Conserva acceso de solo lectura al envío. Solo lo cargan
    * `findById`/`listByUser`; ausente o `null` en el resto de las lecturas. */
   formerReceiverId?: string | null;
+  /** MOVO-340: cuándo se completó esa transferencia (el nuevo receptor se sumó al chat).
+   * Mismo alcance que `formerReceiverId`. */
+  receiverTransferredAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
   /** MOVO-180: entrega estimada (día + franja) de la oferta ganadora, copiada acá al
@@ -102,6 +107,8 @@ export interface AvailableShipment {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: el emisor eligió "Más de 300 cm"; las medidas guardan el tope (300). */
+  oversized: boolean;
   description: string | null;
   urgent: boolean;
   pickupAddress: string;
@@ -148,6 +155,8 @@ export interface CreateShipmentInput {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: el emisor eligió "Más de 300 cm"; las medidas guardan el tope (300). */
+  oversized?: boolean;
   description?: string;
   urgent?: boolean;
   pickupAddress: string;
@@ -176,6 +185,9 @@ export interface ShipmentEvent {
   actorId: string | null;
   assignmentCarrierId?: string | null;
   reason: string | null;
+  /** MOVO-331: `normal` salvo que lo haya hecho un admin desde el panel. */
+  kind: "normal" | "manual" | "forced";
+  actorName: string | null;
   createdAt: Date;
 }
 

@@ -1360,6 +1360,38 @@ Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `s
 
 `ReverseGeocodeResult.city` (`POST /geocode/reverse` responde `{ formattedAddress, city }`, `city` nullable): Google toma `locality` y, sin ella, `administrative_area_level_2`; el mock devuelve "Córdoba". Lo consume `svc-shipments` al crear un envío (filtro de ciudad del panel). Cambio aditivo: mobile ignora el campo nuevo. `GET /internal/users/party-cards?ids=` (`modules/users/party-cards-internal.routes.ts`, interno): nombre, foto, estado de cuenta, KYC de identidad/licencia aprobados y reputación de hasta 5 personas, incluidas las dadas de baja; un id inexistente queda afuera y la reputación es best-effort (`null` si `svc-shipments` no responde). Lo usa `svc-admin` para el bloque de partes del detalle de un envío.
 
+### MOVO-340 — Buscador sin tildes, búsqueda por coordenadas y nombres compuestos
+
+- `GET /users/search` busca con `users.f_unaccent(lower(nombre completo))` y cada palabra en cualquier orden (la ñ cuenta como
+  n), sobre un índice GIN de trigramas. La migración `receiver_search_unaccent_movo_340` crea `unaccent` y `pg_trgm` en `public`
+  y el envoltorio inmutable: necesita permiso de `CREATE EXTENSION` en dev/prod. Prisma no representa el índice de expresión.
+- `POST /places/autocomplete` con coordenadas (decimal o grados/minutos/segundos, `modules/places/coordinates.ts`) no llama a
+  Places: devuelve una sugerencia con el punto escrito y la dirección del reverse geocoding (o las coordenadas si no hay).
+  `PlacePrediction` pasa a `@movo/shared`.
+- `POST /auth/register` acepta `firstName`/`lastName` (el `fullName` legado se sigue cortando en el primer espacio, para builds
+  viejos). Las cuentas ya partidas mal se corrigen con `npm run user:name -- list` / `set <email> "<nombre>" "<apellido>"`
+  (`src/scripts/fix-user-name.ts`): no hay de dónde recuperar el corte original.
+
+### MOVO-331 — `ignorePreferences` en `POST /internal/notifications/push`
+
+El body interno acepta `ignorePreferences` (boolean, opcional) y lo reenvía a `sendPushToUser`, que ya lo soportaba desde MOVO-296. Lo usa
+`svc-shipments` para avisar a las partes de un cambio forzado de estado (ADR-055).
+
+### MOVO-332 — Step-up del cambio de estado desde el panel (ADR-055)
+
+`modules/admin-step-up/` con tres endpoints internos (`POST /internal/admin/step-up/{request,verify,consume}`, `hide: true`, fuera del
+`routes-map`): los llama `svc-admin`, que pasa el `adminId` de la sesión. Reusa el motor de OTP de MOVO-139 por el canal email: el `flow` lleva la
+acción (`admin-step-up-<envío>-<destino>`, con guiones porque `otp-repository` no admite `:`), así un código no verifica para otro envío ni destino
+por construcción. `verify` canjea el código por un `stepUpToken` (32 bytes, solo su sha256 en Redis, 5 min, `GETDEL` al consumirlo).
+- **Vigencia de 5 min en el código** aunque el OTP del motor viva 10: la hora de emisión va en su propia clave (`admin-step-up-issued:<otpId>`, `NX`) y se
+  chequea al verificar. No en el `meta` del OTP: `generateOtp` lo renueva (`setMeta`) si se vuelve a pedir dentro del cooldown, y alargaría la vigencia
+  (review de PR #305).
+- **`validate` además de `consume`**: `svc-admin` comprueba el token sin gastarlo y lo consume recién cuando el cambio se aplicó, así un rechazo de negocio
+  no obliga a pedir otro código. Los intentos de verificación se cuentan **antes** de mirar el código (verificaciones concurrentes no pasan el límite).
+- **Sin enumeración**: código erróneo, vencido, usado o de otra acción/admin → `401 STEP_UP_INVALID`, mismo mensaje. 5 pedidos/15 min y 5 errores/15 min por
+  admin (`INCR`+`EXPIRE` en un script, como el login del panel); el bloqueo corta antes de mirar el código.
+- Sin el flag `ignorePreferences` ni mails nuevos: usa `buildOtpEmail` ("tu código de verificación"). Pendiente: copy específico para el step-up.
+
 ### MOVO-322 — `POST /internal/admin/users/names` devuelve los roles
 
 Además de `id`/`fullName`, cada usuario trae `roles` (`admin-users.service.ts#getNames`): la bandeja de soporte del panel muestra si

@@ -87,18 +87,18 @@ describe("fundsStatusVariant (MOVO-211)", () => {
 describe("formatFundingDeadline", () => {
   it("día corto y hora en Argentina", () => {
     // 13:00 UTC = 10:00 en Argentina, jueves 8 de octubre.
-    expect(formatFundingDeadline(PAY_UNTIL, new Date("2026-10-01T12:00:00.000Z"))).toBe("el jue 8 oct a las 10:00");
+    expect(formatFundingDeadline(PAY_UNTIL, new Date("2026-10-01T12:00:00.000Z"))).toBe("el jue 8 oct a las 10:00 h");
   });
 
   it("hoy y mañana en minúscula", () => {
     const now = new Date("2026-10-08T12:00:00.000Z");
-    expect(formatFundingDeadline(PAY_UNTIL, now)).toBe("hoy a las 10:00");
-    expect(formatFundingDeadline("2026-10-09T21:30:00.000Z", now)).toBe("mañana a las 18:30");
+    expect(formatFundingDeadline(PAY_UNTIL, now)).toBe("hoy a las 10:00 h");
+    expect(formatFundingDeadline("2026-10-09T21:30:00.000Z", now)).toBe("mañana a las 18:30 h");
   });
 
   it("un instante de madrugada UTC cae el día anterior en Argentina", () => {
     expect(formatFundingDeadline("2026-10-09T01:00:00.000Z", new Date("2026-10-01T12:00:00.000Z"))).toBe(
-      "el jue 8 oct a las 22:00",
+      "el jue 8 oct a las 22:00 h",
     );
   });
 });

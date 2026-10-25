@@ -44,18 +44,17 @@ import {
   useShipmentRoute,
 } from "../../../src/hooks/use-shipments";
 import {
-  formatDurationMin,
   formatPickupDateLabel,
   formatPickupDistanceFromMeKm,
   formatPriceArs,
   formatRouteDistanceKm,
-  formatTimeHHMM,
   formatTripDistanceKm,
   haversineDistanceKm,
   receiverConfirmationStatus,
   shortAddressLabel,
   zoneLabelFromAddress,
 } from "../../../src/lib/shipment-format";
+import { formatDurationSeconds, formatTimeRange } from "../../../src/lib/time-format";
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
@@ -470,9 +469,8 @@ export default function TransportShipmentDetailScreen() {
                   testID="transport-assigned-to-me-detail"
                   className="mt-1.5 font-sans text-[13px] leading-[19px] text-lime-800/80 dark:text-lime-200/80"
                 >
-                  El viaje arranca el {effectivePickupDateLabel}, entre las{" "}
-                  {formatTimeHHMM(effectivePickupTimeWindowStart)} y las{" "}
-                  {formatTimeHHMM(effectivePickupTimeWindowEnd)} h. Ese día retirás el
+                  El viaje arranca el {effectivePickupDateLabel}, de{" "}
+                  {formatTimeRange(effectivePickupTimeWindowStart, effectivePickupTimeWindowEnd)}. Ese día retirás el
                   paquete y arrancás el viaje hasta la entrega.
                 </Text>
                 <Text className="mt-2.5 font-sans-semibold text-[13px] text-lime-800 dark:text-lime-300">
@@ -505,7 +503,7 @@ export default function TransportShipmentDetailScreen() {
                     className="font-sans-medium text-[12px] text-fg-2"
                   >
                     {route
-                      ? `${formatRouteDistanceKm(route.distanceMeters)} · ${formatDurationMin(route.durationSeconds)} de viaje`
+                      ? `${formatRouteDistanceKm(route.distanceMeters)} · ${formatDurationSeconds(route.durationSeconds)} de viaje`
                       : `${formatTripDistanceKm(tripDistanceKm!)} de viaje (aprox.)`}
                   </Text>
                 </View>
@@ -614,8 +612,7 @@ export default function TransportShipmentDetailScreen() {
                       <Clock size={13} color={colors.fg1} strokeWidth={2} />
                       <Text className="font-sans-medium text-[12px] text-fg">
                         {effectivePickupDateLabel} ·{" "}
-                        {formatTimeHHMM(effectivePickupTimeWindowStart)}–
-                        {formatTimeHHMM(effectivePickupTimeWindowEnd)}
+                        {formatTimeRange(effectivePickupTimeWindowStart, effectivePickupTimeWindowEnd)}
                       </Text>
                     </View>
                   </View>

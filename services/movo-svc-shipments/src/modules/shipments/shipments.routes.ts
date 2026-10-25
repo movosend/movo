@@ -149,13 +149,17 @@ function toPendingRatingShipmentDto(item: PendingRatingResult) {
 }
 
 function toShipmentEventDto(event: ShipmentEvent) {
+  // MOVO-331 (ADR-055): el motivo y la identidad de un admin son internos. Las partes ven que fue
+  // soporte (`kind`) y el cambio de estado, nunca quién ni por qué.
+  const byAdmin = event.kind !== "normal";
   return {
     id: event.id,
     shipmentId: event.shipmentId,
     fromStatus: event.fromStatus,
     toStatus: event.toStatus,
-    actorId: event.actorId,
-    reason: event.reason,
+    actorId: byAdmin ? null : event.actorId,
+    reason: byAdmin ? null : event.reason,
+    kind: event.kind,
     createdAt: event.createdAt,
   };
 }
@@ -201,11 +205,6 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       // GET /trips/:id/matches, `Trip` no persiste un radiusKm propio.
       tripMatchDetourRadiusKm: app.config.TRIP_DEFAULT_MAX_DETOUR_KM,
       quoteStore: createQuoteStore(app.redis),
-      packageLimits: {
-        maxWeightKg: app.config.PACKAGE_MAX_WEIGHT_KG,
-        maxSideCm: app.config.PACKAGE_MAX_SIDE_CM,
-        maxSidesSumCm: app.config.PACKAGE_MAX_SIDES_SUM_CM,
-      },
       // MOVO-307: cobro en línea de la penalidad de cancelación. Se resuelve al llamar
       // (`app.settlements` se decora en un plugin registrado después de estas rutas).
       settleCancellationPenalty: (shipmentId: string) => app.settlements.settleCancellationPenalty(shipmentId),
@@ -243,9 +242,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "MOVO-255: con `quoteId` (de `POST /shipments/quote`) usa ese precio congelado sin " +
           "volver a cotizar; responde 409 QUOTE_EXPIRED si no existe, venció, ya se usó o es " +
           "de otro usuario, y 409 QUOTE_MISMATCH si los datos que afectan el precio no " +
-          "coinciden con los cotizados. Sin `quoteId`, cotiza al crear. MOVO-276: 422 " +
-          "PACKAGE_LIMITS_EXCEEDED (con `details.violations`) si el paquete excede el peso, " +
-          "el lado o la suma de lados máximos (`PACKAGE_MAX_*`, por defecto 30 kg, 150 cm y 300 cm).",
+          "coinciden con los cotizados. Sin `quoteId`, cotiza al crear. MOVO-317: sin " +
+          "límites duros de peso ni medidas; `oversized: true` marca \"Más de 300 cm\" (las medidas " +
+          "llevan el tope de 300 cm) y cada transportista decide si lo lleva.",
         tags: ["shipments"],
         body: shipmentsSchemas.createShipmentBody,
         response: {
@@ -279,8 +278,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "ese precio hasta `expiresAt` (15 min) para el mismo usuario y los mismos datos. " +
           "Si pricing no responde, todos los campos vienen en null ('precio a estimar') y " +
           "sin `quoteId`. Rate limit por usuario en el gateway: cada cotización consulta " +
-          "Google Routes. Mismos límites duros del paquete que `POST /shipments` (422 " +
-          "PACKAGE_LIMITS_EXCEEDED), validados antes de cotizar.",
+          "Google Routes. Sin límites duros de peso ni medidas (MOVO-317), igual que " +
+          "`POST /shipments`.",
         tags: ["shipments"],
         body: shipmentsSchemas.quoteShipmentBody,
         response: {

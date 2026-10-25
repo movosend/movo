@@ -460,27 +460,43 @@ describe("shipments.service — createShipment", () => {
     expect(repository.create).toHaveBeenCalled();
   });
 
-  it("rechaza un paquete fuera de los límites inyectados, antes de svc-users y de pricing (MOVO-276)", async () => {
+  it("MOVO-317: crea un paquete de cualquier peso y medida, sin límites duros, y persiste `oversized`", async () => {
     const repository = fakeRepository();
-    const usersClient = createFakeUsersClient({});
-    const findPublicProfileSpy = vi.spyOn(usersClient, "findPublicProfile");
-    const pricingClient = createFakePricingClient();
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
     const service = createShipmentsService(repository, usersClient, createFakeNotificationsClient(), undefined, {
-      pricingClient,
-      packageLimits: { maxWeightKg: 20, maxSideCm: 150, maxSidesSumCm: 300 },
+      pricingClient: createFakePricingClient(),
     });
 
-    const error = await service.createShipment({ ...baseInput, weightKg: 25 }).catch((err: unknown) => err);
+    await expect(
+      service.createShipment({
+        ...baseInput,
+        weightKg: 250,
+        lengthCm: 300,
+        widthCm: 300,
+        heightCm: 300,
+        oversized: true,
+      })
+    ).resolves.toBeDefined();
 
-    expect(error).toBeInstanceOf(ApiError);
-    expect(error).toMatchObject({
-      statusCode: 422,
-      code: "PACKAGE_LIMITS_EXCEEDED",
-      details: { violations: ["peso de 25 kg (máximo 20 kg)"] },
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ weightKg: 250, lengthCm: 300, heightCm: 300, oversized: true })
+    );
+  });
+
+  it("MOVO-317: sin `oversized` el envío se crea con `oversized: false`", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
     });
-    expect(findPublicProfileSpy).not.toHaveBeenCalled();
-    expect(pricingClient.getQuote).not.toHaveBeenCalled();
-    expect(repository.create).not.toHaveBeenCalled();
+    const service = createShipmentsService(repository, usersClient, createFakeNotificationsClient(), undefined, {
+      pricingClient: createFakePricingClient(),
+    });
+
+    await service.createShipment(baseInput);
+
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ oversized: false }));
   });
 
   it("notifica al receptor tras crear el envío (AC1 de MOVO-108)", async () => {
@@ -632,6 +648,64 @@ describe("shipments.service — getShipmentDetail", () => {
 
     expect(paymentsClient.previewCarrierDebt).toHaveBeenCalledWith("carrier-id", [2100]);
     expect(result.debtDiscount).toEqual({ amountArs: 630, reason: "pending_balance" });
+  });
+
+  it("MOVO-285: el transportista asignado ve lo que recibe, exacto, calculado con el hold", async () => {
+    const shipment = fakeShipment({
+      status: ShipmentStatus.ASSIGNED,
+      carrierId: "carrier-id",
+      agreedPriceArs: 2000,
+    });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({});
+    const paymentsClient = createFakePaymentsClient([], {}, {});
+    // Bruto 2000, comisión de Movo 260 (la del hold, no la del cliente), fee real de MP 82 y deuda propia 100.
+    paymentsClient.findHoldByShipment.mockResolvedValue({
+      status: "authorized",
+      baseAmountArs: 2000,
+      commissionArs: 260,
+      debtOffsetArs: 100,
+      carrierMpFeeArs: 82,
+    } as Awaited<ReturnType<typeof paymentsClient.findHoldByShipment>>);
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+
+    const result = await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER]);
+
+    expect(result.carrierReceivedArs).toBe(1558);
+    expect(result.debtDiscount).toEqual({ amountArs: 100, reason: "pending_balance" });
+    expect(paymentsClient.findHoldByShipment).toHaveBeenCalledTimes(1);
+  });
+
+  it("MOVO-285: nunca es negativo, y sin fee informado en el hold no hay monto exacto", async () => {
+    const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED, carrierId: "carrier-id", agreedPriceArs: 200 });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const paymentsClient = createFakePaymentsClient([], {}, {});
+    const service = createShipmentsService(repository, createFakeUsersClient({}), undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+    const hold = { status: "authorized", baseAmountArs: 200, commissionArs: 26, debtOffsetArs: 200 };
+
+    paymentsClient.findHoldByShipment.mockResolvedValue({ ...hold, carrierMpFeeArs: 8 } as never);
+    expect((await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER])).carrierReceivedArs).toBe(0);
+
+    paymentsClient.findHoldByShipment.mockResolvedValue({ ...hold, carrierMpFeeArs: null } as never);
+    expect((await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER])).carrierReceivedArs).toBeNull();
+  });
+
+  it("MOVO-285: sin hold el detalle trae carrierReceivedArs null (la app muestra el estimado)", async () => {
+    const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED_UNFUNDED, carrierId: "carrier-id", agreedPriceArs: 2000 });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const paymentsClient = createFakePaymentsClient([], {}, {});
+    paymentsClient.findHoldByShipment.mockResolvedValue(null);
+    const service = createShipmentsService(repository, createFakeUsersClient({}), undefined, undefined, {
+      offerRepository: createFakeOfferRepository(), paymentsClient,
+    });
+
+    const result = await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER]);
+
+    expect(result.carrierReceivedArs).toBeNull();
   });
 
   it("MOVO-180: un transportista verificado ve el agregado de ofertas vigentes (sin identidad de competidores)", async () => {

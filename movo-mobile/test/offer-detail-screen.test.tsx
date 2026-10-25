@@ -116,6 +116,10 @@ function baseOffer(overrides: Partial<MyOfferSummary> = {}): MyOfferSummary {
       distanceKm: 9.4,
       packageType: "standard_package",
       weightKg: 2,
+      lengthCm: 20,
+      widthCm: 20,
+      heightCm: 20,
+      oversized: false,
       description: null,
     },
     competitiveRank: null,
@@ -188,7 +192,7 @@ describe("OfferDetailScreen (MOVO-182)", () => {
 
     const { getByTestId } = await render(<OfferDetailScreen />);
     expect(getByTestId("offer-detail-pickup-comparison")).toHaveTextContent(
-      "Coincide con lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00.",
+      "Coincide con lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00 h.",
     );
   });
 
@@ -204,7 +208,7 @@ describe("OfferDetailScreen (MOVO-182)", () => {
 
     const { getByTestId } = await render(<OfferDetailScreen />);
     expect(getByTestId("offer-detail-pickup-comparison")).toHaveTextContent(
-      "Es distinto a lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00.",
+      "Es distinto a lo que pidió el emisor: sáb, 19 de septiembre · 12:00 a 18:00 h.",
     );
   });
 

@@ -1,4 +1,4 @@
-# ADR-055 — Eventos de la bandeja de soporte por Redis Stream (MOVO-322)
+# ADR-056 — Eventos de la bandeja de soporte por Redis Stream (MOVO-322)
 
 > Borrador para pegar en `[Movo] 004 - Sprint 0.md`. Complementa ADR-001 (microservicios con REST síncrono),
 > ADR-022 (WebSocket nativo) y ADR-051 (soporte sobre el chat existente) sin modificarlos.
