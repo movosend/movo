@@ -108,7 +108,7 @@ La liberación admite `expectedCarrierId` y `expectedHoldId` como query opcional
 responde 409 sin cancelar el intento de una asignación posterior.
 Contrato en `@movo/shared` (`types/hold.ts`). Código en `src/modules/holds/`,
 `src/repositories/hold-repository.ts` y `src/plugins/holds.ts`. Arquitectura de cobro:
-ADR-035.
+ADR-022.
 
 - **`payments.holds`: una fila por intento** (`shipment_id` + `attempt`). La key de MP es
   `movo-hold-<shipmentId>-<attempt>`. Un hold vivo se devuelve tal cual (200, sin llamar a
@@ -139,7 +139,7 @@ ADR-035.
   bruto). `expires_at` = creación + `MP_HOLD_VALIDITY_DAYS` (config, default 5
   **provisorio**: mínimo de lo que documenta MP hasta que cierre MOVO-215).
 - **`checkout-data` recibe monto y email del emisor y los devuelve**: `svc-payments` no
-  conoce envíos ni usuarios (ADR-003/019), así que `svc-shipments` los manda; el valor que
+  conoce envíos ni usuarios (ADR-003/017), así que `svc-shipments` los manda; el valor que
   agrega es la `public_key`, la comisión y el 409 `CARRIER_MP_ACCOUNT_NOT_LINKED` si la
   cuenta no está `linked` (desvinculada, revocada o token vencido).
 - **Liberar es idempotente**: ya cancelado o `rejected` devuelve el hold; `captured` →
@@ -178,7 +178,7 @@ corre en CI): necesita `MP_SANDBOX_CARRIER_ACCESS_TOKEN` y `MP_SANDBOX_CARRIER_P
 del Vendedor (el token del OAuth del spike no se persiste, ver el encabezado del test) y las
 `MP_TEST_*` del `.env` del spike.
 
-MOVO-215 cerró `MP_HOLD_VALIDITY_DAYS` en 5, el default (ADR-050);
+MOVO-215 cerró `MP_HOLD_VALIDITY_DAYS` en 5, el default (DD-050);
 `svc-shipments` ya los llama desde la saga de asignación (MOVO-210, ver
 `services/movo-svc-shipments/HISTORIAL.md`). El aviso a `POST /internal/shipments/:id/hold-events`
 cuando MP cancela o vence un hold lo hace el webhook (MOVO-268, abajo).
@@ -237,7 +237,7 @@ fee ni hold: era de MP y se resolvió solo.
 
 Endpoint interno (`src/modules/mp-connect/mp-connect-internal.routes.ts`, sin ruta en el gateway
 ni hook de `x-user-id`) que devuelve `{ linked }` para el bloqueo del transportista de
-`svc-shipments` (ADR-036). `linked` usa el mismo criterio que el hold
+`svc-shipments` (DD-036). `linked` usa el mismo criterio que el hold
 (`hasActiveCredentials`, nuevo en el repositorio, comparte `activeAccountWhere` con
 `findActiveCredentials` y no descifra tokens): es más estricto que el `linked` de
 `GET /payments/mp-connect/status` porque también exige `public_key`, así nadie pasa el bloqueo
@@ -355,7 +355,7 @@ Pendiente: probar contra el sandbox con una notificación real por túnel (DoD),
 `movosend` y cargar en el secret de dev `ALERT_PROVIDER=telegram`,
 `ALERT_TELEGRAM_BOT_TOKEN`/`_CHAT_ID` y `ALERT_ENVIRONMENT_LABEL=dev`.
 
-### MOVO-100 — Tarjetas guardadas del emisor en la cuenta de Movo (ADR-039 propuesto)
+### MOVO-100 — Tarjetas guardadas del emisor en la cuenta de Movo (DD-039 propuesto)
 
 `GET /payments/cards/checkout-data`, `POST /payments/cards`, `GET /payments/cards`,
 `PATCH /payments/cards/:id/default`, `PATCH /payments/cards/:id` (alias) y `DELETE /payments/cards/:id`
@@ -422,10 +422,10 @@ sigue sin identificarse (punto 2 de MOVO-283).
 
 Pendiente: `MP_PUBLIC_KEY` ya está cargada en el secret de dev (`TEST-` de un Vendedor de prueba, atajo
 de sandbox); producción y segundo
-transportista (spike MOVO-283, ADR-039 sigue "propuesto"); MOVO-282 ya está (ver abajo) y falta MOVO-39
+transportista (spike MOVO-283, DD-039 sigue "propuesto"); MOVO-282 ya está (ver abajo) y falta MOVO-39
 (llamar al endpoint interno de baja).
 
-### MOVO-282 — Hold con tarjeta guardada: el pagador pasa a ser el customer de la tarjeta (ADR-039 propuesto)
+### MOVO-282 — Hold con tarjeta guardada: el pagador pasa a ser el customer de la tarjeta (DD-039 propuesto)
 
 `POST /internal/payments/holds` (MOVO-209) suma `payerUserId` (requerido, el emisor; `svc-shipments` siempre
 lo manda) y `savedCardId?` (id interno de `payments.saved_cards`). Compatible hacia atrás: sin `savedCardId` el
@@ -548,7 +548,7 @@ Tests: `test/transaction-status.test.ts` (cada estado y la precedencia) y
 `test/transactions.integration.test.ts` (Postgres real: rol, visibilidad, filtros, borde de las
 23:30, cursor sin duplicados ni saltos con la misma fecha, 404, desglose por rol).
 
-### MOVO-309 — Cuenta corriente del usuario (ADR-044)
+### MOVO-309 — Cuenta corriente del usuario (DD-044)
 
 `GET /internal/payments/users/:userId/balance`, `POST /internal/payments/users/:userId/ledger-entries` y
 `POST .../manual-adjustments` (internos, mismo prefijo que la baja de tarjetas, sin gateway ni `x-user-id`), más
@@ -580,11 +580,11 @@ Pendiente: que `svc-admin` llame a `manual-adjustments` (sin UI de admin todaví
 
 `GET /payments/balance/pay-data` → `{ publicKey, balanceArs }` y `POST /payments/balance/pay` `{ amountArs, cardToken, savedCardId,
 paymentMethodId? }` → `{ attemptId, status: approved|rejected|pending, failureReason, balanceArs }` (heredan el hook `x-user-id`; el gateway
-ya proxeaba `/payments`). El usuario no sale de la app: mismo flujo que pagar un envío (ADR-039). Código en `src/modules/balance-payment/`,
+ya proxeaba `/payments`). El usuario no sale de la app: mismo flujo que pagar un envío (DD-039). Código en `src/modules/balance-payment/`,
 `src/repositories/balance-payment-attempt-repository.ts` y `src/plugins/balance-payment.ts`; tabla `payments.balance_payment_attempts`
 (migración `20261016130000`); contrato en `@movo/shared` (`types/user-ledger.ts`). Diagrama: `flujo-de-pagos.md` 5.7.
 
-**Cuenta cobradora: la reemplazó ADR-048 (ver la entrada de MOVO-315 abajo).** Lo que sigue es el diseño original de MOVO-312.
+**Cuenta cobradora: la reemplazó DD-048 (ver la entrada de MOVO-315 abajo).** Lo que sigue es el diseño original de MOVO-312.
 **Cuenta cobradora vinculada por OAuth, no la app de Movo S.A.** Verificado en el sandbox (16/10/2026): con el token `client_credentials`
 de la app, `POST /v1/payments` responde `403 At least one policy returned UNAUTHORIZED` (aun con `card_token` inválido, o sea que ni llega a
 validarlo), con el token `APP_USR-` de la app `401 Unauthorized use of live credentials`, y `card_tokens` con la `public_key` `APP_USR-` da 201 pero
@@ -653,12 +653,12 @@ silencio y un `{ amount }` mal escrito capturaba el hold entero como entrega). L
 comisión liquidada es la entera que informa `fee_details`. Pendiente: que `svc-shipments` mande la
 penalidad (MOVO-307) y que el historial de transacciones (MOVO-303) distinga una penalidad de un cobro.
 
-### Tarjetas guardadas del emisor con CVV (MOVO-65, ADR-039 propuesto)
+### Tarjetas guardadas del emisor con CVV (MOVO-65, DD-039 propuesto)
 
 El 13/10/2026 se validó contra el sandbox que el emisor puede guardar tarjetas y pagar con solo el
 CVV en el modelo marketplace, y se reescribieron las historias en Linear. Revierte la decisión del
-29/09 (MOVO-12, ADR-035 punto 5: "el emisor ingresa la tarjeta completa cada vez"). Detalle de la
-prueba y alternativas en `docs/payments/adr-039-tarjetas-guardadas-con-cvv.md`.
+29/09 (MOVO-12, ADR-022 punto 5: "el emisor ingresa la tarjeta completa cada vez"). Detalle de la
+prueba y alternativas en `docs/payments/dd-039-tarjetas-guardadas-con-cvv.md`.
 
 - **Diseño**: la tarjeta se guarda en un customer de la cuenta de **Movo S.A.** (un customer por
   emisor, `svc-payments`), no en la del transportista. Al pagar, el mobile pide a MP un token con
@@ -693,7 +693,7 @@ prueba y alternativas en `docs/payments/adr-039-tarjetas-guardadas-con-cvv.md`.
   monto, `application_fee` real, débito de la comisión sin CVV para MOVO-37); pasar el ADR a
   "aceptado" y pegar su desarrollo completo en Drive.
 
-### MOVO-311 — Cobrar la deuda en el `application_fee` del próximo hold (ADR-044)
+### MOVO-311 — Cobrar la deuda en el `application_fee` del próximo hold (DD-044)
 
 Al crear un hold se cobra la deuda de la cuenta corriente de las dos partes, cada una con tope `DEBT_COLLECTION_MAX_RATE`
 (0.3 del precio): la del transportista sube el fee, la del emisor sube el monto y el fee (este último menos el estimado de la
@@ -723,7 +723,7 @@ comisión de MP sobre el recargo, que absorbe Movo). Cálculo puro en `src/modul
   `settlements.carrier_gross_amount_ars`/`carrier_mp_fee_ars` (migración `20261016220000`, con backfill). El historial y
   `GET /shipments/:id/settlement` las leen, nadie reconstruye. Si la comisión real de MP sobre el recargo difiere del 4,99% estimado,
   la diferencia cae en el fee de MP que ve el transportista. El reintegro y los movimientos que ve el transportista se topan en el precio.
-- **Límite conocido**: un reintegro o contracargo del pago que cobró deuda no repone la deuda (ADR-044).
+- **Límite conocido**: un reintegro o contracargo del pago que cobró deuda no repone la deuda (DD-044).
 - `MP_TRANSACTION_FEE_RATE` está en el `envSchema` (0 a 1): `@movo/shared` la lee de `process.env`, y un `4.99` en vez de `0.0499` corta el arranque.
 - Si cobrador y pagador fueran la misma persona (shipments no lo permite), el saldo se cobra una sola vez, como cobrador.
 - `checkout-data` acepta `payerUserId` y devuelve la vista previa; `POST /internal/payments/users/:userId/debt-collection/preview`
@@ -734,7 +734,7 @@ Pendiente: correr `test/debt-collection.sandbox.test.ts` (escrito, sin correr po
 
 ### MOVO-315 — Datos para la cuenta corriente mobile
 
-**Cuenta cobradora por credenciales (ADR-048)**: `balance-payment.service.ts` deja de leer la cobradora de
+**Cuenta cobradora por credenciales (DD-048)**: `balance-payment.service.ts` deja de leer la cobradora de
 `carrier_mp_accounts` (usuario interno + `MOVO_COLLECTOR_USER_ID`) y la toma de `MP_COLLECTOR_ACCESS_TOKEN`/`_PUBLIC_KEY`/
 `_MP_USER_ID` (`plugins/balance-payment.ts#collectorFromConfig`, las tres o ninguna). Verificado contra el sandbox el 17/10:
 los tokens de la app sin login no pueden crear pagos (403/401), el `TEST-` del OAuth de la cuenta de prueba Movo S.A. sobre su
@@ -782,7 +782,7 @@ salvo hold liberado; descuento al transportista, solo con la liquidación acredi
 
 - `GET /internal/payments/users/:userId/admin-ledger`: la página de la cuenta corriente sin enmascarar `reason` y con
   `adminId` (la de la app los oculta). `GET /internal/payments/mp-connect/:userId/admin-summary`: el `{ linked }` de
-  ADR-036 no alcanzaba. Distingue `revoked` (el transportista revocó el acceso: tiene que volver a vincular) de
+  DD-036 no alcanzaba. Distingue `revoked` (el transportista revocó el acceso: tiene que volver a vincular) de
   `expired` (el token venció sin renovarse: falla del refresh de Movo, MOVO-243), porque soporte actúa distinto.
 - El ajuste manual (`.../manual-adjustments`) devuelve también `balanceArs` y responde 422 `AMOUNT_OUT_OF_RANGE` con
   cero o por encima de `ADMIN_LEDGER_ADJUSTMENT_MAX_ARS` (env nueva, default 500000, en los tres lugares).
@@ -807,8 +807,8 @@ Una entrega cuya captura falla ya no queda a la deriva: `settlements` guarda `at
 - **AC8 (decisión que cambia MOVO-212)**: `hold.expires_at` se compara contra `now` antes de cada intento y un hold vencido escala. En el primer intento
   (la liquidación no existía) sin llamar a MP; si ya hubo un intento anterior, primero se consulta el pago, porque ese intento pudo haber capturado y perder la
   respuesta (review de PR #290): `approved` se acredita aunque `expires_at` haya pasado, y solo un pago aún sin capturar se escala como vencido. Es el piso
-  conservador de ADR-050 (5 días; la doc de MP también dice 7): se puede escalar un hold que en MP seguía vivo, y por eso la alerta y el listado traen `holdExpiresAt`
-  para probar la captura a mano. Un hold ya `captured` no se descarta por la fecha. El sandbox no vence holds (ADR-050), así que el test es sintético; la detección
+  conservador de DD-050 (5 días; la doc de MP también dice 7): se puede escalar un hold que en MP seguía vivo, y por eso la alerta y el listado traen `holdExpiresAt`
+  para probar la captura a mano. Un hold ya `captured` no se descarta por la fecha. El sandbox no vence holds (DD-050), así que el test es sintético; la detección
   posterior (MP rechaza o el pago está `cancelled`) se apoya en `status`, no en `status_detail` (sin confirmar).
 - **Escalado** (`settlement-escalation.ts`): alerta `settlement_escalated` por el `AlertNotifier` de MOVO-268 (`app.alerts` se resuelve recién al escalar, porque lo decora un
   plugin posterior) y aviso a `svc-shipments` (`POST /internal/shipments/:id/settlement-events {event:"delayed"}`) para el push "Tu cobro está demorado" con el plazo

@@ -34,7 +34,7 @@ describe("HighDemandBadge", () => {
     expect(queryByTestId("badge-help")).toBeNull();
   });
 
-  it("explica el recargo sin mostrar un porcentaje (ADR-025)", () => {
+  it("explica el recargo sin mostrar un porcentaje (ADR-021)", () => {
     expect(HIGH_DEMAND_HELP_TEXT).toBe(
       "Hay más envíos que transportistas en tu zona de retiro, por eso el precio sugerido es un poco más alto",
     );

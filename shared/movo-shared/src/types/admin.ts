@@ -41,7 +41,7 @@ export interface ShipmentParties {
   senderId: string;
   carrierId: string | null;
   receiverId: string | null;
-  /** Receptores anteriores (transferencia, ADR-038, o redesignación tras un rechazo, ADR-027). */
+  /** Receptores anteriores (transferencia, DD-038, o redesignación tras un rechazo, DD-027). */
   formerReceiverIds: string[];
 }
 

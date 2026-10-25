@@ -149,7 +149,7 @@ function toPendingRatingShipmentDto(item: PendingRatingResult) {
 }
 
 function toShipmentEventDto(event: ShipmentEvent) {
-  // MOVO-331 (ADR-055): el motivo y la identidad de un admin son internos. Las partes ven que fue
+  // MOVO-331 (DD-055): el motivo y la identidad de un admin son internos. Las partes ven que fue
   // soporte (`kind`) y el cambio de estado, nunca quién ni por qué.
   const byAdmin = event.kind !== "normal";
   return {
@@ -205,11 +205,6 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       // GET /trips/:id/matches, `Trip` no persiste un radiusKm propio.
       tripMatchDetourRadiusKm: app.config.TRIP_DEFAULT_MAX_DETOUR_KM,
       quoteStore: createQuoteStore(app.redis),
-      packageLimits: {
-        maxWeightKg: app.config.PACKAGE_MAX_WEIGHT_KG,
-        maxSideCm: app.config.PACKAGE_MAX_SIDE_CM,
-        maxSidesSumCm: app.config.PACKAGE_MAX_SIDES_SUM_CM,
-      },
       // MOVO-307: cobro en línea de la penalidad de cancelación. Se resuelve al llamar
       // (`app.settlements` se decora en un plugin registrado después de estas rutas).
       settleCancellationPenalty: (shipmentId: string) => app.settlements.settleCancellationPenalty(shipmentId),
@@ -247,9 +242,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "MOVO-255: con `quoteId` (de `POST /shipments/quote`) usa ese precio congelado sin " +
           "volver a cotizar; responde 409 QUOTE_EXPIRED si no existe, venció, ya se usó o es " +
           "de otro usuario, y 409 QUOTE_MISMATCH si los datos que afectan el precio no " +
-          "coinciden con los cotizados. Sin `quoteId`, cotiza al crear. MOVO-276: 422 " +
-          "PACKAGE_LIMITS_EXCEEDED (con `details.violations`) si el paquete excede el peso, " +
-          "el lado o la suma de lados máximos (`PACKAGE_MAX_*`, por defecto 30 kg, 150 cm y 300 cm).",
+          "coinciden con los cotizados. Sin `quoteId`, cotiza al crear. MOVO-317: sin " +
+          "límites duros de peso ni medidas; `oversized: true` marca \"Más de 300 cm\" (las medidas " +
+          "llevan el tope de 300 cm) y cada transportista decide si lo lleva.",
         tags: ["shipments"],
         body: shipmentsSchemas.createShipmentBody,
         response: {
@@ -278,13 +273,13 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       schema: {
         summary: "Cotizar un envío antes de crearlo",
         description:
-          "MOVO-255 (ADR-028): precio real del resumen del wizard, con la misma lógica que " +
+          "MOVO-255 (DD-028): precio real del resumen del wizard, con la misma lógica que " +
           "`POST /shipments`. Con precio, devuelve un `quoteId` de un solo uso que congela " +
           "ese precio hasta `expiresAt` (15 min) para el mismo usuario y los mismos datos. " +
           "Si pricing no responde, todos los campos vienen en null ('precio a estimar') y " +
           "sin `quoteId`. Rate limit por usuario en el gateway: cada cotización consulta " +
-          "Google Routes. Mismos límites duros del paquete que `POST /shipments` (422 " +
-          "PACKAGE_LIMITS_EXCEEDED), validados antes de cotizar.",
+          "Google Routes. Sin límites duros de peso ni medidas (MOVO-317), igual que " +
+          "`POST /shipments`.",
         tags: ["shipments"],
         body: shipmentsSchemas.quoteShipmentBody,
         response: {
@@ -469,7 +464,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "Excluye los envíos propios del caller (sender o receiver). Requiere rol " +
           "carrier + KYC de identidad aprobado (403 CARRIER_NOT_VERIFIED). Es una " +
           "lectura: no exige licencia ni cuenta de Mercado Pago, que sí se exigen para " +
-          "ofertar (MOVO-116, ADR-036). " +
+          "ofertar (MOVO-116, DD-036). " +
           "hasMyOffer marca los envíos donde el caller ya tiene una oferta pending.",
         tags: ["shipments"],
         querystring: shipmentsSchemas.listAvailableQuery,
@@ -872,15 +867,15 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         summary: "Ofertar sobre un envío",
         description:
           "AC1-AC7/AC9 de MOVO-143: el transportista oferta un precio sobre un envío " +
-          "published. MOVO-116 (ADR-036, reemplaza AC2 de MOVO-143): requiere rol " +
+          "published. MOVO-116 (DD-036, reemplaza AC2 de MOVO-143): requiere rol " +
           "carrier + KYC de identidad aprobado (403 CARRIER_NOT_VERIFIED), licencia de " +
           "conducir aprobada y cuenta de Mercado Pago vinculada (403 " +
           "CARRIER_LICENSE_NOT_APPROVED o CARRIER_MP_ACCOUNT_NOT_LINKED, el primero que " +
           "falte, con details.missingRequirements listando todos), antes de persistir " +
           "nada; 502 USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se " +
-          "pudo verificar. MOVO-278 (ADR-045): con un envío en disputa como " +
+          "pudo verificar. MOVO-278 (DD-045): con un envío en disputa como " +
           "transportista, 403 CARRIER_DISPUTE_OPEN (va primero en missingRequirements). " +
-          "MOVO-313 (ADR-044): con una deuda de la cuenta corriente sin saldar hace más de " +
+          "MOVO-313 (DD-044): con una deuda de la cuenta corriente sin saldar hace más de " +
           "USER_DEBT_OVERDUE_DAYS (14), 403 USER_DEBT_OVERDUE (si es lo único que falta; con otros requisitos el code es el del " +
           "primero, la deuda se lista al final de details.missingRequirements y el mensaje la menciona). " +
           "Ni el emisor ni el receptor pueden ofertar " +
@@ -969,7 +964,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         description:
           "MOVO-29/MOVO-108: cancela un envío propio. Solo el emisor puede cancelar. " +
           "Antes de `assigned` no hay penalidad y se libera el hold que hubiera. Desde " +
-          "`assigned` (MOVO-307, ADR-047) se cobra el 25 % del precio acordado si faltan " +
+          "`assigned` (MOVO-307, DD-047) se cobra el 25 % del precio acordado si faltan " +
           "menos de 12 h para el retiro y la ventana sigue abierta: el emisor manda el " +
           "monto que vio en `GET /:id/cancellation-quote` como `expectedPenaltyArs` " +
           "(ausente = 0) y si no coincide responde 409 CANCELLATION_PENALTY_MISMATCH con " +
@@ -1002,7 +997,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       schema: {
         summary: "Penalidad por cancelar un envío",
         description:
-          "MOVO-307 (ADR-047): lo que el emisor pagaría si cancela ahora. Solo el emisor y solo " +
+          "MOVO-307 (DD-047): lo que el emisor pagaría si cancela ahora. Solo el emisor y solo " +
           "sobre un envío que todavía se puede cancelar (409 SHIPMENT_INVALID_TRANSITION si no). " +
           "`penaltyArs` es 0 salvo en un envío `assigned` cancelado con menos de 12 h hasta el " +
           "retiro y con la ventana todavía abierta (25 % del precio acordado). `freeUntil` es hasta " +
@@ -1043,7 +1038,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "null, ventana original restaurada), su oferta pasa a `carrier_withdrawn` y las demás " +
           "ofertas vivas no se tocan. Se libera el hold entero: el emisor no paga nada. Con menos " +
           "de 12 h para el retiro y la ventana abierta (desde cualquiera de los tres estados), el 25 % del precio " +
-          "acordado queda como deuda en la cuenta corriente del transportista (ADR-047/044): manda " +
+          "acordado queda como deuda en la cuenta corriente del transportista (DD-047/044): manda " +
           "el monto de `GET /:id/carrier-withdrawal-quote` como `expectedPenaltyArs` (ausente = 0) y " +
           "si no coincide responde 409 CANCELLATION_PENALTY_MISMATCH con `details.penaltyArs`. Un " +
           "retiro o un pago concurrente gana (409). Se avisa al emisor.",

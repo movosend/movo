@@ -212,7 +212,7 @@ class DeclaredTrip:  # status in (declared, active)
 @dataclass
 class DemandContext:
     """Lo que `movo-svc-shipments` le mandaría a `POST /quote` (ver informe, 4.3).
-    Son dos enteros: `movo-svc-pricing-logistics` sigue sin base de datos (ADR-019)."""
+    Son dos enteros: `movo-svc-pricing-logistics` sigue sin base de datos (ADR-017)."""
 
     published_shipments: int
     available_carriers: int

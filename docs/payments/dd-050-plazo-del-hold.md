@@ -1,12 +1,12 @@
-# ADR-050 — Plazo del hold de Mercado Pago (5 días) y N de la saga (3 días)
+# DD-050 — Plazo del hold de Mercado Pago (5 días) y N de la saga (3 días)
 
-**Estado:** aceptado (MOVO-215). Borrador para pegar en la sección de ADRs de
-`[Movo] 004 - Sprint 0.md` en Drive. Complementa ADR-035 (deja de ser provisorio el plazo
+**Estado:** aceptado (MOVO-215). Borrador para pegar en
+`[Movo] 011-Registro de Decisiones de Diseño` en Drive. Complementa ADR-022 (deja de ser provisorio el plazo
 que este parametrizó) sin modificarlo.
 
 ## Contexto
 
-El hold (`capture: false`, ADR-035) se crea cuando el emisor paga y se captura al entregar
+El hold (`capture: false`, ADR-022) se crea cuando el emisor paga y se captura al entregar
 (MOVO-212). Si Mercado Pago lo cancela antes, el transportista entrega y no cobra. De ese
 plazo salen dos valores de configuración:
 
@@ -35,7 +35,7 @@ por OAuth + `application_fee`), consultados con `GET /v1/payments/:id` del 13/10
 2. **`FUNDING_NEAR_PICKUP_DAYS` (N) = 3.** La restricción es `N + tránsito máximo <= plazo
    del hold`, porque el hold se crea hasta N días antes del retiro y se captura al
    entregar. Con N = 3 quedan 2 días entre el retiro y el vencimiento: un envío doméstico
-   tarda horas o un día, y el día restante es el margen de seguridad (demoras, un `in_transit` demorado de ADR-045, la confirmación
+   tarda horas o un día, y el día restante es el margen de seguridad (demoras, un `in_transit` demorado de DD-045, la confirmación
    tardía del handshake).
 3. Los dos siguen siendo **configuración** (env var en los tres lugares), no constantes:
    si MP confirma otro plazo o se mide en producción, se cambia el secret sin tocar código.
@@ -67,4 +67,4 @@ por OAuth + `application_fee`), consultados con `GET /v1/payments/:id` del 13/10
 ## Referencias
 
 - Tickets: MOVO-215, MOVO-209, MOVO-210, MOVO-212, MOVO-268, MOVO-12
-- ADR-035 (arquitectura de cobro), ADR-045 (`in_transit` demorado)
+- ADR-022 (arquitectura de cobro), DD-045 (`in_transit` demorado)

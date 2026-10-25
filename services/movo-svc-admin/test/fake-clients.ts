@@ -11,6 +11,8 @@ import {
   AdminUserTripPage,
   ApiError,
   ChatReportParties,
+  ForceShipmentStatusRequest,
+  ForceShipmentStatusResponse,
   AdminChatPage,
   AdminShipmentTracking,
   AdminShipmentDetail,
@@ -77,6 +79,11 @@ export function createFakeShipmentsClient(data: {
   /** Respuestas del retiro, en orden; un `ApiError` se lanza. Agotadas, el retiro no encuentra nada. */
   withdrawResults?: Array<WithdrawOpenActivityResult | ApiError>;
   withdrawCalls?: Array<{ userId: string; sanctionId: string }>;
+  /**
+   * MOVO-332: `POST .../force-status`. `calls` guarda lo recibido; `error` hace que svc-shipments rechace;
+   * `unavailable` simula que no responde (la bitácora lo toma por "pudo haberse aplicado").
+   */
+  force?: { calls: ForceShipmentStatusRequest[]; error?: ApiError; unavailable?: boolean };
   down?: boolean;
 } = {}): ShipmentsClient {
   return {
@@ -149,6 +156,13 @@ export function createFakeShipmentsClient(data: {
       if (data.down) throw shipmentsDown();
       return data.trackings?.[id] ?? null;
     },
+    async forceShipmentStatus(id, body): Promise<ForceShipmentStatusResponse> {
+      if (data.down || data.force?.unavailable) throw shipmentsDown();
+      data.force?.calls.push(body);
+      if (data.force?.error) throw data.force.error;
+      const kind = body.targetStatus === "cancelled" && body.expectedStatus === "assigned" ? "forced" : "manual";
+      return { shipmentId: id, fromStatus: body.expectedStatus, toStatus: body.targetStatus, kind, replayed: false };
+    },
     async getShipmentParties(id) {
       if (data.down) throw shipmentsDown();
       return data.shipments?.[id] ?? null;
@@ -172,6 +186,18 @@ export function createFakeUsersClient(
     cards?: PartyCard[];
     /** MOVO-299: historial de sanciones de todos los usuarios; se muta como en `svc-users`. */
     sanctions?: AccountSanction[];
+    /**
+     * MOVO-332: el segundo factor. `consumed` guarda los tokens gastados; `consumeError` hace que `svc-users`
+     * rechace el token (`STEP_UP_INVALID`); `verifyError` rechaza el código.
+     */
+    stepUp?: {
+      requested: Array<{ adminId: string; shipmentId: string; targetStatus: string }>;
+      validated?: Array<{ adminId: string; shipmentId: string; targetStatus: string; stepUpToken: string }>;
+      consumed: Array<{ adminId: string; shipmentId: string; targetStatus: string; stepUpToken: string }>;
+      verifyError?: ApiError;
+      validateError?: ApiError;
+      consumeError?: ApiError;
+    };
     down?: boolean;
   } = {},
 ): UsersClient {
@@ -242,6 +268,26 @@ export function createFakeUsersClient(
     async getUserNames(ids) {
       if (data.down || data.namesDown) throw usersDown();
       return profiles.filter((p) => ids.includes(p.id)).map((p) => ({ id: p.id, fullName: p.fullName }));
+    },
+    async requestStepUp(adminId, body) {
+      if (data.down) throw usersDown();
+      data.stepUp?.requested.push({ adminId, ...body });
+      return { challengeId: "challenge-1", maskedEmail: "a***@movo.test", cooldownSeconds: 60, expiresInSeconds: 300 };
+    },
+    async verifyStepUp() {
+      if (data.down) throw usersDown();
+      if (data.stepUp?.verifyError) throw data.stepUp.verifyError;
+      return { stepUpToken: "step-up-token-".padEnd(43, "x"), expiresInSeconds: 300 };
+    },
+    async validateStepUp(adminId, body) {
+      if (data.down) throw usersDown();
+      if (data.stepUp?.validateError) throw data.stepUp.validateError;
+      data.stepUp?.validated?.push({ adminId, ...body });
+    },
+    async consumeStepUp(adminId, body) {
+      if (data.down) throw usersDown();
+      if (data.stepUp?.consumeError) throw data.stepUp.consumeError;
+      data.stepUp?.consumed.push({ adminId, ...body });
     },
     async revokeUserSessions(id) {
       assertNotDeleted(profileOf(id));

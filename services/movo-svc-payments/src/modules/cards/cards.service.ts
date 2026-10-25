@@ -311,7 +311,7 @@ export function createCardsService(deps: CardsServiceDeps): CardsService {
         try {
           await mercadoPago.deleteCustomer(customer.mpCustomerId);
         } catch (error) {
-          // La baja de cuenta no se frena por esto (ADR-023): queda el id para limpiarlo a mano.
+          // La baja de cuenta no se frena por esto (DD-023): queda el id para limpiarlo a mano.
           log.error(
             { userId, mpCustomerId: customer.mpCustomerId, err: error instanceof Error ? error.name : "unknown" },
             "No se pudo borrar el customer de MP al dar de baja la cuenta; quedó huérfano"

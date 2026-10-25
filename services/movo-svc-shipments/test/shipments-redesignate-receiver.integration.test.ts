@@ -257,7 +257,7 @@ describe("MOVO-253: elegir otro receptor tras un rechazo (Postgres)", () => {
       expect(response.json().error.code).toBe("USER_NOT_FOUND");
     });
 
-    it("AC2: no se puede elegir a alguien con un bloqueo (ADR-026)", async () => {
+    it("AC2: no se puede elegir a alguien con un bloqueo (DD-026)", async () => {
       const shipment = await createRejectedShipment();
 
       const response = await redesignate(shipment.id, blockedId);

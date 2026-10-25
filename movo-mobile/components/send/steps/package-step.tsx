@@ -1,3 +1,4 @@
+import { PACKAGE_WEIGHT_KG_MIN } from "@movo/shared/dist/config/package-dimensions";
 import { Package } from "lucide-react-native";
 import { useRef } from "react";
 import { Text, TextInput, View } from "react-native";
@@ -5,7 +6,9 @@ import type { OnFocusInput } from "../../../src/hooks/use-keyboard-scroll";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useShipmentWizardStore } from "../../../src/store/shipment-wizard-store";
 import { CategoryGrid } from "../category-grid";
-import { DimensionInputs, SIDES_SUM_CM_MAX } from "../dimension-inputs";
+import { dimensionToCm } from "../../../src/lib/package-dimensions";
+import { DimensionInputs } from "../dimension-inputs";
+import { PackagePresets } from "../package-presets";
 import { WeightStepper } from "../weight-stepper";
 
 const DEFAULT_LETTER_WEIGHT_KG = "0.1";
@@ -17,7 +20,8 @@ const DEFAULT_LETTER_WIDTH_CM = "21";
 const DEFAULT_LETTER_HEIGHT_CM = "1";
 
 /** AC3: tipo de paquete (3 categorías reales), dimensiones, peso aproximado,
- * descripción opcional. */
+ * descripción opcional. MOVO-317: sin máximos — peso mayor a 0 y cada medida elegida
+ * (de 10 a 300 cm o "Más de 300 cm"); el tamaño lo decide cada transportista. */
 export function isPackageStepValid(state: {
   packageType: string | null;
   weightKg: string;
@@ -26,25 +30,14 @@ export function isPackageStepValid(state: {
   heightCm: string;
 }): boolean {
   const weight = Number(state.weightKg);
-  const length = Number(state.lengthCm);
-  const width = Number(state.widthCm);
-  const height = Number(state.heightCm);
   return (
     state.packageType !== null &&
+    state.weightKg.trim() !== "" &&
     Number.isFinite(weight) &&
-    weight >= 0.1 &&
-    weight <= 30 &&
-    Number.isFinite(length) &&
-    length >= 1 &&
-    length <= 150 &&
-    Number.isFinite(width) &&
-    width >= 1 &&
-    width <= 150 &&
-    Number.isFinite(height) &&
-    height >= 1 &&
-    height <= 150 &&
-    // MOVO-276: límite de suma de lados (`PACKAGE_MAX_SIDES_SUM_CM` del backend).
-    length + width + height <= SIDES_SUM_CM_MAX
+    weight > 0 &&
+    dimensionToCm(state.lengthCm) !== null &&
+    dimensionToCm(state.widthCm) !== null &&
+    dimensionToCm(state.heightCm) !== null
   );
 }
 
@@ -73,6 +66,18 @@ export function PackageStep({ onFocusInput }: PackageStepProps) {
   const isLetter = packageType === "letter_document";
 
   const handlePackageTypeChange = (type: typeof packageType) => {
+    // MOVO-317: los valores fijos de la carta (30 × 21 × 1 cm, 0,1 kg) no son opciones de los
+    // desplegables ni del paso de peso: al pasar a otro tipo se limpian para que el emisor elija.
+    const leavingLetter = packageType === "letter_document" && type !== "letter_document";
+    if (leavingLetter) {
+      setLengthCm("");
+      setWidthCm("");
+      setHeightCm("");
+    }
+    // El peso arranca en el mínimo (0,5 kg) ya cargado, no vacío: el emisor lo ajusta desde ahí.
+    if (type !== null && type !== "letter_document" && (leavingLetter || weightKg === "")) {
+      setWeightKg(String(PACKAGE_WEIGHT_KG_MIN));
+    }
     setPackageType(type);
     // AC3: una carta/documento no pesa/mide lo suficiente como para pedirle esos
     // datos al usuario — se fijan valores dentro de los mínimos del backend en vez
@@ -116,12 +121,34 @@ export function PackageStep({ onFocusInput }: PackageStepProps) {
           {isLetter ? null : (
             <View>
               <Text className="mb-2 font-sans-semibold text-[11px] uppercase tracking-wider text-fg-3">
+                Tamaños rápidos
+              </Text>
+              <PackagePresets
+                testID="package-step-presets"
+                weightKg={weightKg}
+                lengthCm={lengthCm}
+                widthCm={widthCm}
+                heightCm={heightCm}
+                onSelect={(preset) => {
+                  setWeightKg(preset.weightKg);
+                  setLengthCm(preset.lengthCm);
+                  setWidthCm(preset.widthCm);
+                  setHeightCm(preset.heightCm);
+                }}
+              />
+            </View>
+          )}
+
+          {isLetter ? null : (
+            <View>
+              <Text className="mb-2 font-sans-semibold text-[11px] uppercase tracking-wider text-fg-3">
                 Peso aproximado
               </Text>
               <WeightStepper
                 testID="package-step-weight"
                 value={weightKg}
                 onChange={setWeightKg}
+                onFocusInput={onFocusInput}
               />
             </View>
           )}
@@ -139,7 +166,6 @@ export function PackageStep({ onFocusInput }: PackageStepProps) {
                 onChangeLength={setLengthCm}
                 onChangeWidth={setWidthCm}
                 onChangeHeight={setHeightCm}
-                onFocusInput={onFocusInput}
               />
             </View>
           )}

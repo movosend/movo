@@ -104,8 +104,8 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     expect(getByText("2.4 kg")).toBeTruthy();
     expect(getByText("San Martín 450, Oncativo")).toBeTruthy();
 
-    // Banner de privacidad ADR-023
-    expect(getByTestId("banner-privacy-adr023")).toBeTruthy();
+    // Banner de privacidad DD-023
+    expect(getByTestId("banner-privacy-dd023")).toBeTruthy();
     expect(
       getByText(/Solo ves la ubicación actual del transportista/i)
     ).toBeTruthy();

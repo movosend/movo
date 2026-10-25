@@ -74,7 +74,7 @@ export enum ReportStatus {
 /**
  * Foto de evidencia de un reporte (MOVO-256). `url` es una presigned GET de TTL corto
  * (`expiresIn` segundos): las fotos de reportes viven en un prefijo privado, nunca
- * públicas como la foto de perfil (ADR-016). No cachear la URL más allá de ese plazo.
+ * públicas como la foto de perfil (DD-016). No cachear la URL más allá de ese plazo.
  */
 export interface UserReportPhoto {
   id: string;

@@ -1,4 +1,4 @@
-// ADR-048: OAuth de la cuenta cobradora de dev (cuenta de prueba Movo S.A.), sin usuario de Movo. Renueva el token TEST-
+// DD-048: OAuth de la cuenta cobradora de dev (cuenta de prueba Movo S.A.), sin usuario de Movo. Renueva el token TEST-
 // cuando vence (180 días). Uso, desde la raíz del repo (las credenciales van por stdin, nunca a disco):
 //   aws secretsmanager get-secret-value --secret-id movo/dev/app-secrets --query SecretString --output text \
 //     | node services/movo-svc-payments/scripts/collector-oauth.mjs start

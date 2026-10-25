@@ -169,3 +169,29 @@ tenga la ruta, es 502.
   declara y el serializador lo descartaría. `namesOf`/`requireReason` pasaron a `modules/users/user-names.ts` para compartirlos.
 
 Pendiente: verificar a mano contra dev (suspender un usuario de prueba y comprobar en la app que no puede publicar pero sí entregar).
+
+### MOVO-332 — Cambio de estado de un envío desde el panel (DD-055)
+
+`modules/shipments/shipments.routes.ts` suma cuatro rutas: `GET /admin/shipments/:id/status-options`, `POST /admin/step-up`,
+`POST /admin/step-up/verify` y `POST /admin/shipments/:id/status`. La lógica de transición es de `svc-shipments`
+(`POST /internal/admin/shipments/:id/force-status`, MOVO-331); acá van la regla de conflicto, la bitácora, el segundo factor y los límites.
+
+- **`status-options`** sale solo de la matriz de `@movo/shared` (`getForcedTransitionDetails`, `forcedTransitionFriction`,
+  `blockedTransitionReason`): el panel no calcula nada. Devuelve también el código del envío que hay que tipear. Lectura, sin bitácora.
+- **`POST .../status`** es `runAdminAction` (`shipment.status_change`). Las validaciones (motivo ≥ 20, `expectedStatus`, par permitido,
+  `typedCode`, falta de `stepUpToken`, **validación sin gastar** del token, identificar al admin) van en el `precheck`: corren después de la regla de
+  conflicto y, como son lecturas, la fila es `failed` aunque otro servicio no responda. `forceShipmentStatus` va en la acción y **el token se gasta
+  después**, solo si el cambio se aplicó o no se sabe (un rechazo de negocio no lo quema, review de PR #305). El nombre del admin falla cerrado (502).
+- **Idempotencia** (`status-change-records.ts`, Redis, 24 h, por admin + envío + clave): `done` devuelve la respuesta con `replayed: true` antes del rate
+  limit y sin fila nueva; `unknown` (svc-shipments no respondió) hace que el reintento no pida el token ni compare `expectedStatus` y vuelva a
+  `svc-shipments`, que resuelve el replay. Otra clave de destino distinto: 409 `IDEMPOTENCY_KEY_REUSED`. Guardar el registro es best-effort.
+- **`POST /admin/step-up`** exige que el envío exista y que el par esté en la matriz y pida segundo factor (404/422/400); no manda un email por cualquier par.
+- **Un 429 del rate limit deja una fila por admin y envío por ventana** (flag `NX` de 60 s en Redis), no una por rechazo.
+- **Bitácora: una fila por intento** (salvo los 429, ver abajo), rechazos incluidos. El "antes y después" del ticket (AC5) lo cubre `unknown`: la tabla es de solo agregar
+  filas (trigger), así que no hay una fila previa. Detalle en el DD-055.
+- **`internal-client.ts` ahora propaga `details`** de un 4xx (antes se descartaban), y tiene `relayServerErrorCodes`: `FORCE_STATUS_EFFECT_FAILED` es
+  un 502 de negocio que no debe leerse como "servicio caído" (la fila sería `unknown`, y es un `failed`). Los schemas de error de
+  `shipments.schema.ts` declaran `details`: sin eso Fastify los recortaba y el panel no podía explicar `STATUS_CHANGED`/`TRANSITION_NOT_ALLOWED`.
+- **Rate limit** (`utils/rate-limit.ts`, ventana fija en Redis): 10 cambios/min por admin y 5/min por envío; cuenta también los intentos
+  rechazados y se aplica antes de la bitácora (un 429 no deja fila). El `forceShipmentStatus` espera hasta 30 s (el servicio llama a payments).
+- Pendiente: el modal del panel (MOVO-333); probar contra dev real que el email del step-up llega (Resend).

@@ -1,6 +1,6 @@
 import { CHAT_PAGE_MAX_LIMIT, SUPPORT_MESSAGE_MAX_LENGTH, SUPPORT_TOPICS } from "@movo/shared";
 
-// MOVO-320 (ADR-051): wire contract de `SupportConversationItem`/`SupportUserFacingMessage` (@movo/shared).
+// MOVO-320 (DD-051): wire contract de `SupportConversationItem`/`SupportUserFacingMessage` (@movo/shared).
 // Autocontenido a propósito, mismo criterio que chat.schema.ts.
 
 const conversationIdParam = {

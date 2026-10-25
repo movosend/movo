@@ -54,7 +54,7 @@ function isTransferAllowedStatus(shipment: Shipment): boolean {
 }
 
 /**
- * MOVO-275 (ADR-038): transferencia de receptor. El receptor actual invita a otra
+ * MOVO-275 (DD-038): transferencia de receptor. El receptor actual invita a otra
  * persona (KYC aprobado, sin bloqueo con el emisor) a recibir en su lugar; la invitada
  * acepta o rechaza dentro del plazo. El emisor y el transportista solo se enteran. Una
  * sola transferencia completada por envío; las rechazadas/vencidas/canceladas no
@@ -208,7 +208,7 @@ export function createReceiverTransfersService(deps: ReceiverTransfersServiceDep
         );
       }
 
-      // ADR-026: el bloqueo se mira contra el emisor, que es quien le manda el paquete.
+      // DD-026: el bloqueo se mira contra el emisor, que es quien le manda el paquete.
       await assertNotBlocked(usersClient, shipment.senderId, [input.newReceiverId]);
 
       const now = new Date();

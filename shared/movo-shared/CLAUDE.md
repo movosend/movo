@@ -47,7 +47,7 @@ pantalla de editar perfil lo muestra como dato de solo lectura junto al nombre.
 ### MOVO-139 — `PrivateProfile.emailVerified`
 
 Campo nuevo en el wire contract de `GET /users/me` (`src/types/user-profile.ts`): el
-email pasó a ser un dato verificado por OTP (`movo-svc-users`, ADR-017), no solo de
+email pasó a ser un dato verificado por OTP (`movo-svc-users`, ADR-016), no solo de
 contacto. Lo consume la pantalla de perfil del mobile para la insignia y el CTA de
 verificación (MOVO-135). Es obligatorio, no opcional: el backend siempre lo devuelve, y
 un `boolean | undefined` obligaría a cada consumidor a decidir qué significa la ausencia.
@@ -255,7 +255,7 @@ es lejano y el hold de fondos de MOVO-12 todavía no se creó) y
 MOVO-212). Set canónico de MOVO-79/MOVO-105 pasa de 9 a 11 — actualizado en el mismo PR
 que el enum de Postgres (`movo-svc-shipments/prisma/schema.prisma`) y la máquina de
 estados, conforme obliga el AC6 de MOVO-79. Ver `services/movo-svc-shipments/HISTORIAL.md`
-(entrada de MOVO-208) para el detalle completo y ADR-021 (`CLAUDE.md` raíz) para el
+(entrada de MOVO-208) para el detalle completo y DD-021 (`CLAUDE.md` raíz) para el
 razonamiento.
 
 ### MOVO-221 — `TripStatus` gana `declared`; `TRIP_NOT_DECLARED`/`TRIP_ALREADY_HAS_ACTIVE_TRIP`/`TRIP_NOT_AVAILABLE`
@@ -304,7 +304,7 @@ enviar. Todo caller existente que no lo mande rompe en tiempo de compilación.
 `EUCLIDEAN_LINEAR_V1`, sigue persistido en envíos viejos), `QuoteRequest.demandContext?`
 (`DemandContext`, nuevo export) y `QuoteResponse.highDemand`. `breakdown` y
 `PriceBreakdownItem` salen del contrato: ningún consumidor los leía y el desglose pasa al
-log `pricing_quote_computed` del servicio (ADR-025). El enum de Python
+log `pricing_quote_computed` del servicio (ADR-021). El enum de Python
 (`movo-svc-pricing-logistics/app/models/quote.py`) se actualizó en el mismo commit.
 ### MOVO-173 — `config/rating-categories.ts`
 
@@ -338,7 +338,7 @@ el conteo); se mantiene en el tipo para poder mostrar nombres más adelante sin 
 
 `ShipmentQuoteRequest`/`ShipmentQuoteResponse` (`types/pricing.ts`) para
 `POST /shipments/quote`; la respuesta es una unión: con precio trae `quoteId`/`expiresAt`,
-sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-028).
+sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (DD-028).
 
 ### MOVO-252 — `TRIP_START_TOO_EARLY` en `ApiErrorCode`
 
@@ -354,9 +354,9 @@ sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-02
 ### MOVO-237 — código `ROUTE_MODE_NOT_IMPLEMENTED`
 
 `ApiErrorCode` suma `ROUTE_MODE_NOT_IMPLEMENTED` (501), que responde `RoutesProvider` de
-`svc-shipments` si se pide el modo `live`, reservado y sin implementar (ADR-033).
+`svc-shipments` si se pide el modo `live`, reservado y sin implementar (DD-033).
 
-### MOVO-258 — `OfferStatus.SHIPMENT_CANCELLED`, `TRIP_NO_PACKAGES` y triggers de notificación (ADR-032)
+### MOVO-258 — `OfferStatus.SHIPMENT_CANCELLED`, `TRIP_NO_PACKAGES` y triggers de notificación (DD-032)
 
 `types/offer.ts`: 7° valor de `OfferStatus` (oferta cerrada porque su envío se canceló).
 `errors/api-error.ts`: código `TRIP_NO_PACKAGES` (iniciar un viaje sin paquetes). `config/notification-templates.ts`: triggers
@@ -379,7 +379,7 @@ con `quietHoursExempt: true` en uso.
   `svc-shipments`. Recordatorio habitual: tras tocar este paquete, `npm run build` antes de tipar desde
   otro workspace (los servicios leen `dist/`).
 
-### MOVO-277 — `config/trip-start.ts` y códigos `TRIP_START_TOO_EARLY`/`TRIP_PACKAGES_NOT_READY` (ADR-034)
+### MOVO-277 — `config/trip-start.ts` y códigos `TRIP_START_TOO_EARLY`/`TRIP_PACKAGES_NOT_READY` (DD-034)
 
 `canStartTripOn(departureAt, now)` y `tripStartAvailableOn(departureAt)`: la regla de "¿ya se puede
 iniciar este viaje?" por fecha, comparando días calendario argentinos con `toArgentinaCalendarDateString`.
@@ -403,7 +403,7 @@ que redirige el callback público. Cinco `ApiErrorCode` nuevos (`MP_CONNECT_*`,
 internos de captura de `svc-payments`, y los códigos `HOLD_NOT_CAPTURABLE`/`SETTLEMENT_NOT_FOUND`.
 `mpFeeArs` y `netAmountArs` son `null` hasta que MP confirma la captura. `escalated` está reservado para
 MOVO-213 (212 nunca lo escribe). Recordatorio: `npm run build` acá antes de tipar desde otro workspace.
-### MOVO-116 — `ApiError.details`, requisitos del transportista y códigos nuevos (ADR-036)
+### MOVO-116 — `ApiError.details`, requisitos del transportista y códigos nuevos (DD-036)
 
 `ApiError` gana un 4.º parámetro opcional `details` (`ApiErrorDetails`), que `toJSON()` incluye
 solo si viene: primer error con datos extra para el cliente, compatible hacia atrás.
@@ -422,7 +422,7 @@ aceptada pero la asignación no prosperó (no es un rechazo). `ApiErrorCode` sum
 `payments`, que pasa a `implemented: true`; transportista en `offers`), incluido el copy de reconfirmación
 ("La reserva de tu pago expiró"). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
-### MOVO-275 — Transferencia de receptor (ADR-038)
+### MOVO-275 — Transferencia de receptor (DD-038)
 
 `types/receiver-transfer.ts`: `ReceiverTransferStatus`/`RECEIVER_TRANSFER_STATUSES`,
 `RECEIVER_TRANSFER_ALLOWED_SHIPMENT_STATUSES` (published → in_transit, la usan backend y
@@ -431,7 +431,7 @@ mobile), `ReceiverTransferRequest`, `ReceiverTransferInvitation` y
 `RECEIVER_TRANSFER_NOT_FOUND`/`_NOT_PENDING`) y diez triggers `receiverTransfer*` en la
 categoría `shipments`, con copy propio por destinatario.
 
-### MOVO-26 — Contrato del chat (ADR-040)
+### MOVO-26 — Contrato del chat (ADR-023)
 
 `types/chat.ts`: `ChatMessage` (con `authorName`, `moderated`, `hidden` por bloqueo y `deliveryStatus` en los
 propios), `ChatMessagesPage` (`access`, `archived`, `reportedByMe`), `ChatParticipant(s)`, `ChatListItem`/
@@ -482,14 +482,14 @@ Review de PR #244: también se exporta `ACCESS_TOKEN_TTL_SECONDS` (60 min, la ap
 vive en tres lugares, y el payload/claims suman `session?: "panel"`. El gateway solo respeta el
 rol `admin` en un token con ese claim (antes lo deducía del rol).
 
-### MOVO-276 — `package_tapered_v2` y `PACKAGE_LIMITS_EXCEEDED` (ADR-041)
+### MOVO-276 — `package_tapered_v2` y `PACKAGE_LIMITS_EXCEEDED` (DD-041)
 
 `PriceCalculationMethod.PACKAGE_TAPERED_V2` (`DEMAND_FUEL_ROUTES_V1` queda, ya no se emite
 pero persiste en envíos viejos), `QuoteBreakdown.volumetricWeightKg?`/`billableWeightKg?`
 (ausentes en respuestas de v1) y el código `PACKAGE_LIMITS_EXCEEDED` (422, con
 `details.violations`).
 
-### MOVO-265 — `config/trip-recurrence.ts` (ADR-042)
+### MOVO-265 — `config/trip-recurrence.ts` (DD-042)
 
 `RECURRENCE_WEEKDAY` (0 = domingo … 6 = sábado), `MAX_ACTIVE_RECURRING_SERIES` (3),
 `argentinaWeekday`, `formatArgentinaShortDay` ("vie 10/10") y `nextRecurrenceOccurrence` (próximo
@@ -512,7 +512,7 @@ ya existía, en vez de una nueva) y `accountStatus?`/`bannedUntil?` en `CarrierK
 para la regla de conflicto (`ShipmentParties`, `ChatReportParties` de `svc-shipments`,
 `UserReportParties` de `svc-users`). `ApiErrorCode` suma `ADMIN_CONFLICT_OF_INTEREST` (403).
 
-### MOVO-278 — `transitAnomalyFlaggedAt`, requisito `no_open_dispute` y pushes de la disputa automática (ADR-045)
+### MOVO-278 — `transitAnomalyFlaggedAt`, requisito `no_open_dispute` y pushes de la disputa automática (DD-045)
 
 `ActiveShipmentSummary` suma `transitAnomalyFlaggedAt: string | null`. `CarrierRequirement` suma
 `"no_open_dispute"` (primero en el orden) y `ApiErrorCode` suma `CARRIER_DISPUTE_OPEN`. Triggers
@@ -528,7 +528,7 @@ previo al transportista) y `transitAnomalyDisputeOpened{Sender,Receiver,Carrier}
 para la sub-issue mobile de MOVO-28. `card` y `breakdown` son opcionales: ausentes según el rol, no `null`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
-### MOVO-309 — Contrato de la cuenta corriente (`types/user-ledger.ts`, ADR-044)
+### MOVO-309 — Contrato de la cuenta corriente (`types/user-ledger.ts`, DD-044)
 
 `USER_LEDGER_ENTRY_TYPES`/`_STATUSES`/`_ROLES`, `UserLedgerEntry`, `UserLedgerBalanceResponse`,
 `UserLedgerPageResponse`, `CreateUserLedgerEntryRequest`/`Response` y `CreateManualAdjustmentRequest`. Montos
@@ -572,7 +572,7 @@ lo acepta). `grossAmountArs` es lo capturado (el hold entero en una entrega). Er
 `SETTLEMENT_CONFLICT`, `CAPTURE_AMOUNT_EXCEEDS_HOLD` y `CAPTURE_BELOW_APPLICATION_FEE` (la penalidad no supera
 la comisión: MP la rechazaría, spike MOVO-305, y `svc-shipments` aplica el plan B de MOVO-307).
 
-### MOVO-307 — `config/cancellation-penalty.ts` y triggers de la penalidad (ADR-047)
+### MOVO-307 — `config/cancellation-penalty.ts` y triggers de la penalidad (DD-047)
 
 `CANCELLATION_PENALTY_FREE_HOURS` (12), `CANCELLATION_PENALTY_RATE` (0,25) y `computeCancellationPenalty` (pura:
 sin cargo con 12 h o más o con la ventana cerrada, 25 % del precio acordado si no; solo `assigned`), más
@@ -662,7 +662,7 @@ de la regla: el filtro `alert` de `svc-shipments` (SQL) y el panel la siguen.
 `SettlementEventRequest`/`SettlementEventResponse` (aviso a shipments), trigger `settlementDelayedCarrier` (categoría `payments`, con `reviewHours`) y los códigos `SETTLEMENT_ESCALATED` y
 `SETTLEMENT_RETRY_PENDING`. `SettlementStatus` ya tenía `escalated`; `SettlementResponse` no cambia.
 
-### MOVO-270 — `config/pickup-attribution.ts`, `carrier_arrived` y triggers del no-retiro (ADR-052)
+### MOVO-270 — `config/pickup-attribution.ts`, `carrier_arrived` y triggers del no-retiro (DD-052)
 
 `ARRIVAL_RADIUS_M` (250), `ARRIVAL_MAX_ACCURACY_M` (100), `ABSENCE_MIN_DISTANCE_M` (2000), `ARRIVAL_EARLY_MARGIN_MIN` (30),
 `MIN_ABSENCE_POSITIONS` (3) y `PickupMissedAttribution`. `computeCancellationPenalty` suma `carrierArrivedAtPickup` y el motivo
@@ -677,7 +677,7 @@ acá antes de tipar desde otro workspace.
 qué estados cancela el emisor; no depende de la hora del retiro). `ChatRealtimeEvent` suma `chat_participants_changed`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
-### MOVO-334 — Contrato de disputas (`types/dispute.ts`, ADR-054)
+### MOVO-334 — Contrato de disputas (`types/dispute.ts`, DD-054)
 
 `DisputeReason` (los cuatro elegibles desde la app en `USER_SELECTABLE_DISPUTE_REASONS`, más `transit_anomaly`/`pickup_no_show` de
 sistema), `DisputeStatus`, `DisputePartyRole`, `DisputeStatementKind`, `DisputeDetail`/`DisputeStatement`/`DisputePhoto`/`DisputePhotoUploadUrl`
@@ -687,6 +687,13 @@ y las constantes `DISPUTE_WINDOW_DAYS` (7, desde `deliveredAt`) y `DISPUTE_TEXT_
 `disputes` pasa a `implemented: true` y ya no queda ninguna "Pronto" (tocó tres tests de `movo-mobile`). Recordatorio habitual:
 `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-317 — Constantes del wizard de paquetes y `package_tapered_v3`
+
+`config/package-dimensions.ts`: `PACKAGE_WEIGHT_KG_MIN`/`_STEP` (0,5), `PACKAGE_DIMENSION_CM_MIN`/`_STEP`/`_MAX` (10/10/300),
+`PACKAGE_DIMENSION_CM_OPTIONS`, `roundPackageWeightKg` y `PACKAGE_INPUT_SANITY_MAX` (10.000, tope de cordura del peso y de cada medida en
+`svc-shipments` y pricing; pricing lo replica en `models/quote.py`). `ShipmentQuoteRequest.oversized` (opcional). `PriceCalculationMethod`
+suma `PACKAGE_TAPERED_V3`. `PACKAGE_LIMITS_EXCEEDED` queda deprecado (ya no se emite). Movo-mobile importa con
+`@movo/shared/dist/config/package-dimensions`, no del barrel (arrastra `node:crypto`).
 ### Ofertas del envío para el panel (`types/admin-shipments.ts`)
 
 `AdminShipmentOffer` (estado efectivo, snapshot del transportista, bruto/neto/comisión y el estimado de MP y de lo que recibe) y el
@@ -707,7 +714,7 @@ habitual: `npm run build` acá antes de tipar desde otro workspace.
 Sobre el contrato de MOVO-320: `SupportShipmentRole`, `SupportShipmentOption` y `SupportShipmentOptionsPage`, wire contract de
 `GET /support/shipments` (envíos de los que el usuario es parte, en cualquier rol y estado, para vincular a una consulta).
 
-### MOVO-331 — Contrato del cambio forzado de estado (`config/forced-transition-matrix.ts`, ADR-055)
+### MOVO-331 — Contrato del cambio forzado de estado (`config/forced-transition-matrix.ts`, DD-055)
 
 `FORCED_TRANSITION_MATRIX` (origen → destino → `{ kind, risk, service }`; una celda ausente es una transición bloqueada),
 `getForcedTransition`, `listForcedTransitionTargets` y `blockedTransitionReason`: backend y panel la leen de acá. `types/admin-shipments.ts`:
@@ -721,3 +728,12 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 `AdminUserSanction` deja la forma provisoria de MOVO-295 y pasa a ser `AccountSanction` + nombres de los admins + `withdrawal`
 (`AdminSanctionWithdrawal`). `OpenActivitySummary` (vista previa del retiro, `svc-shipments`), `AdminSanctionPreview`,
 `AdminApplySanctionBody`/`AdminLiftSanctionBody` y el código `USER_HAS_IN_PROGRESS_SHIPMENTS` (409, `details.shipments`).
+
+### MOVO-332 — Contrato del cambio de estado desde el panel y del step-up
+
+`types/admin-shipments.ts`: `ChangeShipmentStatusRequest/Response`, `ShipmentStatusOptions` (`options[]` con `kind`, `risk`, `effects`, `notifies`,
+`requiresTypedCode`, `requiresStepUp`; `blocked[]` con su motivo), `StepUpRequest`, `StepUpChallenge`, `StepUpVerifyRequest`, `StepUpToken` y
+`STEP_UP_CODE_TTL_SECONDS`/`STEP_UP_TOKEN_TTL_SECONDS` (300). `config/forced-transition-matrix.ts` suma `getForcedTransitionDetails` (celda + efectos
++ a quién se avisa, el transportista solo si el envío tiene uno) y `forcedTransitionFriction` (código tipeado desde riesgo alto; segundo factor si
+la transición es `forced` o el riesgo es crítico): la fuente única de la fricción para el panel y para `svc-admin`. `ApiErrorCode` suma
+`STEP_UP_REQUIRED`, `STEP_UP_INVALID` y `TYPED_CODE_MISMATCH`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

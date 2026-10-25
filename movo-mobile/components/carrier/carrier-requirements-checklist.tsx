@@ -19,7 +19,7 @@ import { PressableScale } from "../trips/pressable-scale";
 /**
  * Qué acción intentó el transportista (o si es la entrada al tab): solo cambia la frase
  * de introducción. `offer`/`trip` son los dos contextos del prototipo de MOVO-117; el
- * resto sigue la misma frase para las demás acciones que bloquea ADR-036.
+ * resto sigue la misma frase para las demás acciones que bloquea DD-036.
  */
 export type CarrierRequirementsContext = "offer" | "trip" | "start" | "edit_offer" | "gate";
 
@@ -111,7 +111,7 @@ function RequirementRow({
  * para transportar"): título, contador N/2 en lima, barra de dos segmentos, una fila por
  * requisito con su pill y CTA, y "Después". El contenido es el mismo en la pantalla del tab
  * y en el sheet (`CarrierRequirementsScreen`/`CarrierRequirementsSheet`). Solo UX: la
- * validación autoritativa es del backend (ADR-036, MOVO-116).
+ * validación autoritativa es del backend (DD-036, MOVO-116).
  */
 export function CarrierRequirementsChecklist({
   missing,

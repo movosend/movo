@@ -62,6 +62,41 @@ describe("cancellationQuoteView", () => {
   it("not_assigned → sin reserva", () => {
     expect(cancellationQuoteView({ penaltyArs: 0, reason: "not_assigned", freeUntil: null }, null)).toEqual({ kind: "noHold" });
   });
+
+  it("MOVO-318: con un hold que incluye deuda (MOVO-311), usa holdAmountArs en free, expired y penalty y coincide con 'Tu pago'", () => {
+    // Precio pactado $18.500 (penalidad 25 % = $4.625) + deuda $3.700 = hold de $22.200.
+    const freeView = cancellationQuoteView({ penaltyArs: 0, reason: "before_free_deadline", freeUntil }, 18500, 22200);
+    expect(freeView).toEqual({ kind: "free", reservedArs: 22200, freeUntilLabel: formatCancellationDateTime(freeUntil) });
+
+    const expiredView = cancellationQuoteView({ penaltyArs: 0, reason: "pickup_window_closed", freeUntil }, 18500, 22200);
+    expect(expiredView).toEqual({ kind: "expired", reservedArs: 22200, reasonText: PICKUP_WINDOW_CLOSED_REASON });
+
+    const penaltyView = cancellationQuoteView({ penaltyArs: 4625, reason: "late_cancellation", freeUntil }, 18500, 22200);
+    expect(penaltyView).toEqual({
+      kind: "penalty",
+      reservedArs: 22200,
+      penaltyArs: 4625,
+      releasedArs: 17575,
+      penaltyRatio: 4625 / 22200,
+    });
+
+    const cancelledPayment = senderCancelledPaymentView(
+      { cancellationPenaltyArs: 4625, cancellationPenaltyStatus: "captured" },
+      { amountArs: 22200 },
+    );
+    expect(penaltyView.kind === "penalty" && penaltyView.reservedArs).toBe(cancelledPayment?.reservedArs);
+    expect(penaltyView.kind === "penalty" && penaltyView.releasedArs).toBe(cancelledPayment?.releasedArs);
+  });
+
+  it("MOVO-318: si el hold no cargó (null/undefined), cae a agreedPriceArs", () => {
+    expect(cancellationQuoteView({ penaltyArs: 4625, reason: "late_cancellation", freeUntil }, 18500, null)).toEqual({
+      kind: "penalty",
+      reservedArs: 18500,
+      penaltyArs: 4625,
+      releasedArs: 13875,
+      penaltyRatio: 0.25,
+    });
+  });
 });
 
 describe("penaltyMismatchNotice", () => {

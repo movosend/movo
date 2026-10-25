@@ -8,7 +8,7 @@ export interface RouteLatLng {
 }
 
 /**
- * Modo de consumo de Compute Routes (MOVO-237, ADR-033):
+ * Modo de consumo de Compute Routes (MOVO-237, DD-033):
  *
  * - `per_trip`: una llamada estática por par origen→destino (o por recálculo de
  *   paradas) para dibujar el polyline en el mapa propio de Movo — tier Basic, 1-3
@@ -63,7 +63,7 @@ export interface RoutesProvider {
   /**
    * Variante uno-a-muchos para cuando varios destinos comparten el mismo origen (ej.
    * notificar a cada envío pendiente de un viaje recién iniciado, `trips.service.ts`) —
-   * una sola llamada facturable (`Compute Route Matrix`, ADR-015/ADR-008) en vez de N
+   * una sola llamada facturable (`Compute Route Matrix`, ADR-015/008) en vez de N
    * `getRoute` por separado (hallazgo de code review de PR #182/MOVO-245: N envíos
    * pendientes en el mismo viaje disparaban N llamadas billables con el mismo origen).
    * Solo duración -- ningún caller de esta variante necesita el polyline por destino.

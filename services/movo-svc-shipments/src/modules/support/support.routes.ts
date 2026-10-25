@@ -59,8 +59,8 @@ export function buildSupportService(app: FastifyInstance, opts: SupportRoutesOpt
 }
 
 /**
- * MOVO-320 (ADR-051): soporte al usuario sobre el chat existente. Se escribe por HTTP (idempotente por
- * `clientMessageId`) y se recibe por WebSocket (`GET /conversations/:id`), igual que el chat del envío (ADR-040).
+ * MOVO-320 (DD-051): soporte al usuario sobre el chat existente. Se escribe por HTTP (idempotente por
+ * `clientMessageId`) y se recibe por WebSocket (`GET /conversations/:id`), igual que el chat del envío (ADR-023).
  * Prefijo `/support`. Las notas internas del equipo nunca llegan por ninguna de estas rutas.
  */
 export default async function supportRoutes(app: FastifyInstance, opts: SupportRoutesOptions) {

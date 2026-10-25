@@ -63,7 +63,7 @@ export const envSchema = {
     // Solo sandbox: agrega `test_token: true` al canje de OAuth para que MP
     // devuelva un access_token TEST- del vendedor de prueba.
     MP_TEST_MODE: { type: "boolean", default: false },
-    // ADR-048: la cuenta de MP de Movo S.A. que cobra los pagos de saldo (MOVO-312). En producción, el Access Token y la
+    // DD-048: la cuenta de MP de Movo S.A. que cobra los pagos de saldo (MOVO-312). En producción, el Access Token y la
     // Public Key productivos de su panel; en el sandbox, el token TEST- del OAuth de la cuenta de prueba (un token de la
     // app sin login no puede crear pagos). El user id identifica sus notificaciones del webhook. Sin las tres, pagar el
     // saldo responde 503 BALANCE_COLLECTOR_NOT_CONFIGURED.
@@ -73,7 +73,7 @@ export const envSchema = {
     // MOVO-209 AC4: cuánto sostiene MP un hold sin capturar, y de ahí el `expires_at`
     // que se persiste. Configuración y no constante en el código. 5 es el mínimo que
     // documenta MP (5 o 7 según la página): el sandbox no vence holds, así que la
-    // medición de MOVO-215 no lo pudo confirmar (ADR-050).
+    // medición de MOVO-215 no lo pudo confirmar (DD-050).
     MP_HOLD_VALIDITY_DAYS: { type: "number", minimum: 1, default: 5 },
     // MOVO-311: cuánto de la deuda de la cuenta corriente se cobra en un hold, como fracción del
     // precio del envío (descuento al transportista y recargo al emisor, cada uno con este tope). El
@@ -94,7 +94,7 @@ export const envSchema = {
     MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES: { type: "number", minimum: 1, default: 60 },
     MP_TOKEN_REFRESH_WINDOW_DAYS: { type: "number", minimum: 1, default: 30 },
 
-    // MOVO-100 (ADR-039): `public_key` con la que el mobile tokeniza la tarjeta al guardarla.
+    // MOVO-100 (DD-039): `public_key` con la que el mobile tokeniza la tarjeta al guardarla.
     // Solo genera el token de un solo uso: la tarjeta queda siempre en un customer de Movo S.A.
     // (token de client_credentials), sin importar de quién sea esta key. En sandbox tiene que
     // ser una `TEST-` (la `APP_USR-` da 404 card not found): en dev se usa la de un Vendedor de

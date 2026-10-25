@@ -1,5 +1,5 @@
 /**
- * MOVO-100 (ADR-039): contrato de las tarjetas guardadas del emisor, que expone
+ * MOVO-100 (DD-039): contrato de las tarjetas guardadas del emisor, que expone
  * `movo-svc-payments` bajo `/payments/cards` y consumen `movo-mobile` (MOVO-101/269).
  * La tarjeta vive en un customer de la cuenta de Movo S.A. en Mercado Pago; acá solo
  * viajan ids de MP y metadatos de display, nunca número, CVV ni `card_token`.

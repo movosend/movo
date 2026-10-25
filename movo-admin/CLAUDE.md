@@ -260,7 +260,7 @@ cambio de estado (MOVO-333). Contrato de MOVO-325 (`shared/movo-shared/src/types
   Las calles van en la segunda línea desde 1320 px. Ese corte se escribe en rem (`min-[82.5rem]`): Tailwind no ordena un
   `min-[…px]` contra `md` (rem) y el `md:` le ganaba a la grilla de 6 columnas.
 - **Código del envío**: `shipmentDisplayCode(id)` (`lib/shipments/format.ts`) = `#MOVO-` + últimos 5 dígitos del id, igual que `activeShipmentDisplayCode` de la app. Solo para mostrar: el `code` del contrato (8 hex) ya no se dibuja y la búsqueda del listado sigue por id. El aviso de fila va dentro de la celda Ruta, no en una franja aparte.
-- **Fotos de perfil**: todo avatar de persona pasa por `UserAvatar` (foto pública de S3, ADR-016; iniciales si no hay o no carga). Listado de usuarios, partes del detalle y chat del envío (las fotos salen de la ficha de partes ya cargada) usan el `photoUrl` que ya viajaba. Reportes y bloqueos de un usuario no lo traían: `AdminUserRefWithPhoto` en `@movo/shared`, `svc-users` y el schema de `svc-admin`. Siguen con iniciales, porque su contrato no trae foto: lista, hilo y ficha de soporte (`svc-shipments`) y el listado de envíos (solo texto).
+- **Fotos de perfil**: todo avatar de persona pasa por `UserAvatar` (foto pública de S3, DD-016; iniciales si no hay o no carga). Listado de usuarios, partes del detalle y chat del envío (las fotos salen de la ficha de partes ya cargada) usan el `photoUrl` que ya viajaba. Reportes y bloqueos de un usuario no lo traían: `AdminUserRefWithPhoto` en `@movo/shared`, `svc-users` y el schema de `svc-admin`. Siguen con iniciales, porque su contrato no trae foto: lista, hilo y ficha de soporte (`svc-shipments`) y el listado de envíos (solo texto).
 - `shipmentHref()` (`lib/support/shipment-href.ts`) ya linkea al detalle, también desde Actividad de la ficha de usuario.
 - **Modo fixtures**: `MOVO_ADMIN_MOCK=1` usa `lib/shipments/{mock,fixtures}.ts` (los envíos del prototipo más 40 cerrados para
   paginar). `MOVO_ADMIN_MOCK_FAIL=list,events,payment,parties,chat` (con `!` falla siempre).
@@ -288,9 +288,13 @@ ahora en `lib/shipments/tracking/copy.ts`).
 - **Estados sin seguimiento en vivo** (`copy.ts`): el mapa se dibuja siempre, como en el prototipo, con retiro/entrega y la ruta original
   completa (punteada); si hay traza (cerrado/disputa) se suma como tramo recorrido. Debajo, en lugar de las métricas, el mensaje:
   "Todavía no arrancó", "Seguimiento cerrado", "Seguimiento cortado", "Sin seguimiento" (+ "La traza GPS ya fue purgada.").
-- **Teselas**: ArcGIS Location Platform (gris claro/oscuro, `lib/shipments/tracking/tiles.ts`) con `NEXT_PUBLIC_ESRI_API_KEY`, restringida por
-  referrer; reemplaza al `server.arcgisonline.com` público del prototipo, cuyos términos no cubren un panel productivo (AC8). Sin key el
-  mapa se dibuja sin teselas. **Pendiente**: crear la key y cargarla en Vercel (dev y prod).
+- **Teselas**: Basemap Styles Service de ArcGIS Location Platform (vectorial, `arcgis/light-gray` y `arcgis/dark-gray`) sobre Leaflet con
+  `@maplibre/maplibre-gl-leaflet` (`lib/shipments/tracking/tiles.ts`) y `NEXT_PUBLIC_ESRI_API_KEY`, restringida por referrer
+  (`admin.movosend.app`, `admin-dev.movosend.app`); reemplaza al `server.arcgisonline.com` público del prototipo, cuyos términos no cubren un
+  panel productivo (AC8). La key se suma a cada request a `*.arcgis.com` con `transformRequest`. Sin key el mapa se dibuja sin teselas.
+  Dos trampas que ya nos pasaron: las capas `Canvas/*` de `ibasemaps-api` devuelven 404 (no existen ahí), y `Referrer-Policy: same-origin`
+  hacía que ArcGIS respondiera 498 porque el navegador no mandaba Referer; `next.config.ts` usa `strict-origin-when-cross-origin`.
+  La variable se inyecta al compilar: cargarla en Vercel (dev y prod) exige redeploy.
 - **Modo fixtures** (`MOVO_ADMIN_MOCK=1`): ocho envíos de prueba (ids propios, no coinciden con los del listado de MOVO-326, así que en el detalle mock el mapa muestra el error 404), `00000000-0000-4000-8000-00000000000{1..8}` (`MOCK_TRACKING_IDS`: en camino,
   sin señal, sin arrancar, sin fondos, entregado, disputa, sin transportista, traza purgada); el que está en camino se mueve entre lecturas.
 - **Tokens nuevos** en `globals.css`: `--map-bg`, `--glass`, `--track-done`, `--track-todo` y las clases `.mv-track-*`.

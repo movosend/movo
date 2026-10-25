@@ -97,7 +97,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
   // MOVO-303: historial de transacciones (lectura de holds, liquidaciones y eventos).
   app.register(transactionsPlugin);
-  // MOVO-309 (ADR-044): cuenta corriente del usuario. Solo necesita la DB.
+  // MOVO-309 (DD-044): cuenta corriente del usuario. Solo necesita la DB.
   app.register(userLedgerPlugin);
   // MOVO-212: captura del hold y liquidación, también sobre `mercadoPago`.
   app.register(capturesPlugin);

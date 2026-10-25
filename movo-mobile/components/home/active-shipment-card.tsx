@@ -101,7 +101,7 @@ export function ActiveShipmentCard({
 }) {
   const colors = useThemeColors();
   const isUnfunded = shipment.status === "assigned_unfunded";
-  // MOVO-278 (ADR-045): un `in_transit` demorado no pulsa ni se lee "En camino".
+  // MOVO-278 (DD-045): un `in_transit` demorado no pulsa ni se lee "En camino".
   const isDelayed = isTransitDelayed(shipment);
   const cta = activeShipmentCta(role, shipment);
   const activeIndex = activeShipmentStepIndex(shipment.status);

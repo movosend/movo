@@ -1,7 +1,7 @@
 import { ShipmentStatus } from "./shipment";
 
 /**
- * MOVO-275 (ADR-038): transferencia de receptor. El receptor actual de un envío ya
+ * MOVO-275 (DD-038): transferencia de receptor. El receptor actual de un envío ya
  * aceptado le pasa la recepción a otra persona, que tiene que aceptar. Es una entidad
  * paralela al ciclo de vida del envío: nunca cambia `Shipment.status`.
  *

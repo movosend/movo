@@ -1,6 +1,6 @@
 -- MOVO-202: traza de posiciones GPS del transportista durante un envío in_transit.
 -- Append-only (AC9, solo la purga periódica borra), evidencia para disputas (MOVO-30),
--- retención acotada por ADR-023 -- ver services/movo-svc-shipments/CLAUDE.md.
+-- retención acotada por DD-023 -- ver services/movo-svc-shipments/CLAUDE.md.
 
 -- CreateTable
 CREATE TABLE "shipments"."carrier_positions" (

@@ -6,7 +6,7 @@ import { estimateReceivedArs } from "./commission-config";
 import { formatSettlementAmount, formatSettlementDateTime } from "./settlement-format";
 
 /**
- * Qué muestra el sheet de cancelación del emisor (MOVO-308, ADR-047), según la cotización de
+ * Qué muestra el sheet de cancelación del emisor (MOVO-308, DD-047), según la cotización de
  * `GET /shipments/:id/cancellation-quote`. Referencia visual: "MOVO-308 Emisor cancela" de
  * Claude Design.
  *
@@ -49,21 +49,23 @@ export function formatCancellationDateTime(iso: string | null | undefined): stri
 export function cancellationQuoteView(
   quote: CancellationQuoteResponse,
   agreedPriceArs: number | null,
+  holdAmountArs?: number | null,
 ): CancellationQuoteView {
+  const baseReservedArs = holdAmountArs ?? agreedPriceArs;
   switch (quote.reason) {
     case "before_free_deadline":
-      return { kind: "free", reservedArs: agreedPriceArs, freeUntilLabel: formatCancellationDateTime(quote.freeUntil) };
+      return { kind: "free", reservedArs: baseReservedArs, freeUntilLabel: formatCancellationDateTime(quote.freeUntil) };
     case "pickup_window_closed":
-      return { kind: "expired", reservedArs: agreedPriceArs, reasonText: PICKUP_WINDOW_CLOSED_REASON };
+      return { kind: "expired", reservedArs: baseReservedArs, reasonText: PICKUP_WINDOW_CLOSED_REASON };
     case "late_cancellation":
     case "carrier_arrived": {
       // El backend calcula la penalidad sobre el precio pactado, así que siempre existe acá.
-      const reservedArs = agreedPriceArs ?? quote.penaltyArs;
+      const reservedArs = baseReservedArs ?? quote.penaltyArs;
       return {
         kind: "penalty",
         reservedArs,
         penaltyArs: quote.penaltyArs,
-        releasedArs: Math.round((reservedArs - quote.penaltyArs) * 100) / 100,
+        releasedArs: Math.max(0, Math.round((reservedArs - quote.penaltyArs) * 100) / 100),
         penaltyRatio: reservedArs > 0 ? Math.min(1, quote.penaltyArs / reservedArs) : 0,
         ...(quote.reason === "carrier_arrived" ? { reasonText: CARRIER_ARRIVED_REASON } : {}),
       };
@@ -75,7 +77,7 @@ export function cancellationQuoteView(
 }
 
 /**
- * Qué muestra el sheet de baja del transportista (MOVO-314, ADR-047), según
+ * Qué muestra el sheet de baja del transportista (MOVO-314, DD-047), según
  * `GET /shipments/:id/carrier-withdrawal-quote`. A diferencia del emisor no hay "ventana vencida
  * sin cargo": con la franja cerrada el transportista igual paga. Toda penalidad es deuda en su
  * cuenta corriente, no un cobro de tarjeta.

@@ -26,6 +26,10 @@ const offerShipmentContextResponse = {
     "distanceKm",
     "packageType",
     "weightKg",
+    "lengthCm",
+    "widthCm",
+    "heightCm",
+    "oversized",
     "description",
   ],
   properties: {
@@ -43,6 +47,10 @@ const offerShipmentContextResponse = {
     distanceKm: { type: "number" },
     packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
     weightKg: { type: "number" },
+    lengthCm: { type: "number" },
+    widthCm: { type: "number" },
+    heightCm: { type: "number" },
+    oversized: { type: "boolean" },
     description: { type: ["string", "null"] },
   },
 };

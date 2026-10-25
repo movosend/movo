@@ -24,7 +24,7 @@ import { signHandshakeNonce } from "../src/crypto/signing";
 
 /**
  * Reproduce EXACTAMENTE `verifyHandshakeSignature` de
- * `services/movo-svc-shipments/src/domain/handshake-crypto.ts` (ADR-020) -- mismos
+ * `services/movo-svc-shipments/src/domain/handshake-crypto.ts` (ADR-018) -- mismos
  * parámetros de `importKey`/`verify`. Corre en Node (Jest), donde `webcrypto` real
  * está disponible, así que esto verifica compatibilidad byte a byte con el backend
  * sin necesitar levantarlo.

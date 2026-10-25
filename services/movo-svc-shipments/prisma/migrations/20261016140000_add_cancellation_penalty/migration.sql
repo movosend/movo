@@ -1,4 +1,4 @@
--- MOVO-307 (ADR-047): penalidad por cancelar un envío `assigned` con menos de 12 h. El monto
+-- MOVO-307 (DD-047): penalidad por cancelar un envío `assigned` con menos de 12 h. El monto
 -- confirmado por el emisor y qué pasó con él (cobrado del hold, deuda o pendiente de cobro).
 -- Ambas NULL en los envíos existentes y en toda cancelación sin cargo.
 -- Reversión: DROP de las dos columnas y del tipo.

@@ -22,9 +22,6 @@ export interface EnvConfig {
   REPUTATION_CONFIDENCE_CONSTANT: number;
   REPUTATION_DECAY_HALF_LIFE_DAYS: number;
   TRIP_DEFAULT_MAX_DETOUR_KM: number;
-  PACKAGE_MAX_WEIGHT_KG: number;
-  PACKAGE_MAX_SIDE_CM: number;
-  PACKAGE_MAX_SIDES_SUM_CM: number;
   PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
   PICKUP_EXPIRY_SWEEP_ENABLED?: boolean;
   FUNDS_RELEASE_NOTIFIER: "console" | "payments";
@@ -138,18 +135,12 @@ export const envSchema = {
     REPUTATION_DECAY_HALF_LIFE_DAYS: { type: "number", default: 180 },
     // MOVO-161: radio de desvío ortogonal máximo por defecto al corredor del viaje declarado (km)
     TRIP_DEFAULT_MAX_DETOUR_KM: { type: "number", default: 15 },
-    // MOVO-276: límites duros del paquete (`domain/package-limits.ts`), validados al cotizar
-    // y al crear el envío. Mismos nombres y defaults que en movo-svc-pricing-logistics, que
-    // también responde 422 si se exceden.
-    PACKAGE_MAX_WEIGHT_KG: { type: "number", default: 30 },
-    PACKAGE_MAX_SIDE_CM: { type: "number", default: 150 },
-    PACKAGE_MAX_SIDES_SUM_CM: { type: "number", default: 300 },
     // Corrección directa sobre un bug reportado (sin ticket propio): barrido que cancela
     // envíos `published` cuya ventana de retiro venció sin que nadie los tomara —
     // mismo criterio que RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES/_ENABLED (MOVO-130).
     PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     PICKUP_EXPIRY_SWEEP_ENABLED: { type: "boolean", default: true },
-    // MOVO-158 (AC7, ADR-012/017 mold) + MOVO-212: liberación de fondos al entregar.
+    // MOVO-158 (AC7, ADR-012/016 mold) + MOVO-212: liberación de fondos al entregar.
     // "console" (default, no-op/log) para dev/test/CI; "payments" captura el hold real del
     // envío en movo-svc-payments y lo lleva a `completed`. Es el mismo switch que dejó
     // MOVO-158 para no rediseñar el punto de extensión.
@@ -165,7 +156,7 @@ export const envSchema = {
     // MOVO-213: plazo (en horas) que se le promete al transportista cuando su cobro queda en revisión manual
     // (push "Tu cobro está demorado"). Es un compromiso del equipo operativo, por eso es configuración.
     SETTLEMENT_REVIEW_SLA_HOURS: { type: "number", minimum: 1, default: 48 },
-    // MOVO-202/ADR-023: retención de la traza GPS del transportista -- días desde que
+    // MOVO-202/DD-023: retención de la traza GPS del transportista -- días desde que
     // el envío cierra (`Shipment.lastStatusChangedAt` en un estado de
     // `POSITION_PURGE_ELIGIBLE_STATUSES`) hasta que la purga periódica la borra.
     // Evidencia para disputas (MOVO-30), no analítica -- decisión de equipo documentada
@@ -205,14 +196,14 @@ export const envSchema = {
     TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     TRIP_DEPARTURE_REMINDER_SWEEP_ENABLED: { type: "boolean", default: true },
     IN_TRANSIT_ANOMALY_FALLBACK_HOURS: { type: "number", default: 48 },
-    // MOVO-278 (ADR-045): horas desde la marca de D4 hasta el aviso previo al transportista
+    // MOVO-278 (DD-045): horas desde la marca de D4 hasta el aviso previo al transportista
     // y hasta pasar el envío a `disputed`. WARN tiene que ser menor que DISPUTE (se valida
     // al registrar el barrido, `transit-anomaly-sweep.ts`).
     IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS: { type: "number", default: 12 },
     IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS: { type: "number", default: 24 },
     // MOVO-210 / MOVO-215: "N" de la saga. Un retiro a N días o menos toma la ruta cercana (el
     // emisor paga al aceptar); a más de N, la ruta lejana (`assigned_unfunded` + ventana de
-    // confirmación). N=3 con hold de 5 días deja 2 de tránsito, el margen del ADR-050.
+    // confirmación). N=3 con hold de 5 días deja 2 de tránsito, el margen del DD-050.
     // OJO: la restricción real NO es solo N < MP_HOLD_VALIDITY_DAYS (svc-payments): el hold se
     // captura al ENTREGAR (MOVO-212), así que hace falta N + duración máxima del viaje <=
     // MP_HOLD_VALIDITY_DAYS.
@@ -229,7 +220,7 @@ export const envSchema = {
     // MOVO-210: barrido de la saga (timeout del pago, apertura/cierre de la ventana).
     FUNDING_SWEEP_INTERVAL_MINUTES: { type: "number", default: 5 },
     FUNDING_SWEEP_ENABLED: { type: "boolean", default: true },
-    // MOVO-313 (ADR-044): una deuda de la cuenta corriente sin saldar hace MÁS de estos días
+    // MOVO-313 (DD-044): una deuda de la cuenta corriente sin saldar hace MÁS de estos días
     // bloquea operar como transportista (declarar viaje, ofertar, editar oferta, iniciar
     // viaje). Umbral por antigüedad, sin monto mínimo. Como emisor no se bloquea.
     USER_DEBT_OVERDUE_DAYS: { type: "number", default: 14, minimum: 0 },

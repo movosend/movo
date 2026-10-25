@@ -13,7 +13,7 @@ interface ExpoPushResponse {
 }
 
 /**
- * Implementación real sobre la API pública de Expo Push (ADR-016 candidato) — `fetch`
+ * Implementación real sobre la API pública de Expo Push (DD-016 candidato) — `fetch`
  * nativo de Node 20, mismo criterio que `google-geocoding-provider.ts` (sin `axios`).
  * No requiere Firebase/APNs propios ni credenciales: Expo intermedia la entrega.
  */

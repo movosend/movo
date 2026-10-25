@@ -1,4 +1,4 @@
-# ADR-044 — Cuenta corriente del usuario
+# DD-044 — Cuenta corriente del usuario
 
 **Estado:** aceptado (MOVO-309, 15/10/2026) · **Servicio:** `movo-svc-payments` · **Contrato:** `@movo/shared` (`types/user-ledger.ts`)
 
@@ -36,7 +36,7 @@ Una tabla `payments.user_ledger_entries` por **usuario**, con **saldo con signo*
 
 ## Consumidores
 
-- **Penalidades de cancelación (ADR-047)**: la del emisor (`penalty:<shipmentId>`, cobrada del hold si alcanza) y,
+- **Penalidades de cancelación (DD-047)**: la del emisor (`penalty:<shipmentId>`, cobrada del hold si alcanza) y,
   desde MOVO-310, la del transportista que se baja de un envío asignado con menos de 12 h
   (`withdrawal_penalty:<offerId>`, `roleAtOrigin: carrier`): no hay hold suyo, así que siempre queda como deuda y se
   descuenta de su próximo cobro (MOVO-311).
@@ -44,7 +44,7 @@ Una tabla `payments.user_ledger_entries` por **usuario**, con **saldo con signo*
 ### Bloqueo por deuda vencida (MOVO-313, 15/10/2026)
 
 `svc-shipments` consulta `GET /internal/payments/users/:userId/balance` dentro de
-`resolveCarrierEligibility` (ADR-036), en paralelo con KYC, MP y disputas. Si
+`resolveCarrierEligibility` (DD-036), en paralelo con KYC, MP y disputas. Si
 `balanceArs > 0` y `oldestUnpaidAt` es de hace más de `USER_DEBT_OVERDUE_DAYS` (14), el
 transportista no puede declarar viaje, ofertar, editar una oferta ni iniciar un viaje: 403
 `USER_DEBT_OVERDUE` con `details.missingRequirements: ["no_overdue_debt"]`.
@@ -64,7 +64,7 @@ transportista no puede declarar viaje, ofertar, editar una oferta ni iniciar un 
   cargos `pending`/`reserved`): no hay una edad que medir, pero se debe plata y no se puede probar
   que sea reciente. Se levanta al compensar el saldo con un movimiento negativo. Quien registre un
   cargo positivo directo en `settled` tiene que saber que el bloqueo por deuda entra de inmediato.
-- Detalle del bloqueo y sus consecuencias (aceptar oferta, viajes recurrentes) en ADR-036.
+- Detalle del bloqueo y sus consecuencias (aceptar oferta, viajes recurrentes) en DD-036.
 
 ### Cobro en el próximo hold (MOVO-311, 16/10/2026)
 

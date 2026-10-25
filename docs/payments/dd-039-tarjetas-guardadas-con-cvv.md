@@ -1,11 +1,11 @@
-# ADR-039 — Tarjetas guardadas del emisor con re-ingreso de CVV
+# DD-039 — Tarjetas guardadas del emisor con re-ingreso de CVV
 
-**Estado:** propuesto (MOVO-100). Revisa el punto 5 de ADR-035 ("el hold se crea siempre
+**Estado:** propuesto (MOVO-100). Revisa el punto 5 de ADR-022 ("el hold se crea siempre
 con el emisor presente, sin tarjetas guardadas") **solo en lo que dice de tarjetas
 guardadas**: el emisor sigue presente en cada pago, pero ya no re-ingresa todos los datos.
-ADR-035 no se modifica (un ADR aceptado no se edita); este lo reemplaza en ese punto una vez
-que pase a "aceptado". Borrador para pegar en la sección de ADRs de
-`[Movo] 004 - Sprint 0.md` en Drive.
+ADR-022 no se modifica (un ADR aceptado no se edita); este lo reemplaza en ese punto una vez
+que pase a "aceptado". Borrador para pegar en
+`[Movo] 011-Registro de Decisiones de Diseño` en Drive.
 
 > **Actualización 13/10/2026:** la ubicación de la tarjeta (opción A, cuenta de Movo) quedó
 > validada en sandbox con un token `TEST-` de Movo S.A. (ver "Dónde vive la tarjeta"). Falta
@@ -13,7 +13,7 @@ que pase a "aceptado". Borrador para pegar en la sección de ADRs de
 
 ## Contexto
 
-ADR-035 descartó las tarjetas guardadas porque el único intento (spike MOVO-49, 29/09,
+ADR-022 descartó las tarjetas guardadas porque el único intento (spike MOVO-49, 29/09,
 `SOLUCION-FINAL.md` §7) falló al guardar la tarjeta en la cuenta de un transportista con
 `128 "payment method response is empty"`. La consecuencia de producto es mala: el emisor
 tiene que escribir número, vencimiento, titular y CVV **cada vez** que acepta una oferta.
@@ -30,7 +30,7 @@ Lo que se verificó, con Visa y Mastercard de prueba:
 | Control: re-tokenizar **sin** CVV y crear el hold | Visa: 500 `internal_error`. Mastercard: 400 `3031 "security_code_id can't be null"` |
 
 Conclusiones firmes: (1) guardar la tarjeta y pagar con solo el CVV **funciona** con el hold
-y el split de ADR-035; (2) pagar **sin** CVV no es posible, así que el cobro automático sin el
+y el split de ADR-022; (2) pagar **sin** CVV no es posible, así que el cobro automático sin el
 emisor (la opción B original de MOVO-12) sigue descartado.
 
 No se verificó: que `application_fee` efectivamente se aplique (la consulta posterior
@@ -89,7 +89,7 @@ Detalles que condicionan la implementación:
    metadatos de display (marca, últimos 4, vencimiento y un nombre de referencia opcional que elige el usuario). **Nunca** el `card_token` (de un solo
    uso, vence a los 7 días) ni número ni CVV.
 3. **Dueño de la entidad: `movo-svc-payments`**, no `svc-users` como decía MOVO-100. Es el
-   único servicio que habla con MP (ADR-035) y quien alta/baja la tarjeta tiene que llamar a
+   único servicio que habla con MP (ADR-022) y quien alta/baja la tarjeta tiene que llamar a
    la API de Customers & Cards; ponerla en `svc-users` obligaría a `svc-users` a conocer a MP o
    a hacer un hop extra por cada operación.
 4. **Ubicación de la tarjeta: la cuenta de Movo S.A. (opción A)**, un customer por emisor,
@@ -107,7 +107,7 @@ Detalles que condicionan la implementación:
    hold).
 2. Repetir el recorrido en **producción** con una cuenta real y bajo monto: la `public_key`
    y el token de Movo son distintos fuera del sandbox, y la homologación del modelo
-   Marketplace sigue pendiente (ADR-035).
+   Marketplace sigue pendiente (ADR-022).
 3. Confirmar que `application_fee` se aplica al capturar (MOVO-212).
 4. Con eso, pasar el ADR a "aceptado". Si falla en producción, la alternativa es la opción C.
 
@@ -118,7 +118,7 @@ Detalles que condicionan la implementación:
   (`customer_id`, `card_id`), no datos de tarjeta.
 - **El CVV sigue siendo obligatorio en cada pago**: sin él MP no crea el hold. El emisor no
   puede pagar "en segundo plano" y el hold de un retiro lejano sigue requiriendo que abra
-  la app (MOVO-12, ADR-021).
+  la app (MOVO-12, DD-021).
 - **Más superficie**: pantalla de alta/baja de tarjetas, endpoints y una entidad nueva, a
   cambio de un pago de un paso (elegir tarjeta + CVV).
 - **Baja de tarjeta**: no se puede borrar una tarjeta con un hold vivo asociado a un envío del
@@ -127,11 +127,11 @@ Detalles que condicionan la implementación:
   el pago cae al formulario completo (misma pantalla de MOVO-269).
 - **El sandbox no refleja del todo producción** en este tema (credenciales live de la app):
   parte de la validación queda para producción, igual que la homologación del modelo
-  Marketplace (ADR-035).
+  Marketplace (ADR-022).
 
 ## Referencias
 
-- `docs/payments/adr-035-arquitectura-de-cobro.md` (punto 5 y alternativas)
+- `docs/payments/adr-022-arquitectura-de-cobro.md` (punto 5 y alternativas)
 - `docs/payments/mercadopago-spike/SOLUCION-FINAL.md` §7
 - `docs/payments/flujo-de-pagos.md` §7
 - Tickets: MOVO-65, MOVO-100, MOVO-101, MOVO-12, MOVO-269, MOVO-37, MOVO-49, MOVO-212

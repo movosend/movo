@@ -10,7 +10,7 @@
 ## 1. Ficha técnica
 
 - **Ticket:** [MOVO-216](https://linear.app/movosend/issue/MOVO-216). Desbloquea [MOVO-138](https://linear.app/movosend/issue/MOVO-138) (motor de precios real).
-- **Contexto:** `POST /quote` responde hoy con `euclidean_linear_v1` (MOVO-82, ADR-018), una fórmula lineal provisoria con coeficientes fijos en pesos. MOVO-138 la reemplaza por `demand_fuel_routes_v1`. Esta spike fija qué fuente de combustible usar, cómo se mide la demanda y qué contrato ve el consumidor.
+- **Contexto:** `POST /quote` responde hoy con `euclidean_linear_v1` (MOVO-82, DD-018), una fórmula lineal provisoria con coeficientes fijos en pesos. MOVO-138 la reemplaza por `demand_fuel_routes_v1`. Esta spike fija qué fuente de combustible usar, cómo se mide la demanda y qué contrato ve el consumidor.
 - **Resultado en una línea:** el precio del combustible sale de la API CKAN de la Secretaría de Energía (mediana nacional de nafta súper con declaraciones de los últimos 30 días, cacheada 24h en Redis). La alta demanda es `(envíos publicados en la zona + 1) / transportistas disponibles ≥ 3`, con un mínimo de 4 envíos, y aplica un recargo de 10% a 30%. `svc-shipments` manda los dos conteos en el request y el emisor recibe solo `suggestedPriceArs` + `highDemand` + `calculationMethod`.
 
 ## 2. Cumplimiento del alcance
@@ -136,13 +136,13 @@ Un umbral de 2,0, que era el primer candidato intuitivo, marca más de un tercio
 
 ### 4.4. Dónde se calcula: `svc-shipments` manda los conteos
 
-`movo-svc-pricing-logistics` no tiene base de datos (ADR-019) y los datos de demanda viven en el esquema `shipments`. Opciones:
+`movo-svc-pricing-logistics` no tiene base de datos (ADR-017) y los datos de demanda viven en el esquema `shipments`. Opciones:
 
 | Opción | Veredicto |
 | :--- | :--- |
 | **(a) `svc-shipments` cuenta y manda `demandContext: {publishedShipments, availableCarriers}` en el request de `POST /quote`** | ✅ **Elegida.** `/quote` hoy solo lo llama `svc-shipments` (el gateway no lo expone, `routes-map.ts`), que ya tiene los datos. Pricing sigue stateless y determinístico, y se testea con dos enteros. Sin salto de red extra |
 | (b) Pricing le pide los conteos a `svc-shipments` por HTTP | ❌ Dependencia circular (shipments → pricing → shipments en el mismo request) y un salto más en el camino crítico de `createShipment` |
-| (c) Pricing lee el esquema `shipments` directo | ❌ Rompe "un esquema por servicio" (ADR-003) y contradice ADR-019 |
+| (c) Pricing lee el esquema `shipments` directo | ❌ Rompe "un esquema por servicio" (ADR-003) y contradice ADR-017 |
 
 El campo es **opcional**: sin `demandContext`, no hay recargo. Así el contrato sigue sirviendo para cotizar sin contexto (por ejemplo, el wizard mobile de MOVO-83 si alguna vez llama sin pasar por `createShipment`). Las dos consultas usan los índices existentes (`shipments_status_pickup_lat_lng_idx` y `trips_status_idx`/`trips_departure_at_idx`).
 
@@ -216,7 +216,7 @@ Sin demanda, el precio nuevo es igual al de v1 con la misma distancia. **La dife
 
 ## 7. Recomendaciones para MOVO-138
 
-1. **`FuelPriceProvider` con el molde de ADR-012/014/017:** `FUEL_PRICE_PROVIDER=mock|energia`, con `mock` (valor fijo) como default de dev/test/CI para no depender de una API externa en los tests. El `energia` real lleva `httpx` (ya es dependencia) y cache en Redis (MOVO-217 ya dejó el cliente).
+1. **`FuelPriceProvider` con el molde de ADR-012/014/016:** `FUEL_PRICE_PROVIDER=mock|energia`, con `mock` (valor fijo) como default de dev/test/CI para no depender de una API externa en los tests. El `energia` real lleva `httpx` (ya es dependencia) y cache en Redis (MOVO-217 ya dejó el cliente).
 2. **Env vars nuevas.** Cada una va en los **tres lugares** (`.env.example`, `app/config.py` y `environment:` de `infra/docker-compose.yml`). `FUEL_PRICE_PROVIDER` va con `:-mock`, no con `-mock`. Lista: `FUEL_PRICE_PROVIDER`, `PRICING_FUEL_PRICE_FALLBACK_ARS_PER_L`, `PRICING_FUEL_CACHE_TTL_SECONDS`, `PRICING_DEMAND_RATIO_THRESHOLD`, `PRICING_DEMAND_MIN_SHIPMENTS`, `PRICING_DEMAND_BASE_SURCHARGE`, `PRICING_DEMAND_SLOPE`, `PRICING_DEMAND_MAX_SURCHARGE`, y los coeficientes en litros (`PRICING_BASE_FARE_L`, `PRICING_FUEL_L_PER_KM`, `PRICING_FUEL_COST_SHARE`, `PRICING_NON_FUEL_L_PER_KM`, `PRICING_PER_KG_L`). El radio de 15 km y el horizonte de 72h los usa `svc-shipments`, que es quien cuenta.
 3. **`@movo/shared`:** `PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1 = "demand_fuel_routes_v1"`, sin borrar `EUCLIDEAN_LINEAR_V1` porque queda persistido en envíos viejos. Además `QuoteRequest.demandContext?` y `QuoteResponse.highDemand` (y sin `breakdown`). Hay que tocar el enum de Python en el mismo PR.
 4. **`svc-shipments`: conteos + persistir `highDemand` (decidido).** Contar la demanda antes de `getQuote()`, sumar `highDemand` a `QuoteResult`, y **persistir el flag en `shipments`**: columna `high_demand BOOLEAN NULL` (migración Prisma) junto a `suggested_price_ars` y `calculation_method`, porque se escribe en el mismo momento y con la misma semántica: foto de la cotización al crear el envío, que no se recalcula. `NULL` significa que no hubo cotización ("precio a estimar") o que el envío es anterior a `demand_fuel_routes_v1`. No es lo mismo que `false`, y el mobile solo muestra el badge con `true`. Se expone en el detalle del envío para el emisor, así el badge sigue visible después de crearlo y no solo en la respuesta de la cotización. Queda como AC nuevo de MOVO-138, porque hoy no está en sus criterios.
@@ -232,9 +232,9 @@ Sin demanda, el precio nuevo es igual al de v1 con la misma distancia. **La dife
 - **La demanda se mide al cotizar.** Si la zona se descongestiona después, el precio del envío no baja solo. El emisor igual negocia con las ofertas (MOVO-102).
 - **Posible manipulación del ratio.** Un usuario podría publicar envíos falsos para inflar la demanda, pero solo encarecería su propia cotización. El incentivo contrario, no publicar para no pagar recargo, no existe porque el recargo depende de los envíos ajenos.
 
-## 9. ADR-025
+## 9. ADR-021
 
-**ADR-025:** el precio de combustible sale de la API CKAN de la Secretaría de Energía (mediana nacional de nafta súper, 30 días de frescura, cache 24h + último valor bueno 7d, degradación permitida), y los coeficientes de la tarifa se expresan en litros de nafta. La demanda la cuenta `svc-shipments` y viaja en el request, lo que preserva ADR-019. Si falla Google, `/quote` degrada la distancia a Haversine × 1,3, como excepción acotada a la política No-Fallback de MOVO-205. El resumen de una línea ya está en la tabla del `CLAUDE.md` raíz y el desarrollo completo va en el Sprint 0 de Drive.
+**ADR-021:** el precio de combustible sale de la API CKAN de la Secretaría de Energía (mediana nacional de nafta súper, 30 días de frescura, cache 24h + último valor bueno 7d, degradación permitida), y los coeficientes de la tarifa se expresan en litros de nafta. La demanda la cuenta `svc-shipments` y viaja en el request, lo que preserva ADR-017. Si falla Google, `/quote` degrada la distancia a Haversine × 1,3, como excepción acotada a la política No-Fallback de MOVO-205. El resumen de una línea ya está en la tabla del `CLAUDE.md` raíz y el desarrollo completo va en el Sprint 0 de Drive.
 
 ## 10. Cómo correr el prototipo
 

@@ -1,6 +1,6 @@
-# ADR-047 — Penalidad por cancelar un envío asignado
+# DD-047 — Penalidad por cancelar un envío asignado
 
-**Estado:** propuesto (MOVO-307, 15/10/2026) · **Servicios:** `movo-svc-shipments` (decide y orquesta), `movo-svc-payments` (captura parcial, MOVO-306; cuenta corriente, ADR-044) · **Contrato:** `@movo/shared` (`config/cancellation-penalty.ts`)
+**Estado:** propuesto (MOVO-307, 15/10/2026) · **Servicios:** `movo-svc-shipments` (decide y orquesta), `movo-svc-payments` (captura parcial, MOVO-306; cuenta corriente, DD-044) · **Contrato:** `@movo/shared` (`config/cancellation-penalty.ts`)
 
 ## Contexto
 
@@ -17,7 +17,7 @@ El spike MOVO-305 (`docs/payments/spike-movo-305-captura-parcial.md`) mostró c�
 
    Solo aplica a `assigned`: antes no hay fondos reservados.
 2. **Una sola regla, en `@movo/shared`.** `computeCancellationPenalty` la usan el backend (cotiza y cobra) y el mobile (muestra el monto). Las constantes son `CANCELLATION_PENALTY_FREE_HOURS` (12) y `CANCELLATION_PENALTY_RATE` (0,25).
-3. **El emisor confirma el monto que vio.** `GET /shipments/:id/cancellation-quote` devuelve `{ penaltyArs, reason, freeUntil }`. `POST /shipments/:id/cancel` recibe ese monto como `expectedPenaltyArs`; si no viene, cuenta como 0. Si no coincide con el cálculo del momento, responde `409 CANCELLATION_PENALTY_MISMATCH` con `details.penaltyArs` y no cancela. Es el mismo criterio que la cotización congelada (ADR-028): nunca se cobra un monto que el emisor no vio.
+3. **El emisor confirma el monto que vio.** `GET /shipments/:id/cancellation-quote` devuelve `{ penaltyArs, reason, freeUntil }`. `POST /shipments/:id/cancel` recibe ese monto como `expectedPenaltyArs`; si no viene, cuenta como 0. Si no coincide con el cálculo del momento, responde `409 CANCELLATION_PENALTY_MISMATCH` con `details.penaltyArs` y no cancela. Es el mismo criterio que la cotización congelada (DD-028): nunca se cobra un monto que el emisor no vio.
 4. **Primero se cancela, después se cobra.** La cancelación usa compare-and-swap (`expectedFrom: assigned`), así un handshake de retiro concurrente gana y la cancelación da 409. La penalidad se guarda en el envío en la misma transacción (`cancellation_penalty_ars`, `cancellation_penalty_status = pending`): aunque el proceso se caiga antes de llamar a payments, no se pierde lo que hay que cobrar.
 5. **Cobro, idempotente y retomable.** Lo hace `settleCancellationPenalty`, al que llaman la cancelación en línea y el barrido de liquidaciones:
    1. registra la deuda en la cuenta corriente del emisor (`cancellation_penalty`, key `penalty:<shipmentId>`);
@@ -40,13 +40,13 @@ Como MP cobra el `application_fee` entero en la captura parcial, el emisor paga 
 
 - **Tope monetario o porcentaje distinto por tramo de horas.** Se eligió un solo umbral para que la regla sea fácil de explicar en la app y en los Términos (MOVO-316).
 - **Cobrar la penalidad como deuda siempre, sin captura parcial.** El emisor ya está presente y con el hold autorizado. Cobrar en el momento evita una deuda que puede no cobrarse nunca.
-- **Recalcular en silencio si cambió el monto.** Descartado por el mismo motivo que en ADR-028.
+- **Recalcular en silencio si cambió el monto.** Descartado por el mismo motivo que en DD-028.
 
 ## Consecuencias y trade-offs aceptados
 
 - El transportista recibe ≈ 11 % del precio, no el 25 %: es la limitación de MP de arriba.
-- En el plan B y con el hold vencido, la plata de la penalidad se cobra después (MOVO-311) y queda para Movo, como toda deuda (ADR-044). El transportista no recibe compensación en ese caso.
+- En el plan B y con el hold vencido, la plata de la penalidad se cobra después (MOVO-311) y queda para Movo, como toda deuda (DD-044). El transportista no recibe compensación en ese caso.
 - Mientras la penalidad está `pending`, el saldo del emisor muestra la deuda aunque la captura esté por concretarse.
 - Si el hold lleva deuda previa del emisor (recargo de MOVO-311), el `application_fee` incluye ese recargo y puede superar a la penalidad: MP rechaza la captura parcial (`CAPTURE_BELOW_APPLICATION_FEE`) y se aplica el plan B. Visto en dev: hold de $9.061 con fee de $2.895,79 (incluye $2.091 de deuda) y penalidad de $1.742,50. Se acepta: la penalidad queda como deuda y no se cobra del hold. La alternativa descartada por ahora era capturar fee + neto mínimo y cotizarlo en `cancellation-quote`, que cambia el monto que ve el emisor.
-- La penalidad del transportista que se baja queda para Movo (ADR-044), no compensa al emisor: él recupera el hold entero y el envío vuelve a publicarse. Se aplica sin mirar el motivo de la baja; la atribución por GPS del no-retiro es MOVO-270. Mientras tanto queda un incentivo a no bajarse: si el transportista simplemente no aparece, el barrido de MOVO-258 cancela sin culpables y no paga nada.
+- La penalidad del transportista que se baja queda para Movo (DD-044), no compensa al emisor: él recupera el hold entero y el envío vuelve a publicarse. Se aplica sin mirar el motivo de la baja; la atribución por GPS del no-retiro es MOVO-270. Mientras tanto queda un incentivo a no bajarse: si el transportista simplemente no aparece, el barrido de MOVO-258 cancela sin culpables y no paga nada.
 - `svc-shipments` no tiene un canal de alertas propio. Un hold vencido al cobrar la penalidad deja un log `error` (`cancellation_penalty_hold_unavailable`) en vez de una alerta.

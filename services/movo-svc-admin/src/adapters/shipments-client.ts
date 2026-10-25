@@ -11,9 +11,12 @@ import {
   AdminShipmentPage,
   AdminShipmentPhoto,
   AdminShipmentTracking,
+  ApiError,
   ChatReportParties,
   InProgressShipment,
   OpenActivitySummary,
+  ForceShipmentStatusRequest,
+  ForceShipmentStatusResponse,
   ShipmentParties,
   WithdrawOpenActivityResult,
 } from "@movo/shared";
@@ -62,7 +65,25 @@ export interface ShipmentsClient extends InternalClient {
    * `failures`: el retiro parcial lo decide quien llama.
    */
   withdrawOpenActivity(userId: string, sanctionId: string, ctx: RequestContext): Promise<WithdrawOpenActivityResult>;
+  /**
+   * `POST /internal/admin/shipments/:id/force-status` (MOVO-331, DD-055). Los rechazos de negocio
+   * (`STATUS_CHANGED`, `TRANSITION_NOT_ALLOWED`, `HOLD_NOT_AUTHORIZED`, `FORCE_STATUS_EFFECT_FAILED`...)
+   * se relanzan con su código y `details`; una caída es 502 `SHIPMENTS_SERVICE_UNAVAILABLE` (la bitácora
+   * la toma por "pudo haberse aplicado"). 404 `NOT_FOUND` si el envío no existe.
+   */
+  forceShipmentStatus(shipmentId: string, body: ForceShipmentStatusRequest, ctx: RequestContext): Promise<ForceShipmentStatusResponse>;
 }
+
+/** El servicio llama a payments (liberar o capturar el hold) antes de responder: más holgado que los 5 s base. */
+const FORCE_STATUS_TIMEOUT_MS = 30_000;
+
+const isForceStatusResponse = (body: unknown): body is ForceShipmentStatusResponse =>
+  isRecord(body) &&
+  isString(body.shipmentId) &&
+  isString(body.fromStatus) &&
+  isString(body.toStatus) &&
+  (body.kind === "manual" || body.kind === "forced") &&
+  typeof body.replayed === "boolean";
 
 export interface PageParams {
   page: number;
@@ -266,6 +287,18 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
         isValid: isAdminChatPage,
         notFoundCodes: ["NOT_FOUND"],
       });
+    },
+    async forceShipmentStatus(shipmentId, body, ctx) {
+      const result = await client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/force-status`, ctx, {
+        method: "POST",
+        body,
+        timeoutMs: FORCE_STATUS_TIMEOUT_MS,
+        relayServerErrorCodes: ["FORCE_STATUS_EFFECT_FAILED"],
+        isValid: isForceStatusResponse,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+      if (!result) throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      return result;
     },
     getAdminShipmentTracking(shipmentId, ctx) {
       return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/tracking`, ctx, {

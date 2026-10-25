@@ -19,7 +19,7 @@ export interface QuoteInput {
   destinationLat?: number;
   destinationLng?: number;
   urgent?: boolean;
-  /** MOVO-138 (ADR-025): conteos de la zona de retiro. Sin esto no hay recargo. */
+  /** MOVO-138 (ADR-021): conteos de la zona de retiro. Sin esto no hay recargo. */
   demandContext?: DemandContext;
   /** Solo el módulo demo (juego de precios): pide el desglose de la fórmula. */
   includeBreakdown?: boolean;

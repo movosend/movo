@@ -18,7 +18,14 @@ class PriceCalculationMethod(str, Enum):
 
     EUCLIDEAN_LINEAR_V1 = "euclidean_linear_v1"  # MOVO-82: ya no se emite, persiste en envíos viejos
     DEMAND_FUEL_ROUTES_V1 = "demand_fuel_routes_v1"  # MOVO-138: ya no se emite, persiste en envíos viejos
-    PACKAGE_TAPERED_V2 = "package_tapered_v2"  # MOVO-276: peso facturable + tramos
+    PACKAGE_TAPERED_V2 = "package_tapered_v2"  # MOVO-276: ya no se emite, persiste en envíos viejos
+    PACKAGE_TAPERED_V3 = "package_tapered_v3"  # MOVO-317: v2 con el peso volumétrico acotado
+
+
+# Tope de cordura (kg y cm) del peso y de cada medida: sin límites de negocio (MOVO-317), pero un valor
+# enorme desbordaba el subtotal a `inf` y `_round_to_10` lanzaba OverflowError. Mismo valor que
+# `PACKAGE_INPUT_SANITY_MAX` de `@movo/shared`: si cambia allá, cambiarlo acá.
+PACKAGE_INPUT_SANITY_MAX = 10_000
 
 
 class CamelModel(BaseModel):
@@ -31,8 +38,8 @@ class CamelModel(BaseModel):
 
 
 class DemandContext(CamelModel):
-    """Conteos de la zona de retiro (MOVO-138, ADR-025). Los calcula `movo-svc-shipments`,
-    dueño de esos datos, así este servicio sigue sin base de datos (ADR-019)."""
+    """Conteos de la zona de retiro (MOVO-138, ADR-021). Los calcula `movo-svc-shipments`,
+    dueño de esos datos, así este servicio sigue sin base de datos (ADR-017)."""
 
     published_shipments: int = Field(ge=0)
     available_carriers: int = Field(ge=0)
@@ -43,16 +50,16 @@ class QuoteRequest(CamelModel):
     origin_lng: float = Field(ge=-180, le=180)
     destination_lat: float = Field(ge=-90, le=90)
     destination_lng: float = Field(ge=-180, le=180)
-    weight_kg: float = Field(gt=0)
-    length_cm: float = Field(gt=0)
-    width_cm: float = Field(gt=0)
-    height_cm: float = Field(gt=0)
+    weight_kg: float = Field(gt=0, le=PACKAGE_INPUT_SANITY_MAX)
+    length_cm: float = Field(gt=0, le=PACKAGE_INPUT_SANITY_MAX)
+    width_cm: float = Field(gt=0, le=PACKAGE_INPUT_SANITY_MAX)
+    height_cm: float = Field(gt=0, le=PACKAGE_INPUT_SANITY_MAX)
     package_type: PackageType
     urgent: bool = False
     # Opcional: sin contexto de demanda no se aplica recargo.
     demand_context: DemandContext | None = None
     # Solo lo pide el módulo demo de `movo-svc-shipments` (juego de precios de la feria):
-    # la cotización del emisor sigue sin desglose (ADR-025).
+    # la cotización del emisor sigue sin desglose (ADR-021).
     include_breakdown: bool = False
 
 
@@ -76,7 +83,7 @@ class QuoteBreakdown(CamelModel):
 
 
 class QuoteResponse(CamelModel):
-    """Sin desglose de la fórmula (MOVO-216/ADR-025): el emisor solo ve el precio final y
+    """Sin desglose de la fórmula (MOVO-216/ADR-021): el emisor solo ve el precio final y
     si rige alta demanda. El desglose va al log `pricing_quote_computed`."""
 
     suggested_price_ars: float

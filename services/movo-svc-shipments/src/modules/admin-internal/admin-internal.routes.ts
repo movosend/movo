@@ -495,9 +495,9 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     },
   );
 
-  // Todo el hilo, sin ocultar nada por bloqueos ni por `chat_started_at` (ADR-040: el historial es
+  // Todo el hilo, sin ocultar nada por bloqueos ni por `chat_started_at` (ADR-023: el historial es
   // evidencia). `partiesAccess` dice qué pueden hacer hoy el emisor, el transportista y el receptor con las
-  // reglas de docs/chat/README.md; el receptor anterior (ADR-038) nunca pasa de `read_only`, así que no
+  // reglas de docs/chat/README.md; el receptor anterior (DD-038) nunca pasa de `read_only`, así que no
   // cambia ese valor y no se modela aparte.
   app.get(
     "/admin/shipments/:id/chat/messages",
@@ -635,7 +635,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     },
   );
 
-  // MOVO-331 (ADR-055): cambio de estado de un envío hecho por un admin. Lo llama `svc-admin` (que ya validó
+  // MOVO-331 (DD-055): cambio de estado de un envío hecho por un admin. Lo llama `svc-admin` (que ya validó
   // la sesión, el OTP por acción y el conflicto de interés, y dejó la bitácora); acá se valida la matriz.
   // Grafo propio, con `paymentsClient`: el de arriba no tiene hold ni transportista a propósito.
   const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);

@@ -47,17 +47,17 @@ export class InsufficientCreationPhotosError extends Error {
  * el issue de Linear). Única fuente de verdad: cualquier cambio acá debe
  * reflejarse primero en el diagrama, no al revés (AC4).
  *
- * `rejected_by_receiver` dejó de ser terminal en MOVO-253 (ADR-027): el emisor
+ * `rejected_by_receiver` dejó de ser terminal en MOVO-253 (DD-027): el emisor
  * puede elegir otro receptor (vuelve a `awaiting_receiver_confirmation`) o
  * cancelar, y si no hace ninguna de las dos antes de
  * `receiverRedesignationDeadline` el barrido lo pasa a `cancelled`.
  *
- * `assigned -> disputed` (MOVO-270, ADR-052): el barrido de retiro no realizado tiene evidencia
+ * `assigned -> disputed` (MOVO-270, DD-052): el barrido de retiro no realizado tiene evidencia
  * GPS de que el transportista llegó al retiro y no hubo handshake. El hold se libera antes de
  * transicionar y esa disputa no bloquea al transportista (`hasOpenDisputeAsCarrier` excluye el
  * motivo `pickup_no_show`, MOVO-334).
  *
- * `completed -> disputed` (MOVO-334, ADR-054): el handshake de entrega captura el hold y pasa el
+ * `completed -> disputed` (MOVO-334, DD-054): el handshake de entrega captura el hold y pasa el
  * envío a `completed` en el momento (MOVO-212), así que un reclamo post-entrega casi nunca
  * encuentra el envío en `delivered`. Solo la usa una de las partes dentro de los
  * `DISPUTE_WINDOW_DAYS` desde `deliveredAt` (`disputes.service.ts`); ningún barrido la usa.
@@ -211,9 +211,9 @@ export const TRACKABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
 
 /**
  * MOVO-270 (AC2, decisión de MOVO-271): la traza en `carrier_positions` solo se guarda con
- * custodia -- desde el handshake de retiro hasta el de entrega (ADR-023). Antes del retiro la
+ * custodia -- desde el handshake de retiro hasta el de entrega (DD-023). Antes del retiro la
  * posición se difunde y actualiza la última conocida en Redis, pero no se escribe; lo único que
- * queda del tramo previo es la evidencia agregada de `pickup_evidence` (ADR-052).
+ * queda del tramo previo es la evidencia agregada de `pickup_evidence` (DD-052).
  */
 export const POSITION_PERSISTABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [ShipmentStatus.IN_TRANSIT];
 
@@ -221,7 +221,7 @@ export const POSITION_PERSISTABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] =
  * MOVO-202/AC6: estados elegibles para la purga periódica de `carrier_positions` --
  * mismo set que `TRACKING_CLOSED_STATUSES` MENOS `DISPUTED` a propósito. Un envío
  * `disputed` nunca es elegible mientras siga en ese estado (la traza puede ser
- * evidencia de la disputa en curso, ADR-023) -- `disputed` no tiene transición de
+ * evidencia de la disputa en curso, DD-023) -- `disputed` no tiene transición de
  * salida modelada hoy (ver el comentario de `VALID_TRANSITIONS` más arriba), así que
  * en la práctica queda retenido sin límite mientras dure. El ancla de "cuándo cerró"
  * es `Shipment.lastStatusChangedAt`: si algún día se modela una salida real de

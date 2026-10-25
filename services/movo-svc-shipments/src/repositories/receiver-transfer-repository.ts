@@ -244,7 +244,7 @@ export function createReceiverTransferRepository(db: PrismaClient) {
           }
 
           // MOVO-340: el receptor nuevo se suma al chat con todo lo anterior como recibido y leído. Ve el
-          // historial (ADR-038), pero solo le cuentan como no leídos los mensajes posteriores a su incorporación.
+          // historial (DD-038), pero solo le cuentan como no leídos los mensajes posteriores a su incorporación.
           await tx.$executeRaw`
             INSERT INTO shipments.chat_participant_states (shipment_id, user_id, last_delivered_at, last_read_at)
             VALUES (${input.shipmentId}::uuid, ${input.newReceiverId}::uuid, ${input.now}, ${input.now})

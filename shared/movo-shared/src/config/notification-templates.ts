@@ -235,7 +235,7 @@ export const NOTIFICATION_TRIGGERS = {
       body: "El envío se canceló: el retiro no se realizó dentro del plazo acordado",
     })
   ),
-  // MOVO-270 (ADR-052): el barrido de retiro no realizado atribuye el no-retiro al transportista
+  // MOVO-270 (DD-052): el barrido de retiro no realizado atribuye el no-retiro al transportista
   // (nunca inició el viaje o su GPS lo ubicó lejos durante toda la ventana). El receptor recibe
   // el aviso neutro de arriba. `rateCarrier` invita a calificar (detrás de flag hasta MOVO-337).
   pickupNoShowSender: definition<{ rateCarrier: boolean }>(
@@ -267,7 +267,7 @@ export const NOTIFICATION_TRIGGERS = {
       body: `No te presentaste al retiro de un envío: sumamos $${formatArs(penaltyArs)} a tu cuenta. Se descuenta de tu próximo cobro.`,
     })
   ),
-  // MOVO-270 (ADR-052): el transportista llegó al retiro y no hubo handshake. No se cobra nada
+  // MOVO-270 (DD-052): el transportista llegó al retiro y no hubo handshake. No se cobra nada
   // automáticamente: pasa a disputa y se libera la reserva del emisor.
   pickupDisputeOpenedSender: definition<void>(
     "shipments",
@@ -345,7 +345,7 @@ export const NOTIFICATION_TRIGGERS = {
       body: "Pasó el tiempo estimado de entrega. Si tuviste un inconveniente, avisanos; si ya entregaste, confirmalo en la app",
     })
   ),
-  // MOVO-278 (ADR-045): aviso previo al transportista, antes de que el envío demorado pase a disputa.
+  // MOVO-278 (DD-045): aviso previo al transportista, antes de que el envío demorado pase a disputa.
   transitAnomalyDisputeWarning: definition<void>(
     "shipments",
     {
@@ -357,7 +357,7 @@ export const NOTIFICATION_TRIGGERS = {
       body: "Si no confirmás la entrega pronto, se abre una disputa y no vas a poder operar como transportista hasta que se resuelva",
     })
   ),
-  // MOVO-278 (ADR-045): el envío demorado pasó a disputa automáticamente.
+  // MOVO-278 (DD-045): el envío demorado pasó a disputa automáticamente.
   transitAnomalyDisputeOpenedSender: definition<void>(
     "shipments",
     { title: "Envío en disputa", body: "Tu envío no se entregó a tiempo y pasó a disputa." },
@@ -467,7 +467,7 @@ export const NOTIFICATION_TRIGGERS = {
             body: `Todavía no tenés paquetes para llevar a ${destinationShort}. Entrá y mirá qué envíos te quedan de paso.`,
           }
   ),
-  /** MOVO-265 (ADR-042): el barrido declaró la ocurrencia siguiente de un viaje recurrente. */
+  /** MOVO-265 (DD-042): el barrido declaró la ocurrencia siguiente de un viaje recurrente. */
   tripRecurrenceGenerated: definition<{ dayLabel: string; destinationShort: string }>(
     "trips",
     { title: "Declaramos tu próximo viaje", body: "Declaramos tu viaje de la semana que viene. Entrá y mirá qué envíos te quedan de paso." },
@@ -490,7 +490,7 @@ export const NOTIFICATION_TRIGGERS = {
     })
   ),
   /** MOVO-265: corte automático porque no se pudo declarar en nombre del transportista
-   * (cuenta suspendida o requisitos de ADR-036). Genérico a propósito: sin detalles de
+   * (cuenta suspendida o requisitos de DD-036). Genérico a propósito: sin detalles de
    * moderación en una pantalla bloqueada. */
   tripRecurrenceStoppedUnavailable: definition<{ destinationShort: string }>(
     "trips",
@@ -875,7 +875,7 @@ export const NOTIFICATION_TRIGGERS = {
     { title: "Pago procesado", body: "Tu envío fue entregado y el pago se procesó correctamente." },
     () => ({ title: "Pago procesado", body: "Tu envío fue entregado y el pago se procesó correctamente." })
   ),
-  // MOVO-307 (ADR-047): penalidad por cancelar un envío asignado con menos de 12 h. Al
+  // MOVO-307 (DD-047): penalidad por cancelar un envío asignado con menos de 12 h. Al
   // emisor se le dice cuánto se cobró (o que quedó como deuda, si no se pudo cobrar del
   // hold); al transportista, lo que recibe como compensación.
   cancellationPenaltyChargedSender: definition<{ penaltyArs: number }>(
@@ -916,7 +916,7 @@ export const NOTIFICATION_TRIGGERS = {
       body: `${carrierName ?? "El transportista"} se bajó del envío y ya está visible para otros transportistas. Si ya no te sirve, podés cancelarlo sin cargo.`,
     })
   ),
-  // MOVO-331 (ADR-055): un admin cambió el estado del envío. Sin el motivo (lo escribe el admin y es
+  // MOVO-331 (DD-055): un admin cambió el estado del envío. Sin el motivo (lo escribe el admin y es
   // interno) ni montos: un push se ve en la pantalla bloqueada. Se manda ignorando las preferencias.
   shipmentStatusForcedSender: definition(
     "shipments",
@@ -953,11 +953,11 @@ export const NOTIFICATION_TRIGGERS = {
       body: `Te bajaste con menos de 12 h para el retiro: sumamos $${formatArs(penaltyArs)} a tu cuenta. Se descuenta de tu próximo cobro.`,
     })
   ),
-  // MOVO-275 (ADR-038): transferencia de receptor. Copy propio por destinatario: la
+  // MOVO-275 (DD-038): transferencia de receptor. Copy propio por destinatario: la
   // persona invitada tiene que actuar; el emisor y el transportista solo se enteran.
   // MOVO-26 / MOVO-301: mensaje nuevo en el chat de un envío, al estilo WhatsApp: el nombre de quien escribió
   // (con su rol) y el texto. Con una ráfaga (`count` > 1) el servidor manda un único resumen con el último mensaje.
-  // El texto viaja en la push (se ve en la pantalla bloqueada): cambia lo que decía ADR-040 ("sin el texto").
+  // El texto viaja en la push (se ve en la pantalla bloqueada): cambia lo que decía ADR-023 ("sin el texto").
   chatMessageReceived: definition<{ authorName: string; roleLabel?: string; messageBody: string; count?: number }>(
     "chat",
     { title: "Mensaje nuevo", body: "Te avisamos cuando alguien te escribe en el chat de un envío." },

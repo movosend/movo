@@ -1,9 +1,9 @@
-# ADR-055 — Cambio forzado de estado de un envío desde el panel
+# DD-055 — Cambio forzado de estado de un envío desde el panel
 
-**Estado:** propuesto (MOVO-330 + MOVO-331, sub-issues de MOVO-329). Borrador para pegar en la
-sección de ADRs de `[Movo] 004 - Sprint 0.md` en Drive. Pendiente de la revisión de dos
+**Estado:** propuesto (MOVO-330 + MOVO-331, sub-issues de MOVO-329). Borrador para pegar en
+`[Movo] 011-Registro de Decisiones de Diseño` en Drive. Pendiente de la revisión de dos
 integrantes y de coordinar con MOVO-34, porque ambos tocan la salida de `disputed`. Complementa
-ADR-021 (los 11 estados), ADR-035 (cobro), ADR-044 (cuenta corriente), ADR-045, ADR-047, ADR-054 y
+DD-021 (los 11 estados), ADR-022 (cobro), DD-044 (cuenta corriente), DD-045, 047, 054 y
 la decisión 6 de MOVO-286 (toda escritura del panel pasa por `svc-admin`) sin modificarlos.
 
 ## Contexto
@@ -47,12 +47,12 @@ corregirlo, y es la de más riesgo: mueve plata, custodia y reputación.
 
 - `disputed → *`: la salida es la resolución de la disputa (MOVO-34), que decide el estado final y
   mueve la plata. **Entrar a `disputed` tampoco se fuerza**: una disputa nace con su expediente
-  (`shipments.disputes`, ADR-054) y lo abre una parte o un barrido.
+  (`shipments.disputes`, DD-054) y lo abre una parte o un barrido.
 - `completed → *`: el pago ya se repartió; se corrige desde Pagos. La única salida del grafo
   (`completed → disputed`) es de las partes.
 - `cancelled → *`: terminal por diseño (MOVO-79). No se reabre.
 - `in_transit → *` y `* → in_transit` / `* → delivered`: el retiro y la entrega se confirman con el
-  handshake criptográfico (ADR-020). Forzarlos sin esa evidencia rompe la garantía de custodia, y la
+  handshake criptográfico (ADR-018). Forzarlos sin esa evidencia rompe la garantía de custodia, y la
   captura del pago depende de ella. Si hace falta, será una decisión propia con su evidencia.
 - `assigned → assigned_unfunded`: refleja un hecho de Mercado Pago (hold vencido o cancelado), que
   entra por el webhook; el admin no lo declara.
@@ -72,7 +72,7 @@ este servicio:
 
 ### Efectos fijos de todo cambio forzado
 
-- **No penaliza a nadie ni genera deuda** (ADR-047, ADR-044): la cancelación y la baja que ejecuta un
+- **No penaliza a nadie ni genera deuda** (DD-047, 044): la cancelación y la baja que ejecuta un
   admin condonan la penalidad.
 - **No toca la reputación.** `disputed` es lo único que saca un envío de ella, y no se fuerza.
 - **Un hecho externo se verifica, no se confía en el motivo del admin.** Para `assigned`, el hold
@@ -114,10 +114,48 @@ nunca quién ni por qué. `GET /internal/admin/shipments/:id/events` (el panel) 
 
 ### Segundo factor por acción (step-up)
 
-Lo implementa `svc-admin`/`svc-users` en MOVO-332; este servicio no lo valida. Propuesta: un OTP
-nuevo por acción, distinto del OTP de la jornada de MOVO-286, de **un solo uso**, con **vida de 5
-minutos** y **atado a la acción** (`shipmentId` + `targetStatus`), de modo que no sirve para otro
-envío ni para otro destino.
+Lo implementa `svc-admin`/`svc-users` (MOVO-332); `svc-shipments` no lo valida. Un OTP nuevo por
+acción, distinto del OTP de la jornada de MOVO-286:
+
+- `POST /admin/step-up` (delega en `svc-users`) manda un código de 6 dígitos al email verificado del
+  admin con el motor de OTP de MOVO-139. Su `flow` lleva la acción (`admin-step-up-<envío>-<destino>`):
+  un código pedido para otro envío o destino no verifica, y no se quema por el intento.
+- **Un solo uso y 5 minutos** de vigencia (`STEP_UP_CODE_TTL_SECONDS`), contados desde que **salió** el código:
+  la hora de emisión vive en su propia clave de Redis (`NX`), no en el `meta` del OTP, porque `generateOtp`
+  renueva el `meta` si se vuelve a pedir dentro del cooldown y alargaría la vigencia.
+  `POST /admin/step-up/verify` lo canjea por un `stepUpToken` de un solo uso (sha256 en Redis, 5 minutos)
+  atado a (admin, envío, destino).
+- **Cuándo se gasta el token:** `svc-admin` lo **valida** (sin gastarlo) antes de llamar a `svc-shipments` y lo
+  **gasta recién cuando el cambio se aplicó o no se sabe si se aplicó** (`svc-shipments` no respondió). Un
+  rechazo de negocio (`HOLD_NOT_AUTHORIZED`, `STATUS_CHANGED`, `FORCE_STATUS_EFFECT_FAILED`) no lo quema: el admin
+  corrige y reintenta con el mismo código mientras no venza. Así unos pocos fallos no lo dejan sin pedidos.
+- **Pedirlo exige una transición real:** `POST /admin/step-up` verifica que el envío exista y que el par esté en
+  la matriz y exija segundo factor; no manda un email por cualquier combinación.
+- **Reintentos limitados:** 5 pedidos cada 15 minutos por admin; los intentos de verificación se cuentan **antes**
+  de mirar el código, así que verificaciones concurrentes no pasan el límite; desde el sexto el admin queda
+  bloqueado 15 minutos (429), aunque después acierte el código.
+- **Sin enumeración:** código erróneo, vencido, ya usado, de otro envío o destino o de otro admin responden
+  igual, `401 STEP_UP_INVALID` con el mismo mensaje.
+- Cuándo se exige (`forcedTransitionFriction` en `@movo/shared`): transición `forced` o riesgo crítico. El
+  código del envío tipeado (`typedCode`), desde riesgo alto.
+
+### Bitácora del panel
+
+`POST /admin/shipments/:id/status` pasa por `runAdminAction` (acción `shipment.status_change`, objetivo
+`shipment`): regla de conflicto de interés (falla cerrado), validaciones (motivo de 20 o más caracteres,
+código tipeado, existencia del token, par permitido por la matriz, `expectedStatus`) y la llamada a
+`svc-shipments`. **Una fila por intento, rechazos incluidos**, con origen, destino, riesgo, si fue forzado y
+la `idempotencyKey`. La bitácora es de solo agregar filas (trigger), por eso no hay una fila "antes" y otra
+"después": el caso de un servicio que cae a mitad de camino lo cubre el resultado `unknown` (pudo haberse
+aplicado), que `svc-shipments` resuelve con la misma `idempotencyKey`. Rate limit: 10 cambios por minuto por
+admin y 5 por envío. Un 429 también deja rastro, pero **una sola fila por admin y envío por ventana** (la bitácora es de
+solo agregar filas y una por cada rechazo la inundaría un loop).
+
+**Idempotencia en `svc-admin`:** `idempotencyKey → resultado` (por admin y envío, 24 h). Un reintento tras un cambio
+exitoso devuelve la misma respuesta con `replayed: true` sin pasar por las validaciones (el estado ya es el destino y
+el token ya se gastó) ni dejar otra fila. La misma clave para otro destino es `409 IDEMPOTENCY_KEY_REUSED`. Si
+`svc-shipments` no respondió, el reintento no vuelve a pedir el token ni compara `expectedStatus`: vuelve a
+`svc-shipments`, que resuelve el replay con la clave antes de mirar el estado.
 
 ### Concurrencia e idempotencia
 

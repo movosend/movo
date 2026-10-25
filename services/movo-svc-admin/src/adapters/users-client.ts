@@ -17,6 +17,10 @@ import {
   AdminUserProfile,
   AdminUserRef,
   AdminUserVehicle,
+  StepUpChallenge,
+  StepUpRequest,
+  StepUpToken,
+  StepUpVerifyRequest,
   UserReportParties,
 } from "@movo/shared";
 import { ApiError } from "@movo/shared";
@@ -75,6 +79,15 @@ export interface UsersClient extends InternalClient {
    * comprobó que el usuario existe al leer el historial.
    */
   liftSanction(userId: string, sanctionId: string, reason: string, actorId: string, ctx: RequestContext): Promise<AccountSanction>;
+  // MOVO-332 (DD-055): segundo factor por acción del cambio de estado de un envío.
+  /** `POST /internal/admin/step-up/request`: manda el código al email del admin, atado a (envío, destino). */
+  requestStepUp(adminId: string, body: StepUpRequest, ctx: RequestContext): Promise<StepUpChallenge>;
+  /** `POST /internal/admin/step-up/verify`: canjea el código por un `stepUpToken` de un solo uso. 401 `STEP_UP_INVALID`. */
+  verifyStepUp(adminId: string, body: StepUpVerifyRequest, ctx: RequestContext): Promise<StepUpToken>;
+  /** `POST /internal/admin/step-up/validate`: comprueba el token sin gastarlo. 401 `STEP_UP_INVALID` si es inválido, usado o de otra acción. */
+  validateStepUp(adminId: string, body: StepUpRequest & { stepUpToken: string }, ctx: RequestContext): Promise<void>;
+  /** `POST /internal/admin/step-up/consume`: gasta el token. 401 `STEP_UP_INVALID` si es inválido, usado o de otra acción. */
+  consumeStepUp(adminId: string, body: StepUpRequest & { stepUpToken: string }, ctx: RequestContext): Promise<void>;
 }
 
 const isNumber = (value: unknown): value is number => typeof value === "number";
@@ -119,6 +132,14 @@ const isDevices = (body: unknown): body is AdminUserDevices =>
 
 const isNames = (body: unknown): body is AdminUserNames => isRecord(body) && isArrayOf(body.users, isUserRef);
 
+const isStepUpChallenge = (body: unknown): body is StepUpChallenge =>
+  isRecord(body) &&
+  isString(body.challengeId) &&
+  isString(body.maskedEmail) &&
+  isNumber(body.cooldownSeconds) &&
+  isNumber(body.expiresInSeconds);
+const isStepUpToken = (body: unknown): body is StepUpToken =>
+  isRecord(body) && isString(body.stepUpToken) && isNumber(body.expiresInSeconds);
 const isRevokeResult = (body: unknown): body is AdminSessionsRevokeResult => isRecord(body) && isNumber(body.revokedRefreshTokens);
 
 /** Además del resultado público, qué falló después del cambio ya aplicado (solo para la bitácora). */
@@ -276,6 +297,46 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
         notFoundCodes: [],
       });
       return result?.users ?? [];
+    },
+
+    async requestStepUp(adminId, body, ctx) {
+      const result = await client.request("/internal/admin/step-up/request", ctx, {
+        method: "POST",
+        body: { adminId, ...body },
+        isValid: isStepUpChallenge,
+        notFoundCodes: [],
+      });
+      if (!result) throw new Error("requestStepUp: respuesta vacía");
+      return result;
+    },
+
+    async verifyStepUp(adminId, body, ctx) {
+      const result = await client.request("/internal/admin/step-up/verify", ctx, {
+        method: "POST",
+        body: { adminId, ...body },
+        isValid: isStepUpToken,
+        notFoundCodes: [],
+      });
+      if (!result) throw new Error("verifyStepUp: respuesta vacía");
+      return result;
+    },
+
+    async validateStepUp(adminId, body, ctx) {
+      await client.request("/internal/admin/step-up/validate", ctx, {
+        method: "POST",
+        body: { adminId, ...body },
+        isValid: (value): value is undefined => value === undefined,
+        notFoundCodes: [],
+      });
+    },
+
+    async consumeStepUp(adminId, body, ctx) {
+      await client.request("/internal/admin/step-up/consume", ctx, {
+        method: "POST",
+        body: { adminId, ...body },
+        isValid: (value): value is undefined => value === undefined,
+        notFoundCodes: [],
+      });
     },
 
     async revokeUserSessions(userId, actorId, ctx) {

@@ -28,6 +28,7 @@ import notificationPreferencesRoutes from "./modules/notification-preferences/no
 import toursRoutes from "./modules/tours/tours.routes";
 import moderationRoutes, { internalModerationRoutes } from "./modules/moderation/moderation.routes";
 import adminsInternalRoutes, { AdminsInternalRoutesOptions } from "./modules/admins/admins-internal.routes";
+import adminStepUpInternalRoutes, { AdminStepUpInternalRoutesOptions } from "./modules/admin-step-up/admin-step-up-internal.routes";
 import adminUsersInternalRoutes, { AdminUsersInternalRoutesOptions } from "./modules/admin-users/admin-users-internal.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import sanctionSweepPlugin from "./plugins/sanction-sweep";
@@ -66,7 +67,7 @@ export interface BuildAppOptions {
    * real levantado (MOVO-134), mismo criterio que `storageProvider`. */
   shipmentsClient?: ShipmentsClient;
   /** Override solo para tests de integración — evita depender de la API de Resend
-   * (MOVO-139/ADR-017), mismo criterio que `smsProvider`. */
+   * (MOVO-139/ADR-016), mismo criterio que `smsProvider`. */
   emailProvider?: EmailProvider;
   /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
   orphanPhotoSweepEnabled?: boolean;
@@ -210,6 +211,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
   };
   app.register(adminsInternalRoutes, adminsInternalRouteOpts);
+
+  // MOVO-332: segundo factor por acción para el cambio de estado de un envío desde el panel. Interno.
+  const adminStepUpRouteOpts: AdminStepUpInternalRoutesOptions = {
+    prefix: "/internal",
+    ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+    ...(opts.smsProvider ? { smsProvider: opts.smsProvider } : {}),
+  };
+  app.register(adminStepUpInternalRoutes, adminStepUpRouteOpts);
 
   // MOVO-294: búsqueda y ficha de usuarios del panel, y acciones de soporte. Interno, mismo
   // criterio que el de arriba.
