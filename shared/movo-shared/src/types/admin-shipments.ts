@@ -152,7 +152,14 @@ export interface ForceShipmentStatusResponse {
 /**
  * Código que el admin tipea para confirmar un cambio de riesgo alto o crítico: el mismo `#MOVO-12345` que
  * muestra el encabezado del envío en el panel, sin el `#` (últimos 5 dígitos del id). Lo usan `svc-admin` para
- * validar y el panel para mostrarlo; no es un identificador (puede repetirse entre envíos), solo una confirmación.
+ * validar y el panel para mostrarlo (`shipmentDisplayCode` es `#` + esto: una sola regla); no es un identificador
+ * (puede repetirse entre envíos), solo una confirmación.
+ *
+ * Limitación aceptada (ADR-055): con 5 dígitos hay colisiones entre ~100 mil envíos y es más débil que los 8 caracteres
+ * del id que se pedían antes. Es una decisión consciente: el código tiene que ser lo que el admin VE en el encabezado
+ * (con el prefijo del id nunca lo vería). No es lo que protege la acción: el pedido va atado al id del envío (tipear el de
+ * otro no cambia ese), el estado esperado (`STATUS_CHANGED`), el segundo factor en lo forzado o crítico, la regla de
+ * conflicto de interés y la bitácora.
  */
 export function shipmentConfirmationCode(shipmentId: string): string {
   return `MOVO-${shipmentId.replace(/\D/g, "").slice(-5).padStart(5, "0")}`;
