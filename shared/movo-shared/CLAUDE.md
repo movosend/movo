@@ -723,11 +723,11 @@ mano, tocó fixtures de `movo-admin`). `ApiErrorCode` suma `TRANSITION_NOT_ALLOW
 `FORCE_STATUS_EFFECT_FAILED`, `IDEMPOTENCY_KEY_REUSED` y `FORCE_STATUS_IN_PROGRESS`; triggers `shipmentStatusForced{Sender,Receiver,Carrier}`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
-### MOVO-299 — Sanciones del panel (`types/admin-users.ts`, `types/admin.ts`)
+### MOVO-299 — Sanciones del panel (`types/admin-users.ts`, `types/admin.ts`, DD-049)
 
-`AdminUserSanction` deja la forma provisoria de MOVO-295 y pasa a ser `AccountSanction` + nombres de los admins + `withdrawal`
-(`AdminSanctionWithdrawal`). `OpenActivitySummary` (vista previa del retiro, `svc-shipments`), `AdminSanctionPreview`,
-`AdminApplySanctionBody`/`AdminLiftSanctionBody` y el código `USER_HAS_IN_PROGRESS_SHIPMENTS` (409, `details.shipments`).
+`AdminUserSanction` pasa a ser `AccountSanction` + nombres de los admins + `withdrawal` (`AdminSanctionWithdrawal`: en el historial, la
+suma de los intentos con el estado del último). `OpenActivitySummary`/`AdminSanctionPreview`, `AdminApplySanctionBody`/`AdminLiftSanctionBody`
+y el código `USER_HAS_IN_PROGRESS_SHIPMENTS` (409, `details.shipments`).
 
 ### MOVO-332 — Contrato del cambio de estado desde el panel y del step-up
 

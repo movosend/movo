@@ -326,17 +326,9 @@ el evento de aceptación de la línea de tiempo.
 
 Pendiente: revisar a mano en claro/oscuro y contra dev con un envío real con varias ofertas.
 
-## MOVO-299 — Sanciones desde la ficha
+## MOVO-299 — Sanciones desde la ficha (DD-049)
 
-Menú "Acciones" → grupo Sanciones: Suspender, Inhabilitar y Levantar sanción (`components/users/actions/sanction-dialog.tsx`,
-`lift-dialog.tsx`, server actions en `app/users/[id]/account-actions.ts`). Suspender/inhabilitar son dos pasos: el formulario (motivo que
-ve la persona, nota interna, plazo con fecha o indefinido) y la confirmación con la vista previa (`lib/users/sanctions.ts#describePreview`).
-Inhabilitar con envíos en curso no llega a confirmar: lista los envíos con link y sugiere suspender primero (también si el 409 llega al
-confirmar). La fecha elegida es el último día: se manda como fin de ese día en hora de Argentina.
-
-- La página carga el historial (`loadSanctions`, con `cache`) junto con el perfil: la sanción vigente va al banner (motivo, quién) y al
-  menú (levantar). Si el retiro quedó `partial`/`failed`, el banner y la sección ofrecen "Reintentar el retiro".
-- La sección pasó de `suspensions` a `sanctions` con la forma real (`AdminUserSanction`); `accountPill` y el banner distinguen
-  suspendida con fecha, indefinida (`suspended`) e inhabilitada (`banned`).
-- Modo fixtures: suspender, inhabilitar, levantar y reintentar mutan en memoria; `MOVO_ADMIN_MOCK_FAIL=withdraw` hace fallar el primer
-  retiro (con `withdraw!`, siempre) para ver el reintento.
+Menú "Acciones" → Suspender, Inhabilitar y Levantar (`components/users/actions/sanction-dialog.tsx`, `lift-dialog.tsx`). Suspender e
+inhabilitar confirman con la vista previa de lo que se retira; inhabilitar con envíos en curso no llega a confirmar (lista los envíos y
+sugiere suspender). Una respuesta sin confirmar (5xx) cierra la confirmación y manda a revisar la ficha: reintentar abriría otra sanción.
+El banner y la sección ofrecen "Reintentar el retiro" si quedó parcial, fallido o sin registrar (`needsWithdrawalRetry`).

@@ -152,21 +152,12 @@ por polling. Es ruta propia y no un bloque del detalle, así el polling no vuelv
 rutea `/admin/*` por prefijo. El schema declara nullable cada campo que puede venir en `null`. Deploy en serie: hasta que `svc-shipments`
 tenga la ruta, es 502.
 
-### MOVO-299 — Sanciones desde la ficha: suspender, inhabilitar, levantar
+### MOVO-299 — Sanciones desde la ficha: suspender, inhabilitar, levantar (DD-049)
 
-`modules/sanctions/` sobre los internos de MOVO-296 (`svc-users`) y MOVO-297 (`svc-shipments`): `GET /admin/users/:id/sanctions`
-(reemplaza el stub `/suspensions`), `GET .../sanctions/preview`, `POST .../sanctions`, `POST .../:sanctionId/lift` y
-`POST .../:sanctionId/withdraw` (reintento). Bitácora: `user.suspend`, `user.disable`, `user.sanction_lift`, `user.sanction_withdraw`.
-
-- **Orden**: sanción en `svc-users` → retiro en `svc-shipments`, dentro de la misma `runAdminAction`. Un retiro que falla (502) o queda
-  parcial (`failures`) no hace fallar la acción: la fila es `succeeded` y lleva `context.withdrawal` (`complete`/`partial`/`failed` + lo
-  retirado). Inhabilitar consulta `in-progress-shipments` en el `precheck`: con envíos en curso, 409 `USER_HAS_IN_PROGRESS_SHIPMENTS`
-  (`details.shipments`) y fila `failed`, sin aplicar nada. Carrera aceptada: un envío que se compromete entre el chequeo y la sanción sigue.
-- **Estado del retiro sin tabla nueva**: se deriva de la bitácora (`listBySanction`, filtro por `context.sanctionId` en el JSON). Gana la
-  fila más reciente que intentó retirar: `succeeded` trae `context.withdrawal`; `unknown` es un reintento sin respuesta de `svc-shipments`
-  (cuenta como `failed`); `failed` es un rechazo previo (conflicto, sanción cerrada) y no cuenta.
-- El 409 de inhabilitar necesita `details` en el schema de error (`sanctions.schema.ts`): el `errorResponse` de `users.schema.ts` no lo
-  declara y el serializador lo descartaría. `namesOf`/`requireReason` pasaron a `modules/users/user-names.ts` para compartirlos.
+`modules/sanctions/`: historial, vista previa, aplicar, levantar y reintentar el retiro. Orden: sanción en `svc-users` → retiro en
+`svc-shipments` en la misma `runAdminAction`; un retiro fallido o parcial no hace fallar la acción y se reintenta con `POST .../withdraw`.
+Inhabilitar con envíos en curso es 409 `USER_HAS_IN_PROGRESS_SHIPMENTS` sin aplicar nada. El estado del retiro se deriva de la bitácora
+(`context.withdrawal` por `sanctionId`), sumando los intentos, sin tabla nueva. Limitaciones aceptadas en la fila de DD-049.
 
 Pendiente: verificar a mano contra dev (suspender un usuario de prueba y comprobar en la app que no puede publicar pero sí entregar).
 
