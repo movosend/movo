@@ -679,3 +679,10 @@ y las constantes `DISPUTE_WINDOW_DAYS` (7, desde `deliveredAt`) y `DISPUTE_TEXT_
 `DISPUTE_STATEMENT_ALREADY_SUBMITTED` y `DISPUTE_PHOTO_ALREADY_USED`. Triggers `disputeOpened{Sender,Receiver,Carrier}`: la categoría
 `disputes` pasa a `implemented: true` y ya no queda ninguna "Pronto" (tocó tres tests de `movo-mobile`). Recordatorio habitual:
 `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-322 — Contrato interno de la bandeja de soporte (`types/admin-support-internal.ts`, ADR-055)
+
+`SupportInternal*` (fila, mensaje con `kind` `event` para los eventos del equipo, filtros, contadores, actor, bodies) entre
+`svc-admin` y `svc-shipments`, con ids en vez de nombres, y `SupportStreamEvent` + `SUPPORT_EVENTS_STREAM_*` del Redis Stream
+`support:events`. `AdminTargetType` suma `support_conversation` y `AdminUserNames` pasa a `AdminUserNameRef` (con `roles`).
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

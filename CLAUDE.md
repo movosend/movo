@@ -126,7 +126,8 @@ panel · 044 cuenta corriente del usuario · 045 salida de `in_transit` demorado
 inhabilitación y marca en Redis ·
 050 plazo del hold de MP (5 días) y N=3 · 051 soporte al usuario sobre el chat existente ·
 052 atribución del no-retiro por GPS · 053 oferta del recargo por demanda: solo `declared` ·
-054 disputa desde `completed` (entidad de disputa, ventana de 7 días)
+054 disputa desde `completed` (entidad de disputa, ventana de 7 días) ·
+055 eventos de la bandeja de soporte por Redis Stream
 
 ## Convenciones de código
 
@@ -289,7 +290,7 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
   bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049, 050, 051, 052, 053, 054 (012-018 ya están pegados en
+  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049, 050, 051, 052, 053, 054, 055 (012-018 ya están pegados en
   el doc de Sprint 0, confirmado al buscar dónde iba ADR-022 — la lista anterior acá
   estaba desactualizada). **ADR-022 tiene su contenido completo ya redactado**, en un
   doc aparte (`ADR-022 - Canal de tiempo real (WebSocket nativo) - pegar en Sprint 0`,
@@ -305,9 +306,10 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   3600s a 90s. Falta la prueba contra dev/prod real (AC6 de MOVO-201), sin acceso a esa
   infra desde ninguna de las dos sesiones todavía.
 - **WS del panel de soporte (MOVO-323 → MOVO-322)**: el cliente (`movo-admin`) ya abre el WebSocket con un ticket de un
-  solo uso en el subprotocolo `movo-support.v1`, y cae a polling si falla. Falta del lado servidor: `POST
-  /admin/support/realtime-ticket`, el upgrade en `svc-admin` (vía gateway `/api/v1/admin/support/ws` y `infra/nginx`) y
-  `GET /admin/support/events`. Contrato en `docs/support/README.md`. Esto resuelve el diseño de la entrada siguiente para el panel.
+  solo uso en el subprotocolo `movo-support.v1`, y cae a polling si falla. `GET /admin/support/events` ya existe (MOVO-322,
+  sobre el Redis Stream de ADR-055), así que el respaldo por polling anda. Falta (segunda PR de MOVO-322): `POST
+  /admin/support/realtime-ticket` y el upgrade en `svc-admin` (vía gateway `/api/v1/admin/support/ws` y `infra/nginx`).
+  Contrato en `docs/support/README.md`. Esto resuelve el diseño de la entrada siguiente para el panel.
 - **Auth por header custom (`Authorization: Bearer`) no sirve para un cliente de
   navegador estándar** (`window.WebSocket` no permite headers custom, a diferencia del
   `WebSocket` de React Native) — MOVO-201 dejó el mecanismo DISEÑADO (subprotocolo

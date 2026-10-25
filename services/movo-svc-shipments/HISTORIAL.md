@@ -3787,3 +3787,14 @@ de fotos, `GET /disputes/:id`, `POST /disputes/:id/statements`) y arista `comple
 `repositories/support-attachment-repository.ts` y `plugins/support-attachment-sweep.ts`. El objeto de `support/pending/…` no se mueve al
 crear la consulta (moverlo pedía `CopyObject` y no suma privacidad); por eso no hay regla de lifecycle y el sweep, que reintenta, es la
 única limpieza. Pendiente: Terraform en `movo-infra` (ver el `CLAUDE.md` raíz).
+
+### MOVO-322 — Lado del agente de la bandeja de soporte (`/internal/admin/support/*`, ADR-055)
+
+Endpoints internos para `svc-admin` en `modules/admin-support/` (lista con orden por prioridad y espera, búsqueda, contadores,
+mensajes con todos los `kind`, responder/nota, `PATCH`, resolver/reabrir, leer, partes, carga por agente, consultas del usuario y
+adjuntos del agente) sobre `repositories/support-admin-repository.ts`, con reglas puras en `domain/support-admin-rules.ts`.
+- Los eventos del equipo son `kind = event` (migración `20261025120000_support_staff_events`): el usuario nunca los ve
+  (`toUserFacingMessage` pasa a lista blanca) y solo recibe el cambio de estado.
+- Cada cambio (también una consulta o un mensaje del usuario) se escribe en el Redis Stream `support:events`
+  (`support-admin-feed.ts`, `realtime/support-event-stream.ts`), sin nombres; si falla, solo se loguea.
+- Pendiente: el WebSocket del panel con ticket (segunda PR de MOVO-322, en `svc-admin`).

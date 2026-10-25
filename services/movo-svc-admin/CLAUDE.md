@@ -136,3 +136,16 @@ Pendiente: el detalle del pago solo trae el hold (captura/reembolso viven en liq
 
 MOVO-326 suma a `GET /admin/shipments` el filtro `alert` (booleano) y, en la respuesta, `statusCounts` y `alertCounts`; se
 validan en `shipments.schema.ts` y se reenvían tal cual (ver `svc-shipments/HISTORIAL.md`).
+
+### MOVO-322 — Bandeja de soporte: `/admin/support/*`
+
+`modules/support/` sobre `adapters/support-client.ts` (`/internal/admin/support/*` de `svc-shipments`; un fallo es 502
+`SUPPORT_SERVICE_UNAVAILABLE` y una consulta inexistente, 404 `SUPPORT_CONVERSATION_NOT_FOUND`). Contrato y reglas en
+`docs/support/README.md`.
+- Nombres y roles best-effort (`getUserNames` ahora trae `roles`; tolera un `svc-users` que todavía no los manda). El rol de la
+  fila es `carrier` si la cuenta lo tiene, `sender` si no. La búsqueda por nombre consulta `svc-users` y manda los ids.
+- Toda escritura por `runAdminAction` con objetivo `support_conversation` (migración `20261025130000_…` del enum de la
+  bitácora; caso nuevo en `conflict-of-interest.ts`). El actor viaja en el body; si `svc-users` no responde firma "Equipo de Movo".
+- `GET events` lee el Redis Stream `support:events` (ADR-055, `support-events.ts`): cursor = id de la entrada, `reset` si es
+  más viejo que lo retenido, y los `counts_changed` se juntan en un `counts_updated` con los contadores del admin que mira.
+- Pendiente: `POST realtime-ticket` y el WebSocket del panel (segunda PR de MOVO-322).

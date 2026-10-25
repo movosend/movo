@@ -1359,3 +1359,8 @@ Pendiente / fuera de alcance: el gateway que lee la marca (MOVO-298), la UI y `s
 ### MOVO-325 — Ciudad en el reverse geocoding y fichas de las partes para el panel
 
 `ReverseGeocodeResult.city` (`POST /geocode/reverse` responde `{ formattedAddress, city }`, `city` nullable): Google toma `locality` y, sin ella, `administrative_area_level_2`; el mock devuelve "Córdoba". Lo consume `svc-shipments` al crear un envío (filtro de ciudad del panel). Cambio aditivo: mobile ignora el campo nuevo. `GET /internal/users/party-cards?ids=` (`modules/users/party-cards-internal.routes.ts`, interno): nombre, foto, estado de cuenta, KYC de identidad/licencia aprobados y reputación de hasta 5 personas, incluidas las dadas de baja; un id inexistente queda afuera y la reputación es best-effort (`null` si `svc-shipments` no responde). Lo usa `svc-admin` para el bloque de partes del detalle de un envío.
+
+### MOVO-322 — `POST /internal/admin/users/names` devuelve los roles
+
+Además de `id`/`fullName`, cada usuario trae `roles` (`admin-users.service.ts#getNames`): la bandeja de soporte del panel muestra si
+quien escribe es transportista sin una llamada por fila. Aditivo; `svc-admin` tolera la respuesta anterior.
