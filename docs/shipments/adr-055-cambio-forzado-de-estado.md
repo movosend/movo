@@ -184,6 +184,26 @@ adminId, adminName, idempotencyKey }`. Solo red Docker interna (ADR-010): no est
   envío queda en su estado original, se loguea `force_status_failed` y se alerta al equipo
   (`AlertNotifier`). La clave no se consume: se puede reintentar.
 
+### Pago simulado (`simulatePayment`)
+
+Excepción acotada a la regla "pasar a `assigned` exige un hold autorizado", para poder probar el flujo completo cuando
+Mercado Pago no está disponible (sandbox caído) y el entorno de dev es el único que hay.
+
+- **Por envío y a pedido del admin**, nunca por entorno: `simulatePayment: true` solo vale en `assignment_pending` y
+  `assigned_unfunded` → `assigned` (en otro destino, `422`). Lo expone el modal como "Simular el pago".
+- **Interruptor `ALLOW_SIMULATED_PAYMENTS`** en `svc-shipments` (default `false`). Apagado, el pedido responde
+  `403 PAYMENT_SIMULATION_DISABLED` y no cambia nada. Se apaga al volver a tener un entorno de producción real.
+- **Si el envío ya tiene un hold vivo o cobrado** en payments: `409 HOLD_ALREADY_EXISTS` (el hold real quedaría huérfano).
+- El envío se marca (`shipments.payment_simulated`) **después** de asignarlo. Desde ahí, `withSimulatedPayments`
+  (`adapters/simulated-payments-client.ts`) contesta por payments sin red: hold `authorized` sintético, liquidación `credited` en
+  $0 y nada que liberar ni escribir en la cuenta corriente. Nadie paga ni cobra.
+- **Liberar el hold desmarca el envío**: si se da de baja al transportista o se cancela, el envío vuelve a cobrarse de verdad
+  al reasignarse (si no, el próximo emisor vería un hold `authorized` que nunca pagó).
+- Queda en la bitácora (`context.simulatePayment`) y en el log (`payment_simulated`). `confirmAssignmentByAdmin` sin el flag
+  sigue exigiendo el hold.
+- **Limitación aceptada**: mientras el interruptor esté encendido, un admin puede dejar un envío sin cobro. Lo acota que es por
+  envío, con código tipeado, segundo factor y bitácora, y que no toca ningún pago real.
+
 ## Alternativas descartadas
 
 - **Permitir cualquier transición** (lo que hace el prototipo): sin un servicio de dominio detrás,
@@ -191,6 +211,8 @@ adminId, adminName, idempotencyKey }`. Solo red Docker interna (ADR-010): no est
 - **`UPDATE` directo del estado:** es el problema que se quiere dejar de tener.
 - **Forzar `in_transit` / `delivered` con una foto o un motivo:** reemplaza la evidencia criptográfica
   de custodia por la palabra de un admin y dispara la captura del dinero.
+- **Un modo de pagos simulados global** (`MP_SIMULATED` en `svc-payments`): con dev y prod en el mismo entorno dejaría
+  sin cobro a todos los envíos reales.
 - **Que el panel valide la matriz:** el panel es ayuda visual; la fuente de verdad es el backend.
 - **Un `FOR UPDATE` de Postgres que abarque todo el cambio:** los servicios de dominio abren sus
   propias transacciones y llaman a payments en el medio; un lock de fila que cruce esas llamadas
