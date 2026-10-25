@@ -3,7 +3,7 @@ import { createServer, Server, IncomingMessage } from "node:http";
 import { FastifyInstance } from "fastify";
 import { WebSocketServer } from "ws";
 import WebSocket from "ws";
-import { signAccessToken, UserRole, KycStatus } from "@movo/shared";
+import { signAccessToken, UserRole, KycStatus, SUPPORT_WS_PROTOCOL } from "@movo/shared";
 import { buildApp } from "../src/app";
 
 /**
@@ -126,6 +126,42 @@ describe("Proxy de WebSocket hacia /shipments (MOVO-201)", () => {
 
     ws.close();
     await new Promise((resolve) => ws.once("close", resolve));
+  });
+
+  it("MOVO-322: el WebSocket del panel entra sin JWT y llega al upstream con el subprotocolo completo y el origin", async () => {
+    const ticket = "t".repeat(43);
+    const ws = new WebSocket(`${gatewayBaseUrl}/api/v1/admin/support/ws`, [SUPPORT_WS_PROTOCOL, ticket], {
+      headers: { origin: "https://admin.movosend.app", "x-ws-protocols": "falsificado" },
+    });
+
+    const message = await new Promise<unknown>((resolve, reject) => {
+      ws.once("message", (data: Buffer) => resolve(JSON.parse(data.toString())));
+      ws.once("error", reject);
+      ws.once("unexpected-response", (_req, res) => reject(new Error(`unexpected-response: ${res.statusCode}`)));
+    });
+
+    expect(message).toEqual({ type: "connected" });
+    expect(capturedUrl).toBe("/admin/support/ws");
+    // El gateway le responde al navegador solo el primer subprotocolo, nunca el ticket.
+    expect(ws.protocol).toBe(SUPPORT_WS_PROTOCOL);
+    expect(capturedHeaders["x-ws-protocols"]).toBe(`${SUPPORT_WS_PROTOCOL},${ticket}`);
+    expect(capturedHeaders["origin"]).toBe("https://admin.movosend.app");
+    expect(capturedHeaders["x-user-id"]).toBeUndefined();
+
+    ws.close();
+    await new Promise((resolve) => ws.once("close", resolve));
+  });
+
+  it("MOVO-322: sin ticket el upgrade del panel se rechaza antes de abrirse", async () => {
+    for (const protocols of [[SUPPORT_WS_PROTOCOL], ["otro", "t".repeat(43)]]) {
+      const ws = new WebSocket(`${gatewayBaseUrl}/api/v1/admin/support/ws`, protocols);
+      const status = await new Promise<number | null>((resolve) => {
+        ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? null));
+        ws.once("open", () => resolve(null));
+        ws.once("error", () => resolve(-1));
+      });
+      expect(status).toBe(401);
+    }
   });
 
   it("una conexión sin token no propaga x-user-* (preHandler la corta antes del upgrade)", async () => {
