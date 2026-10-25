@@ -442,7 +442,20 @@ function mapWithdrawalPenalty(row: {
   };
 }
 
+/** DD-055: `simulated` es la marca cruda de `payment_simulated`; el estado y el transportista salen de la misma fila. */
+export interface PaymentSimulation {
+  simulated: boolean;
+  status: ShipmentStatus;
+  carrierId: string | null;
+}
+
 export interface UpdateStatusOptions {
+  /**
+   * DD-055: solo para `-> assigned`. El envío se asignó con el pago simulado; la marca se escribe en el MISMO
+   * UPDATE que el estado. Toda asignación fija la marca (sin esta opción queda en `false`), así que reasignar un
+   * envío que vuelve a `published` nunca hereda la simulación de la asignación anterior.
+   */
+  paymentSimulated?: boolean;
   /** MOVO-253: se persiste junto con el paso a `rejected_by_receiver`. */
   receiverRedesignationDeadline?: Date;
   /**
@@ -542,10 +555,8 @@ export interface ShipmentRepository {
    */
   recordDisplayNames(entries: Array<{ userId: string; name: string | null | undefined }>): Promise<void>;
   findById(id: string): Promise<Shipment | null>;
-  /** DD-055: ¿un admin dio este envío por pagado sin hold real? Un envío inexistente es `false`. */
-  isPaymentSimulated(id: string): Promise<boolean>;
-  /** DD-055: marca (o desmarca) el envío como de pago simulado. Idempotente. */
-  setPaymentSimulated(id: string, simulated: boolean): Promise<void>;
+  /** DD-055: pago simulado del envío, con lo que el decorador de payments necesita, en una sola lectura. `null` si no existe. */
+  findPaymentSimulation(id: string): Promise<PaymentSimulation | null>;
   /**
    * MOVO-212: envíos `delivered` con transportista cuya liquidación todavía no se cerró
    * (nunca pasaron a `completed`), entregados hace más de `deliveredBefore` -- el margen
@@ -1056,13 +1067,17 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       );
     },
 
-    async isPaymentSimulated(id: string): Promise<boolean> {
-      const row = await db.shipment.findUnique({ where: { id }, select: { paymentSimulated: true } });
-      return row?.paymentSimulated ?? false;
-    },
-
-    async setPaymentSimulated(id: string, simulated: boolean): Promise<void> {
-      await db.shipment.update({ where: { id }, data: { paymentSimulated: simulated } });
+    async findPaymentSimulation(id: string): Promise<PaymentSimulation | null> {
+      const row = await db.shipment.findUnique({
+        where: { id },
+        select: { paymentSimulated: true, status: true, carrierId: true },
+      });
+      if (!row) return null;
+      return {
+        simulated: row.paymentSimulated,
+        status: parseShipmentStatus(row.status, "status"),
+        carrierId: row.carrierId,
+      };
     },
 
     async findById(id: string): Promise<Shipment | null> {
@@ -1291,6 +1306,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             ...restoredWindow,
             ...clearedAssignment,
             ...cancellationPenalty,
+            ...(to === ShipmentStatus.ASSIGNED && { paymentSimulated: options.paymentSimulated === true }),
           },
         });
 

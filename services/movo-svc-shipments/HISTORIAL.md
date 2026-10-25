@@ -3868,16 +3868,20 @@ Push `shipmentStatusForced*` con `ignorePreferences` (se extendieron `SendPushNo
 
 ### MOVO-333 (fix) — Pago simulado al forzar `assigned` (DD-055)
 
-`ForceShipmentStatusRequest.simulatePayment` (solo destino `assigned`) hace que `fundingService.confirmAssignmentByAdmin` no exija el hold, asigne
-y marque el envío (`shipments.payment_simulated`, migración `20261025180000_shipment_payment_simulated`). Desde ahí todos los servicios, rutas
-y barridos usan `createAppPaymentsClient(app)` (`adapters/simulated-payments-client.ts`): el cliente real con `withSimulatedPayments` por
-encima, que contesta sin red por los envíos marcados (hold `authorized`, liquidación `credited` en $0, sin movimientos de cuenta corriente).
-Se pidió así porque el sandbox de MP estaba caído y dev es hoy el único entorno.
-- **Decisiones no obvias**: `releaseHold` sobre un envío simulado lo desmarca (si no, un envío vuelto a publicar se reasignaría sin pagar); el
-  envío se marca después de asignarlo (un rechazo no deja el pago saltado); `409 HOLD_ALREADY_EXISTS` evita huérfanos. El interruptor
-  `ALLOW_SIMULATED_PAYMENTS` (default `false`, en `.env.example`, `env.ts` y `infra/docker-compose.yml`) hay que **apagarlo cuando vuelva
-  un entorno de producción real**. Los gates de cuenta de MP y deuda (ofertar, declarar viaje) no se tocan: son por usuario y corren antes de asignar.
-- Pendiente: el panel no muestra una marca en el detalle del envío para los de pago simulado (solo queda en la bitácora y la línea de tiempo).
+`ForceShipmentStatusRequest.simulatePayment` (solo destino `assigned`) hace que `fundingService.confirmAssignmentByAdmin` no exija el hold y asigne
+con `UpdateStatusOptions.paymentSimulated`: `shipments.payment_simulated` (migración `20261025180000_shipment_payment_simulated`) se escribe en el
+mismo UPDATE que el estado, y **toda** asignación fija la marca (la normal en `false`). Desde ahí todos los servicios, rutas y barridos usan
+`createAppPaymentsClient(app)` (`adapters/simulated-payments-client.ts`): el cliente real con `withSimulatedPayments` por encima, que contesta
+sin red mientras la asignación simulada rige (hold `authorized`; liquidación `credited` en $0 solo desde `delivered`; sin movimientos de cuenta
+corriente). Se pidió así porque el sandbox de MP estaba caído y dev es hoy el único entorno.
+- **Decisiones no obvias** (salieron de la revisión del PR): la marca no se borra al liberar el hold (una cancelación o baja que pierde la
+  carrera contra el retiro quedaría sin marca y capturando contra el payments real); fuera de los estados con transportista asignado se ignora,
+  salvo para el ledger, que mira la marca cruda (la penalidad de una baja se registra ya en `published`). Un `holdId` que no es el del envío es un
+  hold real y va a payments: si el emisor pagó a la vez, `submitFunding` lo libera. `HOLD_ALREADY_EXISTS` consulta con `sync`. Cuesta una lectura
+  por llamada de pagos (un SELECT por PK con marca, estado y transportista).
+- El interruptor `ALLOW_SIMULATED_PAYMENTS` (default `false`, en `.env.example`, `env.ts` y `infra/docker-compose.yml`) hay que **apagarlo cuando
+  vuelva un entorno de producción real**. Los gates de cuenta de MP y deuda (ofertar, declarar viaje) no se tocan: son por usuario y corren antes de asignar.
+- Pendiente: el detalle del envío en el panel no marca los de pago simulado (solo queda en la bitácora y la línea de tiempo).
 
 ### MOVO-299 — Vista previa del retiro por sanción (DD-049)
 

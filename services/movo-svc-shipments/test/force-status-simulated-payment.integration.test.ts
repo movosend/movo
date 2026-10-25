@@ -184,6 +184,110 @@ function describeWith(allow: boolean) {
       expect(after.paymentSimulated).toBe(true);
     });
 
+    it("sincroniza el hold con MP antes de decidir si ya existe (comentario 6)", async () => {
+      const id = await createShipment(ShipmentStatus.ASSIGNMENT_PENDING);
+      await force(id, { ...request, simulatePayment: true });
+      expect(payments.findHoldByShipment).toHaveBeenCalledWith(id, {
+        sync: true,
+      });
+    });
+
+    it("la marca se escribe con el estado: toda asignación la fija y reasignar no hereda la simulación (comentarios 1 y 3)", async () => {
+      const id = await createShipment(ShipmentStatus.ASSIGNMENT_PENDING);
+      await app.db.shipment.update({
+        where: { id },
+        data: { paymentSimulated: true },
+      });
+      const normal = await repo.updateStatus(
+        id,
+        ShipmentStatus.ASSIGNED,
+        senderId,
+        "pago real",
+        {
+          expectedFrom: ShipmentStatus.ASSIGNMENT_PENDING,
+        },
+      );
+      expect(normal.status).toBe(ShipmentStatus.ASSIGNED);
+      expect((await row(id)).paymentSimulated).toBe(false);
+
+      const other = await createShipment(ShipmentStatus.ASSIGNMENT_PENDING);
+      await repo.updateStatus(
+        other,
+        ShipmentStatus.ASSIGNED,
+        adminId,
+        "simulado",
+        {
+          expectedFrom: ShipmentStatus.ASSIGNMENT_PENDING,
+          paymentSimulated: true,
+        },
+      );
+      expect((await row(other)).paymentSimulated).toBe(true);
+    });
+
+    it("si la asignación falla la marca no queda escrita (comentario 3)", async () => {
+      const id = await createShipment(ShipmentStatus.ASSIGNMENT_PENDING);
+      await expect(
+        repo.updateStatus(id, ShipmentStatus.ASSIGNED, adminId, "simulado", {
+          expectedFrom: ShipmentStatus.ASSIGNED_UNFUNDED,
+          paymentSimulated: true,
+        }),
+      ).rejects.toThrow();
+      expect((await row(id)).paymentSimulated).toBe(false);
+    });
+
+    it("si el emisor paga de verdad mientras el admin simula, el hold real se libera (comentario 2)", async () => {
+      const id = await createShipment(ShipmentStatus.ASSIGNMENT_PENDING);
+      vi.mocked(payments.createHold).mockImplementationOnce(async (input) => {
+        // El admin simula el pago justo mientras el emisor está pagando.
+        await repo.updateStatus(
+          id,
+          ShipmentStatus.ASSIGNED,
+          adminId,
+          "simulado",
+          {
+            expectedFrom: ShipmentStatus.ASSIGNMENT_PENDING,
+            paymentSimulated: true,
+          },
+        );
+        return {
+          id: "real-hold",
+          shipmentId: input.shipmentId,
+          carrierId: input.carrierId,
+          attempt: 1,
+          mpPaymentId: "mp-1",
+          collectorId: "c",
+          amountArs: input.amountArs,
+          applicationFeeArs: 0,
+          commissionArs: 0,
+          carrierMpFeeArs: null,
+          baseAmountArs: input.amountArs,
+          debtOffsetArs: 0,
+          debtSurchargeArs: 0,
+          status: "authorized",
+          statusDetail: null,
+          failureReason: null,
+          expiresAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      vi.mocked(payments.releaseHold).mockClear();
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${id}/funding`,
+        headers: { "x-user-id": senderId },
+        payload: { cardToken: "tok_123", paymentMethodId: "visa" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(payments.releaseHold).toHaveBeenCalledWith(
+        id,
+        carrierId,
+        "real-hold",
+      );
+    });
+
     it("sin simulatePayment sigue exigiendo el hold (422 HOLD_NOT_AUTHORIZED) y no marca nada", async () => {
       const id = await createShipment(ShipmentStatus.ASSIGNMENT_PENDING);
       const response = await force(id, request);

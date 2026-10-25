@@ -273,6 +273,7 @@ export function createFundingService(deps: FundingServiceDeps) {
     actorId: string | null,
     reason: string,
     admin?: AdminStatusActor,
+    opts: { paymentSimulated?: boolean } = {},
   ): Promise<boolean> {
     const closingOffers = offerRepository
       ? (await offerRepository.listByShipment(shipment.id)).filter((offer) => offer.status === OfferStatus.PENDING)
@@ -283,6 +284,8 @@ export function createFundingService(deps: FundingServiceDeps) {
         ...(shipment.carrierId !== null && { expectedCarrierId: shipment.carrierId }),
         ...(shipment.agreedPriceArs !== null && { expectedAgreedPriceArs: shipment.agreedPriceArs }),
         ...(admin && { adminActor: { kind: admin.kind, name: admin.adminName } }),
+        // DD-055: la marca viaja en el mismo UPDATE que el estado (atómico).
+        ...(opts.paymentSimulated && { paymentSimulated: true }),
       });
     } catch (err) {
       if (err instanceof ShipmentConcurrentModificationError || err instanceof InvalidShipmentTransitionError) {
@@ -304,8 +307,8 @@ export function createFundingService(deps: FundingServiceDeps) {
 
   /**
    * DD-055 (pago simulado): el admin da el envío por asignado sin hold. Se rechaza si el envío ya tiene un hold
-   * real vivo o cobrado (quedaría huérfano: nadie lo capturaría ni lo liberaría). El envío se marca DESPUÉS de
-   * asignarlo, así un rechazo (estado cambiado, oferta cerrada) no deja un envío sin asignar con el pago saltado.
+   * real vivo o cobrado (quedaría huérfano: nadie lo capturaría ni lo liberaría); el hold se sincroniza con MP
+   * antes de decidir, igual que el camino sin simular. La marca se escribe en el mismo UPDATE que el estado.
    */
   async function confirmAssignmentWithSimulatedPayment(
     shipment: Shipment,
@@ -319,7 +322,7 @@ export function createFundingService(deps: FundingServiceDeps) {
         "El pago simulado no está habilitado en este entorno.",
       );
     }
-    const existing = await paymentsClient.findHoldByShipment(shipment.id);
+    const existing = await paymentsClient.findHoldByShipment(shipment.id, { sync: true });
     if (existing && (isFundedHold(existing) || LIVE_HOLD_STATUSES.includes(existing.status))) {
       throw new ApiError(
         409,
@@ -328,17 +331,34 @@ export function createFundingService(deps: FundingServiceDeps) {
         { holdStatus: existing.status },
       );
     }
-    const changed = await markAssigned(shipment, admin.adminId, reason, admin);
+    const changed = await markAssigned(shipment, admin.adminId, reason, admin, { paymentSimulated: true });
     if (!changed) {
       throw new ApiError(409, "STATUS_CHANGED", "El estado del envío cambió mientras confirmabas.", {
         currentStatus: ShipmentStatus.ASSIGNED,
       });
     }
-    await repository.setPaymentSimulated(shipment.id, true);
     logger?.warn?.(
       { event: "payment_simulated", shipmentId: shipment.id, adminId: admin.adminId },
       "Envío asignado con el pago simulado: no habrá cobro real",
     );
+  }
+
+  /**
+   * DD-055: el emisor pagó de verdad mientras un admin asignaba el envío con el pago simulado. El hold real quedó
+   * autorizado y nadie lo captura (las llamadas por envío ya contestan lo sintético): se libera ese intento puntual
+   * (por su `holdId`, que el decorador deja pasar a payments). Un hold que no es de una simulación no se toca.
+   */
+  async function releaseHoldOfSimulatedShipment(shipmentId: string, carrierId: string, holdId: string): Promise<void> {
+    const simulation = await repository.findPaymentSimulation(shipmentId);
+    if (!simulation?.simulated) return;
+    try {
+      await paymentsClient.releaseHold(shipmentId, carrierId, holdId);
+    } catch (err) {
+      logger?.error(
+        { err, event: "funding_orphan_hold", shipmentId, holdId },
+        "Hold real de un envío con el pago simulado y no se pudo liberar",
+      );
+    }
   }
 
   type SenderTrigger = "fundingTimedOutSender" | "fundingWindowExpiredSender";
@@ -639,7 +659,8 @@ export function createFundingService(deps: FundingServiceDeps) {
       }
 
       try {
-        await markAssigned(shipment, callerId, "Reserva de fondos confirmada");
+        const changed = await markAssigned(shipment, callerId, "Reserva de fondos confirmada");
+        if (!changed) await releaseHoldOfSimulatedShipment(shipment.id, hold.carrierId, hold.id);
       } catch (err) {
         // El hold quedó autorizado pero el envío ya no puede pasar a `assigned` (se canceló o
         // el barrido lo revirtió en el medio): se libera para no dejar fondos retenidos.
