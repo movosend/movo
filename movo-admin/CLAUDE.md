@@ -253,8 +253,8 @@ cambio de estado (MOVO-333). Contrato de MOVO-325 (`shared/movo-shared/src/types
 - **Avisos**: si una fila lleva aviso lo decide `isAdminShipmentAlert` de `@movo/shared` (la regla del filtro del backend);
   `rowAlert` (`lib/shipments/format.ts`) solo elige el texto. El badge de "Solo con alerta" se oculta con un chip de estado
   elegido: `alertCounts` es por pestaña. El handshake ("Retiro confirmado con QR · 09:24") sale del
-  evento `→ in_transit`/`→ delivered`. "Marcado por el equipo, sin QR" y las marcas Forzado/Manual esperan a que los eventos
-  traigan la marca de admin (MOVO-333). El mapa de seguimiento es MOVO-328 (ver abajo).
+  evento `→ in_transit`/`→ delivered`. Las marcas Forzado/Manual de la línea de tiempo llegaron con MOVO-333 (ver abajo);
+  "Marcado por el equipo, sin QR" sigue pendiente. El mapa de seguimiento es MOVO-328 (ver abajo).
 - **Ruta por ciudad, no por barrio** (el prototipo muestra barrios): el backend solo guarda la ciudad (`pickupCity`/`deliveryCity`)
   y el barrio no es un dato aparte. Mostrarlo pediría columnas nuevas, sacarlo del geocoding y un backfill; se decidió no hacerlo.
   Las calles van en la segunda línea desde 1320 px. Ese corte se escribe en rem (`min-[82.5rem]`): Tailwind no ordena un
@@ -325,3 +325,33 @@ el evento de aceptación de la línea de tiempo.
   (`MOVO_ADMIN_MOCK_FAIL=offers` tumba el bloque); con transportista, el sugerido queda 8% arriba del acordado.
 
 Pendiente: revisar a mano en claro/oscuro y contra dev con un envío real con varias ofertas.
+
+## MOVO-333 — Modal de cambio de estado del envío
+
+Botón "Cambiar estado" en el encabezado del detalle (`/shipments/[id]`) y modal de tres pasos (Nuevo estado / Impacto /
+Confirmación) del prototipo `Movo Admin Envios.dc.html`. Código en `components/shipments/status-change/`; backend en MOVO-332
+(`GET /admin/shipments/:id/status-options`, `POST /admin/step-up[/verify]`, `POST /admin/shipments/:id/status`).
+
+- **Nada de la lógica está escrita en el panel**: qué transiciones hay, su riesgo, sus efectos, a quién se avisa, qué verificar y qué no se
+  deshace salen de `status-options` (el prototipo los tenía en `VALID`/`IMPACT`/`RISK` solo por ser un mock). `copy.ts` solo tiene
+  textos de presentación (etiquetas de riesgo, "Emisor, receptor y transportista"). Sin modo fixtures: va todo contra la API.
+- **Todo por Server Actions** (`app/shipments/status-actions.ts` → `lib/shipments/status-change.ts` → gateway): los tokens siguen en cookies
+  `httpOnly`. `submitStatusChange` encadena verificar el código por email → cambio; los errores vuelven como dato (`StatusResult`,
+  `lib/shipments/status-errors.ts`) con el texto de cada código (`STATUS_CHANGED`, `HOLD_NOT_AUTHORIZED`, `ADMIN_CONFLICT_OF_INTEREST`,
+  `STEP_UP_INVALID`...). Un `FORCE_STATUS_EFFECT_FAILED` (502 de negocio) no se toma por caída; un 5xx desconocido avisa que **pudo aplicarse**.
+- **El token del segundo factor** (un solo uso, 5 min, atado a envío + destino) se guarda en el estado del componente, nunca en storage ni en la
+  URL, y solo si un rechazo de negocio no lo gastó (el backend lo gasta al aplicar el cambio o cuando no sabe si se aplicó). Con él, reintentar no
+  pide otro código. La `idempotencyKey` es una por destino elegido y se renueva al cambiar de destino o tras un `STATUS_CHANGED`.
+- **Estado del modal** (`use-status-change.ts`): el modal se monta solo mientras está abierto (el estado arranca de cero y se descarta al cerrar).
+  Ante un `STATUS_CHANGED` o `TRANSITION_NOT_ALLOWED` recarga las opciones y vuelve al paso 1 **sin borrar** motivo ni código; un código por
+  email inválido borra solo el código. Mientras se aplica no cierra (ni Escape, ni fondo, ni la X). Foco atrapado y Escape: los de `Dialog` (Base UI).
+- **Código para confirmar**: es el mismo `#MOVO-12345` del encabezado (`shipmentConfirmationCode` de `@movo/shared`), que `svc-admin` compara sin
+  `#` ni mayúsculas. Se pide desde riesgo alto; el OTP, si la transición es forzada o el riesgo es crítico.
+- **Conflicto de interés**: el botón queda deshabilitado con la razón visible debajo (no en un tooltip: no depende del hover) si el admin es
+  emisor, transportista o receptor del envío. Al receptor anterior solo lo conoce el backend, que rechaza con `ADMIN_CONFLICT_OF_INTEREST`.
+- **Resultado**: el modal se cierra, la acción revalida el detalle (estado y línea de tiempo) y `StatusChangeNotice` muestra "#MOVO-… pasó a ….
+  Quedó en la línea de tiempo y en la bitácora. Avisamos a: …". La línea de tiempo (`buildTimeline`) dibuja los eventos de admin con escudo
+  (`ShieldCheck` manual, `ShieldAlert` forzado), "Estado cambiado/forzado a …", el nombre del admin y el motivo.
+
+Pendiente: capturas de cada paso contra dev (DoD; necesita MOVO-331/332 desplegados) y revisión a mano en claro/oscuro. El email del segundo
+factor usa el texto genérico del OTP (sin copy propio del cambio de estado).

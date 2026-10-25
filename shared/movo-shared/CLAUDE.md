@@ -731,3 +731,9 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 + a quién se avisa, el transportista solo si el envío tiene uno) y `forcedTransitionFriction` (código tipeado desde riesgo alto; segundo factor si
 la transición es `forced` o el riesgo es crítico): la fuente única de la fricción para el panel y para `svc-admin`. `ApiErrorCode` suma
 `STEP_UP_REQUIRED`, `STEP_UP_INVALID` y `TYPED_CODE_MISMATCH`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-333 — `checks`/`irreversible` en la matriz y código de confirmación
+
+`getForcedTransitionDetails` suma `checks` y `irreversible` (también en `ShipmentStatusOption`), que el modal del panel muestra en el paso de impacto.
+`types/admin-shipments.ts` exporta `shipmentConfirmationCode(id)` (`MOVO-` + últimos 5 dígitos, el código del encabezado del panel) y
+`normalizeConfirmationCode(typed)`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
