@@ -55,7 +55,7 @@ const EXPANDED_HEIGHT = Math.min(Math.round(SCREEN_HEIGHT * 0.65), 520);
  * Pantalla de Seguimiento en Vivo para Emisor y Receptor (MOVO-204).
  *
  * Cumple con:
- * - ADR-023: Sin trazas históricas ni polilíneas pasadas del transportista.
+ * - DD-023: Sin trazas históricas ni polilíneas pasadas del transportista.
  * - Bottom Sheet deslizable plano con PanResponder sin conflicto de scroll.
  * - Single source of truth para la telemetría en la pastilla del mapa.
  */
@@ -105,8 +105,8 @@ export default function LiveTrackingScreen() {
 
   const displayPosition = demoMode ? (livePosition ?? DEMO_CARRIER_POSITION) : livePosition;
 
-  // MOVO-278 (ADR-045): sin posición (o con el envío demorado) el mapa explica qué pasa en
-  // vez de quedar solo con el pin de destino. La última posición vence a los 7 días (ADR-024).
+  // MOVO-278 (DD-045): sin posición (o con el envío demorado) el mapa explica qué pasa en
+  // vez de quedar solo con el pin de destino. La última posición vence a los 7 días (ADR-020).
   const isDelayed = !demoMode && shipment ? isTransitDelayed(shipment) : false;
   // Solo en tránsito: con el envío en `assigned`/`assigned_unfunded` todavía no salió y es normal no tener posición.
   const showNoPositionNotice =
@@ -309,7 +309,7 @@ export default function LiveTrackingScreen() {
         )}
       </View>
 
-      {/* 2. Mapa Táctico de Fondo (Sin traza histórica según ADR-023) */}
+      {/* 2. Mapa Táctico de Fondo (Sin traza histórica según DD-023) */}
       <View style={StyleSheet.absoluteFill}>
         <LiveMap
           carrierPosition={displayPosition}
@@ -323,7 +323,7 @@ export default function LiveTrackingScreen() {
         />
       </View>
 
-      {/* 3. Overlay si el envío ya fue entregado (AC8 / ADR-023) */}
+      {/* 3. Overlay si el envío ya fue entregado (AC8 / DD-023) */}
       {isDelivered && (
         <View
           testID="tracking-delivered-overlay"
@@ -526,9 +526,9 @@ export default function LiveTrackingScreen() {
             </View>
           </View>
 
-          {/* Banner de Privacidad (ADR-023) */}
+          {/* Banner de Privacidad (DD-023) */}
           <View
-            testID="banner-privacy-adr023"
+            testID="banner-privacy-dd023"
             className="flex-row items-start gap-2.5 p-3 rounded-xl bg-bg border border-border/70"
           >
             <ShieldCheck size={16} color="#71717A" className="mt-0.5 flex-none" />

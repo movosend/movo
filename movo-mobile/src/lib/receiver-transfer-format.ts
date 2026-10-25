@@ -18,7 +18,7 @@ function formatDayTime(iso: string): string | null {
 }
 
 /**
- * MOVO-275 (ADR-037): textos de la transferencia de receptor. La línea de tiempo muestra
+ * MOVO-275 (DD-037): textos de la transferencia de receptor. La línea de tiempo muestra
  * UN item por solicitud que cambia según su estado, y el texto depende de quién mira:
  * quien la pidió, la persona invitada, el emisor o el resto (transportista).
  */

@@ -4,6 +4,7 @@ import {
   SupportConversationFacts,
   SupportMessageFacts,
   SupportMessageKindValue,
+  SupportShipmentOptionFacts,
   statusAfterUserMessage,
   USER_VISIBLE_MESSAGE_KINDS,
 } from "../domain/support-rules";
@@ -109,7 +110,18 @@ export interface SupportRepository {
   markRead(conversationId: string, userId: string, at: Date): Promise<void>;
   /** Un agente abrió la conversación: avanza (nunca retrocede) los tildes "leído" del usuario. */
   markAgentRead(conversationId: string, at: Date): Promise<void>;
+  /**
+   * MOVO-324: envíos de los que `userId` es parte (la misma regla que `hasShipmentAccess` sin admin: emisor, receptor,
+   * transportista asignado o ex receptor), en cualquier estado, del más reciente al más antiguo, con cursor keyset.
+   */
+  listShipmentOptions(
+    userId: string,
+    limit: number,
+    cursor?: string
+  ): Promise<{ items: SupportShipmentOptionRecord[]; nextCursor: string | null }>;
 }
+
+export type SupportShipmentOptionRecord = SupportShipmentOptionFacts;
 
 export class InvalidSupportCursorError extends Error {
   constructor() {
@@ -401,6 +413,50 @@ export function createSupportRepository(db: PrismaClient): SupportRepository {
         lastMessage: lastBy.get(c.id) ?? null,
         unreadCount: unreadBy.get(c.id) ?? 0,
       }));
+    },
+
+    async listShipmentOptions(userId, limit, cursor) {
+      const cursorFilter = cursor ? decodeCursor(cursor) : null;
+      if (cursor && !cursorFilter) throw new InvalidSupportCursorError();
+      const rows = await db.shipment.findMany({
+        where: {
+          AND: [
+            {
+              OR: [
+                { senderId: userId },
+                { receiverId: userId },
+                { carrierId: userId },
+                // MOVO-275: quien transfirió la recepción sigue siendo parte (puede consultar por ese envío).
+                { receiverTransfers: { some: { requestedBy: userId, status: "completed" } } },
+              ],
+            },
+            cursorFilter
+              ? {
+                  OR: [
+                    { createdAt: { lt: cursorFilter.createdAt } },
+                    { createdAt: cursorFilter.createdAt, id: { lt: cursorFilter.id } },
+                  ],
+                }
+              : {},
+          ],
+        },
+        select: {
+          id: true,
+          senderId: true,
+          receiverId: true,
+          carrierId: true,
+          status: true,
+          pickupAddress: true,
+          pickupCity: true,
+          deliveryAddress: true,
+          deliveryCity: true,
+          createdAt: true,
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+      });
+      const items = rows.slice(0, limit);
+      return { items, nextCursor: rows.length > limit ? encodeCursor(items[items.length - 1]) : null };
     },
 
     async rowFor(conversation, userId) {

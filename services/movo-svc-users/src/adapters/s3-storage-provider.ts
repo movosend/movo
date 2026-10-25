@@ -22,7 +22,7 @@ const UPLOAD_URL_TTL_SECONDS = 300;
 const DOWNLOAD_URL_TTL_SECONDS = 300;
 
 /**
- * Implementación real sobre S3 (ADR-007/ADR-015). Credenciales vía el default
+ * Implementación real sobre S3 (ADR-007/015). Credenciales vía el default
  * credential provider chain del SDK -- IAM role de la instancia EC2, nunca un
  * access key/secret propio (decisión del ticket: nada nuevo que rotar en Secrets
  * Manager, mismo mecanismo que ya usa el deploy para leer Secrets Manager).

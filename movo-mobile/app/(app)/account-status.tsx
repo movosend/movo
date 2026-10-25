@@ -16,7 +16,6 @@ import {
   SUPPORT_EMAIL,
   SUSPENDED_ALLOWED_ACTIONS,
   SUSPENDED_BLOCKED_ACTIONS,
-  SUPPORT_UNAVAILABLE_NOTE,
   suspensionPeriodText,
 } from "../../src/lib/account-restriction";
 import { KYC_TONE_ICON_HEX } from "../../src/lib/kyc-status-ui";
@@ -124,18 +123,12 @@ export default function AccountStatusScreen() {
             Si tenés dudas o creés que es un error, escribinos a {SUPPORT_EMAIL}
             .
           </Text>
+          {/* MOVO-324: una cuenta suspendida puede escribirle a soporte (el gateway no bloquea `/support`). */}
           <PrimaryButton
             testID="account-status-contact"
             label="Contactar a soporte"
-            disabled
-            onPress={() => undefined}
+            onPress={() => router.push("/support/new" as never)}
           />
-          <Text
-            testID="account-status-contact-unavailable"
-            className="mt-2 text-center font-sans text-[12px] text-fg-3"
-          >
-            {SUPPORT_UNAVAILABLE_NOTE}
-          </Text>
         </ScrollView>
       ) : (
         <View

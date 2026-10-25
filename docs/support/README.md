@@ -94,10 +94,10 @@ hospeda WS. Diseño:
    Alcanza con retener unos minutos de eventos.
 6. Los eventos nunca llevan notas internas hacia el usuario; el canal del usuario (mobile, MOVO-319) es otro.
 
-## Soporte del lado del usuario (MOVO-320, ADR-051)
+## Soporte del lado del usuario (MOVO-320, DD-051)
 
 El usuario le escribe a Movo desde la app (MOVO-324). Vive en `svc-shipments` (módulo `modules/support/`), sobre el chat existente
-(ADR-040/046): mismo `ChatHub` (otra clave de sala, `support:<id>`), mismo handshake WS, mismo filtro de lenguaje. Los tipos son
+(ADR-023/DD-046): mismo `ChatHub` (otra clave de sala, `support:<id>`), mismo handshake WS, mismo filtro de lenguaje. Los tipos son
 `shared/movo-shared/src/types/support.ts` (se importan por `@movo/shared/src/types/support`; ojo que `SupportUserMessage` es del panel: el
 mensaje que ve el usuario es `SupportUserFacingMessage`). El agente **no** entra por acá: usa `/admin/support/*`.
 
@@ -109,13 +109,14 @@ mensaje que ve el usuario es `SupportUserFacingMessage`). El agente **no** entra
 | `GET conversations` | | `SupportListResponse` | La de actividad más reciente primero (hasta 100). `lastMessage` nunca es una nota ni un evento `system`; `unreadCount` cuenta solo respuestas del equipo |
 | `GET conversations/:id/messages` | `limit` (1-100, 30), `cursor` | `SupportUserMessagesPage` | Más recientes primero, cursor opaco (mismo formato que el chat). Trae `conversation` para el encabezado. Abrir la primera página marca lo recibido |
 | `POST conversations/:id/messages` | `SupportSendUserBody` | `SupportUserFacingMessage` (201 / 200) | Idempotente por `clientMessageId`. Sobre una `resolved` la reabre; sobre una `awaiting_user` la pasa a `open` |
+| `GET shipments` | `limit` (1-50, 20), `cursor` | `SupportShipmentOptionsPage` | MOVO-324. Envíos de los que el usuario es parte, en cualquier rol y estado, para vincular a una consulta nueva (`GET /shipments/mine` no trae al transportista). `route` es "Ciudad → Ciudad" |
 | `POST attachments` | `SupportUserAttachmentCreateBody` (`contentType`, `sizeBytes`, `conversationId?`, `width?`, `height?`) | `SupportAttachmentCreateResult` (201) | MOVO-321. Con `conversationId`, la consulta tiene que ser del usuario (404 si no); sin él, para una consulta nueva. La app hace `PUT uploadUrl` con el mismo `Content-Type` |
 | `POST conversations/:id/read` | | `{ readAt }` | Baja el `unreadCount` a cero |
 | `GET conversations/:id` (WS) | header `Authorization: Bearer` | frames de abajo | Mismo mecanismo que `/track` y el chat del envío |
 
 Texto de 1 a `SUPPORT_MESSAGE_MAX_LENGTH` (2000) caracteres, recortado (vacío si el mensaje lleva imágenes, MOVO-321). Una URL de
 adjunto vencida se renueva volviendo a pedir la página de mensajes: cada lectura firma URLs nuevas. Las palabras ofensivas se tapan con asteriscos y el mensaje
-sale con `moderated: true`; a los de un agente no se les aplica el filtro. No hay chequeo de bloqueo (ADR-026): la otra parte es Movo.
+sale con `moderated: true`; a los de un agente no se les aplica el filtro. No hay chequeo de bloqueo (DD-026): la otra parte es Movo.
 
 ### Estados
 
@@ -130,7 +131,7 @@ Frames: `{ "type": "connected", "conversationId" }` al aceptar (la app refresca 
 (`{ message }`), `support_status` (`{ conversationId, status }`) y `support_receipt` (`{ conversationId, upTo }`: un agente leyó hasta
 `upTo`, la app actualiza los tildes). El cliente no manda nada. Cierres: `4001` token inválido o vencido (la app renueva y reconecta; también
 se corta sola al `exp` del JWT), `4003` sin permiso (un admin que no es el dueño: los agentes usan el canal del panel), `4004` la
-conversación no existe o no es del usuario (terminal). Heartbeat de 30 s. Registro en memoria y una sola réplica (ADR-022).
+conversación no existe o no es del usuario (terminal). Heartbeat de 30 s. Registro en memoria y una sola réplica (ADR-019).
 
 ### Notas internas
 
@@ -142,7 +143,7 @@ devuelve `null` para una nota. Cada camino tiene su test de regresión en `test/
 
 Cuando contesta un agente (no una nota, no un evento `system`) y el usuario no tiene la conversación abierta por WebSocket:
 título "Soporte de Movo", cuerpo "Lucía: …" (o "Lucía: Te envió una imagen" si no hay texto), `data: { type: "support_message", conversationId }`,
-categoría `support` (respeta el toggle maestro, el de la categoría y el horario de silencio, MOVO-245). Ráfagas como en ADR-046: la primera
+categoría `support` (respeta el toggle maestro, el de la categoría y el horario de silencio, MOVO-245). Ráfagas como en DD-046: la primera
 avisa enseguida y las de los 30 s siguientes salen en un único resumen ("N mensajes nuevos · …") que se omite si ya se leyó o si el usuario
 abrió la conversación.
 

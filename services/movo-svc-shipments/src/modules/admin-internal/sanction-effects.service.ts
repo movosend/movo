@@ -32,7 +32,7 @@ const IN_PROGRESS_STATUSES = [
 /**
  * Envíos del sancionado que todavía no tienen transportista ni hold: se cancelan. Incluye los que aún
  * esperan al receptor (si confirma, pasarían a `published` a nombre de un suspendido) y los rechazados
- * (el emisor podría rediseñar el receptor y volver a publicar, ADR-027).
+ * (el emisor podría rediseñar el receptor y volver a publicar, DD-027).
  */
 const WITHDRAWABLE_SHIPMENT_STATUSES = [
   ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
@@ -51,7 +51,7 @@ export interface SanctionEffectsDeps {
   offerRepository: OfferRepository;
   tripRepository: TripRepository;
   /**
-   * Cancela un envío con el flujo existente (ADR-032), en nombre de su emisor, solo si sigue en uno de
+   * Cancela un envío con el flujo existente (DD-032), en nombre de su emisor, solo si sigue en uno de
    * `onlyFrom`. Si cambió de estado entre el listado y la cancelación (un pago o una aceptación lo
    * comprometió) lanza `ShipmentConcurrentModificationError` en vez de cancelar con un hold sin liberar.
    */

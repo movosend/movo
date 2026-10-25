@@ -7,9 +7,14 @@ import {
   AdminChatPage,
   AdminShipmentDetail,
   AdminShipmentEvent,
+  AdminShipmentOffer,
   AdminShipmentPage,
   AdminShipmentPhoto,
+  AdminShipmentTracking,
+  ApiError,
   ChatReportParties,
+  ForceShipmentStatusRequest,
+  ForceShipmentStatusResponse,
   ShipmentParties,
 } from "@movo/shared";
 import {
@@ -38,11 +43,33 @@ export interface ShipmentsClient extends InternalClient {
   getAdminShipment(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentDetail | null>;
   /** `GET /internal/admin/shipments/:id/events`. `null` si el envío no existe. */
   getAdminShipmentEvents(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentEvent[] | null>;
+  /** `GET /internal/admin/shipments/:id/offers`, todas (cerradas incluidas). `null` si el envío no existe. */
+  getAdminShipmentOffers(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentOffer[] | null>;
   /** `GET /internal/admin/shipments/:id/photos`, con URL firmada de vida corta. `null` si el envío no existe. */
   getAdminShipmentPhotos(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentPhoto[] | null>;
   /** `GET /internal/admin/shipments/:id/chat/messages`. `null` si el envío no existe. */
   getAdminShipmentChat(shipmentId: string, query: URLSearchParams, ctx: RequestContext): Promise<AdminChatPage | null>;
+  /** `GET /internal/admin/shipments/:id/tracking` (MOVO-327). `null` si el envío no existe. */
+  getAdminShipmentTracking(shipmentId: string, ctx: RequestContext): Promise<AdminShipmentTracking | null>;
+  /**
+   * `POST /internal/admin/shipments/:id/force-status` (MOVO-331, DD-055). Los rechazos de negocio
+   * (`STATUS_CHANGED`, `TRANSITION_NOT_ALLOWED`, `HOLD_NOT_AUTHORIZED`, `FORCE_STATUS_EFFECT_FAILED`...)
+   * se relanzan con su código y `details`; una caída es 502 `SHIPMENTS_SERVICE_UNAVAILABLE` (la bitácora
+   * la toma por "pudo haberse aplicado"). 404 `NOT_FOUND` si el envío no existe.
+   */
+  forceShipmentStatus(shipmentId: string, body: ForceShipmentStatusRequest, ctx: RequestContext): Promise<ForceShipmentStatusResponse>;
 }
+
+/** El servicio llama a payments (liberar o capturar el hold) antes de responder: más holgado que los 5 s base. */
+const FORCE_STATUS_TIMEOUT_MS = 30_000;
+
+const isForceStatusResponse = (body: unknown): body is ForceShipmentStatusResponse =>
+  isRecord(body) &&
+  isString(body.shipmentId) &&
+  isString(body.fromStatus) &&
+  isString(body.toStatus) &&
+  (body.kind === "manual" || body.kind === "forced") &&
+  typeof body.replayed === "boolean";
 
 export interface PageParams {
   page: number;
@@ -97,6 +124,8 @@ const isEvent = (item: unknown): item is AdminShipmentEvent =>
   isRecord(item) && isString(item.id) && isString(item.toStatus);
 const isPhoto = (item: unknown): item is AdminShipmentPhoto =>
   isRecord(item) && isString(item.id) && isString(item.url);
+const isOffer = (item: unknown): item is AdminShipmentOffer =>
+  isRecord(item) && isString(item.id) && isString(item.status) && isNumber(item.priceArs) && isNumber(item.receivedEstimateArs);
 
 const isAdminShipmentPage = (body: unknown): body is AdminShipmentPage =>
   isRecord(body) &&
@@ -109,6 +138,7 @@ const isAdminShipmentDetail = (body: unknown): body is AdminShipmentDetail =>
   isAdminShipmentRow(body) && isRecord(body) && isString(body.packageType) && typeof body.weightKg === "number";
 const isEventList = (body: unknown): body is AdminShipmentEvent[] => Array.isArray(body) && body.every(isEvent);
 const isPhotoList = (body: unknown): body is AdminShipmentPhoto[] => Array.isArray(body) && body.every(isPhoto);
+const isOfferList = (body: unknown): body is AdminShipmentOffer[] => Array.isArray(body) && body.every(isOffer);
 
 const isAdminChatPage = (body: unknown): body is AdminChatPage =>
   isRecord(body) &&
@@ -117,6 +147,16 @@ const isAdminChatPage = (body: unknown): body is AdminChatPage =>
   isString(body.partiesAccess) &&
   Array.isArray(body.reports) &&
   isEventList(body.events);
+
+const isAdminShipmentTracking = (body: unknown): body is AdminShipmentTracking =>
+  isRecord(body) &&
+  isString(body.shipmentId) &&
+  isString(body.state) &&
+  isRecord(body.origin) &&
+  isRecord(body.destination) &&
+  Array.isArray(body.trace) &&
+  typeof body.signalLost === "boolean" &&
+  isString(body.serverTime);
 
 const isShipmentParties = (body: unknown): body is ShipmentParties =>
   isRecord(body) &&
@@ -193,6 +233,12 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
         notFoundCodes: ["NOT_FOUND"],
       });
     },
+    getAdminShipmentOffers(shipmentId, ctx) {
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/offers`, ctx, {
+        isValid: isOfferList,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+    },
     getAdminShipmentPhotos(shipmentId, ctx) {
       return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/photos`, ctx, {
         isValid: isPhotoList,
@@ -203,6 +249,24 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
       const suffix = query.toString() ? `?${query.toString()}` : "";
       return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/chat/messages${suffix}`, ctx, {
         isValid: isAdminChatPage,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+    },
+    async forceShipmentStatus(shipmentId, body, ctx) {
+      const result = await client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/force-status`, ctx, {
+        method: "POST",
+        body,
+        timeoutMs: FORCE_STATUS_TIMEOUT_MS,
+        relayServerErrorCodes: ["FORCE_STATUS_EFFECT_FAILED"],
+        isValid: isForceStatusResponse,
+        notFoundCodes: ["NOT_FOUND"],
+      });
+      if (!result) throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      return result;
+    },
+    getAdminShipmentTracking(shipmentId, ctx) {
+      return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/tracking`, ctx, {
+        isValid: isAdminShipmentTracking,
         notFoundCodes: ["NOT_FOUND"],
       });
     },

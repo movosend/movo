@@ -8,7 +8,7 @@ import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 import { createFakePricingClient } from "./fake-pricing-client";
 
 /**
- * MOVO-255 (ADR-028): cotización congelada del resumen del wizard, contra Postgres y
+ * MOVO-255 (DD-028): cotización congelada del resumen del wizard, contra Postgres y
  * Redis reales. El precio de pricing se cambia entre la cotización y la creación para
  * probar que el envío se crea con el precio cotizado y no con el nuevo (AC2).
  */
@@ -156,6 +156,47 @@ describe("POST /shipments/quote + POST /shipments con quoteId (Postgres + Redis)
     expect(await app.db.shipment.count()).toBe(0);
   });
 
+  it("MOVO-317: oversized entra en la huella: cotizar sin oversized y crear con oversized da 409 QUOTE_MISMATCH", async () => {
+    const { quoteId } = (await quote(senderId, { ...quoteBody, oversized: false })).json();
+
+    const response = await create(quoteId, senderId, { ...createBody, oversized: true });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("QUOTE_MISMATCH");
+    expect(await app.db.shipment.count()).toBe(0);
+  });
+
+  it("MOVO-317: omitir oversized equivale a false en la huella", async () => {
+    const { quoteId } = (await quote()).json();
+
+    const response = await create(quoteId, senderId, { ...createBody, oversized: false });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().oversized).toBe(false);
+  });
+
+  it("MOVO-317: cotizar y crear con el mismo oversized: true reutiliza el precio congelado", async () => {
+    const body = { ...quoteBody, weightKg: 80, lengthCm: 300, oversized: true };
+    const { quoteId } = (await quote(senderId, body)).json();
+
+    const response = await create(quoteId, senderId, { ...createBody, ...body });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({ suggestedPriceArs: 30120, oversized: true, lengthCm: 300 });
+    expect(pricingClient.getQuote).toHaveBeenCalledTimes(1);
+  });
+
+  it("MOVO-317: tope de cordura: 10.000 kg o cm se acepta y más de eso responde 400", async () => {
+    const edge = await quote(senderId, { ...quoteBody, weightKg: 10000, lengthCm: 10000, widthCm: 10000, heightCm: 10000 });
+    expect(edge.statusCode).toBe(200);
+
+    for (const field of ["weightKg", "lengthCm", "widthCm", "heightCm"]) {
+      const response = await quote(senderId, { ...quoteBody, [field]: 10001 });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    }
+  });
+
   it("los datos que no afectan el precio (descripción, dirección escrita, franja) no invalidan la cotización", async () => {
     const { quoteId } = (await quote()).json();
 
@@ -233,13 +274,12 @@ describe("POST /shipments/quote + POST /shipments con quoteId (Postgres + Redis)
     expect(response.json().error.code).toBe("VALIDATION_FAILED");
   });
 
-  it("MOVO-276: rechaza cotizar un paquete fuera de los límites duros, sin llamar a pricing", async () => {
-    const response = await quote(senderId, { ...quoteBody, lengthCm: 151 });
+  it("MOVO-317: cotiza un paquete por encima de los antiguos límites, ya no responde 422", async () => {
+    const response = await quote(senderId, { ...quoteBody, weightKg: 80, lengthCm: 300, oversized: true });
 
-    expect(response.statusCode).toBe(422);
-    expect(response.json().error.code).toBe("PACKAGE_LIMITS_EXCEEDED");
-    expect(response.json().error.details.violations).toEqual(["lado de 151 cm (máximo 150 cm)"]);
-    expect(pricingClient.getQuote).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(200);
+    expect(response.json().suggestedPriceArs).toBe(30120);
+    expect(pricingClient.getQuote).toHaveBeenCalledTimes(1);
   });
 
   it("rechaza cotizar con retiro y entrega en la misma ubicación", async () => {

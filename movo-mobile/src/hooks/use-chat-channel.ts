@@ -6,7 +6,7 @@ import { getApiBaseUrl } from "../lib/env";
 import { useAuthStore } from "../store/auth-store";
 
 /**
- * MOVO-284: WebSocket de recepción del chat (`GET /shipments/:id/chat`, ADR-040). Se envía por
+ * MOVO-284: WebSocket de recepción del chat (`GET /shipments/:id/chat`, ADR-023). Se envía por
  * HTTP; acá solo llegan los mensajes de los demás y los tildes. Mismo molde que
  * `use-shipment-channel.ts` (backoff, AppState, 4001 refresca el token), con una diferencia:
  * `4009` es "chat cerrado" y es terminal igual que `4003`/`4004`.

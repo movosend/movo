@@ -93,6 +93,8 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
 
   it("crea, consulta y libera un hold real (capture:false + application_fee)", async () => {
     const payerEmail = process.env.MP_TEST_PAYER_EMAIL!;
+    // El mismo emisor en la creación y en el reintento: con otro, el hold vigente responde 409 (MOVO-302).
+    const holdPayerId = randomUUID();
 
     const checkout = await app.inject({
       method: "POST",
@@ -111,7 +113,7 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
         cardToken: await tokenizeCard(),
         amountArs: 1150,
         payerEmail,
-        payerUserId: randomUUID(),
+        payerUserId: holdPayerId,
         paymentMethodId: process.env.MP_TEST_PAYMENT_METHOD_ID ?? "visa",
       },
     });
@@ -127,6 +129,14 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
     });
     expect(hold.mpPaymentId).toMatch(/^\d+$/);
     expect(new Date(hold.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    // MOVO-285: MP informa el `mercadopago_fee` ya en el hold (`charges_details`), y se persiste.
+    expect(hold.carrierMpFeeArs).toBeGreaterThan(0);
+    expect(hold.carrierMpFeeArs).toBeLessThan(hold.amountArs);
+    const stored = await app.db.$queryRawUnsafe<Array<{ mp_fee_ars: string | null }>>(
+      "SELECT mp_fee_ars::text FROM payments.holds WHERE shipment_id = $1::uuid",
+      shipmentId
+    );
+    expect(Number(stored[0].mp_fee_ars)).toBe(hold.carrierMpFeeArs);
 
     // Un reintento no crea un segundo pago en MP.
     const replay = await app.inject({
@@ -138,7 +148,7 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
         cardToken: "token-que-no-se-usa",
         amountArs: 1150,
         payerEmail,
-        payerUserId: randomUUID(),
+        payerUserId: holdPayerId,
       },
     });
     expect(replay.statusCode).toBe(200);
@@ -179,7 +189,7 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
 });
 
 /**
- * MOVO-282 (ADR-039), DoD: hold con una TARJETA GUARDADA contra el sandbox real. La tarjeta vive
+ * MOVO-282 (DD-039), DoD: hold con una TARJETA GUARDADA contra el sandbox real. La tarjeta vive
  * en un customer de la cuenta de Movo S.A. (MOVO-100); el mobile pide a MP un token con `card_id` +
  * CVV y la `public_key` del Vendedor, y el hold se crea con `payer: { type: "customer", id }`.
  *

@@ -59,8 +59,8 @@ export function buildSupportService(app: FastifyInstance, opts: SupportRoutesOpt
 }
 
 /**
- * MOVO-320 (ADR-051): soporte al usuario sobre el chat existente. Se escribe por HTTP (idempotente por
- * `clientMessageId`) y se recibe por WebSocket (`GET /conversations/:id`), igual que el chat del envío (ADR-040).
+ * MOVO-320 (DD-051): soporte al usuario sobre el chat existente. Se escribe por HTTP (idempotente por
+ * `clientMessageId`) y se recibe por WebSocket (`GET /conversations/:id`), igual que el chat del envío (ADR-023).
  * Prefijo `/support`. Las notas internas del equipo nunca llegan por ninguna de estas rutas.
  */
 export default async function supportRoutes(app: FastifyInstance, opts: SupportRoutesOptions) {
@@ -160,6 +160,28 @@ export default async function supportRoutes(app: FastifyInstance, opts: SupportR
       });
       reply.code(replayed ? 200 : 201);
       return message;
+    }
+  );
+
+  app.get(
+    "/shipments",
+    {
+      schema: {
+        summary: "Envíos para vincular a una consulta",
+        description:
+          "MOVO-324: los envíos de los que el usuario es parte (emisor, receptor, transportista asignado o quien " +
+          "transfirió la recepción), en cualquier estado, del más reciente al más antiguo, con cursor opaco " +
+          "(`nextCursor`). Son los mismos que acepta `shipmentId` al crear una consulta. `route` usa la ciudad del " +
+          "retiro y de la entrega (o el primer tramo de la dirección si no está resuelta).",
+        tags: ["support"],
+        querystring: supportSchemas.listShipmentsQuery,
+        response: { 200: supportSchemas.listShipmentsResponse, 400: supportSchemas.errorResponse, 401: supportSchemas.errorResponse },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const { limit, cursor } = request.query as { limit: number; cursor?: string };
+      return service.listShipmentOptions({ userId, limit, cursor });
     }
   );
 

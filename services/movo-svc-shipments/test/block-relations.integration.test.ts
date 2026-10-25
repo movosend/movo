@@ -20,7 +20,7 @@ const DESTINATION_LAT = -31.4135;
 const DESTINATION_LNG = -64.1811;
 
 /**
- * MOVO-175 (ADR-026): efecto del bloqueo entre usuarios sobre envíos/ofertas. El
+ * MOVO-175 (DD-026): efecto del bloqueo entre usuarios sobre envíos/ofertas. El
  * bloqueo es simétrico: cualquier dirección separa a los dos.
  */
 describe("Bloqueo de usuarios en svc-shipments (Postgres, MOVO-175)", () => {

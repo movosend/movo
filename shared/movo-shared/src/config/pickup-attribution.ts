@@ -1,5 +1,5 @@
 /**
- * MOVO-270 (ADR-052): umbrales de la atribución del no-retiro. La evidencia es pasiva (las
+ * MOVO-270 (DD-052): umbrales de la atribución del no-retiro. La evidencia es pasiva (las
  * posiciones que el transportista ya reporta) y asimétrica a propósito: un falso "no llegó"
  * le cobra al transportista, un falso "llegó" solo lleva el envío a disputa. Por eso la
  * ausencia exige posiciones CLARAMENTE lejos y cualquier lectura intermedia (zona gris) deja

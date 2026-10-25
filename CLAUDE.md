@@ -30,6 +30,9 @@ tests, chequea si falta un ADR, y actualiza el historial del paquete que tocaste
   actualizá la sección correspondiente acá, no solo en el documento de Drive.
 - Si agregás un ADR nuevo en el entregable de Sprint 0 (Drive), sumá su fila a la tabla
   de `docs/adr/README.md` y su número + título corto al índice de ADRs de este archivo.
+  Solo es ADR si fija stack, proveedor/integración, estructura entre servicios o modelo
+  de seguridad; el resto va como `DD-NNN` en `docs/decisiones/README.md` y en el registro
+  de diseño de Drive.
 - Si un `CLAUDE.md` crece por encima de ~40k caracteres, Claude Code avisa y cada sesión
   que lo carga paga ese contexto: mové el historial a un `HISTORIAL.md` al lado, como en
   los paquetes de arriba.
@@ -82,51 +85,59 @@ separado `movo-infra`), Cloudflare (DNS), GitHub Actions (CI/CD), Vercel (fronte
 Next.js). Ver `README.md` para instrucciones de setup local.
 
 Comunicación entre servicios: REST síncrono sobre HTTP, sin message broker. WebSocket
-nativo (`@fastify/websocket`, ADR-022 — reemplaza la mención a Socket.io de ADR-005)
+nativo (`@fastify/websocket`, ADR-019 — reemplaza la mención a Socket.io de ADR-005)
 para el canal de tracking en tiempo real, gateway y `movo-svc-shipments`. Solo el
 gateway expone puerto público (443); todo lo demás vive en la red Docker interna.
 
 Todas las rutas del backend quedan bajo el prefijo `/api/v1/*` (`GET /health` es la
 excepción, sin versionar, para healthchecks).
 
-## Architecture Decision Records (ADRs)
+## Architecture Decision Records (ADRs) y decisiones de diseño
 
-Los ADRs completos (contexto, alternativas consideradas, trade-offs) viven en Google
-Drive, entregable `[Movo] 004 - Sprint 0.md`, sección "Architecture Decision Records".
+Son **23 ADRs**, numerados del 001 al 023. Un ADR se queda solo si fija el stack, un
+proveedor o una integración, la estructura entre servicios, o el modelo de seguridad. Una
+regla de negocio, el detalle de un solo módulo o un parámetro es una **decisión de diseño
+(`DD-NNN`)**: va al registro de diseño, no a los ADRs. Los ADRs completos (contexto,
+alternativas consideradas, trade-offs) viven en Google Drive, entregable
+`[Movo] 004 - Sprint 0.md`, sección "Architecture Decision Records"; las decisiones de
+diseño, en `[Movo] 011-Registro de Decisiones de Diseño`.
 Convención: un ADR aceptado no se modifica — si una decisión cambia, se crea un ADR
-nuevo que referencia y deprecate al anterior.
+nuevo que referencia y deprecate al anterior (lo mismo para un DD).
 
-Detalle de cada uno (decisión + trade-off aceptado) en **`docs/adr/README.md`**:
-antes de tocar un área regida por un ADR (o de proponer algo que pueda contradecir uno),
-leé su fila ahí. Índice de los vigentes:
+Detalle de cada uno (decisión + trade-off aceptado) en **`docs/adr/README.md`** (ADRs) y
+**`docs/decisiones/README.md`** (DD): antes de tocar un área regida por uno (o de proponer
+algo que pueda contradecirlo), leé su fila ahí. Los DD conservan el número que tenían como
+ADR antes del recorte (un "ADR-0xx" viejo en un ticket con uno de esos números es el
+`DD-0xx`); los ADRs se renumeraron, mapeo en `docs/adr/README.md`. Índice de los vigentes:
 
-001 Microservicios · 002 Node+Fastify para I/O, Python+FastAPI solo en pricing ·
+**ADRs** — 001 Microservicios · 002 Node+Fastify para I/O, Python+FastAPI solo en pricing ·
 003 Postgres único (esquema por servicio) + Redis · 004 JWT 60 min + refresh opaco en
 Redis, roles como array · 005 REST `/api/v1` + Swagger autogenerado (su Socket.io lo
-reemplaza 022) · 006 EC2 + Docker Compose, Next en Vercel · 007 S3 con presigned URLs ·
-008 Distance Matrix (reemplazado) · 009 Terraform · 010 servicios confían en `x-user-*`
-del gateway · 011 Prisma como ORM · 012 Twilio detrás de `SmsProvider` · 013 refresh de
-90 días con rotación y detección de reuso · 014 geocoding de Google detrás de
-`GeocodingProvider` · 015 Google Routes API (Compute Route Matrix) · 016 fotos de
-perfil en prefijo S3 público · 017 Resend detrás de `EmailProvider` · 018 `POST /quote`
-provisorio versionado · 019 pricing stateless, `Offer` en shipments · 020 handshake
-ECDSA P-256 / P1363 · 021 `ShipmentStatus` de 11 estados · 022 WebSocket nativo ·
-023 retención de traza GPS 30 días · 024 tracking: ingesta HTTP, difusión WS ·
-025 pricing `demand_fuel_routes_v1` · 026 bloqueo de usuarios simétrico ·
-027 `rejected_by_receiver` no terminal · 028 precio comprometido (`quoteId`) ·
-029 `TripStatus.EXPIRED` vs `CANCELLED` · 030 juegos: `/demo` con API key ·
-031 juego del optimizador · 032 expiración y cierre automático · 033 navegación por
-deep-link · 034 inicio de viaje · 035 arquitectura de cobro (MP) · 036 requisitos
+reemplaza 019) · 006 EC2 + Docker Compose, Next en Vercel · 007 S3 con presigned URLs ·
+008 Distance Matrix (reemplazado por 015) · 009 Terraform · 010 servicios confían en
+`x-user-*` del gateway · 011 Prisma como ORM · 012 Twilio detrás de `SmsProvider` ·
+013 refresh de 90 días con rotación y detección de reuso · 014 geocoding de Google detrás
+de `GeocodingProvider` · 015 Google Routes API (Compute Route Matrix) · 016 Resend detrás
+de `EmailProvider` · 017 pricing stateless, `Offer` en shipments · 018 handshake
+ECDSA P-256 / P1363 · 019 WebSocket nativo · 020 tracking: ingesta HTTP, difusión WS ·
+021 pricing `demand_fuel_routes_v1` · 022 arquitectura de cobro (MP) · 023 chat propio.
+
+**Decisiones de diseño** — DD-016 fotos de perfil en prefijo S3 público · 018 `POST /quote`
+provisorio versionado · 021 `ShipmentStatus` de 11 estados · 023 retención de traza GPS
+30 días · 026 bloqueo de usuarios simétrico · 027 `rejected_by_receiver` no terminal ·
+028 precio comprometido (`quoteId`) · 029 `TripStatus.EXPIRED` vs `CANCELLED` ·
+030 juegos: `/demo` con API key · 031 juego del optimizador · 032 expiración y cierre
+automático · 033 navegación por deep-link · 034 inicio de viaje · 036 requisitos
 habilitantes del transportista · 037 saga de asignación · 038 transferencia de receptor ·
-039 (propuesto) tarjetas guardadas con CVV · 040 chat propio · 041 pricing
-`package_tapered_v2` · 042 viajes recurrentes · 043 (propuesto) refresh idempotente del
-panel · 044 cuenta corriente del usuario · 045 salida de `in_transit` demorado ·
-046 push de chat · 047 (propuesto) penalidad de cancelación ·
-048 cuenta cobradora de Movo por credenciales · 049 sanciones de cuenta: suspensión,
-inhabilitación y marca en Redis ·
-050 plazo del hold de MP (5 días) y N=3 · 051 soporte al usuario sobre el chat existente ·
-052 atribución del no-retiro por GPS · 053 oferta del recargo por demanda: solo `declared` ·
-054 disputa desde `completed` (entidad de disputa, ventana de 7 días)
+039 (propuesto) tarjetas guardadas con CVV · 041 pricing `package_tapered_v2` ·
+042 viajes recurrentes · 043 (propuesto) refresh idempotente del panel · 044 cuenta
+corriente del usuario · 045 salida de `in_transit` demorado · 046 push de chat ·
+047 (propuesto) penalidad de cancelación · 048 cuenta cobradora de Movo por credenciales ·
+049 sanciones de cuenta: suspensión, inhabilitación y marca en Redis · 050 plazo del hold
+de MP (5 días) y N=3 · 051 soporte al usuario sobre el chat existente · 052 atribución
+del no-retiro por GPS · 053 oferta del recargo por demanda: solo `declared` · 054 disputa
+desde `completed` (entidad de disputa, ventana de 7 días) · 055 (propuesto) cambio
+forzado de estado de un envío desde el panel.
 
 ## Convenciones de código
 
@@ -274,13 +285,13 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   Maps (server-side `GOOGLE_MAPS_API_KEY` compartida entre `svc-users`/futuros
   consumidores + `GOOGLE_MAPS_IOS/ANDROID_API_KEY` del mobile), Telegram bot
   (`SMS_PROVIDER=telegram`, solo dev), `STORAGE_PROVIDER=s3` + bucket/region de MOVO-97,
-  Resend (`EMAIL_PROVIDER=resend` + `RESEND_API_KEY`/`EMAIL_FROM`, ADR-017), precio de
-  combustible (`FUEL_PRICE_PROVIDER=energia` en `movo-svc-pricing-logistics`, MOVO-138/ADR-025;
+  Resend (`EMAIL_PROVIDER=resend` + `RESEND_API_KEY`/`EMAIL_FROM`, ADR-016), precio de
+  combustible (`FUEL_PRICE_PROVIDER=energia` en `movo-svc-pricing-logistics`, MOVO-138/ADR-021;
   no es una credencial, la API es pública, pero sin esa var dev cotiza con el precio fijo de
   config).
-- **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/ADR-016) aplicado
+- **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/DD-016) aplicado
   en dev, `terraform apply` de prod pendiente. El dominio de envío de mails
-  (MOVO-139/ADR-017) ya está verificado en Resend con DKIM/SPF/MX de bounces **y
+  (MOVO-139/ADR-016) ya está verificado en Resend con DKIM/SPF/MX de bounces **y
   DMARC** (`_dmarc.movosend.app`, `p=none`) resueltos — verificado con `dig`, ver
   `services/movo-svc-users/HISTORIAL.md` (MOVO-139). Sigue llegando a spam en Outlook
   igual: con la autenticación completa y alineada, eso ya es reputación de dominio
@@ -288,19 +299,8 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   otro registro. Falta portar a Terraform los registros que se cargaron a mano en
   Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
   bucket de dev si se quiere usar el PNG del logo en los mails.
-- **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029, 032, 035, 037, 038, 040, 041, 042, 046, 049, 050, 051, 052, 053, 054 (012-018 ya están pegados en
-  el doc de Sprint 0, confirmado al buscar dónde iba ADR-022 — la lista anterior acá
-  estaba desactualizada). **ADR-022 tiene su contenido completo ya redactado**, en un
-  doc aparte (`ADR-022 - Canal de tiempo real (WebSocket nativo) - pegar en Sprint 0`,
-  misma carpeta de Drive que el Sprint 0) porque esta sesión no tuvo forma de editar el
-  contenido del doc de Sprint 0 directamente — falta que alguien lo pegue en la sección
-  de ADRs y borre el doc aparte. **ADR-026 (MOVO-175) tiene su contenido completo ya redactado** en un doc aparte
-  (`ADR-026 - Bloqueo de usuarios - pegar en Sprint 0`, misma carpeta de Drive), mismo
-  procedimiento que ADR-022. Ojo con la numeración: ADR-025 es el pricing dinámico
-  (MOVO-216), por eso este es 026.
 - **Nginx con soporte de upgrade WebSocket y heartbeat aplicados, sin probar contra un
-  deploy real en EC2** (MOVO-200/ADR-022 AC3 + MOVO-201) — ver la entrada de MOVO-201
+  deploy real en EC2** (MOVO-200/ADR-019 AC3 + MOVO-201) — ver la entrada de MOVO-201
   arriba: el heartbeat ping/pong ya está implementado y `proxy_read_timeout` bajó de
   3600s a 90s. Falta la prueba contra dev/prod real (AC6 de MOVO-201), sin acceso a esa
   infra desde ninguna de las dos sesiones todavía.
@@ -314,7 +314,7 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   `Sec-WebSocket-Protocol`, no query param) pero sin implementar, porque `movo-admin`/
   MOVO-33 (el único consumidor que lo necesitaría) no está bloqueado por MOVO-201 y
   todavía no lo pide. Implementar cuando ese ticket lo necesite, no antes.
-- **Cuenta cobradora del saldo (ADR-048)**: en dev ya están `MP_COLLECTOR_*` (token `TEST-` de Movo S.A., vence ~15/04/2027,
+- **Cuenta cobradora del saldo (DD-048)**: en dev ya están `MP_COLLECTOR_*` (token `TEST-` de Movo S.A., vence ~15/04/2027,
   se renueva con `services/movo-svc-payments/scripts/collector-oauth.mjs`), `MP_WEBHOOK_SECRET` (webhook registrado en el
   panel de `movosend`) y `ALERT_*` (Telegram, grupo "Movo Team"). En prod falta cargar las credenciales productivas del panel
   de la cuenta real de Movo S.A. y borrar el legado `MERCADOPAGO_ACCESS_TOKEN`.
@@ -345,7 +345,7 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
 El sandbox de MP no vence holds: dos holds siguieron `authorized` ~188 h (13/10 al 21/10),
 más que los 5 y 7 días documentados. Se queda el mínimo documentado: `MP_HOLD_VALIDITY_DAYS=5`
 (`svc-payments`) y `FUNDING_NEAR_PICKUP_DAYS=3` (`svc-shipments`), sin cambio de defaults
-(ADR-050, `docs/payments/adr-050-plazo-del-hold.md`; medición en
+(DD-050, `docs/payments/dd-050-plazo-del-hold.md`; medición en
 `docs/payments/mercadopago-spike/HOLD-EXPIRY-MEASUREMENT.md`). Sin confirmar: el
 `status_detail` de un hold vencido que asume el webhook de MOVO-268 (`cancelled`+`expired`).
 

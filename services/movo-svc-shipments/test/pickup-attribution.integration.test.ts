@@ -39,7 +39,7 @@ function windowAround(t: Date) {
 /** ~1 km por cada 0,009° de latitud. */
 const metersNorth = (meters: number) => ({ lat: PICKUP.lat + meters / 111_195, lng: PICKUP.lng });
 
-describe("atribución del no-retiro (Postgres, MOVO-270 / ADR-052)", () => {
+describe("atribución del no-retiro (Postgres, MOVO-270 / DD-052)", () => {
   let app: FastifyInstance;
   let shipmentRepo: ShipmentRepository;
   let positionRepo: PositionRepository;

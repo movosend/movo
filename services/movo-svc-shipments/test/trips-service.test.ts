@@ -276,7 +276,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
     });
   });
 
-  describe("createTrip — requisitos habilitantes (MOVO-116, ADR-036)", () => {
+  describe("createTrip — requisitos habilitantes (MOVO-116, DD-036)", () => {
     const validInput = () => ({
       originAddress: "Córdoba",
       originLat: -31.42,
@@ -572,7 +572,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_ALREADY_HAS_ACTIVE_TRIP" });
     });
 
-    describe("requisitos habilitantes (MOVO-116, ADR-036)", () => {
+    describe("requisitos habilitantes (MOVO-116, DD-036)", () => {
       it("403 si el dueño del viaje perdió la cuenta de MP, sin tocar el repo", async () => {
         trip = fakeTrip({ status: TripStatus.DECLARED, departureAt: new Date() });
         paymentsClient = createFakePaymentsClient([CARRIER_ID]);

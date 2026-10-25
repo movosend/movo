@@ -95,7 +95,7 @@ function stringField(data: object, key: string): string | null {
 /** MOVO-274: `kyc_result` trae `verificationType` y `status`. Un rechazo lleva a
  * reintentar (mismos destinos que `transport.tsx` y el banner de `profile.tsx`); en revisión
  * manual va a Inicio, donde el banner de KYC muestra el estado. Aprobado: la identidad va a
- * Inicio, y la licencia a Transportar, que es lo que la licencia habilita (ADR-036). */
+ * Inicio, y la licencia a Transportar, que es lo que la licencia habilita (DD-036). */
 function resolveKycRoute(data: object): NotificationRoute | null {
   const verificationType = stringField(data, "verificationType");
   const status = stringField(data, "status");
@@ -132,10 +132,15 @@ export function resolveNotificationRoute(data: unknown): NotificationRoute | nul
     const offerId = stringField(data, "offerId");
     return offerId ? `/carrier/offers/${offerId}` : "/carrier/offers";
   }
-  // MOVO-284: un mensaje nuevo abre la conversación del envío (la push trae nombre, rol y texto, ADR-046).
+  // MOVO-284: un mensaje nuevo abre la conversación del envío (la push trae nombre, rol y texto, DD-046).
   if (type === "chat_message") {
     const shipmentId = stringField(data, "shipmentId");
     return shipmentId ? `/shipments/${shipmentId}/chat` : null;
+  }
+  // MOVO-324: la respuesta del equipo de Movo abre la consulta (con la lista de consultas debajo, ver `handleNotificationResponse`).
+  if (type === "support_message") {
+    const conversationId = stringField(data, "conversationId");
+    return conversationId ? `/support/${conversationId}` : null;
   }
   if (type === "receiver_transfer_invite") {
     // MOVO-275: la invitación (o su cancelación) abre su pantalla, que muestra si sigue vigente.
@@ -209,6 +214,12 @@ function handleNotificationResponse(response: Notifications.NotificationResponse
   if (notificationType(data) === ACCOUNT_DISABLED_NOTIFICATION_TYPE && useAuthStore.getState().status !== "unauthenticated") {
     void useAuthStore.getState().signOutDisabledAccount();
     return;
+  }
+
+  // La consulta se abre encima de "Mis consultas": volver lleva a Soporte, no a donde estaba el usuario. Si ya está
+  // dentro de Soporte (otra consulta abierta) no se apila otra lista.
+  if (typeof route === "string" && route.startsWith("/support/") && !normalizePath(current.pathname).startsWith("/support")) {
+    router.push("/support/conversations" as any);
   }
 
   // `as any`: `route` es una unión de dos formas armadas en runtime, no un literal

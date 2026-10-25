@@ -1,9 +1,9 @@
 import { ShipmentStatus } from "./shipment";
 
 /**
- * MOVO-26 (ADR-040): chat entre las partes de un envío (emisor, receptor, transportista).
+ * MOVO-26 (ADR-023): chat entre las partes de un envío (emisor, receptor, transportista).
  * Un único hilo por envío; se envía por HTTP y se recibe por WebSocket (mismo molde que la
- * ingesta de posiciones, ADR-024).
+ * ingesta de posiciones, ADR-020).
  */
 
 /** Largo máximo de un mensaje, después de `trim`. El mínimo es 1. */
@@ -42,7 +42,7 @@ export interface ChatMessage {
   /** El filtro de lenguaje tapó alguna palabra de `body` con asteriscos. */
   moderated: boolean;
   /**
-   * El autor tiene un bloqueo con quien mira (ADR-026): el contenido no se entrega y el cliente
+   * El autor tiene un bloqueo con quien mira (DD-026): el contenido no se entrega y el cliente
    * muestra "Mensaje de un usuario bloqueado".
    */
   hidden: boolean;

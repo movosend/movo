@@ -13,6 +13,7 @@ import {
   mockGetShipmentChat,
   mockListShipments,
 } from "./mock"
+import { withDeployGaps } from "./deploy-gaps"
 import { gatewayQuery, type ListState } from "./params"
 
 export const SHIPMENTS_PAGE_SIZE = 25
@@ -39,11 +40,13 @@ export async function getShipment(
   id: string
 ): Promise<AdminShipmentDetailResponse> {
   if (mockEnabled()) return mockGetShipment(id)
-  return gateway<AdminShipmentDetailResponse>(
-    `/admin/shipments/${encodeURIComponent(id)}`,
-    {
-      accessToken: await token(),
-    }
+  return withDeployGaps(
+    await gateway<Parameters<typeof withDeployGaps>[0]>(
+      `/admin/shipments/${encodeURIComponent(id)}`,
+      {
+        accessToken: await token(),
+      }
+    )
   )
 }
 

@@ -1,4 +1,4 @@
-"""MOVO-138/MOVO-276: `POST /quote` con `package_tapered_v2`.
+"""MOVO-138/MOVO-276/MOVO-317: `POST /quote` con `package_tapered_v3`.
 
 Los casos de la fórmula usan nafta a $2.000/l y una ruta fija de 100 km para que las
 cuentas se verifiquen a mano:
@@ -93,7 +93,7 @@ def _request(
 
 def _quote(req: QuoteRequest, km: float = 100.0) -> tuple[float, bool]:
     res = asyncio.run(compute_quote(req, fuel_provider=FixedFuel(), routes=FixedRoute(km)))
-    assert res.calculation_method.value == "package_tapered_v2"
+    assert res.calculation_method.value == "package_tapered_v3"
     return res.suggested_price_ars, res.high_demand
 
 
@@ -360,7 +360,7 @@ def test_endpoint_with_default_mocks(caplog: pytest.LogCaptureFixture) -> None:
     assert response.json() == {
         "suggestedPriceArs": 28290.0,
         "highDemand": False,
-        "calculationMethod": "package_tapered_v2",
+        "calculationMethod": "package_tapered_v3",
     }
 
     [record] = [r for r in caplog.records if r.getMessage().startswith("pricing_quote_computed")]

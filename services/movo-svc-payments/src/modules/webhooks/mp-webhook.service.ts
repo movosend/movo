@@ -11,6 +11,7 @@ import {
   NotificationResolution,
 } from "../../repositories/mp-webhook-repository";
 import { missingCardFields } from "../../utils/payment-card";
+import { missingFeeField } from "../../utils/payment-fee";
 import type { BalancePaymentService } from "../balance-payment/balance-payment.service";
 import { holdUpdateFromPayment, HoldService, readMpError } from "../holds/hold.service";
 
@@ -218,7 +219,9 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
    * modo la tarjeta que el webhook ya tenía en la mano se perdería. Solo agrega lo que falta.
    */
   async function fillMissingCard(hold: Hold, payment: PaymentResponse): Promise<Hold> {
-    const missing = missingCardFields(hold, payment);
+    // MOVO-285: la comisión real de MP tiene el mismo problema que la tarjeta (un `no_change` corta antes de
+    // `transitionHold`): si el hold no la tenía y este pago la trae, se completa acá.
+    const missing = { ...missingCardFields(hold, payment), ...missingFeeField(hold, payment) };
     return Object.keys(missing).length > 0 ? holds.update(hold.id, missing) : hold;
   }
 
@@ -259,7 +262,7 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
 
     const statusDetail = patch.statusDetail ?? null;
     // MP no tiene un estado "vencido": un hold que no se capturó a tiempo llega como
-    // `cancelled` con `status_detail: expired` (supuesto: el sandbox no vence holds, ADR-050).
+    // `cancelled` con `status_detail: expired` (supuesto: el sandbox no vence holds, DD-050).
     const event = holdEventFor(patch.status, statusDetail);
 
     const transitioned = await repo.transitionHold({

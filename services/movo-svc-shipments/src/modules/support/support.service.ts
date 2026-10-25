@@ -10,6 +10,7 @@ import {
   SupportUserAttachmentCreateBody,
   SupportUserMessagesPage,
   SupportRealtimeEvent,
+  SupportShipmentOptionsPage,
   SupportUserFacingMessage,
   SUPPORT_MESSAGE_MAX_LENGTH,
   SUPPORT_PUSH_PREVIEW_MAX,
@@ -28,14 +29,14 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { ChatHub } from "../../realtime/chat-hub";
 import { hasShipmentAccess } from "../shipments/assert-shipment-access";
 import { moderateChatText } from "../../domain/chat-moderation";
-import { toConversationItem, toUserFacingMessage, supportRoomKey } from "../../domain/support-rules";
+import { toConversationItem, toShipmentOption, toUserFacingMessage, supportRoomKey } from "../../domain/support-rules";
 import type { ChatPushBuffer, ChatPushBufferEntry } from "../chat/chat.service";
 import { attachmentInvalid, SupportAttachmentsService } from "./support-attachments.service";
 
 type SupportLogger = { warn: (obj: unknown, msg?: string) => void };
 
 /**
- * Ventana de avisos por conversación (ADR-046, mismo criterio que el chat del envío): la primera respuesta del
+ * Ventana de avisos por conversación (DD-046, mismo criterio que el chat del envío): la primera respuesta del
  * equipo avisa enseguida con su texto; las que llegan seguidas dentro de la ventana se juntan y al cerrarse sale un
  * único resumen si todavía quedan sin leer.
  */
@@ -391,6 +392,21 @@ export function createSupportService(deps: SupportServiceDeps) {
       });
     },
 
+    /**
+     * MOVO-324: envíos que el usuario puede vincular a una consulta nueva (los mismos que acepta `createConversation`),
+     * en cualquier rol y estado: también se consulta por uno entregado o cancelado.
+     */
+    async listShipmentOptions(input: { userId: string; limit: number; cursor?: string }): Promise<SupportShipmentOptionsPage> {
+      let page;
+      try {
+        page = await repo.listShipmentOptions(input.userId, input.limit, input.cursor);
+      } catch (err) {
+        if (err instanceof InvalidSupportCursorError) throw new ApiError(400, "VALIDATION_FAILED", err.message);
+        throw err;
+      }
+      return { items: page.items.map((s) => toShipmentOption(s, input.userId)), nextCursor: page.nextCursor };
+    },
+
     async markRead(userId: string, conversationId: string): Promise<{ readAt: string }> {
       const conversation = await ownedConversation(conversationId, userId);
       const at = now();
@@ -428,7 +444,7 @@ export function createSupportService(deps: SupportServiceDeps) {
     /**
      * Lo llama el lado del agente (MOVO-322) después de guardar un mensaje: lo difunde al usuario por WebSocket (las
      * notas se descartan) y, si es una respuesta de un agente y el usuario no tiene la conversación abierta, manda la
-     * push (ADR-046). Un `system` se difunde pero nunca avisa por push.
+     * push (DD-046). Un `system` se difunde pero nunca avisa por push.
      */
     async publishStaffMessage(conversation: SupportConversationRecord, record: SupportMessageRecord): Promise<void> {
       const message = await emitMessage(conversation, record);

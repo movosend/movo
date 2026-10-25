@@ -168,6 +168,48 @@ describe("SummaryStep — cotización congelada (MOVO-255)", () => {
     );
   });
 
+  it("MOVO-317: con 'Más de 300 cm' cotiza y crea con la medida tope (300) y oversized: true", async () => {
+    useShipmentWizardStore.getState().setLengthCm("oversized");
+    useShipmentWizardStore.getState().setWeightKg("250");
+    quoteMock.mockResolvedValueOnce(frozenQuote("q-1", 30120));
+    mockCreate.mockResolvedValueOnce({ id: "shipment-1" });
+
+    const { findByText, getByTestId } = await render(<SummaryStep onGoToStep={jest.fn()} />);
+    await findByText(`$${(30120).toLocaleString("es-AR")}`);
+    expect(quoteMock).toHaveBeenCalledWith(
+      expect.objectContaining({ weightKg: 250, lengthCm: 300, widthCm: 20, heightCm: 15, oversized: true }),
+    );
+    await press(getByTestId("summary-step-submit"));
+
+    await waitFor(() =>
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ weightKg: 250, lengthCm: 300, widthCm: 20, heightCm: 15, oversized: true }),
+      ),
+    );
+  });
+
+  it("MOVO-317: sin 'Más de 300 cm' no manda oversized", async () => {
+    quoteMock.mockResolvedValueOnce(frozenQuote("q-1", 30120));
+    mockCreate.mockResolvedValueOnce({ id: "shipment-1" });
+
+    const { findByText, getByTestId } = await render(<SummaryStep onGoToStep={jest.fn()} />);
+    await findByText(`$${(30120).toLocaleString("es-AR")}`);
+    expect(quoteMock.mock.calls[0][0]).not.toHaveProperty("oversized");
+    await press(getByTestId("summary-step-submit"));
+
+    await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+    expect(mockCreate.mock.calls[0][0].oversized).toBeUndefined();
+  });
+
+  it("MOVO-317: el resumen muestra '+300' para la medida oversized", async () => {
+    useShipmentWizardStore.getState().setHeightCm("oversized");
+    quoteMock.mockResolvedValueOnce(frozenQuote("q-1", 30120));
+
+    const { findByText } = await render(<SummaryStep onGoToStep={jest.fn()} />);
+
+    expect(await findByText("30 × 20 × +300 cm")).toBeTruthy();
+  });
+
   it.each(["QUOTE_EXPIRED", "QUOTE_MISMATCH"])(
     "ante un 409 %s vuelve a cotizar, avisa que el precio cambió y no crea el envío hasta reconfirmar",
     async (code) => {

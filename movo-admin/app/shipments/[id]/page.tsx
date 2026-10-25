@@ -23,6 +23,7 @@ import {
   PartiesCard,
   Timeline,
 } from "@/components/shipments/detail"
+import { OffersCard, OffersProvider } from "@/components/shipments/offers"
 import { ShipmentTrackingMap } from "@/components/shipments/tracking/tracking-panel"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -99,24 +100,33 @@ export default async function Page({
           }
         />
         <AlertBanner shipment={shipment} now={now} />
-        <div className="grid items-start gap-5 min-[1100px]:grid-cols-[minmax(0,1fr)_380px]">
-          <div className="flex min-w-0 flex-col gap-5">
-            <ShipmentTrackingMap shipmentId={shipment.id} />
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] items-start gap-5">
-              <PartiesCard shipment={shipment} parties={detail.parties} />
-              <LegsCard
-                shipment={shipment}
-                events={detail.events.data}
-                now={now}
-              />
-              <PackagePaymentCard
-                shipment={shipment}
-                payment={detail.payment}
-              />
+        <OffersProvider
+          shipment={shipment}
+          offers={detail.offers}
+          photos={Object.fromEntries(
+            (detail.parties.data ?? []).map((p) => [p.id, p.photoUrl])
+          )}
+        >
+          <div className="grid items-start gap-5 min-[1100px]:grid-cols-[minmax(0,1fr)_380px]">
+            <div className="flex min-w-0 flex-col gap-5">
+              <ShipmentTrackingMap shipmentId={shipment.id} />
+              <OffersCard />
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] items-start gap-5">
+                <PartiesCard shipment={shipment} parties={detail.parties} />
+                <LegsCard
+                  shipment={shipment}
+                  events={detail.events.data}
+                  now={now}
+                />
+                <PackagePaymentCard
+                  shipment={shipment}
+                  payment={detail.payment}
+                />
+              </div>
             </div>
+            <Timeline shipment={shipment} events={detail.events} />
           </div>
-          <Timeline shipment={shipment} events={detail.events} />
-        </div>
+        </OffersProvider>
       </div>
     </AdminShell>
   )

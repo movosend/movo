@@ -8,12 +8,12 @@ adjunto en el issue de Linear) y después en código
 única fuente de verdad ejecutable, este diagrama se actualiza si el código cambia, no al
 revés.
 
-`cancelled` es terminal por diseño (MOVO-79). `completed` lo fue hasta MOVO-334 (ADR-054):
+`cancelled` es terminal por diseño (MOVO-79). `completed` lo fue hasta MOVO-334 (DD-054):
 su única salida es `completed → disputed`, un reclamo de una de las partes dentro de los 7 días
 desde el handshake de entrega (`DISPUTE_WINDOW_DAYS`, desde `deliveredAt`). Hace falta porque el
 handshake de entrega captura el hold y pasa el envío a `completed` en el momento (MOVO-212): un
 envío solo queda en `delivered` hasta que se confirma la captura. Ningún barrido usa esta arista.
-`rejected_by_receiver` lo fue hasta MOVO-253 (ADR-027): ahora el emisor tiene un plazo
+`rejected_by_receiver` lo fue hasta MOVO-253 (DD-027): ahora el emisor tiene un plazo
 (`receiver_redesignation_deadline`, 48hs con tope en la ventana de retiro) para elegir
 otro receptor o cancelar, y si no hace ninguna de las dos el barrido lo pasa a
 `cancelled`. El rechazo no se pierde: queda como evento en la línea de tiempo.
@@ -22,12 +22,12 @@ es responsabilidad de un admin (MOVO-30, panel en MOVO-32) y todavía no hay tic
 defina a qué estado vuelve el envío — no se modela una transición inventada para no
 adelantar una decisión que no está tomada.
 
-`assigned → disputed` (MOVO-270, ADR-052): el barrido de retiro no realizado tiene evidencia
+`assigned → disputed` (MOVO-270, DD-052): el barrido de retiro no realizado tiene evidencia
 GPS de que el transportista llegó al punto de retiro y no hubo handshake. El hold se libera
 antes de transicionar (no queda plata retenida en un estado sin salida) y esa disputa no
 bloquea al transportista (`no_open_dispute` solo cuenta las disputas con custodia). Si el
 barrido atribuye el no-retiro al transportista (no llegó), el envío se cancela como antes pero
-con `attribution: carrier` en el evento y la penalidad de baja de ADR-047; sin evidencia,
+con `attribution: carrier` en el evento y la penalidad de baja de DD-047; sin evidencia,
 `attribution: none`. Pasado el plazo del barrido (ventana + gracia) el retiro ya no se puede
 confirmar (`HANDSHAKE_PICKUP_DEADLINE_PASSED`).
 
@@ -46,7 +46,7 @@ dispara `delivered → completed`.
 
 Al aceptar una oferta, `acceptOffer` elige la ruta según la anticipación del retiro
 acordado (inicio de la ventana de retiro efectiva, `domain/funding.ts#selectFundingRoute`).
-`N` y los plazos salen de configuración (`FUNDING_*`; N y el plazo del hold, ADR-050):
+`N` y los plazos salen de configuración (`FUNDING_*`; N y el plazo del hold, DD-050):
 
 | Ruta | Condición | Al aceptar | Pago | Plazo | Si no paga |
 | --- | --- | --- | --- | --- | --- |
@@ -74,7 +74,7 @@ volvió a ese estado) el barrido lo devuelve a `published`.
 saga (ventana original restaurada, las demás ofertas no se tocan), pero la oferta aceptada queda
 `carrier_withdrawn`. El hold se libera entero y el envío vuelve a mostrar el precio base. Con
 menos de 12 h para el retiro, o con la ventana ya cerrada (desde cualquiera de los tres
-estados), la penalidad de ADR-047 va como deuda a la cuenta corriente del transportista (ADR-044). `assigned → published` es solo esta baja: el repositorio la rechaza sin
+estados), la penalidad de DD-047 va como deuda a la cuenta corriente del transportista (DD-044). `assigned → published` es solo esta baja: el repositorio la rechaza sin
 `carrierWithdrawal`.
 
 ```mermaid
@@ -141,7 +141,7 @@ de `disputed`, y qué pasa con el paquete físico. Registrado como el hueco más
 del camino de excepción — impacto concreto en `MOVO-199` (si el receptor no aparece, el
 envío queda en `in_transit` indefinidamente).
 
-## Transferencia de receptor: máquina paralela, no un estado del envío (MOVO-275, ADR-038)
+## Transferencia de receptor: máquina paralela, no un estado del envío (MOVO-275, DD-038)
 
 El receptor de un envío aceptado (de `published` hasta `in_transit`) puede pedir que
 otra persona lo reciba en su lugar. La solicitud vive en su propia tabla
@@ -169,6 +169,40 @@ stateDiagram-v2
 - Generar el QR de entrega cancela la solicitud pendiente (`cancelReason:
   delivery_started`) y el handshake siempre valida contra el `receiverId` vigente.
 
+## Transiciones forzadas por un admin (MOVO-331, DD-055)
+
+Un admin puede mover un envío desde el panel, pero **solo por aristas que ya existen en el grafo de
+arriba** y ejecutando el mismo servicio de dominio que la transición normal (nunca un `UPDATE`).
+La fuente de verdad es `FORCED_TRANSITION_MATRIX` (`@movo/shared`). No agrega aristas: las celdas de
+abajo son un subconjunto de las normales. `manual` = mismos efectos que para su actor normal;
+`forced` = la cancelación o la baja se ejecutan **sin penalidad**.
+
+```mermaid
+stateDiagram-v2
+    awaiting_receiver_confirmation --> cancelled: manual
+    published --> cancelled: manual
+    rejected_by_receiver --> cancelled: manual
+    assignment_pending --> published: forced (baja del transportista)
+    assignment_pending --> assigned: manual (exige hold autorizado)
+    assignment_pending --> cancelled: manual
+    assigned_unfunded --> published: forced (baja del transportista)
+    assigned_unfunded --> assigned: manual (exige hold autorizado)
+    assigned_unfunded --> cancelled: manual
+    assigned --> published: forced (sin penalidad)
+    assigned --> cancelled: forced (sin penalidad)
+    delivered --> completed: manual (captura el hold)
+```
+
+- **Bloqueado siempre:** cualquier salida de `disputed` (la resuelve MOVO-34), `completed`
+  (se corrige desde Pagos) y `cancelled` (terminal); cualquier entrada a `disputed` (nace con su
+  expediente), `in_transit` y `delivered` (se confirman con el handshake); y todo lo que no figura
+  arriba. El rechazo es `422 TRANSITION_NOT_ALLOWED` con el motivo.
+- **Concurrencia:** `expectedStatus` obligatorio; si el estado cambió, `409 STATUS_CHANGED`.
+- **Hold:** pasar a `assigned` consulta a payments (`422 HOLD_NOT_AUTHORIZED` si no está autorizado);
+  desde `assigned` el hold se libera antes de cancelar, y si falla el envío queda como estaba (`502`).
+- **Línea de tiempo:** el evento lleva `kind` (`manual`/`forced`), el admin y el motivo (solo el
+  panel los ve; las partes ven `kind` y el cambio de estado) y es inmutable.
+
 ## Transiciones inválidas (rechazadas explícitamente, ejemplos)
 
 - Saltear estados intermedios (ej. `awaiting_receiver_confirmation` → `assigned`
@@ -177,7 +211,7 @@ stateDiagram-v2
   `assigned`/`assigned_unfunded` inclusive (con penalización desde `assigned`, sin
   penalización desde `assigned_unfunded` porque todavía no hay hold que liberar; la
   penalidad desde `assigned` es el 25 % del precio acordado si faltan menos de 12 h para el
-  retiro, MOVO-307/ADR-047); a
+  retiro, MOVO-307/DD-047); a
   partir de `in_transit` la única salida de excepción es `disputed`. Antes del retiro, solo
   `assigned` puede ir a `disputed` (MOVO-270): `assignment_pending`/`assigned_unfunded` no tienen
   hold y el retiro era imposible.
@@ -198,5 +232,5 @@ Modelado primero fuera del repo (Drive, `Maquina de estados Shipment.jpg`/`.pdf`
 adjuntado al issue de Linear (MOVO-105) — este archivo es la transcripción a Mermaid
 versionada junto al código, mismo criterio que `docs/kyc/state-diagram.md` (MOVO-72).
 La extensión de MOVO-208 (`assigned_unfunded`/`completed`) se modeló directamente acá,
-sin un diagrama fuente aparte en Drive — ver ADR-021 (`CLAUDE.md` raíz) para el
+sin un diagrama fuente aparte en Drive — ver DD-021 (`CLAUDE.md` raíz) para el
 razonamiento completo de por qué se agregan estos dos estados y no `delivery_failed`.

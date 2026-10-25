@@ -158,7 +158,8 @@ export function carrierPaymentView(input: {
   const absorbedMpFee = input.debtSurchargeArs - input.debtSurchargeFeeArs;
   return {
     grossAmountArs: Math.round((input.grossAmountArs - input.debtSurchargeArs) * 100) / 100,
-    mpFeeArs: input.mpFeeArs === null ? null : Math.round((input.mpFeeArs - absorbedMpFee) * 100) / 100,
+    // Nunca negativo (MOVO-285): con un fee real chico y un recargo grande la resta puede pasarse de 0.
+    mpFeeArs: input.mpFeeArs === null ? null : Math.max(0, Math.round((input.mpFeeArs - absorbedMpFee) * 100) / 100),
   };
 }
 

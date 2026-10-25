@@ -29,9 +29,10 @@ let mockBalanceArs: number | undefined = undefined;
 jest.mock("../src/hooks/use-balance", () => ({
   useBalance: () => ({ data: mockBalanceArs === undefined ? undefined : { pages: [{ balanceArs: mockBalanceArs }] } }),
 }));
-// MOVO-169: el sheet de "Ayuda y soporte" decide si ofrece "Cómo transportar".
-jest.mock("../src/hooks/use-transport-gate", () => ({
-  useTransportGate: () => ({ canBrowse: false }),
+// MOVO-324: la fila "Ayuda y soporte" muestra el total de consultas sin leer.
+let mockSupportItems: unknown = undefined;
+jest.mock("../src/hooks/use-support", () => ({
+  useSupportList: () => ({ data: mockSupportItems }),
 }));
 
 describe("ProfileSettingsSection", () => {
@@ -41,6 +42,7 @@ describe("ProfileSettingsSection", () => {
     mockMpStatus = undefined;
     mockCards = undefined;
     mockBalanceArs = undefined;
+    mockSupportItems = undefined;
   });
 
   it("navega a /addresses al tocar 'Direcciones guardadas'", async () => {
@@ -156,14 +158,31 @@ describe("ProfileSettingsSection", () => {
     expect(queryByTestId("profile-settings-payments-pill")).toBeNull();
   });
 
-  it("MOVO-169: 'Ayuda y soporte' abre el sheet para repasar el tutorial, sin el placeholder", async () => {
+  it("MOVO-324: 'Ayuda y soporte' abre el submenú de ayuda, sin el placeholder", async () => {
     const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
-    const { getByText, findByText } = await render(<ProfileSettingsSection testID="settings" />);
+    const { getByText } = await render(<ProfileSettingsSection testID="settings" />);
 
     await fireEvent.press(getByText("Ayuda y soporte"));
 
-    expect(await findByText("¿Qué querés repasar?")).toBeTruthy();
+    expect(router.push).toHaveBeenCalledWith("/support");
     expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
+  });
+
+  it("MOVO-324: muestra el total de consultas sin leer en la fila", async () => {
+    mockSupportItems = [
+      { id: "a", unreadCount: 2 },
+      { id: "b", unreadCount: 1 },
+    ];
+    const { getByTestId } = await render(<ProfileSettingsSection testID="settings" />);
+
+    expect(getByTestId("profile-settings-support-unread")).toHaveTextContent("3");
+  });
+
+  it("MOVO-324: sin consultas sin leer no muestra el contador", async () => {
+    mockSupportItems = [{ id: "a", unreadCount: 0 }];
+    const { queryByTestId } = await render(<ProfileSettingsSection testID="settings" />);
+
+    expect(queryByTestId("profile-settings-support-unread")).toBeNull();
   });
 });

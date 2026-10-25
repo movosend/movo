@@ -11,7 +11,7 @@ export interface CarrierPositionPurgeSweepPluginOptions {
 
 /**
  * MOVO-202/AC6: borra periódicamente las posiciones GPS de envíos que ya llevan más
- * de `CARRIER_POSITION_RETENTION_DAYS` días cerrados (ADR-023) -- mismo esqueleto
+ * de `CARRIER_POSITION_RETENTION_DAYS` días cerrados (DD-023) -- mismo esqueleto
  * `setInterval` + lock distribuido en Redis que el resto de los sweeps del servicio
  * (`pickup-expiry-sweep.ts`/`receiver-confirmation-sweep.ts`). Un envío `disputed`
  * nunca es candidato mientras siga en ese estado -- ver el comentario de

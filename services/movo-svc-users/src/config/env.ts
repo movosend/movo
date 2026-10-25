@@ -95,7 +95,7 @@ export const envSchema = {
     // no requiere credenciales, así que no hay nada que `createPushNotificationProvider`
     // tenga que validar al arrancar con PUSH_PROVIDER=expo.
     PUSH_PROVIDER: { type: "string", enum: ["mock", "expo"], default: "mock" },
-    // MOVO-139 (ADR-017): default "console" (mismo criterio que SMS_PROVIDER) — loguea
+    // MOVO-139 (ADR-016): default "console" (mismo criterio que SMS_PROVIDER) — loguea
     // el mail en vez de mandarlo, así dev/test/CI no dependen de un dominio verificado
     // en Resend ni consumen la cuota del free tier. La obligatoriedad de
     // RESEND_API_KEY/EMAIL_FROM con EMAIL_PROVIDER=resend la valida createEmailProvider

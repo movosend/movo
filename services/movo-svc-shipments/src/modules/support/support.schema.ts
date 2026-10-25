@@ -1,6 +1,6 @@
 import { CHAT_PAGE_MAX_LIMIT, SUPPORT_MESSAGE_MAX_LENGTH, SUPPORT_TOPICS } from "@movo/shared";
 
-// MOVO-320 (ADR-051): wire contract de `SupportConversationItem`/`SupportUserFacingMessage` (@movo/shared).
+// MOVO-320 (DD-051): wire contract de `SupportConversationItem`/`SupportUserFacingMessage` (@movo/shared).
 // Autocontenido a propósito, mismo criterio que chat.schema.ts.
 
 const conversationIdParam = {
@@ -158,6 +158,38 @@ const listMessagesResponse = {
   },
 };
 
+// MOVO-324: selector de envíos de "Nueva consulta" (`SupportShipmentOptionsPage`).
+const listShipmentsQuery = {
+  type: "object",
+  properties: {
+    limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+    cursor: { type: "string", minLength: 1, maxLength: 200 },
+  },
+};
+
+const listShipmentsResponse = {
+  type: "object",
+  required: ["items", "nextCursor"],
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["id", "code", "status", "route", "role", "createdAt"],
+        properties: {
+          id: { type: "string" },
+          code: { type: "string" },
+          status: { type: "string" },
+          route: { type: "string" },
+          role: { type: "string", enum: ["sender", "carrier", "receiver"] },
+          createdAt: { type: "string", format: "date-time" },
+        },
+      },
+    },
+    nextCursor: { type: ["string", "null"] },
+  },
+};
+
 const readResponse = {
   type: "object",
   required: ["readAt"],
@@ -193,6 +225,8 @@ export const supportSchemas = {
   supportMessageResponse,
   listMessagesQuery,
   listMessagesResponse,
+  listShipmentsQuery,
+  listShipmentsResponse,
   readResponse,
   errorResponse,
 };

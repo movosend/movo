@@ -125,7 +125,7 @@ services:
       # DIDIT_MODE/SMS_PROVIDER arriba — una var presente pero vacía no matchea el enum
       # de envSchema y tira el servicio abajo al boot.
       - PUSH_PROVIDER=${PUSH_PROVIDER:-mock}
-      # MOVO-139 (ADR-017): mismo criterio de `:-console` que SMS_PROVIDER arriba -- una
+      # MOVO-139 (ADR-016): mismo criterio de `:-console` que SMS_PROVIDER arriba -- una
       # var presente pero vacía no matchea el enum de envSchema y tira el servicio abajo
       # al boot. Faltaba todo este bloque: aunque EMAIL_PROVIDER/RESEND_API_KEY/EMAIL_FROM
       # estuvieran en Secrets Manager, compose solo pasa al contenedor lo que está listado
@@ -183,10 +183,6 @@ services:
       - REPUTATION_DECAY_HALF_LIFE_DAYS=${REPUTATION_DECAY_HALF_LIFE_DAYS:-180}
       # MOVO-161: radio de desvío ortogonal al corredor del viaje declarado (km).
       - TRIP_DEFAULT_MAX_DETOUR_KM=${TRIP_DEFAULT_MAX_DETOUR_KM:-15}
-      # MOVO-276: límites duros del paquete (mismos valores que movo-svc-pricing-logistics).
-      - PACKAGE_MAX_WEIGHT_KG=${PACKAGE_MAX_WEIGHT_KG:-30}
-      - PACKAGE_MAX_SIDE_CM=${PACKAGE_MAX_SIDE_CM:-150}
-      - PACKAGE_MAX_SIDES_SUM_CM=${PACKAGE_MAX_SIDES_SUM_CM:-300}
       # MOVO-143: comisión de Movo (confirmada, 15%) + fee de MercadoPago (placeholder,
       # pendiente de confirmar) -- leídas por @movo/shared, no por el envSchema propio
       # de este servicio (ver shared/movo-shared/src/config/commission.ts).
@@ -212,10 +208,12 @@ services:
       # USERS_SERVICE_URL -- no hace falta setearlo acá.
       # MOVO-116: PAYMENTS_SERVICE_URL, mismo criterio -- el default de código
       # (http://movo-svc-payments:3000) ya coincide con el servicio en movo-net.
-      # MOVO-202/ADR-023: retención de la traza GPS (días) y barrido de purga.
+      # MOVO-202/DD-023: retención de la traza GPS (días) y barrido de purga.
       - CARRIER_POSITION_RETENTION_DAYS=${CARRIER_POSITION_RETENTION_DAYS:-30}
       - CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES=${CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES:-60}
       - CARRIER_POSITION_PURGE_SWEEP_ENABLED=${CARRIER_POSITION_PURGE_SWEEP_ENABLED:-true}
+      # MOVO-327: segundos sin ping para que el seguimiento del panel marque "sin señal".
+      - TRACKING_SIGNAL_LOST_SECONDS=${TRACKING_SIGNAL_LOST_SECONDS:-300}
       # MOVO-230: purga de historial de envíos vencido (Política de Privacidad §7).
       - SHIPMENT_HISTORY_RETENTION_YEARS=${SHIPMENT_HISTORY_RETENTION_YEARS:-5}
       - SHIPMENT_HISTORY_PURGE_SWEEP_INTERVAL_MINUTES=${SHIPMENT_HISTORY_PURGE_SWEEP_INTERVAL_MINUTES:-1440}
@@ -234,7 +232,7 @@ services:
       - TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES=${TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES:-15}
       - TRIP_DEPARTURE_REMINDER_SWEEP_ENABLED=${TRIP_DEPARTURE_REMINDER_SWEEP_ENABLED:-true}
       - IN_TRANSIT_ANOMALY_FALLBACK_HOURS=${IN_TRANSIT_ANOMALY_FALLBACK_HOURS:-48}
-      # MOVO-278 (ADR-045): aviso previo y paso a disputa de un in_transit demorado.
+      # MOVO-278 (DD-045): aviso previo y paso a disputa de un in_transit demorado.
       - IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS=${IN_TRANSIT_ANOMALY_WARN_AFTER_HOURS:-12}
       - IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS=${IN_TRANSIT_ANOMALY_DISPUTE_AFTER_HOURS:-24}
       # MOVO-210: saga de asignación (pago del emisor). PAYMENTS_SERVICE_URL (MOVO-116) ya coincide por
@@ -245,7 +243,7 @@ services:
       - FUNDING_REMINDER_INTERVAL_HOURS=${FUNDING_REMINDER_INTERVAL_HOURS:-12}
       - FUNDING_SWEEP_INTERVAL_MINUTES=${FUNDING_SWEEP_INTERVAL_MINUTES:-5}
       - FUNDING_SWEEP_ENABLED=${FUNDING_SWEEP_ENABLED:-true}
-      # MOVO-313 (ADR-044): antigüedad (días) de una deuda sin saldar que bloquea operar como transportista.
+      # MOVO-313 (DD-044): antigüedad (días) de una deuda sin saldar que bloquea operar como transportista.
       - USER_DEBT_OVERDUE_DAYS=${USER_DEBT_OVERDUE_DAYS:-14}
       # MOVO-334: alerta al equipo al abrirse una disputa (mismas vars que svc-payments, MOVO-268).
       - ALERT_PROVIDER=${ALERT_PROVIDER:-console}
@@ -276,7 +274,7 @@ services:
       # MOVO-111: key para cifrar los tokens OAuth en la base (AES-256-GCM).
       - MP_TOKEN_ENCRYPTION_KEY=${MP_TOKEN_ENCRYPTION_KEY:-}
       - MP_TEST_MODE=${MP_TEST_MODE:-false}
-      # ADR-048: cuenta de MP de Movo S.A. que cobra los pagos de saldo (MOVO-312).
+      # DD-048: cuenta de MP de Movo S.A. que cobra los pagos de saldo (MOVO-312).
       - MP_COLLECTOR_ACCESS_TOKEN=${MP_COLLECTOR_ACCESS_TOKEN:-}
       - MP_COLLECTOR_PUBLIC_KEY=${MP_COLLECTOR_PUBLIC_KEY:-}
       - MP_COLLECTOR_MP_USER_ID=${MP_COLLECTOR_MP_USER_ID:-}
@@ -294,7 +292,7 @@ services:
       - MP_TRANSACTION_FEE_RATE=${MP_TRANSACTION_FEE_RATE:-0.0499}
       # MOVO-294: tope en ARS (en valor absoluto) de un ajuste manual de saldo desde el panel.
       - ADMIN_LEDGER_ADJUSTMENT_MAX_ARS=${ADMIN_LEDGER_ADJUSTMENT_MAX_ARS:-500000}
-      # MOVO-100 (ADR-039): public_key con la que el mobile tokeniza la tarjeta al guardarla
+      # MOVO-100 (DD-039): public_key con la que el mobile tokeniza la tarjeta al guardarla
       # (no decide dónde queda: siempre un customer de Movo S.A.; en dev es la TEST- de un
       # Vendedor de prueba, no la de Movo) y (solo sandbox) el mapa userId -> email de
       # Comprador de prueba. USERS_SERVICE_URL no hace falta: el default de código ya es el
@@ -347,11 +345,11 @@ services:
       - ROUTING_TIME_SLACK_MINUTES=${ROUTING_TIME_SLACK_MINUTES:-120}
       - ROUTING_DEFAULT_SERVICE_TIME_MINUTES=${ROUTING_DEFAULT_SERVICE_TIME_MINUTES:-10}
       - ROUTING_CACHE_TTL_SECONDS=${ROUTING_CACHE_TTL_SECONDS:-86400}
-      # MOVO-138/ADR-025: precio de la nafta (mock sin red; energia = API CKAN + cache Redis)
+      # MOVO-138/ADR-021: precio de la nafta (mock sin red; energia = API CKAN + cache Redis)
       - FUEL_PRICE_PROVIDER=${FUEL_PRICE_PROVIDER:-mock}
       - PRICING_FUEL_PRICE_FALLBACK_ARS_PER_L=${PRICING_FUEL_PRICE_FALLBACK_ARS_PER_L:-2222.5}
       - PRICING_FUEL_CACHE_TTL_SECONDS=${PRICING_FUEL_CACHE_TTL_SECONDS:-86400}
-      # MOVO-276 (package_tapered_v2)/ADR-025: coeficientes en litros de nafta y recargo por demanda
+      # MOVO-276 (package_tapered_v2)/ADR-021: coeficientes en litros de nafta y recargo por demanda
       - PRICING_BASE_FARE_L=${PRICING_BASE_FARE_L:-0.15}
       - PRICING_BASE_FARE_DOCUMENT_L=${PRICING_BASE_FARE_DOCUMENT_L:-0.0}
       - PRICING_FUEL_L_PER_KM=${PRICING_FUEL_L_PER_KM:-0.08}
@@ -366,10 +364,8 @@ services:
       - PRICING_WEIGHT_TIER_KG=${PRICING_WEIGHT_TIER_KG:-10}
       - PRICING_WEIGHT_TIER_RATE=${PRICING_WEIGHT_TIER_RATE:-0.35}
       - PRICING_FRAGILE_SURCHARGE=${PRICING_FRAGILE_SURCHARGE:-0.2}
-      # MOVO-276: límites duros del paquete (mismos valores que movo-svc-shipments, que los valida antes)
-      - PACKAGE_MAX_WEIGHT_KG=${PACKAGE_MAX_WEIGHT_KG:-30}
-      - PACKAGE_MAX_SIDE_CM=${PACKAGE_MAX_SIDE_CM:-150}
-      - PACKAGE_MAX_SIDES_SUM_CM=${PACKAGE_MAX_SIDES_SUM_CM:-300}
+      # MOVO-317: tope del peso volumétrico facturable (package_tapered_v3)
+      - PRICING_VOLUMETRIC_WEIGHT_CAP_KG=${PRICING_VOLUMETRIC_WEIGHT_CAP_KG:-300}
       - PRICING_DEMAND_RATIO_THRESHOLD=${PRICING_DEMAND_RATIO_THRESHOLD:-3.0}
       - PRICING_DEMAND_MIN_SHIPMENTS=${PRICING_DEMAND_MIN_SHIPMENTS:-4}
       - PRICING_DEMAND_BASE_SURCHARGE=${PRICING_DEMAND_BASE_SURCHARGE:-0.10}

@@ -7,6 +7,7 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { computeNetFromGross } from "@movo/shared/dist/config/commission";
 import { estimateReceivedArs, getClientCommissionRate } from "../../src/lib/commission-config";
 import { DebtDiscount } from "../payments/debt-discount";
+import { formatPackageDimensions } from "../../src/lib/package-dimensions";
 import {
   formatDetourKm,
   formatPickupDateLabel,
@@ -144,11 +145,11 @@ export function AvailableShipmentCard({
       ) : null}
 
       <View className="flex-row items-start justify-between gap-3">
-        <View className="gap-1.5">
+        <View className="min-w-0 flex-1 gap-1.5">
           <View className="flex-row items-center gap-1.5">
             <PackageIcon size={13} strokeWidth={1.8} color={colors.fg3} />
-            <Text className="font-sans text-caption text-fg-3">
-              {packageTypeLabel(shipment.packageType)} · {shipment.weightKg} kg
+            <Text className="flex-1 font-sans text-caption text-fg-3">
+              {packageTypeLabel(shipment.packageType)} · {shipment.weightKg} kg · {formatPackageDimensions(shipment)}
             </Text>
           </View>
           <Text className="font-sans text-caption text-fg-3">{pickupDateLabel}</Text>

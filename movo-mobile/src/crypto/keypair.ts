@@ -8,7 +8,7 @@ export interface DeviceKeyPair {
   /** Formato `raw` sin comprimir (65 bytes, `0x04||X||Y`) en base64 estándar --
    * exactamente lo que espera `POST /users/me/device-key` (MOVO-157) y lo que verifica
    * `webcrypto.subtle.importKey("raw", ...)` del lado de `svc-shipments` (MOVO-158,
-   * ADR-020). */
+   * ADR-018). */
   publicKeyBase64: string;
 }
 
@@ -27,7 +27,7 @@ let pendingKeyPair: Promise<DeviceKeyPair> | null = null;
 
 /**
  * Par de claves ECDSA P-256 del dispositivo para el handshake criptográfico
- * (MOVO-195, ADR-020). Mismo patrón que `getOrCreateDeviceId()`
+ * (MOVO-195, ADR-018). Mismo patrón que `getOrCreateDeviceId()`
  * (`src/lib/device-id.ts`, MOVO-107): si no hay privada persistida se genera una
  * nueva -- eso cubre tanto "dispositivo nuevo" (AC1) como "perdió la clave" por
  * reinstalación/borrado de datos (AC6) con el mismo camino, sin distinguir los dos

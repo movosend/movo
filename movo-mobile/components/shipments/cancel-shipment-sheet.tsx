@@ -57,7 +57,7 @@ export interface CancelShipmentSheetProps {
 }
 
 /**
- * Sheet de cancelación del emisor (MOVO-308, ADR-047), réplica del prototipo "MOVO-308 Emisor
+ * Sheet de cancelación del emisor (MOVO-308, DD-047), réplica del prototipo "MOVO-308 Emisor
  * cancela" de Claude Design. Un envío `assigned` tiene la tarjeta reservada: antes de confirmar
  * se pide la cotización y el sheet muestra si cancelar tiene cargo (sin cargo hasta el plazo,
  * penalidad, o franja de retiro vencida). Los estados sin reserva no cotizan.

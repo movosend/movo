@@ -4,7 +4,7 @@ import { ApiError, CarrierKycStatusResponse, PublicProfile } from "@movo/shared"
  * Cliente HTTP síncrono hacia `movo-svc-users` — primera llamada interna
  * servicio-a-servicio del repo (el resto de los adapters de MOVO hablan con APIs de
  * terceros: Didit, Twilio, Google Maps, S3). Comunicación REST síncrona sin message
- * broker, conforme a ADR-001/ADR-005.
+ * broker, conforme a ADR-001/005.
  */
 export interface DeviceKey {
   publicKey: string;
@@ -27,7 +27,7 @@ export interface UsersClient {
    */
   findDeviceKey(userId: string): Promise<DeviceKey | null>;
   /**
-   * MOVO-175 (ADR-026): ids de todos los usuarios con un bloqueo con `userId` en
+   * MOVO-175 (DD-026): ids de todos los usuarios con un bloqueo con `userId` en
    * cualquier dirección (la simetría la resuelve svc-users). Lanza 502 ante cualquier
    * falla -- decidir si eso bloquea la operación (escrituras) o se degrada a "sin
    * bloqueos" (listados) es del caller, ver `utils/block-relations.ts`.
@@ -42,7 +42,7 @@ export interface UsersClient {
    */
   listBlockRelatedUserIds(userId: string, timeoutMs?: number): Promise<string[]>;
   /**
-   * MOVO-116 (ADR-036): estados de KYC de identidad y licencia, para el bloqueo de
+   * MOVO-116 (DD-036): estados de KYC de identidad y licencia, para el bloqueo de
    * `utils/carrier-gate.ts`. `null` si el usuario no existe (404 de svc-users). Lanza
    * 502 ante cualquier falla de transporte o forma inválida: el bloqueo falla cerrado.
    */

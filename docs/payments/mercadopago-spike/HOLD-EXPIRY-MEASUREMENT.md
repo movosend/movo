@@ -2,7 +2,7 @@
 
 **Estado: cerrada el 21/10/2026.** El sandbox no canceló ninguno de los dos holds en ~188 h
 (7,8 días), más que los dos plazos que documenta MP. Resultado y decisión al final y en
-ADR-050 (`docs/payments/adr-050-plazo-del-hold.md`).
+DD-050 (`docs/payments/dd-050-plazo-del-hold.md`).
 
 > **Usar la Visa `4075 5957 1648 3764`.** Con un vendedor conectado por OAuth, la Visa
 > `4509 9535 6623 3704` (la de SOLUCION-FINAL) y la Mastercard de prueba hacen que
@@ -92,6 +92,6 @@ porque el sandbox no simula el vencimiento. **N = 3** (`FUNDING_NEAR_PICKUP_DAYS
 
 **`status_detail` de un hold vencido: sin confirmar.** El webhook de MOVO-268 sigue asumiendo
 `cancelled` + `expired`; si MP manda otra cosa, el hold igual pasa a `cancelled` (evento
-`cancelled` en vez de `expired`). Va al ADR-050 como limitación.
+`cancelled` en vez de `expired`). Va al DD-050 como limitación.
 
 Los dos holds quedaron abiertos en el sandbox, sin capturar ni cancelar.

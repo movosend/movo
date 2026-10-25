@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import Animated from "react-native-reanimated";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 
@@ -28,6 +28,8 @@ const MAX_SHEET_HEIGHT = Dimensions.get("window").height * 0.7;
 interface SelectFieldProps {
   label: string;
   value: string;
+  /** Texto del campo cerrado si conviene uno más corto que la opción elegida (default: `value`). */
+  displayValue?: string;
   options: readonly string[];
   onChange: (value: string) => void;
   placeholder?: string;
@@ -39,6 +41,7 @@ interface SelectFieldProps {
 export function SelectField({
   label,
   value,
+  displayValue,
   options,
   onChange,
   placeholder = "Seleccioná una opción",
@@ -48,6 +51,7 @@ export function SelectField({
 }: SelectFieldProps) {
   const [open, setOpen] = useState(false);
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(open);
 
   return (
@@ -62,7 +66,7 @@ export function SelectField({
           className={`font-sans text-body ${value ? "text-fg" : "text-fg-2"}`}
           numberOfLines={1}
         >
-          {value || placeholder}
+          {displayValue || value || placeholder}
         </Text>
         <ChevronDown size={18} color={colors.fg3} strokeWidth={2} />
       </Pressable>
@@ -103,6 +107,8 @@ export function SelectField({
                   </View>
                   <FlatList
                     style={{ flexGrow: 0 }}
+                    // La última opción no puede quedar bajo la barra de gestos (MOVO-317: lista de 31).
+                    contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 24) }}
                     data={options}
                     keyExtractor={(item) => item}
                     renderItem={({ item }) => (

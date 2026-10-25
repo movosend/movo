@@ -23,6 +23,8 @@ export interface ShipmentSummary {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). */
+  oversized?: boolean;
   description: string | null;
   urgent: boolean;
   pickupAddress: string;
@@ -50,7 +52,7 @@ export interface ShipmentSummary {
   receiverRedesignationDeadline?: string | null;
   /** MOVO-253: motivo del último rechazo, `null` fuera de `rejected_by_receiver`. */
   rejectionReason?: string | null;
-  /** MOVO-278 (ADR-045): ISO del momento en que el envío `in_transit` se marcó como
+  /** MOVO-278 (DD-045): ISO del momento en que el envío `in_transit` se marcó como
    * demorado; `null` (u omitido en builds viejos del backend) si no está marcado. */
   transitAnomalyFlaggedAt?: string | null;
   createdAt: string;
@@ -60,6 +62,10 @@ export interface ShipmentSummary {
    * sin identidad de los competidores, `null` si no hay ninguna. */
   offersSummary?: { count: number; minPriceNetArs: number } | null;
   debtDiscount?: { amountArs: number; reason: "pending_balance" } | null;
+  /** MOVO-285: solo para el transportista asignado — lo que recibe, EXACTO, calculado por el backend con el
+   * hold (comisión de Movo, fee real de MP y su descuento por deuda). `null` mientras MP no informó el fee:
+   * el monto se muestra como estimado ("aprox."). */
+  carrierReceivedArs?: number | null;
   /** MOVO-257: solo en `GET /shipments/mine` — ofertas vigentes de un envío
    * `published` visto por su emisor; `null` en cualquier otro caso. */
   pendingOffersCount?: number | null;
@@ -77,7 +83,7 @@ export interface ShipmentSummary {
   /** MOVO-275: solo en `GET /shipments/mine` — el usuario le pasó la recepción de este
    * envío a otra persona (badge "Transferido"). `null` en cualquier otro caso. */
   transferredByMe?: { newReceiverId: string; newReceiverName: string | null; at: string } | null;
-  /** MOVO-307 (ADR-047): penalidad por cancelar un envío `assigned` tarde. `null` en
+  /** MOVO-307 (DD-047): penalidad por cancelar un envío `assigned` tarde. `null` en
    * cualquier cancelación sin cargo. `pending`: se está cobrando del hold; `captured`: ya
    * se cobró; `debt`: el cobro falló y quedó en la cuenta corriente (el hold se liberó entero). */
   cancellationPenaltyArs?: number | null;
@@ -102,6 +108,8 @@ export interface CreateShipmentInput {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). */
+  oversized?: boolean;
   description?: string;
   receiverId: string;
   pickupAddress: string;
@@ -215,6 +223,8 @@ export interface AvailableShipment {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). */
+  oversized?: boolean;
   description: string | null;
   urgent: boolean;
   pickupAddress: string;
@@ -282,7 +292,7 @@ export interface ActiveShipmentSummary {
   isToday: boolean;
   pickupWindowExpired: boolean;
   tripId: string | null;
-  /** MOVO-278 (ADR-045): envío `in_transit` demorado (ISO del momento en que se marcó);
+  /** MOVO-278 (DD-045): envío `in_transit` demorado (ISO del momento en que se marcó);
    * `null` si no está marcado. Se muestra como "Demorado". */
   transitAnomalyFlaggedAt: string | null;
 }
@@ -443,7 +453,7 @@ export const shipmentsClient = {
 
   /** `GET /shipments/:id/carrier-withdrawal-quote` (MOVO-310/314) — solo el transportista asignado.
    * Cuánto le cuesta bajarse ahora: deuda en su cuenta corriente si faltan menos de 12 h para
-   * el retiro, y desde cualquier estado con transportista (ADR-047). */
+   * el retiro, y desde cualquier estado con transportista (DD-047). */
   getCarrierWithdrawalQuote(shipmentId: string): Promise<CancellationQuoteResponse> {
     return httpClient.get<CancellationQuoteResponse>(`/shipments/${shipmentId}/carrier-withdrawal-quote`);
   },

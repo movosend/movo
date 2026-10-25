@@ -278,7 +278,7 @@ export default function TransportScreen() {
 
   // MOVO-167 / MOVO-117: gating de entrada por identidad, licencia y Mercado Pago, sobre el
   // perfil propio y el estado de MP. Es solo UX -- el backend sigue siendo la autoridad
-  // (ADR-036). Mientras alguna de las dos consultas carga, falló o el usuario está bloqueado
+  // (DD-036). Mientras alguna de las dos consultas carga, falló o el usuario está bloqueado
   // no se resuelve el origen (evita pedir permiso de GPS a quien igual no va a poder ver el
   // listado) ni se piden envíos. Si no se puede consultar el perfil o MP no se deja pasar:
   // sin ellos no se sabe qué falta, así que se muestra el error con "Reintentar".

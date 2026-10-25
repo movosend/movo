@@ -41,7 +41,7 @@ const kycInternalSchemas = {
 };
 
 /**
- * MOVO-116 (ADR-036): consultado por `movo-svc-shipments` para bloquear declarar viaje,
+ * MOVO-116 (DD-036): consultado por `movo-svc-shipments` para bloquear declarar viaje,
  * ofertar, editar oferta e iniciar viaje sin licencia aprobada. Devuelve los dos estados
  * de KYC en crudo, más liviano que `GET /users/:id` (que además pide la reputación a
  * `svc-shipments`). Interno -- no se declara en `gateway/src/config/routes-map.ts`,

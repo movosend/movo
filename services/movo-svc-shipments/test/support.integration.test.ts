@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
 import WebSocket from "ws";
-import { signAccessToken, ShipmentStatus, UserRole, KycStatus, SupportTopic, SupportStatus } from "@movo/shared";
+import { signAccessToken, ShipmentStatus, UserRole, KycStatus, SupportTopic, SupportStatus, supportShipmentCode } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { createSupportRepository, SupportRepository } from "../src/repositories/support-repository";
@@ -11,7 +11,7 @@ import { buildSupportService } from "../src/modules/support/support.routes";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 
 /**
- * MOVO-320 (ADR-051): conversaciones de soporte del lado del usuario. Servidor TCP real (`app.listen`) y clientes
+ * MOVO-320 (DD-051): conversaciones de soporte del lado del usuario. Servidor TCP real (`app.listen`) y clientes
  * `ws` reales, mismo criterio que `chat.integration.test.ts`; HTTP por `app.inject` con los headers que inyecta el
  * gateway. Postgres y Redis reales. Lo que escribe el lado del agente (MOVO-322, todavía no existe) se simula
  * con el repositorio y `publishStaffMessage`, que es lo que va a llamar ese ticket.
@@ -21,7 +21,7 @@ describe("Soporte al usuario (MOVO-320)", () => {
   let shipments: ShipmentRepository;
   let supportRepo: SupportRepository;
   let baseUrl: string;
-  // Resúmenes de ráfaga agendados (ADR-046): el test los dispara a mano en vez de esperar la ventana real.
+  // Resúmenes de ráfaga agendados (DD-046): el test los dispara a mano en vez de esperar la ventana real.
   let scheduledFlushes: Array<() => void> = [];
   const notifications = createFakeNotificationsClient();
   // Servicio "del agente": el que va a usar MOVO-322 para difundir y avisar. Comparte hub y Redis con la app.
@@ -355,6 +355,96 @@ describe("Soporte al usuario (MOVO-320)", () => {
     it("sin consultas devuelve una lista vacía", async () => {
       const response = await list(randomUUID());
       expect(response.json()).toEqual({ items: [] });
+    });
+  });
+
+  describe("envíos para vincular (MOVO-324)", () => {
+    const shipmentOptions = (userId: string, query = "") =>
+      app.inject({ method: "GET", url: `/support/shipments${query}`, headers: headers(userId) });
+
+    it("trae los envíos del usuario en cualquier rol, con código, estado, ruta y rol", async () => {
+      const { shipmentId, senderId, receiverId, carrierId } = await createShipment();
+
+      for (const [userId, role] of [
+        [senderId, "sender"],
+        [receiverId, "receiver"],
+        [carrierId, "carrier"],
+      ] as const) {
+        const response = await shipmentOptions(userId);
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({
+          items: [
+            {
+              id: shipmentId,
+              code: supportShipmentCode(shipmentId),
+              status: ShipmentStatus.ASSIGNED,
+              route: "Av. Colón 1234 → Bv. San Juan 500",
+              role,
+              createdAt: expect.any(String),
+            },
+          ],
+          nextCursor: null,
+        });
+      }
+    });
+
+    it("usa la ciudad resuelta en la ruta cuando la hay", async () => {
+      const { shipmentId, senderId } = await createShipment();
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { pickupCity: "Nueva Córdoba", deliveryCity: "Alta Córdoba" } });
+
+      expect((await shipmentOptions(senderId)).json().items[0].route).toBe("Nueva Córdoba → Alta Córdoba");
+    });
+
+    it("no trae envíos ajenos y sí uno cuya recepción el usuario transfirió (sigue siendo parte)", async () => {
+      const { shipmentId, receiverId } = await createShipment();
+      await createShipment();
+      const newReceiverId = randomUUID();
+      await app.db.receiverTransferRequest.create({
+        data: {
+          shipmentId,
+          requestedBy: receiverId,
+          newReceiverId,
+          status: "completed",
+          newReceiverDeadline: new Date(),
+          resolvedAt: new Date(),
+        },
+      });
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { receiverId: newReceiverId } });
+
+      const items = (await shipmentOptions(receiverId)).json().items;
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ id: shipmentId, role: "receiver" });
+      expect((await shipmentOptions(randomUUID())).json()).toEqual({ items: [], nextCursor: null });
+    });
+
+    it("incluye envíos terminales y se puede vincular cualquiera de los listados", async () => {
+      const { shipmentId, senderId } = await createShipment();
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { status: ShipmentStatus.CANCELLED } });
+
+      const [option] = (await shipmentOptions(senderId)).json().items;
+      expect(option.status).toBe(ShipmentStatus.CANCELLED);
+      const created = await open(senderId, { topic: "shipment", shipmentId: option.id });
+      expect(created.statusCode).toBe(201);
+    });
+
+    it("pagina del más reciente al más antiguo con un cursor opaco, sin saltear ni repetir", async () => {
+      const senderId = randomUUID();
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const shipment = await shipments.create({ ...baseInput, senderId, receiverId: randomUUID() });
+        ids.unshift(shipment.id);
+      }
+
+      const first = (await shipmentOptions(senderId, "?limit=2")).json();
+      expect(first.items.map((s: { id: string }) => s.id)).toEqual(ids.slice(0, 2));
+      expect(first.nextCursor).toEqual(expect.any(String));
+      const second = (await shipmentOptions(senderId, `?limit=2&cursor=${encodeURIComponent(first.nextCursor)}`)).json();
+      expect(second).toEqual({ items: [expect.objectContaining({ id: ids[2] })], nextCursor: null });
+    });
+
+    it("un cursor inválido responde 400", async () => {
+      const response = await shipmentOptions(randomUUID(), "?cursor=no-es-un-cursor");
+      expect(response.statusCode).toBe(400);
     });
   });
 
@@ -692,7 +782,7 @@ describe("Soporte al usuario (MOVO-320)", () => {
     });
   });
 
-  describe("push de la respuesta del equipo (ADR-046)", () => {
+  describe("push de la respuesta del equipo (DD-046)", () => {
     it("avisa con el nombre del agente y el texto, en la categoría support, y apunta a la consulta", async () => {
       const userId = randomUUID();
       const id = await openConversation(userId);
@@ -773,7 +863,7 @@ describe("Soporte al usuario (MOVO-320)", () => {
       expect(toUser(userId)).toHaveLength(1);
     });
 
-    it("el bloqueo de usuarios (ADR-026) no aplica: la otra parte es Movo", async () => {
+    it("el bloqueo de usuarios (DD-026) no aplica: la otra parte es Movo", async () => {
       // No hay chequeo de bloqueo en ningún camino de soporte: quien tiene bloqueos igual recibe las respuestas.
       const userId = randomUUID();
       const id = await openConversation(userId);

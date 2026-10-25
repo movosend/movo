@@ -4,7 +4,7 @@ import { type AddReportEntryInput, moderationClient, type ReportUserInput } from
 
 export const BLOCKED_USERS_QUERY_KEY = ["moderation", "blocked"] as const;
 
-/** MOVO-175 (ADR-026) — el bloqueo es simétrico y afecta listados de otras
+/** MOVO-175 (DD-026) — el bloqueo es simétrico y afecta listados de otras
  * pantallas: el feed "Transportar" (`["shipments","available",...]`), los matches de
  * un viaje (`["trips","matches",...]`) y las ofertas recibidas
  * (`["shipments", id, "offers", ...]`, invalidadas por predicado porque el id va en

@@ -18,7 +18,7 @@ import { MOCK_SHIPMENTS } from "./fixtures"
 /**
  * Modo fixtures de Envíos (`MOVO_ADMIN_MOCK=1`, nunca en producción), mismo criterio que Usuarios:
  * reemplaza solo `lib/shipments/api.ts`. Reproduce los filtros, el cursor y los conteos de
- * `svc-shipments`. `MOVO_ADMIN_MOCK_FAIL=payment,parties,events,chat,list` hace fallar ese bloque
+ * `svc-shipments`. `MOVO_ADMIN_MOCK_FAIL=payment,parties,events,offers,chat,list` hace fallar ese bloque
  * con 502 en la primera carga (el reintento anda); con `!` (`payment!`) falla siempre.
  */
 export const mockEnabled = () =>
@@ -165,6 +165,7 @@ export async function mockGetShipment(
     shipment: s.detail,
     events: block("events", s.events),
     photos: block("photos", []),
+    offers: block("offers", s.offers),
     payment: block("payment", s.payment),
     parties: block("parties", s.parties),
   }

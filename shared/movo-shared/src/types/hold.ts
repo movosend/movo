@@ -90,7 +90,7 @@ export interface CreateHoldRequest {
   /** Usuario de Movo del emisor (MOVO-282): dueño de la tarjeta guardada, si se usa una. */
   payerUserId: string;
   /**
-   * MOVO-282 (ADR-039): id interno (`payments.saved_cards.id`) de la tarjeta guardada con la que se
+   * MOVO-282 (DD-039): id interno (`payments.saved_cards.id`) de la tarjeta guardada con la que se
    * generó el token (`card_id` + CVV). El pagador del hold pasa a ser el customer de esa tarjeta
    * (`payer: { type: "customer" }`) en vez del email. Sin él, el camino de siempre (tarjeta completa).
    * La tarjeta tiene que ser de `payerUserId` y estar viva; si no, 404 sin revelar si existe.
@@ -121,6 +121,12 @@ export interface HoldResponse extends HoldDebtBreakdown {
   applicationFeeArs: number;
   /** MOVO-311: comisión de Movo sola, sin deuda. */
   commissionArs: number;
+  /**
+   * MOVO-285: comisión de Mercado Pago de este pago tal como la informa MP (`charges_details` al crear el hold,
+   * `fee_details` tras capturar), vista del transportista: sin la parte que cae sobre el recargo del emisor
+   * (`carrierPaymentView`). `null` mientras MP no la haya informado; ahí la app sigue mostrando el estimado.
+   */
+  carrierMpFeeArs: number | null;
   status: HoldStatus;
   statusDetail: string | null;
   failureReason: HoldFailureReason | null;

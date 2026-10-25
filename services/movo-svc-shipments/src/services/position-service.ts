@@ -49,7 +49,7 @@ const CADENCE_BUCKET_TTL_MS = LAST_KNOWN_POSITION_TTL_SECONDS * 1000;
  * MOVO-251: la última posición conocida en Redis se indexa por `tripId` (no por `shipmentId`),
  * ya que la ubicación GPS física es del viaje (VRPTW).
  */
-function lastKnownPositionKey(tripId: string): string {
+export function lastKnownPositionKey(tripId: string): string {
   return `position:last:${tripId}`;
 }
 
@@ -323,7 +323,7 @@ export function createPositionService(
   }
 
   /**
-   * MOVO-270 (ADR-052, AC4/AC8): clasifica la posición contra el retiro de cada envío `assigned`
+   * MOVO-270 (DD-052, AC4/AC8): clasifica la posición contra el retiro de cada envío `assigned`
    * del viaje y la suma a su `pickup_evidence`. A diferencia del aviso de proximidad, corre por
    * CADA tramo de 45s con claim, incluidas las posiciones viejas de una cola offline: una llegada
    * encolada mientras no había señal tiene que contar igual. Cada envío se relee (nada cacheado) y

@@ -232,6 +232,53 @@ describe("usePushNotifications", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_1/chat");
   });
 
+  it("MOVO-324: tocar una push de soporte abre la consulta encima de Mis consultas", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: { request: { identifier: "s1", content: { data: { type: "support_message", conversationId: "conv_1" } } } },
+    });
+
+    expect(mockRouterPush).toHaveBeenNthCalledWith(1, "/support/conversations");
+    expect(mockRouterPush).toHaveBeenNthCalledWith(2, "/support/conv_1");
+  });
+
+  it("MOVO-324: dentro de Soporte la push abre la consulta sin apilar otra lista", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
+    mockPathname = "/support/conv_1";
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (r: unknown) => void;
+    listener({ notification: { request: { identifier: "s2", content: { data: { type: "support_message", conversationId: "conv_2" } } } } });
+
+    expect(mockRouterPush).toHaveBeenCalledTimes(1);
+    expect(mockRouterPush).toHaveBeenCalledWith("/support/conv_2");
+  });
+
+  it("MOVO-324: tocar la push de la consulta que ya está abierta no apila otra copia", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
+    mockPathname = "/support/conv_1";
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (r: unknown) => void;
+    listener({ notification: { request: { identifier: "s3", content: { data: { type: "support_message", conversationId: "conv_1" } } } } });
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
+  it("MOVO-324: una push de soporte sin conversationId no navega", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (r: unknown) => void;
+    listener({ notification: { request: { identifier: "s4", content: { data: { type: "support_message" } } } } });
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
   it("MOVO-284: una push de chat sin shipmentId no navega", async () => {
     mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated", user: { kycStatus: KycStatus.APPROVED } }));
 
