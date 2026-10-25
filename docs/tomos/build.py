@@ -130,6 +130,19 @@ def numerar(doc: dict, html: str, figuras: list, tablas: list) -> tuple[str, lis
     """Numera secciones, figuras y tablas del documento y arma su lista de secciones."""
     soup = BeautifulSoup(html, "lxml")
     cuerpo = soup.body or soup
+    # Las tablas convertidas desde Word llegan con todas las filas dentro de <thead>: una cabecera más alta
+    # que la página no se puede partir y se pierde. Solo la primera fila es cabecera; el resto pasa al cuerpo.
+    for tabla in cuerpo.find_all("table"):
+        cab = tabla.find("thead")
+        filas = cab.find_all("tr", recursive=False) if cab else []
+        if len(filas) > 1:
+            cuerpo_t = tabla.find("tbody") or tabla.new_tag("tbody")
+            if cuerpo_t.parent is None:
+                tabla.append(cuerpo_t)
+            for fila in reversed(filas[1:]):
+                for c in fila.find_all("th", recursive=False):
+                    c.name = "td"
+                cuerpo_t.insert(0, fila.extract())
     secciones = []
     n2 = n3 = 0
     nueva_pagina = doc.get("secciones_en_pagina_nueva", True)

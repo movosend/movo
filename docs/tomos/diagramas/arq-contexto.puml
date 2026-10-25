@@ -23,6 +23,7 @@ rectangle "Twilio\n(SMS)" <<externo>> as TW
 rectangle "Resend\n(email)" <<externo>> as RS
 rectangle "Expo Push\n(notificaciones)" <<externo>> as EX
 rectangle "Amazon S3\n(imágenes)" <<externo>> as S3
+rectangle "ArcGIS (Esri)\n(mapa del panel)" <<externo>> as ESRI
 
 E --> APP
 T --> APP
@@ -37,4 +38,5 @@ BE --> TW
 BE --> RS
 BE --> EX
 BE --> S3
+ADMIN --> ESRI : teselas
 @enduml
