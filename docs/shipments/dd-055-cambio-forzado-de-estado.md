@@ -193,14 +193,25 @@ Mercado Pago no está disponible (sandbox caído) y el entorno de dev es el úni
   `assigned_unfunded` → `assigned` (en otro destino, `422`). Lo expone el modal como "Simular el pago".
 - **Interruptor `ALLOW_SIMULATED_PAYMENTS`** en `svc-shipments` (default `false`). Apagado, el pedido responde
   `403 PAYMENT_SIMULATION_DISABLED` y no cambia nada. Se apaga al volver a tener un entorno de producción real.
-- **Si el envío ya tiene un hold vivo o cobrado** en payments: `409 HOLD_ALREADY_EXISTS` (el hold real quedaría huérfano).
-- El envío se marca (`shipments.payment_simulated`) **después** de asignarlo. Desde ahí, `withSimulatedPayments`
-  (`adapters/simulated-payments-client.ts`) contesta por payments sin red: hold `authorized` sintético, liquidación `credited` en
-  $0 y nada que liberar ni escribir en la cuenta corriente. Nadie paga ni cobra.
-- **Liberar el hold desmarca el envío**: si se da de baja al transportista o se cancela, el envío vuelve a cobrarse de verdad
-  al reasignarse (si no, el próximo emisor vería un hold `authorized` que nunca pagó).
-- Queda en la bitácora (`context.simulatePayment`) y en el log (`payment_simulated`). `confirmAssignmentByAdmin` sin el flag
-  sigue exigiendo el hold.
+- **Si el envío ya tiene un hold vivo o cobrado** en payments (consultado con `sync` contra MP, como el camino normal):
+  `409 HOLD_ALREADY_EXISTS`. Si el emisor paga de verdad mientras el admin simula, `submitFunding` ve que la asignación ya
+  está simulada y libera ese hold real por su `holdId`.
+- **La marca es de la asignación y viaja con el estado.** `payment_simulated` se escribe en el mismo UPDATE que el paso a
+  `assigned` (`UpdateStatusOptions.paymentSimulated`), así que o están las dos cosas o ninguna. Toda asignación la fija (la
+  normal en `false`): reasignar un envío que volvió a `published` no hereda la simulación anterior. Nada la borra al liberar
+  el hold, para que una cancelación o una baja que pierde la carrera contra el retiro no deje al envío sin marca (y
+  capturando contra el payments real).
+- **Qué contesta `withSimulatedPayments`** (`adapters/simulated-payments-client.ts`) mientras rige: hold `authorized`
+  sintético, captura/liquidación `credited` en $0 (la liquidación recién una vez entregado, como la real: antes es `null`) y
+  nada que liberar. Rige con el envío en `assigned`, `in_transit`, `delivered`, `completed`, `disputed` o `cancelled`; en
+  `published`/`assignment_pending`/`assigned_unfunded` va todo a payments. Un `holdId` distinto del id del envío es un hold
+  real y también va a payments.
+- **Cuenta corriente**: no se escribe nada por un envío marcado, por la marca cruda y sin mirar el estado: la penalidad de una
+  baja se registra cuando el envío ya volvió a `published`, y igual es de una asignación que nunca se pagó.
+- Queda en la bitácora (`context.simulatePayment`), en el log (`payment_simulated`) y en la clave de idempotencia (dos pedidos
+  que difieren en simular el pago no son el mismo cambio, en `svc-admin`, en `svc-shipments` y en el panel).
+- **Costo**: una lectura a Postgres por llamada de pagos (`findPaymentSimulation`: marca, estado y transportista en un solo
+  SELECT por PK), también para los envíos que nunca se simularon.
 - **Limitación aceptada**: mientras el interruptor esté encendido, un admin puede dejar un envío sin cobro. Lo acota que es por
   envío, con código tipeado, segundo factor y bitácora, y que no toca ningún pago real.
 
