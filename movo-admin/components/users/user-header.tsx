@@ -25,7 +25,7 @@ import {
   formatPhone,
   ROLE_LABEL,
 } from "@/lib/users/format"
-import { needsWithdrawalRetry } from "@/lib/users/sanctions"
+import { needsWithdrawalRetry, withdrawalWarning } from "@/lib/users/sanctions"
 import { cn } from "@/lib/utils"
 import { AccountActions } from "./actions/account-actions"
 import { RetryWithdrawalButton } from "./actions/retry-withdrawal-button"
@@ -238,8 +238,7 @@ export function AccountBanner({
         {!deleted && needsWithdrawalRetry(sanction) && sanction && (
           <div className="mt-1.5 flex flex-col gap-1.5">
             <span className="text-[13px] text-warn-fg">
-              No se pudo retirar todo lo que tenía abierto (publicaciones,
-              ofertas o viajes).
+              {withdrawalWarning(sanction)}
             </span>
             <RetryWithdrawalButton userId={user.id} sanctionId={sanction.id} />
           </div>

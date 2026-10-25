@@ -103,9 +103,9 @@ function SanctionForm({
   fullName: string
   onClose: () => void
 }) {
-  const [step, setStep] = useState<"edit" | "confirm" | "blocked" | "done">(
-    "edit"
-  )
+  const [step, setStep] = useState<
+    "edit" | "confirm" | "blocked" | "unconfirmed" | "done"
+  >("edit")
   const [reason, setReason] = useState("")
   const [note, setNote] = useState("")
   const [term, setTerm] = useState<"until" | "indefinite">("until")
@@ -145,11 +145,15 @@ function SanctionForm({
         endsOn: needsDate ? endsOn : null,
       })
       if (!response.ok) {
-        // Entre la vista previa y la confirmación pudo empezar un envío: el backend lo rechaza igual.
+        // Un envío que aparece entre la vista previa y la confirmación lo rechaza el backend; uno que se
+        // compromete entre su chequeo y la sanción, no (carrera aceptada, DD-049).
         if (response.inProgressShipments) {
           setBlockers(response.inProgressShipments)
           return setStep("blocked")
         }
+        // Puede haberse aplicado: reintentar abriría una segunda sanción y cerraría la primera como
+        // reemplazada. Se cierra el paso de confirmación y se manda a la ficha, que ya se refrescó.
+        if (response.unconfirmed) return setStep("unconfirmed")
         return setError(response.error)
       }
       setApplied(response.data)
@@ -191,6 +195,25 @@ function SanctionForm({
       </>
     )
   }
+
+  if (step === "unconfirmed")
+    return (
+      <>
+        <DialogBody>
+          <ActionError message="El servicio no respondió y no sabemos si la sanción se aplicó." />
+          <p className="text-[13px] text-fg2">
+            Cerrá el diálogo y revisá la ficha: si la sanción figura como
+            vigente, ya está aplicada (y si el retiro quedó pendiente, se
+            reintenta desde ahí). Si no figura, volvé a intentarlo.
+          </p>
+        </DialogBody>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cerrar y revisar la ficha
+          </Button>
+        </DialogFooter>
+      </>
+    )
 
   if (step === "blocked")
     return (

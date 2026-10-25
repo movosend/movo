@@ -91,7 +91,7 @@ describe("needsWithdrawalRetry", () => {
     attemptedAt: "2026-10-20T00:00:00.000Z",
   })
 
-  it("solo en una sanción vigente con el retiro parcial o fallido", () => {
+  it("solo en una sanción vigente con el retiro parcial, fallido o sin registrar", () => {
     expect(
       needsWithdrawalRetry(sanction({ withdrawal: withdrawal("failed") }))
     ).toBe(true)
@@ -101,7 +101,13 @@ describe("needsWithdrawalRetry", () => {
     expect(
       needsWithdrawalRetry(sanction({ withdrawal: withdrawal("complete") }))
     ).toBe(false)
-    expect(needsWithdrawalRetry(sanction({ withdrawal: null }))).toBe(false)
+    // Sin registro (respuesta o bitácora caídas al aplicar): el reintento es idempotente, se ofrece.
+    expect(needsWithdrawalRetry(sanction({ withdrawal: null }))).toBe(true)
+    expect(
+      needsWithdrawalRetry(
+        sanction({ withdrawal: null, liftedAt: "2026-10-21T00:00:00.000Z" })
+      )
+    ).toBe(false)
     expect(
       needsWithdrawalRetry(
         sanction({

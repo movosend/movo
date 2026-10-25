@@ -4,6 +4,7 @@ import { ApiError } from "@movo/shared/src/errors/api-error"
 import {
   ACCOUNT_SANCTION_NOTE_MAX_LENGTH,
   ACCOUNT_SANCTION_REASON_MAX_LENGTH,
+  type AccountSanction,
   type AccountSanctionType,
 } from "@movo/shared/src/types/account-sanctions"
 import {
@@ -284,7 +285,7 @@ export async function liftSanction(
   userId: string,
   sanctionId: string,
   reason: string
-): Promise<ActionResult<AdminUserSanction>> {
+): Promise<ActionResult<AccountSanction>> {
   const actor = await admin(userId)
   if (isDenied(actor)) return actor
   if (!UUID.test(sanctionId)) return invalid()

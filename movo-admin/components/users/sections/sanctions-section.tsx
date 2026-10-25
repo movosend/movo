@@ -3,7 +3,11 @@ import type { AccountSanctionClosedCause } from "@movo/shared/src/types/account-
 import type { AdminUserSanction } from "@movo/shared/src/types/admin-users"
 import { formatDate, type Pill } from "@/lib/users/format"
 import { loadSanctions } from "@/lib/users/load"
-import { describeWithdrawn, needsWithdrawalRetry } from "@/lib/users/sanctions"
+import {
+  describeWithdrawn,
+  needsWithdrawalRetry,
+  withdrawalWarning,
+} from "@/lib/users/sanctions"
 import { RetryWithdrawalButton } from "../actions/retry-withdrawal-button"
 import { ReportSection } from "../ficha-status"
 import { SectionError } from "../section-error"
@@ -81,7 +85,7 @@ export async function SanctionsSection({ id }: { id: string }) {
               </span>
             )}
             <span className="text-xs text-muted-foreground">{metaOf(s)}</span>
-            {w?.status === "complete" && w.result && (
+            {w?.result && (
               <span className="text-xs text-muted-foreground">
                 Retiro: {describeWithdrawn(w.result)}
               </span>
@@ -89,9 +93,7 @@ export async function SanctionsSection({ id }: { id: string }) {
             {needsWithdrawalRetry(s) && (
               <div className="mt-1 flex flex-col gap-1.5">
                 <span className="text-xs text-warn-fg">
-                  {w?.status === "partial"
-                    ? "El retiro quedó a medias: algunas publicaciones, ofertas o viajes siguen abiertos."
-                    : "No se pudo retirar la actividad abierta: el servicio de envíos no respondió."}
+                  {withdrawalWarning(s)}
                 </span>
                 <RetryWithdrawalButton userId={id} sanctionId={s.id} />
               </div>

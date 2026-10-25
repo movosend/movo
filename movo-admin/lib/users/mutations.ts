@@ -1,5 +1,6 @@
 import "server-only"
 import { cookies } from "next/headers"
+import type { AccountSanction } from "@movo/shared/src/types/account-sanctions"
 import type {
   AdminApplySanctionBody,
   AdminContactUpdateBody,
@@ -104,7 +105,7 @@ export async function liftUserSanction(
   sanctionId: string,
   reason: string,
   actor: MockActor
-): Promise<AdminUserSanction> {
+): Promise<AccountSanction> {
   if (mockEnabled()) return mockLiftSanction(id, sanctionId, reason, actor)
   return gateway(path(id, `sanctions/${encodeURIComponent(sanctionId)}/lift`), {
     body: { reason },

@@ -29,7 +29,7 @@ export function RetryWithdrawalButton({
       const w = response.data
       setMessage(
         w.status === "complete" && w.result
-          ? { ok: true, text: describeWithdrawn(w.result) }
+          ? { ok: true, text: `Este intento: ${describeWithdrawn(w.result)}` }
           : {
               ok: false,
               text: "Todavía quedó algo sin retirar. Podés volver a intentarlo.",

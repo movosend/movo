@@ -92,8 +92,19 @@ export function describeWithdrawn(result: WithdrawOpenActivityResult): string {
 export const activeSanctionOf = (items: AdminUserSanction[]) =>
   items.find((s) => !s.liftedAt) ?? null
 
-/** El retiro de la sanción vigente quedó a medias y conviene reintentarlo (AC2). */
+/**
+ * El retiro de la sanción vigente quedó a medias o sin registrar, y conviene reintentarlo (AC2). Sin
+ * registro (`withdrawal: null`) puede ser una sanción migrada o una aplicada con la respuesta o la
+ * bitácora caídas: el reintento es idempotente, así que se ofrece igual.
+ */
 export const needsWithdrawalRetry = (s: AdminUserSanction | null) =>
-  !!s &&
-  !s.liftedAt &&
-  (s.withdrawal?.status === "partial" || s.withdrawal?.status === "failed")
+  !!s && !s.liftedAt && s.withdrawal?.status !== "complete"
+
+/** Por qué se ofrece reintentar el retiro, para la ficha. */
+export function withdrawalWarning(s: AdminUserSanction): string {
+  if (!s.withdrawal)
+    return "No hay registro del retiro de esta sanción: reintentalo para asegurarte de que no quede nada abierto."
+  return s.withdrawal.status === "partial"
+    ? "El retiro quedó a medias: algunas publicaciones, ofertas o viajes siguen abiertos."
+    : "El último intento de retiro falló: puede que siga habiendo publicaciones, ofertas o viajes abiertos."
+}
