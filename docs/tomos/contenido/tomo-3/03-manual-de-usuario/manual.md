@@ -541,15 +541,28 @@ Solo pueden ingresar cuentas con el rol de administrador, correo verificado y cu
 
 ## Navegar el panel
 
-La barra lateral da acceso a **Inicio**, **Usuarios**, **Envíos**, **Soporte** y **Admins**. Las secciones **Reportes**, **Disputas**, **Métricas** y **Bitácora** figuran como *Próximamente*: todavía no están disponibles. Podés cambiar entre tema claro y oscuro desde el botón del encabezado.
+La barra lateral da acceso a **Inicio**, **Usuarios**, **Envíos**, **Soporte** y **Admins**. Las secciones **Reportes**, **Disputas**, **Métricas** y **Bitácora** figuran como *Próximamente*: todavía no están disponibles. En **Inicio** solo **Admins** y **Usuarios** figuran hoy como activas en las tarjetas; **KYC**, **Reportes**, **Disputas**, **Métricas** y **Bitácora** dicen *Próximamente*. Desde el menú de tu cuenta, arriba a la derecha, podés cambiar entre tema claro y oscuro y cerrar sesión; ahí mismo se recuerda que la sesión dura 8 horas.
 
 {{captura W-04}}
+
+{{captura W-18}}
 
 ## Usuarios
 
 **Buscar.** En **Usuarios** escribí un nombre, correo, teléfono o DNI (la búsqueda no distingue tildes ni mayúsculas; el DNI puede ir con o sin puntos). Los resultados se paginan.
 
-**Ficha.** Al abrir un usuario ves su ficha completa, organizada en secciones que cargan por separado (si una falla, se muestra el error en esa sección y el resto sigue disponible): datos y estado de la cuenta, verificación de identidad y licencia (sin imágenes del documento), actividad (envíos, viajes y calificaciones), moderación (reportes y bloqueos), sanciones, cuenta corriente y la bitácora de acciones de administradores sobre esa persona. Ver una ficha no deja registro.
+**Ficha.** Al abrir un usuario ves su ficha completa. Arriba se resumen el estado de la cuenta, los roles y cuatro indicadores (envíos, reputación, reportes recibidos y saldo), y un índice lateral lleva a cada sección, que cargan por separado (si una falla, se muestra el error en esa sección y el resto sigue disponible):
+
+- **Datos y roles**: nombre, correo, teléfono, DNI y desde cuándo tiene cada rol.
+- **KYC**: verificación de identidad con la lista de intentos, licencia de conducir y vinculación de Mercado Pago (sin imágenes del documento).
+- **Vehículo**: la ficha del vehículo, o el aviso de que un transportista todavía no la cargó.
+- **Actividad** y **Calificaciones**: envíos como emisor, transportista o receptor, viajes, y las calificaciones recibidas.
+- **Reportes** y **Bloqueos**: los reportes recibidos y los bloqueos entre usuarios, que son simétricos.
+- **Sanciones**: suspensiones e inhabilitaciones, vigentes y pasadas.
+- **Cuenta corriente**: movimientos y deuda.
+- **Dispositivos**, **Notas** y **Bitácora**: dispositivos de la cuenta, notas internas y las acciones de administradores sobre esa persona.
+
+Ver una ficha no deja registro.
 
 **Acciones.** El menú **Acciones** permite:
 
@@ -557,7 +570,7 @@ La barra lateral da acceso a **Inicio**, **Usuarios**, **Envíos**, **Soporte** 
 - **Cambiar el correo o el teléfono**, con motivo y una vista previa del *antes* y el *después*.
 - **Ajustar el saldo** de la cuenta corriente, con monto, sentido y motivo.
 - **Agregar una nota interna**, que ven todos los administradores.
-- **Suspender o inhabilitar** una cuenta (la pantalla de esta acción se completa en la historia MOVO-299, todavía en curso).
+- **Suspender o inhabilitar** una cuenta. Al suspender se escribe el **motivo** (lo ve la persona en la app y por correo, así que se redacta para ella), una **nota interna** opcional que solo ven los administradores y el **plazo**: hasta una fecha (la suspensión termina a las 23:59 de ese día) o indefinida. Antes de aplicarla, **Revisar** muestra un resumen para confirmar.
 
 Toda acción de escritura exige un **motivo** y queda registrada en la bitácora con tu nombre. Un administrador no puede actuar sobre su propia cuenta ni sobre un envío del que sea parte.
 
@@ -569,11 +582,15 @@ Toda acción de escritura exige un **motivo** y queda registrada en la bitácora
 
 {{captura W-08}}
 
+{{captura W-16}}
+
+{{captura W-17}}
+
 ## Envíos
 
-**Listado.** En **Envíos** se ven los envíos organizados por pestañas de estado (por defecto, los activos), con un buscador por código, nombre de cualquiera de las partes o dirección, y filtros por ciudad de retiro y por rango de fechas del último cambio de estado.
+**Listado.** En **Envíos** se ven los envíos organizados por pestañas: **Todos**, **Sin asignar**, **Asignando**, **En curso**, **Cerrados** y **Disputas** (por defecto, los activos), con la opción **Solo con alerta** para ver únicamente los que requieren atención, con un buscador por código, nombre de cualquiera de las partes o dirección, y filtros por ciudad de retiro y por rango de fechas del último cambio de estado.
 
-**Detalle.** El detalle muestra las partes, el retiro y la entrega, el paquete y el pago, la **línea de tiempo** de estados, las **ofertas** recibidas (precio sugerido, acordado y rango ofertado) y el chat del envío en solo lectura (el administrador lee pero nunca escribe). Un envío en camino muestra además un **mapa de seguimiento** con la ruta y la posición del transportista.
+**Detalle.** El detalle muestra las partes, el retiro y la entrega, el paquete y el pago, la **línea de tiempo** de estados, las **ofertas** recibidas (precio sugerido, acordado y rango ofertado) y el chat del envío en solo lectura, en **Modo observador** (el administrador lee pero nunca escribe). **Cambiar estado** queda deshabilitado si el administrador es parte del envío. Un envío en camino muestra además un **mapa de seguimiento** con la ruta y la posición del transportista.
 
 {{captura W-09}}
 
@@ -585,11 +602,7 @@ Toda acción de escritura exige un **motivo** y queda registrada en la bitácora
 
 ## Soporte
 
-La **bandeja de soporte** lista las consultas de los usuarios, con filtros **Todos**, **Míos** y **Sin asignar**, búsqueda por nombre, código SOP o envío y filtro por estado. Al abrir una consulta se ve la conversación y, a un costado, el contexto del usuario: verificaciones, reputación, envíos recientes y consultas anteriores. Se puede vincular la consulta a un envío y agregar etiquetas.
-
-::: nota
-**Estado de esta sección.** La interfaz de la bandeja está construida, pero la API que la conecta con las consultas reales (MOVO-322) sigue en desarrollo, por lo que hoy el panel trabaja con datos de prueba.
-:::
+La **bandeja de soporte** lista las consultas de los usuarios, con filtros **Todos**, **Míos** y **Sin asignar**, búsqueda por nombre, código SOP o envío y filtro por estado. Al abrir una consulta se ve la conversación y, a un costado, el contexto del usuario: verificaciones, reputación, envíos recientes y consultas anteriores. Se puede vincular la consulta a un envío y agregar etiquetas. Una consulta propia, es decir, abierta por la cuenta del propio administrador, no se puede responder.
 
 {{captura W-13}}
 

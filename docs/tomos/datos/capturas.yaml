@@ -46,7 +46,7 @@ capturas:
   - {id: M-43, plataforma: movil, titulo: "Detalle del envío (receptor), por confirmar", pantalla: "(app)/shipments/[id]", estado: "Vista del receptor con el perfil del emisor y los botones «Aceptar» y «Rechazar»."}
   - {id: M-44, plataforma: movil, titulo: "Que lo reciba otra persona", pantalla: "(app)/shipments/[id]/receiver-transfer", estado: "Pantalla con la persona elegida, el motivo opcional y «Enviar invitación»."}
   - {id: M-45, plataforma: movil, titulo: "Invitación para recibir", pantalla: "(app)/receiver-transfers/[id]", estado: "Pantalla del nuevo receptor con «Aceptar y recibir» y «Rechazar invitación»."}
-  - {id: M-46, plataforma: movil, titulo: "Receptor escanea el código de entrega", pantalla: "(app)/shipments/[id]/handshake-scan", estado: "Cámara con el marco de escaneo y la indicación de acercarse al transportista."}
+  - {id: M-46, plataforma: movil, titulo: "Receptor escanea el código de entrega", pantalla: "(app)/shipments/[id]/handshake-scan", estado: "Visor con el marco de escaneo y la indicación «Apuntá al código de la otra persona»; el fondo del visor es ilustrativo."}
   - {id: M-47, plataforma: movil, titulo: "Transportar, envíos disponibles", pantalla: "(app)/(tabs)/transport", estado: "Feed con tarjetas de paquetes cercanos, el radio de búsqueda y el botón de filtros."}
   - {id: M-48, plataforma: movil, titulo: "Transportar, requisitos pendientes", pantalla: "(app)/(tabs)/transport", estado: "Transportista sin licencia verificada: tarjetas de requisitos (identidad, licencia, Mercado Pago)."}
   - {id: M-49, plataforma: movil, titulo: "Transportar, filtros", pantalla: "(app)/(tabs)/transport (hoja de filtros)", estado: "Hoja «Filtros» con tipo de paquete, pago mínimo, peso máximo y «Solo lo que me queda de paso»."}
@@ -64,7 +64,7 @@ capturas:
   - {id: M-61, plataforma: movil, titulo: "Retiro, confirmar que llegaste", pantalla: "(app)/shipments/[id]/pickup/index", estado: "Mapa con el círculo de 100 m alrededor del punto de retiro y el pulso de GPS dentro del radio."}
   - {id: M-62, plataforma: movil, titulo: "Retiro, fotos de evidencia", pantalla: "(app)/shipments/[id]/pickup/evidence", estado: "Paso «Evidencia del retiro» con las fotos tomadas."}
   - {id: M-63, plataforma: movil, titulo: "Retiro, escaneo del QR", pantalla: "(app)/shipments/[id]/pickup/scan", estado: "Cámara escaneando el QR que muestra el emisor."}
-  - {id: M-64, plataforma: movil, titulo: "Retiro confirmado", pantalla: "(app)/shipments/[id]/pickup/success", estado: "Pantalla de éxito con «Ver envío» y «Ver en el mapa»."}
+  - {id: M-64, plataforma: movil, titulo: "Retiro confirmado", pantalla: "(app)/shipments/[id]/pickup/success", estado: "Pantalla «Retiro confirmado» con la dirección de entrega, la distancia y el tiempo de la ruta, y el botón «Ver la ruta»."}
   - {id: M-65, plataforma: movil, titulo: "Entrega, código para el receptor", pantalla: "(app)/shipments/[id]/delivery/qr", estado: "QR del transportista con el nombre del receptor y la cuenta regresiva."}
   - {id: M-66, plataforma: movil, titulo: "Entrega confirmada y cobro", pantalla: "(app)/shipments/[id]/delivery/success", estado: "Pantalla con «Te acreditamos» y el detalle del cobro."}
   - {id: M-67, plataforma: movil, titulo: "Bajarme de un envío asignado", pantalla: "(app)/shipments/[id] (hoja)", estado: "Hoja «Bajarme del envío» con el aviso de penalidad."}
@@ -76,7 +76,7 @@ capturas:
   - {id: M-73, plataforma: movil, titulo: "Verificación de licencia", pantalla: "(app)/license-kyc", estado: "Pantalla «Confirmemos tu licencia de conducir»."}
   - {id: M-74, plataforma: movil, titulo: "Pagos y cobros, medios de pago", pantalla: "(app)/profile/payments/index", estado: "Pestaña de medios con dos tarjetas (una predeterminada) y la cuenta de Mercado Pago vinculada."}
   - {id: M-75, plataforma: movil, titulo: "Agregar tarjeta", pantalla: "(app)/profile/payments/add-card", estado: "Formulario de número, vencimiento, código y nombre, con «Usar como predeterminada»."}
-  - {id: M-76, plataforma: movil, titulo: "Vincular Mercado Pago", pantalla: "mp-connect", estado: "Navegador embebido de Mercado Pago en el paso de autorización."}
+  - {id: M-76, plataforma: movil, titulo: "Vincular Mercado Pago", pantalla: "mp-connect", estado: "Navegador embebido de Mercado Pago (auth.mercadopago.com) en el primer paso de la autorización, la elección del país."}
   - {id: M-77, plataforma: movil, titulo: "Historial de pagos y cobros", pantalla: "(app)/profile/payments/index (pestaña de historial)", estado: "Movimientos agrupados por mes, con los filtros «Últimos 30 días / Este mes / Mes anterior»."}
   - {id: M-78, plataforma: movil, titulo: "Detalle de un cobro", pantalla: "(app)/profile/payments/history/[id]", estado: "Desglose «Cómo se compone»: pago del emisor, comisión de Movo, comisión de Mercado Pago y neto."}
   - {id: M-79, plataforma: movil, titulo: "Saldo pendiente y pagar mi saldo", pantalla: "(app)/profile/payments/index (pestaña de saldo)", estado: "Usuario con deuda: «Saldo pendiente», «Qué forma tu saldo» y «Pagar mi saldo»."}
@@ -93,13 +93,13 @@ capturas:
   - {id: M-90, plataforma: movil, titulo: "Conversación con soporte", pantalla: "(app)/support/[id]", estado: "Hilo con mensajes del usuario y del equipo de Movo."}
   - {id: M-91, plataforma: movil, titulo: "Estado de la cuenta (suspendida)", pantalla: "(app)/account-status", estado: "Cuenta suspendida con el listado de acciones que no se pueden hacer y «Contactar a soporte»."}
   - {id: M-92, plataforma: movil, titulo: "Cuenta inhabilitada", pantalla: "(auth)/account-disabled", estado: "Pantalla «Tu cuenta fue inhabilitada»."}
-  - {id: M-93, plataforma: movil, titulo: "Notificación push en el dispositivo", pantalla: "Centro de notificaciones del sistema", estado: "Una push de «Oferta recibida» en la pantalla de bloqueo."}
+  - {id: M-93, plataforma: movil, titulo: "Notificación push en el dispositivo", pantalla: "Centro de notificaciones del sistema", estado: "Una push de «Oferta recibida» en la pantalla de bloqueo del teléfono."}
   - {id: W-01, plataforma: web, titulo: "Ingreso al panel", pantalla: "https://admin.movosend.app/login", estado: "Formulario de email y contraseña, con el aviso «Solo para el equipo de Movo»."}
   - {id: W-02, plataforma: web, titulo: "Verificación del código", pantalla: "/verify", estado: "Campo de seis dígitos del código enviado por email y el enlace «¿No te llegó?»."}
   - {id: W-03, plataforma: web, titulo: "Recuperar la contraseña del panel", pantalla: "/forgot", estado: "Paso de ingreso del email y paso del nuevo código."}
-  - {id: W-04, plataforma: web, titulo: "Inicio del panel", pantalla: "/", estado: "Barra lateral con Inicio, Usuarios, Envíos, Soporte y Admins, y las secciones «Próximamente»."}
+  - {id: W-04, plataforma: web, titulo: "Inicio del panel", pantalla: "/", estado: "Barra lateral con las secciones habilitadas y las que figuran como «Próximamente»."}
   - {id: W-05, plataforma: web, titulo: "Búsqueda de usuarios", pantalla: "/users", estado: "Resultados de la búsqueda por nombre, email, teléfono o DNI."}
-  - {id: W-06, plataforma: web, titulo: "Ficha de usuario", pantalla: "/users/[id]", estado: "Ficha con las secciones Datos, Verificación, Actividad, Moderación, Sanciones y Bitácora."}
+  - {id: W-06, plataforma: web, titulo: "Ficha de usuario", pantalla: "/users/[id]", estado: "Encabezado con estado, roles y métricas, índice lateral de secciones y la sección «Datos y roles»."}
   - {id: W-07, plataforma: web, titulo: "Acciones sobre una cuenta", pantalla: "/users/[id] (menú «Acciones»)", estado: "Menú con cerrar sesiones, cambiar email o teléfono, ajustar el saldo, agregar nota y sancionar."}
   - {id: W-08, plataforma: web, titulo: "Ajustar el saldo", pantalla: "/users/[id] (diálogo)", estado: "Diálogo con monto, motivo y la casilla de confirmación, con el «Antes / Después»."}
   - {id: W-09, plataforma: web, titulo: "Listado de envíos", pantalla: "/shipments", estado: "Tabla con pestañas por grupo de estados, filtros y el buscador."}
@@ -109,3 +109,6 @@ capturas:
   - {id: W-13, plataforma: web, titulo: "Bandeja de soporte", pantalla: "/support", estado: "Lista de consultas con filtros Todos, Míos, Sin asignar y la conversación abierta."}
   - {id: W-14, plataforma: web, titulo: "Contexto del usuario en soporte", pantalla: "/support/[id] (panel lateral)", estado: "Panel con verificaciones, reputación, envíos recientes y conversaciones anteriores."}
   - {id: W-15, plataforma: web, titulo: "Administradores", pantalla: "/admins", estado: "Tabla de administradores y el diálogo «Agregar administrador»."}
+  - {id: W-16, plataforma: web, titulo: "Suspender una cuenta", pantalla: "/users/[id] (diálogo)", estado: "Diálogo con motivo visible para la persona, nota interna opcional y plazo (hasta una fecha o indefinida), antes de «Revisar»."}
+  - {id: W-17, plataforma: web, titulo: "Verificaciones y vehículo en la ficha", pantalla: "/users/[id] (secciones KYC y Vehículo)", estado: "Identidad con la lista de intentos, licencia de conducir, Mercado Pago y la ficha del vehículo."}
+  - {id: W-18, plataforma: web, titulo: "Menú de la cuenta del administrador", pantalla: "/ (menú del encabezado)", estado: "Menú con el aviso de sesión de 8 horas, el cambio de tema y «Cerrar sesión»."}
