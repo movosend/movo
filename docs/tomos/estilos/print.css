@@ -267,6 +267,8 @@ td p, th p { margin: 0 0 1mm; text-align: left; }
 td p:last-child, th p:last-child { margin-bottom: 0; }
 td ul, td ol { margin: 0; }
 td code { font-size: .92em; }
+/* Apéndice de variables de entorno: el nombre de cada variable va en una pastilla lime suave. */
+table.vars td:first-child code { background: #EEF9D2; color: var(--ink-950); box-shadow: inset 0 0 0 .4pt #D5EE8C; padding: .3mm 1.2mm; }
 
 caption, .tabla-titulo {
   break-after: avoid;

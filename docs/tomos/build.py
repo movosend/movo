@@ -136,6 +136,9 @@ def numerar(doc: dict, html: str, figuras: list, tablas: list) -> tuple[str, lis
         # Con anchos de columna declarados se fija el layout: el contenido largo se parte en vez de ensanchar la tabla.
         if tabla.find("colgroup") and "caso" not in tabla.get("class", []):
             tabla["class"] = tabla.get("class", []) + ["fija"]
+        primera = tabla.find(["th", "td"])
+        if primera and primera.get_text(strip=True) == "Variable":
+            tabla["class"] = tabla.get("class", []) + ["vars"]
         cab = tabla.find("thead")
         filas = cab.find_all("tr", recursive=False) if cab else []
         if len(filas) > 1:

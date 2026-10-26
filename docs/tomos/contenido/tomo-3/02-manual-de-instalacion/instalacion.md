@@ -239,8 +239,14 @@ Los servicios ejecutan tareas periódicas en segundo plano, cada una con un cand
 - Los problemas operativos del servicio de pagos (liquidaciones escaladas, holds perdidos) generan una **alerta al equipo** por el canal configurado (Telegram).
 - La cuota diaria de Google Maps tiene un tope duro configurado en Google Cloud; revisar el consumo si el mapa o las rutas degradan.
 
-::: pendiente
-**Pendiente de confirmar con `movo-infra`:** la política de respaldo de PostgreSQL (frecuencia de los *snapshots*, retención y procedimiento de restauración) y el monitoreo externo de disponibilidad. Este manual no los documenta porque su definición está en el repositorio de infraestructura, no en este.
+::: importante
+**Respaldo y disponibilidad: limitaciones conocidas.** La infraestructura (`movo-infra`) no define hoy una política de respaldo de PostgreSQL ni monitoreo externo de disponibilidad:
+
+- **Respaldo de la base de datos.** PostgreSQL corre en un contenedor con el volumen Docker `postgres-data`, que vive en el disco raíz de la instancia EC2. No hay *snapshots* programados del disco, ni exportaciones periódicas, ni retención o procedimiento de restauración definidos. Si se pierde la instancia o su disco, se pierden los datos de ese ambiente. Antes de una intervención de riesgo (por ejemplo, una migración destructiva), se recomienda tomar un *snapshot* del volumen desde la consola de AWS o una exportación con `pg_dump`.
+- **Fotos y evidencias.** El bucket de S3 tiene cifrado en reposo, pero no versionado ni reglas de expiración (`lifecycle_expiration_days` queda en 0 hasta que el equipo defina una política de retención).
+- **Monitoreo.** No hay alarmas de AWS ni un servicio externo que consulte `GET /health`. La caída de un ambiente se detecta por los avisos del servicio de pagos o por el uso, y la salud se verifica a mano con los comandos de esta sección.
+
+Son límites aceptados por el alcance del proyecto, no un descuido. Para un uso productivo con datos reales, el primer paso sería programar *snapshots* diarios del volumen con retención definida y registrar `/health` en un monitor externo.
 :::
 
 ## Seguridad operativa
