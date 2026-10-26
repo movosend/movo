@@ -232,6 +232,82 @@ def fecha_larga(f: dt.date) -> str:
     return f"{MESES[f.month - 1]} de {f.year}"
 
 
+def fecha_dia(f: dt.date) -> str:
+    return f"{f.day} de {MESES[f.month - 1]} de {f.year}"
+
+
+def entorno() -> jinja2.Environment:
+    """Entorno de Jinja con los conversores de unidades del diseño: mm(px) a mm y pt(px) a pt (A4 = 794 px de ancho)."""
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(RAIZ / "plantillas"), autoescape=False)
+    env.globals["mm"] = lambda n: f"{n * 210 / 794:.3f}mm"
+    env.globals["pt"] = lambda n: f"{n * 0.75:g}pt"
+    # Tapa: el prototipo está a escala 2 px = 1 mm (A4 = 420 x 594 px).
+    env.globals["u"] = lambda n: f"{n * 0.5:g}mm"
+    env.globals["ufs"] = lambda n: f"{n * 0.5 * 72 / 25.4:.2f}pt"
+    return env
+
+
+def es_oscuro(color: str) -> bool:
+    """Luminancia relativa baja (mismo criterio que el prototipo de tapas): el texto pasa a blanco."""
+    h = color.lstrip("#")
+    h = "".join(c * 2 for c in h) if len(h) == 3 else h
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    lin = [v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4 for v in (r, g, b)]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2] < 0.4
+
+
+def contexto_tapa(tomo: dict, cfg: dict, proyecto: dict, puntos: str) -> dict:
+    """Variables comunes de la tapa (plano de tapa dura y páginas de la edición digital)."""
+    t = cfg["tapa"]
+    oscuro = es_oscuro(t["color"])
+    palabras = tomo["titulo"].split(" ", 1)
+    return dict(
+        tapa=t, oscuro=oscuro, puntos=puntos,
+        fg="#FFFFFF" if oscuro else "#0A0A0B",
+        fg2="rgba(255,255,255,.72)" if oscuro else "rgba(10,10,11,.76)",
+        linea="rgba(255,255,255,.16)" if oscuro else "rgba(10,10,11,.16)",
+        pill_fg="#0A0A0B" if t["acento"].upper() == "#C6F24A" else "#FFFFFF",
+        t1=palabras[0], t2=palabras[1] if len(palabras) > 1 else "",
+        romano=tomo["numero_largo"].replace("Tomo ", ""),
+        logo_marca="movo-simbolo-claro.svg" if oscuro else "movo-marca.svg",
+        logo_utn="utn-frc-extendido-claro.svg" if oscuro else "utn-frc-extendido.svg",
+        logo_isi="isi-reducido-claro.svg" if oscuro else "isi-reducido.svg")
+
+
+def construir_tapa(tomo: dict, cfg: dict, proyecto: dict, paginas: int, destino: Path) -> Path:
+    """PDF de tapa dura de un tomo: contratapa + lomo + tapa en un solo plano, a escala real y con solapas.
+
+    El lomo se calcula con las páginas del tomo (doble faz: dos páginas por hoja). Las medidas del cartón dependen
+    de quien encuaderne y se configuran en `tapa:` de config/tomos.yaml.
+    """
+    from weasyprint import HTML
+
+    sys.path.insert(0, str(RAIZ / "herramientas"))
+    import motivos
+
+    t = cfg["tapa"]
+    hojas = (paginas + 1) // 2
+    lomo = max(round(hojas * t["hojas_grosor_mm"] + t["lomo_extra_mm"]), 6)
+    canto, ranura, solapa = t["canto_mm"], t["ranura_mm"], t["solapa_mm"]
+    panel_w = 210 + canto
+    ancho = 2 * solapa + 2 * panel_w + 2 * ranura + lomo
+    alto = 2 * solapa + 297 + 2 * canto
+    # Los puntos de la tapa se extienden sobre el canto y la solapa; 1 px de diseño = 0.5 mm.
+    puntos = motivos.puntos_tapa((canto + solapa) * 2, 210 + canto + solapa, 297 + canto + solapa, t["acento"])
+    ctx = contexto_tapa(tomo, cfg, proyecto, puntos)
+    ctx.update(p=proyecto, tomo=tomo, lomo=lomo, ancho=ancho, alto=alto, panel_w=panel_w, canto=canto,
+               ranura=ranura, solapa=solapa, hojas=hojas, paginas=paginas, titulo_lomo=tomo["titulo"])
+    html = entorno().get_template("tapa.html.j2").render(**ctx)
+    ruta_html = RAIZ / f"_{tomo['id']}-tapa.html"
+    ruta_html.write_text(html, encoding="utf-8")
+    destino.mkdir(parents=True, exist_ok=True)
+    pdf = destino / f"Movo - {tomo['numero_largo']} - Tapa dura.pdf"
+    HTML(filename=str(ruta_html), base_url=str(RAIZ)).write_pdf(str(pdf))
+    ruta_html.unlink()
+    print(f"  lomo {lomo} mm ({paginas} páginas, {hojas} hojas); plano {ancho:g} x {alto:g} mm")
+    return pdf
+
+
 def preparar_documento(tomo_dir: Path, ref: dict, n: int, figuras: list, tablas: list) -> dict:
     doc_dir = tomo_dir / ref["dir"]
     meta = cargar_yaml(doc_dir / "meta.yaml")
@@ -268,7 +344,11 @@ def preparar_documento(tomo_dir: Path, ref: dict, n: int, figuras: list, tablas:
     return doc
 
 
-def construir_tomo(tomo_id: str, cfg: dict, proyecto: dict, solo_html: bool) -> Path:
+EDICIONES = ("digital", "impresa")
+
+
+def construir_tomo(tomo_id: str, cfg: dict, proyecto: dict, solo_html: bool, ediciones=EDICIONES) -> list[Path]:
+    """Genera un tomo en una o dos ediciones: digital (simple faz, con tapa y contratapa) e impresa (doble faz)."""
     tomo = next(t for t in cfg["tomos"] if t["id"] == tomo_id)
     tomo_dir = RAIZ / "contenido" / tomo_id
     figuras, tablas = [], []
@@ -279,28 +359,56 @@ def construir_tomo(tomo_id: str, cfg: dict, proyecto: dict, solo_html: bool) -> 
     documentos = [preparar_documento(tomo_dir, ref, i + 1, figuras, tablas)
                   for i, ref in enumerate(refs)]
     tomo = {**tomo, "presentacion_html": sin_rayas_largas(md_a_html(tomo.get("presentacion", ""), nivel_extra=0))}
-    env = jinja2.Environment(loader=jinja2.FileSystemLoader(RAIZ / "plantillas"), autoescape=False)
     fecha = dt.date.fromisoformat(cfg.get("fecha_entrega")) if cfg.get("fecha_entrega") else dt.date.today()
-    html = env.get_template("tomo.html.j2").render(
-        p=proyecto, tomo=tomo, todos_tomos=cfg["tomos"], documentos=documentos,
-        figuras=figuras, tablas=tablas, fecha_larga=fecha_larga(fecha))
+    sys.path.insert(0, str(RAIZ / "herramientas"))
+    import motivos
+    palabras = tomo["titulo"].split(" ", 1)
+    ctx_tapa = contexto_tapa(tomo, cfg, proyecto, motivos.puntos_tapa(0, 210, 297, cfg["tapa"]["acento"])) if cfg.get("tapa") else {}
     BUILD.mkdir(exist_ok=True)
-    ruta_html = RAIZ / f"_{tomo_id}.html"  # en la raíz para que las rutas relativas resuelvan
-    ruta_html.write_text(html, encoding="utf-8")
-    (BUILD / f"{tomo_id}.html").write_text(html, encoding="utf-8")
-    if solo_html:
-        return ruta_html
-    from weasyprint import HTML  # import diferido: tarda en cargar
-    SALIDA.mkdir(exist_ok=True)
-    pdf = SALIDA / tomo["archivo"]
-    HTML(filename=str(ruta_html), base_url=str(RAIZ)).write_pdf(str(pdf))
-    ruta_html.unlink()
-    return pdf
+    generados = []
+    for ed in ediciones:
+        html = entorno().get_template("tomo.html.j2").render(
+            **{**ctx_tapa, "t1": palabras[0], "t2": palabras[1] if len(palabras) > 1 else "",
+               "romano": tomo["numero_largo"].replace("Tomo ", "")},
+            edicion=ed, p=proyecto, tomo=tomo, todos_tomos=cfg["tomos"], documentos=documentos,
+            figuras=figuras, tablas=tablas, indices_figuras_tablas=cfg.get("indices_figuras_tablas", False),
+            fecha_larga=fecha_larga(fecha), fecha_mes=fecha_larga(fecha), fecha_dia=fecha_dia(fecha),
+            puntos_interior=motivos.puntos_interior())
+        ruta_html = RAIZ / f"_{tomo_id}.html"  # en la raíz para que las rutas relativas resuelvan
+        ruta_html.write_text(html, encoding="utf-8")
+        (BUILD / f"{tomo_id}-{ed}.html").write_text(html, encoding="utf-8")
+        if solo_html:
+            generados.append(ruta_html)
+            continue
+        from weasyprint import HTML  # import diferido: tarda en cargar
+        # La edición digital queda en salida/ (la que se abre y se sube); la impresa en salida/impresa/.
+        destino = SALIDA if ed == "digital" else SALIDA / "impresa"
+        destino.mkdir(parents=True, exist_ok=True)
+        pdf = destino / tomo["archivo"]
+        doc = HTML(filename=str(ruta_html), base_url=str(RAIZ)).render()
+        doc.write_pdf(str(pdf))
+        ruta_html.unlink()
+        print(f"  edición {ed}: {len(doc.pages)} páginas")
+        generados.append(pdf)
+        if ed == "impresa" and cfg.get("tapa"):
+            construir_tapa(tomo, cfg, proyecto, len(doc.pages), destino)
+    return generados
 
 
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     solo_html = "--html" in sys.argv
+    # --edicion digital | impresa (por defecto, las dos)
+    ediciones = EDICIONES
+    for i, a in enumerate(sys.argv):
+        if a == "--edicion" and i + 1 < len(sys.argv):
+            ediciones = (sys.argv[i + 1],)
+            args = [x for x in args if x != sys.argv[i + 1]]
+        elif a.startswith("--edicion="):
+            ediciones = (a.split("=", 1)[1],)
+    for e in ediciones:
+        if e not in EDICIONES:
+            raise SystemExit(f"Edición desconocida: {e} (digital | impresa)")
     cfg = cargar_yaml(RAIZ / "config" / "tomos.yaml")
     proyecto = cargar_yaml(RAIZ / "config" / "proyecto.yaml")
     renderizar_diagramas()
@@ -308,8 +416,8 @@ def main() -> None:
         if args and t["id"] not in args:
             continue
         print(f"→ {t['id']}: {t['titulo']}")
-        salida = construir_tomo(t["id"], cfg, proyecto, solo_html)
-        print(f"  {salida.relative_to(RAIZ)}")
+        for salida in construir_tomo(t["id"], cfg, proyecto, solo_html, ediciones):
+            print(f"  {salida.relative_to(RAIZ)}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,9 @@
+<div class="tp-frente">
+  <div class="dots">{{ puntos|safe }}</div>
+  <div class="cab">
+    <div class="m"><img src="assets/logos/{{ logo_marca }}" alt=""><span>movo</span></div>
+    <div class="pill">Tomo {{ romano }}</div>
+  </div>
+  <h1>{{ t1 }}{% if t2 %}<br>{{ t2 }}{% endif %}</h1>
+  <div class="desc">{{ tomo.portada_desc or tomo.bajada }}</div>
+</div>

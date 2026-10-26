@@ -14,45 +14,121 @@
       content: "UTN FRC · Ingeniería en Sistemas de Información · Proyecto Final {{ p.anio }} · {{ p.curso }} · Grupo {{ p.grupo }}";
     }
   }
+{% if edicion == 'impresa' %}
+  /* Doble faz: margen interior junto al lomo (izquierda en impares, derecha en pares), número de página en el borde
+     exterior y pie institucional en el interior. Los separadores y las secciones principales abren en página impar. */
+  @page :right { margin: 25mm 20mm 22mm 30mm; }
+  @page :left {
+    margin: 25mm 30mm 22mm 20mm;
+    @bottom-left {
+      content: counter(page);
+      font: 600 7.4pt/1 "JetBrains Mono";
+      color: var(--ink-950);
+      vertical-align: top;
+      padding-top: 3mm;
+    }
+    @bottom-right {
+      content: "UTN FRC · Ingeniería en Sistemas de Información · Proyecto Final {{ p.anio }} · {{ p.curso }} · Grupo {{ p.grupo }}";
+      font: 400 6.6pt/1 "Inter";
+      color: var(--ink-400);
+      text-align: right;
+      vertical-align: top;
+      padding-top: 3.4mm;
+    }
+  }
+{% endif %}
+{% include '_portadas.css.j2' %}
+{% if edicion == 'digital' %}{% include '_tapa.css.j2' %}{% endif %}
+{% if edicion == 'impresa' %}
+  .pt, .sep, .presentacion, .indice, .ficha { break-before: right; }
+  .datos-edicion, .colofon { break-before: left; }
+{% endif %}
   body { string-set: tomo-corto "Movo · {{ tomo.numero_largo }} · {{ tomo.titulo }}"; }
 </style>
 </head>
-<body>
+<body class="ed-{{ edicion }}">
 
-{# ───────────── Carátula del tomo ───────────── #}
-<section class="caratula">
-  <div class="oscuro">
-    <img class="motivo" src="assets/logos/movo-eclipse-lime.svg" alt="">
+{% if edicion == 'digital' %}
+{# ───────────── Tapa (edición digital) ───────────── #}
+<section class="pagina-tapa">{% include '_tapa_frente.html.j2' %}</section>
+{% else %}
+{# ───────────── Anteportada (falso título) ───────────── #}
+<section class="ante">
+  <div class="marca"><img src="assets/logos/movo-marca.svg" alt=""><span>movo</span></div>
+  <div class="centro">
+    <div class="barra-lima"></div>
+    <div class="eyebrow-c">{{ tomo.numero_largo }}</div>
+    <div class="titulo">{{ t1 }}{% if t2 %}<br>{{ t2 }}{% endif %}</div>
   </div>
-  <div class="marca"><img src="assets/logos/movo-simbolo-claro.svg" alt=""><span class="wordmark">movo</span></div>
-  <div class="categoria eyebrow">Proyecto Final {{ p.anio }} · {{ p.curso }} · Grupo {{ p.grupo }}</div>
-  <div class="bloque-titulo">
-    <div class="tomo-num eyebrow">{{ tomo.numero_largo }}</div>
-    <h1 class="tomo-titulo">{{ tomo.titulo }}</h1>
-    <div class="tomo-sub">{{ p.software }}: {{ p.subtitulo[0]|lower }}{{ p.subtitulo[1:] }}. {{ tomo.bajada }}</div>
+  <div class="pie-ante eyebrow-c">Proyecto Final {{ p.anio }} · {{ p.curso }} · Grupo {{ p.grupo }}</div>
+</section>
+
+{% endif %}
+
+{# ───────────── Carátula interna (portada) ───────────── #}
+<section class="pt">
+  <div class="lima">
+    {{ puntos_interior|safe }}
+    <div class="marca"><img src="assets/logos/movo-marca.svg" alt="Movo"><span>movo</span></div>
+    <div class="tomo-bloque"><div class="romano">{{ romano }}</div><div class="etq">Tomo</div></div>
   </div>
-  <div class="barra"></div>
-  <div class="datos">
-    <div>
-      <span class="eyebrow">Integrantes</span>
-      <table><tbody>
-      {% for i in p.integrantes %}<tr><td>{{ i.apellido }}, {{ i.nombre }}</td><td class="leg">{{ i.legajo }}</td></tr>{% endfor %}
-      </tbody></table>
+  <div class="cuerpo">
+    <div class="eyebrow-c">Proyecto final {{ p.anio }} · {{ p.curso }} · Grupo {{ p.grupo }}</div>
+    <h1 class="titulo">{{ t1 }}{% if t2 %}<br>{{ t2 }}{% endif %}</h1>
+    <div class="desc">{{ tomo.portada_desc or tomo.bajada }}</div>
+  </div>
+  <div class="pie">
+    <div class="grilla">
+      <div>
+        <div class="eyebrow-c s">Integrantes</div>
+        {% for i in p.integrantes %}<div class="fila"><span>{{ i.apellido }}, {{ i.nombre }}</span><span class="leg">{{ i.legajo }}</span></div>{% endfor %}
+      </div>
+      <div class="bloques">
+        <div class="grupo">
+          <div class="eyebrow-c s">Equipo docente</div>
+          {% for d in p.docentes %}<div>{{ d.nombre }} · {{ d.rol|replace("Jefa de Trabajos Prácticos", "JTP") }}</div>{% endfor %}
+        </div>
+        <div class="grupo">
+          <div class="eyebrow-c s">Entrega</div>
+          <div>Turno {{ p.turno }} · Proyecto independiente</div>
+          <div>Córdoba, {{ fecha_mes }}</div>
+        </div>
+      </div>
     </div>
-    <div>
-      <span class="eyebrow">Equipo docente</span>
-      {% for d in p.docentes %}{{ d.rol }}: {{ d.nombre }}<br>{% endfor %}
-      <br>
-      <span class="eyebrow">Datos de la entrega</span>
-      Curso {{ p.curso }} · Turno {{ p.turno }} · Grupo {{ p.grupo }}<br>
-      Categoría: {{ p.categoria }} · {{ p.organizacion }}<br>
-      Córdoba, {{ fecha_larga }}
+    <div class="logos">
+      <img class="utn" src="assets/logos/utn-frc-extendido.svg" alt="UTN Facultad Regional Córdoba">
+      <div class="vr"></div>
+      <img class="isi" src="assets/logos/isi-reducido.svg" alt="Ingeniería en Sistemas de Información">
+      <div class="catedra eyebrow-c s" style="margin-bottom:0">Cátedra {{ p.asignatura }}</div>
     </div>
   </div>
-  <div class="inst">
-    <img src="assets/logos/utn-frc-extendido.svg" alt="UTN Facultad Regional Córdoba">
-    <div style="text-align:right">{{ p.universidad }} · {{ p.facultad }}<br>{{ p.carrera }} · Cátedra {{ p.asignatura }}</div>
-  </div>
+</section>
+
+{# ───────────── Datos de la edición (reverso de la portada) ───────────── #}
+<section class="datos-edicion">
+  <div class="eyebrow-c" style="margin-top:0">Obra</div>
+  <p style="margin:0"><b>{{ p.software }}: {{ p.subtitulo }}.</b><br>{{ tomo.numero_largo }} de {{ todos_tomos|length|replace('3','III') }}: {{ tomo.titulo }}.</p>
+
+  <div class="eyebrow-c">Edición</div>
+  <table><tbody>
+    <tr><td>Versión</td><td>Entrega final, {{ fecha_dia }}</td></tr>
+    <tr><td>Institución</td><td>{{ p.universidad }}, {{ p.facultad }}. {{ p.departamento }}.</td></tr>
+    <tr><td>Cátedra</td><td>{{ p.asignatura }} · Curso {{ p.curso }} · Turno {{ p.turno }} · Grupo {{ p.grupo }} · Año {{ p.anio }}</td></tr>
+    <tr><td>Sitio del proyecto</td><td>{{ p.sitio }}</td></tr>
+  </tbody></table>
+
+  <div class="eyebrow-c">Obra completa</div>
+  <table><tbody>
+  {% for t in todos_tomos %}
+    <tr><td>{{ t.numero_largo }}</td><td>{{ t.titulo }}{% if t.id == tomo.id %} <span class="chip lime">este tomo</span>{% endif %}</td></tr>
+  {% endfor %}
+  </tbody></table>
+
+  <div class="eyebrow-c">Cómo citar</div>
+  <div class="cita">{% for i in p.integrantes %}{{ i.apellido|title }}, {% for n in i.nombre.split() %}{{ n[0] }}.{% if not loop.last %} {% endif %}{% endfor %}{% if not loop.last %}; {% endif %}{% endfor %} ({{ p.anio }}). <i>{{ p.software }}: {{ p.subtitulo|lower }}. {{ tomo.numero_largo }}: {{ tomo.titulo }}.</i> Proyecto Final, {{ p.carrera }}. {{ p.universidad }}, {{ p.facultad }}.</div>
+
+  <div class="eyebrow-c">Composición</div>
+  <p style="margin:0">Maquetación generada a partir del repositorio del proyecto con HTML y CSS de impresión (WeasyPrint). Tipografías Inter y JetBrains Mono. Diagramas en PlantUML y notación UML 2.</p>
 </section>
 
 {# ───────────── Ficha para Biblioteca (solo Tomo I) ───────────── #}
@@ -117,7 +193,7 @@
   </ol>
 </section>
 
-{% if figuras %}
+{% if figuras and indices_figuras_tablas %}
 <section class="indice figuras">
   <h2 class="unnumbered" id="indice-figuras" data-marcador="Índice de figuras">Índice de figuras</h2>
   <ol>
@@ -134,27 +210,27 @@
 
 {# ───────────── Documentos ───────────── #}
 {% for d in documentos %}
-<section class="separador">
-  <div class="oscuro"><img class="motivo" src="assets/logos/movo-eclipse-lime.svg" alt=""></div>
-  <div class="ruta eyebrow">{{ tomo.numero_largo }} · {{ tomo.titulo }}</div>
-  <div class="numero">{{ '%02d' % d.n }}</div>
-  <div class="titulo">
-    {% if d.instancia %}<div class="eyebrow instancia">{{ d.instancia }}</div>{% endif %}
+{% set sec2 = d.secciones|selectattr('nivel','equalto',2)|list %}
+<section class="sep">
+  <div class="lima">
+    {{ puntos_interior|safe }}
+    <div class="etq arriba">{{ tomo.numero_largo }} · {{ tomo.titulo }}</div>
+    <div class="num-gigante">{{ '%02d' % d.n }}</div>
+  </div>
+  <div class="cuerpo">
+    <span class="pildora">{{ d.instancia or (tomo.numero_largo ~ ' · Documento ' ~ d.n) }}</span>
     <h1 class="doc-titulo" id="{{ d.ancla }}" data-corto="{{ d.titulo_corto }}" data-marcador="{{ '%02d' % d.n }}. {{ d.titulo }}">{{ d.titulo }}</h1>
-    {% if d.subtitulo %}<div class="doc-sub">{{ d.subtitulo }}</div>{% endif %}
+    {% if d.subtitulo %}<div class="desc">{{ d.subtitulo }}</div>{% endif %}
+    {% if sec2 %}
+    <nav class="contenido {{ 'compacto' if sec2|length > 8 else ('medio' if sec2|length > 6 else '') }}">
+      <div class="eyebrow-c s">Contenido</div>
+      <div class="lista">
+      {% for s in sec2 %}<a class="fila" href="#{{ s.ancla }}"><span class="n">{{ s.numero }}</span><span class="t">{{ s.titulo }}</span></a>{% endfor %}
+      </div>
+    </nav>
+    {% endif %}
   </div>
-  <div class="barra"></div>
-  <div class="doc-meta">
-    <div><b>Versión {{ d.version }}</b>vigente</div>
-    <div><b>{{ d.fecha }}</b>última revisión</div>
-  </div>
-  {% if d.secciones %}
-  <nav class="mini-indice">
-    <span class="eyebrow">Contenido</span>
-    {% for s in d.secciones if s.nivel == 2 %}<a href="#{{ s.ancla }}"><span class="n">{{ s.numero }}</span><span class="t">{{ s.titulo }}</span></a>{% endfor %}
-  </nav>
-  {% endif %}
-  <div class="pie-sep"><span>Movo · Proyecto Final {{ p.anio }}</span><span>UTN FRC · ISI · {{ p.curso }} · Grupo {{ p.grupo }}</span></div>
+  <div class="pie-sep"><span>Movo · Proyecto Final {{ p.anio }}</span><span>Versión {{ d.version }} · {{ d.fecha }}</span></div>
 </section>
 
 <section class="documento" id="doc-{{ d.id }}">
@@ -187,6 +263,24 @@
   {{ d.html|safe }}
 </section>
 {% endfor %}
+
+{# ───────────── Colofón ───────────── #}
+<section class="colofon">
+  <div class="centrado">
+    <img class="marca-fin" src="assets/logos/movo-marca.svg" alt="">
+    <div class="fin">Fin del {{ tomo.numero_largo|replace('Tomo','tomo') }}</div>
+    <div class="lema">{{ p.lema }}. {{ p.software }} es un proyecto independiente de {{ p.carrera }}, {{ p.universidad }}, {{ p.facultad }}. Entrega final: {{ fecha_dia }}.</div>
+    <div class="eyebrow-c">Obra completa</div>
+    <table><tbody>
+    {% for t in todos_tomos %}<tr><td style="width:24mm">{{ t.numero_largo }}</td><td>{{ t.titulo }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</section>
+
+{% if edicion == 'digital' %}
+{# ───────────── Contratapa (edición digital) ───────────── #}
+<section class="pagina-tapa ultima">{% include '_tapa_contra.html.j2' %}</section>
+{% endif %}
 
 </body>
 </html>

@@ -1,0 +1,24 @@
+{# Estilos comunes de la contratapa y la tapa (plano de tapa dura y páginas de la edición digital).
+   Prototipo "Tapas Tomos Color Único": u(px) pasa px del prototipo a mm (2 px = 1 mm) y ufs(px) a pt. #}
+.tp-ey { font: 600 {{ ufs(8) }}/1.3 "Inter"; letter-spacing: .08em; text-transform: uppercase; color: {{ fg2 }}; }
+.tp-contra, .tp-frente { position: absolute; width: 210mm; height: 297mm; }
+.tp-contra .interior { position: absolute; left: {{ u(40) }}; right: {{ u(40) }}; top: {{ u(40) }}; bottom: {{ u(40) }}; }
+.tp-contra h2 { font: 600 {{ ufs(28) }}/1.1 "Inter"; letter-spacing: -.035em; margin: {{ u(20) }} 0 0; padding: 0; border: 0; color: {{ fg }}; bookmark-level: none; break-before: auto; }
+.tp-contra .tagline { margin-top: {{ u(12) }}; font: 500 {{ ufs(17) }}/1.35 "Inter"; letter-spacing: -.015em; max-width: {{ u(310) }}; }
+.tp-contra .lead { margin-top: {{ u(16) }}; font-size: {{ ufs(11) }}; line-height: 1.5; color: {{ fg2 }}; max-width: {{ u(290) }}; }
+.tp-contra .pie { position: absolute; left: 0; right: 0; bottom: 0; }
+.tp-contra .fila { display: flex; justify-content: space-between; font-size: {{ ufs(9) }}; line-height: 1.2; padding: {{ u(3) }} 0; border-bottom: .4pt solid {{ linea }}; color: {{ fg }}; }
+.tp-contra .fila .leg { font-family: "JetBrains Mono"; }
+.tp-contra .chico { font-size: {{ ufs(8) }}; color: {{ fg2 }}; margin-top: {{ u(6) }}; }
+.tp-contra .logos { margin-top: {{ u(22) }}; border-top: .4pt solid {{ linea }}; padding-top: {{ u(16) }}; display: flex; align-items: center; }
+.tp-contra .logos img.utn { height: {{ u(32) }}; }
+.tp-contra .logos img.isi { height: {{ u(30) }}; }
+.tp-contra .logos .vr { width: .4pt; height: {{ u(28) }}; background: {{ linea }}; margin: 0 {{ u(16) }}; }
+.tp-frente .dots { position: absolute; left: 0; top: 0; }
+.tp-frente .cab { position: absolute; left: {{ u(40) }}; right: {{ u(40) }}; top: {{ u(40) }}; display: flex; justify-content: space-between; align-items: center; }
+.tp-frente .cab .m { display: flex; align-items: center; }
+.tp-frente .cab .m img { width: {{ u(30) }}; height: {{ u(30) }}; margin-right: {{ u(9) }}; }
+.tp-frente .cab .m span { font: 600 {{ ufs(24) }}/1 "Inter"; letter-spacing: -.04em; }
+.tp-frente .cab .pill { font: 600 {{ ufs(9) }}/1 "Inter"; letter-spacing: .08em; text-transform: uppercase; background: {{ tapa.acento }}; color: {{ pill_fg }}; padding: {{ u(4) }} {{ u(10) }}; border-radius: 8mm; }
+.tp-frente h1 { position: absolute; left: {{ u(40) }}; right: {{ u(40) }}; top: {{ u(40 + 30 + 56) }}; margin: 0; padding: 0; border: 0; font: 600 {{ ufs(44) }}/1.08 "Inter"; letter-spacing: -.045em; color: {{ fg }}; bookmark-level: none; break-before: auto; }
+.tp-frente .desc { position: absolute; left: {{ u(40) }}; top: {{ u(40 + 30 + 56 + 44 * 2.16 + 18) }}; font-size: {{ ufs(11) }}; line-height: 1.5; color: {{ fg2 }}; max-width: {{ u(260) }}; }

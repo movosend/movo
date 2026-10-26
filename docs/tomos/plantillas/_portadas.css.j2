@@ -1,0 +1,87 @@
+{# Carátula interna, anteportada, separadores, datos de edición y colofón.
+   Las medidas son las del prototipo "Carátulas Internas v2" (A4 = 794 x 1123 px): mm(n) pasa px a mm y pt(n) px a pt. #}
+.pt, .sep, .ante { position: relative; width: 210mm; height: 297mm; overflow: hidden; color: var(--ink-950); }
+.pt { page: portada; break-before: page; break-after: page; }
+.sep { page: separador; break-before: page; break-after: page; }
+.ante { page: portada; break-after: page; }
+
+/* Bloque lima superior (carátula y separador) */
+.lima { position: absolute; left: 0; top: 0; width: 210mm; height: {{ mm(400) }}; background: var(--lime); overflow: hidden; }
+.lima svg.puntos { position: absolute; left: 0; top: 0; }
+.lima .num-gigante { position: absolute; left: {{ mm(88) }}; top: {{ mm(197) }}; font: 600 {{ pt(200) }}/.74 "Inter"; letter-spacing: -.06em; white-space: nowrap; }
+.lima .etq.arriba { position: absolute; left: {{ mm(88) }}; top: {{ mm(72) }}; }
+.lima .etq { font: 600 {{ pt(11) }}/1.2 "Inter"; letter-spacing: .08em; text-transform: uppercase; }
+
+.pt .marca, .ante .marca { position: absolute; left: {{ mm(88) }}; top: {{ mm(72) }}; display: flex; align-items: center; }
+.pt .marca img, .ante .marca img { width: {{ mm(36) }}; height: {{ mm(36) }}; margin-right: {{ mm(12) }}; }
+.pt .marca span, .ante .marca span { font: 600 {{ pt(28) }}/1 "Inter"; letter-spacing: -.04em; }
+.pt .tomo-bloque { position: absolute; left: {{ mm(88) }}; top: {{ mm(197) }}; display: flex; align-items: flex-end; }
+.pt .tomo-bloque .romano { font: 600 {{ pt(200) }}/.74 "Inter"; letter-spacing: -.06em; }
+.pt .tomo-bloque .etq { margin-left: {{ mm(20) }}; padding-bottom: {{ mm(4) }}; }
+
+.eyebrow-c { font: 600 {{ pt(11) }}/1.3 "Inter"; letter-spacing: .08em; text-transform: uppercase; color: rgba(10,10,11,.56); }
+.eyebrow-c.s { font-size: {{ pt(10) }}; margin-bottom: {{ mm(8) }}; }
+
+.cuerpo { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; top: {{ mm(400 + 64) }}; }
+.cuerpo h1.titulo { font: 600 {{ pt(64) }}/1.02 "Inter"; letter-spacing: -.045em; margin: {{ mm(20) }} 0 0; color: var(--ink-950); border: 0; padding: 0; bookmark-level: none; break-before: auto; }
+.cuerpo .desc { margin-top: {{ mm(20) }}; font-size: {{ pt(16) }}; line-height: 1.55; color: rgba(10,10,11,.72); max-width: {{ mm(540) }}; }
+
+.pt .pie { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; bottom: {{ mm(64) }}; }
+.pt .grilla { display: grid; grid-template-columns: 1.15fr 1fr; column-gap: {{ mm(56) }}; }
+.pt .fila { display: flex; justify-content: space-between; font-size: {{ pt(12) }}; line-height: 1.25; padding: {{ mm(5) }} 0; border-bottom: {{ mm(1) }} solid rgba(10,10,11,.1); }
+.pt .fila .leg { font-family: "JetBrains Mono"; font-size: {{ pt(11) }}; color: rgba(10,10,11,.64); }
+.pt .bloques { font-size: {{ pt(12) }}; line-height: 1.6; }
+.pt .bloques .grupo { margin-bottom: {{ mm(20) }}; }
+.pt .logos { margin-top: {{ mm(40) }}; display: flex; align-items: center; }
+.pt .logos img.utn { height: {{ mm(36) }}; }
+.pt .logos img.isi { height: {{ mm(32) }}; }
+.pt .logos .vr { width: {{ mm(1) }}; height: {{ mm(30) }}; background: rgba(10,10,11,.16); margin: 0 {{ mm(24) }}; }
+.pt .logos .catedra { margin-left: auto; }
+
+/* Separador de documento */
+.sep .pildora { display: inline-block; font: 600 {{ pt(11) }}/1 "Inter"; letter-spacing: .08em; text-transform: uppercase; background: var(--ink-950); color: var(--lime); padding: {{ mm(6) }} {{ mm(12) }}; border-radius: 6mm; }
+.sep .cuerpo h1.doc-titulo { font: 600 {{ pt(56) }}/1.04 "Inter"; letter-spacing: -.045em; margin: {{ mm(20) }} 0 0; max-width: {{ mm(560) }}; color: var(--ink-950); border: 0; padding: 0; }
+.sep .cuerpo .desc { max-width: {{ mm(520) }}; }
+.sep .contenido { margin-top: {{ mm(48) }}; }
+.sep .contenido .fila { position: relative; display: block; font-size: {{ pt(14) }}; line-height: 1.3; padding: {{ mm(12) }} {{ mm(44) }} {{ mm(12) }} {{ mm(56) }}; border-bottom: {{ mm(1) }} solid rgba(10,10,11,.1); font-weight: 500; }
+.sep .contenido .lista { border-top: {{ mm(1) }} solid var(--ink-950); }
+.sep .contenido.compacto .lista { column-count: 2; column-gap: {{ mm(32) }}; }
+.sep .contenido .fila { break-inside: avoid; }
+.sep .contenido .fila .n { position: absolute; left: 0; top: {{ mm(12) }}; width: {{ mm(48) }}; font: 400 {{ pt(12) }}/1.6 "JetBrains Mono"; color: rgba(10,10,11,.56); }
+.sep .contenido .fila::after { content: target-counter(attr(href url), page); position: absolute; right: 0; top: {{ mm(12) }}; font: 400 {{ pt(12) }}/1.6 "JetBrains Mono"; }
+.sep .contenido.medio .fila { padding-top: {{ mm(8) }}; padding-bottom: {{ mm(8) }}; }
+.sep .contenido.medio .fila .n, .sep .contenido.medio .fila::after { top: {{ mm(8) }}; }
+.sep .contenido.compacto .fila { padding-left: {{ mm(40) }}; padding-right: {{ mm(36) }}; padding-top: {{ mm(5.5) }}; padding-bottom: {{ mm(5.5) }}; font-size: {{ pt(13) }}; }
+.sep .contenido.compacto .fila .n { width: {{ mm(36) }}; }
+.sep .contenido.compacto .fila .n, .sep .contenido.compacto .fila::after { top: {{ mm(5.5) }}; font-size: {{ pt(11) }}; }
+.sep .contenido a { color: inherit; text-decoration: none; }
+.sep .contenido a .t { display: block; }
+.sep .contenido a::before { content: none; }
+.sep .pie-sep { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; bottom: {{ mm(40) }}; display: flex; justify-content: space-between; font: 600 {{ pt(9) }}/1 "Inter"; letter-spacing: .08em; text-transform: uppercase; color: rgba(10,10,11,.56); }
+
+/* Anteportada (hoja de falso título) */
+.ante .marca { top: {{ mm(88) }}; }
+.ante .centro { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; top: 112mm; }
+.ante .centro .barra-lima { width: 22mm; height: 2mm; background: var(--lime); margin-bottom: 8mm; }
+.ante .centro .titulo { font: 600 {{ pt(36) }}/1.08 "Inter"; letter-spacing: -.04em; margin-top: 4mm; }
+.ante .pie-ante { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; bottom: {{ mm(88) }}; }
+
+/* Datos de la edición y colofón: páginas de texto sin encabezado ni pie */
+.datos-edicion, .colofon { page: libro; font-size: 8.6pt; line-height: 1.6; }
+.datos-edicion { break-before: page; break-after: page; }
+.colofon { break-before: page; }
+.datos-edicion .eyebrow-c, .colofon .eyebrow-c { margin: 7mm 0 1.6mm; }
+.datos-edicion h2.unnumbered, .colofon h2.unnumbered { border: 0; padding: 0; margin: 0 0 4mm; font-size: 14pt; break-before: auto; }
+.datos-edicion table, .colofon table { font-size: 8.4pt; margin: 0; }
+.datos-edicion td, .datos-edicion th, .colofon td, .colofon th { border: 0; border-bottom: .4pt solid var(--ink-200); padding: 1.3mm 0; background: none; text-align: left; vertical-align: top; }
+.datos-edicion td:first-child { width: 36mm; color: rgba(10,10,11,.56); }
+.datos-edicion .cita { padding: 3.2mm 4mm; background: var(--ink-50); border-left: 2pt solid var(--lime-deep); }
+.colofon .centrado { margin-top: 62mm; }
+.colofon img.marca-fin { width: 14mm; height: 14mm; margin-bottom: 8mm; }
+.colofon .fin { font: 600 20pt/1.1 "Inter"; letter-spacing: -.035em; margin: 0 0 3mm; }
+.colofon .lema { color: rgba(10,10,11,.72); max-width: 120mm; }
+
+/* Tapa y contratapa como páginas de la edición digital */
+.pagina-tapa { page: portada; position: relative; width: 210mm; height: 297mm; overflow: hidden; background: {{ tapa.color }}; color: {{ fg }}; break-after: page; }
+.pagina-tapa.ultima { break-before: page; break-after: auto; }
+.pagina-tapa .tp-frente, .pagina-tapa .tp-contra { left: 0; top: 0; }

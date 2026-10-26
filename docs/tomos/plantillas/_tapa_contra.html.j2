@@ -1,0 +1,19 @@
+<div class="tp-contra">
+  <div class="interior">
+    <div class="tp-ey">Movo · Proyecto final</div>
+    <h2>{{ p.lema }}.</h2>
+    <div class="tagline">Enviar algo a otro lado no debería depender de si vivís cerca de una sucursal.</div>
+    <div class="lead">Movo es una red de personas que se mueven y aprovechan el camino para llevar paquetes de otros.</div>
+    <div class="pie">
+      <div class="tp-ey" style="margin-bottom: {{ u(4) }}">Grupo {{ p.grupo }} · {{ p.curso }}</div>
+      {% for i in p.integrantes %}<div class="fila"><span>{{ i.apellido }}, {{ i.nombre }}</span><span class="leg">{{ i.legajo }}</span></div>{% endfor %}
+      <div class="chico">Docentes: {% for d in p.docentes %}{{ d.nombre }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+      <div class="chico">Córdoba, Argentina · {{ p.anio }}</div>
+      <div class="logos">
+        <img class="utn" src="assets/logos/{{ logo_utn }}" alt="UTN Facultad Regional Córdoba">
+        <div class="vr"></div>
+        <img class="isi" src="assets/logos/{{ logo_isi }}" alt="Ingeniería en Sistemas de Información">
+      </div>
+    </div>
+  </div>
+</div>

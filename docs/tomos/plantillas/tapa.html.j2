@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Movo · {{ tomo.numero_largo }} · Tapa dura</title>
+{# Tapa dura de un tomo: contratapa + lomo + tapa en un solo plano, a escala real (1 px del prototipo = 0.5 mm).
+   Diseño: "Tapas Tomos Color Único". Medidas de cartón, ranura y solapa en config/tomos.yaml (tapa:). #}
+{% set ink = '#0A0A0B' %}
+{% set x_atras = solapa + canto %}
+{% set x_lomo = solapa + panel_w + ranura %}
+{% set x_frente = x_lomo + lomo + ranura %}
+{% set y0 = solapa + canto %}
+{# Tipografía del lomo: se ajusta al ancho disponible (un lomo de 8 mm no admite letras de 7,5 mm). #}
+{% set ts = [7.5, lomo * 0.5]|min %}
+{% set ns = [9, lomo * 0.5]|min %}
+{% set logo_l = [13, lomo - 3]|min %}
+<style>
+  @page { size: {{ ancho }}mm {{ alto }}mm; margin: 0; }
+  html, body { margin: 0; padding: 0; font-family: "Inter", sans-serif; font-variant-numeric: tabular-nums; font-feature-settings: "cv11", "ss01"; }
+  .plano { position: relative; width: {{ ancho }}mm; height: {{ alto }}mm; background: {{ tapa.color }}; color: {{ fg }}; overflow: hidden; }
+  .abs { position: absolute; }
+  .abs { position: absolute; }
+  .contra-w { position: absolute; top: {{ y0 }}mm; left: {{ x_atras }}mm; }
+  .frente-w { position: absolute; top: {{ y0 }}mm; left: {{ x_frente }}mm; }
+{% include '_tapa.css.j2' %}
+  .lomo { position: absolute; left: {{ x_lomo }}mm; top: {{ solapa }}mm; width: {{ lomo }}mm; height: {{ 297 + 2 * canto }}mm; }
+  .lomo .num { position: absolute; left: 0; right: 0; top: 9mm; text-align: center; font: 600 {{ ns }}mm/1 "Inter"; letter-spacing: -.02em; }
+  .lomo .num i { display: block; width: {{ [lomo * 0.6, 12]|min }}mm; margin: {{ ns * 0.5 }}mm auto 0; border-bottom: .5pt solid {{ linea }}; }
+  .lomo .rot { position: absolute; width: 200mm; text-align: center; white-space: nowrap; transform: rotate(90deg); }
+  .lomo .tit { left: {{ lomo / 2 - 100 }}mm; top: {{ (297 + 2 * canto) / 2 - ts * 0.65 }}mm; height: {{ ts * 1.3 }}mm; font: 600 {{ ts }}mm/1.3 "Inter"; letter-spacing: -.02em; }
+  .lomo .anio { left: {{ lomo / 2 - 100 }}mm; top: {{ 297 + 2 * canto - 9 - logo_l - 3 - 17 - ts * 0.4 }}mm; height: {{ ts * 0.8 }}mm; width: 200mm; font: 600 {{ ts * 0.8 }}mm/1 "Inter"; }
+  .lomo img { position: absolute; left: {{ (lomo - logo_l) / 2 }}mm; bottom: 9mm; width: {{ logo_l }}mm; height: {{ logo_l }}mm; }
+  .marca-corte { position: absolute; background: {{ fg2 }}; }
+</style>
+</head>
+<body>
+<div class="plano">
+
+  <div class="contra-w">{% include '_tapa_contra.html.j2' %}</div>
+
+  {# Lomo #}
+  <div class="lomo">
+    <div class="num">{{ romano }}<i></i></div>
+    <div class="rot tit">{{ titulo_lomo }}</div>
+    <div class="rot anio">{{ p.anio }}</div>
+    <img src="assets/logos/{{ logo_marca }}" alt="Movo">
+  </div>
+
+  <div class="frente-w">{% include '_tapa_frente.html.j2' %}</div>
+
+  {# Marcas de plegado en la solapa: bordes del cartón y ranuras #}
+  {% set bx = [solapa, solapa + panel_w, x_lomo, x_lomo + lomo, x_frente, x_frente + 210 + canto] %}
+  {% for x in bx %}
+    <div class="marca-corte" style="left: {{ x }}mm; top: 4mm; width: .3pt; height: {{ solapa - 7 }}mm"></div>
+    <div class="marca-corte" style="left: {{ x }}mm; top: {{ alto - solapa + 3 }}mm; width: .3pt; height: {{ solapa - 7 }}mm"></div>
+  {% endfor %}
+  {% for y in [solapa, solapa + 297 + 2 * canto] %}
+    <div class="marca-corte" style="left: 4mm; top: {{ y }}mm; height: .3pt; width: {{ solapa - 7 }}mm"></div>
+    <div class="marca-corte" style="left: {{ ancho - solapa + 3 }}mm; top: {{ y }}mm; height: .3pt; width: {{ solapa - 7 }}mm"></div>
+  {% endfor %}
+</div>
+</body>
+</html>

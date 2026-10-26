@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
+  <!-- Marca de Movo (eclipse) de las carátulas y tapas, con esquinas muy redondeadas. Tomada del diseño de tapas. -->
+  <rect width="500" height="500" rx="150" fill="#0A0A0B"/>
+  <circle cx="250" cy="250" r="182" fill="#8C8C90"/>
+  <circle cx="250" cy="250" r="170.6" fill="#B4B4BA"/>
+  <circle cx="250" cy="250" r="157" fill="#E2E2E6"/>
+  <circle cx="250" cy="250" r="140.9" fill="#FFFFFF"/>
+  <circle cx="250" cy="250" r="124" fill="#0A0A0B"/>
+</svg>
