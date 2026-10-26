@@ -366,3 +366,32 @@ Confirmación) del prototipo `Movo Admin Envios.dc.html`. Código en `components
 
 Pendiente: capturas de cada paso contra dev (DoD; necesita MOVO-331/332 desplegados) y revisión a mano en claro/oscuro. El email del segundo
 factor usa el texto genérico del OTP (sin copy propio del cambio de estado).
+
+## MOVO-343 / MOVO-338 — Disputas: bandeja, expediente, notas y resolución
+
+`/disputes` (bandeja) y `/disputes/[id]` (expediente), fieles al prototipo `Movo Admin Disputas` de Claude Design. Backend: `/admin/disputes*` de
+`svc-admin` (MOVO-337, DD-056); los tipos son los de esa PR copiados idénticos a `@movo/shared` (`types/admin-disputes.ts`, `config/dispute-resolution.ts`,
+cambios en `types/dispute.ts`): al mergear MOVO-337 se descartan las copias. Lo que MOVO-337 no cubre se propone en MOVO-341 y vive en
+`types/admin-disputes-panel.ts` (ciudad del retiro, `sort=oldest`, historial por parte, atribución del barrido, `disputeId` en el envío).
+
+- **Bandeja**: estado en la URL (`lib/disputes/params.ts`, abiertas por defecto, más antigua primero), pestañas con `statusCounts`, motivo, fechas,
+  búsqueda y **"Ciudad del retiro"** (mismo campo que Envíos, se aplica al salir o con Enter). El motivo automático lleva ícono de bot y borde punteado.
+  "Antigüedad" es neutra, sin semáforo: el plazo del descargo no está definido (MOVO-341).
+- **Expediente por bloques**: solo `GET /admin/disputes/:id` bloquea; handshake, fotos, notas, partes, pago y chat son Server Components en su `<Suspense>`
+  (`components/disputes/blocks.tsx`) con `BlockError` ("Reintentar" = `router.refresh()`). Partes, pago y chat reutilizan los componentes del detalle de envío
+  sobre una sola lectura memoizada de `getShipment`; el mapa es `ShipmentTrackingMap`. Sin ruta de traza propia: el mapa ya cubre la traza purgada.
+- **Admin que es parte** (emisor, transportista o receptor): ve el expediente completo; el aviso reemplaza el botón de resolver y las notas pasan a lectura.
+  El backend lo vuelve a decidir (`ADMIN_CONFLICT_OF_INTEREST`).
+- **Notas internas**: solo se agregan, con la leyenda "No visibles para los usuarios" (`notes-card.tsx`, cursor con "Ver más").
+- **Resolución** (`resolve-controls.tsx`): diálogo de tres pasos (Resultado / Impacto / Confirmación) que no tiene lógica de matriz propia: la acción de pago, el
+  monto en juego, los presets (`DISPUTE_PARTIAL_PRESETS`) y el piso de la captura parcial salen de `resolution-preview`; `computeSplit` (`lib/disputes/resolution.ts`)
+  solo adelanta el mensaje del 422 `DISPUTE_PARTIAL_BELOW_MINIMUM`. Si la acción de pago falla (`DISPUTE_PAYMENT_FAILED`) la disputa queda "Procesando pago" y el
+  expediente ofrece "Reintentar con los mismos datos" (el servicio es idempotente). Sin segundo factor: MOVO-337 resuelve por `runAdminAction` sin step-up.
+- **Entradas**: ítem "Disputas" del menú con badge de abiertas (`/api/disputes/count`, una lectura por carga de página, sin tiempo real; sale de `statusCounts.open`
+  hasta que MOVO-341 tenga el agregado), bloque "Disputa" en el detalle del envío, pestaña "Disputas" del listado de envíos que lleva a la bandeja, y se corrigió el
+  texto de `ALERT_HINT.disputed` / `rowAlert` (DD-055 bloquea `disputed → *`; el cobro puede estar acreditado si se abrió desde `completed`).
+- **Modo fixtures** (`MOVO_ADMIN_MOCK=1`): `lib/disputes/{mock,fixtures}.ts` cuelgan 35 disputas de los envíos de Envíos (usuario y sistema, `resolving`, `resolved`).
+  `MOVO_ADMIN_MOCK_FAIL=photos,handshake,notes,preview,dispute,list` tumba ese bloque; `resolve` deja la disputa en "Procesando pago" la primera vez.
+
+Pendiente: probar contra `svc-admin` en dev (necesita MOVO-337 mergeada y los campos de MOVO-341), revisar a mano en claro/oscuro y mobile (esta sesión
+verificó con tests, lint, typecheck y build, no abrió el panel).
