@@ -1,9 +1,8 @@
 {# Carátula interna, anteportada, separadores, datos de edición y colofón.
    Las medidas son las del prototipo "Carátulas Internas v2" (A4 = 794 x 1123 px): mm(n) pasa px a mm y pt(n) px a pt. #}
-.pt, .sep, .ante { position: relative; width: 210mm; height: 297mm; overflow: hidden; color: var(--ink-950); }
+.pt, .sep { position: relative; width: 210mm; height: 297mm; overflow: hidden; color: var(--ink-950); }
 .pt { page: portada; break-before: page; break-after: page; }
 .sep { page: separador; break-before: page; break-after: page; }
-.ante { page: portada; break-after: page; }
 
 /* Bloque lima superior (carátula y separador) */
 .lima { position: absolute; left: 0; top: 0; width: 210mm; height: {{ mm(400) }}; background: var(--lime); overflow: hidden; }
@@ -12,9 +11,9 @@
 .lima .etq.arriba { position: absolute; left: {{ mm(88) }}; top: {{ mm(72) }}; }
 .lima .etq { font: 600 {{ pt(11) }}/1.2 "Inter"; letter-spacing: .08em; text-transform: uppercase; }
 
-.pt .marca, .ante .marca, .equipo-pg .marca { position: absolute; left: {{ mm(88) }}; top: {{ mm(72) }}; display: flex; align-items: center; }
-.pt .marca img, .ante .marca img, .equipo-pg .marca img { width: {{ mm(36) }}; height: {{ mm(36) }}; margin-right: {{ mm(12) }}; }
-.pt .marca span, .ante .marca span, .equipo-pg .marca span { font: 600 {{ pt(28) }}/1 "Inter"; letter-spacing: -.04em; }
+.pt .marca, .equipo-pg .marca { position: absolute; left: {{ mm(88) }}; top: {{ mm(72) }}; display: flex; align-items: center; }
+.pt .marca img, .equipo-pg .marca img { width: {{ mm(36) }}; height: {{ mm(36) }}; margin-right: {{ mm(12) }}; }
+.pt .marca span, .equipo-pg .marca span { font: 600 {{ pt(28) }}/1 "Inter"; letter-spacing: -.04em; }
 .pt .tomo-bloque { position: absolute; left: {{ mm(88) }}; top: {{ mm(197) }}; display: flex; align-items: flex-end; }
 .pt .tomo-bloque .romano { font: 600 {{ pt(200) }}/.74 "Inter"; letter-spacing: -.06em; }
 .pt .tomo-bloque .etq { margin-left: {{ mm(20) }}; padding-bottom: {{ mm(4) }}; }
@@ -59,22 +58,14 @@
 .sep .contenido a::before { content: none; }
 .sep .pie-sep { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; bottom: {{ mm(40) }}; display: flex; justify-content: space-between; font: 600 {{ pt(9) }}/1 "Inter"; letter-spacing: .08em; text-transform: uppercase; color: rgba(10,10,11,.56); }
 
-/* Anteportada (hoja de falso título) */
-.ante .marca { top: {{ mm(88) }}; }
-.ante .centro { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; top: 112mm; }
-.ante .centro .barra-lima { width: 22mm; height: 2mm; background: var(--lime); margin-bottom: 8mm; }
-.ante .centro .titulo { font: 600 {{ pt(36) }}/1.08 "Inter"; letter-spacing: -.04em; margin-top: 4mm; }
-.ante .pie-ante { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; bottom: {{ mm(88) }}; }
-
 /* Datos de la edición y colofón: páginas de texto sin encabezado ni pie */
-.datos-edicion, .colofon, .verso-ante { page: libro; font-size: 8.6pt; line-height: 1.6; }
+.datos-edicion, .colofon { page: libro; font-size: 8.6pt; line-height: 1.6; }
 .datos-edicion { break-before: page; break-after: page; }
-.verso-ante { break-before: page; break-after: page; }
 .colofon { break-before: page; }
-.datos-edicion .eyebrow-c, .colofon .eyebrow-c, .verso-ante .eyebrow-c { margin: 7mm 0 1.6mm; }
+.datos-edicion .eyebrow-c, .colofon .eyebrow-c { margin: 7mm 0 1.6mm; }
 .datos-edicion h2.unnumbered, .colofon h2.unnumbered { border: 0; padding: 0; margin: 0 0 4mm; font-size: 14pt; break-before: auto; }
-.datos-edicion table, .colofon table, .verso-ante table { font-size: 8.4pt; margin: 0; }
-.datos-edicion td, .datos-edicion th, .colofon td, .colofon th, .verso-ante td, .verso-ante th { border: 0; border-bottom: .4pt solid var(--ink-200); padding: 1.3mm 0; background: none; text-align: left; vertical-align: top; }
+.datos-edicion table, .colofon table { font-size: 8.4pt; margin: 0; }
+.datos-edicion td, .datos-edicion th, .colofon td, .colofon th { border: 0; border-bottom: .4pt solid var(--ink-200); padding: 1.3mm 0; background: none; text-align: left; vertical-align: top; }
 .datos-edicion td:first-child { width: 34mm; color: rgba(10,10,11,.56); }
 .datos-edicion .cita { padding: 3.2mm 4mm; background: var(--ink-50); border-left: 2pt solid var(--lime-deep); }
 .colofon .centrado { margin-top: 62mm; }

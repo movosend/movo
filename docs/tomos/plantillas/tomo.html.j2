@@ -37,8 +37,8 @@
   }
 {% include '_portadas.css.j2' %}
 {% if edicion == 'digital' %}{% include '_tapa.css.j2' %}{% endif %}
-  .ante, .pt, .sep, .presentacion, .indice, .ficha, .equipo-pg { break-before: right; }
-  .verso-ante, .datos-edicion, .colofon { break-before: left; }
+  .pt, .sep, .presentacion, .indice, .ficha, .equipo-pg { break-before: right; }
+  .datos-edicion, .colofon { break-before: left; }
   body { string-set: tomo-corto "Movo · {{ tomo.numero_largo }} · {{ tomo.titulo }}"; }
 </style>
 </head>
@@ -48,28 +48,6 @@
 {# ───────────── Tapa (edición digital) ───────────── #}
 <section class="pagina-tapa">{% include '_tapa_frente.html.j2' %}</section>
 {% endif %}
-
-{# ───────────── Anteportada (falso título) ───────────── #}
-<section class="ante">
-  <div class="marca"><img src="assets/logos/movo-marca.svg" alt=""><span>movo</span></div>
-  <div class="centro">
-    <div class="barra-lima"></div>
-    <div class="eyebrow-c">{{ tomo.numero_largo }}</div>
-    <div class="titulo">{{ t1 }}{% if t2 %}<br>{{ t2 }}{% endif %}</div>
-  </div>
-  <div class="pie-ante eyebrow-c">Proyecto Final {{ p.anio }} · {{ p.curso }} · Grupo {{ p.grupo }}</div>
-</section>
-
-{# ───────────── Verso de la anteportada: la obra en tres tomos ───────────── #}
-<section class="verso-ante">
-  <div class="eyebrow-c" style="margin-top:0">Obra en {{ todos_tomos|length|replace('3','tres') }} tomos</div>
-  <p style="margin:0 0 6mm"><b>{{ p.software }}: {{ p.subtitulo }}.</b><br>Proyecto Final {{ p.anio }} · {{ p.carrera }} · {{ p.facultad }}.</p>
-  <table><tbody>
-  {% for t in todos_tomos %}
-    <tr><td style="width:24mm"><b>{{ t.numero_largo }}</b></td><td>{{ t.titulo }}{% if t.id == tomo.id %} <span class="chip lime">este tomo</span>{% endif %}</td></tr>
-  {% endfor %}
-  </tbody></table>
-</section>
 
 {# ───────────── Carátula interna (portada) ───────────── #}
 <section class="pt">
@@ -131,7 +109,7 @@
   <div class="bloque-c cred">
     <p><span>Autoría y desarrollo</span>{% for i in p.integrantes %}{{ i.nombre }} {{ i.apellido|title }}{% if not loop.last %}; {% endif %}{% endfor %}</p>
     <p><span>Identidad visual</span>Manual de Marca de {{ p.software }}</p>
-    <p><span>Diseño de tapas</span>Equipo {{ p.software }}, con Claude Design</p>
+    <p><span>Diseño de tapas</span>Equipo {{ p.software }}</p>
     <p><span>Fotos del equipo</span>Sitio institucional de {{ p.software }}</p>
     <p><span>Composición</span>HTML y CSS de impresión (WeasyPrint) a partir del repositorio del proyecto. Texto en Inter, código y datos en JetBrains Mono. Diagramas en PlantUML, notación UML 2.</p>
     {% if p.edicion.papel %}<p><span>Papel</span>{{ p.edicion.papel }}</p>{% endif %}

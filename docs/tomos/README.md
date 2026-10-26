@@ -18,10 +18,9 @@ La documentación se escribe en Markdown y se maqueta con HTML + CSS Paged Media
 Las dos son a doble faz: márgenes espejados, número de página en el borde exterior, separadores y secciones principales
 en página impar y hojas en blanco donde corresponde. El tomo se arma como un libro (estructura editorial):
 
-1. Tapa y guarda (solo digital) · 2. Anteportada · 3. Verso de la anteportada (la obra en tres tomos) · 4. Portada ·
-5. Página de créditos (derechos, edición, créditos, cómo citar, alcance y marcas) · 6. Ficha para Biblioteca (Tomo I) ·
-7. Presentación e índice general · 8. Documentos, cada uno con su separador · 9. El equipo (fotos y texto, cierre) ·
-10. Colofón · 11. Contratapa (solo digital, en página par).
+1. Tapa y guarda (solo digital) · 2. Portada · 3. Página de créditos (derechos, edición, créditos, cómo citar,
+alcance y marcas) · 4. Ficha para Biblioteca (Tomo I) · 5. Presentación e índice general · 6. Documentos, cada uno con
+su separador · 7. El equipo (fotos y texto, cierre) · 8. Colofón · 9. Contratapa (solo digital, en página par).
 
 El texto de la página del equipo y las fotos salen de `config/proyecto.yaml` (`equipo:` y `foto:` de cada integrante). Las
 fotos se prepararon con `herramientas/preparar_fotos_equipo.py` a partir de las del sitio institucional.
@@ -35,7 +34,7 @@ contenido/<tomo>/<doc>/  meta.yaml (título, historial, introducción, audiencia
 diagramas/*.puml         diagramas UML (PlantUML) · *.py generadores de diagramas no UML
 estilos/print.css        hoja de estilos de impresión (marca Movo aplicada de forma sutil)
 estilos/plantuml-tema.iuml  tema común de todos los diagramas
-plantillas/tomo.html.j2  anteportada, portada, datos de edición, ficha, índice, separadores y colofón
+plantillas/tomo.html.j2  portada, créditos, ficha, índice, separadores y colofón
 plantillas/_portadas.css.j2  estilos de esas páginas (medidas del diseño en px, convertidas a mm/pt)
 plantillas/tapa.html.j2  tapa dura: contratapa + lomo + tapa a escala real
 herramientas/motivos.py  motivos de puntos (SVG) de las carátulas y las tapas
