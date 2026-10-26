@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Genera el Manual de Usuario: inserta las capturas planificadas y arma el apéndice con su lista.
+"""Genera el Manual de Usuario: inserta las capturas planificadas en el texto.
 
 Cada `{{captura M-NN}}` del Markdown se reemplaza por un marco de captura. Si existe el archivo
 `assets/capturas/M-NN.png` se usa la imagen real; si no, el marco muestra el código y la
@@ -17,6 +17,22 @@ RAIZ = Path(__file__).resolve().parent.parent
 CAPTURAS = {c["id"]: c for c in yaml.safe_load((RAIZ / "datos" / "capturas.yaml").read_text(encoding="utf-8"))["capturas"]}
 
 
+def recortar_vacio(im):
+    """Recorta el blanco sobrante al pie de una captura del panel (pantallas con poco contenido)."""
+    from PIL import Image, ImageChops
+
+    plano = Image.new("RGB", im.size, "#FFFFFF")
+    plano.paste(im, mask=im.split()[3])
+    caja = ImageChops.difference(plano, Image.new("RGB", im.size, "#FFFFFF")).convert("L").point(lambda v: 255 if v > 12 else 0).getbbox()
+    if not caja:
+        return im
+    # Los bordes de la captura (sidebar, barra superior) ocupan todo el alto: se mide el contenido del área central.
+    centro = plano.crop((120, 60, im.width - 40, im.height))
+    c = ImageChops.difference(centro, Image.new("RGB", centro.size, "#FFFFFF")).convert("L").point(lambda v: 255 if v > 12 else 0).getbbox()
+    alto = 60 + (c[3] if c else centro.height) + 28
+    return im.crop((0, 0, im.width, min(im.height, max(alto, 320))))
+
+
 def optimizada(origen: Path, codigo: str, alto_max: int) -> str:
     """Copia liviana de la captura (JPEG sobre fondo blanco) para el PDF; el original no se toca.
 
@@ -29,6 +45,8 @@ def optimizada(origen: Path, codigo: str, alto_max: int) -> str:
     if not destino.exists() or destino.stat().st_mtime < origen.stat().st_mtime:
         destino.parent.mkdir(parents=True, exist_ok=True)
         im = Image.open(origen).convert("RGBA")
+        if codigo.startswith("W-"):
+            im = recortar_vacio(im)
         if im.height > alto_max:
             im = im.resize((round(im.width * alto_max / im.height), alto_max), Image.LANCZOS)
         fondo = Image.new("RGB", im.size, "#FFFFFF")
@@ -54,11 +72,11 @@ def figura(c: dict) -> str:
 
 
 def galeria(ids: list[str]) -> str:
-    """Agrupa capturas consecutivas en filas de 3 (móvil) o 2 (panel web)."""
+    """Agrupa capturas consecutivas en filas de 3 (móvil) o de 1 (panel web, a todo el ancho)."""
     filas, actual = [], []
     for i in ids:
         c = CAPTURAS[i]
-        tam = 2 if c["plataforma"] == "web" else 3
+        tam = 1 if c["plataforma"] == "web" else 3
         if actual and (len(actual) >= tam or CAPTURAS[actual[0]]["plataforma"] != c["plataforma"]):
             filas.append(actual)
             actual = []
@@ -87,13 +105,6 @@ def main() -> None:
     # Directivas consecutivas (separadas solo por líneas en blanco) forman una galería.
     txt = re.sub(r"(?:\{\{captura [MW]-\d+\}\}\s*)+", sub, txt)
     print(txt)
-    print("\n# Apéndice: Lista de Capturas de Pantalla\n")
-    print("Este apéndice lista las capturas que ilustran el manual, con la pantalla de la aplicación o del panel de la que se toma cada una y el estado que debe mostrar. Las que figuran como *pendientes* se reemplazan por la imagen real al tomarlas (archivo `M-NN.png` o `W-NN.png`). Las capturas de la aplicación móvil se toman con datos de prueba en el simulador, en tema claro y con la cuenta de prueba del rol que corresponda.\n")
-    print("| Código | Pantalla o ruta | Qué debe mostrar | Estado |\n|------|--------------------|------------------------------------------|--------|")
-    for i, c in CAPTURAS.items():
-        estado = "Incluida" if (RAIZ / "assets" / "capturas" / f"{i}.png").exists() else "Pendiente"
-        print(f"| `{i}` | `{c['pantalla']}` | {c['titulo']}: {c['estado']} | {estado} |")
-    print("\n: Capturas de pantalla del manual.\n")
     faltan = sorted(set(CAPTURAS) - set(usadas))
     if faltan:
         sys.stderr.write(f"Capturas sin usar en el texto: {', '.join(faltan)}\n")
