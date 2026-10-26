@@ -1,0 +1,12 @@
+# Lleva la app (ya con sesión) a la pestaña Inicio. Vuelve con el botón atrás hasta ver la barra de pestañas.
+appId: ${MOVO_APP_ID}
+---
+- repeat:
+    while:
+      notVisible: "Mi perfil"
+    times: 4
+    commands:
+      - tapOn:
+          point: "9%,10%"
+- tapOn: "Inicio"
+- waitForAnimationToEnd

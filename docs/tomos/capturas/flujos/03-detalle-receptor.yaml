@@ -1,0 +1,7 @@
+# Desde Inicio (scrolleado hasta «Actividad reciente»), abre el envío que requiere confirmación del receptor (M-43).
+# Las filas tienen un solo label de accesibilidad, por eso se toca por posición.
+appId: ${MOVO_APP_ID}
+---
+- tapOn:
+    point: "30%,63%"
+- waitForAnimationToEnd

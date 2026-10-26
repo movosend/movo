@@ -1,12 +1,12 @@
 # Capturas automáticas del Manual de Usuario
 
-Cómo generar las 108 capturas del Manual de Usuario (Tomo III) contra el **backend real de dev** (`https://api-dev.movosend.app`) con tu cuenta de pruebas de Movo, sin datos simulados. La lista de qué capturar (código, pantalla, estado) está en `docs/tomos/datos/capturas.yaml`; el build las toma solo de `docs/tomos/assets/capturas/M-NN.png` (móvil) y `W-NN.png` (panel).
+Cómo generar las 108 capturas del Manual de Usuario (Tomo III) contra el **backend real de dev** (`https://api-dev.movosend.app`) con cuentas de prueba de Movo. Los estados que son difíciles de alcanzar sin teléfonos reales (pago retenido, viaje en curso, entrega, sanciones) se **fuerzan en dev**, ver la regla 1. La lista de qué capturar (código, pantalla, estado) está en `docs/tomos/datos/capturas.yaml`; el build las toma solo de `docs/tomos/assets/capturas/M-NN.png` (móvil) y `W-NN.png` (panel).
 
 > Esto se corre en una Mac. Está escrito para ejecutarlo con Claude Code local, que ve el simulador y el repo.
 
 ## Reglas
 
-1. **Nada simulado:** ni `SUPPORT_MOCK` ni `MOVO_ADMIN_MOCK`. La app apunta a dev y el panel también.
+1. **Estados forzados en dev, código intacto:** la app y el panel apuntan a dev, sin `SUPPORT_MOCK` ni `MOVO_ADMIN_MOCK`. Un estado que no se puede alcanzar de forma natural en un simulador (hold de Mercado Pago, `in_transit`, `delivered`, suspensión de cuenta, mensajes del equipo de soporte) se arma escribiendo en la base de dev o con la API, siempre con envíos marcados «[manual]». Cualquier cambio de código para sortear una limitación del simulador (cámara que no existe, galería en lugar de cámara, un `metro.config.js` con un shim de `expo-camera`) **se revierte antes de commitear** (`git status` limpio en `movo-mobile`) y lo que se haya forzado se deshace al terminar (levantar sanciones, cerrar viajes). Se declara en el Manual cuando una captura es representativa y no del flujo real, por ejemplo el visor de la cámara.
 2. **Credenciales fuera del repo.** Teléfono y contraseña van en variables de entorno de tu shell (`MOVO_TEST_PHONE`, `MOVO_TEST_PASSWORD`) o en un archivo `capturas/.env.capturas` (ignorado por Git). Nunca en los flujos ni en los commits.
 3. **Datos de prueba reconocibles.** Las capturas muestran lo que haya en tu cuenta. Antes de capturar, revisá nombre, dirección y teléfono visibles; usá una cuenta con datos que puedan figurar en un documento impreso.
 4. **Escribir en dev está permitido.** Los flujos pueden crear envíos, ofertas, pagos y cancelaciones reales. Para no ensuciar demasiado, usá un prefijo reconocible en las descripciones (por ejemplo «[manual]») y, si querés, cancelá lo que quede abierto al terminar.
@@ -16,7 +16,7 @@ Cómo generar las 108 capturas del Manual de Usuario (Tomo III) contra el **back
 - Xcode con un simulador de iPhone (recomendado: iPhone 16 Pro o el modelo del marco que vayas a usar).
 - El bundle id por defecto es `com.movosend.movomobile` (si compilaste con `IOS_BUNDLE_ID`, usá ese). Exportalo: `export MOVO_APP_ID=com.movosend.movomobile`.
 - Development build de la app instalado en el simulador (`docs/mobile-development-build.md`) con `movo-mobile/.env.local` en `EXPO_PUBLIC_API_URL=https://api-dev.movosend.app`.
-- [Maestro](https://maestro.mobile.dev) (`brew install maestro`), `python3` con `pillow` (`pip install pillow`).
+- [Maestro](https://maestro.mobile.dev) (`brew install mobile-dev-inc/tap/maestro`; ojo, `brew install maestro` instala otro programa que no tiene nada que ver), `python3` con `pillow` (`pip install pillow`).
 - Un PNG de iPhone con **pantalla transparente** (o el bezel oficial de Apple Design Resources). Guardalo como `capturas/marco-iphone.png`.
 
 ## Orden recomendado
@@ -91,15 +91,23 @@ El marco de cada captura pasa de «Captura pendiente» a la imagen. La lista del
 | Seguimiento y ruta | M-39, M-59 | Necesita un envío en camino con posición reportada. El mapa usa la clave de Google Maps del build; si sale gris, la clave del build no está cargada o no autoriza el bundle id (ver `app.config.js`). |
 | Chat y soporte | M-40, M-41, M-88 a M-90 | Maestro, con un envío asignado y una consulta existente. |
 | Push | M-93 | `xcrun simctl push booted <bundle-id> push.json` con un JSON de ejemplo. |
-| Panel web | W-01 a W-15 | Claude in Chrome (ver abajo). |
+| Panel web | W-01 a W-18 | Claude in Chrome (ver abajo). |
 
-## Panel de administración (W-01 a W-15)
+## Panel de administración (W-01 a W-18)
 
-1. Abrí `https://admin.movosend.app` (o el panel local apuntando a dev) en Chrome con una ventana de **1440 x 900**.
+1. Abrí `https://admin-dev.movosend.app` (`admin.movosend.app` es el de prod y en dev da 404; o el panel local apuntando a dev) en Chrome con una ventana de **1440 x 900**.
 2. Ingresá con tu cuenta de administrador (contraseña y código por correo; el código lo ingresás vos).
 3. Pedile a Claude in Chrome que recorra las rutas de `datos/capturas.yaml` con código `W-NN` y guarde cada captura de ventana como `assets/capturas/W-NN.png`.
 4. Antes de capturar, verificá que no se vean datos personales reales de otros usuarios: en la ficha, la búsqueda y la bandeja de soporte aparecen datos de personas. Usá cuentas de prueba o difuminá esas zonas.
-5. Las pantallas de **sanciones** (MOVO-299) y la **bandeja de soporte con datos reales** (MOVO-322) siguen en desarrollo: si no están disponibles en dev, dejá esas capturas como pendientes.
+5. Sanciones (MOVO-299) y la bandeja de soporte real (MOVO-322) ya están en dev. W-02 (código de seis dígitos) la saca la persona: `/verify` redirige al login si no hay un ingreso en curso, así que hay que ingresar email y contraseña a mano y capturar antes de escribir el código. W-16 a W-18 son extras (diálogo de suspender, KYC y vehículo, menú de la cuenta); los diálogos de escritura se abren, se capturan y se cancelan sin confirmar.
+
+## Capturas representativas (no del flujo real)
+
+- **M-46:** el simulador no tiene cámara; el visor de «Confirmar entrega» se ve en gris (shim de `expo-camera`) y el título se fuerza a «Confirmar entrega». Representa la pantalla del receptor.
+- **M-64:** la confirmación del escaneo se simuló en la app (sin escanear el QR ni cambiar el estado del envío en dev). La pantalla y sus textos son los reales.
+- **M-76:** se abrió el navegador de Mercado Pago desde «Cambiar cuenta» y se cerró sin completar la autorización, así que la cuenta vinculada no cambió.
+- **M-93:** push enviada con `xcrun simctl push` sobre la pantalla de bloqueo. Se ve asomar una notificación de otra app del simulador y el badge «11» del ícono; si se quiere una captura más limpia, repetirla en un simulador nuevo.
+- **Build de la app:** el development build tiene que compilarse con el código del worktree (`npx expo run:ios` desde `movo-mobile`); una compilación vieja falla con «Cannot find native module» al recargar el bundle.
 
 ## Control de calidad
 
