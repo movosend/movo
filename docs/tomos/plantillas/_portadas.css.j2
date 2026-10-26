@@ -12,9 +12,9 @@
 .lima .etq.arriba { position: absolute; left: {{ mm(88) }}; top: {{ mm(72) }}; }
 .lima .etq { font: 600 {{ pt(11) }}/1.2 "Inter"; letter-spacing: .08em; text-transform: uppercase; }
 
-.pt .marca, .ante .marca { position: absolute; left: {{ mm(88) }}; top: {{ mm(72) }}; display: flex; align-items: center; }
-.pt .marca img, .ante .marca img { width: {{ mm(36) }}; height: {{ mm(36) }}; margin-right: {{ mm(12) }}; }
-.pt .marca span, .ante .marca span { font: 600 {{ pt(28) }}/1 "Inter"; letter-spacing: -.04em; }
+.pt .marca, .ante .marca, .equipo-pg .marca { position: absolute; left: {{ mm(88) }}; top: {{ mm(72) }}; display: flex; align-items: center; }
+.pt .marca img, .ante .marca img, .equipo-pg .marca img { width: {{ mm(36) }}; height: {{ mm(36) }}; margin-right: {{ mm(12) }}; }
+.pt .marca span, .ante .marca span, .equipo-pg .marca span { font: 600 {{ pt(28) }}/1 "Inter"; letter-spacing: -.04em; }
 .pt .tomo-bloque { position: absolute; left: {{ mm(88) }}; top: {{ mm(197) }}; display: flex; align-items: flex-end; }
 .pt .tomo-bloque .romano { font: 600 {{ pt(200) }}/.74 "Inter"; letter-spacing: -.06em; }
 .pt .tomo-bloque .etq { margin-left: {{ mm(20) }}; padding-bottom: {{ mm(4) }}; }
@@ -67,14 +67,15 @@
 .ante .pie-ante { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; bottom: {{ mm(88) }}; }
 
 /* Datos de la edición y colofón: páginas de texto sin encabezado ni pie */
-.datos-edicion, .colofon { page: libro; font-size: 8.6pt; line-height: 1.6; }
+.datos-edicion, .colofon, .verso-ante { page: libro; font-size: 8.6pt; line-height: 1.6; }
 .datos-edicion { break-before: page; break-after: page; }
+.verso-ante { break-before: page; break-after: page; }
 .colofon { break-before: page; }
-.datos-edicion .eyebrow-c, .colofon .eyebrow-c { margin: 7mm 0 1.6mm; }
+.datos-edicion .eyebrow-c, .colofon .eyebrow-c, .verso-ante .eyebrow-c { margin: 7mm 0 1.6mm; }
 .datos-edicion h2.unnumbered, .colofon h2.unnumbered { border: 0; padding: 0; margin: 0 0 4mm; font-size: 14pt; break-before: auto; }
-.datos-edicion table, .colofon table { font-size: 8.4pt; margin: 0; }
-.datos-edicion td, .datos-edicion th, .colofon td, .colofon th { border: 0; border-bottom: .4pt solid var(--ink-200); padding: 1.3mm 0; background: none; text-align: left; vertical-align: top; }
-.datos-edicion td:first-child { width: 36mm; color: rgba(10,10,11,.56); }
+.datos-edicion table, .colofon table, .verso-ante table { font-size: 8.4pt; margin: 0; }
+.datos-edicion td, .datos-edicion th, .colofon td, .colofon th, .verso-ante td, .verso-ante th { border: 0; border-bottom: .4pt solid var(--ink-200); padding: 1.3mm 0; background: none; text-align: left; vertical-align: top; }
+.datos-edicion td:first-child { width: 34mm; color: rgba(10,10,11,.56); }
 .datos-edicion .cita { padding: 3.2mm 4mm; background: var(--ink-50); border-left: 2pt solid var(--lime-deep); }
 .colofon .centrado { margin-top: 62mm; }
 .colofon img.marca-fin { width: 14mm; height: 14mm; margin-bottom: 8mm; }
@@ -83,5 +84,23 @@
 
 /* Tapa y contratapa como páginas de la edición digital */
 .pagina-tapa { page: portada; position: relative; width: 210mm; height: 297mm; overflow: hidden; background: {{ tapa.color }}; color: {{ fg }}; break-after: page; }
-.pagina-tapa.ultima { break-before: page; break-after: auto; }
+.pagina-tapa.ultima { break-before: left; break-after: auto; }
 .pagina-tapa .tp-frente, .pagina-tapa .tp-contra { left: 0; top: 0; }
+
+/* El equipo: página de cierre, fondo lima con las fotos del equipo (misma sección que el sitio institucional) */
+.equipo-pg { page: portada; position: relative; width: 210mm; height: 297mm; overflow: hidden; background: var(--lime); color: var(--ink-950); break-after: page; }
+.equipo-pg svg.puntos { position: absolute; left: 0; top: 0; }
+.equipo-pg h2.gigante { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; top: 50mm; margin: 0; padding: 0; border: 0; font: 600 48pt/.95 "Inter"; letter-spacing: -.055em; color: var(--ink-950); }
+.equipo-pg .textos { position: absolute; left: {{ mm(88) }}; top: 98mm; width: 148mm; }
+.equipo-pg .textos p { margin: 0 0 4.2mm; text-align: left; hyphens: manual; }
+.equipo-pg .textos p:nth-child(1) { font: 500 12.5pt/1.42 "Inter"; letter-spacing: -.015em; }
+.equipo-pg .textos p:nth-child(2) { font: 400 9.8pt/1.55 "Inter"; }
+.equipo-pg .textos p:nth-child(3) { font: 600 11pt/1.45 "Inter"; letter-spacing: -.01em; }
+.equipo-pg .fotos { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; bottom: 45mm; display: flex; }
+.equipo-pg figure { flex: 1; margin: 0 3mm 0 0; }
+.equipo-pg figure:last-child { margin-right: 0; }
+.equipo-pg figure img { display: block; width: 100%; border-radius: 1.6mm; background: var(--ink-950); }
+.equipo-pg figcaption { text-align: left; color: var(--ink-950); font-size: inherit; margin-top: 2.2mm; padding-top: 1.6mm; border-top: 1.5pt solid var(--ink-950); }
+.equipo-pg figcaption .nom { display: block; font: 600 8.2pt/1.15 "Inter"; letter-spacing: -.025em; }
+.equipo-pg figcaption .leg { display: block; margin-top: .8mm; font: 500 6.4pt/1.2 "JetBrains Mono"; letter-spacing: .04em; }
+.equipo-pg .cierre { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; bottom: {{ mm(64) }}; font: 600 15pt/1.2 "Inter"; letter-spacing: -.035em; }

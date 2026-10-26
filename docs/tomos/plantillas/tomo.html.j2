@@ -14,8 +14,7 @@
       content: "UTN FRC · Ingeniería en Sistemas de Información · Proyecto Final {{ p.anio }} · {{ p.curso }} · Grupo {{ p.grupo }}";
     }
   }
-{% if edicion == 'impresa' %}
-  /* Doble faz: margen interior junto al lomo (izquierda en impares, derecha en pares), número de página en el borde
+  /* Doble faz (las dos ediciones): margen interior junto al lomo (izquierda en impares, derecha en pares), número de página en el borde
      exterior y pie institucional en el interior. Los separadores y las secciones principales abren en página impar. */
   @page :right { margin: 25mm 20mm 22mm 30mm; }
   @page :left {
@@ -36,13 +35,10 @@
       padding-top: 3.4mm;
     }
   }
-{% endif %}
 {% include '_portadas.css.j2' %}
 {% if edicion == 'digital' %}{% include '_tapa.css.j2' %}{% endif %}
-{% if edicion == 'impresa' %}
-  .pt, .sep, .presentacion, .indice, .ficha { break-before: right; }
-  .datos-edicion, .colofon { break-before: left; }
-{% endif %}
+  .ante, .pt, .sep, .presentacion, .indice, .ficha, .equipo-pg { break-before: right; }
+  .verso-ante, .datos-edicion, .colofon { break-before: left; }
   body { string-set: tomo-corto "Movo · {{ tomo.numero_largo }} · {{ tomo.titulo }}"; }
 </style>
 </head>
@@ -51,7 +47,8 @@
 {% if edicion == 'digital' %}
 {# ───────────── Tapa (edición digital) ───────────── #}
 <section class="pagina-tapa">{% include '_tapa_frente.html.j2' %}</section>
-{% else %}
+{% endif %}
+
 {# ───────────── Anteportada (falso título) ───────────── #}
 <section class="ante">
   <div class="marca"><img src="assets/logos/movo-marca.svg" alt=""><span>movo</span></div>
@@ -63,7 +60,16 @@
   <div class="pie-ante eyebrow-c">Proyecto Final {{ p.anio }} · {{ p.curso }} · Grupo {{ p.grupo }}</div>
 </section>
 
-{% endif %}
+{# ───────────── Verso de la anteportada: la obra en tres tomos ───────────── #}
+<section class="verso-ante">
+  <div class="eyebrow-c" style="margin-top:0">Obra en {{ todos_tomos|length|replace('3','tres') }} tomos</div>
+  <p style="margin:0 0 6mm"><b>{{ p.software }}: {{ p.subtitulo }}.</b><br>Proyecto Final {{ p.anio }} · {{ p.carrera }} · {{ p.facultad }}.</p>
+  <table><tbody>
+  {% for t in todos_tomos %}
+    <tr><td style="width:24mm"><b>{{ t.numero_largo }}</b></td><td>{{ t.titulo }}{% if t.id == tomo.id %} <span class="chip lime">este tomo</span>{% endif %}</td></tr>
+  {% endfor %}
+  </tbody></table>
+</section>
 
 {# ───────────── Carátula interna (portada) ───────────── #}
 <section class="pt">
@@ -106,29 +112,31 @@
 
 {# ───────────── Datos de la edición (reverso de la portada) ───────────── #}
 <section class="datos-edicion">
-  <div class="eyebrow-c" style="margin-top:0">Obra</div>
-  <p style="margin:0"><b>{{ p.software }}: {{ p.subtitulo }}.</b><br>{{ tomo.numero_largo }} de {{ todos_tomos|length|replace('3','III') }}: {{ tomo.titulo }}.</p>
+  <p style="margin:0"><b>{{ p.software }}: {{ p.subtitulo }}.</b><br>{{ tomo.numero_largo }}: {{ tomo.titulo }}.</p>
+  <p style="margin:4mm 0 0">© {{ p.anio }} {% for i in p.integrantes %}{{ i.nombre }} {{ i.apellido|title }}{% if loop.revindex == 2 %} y {% elif not loop.last %}, {% endif %}{% endfor %}. Todos los derechos reservados.</p>
 
   <div class="eyebrow-c">Edición</div>
   <table><tbody>
-    <tr><td>Versión</td><td>Entrega final, {{ fecha_dia }}</td></tr>
+    <tr><td>Edición</td><td>Primera, entrega final del {{ fecha_dia }}</td></tr>
+    <tr><td>Publicación</td><td>Edición académica, de circulación no comercial. Sin ISBN ni depósito legal.</td></tr>
     <tr><td>Institución</td><td>{{ p.universidad }}, {{ p.facultad }}. {{ p.departamento }}.</td></tr>
     <tr><td>Cátedra</td><td>{{ p.asignatura }} · Curso {{ p.curso }} · Turno {{ p.turno }} · Grupo {{ p.grupo }} · Año {{ p.anio }}</td></tr>
-    <tr><td>Sitio del proyecto</td><td>{{ p.sitio }}</td></tr>
   </tbody></table>
 
-  <div class="eyebrow-c">Obra completa</div>
+  <div class="eyebrow-c">Créditos</div>
   <table><tbody>
-  {% for t in todos_tomos %}
-    <tr><td>{{ t.numero_largo }}</td><td>{{ t.titulo }}{% if t.id == tomo.id %} <span class="chip lime">este tomo</span>{% endif %}</td></tr>
-  {% endfor %}
+    <tr><td>Autoría y desarrollo</td><td>{% for i in p.integrantes %}{{ i.nombre }} {{ i.apellido|title }} (leg. {{ i.legajo }}){% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+    <tr><td>Equipo docente</td><td>{% for d in p.docentes %}{{ d.nombre }} ({{ d.rol }}){% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+    <tr><td>Identidad visual</td><td>Manual de Marca de {{ p.software }}: tipografías Inter y JetBrains Mono, color Signal Lime.</td></tr>
+    <tr><td>Maquetación</td><td>Generada a partir del repositorio del proyecto con HTML y CSS de impresión (WeasyPrint). Diagramas en PlantUML, notación UML 2.</td></tr>
+    <tr><td>Contacto</td><td>{{ p.sitio }}</td></tr>
   </tbody></table>
 
   <div class="eyebrow-c">Cómo citar</div>
   <div class="cita">{% for i in p.integrantes %}{{ i.apellido|title }}, {% for n in i.nombre.split() %}{{ n[0] }}.{% if not loop.last %} {% endif %}{% endfor %}{% if not loop.last %}; {% endif %}{% endfor %} ({{ p.anio }}). <i>{{ p.software }}: {{ p.subtitulo|lower }}. {{ tomo.numero_largo }}: {{ tomo.titulo }}.</i> Proyecto Final, {{ p.carrera }}. {{ p.universidad }}, {{ p.facultad }}.</div>
 
-  <div class="eyebrow-c">Composición</div>
-  <p style="margin:0">Maquetación generada a partir del repositorio del proyecto con HTML y CSS de impresión (WeasyPrint). Tipografías Inter y JetBrains Mono. Diagramas en PlantUML y notación UML 2.</p>
+  <div class="eyebrow-c">Alcance y marcas</div>
+  <p style="margin:0">Esta documentación describe el sistema tal como quedó construido al {{ fecha_dia }}; donde un documento previo y el código difieren, los tomos reflejan el código. Los nombres de productos y servicios de terceros mencionados (Mercado Pago, Google, Didit, Twilio, Amazon Web Services, entre otros) pertenecen a sus respectivos titulares y se citan solo para describir las integraciones.</p>
 </section>
 
 {# ───────────── Ficha para Biblioteca (solo Tomo I) ───────────── #}
@@ -264,16 +272,26 @@
 </section>
 {% endfor %}
 
+{# ───────────── El equipo (cierre) ───────────── #}
+<section class="equipo-pg">
+  {{ puntos_interior|safe }}
+  <div class="marca"><img src="assets/logos/movo-marca.svg" alt="Movo"><span>movo</span></div>
+  <h2 class="unnumbered gigante" id="el-equipo" data-marcador="El equipo">{{ p.equipo.titular[0] }}<br>{{ p.equipo.titular[1] }}</h2>
+  <div class="textos">{% for t in p.equipo.parrafos %}<p>{{ t }}</p>{% endfor %}</div>
+  <div class="fotos">
+    {% for i in p.integrantes %}
+    <figure><img src="{{ i.foto }}" alt="{{ i.nombre }} {{ i.apellido|title }}"><figcaption><span class="nom">{{ i.nombre }} {{ i.apellido|title }}</span><span class="leg">Leg. {{ i.legajo }}</span></figcaption></figure>
+    {% endfor %}
+  </div>
+  <div class="cierre">{{ p.equipo.cierre }}</div>
+</section>
+
 {# ───────────── Colofón ───────────── #}
 <section class="colofon">
   <div class="centrado">
     <img class="marca-fin" src="assets/logos/movo-marca.svg" alt="">
     <div class="fin">Fin del {{ tomo.numero_largo|replace('Tomo','tomo') }}</div>
     <div class="lema">{{ p.lema }}. {{ p.software }} es un proyecto independiente de {{ p.carrera }}, {{ p.universidad }}, {{ p.facultad }}. Entrega final: {{ fecha_dia }}.</div>
-    <div class="eyebrow-c">Obra completa</div>
-    <table><tbody>
-    {% for t in todos_tomos %}<tr><td style="width:24mm">{{ t.numero_largo }}</td><td>{{ t.titulo }}</td></tr>{% endfor %}
-    </tbody></table>
   </div>
 </section>
 

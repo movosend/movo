@@ -10,13 +10,21 @@ Fuente de los tres tomos de la entrega final (UTN FRC · ISI · Proyecto Final 2
 
 La documentación se escribe en Markdown y se maqueta con HTML + CSS Paged Media (A4) en dos ediciones del mismo contenido:
 
-- **Digital** (`salida/`, `entrega/`): simple faz, sin hojas en blanco, margen fijo, la tapa como primera página y la
-  contratapa como última. Es la que se abre en pantalla, se sube al campus y se imprime si se pide simple faz.
-- **Impresa** (`salida/impresa/`, `entrega/impresa/`): doble faz con márgenes espejados, anteportada, separadores en
-  página impar y hojas en blanco intencionales, más la tapa dura como PDF aparte. Es la que va a encuadernación.
+- **Digital** (`salida/`, `entrega/`): la misma paginación de libro que la impresa, con la tapa como primera página
+  (seguida de la guarda en blanco) y la contratapa como última. Se abre en pantalla y se sube al campus.
+- **Impresa** (`salida/impresa/`, `entrega/impresa/`): sin tapa ni contratapa en el PDF, que van aparte como plano de
+  tapa dura (contratapa + lomo + tapa). Es la que va a encuadernación.
 
-En ambas el tomo se arma como un libro: portada, datos de la edición, presentación, índice general, separadores de
-documento y colofón. Los diagramas UML se escriben en PlantUML y comparten un tema común.
+Las dos son a doble faz: márgenes espejados, número de página en el borde exterior, separadores y secciones principales
+en página impar y hojas en blanco donde corresponde. El tomo se arma como un libro (estructura editorial):
+
+1. Tapa y guarda (solo digital) · 2. Anteportada · 3. Verso de la anteportada (la obra en tres tomos) · 4. Portada ·
+5. Página de créditos (derechos, edición, créditos, cómo citar, alcance y marcas) · 6. Ficha para Biblioteca (Tomo I) ·
+7. Presentación e índice general · 8. Documentos, cada uno con su separador · 9. El equipo (fotos y texto, cierre) ·
+10. Colofón · 11. Contratapa (solo digital, en página par).
+
+El texto de la página del equipo y las fotos salen de `config/proyecto.yaml` (`equipo:` y `foto:` de cada integrante). Las
+fotos se prepararon con `herramientas/preparar_fotos_equipo.py` a partir de las del sitio institucional.
 
 ## Estructura
 
@@ -42,7 +50,7 @@ jar de PlantUML (`PLANTUML_JAR`, por defecto `/opt/tools/plantuml.jar`) y
 
 ```bash
 python3 docs/tomos/build.py            # los tres tomos, en las dos ediciones, y las tapas -> docs/tomos/salida/
-python3 docs/tomos/build.py --edicion digital   # solo la digital (la mitad de tiempo)
+python3 docs/tomos/build.py --edicion digital   # solo una edición (la mitad de tiempo)
 python3 docs/tomos/build.py tomo-2     # un solo tomo
 python3 docs/tomos/build.py --html     # solo el HTML intermedio (build/), más rápido
 ```

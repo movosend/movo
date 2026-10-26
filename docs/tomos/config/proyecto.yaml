@@ -34,19 +34,42 @@ integrantes:
     nombre: Alena
     legajo: "95359"
     email: arizaalena@gmail.com
+    foto: assets/equipo/alena.jpg
   - apellido: BORDINO BLANCHE
     nombre: Juan Cruz
     legajo: "95008"
     email: juancruzbordino@gmail.com
+    foto: assets/equipo/juancruz.jpg
   - apellido: DALMAGRO
     nombre: Lucas
     legajo: "94366"
     email: lucasdalmagro1@gmail.com
+    foto: assets/equipo/lucas.jpg
   - apellido: VERGARA
     nombre: Tomás Ignacio
     legajo: "94197"
     email: tivergara@outlook.com
+    foto: assets/equipo/tomas.jpg
   - apellido: YORLANO
     nombre: Pedro
     legajo: "95197"
     email: pedro.yorlano@gmail.com
+    foto: assets/equipo/pedro.jpg
+
+# Página "El equipo" del final de cada tomo. Texto editable: el titular, la bajada y los párrafos salen de acá.
+equipo:
+  titular: ["Cinco estudiantes,", "un solo equipo."]
+  parrafos:
+    - >-
+      Movo empezó con una pregunta: ¿por qué enviar algo a otro lado tendría que depender de si vivís cerca de una
+      sucursal? Nuestra respuesta fue una red de personas que se mueven y aprovechan el camino para llevar los
+      paquetes de otros.
+    - >-
+      La construimos entre cinco. Sin jerarquías fijas y sin silos: los cinco somos, ante todo, desarrolladores,
+      las decisiones técnicas se toman en equipo y el rol de Scrum Master rotó cada mes para que todos viviéramos
+      las dos perspectivas.
+    - >-
+      Hubo bloqueos de proveedores, rediseños y sprints que no cerraron como esperábamos. También hubo un sistema que
+      funciona de punta a punta y una feria donde Movo llegó entre los tres finalistas. Lo que más nos enorgullece no
+      cabe en un tomo: lo hicimos juntos.
+  cierre: Cinco personas. Un proyecto. Logística para personas.
