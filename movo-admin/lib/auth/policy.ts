@@ -17,10 +17,15 @@ const SUPPORT_PATH =
 const SHIPMENTS_PATH =
   /^\/shipments(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?(\?[A-Za-z0-9=&%+._~-]*)?$/i
 
+// /disputes (con filtros y página) y el expediente /disputes/<uuid>.
+const DISPUTES_PATH =
+  /^\/disputes(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?(\?[A-Za-z0-9=&%+._~-]*)?$/i
+
 export function internalReturnPath(value: string | null): string {
   // Only implemented protected destinations are accepted. Never redirect to auth.
   if (value === "/" || value === "/admins") return value
   if (value !== null && SUPPORT_PATH.test(value)) return value
   if (value !== null && SHIPMENTS_PATH.test(value)) return value
+  if (value !== null && DISPUTES_PATH.test(value)) return value
   return value !== null && USERS_PATH.test(value) ? value : "/"
 }
