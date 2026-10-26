@@ -19,11 +19,17 @@ CAPTURAS = {c["id"]: c for c in yaml.safe_load((RAIZ / "datos" / "capturas.yaml"
 
 def figura(c: dict) -> str:
     img = RAIZ / "assets" / "capturas" / f"{c['id']}.png"
-    if img.exists():
+    # Las móviles usan la versión con marco de iPhone si existe (capturas/enmarcar_todas.py); si no, el original.
+    enmarcada = RAIZ / "assets" / "capturas-marco" / f"{c['id']}.png"
+    clase = "marco"
+    if enmarcada.exists():
+        clase = "marco con-marco"
+        marco = f'<img src="assets/capturas-marco/{c["id"]}.png" alt="{html.escape(c["titulo"])}">'
+    elif img.exists():
         marco = f'<img src="assets/capturas/{c["id"]}.png" alt="{html.escape(c["titulo"])}">'
     else:
         marco = f'<div><span class="cod">{c["id"]}</span>Captura pendiente</div>'
-    return (f'<figure class="cap"><div class="marco">{marco}</div><figcaption><b>{c["id"]} · {html.escape(c["titulo"])}</b>'
+    return (f'<figure class="cap"><div class="{clase}">{marco}</div><figcaption><b>{c["id"]} · {html.escape(c["titulo"])}</b>'
             f'<span>{html.escape(c["estado"])}</span></figcaption></figure>')
 
 

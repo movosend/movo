@@ -524,6 +524,10 @@ table.caso td.resultado { font-weight: 600; }
 .galeria.movil .marco { height: 88mm; }
 .galeria.web .marco { height: 56mm; border-radius: 2mm; }
 .galeria .marco img { width: 100%; height: 100%; object-fit: contain; border-radius: 3mm; }
+/* Captura móvil que ya trae el marco de iPhone en la imagen: sin el recuadro de CSS, que quedaría duplicado. */
+.galeria .marco.con-marco { border: 0; border-radius: 0; background: none; padding: 0; }
+.galeria.movil .marco.con-marco { height: 100mm; }
+.galeria .marco.con-marco img { border-radius: 0; }
 .galeria .marco .cod { display: block; font: 600 9pt/1.2 "JetBrains Mono"; color: var(--ink-950); margin-bottom: 1.5mm; }
 .galeria figcaption { margin-top: 1.8mm; font-size: 7.2pt; line-height: 1.35; color: var(--ink-600); text-align: left; }
 .galeria figcaption b { display: block; color: var(--ink-950); font-weight: 600; }

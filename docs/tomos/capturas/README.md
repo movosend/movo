@@ -53,7 +53,7 @@ maestro test capturas/flujos/00-login.yaml
 ./capturas/capturar.sh M-14       # captura la pantalla actual como assets/capturas/M-14.png
 ```
 
-`capturar.sh CODIGO` hace `xcrun simctl io booted screenshot` y llama a `enmarcar.py` para ponerle el marco. Para cada código de `datos/capturas.yaml`:
+`capturar.sh CODIGO` hace `xcrun simctl io booted screenshot`, guarda el original y, si es móvil, actualiza la versión enmarcada. Para cada código de `datos/capturas.yaml`:
 
 1. Llevá la app al estado que indica el campo `estado` (con un flujo de Maestro o a mano).
 2. Corré `./capturas/capturar.sh <codigo>`.
@@ -64,11 +64,17 @@ Los flujos incluidos son un punto de partida: `00-login.yaml` (sesión) y `01-re
 
 ### 4. Enmarcar
 
+`capturar.sh` guarda el original **sin marco** en `assets/capturas/` y el Manual lo enmarca aparte, sin tocarlo. Para generar las versiones con marco de iPhone:
+
 ```bash
-python3 capturas/enmarcar.py entrada.png salida.png --marco capturas/marco-iphone.png
+python3 capturas/enmarcar_todas.py            # solo las que cambiaron
+python3 capturas/enmarcar_todas.py M-14 M-15  # códigos puntuales
+python3 capturas/enmarcar_todas.py --forzar   # todas de nuevo
 ```
 
-`enmarcar.py` detecta el área transparente del marco (la pantalla), escala la captura a ese rectángulo, aplica las esquinas redondeadas y compone el marco por encima. Si el marco no tiene pantalla transparente, pasá `--pantalla X,Y,ANCHO,ALTO` con el rectángulo en píxeles y `--radio` con el radio de las esquinas.
+Salen en `assets/capturas-marco/M-NN.png` (1320x2718). Esa carpeta **no se commitea** (pesa unos 57 MB, ver `.gitignore`): se regenera con el comando de arriba. `herramientas/gen_manual_usuario.py` usa la enmarcada si existe y, si no, el original; las del panel (W-NN) no se enmarcan. Necesita Pillow (`/usr/bin/python3` de macOS ya lo trae).
+
+`enmarcar.py` por sí solo no sirve con este marco: la isla dinámica está dibujada dentro del área transparente y la detección automática arranca debajo de ella, deformando la captura. `enmarcar_todas.py` ya le pasa el rectángulo real de la pantalla (`--pantalla 57,48,1206,2622 --radio 184`), que coincide con el tamaño exacto de una captura del simulador.
 
 ### 5. Ver el resultado en el PDF
 
