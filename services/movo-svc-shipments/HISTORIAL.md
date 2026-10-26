@@ -3902,3 +3902,12 @@ adjuntos del agente) sobre `repositories/support-admin-repository.ts`, con regla
   replay sin publicar. Un solo feed y un solo servicio de adjuntos compartidos entre `/support` y el lado del agente.
 - Reabrir pone `last_user_message_at` en `now`: es la referencia de `waitMinutes` y del orden de la bandeja.
 - Pendiente: el WebSocket del panel con ticket (segunda PR de MOVO-322, en `svc-admin`).
+
+### Referencia del flujo E2E esperado (logs y BD), tras la primera prueba real
+
+`docs/pruebas/flujo-esperado-e2e.md` + `.sql`: qué deja cada paso del envío en BD y en logs, con las
+variantes "MP caído" y "forzado desde el panel" (DD-055). Solo documentación, sin cambios de código. No obvio: el
+camino feliz casi no loguea (la evidencia es `shipment_events` + el access log) y no hay un id que cruce servicios en
+el access log (`reqId` es por proceso), así que se correlaciona por URL y hora. Si cambia un literal de log o una
+transición, actualizar el doc. Al lado, `docs/pruebas/2026-10-25-flujo-completo.md`: hallazgos de la primera prueba
+real (sesión cerrada en background por el Keychain, timeout del optimizador, rate limit de nginx, loop del WS de soporte).
