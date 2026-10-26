@@ -3,7 +3,9 @@
 Primera prueba real de punta a punta: un envío creado, ofertado, pagado, retirado con QR, seguido en vivo
 y entregado con QR, con dispositivos reales en la calle. Este informe contrasta lo que quedó en la BD y en
 los logs de dev contra la referencia de [`flujo-esperado-e2e.md`](./flujo-esperado-e2e.md) y documenta
-cada problema encontrado, con evidencia, causa y propuesta.
+cada problema encontrado, con evidencia, causa y propuesta. Cada punto cierra con un bloque **Para el issue**
+(título en el formato de PR del repo, tipo y criterios de aceptación) para crear el ticket de Linear sin
+volver a investigar. Las referencias `archivo:línea` son al código del 26/10/2026.
 
 - **Envío:** `6c0d8b51-69bc-4cc7-b558-538208f530ab`, hoy `completed` con
   `payment_simulated = true`.
@@ -27,6 +29,8 @@ cada problema encontrado, con evidencia, causa y propuesta.
 | 8 | `GET /trips/:id/matches` da 409 en cada poll con el viaje activo | Baja | `movo-mobile` | Causa identificada |
 | 9 | `GET /shipments/undefined/ratings` (400) | Baja | `movo-mobile` | Causa identificada |
 | 10 | Envíos de pruebas anteriores con holds `manual-*` y uno trabado en `delivered` | Baja (datos) | BD de dev | Limpiar |
+| 11 | El receptor ve "Listo. Se lo entregaste." después de escanear el QR de entrega | Media (UX) | `movo-mobile` | Causa identificada |
+| 12 | **Feature:** emisor y receptor deberían ver la ruta del transportista, no solo su posición | — (feature) | `movo-mobile` + `svc-shipments` | Propuesta |
 | — | `POST /users/me/legal-acceptance` 422 | — | build viejo (Movo/14) | Conocido, fuera de alcance |
 
 ## Línea de tiempo del envío
@@ -146,6 +150,21 @@ entrega.
   venza, para no depender del primer 401 en background.
 - Sumar una prueba manual al DoD: viaje de más de 60 min con el teléfono bloqueado.
 
+**Para el issue**
+
+- **Título:** `fix(mobile): no perder la sesión al refrescar el token con el teléfono bloqueado`
+- **Tipo:** bug, crítico. **Área:** `movo-mobile` (`src/lib/secure-store.ts`, `src/store/auth-store.ts`,
+  `src/api/http-client.ts`).
+- **Criterios de aceptación:**
+  - Con un viaje activo y el iPhone bloqueado, vencer el access token no cierra la sesión: el refresh
+    se aplica y el tracking sigue sin hueco en `carrier_positions`.
+  - Un fallo al persistir la sesión no llama a `clearSession()`. La sesión nueva queda en memoria y se
+    reintenta guardarla.
+  - `clearSession()` solo corre si `/auth/refresh` respondió un rechazo del servidor.
+  - Las keys `session*` se guardan con `AFTER_FIRST_UNLOCK`, y una instalación existente migra en el
+    próximo refresh.
+  - Test unitario del interceptor: un `onTokensRefreshed` que rechaza no termina en `onAuthFailure`.
+
 ## 2. Caída del sandbox de Mercado Pago (externa, mitigada)
 
 **Evidencia.** Cuatro `POST /shipments/:id/funding`, todos 502 a los ~10 s (20:40:34, 20:40:52,
@@ -171,6 +190,15 @@ simulado (DD-055, MOVO-333).
 desde antes (ya lo está) y decidir de antemano si se usa. No hay alerta de Telegram para "MP no responde
 al crear holds": hoy solo hay alertas para la liquidación escalada y el webhook agotado. Un contador de
 `"MP no respondió al crear el hold"` en una ventana sería una alerta útil. Queda como idea, sin ticket.
+
+**Para el issue**
+
+- **Título:** `feat(svc-payments): alertar cuando MP no responde al crear holds`
+- **Tipo:** mejora operativa, baja prioridad. **Área:** `svc-payments` (`hold.service.ts`, `alert-notifier.ts`).
+- **Criterios de aceptación:** N errores `"MP no respondió al crear el hold"` en una ventana (por ejemplo
+  3 en 10 min) mandan una alerta `mp_hold_create_unavailable` a Telegram, una sola vez por ventana.
+- La deuda del transportista de esta prueba ($515,25) no necesita un issue: es efecto esperado del pago
+  simulado.
 
 ## 3. El barrido de timeout revirtió la asignación durante la caída
 
@@ -199,6 +227,17 @@ con un tope. Alternativa sin código: documentar que, ante una caída de MP, el 
 con pago simulado (dev) o espera. No es urgente: en prod esta caída es rara y el retiro "el mismo día"
 es el peor caso.
 
+**Para el issue**
+
+- **Título:** `feat(svc-shipments): extender el plazo de pago cuando falla el proveedor [DD-0xx]`
+- **Tipo:** decisión de diseño + feature, media. **Área:** `svc-shipments` (`funding.service.ts`,
+  `fundingPayUntil`). Primero el DD en el registro de diseño y en `docs/decisiones/README.md`.
+- **Criterios de aceptación:**
+  - Un `POST /funding` que termina en `502 PAYMENT_PROVIDER_ERROR` extiende el plazo de `assignment_pending`
+    (propuesta: +15 min desde ese intento, tope de 2 extensiones o el fin de la ventana de retiro).
+  - El barrido y `GET /funding` usan el mismo plazo extendido: no hay 409 mientras el plazo sigue abierto.
+  - Un rechazo de tarjeta (`rejected`) no extiende nada.
+
 ## 4. Deploys durante la prueba (proceso)
 
 **Evidencia.** Reinicios de contenedores a las ~19:20, 19:52, 20:47 y 21:48 (`journalctl -u docker` y
@@ -211,6 +250,17 @@ pricing, que no se recrearon.
 prueba y bajar los logs antes de cualquier deploy. A más largo plazo, un envío de logs fuera del
 contenedor (CloudWatch agent o similar) haría que un deploy no los borre. Hoy no hay ninguno (ver la
 infra de logs en la referencia).
+
+**Para el issue**
+
+- **Título:** `chore(infra): no perder logs al deployar durante una prueba`
+- **Tipo:** proceso/infra, media. **Área:** `.github/workflows/ci-dev.yml`, `movo-infra`.
+- **Criterios de aceptación** (cualquiera de los dos, o los dos):
+  - Los logs de los contenedores van a un destino que sobrevive al recreate (CloudWatch Logs con el driver
+    `awslogs`, o el agente de CloudWatch sobre los archivos `json-file`), con retención acotada.
+  - O, como mínimo, el workflow de deploy vuelca `docker compose logs` de cada servicio a un archivo con
+    fecha en la EC2 antes de recrear los contenedores.
+- Proceso, sin ticket: avisar en el grupo y no mergear a `develop` durante una prueba.
 
 ## 5. El optimizador de rutas siempre da timeout
 
@@ -228,6 +278,18 @@ corre OR-Tools con `ROUTING_TIME_LIMIT_SECONDS = 1.0`, redondeado hacia arriba a
 **Propuesta.** Un timeout propio para `optimizeRoute` (por ejemplo 5 s, vía `timeoutMs` por método o una
 env var `PRICING_OPTIMIZE_TIMEOUT_MS`, con los tres lugares de siempre), dejando 1 s para
 `evaluate-candidates`. El warm-up al iniciar el viaje es fire-and-forget y puede tener uno aún mayor.
+
+**Para el issue**
+
+- **Título:** `fix(svc-shipments): timeout propio para el optimizador de rutas`
+- **Tipo:** bug, media. **Área:** `svc-shipments` (`src/adapters/pricing-logistics-client.ts`,
+  `config/env.ts`, `.env.example`, `infra/docker-compose.yml`).
+- **Criterios de aceptación:**
+  - `optimizeRoute` usa un timeout configurable (`PRICING_OPTIMIZE_TIMEOUT_MS`, default 5000), más largo
+    que `ROUTING_TIME_LIMIT_SECONDS` + la matriz. `evaluate-candidates` sigue en 1000 ms.
+  - En dev, la pantalla "Mi ruta" del transportista con un viaje activo muestra el orden optimizado y
+    `svc-shipments` no loguea `my_route_solver_failed`.
+  - El warm-up de `POST /trips/:id/start` no loguea `trip_start_route_warmup_failed` en el caso normal.
 
 ## 6. 503 de nginx al volver la app a primer plano
 
@@ -251,6 +313,17 @@ que la app lo trate como servicio caído y no como "frená".
   gateway.
 - Del lado mobile, reducir la ráfaga de refetch al volver a foreground (`refetchOnWindowFocus` /
   `focusManager` selectivo).
+
+**Para el issue**
+
+- **Título:** `fix(infra): rate limit de nginx con 429 y burst acorde a la app`
+- **Tipo:** bug, media. **Área:** `infra/nginx/templates/default.conf.template`, y opcionalmente
+  `movo-mobile` (refetch al volver a primer plano).
+- **Criterios de aceptación:**
+  - `limit_req_status 429;` en la zona `api`: un exceso devuelve 429 con el cuerpo de error del contrato, no 503.
+  - Abrir la app desde segundo plano, con 2 dispositivos detrás de la misma IP, no produce ningún 503/429
+    (subir `burst`, por ejemplo a 60).
+  - Probado contra la EC2 de dev (nginx se recarga con el deploy).
 
 ## 7. El panel reconecta el WebSocket de soporte en loop
 
@@ -279,6 +352,17 @@ ticket pasa por `requireAdmin()`, que consulta `/users/me` y `/admin/session`.
   al primer mensaje o a los 10 s), o no resetearlo si se cierra con un código de rechazo (`FORBIDDEN`,
   `TOKEN`) y pasar directo a polling.
 
+**Para el issue** (dos tickets, uno de config y uno de código)
+
+- **Título 1:** `chore(infra): cargar SUPPORT_WS_ALLOWED_ORIGINS y SUPPORT_WS_PUBLIC_URL en dev y prod`
+  - **Criterio:** en dev, el panel abre el WS de soporte y queda `live` (sin `support_ws_origin_rejected`
+    en `svc-admin`).
+- **Título 2:** `fix(movo-admin): backoff del WS de soporte cuando el servidor cierra al conectar`
+  - **Área:** `movo-admin/lib/support/realtime/feed.ts`.
+  - **Criterios:** un servidor que acepta y cierra enseguida (código `FORBIDDEN`/`TOKEN`) hace crecer el
+    backoff y pasa a polling a los 3 intentos. Test en `feed.test.ts` con un socket que abre y cierra en
+    el mismo tick. Como máximo un ticket cada 30 s en ese escenario.
+
 ## 8. `GET /trips/:id/matches` da 409 con el viaje activo
 
 **Evidencia.** 131 × 409 en el período (115 para el viaje de la prueba `b84ffbb4`, 549 en total para
@@ -293,6 +377,13 @@ viajes" que alimenta al hook estaba desactualizada.
 **Propuesta.** Filtrar solo `declared` en el hook (y actualizar su comentario). Es inofensivo para el
 usuario, pero ensucia el access log y gasta cuota del rate limit (#6).
 
+**Para el issue**
+
+- **Título:** `fix(mobile): no pedir matches de un viaje iniciado`
+- **Tipo:** bug, baja. **Área:** `movo-mobile/src/hooks/use-active-trip-match-alert.ts`.
+- **Criterios de aceptación:** con un viaje `active` no hay requests a `/trips/:id/matches`, y con uno
+  `declared` el aviso sigue funcionando. El comentario del hook refleja MOVO-258 D5.
+
 ## 9. `GET /shipments/undefined/ratings` (400)
 
 **Evidencia.** 12 × 400 (por ejemplo a las 23:28, build Movo/1).
@@ -304,6 +395,13 @@ React Query corre el `queryFn` con `shipmentId!` = `undefined`.
 
 **Propuesta.** Llamar a `refetchRatings()` solo si hay id de ratings, o usar
 `queryClient.invalidateQueries`, que respeta `enabled`.
+
+**Para el issue**
+
+- **Título:** `fix(mobile): no refrescar calificaciones de un envío sin terminar`
+- **Tipo:** bug, baja. **Área:** `movo-mobile/app/(app)/shipments/[id].tsx`.
+- **Criterios de aceptación:** el pull-to-refresh y el foco de la pantalla de un envío no terminado no
+  disparan `GET /shipments/undefined/ratings`. Si se usa `invalidateQueries`, respeta el `enabled` del hook.
 
 ## 10. Datos residuales de pruebas anteriores en dev
 
@@ -318,6 +416,94 @@ Los `manual-*` no salen de ningún código del repo: son de inserts a mano o de 
 los barridos y el panel (alertas, liquidaciones escaladas). **Propuesta:** limpiarlos, o pasarlos a un
 estado terminal con el cambio forzado, y de ahora en más usar el pago simulado (DD-055) en vez de holds
 inventados.
+
+**Para el issue**
+
+- **Título:** `chore: limpiar envíos de prueba con holds manuales en dev`
+- **Tipo:** chore (datos), baja. Sin código: pasar `d4db6b5d`, `dae4ece7`, `16d2352c` y `e4ba4b26` a un
+  estado terminal con el cambio forzado del panel (queda en la bitácora). Borrar filas a mano rompe la
+  bitácora y los triggers append-only de payments.
+
+## 11. El receptor ve "Se lo entregaste." al confirmar la entrega
+
+**Síntoma.** El receptor escanea el QR del transportista y la pantalla de éxito dice **"Listo. Se lo
+entregaste."**, que es el texto del transportista. El receptor no entregó nada: recibió.
+
+**Causa.** El receptor confirma desde `app/(app)/shipments/[id]/handshake-scan.tsx`, a la que llega por
+el CTA de `src/lib/shipment-format.ts:206`. Esa pantalla reusa `HandshakeConfirmationResult`
+(`components/handshake/handshake-confirmation-result.tsx`), que arma el texto **solo según el stage**,
+desde la perspectiva del que entrega:
+
+```ts
+// handshake-confirmation-result.tsx:147-148
+const title1 = isPickup ? "Lo tenés vos." : "Listo.";
+const title2 = isPickup ? (…"Ahora, a la entrega.") : "Se lo entregaste.";
+```
+
+En el retiro el texto está bien, porque quien escanea es el transportista ("Lo tenés vos."). En la entrega
+quien escanea es el receptor, pero el componente se escribió para el éxito del wizard del transportista
+(`delivery/success.tsx`, MOVO-199) y no distingue quién lo ve. El comentario de `handshake-scan.tsx` dice
+además que la pantalla "todavía no tiene CTA real", y eso ya no es cierto: el CTA lo agregó el home del
+receptor.
+
+En el mismo componente, el bloque del retiro dice `"{nombre} · destinataria"`, en femenino fijo. Lo ve el
+transportista sobre el receptor, sea quien sea.
+
+**Para el issue**
+
+- **Título:** `fix(mobile): texto de éxito del handshake según quién confirma`
+- **Tipo:** bug de UX, media (es lo último que ve el receptor del flujo). **Área:**
+  `movo-mobile/components/handshake/handshake-confirmation-result.tsx`, `handshake-scan.tsx`.
+- **Criterios de aceptación:**
+  - El componente recibe el rol de quien ve la pantalla (o lo deduce del usuario contra el envío):
+    receptor en la entrega → algo como "Listo. Ya lo tenés." / "Recibiste tu paquete.".
+  - El transportista, en `delivery/success.tsx`, sigue viendo "Se lo entregaste.".
+  - "destinataria" se reemplaza por un texto neutro ("Destinatario" o "Recibe: {nombre}").
+  - Test de render por rol (receptor/transportista) y por stage.
+  - Actualizar el comentario desactualizado de `handshake-scan.tsx`.
+
+## 12. Feature: el emisor y el receptor ven la ruta del transportista
+
+**Hoy.** El seguimiento en vivo del emisor y del receptor (`app/(app)/shipments/[id]/tracking.tsx` +
+`components/tracking/live-map.tsx`) muestra solo **la última posición del transportista** (WS
+`/shipments/:id/track` + `GET /shipments/:id/positions/latest`, vía `useLivePosition`) y el destino. No
+dibuja ni el camino recorrido ni el que falta, así que no se entiende por dónde viene ni cuánto le queda.
+No es un bug: no está en el alcance de ninguna US hecha.
+
+**Lo que ya existe y se puede reusar.**
+
+- El panel ya tiene exactamente esto: `GET /admin/shipments/:id/tracking` (MOVO-327,
+  `svc-shipments/src/modules/admin-internal/admin-tracking.service.ts`) arma la **ruta planificada**
+  (polyline de Google Routes, distancia y duración), la **traza real** (`carrier_positions`, recortada
+  con `capTrace`) y la última posición. El mapa de MOVO-328 dibuja el tramo recorrido sólido y el
+  faltante punteado desde el vértice más cercano.
+- `GET /shipments/route` ya devuelve la ruta origen→destino para el mapa del transportista.
+- La traza solo existe desde el retiro (`carrier_positions` se guarda con el envío `in_transit`, ver la
+  referencia), y se purga a los 30 días (DD-023).
+
+**Para el issue**
+
+- **Título:** `feat(mobile): ruta del transportista en el seguimiento del emisor y el receptor`
+- **Tipo:** feature (US nueva, EP-04 Ejecución del Envío). **Área:** `svc-shipments` (endpoint para las
+  partes) + `movo-mobile` (mapa).
+- **Decisiones a tomar en el refinamiento:**
+  - **Qué ruta se muestra.** Hacia la entrega desde el retiro (simple, la del envío) o la del viaje entero
+    con otras paradas. La del viaje expone retiros y entregas de otros usuarios: no corresponde
+    mostrársela a un emisor o receptor ajeno. Propuesta: solo el tramo de este envío.
+  - **Antes del retiro.** ¿El emisor ve al transportista acercándose al punto de retiro? Hoy las
+    posiciones de esa etapa se difunden por WS pero no se guardan, así que habría traza solo en vivo.
+  - **Privacidad.** La traza revela por dónde anduvo el transportista. Acotarla al tramo del envío y a
+    mientras dure (sin historial después de `delivered` para las partes) es coherente con la Política de
+    Privacidad 0.2 (ubicación en segundo plano). Revisar si hace falta tocar el texto legal.
+- **Criterios de aceptación (propuesta):**
+  - Endpoint para emisor y receptor del envío (`GET /shipments/:id/tracking` o ampliar
+    `positions/latest`) con ruta planificada y traza del tramo del envío, reusando
+    `admin-tracking.service.ts`. 403 para cualquier otro usuario.
+  - El mapa del emisor y del receptor dibuja el recorrido hecho (sólido), lo que falta (punteado) y la
+    posición en vivo, que sigue llegando por WS.
+  - Sin señal (`signalLost`), el último tramo se ve atenuado con la hora del último punto, como en el panel.
+  - Con el envío `delivered`, el mapa deja de actualizarse y la traza deja de estar disponible para las
+    partes.
 
 ## Observaciones menores (sin acción)
 
