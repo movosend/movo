@@ -17,6 +17,26 @@ RAIZ = Path(__file__).resolve().parent.parent
 CAPTURAS = {c["id"]: c for c in yaml.safe_load((RAIZ / "datos" / "capturas.yaml").read_text(encoding="utf-8"))["capturas"]}
 
 
+def optimizada(origen: Path, codigo: str, alto_max: int) -> str:
+    """Copia liviana de la captura (JPEG sobre fondo blanco) para el PDF; el original no se toca.
+
+    Una captura enmarcada pesa ~650 KB y el manual lleva más de cien: sin esto el PDF supera los 60 MB.
+    El alto máximo cubre la figura impresa a ~300 ppp.
+    """
+    from PIL import Image
+
+    destino = RAIZ / "assets" / "capturas-opt" / f"{codigo}.jpg"
+    if not destino.exists() or destino.stat().st_mtime < origen.stat().st_mtime:
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        im = Image.open(origen).convert("RGBA")
+        if im.height > alto_max:
+            im = im.resize((round(im.width * alto_max / im.height), alto_max), Image.LANCZOS)
+        fondo = Image.new("RGB", im.size, "#FFFFFF")
+        fondo.paste(im, mask=im.split()[3])
+        fondo.save(destino, "JPEG", quality=88, optimize=True)
+    return f"assets/capturas-opt/{codigo}.jpg"
+
+
 def figura(c: dict) -> str:
     img = RAIZ / "assets" / "capturas" / f"{c['id']}.png"
     # Las móviles usan la versión con marco de iPhone si existe (capturas/enmarcar_todas.py); si no, el original.
@@ -24,9 +44,9 @@ def figura(c: dict) -> str:
     clase = "marco"
     if enmarcada.exists():
         clase = "marco con-marco"
-        marco = f'<img src="assets/capturas-marco/{c["id"]}.png" alt="{html.escape(c["titulo"])}">'
+        marco = f'<img src="{optimizada(enmarcada, c["id"], 1300)}" alt="{html.escape(c["titulo"])}">'
     elif img.exists():
-        marco = f'<img src="assets/capturas/{c["id"]}.png" alt="{html.escape(c["titulo"])}">'
+        marco = f'<img src="{optimizada(img, c["id"], 1300)}" alt="{html.escape(c["titulo"])}">'
     else:
         marco = f'<div><span class="cod">{c["id"]}</span>Captura pendiente</div>'
     return (f'<figure class="cap"><div class="{clase}">{marco}</div><figcaption><b>{c["id"]} · {html.escape(c["titulo"])}</b>'
