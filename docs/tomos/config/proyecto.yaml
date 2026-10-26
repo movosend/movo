@@ -73,3 +73,10 @@ equipo:
       funciona de punta a punta y una feria donde Movo llegó entre los tres finalistas. Lo que más nos enorgullece no
       cabe en un tomo: lo hicimos juntos.
   cierre: Cinco personas. Un proyecto. Logística para personas.
+
+# Datos de la edición para la página de créditos. Los campos vacíos no se muestran: completarlos cuando se defina
+# la impresión (pie de imprenta y papel).
+edicion:
+  imprenta: ""          # por ejemplo: "Impreso por <imprenta>, <ciudad>. Impreso en Argentina"
+  papel: ""             # por ejemplo: "Offset de 80 g/m2"
+  fecha_impresion: ""   # por ejemplo: "noviembre de 2026"

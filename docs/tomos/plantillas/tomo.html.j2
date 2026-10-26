@@ -112,31 +112,48 @@
 
 {# ───────────── Datos de la edición (reverso de la portada) ───────────── #}
 <section class="datos-edicion">
-  <p style="margin:0"><b>{{ p.software }}: {{ p.subtitulo }}.</b><br>{{ tomo.numero_largo }}: {{ tomo.titulo }}.</p>
-  <p style="margin:4mm 0 0">© {{ p.anio }} {% for i in p.integrantes %}{{ i.nombre }} {{ i.apellido|title }}{% if loop.revindex == 2 %} y {% elif not loop.last %}, {% endif %}{% endfor %}. Todos los derechos reservados.</p>
+  {# Página de créditos: elementos de una página legal editorial que aplican a una obra académica no comercial #}
+  <p class="obra"><i>{{ p.software }}: {{ p.subtitulo|lower }}</i><br>{{ tomo.numero_largo }}: {{ tomo.titulo }}</p>
 
-  <div class="eyebrow-c">Edición</div>
-  <table><tbody>
-    <tr><td>Edición</td><td>Primera, entrega final del {{ fecha_dia }}</td></tr>
-    <tr><td>Publicación</td><td>Edición académica, de circulación no comercial. Sin ISBN ni depósito legal.</td></tr>
-    <tr><td>Institución</td><td>{{ p.universidad }}, {{ p.facultad }}. {{ p.departamento }}.</td></tr>
-    <tr><td>Cátedra</td><td>{{ p.asignatura }} · Curso {{ p.curso }} · Turno {{ p.turno }} · Grupo {{ p.grupo }} · Año {{ p.anio }}</td></tr>
-  </tbody></table>
+  <div class="bloque-c">
+    <p>© {{ p.anio }}, {% for i in p.integrantes %}{{ i.nombre }} {{ i.apellido|title }}{% if loop.revindex == 2 %} y {% elif not loop.last %}, {% endif %}{% endfor %}.</p>
+    <p><b>1.ª edición</b>, entrega final del {{ fecha_dia }}.</p>
+    <p>Edita: {{ p.software }}, proyecto independiente. Córdoba, Argentina. {{ p.sitio }}</p>
+    {% if p.edicion.imprenta %}<p>{{ p.edicion.imprenta }}{% if p.edicion.fecha_impresion %}, {{ p.edicion.fecha_impresion }}{% endif %}.</p>{% endif %}
+    <p>ISBN, ISSN y depósito legal: no corresponden (edición académica de circulación no comercial).</p>
+  </div>
 
-  <div class="eyebrow-c">Créditos</div>
-  <table><tbody>
-    <tr><td>Autoría y desarrollo</td><td>{% for i in p.integrantes %}{{ i.nombre }} {{ i.apellido|title }} (leg. {{ i.legajo }}){% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
-    <tr><td>Equipo docente</td><td>{% for d in p.docentes %}{{ d.nombre }} ({{ d.rol }}){% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
-    <tr><td>Identidad visual</td><td>Manual de Marca de {{ p.software }}: tipografías Inter y JetBrains Mono, color Signal Lime.</td></tr>
-    <tr><td>Maquetación</td><td>Generada a partir del repositorio del proyecto con HTML y CSS de impresión (WeasyPrint). Diagramas en PlantUML, notación UML 2.</td></tr>
-    <tr><td>Contacto</td><td>{{ p.sitio }}</td></tr>
-  </tbody></table>
+  <div class="bloque-c">
+    <p><b>{{ p.asignatura }}</b> · {{ p.carrera }} · {{ p.universidad }}, {{ p.facultad }}. Curso {{ p.curso }}, turno {{ p.turno }}, grupo {{ p.grupo }}, {{ p.anio }}.</p>
+    <p>{% for d in p.docentes %}{{ d.rol }}: {{ d.nombre }}{% if not loop.last %}. {% endif %}{% endfor %}.</p>
+  </div>
 
-  <div class="eyebrow-c">Cómo citar</div>
-  <div class="cita">{% for i in p.integrantes %}{{ i.apellido|title }}, {% for n in i.nombre.split() %}{{ n[0] }}.{% if not loop.last %} {% endif %}{% endfor %}{% if not loop.last %}; {% endif %}{% endfor %} ({{ p.anio }}). <i>{{ p.software }}: {{ p.subtitulo|lower }}. {{ tomo.numero_largo }}: {{ tomo.titulo }}.</i> Proyecto Final, {{ p.carrera }}. {{ p.universidad }}, {{ p.facultad }}.</div>
+  <div class="bloque-c cred">
+    <p><span>Autoría y desarrollo</span>{% for i in p.integrantes %}{{ i.nombre }} {{ i.apellido|title }}{% if not loop.last %}; {% endif %}{% endfor %}</p>
+    <p><span>Identidad visual</span>Manual de Marca de {{ p.software }}</p>
+    <p><span>Diseño de tapas</span>Equipo {{ p.software }}, con Claude Design</p>
+    <p><span>Fotos del equipo</span>Sitio institucional de {{ p.software }}</p>
+    <p><span>Composición</span>HTML y CSS de impresión (WeasyPrint) a partir del repositorio del proyecto. Texto en Inter, código y datos en JetBrains Mono. Diagramas en PlantUML, notación UML 2.</p>
+    {% if p.edicion.papel %}<p><span>Papel</span>{{ p.edicion.papel }}</p>{% endif %}
+  </div>
 
-  <div class="eyebrow-c">Alcance y marcas</div>
-  <p style="margin:0">Esta documentación describe el sistema tal como quedó construido al {{ fecha_dia }}; donde un documento previo y el código difieren, los tomos reflejan el código. Los nombres de productos y servicios de terceros mencionados (Mercado Pago, Google, Didit, Twilio, Amazon Web Services, entre otros) pertenecen a sus respectivos titulares y se citan solo para describir las integraciones.</p>
+  <div class="bloque-c ficha-bib">
+    {% for i in p.integrantes %}{{ i.apellido|title }}, {{ i.nombre }}{% if not loop.last %}; {% endif %}{% endfor %}.<br>
+    <i>{{ p.software }}: {{ p.subtitulo|lower }}</i>. {{ tomo.numero_largo }}: {{ tomo.titulo }} / {% for i in p.integrantes %}{{ i.nombre }} {{ i.apellido|title }}{% if loop.revindex == 2 %} y {% elif not loop.last %}, {% endif %}{% endfor %}. 1.ª ed. Córdoba: {{ p.universidad }}, {{ p.facultad }}, {{ p.anio }}.<br>
+    1. Logística colaborativa. 2. Ingeniería de software. 3. Proyecto final de carrera. I. Título.
+  </div>
+
+  <div class="bloque-c">
+    <p><b>Cómo citar.</b> {% for i in p.integrantes %}{{ i.apellido|title }}, {% for n in i.nombre.split() %}{{ n[0] }}.{% if not loop.last %} {% endif %}{% endfor %}{% if not loop.last %}; {% endif %}{% endfor %} ({{ p.anio }}). <i>{{ p.software }}: {{ p.subtitulo|lower }}. {{ tomo.numero_largo }}: {{ tomo.titulo }}.</i> Proyecto Final, {{ p.carrera }}. {{ p.universidad }}, {{ p.facultad }}.</p>
+  </div>
+
+  <div class="bloque-c legal">
+    <p>Reservados todos los derechos. Prohibida su reproducción total o parcial sin el permiso previo de los autores.</p>
+    <p>Esta documentación describe el sistema tal como quedó construido al {{ fecha_dia }}; donde un documento previo y el código difieren, los tomos reflejan el código. Los datos de usuarios, envíos y pagos que aparecen en ejemplos, capturas y casos de prueba corresponden a cuentas y entornos de prueba, no a personas ni operaciones reales.</p>
+    <p>Los nombres de productos y servicios de terceros mencionados (Mercado Pago, Google, Didit, Twilio, Amazon Web Services, entre otros) pertenecen a sus respectivos titulares y se citan solo para describir las integraciones.</p>
+  </div>
+
+  <div class="logos-c"><img src="assets/logos/utn-frc-extendido.svg" alt="UTN Facultad Regional Córdoba"><img class="isi" src="assets/logos/isi-reducido.svg" alt="Ingeniería en Sistemas de Información"></div>
 </section>
 
 {# ───────────── Ficha para Biblioteca (solo Tomo I) ───────────── #}
