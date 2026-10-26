@@ -95,7 +95,7 @@ def main() -> None:
     usadas = []
 
     def sub(m: re.Match) -> str:
-        ids = re.findall(r"[MW]-\d+", m.group(0))
+        ids = re.findall(r"[MW]-\d+b?", m.group(0))
         for i in ids:
             if i not in CAPTURAS:
                 raise SystemExit(f"Captura inexistente en capturas.yaml: {i}")
@@ -103,7 +103,7 @@ def main() -> None:
         return "\n" + galeria(ids) + "\n"
 
     # Directivas consecutivas (separadas solo por líneas en blanco) forman una galería.
-    txt = re.sub(r"(?:\{\{captura [MW]-\d+\}\}\s*)+", sub, txt)
+    txt = re.sub(r"(?:\{\{captura [MW]-\d+b?\}\}\s*)+", sub, txt)
     print(txt)
     faltan = sorted(set(CAPTURAS) - set(usadas))
     if faltan:

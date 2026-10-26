@@ -12,13 +12,14 @@ capturas:
   - {id: M-09, plataforma: movil, titulo: "Foto de perfil", pantalla: "(auth)/profile-photo", estado: "Pantalla con las opciones «Tomar foto con la cámara», «Elegir de la galería» y «Más tarde»."}
   - {id: M-10, plataforma: movil, titulo: "Verificación de identidad, inicio", pantalla: "(auth)/kyc", estado: "Pantalla «Confirmemos que sos vos» con los tres pasos (DNI, selfie, validación)."}
   - {id: M-11, plataforma: movil, titulo: "Verificación de identidad, resultado aprobado", pantalla: "(auth)/kyc", estado: "Pantalla «¡Verificación aprobada!» con el botón «Ir al inicio»."}
-  - {id: M-12, plataforma: movil, titulo: "Verificación de identidad, en revisión o rechazada", pantalla: "(auth)/kyc", estado: "Pantalla «Tu verificación está en revisión» (y, aparte, la de «No pudimos verificar tu identidad»)."}
+  - {id: M-12, plataforma: movil, titulo: "Verificación de identidad, en revisión", pantalla: "(auth)/kyc", estado: "Pantalla «Tu verificación está en revisión»."}
+  - {id: M-12b, plataforma: movil, titulo: "Verificación de identidad, rechazada", pantalla: "(auth)/kyc", estado: "Pantalla «No pudimos verificar tu identidad» con «Reintentar verificación» e «Ir al inicio»."}
   - {id: M-13, plataforma: movil, titulo: "Recuperar contraseña", pantalla: "(auth)/forgot-password", estado: "Paso inicial con el campo «Teléfono o email» y el botón «Enviar código»."}
   - {id: M-14, plataforma: movil, titulo: "Inicio con envíos activos", pantalla: "(app)/(tabs)/home", estado: "Usuario con un envío como emisor y uno como receptor: secciones «Estoy enviando» y «Voy a recibir», y la tarjeta «Requiere tu atención»."}
   - {id: M-15, plataforma: movil, titulo: "Inicio del transportista", pantalla: "(app)/(tabs)/home", estado: "Sección «Estoy transportando» con un viaje y sus paquetes."}
   - {id: M-16, plataforma: movil, titulo: "Barra de pestañas", pantalla: "(app)/(tabs)/_layout", estado: "Barra inferior con Inicio, Transportar y Mi perfil; Inicio seleccionada."}
   - {id: M-17, plataforma: movil, titulo: "Enviar, paso del paquete", pantalla: "(app)/send", estado: "Paso «¿Qué vas a enviar?» con tipo de paquete, peso y dimensiones cargados."}
-  - {id: M-18, plataforma: movil, titulo: "Enviar, límite del paquete", pantalla: "(app)/send", estado: "Mismo paso con una dimensión que excede el límite y el mensaje de error de la suma de lados."}
+  - {id: M-18, plataforma: movil, titulo: "Enviar, medidas del paquete", pantalla: "(app)/send", estado: "Desplegable de «Largo» abierto y desplazado al final, con «300 cm» y la opción «Más de 300 cm» (MOVO-317)."}
   - {id: M-19, plataforma: movil, titulo: "Enviar, elección del receptor", pantalla: "(app)/send", estado: "Paso «¿Quién lo recibe?» con el resultado de búsqueda por nombre y apellido y el sello «Identidad verificada»."}
   - {id: M-20, plataforma: movil, titulo: "Enviar, paso de ruta y horario de retiro", pantalla: "(app)/send", estado: "Paso «¿De dónde a dónde?» con origen y destino cargados y el mapa de la ruta."}
   - {id: M-21, plataforma: movil, titulo: "Enviar, buscador de direcciones", pantalla: "(app)/send (hoja de búsqueda)", estado: "Hoja con resultados de autocompletado y la opción «Usar mi ubicación actual»."}

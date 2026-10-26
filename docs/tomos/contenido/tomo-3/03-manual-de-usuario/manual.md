@@ -96,6 +96,8 @@ El resultado puede ser:
 
 {{captura M-12}}
 
+{{captura M-12b}}
+
 ## Ingresar y recuperar la contraseña
 
 Para ingresar, escribí tu teléfono y tu contraseña. La sesión se mantiene abierta en tu teléfono durante mucho tiempo, por lo que no vas a tener que ingresar seguido. Si cerrás sesión o cambiás de teléfono, vas a necesitar tus datos de nuevo.
@@ -127,7 +129,7 @@ Si no tenés envíos en un rol, esa sección no aparece. Cada tarjeta muestra el
 
 En **Inicio**, tocá el botón de **enviar**. Un asistente de cinco pasos con una barra de progreso te guía. Podés salir y la aplicación te pregunta si querés **Seguir cargando** o **Descartar**.
 
-**Paso 1: el paquete.** Elegí el tipo (**Documento**, **Estándar** o **Frágil**), el peso aproximado y las dimensiones en centímetros. Sumar una descripción ayuda al transportista a saber qué esperar. Hay límites: hasta 30 kg, hasta 150 cm de largo, ancho o alto, y no más de 300 cm sumando los tres lados. Si te pasás, la aplicación te lo indica.
+**Paso 1: el paquete.** Elegí el tipo (**Documento**, **Estándar** o **Frágil**), el peso aproximado y las dimensiones en centímetros. Sumar una descripción ayuda al transportista a saber qué esperar. Las medidas se eligen de un desplegable, de 10 a 300 cm de a 10; si algún lado es más grande, elegí **Más de 300 cm**. No hay un tope fijo: cada transportista ve las medidas y decide si puede llevar el paquete.
 
 **Paso 2: el receptor.** Buscá a quien recibe el paquete por nombre y apellido. Solo podés elegir a personas que ya estén en Movo y tengan la identidad verificada (aparece el sello **Identidad verificada**). Si la persona todavía no está en Movo, podés **invitarla por WhatsApp**.
 

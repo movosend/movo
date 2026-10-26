@@ -1,0 +1,22 @@
+# M-18: paso «¿Qué vas a enviar?» con el desplegable de Largo abierto y desplazado al final («Más de 300 cm», MOVO-317).
+# Parte de Inicio con sesión iniciada. No confirma nada: el envío no se crea.
+# Las tarjetas no tienen label propio (un solo label de accesibilidad), por eso se toca por posición.
+appId: ${MOVO_APP_ID}
+---
+- tapOn:
+    point: "50%,70%"   # «Enviar un paquete»
+- waitForAnimationToEnd
+- tapOn:
+    point: "70%,38%"   # tipo «Estándar»: recién ahí aparecen las dimensiones
+- waitForAnimationToEnd
+- tapOn:
+    point: "19%,81%"   # desplegable «Largo»
+- waitForAnimationToEnd
+- repeat:
+    times: 6
+    commands:
+      - swipe:
+          start: "50%,90%"
+          end: "50%,25%"
+          duration: 300
+- waitForAnimationToEnd
