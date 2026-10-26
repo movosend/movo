@@ -33,6 +33,25 @@ volver a investigar. Las referencias `archivo:línea` son al código del 26/10/2
 | 12 | **Feature:** emisor y receptor deberían ver la ruta del transportista, no solo su posición | — (feature) | `movo-mobile` + `svc-shipments` | Propuesta |
 | — | `POST /users/me/legal-acceptance` 422 | — | build viejo (Movo/14) | Conocido, fuera de alcance |
 
+## Agrupación sugerida para crear los issues
+
+Para no abrir 12 tickets, los puntos se pueden juntar en **5 issues** (más una tarea manual sin ticket). Se
+agrupan por paquete y por tipo de cambio, para que cada uno sea un solo PR revisable. Los bloques **Para el
+issue** de cada sección se concatenan como criterios de aceptación del issue agrupado.
+
+| Issue | Puntos | Qué junta | Notas |
+|---|---|---|---|
+| **A. Sesión del transportista en segundo plano** | 1 | Keychain, orden de `setSession`, cuándo se llama a `clearSession()` | Solo, por ser crítico y bloqueante de una próxima prueba. Va primero |
+| **B. Fixes menores de `movo-mobile`** | 8, 9, 11 | Matches de viaje activo (409), `refetchRatings` con `undefined`, texto de éxito del receptor | Los tres son cambios chicos y de UI/hooks de la misma app; un solo PR |
+| **C. Backend: plazos y timeouts ante servicios caídos o lentos** | 2, 3, 5 | Alerta cuando MP no responde al crear holds, plazo de pago que se extiende ante un 502 del proveedor, timeout propio del optimizador | Node (`svc-payments`, `svc-shipments`). El punto 3 necesita un DD antes del código: si se demora, se puede sacar y dejar C con 2 y 5 |
+| **D. Infra y configuración de dev** | 4, 6, 7 | Logs que sobreviven a un deploy, nginx con 429 y burst mayor, `SUPPORT_WS_ALLOWED_ORIGINS` en dev y prod, backoff del WS de soporte en el panel | Mayormente `movo-infra`/Secrets Manager/nginx. El único código es `feed.ts` del panel (7). Del 6 se puede dejar afuera el ajuste del refetch del mobile |
+| **E. Feature: ruta del transportista para emisor y receptor** | 12 | Endpoint para las partes + mapa del mobile | Solo, porque es una US nueva con refinamiento previo (qué tramo, privacidad) |
+| *(sin ticket)* | 10 | Limpiar envíos de prueba en dev | Se hace a mano con el cambio forzado del panel; no requiere código |
+
+Si hay que reducir todavía más: **B** puede absorber el ajuste del refetch del punto 6, y **C** y **D** pueden
+fusionarse en un único issue de "robustez de dev" si el equipo prefiere un solo PR de infra y backend, a costa
+de una revisión más larga.
+
 ## Línea de tiempo del envío
 
 Reconstruida de `shipment_events`, `holds`, `admin.audit_log` y el access log de nginx. Los logs de
