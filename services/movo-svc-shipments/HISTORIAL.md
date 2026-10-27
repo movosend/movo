@@ -3866,23 +3866,31 @@ Push `shipmentStatusForced*` con `ignorePreferences` (se extendieron `SendPushNo
 - Pendiente: el cliente en `svc-admin` y el OTP por acción (MOVO-332), el modal del panel (MOVO-333); `in_transit`/`delivered` forzados con
   evidencia y la salida de `disputed` (MOVO-34) quedan bloqueados.
 
+### MOVO-333 (fix) — Pago simulado al forzar `assigned` (DD-055)
+
+`ForceShipmentStatusRequest.simulatePayment` (solo destino `assigned`) hace que `fundingService.confirmAssignmentByAdmin` no exija el hold y asigne
+con `UpdateStatusOptions.paymentSimulated`: `shipments.payment_simulated` (migración `20261025180000_shipment_payment_simulated`) se escribe en el
+mismo UPDATE que el estado, y **toda** asignación fija la marca (la normal en `false`). Desde ahí todos los servicios, rutas y barridos usan
+`createAppPaymentsClient(app)` (`adapters/simulated-payments-client.ts`): el cliente real con `withSimulatedPayments` por encima, que contesta
+sin red mientras la asignación simulada rige (hold `authorized`; liquidación `credited` en $0 solo desde `delivered`; sin movimientos de cuenta
+corriente). Se pidió así porque el sandbox de MP estaba caído y dev es hoy el único entorno.
+- **Decisiones no obvias** (salieron de la revisión del PR): la marca no se borra al liberar el hold (una cancelación o baja que pierde la
+  carrera contra el retiro quedaría sin marca y capturando contra el payments real); fuera de los estados con transportista asignado se ignora,
+  salvo para el ledger, que mira la marca cruda (la penalidad de una baja se registra ya en `published`). Un `holdId` que no es el del envío es un
+  hold real y va a payments: si el emisor pagó a la vez, `submitFunding` lo libera. `HOLD_ALREADY_EXISTS` consulta con `sync`. Cuesta una lectura
+  por llamada de pagos (un SELECT por PK con marca, estado y transportista).
+- El interruptor `ALLOW_SIMULATED_PAYMENTS` (default `false`, en `.env.example`, `env.ts` y `infra/docker-compose.yml`) hay que **apagarlo cuando
+  vuelva un entorno de producción real**. Los gates de cuenta de MP y deuda (ofertar, declarar viaje) no se tocan: son por usuario y corren antes de asignar.
+- Pendiente: el detalle del envío en el panel no marca los de pago simulado (solo queda en la bitácora y la línea de tiempo).
+
 ### MOVO-337 — Resolución de disputas: matriz de pago, estado final, desbloqueo y avisos (DD-056)
 
-`POST /internal/admin/disputes/:id/resolve` (`modules/admin-internal/dispute-resolution.service.ts`, rutas en `admin-disputes.routes.ts`, junto con el
-listado, el expediente, `parties`, `handshake`, `trace` y `resolution-preview`; las llamó `svc-admin`). La matriz sale de `@movo/shared`
-(`config/dispute-resolution.ts`) y depende del `fromStatus` del evento que pasó el envío a `disputed` (`findStatusAtOpen`). Tres pasos idempotentes: la
-disputa pasa a `resolving` con el resultado guardado (`beginResolution`, `FOR UPDATE` + lock en Redis), se ejecuta la acción de pago y recién entonces
-`updateStatus(..., { resolveDispute })` cierra el envío y la disputa en una transacción. Migración `20261025180000_dispute_resolution` (estado
-`resolving`, `outcome`, montos, `payment_action`, `reasoning`, `resolved_by`, `resolved_at`).
-- Aristas nuevas `disputed → completed|cancelled`, solo con `resolveDispute` (el repositorio lanza sin él). Sin estados nuevos. `completed` desde
-  `in_transit` fija `deliveredAt`. `hasOpenDisputeAsCarrier` cuenta `open` y `resolving`. Una disputa resuelta es definitiva (no se abre otra sobre el `completed`).
-- `PaymentsClient` suma `createRefund`, `listRefunds` (MOVO-336) y `createManualAdjustment` (crédito al transportista en `assigned`, el hold ya se liberó).
-  Un rechazo de negocio de payments antes de mover plata devuelve la disputa a `open` (`abortResolution`); un corte o `fallback_to_ledger`/`processing`
-  la deja `resolving` con alerta. `fallback_to_ledger` resuelve, pero alerta: el emisor no cobró.
-- Calificación (AC12): `ratings.service.ts#assertRatingWindowAllowsWrite` es la única regla; el evento expone `attribution`. Ganador (o las dos partes en
-  `partial`) dentro de 72 h desde `resolvedAt`; no-retiro atribuido: solo el emisor, 72 h desde la cancelación. Template `disputeResolved`.
-- Fuera de alcance / pendiente: `PICKUP_NO_SHOW_RATING_INVITE_ENABLED` pasa a `true` por defecto (env, `.env.example` y compose); la calificación pendiente de un
-  envío disputado no entra en `GET /shipments/pending-ratings`; el mobile no muestra el resultado de la disputa.
+`POST /internal/admin/disputes/:id/resolve` (`modules/admin-internal/dispute-resolution.service.ts`; la matriz sale de `@movo/shared`,
+`config/dispute-resolution.ts`, y depende del `fromStatus` del evento que pasó el envío a `disputed`). Tres pasos idempotentes: la disputa pasa a `resolving`
+con el resultado guardado (`beginResolution`), se ejecuta la acción de pago y recién entonces `updateStatus(..., { resolveDispute })` cierra envío y disputa.
+Aristas nuevas `disputed → completed|cancelled`, solo con `resolveDispute`; sin estados nuevos. Un rechazo definitivo de payments devuelve la disputa a `open`;
+un resultado incierto la deja `resolving` con alerta. Pendiente: el mobile no muestra el resultado de la disputa.
+
 ### MOVO-299 — Vista previa del retiro por sanción (DD-049)
 
 `GET /internal/users/:id/open-activity` (`sanctionEffects.previewOpenActivity`): cuenta lo que retiraría `withdraw-open-activity` hoy

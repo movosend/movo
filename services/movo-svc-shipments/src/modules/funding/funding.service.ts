@@ -47,6 +47,8 @@ export interface FundingConfig {
   releaseHoursBeforePickup: number;
   /** AC7: cada cuántas horas se recuerda el pago con la ventana abierta. */
   reminderIntervalHours: number;
+  /** DD-055: un admin puede dar un envío por pagado sin hold real (`ALLOW_SIMULATED_PAYMENTS`). */
+  allowSimulatedPayments?: boolean;
 }
 
 type FundingLogger =
@@ -271,6 +273,7 @@ export function createFundingService(deps: FundingServiceDeps) {
     actorId: string | null,
     reason: string,
     admin?: AdminStatusActor,
+    opts: { paymentSimulated?: boolean } = {},
   ): Promise<boolean> {
     const closingOffers = offerRepository
       ? (await offerRepository.listByShipment(shipment.id)).filter((offer) => offer.status === OfferStatus.PENDING)
@@ -281,6 +284,8 @@ export function createFundingService(deps: FundingServiceDeps) {
         ...(shipment.carrierId !== null && { expectedCarrierId: shipment.carrierId }),
         ...(shipment.agreedPriceArs !== null && { expectedAgreedPriceArs: shipment.agreedPriceArs }),
         ...(admin && { adminActor: { kind: admin.kind, name: admin.adminName } }),
+        // DD-055: la marca viaja en el mismo UPDATE que el estado (atómico).
+        ...(opts.paymentSimulated && { paymentSimulated: true }),
       });
     } catch (err) {
       if (err instanceof ShipmentConcurrentModificationError || err instanceof InvalidShipmentTransitionError) {
@@ -298,6 +303,62 @@ export function createFundingService(deps: FundingServiceDeps) {
       void notifyOfferClosed(offer.id, offer.carrierId, shipment.id);
     }
     return true;
+  }
+
+  /**
+   * DD-055 (pago simulado): el admin da el envío por asignado sin hold. Se rechaza si el envío ya tiene un hold
+   * real vivo o cobrado (quedaría huérfano: nadie lo capturaría ni lo liberaría); el hold se sincroniza con MP
+   * antes de decidir, igual que el camino sin simular. La marca se escribe en el mismo UPDATE que el estado.
+   */
+  async function confirmAssignmentWithSimulatedPayment(
+    shipment: Shipment,
+    admin: AdminStatusActor,
+    reason: string,
+  ): Promise<void> {
+    if (!config.allowSimulatedPayments) {
+      throw new ApiError(
+        403,
+        "PAYMENT_SIMULATION_DISABLED",
+        "El pago simulado no está habilitado en este entorno.",
+      );
+    }
+    const existing = await paymentsClient.findHoldByShipment(shipment.id, { sync: true });
+    if (existing && (isFundedHold(existing) || LIVE_HOLD_STATUSES.includes(existing.status))) {
+      throw new ApiError(
+        409,
+        "HOLD_ALREADY_EXISTS",
+        "El envío ya tiene un hold en Mercado Pago: confirmalo sin simular el pago.",
+        { holdStatus: existing.status },
+      );
+    }
+    const changed = await markAssigned(shipment, admin.adminId, reason, admin, { paymentSimulated: true });
+    if (!changed) {
+      throw new ApiError(409, "STATUS_CHANGED", "El estado del envío cambió mientras confirmabas.", {
+        currentStatus: ShipmentStatus.ASSIGNED,
+      });
+    }
+    logger?.warn?.(
+      { event: "payment_simulated", shipmentId: shipment.id, adminId: admin.adminId },
+      "Envío asignado con el pago simulado: no habrá cobro real",
+    );
+  }
+
+  /**
+   * DD-055: el emisor pagó de verdad mientras un admin asignaba el envío con el pago simulado. El hold real quedó
+   * autorizado y nadie lo captura (las llamadas por envío ya contestan lo sintético): se libera ese intento puntual
+   * (por su `holdId`, que el decorador deja pasar a payments). Un hold que no es de una simulación no se toca.
+   */
+  async function releaseHoldOfSimulatedShipment(shipmentId: string, carrierId: string, holdId: string): Promise<void> {
+    const simulation = await repository.findPaymentSimulation(shipmentId);
+    if (!simulation?.simulated) return;
+    try {
+      await paymentsClient.releaseHold(shipmentId, carrierId, holdId);
+    } catch (err) {
+      logger?.error(
+        { err, event: "funding_orphan_hold", shipmentId, holdId },
+        "Hold real de un envío con el pago simulado y no se pudo liberar",
+      );
+    }
   }
 
   type SenderTrigger = "fundingTimedOutSender" | "fundingWindowExpiredSender";
@@ -445,7 +506,13 @@ export function createFundingService(deps: FundingServiceDeps) {
      * motivo del admin: el hold tiene que estar autorizado (o capturado) en payments, consultado con
      * sync contra MP. Reusa `markAssigned`, así que cierra las demás ofertas y avisa como la saga.
      */
-    async confirmAssignmentByAdmin(shipment: Shipment, admin: AdminStatusActor, reason: string): Promise<void> {
+    async confirmAssignmentByAdmin(
+      shipment: Shipment,
+      admin: AdminStatusActor,
+      reason: string,
+      opts: { simulatePayment?: boolean } = {},
+    ): Promise<void> {
+      if (opts.simulatePayment) return confirmAssignmentWithSimulatedPayment(shipment, admin, reason);
       const hold = await paymentsClient.findHoldByShipment(shipment.id, { sync: true });
       if (!hold || !isFundedHold(hold)) {
         throw new ApiError(
@@ -592,7 +659,8 @@ export function createFundingService(deps: FundingServiceDeps) {
       }
 
       try {
-        await markAssigned(shipment, callerId, "Reserva de fondos confirmada");
+        const changed = await markAssigned(shipment, callerId, "Reserva de fondos confirmada");
+        if (!changed) await releaseHoldOfSimulatedShipment(shipment.id, hold.carrierId, hold.id);
       } catch (err) {
         // El hold quedó autorizado pero el envío ya no puede pasar a `assigned` (se canceló o
         // el barrido lo revirtió en el medio): se libera para no dejar fondos retenidos.

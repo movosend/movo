@@ -215,6 +215,7 @@ export const adminInternalSchemas = {
       adminId: uuid,
       adminName: { type: "string", minLength: 1, maxLength: 200 },
       idempotencyKey: { type: "string", minLength: 8, maxLength: 128 },
+      simulatePayment: { type: "boolean" },
     },
   },
 

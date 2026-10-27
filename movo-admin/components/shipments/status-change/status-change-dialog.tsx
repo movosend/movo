@@ -166,6 +166,7 @@ export function StatusChangeDialog({
                 typedOk={c.typedOk}
                 code={state.code}
                 ack={state.ack}
+                simulatePayment={state.simulatePayment}
                 challenge={state.challenge}
                 resendAt={state.resendAt}
                 verified={!!state.stepUpToken || state.retryAfterUnknown}
@@ -175,6 +176,7 @@ export function StatusChangeDialog({
                 onTyped={c.setTyped}
                 onCode={c.setCode}
                 onAck={c.setAck}
+                onSimulatePayment={c.setSimulatePayment}
                 onSendCode={() => void c.sendCode()}
               />
             )}

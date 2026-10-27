@@ -6,7 +6,8 @@ import { createOfferRepository } from "../repositories/offer-repository";
 import { createPickupEvidenceRepository } from "../repositories/pickup-evidence-repository";
 import { createUsersClient, UsersClient } from "../adapters/users-client";
 import { createNotificationsClient, NotificationsClient } from "../adapters/notifications-client";
-import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
+import { PaymentsClient } from "../adapters/payments-client";
+import { createAppPaymentsClient } from "../adapters/simulated-payments-client";
 import { createShipmentsService } from "../modules/shipments/shipments.service";
 
 export interface PickupMissedSweepPluginOptions {
@@ -31,7 +32,7 @@ export default fp(async (app: FastifyInstance, opts: PickupMissedSweepPluginOpti
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
     pickupMissedGraceHours: app.config.PICKUP_MISSED_GRACE_HOURS,
-    paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
+    paymentsClient: opts.paymentsClient ?? createAppPaymentsClient(app),
     // MOVO-210: avisar a los transportistas con ofertas `pending` de una asignación que esperaba el pago.
     offerRepository: createOfferRepository(app.db),
     // MOVO-270 (DD-052): atribución del no-retiro con la evidencia GPS del retiro.

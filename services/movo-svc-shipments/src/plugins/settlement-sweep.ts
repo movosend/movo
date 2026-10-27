@@ -4,7 +4,8 @@ import { registerSweep } from "./register-sweep";
 import { createShipmentRepository } from "../repositories/shipment-repository";
 import { createOfferRepository } from "../repositories/offer-repository";
 import { createUsersClient } from "../adapters/users-client";
-import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
+import { PaymentsClient } from "../adapters/payments-client";
+import { createAppPaymentsClient } from "../adapters/simulated-payments-client";
 import { createShipmentsService } from "../modules/shipments/shipments.service";
 
 export interface SettlementSweepPluginOptions {
@@ -26,7 +27,7 @@ export default fp(async (app: FastifyInstance, opts: SettlementSweepPluginOption
     createShipmentRepository(app.db), createUsersClient(app.config), undefined, app.log,
     {
       offerRepository: createOfferRepository(app.db),
-      paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
+      paymentsClient: opts.paymentsClient ?? createAppPaymentsClient(app),
       registerWithdrawalPenalty: (offerId) => service.registerWithdrawalPenalty(offerId),
     }
   );

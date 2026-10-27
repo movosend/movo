@@ -2,7 +2,8 @@ import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
 import { NotificationsClient } from "../adapters/notifications-client";
 import { createNotificationsClient } from "../adapters/notifications-client";
-import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
+import { PaymentsClient } from "../adapters/payments-client";
+import { createAppPaymentsClient } from "../adapters/simulated-payments-client";
 import { createShipmentRepository } from "../repositories/shipment-repository";
 import {
   createSettlementService,
@@ -57,7 +58,7 @@ export default fp(async (app: FastifyInstance, opts: SettlementsPluginOptions = 
     "settlements",
     createSettlementService({
       repository: createShipmentRepository(app.db),
-      paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
+      paymentsClient: opts.paymentsClient ?? createAppPaymentsClient(app),
       notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),
       logger: app.log,
       claimNotificationOnce: async (key, ttlSeconds) =>

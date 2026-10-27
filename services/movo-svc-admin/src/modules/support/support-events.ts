@@ -28,7 +28,7 @@ function compareStreamIds(a: string, b: string): number {
   return 0;
 }
 
-function parseEntries(raw: Array<[string, string[]]>): StreamEntry[] {
+export function parseEntries(raw: Array<[string, string[]]>): StreamEntry[] {
   return raw.flatMap(([id, fields]) => {
     const index = fields.indexOf(SUPPORT_EVENTS_STREAM_FIELD);
     if (index === -1) return [];

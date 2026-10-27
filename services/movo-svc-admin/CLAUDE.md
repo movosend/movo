@@ -187,6 +187,12 @@ Pendiente: verificar a mano contra dev (suspender un usuario de prueba y comprob
   rechazados y se aplica antes de la bitácora (un 429 no deja fila). El `forceShipmentStatus` espera hasta 30 s (el servicio llama a payments).
 - Pendiente: probar contra dev real que el email del step-up llega (Resend). El modal del panel (MOVO-333) ya está hecho.
 
+### MOVO-333 (fix) — `simulatePayment` en `POST /admin/shipments/:id/status`
+
+El body acepta `simulatePayment` (boolean, solo con destino `assigned`, si no `422`), se registra en `context` de la bitácora y se reenvía a
+`svc-shipments`, que lo valida y aplica (DD-055, sección "Pago simulado"). No se agregó variable de entorno acá: el interruptor es
+`ALLOW_SIMULATED_PAYMENTS` de `svc-shipments`.
+
 ### MOVO-333 (backend de apoyo) — `status-options` con `checks`/`irreversible` y código de confirmación del panel
 
 `GET /admin/shipments/:id/status-options` devuelve también `checks` (qué verificar antes) e `irreversible` (qué no se deshace) por opción, y `code` pasa a
@@ -223,4 +229,12 @@ disputado, vía `GET /internal/admin/disputes/:id/parties`).
   bitácora; caso nuevo en `conflict-of-interest.ts`). El actor viaja en el body; si `svc-users` no responde firma "Equipo de Movo".
 - `GET events` lee el Redis Stream `support:events` (ADR-024, `support-events.ts`): cursor = id de la entrada, `reset` si es
   más viejo que lo retenido, y los `counts_changed` se juntan en un `counts_updated` con los contadores del admin que mira.
-- Pendiente: `POST realtime-ticket` y el WebSocket del panel (segunda PR de MOVO-322).
+- **WebSocket** (`support-realtime.ts`, segunda PR): `POST realtime-ticket` emite un ticket de 30 s (en Redis solo su sha256, atado al
+  admin) y `GET /admin/support/ws` lo gasta con `GETDEL`, exige un `Origin` de `SUPPORT_WS_ALLOWED_ORIGINS` (`*` = un tramo, para los
+  previews de Vercel) y responde solo `movo-support.v1`. Detrás del gateway el ticket llega en `x-ws-protocols`. Un lector `XREAD BLOCK`
+  (conexión Redis propia) reparte a todas las conexiones mientras haya alguna, con los contadores de cada admin. La conexión dura una sesión
+  de panel (15 min, después 4001) y tiene heartbeat de 30 s. Env nuevas `SUPPORT_WS_PUBLIC_URL` y `SUPPORT_WS_ALLOWED_ORIGINS`. Registro
+  en memoria y una réplica, como el `ChatHub` (ADR-019). El lector arranca desde la última entrada (`XREVRANGE` por la conexión ya
+  abierta, no `$`), los contadores de cada admin van en paralelo con tope de 2 s y un fallo al repartir una tanda se loguea aparte
+  (`support_ws_dispatch_failed`) sin la espera de un error de Redis. Header y parseo del subprotocolo en `@movo/shared`, los mismos del gateway.
+- Pendiente: cargar las dos env vars por ambiente y probarlo contra un deploy real (ver el `CLAUDE.md` raíz).

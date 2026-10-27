@@ -104,9 +104,16 @@ hospeda WS. Diseño:
 1. Server Action → `POST realtime-ticket` → `{ ticket, url, expiresAt }`. Un solo uso, ~30 s, atado al admin y al origin.
 2. El navegador conecta con `new WebSocket(url, ["movo-support.v1", ticket])`. El servidor valida el ticket, **responde solo el subprotocolo
    `movo-support.v1`** (nunca el ticket) y rechaza el upgrade si es inválido.
-3. Hospedaje: **`svc-admin`**, expuesto por el gateway en `/api/v1/admin/support/ws` (hay que habilitar el upgrade en el gateway y en
-   `infra/nginx`). `svc-admin` se suscribe al `ChatHub` de `svc-shipments` por un endpoint interno y retransmite solo eventos de soporte.
-   Los agentes reciben **todos** los eventos de soporte, incluidas las notas.
+3. Hospedaje: **`svc-admin`**, expuesto por el gateway en `/api/v1/admin/support/ws` (MOVO-322). Ruta pública en el gateway (sin JWT) que
+   rechaza el upgrade sin ticket; el gateway acepta el WebSocket del navegador y abre otro hacia `svc-admin`, al que solo le pasa el primer
+   subprotocolo, así que reenvía la lista original en `x-ws-protocols` y el `Origin`. `svc-admin` gasta el ticket (`GETDEL`, guarda solo su
+   sha256), exige un `Origin` de `SUPPORT_WS_ALLOWED_ORIGINS` (cierre 4003) y cierra con 4001 un ticket inválido, vencido o usado; la
+   conexión dura lo que una sesión de panel (15 min) y se corta con 4001 para pedir otro. nginx no cambia (su `location /` ya hace el upgrade).
+   Los eventos salen del Redis Stream de ADR-024, un lector para todas las conexiones. Los agentes reciben **todos** los eventos de soporte,
+   incluidas las notas. El gateway limita el upgrade a 20 intentos por minuto e IP (con ticket o sin él).
+   **Orden al abrir**: el socket no reenvía lo que pasó antes de existir. El lector arranca desde la última entrada que había cuando se
+   registró la primera conexión, y el panel pide lista, contadores y mensajes (`resync`) **al recibir el `open`, en cada apertura, también la
+   primera**. Así un evento que entra entre la carga de la lista y el socket llega por uno de los dos (a lo sumo, por los dos).
 4. Eventos (`SupportEvent`, cada uno con `cursor` monótono y opaco): `conversation_created`, `support_message` (trae la fila ya actualizada),
    `conversation_updated`, `counts_updated`.
 5. Respaldo: si el WS falla 3 veces seguidas el panel pasa a `GET events?since=<cursor>` cada 10 s (sigue intentando el WS). Sin `since` devuelve

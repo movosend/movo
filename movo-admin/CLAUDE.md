@@ -216,8 +216,9 @@ MOVO-322 (API) y MOVO-321 (adjuntos), que los tienen anexados en su descripción
   falla, queda "No se envió" con Reintentar (mismo id, así no se duplica). `gateway()` suma `PATCH`.
 - **Tiempo real** (`lib/support/realtime/feed.ts`, `components/support/support-provider.tsx`): una conexión por pestaña para todo el panel,
   pedida por `AdminShell`. WS con ticket de un solo uso (Server Action `requestRealtimeTicket`, subprotocolo `movo-support.v1`), reconexión con
-  backoff y jitter, y polling de respaldo tras 3 fallos; al recuperar la conexión emite `resync` y lista/conversación se vuelven a pedir.
-  Alimenta el badge del menú y los toasts "Nueva consulta de …". **El WS real no existe todavía** (MOVO-322): con el mock, `mock://support`
+  backoff y jitter, y polling de respaldo tras 3 fallos; en cada apertura del socket (también la primera, MOVO-322) emite `resync` y
+  lista/conversación se vuelven a pedir.
+  Alimenta el badge del menú y los toasts "Nueva consulta de …". El WS real lo sirve `svc-admin` (MOVO-322); con el mock, `mock://support`
   simula el socket leyendo `/api/support/events`.
 - **Conflicto de interés**: una consulta cuyo usuario es el admin se abre ya bloqueada; un `403 ADMIN_CONFLICT_OF_INTEREST` al enviar o
   modificar hace lo mismo. Sin calificación de la atención (se omitió la tarjeta de estrellas del prototipo).
@@ -359,6 +360,9 @@ Confirmación) del prototipo `Movo Admin Envios.dc.html`. Código en `components
 - **Resultado**: el modal se cierra, la acción revalida el detalle (estado y línea de tiempo) y `StatusChangeNotice` muestra "#MOVO-… pasó a ….
   Quedó en la línea de tiempo y en la bitácora. Avisamos a: …". La línea de tiempo (`buildTimeline`) dibuja los eventos de admin con escudo
   (`ShieldCheck` manual, `ShieldAlert` forzado), "Estado cambiado/forzado a …", el nombre del admin y el motivo.
+- **Simular el pago** (DD-055): en el paso 3, con destino `assigned`, un check extra "Simular el pago" manda `simulatePayment: true`
+  (asigna sin hold de Mercado Pago; el envío no se cobra). Lo habilita `ALLOW_SIMULATED_PAYMENTS` en `svc-shipments`; apagado, el
+  backend responde `PAYMENT_SIMULATION_DISABLED`. Se destilda solo al cambiar de destino.
 
 Pendiente: capturas de cada paso contra dev (DoD; necesita MOVO-331/332 desplegados) y revisión a mano en claro/oscuro. El email del segundo
 factor usa el texto genérico del OTP (sin copy propio del cambio de estado).

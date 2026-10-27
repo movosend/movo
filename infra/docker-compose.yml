@@ -238,6 +238,8 @@ services:
       # MOVO-210: saga de asignación (pago del emisor). PAYMENTS_SERVICE_URL (MOVO-116) ya coincide por
       # default con el nombre del servicio en movo-net, igual que USERS_SERVICE_URL.
       - FUNDING_NEAR_PICKUP_DAYS=${FUNDING_NEAR_PICKUP_DAYS:-3}
+      # DD-055: pago simulado desde el panel (sin cobro real). `:-false`: vacía no matchea el boolean de AJV.
+      - ALLOW_SIMULATED_PAYMENTS=${ALLOW_SIMULATED_PAYMENTS:-false}
       - FUNDING_PAYMENT_TIMEOUT_MINUTES=${FUNDING_PAYMENT_TIMEOUT_MINUTES:-30}
       - FUNDING_RELEASE_HOURS_BEFORE_PICKUP=${FUNDING_RELEASE_HOURS_BEFORE_PICKUP:-24}
       - FUNDING_REMINDER_INTERVAL_HOURS=${FUNDING_REMINDER_INTERVAL_HOURS:-12}
@@ -325,6 +327,9 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
+      # MOVO-322: WebSocket de la bandeja de soporte (URL pública del gateway y orígenes del panel).
+      - SUPPORT_WS_PUBLIC_URL=${SUPPORT_WS_PUBLIC_URL:-wss://localhost/api/v1/admin/support/ws}
+      - SUPPORT_WS_ALLOWED_ORIGINS=${SUPPORT_WS_ALLOWED_ORIGINS:-https://localhost:3000}
     depends_on:
       - postgres
       - redis
