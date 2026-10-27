@@ -66,6 +66,10 @@ describe("splitDisputeStake", () => {
     expect(splitDisputeStake(1000, "partial", { amountArs: 1000 })).toEqual({ error: "above_maximum" });
     expect(splitDisputeStake(1000, "partial", { amountArs: 1500 })).toEqual({ error: "above_maximum" });
   });
+
+  it("un porcentaje que redondea a cero es below_minimum, no above_maximum", () => {
+    expect(splitDisputeStake(0.01, "partial", { percentage: 25 })).toEqual({ error: "below_minimum" });
+  });
 });
 
 describe("minimumPartialCaptureArs", () => {
@@ -76,6 +80,12 @@ describe("minimumPartialCaptureArs", () => {
       expect(net(minimum)).toBeGreaterThan(fee);
       expect(net(Math.round((minimum - 0.01) * 100) / 100)).toBeLessThanOrEqual(fee);
     }
+  });
+
+  it("no recorre centavo por centavo: un fee grande resuelve al instante", () => {
+    const fee = 100_000;
+    const minimum = minimumPartialCaptureArs(fee);
+    expect(Math.round((minimum - estimateMpFeeArs(minimum)) * 100) / 100).toBeGreaterThan(fee);
   });
 });
 
