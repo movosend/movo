@@ -759,7 +759,7 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 y `AdminDisputeResolutionPreview`. `config/dispute-resolution.ts` es la fuente única de la regla: `disputePaymentAction` (la matriz), `disputeFinalShipmentStatus`,
 `disputeRatingWinners`, `splitDisputeStake` y `minimumPartialCaptureArs` (el piso de la captura parcial, misma cuenta que `svc-payments`). `AdminTargetType` suma `dispute`;
 códigos `DISPUTE_PARTIAL_INVALID`, `DISPUTE_RESOLUTION_MISMATCH`, `DISPUTE_RESOLUTION_IN_PROGRESS`, `DISPUTE_PAYMENT_FAILED`, `DISPUTE_PARTIAL_BELOW_MINIMUM` y
-`DISPUTE_PARTIAL_ABOVE_MAXIMUM`; trigger `disputeResolved` (categoría `disputes`, sin montos). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+`DISPUTE_PARTIAL_ABOVE_MAXIMUM`; trigger `disputeResolved` (categoría `disputes`, sin montos). `SettlementKind` suma `dispute_partial` (captura parcial de una disputa, distinta de la penalidad) y `isPartialCaptureKind`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 ### MOVO-322 — Contrato interno de la bandeja de soporte (`types/admin-support-internal.ts`, ADR-024)
 
 `SupportInternal*` (fila, mensaje con `kind` `event` para los eventos del equipo, filtros, contadores, actor, bodies) entre

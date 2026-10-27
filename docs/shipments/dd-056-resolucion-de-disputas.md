@@ -155,6 +155,10 @@ agregar): las partes no pueden verlas porque no están en el servicio que las pa
   usa contra deudas futuras.
 - **`delivered` sin cobro acreditado** (la captura espera su reintento): no se puede resolver
   (`422 SETTLEMENT_NOT_REFUNDABLE`) hasta que se acredite.
+- **`dispute_partial`**: la captura parcial de una disputa se liquida con su propio `kind` en `svc-payments` (misma mecánica que
+  `cancellation_penalty`: monto sobre el `application_fee`, MP libera el resto). Así el ledger, el panel y la lógica de la penalidad
+  de MOVO-306 no la confunden con una cancelación tardía. Una captura rechazada por MP (`failed`) se reemplaza por otro monto o
+  resultado solo si MP confirma que el pago no se capturó.
 - **Una captura parcial no libera el resto de forma explícita**: se apoya en que MP libera lo no
   capturado (MOVO-306); el hold queda `authorized` para el plan B de MOVO-307.
 - **Hecho**: `PICKUP_NO_SHOW_RATING_INVITE_ENABLED` (MOVO-270, AC12) pasa a prendido por defecto (env, `.env.example` y compose), ya que
