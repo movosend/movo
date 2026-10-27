@@ -27,7 +27,8 @@ import {
 } from "../../repositories/dispute-repository";
 import { createPositionRepository } from "../../repositories/position-repository";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
-import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
+import { PaymentsClient } from "../../adapters/payments-client";
+import { createAppPaymentsClient } from "../../adapters/simulated-payments-client";
 import { AlertNotifier, createAlertNotifier } from "../../adapters/alert-notifier";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
 import { createDisputesService } from "../disputes/disputes.service";
@@ -98,7 +99,7 @@ export default async function adminDisputesRoutes(app: FastifyInstance, opts: Ad
   const resolution = createDisputeResolutionService({
     shipmentRepository,
     disputeRepository,
-    paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
+    paymentsClient: opts.paymentsClient ?? createAppPaymentsClient(app),
     notificationsClient,
     alertNotifier,
     redis: app.redis,

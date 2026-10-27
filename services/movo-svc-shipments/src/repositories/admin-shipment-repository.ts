@@ -87,6 +87,31 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (char) => `\\${char}`);
 
 /**
+ * Búsqueda de texto libre sobre un envío (`s`) y sus partes (`sn`/`cn`/`rn`), compartida por el listado de envíos y el de
+ * disputas del panel. Acepta el código que muestra el panel (`MOVO-12345`, igual que `shipmentConfirmationCode`: los
+ * últimos 5 dígitos del id sin guiones), los primeros 8 caracteres del id o el UUID completo, y el nombre de cualquiera
+ * de las partes; `extraColumns` suma columnas de texto (direcciones).
+ */
+export function shipmentTextSearchSql(rawQuery: string | undefined, extraColumns: string[] = []): Prisma.Sql | null {
+  let q = rawQuery ? normalizeSearchText(rawQuery.replace(/^#/, "")) : "";
+  if (!q) return null;
+  // El código visible son los primeros 8 caracteres del id: si pegan el UUID completo, se busca por ellos.
+  if (UUID_PATTERN.test(q)) q = q.slice(0, 8);
+  const like = `%${escapeLike(q)}%`;
+  const alternatives = [
+    Prisma.sql`lower(left(s.id::text, 8)) LIKE ${like}`,
+    ...["sn.name", "cn.name", "rn.name", ...extraColumns].map((column) => Prisma.sql`${normalizedSql(column)} LIKE ${like}`),
+  ];
+  const code = /^(?:movo-?)?(\d{1,5})$/.exec(q);
+  if (code?.[1]) {
+    alternatives.push(
+      Prisma.sql`right(regexp_replace(s.id::text, '[^0-9]', '', 'g'), 5) = ${code[1].padStart(5, "0")}`,
+    );
+  }
+  return Prisma.sql`(${Prisma.join(alternatives, " OR ")})`;
+}
+
+/**
  * Último cambio de estado (o la creación), a ms: el cursor viaja en ISO y la base guarda µs.
  * Ojo: esta expresión no matchea `shipments_last_status_changed_at_idx` (que está sobre la columna cruda;
  * `date_trunc` sobre timestamptz es STABLE y no se puede indexar), así que hoy el listado hace seq scan + sort.
@@ -115,20 +140,8 @@ function searchConditions(search: AdminShipmentSearch): Prisma.Sql[] {
   if (search.from) conditions.push(Prisma.sql`${SORT_KEY} >= ${search.from}`);
   if (search.to) conditions.push(Prisma.sql`${SORT_KEY} <= ${search.to}`);
 
-  let q = search.q ? normalizeSearchText(search.q.replace(/^#/, "")) : "";
-  // El código visible son los primeros 8 caracteres del id: si pegan el UUID completo, se busca por ellos.
-  if (UUID_PATTERN.test(q)) q = q.slice(0, 8);
-  if (q) {
-    const like = `%${escapeLike(q)}%`;
-    conditions.push(Prisma.sql`(
-      lower(left(s.id::text, 8)) LIKE ${like}
-      OR ${normalizedSql("sn.name")} LIKE ${like}
-      OR ${normalizedSql("cn.name")} LIKE ${like}
-      OR ${normalizedSql("rn.name")} LIKE ${like}
-      OR ${normalizedSql("s.pickup_address")} LIKE ${like}
-      OR ${normalizedSql("s.delivery_address")} LIKE ${like}
-    )`);
-  }
+  const text = shipmentTextSearchSql(search.q, ["s.pickup_address", "s.delivery_address"]);
+  if (text) conditions.push(text);
 
   if (search.alert) conditions.push(ALERT_SQL);
 

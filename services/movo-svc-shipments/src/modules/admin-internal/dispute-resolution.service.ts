@@ -55,6 +55,11 @@ const lockRedisKey = (disputeId: string) => `dispute-resolve:lock:${disputeId}`;
  * seguro, antes de mover nada, y devuelve la disputa a `open`.
  */
 const INDETERMINATE_PAYMENT_CODES = new Set([
+  // Payments solo reemplaza una liquidación `failed` si MP confirma que el pago no se capturó: si no, hay plata
+  // movida que el sistema no reconoce y hay que revisarlo a mano, no volver a `open`.
+  "SETTLEMENT_CONFLICT",
+  // Payments no pudo leer el estado real del pago en MP (token del transportista revocado): puede haberse capturado.
+  "CARRIER_MP_ACCOUNT_NOT_LINKED",
   "REFUND_IN_PROGRESS",
   "REFUND_NEEDS_REVIEW",
   "SETTLEMENT_RETRY_PENDING",
@@ -89,6 +94,17 @@ interface Plan {
 }
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
+
+/** El plan tal como quedó guardado al empezar la resolución. */
+function planOf(stored: DisputeResolutionRecord): Plan {
+  return {
+    outcome: stored.outcome,
+    percentage: stored.percentage,
+    carrierAmountArs: stored.carrierAmountArs,
+    senderAmountArs: stored.senderAmountArs,
+    paymentAction: stored.paymentAction,
+  };
+}
 
 /** El pedido coincide con lo que la disputa ya tiene guardado (resultado, porcentaje o monto libre, razonamiento). */
 function matchesStored(
@@ -268,6 +284,14 @@ export function createDisputeResolutionService(
       ...(input.amountArs !== undefined && { amountArs: input.amountArs }),
     });
     if ("error" in split) {
+      if (split.error === "below_minimum") {
+        throw new ApiError(
+          422,
+          "DISPUTE_PARTIAL_BELOW_MINIMUM",
+          "El monto parcial es demasiado chico: no llega a un centavo para el transportista.",
+          { minimumArs: 0.01, stakeArs: round2(stakeArs) },
+        );
+      }
       if (split.error === "above_maximum") {
         throw new ApiError(
           422,
@@ -333,7 +357,7 @@ export function createDisputeResolutionService(
         const settlement = await paymentsClient.captureHold(
           shipment.id,
           plan.paymentAction === "capture_partial"
-            ? { kind: "cancellation_penalty", amountArs: plan.carrierAmountArs }
+            ? { kind: "dispute_partial", amountArs: plan.carrierAmountArs }
             : undefined,
         );
         if (settlement.status !== "credited") {
@@ -573,13 +597,7 @@ export function createDisputeResolutionService(
 
         let plan: Plan;
         if (resolution) {
-          plan = {
-            outcome: resolution.outcome,
-            percentage: resolution.percentage,
-            carrierAmountArs: resolution.carrierAmountArs,
-            senderAmountArs: resolution.senderAmountArs,
-            paymentAction: resolution.paymentAction,
-          };
+          plan = planOf(resolution);
         } else {
           plan = await buildPlan(shipment, input);
           const begun = await disputeRepository.beginResolution({
@@ -613,6 +631,8 @@ export function createDisputeResolutionService(
                 resolution.resolvedAt ?? new Date(),
               );
             }
+            // Se retoma lo guardado: un plan recalculado con el stake de ahora puede tener otros montos.
+            plan = planOf(resolution);
           }
         }
         if (!resolution) {

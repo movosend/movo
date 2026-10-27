@@ -278,7 +278,7 @@ describe("resolución de disputas (Postgres + Redis) — MOVO-337", () => {
     it("captura parcial: manda el monto del transportista como captura de tipo penalidad", async () => {
       const { disputeId, shipmentId } = await disputedShipment("in_transit");
       await resolve(disputeId, { outcome: "partial", percentage: 50 });
-      expect(payments.captureHold).toHaveBeenCalledWith(shipmentId, { kind: "cancellation_penalty", amountArs: 575 });
+      expect(payments.captureHold).toHaveBeenCalledWith(shipmentId, { kind: "dispute_partial", amountArs: 575 });
     });
 
     it("reembolso parcial: manda lo que vuelve al emisor, con la clave de la disputa", async () => {

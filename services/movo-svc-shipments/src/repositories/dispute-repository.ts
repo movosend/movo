@@ -1,7 +1,7 @@
 import { DisputeReason, DisputeStatus, ShipmentStatus } from "@movo/shared";
 import type { DisputeOutcome, DisputePartyRole, DisputePaymentAction, DisputeStatementKind } from "@movo/shared";
 import { Prisma, PrismaClient } from "../generated/prisma/client";
-import { normalizedSql, normalizeSearchText } from "./admin-shipment-repository";
+import { shipmentTextSearchSql } from "./admin-shipment-repository";
 
 /**
  * MOVO-334 (DD-054): datos de la disputa que `updateStatus` crea en la misma transacción que la
@@ -236,7 +236,6 @@ export function mapDisputeRow(row: DisputeRow): DisputeRecord {
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (char) => `\\${char}`);
 
 function searchConditions(search: DisputeSearch): Prisma.Sql[] {
   const conditions: Prisma.Sql[] = [];
@@ -244,17 +243,8 @@ function searchConditions(search: DisputeSearch): Prisma.Sql[] {
   if (search.outcome) conditions.push(Prisma.sql`d.outcome::text = ${search.outcome}`);
   if (search.from) conditions.push(Prisma.sql`d.opened_at >= ${search.from}`);
   if (search.to) conditions.push(Prisma.sql`d.opened_at <= ${search.to}`);
-  let q = search.q ? normalizeSearchText(search.q.replace(/^#/, "").replace(/^movo-/i, "")) : "";
-  if (UUID_PATTERN.test(q)) q = q.slice(0, 8);
-  if (q) {
-    const like = `%${escapeLike(q)}%`;
-    conditions.push(Prisma.sql`(
-      lower(d.shipment_id::text) LIKE ${like}
-      OR ${normalizedSql("sn.name")} LIKE ${like}
-      OR ${normalizedSql("cn.name")} LIKE ${like}
-      OR ${normalizedSql("rn.name")} LIKE ${like}
-    )`);
-  }
+  const text = shipmentTextSearchSql(search.q?.replace(/^#/, ""));
+  if (text) conditions.push(text);
   return conditions;
 }
 
