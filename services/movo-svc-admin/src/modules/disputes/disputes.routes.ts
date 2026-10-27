@@ -70,9 +70,9 @@ export default async function disputesRoutes(app: FastifyInstance, _opts: Fastif
 
   /** El `shipmentId` de la disputa, para los bloques que salen del envío (fotos, chat). */
   async function shipmentIdOf(disputeId: string, ctx: RequestContext): Promise<string> {
-    const dispute = await app.shipmentsClient.getAdminDispute(disputeId, ctx);
-    if (!dispute) throw notFound();
-    return dispute.shipmentId;
+    const parties = await app.shipmentsClient.getDisputeParties(disputeId, ctx);
+    if (!parties) throw notFound();
+    return parties.shipmentId;
   }
 
   // ---- Lecturas (una ruta por bloque del expediente, para que cada uno cargue por separado) ----
@@ -360,6 +360,12 @@ export default async function disputesRoutes(app: FastifyInstance, _opts: Fastif
                 ...(body.amountArs !== undefined && { amountArs: body.amountArs }),
               });
               if ("error" in split) {
+                if (split.error === "below_minimum") {
+                  throw new ApiError(422, "DISPUTE_PARTIAL_BELOW_MINIMUM", "El monto parcial es demasiado chico: no llega a un centavo para el transportista.", {
+                    minimumArs: 0.01,
+                    stakeArs: preview.stakeArs,
+                  });
+                }
                 if (split.error === "above_maximum") {
                   throw new ApiError(422, "DISPUTE_PARTIAL_ABOVE_MAXIMUM", "El monto parcial tiene que ser menor al total en juego.", {
                     maximumArs: Math.round((preview.stakeArs - 0.01) * 100) / 100,

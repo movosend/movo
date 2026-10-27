@@ -213,7 +213,11 @@ export function createFakeShipmentsClient(data: {
     },
     async getDisputeParties(id) {
       if (data.down) throw shipmentsDown();
-      return data.disputes?.parties?.[id] ?? null;
+      const detail = data.disputes?.details?.[id];
+      return (
+        data.disputes?.parties?.[id] ??
+        (detail ? { shipmentId: detail.shipmentId, senderId: "", carrierId: null, receiverId: null, formerReceiverIds: [] } : null)
+      );
     },
     async getDisputeHandshake(id) {
       if (data.down) throw shipmentsDown();

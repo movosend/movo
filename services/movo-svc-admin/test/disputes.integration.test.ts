@@ -374,7 +374,7 @@ describe("Disputas en el panel (MOVO-337)", () => {
     });
 
     describe("rechazos y fallas de svc-shipments", () => {
-      it("una falla de la acción de pago se relanza como 502 DISPUTE_PAYMENT_FAILED y la fila es failed, no unknown", async () => {
+      it("una falla de la acción de pago se relanza como 502 DISPUTE_PAYMENT_FAILED y la fila es unknown, no failed (la plata pudo moverse)", async () => {
         const s = await setup({
           resolveError: new ApiError(502, "DISPUTE_PAYMENT_FAILED", "No se pudo confirmar el movimiento de dinero.", { disputeId: "x" }),
         });
@@ -382,7 +382,7 @@ describe("Disputas en el panel (MOVO-337)", () => {
         const response = await resolve(s, { outcome: "sender" });
         expect(response.statusCode).toBe(502);
         expect(response.json().error.code).toBe("DISPUTE_PAYMENT_FAILED");
-        expect((await auditRows(s, "dispute.resolve"))[0]).toMatchObject({ outcome: "failed", errorCode: "DISPUTE_PAYMENT_FAILED" });
+        expect((await auditRows(s, "dispute.resolve"))[0]).toMatchObject({ outcome: "unknown", errorCode: "DISPUTE_PAYMENT_FAILED" });
       });
 
       it("svc-shipments sin responder deja la fila unknown: pudo haberse aplicado", async () => {

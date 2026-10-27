@@ -96,8 +96,8 @@ export interface ShipmentsClient extends InternalClient {
   /**
    * `POST /internal/admin/disputes/:id/resolve` (MOVO-337, DD-056). Los rechazos de negocio (`DISPUTE_*`,
    * `HOLD_NOT_AUTHORIZED`, `SETTLEMENT_NOT_REFUNDABLE`...) se relanzan con su código y `details`.
-   * `DISPUTE_PAYMENT_FAILED` es un 502 de negocio: la disputa quedó `resolving` y es un `failed` seguro de la
-   * bitácora, no un "pudo haberse aplicado" (el servicio dueño ya sabe en qué quedó).
+   * `DISPUTE_PAYMENT_FAILED` es un 502 de negocio: la disputa quedó `resolving`, pero la plata pudo haberse movido
+   * (corte tras capturar, timeout de payments), así que la bitácora lo registra como `unknown`, no como `failed`.
    */
   resolveDispute(disputeId: string, body: InternalResolveDisputeRequest, ctx: RequestContext): Promise<ResolveDisputeResponse>;
 }
