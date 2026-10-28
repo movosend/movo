@@ -4,12 +4,11 @@ import type {
   RegisterCashCancellationPenaltyResponse,
   RegisterCashCommissionRequest,
   RegisterCashCommissionResponse,
-  UserLedgerEntry as UserLedgerEntryDto,
 } from "@movo/shared";
 import { Prisma, PrismaClient } from "../../generated/prisma/client";
 import type { UserLedgerEntry } from "../../generated/prisma/client";
-import { fingerprintOf } from "../../repositories/user-ledger-repository";
-import { LEDGER_MAX_ABS_AMOUNT_ARS } from "../user-ledger/user-ledger.service";
+import { fingerprintOf, lockLedgerUser } from "../../repositories/user-ledger-repository";
+import { LEDGER_MAX_ABS_AMOUNT_ARS, toDto as ledgerEntryToDto } from "../user-ledger/user-ledger.service";
 
 /**
  * MOVO-37: envíos pagados en efectivo. No hay hold: el emisor le paga al transportista en mano al retiro, así que
@@ -49,21 +48,8 @@ function conflict(message: string): ApiError {
   return new ApiError(409, "LEDGER_IDEMPOTENCY_CONFLICT", message);
 }
 
-function toDto(row: UserLedgerEntry): UserLedgerEntryDto {
-  return {
-    id: row.id,
-    userId: row.userId,
-    roleAtOrigin: row.roleAtOrigin,
-    type: row.type,
-    amountArs: row.amountArs.toNumber(),
-    status: row.status,
-    shipmentId: row.shipmentId,
-    holdId: row.holdId,
-    paymentId: row.paymentId,
-    reason: null,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
+/** Mismo DTO que sirve la cuenta corriente; el motivo no aplica a estos movimientos (no hay texto libre de un admin). */
+const toDto = (row: UserLedgerEntry) => ledgerEntryToDto(row, { maskReason: true });
 
 type EntryData = {
   userId: string;
@@ -97,9 +83,15 @@ function entryCreate(data: EntryData): Prisma.UserLedgerEntryUncheckedCreateInpu
   };
 }
 
-/** Serializa los registros del mismo envío: dos reintentos a la vez terminan con un solo registro. */
-async function lockShipment(tx: Prisma.TransactionClient, shipmentId: string): Promise<void> {
+/**
+ * Serializa los registros del mismo envío (dos reintentos a la vez terminan con un solo registro) y, después, a
+ * quienes leen el saldo de los usuarios cuya cuenta se toca: un hold con tarjeta del transportista que calcula su
+ * descuento de deuda (`readCollectableBalance`) no puede leer un saldo al que esta transacción le está sumando. Los
+ * locks de usuario van ordenados, igual que en `hold-repository`, para que dos transacciones no se crucen.
+ */
+async function lockShipment(tx: Prisma.TransactionClient, shipmentId: string, userIds: string[]): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`cash_shipment:${shipmentId}`}))`;
+  for (const userId of [...new Set(userIds)].sort()) await lockLedgerUser(tx, userId);
 }
 
 export function createCashPaymentsService(db: PrismaClient): CashPaymentsService {
@@ -109,7 +101,7 @@ export function createCashPaymentsService(db: PrismaClient): CashPaymentsService
       const commissionArs = decomposeOfferGrossPrice(input.agreedPriceArs).commissionAmountArs;
 
       return db.$transaction(async (tx) => {
-        await lockShipment(tx, shipmentId);
+        await lockShipment(tx, shipmentId, [input.carrierId]);
         const existing = await tx.cashShipmentPayment.findUnique({ where: { shipmentId }, include: { ledgerEntry: true } });
         if (existing) {
           if (
@@ -166,7 +158,7 @@ export function createCashPaymentsService(db: PrismaClient): CashPaymentsService
       const compensationKey = `penalty_compensation:${shipmentId}`;
 
       return db.$transaction(async (tx) => {
-        await lockShipment(tx, shipmentId);
+        await lockShipment(tx, shipmentId, [input.senderId, input.carrierId]);
         const existing = await tx.userLedgerEntry.findUnique({ where: { idempotencyKey: penaltyKey } });
         if (existing) {
           if (existing.userId !== input.senderId || !existing.amountArs.equals(toMoney(input.penaltyArs))) {

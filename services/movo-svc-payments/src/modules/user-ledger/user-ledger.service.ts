@@ -71,7 +71,7 @@ function assertValidAmount(amountArs: number): void {
   }
 }
 
-function toDto(row: UserLedgerEntry, opts?: { maskReason?: boolean }): UserLedgerEntryDto & { originLabel: null; destination: null } {
+export function toDto(row: UserLedgerEntry, opts?: { maskReason?: boolean }): UserLedgerEntryDto & { originLabel: null; destination: null } {
   return {
     id: row.id,
     userId: row.userId,
