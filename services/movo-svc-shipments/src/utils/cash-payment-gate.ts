@@ -3,7 +3,7 @@ import { PaymentsClient } from "../adapters/payments-client";
 
 /**
  * MOVO-37: gates de un envío pagado en efectivo. Sin hold, la comisión de Movo y las penalidades se cobran por la
- * cuenta corriente (DD-044), así que la deuda se mira antes de comprometerse. Las dos consultan el saldo en
+ * cuenta corriente (DD-044), así que la deuda se mira antes de comprometerse. Consultan el saldo en
  * `svc-payments` en cada llamada (sin cache, igual que MOVO-313: saldar levanta el bloqueo en la siguiente) y fallan
  * cerrado: si payments no responde, propagan su 502 `PAYMENTS_SERVICE_UNAVAILABLE`.
  */
@@ -28,28 +28,28 @@ export async function assertSenderCanPayCash(paymentsClient: PaymentsClient, sen
 }
 
 /** `true` si la deuda total (vencida o no) del transportista supera el tope para envíos en efectivo. */
-export async function exceedsCashDebtLimit(
-  paymentsClient: PaymentsClient,
-  carrierId: string,
-  maxDebtArs: number
-): Promise<boolean> {
-  const debt = await paymentsClient.getUserDebtStatus(carrierId);
-  return debt.balanceArs > maxDebtArs;
+export function exceedsCashDebtLimit(debtBalanceArs: number, maxDebtArs: number): boolean {
+  return debtBalanceArs > maxDebtArs;
+}
+
+/** El tope `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS` que inyecta cada servicio: sin valor lanza, no se saltea el chequeo. */
+export function requireCashDebtLimit(maxDebtArs: number | undefined, owner: string): number {
+  if (maxDebtArs === undefined) {
+    throw new Error(`Un envío en efectivo requiere cashShipmentMaxCarrierDebtArs (${owner}).`);
+  }
+  return maxDebtArs;
 }
 
 /**
  * Transportista (B4): con una deuda total (vencida o no) por encima de `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS` no puede
  * ofertar ni editar una oferta en un envío en efectivo, donde cada entrega le suma la comisión como deuda.
- * Complementa al bloqueo por antigüedad de MOVO-313: este frena el acumulado antes de que venza. Corre después de
- * `assertCarrierCanOperate`. 403 `CASH_DEBT_LIMIT_EXCEEDED` con `cash_debt_within_limit` en
- * `details.missingRequirements`, para que la app lo muestre como un requisito pendiente (MOVO-117).
+ * Complementa al bloqueo por antigüedad de MOVO-313: este frena el acumulado antes de que venza. Recibe el saldo que
+ * ya trajo `assertCarrierCanOperate` (`debtBalanceArs`): una sola lectura por operación, así los dos chequeos no
+ * pueden discrepar. 403 `CASH_DEBT_LIMIT_EXCEEDED` con `cash_debt_within_limit` en `details.missingRequirements`,
+ * para que la app lo muestre como un requisito pendiente (MOVO-117).
  */
-export async function assertCarrierWithinCashDebtLimit(
-  paymentsClient: PaymentsClient,
-  carrierId: string,
-  maxDebtArs: number
-): Promise<void> {
-  if (await exceedsCashDebtLimit(paymentsClient, carrierId, maxDebtArs)) {
+export function assertCarrierWithinCashDebtLimit(debtBalanceArs: number, maxDebtArs: number): void {
+  if (exceedsCashDebtLimit(debtBalanceArs, maxDebtArs)) {
     const details: CarrierRequirementsErrorDetails = { missingRequirements: ["cash_debt_within_limit"] };
     throw new ApiError(
       403,

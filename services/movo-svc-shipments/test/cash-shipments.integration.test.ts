@@ -394,11 +394,14 @@ describe("Envíos en efectivo (Postgres, MOVO-37)", () => {
       const push = pushes(carrierId).find((p) => p.data?.type === "cash_commission");
       expect(push).toMatchObject({ category: "payments", data: { shipmentId } });
       expect(push?.body).not.toMatch(/\$/);
+      // El emisor también se entera del cierre, igual que con tarjeta.
+      expect(pushes(senderId).filter((p) => p.title === "Envío completado")).toHaveLength(1);
 
       // Un reintento (barrido) no duplica la deuda ni el aviso.
       expect(await app.settlements.captureAndComplete(shipmentId)).toBe("already_completed");
       expect(payments.ledgerEntries.size).toBe(1);
       expect(pushes(carrierId).filter((p) => p.data?.type === "cash_commission")).toHaveLength(1);
+      expect(pushes(senderId).filter((p) => p.title === "Envío completado")).toHaveLength(1);
     });
 
     it("si payments falla, el envío queda delivered para el barrido", async () => {

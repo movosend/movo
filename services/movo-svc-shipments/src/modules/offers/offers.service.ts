@@ -20,7 +20,7 @@ import { assertNotBlocked } from "../../utils/block-relations";
 import { PaymentsClient } from "../../adapters/payments-client";
 import { previewDebtDiscounts } from "../../utils/debt-discount";
 import { assertCarrierCanOperate, resolveCarrierEligibility } from "../../utils/carrier-gate";
-import { assertCarrierWithinCashDebtLimit, exceedsCashDebtLimit } from "../../utils/cash-payment-gate";
+import { assertCarrierWithinCashDebtLimit, exceedsCashDebtLimit, requireCashDebtLimit } from "../../utils/cash-payment-gate";
 import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
 import { Trip } from "../../models/trip";
 import { fundingWindowOpensAt } from "../../domain/funding";
@@ -349,13 +349,6 @@ export function createOffersService(
    * efectivo lanza (no se saltea el chequeo). */
   cashShipmentMaxCarrierDebtArs?: number
 ) {
-  function requireCashDebtLimit(): number {
-    if (cashShipmentMaxCarrierDebtArs === undefined) {
-      throw new Error("Un envío en efectivo requiere cashShipmentMaxCarrierDebtArs (createOffersService).");
-    }
-    return cashShipmentMaxCarrierDebtArs;
-  }
-
   return {
     /**
      * MOVO-145 (AC1-AC5): ofertas propias del transportista autenticado.
@@ -463,7 +456,10 @@ export function createOffersService(
       // `details`: quien acepta es el emisor, que no puede resolverlo ni tiene por qué conocer la deuda del otro.
       const overCashDebtLimit =
         shipment.paymentMethod === PaymentMethod.CASH &&
-        (await exceedsCashDebtLimit(paymentsClient, offer.carrierId, requireCashDebtLimit()));
+        exceedsCashDebtLimit(
+          eligibility.debtBalanceArs,
+          requireCashDebtLimit(cashShipmentMaxCarrierDebtArs, "createOffersService")
+        );
       if (!eligibility.identityApproved || eligibility.missingRequirements.length > 0 || overCashDebtLimit) {
         throw new ApiError(
           409,
@@ -634,10 +630,17 @@ export function createOffersService(
 
       // MOVO-116 (DD-036): editar una oferta es operar como transportista, mismo
       // bloqueo que crearla. Hasta acá este endpoint no exigía ni el KYC de identidad.
-      await assertCarrierCanOperate({ usersClient, paymentsClient, shipmentRepository }, callerId, callerRoles);
+      const eligibility = await assertCarrierCanOperate(
+        { usersClient, paymentsClient, shipmentRepository },
+        callerId,
+        callerRoles
+      );
       // MOVO-37 (B4): mismo tope de deuda que al ofertar en un envío en efectivo.
       if (shipment.paymentMethod === PaymentMethod.CASH) {
-        await assertCarrierWithinCashDebtLimit(paymentsClient, callerId, requireCashDebtLimit());
+        assertCarrierWithinCashDebtLimit(
+          eligibility.debtBalanceArs,
+          requireCashDebtLimit(cashShipmentMaxCarrierDebtArs, "createOffersService")
+        );
       }
 
       if (patch.priceOfferedArs !== undefined && patch.priceOfferedArs <= 0) {

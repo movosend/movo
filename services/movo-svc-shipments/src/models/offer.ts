@@ -116,6 +116,10 @@ export interface OfferWithShipmentContext extends Offer {
 
 export interface CreateOfferInput {
   shipmentId: string;
+  /** MOVO-37: medio de pago con el que el service validó al transportista (tope de deuda en efectivo). Si el emisor
+   * lo cambió mientras tanto, el insert falla con `OfferShipmentPaymentMethodChangedError` en vez de dejar una oferta
+   * armada sobre un supuesto viejo. */
+  expectedPaymentMethod?: PaymentMethod;
   // AC12: quien llama (futura capa HTTP, tipo MOVO-80) lo resuelve desde el
   // header x-user-id inyectado por el gateway — este input no sabe de
   // headers, solo recibe el id ya resuelto.

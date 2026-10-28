@@ -15,6 +15,7 @@ import {
   ShipmentStatus,
   TripStatus,
   UserRole,
+  cashPenaltyCompensationArs,
   computeOfferGrossPrice,
   computeNetFromGross,
   getCommissionConfig,
@@ -86,7 +87,7 @@ import { assertTripAccess } from "../trips/trip-access";
 import { assertNotBlocked, safeBlockRelatedUserIds } from "../../utils/block-relations";
 import { sendCustodyPush } from "../../utils/dispatch-push";
 import { assertCarrierCanOperate, assertVerifiedCarrier } from "../../utils/carrier-gate";
-import { assertCarrierWithinCashDebtLimit, assertSenderCanPayCash } from "../../utils/cash-payment-gate";
+import { assertCarrierWithinCashDebtLimit, assertSenderCanPayCash, requireCashDebtLimit } from "../../utils/cash-payment-gate";
 import { shortAddress } from "../../utils/short-address";
 
 type ShipmentsServiceLogger =
@@ -1357,12 +1358,6 @@ export function createShipmentsService(
     return opts.paymentsClient;
   }
 
-  function requireCashDebtLimit(): number {
-    if (opts.cashShipmentMaxCarrierDebtArs === undefined) {
-      throw new Error("Ofertar en un envío en efectivo requiere cashShipmentMaxCarrierDebtArs (ShipmentsServiceOptions).");
-    }
-    return opts.cashShipmentMaxCarrierDebtArs;
-  }
   const pricingClient = opts.pricingClient;
   const pricingLogisticsClient = opts.pricingLogisticsClient;
   const getCarrierReputationScore = opts.getCarrierReputationScore;
@@ -1806,7 +1801,7 @@ export function createShipmentsService(
 
       // MOVO-116 (DD-036): identidad + licencia + MP antes de cualquier lectura o
       // escritura del envío. Antes era `assertVerifiedCarrier` (sin licencia, MOVO-142).
-      await assertCarrierCanOperate(
+      const eligibility = await assertCarrierCanOperate(
         { usersClient, paymentsClient, shipmentRepository: repository },
         input.carrierId,
         input.callerRoles
@@ -1841,7 +1836,10 @@ export function createShipmentsService(
       await assertNotBlocked(usersClient, input.carrierId, [shipment.senderId, shipment.receiverId]);
       // MOVO-37 (B4): en efectivo, la deuda total del transportista no puede superar el tope.
       if (shipment.paymentMethod === PaymentMethod.CASH) {
-        await assertCarrierWithinCashDebtLimit(paymentsClient, input.carrierId, requireCashDebtLimit());
+        assertCarrierWithinCashDebtLimit(
+          eligibility.debtBalanceArs,
+          requireCashDebtLimit(opts.cashShipmentMaxCarrierDebtArs, "ShipmentsServiceOptions")
+        );
       }
 
       if (input.priceNetArs <= 0) {
@@ -2020,6 +2018,7 @@ export function createShipmentsService(
 
       const offer = await offerRepository.create({
         shipmentId: input.shipmentId,
+        expectedPaymentMethod: shipment.paymentMethod,
         carrierId: input.carrierId,
         priceOffered: grossArs,
         offeredDate: anchorDateUtc(input.offeredDate),
@@ -2501,10 +2500,15 @@ export function createShipmentsService(
         // manda además la de oferta cancelada (mismo criterio que `expireUnpickedAssignedShipments`).
         // MOVO-331: si lo cancela un admin, el transportista asignado recibe el aviso de soporte (lo manda el
         // servicio de cambio forzado), no además el de oferta cancelada. Las ofertas pendientes de otros sí se avisan.
-        // MOVO-37: en efectivo la penalidad como deuda también le acredita la compensación (y su push) al transportista.
+        // MOVO-37: en efectivo la penalidad como deuda le acredita la compensación (y su push) al transportista solo si
+        // es mayor que cero: con una penalidad chica `cashPenaltyCompensationArs` da 0, no hay push y se lo avisa de
+        // la cancelación como a cualquier otro.
         const carrierCompensated =
           cancelled.cancellationPenaltyStatus === "captured" ||
-          (cancelled.paymentMethod === PaymentMethod.CASH && cancelled.cancellationPenaltyStatus === "debt");
+          (cancelled.paymentMethod === PaymentMethod.CASH &&
+            cancelled.cancellationPenaltyStatus === "debt" &&
+            cancelled.agreedPriceArs !== null &&
+            cashPenaltyCompensationArs(cancelled.agreedPriceArs, penaltyArs) > 0);
         const notifyAssignedOffer = assignedOffer && !carrierCompensated && !options.admin;
         const voidedOffers = notifyAssignedOffer ? [assignedOffer, ...pendingOffers] : pendingOffers;
         await dispatchOfferVoidedPushes(

@@ -100,6 +100,7 @@ export type NotificationTriggerKey =
   | "carrierWithdrewSender"
   | "carrierWithdrawalPenaltyDebtCarrier"
   | "cashCommissionRegisteredCarrier"
+  | "cashShipmentCompletedSender"
   | "cashCancellationPenaltyDebtSender"
   | "cashCancellationCompensationCarrier"
   | "shipmentStatusForcedSender"
@@ -979,6 +980,13 @@ export const NOTIFICATION_TRIGGERS = {
       title: "Registramos la comisión de un envío en efectivo",
       body: "Entregaste un envío que cobraste en efectivo: la comisión de Movo quedó en tu cuenta. Tocá para ver el detalle.",
     })
+  ),
+  // Cierre del envío en efectivo para el emisor: el mismo evento que con tarjeta (`settlementProcessedSender`), sin
+  // hablar de un pago procesado porque el emisor ya le pagó al transportista en mano.
+  cashShipmentCompletedSender: definition(
+    "payments",
+    { title: "Envío completado", body: "Tu envío fue entregado y quedó completado." },
+    () => ({ title: "Envío completado", body: "Tu envío fue entregado y quedó completado." })
   ),
   cashCancellationPenaltyDebtSender: definition<{ penaltyArs: number }>(
     "payments",

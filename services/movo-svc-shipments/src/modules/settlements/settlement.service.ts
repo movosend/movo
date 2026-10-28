@@ -215,20 +215,37 @@ export function createSettlementService(deps: SettlementServiceDeps) {
       "envío en efectivo completado: comisión registrada como deuda del transportista"
     );
     if (!admin && notificationsClient) {
-      // Solo quien ganó la transición llega acá, así que la push sale una vez sin dedupe en Redis.
-      await sendCustodyPush({
-        notificationsClient,
-        userId: carrierId,
-        triggerKey: "cashCommissionRegisteredCarrier",
-        params: undefined,
-        data: { type: "cash_commission", shipmentId: shipment.id },
-        logger,
-        onErrorContext: {
-          event: "notification_dispatch_failed",
-          message: "No se pudo avisar al transportista que se registró la comisión del envío en efectivo",
-          extra: { shipmentId: shipment.id },
-        },
-      });
+      // Solo quien ganó la transición llega acá, así que las pushes salen una vez sin dedupe en Redis. Igual que con
+      // tarjeta (`notifyParties`), también se entera el emisor.
+      const data = { type: "cash_commission", shipmentId: shipment.id };
+      await Promise.all([
+        sendCustodyPush({
+          notificationsClient,
+          userId: carrierId,
+          triggerKey: "cashCommissionRegisteredCarrier",
+          params: undefined,
+          data,
+          logger,
+          onErrorContext: {
+            event: "notification_dispatch_failed",
+            message: "No se pudo avisar al transportista que se registró la comisión del envío en efectivo",
+            extra: { shipmentId: shipment.id },
+          },
+        }),
+        sendCustodyPush({
+          notificationsClient,
+          userId: shipment.senderId,
+          triggerKey: "cashShipmentCompletedSender",
+          params: undefined,
+          data: { type: "shipment", shipmentId: shipment.id },
+          logger,
+          onErrorContext: {
+            event: "notification_dispatch_failed",
+            message: "No se pudo avisar al emisor que el envío en efectivo se completó",
+            extra: { shipmentId: shipment.id },
+          },
+        }),
+      ]);
     }
     return "completed";
   }

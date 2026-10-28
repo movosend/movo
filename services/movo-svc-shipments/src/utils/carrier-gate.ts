@@ -54,6 +54,9 @@ export interface CarrierEligibility {
    * que el transportista no puede resolver), después licencia y MP, y al final la deuda
    * vencida (MOVO-313: es lo último que se resuelve, con un pago, y no abre la checklist). */
   missingRequirements: CarrierRequirement[];
+  /** MOVO-37: deuda total (vencida o no) de la cuenta corriente, de la misma llamada a svc-payments que decide
+   * `no_overdue_debt`. La usa el tope de deuda de los envíos en efectivo sin pedirla de nuevo. */
+  debtBalanceArs: number;
   /** MOVO-265: estado de la cuenta, de la misma llamada a svc-users. `null` si la cuenta no
    * existe o se dio de baja; `undefined` si svc-users no lo informó (versión anterior). Lo
    * usa la generación de viajes recurrentes; los gates de escritura no lo miran (no estaba
@@ -95,6 +98,7 @@ export async function resolveCarrierEligibility(
   return {
     identityApproved: kyc?.kycStatusIdentity === KycStatus.APPROVED,
     missingRequirements,
+    debtBalanceArs: debt.balanceArs,
     account: !kyc
       ? null
       : kyc.accountStatus === undefined
@@ -161,28 +165,30 @@ function missingRequirementsError(missingRequirements: CarrierRequirement[]): Ap
  * puede ser un admin). 403 `CARRIER_NOT_VERIFIED` sin identidad; si no, 403 con el
  * primer requisito que falta como `code` y todos en `details.missingRequirements`.
  */
-export async function assertCarrierEligible(deps: CarrierGateDeps, carrierId: string): Promise<void> {
-  const { identityApproved, missingRequirements } = await resolveCarrierEligibility(deps, carrierId);
+export async function assertCarrierEligible(deps: CarrierGateDeps, carrierId: string): Promise<CarrierEligibility> {
+  const eligibility = await resolveCarrierEligibility(deps, carrierId);
+  const { identityApproved, missingRequirements } = eligibility;
   if (!identityApproved) {
     throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tener tu identidad verificada para transportar.");
   }
   if (missingRequirements.length > 0) {
     throw missingRequirementsError(missingRequirements);
   }
+  return eligibility;
 }
 
 /**
  * MOVO-116 (DD-036): gate de las ESCRITURAS de transportista (declarar viaje, crear y
  * editar oferta). Rol primero, sin I/O; después `assertCarrierEligible`. Corre antes de
- * persistir nada en todos sus call sites (criterio 3 del ticket).
+ * persistir nada en todos sus call sites (criterio 3 del ticket). Devuelve la elegibilidad que consultó.
  */
 export async function assertCarrierCanOperate(
   deps: CarrierGateDeps,
   carrierId: string,
   callerRoles: UserRole[],
-): Promise<void> {
+): Promise<CarrierEligibility> {
   if (!callerRoles.includes(UserRole.CARRIER)) {
     throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás ser transportista para realizar esta acción.");
   }
-  await assertCarrierEligible(deps, carrierId);
+  return assertCarrierEligible(deps, carrierId);
 }

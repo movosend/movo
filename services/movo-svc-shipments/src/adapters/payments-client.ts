@@ -196,18 +196,16 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
     }
   }
 
-  async function postCashShipment<T>(shipmentId: string, action: string, body: unknown): Promise<T> {
+  /** POST JSON a una ruta interna de payments (ADR-010): 502 si no responde, el error de payments si rechaza. */
+  async function postInternal<T>(path: string, body: unknown, timeoutMs = LEDGER_TIMEOUT_MS): Promise<T> {
     let response: Response;
     try {
-      response = await fetch(
-        `${config.PAYMENTS_SERVICE_URL}/internal/payments/cash-shipments/${encodeURIComponent(shipmentId)}/${action}`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(LEDGER_TIMEOUT_MS),
-        },
-      );
+      response = await fetch(`${config.PAYMENTS_SERVICE_URL}/internal/payments${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
     } catch {
       throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
     }
@@ -383,53 +381,29 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
     },
 
     async createLedgerEntry(userId, entry) {
-      let response: Response;
-      try {
-        response = await fetch(
-          `${config.PAYMENTS_SERVICE_URL}/internal/payments/users/${encodeURIComponent(userId)}/ledger-entries`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(entry),
-            signal: AbortSignal.timeout(LEDGER_TIMEOUT_MS),
-          },
-        );
-      } catch {
-        throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
-      }
-      if (!response.ok) {
-        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
-      }
-      return (await response.json()) as CreateUserLedgerEntryResponse;
+      return postInternal<CreateUserLedgerEntryResponse>(`/users/${encodeURIComponent(userId)}/ledger-entries`, entry);
     },
 
     async registerCashCommission(shipmentId, input) {
-      return postCashShipment<RegisterCashCommissionResponse>(shipmentId, "commission", input);
+      return postInternal<RegisterCashCommissionResponse>(
+        `/cash-shipments/${encodeURIComponent(shipmentId)}/commission`,
+        input,
+      );
     },
 
     async registerCashCancellationPenalty(shipmentId, input) {
-      return postCashShipment<RegisterCashCancellationPenaltyResponse>(shipmentId, "cancellation-penalty", input);
+      return postInternal<RegisterCashCancellationPenaltyResponse>(
+        `/cash-shipments/${encodeURIComponent(shipmentId)}/cancellation-penalty`,
+        input,
+      );
     },
 
     async createRefund(shipmentId, request) {
-      let response: Response;
-      try {
-        response = await fetch(
-          `${config.PAYMENTS_SERVICE_URL}/internal/payments/settlements/by-shipment/${encodeURIComponent(shipmentId)}/refund`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(request),
-            signal: AbortSignal.timeout(REFUND_TIMEOUT_MS),
-          },
-        );
-      } catch {
-        throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
-      }
-      if (!response.ok) {
-        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
-      }
-      return (await response.json()) as CreateRefundResponse;
+      return postInternal<CreateRefundResponse>(
+        `/settlements/by-shipment/${encodeURIComponent(shipmentId)}/refund`,
+        request,
+        REFUND_TIMEOUT_MS,
+      );
     },
 
     async listRefunds(shipmentId) {
@@ -450,24 +424,10 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
     },
 
     async createManualAdjustment(userId, request) {
-      let response: Response;
-      try {
-        response = await fetch(
-          `${config.PAYMENTS_SERVICE_URL}/internal/payments/users/${encodeURIComponent(userId)}/manual-adjustments`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(request),
-            signal: AbortSignal.timeout(LEDGER_TIMEOUT_MS),
-          },
-        );
-      } catch {
-        throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
-      }
-      if (!response.ok) {
-        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
-      }
-      return (await response.json()) as CreateUserLedgerEntryResponse;
+      return postInternal<CreateUserLedgerEntryResponse>(
+        `/users/${encodeURIComponent(userId)}/manual-adjustments`,
+        request,
+      );
     },
   };
 }

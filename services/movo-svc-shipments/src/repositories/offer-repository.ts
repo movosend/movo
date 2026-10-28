@@ -1,4 +1,5 @@
-import { FundingRoute, OfferStatus, PaymentMethod, ShipmentStatus, TripStatus } from "@movo/shared";
+import { FundingRoute, OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import { toPaymentMethod } from "./payment-method";
 import { selectFundingRoute } from "../domain/funding";
 import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
@@ -111,7 +112,7 @@ function mapOfferWithShipment(
       heightCm: row.shipment.heightCm.toNumber(),
       oversized: row.shipment.oversized,
       description: row.shipment.description,
-      paymentMethod: row.shipment.paymentMethod === "cash" ? PaymentMethod.CASH : PaymentMethod.CARD,
+      paymentMethod: toPaymentMethod(row.shipment.paymentMethod),
     },
     // MOVO-188: resuelto aparte por `offers.service.ts` (batch sobre la página, ver
     // `listPendingOffersByShipmentIds`) -- nunca acá, para no convertir esto en una
@@ -144,6 +145,14 @@ export class OfferNotFoundError extends Error {
   constructor(public readonly id: string) {
     super(`No existe una oferta con id '${id}'`);
     this.name = "OfferNotFoundError";
+  }
+}
+
+/** MOVO-37: el emisor cambió el medio de pago del envío entre que el service validó al transportista y el insert. */
+export class OfferShipmentPaymentMethodChangedError extends Error {
+  constructor(public readonly shipmentId: string) {
+    super(`El medio de pago del envío '${shipmentId}' cambió mientras se creaba la oferta`);
+    this.name = "OfferShipmentPaymentMethodChangedError";
   }
 }
 
@@ -413,9 +422,16 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
   return {
     async create(input: CreateOfferInput): Promise<Offer> {
       return db.$transaction(async (tx) => {
+        // MOVO-37: lock compartido sobre la fila del envío. `updatePaymentMethod` toma el lock exclusivo antes de
+        // chequear que no haya ofertas: o el cambio de medio de pago commitea antes y esta lectura ya lo ve (409), o
+        // espera a que esta oferta commitee y entonces ve la oferta y no cambia nada.
+        await tx.$queryRaw`SELECT 1 FROM shipments.shipments WHERE id = ${input.shipmentId}::uuid FOR SHARE`;
         const shipment = await tx.shipment.findUnique({ where: { id: input.shipmentId } });
         if (!shipment) {
           throw new OfferShipmentNotFoundError(input.shipmentId);
+        }
+        if (input.expectedPaymentMethod !== undefined && shipment.paymentMethod !== input.expectedPaymentMethod) {
+          throw new OfferShipmentPaymentMethodChangedError(input.shipmentId);
         }
         if (!isWithinOfferDateRange(input.offeredDate, shipment.pickupDate)) {
           throw new OfferDateOutOfRangeError(input.offeredDate, input.shipmentId);

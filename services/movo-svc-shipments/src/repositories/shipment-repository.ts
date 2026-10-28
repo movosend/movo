@@ -1,4 +1,5 @@
 import { TRIP_PICKUP_WINDOW_LEAD_HOURS } from "../domain/trip-compatibility";
+import { toPaymentMethod } from "./payment-method";
 import { DisputeReason, DisputeStatus, OfferStatus, PaymentMethod, ShipmentStatus, TripStatus } from "@movo/shared";
 import type { PickupMissedAttribution, ShipmentParties } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
@@ -100,7 +101,7 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     calculationMethod: row.calculationMethod,
     highDemand: row.highDemand,
     agreedPriceArs: row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null,
-    paymentMethod: row.paymentMethod === "cash" ? PaymentMethod.CASH : PaymentMethod.CARD,
+    paymentMethod: toPaymentMethod(row.paymentMethod),
     status: parseShipmentStatus(row.status, "status"),
     carrierWithdrawalPending: row.carrierWithdrawalPending,
     carrierWithdrawalPenaltyArs: row.carrierWithdrawalPenaltyArs?.toNumber() ?? null,
@@ -409,7 +410,7 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
     suggestedPriceArs: row.suggested_price_ars !== null ? Number(row.suggested_price_ars) : null,
     calculationMethod: row.calculation_method,
     status: parseShipmentStatus(row.status, "status"),
-    paymentMethod: row.payment_method === "cash" ? PaymentMethod.CASH : PaymentMethod.CARD,
+    paymentMethod: toPaymentMethod(row.payment_method),
     createdAt: row.created_at,
     pickupDistanceKm: Number(row.pickup_distance_km),
     deliveryDistanceKm: row.delivery_distance_km !== null ? Number(row.delivery_distance_km) : null,
@@ -1020,9 +1021,16 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     },
 
     async updatePaymentMethod(id, senderId, paymentMethod, allowedStatuses) {
-      const { count } = await db.shipment.updateMany({
-        where: { id, senderId, status: { in: [...allowedStatuses] }, offers: { none: {} } },
-        data: { paymentMethod },
+      // MOVO-37: lock exclusivo antes de mirar las ofertas (statement aparte, snapshot nuevo): el insert de una
+      // oferta (`offer-repository#create`) toma el lock compartido, así que no puede colarse una oferta sin que este
+      // cambio la vea ni al revés.
+      const count = await db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM shipments.shipments WHERE id = ${id}::uuid FOR UPDATE`;
+        const { count: updated } = await tx.shipment.updateMany({
+          where: { id, senderId, status: { in: [...allowedStatuses] }, offers: { none: {} } },
+          data: { paymentMethod },
+        });
+        return updated;
       });
       return count === 0 ? null : this.findById(id);
     },

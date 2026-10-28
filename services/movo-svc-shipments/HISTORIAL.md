@@ -3927,4 +3927,13 @@ no oferta ni edita (`403 CASH_DEBT_LIMIT_EXCEEDED`).
   `cashCommissionRegisteredCarrier`); el barrido de liquidaciones lo reintenta igual. Penalidad del emisor:
   `settleCashPenalty` (deuda + compensación en una llamada, `cancellationPenaltyStatus: debt`).
 - En efectivo no se llama a holds (cancelación, baja, no-retiro), `viewFor` del funding devuelve `null` y no hay `debtDiscount`.
-- Pendiente: mobile (parte M); `GET /shipments/:id/settlement` sigue en 404 para efectivo; disputas sobre efectivo (MOVO-34).
+- Review (PR 319): el tope de deuda reutiliza el saldo que ya trajo `assertCarrierCanOperate` (`CarrierEligibility.debtBalanceArs`,
+  una sola lectura a payments). `createOffer` y `updatePaymentMethod` se serializan con un lock de fila sobre el envío
+  (`FOR SHARE` / `FOR UPDATE`), y el insert de la oferta falla con `409 SHIPMENT_PAYMENT_METHOD_CHANGED` si el medio de pago ya no
+  es el que se validó. El emisor recibe `cashShipmentCompletedSender` al completarse. La oferta asignada se avisa como cancelada
+  salvo que la compensación (`cashPenaltyCompensationArs`) sea mayor que cero.
+- Disputas sobre efectivo: la acción de pago es siempre `none` (sin hold ni liquidación de MP) y el monto en juego es el precio
+  acordado (`dispute-resolution.service.ts`). A favor del emisor desde `completed`, la comisión del transportista se anula con un
+  crédito en su cuenta corriente (`dispute-<id>-commission-reversal`); un parcial la conserva, y el reintegro del efectivo en mano
+  queda fuera de Movo. Decisión sin ADR/DD todavía: si se confirma, sumarla a DD-056.
+- Pendiente: mobile (parte M); `GET /shipments/:id/settlement` sigue en 404 para efectivo.

@@ -241,6 +241,7 @@ export type ApiErrorCode =
   // `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS`: no puede ofertar en un envío en efectivo. Viaja con
   // `details.missingRequirements` (`cash_debt_within_limit`).
   | "CASH_DEBT_LIMIT_EXCEEDED"
+  | "SHIPMENT_PAYMENT_METHOD_CHANGED"
   // MOVO-37: el emisor tiene deuda en su cuenta corriente y no puede crear (ni pasar a) un envío
   // en efectivo; con tarjeta sí, porque la deuda se cobra en el pago. Viaja con
   // `details.missingRequirements` (`no_pending_debt`).
