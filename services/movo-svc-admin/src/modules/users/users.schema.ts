@@ -33,6 +33,7 @@ const LEDGER_TYPES = [
   "payment_surcharge",
   "voluntary_payment",
   "manual_adjustment",
+  "cancellation_compensation",
 ] as const;
 const LEDGER_STATUSES = ["pending", "reserved", "settled", "voided"] as const;
 
