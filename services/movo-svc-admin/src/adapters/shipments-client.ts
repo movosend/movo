@@ -1,4 +1,11 @@
 import {
+  AdminDisputeDetail,
+  AdminDisputeHandshakeEvent,
+  AdminDisputePage,
+  AdminDisputeResolutionPreview,
+  AdminDisputeTrace,
+  InternalResolveDisputeRequest,
+  ResolveDisputeResponse,
   AdminShipmentRole,
   AdminUserRatingRowPage,
   AdminUserShipmentRow,
@@ -72,7 +79,55 @@ export interface ShipmentsClient extends InternalClient {
    * la toma por "pudo haberse aplicado"). 404 `NOT_FOUND` si el envío no existe.
    */
   forceShipmentStatus(shipmentId: string, body: ForceShipmentStatusRequest, ctx: RequestContext): Promise<ForceShipmentStatusResponse>;
+
+  // MOVO-337: disputas para el panel (`/internal/admin/disputes*` de `svc-shipments`).
+  /** `GET /internal/admin/disputes`: `query` ya viene validada y se reenvía tal cual. */
+  listAdminDisputes(query: URLSearchParams, ctx: RequestContext): Promise<AdminDisputePage>;
+  /** `GET /internal/admin/disputes/:id`. `null` si la disputa no existe. */
+  getAdminDispute(disputeId: string, ctx: RequestContext): Promise<AdminDisputeDetail | null>;
+  /** `GET /internal/admin/disputes/:id/parties` (regla de conflicto de interés). `null` si la disputa no existe. */
+  getDisputeParties(disputeId: string, ctx: RequestContext): Promise<(ShipmentParties & { shipmentId: string }) | null>;
+  /** `GET /internal/admin/disputes/:id/handshake`. `null` si la disputa no existe. */
+  getDisputeHandshake(disputeId: string, ctx: RequestContext): Promise<AdminDisputeHandshakeEvent[] | null>;
+  /** `GET /internal/admin/disputes/:id/trace`. `null` si la disputa no existe. */
+  getDisputeTrace(disputeId: string, ctx: RequestContext): Promise<AdminDisputeTrace | null>;
+  /** `GET /internal/admin/disputes/:id/resolution-preview`. `null` si la disputa no existe. */
+  getDisputeResolutionPreview(disputeId: string, ctx: RequestContext): Promise<AdminDisputeResolutionPreview | null>;
+  /**
+   * `POST /internal/admin/disputes/:id/resolve` (MOVO-337, DD-056). Los rechazos de negocio (`DISPUTE_*`,
+   * `HOLD_NOT_AUTHORIZED`, `SETTLEMENT_NOT_REFUNDABLE`...) se relanzan con su código y `details`.
+   * `DISPUTE_PAYMENT_FAILED` es un 502 de negocio: la disputa quedó `resolving`, pero la plata pudo haberse movido
+   * (corte tras capturar, timeout de payments), así que la bitácora lo registra como `unknown`, no como `failed`.
+   */
+  resolveDispute(disputeId: string, body: InternalResolveDisputeRequest, ctx: RequestContext): Promise<ResolveDisputeResponse>;
 }
+
+/** Resolver mueve plata en `svc-payments` (una captura puede tardar ~50 s): más holgado que el cambio de estado. */
+const RESOLVE_DISPUTE_TIMEOUT_MS = 90_000;
+
+const isDisputeRow = (value: unknown): boolean =>
+  isRecord(value) && isString(value.id) && isString(value.shipmentId) && isString(value.status) && isString(value.reason);
+
+const isAdminDisputePage = (body: unknown): body is AdminDisputePage =>
+  isRecord(body) && Array.isArray(body.items) && body.items.every(isDisputeRow) && isNullableString(body.nextCursor) && isRecord(body.statusCounts);
+
+const isAdminDisputeDetail = (body: unknown): body is AdminDisputeDetail =>
+  isDisputeRow(body) && isRecord(body) && isString(body.description) && Array.isArray(body.statements);
+
+const isDisputeParties = (body: unknown): body is ShipmentParties & { shipmentId: string } =>
+  isRecord(body) && isString(body.shipmentId) && isString(body.senderId) && isNullableString(body.carrierId) && isNullableString(body.receiverId);
+
+const isHandshakeList = (body: unknown): body is AdminDisputeHandshakeEvent[] =>
+  Array.isArray(body) && body.every((event) => isRecord(event) && isString(event.id) && isString(event.stage));
+
+const isDisputeTrace = (body: unknown): body is AdminDisputeTrace =>
+  isRecord(body) && typeof body.available === "boolean" && Array.isArray(body.points);
+
+const isResolutionPreview = (body: unknown): body is AdminDisputeResolutionPreview =>
+  isRecord(body) && isString(body.statusAtOpen) && typeof body.stakeArs === "number" && Array.isArray(body.outcomes) && Array.isArray(body.presets);
+
+const isResolveDisputeResponse = (body: unknown): body is ResolveDisputeResponse =>
+  isRecord(body) && isString(body.disputeId) && isString(body.outcome) && body.status === "resolved" && typeof body.replayed === "boolean";
 
 /** El servicio llama a payments (liberar o capturar el hold) antes de responder: más holgado que los 5 s base. */
 const FORCE_STATUS_TIMEOUT_MS = 30_000;
@@ -300,6 +355,45 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
       if (!result) throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
       return result;
     },
+    async listAdminDisputes(query, ctx) {
+      const page = await client.request(`/internal/admin/disputes?${query.toString()}`, ctx, {
+        isValid: isAdminDisputePage,
+        notFoundCodes: [],
+      });
+      if (!page) throw new Error("listAdminDisputes: respuesta vacía");
+      return page;
+    },
+    getAdminDispute(disputeId, ctx) {
+      return client.request(`${disputePath(disputeId)}`, ctx, { isValid: isAdminDisputeDetail, notFoundCodes: ["DISPUTE_NOT_FOUND"] });
+    },
+    getDisputeParties(disputeId, ctx) {
+      return client.request(`${disputePath(disputeId)}/parties`, ctx, { isValid: isDisputeParties, notFoundCodes: ["DISPUTE_NOT_FOUND", "NOT_FOUND"] });
+    },
+    getDisputeHandshake(disputeId, ctx) {
+      return client.request(`${disputePath(disputeId)}/handshake`, ctx, { isValid: isHandshakeList, notFoundCodes: ["DISPUTE_NOT_FOUND"] });
+    },
+    getDisputeTrace(disputeId, ctx) {
+      return client.request(`${disputePath(disputeId)}/trace`, ctx, { isValid: isDisputeTrace, notFoundCodes: ["DISPUTE_NOT_FOUND"] });
+    },
+    getDisputeResolutionPreview(disputeId, ctx) {
+      return client.request(`${disputePath(disputeId)}/resolution-preview`, ctx, {
+        isValid: isResolutionPreview,
+        notFoundCodes: ["DISPUTE_NOT_FOUND"],
+      });
+    },
+    async resolveDispute(disputeId, body, ctx) {
+      const result = await client.request(`${disputePath(disputeId)}/resolve`, ctx, {
+        method: "POST",
+        body,
+        actorId: body.adminId,
+        timeoutMs: RESOLVE_DISPUTE_TIMEOUT_MS,
+        relayServerErrorCodes: ["DISPUTE_PAYMENT_FAILED"],
+        isValid: isResolveDisputeResponse,
+        notFoundCodes: ["DISPUTE_NOT_FOUND"],
+      });
+      if (!result) throw new ApiError(404, "DISPUTE_NOT_FOUND", "Disputa no encontrada.");
+      return result;
+    },
     getAdminShipmentTracking(shipmentId, ctx) {
       return client.request(`/internal/admin/shipments/${encodeURIComponent(shipmentId)}/tracking`, ctx, {
         isValid: isAdminShipmentTracking,
@@ -332,5 +426,6 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
   };
 }
 
+const disputePath = (disputeId: string) => `/internal/admin/disputes/${encodeURIComponent(disputeId)}`;
 const userPath = (userId: string) => `/internal/admin/users/${encodeURIComponent(userId)}`;
 const internalUserPath = (userId: string) => `/internal/users/${encodeURIComponent(userId)}`;

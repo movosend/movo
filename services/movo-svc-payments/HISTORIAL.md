@@ -875,3 +875,8 @@ como `cash_commission` del transportista, calculada con `decomposeOfferGrossPric
   unicidad aborta la transacción de Postgres. Un reintento devuelve lo registrado sin recalcular; con otras partes o monto, 409.
 - La penalidad usa la key `penalty:<shipmentId>`, la misma que el camino con tarjeta: un envío es de una sola modalidad.
 - P4 no hizo falta: `GET .../balance` ya da la deuda total que mira el tope.
+
+### MOVO-337 — Reemplazo de una liquidación `failed` (disputas)
+
+`capture.service`: un pedido de otro `kind` o monto sobre una liquidación `failed` la reemplaza (`settlements.replaceFailed`) solo si MP confirma que el pago sigue `authorized`/`pending`; si no se puede consultar o está `approved`, sigue siendo `409 SETTLEMENT_CONFLICT`. Así una disputa cuya captura parcial rechazó MP se puede reintentar con otro porcentaje o resultado. La key de idempotencia de la penalidad ahora lleva el monto (`movo-hold-penalty-<holdId>-<monto>`). `svc-shipments` trata `SETTLEMENT_CONFLICT` como incierto (la disputa queda `resolving` con alerta).
+- `SettlementKind` suma `dispute_partial` (migración `20261026120000_settlement_kind_dispute_partial`): misma mecánica que `cancellation_penalty` (monto parcial, piso del `application_fee`), key `movo-hold-dispute-<holdId>-<monto>`, pero sin pasar por la lógica de penalidad de MOVO-306. `@movo/shared` suma `PARTIAL_CAPTURE_KINDS`/`isPartialCaptureKind`. El mobile ya no muestra la card de compensación en un envío con disputa parcial (solo la arma para `cancellation_penalty`).

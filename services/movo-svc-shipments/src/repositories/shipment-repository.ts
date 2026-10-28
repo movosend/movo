@@ -131,6 +131,7 @@ function mapEvent(row: ShipmentEventRow): ShipmentEvent {
     actorId: row.actorId,
     assignmentCarrierId: row.assignmentCarrierId,
     reason: row.reason,
+    attribution: row.attribution,
     kind: row.kind,
     actorName: row.actorName,
     createdAt: row.createdAt,
@@ -498,6 +499,12 @@ export interface UpdateStatusOptions {
    * disputa sin su expediente. Lanza `DisputeAlreadyOpenError` si ya había una abierta.
    */
   dispute?: NewDispute;
+  /**
+   * MOVO-337 (DD-056): la disputa `resolving` que cierra esta transición (`disputed -> completed|cancelled`),
+   * pasada a `resolved` en la misma transacción. Obligatoria para salir de `disputed`: así el envío nunca
+   * cambia de estado sin que la disputa quede resuelta, ni al revés.
+   */
+  resolveDispute?: { id: string };
   /**
    * MOVO-331 (DD-055): la transición la ejecuta un admin desde el panel. Queda en el evento
    * (inmutable), con el nombre del admin como snapshot. Sin esto el evento es `normal`.
@@ -1236,6 +1243,9 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       if (to === ShipmentStatus.DISPUTED && !options.dispute) {
         throw new Error("-> disputed requiere UpdateStatusOptions.dispute (MOVO-334)");
       }
+      if (from === ShipmentStatus.DISPUTED && !options.resolveDispute) {
+        throw new Error("disputed -> * requiere UpdateStatusOptions.resolveDispute (MOVO-337)");
+      }
 
       // AC6 de MOVO-81: precondición de negocio sobre una transición que ya es
       // estructuralmente válida — publicar exige evidencia mínima del paquete. Vive acá
@@ -1252,7 +1262,13 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       }
 
       const now = new Date();
-      const deliveredAt = to === ShipmentStatus.DELIVERED ? now : current.deliveredAt;
+      // MOVO-337: un envío que sale de `in_transit` por la resolución de una disputa a favor del transportista pasa a
+      // `completed` sin haber tenido el handshake de entrega: la resolución es su momento de entrega (ancla de la
+      // ventana de calificación).
+      const deliveredAt =
+        to === ShipmentStatus.DELIVERED || (to === ShipmentStatus.COMPLETED && options.resolveDispute && !current.deliveredAt)
+          ? now
+          : current.deliveredAt;
       const receiverRedesignationDeadline =
         options.receiverRedesignationDeadline ?? current.receiverRedesignationDeadline;
 
@@ -1363,6 +1379,18 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
               photos: { create: (dispute.photoKeys ?? []).map((s3Key) => ({ s3Key })) },
             },
           });
+        }
+
+        // MOVO-337: la disputa pasa de `resolving` a `resolved` junto con el envío. Compare-and-swap: si otra
+        // resolución ya la cerró (o nunca llegó a `resolving`) la transición se descarta entera.
+        if (options.resolveDispute) {
+          const closed = await tx.dispute.updateMany({
+            where: { id: options.resolveDispute.id, shipmentId: id, status: DisputeStatus.RESOLVING },
+            data: { status: DisputeStatus.RESOLVED, resolvedAt: now },
+          });
+          if (closed.count === 0) {
+            throw new ShipmentConcurrentModificationError(id);
+          }
         }
 
         // MOVO-210: la asignación no prosperó. La oferta ganadora no fue rechazada por el emisor,
@@ -1881,7 +1909,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       // de sistema o de una parte, salvo el no-retiro: no tuvo la custodia (DD-052).
       const count = await db.dispute.count({
         where: {
-          status: DisputeStatus.OPEN,
+          // `resolving` (MOVO-337): la plata todavía no se movió, así que sigue bloqueado hasta `resolved` (AC9).
+          status: { in: [DisputeStatus.OPEN, DisputeStatus.RESOLVING] },
           reason: { not: DisputeReason.PICKUP_NO_SHOW },
           shipment: { carrierId },
         },

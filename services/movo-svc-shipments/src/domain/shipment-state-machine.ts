@@ -62,10 +62,9 @@ export class InsufficientCreationPhotosError extends Error {
  * encuentra el envío en `delivered`. Solo la usa una de las partes dentro de los
  * `DISPUTE_WINDOW_DAYS` desde `deliveredAt` (`disputes.service.ts`); ningún barrido la usa.
  *
- * `cancelled` y `disputed` no tienen salida en este módulo — son terminales por diseño
- * (MOVO-79/MOVO-208; la resolución de una disputa, a cargo de un admin
- * MOVO-34, todavía no define a qué estado vuelve,
- * así que no se modela acá una transición inventada).
+ * `cancelled` es terminal por diseño (MOVO-79/MOVO-208). `disputed` sale solo por la resolución de un
+ * admin (MOVO-337, DD-056), sin estados nuevos: a favor del emisor -> `cancelled`; a favor del transportista
+ * o parcial -> `completed`. Esas dos aristas las usa únicamente `dispute-resolution.service.ts`.
  *
  * `assigned_unfunded` (MOVO-208, hold anclado cerca del retiro según
  * MOVO-12): ruta ALTERNATIVA a `assignment_pending` cuando el retiro es a
@@ -122,7 +121,10 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
     ShipmentStatus.CANCELLED, // emisor cancela o vence el plazo para elegir otro (MOVO-253)
   ]),
   [ShipmentStatus.CANCELLED]: new Set(),
-  [ShipmentStatus.DISPUTED]: new Set(),
+  [ShipmentStatus.DISPUTED]: new Set([
+    ShipmentStatus.COMPLETED, // resolución a favor del transportista o parcial (MOVO-337, DD-056)
+    ShipmentStatus.CANCELLED, // resolución a favor del emisor (MOVO-337, DD-056)
+  ]),
 };
 
 /**

@@ -5,12 +5,15 @@ import {
   CLOSED_HOLD_STATUSES,
   CaptureHoldRequest,
   CarrierMpAccountStatusResponse,
+  CreateManualAdjustmentRequest,
+  CreateRefundRequest,
   CreateUserLedgerEntryRequest,
   HoldFailureReason,
   HoldDetailResponse,
-  HoldResponse,
   HoldStatus,
   LIVE_HOLD_STATUSES,
+  RefundResponse,
+  RefundStatus,
   SettlementResponse,
   UserLedgerEntry,
   cashPenaltyCompensationArs,
@@ -56,6 +59,12 @@ export interface FakePaymentsBehavior {
   /** MOVO-307: si no es null, `createLedgerEntry` lanza este error (payments caído). MOVO-37: también los
    * registros de envíos en efectivo. */
   ledgerError: ApiError | null;
+  /** MOVO-337: si no es null, `createRefund` lanza este error (rechazo de negocio o payments caído). */
+  refundError: ApiError | null;
+  /** MOVO-337: estado con que termina el próximo reembolso (`fallback_to_ledger` = el transportista no tenía saldo). */
+  nextRefundStatus: RefundStatus;
+  /** MOVO-337: si no es null, `createManualAdjustment` lanza este error. */
+  manualAdjustmentError: ApiError | null;
 }
 
 const DEBT_CAP_RATE = 0.3;
@@ -69,6 +78,10 @@ export interface FakePaymentsClient extends PaymentsClient {
   settlements: Map<string, SettlementResponse>;
   /** MOVO-307: movimientos de la cuenta corriente por `idempotencyKey`. */
   ledgerEntries: Map<string, UserLedgerEntry>;
+  /** MOVO-337: reembolsos por `idempotencyKey`. */
+  refunds: Map<string, RefundResponse>;
+  /** MOVO-337: ajustes manuales de la cuenta corriente por `idempotencyKey`. */
+  manualAdjustments: Map<string, UserLedgerEntry>;
 }
 
 export function createFakePaymentsClient(
@@ -89,17 +102,34 @@ export function createFakePaymentsClient(
     pendingDebtByUserId: new Map<string, number>(),
     previewFails: false,
     ledgerError: null,
+    refundError: null,
+    nextRefundStatus: "succeeded",
+    manualAdjustmentError: null,
     ...behaviorOverrides,
   };
   const settlements = new Map<string, SettlementResponse>();
   const ledgerEntries = new Map<string, UserLedgerEntry>();
+  const refunds = new Map<string, RefundResponse>();
+  const manualAdjustments = new Map<string, UserLedgerEntry>();
   let sequence = 0;
+
+  /** Lo reembolsable: lo capturado menos los intentos que cuentan (todos menos `failed`), como el real. */
+  const refundableOf = (shipmentId: string): number => {
+    const settlement = settlements.get(shipmentId);
+    if (!settlement) return 0;
+    const counted = [...refunds.values()]
+      .filter((refund) => refund.shipmentId === shipmentId && refund.status !== "failed")
+      .reduce((sum, refund) => sum + refund.amountArs, 0);
+    return Math.round((settlement.grossAmountArs - counted) * 100) / 100;
+  };
 
   const client: FakePaymentsClient = {
     behavior,
     holds,
     settlements,
     ledgerEntries,
+    refunds,
+    manualAdjustments,
 
     getCarrierMpAccountStatus: vi.fn(
       async (userId: string): Promise<CarrierMpAccountStatusResponse> => ({ linked: !unlinked.has(userId) }),
@@ -353,6 +383,78 @@ export function createFakePaymentsClient(
             ).entry
           : null;
       return { penaltyEntry, compensationEntry, compensationArs, created };
+    }),
+
+    // MOVO-337: idempotente por `idempotencyKey` y con el mismo tope que payments (lo reembolsable).
+    createRefund: vi.fn(async (shipmentId: string, request: CreateRefundRequest) => {
+      if (behavior.refundError) {
+        throw behavior.refundError;
+      }
+      const replayed = refunds.get(request.idempotencyKey);
+      if (replayed) {
+        return { refund: replayed, replayed: true };
+      }
+      const settlement = settlements.get(shipmentId);
+      if (!settlement || settlement.status !== "credited") {
+        throw new ApiError(409, "SETTLEMENT_NOT_REFUNDABLE", "El envío no tiene un cobro capturado");
+      }
+      const refundableArs = refundableOf(shipmentId);
+      const amountArs = request.amountArs ?? refundableArs;
+      if (amountArs > refundableArs) {
+        throw new ApiError(422, "REFUND_AMOUNT_EXCEEDS_REFUNDABLE", "El monto supera lo reembolsable", { refundableArs });
+      }
+      const now = new Date().toISOString();
+      const status = behavior.nextRefundStatus;
+      const refund: RefundResponse = {
+        id: randomUUID(),
+        settlementId: settlement.id,
+        shipmentId,
+        attempt: refunds.size + 1,
+        amountArs,
+        reason: request.reason,
+        status,
+        failureReason: status === "failed" ? "provider_rejected" : status === "fallback_to_ledger" ? "insufficient_balance" : null,
+        mpRefundId: status === "succeeded" ? `mp-refund-${refunds.size + 1}` : null,
+        ledgerEntryId: status === "fallback_to_ledger" ? randomUUID() : null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      refunds.set(request.idempotencyKey, refund);
+      return { refund, replayed: false };
+    }),
+
+    listRefunds: vi.fn(async (shipmentId: string) => {
+      if (!settlements.has(shipmentId)) return null;
+      return {
+        refunds: [...refunds.values()].filter((refund) => refund.shipmentId === shipmentId),
+        refundableArs: refundableOf(shipmentId),
+      };
+    }),
+
+    // MOVO-337: idempotente por `idempotencyKey`.
+    createManualAdjustment: vi.fn(async (userId: string, request: CreateManualAdjustmentRequest) => {
+      if (behavior.manualAdjustmentError) {
+        throw behavior.manualAdjustmentError;
+      }
+      const existing = manualAdjustments.get(request.idempotencyKey);
+      if (existing) {
+        return { entry: existing, created: false };
+      }
+      const created: UserLedgerEntry = {
+        id: randomUUID(),
+        userId,
+        roleAtOrigin: null,
+        type: "manual_adjustment",
+        amountArs: request.amountArs,
+        status: "pending",
+        shipmentId: request.shipmentId ?? null,
+        holdId: null,
+        paymentId: null,
+        reason: request.reason,
+        createdAt: new Date().toISOString(),
+      };
+      manualAdjustments.set(request.idempotencyKey, created);
+      return { entry: created, created: true };
     }),
   };
 

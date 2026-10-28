@@ -207,6 +207,8 @@ enum SettlementStatus {
 enum SettlementKind {
   delivery
   cancellation_penalty
+  // MOVO-337: captura parcial de una disputa resuelta en parcial (no es una penalidad).
+  dispute_partial
 
   @@map("settlement_kind")
   @@schema("payments")

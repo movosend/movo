@@ -190,6 +190,8 @@ export interface ShipmentEvent {
   actorId: string | null;
   assignmentCarrierId?: string | null;
   reason: string | null;
+  /** MOVO-270: solo en la cancelación del barrido de retiro no realizado; `carrier` habilita que el emisor califique (MOVO-337). */
+  attribution?: "carrier" | "none" | null;
   /** MOVO-331: `normal` salvo que lo haya hecho un admin desde el panel. */
   kind: "normal" | "manual" | "forced";
   actorName: string | null;

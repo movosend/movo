@@ -172,7 +172,13 @@ export type {
 } from "./types/transaction";
 
 // liquidación: captura del hold + split (MOVO-212)
-export { SETTLEMENT_ISSUE_STATUSES, SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
+export {
+  isPartialCaptureKind,
+  PARTIAL_CAPTURE_KINDS,
+  SETTLEMENT_ISSUE_STATUSES,
+  SETTLEMENT_KINDS,
+  SETTLEMENT_STATUSES,
+} from "./types/settlement";
 export type {
   CaptureHoldRequest,
   CaptureHoldResponse,
@@ -257,6 +263,21 @@ export {
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
+export {
+  DISPUTE_RESOLVABLE_STATUSES_AT_OPEN,
+  isDisputeResolvableStatus,
+  disputePaymentAction,
+  disputeFinalShipmentStatus,
+  disputeRatingWinners,
+  splitDisputeStake,
+  minimumPartialCaptureArs,
+} from "./config/dispute-resolution";
+export type {
+  DisputeResolvableStatus,
+  DisputeAmountChoice,
+  DisputeAmountsError,
+  DisputeAmounts,
+} from "./config/dispute-resolution";
 
 // legal (MOVO-228)
 export { LEGAL_DOCUMENT_VERSIONS } from "./config/legal";
@@ -656,6 +677,23 @@ export type {
   SupportRealtimeConnected,
 } from "./types/support";
 
+// disputas para el panel (MOVO-337)
+export type {
+  AdminDisputeParty,
+  AdminDisputeResolution,
+  AdminDisputeRow,
+  AdminDisputePage,
+  AdminDisputeDetail,
+  AdminDisputePhotos,
+  AdminDisputeHandshakeEvent,
+  AdminDisputeTracePoint,
+  AdminDisputeTrace,
+  AdminDisputeNote,
+  AdminDisputeNotePage,
+  AdminDisputeNoteBody,
+  AdminDisputeResolutionPreview,
+} from "./types/admin-disputes";
+
 // disputas (MOVO-334, DD-054)
 export {
   DisputeReason,
@@ -663,6 +701,13 @@ export {
   USER_SELECTABLE_DISPUTE_REASONS,
   DISPUTE_WINDOW_DAYS,
   DISPUTE_TEXT_MAX_LENGTH,
+  DISPUTE_OUTCOMES,
+  DISPUTE_PARTIAL_PRESETS,
+  DISPUTE_REASONING_MIN_LENGTH,
+  DISPUTE_REASONING_MAX_LENGTH,
+  DISPUTE_NOTE_MIN_LENGTH,
+  DISPUTE_NOTE_MAX_LENGTH,
+  DISPUTE_PAYMENT_ACTIONS,
 } from "./types/dispute";
 export type {
   DisputePartyRole,
@@ -671,4 +716,10 @@ export type {
   DisputeStatement,
   DisputeDetail,
   DisputePhotoUploadUrl,
+  DisputeOutcome,
+  DisputePaymentAction,
+  ResolveDisputeRequest,
+  InternalResolveDisputeRequest,
+  ResolveDisputeResponse,
+  DisputePartialCaptureFloor,
 } from "./types/dispute";
