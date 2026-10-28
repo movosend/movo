@@ -1,10 +1,11 @@
 import type { TransactionListItem, TransactionRole } from "@movo/shared/dist/types/transaction";
-import { ArrowDownLeft, ArrowUpRight, CreditCard, Undo2 } from "lucide-react-native";
+import { ArrowDownLeft, ArrowUpRight, Banknote, CreditCard, Undo2 } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
   debtLine,
   formatTransactionAmount,
+  isCashTransaction,
   refundLine,
   transactionTitle,
   transactionRowSubtitle,
@@ -34,6 +35,7 @@ export function TransactionRow({
   const muted = role === "carrier" && item.status !== "completed" && item.status !== "refunded";
   const Direction = role === "sender" ? ArrowUpRight : ArrowDownLeft;
   const amount = formatTransactionAmount(item.amountArs);
+  const MethodIcon = isCashTransaction(item) ? Banknote : CreditCard;
 
   return (
     <Pressable
@@ -47,7 +49,7 @@ export function TransactionRow({
       <View
         className={`h-10 w-10 items-center justify-center rounded-full border border-border-strong ${muted ? "bg-bg-sub" : "bg-bg"}`}
       >
-        <CreditCard size={20} color={colors.fg1} strokeWidth={2} />
+        <MethodIcon size={20} color={colors.fg1} strokeWidth={2} />
         <View
           accessibilityLabel={role === "sender" ? "Pago saliente" : "Cobro entrante"}
           className="absolute -bottom-1 -right-1 h-5 w-5 items-center justify-center rounded-full border-2 border-bg bg-bg-mute"

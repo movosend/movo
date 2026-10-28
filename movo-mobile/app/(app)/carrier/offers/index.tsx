@@ -10,8 +10,7 @@ import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import type { MyOfferSummary } from "../../../../src/api/offers-client";
 import { useMyOffers } from "../../../../src/hooks/use-offers";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
-import { estimateReceivedArs } from "../../../../src/lib/commission-config";
-import { competitiveRankNotice } from "../../../../src/lib/offer-format";
+import { competitiveRankNotice, offerReceivedArs } from "../../../../src/lib/offer-format";
 import { formatPriceArs } from "../../../../src/lib/shipment-format";
 
 const CLOSED_STATUSES: readonly OfferStatus[] = [
@@ -112,9 +111,9 @@ export default function MyOffersSummaryScreen() {
   );
   // MOVO-225: totales en lo que recibe aprox. (neto menos el estimado de MP), el
   // mismo monto que muestra cada card y el detalle de la oferta.
-  const receivedOf = (o: MyOfferSummary) => Math.max(0, estimateReceivedArs(o.priceNetArs, o.priceOffered) - (o.debtDiscount?.amountArs ?? 0));
-  const pendingTotal = pending.reduce((sum, o) => sum + receivedOf(o), 0);
-  const acceptedTotal = accepted.reduce((sum, o) => sum + receivedOf(o), 0);
+  // MOVO-37: las de efectivo suman el bruto que se cobra en mano (`offerReceivedArs`).
+  const pendingTotal = pending.reduce((sum, o) => sum + offerReceivedArs(o), 0);
+  const acceptedTotal = accepted.reduce((sum, o) => sum + offerReceivedArs(o), 0);
 
   // Mismo criterio que el aviso de cada card: "requiere algo tuyo" = tiene aviso.
   const attention = useMemo(

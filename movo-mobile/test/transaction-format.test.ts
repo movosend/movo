@@ -129,6 +129,12 @@ describe("subtítulo de la fila (AC4)", () => {
     expect(transactionRowSubtitle(item(), "sender")).toBe("Visa •••• 4242 · 13 oct");
   });
 
+  it("MOVO-37: un envío en efectivo dice 'Pago en efectivo' en los dos roles, sin tarjeta", () => {
+    const cash = item({ kind: "cash_shipment", status: "completed", card: null });
+    expect(transactionRowSubtitle(cash, "sender")).toBe("Pago en efectivo · 13 oct");
+    expect(transactionRowSubtitle(cash, "carrier")).toBe("Pago en efectivo · 13 oct");
+  });
+
   it("Pagos sin datos de tarjeta: solo la fecha", () => {
     expect(transactionRowSubtitle(item({ card: null }), "sender")).toBe("13 oct");
   });

@@ -5,6 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { createPhotoUploadProvider } from "../../../src/adapters/photo-upload-provider";
 import { createPricingProvider, type PricingQuoteInput } from "../../../src/adapters/pricing-provider";
+import { useBalance } from "../../../src/hooks/use-balance";
 import { useCreateShipment } from "../../../src/hooks/use-shipments";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
 import { uriToBlob } from "../../../src/lib/photo-utils";
@@ -22,6 +23,7 @@ import type { CreateShipmentInput } from "../../../src/api/shipments-client";
 import { dimensionShort, dimensionToCm, hasOversizedDimension } from "../../../src/lib/package-dimensions";
 import { ErrorBanner } from "../../ui/error-banner";
 import { packageTypeLabel } from "../category-grid";
+import { PaymentMethodSelector } from "../payment-method-selector";
 import { PricePreviewCard } from "../price-preview-card";
 import { PublishShipmentButton } from "../publish-shipment-button";
 import { ReviewRow } from "../review-row";
@@ -43,6 +45,9 @@ function errorCodeToStep(code: string): number | null {
       return null;
   }
 }
+
+/** MOVO-37: el emisor tiene deuda y eligió efectivo (el saldo cambió después de que cargó el resumen). */
+const CASH_SENDER_DEBT_CODE = "CASH_PAYMENT_SENDER_HAS_DEBT";
 
 /** MOVO-255: la cotización congelada venció o ya no coincide con los datos. */
 const QUOTE_ERROR_CODES = new Set(["QUOTE_EXPIRED", "QUOTE_MISMATCH"]);
@@ -136,14 +141,24 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
     pickupTimeWindowStart,
     pickupTimeWindowEnd,
     photos,
+    paymentMethod,
     priceQuote,
     submission,
     setSubmission,
+    setPaymentMethod,
     updatePhoto,
     resetWizard,
   } = state;
 
   const createShipment = useCreateShipment();
+  // MOVO-37 (M1): con saldo pendiente (vencido o no) el emisor no puede pagar en efectivo. Si el saldo no cargó, la
+  // opción queda habilitada y el backend decide (403 `CASH_PAYMENT_SENDER_HAS_DEBT`, manejado en `publish`).
+  const balance = useBalance();
+  const cashBlockedByDebt = (balance.data?.pages[0]?.balanceArs ?? 0) > 0;
+
+  useEffect(() => {
+    if (cashBlockedByDebt && paymentMethod === "cash") setPaymentMethod("card");
+  }, [cashBlockedByDebt, paymentMethod, setPaymentMethod]);
 
   // MOVO-255: se cotiza solo al entrar al resumen (cambiar un dato que afecta el
   // precio implica volver a otro paso, que desmonta este). Si la cotización guardada
@@ -210,6 +225,7 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
         pickupDate,
         pickupTimeWindowStart,
         pickupTimeWindowEnd,
+        paymentMethod,
       };
       // MOVO-255: con `quoteId` el envío se crea exactamente al precio mostrado. Sin
       // él (pricing no respondió, "precio a estimar") el backend cotiza al crear.
@@ -230,6 +246,11 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
           setSubmission({ status: "idle", errorMessage: null, fieldErrorStep: null });
           await refreshQuote(true);
           throw err;
+        }
+        if (err instanceof ApiError && err.code === CASH_SENDER_DEBT_CODE) {
+          // El selector pasa a tarjeta y muestra "Pagar mi saldo" cuando el saldo recargado llega.
+          setPaymentMethod("card");
+          void balance.refetch();
         }
         const fieldErrorStep = err instanceof ApiError ? errorCodeToStep(err.code) : null;
         setSubmission({
@@ -346,6 +367,14 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
               ? packageTypeLabel(packageType)
               : `${weightKg || "—"} kg · ${packageTypeLabel(packageType)}`
         }
+      />
+
+      <PaymentMethodSelector
+        testID="summary-step-payment-method"
+        value={paymentMethod}
+        onChange={setPaymentMethod}
+        cashBlockedByDebt={cashBlockedByDebt}
+        onPayBalance={() => router.push("/profile/payments?tab=balance&pay=1")}
       />
 
       <PublishShipmentButton

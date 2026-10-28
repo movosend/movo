@@ -187,7 +187,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     suggestedPriceArs: 4500,
     highDemand: null,
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: "card",
     status: ShipmentStatus.PUBLISHED,
     lastStatusChangedAt: null,
     deliveredAt: null,
@@ -543,6 +543,56 @@ describe("ShipmentDetailScreen", () => {
     expect(getByTestId("shipment-detail-sender-actions")).toBeTruthy();
     expect(getByText("Reservado en tu tarjeta")).toBeTruthy();
     expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
+  });
+
+  it("MOVO-37: en efectivo el emisor ve la modalidad, no pide la reserva ni dice 'Reservado en tu tarjeta'", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        status: ShipmentStatus.ASSIGNED,
+        carrierId: "carrier-1",
+        agreedPriceArs: 18500,
+        paymentMethod: "cash",
+        funding: null,
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, getByText, queryByText, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-payment-method-label")).toHaveTextContent("Efectivo");
+    expect(getByText("En efectivo al retiro")).toBeTruthy();
+    expect(queryByText("Reservado en tu tarjeta")).toBeNull();
+    expect(queryByTestId("shipment-detail-funds")).toBeNull();
+    expect(mockUseShipmentHold).toHaveBeenLastCalledWith("shipment-1", { enabled: false });
+  });
+
+  it("MOVO-37: en efectivo y entregado, el transportista no consulta la liquidación (no existe)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "carrier-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        status: ShipmentStatus.DELIVERED,
+        carrierId: "carrier-1",
+        agreedPriceArs: 18500,
+        paymentMethod: "cash",
+        funding: null,
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-payment")).toBeNull();
+    expect(mockUseShipmentSettlement).toHaveBeenLastCalledWith(
+      "shipment-1",
+      expect.objectContaining({ enabled: false }),
+    );
   });
 
   it("mirando como receptor, nunca muestra la barra de cancelar del emisor (MOVO-29)", async () => {

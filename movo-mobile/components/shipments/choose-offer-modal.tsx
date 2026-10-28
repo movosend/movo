@@ -13,6 +13,8 @@ export interface ChooseOfferModalProps {
   /** ¿El pago se reserva ya, al elegir? `false`: retiro lejano, se reserva más adelante
    * desde el detalle. `null`: no se sabe, no se promete nada del momento. */
   payNow?: boolean | null;
+  /** MOVO-37: envío en efectivo. No hay reserva: el emisor le paga en mano al retiro. */
+  cash?: boolean;
   onConfirm: () => void;
   onClose: () => void;
   /** Se llama cuando el sheet terminó de cerrarse y su `Modal` nativo ya no está. */
@@ -26,6 +28,7 @@ export function ChooseOfferModal({
   isPending,
   errorMessage,
   payNow = null,
+  cash = false,
   onConfirm,
   onClose,
   onClosed,
@@ -65,7 +68,15 @@ export function ChooseOfferModal({
           asignado.
         </Text>
       </View>
-      {payNow !== null ? (
+      {cash ? (
+        <View testID={`${testID}-cash-note`} className="rounded-[12px] bg-bg-mute p-3.5">
+          <Text className="font-sans text-caption leading-4 text-fg-3">
+            <Text className="font-sans-semibold text-fg">No pagás nada con tarjeta. </Text>
+            Le pagás {formatPriceArs(currentOffer.priceOffered)} en efectivo al transportista cuando le entregás el
+            paquete.
+          </Text>
+        </View>
+      ) : payNow !== null ? (
         <View testID={`${testID}-payment-note`} className="rounded-[12px] bg-bg-mute p-3.5">
           <Text className="font-sans text-caption leading-4 text-fg-3">
             <Text className="font-sans-semibold text-fg">

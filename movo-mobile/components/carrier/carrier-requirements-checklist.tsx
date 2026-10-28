@@ -1,14 +1,14 @@
-import type { CarrierRequirement } from "@movo/shared/dist/types/carrier-eligibility";
 import type { MpConnectStatusResponse } from "@movo/shared/dist/types/mp-connect";
 import { KycStatus } from "@movo/shared/dist/types/user";
 import * as Haptics from "expo-haptics";
-import { IdCard, Receipt, Wallet } from "lucide-react-native";
+import { Banknote, IdCard, Receipt, Wallet } from "lucide-react-native";
 import { useCallback, useRef } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useTourAnchor } from "../../src/hooks/use-tour-anchor";
 import {
+  type ChecklistRequirement,
   licenseRowCopy,
   mpRowCopy,
   type RequirementRowCopy,
@@ -41,9 +41,40 @@ const PILL_CLASS: Record<RequirementRowCopy["state"], { bg: string; text: string
   done: { bg: "bg-success-100", text: "text-success-700" },
 };
 
+/** Las filas de deuda solo aparecen si faltan: se resuelven pagando el saldo, no completando un paso. */
+type DebtRequirement = Extract<ChecklistRequirement, "no_overdue_debt" | "cash_debt_within_limit">;
+
+const DEBT_ROWS: readonly { requirement: DebtRequirement; testIDSuffix: string; copy: RequirementRowCopy }[] = [
+  {
+    requirement: "no_overdue_debt",
+    testIDSuffix: "debt",
+    copy: {
+      title: "Saldo pendiente vencido",
+      state: "pending",
+      pillLabel: "Pendiente",
+      body: "Tenés una deuda vencida con Movo. Pagala para volver a ofertar y declarar viajes.",
+      ctaLabel: "Pagar mi saldo",
+    },
+  },
+  {
+    // MOVO-37: tope de deuda para envíos en efectivo, donde cada entrega le suma la comisión como deuda.
+    requirement: "cash_debt_within_limit",
+    testIDSuffix: "cash-debt",
+    copy: {
+      title: "Saldo por encima del tope para efectivo",
+      state: "pending",
+      pillLabel: "Pendiente",
+      body: "Tu saldo pendiente con Movo superó el tope para llevar envíos en efectivo. Pagalo para volver a ofertar en ellos; en los envíos con tarjeta podés seguir operando.",
+      ctaLabel: "Pagar mi saldo",
+    },
+  },
+];
+
+const PENDING_COUNT_WORD = ["", "un", "dos", "tres", "cuatro"];
+
 export interface CarrierRequirementsChecklistProps {
   /** Requisitos que faltan (`resolveTransportGate` o `details.missingRequirements`). */
-  missing: CarrierRequirement[];
+  missing: ChecklistRequirement[];
   licenseStatus: KycStatus | null;
   mpStatus: MpConnectStatusResponse["status"] | null;
   context: CarrierRequirementsContext;
@@ -62,14 +93,21 @@ function RequirementRow({
   isLast,
   testID,
 }: {
-  requirement: CarrierRequirement;
+  requirement: ChecklistRequirement;
   copy: RequirementRowCopy;
   onPressCta: () => void;
   isLast: boolean;
   testID: string;
 }) {
   const colors = useThemeColors();
-  const Icon = requirement === "license" ? IdCard : requirement === "mp_account" ? Wallet : Receipt;
+  const Icon =
+    requirement === "license"
+      ? IdCard
+      : requirement === "mp_account"
+        ? Wallet
+        : requirement === "cash_debt_within_limit"
+          ? Banknote
+          : Receipt;
   const pill = PILL_CLASS[copy.state];
   return (
     <View testID={testID} className={`gap-3 p-4 ${isLast ? "" : "border-b border-border"}`}>
@@ -126,10 +164,10 @@ export function CarrierRequirementsChecklist({
 }: CarrierRequirementsChecklistProps) {
   const licenseMissing = missing.includes("license");
   const mpMissing = missing.includes("mp_account");
-  const debtMissing = missing.includes("no_overdue_debt");
-  const showDebt = debtMissing;
-  const TOTAL = showDebt ? 3 : 2;
-  const done = TOTAL - (licenseMissing ? 1 : 0) - (mpMissing ? 1 : 0) - (showDebt && debtMissing ? 1 : 0);
+  const debtRows = DEBT_ROWS.filter((row) => missing.includes(row.requirement));
+  // Licencia y MP siempre se dibujan (hechos o no); las deudas, solo las que faltan.
+  const TOTAL = 2 + debtRows.length;
+  const done = TOTAL - (licenseMissing ? 1 : 0) - (mpMissing ? 1 : 0) - debtRows.length;
 
   // Un requisito que el backend reporta faltante pero cuyo estado local dice "aprobado/vinculado"
   // (estado del cliente viejo) se muestra pendiente: el backend es la autoridad.
@@ -139,7 +177,7 @@ export function CarrierRequirementsChecklist({
   const mp = mpMissing ? mpRowCopy(mpStatus === "linked" ? "unlinked" : mpStatus) : mpRowCopy("linked");
 
   const pendingCount = TOTAL - done;
-  const intro = `${CONTEXT_INTRO[context]} ${pendingCount === 1 ? "te queda un solo paso." : `necesitás completar estos ${pendingCount === 2 ? "dos" : "tres"} pasos.`}`;
+  const intro = `${CONTEXT_INTRO[context]} ${pendingCount === 1 ? "te queda un solo paso." : `necesitás completar estos ${PENDING_COUNT_WORD[pendingCount] ?? pendingCount} pasos.`}`;
 
   return (
     <View testID={testID} className="gap-[14px]">
@@ -151,9 +189,13 @@ export function CarrierRequirementsChecklist({
       </View>
 
       <View className="h-[6px] flex-row gap-[6px]">
-        <View testID={`${testID}-seg-1`} className={`h-full flex-1 rounded-full ${done >= 1 ? "bg-lime-500" : "bg-bg-mute"}`} />
-        <View testID={`${testID}-seg-2`} className={`h-full flex-1 rounded-full ${done >= 2 ? "bg-lime-500" : "bg-bg-mute"}`} />
-        {showDebt ? <View testID={`${testID}-seg-3`} className={`h-full flex-1 rounded-full ${done >= 3 ? "bg-lime-500" : "bg-bg-mute"}`} /> : null}
+        {Array.from({ length: TOTAL }, (_, i) => (
+          <View
+            key={i}
+            testID={`${testID}-seg-${i + 1}`}
+            className={`h-full flex-1 rounded-full ${done >= i + 1 ? "bg-lime-500" : "bg-bg-mute"}`}
+          />
+        ))}
       </View>
 
       <Text className="font-sans text-[13.5px] leading-[19px] text-fg-2">{intro}</Text>
@@ -170,16 +212,19 @@ export function CarrierRequirementsChecklist({
           requirement="mp_account"
           copy={mp}
           onPressCta={onPressMp}
-          isLast={!showDebt}
+          isLast={debtRows.length === 0}
           testID={`${testID}-mp`}
         />
-        {showDebt ? <RequirementRow
-          requirement="no_overdue_debt"
-          copy={debtMissing ? { title: "Saldo pendiente vencido", state: "pending", pillLabel: "Pendiente", body: "Tenés una deuda vencida con Movo. Pagala para volver a ofertar y declarar viajes.", ctaLabel: "Pagar mi saldo" } : { title: "Saldo pendiente vencido", state: "done", pillLabel: "Listo", body: "No tenés deuda vencida.", ctaLabel: null }}
-          onPressCta={onPressDebt ?? (() => {})}
-          isLast
-          testID={`${testID}-debt`}
-        /> : null}
+        {debtRows.map((row, index) => (
+          <RequirementRow
+            key={row.requirement}
+            requirement={row.requirement}
+            copy={row.copy}
+            onPressCta={onPressDebt ?? (() => {})}
+            isLast={index === debtRows.length - 1}
+            testID={`${testID}-${row.testIDSuffix}`}
+          />
+        ))}
       </View>
 
       {onLater ? (

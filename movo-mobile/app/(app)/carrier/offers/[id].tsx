@@ -58,6 +58,8 @@ import {
   shortAddressLabel,
 } from "../../../../src/lib/shipment-format";
 import { formatTimeRange } from "../../../../src/lib/time-format";
+import { cashOfferBreakdown, isCashShipment } from "../../../../src/lib/payment-method";
+import { PaymentMethodBadge } from "../../../../components/shipments/payment-method-badge";
 import {
   formatSentAgo,
   formatViewedBySender,
@@ -65,6 +67,7 @@ import {
   offerStatusBannerCopy,
   offerStatusLabel,
   ordinalLabel,
+  offerReceivedArs,
   receivedAmountLabel,
 } from "../../../../src/lib/offer-format";
 
@@ -162,7 +165,10 @@ export default function OfferDetailScreen() {
 
   const draftAmount = parseInt(draftRaw || "0", 10) || 0;
   const draftNetArs = computeNetFromGross(draftAmount, commissionRate);
-  const draftReceivedArs = estimateReceivedArs(draftNetArs, draftAmount);
+  const draftCash = isCashShipment(offer?.shipment);
+  const draftReceivedArs = draftCash
+    ? cashOfferBreakdown(draftAmount, draftNetArs).inHandArs
+    : estimateReceivedArs(draftNetArs, draftAmount);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -297,8 +303,10 @@ export default function OfferDetailScreen() {
     offer.priceNetArs,
     offer.priceOffered,
   );
-  const receivedEstimateArs = Math.max(0, receivedBeforeDebtArs - (offer.debtDiscount?.amountArs ?? 0));
-  const receivedLabel = receivedAmountLabel(status);
+  // MOVO-37: en efectivo cobra el bruto en mano y la comisión le queda como deuda (sin fee de MP ni descuento).
+  const isCash = isCashShipment(shipment);
+  const receivedEstimateArs = offerReceivedArs(offer);
+  const receivedLabel = receivedAmountLabel(status, isCash);
 
   const rank = offer.competitiveRank;
 
@@ -470,6 +478,7 @@ export default function OfferDetailScreen() {
           </View>
         </View>
 
+        <PaymentMethodBadge paymentMethod={shipment.paymentMethod} testID="offer-detail-cash-badge" />
         {/* Card de dinero */}
         <View className="relative overflow-hidden rounded-[16px] bg-ink-950 px-5 py-5">
           <GridPattern color="#FFFFFF" opacity={0.06} />
@@ -488,7 +497,14 @@ export default function OfferDetailScreen() {
             </Text>
           </View>
           <View className="mt-3">
-            <DebtDiscount dark beforeArs={receivedBeforeDebtArs} amountArs={offer.debtDiscount?.amountArs} />
+            {isCash ? (
+              <Text testID="offer-detail-cash-note" className="font-sans text-[13px] leading-[19px] text-ink-300">
+                El emisor te paga en efectivo cuando te entrega el paquete. La comisión de Movo queda como saldo en
+                tu cuenta al entregar.
+              </Text>
+            ) : (
+              <DebtDiscount dark beforeArs={receivedBeforeDebtArs} amountArs={offer.debtDiscount?.amountArs} />
+            )}
           </View>
           <View className="mt-3.5 flex-row gap-2">
             <View className="flex-1 rounded-md border border-white/10 bg-white/[0.06] px-3 py-2.5">
@@ -565,8 +581,16 @@ export default function OfferDetailScreen() {
             </Text>
           </View>
           <PriceBreakdownCard
-            header={{ label: "El emisor paga", value: formatPriceArs(offer.priceOffered) }}
-            lines={[
+            header={{
+              label: isCash ? "El emisor te paga en efectivo" : "El emisor paga",
+              value: formatPriceArs(offer.priceOffered),
+            }}
+            lines={isCash ? [
+              {
+                label: `Comisión Movo (${commissionPctLabel}), queda como saldo en tu cuenta`,
+                value: formatPriceArs(offer.commissionAmountArs),
+              },
+            ] : [
               {
                 label: `Comisión Movo (${commissionPctLabel})`,
                 value: `− ${formatPriceArs(offer.commissionAmountArs)}`,
@@ -798,7 +822,7 @@ export default function OfferDetailScreen() {
                         </Text>
                       </View>
                       <Text className="mt-2 font-sans text-[12px] text-fg-3">
-                        recibís aprox. {formatPriceArs(draftReceivedArs)}
+                        {draftCash ? "cobrás en mano" : "recibís aprox."} {formatPriceArs(draftReceivedArs)}
                       </Text>
                     </View>
 

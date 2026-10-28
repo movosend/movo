@@ -5,9 +5,12 @@ import { estimateReceivedArs } from "../../src/lib/commission-config";
 import { DebtDiscount } from "../payments/debt-discount";
 import {
   formatOfferedAgo,
+  offerReceivedArs,
   offerStatusLabel,
   receivedAmountLabel,
 } from "../../src/lib/offer-format";
+import { isCashShipment } from "../../src/lib/payment-method";
+import { PaymentMethodBadge } from "../shipments/payment-method-badge";
 import {
   formatDetourKm,
   formatPickupDateLabel,
@@ -111,11 +114,12 @@ export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyO
         </View>
         <View className="items-end gap-0.5">
           <Text className="font-sans-semibold text-[17px] leading-[20px] tracking-[-0.02em] text-fg">
-            {formatPriceArs(Math.max(0, estimateReceivedArs(offer.priceNetArs, offer.priceOffered) - (offer.debtDiscount?.amountArs ?? 0)))}
+            {formatPriceArs(offerReceivedArs(offer))}
           </Text>
           <Text className="font-sans text-[10px] text-fg-3">
-            {receivedAmountLabel(offer.status).toLowerCase()}
+            {receivedAmountLabel(offer.status, isCashShipment(offer.shipment)).toLowerCase()}
           </Text>
+          <PaymentMethodBadge paymentMethod={offer.shipment.paymentMethod} testID={`${testID}-cash`} />
         </View>
       </View>
       <DebtDiscount beforeArs={estimateReceivedArs(offer.priceNetArs, offer.priceOffered)} amountArs={offer.debtDiscount?.amountArs} />

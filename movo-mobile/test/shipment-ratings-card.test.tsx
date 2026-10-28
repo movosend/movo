@@ -48,7 +48,7 @@ describe("ShipmentRatingsCard", () => {
     suggestedPriceArs: 10000,
     highDemand: null,
     agreedPriceArs: 9500,
-    paymentMethod: null,
+    paymentMethod: "card",
     status: ShipmentStatus.DELIVERED,
     lastStatusChangedAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
     deliveredAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),

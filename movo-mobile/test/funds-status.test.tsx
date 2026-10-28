@@ -37,7 +37,7 @@ function shipment(funding: ShipmentFundingView | null, status: ShipmentStatus): 
     suggestedPriceArs: 18000,
     highDemand: null,
     agreedPriceArs: 18400,
-    paymentMethod: null,
+    paymentMethod: "card",
     status,
     lastStatusChangedAt: null,
     deliveredAt: null,

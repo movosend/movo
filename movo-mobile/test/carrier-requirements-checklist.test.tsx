@@ -191,3 +191,47 @@ describe("CarrierRequirementsSheet (contenedor de bottom sheet)", () => {
     expect(onPressMp).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("CarrierRequirementsChecklist — tope de deuda para efectivo (MOVO-37)", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("con licencia y MP al día muestra solo el paso del tope, con su CTA a pagar el saldo", async () => {
+    const onPressDebt = jest.fn();
+    const { getByTestId, getByText, queryByTestId } = await render(
+      <CarrierRequirementsChecklist
+        {...base}
+        missing={["cash_debt_within_limit"]}
+        licenseStatus={KycStatus.APPROVED}
+        mpStatus="linked"
+        onPressDebt={onPressDebt}
+      />,
+    );
+
+    expect(getByTestId("cl-counter").props.children).toEqual([2, "/", 3]);
+    expect(getByText("Para ofertar en este envío te queda un solo paso.")).toBeTruthy();
+    expect(getByText("Saldo por encima del tope para efectivo")).toBeTruthy();
+    expect(queryByTestId("cl-debt")).toBeNull();
+    expect(getByTestId("cl-seg-3")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(getByTestId("cl-cash-debt-cta"));
+    });
+    expect(onPressDebt).toHaveBeenCalledTimes(1);
+  });
+
+  it("con deuda vencida y tope a la vez dibuja las dos filas de deuda", async () => {
+    const { getByTestId, getByText } = await render(
+      <CarrierRequirementsChecklist
+        {...base}
+        missing={["no_overdue_debt", "cash_debt_within_limit"]}
+        licenseStatus={KycStatus.APPROVED}
+        mpStatus="linked"
+      />,
+    );
+
+    expect(getByTestId("cl-counter").props.children).toEqual([2, "/", 4]);
+    expect(getByText("Para ofertar en este envío necesitás completar estos dos pasos.")).toBeTruthy();
+    expect(getByTestId("cl-debt")).toBeTruthy();
+    expect(getByTestId("cl-cash-debt")).toBeTruthy();
+  });
+});

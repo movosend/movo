@@ -56,6 +56,7 @@ import {
   shortAddressLabel,
 } from "../../../../src/lib/shipment-format";
 import { formatTimeRange } from "../../../../src/lib/time-format";
+import { cashOfferBreakdown, isCashShipment } from "../../../../src/lib/payment-method";
 import { SuspendedScreenGate } from "../../../../components/account/suspended-screen-gate";
 
 /** MOVO-177: el transportista puede proponer retirar hasta este número de días después
@@ -202,10 +203,12 @@ const SUCCESS_OVERLAY_DURATION_MS = 2400;
  * oferta"). */
 function OfferSuccessOverlay({
   receivedArs,
+  receivedLabel = "Recibís aprox.",
   title = "Oferta enviada",
   onDone,
 }: {
   receivedArs: number;
+  receivedLabel?: string;
   title?: string;
   onDone: () => void;
 }) {
@@ -264,7 +267,7 @@ function OfferSuccessOverlay({
           testID="create-offer-success-net"
           className="text-center font-sans text-body text-ink-950/70"
         >
-          Recibís aprox. {formatPriceArs(receivedArs)}
+          {receivedLabel} {formatPriceArs(receivedArs)}
         </Text>
       </Animated.View>
     </View>
@@ -494,13 +497,18 @@ function CreateOfferScreenContent() {
       ? rawAmountNumber
       : Math.round(amountMode === "net" ? netArs : grossArs);
 
+  // MOVO-37: en efectivo el emisor le paga el bruto en mano al retirar y la comisión de Movo le queda como deuda en
+  // la cuenta corriente al entregar. No pasa plata por MP (sin fee estimado) ni hay cobro del que descontar deuda.
+  const isCash = isCashShipment(shipment);
+  const cashBreakdown = cashOfferBreakdown(grossArs, netArs);
   const mpFeeEstimate = useMemo(() => estimateMpFeeArs(grossArs), [grossArs]);
-  const debtOffsetArs = useDebtPreview(grossArs);
-  const receivedBeforeDebtArs = estimateReceivedArs(netArs, grossArs);
+  const debtOffsetArs = useDebtPreview(isCash ? null : grossArs);
+  const receivedBeforeDebtArs = isCash ? cashBreakdown.inHandArs : estimateReceivedArs(netArs, grossArs);
   const receivedEstimateArs = useMemo(
     () => Math.max(0, receivedBeforeDebtArs - (debtOffsetArs ?? 0)),
     [receivedBeforeDebtArs, debtOffsetArs],
   );
+  const receivedLabel = isCash ? "Cobrás en mano" : "Recibís aprox.";
   const commissionPctLabel = `${Math.round(commissionRate * 100)}%`;
 
   // `shipment.suggestedPriceArs` es BRUTO (el mismo precio sugerido que vio el emisor
@@ -718,10 +726,12 @@ function CreateOfferScreenContent() {
   if (phase === "sent" && createdOffer) {
     return (
       <OfferSuccessOverlay
-        receivedArs={estimateReceivedArs(
-          createdOffer.priceNetArs,
-          createdOffer.priceOffered,
-        )}
+        receivedArs={
+          isCash
+            ? createdOffer.priceOffered
+            : estimateReceivedArs(createdOffer.priceNetArs, createdOffer.priceOffered)
+        }
+        receivedLabel={receivedLabel}
         title={isEditMode ? "Oferta actualizada" : "Oferta enviada"}
         // `dismissTo` y no `replace` (MOVO-271): este formulario siempre se abre empujado
         // desde el detalle al que vuelve (del envío al crear, de la oferta al editar), y
@@ -896,7 +906,7 @@ function CreateOfferScreenContent() {
                   <View className="mt-4 rounded-[12px] border border-border">
                     <View className="flex-row items-center justify-between px-4 pb-1 pt-3">
                       <Text className="font-sans text-small text-fg-2">
-                        Recibís aprox.{" "}
+                        {receivedLabel}{" "}
                         <Text className="font-sans-semibold text-fg">
                           {formatPriceArs(receivedEstimateArs)}
                         </Text>
@@ -929,7 +939,7 @@ function CreateOfferScreenContent() {
                 <View className="overflow-hidden rounded-[12px] border border-border">
                   <View className="flex-row items-center justify-between bg-bg-mute px-4 py-4">
                     <Text className="font-sans text-small text-fg-2">
-                      El emisor paga el envio
+                      {isCash ? "El emisor te paga en efectivo al retiro" : "El emisor paga el envio"}
                     </Text>
                     <Text
                       testID="create-offer-gross-preview"
@@ -939,6 +949,22 @@ function CreateOfferScreenContent() {
                     </Text>
                   </View>
                   <View className="h-px bg-border" />
+                  {isCash ? (
+                    <View testID="create-offer-cash-commission" className="gap-1.5 px-4 py-4">
+                      <View className="flex-row items-center justify-between">
+                        <Text className="font-sans text-small text-fg-3">
+                          Comisión de Movo ({commissionPctLabel})
+                        </Text>
+                        <Text className="font-sans text-small text-fg-3">
+                          {formatPriceArs(cashBreakdown.commissionArs)}
+                        </Text>
+                      </View>
+                      <Text className="font-sans text-[12.5px] leading-[18px] text-fg-3">
+                        No se descuenta del efectivo: queda como saldo en tu cuenta de Movo cuando entregás el
+                        paquete, y lo pagás desde "Pagar mi saldo".
+                      </Text>
+                    </View>
+                  ) : (
                   <View className="gap-3 px-4 py-4">
                     <View className="flex-row items-center justify-between">
                       <Text className="font-sans text-small text-fg-3">
@@ -957,9 +983,10 @@ function CreateOfferScreenContent() {
                       </Text>
                     </View>
                   </View>
+                  )}
                   <View className="flex-row items-center justify-between bg-lime-500 px-4 py-4">
                     <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-ink-950/60">
-                      Recibís aprox.
+                      {receivedLabel}
                     </Text>
                     <Text
                       testID="create-offer-received-preview"
@@ -1236,13 +1263,13 @@ function CreateOfferScreenContent() {
                 <Text
                   className={`font-sans-medium text-small ${canContinueToPickup ? "text-lime-500" : "text-fg-3"}`}
                 >
-                  Recibís aprox. {formatPriceArs(receivedEstimateArs)}
+                  {receivedLabel} {formatPriceArs(receivedEstimateArs)}
                 </Text>
               </Pressable>
             ) : (
               <View className="gap-2">
                 <Text className="text-center font-sans-medium text-small text-fg-2">
-                  Recibís aprox. {formatPriceArs(receivedEstimateArs)}
+                  {receivedLabel} {formatPriceArs(receivedEstimateArs)}
                 </Text>
                 <SlideToConfirm
                   key={slideKey}

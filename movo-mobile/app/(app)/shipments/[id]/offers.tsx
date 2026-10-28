@@ -31,6 +31,7 @@ import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { isFundingWindowOpen } from "../../../../src/lib/shipment-format";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
+import { isCashShipment } from "../../../../src/lib/payment-method";
 
 function OffersSkeleton() {
   return (
@@ -223,8 +224,10 @@ export default function ShipmentOffersScreen() {
   };
 
   // Fallback para una respuesta de accept sin `assignment`.
+  // MOVO-37: en efectivo la aceptación deja el envío `assigned` directo, sin pago que reservar.
+  const isCash = isCashShipment(shipment);
   const payNowFor = (offer: OfferSummary | null): boolean | null => {
-    if (!offer || !shipment) return null;
+    if (!offer || !shipment || isCash) return null;
     return isFundingWindowOpen({
       pickupDate: offer.offeredDate.slice(0, 10),
       pickupTimeWindowStart: offer.offeredPickupTimeWindowStart ?? shipment.pickupTimeWindowStart,
@@ -393,6 +396,7 @@ export default function ShipmentOffersScreen() {
         isPending={acceptMutation.isPending}
         errorMessage={acceptErrorMessage}
         payNow={payNowFor(offerToAccept)}
+        cash={isCash}
         onConfirm={handleConfirmAccept}
         onClosed={() => {
           if (!showSuccessOnCloseRef.current) return;
@@ -413,6 +417,7 @@ export default function ShipmentOffersScreen() {
         visible={isSuccessModalVisible}
         carrierName={acceptedOfferCarrierName}
           payNow={acceptedPayNow}
+        cash={isCash}
         onDismiss={handleSuccessDismiss}
         assignment={acceptedOutcome?.assignment}
         amountArs={acceptedOutcome?.amountArs}

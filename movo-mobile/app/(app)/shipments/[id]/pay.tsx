@@ -12,6 +12,7 @@ import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import { usePublicProfile } from "../../../../src/hooks/use-profile";
 import { useSavedCards } from "../../../../src/hooks/use-saved-cards";
 import { useShipment } from "../../../../src/hooks/use-shipments";
+import { isCashShipment } from "../../../../src/lib/payment-method";
 import { usePayShipment, useShipmentFunding } from "../../../../src/hooks/use-shipment-funding";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { activeShipmentDisplayCode } from "../../../../src/lib/active-shipment-format";
@@ -107,6 +108,12 @@ export default function PayShipmentScreen() {
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
   }, []);
+
+  // MOVO-37: un envío en efectivo no tiene reserva que pagar (un deep-link o una pantalla vieja puede traer acá).
+  const isCash = isCashShipment(demo ? null : realShipment.data);
+  useEffect(() => {
+    if (isCash) router.replace(`/(app)/shipments/${id}` as never);
+  }, [isCash, id]);
 
   const pay = usePayShipment({
     onSettled: (outcome) => handleOutcome(outcome),
