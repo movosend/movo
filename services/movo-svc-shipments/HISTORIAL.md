@@ -3902,3 +3902,21 @@ adjuntos del agente) sobre `repositories/support-admin-repository.ts`, con regla
   replay sin publicar. Un solo feed y un solo servicio de adjuntos compartidos entre `/support` y el lado del agente.
 - Reabrir pone `last_user_message_at` en `now`: es la referencia de `waitMinutes` y del orden de la bandeja.
 - Pendiente: el WebSocket del panel con ticket (segunda PR de MOVO-322, en `svc-admin`).
+
+### MOVO-37 — Envíos pagados en efectivo (partes B y P; mobile en otro PR)
+
+`paymentMethod` (`card`/`cash`, enum `PaymentMethod` de `@movo/shared`) pasa de texto libre sin uso a enum obligatorio
+(migración `20261027200000_shipment_payment_method`); se elige en `POST /shipments` y cambia con
+`PUT /shipments/:id/payment-method` solo mientras no haya ofertas (compare-and-swap, `409 SHIPMENT_PAYMENT_METHOD_LOCKED`).
+Viaja en el feed, el detalle, los activos, los matches y `/offers/mine`. Gates en `utils/cash-payment-gate.ts`: emisor con saldo
+deudor no crea en efectivo (`403 CASH_PAYMENT_SENDER_HAS_DEBT`) y transportista por encima de `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS`
+no oferta ni edita (`403 CASH_DEBT_LIMIT_EXCEEDED`).
+- Aceptar en efectivo va `published → assigned` (arista nueva) en `offer-repository.ts#acceptOffer`, y cierra las demás `pending`
+  en la misma transacción (`updateManyAndReturn`, así solo se avisa a las que realmente se cerraron).
+- Al aceptar, el tope da `409 OFFER_CARRIER_NOT_ELIGIBLE` sin `details` y no el 403 del ticket: quien acepta es el emisor, que
+  no puede resolverlo ni tiene por qué ver la deuda del otro (mismo criterio que MOVO-116).
+- Entrega: `captureAndComplete` bifurca a `completeCashShipment` (comisión en payments → `completed` → push
+  `cashCommissionRegisteredCarrier`); el barrido de liquidaciones lo reintenta igual. Penalidad del emisor:
+  `settleCashPenalty` (deuda + compensación en una llamada, `cancellationPenaltyStatus: debt`).
+- En efectivo no se llama a holds (cancelación, baja, no-retiro), `viewFor` del funding devuelve `null` y no hay `debtDiscount`.
+- Pendiente: mobile (parte M); `GET /shipments/:id/settlement` sigue en 404 para efectivo; disputas sobre efectivo (MOVO-34).

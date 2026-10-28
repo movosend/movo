@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ApiError, OfferStatus, ShipmentStatus, UserRole } from "@movo/shared";
+import { ApiError, OfferStatus, PaymentMethod, ShipmentStatus, UserRole } from "@movo/shared";
 import { createShipmentsService, CreateShipmentServiceInput } from "../src/modules/shipments/shipments.service";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { OfferRepository } from "../src/repositories/offer-repository";
@@ -62,7 +62,7 @@ function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
     calculationMethod: "euclidean_linear_v1",
     highDemand: null,
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: PaymentMethod.CARD,
     status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
     lastStatusChangedAt: null,
     deliveredAt: null,

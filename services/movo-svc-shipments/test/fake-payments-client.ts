@@ -13,6 +13,8 @@ import {
   LIVE_HOLD_STATUSES,
   SettlementResponse,
   UserLedgerEntry,
+  cashPenaltyCompensationArs,
+  decomposeOfferGrossPrice,
   estimateMpFeeArs,
 } from "@movo/shared";
 import { PaymentsClient, UserDebtStatus } from "../src/adapters/payments-client";
@@ -51,7 +53,8 @@ export interface FakePaymentsBehavior {
   pendingDebtByUserId: Map<string, number>;
   /** MOVO-311: si es true, `previewCarrierDebt` devuelve `null` (payments caído). */
   previewFails: boolean;
-  /** MOVO-307: si no es null, `createLedgerEntry` lanza este error (payments caído). */
+  /** MOVO-307: si no es null, `createLedgerEntry` lanza este error (payments caído). MOVO-37: también los
+   * registros de envíos en efectivo. */
   ledgerError: ApiError | null;
 }
 
@@ -113,7 +116,13 @@ export function createFakePaymentsClient(
           oldestUnpaidAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
         };
       }
-      return { overdue: false, balanceArs: 0, oldestUnpaidAt: null };
+      // MOVO-37: la deuda pendiente (no vencida) también cuenta para el saldo: la miran los gates de efectivo.
+      const pending = behavior.pendingDebtByUserId.get(userId) ?? 0;
+      return {
+        overdue: false,
+        balanceArs: pending,
+        oldestUnpaidAt: pending > 0 ? new Date().toISOString() : null,
+      };
     }),
 
     previewCarrierDebt: vi.fn(async (userId: string, amountsArs: number[]) => {
@@ -304,6 +313,46 @@ export function createFakePaymentsClient(
       };
       ledgerEntries.set(entry.idempotencyKey, created);
       return { entry: created, created: true };
+    }),
+
+    // MOVO-37: idempotentes por envío (las keys son las de svc-payments), mismo cálculo que el real.
+    registerCashCommission: vi.fn(async (shipmentId: string, input) => {
+      if (behavior.ledgerError) throw behavior.ledgerError;
+      const commissionArs = decomposeOfferGrossPrice(input.agreedPriceArs).commissionAmountArs;
+      const { entry, created } = await client.createLedgerEntry(input.carrierId, {
+        idempotencyKey: `cash_commission:${shipmentId}`,
+        type: "cash_commission",
+        roleAtOrigin: "carrier",
+        amountArs: commissionArs,
+        shipmentId,
+      });
+      return { commissionArs, entry, created };
+    }),
+
+    registerCashCancellationPenalty: vi.fn(async (shipmentId: string, input) => {
+      if (behavior.ledgerError) throw behavior.ledgerError;
+      const { entry: penaltyEntry, created } = await client.createLedgerEntry(input.senderId, {
+        idempotencyKey: `penalty:${shipmentId}`,
+        type: "cancellation_penalty",
+        roleAtOrigin: "sender",
+        amountArs: input.penaltyArs,
+        shipmentId,
+      });
+      const compensationArs = cashPenaltyCompensationArs(input.agreedPriceArs, input.penaltyArs);
+      const compensationEntry =
+        compensationArs > 0
+          ? (
+              await client.createLedgerEntry(input.carrierId, {
+                idempotencyKey: `penalty_compensation:${shipmentId}`,
+                type: "cancellation_compensation",
+                roleAtOrigin: "carrier",
+                amountArs: -compensationArs,
+                status: "settled",
+                shipmentId,
+              })
+            ).entry
+          : null;
+      return { penaltyEntry, compensationEntry, compensationArs, created };
     }),
   };
 

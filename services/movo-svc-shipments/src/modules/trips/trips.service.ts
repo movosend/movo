@@ -4,6 +4,7 @@ import {
   ApiError,
   MAX_ACTIVE_RECURRING_SERIES,
   ShipmentStatus,
+  PaymentMethod,
   UserRole,
   canStartTripOn,
   tripStartAvailableOn,
@@ -706,7 +707,10 @@ export function createTripsService(deps: {
         limit,
       });
 
-      const priced = items.filter((item) => item.suggestedPriceArs != null && item.suggestedPriceArs > 0);
+      // MOVO-37: un envío en efectivo no tiene descuento por deuda (no hay cobro del que descontarla).
+      const priced = items.filter(
+        (item) => item.suggestedPriceArs != null && item.suggestedPriceArs > 0 && item.paymentMethod !== PaymentMethod.CASH
+      );
       const [offeredIds, preview] = await Promise.all([
         offerRepository.listPendingOfferedShipmentIds(trip.carrierId, items.map((item) => item.id)),
         previewDebtDiscounts(paymentsClient, trip.carrierId, priced.map((item) => item.suggestedPriceArs!)),

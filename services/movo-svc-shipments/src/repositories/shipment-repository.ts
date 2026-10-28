@@ -1,5 +1,5 @@
 import { TRIP_PICKUP_WINDOW_LEAD_HOURS } from "../domain/trip-compatibility";
-import { DisputeReason, DisputeStatus, OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import { DisputeReason, DisputeStatus, OfferStatus, PaymentMethod, ShipmentStatus, TripStatus } from "@movo/shared";
 import type { PickupMissedAttribution, ShipmentParties } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
@@ -100,7 +100,7 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     calculationMethod: row.calculationMethod,
     highDemand: row.highDemand,
     agreedPriceArs: row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null,
-    paymentMethod: row.paymentMethod,
+    paymentMethod: row.paymentMethod === "cash" ? PaymentMethod.CASH : PaymentMethod.CARD,
     status: parseShipmentStatus(row.status, "status"),
     carrierWithdrawalPending: row.carrierWithdrawalPending,
     carrierWithdrawalPenaltyArs: row.carrierWithdrawalPenaltyArs?.toNumber() ?? null,
@@ -378,6 +378,7 @@ interface AvailableShipmentRow {
   suggested_price_ars: string | null;
   calculation_method: string | null;
   status: string;
+  payment_method: string;
   created_at: Date;
   pickup_distance_km: string;
   delivery_distance_km: string | null;
@@ -407,6 +408,7 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
     suggestedPriceArs: row.suggested_price_ars !== null ? Number(row.suggested_price_ars) : null,
     calculationMethod: row.calculation_method,
     status: parseShipmentStatus(row.status, "status"),
+    paymentMethod: row.payment_method === "cash" ? PaymentMethod.CASH : PaymentMethod.CARD,
     createdAt: row.created_at,
     pickupDistanceKm: Number(row.pickup_distance_km),
     deliveryDistanceKm: row.delivery_distance_km !== null ? Number(row.delivery_distance_km) : null,
@@ -549,6 +551,16 @@ export interface ShipmentRepository {
   releaseCarrierWithdrawalClaim(id: string, carrierId: string): Promise<void>;
   listPendingCarrierWithdrawals(limit: number, afterId?: string): Promise<Shipment[]>;
   create(input: CreateShipmentInput): Promise<Shipment>;
+  /**
+   * MOVO-37: cambia la modalidad de pago si el envío es de `senderId`, está en uno de `allowedStatuses` y no recibió
+   * ninguna oferta (en ningún estado). Compare-and-swap en un solo UPDATE: `null` si alguna condición ya no se cumple.
+   */
+  updatePaymentMethod(
+    id: string,
+    senderId: string,
+    paymentMethod: PaymentMethod,
+    allowedStatuses: readonly ShipmentStatus[]
+  ): Promise<Shipment | null>;
   /**
    * MOVO-325: guarda el nombre visible de cada usuario (el último conocido) para listar y buscar
    * envíos en el panel sin depender de svc-users. Nombres vacíos se ignoran; una fila por usuario.
@@ -1000,6 +1012,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return rows.map(mapShipment);
     },
 
+    async updatePaymentMethod(id, senderId, paymentMethod, allowedStatuses) {
+      const { count } = await db.shipment.updateMany({
+        where: { id, senderId, status: { in: [...allowedStatuses] }, offers: { none: {} } },
+        data: { paymentMethod },
+      });
+      return count === 0 ? null : this.findById(id);
+    },
+
     async create(input: CreateShipmentInput): Promise<Shipment> {
       const row = await db.$transaction(async (tx) => {
         const created = await tx.shipment.create({
@@ -1028,6 +1048,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             suggestedPriceArs: input.suggestedPriceArs,
             calculationMethod: input.calculationMethod,
             highDemand: input.highDemand,
+            paymentMethod: input.paymentMethod ?? PaymentMethod.CARD,
             receiverConfirmationDeadline: input.receiverConfirmationDeadline ?? null,
             status: INITIAL_SHIPMENT_STATUS,
             lastStatusChangedAt: new Date(),
@@ -1680,7 +1701,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
               urgent, pickup_address, pickup_lat, pickup_lng, delivery_address,
               delivery_lat, delivery_lng, pickup_date, pickup_time_window_start,
               pickup_time_window_end, suggested_price_ars, calculation_method, status,
-              created_at,
+              payment_method::text AS payment_method, created_at,
               ${pickupDistance} AS pickup_distance_km,
               ${deliveryDistance} AS delivery_distance_km,
               ${shipmentDistance} AS shipment_distance_km

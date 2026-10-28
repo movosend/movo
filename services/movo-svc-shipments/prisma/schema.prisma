@@ -157,6 +157,15 @@ enum PickupMissedAttribution {
 // deliveredAt/lastStatusChangedAt no estaban en el AC literal pero sí en el
 // DER — se agregan ahora para no migrar de nuevo pronto cuando lleguen las
 // US de asignación (MOVO-79 EP-03) y pagos (EP-05).
+// MOVO-37: alineado 1:1 con `PaymentMethod` de @movo/shared.
+enum PaymentMethod {
+  card
+  cash
+
+  @@map("payment_method")
+  @@schema("shipments")
+}
+
 model Shipment {
   id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   // Referencias lógicas a users.users, sin FK real (AC5, ADR-003).
@@ -164,18 +173,18 @@ model Shipment {
   receiverId String  @map("receiver_id") @db.Uuid
   carrierId  String? @map("carrier_id") @db.Uuid
 
-  packageType PackageType @map("package_type")
-  weightKg    Decimal     @map("weight_kg") @db.Decimal
-  lengthCm    Decimal     @map("length_cm") @db.Decimal
-  widthCm     Decimal     @map("width_cm") @db.Decimal
-  heightCm    Decimal     @map("height_cm") @db.Decimal
+  packageType      PackageType @map("package_type")
+  weightKg         Decimal     @map("weight_kg") @db.Decimal
+  lengthCm         Decimal     @map("length_cm") @db.Decimal
+  widthCm          Decimal     @map("width_cm") @db.Decimal
+  heightCm         Decimal     @map("height_cm") @db.Decimal
   // MOVO-317: el emisor eligió "Más de 300 cm" en alguno de los lados. Las medidas guardan el tope (300);
   // el flag dice que el paquete real es más grande que eso.
-  oversized   Boolean     @default(false)
+  oversized        Boolean     @default(false)
   // DD-055: un admin lo pasó a `assigned` sin hold real; payments no se consulta para este envío (nunca se cobra).
-  paymentSimulated Boolean @default(false) @map("payment_simulated")
-  description String?
-  urgent      Boolean     @default(false)
+  paymentSimulated Boolean     @default(false) @map("payment_simulated")
+  description      String?
+  urgent           Boolean     @default(false)
 
   pickupAddress String  @map("pickup_address")
   pickupLat     Decimal @map("pickup_lat") @db.Decimal(9, 6)
@@ -189,9 +198,9 @@ model Shipment {
   deliveryLng     Decimal @map("delivery_lng") @db.Decimal(9, 6)
   deliveryCity    String? @map("delivery_city")
 
-  pickupDate            DateTime @map("pickup_date") @db.Date
-  pickupTimeWindowStart DateTime @map("pickup_time_window_start") @db.Time
-  pickupTimeWindowEnd   DateTime @map("pickup_time_window_end") @db.Time
+  pickupDate                    DateTime  @map("pickup_date") @db.Date
+  pickupTimeWindowStart         DateTime  @map("pickup_time_window_start") @db.Time
+  pickupTimeWindowEnd           DateTime  @map("pickup_time_window_end") @db.Time
   // MOVO-258 (D3): ventana que pidió el emisor, guardada por `acceptOffer` antes de pisar
   // `pickupDate`/`pickupTimeWindow*` con la acordada. NULL mientras no haya una oferta
   // aceptada; al volver a `published` (hold fallido, MOVO-210) se restaura y se limpia.
@@ -201,18 +210,18 @@ model Shipment {
 
   // MOVO-82: nullable = "precio a estimar" (AC6), cuando movo-svc-pricing-logistics no
   // respondió o faltaban datos al crear el envío. Nunca se recalcula (AC8).
-  suggestedPriceArs Decimal? @map("suggested_price_ars") @db.Decimal
+  suggestedPriceArs Decimal?      @map("suggested_price_ars") @db.Decimal
   // Versión del algoritmo que produjo suggestedPriceArs (PriceCalculationMethod de
   // @movo/shared, ej. "euclidean_linear_v1") -- null junto con un precio nulo.
-  calculationMethod String?  @map("calculation_method")
+  calculationMethod String?       @map("calculation_method")
   // MOVO-138 (ADR-021): true si la cotización llevó recargo por alta demanda. Misma
   // foto que suggestedPriceArs, nunca se recalcula. null = sin cotización o envío
   // anterior a demand_fuel_routes_v1 -- no equivale a false (el badge solo con true).
-  highDemand        Boolean? @map("high_demand")
-  agreedPriceArs    Decimal? @map("agreed_price_ars") @db.Decimal
-  // DER: "tipado como enum en el Miro pero sin valores definidos" — se deja
-  // texto libre a propósito, no se inventan valores que nadie definió.
-  paymentMethod     String?  @map("payment_method")
+  highDemand        Boolean?      @map("high_demand")
+  agreedPriceArs    Decimal?      @map("agreed_price_ars") @db.Decimal
+  // MOVO-37: modalidad de pago elegida al crear el envío (`PaymentMethod` de @movo/shared). Con `cash` no hay
+  // hold ni saga: al aceptar una oferta pasa directo a `assigned`. Solo cambia mientras no haya ofertas.
+  paymentMethod     PaymentMethod @default(card) @map("payment_method")
 
   // MOVO-180: entrega estimada (día + franja horaria) de la oferta ganadora,
   // copiada acá al aceptarla (offer-repository.ts#acceptOffer) -- mismo criterio que
@@ -222,36 +231,36 @@ model Shipment {
   estimatedDeliveryTimeWindowStart String?   @map("estimated_delivery_time_window_start") @db.VarChar(8)
   estimatedDeliveryTimeWindowEnd   String?   @map("estimated_delivery_time_window_end") @db.VarChar(8)
 
-  status                       ShipmentStatus @default(awaiting_receiver_confirmation)
+  status                        ShipmentStatus             @default(awaiting_receiver_confirmation)
   // Bloquea las transiciones mientras se libera el hold de la asignación que se retira.
-  carrierWithdrawalPending     Boolean        @default(false) @map("carrier_withdrawal_pending")
-  carrierWithdrawalPenaltyArs  Decimal?       @map("carrier_withdrawal_penalty_ars") @db.Decimal(12, 2)
-  lastStatusChangedAt          DateTime?      @map("last_status_changed_at") @db.Timestamptz
-  deliveredAt                  DateTime?      @map("delivered_at") @db.Timestamptz
+  carrierWithdrawalPending      Boolean                    @default(false) @map("carrier_withdrawal_pending")
+  carrierWithdrawalPenaltyArs   Decimal?                   @map("carrier_withdrawal_penalty_ars") @db.Decimal(12, 2)
+  lastStatusChangedAt           DateTime?                  @map("last_status_changed_at") @db.Timestamptz
+  deliveredAt                   DateTime?                  @map("delivered_at") @db.Timestamptz
   // MOVO-130 AC1: deadline de confirmación del receptor (createdAt + RECEIVER_CONFIRMATION_TIMEOUT_HOURS).
   // Nullable para envíos preexistentes sin backfill.
-  receiverConfirmationDeadline DateTime?      @map("receiver_confirmation_deadline") @db.Timestamptz
+  receiverConfirmationDeadline  DateTime?                  @map("receiver_confirmation_deadline") @db.Timestamptz
   // MOVO-253: plazo del emisor para elegir otro receptor tras un rechazo, seteado al
   // pasar a rejected_by_receiver. NULL en rechazos anteriores a este cambio: el barrido
   // los trata como vencidos y los cancela en su primera corrida.
-  receiverRedesignationDeadline DateTime?     @map("receiver_redesignation_deadline") @db.Timestamptz
+  receiverRedesignationDeadline DateTime?                  @map("receiver_redesignation_deadline") @db.Timestamptz
   // MOVO-258 (D4): instante en que el barrido de `in_transit` anómalo marcó el envío
   // para revisión (no lo cancela). NULL = nunca marcado; solo se escribe una vez.
-  transitAnomalyFlaggedAt DateTime? @map("transit_anomaly_flagged_at") @db.Timestamptz
+  transitAnomalyFlaggedAt       DateTime?                  @map("transit_anomaly_flagged_at") @db.Timestamptz
   // MOVO-278 (DD-045): instante en que se le avisó al transportista que el envío marcado
   // pasa a disputa si no confirma la entrega. NULL = nunca avisado; solo se escribe una vez.
-  transitAnomalyWarnedAt DateTime? @map("transit_anomaly_warned_at") @db.Timestamptz
+  transitAnomalyWarnedAt        DateTime?                  @map("transit_anomaly_warned_at") @db.Timestamptz
   // MOVO-26: cuándo empezó la última asignación (`acceptOffer`). El chat no muestra mensajes anteriores a este
   // instante (salvo al admin): cada transportista nuevo arranca una conversación limpia. NULL = sin corte.
-  chatStartedAt DateTime? @map("chat_started_at") @db.Timestamptz
+  chatStartedAt                 DateTime?                  @map("chat_started_at") @db.Timestamptz
   // MOVO-275 (DD-038): instante en que el transportista generó por primera vez el QR de
   // entrega. Marca durable: el QR vence a los 15 s pero la entrega ya empezó y desde
   // entonces no se puede pedir ni aceptar un cambio de receptor.
-  deliveryHandshakeStartedAt DateTime? @map("delivery_handshake_started_at") @db.Timestamptz
+  deliveryHandshakeStartedAt    DateTime?                  @map("delivery_handshake_started_at") @db.Timestamptz
   // MOVO-307 (DD-047): penalidad que el emisor confirmó al cancelar un `assigned` con menos de
   // 12 h, y qué pasó con ella. Ambas NULL en una cancelación sin cargo.
-  cancellationPenaltyArs    Decimal?                   @map("cancellation_penalty_ars") @db.Decimal(12, 2)
-  cancellationPenaltyStatus CancellationPenaltyStatus? @map("cancellation_penalty_status")
+  cancellationPenaltyArs        Decimal?                   @map("cancellation_penalty_ars") @db.Decimal(12, 2)
+  cancellationPenaltyStatus     CancellationPenaltyStatus? @map("cancellation_penalty_status")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   // Mantenida por trigger de Postgres (shipments.update_updated_at_column()),
@@ -259,19 +268,19 @@ model Shipment {
   // pise en cada write, redundante con el trigger pero consistente.
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  events           ShipmentEvent[]
-  photos           ShipmentPhoto[]
-  offers           Offer[]
-  ratings          Rating[]
-  handshakeEvents  HandshakeEvent[]
-  carrierPositions CarrierPosition[]
-  pickupEvidence   PickupEvidence?
-  receiverTransfers ReceiverTransferRequest[]
-  chatMessages      ChatMessage[]
-  chatStates        ChatParticipantState[]
-  chatReports       ChatReport[]
+  events               ShipmentEvent[]
+  photos               ShipmentPhoto[]
+  offers               Offer[]
+  ratings              Rating[]
+  handshakeEvents      HandshakeEvent[]
+  carrierPositions     CarrierPosition[]
+  pickupEvidence       PickupEvidence?
+  receiverTransfers    ReceiverTransferRequest[]
+  chatMessages         ChatMessage[]
+  chatStates           ChatParticipantState[]
+  chatReports          ChatReport[]
   supportConversations SupportConversation[]
-  disputes          Dispute[]
+  disputes             Dispute[]
 
   @@index([senderId], map: "shipments_sender_id_idx")
   @@index([receiverId], map: "shipments_receiver_id_idx")
@@ -297,27 +306,27 @@ model Shipment {
 // MOVO-104 AC3: historial append-only de transiciones — nunca se actualiza
 // ni se borra una fila ya insertada.
 model ShipmentEvent {
-  id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  shipmentId String          @map("shipment_id") @db.Uuid
+  id                  String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId          String                   @map("shipment_id") @db.Uuid
   // NULL solo en el evento de creación (no hay "from" antes del primer
   // estado).
-  fromStatus ShipmentStatus? @map("from_status")
-  toStatus   ShipmentStatus  @map("to_status")
+  fromStatus          ShipmentStatus?          @map("from_status")
+  toStatus            ShipmentStatus           @map("to_status")
   // Referencia lógica (sender/receiver/carrier/admin), sin FK — nullable
   // porque una transición futura disparada por el sistema (ej. timeout) puede
   // no tener actor humano.
-  actorId    String?         @map("actor_id") @db.Uuid
+  actorId             String?                  @map("actor_id") @db.Uuid
   // Transportista cuya asignación terminó al volver a published por falta de pago.
-  assignmentCarrierId String? @map("assignment_carrier_id") @db.Uuid
-  reason     String?
+  assignmentCarrierId String?                  @map("assignment_carrier_id") @db.Uuid
+  reason              String?
   // MOVO-270: solo en la cancelación del barrido de retiro no realizado. `carrier` habilita que
   // el emisor califique al transportista (MOVO-337); NULL en cualquier otra transición.
-  attribution PickupMissedAttribution?
+  attribution         PickupMissedAttribution?
   // MOVO-331: cambio hecho desde el panel. `actorName` es el snapshot del nombre del admin (el
   // evento es inmutable aunque la cuenta cambie); `actorId` sigue siendo el id del admin.
-  kind       ShipmentEventKind @default(normal)
-  actorName  String?         @map("actor_name")
-  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  kind                ShipmentEventKind        @default(normal)
+  actorName           String?                  @map("actor_name")
+  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
@@ -531,8 +540,8 @@ model CarrierPosition {
   // MOVO-251: asociar al viaje (Trip) para agrupar y controlar cadencia por viaje (VRPTW).
   tripId     String @map("trip_id") @db.Uuid
 
-  lat Decimal @db.Decimal(9, 6)
-  lng Decimal @db.Decimal(9, 6)
+  lat       Decimal @db.Decimal(9, 6)
+  lng       Decimal @db.Decimal(9, 6)
   // Precisión reportada por el dispositivo (metros) -- mismo formato que
   // `HandshakeEvent.distanceM`.
   accuracyM Decimal @map("accuracy_m") @db.Decimal(8, 2)
@@ -645,9 +654,9 @@ model Trip {
 // exposición del proyecto. Sin FK a usuarios: los visitantes no tienen cuenta.
 // `id` lo genera el cliente (UUID) para que el reenvío de la cola offline sea idempotente.
 model PricingGameSession {
-  id         String  @id @db.Uuid
-  eventTag   String  @map("event_tag") @db.VarChar(64)
-  deviceId   String? @map("device_id") @db.VarChar(64)
+  id       String  @id @db.Uuid
+  eventTag String  @map("event_tag") @db.VarChar(64)
+  deviceId String? @map("device_id") @db.VarChar(64)
 
   startedAt   DateTime @map("started_at") @db.Timestamptz
   endedAt     DateTime @map("ended_at") @db.Timestamptz
@@ -655,10 +664,10 @@ model PricingGameSession {
   completed   Boolean
   lastScreen  String   @map("last_screen") @db.VarChar(32)
 
-  originName        String?  @map("origin_name") @db.VarChar(120)
-  originProvince    String?  @map("origin_province") @db.VarChar(120)
-  originLat         Decimal? @map("origin_lat") @db.Decimal(9, 6)
-  originLng         Decimal? @map("origin_lng") @db.Decimal(9, 6)
+  originName          String?  @map("origin_name") @db.VarChar(120)
+  originProvince      String?  @map("origin_province") @db.VarChar(120)
+  originLat           Decimal? @map("origin_lat") @db.Decimal(9, 6)
+  originLng           Decimal? @map("origin_lng") @db.Decimal(9, 6)
   destinationName     String?  @map("destination_name") @db.VarChar(120)
   destinationProvince String?  @map("destination_province") @db.VarChar(120)
   destinationLat      Decimal? @map("destination_lat") @db.Decimal(9, 6)
@@ -695,8 +704,8 @@ model PricingGameSession {
 
   uberEstimateArs Decimal? @map("uber_estimate_ars") @db.Decimal(12, 2)
   // Solo con consentimiento explícito (sorteo); nunca se expone en `stats`.
-  email     String? @db.VarChar(254)
-  userAgent String? @map("user_agent") @db.VarChar(512)
+  email           String?  @db.VarChar(254)
+  userAgent       String?  @map("user_agent") @db.VarChar(512)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -711,19 +720,19 @@ model PricingGameSession {
 // OR-Tools resolvió el óptimo; `computedBy: client` = partida jugada sin red, con los
 // números que calculó el iPad.
 model RouteGameSession {
-  id         String  @id @db.Uuid
-  eventTag   String  @map("event_tag") @db.VarChar(64)
-  deviceId   String? @map("device_id") @db.VarChar(64)
-  startedAt  DateTime @map("started_at") @db.Timestamptz
-  endedAt    DateTime @map("ended_at") @db.Timestamptz
+  id        String   @id @db.Uuid
+  eventTag  String   @map("event_tag") @db.VarChar(64)
+  deviceId  String?  @map("device_id") @db.VarChar(64)
+  startedAt DateTime @map("started_at") @db.Timestamptz
+  endedAt   DateTime @map("ended_at") @db.Timestamptz
 
-  scenarioId String @map("scenario_id") @db.VarChar(16)
-  city       String @db.VarChar(64)
+  scenarioId   String @map("scenario_id") @db.VarChar(16)
+  city         String @db.VarChar(64)
   // `{ start, stops[], end }` con nombre, barrio y coordenadas.
   points       Json
-  stopCount    Int  @map("stop_count")
-  userOrder    Json @map("user_order")
-  optimalOrder Json @map("optimal_order")
+  stopCount    Int    @map("stop_count")
+  userOrder    Json   @map("user_order")
+  optimalOrder Json   @map("optimal_order")
 
   userKm        Decimal @map("user_km") @db.Decimal(8, 2)
   optimalKm     Decimal @map("optimal_km") @db.Decimal(8, 2)
@@ -741,13 +750,13 @@ model RouteGameSession {
   computedBy     String  @map("computed_by") @db.VarChar(8)
 
   // Ranking del día: el nombre se muestra en el stand; `inRanking` lo apaga el reset.
-  name      String? @db.VarChar(18)
-  inRanking Boolean @default(false) @map("in_ranking")
+  name            String?   @db.VarChar(18)
+  inRanking       Boolean   @default(false) @map("in_ranking")
   // Cuándo la sacó el reset: un reenvío posterior no la vuelve a meter al ranking.
   rankingHiddenAt DateTime? @map("ranking_hidden_at") @db.Timestamptz
   // Solo con consentimiento explícito (sorteo + newsletter).
-  email     String? @db.VarChar(254)
-  userAgent String? @map("user_agent") @db.VarChar(512)
+  email           String?   @db.VarChar(254)
+  userAgent       String?   @map("user_agent") @db.VarChar(512)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -772,11 +781,11 @@ enum ReceiverTransferStatus {
 }
 
 model ReceiverTransferRequest {
-  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  shipmentId String @map("shipment_id") @db.Uuid
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId      String  @map("shipment_id") @db.Uuid
   // Referencias lógicas a users.users, sin FK real (ADR-003).
-  requestedBy   String @map("requested_by") @db.Uuid
-  newReceiverId String @map("new_receiver_id") @db.Uuid
+  requestedBy     String  @map("requested_by") @db.Uuid
+  newReceiverId   String  @map("new_receiver_id") @db.Uuid
   // Snapshots de nombre al pedirla (mismo criterio que carrierNameAtOffer): la línea de
   // tiempo y el banner del receptor original no dependen de svc-users al leer.
   requesterName   String? @map("requester_name")
@@ -809,11 +818,11 @@ model ReceiverTransferRequest {
 // MOVO-26 (ADR-023): mensajes del chat de un envío. Solo se agregan, nunca se editan ni se
 // borran: el historial es evidencia para una disputa (visible para el admin).
 model ChatMessage {
-  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  shipmentId String @map("shipment_id") @db.Uuid
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId      String   @map("shipment_id") @db.Uuid
   // Referencia lógica a users.users, sin FK real (ADR-003).
-  authorId   String @map("author_id") @db.Uuid
-  body       String
+  authorId        String   @map("author_id") @db.Uuid
+  body            String
   // Lo genera el cliente: reenviar el mismo mensaje (cola offline, reintento) no lo duplica.
   clientMessageId String   @map("client_message_id") @db.Uuid
   // El filtro de lenguaje tapó alguna palabra de `body` (que se guarda ya enmascarado).
@@ -907,29 +916,29 @@ enum SupportMessageKind {
 }
 
 model SupportConversation {
-  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   // Número del código de display `SOP-NNNN`: la secuencia `support_conversation_code_seq` (arranca en 1001).
-  codeNumber Int @unique(map: "support_conversations_code_number_key") @default(autoincrement()) @map("code_number")
+  codeNumber        Int             @unique(map: "support_conversations_code_number_key") @default(autoincrement()) @map("code_number")
   // Referencias lógicas a users.users, sin FK real (ADR-003).
-  userId     String          @map("user_id") @db.Uuid
-  topic      SupportTopic
-  status     SupportStatus   @default(open)
-  priority   SupportPriority @default(normal)
-  assignedTo String?         @map("assigned_to") @db.Uuid
+  userId            String          @map("user_id") @db.Uuid
+  topic             SupportTopic
+  status            SupportStatus   @default(open)
+  priority          SupportPriority @default(normal)
+  assignedTo        String?         @map("assigned_to") @db.Uuid
   // Sin onDelete cascade: la conversación es evidencia y sobrevive al envío (retención, DD-051).
-  shipmentId String?         @map("shipment_id") @db.Uuid
-  tags       String[]        @default([])
-  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
-  lastMessageAt DateTime     @default(now()) @map("last_message_at") @db.Timestamptz
+  shipmentId        String?         @map("shipment_id") @db.Uuid
+  tags              String[]        @default([])
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  lastMessageAt     DateTime        @default(now()) @map("last_message_at") @db.Timestamptz
   // Último mensaje del usuario: base del "esperando hace X min" del panel.
-  lastUserMessageAt DateTime @default(now()) @map("last_user_message_at") @db.Timestamptz
+  lastUserMessageAt DateTime        @default(now()) @map("last_user_message_at") @db.Timestamptz
   // Hasta dónde leyó un agente (los tildes "leído" del usuario). Solo avanza.
-  lastAgentReadAt DateTime?  @map("last_agent_read_at") @db.Timestamptz
-  resolvedAt DateTime?       @map("resolved_at") @db.Timestamptz
+  lastAgentReadAt   DateTime?       @map("last_agent_read_at") @db.Timestamptz
+  resolvedAt        DateTime?       @map("resolved_at") @db.Timestamptz
 
-  shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
-  messages SupportMessage[]
-  states   SupportParticipantState[]
+  shipment    Shipment?                 @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  messages    SupportMessage[]
+  states      SupportParticipantState[]
   attachments SupportAttachment[]
 
   @@index([userId, lastMessageAt(sort: Desc), id], map: "support_conversations_user_last_message_idx")
@@ -940,22 +949,22 @@ model SupportConversation {
 
 // Solo se agregan, nunca se editan ni se borran (evidencia).
 model SupportMessage {
-  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  conversationId String             @map("conversation_id") @db.Uuid
-  kind           SupportMessageKind
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId  String             @map("conversation_id") @db.Uuid
+  kind            SupportMessageKind
   // Referencia lógica a users.users (sin FK real, ADR-003). Nulo en `system`.
-  authorId       String?            @map("author_id") @db.Uuid
+  authorId        String?            @map("author_id") @db.Uuid
   // Nombre de pila del agente al escribir ("Lucía"): el usuario lo ve sin consultar a svc-users.
-  authorName     String?            @map("author_name")
-  body           String
+  authorName      String?            @map("author_name")
+  body            String
   // Lo genera el cliente (usuario o panel): reenviar el mismo mensaje no lo duplica. Nulo en `system`.
-  clientMessageId String?           @map("client_message_id") @db.Uuid
+  clientMessageId String?            @map("client_message_id") @db.Uuid
   // El filtro de lenguaje tapó alguna palabra de `body` (solo mensajes del usuario).
-  moderated      Boolean            @default(false)
+  moderated       Boolean            @default(false)
   // MOVO-321: cuántos adjuntos se asociaron al crearlo (se fija en la misma transacción y no cambia). Alimenta
   // `lastMessage.hasAttachments` sin un JOIN contra `support_attachments`.
-  attachmentCount Int               @default(0) @map("attachment_count")
-  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  attachmentCount Int                @default(0) @map("attachment_count")
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz
 
   conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   attachments  SupportAttachment[]

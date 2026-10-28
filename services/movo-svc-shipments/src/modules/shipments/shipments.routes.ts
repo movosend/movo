@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { ShipmentQuoteRequest, ShipmentStatus, TripStatus } from "@movo/shared";
+import { PaymentMethod, ShipmentQuoteRequest, ShipmentStatus, TripStatus } from "@movo/shared";
 import { TRACKABLE_SHIPMENT_STATUSES } from "../../domain/shipment-state-machine";
 import {
   createShipmentsService,
@@ -211,6 +211,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       settleCancellationPenalty: (shipmentId: string) => app.settlements.settleCancellationPenalty(shipmentId),
       // MOVO-310: registro en línea de la penalidad por bajarse del envío, mismo criterio.
       registerWithdrawalPenalty: (offerId: string) => app.settlements.registerWithdrawalPenalty(offerId),
+      // MOVO-37 (B4): tope de deuda del transportista para ofertar en un envío en efectivo.
+      cashShipmentMaxCarrierDebtArs: app.config.CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS,
       // MOVO-270 (AC13): la llegada del transportista al retiro cambia la cotización con la ventana cerrada.
       pickupEvidenceRepository: createPickupEvidenceRepository(app.db),
     getCarrierReputationScore: async (carrierId: string) => {
@@ -245,13 +247,17 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "de otro usuario, y 409 QUOTE_MISMATCH si los datos que afectan el precio no " +
           "coinciden con los cotizados. Sin `quoteId`, cotiza al crear. MOVO-317: sin " +
           "límites duros de peso ni medidas; `oversized: true` marca \"Más de 300 cm\" (las medidas " +
-          "llevan el tope de 300 cm) y cada transportista decide si lo lleva.",
+          "llevan el tope de 300 cm) y cada transportista decide si lo lleva. MOVO-37: `paymentMethod` " +
+          "(`card` por defecto o `cash`); con `cash` y deuda en la cuenta corriente del emisor responde " +
+          "403 CASH_PAYMENT_SENDER_HAS_DEBT (`details.missingRequirements: [\"no_pending_debt\"]`), y 502 " +
+          "PAYMENTS_SERVICE_UNAVAILABLE si no se pudo consultar (falla cerrado).",
         tags: ["shipments"],
         body: shipmentsSchemas.createShipmentBody,
         response: {
           201: shipmentsSchemas.shipmentResponse,
           400: shipmentsSchemas.errorResponse,
           401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
           404: shipmentsSchemas.errorResponse,
           409: shipmentsSchemas.errorResponse,
           422: shipmentsSchemas.errorResponse,
@@ -879,6 +885,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "MOVO-313 (DD-044): con una deuda de la cuenta corriente sin saldar hace más de " +
           "USER_DEBT_OVERDUE_DAYS (14), 403 USER_DEBT_OVERDUE (si es lo único que falta; con otros requisitos el code es el del " +
           "primero, la deuda se lista al final de details.missingRequirements y el mensaje la menciona). " +
+          "MOVO-37: en un envío en efectivo, 403 CASH_DEBT_LIMIT_EXCEEDED " +
+          "(details.missingRequirements: [\"cash_debt_within_limit\"]) si la deuda total del transportista " +
+          "(vencida o no) supera CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS. " +
           "Ni el emisor ni el receptor pueden ofertar " +
           "sobre su propio envío (403 AUTH_FORBIDDEN, AC3). `priceOfferedArs` es el " +
           "NETO que quiere cobrar el transportista -- el servidor calcula el bruto con " +
@@ -942,6 +951,38 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       });
       reply.code(201);
       return toOfferDto(offer);
+    }
+  );
+
+  app.put(
+    "/:id/payment-method",
+    {
+      schema: {
+        summary: "Cambiar la modalidad de pago de un envío",
+        description:
+          "MOVO-37: el emisor cambia entre `card` y `cash` mientras el envío no tenga transportista " +
+          "(`awaiting_receiver_confirmation`, `rejected_by_receiver` o `published`) y no haya recibido " +
+          "ninguna oferta; si no, 409 SHIPMENT_PAYMENT_METHOD_LOCKED. Pasar a `cash` con deuda en la cuenta " +
+          "corriente es 403 CASH_PAYMENT_SENDER_HAS_DEBT. Mandar la modalidad actual no cambia nada (200).",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        body: shipmentsSchemas.updatePaymentMethodBody,
+        response: {
+          200: shipmentsSchemas.shipmentResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+          502: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const { paymentMethod } = request.body as { paymentMethod: PaymentMethod };
+      return toShipmentDto(await service.updatePaymentMethod(id, callerId, paymentMethod));
     }
   );
 

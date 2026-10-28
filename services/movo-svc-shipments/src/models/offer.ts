@@ -1,4 +1,4 @@
-import { CarrierDebtDiscount, OfferStatus, ShipmentStatus } from "@movo/shared";
+import { CarrierDebtDiscount, OfferStatus, PaymentMethod, ShipmentStatus } from "@movo/shared";
 import { InvalidEnumValueError, PackageType } from "./shipment";
 
 /**
@@ -87,6 +87,8 @@ export interface OfferShipmentContext {
   heightCm: number;
   oversized: boolean;
   description: string | null;
+  /** MOVO-37: modalidad de pago del envío (en efectivo cobra en mano al retirar). */
+  paymentMethod: PaymentMethod;
 }
 
 /**

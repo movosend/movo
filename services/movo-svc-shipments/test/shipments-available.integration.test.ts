@@ -176,7 +176,8 @@ describe("GET /shipments/available (Postgres, MOVO-142)", () => {
       expect(item).not.toHaveProperty("receiverId");
       expect(item).not.toHaveProperty("carrierId");
       expect(item).not.toHaveProperty("agreedPriceArs");
-      expect(item).not.toHaveProperty("paymentMethod");
+      // MOVO-37: la modalidad de pago sí viaja: el transportista tiene que saber cómo cobra antes de ofertar.
+      expect(item.paymentMethod).toBe("card");
     });
 
     it("MOVO-317: el feed devuelve peso, medidas y oversized del envío marcado, contra Postgres", async () => {
