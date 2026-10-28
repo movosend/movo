@@ -10,11 +10,6 @@ export interface ShipmentPaymentMethodRowProps {
   testID?: string;
 }
 
-const CAPTION: Record<ShipmentPaymentMethod, string> = {
-  card: "Reserva en tu tarjeta",
-  cash: "En mano al retiro",
-};
-
 const CASH_DETAIL: Record<ShipmentPaymentMethodRowProps["role"], string> = {
   sender: "Le pagás el monto acordado completo al transportista cuando le entregás el paquete.",
   carrier: "El emisor te paga cuando te entrega el paquete. La comisión de Movo queda como saldo en tu cuenta al entregar.",
@@ -35,10 +30,11 @@ export function ShipmentPaymentMethodRow({ paymentMethod, role, testID }: Shipme
           <Text testID={testID ? `${testID}-label` : undefined} className="font-sans-semibold text-[14px] text-fg">
             {PAYMENT_METHOD_LABEL[paymentMethod]}
           </Text>
-          {/* El emisor con tarjeta ve "Reserva en tu tarjeta"; el transportista cobra por MP, no reserva nada. */}
-          {paymentMethod === "cash" || role === "sender" ? (
+          {/* Solo el emisor con tarjeta: el transportista cobra por MP, no reserva nada, y en efectivo lo explica
+              el texto de abajo. */}
+          {paymentMethod === "card" && role === "sender" ? (
             <Text className="mt-0.5 font-sans-medium text-[11px] uppercase tracking-wide text-fg-3">
-              {CAPTION[paymentMethod]}
+              Reserva en tu tarjeta
             </Text>
           ) : null}
           {paymentMethod === "cash" ? (
