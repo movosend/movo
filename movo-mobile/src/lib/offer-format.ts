@@ -1,7 +1,7 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import type { MyOfferSummary, OfferCompetitiveRank } from "../api/offers-client";
 import { estimateReceivedArs } from "./commission-config";
-import { isCashShipment } from "./payment-method";
+import { carrierPriceBreakdown, isCashShipment } from "./payment-method";
 import { formatPriceArs } from "./shipment-format";
 import { formatRelativeDuration } from "./time-format";
 
@@ -57,8 +57,12 @@ export function receivedAmountLabel(status: OfferStatus, cash = false): string {
  * comisión le queda como deuda aparte.
  */
 export function offerReceivedArs(offer: Pick<MyOfferSummary, "priceNetArs" | "priceOffered" | "debtDiscount" | "shipment">): number {
-  if (isCashShipment(offer.shipment)) return offer.priceOffered;
-  return Math.max(0, estimateReceivedArs(offer.priceNetArs, offer.priceOffered) - (offer.debtDiscount?.amountArs ?? 0));
+  return carrierPriceBreakdown({
+    grossArs: offer.priceOffered,
+    netArs: offer.priceNetArs,
+    cash: isCashShipment(offer.shipment),
+    debtDiscountArs: offer.debtDiscount?.amountArs,
+  }).receivedArs;
 }
 
 /**

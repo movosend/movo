@@ -14,8 +14,8 @@ jest.mock("expo-router", () => ({
 }));
 
 jest.mock("../src/hooks/use-balance", () => ({
-  useBalance: () => ({
-    data: { pages: [{ balanceArs: mockBalanceArs }] },
+  useBalanceArs: () => ({
+    data: mockBalanceArs,
     refetch: mockBalanceRefetch,
   }),
 }));
@@ -406,6 +406,14 @@ describe("SummaryStep — modalidad de pago (MOVO-37)", () => {
 
     await press(getByTestId("summary-step-payment-method-pay-balance"));
     expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments?tab=balance&pay=1");
+  });
+
+  it("con el envío ya creado bloquea el selector: un reintento no vuelve a mandar la modalidad", async () => {
+    useShipmentWizardStore.getState().setSubmission({ shipmentId: "shipment-1" });
+    const { getByTestId } = await renderReady();
+
+    expect(getByTestId("summary-step-payment-method-card").props.accessibilityState).toMatchObject({ disabled: true });
+    expect(getByTestId("summary-step-payment-method-cash").props.accessibilityState).toMatchObject({ disabled: true });
   });
 
   it("si el backend rechaza el efectivo por deuda, vuelve a tarjeta y recarga el saldo", async () => {

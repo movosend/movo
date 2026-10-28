@@ -84,7 +84,8 @@ import {
   type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
 import { formatTimeRange } from "../../../src/lib/time-format";
-import { isCashShipment } from "../../../src/lib/payment-method";
+import { CashCancellationNote } from "../../../components/shipments/cash-cancellation-note";
+import { carrierPriceBreakdown, isCashShipment } from "../../../src/lib/payment-method";
 import { fundingProcessingPollInterval, fundsStatusVariant } from "../../../src/lib/funds-status-format";
 
 type DetailTab = "detalle" | "timeline";
@@ -350,20 +351,19 @@ export default function ShipmentDetailScreen() {
   const carrierViewsPrice = isCarrier && !isCancelled && shipment?.agreedPriceArs != null;
   const carrierCashInHand = carrierViewsPrice && isCash;
   const carrierReceivedIsExact = carrierViewsPrice && !isCash && shipment?.carrierReceivedArs != null;
-  const estimatedBeforeDebtArs =
+  const carrierBreakdown =
     carrierViewsPrice && shipment?.agreedPriceArs != null
-      ? estimateReceivedArs(
-          computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
-          shipment.agreedPriceArs,
-        )
+      ? carrierPriceBreakdown({
+          grossArs: shipment.agreedPriceArs,
+          netArs: computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
+          cash: carrierCashInHand,
+          debtDiscountArs: shipment.debtDiscount?.amountArs,
+        })
       : null;
-  const carrierReceivedArs = carrierCashInHand
-    ? (shipment?.agreedPriceArs ?? null)
-    : carrierReceivedIsExact
+  const estimatedBeforeDebtArs = carrierBreakdown?.beforeDebtArs ?? null;
+  const carrierReceivedArs = carrierReceivedIsExact
     ? (shipment?.carrierReceivedArs ?? null)
-    : estimatedBeforeDebtArs !== null
-      ? Math.max(0, estimatedBeforeDebtArs - (shipment?.debtDiscount?.amountArs ?? 0))
-      : null;
+    : (carrierBreakdown?.receivedArs ?? null);
   // Lo que recibiría sin el descuento por deuda (el "antes" del desglose).
   const carrierBeforeDebtArs = carrierCashInHand
     ? null
@@ -625,6 +625,14 @@ export default function ShipmentDetailScreen() {
                 />
               ) : null}
 
+              {isCash && isCancelled && (paymentRole === "sender" || paymentRole === "carrier") ? (
+                <CashCancellationNote
+                  role={paymentRole}
+                  shipment={shipment}
+                  testID="shipment-detail-cash-cancellation"
+                />
+              ) : null}
+
               {showCancellationCompensation ? (
                 <CarrierCancellationCompensation
                   settlement={settlementQuery.data}
@@ -731,7 +739,7 @@ export default function ShipmentDetailScreen() {
                         <GridPattern />
                         <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
                           {carrierReceivedArs !== null
-                            ? carrierCashInHand ? "Cobrás en mano" : carrierReceivedIsExact ? "Recibís" : "Recibís aprox."
+                            ? carrierCashInHand ? (FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? "Cobraste en mano" : "Cobrás en mano") : carrierReceivedIsExact ? "Recibís" : "Recibís aprox."
                             : hasAgreedPrice
                               ? "Precio pactado"
                               : "Costo aproximado"}

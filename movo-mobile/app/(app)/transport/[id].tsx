@@ -56,7 +56,7 @@ import {
   zoneLabelFromAddress,
 } from "../../../src/lib/shipment-format";
 import { formatDurationSeconds, formatTimeRange } from "../../../src/lib/time-format";
-import { cashOfferBreakdown, isCashShipment } from "../../../src/lib/payment-method";
+import { carrierPriceBreakdown, isCashShipment } from "../../../src/lib/payment-method";
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
@@ -328,15 +328,16 @@ export default function TransportShipmentDetailScreen() {
     : null;
   // MOVO-225: la card principal muestra lo que recibís aprox. (neto menos el estimado
   // de MP), el mismo monto que crear oferta y el detalle de la oferta.
-  const suggestedReceivedIfOffered =
-    shipment && suggestedNetIfOffered !== null
-      ? Math.max(0, estimateReceivedArs(suggestedNetIfOffered, shipment.suggestedPriceArs) - (shipment.debtDiscount?.amountArs ?? 0))
-      : null;
   // MOVO-37: en efectivo cobra el bruto en mano al retirar y la comisión le queda como deuda (sin fee de MP).
   const isCash = isCashShipment(shipment);
-  const suggestedCash =
+  const suggestedBreakdown =
     shipment && suggestedNetIfOffered !== null
-      ? cashOfferBreakdown(shipment.suggestedPriceArs, suggestedNetIfOffered)
+      ? carrierPriceBreakdown({
+          grossArs: shipment.suggestedPriceArs,
+          netArs: suggestedNetIfOffered,
+          cash: isCash,
+          debtDiscountArs: shipment.debtDiscount?.amountArs,
+        })
       : null;
   // `RouteMapCard` de abajo ya pide esta misma ruta (mismos pickup/delivery) para
   // dibujar el mapa — TanStack Query dedupea por query key, así que pedirla acá de
@@ -553,10 +554,10 @@ export default function TransportShipmentDetailScreen() {
                   testID="transport-detail-received"
                   className="font-sans-semibold text-[40px] leading-[42px] text-lime-500"
                 >
-                  {formatPriceArs(isCash ? suggestedCash?.inHandArs ?? null : suggestedReceivedIfOffered)}
+                  {formatPriceArs(suggestedBreakdown?.receivedArs ?? null)}
                 </Text>
               </View>
-              {!isCash && shipment.debtDiscount?.amountArs && suggestedNetIfOffered !== null ? <View className="mt-3"><DebtDiscount dark beforeArs={estimateReceivedArs(suggestedNetIfOffered, shipment.suggestedPriceArs)} amountArs={shipment.debtDiscount.amountArs} /></View> : null}
+              {!isCash && shipment.debtDiscount?.amountArs && suggestedNetIfOffered !== null ? <View className="mt-3"><DebtDiscount dark beforeArs={suggestedBreakdown?.beforeDebtArs ?? 0} amountArs={shipment.debtDiscount.amountArs} /></View> : null}
               {isCash ? (
                 <Text
                   testID="transport-detail-cash-note"
@@ -564,7 +565,7 @@ export default function TransportShipmentDetailScreen() {
                 >
                   El emisor te paga en efectivo cuando te entrega el paquete. La comisión de Movo (
                   <Text className="font-sans-semibold text-paper">
-                    {formatPriceArs(suggestedCash?.commissionArs ?? null)}
+                    {formatPriceArs(suggestedBreakdown?.commissionArs ?? null)}
                   </Text>
                   ) queda como saldo en tu cuenta de Movo al entregar.
                 </Text>

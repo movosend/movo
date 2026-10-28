@@ -63,8 +63,11 @@ export default function PayShipmentScreen() {
   const demo = __DEV__ && params.demo ? (params.demo as PayDemoScenario) : null;
   const resumed = params.resumed === "1" || demo === "resumed" ? "1" : undefined;
   const realShipment = useShipment(demo ? undefined : id);
-  const realFunding = useShipmentFunding(demo ? undefined : id);
-  const realCards = useSavedCards();
+  // MOVO-37: la reserva y las tarjetas se piden recién cuando se sabe que el envío es con tarjeta; un deep link a uno en
+  // efectivo no dispara requests ni muestra un error de pago antes de la redirección.
+  const payable = !!realShipment.data && !isCashShipment(realShipment.data);
+  const realFunding = useShipmentFunding(demo || !payable ? undefined : id);
+  const realCards = useSavedCards(!!demo || payable);
   // En demo se pisan los tres con datos de prueba (y las consultas reales quedan apagadas).
   const shipment = demo ? PAY_DEMO_SHIPMENT : realShipment.data;
   const funding = demo
@@ -357,8 +360,15 @@ export default function PayShipmentScreen() {
     );
   }
 
-  const loadingAny = funding.isLoading || cardsQuery.isLoading;
-  const loadError = funding.isError ? funding.error : cardsQuery.isError && !cards ? cardsQuery.error : null;
+  const shipmentPending = !demo && realShipment.isLoading;
+  const loadingAny = shipmentPending || funding.isLoading || cardsQuery.isLoading;
+  const loadError = realShipment.isError
+    ? realShipment.error
+    : funding.isError
+      ? funding.error
+      : cardsQuery.isError && !cards
+        ? cardsQuery.error
+        : null;
   const hasCards = !!cards && cards.length > 0;
   const primaryLabel = busy ? "Reservando…" : `Reservar ${amountLabel}`;
   const primaryDisabled = busy || !ready || !funding.data || funding.isFetching || funding.isError;

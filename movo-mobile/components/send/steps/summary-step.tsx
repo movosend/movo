@@ -5,7 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { createPhotoUploadProvider } from "../../../src/adapters/photo-upload-provider";
 import { createPricingProvider, type PricingQuoteInput } from "../../../src/adapters/pricing-provider";
-import { useBalance } from "../../../src/hooks/use-balance";
+import { useBalanceArs } from "../../../src/hooks/use-balance";
 import { useCreateShipment } from "../../../src/hooks/use-shipments";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
 import { uriToBlob } from "../../../src/lib/photo-utils";
@@ -153,12 +153,15 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
   const createShipment = useCreateShipment();
   // MOVO-37 (M1): con saldo pendiente (vencido o no) el emisor no puede pagar en efectivo. Si el saldo no cargó, la
   // opción queda habilitada y el backend decide (403 `CASH_PAYMENT_SENDER_HAS_DEBT`, manejado en `publish`).
-  const balance = useBalance();
-  const cashBlockedByDebt = (balance.data?.pages[0]?.balanceArs ?? 0) > 0;
+  const balance = useBalanceArs();
+  const cashBlockedByDebt = (balance.data ?? 0) > 0;
+  // El envío ya existe con la modalidad elegida al crearlo (un reintento de publicar no la vuelve a mandar): el
+  // selector se bloquea hasta ahí. Para cambiarla hay que cancelar el envío creado.
+  const paymentMethodLocked = Boolean(submission.shipmentId);
 
   useEffect(() => {
-    if (cashBlockedByDebt && paymentMethod === "cash") setPaymentMethod("card");
-  }, [cashBlockedByDebt, paymentMethod, setPaymentMethod]);
+    if (cashBlockedByDebt && paymentMethod === "cash" && !paymentMethodLocked) setPaymentMethod("card");
+  }, [cashBlockedByDebt, paymentMethod, paymentMethodLocked, setPaymentMethod]);
 
   // MOVO-255: se cotiza solo al entrar al resumen (cambiar un dato que afecta el
   // precio implica volver a otro paso, que desmonta este). Si la cotización guardada
@@ -374,6 +377,7 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
         value={paymentMethod}
         onChange={setPaymentMethod}
         cashBlockedByDebt={cashBlockedByDebt}
+        locked={paymentMethodLocked}
         onPayBalance={() => router.push("/profile/payments?tab=balance&pay=1")}
       />
 

@@ -1,7 +1,6 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { Pressable, Text, View } from "react-native";
 import type { MyOfferSummary } from "../../src/api/offers-client";
-import { estimateReceivedArs } from "../../src/lib/commission-config";
 import { DebtDiscount } from "../payments/debt-discount";
 import {
   formatOfferedAgo,
@@ -9,7 +8,7 @@ import {
   offerStatusLabel,
   receivedAmountLabel,
 } from "../../src/lib/offer-format";
-import { isCashShipment } from "../../src/lib/payment-method";
+import { carrierPriceBreakdown, isCashShipment } from "../../src/lib/payment-method";
 import { PaymentMethodBadge } from "../shipments/payment-method-badge";
 import {
   formatDetourKm,
@@ -119,10 +118,19 @@ export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyO
           <Text className="font-sans text-[10px] text-fg-3">
             {receivedAmountLabel(offer.status, isCashShipment(offer.shipment)).toLowerCase()}
           </Text>
-          <PaymentMethodBadge paymentMethod={offer.shipment.paymentMethod} testID={`${testID}-cash`} />
+          <PaymentMethodBadge paymentMethod={offer.shipment.paymentMethod} testID={testID ? `${testID}-cash` : undefined} />
         </View>
       </View>
-      <DebtDiscount beforeArs={estimateReceivedArs(offer.priceNetArs, offer.priceOffered)} amountArs={offer.debtDiscount?.amountArs} />
+      <DebtDiscount
+        beforeArs={
+          carrierPriceBreakdown({
+            grossArs: offer.priceOffered,
+            netArs: offer.priceNetArs,
+            cash: isCashShipment(offer.shipment),
+          }).beforeDebtArs
+        }
+        amountArs={offer.debtDiscount?.amountArs}
+      />
       {notice ? (
         <View
           testID={`${testID}-notice`}

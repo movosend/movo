@@ -58,7 +58,7 @@ import {
   shortAddressLabel,
 } from "../../../../src/lib/shipment-format";
 import { formatTimeRange } from "../../../../src/lib/time-format";
-import { cashOfferBreakdown, isCashShipment } from "../../../../src/lib/payment-method";
+import { carrierPriceBreakdown, isCashShipment } from "../../../../src/lib/payment-method";
 import { PaymentMethodBadge } from "../../../../components/shipments/payment-method-badge";
 import {
   formatSentAgo,
@@ -166,9 +166,7 @@ export default function OfferDetailScreen() {
   const draftAmount = parseInt(draftRaw || "0", 10) || 0;
   const draftNetArs = computeNetFromGross(draftAmount, commissionRate);
   const draftCash = isCashShipment(offer?.shipment);
-  const draftReceivedArs = draftCash
-    ? cashOfferBreakdown(draftAmount, draftNetArs).inHandArs
-    : estimateReceivedArs(draftNetArs, draftAmount);
+  const draftReceivedArs = carrierPriceBreakdown({ grossArs: draftAmount, netArs: draftNetArs, cash: draftCash }).beforeDebtArs;
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -299,12 +297,13 @@ export default function OfferDetailScreen() {
   // transportista, así que lo que se muestra como cobro es aproximado. El monto real
   // sale de `fee_details` al capturar (todavía no se persiste).
   const mpFeeEstimate = estimateMpFeeArs(offer.priceOffered);
-  const receivedBeforeDebtArs = estimateReceivedArs(
-    offer.priceNetArs,
-    offer.priceOffered,
-  );
   // MOVO-37: en efectivo cobra el bruto en mano y la comisión le queda como deuda (sin fee de MP ni descuento).
   const isCash = isCashShipment(shipment);
+  const receivedBeforeDebtArs = carrierPriceBreakdown({
+    grossArs: offer.priceOffered,
+    netArs: offer.priceNetArs,
+    cash: isCash,
+  }).beforeDebtArs;
   const receivedEstimateArs = offerReceivedArs(offer);
   const receivedLabel = receivedAmountLabel(status, isCash);
 

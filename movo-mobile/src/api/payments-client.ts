@@ -18,8 +18,8 @@ import { httpClient } from "./http-client";
  * endpoints de `svc-payments` (MOVO-111). Mismo patrón cliente que `vehicle-client.ts`.
  */
 export const paymentsClient = {
-  getBalance(cursor?: string): Promise<UserLedgerPageResponse> {
-    return httpClient.get<UserLedgerPageResponse>("/payments/balance", { limit: 20, ...(cursor ? { cursor } : {}) });
+  getBalance(cursor?: string, limit = 20): Promise<UserLedgerPageResponse> {
+    return httpClient.get<UserLedgerPageResponse>("/payments/balance", { limit, ...(cursor ? { cursor } : {}) });
   },
   getBalancePayData(): Promise<BalancePayDataResponse> {
     return httpClient.get<BalancePayDataResponse>("/payments/balance/pay-data");

@@ -56,7 +56,7 @@ import {
   shortAddressLabel,
 } from "../../../../src/lib/shipment-format";
 import { formatTimeRange } from "../../../../src/lib/time-format";
-import { cashOfferBreakdown, isCashShipment } from "../../../../src/lib/payment-method";
+import { carrierPriceBreakdown, isCashShipment } from "../../../../src/lib/payment-method";
 import { SuspendedScreenGate } from "../../../../components/account/suspended-screen-gate";
 
 /** MOVO-177: el transportista puede proponer retirar hasta este número de días después
@@ -500,10 +500,10 @@ function CreateOfferScreenContent() {
   // MOVO-37: en efectivo el emisor le paga el bruto en mano al retirar y la comisión de Movo le queda como deuda en
   // la cuenta corriente al entregar. No pasa plata por MP (sin fee estimado) ni hay cobro del que descontar deuda.
   const isCash = isCashShipment(shipment);
-  const cashBreakdown = cashOfferBreakdown(grossArs, netArs);
+  const priceBreakdown = carrierPriceBreakdown({ grossArs, netArs, cash: isCash });
   const mpFeeEstimate = useMemo(() => estimateMpFeeArs(grossArs), [grossArs]);
   const debtOffsetArs = useDebtPreview(isCash ? null : grossArs);
-  const receivedBeforeDebtArs = isCash ? cashBreakdown.inHandArs : estimateReceivedArs(netArs, grossArs);
+  const receivedBeforeDebtArs = priceBreakdown.beforeDebtArs;
   const receivedEstimateArs = useMemo(
     () => Math.max(0, receivedBeforeDebtArs - (debtOffsetArs ?? 0)),
     [receivedBeforeDebtArs, debtOffsetArs],
@@ -727,9 +727,11 @@ function CreateOfferScreenContent() {
     return (
       <OfferSuccessOverlay
         receivedArs={
-          isCash
-            ? createdOffer.priceOffered
-            : estimateReceivedArs(createdOffer.priceNetArs, createdOffer.priceOffered)
+          carrierPriceBreakdown({
+            grossArs: createdOffer.priceOffered,
+            netArs: createdOffer.priceNetArs,
+            cash: isCash,
+          }).beforeDebtArs
         }
         receivedLabel={receivedLabel}
         title={isEditMode ? "Oferta actualizada" : "Oferta enviada"}
@@ -838,7 +840,9 @@ function CreateOfferScreenContent() {
                 <Text className="mb-4 font-sans text-caption text-fg-3">
                   {amountMode === "gross"
                     ? "Monto total que le cobrás al emisor por el viaje."
-                    : "Lo que te queda después de la comisión de Movo, antes del procesamiento del pago."}
+                    : isCash
+                      ? "Lo que te queda después de la comisión de Movo, que se suma a tu saldo al entregar. En efectivo no hay procesamiento de pago."
+                      : "Lo que te queda después de la comisión de Movo, antes del procesamiento del pago."}
                 </Text>
 
                 <Pressable
@@ -956,7 +960,7 @@ function CreateOfferScreenContent() {
                           Comisión de Movo ({commissionPctLabel})
                         </Text>
                         <Text className="font-sans text-small text-fg-3">
-                          {formatPriceArs(cashBreakdown.commissionArs)}
+                          {formatPriceArs(priceBreakdown.commissionArs)}
                         </Text>
                       </View>
                       <Text className="font-sans text-[12.5px] leading-[18px] text-fg-3">

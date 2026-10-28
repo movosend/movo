@@ -12,6 +12,8 @@ export interface PaymentMethodSelectorProps {
    * `CASH_PAYMENT_SENDER_HAS_DEBT`). Con tarjeta sí: la deuda se cobra en ese pago. */
   cashBlockedByDebt: boolean;
   onPayBalance: () => void;
+  /** El envío ya se creó con esta modalidad: no se puede cambiar desde el wizard. */
+  locked?: boolean;
   testID?: string;
 }
 
@@ -54,6 +56,7 @@ export function PaymentMethodSelector({
   onChange,
   cashBlockedByDebt,
   onPayBalance,
+  locked = false,
   testID = "payment-method-selector",
 }: PaymentMethodSelectorProps) {
   return (
@@ -66,6 +69,7 @@ export function PaymentMethodSelector({
           description="Reservás el pago con tu tarjeta cuando elegís una oferta."
           Icon={CreditCard}
           selected={value === "card"}
+          disabled={locked}
           onPress={() => onChange("card")}
         />
         <Option
@@ -74,7 +78,7 @@ export function PaymentMethodSelector({
           description="Le pagás el monto completo en mano al transportista cuando retira el paquete."
           Icon={Banknote}
           selected={value === "cash"}
-          disabled={cashBlockedByDebt}
+          disabled={cashBlockedByDebt || locked}
           onPress={() => onChange("cash")}
         />
       </View>

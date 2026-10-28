@@ -90,9 +90,9 @@ export default function DeliverySuccessScreen() {
         secondaryCtaLabel={ratingTarget ? (alreadyRated ? "Ya calificaste al receptor" : "Calificar al receptor") : undefined}
         onSecondaryCtaPress={ratingTarget ? () => setRatingOpen(true) : undefined}
         paymentSlot={
-          // MOVO-37: en efectivo no hay liquidación (`/settlement` da 404), solo la comisión como saldo. Hasta
-          // conocer la modalidad no se dibuja nada, para no empezar a consultar un cobro que no existe.
-          shipment === undefined ? null : isCashShipment(shipment) ? (
+          // MOVO-37: en efectivo no hay liquidación (`/settlement` da 404), solo la comisión como saldo. Si el envío no
+          // llegó a cargar se asume tarjeta (como antes de MOVO-37): el estado del cobro no depende de esa query.
+          isCashShipment(shipment) ? (
             <DeliveryCashCommissionNote testID="delivery-success-cash" />
           ) : (
             <DeliveryPaymentStatus
