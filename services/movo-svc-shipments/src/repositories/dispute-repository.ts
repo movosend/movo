@@ -1,6 +1,7 @@
-import { DisputeReason, DisputeStatus } from "@movo/shared";
-import type { DisputePartyRole, DisputeStatementKind } from "@movo/shared";
-import { PrismaClient } from "../generated/prisma/client";
+import { DisputeReason, DisputeStatus, ShipmentStatus } from "@movo/shared";
+import type { DisputeOutcome, DisputePartyRole, DisputePaymentAction, DisputeStatementKind } from "@movo/shared";
+import { Prisma, PrismaClient } from "../generated/prisma/client";
+import { shipmentTextSearchSql } from "./admin-shipment-repository";
 
 /**
  * MOVO-334 (DD-054): datos de la disputa que `updateStatus` crea en la misma transacción que la
@@ -17,6 +18,20 @@ export interface NewDispute {
   photoKeys?: string[];
 }
 
+/** MOVO-337 (DD-056): cómo se resolvió la disputa. Presente desde `resolving`. */
+export interface DisputeResolutionRecord {
+  outcome: DisputeOutcome;
+  /** Porcentaje del preset; `null` con un monto libre o fuera de `partial`. */
+  percentage: number | null;
+  carrierAmountArs: number;
+  senderAmountArs: number;
+  paymentAction: DisputePaymentAction;
+  reasoning: string;
+  resolvedBy: string;
+  /** `null` mientras la acción de pago no se haya confirmado (`resolving`). */
+  resolvedAt: Date | null;
+}
+
 export interface DisputeRecord {
   id: string;
   shipmentId: string;
@@ -26,6 +41,59 @@ export interface DisputeRecord {
   description: string;
   status: DisputeStatus;
   openedAt: Date;
+  resolution: DisputeResolutionRecord | null;
+}
+
+export interface BeginResolutionInput {
+  disputeId: string;
+  outcome: DisputeOutcome;
+  percentage: number | null;
+  carrierAmountArs: number;
+  senderAmountArs: number;
+  paymentAction: DisputePaymentAction;
+  reasoning: string;
+  resolvedBy: string;
+}
+
+/**
+ * - `started`: estaba `open` y pasó a `resolving` con estos datos.
+ * - `resumed`: ya estaba `resolving` (un intento anterior no confirmó el pago): `dispute` trae lo guardado.
+ * - `already_resolved`: ya estaba `resolved`.
+ */
+export interface BeginResolutionResult {
+  dispute: DisputeRecord;
+  state: "started" | "resumed" | "already_resolved";
+}
+
+export interface DisputeSearch {
+  reason?: DisputeReason;
+  outcome?: DisputeOutcome;
+  /** Código del envío (`MOVO-12345`, id o prefijo) o nombre de cualquiera de las partes. */
+  q?: string;
+  from?: Date;
+  to?: Date;
+}
+
+export interface DisputeListParams extends DisputeSearch {
+  status?: DisputeStatus;
+  limit: number;
+  /** Id de la última disputa de la página anterior. */
+  cursor?: string;
+}
+
+export interface DisputeListItem {
+  dispute: DisputeRecord;
+  shipment: { id: string; status: ShipmentStatus; senderId: string; carrierId: string | null; receiverId: string };
+  names: { sender: string | null; carrier: string | null; receiver: string | null };
+  /** Estado del envío cuando se abrió la disputa (`fromStatus` del evento que lo pasó a `disputed`). */
+  statusAtOpen: ShipmentStatus;
+}
+
+export class InvalidDisputeCursorError extends Error {
+  constructor() {
+    super("Cursor de paginación inválido");
+    this.name = "InvalidDisputeCursorError";
+  }
 }
 
 export interface DisputePhotoRecord {
@@ -92,6 +160,27 @@ export class DisputePhotoAlreadyUsedError extends Error {
 
 export interface DisputeRepository {
   findOpenByShipment(shipmentId: string): Promise<DisputeRecord | null>;
+  /** La disputa más reciente del envío, en cualquier estado. */
+  findLatestByShipment(shipmentId: string): Promise<DisputeRecord | null>;
+  /**
+   * MOVO-337: pasa la disputa de `open` a `resolving` guardando el resultado (con `FOR UPDATE`: dos admins a la
+   * vez no se pisan). Si ya estaba `resolving` o `resolved` no modifica nada y devuelve lo guardado.
+   * `null` si la disputa no existe.
+   */
+  beginResolution(input: BeginResolutionInput): Promise<BeginResolutionResult | null>;
+  /**
+   * MOVO-337: devuelve una disputa `resolving` a `open`, borrando el resultado guardado. Solo para cuando
+   * `svc-payments` rechazó la acción antes de mover plata (un 4xx de negocio): así el admin puede resolver con
+   * otros datos en vez de quedar atado a un resultado que no se puede ejecutar. `false` si ya no estaba `resolving`.
+   */
+  abortResolution(disputeId: string): Promise<boolean>;
+  /** Una disputa con las partes del envío y el estado de origen, o `null`. */
+  findListItem(id: string): Promise<DisputeListItem | null>;
+  list(params: DisputeListParams): Promise<{ items: DisputeListItem[]; nextCursor: string | null }>;
+  /** Cuántas disputas hay en cada estado con los mismos filtros de búsqueda. */
+  statusCounts(search: DisputeSearch): Promise<Record<DisputeStatus, number>>;
+  /** Estado del envío cuando se abrió la disputa. */
+  findStatusAtOpen(shipmentId: string): Promise<ShipmentStatus | null>;
   findById(id: string): Promise<DisputeWithDetails | null>;
   /** Lanza `DisputeNotOpenError`, `DisputeStatementAlreadySubmittedError` o `DisputePhotoAlreadyUsedError`. */
   addStatement(
@@ -110,6 +199,14 @@ type DisputeRow = {
   description: string;
   status: string;
   openedAt: Date;
+  outcome: string | null;
+  resolutionPercentage: number | null;
+  carrierAmountArs: { toNumber(): number } | null;
+  senderAmountArs: { toNumber(): number } | null;
+  paymentAction: string | null;
+  reasoning: string | null;
+  resolvedBy: string | null;
+  resolvedAt: Date | null;
 };
 
 export function mapDisputeRow(row: DisputeRow): DisputeRecord {
@@ -122,8 +219,44 @@ export function mapDisputeRow(row: DisputeRow): DisputeRecord {
     description: row.description,
     status: row.status as DisputeStatus,
     openedAt: row.openedAt,
+    resolution:
+      row.outcome && row.reasoning && row.resolvedBy && row.carrierAmountArs && row.senderAmountArs && row.paymentAction
+        ? {
+            outcome: row.outcome as DisputeOutcome,
+            percentage: row.resolutionPercentage,
+            carrierAmountArs: row.carrierAmountArs.toNumber(),
+            senderAmountArs: row.senderAmountArs.toNumber(),
+            paymentAction: row.paymentAction as DisputePaymentAction,
+            reasoning: row.reasoning,
+            resolvedBy: row.resolvedBy,
+            resolvedAt: row.resolvedAt,
+          }
+        : null,
   };
 }
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function searchConditions(search: DisputeSearch): Prisma.Sql[] {
+  const conditions: Prisma.Sql[] = [];
+  if (search.reason) conditions.push(Prisma.sql`d.reason::text = ${search.reason}`);
+  if (search.outcome) conditions.push(Prisma.sql`d.outcome::text = ${search.outcome}`);
+  if (search.from) conditions.push(Prisma.sql`d.opened_at >= ${search.from}`);
+  if (search.to) conditions.push(Prisma.sql`d.opened_at <= ${search.to}`);
+  const text = shipmentTextSearchSql(search.q?.replace(/^#/, ""));
+  if (text) conditions.push(text);
+  return conditions;
+}
+
+const FROM_SQL = Prisma.sql`
+  FROM shipments.disputes d
+  JOIN shipments.shipments s ON s.id = d.shipment_id
+  LEFT JOIN shipments.user_display_names sn ON sn.user_id = s.sender_id
+  LEFT JOIN shipments.user_display_names cn ON cn.user_id = s.carrier_id
+  LEFT JOIN shipments.user_display_names rn ON rn.user_id = s.receiver_id`;
+
+const whereOf = (conditions: Prisma.Sql[]): Prisma.Sql =>
+  conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}` : Prisma.empty;
 
 export function isUniqueViolation(
   error: unknown,
@@ -144,7 +277,153 @@ export function isUniqueViolation(
 }
 
 export function createDisputeRepository(db: PrismaClient): DisputeRepository {
+  /** `fromStatus` del evento más reciente que pasó el envío a `disputed`. */
+  async function statusAtOpenOf(shipmentIds: string[]): Promise<Map<string, ShipmentStatus>> {
+    const events = await db.shipmentEvent.findMany({
+      where: { shipmentId: { in: shipmentIds }, toStatus: ShipmentStatus.DISPUTED },
+      orderBy: { createdAt: "asc" },
+      select: { shipmentId: true, fromStatus: true },
+    });
+    const result = new Map<string, ShipmentStatus>();
+    for (const event of events) {
+      if (event.fromStatus) result.set(event.shipmentId, event.fromStatus as ShipmentStatus);
+    }
+    return result;
+  }
+
+  /** Las disputas pedidas, en el orden de `ids`, con las partes del envío, sus nombres y el estado de origen. */
+  async function hydrate(ids: string[]): Promise<DisputeListItem[]> {
+    const rows = await db.dispute.findMany({ where: { id: { in: ids } }, include: { shipment: true } });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const userIds = [
+      ...new Set(rows.flatMap((row) => [row.shipment.senderId, row.shipment.carrierId, row.shipment.receiverId])),
+    ].filter((id): id is string => id !== null);
+    const [names, statusAtOpen] = await Promise.all([
+      db.userDisplayName.findMany({ where: { userId: { in: userIds } } }),
+      statusAtOpenOf([...new Set(rows.map((row) => row.shipmentId))]),
+    ]);
+    const nameOf = new Map(names.map((row) => [row.userId, row.name]));
+
+    const items = ids.flatMap((id): DisputeListItem[] => {
+      const row = byId.get(id);
+      if (!row) return [];
+      const { shipment } = row;
+      return [
+        {
+          dispute: mapDisputeRow(row),
+          shipment: {
+            id: shipment.id,
+            status: shipment.status as ShipmentStatus,
+            senderId: shipment.senderId,
+            carrierId: shipment.carrierId,
+            receiverId: shipment.receiverId,
+          },
+          names: {
+            sender: nameOf.get(shipment.senderId) ?? null,
+            carrier: shipment.carrierId ? (nameOf.get(shipment.carrierId) ?? null) : null,
+            receiver: nameOf.get(shipment.receiverId) ?? null,
+          },
+          statusAtOpen: statusAtOpen.get(row.shipmentId) ?? (shipment.status as ShipmentStatus),
+        },
+      ];
+    });
+    return items;
+  }
+
   return {
+    async findLatestByShipment(shipmentId) {
+      const row = await db.dispute.findFirst({ where: { shipmentId }, orderBy: { openedAt: "desc" } });
+      return row ? mapDisputeRow(row) : null;
+    },
+
+    async beginResolution(input) {
+      return db.$transaction(async (tx) => {
+        const locked = await tx.$queryRaw<Array<{ status: string }>>`
+          SELECT "status"::text AS "status" FROM "shipments"."disputes" WHERE "id" = ${input.disputeId}::uuid FOR UPDATE`;
+        const status = locked[0]?.status;
+        if (!status) return null;
+        if (status !== DisputeStatus.OPEN) {
+          const row = await tx.dispute.findUniqueOrThrow({ where: { id: input.disputeId } });
+          return {
+            dispute: mapDisputeRow(row),
+            state: status === DisputeStatus.RESOLVED ? ("already_resolved" as const) : ("resumed" as const),
+          };
+        }
+        const row = await tx.dispute.update({
+          where: { id: input.disputeId },
+          data: {
+            status: DisputeStatus.RESOLVING,
+            outcome: input.outcome,
+            resolutionPercentage: input.percentage,
+            carrierAmountArs: new Prisma.Decimal(input.carrierAmountArs),
+            senderAmountArs: new Prisma.Decimal(input.senderAmountArs),
+            paymentAction: input.paymentAction,
+            reasoning: input.reasoning,
+            resolvedBy: input.resolvedBy,
+          },
+        });
+        return { dispute: mapDisputeRow(row), state: "started" as const };
+      });
+    },
+
+    async abortResolution(disputeId) {
+      const result = await db.dispute.updateMany({
+        where: { id: disputeId, status: DisputeStatus.RESOLVING },
+        data: {
+          status: DisputeStatus.OPEN,
+          outcome: null,
+          resolutionPercentage: null,
+          carrierAmountArs: null,
+          senderAmountArs: null,
+          paymentAction: null,
+          reasoning: null,
+          resolvedBy: null,
+        },
+      });
+      return result.count > 0;
+    },
+
+    async list(params) {
+      if (params.cursor !== undefined && !UUID_PATTERN.test(params.cursor)) throw new InvalidDisputeCursorError();
+      const conditions = searchConditions(params);
+      if (params.status) conditions.push(Prisma.sql`d.status::text = ${params.status}`);
+      if (params.cursor) {
+        conditions.push(
+          Prisma.sql`(d.opened_at, d.id) < (SELECT c.opened_at, c.id FROM shipments.disputes c WHERE c.id = ${params.cursor}::uuid)`,
+        );
+      }
+      const ids = await db.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`SELECT d.id ${FROM_SQL} ${whereOf(conditions)} ORDER BY d.opened_at DESC, d.id DESC LIMIT ${params.limit + 1}`,
+      );
+      const pageIds = ids.slice(0, params.limit).map((row) => row.id);
+      const nextCursor = ids.length > params.limit ? (pageIds[pageIds.length - 1] ?? null) : null;
+      if (pageIds.length === 0) return { items: [], nextCursor: null };
+
+      return { items: await hydrate(pageIds), nextCursor };
+    },
+
+    async findListItem(id) {
+      if (!UUID_PATTERN.test(id)) return null;
+      return (await hydrate([id]))[0] ?? null;
+    },
+
+    async statusCounts(search) {
+      const rows = await db.$queryRaw<Array<{ status: string; total: bigint }>>(
+        Prisma.sql`SELECT d.status::text AS status, COUNT(*) AS total ${FROM_SQL} ${whereOf(searchConditions(search))} GROUP BY d.status`,
+      );
+      const counts: Record<DisputeStatus, number> = {
+        [DisputeStatus.OPEN]: 0,
+        [DisputeStatus.RESOLVING]: 0,
+        [DisputeStatus.RESOLVED]: 0,
+      };
+      for (const row of rows) counts[row.status as DisputeStatus] = Number(row.total);
+      return counts;
+    },
+
+    async findStatusAtOpen(shipmentId) {
+      return (await statusAtOpenOf([shipmentId])).get(shipmentId) ?? null;
+    },
+
     async findOpenByShipment(shipmentId) {
       const row = await db.dispute.findFirst({
         where: { shipmentId, status: DisputeStatus.OPEN },

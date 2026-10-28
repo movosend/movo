@@ -194,4 +194,46 @@ describe("settlement-repository: reintentos (MOVO-213, Postgres real)", () => {
     const second = await repo.listByStatus("escalated", 5, { updatedAt: first[0].updatedAt, id: first[0].id });
     expect(second.map((s) => s.id)).toEqual([a.id]);
   });
+
+  it("replaceFailed reemplaza solo una liquidación failed y limpia el intento anterior", async () => {
+    const hold = await createHoldRepository(app.db).createAttempt({
+      shipmentId: SHIPMENT,
+      attempt: 1,
+      carrierId: CARRIER,
+      collectorId: "1000000001",
+      plan: () => ({
+        baseAmountArs: 1000,
+        commissionArs: 150,
+        debtOffsetArs: 0,
+        debtSurchargeArs: 0,
+        amountArs: 1000,
+        applicationFeeArs: 150,
+      }),
+      requestFingerprint: "fp",
+      savedCardId: null,
+      payerId: null,
+    });
+    const repo = createSettlementRepository(app.db);
+    const data = {
+      shipmentId: SHIPMENT,
+      kind: "cancellation_penalty" as const,
+      holdId: hold.id,
+      carrierId: CARRIER,
+      mpPaymentId: "1352823085",
+      grossAmountArs: 250,
+      commissionArs: 150,
+    };
+    const created = await repo.findOrCreateProcessing(data);
+    const other = { ...data, kind: "delivery" as const, grossAmountArs: 1000 };
+
+    // En `processing` no se toca.
+    expect(await repo.replaceFailed(created.id, other)).toBe(false);
+
+    await repo.update(created.id, { status: "failed", failureReason: "provider_error", attempts: 2, lastError: "boom" });
+    expect(await repo.replaceFailed(created.id, other)).toBe(true);
+
+    const row = await repo.findByShipment(SHIPMENT);
+    expect(row).toMatchObject({ id: created.id, kind: "delivery", status: "processing", failureReason: null, attempts: 0, lastError: null });
+    expect(row?.grossAmountArs.toNumber()).toBe(1000);
+  });
 });

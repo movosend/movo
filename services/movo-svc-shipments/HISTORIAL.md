@@ -3883,6 +3883,14 @@ corriente). Se pidió así porque el sandbox de MP estaba caído y dev es hoy el
   vuelva un entorno de producción real**. Los gates de cuenta de MP y deuda (ofertar, declarar viaje) no se tocan: son por usuario y corren antes de asignar.
 - Pendiente: el detalle del envío en el panel no marca los de pago simulado (solo queda en la bitácora y la línea de tiempo).
 
+### MOVO-337 — Resolución de disputas: matriz de pago, estado final, desbloqueo y avisos (DD-056)
+
+`POST /internal/admin/disputes/:id/resolve` (`modules/admin-internal/dispute-resolution.service.ts`; la matriz sale de `@movo/shared`,
+`config/dispute-resolution.ts`, y depende del `fromStatus` del evento que pasó el envío a `disputed`). Tres pasos idempotentes: la disputa pasa a `resolving`
+con el resultado guardado (`beginResolution`), se ejecuta la acción de pago y recién entonces `updateStatus(..., { resolveDispute })` cierra envío y disputa.
+Aristas nuevas `disputed → completed|cancelled`, solo con `resolveDispute`; sin estados nuevos. Un rechazo definitivo de payments devuelve la disputa a `open`;
+un resultado incierto la deja `resolving` con alerta. Pendiente: el mobile no muestra el resultado de la disputa.
+
 ### MOVO-299 — Vista previa del retiro por sanción (DD-049)
 
 `GET /internal/users/:id/open-activity` (`sanctionEffects.previewOpenActivity`): cuenta lo que retiraría `withdraw-open-activity` hoy
