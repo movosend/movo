@@ -773,18 +773,21 @@ export default function ShipmentDetailScreen() {
 
                   {/* MOVO-37 (M2/M3): la modalidad se ve siempre para emisor y transportista. El receptor no
                       participa de la parte económica. */}
-                  {isSender || isCarrier ? (
-                    <ShipmentPaymentMethodRow
-                      paymentMethod={shipment.paymentMethod ?? "card"}
-                      role={isCarrier ? "carrier" : "sender"}
-                      testID="shipment-detail-payment-method"
-                    />
-                  ) : null}
-
                   <View>
                     <Eyebrow>Paquete</Eyebrow>
                     <PackageCard shipment={shipment} testID="shipment-detail-package" />
                   </View>
+
+                  {isSender || isCarrier ? (
+                    <View>
+                      <Eyebrow>Pago</Eyebrow>
+                      <ShipmentPaymentMethodRow
+                        paymentMethod={shipment.paymentMethod ?? "card"}
+                        role={isCarrier ? "carrier" : "sender"}
+                        testID="shipment-detail-payment-method"
+                      />
+                    </View>
+                  ) : null}
                 </>
               )}
 

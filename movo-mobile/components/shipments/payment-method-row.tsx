@@ -10,27 +10,41 @@ export interface ShipmentPaymentMethodRowProps {
   testID?: string;
 }
 
-const CASH_DETAIL: Record<ShipmentPaymentMethodRowProps["role"], string> = {
-  sender: "Le pagás el monto acordado completo al transportista, en mano, cuando le entregás el paquete.",
-  carrier:
-    "El emisor te paga en mano cuando te entrega el paquete. La comisión de Movo queda como saldo en tu cuenta al entregar.",
+const CAPTION: Record<ShipmentPaymentMethod, string> = {
+  card: "Reserva en tu tarjeta",
+  cash: "En mano al retiro",
 };
 
-/** MOVO-37 (M2): modalidad de pago del envío en el detalle, para el emisor y el transportista. */
+const CASH_DETAIL: Record<ShipmentPaymentMethodRowProps["role"], string> = {
+  sender: "Le pagás el monto acordado completo al transportista cuando le entregás el paquete.",
+  carrier: "El emisor te paga cuando te entrega el paquete. La comisión de Movo queda como saldo en tu cuenta al entregar.",
+};
+
+/** MOVO-37 (M2): modalidad de pago del envío en el detalle, para el emisor y el transportista. Mismo formato que
+ * `PackageCard`, bajo su propio título de sección. */
 export function ShipmentPaymentMethodRow({ paymentMethod, role, testID }: ShipmentPaymentMethodRowProps) {
   const colors = useThemeColors();
   const Icon = paymentMethod === "cash" ? Banknote : CreditCard;
   return (
-    <View testID={testID} className="flex-row gap-3 rounded-[10px] border border-border px-3.5 py-3">
-      <Icon size={18} strokeWidth={1.8} color={colors.fg2} style={{ marginTop: 1 }} />
-      <View className="flex-1 gap-0.5">
-        <Text className="font-sans text-[11px] text-fg-3">Pago</Text>
-        <Text testID={testID ? `${testID}-label` : undefined} className="font-sans-semibold text-[14px] text-fg">
-          {PAYMENT_METHOD_LABEL[paymentMethod]}
-        </Text>
-        {paymentMethod === "cash" ? (
-          <Text className="font-sans text-[12.5px] leading-[18px] text-fg-2">{CASH_DETAIL[role]}</Text>
-        ) : null}
+    <View testID={testID} className="overflow-hidden rounded-[14px] border border-border bg-bg">
+      <View className="flex-row items-center gap-3 px-4 py-3.5">
+        <View className="h-11 w-11 items-center justify-center rounded-[8px] bg-bg-mute">
+          <Icon size={22} color={colors.fg2} strokeWidth={1.8} />
+        </View>
+        <View className="flex-1">
+          <Text testID={testID ? `${testID}-label` : undefined} className="font-sans-semibold text-[14px] text-fg">
+            {PAYMENT_METHOD_LABEL[paymentMethod]}
+          </Text>
+          {/* El emisor con tarjeta ve "Reserva en tu tarjeta"; el transportista cobra por MP, no reserva nada. */}
+          {paymentMethod === "cash" || role === "sender" ? (
+            <Text className="mt-0.5 font-sans-medium text-[11px] uppercase tracking-wide text-fg-3">
+              {CAPTION[paymentMethod]}
+            </Text>
+          ) : null}
+          {paymentMethod === "cash" ? (
+            <Text className="mt-1 font-sans text-small text-fg-2">{CASH_DETAIL[role]}</Text>
+          ) : null}
+        </View>
       </View>
     </View>
   );
