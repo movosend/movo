@@ -372,9 +372,8 @@ describe("SummaryStep — modalidad de pago (MOVO-37)", () => {
 
   it("por defecto crea el envío con tarjeta", async () => {
     mockCreate.mockResolvedValueOnce({ id: "shipment-1" });
-    const { getByTestId, queryByTestId } = await renderReady();
+    const { getByTestId } = await renderReady();
 
-    expect(queryByTestId("summary-step-payment-method-cash-info")).toBeNull();
     await press(getByTestId("summary-step-submit"));
 
     await waitFor(() =>
@@ -384,10 +383,10 @@ describe("SummaryStep — modalidad de pago (MOVO-37)", () => {
 
   it("con efectivo explica el pago en mano al retiro y lo manda al crear", async () => {
     mockCreate.mockResolvedValueOnce({ id: "shipment-1" });
-    const { getByTestId } = await renderReady();
+    const { getByTestId, getByText } = await renderReady();
 
+    expect(getByText(/monto completo en mano/)).toBeTruthy();
     await press(getByTestId("summary-step-payment-method-cash"));
-    expect(getByTestId("summary-step-payment-method-cash-info")).toBeTruthy();
     await press(getByTestId("summary-step-submit"));
 
     await waitFor(() =>

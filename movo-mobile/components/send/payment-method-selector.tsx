@@ -71,13 +71,15 @@ export function PaymentMethodSelector({
         <Option
           testID={`${testID}-cash`}
           label="Efectivo"
-          description="Le pagás en mano al transportista cuando retira el paquete."
+          description="Le pagás el monto completo en mano al transportista cuando retira el paquete."
           Icon={Banknote}
           selected={value === "cash"}
           disabled={cashBlockedByDebt}
           onPress={() => onChange("cash")}
         />
       </View>
+      {/* Sin aviso extra al elegir efectivo: la descripción de la opción ya lo explica, y una caja que aparece al
+          tocar empuja el botón de publicar fuera de pantalla. */}
       {cashBlockedByDebt ? (
         <View
           testID={`${testID}-debt`}
@@ -95,13 +97,6 @@ export function PaymentMethodSelector({
           >
             <Text className="font-sans-semibold text-[12px] text-ink-950">Pagar mi saldo</Text>
           </Pressable>
-        </View>
-      ) : value === "cash" ? (
-        <View testID={`${testID}-cash-info`} className="mt-2.5 rounded-[10px] bg-bg-mute px-3.5 py-3">
-          <Text className="font-sans text-[13px] leading-[18px] text-fg-2">
-            Le pagás al transportista el monto acordado completo, en efectivo, cuando le entregás el paquete. No
-            reservamos nada en tu tarjeta.
-          </Text>
         </View>
       ) : null}
     </View>
