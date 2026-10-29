@@ -467,6 +467,7 @@ export type {
   AdminTrackingPoint,
   AdminTrackingMetrics,
   AdminShipmentTracking,
+  ShipmentPartyTracking,
 } from "./types/admin-shipments";
 
 // admin: cambio forzado de estado de un envío (MOVO-331, DD-055)

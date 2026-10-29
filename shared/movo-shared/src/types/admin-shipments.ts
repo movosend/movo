@@ -401,6 +401,12 @@ export interface AdminShipmentTracking {
   pollIntervalSeconds: number;
 }
 
+/**
+ * MOVO-346 (punto 12): `GET /shipments/:id/tracking`, el seguimiento que ven el emisor y el receptor. Mismo
+ * contrato que el del panel, con una diferencia: con el envío cerrado (`state: "closed"`) la traza sale vacía.
+ */
+export type ShipmentPartyTracking = AdminShipmentTracking;
+
 // MOVO-332: cambio de estado desde el panel (DD-055).
 
 /** Vigencia del código de 6 dígitos del step-up y del token que se obtiene al verificarlo. */

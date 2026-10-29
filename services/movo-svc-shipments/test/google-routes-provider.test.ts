@@ -56,6 +56,26 @@ describe("createGoogleRoutesProvider", () => {
     expect(fetchMock.mock.calls[1][1].body).toBe(fetchMock.mock.calls[0][1].body);
   });
 
+  it("manda las paradas intermedias en orden, y sin intermedios no agrega el campo (MOVO-346)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ routes: [{ distanceMeters: 1, duration: "1s", polyline: { encodedPolyline: "x" } }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createGoogleRoutesProvider({ apiKey: "test-key" });
+    const stop = { lat: -31.5, lng: -64.2 };
+
+    await provider.getRoute({ origin, destination, intermediates: [stop, origin] });
+    await provider.getRoute({ origin, destination, intermediates: [] });
+
+    const withStops = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(withStops.intermediates).toEqual([
+      { location: { latLng: { latitude: -31.5, longitude: -64.2 } } },
+      { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty("intermediates");
+  });
+
   it("mode live falla con ApiError 501 sin llamar a Google", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

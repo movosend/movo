@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, time as dt_time, timedelta
+from datetime import datetime, time as dt_time, timedelta, timezone
 import logging
 import math
 
@@ -50,8 +50,20 @@ class InternalNode:
     raw_window_end: str | None
 
 
+# Hora de Argentina (UTC-3, sin horario de verano): mismo criterio que
+# `ARGENTINA_UTC_OFFSET_HOURS` de `movo-svc-shipments/src/domain/carrier-route.ts`. Un
+# offset fijo en vez de `zoneinfo` para no depender de tzdata en la imagen.
+ARGENTINA_TZ = timezone(timedelta(hours=-3))
+
+
+def _as_aware_utc(dt: datetime) -> datetime:
+    """Un `datetime` sin zona se toma como UTC de forma explícita (MOVO-346, punto 15): nunca
+    se interpreta con la `TZ` del contenedor."""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
 def _parse_time_window(val: str | datetime | int | float | None, base_dt: datetime) -> tuple[int | None, str | None]:
-    """Convierte un valor de ventana horaria a minutos desde base_dt y un string legible."""
+    """Convierte un valor de ventana horaria a minutos desde base_dt (siempre con zona) y un string legible."""
     if val is None:
         return None, None
 
@@ -60,27 +72,20 @@ def _parse_time_window(val: str | datetime | int | float | None, base_dt: dateti
 
     if isinstance(val, datetime):
         raw_str = val.isoformat()
-        diff_minutes = int((val.astimezone() - base_dt.astimezone()).total_seconds() / 60.0)
+        diff_minutes = int((_as_aware_utc(val) - base_dt).total_seconds() / 60.0)
         return max(0, diff_minutes), raw_str
 
     val_str = str(val).strip()
-    # Intentar parsear ISO 8601
+    # Intentar parsear ISO 8601 (sin offset = UTC)
     try:
-        dt = datetime.fromisoformat(val_str.replace("Z", "+00:00"))
-        # Si tiene timezone, comparar con base_dt con timezone
-        if dt.tzinfo is not None and base_dt.tzinfo is None:
-            base_tz = base_dt.astimezone()
-        elif dt.tzinfo is None and base_dt.tzinfo is not None:
-            dt = dt.replace(tzinfo=base_dt.tzinfo)
-            base_tz = base_dt
-        else:
-            base_tz = base_dt
-        diff_minutes = int((dt - base_tz).total_seconds() / 60.0)
+        dt = _as_aware_utc(datetime.fromisoformat(val_str.replace("Z", "+00:00")))
+        diff_minutes = int((dt - base_dt).total_seconds() / 60.0)
         return max(0, diff_minutes), val_str
     except ValueError:
         pass
 
-    # Intentar parsear formato hora "HH:MM[:SS]"
+    # Intentar parsear formato hora "HH:MM[:SS]": es una hora de reloj de Argentina, en la
+    # fecha local de la partida.
     parts = val_str.split(":")
     if len(parts) >= 2:
         try:
@@ -88,7 +93,8 @@ def _parse_time_window(val: str | datetime | int | float | None, base_dt: dateti
             m = int(parts[1])
             s = int(parts[2]) if len(parts) > 2 else 0
             target_time = dt_time(h, m, s)
-            target_dt = datetime.combine(base_dt.date(), target_time, tzinfo=base_dt.tzinfo)
+            local_base = base_dt.astimezone(ARGENTINA_TZ)
+            target_dt = datetime.combine(local_base.date(), target_time, tzinfo=ARGENTINA_TZ)
             diff_minutes = int((target_dt - base_dt).total_seconds() / 60.0)
             return max(0, diff_minutes), val_str
         except (ValueError, TypeError):
@@ -124,19 +130,19 @@ class VRPTWSolver:
                 disclaimer="Ruta sin paradas asignadas.",
             )
 
-        # Determinar base timestamp de partida
+        # Determinar base timestamp de partida. Siempre con zona: las horas de llegada
+        # salen con offset y el cliente no las lee como hora local (MOVO-346, punto 15).
+        base_dt = datetime.now(timezone.utc)
         if request.departure_time is not None:
             if isinstance(request.departure_time, datetime):
-                base_dt = request.departure_time
+                base_dt = _as_aware_utc(request.departure_time)
             else:
                 try:
-                    base_dt = datetime.fromisoformat(
-                        str(request.departure_time).replace("Z", "+00:00")
+                    base_dt = _as_aware_utc(
+                        datetime.fromisoformat(str(request.departure_time).replace("Z", "+00:00"))
                     )
                 except ValueError:
-                    base_dt = datetime.now()
-        else:
-            base_dt = datetime.now()
+                    pass
 
         # Separar paradas en retiros (pickups) y entregas (dropoffs) para orden canónico
         pickups: list[RouteStopInput] = [s for s in request.stops if s.type == StopType.PICKUP]
