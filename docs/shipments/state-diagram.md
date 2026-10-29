@@ -17,10 +17,11 @@ envío solo queda en `delivered` hasta que se confirma la captura. Ningún barri
 (`receiver_redesignation_deadline`, 48hs con tope en la ventana de retiro) para elegir
 otro receptor o cancelar, y si no hace ninguna de las dos el barrido lo pasa a
 `cancelled`. El rechazo no se pierde: queda como evento en la línea de tiempo.
-`disputed` tampoco tiene salida en este módulo: la resolución de una disputa
-es responsabilidad de un admin (MOVO-30, panel en MOVO-32) y todavía no hay ticket que
-defina a qué estado vuelve el envío — no se modela una transición inventada para no
-adelantar una decisión que no está tomada.
+`disputed` sale únicamente por la resolución de un admin (MOVO-337, DD-056), sin estados
+nuevos: a favor del emisor → `cancelled`; a favor del transportista o parcial → `completed`. El
+resultado, el monto y el razonamiento quedan en la disputa, no en el estado. Un envío en disputa
+sigue sin poder forzarse a otro estado desde el panel (DD-055): solo sale por esta resolución, que
+mueve la plata según en qué estado se abrió la disputa (matriz en DD-056).
 
 `assigned → disputed` (MOVO-270, DD-052): el barrido de retiro no realizado tiene evidencia
 GPS de que el transportista llegó al punto de retiro y no hubo handshake. El hold se libera
@@ -110,16 +111,19 @@ stateDiagram-v2
     delivered --> disputed: reclamo post-entrega dentro de 7 días\n(una de las partes, MOVO-334)
     completed --> disputed: reclamo post-entrega dentro de 7 días\n(una de las partes, MOVO-334)
 
+    disputed --> completed: resuelta a favor del transportista\no parcial (admin, MOVO-337)
+    disputed --> cancelled: resuelta a favor del emisor\n(admin, MOVO-337)
+
     rejected_by_receiver --> awaiting_receiver_confirmation: emisor elige otro receptor (MOVO-253)
     rejected_by_receiver --> cancelled: emisor cancela o vence el plazo\n(barrido, MOVO-253)
     cancelled --> [*]
 
     note right of disputed
-        Sin transición de salida en este módulo:
-        la resolución de disputas (MOVO-34)
-        todavía no define a qué estado vuelve.
-        Cada entrada crea una disputa (entidad,
-        MOVO-334) con su motivo.
+        Solo sale por la resolución de un admin
+        (MOVO-337, DD-056): a favor del emisor ->
+        cancelled; del transportista o parcial ->
+        completed. Cada entrada crea una disputa
+        (entidad, MOVO-334) con su motivo.
     end note
 
     note right of assigned_unfunded

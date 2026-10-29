@@ -189,7 +189,7 @@ export const envSchema = {
     PICKUP_MISSED_SWEEP_ENABLED: { type: "boolean", default: true },
     PICKUP_MISSED_GRACE_HOURS: { type: "number", default: 24 },
     // MOVO-270 (AC12): invitación a calificar en la push de no-retiro, hasta MOVO-337.
-    PICKUP_NO_SHOW_RATING_INVITE_ENABLED: { type: "boolean", default: false },
+    PICKUP_NO_SHOW_RATING_INVITE_ENABLED: { type: "boolean", default: true },
     // MOVO-258 (D4): barrido que marca para revisión los `in_transit` que no se entregaron.
     // El fallback aplica solo si la oferta aceptada no declaró entrega estimada.
     TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },

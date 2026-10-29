@@ -47,8 +47,8 @@ describe("notification-settings-format", () => {
     });
 
     // MOVO-334: `disputes` era la última categoría "Pronto"; ahora tiene sus avisos de apertura.
-    it("disputes ya trae los avisos de apertura", () => {
-      expect(triggersForCategory("disputes")).toHaveLength(3);
+    it("disputes ya trae los avisos de apertura y el de resolución", () => {
+      expect(triggersForCategory("disputes")).toHaveLength(4);
     });
   });
 

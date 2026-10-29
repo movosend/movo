@@ -42,6 +42,15 @@ export function createConflictChecker(deps: ConflictCheckerDeps): ConflictChecke
         );
       }
 
+      // MOVO-337: las partes del envío disputado (incluidos los receptores anteriores), como en `shipment`.
+      case "dispute": {
+        const parties = await deps.shipmentsClient.getDisputeParties(target.id, ctx);
+        if (!parties) throw new ApiError(404, "NOT_FOUND", "Disputa no encontrada.");
+        return [parties.senderId, parties.carrierId, parties.receiverId, ...parties.formerReceiverIds].filter(
+          (id): id is string => id !== null,
+        );
+      }
+
       case "chat_report": {
         const parties = await deps.shipmentsClient.getChatReportParties(target.id, ctx);
         if (!parties) throw new ApiError(404, "NOT_FOUND", "Reporte no encontrado.");

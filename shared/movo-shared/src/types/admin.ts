@@ -19,7 +19,9 @@ export type AdminTargetType =
   | "chat_report"
   | "user_report"
   /** MOVO-322: una consulta de soporte; el admin es parte si es el usuario que la abrió. */
-  | "support_conversation";
+  | "support_conversation"
+  /** MOVO-337: una disputa; el admin es parte si lo es del envío disputado. */
+  | "dispute";
 
 /** Fila de `GET /admin/audit-log`. */
 export interface AuditLogEntry {

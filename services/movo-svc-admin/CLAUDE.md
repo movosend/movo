@@ -202,6 +202,20 @@ ser el que muestra el panel (`MOVO-12345`, `shipmentConfirmationCode`), no los 8
 **Corrección (MOVO-333): el schema de respuesta de los eventos declara `kind` y `actorName`.** Sin declararlos Fastify los recortaba y el detalle del
 panel nunca recibía la marca de manual/forzado. El test de `shipments.integration.test.ts` fija un evento forzado y falla si se pierden.
 
+### MOVO-337 — Disputas: lecturas por bloque, notas internas y resolución (DD-056)
+
+`modules/disputes/`: `GET /admin/disputes` (filtros de estado, motivo, resultado, fecha y `q`; cursor por id; `statusCounts`), `GET /admin/disputes/:id` y una ruta
+por bloque (`photos`, `handshake`, `trace`, `chat`, `resolution-preview`, `notes`), cada una contra `svc-shipments` (`/internal/admin/disputes*`); fotos y chat son
+los del envío. Escrituras por `runAdminAction`: `dispute.resolve` y `dispute.note_add` (objetivo nuevo `dispute` en la regla de conflicto: las partes del envío
+disputado, vía `GET /internal/admin/disputes/:id/parties`).
+- **Notas en `admin.admin_dispute_notes`** (de solo agregar, mismo molde que las del usuario; migración `20261025190000`, que también suma `dispute` al enum de la
+  bitácora). Las partes no las ven: no viven en `svc-shipments`.
+- **AC6 en el `precheck` de `resolve`**: con la disputa `open` y un `partial`, `svc-admin` lee la vista previa y rechaza con 422 `DISPUTE_PARTIAL_BELOW_MINIMUM`
+  (`details.minimumArs`) o `DISPUTE_PARTIAL_ABOVE_MAXIMUM` antes de llamar. Con la disputa ya `resolving`/`resolved` no revalida: lo decide `svc-shipments` con lo guardado.
+- **`DISPUTE_PAYMENT_FAILED` (502) es un `failed` seguro** (`relayServerErrorCodes`), no `unknown`: el servicio dueño sabe en qué quedó la disputa (`resolving`). Una
+  caída real de `svc-shipments` sí queda `unknown`. Timeout de 90 s (la captura de payments puede tardar ~50 s).
+- Pendiente: `disputeId` de `GET /admin/shipments` sigue en `null`; el panel (MOVO-338) y el reporte (MOVO-344). El contrato compartido con MOVO-341 (lecturas
+  del panel) queda por acordar en esa issue.
 ### MOVO-322 — Bandeja de soporte: `/admin/support/*`
 
 `modules/support/` sobre `adapters/support-client.ts` (`/internal/admin/support/*` de `svc-shipments`; un fallo es 502

@@ -1057,9 +1057,20 @@ enum DisputeReason {
 
 enum DisputeStatus {
   open
+  resolving
   resolved
 
   @@map("dispute_status_enum")
+  @@schema("shipments")
+}
+
+// MOVO-337 (DD-056): a favor de quién se resolvió la disputa.
+enum DisputeOutcome {
+  sender
+  carrier
+  partial
+
+  @@map("dispute_outcome_enum")
   @@schema("shipments")
 }
 
@@ -1092,6 +1103,17 @@ model Dispute {
   description  String
   status       DisputeStatus     @default(open)
   openedAt     DateTime          @default(now()) @map("opened_at") @db.Timestamptz
+
+  // MOVO-337 (DD-056): resolución. `outcome` y lo que sigue se guardan al pasar a `resolving` (antes de mover la
+  // plata); `resolved_at` recién cuando se confirma la acción de pago y el envío cambia de estado.
+  outcome              DisputeOutcome?
+  resolutionPercentage Int?            @map("resolution_percentage") @db.SmallInt
+  carrierAmountArs     Decimal?        @map("carrier_amount_ars") @db.Decimal(12, 2)
+  senderAmountArs      Decimal?        @map("sender_amount_ars") @db.Decimal(12, 2)
+  paymentAction        String?         @map("payment_action")
+  reasoning            String?
+  resolvedBy           String?         @map("resolved_by") @db.Uuid
+  resolvedAt           DateTime?       @map("resolved_at") @db.Timestamptz
 
   shipment   Shipment           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   statements DisputeStatement[]

@@ -23,16 +23,26 @@ export type SettlementStatus = (typeof SETTLEMENT_STATUSES)[number];
  * - `delivery`: captura del total al confirmarse la entrega (MOVO-212).
  * - `cancellation_penalty`: captura de PARTE del hold como penalidad de una cancelación tardía
  *   del emisor (MOVO-226/307); MP libera el resto.
+ * - `dispute_partial`: captura de PARTE del hold al resolver una disputa con resultado parcial (MOVO-337/DD-056).
+ *   Misma mecánica que la penalidad, pero no es una penalidad: el envío no se canceló, así que el ledger, el panel y
+ *   la lógica de MOVO-306 no la tratan como tal.
  */
-export const SETTLEMENT_KINDS = ["delivery", "cancellation_penalty"] as const;
+export const SETTLEMENT_KINDS = ["delivery", "cancellation_penalty", "dispute_partial"] as const;
 
 export type SettlementKind = (typeof SETTLEMENT_KINDS)[number];
+
+/** Los `kind` que capturan solo una parte del hold y por eso exigen `amountArs`. */
+export const PARTIAL_CAPTURE_KINDS = ["cancellation_penalty", "dispute_partial"] as const satisfies readonly SettlementKind[];
+
+export function isPartialCaptureKind(kind: SettlementKind): boolean {
+  return (PARTIAL_CAPTURE_KINDS as readonly SettlementKind[]).includes(kind);
+}
 
 /**
  * Body de `POST /internal/payments/holds/by-shipment/:shipmentId/capture`. Sin body es una
  * captura de entrega por el total, como en MOVO-212.
  * - `delivery` no acepta `amountArs`: la entrega siempre cobra lo autorizado.
- * - `cancellation_penalty` exige `amountArs`, que tiene que ser MAYOR que el `application_fee`
+ * - `cancellation_penalty` y `dispute_partial` exigen `amountArs`, que tiene que ser MAYOR que el `application_fee`
  *   del hold (si no, `422 CAPTURE_BELOW_APPLICATION_FEE`: MP lo rechazaría con `4201`, spike
  *   MOVO-305) y no mayor que el monto del hold (`422 CAPTURE_AMOUNT_EXCEEDS_HOLD`).
  */
@@ -169,7 +179,8 @@ export interface ShipmentSettlementResponse {
   role: "sender" | "carrier";
   /**
    * MOVO-307: `delivery` es el cobro del envío entregado; `cancellation_penalty`, la
-   * penalidad por una cancelación tardía (el transportista recibe la compensación).
+   * penalidad por una cancelación tardía (el transportista recibe la compensación);
+   * `dispute_partial`, la parte del hold que se le acredita por una disputa resuelta en parcial.
    */
   kind: SettlementKind;
   status: SettlementDisplayStatus;

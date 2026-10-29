@@ -379,7 +379,20 @@ export type ApiErrorCode =
   | "REFUND_IN_PROGRESS"
   // MOVO-336: el intento quedó sin confirmar hace más de lo que MP garantiza la key: reintentarlo podría reembolsar
   // dos veces. Lo resuelve una persona mirando el pago en MP (409).
-  | "REFUND_NEEDS_REVIEW";
+  | "REFUND_NEEDS_REVIEW"
+  // MOVO-337 (DD-056): resolución de disputas.
+  // `partial` sin `percentage` ni `amountArs`, con los dos, o con un porcentaje fuera del set (400).
+  | "DISPUTE_PARTIAL_INVALID"
+  // La disputa ya está `resolving`/`resolved` con otro resultado, monto o razonamiento que el pedido (409).
+  | "DISPUTE_RESOLUTION_MISMATCH"
+  // Otra resolución de la misma disputa está en curso (409).
+  | "DISPUTE_RESOLUTION_IN_PROGRESS"
+  // La acción de pago no se pudo confirmar: la disputa queda `resolving` y se reintenta (502).
+  | "DISPUTE_PAYMENT_FAILED"
+  // El monto parcial no cubre el `application_fee` del hold más la comisión de MP; `details.minimumArs` (422).
+  | "DISPUTE_PARTIAL_BELOW_MINIMUM"
+  // El monto libre supera lo que hay en juego; `details.maximumArs` (422).
+  | "DISPUTE_PARTIAL_ABOVE_MAXIMUM";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

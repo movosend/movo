@@ -4,6 +4,9 @@ import {
   CaptureHoldRequest,
   CaptureHoldResponse,
   CreateHoldRequest,
+  CreateManualAdjustmentRequest,
+  CreateRefundRequest,
+  CreateRefundResponse,
   DebtCollectionPreviewResponse,
   CreateUserLedgerEntryRequest,
   CreateUserLedgerEntryResponse,
@@ -11,6 +14,7 @@ import {
   HoldCheckoutDataResponse,
   HoldDetailResponse,
   HoldResponse,
+  RefundsResponse,
   SettlementResponse,
   UserLedgerBalanceResponse,
 } from "@movo/shared";
@@ -92,6 +96,19 @@ export interface PaymentsClient {
    * Idempotente por `idempotencyKey`: reenviar el mismo cuerpo devuelve el movimiento ya creado.
    */
   createLedgerEntry(userId: string, entry: CreateUserLedgerEntryRequest): Promise<CreateUserLedgerEntryResponse>;
+  /**
+   * MOVO-337 (MOVO-336): reembolsa (total o parcial) un pago ya capturado. Idempotente por `idempotencyKey`: un
+   * reintento con la misma key devuelve el reembolso ya hecho. Un `fallback_to_ledger` NO es un error: el
+   * transportista no tenía saldo en MP, el reembolso quedó como deuda suya y el emisor no cobró (caso manual).
+   */
+  createRefund(shipmentId: string, request: CreateRefundRequest): Promise<CreateRefundResponse>;
+  /** MOVO-337: intentos de reembolso del envío y lo que todavía es reembolsable. `null` si no hay liquidación. */
+  listRefunds(shipmentId: string): Promise<RefundsResponse | null>;
+  /**
+   * MOVO-337: ajuste manual en la cuenta corriente, con signo (negativo = a favor del usuario). Lo usa la
+   * resolución de una disputa de `assigned` para compensar al transportista sin hold. Idempotente por `idempotencyKey`.
+   */
+  createManualAdjustment(userId: string, request: CreateManualAdjustmentRequest): Promise<CreateUserLedgerEntryResponse>;
 }
 
 export interface PaymentsClientConfig {
@@ -113,6 +130,8 @@ const HOLD_TIMEOUT_MS = 20_000;
 const CAPTURE_TIMEOUT_MS = 50_000;
 const HOLDS_PATH = "/internal/payments/holds";
 const LEDGER_TIMEOUT_MS = 5000;
+// Un reembolso le pega a MP (un intento más una lectura, como la captura); mismo margen holgado.
+const REFUND_TIMEOUT_MS = 50_000;
 
 type SerializedError = { error?: { code?: string; message?: string; details?: Record<string, unknown> } };
 
@@ -331,6 +350,65 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(entry),
+            signal: AbortSignal.timeout(LEDGER_TIMEOUT_MS),
+          },
+        );
+      } catch {
+        throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
+      }
+      if (!response.ok) {
+        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
+      }
+      return (await response.json()) as CreateUserLedgerEntryResponse;
+    },
+
+    async createRefund(shipmentId, request) {
+      let response: Response;
+      try {
+        response = await fetch(
+          `${config.PAYMENTS_SERVICE_URL}/internal/payments/settlements/by-shipment/${encodeURIComponent(shipmentId)}/refund`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(request),
+            signal: AbortSignal.timeout(REFUND_TIMEOUT_MS),
+          },
+        );
+      } catch {
+        throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
+      }
+      if (!response.ok) {
+        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
+      }
+      return (await response.json()) as CreateRefundResponse;
+    },
+
+    async listRefunds(shipmentId) {
+      let response: Response;
+      try {
+        response = await fetch(
+          `${config.PAYMENTS_SERVICE_URL}/internal/payments/settlements/by-shipment/${encodeURIComponent(shipmentId)}/refunds`,
+          { method: "GET", signal: AbortSignal.timeout(STATUS_TIMEOUT_MS) },
+        );
+      } catch {
+        throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
+      }
+      if (response.status === 404) return null;
+      if (!response.ok) {
+        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
+      }
+      return (await response.json()) as RefundsResponse;
+    },
+
+    async createManualAdjustment(userId, request) {
+      let response: Response;
+      try {
+        response = await fetch(
+          `${config.PAYMENTS_SERVICE_URL}/internal/payments/users/${encodeURIComponent(userId)}/manual-adjustments`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(request),
             signal: AbortSignal.timeout(LEDGER_TIMEOUT_MS),
           },
         );

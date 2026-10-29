@@ -40,6 +40,7 @@ export type NotificationTriggerKey =
   | "disputeOpenedSender"
   | "disputeOpenedReceiver"
   | "disputeOpenedCarrier"
+  | "disputeResolved"
   | "offerCreated"
   | "offerAccepted"
   | "offerSuperseded"
@@ -322,6 +323,26 @@ export const NOTIFICATION_TRIGGERS = {
       title: "Envío en disputa",
       body: "Se abrió una disputa sobre un envío que llevás. Cargá tu descargo: no podés operar hasta que se resuelva",
     })
+  ),
+  // MOVO-337: resolución de la disputa, a las tres partes. El copy depende de cómo le fue a quien lo recibe;
+  // nunca lleva montos ni el razonamiento (un push se ve en la pantalla bloqueada): el razonamiento viaja en
+  // `data` y la app lo muestra al abrirlo. `ratingPending`: al ganador se le invita a calificar (AC11/AC12).
+  disputeResolved: definition<{ result: "favorable" | "unfavorable" | "partial" | "neutral"; ratingPending: boolean }>(
+    "disputes",
+    { title: "Disputa resuelta", body: "Resolvimos la disputa de tu envío. Tocá para ver el resultado y el razonamiento." },
+    ({ result, ratingPending }) => {
+      const resultCopies = {
+        favorable: "Se resolvió a tu favor",
+        partial: "Se resolvió con un acuerdo parcial",
+        neutral: "La disputa del envío que ibas a recibir quedó resuelta",
+        unfavorable: "Se resolvió a favor de la otra parte",
+      } as const;
+      const resultCopy = resultCopies[result];
+      return {
+        title: "Disputa resuelta",
+        body: `${resultCopy}. Tocá para ver el razonamiento${ratingPending ? " y calificar la experiencia" : ""}`,
+      };
+    }
   ),
   // MOVO-258 (D6): llegó el día de retiro de un envío publicado sin oferta aceptada, pero
   // todavía hay ofertas vigentes.

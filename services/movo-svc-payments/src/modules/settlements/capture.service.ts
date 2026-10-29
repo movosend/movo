@@ -13,7 +13,7 @@ import { Prisma } from "../../generated/prisma/client";
 import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-client";
 import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
 import { Hold, HoldRepository } from "../../repositories/hold-repository";
-import { Settlement, SettlementRepository, SettlementWithHold } from "../../repositories/settlement-repository";
+import { NewSettlement, Settlement, SettlementRepository, SettlementWithHold } from "../../repositories/settlement-repository";
 import { HoldDebtSettlement, UserLedgerRepository } from "../../repositories/user-ledger-repository";
 import { missingCardFields } from "../../utils/payment-card";
 import { splitCollectorFees, toMoney } from "../../utils/payment-fee";
@@ -47,7 +47,9 @@ const belowFeesError = (amount: Decimal, applicationFee: Decimal) =>
  * Qué capturar (MOVO-306). La entrega siempre cobra lo autorizado; la penalidad de cancelación
  * cobra `amountArs` y MP libera el resto.
  */
-export type CaptureRequest = { kind: "delivery" } | { kind: "cancellation_penalty"; amountArs: number };
+export type CaptureRequest =
+  | { kind: "delivery" }
+  | { kind: "cancellation_penalty" | "dispute_partial"; amountArs: number };
 
 export interface CaptureResult {
   settlement: SettlementResponse;
@@ -191,22 +193,57 @@ export function createCaptureService(deps: CaptureServiceDeps) {
   const now = deps.now ?? (() => new Date());
   const retryDelays = deps.retryDelaysMinutes ?? DEFAULT_RETRY_DELAYS_MINUTES;
 
+  // La key de la penalidad lleva el monto: si MP rechazó una captura parcial y se reintenta con otro monto (ver
+  // `replaceFailed`), reusar la key con otro cuerpo devolvería el rechazo cacheado o un conflicto de idempotencia.
   const captureKey = (settlement: Settlement) =>
     settlement.kind === "cancellation_penalty"
-      ? `movo-hold-penalty-${settlement.holdId}`
-      : `movo-hold-capture-${settlement.holdId}`;
+      ? `movo-hold-penalty-${settlement.holdId}-${settlement.grossAmountArs.toString()}`
+      : settlement.kind === "dispute_partial"
+        ? `movo-hold-dispute-${settlement.holdId}-${settlement.grossAmountArs.toString()}`
+        : `movo-hold-capture-${settlement.holdId}`;
+
+  /** ¿La liquidación existente es la que se pide (mismo tipo y, en la penalidad, mismo monto)? */
+  function matches(existing: Settlement, request: CaptureRequest): boolean {
+    const sameAmount =
+      request.kind === "delivery" || existing.grossAmountArs.equals(toMoney(request.amountArs));
+    return existing.kind === request.kind && sameAmount;
+  }
+
+  function conflict(existing: Settlement): ApiError {
+    return new ApiError(
+      409,
+      "SETTLEMENT_CONFLICT",
+      `El envío ya tiene una liquidación de tipo ${existing.kind} por ${existing.grossAmountArs.toString()}`
+    );
+  }
 
   /** Una liquidación por envío: otro tipo u otro monto no se pisa ni se devuelve como si fuera la pedida. */
   function assertMatches(existing: Settlement, request: CaptureRequest): void {
-    const sameAmount =
-      request.kind !== "cancellation_penalty" || existing.grossAmountArs.equals(toMoney(request.amountArs));
-    if (existing.kind !== request.kind || !sameAmount) {
+    if (!matches(existing, request)) throw conflict(existing);
+  }
+
+  /**
+   * Una liquidación `failed` de otro tipo o monto se reemplaza por la pedida (p. ej. una disputa: la parcial al 25 %
+   * rechazada por MP y el admin elige 50 % u otro resultado). Solo si MP confirma que el pago NO se capturó: sin
+   * poder consultarlo, o con el pago `approved`, no se pisa nada y sigue siendo `SETTLEMENT_CONFLICT`.
+   */
+  async function replaceFailed(existing: Settlement, hold: Hold, data: NewSettlement): Promise<void> {
+    const credentials = await accounts.findCredentials(hold.carrierId);
+    if (credentials === null || (credentials.tokenExpiresAt !== null && credentials.tokenExpiresAt <= now())) {
       throw new ApiError(
         409,
-        "SETTLEMENT_CONFLICT",
-        `El envío ya tiene una liquidación de tipo ${existing.kind} por ${existing.grossAmountArs.toString()}`
+        "CARRIER_MP_ACCOUNT_NOT_LINKED",
+        "No hay credenciales vigentes del transportista para confirmar el estado del pago"
       );
     }
+    let payment: PaymentSnapshot;
+    try {
+      payment = await mercadoPago.getPayment(credentials.accessToken, existing.mpPaymentId);
+    } catch {
+      throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "No se pudo consultar el pago en Mercado Pago");
+    }
+    if (payment.status !== "authorized" && payment.status !== "pending") throw conflict(existing);
+    if (!(await settlements.replaceFailed(existing.id, data))) throw conflict(existing);
   }
 
   /**
@@ -472,7 +509,7 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       payment = await mercadoPago.capturePayment(accessToken, settlement.mpPaymentId, {
         idempotencyKey: captureKey(settlement),
         // La entrega va sin `amount` (AC3 de MOVO-212); la penalidad, por lo que se liquida.
-        ...(settlement.kind === "cancellation_penalty" ? { amount: settlement.grossAmountArs.toNumber() } : {}),
+        ...(settlement.kind !== "delivery" ? { amount: settlement.grossAmountArs.toNumber() } : {}),
       });
     } catch (error) {
       const info = readMpError(error);
@@ -489,7 +526,7 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       const context = { mpHttpStatus: info.status, mpCauseCodes: info.causeCodes, mpStatus: current?.status, reason: info.message };
       // La estimación del fee de MP no alcanzó y MP rechazó la penalidad: mismo 422 que la
       // validación previa, para que `svc-shipments` aplique el plan B en vez de reintentar.
-      if (settlement.kind === "cancellation_penalty" && info.causeCodes.some((code) => CAPTURE_BELOW_FEES_CAUSES.has(code))) {
+      if (settlement.kind !== "delivery" && info.causeCodes.some((code) => CAPTURE_BELOW_FEES_CAUSES.has(code))) {
         return fail(settlement, "provider_error", belowFeesError(settlement.grossAmountArs, hold.applicationFeeArs), context, hold);
       }
       if (info.status === 401 || info.status === 403) {
@@ -543,7 +580,9 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       options: { retryJob?: boolean } = {}
     ): Promise<CaptureResult> {
       const existing = await settlements.findByShipment(shipmentId);
-      if (existing) assertMatches(existing, request);
+      // Un pedido distinto sobre una liquidación `failed` se resuelve más abajo (`replaceFailed`).
+      const replacing = existing !== null && !matches(existing, request) && existing.status === "failed";
+      if (existing && !replacing) assertMatches(existing, request);
       if (existing?.status === "credited") {
         return { settlement: toSettlementResponse(existing), replayed: true };
       }
@@ -561,10 +600,10 @@ export function createCaptureService(deps: CaptureServiceDeps) {
       }
 
       const grossAmountArs =
-        request.kind === "cancellation_penalty" ? penaltyAmount(hold, request.amountArs) : hold.amountArs;
+        request.kind !== "delivery" ? penaltyAmount(hold, request.amountArs) : hold.amountArs;
 
       // La fila `processing` se escribe antes de hablar con MP (ver doc del service).
-      let settlement = await settlements.findOrCreateProcessing({
+      const newSettlement: NewSettlement = {
         shipmentId,
         kind: request.kind,
         holdId: hold.id,
@@ -572,7 +611,9 @@ export function createCaptureService(deps: CaptureServiceDeps) {
         mpPaymentId: hold.mpPaymentId,
         grossAmountArs,
         commissionArs: hold.commissionArs,
-      });
+      };
+      if (replacing && existing) await replaceFailed(existing, hold, newSettlement);
+      let settlement = await settlements.findOrCreateProcessing(newSettlement);
       // Otro pedido pudo crear la fila entre la lectura de arriba y el upsert.
       assertMatches(settlement, request);
       if (settlement.status === "credited") {

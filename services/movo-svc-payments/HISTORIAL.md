@@ -862,3 +862,8 @@ Pendiente: **el Paso 0 no se corrió** (necesita las credenciales del sandbox): 
 salir el código de causa de "saldo insuficiente" que falta en `INSUFFICIENT_BALANCE_CAUSES` (`refund-failure.ts`; hoy se reconoce por el mensaje), si MP devuelve el `application_fee`
 de Movo y cómo prorratea el parcial (el fallback asienta el monto entero; ajustarlo si MP no devuelve la comisión). Fuera de alcance: el cliente en `svc-shipments`/`svc-admin`
 (MOVO-337) y un barrido que retome un intento `processing` sin reintento del llamador (hoy lo cierra el webhook si MP lo informa; si no, queda la alerta y, pasadas 12 h, `REFUND_NEEDS_REVIEW`).
+
+### MOVO-337 — Reemplazo de una liquidación `failed` (disputas)
+
+`capture.service`: un pedido de otro `kind` o monto sobre una liquidación `failed` la reemplaza (`settlements.replaceFailed`) solo si MP confirma que el pago sigue `authorized`/`pending`; si no se puede consultar o está `approved`, sigue siendo `409 SETTLEMENT_CONFLICT`. Así una disputa cuya captura parcial rechazó MP se puede reintentar con otro porcentaje o resultado. La key de idempotencia de la penalidad ahora lleva el monto (`movo-hold-penalty-<holdId>-<monto>`). `svc-shipments` trata `SETTLEMENT_CONFLICT` como incierto (la disputa queda `resolving` con alerta).
+- `SettlementKind` suma `dispute_partial` (migración `20261026120000_settlement_kind_dispute_partial`): misma mecánica que `cancellation_penalty` (monto parcial, piso del `application_fee`), key `movo-hold-dispute-<holdId>-<monto>`, pero sin pasar por la lógica de penalidad de MOVO-306. `@movo/shared` suma `PARTIAL_CAPTURE_KINDS`/`isPartialCaptureKind`. El mobile ya no muestra la card de compensación en un envío con disputa parcial (solo la arma para `cancellation_penalty`).
