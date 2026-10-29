@@ -456,6 +456,7 @@ export type {
   AdminShipmentPartyCard,
   AdminBlock,
   AdminShipmentDetail,
+  AdminShipmentDisputeSummary,
   AdminShipmentDetailResponse,
   AdminChatMessage,
   AdminChatReport,
@@ -687,7 +688,12 @@ export type {
   AdminDisputeNotePage,
   AdminDisputeNoteBody,
   AdminDisputeResolutionPreview,
+  AdminDisputeSort,
+  AdminDisputeCounts,
+  AdminDisputePartyHistory,
+  AdminDisputeAttribution,
 } from "./types/admin-disputes";
+export { ADMIN_DISPUTE_SORTS } from "./types/admin-disputes";
 
 // disputas (MOVO-334, DD-054)
 export {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  AdminDisputeCounts,
   AdminDisputeDetail,
   DisputeStatus,
   AdminDisputeHandshakeEvent,
@@ -122,6 +123,7 @@ export function createFakeShipmentsClient(data: {
       response?: Partial<ResolveDisputeResponse>;
     };
     seen?: { list?: string };
+    counts?: AdminDisputeCounts;
   };
   down?: boolean;
 } = {}): ShipmentsClient {
@@ -206,6 +208,10 @@ export function createFakeShipmentsClient(data: {
       if (data.down) throw shipmentsDown();
       if (data.disputes?.seen) data.disputes.seen.list = query.toString();
       return data.disputes?.page ?? { items: [], nextCursor: null, statusCounts: { open: 0, resolving: 0, resolved: 0 } };
+    },
+    async getDisputeCounts() {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.counts ?? { open: 0, resolving: 0, openOlderThan3Days: 0, openOlderThan7Days: 0 };
     },
     async getAdminDispute(id) {
       if (data.down) throw shipmentsDown();

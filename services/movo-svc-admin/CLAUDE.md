@@ -214,8 +214,21 @@ disputado, vía `GET /internal/admin/disputes/:id/parties`).
   (`details.minimumArs`) o `DISPUTE_PARTIAL_ABOVE_MAXIMUM` antes de llamar. Con la disputa ya `resolving`/`resolved` no revalida: lo decide `svc-shipments` con lo guardado.
 - **`DISPUTE_PAYMENT_FAILED` (502) es un `failed` seguro** (`relayServerErrorCodes`), no `unknown`: el servicio dueño sabe en qué quedó la disputa (`resolving`). Una
   caída real de `svc-shipments` sí queda `unknown`. Timeout de 90 s (la captura de payments puede tardar ~50 s).
-- Pendiente: `disputeId` de `GET /admin/shipments` sigue en `null`; el panel (MOVO-338) y el reporte (MOVO-344). El contrato compartido con MOVO-341 (lecturas
-  del panel) queda por acordar en esa issue.
+- Pendiente: el panel (MOVO-338) y el reporte (MOVO-344). Las lecturas que faltaban para el panel se cerraron en MOVO-341 (entrada siguiente).
+
+### MOVO-341 — Lectura de disputas para el panel (sobre MOVO-337)
+
+`GET /admin/disputes` suma `city` (parcial, sin tildes ni mayúsculas, sobre el `pickupCity` del envío) y `sort=oldest|newest`; cada fila trae
+`pickupCity`. `GET /admin/disputes/:id` suma `partyHistory` (abrió/perdió/abiertas por parte) y, en las disputas de sistema, `attribution`
+(DD-052: atribución del barrido y sus datos GPS, solo agregados). Ruta nueva `GET /admin/disputes/counts` (`open`, `resolving`,
+`openOlderThan3Days`, `openOlderThan7Days`, sin caché) para el menú lateral y la home. `GET /admin/shipments/:id` suma `dispute` (resumen) y
+`disputeId` deja de ser `null`. Todo es lectura pura vía `svc-shipments`; el cálculo está en su `HISTORIAL.md`.
+- **Campos nuevos fuera de `required` en los schemas de respuesta** (`pickupCity`, `partyHistory`, `attribution`, `dispute`): con un deploy en
+  serie, un `svc-shipments` anterior no los manda y Fastify no tiene que tirar la ruta.
+- **Difiere del ticket**: las notas siguen en `svc-admin` (decisión de MOVO-337), y el expediente sigue por rutas separadas, no por `AdminBlock`.
+  "Abiertas por defecto" tampoco: el panel pasa `status=open`.
+- Pendiente: plazo del descargo (para mostrar "días abierta" como atraso) y verificar que `movo-admin` (MOVO-343) consuma el contrato.
+
 ### MOVO-322 — Bandeja de soporte: `/admin/support/*`
 
 `modules/support/` sobre `adapters/support-client.ts` (`/internal/admin/support/*` de `svc-shipments`; un fallo es 502

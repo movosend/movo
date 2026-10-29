@@ -28,6 +28,8 @@ export interface PositionRepository {
    * asocia a uno solo de ellos (AC2). Ordenada por `capturedAt`. Vacía si nunca hubo retiro.
    */
   listCustodyTrace(shipmentId: string): Promise<CarrierPosition[]>;
+  /** MOVO-341: `capturedAt` de la última posición de esa misma traza, sin cargarla entera; `null` si no hay. */
+  findLastCustodyCapturedAt(shipmentId: string): Promise<Date | null>;
   /**
    * MOVO-202/AC6, rehecho por MOVO-270: borra las posiciones de todo envío elegible
    * (`POSITION_PURGE_ELIGIBLE_STATUSES`) cuyo `lastStatusChangedAt` ya superó
@@ -45,6 +47,30 @@ export interface PositionRepository {
 }
 
 export function createPositionRepository(db: PrismaClient): PositionRepository {
+  /** Filtro de las posiciones con custodia del envío (viaje de la oferta aceptada y rango pickup-entrega); `null` si no hubo retiro. */
+  async function custodyWindow(
+    shipmentId: string,
+  ): Promise<{ tripId: string; capturedAt: { gte: Date; lte?: Date } } | null> {
+    const [offer, pickupEvent, deliveryEvent] = await Promise.all([
+      db.offer.findFirst({ where: { shipmentId, status: OfferStatus.ACCEPTED, tripId: { not: null } }, select: { tripId: true } }),
+      db.shipmentEvent.findFirst({
+        where: { shipmentId, toStatus: ShipmentStatus.IN_TRANSIT },
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true },
+      }),
+      db.shipmentEvent.findFirst({
+        where: { shipmentId, fromStatus: ShipmentStatus.IN_TRANSIT },
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true },
+      }),
+    ]);
+    if (!offer?.tripId || !pickupEvent) return null;
+    return {
+      tripId: offer.tripId,
+      capturedAt: { gte: pickupEvent.createdAt, ...(deliveryEvent ? { lte: deliveryEvent.createdAt } : {}) },
+    };
+  }
+
   return {
     async create(input: CreateCarrierPositionInput): Promise<CarrierPosition> {
       const created = await db.carrierPosition.create({
@@ -62,28 +88,24 @@ export function createPositionRepository(db: PrismaClient): PositionRepository {
     },
 
     async listCustodyTrace(shipmentId: string): Promise<CarrierPosition[]> {
-      const [offer, pickupEvent, deliveryEvent] = await Promise.all([
-        db.offer.findFirst({ where: { shipmentId, status: OfferStatus.ACCEPTED, tripId: { not: null } }, select: { tripId: true } }),
-        db.shipmentEvent.findFirst({
-          where: { shipmentId, toStatus: ShipmentStatus.IN_TRANSIT },
-          orderBy: { createdAt: "asc" },
-          select: { createdAt: true },
-        }),
-        db.shipmentEvent.findFirst({
-          where: { shipmentId, fromStatus: ShipmentStatus.IN_TRANSIT },
-          orderBy: { createdAt: "asc" },
-          select: { createdAt: true },
-        }),
-      ]);
-      if (!offer?.tripId || !pickupEvent) return [];
+      const window = await custodyWindow(shipmentId);
+      if (!window) return [];
       const rows = await db.carrierPosition.findMany({
-        where: {
-          tripId: offer.tripId,
-          capturedAt: { gte: pickupEvent.createdAt, ...(deliveryEvent ? { lte: deliveryEvent.createdAt } : {}) },
-        },
+        where: window,
         orderBy: { capturedAt: "asc" },
       });
       return rows.map(mapPosition);
+    },
+
+    async findLastCustodyCapturedAt(shipmentId: string): Promise<Date | null> {
+      const window = await custodyWindow(shipmentId);
+      if (!window) return null;
+      const last = await db.carrierPosition.findFirst({
+        where: window,
+        orderBy: { capturedAt: "desc" },
+        select: { capturedAt: true },
+      });
+      return last?.capturedAt ?? null;
     },
 
     async purgeEligibleClosedShipments(now: Date, retentionDays: number): Promise<number> {
