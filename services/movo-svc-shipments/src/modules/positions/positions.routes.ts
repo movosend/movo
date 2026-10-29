@@ -203,6 +203,7 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
           "La posición en vivo sigue llegando por el WS `/shipments/:id/track`.",
         tags: ["positions"],
         params: positionsSchemas.shipmentIdParam,
+        response: { 200: positionsSchemas.shipmentTrackingResponse },
       },
     },
     async (request: FastifyRequest<{ Params: ShipmentIdParams }>, reply: FastifyReply) => {
@@ -210,16 +211,13 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
       const callerRoles = getUserRolesFromHeader(request);
       const { id: shipmentId } = request.params;
 
-      const shipment = await shipmentRepository.findById(shipmentId);
-      if (!shipment) {
+      const found = await shipmentRepository.findByIdWithRow(shipmentId);
+      if (!found) {
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
       }
+      const { shipment, row } = found;
       assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver el tracking de este envío.");
 
-      const row = await app.db.shipment.findUnique({ where: { id: shipmentId } });
-      if (!row) {
-        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
-      }
       reply.header("Cache-Control", "no-store");
       return getPartyTracking().get(row, { closedTrace: false });
     }

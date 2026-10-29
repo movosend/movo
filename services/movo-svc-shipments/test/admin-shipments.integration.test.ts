@@ -830,6 +830,13 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
         expect((await asUser(randomUUID(), shipment.senderId)).statusCode).toBe(404);
       });
 
+      it("401 sin x-user-id", async () => {
+        const shipment = await seedWithTrip(ShipmentStatus.IN_TRANSIT, { pickedUpAt: new Date() });
+
+        const response = await app.inject({ method: "GET", url: `/shipments/${shipment.id}/tracking` });
+        expect(response.statusCode).toBe(401);
+      });
+
       it("con el envío entregado la traza sale vacía, aunque el panel la siga viendo", async () => {
         const now = Date.now();
         const shipment = await seedWithTrip(ShipmentStatus.DELIVERED, {

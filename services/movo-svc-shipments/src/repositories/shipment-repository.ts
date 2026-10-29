@@ -564,6 +564,11 @@ export interface ShipmentRepository {
    */
   recordDisplayNames(entries: Array<{ userId: string; name: string | null | undefined }>): Promise<void>;
   findById(id: string): Promise<Shipment | null>;
+  /**
+   * MOVO-346: `findById` más la fila cruda que pide el seguimiento (ciudades, `Decimal`), en una sola lectura.
+   * El seguimiento de emisor y receptor se pide cada 15 s.
+   */
+  findByIdWithRow(id: string): Promise<{ shipment: Shipment; row: ShipmentRow } | null>;
   /** DD-055: pago simulado del envío, con lo que el decorador de payments necesita, en una sola lectura. `null` si no existe. */
   findPaymentSimulation(id: string): Promise<PaymentSimulation | null>;
   /**
@@ -1097,6 +1102,11 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     async findById(id: string): Promise<Shipment | null> {
       const row = await db.shipment.findUnique({ where: { id }, include: LAST_REJECTION_INCLUDE });
       return row ? mapShipmentWithLastRejection(row) : null;
+    },
+
+    async findByIdWithRow(id: string): Promise<{ shipment: Shipment; row: ShipmentRow } | null> {
+      const row = await db.shipment.findUnique({ where: { id }, include: LAST_REJECTION_INCLUDE });
+      return row ? { shipment: mapShipmentWithLastRejection(row), row } : null;
     },
 
     async listDeliveredAwaitingSettlement(
