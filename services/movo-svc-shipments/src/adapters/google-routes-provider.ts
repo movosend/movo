@@ -81,7 +81,7 @@ export function createGoogleRoutesProvider(config: GoogleRoutesProviderConfig): 
             travelMode: "DRIVE",
             polylineQuality: "OVERVIEW",
           }),
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          signal: AbortSignal.timeout(input.timeoutMs ?? REQUEST_TIMEOUT_MS),
         });
       } catch {
         throw new ApiError(502, "ROUTES_PROVIDER_ERROR", "No se pudo conectar con el proveedor de rutas.");

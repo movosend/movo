@@ -32,6 +32,9 @@ export interface RouteInput {
   intermediates?: RouteLatLng[];
   /** Default `per_trip` — los callers previos a MOVO-237 no lo pasan. */
   mode?: RouteMode;
+  /** Timeout de la llamada al proveedor; sin él, el default del provider (5 s). MOVO-346: "Mi ruta" lo acota
+   * porque el camino es accesorio y se suma al tiempo del optimizador. */
+  timeoutMs?: number;
 }
 
 /** Límite de intermedios de Compute Routes (Google rechaza el pedido por encima). */

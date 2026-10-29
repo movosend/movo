@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { createCarrierRoutePolylineStore } from "../src/modules/shipments/carrier-route-polyline-store";
+import {
+  CARRIER_ROUTE_POLYLINE_TIMEOUT_MS,
+  createCarrierRoutePolylineStore,
+} from "../src/modules/shipments/carrier-route-polyline-store";
 import { RouteInput } from "../src/adapters/routes-provider";
 import { createFakeRoutesProvider } from "./fake-routes-provider";
 
@@ -47,6 +50,7 @@ describe("carrier-route-polyline-store", () => {
         { lat: -31.41, lng: -64.1 },
         { lat: -31.42, lng: -64.1 },
       ],
+      timeoutMs: CARRIER_ROUTE_POLYLINE_TIMEOUT_MS,
     });
   });
 

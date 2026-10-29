@@ -12,6 +12,9 @@ import { MAX_ROUTE_INTERMEDIATES, RouteLatLng, RoutesProvider } from "../../adap
 export const CARRIER_ROUTE_POLYLINE_TTL_SECONDS = 10 * 60;
 /** Cache negativo: con el proveedor caído no se reintenta en cada poll. */
 export const CARRIER_ROUTE_POLYLINE_FAILURE_TTL_SECONDS = 60;
+/** Va después del optimizador (hasta `PRICING_OPTIMIZE_TIMEOUT_MS`) y en cada poll: se acota para no sumar los 5 s
+ * del provider al peor caso del endpoint. Un timeout cae al cache negativo como cualquier falla. */
+export const CARRIER_ROUTE_POLYLINE_TIMEOUT_MS = 2500;
 
 export interface CarrierRoutePolylineStop extends RouteLatLng {
   shipmentId: string;
@@ -50,6 +53,7 @@ export function createCarrierRoutePolylineStore(deps: CarrierRoutePolylineStoreD
         destination,
         intermediates: waypoints.slice(0, -1),
         mode: "per_trip",
+        timeoutMs: CARRIER_ROUTE_POLYLINE_TIMEOUT_MS,
       });
       polyline = route.polyline;
     } catch (err) {
