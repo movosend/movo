@@ -6,6 +6,7 @@ export interface EnvConfig {
   USERS_SERVICE_URL: string;
   PAYMENTS_SERVICE_URL: string;
   PRICING_SERVICE_URL: string;
+  PRICING_OPTIMIZE_TIMEOUT_MS: number;
   STORAGE_PROVIDER: "mock" | "s3";
   S3_BUCKET_NAME?: string;
   S3_REGION?: string;
@@ -87,6 +88,9 @@ export const envSchema = {
     // explícito ahí. Puerto 8000 porque movo-svc-pricing-logistics es FastAPI/uvicorn
     // (ADR-002), no Fastify como el resto de los servicios Node.
     PRICING_SERVICE_URL: { type: "string", default: "http://movo-svc-pricing-logistics:8000" },
+    // MOVO-346: timeout de `POST /optimize/route` (OR-Tools + matriz de Google). El resto de
+    // las llamadas a pricing-logistics sigue en 1 s.
+    PRICING_OPTIMIZE_TIMEOUT_MS: { type: "integer", default: 5000 },
     // MOVO-81: default "mock" (mismo criterio que movo-svc-users/MOVO-97) — no depender
     // de un bucket real ni de credenciales de AWS para levantar el servicio en
     // dev/test/CI. La obligatoriedad de S3_BUCKET_NAME/S3_REGION con

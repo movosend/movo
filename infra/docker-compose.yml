@@ -170,6 +170,7 @@ services:
       # arriba — una var presente pero vacía no matchea el enum de envSchema y tira el
       # servicio abajo al boot.
       - ROUTES_PROVIDER=${ROUTES_PROVIDER:-mock}
+      - PRICING_OPTIMIZE_TIMEOUT_MS=${PRICING_OPTIMIZE_TIMEOUT_MS:-5000}
       - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
       # MOVO-130: expiración automática del envío no confirmado
       - RECEIVER_CONFIRMATION_TIMEOUT_HOURS=${RECEIVER_CONFIRMATION_TIMEOUT_HOURS:-48}

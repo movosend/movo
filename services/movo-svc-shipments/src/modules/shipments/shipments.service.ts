@@ -3296,6 +3296,8 @@ export function createShipmentsService(
         const result = await pricingLogisticsClient.optimizeRoute({
           carrierLocation: { lat: location.lat, lng: location.lng },
           stops,
+          // MOVO-346: sin hora de partida, el solver usaba su reloj sin zona.
+          departureTime: new Date().toISOString(),
         });
         return mapOptimizedRoute(result);
       } catch (err) {

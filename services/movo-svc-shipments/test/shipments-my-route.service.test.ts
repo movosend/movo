@@ -133,6 +133,8 @@ describe("ShipmentsService.getMyRoute (MOVO-206)", () => {
         expect.objectContaining({ shipmentId: "s1", type: "pickup" }),
         expect.objectContaining({ shipmentId: "s1", type: "delivery" }),
       ],
+      // MOVO-346: la hora de partida viaja en UTC, con zona.
+      departureTime: expect.stringMatching(/Z$/),
     });
     expect(route.optimized).toBe(true);
     expect(route.stops).toHaveLength(2);
