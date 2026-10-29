@@ -1,4 +1,5 @@
 import {
+  ADMIN_DISPUTE_SORTS,
   DISPUTE_NOTE_MAX_LENGTH,
   DISPUTE_OUTCOMES,
   DISPUTE_PARTIAL_PRESETS,
@@ -63,6 +64,44 @@ const row = {
     carrier: { ...party, type: ["object", "null"] },
     receiver: party,
     outcome: { type: ["string", "null"], enum: [...outcomes, null] },
+    // MOVO-341. Fuera de `required` a propósito: si `svc-shipments` todavía no lo manda (deploy en serie), no se cae la ruta.
+    pickupCity: nullableStr,
+  },
+};
+
+const partyHistory = {
+  type: "array",
+  items: {
+    type: "object",
+    required: ["userId", "role", "opened", "lost", "open"],
+    properties: {
+      userId: str,
+      role: { type: "string", enum: ["sender", "carrier", "receiver"] },
+      opened: { type: "integer" },
+      lost: { type: "integer" },
+      open: { type: "integer" },
+    },
+  },
+};
+
+const attribution = {
+  type: ["object", "null"],
+  properties: {
+    reason: { type: "string", enum: ["transit_anomaly", "pickup_no_show"] },
+    attributedTo: { type: ["string", "null"], enum: ["carrier", "sender", null] },
+    summary: str,
+    sweptAt: str,
+    lastPingAt: nullableStr,
+    positions: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["lat", "lng", "accuracyM", "capturedAt", "class"],
+        properties: { lat: num, lng: num, accuracyM: num, capturedAt: str, class: { type: "string", enum: ["arrival", "far", "gray"] } },
+      },
+    },
+    farPositionsInWindow: { type: "integer" },
+    grayPositionsInWindow: { type: "integer" },
   },
 };
 
@@ -110,6 +149,8 @@ const detail = {
       },
     },
     resolution,
+    partyHistory,
+    attribution,
   },
 };
 
@@ -131,6 +172,13 @@ export const disputesSchemas = {
         reason: { type: "string", enum: reasons },
         outcome: { type: "string", enum: outcomes },
         q: { type: "string", minLength: 1, maxLength: 100, description: "Código del envío o nombre de cualquiera de las partes." },
+        city: {
+          type: "string",
+          minLength: 1,
+          maxLength: 100,
+          description: "Ciudad del retiro: coincidencia parcial, sin distinguir mayúsculas ni tildes.",
+        },
+        sort: { type: "string", enum: [...ADMIN_DISPUTE_SORTS], description: "Por fecha de apertura; por defecto `newest`." },
         from: { type: "string", format: "date-time" },
         to: { type: "string", format: "date-time" },
         cursor: { type: "string", maxLength: 64 },
@@ -149,6 +197,21 @@ export const disputesSchemas = {
             required: statuses,
             properties: Object.fromEntries(statuses.map((status) => [status, { type: "integer" }])),
           },
+        },
+      },
+      ...errors,
+    },
+  },
+  counts: {
+    response: {
+      200: {
+        type: "object",
+        required: ["open", "resolving", "openOlderThan3Days", "openOlderThan7Days"],
+        properties: {
+          open: { type: "integer" },
+          resolving: { type: "integer" },
+          openOlderThan3Days: { type: "integer" },
+          openOlderThan7Days: { type: "integer" },
         },
       },
       ...errors,

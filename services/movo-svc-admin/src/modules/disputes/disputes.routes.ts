@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
 import {
   AdminChatPage,
+  AdminDisputeCounts,
   AdminDisputeDetail,
   AdminDisputeHandshakeEvent,
   AdminDisputeNote,
@@ -85,15 +86,35 @@ export default async function disputesRoutes(app: FastifyInstance, _opts: Fastif
         summary: "Disputas de la plataforma",
         description:
           "Más reciente primero, paginado por cursor y filtrable por `status` (`open`, `resolving`, `resolved`), motivo, " +
-          "resultado, fecha de apertura y `q` (código del envío o nombre de una parte). Cada fila trae las partes, el " +
-          "motivo, la fecha de apertura y el estado del envío al abrirse; `statusCounts` son los totales por estado con " +
-          "los mismos filtros, sin `status`.",
+          "resultado, fecha de apertura, `city` (ciudad del retiro, coincidencia parcial sin distinguir mayúsculas ni " +
+          "tildes) y `q` (código del envío o nombre de una parte). `sort=oldest` pone primero la más antigua. Cada fila " +
+          "trae las partes, el motivo, la ciudad del retiro, la fecha de apertura y el estado del envío al abrirse; " +
+          "`statusCounts` son los totales por estado con los mismos filtros, sin `status`.",
         ...disputesSchemas.list,
       },
     },
     async (request): Promise<AdminDisputePage> => {
       requireAdmin(request);
       return app.shipmentsClient.listAdminDisputes(toQuery(request.query as object), ctxOf(request));
+    },
+  );
+
+  app.get(
+    "/disputes/counts",
+    {
+      schema: {
+        tags: ["admin"],
+        summary: "Contadores de disputas para el menú lateral y la home",
+        description:
+          "Abiertas, en resolución y abiertas hace más de 3 y más de 7 días (la segunda está incluida en la primera). " +
+          "Sin filtros y sin caché.",
+        ...disputesSchemas.counts,
+      },
+    },
+    async (request, reply): Promise<AdminDisputeCounts> => {
+      requireAdmin(request);
+      reply.header("Cache-Control", "no-store");
+      return app.shipmentsClient.getDisputeCounts(ctxOf(request));
     },
   );
 
@@ -106,6 +127,8 @@ export default async function disputesRoutes(app: FastifyInstance, _opts: Fastif
         description:
           "La disputa con su descripción, las fotos de la apertura, los descargos y la ampliación de cada parte, y la " +
           "resolución (resultado, monto, razonamiento, admin) si ya la tiene. Las fotos son URLs firmadas de vida corta. " +
+          "`partyHistory` trae cuántas disputas abrió, perdió y tiene abiertas cada parte; `attribution`, en una " +
+          "disputa de sistema (`transit_anomaly`, `pickup_no_show`), a quién atribuyó el barrido y con qué datos. " +
           "Los demás bloques tienen su propia ruta: `/photos`, `/handshake`, `/trace`, `/chat`, `/notes`.",
         ...disputesSchemas.detail,
       },

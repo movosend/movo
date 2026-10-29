@@ -1,4 +1,5 @@
 import {
+  AdminDisputeCounts,
   AdminDisputeDetail,
   AdminDisputeHandshakeEvent,
   AdminDisputePage,
@@ -83,6 +84,8 @@ export interface ShipmentsClient extends InternalClient {
   // MOVO-337: disputas para el panel (`/internal/admin/disputes*` de `svc-shipments`).
   /** `GET /internal/admin/disputes`: `query` ya viene validada y se reenvía tal cual. */
   listAdminDisputes(query: URLSearchParams, ctx: RequestContext): Promise<AdminDisputePage>;
+  /** MOVO-341: `GET /internal/admin/disputes/counts` (menú lateral y home). */
+  getDisputeCounts(ctx: RequestContext): Promise<AdminDisputeCounts>;
   /** `GET /internal/admin/disputes/:id`. `null` si la disputa no existe. */
   getAdminDispute(disputeId: string, ctx: RequestContext): Promise<AdminDisputeDetail | null>;
   /** `GET /internal/admin/disputes/:id/parties` (regla de conflicto de interés). `null` si la disputa no existe. */
@@ -111,7 +114,14 @@ const isDisputeRow = (value: unknown): boolean =>
 const isAdminDisputePage = (body: unknown): body is AdminDisputePage =>
   isRecord(body) && Array.isArray(body.items) && body.items.every(isDisputeRow) && isNullableString(body.nextCursor) && isRecord(body.statusCounts);
 
-const isAdminDisputeDetail = (body: unknown): body is AdminDisputeDetail =>
+const isDisputeCounts = (body: unknown): body is AdminDisputeCounts =>
+  isRecord(body) &&
+  typeof body.open === "number" &&
+  typeof body.resolving === "number" &&
+  typeof body.openOlderThan3Days === "number" &&
+  typeof body.openOlderThan7Days === "number";
+
+const isAdminDisputeDetail =(body: unknown): body is AdminDisputeDetail =>
   isDisputeRow(body) && isRecord(body) && isString(body.description) && Array.isArray(body.statements);
 
 const isDisputeParties = (body: unknown): body is ShipmentParties & { shipmentId: string } =>
@@ -362,6 +372,11 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
       });
       if (!page) throw new Error("listAdminDisputes: respuesta vacía");
       return page;
+    },
+    async getDisputeCounts(ctx) {
+      const counts = await client.request("/internal/admin/disputes/counts", ctx, { isValid: isDisputeCounts, notFoundCodes: [] });
+      if (!counts) throw new Error("getDisputeCounts: respuesta vacía");
+      return counts;
     },
     getAdminDispute(disputeId, ctx) {
       return client.request(`${disputePath(disputeId)}`, ctx, { isValid: isAdminDisputeDetail, notFoundCodes: ["DISPUTE_NOT_FOUND"] });
