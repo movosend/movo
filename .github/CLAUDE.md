@@ -58,3 +58,7 @@ profile `development` lo necesita. El primer development build de Android se cor
 (EAS no genera el keystore en modo `--non-interactive`). Un tag `dev-*` sobre la rama
 encoló los builds y el aviso de Telegram llegó. Pendiente de verificar: la versión que
 espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + TestFlight).
+
+### MOVO-346 — Logs de los contenedores antes de cada deploy
+
+`ci-dev.yml` y `ci-prod.yml`, en el paso de pull y restart: antes de `docker compose up -d`, vuelcan `docker compose logs --timestamps` comprimido a `~/movo/logs/pre-deploy-<UTC>.log.gz` y conservan los últimos 10. `up -d` recrea los contenedores y `json-file` borra los logs del viejo. En la prueba del 25/10 eso borró los de casi todos los servicios. Con `|| true`, nunca frena el deploy. Lo de fondo (logs fuera del contenedor, CloudWatch) sigue pendiente.

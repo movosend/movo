@@ -20,20 +20,20 @@ volver a investigar. Las referencias `archivo:línea` son al código del 26/10/2
 | # | Problema | Severidad | Dónde | Estado |
 |---|---|---|---|---|
 | 1 | Al transportista se le cerró la sesión a mitad del viaje y se cortó el tracking 26 min | **Crítica** | `movo-mobile` (sesión) | Causa identificada, falta el fix |
-| 2 | El sandbox de MP no respondió: 4 intentos de pago fallidos, se resolvió forzando el estado | Alta (externa) | MP / `svc-payments` | Mitigado con DD-055 |
-| 3 | El barrido de timeout revirtió la asignación durante la caída de MP, y casi lo hace dos veces | Media | `svc-shipments` (saga) | Comportamiento de diseño, a revisar |
-| 4 | Deploys en plena prueba: borraron logs y causaron 5xx | Media (proceso) | CI/CD | Regla nueva en el doc de referencia |
-| 5 | El optimizador de rutas siempre da timeout (cliente a 1 s) | Media | `svc-shipments` → pricing | Causa identificada |
-| 6 | 503 de nginx por rate limit al volver la app a primer plano | Media | `infra/nginx` + mobile | Causa identificada |
+| 2 | El sandbox de MP no respondió: 4 intentos de pago fallidos, se resolvió forzando el estado | Alta (externa) | MP / `svc-payments` | Mitigado con DD-055. Alerta `mp_hold_create_unavailable` (PR de backend) |
+| 3 | El barrido de timeout revirtió la asignación durante la caída de MP, y casi lo hace dos veces | Media | `svc-shipments` (saga) | Resuelto: plazo extendido ante una falla del proveedor (DD-057, PR de backend) |
+| 4 | Deploys en plena prueba: borraron logs y causaron 5xx | Media (proceso) | CI/CD | Regla nueva en el doc de referencia. El deploy guarda los logs antes de recrear (PR de backend) |
+| 5 | El optimizador de rutas siempre da timeout (cliente a 1 s) | Media | `svc-shipments` → pricing | Resuelto: `PRICING_OPTIMIZE_TIMEOUT_MS` (PR de backend) |
+| 6 | 503 de nginx por rate limit al volver la app a primer plano | Media | `infra/nginx` + mobile | nginx resuelto (429, burst 60, PR de backend). Falta el refetch del mobile |
 | 7 | El panel abre y cierra el WebSocket de soporte en loop (~1 ticket cada 2 s) | Media | config dev + `movo-admin` | Causa identificada |
 | 8 | `GET /trips/:id/matches` da 409 en cada poll con el viaje activo | Baja | `movo-mobile` | Causa identificada |
 | 9 | `GET /shipments/undefined/ratings` (400) | Baja | `movo-mobile` | Causa identificada |
 | 10 | Envíos de pruebas anteriores con holds `manual-*` y uno trabado en `delivered` | Baja (datos) | BD de dev | Limpiar |
 | 11 | El receptor ve "Listo. Se lo entregaste." después de escanear el QR de entrega | Media (UX) | `movo-mobile` | Causa identificada |
-| 12 | **Feature:** emisor y receptor deberían ver la ruta del transportista, no solo su posición | — (feature) | `movo-mobile` + `svc-shipments` | Propuesta |
+| 12 | **Feature:** emisor y receptor deberían ver la ruta del transportista, no solo su posición | — (feature) | `movo-mobile` + `svc-shipments` | Endpoint `GET /shipments/:id/tracking` hecho (PR de backend). Falta el mapa |
 | 13 | "Sin conexión a internet" al iniciar el viaje, con internet | Media | `movo-mobile` (tracking) | Red descartada (todo 200). Causa en el cliente, a acotar con telemetría |
-| 14 | "Mi ruta" une las paradas con líneas rectas, no con el camino por calles | Media | `svc-shipments` + `movo-mobile` | Causa identificada |
-| 15 | Llegada estimada de la próxima parada corrida 3 h (22:44 en vez de 19:44) | Alta | `svc-pricing-logistics` + `svc-shipments` | Causa identificada |
+| 14 | "Mi ruta" une las paradas con líneas rectas, no con el camino por calles | Media | `svc-shipments` + `movo-mobile` | `polyline` en `my-route` hecho (PR de backend). Falta dibujarlo |
+| 15 | Llegada estimada de la próxima parada corrida 3 h (22:44 en vez de 19:44) | Alta | `svc-pricing-logistics` + `svc-shipments` | Resuelto: horas con zona y `departureTime` (PR de backend) |
 | 16 | Validación de 100 m de la entrega contra la dirección cargada, no contra el receptor | Media | `movo-mobile` (wizard de entrega) | Causa identificada |
 | 17 | La card de envío activo del emisor solo tiene chat y la acción del estado | Baja (UX) | `movo-mobile` (home) | Propuesta |
 | 18 | Dos mapas en el detalle del envío, y "En vivo" no parece un botón | Media (UX) | `movo-mobile` (detalle) | Propuesta, se junta con el 12 |
