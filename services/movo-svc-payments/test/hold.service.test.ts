@@ -958,6 +958,30 @@ describe("HoldService (MOVO-209)", () => {
     });
 
     describe("errores de MP al crear (punto 2)", () => {
+      it("MOVO-346: un MP que no responde avisa al contador de la alerta y responde 502 igual", async () => {
+        const onProviderUnavailable = vi.fn().mockResolvedValue(undefined);
+        mp.createPayment.mockRejectedValueOnce({ status: 503, message: "x" });
+        const svc = createHoldService({
+          holdValidityDays: 5,
+          debtCollectionMaxRate: 0.3,
+          ledgerBalance: async () => 0,
+          holds,
+          accounts: accounts as unknown as CarrierMpAccountRepository,
+          mercadoPago: mp as unknown as MercadoPagoClient,
+          savedCards: savedCards as unknown as HoldServiceDeps["savedCards"],
+          log: log as unknown as FastifyBaseLogger,
+          now: () => clock,
+          onProviderUnavailable,
+        });
+
+        await expect(svc.create(input)).rejects.toMatchObject({ statusCode: 502, code: "PAYMENT_PROVIDER_ERROR" });
+        expect(onProviderUnavailable).toHaveBeenCalledWith({
+          shipmentId: holds.rows[0].shipmentId,
+          holdId: holds.rows[0].id,
+          mpHttpStatus: 503,
+        });
+      });
+
       it.each([408, 409, 429, 503])("un %s deja el intento en creating y responde 502, sin cerrarlo", async (status) => {
         mp.createPayment.mockRejectedValueOnce({ status, message: "x" });
         await expect(service().create(input)).rejects.toMatchObject({ statusCode: 502, code: "PAYMENT_PROVIDER_ERROR" });
