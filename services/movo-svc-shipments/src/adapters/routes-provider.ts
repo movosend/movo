@@ -27,9 +27,15 @@ export type RouteMode = "per_trip" | "live";
 export interface RouteInput {
   origin: RouteLatLng;
   destination: RouteLatLng;
+  /** Paradas intermedias, en orden (MOVO-346: el recorrido completo de "Mi ruta"). Google
+   * acepta hasta `MAX_ROUTE_INTERMEDIATES`; el caller recorta antes de pedir. */
+  intermediates?: RouteLatLng[];
   /** Default `per_trip` — los callers previos a MOVO-237 no lo pasan. */
   mode?: RouteMode;
 }
+
+/** Límite de intermedios de Compute Routes (Google rechaza el pedido por encima). */
+export const MAX_ROUTE_INTERMEDIATES = 25;
 
 export interface RouteResult {
   /** Polyline codificado (algoritmo estándar de Google, 5 decimales de precisión) —

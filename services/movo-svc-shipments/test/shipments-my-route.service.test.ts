@@ -327,3 +327,41 @@ describe("ShipmentsService.getMyRoute con tripId (MOVO-235)", () => {
     );
   });
 });
+
+describe("ShipmentsService.getMyRoute: camino por calles (MOVO-346)", () => {
+  const CARRIER_LOCATION = { lat: -31.4167, lng: -64.1833 };
+
+  it("agrega el polyline del store en el orden de la ruta, también en la degradada", async () => {
+    const shipment = createMockShipment({ id: "s1", status: ShipmentStatus.ASSIGNED });
+    const repository = { listActiveShipments: vi.fn().mockResolvedValue([shipment]) };
+    const routePolylineStore = { get: vi.fn().mockResolvedValue("encoded") };
+    const pricingLogisticsClient = {
+      evaluateCandidates: vi.fn(),
+      routeMatrix: vi.fn(),
+      optimizeRoute: vi.fn().mockRejectedValue(new Error("timeout")),
+    } as unknown as PricingLogisticsClient;
+
+    const service = createShipmentsService(repository as unknown as ShipmentRepository, {} as any, undefined, undefined, {
+      pricingLogisticsClient,
+      routePolylineStore,
+    });
+    const route = await service.getMyRoute("carrier-1", CARRIER_LOCATION);
+
+    expect(route.optimized).toBe(false);
+    expect(route.polyline).toBe("encoded");
+    expect(routePolylineStore.get).toHaveBeenCalledWith(
+      "carrier-1",
+      CARRIER_LOCATION,
+      route.stops.map((s) => expect.objectContaining({ shipmentId: s.shipmentId, type: s.type })),
+    );
+  });
+
+  it("sin store la ruta sale sin polyline", async () => {
+    const shipment = createMockShipment({ id: "s1", status: ShipmentStatus.IN_TRANSIT });
+    const repository = { listActiveShipments: vi.fn().mockResolvedValue([shipment]) };
+    const service = createShipmentsService(repository as unknown as ShipmentRepository, {} as any);
+
+    const route = await service.getMyRoute("carrier-1", CARRIER_LOCATION);
+    expect(route).not.toHaveProperty("polyline");
+  });
+});

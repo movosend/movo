@@ -71,6 +71,13 @@ export function createGoogleRoutesProvider(config: GoogleRoutesProviderConfig): 
             destination: {
               location: { latLng: { latitude: input.destination.lat, longitude: input.destination.lng } },
             },
+            ...(input.intermediates && input.intermediates.length > 0
+              ? {
+                  intermediates: input.intermediates.map((p) => ({
+                    location: { latLng: { latitude: p.lat, longitude: p.lng } },
+                  })),
+                }
+              : {}),
             travelMode: "DRIVE",
             polylineQuality: "OVERVIEW",
           }),

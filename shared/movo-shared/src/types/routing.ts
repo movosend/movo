@@ -102,5 +102,11 @@ export interface CarrierRoute {
   totalDurationMinutes: number;
   optimized: boolean;
   disclaimer: string | null;
+  /**
+   * MOVO-346: camino por calles desde el transportista por todas las paradas, en orden (polyline
+   * codificado, mismo formato que `GET /shipments/route`). `null` o ausente si el proveedor de
+   * rutas falló: el mapa une las paradas con rectas.
+   */
+  polyline?: string | null;
 }
 
