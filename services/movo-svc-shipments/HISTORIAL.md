@@ -3910,3 +3910,18 @@ adjuntos del agente) sobre `repositories/support-admin-repository.ts`, con regla
   replay sin publicar. Un solo feed y un solo servicio de adjuntos compartidos entre `/support` y el lado del agente.
 - Reabrir pone `last_user_message_at` en `now`: es la referencia de `waitMinutes` y del orden de la bandeja.
 - Pendiente: el WebSocket del panel con ticket (segunda PR de MOVO-322, en `svc-admin`).
+
+### MOVO-341 — Lectura de disputas para el panel: ciudad, orden, contadores, historial, atribución y disputa en el envío
+
+Sobre lo que MOVO-337 ya dejó (listado y expediente), `admin-disputes.routes.ts` suma: filtro `city` (coincidencia **parcial**, sin
+mayúsculas ni tildes, con `%`/`_` escapados; el filtro de ciudad de envíos de MOVO-325 compara por igualdad) y `pickupCity` en cada
+fila, `sort=oldest|newest` (cursor con comparación según el orden), `GET /internal/admin/disputes/counts` (abiertas, `resolving` y
+abiertas hace más de 3 y 7 días) y, en el expediente, `partyHistory` y `attribution`. `GET /internal/admin/shipments[/:id]` ya devuelve
+`disputeId` (la disputa más reciente) y el detalle un `dispute` con estado, motivo, quién abrió y cantidad de descargos.
+- **`partyHistory`**: por persona, abiertas por ella, perdidas (resuelta a favor de la contraparte; una `partial` no cuenta, el receptor
+  no gana ni pierde) y sin resolver (`open`/`resolving`) en cualquier rol (`dispute-repository.ts#partyHistory`).
+- **`attribution` solo con agregados** (decisión de MOVO-341): `pickup_evidence` guarda la llegada y los conteos de posiciones lejanas
+  y grises, no cada posición, así que `positions` trae a lo sumo la llegada. `attributedTo` es siempre `carrier`: `pickup_no_show` solo
+  se abre con `carrier_arrived` y `transit_anomaly` por demora del transportista. `lastPingAt` sale de `pickup_evidence.updated_at` (retiro)
+  o del último punto de la traza con custodia (tránsito). Una traza por posición clasificada queda fuera de alcance.
+- Pendiente: plazo del descargo de una parte (sin definir), que condiciona mostrar "días abierta" como atraso.

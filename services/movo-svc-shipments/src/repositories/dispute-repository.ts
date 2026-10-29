@@ -1,7 +1,7 @@
 import { DisputeReason, DisputeStatus, ShipmentStatus } from "@movo/shared";
 import type { DisputeOutcome, DisputePartyRole, DisputePaymentAction, DisputeStatementKind } from "@movo/shared";
 import { Prisma, PrismaClient } from "../generated/prisma/client";
-import { shipmentTextSearchSql } from "./admin-shipment-repository";
+import { normalizedSql, normalizeSearchText, shipmentTextSearchSql } from "./admin-shipment-repository";
 
 /**
  * MOVO-334 (DD-054): datos de la disputa que `updateStatus` crea en la misma transacción que la
@@ -72,10 +72,14 @@ export interface DisputeSearch {
   q?: string;
   from?: Date;
   to?: Date;
+  /** MOVO-341: ciudad del retiro del envío, coincidencia parcial sin distinguir mayúsculas ni tildes. */
+  city?: string;
 }
 
 export interface DisputeListParams extends DisputeSearch {
   status?: DisputeStatus;
+  /** Por fecha de apertura; por defecto `newest`. */
+  sort?: "newest" | "oldest";
   limit: number;
   /** Id de la última disputa de la página anterior. */
   cursor?: string;
@@ -83,7 +87,14 @@ export interface DisputeListParams extends DisputeSearch {
 
 export interface DisputeListItem {
   dispute: DisputeRecord;
-  shipment: { id: string; status: ShipmentStatus; senderId: string; carrierId: string | null; receiverId: string };
+  shipment: {
+    id: string;
+    status: ShipmentStatus;
+    senderId: string;
+    carrierId: string | null;
+    receiverId: string;
+    pickupCity: string | null;
+  };
   names: { sender: string | null; carrier: string | null; receiver: string | null };
   /** Estado del envío cuando se abrió la disputa (`fromStatus` del evento que lo pasó a `disputed`). */
   statusAtOpen: ShipmentStatus;
@@ -158,6 +169,32 @@ export class DisputePhotoAlreadyUsedError extends Error {
   }
 }
 
+/** MOVO-341: contadores sin filtros para el menú lateral y la home. */
+export interface DisputeCounts {
+  open: number;
+  resolving: number;
+  openOlderThan3Days: number;
+  openOlderThan7Days: number;
+}
+
+export interface DisputePartyHistoryRecord {
+  userId: string;
+  opened: number;
+  lost: number;
+  open: number;
+}
+
+/** MOVO-341: la disputa más reciente de un envío, con lo mínimo que muestra el detalle del envío. */
+export interface ShipmentDisputeSummaryRecord {
+  shipmentId: string;
+  disputeId: string;
+  status: DisputeStatus;
+  reason: DisputeReason;
+  openedByRole: DisputePartyRole | null;
+  openedAt: Date;
+  statementsCount: number;
+}
+
 export interface DisputeRepository {
   findOpenByShipment(shipmentId: string): Promise<DisputeRecord | null>;
   /** La disputa más reciente del envío, en cualquier estado. */
@@ -179,6 +216,15 @@ export interface DisputeRepository {
   list(params: DisputeListParams): Promise<{ items: DisputeListItem[]; nextCursor: string | null }>;
   /** Cuántas disputas hay en cada estado con los mismos filtros de búsqueda. */
   statusCounts(search: DisputeSearch): Promise<Record<DisputeStatus, number>>;
+  /** MOVO-341: abiertas, en resolución y abiertas hace más de 3 y 7 días. */
+  counts(now?: Date): Promise<DisputeCounts>;
+  /**
+   * MOVO-341: por persona, cuántas disputas abrió, cuántas perdió (resueltas a favor de la contraparte; una
+   * `partial` no cuenta) y cuántas tiene sin resolver (`open` o `resolving`) en cualquier rol.
+   */
+  partyHistory(userIds: string[]): Promise<DisputePartyHistoryRecord[]>;
+  /** MOVO-341: la disputa más reciente de cada envío que tenga alguna. */
+  latestSummaryByShipment(shipmentIds: string[]): Promise<Map<string, ShipmentDisputeSummaryRecord>>;
   /** Estado del envío cuando se abrió la disputa. */
   findStatusAtOpen(shipmentId: string): Promise<ShipmentStatus | null>;
   findById(id: string): Promise<DisputeWithDetails | null>;
@@ -245,6 +291,11 @@ function searchConditions(search: DisputeSearch): Prisma.Sql[] {
   if (search.to) conditions.push(Prisma.sql`d.opened_at <= ${search.to}`);
   const text = shipmentTextSearchSql(search.q?.replace(/^#/, ""));
   if (text) conditions.push(text);
+  const city = search.city ? normalizeSearchText(search.city) : "";
+  if (city) {
+    const like = `%${city.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+    conditions.push(Prisma.sql`${normalizedSql("s.pickup_city")} LIKE ${like}`);
+  }
   return conditions;
 }
 
@@ -317,6 +368,7 @@ export function createDisputeRepository(db: PrismaClient): DisputeRepository {
             senderId: shipment.senderId,
             carrierId: shipment.carrierId,
             receiverId: shipment.receiverId,
+            pickupCity: shipment.pickupCity,
           },
           names: {
             sender: nameOf.get(shipment.senderId) ?? null,
@@ -387,13 +439,16 @@ export function createDisputeRepository(db: PrismaClient): DisputeRepository {
       if (params.cursor !== undefined && !UUID_PATTERN.test(params.cursor)) throw new InvalidDisputeCursorError();
       const conditions = searchConditions(params);
       if (params.status) conditions.push(Prisma.sql`d.status::text = ${params.status}`);
+      const oldest = params.sort === "oldest";
       if (params.cursor) {
+        const after = oldest ? Prisma.sql`>` : Prisma.sql`<`;
         conditions.push(
-          Prisma.sql`(d.opened_at, d.id) < (SELECT c.opened_at, c.id FROM shipments.disputes c WHERE c.id = ${params.cursor}::uuid)`,
+          Prisma.sql`(d.opened_at, d.id) ${after} (SELECT c.opened_at, c.id FROM shipments.disputes c WHERE c.id = ${params.cursor}::uuid)`,
         );
       }
+      const order = oldest ? Prisma.sql`d.opened_at ASC, d.id ASC` : Prisma.sql`d.opened_at DESC, d.id DESC`;
       const ids = await db.$queryRaw<Array<{ id: string }>>(
-        Prisma.sql`SELECT d.id ${FROM_SQL} ${whereOf(conditions)} ORDER BY d.opened_at DESC, d.id DESC LIMIT ${params.limit + 1}`,
+        Prisma.sql`SELECT d.id ${FROM_SQL} ${whereOf(conditions)} ORDER BY ${order} LIMIT ${params.limit + 1}`,
       );
       const pageIds = ids.slice(0, params.limit).map((row) => row.id);
       const nextCursor = ids.length > params.limit ? (pageIds[pageIds.length - 1] ?? null) : null;
@@ -418,6 +473,82 @@ export function createDisputeRepository(db: PrismaClient): DisputeRepository {
       };
       for (const row of rows) counts[row.status as DisputeStatus] = Number(row.total);
       return counts;
+    },
+
+    async counts(now = new Date()) {
+      const day = 24 * 60 * 60 * 1000;
+      const [row] = await db.$queryRaw<Array<{ open: bigint; resolving: bigint; older3: bigint; older7: bigint }>>(
+        Prisma.sql`SELECT
+          COUNT(*) FILTER (WHERE d.status::text = 'open') AS open,
+          COUNT(*) FILTER (WHERE d.status::text = 'resolving') AS resolving,
+          COUNT(*) FILTER (WHERE d.status::text = 'open' AND d.opened_at < ${new Date(now.getTime() - 3 * day)}) AS older3,
+          COUNT(*) FILTER (WHERE d.status::text = 'open' AND d.opened_at < ${new Date(now.getTime() - 7 * day)}) AS older7
+          FROM shipments.disputes d`,
+      );
+      return {
+        open: Number(row?.open ?? 0),
+        resolving: Number(row?.resolving ?? 0),
+        openOlderThan3Days: Number(row?.older3 ?? 0),
+        openOlderThan7Days: Number(row?.older7 ?? 0),
+      };
+    },
+
+    async partyHistory(userIds) {
+      if (userIds.length === 0) return [];
+      const rows = await db.$queryRaw<Array<{ userId: string; opened: bigint; lost: bigint; open: bigint }>>(
+        Prisma.sql`SELECT u.user_id::text AS "userId",
+          (SELECT COUNT(*) FROM shipments.disputes d WHERE d.opened_by = u.user_id) AS opened,
+          (SELECT COUNT(*) FROM shipments.disputes d JOIN shipments.shipments s ON s.id = d.shipment_id
+            WHERE d.status::text = 'resolved'
+              AND ((d.outcome::text = 'carrier' AND s.sender_id = u.user_id)
+                OR (d.outcome::text = 'sender' AND s.carrier_id = u.user_id))) AS lost,
+          (SELECT COUNT(*) FROM shipments.disputes d JOIN shipments.shipments s ON s.id = d.shipment_id
+            WHERE d.status::text IN ('open', 'resolving')
+              AND (s.sender_id = u.user_id OR s.carrier_id = u.user_id OR s.receiver_id = u.user_id)) AS open
+          FROM unnest(${userIds}::uuid[]) AS u(user_id)`,
+      );
+      return rows.map((row) => ({
+        userId: row.userId,
+        opened: Number(row.opened),
+        lost: Number(row.lost),
+        open: Number(row.open),
+      }));
+    },
+
+    async latestSummaryByShipment(shipmentIds) {
+      const result = new Map<string, ShipmentDisputeSummaryRecord>();
+      if (shipmentIds.length === 0) return result;
+      const rows = await db.$queryRaw<
+        Array<{
+          shipmentId: string;
+          disputeId: string;
+          status: string;
+          reason: string;
+          openedByRole: string | null;
+          openedAt: Date;
+          statements: bigint;
+        }>
+      >(
+        Prisma.sql`SELECT DISTINCT ON (d.shipment_id)
+          d.shipment_id::text AS "shipmentId", d.id::text AS "disputeId", d.status::text AS status, d.reason::text AS reason,
+          d.opened_by_role::text AS "openedByRole", d.opened_at AS "openedAt",
+          (SELECT COUNT(*) FROM shipments.dispute_statements st WHERE st.dispute_id = d.id) AS statements
+          FROM shipments.disputes d
+          WHERE d.shipment_id = ANY(${shipmentIds}::uuid[])
+          ORDER BY d.shipment_id, d.opened_at DESC, d.id DESC`,
+      );
+      for (const row of rows) {
+        result.set(row.shipmentId, {
+          shipmentId: row.shipmentId,
+          disputeId: row.disputeId,
+          status: row.status as DisputeStatus,
+          reason: row.reason as DisputeReason,
+          openedByRole: row.openedByRole as DisputePartyRole | null,
+          openedAt: row.openedAt,
+          statementsCount: Number(row.statements),
+        });
+      }
+      return result;
     },
 
     async findStatusAtOpen(shipmentId) {
