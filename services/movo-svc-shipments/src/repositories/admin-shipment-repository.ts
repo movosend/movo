@@ -84,7 +84,7 @@ export const normalizedSql = (column: string): Prisma.Sql =>
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (char) => `\\${char}`);
+export const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (char) => `\\${char}`);
 
 /**
  * Búsqueda de texto libre sobre un envío (`s`) y sus partes (`sn`/`cn`/`rn`), compartida por el listado de envíos y el de

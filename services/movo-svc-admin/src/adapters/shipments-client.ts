@@ -121,7 +121,7 @@ const isDisputeCounts = (body: unknown): body is AdminDisputeCounts =>
   typeof body.openOlderThan3Days === "number" &&
   typeof body.openOlderThan7Days === "number";
 
-const isAdminDisputeDetail =(body: unknown): body is AdminDisputeDetail =>
+const isAdminDisputeDetail = (body: unknown): body is AdminDisputeDetail =>
   isDisputeRow(body) && isRecord(body) && isString(body.description) && Array.isArray(body.statements);
 
 const isDisputeParties = (body: unknown): body is ShipmentParties & { shipmentId: string } =>

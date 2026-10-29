@@ -214,8 +214,8 @@ disputado, vía `GET /internal/admin/disputes/:id/parties`).
   (`details.minimumArs`) o `DISPUTE_PARTIAL_ABOVE_MAXIMUM` antes de llamar. Con la disputa ya `resolving`/`resolved` no revalida: lo decide `svc-shipments` con lo guardado.
 - **`DISPUTE_PAYMENT_FAILED` (502) es un `failed` seguro** (`relayServerErrorCodes`), no `unknown`: el servicio dueño sabe en qué quedó la disputa (`resolving`). Una
   caída real de `svc-shipments` sí queda `unknown`. Timeout de 90 s (la captura de payments puede tardar ~50 s).
-- Pendiente: `disputeId` de `GET /admin/shipments` sigue en `null`; el panel (MOVO-338) y el reporte (MOVO-344). El contrato compartido con MOVO-341 (lecturas
-  del panel) queda por acordar en esa issue.
+- Pendiente: el panel (MOVO-338) y el reporte (MOVO-344). Las lecturas que faltaban para el panel se cerraron en MOVO-341 (entrada siguiente).
+
 ### MOVO-341 — Lectura de disputas para el panel (sobre MOVO-337)
 
 `GET /admin/disputes` suma `city` (parcial, sin tildes ni mayúsculas, sobre el `pickupCity` del envío) y `sort=oldest|newest`; cada fila trae

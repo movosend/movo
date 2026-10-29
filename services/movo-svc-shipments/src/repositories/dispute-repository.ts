@@ -1,7 +1,7 @@
 import { DisputeReason, DisputeStatus, ShipmentStatus } from "@movo/shared";
 import type { DisputeOutcome, DisputePartyRole, DisputePaymentAction, DisputeStatementKind } from "@movo/shared";
 import { Prisma, PrismaClient } from "../generated/prisma/client";
-import { normalizedSql, normalizeSearchText, shipmentTextSearchSql } from "./admin-shipment-repository";
+import { escapeLike, normalizedSql, normalizeSearchText, shipmentTextSearchSql } from "./admin-shipment-repository";
 
 /**
  * MOVO-334 (DD-054): datos de la disputa que `updateStatus` crea en la misma transacción que la
@@ -293,7 +293,7 @@ function searchConditions(search: DisputeSearch): Prisma.Sql[] {
   if (text) conditions.push(text);
   const city = search.city ? normalizeSearchText(search.city) : "";
   if (city) {
-    const like = `%${city.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+    const like = `%${escapeLike(city)}%`;
     conditions.push(Prisma.sql`${normalizedSql("s.pickup_city")} LIKE ${like}`);
   }
   return conditions;

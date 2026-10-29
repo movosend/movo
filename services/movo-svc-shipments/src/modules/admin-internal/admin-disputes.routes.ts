@@ -182,10 +182,9 @@ export default async function adminDisputesRoutes(app: FastifyInstance, opts: Ad
         grayPositionsInWindow: evidence?.grayPositionsInWindow ?? 0,
       };
     }
-    const trace = await positionRepository.listCustodyTrace(shipment.id);
     return {
       ...base,
-      lastPingAt: iso(trace[trace.length - 1]?.capturedAt),
+      lastPingAt: iso(await positionRepository.findLastCustodyCapturedAt(shipment.id)),
       positions: [],
       farPositionsInWindow: 0,
       grayPositionsInWindow: 0,

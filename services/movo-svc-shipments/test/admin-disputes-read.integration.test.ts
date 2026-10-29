@@ -128,7 +128,7 @@ describe("lectura de disputas para el panel (Postgres + Redis) — MOVO-341", ()
       const partial = await get<AdminDisputePage>("/internal/admin/disputes?city=carlos");
       expect(partial.body.items).toHaveLength(1);
       expect(partial.body.items[0]?.pickupCity).toBe("Villa Carlos Paz");
-      // La fila sin ciudad tampoco aparece sin filtro de ciudad con pickupCity null: se informa como null.
+      // Sin filtro de ciudad aparecen todas, y la que no tiene ciudad se informa con `pickupCity: null`.
       const all = await get<AdminDisputePage>("/internal/admin/disputes");
       expect(all.body.items.map((item) => item.pickupCity).sort()).toEqual(["Córdoba", "Rosario", "Villa Carlos Paz", null].sort());
     });
@@ -260,10 +260,62 @@ describe("lectura de disputas para el panel (Postgres + Redis) — MOVO-341", ()
 
     it("transit_anomaly: trae la atribución con el último ping de la traza con custodia", async () => {
       const system = await disputedShipment({ system: true, reason: DisputeReason.TRANSIT_ANOMALY });
+      // Custodia: viaje con la oferta aceptada, retiro hace 5 h y dos posiciones posteriores (la última manda).
+      const trip = await app.db.trip.create({
+        data: {
+          carrierId,
+          originAddress: "Av. Colón 1234, Córdoba",
+          originLat: -31.4201,
+          originLng: -64.1888,
+          destinationAddress: "Av. San Martín 100, Villa María",
+          destinationLat: -32.4104,
+          destinationLng: -63.2404,
+          departureAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
+          vehicleType: "auto",
+        },
+      });
+      await app.db.offer.create({
+        data: {
+          shipmentId: system.shipmentId,
+          carrierId,
+          tripId: trip.id,
+          priceOffered: 1150,
+          offeredDate: new Date("2031-06-01T00:00:00.000Z"),
+          status: "accepted",
+          carrierNameAtOffer: "Juan P.",
+        },
+      });
+      await app.db.shipmentEvent.create({
+        data: {
+          shipmentId: system.shipmentId,
+          fromStatus: ShipmentStatus.ASSIGNED,
+          toStatus: ShipmentStatus.IN_TRANSIT,
+          createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
+        },
+      });
+      const lastPing = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      for (const capturedAt of [new Date(Date.now() - 4 * 60 * 60 * 1000), lastPing]) {
+        await app.db.carrierPosition.create({
+          data: { shipmentId: system.shipmentId, tripId: trip.id, lat: -31.5, lng: -64.1, accuracyM: 8, capturedAt },
+        });
+      }
 
       const { body } = await get<AdminDisputeDetail>(`/internal/admin/disputes/${system.disputeId}`);
 
-      expect(body.attribution).toMatchObject({ reason: "transit_anomaly", attributedTo: "carrier", positions: [] });
+      expect(body.attribution).toMatchObject({
+        reason: "transit_anomaly",
+        attributedTo: "carrier",
+        positions: [],
+        lastPingAt: lastPing.toISOString(),
+      });
+    });
+
+    it("transit_anomaly sin traza con custodia: lastPingAt es null", async () => {
+      const system = await disputedShipment({ system: true, reason: DisputeReason.TRANSIT_ANOMALY });
+
+      const { body } = await get<AdminDisputeDetail>(`/internal/admin/disputes/${system.disputeId}`);
+
+      expect(body.attribution?.lastPingAt).toBeNull();
     });
 
     it("una disputa inexistente es 404", async () => {
