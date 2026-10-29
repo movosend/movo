@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
@@ -5,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.models.optimize import Coordinates
 from app.services.routes_provider import GoogleRoutesProvider, RoutesProviderError
+from app.services.vrptw_solver import _parse_time_window
 from main import app
 
 client = TestClient(app)
@@ -314,3 +316,79 @@ def test_optimize_validation_error_invalid_coordinates() -> None:
         },
     )
     assert response.status_code == 422
+
+
+def _single_delivery(window_start: str | None = None, window_end: str | None = None) -> dict[str, object]:
+    stop: dict[str, object] = {
+        "shipmentId": "ship-tz",
+        "type": "delivery",
+        "lat": -31.4250,
+        "lng": -64.1870,
+    }
+    if window_start is not None:
+        stop["timeWindowStart"] = window_start
+    if window_end is not None:
+        stop["timeWindowEnd"] = window_end
+    return stop
+
+
+def test_optimize_without_departure_time_returns_offset() -> None:
+    """MOVO-346 (punto 15): sin departureTime, las horas salen con offset, no como hora local ambigua."""
+    response = client.post(
+        "/optimize/route",
+        json={"carrierLocation": {"lat": -31.4167, "lng": -64.1833}, "stops": [_single_delivery()]},
+    )
+    assert response.status_code == 200
+    stop = response.json()["stops"][0]
+    for key in ("estimatedArrivalAt", "estimatedDepartureAt"):
+        parsed = datetime.fromisoformat(stop[key])
+        assert parsed.utcoffset() == timedelta(0)
+
+
+def test_optimize_arrival_is_departure_plus_minutes() -> None:
+    """MOVO-346 (punto 15): con departureTime en UTC, la llegada es la salida más los minutos, en UTC."""
+    response = client.post(
+        "/optimize/route",
+        json={
+            "carrierLocation": {"lat": -31.4167, "lng": -64.1833},
+            "departureTime": "2026-10-25T21:55:00Z",
+            "stops": [_single_delivery()],
+        },
+    )
+    assert response.status_code == 200
+    stop = response.json()["stops"][0]
+    arrival = datetime.fromisoformat(stop["estimatedArrivalAt"])
+    expected = datetime(2026, 10, 25, 21, 55, tzinfo=timezone.utc) + timedelta(
+        minutes=stop["estimatedArrivalMinutes"]
+    )
+    assert arrival == expected
+
+
+def test_optimize_naive_departure_time_is_utc() -> None:
+    """MOVO-346: una departureTime sin offset se toma como UTC, no con la TZ del contenedor."""
+    response = client.post(
+        "/optimize/route",
+        json={
+            "carrierLocation": {"lat": -31.4167, "lng": -64.1833},
+            "departureTime": "2026-10-25T21:55:00",
+            "stops": [_single_delivery()],
+        },
+    )
+    assert response.status_code == 200
+    arrival = datetime.fromisoformat(response.json()["stops"][0]["estimatedArrivalAt"])
+    assert arrival.utcoffset() == timedelta(0)
+    assert arrival >= datetime(2026, 10, 25, 21, 55, tzinfo=timezone.utc)
+
+
+def test_parse_time_window_clock_time_is_argentina() -> None:
+    """MOVO-346: una ventana "HH:MM" es hora de reloj de Argentina (UTC-3)."""
+    base = datetime(2026, 10, 25, 21, 0, tzinfo=timezone.utc)  # 18:00 ART
+    minutes, raw = _parse_time_window("19:00", base)
+    assert minutes == 60
+    assert raw == "19:00"
+
+
+def test_parse_time_window_naive_iso_is_utc() -> None:
+    base = datetime(2026, 10, 25, 21, 0, tzinfo=timezone.utc)
+    minutes, _ = _parse_time_window("2026-10-25T22:30:00", base)
+    assert minutes == 90
