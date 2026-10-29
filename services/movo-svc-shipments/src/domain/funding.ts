@@ -50,6 +50,25 @@ export function nearRouteFundingDeadline(acceptedAt: Date, timeoutMinutes: numbe
   return timeoutDeadline <= pickupEnd ? timeoutDeadline : pickupEnd;
 }
 
+/**
+ * MOVO-346 (DD-057): nuevo plazo de la ruta cercana cuando el proveedor de pagos no respondió a un intento:
+ * `attemptAt + extensionMinutes`, con tope en el cierre de la ventana de retiro. `null` si ya se dieron
+ * `maxExtensions` o si no alarga el plazo vigente (nunca lo acorta).
+ */
+export function providerFailureFundingExtension(input: {
+  attemptAt: Date;
+  currentDeadline: Date;
+  pickupEnd: Date;
+  extensionsSoFar: number;
+  extensionMinutes: number;
+  maxExtensions: number;
+}): Date | null {
+  if (input.extensionsSoFar >= input.maxExtensions) return null;
+  const extended = new Date(input.attemptAt.getTime() + input.extensionMinutes * 60 * 1000);
+  const capped = extended <= input.pickupEnd ? extended : input.pickupEnd;
+  return capped > input.currentDeadline ? capped : null;
+}
+
 /** `true` si la ruta lejana ya abrió su ventana de confirmación. */
 export function isFundingWindowOpen(pickupStart: Date, nearDays: number, now: Date): boolean {
   return fundingWindowOpensAt(pickupStart, nearDays) <= now;

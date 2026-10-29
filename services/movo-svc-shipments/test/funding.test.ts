@@ -4,6 +4,7 @@ import {
   fundingWindowOpensAt,
   isFundingWindowOpen,
   nearRouteFundingDeadline,
+  providerFailureFundingExtension,
   reminderBucket,
   selectFundingRoute,
 } from "../src/domain/funding";
@@ -60,5 +61,39 @@ describe("plazos de la saga", () => {
     const a = reminderBucket(new Date("2026-10-10T00:00:00.000Z"), 12);
     expect(reminderBucket(new Date("2026-10-10T11:59:00.000Z"), 12)).toBe(a);
     expect(reminderBucket(new Date("2026-10-10T12:00:00.000Z"), 12)).toBe(a + 1);
+  });
+});
+
+describe("extensión del plazo por falla del proveedor (DD-057)", () => {
+  const MIN = 60 * 1000;
+  const acceptedAt = new Date("2026-10-25T20:40:00.000Z");
+  const base = new Date(acceptedAt.getTime() + 30 * MIN);
+  const pickupEnd = new Date("2026-10-25T23:00:00.000Z");
+  const extend = (attemptMin: number, extra: Partial<Parameters<typeof providerFailureFundingExtension>[0]> = {}) =>
+    providerFailureFundingExtension({
+      attemptAt: new Date(acceptedAt.getTime() + attemptMin * MIN),
+      currentDeadline: base,
+      pickupEnd,
+      extensionsSoFar: 0,
+      extensionMinutes: 15,
+      maxExtensions: 2,
+      ...extra,
+    });
+
+  it("el caso de la prueba del 25/10: un intento a los 19 min alarga el plazo de 21:10 a 21:14", () => {
+    expect(extend(19)?.toISOString()).toBe("2026-10-25T21:14:00.000Z");
+  });
+
+  it("no acorta el plazo: un intento temprano no extiende", () => {
+    expect(extend(5)).toBeNull();
+  });
+
+  it("respeta el tope de extensiones", () => {
+    expect(extend(25, { extensionsSoFar: 2 })).toBeNull();
+  });
+
+  it("nunca pasa el cierre de la ventana de retiro", () => {
+    const soonEnd = new Date(acceptedAt.getTime() + 35 * MIN);
+    expect(extend(25, { pickupEnd: soonEnd })?.toISOString()).toBe(soonEnd.toISOString());
   });
 });

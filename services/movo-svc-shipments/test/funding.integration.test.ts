@@ -510,6 +510,48 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
     });
 
+    it("DD-057: un 502 tarde en el plazo lo extiende, el barrido no revierte y el tope corta a las 2 extensiones", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+      const service = buildService();
+      const MIN = 60 * 1000;
+      const acceptedAt = Date.now();
+      paymentsClient.behavior.createFails = true;
+
+      // Intento a los 25 min (plazo base: 30): pasa a 25 + 15 = 40.
+      await expect(
+        service.submitFunding(shipmentId, senderId, { cardToken: "tok" }, new Date(acceptedAt + 25 * MIN)),
+      ).rejects.toMatchObject({ code: "PAYMENT_PROVIDER_ERROR" });
+      const first = await service.getFunding(shipmentId, senderId, new Date(acceptedAt + 35 * MIN));
+      expect(new Date(first.payUntil).getTime()).toBeGreaterThan(acceptedAt + 39 * MIN);
+
+      const sweep = await service.expireUnpaidAssignmentPending(new Date(acceptedAt + 35 * MIN));
+      expect(sweep.revertedCount).toBe(0);
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
+
+      // Segunda extensión (38 + 15 = 53) y una tercera que ya no extiende.
+      await expect(
+        service.submitFunding(shipmentId, senderId, { cardToken: "tok" }, new Date(acceptedAt + 38 * MIN)),
+      ).rejects.toMatchObject({ code: "PAYMENT_PROVIDER_ERROR" });
+      await expect(
+        service.submitFunding(shipmentId, senderId, { cardToken: "tok" }, new Date(acceptedAt + 50 * MIN)),
+      ).rejects.toMatchObject({ code: "PAYMENT_PROVIDER_ERROR" });
+      const capped = await shipmentRepo.findById(shipmentId);
+      expect(capped?.fundingDeadlineExtensions).toBe(2);
+      expect(capped!.fundingDeadlineExtendedUntil!.getTime()).toBeLessThan(acceptedAt + 54 * MIN);
+    });
+
+    it("DD-057: un rechazo de tarjeta no extiende el plazo", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+      const service = buildService();
+      paymentsClient.behavior.nextHoldStatus = "rejected";
+
+      await service.submitFunding(shipmentId, senderId, { cardToken: "tok" }, new Date(Date.now() + 25 * 60 * 1000));
+
+      const shipment = await shipmentRepo.findById(shipmentId);
+      expect(shipment?.fundingDeadlineExtendedUntil).toBeNull();
+      expect(shipment?.fundingDeadlineExtensions).toBe(0);
+    });
+
     it("un envío con el plazo vencido ya no se puede pagar (409)", async () => {
       const { shipmentId } = await acceptedShipment(1);
       const service = buildService();

@@ -110,6 +110,8 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     receiverRedesignationDeadline: row.receiverRedesignationDeadline,
     transitAnomalyFlaggedAt: row.transitAnomalyFlaggedAt,
     transitAnomalyWarnedAt: row.transitAnomalyWarnedAt,
+    fundingDeadlineExtendedUntil: row.fundingDeadlineExtendedUntil,
+    fundingDeadlineExtensions: row.fundingDeadlineExtensions,
     cancellationPenaltyArs: row.cancellationPenaltyArs ? row.cancellationPenaltyArs.toNumber() : null,
     cancellationPenaltyStatus: row.cancellationPenaltyStatus,
     chatStartedAt: row.chatStartedAt,
@@ -763,6 +765,11 @@ export interface ShipmentRepository {
    * marcó o el envío se entregó mientras tanto (el caller no notifica en ese caso).
    */
   flagTransitAnomaly(id: string, now?: Date): Promise<boolean>;
+  /**
+   * MOVO-346 (DD-057): extiende el plazo de pago de un `assignment_pending` hasta `until`. Condicional sobre la
+   * cantidad de extensiones leída: si otro intento extendió en el medio, devuelve `false` y no pisa nada.
+   */
+  extendFundingDeadline(id: string, until: Date, expectedExtensions: number): Promise<boolean>;
   /**
    * MOVO-278 (DD-045): envíos `in_transit` marcados en o antes de `flaggedBefore` a los
    * que todavía no se les mandó el aviso previo a la disputa, el marcado hace más tiempo primero.
@@ -1839,6 +1846,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         take: limit,
       });
       return rows.map(mapShipment);
+    },
+
+    async extendFundingDeadline(id: string, until: Date, expectedExtensions: number): Promise<boolean> {
+      const result = await db.shipment.updateMany({
+        where: { id, status: ShipmentStatus.ASSIGNMENT_PENDING, fundingDeadlineExtensions: expectedExtensions },
+        data: { fundingDeadlineExtendedUntil: until, fundingDeadlineExtensions: expectedExtensions + 1 },
+      });
+      return result.count > 0;
     },
 
     async flagTransitAnomaly(id: string, now: Date = new Date()): Promise<boolean> {
