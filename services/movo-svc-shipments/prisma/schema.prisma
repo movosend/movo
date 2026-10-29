@@ -248,6 +248,10 @@ model Shipment {
   // entrega. Marca durable: el QR vence a los 15 s pero la entrega ya empezó y desde
   // entonces no se puede pedir ni aceptar un cambio de receptor.
   deliveryHandshakeStartedAt DateTime? @map("delivery_handshake_started_at") @db.Timestamptz
+  // MOVO-346 (DD-057): plazo de pago de `assignment_pending` extendido porque el proveedor de pagos no
+  // respondió al intento del emisor. NULL = sin extensión. Las dos columnas se limpian en cada aceptación.
+  fundingDeadlineExtendedUntil DateTime? @map("funding_deadline_extended_until") @db.Timestamptz
+  fundingDeadlineExtensions    Int       @default(0) @map("funding_deadline_extensions")
   // MOVO-307 (DD-047): penalidad que el emisor confirmó al cancelar un `assigned` con menos de
   // 12 h, y qué pasó con ella. Ambas NULL en una cancelación sin cargo.
   cancellationPenaltyArs    Decimal?                   @map("cancellation_penalty_ars") @db.Decimal(12, 2)

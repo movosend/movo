@@ -62,6 +62,11 @@ export interface Shipment {
   /** MOVO-278 (DD-045): cuándo se le avisó al transportista que el envío marcado pasa a
    * disputa si no confirma la entrega; `null` = nunca avisado. */
   transitAnomalyWarnedAt: Date | null;
+  /** MOVO-346 (DD-057): plazo de pago de `assignment_pending` extendido por una falla del proveedor de pagos;
+   * `null`/ausente = sin extensión. */
+  fundingDeadlineExtendedUntil?: Date | null;
+  /** MOVO-346 (DD-057): extensiones dadas en la asignación actual. */
+  fundingDeadlineExtensions?: number;
   /** MOVO-307 (DD-047): penalidad que el emisor confirmó al cancelar un `assigned` con menos
    * de 12 h; `null` en toda cancelación sin cargo. */
   cancellationPenaltyArs: number | null;

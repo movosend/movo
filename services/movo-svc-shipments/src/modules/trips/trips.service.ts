@@ -148,6 +148,7 @@ async function triggerRouteWarmup(
     await deps.pricingLogisticsClient.optimizeRoute({
       carrierLocation: { lat: trip.originLat, lng: trip.originLng },
       stops,
+      departureTime: new Date().toISOString(),
     });
   } catch (err) {
     deps.logger?.warn(

@@ -24,6 +24,7 @@ import {
   isFundingWindowOpen,
   toCarrierFundingView,
   nearRouteFundingDeadline,
+  providerFailureFundingExtension,
   reminderBucket,
 } from "../../domain/funding";
 import { anchorTimeOfDayToInstant, pickupWindowEndInstant } from "../../domain/pickup-window";
@@ -49,7 +50,15 @@ export interface FundingConfig {
   reminderIntervalHours: number;
   /** DD-055: un admin puede dar un envío por pagado sin hold real (`ALLOW_SIMULATED_PAYMENTS`). */
   allowSimulatedPayments?: boolean;
+  /** DD-057: minutos que suma al plazo de la ruta cercana un intento sin respuesta del proveedor. */
+  providerExtensionMinutes?: number;
+  /** DD-057: tope de extensiones por asignación. */
+  providerMaxExtensions?: number;
 }
+
+const DEFAULT_PROVIDER_EXTENSION_MINUTES = 15;
+const DEFAULT_PROVIDER_MAX_EXTENSIONS = 2;
+const PROVIDER_FAILURE_CODES: ReadonlySet<string> = new Set(["PAYMENT_PROVIDER_ERROR", "PAYMENTS_SERVICE_UNAVAILABLE"]);
 
 type FundingLogger =
   | FastifyBaseLogger
@@ -114,7 +123,13 @@ export async function releaseHoldBeforeCancel(
 /** Lo del envío que decide el plazo de pago. */
 export type FundingDeadlineShipment = Pick<
   Shipment,
-  "status" | "pickupDate" | "pickupTimeWindowStart" | "pickupTimeWindowEnd" | "lastStatusChangedAt" | "updatedAt"
+  | "status"
+  | "pickupDate"
+  | "pickupTimeWindowStart"
+  | "pickupTimeWindowEnd"
+  | "lastStatusChangedAt"
+  | "updatedAt"
+  | "fundingDeadlineExtendedUntil"
 >;
 
 /**
@@ -126,11 +141,14 @@ export function fundingPayUntil(
   config: Pick<FundingConfig, "paymentTimeoutMinutes" | "releaseHoursBeforePickup">,
 ): Date {
   if (shipment.status === ShipmentStatus.ASSIGNMENT_PENDING) {
-    return nearRouteFundingDeadline(
+    const base = nearRouteFundingDeadline(
       shipment.lastStatusChangedAt ?? shipment.updatedAt,
       config.paymentTimeoutMinutes,
       pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
     );
+    // DD-057: la extensión por falla del proveedor ya viene con tope en el cierre del retiro.
+    const extended = shipment.fundingDeadlineExtendedUntil;
+    return extended && extended > base ? extended : base;
   }
   // Ruta lejana: T-24h del retiro. Piso: el mismo margen de pago que tiene la ruta
   // cercana desde que el envío ENTRÓ a este estado. Sin él, un hold perdido a menos de 24h
@@ -157,6 +175,35 @@ export function createFundingService(deps: FundingServiceDeps) {
 
   /** Hasta cuándo puede pagar el emisor en el estado actual del envío. */
   const payUntilOf = (shipment: Shipment): Date => fundingPayUntil(shipment, config);
+
+  /**
+   * DD-057: un intento de la ruta cercana que el proveedor no resolvió (502 o hold `creating`/`in_process`)
+   * extiende el plazo, para que una caída de Mercado Pago no le cueste la asignación al emisor. Devuelve el
+   * plazo vigente después del intento. Nunca tira: si no se pudo guardar, sigue el plazo anterior.
+   */
+  async function extendOnProviderFailure(shipment: Shipment, now: Date, payUntil: Date): Promise<Date> {
+    const until = providerFailureFundingExtension({
+      attemptAt: now,
+      currentDeadline: payUntil,
+      pickupEnd: pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd),
+      extensionsSoFar: shipment.fundingDeadlineExtensions ?? 0,
+      extensionMinutes: config.providerExtensionMinutes ?? DEFAULT_PROVIDER_EXTENSION_MINUTES,
+      maxExtensions: config.providerMaxExtensions ?? DEFAULT_PROVIDER_MAX_EXTENSIONS,
+    });
+    if (!until) return payUntil;
+    try {
+      const extended = await repository.extendFundingDeadline(shipment.id, until, shipment.fundingDeadlineExtensions ?? 0);
+      if (!extended) return payUntil;
+      logger?.warn(
+        { event: "funding_deadline_extended", shipmentId: shipment.id, payUntil: until.toISOString() },
+        "Plazo de pago extendido: el proveedor de pagos no resolvió el intento",
+      );
+      return until;
+    } catch (err) {
+      logger?.error({ err, event: "funding_deadline_extend_failed", shipmentId: shipment.id }, "No se pudo extender el plazo de pago");
+      return payUntil;
+    }
+  }
 
   /**
    * AC1/AC2: ¿puede el emisor pagar AHORA? Solo `assignment_pending` (hasta el plazo) o
@@ -629,9 +676,11 @@ export function createFundingService(deps: FundingServiceDeps) {
         };
       }
 
-      const { payUntil } = assertFundable(shipment, now);
+      const { route, payUntil } = assertFundable(shipment, now);
 
-      const hold = await paymentsClient.createHold({
+      let hold: HoldResponse;
+      try {
+        hold = await paymentsClient.createHold({
         shipmentId: shipment.id,
         carrierId: shipment.carrierId as string,
         cardToken: input.cardToken,
@@ -643,18 +692,30 @@ export function createFundingService(deps: FundingServiceDeps) {
         ...(input.paymentMethodId ? { paymentMethodId: input.paymentMethodId } : {}),
         // MOVO-311: payments responde 409 HOLD_AMOUNT_CHANGED si la deuda cambió desde que el emisor vio el total.
         ...(input.expectedTotalArs !== undefined ? { expectedTotalArs: input.expectedTotalArs } : {}),
-      });
+        });
+      } catch (err) {
+        // DD-057: tanto MP caído (`PAYMENT_PROVIDER_ERROR`) como svc-payments sin responder
+        // (`PAYMENTS_SERVICE_UNAVAILABLE`, que puede ser un hold que MP todavía está creando): el emisor no tiene la culpa.
+        if (route === "near" && err instanceof ApiError && PROVIDER_FAILURE_CODES.has(err.code)) {
+          await extendOnProviderFailure(shipment, now, payUntil);
+        }
+        throw err;
+      }
 
       if (!isFundedHold(hold)) {
         // `rejected`/`cancelled`: motivo diferenciado. `creating`/`in_process`: MP todavía no
-        // resolvió -- sin motivo, el estado no cambia y el barrido reconcilia al vencer el plazo.
+        // resolvió -- sin motivo, el estado no cambia y el barrido reconcilia al vencer el plazo
+        // (DD-057: en la ruta cercana, extendido).
         const failureReason: HoldFailureReason | null = hold.failureReason;
+        const unresolved = hold.status === "creating" || hold.status === "in_process";
+        const effectivePayUntil =
+          route === "near" && unresolved ? await extendOnProviderFailure(shipment, now, payUntil) : payUntil;
         return {
           shipmentId: shipment.id,
           funded: false,
           shipmentStatus: shipment.status,
           failureReason,
-          payUntil: payUntil.toISOString(),
+          payUntil: effectivePayUntil.toISOString(),
         };
       }
 

@@ -6,6 +6,7 @@ export interface EnvConfig {
   USERS_SERVICE_URL: string;
   PAYMENTS_SERVICE_URL: string;
   PRICING_SERVICE_URL: string;
+  PRICING_OPTIMIZE_TIMEOUT_MS: number;
   STORAGE_PROVIDER: "mock" | "s3";
   S3_BUCKET_NAME?: string;
   S3_REGION?: string;
@@ -53,6 +54,8 @@ export interface EnvConfig {
   FUNDING_NEAR_PICKUP_DAYS: number;
   ALLOW_SIMULATED_PAYMENTS: boolean;
   FUNDING_PAYMENT_TIMEOUT_MINUTES: number;
+  FUNDING_PROVIDER_EXTENSION_MINUTES: number;
+  FUNDING_PROVIDER_MAX_EXTENSIONS: number;
   FUNDING_RELEASE_HOURS_BEFORE_PICKUP: number;
   FUNDING_REMINDER_INTERVAL_HOURS: number;
   FUNDING_SWEEP_INTERVAL_MINUTES: number;
@@ -87,6 +90,9 @@ export const envSchema = {
     // explícito ahí. Puerto 8000 porque movo-svc-pricing-logistics es FastAPI/uvicorn
     // (ADR-002), no Fastify como el resto de los servicios Node.
     PRICING_SERVICE_URL: { type: "string", default: "http://movo-svc-pricing-logistics:8000" },
+    // MOVO-346: timeout de `POST /optimize/route` (OR-Tools + matriz de Google). El resto de
+    // las llamadas a pricing-logistics sigue en 1 s.
+    PRICING_OPTIMIZE_TIMEOUT_MS: { type: "integer", default: 5000 },
     // MOVO-81: default "mock" (mismo criterio que movo-svc-users/MOVO-97) — no depender
     // de un bucket real ni de credenciales de AWS para levantar el servicio en
     // dev/test/CI. La obligatoriedad de S3_BUCKET_NAME/S3_REGION con
@@ -214,6 +220,11 @@ export const envSchema = {
     // MOVO-210 AC5: plazo del emisor para completar el pago de la ruta cercana, desde que
     // acepta la oferta (con tope en el cierre de la ventana de retiro).
     FUNDING_PAYMENT_TIMEOUT_MINUTES: { type: "number", default: 30 },
+    // MOVO-346 (DD-057): un intento de pago de la ruta cercana que el proveedor no resolvió (502 o hold sin
+    // resolver) extiende el plazo a "intento + N minutos", hasta M veces por asignación y nunca más allá del
+    // cierre de la ventana de retiro.
+    FUNDING_PROVIDER_EXTENSION_MINUTES: { type: "number", default: 15 },
+    FUNDING_PROVIDER_MAX_EXTENSIONS: { type: "integer", minimum: 0, default: 2 },
     // MOVO-210 AC9: la ruta lejana vuelve a `published` si no hay pago a esta cantidad de
     // horas ANTES del inicio de la ventana de retiro (T-24h).
     FUNDING_RELEASE_HOURS_BEFORE_PICKUP: { type: "number", default: 24 },

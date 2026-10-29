@@ -801,5 +801,60 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
 
       expect(routeCalls - before).toBe(1);
     });
+
+    describe("emisor y receptor: GET /shipments/:id/tracking (MOVO-346)", () => {
+      const asUser = (id: string, userId: string) =>
+        app.inject({ method: "GET", url: `/shipments/${id}/tracking`, headers: { "x-user-id": userId } });
+
+      it("en camino: el emisor y el receptor ven la ruta, la traza y la última posición", async () => {
+        const now = Date.now();
+        const shipment = await seedWithTrip(ShipmentStatus.IN_TRANSIT, { pickedUpAt: new Date(now - 10 * 60_000) });
+        await persistPositions(shipment.id, shipment.tripId, new Date(now - 60_000), 3, 0, 0.5);
+        await setLastKnown(shipment.tripId, along(0.5), new Date(now - 30_000));
+
+        for (const userId of [shipment.senderId, shipment.receiverId as string]) {
+          const response = await asUser(shipment.id, userId);
+          expect(response.statusCode).toBe(200);
+          expect(response.headers["cache-control"]).toBe("no-store");
+          const body: AdminShipmentTracking = response.json();
+          expect(body).toMatchObject({ state: "live", plannedRoute, traceAvailable: true });
+          expect(body.trace).toHaveLength(3);
+          expect(body.lastPosition).not.toBeNull();
+        }
+      });
+
+      it("403 para quien no es parte del envío, 404 si no existe", async () => {
+        const shipment = await seedWithTrip(ShipmentStatus.IN_TRANSIT, { pickedUpAt: new Date() });
+
+        expect((await asUser(shipment.id, randomUUID())).statusCode).toBe(403);
+        expect((await asUser(randomUUID(), shipment.senderId)).statusCode).toBe(404);
+      });
+
+      it("401 sin x-user-id", async () => {
+        const shipment = await seedWithTrip(ShipmentStatus.IN_TRANSIT, { pickedUpAt: new Date() });
+
+        const response = await app.inject({ method: "GET", url: `/shipments/${shipment.id}/tracking` });
+        expect(response.statusCode).toBe(401);
+      });
+
+      it("con el envío entregado la traza sale vacía, aunque el panel la siga viendo", async () => {
+        const now = Date.now();
+        const shipment = await seedWithTrip(ShipmentStatus.DELIVERED, {
+          pickedUpAt: new Date(now - 3 * 60 * 60_000),
+          deliveredAt: new Date(now - 60 * 60_000),
+        });
+        await persistPositions(shipment.id, shipment.tripId, new Date(now - 61 * 60_000), 4, 0, 1);
+
+        const response = await asUser(shipment.id, shipment.senderId);
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          state: "closed",
+          trace: [],
+          traceAvailable: false,
+          lastPosition: null,
+        });
+        expect((await tracking(shipment.id)).trace).toHaveLength(4);
+      });
+    });
   });
 });

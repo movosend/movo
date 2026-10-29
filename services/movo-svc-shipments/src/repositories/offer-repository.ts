@@ -672,6 +672,9 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
             // MOVO-26: cada asignación arranca una conversación limpia en el chat (si el pago vence y entra otro
             // transportista, no lee lo que se habló con el anterior).
             chatStartedAt: acceptedAt,
+            // MOVO-346 (DD-057): el plazo de pago de esta asignación arranca sin extensiones.
+            fundingDeadlineExtendedUntil: null,
+            fundingDeadlineExtensions: 0,
             // MOVO-244: persistir el precio pactado de la oferta aceptada como agreedPriceArs
             agreedPriceArs: current.priceOffered,
             // MOVO-180: mismo criterio que carrierId -- el receptor necesita ver la

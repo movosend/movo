@@ -44,7 +44,11 @@ export function createAdminTrackingService(deps: AdminTrackingServiceDeps) {
   }
 
   return {
-    async get(row: ShipmentRow): Promise<AdminShipmentTracking> {
+    /**
+     * `closedTrace: false` (MOVO-346, seguimiento de emisor y receptor): con el envío cerrado no devuelve la
+     * traza; las partes ven el recorrido mientras dura, no el historial.
+     */
+    async get(row: ShipmentRow, opts: { closedTrace?: boolean } = {}): Promise<AdminShipmentTracking> {
       const serverTime = now();
       const status = row.status as ShipmentStatus;
       const { state, reason } = adminTrackingState(status);
@@ -64,7 +68,7 @@ export function createAdminTrackingService(deps: AdminTrackingServiceDeps) {
         state === "no_carrier" ? null : await deps.shipmentRepository.findTrackingContext(row.id);
       const trip = context?.trip ?? null;
 
-      const withTrace = state === "live" || state === "closed";
+      const withTrace = state === "live" || (state === "closed" && opts.closedTrace !== false);
       const [route, positions, redisPosition] = await Promise.all([
         trip ? deps.routeStore.get(row.id, origin, destination) : null,
         withTrace ? deps.positionRepository.listCustodyTrace(row.id) : [],
