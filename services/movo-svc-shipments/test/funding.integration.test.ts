@@ -540,6 +540,21 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect(capped!.fundingDeadlineExtendedUntil!.getTime()).toBeLessThan(acceptedAt + 54 * MIN);
     });
 
+    it("DD-057: svc-payments sin responder también extiende el plazo", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+      const service = buildService();
+      const acceptedAt = Date.now();
+      vi.mocked(paymentsClient.createHold).mockRejectedValueOnce(
+        new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "caído"),
+      );
+
+      await expect(
+        service.submitFunding(shipmentId, senderId, { cardToken: "tok" }, new Date(acceptedAt + 25 * 60 * 1000)),
+      ).rejects.toMatchObject({ code: "PAYMENTS_SERVICE_UNAVAILABLE" });
+
+      expect((await shipmentRepo.findById(shipmentId))?.fundingDeadlineExtensions).toBe(1);
+    });
+
     it("DD-057: un rechazo de tarjeta no extiende el plazo", async () => {
       const { shipmentId } = await acceptedShipment(1);
       const service = buildService();

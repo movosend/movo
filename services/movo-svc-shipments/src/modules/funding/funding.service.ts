@@ -58,6 +58,7 @@ export interface FundingConfig {
 
 const DEFAULT_PROVIDER_EXTENSION_MINUTES = 15;
 const DEFAULT_PROVIDER_MAX_EXTENSIONS = 2;
+const PROVIDER_FAILURE_CODES: ReadonlySet<string> = new Set(["PAYMENT_PROVIDER_ERROR", "PAYMENTS_SERVICE_UNAVAILABLE"]);
 
 type FundingLogger =
   | FastifyBaseLogger
@@ -693,7 +694,9 @@ export function createFundingService(deps: FundingServiceDeps) {
         ...(input.expectedTotalArs !== undefined ? { expectedTotalArs: input.expectedTotalArs } : {}),
         });
       } catch (err) {
-        if (route === "near" && err instanceof ApiError && err.code === "PAYMENT_PROVIDER_ERROR") {
+        // DD-057: tanto MP caído (`PAYMENT_PROVIDER_ERROR`) como svc-payments sin responder
+        // (`PAYMENTS_SERVICE_UNAVAILABLE`, que puede ser un hold que MP todavía está creando): el emisor no tiene la culpa.
+        if (route === "near" && err instanceof ApiError && PROVIDER_FAILURE_CODES.has(err.code)) {
           await extendOnProviderFailure(shipment, now, payUntil);
         }
         throw err;
