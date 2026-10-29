@@ -768,3 +768,10 @@ códigos `DISPUTE_PARTIAL_INVALID`, `DISPUTE_RESOLUTION_MISMATCH`, `DISPUTE_RESO
 `types/admin-support.ts` suma `SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER` y `parseSupportWsProtocols` (el ticket de `movo-support.v1, <ticket>`),
 compartidos por el gateway y `svc-admin`: si se desalinearan, el ticket dejaría de llegar y el panel caería a polling.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-341 — Lectura de disputas para el panel (`types/admin-disputes.ts`, `types/admin-shipments.ts`)
+
+`AdminDisputeRow.pickupCity` (requerido: rompe literales armados a mano), `AdminDisputeDetail.partyHistory`/`attribution` (requeridos),
+`AdminDisputeCounts`, `ADMIN_DISPUTE_SORTS`/`AdminDisputeSort`, `AdminDisputePartyHistory` y `AdminDisputeAttribution`. `AdminShipmentDisputeSummary`
+y `AdminShipmentDetail.dispute?` (opcional a propósito, para no romper los fixtures de `movo-admin`); `AdminShipmentRow.disputeId` pasa a ser la
+disputa más reciente del envío. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
