@@ -31,11 +31,17 @@ volver a investigar. Las referencias `archivo:línea` son al código del 26/10/2
 | 10 | Envíos de pruebas anteriores con holds `manual-*` y uno trabado en `delivered` | Baja (datos) | BD de dev | Limpiar |
 | 11 | El receptor ve "Listo. Se lo entregaste." después de escanear el QR de entrega | Media (UX) | `movo-mobile` | Causa identificada |
 | 12 | **Feature:** emisor y receptor deberían ver la ruta del transportista, no solo su posición | — (feature) | `movo-mobile` + `svc-shipments` | Propuesta |
+| 13 | "Sin conexión a internet" al iniciar el viaje, con internet | Media | `movo-mobile` (tracking) | Red descartada (todo 200). Causa en el cliente, a acotar con telemetría |
+| 14 | "Mi ruta" une las paradas con líneas rectas, no con el camino por calles | Media | `svc-shipments` + `movo-mobile` | Causa identificada |
+| 15 | Llegada estimada de la próxima parada corrida 3 h (22:44 en vez de 19:44) | Alta | `svc-pricing-logistics` + `svc-shipments` | Causa identificada |
+| 16 | Validación de 100 m de la entrega contra la dirección cargada, no contra el receptor | Media | `movo-mobile` (wizard de entrega) | Causa identificada |
+| 17 | La card de envío activo del emisor solo tiene chat y la acción del estado | Baja (UX) | `movo-mobile` (home) | Propuesta |
+| 18 | Dos mapas en el detalle del envío, y "En vivo" no parece un botón | Media (UX) | `movo-mobile` (detalle) | Propuesta, se junta con el 12 |
 | — | `POST /users/me/legal-acceptance` 422 | — | build viejo (Movo/14) | Conocido, fuera de alcance |
 
 ## Agrupación sugerida para crear los issues
 
-Para no abrir 12 tickets, los puntos se pueden juntar en **5 issues** (más una tarea manual sin ticket). Se
+Para no abrir 18 tickets, los puntos se pueden juntar en **8 issues** (más una tarea manual sin ticket). Se
 agrupan por paquete y por tipo de cambio, para que cada uno sea un solo PR revisable. Los bloques **Para el
 issue** de cada sección se concatenan como criterios de aceptación del issue agrupado.
 
@@ -45,7 +51,10 @@ issue** de cada sección se concatenan como criterios de aceptación del issue a
 | **B. Fixes menores de `movo-mobile`** | 8, 9, 11 | Matches de viaje activo (409), `refetchRatings` con `undefined`, texto de éxito del receptor | Los tres son cambios chicos y de UI/hooks de la misma app; un solo PR |
 | **C. Backend: plazos y timeouts ante servicios caídos o lentos** | 2, 3, 5 | Alerta cuando MP no responde al crear holds, plazo de pago que se extiende ante un 502 del proveedor, timeout propio del optimizador | Node (`svc-payments`, `svc-shipments`). El punto 3 necesita un DD antes del código: si se demora, se puede sacar y dejar C con 2 y 5 |
 | **D. Infra y configuración de dev** | 4, 6, 7 | Logs que sobreviven a un deploy, nginx con 429 y burst mayor, `SUPPORT_WS_ALLOWED_ORIGINS` en dev y prod, backoff del WS de soporte en el panel | Mayormente `movo-infra`/Secrets Manager/nginx. El único código es `feed.ts` del panel (7). Del 6 se puede dejar afuera el ajuste del refetch del mobile |
-| **E. Feature: ruta del transportista para emisor y receptor** | 12 | Endpoint para las partes + mapa del mobile | Solo, porque es una US nueva con refinamiento previo (qué tramo, privacidad) |
+| **E. Feature: ruta del transportista para emisor y receptor** | 12, 18 | Endpoint para las partes + un único mapa en el detalle | Solo, porque es una US nueva con refinamiento previo (qué tramo, privacidad). El 18 define dónde se muestra |
+| **F. Ruta del transportista: trazado y horarios** | 14, 15, (5) | Polyline por calles en "Mi ruta", hora de partida con zona en el optimizador | `svc-shipments` + pricing + mobile. El 15 es el más grave y se puede sacar solo como fix chico. El timeout del 5 hace que el optimizador real llegue, así que conviene probarlos juntos |
+| **G. Tracking y entrega del transportista** | 13, 16 | Cartel de "Sin conexión" falso, gate de 100 m de la entrega | `movo-mobile`. El 16 necesita decidir antes qué valida el paso 1 de la entrega |
+| **H. Card de envío activo del emisor** | 17 | Acceso al detalle desde la card y el stepper | `movo-mobile`, chico. Puede ir en B |
 | *(sin ticket)* | 10 | Limpiar envíos de prueba en dev | Se hace a mano con el cambio forzado del panel; no requiere código |
 
 Si hay que reducir todavía más: **B** puede absorber el ajuste del refetch del punto 6, y **C** y **D** pueden
@@ -286,6 +295,8 @@ infra de logs en la referencia).
 **Evidencia.** `svc-shipments`: 5 `my_route_solver_failed` y 1 `trip_start_route_warmup_failed`, todos
 con `"El servicio de ruteo superó el tiempo límite de espera."` (21:51–21:53 y 23:31). La app cayó a la
 heurística (AC6 de MOVO-205). Pricing sí terminaba: hay `POST /optimize/route 200` en su access log.
+Cuatro llamadas con una sola parada (21:54:44–21:55:10) sí llegaron a tiempo; ver el punto 15, que es
+justamente lo que destapan.
 
 **Causa.** `createPricingLogisticsClient` (`src/adapters/pricing-logistics-client.ts`) usa
 `DEFAULT_TIMEOUT_MS = 1000` para **todas** sus llamadas, y `shipments.routes.ts` no le pasa otro.
@@ -523,6 +534,256 @@ No es un bug: no está en el alcance de ninguna US hecha.
   - Sin señal (`signalLost`), el último tramo se ve atenuado con la hora del último punto, como en el panel.
   - Con el envío `delivered`, el mapa deja de actualizarse y la traza deja de estar disponible para las
     partes.
+
+---
+
+Los puntos 13 a 18 los reportaron después quienes hicieron la prueba (lo que vieron en pantalla). La causa sale
+del código. La evidencia de servidor que falta revisar en el dump de la EC2 se indica en cada punto.
+
+## 13. "Sin conexión a internet" apenas el transportista inicia el viaje
+
+**Síntoma.** Al iniciar el viaje, el indicador de tracking del transportista muestra "Sin conexión a internet"
+("Tu ubicación se transmitirá… una vez que se restablezca"), con internet. Se vio varias veces, no solo en
+esta prueba.
+
+**Qué muestra en realidad el cartel.** `components/location/tracking-active-indicator.tsx` no mira la red:
+muestra "Sin conexión" cuando `pendingQueueCount > 0`, es decir, cuando la copia **en memoria** de la cola de
+posiciones de `LocationService` tiene algo. Esa copia solo se relee del archivo en los ticks de primer plano
+(`location-service.ts:344` y `:384`, cada 25 s).
+
+**Evidencia del servidor** (access log de nginx, build `Movo/15`, IP `190.96.126.29`):
+
+```
+21:51:49.698  POST /trips/b84ffbb4…/start      200
+21:51:50.079  POST /shipments/positions        200  217 B  ← 2 posiciones: una ya estaba en la cola
+21:52:15.055  POST /shipments/positions        200  115 B  ← 1 posición, y así cada 25 s exactos
+…             (todas 200 hasta las 22:15:35)
+```
+
+- **No hubo ningún problema de red.** Todos los `POST /shipments/positions` desde el inicio (21:51:50)
+  hasta el corte de sesión del punto 1 (22:16:51) dieron 200. No hay 5xx, 429 ni huecos en la cadencia de
+  25 s.
+- **No se acumuló nada.** Cada tick de primer plano lleva una sola posición (114–115 B). Los lotes más
+  grandes (3 a 11 posiciones, desde las 22:09) son entregas diferidas de la tarea de fondo con el auto en
+  movimiento (iOS las agrupa, `deferredUpdatesInterval` de 45 s), y también salieron con 200. El único lote
+  que sugiere un atraso es el de las 23:24:43 (35 posiciones), después de un hueco de 8 min sin ningún
+  request: la app estuvo suspendida.
+- **La cola no arrancó vacía.** El primer lote tras el inicio llevó 2 posiciones: una había quedado en el
+  archivo de una sesión anterior.
+
+Así que el cartel **no refleja un fallo de envío**. Sale de un estado del cliente que dura poco o que queda
+desactualizado, y no se ve en el servidor.
+
+**Causas posibles en el código** (sin telemetría del cliente no se puede saber cuál pesó más):
+
+1. **Cola con restos al iniciar.** `startTracking` (`location-service.ts:133`) carga la cola persistida y
+   emite el estado *antes* de pedir el GPS. Con un resto de una sesión anterior, el cartel aparece
+   **apenas se inicia el viaje** y dura hasta que el primer envío termina. Con el GPS en frío (precisión
+   `Balanced`) eso puede tardar varios segundos.
+2. **La cuenta se actualiza antes de enviar.** En cada tick, `captureAndReportTick` asigna `offlineQueue`
+   con la posición recién encolada (`location-service.ts:344`) y recién después la envía. Cualquier
+   `emitStatus` en ese intervalo muestra "Sin conexión": el coordinador lo llama en cada poll de
+   `transporting`/`trips` (cada 15 s) y en cada vuelta a primer plano. Es un parpadeo, pero se repite.
+3. **Un vaciado que vuelve sin enviar.** `flushQueue` vuelve sin emitir si ya hay otro en curso
+   (`isProcessingFlush`), y `flushBatchQueue` vuelve sin enviar si la tarea de fondo está vaciando
+   (`tracking-task.ts:124`). En los dos casos, la posición del tick queda contada y el cartel se queda hasta
+   el próximo tick, 25 s después. Además, cuando la tarea de fondo termina de vaciar, no le avisa a
+   `LocationService`.
+
+**Una forma de quedar trabado que sí es real.** `flushBatchQueue` solo descarta posiciones ante un rechazo
+por ítem (`rejected`). Si la request entera falla con un 4xx que no es 429 (401 de sesión vencida, 400 de
+validación), las posiciones quedan en la cola para siempre (`tracking-task.ts:200`) y el cartel no se va.
+Pasó en el punto 1, entre las 22:16 y las 22:42: el lote de las 22:42:06 llevó 9 posiciones.
+
+En los tres casos el problema de fondo es el mismo: el cartel interpreta "hay algo en la cola" como "no hay
+internet".
+
+**Para el issue**
+
+- **Título:** `fix(mobile): el indicador de tracking no muestra "sin conexión" con la cola vaciándose`
+- **Tipo:** bug, media. **Área:** `movo-mobile/src/location/location-service.ts`, `tracking-task.ts`,
+  `components/location/tracking-active-indicator.tsx`.
+- **Criterios de aceptación:**
+  - El estado "Sin conexión" sale de un fallo real del último envío (error de red o 5xx), no de que la cola
+    tenga ítems en un momento dado. Un resto en la cola al iniciar el viaje no muestra el cartel.
+  - Si un vaciado está en curso, el segundo espera a que termine (la misma promesa) en vez de volver sin hacer
+    nada. Al terminar un vaciado de fondo, `LocationService` relee la cola y emite el estado.
+  - Un 4xx de la request entera que no sea 429 ni 401 descarta el lote. Un 401 lo deja en la cola, pero no
+    muestra "Sin conexión".
+  - Test: un tick de primer plano durante un vaciado de fondo no deja `pendingQueueCount > 0` después de que
+    los dos terminan.
+
+## 14. "Mi ruta" dibuja líneas rectas entre paradas
+
+**Síntoma.** En la pantalla de ruta del transportista, el camino recomendado se ve como una línea recta de
+parada a parada, no por calles.
+
+**Causa.** No es una falla puntual: el camino por calles **nunca se pide** fuera del modo demo.
+
+- `components/route/route-map.tsx:174-179`: si no recibe `polylineCoordinates`, dibuja `routePoints`, que son
+  la posición del transportista y las paradas unidas en orden. Son rectas.
+- `app/(app)/route/index.tsx:481`: le pasa `polylineCoordinates={demoPolylineCoordinates}`, que es `undefined`
+  fuera del modo demo.
+- `GET /shipments/my-route` no devuelve geometría: ni el optimizador (`/optimize/route` trabaja con una matriz
+  de distancias y devuelve paradas y horarios) ni la degradación heurística (`buildDegradedRoute`).
+
+El polyline por calles ya existe en el backend (`RoutesProvider.computeRoute`, el de `GET /shipments/route` y
+del mapa del detalle del viaje), pero solo para un tramo origen→destino.
+
+**Configuración descartada.** En dev, `ROUTES_PROVIDER=google` en `svc-shipments` (verificado en el
+contenedor el 28/10). El default de compose es `mock`, que también devuelve una recta codificada
+(`mock-routes-provider.ts`), pero no es el caso: los mapas del detalle del envío y del viaje usan el camino
+real, y solo "Mi ruta" dibuja rectas.
+
+**Para el issue**
+
+- **Título:** `feat(svc-shipments): camino por calles en la ruta del transportista`
+- **Tipo:** bug/feature, media. **Área:** `svc-shipments` (`shipments.service.ts`, `getMyRoute`; los
+  adapters de rutas), `movo-mobile` (`app/(app)/route/index.tsx`).
+- **Criterios de aceptación:**
+  - `GET /shipments/my-route` devuelve un `polyline` del recorrido completo en el orden de las paradas
+    (Routes API con `intermediates`, desde la posición del transportista), también en la ruta degradada.
+  - Si Routes API falla, la respuesta sigue llegando sin `polyline` y el mapa cae a las rectas, como hoy.
+  - "Mi ruta" dibuja ese polyline. El tramo hasta la próxima parada se destaca del resto.
+  - El polyline se cachea por viaje y orden de paradas, para no pedirlo en cada poll (costo de Routes API).
+  - Confirmado `ROUTES_PROVIDER=google` en dev y prod.
+
+## 15. Llegada estimada corrida 3 horas
+
+**Síntoma.** A las 18:55 (ART), con un tramo de unos 49 min hasta la entrega, "Mi ruta" estimó la llegada a
+las **22:44**. Lo correcto era **19:44**. Son 3 h exactas, el offset de Argentina con UTC.
+
+**Causa.** Coincide al minuto con la hora UTC de ese momento (21:55 UTC + 49 min = 22:44), mostrada como si
+fuera local:
+
+1. `getMyRoute` llama a `pricingLogisticsClient.optimizeRoute({ carrierLocation, stops })`
+   (`shipments.service.ts:3296`) **sin `departureAt`**.
+2. Sin hora de partida, el solver usa `base_dt = datetime.now()` (`vrptw_solver.py:137` y `:139`): un
+   `datetime` **sin zona**, que en el contenedor es UTC.
+3. `estimated_arrival_at=arr_dt.isoformat()` (`vrptw_solver.py:443`) sale como `"2026-10-25T22:44:00"`, sin
+   `Z` ni offset.
+4. El mobile (`toClock`, `src/lib/time-format.ts`) hace `new Date(value)`. Un ISO sin offset se interpreta
+   como **hora local** del teléfono → 22:44.
+
+Para comparar las ventanas horarias contra la hora de partida, el solver las pasa a la zona del sistema
+(`astimezone()`), así que en un contenedor en UTC **el orden y los minutos están bien**. Solo está mal la hora
+que se devuelve. Si alguna vez el contenedor corriera con otra `TZ`, también se correría el cálculo.
+
+**Por qué apareció justo esta vez.** Cruzando el access log de nginx, los `my_route_solver_failed` de
+`svc-shipments` y el access log de pricing:
+
+| Hora (UTC) | `GET /my-route` | Resultado |
+|---|---|---|
+| 21:51:50 | (warm-up de `POST /trips/:id/start`) | timeout → `trip_start_route_warmup_failed` |
+| 21:52:10, 21:52:26, 21:53:26 | 896 B, con `tripId`, antes del retiro (2 paradas) | timeout → ruta degradada, sin hora |
+| **21:54:44, 21:55:04, 21:55:07, 21:55:10** | 557 B, después del retiro (1 parada) | **el optimizador respondió a tiempo** (`/optimize/route 200` en pricing a la misma hora, sin `my_route_solver_failed`) |
+| 23:31:22 | — | timeout |
+
+La ruta degradada devuelve `estimatedArrivalAt: null` y el mobile muestra "+49 min", que está bien. Las
+cuatro llamadas de 21:54:44–21:55:10, con una sola parada y la matriz de Google ya resuelta, terminaron en
+menos de 1 s: son las que mostraron "22:44", justo a las 18:55 ART. Esto también corrige al punto 5: el
+optimizador no da timeout *siempre*, pero sí casi siempre que hay más de una parada. Cuando se arregle ese
+timeout, la hora corrida **va a aparecer en todas las rutas**.
+
+**Para el issue**
+
+- **Título:** `fix(pricing): llegada estimada de la ruta con zona horaria`
+- **Tipo:** bug, alta (aparece siempre que el optimizador responda). **Área:**
+  `svc-pricing-logistics/app/services/vrptw_solver.py`, `svc-shipments` (`getMyRoute`).
+- **Criterios de aceptación:**
+  - El solver nunca trabaja con `datetime` sin zona: sin `departure_time` usa `datetime.now(timezone.utc)`, y
+    una `departure_time` sin offset se rechaza (422) o se asume UTC de forma explícita.
+  - `estimated_arrival_at` y `estimated_departure_at` salen con offset (`+00:00` o `Z`).
+  - `getMyRoute` manda `departureAt` (ahora, en ISO con `Z`).
+  - Test de pricing: sin `departure_time`, la respuesta tiene offset. Test del mobile: `formatTimeOfDay` de un
+    ISO con `Z` muestra la hora de Argentina.
+
+## 16. La entrega valida 100 m contra la dirección cargada, no contra el receptor
+
+**Hoy hay dos chequeos de distancia en la entrega:**
+
+1. **El paso 1 del wizard del transportista** (`app/(app)/shipments/[id]/delivery/index.tsx:24-25` →
+   `ProximityGeoScreen` → `useProximityCheck`): solo en el mobile, compara el GPS del transportista con
+   `deliveryLat/deliveryLng`, el punto que marcó el **emisor** al crear el envío. Sin estar a ≤100 m de ese
+   punto, "Continuar" queda deshabilitado y no hay forma de saltearlo.
+2. **El handshake** (`handshake.service.ts:294`): compara la posición de quien generó el QR (transportista)
+   con la de quien lo escanea (receptor), ≤100 m. Este **ya valida contra el receptor**: en la prueba dio
+   21 m.
+
+**El problema es el 1.** El receptor puede estar en otro lugar que el pin: en la puerta de un edificio, en la
+esquina, en otra dirección cercana, o el pin del emisor puede estar mal puesto. El transportista queda
+bloqueado aunque esté junto al receptor, y el chequeo que importa (el 2) nunca llega a correr. En el retiro el
+gate tiene sentido, porque el punto de retiro es la evidencia del no-retiro (DD-052).
+
+**Propuesta (a decidir).** El gate del paso 1 de la **entrega** deja de bloquear: muestra la distancia a la
+dirección como información ("Estás a 350 m de la dirección de entrega") y deja continuar. La validación de
+proximidad queda en el handshake (transportista ↔ receptor, en el servidor). Alternativa más cara: que el
+receptor comparta su ubicación al abrir la entrega y el gate use esa. No suma seguridad, porque el handshake ya
+lo exige, y agrega un permiso de ubicación al receptor.
+
+**Para el issue**
+
+- **Título:** `fix(mobile): la entrega valida la distancia al receptor, no a la dirección cargada`
+- **Tipo:** bug, media. **Área:** `movo-mobile` (`delivery/index.tsx`, `components/shipments/proximity-geo-screen.tsx`).
+- **Criterios de aceptación:**
+  - En la entrega, estar a más de 100 m del punto de entrega no impide avanzar: se muestra la distancia y un
+    aviso.
+  - El handshake de entrega sigue rechazando con `HANDSHAKE_DISTANCE_EXCEEDED` a más de 100 m entre
+    transportista y receptor.
+  - El retiro sigue igual (bloquea a más de 100 m del punto de retiro).
+  - Actualizar el comentario de `use-proximity-check.ts` (hoy dice que los dos wizards bloquean).
+
+## 17. La card de envío activo del emisor tiene pocas acciones
+
+**Hoy.** En el home, la card del envío activo (`components/home/active-shipment-card.tsx`) solo tiene dos
+cosas que se pueden tocar: el chat y el CTA del estado (`activeShipmentCta`): "Generar retiro" en
+`assigned`, "Ver en el mapa" en `in_transit`. El cuerpo de la card y el stepper (Retiro, En camino, Llegando,
+Entrega) no son tocables, así que **no hay forma de ir al detalle del envío desde la card**. Con el viaje del
+transportista ya iniciado y el envío todavía `assigned`, el emisor tampoco tiene acceso directo al seguimiento
+en vivo, aunque ya está disponible (`liveTrackingAvailability` con `carrierTripActive`).
+
+**Propuesta.**
+
+- El cuerpo de la card (encabezado y stepper) abre el detalle del envío (`/shipments/:id`).
+- Opcional: cada paso del stepper abre el detalle en la parte que corresponde (el paso actual con el
+  seguimiento si está disponible, uno ya hecho con la línea de tiempo). Ojo con el área táctil: los nodos
+  miden 38 px y los labels se desbordan. Que toda la fila sea un único botón al detalle es más simple y
+  accesible.
+- Con el viaje iniciado y el envío `assigned`, sumar "Ver en el mapa" junto a "Generar retiro".
+
+**Para el issue**
+
+- **Título:** `feat(mobile): acceso al detalle desde la card de envío activo`
+- **Tipo:** mejora de UX, baja. **Área:** `movo-mobile/components/home/active-shipment-card.tsx`,
+  `src/lib/active-shipment-format.ts`.
+- **Criterios de aceptación:** tocar la card (fuera de los botones) abre el detalle del envío. Los botones
+  de chat y CTA siguen haciendo lo suyo sin abrir el detalle. Con el viaje activo y el envío `assigned`, el
+  emisor puede abrir el seguimiento desde la card. Test de navegación.
+
+## 18. Dos mapas en el detalle, y "En vivo" no parece un botón
+
+**Hoy.** En el detalle del envío, emisor y receptor ven la card "Ruta" (`RouteTrackingChatCard`,
+`app/(app)/shipments/[id].tsx`, alrededor de la línea 631): un mapa con la ruta retiro→entrega
+(`RouteMapCard`, `GET /shipments/route`) **sin el transportista**. Debajo, una franja con un punto y el texto
+"EN VIVO / Mirá en el mapa dónde está el transportista" (`route-tracking-chat-card.tsx:56-89`). Esa franja es
+un `Pressable` que abre **otra pantalla** con otro mapa (`shipments/[id]/tracking.tsx` + `LiveMap`), donde está
+el transportista pero no la ruta (punto 12). Visualmente es una etiqueta: no tiene borde, flecha ni fondo de
+botón, así que no se descubre.
+
+**Propuesta.** Un solo mapa, en el detalle: la ruta del envío, la posición en vivo del transportista
+(WS `/shipments/:id/track`, como ya hace `tracking.tsx`) y su ruta del día acotada a este envío (punto 12). La
+pantalla `tracking` queda como pantalla completa del mismo mapa (tocar el mapa la abre), no como un mapa
+distinto. Mientras no haya posición, el mapa del detalle es el de hoy, con "Se activa al iniciar el recorrido".
+
+Se junta con el punto 12 en el issue **E**: el 12 define qué datos se muestran, el 18 dónde.
+
+**Para el issue** (criterios a sumar a E)
+
+- El detalle del envío tiene un único mapa con la ruta del envío y, con el seguimiento disponible, el
+  marcador en vivo del transportista. No hay un segundo mapa distinto.
+- Tocar el mapa abre la vista a pantalla completa del mismo mapa. Si queda un acceso de texto, se ve como
+  botón (borde o fondo y chevron) y tiene `accessibilityRole="button"`.
+- El receptor y el emisor ven lo mismo. El transportista sigue con su vista de "Compartiendo".
 
 ## Observaciones menores (sin acción)
 
