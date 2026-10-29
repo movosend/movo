@@ -646,6 +646,9 @@ real, y solo "Mi ruta" dibuja rectas.
   - Si Routes API falla, la respuesta sigue llegando sin `polyline` y el mapa cae a las rectas, como hoy.
   - "Mi ruta" dibuja ese polyline. El tramo hasta la próxima parada se destaca del resto.
   - El polyline se cachea por viaje y orden de paradas, para no pedirlo en cada poll (costo de Routes API).
+    Hecho con 2 h de TTL: arranca en la posición del transportista del primer pedido, así que el mobile lo
+    recorta desde el punto más cercano al vehículo (y une con una recta si el vehículo se alejó de la línea),
+    para que no quede una cola detrás del ícono.
   - Confirmado `ROUTES_PROVIDER=google` en dev y prod.
 
 ## 15. Llegada estimada corrida 3 horas

@@ -7,9 +7,11 @@ import { MAX_ROUTE_INTERMEDIATES, RouteLatLng, RoutesProvider } from "../../adap
  * MOVO-346 (punto 14): camino por calles de "Mi ruta", desde el transportista y por todas las paradas en el
  * orden de la ruta. El mobile pide `my-route` en cada poll y Google factura cada `computeRoutes` (ADR-015): se
  * cachea por transportista y orden de paradas. El origen es la posición del primer pedido; alcanza, porque el
- * mapa dibuja al transportista aparte y la clave cambia apenas se completa una parada.
+ * mapa dibuja al transportista aparte y recorta la línea desde el punto más cercano al vehículo. Las paradas no
+ * cambian sin cambiar la clave, así que el TTL solo acota ese origen viejo: es largo para que un viaje cueste
+ * ~N+1 llamadas (una por cada orden de paradas) y no una cada pocos minutos de viaje.
  */
-export const CARRIER_ROUTE_POLYLINE_TTL_SECONDS = 10 * 60;
+export const CARRIER_ROUTE_POLYLINE_TTL_SECONDS = 2 * 60 * 60;
 /** Cache negativo: con el proveedor caído no se reintenta en cada poll. */
 export const CARRIER_ROUTE_POLYLINE_FAILURE_TTL_SECONDS = 60;
 /** Va después del optimizador (hasta `PRICING_OPTIMIZE_TIMEOUT_MS`) y en cada poll: se acota para no sumar los 5 s
