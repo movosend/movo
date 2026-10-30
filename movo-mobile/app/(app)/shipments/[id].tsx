@@ -44,7 +44,7 @@ import { ShipmentPartiesCard } from "../../../components/shipments/shipment-part
 import { ShipmentRatingsCard } from "../../../components/shipments/shipment-ratings-card";
 import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { TimelineSection } from "../../../components/shipments/timeline-section";
-import { RouteMapCard } from "../../../components/send/route-map-card";
+import { RouteMapCard, type RouteMapLive } from "../../../components/send/route-map-card";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
 import { DebtDiscount } from "../../../components/payments/debt-discount";
@@ -82,7 +82,9 @@ import {
   shipmentDetailCta,
   type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
-import { formatTimeRange } from "../../../src/lib/time-format";
+import { formatTimeOfDay, formatTimeRange } from "../../../src/lib/time-format";
+import { useLivePosition } from "../../../src/hooks/use-live-position";
+import { useShipmentTracking } from "../../../src/hooks/use-shipment-tracking";
 import { fundingProcessingPollInterval, fundsStatusVariant } from "../../../src/lib/funds-status-format";
 
 type DetailTab = "detalle" | "timeline";
@@ -365,6 +367,25 @@ export default function ShipmentDetailScreen() {
     shipment !== undefined && !isCarrier && shipment.carrierId
       ? liveTrackingAvailability(shipment.status, shipment.carrierTripActive)
       : null;
+
+  // MOVO-346 (puntos 12 y 18): con el seguimiento disponible, el mapa de la ruta suma al
+  // transportista en vivo (WS) y su recorrido (`GET /shipments/:id/tracking`). Un solo mapa: la
+  // pantalla de seguimiento es la versión a pantalla completa. Solo con la pantalla enfocada, así
+  // no queda un segundo WS abierto debajo de la de seguimiento.
+  const liveEnabled = liveTracking === "available" && isFocused;
+  const { position: livePosition, isStale: liveStale } = useLivePosition(liveEnabled ? shipment?.id : undefined, {
+    enabled: liveEnabled,
+  });
+  const partyTracking = useShipmentTracking(shipment?.id, { enabled: liveEnabled, status: shipment?.status });
+  const routeLive: RouteMapLive | null = liveEnabled
+    ? {
+        position: livePosition ? { lat: livePosition.lat, lng: livePosition.lng } : null,
+        stale: liveStale || partyTracking.data?.signalLost === true,
+        lastSignalLabel: livePosition ? `Última señal ${formatTimeOfDay(livePosition.capturedAt)}` : undefined,
+        trace: partyTracking.trace,
+        planned: partyTracking.planned,
+      }
+    : null;
 
   // Espejo para el transportista: si su ubicación ya se comparte con emisor y receptor.
   const carrierSharing =
@@ -652,6 +673,7 @@ export default function ShipmentDetailScreen() {
                       lng: shipment.deliveryLng,
                     }}
                     paused={!isFocused}
+                    live={routeLive}
                     testID="shipment-detail-route-map"
                   />
                 </RouteTrackingChatCard>
