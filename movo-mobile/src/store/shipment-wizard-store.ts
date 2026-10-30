@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import { defaultPickupDate } from "../lib/pickup-windows";
 import type { AddressSelection } from "../types/address-selection";
+import type { ShipmentPaymentMethod } from "../api/shipments-client";
 
 /**
  * Store del wizard de creación de envío (MOVO-83). Fuente de verdad única para los 5
@@ -90,6 +91,8 @@ interface ShipmentWizardState {
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
   photos: WizardPhoto[];
+  /** MOVO-37: modalidad de pago, elegida en el resumen. No afecta el precio (no descarta la cotización). */
+  paymentMethod: ShipmentPaymentMethod;
   priceQuote: PriceQuoteState;
   submission: SubmissionState;
 
@@ -109,6 +112,7 @@ interface ShipmentWizardState {
   addPhoto: (photo: WizardPhoto) => void;
   updatePhoto: (id: string, patch: Partial<WizardPhoto>) => void;
   removePhoto: (id: string) => void;
+  setPaymentMethod: (paymentMethod: ShipmentPaymentMethod) => void;
   setPriceQuote: (quote: PriceQuoteState) => void;
   setSubmission: (patch: Partial<SubmissionState>) => void;
   resetWizard: () => void;
@@ -129,6 +133,7 @@ const initialState = {
   pickupTimeWindowStart: "",
   pickupTimeWindowEnd: "",
   photos: [] as WizardPhoto[],
+  paymentMethod: "card" as ShipmentPaymentMethod,
   priceQuote: IDLE_PRICE_QUOTE,
   submission: { status: "idle", errorMessage: null, fieldErrorStep: null, shipmentId: null } as SubmissionState,
 };
@@ -171,6 +176,8 @@ export const useShipmentWizardStore = create<ShipmentWizardState>((set) => ({
       photos: state.photos.map((photo) => (photo.id === id ? { ...photo, ...patch } : photo)),
     })),
   removePhoto: (id) => set((state) => ({ photos: state.photos.filter((photo) => photo.id !== id) })),
+
+  setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
 
   setPriceQuote: (priceQuote) => set({ priceQuote }),
   setSubmission: (patch) => set((state) => ({ submission: { ...state.submission, ...patch } })),

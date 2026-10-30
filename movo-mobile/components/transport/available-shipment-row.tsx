@@ -5,6 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import type { MyOfferSummary } from "../../src/api/offers-client";
 import type { AvailableShipment } from "../../src/api/shipments-client";
 import { offerStatusLabel } from "../../src/lib/offer-format";
+import { PaymentMethodBadge } from "../shipments/payment-method-badge";
 import { estimateReceivedArs, getClientCommissionRate } from "../../src/lib/commission-config";
 import {
   formatDetourKm,
@@ -91,6 +92,11 @@ export function AvailableShipmentRow({ shipment, testID, detour, myOffer }: Avai
               </Text>
             </View>
           ) : null}
+          <PaymentMethodBadge
+            paymentMethod={shipment.paymentMethod}
+            variant="pill"
+            testID={testID ? `${testID}-cash` : undefined}
+          />
           {myOffer ? (
             <View
               testID={testID ? `${testID}-offer-status` : undefined}

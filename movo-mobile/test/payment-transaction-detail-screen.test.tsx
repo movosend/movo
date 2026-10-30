@@ -339,3 +339,43 @@ describe("PaymentTransactionDetailScreen (MOVO-304)", () => {
     });
   });
 });
+
+describe("PaymentTransactionDetailScreen — envío en efectivo (MOVO-37)", () => {
+  const cash = (overrides: Partial<TransactionDetail> = {}) =>
+    detail({
+      kind: "cash_shipment",
+      amountArs: 8900,
+      status: "completed",
+      refundedAmountArs: null,
+      card: null,
+      movements: [],
+      ...overrides,
+    });
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it("el emisor ve que pagó en efectivo, sin tarjeta ni línea de tiempo de la reserva", async () => {
+    mockParams = { id: "tx-1", role: "sender" };
+    mockQuery({ data: cash() });
+    const { getByTestId, getByText, queryByTestId } = await render(<PaymentTransactionDetailScreen />);
+
+    expect(getByText("Pagaste en efectivo")).toBeTruthy();
+    expect(getByTestId("transaction-cash")).toBeTruthy();
+    expect(queryByTestId("transaction-card")).toBeNull();
+    expect(queryByTestId("transaction-cash-breakdown")).toBeNull();
+  });
+
+  it("el transportista ve lo cobrado en mano y la comisión como saldo, sin comisión de Mercado Pago", async () => {
+    mockParams = { id: "tx-1", role: "carrier" };
+    mockQuery({ data: cash({ breakdown: { grossArs: 8900, mpFeeArs: 0, commissionArs: 1161, debtOffsetArs: 0, netArs: 7739 } }) });
+    const { getByTestId, getByText, queryByTestId } = await render(<PaymentTransactionDetailScreen />);
+
+    expect(within(getByTestId("transaction-hero")).getByText("Cobraste en efectivo")).toBeTruthy();
+    expect(within(getByTestId("transaction-hero")).getByText("$8.900")).toBeTruthy();
+    expect(getByTestId("transaction-cash-breakdown")).toBeTruthy();
+    expect(queryByTestId("breakdown-mp-fee")).toBeNull();
+
+    await press(getByTestId("transaction-cash-balance-link"));
+    expect(mockPush).toHaveBeenCalledWith("/profile/payments?tab=balance");
+  });
+});

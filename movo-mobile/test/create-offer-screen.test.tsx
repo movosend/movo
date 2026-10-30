@@ -125,7 +125,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     suggestedPriceArs: 4500,
     highDemand: null,
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: "card",
     status: ShipmentStatus.PUBLISHED,
     lastStatusChangedAt: null,
     deliveredAt: null,
@@ -486,6 +486,38 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     expect(getByText("Para ofertar en este envío necesitás completar estos dos pasos.")).toBeTruthy();
     expect(getByTestId("carrier-requirements-sheet-checklist-license-cta")).toBeTruthy();
     expect(getByTestId("carrier-requirements-sheet-checklist-mp-cta")).toBeTruthy();
+    expect(queryByTestId("create-offer-error")).toBeNull();
+  });
+
+  it("MOVO-37: en efectivo cobra el bruto en mano y la comisión queda como saldo, sin procesamiento de MP", async () => {
+    mockUseShipment.mockReturnValue({ data: shipment({ paymentMethod: "cash" }) });
+    const { getByTestId, getByText, queryByText } = await render(<CreateOfferScreen />);
+
+    expect(getByText("El emisor te paga en efectivo al retiro")).toBeTruthy();
+    expect(getByTestId("create-offer-received-preview")).toHaveTextContent("$4.500");
+    // Comisión = bruto − neto (4500 − 4500/1,15 = 586,96), informada sin restarse del efectivo.
+    expect(getByTestId("create-offer-cash-commission")).toHaveTextContent("$586,96", { exact: false });
+    expect(getByText(/queda como saldo en tu cuenta de Movo/)).toBeTruthy();
+    expect(queryByText("Procesamiento del pago (estimado)")).toBeNull();
+    expect(getByTestId("create-offer-continue")).toHaveTextContent("Cobrás en mano $4.500", { exact: false });
+  });
+
+  it("MOVO-37: un 403 CASH_DEBT_LIMIT_EXCEEDED abre la checklist con el tope de efectivo", async () => {
+    mockUseShipment.mockReturnValue({ data: shipment({ paymentMethod: "cash" }) });
+    mockMutateAsync.mockRejectedValue(
+      new ApiError(403, "CASH_DEBT_LIMIT_EXCEEDED", "Superaste el tope.", {
+        missingRequirements: ["cash_debt_within_limit"],
+      }),
+    );
+
+    const { getByTestId, getByText, queryByTestId } = await render(<CreateOfferScreen />);
+    await goToPickupStep(getByTestId);
+    await act(async () => {
+      fireEvent.press(getByTestId("create-offer-submit"));
+    });
+
+    expect(getByText("Saldo por encima del tope para efectivo")).toBeTruthy();
+    expect(getByTestId("carrier-requirements-sheet-checklist-cash-debt-cta")).toBeTruthy();
     expect(queryByTestId("create-offer-error")).toBeNull();
   });
 

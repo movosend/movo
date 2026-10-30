@@ -5050,3 +5050,10 @@ este envío" al pie del detalle del envío → `/support/new?shipmentId=`.
 
 - `shipments/[id].tsx`: `useShipmentHold` también se habilita en `assigned` para el emisor y pasa `hold.amountArs` a `SenderActionsBar` → `CancelShipmentSheet` → `cancellationQuoteView`. Así, cuando el hold incluye deuda cobrada (MOVO-311), el sheet y la card "Tu pago" del detalle cancelado muestran el mismo monto reservado y a liberar.
 - El sheet no muestra montos ni deja confirmar hasta que el hold resuelve (`holdState`: `loading` mantiene "Calculando…", `error` ofrece reintentar y re-pide el hold con `onRetryHold`): la cotización suele llegar antes y, con el fallback a `agreedPriceArs`, habría mostrado un monto erróneo confirmable. El fallback al precio pactado queda solo para el hold que resolvió sin resultado.
+
+### MOVO-37 (parte M) — Envíos pagados en efectivo
+
+`paymentMethod` (`card`/`cash`, opcional: sin el campo es tarjeta) en los DTOs de envíos y ofertas; `isCashShipment` y `carrierPriceBreakdown` (único lugar donde se decide cuánto cobra el transportista según la modalidad) en `src/lib/payment-method.ts`.
+- Emisor: selector Tarjeta/Efectivo en el resumen del wizard (se bloquea una vez creado el envío; saldo pendiente vía `useBalanceArs` deshabilita efectivo con "Pagar mi saldo"). En efectivo no se consultan hold ni settlement (`/settlement` da 404): `/pay` redirige al detalle sin pedir funding ni tarjetas, y la penalidad de una cancelación tardía se muestra con `cash-cancellation-note.tsx`.
+- Transportista: badge "Efectivo" y monto bruto "Cobrás en mano" (pasado tras la entrega); la comisión queda como saldo, sin fee de MP ni descuento por deuda. La entrega exitosa muestra una nota con link al saldo; si el envío no carga se asume tarjeta.
+- 403 `CASH_DEBT_LIMIT_EXCEEDED` → fila `cash_debt_within_limit` en la checklist de MOVO-117. Push `cash_commission` → `/profile/payments?tab=balance`; historial con `cash_shipment` y su detalle propio.
