@@ -142,7 +142,7 @@ function toRow(r: RawRow): TransactionRow {
  * en las dos, y la integración verifica que coincidan. Literales fijos, nunca input.
  */
 const STATUS_CASE = Prisma.raw(`CASE
-  WHEN t.kind = 'balance_payment' THEN 'completed'
+  WHEN t.kind IN ('balance_payment', 'cash_shipment') THEN 'completed'
   WHEN t.has_dispute THEN 'disputed'
   WHEN t.has_refund THEN 'refunded'
   WHEN t.settlement_status = 'credited' THEN 'completed'
@@ -267,10 +267,58 @@ function approvedBalancePayments(userId: string): Prisma.Sql {
     WHERE a.user_id = ${userId}::uuid AND a.status = 'approved'`;
 }
 
-/** El historial de un rol: el emisor suma sus pagos de saldo; el transportista no (no cobra nada de ahí). */
+/**
+ * MOVO-37: los envíos pagados en efectivo ya entregados (la fila nace con la comisión, al confirmarse la entrega).
+ * Sin tarjeta, sin pago de MP y sin movimientos: siempre `completed`. Para el desglose del transportista se arman como
+ * una liquidación acreditada sin fee de MP: cobró el precio en mano y la comisión le quedó como deuda, así que el neto
+ * es precio − comisión (la misma cuenta que con tarjeta, sin MP en el medio).
+ */
+function cashShipments(column: "sender_id" | "carrier_id", userId: string): Prisma.Sql {
+  return Prisma.sql`
+    SELECT
+      c.id,
+      'cash_shipment'::text AS kind,
+      c.shipment_id,
+      NULL::text AS mp_payment_id,
+      c.created_at,
+      to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
+      c.amount_ars::float8 AS amount_ars,
+      c.amount_ars::float8 AS base_amount_ars,
+      'captured'::text AS hold_status,
+      NULL::varchar(32) AS card_brand,
+      NULL::varchar(4) AS card_last4,
+      NULL::text AS card_alias,
+      NULL::text AS card_issuer_name,
+      NULL::text AS card_payment_type,
+      NULL::timestamptz AS released_at,
+      NULL::text AS hold_status_detail,
+      'credited'::text AS settlement_status,
+      c.created_at AS captured_at,
+      c.amount_ars::float8 AS gross_amount_ars,
+      0::float8 AS mp_fee_ars,
+      c.commission_ars::float8 AS commission_ars,
+      0::float8 AS debt_offset_ars,
+      NULL::float8 AS debt_surcharge_ars,
+      c.amount_ars::float8 AS carrier_gross_amount_ars,
+      0::float8 AS carrier_mp_fee_ars,
+      (c.amount_ars - c.commission_ars)::float8 AS net_amount_ars,
+      false AS has_dispute,
+      false AS has_refund,
+      NULL::float8 AS refunded_amount_ars
+    FROM payments.cash_shipment_payments c
+    WHERE c.${Prisma.raw(column)} = ${userId}::uuid`;
+}
+
+/**
+ * El historial de un rol: el emisor suma sus pagos de saldo (el transportista no cobra nada de ahí); los dos, los
+ * envíos en efectivo (MOVO-37).
+ */
 function historyOf(role: TransactionRole, userId: string): Prisma.Sql {
   const holds = visibleTransactions(columnFor(role), userId);
-  return role === "sender" ? Prisma.sql`${holds} UNION ALL ${approvedBalancePayments(userId)}` : holds;
+  const cash = cashShipments(role === "sender" ? "sender_id" : "carrier_id", userId);
+  return role === "sender"
+    ? Prisma.sql`${holds} UNION ALL ${approvedBalancePayments(userId)} UNION ALL ${cash}`
+    : Prisma.sql`${holds} UNION ALL ${cash}`;
 }
 
 function columnFor(role: TransactionRole): "payer_id" | "carrier_id" {

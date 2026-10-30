@@ -6,6 +6,7 @@ import {
   LIVE_HOLD_STATUSES,
   NotificationTriggerKey,
   OfferStatus,
+  PaymentMethod,
   ShipmentFundingRequest,
   ShipmentFundingResponse,
   ShipmentFundingResult,
@@ -593,6 +594,8 @@ export function createFundingService(deps: FundingServiceDeps) {
       const isSender = callerId === shipment.senderId;
       const isCarrier = shipment.carrierId !== null && callerId === shipment.carrierId;
       if (!isSender && !isCarrier && !opts.formerCarrier) return null;
+      // MOVO-37: un envío en efectivo no tiene reserva de fondos que mostrar (ni saga que se pueda caer).
+      if (shipment.paymentMethod === PaymentMethod.CASH) return null;
 
       const needsLastEvent =
         shipment.status === ShipmentStatus.PUBLISHED || shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED;

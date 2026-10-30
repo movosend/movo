@@ -1,4 +1,4 @@
-import { ShipmentStatus } from "@movo/shared";
+import { PaymentMethod, ShipmentStatus } from "@movo/shared";
 import { CancellationPenaltyStatus, PackageType, PhotoStage } from "../generated/prisma/client";
 
 export { CancellationPenaltyStatus, PackageType, PhotoStage };
@@ -46,7 +46,8 @@ export interface Shipment {
    * anterior a `demand_fuel_routes_v1` -- no equivale a `false`. */
   highDemand: boolean | null;
   agreedPriceArs: number | null;
-  paymentMethod: string | null;
+  /** MOVO-37: modalidad de pago, elegida al crear el envío. */
+  paymentMethod: PaymentMethod;
   status: ShipmentStatus;
   carrierWithdrawalPending?: boolean;
   carrierWithdrawalPenaltyArs?: number | null;
@@ -128,6 +129,8 @@ export interface AvailableShipment {
   suggestedPriceArs: number | null;
   calculationMethod: string | null;
   status: ShipmentStatus;
+  /** MOVO-37: el transportista ve cómo cobra antes de ofertar. */
+  paymentMethod: PaymentMethod;
   createdAt: Date;
   /** Distancia (Haversine) del retiro del envío al `originLat`/`originLng` del caller
    * -- siempre presente, `originLat`/`originLng` son obligatorios. */
@@ -180,6 +183,8 @@ export interface CreateShipmentInput {
   /** MOVO-325: ciudad del retiro/entrega (reverse geocoding), `null`/ausente si no se pudo resolver. */
   pickupCity?: string | null;
   deliveryCity?: string | null;
+  /** MOVO-37: por defecto `card`. */
+  paymentMethod?: PaymentMethod;
 }
 
 export interface ShipmentEvent {

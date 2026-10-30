@@ -3911,6 +3911,33 @@ adjuntos del agente) sobre `repositories/support-admin-repository.ts`, con regla
 - Reabrir pone `last_user_message_at` en `now`: es la referencia de `waitMinutes` y del orden de la bandeja.
 - Pendiente: el WebSocket del panel con ticket (segunda PR de MOVO-322, en `svc-admin`).
 
+### MOVO-37 — Envíos pagados en efectivo (partes B y P; mobile en otro PR)
+
+`paymentMethod` (`card`/`cash`, enum `PaymentMethod` de `@movo/shared`) pasa de texto libre sin uso a enum obligatorio
+(migración `20261027200000_shipment_payment_method`); se elige en `POST /shipments` y cambia con
+`PUT /shipments/:id/payment-method` solo mientras no haya ofertas (compare-and-swap, `409 SHIPMENT_PAYMENT_METHOD_LOCKED`).
+Viaja en el feed, el detalle, los activos, los matches y `/offers/mine`. Gates en `utils/cash-payment-gate.ts`: emisor con saldo
+deudor no crea en efectivo (`403 CASH_PAYMENT_SENDER_HAS_DEBT`) y transportista por encima de `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS`
+no oferta ni edita (`403 CASH_DEBT_LIMIT_EXCEEDED`).
+- Aceptar en efectivo va `published → assigned` (arista nueva) en `offer-repository.ts#acceptOffer`, y cierra las demás `pending`
+  en la misma transacción (`updateManyAndReturn`, así solo se avisa a las que realmente se cerraron).
+- Al aceptar, el tope da `409 OFFER_CARRIER_NOT_ELIGIBLE` sin `details` y no el 403 del ticket: quien acepta es el emisor, que
+  no puede resolverlo ni tiene por qué ver la deuda del otro (mismo criterio que MOVO-116).
+- Entrega: `captureAndComplete` bifurca a `completeCashShipment` (comisión en payments → `completed` → push
+  `cashCommissionRegisteredCarrier`); el barrido de liquidaciones lo reintenta igual. Penalidad del emisor:
+  `settleCashPenalty` (deuda + compensación en una llamada, `cancellationPenaltyStatus: debt`).
+- En efectivo no se llama a holds (cancelación, baja, no-retiro), `viewFor` del funding devuelve `null` y no hay `debtDiscount`.
+- Review (PR 319): el tope de deuda reutiliza el saldo que ya trajo `assertCarrierCanOperate` (`CarrierEligibility.debtBalanceArs`,
+  una sola lectura a payments). `createOffer` y `updatePaymentMethod` se serializan con un lock de fila sobre el envío
+  (`FOR SHARE` / `FOR UPDATE`), y el insert de la oferta falla con `409 SHIPMENT_PAYMENT_METHOD_CHANGED` si el medio de pago ya no
+  es el que se validó. El emisor recibe `cashShipmentCompletedSender` al completarse. La oferta asignada se avisa como cancelada
+  salvo que la compensación (`cashPenaltyCompensationArs`) sea mayor que cero.
+- Disputas sobre efectivo: la acción de pago es siempre `none` (sin hold ni liquidación de MP) y el monto en juego es el precio
+  acordado (`dispute-resolution.service.ts`). A favor del emisor desde `completed`, la comisión del transportista se anula con un
+  crédito en su cuenta corriente (`dispute-<id>-commission-reversal`); un parcial la conserva, y el reintegro del efectivo en mano
+  queda fuera de Movo. Decisión sin ADR/DD todavía: si se confirma, sumarla a DD-056.
+- Pendiente: mobile (parte M); `GET /shipments/:id/settlement` sigue en 404 para efectivo.
+
 ### MOVO-341 — Lectura de disputas para el panel: ciudad, orden, contadores, historial, atribución y disputa en el envío
 
 Sobre lo que MOVO-337 ya dejó (listado y expediente), `admin-disputes.routes.ts` suma: filtro `city` (coincidencia **parcial**, sin

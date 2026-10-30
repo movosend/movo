@@ -1,7 +1,7 @@
 import type { HoldStatus, SettlementStatus, TransactionKind, TransactionStatus } from "@movo/shared";
 
 export interface TransactionStatusInput {
-  /** Por defecto `shipment`. Un pago de saldo solo se lista aprobado: siempre `completed`. */
+  /** Por defecto `shipment`. Un pago de saldo solo se lista aprobado y un envío en efectivo solo entregado: siempre `completed`. */
   kind?: TransactionKind;
   holdStatus: HoldStatus;
   /** `null` si el hold no tiene liquidación. */
@@ -26,7 +26,8 @@ export interface TransactionStatusInput {
  * integración verifica que ambos coincidan.
  */
 export function deriveTransactionStatus(input: TransactionStatusInput): TransactionStatus {
-  if (input.kind === "balance_payment") return "completed";
+  // MOVO-37: un envío en efectivo solo se lista entregado (la fila nace con la comisión).
+  if (input.kind === "balance_payment" || input.kind === "cash_shipment") return "completed";
   if (input.hasDispute) return "disputed";
   if (input.hasRefund) return "refunded";
   if (input.settlementStatus === "credited") return "completed";

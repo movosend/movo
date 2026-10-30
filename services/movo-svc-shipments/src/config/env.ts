@@ -61,6 +61,7 @@ export interface EnvConfig {
   FUNDING_SWEEP_INTERVAL_MINUTES: number;
   FUNDING_SWEEP_ENABLED?: boolean;
   USER_DEBT_OVERDUE_DAYS: number;
+  CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS: number;
   ALERT_PROVIDER: "console" | "telegram";
   ALERT_TELEGRAM_BOT_TOKEN?: string;
   ALERT_TELEGRAM_CHAT_ID?: string;
@@ -238,6 +239,9 @@ export const envSchema = {
     // bloquea operar como transportista (declarar viaje, ofertar, editar oferta, iniciar
     // viaje). Umbral por antigüedad, sin monto mínimo. Como emisor no se bloquea.
     USER_DEBT_OVERDUE_DAYS: { type: "number", default: 14, minimum: 0 },
+    // MOVO-37: tope de deuda total (vencida o no) del transportista para ofertar en envíos en efectivo y que le
+    // acepten una oferta en uno. Se compara con ">": con la deuda justo en el tope todavía puede.
+    CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS: { type: "number", default: 30000, minimum: 0 },
     // MOVO-334: alerta al equipo cuando una parte abre una disputa. Mismas vars que
     // `svc-payments` (MOVO-268): `console` = solo log, `telegram` = además al chat del equipo.
     ALERT_PROVIDER: { type: "string", enum: ["console", "telegram"], default: "console" },

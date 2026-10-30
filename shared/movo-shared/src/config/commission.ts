@@ -163,6 +163,21 @@ export function carrierPaymentView(input: {
   };
 }
 
+/**
+ * MOVO-37: compensación al transportista cuando el emisor cancela tarde un envío en efectivo y la penalidad
+ * queda como deuda (no hay hold que capturar). Le deja lo mismo que la captura parcial con tarjeta (spike
+ * MOVO-305: MP cobra el `application_fee` entero, que es la comisión de Movo sobre el PRECIO, y su propio fee
+ * sobre lo capturado): penalidad − comisión sobre el precio − estimado de MP sobre la penalidad. Nunca negativo.
+ */
+export function cashPenaltyCompensationArs(
+  agreedPriceArs: number,
+  penaltyArs: number,
+  rates: { commissionRate?: number; mpRate?: number } = {},
+): number {
+  const commission = decomposeOfferGrossPrice(agreedPriceArs, rates.commissionRate).commissionAmountArs;
+  return Math.max(0, Math.round((penaltyArs - commission - estimateMpFeeArs(penaltyArs, rates.mpRate)) * 100) / 100);
+}
+
 /** Solo para tests: resetea la config memoizada entre casos. */
 export function __resetCommissionConfigForTests(): void {
   cached = undefined;

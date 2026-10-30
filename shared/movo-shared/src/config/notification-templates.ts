@@ -99,6 +99,10 @@ export type NotificationTriggerKey =
   | "cancellationPenaltyCompensationCarrier"
   | "carrierWithdrewSender"
   | "carrierWithdrawalPenaltyDebtCarrier"
+  | "cashCommissionRegisteredCarrier"
+  | "cashShipmentCompletedSender"
+  | "cashCancellationPenaltyDebtSender"
+  | "cashCancellationCompensationCarrier"
   | "shipmentStatusForcedSender"
   | "shipmentStatusForcedReceiver"
   | "shipmentStatusForcedCarrier"
@@ -961,6 +965,49 @@ export const NOTIFICATION_TRIGGERS = {
     () => ({
       title: "Soporte actualizó el estado de un envío",
       body: "El equipo de Movo cambió el estado de un envío que llevás. Tocá para ver el detalle",
+    })
+  ),
+  // MOVO-37: envío pagado en efectivo. La comisión de Movo queda como deuda del transportista al entregar (sin el
+  // monto en el copy: la push abre la cuenta corriente, donde está el detalle). La penalidad del emisor no sale de
+  // una reserva (no hay hold): va a su cuenta, y al transportista se le acredita la compensación en la suya.
+  cashCommissionRegisteredCarrier: definition(
+    "payments",
+    {
+      title: "Registramos la comisión de un envío en efectivo",
+      body: "Entregaste un envío que cobraste en efectivo: la comisión de Movo quedó en tu cuenta.",
+    },
+    () => ({
+      title: "Registramos la comisión de un envío en efectivo",
+      body: "Entregaste un envío que cobraste en efectivo: la comisión de Movo quedó en tu cuenta. Tocá para ver el detalle.",
+    })
+  ),
+  // Cierre del envío en efectivo para el emisor: el mismo evento que con tarjeta (`settlementProcessedSender`), sin
+  // hablar de un pago procesado porque el emisor ya le pagó al transportista en mano.
+  cashShipmentCompletedSender: definition(
+    "payments",
+    { title: "Envío completado", body: "Tu envío fue entregado y quedó completado." },
+    () => ({ title: "Envío completado", body: "Tu envío fue entregado y quedó completado." })
+  ),
+  cashCancellationPenaltyDebtSender: definition<{ penaltyArs: number }>(
+    "payments",
+    {
+      title: "Tenés una penalidad pendiente",
+      body: "Cancelaste un envío en efectivo con menos de 12 h de anticipación: la penalidad quedó en tu cuenta.",
+    },
+    ({ penaltyArs }) => ({
+      title: "Tenés una penalidad pendiente",
+      body: `Cancelaste con menos de 12 h de anticipación: sumamos $${formatArs(penaltyArs)} a tu cuenta. Podés saldarla desde "Pagar mi saldo".`,
+    })
+  ),
+  cashCancellationCompensationCarrier: definition<{ compensationArs: number }>(
+    "payments",
+    {
+      title: "Recibiste una compensación",
+      body: "El emisor canceló el envío a último momento y te acreditamos una compensación en tu cuenta.",
+    },
+    ({ compensationArs }) => ({
+      title: "Recibiste una compensación",
+      body: `El emisor canceló a último momento: te acreditamos $${formatArs(compensationArs)} en tu cuenta de Movo.`,
     })
   ),
   carrierWithdrawalPenaltyDebtCarrier: definition<{ penaltyArs: number }>(

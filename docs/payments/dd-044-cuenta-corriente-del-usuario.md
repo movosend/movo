@@ -114,8 +114,52 @@ un `manual_adjustment` positivo por el monto de la deuda cobrada. Se acepta porq
 envío con deuda es el caso raro de un caso raro, y repararlo bien requiere decidir antes qué se devuelve al emisor
 (MOVO-34).
 
+### Envíos pagados en efectivo (MOVO-37, 27/10/2026)
+
+El emisor elige la modalidad al crear el envío (`paymentMethod`: `card` o `cash`, solo cambia mientras no haya
+ofertas). En efectivo le paga al transportista **el monto acordado completo, en mano, al retiro**; el receptor no
+participa de la parte económica. Sin hold no hay saga: al aceptar la oferta el envío pasa directo
+`published → assigned` y las demás ofertas se cierran en la misma transacción. Todo lo que Movo cobra o reparte en
+un envío en efectivo pasa por esta cuenta corriente:
+
+- **Comisión como deuda del transportista, al entregar.** Con el handshake de entrega, `svc-shipments` pide a
+  `svc-payments` (`POST /internal/payments/cash-shipments/:id/commission`) que registre un `cash_commission` por la
+  comisión de Movo sobre el precio, con la **misma función** que el `application_fee` con tarjeta
+  (`decomposeOfferGrossPrice`), y recién después pasa el envío a `completed`. Se registra en la entrega y no en el
+  retiro: queda atada al servicio completado. Idempotente por envío; la misma operación crea la fila de
+  `cash_shipment_payments` que el historial (MOVO-303) muestra como `cash_shipment`. La cobran los mecanismos de
+  siempre: el `application_fee` de su próxima operación con tarjeta (311), "Pagar mi saldo" (312) y el bloqueo (313).
+- **Tope de deuda del transportista.** Con una deuda total (vencida o no) mayor que
+  `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS` (30.000 por defecto) no puede ofertar ni editar una oferta en un envío en
+  efectivo (403 `CASH_DEBT_LIMIT_EXCEEDED`, requisito `cash_debt_within_limit`), ni se le puede aceptar una (409
+  `OFFER_CARRIER_NOT_ELIGIBLE`, sin `details`: quien acepta es el emisor). Complementa al bloqueo por antigüedad de
+  313: este frena el acumulado antes de que venza. Falla cerrado si payments no responde.
+- **Emisor con deuda: no puede pagar en efectivo.** Con cualquier saldo deudor no puede crear (ni pasar a) un envío
+  en efectivo (403 `CASH_PAYMENT_SENDER_HAS_DEBT`, requisito `no_pending_debt`); con tarjeta sí, porque su pago ya
+  cobra la deuda (311). Es una excepción acotada a "como emisor no se bloquea" de 313: no se le bloquea operar,
+  solo la modalidad, porque si no un emisor que solo usa efectivo nunca saldaría sus penalidades.
+- **Penalidad del emisor sin hold y compensación al transportista.** Una cancelación con menos de 12 h (DD-047) no
+  tiene hold que capturar: `POST /internal/payments/cash-shipments/:id/cancellation-penalty` registra la penalidad
+  como `cancellation_penalty` del emisor y, en la misma transacción, un `cancellation_compensation` negativo y
+  `settled` (un crédito) al transportista por lo mismo que le dejaría la captura parcial con tarjeta:
+  penalidad − comisión de Movo sobre el precio − estimado del fee de MP sobre la penalidad
+  (`cashPenaltyCompensationArs`, ≈ 11 % del precio). Así cancelar en efectivo no le sale gratis al emisor respecto
+  del transportista. La baja del transportista no cambia (310: su penalidad ya era deuda).
+
+**Limitación aceptada: en efectivo no rige "el transportista no cobra si no entrega".** Cobra al retirar. Si no
+entrega, no se le registra la comisión y el reclamo del emisor va por disputa (MOVO-34), que sin hold solo puede
+ajustar cuentas corrientes. Las mitigaciones son el KYC, el handshake de retiro como evidencia de custodia y el
+bloqueo por deuda. Tampoco se verifica el pago en mano entre las partes: la evidencia es el handshake de entrega.
+
+**Trade-off aceptado: un transportista que solo hace envíos en efectivo nunca tiene un `application_fee` del que
+descontar.** Su deuda depende del pago voluntario y del bloqueo; el tope de deuda lo acota. Lo mismo vale para la
+compensación: Movo la acredita aunque el emisor todavía no haya pagado su penalidad.
+
 ## Alternativas descartadas
 
+- **Débito automático de la comisión a una tarjeta guardada del transportista (MOVO-37 antes del 19/10):** exigía
+  cobrar una tarjeta sin CVV y falló en el sandbox de MP (`3031 security_code_id can't be null`); la cuenta corriente
+  resuelve lo mismo con lo ya construido.
 - **Cuenta corriente del transportista:** no cubre al emisor que cancela con hold propio ni la comisión en efectivo del emisor.
 - **Un saldo mutable por usuario** (una fila con `balance`): no deja evidencia ni permite reconstruir cómo se llegó a un monto en una disputa.
 - **Tabla totalmente inmutable** (el `status` como movimientos nuevos): obligaría a derivar el estado vigente con una consulta más compleja en cada lectura, sin ganancia real.

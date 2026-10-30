@@ -21,6 +21,7 @@ import {
   isDisputeResolvableStatus,
   minimumPartialCaptureArs,
   notificationTriggerCategory,
+  PaymentMethod,
   renderNotificationTrigger,
   ResolveDisputeResponse,
   ShipmentStatus,
@@ -215,6 +216,22 @@ export function createDisputeResolutionService(
       );
     }
 
+    if (shipment.paymentMethod === PaymentMethod.CASH) {
+      // MOVO-37: sin hold ni liquidación de MP. Lo que está en juego es el precio que el emisor le pagó en mano.
+      if (shipment.agreedPriceArs === null || shipment.carrierId === null) {
+        throw new ApiError(
+          422,
+          "DISPUTE_NOT_ALLOWED",
+          "El envío no tiene un precio acordado ni un transportista.",
+        );
+      }
+      return {
+        statusAtOpen: statusAtOpen as DisputeResolvableStatus,
+        stakeArs: shipment.agreedPriceArs,
+        applicationFeeArs: null,
+      };
+    }
+
     let stakeArs: number;
     let applicationFeeArs: number | null = null;
     switch (statusAtOpen) {
@@ -271,6 +288,55 @@ export function createDisputeResolutionService(
   }
 
   /**
+   * La acción de pago de la matriz. MOVO-37: un envío en efectivo nunca mueve plata contra MP (no hay hold ni
+   * liquidación), así que es siempre `none`; lo único que se corrige es la comisión de la cuenta corriente
+   * (`reverseCashCommission`).
+   */
+  function paymentActionOf(
+    shipment: Shipment,
+    statusAtOpen: DisputeResolvableStatus,
+    outcome: DisputeOutcome,
+  ): DisputePaymentAction {
+    return shipment.paymentMethod === PaymentMethod.CASH ? "none" : disputePaymentAction(statusAtOpen, outcome);
+  }
+
+  /**
+   * MOVO-37: a favor del emisor en un envío en efectivo ya completado, el servicio no se cumplió y la comisión que
+   * se le registró al transportista como deuda no corresponde: se anula con un crédito de la cuenta corriente (la
+   * plata que el emisor le pagó en mano queda fuera de Movo). Un envío disputado desde `delivered` o antes nunca
+   * llegó a registrar la comisión. Un parcial conserva la comisión. Idempotente: `registerCashCommission` devuelve
+   * lo ya registrado y el crédito lleva una key por disputa.
+   */
+  async function reverseCashCommission(
+    dispute: DisputeRecord,
+    shipment: Shipment,
+    plan: Plan,
+    adminId: string,
+  ): Promise<void> {
+    if (
+      shipment.paymentMethod !== PaymentMethod.CASH ||
+      plan.outcome !== "sender" ||
+      !shipment.carrierId ||
+      shipment.agreedPriceArs === null ||
+      (await disputeRepository.findStatusAtOpen(shipment.id)) !== ShipmentStatus.COMPLETED
+    ) {
+      return;
+    }
+    const { commissionArs } = await paymentsClient.registerCashCommission(shipment.id, {
+      senderId: shipment.senderId,
+      carrierId: shipment.carrierId,
+      agreedPriceArs: shipment.agreedPriceArs,
+    });
+    await paymentsClient.createManualAdjustment(shipment.carrierId, {
+      idempotencyKey: `dispute-${dispute.id}-commission-reversal`,
+      amountArs: -commissionArs,
+      reason: `Disputa ${dispute.id.slice(0, 8)}: se anula la comisión del envío en efectivo.`,
+      adminId,
+      shipmentId: shipment.id,
+    });
+  }
+
+  /**
    * Decide el reparto y la acción de pago. Todo lo que se puede rechazar se rechaza acá, antes de guardar el
    * resultado.
    */
@@ -308,7 +374,7 @@ export function createDisputeResolutionService(
       );
     }
 
-    const paymentAction = disputePaymentAction(statusAtOpen, input.outcome);
+    const paymentAction = paymentActionOf(shipment, statusAtOpen, input.outcome);
     // AC6: la captura parcial no puede quedar por debajo de la comisión del hold (`svc-admin` ya lo validó antes
     // de llamar; esto cubre un hold que cambió en el medio).
     if (paymentAction === "capture_partial" && applicationFeeArs !== null) {
@@ -530,7 +596,7 @@ export function createDisputeResolutionService(
         minimumPartialArs,
         outcomes: (["sender", "carrier", "partial"] as const).map((outcome) => ({
           outcome,
-          paymentAction: disputePaymentAction(statusAtOpen, outcome),
+          paymentAction: paymentActionOf(shipment, statusAtOpen, outcome),
           shipmentStatus: disputeFinalShipmentStatus(outcome),
         })),
         presets: DISPUTE_PARTIAL_PRESETS.flatMap((percentage) => {
@@ -649,6 +715,7 @@ export function createDisputeResolutionService(
             input.adminId,
             reasoning,
           ));
+          await reverseCashCommission(dispute, shipment, plan, input.adminId);
         } catch (err) {
           const definitive =
             err instanceof ApiError &&

@@ -280,7 +280,8 @@ export type AdminLedgerType =
   | "fee_offset"
   | "payment_surcharge"
   | "voluntary_payment"
-  | "manual_adjustment";
+  | "manual_adjustment"
+  | "cancellation_compensation";
 export type AdminLedgerStatus = "pending" | "reserved" | "settled" | "voided";
 
 export interface AdminUserLedgerEntry {

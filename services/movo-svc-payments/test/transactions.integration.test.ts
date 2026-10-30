@@ -34,7 +34,7 @@ describe("/payments/transactions (MOVO-303)", () => {
 
   beforeEach(async () => {
     await app.db.$executeRawUnsafe(
-      "TRUNCATE TABLE payments.settlements, payments.payment_provider_events, payments.holds, payments.balance_payment_attempts, payments.saved_cards CASCADE"
+      "TRUNCATE TABLE payments.settlements, payments.payment_provider_events, payments.holds, payments.balance_payment_attempts, payments.saved_cards, payments.cash_shipment_payments CASCADE"
     );
     seq = 0;
   });

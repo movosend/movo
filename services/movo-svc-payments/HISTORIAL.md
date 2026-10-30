@@ -863,6 +863,19 @@ salir el código de causa de "saldo insuficiente" que falta en `INSUFFICIENT_BAL
 de Movo y cómo prorratea el parcial (el fallback asienta el monto entero; ajustarlo si MP no devuelve la comisión). Fuera de alcance: el cliente en `svc-shipments`/`svc-admin`
 (MOVO-337) y un barrido que retome un intento `processing` sin reintento del llamador (hoy lo cierra el webhook si MP lo informa; si no, queda la alerta y, pasadas 12 h, `REFUND_NEEDS_REVIEW`).
 
+### MOVO-37 — Envíos pagados en efectivo (parte P)
+
+Módulo `cash-payments` con dos endpoints internos bajo `/internal/payments/cash-shipments/:shipmentId`: `commission` (comisión
+como `cash_commission` del transportista, calculada con `decomposeOfferGrossPrice`, la misma que el `application_fee`) y
+`cancellation-penalty` (penalidad del emisor + `cancellation_compensation` negativo y `settled` al transportista,
+`cashPenaltyCompensationArs` de `@movo/shared`: lo mismo que deja la captura parcial con tarjeta). Migración
+`20261027200000_cash_shipment_payments`: valor nuevo del enum y la tabla `cash_shipment_payments`, que el historial une como
+`kind: cash_shipment` (siempre `completed`, sin tarjeta, desglose con fee de MP en 0).
+- Idempotentes por envío con lock advisory + lectura previa en la transacción, en vez de capturar el `P2002`: un error de
+  unicidad aborta la transacción de Postgres. Un reintento devuelve lo registrado sin recalcular; con otras partes o monto, 409.
+- La penalidad usa la key `penalty:<shipmentId>`, la misma que el camino con tarjeta: un envío es de una sola modalidad.
+- P4 no hizo falta: `GET .../balance` ya da la deuda total que mira el tope.
+
 ### MOVO-337 — Reemplazo de una liquidación `failed` (disputas)
 
 `capture.service`: un pedido de otro `kind` o monto sobre una liquidación `failed` la reemplaza (`settlements.replaceFailed`) solo si MP confirma que el pago sigue `authorized`/`pending`; si no se puede consultar o está `approved`, sigue siendo `409 SETTLEMENT_CONFLICT`. Así una disputa cuya captura parcial rechazó MP se puede reintentar con otro porcentaje o resultado. La key de idempotencia de la penalidad ahora lleva el monto (`movo-hold-penalty-<holdId>-<monto>`). `svc-shipments` trata `SETTLEMENT_CONFLICT` como incierto (la disputa queda `resolving` con alerta).
