@@ -1,7 +1,7 @@
 import { Pencil } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
-import MapView, { Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import Animated, { processColor, useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
 import {
@@ -15,6 +15,7 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
 import { cumulativeFractions, decodePolyline, simplifyPolyline } from "../../src/lib/polyline";
+import { splitRoute } from "../../src/lib/route-geometry";
 import { ExpandableMap } from "../map/expandable-map";
 import { FullscreenMap } from "../map/fullscreen-map";
 import { StaticMarker } from "../map/static-marker";
@@ -113,7 +114,24 @@ interface RouteMapCardProps {
    * cada frame cuesta un viaje al mapa nativo. También se pausa solo con la app en
    * segundo plano. */
   paused?: boolean;
+  /** Seguimiento en vivo sobre este mismo mapa (MOVO-346, puntos 12 y 18): el detalle del envío
+   * tiene un solo mapa, con la ruta y el transportista. Sin esto, el mapa es solo la ruta. */
+  live?: RouteMapLive | null;
   testID?: string;
+}
+
+export interface RouteMapLive {
+  /** Última posición del transportista (WS o la última guardada). `null`: todavía no hay. */
+  position: { lat: number; lng: number } | null;
+  /** Sin señal hace rato: el marcador se atenúa y se muestra `lastSignalLabel`. */
+  stale: boolean;
+  lastSignalLabel?: string;
+  /** Recorrido real desde el retiro (`GET /shipments/:id/tracking`). No se dibuja sin `pickup`: el
+   * receptor no ve el punto de retiro (MOVO-194 AC4) y la traza lo delataría. */
+  trace: LatLng[];
+  /** Ruta planificada del envío; si viene vacía se usa la del mapa. Lo que falta se dibuja desde el
+   * transportista, punteado. */
+  planned: LatLng[];
 }
 
 /**
@@ -128,7 +146,16 @@ interface RouteMapCardProps {
  * el origen, un cuadrado para el destino, mismo color `fg-1` a propósito (se
  * distinguen por forma, no por color).
  */
-export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = false, bare = false, testID }: RouteMapCardProps) {
+export function RouteMapCard({
+  pickup,
+  delivery,
+  onEdit,
+  pickupLabel,
+  paused = false,
+  bare = false,
+  live = null,
+  testID,
+}: RouteMapCardProps) {
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
   const mapRef = useRef<MapView>(null);
@@ -213,7 +240,8 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = f
     const subscription = AppState.addEventListener("change", (state) => setAppActive(state === "active"));
     return () => subscription.remove();
   }, []);
-  const shouldSweep = routePoints.length > 0 && !paused && appActive;
+  // Con el transportista en el mapa, el barrido distrae: la línea que importa es la que falta.
+  const shouldSweep = routePoints.length > 0 && !paused && appActive && !live?.position;
   useEffect(() => {
     frameCallback.setActive(shouldSweep);
   }, [frameCallback, shouldSweep]);
@@ -269,6 +297,58 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = f
 
   const deliveryOnly = !pickup && !!delivery && pickupLabel !== undefined;
 
+  // Lo que falta: desde el transportista, sobre la ruta planificada (o la del mapa).
+  const livePosition = live?.position ?? null;
+  const remainingPoints = useMemo(() => {
+    if (!livePosition) return [];
+    const planned = live && live.planned.length > 1 ? live.planned : routePoints;
+    return splitRoute(planned, { latitude: livePosition.lat, longitude: livePosition.lng }).todo;
+  }, [live, livePosition, routePoints]);
+  const tracePoints = pickup && live ? live.trace : [];
+
+  const liveLayer = (prefix: string) =>
+    live ? (
+      <>
+        {tracePoints.length > 1 ? (
+          <Polyline
+            testID={testID ? `${testID}-${prefix}trace` : undefined}
+            coordinates={tracePoints}
+            strokeColor={colors.fg1}
+            strokeWidth={4}
+          />
+        ) : null}
+        {remainingPoints.length > 1 ? (
+          <Polyline
+            testID={testID ? `${testID}-${prefix}remaining` : undefined}
+            coordinates={remainingPoints}
+            strokeColor={colors.fg1}
+            strokeWidth={3.5}
+            lineDashPattern={[6, 6]}
+          />
+        ) : null}
+        {livePosition ? (
+          <Marker
+            key={`${prefix}carrier-${live.stale ? "stale" : "live"}`}
+            testID={testID ? `${testID}-${prefix}carrier` : undefined}
+            coordinate={{ latitude: livePosition.lat, longitude: livePosition.lng }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+          >
+            <View
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 999,
+                borderWidth: 3,
+                borderColor: "#FFFFFF",
+                backgroundColor: live.stale ? "#F5A524" : "#C6F24A",
+              }}
+            />
+          </Marker>
+        ) : null}
+      </>
+    ) : null;
+
   if (!delivery || (!pickup && !deliveryOnly)) {
     return (
       <View
@@ -322,6 +402,7 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = f
                 <View className="h-3.5 w-3.5 rounded-[3px] border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
               </View>
             </StaticMarker>
+            {liveLayer("fs-")}
           </FullscreenMap>
         )}
       >
@@ -428,7 +509,17 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = f
               <View className="h-3.5 w-3.5 rounded-[3px] border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
             </View>
           </StaticMarker>
+          {liveLayer("")}
         </MapView>
+
+        {live?.stale && live.lastSignalLabel ? (
+          <View
+            testID={testID ? `${testID}-last-signal` : undefined}
+            className="absolute left-3 top-3 rounded-full bg-warning-100 px-2.5 py-1"
+          >
+            <Text className="font-sans-semibold text-caption text-warning-700">{live.lastSignalLabel}</Text>
+          </View>
+        ) : null}
 
         {isRouteLoading ? (
           <SkeletonBlock

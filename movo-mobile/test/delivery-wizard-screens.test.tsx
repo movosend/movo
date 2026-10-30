@@ -281,13 +281,24 @@ describe("delivery/index (paso 1: ubicación, extensión de alcance pedida por e
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/delivery/resumen");
   });
 
-  it("fuera de rango, 'Reintentar ubicación' ocupa el lugar de 'Continuar'", async () => {
-    mockProximity = { status: "out_of_range", distanceMeters: 300, currentLocation: null, check: mockCheck };
-    const { getByTestId, queryByTestId } = await render(<DeliveryGeoScreen />);
+  it.each(["out_of_range", "denied", "error"] as const)(
+    "MOVO-346: %s no bloquea la entrega: informa y deja continuar al resumen",
+    async (status) => {
+      mockProximity = { status, distanceMeters: 300, currentLocation: null, check: mockCheck };
+      const { getByTestId, queryByTestId } = await render(<DeliveryGeoScreen />);
 
-    expect(queryByTestId("delivery-geo-continue")).toBeNull();
-    await act(async () => fireEvent.press(getByTestId("delivery-geo-retry")));
-    expect(mockCheck).toHaveBeenCalled();
+      expect(queryByTestId("delivery-geo-retry")).toBeNull();
+      await act(async () => fireEvent.press(getByTestId("delivery-geo-continue")));
+      expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/delivery/resumen");
+    },
+  );
+
+  it("MOVO-346: mientras busca la ubicación, Continuar sigue deshabilitado", async () => {
+    mockProximity = { status: "checking", distanceMeters: null, currentLocation: null, check: mockCheck };
+    const { getByTestId } = await render(<DeliveryGeoScreen />);
+
+    await act(async () => fireEvent.press(getByTestId("delivery-geo-continue")));
+    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 
   it("muestra un mapa real con el pin de entrega y el pin de la ubicación actual", async () => {

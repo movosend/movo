@@ -9,9 +9,10 @@ export type ProximityStatus = "idle" | "checking" | "within_range" | "out_of_ran
 /**
  * Validación de proximidad del paso 1 del wizard de retiro (MOVO-198 AC4) y del
  * wizard de entrega (MOVO-199, extensión de alcance pedida explícitamente por el
- * usuario -- "es una de las características principales de Movo"): confirma que el
- * transportista está a menos de 100m del punto de retiro/entrega ANTES de dejarlo
- * avanzar -- distinto del chequeo de 100m del handshake en sí (MOVO-158/160, que
+ * usuario -- "es una de las características principales de Movo"): mide si el
+ * transportista está a menos de 100m del punto de retiro/entrega. En el retiro no lo
+ * deja avanzar sin eso; en la entrega solo informa (MOVO-346, `blocking` de
+ * `ProximityGeoScreen`) -- distinto del chequeo de 100m del handshake en sí (MOVO-158/160, que
  * compara cedente vs. receptor de custodia en el momento de escanear, no contra la
  * dirección estática del envío). Sin permiso/GPS, nunca se asume "está cerca": el
  * caller queda en `denied`/`error` hasta que el usuario reintente.

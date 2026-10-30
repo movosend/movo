@@ -106,6 +106,15 @@ async function parseErrorBody(response: Response): Promise<ApiError> {
  */
 let refreshPromise: Promise<SessionResponse> | null = null;
 
+/**
+ * MOVO-346 (punto 1): solo un rechazo del servidor al refresh (401/403) significa que la sesión
+ * murió. Una caída de red, un 5xx o un error local (el Keychain que no escribe con el teléfono
+ * bloqueado) no: el servidor puede haber rotado el token, y cerrar la sesión ahí la pierde seguro.
+ */
+export function isRefreshRejected(err: unknown): boolean {
+  return err instanceof ApiError && (err.statusCode === 401 || err.statusCode === 403);
+}
+
 async function doRefresh(): Promise<SessionResponse> {
   const refreshToken = authHooks?.getRefreshToken();
   if (!refreshToken) {
@@ -207,8 +216,12 @@ export async function request<T>(
         // El refresh en sí falló (token inválido/reusado, cuenta suspendida) — se
         // propaga el error del refresh, no el 401 original, para que el caller sepa
         // que fue un fallo de sesión y no un error de negocio del endpoint que llamó.
-        // `ACCOUNT_DISABLED` ya cerró la sesión con su motivo (bloque del 403, abajo).
-        if (!(refreshError instanceof ApiError && refreshError.code === "ACCOUNT_DISABLED")) {
+        // `ACCOUNT_DISABLED` ya cerró la sesión con su motivo (bloque del 403, abajo). Un error
+        // que no es un rechazo del servidor deja la sesión como está (`isRefreshRejected`).
+        if (
+          isRefreshRejected(refreshError) &&
+          !(refreshError instanceof ApiError && refreshError.code === "ACCOUNT_DISABLED")
+        ) {
           await authHooks.onAuthFailure();
         }
         throw refreshError;

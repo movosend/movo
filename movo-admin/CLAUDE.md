@@ -366,3 +366,11 @@ Confirmación) del prototipo `Movo Admin Envios.dc.html`. Código en `components
 
 Pendiente: capturas de cada paso contra dev (DoD; necesita MOVO-331/332 desplegados) y revisión a mano en claro/oscuro. El email del segundo
 factor usa el texto genérico del OTP (sin copy propio del cambio de estado).
+
+## MOVO-346 — Backoff del WS de soporte
+
+`lib/support/realtime/feed.ts` ya no resetea el backoff en `onopen`: lo hace al primer mensaje o a los `WS_STABLE_MS` (10 s) con el
+socket abierto. Un servidor que acepta y cierra enseguida (origen no permitido) contaba cada intento como éxito y el panel pedía un
+ticket cada ~2 s. Un cierre `SUPPORT_WS_CLOSE.FORBIDDEN` (4003) pasa directo a polling y no reintenta el WS hasta el próximo `start`;
+`NativeSocket` pasa el `code` del cierre. Pendiente: cargar `SUPPORT_WS_ALLOWED_ORIGINS`/`SUPPORT_WS_PUBLIC_URL` en Secrets Manager y
+verlo `live` en dev.

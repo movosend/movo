@@ -144,6 +144,74 @@ describe("BackgroundTrackingManager (MOVO-242 / AC1, AC5, AC8)", () => {
     ]);
   });
 
+  describe("MOVO-346: falla del lote entero", () => {
+    const queue: QueuedPosition[] = [
+      { shipmentId: "shipment-1", lat: 1, lng: 1, accuracyM: 5, capturedAt: "2026-10-25T21:00:00Z" },
+    ];
+
+    beforeEach(() => {
+      (offlineQueueStorage.loadQueue as jest.Mock).mockResolvedValue(queue);
+    });
+
+    it("un 4xx que no es 401 ni 429 descarta el lote para no trabar la cola", async () => {
+      (shipmentsClient.reportPositionsBatch as jest.Mock).mockRejectedValue(
+        new ApiError(400, "VALIDATION_FAILED", "Body inválido"),
+      );
+      (offlineQueueStorage.removeSentPositions as jest.Mock).mockResolvedValueOnce([]);
+
+      const result = await backgroundTrackingManager.flushBatchQueue();
+
+      expect(offlineQueueStorage.removeSentPositions).toHaveBeenCalledWith(queue);
+      expect(result).toEqual({ sentCount: 0, remainingCount: 0, failure: null });
+    });
+
+    it("un 401 retiene el lote sin marcarlo como falla de red", async () => {
+      (shipmentsClient.reportPositionsBatch as jest.Mock).mockRejectedValue(
+        new ApiError(401, "AUTH_TOKEN_EXPIRED", "Vencido"),
+      );
+
+      const result = await backgroundTrackingManager.flushBatchQueue();
+
+      expect(offlineQueueStorage.removeSentPositions).not.toHaveBeenCalled();
+      expect(result).toEqual({ sentCount: 0, remainingCount: 1, failure: "auth" });
+    });
+
+    it("sin red retiene el lote y lo marca como falla de red", async () => {
+      (shipmentsClient.reportPositionsBatch as jest.Mock).mockRejectedValue(
+        new ApiError(0, "INTERNAL_ERROR", "Sin conexión"),
+      );
+
+      const result = await backgroundTrackingManager.flushBatchQueue();
+
+      expect(result).toEqual({ sentCount: 0, remainingCount: 1, failure: "network" });
+    });
+
+    it("dos vaciados simultáneos comparten la misma request y avisan a los listeners", async () => {
+      let resolveBatch: (value: unknown) => void = () => {};
+      (shipmentsClient.reportPositionsBatch as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveBatch = resolve;
+        }),
+      );
+      (offlineQueueStorage.removeSentPositions as jest.Mock).mockResolvedValueOnce([]);
+      const listener = jest.fn();
+      const unsubscribe = backgroundTrackingManager.onFlushed(listener);
+
+      const first = backgroundTrackingManager.flushBatchQueue();
+      const second = backgroundTrackingManager.flushBatchQueue();
+      await new Promise<void>((resolve) => setImmediate(() => resolve()));
+      resolveBatch({ results: [{ index: 0, shipmentId: "shipment-1", status: "accepted" }] });
+
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        { sentCount: 1, remainingCount: 0, failure: null },
+        { sentCount: 1, remainingCount: 0, failure: null },
+      ]);
+      expect(shipmentsClient.reportPositionsBatch).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledTimes(1);
+      unsubscribe();
+    });
+  });
+
   it("flushBatchQueue retiene la cola y no descarta posiciones ante HTTP 429", async () => {
     const queue: QueuedPosition[] = [
       { shipmentId: "shipment-1", lat: 1, lng: 1, accuracyM: 5, capturedAt: "2026-09-26T10:00:00Z" },

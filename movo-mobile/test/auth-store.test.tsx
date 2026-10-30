@@ -1,6 +1,7 @@
 import { SECURE_STORE_KEYS } from "../src/lib/secure-store";
 
 jest.mock("expo-secure-store", () => ({
+  AFTER_FIRST_UNLOCK: 0,
   getItemAsync: jest.fn().mockResolvedValue(null),
   setItemAsync: jest.fn().mockResolvedValue(undefined),
   deleteItemAsync: jest.fn().mockResolvedValue(undefined),
@@ -108,6 +109,7 @@ describe("auth-store", () => {
     expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
       SECURE_STORE_KEYS.sessionAccessToken,
       "access_2",
+      expect.anything(),
     );
   });
 
@@ -160,13 +162,103 @@ describe("auth-store", () => {
 
     const { useAuthStore } = require("../src/store/auth-store");
     const { authClient } = require("../src/api/auth-client");
-    (authClient.refresh as jest.Mock).mockRejectedValue(new Error("refresh inválido"));
+    const { ApiError } = require("@movo/shared/dist/errors/api-error");
+    (authClient.refresh as jest.Mock).mockRejectedValue(new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh inválido"));
 
     await useAuthStore.getState().restoreSession();
 
     expect(useAuthStore.getState().status).toBe("unauthenticated");
     expect(useAuthStore.getState().accessToken).toBeNull();
     expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(SECURE_STORE_KEYS.sessionAccessToken);
+  });
+
+  it("MOVO-346: restoreSession sin red mantiene la sesión guardada en vez de cerrarla", async () => {
+    const SecureStore = require("expo-secure-store");
+    const pastExpiry = Date.now() - 1000;
+    const stored: Record<string, string> = {
+      [SECURE_STORE_KEYS.sessionAccessToken]: "access_1",
+      [SECURE_STORE_KEYS.sessionRefreshToken]: "refresh_1",
+      [SECURE_STORE_KEYS.sessionUser]: JSON.stringify(SESSION_USER),
+      [SECURE_STORE_KEYS.sessionExpiresAt]: String(pastExpiry),
+      [SECURE_STORE_KEYS.keychainAccessMigrated]: "1",
+    };
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(stored[key] ?? null));
+
+    const { useAuthStore } = require("../src/store/auth-store");
+    const { authClient } = require("../src/api/auth-client");
+    const { ApiError } = require("@movo/shared/dist/errors/api-error");
+    (authClient.refresh as jest.Mock).mockRejectedValue(new ApiError(0, "INTERNAL_ERROR", "Sin conexión"));
+
+    await useAuthStore.getState().restoreSession();
+
+    expect(useAuthStore.getState()).toMatchObject({ status: "authenticated", refreshToken: "refresh_1" });
+    expect(SecureStore.deleteItemAsync).not.toHaveBeenCalled();
+  });
+
+  describe("MOVO-346: Keychain sin acceso al guardar la sesión", () => {
+    it("restoreSession recrea una vez las keys de sesión para que tomen AFTER_FIRST_UNLOCK", async () => {
+      const SecureStore = require("expo-secure-store");
+      const stored: Record<string, string> = {
+        [SECURE_STORE_KEYS.sessionAccessToken]: "access_1",
+        [SECURE_STORE_KEYS.sessionRefreshToken]: "refresh_1",
+        [SECURE_STORE_KEYS.sessionUser]: JSON.stringify(SESSION_USER),
+        [SECURE_STORE_KEYS.sessionExpiresAt]: String(Date.now() + 10 * 60 * 1000),
+      };
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(stored[key] ?? null));
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation((key: string, value: string) => {
+        stored[key] = value;
+        return Promise.resolve();
+      });
+      const { useAuthStore } = require("../src/store/auth-store");
+
+      await useAuthStore.getState().restoreSession();
+      await useAuthStore.getState().restoreSession();
+
+      expect(SecureStore.deleteItemAsync).toHaveBeenCalledTimes(4);
+      expect(SecureStore.setItemAsync).toHaveBeenCalledWith(SECURE_STORE_KEYS.sessionRefreshToken, "refresh_1", {
+        keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+      });
+      expect(stored[SECURE_STORE_KEYS.keychainAccessMigrated]).toBe("1");
+      expect(useAuthStore.getState()).toMatchObject({ status: "authenticated", refreshToken: "refresh_1" });
+    });
+
+    it("guarda las keys con AFTER_FIRST_UNLOCK", async () => {
+      const SecureStore = require("expo-secure-store");
+      const { useAuthStore } = require("../src/store/auth-store");
+
+      await useAuthStore.getState().setSession(REFRESHED_SESSION);
+
+      expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
+        SECURE_STORE_KEYS.sessionRefreshToken,
+        "refresh_2",
+        expect.objectContaining({ keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK }),
+      );
+    });
+
+    it("si persistir falla, la sesión nueva queda en memoria y se reintenta al volver a primer plano", async () => {
+      const SecureStore = require("expo-secure-store");
+      const { AppState } = require("react-native");
+      const listeners: Array<(state: string) => void> = [];
+      jest.spyOn(AppState, "addEventListener").mockImplementation((...args: unknown[]) => {
+        listeners.push(args[1] as (state: string) => void);
+        return { remove: jest.fn() };
+      });
+      (SecureStore.setItemAsync as jest.Mock).mockRejectedValue(new Error("errSecInteractionNotAllowed"));
+      const { useAuthStore } = require("../src/store/auth-store");
+
+      await expect(useAuthStore.getState().setSession(REFRESHED_SESSION)).resolves.toBeUndefined();
+      expect(useAuthStore.getState()).toMatchObject({ status: "authenticated", refreshToken: "refresh_2" });
+
+      (SecureStore.setItemAsync as jest.Mock).mockClear().mockResolvedValue(undefined);
+      listeners.forEach((listener) => listener("active"));
+      await new Promise<void>((resolve) => setImmediate(() => resolve()));
+
+      expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
+        SECURE_STORE_KEYS.sessionRefreshToken,
+        "refresh_2",
+        expect.anything(),
+      );
+    });
   });
 
   it("logout() llama a authClient.logout y limpia la sesión local (AC10)", async () => {

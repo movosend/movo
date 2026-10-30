@@ -178,6 +178,23 @@ export function RouteMap({
     return routePoints;
   }, [polylineCoordinates, routePoints]);
 
+  // MOVO-346 (punto 14): el tramo hasta la próxima parada se destaca del resto. Corta el trazo en el
+  // vértice más cercano a esa parada (el trazo ya arranca en el vehículo).
+  const activeLegCoordinates: LatLng[] = useMemo(() => {
+    const target = stops.find((s) => s.stopOrder === activeStopOrder);
+    if (!target || coordinatesToDraw.length < 2) return [];
+    let nearest = 0;
+    let best = Infinity;
+    coordinatesToDraw.forEach((point, index) => {
+      const d = (point.latitude - target.lat) ** 2 + (point.longitude - target.lng) ** 2;
+      if (d < best) {
+        best = d;
+        nearest = index;
+      }
+    });
+    return nearest > 0 ? coordinatesToDraw.slice(0, nearest + 1) : [];
+  }, [coordinatesToDraw, stops, activeStopOrder]);
+
   // Calcula el desplazamiento vertical de la cámara según la altura del bottom sheet (AC4 / Finding 5)
   const getLatitudeOffset = (latDelta: number) => {
     const effectiveBottom = bottomOffset ?? 260;
@@ -363,6 +380,17 @@ export function RouteMap({
               lineCap="round"
               lineJoin="round"
             />
+            {/* Tramo hasta la próxima parada, en lima por encima */}
+            {activeLegCoordinates.length > 1 ? (
+              <Polyline
+                testID="route-map-active-leg"
+                coordinates={activeLegCoordinates}
+                strokeColor="#9FC72E"
+                strokeWidth={5}
+                lineCap="round"
+                lineJoin="round"
+              />
+            ) : null}
           </>
         )}
 

@@ -102,6 +102,11 @@ export interface ProximityGeoScreenProps {
   totalSteps: number;
   onBack: () => void;
   onContinue: () => void;
+  /** Default `true`: sin estar a 100 m o menos del punto no se puede continuar (retiro: el punto es
+   * la evidencia del no-retiro, DD-052). En `false` la distancia es informativa y "Continuar" se
+   * habilita apenas termina el chequeo (entrega, MOVO-346 punto 16: el receptor puede no estar en el
+   * pin del emisor, y la proximidad que importa la valida el handshake contra el receptor). */
+  blocking?: boolean;
 }
 
 /**
@@ -135,6 +140,7 @@ export function ProximityGeoScreen({
   totalSteps,
   onBack,
   onContinue,
+  blocking = true,
 }: ProximityGeoScreenProps) {
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
@@ -172,7 +178,11 @@ export function ProximityGeoScreen({
   }, [mapReady, targetLat, targetLng, proximity.currentLocation]);
 
   const dotColor = proximity.status === "within_range" ? "#9FC72E" : proximity.status === "out_of_range" ? "#E5484D" : "#8A8A93";
-  const canRetry = proximity.status === "out_of_range" || proximity.status === "denied" || proximity.status === "error";
+  const canRetry =
+    blocking && (proximity.status === "out_of_range" || proximity.status === "denied" || proximity.status === "error");
+  const canContinue = blocking
+    ? proximity.status === "within_range"
+    : proximity.status !== "idle" && proximity.status !== "checking";
   const statusLabel =
     proximity.status === "checking" || proximity.status === "idle"
       ? "Ubicando"
@@ -343,7 +353,7 @@ export function ProximityGeoScreen({
         <PrimaryButton
           testID={`${testIDPrefix}-continue`}
           label="Continuar"
-          disabled={proximity.status !== "within_range"}
+          disabled={!canContinue}
           onPress={onContinue}
         />
       )}

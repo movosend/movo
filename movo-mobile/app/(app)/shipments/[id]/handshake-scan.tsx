@@ -9,16 +9,13 @@ import type { ConfirmHandshakeResult } from "../../../../src/api/shipments-clien
 import { useShipment } from "../../../../src/hooks/use-shipments";
 
 /**
- * Ruta standalone de MOVO-160 — todavía sin ningún CTA real que la abra (el de Home
- * depende de MOVO-192, sin backend; el de retiro ni existe hasta la fase 2 del home,
- * MOVO-206). Se prueba por ahora con navegación directa. `MOVO-198`/`MOVO-199`
- * (wizards de retiro/entrega) van a montar `HandshakeScanStep` como un paso más de
- * su propio flujo en vez de esta pantalla, cuando existan.
+ * Escaneo del QR de quien recibe la custodia (MOVO-160), sin wizard: el receptor llega desde el CTA
+ * de su home para confirmar la entrega (`shipmentDetailCta`). El transportista escanea el retiro
+ * dentro de su propio wizard (MOVO-198), que monta `HandshakeScanStep` como un paso más.
  *
- * El estado confirmado deja de tener su propio header/footer una vez que
- * `HandshakeConfirmationResult` (MOVO-198, rediseño) pasó a ser una pantalla
- * completa con su propio CTA horneado adentro — este archivo solo decide a dónde
- * va ese CTA.
+ * El estado confirmado es `HandshakeConfirmationResult` a pantalla completa, con su CTA horneado
+ * adentro: este archivo solo decide a dónde va ese CTA y desde qué lado se lee el texto (en la
+ * entrega quien escanea es el receptor, MOVO-346).
  */
 export default function HandshakeScanScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,6 +30,7 @@ export default function HandshakeScanScreen() {
         <HandshakeConfirmationResult
           testID="handshake-confirmation-result"
           result={confirmedResult}
+          viewer={confirmedResult.stage === "delivery" ? "receiver" : "carrier"}
           ctaLabel="Volver a Inicio"
           onCtaPress={() => router.replace("/")}
         />

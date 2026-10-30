@@ -5050,3 +5050,28 @@ este envío" al pie del detalle del envío → `/support/new?shipmentId=`.
 
 - `shipments/[id].tsx`: `useShipmentHold` también se habilita en `assigned` para el emisor y pasa `hold.amountArs` a `SenderActionsBar` → `CancelShipmentSheet` → `cancellationQuoteView`. Así, cuando el hold incluye deuda cobrada (MOVO-311), el sheet y la card "Tu pago" del detalle cancelado muestran el mismo monto reservado y a liberar.
 - El sheet no muestra montos ni deja confirmar hasta que el hold resuelve (`holdState`: `loading` mantiene "Calculando…", `error` ofrece reintentar y re-pide el hold con `onRetryHold`): la cotización suele llegar antes y, con el fallback a `agreedPriceArs`, habría mostrado un monto erróneo confirmable. El fallback al precio pactado queda solo para el hold que resolvió sin resultado.
+
+### MOVO-346 — Fixes de frontend de la prueba de flujo completo del 25/10
+
+Informe en `docs/pruebas/2026-10-25-flujo-completo.md`. Un commit por punto; el backend fue en el PR #322.
+
+- **Sesión (1).** `secure-store` escribe con `AFTER_FIRST_UNLOCK` (la tarea de ubicación guarda el token con el teléfono bloqueado),
+  y `migrateKeychainAccess` recrea una vez las keys `session*` al arrancar: sobre una key existente, `setItemAsync` cambia el valor y
+  conserva la accesibilidad vieja. `setSession` actualiza la memoria antes de persistir y, si persistir falla, reintenta al volver a
+  `active`. Solo un rechazo del servidor al refresh (401/403, `isRefreshRejected`) cierra la sesión; la red caída o un error local no.
+  Falta la prueba manual: viaje de más de 60 min con el iPhone bloqueado.
+- **Indicador de tracking (13).** "Sin conexión" sale de `TrackingStatus.deliveryFailing` (el último vaciado falló por red o 5xx), no
+  de que la cola tenga ítems. `flushBatchQueue` comparte la promesa en curso, avisa a `LocationService` al terminar (`onFlushed`,
+  también los de fondo) y descarta el lote ante un 4xx que no sea 401 ni 429.
+- **Ráfaga al volver a primer plano (6).** `src/lib/query-client.ts`: sin reintentos ante 4xx (un 429 reintentado agrava el rate
+  limit) y `focusManager` atado a `AppState`, así los `refetchInterval` no corren en segundo plano. `refetchOnWindowFocus` queda apagado.
+- **Fixes chicos.** Matches solo de un viaje `declared` (8). Calificaciones solo con el envío terminado (9). El éxito del handshake
+  según quién confirma, `viewer` (11). La entrega informa la distancia al pin y deja seguir, `blocking={false}` de
+  `ProximityGeoScreen`; el retiro sigue bloqueando (16). La card de envío activo abre el detalle (17); "Ver en el mapa" con el viaje
+  iniciado y el envío `assigned` queda afuera: `ActiveShipmentSummary` no trae `carrierTripActive`.
+- **Mapas (12, 14, 18).** `src/lib/route-geometry.ts` (`splitRoute`) es el port del `remainingRouteProgress` del panel. "Mi ruta"
+  dibuja el `polyline` de `my-route` recortado desde el vehículo, porque el backend lo cachea 2 h desde la posición del primer pedido,
+  y destaca en lima el tramo hasta la próxima parada. El detalle del envío tiene un solo mapa: `RouteMapCard` con `live` suma el
+  marcador del transportista (WS, solo con la pantalla enfocada), el recorrido y lo que falta, punteado
+  (`useShipmentTracking` → `GET /shipments/:id/tracking`). Sin retiro a la vista (receptor) no dibuja la traza. La franja "En vivo"
+  es un botón a la pantalla completa, que también dibuja la ruta y el recorrido (`LiveMap`).

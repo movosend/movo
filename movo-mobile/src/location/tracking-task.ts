@@ -14,11 +14,27 @@ export { TrackingContextData };
 
 export type ShipmentDroppedListener = (shipmentId: string, reason: string) => void;
 
+/**
+ * Por qué no salió un vaciado (MOVO-346, punto 13). Solo `network` (sin conexión o 5xx) es "sin
+ * conexión" para el indicador: un 401 espera a que la sesión se recupere y un 429 al backoff.
+ */
+export type FlushFailure = "network" | "auth" | "rate_limited";
+
+export interface FlushResult {
+  sentCount: number;
+  remainingCount: number;
+  failure: FlushFailure | null;
+}
+
+export type FlushedListener = (result: FlushResult) => void;
+
 class BackgroundTrackingManager {
   private activeTripId: string | null = null;
   private activeShipmentIds = new Set<string>();
   private droppedListeners = new Set<ShipmentDroppedListener>();
-  private isFlushing = false;
+  private flushedListeners = new Set<FlushedListener>();
+  /** Vaciado en curso: un segundo pedido espera este en vez de volver sin hacer nada. */
+  private flushPromise: Promise<FlushResult> | null = null;
   private last429Timestamp = 0;
   private backoffDelayMs = 2_000;
 
@@ -63,6 +79,14 @@ class BackgroundTrackingManager {
     this.droppedListeners.add(listener);
     return () => {
       this.droppedListeners.delete(listener);
+    };
+  }
+
+  /** Avisa al terminar cada vaciado, sea del primer plano o de la tarea de fondo (MOVO-346). */
+  onFlushed(listener: FlushedListener): () => void {
+    this.flushedListeners.add(listener);
+    return () => {
+      this.flushedListeners.delete(listener);
     };
   }
 
@@ -120,87 +144,112 @@ class BackgroundTrackingManager {
    * Respetando el rate limit (30 req/min de MOVO-250) con backoff exponencial ante 429.
    * Evita condiciones de carrera removiendo únicamente las posiciones procesadas.
    */
-  async flushBatchQueue(): Promise<{ sentCount: number; remainingCount: number }> {
-    if (this.isFlushing) {
-      return { sentCount: 0, remainingCount: 0 };
+  async flushBatchQueue(): Promise<FlushResult> {
+    if (!this.flushPromise) {
+      this.flushPromise = this.doFlush().finally(() => {
+        this.flushPromise = null;
+      });
+      this.flushPromise.then(
+        (result) => {
+          for (const listener of this.flushedListeners) {
+            try {
+              listener(result);
+            } catch {
+              // Ignorar errores de listeners
+            }
+          }
+        },
+        () => {
+          // El error le llega a quien llamó a flushBatchQueue
+        },
+      );
     }
+    return this.flushPromise;
+  }
 
+  private async doFlush(): Promise<FlushResult> {
     // Verificar si estamos dentro del período de backoff por 429 reciente
     const now = Date.now();
     if (this.last429Timestamp > 0 && now - this.last429Timestamp < this.backoffDelayMs) {
       const q = await offlineQueueStorage.loadQueue();
-      return { sentCount: 0, remainingCount: q.length };
+      return { sentCount: 0, remainingCount: q.length, failure: "rate_limited" };
     }
 
-    this.isFlushing = true;
+    const queue = await offlineQueueStorage.loadQueue();
+    if (queue.length === 0) {
+      return { sentCount: 0, remainingCount: 0, failure: null };
+    }
+
+    // Tomar hasta 100 posiciones por tanda (AC8 / MOVO-250)
+    const batch = queue.slice(0, MAX_POSITIONS_PER_BATCH);
+    const batchInput: BatchPositionItemInput[] = batch.map((item) => ({
+      shipmentId: item.shipmentId,
+      lat: item.lat,
+      lng: item.lng,
+      accuracyM: item.accuracyM,
+      capturedAt: item.capturedAt,
+      ...(item.mocked !== undefined ? { mocked: item.mocked } : {}),
+    }));
+
     try {
-      const queue = await offlineQueueStorage.loadQueue();
-      if (queue.length === 0) {
-        return { sentCount: 0, remainingCount: 0 };
+      const response = await shipmentsClient.reportPositionsBatch(batchInput);
+      this.last429Timestamp = 0;
+      this.backoffDelayMs = 2_000;
+
+      // Procesar resultados por ítem
+      const resultsMap = new Map<number, BatchPositionResultItem>();
+      for (const res of response.results ?? []) {
+        resultsMap.set(res.index, res);
       }
 
-      // Tomar hasta 100 posiciones por tanda (AC8 / MOVO-250)
-      const batch = queue.slice(0, MAX_POSITIONS_PER_BATCH);
-      const batchInput: BatchPositionItemInput[] = batch.map((item) => ({
-        shipmentId: item.shipmentId,
-        lat: item.lat,
-        lng: item.lng,
-        accuracyM: item.accuracyM,
-        capturedAt: item.capturedAt,
-        ...(item.mocked !== undefined ? { mocked: item.mocked } : {}),
-      }));
+      const indicesToRemove = new Set<number>();
 
-      try {
-        const response = await shipmentsClient.reportPositionsBatch(batchInput);
-        this.last429Timestamp = 0;
-        this.backoffDelayMs = 2_000;
-
-        // Procesar resultados por ítem
-        const resultsMap = new Map<number, BatchPositionResultItem>();
-        for (const res of response.results ?? []) {
-          resultsMap.set(res.index, res);
+      for (let i = 0; i < batch.length; i++) {
+        const res = resultsMap.get(i);
+        if (!res) {
+          // Si el backend no devolvió status para este índice, asumimos removible solo si la request general fue 200
+          indicesToRemove.add(i);
+          continue;
         }
 
-        const indicesToRemove = new Set<number>();
+        if (res.status === "accepted") {
+          indicesToRemove.add(i);
+        } else if (res.status === "rejected") {
+          // Errores terminales definitivos: descartar de la cola
+          indicesToRemove.add(i);
 
-        for (let i = 0; i < batch.length; i++) {
-          const res = resultsMap.get(i);
-          if (!res) {
-            // Si el backend no devolvió status para este índice, asumimos removible solo si la request general fue 200
-            indicesToRemove.add(i);
-            continue;
-          }
-
-          if (res.status === "accepted") {
-            indicesToRemove.add(i);
-          } else if (res.status === "rejected") {
-            // Errores terminales definitivos: descartar de la cola
-            indicesToRemove.add(i);
-
-            // Si el envío ya no es trackeable en el viaje (MOVO-251 / AC7), dejar de trackearlo
-            if (res.code === "SHIPMENT_NOT_TRACKABLE") {
-              this.removeShipment(res.shipmentId, "SHIPMENT_NOT_TRACKABLE");
-            }
+          // Si el envío ya no es trackeable en el viaje (MOVO-251 / AC7), dejar de trackearlo
+          if (res.code === "SHIPMENT_NOT_TRACKABLE") {
+            this.removeShipment(res.shipmentId, "SHIPMENT_NOT_TRACKABLE");
           }
         }
-
-        // Quitar de la cola solo los ítems procesados releeyendo el archivo bajo mutex
-        // Esto previene que se pisen posiciones encoladas concurrentemente durante el await (MOVO-242)
-        const itemsToRemove = batch.filter((_, idx) => indicesToRemove.has(idx));
-        const updatedQueue = await offlineQueueStorage.removeSentPositions(itemsToRemove);
-
-        const sent = itemsToRemove.length;
-        return { sentCount: sent, remainingCount: updatedQueue.length };
-      } catch (err: unknown) {
-        if (err instanceof ApiError && err.statusCode === 429) {
-          this.last429Timestamp = Date.now();
-          this.backoffDelayMs = Math.min(this.backoffDelayMs * 2, 60_000);
-        }
-        // Ante fallas de red, 429 o 5xx, no descartamos posiciones (AC10)
-        return { sentCount: 0, remainingCount: queue.length };
       }
-    } finally {
-      this.isFlushing = false;
+
+      // Quitar de la cola solo los ítems procesados releeyendo el archivo bajo mutex
+      // Esto previene que se pisen posiciones encoladas concurrentemente durante el await (MOVO-242)
+      const itemsToRemove = batch.filter((_, idx) => indicesToRemove.has(idx));
+      const updatedQueue = await offlineQueueStorage.removeSentPositions(itemsToRemove);
+
+      const sent = itemsToRemove.length;
+      return { sentCount: sent, remainingCount: updatedQueue.length, failure: null };
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.statusCode === 429) {
+        this.last429Timestamp = Date.now();
+        this.backoffDelayMs = Math.min(this.backoffDelayMs * 2, 60_000);
+        return { sentCount: 0, remainingCount: queue.length, failure: "rate_limited" };
+      }
+      // Un 401 retiene el lote hasta que la sesión se recupere (el refresh lo maneja http-client).
+      if (err instanceof ApiError && err.statusCode === 401) {
+        return { sentCount: 0, remainingCount: queue.length, failure: "auth" };
+      }
+      // MOVO-346: cualquier otro 4xx del lote entero no se arregla reintentando (validación,
+      // envío ajeno): se descarta, o la cola queda trabada para siempre.
+      if (err instanceof ApiError && err.statusCode >= 400 && err.statusCode < 500) {
+        const updatedQueue = await offlineQueueStorage.removeSentPositions(batch);
+        return { sentCount: 0, remainingCount: updatedQueue.length, failure: null };
+      }
+      // Ante fallas de red o 5xx, no descartamos posiciones (AC10)
+      return { sentCount: 0, remainingCount: queue.length, failure: "network" };
     }
   }
 

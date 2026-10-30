@@ -1,4 +1,5 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import type { ShipmentPartyTracking } from "@movo/shared/dist/types/admin-shipments";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 import type { ShipmentFundingView } from "@movo/shared/dist/types/funding";
 import type { ShipmentQuoteRequest, ShipmentQuoteResponse } from "@movo/shared/dist/types/pricing";
@@ -569,6 +570,14 @@ export const shipmentsClient = {
     return httpClient.get<LastKnownCarrierPosition | null>(
       `/shipments/${shipmentId}/positions/latest`
     );
+  },
+
+  /**
+   * `GET /shipments/:id/tracking` (MOVO-346, punto 12): ruta planificada, recorrido y última posición
+   * del tramo de este envío, para el emisor y el receptor. La posición en vivo sigue llegando por el WS.
+   */
+  getTracking(shipmentId: string): Promise<ShipmentPartyTracking> {
+    return httpClient.get<ShipmentPartyTracking>(`/shipments/${shipmentId}/tracking`);
   },
 };
 
