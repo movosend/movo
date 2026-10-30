@@ -234,6 +234,40 @@ describe("http-client — interceptor de sesión (MOVO-76)", () => {
     expect(hooks.onAuthFailure).toHaveBeenCalledTimes(1);
   });
 
+  it("MOVO-346: un refresh que falla por red o 5xx no cierra la sesión", async () => {
+    for (const refreshResponse of [() => Promise.reject(new Error("network down")), () => Promise.resolve(jsonRes(503, {}))]) {
+      jest.resetModules();
+      const fetchMock = jest.fn((url: string) =>
+        url.includes("/auth/refresh") ? refreshResponse() : Promise.resolve(jsonRes(401, EXPIRED_ERROR_BODY)),
+      );
+      // @ts-expect-error mock global
+      global.fetch = fetchMock;
+
+      const { httpClient, registerAuthHooks } = require("../src/api/http-client");
+      const { hooks } = buildHooks({ accessToken: "old-token", refreshToken: "refresh-1" });
+      registerAuthHooks(hooks);
+
+      await expect(httpClient.get("/shipments/transporting")).rejects.toBeTruthy();
+      expect(hooks.onAuthFailure).not.toHaveBeenCalled();
+    }
+  });
+
+  it("MOVO-346: si aplicar la sesión refrescada falla localmente, no se cierra la sesión", async () => {
+    const fetchMock = jest.fn((url: string) =>
+      Promise.resolve(url.includes("/auth/refresh") ? jsonRes(200, REFRESH_SESSION) : jsonRes(401, EXPIRED_ERROR_BODY)),
+    );
+    // @ts-expect-error mock global
+    global.fetch = fetchMock;
+
+    const { httpClient, registerAuthHooks } = require("../src/api/http-client");
+    const { hooks } = buildHooks({ accessToken: "old-token", refreshToken: "refresh-1" });
+    hooks.onTokensRefreshed.mockRejectedValue(new Error("errSecInteractionNotAllowed"));
+    registerAuthHooks(hooks);
+
+    await expect(httpClient.get("/shipments/transporting")).rejects.toThrow("errSecInteractionNotAllowed");
+    expect(hooks.onAuthFailure).not.toHaveBeenCalled();
+  });
+
   it("no reintenta si el que falló es el propio /auth/refresh (evita loop infinito)", async () => {
     const fetchMock = jest.fn((url: string, init?: { headers?: Record<string, string> }) => {
       if (url.includes("/auth/refresh")) {

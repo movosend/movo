@@ -12,17 +12,43 @@ import * as SecureStore from "expo-secure-store";
  * automático — mezclarlos acoplaría dos conceptos que ya están separados en el resto
  * del código (`use-registration.tsx` vs. `src/store/auth-store.ts`).
  */
+/**
+ * MOVO-346 (punto 1): `AFTER_FIRST_UNLOCK` y no el default `WHEN_UNLOCKED`, para que la tarea de
+ * ubicación pueda guardar el token refrescado con el teléfono bloqueado. Con el default, iOS rechaza
+ * la escritura y la app perdía la sesión a mitad del viaje. Solo aplica al crear el ítem: sobre una
+ * key existente, `setItemAsync` actualiza el valor y conserva la accesibilidad vieja (por eso
+ * `migrateKeychainAccess`). Leer y borrar no la usan: el Keychain no filtra por accesibilidad.
+ */
+const SET_OPTIONS: SecureStore.SecureStoreOptions = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
+
 export const secureStore = {
   getItem(key: string): Promise<string | null> {
     return SecureStore.getItemAsync(key);
   },
   setItem(key: string, value: string): Promise<void> {
-    return SecureStore.setItemAsync(key, value);
+    return SecureStore.setItemAsync(key, value, SET_OPTIONS);
   },
   deleteItem(key: string): Promise<void> {
     return SecureStore.deleteItemAsync(key);
   },
 };
+
+/**
+ * Recrea las keys dadas (borrar y volver a escribir) para que tomen la accesibilidad de
+ * `SET_OPTIONS`. Corre una sola vez por instalación, marcado con `keychainAccessMigrated`, y en el
+ * arranque, con la app en primer plano. Si la app muere entre el borrado y la escritura, esa key se
+ * pierde: para la sesión significa volver a iniciarla, el mismo costo que tenía el bug.
+ */
+export async function migrateKeychainAccess(keys: readonly string[]): Promise<void> {
+  if ((await secureStore.getItem(SECURE_STORE_KEYS.keychainAccessMigrated)) === "1") return;
+  for (const key of keys) {
+    const value = await secureStore.getItem(key);
+    if (value === null) continue;
+    await secureStore.deleteItem(key);
+    await secureStore.setItem(key, value);
+  }
+  await secureStore.setItem(SECURE_STORE_KEYS.keychainAccessMigrated, "1");
+}
 
 export const SECURE_STORE_KEYS = {
   /** `userId` del registro en curso — usado para reanudar el onboarding, no para auth. */
@@ -89,6 +115,9 @@ export const SECURE_STORE_KEYS = {
    * la cuenta y no del dispositivo. Sobreviven a un cierre de la app para reintentarse
    * en el próximo arranque. */
   pendingTourRecordsPrefix: "movo.tours.pending",
+  /** MOVO-346: "1" cuando las keys `session*` ya se recrearon con `AFTER_FIRST_UNLOCK`
+   * (`migrateKeychainAccess`). Es del dispositivo: sobrevive a `clearSession()`. */
+  keychainAccessMigrated: "movo.keychainAccessMigrated",
 } as const;
 
 /**

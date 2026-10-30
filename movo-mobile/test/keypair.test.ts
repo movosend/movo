@@ -39,6 +39,7 @@ describe("getOrCreateDeviceKeyPair", () => {
     expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
       SECURE_STORE_KEYS.handshakeDevicePrivateKey,
       FIXTURE_PRIVATE_KEY_B64,
+      expect.anything(),
     );
   });
 

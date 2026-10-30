@@ -1,9 +1,15 @@
+import { AppState } from "react-native";
 import { create } from "zustand";
 import type { KycStatus, UserRole } from "@movo/shared/dist/types/user";
 import { authClient } from "../api/auth-client";
-import { registerAuthHooks } from "../api/http-client";
+import { isRefreshRejected, registerAuthHooks } from "../api/http-client";
 import type { SessionResponse } from "../api/session-types";
-import { SECURE_STORE_KEYS, deletePendingRegistrationKeys, secureStore } from "../lib/secure-store";
+import {
+  SECURE_STORE_KEYS,
+  deletePendingRegistrationKeys,
+  migrateKeychainAccess,
+  secureStore,
+} from "../lib/secure-store";
 import { unregisterCurrentDevice } from "../lib/push-registration";
 
 export interface SessionUser {
@@ -71,6 +77,28 @@ async function persistSession(session: SessionResponse): Promise<void> {
   ]);
 }
 
+const SESSION_KEYS = [
+  SECURE_STORE_KEYS.sessionAccessToken,
+  SECURE_STORE_KEYS.sessionRefreshToken,
+  SECURE_STORE_KEYS.sessionUser,
+  SECURE_STORE_KEYS.sessionExpiresAt,
+] as const;
+
+/** Sesión que `setSession` no pudo persistir: se reintenta al volver la app a `active`. */
+let pendingPersist: SessionResponse | null = null;
+
+async function retryPendingPersist(): Promise<void> {
+  const session = pendingPersist;
+  if (!session) return;
+  try {
+    await persistSession(session);
+    // Si entretanto llegó otra sesión (o se cerró), esa manda.
+    if (pendingPersist === session) pendingPersist = null;
+  } catch {
+    // Sigue pendiente para la próxima vuelta a primer plano.
+  }
+}
+
 async function clearPersistedSession(): Promise<void> {
   await Promise.all([
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionAccessToken),
@@ -89,10 +117,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOutReason: null,
 
   async setSession(session) {
-    // Secure-store primero: si la app se mata a mitad de este `await`, la próxima
-    // `restoreSession()` igual repuebla desde ahí (secure-store es la fuente de
-    // verdad, el estado en memoria es un espejo para lectura síncrona de http-client.ts).
-    await persistSession(session);
+    // MOVO-346 (punto 1): memoria primero. Un refresh ya rotó el token en el servidor, así que
+    // si persistirlo falla (Keychain sin acceso con el teléfono bloqueado) la sesión nueva tiene
+    // que seguir viva en memoria: tirarla la perdía seguro. Se reintenta al volver a `active`.
     set({
       status: "authenticated",
       accessToken: session.accessToken,
@@ -100,6 +127,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       user: toSessionUser(session),
       signOutReason: null,
     });
+    try {
+      await persistSession(session);
+      pendingPersist = null;
+    } catch {
+      pendingPersist = session;
+    }
   },
 
   async updateKycStatus(kycStatus: KycStatus) {
@@ -119,11 +152,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   async clearSession() {
+    pendingPersist = null;
     await clearPersistedSession();
     set({ status: "unauthenticated", accessToken: null, refreshToken: null, user: null });
   },
 
   async restoreSession() {
+    try {
+      await migrateKeychainAccess(SESSION_KEYS);
+    } catch {
+      // Best-effort: sin migrar, el próximo refresh con el teléfono bloqueado puede no persistir,
+      // pero ya no cierra la sesión (`setSession`). Se reintenta en el próximo arranque.
+    }
     const [accessToken, refreshToken, userJson, expiresAtRaw] = await Promise.all([
       secureStore.getItem(SECURE_STORE_KEYS.sessionAccessToken),
       secureStore.getItem(SECURE_STORE_KEYS.sessionRefreshToken),
@@ -157,12 +197,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // login" — proactivo acá, no se espera a que un 401 real del interceptor de
     // http-client.ts lo dispare, para no mostrar la app autenticada un instante y
     // caer a login después (el parpadeo que pide evitar AC8).
+    let session: SessionResponse;
     try {
-      const session = await authClient.refresh({ refreshToken });
-      await get().setSession(session);
-    } catch {
-      await get().clearSession();
+      session = await authClient.refresh({ refreshToken });
+    } catch (err) {
+      // Solo un rechazo del servidor cierra la sesión (`isRefreshRejected`). Sin red se arranca
+      // con la sesión guardada: el primer 401 del interceptor vuelve a intentar el refresh.
+      if (isRefreshRejected(err)) {
+        await get().clearSession();
+        return;
+      }
+      try {
+        const user = JSON.parse(userJson) as SessionUser;
+        set({ status: "authenticated", accessToken, refreshToken, user });
+      } catch {
+        await get().clearSession();
+      }
+      return;
     }
+    await get().setSession(session);
   },
 
   async logout() {
@@ -216,4 +269,8 @@ registerAuthHooks({
   onTokensRefreshed: (session) => useAuthStore.getState().setSession(session),
   onAuthFailure: () => useAuthStore.getState().clearSession(),
   onAccountDisabled: () => useAuthStore.getState().signOutDisabledAccount(),
+});
+
+AppState.addEventListener("change", (state) => {
+  if (state === "active") void retryPendingPersist();
 });
