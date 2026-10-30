@@ -44,6 +44,7 @@ import {
   InvalidAdminCursorError,
 } from "../../repositories/admin-shipment-repository";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
+import { createDisputeRepository, ShipmentDisputeSummaryRecord } from "../../repositories/dispute-repository";
 import { createChatRepository, InvalidChatCursorError } from "../../repositories/chat-repository";
 import { adminInternalSchemas } from "./admin-internal.schema";
 import { createAdminUsersService } from "./admin-users.service";
@@ -103,6 +104,7 @@ const timeOnly = (date: Date): string => date.toISOString().slice(11, 16);
 export default async function adminInternalRoutes(app: FastifyInstance, opts: AdminInternalRoutesOptions) {
   const shipmentRepository = createShipmentRepository(app.db);
   const chatRepository = createChatRepository(app.db);
+  const disputeRepository = createDisputeRepository(app.db);
   const adminShipmentRepository = createAdminShipmentRepository(app.db);
   const offerRepository = createOfferRepository(app.db);
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
@@ -124,7 +126,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     releaseHoursBeforePickup: app.config.FUNDING_RELEASE_HOURS_BEFORE_PICKUP,
   };
 
-  function toRow({ row, names }: AdminShipmentRecord): AdminShipmentRow {
+  function toRow({ row, names }: AdminShipmentRecord, dispute?: ShipmentDisputeSummaryRecord): AdminShipmentRow {
     const status = row.status as ShipmentStatus;
     const agreed = row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null;
     const suggested = row.suggestedPriceArs ? row.suggestedPriceArs.toNumber() : null;
@@ -149,7 +151,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
       priceKind: hasCarrierPrice ? "agreed" : suggested !== null ? "suggested" : null,
       lastStatusChangeAt: (row.lastStatusChangedAt ?? row.createdAt).toISOString(),
       delayed: status === ShipmentStatus.IN_TRANSIT && row.transitAnomalyFlaggedAt !== null,
-      disputeId: null,
+      disputeId: dispute?.disputeId ?? null,
       fundingDeadline: isFunding ? fundingPayUntil({ ...row, status }, fundingConfig).toISOString() : null,
       redesignationDeadline:
         status === ShipmentStatus.REJECTED_BY_RECEIVER ? isoOrNull(row.receiverRedesignationDeadline) : null,
@@ -364,8 +366,16 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
         throw err;
       }
 
-      const [counts] = await Promise.all([adminShipmentRepository.counts(search), healMissingNames(page.items)]);
-      return { items: page.items.map(toRow), nextCursor: page.nextCursor, ...counts };
+      const [counts, disputes] = await Promise.all([
+        adminShipmentRepository.counts(search),
+        disputeRepository.latestSummaryByShipment(page.items.map(({ row }) => row.id)),
+        healMissingNames(page.items),
+      ]);
+      return {
+        items: page.items.map((record) => toRow(record, disputes.get(record.row.id))),
+        nextCursor: page.nextCursor,
+        ...counts,
+      };
     },
   );
 
@@ -394,8 +404,19 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
       const record = await requireRecord(id);
       await healMissingNames([record]);
       const { row } = record;
+      const dispute = (await disputeRepository.latestSummaryByShipment([row.id])).get(row.id);
       return {
-        ...toRow(record),
+        ...toRow(record, dispute),
+        dispute: dispute
+          ? {
+              id: dispute.disputeId,
+              status: dispute.status,
+              reason: dispute.reason,
+              openedByRole: dispute.openedByRole,
+              openedAt: dispute.openedAt.toISOString(),
+              statementsCount: dispute.statementsCount,
+            }
+          : null,
         packageType: row.packageType,
         weightKg: row.weightKg.toNumber(),
         lengthCm: row.lengthCm.toNumber(),

@@ -43,6 +43,7 @@ import { hasShipmentAccess } from "./assert-shipment-access";
 import { buildReceiverTransfersService } from "../receiver-transfers/receiver-transfers.routes";
 import { buildFundingService } from "../funding/funding.routes";
 import { resolveCarrierEligibility } from "../../utils/carrier-gate";
+import { createCarrierRoutePolylineStore } from "./carrier-route-polyline-store";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -199,6 +200,12 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       paymentsClient,
       pricingClient,
       pricingLogisticsClient,
+      routePolylineStore: createCarrierRoutePolylineStore({
+        redis: app.redis,
+        routesProvider,
+        provider: app.config.ROUTES_PROVIDER,
+        logger: app.log,
+      }),
       tripRepository,
       ratingRepository,
       // MOVO-179: radio de desvío del matching inverso (dispatchTripMatchPushes en

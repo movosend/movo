@@ -52,6 +52,53 @@ export interface AdminDisputeRow {
   carrier: AdminDisputeParty | null;
   receiver: AdminDisputeParty;
   outcome: DisputeOutcome | null;
+  /** MOVO-341: ciudad del retiro del envío (la misma que filtra `city`); `null` si el envío no la tiene. */
+  pickupCity: string | null;
+}
+
+/** MOVO-341: orden del listado por fecha de apertura. */
+export const ADMIN_DISPUTE_SORTS = ["newest", "oldest"] as const;
+export type AdminDisputeSort = (typeof ADMIN_DISPUTE_SORTS)[number];
+
+/** MOVO-341: contadores del menú lateral y la home, sin filtros. */
+export interface AdminDisputeCounts {
+  open: number;
+  resolving: number;
+  /** Abiertas hace más de 3 días / más de 7 días (la segunda está incluida en la primera). */
+  openOlderThan3Days: number;
+  openOlderThan7Days: number;
+}
+
+/** MOVO-341: cuántas disputas abrió, perdió y tiene abiertas una parte. */
+export interface AdminDisputePartyHistory {
+  userId: string;
+  role: DisputePartyRole;
+  /** Abiertas por esta persona, en cualquier rol. */
+  opened: number;
+  /** Resueltas en su contra (ganó la contraparte). Una parcial no cuenta como perdida. */
+  lost: number;
+  /** Disputas sin resolver (`open` o `resolving`) sobre envíos en los que participa. */
+  open: number;
+}
+
+/**
+ * MOVO-341 (DD-052): en una disputa de sistema nadie reclamó; esto es lo que decidió el barrido y con qué datos.
+ * Solo agregados: `svc-shipments` no guarda cada posición del retiro, sino la llegada y el conteo de lejanas y grises.
+ */
+export interface AdminDisputeAttribution {
+  reason: "transit_anomaly" | "pickup_no_show";
+  /** A quién se le atribuyó. Hoy siempre el transportista; `null` si el barrido no pudo atribuir. */
+  attributedTo: "carrier" | "sender" | null;
+  /** El motivo que registró el barrido (el `description` de la disputa). */
+  summary: string;
+  sweptAt: string;
+  /** Última posición del transportista conocida para el envío. */
+  lastPingAt: string | null;
+  /** Llegada registrada en el retiro (`pickup_no_show`); vacío si no hay. */
+  positions: Array<{ lat: number; lng: number; accuracyM: number; capturedAt: string; class: "arrival" | "far" | "gray" }>;
+  /** Posiciones de la ventana del retiro que no probaron ni la llegada ni la ausencia / que probaron la ausencia. */
+  farPositionsInWindow: number;
+  grayPositionsInWindow: number;
 }
 
 export interface AdminDisputePage {
@@ -67,6 +114,10 @@ export interface AdminDisputeDetail extends AdminDisputeRow {
   photos: DisputePhoto[];
   statements: DisputeStatement[];
   resolution: AdminDisputeResolution | null;
+  /** MOVO-341: una entrada por parte que es una persona (emisor, transportista, receptor). */
+  partyHistory: AdminDisputePartyHistory[];
+  /** MOVO-341: solo en las disputas de sistema (`transit_anomaly`, `pickup_no_show`). */
+  attribution: AdminDisputeAttribution | null;
 }
 
 /** Fotos de retiro y entrega del envío (bloque del expediente). */

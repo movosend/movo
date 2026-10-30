@@ -68,7 +68,15 @@ server {
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
 
     location / {
-        limit_req zone=api burst=20 nodelay;
+        # MOVO-346 (punto 6): al volver a primer plano la app dispara más de 20 requests juntas
+        # (refetch de React Query, sesión, chat) y varios dispositivos pueden compartir IP detrás
+        # de un NAT. Con burst=20 nginx devolvía 503 y la app lo leía como servicio caído. El
+        # límite fino lo pone el gateway (por IP y por usuario); esto frena solo barridos obvios.
+        limit_req zone=api burst=60 nodelay;
+        # 429 en vez del 503 por default, con el mismo cuerpo que el rate limit del gateway, así el
+        # cliente aplica su backoff en lugar de tratarlo como una caída.
+        limit_req_status 429;
+        error_page 429 = @rate_limited;
 
         proxy_pass         http://gateway:3000;
         proxy_http_version 1.1;
@@ -106,5 +114,13 @@ server {
         # delante de esta EC2.
         proxy_read_timeout 90s;
         proxy_connect_timeout 5s;
+    }
+
+    location @rate_limited {
+        default_type application/json;
+        # Un add_header en el location pisa los del server: se repite HSTS.
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        add_header Retry-After 1 always;
+        return 429 '{"error":{"code":"RATE_LIMIT_EXCEEDED","message":"Too many requests, please try again later","statusCode":429}}';
     }
 }

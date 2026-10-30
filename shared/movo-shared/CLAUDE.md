@@ -780,3 +780,9 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 `cashCancellationPenaltyDebtSender` y `cashCancellationCompensationCarrier` (categoría `payments`). Recordatorio habitual: `npm run build`
 acá antes de tipar desde otro workspace.
 
+### MOVO-341 — Lectura de disputas para el panel (`types/admin-disputes.ts`, `types/admin-shipments.ts`)
+
+`AdminDisputeRow.pickupCity` (requerido: rompe literales armados a mano), `AdminDisputeDetail.partyHistory`/`attribution` (requeridos),
+`AdminDisputeCounts`, `ADMIN_DISPUTE_SORTS`/`AdminDisputeSort`, `AdminDisputePartyHistory` y `AdminDisputeAttribution`. `AdminShipmentDisputeSummary`
+y `AdminShipmentDetail.dispute?` (opcional a propósito, para no romper los fixtures de `movo-admin`); `AdminShipmentRow.disputeId` pasa a ser la
+disputa más reciente del envío. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

@@ -462,6 +462,7 @@ export type {
   AdminShipmentPartyCard,
   AdminBlock,
   AdminShipmentDetail,
+  AdminShipmentDisputeSummary,
   AdminShipmentDetailResponse,
   AdminChatMessage,
   AdminChatReport,
@@ -472,6 +473,7 @@ export type {
   AdminTrackingPoint,
   AdminTrackingMetrics,
   AdminShipmentTracking,
+  ShipmentPartyTracking,
 } from "./types/admin-shipments";
 
 // admin: cambio forzado de estado de un envío (MOVO-331, DD-055)
@@ -692,7 +694,12 @@ export type {
   AdminDisputeNotePage,
   AdminDisputeNoteBody,
   AdminDisputeResolutionPreview,
+  AdminDisputeSort,
+  AdminDisputeCounts,
+  AdminDisputePartyHistory,
+  AdminDisputeAttribution,
 } from "./types/admin-disputes";
+export { ADMIN_DISPUTE_SORTS } from "./types/admin-disputes";
 
 // disputas (MOVO-334, DD-054)
 export {

@@ -930,6 +930,8 @@ export const shipmentsSchemas = {
     type: "object",
     required: ["stops", "totalDistanceKm", "totalDurationMinutes", "optimized", "disclaimer"],
     properties: {
+      // MOVO-346: camino por calles por todas las paradas, en orden. Null si el proveedor falló.
+      polyline: { type: ["string", "null"] },
       stops: {
         type: "array",
         items: {

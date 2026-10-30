@@ -36,6 +36,7 @@ import { DEBT_DISCOUNT_TIMEOUT_MS, debtDiscount, previewDebtDiscounts } from "..
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
+import type { CarrierRoutePolylineStore } from "./carrier-route-polyline-store";
 import { releaseHoldBeforeCancel } from "../funding/funding.service";
 import type { AdminStatusActor } from "../../domain/admin-status-actor";
 import { isLatestFundingLapseForCarrier } from "../../domain/funding";
@@ -1269,6 +1270,8 @@ export interface ShipmentsServiceOptions {
   tripRepository?: TripRepository;
   /** Requerido para `getMyRoute` (MOVO-206) -- solver de optimización VRPTW. */
   pricingLogisticsClient?: PricingLogisticsClient;
+  /** MOVO-346: camino por calles de `getMyRoute`. Sin store, la ruta sale sin `polyline`. */
+  routePolylineStore?: CarrierRoutePolylineStore;
   /**
    * Requerido solo para `listPendingRatings` (MOVO-222) -- resuelve qué calificaciones
    * ya hizo el caller (`listByRaterForShipments`). Sin repositorio inyectado degrada a
@@ -1360,6 +1363,7 @@ export function createShipmentsService(
 
   const pricingClient = opts.pricingClient;
   const pricingLogisticsClient = opts.pricingLogisticsClient;
+  const routePolylineStore = opts.routePolylineStore;
   const getCarrierReputationScore = opts.getCarrierReputationScore;
   const getSenderReputationScore = opts.getSenderReputationScore;
   const tripRepository = opts.tripRepository;
@@ -3380,27 +3384,36 @@ export function createShipmentsService(
       }
 
       // 4. Invocación a pricing-logistics con fallback de degradación heurística (AC6)
+      let route: CarrierRoute;
       if (!pricingLogisticsClient) {
         logger?.warn(
           { event: "my_route_solver_missing", carrierId },
           "pricingLogisticsClient no inyectado -- retornando ruta degradada"
         );
-        return buildDegradedRoute(stops);
+        route = buildDegradedRoute(stops);
+      } else {
+        try {
+          const result = await pricingLogisticsClient.optimizeRoute({
+            carrierLocation: { lat: location.lat, lng: location.lng },
+            stops,
+            // MOVO-346: sin hora de partida, el solver usaba su reloj sin zona.
+            departureTime: new Date().toISOString(),
+          });
+          route = mapOptimizedRoute(result);
+        } catch (err) {
+          logger?.warn(
+            { err, event: "my_route_solver_failed", carrierId },
+            "Fallo al invocar el optimizador de rutas -- aplicando degradación heurística (AC6)"
+          );
+          route = buildDegradedRoute(stops);
+        }
       }
 
-      try {
-        const result = await pricingLogisticsClient.optimizeRoute({
-          carrierLocation: { lat: location.lat, lng: location.lng },
-          stops,
-        });
-        return mapOptimizedRoute(result);
-      } catch (err) {
-        logger?.warn(
-          { err, event: "my_route_solver_failed", carrierId },
-          "Fallo al invocar el optimizador de rutas -- aplicando degradación heurística (AC6)"
-        );
-        return buildDegradedRoute(stops);
-      }
+      // 5. MOVO-346: camino por calles en el orden de la ruta (optimizada o degradada). El store
+      // nunca tira: si el proveedor falla, `polyline: null` y el mapa cae a las rectas.
+      if (!routePolylineStore) return route;
+      const polyline = await routePolylineStore.get(carrierId, location, route.stops);
+      return { ...route, polyline };
     },
 
     /**

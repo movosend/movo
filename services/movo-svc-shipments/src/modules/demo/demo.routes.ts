@@ -83,6 +83,7 @@ export default async function demoRoutes(app: FastifyInstance, opts: DemoRoutesO
         createPricingLogisticsClient({
           PRICING_SERVICE_URL: app.config.PRICING_SERVICE_URL,
           timeoutMs: ROUTE_GAME_ROUTING_TIMEOUT_MS,
+          PRICING_OPTIMIZE_TIMEOUT_MS: ROUTE_GAME_ROUTING_TIMEOUT_MS,
         });
       routeGame = createRouteGameService({
         pricingLogisticsClient,

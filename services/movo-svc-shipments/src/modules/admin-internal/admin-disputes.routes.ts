@@ -1,7 +1,12 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
 import {
+  ADMIN_DISPUTE_SORTS,
+  AdminDisputeAttribution,
+  AdminDisputeCounts,
   AdminDisputeDetail,
   AdminDisputeHandshakeEvent,
+  AdminDisputePartyHistory,
+  AdminDisputeSort,
   AdminDisputePage,
   AdminDisputeResolutionPreview,
   AdminDisputeRow,
@@ -26,6 +31,7 @@ import {
   InvalidDisputeCursorError,
 } from "../../repositories/dispute-repository";
 import { createPositionRepository } from "../../repositories/position-repository";
+import { createPickupEvidenceRepository } from "../../repositories/pickup-evidence-repository";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { PaymentsClient } from "../../adapters/payments-client";
 import { createAppPaymentsClient } from "../../adapters/simulated-payments-client";
@@ -53,6 +59,8 @@ const listQuery = {
     reason: { type: "string", enum: Object.values(DisputeReason) },
     outcome: { type: "string", enum: [...DISPUTE_OUTCOMES] },
     q: { type: "string", maxLength: 100 },
+    city: { type: "string", maxLength: 100 },
+    sort: { type: "string", enum: [...ADMIN_DISPUTE_SORTS] },
     from: { type: "string", format: "date-time" },
     to: { type: "string", format: "date-time" },
     limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
@@ -85,6 +93,7 @@ export default async function adminDisputesRoutes(app: FastifyInstance, opts: Ad
   const shipmentRepository = createShipmentRepository(app.db);
   const disputeRepository = createDisputeRepository(app.db);
   const positionRepository = createPositionRepository(app.db);
+  const pickupEvidenceRepository = createPickupEvidenceRepository(app.db);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const alertNotifier = opts.alertNotifier ?? createAlertNotifier(app.config, app.log);
   const disputesService = createDisputesService({
@@ -121,6 +130,64 @@ export default async function adminDisputesRoutes(app: FastifyInstance, opts: Ad
       carrier: shipment.carrierId ? { id: shipment.carrierId, name: names.carrier } : null,
       receiver: { id: shipment.receiverId, name: names.receiver },
       outcome: dispute.resolution?.outcome ?? null,
+      pickupCity: shipment.pickupCity,
+    };
+  }
+
+  /** Una entrada por parte que es una persona; el receptor no gana ni pierde, pero cuenta lo que abrió y lo que tiene abierto. */
+  async function buildPartyHistory({ shipment }: DisputeListItem): Promise<AdminDisputePartyHistory[]> {
+    const parties: Array<{ userId: string; role: AdminDisputePartyHistory["role"] }> = [
+      { userId: shipment.senderId, role: "sender" },
+      ...(shipment.carrierId ? [{ userId: shipment.carrierId, role: "carrier" as const }] : []),
+      { userId: shipment.receiverId, role: "receiver" },
+    ];
+    const history = new Map(
+      (await disputeRepository.partyHistory([...new Set(parties.map((party) => party.userId))])).map((entry) => [
+        entry.userId,
+        entry,
+      ]),
+    );
+    return parties.map(({ userId, role }) => ({
+      userId,
+      role,
+      opened: history.get(userId)?.opened ?? 0,
+      lost: history.get(userId)?.lost ?? 0,
+      open: history.get(userId)?.open ?? 0,
+    }));
+  }
+
+  /**
+   * DD-052: en una disputa de sistema, lo que decidió el barrido. `pickup_no_show` solo se abre cuando
+   * `attributePickupMiss` dio `carrier_arrived`, así que el atribuido es el transportista y la llegada es la prueba;
+   * `transit_anomaly` se abre por demora en tránsito, también del lado del transportista. Solo agregados: la traza de
+   * posiciones de la ventana del retiro no se guarda.
+   */
+  async function buildAttribution({ dispute, shipment }: DisputeListItem): Promise<AdminDisputeAttribution | null> {
+    if (dispute.reason !== DisputeReason.PICKUP_NO_SHOW && dispute.reason !== DisputeReason.TRANSIT_ANOMALY) return null;
+    const base = {
+      reason: dispute.reason,
+      attributedTo: "carrier" as const,
+      summary: dispute.description,
+      sweptAt: dispute.openedAt.toISOString(),
+    };
+    if (dispute.reason === DisputeReason.PICKUP_NO_SHOW) {
+      const evidence = await pickupEvidenceRepository.findDetail(shipment.id);
+      return {
+        ...base,
+        lastPingAt: iso(evidence?.updatedAt),
+        positions: evidence?.arrival
+          ? [{ ...evidence.arrival, capturedAt: evidence.arrival.capturedAt.toISOString(), class: "arrival" }]
+          : [],
+        farPositionsInWindow: evidence?.farPositionsInWindow ?? 0,
+        grayPositionsInWindow: evidence?.grayPositionsInWindow ?? 0,
+      };
+    }
+    return {
+      ...base,
+      lastPingAt: iso(await positionRepository.findLastCustodyCapturedAt(shipment.id)),
+      positions: [],
+      farPositionsInWindow: 0,
+      grayPositionsInWindow: 0,
     };
   }
 
@@ -139,6 +206,8 @@ export default async function adminDisputesRoutes(app: FastifyInstance, opts: Ad
         reason?: DisputeReason;
         outcome?: DisputeOutcome;
         q?: string;
+        city?: string;
+        sort?: AdminDisputeSort;
         from?: string;
         to?: string;
         limit: number;
@@ -148,6 +217,7 @@ export default async function adminDisputesRoutes(app: FastifyInstance, opts: Ad
         ...(query.reason && { reason: query.reason }),
         ...(query.outcome && { outcome: query.outcome }),
         ...(query.q && { q: query.q }),
+        ...(query.city && { city: query.city }),
         ...(query.from && { from: new Date(query.from) }),
         ...(query.to && { to: new Date(query.to) }),
       };
@@ -156,6 +226,7 @@ export default async function adminDisputesRoutes(app: FastifyInstance, opts: Ad
           disputeRepository.list({
             ...search,
             ...(query.status && { status: query.status }),
+            ...(query.sort && { sort: query.sort }),
             limit: query.limit,
             ...(query.cursor && { cursor: query.cursor }),
           }),
@@ -171,13 +242,24 @@ export default async function adminDisputesRoutes(app: FastifyInstance, opts: Ad
     },
   );
 
+  // MOVO-341: contadores del menú lateral y la home. Sin filtros.
+  app.get(
+    "/admin/disputes/counts",
+    { schema: { hide: true } },
+    async (): Promise<AdminDisputeCounts> => disputeRepository.counts(),
+  );
+
   app.get(
     "/admin/disputes/:id",
     { schema: { hide: true, params: idParam } },
     async (request: FastifyRequest): Promise<AdminDisputeDetail> => {
       const { id } = request.params as { id: string };
       const item = await requireItem(id);
-      const detail = await disputesService.getDisputeAsAdmin(id);
+      const [detail, partyHistory, attribution] = await Promise.all([
+        disputesService.getDisputeAsAdmin(id),
+        buildPartyHistory(item),
+        buildAttribution(item),
+      ]);
       const stored = item.dispute.resolution;
       return {
         ...toRow(item),
@@ -194,6 +276,8 @@ export default async function adminDisputesRoutes(app: FastifyInstance, opts: Ad
           resolvedBy: stored.resolvedBy,
           resolvedAt: iso(stored.resolvedAt),
         },
+        partyHistory,
+        attribution,
       };
     },
   );

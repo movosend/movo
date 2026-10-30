@@ -3937,3 +3937,35 @@ no oferta ni edita (`403 CASH_DEBT_LIMIT_EXCEEDED`).
   crédito en su cuenta corriente (`dispute-<id>-commission-reversal`); un parcial la conserva, y el reintegro del efectivo en mano
   queda fuera de Movo. Decisión sin ADR/DD todavía: si se confirma, sumarla a DD-056.
 - Pendiente: mobile (parte M); `GET /shipments/:id/settlement` sigue en 404 para efectivo.
+
+### MOVO-341 — Lectura de disputas para el panel: ciudad, orden, contadores, historial, atribución y disputa en el envío
+
+Sobre lo que MOVO-337 ya dejó (listado y expediente), `admin-disputes.routes.ts` suma: filtro `city` (coincidencia **parcial**, sin
+mayúsculas ni tildes, con `%`/`_` escapados; el filtro de ciudad de envíos de MOVO-325 compara por igualdad) y `pickupCity` en cada
+fila, `sort=oldest|newest` (cursor con comparación según el orden), `GET /internal/admin/disputes/counts` (abiertas, `resolving` y
+abiertas hace más de 3 y 7 días) y, en el expediente, `partyHistory` y `attribution`. `GET /internal/admin/shipments[/:id]` ya devuelve
+`disputeId` (la disputa más reciente) y el detalle un `dispute` con estado, motivo, quién abrió y cantidad de descargos.
+- **`partyHistory`**: por persona, abiertas por ella, perdidas (resuelta a favor de la contraparte; una `partial` no cuenta, el receptor
+  no gana ni pierde) y sin resolver (`open`/`resolving`) en cualquier rol (`dispute-repository.ts#partyHistory`).
+- **`attribution` solo con agregados** (decisión de MOVO-341): `pickup_evidence` guarda la llegada y los conteos de posiciones lejanas
+  y grises, no cada posición, así que `positions` trae a lo sumo la llegada. `attributedTo` es siempre `carrier`: `pickup_no_show` solo
+  se abre con `carrier_arrived` y `transit_anomaly` por demora del transportista. `lastPingAt` sale de `pickup_evidence.updated_at` (retiro)
+  o del último punto de la traza con custodia (tránsito). Una traza por posición clasificada queda fuera de alcance.
+- Pendiente: plazo del descargo de una parte (sin definir), que condiciona mostrar "días abierta" como atraso.
+
+### Referencia del flujo E2E esperado (logs y BD), tras la primera prueba real
+
+`docs/pruebas/flujo-esperado-e2e.md` + `.sql`: qué deja cada paso del envío en BD y en logs, con las
+variantes "MP caído" y "forzado desde el panel" (DD-055). Solo documentación, sin cambios de código. No obvio: el
+camino feliz casi no loguea (la evidencia es `shipment_events` + el access log) y no hay un id que cruce servicios en
+el access log (`reqId` es por proceso), así que se correlaciona por URL y hora. Si cambia un literal de log o una
+transición, actualizar el doc. Al lado, `docs/pruebas/2026-10-25-flujo-completo.md`: hallazgos de la primera prueba
+real (sesión cerrada en background por el Keychain, timeout del optimizador, rate limit de nginx, loop del WS de soporte).
+
+### MOVO-346 — Fixes de backend de la prueba del 25/10
+
+Paquete de fixes de `docs/pruebas/2026-10-25-flujo-completo.md` (el frontend va en otro PR).
+- **Optimizador** (punto 5): `optimizeRoute` tiene su propio timeout, `PRICING_OPTIMIZE_TIMEOUT_MS` (5 s). OR-Tools corre con un piso de 1 s más la matriz de Google, así que con el 1 s de MOVO-161 casi nunca respondía. `evaluate-candidates` y `routeMatrix` siguen en 1 s. `getMyRoute` y el warm-up de `/trips/:id/start` mandan `departureTime` en UTC (punto 15).
+- **Camino por calles en `my-route`** (punto 14): `polyline` sale de `computeRoutes` con `intermediates`, desde el transportista y por las paradas en el orden de la ruta, también en la degradada. `carrier-route-polyline-store.ts` lo cachea 2 h por transportista y orden de paradas, con 60 s de cache negativo: ~N+1 llamadas por viaje, sin refrescos periódicos. El origen cacheado es el del primer pedido: el mapa dibuja al transportista aparte y recorta la línea desde el punto más cercano al vehículo (PR de frontend). Más de 25 intermedios se recortan. Si falla, `polyline: null`.
+- **`GET /shipments/:id/tracking`** (punto 12, en `positions.routes.ts`): el seguimiento del panel (MOVO-327) para las partes del envío, con `get(row, { closedTrace: false })`: con el envío cerrado no hay traza. Solo el tramo de este envío. El mapa queda para el PR de frontend.
+- **DD-057** (punto 3): un intento de pago de la ruta cercana que MP no resolvió (502 de MP o de svc-payments sin responder, o hold `creating`/`in_process`) extiende el plazo a "intento + 15 min", hasta 2 veces, con tope en el cierre del retiro. Usa `funding_deadline_extended_until` y `funding_deadline_extensions`, que se limpian en `acceptOffer`. `fundingPayUntil` lo aplica para el barrido, `/funding` y el panel.

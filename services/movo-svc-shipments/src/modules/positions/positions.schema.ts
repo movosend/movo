@@ -104,8 +104,103 @@ const latestPositionResponse = {
   },
 };
 
+// MOVO-346 (punto 12): `ShipmentPartyTracking` de @movo/shared, campo por campo -- fast-json-stringify
+// descarta lo que no esté declarado acá.
+const trackingPlace = {
+  type: "object",
+  required: ["lat", "lng", "label"],
+  properties: {
+    lat: { type: "number" },
+    lng: { type: "number" },
+    label: { type: "string" },
+  },
+};
+
+const shipmentTrackingResponse = {
+  type: "object",
+  required: [
+    "shipmentId",
+    "shipmentStatus",
+    "state",
+    "reason",
+    "origin",
+    "destination",
+    "plannedRoute",
+    "trace",
+    "traceTruncated",
+    "traceAvailable",
+    "lastPosition",
+    "lastPingAt",
+    "signalLost",
+    "delayed",
+    "metrics",
+    "serverTime",
+    "pollIntervalSeconds",
+  ],
+  properties: {
+    shipmentId: { type: "string" },
+    shipmentStatus: { type: "string" },
+    state: { type: "string", enum: ["not_started", "live", "closed", "no_carrier"] },
+    reason: {
+      type: ["string", "null"],
+      enum: ["awaiting_pickup", "unfunded", "delivered", "completed", "disputed", "cancelled", "no_carrier", null],
+    },
+    origin: trackingPlace,
+    destination: trackingPlace,
+    plannedRoute: {
+      type: ["object", "null"],
+      required: ["polyline", "distanceMeters", "durationSeconds"],
+      properties: {
+        polyline: { type: "string" },
+        distanceMeters: { type: "number" },
+        durationSeconds: { type: "number" },
+      },
+    },
+    trace: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["lat", "lng", "capturedAt"],
+        properties: {
+          lat: { type: "number" },
+          lng: { type: "number" },
+          capturedAt: { type: "string" },
+        },
+      },
+    },
+    traceTruncated: { type: "boolean" },
+    traceAvailable: { type: "boolean" },
+    lastPosition: {
+      type: ["object", "null"],
+      required: ["lat", "lng", "accuracyM", "capturedAt"],
+      properties: {
+        lat: { type: "number" },
+        lng: { type: "number" },
+        accuracyM: { type: ["number", "null"] },
+        capturedAt: { type: "string" },
+      },
+    },
+    lastPingAt: { type: ["string", "null"] },
+    signalLost: { type: "boolean" },
+    delayed: { type: "boolean" },
+    metrics: {
+      type: ["object", "null"],
+      required: ["avgSpeedKmh5m", "remainingMeters", "progressPct", "etaAt"],
+      properties: {
+        avgSpeedKmh5m: { type: ["number", "null"] },
+        remainingMeters: { type: ["number", "null"] },
+        progressPct: { type: ["number", "null"] },
+        etaAt: { type: ["string", "null"] },
+      },
+    },
+    serverTime: { type: "string" },
+    pollIntervalSeconds: { type: "number" },
+  },
+};
+
 export const positionsSchemas = {
   shipmentIdParam,
+  shipmentTrackingResponse,
   reportPositionBody,
   reportPositionResponse,
   reportPositionsBatchBody,

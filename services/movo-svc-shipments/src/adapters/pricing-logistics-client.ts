@@ -70,23 +70,28 @@ export interface PricingLogisticsClient {
 export interface PricingLogisticsClientConfig {
   PRICING_SERVICE_URL: string;
   timeoutMs?: number;
+  /** Timeout de `optimizeRoute` (MOVO-346): OR-Tools corre con un piso de 1 s más la matriz de
+   * Google, así que con el timeout general nunca llegaba a responder. */
+  PRICING_OPTIMIZE_TIMEOUT_MS?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 1000;
+const DEFAULT_OPTIMIZE_TIMEOUT_MS = 5000;
 
 export function createPricingLogisticsClient(
   config: PricingLogisticsClientConfig
 ): PricingLogisticsClient {
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const optimizeTimeoutMs = config.PRICING_OPTIMIZE_TIMEOUT_MS ?? DEFAULT_OPTIMIZE_TIMEOUT_MS;
 
-  async function post<T>(path: string, input: unknown): Promise<T> {
+  async function post<T>(path: string, input: unknown, requestTimeoutMs = timeoutMs): Promise<T> {
     let response: Response;
     try {
       response = await fetch(`${config.PRICING_SERVICE_URL}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(requestTimeoutMs),
       });
     } catch (err: unknown) {
       if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
@@ -132,7 +137,7 @@ export function createPricingLogisticsClient(
   return {
     evaluateCandidates: (input) =>
       post<EvaluateCandidatesResult>("/routes/evaluate-candidates", input),
-    optimizeRoute: (input) => post<OptimizeRouteResponse>("/optimize/route", input),
+    optimizeRoute: (input) => post<OptimizeRouteResponse>("/optimize/route", input, optimizeTimeoutMs),
     routeMatrix: (input) => post<RouteMatrixResponse>("/routes/matrix", input),
   };
 }

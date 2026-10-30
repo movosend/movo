@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { FastifyInstance } from "fastify";
 import {
+  AdminDisputeCounts,
   AdminDisputeDetail,
   AdminDisputePage,
   AdminDisputeResolutionPreview,
@@ -39,6 +40,7 @@ const baseRow = (disputeId: string, shipmentId: string, status: DisputeStatus = 
   carrier,
   receiver,
   outcome: null,
+  pickupCity: "Córdoba",
 });
 
 const PREVIEW: AdminDisputeResolutionPreview = {
@@ -82,6 +84,9 @@ describe("Disputas en el panel (MOVO-337)", () => {
       resolveUnavailable?: boolean;
       noAdminProfile?: boolean;
       noDispute?: boolean;
+      /** Disputa de sistema (con `attribution`). */
+      system?: boolean;
+      counts?: AdminDisputeCounts;
     } = {},
   ): Promise<Scenario> {
     const adminId = randomUUID();
@@ -102,6 +107,23 @@ describe("Disputas en el panel (MOVO-337)", () => {
       photos: [],
       statements: [],
       resolution: null,
+      partyHistory: [
+        { userId: sender.id, role: "sender", opened: 2, lost: 1, open: 1 },
+        { userId: carrier.id, role: "carrier", opened: 0, lost: 0, open: 1 },
+        { userId: receiver.id, role: "receiver", opened: 0, lost: 0, open: 1 },
+      ],
+      attribution: opts.system
+        ? {
+            reason: "pickup_no_show",
+            attributedTo: "carrier",
+            summary: "El transportista llegó al punto de retiro y no se registró el handshake dentro del plazo",
+            sweptAt: new Date().toISOString(),
+            lastPingAt: new Date().toISOString(),
+            positions: [{ lat: -31.4, lng: -64.18, accuracyM: 12, capturedAt: new Date().toISOString(), class: "arrival" }],
+            farPositionsInWindow: 0,
+            grayPositionsInWindow: 1,
+          }
+        : null,
     };
     const page: AdminDisputePage = {
       items: [baseRow(disputeId, shipmentId, opts.status)],
@@ -118,6 +140,7 @@ describe("Disputas en el panel (MOVO-337)", () => {
         disputes: {
           page,
           seen,
+          ...(opts.counts ? { counts: opts.counts } : {}),
           ...(opts.noDispute
             ? {}
             : {
@@ -172,6 +195,59 @@ describe("Disputas en el panel (MOVO-337)", () => {
       });
       // Sin lectura de bitácora: las lecturas no la escriben.
       expect(await auditRows(s, "dispute.resolve")).toHaveLength(0);
+    });
+
+    it("el listado reenvía city y sort, y cada fila trae la ciudad del retiro (MOVO-341)", async () => {
+      const s = await setup();
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/admin/disputes?status=open&city=cordoba&sort=oldest",
+        headers: s.headers,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(s.seen.list).toBe("status=open&city=cordoba&sort=oldest");
+      expect(response.json().items[0].pickupCity).toBe("Córdoba");
+      expect((await app.inject({ method: "GET", url: "/admin/disputes?sort=random", headers: s.headers })).statusCode).toBe(400);
+    });
+
+    it("el expediente de una disputa de usuario trae el historial de cada parte y no tiene atribución (MOVO-341)", async () => {
+      const s = await setup();
+      const body = (await app.inject({ method: "GET", url: `/admin/disputes/${s.disputeId}`, headers: s.headers })).json();
+
+      expect(body.partyHistory).toEqual([
+        { userId: sender.id, role: "sender", opened: 2, lost: 1, open: 1 },
+        { userId: carrier.id, role: "carrier", opened: 0, lost: 0, open: 1 },
+        { userId: receiver.id, role: "receiver", opened: 0, lost: 0, open: 1 },
+      ]);
+      expect(body.pickupCity).toBe("Córdoba");
+      expect(body.attribution).toBeNull();
+    });
+
+    it("el expediente de una disputa de sistema trae la atribución del barrido con sus datos (MOVO-341)", async () => {
+      const s = await setup({ system: true });
+      const body = (await app.inject({ method: "GET", url: `/admin/disputes/${s.disputeId}`, headers: s.headers })).json();
+
+      expect(body.attribution).toMatchObject({
+        reason: "pickup_no_show",
+        attributedTo: "carrier",
+        grayPositionsInWindow: 1,
+        positions: [{ class: "arrival", accuracyM: 12 }],
+      });
+    });
+
+    it("los contadores exigen el rol admin y no se cachean (MOVO-341)", async () => {
+      const counts = { open: 4, resolving: 1, openOlderThan3Days: 2, openOlderThan7Days: 1 };
+      const s = await setup({ counts });
+
+      const response = await app.inject({ method: "GET", url: "/admin/disputes/counts", headers: s.headers });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual(counts);
+      expect(response.headers["cache-control"]).toBe("no-store");
+
+      const user = await app.inject({ method: "GET", url: "/admin/disputes/counts", headers: { "x-user-id": s.adminId, "x-user-roles": "user" } });
+      expect(user.statusCode).toBe(403);
     });
 
     it("rechaza un estado que no existe", async () => {

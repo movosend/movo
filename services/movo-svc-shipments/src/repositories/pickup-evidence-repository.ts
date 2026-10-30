@@ -20,6 +20,15 @@ export interface PickupEvidenceRepository {
    */
   record(shipmentId: string, carrierId: string, evidence: PickupPositionEvidence, arrival: PickupArrivalInput): Promise<boolean>;
   find(shipmentId: string, carrierId: string): Promise<PickupEvidenceSummary | null>;
+  /** MOVO-341: la fila completa (posición de llegada incluida) para el panel, sin importar el transportista. */
+  findDetail(shipmentId: string): Promise<PickupEvidenceDetail | null>;
+}
+
+export interface PickupEvidenceDetail extends PickupEvidenceSummary {
+  carrierId: string;
+  arrival: { lat: number; lng: number; accuracyM: number; capturedAt: Date } | null;
+  /** Última vez que se sumó una posición clasificada. */
+  updatedAt: Date;
 }
 
 export function createPickupEvidenceRepository(db: PrismaClient): PickupEvidenceRepository {
@@ -58,6 +67,27 @@ export function createPickupEvidenceRepository(db: PrismaClient): PickupEvidence
         arrivedAt: row.arrivedAt,
         farPositionsInWindow: row.farPositionsInWindow,
         grayPositionsInWindow: row.grayPositionsInWindow,
+      };
+    },
+
+    async findDetail(shipmentId) {
+      const row = await db.pickupEvidence.findUnique({ where: { shipmentId } });
+      if (!row) return null;
+      return {
+        carrierId: row.carrierId,
+        arrivedAt: row.arrivedAt,
+        farPositionsInWindow: row.farPositionsInWindow,
+        grayPositionsInWindow: row.grayPositionsInWindow,
+        arrival:
+          row.arrivedAt && row.arrivedLat && row.arrivedLng
+            ? {
+                lat: row.arrivedLat.toNumber(),
+                lng: row.arrivedLng.toNumber(),
+                accuracyM: row.arrivedAccuracyM ? row.arrivedAccuracyM.toNumber() : 0,
+                capturedAt: row.arrivedAt,
+              }
+            : null,
+        updatedAt: row.updatedAt,
       };
     },
   };
