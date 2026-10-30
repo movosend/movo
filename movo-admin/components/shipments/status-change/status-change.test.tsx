@@ -678,6 +678,12 @@ describe("reintento tras un resultado desconocido (el segundo factor ya se gast�
     })
     fireEvent.click(screen.getByRole("button", { name: "Forzar a Cancelado" }))
     await screen.findByRole("alert")
+    // El alert aparece antes de que termine el envío: con la CI lenta el segundo click caía con el botón aún deshabilitado.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Forzar a Cancelado" })
+      ).toBeEnabled()
+    )
     actions.submitStatusChange.mockResolvedValueOnce({
       ok: false,
       error: "Este cambio pide el código que te mandamos por email.",
