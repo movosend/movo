@@ -2,7 +2,7 @@ import * as Location from "expo-location";
 import { shipmentsClient, BatchPositionItemInput } from "../api/shipments-client";
 import { TripStatus } from "../api/trips-client";
 import { offlineQueueStorage, QueuedPosition, OfflineQueueStorage } from "./offline-queue-storage";
-import { backgroundTrackingManager } from "./tracking-task";
+import { backgroundTrackingManager, FlushResult } from "./tracking-task";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 
 export type { QueuedPosition };
@@ -12,6 +12,9 @@ export interface TrackingStatus {
   tripId: string | null;
   activeShipmentIds: string[];
   pendingQueueCount: number;
+  /** MOVO-346 (punto 13): el último vaciado de la cola falló por red o 5xx. Es lo que el indicador
+   * muestra como "sin conexión"; que la cola tenga ítems no alcanza (se está vaciando). */
+  deliveryFailing: boolean;
   permissionGranted: boolean | null; // Foreground permission (compatibilidad)
   foregroundPermissionGranted: boolean | null;
   backgroundPermissionGranted: boolean | null;
@@ -64,7 +67,7 @@ export class LocationService {
   private offlineQueue: QueuedPosition[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private isProcessingTick = false;
-  private isProcessingFlush = false;
+  private deliveryFailing = false;
   private isTrackingState = false;
   private isSimulating = false;
   private foregroundGranted: boolean | null = null;
@@ -75,6 +78,7 @@ export class LocationService {
   private lastError: string | null = null;
   private listeners = new Set<(status: TrackingStatus) => void>();
   private backgroundDroppedUnsub: (() => void) | null = null;
+  private backgroundFlushedUnsub: (() => void) | null = null;
 
   private readonly location: LocationServiceDeps["location"];
   private readonly client: LocationServiceDeps["client"];
@@ -93,6 +97,27 @@ export class LocationService {
     this.backgroundDroppedUnsub = backgroundTrackingManager.onShipmentDropped((shipmentId) => {
       this.handleShipmentDropped(shipmentId);
     });
+    // Cada vaciado, también los de la tarea de fondo, actualiza la cola y el estado (MOVO-346).
+    this.backgroundFlushedUnsub = backgroundTrackingManager.onFlushed((result) => {
+      void this.applyFlushResult(result);
+    });
+  }
+
+  private async applyFlushResult(result: FlushResult): Promise<void> {
+    if (result.failure === "network") {
+      this.deliveryFailing = true;
+    } else if (result.failure === null) {
+      this.deliveryFailing = false;
+    }
+    if (result.sentCount > 0) {
+      this.lastReportedAt = new Date().toISOString();
+    }
+    try {
+      this.offlineQueue = await this.storage.loadQueue();
+    } catch {
+      // Se mantiene la copia anterior hasta el próximo vaciado
+    }
+    this.emitStatus();
   }
 
   /**
@@ -345,7 +370,6 @@ export class LocationService {
 
       // 4. Intentar vaciar la cola usando lote unificado
       await this.flushQueue();
-      this.lastReportedAt = new Date().toISOString();
     } catch (err: unknown) {
       this.lastError = err instanceof Error ? err.message : "LOCATION_UNAVAILABLE";
     } finally {
@@ -373,19 +397,11 @@ export class LocationService {
 
   /**
    * Drena las posiciones encoladas en lotes de hasta 100 usando el endpoint de lote (AC8).
-   * Protegido contra reentrancia.
+   * Si ya hay un vaciado en curso (por ejemplo el de la tarea de fondo), espera ese mismo
+   * (`flushBatchQueue` comparte la promesa) en vez de volver con la cola desactualizada.
    */
   async flushQueue(): Promise<void> {
-    if (this.isProcessingFlush) return;
-
-    this.isProcessingFlush = true;
-    try {
-      await backgroundTrackingManager.flushBatchQueue();
-      this.offlineQueue = await this.storage.loadQueue();
-    } finally {
-      this.isProcessingFlush = false;
-      this.emitStatus();
-    }
+    await this.applyFlushResult(await backgroundTrackingManager.flushBatchQueue());
   }
 
   /**
@@ -522,6 +538,7 @@ export class LocationService {
       tripId: this.activeTripId,
       activeShipmentIds: Array.from(this.activeShipmentIds),
       pendingQueueCount: this.offlineQueue.length,
+      deliveryFailing: this.deliveryFailing,
       permissionGranted: this.foregroundGranted,
       foregroundPermissionGranted: this.foregroundGranted,
       backgroundPermissionGranted: this.backgroundGranted,
@@ -545,6 +562,7 @@ export class LocationService {
     this.lastCapturedAt = null;
     this.lastReportedAt = null;
     this.lastError = null;
+    this.deliveryFailing = false;
     this.emitStatus();
   }
 
