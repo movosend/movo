@@ -82,6 +82,27 @@ describe("HandshakeConfirmationResult", () => {
     expect(queryByText(/destinataria/)).toBeNull();
   });
 
+  it("MOVO-346: entrega vista por el receptor: el título habla de recibir, no de entregar", async () => {
+    const deliveryResult: ConfirmHandshakeResult = { ...baseResult, stage: "delivery", status: ShipmentStatus.DELIVERED };
+
+    const { getByText, queryByText } = await render(
+      <HandshakeConfirmationResult result={deliveryResult} viewer="receiver" />,
+    );
+
+    expect(getByText(/Recibiste tu paquete\./)).toBeTruthy();
+    expect(queryByText(/Se lo entregaste/)).toBeNull();
+  });
+
+  it("MOVO-346: retiro con el nombre del receptor, sin género fijo", async () => {
+    mockUseShipment.mockReturnValue({ data: shipment });
+    mockUsePublicProfile.mockReturnValue({ data: { fullName: "Juan Pérez" } } as never);
+
+    const { getByText, queryByText } = await render(<HandshakeConfirmationResult result={baseResult} />);
+
+    expect(getByText("Recibe: Juan")).toBeTruthy();
+    expect(queryByText(/destinataria/)).toBeNull();
+  });
+
   it("entrega: muestra el estado del cobro solo si el caller lo pasa (MOVO-214 AC3/AC5)", async () => {
     const { Text } = require("react-native");
     const deliveryResult: ConfirmHandshakeResult = { ...baseResult, stage: "delivery", status: ShipmentStatus.DELIVERED };
