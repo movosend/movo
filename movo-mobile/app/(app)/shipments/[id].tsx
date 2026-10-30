@@ -160,9 +160,11 @@ export default function ShipmentDetailScreen() {
   const [isHighDemandHelpOpen, setIsHighDemandHelpOpen] = useState(false);
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 
-  const { data: ratings, refetch: refetchRatings } = useShipmentRatings(
-    shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? shipment.id : undefined
-  );
+  // MOVO-346 (punto 9): las calificaciones solo existen con el envío terminado. `refetch()` ignora el
+  // `enabled` del hook, así que cada llamada se condiciona a este id (si no, sale `/undefined/ratings`).
+  const ratingsShipmentId =
+    shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? shipment.id : undefined;
+  const { data: ratings, refetch: refetchRatings } = useShipmentRatings(ratingsShipmentId);
   const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -202,9 +204,7 @@ export default function ShipmentDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       void refetch();
-      if (shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)) {
-        void refetchRatings();
-      }
+      if (ratingsShipmentId) void refetchRatings();
       if (showPayment || showCancellationCompensation) void refetchSettlement();
       if (shouldFetchSenderHold) void refetchHold();
     }, [
@@ -215,7 +215,7 @@ export default function ShipmentDetailScreen() {
       showPayment,
       showCancellationCompensation,
       shouldFetchSenderHold,
-      shipment?.status,
+      ratingsShipmentId,
     ])
   );
 
@@ -237,7 +237,7 @@ export default function ShipmentDetailScreen() {
     setRefreshing(true);
     await Promise.allSettled([
       refetch(),
-      refetchRatings(),
+      ...(ratingsShipmentId ? [refetchRatings()] : []),
       photosQueryRef.current.refetch(),
       ...(showPayment || showCancellationCompensation ? [refetchSettlement()] : []),
       ...(shouldFetchSenderHold ? [refetchHold()] : []),
@@ -431,8 +431,8 @@ export default function ShipmentDetailScreen() {
         ? "¡Calificación actualizada con éxito!"
         : "¡Calificación publicada con éxito!"
     );
+    // Sin refetch: la mutación ya invalida las calificaciones del envío (`use-ratings.ts`).
     setRatingTarget(null);
-    void refetchRatings();
   };
 
   // MOVO-168: el header (volver + título) se ve de entrada; solo lo que depende del envío

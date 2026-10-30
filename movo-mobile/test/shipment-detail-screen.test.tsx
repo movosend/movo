@@ -112,8 +112,9 @@ jest.mock("../src/hooks/use-offers", () => ({
   useShipmentOffers: () => ({ data: [], isLoading: false }),
 }));
 
+const mockRefetchRatings = jest.fn();
 jest.mock("../src/hooks/use-ratings", () => ({
-  useShipmentRatings: () => ({ data: [], refetch: jest.fn() }),
+  useShipmentRatings: () => ({ data: [], refetch: mockRefetchRatings }),
   useCreateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
   useUpdateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
 }));
@@ -1403,6 +1404,27 @@ describe("ShipmentDetailScreen", () => {
       };
       const scrollViewNode = findNode(toJSON(), "RCTScrollView");
       expect(scrollViewNode?.props?.refreshControl).toBeTruthy();
+    });
+
+    it("MOVO-346: con el envío sin terminar no refresca las calificaciones (GET /shipments/undefined/ratings)", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ senderId: "user-1", status: ShipmentStatus.IN_TRANSIT }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockRefetchRatings.mockClear();
+
+      const { toJSON } = await render(<ShipmentDetailScreen />);
+      const findScrollView = (node: any): any =>
+        node?.type === "RCTScrollView" ? node : (node?.children ?? []).map(findScrollView).find(Boolean);
+      await act(async () => {
+        await findScrollView(toJSON()).props.refreshControl.props.onRefresh();
+      });
+
+      expect(mockRefetchRatings).not.toHaveBeenCalled();
     });
   });
 
