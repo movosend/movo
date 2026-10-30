@@ -10,6 +10,11 @@ import { useLivePosition } from "../src/hooks/use-live-position";
 jest.mock("../src/hooks/use-shipments");
 jest.mock("../src/hooks/use-profile");
 jest.mock("../src/hooks/use-live-position");
+// MOVO-346 (punto 12): ruta y recorrido del tramo del envío.
+const mockUseShipmentTracking = jest.fn((..._args: unknown[]) => ({ trace: [] as unknown[], planned: [] as unknown[] }));
+jest.mock("../src/hooks/use-shipment-tracking", () => ({
+  useShipmentTracking: (...args: unknown[]) => mockUseShipmentTracking(...args),
+}));
 
 let mockSearchParams: Record<string, string> = {};
 const mockRouterBack = jest.fn();
@@ -109,6 +114,30 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     expect(
       getByText(/Solo ves la ubicación actual del transportista/i)
     ).toBeTruthy();
+  });
+
+  it("MOVO-346: dibuja el recorrido y lo que falta desde el transportista", async () => {
+    (useShipment as jest.Mock).mockReturnValue({ data: mockShipmentData, isLoading: false });
+    (usePublicProfile as jest.Mock).mockReturnValue({ data: mockCarrierData, isLoading: false });
+    (useLivePosition as jest.Mock).mockReturnValue(mockPositionData);
+    const trace = [
+      { latitude: -31.42, longitude: -64.18 },
+      { latitude: -31.385, longitude: -64.225 },
+    ];
+    const planned = [
+      { latitude: -31.42, longitude: -64.18 },
+      { latitude: -31.385, longitude: -64.225 },
+      { latitude: -31.914, longitude: -63.682 },
+    ];
+    mockUseShipmentTracking.mockReturnValue({ trace, planned });
+
+    const { getByTestId } = await render(<LiveTrackingScreen />);
+
+    expect(mockUseShipmentTracking).toHaveBeenCalledWith("shipment-uuid-12345", { enabled: true, status: "in_transit" });
+    expect(getByTestId("live-map-trace").props.coordinates).toEqual(trace);
+    const remaining = getByTestId("live-map-remaining").props.coordinates as unknown[];
+    expect(remaining[0]).toEqual({ latitude: -31.385, longitude: -64.225 });
+    expect(remaining.at(-1)).toEqual({ latitude: -31.914, longitude: -63.682 });
   });
 
   it("abre las coordenadas de destino en Google Maps al presionar el botón de destino", async () => {
