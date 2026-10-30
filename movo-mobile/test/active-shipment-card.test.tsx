@@ -3,6 +3,7 @@ import { Alert } from "react-native";
 import { router } from "expo-router";
 import type { ActiveShipmentSummary } from "../src/api/shipments-client";
 import { ActiveShipmentCard } from "../components/home/active-shipment-card";
+import { resetNavigationGuard } from "../src/lib/navigation-guard";
 
 jest.mock("expo-router", () => ({
   router: { push: jest.fn() },
@@ -163,6 +164,39 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
 
     await fireEvent.press(getByTestId("card-cta"));
     expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/tracking");
+  });
+
+  describe("MOVO-346: acceso al detalle", () => {
+    beforeEach(() => {
+      resetNavigationGuard();
+      (router.push as jest.Mock).mockClear();
+    });
+
+    it("tocar la card fuera de los botones abre el detalle del envío", async () => {
+      const { getByTestId } = await render(
+        <ActiveShipmentCard shipment={makeShipment()} role="sending" testID="card" />,
+      );
+
+      await fireEvent.press(getByTestId("card-open-detail"));
+      expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1");
+    });
+
+    it("el chat y el CTA hacen lo suyo sin abrir el detalle", async () => {
+      const { getByTestId } = await render(
+        <ActiveShipmentCard
+          shipment={makeShipment({ status: "in_transit" })}
+          role="sending"
+          chat={{ unreadCount: 0 }}
+          testID="card"
+        />,
+      );
+
+      await fireEvent.press(getByTestId("card-chat"));
+      await fireEvent.press(getByTestId("card-cta"));
+      expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/chat");
+      expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/tracking");
+      expect(router.push).not.toHaveBeenCalledWith("/(app)/shipments/s1");
+    });
   });
 
   it("un envío demo navega con ?demo=true al presionar 'Ver en el mapa'", async () => {
