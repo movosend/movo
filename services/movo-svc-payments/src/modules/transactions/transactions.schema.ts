@@ -27,7 +27,7 @@ const uuid = { type: "string", format: "uuid" } as const;
 const role = { type: "string", enum: ["sender", "carrier"] } as const;
 const status = { type: "string", enum: ["reserved", "completed", "refunded", "disputed", "released"] } as const;
 
-const kind = { type: "string", enum: ["shipment", "balance_payment"] } as const;
+const kind = { type: "string", enum: ["shipment", "balance_payment", "cash_shipment"] } as const;
 
 const card = {
   type: ["object", "null"],

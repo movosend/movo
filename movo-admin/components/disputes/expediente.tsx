@@ -19,9 +19,9 @@ import type {
 } from "@movo/shared/src/types/admin-disputes"
 import type {
   AdminDisputeAttribution,
-  AdminDisputeDetailPanel,
+  AdminDisputeDetail,
   AdminDisputePartyHistory,
-} from "@movo/shared/src/types/admin-disputes-panel"
+} from "@movo/shared/src/types/admin-disputes"
 import type { AdminBlock } from "@movo/shared/src/types/admin-shipments"
 import {
   ageLabel,
@@ -83,7 +83,7 @@ export function ExpedienteHeader({
   now,
   actions,
 }: {
-  dispute: AdminDisputeDetailPanel
+  dispute: AdminDisputeDetail
   backHref: string
   now: Date
   actions?: ReactNode
@@ -171,7 +171,7 @@ function Photos({
 }
 
 const roleOf = (
-  dispute: AdminDisputeDetailPanel,
+  dispute: AdminDisputeDetail,
   role: "sender" | "receiver" | "carrier"
 ) =>
   (role === "sender"
@@ -185,7 +185,7 @@ const roleOf = (
 export function DisputeCaseCard({
   dispute,
 }: {
-  dispute: AdminDisputeDetailPanel
+  dispute: AdminDisputeDetail
 }) {
   const system = isSystemReason(dispute.reason)
   const entries = [
@@ -421,7 +421,7 @@ export function PhotosCard({
 export function PartyHistoryCard({
   dispute,
 }: {
-  dispute: AdminDisputeDetailPanel
+  dispute: AdminDisputeDetail
 }) {
   const nameOf = (h: AdminDisputePartyHistory) =>
     [dispute.sender, dispute.carrier, dispute.receiver].find(
@@ -483,7 +483,7 @@ export function ResolutionCard({
   dispute,
   resolution,
 }: {
-  dispute: AdminDisputeDetailPanel
+  dispute: AdminDisputeDetail
   resolution: AdminDisputeResolution
 }) {
   const final = disputeFinalShipmentStatus(resolution.outcome)

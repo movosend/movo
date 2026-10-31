@@ -18,10 +18,7 @@ import type {
   AdminDisputeRow,
   AdminDisputePhotos,
 } from "@movo/shared/src/types/admin-disputes"
-import type {
-  AdminDisputeDetailPanel,
-  AdminDisputeRowPanel,
-} from "@movo/shared/src/types/admin-disputes-panel"
+import type { AdminDisputeDetail } from "@movo/shared/src/types/admin-disputes"
 import { latency, mockEnabled, shouldFail, sleep } from "@/lib/shipments/mock"
 import { MOCK_DISPUTES, type MockDispute } from "./fixtures"
 
@@ -43,7 +40,7 @@ const find = (id: string): MockDispute => {
   return found
 }
 
-function toRow(d: AdminDisputeDetailPanel): AdminDisputeRowPanel {
+function toRow(d: AdminDisputeDetail): AdminDisputeRow {
   return {
     id: d.id,
     shipmentId: d.shipmentId,
@@ -108,7 +105,7 @@ export async function mockListDisputes(
 
 export async function mockGetDispute(
   id: string
-): Promise<AdminDisputeDetailPanel> {
+): Promise<AdminDisputeDetail> {
   await sleep(latency())
   if (shouldFail("dispute")) throw unavailable()
   return find(id).detail

@@ -138,7 +138,9 @@ corriente del usuario · 045 salida de `in_transit` demorado · 046 push de chat
 de MP (5 días) y N=3 · 051 soporte al usuario sobre el chat existente · 052 atribución
 del no-retiro por GPS · 053 oferta del recargo por demanda: solo `declared` · 054 disputa
 desde `completed` (entidad de disputa, ventana de 7 días) · 055 (propuesto) cambio
-forzado de estado de un envío desde el panel.
+forzado de estado de un envío desde el panel · 056 (propuesto) resolución de disputas: matriz de pago,
+estado final sin estados nuevos y reembolsos · 057 (propuesto) plazo de pago extendido ante una falla del
+proveedor.
 
 ## Convenciones de código
 

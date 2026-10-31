@@ -202,6 +202,33 @@ ser el que muestra el panel (`MOVO-12345`, `shipmentConfirmationCode`), no los 8
 **Corrección (MOVO-333): el schema de respuesta de los eventos declara `kind` y `actorName`.** Sin declararlos Fastify los recortaba y el detalle del
 panel nunca recibía la marca de manual/forzado. El test de `shipments.integration.test.ts` fija un evento forzado y falla si se pierden.
 
+### MOVO-337 — Disputas: lecturas por bloque, notas internas y resolución (DD-056)
+
+`modules/disputes/`: `GET /admin/disputes` (filtros de estado, motivo, resultado, fecha y `q`; cursor por id; `statusCounts`), `GET /admin/disputes/:id` y una ruta
+por bloque (`photos`, `handshake`, `trace`, `chat`, `resolution-preview`, `notes`), cada una contra `svc-shipments` (`/internal/admin/disputes*`); fotos y chat son
+los del envío. Escrituras por `runAdminAction`: `dispute.resolve` y `dispute.note_add` (objetivo nuevo `dispute` en la regla de conflicto: las partes del envío
+disputado, vía `GET /internal/admin/disputes/:id/parties`).
+- **Notas en `admin.admin_dispute_notes`** (de solo agregar, mismo molde que las del usuario; migración `20261025190000`, que también suma `dispute` al enum de la
+  bitácora). Las partes no las ven: no viven en `svc-shipments`.
+- **AC6 en el `precheck` de `resolve`**: con la disputa `open` y un `partial`, `svc-admin` lee la vista previa y rechaza con 422 `DISPUTE_PARTIAL_BELOW_MINIMUM`
+  (`details.minimumArs`) o `DISPUTE_PARTIAL_ABOVE_MAXIMUM` antes de llamar. Con la disputa ya `resolving`/`resolved` no revalida: lo decide `svc-shipments` con lo guardado.
+- **`DISPUTE_PAYMENT_FAILED` (502) es un `failed` seguro** (`relayServerErrorCodes`), no `unknown`: el servicio dueño sabe en qué quedó la disputa (`resolving`). Una
+  caída real de `svc-shipments` sí queda `unknown`. Timeout de 90 s (la captura de payments puede tardar ~50 s).
+- Pendiente: el panel (MOVO-338) y el reporte (MOVO-344). Las lecturas que faltaban para el panel se cerraron en MOVO-341 (entrada siguiente).
+
+### MOVO-341 — Lectura de disputas para el panel (sobre MOVO-337)
+
+`GET /admin/disputes` suma `city` (parcial, sin tildes ni mayúsculas, sobre el `pickupCity` del envío) y `sort=oldest|newest`; cada fila trae
+`pickupCity`. `GET /admin/disputes/:id` suma `partyHistory` (abrió/perdió/abiertas por parte) y, en las disputas de sistema, `attribution`
+(DD-052: atribución del barrido y sus datos GPS, solo agregados). Ruta nueva `GET /admin/disputes/counts` (`open`, `resolving`,
+`openOlderThan3Days`, `openOlderThan7Days`, sin caché) para el menú lateral y la home. `GET /admin/shipments/:id` suma `dispute` (resumen) y
+`disputeId` deja de ser `null`. Todo es lectura pura vía `svc-shipments`; el cálculo está en su `HISTORIAL.md`.
+- **Campos nuevos fuera de `required` en los schemas de respuesta** (`pickupCity`, `partyHistory`, `attribution`, `dispute`): con un deploy en
+  serie, un `svc-shipments` anterior no los manda y Fastify no tiene que tirar la ruta.
+- **Difiere del ticket**: las notas siguen en `svc-admin` (decisión de MOVO-337), y el expediente sigue por rutas separadas, no por `AdminBlock`.
+  "Abiertas por defecto" tampoco: el panel pasa `status=open`.
+- Pendiente: plazo del descargo (para mostrar "días abierta" como atraso) y verificar que `movo-admin` (MOVO-343) consuma el contrato.
+
 ### MOVO-322 — Bandeja de soporte: `/admin/support/*`
 
 `modules/support/` sobre `adapters/support-client.ts` (`/internal/admin/support/*` de `svc-shipments`; un fallo es 502

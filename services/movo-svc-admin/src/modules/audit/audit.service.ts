@@ -75,7 +75,8 @@ function errorCodeOf(error: unknown): string {
  * regla de conflicto son lecturas y nunca aplican nada.
  */
 function isOutcomeUnknown(error: unknown): boolean {
-  return error instanceof ApiError && error.code.endsWith("_SERVICE_UNAVAILABLE");
+  // `DISPUTE_PAYMENT_FAILED` (MOVO-337): la plata pudo haberse movido (corte tras capturar, timeout de payments).
+  return error instanceof ApiError && (error.code.endsWith("_SERVICE_UNAVAILABLE") || error.code === "DISPUTE_PAYMENT_FAILED");
 }
 
 export function createAuditService(deps: AuditServiceDeps): AuditService {

@@ -71,10 +71,17 @@ export function createGoogleRoutesProvider(config: GoogleRoutesProviderConfig): 
             destination: {
               location: { latLng: { latitude: input.destination.lat, longitude: input.destination.lng } },
             },
+            ...(input.intermediates && input.intermediates.length > 0
+              ? {
+                  intermediates: input.intermediates.map((p) => ({
+                    location: { latLng: { latitude: p.lat, longitude: p.lng } },
+                  })),
+                }
+              : {}),
             travelMode: "DRIVE",
             polylineQuality: "OVERVIEW",
           }),
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          signal: AbortSignal.timeout(input.timeoutMs ?? REQUEST_TIMEOUT_MS),
         });
       } catch {
         throw new ApiError(502, "ROUTES_PROVIDER_ERROR", "No se pudo conectar con el proveedor de rutas.");

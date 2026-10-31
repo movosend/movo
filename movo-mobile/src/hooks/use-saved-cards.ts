@@ -13,10 +13,11 @@ import { type SaveCardInput, type SaveCardResult, saveNewCard } from "../lib/sav
 export const SAVED_CARDS_QUERY_KEY = ["payments", "cards"] as const;
 export const CARDS_CHECKOUT_DATA_QUERY_KEY = ["payments", "cards", "checkout-data"] as const;
 
-export function useSavedCards() {
+export function useSavedCards(enabled = true) {
   return useQuery({
     queryKey: SAVED_CARDS_QUERY_KEY,
     queryFn: paymentsClient.listSavedCards,
+    enabled,
     staleTime: 30_000,
   });
 }

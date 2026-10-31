@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { Bot, SearchX } from "lucide-react"
 import type { AdminDisputeRow } from "@movo/shared/src/types/admin-disputes"
-import type { AdminDisputeRowPanel } from "@movo/shared/src/types/admin-disputes-panel"
 import {
   ageLabel,
   DISPUTE_REASON_LABEL,
@@ -40,7 +39,7 @@ export function DisputeRowLink({
   href,
   now,
 }: {
-  row: AdminDisputeRow & Partial<Pick<AdminDisputeRowPanel, "pickupCity">>
+  row: AdminDisputeRow & Partial<Pick<AdminDisputeRow, "pickupCity">>
   href: string
   now: Date
 }) {

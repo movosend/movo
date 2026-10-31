@@ -147,9 +147,10 @@ export type ShipmentFundingView = SenderFundingView | CarrierFundingView;
 
 /** MOVO-211 AC4: desenlace de aceptar una oferta, para elegir el mensaje de éxito. */
 export interface OfferAcceptanceAssignment {
-  /** `assignment_pending` (ruta cercana) o `assigned_unfunded` (ruta lejana). */
+  /** `assignment_pending` (ruta cercana) o `assigned_unfunded` (ruta lejana). MOVO-37: `assigned` en efectivo. */
   shipmentStatus: ShipmentStatus;
-  fundingRoute: FundingRoute;
+  /** MOVO-37: `null` en un envío en efectivo (no hay saga de pago). */
+  fundingRoute: FundingRoute | null;
   /** Ruta lejana: cuándo se abre la ventana para confirmar el pago. `null` en la cercana. */
   fundingWindowOpensAt: string | null;
 }

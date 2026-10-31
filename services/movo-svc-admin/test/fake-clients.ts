@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
+  AdminDisputeCounts,
+  AdminDisputeDetail,
+  DisputeStatus,
+  AdminDisputeHandshakeEvent,
+  AdminDisputePage,
+  AdminDisputeResolutionPreview,
+  AdminDisputeTrace,
+  InternalResolveDisputeRequest,
+  ResolveDisputeResponse,
   AccountSanction,
   AdminCandidate,
   AdminSummary,
@@ -96,6 +105,26 @@ export function createFakeShipmentsClient(data: {
    * `unavailable` simula que no responde (la bitácora lo toma por "pudo haberse aplicado").
    */
   force?: { calls: ForceShipmentStatusRequest[]; error?: ApiError; unavailable?: boolean };
+  /**
+   * MOVO-337: disputas, por id. `resolve.calls` guarda lo recibido; `error` hace que svc-shipments rechace;
+   * `unavailable` simula que no responde; `response` pisa campos de la respuesta.
+   */
+  disputes?: {
+    page?: AdminDisputePage;
+    details?: Record<string, AdminDisputeDetail>;
+    parties?: Record<string, ShipmentParties & { shipmentId: string }>;
+    previews?: Record<string, AdminDisputeResolutionPreview>;
+    handshakes?: Record<string, AdminDisputeHandshakeEvent[]>;
+    traces?: Record<string, AdminDisputeTrace>;
+    resolve?: {
+      calls: InternalResolveDisputeRequest[];
+      error?: ApiError;
+      unavailable?: boolean;
+      response?: Partial<ResolveDisputeResponse>;
+    };
+    seen?: { list?: string };
+    counts?: AdminDisputeCounts;
+  };
   down?: boolean;
 } = {}): ShipmentsClient {
   return {
@@ -174,6 +203,58 @@ export function createFakeShipmentsClient(data: {
       if (data.force?.error) throw data.force.error;
       const kind = body.targetStatus === "cancelled" && body.expectedStatus === "assigned" ? "forced" : "manual";
       return { shipmentId: id, fromStatus: body.expectedStatus, toStatus: body.targetStatus, kind, replayed: false };
+    },
+    async listAdminDisputes(query) {
+      if (data.down) throw shipmentsDown();
+      if (data.disputes?.seen) data.disputes.seen.list = query.toString();
+      return data.disputes?.page ?? { items: [], nextCursor: null, statusCounts: { open: 0, resolving: 0, resolved: 0 } };
+    },
+    async getDisputeCounts() {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.counts ?? { open: 0, resolving: 0, openOlderThan3Days: 0, openOlderThan7Days: 0 };
+    },
+    async getAdminDispute(id) {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.details?.[id] ?? null;
+    },
+    async getDisputeParties(id) {
+      if (data.down) throw shipmentsDown();
+      const detail = data.disputes?.details?.[id];
+      return (
+        data.disputes?.parties?.[id] ??
+        (detail ? { shipmentId: detail.shipmentId, senderId: "", carrierId: null, receiverId: null, formerReceiverIds: [] } : null)
+      );
+    },
+    async getDisputeHandshake(id) {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.handshakes?.[id] ?? (data.disputes?.details?.[id] ? [] : null);
+    },
+    async getDisputeTrace(id) {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.traces?.[id] ?? (data.disputes?.details?.[id] ? { available: false, points: [] } : null);
+    },
+    async getDisputeResolutionPreview(id) {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.previews?.[id] ?? null;
+    },
+    async resolveDispute(id, body): Promise<ResolveDisputeResponse> {
+      if (data.down || data.disputes?.resolve?.unavailable) throw shipmentsDown();
+      data.disputes?.resolve?.calls.push(body);
+      if (data.disputes?.resolve?.error) throw data.disputes.resolve.error;
+      return {
+        disputeId: id,
+        shipmentId: data.disputes?.parties?.[id]?.shipmentId ?? randomUUID(),
+        outcome: body.outcome,
+        reasoning: body.reasoning,
+        carrierAmountArs: body.outcome === "sender" ? 0 : 1150,
+        senderAmountArs: body.outcome === "carrier" ? 0 : 1150,
+        paymentAction: "none",
+        status: DisputeStatus.RESOLVED,
+        shipmentStatus: body.outcome === "sender" ? "cancelled" : "completed",
+        replayed: false,
+        resolvedAt: new Date().toISOString(),
+        ...data.disputes?.resolve?.response,
+      };
     },
     async getShipmentParties(id) {
       if (data.down) throw shipmentsDown();

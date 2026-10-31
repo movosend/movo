@@ -30,6 +30,7 @@ import { RouteTrackingChatCard } from "../../../components/shipments/route-track
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard, PackageSummaryCard } from "../../../components/shipments/package-card";
 import { PaymentBreakdown } from "../../../components/shipments/payment-breakdown";
+import { ShipmentPaymentMethodRow } from "../../../components/shipments/payment-method-row";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
 import { RejectedReceiverBanner } from "../../../components/shipments/rejected-receiver-banner";
@@ -83,6 +84,8 @@ import {
   type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
 import { formatTimeRange } from "../../../src/lib/time-format";
+import { CashCancellationNote } from "../../../components/shipments/cash-cancellation-note";
+import { carrierPriceBreakdown, isCashShipment } from "../../../src/lib/payment-method";
 import { fundingProcessingPollInterval, fundsStatusVariant } from "../../../src/lib/funds-status-format";
 
 type DetailTab = "detalle" | "timeline";
@@ -180,17 +183,21 @@ export default function ShipmentDetailScreen() {
         : currentUser?.userId === shipment.senderId
           ? ("sender" as const)
           : null;
+  // MOVO-37: un envío en efectivo no tiene hold ni liquidación (`/settlement` responde 404): nada de lo que sigue
+  // (cobro, reserva, compensación por cancelación) aplica. La modalidad se muestra en su propia fila.
+  const isCash = isCashShipment(shipment);
   const showPayment =
-    paymentRole !== null && shipment !== undefined && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status);
+    !isCash && paymentRole !== null && shipment !== undefined && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status);
   // MOVO-308: en un envío cancelado, el emisor ve qué pasó con su reserva y el transportista
   // la compensación si el emisor canceló tarde (settlement `cancellation_penalty`).
   // MOVO-318: en `assigned` también se pide el hold del emisor para que el sheet de cancelación
   // muestre como reservado el monto real (con deuda cobrada en MOVO-311) y coincida con "Tu pago".
   const isCancelled = shipment?.status === ShipmentStatus.CANCELLED;
-  const showCancelledSenderPayment = paymentRole === "sender" && isCancelled;
+  const showCancelledSenderPayment = !isCash && paymentRole === "sender" && isCancelled;
   const shouldFetchSenderHold =
-    showCancelledSenderPayment || (paymentRole === "sender" && shipment?.status === ShipmentStatus.ASSIGNED);
-  const showCancellationCompensation = paymentRole === "carrier" && isCancelled;
+    showCancelledSenderPayment ||
+    (!isCash && paymentRole === "sender" && shipment?.status === ShipmentStatus.ASSIGNED);
+  const showCancellationCompensation = !isCash && paymentRole === "carrier" && isCancelled;
   const settlementQuery = useShipmentSettlement(id, {
     enabled: showPayment || showCancellationCompensation,
     pollWhileProcessingMs: isFocused ? 15_000 : false,
@@ -340,22 +347,27 @@ export default function ShipmentDetailScreen() {
   // con el hold ya creado y el fee que informó MP, el monto EXACTO que calcula el backend con los datos del hold
   // (`carrierReceivedArs`, ya sin su descuento por deuda); antes, el estimado "aprox." de comisión de Movo (AC3)
   // y de MP (MOVO-225), como en "Mis ofertas".
+  // MOVO-37: en efectivo el transportista cobra en mano el precio pactado completo; la comisión le queda como deuda.
   const carrierViewsPrice = isCarrier && !isCancelled && shipment?.agreedPriceArs != null;
-  const carrierReceivedIsExact = carrierViewsPrice && shipment?.carrierReceivedArs != null;
-  const estimatedBeforeDebtArs =
+  const carrierCashInHand = carrierViewsPrice && isCash;
+  const carrierReceivedIsExact = carrierViewsPrice && !isCash && shipment?.carrierReceivedArs != null;
+  const carrierBreakdown =
     carrierViewsPrice && shipment?.agreedPriceArs != null
-      ? estimateReceivedArs(
-          computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
-          shipment.agreedPriceArs,
-        )
+      ? carrierPriceBreakdown({
+          grossArs: shipment.agreedPriceArs,
+          netArs: computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate()),
+          cash: carrierCashInHand,
+          debtDiscountArs: shipment.debtDiscount?.amountArs,
+        })
       : null;
+  const estimatedBeforeDebtArs = carrierBreakdown?.beforeDebtArs ?? null;
   const carrierReceivedArs = carrierReceivedIsExact
     ? (shipment?.carrierReceivedArs ?? null)
-    : estimatedBeforeDebtArs !== null
-      ? Math.max(0, estimatedBeforeDebtArs - (shipment?.debtDiscount?.amountArs ?? 0))
-      : null;
+    : (carrierBreakdown?.receivedArs ?? null);
   // Lo que recibiría sin el descuento por deuda (el "antes" del desglose).
-  const carrierBeforeDebtArs = carrierReceivedIsExact
+  const carrierBeforeDebtArs = carrierCashInHand
+    ? null
+    : carrierReceivedIsExact
     ? (carrierReceivedArs ?? 0) + (shipment?.debtDiscount?.amountArs ?? 0)
     : estimatedBeforeDebtArs;
 
@@ -596,7 +608,7 @@ export default function ShipmentDetailScreen() {
 
               {/* MOVO-211: estado de la reserva de fondos. Una vez entregado, el detalle del cobro
                   es el de `PaymentBreakdown` (MOVO-214), así que no se repite. */}
-              {showPayment ? null : (
+              {showPayment || isCash ? null : (
                 <FundsStatus
                   shipment={shipment}
                   carrierFirstName={carrierFirstName ?? undefined}
@@ -610,6 +622,14 @@ export default function ShipmentDetailScreen() {
                   hold={senderHold}
                   carrierFirstName={carrierFirstName}
                   testID="shipment-detail-cancelled-payment"
+                />
+              ) : null}
+
+              {isCash && isCancelled && (paymentRole === "sender" || paymentRole === "carrier") ? (
+                <CashCancellationNote
+                  role={paymentRole}
+                  shipment={shipment}
+                  testID="shipment-detail-cash-cancellation"
                 />
               ) : null}
 
@@ -719,7 +739,7 @@ export default function ShipmentDetailScreen() {
                         <GridPattern />
                         <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
                           {carrierReceivedArs !== null
-                            ? carrierReceivedIsExact ? "Recibís" : "Recibís aprox."
+                            ? carrierCashInHand ? (FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? "Cobraste en mano" : "Cobrás en mano") : carrierReceivedIsExact ? "Recibís" : "Recibís aprox."
                             : hasAgreedPrice
                               ? "Precio pactado"
                               : "Costo aproximado"}
@@ -733,7 +753,9 @@ export default function ShipmentDetailScreen() {
                               )}
                         </Text>
                         {isSender && shipment.status === ShipmentStatus.ASSIGNED ? (
-                          <Text className="font-sans text-[11px] text-ink-700">Reservado en tu tarjeta</Text>
+                          <Text className="font-sans text-[11px] text-ink-700">
+                            {isCash ? "En efectivo al retiro" : "Reservado en tu tarjeta"}
+                          </Text>
                         ) : null}
                         {showHighDemandBadge ? (
                           <View className="mt-2">
@@ -757,10 +779,23 @@ export default function ShipmentDetailScreen() {
                   ) : null}
                   {!hidePriceCard && carrierReceivedArs !== null && carrierBeforeDebtArs !== null ? <DebtDiscount exact={carrierReceivedIsExact} beforeArs={carrierBeforeDebtArs} amountArs={shipment.debtDiscount?.amountArs} /> : null}
 
+                  {/* MOVO-37 (M2/M3): la modalidad se ve siempre para emisor y transportista. El receptor no
+                      participa de la parte económica. */}
                   <View>
                     <Eyebrow>Paquete</Eyebrow>
                     <PackageCard shipment={shipment} testID="shipment-detail-package" />
                   </View>
+
+                  {isSender || isCarrier ? (
+                    <View>
+                      <Eyebrow>Pago</Eyebrow>
+                      <ShipmentPaymentMethodRow
+                        paymentMethod={shipment.paymentMethod ?? "card"}
+                        role={isCarrier ? "carrier" : "sender"}
+                        testID="shipment-detail-payment-method"
+                      />
+                    </View>
+                  ) : null}
                 </>
               )}
 

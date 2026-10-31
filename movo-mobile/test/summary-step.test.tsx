@@ -5,8 +5,20 @@ import { shipmentsClient } from "../src/api/shipments-client";
 import { useShipmentWizardStore } from "../src/store/shipment-wizard-store";
 
 const mockCreate = jest.fn();
+const mockRouterPush = jest.fn();
+const mockBalanceRefetch = jest.fn();
+let mockBalanceArs = 0;
 
-jest.mock("expo-router", () => ({ router: { replace: jest.fn() } }));
+jest.mock("expo-router", () => ({
+  router: { replace: jest.fn(), push: (...args: unknown[]) => mockRouterPush(...args) },
+}));
+
+jest.mock("../src/hooks/use-balance", () => ({
+  useBalanceArs: () => ({
+    data: mockBalanceArs,
+    refetch: mockBalanceRefetch,
+  }),
+}));
 
 jest.mock("../src/api/shipments-client", () => ({
   shipmentsClient: { quote: jest.fn() },
@@ -340,5 +352,83 @@ describe("shipment-wizard-store — descarte de la cotización (MOVO-255)", () =
   ])("cambiar %s no descarta el quoteId", (_label, change) => {
     change();
     expect(useShipmentWizardStore.getState().priceQuote.quoteId).toBe("q-1");
+  });
+});
+
+describe("SummaryStep — modalidad de pago (MOVO-37)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockBalanceArs = 0;
+    useShipmentWizardStore.getState().resetWizard();
+    fillWizard();
+  });
+
+  async function renderReady() {
+    quoteMock.mockResolvedValueOnce(frozenQuote("q-1", 30120));
+    const utils = await render(<SummaryStep onGoToStep={jest.fn()} />);
+    await utils.findByText(`$${(30120).toLocaleString("es-AR")}`);
+    return utils;
+  }
+
+  it("por defecto crea el envío con tarjeta", async () => {
+    mockCreate.mockResolvedValueOnce({ id: "shipment-1" });
+    const { getByTestId } = await renderReady();
+
+    await press(getByTestId("summary-step-submit"));
+
+    await waitFor(() =>
+      expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ paymentMethod: "card" })),
+    );
+  });
+
+  it("con efectivo explica el pago en mano al retiro y lo manda al crear", async () => {
+    mockCreate.mockResolvedValueOnce({ id: "shipment-1" });
+    const { getByTestId, getByText } = await renderReady();
+
+    expect(getByText(/monto completo en mano/)).toBeTruthy();
+    await press(getByTestId("summary-step-payment-method-cash"));
+    await press(getByTestId("summary-step-submit"));
+
+    await waitFor(() =>
+      expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ paymentMethod: "cash" })),
+    );
+  });
+
+  it("con saldo pendiente deshabilita efectivo y ofrece pagar el saldo", async () => {
+    mockBalanceArs = 1500;
+    const { getByTestId } = await renderReady();
+
+    expect(getByTestId("summary-step-payment-method-cash").props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    await press(getByTestId("summary-step-payment-method-cash"));
+    expect(useShipmentWizardStore.getState().paymentMethod).toBe("card");
+
+    await press(getByTestId("summary-step-payment-method-pay-balance"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments?tab=balance&pay=1");
+  });
+
+  it("con el envío ya creado bloquea el selector: un reintento no vuelve a mandar la modalidad", async () => {
+    useShipmentWizardStore.getState().setSubmission({ shipmentId: "shipment-1" });
+    const { getByTestId } = await renderReady();
+
+    expect(getByTestId("summary-step-payment-method-card").props.accessibilityState).toMatchObject({ disabled: true });
+    expect(getByTestId("summary-step-payment-method-cash").props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
+  it("si el backend rechaza el efectivo por deuda, vuelve a tarjeta y recarga el saldo", async () => {
+    mockCreate.mockRejectedValueOnce(
+      new ApiError(403, "CASH_PAYMENT_SENDER_HAS_DEBT", "Tenés un saldo pendiente con Movo", {
+        missingRequirements: ["no_pending_debt"],
+      }),
+    );
+    const { getByTestId, findByTestId } = await renderReady();
+
+    await press(getByTestId("summary-step-payment-method-cash"));
+    await press(getByTestId("summary-step-submit"));
+
+    expect(await findByTestId("summary-step-error")).toBeTruthy();
+    expect(useShipmentWizardStore.getState().paymentMethod).toBe("card");
+    expect(mockBalanceRefetch).toHaveBeenCalled();
   });
 });

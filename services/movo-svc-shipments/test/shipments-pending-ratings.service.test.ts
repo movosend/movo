@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { ShipmentStatus } from "@movo/shared";
+import { PaymentMethod, ShipmentStatus } from "@movo/shared";
 import { createShipmentsService } from "../src/modules/shipments/shipments.service";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { RatingRepository } from "../src/repositories/rating-repository";
@@ -41,7 +41,7 @@ function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
     suggestedPriceArs: 2100,
     calculationMethod: "euclidean_linear_v1",
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: PaymentMethod.CARD,
     status: ShipmentStatus.DELIVERED,
     lastStatusChangedAt: null,
     deliveredAt: new Date("2030-01-05T00:00:00.000Z"),

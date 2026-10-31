@@ -88,6 +88,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
     opts.pricingLogisticsClient ??
     createPricingLogisticsClient({
       PRICING_SERVICE_URL: app.config.PRICING_SERVICE_URL,
+      PRICING_OPTIMIZE_TIMEOUT_MS: app.config.PRICING_OPTIMIZE_TIMEOUT_MS,
     });
   const defaultMaxDetourKm = app.config.TRIP_DEFAULT_MAX_DETOUR_KM ?? 15;
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);

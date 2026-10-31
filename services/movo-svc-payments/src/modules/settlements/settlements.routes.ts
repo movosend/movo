@@ -43,8 +43,8 @@ export default async function settlementsRoutes(app: FastifyInstance) {
       // El schema ya garantiza que la penalidad trae `amountArs` y la entrega no.
       const body = request.body as CaptureHoldRequest;
       const capture: CaptureRequest =
-        body.kind === "cancellation_penalty"
-          ? { kind: "cancellation_penalty", amountArs: body.amountArs as number }
+        body.kind === "cancellation_penalty" || body.kind === "dispute_partial"
+          ? { kind: body.kind, amountArs: body.amountArs as number }
           : { kind: "delivery" };
       const { settlement } = await service.capture(shipmentId, capture);
       return { settlement };

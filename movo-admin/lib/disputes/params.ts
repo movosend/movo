@@ -117,7 +117,7 @@ const dayEnd = (day: string) => `${day}T23:59:59.999-03:00`
 
 /**
  * Querystring de `GET /admin/disputes`. `sort=oldest` y `city` son la propuesta de MOVO-341
- * (`types/admin-disputes-panel.ts`); un backend que no los conozca los ignora.
+ * (`types/admin-disputes.ts`); un backend que no los conozca los ignora.
  */
 export function disputeGatewayQuery(
   state: DisputeListState,

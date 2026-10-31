@@ -37,7 +37,7 @@ export default fp(async (app: FastifyInstance, opts: PickupMissedSweepPluginOpti
     offerRepository: createOfferRepository(app.db),
     // MOVO-270 (DD-052): atribución del no-retiro con la evidencia GPS del retiro.
     pickupEvidenceRepository: createPickupEvidenceRepository(app.db),
-    pickupNoShowRatingInviteEnabled: app.config.PICKUP_NO_SHOW_RATING_INVITE_ENABLED ?? false,
+    pickupNoShowRatingInviteEnabled: app.config.PICKUP_NO_SHOW_RATING_INVITE_ENABLED ?? true,
     // Perezoso: `app.settlements` se decora después que este plugin (ver `app.ts`).
     registerWithdrawalPenalty: (offerId) => app.settlements.registerWithdrawalPenalty(offerId),
   });

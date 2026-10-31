@@ -13,7 +13,10 @@ import type {
   AdminDisputePhotos,
   AdminDisputeResolutionPreview,
 } from "@movo/shared/src/types/admin-disputes"
-import type { AdminDisputeDetailPanel } from "@movo/shared/src/types/admin-disputes-panel"
+import type {
+  AdminDisputeCounts,
+  AdminDisputeDetail,
+} from "@movo/shared/src/types/admin-disputes"
 import type { AdminBlock } from "@movo/shared/src/types/admin-shipments"
 import { gateway } from "@/lib/auth/api"
 import { ACCESS_COOKIE } from "@/lib/auth/policy"
@@ -49,9 +52,9 @@ export async function listDisputes(
 }
 
 /** `GET /admin/disputes/:id`: lo único que bloquea el expediente; el resto son bloques aparte. */
-export async function getDispute(id: string): Promise<AdminDisputeDetailPanel> {
+export async function getDispute(id: string): Promise<AdminDisputeDetail> {
   if (mockEnabled()) return mockGetDispute(id)
-  return gateway<AdminDisputeDetailPanel>(path(id), {
+  return gateway<AdminDisputeDetail>(path(id), {
     accessToken: await token(),
   })
 }
@@ -115,18 +118,14 @@ export async function resolveDispute(
   })
 }
 
-/**
- * Abiertas para el menú lateral. Mientras MOVO-341 no sume el agregado de contadores sale de
- * `statusCounts` de la bandeja (un pedido de una fila); `null` si no se pudo, y el menú no muestra número.
- */
+/** Abiertas para el menú lateral (`GET /admin/disputes/counts`, MOVO-341); `null` si no se pudo y el menú no muestra número. */
 export async function openDisputeCount(): Promise<number | null> {
   try {
     if (mockEnabled()) return await mockOpenDisputeCount()
-    const query = new URLSearchParams({ limit: "1", status: "open" })
-    const page = await gateway<AdminDisputePage>(`/admin/disputes?${query}`, {
+    const counts = await gateway<AdminDisputeCounts>("/admin/disputes/counts", {
       accessToken: await token(),
     })
-    return page.statusCounts.open
+    return counts.open
   } catch {
     return null
   }

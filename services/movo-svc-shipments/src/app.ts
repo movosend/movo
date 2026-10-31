@@ -32,6 +32,7 @@ import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import mutualConnectionsRoutes from "./modules/mutual-connections/mutual-connections.routes";
 import adminInternalRoutes from "./modules/admin-internal/admin-internal.routes";
+import adminDisputesRoutes from "./modules/admin-internal/admin-disputes.routes";
 import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
 import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
@@ -328,6 +329,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
   });
 
+  // MOVO-337: disputas para el panel (listado, expediente, resolución). Interno, como el resto de /internal/admin.
+  app.register(adminDisputesRoutes, {
+    prefix: "/internal",
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+    ...(opts.alertNotifier ? { alertNotifier: opts.alertNotifier } : {}),
+  });
+
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
   // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.
   app.register(internalRatingsRoutes, { prefix: "/internal" });
@@ -365,6 +375,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/shipments",
     ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
   };
   app.register(positionsRoutes, positionsRouteOpts);
 

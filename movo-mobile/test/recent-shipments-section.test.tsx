@@ -69,7 +69,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     suggestedPriceArs: 4500,
     highDemand: null,
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: "card",
     status: ShipmentStatus.PUBLISHED,
     lastStatusChangedAt: null,
     deliveredAt: null,

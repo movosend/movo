@@ -32,7 +32,7 @@ function createShipment(
     suggestedPriceArs: 4500,
     highDemand: null,
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: "card",
     status,
     lastStatusChangedAt: createdAt,
     deliveredAt: null,

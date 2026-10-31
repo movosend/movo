@@ -237,6 +237,17 @@ export type ApiErrorCode =
   // (`USER_DEBT_OVERDUE_DAYS`). Bloquea operar como transportista (declarar viaje, ofertar,
   // editar oferta, iniciar viaje); como emisor no. Viaja con `details.missingRequirements`.
   | "USER_DEBT_OVERDUE"
+  // MOVO-37: la deuda total de la cuenta corriente del transportista (vencida o no) supera
+  // `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS`: no puede ofertar en un envío en efectivo. Viaja con
+  // `details.missingRequirements` (`cash_debt_within_limit`).
+  | "CASH_DEBT_LIMIT_EXCEEDED"
+  | "SHIPMENT_PAYMENT_METHOD_CHANGED"
+  // MOVO-37: el emisor tiene deuda en su cuenta corriente y no puede crear (ni pasar a) un envío
+  // en efectivo; con tarjeta sí, porque la deuda se cobra en el pago. Viaja con
+  // `details.missingRequirements` (`no_pending_debt`).
+  | "CASH_PAYMENT_SENDER_HAS_DEBT"
+  // MOVO-37: la modalidad de pago ya no se puede cambiar (el envío recibió ofertas o dejó de estar publicado).
+  | "SHIPMENT_PAYMENT_METHOD_LOCKED"
   // MOVO-116: `svc-payments` no respondió al consultar la cuenta de MP del transportista.
   | "PAYMENTS_SERVICE_UNAVAILABLE"
   // MOVO-116: el emisor quiso aceptar la oferta de un transportista que ya no cumple los

@@ -1,7 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import type { TransactionDetail, TransactionRole } from "@movo/shared/dist/types/transaction";
 import { router, useLocalSearchParams } from "expo-router";
-import { ChevronLeft, ChevronRight, CreditCard, Package } from "lucide-react-native";
+import { Banknote, ChevronLeft, ChevronRight, CreditCard, Package } from "lucide-react-native";
 import { ScrollView, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BankLogo } from "../../../../../components/payments/bank-logo";
@@ -19,6 +19,7 @@ import {
   formatShortDate,
   debtLine,
   formatTransactionAmount,
+  isCashTransaction,
   movementCopy,
   senderTimeline,
   TRANSACTION_NOT_FOUND_MESSAGE,
@@ -109,12 +110,18 @@ function ShipmentLink({ detail, subtitle }: { detail: TransactionDetail; subtitl
 }
 
 function Hero({ detail, role }: { detail: TransactionDetail; role: TransactionRole }) {
-  const breakdown = role === "carrier" && detail.status === "completed" ? detail.breakdown : null;
+  // MOVO-37: en efectivo el monto es lo que se pagó en mano, no un neto acreditado (la comisión va al saldo).
+  const cash = isCashTransaction(detail);
+  const breakdown = !cash && role === "carrier" && detail.status === "completed" ? detail.breakdown : null;
   const amount = breakdown ? breakdown.netArs : detail.amountArs;
   return (
     <View testID="transaction-hero" className="mx-5 mt-2 gap-1.5 overflow-hidden rounded-[20px] bg-ink-950 p-5 dark:border dark:border-border-strong">
       <CornerDotPattern />
-      <Text className="font-sans text-[12.5px] text-ink-300">{transactionHeroLabel(detail.status, role, !!breakdown, !!detail.capturedAt)}</Text>
+      <Text className="font-sans text-[12.5px] text-ink-300">
+        {cash
+          ? role === "sender" ? "Pagaste en efectivo" : "Cobraste en efectivo"
+          : transactionHeroLabel(detail.status, role, !!breakdown, !!detail.capturedAt)}
+      </Text>
       <Text
         testID="transaction-hero-amount"
         className={`font-sans-semibold text-[34px] leading-[40px] ${breakdown ? "text-lime-500" : "text-ink-50"}`}
@@ -134,7 +141,7 @@ function Hero({ detail, role }: { detail: TransactionDetail; role: TransactionRo
           />
         </View>
         <Text className="font-sans text-[13px] text-ink-300">
-          {role === "carrier" && detail.status === "completed" ? "Reserva: " : ""}{formatDateTime(detail.date)}
+          {!cash && role === "carrier" && detail.status === "completed" ? "Reserva: " : ""}{formatDateTime(detail.date)}
         </Text>
       </View>
     </View>
@@ -183,6 +190,66 @@ function BalancePaymentBody({ detail }: { detail: TransactionDetail }) {
           <Text className="px-4 py-3.5 font-sans text-[14px] leading-[20px] text-fg-2">
             Este pago se aplicó a tu saldo con Movo. Las penalidades que cubre las ves en la pestaña Saldo.
           </Text>
+        </Card>
+      </View>
+    </>
+  );
+}
+
+/**
+ * MOVO-37 (M6): un envío pagado en efectivo. El emisor lo pagó en mano al retiro; el transportista lo cobró ahí y la
+ * comisión de Movo le quedó como saldo en la cuenta corriente. Sin tarjeta, reserva ni movimientos.
+ */
+function CashShipmentBody({ detail, role }: { detail: TransactionDetail; role: TransactionRole }) {
+  const colors = useThemeColors();
+  const breakdown = role === "carrier" ? detail.breakdown : null;
+  return (
+    <>
+      <View className="mx-5 mt-[18px]">
+        <SectionLabel>Método de pago</SectionLabel>
+        <Card testID="transaction-cash">
+          <View className="flex-row items-center gap-3 px-4 py-3.5">
+            <IconCircle>
+              <Banknote size={18} color={colors.fg1} strokeWidth={2} />
+            </IconCircle>
+            <View className="flex-1">
+              <Text className="font-sans-semibold text-[15px] text-fg">Pago en efectivo</Text>
+              <Text className="font-sans text-[12.5px] text-fg-2">
+                {role === "sender" ? "Se lo pagaste en mano al transportista al retirar el paquete" : "Te lo pagaron en mano al retirar el paquete"}
+              </Text>
+            </View>
+          </View>
+        </Card>
+      </View>
+
+      {breakdown ? (
+        <View className="mx-5 mt-[18px]">
+          <SectionLabel>Cómo se compone</SectionLabel>
+          <Card testID="transaction-cash-breakdown">
+            <AmountRow testID="breakdown-gross" label="Cobraste en efectivo" value={formatTransactionAmount(breakdown.grossArs)} />
+            <AmountRow
+              testID="breakdown-commission"
+              label="Comisión de Movo, en tu saldo"
+              value={`− ${formatTransactionAmount(breakdown.commissionArs)}`}
+              muted
+            />
+            <AmountRow testID="breakdown-net" label="Te queda" value={formatTransactionAmount(breakdown.netArs)} total />
+          </Card>
+          <Pressable
+            testID="transaction-cash-balance-link"
+            accessibilityRole="link"
+            onPress={() => router.push("/profile/payments?tab=balance")}
+            className="mt-2 self-start py-1"
+          >
+            <Text className="font-sans-semibold text-[13px] text-fg underline">Ver mi saldo</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <View className="mx-5 mt-[18px]">
+        <SectionLabel>Envío</SectionLabel>
+        <Card>
+          <ShipmentLink detail={detail} subtitle="Ver el envío" />
         </Card>
       </View>
     </>
@@ -398,6 +465,8 @@ export default function PaymentTransactionDetailScreen() {
         <Hero detail={detail} role={role} />
         {detail.kind === "balance_payment" ? (
           <BalancePaymentBody detail={detail} />
+        ) : isCashTransaction(detail) ? (
+          <CashShipmentBody detail={detail} role={role} />
         ) : (
           <>
             <DebtNote detail={detail} role={role} />

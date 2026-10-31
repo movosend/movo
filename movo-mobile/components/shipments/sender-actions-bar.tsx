@@ -12,7 +12,7 @@ import { CancelShipmentSheet } from "./cancel-shipment-sheet";
 const CANCEL_ACTION_ID = "cancel-shipment";
 
 export interface SenderActionsBarProps {
-  shipment: Pick<ShipmentSummary, "id" | "status" | "agreedPriceArs">;
+  shipment: Pick<ShipmentSummary, "id" | "status" | "agreedPriceArs" | "paymentMethod">;
   /** Monto real reservado en el hold (MOVO-318); cae a `agreedPriceArs` si no cargó. */
   holdAmountArs?: number | null;
   holdState?: "loading" | "error" | "ready";

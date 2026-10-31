@@ -55,7 +55,7 @@ export interface DisputeAmountChoice {
   amountArs?: number;
 }
 
-export type DisputeAmountsError = "invalid_choice" | "above_maximum";
+export type DisputeAmountsError = "invalid_choice" | "above_maximum" | "below_minimum";
 
 export interface DisputeAmounts {
   carrierAmountArs: number;
@@ -86,7 +86,8 @@ export function splitDisputeStake(
     if (!Number.isFinite(choice.amountArs) || (choice.amountArs as number) <= 0) return { error: "invalid_choice" };
     carrierAmountArs = round2(choice.amountArs as number);
   }
-  if (carrierAmountArs >= round2(stakeArs) || carrierAmountArs <= 0) return { error: "above_maximum" };
+  if (carrierAmountArs <= 0) return { error: "below_minimum" };
+  if (carrierAmountArs >= round2(stakeArs)) return { error: "above_maximum" };
   return { carrierAmountArs, senderAmountArs: round2(stakeArs - carrierAmountArs) };
 }
 
@@ -97,8 +98,13 @@ export function splitDisputeStake(
  */
 export function minimumPartialCaptureArs(applicationFeeArs: number): number {
   const passes = (amount: number): boolean => round2(amount - estimateMpFeeArs(amount)) > applicationFeeArs;
-  let amount = Math.max(0.01, round2(applicationFeeArs));
-  // Con una tasa de MP sana converge en pocos centavos; el tope evita un lazo infinito con una tasa absurda.
-  for (let i = 0; i < 1_000_000 && !passes(amount); i += 1) amount = round2(amount + 0.01);
+  const fee = Math.max(0, round2(applicationFeeArs));
+  // Despejando `monto - monto * tasa > fee` sale el piso; el redondeo a centavos del fee de MP lo corre un par de
+  // centavos, así que se ajusta alrededor de ese punto en vez de recorrer todos los montos.
+  const rate = estimateMpFeeArs(1);
+  let amount = round2((fee + 0.01) / (1 - rate));
+  if (!Number.isFinite(amount) || amount <= 0) amount = Math.max(0.01, fee);
+  for (let i = 0; i < 100 && amount > 0.01 && passes(round2(amount - 0.01)); i += 1) amount = round2(amount - 0.01);
+  for (let i = 0; i < 100 && !passes(amount); i += 1) amount = round2(amount + 0.01);
   return amount;
 }

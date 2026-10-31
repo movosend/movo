@@ -47,6 +47,8 @@ export function buildFundingService(
       releaseHoursBeforePickup: app.config.FUNDING_RELEASE_HOURS_BEFORE_PICKUP,
       reminderIntervalHours: app.config.FUNDING_REMINDER_INTERVAL_HOURS,
       allowSimulatedPayments: app.config.ALLOW_SIMULATED_PAYMENTS,
+      providerExtensionMinutes: app.config.FUNDING_PROVIDER_EXTENSION_MINUTES,
+      providerMaxExtensions: app.config.FUNDING_PROVIDER_MAX_EXTENSIONS,
     },
   });
 }

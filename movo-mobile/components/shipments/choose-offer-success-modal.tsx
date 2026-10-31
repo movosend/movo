@@ -27,6 +27,8 @@ export interface ChooseOfferSuccessModalProps {
   carrierName: string | null;
   /** Fallback de navegación cuando la respuesta de accept no incluye assignment. */
   payNow?: boolean | null;
+  /** MOVO-37: envío en efectivo, asignado directo (sin saga ni reserva). */
+  cash?: boolean;
   onDismiss: () => void;
   /** MOVO-211 AC4: ruta de la saga que tomó la aceptación. Sin ella (backend anterior) se
    * muestra el mensaje genérico. */
@@ -49,6 +51,7 @@ export function ChooseOfferSuccessModal({
   visible,
   carrierName,
   payNow = null,
+  cash = false,
   onDismiss,
   assignment,
   amountArs,
@@ -63,8 +66,8 @@ export function ChooseOfferSuccessModal({
   const firstName = carrierName?.split(" ")[0] ?? null;
   // MOVO-211 AC4: con retiro cercano la aceptación lleva directo al pago, así que no se
   // redirige solo (el emisor tiene que elegir pagar). Los dos desenlaces se leen como éxito.
-  const isNear = assignment?.fundingRoute === "near" && !!onPay;
-  const isFar = assignment?.fundingRoute === "far";
+  const isNear = !cash && assignment?.fundingRoute === "near" && !!onPay;
+  const isFar = !cash && assignment?.fundingRoute === "far";
   const autoDismiss = !isNear;
   const id = testID ?? "choose-offer-success-modal";
   const fallbackSubtitle =
@@ -144,7 +147,13 @@ export function ChooseOfferSuccessModal({
                 {/* MOVO-271 AC2: mismo momento de éxito animado que al calificar
                     (`SuccessMoment`). Se monta con el modal, así que la animación
                     arranca en cada apertura y termina (~600ms) antes del auto-dismiss. */}
-                {isNear ? (
+                {cash ? (
+                  <SuccessMoment
+                    title={`${firstName ?? "Tu transportista"} lleva tu paquete`}
+                    subtitle={`Ya está confirmado. Le pagás ${amountArs != null ? formatPriceArs(amountArs) : "el monto acordado"} en efectivo cuando le entregás el paquete.`}
+                    testID={testID ? `${testID}-moment` : "choose-offer-success-moment"}
+                  />
+                ) : isNear ? (
                   <SuccessMoment
                     title={`Elegiste a ${firstName ?? "tu transportista"}`}
                     subtitle="Como el retiro es pronto, el último paso es reservar el pago. Se retiene en tu tarjeta y se cobra recién cuando el paquete se entrega."

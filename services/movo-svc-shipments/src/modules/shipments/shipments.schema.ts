@@ -1,9 +1,11 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa movo-svc-users: cada schema no comparte definiciones entre sí.
-import { PACKAGE_INPUT_SANITY_MAX, ShipmentStatus } from "@movo/shared";
+import { PACKAGE_INPUT_SANITY_MAX, PaymentMethod, ShipmentStatus } from "@movo/shared";
 import { shipmentReceiverTransferSummary } from "../receiver-transfers/receiver-transfers.schema";
 
 const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
+// MOVO-37: valores de `PaymentMethod` (@movo/shared) para los schemas.
+const PAYMENT_METHOD_VALUES = Object.values(PaymentMethod);
 
 // Sin límites de negocio de peso ni medidas (MOVO-317): el tamaño lo decide cada transportista al
 // ofertar. Reemplaza los límites duros de MOVO-276 (DD-041). Solo un tope de cordura
@@ -149,7 +151,8 @@ const shipmentResponse = {
     // demand_fuel_routes_v1 -- no equivale a false.
     highDemand: { type: ["boolean", "null"] },
     agreedPriceArs: { type: ["number", "null"] },
-    paymentMethod: { type: ["string", "null"] },
+    // MOVO-37: modalidad de pago (`PaymentMethod` de @movo/shared).
+    paymentMethod: { type: "string", enum: PAYMENT_METHOD_VALUES },
     status: { type: "string" },
     lastStatusChangedAt: { type: ["string", "null"], format: "date-time" },
     deliveredAt: { type: ["string", "null"], format: "date-time" },
@@ -214,9 +217,10 @@ const shipmentResponse = {
 };
 
 // MOVO-142 (AC9): proyección de GET /shipments/available -- deliberadamente sin
-// senderId/receiverId/carrierId/agreedPriceArs/paymentMethod/lastStatusChangedAt/
+// senderId/receiverId/carrierId/agreedPriceArs/lastStatusChangedAt/
 // deliveredAt/receiverConfirmationDeadline/updatedAt (datos personales o ruido
-// operativo irrelevante para quien está descubriendo envíos).
+// operativo irrelevante para quien está descubriendo envíos). MOVO-37: `paymentMethod` sí,
+// el transportista tiene que saber cómo cobra antes de ofertar.
 const availableShipmentResponse = {
   type: "object",
   required: [
@@ -241,6 +245,7 @@ const availableShipmentResponse = {
     "suggestedPriceArs",
     "calculationMethod",
     "status",
+    "paymentMethod",
     "pickupDistanceKm",
     "deliveryDistanceKm",
     "distanceKm",
@@ -270,6 +275,7 @@ const availableShipmentResponse = {
     suggestedPriceArs: { type: ["number", "null"] },
     calculationMethod: { type: ["string", "null"] },
     status: { type: "string" },
+    paymentMethod: { type: "string", enum: PAYMENT_METHOD_VALUES },
     // Distancia (Haversine) del retiro al originLat/Lng y de la entrega al
     // destinationLat/Lng del transportista, más la suma (distanceKm, clave de orden).
     // deliveryDistanceKm es null cuando el caller no mandó destino.
@@ -382,6 +388,7 @@ const activeShipmentSummaryResponse = {
     "pickupWindowExpired",
     "tripId",
     "transitAnomalyFlaggedAt",
+    "paymentMethod",
   ],
   properties: {
     id: { type: "string" },
@@ -407,6 +414,8 @@ const activeShipmentSummaryResponse = {
     tripId: { type: ["string", "null"], format: "uuid" },
     // MOVO-278 (DD-045): envío `in_transit` demorado (ver shipmentResponse).
     transitAnomalyFlaggedAt: { type: ["string", "null"], format: "date-time" },
+    // MOVO-37: modalidad de pago.
+    paymentMethod: { type: "string", enum: PAYMENT_METHOD_VALUES },
   },
 };
 
@@ -539,7 +548,17 @@ export const shipmentsSchemas = {
       pickupTimeWindowEnd: { type: "string", pattern: TIME_PATTERN },
       // MOVO-255: opcional, compatibilidad con builds del mobile que no cotizan antes.
       quoteId: { type: "string", format: "uuid" },
+      // MOVO-37: opcional, `card` por defecto (builds del mobile anteriores no lo mandan).
+      paymentMethod: { type: "string", enum: PAYMENT_METHOD_VALUES },
     },
+    additionalProperties: false,
+  },
+
+  // MOVO-37: cambio de modalidad de pago antes de recibir ofertas.
+  updatePaymentMethodBody: {
+    type: "object",
+    required: ["paymentMethod"],
+    properties: { paymentMethod: { type: "string", enum: PAYMENT_METHOD_VALUES } },
     additionalProperties: false,
   },
 
@@ -911,6 +930,8 @@ export const shipmentsSchemas = {
     type: "object",
     required: ["stops", "totalDistanceKm", "totalDurationMinutes", "optimized", "disclaimer"],
     properties: {
+      // MOVO-346: camino por calles por todas las paradas, en orden. Null si el proveedor falló.
+      polyline: { type: ["string", "null"] },
       stops: {
         type: "array",
         items: {

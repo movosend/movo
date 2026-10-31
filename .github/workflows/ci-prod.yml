@@ -441,6 +441,24 @@ jobs:
           script: |
             echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             cd ~/movo
+            # MOVO-346 (punto 4): `up -d` recrea los contenedores y el driver json-file borra los
+            # logs del viejo. Se guardan antes, comprimidos y con fecha, y quedan los últimos 10
+            # (el disco de la EC2 es chico, ADR-006). Nunca frena el deploy. Se escribe a un
+            # temporal y se mueve solo si el volcado salió bien: un archivo roto no entra en la
+            # rotación ni desplaza uno bueno. Solo legibles por el usuario del deploy (umask 077);
+            # son los mismos logs que ya guarda json-file, con los tokens redactados por pino.
+            (
+              set -o pipefail
+              umask 077
+              mkdir -p ~/movo/logs
+              f=~/movo/logs/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ).log.gz
+              if docker compose logs --no-color --timestamps 2>/dev/null | gzip > "$f.tmp"; then
+                mv "$f.tmp" "$f"
+              else
+                rm -f "$f.tmp"
+              fi
+              ls -1t ~/movo/logs/pre-deploy-*.log.gz 2>/dev/null | tail -n +11 | xargs -r rm -f
+            ) || true
             docker compose pull
             docker compose up -d --remove-orphans
             # nginx resuelve el hostname "gateway" (y el resto de los

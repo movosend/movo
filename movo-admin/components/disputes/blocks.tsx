@@ -1,6 +1,6 @@
 import { cache } from "react"
 import { Eye, Gavel } from "lucide-react"
-import type { AdminDisputeDetailPanel } from "@movo/shared/src/types/admin-disputes-panel"
+import type { AdminDisputeDetail } from "@movo/shared/src/types/admin-disputes"
 import { DisputeStatus } from "@movo/shared/src/types/dispute"
 import {
   asBlock,
@@ -144,7 +144,7 @@ export async function NotesBlock({
   )
 }
 
-const namesOf = (dispute: AdminDisputeDetailPanel) => ({
+const namesOf = (dispute: AdminDisputeDetail) => ({
   sender: dispute.sender.name ?? "el emisor",
   carrier: dispute.carrier?.name ?? "el transportista",
 })
@@ -154,7 +154,7 @@ export async function ResolveActionBlock({
   dispute,
   conflict,
 }: {
-  dispute: AdminDisputeDetailPanel
+  dispute: AdminDisputeDetail
   conflict: boolean
 }) {
   const preview =
@@ -177,7 +177,7 @@ export function ResolveNoticeBlock({
   dispute,
   conflict,
 }: {
-  dispute: AdminDisputeDetailPanel
+  dispute: AdminDisputeDetail
   conflict: boolean
 }) {
   return (

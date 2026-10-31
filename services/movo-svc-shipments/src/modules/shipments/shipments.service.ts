@@ -8,12 +8,14 @@ import {
   HoldDetailResponse,
   LIVE_HOLD_STATUSES,
   OfferStatus,
+  PaymentMethod,
   PublicProfile,
   ShipmentQuoteRequest,
   ShipmentQuoteResponse,
   ShipmentStatus,
   TripStatus,
   UserRole,
+  cashPenaltyCompensationArs,
   computeOfferGrossPrice,
   computeNetFromGross,
   getCommissionConfig,
@@ -34,6 +36,7 @@ import { DEBT_DISCOUNT_TIMEOUT_MS, debtDiscount, previewDebtDiscounts } from "..
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
+import type { CarrierRoutePolylineStore } from "./carrier-route-polyline-store";
 import { releaseHoldBeforeCancel } from "../funding/funding.service";
 import type { AdminStatusActor } from "../../domain/admin-status-actor";
 import { isLatestFundingLapseForCarrier } from "../../domain/funding";
@@ -85,6 +88,7 @@ import { assertTripAccess } from "../trips/trip-access";
 import { assertNotBlocked, safeBlockRelatedUserIds } from "../../utils/block-relations";
 import { sendCustodyPush } from "../../utils/dispatch-push";
 import { assertCarrierCanOperate, assertVerifiedCarrier } from "../../utils/carrier-gate";
+import { assertCarrierWithinCashDebtLimit, assertSenderCanPayCash, requireCashDebtLimit } from "../../utils/cash-payment-gate";
 import { shortAddress } from "../../utils/short-address";
 
 type ShipmentsServiceLogger =
@@ -162,6 +166,8 @@ export interface CreateShipmentServiceInput {
   pickupTimeWindowEnd: string;
   /** MOVO-255: cotización congelada de `POST /shipments/quote`. Sin esto se cotiza al crear. */
   quoteId?: string;
+  /** MOVO-37: por defecto `card`. Con `cash`, el emisor no puede tener deuda en su cuenta corriente. */
+  paymentMethod?: PaymentMethod;
 }
 
 /** MOVO-257: ítem de `GET /shipments/mine` -- `pendingOffersCount` es la cantidad de
@@ -267,6 +273,13 @@ const DEBT_DISCOUNT_STATUSES: readonly ShipmentStatus[] = [
  * MOVO-311: estados en los que todavía se puede crear un hold. Sin hold vivo, solo en estos el descuento tiene
  * sentido como vista previa: en `assigned`+ sin hold no se va a crear otro (DD-037), el saldo actual no se aplica.
  */
+/** MOVO-37: estados en los que el envío todavía no tiene transportista y puede cambiar la modalidad de pago. */
+const PAYMENT_METHOD_EDITABLE_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+  ShipmentStatus.REJECTED_BY_RECEIVER,
+  ShipmentStatus.PUBLISHED,
+];
+
 const DEBT_PREVIEW_STATUSES: readonly ShipmentStatus[] = [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED];
 
 /**
@@ -295,7 +308,8 @@ async function resolveCarrierPaymentDisplay(
 ): Promise<{ debtDiscount: CarrierDebtDiscount | null; carrierReceivedArs: number | null }> {
   const none = { debtDiscount: null, carrierReceivedArs: null };
   const { carrierId, agreedPriceArs } = shipment;
-  if (!carrierId || agreedPriceArs === null) return none;
+  // MOVO-37: en efectivo el transportista cobra en mano: no hay hold ni descuento de deuda que mostrar.
+  if (!carrierId || agreedPriceArs === null || shipment.paymentMethod === PaymentMethod.CASH) return none;
 
   // MOVO-285: el fee real de MP sale del mismo hold que el descuento por deuda (una sola consulta).
   const resolve = async (): Promise<{ amountArs: number; carrierReceivedArs: number | null }> => {
@@ -355,6 +369,8 @@ export interface ActiveShipmentResult {
   tripId: string | null;
   /** MOVO-278 (DD-045): marca de `in_transit` demorado (MOVO-258 D4), `null` si no la tiene. */
   transitAnomalyFlaggedAt: Date | null;
+  /** MOVO-37: modalidad de pago. */
+  paymentMethod: PaymentMethod;
 }
 
 const ACTIVE_SHIPMENT_ROLE_TO_COLUMN: Record<ActiveShipmentRole, "senderId" | "carrierId" | "receiverId"> = {
@@ -1254,6 +1270,8 @@ export interface ShipmentsServiceOptions {
   tripRepository?: TripRepository;
   /** Requerido para `getMyRoute` (MOVO-206) -- solver de optimización VRPTW. */
   pricingLogisticsClient?: PricingLogisticsClient;
+  /** MOVO-346: camino por calles de `getMyRoute`. Sin store, la ruta sale sin `polyline`. */
+  routePolylineStore?: CarrierRoutePolylineStore;
   /**
    * Requerido solo para `listPendingRatings` (MOVO-222) -- resuelve qué calificaciones
    * ya hizo el caller (`listByRaterForShipments`). Sin repositorio inyectado degrada a
@@ -1303,6 +1321,9 @@ export interface ShipmentsServiceOptions {
    * queda `pending` hasta el barrido.
    */
   registerWithdrawalPenalty?: (offerId: string) => Promise<unknown>;
+  /** MOVO-37: `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS`, tope de deuda del transportista para ofertar en efectivo. Sin él,
+   * ofertar en un envío en efectivo lanza (no se saltea el chequeo). */
+  cashShipmentMaxCarrierDebtArs?: number;
   /**
    * MOVO-270 (DD-052): evidencia GPS del retiro. La usan el barrido de retiro no realizado (sin
    * ella atribuye todo como "sin evidencia", salvo el viaje nunca iniciado) y la cotización de la
@@ -1332,8 +1353,17 @@ export function createShipmentsService(
   const transitAnomalyDisputeAfterHours = opts.transitAnomalyDisputeAfterHours ?? 24;
   const offerRepository = opts.offerRepository;
   const paymentsClient = opts.paymentsClient;
+
+  function requirePaymentsClient(method: string): PaymentsClient {
+    if (!opts.paymentsClient) {
+      throw new Error(`${method} requiere paymentsClient (ShipmentsServiceOptions) para un envío en efectivo.`);
+    }
+    return opts.paymentsClient;
+  }
+
   const pricingClient = opts.pricingClient;
   const pricingLogisticsClient = opts.pricingLogisticsClient;
+  const routePolylineStore = opts.routePolylineStore;
   const getCarrierReputationScore = opts.getCarrierReputationScore;
   const getSenderReputationScore = opts.getSenderReputationScore;
   const tripRepository = opts.tripRepository;
@@ -1479,6 +1509,12 @@ export function createShipmentsService(
       // MOVO-175 (DD-026): no se puede designar como receptor a alguien con un bloqueo.
       await assertNotBlocked(usersClient, input.senderId, [input.receiverId]);
 
+      // MOVO-37: en efectivo, sin deuda del emisor. Antes de consumir la cotización, igual que los 422 de arriba.
+      const paymentMethod = input.paymentMethod ?? PaymentMethod.CARD;
+      if (paymentMethod === PaymentMethod.CASH) {
+        await assertSenderCanPayCash(requirePaymentsClient("createShipment"), input.senderId);
+      }
+
       // MOVO-255 (DD-028): con `quoteId`, precio congelado sin volver a llamar a
       // pricing. Se consume recién acá, después de las validaciones de arriba, para que
       // un 422 por el receptor o la franja no queme la cotización. Un `quoteId`
@@ -1551,6 +1587,7 @@ export function createShipmentsService(
         calculationMethod: quote.calculationMethod,
         highDemand: quote.highDemand,
         receiverConfirmationDeadline,
+        paymentMethod,
       });
 
       await recordDisplayNamesSafely(repository, logger, [
@@ -1568,6 +1605,39 @@ export function createShipmentsService(
       }
 
       return created;
+    },
+
+    /**
+     * MOVO-37 (B1): el emisor cambia la modalidad de pago mientras el envío no recibió ninguna oferta (el
+     * transportista oferta sabiendo cómo cobra). Pasar a efectivo exige no tener deuda, igual que al crear. El
+     * cambio es un compare-and-swap (`updatePaymentMethod`): si entremedio llegó una oferta, 409.
+     */
+    async updatePaymentMethod(shipmentId: string, callerId: string, paymentMethod: PaymentMethod): Promise<Shipment> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+      if (shipment.senderId !== callerId) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede cambiar cómo se paga el envío.");
+      }
+      if (shipment.paymentMethod === paymentMethod) return shipment;
+      if (paymentMethod === PaymentMethod.CASH) {
+        await assertSenderCanPayCash(requirePaymentsClient("updatePaymentMethod"), callerId);
+      }
+      const updated = await repository.updatePaymentMethod(
+        shipmentId,
+        callerId,
+        paymentMethod,
+        PAYMENT_METHOD_EDITABLE_STATUSES
+      );
+      if (!updated) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_PAYMENT_METHOD_LOCKED",
+          "Ya no podés cambiar cómo se paga este envío: recibió ofertas o ya no está publicado."
+        );
+      }
+      return updated;
     },
 
     /**
@@ -1625,8 +1695,11 @@ export function createShipmentsService(
         // falla o si el servicio corre sin `offerRepository` (algún test aislado).
         const [offersSummary, discounts] = await Promise.all([
           offerRepository ? computeOffersSummaryForCarrier(offerRepository, shipmentId, callerId) : null,
+          // MOVO-37: en efectivo no hay cobro del que descontar la deuda.
           previewDebtDiscounts(paymentsClient, callerId,
-            shipment.suggestedPriceArs != null && shipment.suggestedPriceArs > 0 ? [shipment.suggestedPriceArs] : []),
+            shipment.suggestedPriceArs != null && shipment.suggestedPriceArs > 0 && shipment.paymentMethod !== PaymentMethod.CASH
+              ? [shipment.suggestedPriceArs]
+              : []),
         ]);
         return { ...shipment, offersSummary, debtDiscount: discounts[0] ?? null };
       }
@@ -1732,7 +1805,7 @@ export function createShipmentsService(
 
       // MOVO-116 (DD-036): identidad + licencia + MP antes de cualquier lectura o
       // escritura del envío. Antes era `assertVerifiedCarrier` (sin licencia, MOVO-142).
-      await assertCarrierCanOperate(
+      const eligibility = await assertCarrierCanOperate(
         { usersClient, paymentsClient, shipmentRepository: repository },
         input.carrierId,
         input.callerRoles
@@ -1765,6 +1838,13 @@ export function createShipmentsService(
       assertIsNotShipmentParty(shipment, input.carrierId);
       // MOVO-175 (DD-026): falla cerrado -- sin confirmar que no hay bloqueo, no se oferta.
       await assertNotBlocked(usersClient, input.carrierId, [shipment.senderId, shipment.receiverId]);
+      // MOVO-37 (B4): en efectivo, la deuda total del transportista no puede superar el tope.
+      if (shipment.paymentMethod === PaymentMethod.CASH) {
+        assertCarrierWithinCashDebtLimit(
+          eligibility.debtBalanceArs,
+          requireCashDebtLimit(opts.cashShipmentMaxCarrierDebtArs, "ShipmentsServiceOptions")
+        );
+      }
 
       if (input.priceNetArs <= 0) {
         throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");
@@ -1942,6 +2022,7 @@ export function createShipmentsService(
 
       const offer = await offerRepository.create({
         shipmentId: input.shipmentId,
+        expectedPaymentMethod: shipment.paymentMethod,
         carrierId: input.carrierId,
         priceOffered: grossArs,
         offeredDate: anchorDateUtc(input.offeredDate),
@@ -2236,7 +2317,10 @@ export function createShipmentsService(
         page: query.page,
         limit: query.limit,
       });
-      const priced = items.filter((item) => item.suggestedPriceArs != null && item.suggestedPriceArs > 0);
+      // MOVO-37: un envío en efectivo no tiene descuento por deuda (no hay cobro del que descontarla).
+      const priced = items.filter(
+        (item) => item.suggestedPriceArs != null && item.suggestedPriceArs > 0 && item.paymentMethod !== PaymentMethod.CASH
+      );
       const [offeredIds, preview] = await Promise.all([
         offerRepository.listPendingOfferedShipmentIds(callerId, items.map((item) => item.id)),
         previewDebtDiscounts(paymentsClient, callerId, priced.map((item) => item.suggestedPriceArs!)),
@@ -2369,7 +2453,9 @@ export function createShipmentsService(
       // MOVO-331: desde `assigned` el hold ya está autorizado (no hay pago concurrente que pueda
       // llegar), así que la cancelación de un admin lo libera ANTES de cancelar: si payments falla, el
       // envío queda como estaba y el caller devuelve 502 en vez de dejar un cancelado con fondos retenidos.
-      const releasedBeforeCancel = options.admin !== undefined && previousStatus === ShipmentStatus.ASSIGNED;
+      // MOVO-37: un envío en efectivo no tiene hold: ni antes ni después de cancelar se llama a payments para liberar.
+      const hasHold = shipment.paymentMethod !== PaymentMethod.CASH;
+      const releasedBeforeCancel = hasHold && options.admin !== undefined && previousStatus === ShipmentStatus.ASSIGNED;
       if (releasedBeforeCancel) {
         if (!opts.paymentsClient) {
           throw new Error("La cancelación de un admin desde assigned requiere paymentsClient (ShipmentsServiceOptions).");
@@ -2393,7 +2479,7 @@ export function createShipmentsService(
       // liberación no se puede confirmar (payments caído, un hold `creating` reciente,
       // transportista desvinculado) el envío ya está cancelado: queda logueado con evento propio
       // y el hold vence solo en MP.
-      if (!releasedBeforeCancel && (awaitingFunding || (hasAssignment && penaltyArs === 0)) && opts.paymentsClient) {
+      if (hasHold && !releasedBeforeCancel && (awaitingFunding || (hasAssignment && penaltyArs === 0)) && opts.paymentsClient) {
         await releaseHoldAfterCancel(opts.paymentsClient, shipmentId);
       }
 
@@ -2418,7 +2504,16 @@ export function createShipmentsService(
         // manda además la de oferta cancelada (mismo criterio que `expireUnpickedAssignedShipments`).
         // MOVO-331: si lo cancela un admin, el transportista asignado recibe el aviso de soporte (lo manda el
         // servicio de cambio forzado), no además el de oferta cancelada. Las ofertas pendientes de otros sí se avisan.
-        const notifyAssignedOffer = assignedOffer && cancelled.cancellationPenaltyStatus !== "captured" && !options.admin;
+        // MOVO-37: en efectivo la penalidad como deuda le acredita la compensación (y su push) al transportista solo si
+        // es mayor que cero: con una penalidad chica `cashPenaltyCompensationArs` da 0, no hay push y se lo avisa de
+        // la cancelación como a cualquier otro.
+        const carrierCompensated =
+          cancelled.cancellationPenaltyStatus === "captured" ||
+          (cancelled.paymentMethod === PaymentMethod.CASH &&
+            cancelled.cancellationPenaltyStatus === "debt" &&
+            cancelled.agreedPriceArs !== null &&
+            cashPenaltyCompensationArs(cancelled.agreedPriceArs, penaltyArs) > 0);
+        const notifyAssignedOffer = assignedOffer && !carrierCompensated && !options.admin;
         const voidedOffers = notifyAssignedOffer ? [assignedOffer, ...pendingOffers] : pendingOffers;
         await dispatchOfferVoidedPushes(
           notificationsClient,
@@ -2503,9 +2598,12 @@ export function createShipmentsService(
       }
 
       // Payments verifica el transportista del hold antes de liberarlo. Esto protege a
-      // una asignación posterior incluso si llega una petición retrasada.
+      // una asignación posterior incluso si llega una petición retrasada. MOVO-37: en efectivo no hay hold.
       try {
-        const hold = await opts.paymentsClient.findHoldByShipment(shipmentId, { sync: true });
+        const hold =
+          shipment.paymentMethod === PaymentMethod.CASH
+            ? null
+            : await opts.paymentsClient.findHoldByShipment(shipmentId, { sync: true });
         if (hold) {
           await opts.paymentsClient.releaseHold(shipmentId, callerId, hold.id);
         }
@@ -2851,7 +2949,8 @@ export function createShipmentsService(
           // `assigned` se libera antes y, si no se puede confirmar la liberación, no se transiciona
           // (se reintenta en el próximo barrido en vez de dejar fondos retenidos sin envío). El
           // retiro ya no se puede confirmar a esta altura (`assertPickupStillAllowed`).
-          if (opts.paymentsClient && assigned) {
+          // MOVO-37: un envío en efectivo no tiene hold que liberar.
+          if (opts.paymentsClient && assigned && shipment.paymentMethod !== PaymentMethod.CASH) {
             await releaseHoldBeforeCancel(opts.paymentsClient, shipment.id, logger);
           }
 
@@ -3215,6 +3314,7 @@ export function createShipmentsService(
           ),
           tripId: tripIdByShipmentId.get(shipment.id) ?? null,
           transitAnomalyFlaggedAt: shipment.transitAnomalyFlaggedAt,
+          paymentMethod: shipment.paymentMethod,
         };
       });
     },
@@ -3284,27 +3384,36 @@ export function createShipmentsService(
       }
 
       // 4. Invocación a pricing-logistics con fallback de degradación heurística (AC6)
+      let route: CarrierRoute;
       if (!pricingLogisticsClient) {
         logger?.warn(
           { event: "my_route_solver_missing", carrierId },
           "pricingLogisticsClient no inyectado -- retornando ruta degradada"
         );
-        return buildDegradedRoute(stops);
+        route = buildDegradedRoute(stops);
+      } else {
+        try {
+          const result = await pricingLogisticsClient.optimizeRoute({
+            carrierLocation: { lat: location.lat, lng: location.lng },
+            stops,
+            // MOVO-346: sin hora de partida, el solver usaba su reloj sin zona.
+            departureTime: new Date().toISOString(),
+          });
+          route = mapOptimizedRoute(result);
+        } catch (err) {
+          logger?.warn(
+            { err, event: "my_route_solver_failed", carrierId },
+            "Fallo al invocar el optimizador de rutas -- aplicando degradación heurística (AC6)"
+          );
+          route = buildDegradedRoute(stops);
+        }
       }
 
-      try {
-        const result = await pricingLogisticsClient.optimizeRoute({
-          carrierLocation: { lat: location.lat, lng: location.lng },
-          stops,
-        });
-        return mapOptimizedRoute(result);
-      } catch (err) {
-        logger?.warn(
-          { err, event: "my_route_solver_failed", carrierId },
-          "Fallo al invocar el optimizador de rutas -- aplicando degradación heurística (AC6)"
-        );
-        return buildDegradedRoute(stops);
-      }
+      // 5. MOVO-346: camino por calles en el orden de la ruta (optimizada o degradada). El store
+      // nunca tira: si el proveedor falla, `polyline: null` y el mapa cae a las rectas.
+      if (!routePolylineStore) return route;
+      const polyline = await routePolylineStore.get(carrierId, location, route.stops);
+      return { ...route, polyline };
     },
 
     /**

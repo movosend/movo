@@ -14,9 +14,9 @@ import type {
 } from "@movo/shared/src/types/admin-disputes"
 import type {
   AdminDisputeAttribution,
-  AdminDisputeDetailPanel,
+  AdminDisputeDetail,
   AdminDisputePartyHistory,
-} from "@movo/shared/src/types/admin-disputes-panel"
+} from "@movo/shared/src/types/admin-disputes"
 import type { AdminShipmentPhoto } from "@movo/shared/src/types/admin-shipments"
 import { shipmentConfirmationCode } from "@movo/shared/src/types/admin-shipments"
 import { DISPUTE_PARTIAL_PRESETS } from "@movo/shared/src/types/dispute"
@@ -36,7 +36,7 @@ const did = (n: number) =>
 const img = (id: string) => `/api/support/mock-image/${id}`
 
 export interface MockDispute {
-  detail: AdminDisputeDetailPanel
+  detail: AdminDisputeDetail
   handshake: AdminDisputeHandshakeEvent[]
   photos: AdminShipmentPhoto[]
   notes: AdminDisputeNote[]
@@ -162,6 +162,8 @@ const SPECS: Spec[] = [
         "Sin señal del transportista hace más de 6 h con el envío en camino. El barrido no atribuye culpa: lo resuelve el equipo.",
       sweptAt: ago(9 * 60),
       positions: [],
+      farPositionsInWindow: 0,
+      grayPositionsInWindow: 0,
       lastPingAt: ago(9 * 60 + 380),
     },
   },
@@ -214,6 +216,8 @@ const SPECS: Spec[] = [
           class: "gray",
         },
       ],
+      farPositionsInWindow: 0,
+      grayPositionsInWindow: 1,
     },
   },
   {
@@ -305,7 +309,7 @@ for (let i = 0; i < 28; i += 1) {
 }
 
 function history(
-  detail: Pick<AdminDisputeDetailPanel, "sender" | "carrier" | "receiver">,
+  detail: Pick<AdminDisputeDetail, "sender" | "carrier" | "receiver">,
   n: number
 ): AdminDisputePartyHistory[] {
   const rows: AdminDisputePartyHistory[] = [
@@ -401,7 +405,7 @@ function build(spec: Spec): MockDispute {
     }
   }
 
-  const detail: AdminDisputeDetailPanel = {
+  const detail: AdminDisputeDetail = {
     id,
     shipmentId: s.id,
     shipmentCode: shipmentConfirmationCode(s.id),

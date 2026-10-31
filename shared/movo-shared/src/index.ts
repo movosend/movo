@@ -46,7 +46,7 @@ export type {
   AdminCandidate,
   AdminSummary,
 } from "./types/user";
-export { ShipmentStatus } from "./types/shipment";
+export { ShipmentStatus, PaymentMethod } from "./types/shipment";
 export type {
   SharedHistory,
   ActiveShipmentStatus,
@@ -122,6 +122,7 @@ export type {
   CarrierMpAccountStatusResponse,
   CarrierRequirement,
   CarrierRequirementsErrorDetails,
+  CashPaymentRequirement,
 } from "./types/carrier-eligibility";
 
 // hold (MOVO-209)
@@ -171,7 +172,13 @@ export type {
 } from "./types/transaction";
 
 // liquidación: captura del hold + split (MOVO-212)
-export { SETTLEMENT_ISSUE_STATUSES, SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
+export {
+  isPartialCaptureKind,
+  PARTIAL_CAPTURE_KINDS,
+  SETTLEMENT_ISSUE_STATUSES,
+  SETTLEMENT_KINDS,
+  SETTLEMENT_STATUSES,
+} from "./types/settlement";
 export type {
   CaptureHoldRequest,
   CaptureHoldResponse,
@@ -215,6 +222,10 @@ export type {
   CreateUserLedgerEntryResponse,
   DebtCollectionPreviewRequest,
   DebtCollectionPreviewResponse,
+  RegisterCashCancellationPenaltyRequest,
+  RegisterCashCancellationPenaltyResponse,
+  RegisterCashCommissionRequest,
+  RegisterCashCommissionResponse,
   UserLedgerBalanceResponse,
   UserLedgerEntry,
   UserLedgerEntryStatus,
@@ -246,6 +257,7 @@ export {
   computeNetFromGross,
   decomposeOfferGrossPrice,
   carrierPaymentView,
+  cashPenaltyCompensationArs,
   estimateMpFeeArs,
   estimateReceivedArs,
   __resetCommissionConfigForTests,
@@ -450,6 +462,7 @@ export type {
   AdminShipmentPartyCard,
   AdminBlock,
   AdminShipmentDetail,
+  AdminShipmentDisputeSummary,
   AdminShipmentDetailResponse,
   AdminChatMessage,
   AdminChatReport,
@@ -460,6 +473,7 @@ export type {
   AdminTrackingPoint,
   AdminTrackingMetrics,
   AdminShipmentTracking,
+  ShipmentPartyTracking,
 } from "./types/admin-shipments";
 
 // admin: cambio forzado de estado de un envío (MOVO-331, DD-055)
@@ -680,7 +694,12 @@ export type {
   AdminDisputeNotePage,
   AdminDisputeNoteBody,
   AdminDisputeResolutionPreview,
+  AdminDisputeSort,
+  AdminDisputeCounts,
+  AdminDisputePartyHistory,
+  AdminDisputeAttribution,
 } from "./types/admin-disputes";
+export { ADMIN_DISPUTE_SORTS } from "./types/admin-disputes";
 
 // disputas (MOVO-334, DD-054)
 export {

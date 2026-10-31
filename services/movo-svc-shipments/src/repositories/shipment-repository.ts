@@ -1,5 +1,6 @@
 import { TRIP_PICKUP_WINDOW_LEAD_HOURS } from "../domain/trip-compatibility";
-import { DisputeReason, DisputeStatus, OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import { toPaymentMethod } from "./payment-method";
+import { DisputeReason, DisputeStatus, OfferStatus, PaymentMethod, ShipmentStatus, TripStatus } from "@movo/shared";
 import type { PickupMissedAttribution, ShipmentParties } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
@@ -100,7 +101,7 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     calculationMethod: row.calculationMethod,
     highDemand: row.highDemand,
     agreedPriceArs: row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null,
-    paymentMethod: row.paymentMethod,
+    paymentMethod: toPaymentMethod(row.paymentMethod),
     status: parseShipmentStatus(row.status, "status"),
     carrierWithdrawalPending: row.carrierWithdrawalPending,
     carrierWithdrawalPenaltyArs: row.carrierWithdrawalPenaltyArs?.toNumber() ?? null,
@@ -110,6 +111,8 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     receiverRedesignationDeadline: row.receiverRedesignationDeadline,
     transitAnomalyFlaggedAt: row.transitAnomalyFlaggedAt,
     transitAnomalyWarnedAt: row.transitAnomalyWarnedAt,
+    fundingDeadlineExtendedUntil: row.fundingDeadlineExtendedUntil,
+    fundingDeadlineExtensions: row.fundingDeadlineExtensions,
     cancellationPenaltyArs: row.cancellationPenaltyArs ? row.cancellationPenaltyArs.toNumber() : null,
     cancellationPenaltyStatus: row.cancellationPenaltyStatus,
     chatStartedAt: row.chatStartedAt,
@@ -131,6 +134,7 @@ function mapEvent(row: ShipmentEventRow): ShipmentEvent {
     actorId: row.actorId,
     assignmentCarrierId: row.assignmentCarrierId,
     reason: row.reason,
+    attribution: row.attribution,
     kind: row.kind,
     actorName: row.actorName,
     createdAt: row.createdAt,
@@ -378,6 +382,7 @@ interface AvailableShipmentRow {
   suggested_price_ars: string | null;
   calculation_method: string | null;
   status: string;
+  payment_method: string;
   created_at: Date;
   pickup_distance_km: string;
   delivery_distance_km: string | null;
@@ -407,6 +412,7 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
     suggestedPriceArs: row.suggested_price_ars !== null ? Number(row.suggested_price_ars) : null,
     calculationMethod: row.calculation_method,
     status: parseShipmentStatus(row.status, "status"),
+    paymentMethod: toPaymentMethod(row.payment_method),
     createdAt: row.created_at,
     pickupDistanceKm: Number(row.pickup_distance_km),
     deliveryDistanceKm: row.delivery_distance_km !== null ? Number(row.delivery_distance_km) : null,
@@ -497,6 +503,12 @@ export interface UpdateStatusOptions {
    */
   dispute?: NewDispute;
   /**
+   * MOVO-337 (DD-056): la disputa `resolving` que cierra esta transición (`disputed -> completed|cancelled`),
+   * pasada a `resolved` en la misma transacción. Obligatoria para salir de `disputed`: así el envío nunca
+   * cambia de estado sin que la disputa quede resuelta, ni al revés.
+   */
+  resolveDispute?: { id: string };
+  /**
    * MOVO-331 (DD-055): la transición la ejecuta un admin desde el panel. Queda en el evento
    * (inmutable), con el nombre del admin como snapshot. Sin esto el evento es `normal`.
    */
@@ -550,11 +562,26 @@ export interface ShipmentRepository {
   listPendingCarrierWithdrawals(limit: number, afterId?: string): Promise<Shipment[]>;
   create(input: CreateShipmentInput): Promise<Shipment>;
   /**
+   * MOVO-37: cambia la modalidad de pago si el envío es de `senderId`, está en uno de `allowedStatuses` y no recibió
+   * ninguna oferta (en ningún estado). Compare-and-swap en un solo UPDATE: `null` si alguna condición ya no se cumple.
+   */
+  updatePaymentMethod(
+    id: string,
+    senderId: string,
+    paymentMethod: PaymentMethod,
+    allowedStatuses: readonly ShipmentStatus[]
+  ): Promise<Shipment | null>;
+  /**
    * MOVO-325: guarda el nombre visible de cada usuario (el último conocido) para listar y buscar
    * envíos en el panel sin depender de svc-users. Nombres vacíos se ignoran; una fila por usuario.
    */
   recordDisplayNames(entries: Array<{ userId: string; name: string | null | undefined }>): Promise<void>;
   findById(id: string): Promise<Shipment | null>;
+  /**
+   * MOVO-346: `findById` más la fila cruda que pide el seguimiento (ciudades, `Decimal`), en una sola lectura.
+   * El seguimiento de emisor y receptor se pide cada 15 s.
+   */
+  findByIdWithRow(id: string): Promise<{ shipment: Shipment; row: ShipmentRow } | null>;
   /** DD-055: pago simulado del envío, con lo que el decorador de payments necesita, en una sola lectura. `null` si no existe. */
   findPaymentSimulation(id: string): Promise<PaymentSimulation | null>;
   /**
@@ -756,6 +783,11 @@ export interface ShipmentRepository {
    * marcó o el envío se entregó mientras tanto (el caller no notifica en ese caso).
    */
   flagTransitAnomaly(id: string, now?: Date): Promise<boolean>;
+  /**
+   * MOVO-346 (DD-057): extiende el plazo de pago de un `assignment_pending` hasta `until`. Condicional sobre la
+   * cantidad de extensiones leída: si otro intento extendió en el medio, devuelve `false` y no pisa nada.
+   */
+  extendFundingDeadline(id: string, until: Date, expectedExtensions: number): Promise<boolean>;
   /**
    * MOVO-278 (DD-045): envíos `in_transit` marcados en o antes de `flaggedBefore` a los
    * que todavía no se les mandó el aviso previo a la disputa, el marcado hace más tiempo primero.
@@ -1000,6 +1032,21 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return rows.map(mapShipment);
     },
 
+    async updatePaymentMethod(id, senderId, paymentMethod, allowedStatuses) {
+      // MOVO-37: lock exclusivo antes de mirar las ofertas (statement aparte, snapshot nuevo): el insert de una
+      // oferta (`offer-repository#create`) toma el lock compartido, así que no puede colarse una oferta sin que este
+      // cambio la vea ni al revés.
+      const count = await db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM shipments.shipments WHERE id = ${id}::uuid FOR UPDATE`;
+        const { count: updated } = await tx.shipment.updateMany({
+          where: { id, senderId, status: { in: [...allowedStatuses] }, offers: { none: {} } },
+          data: { paymentMethod },
+        });
+        return updated;
+      });
+      return count === 0 ? null : this.findById(id);
+    },
+
     async create(input: CreateShipmentInput): Promise<Shipment> {
       const row = await db.$transaction(async (tx) => {
         const created = await tx.shipment.create({
@@ -1028,6 +1075,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             suggestedPriceArs: input.suggestedPriceArs,
             calculationMethod: input.calculationMethod,
             highDemand: input.highDemand,
+            paymentMethod: input.paymentMethod ?? PaymentMethod.CARD,
             receiverConfirmationDeadline: input.receiverConfirmationDeadline ?? null,
             status: INITIAL_SHIPMENT_STATUS,
             lastStatusChangedAt: new Date(),
@@ -1083,6 +1131,11 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     async findById(id: string): Promise<Shipment | null> {
       const row = await db.shipment.findUnique({ where: { id }, include: LAST_REJECTION_INCLUDE });
       return row ? mapShipmentWithLastRejection(row) : null;
+    },
+
+    async findByIdWithRow(id: string): Promise<{ shipment: Shipment; row: ShipmentRow } | null> {
+      const row = await db.shipment.findUnique({ where: { id }, include: LAST_REJECTION_INCLUDE });
+      return row ? { shipment: mapShipmentWithLastRejection(row), row } : null;
     },
 
     async listDeliveredAwaitingSettlement(
@@ -1215,6 +1268,9 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       if (to === ShipmentStatus.DISPUTED && !options.dispute) {
         throw new Error("-> disputed requiere UpdateStatusOptions.dispute (MOVO-334)");
       }
+      if (from === ShipmentStatus.DISPUTED && !options.resolveDispute) {
+        throw new Error("disputed -> * requiere UpdateStatusOptions.resolveDispute (MOVO-337)");
+      }
 
       // AC6 de MOVO-81: precondición de negocio sobre una transición que ya es
       // estructuralmente válida — publicar exige evidencia mínima del paquete. Vive acá
@@ -1231,7 +1287,13 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       }
 
       const now = new Date();
-      const deliveredAt = to === ShipmentStatus.DELIVERED ? now : current.deliveredAt;
+      // MOVO-337: un envío que sale de `in_transit` por la resolución de una disputa a favor del transportista pasa a
+      // `completed` sin haber tenido el handshake de entrega: la resolución es su momento de entrega (ancla de la
+      // ventana de calificación).
+      const deliveredAt =
+        to === ShipmentStatus.DELIVERED || (to === ShipmentStatus.COMPLETED && options.resolveDispute && !current.deliveredAt)
+          ? now
+          : current.deliveredAt;
       const receiverRedesignationDeadline =
         options.receiverRedesignationDeadline ?? current.receiverRedesignationDeadline;
 
@@ -1342,6 +1404,18 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
               photos: { create: (dispute.photoKeys ?? []).map((s3Key) => ({ s3Key })) },
             },
           });
+        }
+
+        // MOVO-337: la disputa pasa de `resolving` a `resolved` junto con el envío. Compare-and-swap: si otra
+        // resolución ya la cerró (o nunca llegó a `resolving`) la transición se descarta entera.
+        if (options.resolveDispute) {
+          const closed = await tx.dispute.updateMany({
+            where: { id: options.resolveDispute.id, shipmentId: id, status: DisputeStatus.RESOLVING },
+            data: { status: DisputeStatus.RESOLVED, resolvedAt: now },
+          });
+          if (closed.count === 0) {
+            throw new ShipmentConcurrentModificationError(id);
+          }
         }
 
         // MOVO-210: la asignación no prosperó. La oferta ganadora no fue rechazada por el emisor,
@@ -1680,7 +1754,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
               urgent, pickup_address, pickup_lat, pickup_lng, delivery_address,
               delivery_lat, delivery_lng, pickup_date, pickup_time_window_start,
               pickup_time_window_end, suggested_price_ars, calculation_method, status,
-              created_at,
+              payment_method::text AS payment_method, created_at,
               ${pickupDistance} AS pickup_distance_km,
               ${deliveryDistance} AS delivery_distance_km,
               ${shipmentDistance} AS shipment_distance_km
@@ -1813,6 +1887,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return rows.map(mapShipment);
     },
 
+    async extendFundingDeadline(id: string, until: Date, expectedExtensions: number): Promise<boolean> {
+      const result = await db.shipment.updateMany({
+        where: { id, status: ShipmentStatus.ASSIGNMENT_PENDING, fundingDeadlineExtensions: expectedExtensions },
+        data: { fundingDeadlineExtendedUntil: until, fundingDeadlineExtensions: expectedExtensions + 1 },
+      });
+      return result.count > 0;
+    },
+
     async flagTransitAnomaly(id: string, now: Date = new Date()): Promise<boolean> {
       const result = await db.shipment.updateMany({
         where: { id, status: ShipmentStatus.IN_TRANSIT, transitAnomalyFlaggedAt: null },
@@ -1860,7 +1942,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       // de sistema o de una parte, salvo el no-retiro: no tuvo la custodia (DD-052).
       const count = await db.dispute.count({
         where: {
-          status: DisputeStatus.OPEN,
+          // `resolving` (MOVO-337): la plata todavía no se movió, así que sigue bloqueado hasta `resolved` (AC9).
+          status: { in: [DisputeStatus.OPEN, DisputeStatus.RESOLVING] },
           reason: { not: DisputeReason.PICKUP_NO_SHOW },
           shipment: { carrierId },
         },

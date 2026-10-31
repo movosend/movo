@@ -227,9 +227,15 @@ const CARRIER_NOTES: Record<TransactionStatus, string> = {
   released: "Reserva liberada",
 };
 
+/** MOVO-37: un envío pagado en efectivo, en mano al retiro. Sin tarjeta, sin reserva y siempre `completed`. */
+export function isCashTransaction(item: Pick<TransactionListItem, "kind">): boolean {
+  return item.kind === "cash_shipment";
+}
+
 /** Segunda línea de la fila: tarjeta y fecha en Pagos, situación del cobro y fecha en Cobros. */
 export function transactionRowSubtitle(item: TransactionListItem, role: TransactionRole): string {
   const date = formatShortDate(item.date);
+  if (isCashTransaction(item)) return `Pago en efectivo · ${date}`;
   if (role === "sender") {
     const card = transactionCardLabel(item.card);
     return card ? `${card} · ${date}` : date;

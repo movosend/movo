@@ -25,8 +25,11 @@ export type TransactionRole = (typeof TRANSACTION_ROLES)[number];
  * transportista). `balance_payment` es un pago de la cuenta corriente del usuario ("Pagar mi saldo",
  * MOVO-312): solo existe con `role=sender`, no tiene envío y solo se lista cuando MP lo aprobó (siempre
  * `completed`; un intento pendiente o rechazado no es una transacción todavía).
+ * `cash_shipment` (MOVO-37): un envío pagado en efectivo, en mano al retiro. Aparece en los dos roles cuando se
+ * entregó (la comisión de Movo quedó registrada en la cuenta corriente del transportista), siempre `completed`, sin
+ * tarjeta (`card: null`) ni movimientos; el transportista ve el desglose con fee de MP en 0.
  */
-export const TRANSACTION_KINDS = ["shipment", "balance_payment"] as const;
+export const TRANSACTION_KINDS = ["shipment", "balance_payment", "cash_shipment"] as const;
 
 export type TransactionKind = (typeof TRANSACTION_KINDS)[number];
 
@@ -56,7 +59,7 @@ export const TRANSACTION_RELEASE_REASONS = ["cancelled", "expired"] as const;
 export type TransactionReleaseReason = (typeof TRANSACTION_RELEASE_REASONS)[number];
 
 export interface TransactionListItem {
-  /** Id del hold, o del intento de pago si `kind` es `balance_payment`. */
+  /** Id del hold, del intento de pago si `kind` es `balance_payment`, o del registro del cobro en efectivo si es `cash_shipment`. */
   id: string;
   kind: TransactionKind;
   /** `null` en un `balance_payment`. */
