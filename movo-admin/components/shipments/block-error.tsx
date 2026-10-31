@@ -12,11 +12,14 @@ export function BlockError({
   noun,
   code,
   className,
+  scope = "envío",
 }: {
   /** "el pago", "las partes"… */
   noun: string
   code?: string | null
   className?: string
+  /** Qué es el resto de la página: "envío" o "expediente". */
+  scope?: string
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -35,7 +38,7 @@ export function BlockError({
       <div className="flex min-w-[160px] flex-1 flex-col gap-1">
         <span className="text-sm font-medium">No pudimos cargar {noun}.</span>
         <span className="text-[13px] text-fg2">
-          El resto del envío no se ve afectado.
+          El resto del {scope} no se ve afectado.
         </span>
         {code && (
           <span className="font-mono text-xs text-muted-foreground">

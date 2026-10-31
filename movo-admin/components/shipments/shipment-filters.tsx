@@ -1,4 +1,5 @@
 "use client"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState, useTransition } from "react"
 import {
@@ -117,6 +118,30 @@ export function ShipmentFilters({
       >
         {TABS.map((tab) => {
           const on = state.tab === tab
+          const tabClass = cn(
+            "-mb-px flex h-10 flex-none items-center gap-1.5 border-b-2 px-2.5 text-[13px] font-medium whitespace-nowrap outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+            on
+              ? "border-foreground text-foreground"
+              : "border-transparent text-fg2"
+          )
+          // Las disputas tienen su propia bandeja (MOVO-343): la pestaña lleva ahí en vez de filtrar el listado.
+          if (tab === "disputes")
+            return (
+              <Link
+                key={tab}
+                href="/disputes"
+                role="tab"
+                aria-selected={false}
+                className={tabClass}
+              >
+                {TAB_LABEL[tab]}
+                {tabCount(tab) !== undefined && (
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {tabCount(tab)}
+                  </span>
+                )}
+              </Link>
+            )
           return (
             <button
               key={tab}

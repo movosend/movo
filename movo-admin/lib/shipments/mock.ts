@@ -13,6 +13,7 @@ import {
   type AdminShipmentRow,
 } from "@movo/shared/src/types/admin-shipments"
 import { ShipmentStatus } from "@movo/shared/src/types/shipment"
+import { mockDisputeIdOf } from "@/lib/disputes/fixtures"
 import { MOCK_SHIPMENTS } from "./fixtures"
 
 /**
@@ -24,14 +25,14 @@ import { MOCK_SHIPMENTS } from "./fixtures"
 export const mockEnabled = () =>
   process.env.MOVO_ADMIN_MOCK === "1" && process.env.NODE_ENV !== "production"
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-const latency = () => {
+export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+export const latency = () => {
   const n = Number(process.env.MOVO_ADMIN_MOCK_LATENCY_MS)
   return Number.isFinite(n) && n >= 0 ? n : 350
 }
 
 const failedOnce = new Set<string>()
-function shouldFail(key: string): boolean {
+export function shouldFail(key: string): boolean {
   const keys = (process.env.MOVO_ADMIN_MOCK_FAIL ?? "")
     .split(",")
     .map((k) => k.trim())
@@ -162,7 +163,7 @@ export async function mockGetShipment(
   await sleep(latency())
   const s = find(id)
   return {
-    shipment: s.detail,
+    shipment: { ...s.detail, disputeId: mockDisputeIdOf(s.detail.id) },
     events: block("events", s.events),
     photos: block("photos", []),
     offers: block("offers", s.offers),
