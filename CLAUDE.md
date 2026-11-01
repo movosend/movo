@@ -94,7 +94,7 @@ excepción, sin versionar, para healthchecks).
 
 ## Architecture Decision Records (ADRs) y decisiones de diseño
 
-Son **24 ADRs**, numerados del 001 al 024. Un ADR se queda solo si fija el stack, un
+Son **25 ADRs**, numerados del 001 al 025. Un ADR se queda solo si fija el stack, un
 proveedor o una integración, la estructura entre servicios, o el modelo de seguridad. Una
 regla de negocio, el detalle de un solo módulo o un parámetro es una **decisión de diseño
 (`DD-NNN`)**: va al registro de diseño, no a los ADRs. Los ADRs completos (contexto,
@@ -121,7 +121,8 @@ de `GeocodingProvider` · 015 Google Routes API (Compute Route Matrix) · 016 Re
 de `EmailProvider` · 017 pricing stateless, `Offer` en shipments · 018 handshake
 ECDSA P-256 / P1363 · 019 WebSocket nativo · 020 tracking: ingesta HTTP, difusión WS ·
 021 pricing `demand_fuel_routes_v1` · 022 arquitectura de cobro (MP) · 023 chat propio ·
-024 eventos de la bandeja de soporte por Redis Stream.
+024 eventos de la bandeja de soporte por Redis Stream · 025 convención de reportes del panel
+(agregados en el servicio dueño, CSV en backend).
 
 **Decisiones de diseño** — DD-016 fotos de perfil en prefijo S3 público · 018 `POST /quote`
 provisorio versionado · 021 `ShipmentStatus` de 11 estados · 023 retención de traza GPS
@@ -140,7 +141,7 @@ del no-retiro por GPS · 053 oferta del recargo por demanda: solo `declared` · 
 desde `completed` (entidad de disputa, ventana de 7 días) · 055 (propuesto) cambio
 forzado de estado de un envío desde el panel · 056 (propuesto) resolución de disputas: matriz de pago,
 estado final sin estados nuevos y reembolsos · 057 (propuesto) plazo de pago extendido ante una falla del
-proveedor.
+proveedor · 058 bandejas y plazos de la home del panel.
 
 ## Convenciones de código
 
