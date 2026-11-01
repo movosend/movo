@@ -47,24 +47,29 @@ export function disputeFailure(error: unknown): DisputeResult<never> {
         "No se pudo confirmar el movimiento de plata. La resolución quedó guardada y la disputa en «Procesando pago»: reintentá con los mismos datos.",
     }
   if (error.code === "DISPUTE_PARTIAL_BELOW_MINIMUM") {
-    const minimumArs = Number(error.details?.minimumArs)
+    const raw = error.details?.minimumArs
+    const minimumArs = typeof raw === "number" ? raw : null
     return {
       ok: false,
       code: error.code,
       status: error.statusCode,
-      ...(Number.isFinite(minimumArs) && { minimumArs }),
-      error: Number.isFinite(minimumArs)
-        ? `Con ese monto la captura no cubre la comisión de la reserva más la de Mercado Pago. El mínimo es ${formatArs(minimumArs)}.`
-        : "Con ese monto la captura no cubre las comisiones.",
+      ...(minimumArs !== null && { minimumArs }),
+      error:
+        minimumArs !== null
+          ? `Con ese monto la captura no cubre la comisión de la reserva más la de Mercado Pago. El mínimo es ${formatArs(minimumArs)}.`
+          : "Con ese monto la captura no cubre las comisiones.",
     }
   }
   if (error.code === "DISPUTE_PARTIAL_ABOVE_MAXIMUM") {
-    const maximumArs = Number(error.details?.maximumArs)
+    const maximumArs =
+      typeof error.details?.maximumArs === "number"
+        ? error.details.maximumArs
+        : null
     return {
       ok: false,
       code: error.code,
       status: error.statusCode,
-      ...(Number.isFinite(maximumArs) && { maximumArs }),
+      ...(maximumArs !== null && { maximumArs }),
       error:
         "El monto no puede ser igual ni mayor al total en juego: elegí «A favor del transportista».",
     }

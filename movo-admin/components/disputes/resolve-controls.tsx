@@ -7,7 +7,6 @@ import {
   ShieldAlert,
   TriangleAlert,
 } from "lucide-react"
-import { disputeFinalShipmentStatus } from "@movo/shared/src/config/dispute-resolution"
 import {
   DISPUTE_OUTCOMES,
   DISPUTE_REASONING_MAX_LENGTH,
@@ -265,7 +264,7 @@ function ResolveDialog({
   const current = outcome ?? "sender"
   const split = computeSplit(preview, current, choice, names.carrier)
   const action = preview.outcomes.find((o) => o.outcome === current)
-  const final = disputeFinalShipmentStatus(current)
+  const final = action?.shipmentStatus ?? "completed"
   const canNext =
     step === 1
       ? !!outcome && !split.error
@@ -274,8 +273,23 @@ function ResolveDialog({
         : canConfirm(split, reasoning, ack, DISPUTE_REASONING_MIN_LENGTH) &&
           !pending
 
+  // El ack confirma un reparto concreto: si el resultado o el monto cambian, hay que volver a tildarlo.
+  const pickOutcome = (next: DisputeOutcome) => {
+    setOutcome(next)
+    setAck(false)
+  }
+  const pickChoice = (next: PartialChoice) => {
+    setChoice(next)
+    setAck(false)
+  }
+  // El diálogo no se desmonta al cerrarse: se vuelve al paso 1 y sin confirmación previa.
+  const leave = () => {
+    setStep(1)
+    setAck(false)
+    onClose()
+  }
   const close = () => {
-    if (!pending) onClose()
+    if (!pending) leave()
   }
   const submit = () =>
     start(async () => {
@@ -290,7 +304,7 @@ function ResolveDialog({
       })
       if (!result.ok) {
         // Con la disputa ya en «Procesando pago» el expediente muestra el reintento: se cierra el diálogo.
-        if (result.paymentFailed) onClose()
+        if (result.paymentFailed) leave()
         return setError(result.error)
       }
       setDone(OUTCOME_LABEL[current])
@@ -310,7 +324,7 @@ function ResolveDialog({
                 "Avisamos a las tres partes con el resultado y tu razonamiento.",
                 "El envío pasó a su estado final y la resolución quedó en la bitácora a tu nombre.",
               ]}
-              onClose={onClose}
+              onClose={leave}
             />
           </>
         ) : (
@@ -357,7 +371,7 @@ function ResolveDialog({
                           type="radio"
                           name="outcome"
                           checked={on}
-                          onChange={() => setOutcome(o)}
+                          onChange={() => pickOutcome(o)}
                           className="mt-1"
                         />
                         <span className="flex flex-col gap-0.5">
@@ -383,7 +397,7 @@ function ResolveDialog({
                     <PartialPicker
                       preview={preview}
                       choice={choice}
-                      onChoice={setChoice}
+                      onChoice={pickChoice}
                       split={split}
                       names={names}
                     />

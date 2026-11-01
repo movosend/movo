@@ -1,15 +1,14 @@
 import Link from "next/link"
 import { ArrowRight, Scale } from "lucide-react"
 import { shipmentConfirmationCode } from "@movo/shared/src/types/admin-shipments"
+import type { DisputeReason } from "@movo/shared/src/types/dispute"
 import type { AdminShipmentDetail } from "@movo/shared/src/types/admin-shipments"
-import { asBlock, getDispute } from "@/lib/disputes/api"
 import {
   ageLabel,
   DISPUTE_REASON_LABEL,
   DISPUTE_STATUS_PILL,
-  openedByLabel,
+  PARTY_ROLE_LABEL,
 } from "@/lib/disputes/format"
-import { BlockError } from "@/components/shipments/block-error"
 import { StatusPill } from "@/components/users/ui"
 
 const card = "flex flex-col gap-3 rounded-[10px] border bg-card p-[18px]"
@@ -42,7 +41,7 @@ export async function ShipmentDisputeBlock({
             Disputa
           </h2>
           <Link
-            href={`/disputes?${new URLSearchParams({ q: shipmentConfirmationCode(shipment.id), status: "open" })}`}
+            href={`/disputes?${new URLSearchParams({ q: shipmentConfirmationCode(shipment.id) })}`}
             className={open}
           >
             Buscar en la bandeja
@@ -55,7 +54,7 @@ export async function ShipmentDisputeBlock({
       </section>
     )
 
-  const block = await asBlock(() => getDispute(shipment.disputeId!))
+  const dispute = shipment.dispute
   return (
     <section aria-labelledby="disputa-envio" className={card}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -67,11 +66,12 @@ export async function ShipmentDisputeBlock({
             <Scale aria-hidden className="size-4" />
             Disputa
           </h2>
-          {block.data && (
+          {dispute && (
             <>
-              <StatusPill pill={DISPUTE_STATUS_PILL[block.data.status]} />
+              <StatusPill pill={DISPUTE_STATUS_PILL[dispute.status]} />
               <span className="inline-flex h-[22px] items-center rounded-full bg-muted px-[9px] text-xs font-medium text-fg2">
-                {DISPUTE_REASON_LABEL[block.data.reason]}
+                {DISPUTE_REASON_LABEL[dispute.reason as DisputeReason] ??
+                  dispute.reason}
               </span>
             </>
           )}
@@ -81,30 +81,23 @@ export async function ShipmentDisputeBlock({
           <ArrowRight aria-hidden className="size-4" />
         </Link>
       </div>
-      {block.error ? (
-        <BlockError noun="la disputa" code={block.error.code} scope="envío" />
-      ) : (
+      {dispute && (
         <dl className="grid gap-4 text-sm sm:grid-cols-3">
           <div className="flex flex-col gap-0.5">
             <dt className="text-xs text-muted-foreground">Abierta por</dt>
             <dd>
-              {openedByLabel(
-                block.data.openedByRole,
-                block.data.openedByRole === "sender"
-                  ? block.data.sender.name
-                  : block.data.openedByRole === "receiver"
-                    ? block.data.receiver.name
-                    : (block.data.carrier?.name ?? null)
-              )}
+              {dispute.openedByRole
+                ? PARTY_ROLE_LABEL[dispute.openedByRole]
+                : "Sistema"}
             </dd>
           </div>
           <div className="flex flex-col gap-0.5">
             <dt className="text-xs text-muted-foreground">Antigüedad</dt>
-            <dd>{ageLabel(block.data.openedAt, now)}</dd>
+            <dd>{ageLabel(dispute.openedAt, now)}</dd>
           </div>
           <div className="flex flex-col gap-0.5">
             <dt className="text-xs text-muted-foreground">Descargos</dt>
-            <dd>{block.data.statements.length}</dd>
+            <dd>{dispute.statementsCount}</dd>
           </div>
         </dl>
       )}

@@ -55,9 +55,15 @@ export function computeSplit(
     if (!choice.raw) error = `Ingresá cuánto conserva ${carrierName}.`
     else if (amount === null || amount <= 0)
       error = "El monto tiene que ser mayor que cero."
-    else if (amount >= stake)
-      error = `Con ${formatArs(stake)} o más no es un reparto: elegí «A favor del transportista».`
-    else carrierAmountArs = amount
+    else {
+      const split = splitDisputeStake(stake, outcome, { amountArs: amount })
+      if ("error" in split)
+        error =
+          split.error === "above_maximum"
+            ? `Con ${formatArs(stake)} o más no es un reparto: elegí «A favor del transportista».`
+            : "El monto tiene que ser mayor que cero."
+      else carrierAmountArs = split.carrierAmountArs
+    }
   }
   if (
     !error &&

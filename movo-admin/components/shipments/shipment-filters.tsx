@@ -131,7 +131,7 @@ export function ShipmentFilters({
                 key={tab}
                 href="/disputes"
                 role="tab"
-                aria-selected={false}
+                aria-selected={on}
                 className={tabClass}
               >
                 {TAB_LABEL[tab]}

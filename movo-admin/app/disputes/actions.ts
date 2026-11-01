@@ -69,7 +69,6 @@ export async function addNote(
     )
   try {
     const note = await addDisputeNote(disputeId, text)
-    revalidatePath(`/disputes/${disputeId}`)
     return { ok: true, data: note }
   } catch (error) {
     return disputeFailure(error)
