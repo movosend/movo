@@ -16,7 +16,8 @@ export type ShipmentDroppedListener = (shipmentId: string, reason: string) => vo
 
 /**
  * Por qué no salió un vaciado (MOVO-346, punto 13). Solo `network` (sin conexión o 5xx) es "sin
- * conexión" para el indicador: un 401 espera a que la sesión se recupere y un 429 al backoff.
+ * conexión" para el indicador: un 401/403 espera a que la sesión o la cuenta se recuperen y un 429
+ * al backoff.
  */
 export type FlushFailure = "network" | "auth" | "rate_limited";
 
@@ -27,6 +28,24 @@ export interface FlushResult {
 }
 
 export type FlushedListener = (result: FlushResult) => void;
+
+/** Status del lote entero que no se arreglan reintentando: el lote se descarta. */
+const DISCARDABLE_BATCH_STATUSES = new Set([400, 422]);
+
+/** Mismas cotas que `batchPositionItem` del schema de `svc-shipments`. */
+function isValidPosition(item: QueuedPosition): boolean {
+  return (
+    Number.isFinite(item.lat) &&
+    item.lat >= -90 &&
+    item.lat <= 90 &&
+    Number.isFinite(item.lng) &&
+    item.lng >= -180 &&
+    item.lng <= 180 &&
+    Number.isFinite(item.accuracyM) &&
+    item.accuracyM >= 0 &&
+    !Number.isNaN(Date.parse(item.capturedAt))
+  );
+}
 
 class BackgroundTrackingManager {
   private activeTripId: string | null = null;
@@ -175,7 +194,13 @@ class BackgroundTrackingManager {
       return { sentCount: 0, remainingCount: q.length, failure: "rate_limited" };
     }
 
-    const queue = await offlineQueueStorage.loadQueue();
+    let queue = await offlineQueueStorage.loadQueue();
+    // Una posición que el schema del lote rechaza (400) tiraría las demás del mismo lote: se
+    // descarta acá, antes de mandarla.
+    const invalid = queue.filter((item) => !isValidPosition(item));
+    if (invalid.length > 0) {
+      queue = await offlineQueueStorage.removeSentPositions(invalid);
+    }
     if (queue.length === 0) {
       return { sentCount: 0, remainingCount: 0, failure: null };
     }
@@ -238,17 +263,19 @@ class BackgroundTrackingManager {
         this.backoffDelayMs = Math.min(this.backoffDelayMs * 2, 60_000);
         return { sentCount: 0, remainingCount: queue.length, failure: "rate_limited" };
       }
-      // Un 401 retiene el lote hasta que la sesión se recupere (el refresh lo maneja http-client).
-      if (err instanceof ApiError && err.statusCode === 401) {
+      // Un 401 retiene el lote hasta que la sesión se recupere (el refresh lo maneja http-client), y
+      // un 403 (cuenta suspendida o inhabilitada) hasta que se resuelva la cuenta.
+      if (err instanceof ApiError && (err.statusCode === 401 || err.statusCode === 403)) {
         return { sentCount: 0, remainingCount: queue.length, failure: "auth" };
       }
-      // MOVO-346: cualquier otro 4xx del lote entero no se arregla reintentando (validación,
-      // envío ajeno): se descarta, o la cola queda trabada para siempre.
-      if (err instanceof ApiError && err.statusCode >= 400 && err.statusCode < 500) {
+      // MOVO-346: solo un lote que el servidor no puede aceptar nunca (400 de schema, 422) se
+      // descarta, o la cola queda trabada para siempre. El resto de los 4xx (408, 409...) es
+      // transitorio y se reintenta como una falla de red.
+      if (err instanceof ApiError && DISCARDABLE_BATCH_STATUSES.has(err.statusCode)) {
         const updatedQueue = await offlineQueueStorage.removeSentPositions(batch);
         return { sentCount: 0, remainingCount: updatedQueue.length, failure: null };
       }
-      // Ante fallas de red o 5xx, no descartamos posiciones (AC10)
+      // Ante fallas de red, 5xx u otros 4xx, no descartamos posiciones (AC10)
       return { sentCount: 0, remainingCount: queue.length, failure: "network" };
     }
   }

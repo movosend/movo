@@ -165,6 +165,47 @@ describe("BackgroundTrackingManager (MOVO-242 / AC1, AC5, AC8)", () => {
       expect(result).toEqual({ sentCount: 0, remainingCount: 0, failure: null });
     });
 
+    it("un 4xx transitorio (409) retiene el lote como falla de red", async () => {
+      (shipmentsClient.reportPositionsBatch as jest.Mock).mockRejectedValue(
+        new ApiError(409, "HOLD_CONFLICT", "Conflicto"),
+      );
+
+      const result = await backgroundTrackingManager.flushBatchQueue();
+
+      expect(offlineQueueStorage.removeSentPositions).not.toHaveBeenCalled();
+      expect(result).toEqual({ sentCount: 0, remainingCount: 1, failure: "network" });
+    });
+
+    it("un 403 (cuenta suspendida) retiene el lote como falla de sesión", async () => {
+      (shipmentsClient.reportPositionsBatch as jest.Mock).mockRejectedValue(
+        new ApiError(403, "ACCOUNT_SUSPENDED", "Suspendida"),
+      );
+
+      const result = await backgroundTrackingManager.flushBatchQueue();
+
+      expect(offlineQueueStorage.removeSentPositions).not.toHaveBeenCalled();
+      expect(result).toEqual({ sentCount: 0, remainingCount: 1, failure: "auth" });
+    });
+
+    it("descarta antes de mandar una posición fuera de rango sin tirar las demás", async () => {
+      const bad: QueuedPosition = { ...queue[0], lat: 200, capturedAt: "2026-10-25T21:00:45Z" };
+      (offlineQueueStorage.loadQueue as jest.Mock).mockResolvedValue([queue[0], bad]);
+      (offlineQueueStorage.removeSentPositions as jest.Mock)
+        .mockResolvedValueOnce([queue[0]])
+        .mockResolvedValueOnce([]);
+      (shipmentsClient.reportPositionsBatch as jest.Mock).mockResolvedValue({
+        results: [{ index: 0, shipmentId: "shipment-1", status: "accepted", persisted: true }],
+      });
+
+      const result = await backgroundTrackingManager.flushBatchQueue();
+
+      expect(offlineQueueStorage.removeSentPositions).toHaveBeenNthCalledWith(1, [bad]);
+      expect(shipmentsClient.reportPositionsBatch).toHaveBeenCalledWith([
+        expect.objectContaining({ lat: 1, shipmentId: "shipment-1" }),
+      ]);
+      expect(result).toEqual({ sentCount: 1, remainingCount: 0, failure: null });
+    });
+
     it("un 401 retiene el lote sin marcarlo como falla de red", async () => {
       (shipmentsClient.reportPositionsBatch as jest.Mock).mockRejectedValue(
         new ApiError(401, "AUTH_TOKEN_EXPIRED", "Vencido"),
