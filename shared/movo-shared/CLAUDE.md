@@ -786,3 +786,10 @@ acá antes de tipar desde otro workspace.
 `AdminDisputeCounts`, `ADMIN_DISPUTE_SORTS`/`AdminDisputeSort`, `AdminDisputePartyHistory` y `AdminDisputeAttribution`. `AdminShipmentDisputeSummary`
 y `AdminShipmentDetail.dispute?` (opcional a propósito, para no romper los fixtures de `movo-admin`); `AdminShipmentRow.disputeId` pasa a ser la
 disputa más reciente del envío. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-342 — Rango de los reportes, home y bitácora ampliada (`types/admin-reports.ts`, ADR-025, DD-058)
+
+Rango en días `YYYY-MM-DD` inclusivos de Argentina (`REPORT_RANGE_MAX_DAYS` 366): `validateReportRange` (filtros, extremos opcionales), `resolveReportRange` (reporte, completa los extremos), `previousReportRange`,
+`reportGranularity`, `argentinaDayBounds`. Home: `ADMIN_OVERVIEW_BLOCKS`, `OVERVIEW_SLA_HOURS`, `OverviewInbox`, `OverviewInboxSource` (lo que manda el servicio dueño), `toOverviewInbox` (le suma el plazo) y `AdminOverview`.
+Bitácora: `AdminAuditLogPage`, `AuditTargetRef`, `auditTargetKey`, `ADMIN_AUDIT_ACTIONS`, `AUDIT_TARGET_PREFIX_MIN_LENGTH` y los headers `EXPORT_ROWS_HEADER`/`EXPORT_TRUNCATED_HEADER`. `AdminTargetType` suma `report` y `ApiErrorCode` suma
+`REPORT_RANGE_INVALID` (400, `details.reason`). Sin dependencias de Node: el panel puede importarlo por subpath. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
