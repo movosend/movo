@@ -282,12 +282,14 @@ describe("delivery/index (paso 1: ubicación, extensión de alcance pedida por e
   });
 
   it.each(["out_of_range", "denied", "error"] as const)(
-    "MOVO-346: %s no bloquea la entrega: informa y deja continuar al resumen",
+    "MOVO-346: %s no bloquea la entrega: informa, deja reintentar y continuar al resumen",
     async (status) => {
       mockProximity = { status, distanceMeters: 300, currentLocation: null, check: mockCheck };
-      const { getByTestId, queryByTestId } = await render(<DeliveryGeoScreen />);
+      const { getByTestId } = await render(<DeliveryGeoScreen />);
 
-      expect(queryByTestId("delivery-geo-retry")).toBeNull();
+      mockCheck.mockClear();
+      await act(async () => fireEvent.press(getByTestId("delivery-geo-retry")));
+      expect(mockCheck).toHaveBeenCalledTimes(1);
       await act(async () => fireEvent.press(getByTestId("delivery-geo-continue")));
       expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/delivery/resumen");
     },

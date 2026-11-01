@@ -1,7 +1,7 @@
 import { useColorScheme } from "nativewind";
 import { CheckCircle2, MapPin, Ruler } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -178,8 +178,10 @@ export function ProximityGeoScreen({
   }, [mapReady, targetLat, targetLng, proximity.currentLocation]);
 
   const dotColor = proximity.status === "within_range" ? "#9FC72E" : proximity.status === "out_of_range" ? "#E5484D" : "#8A8A93";
+  // En los dos modos: aunque la distancia sea informativa, sin lectura hay que poder volver a pedir
+  // el permiso o refrescarla.
   const canRetry =
-    blocking && (proximity.status === "out_of_range" || proximity.status === "denied" || proximity.status === "error");
+    proximity.status === "out_of_range" || proximity.status === "denied" || proximity.status === "error";
   const canContinue = blocking
     ? proximity.status === "within_range"
     : proximity.status !== "idle" && proximity.status !== "checking";
@@ -343,19 +345,31 @@ export function ProximityGeoScreen({
         </View>
       </View>
 
-      {canRetry ? (
+      {blocking && canRetry ? (
         <PrimaryButton
           testID={`${testIDPrefix}-retry`}
           label="Reintentar ubicación"
           onPress={() => void proximity.check()}
         />
       ) : (
-        <PrimaryButton
-          testID={`${testIDPrefix}-continue`}
-          label="Continuar"
-          disabled={!canContinue}
-          onPress={onContinue}
-        />
+        <>
+          {canRetry ? (
+            <Pressable
+              testID={`${testIDPrefix}-retry`}
+              accessibilityRole="button"
+              onPress={() => void proximity.check()}
+              className="items-center py-3"
+            >
+              <Text className="font-sans-semibold text-small text-fg-2 underline">Reintentar ubicación</Text>
+            </Pressable>
+          ) : null}
+          <PrimaryButton
+            testID={`${testIDPrefix}-continue`}
+            label="Continuar"
+            disabled={!canContinue}
+            onPress={onContinue}
+          />
+        </>
       )}
     </SafeAreaView>
   );
