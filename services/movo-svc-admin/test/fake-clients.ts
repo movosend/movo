@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
+  AuditTargetsRequest,
+  AuditTargetsResponse,
+  OverviewInboxSource,
+  OverviewDisputesExtra,
+  OverviewKycExtra,
+  OverviewPaymentsExtra,
+  OverviewShipmentAlertsExtra,
+  OverviewSupportExtra,
+  OverviewUserReportsExtra,
   AdminDisputeCounts,
   AdminDisputeDetail,
   DisputeStatus,
@@ -53,6 +62,8 @@ import { ShipmentsClient } from "../src/adapters/shipments-client";
 import { PartyCard, UsersClient } from "../src/adapters/users-client";
 import { LedgerAdjustmentRequest, PaymentsClient } from "../src/adapters/payments-client";
 import { SupportClient } from "../src/adapters/support-client";
+
+const emptyInbox = { count: 0, oldestAt: null, yesterdayCount: null, breakdown: [] };
 
 const unusedRequest: InternalClient["request"] = async () => {
   throw new Error("request genérico fuera de alcance de este fake");
@@ -125,10 +136,41 @@ export function createFakeShipmentsClient(data: {
     seen?: { list?: string };
     counts?: AdminDisputeCounts;
   };
+  /** MOVO-342: bandejas de la home y objetivos de la bitácora. `targetsDown`: solo esa lectura falla. */
+  overview?: {
+    disputes?: OverviewInboxSource<OverviewDisputesExtra>;
+    support?: OverviewInboxSource<OverviewSupportExtra>;
+    shipmentAlerts?: OverviewInboxSource<OverviewShipmentAlertsExtra>;
+    flaggedMessages?: OverviewInboxSource;
+  };
+  auditTargets?: AuditTargetsResponse;
+  auditTargetsSeen?: AuditTargetsRequest[];
+  targetsDown?: boolean;
   down?: boolean;
 } = {}): ShipmentsClient {
   return {
     request: unusedRequest,
+    async getOverviewDisputes() {
+      if (data.down) throw shipmentsDown();
+      return data.overview?.disputes ?? { ...emptyInbox, awaitingPayment: 0 };
+    },
+    async getOverviewSupport() {
+      if (data.down) throw shipmentsDown();
+      return data.overview?.support ?? { ...emptyInbox, urgent: 0 };
+    },
+    async getOverviewShipmentAlerts() {
+      if (data.down) throw shipmentsDown();
+      return data.overview?.shipmentAlerts ?? { ...emptyInbox, inTransit: 0 };
+    },
+    async getOverviewFlaggedMessages() {
+      if (data.down) throw shipmentsDown();
+      return data.overview?.flaggedMessages ?? emptyInbox;
+    },
+    async getAuditTargets(request) {
+      if (data.down || data.targetsDown) throw shipmentsDown();
+      data.auditTargetsSeen?.push(request);
+      return data.auditTargets ?? { disputes: {}, chatReports: {}, supportConversations: {} };
+    },
     async listInProgressShipments(userId) {
       if (data.down) throw shipmentsDown();
       return data.inProgress?.[userId] ?? [];
@@ -274,6 +316,13 @@ export function createFakeUsersClient(
     candidates?: AdminCandidate[];
     /** MOVO-294: perfiles de la ficha; sus nombres son los que resuelve `getUserNames`. */
     profiles?: AdminUserProfile[];
+    /** MOVO-342: bandejas de la home y el reportado de cada reporte. */
+    overview?: {
+      kyc?: OverviewInboxSource<OverviewKycExtra>;
+      userReports?: OverviewInboxSource<OverviewUserReportsExtra>;
+      sanctionsEndingToday?: OverviewInboxSource;
+    };
+    reported?: Array<{ id: string; reportedId: string }>;
     /** Solo la resolución de nombres falla (el resto de `svc-users` responde). */
     namesDown?: boolean;
     /** MOVO-322: solo el KYC falla (las insignias del contexto de soporte fallan abierto). */
@@ -360,6 +409,22 @@ export function createFakeUsersClient(
     async getUserDevices(id) {
       profileOf(id);
       return { devices: [], handshakeKey: null };
+    },
+    async getOverviewKyc() {
+      if (data.down) throw usersDown();
+      return data.overview?.kyc ?? { ...emptyInbox, carriers: 0, senders: 0 };
+    },
+    async getOverviewUserReports() {
+      if (data.down) throw usersDown();
+      return data.overview?.userReports ?? { ...emptyInbox, blockRequested: 0 };
+    },
+    async getOverviewSanctionsEndingToday() {
+      if (data.down) throw usersDown();
+      return data.overview?.sanctionsEndingToday ?? emptyInbox;
+    },
+    async getReportedUsers(ids) {
+      if (data.down) throw usersDown();
+      return (data.reported ?? []).filter((report) => ids.includes(report.id));
     },
     async getUserNames(ids) {
       if (data.down || data.namesDown) throw usersDown();
@@ -478,11 +543,15 @@ export function createFakeUsersClient(
 
 /** MOVO-294: cuenta corriente y Mercado Pago. El ajuste es idempotente por key, como el real. */
 export function createFakePaymentsClient(
-  data: { holds?: Record<string, HoldDetailResponse>; ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
+  data: { overview?: OverviewInboxSource<OverviewPaymentsExtra>; holds?: Record<string, HoldDetailResponse>; ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
 ) {
   const adjustments = new Map<string, { body: LedgerAdjustmentRequest; id: string; createdAt: string }>();
   const client: PaymentsClient = {
     request: unusedRequest,
+    async getOverview() {
+      if (data.down) throw paymentsDown();
+      return data.overview ?? { ...emptyInbox, holdsExpiringToday: 0, overSla: false };
+    },
     async findHoldByShipment(id) {
       if (data.down) throw paymentsDown();
       return data.holds?.[id] ?? null;

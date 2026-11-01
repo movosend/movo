@@ -36,6 +36,8 @@ enum AdminTargetType {
   dispute
   // MOVO-322: una consulta de soporte de la bandeja.
   support_conversation
+  // MOVO-342: la exportación de un reporte (CSV); el id es el reporte.
+  report
 
   @@map("admin_target_type")
   @@schema("admin")

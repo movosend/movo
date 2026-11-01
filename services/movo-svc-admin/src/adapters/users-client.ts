@@ -21,12 +21,16 @@ import {
   StepUpToken,
   StepUpVerifyRequest,
   UserReportParties,
+  OverviewInboxSource,
+  OverviewKycExtra,
+  OverviewUserReportsExtra,
 } from "@movo/shared";
 import { ApiError } from "@movo/shared";
 import {
   createInternalClient,
   InternalClient,
   isNullableString,
+  isOverviewInboxSource,
   isRecord,
   isString,
   isStringArray,
@@ -56,6 +60,11 @@ export interface UsersClient extends InternalClient {
   /** Nombres de los ids que existen; los demás no vuelven. */
   /** Con los roles de la cuenta (MOVO-322: la bandeja de soporte distingue transportistas). */
   getUserNames(userIds: string[], ctx: RequestContext): Promise<AdminUserNameRef[]>;
+  // MOVO-342: bandejas de la home del panel y el reportado de un reporte para la bitácora.
+  getOverviewKyc(ctx: RequestContext): Promise<OverviewInboxSource<OverviewKycExtra>>;
+  getOverviewUserReports(ctx: RequestContext): Promise<OverviewInboxSource<OverviewUserReportsExtra>>;
+  getOverviewSanctionsEndingToday(ctx: RequestContext): Promise<OverviewInboxSource>;
+  getReportedUsers(reportIds: string[], ctx: RequestContext): Promise<Array<{ id: string; reportedId: string }>>;
   revokeUserSessions(userId: string, actorId: string, ctx: RequestContext): Promise<AdminSessionsRevokeResult>;
   updateUserContact(
     userId: string,
@@ -134,6 +143,9 @@ const isDevices = (body: unknown): body is AdminUserDevices =>
 type WireNameRef = Omit<AdminUserNameRef, "roles"> & { roles?: string[] };
 const isNameRef = (value: unknown): value is WireNameRef =>
   isRecord(value) && isString(value.id) && isString(value.fullName) && (value.roles === undefined || isStringArray(value.roles));
+const isReportedUsers = (body: unknown): body is { reports: Array<{ id: string; reportedId: string }> } =>
+  isRecord(body) && Array.isArray(body.reports);
+
 const isNames = (body: unknown): body is { users: WireNameRef[] } => isRecord(body) && isArrayOf(body.users, isNameRef);
 /** Tope de `POST /internal/admin/users/names` (el `maxItems` del schema de `svc-users`). */
 export const USER_NAMES_MAX_IDS = 200;
@@ -234,6 +246,12 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
     return result;
   };
 
+  async function overviewInbox<E = unknown>(path: string, ctx: RequestContext): Promise<OverviewInboxSource<E>> {
+    const inbox = await client.request(`/internal/admin/overview/${path}`, ctx, { isValid: isOverviewInboxSource<E>, notFoundCodes: [] });
+    if (!inbox) throw new Error(`overview ${path}: respuesta vacía`);
+    return inbox;
+  }
+
   return {
     ...client,
     async listAdmins(ctx) {
@@ -292,6 +310,19 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
     getUserVehicle: (userId, ctx) => userSection(userId, "/vehicle", ctx, isVehicle),
     getUserModeration: (userId, ctx) => userSection(userId, "/moderation", ctx, isModeration),
     getUserDevices: (userId, ctx) => userSection(userId, "/devices", ctx, isDevices),
+
+    getOverviewKyc: (ctx) => overviewInbox<OverviewKycExtra>("kyc", ctx),
+    getOverviewUserReports: (ctx) => overviewInbox<OverviewUserReportsExtra>("user-reports", ctx),
+    getOverviewSanctionsEndingToday: (ctx) => overviewInbox("sanctions-ending-today", ctx),
+    async getReportedUsers(reportIds, ctx) {
+      const result = await client.request("/internal/admin/user-reports/reported", ctx, {
+        method: "POST",
+        body: { ids: reportIds },
+        isValid: isReportedUsers,
+        notFoundCodes: [],
+      });
+      return result?.reports ?? [];
+    },
 
     async getUserNames(userIds, ctx) {
       const ids = [...new Set(userIds)];

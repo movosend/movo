@@ -18,10 +18,13 @@ import shipmentsRoutes from "./modules/shipments/shipments.routes";
 import disputesRoutes from "./modules/disputes/disputes.routes";
 import supportRoutes, { SupportRoutesOptions } from "./modules/support/support.routes";
 import sanctionsRoutes from "./modules/sanctions/sanctions.routes";
+import overviewRoutes from "./modules/overview/overview.routes";
 
 export type BuildAppOptions = InternalClientsOptions & {
   /** Overrides solo para tests del WebSocket de soporte (MOVO-322): duración máxima y espera del lector. */
   supportRealtime?: Pick<SupportRoutesOptions, "maxSessionMs" | "readerBlockMs">;
+  /** Override solo para tests: el tope de filas de la exportación de la bitácora. */
+  auditExportMaxRows?: number;
 };
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -77,13 +80,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // Todo lo que expone el panel vive bajo /admin (el gateway exige el rol admin, MOVO-288).
   app.register(sessionRoutes, { prefix: "/admin" });
-  app.register(auditRoutes, { prefix: "/admin" });
+  app.register(auditRoutes, { prefix: "/admin", ...(opts.auditExportMaxRows ? { exportMaxRows: opts.auditExportMaxRows } : {}) });
   app.register(adminsRoutes, { prefix: "/admin" });
   app.register(usersRoutes, { prefix: "/admin" });
   app.register(shipmentsRoutes, { prefix: "/admin" });
   app.register(disputesRoutes, { prefix: "/admin" });
   app.register(supportRoutes, { prefix: "/admin", ...(opts.supportRealtime ?? {}) });
   app.register(sanctionsRoutes, { prefix: "/admin" });
+  app.register(overviewRoutes, { prefix: "/admin" });
 
   return app;
 }

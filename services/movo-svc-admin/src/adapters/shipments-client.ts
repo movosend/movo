@@ -1,4 +1,10 @@
 import {
+  AuditTargetsRequest,
+  AuditTargetsResponse,
+  OverviewDisputesExtra,
+  OverviewInboxSource,
+  OverviewShipmentAlertsExtra,
+  OverviewSupportExtra,
   AdminDisputeCounts,
   AdminDisputeDetail,
   AdminDisputeHandshakeEvent,
@@ -32,6 +38,7 @@ import {
   createInternalClient,
   InternalClient,
   isNullableString,
+  isOverviewInboxSource,
   isRecord,
   isString,
   isStringArray,
@@ -84,6 +91,12 @@ export interface ShipmentsClient extends InternalClient {
   // MOVO-337: disputas para el panel (`/internal/admin/disputes*` de `svc-shipments`).
   /** `GET /internal/admin/disputes`: `query` ya viene validada y se reenvía tal cual. */
   listAdminDisputes(query: URLSearchParams, ctx: RequestContext): Promise<AdminDisputePage>;
+  // MOVO-342: bandejas de la home del panel y objetivos de la bitácora.
+  getOverviewDisputes(ctx: RequestContext): Promise<OverviewInboxSource<OverviewDisputesExtra>>;
+  getOverviewSupport(ctx: RequestContext): Promise<OverviewInboxSource<OverviewSupportExtra>>;
+  getOverviewShipmentAlerts(ctx: RequestContext): Promise<OverviewInboxSource<OverviewShipmentAlertsExtra>>;
+  getOverviewFlaggedMessages(ctx: RequestContext): Promise<OverviewInboxSource>;
+  getAuditTargets(request: AuditTargetsRequest, ctx: RequestContext): Promise<AuditTargetsResponse>;
   /** MOVO-341: `GET /internal/admin/disputes/counts` (menú lateral y home). */
   getDisputeCounts(ctx: RequestContext): Promise<AdminDisputeCounts>;
   /** `GET /internal/admin/disputes/:id`. `null` si la disputa no existe. */
@@ -113,6 +126,9 @@ const isDisputeRow = (value: unknown): boolean =>
 
 const isAdminDisputePage = (body: unknown): body is AdminDisputePage =>
   isRecord(body) && Array.isArray(body.items) && body.items.every(isDisputeRow) && isNullableString(body.nextCursor) && isRecord(body.statusCounts);
+
+const isAuditTargets = (body: unknown): body is AuditTargetsResponse =>
+  isRecord(body) && isRecord(body.disputes) && isRecord(body.chatReports) && isRecord(body.supportConversations);
 
 const isDisputeCounts = (body: unknown): body is AdminDisputeCounts =>
   isRecord(body) &&
@@ -281,6 +297,12 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
     unavailableCode: "SHIPMENTS_SERVICE_UNAVAILABLE",
   });
 
+  async function overviewInbox<E = unknown>(path: string, ctx: RequestContext): Promise<OverviewInboxSource<E>> {
+    const inbox = await client.request(`/internal/admin/overview/${path}`, ctx, { isValid: isOverviewInboxSource<E>, notFoundCodes: [] });
+    if (!inbox) throw new Error(`overview ${path}: respuesta vacía`);
+    return inbox;
+  }
+
   return {
     ...client,
     getShipmentParties(shipmentId, ctx) {
@@ -372,6 +394,29 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
       });
       if (!page) throw new Error("listAdminDisputes: respuesta vacía");
       return page;
+    },
+    // Sin `notFoundCodes` en ninguna: un 404 es la ruta que todavía no existe (deploy en serie) y se lee como caída.
+    async getOverviewDisputes(ctx) {
+      return overviewInbox<OverviewDisputesExtra>("disputes", ctx);
+    },
+    async getOverviewSupport(ctx) {
+      return overviewInbox<OverviewSupportExtra>("support", ctx);
+    },
+    async getOverviewShipmentAlerts(ctx) {
+      return overviewInbox<OverviewShipmentAlertsExtra>("shipment-alerts", ctx);
+    },
+    async getOverviewFlaggedMessages(ctx) {
+      return overviewInbox("flagged-messages", ctx);
+    },
+    async getAuditTargets(request, ctx) {
+      const targets = await client.request("/internal/admin/audit-targets", ctx, {
+        method: "POST",
+        body: request,
+        isValid: isAuditTargets,
+        notFoundCodes: [],
+      });
+      if (!targets) throw new Error("getAuditTargets: respuesta vacía");
+      return targets;
     },
     async getDisputeCounts(ctx) {
       const counts = await client.request("/internal/admin/disputes/counts", ctx, { isValid: isDisputeCounts, notFoundCodes: [] });
