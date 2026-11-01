@@ -120,7 +120,7 @@ export function shipmentTextSearchSql(rawQuery: string | undefined, extraColumns
 const SORT_KEY = Prisma.sql`date_trunc('milliseconds', COALESCE(s.last_status_changed_at, s.created_at))`;
 
 /** Misma regla que `isAdminShipmentAlert`: un estado de aviso, o un `in_transit` demorado. */
-const ALERT_SQL = Prisma.sql`(
+export const ALERT_SQL = Prisma.sql`(
   s.status::text = ANY(${[...ADMIN_SHIPMENT_ALERT_STATUSES]}::text[])
   OR (s.status::text = ${ShipmentStatus.IN_TRANSIT} AND s.transit_anomaly_flagged_at IS NOT NULL)
 )`;
