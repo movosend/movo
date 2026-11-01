@@ -8,7 +8,7 @@ import { SUPPORT_WS_CLOSE } from "@movo/shared/src/types/support"
 /**
  * Estado de la conexión en vivo de la bandeja.
  * - `connecting`: abriendo el WS (primer intento).
- * - `live`: WS abierto.
+ * - `live`: WS abierto (tras una caída, recién cuando se mantiene `WS_STABLE_MS` o trae un mensaje).
  * - `reconnecting`: se cayó y se reintenta; los eventos se recuperan con `resync` al volver.
  * - `polling`: el WS no pudo abrirse varias veces seguidas; se lee `GET …/events` cada
  *   `POLL_MS` y se sigue intentando el WS en segundo plano (salvo que el servidor lo haya
@@ -55,8 +55,9 @@ export const WS_STABLE_MS = 10_000
  * Conexión en vivo con reconexión (AC9 y AC14 de MOVO-323). Sin React: el provider la usa y los
  * tests la manejan con timers falsos. El WS se autentica con un ticket de un solo uso pedido por
  * Server Action (el token nunca llega al JS); si no hay WS, cae a polling del mismo contrato de
- * eventos. Cada vez que se abre el socket (también la primera) emite `resync`: los que muestran
- * listas deben volver a pedirlas, porque pudieron perderse eventos antes de que el socket esté listo.
+ * eventos. Al pasar a `live` (la primera apertura, o la primera estable después de una caída) emite
+ * `resync`: los que muestran listas deben volver a pedirlas, porque pudieron perderse eventos antes
+ * de que el socket esté listo.
  */
 export class SupportFeed {
   status: FeedStatus = "stopped"
@@ -146,20 +147,27 @@ export class SupportFeed {
       return this.failed()
     }
     this.socket = socket
+    const goLive = () => {
+      this.setStatus("live")
+      // Lo que pasó entre la carga de la lista (o la caída) y el socket no llega por él.
+      this.emit({ type: "resync" })
+      this.lost = false
+    }
     const markStable = () => {
       if (this.stable) clearTimeout(this.stable)
       this.stable = null
       this.failures = 0
       if (this.poll) clearInterval(this.poll)
       this.poll = null
+      if (this.status !== "live") goLive()
     }
     socket.onopen = () => {
       if (epoch !== this.epoch) return
       this.stable = setTimeout(markStable, WS_STABLE_MS)
-      this.setStatus("live")
-      // En cada apertura, también la primera: lo que pasó entre la carga de la lista y el socket no llega por él.
-      this.emit({ type: "resync" })
-      this.lost = false
+      // La primera apertura (o la de un socket que venía sano) pasa a `live` enseguida. Tras una
+      // caída espera a que el socket sea estable: si el servidor acepta el upgrade y cierra, cada
+      // intento alternaba "En vivo"/"Reconectando" y pedía un resync de la bandeja entera.
+      if (this.failures === 0) goLive()
     }
     socket.onmessage = ({ data }) => {
       if (epoch !== this.epoch) return

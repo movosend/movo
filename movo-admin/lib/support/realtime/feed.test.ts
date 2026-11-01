@@ -65,6 +65,7 @@ function setup(
   return { feed, sockets, messages, fetchEvents }
 }
 const flush = () => vi.advanceTimersByTimeAsync(0)
+const BACKOFF_CEILING_MS = 30_000
 
 beforeEach(() =>
   vi.useFakeTimers({
@@ -97,9 +98,46 @@ describe("SupportFeed", () => {
     expect(feed.status).toBe("reconnecting")
     await vi.advanceTimersByTimeAsync(1_000)
     expect(sockets).toHaveLength(2)
+    messages.length = 0
     sockets[1].onopen?.()
+    // Tras una caída, `live` y el resync esperan a que el socket sea estable (o traiga un mensaje).
+    expect(feed.status).toBe("reconnecting")
+    expect(messages).toEqual([])
+    await vi.advanceTimersByTimeAsync(WS_STABLE_MS)
     expect(feed.status).toBe("live")
-    expect(messages).toContainEqual({ type: "resync" })
+    expect(messages).toEqual([{ type: "resync" }])
+  })
+
+  it("tras una caída, el primer mensaje da el socket por sano sin esperar", async () => {
+    const { feed, sockets, messages } = setup()
+    feed.start()
+    await flush()
+    sockets[0].onopen?.()
+    sockets[0].onclose?.()
+    await vi.advanceTimersByTimeAsync(1_000)
+    messages.length = 0
+    sockets[1].onopen?.()
+    sockets[1].onmessage?.({ data: JSON.stringify(event("9")) })
+    expect(feed.status).toBe("live")
+    expect(messages).toEqual([{ type: "resync" }, { type: "event", event: event("9") }])
+  })
+
+  it("un servidor que acepta el upgrade y cierra no alterna live/reconnecting ni pide resync", async () => {
+    const { feed, sockets, messages } = setup()
+    const statuses: string[] = []
+    feed.onStatus((s) => statuses.push(s))
+    feed.start()
+    await flush()
+    sockets[0].onclose?.()
+    for (let i = 1; i < WS_FAILURES_BEFORE_POLLING + 2; i++) {
+      await vi.advanceTimersByTimeAsync(BACKOFF_CEILING_MS)
+      sockets[i].onopen?.()
+      sockets[i].onclose?.()
+    }
+    expect(statuses).not.toContain("live")
+    // Solo el del primer poll al caer a polling, no uno por intento.
+    expect(messages.filter((m) => m.type === "resync")).toHaveLength(1)
+    feed.stop()
   })
 
   it("cuenta onerror y onclose del mismo socket como un solo fallo", async () => {
