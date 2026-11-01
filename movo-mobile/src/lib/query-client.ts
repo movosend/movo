@@ -17,15 +17,28 @@ export function shouldRetryQuery(failureCount: number, error: unknown): boolean 
 
 /**
  * Conecta el foco de React Query con `AppState`: sin esto, en RN la app siempre cuenta como
- * enfocada y los `refetchInterval` siguen corriendo en segundo plano, y al volver se disparan todos
- * juntos. `refetchOnWindowFocus` queda apagado para no sumar una ráfaga propia: las pantallas que
- * necesitan datos frescos al volver ya refrescan solas (`useFocusEffect`, `AppState`).
+ * enfocada (el listener por defecto escucha `visibilitychange` de `window`, que RN no tiene) y los
+ * `refetchInterval` siguen corriendo en segundo plano, y al volver se disparan todos juntos. Una sola
+ * vez por proceso, no en cada `createQueryClient`: el `focusManager` es global.
  */
-export function createQueryClient(): QueryClient {
+let focusConnected = false;
+function connectFocusToAppState(): void {
+  if (focusConnected) return;
+  focusConnected = true;
   focusManager.setEventListener((setFocused) => {
     const subscription = AppState.addEventListener("change", (state) => setFocused(state === "active"));
     return () => subscription.remove();
   });
+}
+
+/**
+ * `refetchOnWindowFocus` queda apagado: antes de conectar el foco a `AppState` nunca se disparaba en
+ * RN (por lo de arriba), así que ninguna pantalla dependía de él, y prenderlo ahora sumaría una ráfaga
+ * de requests al volver a primer plano (el 429 del punto 6). Las pantallas que necesitan datos frescos
+ * al volver refrescan solas (`useFocusEffect`, `AppState`).
+ */
+export function createQueryClient(): QueryClient {
+  connectFocusToAppState();
   return new QueryClient({
     defaultOptions: {
       queries: { retry: shouldRetryQuery, refetchOnWindowFocus: false },
