@@ -44,6 +44,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Brand, BrandMark } from "@/components/brand"
 import { UserAvatar } from "@/components/user-avatar"
+import { useOpenDisputes } from "@/components/disputes/use-open-disputes"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   useSupport,
@@ -54,7 +55,6 @@ import type { ReactNode, CSSProperties } from "react"
 const SOON = [
   { label: "KYC", icon: BadgeCheck },
   { label: "Reportes", icon: Flag },
-  { label: "Disputas", icon: MessagesSquare },
   { label: "Métricas", icon: Activity },
   { label: "Bitácora", icon: ScrollText },
 ]
@@ -64,6 +64,7 @@ const LIVE = [
   { href: "/shipments", label: "Envíos", icon: Package },
   { href: "/users", label: "Usuarios", icon: Users },
   { href: "/support", label: "Soporte", icon: Headset },
+  { href: "/disputes", label: "Disputas", icon: MessagesSquare },
 ] as const
 
 function ShellTrigger() {
@@ -92,7 +93,13 @@ export function AdminShell({
   fullName?: string
   email?: string
   photoUrl?: string | null
-  current?: "/" | "/admins" | "/shipments" | "/users" | "/support"
+  current?:
+    | "/"
+    | "/admins"
+    | "/shipments"
+    | "/users"
+    | "/support"
+    | "/disputes"
   defaultOpen?: boolean
   /** Último tramo del breadcrumb (p. ej. el nombre en la ficha); la sección pasa a ser un link. */
   crumb?: string
@@ -105,6 +112,7 @@ export function AdminShell({
   // Una sola conexión en vivo para todo el panel (badge de Soporte y toasts de consultas nuevas).
   useSupportConnection()
   const { unread } = useSupport()
+  const openDisputes = useOpenDisputes(fullName !== undefined)
   return (
     <SidebarProvider
       // Marco de altura fija: el header queda quieto y solo `main` hace scroll. Hace falta para que
@@ -159,6 +167,14 @@ export function AdminShell({
                       className="top-1.5! min-w-5 rounded-full bg-lime px-1.5 text-[11px] font-semibold text-[#0a0a0b]!"
                     >
                       {unread}
+                    </SidebarMenuBadge>
+                  )}
+                  {href === "/disputes" && !!openDisputes && (
+                    <SidebarMenuBadge
+                      aria-label={`${openDisputes} abiertas`}
+                      className="top-1.5! min-w-5 rounded-full bg-lime px-1.5 text-[11px] font-semibold text-[#0a0a0b]!"
+                    >
+                      {openDisputes}
                     </SidebarMenuBadge>
                   )}
                 </SidebarMenuItem>

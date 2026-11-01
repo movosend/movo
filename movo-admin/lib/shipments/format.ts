@@ -155,7 +155,8 @@ export function rowAlert(
       ? `El receptor rechazó · el emisor tiene ${left} para elegir otro`
       : "El receptor rechazó el envío"
   }
-  if (row.status === "disputed") return "En disputa · el pago queda retenido"
+  // El cobro puede estar retenido o ya acreditado (DD-054: la disputa puede abrirse desde `completed`).
+  if (row.status === "disputed") return "En disputa · pendiente de resolución"
   return "Requiere atención"
 }
 
@@ -165,7 +166,7 @@ export const ALERT_HINT: Partial<Record<ShipmentStatusValue, string>> = {
   assigned_unfunded:
     "Si el emisor no confirma el pago a tiempo, el barrido devuelve el envío a Publicado.",
   disputed:
-    "En disputa no tiene salida en el flujo: se resuelve con un cambio de estado del equipo.",
+    "En disputa no tiene salida en el flujo: sale solo cuando el equipo la resuelve desde su expediente; un cambio de estado no la destraba.",
   rejected_by_receiver: "Si vence el plazo, el barrido cancela el envío.",
 }
 

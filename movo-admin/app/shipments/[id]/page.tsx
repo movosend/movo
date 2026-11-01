@@ -24,6 +24,8 @@ import {
   PartiesCard,
   Timeline,
 } from "@/components/shipments/detail"
+import { BlockSkeleton } from "@/components/disputes/blocks"
+import { ShipmentDisputeBlock } from "@/components/disputes/shipment-dispute-block"
 import { OffersCard, OffersProvider } from "@/components/shipments/offers"
 import {
   StatusChangeButton,
@@ -122,6 +124,9 @@ export default async function Page({
           />
           <StatusChangeNotice />
           <AlertBanner shipment={shipment} now={now} />
+          <Suspense fallback={<BlockSkeleton />}>
+            <ShipmentDisputeBlock shipment={shipment} now={now} />
+          </Suspense>
           <OffersProvider
             shipment={shipment}
             offers={detail.offers}
