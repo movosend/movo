@@ -769,6 +769,17 @@ códigos `DISPUTE_PARTIAL_INVALID`, `DISPUTE_RESOLUTION_MISMATCH`, `DISPUTE_RESO
 compartidos por el gateway y `svc-admin`: si se desalinearan, el ticket dejaría de llegar y el panel caería a polling.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-37 — Envíos pagados en efectivo
+
+`PaymentMethod` (`card`/`cash`, `types/shipment.ts`) y `ActiveShipmentSummary.paymentMethod`. `CashPaymentRequirement`
+(`cash_debt_within_limit`, `no_pending_debt`) en `CarrierRequirementsErrorDetails.missingRequirements`; códigos
+`CASH_DEBT_LIMIT_EXCEEDED`, `CASH_PAYMENT_SENDER_HAS_DEBT` y `SHIPMENT_PAYMENT_METHOD_LOCKED`. Ledger: tipo
+`cancellation_compensation` (también en `AdminLedgerType`) y los contratos `RegisterCash{Commission,CancellationPenalty}{Request,Response}`.
+`TransactionKind` suma `cash_shipment`; `OfferAcceptanceAssignment.fundingRoute` pasa a `FundingRoute | null`. `cashPenaltyCompensationArs`
+(`config/commission.ts`) es la fuente única de la compensación. Triggers `cashCommissionRegisteredCarrier` (sin monto),
+`cashCancellationPenaltyDebtSender` y `cashCancellationCompensationCarrier` (categoría `payments`). Recordatorio habitual: `npm run build`
+acá antes de tipar desde otro workspace.
+
 ### MOVO-341 — Lectura de disputas para el panel (`types/admin-disputes.ts`, `types/admin-shipments.ts`)
 
 `AdminDisputeRow.pickupCity` (requerido: rompe literales armados a mano), `AdminDisputeDetail.partyHistory`/`attribution` (requeridos),

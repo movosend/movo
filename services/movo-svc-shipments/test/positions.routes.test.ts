@@ -4,7 +4,7 @@ import errorHandlerPlugin from "../src/plugins/error-handler";
 import positionsRoutes from "../src/modules/positions/positions.routes";
 import { PositionService } from "../src/services/position-service";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
-import { ShipmentStatus } from "@movo/shared";
+import { PaymentMethod, ShipmentStatus } from "@movo/shared";
 import { Shipment, PackageType } from "../src/models/shipment";
 
 const SENDER_ID = "11111111-1111-1111-1111-111111111111";
@@ -38,7 +38,7 @@ function mockShipment(overrides: Partial<Shipment> = {}): Shipment {
     suggestedPriceArs: 4500,
     calculationMethod: null,
     agreedPriceArs: 4500,
-    paymentMethod: null,
+    paymentMethod: PaymentMethod.CARD,
     status: ShipmentStatus.IN_TRANSIT,
     lastStatusChangedAt: new Date(),
     deliveredAt: null,

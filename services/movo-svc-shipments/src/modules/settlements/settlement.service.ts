@@ -1,6 +1,7 @@
 import {
   ApiError,
   NotificationTriggerKey,
+  PaymentMethod,
   renderNotificationTrigger,
   SettlementDisplayStatus,
   SettlementResponse,
@@ -164,6 +165,132 @@ export function createSettlementService(deps: SettlementServiceDeps) {
     });
   }
 
+  /**
+   * `delivered -> completed` con compare-and-swap. `false` si otro llamador ganó la carrera y el envío ya está
+   * `completed` (el objetivo se cumplió); cualquier otro conflicto lanza.
+   */
+  async function markCompleted(shipmentId: string, reason: string, admin?: AdminStatusActor): Promise<boolean> {
+    try {
+      await repository.updateStatus(shipmentId, ShipmentStatus.COMPLETED, admin?.adminId ?? null, reason, {
+        expectedFrom: ShipmentStatus.DELIVERED,
+        // MOVO-331: el cambio lo pidió un admin desde el panel; el evento lo deja asentado.
+        ...(admin ? { adminActor: { kind: admin.kind, name: admin.adminName } } : {}),
+      });
+      return true;
+    } catch (err) {
+      if (err instanceof ShipmentConcurrentModificationError || err instanceof InvalidShipmentTransitionError) {
+        const current = await repository.findById(shipmentId);
+        if (current?.status === ShipmentStatus.COMPLETED) return false;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * MOVO-37 (B6/B8): cierre de un envío pagado en efectivo. El emisor le pagó el precio al transportista en mano al
+   * retiro; la comisión de Movo se le registra al transportista como deuda en su cuenta corriente recién con la
+   * entrega confirmada (queda atada al servicio completado: si no entrega, no hay comisión y el reclamo va por
+   * disputa). Mismo orden que con tarjeta: primero payments (idempotente por envío) y solo después
+   * `delivered -> completed`; si payments falla lanza y el barrido de liquidaciones lo reintenta.
+   */
+  async function completeCashShipment(
+    shipment: Shipment,
+    carrierId: string,
+    admin?: AdminStatusActor
+  ): Promise<CaptureOutcome> {
+    if (shipment.agreedPriceArs === null) {
+      // No pasa: `acceptOffer` fija el precio acordado. Sin él no hay comisión que calcular.
+      throw new ApiError(409, "SHIPMENT_INVALID_TRANSITION", "El envío no tiene un precio acordado.");
+    }
+    const commission = await paymentsClient.registerCashCommission(shipment.id, {
+      senderId: shipment.senderId,
+      carrierId,
+      agreedPriceArs: shipment.agreedPriceArs,
+    });
+    if (!(await markCompleted(shipment.id, "Envío en efectivo entregado: comisión registrada en la cuenta corriente", admin))) {
+      return "already_completed";
+    }
+    logger?.info?.(
+      { event: "cash_shipment_completed", shipmentId: shipment.id, commissionArs: commission.commissionArs },
+      "envío en efectivo completado: comisión registrada como deuda del transportista"
+    );
+    if (!admin && notificationsClient) {
+      // Solo quien ganó la transición llega acá, así que las pushes salen una vez sin dedupe en Redis. Igual que con
+      // tarjeta (`notifyParties`), también se entera el emisor.
+      const data = { type: "cash_commission", shipmentId: shipment.id };
+      await Promise.all([
+        sendCustodyPush({
+          notificationsClient,
+          userId: carrierId,
+          triggerKey: "cashCommissionRegisteredCarrier",
+          params: undefined,
+          data,
+          logger,
+          onErrorContext: {
+            event: "notification_dispatch_failed",
+            message: "No se pudo avisar al transportista que se registró la comisión del envío en efectivo",
+            extra: { shipmentId: shipment.id },
+          },
+        }),
+        sendCustodyPush({
+          notificationsClient,
+          userId: shipment.senderId,
+          triggerKey: "cashShipmentCompletedSender",
+          params: undefined,
+          data: { type: "shipment", shipmentId: shipment.id },
+          logger,
+          onErrorContext: {
+            event: "notification_dispatch_failed",
+            message: "No se pudo avisar al emisor que el envío en efectivo se completó",
+            extra: { shipmentId: shipment.id },
+          },
+        }),
+      ]);
+    }
+    return "completed";
+  }
+
+  /**
+   * MOVO-37 (B7): penalidad del emisor de un envío en efectivo cancelado con menos de 12 h. No hay hold: la
+   * penalidad queda como deuda de su cuenta corriente y, en la misma operación de payments, al transportista se le
+   * acredita la compensación que le dejaría la captura parcial con tarjeta. Idempotente por envío (payments) y por
+   * `resolveCancellationPenalty` (solo quien la resuelve avisa). Lanza si payments falla: queda `pending` y la
+   * retoma el barrido.
+   */
+  async function settleCashPenalty(shipment: Shipment, penaltyArs: number): Promise<PenaltyOutcome> {
+    if (!shipment.carrierId || shipment.agreedPriceArs === null) {
+      // No pasa: la penalidad solo se cobra desde `assigned`, que siempre tiene transportista y precio.
+      throw new ApiError(409, "SHIPMENT_INVALID_TRANSITION", "El envío cancelado no tiene transportista ni precio acordado.");
+    }
+    const carrierId = shipment.carrierId;
+    const result = await paymentsClient.registerCashCancellationPenalty(shipment.id, {
+      senderId: shipment.senderId,
+      carrierId,
+      agreedPriceArs: shipment.agreedPriceArs,
+      penaltyArs,
+    });
+    if (!(await repository.resolveCancellationPenalty(shipment.id, "debt"))) return "already_resolved";
+    logger?.warn(
+      {
+        event: "cash_cancellation_penalty_debt",
+        shipmentId: shipment.id,
+        senderId: shipment.senderId,
+        penaltyArs,
+        compensationArs: result.compensationArs,
+      },
+      "la penalidad del envío en efectivo quedó como deuda del emisor y se compensó al transportista"
+    );
+    await Promise.all([
+      notifyPenalty(shipment.id, shipment.senderId, "cashCancellationPenaltyDebtSender", { penaltyArs }),
+      result.compensationArs > 0
+        ? notifyPenalty(shipment.id, carrierId, "cashCancellationCompensationCarrier", {
+            compensationArs: result.compensationArs,
+          })
+        : Promise.resolve(),
+    ]);
+    return "debt";
+  }
+
   async function notifyParties(
     shipment: { id: string; senderId: string; carrierId: string | null },
     settlement: SettlementResponse
@@ -256,6 +383,8 @@ export function createSettlementService(deps: SettlementServiceDeps) {
       if (!shipment) return "skipped";
       if (shipment.status === ShipmentStatus.COMPLETED) return "already_completed";
       if (shipment.status !== ShipmentStatus.DELIVERED || !shipment.carrierId) return "skipped";
+      // MOVO-37: sin hold que capturar; la comisión va a la cuenta corriente del transportista.
+      if (shipment.paymentMethod === PaymentMethod.CASH) return completeCashShipment(shipment, shipment.carrierId, admin);
 
       const settlement = await paymentsClient.captureHold(shipmentId);
       if (settlement.status !== "credited") {
@@ -268,26 +397,7 @@ export function createSettlementService(deps: SettlementServiceDeps) {
         throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "La liquidación del envío no quedó acreditada.");
       }
 
-      try {
-        await repository.updateStatus(
-          shipmentId,
-          ShipmentStatus.COMPLETED,
-          admin?.adminId ?? null,
-          "Pago capturado y acreditado al transportista",
-          {
-            expectedFrom: ShipmentStatus.DELIVERED,
-            // MOVO-331: el cambio lo pidió un admin desde el panel; el evento lo deja asentado.
-            ...(admin ? { adminActor: { kind: admin.kind, name: admin.adminName } } : {}),
-          }
-        );
-      } catch (err) {
-        if (err instanceof ShipmentConcurrentModificationError || err instanceof InvalidShipmentTransitionError) {
-          // Otro llamador ganó la carrera: si el envío ya está `completed`, el objetivo se cumplió.
-          const current = await repository.findById(shipmentId);
-          if (current?.status === ShipmentStatus.COMPLETED) return "already_completed";
-        }
-        throw err;
-      }
+      if (!(await markCompleted(shipmentId, "Pago capturado y acreditado al transportista", admin))) return "already_completed";
 
       logger?.info?.(
         { event: "shipment_completed", shipmentId, settlementId: settlement.id },
@@ -317,6 +427,8 @@ export function createSettlementService(deps: SettlementServiceDeps) {
       }
       if (shipment.cancellationPenaltyStatus !== "pending") return "already_resolved";
       const penaltyArs = shipment.cancellationPenaltyArs;
+      // MOVO-37 (B7): sin hold no hay captura parcial: la penalidad va directo a la cuenta corriente.
+      if (shipment.paymentMethod === PaymentMethod.CASH) return settleCashPenalty(shipment, penaltyArs);
 
       await paymentsClient.createLedgerEntry(shipment.senderId, {
         idempotencyKey: `penalty:${shipmentId}`,

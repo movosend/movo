@@ -1,4 +1,4 @@
-import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import type { PaymentMethod, ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentPartyTracking } from "@movo/shared/dist/types/admin-shipments";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 import type { ShipmentFundingView } from "@movo/shared/dist/types/funding";
@@ -7,6 +7,10 @@ import type { ShipmentReceiverTransferSummary } from "@movo/shared/dist/types/re
 import type { CancellationQuoteResponse } from "@movo/shared/dist/config/cancellation-penalty";
 import type { PackageType } from "../store/shipment-wizard-store";
 import { httpClient } from "./http-client";
+
+/** MOVO-37: modalidad de pago del envío (`card`/`cash`). Opcional en los DTOs: un backend anterior a MOVO-37 no la
+ * manda, y un envío sin el campo es con tarjeta. Usar `isCashShipment` (`src/lib/payment-method.ts`). */
+export type ShipmentPaymentMethod = `${PaymentMethod}`;
 
 /**
  * DTO tal cual lo devuelve `GET /shipments/mine` (`shipmentResponse` en
@@ -43,7 +47,7 @@ export interface ShipmentSummary {
    * `false`: no se sabe, así que tampoco se muestra el badge. */
   highDemand: boolean | null;
   agreedPriceArs: number | null;
-  paymentMethod: string | null;
+  paymentMethod?: ShipmentPaymentMethod;
   status: ShipmentStatus;
   lastStatusChangedAt: string | null;
   deliveredAt: string | null;
@@ -126,6 +130,9 @@ export interface CreateShipmentInput {
    * crea exactamente al precio que vio el emisor, o falla con 409 `QUOTE_EXPIRED`/
    * `QUOTE_MISMATCH` (nunca se recalcula en silencio). */
   quoteId?: string;
+  /** MOVO-37: sin el campo el backend crea el envío con tarjeta. Efectivo con deuda del emisor: 403
+   * `CASH_PAYMENT_SENDER_HAS_DEBT`. */
+  paymentMethod?: ShipmentPaymentMethod;
 }
 
 /** Respuesta de `GET /shipments/route` (`routeResponse` en `shipments.schema.ts`,
@@ -244,7 +251,10 @@ export interface AvailableShipment {
   deliveryDistanceKm: number | null;
   distanceKm: number;
   hasMyOffer: boolean;
+  /** MOVO-37: en efectivo siempre `null` (la comisión queda como deuda, no hay cobro del que descontar). */
   debtDiscount?: { amountArs: number; reason: "pending_balance" } | null;
+  /** MOVO-37: badge "Efectivo" antes de ofertar. */
+  paymentMethod?: ShipmentPaymentMethod;
   createdAt: string;
 }
 
@@ -296,6 +306,8 @@ export interface ActiveShipmentSummary {
   /** MOVO-278 (DD-045): envío `in_transit` demorado (ISO del momento en que se marcó);
    * `null` si no está marcado. Se muestra como "Demorado". */
   transitAnomalyFlaggedAt: string | null;
+  /** MOVO-37: un envío en efectivo nunca pasa por `assigned_unfunded`. */
+  paymentMethod?: ShipmentPaymentMethod;
 }
 
 /**

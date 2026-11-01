@@ -5075,3 +5075,10 @@ Informe en `docs/pruebas/2026-10-25-flujo-completo.md`. Un commit por punto; el 
   marcador del transportista (WS, solo con la pantalla enfocada), el recorrido y lo que falta, punteado
   (`useShipmentTracking` → `GET /shipments/:id/tracking`). Sin retiro a la vista (receptor) no dibuja la traza. La franja "En vivo"
   es un botón a la pantalla completa, que también dibuja la ruta y el recorrido (`LiveMap`).
+
+### MOVO-37 (parte M) — Envíos pagados en efectivo
+
+`paymentMethod` (`card`/`cash`, opcional: sin el campo es tarjeta) en los DTOs de envíos y ofertas; `isCashShipment` y `carrierPriceBreakdown` (único lugar donde se decide cuánto cobra el transportista según la modalidad) en `src/lib/payment-method.ts`.
+- Emisor: selector Tarjeta/Efectivo en el resumen del wizard (se bloquea una vez creado el envío; saldo pendiente vía `useBalanceArs` deshabilita efectivo con "Pagar mi saldo"). En efectivo no se consultan hold ni settlement (`/settlement` da 404): `/pay` redirige al detalle sin pedir funding ni tarjetas, y la penalidad de una cancelación tardía se muestra con `cash-cancellation-note.tsx`.
+- Transportista: badge "Efectivo" y monto bruto "Cobrás en mano" (pasado tras la entrega); la comisión queda como saldo, sin fee de MP ni descuento por deuda. La entrega exitosa muestra una nota con link al saldo; si el envío no carga se asume tarjeta.
+- 403 `CASH_DEBT_LIMIT_EXCEEDED` → fila `cash_debt_within_limit` en la checklist de MOVO-117. Push `cash_commission` → `/profile/payments?tab=balance`; historial con `cash_shipment` y su detalle propio.

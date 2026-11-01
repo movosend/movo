@@ -374,3 +374,18 @@ socket abierto. Un servidor que acepta y cierra enseguida (origen no permitido) 
 ticket cada ~2 s. Un cierre `SUPPORT_WS_CLOSE.FORBIDDEN` (4003) pasa directo a polling y no reintenta el WS hasta el próximo `start`;
 `NativeSocket` pasa el `code` del cierre. Pendiente: cargar `SUPPORT_WS_ALLOWED_ORIGINS`/`SUPPORT_WS_PUBLIC_URL` en Secrets Manager y
 verlo `live` en dev.
+
+## MOVO-343 / MOVO-338 — Disputas: bandeja, expediente, notas y resolución
+
+`/disputes` (bandeja, estado en la URL) y `/disputes/[id]` (expediente) sobre `/admin/disputes*` de `svc-admin` (MOVO-337/341, DD-056); tipos en
+`@movo/shared`. Solo `GET /admin/disputes/:id` bloquea el expediente: handshake, fotos, notas, partes, pago y chat son Server Components en su
+`<Suspense>` (`components/disputes/blocks.tsx`) con `BlockError`; partes, pago y chat comparten una lectura memoizada de `getShipment`. Un admin que es
+parte ve el expediente en lectura (el backend lo vuelve a decidir, `ADMIN_CONFLICT_OF_INTEREST`).
+
+El diálogo de resolución (`resolve-controls.tsx`, 3 pasos) no tiene lógica de matriz propia: acción de pago, estado final del envío, presets y piso de la
+captura parcial salen de `resolution-preview`; `computeSplit` solo adelanta el 422. Si falla el pago (`DISPUTE_PAYMENT_FAILED`) la disputa queda "Procesando
+pago" y el expediente ofrece reintentar (idempotente). El bloque "Disputa" del detalle del envío usa `shipment.dispute` (MOVO-341), sin pedir la disputa.
+Modo fixtures: `MOVO_ADMIN_MOCK=1` (`lib/disputes/{mock,fixtures}.ts`).
+
+Pendiente: probar contra `svc-admin` en dev, revisar claro/oscuro y mobile. `resolution.resolvedBy` llega como UUID del admin: falta que `svc-admin` mande
+el nombre (o resolverlo en el panel).

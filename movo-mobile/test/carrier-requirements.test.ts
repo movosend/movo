@@ -65,6 +65,22 @@ describe("carrierRequirementsFromError", () => {
     expect(carrierRequirementsFromError(error)).toEqual(["no_overdue_debt"]);
   });
 
+  it("MOVO-37: CASH_DEBT_LIMIT_EXCEEDED abre la checklist con el tope de efectivo", () => {
+    const error = new ApiError(403, "CASH_DEBT_LIMIT_EXCEEDED", "x", { missingRequirements: ["cash_debt_within_limit"] });
+    expect(carrierRequirementsFromError(error)).toEqual(["cash_debt_within_limit"]);
+  });
+
+  it("MOVO-37: sin details, el tope de efectivo sale del code", () => {
+    expect(carrierRequirementsFromError(new ApiError(403, "CASH_DEBT_LIMIT_EXCEEDED", "x"))).toEqual([
+      "cash_debt_within_limit",
+    ]);
+  });
+
+  it("MOVO-37: CASH_PAYMENT_SENDER_HAS_DEBT es del emisor, no abre la checklist del transportista", () => {
+    const error = new ApiError(403, "CASH_PAYMENT_SENDER_HAS_DEBT", "x", { missingRequirements: ["no_pending_debt"] });
+    expect(carrierRequirementsFromError(error)).toBeNull();
+  });
+
   it("MOVO-315: un code de MP que trae la deuda lista ambos pasos", () => {
     const error = new ApiError(403, "CARRIER_MP_ACCOUNT_NOT_LINKED", "x", {
       missingRequirements: ["mp_account", "no_overdue_debt"],

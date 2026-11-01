@@ -30,7 +30,7 @@ describe("carrier-gate (MOVO-116, DD-036)", () => {
     it("deja pasar con identidad, licencia y MP", async () => {
       const deps = { usersClient: usersClientWith(approved), paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) };
 
-      await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).resolves.toBeUndefined();
+      await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).resolves.toMatchObject({ identityApproved: true, missingRequirements: [] });
     });
 
     it("sin rol carrier: 403 CARRIER_NOT_VERIFIED sin ninguna llamada de red", async () => {
@@ -134,7 +134,7 @@ describe("carrier-gate (MOVO-116, DD-036)", () => {
       it("sin deuda vencida: deja pasar", async () => {
         const deps = { usersClient: usersClientWith(approved), paymentsClient: createFakePaymentsClient(), shipmentRepository: disputesWith(false) };
 
-        await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).resolves.toBeUndefined();
+        await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).resolves.toMatchObject({ identityApproved: true, missingRequirements: [] });
       });
 
       it("con otros requisitos faltando, la deuda va al final y el code es el del primero", async () => {
@@ -221,7 +221,7 @@ describe("carrier-gate (MOVO-116, DD-036)", () => {
 
         paymentsClient.behavior.overdueDebtUserIds.delete(CARRIER_ID);
 
-        await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).resolves.toBeUndefined();
+        await expect(assertCarrierCanOperate(deps, CARRIER_ID, [UserRole.CARRIER])).resolves.toMatchObject({ identityApproved: true, missingRequirements: [] });
         expect(paymentsClient.getUserDebtStatus).toHaveBeenCalledTimes(2);
       });
     });
@@ -245,6 +245,8 @@ describe("carrier-gate (MOVO-116, DD-036)", () => {
       expect(await resolveCarrierEligibility(deps, CARRIER_ID)).toEqual({
         identityApproved: true,
         missingRequirements: [],
+        // MOVO-37: el saldo de la misma consulta, para el tope de deuda de los envíos en efectivo.
+        debtBalanceArs: 0,
         // svc-users anterior a MOVO-265: no informa el estado de la cuenta.
         account: undefined,
       });

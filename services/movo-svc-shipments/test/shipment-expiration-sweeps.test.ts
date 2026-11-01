@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { DisputeReason, ShipmentStatus } from "@movo/shared";
+import { DisputeReason, PaymentMethod, ShipmentStatus } from "@movo/shared";
 import { createShipmentsService } from "../src/modules/shipments/shipments.service";
 import { ShipmentConcurrentModificationError, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { OfferRepository } from "../src/repositories/offer-repository";
@@ -38,7 +38,7 @@ function shipment(overrides: Partial<Shipment> = {}): Shipment {
     calculationMethod: null,
     highDemand: null,
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: PaymentMethod.CARD,
     status: ShipmentStatus.ASSIGNMENT_PENDING,
     lastStatusChangedAt: new Date("2026-09-23T13:00:00.000Z"),
     deliveredAt: null,

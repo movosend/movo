@@ -75,7 +75,7 @@ describe("resolución de disputas (Postgres + Redis) — MOVO-337", () => {
    * columna de la matriz prepara el hold (`in_transit`), la liquidación acreditada (`delivered`/`completed`) o nada
    * (`assigned`: el barrido ya liberó el hold).
    */
-  async function disputedShipment(origin: Origin, reason?: DisputeReason) {
+  async function disputedShipment(origin: Origin, reason?: DisputeReason, cash = false) {
     const created = await shipmentRepo.create(baseInput);
     await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
     await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
@@ -85,6 +85,7 @@ describe("resolución de disputas (Postgres + Redis) — MOVO-337", () => {
         status: origin,
         carrierId,
         agreedPriceArs: AGREED_PRICE,
+        ...(cash ? { paymentMethod: "cash" as const } : {}),
         lastStatusChangedAt: new Date(),
         ...(origin === "delivered" || origin === "completed" ? { deliveredAt: new Date() } : {}),
       },
@@ -100,7 +101,7 @@ describe("resolución de disputas (Postgres + Redis) — MOVO-337", () => {
       },
     });
 
-    if (origin === "in_transit") {
+    if (origin === "in_transit" && !cash) {
       await payments.createHold({
         shipmentId: created.id,
         carrierId,
@@ -110,7 +111,7 @@ describe("resolución de disputas (Postgres + Redis) — MOVO-337", () => {
         payerUserId: senderId,
       });
     }
-    if (origin === "delivered" || origin === "completed") {
+    if ((origin === "delivered" || origin === "completed") && !cash) {
       const now = new Date().toISOString();
       payments.settlements.set(created.id, {
         id: randomUUID(),
@@ -191,6 +192,7 @@ describe("resolución de disputas (Postgres + Redis) — MOVO-337", () => {
     payments.settlements.clear();
     payments.refunds.clear();
     payments.manualAdjustments.clear();
+    payments.ledgerEntries.clear();
     payments.behavior.releaseError = null;
     payments.behavior.captureError = null;
     payments.behavior.refundError = null;
@@ -201,6 +203,8 @@ describe("resolución de disputas (Postgres + Redis) — MOVO-337", () => {
     vi.mocked(payments.captureHold).mockClear();
     vi.mocked(payments.createRefund).mockClear();
     vi.mocked(payments.createManualAdjustment).mockClear();
+    vi.mocked(payments.findHoldByShipment).mockClear();
+    vi.mocked(payments.findSettlement).mockClear();
   });
 
   describe("matriz de resolución (AC5, AC8)", () => {
@@ -274,6 +278,56 @@ describe("resolución de disputas (Postgres + Redis) — MOVO-337", () => {
         expect(payments.createManualAdjustment).toHaveBeenCalledTimes(action === "ledger_credit" ? 1 : 0);
       },
     );
+
+    describe("envío en efectivo (MOVO-37)", () => {
+      // Sin hold ni liquidación de MP: nunca se le pega a MP y el monto en juego es el precio acordado.
+      it.each([
+        ["assigned", "sender", {}, 0, AGREED_PRICE],
+        ["in_transit", "carrier", {}, AGREED_PRICE, 0],
+        ["delivered", "partial", { percentage: 25 }, 287.5, 862.5],
+        ["completed", "sender", {}, 0, AGREED_PRICE],
+      ] as const)("%s + %s se resuelve sin movimiento de plata contra MP", async (origin, outcome, extra, carrierAmount, senderAmount) => {
+        const { disputeId } = await disputedShipment(origin, origin === "assigned" ? DisputeReason.PICKUP_NO_SHOW : undefined, true);
+
+        const response = await resolve(disputeId, { outcome, ...extra });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          paymentAction: "none",
+          carrierAmountArs: carrierAmount,
+          senderAmountArs: senderAmount,
+          status: "resolved",
+        });
+        expect(payments.findHoldByShipment).not.toHaveBeenCalled();
+        expect(payments.findSettlement).not.toHaveBeenCalled();
+        expect(payments.releaseHold).not.toHaveBeenCalled();
+        expect(payments.captureHold).not.toHaveBeenCalled();
+        expect(payments.createRefund).not.toHaveBeenCalled();
+      });
+
+      it("a favor del emisor tras completarse: anula la comisión con un crédito, una sola vez", async () => {
+        const { disputeId, shipmentId } = await disputedShipment("completed", undefined, true);
+        await payments.registerCashCommission(shipmentId, { senderId, carrierId, agreedPriceArs: AGREED_PRICE });
+        const commissionArs = payments.ledgerEntries.get(`cash_commission:${shipmentId}`)?.amountArs;
+
+        await resolve(disputeId, { outcome: "sender" });
+        await resolve(disputeId, { outcome: "sender" });
+
+        expect(payments.createManualAdjustment).toHaveBeenCalledWith(
+          carrierId,
+          expect.objectContaining({ idempotencyKey: `dispute-${disputeId}-commission-reversal`, amountArs: -(commissionArs ?? 0), shipmentId }),
+        );
+      });
+
+      it("desde delivered (sin comisión registrada) o con otro resultado no toca la cuenta corriente", async () => {
+        const delivered = await disputedShipment("delivered", undefined, true);
+        await resolve(delivered.disputeId, { outcome: "sender" });
+        const completed = await disputedShipment("completed", undefined, true);
+        await resolve(completed.disputeId, { outcome: "carrier" });
+
+        expect(payments.createManualAdjustment).not.toHaveBeenCalled();
+      });
+    });
 
     it("captura parcial: manda el monto del transportista como captura de tipo penalidad", async () => {
       const { disputeId, shipmentId } = await disputedShipment("in_transit");

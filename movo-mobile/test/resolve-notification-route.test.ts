@@ -43,6 +43,13 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
     expect(resolveNotificationRoute({ type: "shipment", shipmentId: "shp_1" })).toBe("/shipments/shp_1");
   });
 
+  it("MOVO-37: la comisión de un envío en efectivo abre la cuenta corriente", () => {
+    expect(resolveNotificationRoute({ type: "cash_commission", shipmentId: "shp_1" })).toEqual({
+      pathname: "/profile/payments",
+      params: { tab: "balance" },
+    });
+  });
+
   it.each(["offer_superseded", "offer_rejected", "offer_voided"])(
     "%s abre el detalle de la oferta, no el del envío",
     (type) => {

@@ -29,6 +29,7 @@ import { AvatarImage } from "../../../components/ui/avatar-image";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
 import { DebtDiscount } from "../../../components/payments/debt-discount";
+import { PaymentMethodBadge } from "../../../components/shipments/payment-method-badge";
 import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { useActiveSuspension } from "../../../src/hooks/use-account-restriction";
 import { useMyOffers } from "../../../src/hooks/use-offers";
@@ -55,6 +56,7 @@ import {
   zoneLabelFromAddress,
 } from "../../../src/lib/shipment-format";
 import { formatDurationSeconds, formatTimeRange } from "../../../src/lib/time-format";
+import { carrierPriceBreakdown, isCashShipment } from "../../../src/lib/payment-method";
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
@@ -326,9 +328,16 @@ export default function TransportShipmentDetailScreen() {
     : null;
   // MOVO-225: la card principal muestra lo que recibís aprox. (neto menos el estimado
   // de MP), el mismo monto que crear oferta y el detalle de la oferta.
-  const suggestedReceivedIfOffered =
+  // MOVO-37: en efectivo cobra el bruto en mano al retirar y la comisión le queda como deuda (sin fee de MP).
+  const isCash = isCashShipment(shipment);
+  const suggestedBreakdown =
     shipment && suggestedNetIfOffered !== null
-      ? Math.max(0, estimateReceivedArs(suggestedNetIfOffered, shipment.suggestedPriceArs) - (shipment.debtDiscount?.amountArs ?? 0))
+      ? carrierPriceBreakdown({
+          grossArs: shipment.suggestedPriceArs,
+          netArs: suggestedNetIfOffered,
+          cash: isCash,
+          debtDiscountArs: shipment.debtDiscount?.amountArs,
+        })
       : null;
   // `RouteMapCard` de abajo ya pide esta misma ruta (mismos pickup/delivery) para
   // dibujar el mapa — TanStack Query dedupea por query key, así que pedirla acá de
@@ -388,6 +397,7 @@ export default function TransportShipmentDetailScreen() {
             className="flex-1"
             contentContainerClassName="gap-5 px-5 pb-6 pt-4"
           >
+            <PaymentMethodBadge paymentMethod={shipment.paymentMethod} testID="transport-detail-cash-badge" />
             {myActiveOffer ? (
               <Pressable
                 testID="transport-active-offer-card"
@@ -537,14 +547,29 @@ export default function TransportShipmentDetailScreen() {
             <View className="relative overflow-hidden rounded-[16px] bg-ink-950 px-5 py-5">
               <GridPattern color="#FFFFFF" opacity={0.06} />
               <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-ink-300">
-                Recibís aprox. si ofertás el sugerido
+                {isCash ? "Cobrás en mano si ofertás el sugerido" : "Recibís aprox. si ofertás el sugerido"}
               </Text>
               <View className="mt-2 flex-row items-end gap-2">
-                <Text className="font-sans-semibold text-[40px] leading-[42px] text-lime-500">
-                  {formatPriceArs(suggestedReceivedIfOffered)}
+                <Text
+                  testID="transport-detail-received"
+                  className="font-sans-semibold text-[40px] leading-[42px] text-lime-500"
+                >
+                  {formatPriceArs(suggestedBreakdown?.receivedArs ?? null)}
                 </Text>
               </View>
-              {shipment.debtDiscount?.amountArs && suggestedNetIfOffered !== null ? <View className="mt-3"><DebtDiscount dark beforeArs={estimateReceivedArs(suggestedNetIfOffered, shipment.suggestedPriceArs)} amountArs={shipment.debtDiscount.amountArs} /></View> : null}
+              {!isCash && shipment.debtDiscount?.amountArs && suggestedNetIfOffered !== null ? <View className="mt-3"><DebtDiscount dark beforeArs={suggestedBreakdown?.beforeDebtArs ?? 0} amountArs={shipment.debtDiscount.amountArs} /></View> : null}
+              {isCash ? (
+                <Text
+                  testID="transport-detail-cash-note"
+                  className="mt-2.5 font-sans text-[13px] leading-[19px] text-ink-300"
+                >
+                  El emisor te paga en efectivo cuando te entrega el paquete. La comisión de Movo (
+                  <Text className="font-sans-semibold text-paper">
+                    {formatPriceArs(suggestedBreakdown?.commissionArs ?? null)}
+                  </Text>
+                  ) queda como saldo en tu cuenta de Movo al entregar.
+                </Text>
+              ) : (
               <Text className="mt-2.5 font-sans text-[13px] leading-[19px] text-ink-300">
                 Sobre una oferta de{" "}
                 <Text className="font-sans-semibold text-paper">
@@ -552,6 +577,7 @@ export default function TransportShipmentDetailScreen() {
                 </Text>
                 , ya descontadas la comisión de Movo y el procesamiento del pago (estimado).
               </Text>
+              )}
               <View className="mt-4 flex-row gap-2">
                 <View className="flex-1 rounded-md border border-white/10 bg-white/[0.06] px-3 py-2.5">
                   <Text className="font-sans text-[11px] text-ink-400">

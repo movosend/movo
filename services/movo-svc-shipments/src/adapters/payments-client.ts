@@ -14,6 +14,10 @@ import {
   HoldCheckoutDataResponse,
   HoldDetailResponse,
   HoldResponse,
+  RegisterCashCancellationPenaltyRequest,
+  RegisterCashCancellationPenaltyResponse,
+  RegisterCashCommissionRequest,
+  RegisterCashCommissionResponse,
   RefundsResponse,
   SettlementResponse,
   UserLedgerBalanceResponse,
@@ -39,6 +43,8 @@ export interface UserDebtStatus {
  * - MOVO-313: deuda vencida de la cuenta corriente (mismo bloqueo, mismo criterio de falla cerrada).
  * - MOVO-210: endpoints INTERNOS de holds (MOVO-209, `/internal/payments/holds/*`). `svc-shipments`
  *   es dueño de la saga y única puerta del mobile: el mobile nunca le habla a payments.
+ * - MOVO-37: envíos en efectivo (`/internal/payments/cash-shipments/*`): la comisión al entregar y la
+ *   penalidad del emisor sin hold, las dos por la cuenta corriente.
  *
  * Sin `x-user-id` (el caller es otro servicio, ADR-010). Los errores de negocio de payments
  * (409 `CARRIER_MP_ACCOUNT_NOT_LINKED`, 502 `PAYMENT_PROVIDER_ERROR`...) se re-lanzan como
@@ -96,6 +102,20 @@ export interface PaymentsClient {
    * Idempotente por `idempotencyKey`: reenviar el mismo cuerpo devuelve el movimiento ya creado.
    */
   createLedgerEntry(userId: string, entry: CreateUserLedgerEntryRequest): Promise<CreateUserLedgerEntryResponse>;
+  /**
+   * MOVO-37 (B6): registra la comisión de Movo de un envío en efectivo entregado como deuda del transportista.
+   * payments la calcula con la misma función que el `application_fee` y es idempotente por envío. Lanza si
+   * payments falla: quien llama deja el envío en `delivered` para que lo retome el barrido.
+   */
+  registerCashCommission(shipmentId: string, input: RegisterCashCommissionRequest): Promise<RegisterCashCommissionResponse>;
+  /**
+   * MOVO-37 (B7): penalidad del emisor de un envío en efectivo como deuda de su cuenta corriente, con la
+   * compensación del transportista como crédito, en una sola operación idempotente por envío.
+   */
+  registerCashCancellationPenalty(
+    shipmentId: string,
+    input: RegisterCashCancellationPenaltyRequest
+  ): Promise<RegisterCashCancellationPenaltyResponse>;
   /**
    * MOVO-337 (MOVO-336): reembolsa (total o parcial) un pago ya capturado. Idempotente por `idempotencyKey`: un
    * reintento con la misma key devuelve el reembolso ya hecho. Un `fallback_to_ledger` NO es un error: el
@@ -174,6 +194,25 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
     } catch {
       throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
     }
+  }
+
+  /** POST JSON a una ruta interna de payments (ADR-010): 502 si no responde, el error de payments si rechaza. */
+  async function postInternal<T>(path: string, body: unknown, timeoutMs = LEDGER_TIMEOUT_MS): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetch(`${config.PAYMENTS_SERVICE_URL}/internal/payments${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch {
+      throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
+    }
+    if (!response.ok) {
+      throw await parseApiError(response, "El servicio de pagos devolvió un error.");
+    }
+    return (await response.json()) as T;
   }
 
   return {
@@ -342,45 +381,29 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
     },
 
     async createLedgerEntry(userId, entry) {
-      let response: Response;
-      try {
-        response = await fetch(
-          `${config.PAYMENTS_SERVICE_URL}/internal/payments/users/${encodeURIComponent(userId)}/ledger-entries`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(entry),
-            signal: AbortSignal.timeout(LEDGER_TIMEOUT_MS),
-          },
-        );
-      } catch {
-        throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
-      }
-      if (!response.ok) {
-        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
-      }
-      return (await response.json()) as CreateUserLedgerEntryResponse;
+      return postInternal<CreateUserLedgerEntryResponse>(`/users/${encodeURIComponent(userId)}/ledger-entries`, entry);
+    },
+
+    async registerCashCommission(shipmentId, input) {
+      return postInternal<RegisterCashCommissionResponse>(
+        `/cash-shipments/${encodeURIComponent(shipmentId)}/commission`,
+        input,
+      );
+    },
+
+    async registerCashCancellationPenalty(shipmentId, input) {
+      return postInternal<RegisterCashCancellationPenaltyResponse>(
+        `/cash-shipments/${encodeURIComponent(shipmentId)}/cancellation-penalty`,
+        input,
+      );
     },
 
     async createRefund(shipmentId, request) {
-      let response: Response;
-      try {
-        response = await fetch(
-          `${config.PAYMENTS_SERVICE_URL}/internal/payments/settlements/by-shipment/${encodeURIComponent(shipmentId)}/refund`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(request),
-            signal: AbortSignal.timeout(REFUND_TIMEOUT_MS),
-          },
-        );
-      } catch {
-        throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
-      }
-      if (!response.ok) {
-        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
-      }
-      return (await response.json()) as CreateRefundResponse;
+      return postInternal<CreateRefundResponse>(
+        `/settlements/by-shipment/${encodeURIComponent(shipmentId)}/refund`,
+        request,
+        REFUND_TIMEOUT_MS,
+      );
     },
 
     async listRefunds(shipmentId) {
@@ -401,24 +424,10 @@ export function createPaymentsClient(config: PaymentsClientConfig): PaymentsClie
     },
 
     async createManualAdjustment(userId, request) {
-      let response: Response;
-      try {
-        response = await fetch(
-          `${config.PAYMENTS_SERVICE_URL}/internal/payments/users/${encodeURIComponent(userId)}/manual-adjustments`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(request),
-            signal: AbortSignal.timeout(LEDGER_TIMEOUT_MS),
-          },
-        );
-      } catch {
-        throw new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de pagos.");
-      }
-      if (!response.ok) {
-        throw await parseApiError(response, "El servicio de pagos devolvió un error.");
-      }
-      return (await response.json()) as CreateUserLedgerEntryResponse;
+      return postInternal<CreateUserLedgerEntryResponse>(
+        `/users/${encodeURIComponent(userId)}/manual-adjustments`,
+        request,
+      );
     },
   };
 }

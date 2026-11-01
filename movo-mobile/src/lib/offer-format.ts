@@ -1,5 +1,7 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
-import type { OfferCompetitiveRank } from "../api/offers-client";
+import type { MyOfferSummary, OfferCompetitiveRank } from "../api/offers-client";
+import { estimateReceivedArs } from "./commission-config";
+import { carrierPriceBreakdown, isCashShipment } from "./payment-method";
 import { formatPriceArs } from "./shipment-format";
 import { formatRelativeDuration } from "./time-format";
 
@@ -37,10 +39,30 @@ export interface OfferStatusBannerCopy {
  * aprox. (`estimateReceivedArs`). Una oferta que ya no se va a concretar (rechazada,
  * retirada, vencida, etc.) no puede prometer un cobro en presente.
  */
-export function receivedAmountLabel(status: OfferStatus): string {
+export function receivedAmountLabel(status: OfferStatus, cash = false): string {
+  // MOVO-37: en efectivo el monto no es un estimado, es el bruto que el emisor le paga en mano al retiro.
+  if (cash) {
+    if (status === OfferStatus.ACCEPTED) return "Vas a cobrar en mano";
+    if (status === OfferStatus.PENDING) return "Cobrás en mano";
+    return "Habrías cobrado en mano";
+  }
   if (status === OfferStatus.ACCEPTED) return "Vas a recibir aprox.";
   if (status === OfferStatus.PENDING) return "Recibís aprox.";
   return "Habrías recibido aprox.";
+}
+
+/**
+ * Monto que la oferta le deja al transportista, el que acompaña a `receivedAmountLabel`. Con tarjeta: neto menos el
+ * estimado de MP menos el descuento por deuda (MOVO-225/311). En efectivo (MOVO-37): el bruto, que cobra en mano; la
+ * comisión le queda como deuda aparte.
+ */
+export function offerReceivedArs(offer: Pick<MyOfferSummary, "priceNetArs" | "priceOffered" | "debtDiscount" | "shipment">): number {
+  return carrierPriceBreakdown({
+    grossArs: offer.priceOffered,
+    netArs: offer.priceNetArs,
+    cash: isCashShipment(offer.shipment),
+    debtDiscountArs: offer.debtDiscount?.amountArs,
+  }).receivedArs;
 }
 
 /**

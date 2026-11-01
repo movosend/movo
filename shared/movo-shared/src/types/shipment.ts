@@ -31,6 +31,19 @@ export enum ShipmentStatus {
 }
 
 /**
+ * MOVO-37: cómo paga el emisor el envío, elegido al crearlo (`POST /shipments`).
+ * - `card`: hold con tarjeta y saga de asignación (MOVO-210/212).
+ * - `cash`: el emisor le paga el monto acordado completo en mano al transportista al retiro. Sin hold ni saga:
+ *   al aceptar la oferta el envío pasa directo a `assigned`, y la comisión de Movo se registra como deuda del
+ *   transportista en su cuenta corriente al confirmarse la entrega.
+ * No se puede cambiar una vez que el envío recibió ofertas.
+ */
+export enum PaymentMethod {
+  CARD = "card",
+  CASH = "cash",
+}
+
+/**
  * MOVO-170: historial de envíos compartido entre el usuario autenticado (viewer) y
  * otro usuario cualquiera, sin importar en qué rol haya participado cada uno
  * (emisor/receptor/transportista) en cada envío — wire contract de
@@ -93,6 +106,8 @@ export interface ActiveShipmentSummary {
   /** MOVO-278 (DD-045): ISO del instante en que el envío `in_transit` se marcó como
    * demorado (MOVO-258 D4); `null` si no está marcado. La app lo muestra como "Demorado". */
   transitAnomalyFlaggedAt: string | null;
+  /** MOVO-37: modalidad de pago del envío. */
+  paymentMethod: PaymentMethod;
 }
 
 /**

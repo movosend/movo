@@ -17,6 +17,7 @@ const LABELS: Record<UserLedgerEntry["type"], string> = {
   payment_surcharge: "Recargo",
   voluntary_payment: "Pago",
   manual_adjustment: "Ajuste",
+  cancellation_compensation: "Compensación",
 };
 
 export function balanceEntryLabel(entry: UserLedgerEntry): string {

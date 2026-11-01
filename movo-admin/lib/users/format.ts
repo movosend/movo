@@ -160,6 +160,7 @@ export const REPORT_STATUS: Record<AdminReportStatus, Pill> = {
 
 export const LEDGER_TYPE: Record<AdminLedgerType, string> = {
   cancellation_penalty: "Penalidad por cancelación",
+  cancellation_compensation: "Compensación por cancelación",
   penalty_capture: "Cobro de penalidad",
   cash_commission: "Comisión de envío en efectivo",
   fee_offset: "Descuento de comisión",

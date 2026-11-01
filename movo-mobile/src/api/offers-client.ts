@@ -1,6 +1,7 @@
 import type { OfferAcceptanceAssignment } from "@movo/shared/dist/types/funding";
 import type { OfferStatus } from "@movo/shared/dist/types/offer";
 import type { PackageType } from "../store/shipment-wizard-store";
+import type { ShipmentPaymentMethod } from "./shipments-client";
 import { httpClient } from "./http-client";
 
 export type OfferSortOption = "price" | "rating" | "createdAt";
@@ -102,6 +103,8 @@ export interface MyOfferShipmentContext {
   /** MOVO-317: "Más de 300 cm" en algún lado; las medidas llevan el tope (300). */
   oversized: boolean;
   description: string | null;
+  /** MOVO-37: con efectivo el desglose de la oferta cambia (cobro en mano, comisión como deuda). */
+  paymentMethod?: ShipmentPaymentMethod;
 }
 
 /**

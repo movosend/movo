@@ -4,9 +4,11 @@ import { useState } from "react";
 import { Pressable, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HandshakeConfirmationResult } from "../../../../../components/handshake/handshake-confirmation-result";
+import { DeliveryCashCommissionNote } from "../../../../../components/payments/delivery-cash-commission-note";
 import { DeliveryPaymentStatus } from "../../../../../components/payments/delivery-payment-status";
 import { RatingSheet, type RatingTarget } from "../../../../../components/shipments/rating-sheet";
 import { useShipment } from "../../../../../src/hooks/use-shipments";
+import { isCashShipment } from "../../../../../src/lib/payment-method";
 import { useShipmentRatings } from "../../../../../src/hooks/use-ratings";
 import { usePublicProfile } from "../../../../../src/hooks/use-profile";
 import { useDeliveryResult } from "./_layout";
@@ -88,11 +90,17 @@ export default function DeliverySuccessScreen() {
         secondaryCtaLabel={ratingTarget ? (alreadyRated ? "Ya calificaste al receptor" : "Calificar al receptor") : undefined}
         onSecondaryCtaPress={ratingTarget ? () => setRatingOpen(true) : undefined}
         paymentSlot={
-          <DeliveryPaymentStatus
-            shipmentId={result.shipmentId}
-            onViewDetail={goToShipment}
-            testID="delivery-success-payment"
-          />
+          // MOVO-37: en efectivo no hay liquidación (`/settlement` da 404), solo la comisión como saldo. Si el envío no
+          // llegó a cargar se asume tarjeta (como antes de MOVO-37): el estado del cobro no depende de esa query.
+          isCashShipment(shipment) ? (
+            <DeliveryCashCommissionNote testID="delivery-success-cash" />
+          ) : (
+            <DeliveryPaymentStatus
+              shipmentId={result.shipmentId}
+              onViewDetail={goToShipment}
+              testID="delivery-success-payment"
+            />
+          )
         }
       />
 

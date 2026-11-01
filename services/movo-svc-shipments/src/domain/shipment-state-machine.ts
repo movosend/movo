@@ -85,6 +85,7 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
   [ShipmentStatus.PUBLISHED]: new Set([
     ShipmentStatus.ASSIGNMENT_PENDING, // emisor acepta oferta, retiro cercano
     ShipmentStatus.ASSIGNED_UNFUNDED, // emisor acepta oferta, retiro lejano (MOVO-208/MOVO-210)
+    ShipmentStatus.ASSIGNED, // emisor acepta oferta de un envío en efectivo: sin hold ni saga (MOVO-37)
     ShipmentStatus.CANCELLED, // emisor cancela (MOVO-29)
   ]),
   [ShipmentStatus.ASSIGNMENT_PENDING]: new Set([

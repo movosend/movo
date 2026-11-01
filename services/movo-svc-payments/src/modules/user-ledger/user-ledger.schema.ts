@@ -2,7 +2,7 @@
 // @movo/shared; el Swagger se genera desde acá. Las rutas internas van con `hide: true`.
 // Los decimales del monto los valida el service (Ajv compara en float, `multipleOf` falla).
 
-const errorResponse = {
+export const errorResponse = {
   type: "object",
   properties: {
     error: {
@@ -32,10 +32,11 @@ const entryTypes = [
   "payment_surcharge",
   "voluntary_payment",
   "manual_adjustment",
+  "cancellation_compensation",
 ] as const;
 const entryStatuses = ["pending", "reserved", "settled", "voided"] as const;
 
-const entry = {
+export const entry = {
   type: "object",
   required: ["id", "userId", "roleAtOrigin", "type", "amountArs", "status", "shipmentId", "holdId", "paymentId", "reason", "createdAt"],
   properties: {

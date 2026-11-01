@@ -16,12 +16,24 @@ import type { AccountStatus, KycStatus } from "./user";
 export type CarrierRequirement = "no_open_dispute" | "license" | "mp_account" | "no_overdue_debt";
 
 /**
+ * MOVO-37: requisitos que solo rigen en un envío pagado en efectivo, por fuera de los habilitantes
+ * generales (no aparecen en `GET /shipments/carrier-requirements`).
+ * - `cash_debt_within_limit`: la deuda total del transportista (vencida o no) no supera
+ *   `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS`. 403 `CASH_DEBT_LIMIT_EXCEEDED` al ofertar o editar la oferta.
+ * - `no_pending_debt`: el emisor no tiene deuda en su cuenta corriente. 403
+ *   `CASH_PAYMENT_SENDER_HAS_DEBT` al crear un envío en efectivo (con tarjeta la deuda se cobra en el pago).
+ * Las dos se levantan al saldar con "Pagar mi saldo" (MOVO-312).
+ */
+export type CashPaymentRequirement = "cash_debt_within_limit" | "no_pending_debt";
+
+/**
  * `details` de un `ApiError` `CARRIER_DISPUTE_OPEN`/`CARRIER_LICENSE_NOT_APPROVED`/`CARRIER_MP_ACCOUNT_NOT_LINKED`/
  * `USER_DEBT_OVERDUE` de `svc-shipments`: el `code` es el primer requisito que falta, esta
- * lista los trae a todos (para mostrar un CTA por cada uno, MOVO-117).
+ * lista los trae a todos (para mostrar un CTA por cada uno, MOVO-117). MOVO-37: también la de
+ * `CASH_DEBT_LIMIT_EXCEEDED`/`CASH_PAYMENT_SENDER_HAS_DEBT`, con su requisito de efectivo.
  */
 export interface CarrierRequirementsErrorDetails {
-  missingRequirements: CarrierRequirement[];
+  missingRequirements: Array<CarrierRequirement | CashPaymentRequirement>;
 }
 
 /** Respuesta de `GET /internal/users/:id/kyc-status` (`svc-users`). */

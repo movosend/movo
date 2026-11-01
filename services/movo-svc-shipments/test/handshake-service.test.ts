@@ -1,6 +1,6 @@
 import { webcrypto } from "node:crypto";
 import { describe, it, expect, vi, beforeAll } from "vitest";
-import { ShipmentStatus } from "@movo/shared";
+import { PaymentMethod, ShipmentStatus } from "@movo/shared";
 import { createHandshakeService, HandshakeRedisClient } from "../src/modules/handshake/handshake.service";
 import { HandshakeRepository, ConfirmHandshakeInput } from "../src/repositories/handshake-repository";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
@@ -52,7 +52,7 @@ function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
     suggestedPriceArs: 2100,
     calculationMethod: "euclidean_linear_v1",
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: PaymentMethod.CARD,
     status: ShipmentStatus.ASSIGNED,
     lastStatusChangedAt: null,
     deliveredAt: null,

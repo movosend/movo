@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { ShipmentStatus, TripStatus } from "@movo/shared";
+import { PaymentMethod, ShipmentStatus, TripStatus } from "@movo/shared";
 import {
   createPositionService,
   CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS,
@@ -37,7 +37,7 @@ function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
     suggestedPriceArs: 2100,
     calculationMethod: "euclidean_linear_v1",
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: PaymentMethod.CARD,
     status: ShipmentStatus.IN_TRANSIT,
     lastStatusChangedAt: null,
     deliveredAt: null,

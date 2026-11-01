@@ -1,4 +1,5 @@
 import { FundingRoute, OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import { toPaymentMethod } from "./payment-method";
 import { selectFundingRoute } from "../domain/funding";
 import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
@@ -111,6 +112,7 @@ function mapOfferWithShipment(
       heightCm: row.shipment.heightCm.toNumber(),
       oversized: row.shipment.oversized,
       description: row.shipment.description,
+      paymentMethod: toPaymentMethod(row.shipment.paymentMethod),
     },
     // MOVO-188: resuelto aparte por `offers.service.ts` (batch sobre la página, ver
     // `listPendingOffersByShipmentIds`) -- nunca acá, para no convertir esto en una
@@ -143,6 +145,14 @@ export class OfferNotFoundError extends Error {
   constructor(public readonly id: string) {
     super(`No existe una oferta con id '${id}'`);
     this.name = "OfferNotFoundError";
+  }
+}
+
+/** MOVO-37: el emisor cambió el medio de pago del envío entre que el service validó al transportista y el insert. */
+export class OfferShipmentPaymentMethodChangedError extends Error {
+  constructor(public readonly shipmentId: string) {
+    super(`El medio de pago del envío '${shipmentId}' cambió mientras se creaba la oferta`);
+    this.name = "OfferShipmentPaymentMethodChangedError";
   }
 }
 
@@ -267,9 +277,13 @@ export interface AcceptOfferResult {
   offer: Offer;
   shipmentId: string;
   autoCreatedTrip: Trip | null;
-  /** Ruta elegida y estado al que pasó el envío (MOVO-210, AC3/AC6). */
-  fundingRoute: FundingRoute;
-  shipmentStatus: ShipmentStatus.ASSIGNMENT_PENDING | ShipmentStatus.ASSIGNED_UNFUNDED;
+  /** Ruta elegida y estado al que pasó el envío (MOVO-210, AC3/AC6). MOVO-37: un envío en efectivo no tiene saga:
+   * `fundingRoute` es `null` y el envío pasa directo a `assigned`. */
+  fundingRoute: FundingRoute | null;
+  shipmentStatus: ShipmentStatus.ASSIGNMENT_PENDING | ShipmentStatus.ASSIGNED_UNFUNDED | ShipmentStatus.ASSIGNED;
+  /** MOVO-37: ofertas `pending` que se cerraron (`superseded`) en la misma transacción. Solo en efectivo: con tarjeta
+   * se cierran al confirmarse el hold (MOVO-210 AC4). Quien acepta les avisa. */
+  supersededOffers: Array<{ id: string; carrierId: string }>;
   /** MOVO-211: inicio de la ventana de retiro acordada, para avisar cuándo abre el pago. */
   pickupStart: Date;
 }
@@ -408,9 +422,16 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
   return {
     async create(input: CreateOfferInput): Promise<Offer> {
       return db.$transaction(async (tx) => {
+        // MOVO-37: lock compartido sobre la fila del envío. `updatePaymentMethod` toma el lock exclusivo antes de
+        // chequear que no haya ofertas: o el cambio de medio de pago commitea antes y esta lectura ya lo ve (409), o
+        // espera a que esta oferta commitee y entonces ve la oferta y no cambia nada.
+        await tx.$queryRaw`SELECT 1 FROM shipments.shipments WHERE id = ${input.shipmentId}::uuid FOR SHARE`;
         const shipment = await tx.shipment.findUnique({ where: { id: input.shipmentId } });
         if (!shipment) {
           throw new OfferShipmentNotFoundError(input.shipmentId);
+        }
+        if (input.expectedPaymentMethod !== undefined && shipment.paymentMethod !== input.expectedPaymentMethod) {
+          throw new OfferShipmentPaymentMethodChangedError(input.shipmentId);
         }
         if (!isWithinOfferDateRange(input.offeredDate, shipment.pickupDate)) {
           throw new OfferDateOutOfRangeError(input.offeredDate, input.shipmentId);
@@ -611,7 +632,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // la pisa), así que el valor leído es el que se pisa.
         const originalWindow = await tx.shipment.findUnique({
           where: { id: current.shipmentId },
-          select: { pickupDate: true, pickupTimeWindowStart: true, pickupTimeWindowEnd: true },
+          select: { pickupDate: true, pickupTimeWindowStart: true, pickupTimeWindowEnd: true, paymentMethod: true },
         });
         if (!originalWindow) {
           throw new ShipmentNotAvailableForAssignmentError(current.shipmentId);
@@ -628,16 +649,24 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           current.offeredPickupTimeWindowStart,
           originalWindow.pickupTimeWindowStart,
         );
-        const fundingRoute: FundingRoute =
-          funding.nearPickupDays === undefined
+        // MOVO-37: un envío en efectivo no tiene hold que esperar: pasa directo a `assigned` (sin `assignment_pending`
+        // ni `assigned_unfunded`) y las demás ofertas se cierran acá mismo.
+        const cash = originalWindow.paymentMethod === "cash";
+        const fundingRoute: FundingRoute | null = cash
+          ? null
+          : funding.nearPickupDays === undefined
             ? "near"
             : selectFundingRoute(pickupStart, acceptedAt, funding.nearPickupDays);
-        const targetStatus: AcceptOfferResult["shipmentStatus"] =
-          fundingRoute === "near" ? ShipmentStatus.ASSIGNMENT_PENDING : ShipmentStatus.ASSIGNED_UNFUNDED;
+        const targetStatus: AcceptOfferResult["shipmentStatus"] = cash
+          ? ShipmentStatus.ASSIGNED
+          : fundingRoute === "near"
+            ? ShipmentStatus.ASSIGNMENT_PENDING
+            : ShipmentStatus.ASSIGNED_UNFUNDED;
         transitionShipmentStatus(ShipmentStatus.PUBLISHED, targetStatus);
         const daysToPickup = Math.round(((pickupStart.getTime() - acceptedAt.getTime()) / 86_400_000) * 10) / 10;
-        const routeReason =
-          funding.nearPickupDays === undefined
+        const routeReason = cash
+          ? "pago en efectivo al retiro: asignado sin reserva de fondos"
+          : funding.nearPickupDays === undefined
             ? "ruta cercana (N sin configurar)"
             : fundingRoute === "near"
               ? `ruta cercana: retiro en ${daysToPickup} días (dentro de ${funding.nearPickupDays}); el emisor paga al aceptar`
@@ -835,6 +864,24 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           ...(autoCreatedTrip ? { tripId: autoCreatedTrip.id } : joinedTripId ? { tripId: joinedTripId } : {}),
         };
 
+        // MOVO-37: en efectivo la asignación ya es firme, así que las demás `pending` (no vencidas por fecha) se cierran
+        // en esta misma transacción, igual que hace `updateStatus` al confirmarse el hold de un envío con tarjeta.
+        let supersededOffers: AcceptOfferResult["supersededOffers"] = [];
+        if (cash) {
+          const supersededWhere = {
+            shipmentId: current.shipmentId,
+            id: { not: id },
+            status: OfferStatus.PENDING,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          };
+          transition(OfferStatus.PENDING, OfferStatus.SUPERSEDED);
+          supersededOffers = await tx.offer.updateManyAndReturn({
+            where: supersededWhere,
+            data: { status: OfferStatus.SUPERSEDED, respondedAt: now },
+            select: { id: true, carrierId: true },
+          });
+        }
+
         // MOVO-210 (AC4): las demás ofertas `pending` del envío NO se cierran acá. Mientras la
         // asignación espera el pago puede caerse (timeout, hold perdido, T-24h) y el envío vuelve a
         // `published`; cerrarlas al aceptar dejaba al emisor sin ninguna oferta y a esos
@@ -849,6 +896,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           fundingRoute,
           shipmentStatus: targetStatus,
           pickupStart,
+          supersededOffers,
         };
       });
 
