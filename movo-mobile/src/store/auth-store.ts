@@ -6,7 +6,9 @@ import { isRefreshRejected, registerAuthHooks } from "../api/http-client";
 import type { SessionResponse } from "../api/session-types";
 import {
   SECURE_STORE_KEYS,
+  deleteMigrationBackups,
   deletePendingRegistrationKeys,
+  getItemOrMigrationBackup,
   migrateKeychainAccess,
   secureStore,
 } from "../lib/secure-store";
@@ -84,16 +86,37 @@ const SESSION_KEYS = [
   SECURE_STORE_KEYS.sessionExpiresAt,
 ] as const;
 
-/** Sesión que `setSession` no pudo persistir: se reintenta al volver la app a `active`. */
+/** Última sesión activada que todavía no quedó escrita en el Keychain (`null` tras escribirla o
+ * cerrar la sesión). Solo se escribe la sesión que sigue siendo esta: una vieja nunca pisa a una
+ * más nueva ni resucita una sesión cerrada. */
 let pendingPersist: SessionResponse | null = null;
+
+/** Cola de escrituras de la sesión: una a la vez, en el orden en que se pidieron. Sin ella, la
+ * escritura de un token ya rotado podía terminar después de la del nuevo (ADR-013 revoca la familia
+ * al reusarlo) o después del borrado de un logout. */
+let writeChain: Promise<void> = Promise.resolve();
+
+function serializeWrite(job: () => Promise<void>): Promise<void> {
+  const run = writeChain.then(job);
+  writeChain = run.catch(() => undefined);
+  return run;
+}
+
+/** Escribe `session` si sigue siendo la pendiente. Falla sin tocar `pendingPersist`: se reintenta
+ * al volver la app a `active`. */
+function persistIfPending(session: SessionResponse): Promise<void> {
+  return serializeWrite(async () => {
+    if (pendingPersist !== session) return;
+    await persistSession(session);
+    if (pendingPersist === session) pendingPersist = null;
+  });
+}
 
 async function retryPendingPersist(): Promise<void> {
   const session = pendingPersist;
   if (!session) return;
   try {
-    await persistSession(session);
-    // Si entretanto llegó otra sesión (o se cerró), esa manda.
-    if (pendingPersist === session) pendingPersist = null;
+    await persistIfPending(session);
   } catch {
     // Sigue pendiente para la próxima vuelta a primer plano.
   }
@@ -106,6 +129,7 @@ async function clearPersistedSession(): Promise<void> {
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionUser),
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionExpiresAt),
     deletePendingRegistrationKeys(secureStore),
+    deleteMigrationBackups(SESSION_KEYS),
   ]);
 }
 
@@ -127,11 +151,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       user: toSessionUser(session),
       signOutReason: null,
     });
+    pendingPersist = session;
     try {
-      await persistSession(session);
-      pendingPersist = null;
+      await persistIfPending(session);
     } catch {
-      pendingPersist = session;
+      // Queda en `pendingPersist`.
     }
   },
 
@@ -139,7 +163,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const currentUser = get().user;
     if (!currentUser) return;
     const updatedUser: SessionUser = { ...currentUser, kycStatus };
-    await secureStore.setItem(SECURE_STORE_KEYS.sessionUser, JSON.stringify(updatedUser));
+    await serializeWrite(() => secureStore.setItem(SECURE_STORE_KEYS.sessionUser, JSON.stringify(updatedUser)));
     set({ user: updatedUser });
   },
 
@@ -147,13 +171,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const currentUser = get().user;
     if (!currentUser || currentUser.fullName === fullName) return;
     const updatedUser: SessionUser = { ...currentUser, fullName };
-    await secureStore.setItem(SECURE_STORE_KEYS.sessionUser, JSON.stringify(updatedUser));
+    await serializeWrite(() => secureStore.setItem(SECURE_STORE_KEYS.sessionUser, JSON.stringify(updatedUser)));
     set({ user: updatedUser });
   },
 
   async clearSession() {
     pendingPersist = null;
-    await clearPersistedSession();
+    await serializeWrite(clearPersistedSession);
     set({ status: "unauthenticated", accessToken: null, refreshToken: null, user: null });
   },
 
@@ -164,11 +188,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Best-effort: sin migrar, el próximo refresh con el teléfono bloqueado puede no persistir,
       // pero ya no cierra la sesión (`setSession`). Se reintenta en el próximo arranque.
     }
+    // `getItemOrMigrationBackup`: si la migración borró una key y no pudo reescribirla, la sesión
+    // sale de su respaldo en vez de perderse.
     const [accessToken, refreshToken, userJson, expiresAtRaw] = await Promise.all([
-      secureStore.getItem(SECURE_STORE_KEYS.sessionAccessToken),
-      secureStore.getItem(SECURE_STORE_KEYS.sessionRefreshToken),
-      secureStore.getItem(SECURE_STORE_KEYS.sessionUser),
-      secureStore.getItem(SECURE_STORE_KEYS.sessionExpiresAt),
+      getItemOrMigrationBackup(SECURE_STORE_KEYS.sessionAccessToken),
+      getItemOrMigrationBackup(SECURE_STORE_KEYS.sessionRefreshToken),
+      getItemOrMigrationBackup(SECURE_STORE_KEYS.sessionUser),
+      getItemOrMigrationBackup(SECURE_STORE_KEYS.sessionExpiresAt),
     ]);
 
     if (!accessToken || !refreshToken || !userJson || !expiresAtRaw) {

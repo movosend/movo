@@ -33,21 +33,43 @@ export const secureStore = {
   },
 };
 
+/** Copia de una key mientras `migrateKeychainAccess` la recrea. */
+function migrationBackupKey(key: string): string {
+  return `${key}.migrationBackup`;
+}
+
 /**
- * Recrea las keys dadas (borrar y volver a escribir) para que tomen la accesibilidad de
- * `SET_OPTIONS`. Corre una sola vez por instalación, marcado con `keychainAccessMigrated`, y en el
- * arranque, con la app en primer plano. Si la app muere entre el borrado y la escritura, esa key se
- * pierde: para la sesión significa volver a iniciarla, el mismo costo que tenía el bug.
+ * Recrea las keys dadas para que tomen la accesibilidad de `SET_OPTIONS`. Una key del Keychain no
+ * puede existir dos veces, así que hay que borrarla y volver a escribirla: antes de borrarla se copia
+ * a una key de respaldo (nueva, ya con `SET_OPTIONS`), y el respaldo se borra recién cuando la key
+ * quedó reescrita. Si algo falla en el medio (Keychain bloqueado, la app muere), el valor sigue en el
+ * respaldo: `getItemOrMigrationBackup` lo lee en este arranque y la migración lo restaura en el
+ * próximo. Corre hasta completarse una vez por instalación, marcado con `keychainAccessMigrated`.
  */
 export async function migrateKeychainAccess(keys: readonly string[]): Promise<void> {
   if ((await secureStore.getItem(SECURE_STORE_KEYS.keychainAccessMigrated)) === "1") return;
   for (const key of keys) {
-    const value = await secureStore.getItem(key);
+    const backupKey = migrationBackupKey(key);
+    // La key manda sobre un respaldo de un intento anterior: pudo escribirse una sesión nueva después.
+    const value = (await secureStore.getItem(key)) ?? (await secureStore.getItem(backupKey));
     if (value === null) continue;
+    await secureStore.setItem(backupKey, value);
     await secureStore.deleteItem(key);
     await secureStore.setItem(key, value);
+    await secureStore.deleteItem(backupKey);
   }
   await secureStore.setItem(SECURE_STORE_KEYS.keychainAccessMigrated, "1");
+}
+
+/** Lee `key`, o su respaldo de migración si la key no está (ver `migrateKeychainAccess`). */
+export async function getItemOrMigrationBackup(key: string): Promise<string | null> {
+  return (await secureStore.getItem(key)) ?? (await secureStore.getItem(migrationBackupKey(key)));
+}
+
+/** Borra los respaldos de migración de las keys dadas: un logout no puede dejar una sesión
+ * recuperable desde ellos. */
+export function deleteMigrationBackups(keys: readonly string[]): Promise<void[]> {
+  return Promise.all(keys.map((key) => secureStore.deleteItem(migrationBackupKey(key))));
 }
 
 export const SECURE_STORE_KEYS = {
