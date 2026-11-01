@@ -66,3 +66,22 @@ export function splitRoute(planned: RoutePoint[], from: RoutePoint | null, start
     offRouteMeters: best,
   };
 }
+
+/** Margen sobre la distancia mínima para dar por alcanzada una parada en `routeUntilStop`. */
+const STOP_MATCH_TOLERANCE_M = 40;
+
+/**
+ * El tramo de `route` desde su inicio hasta `stop` (MOVO-346, punto 14): el tramo activo de "Mi ruta",
+ * con la ruta arrancando en el vehículo y `stop` como la próxima parada. Se corta en el **primer**
+ * vértice que queda a la distancia mínima de la parada (más un margen), no en el más cercano de toda
+ * la ruta: si la ruta vuelve a pasar cerca más adelante (un lazo, una calle paralela, otra parada en la
+ * misma cuadra), ese paso es de un tramo posterior. Vacío si el vehículo ya está en la parada.
+ */
+export function routeUntilStop(route: RoutePoint[], stop: RoutePoint): RoutePoint[] {
+  if (route.length < 2) return [];
+  const distances = route.map((point) => distanceMeters(point, stop));
+  if (distances[0] <= STOP_MATCH_TOLERANCE_M) return [];
+  const threshold = Math.min(...distances.slice(1)) + STOP_MATCH_TOLERANCE_M;
+  const end = distances.findIndex((d, index) => index > 0 && d <= threshold);
+  return route.slice(0, end + 1);
+}

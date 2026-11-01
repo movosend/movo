@@ -365,13 +365,15 @@ export default function OptimizedRouteScreen() {
   // arranca donde estaba el transportista al pedirlo, así que se recorta desde el vehículo (con una
   // recta si se alejó de la línea): sin eso queda una cola detrás del ícono. Sin `polyline` (el
   // proveedor falló) el mapa une las paradas con rectas.
+  // Decodificar solo cuando cambia el string; el recorte sí corre con cada fix de GPS.
+  const plannedRoute = useMemo(() => (route?.polyline ? decodePolyline(route.polyline) : undefined), [route?.polyline]);
+  const demoRoute = useMemo(() => (demoMode ? decodePolyline(DEMO_POLYLINE) : undefined), [demoMode]);
   const routePolylineCoordinates = useMemo(() => {
-    if (demoMode) return decodePolyline(DEMO_POLYLINE);
-    if (!route?.polyline) return undefined;
-    const planned = decodePolyline(route.polyline);
+    if (demoRoute) return demoRoute;
+    if (!plannedRoute) return undefined;
     const from = carrierLocation ? { latitude: carrierLocation.lat, longitude: carrierLocation.lng } : null;
-    return splitRoute(planned, from).todo;
-  }, [demoMode, route?.polyline, carrierLocation]);
+    return splitRoute(plannedRoute, from).todo;
+  }, [demoRoute, plannedRoute, carrierLocation]);
 
   const handleSelectStop = (stop: CarrierRouteStop) => {
     setSelectedStopOrder(stop.stopOrder);

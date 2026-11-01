@@ -6,6 +6,7 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "
 import * as Haptics from "expo-haptics";
 import { ArrowUpRight, Crosshair, Map, X } from "lucide-react-native";
 import { openRoute } from "../../src/lib/navigation-deeplink";
+import { routeUntilStop } from "../../src/lib/route-geometry";
 import type { CarrierRouteStop } from "@movo/shared/dist/types/routing";
 import {
   movoMapStyleDark,
@@ -178,21 +179,12 @@ export function RouteMap({
     return routePoints;
   }, [polylineCoordinates, routePoints]);
 
-  // MOVO-346 (punto 14): el tramo hasta la próxima parada se destaca del resto. Corta el trazo en el
-  // vértice más cercano a esa parada (el trazo ya arranca en el vehículo).
+  // MOVO-346 (punto 14): el tramo hasta la próxima parada se destaca del resto (el trazo ya arranca en
+  // el vehículo). `routeUntilStop` corta en el primer paso por la parada, no en el más cercano.
   const activeLegCoordinates: LatLng[] = useMemo(() => {
     const target = stops.find((s) => s.stopOrder === activeStopOrder);
-    if (!target || coordinatesToDraw.length < 2) return [];
-    let nearest = 0;
-    let best = Infinity;
-    coordinatesToDraw.forEach((point, index) => {
-      const d = (point.latitude - target.lat) ** 2 + (point.longitude - target.lng) ** 2;
-      if (d < best) {
-        best = d;
-        nearest = index;
-      }
-    });
-    return nearest > 0 ? coordinatesToDraw.slice(0, nearest + 1) : [];
+    if (!target) return [];
+    return routeUntilStop(coordinatesToDraw, { latitude: target.lat, longitude: target.lng });
   }, [coordinatesToDraw, stops, activeStopOrder]);
 
   // Calcula el desplazamiento vertical de la cámara según la altura del bottom sheet (AC4 / Finding 5)

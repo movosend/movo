@@ -1,7 +1,7 @@
 import { Pencil } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
+import MapView, { Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import Animated, { processColor, useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
 import {
@@ -327,12 +327,12 @@ export function RouteMapCard({
           />
         ) : null}
         {livePosition ? (
-          <Marker
+          // `StaticMarker` y no `tracksViewChanges={false}` de entrada: sin un primer render con
+          // seguimiento, el punto puede no dibujarse nunca. El `key` lo remonta al cambiar de color.
+          <StaticMarker
             key={`${prefix}carrier-${live.stale ? "stale" : "live"}`}
             testID={testID ? `${testID}-${prefix}carrier` : undefined}
             coordinate={{ latitude: livePosition.lat, longitude: livePosition.lng }}
-            anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
           >
             <View
               style={{
@@ -344,7 +344,7 @@ export function RouteMapCard({
                 backgroundColor: live.stale ? "#F5A524" : "#C6F24A",
               }}
             />
-          </Marker>
+          </StaticMarker>
         ) : null}
       </>
     ) : null;
