@@ -1118,7 +1118,8 @@ model Dispute {
   openedAt     DateTime          @default(now()) @map("opened_at") @db.Timestamptz
 
   // MOVO-337 (DD-056): resolución. `outcome` y lo que sigue se guardan al pasar a `resolving` (antes de mover la
-  // plata); `resolved_at` recién cuando se confirma la acción de pago y el envío cambia de estado.
+  // plata); `resolved_at` recién cuando se confirma la acción de pago y el envío cambia de estado. `decided_at`
+  // (MOVO-344) es el paso a `resolving`; `null` en las anteriores a esa columna.
   outcome              DisputeOutcome?
   resolutionPercentage Int?            @map("resolution_percentage") @db.SmallInt
   carrierAmountArs     Decimal?        @map("carrier_amount_ars") @db.Decimal(12, 2)
@@ -1126,6 +1127,7 @@ model Dispute {
   paymentAction        String?         @map("payment_action")
   reasoning            String?
   resolvedBy           String?         @map("resolved_by") @db.Uuid
+  decidedAt            DateTime?       @map("decided_at") @db.Timestamptz
   resolvedAt           DateTime?       @map("resolved_at") @db.Timestamptz
 
   shipment   Shipment           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
