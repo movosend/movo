@@ -36,6 +36,7 @@ import {
 } from "@/lib/disputes/format"
 import { formatDateTime } from "@/lib/users/format"
 import { shipmentDisplayCode } from "@/lib/shipments/format"
+import { disputeReportHref } from "@/lib/reports/params"
 import { cn } from "@/lib/utils"
 import { BlockError } from "@/components/shipments/block-error"
 import { IconTile, StatusPill } from "@/components/users/ui"
@@ -133,6 +134,13 @@ export function ExpedienteHeader({
           >
             Ver el envío
           </Link>
+          {" · "}
+          <Link
+            href={disputeReportHref(dispute.id)}
+            className="font-medium underline underline-offset-4 hover:text-foreground"
+          >
+            Ver en métricas
+          </Link>
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">{actions}</div>
@@ -182,11 +190,7 @@ const roleOf = (
   )?.name ?? "Sin nombre"
 
 /** La disputa: quién y qué reclamó, sus fotos y los descargos (el de quien abrió es la ampliación). */
-export function DisputeCaseCard({
-  dispute,
-}: {
-  dispute: AdminDisputeDetail
-}) {
+export function DisputeCaseCard({ dispute }: { dispute: AdminDisputeDetail }) {
   const system = isSystemReason(dispute.reason)
   const entries = [
     {
@@ -418,11 +422,7 @@ export function PhotosCard({
 }
 
 /** Cuántas disputas abrió, perdió y tiene abiertas cada parte, con link a su ficha. */
-export function PartyHistoryCard({
-  dispute,
-}: {
-  dispute: AdminDisputeDetail
-}) {
+export function PartyHistoryCard({ dispute }: { dispute: AdminDisputeDetail }) {
   const nameOf = (h: AdminDisputePartyHistory) =>
     [dispute.sender, dispute.carrier, dispute.receiver].find(
       (p) => p?.id === h.userId
