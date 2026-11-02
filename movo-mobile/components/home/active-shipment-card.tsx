@@ -109,7 +109,6 @@ export function ActiveShipmentCard({
   const handleCta = () => {
     if (!cta) return;
     if (cta.action === "live_tracking") {
-      const isDemo = shipment.id.startsWith("demo-");
       router.push(
         isDemo
           ? (`/(app)/shipments/${shipment.id}/tracking?demo=true` as any)
@@ -127,8 +126,22 @@ export function ActiveShipmentCard({
     Alert.alert("Muy pronto", `Esta acción todavía no está lista (${cta.destination}).`);
   };
 
+  // MOVO-346 (punto 17): todo lo que no es un botón abre el detalle. Un único botón para la fila
+  // entera, no uno por paso del stepper: los nodos miden 38 px y los labels se desbordan. Los demo
+  // no tienen detalle.
+  const isDemo = shipment.id.startsWith("demo-");
+  const openDetail = () => pushOnce(`/(app)/shipments/${shipment.id}`);
+
   const content = (
     <View style={{ padding: 20, gap: 4 }}>
+      <Pressable
+        testID={testID ? `${testID}-open-detail` : undefined}
+        accessibilityRole="button"
+        accessibilityLabel={`Ver el detalle del envío ${activeShipmentDisplayCode(shipment.id)}`}
+        disabled={isDemo}
+        onPress={openDetail}
+        style={{ gap: 4 }}
+      >
       {/* ── Encabezado: código (headline) + contraparte, pill de estado a la derecha ── */}
       <View className="flex-row items-start justify-between gap-3">
           <View className="min-w-0 flex-1 gap-0.5">
@@ -285,6 +298,8 @@ export function ActiveShipmentCard({
           </Text>
         </View>
       </View>
+
+      </Pressable>
 
       {/* ── Fila inferior: texto + acción ── */}
       <View

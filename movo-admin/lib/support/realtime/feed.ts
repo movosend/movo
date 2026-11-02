@@ -3,14 +3,16 @@ import type {
   SupportEventsPage,
   SupportRealtimeTicket,
 } from "@movo/shared/src/types/admin-support"
+import { SUPPORT_WS_CLOSE } from "@movo/shared/src/types/support"
 
 /**
  * Estado de la conexión en vivo de la bandeja.
  * - `connecting`: abriendo el WS (primer intento).
- * - `live`: WS abierto.
+ * - `live`: WS abierto (tras una caída, recién cuando se mantiene `WS_STABLE_MS` o trae un mensaje).
  * - `reconnecting`: se cayó y se reintenta; los eventos se recuperan con `resync` al volver.
  * - `polling`: el WS no pudo abrirse varias veces seguidas; se lee `GET …/events` cada
- *   `POLL_MS` y se sigue intentando el WS en segundo plano.
+ *   `POLL_MS` y se sigue intentando el WS en segundo plano (salvo que el servidor lo haya
+ *   rechazado con `FORBIDDEN`: ahí no se reintenta hasta el próximo `start`).
  * - `stopped`: sin sesión o sin suscriptores.
  */
 export type FeedStatus =
@@ -23,7 +25,7 @@ export type FeedMessage =
 export interface SocketLike {
   onopen: (() => void) | null
   onmessage: ((event: { data: unknown }) => void) | null
-  onclose: (() => void) | null
+  onclose: ((event?: { code?: number }) => void) | null
   onerror: (() => void) | null
   close(): void
 }
@@ -41,13 +43,21 @@ export const POLL_MS = 10_000
 export const WS_FAILURES_BEFORE_POLLING = 3
 const BACKOFF_BASE_MS = 1_000
 const BACKOFF_MAX_MS = 30_000
+/**
+ * Tiempo abierto (o un primer mensaje) para dar el socket por sano y resetear el backoff. MOVO-346
+ * (punto 7): resetearlo en `onopen` hacía que un servidor que acepta el upgrade y cierra enseguida
+ * (origen rechazado) contara cada intento como un éxito: el backoff nunca crecía y el panel pedía
+ * un ticket cada ~2 s, para siempre.
+ */
+export const WS_STABLE_MS = 10_000
 
 /**
  * Conexión en vivo con reconexión (AC9 y AC14 de MOVO-323). Sin React: el provider la usa y los
  * tests la manejan con timers falsos. El WS se autentica con un ticket de un solo uso pedido por
  * Server Action (el token nunca llega al JS); si no hay WS, cae a polling del mismo contrato de
- * eventos. Cada vez que se abre el socket (también la primera) emite `resync`: los que muestran
- * listas deben volver a pedirlas, porque pudieron perderse eventos antes de que el socket esté listo.
+ * eventos. Al pasar a `live` (la primera apertura, o la primera estable después de una caída) emite
+ * `resync`: los que muestran listas deben volver a pedirlas, porque pudieron perderse eventos antes
+ * de que el socket esté listo.
  */
 export class SupportFeed {
   status: FeedStatus = "stopped"
@@ -57,6 +67,7 @@ export class SupportFeed {
   private cursor: string | undefined
   private failures = 0
   private retry: ReturnType<typeof setTimeout> | null = null
+  private stable: ReturnType<typeof setTimeout> | null = null
   private poll: ReturnType<typeof setInterval> | null = null
   private running = false
   /** Cambia con cada `start`/`stop` para descartar respuestas de una conexión vieja. */
@@ -104,8 +115,10 @@ export class SupportFeed {
   private teardown() {
     if (this.retry) clearTimeout(this.retry)
     if (this.poll) clearInterval(this.poll)
+    if (this.stable) clearTimeout(this.stable)
     this.retry = null
     this.poll = null
+    this.stable = null
     if (this.socket) {
       this.socket.onopen =
         this.socket.onmessage =
@@ -134,42 +147,57 @@ export class SupportFeed {
       return this.failed()
     }
     this.socket = socket
-    socket.onopen = () => {
-      if (epoch !== this.epoch) return
+    const goLive = () => {
+      this.setStatus("live")
+      // Lo que pasó entre la carga de la lista (o la caída) y el socket no llega por él.
+      this.emit({ type: "resync" })
+      this.lost = false
+    }
+    const markStable = () => {
+      if (this.stable) clearTimeout(this.stable)
+      this.stable = null
       this.failures = 0
       if (this.poll) clearInterval(this.poll)
       this.poll = null
-      this.setStatus("live")
-      // En cada apertura, también la primera: lo que pasó entre la carga de la lista y el socket no llega por él.
-      this.emit({ type: "resync" })
-      this.lost = false
+      if (this.status !== "live") goLive()
+    }
+    socket.onopen = () => {
+      if (epoch !== this.epoch) return
+      this.stable = setTimeout(markStable, WS_STABLE_MS)
+      // La primera apertura (o la de un socket que venía sano) pasa a `live` enseguida. Tras una
+      // caída espera a que el socket sea estable: si el servidor acepta el upgrade y cierra, cada
+      // intento alternaba "En vivo"/"Reconectando" y pedía un resync de la bandeja entera.
+      if (this.failures === 0) goLive()
     }
     socket.onmessage = ({ data }) => {
       if (epoch !== this.epoch) return
       const event = parse(data)
       if (!event) return
+      if (this.failures > 0) markStable()
       this.cursor = event.cursor
       this.emit({ type: "event", event })
     }
-    const down = () => {
+    const down = (event?: { code?: number }) => {
       if (epoch !== this.epoch || !this.running || this.socket !== socket)
         return
-      this.failed()
+      this.failed(event?.code === SUPPORT_WS_CLOSE.FORBIDDEN)
     }
     socket.onclose = down
-    socket.onerror = down
+    socket.onerror = () => down()
   }
 
-  private failed() {
+  /** `forbidden`: el servidor rechazó el socket (origen o permiso); reintentar no lo arregla. */
+  private failed(forbidden = false) {
     this.failures++
     this.lost = true
     this.teardownSocketOnly()
-    if (this.failures >= WS_FAILURES_BEFORE_POLLING) {
+    if (forbidden || this.failures >= WS_FAILURES_BEFORE_POLLING) {
       this.setStatus("polling")
       this.startPolling()
     } else {
       this.setStatus("reconnecting")
     }
+    if (forbidden) return
     const random = this.deps.random ?? Math.random
     const delay = Math.min(
       BACKOFF_MAX_MS,
@@ -186,7 +214,9 @@ export class SupportFeed {
 
   private teardownSocketOnly() {
     if (this.retry) clearTimeout(this.retry)
+    if (this.stable) clearTimeout(this.stable)
     this.retry = null
+    this.stable = null
     if (this.socket) {
       this.socket.onopen =
         this.socket.onmessage =

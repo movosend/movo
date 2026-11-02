@@ -1,7 +1,7 @@
 import { useColorScheme } from "nativewind";
 import { CheckCircle2, MapPin, Ruler } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -102,6 +102,11 @@ export interface ProximityGeoScreenProps {
   totalSteps: number;
   onBack: () => void;
   onContinue: () => void;
+  /** Default `true`: sin estar a 100 m o menos del punto no se puede continuar (retiro: el punto es
+   * la evidencia del no-retiro, DD-052). En `false` la distancia es informativa y "Continuar" se
+   * habilita apenas termina el chequeo (entrega, MOVO-346 punto 16: el receptor puede no estar en el
+   * pin del emisor, y la proximidad que importa la valida el handshake contra el receptor). */
+  blocking?: boolean;
 }
 
 /**
@@ -135,6 +140,7 @@ export function ProximityGeoScreen({
   totalSteps,
   onBack,
   onContinue,
+  blocking = true,
 }: ProximityGeoScreenProps) {
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
@@ -172,7 +178,13 @@ export function ProximityGeoScreen({
   }, [mapReady, targetLat, targetLng, proximity.currentLocation]);
 
   const dotColor = proximity.status === "within_range" ? "#9FC72E" : proximity.status === "out_of_range" ? "#E5484D" : "#8A8A93";
-  const canRetry = proximity.status === "out_of_range" || proximity.status === "denied" || proximity.status === "error";
+  // En los dos modos: aunque la distancia sea informativa, sin lectura hay que poder volver a pedir
+  // el permiso o refrescarla.
+  const canRetry =
+    proximity.status === "out_of_range" || proximity.status === "denied" || proximity.status === "error";
+  const canContinue = blocking
+    ? proximity.status === "within_range"
+    : proximity.status !== "idle" && proximity.status !== "checking";
   const statusLabel =
     proximity.status === "checking" || proximity.status === "idle"
       ? "Ubicando"
@@ -333,19 +345,31 @@ export function ProximityGeoScreen({
         </View>
       </View>
 
-      {canRetry ? (
+      {blocking && canRetry ? (
         <PrimaryButton
           testID={`${testIDPrefix}-retry`}
           label="Reintentar ubicación"
           onPress={() => void proximity.check()}
         />
       ) : (
-        <PrimaryButton
-          testID={`${testIDPrefix}-continue`}
-          label="Continuar"
-          disabled={proximity.status !== "within_range"}
-          onPress={onContinue}
-        />
+        <>
+          {canRetry ? (
+            <Pressable
+              testID={`${testIDPrefix}-retry`}
+              accessibilityRole="button"
+              onPress={() => void proximity.check()}
+              className="items-center py-3"
+            >
+              <Text className="font-sans-semibold text-small text-fg-2 underline">Reintentar ubicación</Text>
+            </Pressable>
+          ) : null}
+          <PrimaryButton
+            testID={`${testIDPrefix}-continue`}
+            label="Continuar"
+            disabled={!canContinue}
+            onPress={onContinue}
+          />
+        </>
       )}
     </SafeAreaView>
   );

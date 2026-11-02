@@ -87,4 +87,50 @@ describe("RouteMapCard", () => {
 
     expect(getByText("Definí el origen y destino para ver la ruta")).toBeTruthy();
   });
+
+  describe("MOVO-346: seguimiento en vivo sobre el mismo mapa", () => {
+    const TRACE = [
+      { latitude: PICKUP.lat, longitude: PICKUP.lng },
+      { latitude: -31.415, longitude: -64.185 },
+    ];
+
+    it("dibuja el recorrido, lo que falta desde el transportista y su marcador", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const live = { position: { lat: -31.415, lng: -64.185 }, stale: false, trace: TRACE, planned: [] };
+      const { getByTestId, queryByTestId } = await render(
+        <RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} live={live} />,
+      );
+
+      expect(getByTestId("map-trace").props.coordinates).toEqual(TRACE);
+      const remaining = getByTestId("map-remaining").props.coordinates as unknown[];
+      expect(remaining[0]).toEqual({ latitude: -31.415, longitude: -64.185 });
+      expect(getByTestId("map-carrier")).toBeTruthy();
+      expect(queryByTestId("map-last-signal")).toBeNull();
+    });
+
+    it("sin señal muestra la hora de la última", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const live = {
+        position: { lat: -31.415, lng: -64.185 },
+        stale: true,
+        lastSignalLabel: "Última señal 19:10 h",
+        trace: [],
+        planned: [],
+      };
+      const { getByText } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} live={live} />);
+
+      expect(getByText("Última señal 19:10 h")).toBeTruthy();
+    });
+
+    it("sin retiro a la vista (receptor) no dibuja la traza, que lo delataría", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: undefined, isError: false });
+      const live = { position: { lat: -31.415, lng: -64.185 }, stale: false, trace: TRACE, planned: [] };
+      const { queryByTestId, getByTestId } = await render(
+        <RouteMapCard testID="map" pickup={null} pickupLabel="Córdoba" delivery={DELIVERY} live={live} />,
+      );
+
+      expect(queryByTestId("map-trace")).toBeNull();
+      expect(getByTestId("map-carrier")).toBeTruthy();
+    });
+  });
 });

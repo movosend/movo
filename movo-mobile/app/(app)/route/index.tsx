@@ -39,6 +39,7 @@ import { useCarrierRequirementsSheet } from "../../../src/hooks/use-carrier-requ
 import { useStartTrip, useTrip } from "../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { decodePolyline } from "../../../src/lib/polyline";
+import { splitRoute } from "../../../src/lib/route-geometry";
 import { formatTripStartErrorMessage } from "../../../src/lib/trip-format";
 import { shortAddressLabel } from "../../../src/lib/shipment-format";
 import {
@@ -360,10 +361,19 @@ export default function OptimizedRouteScreen() {
   // Parada activa que corresponde ejecutar según orden estricto
   const activeStop = displayRoute?.stops[0] ?? null;
 
-  const demoPolylineCoordinates = useMemo(
-    () => (demoMode ? decodePolyline(DEMO_POLYLINE) : undefined),
-    [demoMode]
-  );
+  // MOVO-346 (punto 14): el camino por calles que devuelve `my-route`. El backend lo cachea 2 h y
+  // arranca donde estaba el transportista al pedirlo, así que se recorta desde el vehículo (con una
+  // recta si se alejó de la línea): sin eso queda una cola detrás del ícono. Sin `polyline` (el
+  // proveedor falló) el mapa une las paradas con rectas.
+  // Decodificar solo cuando cambia el string; el recorte sí corre con cada fix de GPS.
+  const plannedRoute = useMemo(() => (route?.polyline ? decodePolyline(route.polyline) : undefined), [route?.polyline]);
+  const demoRoute = useMemo(() => (demoMode ? decodePolyline(DEMO_POLYLINE) : undefined), [demoMode]);
+  const routePolylineCoordinates = useMemo(() => {
+    if (demoRoute) return demoRoute;
+    if (!plannedRoute) return undefined;
+    const from = carrierLocation ? { latitude: carrierLocation.lat, longitude: carrierLocation.lng } : null;
+    return splitRoute(plannedRoute, from).todo;
+  }, [demoRoute, plannedRoute, carrierLocation]);
 
   const handleSelectStop = (stop: CarrierRouteStop) => {
     setSelectedStopOrder(stop.stopOrder);
@@ -478,7 +488,7 @@ export default function OptimizedRouteScreen() {
               selectedStopOrder={selectedStopOrder}
               activeStopOrder={activeStop?.stopOrder ?? 1}
               onSelectStop={handleSelectStop}
-              polylineCoordinates={demoPolylineCoordinates}
+              polylineCoordinates={routePolylineCoordinates}
               onResetFocus={handleResetFocus}
               focusTrigger={focusTrigger}
               topOffset={topInset + 8 + ISLAND_HEIGHT + ISLAND_GAP}

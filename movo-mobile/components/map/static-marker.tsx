@@ -12,10 +12,12 @@ export function StaticMarker({
   coordinate,
   anchor = { x: 0.5, y: 0.5 },
   children,
+  testID,
 }: {
   coordinate: LatLng;
   anchor?: { x: number; y: number };
   children: ReactNode;
+  testID?: string;
 }) {
   const [track, setTrack] = useState(true);
   useEffect(() => {
@@ -24,7 +26,7 @@ export function StaticMarker({
   }, []);
 
   return (
-    <Marker coordinate={coordinate} anchor={anchor} tracksViewChanges={track}>
+    <Marker testID={testID} coordinate={coordinate} anchor={anchor} tracksViewChanges={track}>
       {children}
     </Marker>
   );

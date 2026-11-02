@@ -4,10 +4,12 @@ import type {
   SupportEventsPage,
   SupportRealtimeTicket,
 } from "@movo/shared/src/types/admin-support"
+import { SUPPORT_WS_CLOSE } from "@movo/shared/src/types/support"
 import {
   POLL_MS,
   SupportFeed,
   WS_FAILURES_BEFORE_POLLING,
+  WS_STABLE_MS,
   type FeedMessage,
   type SocketLike,
 } from "./feed"
@@ -15,7 +17,7 @@ import {
 class FakeSocket implements SocketLike {
   onopen: (() => void) | null = null
   onmessage: ((event: { data: unknown }) => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((event?: { code?: number }) => void) | null = null
   onerror: (() => void) | null = null
   closed = false
   close() {
@@ -63,6 +65,7 @@ function setup(
   return { feed, sockets, messages, fetchEvents }
 }
 const flush = () => vi.advanceTimersByTimeAsync(0)
+const BACKOFF_CEILING_MS = 30_000
 
 beforeEach(() =>
   vi.useFakeTimers({
@@ -80,7 +83,10 @@ describe("SupportFeed", () => {
     expect(feed.status).toBe("live")
     sockets[0].onmessage?.({ data: JSON.stringify(event("5")) })
     sockets[0].onmessage?.({ data: "basura" })
-    expect(messages).toEqual([{ type: "resync" }, { type: "event", event: event("5") }])
+    expect(messages).toEqual([
+      { type: "resync" },
+      { type: "event", event: event("5") },
+    ])
   })
 
   it("reconecta con backoff y avisa resync al volver", async () => {
@@ -92,9 +98,46 @@ describe("SupportFeed", () => {
     expect(feed.status).toBe("reconnecting")
     await vi.advanceTimersByTimeAsync(1_000)
     expect(sockets).toHaveLength(2)
+    messages.length = 0
     sockets[1].onopen?.()
+    // Tras una caída, `live` y el resync esperan a que el socket sea estable (o traiga un mensaje).
+    expect(feed.status).toBe("reconnecting")
+    expect(messages).toEqual([])
+    await vi.advanceTimersByTimeAsync(WS_STABLE_MS)
     expect(feed.status).toBe("live")
-    expect(messages).toContainEqual({ type: "resync" })
+    expect(messages).toEqual([{ type: "resync" }])
+  })
+
+  it("tras una caída, el primer mensaje da el socket por sano sin esperar", async () => {
+    const { feed, sockets, messages } = setup()
+    feed.start()
+    await flush()
+    sockets[0].onopen?.()
+    sockets[0].onclose?.()
+    await vi.advanceTimersByTimeAsync(1_000)
+    messages.length = 0
+    sockets[1].onopen?.()
+    sockets[1].onmessage?.({ data: JSON.stringify(event("9")) })
+    expect(feed.status).toBe("live")
+    expect(messages).toEqual([{ type: "resync" }, { type: "event", event: event("9") }])
+  })
+
+  it("un servidor que acepta el upgrade y cierra no alterna live/reconnecting ni pide resync", async () => {
+    const { feed, sockets, messages } = setup()
+    const statuses: string[] = []
+    feed.onStatus((s) => statuses.push(s))
+    feed.start()
+    await flush()
+    sockets[0].onclose?.()
+    for (let i = 1; i < WS_FAILURES_BEFORE_POLLING + 2; i++) {
+      await vi.advanceTimersByTimeAsync(BACKOFF_CEILING_MS)
+      sockets[i].onopen?.()
+      sockets[i].onclose?.()
+    }
+    expect(statuses).not.toContain("live")
+    // Solo el del primer poll al caer a polling, no uno por intento.
+    expect(messages.filter((m) => m.type === "resync")).toHaveLength(1)
+    feed.stop()
   })
 
   it("cuenta onerror y onclose del mismo socket como un solo fallo", async () => {
@@ -157,5 +200,54 @@ describe("SupportFeed", () => {
     expect(feed.status).toBe("stopped")
     await vi.advanceTimersByTimeAsync(60_000)
     expect(sockets).toHaveLength(1)
+  })
+
+  describe("MOVO-346: servidor que acepta y cierra enseguida", () => {
+    it("el backoff crece y pasa a polling al 3.er intento aunque cada socket abra", async () => {
+      const ticketCalls = vi.fn(async () => ticket)
+      const { feed, sockets } = setup({ ticket: ticketCalls })
+      feed.start()
+      await flush()
+      for (let i = 0; i < WS_FAILURES_BEFORE_POLLING; i++) {
+        sockets[i].onopen?.()
+        sockets[i].onclose?.()
+        if (i < WS_FAILURES_BEFORE_POLLING - 1) {
+          expect(feed.status).toBe("reconnecting")
+          // Sin reset en onopen: el segundo intento espera 2 s, no 1 s.
+          await vi.advanceTimersByTimeAsync(1_000 * 2 ** i)
+        }
+      }
+      expect(feed.status).toBe("polling")
+      expect(ticketCalls).toHaveBeenCalledTimes(WS_FAILURES_BEFORE_POLLING)
+      feed.stop()
+    })
+
+    it("con el socket estable un rato, el backoff vuelve a empezar", async () => {
+      const { feed, sockets } = setup()
+      feed.start()
+      await flush()
+      sockets[0].onclose?.()
+      await vi.advanceTimersByTimeAsync(1_000)
+      sockets[1].onopen?.()
+      await vi.advanceTimersByTimeAsync(WS_STABLE_MS)
+      sockets[1].onclose?.()
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(sockets).toHaveLength(3)
+      feed.stop()
+    })
+
+    it("un cierre FORBIDDEN pasa directo a polling y no vuelve a pedir tickets", async () => {
+      const ticketCalls = vi.fn(async () => ticket)
+      const { feed, sockets, fetchEvents } = setup({ ticket: ticketCalls })
+      feed.start()
+      await flush()
+      sockets[0].onopen?.()
+      sockets[0].onclose?.({ code: SUPPORT_WS_CLOSE.FORBIDDEN })
+      expect(feed.status).toBe("polling")
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+      expect(ticketCalls).toHaveBeenCalledTimes(1)
+      expect(fetchEvents).toHaveBeenCalled()
+      feed.stop()
+    })
   })
 })

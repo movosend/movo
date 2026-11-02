@@ -12,7 +12,7 @@ import {
   JetBrainsMono_600SemiBold,
   useFonts as useJetBrainsMonoFonts,
 } from '@expo-google-fonts/jetbrains-mono';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { useColorScheme } from 'nativewind';
 import { useCallback, useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
@@ -31,6 +31,7 @@ import { useSupportUnreadSync } from '../src/hooks/use-support-unread-sync';
 import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
+import { createQueryClient } from '../src/lib/query-client';
 import { useAuthStore } from '../src/store/auth-store';
 import { useBlockingGatesStore } from '../src/store/blocking-gates-store';
 import { useBootStore } from '../src/store/boot-store';
@@ -200,7 +201,7 @@ export default function RootLayout() {
   // Solo relevante en dev (ver getApiBaseUrl en src/lib/env.ts) pero se carga
   // siempre para no bifurcar el flujo de boot entre dev/prod.
   const [apiOverrideLoaded, setApiOverrideLoaded] = useState(false);
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(createQueryClient);
   const sessionStatus = useAuthStore((s) => s.status);
   const restoreSession = useAuthStore((s) => s.restoreSession);
   const initialRouteResolved = useBootStore((s) => s.initialRouteResolved);
