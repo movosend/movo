@@ -272,6 +272,25 @@ describe("Componentes de Ruta (MOVO-207)", () => {
   });
 
   describe("RouteMap", () => {
+    it("MOVO-346: destaca el tramo del trazo hasta la próxima parada", async () => {
+      const first = sampleRoute.stops[0];
+      const polyline = [
+        { latitude: -31.4167, longitude: -64.1833 },
+        { latitude: first.lat, longitude: first.lng },
+        { latitude: first.lat - 0.05, longitude: first.lng - 0.05 },
+      ];
+      const { getByTestId } = await render(
+        <RouteMap
+          carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
+          stops={sampleRoute.stops}
+          activeStopOrder={first.stopOrder}
+          polylineCoordinates={polyline}
+        />
+      );
+
+      expect(getByTestId("route-map-active-leg").props.coordinates).toEqual(polyline.slice(0, 2));
+    });
+
     it("AC2/AC3: renderiza marcadores de paradas ordenadas, origen y posición del transportista", async () => {
       const carrierLocation = { lat: -31.4167, lng: -64.1833 };
       const originLocation = { lat: -31.3533, lng: -64.2562 };

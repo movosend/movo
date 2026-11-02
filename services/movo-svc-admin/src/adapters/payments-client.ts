@@ -1,5 +1,5 @@
-import { AdminUserLedgerRow, AdminUserLedgerRowPage, AdminUserMercadoPago, HoldDetailResponse } from "@movo/shared";
-import { createInternalClient, InternalClient, isNullableString, isRecord, isString, RequestContext } from "./internal-client";
+import { AdminUserLedgerRow, AdminUserLedgerRowPage, AdminUserMercadoPago, HoldDetailResponse, OverviewInboxSource, OverviewPaymentsExtra } from "@movo/shared";
+import { createInternalClient, InternalClient, isNullableString, isOverviewInboxSource, isRecord, isString, RequestContext } from "./internal-client";
 
 /** Lo que manda `svc-admin` al alta de un ajuste manual (DD-044). */
 export interface LedgerAdjustmentRequest {
@@ -25,6 +25,8 @@ export interface PaymentsClient extends InternalClient {
   createLedgerAdjustment(userId: string, body: LedgerAdjustmentRequest, ctx: RequestContext): Promise<LedgerAdjustmentResponse>;
   /** `GET /internal/payments/holds/by-shipment/:id` (MOVO-325). `null` si nunca se intentó el pago. */
   findHoldByShipment(shipmentId: string, ctx: RequestContext): Promise<HoldDetailResponse | null>;
+  /** MOVO-342: `GET /internal/payments/admin/overview`, la bandeja de pagos de la home. */
+  getOverview(ctx: RequestContext): Promise<OverviewInboxSource<OverviewPaymentsExtra>>;
 }
 
 const isNumber = (value: unknown): value is number => typeof value === "number";
@@ -59,6 +61,11 @@ export function createPaymentsClient(config: { PAYMENTS_SERVICE_URL: string }): 
   // (una cuenta sin movimientos ni MP es vacía), así que un 404 es una ruta que falta → 502.
   return {
     ...client,
+    async getOverview(ctx) {
+      const inbox = await client.request("/internal/payments/admin/overview", ctx, { isValid: isOverviewInboxSource<OverviewPaymentsExtra>, notFoundCodes: [] });
+      if (!inbox) throw new Error("getOverview: respuesta vacía");
+      return inbox;
+    },
     async getUserMercadoPago(userId, ctx) {
       const result = await client.request(`/internal/payments/mp-connect/${encodeURIComponent(userId)}/admin-summary`, ctx, {
         isValid: isMercadoPago,

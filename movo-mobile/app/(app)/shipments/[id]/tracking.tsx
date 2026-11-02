@@ -24,6 +24,8 @@ import {
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useLivePosition } from "../../../../src/hooks/use-live-position";
+import { useShipmentTracking } from "../../../../src/hooks/use-shipment-tracking";
+import { useAuthStore } from "../../../../src/store/auth-store";
 import { LiveMap } from "../../../../components/tracking/live-map";
 import { CounterpartCard } from "../../../../components/shipments/counterpart-card";
 import {
@@ -104,6 +106,21 @@ export default function LiveTrackingScreen() {
   });
 
   const displayPosition = demoMode ? (livePosition ?? DEMO_CARRIER_POSITION) : livePosition;
+
+  // MOVO-346 (punto 12): ruta planificada y recorrido del tramo de este envío.
+  const partyTracking = useShipmentTracking(shipmentId, {
+    enabled: !demoMode && !isDelivered,
+    status: shipment?.status,
+  });
+
+  // El receptor no ve el punto de retiro (MOVO-194 AC4): ni la traza, que arranca ahí, ni la ruta
+  // planificada entera; solo lo que falta desde el transportista (`LiveMap` la corta en su posición).
+  const currentUserId = useAuthStore((state) => state.user?.userId);
+  const seesReceiverView =
+    !!shipment &&
+    (currentUserId === shipment.receiverId || shipment.receiverTransfer?.viewerIsFormerReceiver === true);
+  const mapTrace = seesReceiverView ? [] : partyTracking.trace;
+  const mapPlannedRoute = seesReceiverView && !displayPosition ? [] : partyTracking.planned;
 
   // MOVO-278 (DD-045): sin posición (o con el envío demorado) el mapa explica qué pasa en
   // vez de quedar solo con el pin de destino. La última posición vence a los 7 días (ADR-020).
@@ -309,7 +326,7 @@ export default function LiveTrackingScreen() {
         )}
       </View>
 
-      {/* 2. Mapa Táctico de Fondo (Sin traza histórica según DD-023) */}
+      {/* 2. Mapa de fondo: posición en vivo, recorrido y lo que falta (MOVO-346) */}
       <View style={StyleSheet.absoluteFill}>
         <LiveMap
           carrierPosition={displayPosition}
@@ -320,6 +337,8 @@ export default function LiveTrackingScreen() {
           topOffset={topInset + 68}
           bottomOffset={isExpanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT}
           showControls={!isExpanded}
+          plannedRoute={mapPlannedRoute}
+          trace={mapTrace}
         />
       </View>
 

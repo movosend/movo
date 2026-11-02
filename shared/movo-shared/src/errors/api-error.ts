@@ -403,7 +403,10 @@ export type ApiErrorCode =
   // El monto parcial no cubre el `application_fee` del hold más la comisión de MP; `details.minimumArs` (422).
   | "DISPUTE_PARTIAL_BELOW_MINIMUM"
   // El monto libre supera lo que hay en juego; `details.maximumArs` (422).
-  | "DISPUTE_PARTIAL_ABOVE_MAXIMUM";
+  | "DISPUTE_PARTIAL_ABOVE_MAXIMUM"
+  // MOVO-342 (ADR-025): reportes del panel.
+  // Rango de fechas inválido, invertido, futuro o más largo que `REPORT_RANGE_MAX_DAYS`; `details.reason` (400).
+  | "REPORT_RANGE_INVALID";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

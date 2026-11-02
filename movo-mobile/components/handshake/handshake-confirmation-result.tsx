@@ -44,6 +44,9 @@ interface HandshakeConfirmationResultProps {
   /** Solo en la entrega: estado del cobro del transportista (MOVO-214 AC5). Lo pasa el wizard
    * de entrega; el receptor que escanea no lo recibe y no ve nada del pago (AC3). */
   paymentSlot?: ReactNode;
+  /** Quién ve la pantalla (MOVO-346, punto 11). En la entrega escanea el receptor desde
+   * `handshake-scan.tsx`: para él el paquete llegó, no lo entregó. Default `carrier`. */
+  viewer?: "carrier" | "receiver";
   testID?: string;
 }
 
@@ -88,6 +91,7 @@ export function HandshakeConfirmationResult({
   secondaryCtaLabel,
   onSecondaryCtaPress,
   paymentSlot,
+  viewer = "carrier",
   testID,
 }: HandshakeConfirmationResultProps) {
   const { data: shipment } = useShipment(result.shipmentId);
@@ -145,7 +149,13 @@ export function HandshakeConfirmationResult({
     ? `Retiro confirmado${timeLabel ? ` · ${timeLabel}` : ""}`
     : `Entrega confirmada${timeLabel ? ` · ${timeLabel}` : ""}`;
   const title1 = isPickup ? "Lo tenés vos." : "Listo.";
-  const title2 = isPickup ? (deliveryAddress ? `Ahora, a ${deliveryAddress}.` : "Ahora, a la entrega.") : "Se lo entregaste.";
+  const title2 = isPickup
+    ? deliveryAddress
+      ? `Ahora, a ${deliveryAddress}.`
+      : "Ahora, a la entrega."
+    : viewer === "receiver"
+      ? "Recibiste tu paquete."
+      : "Se lo entregaste.";
   const resolvedCtaLabel = ctaLabel ?? (isPickup ? "Ver la ruta" : "Volver al envío");
 
   return (
@@ -198,7 +208,7 @@ export function HandshakeConfirmationResult({
           <View className="gap-2">
             <View className="flex-row items-center justify-between gap-3">
               <Text className="font-sans text-[13px] text-ink-500">
-                {receiverFirstName ? `${receiverFirstName} · destinataria` : "Destinatario"}
+                {receiverFirstName ? `Recibe: ${receiverFirstName}` : "Destinatario"}
               </Text>
               {route.data ? (
                 <Text className="font-mono text-[13px] text-ink-600">

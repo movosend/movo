@@ -884,3 +884,8 @@ como `cash_commission` del transportista, calculada con `decomposeOfferGrossPric
 ### MOVO-346 — Alerta cuando MP no responde al crear holds
 
 `modules/holds/provider-outage-alert.ts`: cada "MP no respondió al crear el hold" suma en `alert:mp_hold_create_unavailable:<ventana>` (Redis, ventana fija de 10 min). A la tercera falla de la ventana manda `mp_hold_create_unavailable` por `app.alerts`, una sola vez. El servicio de holds lo recibe como callback `onProviderUnavailable`, porque `app.alerts` lo decora `mpWebhooks`, que se registra después. Nunca tira: el 502 al emisor no cambia. Origen: en la prueba del 25/10, MP no respondió a 4 holds seguidos y no se enteró nadie (`docs/pruebas/2026-10-25-flujo-completo.md`, punto 2).
+
+### MOVO-342 — Bandeja de pagos de la home del panel (ADR-025, DD-058)
+
+`settlements/admin-overview.routes.ts`: `GET /internal/payments/admin/overview`, holds autorizados que vencen hoy (día de Argentina) y capturas `failed`/`escalated`. `overSla` se calcula acá, no en `svc-admin`:
+un hold se pasa de plazo cuando le quedan menos de 6 h, no por antigüedad. Una disputa en `resolving` no se cuenta: la dueña es `svc-shipments` y la tarjeta de disputas ya la muestra.

@@ -1,7 +1,7 @@
 import type {
   AdminOverview,
   AdminOverviewBlockId,
-  AdminOverviewBlocks,
+  AdminOverviewData,
   OverviewInbox,
 } from "@movo/shared/src/types/admin-reports"
 import { DISPUTE_REASON_LABEL } from "@/lib/disputes/format"
@@ -37,7 +37,7 @@ const plural = (n: number, one: string, many: string) =>
 function def<K extends AdminOverviewBlockId>(
   id: K,
   rest: Omit<InboxDef, "id" | "sub"> & {
-    sub: (data: AdminOverviewBlocks[K]) => string
+    sub: (data: AdminOverviewData[K]) => string
   }
 ): InboxDef {
   return { id, ...rest, sub: rest.sub as (data: never) => string }

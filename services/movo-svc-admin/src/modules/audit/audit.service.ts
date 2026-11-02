@@ -1,5 +1,5 @@
 import { FastifyBaseLogger } from "fastify";
-import { ApiError, AuditLogPage } from "@movo/shared";
+import { ApiError, AuditLogEntry, AuditLogPage } from "@movo/shared";
 import { AuditLogCursor, AuditLogFilters, AuditRepository } from "./audit.repository";
 import { AdminTarget, ConflictChecker } from "./conflict-of-interest";
 
@@ -42,6 +42,11 @@ export interface AuditService {
    */
   runAdminAction<T>(input: AdminActionInput<T>, action: () => Promise<T>): Promise<T>;
   list(filters: AuditLogFilters, limit: number, cursor?: string): Promise<AuditLogPage>;
+  /**
+   * MOVO-342: las filas de los filtros, en el mismo orden que `list` y por la misma consulta (así el CSV coincide con el
+   * listado), hasta `maxRows`. `truncated` avisa si había más: el panel lo muestra, un corte en silencio parecería completo.
+   */
+  listForExport(filters: AuditLogFilters, maxRows: number): Promise<{ rows: AuditLogEntry[]; truncated: boolean }>;
 }
 
 export interface AuditServiceDeps {
@@ -137,6 +142,12 @@ export function createAuditService(deps: AuditServiceDeps): AuditService {
         logger.error({ err: auditError, event: "admin_audit_insert_failed", ...base, outcome: "succeeded" }, "Acción del panel hecha pero sin registrar en la bitácora");
       }
       return result;
+    },
+
+    async listForExport(filters, maxRows) {
+      // Uno de más para distinguir "justo el tope" de "más que el tope" sin un COUNT.
+      const rows = await repository.list(filters, maxRows + 1);
+      return { rows: rows.slice(0, maxRows), truncated: rows.length > maxRows };
     },
 
     async list(filters, limit, cursor) {

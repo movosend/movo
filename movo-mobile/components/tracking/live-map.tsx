@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import { useColorScheme } from "nativewind";
 import * as Haptics from "expo-haptics";
 import { Crosshair, Map, MapPin, Truck } from "lucide-react-native";
@@ -10,6 +10,7 @@ import {
 } from "../../src/constants/map-style";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import type { LiveCarrierPosition, TrackingStatus } from "../../src/hooks/use-live-position";
+import { splitRoute } from "../../src/lib/route-geometry";
 
 export interface LiveMapProps {
   carrierPosition?: LiveCarrierPosition | null;
@@ -20,16 +21,21 @@ export interface LiveMapProps {
   topOffset?: number;
   bottomOffset?: number;
   showControls?: boolean;
+  /** Ruta planificada del tramo del envío (`GET /shipments/:id/tracking`). Lo que falta se dibuja
+   * punteado desde el transportista. */
+  plannedRoute?: LatLng[];
+  /** Recorrido real desde el retiro, sólido. */
+  trace?: LatLng[];
   testID?: string;
 }
 
 /**
  * Mapa interactivo de seguimiento en vivo para emisor y receptor (MOVO-204).
  *
- * Cumplimiento estricto de DD-023:
- * - NO dibuja trazas históricas ni polilíneas del recorrido del transportista.
- * - Solo renderiza la posición actual del conductor y el pin del destino final.
- * - Muestra la pildora de telemetría de conexión y controles de recentrado táctico.
+ * Posición actual del conductor, pin del destino, píldora de conexión y controles de recentrado.
+ * MOVO-346 (punto 12) suma el recorrido (sólido) y lo que falta (punteado desde el transportista),
+ * del tramo de este envío y solo mientras dura: `GET /shipments/:id/tracking` no devuelve traza con el
+ * envío cerrado (DD-023, privacidad de la ubicación del transportista).
  */
 export function LiveMap({
   carrierPosition,
@@ -40,6 +46,8 @@ export function LiveMap({
   topOffset = 56,
   bottomOffset = 260,
   showControls = true,
+  plannedRoute = [],
+  trace = [],
   testID = "live-tracking-map",
 }: LiveMapProps) {
   const mapRef = useRef<MapView>(null);
@@ -52,6 +60,14 @@ export function LiveMap({
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
   const colors = useThemeColors();
+
+  const remainingRoute = useMemo(
+    () =>
+      carrierPosition && plannedRoute.length > 1
+        ? splitRoute(plannedRoute, { latitude: carrierPosition.lat, longitude: carrierPosition.lng }).todo
+        : plannedRoute,
+    [carrierPosition, plannedRoute],
+  );
 
   // Permite que los subviews nativos se rendericen y luego congela el ciclo de rastreo para alto rendimiento
   useEffect(() => {
@@ -266,6 +282,18 @@ export function LiveMap({
         showsPointsOfInterests={false}
         showsUserLocation={false}
       >
+        {trace.length > 1 ? (
+          <Polyline testID="live-map-trace" coordinates={trace} strokeColor={colors.fg1} strokeWidth={4} />
+        ) : null}
+        {remainingRoute.length > 1 ? (
+          <Polyline
+            testID="live-map-remaining"
+            coordinates={remainingRoute}
+            strokeColor={colors.fg1}
+            strokeWidth={3.5}
+            lineDashPattern={[6, 6]}
+          />
+        ) : null}
         {/* MARCADOR 1: Destino Final */}
         {destinationLocation && (
           <Marker

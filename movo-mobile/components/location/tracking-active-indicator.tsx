@@ -23,6 +23,7 @@ export function TrackingActiveIndicator({
     isTracking,
     inTransitCount,
     pendingQueueCount,
+    deliveryFailing,
     permissionGranted,
     backgroundPermissionGranted,
     lastError,
@@ -41,6 +42,10 @@ export function TrackingActiveIndicator({
   const isForegroundDenied = permissionGranted === false || lastError === "PERMISSION_DENIED";
   const isBackgroundMissing =
     !isForegroundDenied && isTracking && backgroundPermissionGranted === false;
+
+  // MOVO-346 (punto 13): "sin conexión" sale de un envío que falló por red, no de que la cola tenga
+  // ítems: una cola con restos o vaciándose no es falta de conexión.
+  const isOffline = deliveryFailing;
 
   const isInteractive = isForegroundDenied || isBackgroundMissing;
 
@@ -75,7 +80,7 @@ export function TrackingActiveIndicator({
             ? "Permiso de ubicación requerido. Toca para activar."
             : isBackgroundMissing
               ? "Transmitiendo solo con app abierta. Toca para activar en segundo plano."
-              : pendingQueueCount > 0
+              : isOffline
                 ? "Sin conexión a internet"
                 : "Transmitiendo ubicación en vivo"
         }
@@ -84,7 +89,7 @@ export function TrackingActiveIndicator({
             ? "border-amber-500/40 bg-amber-500/10 active:bg-amber-500/15"
             : isBackgroundMissing
               ? "border-sky-500/40 bg-sky-500/10 active:bg-sky-500/15"
-              : pendingQueueCount > 0
+              : isOffline
                 ? "border-blue-500/40 bg-blue-500/10"
                 : "border-lime-500/40 bg-lime-500/10"
         } ${className}`}
@@ -94,7 +99,7 @@ export function TrackingActiveIndicator({
           <AlertCircle size={18} color="#F59E0B" strokeWidth={2} />
         ) : isBackgroundMissing ? (
           <Navigation size={18} color="#0EA5E9" strokeWidth={2} />
-        ) : pendingQueueCount > 0 ? (
+        ) : isOffline ? (
           <WifiOff size={18} color="#3B82F6" strokeWidth={2} />
         ) : (
           <View className="relative items-center justify-center">
@@ -111,7 +116,7 @@ export function TrackingActiveIndicator({
                 ? "text-amber-500"
                 : isBackgroundMissing
                   ? "text-sky-400"
-                  : pendingQueueCount > 0
+                  : isOffline
                     ? "text-blue-400"
                     : "text-fg"
             }`}
@@ -120,7 +125,7 @@ export function TrackingActiveIndicator({
               ? "Permiso de ubicación requerido"
               : isBackgroundMissing
                 ? "Transmitiendo solo con app abierta"
-                : pendingQueueCount > 0
+                : isOffline
                   ? "Sin conexión a internet"
                   : "Transmitiendo ubicación en vivo"}
           </Text>
@@ -129,7 +134,7 @@ export function TrackingActiveIndicator({
               ? "Toca para activar el permiso de ubicación"
               : isBackgroundMissing
                 ? "Toca para activar en segundo plano y apagar la pantalla sin pausar"
-                : pendingQueueCount > 0
+                : isOffline
                   ? "Tu ubicación se transmitirá a los participantes de tus envíos una vez que se restablezca"
                   : `${inTransitCount} ${inTransitCount === 1 ? "envío pendiente" : "envíos pendientes"} de entrega`}
           </Text>

@@ -14,12 +14,18 @@ jest.mock("expo-location", () => ({
 
 jest.mock("../src/location/tracking-task", () => {
   let droppedCb: ((id: string, reason: string) => void) | null = null;
+  const flushedCbs = new Set<any>();
   return {
     backgroundTrackingManager: {
       setTrackingContext: jest.fn(),
       startBackgroundTracking: jest.fn().mockResolvedValue(true),
       stopBackgroundTracking: jest.fn().mockResolvedValue(undefined),
-      flushBatchQueue: jest.fn().mockResolvedValue({ sentCount: 1, remainingCount: 0 }),
+      flushBatchQueue: jest.fn().mockResolvedValue({ sentCount: 1, remainingCount: 0, failure: null }),
+      onFlushed: jest.fn((cb) => {
+        flushedCbs.add(cb);
+        return () => flushedCbs.delete(cb);
+      }),
+      __triggerFlushed: (result: unknown) => flushedCbs.forEach((cb) => cb(result)),
       onShipmentDropped: jest.fn((cb) => {
         droppedCb = cb;
         return () => {
@@ -110,6 +116,52 @@ describe("LocationService (MOVO-203 / MOVO-242)", () => {
     });
 
     await service.stopTracking();
+  });
+
+  describe("MOVO-346: estado de envío para el indicador", () => {
+    const manager = backgroundTrackingManager as unknown as {
+      flushBatchQueue: jest.Mock;
+      __triggerFlushed: (result: unknown) => void;
+    };
+
+    it("un resto en la cola al iniciar no marca falla de envío", async () => {
+      inMemoryQueue = [{ shipmentId: "shipment-1", lat: 1, lng: 1, accuracyM: 5, capturedAt: "2026-10-25T21:00:00Z" }];
+      const service = createService();
+
+      await service.startTracking({ tripId: "trip-1", shipmentIds: ["shipment-1"] });
+
+      expect(service.getStatus().deliveryFailing).toBe(false);
+      await service.stopTracking();
+    });
+
+    it("una falla de red marca deliveryFailing y no actualiza lastReportedAt; un envío OK lo limpia", async () => {
+      const service = createService();
+      manager.flushBatchQueue.mockResolvedValueOnce({ sentCount: 0, remainingCount: 1, failure: "network" });
+
+      await service.startTracking({ tripId: "trip-1", shipmentIds: ["shipment-1"] });
+
+      expect(service.getStatus()).toMatchObject({ deliveryFailing: true, lastReportedAt: null });
+
+      await service.captureAndReportTick();
+
+      expect(service.getStatus().deliveryFailing).toBe(false);
+      expect(service.getStatus().lastReportedAt).not.toBeNull();
+      await service.stopTracking();
+    });
+
+    it("al terminar un vaciado de fondo relee la cola y emite el estado", async () => {
+      const service = createService();
+      const listener = jest.fn();
+      service.subscribe(listener);
+      inMemoryQueue = [];
+      listener.mockClear();
+
+      manager.__triggerFlushed({ sentCount: 3, remainingCount: 0, failure: null });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({ pendingQueueCount: 0, deliveryFailing: false }));
+    });
   });
 
   it("emite posiciones periódicamente en foreground según el intervalo configurado (AC2)", async () => {

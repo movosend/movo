@@ -476,6 +476,51 @@ export type {
   ShipmentPartyTracking,
 } from "./types/admin-shipments";
 
+// admin: base de reportes, home y bitácora ampliada (MOVO-342, ADR-025)
+export {
+  REPORT_RANGE_MAX_DAYS,
+  REPORT_RANGE_ERROR_MESSAGES,
+  validateReportRange,
+  resolveReportRange,
+  reportRangeDays,
+  previousReportRange,
+  reportGranularity,
+  argentinaDayBounds,
+  ADMIN_OVERVIEW_BLOCKS,
+  OVERVIEW_SLA_HOURS,
+  OVERVIEW_FLAGGED_MESSAGES_WINDOW_DAYS,
+  toOverviewInbox,
+  ADMIN_AUDIT_ACTIONS,
+  AUDIT_TARGET_PREFIX_MIN_LENGTH,
+  auditTargetKey,
+  EXPORT_ROWS_HEADER,
+  EXPORT_TRUNCATED_HEADER,
+} from "./types/admin-reports";
+export type {
+  ReportRange,
+  ReportRangeError,
+  ReportRangeResult,
+  ReportGranularity,
+  AdminOverviewBlockName,
+  OverviewBreakdownRow,
+  OverviewInbox,
+  OverviewInboxSource,
+  OverviewDisputesExtra,
+  OverviewSupportExtra,
+  OverviewKycExtra,
+  OverviewUserReportsExtra,
+  OverviewShipmentAlertsExtra,
+  OverviewPaymentsExtra,
+  AdminOverviewBlock,
+  AdminOverviewBlocks,
+  AdminOverview,
+  AdminAuditAction,
+  AuditTargetRef,
+  AdminAuditLogPage,
+  AuditTargetsRequest,
+  AuditTargetsResponse,
+} from "./types/admin-reports";
+
 // admin: cambio forzado de estado de un envío (MOVO-331, DD-055)
 export {
   FORCED_TRANSITION_MATRIX,
@@ -733,8 +778,6 @@ export type {
 
 // admin: reportes del panel (MOVO-345, backend MOVO-342/344)
 export type {
-  ReportRange,
-  ReportGranularity,
   DistanceBand,
   ReportValue,
   ReportPoint,
@@ -772,26 +815,14 @@ export type {
   AdminReportById,
   AdminReportQuery,
   AdminReportExportSection,
-  OverviewInbox,
-  AdminOverviewBlocks,
   AdminOverviewBlockId,
-  AdminOverviewBlock,
-  AdminOverview,
-  AuditTargetRef,
-  AdminAuditLogPage,
-  AdminAuditAction,
+  AdminOverviewData,
   AdminAuditLogQuery,
 } from "./types/admin-reports";
 export {
-  REPORT_RANGE_MAX_DAYS,
   REPORT_GRANULARITY_LIMITS,
   DISTANCE_BANDS,
   ADMIN_REPORT_IDS,
   PRICE_COMPONENTS,
   CAPTURE_LEAKAGE_STEPS,
-  EXPORT_ROWS_HEADER,
-  EXPORT_TRUNCATED_HEADER,
-  ADMIN_OVERVIEW_BLOCKS,
-  auditTargetKey,
-  ADMIN_AUDIT_ACTIONS,
 } from "./types/admin-reports";

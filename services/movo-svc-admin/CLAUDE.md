@@ -251,3 +251,18 @@ disputado, vía `GET /internal/admin/disputes/:id/parties`).
   abierta, no `$`), los contadores de cada admin van en paralelo con tope de 2 s y un fallo al repartir una tanda se loguea aparte
   (`support_ws_dispatch_failed`) sin la espera de un error de Redis. Header y parseo del subprotocolo en `@movo/shared`, los mismos del gateway.
 - Pendiente: cargar las dos env vars por ambiente y probarlo contra un deploy real (ver el `CLAUDE.md` raíz).
+
+### MOVO-342 — Base de reportes: CSV, bitácora ampliada y home (ADR-025, DD-058)
+
+Contrato acordado con el panel (comentarios de MOVO-345 en el ticket), en `types/admin-reports.ts` de `@movo/shared`.
+- **`utils/csv.ts`** (lo reusan MOVO-344 y MOVO-35): `toCsv` con BOM y CRLF y `escapeCsvCell` (un texto que empieza con `=`, `+`, `-`, `@`, tab o CR lleva `'` adelante; un
+  número no, así `-5` sigue siendo número). `utils/admin-block.ts` es el `block()` que antes vivía en `shipments.routes.ts`.
+- **`GET /admin/audit-log`** devuelve `AdminAuditLogPage`: suma `admins` (id → nombre) y `targets` (`auditTargetKey` → etiqueta y relación, `audit-refs.ts`), best-effort por fuente:
+  si una no responde faltan esas claves y el listado sale igual. Suma `from`/`to` (días de Argentina) y `targetId` matchea por prefijo desde 8 caracteres. `action` sigue siendo texto
+  libre en la query: `ADMIN_AUDIT_ACTIONS` es el catálogo para las etiquetas del panel, y un enum daría 400 con acciones viejas de la bitácora.
+- **`GET /admin/audit-log/export`**: mismos filtros y misma consulta que el listado (`audit.listForExport`), así el CSV coincide. **Corta en `CSV_MAX_ROWS` y avisa** con `x-export-rows` y
+  `x-export-truncated`, no con un error. Sin `context`: columnas acordadas con el panel. **Cada exportación pasa por `runAdminAction`** (`report.export`, objetivo nuevo `report`, sin
+  conflicto de interés; migración `20261028120000`) con filtros, filas y si se cortó. Esa fila se escribe después de leer, así que no entra en su propio CSV. Un `svc-users` caído deja vacío `admin_name`.
+- **`GET /admin/overview[?blocks=kyc,support]`** (`modules/overview/`): ocho bandejas pedidas en paralelo a su servicio dueño (`/internal/.../overview/*`). `toOverviewInbox` les suma el plazo y
+  si se pasó. Cada una falla por separado, con `requestId` en el error y el timeout de 5 s del cliente interno. Un bloque desconocido es 400. `no-store`, sin bitácora.
+- Pendiente: alerta por Telegram por antigüedad de disputa (opcional, sin hacer); la pantalla (MOVO-345, en curso). Su `admin-reports.ts` no estaba en el remoto al hacer esto: hay que reconciliarlo al integrar.

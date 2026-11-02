@@ -18,6 +18,11 @@ export interface AuditLogFilters {
   action?: string;
   targetType?: AdminTargetType;
   targetId?: string;
+  /** MOVO-342: el buscador del panel, por los ids cortos que muestra. Sin distinguir mayúsculas. */
+  targetIdPrefix?: string;
+  /** MOVO-342: rango de `createdAt`, `from` inclusivo y `to` exclusivo. */
+  from?: Date;
+  to?: Date;
 }
 
 export interface AuditLogCursor {
@@ -84,6 +89,10 @@ export function createAuditRepository(db: PrismaClient): AuditRepository {
           ...(filters.action ? { action: filters.action } : {}),
           ...(filters.targetType ? { targetType: filters.targetType } : {}),
           ...(filters.targetId ? { targetId: filters.targetId } : {}),
+          ...(filters.targetIdPrefix ? { targetId: { startsWith: filters.targetIdPrefix, mode: "insensitive" as const } } : {}),
+          ...(filters.from || filters.to
+            ? { createdAt: { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lt: filters.to } : {}) } }
+            : {}),
           ...(cursor
             ? {
                 OR: [

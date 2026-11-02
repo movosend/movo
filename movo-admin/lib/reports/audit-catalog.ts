@@ -79,6 +79,61 @@ export const AUDIT_ACTION: Record<AdminAuditAction, ActionMeta> = {
     verb: "subió un adjunto a",
     target: "support_conversation",
   },
+  "support.assign": {
+    label: "Asignación de consulta",
+    verb: "asignó la consulta",
+    target: "support_conversation",
+  },
+  "support.link_shipment": {
+    label: "Envío vinculado",
+    verb: "vinculó un envío a",
+    target: "support_conversation",
+  },
+  "support.unlink_shipment": {
+    label: "Envío desvinculado",
+    verb: "desvinculó un envío de",
+    target: "support_conversation",
+  },
+  "support.note": {
+    label: "Nota en soporte",
+    verb: "dejó una nota en",
+    target: "support_conversation",
+  },
+  "support.priority": {
+    label: "Cambio de prioridad",
+    verb: "cambió la prioridad de",
+    target: "support_conversation",
+  },
+  "support.reopen": {
+    label: "Consulta reabierta",
+    verb: "reabrió",
+    target: "support_conversation",
+  },
+  "support.reply": {
+    label: "Respuesta en soporte",
+    verb: "respondió en",
+    target: "support_conversation",
+  },
+  "support.resolve": {
+    label: "Consulta resuelta",
+    verb: "resolvió",
+    target: "support_conversation",
+  },
+  "support.tags": {
+    label: "Cambio de etiquetas",
+    verb: "cambió las etiquetas de",
+    target: "support_conversation",
+  },
+  "support.topic": {
+    label: "Cambio de tema",
+    verb: "cambió el tema de",
+    target: "support_conversation",
+  },
+  "support.update": {
+    label: "Actualización de consulta",
+    verb: "actualizó",
+    target: "support_conversation",
+  },
   "dispute.note_add": {
     label: "Nota en disputa",
     verb: "dejó una nota en la disputa",
@@ -92,7 +147,7 @@ export const AUDIT_ACTION: Record<AdminAuditAction, ActionMeta> = {
   "report.export": {
     label: "Exportación de CSV",
     verb: "exportó",
-    target: "user",
+    target: "report",
   },
 }
 
@@ -104,6 +159,7 @@ export const TARGET_TYPE_LABEL: Record<AdminTargetType, string> = {
   support_conversation: "Conversación de soporte",
   chat_report: "Reporte de chat",
   user_report: "Reporte de usuario",
+  report: "Exportación",
 }
 
 export const actionMeta = (action: string): ActionMeta | null =>
@@ -210,6 +266,14 @@ export function resolveTarget(
         sub: null,
         href: ref?.userId ? `/users/${ref.userId}` : null,
         openLabel: "Abrir ficha",
+        disputeId: null,
+      }
+    case "report":
+      return {
+        label: "Bitácora",
+        sub: null,
+        href: null,
+        openLabel: "Abrir bitácora",
         disputeId: null,
       }
     case "admin_role":

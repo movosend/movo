@@ -28,6 +28,7 @@ describe("getOrCreateDeviceId", () => {
     expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
       SECURE_STORE_KEYS.pushDeviceId,
       "11111111-1111-1111-1111-111111111111",
+      expect.anything(),
     );
   });
 

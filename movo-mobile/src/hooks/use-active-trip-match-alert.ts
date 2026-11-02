@@ -49,14 +49,10 @@ function samePendingIds(a: AvailableShipment[], b: AvailableShipment[]): boolean
  * montado en `app/(app)/_layout.tsx`) — no reemplaza a `useTripMatches` (el feed en
  * sí, sin polling, MOVO-163 AC1-5).
  *
- * MOVO-221 (fix de review, PR #168): vigilaba estrictamente `TripStatus.ACTIVE`, que
- * era el único estado no terminal antes del rediseño de estados de viaje. Con
- * `declared` como estado inicial real y sin botón "Iniciar viaje" todavía en el
- * mobile, ningún viaje llega nunca a `active` desde la app — el banner quedaba
- * silenciosamente inactivo para siempre. Ahora vigila el primer viaje `declared` O
- * `active` (mismo criterio "vivo vs. terminal" ya usado en `transport.tsx` para la
- * franja "de paso"), así que sigue funcionando hoy (viajes `declared`) y va a seguir
- * funcionando sin cambios cuando exista esa UI (viajes `active`).
+ * Vigila solo el primer viaje `declared`. MOVO-221 había sumado `active` (cuando la app todavía no
+ * iniciaba viajes), pero desde MOVO-258 (D5) `GET /trips/:id/matches` responde 409
+ * `TRIP_NOT_AVAILABLE` a un viaje iniciado: tiene sus paquetes fijos. Vigilarlo daba un 409 en
+ * cada poll (MOVO-346, punto 8).
  *
  * A diferencia de la primera versión (que solo alertaba una vez por envío nuevo y
  * nunca más), esta vigila permanentemente los matches **pendientes** — el aviso vuelve
@@ -75,7 +71,7 @@ function samePendingIds(a: AvailableShipment[], b: AvailableShipment[]): boolean
  * la primera aparición.
  *
  * Simplificaciones aceptadas:
- * - Con más de un viaje `declared`/`active` simultáneo, solo se vigila el primero que
+ * - Con más de un viaje `declared` simultáneo, solo se vigila el primero que
  *   devuelve `useMyTrips()` — sin selector de "cuál viaje vigilar".
  * - El snooze vive en memoria (`useRef`), no persiste entre reinicios — que se
  *   resetee solo al relanzar la app es justamente el comportamiento pedido, no una
@@ -93,12 +89,8 @@ export function useActiveTripMatchAlert() {
   // caso queda `retry: false` en `useMyTrips` como mitigación.
   const isCarrier = useAuthStore((s) => s.user?.roles.includes(UserRole.CARRIER) ?? false);
   const { data: tripsData } = useMyTrips("upcoming", isCarrier);
-  // MOVO-221 (fix de review, PR #168): declared o active, ver el comentario del
-  // archivo -- antes exigía ACTIVE a secas y nunca encontraba nada.
-  const watchedTrip =
-    (tripsData?.items ?? []).find(
-      (trip) => trip.status === TripStatus.DECLARED || trip.status === TripStatus.ACTIVE,
-    ) ?? null;
+  // Solo `declared`: un viaje iniciado no acepta matches (MOVO-258 D5), ver el comentario del archivo.
+  const watchedTrip = (tripsData?.items ?? []).find((trip) => trip.status === TripStatus.DECLARED) ?? null;
   const watchedTripId = watchedTrip?.id ?? null;
 
   const dismissedUntilRef = useRef(0);

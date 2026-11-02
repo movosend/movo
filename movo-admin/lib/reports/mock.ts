@@ -13,7 +13,7 @@ import {
   type AdminAuditLogPage,
   type AdminOverview,
   type AdminOverviewBlockId,
-  type AdminOverviewBlocks,
+  type AdminOverviewData,
   type AdminReportById,
   type AdminReportId,
   type AdminReportQuery,
@@ -629,7 +629,7 @@ export const demoExportReport = (
 const ago = (minutes: number) =>
   new Date(Date.now() - minutes * 60_000).toISOString()
 
-function overviewData(): AdminOverviewBlocks {
+function overviewData(): AdminOverviewData {
   return {
     disputes: {
       count: 7,
