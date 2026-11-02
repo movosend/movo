@@ -1,7 +1,10 @@
 import {
   AuditTargetsRequest,
   AuditTargetsResponse,
+  DisputesReportRowsResponse,
+  DisputesReportSource,
   OverviewDisputesExtra,
+  ReportRange,
   OverviewInboxSource,
   OverviewShipmentAlertsExtra,
   OverviewSupportExtra,
@@ -97,6 +100,9 @@ export interface ShipmentsClient extends InternalClient {
   getOverviewShipmentAlerts(ctx: RequestContext): Promise<OverviewInboxSource<OverviewShipmentAlertsExtra>>;
   getOverviewFlaggedMessages(ctx: RequestContext): Promise<OverviewInboxSource>;
   getAuditTargets(request: AuditTargetsRequest, ctx: RequestContext): Promise<AuditTargetsResponse>;
+  // MOVO-344: reporte de disputas.
+  getDisputesReport(range: ReportRange, ctx: RequestContext): Promise<DisputesReportSource>;
+  listDisputesReportRows(range: ReportRange, limit: number, ctx: RequestContext): Promise<DisputesReportRowsResponse>;
   /** MOVO-341: `GET /internal/admin/disputes/counts` (menú lateral y home). */
   getDisputeCounts(ctx: RequestContext): Promise<AdminDisputeCounts>;
   /** `GET /internal/admin/disputes/:id`. `null` si la disputa no existe. */
@@ -297,6 +303,11 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
     unavailableCode: "SHIPMENTS_SERVICE_UNAVAILABLE",
   });
 
+  const isDisputesReportSource = (body: unknown): body is DisputesReportSource =>
+    isRecord(body) && isRecord(body.meta) && isRecord(body.kpis) && isRecord(body.series) && Array.isArray(body.breakdowns) && Array.isArray(body.backlog) && (body.funnel === null || Array.isArray(body.funnel));
+  const isDisputesReportRows = (body: unknown): body is DisputesReportRowsResponse =>
+    isRecord(body) && Array.isArray(body.items) && typeof body.truncated === "boolean";
+
   async function overviewInbox<E = unknown>(path: string, ctx: RequestContext): Promise<OverviewInboxSource<E>> {
     const inbox = await client.request(`/internal/admin/overview/${path}`, ctx, { isValid: isOverviewInboxSource<E>, notFoundCodes: [] });
     if (!inbox) throw new Error(`overview ${path}: respuesta vacía`);
@@ -417,6 +428,23 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
       });
       if (!targets) throw new Error("getAuditTargets: respuesta vacía");
       return targets;
+    },
+    async getDisputesReport(range, ctx) {
+      const report = await client.request(`/internal/admin/reports/disputes?${new URLSearchParams({ ...range })}`, ctx, {
+        isValid: isDisputesReportSource,
+        notFoundCodes: [],
+      });
+      if (!report) throw new Error("getDisputesReport: respuesta vacía");
+      return report;
+    },
+    async listDisputesReportRows(range, limit, ctx) {
+      const query = new URLSearchParams({ ...range, limit: String(limit) });
+      const rows = await client.request(`/internal/admin/reports/disputes/rows?${query}`, ctx, {
+        isValid: isDisputesReportRows,
+        notFoundCodes: [],
+      });
+      if (!rows) throw new Error("listDisputesReportRows: respuesta vacía");
+      return rows;
     },
     async getDisputeCounts(ctx) {
       const counts = await client.request("/internal/admin/disputes/counts", ctx, { isValid: isDisputeCounts, notFoundCodes: [] });

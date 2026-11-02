@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   AuditTargetsRequest,
   AuditTargetsResponse,
+  DisputesReportRowsResponse,
+  DisputesReportSource,
   OverviewInboxSource,
   OverviewDisputesExtra,
   OverviewKycExtra,
@@ -143,6 +145,10 @@ export function createFakeShipmentsClient(data: {
     shipmentAlerts?: OverviewInboxSource<OverviewShipmentAlertsExtra>;
     flaggedMessages?: OverviewInboxSource;
   };
+  /** MOVO-344: `disputesReportSeen` guarda el rango y el tope con que se pidió. */
+  disputesReport?: DisputesReportSource;
+  disputesReportRows?: DisputesReportRowsResponse;
+  disputesReportSeen?: Array<{ from: string; to: string; limit?: number }>;
   auditTargets?: AuditTargetsResponse;
   auditTargetsSeen?: AuditTargetsRequest[];
   targetsDown?: boolean;
@@ -150,6 +156,17 @@ export function createFakeShipmentsClient(data: {
 } = {}): ShipmentsClient {
   return {
     request: unusedRequest,
+    async getDisputesReport(range) {
+      if (data.down) throw shipmentsDown();
+      data.disputesReportSeen?.push({ ...range });
+      if (!data.disputesReport) throw new Error("fake: falta disputesReport");
+      return data.disputesReport;
+    },
+    async listDisputesReportRows(range, limit) {
+      if (data.down) throw shipmentsDown();
+      data.disputesReportSeen?.push({ ...range, limit });
+      return data.disputesReportRows ?? { items: [], truncated: false };
+    },
     async getOverviewDisputes() {
       if (data.down) throw shipmentsDown();
       return data.overview?.disputes ?? { ...emptyInbox, awaitingPayment: 0 };
