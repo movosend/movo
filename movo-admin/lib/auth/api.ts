@@ -61,6 +61,48 @@ export async function gateway<T>(
   return response.json() as Promise<T>
 }
 
+/**
+ * Un archivo del gateway (CSV de los reportes, MOVO-345): mismo request que `gateway()`, pero
+ * devuelve el cuerpo como texto y los headers. Un error sigue siendo `ApiError`.
+ */
+export async function gatewayFile(
+  path: string,
+  options: { accessToken?: string } = {}
+): Promise<{ body: string; headers: Headers }> {
+  const requestId = (await headers()).get("x-request-id") || randomUUID()
+  let response: Response
+  try {
+    response = await fetch(`${gatewayBaseUrl()}/api/v1${path}`, {
+      headers: {
+        "x-request-id": requestId,
+        ...(options.accessToken
+          ? { Authorization: `Bearer ${options.accessToken}` }
+          : {}),
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(30000),
+      redirect: "error",
+    })
+  } catch {
+    throw new ApiError(
+      503,
+      "INTERNAL_ERROR",
+      "No pudimos conectar con Movo. Reintentá en unos momentos."
+    )
+  }
+  if (!response.ok) {
+    const result = (await response
+      .json()
+      .catch(() => null)) as SerializedApiError | null
+    throw new ApiError(
+      response.status,
+      result?.error?.code ?? "INTERNAL_ERROR",
+      "La solicitud no pudo completarse."
+    )
+  }
+  return { body: await response.text(), headers: response.headers }
+}
+
 const ADMIN_REASONS: Record<string, string> = {
   USER_NOT_FOUND:
     "No hay una cuenta con ese email. La persona tiene que registrarse primero en la app.",
