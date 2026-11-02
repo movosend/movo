@@ -495,6 +495,13 @@ export {
   auditTargetKey,
   EXPORT_ROWS_HEADER,
   EXPORT_TRUNCATED_HEADER,
+  DISTANCE_BANDS,
+  reportBuckets,
+  reportChange,
+  DISPUTES_REPORT_KPIS,
+  DISPUTES_REPORT_PERCENTAGE_KPIS,
+  DISPUTES_REPORT_BREAKDOWNS,
+  DISPUTES_REPORT_EXPORT_SECTIONS,
 } from "./types/admin-reports";
 export type {
   ReportRange,
@@ -519,6 +526,24 @@ export type {
   AdminAuditLogPage,
   AuditTargetsRequest,
   AuditTargetsResponse,
+  DistanceBand,
+  ReportValue,
+  ReportPoint,
+  ReportBreakdownRow,
+  ReportBreakdown,
+  ReportMeta,
+  Report,
+  ReportBucket,
+  DisputesKpi,
+  DisputeFunnelStage,
+  DisputeFunnelStageKey,
+  DisputesReportBreakdownDimension,
+  DisputesReportBacklogRow,
+  DisputesReport,
+  DisputesReportSource,
+  DisputesReportRow,
+  DisputesReportRowsResponse,
+  DisputesReportExportSection,
 } from "./types/admin-reports";
 
 // admin: cambio forzado de estado de un envío (MOVO-331, DD-055)

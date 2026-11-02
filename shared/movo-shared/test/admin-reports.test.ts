@@ -4,6 +4,8 @@ import {
   auditTargetKey,
   previousReportRange,
   REPORT_RANGE_MAX_DAYS,
+  reportBuckets,
+  reportChange,
   reportGranularity,
   reportRangeDays,
   resolveReportRange,
@@ -105,5 +107,46 @@ describe("bandejas de la home (MOVO-342)", () => {
 
   it("la clave de un objetivo es tipo:id", () => {
     expect(auditTargetKey("dispute", "abc")).toBe("dispute:abc");
+  });
+});
+
+describe("buckets y variación de los reportes (MOVO-344)", () => {
+  it("hasta 31 días, un bucket por día, y el anterior corrido un período completo", () => {
+    expect(reportBuckets({ from: "2026-10-01", to: "2026-10-03" })).toEqual([
+      { from: "2026-10-01", to: "2026-10-01", previous: { from: "2026-09-28", to: "2026-09-28" } },
+      { from: "2026-10-02", to: "2026-10-02", previous: { from: "2026-09-29", to: "2026-09-29" } },
+      { from: "2026-10-03", to: "2026-10-03", previous: { from: "2026-09-30", to: "2026-09-30" } },
+    ]);
+  });
+
+  it("hasta 120 días, semanas contadas desde el inicio y la última recortada", () => {
+    const buckets = reportBuckets({ from: "2026-08-01", to: "2026-09-10" });
+    expect(buckets).toHaveLength(6);
+    expect(buckets[0]).toMatchObject({ from: "2026-08-01", to: "2026-08-07" });
+    expect(buckets[5]).toMatchObject({ from: "2026-09-05", to: "2026-09-10" });
+  });
+
+  it("más largo, meses de calendario recortados al rango, sin huecos ni solapes", () => {
+    const buckets = reportBuckets({ from: "2026-01-15", to: "2026-06-10" });
+    expect(buckets.map(({ from, to }) => [from, to])).toEqual([
+      ["2026-01-15", "2026-01-31"],
+      ["2026-02-01", "2026-02-28"],
+      ["2026-03-01", "2026-03-31"],
+      ["2026-04-01", "2026-04-30"],
+      ["2026-05-01", "2026-05-31"],
+      ["2026-06-01", "2026-06-10"],
+    ]);
+  });
+
+  it("en un porcentaje la variación va en puntos; en el resto, en %", () => {
+    expect(reportChange({ value: 12.5, previous: 10 }, true)).toBe(2.5);
+    expect(reportChange({ value: 15, previous: 10 }, false)).toBe(50);
+  });
+
+  it("sin dato o sin base no hay variación", () => {
+    expect(reportChange({ value: null, previous: 10 }, false)).toBeNull();
+    expect(reportChange({ value: 10, previous: null }, true)).toBeNull();
+    expect(reportChange({ value: 10, previous: 0 }, false)).toBeNull();
+    expect(reportChange({ value: 10, previous: 0 }, true)).toBe(10);
   });
 });

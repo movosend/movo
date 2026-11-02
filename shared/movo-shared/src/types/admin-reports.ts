@@ -261,3 +261,179 @@ export interface AuditTargetsResponse {
 /** Headers de una exportación: cuántas filas trae y si el tope la cortó. */
 export const EXPORT_ROWS_HEADER = "x-export-rows";
 export const EXPORT_TRUNCATED_HEADER = "x-export-truncated";
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Forma común de un reporte con tendencia y desgloses (contrato de MOVO-345, comentario en MOVO-344)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type DistanceBand = "50_200" | "200_500" | "500_plus";
+export const DISTANCE_BANDS: readonly DistanceBand[] = ["50_200", "200_500", "500_plus"];
+
+/** `null`: la métrica no está definida (una mediana sin muestras, una tasa sin denominador). Una cuenta sin casos es `0`. */
+export interface ReportValue {
+  value: number | null;
+  previous: number | null;
+}
+
+/** Días inclusivos. El bucket j de `previous` es el bucket j corrido un período completo hacia atrás. */
+export interface ReportPoint extends ReportValue {
+  start: string;
+  end: string;
+}
+
+export interface ReportBreakdownRow extends ReportValue {
+  key: string;
+  /** Porcentaje del total, de 0 a 100. `null` si el total es 0. */
+  share: number | null;
+  /** Una métrica de apoyo por fila, p. ej. el ticket promedio del tramo. */
+  extra?: Record<string, number | null>;
+}
+
+export interface ReportBreakdown<D extends string = string> {
+  dimension: D;
+  /** El KPI que se desglosa. */
+  metric: string;
+  total: ReportValue;
+  rows: ReportBreakdownRow[];
+}
+
+export interface ReportMeta {
+  range: ReportRange;
+  previous: ReportRange;
+  granularity: ReportGranularity;
+  band: DistanceBand | null;
+  /** `false`: este reporte ignora el filtro de distancia y el panel lo muestra deshabilitado. */
+  bandApplied: boolean;
+  generatedAt: string;
+}
+
+export interface Report<K extends string> {
+  meta: ReportMeta;
+  kpis: Record<K, ReportValue>;
+  series: Record<K, ReportPoint[]>;
+  breakdowns: ReportBreakdown[];
+}
+
+export interface ReportBucket extends ReportRange {
+  previous: ReportRange;
+}
+
+/**
+ * Buckets del rango según `reportGranularity`: días, semanas contadas desde `from` o meses de calendario. Los extremos
+ * se recortan al rango, así que el primero y el último pueden ser más cortos.
+ */
+export function reportBuckets(range: ReportRange): ReportBucket[] {
+  const granularity = reportGranularity(range);
+  const shift = reportRangeDays(range);
+  const last = dayNumber(range.to) as number;
+  const buckets: ReportBucket[] = [];
+  let start = dayNumber(range.from) as number;
+  while (start <= last) {
+    let end = start;
+    if (granularity === "week") end = start + 6;
+    if (granularity === "month") {
+      const date = new Date(start * DAY_MS);
+      end = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0) / DAY_MS;
+    }
+    end = Math.min(end, last);
+    buckets.push({ from: dayOf(start), to: dayOf(end), previous: { from: dayOf(start - shift), to: dayOf(end - shift) } });
+    start = end + 1;
+  }
+  return buckets;
+}
+
+/**
+ * Variación contra el período anterior, como la muestra el panel: en un porcentaje, la diferencia en puntos; en el resto,
+ * la variación en %. `null` si falta un dato o si no hay base contra la que comparar.
+ */
+export function reportChange({ value, previous }: ReportValue, isPercentage: boolean): number | null {
+  if (value === null || previous === null) return null;
+  if (isPercentage) return Math.round((value - previous) * 100) / 100;
+  if (previous === 0) return null;
+  return Math.round(((value - previous) / previous) * 10_000) / 100;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Disputas: `GET /admin/reports/disputes` (MOVO-344)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * `opened` y `disputeRate` van por `openedAt`; el resto, por `resolvedAt` y solo con la disputa `resolved`: una
+ * `resolving` tiene la plata sin mover y no cuenta. Los montos son lo que la resolución le dejó a cada parte.
+ */
+export const DISPUTES_REPORT_KPIS = [
+  "opened",
+  "resolved",
+  "resolutionHours",
+  "disputeRate",
+  "senderAmountArs",
+  "carrierAmountArs",
+] as const;
+export type DisputesKpi = (typeof DISPUTES_REPORT_KPIS)[number];
+
+/** KPIs en porcentaje: su `change` va en puntos (`reportChange`). */
+export const DISPUTES_REPORT_PERCENTAGE_KPIS: readonly DisputesKpi[] = ["disputeRate"];
+
+export const DISPUTES_REPORT_BREAKDOWNS = ["reason", "outcome"] as const;
+export type DisputesReportBreakdownDimension = (typeof DISPUTES_REPORT_BREAKDOWNS)[number];
+
+/** Lo que sigue sin resolverse ahora: una foto, no depende del rango. */
+export interface DisputesReportBacklogRow {
+  status: "open" | "resolving";
+  count: number;
+  medianAgeHours: number | null;
+  oldestOpenedAt: string | null;
+}
+
+/**
+ * Embudo por cohorte: las disputas abiertas en el período y hasta dónde llegaron hoy. `decided` es haber pasado a
+ * `resolving` (el admin resolvió, falta mover la plata). Las etapas están anidadas: cada una es parte de la anterior.
+ */
+export type DisputeFunnelStageKey = "opened" | "decided" | "resolved";
+export interface DisputeFunnelStage {
+  key: DisputeFunnelStageKey;
+  count: number;
+  /** La misma etapa, para la cohorte del período anterior. */
+  previous: number | null;
+  /** Mediana desde la etapa anterior. `null` en `opened` o sin muestras; las decididas antes de MOVO-344 no tienen fecha y no entran. */
+  medianHoursFromPrevious: number | null;
+}
+
+export interface DisputesReport extends Report<DisputesKpi> {
+  backlog: DisputesReportBacklogRow[];
+  /** `null`: no se abrió ninguna disputa en el período. */
+  funnel: DisputeFunnelStage[] | null;
+}
+
+/** Lo que manda `svc-shipments`: el filtro de distancia lo agrega `svc-admin`. */
+export type DisputesReportSource = Omit<DisputesReport, "meta"> & { meta: Omit<ReportMeta, "band" | "bandApplied"> };
+
+/** Una disputa del CSV de detalle: solo ids, fechas y montos, sin partes ni textos libres. */
+export interface DisputesReportRow {
+  disputeId: string;
+  shipmentId: string;
+  reason: string;
+  status: string;
+  /** Estos tres quedan en `null` hasta que la disputa llega a `resolved`. */
+  outcome: string | null;
+  senderAmountArs: number | null;
+  carrierAmountArs: number | null;
+  openedAt: string;
+  resolvedAt: string | null;
+  /** Abierta o en `resolving`: `null`. */
+  resolutionHours: number | null;
+}
+
+export interface DisputesReportRowsResponse {
+  items: DisputesReportRow[];
+  truncated: boolean;
+}
+
+/** `?section=` de `GET /admin/reports/disputes/export`. */
+export const DISPUTES_REPORT_EXPORT_SECTIONS = [
+  ...DISPUTES_REPORT_KPIS.map((kpi) => `trend.${kpi}` as const),
+  ...DISPUTES_REPORT_BREAKDOWNS.map((dimension) => `breakdown.${dimension}` as const),
+  "backlog",
+  "disputes",
+] as const;
+export type DisputesReportExportSection = (typeof DISPUTES_REPORT_EXPORT_SECTIONS)[number];
