@@ -793,3 +793,7 @@ Rango en días `YYYY-MM-DD` inclusivos de Argentina (`REPORT_RANGE_MAX_DAYS` 366
 `reportGranularity`, `argentinaDayBounds`. Home: `ADMIN_OVERVIEW_BLOCKS`, `OVERVIEW_SLA_HOURS`, `OverviewInbox`, `OverviewInboxSource` (lo que manda el servicio dueño), `toOverviewInbox` (le suma el plazo) y `AdminOverview`.
 Bitácora: `AdminAuditLogPage`, `AuditTargetRef`, `auditTargetKey`, `ADMIN_AUDIT_ACTIONS`, `AUDIT_TARGET_PREFIX_MIN_LENGTH` y los headers `EXPORT_ROWS_HEADER`/`EXPORT_TRUNCATED_HEADER`. `AdminTargetType` suma `report` y `ApiErrorCode` suma
 `REPORT_RANGE_INVALID` (400, `details.reason`). Sin dependencias de Node: el panel puede importarlo por subpath. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-344 — Forma común de los reportes y reporte de disputas (`types/admin-reports.ts`, ADR-025)
+
+`Report<K>`, `ReportValue`, `ReportPoint`, `ReportBreakdown` y `ReportMeta`, con los nombres del contrato de MOVO-345 (comentario en MOVO-344); `reportBuckets` (día, semana desde `from` o mes de calendario, recortados al rango) y `reportChange` (puntos en un porcentaje, % en el resto). Los tipos de `disputes` (`DisputesKpi`, `DisputeFunnelStage`) y `DISPUTES_REPORT_EXPORT_SECTIONS` son de este reporte. Esta rama mergea antes que MOVO-345 con sus mismos nombres: al rebasear, esa PR se queda con estos tipos y suma solo los de las otras pestañas.

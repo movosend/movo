@@ -266,3 +266,11 @@ Contrato acordado con el panel (comentarios de MOVO-345 en el ticket), en `types
 - **`GET /admin/overview[?blocks=kyc,support]`** (`modules/overview/`): ocho bandejas pedidas en paralelo a su servicio dueño (`/internal/.../overview/*`). `toOverviewInbox` les suma el plazo y
   si se pasó. Cada una falla por separado, con `requestId` en el error y el timeout de 5 s del cliente interno. Un bloque desconocido es 400. `no-store`, sin bitácora.
 - Pendiente: alerta por Telegram por antigüedad de disputa (opcional, sin hacer); la pantalla (MOVO-345, en curso). Su `admin-reports.ts` no estaba en el remoto al hacer esto: hay que reconciliarlo al integrar.
+
+### MOVO-344 — Reporte de disputas: `GET /admin/reports/disputes` y su CSV (ADR-025)
+
+`modules/reports/`: valida el rango, pide los agregados a `svc-shipments` y arma el CSV. Lectura sin bitácora; `GET .../export` pasa por `runAdminAction` (`report.export`, objetivo `report`, id `disputes`).
+- **`section` obligatoria en el export**: `trend.<kpi>`, `breakdown.<reason|outcome>` y `backlog` salen del mismo objeto que el JSON, así no pueden diferir; `disputes` es una fila por disputa (ids, fechas y montos), con el tope de `CSV_MAX_ROWS`.
+- **`band` se acepta y se ignora** (`meta.bandApplied: false`): `Shipment` no tiene distancia persistida. El comentario de MOVO-345 pide filtrar también Disputas; queda pendiente de esa decisión, compartida con MOVO-35.
+- **`funnel`** lo pasa tal cual desde `svc-shipments`; no tiene sección de CSV porque el contrato del panel no la pide. La sección `disputes` es otra cohorte que los KPIs (cada KPI va por su fecha), así que sus montos no tienen por qué sumar lo mismo.
+- Difiere del contrato de MOVO-345 en una cosa: una cuenta sin casos es `0`, no `null` (`null` queda para lo indefinido, como una mediana sin muestras). Suma `senderAmountArs`, `carrierAmountArs` y `backlog`, que el panel no dibuja. Los otros reportes del panel no están en esta US.
