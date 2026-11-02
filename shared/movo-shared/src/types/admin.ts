@@ -21,7 +21,12 @@ export type AdminTargetType =
   /** MOVO-322: una consulta de soporte; el admin es parte si es el usuario que la abrió. */
   | "support_conversation"
   /** MOVO-337: una disputa; el admin es parte si lo es del envío disputado. */
-  | "dispute";
+  | "dispute"
+  /**
+   * MOVO-342: una exportación de un reporte (el id es el reporte, p. ej. `audit_log`). No es sobre una persona:
+   * nunca hay conflicto de interés. Queda en la bitácora (`report.export`) porque el CSV saca datos del sistema.
+   */
+  | "report";
 
 /** Fila de `GET /admin/audit-log`. */
 export interface AuditLogEntry {

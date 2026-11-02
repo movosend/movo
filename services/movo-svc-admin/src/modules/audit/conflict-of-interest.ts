@@ -34,6 +34,10 @@ export function createConflictChecker(deps: ConflictCheckerDeps): ConflictChecke
       case "admin_role":
         return [target.id];
 
+      // MOVO-342: exportar un reporte no es actuar sobre una persona: nunca hay conflicto.
+      case "report":
+        return [];
+
       case "shipment": {
         const parties = await deps.shipmentsClient.getShipmentParties(target.id, ctx);
         if (!parties) throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");

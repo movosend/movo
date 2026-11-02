@@ -1396,3 +1396,9 @@ por construcción. `verify` canjea el código por un `stepUpToken` (32 bytes, so
 
 Además de `id`/`fullName`, cada usuario trae `roles` (`admin-users.service.ts#getNames`): la bandeja de soporte del panel muestra si
 quien escribe es transportista sin una llamada por fila. Aditivo; `svc-admin` tolera la respuesta anterior.
+
+### MOVO-342 — Bandejas de la home del panel (ADR-025, DD-058)
+
+`admin-users/admin-overview-internal.routes.ts`: `GET /internal/admin/overview/{kyc,user-reports,sanctions-ending-today}` y `POST /internal/admin/user-reports/reported` (reporte → persona reportada, para
+la bitácora). KYC cuenta el último intento de cada verificación de una cuenta viva, para que un reintento reemplace al abandonado; `carriers` son las licencias y `senders` las identidades. `blockRequested`:
+quien reportó además bloqueó al reportado. "Vencen hoy" es el día de Argentina. Lo consume `GET /admin/overview` de `svc-admin`.

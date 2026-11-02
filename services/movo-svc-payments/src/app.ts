@@ -24,6 +24,7 @@ import cardsInternalRoutes from "./modules/cards/cards-internal.routes";
 import userLedgerInternalRoutes from "./modules/user-ledger/user-ledger-internal.routes";
 import cashPaymentsInternalRoutes from "./modules/cash-payments/cash-payments-internal.routes";
 import mpConnectInternalRoutes from "./modules/mp-connect/mp-connect-internal.routes";
+import paymentsAdminOverviewRoutes from "./modules/settlements/admin-overview.routes";
 import { MercadoPagoClient, SdkMercadoPagoClient } from "./adapters/mercadopago-client";
 import { FetchMercadoPagoOAuthClient, MercadoPagoOAuthClient } from "./adapters/mercadopago-oauth-client";
 import { MercadoPagoCustomersClient } from "./adapters/mercadopago-customers-client";
@@ -156,6 +157,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // MOVO-116: interno, lo llama svc-shipments para el bloqueo del transportista.
   app.register(mpConnectInternalRoutes, { prefix: "/internal/payments/mp-connect" });
+
+  // MOVO-342: la bandeja de pagos de la home del panel, interno.
+  app.register(paymentsAdminOverviewRoutes, { prefix: "/internal/payments/admin" });
 
   return app;
 }
