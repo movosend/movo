@@ -219,6 +219,10 @@ model Shipment {
   // anterior a demand_fuel_routes_v1 -- no equivale a false (el badge solo con true).
   highDemand        Boolean?      @map("high_demand")
   agreedPriceArs    Decimal?      @map("agreed_price_ars") @db.Decimal
+  // MOVO-35: distancia por calle de la cotización, o la estimación en línea recta con el mismo factor de desvío si
+  // pricing no respondió. `quote_breakdown` es la misma foto que `suggestedPriceArs`; `null` en los envíos anteriores.
+  distanceKm        Decimal?      @map("distance_km") @db.Decimal(10, 2)
+  quoteBreakdown    Json?         @map("quote_breakdown")
   // MOVO-37: modalidad de pago elegida al crear el envío (`PaymentMethod` de @movo/shared). Con `cash` no hay
   // hold ni saga: al aceptar una oferta pasa directo a `assigned`. Solo cambia mientras no haya ofertas.
   paymentMethod     PaymentMethod @default(card) @map("payment_method")

@@ -3,6 +3,10 @@ import {
   DISPUTES_REPORT_KPIS,
   DisputeOutcome,
   DISPUTE_OUTCOMES,
+  DistanceBand,
+  distanceBandOf,
+  QuoteBreakdown,
+  ShipmentReportFact,
   DisputeReason,
   DisputeFunnelStage,
   DisputesReportBacklogRow,
@@ -18,7 +22,17 @@ import {
   ReportRange,
   ReportValue,
 } from "@movo/shared";
-import { PrismaClient } from "../generated/prisma/client";
+import { CarrierActivityDay, ShipmentMetricFact, SupportMetricFact } from "../domain/admin-report-metrics";
+import { Prisma, PrismaClient } from "../generated/prisma/client";
+
+const AR_TIME_ZONE = "America/Argentina/Buenos_Aires";
+
+/** Condición del tramo sobre un envío de alias `s`. Sin distancia, el envío no cae en ningún tramo. */
+function bandCondition(band: DistanceBand): Prisma.Sql {
+  if (band === "50_200") return Prisma.sql`s.distance_km < 200`;
+  if (band === "200_500") return Prisma.sql`s.distance_km >= 200 AND s.distance_km < 500`;
+  return Prisma.sql`s.distance_km >= 500`;
+}
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
 const round2OrNull = (value: number | null): number | null => (value === null ? null : round2(value));
@@ -79,18 +93,94 @@ function breakdownOf<D extends string>(
  * no tienen índice a propósito: el ticket los pide solo si el volumen los necesita, y las disputas son pocas.
  */
 export interface AdminReportsRepository {
-  disputes(range: ReportRange, now: Date): Promise<DisputesReportSource>;
+  disputes(range: ReportRange, now: Date, band?: DistanceBand): Promise<DisputesReportSource>;
   /** De la más nueva a la más vieja: las abiertas o resueltas en el rango. Corta en `limit`, con aviso. */
-  disputeRows(range: ReportRange, limit: number): Promise<DisputesReportRowsResponse>;
+  disputeRows(range: ReportRange, limit: number, band?: DistanceBand): Promise<DisputesReportRowsResponse>;
+  /** MOVO-35: los envíos con alguna fecha del reporte en el rango o en el período anterior. */
+  shipmentMetricFacts(range: ReportRange): Promise<ShipmentMetricFact[]>;
+  /** MOVO-35: los mismos envíos, con lo que necesitan Cashflow y Precio, que se terminan de armar en `svc-admin`. */
+  shipmentReportFacts(range: ReportRange): Promise<ShipmentReportFact[]>;
+  /** MOVO-35: transportistas activos por día. Con `band`, solo cuentan las ofertas a envíos de ese tramo. */
+  carrierActivity(range: ReportRange, band?: DistanceBand): Promise<CarrierActivityDay[]>;
+  supportMetricFacts(range: ReportRange): Promise<SupportMetricFact[]>;
 }
 
+interface FactRow {
+  id: string;
+  status: string;
+  payment_method: string;
+  distance_km: number | null;
+  suggested_price: number | null;
+  agreed_price: number | null;
+  calculation_method: string | null;
+  quote_breakdown: QuoteBreakdown | null;
+  published_at: Date | null;
+  first_assigned_at: Date | null;
+  picked_up_at: Date | null;
+  first_completed_at: Date | null;
+  delivered_at: Date | null;
+  delivery_deadline: Date | null;
+  pickup_deadline: Date | null;
+  anomaly_flagged: boolean;
+  has_dispute: boolean;
+  cancelled_by_system: boolean;
+  pickup_city: string | null;
+  delivery_city: string | null;
+  pickup_lat: number;
+  pickup_lng: number;
+  delivery_lat: number;
+  delivery_lng: number;
+}
+
+const iso = (value: Date | null): string | null => value?.toISOString() ?? null;
+
 export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepository {
+  /** Las franjas se guardan como reloj de pared de Argentina. La entrega sin franja vence al terminar el día estimado. */
+  function factRows(range: ReportRange): Promise<FactRow[]> {
+    const { start, end } = boundsOf({ from: previousReportRange(range).from, to: range.to });
+    return db.$queryRaw<FactRow[]>`
+      WITH events AS MATERIALIZED (
+        SELECT e.shipment_id,
+               MIN(e.created_at) FILTER (WHERE e.to_status::text = 'published') AS published_at,
+               MIN(e.created_at) FILTER (WHERE e.to_status::text IN ('assignment_pending', 'assigned_unfunded', 'assigned')) AS first_assigned_at,
+               MIN(e.created_at) FILTER (WHERE e.to_status::text = 'in_transit') AS picked_up_at,
+               MIN(e.created_at) FILTER (WHERE e.to_status::text = 'completed') AS first_completed_at,
+               COALESCE(bool_or(e.to_status::text = 'cancelled' AND e.actor_id IS NULL), FALSE) AS cancelled_by_system
+        FROM shipments.shipment_events e
+        GROUP BY e.shipment_id
+      )
+      SELECT s.id, s.status::text AS status, s.payment_method::text AS payment_method,
+             s.distance_km::float8 AS distance_km, s.suggested_price_ars::float8 AS suggested_price,
+             s.agreed_price_ars::float8 AS agreed_price, s.calculation_method, s.quote_breakdown,
+             e.published_at, e.first_assigned_at, e.picked_up_at, e.first_completed_at, s.delivered_at,
+             CASE WHEN s.estimated_delivery_date IS NOT NULL THEN
+               (s.estimated_delivery_date + COALESCE(s.estimated_delivery_time_window_end::time, TIME '23:59:59')) AT TIME ZONE ${AR_TIME_ZONE}
+             END AS delivery_deadline,
+             (s.pickup_date + s.pickup_time_window_end) AT TIME ZONE ${AR_TIME_ZONE} AS pickup_deadline,
+             s.transit_anomaly_flagged_at IS NOT NULL AS anomaly_flagged,
+             EXISTS (SELECT 1 FROM shipments.disputes d WHERE d.shipment_id = s.id) AS has_dispute,
+             COALESCE(e.cancelled_by_system, FALSE) AS cancelled_by_system,
+             s.pickup_city, s.delivery_city, s.pickup_lat::float8 AS pickup_lat, s.pickup_lng::float8 AS pickup_lng,
+             s.delivery_lat::float8 AS delivery_lat, s.delivery_lng::float8 AS delivery_lng
+      FROM shipments.shipments s
+      JOIN events e ON e.shipment_id = s.id
+      WHERE (e.published_at >= ${start} AND e.published_at < ${end})
+         OR (e.first_completed_at >= ${start} AND e.first_completed_at < ${end})
+         OR (s.delivered_at >= ${start} AND s.delivered_at < ${end})`;
+  }
+
   /**
    * Métricas de varios intervalos con una sola consulta, así un total y sus buckets no pueden contar distinto. El
    * denominador de la tasa es la primera vez que el envío llegó a `completed`: uno que vuelve a cerrarse después de una
    * disputa (`completed -> disputed -> completed`) cuenta una sola vez, y sigue contando si la disputa lo termina cancelando.
    */
-  async function intervalMetrics(ranges: ReportRange[]): Promise<IntervalMetricsRow[]> {
+  async function intervalMetrics(ranges: ReportRange[], band?: DistanceBand): Promise<IntervalMetricsRow[]> {
+    const disputeInBand = band
+      ? Prisma.sql`AND EXISTS (SELECT 1 FROM shipments.shipments s WHERE s.id = d.shipment_id AND ${bandCondition(band)})`
+      : Prisma.empty;
+    const completedInBand = band
+      ? Prisma.sql`AND EXISTS (SELECT 1 FROM shipments.shipments s WHERE s.id = f.shipment_id AND ${bandCondition(band)})`
+      : Prisma.empty;
     const bounds = ranges.map(boundsOf);
     const starts = bounds.map(({ start }) => start.toISOString());
     const ends = bounds.map(({ end }) => end.toISOString());
@@ -109,7 +199,7 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
       CROSS JOIN LATERAL (
         SELECT COUNT(*)::int AS opened
         FROM shipments.disputes d
-        WHERE d.opened_at >= i.start_at AND d.opened_at < i.end_at
+        WHERE d.opened_at >= i.start_at AND d.opened_at < i.end_at ${disputeInBand}
       ) o
       CROSS JOIN LATERAL (
         SELECT COUNT(*)::int AS resolved,
@@ -117,45 +207,48 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
                COALESCE(SUM(d.sender_amount_ars), 0)::float8 AS sender_amount,
                COALESCE(SUM(d.carrier_amount_ars), 0)::float8 AS carrier_amount
         FROM shipments.disputes d
-        WHERE d.status::text = 'resolved' AND d.resolved_at >= i.start_at AND d.resolved_at < i.end_at
+        WHERE d.status::text = 'resolved' AND d.resolved_at >= i.start_at AND d.resolved_at < i.end_at ${disputeInBand}
       ) r
       CROSS JOIN LATERAL (
         SELECT COUNT(*)::int AS completed
         FROM first_completed f
-        WHERE f.at >= i.start_at AND f.at < i.end_at
+        WHERE f.at >= i.start_at AND f.at < i.end_at ${completedInBand}
       ) c
       ORDER BY i.position`;
   }
 
   return {
-    async disputes(range, now) {
+    async disputes(range, now, band) {
+      const inBand = band
+        ? Prisma.sql`AND EXISTS (SELECT 1 FROM shipments.shipments s WHERE s.id = d.shipment_id AND ${bandCondition(band)})`
+        : Prisma.empty;
       const previous = previousReportRange(range);
       const buckets = reportBuckets(range);
       const current = boundsOf(range);
       const before = boundsOf(previous);
 
       const [metrics, reasons, outcomes, backlog, cohorts] = await Promise.all([
-        intervalMetrics([range, previous, ...buckets, ...buckets.map((bucket) => bucket.previous)]),
+        intervalMetrics([range, previous, ...buckets, ...buckets.map((bucket) => bucket.previous)], band),
         db.$queryRaw<Array<{ key: string; current: number; previous: number }>>`
           SELECT d.reason::text AS key,
                  (COUNT(*) FILTER (WHERE d.opened_at >= ${current.start}))::int AS current,
                  (COUNT(*) FILTER (WHERE d.opened_at < ${before.end}))::int AS previous
           FROM shipments.disputes d
-          WHERE d.opened_at >= ${before.start} AND d.opened_at < ${current.end}
+          WHERE d.opened_at >= ${before.start} AND d.opened_at < ${current.end} ${inBand}
           GROUP BY d.reason`,
         db.$queryRaw<Array<{ key: string; current: number; previous: number }>>`
           SELECT d.outcome::text AS key,
                  (COUNT(*) FILTER (WHERE d.resolved_at >= ${current.start}))::int AS current,
                  (COUNT(*) FILTER (WHERE d.resolved_at < ${before.end}))::int AS previous
           FROM shipments.disputes d
-          WHERE d.status::text = 'resolved' AND d.resolved_at >= ${before.start} AND d.resolved_at < ${current.end}
+          WHERE d.status::text = 'resolved' AND d.resolved_at >= ${before.start} AND d.resolved_at < ${current.end} ${inBand}
           GROUP BY d.outcome`,
         db.$queryRaw<Array<{ status: DisputesReportBacklogRow["status"]; count: number; median_age_hours: number | null; oldest: Date | null }>>`
           SELECT d.status::text AS status, COUNT(*)::int AS count,
                  (percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM ${now}::timestamptz - d.opened_at) / 3600))::float8 AS median_age_hours,
                  MIN(d.opened_at) AS oldest
           FROM shipments.disputes d
-          WHERE d.status::text IN ('open', 'resolving')
+          WHERE d.status::text IN ('open', 'resolving') ${inBand}
           GROUP BY d.status`,
         // Una `resolving` que vuelve a `open` (abortResolution) deja de estar decidida, y borra `decided_at`.
         db.$queryRaw<FunnelCohortRow[]>`
@@ -166,7 +259,7 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
                  (percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM d.decided_at - d.opened_at) / 3600))::float8 AS to_decided_hours,
                  (percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM d.resolved_at - d.decided_at) / 3600))::float8 AS to_resolved_hours
           FROM shipments.disputes d
-          WHERE d.opened_at >= ${before.start} AND d.opened_at < ${current.end}
+          WHERE d.opened_at >= ${before.start} AND d.opened_at < ${current.end} ${inBand}
           GROUP BY 1`,
       ]);
 
@@ -221,7 +314,10 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
       };
     },
 
-    async disputeRows(range, limit) {
+    async disputeRows(range, limit, band) {
+      const inBand = band
+        ? Prisma.sql`AND EXISTS (SELECT 1 FROM shipments.shipments s WHERE s.id = d.shipment_id AND ${bandCondition(band)})`
+        : Prisma.empty;
       const { start, end } = boundsOf(range);
       const rows = await db.$queryRaw<
         Array<{
@@ -245,8 +341,8 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
                CASE WHEN d.status::text = 'resolved' THEN d.resolved_at END AS resolved_at,
                CASE WHEN d.status::text = 'resolved' THEN (EXTRACT(EPOCH FROM d.resolved_at - d.opened_at) / 3600)::float8 END AS resolution_hours
         FROM shipments.disputes d
-        WHERE (d.opened_at >= ${start} AND d.opened_at < ${end})
-           OR (d.status::text = 'resolved' AND d.resolved_at >= ${start} AND d.resolved_at < ${end})
+        WHERE ((d.opened_at >= ${start} AND d.opened_at < ${end})
+           OR (d.status::text = 'resolved' AND d.resolved_at >= ${start} AND d.resolved_at < ${end})) ${inBand}
         ORDER BY d.opened_at DESC, d.id DESC
         LIMIT ${limit + 1}`;
       const items = rows.slice(0, limit).map(
@@ -264,6 +360,98 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
         }),
       );
       return { items, truncated: rows.length > limit };
+    },
+
+    async shipmentMetricFacts(range) {
+      const rows = await factRows(range);
+      return rows.map(
+        (row): ShipmentMetricFact => ({
+          band: row.distance_km === null ? null : distanceBandOf(row.distance_km),
+          distanceKm: row.distance_km,
+          agreedPriceArs: row.agreed_price,
+          publishedAt: iso(row.published_at),
+          firstAssignedAt: iso(row.first_assigned_at),
+          pickedUpAt: iso(row.picked_up_at),
+          firstCompletedAt: iso(row.first_completed_at),
+          deliveredAt: iso(row.delivered_at),
+          deliveryDeadline: iso(row.delivery_deadline),
+          pickupDeadline: iso(row.pickup_deadline),
+          anomalyFlagged: row.anomaly_flagged,
+          hasDispute: row.has_dispute,
+          pickupCity: row.pickup_city,
+          deliveryCity: row.delivery_city,
+          pickupLat: row.pickup_lat,
+          pickupLng: row.pickup_lng,
+          deliveryLat: row.delivery_lat,
+          deliveryLng: row.delivery_lng,
+        }),
+      );
+    },
+
+    async shipmentReportFacts(range) {
+      const rows = await factRows(range);
+      return rows.map(
+        (row): ShipmentReportFact => ({
+          shipmentId: row.id,
+          status: row.status,
+          paymentMethod: row.payment_method,
+          band: row.distance_km === null ? null : distanceBandOf(row.distance_km),
+          suggestedPriceArs: row.suggested_price,
+          agreedPriceArs: row.agreed_price,
+          calculationMethod: row.calculation_method,
+          breakdown: row.quote_breakdown,
+          publishedAt: iso(row.published_at),
+          firstAssignedAt: iso(row.first_assigned_at),
+          firstCompletedAt: iso(row.first_completed_at),
+          deliveredAt: iso(row.delivered_at),
+          cancelledBySystem: row.cancelled_by_system,
+        }),
+      );
+    },
+
+    async carrierActivity(range, band) {
+      const { start, end } = boundsOf({ from: previousReportRange(range).from, to: range.to });
+      const offers = Prisma.sql`
+        SELECT o.carrier_id, (o.created_at AT TIME ZONE ${AR_TIME_ZONE})::date AS day
+        FROM shipments.offers o
+        ${band ? Prisma.sql`JOIN shipments.shipments s ON s.id = o.shipment_id AND ${bandCondition(band)}` : Prisma.empty}
+        WHERE o.created_at >= ${start} AND o.created_at < ${end}`;
+      const trips = Prisma.sql`
+        UNION
+        SELECT t.carrier_id, (t.departure_at AT TIME ZONE ${AR_TIME_ZONE})::date AS day
+        FROM shipments.trips t
+        WHERE t.status::text <> 'cancelled' AND t.departure_at >= ${start} AND t.departure_at < ${end}`;
+      const rows = await db.$queryRaw<Array<{ day: string; carriers: number }>>`
+        SELECT to_char(a.day, 'YYYY-MM-DD') AS day, COUNT(DISTINCT a.carrier_id)::int AS carriers
+        FROM (${offers} ${band ? Prisma.empty : trips}) a
+        GROUP BY a.day`;
+      return rows;
+    },
+
+    async supportMetricFacts(range) {
+      const { start, end } = boundsOf({ from: previousReportRange(range).from, to: range.to });
+      const rows = await db.$queryRaw<
+        Array<{ topic: string; created_at: Date; first_agent_at: Date | null; resolved_at: Date | null; user_wrote_after_agent: boolean }>
+      >`
+        SELECT c.topic::text AS topic, c.created_at, c.resolved_at, a.first_agent_at,
+               EXISTS (
+                 SELECT 1 FROM shipments.support_messages m
+                 WHERE m.conversation_id = c.id AND m.kind::text = 'user' AND m.created_at > a.first_agent_at
+               ) AS user_wrote_after_agent
+        FROM shipments.support_conversations c
+        LEFT JOIN LATERAL (
+          SELECT MIN(m.created_at) AS first_agent_at
+          FROM shipments.support_messages m
+          WHERE m.conversation_id = c.id AND m.kind::text = 'agent'
+        ) a ON TRUE
+        WHERE c.created_at >= ${start} AND c.created_at < ${end}`;
+      return rows.map((row) => ({
+        topic: row.topic,
+        createdAt: row.created_at.toISOString(),
+        firstAgentAt: iso(row.first_agent_at),
+        resolvedAt: iso(row.resolved_at),
+        userWroteAfterAgent: row.user_wrote_after_agent,
+      }));
     },
   };
 }

@@ -94,3 +94,10 @@ export function progressAlongPath(point: { lat: number; lng: number }, path: Arr
   }
   return total > 0 ? best.alongKm / total : null;
 }
+
+/** Mismo factor que `ROAD_DETOUR_FACTOR` de pricing: la distancia por calle cuando no hay cotización de la cual sacarla. */
+const ROAD_DETOUR_FACTOR = 1.3;
+
+export function roadDistanceEstimateKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  return Math.round(haversineKm(lat1, lng1, lat2, lng2) * ROAD_DETOUR_FACTOR * 100) / 100;
+}
