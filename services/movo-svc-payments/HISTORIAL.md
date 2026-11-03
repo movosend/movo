@@ -889,3 +889,7 @@ como `cash_commission` del transportista, calculada con `decomposeOfferGrossPric
 
 `settlements/admin-overview.routes.ts`: `GET /internal/payments/admin/overview`, holds autorizados que vencen hoy (día de Argentina) y capturas `failed`/`escalated`. `overSla` se calcula acá, no en `svc-admin`:
 un hold se pasa de plazo cuando le quedan menos de 6 h, no por antigüedad. Una disputa en `resolving` no se cuenta: la dueña es `svc-shipments` y la tarjeta de disputas ya la muestra.
+
+### MOVO-35 — Datos de cobro para Métricas (ADR-025, DD-059)
+
+`POST /internal/payments/admin/report-facts` (`modules/settlements/admin-report-facts.routes.ts`): por envío, liquidación, reembolsos, holds y efectivo, sin datos personales. La cruza `svc-admin` para Cashflow y Precio. Una penalidad por cancelación no cuenta como cobro del envío. `capturedArs` no incluye el recargo por deuda del emisor (MOVO-311). Un hold vencido se reconoce por `cancelled` + `expired`, el mismo supuesto del webhook de MOVO-268 que sigue sin confirmar (ver MOVO-215 en el `CLAUDE.md` raíz).

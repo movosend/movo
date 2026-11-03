@@ -797,3 +797,7 @@ Bitácora: `AdminAuditLogPage`, `AuditTargetRef`, `auditTargetKey`, `ADMIN_AUDIT
 ### MOVO-344 — Forma común de los reportes y reporte de disputas (`types/admin-reports.ts`, ADR-025)
 
 `Report<K>`, `ReportValue`, `ReportPoint`, `ReportBreakdown` y `ReportMeta`, con los nombres del contrato de MOVO-345 (comentario en MOVO-344); `reportBuckets` (día, semana desde `from` o mes de calendario, recortados al rango) y `reportChange` (puntos en un porcentaje, % en el resto). Los tipos de `disputes` (`DisputesKpi`, `DisputeFunnelStage`) y `DISPUTES_REPORT_EXPORT_SECTIONS` son de este reporte. Esta rama mergea antes que MOVO-345 con sus mismos nombres: al rebasear, esa PR se queda con estos tipos y suma solo los de las otras pestañas.
+
+### MOVO-35 — Tipos de las otras pestañas de Métricas (`types/admin-reports.ts`, DD-059)
+
+Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `distanceBandOf`, `buildReportBody` (KPIs y series de una sola función), `reportExportSections` y `ShipmentReportFact`/`PaymentReportFact`, los datos que cruza `svc-admin`. Al rebasear, MOVO-345 se queda con estos.
