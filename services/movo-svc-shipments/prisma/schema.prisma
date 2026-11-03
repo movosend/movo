@@ -307,6 +307,7 @@ model Shipment {
   // MOVO-325: listado del panel (orden por último cambio de estado) y filtro por ciudad de retiro.
   @@index([lastStatusChangedAt(sort: Desc), id(sort: Desc)], map: "shipments_last_status_changed_at_idx")
   @@index([pickupCity], map: "shipments_pickup_city_idx")
+  @@index([deliveredAt], map: "shipments_delivered_at_idx")
   @@map("shipments")
   @@schema("shipments")
 }
@@ -339,6 +340,7 @@ model ShipmentEvent {
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId], map: "shipment_events_shipment_id_idx")
+  @@index([createdAt], map: "shipment_events_created_at_idx")
   @@map("shipment_events")
   @@schema("shipments")
 }

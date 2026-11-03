@@ -202,9 +202,10 @@ describe("reportes de Métricas (Postgres) — MOVO-35", () => {
       const near = body.breakdowns[0]?.rows.find((row) => row.key === "50_200");
       expect(near).toMatchObject({ value: 66.67, extra: { timeToAssignHours: 1.5 } });
 
-      // Con tramo, solo las ofertas: el viaje no tiene distancia.
+      // Con tramo, la oferta al envío de 300 km y el viaje Córdoba-Rosario, que por su ruta cae en el mismo tramo.
       const banded = await get<ReportSource<CarriersReport>>("carriers", "&band=200_500");
-      expect(banded.kpis.activeCarriers.value).toBe(0.5);
+      expect(banded.kpis.activeCarriers.value).toBe(1);
+      expect((await get<ReportSource<CarriersReport>>("carriers", "&band=500_plus")).kpis.activeCarriers.value).toBe(0);
       expect(banded.kpis.assignedWithin24hRate.value).toBe(0);
     });
   });

@@ -27,11 +27,21 @@ import { Prisma, PrismaClient } from "../generated/prisma/client";
 
 const AR_TIME_ZONE = "America/Argentina/Buenos_Aires";
 
-/** Condición del tramo sobre un envío de alias `s`. Sin distancia, el envío no cae en ningún tramo. */
-function bandCondition(band: DistanceBand): Prisma.Sql {
-  if (band === "50_200") return Prisma.sql`s.distance_km < 200`;
-  if (band === "200_500") return Prisma.sql`s.distance_km >= 200 AND s.distance_km < 500`;
-  return Prisma.sql`s.distance_km >= 500`;
+const SHIPMENT_DISTANCE_KM = Prisma.sql`s.distance_km`;
+/** La ruta de un viaje de alias `t`, con la misma estimación que `roadDistanceEstimateKm`: el viaje no guarda distancia. */
+const TRIP_DISTANCE_KM = Prisma.sql`(
+  2 * 6371 * ASIN(LEAST(1, SQRT(
+    POWER(SIN(RADIANS((t.destination_lat - t.origin_lat)::float8) / 2), 2) +
+    COS(RADIANS(t.origin_lat::float8)) * COS(RADIANS(t.destination_lat::float8)) *
+    POWER(SIN(RADIANS((t.destination_lng - t.origin_lng)::float8) / 2), 2)
+  ))) * 1.3
+)`;
+
+/** Condición del tramo sobre una distancia, por defecto la de un envío de alias `s`. Sin distancia, no cae en ningún tramo. */
+function bandCondition(band: DistanceBand, distanceKm: Prisma.Sql = SHIPMENT_DISTANCE_KM): Prisma.Sql {
+  if (band === "50_200") return Prisma.sql`${distanceKm} < 200`;
+  if (band === "200_500") return Prisma.sql`${distanceKm} >= 200 AND ${distanceKm} < 500`;
+  return Prisma.sql`${distanceKm} >= 500`;
 }
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
@@ -100,7 +110,7 @@ export interface AdminReportsRepository {
   shipmentMetricFacts(range: ReportRange): Promise<ShipmentMetricFact[]>;
   /** MOVO-35: los mismos envíos, con lo que necesitan Cashflow y Precio, que se terminan de armar en `svc-admin`. */
   shipmentReportFacts(range: ReportRange): Promise<ShipmentReportFact[]>;
-  /** MOVO-35: transportistas activos por día. Con `band`, solo cuentan las ofertas a envíos de ese tramo. */
+  /** MOVO-35: transportistas activos por día. Con `band`, las ofertas a envíos de ese tramo y los viajes cuya ruta cae en él. */
   carrierActivity(range: ReportRange, band?: DistanceBand): Promise<CarrierActivityDay[]>;
   supportMetricFacts(range: ReportRange): Promise<SupportMetricFact[]>;
 }
@@ -139,7 +149,15 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
   function factRows(range: ReportRange): Promise<FactRow[]> {
     const { start, end } = boundsOf({ from: previousReportRange(range).from, to: range.to });
     return db.$queryRaw<FactRow[]>`
-      WITH events AS MATERIALIZED (
+      WITH candidates AS MATERIALIZED (
+        SELECT e.shipment_id
+        FROM shipments.shipment_events e
+        WHERE e.to_status::text IN ('published', 'completed') AND e.created_at >= ${start} AND e.created_at < ${end}
+        UNION
+        SELECT d.id FROM shipments.shipments d WHERE d.delivered_at >= ${start} AND d.delivered_at < ${end}
+      ),
+      -- Toda la historia de cada candidato, no solo la de la ventana: "la primera vez" puede ser anterior al rango.
+      events AS MATERIALIZED (
         SELECT e.shipment_id,
                MIN(e.created_at) FILTER (WHERE e.to_status::text = 'published') AS published_at,
                MIN(e.created_at) FILTER (WHERE e.to_status::text IN ('assignment_pending', 'assigned_unfunded', 'assigned')) AS first_assigned_at,
@@ -147,6 +165,7 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
                MIN(e.created_at) FILTER (WHERE e.to_status::text = 'completed') AS first_completed_at,
                COALESCE(bool_or(e.to_status::text = 'cancelled' AND e.actor_id IS NULL), FALSE) AS cancelled_by_system
         FROM shipments.shipment_events e
+        JOIN candidates c ON c.shipment_id = e.shipment_id
         GROUP BY e.shipment_id
       )
       SELECT s.id, s.status::text AS status, s.payment_method::text AS payment_method,
@@ -192,6 +211,13 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
         SELECT e.shipment_id, MIN(e.created_at) AS at
         FROM shipments.shipment_events e
         WHERE e.to_status::text = 'completed'
+          AND e.shipment_id IN (
+            SELECT w.shipment_id
+            FROM shipments.shipment_events w
+            WHERE w.to_status::text = 'completed'
+              AND w.created_at >= (SELECT MIN(start_at) FROM intervals)
+              AND w.created_at < (SELECT MAX(end_at) FROM intervals)
+          )
         GROUP BY e.shipment_id
       )
       SELECT o.opened, r.resolved, r.resolution_hours, r.sender_amount, r.carrier_amount, c.completed
@@ -420,10 +446,11 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
         UNION
         SELECT t.carrier_id, (t.departure_at AT TIME ZONE ${AR_TIME_ZONE})::date AS day
         FROM shipments.trips t
-        WHERE t.status::text <> 'cancelled' AND t.departure_at >= ${start} AND t.departure_at < ${end}`;
+        WHERE t.status::text <> 'cancelled' AND t.departure_at >= ${start} AND t.departure_at < ${end}
+        ${band ? Prisma.sql`AND ${bandCondition(band, TRIP_DISTANCE_KM)}` : Prisma.empty}`;
       const rows = await db.$queryRaw<Array<{ day: string; carriers: number }>>`
         SELECT to_char(a.day, 'YYYY-MM-DD') AS day, COUNT(DISTINCT a.carrier_id)::int AS carriers
-        FROM (${offers} ${band ? Prisma.empty : trips}) a
+        FROM (${offers} ${trips}) a
         GROUP BY a.day`;
       return rows;
     },

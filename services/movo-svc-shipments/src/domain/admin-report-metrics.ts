@@ -28,6 +28,7 @@ import {
   SUPPORT_KPIS,
   SupportReport,
 } from "@movo/shared";
+import { roadDistanceEstimateKm } from "./geo";
 
 const HOUR_MS = 60 * 60 * 1000;
 const CORRIDORS_LIMIT = 20;
@@ -225,14 +226,19 @@ function corridorsOf(facts: readonly ShipmentMetricFact[], range: ReportRange): 
     .map((group): ReportCorridor => {
       const shipments = group.current;
       const distances = shipments.flatMap((fact) => (fact.distanceKm === null ? [] : [fact.distanceKm]));
-      const distanceKm = distances.length === 0 ? 0 : reportRound(mean(distances));
+      const originLat = mean(shipments.map((fact) => fact.pickupLat));
+      const originLng = mean(shipments.map((fact) => fact.pickupLng));
+      const destinationLat = mean(shipments.map((fact) => fact.deliveryLat));
+      const destinationLng = mean(shipments.map((fact) => fact.deliveryLng));
+      // Sin ninguna distancia guardada, la misma estimación que un envío sin cotización (DD-059).
+      const distanceKm = distances.length === 0 ? roadDistanceEstimateKm(originLat, originLng, destinationLat, destinationLng) : reportRound(mean(distances));
       return {
         originCity: group.origin,
         destinationCity: group.destination,
-        originLat: reportRound(mean(shipments.map((fact) => fact.pickupLat))),
-        originLng: reportRound(mean(shipments.map((fact) => fact.pickupLng))),
-        destinationLat: reportRound(mean(shipments.map((fact) => fact.deliveryLat))),
-        destinationLng: reportRound(mean(shipments.map((fact) => fact.deliveryLng))),
+        originLat: reportRound(originLat),
+        originLng: reportRound(originLng),
+        destinationLat: reportRound(destinationLat),
+        destinationLng: reportRound(destinationLng),
         distanceKm,
         band: distanceBandOf(distanceKm),
         published: shipments.length,
