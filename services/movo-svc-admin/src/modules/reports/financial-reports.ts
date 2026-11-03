@@ -29,7 +29,10 @@ import {
 
 /** Lo que sigue su curso: todavía puede capturarse (DD-059). */
 const TIMING_STEPS: ReadonlySet<CaptureLeakageStep> = new Set(["pending_capture", "in_flight"]);
-/** Cualquier otro estado sigue su curso. */
+/**
+ * Los estados donde la cascada ya puede ubicar al envío. El resto va a `in_flight`, también `disputed` y
+ * `rejected_by_receiver`: ninguno es terminal y la plata todavía puede terminar capturada (DD-059).
+ */
 const SETTLED_STATUSES: ReadonlySet<string> = new Set(["completed", "cancelled", "delivered"]);
 
 export type PaymentFactsById = ReadonlyMap<string, PaymentReportFact>;
@@ -44,10 +47,14 @@ const gmvOf = (facts: readonly ShipmentReportFact[]): number => sumOf(facts.map(
 const ticketOf = (facts: readonly ShipmentReportFact[]): number | null => (facts.length === 0 ? null : gmvOf(facts) / facts.length);
 const roundedOrNull = (value: number | null): number | null => (value === null ? null : reportRound(value));
 
-/** La comisión del envío: la capturada con tarjeta o la devengada en efectivo, aunque siga como deuda (DD-059). */
-const commissionOf = (fact: ShipmentReportFact, payments: PaymentFactsById): number => {
+/**
+ * La comisión del envío: la capturada con tarjeta o la devengada en efectivo, aunque siga como deuda (DD-059). `null` si
+ * todavía no hay ninguna: un settlement sin acreditar guarda la comisión que se espera cobrar, no una cobrada.
+ */
+const commissionOf = (fact: ShipmentReportFact, payments: PaymentFactsById): number | null => {
   const payment = payments.get(fact.shipmentId);
-  return payment?.commissionArs ?? payment?.cashCommissionArs ?? 0;
+  if (payment?.settlementStatus === "credited" && payment.commissionArs !== null) return payment.commissionArs;
+  return payment?.cashCommissionArs ?? null;
 };
 
 export function cashflowReport(
@@ -62,13 +69,19 @@ export function cashflowReport(
     (period) => {
       const completed = completedIn(facts, period);
       const gmv = gmvOf(completed);
-      const commission = sumOf(completed.map((fact) => commissionOf(fact, payments)));
+      const earned = completed.flatMap((fact) => {
+        const commission = commissionOf(fact, payments);
+        return commission === null ? [] : [{ commission, gmv: fact.agreedPriceArs ?? 0 }];
+      });
+      const commission = sumOf(earned.map((row) => row.commission));
+      // Sobre el GMV de los envíos con comisión: uno sin capturar no la baja.
+      const earnedGmv = sumOf(earned.map((row) => row.gmv));
       return {
         gmv: reportRound(gmv),
         completed: completed.length,
         avgTicket: roundedOrNull(ticketOf(completed)),
         commission: reportRound(commission),
-        takeRate: gmv === 0 ? null : reportRate(commission, gmv),
+        takeRate: earnedGmv === 0 ? null : reportRate(commission, earnedGmv),
       };
     },
     now,

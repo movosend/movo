@@ -86,6 +86,22 @@ describe("Cashflow — MOVO-35", () => {
     expect(rows.find((row) => row.key === "500_plus")).toMatchObject({ value: 0, share: 0, extra: { avgTicket: null } });
   });
 
+  it("takeRate no baja por un completado sin comisión acreditada, y su comisión esperada no cuenta", () => {
+    const credited = fact({ agreedPriceArs: 1000 });
+    const noSettlement = fact({ agreedPriceArs: 1000 });
+    const failed = fact({ agreedPriceArs: 1000 });
+    const report = cashflowReport(
+      [credited, noSettlement, failed],
+      byId([payment(credited.shipmentId, { settlementStatus: "credited", commissionArs: 150 }), payment(failed.shipmentId, { settlementStatus: "failed", commissionArs: 150 })]),
+      RANGE,
+      NOW,
+    );
+
+    expect(report.kpis.gmv.value).toBe(3000);
+    expect(report.kpis.commission.value).toBe(150);
+    expect(report.kpis.takeRate.value).toBe(15);
+  });
+
   it("una captura sin confirmar va aparte y no entra en el GMV", () => {
     const delivered = fact({ status: "delivered", firstCompletedAt: null, agreedPriceArs: 800 });
     const report = cashflowReport([delivered], byId([payment(delivered.shipmentId, { settlementStatus: "processing", capturedArs: 800 })]), RANGE, NOW);

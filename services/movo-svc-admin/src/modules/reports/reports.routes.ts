@@ -49,17 +49,17 @@ const FILE_LABELS: Readonly<Record<AdminReportId, string>> = {
 
 const REPORT_DESCRIPTIONS: Readonly<Record<AdminReportId, string>> = {
   cashflow:
-    "MOVO-35: por fecha en que el envío se completó, efectivo incluido. `commission` es la capturada o la devengada en efectivo. `pendingCapture` son capturas sin confirmar, aparte de `gmv`.",
+    "MOVO-35: por fecha en que el envío se completó, efectivo incluido. `commission` es la capturada o la devengada en efectivo, y `takeRate` la compara solo con el GMV de los envíos que la tienen. `pendingCapture` son capturas sin confirmar, aparte de `gmv`.",
   pricing:
     "MOVO-35: `bridge` explica el GMV de completados contra el período anterior. `leakage` va por fecha de publicación, así que no coincide con el GMV de Cashflow. Sin desglose guardado, el efecto precio cae en `other`.",
   deliveries:
     "MOVO-35: por fecha de entrega. `onTimeRate` y `lateCount` miden contra la franja estimada; un envío sin franja no entra. `delayReason` se deriva con la regla de DD-059.",
   carriers:
-    "MOVO-35: por fecha de publicación. `activeCarriers` es el promedio diario con viaje u oferta; con `band`, solo cuentan las ofertas a envíos de ese tramo.",
+    "MOVO-35: por fecha de publicación. `activeCarriers` es el promedio diario con viaje u oferta; con `band`, las ofertas a envíos de ese tramo y los viajes cuya ruta cae en él. Un transportista puede contar en más de un tramo, así que los tramos no suman el total.",
   distances: "MOVO-35: por fecha de publicación. `corridors` trae los 20 con más envíos; `scorecard` siempre trae los tres tramos e ignora `band`.",
   support: "MOVO-35: conversaciones abiertas en el rango. No se filtra por distancia (`meta.bandApplied` es `false`).",
   disputes:
-    "MOVO-344: `opened` y `disputeRate` por fecha de apertura; `resolved`, `resolutionHours` y los montos por fecha de resolución, solo con la disputa `resolved` (una `resolving` no cuenta). `backlog` es lo que sigue sin resolverse ahora y no depende del rango. `funnel` sigue a las disputas abiertas en el período hasta su estado actual.",
+    "MOVO-344: `opened` y `disputeRate` por fecha de apertura. `disputeRate` es disputas abiertas cada 100 envíos completados en el mismo período: no es una cohorte y puede pasar de 100. `resolved`, `resolutionHours` y los montos por fecha de resolución, solo con la disputa `resolved` (una `resolving` no cuenta). `backlog` es lo que sigue sin resolverse ahora y no depende del rango. `funnel` sigue a las disputas abiertas en el período hasta su estado actual.",
 };
 
 function rangeOf({ from, to }: ReportQuery): ReportRange {
@@ -96,10 +96,9 @@ export default async function reportsRoutes(app: FastifyInstance, opts: ReportsR
     return app.shipmentsClient.getOwnedReport(id, range, ctx, band);
   }
 
-  async function reportOf<R extends AdminReportId>(id: R, query: ReportQuery, ctx: RequestCtx): Promise<AdminReportById[R]> {
-    const range = rangeOf(query);
+  async function reportOf<R extends AdminReportId>(id: R, range: ReportRange, requestedBand: DistanceBand | undefined, ctx: RequestCtx): Promise<AdminReportById[R]> {
     const applies = reportAppliesBand(id);
-    const band = applies ? query.band : undefined;
+    const band = applies ? requestedBand : undefined;
     const source = await sourceOf(id, range, band, ctx);
     const meta: ReportMeta = { ...source.meta, band: band ?? null, bandApplied: applies };
     return { ...source, meta } as unknown as AdminReportById[R];
@@ -124,7 +123,8 @@ export default async function reportsRoutes(app: FastifyInstance, opts: ReportsR
       },
       async (request: FastifyRequest, reply: FastifyReply) => {
         requireAdmin(request);
-        const report = await reportOf(id, request.query as ReportQuery, { requestId: request.requestId });
+        const query = request.query as ReportQuery;
+        const report = await reportOf(id, rangeOf(query), query.band, { requestId: request.requestId });
         reply.header("cache-control", "no-store");
         return report;
       },
@@ -157,7 +157,8 @@ export default async function reportsRoutes(app: FastifyInstance, opts: ReportsR
       async (request: FastifyRequest, reply: FastifyReply) => {
         const adminId = requireAdmin(request);
         const query = request.query as ReportQuery & { section: AdminReportExportSection };
-        rangeOf(query);
+        // Antes de la acción auditada: un rango inválido es un 400 de la query, sin fila en la bitácora.
+        const range = rangeOf(query);
         const { section } = query;
         const ctx = { requestId: request.requestId };
         const { csv, truncated } = await app.audit.runAdminAction(
@@ -171,10 +172,10 @@ export default async function reportsRoutes(app: FastifyInstance, opts: ReportsR
           },
           async () => {
             if (section === "disputes") {
-              const { items, truncated: cut } = await app.shipmentsClient.listDisputesReportRows(rangeOf(query), exportMaxRows, ctx, query.band);
+              const { items, truncated: cut } = await app.shipmentsClient.listDisputesReportRows(range, exportMaxRows, ctx, query.band);
               return { csv: disputeRowsCsv(items), truncated: cut };
             }
-            return { csv: reportSectionCsv(id, await reportOf(id, query, ctx), section), truncated: false };
+            return { csv: reportSectionCsv(id, await reportOf(id, range, query.band, ctx), section), truncated: false };
           },
         );
         return reply
