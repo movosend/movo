@@ -260,6 +260,9 @@ export interface AuditTargetsResponse {
 }
 
 /** Headers de una exportación: cuántas filas trae y si el tope la cortó. */
+/** Tope de filas de un CSV del panel. Quien exporta corta ahí y lo avisa con `EXPORT_TRUNCATED_HEADER`. */
+export const CSV_MAX_ROWS = 10_000;
+
 export const EXPORT_ROWS_HEADER = "x-export-rows";
 export const EXPORT_TRUNCATED_HEADER = "x-export-truncated";
 
@@ -361,6 +364,8 @@ export function reportChange({ value, previous }: ReportValue, isPercentage: boo
 /**
  * `opened` y `disputeRate` van por `openedAt`; el resto, por `resolvedAt` y solo con la disputa `resolved`: una
  * `resolving` tiene la plata sin mover y no cuenta. Los montos son lo que la resolución le dejó a cada parte.
+ * `disputeRate` es disputas abiertas cada 100 envíos completados en el mismo período (MOVO-344): no es una cohorte y
+ * puede pasar de 100.
  */
 export const DISPUTES_REPORT_KPIS = [
   "opened",
@@ -725,6 +730,9 @@ export interface PaymentReportFact {
   /** La comisión del pago en efectivo sigue como deuda en la cuenta corriente. */
   cashCommissionDebtOpen: boolean;
 }
+
+/** Ids por pedido a `POST /internal/payments/admin/report-facts`. `svc-admin` parte en lotes los rangos largos. */
+export const PAYMENT_REPORT_FACTS_MAX_IDS = 1000;
 
 export interface PaymentReportFactsRequest {
   shipmentIds: string[];

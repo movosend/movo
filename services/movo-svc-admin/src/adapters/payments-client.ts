@@ -1,4 +1,4 @@
-import { PaymentReportFactsResponse, AdminUserLedgerRow, AdminUserLedgerRowPage, AdminUserMercadoPago, HoldDetailResponse, OverviewInboxSource, OverviewPaymentsExtra } from "@movo/shared";
+import { PAYMENT_REPORT_FACTS_MAX_IDS, PaymentReportFactsResponse, AdminUserLedgerRow, AdminUserLedgerRowPage, AdminUserMercadoPago, HoldDetailResponse, OverviewInboxSource, OverviewPaymentsExtra } from "@movo/shared";
 import { createInternalClient, InternalClient, isNullableString, isOverviewInboxSource, isRecord, isString, RequestContext } from "./internal-client";
 
 /** Lo que manda `svc-admin` al alta de un ajuste manual (DD-044). */
@@ -64,14 +64,19 @@ export function createPaymentsClient(config: { PAYMENTS_SERVICE_URL: string }): 
   return {
     ...client,
     async getReportFacts(shipmentIds, ctx) {
-      const facts = await client.request("/internal/payments/admin/report-facts", ctx, {
-        method: "POST",
-        body: { shipmentIds },
-        isValid: (body: unknown): body is PaymentReportFactsResponse => isRecord(body) && Array.isArray(body.items),
-        notFoundCodes: [],
-      });
-      if (!facts) throw new Error("getReportFacts: respuesta vacía");
-      return facts;
+      const items: PaymentReportFactsResponse["items"] = [];
+      // En serie: cada lote son cuatro consultas en `svc-payments`, y un rango largo no le tiene que agotar el pool.
+      for (let start = 0; start < shipmentIds.length; start += PAYMENT_REPORT_FACTS_MAX_IDS) {
+        const facts = await client.request("/internal/payments/admin/report-facts", ctx, {
+          method: "POST",
+          body: { shipmentIds: shipmentIds.slice(start, start + PAYMENT_REPORT_FACTS_MAX_IDS) },
+          isValid: (body: unknown): body is PaymentReportFactsResponse => isRecord(body) && Array.isArray(body.items),
+          notFoundCodes: [],
+        });
+        if (!facts) throw new Error("getReportFacts: respuesta vacía");
+        items.push(...facts.items);
+      }
+      return { items };
     },
     async getOverview(ctx) {
       const inbox = await client.request("/internal/payments/admin/overview", ctx, { isValid: isOverviewInboxSource<OverviewPaymentsExtra>, notFoundCodes: [] });

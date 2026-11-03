@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "@movo/shared";
+import { ApiError, PAYMENT_REPORT_FACTS_MAX_IDS } from "@movo/shared";
 import { createShipmentsClient } from "../src/adapters/shipments-client";
 import { createUsersClient } from "../src/adapters/users-client";
 import { createPaymentsClient } from "../src/adapters/payments-client";
@@ -164,6 +164,22 @@ describe("clientes internos de la ficha del panel (MOVO-294)", () => {
   });
 
   describe("svc-payments", () => {
+    it("getReportFacts parte los ids en lotes y junta las respuestas", async () => {
+      const ids = Array.from({ length: PAYMENT_REPORT_FACTS_MAX_IDS + 1 }, () => randomUUID());
+      const fetchMock = mockFetch(200, { items: [{ shipmentId: USER }] });
+
+      await expect(payments.getReportFacts(ids, ctx)).resolves.toEqual({ items: [{ shipmentId: USER }, { shipmentId: USER }] });
+      const sent = fetchMock.mock.calls.map((call) => JSON.parse(call[1].body).shipmentIds as string[]);
+      expect(sent.map((batch) => batch.length)).toEqual([PAYMENT_REPORT_FACTS_MAX_IDS, 1]);
+    });
+
+    it("getReportFacts sin ids no llama al servicio", async () => {
+      const fetchMock = mockFetch(200, { items: [] });
+
+      await expect(payments.getReportFacts([], ctx)).resolves.toEqual({ items: [] });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it("lee la tarjeta de Mercado Pago y valida el estado", async () => {
       const mp = { status: "linked", nickname: "ANA", connectedAt: "2026-10-01T00:00:00.000Z", unlinkedAt: null };
       const fetchMock = mockFetch(200, mp);

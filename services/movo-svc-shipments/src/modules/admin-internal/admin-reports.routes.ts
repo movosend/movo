@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
-import { ApiError, DISTANCE_BANDS, DistanceBand, REPORT_RANGE_ERROR_MESSAGES, ReportRange, validateReportRange } from "@movo/shared";
+import { ApiError, CSV_MAX_ROWS, DISTANCE_BANDS, DistanceBand, REPORT_RANGE_ERROR_MESSAGES, ReportRange, validateReportRange } from "@movo/shared";
 import { carriersReport, deliveriesReport, distancesReport, ShipmentMetricFact, supportReport } from "../../domain/admin-report-metrics";
 import { createAdminReportsRepository } from "../../repositories/admin-reports-repository";
 
@@ -39,7 +39,7 @@ export default async function adminReportsRoutes(app: FastifyInstance, _opts: Fa
           type: "object",
           additionalProperties: false,
           required: ["from", "to", "limit"],
-          properties: { ...reportProperties, limit: { type: "integer", minimum: 1, maximum: 10_000 } },
+          properties: { ...reportProperties, limit: { type: "integer", minimum: 1, maximum: CSV_MAX_ROWS } },
         },
       },
     },

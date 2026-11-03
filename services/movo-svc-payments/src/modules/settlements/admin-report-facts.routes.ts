@@ -1,10 +1,7 @@
 import { FastifyInstance, FastifyRequest } from "fastify";
-import { PaymentReportFact, PaymentReportFactsRequest, PaymentReportFactsResponse } from "@movo/shared";
+import { PAYMENT_REPORT_FACTS_MAX_IDS, PaymentReportFact, PaymentReportFactsRequest, PaymentReportFactsResponse } from "@movo/shared";
 
 const toNumber = (value: { toNumber(): number } | null | undefined): number | null => (value ? value.toNumber() : null);
-
-/** Un rango de 366 días con su período anterior entra de sobra: el id de un envío ocupa unos 40 bytes en el JSON. */
-const BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 
 /**
  * MOVO-35 (ADR-025): lo que este servicio sabe del cobro de una lista de envíos, para Cashflow y Precio y volumen. Los
@@ -14,14 +11,13 @@ export default async function paymentsAdminReportFactsRoutes(app: FastifyInstanc
   app.post(
     "/report-facts",
     {
-      bodyLimit: BODY_LIMIT_BYTES,
       schema: {
         hide: true,
         body: {
           type: "object",
           additionalProperties: false,
           required: ["shipmentIds"],
-          properties: { shipmentIds: { type: "array", items: { type: "string", format: "uuid" } } },
+          properties: { shipmentIds: { type: "array", maxItems: PAYMENT_REPORT_FACTS_MAX_IDS, items: { type: "string", format: "uuid" } } },
         },
       },
     },

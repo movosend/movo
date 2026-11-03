@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FastifyInstance } from "fastify";
-import { PaymentReportFactsResponse } from "@movo/shared";
+import { PAYMENT_REPORT_FACTS_MAX_IDS, PaymentReportFactsResponse } from "@movo/shared";
 import { buildApp } from "../src/app";
 
 /** MOVO-35: el cobro de cada envío, para Cashflow y Precio y volumen, contra Postgres real. */
@@ -155,6 +155,12 @@ describe("datos de cobro para los reportes (Postgres) — MOVO-35", () => {
 
     expect(items.find((item) => item.shipmentId === open)).toMatchObject({ cashCommissionArs: 150, cashCommissionDebtOpen: true });
     expect(items.find((item) => item.shipmentId === paid)).toMatchObject({ cashCommissionArs: 150, cashCommissionDebtOpen: false });
+  });
+
+  it("más ids que el tope por pedido es 400", async () => {
+    const shipmentIds = Array.from({ length: PAYMENT_REPORT_FACTS_MAX_IDS + 1 }, () => randomUUID());
+    const response = await app.inject({ method: "POST", url: "/internal/payments/admin/report-facts", payload: { shipmentIds } });
+    expect(response.statusCode).toBe(400);
   });
 
   it("un id inválido es 400", async () => {
