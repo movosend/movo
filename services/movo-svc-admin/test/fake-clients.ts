@@ -4,6 +4,8 @@ import {
   AuditTargetsResponse,
   DisputesReportRowsResponse,
   DisputesReportSource,
+  PaymentReportFact,
+  ShipmentReportFact,
   OverviewInboxSource,
   OverviewDisputesExtra,
   OverviewKycExtra,
@@ -148,7 +150,11 @@ export function createFakeShipmentsClient(data: {
   /** MOVO-344: `disputesReportSeen` guarda el rango y el tope con que se pidió. */
   disputesReport?: DisputesReportSource;
   disputesReportRows?: DisputesReportRowsResponse;
-  disputesReportSeen?: Array<{ from: string; to: string; limit?: number }>;
+  disputesReportSeen?: Array<{ from: string; to: string; limit?: number; band?: string }>;
+  /** MOVO-35: lo que devuelve `getOwnedReport` por reporte, y los envíos para Cashflow y Precio. */
+  ownedReports?: Record<string, unknown>;
+  ownedReportsSeen?: Array<{ id: string; band?: string }>;
+  reportFacts?: ShipmentReportFact[];
   auditTargets?: AuditTargetsResponse;
   auditTargetsSeen?: AuditTargetsRequest[];
   targetsDown?: boolean;
@@ -156,9 +162,20 @@ export function createFakeShipmentsClient(data: {
 } = {}): ShipmentsClient {
   return {
     request: unusedRequest,
-    async getDisputesReport(range) {
+    async getOwnedReport(id: string, _range: unknown, _ctx: unknown, band?: string) {
       if (data.down) throw shipmentsDown();
-      data.disputesReportSeen?.push({ ...range });
+      data.ownedReportsSeen?.push({ id, ...(band ? { band } : {}) });
+      const report = data.ownedReports?.[id];
+      if (!report) throw new Error(`fake: falta el reporte ${id}`);
+      return report;
+    },
+    async getShipmentReportFacts() {
+      if (data.down) throw shipmentsDown();
+      return { items: data.reportFacts ?? [] };
+    },
+    async getDisputesReport(range, _ctx, band) {
+      if (data.down) throw shipmentsDown();
+      data.disputesReportSeen?.push({ ...range, ...(band ? { band } : {}) });
       if (!data.disputesReport) throw new Error("fake: falta disputesReport");
       return data.disputesReport;
     },
@@ -560,11 +577,15 @@ export function createFakeUsersClient(
 
 /** MOVO-294: cuenta corriente y Mercado Pago. El ajuste es idempotente por key, como el real. */
 export function createFakePaymentsClient(
-  data: { overview?: OverviewInboxSource<OverviewPaymentsExtra>; holds?: Record<string, HoldDetailResponse>; ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
+  data: { reportFacts?: PaymentReportFact[]; overview?: OverviewInboxSource<OverviewPaymentsExtra>; holds?: Record<string, HoldDetailResponse>; ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
 ) {
   const adjustments = new Map<string, { body: LedgerAdjustmentRequest; id: string; createdAt: string }>();
   const client: PaymentsClient = {
     request: unusedRequest,
+    async getReportFacts() {
+      if (data.down) throw paymentsDown();
+      return { items: data.reportFacts ?? [] };
+    },
     async getOverview() {
       if (data.down) throw paymentsDown();
       return data.overview ?? { ...emptyInbox, holdsExpiringToday: 0, overSla: false };

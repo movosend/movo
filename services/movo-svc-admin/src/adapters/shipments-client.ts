@@ -1,8 +1,12 @@
 import {
   AuditTargetsRequest,
   AuditTargetsResponse,
+  AdminReportById,
   DisputesReportRowsResponse,
   DisputesReportSource,
+  DistanceBand,
+  ReportSource,
+  ShipmentReportFactsResponse,
   OverviewDisputesExtra,
   ReportRange,
   OverviewInboxSource,
@@ -47,6 +51,8 @@ import {
   isStringArray,
   RequestContext,
 } from "./internal-client";
+
+export type ShipmentsOwnedReport = "deliveries" | "carriers" | "distances" | "support";
 
 export interface ShipmentsClient extends InternalClient {
   /** `GET /internal/shipments/:id/parties`. `null` si el envío no existe. */
@@ -101,8 +107,11 @@ export interface ShipmentsClient extends InternalClient {
   getOverviewFlaggedMessages(ctx: RequestContext): Promise<OverviewInboxSource>;
   getAuditTargets(request: AuditTargetsRequest, ctx: RequestContext): Promise<AuditTargetsResponse>;
   // MOVO-344: reporte de disputas.
-  getDisputesReport(range: ReportRange, ctx: RequestContext): Promise<DisputesReportSource>;
-  listDisputesReportRows(range: ReportRange, limit: number, ctx: RequestContext): Promise<DisputesReportRowsResponse>;
+  getDisputesReport(range: ReportRange, ctx: RequestContext, band?: DistanceBand): Promise<DisputesReportSource>;
+  listDisputesReportRows(range: ReportRange, limit: number, ctx: RequestContext, band?: DistanceBand): Promise<DisputesReportRowsResponse>;
+  // MOVO-35: los reportes que calcula este servicio, y los envíos para Cashflow y Precio.
+  getOwnedReport<R extends ShipmentsOwnedReport>(id: R, range: ReportRange, ctx: RequestContext, band?: DistanceBand): Promise<ReportSource<AdminReportById[R]>>;
+  getShipmentReportFacts(range: ReportRange, ctx: RequestContext): Promise<ShipmentReportFactsResponse>;
   /** MOVO-341: `GET /internal/admin/disputes/counts` (menú lateral y home). */
   getDisputeCounts(ctx: RequestContext): Promise<AdminDisputeCounts>;
   /** `GET /internal/admin/disputes/:id`. `null` si la disputa no existe. */
@@ -305,6 +314,10 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
 
   const isDisputesReportSource = (body: unknown): body is DisputesReportSource =>
     isRecord(body) && isRecord(body.meta) && isRecord(body.kpis) && isRecord(body.series) && Array.isArray(body.breakdowns) && Array.isArray(body.backlog) && (body.funnel === null || Array.isArray(body.funnel));
+  const isOwnedReportSource = <R extends ShipmentsOwnedReport>(body: unknown): body is ReportSource<AdminReportById[R]> =>
+    isRecord(body) && isRecord(body.meta) && isRecord(body.kpis) && isRecord(body.series) && Array.isArray(body.breakdowns);
+  const isShipmentReportFacts = (body: unknown): body is ShipmentReportFactsResponse => isRecord(body) && Array.isArray(body.items);
+  const reportQuery = (range: ReportRange, band?: DistanceBand) => new URLSearchParams({ ...range, ...(band ? { band } : {}) });
   const isDisputesReportRows = (body: unknown): body is DisputesReportRowsResponse =>
     isRecord(body) && Array.isArray(body.items) && typeof body.truncated === "boolean";
 
@@ -429,16 +442,32 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
       if (!targets) throw new Error("getAuditTargets: respuesta vacía");
       return targets;
     },
-    async getDisputesReport(range, ctx) {
-      const report = await client.request(`/internal/admin/reports/disputes?${new URLSearchParams({ ...range })}`, ctx, {
+    async getOwnedReport<R extends ShipmentsOwnedReport>(id: R, range: ReportRange, ctx: RequestContext, band?: DistanceBand) {
+      const report = await client.request(`/internal/admin/reports/${id}?${reportQuery(range, band)}`, ctx, {
+        isValid: isOwnedReportSource<R>,
+        notFoundCodes: [],
+      });
+      if (!report) throw new Error(`getOwnedReport ${id}: respuesta vacía`);
+      return report;
+    },
+    async getShipmentReportFacts(range, ctx) {
+      const facts = await client.request(`/internal/admin/reports/shipment-facts?${new URLSearchParams({ ...range })}`, ctx, {
+        isValid: isShipmentReportFacts,
+        notFoundCodes: [],
+      });
+      if (!facts) throw new Error("getShipmentReportFacts: respuesta vacía");
+      return facts;
+    },
+    async getDisputesReport(range, ctx, band) {
+      const report = await client.request(`/internal/admin/reports/disputes?${reportQuery(range, band)}`, ctx, {
         isValid: isDisputesReportSource,
         notFoundCodes: [],
       });
       if (!report) throw new Error("getDisputesReport: respuesta vacía");
       return report;
     },
-    async listDisputesReportRows(range, limit, ctx) {
-      const query = new URLSearchParams({ ...range, limit: String(limit) });
+    async listDisputesReportRows(range, limit, ctx, band) {
+      const query = new URLSearchParams({ ...range, limit: String(limit), ...(band ? { band } : {}) });
       const rows = await client.request(`/internal/admin/reports/disputes/rows?${query}`, ctx, {
         isValid: isDisputesReportRows,
         notFoundCodes: [],

@@ -101,12 +101,14 @@ describe("GET /admin/reports/disputes — MOVO-344", () => {
   });
 
   describe("JSON", () => {
-    it("devuelve el reporte con el filtro de distancia marcado como no aplicado, aunque venga", async () => {
+    it("devuelve el reporte y le pasa el filtro de distancia a svc-shipments", async () => {
+      seen.length = 0;
       const res = await get(`/admin/reports/disputes?${QUERY}&band=200_500`);
       expect(res.statusCode).toBe(200);
       expect(res.headers["cache-control"]).toBe("no-store");
       const body = res.json();
-      expect(body.meta).toMatchObject({ band: null, bandApplied: false, granularity: "day" });
+      expect(body.meta).toMatchObject({ band: "200_500", bandApplied: true, granularity: "day" });
+      expect(seen[0]?.band).toBe("200_500");
       expect(body.kpis.resolutionHours).toEqual({ value: null, previous: 4 });
       expect(body.series.opened[0]).toEqual({ start: "2026-10-01", end: "2026-10-01", value: 2, previous: 1 });
       expect(body.breakdowns[0].rows[0]).toEqual({ key: "damaged", value: 2, previous: 1, share: 66.67 });
