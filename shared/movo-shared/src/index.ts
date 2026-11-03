@@ -46,7 +46,7 @@ export type {
   AdminCandidate,
   AdminSummary,
 } from "./types/user";
-export { ShipmentStatus } from "./types/shipment";
+export { ShipmentStatus, PaymentMethod } from "./types/shipment";
 export type {
   SharedHistory,
   ActiveShipmentStatus,
@@ -122,6 +122,7 @@ export type {
   CarrierMpAccountStatusResponse,
   CarrierRequirement,
   CarrierRequirementsErrorDetails,
+  CashPaymentRequirement,
 } from "./types/carrier-eligibility";
 
 // hold (MOVO-209)
@@ -171,7 +172,13 @@ export type {
 } from "./types/transaction";
 
 // liquidación: captura del hold + split (MOVO-212)
-export { SETTLEMENT_ISSUE_STATUSES, SETTLEMENT_KINDS, SETTLEMENT_STATUSES } from "./types/settlement";
+export {
+  isPartialCaptureKind,
+  PARTIAL_CAPTURE_KINDS,
+  SETTLEMENT_ISSUE_STATUSES,
+  SETTLEMENT_KINDS,
+  SETTLEMENT_STATUSES,
+} from "./types/settlement";
 export type {
   CaptureHoldRequest,
   CaptureHoldResponse,
@@ -188,6 +195,21 @@ export type {
   SettlementStatus,
   ShipmentSettlementResponse,
 } from "./types/settlement";
+// reembolso de un pago capturado (MOVO-336)
+export {
+  REFUND_IDEMPOTENCY_KEY_MAX_LENGTH,
+  REFUND_REASON_MAX_LENGTH,
+  REFUND_REASON_MIN_LENGTH,
+  REFUND_STATUSES,
+} from "./types/refund";
+export type {
+  CreateRefundRequest,
+  CreateRefundResponse,
+  RefundFailureReason,
+  RefundResponse,
+  RefundsResponse,
+  RefundStatus,
+} from "./types/refund";
 // cuenta corriente del usuario (MOVO-309)
 export { USER_LEDGER_ENTRY_STATUSES, USER_LEDGER_ENTRY_TYPES, USER_LEDGER_ROLES } from "./types/user-ledger";
 export type {
@@ -200,6 +222,10 @@ export type {
   CreateUserLedgerEntryResponse,
   DebtCollectionPreviewRequest,
   DebtCollectionPreviewResponse,
+  RegisterCashCancellationPenaltyRequest,
+  RegisterCashCancellationPenaltyResponse,
+  RegisterCashCommissionRequest,
+  RegisterCashCommissionResponse,
   UserLedgerBalanceResponse,
   UserLedgerEntry,
   UserLedgerEntryStatus,
@@ -231,11 +257,27 @@ export {
   computeNetFromGross,
   decomposeOfferGrossPrice,
   carrierPaymentView,
+  cashPenaltyCompensationArs,
   estimateMpFeeArs,
   estimateReceivedArs,
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
+export {
+  DISPUTE_RESOLVABLE_STATUSES_AT_OPEN,
+  isDisputeResolvableStatus,
+  disputePaymentAction,
+  disputeFinalShipmentStatus,
+  disputeRatingWinners,
+  splitDisputeStake,
+  minimumPartialCaptureArs,
+} from "./config/dispute-resolution";
+export type {
+  DisputeResolvableStatus,
+  DisputeAmountChoice,
+  DisputeAmountsError,
+  DisputeAmounts,
+} from "./config/dispute-resolution";
 
 // legal (MOVO-228)
 export { LEGAL_DOCUMENT_VERSIONS } from "./config/legal";
@@ -373,6 +415,7 @@ export type {
   ShipmentParties,
   InProgressShipment,
   WithdrawOpenActivityResult,
+  OpenActivitySummary,
   ChatReportParties,
   UserReportParties,
 } from "./types/admin";
@@ -419,6 +462,7 @@ export type {
   AdminShipmentPartyCard,
   AdminBlock,
   AdminShipmentDetail,
+  AdminShipmentDisputeSummary,
   AdminShipmentDetailResponse,
   AdminChatMessage,
   AdminChatReport,
@@ -429,7 +473,53 @@ export type {
   AdminTrackingPoint,
   AdminTrackingMetrics,
   AdminShipmentTracking,
+  ShipmentPartyTracking,
 } from "./types/admin-shipments";
+
+// admin: base de reportes, home y bitácora ampliada (MOVO-342, ADR-025)
+export {
+  REPORT_RANGE_MAX_DAYS,
+  REPORT_RANGE_ERROR_MESSAGES,
+  validateReportRange,
+  resolveReportRange,
+  reportRangeDays,
+  previousReportRange,
+  reportGranularity,
+  argentinaDayBounds,
+  ADMIN_OVERVIEW_BLOCKS,
+  OVERVIEW_SLA_HOURS,
+  OVERVIEW_FLAGGED_MESSAGES_WINDOW_DAYS,
+  toOverviewInbox,
+  ADMIN_AUDIT_ACTIONS,
+  AUDIT_TARGET_PREFIX_MIN_LENGTH,
+  auditTargetKey,
+  EXPORT_ROWS_HEADER,
+  EXPORT_TRUNCATED_HEADER,
+} from "./types/admin-reports";
+export type {
+  ReportRange,
+  ReportRangeError,
+  ReportRangeResult,
+  ReportGranularity,
+  AdminOverviewBlockName,
+  OverviewBreakdownRow,
+  OverviewInbox,
+  OverviewInboxSource,
+  OverviewDisputesExtra,
+  OverviewSupportExtra,
+  OverviewKycExtra,
+  OverviewUserReportsExtra,
+  OverviewShipmentAlertsExtra,
+  OverviewPaymentsExtra,
+  AdminOverviewBlock,
+  AdminOverviewBlocks,
+  AdminOverview,
+  AdminAuditAction,
+  AuditTargetRef,
+  AdminAuditLogPage,
+  AuditTargetsRequest,
+  AuditTargetsResponse,
+} from "./types/admin-reports";
 
 // admin: cambio forzado de estado de un envío (MOVO-331, DD-055)
 export {
@@ -485,6 +575,11 @@ export type {
   AdminUserModeration,
   AdminUserSanction,
   AdminUserSanctions,
+  AdminSanctionWithdrawalStatus,
+  AdminSanctionWithdrawal,
+  AdminApplySanctionBody,
+  AdminLiftSanctionBody,
+  AdminSanctionPreview,
   AdminLedgerType,
   AdminLedgerStatus,
   AdminUserLedgerEntry,
@@ -510,6 +605,7 @@ export type {
   AdminUserLedgerRow,
   AdminUserLedgerRowPage,
   AdminUserNames,
+  AdminUserNameRef,
 } from "./types/admin-users";
 
 // admin: bandeja de soporte (MOVO-323, backend MOVO-321/MOVO-322)
@@ -530,6 +626,8 @@ export {
   SUPPORT_ERROR,
   SUPPORT_QUICK_REPLIES,
   SUPPORT_WS_PROTOCOL,
+  SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER,
+  parseSupportWsProtocols,
   resolveQuickReply,
 } from "./types/admin-support";
 export type {
@@ -572,6 +670,33 @@ export type {
   SupportRealtimeTicket,
 } from "./types/admin-support";
 
+// soporte: contrato interno svc-admin ↔ svc-shipments (MOVO-322, ADR-024)
+export {
+  SUPPORT_EVENTS_STREAM_KEY,
+  SUPPORT_EVENTS_STREAM_FIELD,
+  SUPPORT_EVENTS_STREAM_MAXLEN,
+} from "./types/admin-support-internal";
+export type {
+  SupportInternalMessageKind,
+  SupportInternalLastMessage,
+  SupportInternalRow,
+  SupportInternalListPage,
+  SupportInternalMessage,
+  SupportInternalMessagesPage,
+  SupportInternalListQuery,
+  SupportInternalCountsQuery,
+  SupportInternalCounts,
+  SupportInternalActor,
+  SupportInternalSendBody,
+  SupportInternalSendResult,
+  SupportInternalPatchBody,
+  SupportInternalAttachmentBody,
+  SupportInternalAgentLoad,
+  SupportInternalParties,
+  SupportInternalUserConversations,
+  SupportStreamEvent,
+} from "./types/admin-support-internal";
+
 // soporte del lado del usuario (MOVO-320, consumido por MOVO-324)
 export {
   SUPPORT_WS_CLOSE,
@@ -599,6 +724,28 @@ export type {
   SupportRealtimeConnected,
 } from "./types/support";
 
+// disputas para el panel (MOVO-337)
+export type {
+  AdminDisputeParty,
+  AdminDisputeResolution,
+  AdminDisputeRow,
+  AdminDisputePage,
+  AdminDisputeDetail,
+  AdminDisputePhotos,
+  AdminDisputeHandshakeEvent,
+  AdminDisputeTracePoint,
+  AdminDisputeTrace,
+  AdminDisputeNote,
+  AdminDisputeNotePage,
+  AdminDisputeNoteBody,
+  AdminDisputeResolutionPreview,
+  AdminDisputeSort,
+  AdminDisputeCounts,
+  AdminDisputePartyHistory,
+  AdminDisputeAttribution,
+} from "./types/admin-disputes";
+export { ADMIN_DISPUTE_SORTS } from "./types/admin-disputes";
+
 // disputas (MOVO-334, DD-054)
 export {
   DisputeReason,
@@ -606,6 +753,13 @@ export {
   USER_SELECTABLE_DISPUTE_REASONS,
   DISPUTE_WINDOW_DAYS,
   DISPUTE_TEXT_MAX_LENGTH,
+  DISPUTE_OUTCOMES,
+  DISPUTE_PARTIAL_PRESETS,
+  DISPUTE_REASONING_MIN_LENGTH,
+  DISPUTE_REASONING_MAX_LENGTH,
+  DISPUTE_NOTE_MIN_LENGTH,
+  DISPUTE_NOTE_MAX_LENGTH,
+  DISPUTE_PAYMENT_ACTIONS,
 } from "./types/dispute";
 export type {
   DisputePartyRole,
@@ -614,4 +768,10 @@ export type {
   DisputeStatement,
   DisputeDetail,
   DisputePhotoUploadUrl,
+  DisputeOutcome,
+  DisputePaymentAction,
+  ResolveDisputeRequest,
+  InternalResolveDisputeRequest,
+  ResolveDisputeResponse,
+  DisputePartialCaptureFloor,
 } from "./types/dispute";

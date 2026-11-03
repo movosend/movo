@@ -185,6 +185,28 @@ describe("PricingLogisticsClient (MOVO-219)", () => {
       expect(result).toEqual(sampleOptimizeResponse);
     });
 
+    it("usa un timeout propio, más largo que el del resto de las llamadas (MOVO-346)", async () => {
+      const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue(sampleOptimizeResponse),
+      } as unknown as Response);
+
+      await client.optimizeRoute(sampleOptimizeInput);
+      expect(timeoutSpy).toHaveBeenLastCalledWith(5000);
+
+      const custom = createPricingLogisticsClient({
+        PRICING_SERVICE_URL: BASE_URL,
+        PRICING_OPTIMIZE_TIMEOUT_MS: 8000,
+      });
+      await custom.optimizeRoute(sampleOptimizeInput);
+      expect(timeoutSpy).toHaveBeenLastCalledWith(8000);
+      await custom.routeMatrix({ points: [] });
+      expect(timeoutSpy).toHaveBeenLastCalledWith(1000);
+      timeoutSpy.mockRestore();
+    });
+
     it("lanza ApiError 503 ROUTING_SERVICE_UNAVAILABLE ante timeout", async () => {
       const timeoutError = new Error("The operation was aborted due to timeout");
       timeoutError.name = "TimeoutError";

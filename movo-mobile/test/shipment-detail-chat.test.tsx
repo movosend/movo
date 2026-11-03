@@ -68,6 +68,13 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useCarrierWithdraw: () => ({ mutateAsync: jest.fn(), isPending: false }),
 }));
 
+jest.mock("../src/hooks/use-live-position", () => ({
+  useLivePosition: () => ({ position: null, isStale: false }),
+}));
+jest.mock("../src/hooks/use-shipment-tracking", () => ({
+  useShipmentTracking: () => ({ data: undefined, trace: [], planned: [] }),
+}));
+
 jest.mock("../src/hooks/use-offers", () => ({
   useShipmentOffers: () => ({ data: [], isLoading: false }),
 }));
@@ -147,7 +154,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     suggestedPriceArs: 4500,
     highDemand: null,
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: "card",
     status: ShipmentStatus.PUBLISHED,
     lastStatusChangedAt: null,
     deliveredAt: null,

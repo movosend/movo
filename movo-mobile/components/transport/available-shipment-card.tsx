@@ -7,6 +7,7 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { computeNetFromGross } from "@movo/shared/dist/config/commission";
 import { estimateReceivedArs, getClientCommissionRate } from "../../src/lib/commission-config";
 import { DebtDiscount } from "../payments/debt-discount";
+import { PaymentMethodBadge } from "../shipments/payment-method-badge";
 import { formatPackageDimensions } from "../../src/lib/package-dimensions";
 import {
   formatDetourKm,
@@ -108,6 +109,7 @@ export function AvailableShipmentCard({
               <Text className="font-sans-medium text-[11px] text-warning-700">Urgente</Text>
             </View>
           ) : null}
+          <PaymentMethodBadge paymentMethod={shipment.paymentMethod} testID={testID ? `${testID}-cash` : undefined} />
         </View>
       </View>
 

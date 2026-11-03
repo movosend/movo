@@ -12,7 +12,10 @@ import {
   ShieldCheck,
   UserX,
 } from "lucide-react"
-import type { AdminUserProfile } from "@movo/shared/src/types/admin-users"
+import type {
+  AdminUserProfile,
+  AdminUserSanction,
+} from "@movo/shared/src/types/admin-users"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { initialsOf } from "@/lib/initials"
 import {
@@ -22,8 +25,10 @@ import {
   formatPhone,
   ROLE_LABEL,
 } from "@/lib/users/format"
+import { needsWithdrawalRetry, withdrawalWarning } from "@/lib/users/sanctions"
 import { cn } from "@/lib/utils"
 import { AccountActions } from "./actions/account-actions"
+import { RetryWithdrawalButton } from "./actions/retry-withdrawal-button"
 import { StatusPill, TONE_BG } from "./ui"
 
 const ROLE_ICON = { sender: PackageOpen, carrier: Car, admin: ShieldCheck }
@@ -31,10 +36,13 @@ const ROLE_ICON = { sender: PackageOpen, carrier: Car, admin: ShieldCheck }
 /** Cabecera de la ficha: grilla y puntos de fondo, identidad, menú de acciones y los KPIs (children). */
 export function UserHeader({
   user,
+  activeSanction = null,
   isSelf = false,
   children,
 }: {
   user: AdminUserProfile
+  /** La sanción vigente, para el menú de acciones (levantar). */
+  activeSanction?: AdminUserSanction | null
   /** La ficha es la del propio admin: las acciones sobre la cuenta quedan deshabilitadas. */
   isSelf?: boolean
   children: React.ReactNode
@@ -60,7 +68,11 @@ export function UserHeader({
             <ArrowLeft aria-hidden className="size-4" />
             Volver a usuarios
           </Link>
-          <AccountActions user={user} isSelf={isSelf} />
+          <AccountActions
+            user={user}
+            activeSanction={activeSanction}
+            isSelf={isSelf}
+          />
         </div>
         <div className="flex min-w-0 items-center gap-[18px]">
           <Avatar
@@ -140,8 +152,17 @@ export function UserHeader({
   )
 }
 
-/** Aviso bajo la cabecera según el estado de la cuenta; una cuenta activa no lleva ninguno. */
-export function AccountBanner({ user }: { user: AdminUserProfile }) {
+/**
+ * Aviso bajo la cabecera según el estado de la cuenta; una cuenta activa no lleva ninguno. Con la
+ * sanción vigente suma el motivo, quién la aplicó y, si el retiro quedó a medias, el reintento (AC7).
+ */
+export function AccountBanner({
+  user,
+  sanction = null,
+}: {
+  user: AdminUserProfile
+  sanction?: AdminUserSanction | null
+}) {
   if (user.accountStatus === "active") return null
   let tone: "warning" | "danger" | "neutral"
   let title: string
@@ -161,12 +182,19 @@ export function AccountBanner({ user }: { user: AdminUserProfile }) {
       days === 1 ? "falta 1 día" : `faltan ${days} días`
     }`
     text =
-      "No puede publicar envíos ni transportar mientras dure la suspensión."
+      "No puede publicar envíos, ofertar ni declarar viajes mientras dure la suspensión. Sus envíos en curso siguen."
+  } else if (user.accountStatus === "suspended") {
+    tone = "warning"
+    Icon = Clock
+    title = "Suspendida sin fecha de fin"
+    text =
+      "No puede publicar envíos, ofertar ni declarar viajes hasta que se levante la suspensión. Sus envíos en curso siguen."
   } else {
     tone = "danger"
-    title = "Baneada de forma permanente"
-    text = "No puede volver a usar Movo con esta cuenta."
+    title = "Inhabilitada"
+    text = "No puede iniciar sesión ni usar Movo con esta cuenta."
   }
+  const deleted = user.accountStatus === "deleted"
   const border = {
     warning: "border-warn-border",
     danger: "border-dot-danger/35",
@@ -197,6 +225,24 @@ export function AccountBanner({ user }: { user: AdminUserProfile }) {
       <div className="flex min-w-0 flex-col gap-[3px] text-foreground">
         <span className="text-sm font-semibold">{title}</span>
         <span className="text-[13px] text-pretty text-fg2">{text}</span>
+        {sanction && !deleted && (
+          <span className="text-[13px] text-pretty">
+            «{sanction.reason}»
+            <span className="text-fg2">
+              {" "}
+              · aplicada el {formatDate(sanction.startedAt)}
+              {sanction.appliedByName ? ` por ${sanction.appliedByName}` : ""}
+            </span>
+          </span>
+        )}
+        {!deleted && needsWithdrawalRetry(sanction) && sanction && (
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            <span className="text-[13px] text-warn-fg">
+              {withdrawalWarning(sanction)}
+            </span>
+            <RetryWithdrawalButton userId={user.id} sanctionId={sanction.id} />
+          </div>
+        )}
       </div>
     </div>
   )

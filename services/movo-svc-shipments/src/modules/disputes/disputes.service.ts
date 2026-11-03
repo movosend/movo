@@ -133,6 +133,8 @@ export interface DisputesService {
   openDispute(input: OpenDisputeInput): Promise<DisputeDetail>;
   addStatement(input: AddStatementInput): Promise<DisputeDetail>;
   getDispute(disputeId: string, callerId: string): Promise<DisputeDetail>;
+  /** MOVO-337: el expediente para el panel, sin chequear que quien lo pide sea parte (el acceso lo decide `svc-admin`). */
+  getDisputeAsAdmin(disputeId: string): Promise<DisputeDetail>;
 }
 
 const DISPUTE_PUSH_TRIGGERS = {
@@ -456,6 +458,15 @@ export function createDisputesService(
         throw await alreadyOpen(shipment.id);
       }
       assertDisputeOpenable(shipment, now());
+      // MOVO-337 (DD-056): la resolución de un admin es definitiva. Un envío `completed` que ya tuvo su disputa
+      // resuelta no admite otra, aunque siga dentro de la ventana de `DISPUTE_WINDOW_DAYS`.
+      if ((await disputeRepository.findLatestByShipment(shipment.id))?.status === DisputeStatus.RESOLVED) {
+        throw new ApiError(
+          422,
+          "DISPUTE_NOT_ALLOWED",
+          "La disputa de este envío ya fue resuelta: la resolución es definitiva.",
+        );
+      }
 
       const release = await lockAndValidatePhotoKeys(
         disputePhotoPrefix(shipment.id, input.callerId),
@@ -568,6 +579,10 @@ export function createDisputesService(
       }
       await untrackPhotoKeys(input.photoKeys);
       return toDetail(await loadDetail(dispute.id));
+    },
+
+    async getDisputeAsAdmin(disputeId) {
+      return toDetail(await loadDetail(disputeId));
     },
 
     async getDispute(disputeId, callerId) {

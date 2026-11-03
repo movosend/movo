@@ -90,7 +90,7 @@ export interface AdminShipmentRow {
   lastStatusChangeAt: string;
   /** `in_transit` marcado como demorado por el barrido (DD-045). */
   delayed: boolean;
-  /** Disputa asociada. `null` hasta que exista el módulo de disputas (MOVO-34). */
+  /** La disputa más reciente del envío, en cualquier estado (MOVO-341); `null` si nunca tuvo. */
   disputeId: string | null;
   /** Plazo para fondear una asignación (`assigned_unfunded`). */
   fundingDeadline: string | null;
@@ -138,6 +138,12 @@ export interface ForceShipmentStatusRequest {
   adminId: string;
   adminName: string;
   idempotencyKey: string;
+  /**
+   * Solo `-> assigned` (DD-055, pago simulado): no exige hold autorizado y deja el envío marcado como sin cobro real
+   * (`paymentSimulated`). `svc-shipments` lo rechaza con 403 `PAYMENT_SIMULATION_DISABLED` si `ALLOW_SIMULATED_PAYMENTS`
+   * está apagado.
+   */
+  simulatePayment?: boolean;
 }
 
 export interface ForceShipmentStatusResponse {
@@ -239,6 +245,18 @@ export type AdminBlock<T> =
   | { data: T; error: null }
   | { data: null; error: { code: string; message: string } };
 
+/** MOVO-341: resumen mínimo de la disputa del envío, para no pedir `GET /admin/disputes/:id` solo por esto. */
+export interface AdminShipmentDisputeSummary {
+  id: string;
+  status: "open" | "resolving" | "resolved";
+  reason: string;
+  /** `null`: la abrió el sistema (barrido). */
+  openedByRole: "sender" | "carrier" | "receiver" | null;
+  openedAt: string;
+  /** Descargos y ampliaciones presentados. */
+  statementsCount: number;
+}
+
 /** `GET /internal/admin/shipments/:id` de `svc-shipments`: el envío completo, sin bloques de otros servicios. */
 export interface AdminShipmentDetail extends AdminShipmentRow {
   packageType: string;
@@ -270,6 +288,8 @@ export interface AdminShipmentDetail extends AdminShipmentRow {
   chatStartedAt: string | null;
   cancellationPenaltyArs: number | null;
   createdAt: string;
+  /** MOVO-341: la disputa más reciente (`disputeId` de la fila es su id); `null` si nunca tuvo. */
+  dispute?: AdminShipmentDisputeSummary | null;
 }
 
 /** `GET /admin/shipments/:id`: el envío y sus bloques; un bloque caído no tumba al resto. */
@@ -381,6 +401,12 @@ export interface AdminShipmentTracking {
   pollIntervalSeconds: number;
 }
 
+/**
+ * MOVO-346 (punto 12): `GET /shipments/:id/tracking`, el seguimiento que ven el emisor y el receptor. Mismo
+ * contrato que el del panel, con una diferencia: con el envío cerrado (`state: "closed"`) la traza sale vacía.
+ */
+export type ShipmentPartyTracking = AdminShipmentTracking;
+
 // MOVO-332: cambio de estado desde el panel (DD-055).
 
 /** Vigencia del código de 6 dígitos del step-up y del token que se obtiene al verificarlo. */
@@ -398,6 +424,8 @@ export interface ChangeShipmentStatusRequest {
   /** El token de `POST /admin/step-up/verify`, obligatorio si la transición es forzada o crítica. */
   stepUpToken?: string;
   idempotencyKey: string;
+  /** Ver `ForceShipmentStatusRequest.simulatePayment`: solo con destino `assigned`. */
+  simulatePayment?: boolean;
 }
 
 export type ChangeShipmentStatusResponse = ForceShipmentStatusResponse;

@@ -1,4 +1,3 @@
-import type { CarrierRequirement } from "@movo/shared/dist/types/carrier-eligibility";
 import { KycStatus } from "@movo/shared/dist/types/user";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -7,7 +6,7 @@ import type {
   CarrierRequirementsContext,
   CarrierRequirementsSheetProps,
 } from "../../components/carrier/carrier-requirements-checklist";
-import { carrierRequirementsFromError } from "../lib/carrier-requirements";
+import { carrierRequirementsFromError, type ChecklistRequirement } from "../lib/carrier-requirements";
 import { MP_CONNECT_STATUS_QUERY_KEY, useMpConnectStatus } from "./use-mp-connect";
 import { MY_PROFILE_QUERY_KEY, useMyProfile } from "./use-profile";
 
@@ -30,7 +29,7 @@ export function useCarrierRequirementsSheet(context: CarrierRequirementsContext)
   const queryClient = useQueryClient();
   const { data: profile } = useMyProfile();
   const { data: mp } = useMpConnectStatus();
-  const [missing, setMissing] = useState<CarrierRequirement[] | null>(null);
+  const [missing, setMissing] = useState<ChecklistRequirement[] | null>(null);
   // El sheet se anima al cerrar: `missing` se conserva para no vaciar la checklist a mitad
   // de la animación, y `visible` es lo que realmente lo abre y cierra.
   const [visible, setVisible] = useState(false);

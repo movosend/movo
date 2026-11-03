@@ -65,3 +65,7 @@ de MOVO-201) — acá solo lo transversal.
   bloqueado por MOVO-201), así que no se implementó código sin usar.
 - **Sin verificar contra un deploy real en dev/prod (EC2)** — AC6 del ticket, mismo
   pendiente que ya traía MOVO-200 para nginx; esta sesión no tuvo acceso a esa infra.
+
+### MOVO-346 — Rate limit de nginx con 429
+
+`limit_req zone=api burst=60` (antes 20) con `limit_req_status 429` y `error_page 429 = @rate_limited`, que responde el mismo JSON que el rate limit del gateway (`RATE_LIMIT_EXCEEDED`) con `Retry-After: 1`. Antes un exceso salía como 503: la app lo leía como caída, y con varios testers detrás de la misma IP pasaba al volver a primer plano. El `location @rate_limited` repite HSTS, porque un `add_header` en el location pisa los del server. Sin probar con `nginx -t`: falta validarlo en el primer deploy a dev.

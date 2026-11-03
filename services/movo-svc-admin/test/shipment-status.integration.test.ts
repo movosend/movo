@@ -380,6 +380,36 @@ describe("Cambio de estado de un envío desde el panel (MOVO-332)", () => {
       expect(await rows(s)).toHaveLength(1);
     });
 
+    it("simulatePayment: se reenvía a svc-shipments y queda en la bitácora; la misma clave con otro valor es 409 (DD-055)", async () => {
+      const s = await setup(ShipmentStatus.ASSIGNMENT_PENDING);
+      const idempotencyKey = randomUUID();
+      const body = {
+        targetStatus: "assigned",
+        expectedStatus: "assignment_pending",
+        typedCode: s.code,
+        idempotencyKey,
+      };
+
+      const first = await change(s, { ...body, simulatePayment: true });
+      expect(first.statusCode).toBe(200);
+      expect(s.force.calls).toHaveLength(1);
+      expect(s.force.calls[0]).toMatchObject({ simulatePayment: true });
+      expect((await rows(s))[0].context).toMatchObject({ simulatePayment: true });
+
+      // El backend repetiría el resultado del primero e ignoraría el check nuevo: no es el mismo cambio.
+      const other = await change(s, body);
+      expect(other.statusCode).toBe(409);
+      expect(other.json().error.code).toBe("IDEMPOTENCY_KEY_REUSED");
+      expect(s.force.calls).toHaveLength(1);
+    });
+
+    it("simulatePayment con un destino que no es assigned es 422 y no llama a svc-shipments", async () => {
+      const s = await setup(ShipmentStatus.PUBLISHED);
+      const response = await change(s, { targetStatus: "cancelled", expectedStatus: "published", simulatePayment: true });
+      expect(response.statusCode).toBe(422);
+      expect(s.force.calls).toHaveLength(0);
+    });
+
     it("la misma clave para otro destino o estado esperado es 409 IDEMPOTENCY_KEY_REUSED", async () => {
       const s = await setup(ShipmentStatus.ASSIGNED);
       const idempotencyKey = randomUUID();

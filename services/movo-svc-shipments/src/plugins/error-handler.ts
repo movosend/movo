@@ -11,6 +11,7 @@ import {
   OfferConcurrentModificationError,
   OfferDateOutOfRangeError,
   DuplicateActiveOfferError,
+  OfferShipmentPaymentMethodChangedError,
   OfferShipmentNotFoundError,
   OfferNotEditableError,
 } from "../repositories/offer-repository";
@@ -161,6 +162,16 @@ export default fp(async (app: FastifyInstance) => {
     // (índice único parcial de la base, ver offer-repository.ts).
     if (error instanceof DuplicateActiveOfferError) {
       const apiError = new ApiError(409, "OFFER_DUPLICATE_ACTIVE", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-37: el emisor cambió el medio de pago del envío mientras se armaba la oferta.
+    if (error instanceof OfferShipmentPaymentMethodChangedError) {
+      const apiError = new ApiError(409, "SHIPMENT_PAYMENT_METHOD_CHANGED", "El emisor cambió el medio de pago del envío. Revisalo y volvé a ofertar.");
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,

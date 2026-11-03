@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { MessageCircle } from "lucide-react-native";
+import { ChevronRight, MessageCircle } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
@@ -33,6 +33,10 @@ export interface RouteTrackingChatCardProps {
  * cargaban el detalle. Debajo del mapa va una franja: el seguimiento a la izquierda y, a la derecha,
  * el botón negro "Chat" con un punto lima si hay mensajes sin leer. Sin ninguno de los dos, la card es
  * solo el mapa.
+ *
+ * MOVO-346 (punto 18): con el seguimiento disponible, el transportista ya está en el mapa de arriba
+ * (`RouteMapCard` con `live`). La franja abre ese mismo seguimiento a pantalla completa y se ve como
+ * botón (borde, fondo y chevron): antes parecía una etiqueta y no se descubría.
  */
 export function RouteTrackingChatCard({
   shipmentId,
@@ -81,11 +85,12 @@ export function RouteTrackingChatCard({
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 pushOnce(`/(app)/shipments/${shipmentId}/tracking`);
               }}
-              className="flex-1"
+              className="mr-3 flex-1 flex-row items-center rounded-[10px] border border-border-strong bg-bg-sub py-2 pl-3 pr-2 active:opacity-80"
               accessibilityRole="button"
-              accessibilityLabel="Ver seguimiento en vivo en el mapa"
+              accessibilityLabel="Ver el seguimiento en vivo a pantalla completa"
             >
-              <View className="flex-row">{trackingBody(true)}</View>
+              {trackingBody(true, { label: "En vivo", live: "Ver a pantalla completa", idle: "" })}
+              <ChevronRight size={18} color={colors.fg2} strokeWidth={2} />
             </Pressable>
           ) : tracking === "pending" ? (
             <View

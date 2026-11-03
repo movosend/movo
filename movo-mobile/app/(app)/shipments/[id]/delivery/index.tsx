@@ -10,6 +10,11 @@ import { useShipment } from "../../../../../src/hooks/use-shipments";
  * sobre `ProximityGeoScreen` (compartido con el paso equivalente de `pickup/index.tsx`)
  * contra el punto de entrega del envío (`shipment.deliveryLat/Lng`), con el receptor
  * como contraparte del pin (en vez del emisor).
+ *
+ * MOVO-346 (punto 16): acá la distancia es informativa (`blocking={false}`). El receptor puede estar
+ * en la esquina o en la puerta de un edificio, o el pin del emisor puede estar mal puesto: el gate
+ * dejaba al transportista bloqueado junto al receptor. La proximidad que importa la valida el
+ * handshake en el servidor, transportista contra receptor, a 100 m.
  */
 export default function DeliveryGeoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -26,8 +31,9 @@ export default function DeliveryGeoScreen() {
       counterpartId={shipment?.receiverId}
       counterpartFallbackLabel="Receptor"
       arrivedTitle="Llegaste al punto de entrega"
-      outOfRangeHint="Acercate y volvé a probar. La entrega se habilita dentro de los 100 m."
-      deniedHint="Sin GPS no podemos confirmar que estás en el punto de entrega."
+      outOfRangeHint="Podés seguir igual: la entrega se confirma cuando el receptor escanea el QR cerca tuyo."
+      deniedHint="Podés seguir igual, pero para confirmar la entrega vas a necesitar el GPS."
+      blocking={false}
       onBack={() => (router.canGoBack() ? router.back() : router.replace(`/shipments/${id}`))}
       onContinue={() => router.push(`/shipments/${id}/delivery/resumen`)}
     />

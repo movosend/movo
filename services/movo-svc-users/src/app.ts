@@ -30,6 +30,7 @@ import moderationRoutes, { internalModerationRoutes } from "./modules/moderation
 import adminsInternalRoutes, { AdminsInternalRoutesOptions } from "./modules/admins/admins-internal.routes";
 import adminStepUpInternalRoutes, { AdminStepUpInternalRoutesOptions } from "./modules/admin-step-up/admin-step-up-internal.routes";
 import adminUsersInternalRoutes, { AdminUsersInternalRoutesOptions } from "./modules/admin-users/admin-users-internal.routes";
+import adminOverviewInternalRoutes from "./modules/admin-users/admin-overview-internal.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import sanctionSweepPlugin from "./plugins/sanction-sweep";
 import partyCardsInternalRoutes, { PartyCardsInternalRoutesOptions } from "./modules/users/party-cards-internal.routes";
@@ -227,6 +228,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
   };
   app.register(adminUsersInternalRoutes, adminUsersInternalRouteOpts);
+  // MOVO-342: bandejas de la home del panel (KYC, reportes, sanciones) para svc-admin.
+  app.register(adminOverviewInternalRoutes, { prefix: "/internal" });
 
   // MOVO-296: sanciones de cuenta (suspender, inhabilitar, levantar, historial) para svc-admin.
   const sanctionsInternalRouteOpts: SanctionsInternalRoutesOptions = {

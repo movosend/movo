@@ -31,6 +31,7 @@ const offerShipmentContextResponse = {
     "heightCm",
     "oversized",
     "description",
+    "paymentMethod",
   ],
   properties: {
     id: { type: "string" },
@@ -52,6 +53,8 @@ const offerShipmentContextResponse = {
     heightCm: { type: "number" },
     oversized: { type: "boolean" },
     description: { type: ["string", "null"] },
+    // MOVO-37: modalidad de pago del envío.
+    paymentMethod: { type: "string", enum: ["card", "cash"] },
   },
 };
 
@@ -263,8 +266,9 @@ const acceptOfferResponse = {
       type: "object",
       required: ["shipmentStatus", "fundingRoute", "fundingWindowOpensAt"],
       properties: {
-        shipmentStatus: { type: "string", enum: ["assignment_pending", "assigned_unfunded"] },
-        fundingRoute: { type: "string", enum: ["near", "far"] },
+        // MOVO-37: un envío en efectivo pasa directo a `assigned`, sin ruta de pago (`null`).
+        shipmentStatus: { type: "string", enum: ["assignment_pending", "assigned_unfunded", "assigned"] },
+        fundingRoute: { type: ["string", "null"], enum: ["near", "far", null] },
         fundingWindowOpensAt: { type: ["string", "null"], format: "date-time" },
       },
     },

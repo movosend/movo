@@ -17,6 +17,17 @@ describe("createMockRoutesProvider", () => {
     expect(points[points.length - 1].lng).toBeCloseTo(destination.lng, 4);
   });
 
+  it("pasa por las paradas intermedias en orden (MOVO-346)", async () => {
+    const stop = { lat: -31.43, lng: -64.2 };
+    const direct = await provider.getRoute({ origin, destination });
+    const result = await provider.getRoute({ origin, destination, intermediates: [stop] });
+    const points = decodePolyline(result.polyline);
+
+    expect(points.some((p) => Math.abs(p.lat - stop.lat) < 1e-5 && Math.abs(p.lng - stop.lng) < 1e-5)).toBe(true);
+    expect(points[points.length - 1]!.lat).toBeCloseTo(destination.lat, 5);
+    expect(result.distanceMeters).toBeGreaterThan(direct.distanceMeters);
+  });
+
   it("es determinístico: el mismo origen/destino da siempre el mismo resultado", async () => {
     const first = await provider.getRoute({ origin, destination });
     const second = await provider.getRoute({ origin, destination });

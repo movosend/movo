@@ -9,6 +9,9 @@ import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { assertShipmentAccess } from "../shipments/assert-shipment-access";
 import { ApiError } from "@movo/shared";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
+import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
+import { createAdminTrackingService } from "../admin-internal/admin-tracking.service";
+import { createPlannedRouteStore } from "../admin-internal/planned-route-store";
 
 export interface PositionsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- mismo criterio que el resto de los
@@ -16,6 +19,7 @@ export interface PositionsRoutesOptions extends FastifyPluginOptions {
   shipmentRepository?: ShipmentRepository;
   notificationsClient?: NotificationsClient;
   service?: PositionService;
+  routesProvider?: RoutesProvider;
 }
 
 interface ShipmentIdParams {
@@ -165,6 +169,57 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
       assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver el tracking de este envío.");
 
       return (await service.getLastKnownPosition(shipmentId)) ?? null;
+    }
+  );
+
+  // MOVO-346 (punto 12): ruta planificada, recorrido hecho y última posición para el mapa del emisor y el
+  // receptor. Reusa el seguimiento del panel (MOVO-327): misma ruta cacheada, misma traza de custodia. Se arma
+  // en el primer pedido: los tests de las otras rutas de este módulo montan el plugin sin `app.config`.
+  let partyTracking: ReturnType<typeof createAdminTrackingService> | undefined;
+  const getPartyTracking = () =>
+    (partyTracking ??= createAdminTrackingService({
+      shipmentRepository,
+      positionRepository,
+      redis: app.redis,
+      routeStore: createPlannedRouteStore({
+        redis: app.redis,
+        routesProvider: opts.routesProvider ?? createRoutesProvider(app.config),
+        provider: app.config.ROUTES_PROVIDER,
+        logger: app.log,
+      }),
+      signalLostSeconds: app.config.TRACKING_SIGNAL_LOST_SECONDS,
+    }));
+
+  app.get<{ Params: ShipmentIdParams }>(
+    "/:id/tracking",
+    {
+      schema: {
+        summary: "Seguimiento del envío para el emisor y el receptor: ruta, recorrido y última posición",
+        description:
+          "MOVO-346: ruta planificada del retiro a la entrega (polyline de Routes API, cacheada), traza de custodia " +
+          "(desde el retiro, submuestreada a 500 puntos) y última posición conocida con métricas de avance. Mismo " +
+          "contrato que el seguimiento del panel (`ShipmentPartyTracking`), salvo que con el envío cerrado la traza " +
+          "sale vacía. Solo el tramo de este envío, nunca el viaje entero. 403 si el caller no es parte del envío. " +
+          "La posición en vivo sigue llegando por el WS `/shipments/:id/track`.",
+        tags: ["positions"],
+        params: positionsSchemas.shipmentIdParam,
+        response: { 200: positionsSchemas.shipmentTrackingResponse },
+      },
+    },
+    async (request: FastifyRequest<{ Params: ShipmentIdParams }>, reply: FastifyReply) => {
+      const callerId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { id: shipmentId } = request.params;
+
+      const found = await shipmentRepository.findByIdWithRow(shipmentId);
+      if (!found) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+      const { shipment, row } = found;
+      assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver el tracking de este envío.");
+
+      reply.header("Cache-Control", "no-store");
+      return getPartyTracking().get(row, { closedTrace: false });
     }
   );
 }

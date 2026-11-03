@@ -8,6 +8,8 @@ const sdk = vi.hoisted(() => {
     capture: vi.fn(),
     cancel: vi.fn(),
     search: vi.fn(),
+    refundCreate: vi.fn(),
+    refundTotal: vi.fn(),
   };
   // Cada `new Payment(config)` recuerda con qué config se construyó, así el test
   // puede verificar que cada llamada usó el token que recibió y no otro.
@@ -29,6 +31,16 @@ const sdk = vi.hoisted(() => {
       return calls.search(this.config.accessToken, args);
     }
   }
+  // MOVO-336: el reembolso es otro cliente del SDK (`PaymentRefund`), también construido con el token del vendedor.
+  class PaymentRefund {
+    constructor(private readonly config: { accessToken: string }) {}
+    create(args: unknown) {
+      return calls.refundCreate(this.config.accessToken, args);
+    }
+    total(args: unknown) {
+      return calls.refundTotal(this.config.accessToken, args);
+    }
+  }
   class MercadoPagoConfig {
     accessToken: string;
     options?: Record<string, unknown>;
@@ -38,10 +50,14 @@ const sdk = vi.hoisted(() => {
       configs.push(cfg);
     }
   }
-  return { configs, calls, Payment, MercadoPagoConfig };
+  return { configs, calls, Payment, PaymentRefund, MercadoPagoConfig };
 });
 
-vi.mock("mercadopago", () => ({ Payment: sdk.Payment, MercadoPagoConfig: sdk.MercadoPagoConfig }));
+vi.mock("mercadopago", () => ({
+  Payment: sdk.Payment,
+  PaymentRefund: sdk.PaymentRefund,
+  MercadoPagoConfig: sdk.MercadoPagoConfig,
+}));
 
 import { MERCADOPAGO_TIMEOUT_MS, SdkMercadoPagoClient } from "../src/adapters/mercadopago-client";
 
@@ -108,6 +124,28 @@ describe("SdkMercadoPagoClient (MOVO-267)", () => {
       id: 123,
       requestOptions: { idempotencyKey: "shipment-1:release" },
     });
+  });
+
+  it("refundPayment con monto es un reembolso parcial con el token del vendedor y la key (MOVO-336)", async () => {
+    await client.refundPayment("TEST-seller", 123, { idempotencyKey: "movo-refund-s-1", amount: 287.5 });
+
+    expect(sdk.calls.refundCreate).toHaveBeenCalledWith("TEST-seller", {
+      payment_id: 123,
+      body: { amount: 287.5 },
+      requestOptions: { idempotencyKey: "movo-refund-s-1" },
+    });
+    expect(sdk.calls.refundTotal).not.toHaveBeenCalled();
+    expect(sdk.configs[0]).toEqual({ accessToken: "TEST-seller", options: { timeout: MERCADOPAGO_TIMEOUT_MS } });
+  });
+
+  it("refundPayment sin monto es un reembolso total y no manda body (MOVO-336)", async () => {
+    await client.refundPayment("TEST-seller", 123, { idempotencyKey: "movo-refund-s-2" });
+
+    expect(sdk.calls.refundTotal).toHaveBeenCalledWith("TEST-seller", {
+      payment_id: 123,
+      requestOptions: { idempotencyKey: "movo-refund-s-2" },
+    });
+    expect(sdk.calls.refundCreate).not.toHaveBeenCalled();
   });
 
   it("arma una config nueva por llamada, con el timeout acotado", async () => {

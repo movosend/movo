@@ -15,7 +15,6 @@ import {
   AdminUserProfile,
   AdminUserRatings,
   AdminUserRef,
-  AdminUserSanctions,
   AdminUserShipmentPage,
   AdminUserTripPage,
   ApiError,
@@ -26,10 +25,11 @@ import { requireAdmin } from "../../utils/require-admin";
 import { decodeCursor, encodeCursor } from "../audit/audit.service";
 import { maskContact } from "../../utils/mask-contact";
 import { createNotesRepository } from "./notes.repository";
+import { createNameResolver, requireReason } from "./user-names";
 import { usersSchemas } from "./users.schema";
 
-/** Lo que se muestra si `svc-users` no responde o el id ya no existe: la sección no falla por un nombre. */
-export const UNKNOWN_USER_NAME = "Nombre no disponible";
+// Reexportado: los tests de la ficha lo importan desde acá.
+export { UNKNOWN_USER_NAME } from "./user-names";
 
 interface IdParams {
   id: string;
@@ -57,22 +57,7 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
   const ctxOf = (request: FastifyRequest): RequestContext => ({ requestId: request.requestId });
   const idOf = (request: FastifyRequest) => (request.params as IdParams).id;
 
-  /**
-   * Nombres de las contrapartes (envíos, calificaciones) y de los admins (notas, bitácora,
-   * ajustes). Best-effort a propósito: los datos de la sección son de otro servicio, y que
-   * `svc-users` no responda no debería romperla. Se loguea y se muestra `UNKNOWN_USER_NAME`.
-   */
-  async function namesOf(ids: (string | null)[], ctx: RequestContext): Promise<(id: string) => string> {
-    const unique = [...new Set(ids.filter((id): id is string => !!id))];
-    let found: AdminUserRef[] = [];
-    try {
-      found = await app.usersClient.getUserNames(unique, ctx);
-    } catch (error) {
-      app.log.warn({ err: error, event: "admin_user_names_unavailable", requestId: ctx.requestId }, "No se pudieron resolver los nombres");
-    }
-    const byId = new Map(found.map((user) => [user.id, user.fullName]));
-    return (id) => byId.get(id) ?? UNKNOWN_USER_NAME;
-  }
+  const namesOf = createNameResolver(app);
 
   /** El ajuste de saldo y las notas no los decide `svc-users`: se verifica antes que el usuario exista. */
   async function assertUserExists(id: string, ctx: RequestContext, opts: { allowDeleted: boolean }): Promise<void> {
@@ -80,13 +65,6 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
     if (!opts.allowDeleted && profile.accountStatus === "deleted") {
       throw new ApiError(409, "USER_DELETED", "La cuenta está dada de baja.");
     }
-  }
-
-  /** El motivo se valida sin espacios: AJV mira el string crudo. */
-  function requireReason(raw: string): string {
-    const reason = raw.trim();
-    if (!reason) throw new ApiError(400, "VALIDATION_FAILED", "El motivo es obligatorio.");
-    return reason;
   }
 
   const toNote = (row: AdminUserNoteRow, nameOf: (id: string) => string): AdminUserNote => ({
@@ -212,16 +190,6 @@ export default async function usersRoutes(app: FastifyInstance, _opts: FastifyPl
     async (request) => {
       requireAdmin(request);
       return app.usersClient.getUserModeration(idOf(request), ctxOf(request));
-    },
-  );
-
-  app.get(
-    "/users/:id/suspensions",
-    { schema: { tags: ["admin"], summary: "Ficha: historial de sanciones (vacío hasta MOVO-36)", ...usersSchemas.suspensions } },
-    async (request): Promise<AdminUserSanctions> => {
-      requireAdmin(request);
-      // Hoy ningún endpoint escribe una sanción: la forma ya está fijada para MOVO-36.
-      return { items: [] };
     },
   );
 

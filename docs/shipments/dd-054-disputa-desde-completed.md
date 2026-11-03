@@ -3,7 +3,7 @@
 **Estado:** aceptado (MOVO-334). Borrador para pegar en
 `[Movo] 011-Registro de Decisiones de Diseño` en Drive. Complementa DD-021 (los 11 estados) y DD-045 sin
 modificarlos. La política de reembolso de una disputa con el cobro ya acreditado no va acá:
-la define el ADR de MOVO-337.
+la define DD-056 (MOVO-337).
 
 ## Contexto
 

@@ -45,16 +45,20 @@ export function createMockRoutesProvider(): RoutesProvider {
   return {
     async getRoute(input: RouteInput): Promise<RouteResult> {
       assertSupportedRouteMode(input);
-      const points = [];
-      for (let i = 0; i <= ROUTE_STEPS; i += 1) {
-        const t = i / ROUTE_STEPS;
-        points.push({
-          lat: input.origin.lat + (input.destination.lat - input.origin.lat) * t,
-          lng: input.origin.lng + (input.destination.lng - input.origin.lng) * t,
-        });
+      // Una recta por tramo: origen → intermedios (en orden) → destino.
+      const waypoints = [input.origin, ...(input.intermediates ?? []), input.destination];
+      const points = [waypoints[0]!];
+      let distanceMeters = 0;
+      for (let leg = 1; leg < waypoints.length; leg += 1) {
+        const from = waypoints[leg - 1]!;
+        const to = waypoints[leg]!;
+        for (let i = 1; i <= ROUTE_STEPS; i += 1) {
+          const t = i / ROUTE_STEPS;
+          points.push({ lat: from.lat + (to.lat - from.lat) * t, lng: from.lng + (to.lng - from.lng) * t });
+        }
+        distanceMeters += haversineDistanceMeters(from, to);
       }
 
-      const distanceMeters = haversineDistanceMeters(input.origin, input.destination);
       const durationSeconds = Math.round((distanceMeters / 1000 / AVERAGE_SPEED_KMH) * 3600);
 
       return {

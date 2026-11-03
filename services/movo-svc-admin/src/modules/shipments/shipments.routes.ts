@@ -1,6 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import {
-  AdminBlock,
   AdminShipmentDetail,
   blockedTransitionReason,
   ChangeShipmentStatusRequest,
@@ -27,23 +26,11 @@ import {
   ChatParticipantRole,
 } from "@movo/shared";
 import { RequestContext } from "../../adapters/internal-client";
+import { block } from "../../utils/admin-block";
 import { requireAdmin } from "../../utils/require-admin";
 import { consumeRateLimit } from "../../utils/rate-limit";
 import { createStatusChangeRecords } from "./status-change-records";
 import { shipmentsSchemas } from "./shipments.schema";
-
-/**
- * Un bloque del detalle que vive en otro servicio: si ese servicio no responde, el bloque viene en
- * `null` con su causa y el resto del detalle se devuelve igual (MOVO-325, AC9).
- */
-async function block<T>(load: () => Promise<T>): Promise<AdminBlock<T>> {
-  try {
-    return { data: await load(), error: null };
-  } catch (error) {
-    if (error instanceof ApiError) return { data: null, error: { code: error.code, message: error.message } };
-    return { data: null, error: { code: "BLOCK_UNAVAILABLE", message: "No se pudo obtener este bloque." } };
-  }
-}
 
 /**
  * MOVO-325 (backend de MOVO-33): envíos para el panel. `svc-shipments` es el dueño de los datos
@@ -381,7 +368,12 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
       // Reintento de una clave ya usada (doble clic, timeout): el cambio no se vuelve a validar ni a pedir el
       // segundo factor. Va antes del rate limit: un replay no es un intento nuevo.
       const previous = await records.read(adminId, id, body.idempotencyKey);
-      if (previous && (previous.targetStatus !== body.targetStatus || previous.expectedStatus !== body.expectedStatus)) {
+      if (
+        previous &&
+        (previous.targetStatus !== body.targetStatus ||
+          previous.expectedStatus !== body.expectedStatus ||
+          (previous.simulatePayment ?? false) !== (body.simulatePayment ?? false))
+      ) {
         throw new ApiError(409, "IDEMPOTENCY_KEY_REUSED", "Esa clave de idempotencia ya se usó para otro cambio.");
       }
       if (previous?.state === "done" && previous.response) return { ...previous.response, replayed: true };
@@ -426,6 +418,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
             forced: cell?.kind === "forced",
             risk: cell?.risk ?? null,
             idempotencyKey: body.idempotencyKey,
+            ...(body.simulatePayment ? { simulatePayment: true } : {}),
             ...(retryAfterUnknown ? { retryAfterUnknown: true } : {}),
           },
           resolveContext: (result) => ({ replayed: result.replayed }),
@@ -443,6 +436,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
               throw new ApiError(409, "STATUS_CHANGED", "El estado del envío cambió mientras confirmabas.", {
                 currentStatus: shipment.status,
               });
+            }
+            if (body.simulatePayment && to !== ShipmentStatus.ASSIGNED) {
+              throw new ApiError(422, "VALIDATION_FAILED", "El pago simulado solo aplica al pasar a Asignado.");
             }
             if (!cell || !friction) {
               const blockedReason = blockedTransitionReason(from, to);
@@ -475,6 +471,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
                 adminId,
                 adminName,
                 idempotencyKey: body.idempotencyKey,
+                ...(body.simulatePayment ? { simulatePayment: true } : {}),
               },
               ctx,
             );
@@ -485,6 +482,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
               state: "done",
               targetStatus: body.targetStatus,
               expectedStatus: body.expectedStatus,
+              ...(body.simulatePayment ? { simulatePayment: true } : {}),
               response: result,
             });
             return result;
@@ -496,6 +494,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, _opts: Fasti
                 state: "unknown",
                 targetStatus: body.targetStatus,
                 expectedStatus: body.expectedStatus,
+                ...(body.simulatePayment ? { simulatePayment: true } : {}),
               });
             }
             throw error;

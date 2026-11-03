@@ -28,6 +28,7 @@ import {
   ForceShipmentStatusRequest,
   ForceShipmentStatusResponse,
   InProgressShipment,
+  OpenActivitySummary,
   ShipmentParties,
   ShipmentStatus,
   WithdrawOpenActivityResult,
@@ -43,6 +44,7 @@ import {
   InvalidAdminCursorError,
 } from "../../repositories/admin-shipment-repository";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
+import { createDisputeRepository, ShipmentDisputeSummaryRecord } from "../../repositories/dispute-repository";
 import { createChatRepository, InvalidChatCursorError } from "../../repositories/chat-repository";
 import { adminInternalSchemas } from "./admin-internal.schema";
 import { createAdminUsersService } from "./admin-users.service";
@@ -52,7 +54,8 @@ import type { Offer } from "../../models/offer";
 import { createTripRepository } from "../../repositories/trip-repository";
 import { createShipmentsService } from "../shipments/shipments.service";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
-import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
+import { PaymentsClient } from "../../adapters/payments-client";
+import { createAppPaymentsClient } from "../../adapters/simulated-payments-client";
 import { AlertNotifier, createAlertNotifier } from "../../adapters/alert-notifier";
 import { buildFundingService } from "../funding/funding.routes";
 import { createForceStatusService } from "./force-status.service";
@@ -96,10 +99,12 @@ const timeOnly = (date: Date): string => date.toISOString().slice(11, 16);
  * - MOVO-325: listado, detalle, eventos, fotos y chat de los envíos para el panel.
  * - MOVO-297: los efectos de una sanción sobre un usuario (envíos en curso y retiro de actividad abierta).
  * - MOVO-327: el seguimiento de un envío para el mapa del panel.
+ * - MOVO-299: la vista previa de ese retiro (`GET /users/:id/open-activity`), de solo lectura.
  */
 export default async function adminInternalRoutes(app: FastifyInstance, opts: AdminInternalRoutesOptions) {
   const shipmentRepository = createShipmentRepository(app.db);
   const chatRepository = createChatRepository(app.db);
+  const disputeRepository = createDisputeRepository(app.db);
   const adminShipmentRepository = createAdminShipmentRepository(app.db);
   const offerRepository = createOfferRepository(app.db);
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
@@ -121,7 +126,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     releaseHoursBeforePickup: app.config.FUNDING_RELEASE_HOURS_BEFORE_PICKUP,
   };
 
-  function toRow({ row, names }: AdminShipmentRecord): AdminShipmentRow {
+  function toRow({ row, names }: AdminShipmentRecord, dispute?: ShipmentDisputeSummaryRecord): AdminShipmentRow {
     const status = row.status as ShipmentStatus;
     const agreed = row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null;
     const suggested = row.suggestedPriceArs ? row.suggestedPriceArs.toNumber() : null;
@@ -146,7 +151,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
       priceKind: hasCarrierPrice ? "agreed" : suggested !== null ? "suggested" : null,
       lastStatusChangeAt: (row.lastStatusChangedAt ?? row.createdAt).toISOString(),
       delayed: status === ShipmentStatus.IN_TRANSIT && row.transitAnomalyFlaggedAt !== null,
-      disputeId: null,
+      disputeId: dispute?.disputeId ?? null,
       fundingDeadline: isFunding ? fundingPayUntil({ ...row, status }, fundingConfig).toISOString() : null,
       redesignationDeadline:
         status === ShipmentStatus.REJECTED_BY_RECEIVER ? isoOrNull(row.receiverRedesignationDeadline) : null,
@@ -361,8 +366,16 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
         throw err;
       }
 
-      const [counts] = await Promise.all([adminShipmentRepository.counts(search), healMissingNames(page.items)]);
-      return { items: page.items.map(toRow), nextCursor: page.nextCursor, ...counts };
+      const [counts, disputes] = await Promise.all([
+        adminShipmentRepository.counts(search),
+        disputeRepository.latestSummaryByShipment(page.items.map(({ row }) => row.id)),
+        healMissingNames(page.items),
+      ]);
+      return {
+        items: page.items.map((record) => toRow(record, disputes.get(record.row.id))),
+        nextCursor: page.nextCursor,
+        ...counts,
+      };
     },
   );
 
@@ -391,8 +404,19 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
       const record = await requireRecord(id);
       await healMissingNames([record]);
       const { row } = record;
+      const dispute = (await disputeRepository.latestSummaryByShipment([row.id])).get(row.id);
       return {
-        ...toRow(record),
+        ...toRow(record, dispute),
+        dispute: dispute
+          ? {
+              id: dispute.disputeId,
+              status: dispute.status,
+              reason: dispute.reason,
+              openedByRole: dispute.openedByRole,
+              openedAt: dispute.openedAt.toISOString(),
+              statementsCount: dispute.statementsCount,
+            }
+          : null,
         packageType: row.packageType,
         weightKg: row.weightKg.toNumber(),
         lengthCm: row.lengthCm.toNumber(),
@@ -600,6 +624,22 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     },
   );
 
+  // MOVO-299: lo que retiraría una sanción hoy, para el texto previo a confirmar en el panel.
+  app.get(
+    "/users/:id/open-activity",
+    {
+      schema: {
+        hide: true,
+        params: adminInternalSchemas.idParam,
+        response: { 200: adminInternalSchemas.openActivityResponse },
+      },
+    },
+    async (request: FastifyRequest): Promise<OpenActivitySummary> => {
+      const { id } = request.params as { id: string };
+      return sanctionEffects.previewOpenActivity(id);
+    },
+  );
+
   app.post(
     "/users/:id/withdraw-open-activity",
     {
@@ -620,7 +660,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
   // MOVO-331 (DD-055): cambio de estado de un envío hecho por un admin. Lo llama `svc-admin` (que ya validó
   // la sesión, el OTP por acción y el conflicto de interés, y dejó la bitácora); acá se valida la matriz.
   // Grafo propio, con `paymentsClient`: el de arriba no tiene hold ni transportista a propósito.
-  const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);
+  const paymentsClient = opts.paymentsClient ?? createAppPaymentsClient(app);
   const forceStatus = createForceStatusService({
     repository: shipmentRepository,
     shipmentsService: createShipmentsService(shipmentRepository, usersClient, notificationsClient, app.log, {

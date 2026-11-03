@@ -6,6 +6,7 @@ import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createRatingRepository } from "../../repositories/rating-repository";
+import { createDisputeRepository } from "../../repositories/dispute-repository";
 import { Rating, RatingCategoryScoresInput } from "../../models/rating";
 
 export interface RatingsRoutesOptions extends FastifyPluginOptions {
@@ -28,7 +29,15 @@ export default async function ratingsRoutes(app: FastifyInstance, opts: RatingsR
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const shipmentRepository = createShipmentRepository(app.db);
   const ratingRepository = createRatingRepository(app.db);
-  const service = createRatingsService(shipmentRepository, ratingRepository, notificationsClient, app.log);
+  // MOVO-337 (AC12): la regla de quién califica un envío no entregado necesita la disputa resuelta.
+  const service = createRatingsService(
+    shipmentRepository,
+    ratingRepository,
+    notificationsClient,
+    app.log,
+    undefined,
+    createDisputeRepository(app.db),
+  );
 
   app.post(
     "/:id/ratings",

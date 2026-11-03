@@ -26,6 +26,9 @@ export async function loadSection<K extends SectionKey>(
   }
 }
 
+/** El historial de sanciones alimenta la cabecera (sanción vigente) y su sección: una vez por render. */
+export const loadSanctions = cache((id: string) => loadSection(id, "sanctions"))
+
 /** `moderation` alimenta Reportes y Bloqueos: se pide una sola vez por render. */
 export const loadModeration = cache((id: string) =>
   loadSection(id, "moderation")

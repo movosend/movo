@@ -68,7 +68,7 @@ class MockSocket implements SocketLike {
 class NativeSocket implements SocketLike {
   onopen: (() => void) | null = null
   onmessage: ((event: { data: unknown }) => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((event?: { code?: number }) => void) | null = null
   onerror: (() => void) | null = null
   private readonly ws: WebSocket
 
@@ -76,7 +76,7 @@ class NativeSocket implements SocketLike {
     this.ws = new WebSocket(url, protocols)
     this.ws.onopen = () => this.onopen?.()
     this.ws.onmessage = (event) => this.onmessage?.({ data: event.data })
-    this.ws.onclose = () => this.onclose?.()
+    this.ws.onclose = (event) => this.onclose?.({ code: event.code })
     this.ws.onerror = () => this.onerror?.()
   }
 

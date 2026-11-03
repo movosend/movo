@@ -8,6 +8,7 @@ import {
 import { createCarrierMpAccountRepository } from "../repositories/carrier-mp-account-repository";
 import { createHoldRepository } from "../repositories/hold-repository";
 import { createMpWebhookRepository } from "../repositories/mp-webhook-repository";
+import { createRefundRepository } from "../repositories/refund-repository";
 import { createTokenCipher } from "../utils/token-cipher";
 import { createMpWebhookService, MpWebhookService } from "../modules/webhooks/mp-webhook.service";
 
@@ -60,6 +61,8 @@ export default fp<MpWebhooksPluginOptions>(async (app, opts) => {
     maxAttempts: app.config.MP_WEBHOOK_MAX_ATTEMPTS,
     // MOVO-312: se resuelve al procesar cada notificación; el plugin de "Pagar mi saldo" va después de este.
     balancePayments: () => app.balancePayment,
+    // MOVO-336: un reembolso que pidió Movo no se alerta como "externo".
+    refunds: createRefundRepository(app.db),
   });
   app.decorate("mpWebhooks", service);
 

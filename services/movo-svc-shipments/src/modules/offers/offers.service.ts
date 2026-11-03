@@ -2,6 +2,7 @@ import {
   ApiError,
   OfferAcceptanceAssignment,
   OfferStatus,
+  PaymentMethod,
   ShipmentStatus,
   UserRole,
   computeNetFromGross,
@@ -19,6 +20,7 @@ import { assertNotBlocked } from "../../utils/block-relations";
 import { PaymentsClient } from "../../adapters/payments-client";
 import { previewDebtDiscounts } from "../../utils/debt-discount";
 import { assertCarrierCanOperate, resolveCarrierEligibility } from "../../utils/carrier-gate";
+import { assertCarrierWithinCashDebtLimit, exceedsCashDebtLimit, requireCashDebtLimit } from "../../utils/cash-payment-gate";
 import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
 import { Trip } from "../../models/trip";
 import { fundingWindowOpensAt } from "../../domain/funding";
@@ -293,13 +295,16 @@ async function attachCompetitiveRanks(
 /**
  * MOVO-311: descuento por deuda de la cuenta corriente del transportista en cada oferta `pending`, en un solo
  * pedido a payments para toda la página. Es solo para mostrar: si payments no responde, el campo viaja `null`.
+ * MOVO-37: en un envío en efectivo no hay cobro del que descontar (lo cobra en mano), así que viaja `null`.
  */
 async function attachDebtDiscounts(
   items: OfferWithShipmentContext[],
   carrierId: string,
   paymentsClient: PaymentsClient
 ): Promise<OfferWithShipmentContext[]> {
-  const pending = items.filter((item) => item.status === OfferStatus.PENDING);
+  const pending = items.filter(
+    (item) => item.status === OfferStatus.PENDING && item.shipment.paymentMethod !== PaymentMethod.CASH
+  );
   const preview = await previewDebtDiscounts(paymentsClient, carrierId, pending.map((item) => item.priceOffered));
   const byOfferId = new Map(pending.map((item, index) => [item.id, preview[index]]));
   return items.map((item) => {
@@ -339,7 +344,10 @@ export function createOffersService(
   fundingNearPickupDays?: number,
   /** MOVO-314: desvío máximo (km) para sumar una oferta sin viaje a un viaje `declared`
    * existente del transportista (`TRIP_DEFAULT_MAX_DETOUR_KM`). Sin valor, siempre crea uno. */
-  tripReuseDetourKm?: number
+  tripReuseDetourKm?: number,
+  /** MOVO-37 (B4): `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS`. Sin valor, editar o aceptar una oferta de un envío en
+   * efectivo lanza (no se saltea el chequeo). */
+  cashShipmentMaxCarrierDebtArs?: number
 ) {
   return {
     /**
@@ -444,7 +452,15 @@ export function createOffersService(
         { usersClient, paymentsClient, shipmentRepository },
         offer.carrierId
       );
-      if (!eligibility.identityApproved || eligibility.missingRequirements.length > 0) {
+      // MOVO-37 (B4): en efectivo, además, la deuda del transportista no puede superar el tope. Mismo 409 sin
+      // `details`: quien acepta es el emisor, que no puede resolverlo ni tiene por qué conocer la deuda del otro.
+      const overCashDebtLimit =
+        shipment.paymentMethod === PaymentMethod.CASH &&
+        exceedsCashDebtLimit(
+          eligibility.debtBalanceArs,
+          requireCashDebtLimit(cashShipmentMaxCarrierDebtArs, "createOffersService")
+        );
+      if (!eligibility.identityApproved || eligibility.missingRequirements.length > 0 || overCashDebtLimit) {
         throw new ApiError(
           409,
           "OFFER_CARRIER_NOT_ELIGIBLE",
@@ -482,6 +498,7 @@ export function createOffersService(
         fundingRoute,
         shipmentStatus,
         pickupStart,
+        supersededOffers,
       } = await offerRepository.acceptOffer(offerId, callerId, autoTripDefaults, {
         nearPickupDays: fundingNearPickupDays,
       });
@@ -498,6 +515,16 @@ export function createOffersService(
 
       // MOVO-210 (AC4): las demás ofertas siguen vivas hasta que se confirme el hold; el
       // aviso de "ya no está disponible" lo manda la saga al confirmarlo (funding.service.ts).
+      // MOVO-37: en efectivo no hay saga, se cerraron al aceptar y se avisa acá.
+      for (const closed of supersededOffers) {
+        void dispatchOfferPush(notificationsClient, logger, {
+          carrierId: closed.carrierId,
+          triggerKey: "offerSuperseded",
+          shipmentId,
+          offerId: closed.id,
+          type: "offer_superseded",
+        });
+      }
 
       // MOVO-234 (AC3): aviso explícito del viaje auto-creado, nunca un efecto
       // silencioso -- ver dispatchAutoTripCreatedPush.
@@ -603,7 +630,18 @@ export function createOffersService(
 
       // MOVO-116 (DD-036): editar una oferta es operar como transportista, mismo
       // bloqueo que crearla. Hasta acá este endpoint no exigía ni el KYC de identidad.
-      await assertCarrierCanOperate({ usersClient, paymentsClient, shipmentRepository }, callerId, callerRoles);
+      const eligibility = await assertCarrierCanOperate(
+        { usersClient, paymentsClient, shipmentRepository },
+        callerId,
+        callerRoles
+      );
+      // MOVO-37 (B4): mismo tope de deuda que al ofertar en un envío en efectivo.
+      if (shipment.paymentMethod === PaymentMethod.CASH) {
+        assertCarrierWithinCashDebtLimit(
+          eligibility.debtBalanceArs,
+          requireCashDebtLimit(cashShipmentMaxCarrierDebtArs, "createOffersService")
+        );
+      }
 
       if (patch.priceOfferedArs !== undefined && patch.priceOfferedArs <= 0) {
         throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");

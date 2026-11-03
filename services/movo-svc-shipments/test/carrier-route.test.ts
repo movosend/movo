@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ShipmentStatus } from "@movo/shared";
+import { PaymentMethod, ShipmentStatus } from "@movo/shared";
 import {
   aggregateCarrierStops,
   buildDegradedRoute,
@@ -35,7 +35,7 @@ function createMockShipment(overrides: Partial<Shipment> = {}): Shipment {
     suggestedPriceArs: 1500,
     calculationMethod: "euclidean_linear_v1",
     agreedPriceArs: 1500,
-    paymentMethod: null,
+    paymentMethod: PaymentMethod.CARD,
     status: ShipmentStatus.ASSIGNED,
     lastStatusChangedAt: new Date("2026-09-14T10:00:00.000Z"),
     deliveredAt: null,

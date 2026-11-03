@@ -161,6 +161,8 @@ export function resolveNotificationRoute(data: unknown): NotificationRoute | nul
   if (type === "kyc_result") return resolveKycRoute(data);
   // MOVO-300 AC6: la suspensión abre su detalle; el levantamiento y el vencimiento, el inicio.
   if (type === "account_suspended") return "/account-status";
+  // MOVO-37 (M5): la comisión de un envío en efectivo quedó como saldo: abre la cuenta corriente (MOVO-315).
+  if (type === "cash_commission") return { pathname: "/profile/payments", params: { tab: "balance" } };
   if (ACCOUNT_SANCTION_CLEARED_NOTIFICATION_TYPES.includes(type)) return "/home";
   if (type === ACCOUNT_DISABLED_NOTIFICATION_TYPE) return "/account-disabled";
 

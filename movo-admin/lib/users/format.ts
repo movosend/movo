@@ -114,7 +114,9 @@ export function accountPill(
       label: `${short ? "Suspendida · hasta" : "Suspendida hasta el"} ${formatDay(bannedUntil)}`,
       tone: "warning",
     }
-  return { label: "Baneada", tone: "danger" }
+  // Sin fecha: suspensión indefinida o inhabilitación (`banned`, MOVO-296).
+  if (status === "suspended") return { label: "Suspendida", tone: "warning" }
+  return { label: "Inhabilitada", tone: "danger" }
 }
 
 export const SHIPMENT_STATUS: Record<AdminShipmentStatus, Pill> = {
@@ -158,6 +160,7 @@ export const REPORT_STATUS: Record<AdminReportStatus, Pill> = {
 
 export const LEDGER_TYPE: Record<AdminLedgerType, string> = {
   cancellation_penalty: "Penalidad por cancelación",
+  cancellation_compensation: "Compensación por cancelación",
   penalty_capture: "Cobro de penalidad",
   cash_commission: "Comisión de envío en efectivo",
   fee_offset: "Descuento de comisión",

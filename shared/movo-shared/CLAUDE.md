@@ -723,6 +723,12 @@ mano, tocó fixtures de `movo-admin`). `ApiErrorCode` suma `TRANSITION_NOT_ALLOW
 `FORCE_STATUS_EFFECT_FAILED`, `IDEMPOTENCY_KEY_REUSED` y `FORCE_STATUS_IN_PROGRESS`; triggers `shipmentStatusForced{Sender,Receiver,Carrier}`.
 Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-299 — Sanciones del panel (`types/admin-users.ts`, `types/admin.ts`, DD-049)
+
+`AdminUserSanction` pasa a ser `AccountSanction` + nombres de los admins + `withdrawal` (`AdminSanctionWithdrawal`: en el historial, la
+suma de los intentos con el estado del último). `OpenActivitySummary`/`AdminSanctionPreview`, `AdminApplySanctionBody`/`AdminLiftSanctionBody`
+y el código `USER_HAS_IN_PROGRESS_SHIPMENTS` (409, `details.shipments`).
+
 ### MOVO-332 — Contrato del cambio de estado desde el panel y del step-up
 
 `types/admin-shipments.ts`: `ChangeShipmentStatusRequest/Response`, `ShipmentStatusOptions` (`options[]` con `kind`, `risk`, `effects`, `notifies`,
@@ -732,8 +738,58 @@ Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 la transición es `forced` o el riesgo es crítico): la fuente única de la fricción para el panel y para `svc-admin`. `ApiErrorCode` suma
 `STEP_UP_REQUIRED`, `STEP_UP_INVALID` y `TYPED_CODE_MISMATCH`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-336 — Contrato del reembolso (`types/refund.ts`)
+
+`REFUND_STATUSES`/`RefundStatus` (`processing`, `succeeded`, `failed`, `fallback_to_ledger`), `RefundFailureReason`, `CreateRefundRequest` (`amountArs?`, `reason`, `idempotencyKey`, `adminId`),
+`CreateRefundResponse`, `RefundResponse`, `RefundsResponse` y las constantes de largo (`REFUND_REASON_*`, `REFUND_IDEMPOTENCY_KEY_MAX_LENGTH`). Wire contract de los endpoints internos de reembolso de
+`svc-payments`, para MOVO-337. `ApiErrorCode` suma `SETTLEMENT_NOT_REFUNDABLE` (409), `REFUND_AMOUNT_EXCEEDS_REFUNDABLE` (422, `details.refundableArs`), `REFUND_IDEMPOTENCY_CONFLICT` (409),
+`REFUND_IN_PROGRESS` (409, otro pedido con la misma key está en curso) y `REFUND_NEEDS_REVIEW` (409, intento sin confirmar de más de 12 h). `RefundFailureReason` distingue `provider_rejected`
+(un 4xx de MP no reconocido como falta de saldo).
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 ### MOVO-333 — `checks`/`irreversible` en la matriz y código de confirmación
 
 `getForcedTransitionDetails` suma `checks` y `irreversible` (también en `ShipmentStatusOption`), que el modal del panel muestra en el paso de impacto.
 `types/admin-shipments.ts` exporta `shipmentConfirmationCode(id)` (`MOVO-` + últimos 5 dígitos, el código del encabezado del panel) y
 `normalizeConfirmationCode(typed)`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-337 — Contrato de la resolución de disputas (`types/dispute.ts`, `types/admin-disputes.ts`, `config/dispute-resolution.ts`, DD-056)
+
+`DisputeStatus` gana `resolving`; `DISPUTE_OUTCOMES`/`DisputeOutcome`, `DISPUTE_PARTIAL_PRESETS` (25/50/75), `DISPUTE_PAYMENT_ACTIONS`, `ResolveDisputeRequest/Response`,
+`InternalResolveDisputeRequest` y los largos de razonamiento y notas. `types/admin-disputes.ts`: fila, página (con `statusCounts`), expediente, handshake, traza, notas
+y `AdminDisputeResolutionPreview`. `config/dispute-resolution.ts` es la fuente única de la regla: `disputePaymentAction` (la matriz), `disputeFinalShipmentStatus`,
+`disputeRatingWinners`, `splitDisputeStake` y `minimumPartialCaptureArs` (el piso de la captura parcial, misma cuenta que `svc-payments`). `AdminTargetType` suma `dispute`;
+códigos `DISPUTE_PARTIAL_INVALID`, `DISPUTE_RESOLUTION_MISMATCH`, `DISPUTE_RESOLUTION_IN_PROGRESS`, `DISPUTE_PAYMENT_FAILED`, `DISPUTE_PARTIAL_BELOW_MINIMUM` y
+`DISPUTE_PARTIAL_ABOVE_MAXIMUM`; trigger `disputeResolved` (categoría `disputes`, sin montos). `SettlementKind` suma `dispute_partial` (captura parcial de una disputa, distinta de la penalidad) y `isPartialCaptureKind`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+### MOVO-322 — Contrato interno de la bandeja de soporte (`types/admin-support-internal.ts`, ADR-024)
+
+`SupportInternal*` (fila, mensaje con `kind` `event` para los eventos del equipo, filtros, contadores, actor, bodies) entre
+`svc-admin` y `svc-shipments`, con ids en vez de nombres, y `SupportStreamEvent` + `SUPPORT_EVENTS_STREAM_*` del Redis Stream
+`support:events`. `AdminTargetType` suma `support_conversation` y `AdminUserNames` pasa a `AdminUserNameRef` (con `roles`).
+`types/admin-support.ts` suma `SUPPORT_WS_FORWARDED_PROTOCOLS_HEADER` y `parseSupportWsProtocols` (el ticket de `movo-support.v1, <ticket>`),
+compartidos por el gateway y `svc-admin`: si se desalinearan, el ticket dejaría de llegar y el panel caería a polling.
+Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-37 — Envíos pagados en efectivo
+
+`PaymentMethod` (`card`/`cash`, `types/shipment.ts`) y `ActiveShipmentSummary.paymentMethod`. `CashPaymentRequirement`
+(`cash_debt_within_limit`, `no_pending_debt`) en `CarrierRequirementsErrorDetails.missingRequirements`; códigos
+`CASH_DEBT_LIMIT_EXCEEDED`, `CASH_PAYMENT_SENDER_HAS_DEBT` y `SHIPMENT_PAYMENT_METHOD_LOCKED`. Ledger: tipo
+`cancellation_compensation` (también en `AdminLedgerType`) y los contratos `RegisterCash{Commission,CancellationPenalty}{Request,Response}`.
+`TransactionKind` suma `cash_shipment`; `OfferAcceptanceAssignment.fundingRoute` pasa a `FundingRoute | null`. `cashPenaltyCompensationArs`
+(`config/commission.ts`) es la fuente única de la compensación. Triggers `cashCommissionRegisteredCarrier` (sin monto),
+`cashCancellationPenaltyDebtSender` y `cashCancellationCompensationCarrier` (categoría `payments`). Recordatorio habitual: `npm run build`
+acá antes de tipar desde otro workspace.
+
+### MOVO-341 — Lectura de disputas para el panel (`types/admin-disputes.ts`, `types/admin-shipments.ts`)
+
+`AdminDisputeRow.pickupCity` (requerido: rompe literales armados a mano), `AdminDisputeDetail.partyHistory`/`attribution` (requeridos),
+`AdminDisputeCounts`, `ADMIN_DISPUTE_SORTS`/`AdminDisputeSort`, `AdminDisputePartyHistory` y `AdminDisputeAttribution`. `AdminShipmentDisputeSummary`
+y `AdminShipmentDetail.dispute?` (opcional a propósito, para no romper los fixtures de `movo-admin`); `AdminShipmentRow.disputeId` pasa a ser la
+disputa más reciente del envío. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-342 — Rango de los reportes, home y bitácora ampliada (`types/admin-reports.ts`, ADR-025, DD-058)
+
+Rango en días `YYYY-MM-DD` inclusivos de Argentina (`REPORT_RANGE_MAX_DAYS` 366): `validateReportRange` (filtros, extremos opcionales), `resolveReportRange` (reporte, completa los extremos), `previousReportRange`,
+`reportGranularity`, `argentinaDayBounds`. Home: `ADMIN_OVERVIEW_BLOCKS`, `OVERVIEW_SLA_HOURS`, `OverviewInbox`, `OverviewInboxSource` (lo que manda el servicio dueño), `toOverviewInbox` (le suma el plazo) y `AdminOverview`.
+Bitácora: `AdminAuditLogPage`, `AuditTargetRef`, `auditTargetKey`, `ADMIN_AUDIT_ACTIONS`, `AUDIT_TARGET_PREFIX_MIN_LENGTH` y los headers `EXPORT_ROWS_HEADER`/`EXPORT_TRUNCATED_HEADER`. `AdminTargetType` suma `report` y `ApiErrorCode` suma
+`REPORT_RANGE_INVALID` (400, `details.reason`). Sin dependencias de Node: el panel puede importarlo por subpath. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

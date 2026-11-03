@@ -40,6 +40,9 @@ const VALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   [ShipmentStatus.DELIVERED, ShipmentStatus.DISPUTED],
   // MOVO-334 (DD-054): reclamo con el cobro ya capturado, dentro de la ventana
   [ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED],
+  // MOVO-337 (DD-056): la resolución de la disputa, sin estados nuevos
+  [ShipmentStatus.DISPUTED, ShipmentStatus.COMPLETED],
+  [ShipmentStatus.DISPUTED, ShipmentStatus.CANCELLED],
 ];
 
 const INVALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
@@ -54,6 +57,8 @@ const INVALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   // publicado directo, el receptor nuevo tiene que confirmar
   [ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.PUBLISHED],
   [ShipmentStatus.DISPUTED, ShipmentStatus.DELIVERED],
+  [ShipmentStatus.DISPUTED, ShipmentStatus.PUBLISHED],
+  [ShipmentStatus.DISPUTED, ShipmentStatus.IN_TRANSIT],
   // reversa de una transición válida
   [ShipmentStatus.DELIVERED, ShipmentStatus.IN_TRANSIT],
   // no-op: quedarse en el mismo estado no es una transición
@@ -102,12 +107,15 @@ describe("shipment-state-machine", () => {
   });
 
   it("MOVO-340: los estados que el mobile ofrece cancelar son exactamente los que pueden pasar a cancelled", () => {
-    const cancellable = Object.values(ShipmentStatus).filter((from) => canTransition(from, ShipmentStatus.CANCELLED));
+    // `disputed -> cancelled` es la resolución a favor del emisor (MOVO-337), no una cancelación del emisor.
+    const cancellable = Object.values(ShipmentStatus).filter(
+      (from) => from !== ShipmentStatus.DISPUTED && canTransition(from, ShipmentStatus.CANCELLED),
+    );
     expect([...SENDER_CANCELLABLE_STATUSES].sort()).toEqual(cancellable.sort());
   });
 
   it("todo estado no terminal tiene al menos una transición válida definida en el DTE", () => {
-    const terminal = [ShipmentStatus.CANCELLED, ShipmentStatus.DISPUTED];
+    const terminal = [ShipmentStatus.CANCELLED];
     const nonTerminal = Object.values(ShipmentStatus).filter((status) => !terminal.includes(status));
 
     for (const status of nonTerminal) {

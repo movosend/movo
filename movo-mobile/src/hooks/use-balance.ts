@@ -14,6 +14,19 @@ export function useBalance() {
   });
 }
 
+/**
+ * Solo el saldo deudor (`balanceArs`), con una página de un movimiento: para quien no muestra la lista (el resumen
+ * del wizard). Cuelga de `BALANCE_QUERY_KEY`, así que `useRefreshBalance` también lo invalida.
+ */
+export function useBalanceArs() {
+  return useQuery({
+    queryKey: [...BALANCE_QUERY_KEY, "summary"],
+    queryFn: () => paymentsClient.getBalance(undefined, 1),
+    select: (page) => page.balanceArs,
+    staleTime: 0,
+  });
+}
+
 export function useBalancePayData(enabled: boolean) {
   return useQuery({
     queryKey: ["payments", "balance", "pay-data"],

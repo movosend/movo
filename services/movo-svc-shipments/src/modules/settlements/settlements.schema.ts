@@ -32,7 +32,7 @@ const settlementResponse = {
     role: { type: "string", enum: ["sender", "carrier"] },
     // MOVO-307: `cancellation_penalty` = penalidad de una cancelación tardía (el emisor pagó
     // la penalidad, el transportista recibe la compensación); `delivery` = cobro del envío.
-    kind: { type: "string", enum: ["delivery", "cancellation_penalty"] },
+    kind: { type: "string", enum: ["delivery", "cancellation_penalty", "dispute_partial"] },
     status: { type: "string", enum: ["processing", "credited", "escalated"] },
     paidAmountArs: { type: "number" },
     paidAt: { type: ["string", "null"], format: "date-time" },

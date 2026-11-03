@@ -48,6 +48,11 @@ export interface SettlementRepository {
    * que es lo que impide registrar dos cobros del mismo envío.
    */
   findOrCreateProcessing(data: NewSettlement): Promise<Settlement>;
+  /**
+   * Reemplaza una liquidación `failed` por una nueva en `processing` (otro tipo o monto), limpiando el estado del
+   * intento anterior. Condicional sobre `failed`: `false` si otro llamador ya la movió.
+   */
+  replaceFailed(id: string, data: NewSettlement): Promise<boolean>;
   update(id: string, patch: SettlementUpdate): Promise<Settlement>;
   /**
    * UPDATE condicional sobre el estado: aplica el cambio SOLO si la liquidación sigue en
@@ -110,6 +115,28 @@ export function createSettlementRepository(db: PrismaClient): SettlementReposito
         }
         throw error;
       }
+    },
+
+    async replaceFailed(id, data) {
+      const { count } = await db.settlement.updateMany({
+        where: { id, status: "failed" },
+        data: {
+          kind: data.kind,
+          grossAmountArs: data.grossAmountArs,
+          commissionArs: data.commissionArs,
+          status: "processing",
+          failureReason: null,
+          statusDetail: null,
+          mpFeeArs: null,
+          netAmountArs: null,
+          attempts: 0,
+          nextAttemptAt: null,
+          lastError: null,
+          escalatedAt: null,
+          escalationReason: null,
+        },
+      });
+      return count === 1;
     },
 
     update(id, patch) {

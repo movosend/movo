@@ -237,6 +237,17 @@ export type ApiErrorCode =
   // (`USER_DEBT_OVERDUE_DAYS`). Bloquea operar como transportista (declarar viaje, ofertar,
   // editar oferta, iniciar viaje); como emisor no. Viaja con `details.missingRequirements`.
   | "USER_DEBT_OVERDUE"
+  // MOVO-37: la deuda total de la cuenta corriente del transportista (vencida o no) supera
+  // `CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS`: no puede ofertar en un envío en efectivo. Viaja con
+  // `details.missingRequirements` (`cash_debt_within_limit`).
+  | "CASH_DEBT_LIMIT_EXCEEDED"
+  | "SHIPMENT_PAYMENT_METHOD_CHANGED"
+  // MOVO-37: el emisor tiene deuda en su cuenta corriente y no puede crear (ni pasar a) un envío
+  // en efectivo; con tarjeta sí, porque la deuda se cobra en el pago. Viaja con
+  // `details.missingRequirements` (`no_pending_debt`).
+  | "CASH_PAYMENT_SENDER_HAS_DEBT"
+  // MOVO-37: la modalidad de pago ya no se puede cambiar (el envío recibió ofertas o dejó de estar publicado).
+  | "SHIPMENT_PAYMENT_METHOD_LOCKED"
   // MOVO-116: `svc-payments` no respondió al consultar la cuenta de MP del transportista.
   | "PAYMENTS_SERVICE_UNAVAILABLE"
   // MOVO-116: el emisor quiso aceptar la oferta de un transportista que ya no cumple los
@@ -315,6 +326,9 @@ export type ApiErrorCode =
   | "USER_DELETED"
   // Ajuste manual de saldo en cero o por encima de `ADMIN_LEDGER_ADJUSTMENT_MAX_ARS` (422).
   | "AMOUNT_OUT_OF_RANGE"
+  // MOVO-299: inhabilitar una cuenta con envíos en curso (409, `details.shipments` con
+  // `InProgressShipment[]`). No se aplica nada: se sugiere suspender primero.
+  | "USER_HAS_IN_PROGRESS_SHIPMENTS"
   // MOVO-322/321 (bandeja de soporte, contrato definido por MOVO-323). La consulta no existe (404).
   | "SUPPORT_CONVERSATION_NOT_FOUND"
   // Adjunto de tipo, tamaño o cantidad inválidos, ajeno o ya usado (422).
@@ -348,6 +362,9 @@ export type ApiErrorCode =
   | "STATUS_CHANGED"
   // Se pidió `assigned` y el hold del envío no está autorizado en payments (422).
   | "HOLD_NOT_AUTHORIZED"
+  // Pago simulado (DD-055): el entorno no lo permite (403) o el envío ya tiene un hold real (409).
+  | "PAYMENT_SIMULATION_DISABLED"
+  | "HOLD_ALREADY_EXISTS"
   // Falló un efecto externo (liberar o capturar el hold): el envío quedó en su estado original (502).
   | "FORCE_STATUS_EFFECT_FAILED"
   // La misma `idempotencyKey` ya se usó para otro envío o destino (409).
@@ -361,7 +378,35 @@ export type ApiErrorCode =
   // Un solo código para todos los casos, así no se enumeran motivos (401).
   | "STEP_UP_INVALID"
   // El código del envío tipeado no coincide (422).
-  | "TYPED_CODE_MISMATCH";
+  | "TYPED_CODE_MISMATCH"
+  // MOVO-336: reembolso de un envío cuya liquidación no está capturada (`credited`): no hay nada que devolver (409).
+  | "SETTLEMENT_NOT_REFUNDABLE"
+  // MOVO-336: el monto pedido supera lo reembolsable (capturado menos lo ya reembolsado). Viaja con
+  // `details.refundableArs` (422).
+  | "REFUND_AMOUNT_EXCEEDS_REFUNDABLE"
+  // MOVO-336: la `idempotencyKey` del reembolso ya se usó con otro monto o motivo (409).
+  | "REFUND_IDEMPOTENCY_CONFLICT"
+  // MOVO-336: otro pedido con la misma `idempotencyKey` está hablando con MP en este momento; reintentar en unos segundos (409).
+  | "REFUND_IN_PROGRESS"
+  // MOVO-336: el intento quedó sin confirmar hace más de lo que MP garantiza la key: reintentarlo podría reembolsar
+  // dos veces. Lo resuelve una persona mirando el pago en MP (409).
+  | "REFUND_NEEDS_REVIEW"
+  // MOVO-337 (DD-056): resolución de disputas.
+  // `partial` sin `percentage` ni `amountArs`, con los dos, o con un porcentaje fuera del set (400).
+  | "DISPUTE_PARTIAL_INVALID"
+  // La disputa ya está `resolving`/`resolved` con otro resultado, monto o razonamiento que el pedido (409).
+  | "DISPUTE_RESOLUTION_MISMATCH"
+  // Otra resolución de la misma disputa está en curso (409).
+  | "DISPUTE_RESOLUTION_IN_PROGRESS"
+  // La acción de pago no se pudo confirmar: la disputa queda `resolving` y se reintenta (502).
+  | "DISPUTE_PAYMENT_FAILED"
+  // El monto parcial no cubre el `application_fee` del hold más la comisión de MP; `details.minimumArs` (422).
+  | "DISPUTE_PARTIAL_BELOW_MINIMUM"
+  // El monto libre supera lo que hay en juego; `details.maximumArs` (422).
+  | "DISPUTE_PARTIAL_ABOVE_MAXIMUM"
+  // MOVO-342 (ADR-025): reportes del panel.
+  // Rango de fechas inválido, invertido, futuro o más largo que `REPORT_RANGE_MAX_DAYS`; `details.reason` (400).
+  | "REPORT_RANGE_INVALID";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

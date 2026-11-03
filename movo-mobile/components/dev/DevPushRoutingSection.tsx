@@ -23,6 +23,7 @@ const EXAMPLES: { label: string; build: (ids: Ids) => Record<string, string> }[]
   { label: "Oferta anulada", build: ({ shipmentId, offerId }) => ({ type: "offer_voided", shipmentId, offerId }) },
   { label: "Retiro confirmado", build: ({ shipmentId }) => ({ type: "custody_pickup_confirmed", shipmentId }) },
   { label: "Entrega confirmada", build: ({ shipmentId }) => ({ type: "custody_delivery_confirmed", shipmentId }) },
+  { label: "Comisión en efectivo (MOVO-37)", build: ({ shipmentId }) => ({ type: "cash_commission", shipmentId }) },
   { label: "Salió de viaje", build: ({ shipmentId, tripId }) => ({ type: "trip_started", shipmentId, tripId }) },
   { label: "Calificación pendiente", build: ({ shipmentId }) => ({ type: "rating_pending", shipmentId }) },
   { label: "Transportista cerca", build: ({ shipmentId }) => ({ type: "carrier_nearby", shipmentId }) },

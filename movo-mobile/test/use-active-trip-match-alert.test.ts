@@ -142,7 +142,7 @@ describe("useActiveTripMatchAlert", () => {
     expect(result.current.alert).toEqual({ tripId: "trip-1", shipments: [match("a")] });
   });
 
-  it("MOVO-221 (fix de review, PR #168): también vigila un viaje ya active (para cuando exista 'Iniciar viaje')", async () => {
+  it("MOVO-346: no vigila un viaje ya active (matches responde 409 a un viaje iniciado, MOVO-258 D5)", async () => {
     mockUseMyTrips.mockReturnValue({
       data: { items: [trip({ status: TripStatus.ACTIVE })], page: 1, limit: 50, total: 1 },
     });
@@ -151,7 +151,8 @@ describe("useActiveTripMatchAlert", () => {
     const { result } = await renderHook(() => useActiveTripMatchAlert());
     await skipStartupDelay();
 
-    expect(result.current.alert).toEqual({ tripId: "trip-1", shipments: [match("a")] });
+    expect(mockUseQuery).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    expect(result.current.alert).toBeNull();
   });
 
   it("antes de que pase el delay de arranque (10s), no alerta aunque haya un match pendiente", async () => {

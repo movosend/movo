@@ -1,4 +1,4 @@
-import { ShipmentStatus } from "@movo/shared";
+import { PaymentMethod, ShipmentStatus } from "@movo/shared";
 import { CancellationPenaltyStatus, PackageType, PhotoStage } from "../generated/prisma/client";
 
 export { CancellationPenaltyStatus, PackageType, PhotoStage };
@@ -46,7 +46,8 @@ export interface Shipment {
    * anterior a `demand_fuel_routes_v1` -- no equivale a `false`. */
   highDemand: boolean | null;
   agreedPriceArs: number | null;
-  paymentMethod: string | null;
+  /** MOVO-37: modalidad de pago, elegida al crear el envío. */
+  paymentMethod: PaymentMethod;
   status: ShipmentStatus;
   carrierWithdrawalPending?: boolean;
   carrierWithdrawalPenaltyArs?: number | null;
@@ -62,6 +63,11 @@ export interface Shipment {
   /** MOVO-278 (DD-045): cuándo se le avisó al transportista que el envío marcado pasa a
    * disputa si no confirma la entrega; `null` = nunca avisado. */
   transitAnomalyWarnedAt: Date | null;
+  /** MOVO-346 (DD-057): plazo de pago de `assignment_pending` extendido por una falla del proveedor de pagos;
+   * `null`/ausente = sin extensión. */
+  fundingDeadlineExtendedUntil?: Date | null;
+  /** MOVO-346 (DD-057): extensiones dadas en la asignación actual. */
+  fundingDeadlineExtensions?: number;
   /** MOVO-307 (DD-047): penalidad que el emisor confirmó al cancelar un `assigned` con menos
    * de 12 h; `null` en toda cancelación sin cargo. */
   cancellationPenaltyArs: number | null;
@@ -123,6 +129,8 @@ export interface AvailableShipment {
   suggestedPriceArs: number | null;
   calculationMethod: string | null;
   status: ShipmentStatus;
+  /** MOVO-37: el transportista ve cómo cobra antes de ofertar. */
+  paymentMethod: PaymentMethod;
   createdAt: Date;
   /** Distancia (Haversine) del retiro del envío al `originLat`/`originLng` del caller
    * -- siempre presente, `originLat`/`originLng` son obligatorios. */
@@ -175,6 +183,8 @@ export interface CreateShipmentInput {
   /** MOVO-325: ciudad del retiro/entrega (reverse geocoding), `null`/ausente si no se pudo resolver. */
   pickupCity?: string | null;
   deliveryCity?: string | null;
+  /** MOVO-37: por defecto `card`. */
+  paymentMethod?: PaymentMethod;
 }
 
 export interface ShipmentEvent {
@@ -185,6 +195,8 @@ export interface ShipmentEvent {
   actorId: string | null;
   assignmentCarrierId?: string | null;
   reason: string | null;
+  /** MOVO-270: solo en la cancelación del barrido de retiro no realizado; `carrier` habilita que el emisor califique (MOVO-337). */
+  attribution?: "carrier" | "none" | null;
   /** MOVO-331: `normal` salvo que lo haya hecho un admin desde el panel. */
   kind: "normal" | "manual" | "forced";
   actorName: string | null;

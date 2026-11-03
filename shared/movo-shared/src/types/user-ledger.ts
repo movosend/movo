@@ -13,6 +13,8 @@
  * - `payment_surcharge`: deuda que el emisor paga como recargo en el pago de un envío (MOVO-311).
  * - `voluntary_payment`: el usuario salda su deuda con tarjeta (MOVO-312).
  * - `manual_adjustment`: ajuste de un administrador, siempre con motivo.
+ * - `cancellation_compensation`: crédito al transportista cuando el emisor cancela tarde un envío en efectivo y su
+ *   penalidad queda como deuda (MOVO-37). Negativo y `settled`.
  */
 export const USER_LEDGER_ENTRY_TYPES = [
   "cancellation_penalty",
@@ -22,6 +24,7 @@ export const USER_LEDGER_ENTRY_TYPES = [
   "payment_surcharge",
   "voluntary_payment",
   "manual_adjustment",
+  "cancellation_compensation",
 ] as const;
 
 export type UserLedgerEntryType = (typeof USER_LEDGER_ENTRY_TYPES)[number];
@@ -169,4 +172,43 @@ export interface DebtCollectionPreviewResponse {
 export interface CarrierDebtDiscount {
   amountArs: number;
   reason: "pending_balance";
+}
+
+/**
+ * MOVO-37: comisión de un envío pagado en efectivo, registrada como deuda del transportista al confirmarse la
+ * entrega (`POST /internal/payments/cash-shipments/:shipmentId/commission`). El monto lo calcula `svc-payments` con
+ * la misma función que el `application_fee` de un envío con tarjeta. Idempotente por envío.
+ */
+export interface RegisterCashCommissionRequest {
+  senderId: string;
+  carrierId: string;
+  /** Precio acordado, que el emisor le pagó en mano al transportista. */
+  agreedPriceArs: number;
+}
+
+export interface RegisterCashCommissionResponse {
+  commissionArs: number;
+  entry: UserLedgerEntry;
+  /** `false` si el envío ya tenía la comisión registrada (reintento). */
+  created: boolean;
+}
+
+/**
+ * MOVO-37: penalidad del emisor por cancelar tarde un envío en efectivo (DD-047), como deuda de su cuenta
+ * corriente, y en la misma operación la compensación del transportista (`cashPenaltyCompensationArs`) como crédito
+ * en la suya (`POST /internal/payments/cash-shipments/:shipmentId/cancellation-penalty`). Idempotente por envío.
+ */
+export interface RegisterCashCancellationPenaltyRequest {
+  senderId: string;
+  carrierId: string;
+  agreedPriceArs: number;
+  penaltyArs: number;
+}
+
+export interface RegisterCashCancellationPenaltyResponse {
+  penaltyEntry: UserLedgerEntry;
+  /** `null` si la compensación da cero (la penalidad no cubre la comisión). */
+  compensationEntry: UserLedgerEntry | null;
+  compensationArs: number;
+  created: boolean;
 }

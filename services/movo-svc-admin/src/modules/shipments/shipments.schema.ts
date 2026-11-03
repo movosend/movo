@@ -393,6 +393,7 @@ export const shipmentsSchemas = {
       typedCode: { type: "string", maxLength: 32 },
       stepUpToken: { type: "string", minLength: 20, maxLength: 128 },
       idempotencyKey: { type: "string", minLength: 8, maxLength: 128 },
+      simulatePayment: { type: "boolean" },
     },
   },
   statusChangeResponse: {
@@ -486,7 +487,25 @@ export const shipmentsSchemas = {
     type: "object",
     required: ["shipment", "events", "photos", "offers", "payment", "parties"],
     properties: {
-      shipment: { ...shipmentRow, additionalProperties: true },
+      shipment: {
+        ...shipmentRow,
+        properties: {
+          ...shipmentRow.properties,
+          // MOVO-341: resumen mínimo de la disputa más reciente (`disputeId` es su id).
+          dispute: {
+            type: ["object", "null"],
+            properties: {
+              id: { type: "string" },
+              status: { type: "string", enum: ["open", "resolving", "resolved"] },
+              reason: { type: "string" },
+              openedByRole: { type: ["string", "null"], enum: ["sender", "carrier", "receiver", null] },
+              openedAt: { type: "string" },
+              statementsCount: { type: "integer" },
+            },
+          },
+        },
+        additionalProperties: true,
+      },
       events: block({ type: "array", items: event }),
       photos: block({ type: "array", items: photo }),
       offers: block({ type: "array", items: offer }),

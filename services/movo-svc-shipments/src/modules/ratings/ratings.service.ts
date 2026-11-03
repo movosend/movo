@@ -1,5 +1,7 @@
 import {
   ApiError,
+  disputeRatingWinners,
+  DisputeStatus,
   ShipmentStatus,
   UserRole,
   renderNotificationTrigger,
@@ -16,9 +18,10 @@ import { RatingRepository } from "../../repositories/rating-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { Shipment, ShipmentEvent } from "../../models/shipment";
 import { Rating, RatingCategoryScoresInput, RatingRole } from "../../models/rating";
-import { isRatingWindowOpen } from "../../domain/rating-window";
+import { isRatingWindowOpen, RATING_WINDOW_HOURS } from "../../domain/rating-window";
 import { computeCategoryScores, computeReputationScore, ReputationResult } from "../../domain/reputation";
 import { FULFILLED_SHIPMENT_STATUSES } from "../../domain/shipment-state-machine";
+import type { DisputeRecord, DisputeRepository } from "../../repositories/dispute-repository";
 
 export interface CreateRatingServiceInput extends RatingCategoryScoresInput {
   shipmentId: string;
@@ -152,17 +155,80 @@ function assertCanViewRatings(shipment: Shipment, callerId: string, callerRoles:
   }
 }
 
+/** Quién califica a quién en este alta o edición (roles dentro de ESTE envío). */
+interface RatingParties {
+  raterRole: RatingRole;
+  rateeRole: RatingRole;
+}
+
+function isWindowOpenFrom(anchor: Date, now: Date): boolean {
+  return now.getTime() <= anchor.getTime() + RATING_WINDOW_HOURS * 60 * 60 * 1000;
+}
+
 /**
  * AC3/AC8/AC9: precondiciones de estado compartidas por alta y edición. Nunca deja
  * pasar un 500 -- todo incumplimiento resuelve a un `ApiError` explícito (AC3).
+ *
+ * MOVO-337 (AC12): esta es la ÚNICA regla de quién puede calificar un envío no entregado. Además de los entregados:
+ * - **Disputa resuelta** (DD-056): califica el ganador (en `partial`, las dos partes), dentro de las 72 h desde que
+ *   se resolvió. El perdedor no califica. Vale aunque el envío haya quedado `cancelled` (a favor del emisor).
+ * - **No-retiro atribuido** (MOVO-270): envío cancelado por el barrido con atribución `carrier`; solo el emisor
+ *   califica al transportista, dentro de las 72 h desde la cancelación.
+ * Ningún otro envío cancelado se califica, y no hay penalización automática de reputación en ningún caso.
  */
-function assertRatingWindowAllowsWrite(shipment: Shipment, events: ShipmentEvent[], now: Date): void {
+function assertRatingWindowAllowsWrite(
+  shipment: Shipment,
+  events: ShipmentEvent[],
+  now: Date,
+  parties: RatingParties,
+  latestDispute: DisputeRecord | null,
+): void {
   if (shipment.status === ShipmentStatus.DISPUTED) {
     throw new ApiError(
       409,
       "SHIPMENT_RATING_DISPUTE_ACTIVE",
       "El envío tiene una disputa activa -- no se puede calificar hasta que se resuelva.",
     );
+  }
+  if (latestDispute?.status === DisputeStatus.RESOLVED && latestDispute.resolution) {
+    const { outcome, resolvedAt } = latestDispute.resolution;
+    const winners = disputeRatingWinners(outcome);
+    if (!winners.includes(parties.raterRole)) {
+      throw new ApiError(
+        403,
+        "AUTH_FORBIDDEN",
+        "Este envío tuvo una disputa: solo califica quien la ganó.",
+      );
+    }
+    if (!resolvedAt || !isWindowOpenFrom(resolvedAt, now)) {
+      throw new ApiError(
+        409,
+        "SHIPMENT_RATING_WINDOW_EXPIRED",
+        "El plazo de 72 horas para calificar este envío ya venció.",
+      );
+    }
+    return;
+  }
+  if (shipment.status === ShipmentStatus.CANCELLED) {
+    const cancellation = [...events].reverse().find((event) => event.toStatus === ShipmentStatus.CANCELLED);
+    if (cancellation?.attribution === "carrier") {
+      if (parties.raterRole !== RatingRole.sender || parties.rateeRole !== RatingRole.carrier) {
+        throw new ApiError(
+          403,
+          "AUTH_FORBIDDEN",
+          "El transportista no se presentó al retiro: solo el emisor puede calificarlo.",
+        );
+      }
+      if (!isWindowOpenFrom(cancellation.createdAt, now)) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_RATING_WINDOW_EXPIRED",
+          "El plazo de 72 horas para calificar este envío ya venció.",
+        );
+      }
+      return;
+    }
+    throw new ApiError(409, "SHIPMENT_NOT_DELIVERED", "El envío todavía no fue entregado.");
   }
   // MOVO-208: `completed` (entregado Y pago liberado) también puede calificarse -- es
   // una consecuencia posterior de `delivered`, no un estado que deba cerrar la ventana
@@ -186,6 +252,8 @@ export function createRatingsService(
   notificationsClient?: NotificationsClient,
   logger?: ServiceLogger,
   reputationConfig: ReputationServiceConfig = DEFAULT_REPUTATION_CONFIG,
+  /** MOVO-337: para calificar un envío cuya disputa se resolvió. Sin él, un envío disputado se trata como antes. */
+  disputeRepository?: Pick<DisputeRepository, "findLatestByShipment">,
 ) {
   return {
     async createRating(input: CreateRatingServiceInput): Promise<Rating> {
@@ -207,7 +275,13 @@ export function createRatingsService(
       assertCategoriesMatchRateeRole(rateeRole, input);
 
       const events = await shipmentRepository.listEvents(input.shipmentId);
-      assertRatingWindowAllowsWrite(shipment, events, new Date());
+      assertRatingWindowAllowsWrite(
+        shipment,
+        events,
+        new Date(),
+        { raterRole: resolveShipmentRole(shipment, input.raterId) ?? RatingRole.sender, rateeRole },
+        (await disputeRepository?.findLatestByShipment(input.shipmentId)) ?? null,
+      );
 
       // AC5/AC2: un POST repetido sobre el mismo par choca con el constraint único de
       // base -- `ratingRepository.create` lo traduce a `DuplicateRatingError`, mapeado
@@ -260,7 +334,13 @@ export function createRatingsService(
       assertCategoriesMatchRateeRole(existing.role, input);
 
       const events = await shipmentRepository.listEvents(input.shipmentId);
-      assertRatingWindowAllowsWrite(shipment, events, new Date());
+      assertRatingWindowAllowsWrite(
+        shipment,
+        events,
+        new Date(),
+        { raterRole: resolveShipmentRole(shipment, input.raterId) ?? RatingRole.sender, rateeRole: existing.role },
+        (await disputeRepository?.findLatestByShipment(input.shipmentId)) ?? null,
+      );
 
       return ratingRepository.update(
         input.shipmentId,

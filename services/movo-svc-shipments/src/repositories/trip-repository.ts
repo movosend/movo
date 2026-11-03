@@ -48,7 +48,7 @@ function tripCorridorContainsPointWhere(lat: number, lng: number, radiusKm: numb
  * `shipment.status`, no solo por el status de la oferta. Deliberadamente solo excluye
  * `CANCELLED` — un envío `disputed`/`delivered` sí representa un paquete aceptado real.
  */
-const ACCEPTED_OFFER_FILTER = {
+export const ACCEPTED_OFFER_FILTER = {
   status: "accepted",
   shipment: { status: { not: ShipmentStatus.CANCELLED } },
 } as const;

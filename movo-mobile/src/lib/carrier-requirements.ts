@@ -2,12 +2,24 @@ import { ApiError } from "@movo/shared/dist/errors/api-error";
 import type {
   CarrierRequirement,
   CarrierRequirementsErrorDetails,
+  CashPaymentRequirement,
 } from "@movo/shared/dist/types/carrier-eligibility";
 import type { MpConnectStatusResponse } from "@movo/shared/dist/types/mp-connect";
 import { KycStatus } from "@movo/shared/dist/types/user";
 
-/** Orden fijo de la checklist (el del prototipo): primero la licencia, después Mercado Pago. */
-export const CARRIER_REQUIREMENT_ORDER: readonly CarrierRequirement[] = ["license", "mp_account", "no_overdue_debt"];
+/**
+ * Un paso de la checklist: los requisitos para operar (DD-036) más el tope de deuda para envíos en efectivo
+ * (MOVO-37), que solo aparece cuando un 403 `CASH_DEBT_LIMIT_EXCEEDED` lo reporta.
+ */
+export type ChecklistRequirement = CarrierRequirement | Extract<CashPaymentRequirement, "cash_debt_within_limit">;
+
+/** Orden fijo de la checklist (el del prototipo): primero la licencia, después Mercado Pago, después las deudas. */
+export const CARRIER_REQUIREMENT_ORDER: readonly ChecklistRequirement[] = [
+  "license",
+  "mp_account",
+  "no_overdue_debt",
+  "cash_debt_within_limit",
+];
 
 /**
  * Qué bloquea la entrada al tab Transportar (MOVO-167 / MOVO-117): `"identity"` o la
@@ -57,21 +69,22 @@ export function resolveTransportGate(input: {
  * checklist: no es un paso que el transportista pueda completar, se levanta cuando se
  * resuelve la disputa. Devuelve `null` y el caller muestra el mensaje de error.
  *
- * MOVO-313 (DD-044): `USER_DEBT_OVERDUE` (requisito `no_overdue_debt`) tampoco: se resuelve
- * con un pago, no con un paso de la checklist. Mismo criterio: `null` y el mensaje de error.
- * Y si llega como parte de `details.missingRequirements` de otro código (licencia/MP), el
- * filtro por `CARRIER_REQUIREMENT_ORDER` lo descarta: la checklist solo dibuja los dos pasos.
+ * MOVO-313 (DD-044): `USER_DEBT_OVERDUE` (requisito `no_overdue_debt`) sí abre la checklist,
+ * con una fila "Pagar mi saldo". MOVO-37: lo mismo `CASH_DEBT_LIMIT_EXCEEDED` (requisito
+ * `cash_debt_within_limit`), el tope de deuda para ofertar en envíos en efectivo.
  */
-export function carrierRequirementsFromError(error: unknown): CarrierRequirement[] | null {
+export function carrierRequirementsFromError(error: unknown): ChecklistRequirement[] | null {
   if (!(error instanceof ApiError)) return null;
-  const firstMissing: CarrierRequirement | null =
+  const firstMissing: ChecklistRequirement | null =
     error.code === "CARRIER_LICENSE_NOT_APPROVED"
       ? "license"
       : error.code === "CARRIER_MP_ACCOUNT_NOT_LINKED"
         ? "mp_account"
         : error.code === "USER_DEBT_OVERDUE"
           ? "no_overdue_debt"
-        : null;
+          : error.code === "CASH_DEBT_LIMIT_EXCEEDED"
+            ? "cash_debt_within_limit"
+            : null;
   if (firstMissing === null) return null;
   const reported = (error.details as Partial<CarrierRequirementsErrorDetails> | undefined)
     ?.missingRequirements;

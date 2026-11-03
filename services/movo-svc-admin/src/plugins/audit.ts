@@ -13,7 +13,7 @@ export default fp(async (app: FastifyInstance) => {
     "audit",
     createAuditService({
       repository: createAuditRepository(app.db),
-      conflictChecker: createConflictChecker({ usersClient: app.usersClient, shipmentsClient: app.shipmentsClient }),
+      conflictChecker: createConflictChecker({ usersClient: app.usersClient, shipmentsClient: app.shipmentsClient, supportClient: app.supportClient }),
       logger: app.log,
     }),
   );

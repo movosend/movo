@@ -1,9 +1,11 @@
-import { MercadoPagoConfig, Payment } from "mercadopago";
+import { MercadoPagoConfig, Payment, PaymentRefund } from "mercadopago";
 
 // El SDK no exporta estos tipos desde su índice: se derivan de `Payment` en vez de
 // importarlos de `mercadopago/dist/...`, que es estructura interna del paquete.
 export type PaymentCreateRequest = Parameters<Payment["create"]>[0]["body"];
 export type PaymentResponse = Awaited<ReturnType<Payment["get"]>>;
+/** MOVO-336: un reembolso de MP (`POST /v1/payments/:id/refunds`). */
+export type RefundSnapshot = Awaited<ReturnType<PaymentRefund["create"]>>;
 
 /**
  * Lo mínimo de un pago que necesita `svc-payments` para decidir el estado de un hold.
@@ -85,6 +87,16 @@ export interface MercadoPagoClient {
     paymentId: string | number,
     idempotencyKey: string
   ): Promise<PaymentResponse>;
+  /**
+   * MOVO-336: devuelve plata de un pago YA capturado, con el token del transportista (el pago se creó con el suyo).
+   * Sin `amount` reembolsa el total pendiente; con `amount`, un reembolso parcial. La key es obligatoria por lo mismo
+   * que en las demás escrituras: sin ella el SDK genera una al azar y un reintento reembolsaría dos veces.
+   */
+  refundPayment(
+    accessToken: string,
+    paymentId: string | number,
+    opts: { idempotencyKey: string; amount?: number }
+  ): Promise<RefundSnapshot>;
 }
 
 /**
@@ -151,6 +163,18 @@ export class SdkMercadoPagoClient implements MercadoPagoClient {
     idempotencyKey: string
   ): Promise<PaymentResponse> {
     return this.payments(accessToken).cancel({ id: paymentId, requestOptions: { idempotencyKey } });
+  }
+
+  refundPayment(
+    accessToken: string,
+    paymentId: string | number,
+    opts: { idempotencyKey: string; amount?: number }
+  ): Promise<RefundSnapshot> {
+    const refunds = new PaymentRefund(new MercadoPagoConfig({ accessToken, options: { timeout: this.timeoutMs } }));
+    const requestOptions = { idempotencyKey: opts.idempotencyKey };
+    return opts.amount !== undefined
+      ? refunds.create({ payment_id: paymentId, body: { amount: opts.amount }, requestOptions })
+      : refunds.total({ payment_id: paymentId, requestOptions });
   }
 
   /**

@@ -5,7 +5,8 @@ import { offersSchemas } from "./offers.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
-import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
+import { PaymentsClient } from "../../adapters/payments-client";
+import { createAppPaymentsClient } from "../../adapters/simulated-payments-client";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
@@ -64,7 +65,7 @@ function toMyOfferDto(offer: OfferWithShipmentContext) {
 export default async function offersRoutes(app: FastifyInstance, opts: OffersRoutesOptions) {
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
-  const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);
+  const paymentsClient = opts.paymentsClient ?? createAppPaymentsClient(app);
   const offerRepository = createOfferRepository(app.db);
   const shipmentRepository = createShipmentRepository(app.db);
   // MOVO-188: batch de reputación `asCarrier` para el desempate de `competitiveRank`
@@ -87,7 +88,9 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
     // MOVO-210: "N" de la saga -- elige ruta cercana/lejana al aceptar la oferta.
     app.config.FUNDING_NEAR_PICKUP_DAYS,
     // MOVO-314: mismo desvío que el feed de matches, para sumar el envío a un viaje existente.
-    app.config.TRIP_DEFAULT_MAX_DETOUR_KM
+    app.config.TRIP_DEFAULT_MAX_DETOUR_KM,
+    // MOVO-37 (B4): tope de deuda del transportista en un envío en efectivo (editar y aceptar la oferta).
+    app.config.CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS
   );
 
   app.get(
@@ -169,6 +172,10 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
           "oferta, o si la oferta está vencida o ya resuelta. MOVO-116 (DD-036): 409 " +
           "OFFER_CARRIER_NOT_ELIGIBLE si el transportista ya no cumple los requisitos " +
           "para operar (licencia o cuenta de Mercado Pago); la oferta sigue pending. " +
+          "MOVO-37: en un envío en efectivo no hay saga: el envío pasa directo a assigned " +
+          "(`assignment.fundingRoute` null), las demás ofertas pending pasan a superseded en el " +
+          "momento, y también es 409 OFFER_CARRIER_NOT_ELIGIBLE si la deuda del transportista " +
+          "supera CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS. " +
           "502 USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar.",
         tags: ["offers"],
         params: offersSchemas.offerIdParam,
@@ -239,7 +246,9 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
           "USER_DEBT_OVERDUE (MOVO-313, deuda vencida; el code es el del primer requisito faltante y la " +
           "deuda siempre va en details.missingRequirements) con " +
           "details.missingRequirements, 502 USERS_SERVICE_UNAVAILABLE/" +
-          "PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar.",
+          "PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar. MOVO-37: en un envío en efectivo, " +
+          "403 CASH_DEBT_LIMIT_EXCEEDED (details.missingRequirements: [\"cash_debt_within_limit\"]) si la " +
+          "deuda total del transportista supera CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS.",
         tags: ["offers"],
         params: offersSchemas.offerIdParam,
         body: offersSchemas.patchOfferBody,

@@ -112,8 +112,18 @@ jest.mock("../src/hooks/use-offers", () => ({
   useShipmentOffers: () => ({ data: [], isLoading: false }),
 }));
 
+// MOVO-346 (puntos 12 y 18): el mapa de la ruta suma al transportista en vivo y su recorrido.
+const mockLivePosition = jest.fn(() => ({ position: null as { lat: number; lng: number; capturedAt: string } | null, isStale: false }));
+jest.mock("../src/hooks/use-live-position", () => ({
+  useLivePosition: (...args: unknown[]) => mockLivePosition(...(args as [])),
+}));
+jest.mock("../src/hooks/use-shipment-tracking", () => ({
+  useShipmentTracking: () => ({ data: undefined, trace: [], planned: [] }),
+}));
+
+const mockRefetchRatings = jest.fn();
 jest.mock("../src/hooks/use-ratings", () => ({
-  useShipmentRatings: () => ({ data: [], refetch: jest.fn() }),
+  useShipmentRatings: () => ({ data: [], refetch: mockRefetchRatings }),
   useCreateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
   useUpdateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
 }));
@@ -187,7 +197,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     suggestedPriceArs: 4500,
     highDemand: null,
     agreedPriceArs: null,
-    paymentMethod: null,
+    paymentMethod: "card",
     status: ShipmentStatus.PUBLISHED,
     lastStatusChangedAt: null,
     deliveredAt: null,
@@ -543,6 +553,56 @@ describe("ShipmentDetailScreen", () => {
     expect(getByTestId("shipment-detail-sender-actions")).toBeTruthy();
     expect(getByText("Reservado en tu tarjeta")).toBeTruthy();
     expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
+  });
+
+  it("MOVO-37: en efectivo el emisor ve la modalidad, no pide la reserva ni dice 'Reservado en tu tarjeta'", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        status: ShipmentStatus.ASSIGNED,
+        carrierId: "carrier-1",
+        agreedPriceArs: 18500,
+        paymentMethod: "cash",
+        funding: null,
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, getByText, queryByText, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-payment-method-label")).toHaveTextContent("Efectivo");
+    expect(getByText("En efectivo al retiro")).toBeTruthy();
+    expect(queryByText("Reservado en tu tarjeta")).toBeNull();
+    expect(queryByTestId("shipment-detail-funds")).toBeNull();
+    expect(mockUseShipmentHold).toHaveBeenLastCalledWith("shipment-1", { enabled: false });
+  });
+
+  it("MOVO-37: en efectivo y entregado, el transportista no consulta la liquidación (no existe)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "carrier-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        status: ShipmentStatus.DELIVERED,
+        carrierId: "carrier-1",
+        agreedPriceArs: 18500,
+        paymentMethod: "cash",
+        funding: null,
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-payment")).toBeNull();
+    expect(mockUseShipmentSettlement).toHaveBeenLastCalledWith(
+      "shipment-1",
+      expect.objectContaining({ enabled: false }),
+    );
   });
 
   it("mirando como receptor, nunca muestra la barra de cancelar del emisor (MOVO-29)", async () => {
@@ -1404,6 +1464,27 @@ describe("ShipmentDetailScreen", () => {
       const scrollViewNode = findNode(toJSON(), "RCTScrollView");
       expect(scrollViewNode?.props?.refreshControl).toBeTruthy();
     });
+
+    it("MOVO-346: con el envío sin terminar no refresca las calificaciones (GET /shipments/undefined/ratings)", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ senderId: "user-1", status: ShipmentStatus.IN_TRANSIT }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockRefetchRatings.mockClear();
+
+      const { toJSON } = await render(<ShipmentDetailScreen />);
+      const findScrollView = (node: any): any =>
+        node?.type === "RCTScrollView" ? node : (node?.children ?? []).map(findScrollView).find(Boolean);
+      await act(async () => {
+        await findScrollView(toJSON()).props.refreshControl.props.onRefresh();
+      });
+
+      expect(mockRefetchRatings).not.toHaveBeenCalled();
+    });
   });
 
   describe("MOVO-253 AC6: envío rechazado, vista emisor", () => {
@@ -1796,6 +1877,30 @@ describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () =
     expect(queryByTestId("shipment-detail-live-tracking-pending")).toBeNull();
     await fireEvent.press(getByTestId("shipment-detail-live-tracking"));
     expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/tracking");
+  });
+
+  it("MOVO-346: en tránsito el mapa de la ruta muestra al transportista en vivo (un solo mapa)", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
+    mockLivePosition.mockReturnValue({
+      position: { lat: -31.41, lng: -64.18, capturedAt: "2026-10-25T22:00:00Z" },
+      isStale: false,
+    });
+
+    await render(<ShipmentDetailScreen />);
+
+    expect(mockRouteMapCard).toHaveBeenLastCalledWith(
+      expect.objectContaining({ live: expect.objectContaining({ position: { lat: -31.41, lng: -64.18 }, stale: false }) }),
+    );
+    expect(mockLivePosition).toHaveBeenLastCalledWith("shipment-1", { enabled: true });
+  });
+
+  it("MOVO-346: antes del retiro no abre el canal en vivo", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.ASSIGNED });
+
+    await render(<ShipmentDetailScreen />);
+
+    expect(mockRouteMapCard).toHaveBeenLastCalledWith(expect.objectContaining({ live: null }));
+    expect(mockLivePosition).toHaveBeenLastCalledWith(undefined, { enabled: false });
   });
 
   it("el receptor también la ve", async () => {

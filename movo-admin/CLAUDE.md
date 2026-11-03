@@ -216,8 +216,9 @@ MOVO-322 (API) y MOVO-321 (adjuntos), que los tienen anexados en su descripción
   falla, queda "No se envió" con Reintentar (mismo id, así no se duplica). `gateway()` suma `PATCH`.
 - **Tiempo real** (`lib/support/realtime/feed.ts`, `components/support/support-provider.tsx`): una conexión por pestaña para todo el panel,
   pedida por `AdminShell`. WS con ticket de un solo uso (Server Action `requestRealtimeTicket`, subprotocolo `movo-support.v1`), reconexión con
-  backoff y jitter, y polling de respaldo tras 3 fallos; al recuperar la conexión emite `resync` y lista/conversación se vuelven a pedir.
-  Alimenta el badge del menú y los toasts "Nueva consulta de …". **El WS real no existe todavía** (MOVO-322): con el mock, `mock://support`
+  backoff y jitter, y polling de respaldo tras 3 fallos; en cada apertura del socket (también la primera, MOVO-322) emite `resync` y
+  lista/conversación se vuelven a pedir.
+  Alimenta el badge del menú y los toasts "Nueva consulta de …". El WS real lo sirve `svc-admin` (MOVO-322); con el mock, `mock://support`
   simula el socket leyendo `/api/support/events`.
 - **Conflicto de interés**: una consulta cuyo usuario es el admin se abre ya bloqueada; un `403 ADMIN_CONFLICT_OF_INTEREST` al enviar o
   modificar hace lo mismo. Sin calificación de la atención (se omitió la tarjeta de estrellas del prototipo).
@@ -326,6 +327,13 @@ el evento de aceptación de la línea de tiempo.
 
 Pendiente: revisar a mano en claro/oscuro y contra dev con un envío real con varias ofertas.
 
+## MOVO-299 — Sanciones desde la ficha (DD-049)
+
+Menú "Acciones" → Suspender, Inhabilitar y Levantar (`components/users/actions/sanction-dialog.tsx`, `lift-dialog.tsx`). Suspender e
+inhabilitar confirman con la vista previa de lo que se retira; inhabilitar con envíos en curso no llega a confirmar (lista los envíos y
+sugiere suspender). Una respuesta sin confirmar (5xx) cierra la confirmación y manda a revisar la ficha: reintentar abriría otra sanción.
+El banner y la sección ofrecen "Reintentar el retiro" si quedó parcial, fallido o sin registrar (`needsWithdrawalRetry`).
+
 ## MOVO-333 — Modal de cambio de estado del envío
 
 Botón "Cambiar estado" en el encabezado del detalle (`/shipments/[id]`) y modal de tres pasos (Nuevo estado / Impacto /
@@ -352,6 +360,32 @@ Confirmación) del prototipo `Movo Admin Envios.dc.html`. Código en `components
 - **Resultado**: el modal se cierra, la acción revalida el detalle (estado y línea de tiempo) y `StatusChangeNotice` muestra "#MOVO-… pasó a ….
   Quedó en la línea de tiempo y en la bitácora. Avisamos a: …". La línea de tiempo (`buildTimeline`) dibuja los eventos de admin con escudo
   (`ShieldCheck` manual, `ShieldAlert` forzado), "Estado cambiado/forzado a …", el nombre del admin y el motivo.
+- **Simular el pago** (DD-055): en el paso 3, con destino `assigned`, un check extra "Simular el pago" manda `simulatePayment: true`
+  (asigna sin hold de Mercado Pago; el envío no se cobra). Lo habilita `ALLOW_SIMULATED_PAYMENTS` en `svc-shipments`; apagado, el
+  backend responde `PAYMENT_SIMULATION_DISABLED`. Se destilda solo al cambiar de destino.
 
 Pendiente: capturas de cada paso contra dev (DoD; necesita MOVO-331/332 desplegados) y revisión a mano en claro/oscuro. El email del segundo
 factor usa el texto genérico del OTP (sin copy propio del cambio de estado).
+
+## MOVO-346 — Backoff del WS de soporte
+
+`lib/support/realtime/feed.ts` ya no resetea el backoff en `onopen`: lo hace al primer mensaje o a los `WS_STABLE_MS` (10 s) con el
+socket abierto. Un servidor que acepta y cierra enseguida (origen no permitido) contaba cada intento como éxito y el panel pedía un
+ticket cada ~2 s. Un cierre `SUPPORT_WS_CLOSE.FORBIDDEN` (4003) pasa directo a polling y no reintenta el WS hasta el próximo `start`;
+`NativeSocket` pasa el `code` del cierre. Pendiente: cargar `SUPPORT_WS_ALLOWED_ORIGINS`/`SUPPORT_WS_PUBLIC_URL` en Secrets Manager y
+verlo `live` en dev.
+
+## MOVO-343 / MOVO-338 — Disputas: bandeja, expediente, notas y resolución
+
+`/disputes` (bandeja, estado en la URL) y `/disputes/[id]` (expediente) sobre `/admin/disputes*` de `svc-admin` (MOVO-337/341, DD-056); tipos en
+`@movo/shared`. Solo `GET /admin/disputes/:id` bloquea el expediente: handshake, fotos, notas, partes, pago y chat son Server Components en su
+`<Suspense>` (`components/disputes/blocks.tsx`) con `BlockError`; partes, pago y chat comparten una lectura memoizada de `getShipment`. Un admin que es
+parte ve el expediente en lectura (el backend lo vuelve a decidir, `ADMIN_CONFLICT_OF_INTEREST`).
+
+El diálogo de resolución (`resolve-controls.tsx`, 3 pasos) no tiene lógica de matriz propia: acción de pago, estado final del envío, presets y piso de la
+captura parcial salen de `resolution-preview`; `computeSplit` solo adelanta el 422. Si falla el pago (`DISPUTE_PAYMENT_FAILED`) la disputa queda "Procesando
+pago" y el expediente ofrece reintentar (idempotente). El bloque "Disputa" del detalle del envío usa `shipment.dispute` (MOVO-341), sin pedir la disputa.
+Modo fixtures: `MOVO_ADMIN_MOCK=1` (`lib/disputes/{mock,fixtures}.ts`).
+
+Pendiente: probar contra `svc-admin` en dev, revisar claro/oscuro y mobile. `resolution.resolvedBy` llega como UUID del admin: falta que `svc-admin` mande
+el nombre (o resolverlo en el panel).

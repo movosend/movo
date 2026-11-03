@@ -5,6 +5,10 @@
  */
 import { ADMIN_USER_MODERATION_LIMIT } from "@movo/shared/src/types/admin-users"
 import type {
+  AccountSanctionClosedCause,
+  AccountSanctionType,
+} from "@movo/shared/src/types/account-sanctions"
+import type {
   AdminAccountStatus,
   AdminKycStatus,
   AdminLedgerStatus,
@@ -108,7 +112,7 @@ const RAW: Raw[] = [
     "29554871",
     "2026-01-21",
     "ET",
-    "banned",
+    "suspended",
     "2026-11-02",
     "approved",
     "approved",
@@ -605,7 +609,7 @@ interface Extra {
   reportsMade?: ExtraReport[]
   blocksMade?: { name: string; at: string }[]
   blocksRecv?: { name: string; at: string }[]
-  sanctions?: AdminUserSanctions["items"]
+  sanctions?: ExtraSanction[]
   ledger?: ExtraLedger[]
   devices?: AdminUserDevices["devices"]
   handshake?: string | null
@@ -707,15 +711,12 @@ const EXTRA: Record<string, Extra> = {
     blocksRecv: [{ name: "Bruno Castro", at: "2026-06-30" }],
     sanctions: [
       {
-        type: "temporary",
-        days: 3,
+        type: "suspension",
         reason: "Tres no-show en una semana con envíos asignados.",
-        adminId: uuid("Carla Benítez"),
-        adminName: "Carla Benítez",
-        createdAt: at("2026-07-08"),
-        status: "lifted",
-        liftedAt: at("2026-07-11"),
-        liftedBy: "vencimiento automático",
+        admin: "Carla Benítez",
+        at: "2026-07-08",
+        endsAt: "2026-07-11",
+        closed: { at: "2026-07-11", cause: "expired" },
       },
     ],
     ledger: [
@@ -835,14 +836,13 @@ const EXTRA: Record<string, Extra> = {
     blocksRecv: [{ name: "Marcos Vera", at: "2026-08-14" }],
     sanctions: [
       {
-        type: "temporary",
-        days: 21,
+        type: "suspension",
         reason:
           "Reclamo por paquete roto y dos reportes por trato agresivo en 30 días.",
-        adminId: uuid("Tomás Ferreyra"),
-        adminName: "Tomás Ferreyra",
-        createdAt: at("2026-10-12"),
-        status: "active",
+        note: "Revisar de nuevo cuando vuelva: los reportes vinieron de dos emisores distintos.",
+        admin: "Tomás Ferreyra",
+        at: "2026-10-12",
+        endsAt: "2026-11-02",
       },
     ],
     audit: [
@@ -882,24 +882,19 @@ const EXTRA: Record<string, Extra> = {
     ],
     sanctions: [
       {
-        type: "permanent",
+        type: "disable",
         reason:
           "Pidió el pago por fuera de la app en dos envíos. Confirmado con los reportes revisados.",
-        adminId: uuid("Carla Benítez"),
-        adminName: "Carla Benítez",
-        createdAt: at("2026-09-28"),
-        status: "active",
+        admin: "Carla Benítez",
+        at: "2026-09-28",
       },
       {
-        type: "temporary",
-        days: 7,
+        type: "suspension",
         reason: "Cancelaciones tardías reiteradas.",
-        adminId: uuid("Tomás Ferreyra"),
-        adminName: "Tomás Ferreyra",
-        createdAt: at("2026-06-02"),
-        status: "lifted",
-        liftedAt: at("2026-06-09"),
-        liftedBy: "vencimiento automático",
+        admin: "Tomás Ferreyra",
+        at: "2026-06-02",
+        endsAt: "2026-06-09",
+        closed: { at: "2026-06-09", cause: "expired" },
       },
     ],
     ledger: [
@@ -1602,8 +1597,54 @@ export function mockModeration(s: Seed): AdminUserModeration {
   }
 }
 
+/** Sanción de fixture, compacta; `mockSanctions` la lleva a la forma de `GET /admin/users/:id/sanctions`. */
+interface ExtraSanction {
+  type: AccountSanctionType
+  reason: string
+  note?: string
+  admin: string
+  at: string
+  endsAt?: string
+  closed?: {
+    at: string
+    by?: string
+    reason?: string
+    cause: AccountSanctionClosedCause
+  }
+}
+
 export function mockSanctions(s: Seed): AdminUserSanctions {
-  return { items: extraOf(s).sanctions ?? [] }
+  return {
+    items: (extraOf(s).sanctions ?? []).map((x) => ({
+      id: uuid(`${s.id}sanction${x.at}`),
+      userId: s.id,
+      type: x.type,
+      reason: x.reason,
+      internalNote: x.note ?? null,
+      startedAt: at(x.at),
+      endsAt: x.endsAt ? at(x.endsAt) : null,
+      appliedBy: uuid(x.admin),
+      appliedByName: x.admin,
+      liftedAt: x.closed ? at(x.closed.at) : null,
+      liftedBy: x.closed?.by ? uuid(x.closed.by) : null,
+      liftedByName: x.closed?.by ?? null,
+      liftReason: x.closed?.reason ?? null,
+      closedCause: x.closed?.cause ?? null,
+      withdrawal: {
+        status: "complete",
+        result: {
+          cancelledShipmentIds: [],
+          withdrawnOfferIds: [],
+          cancelledTripIds: [],
+          stoppedRecurrenceTripIds: [],
+          notifiedCounterpartyCount: 0,
+          failures: [],
+        },
+        errorCode: null,
+        attemptedAt: at(x.at),
+      },
+    })),
+  }
 }
 
 /** El cursor del mock es el desplazamiento; el de `svc-admin` será opaco, el panel no lo interpreta. */

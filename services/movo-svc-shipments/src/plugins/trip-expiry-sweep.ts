@@ -4,7 +4,8 @@ import { registerSweep } from "./register-sweep";
 import { createTripRepository } from "../repositories/trip-repository";
 import { createShipmentRepository } from "../repositories/shipment-repository";
 import { createUsersClient, UsersClient } from "../adapters/users-client";
-import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
+import { PaymentsClient } from "../adapters/payments-client";
+import { createAppPaymentsClient } from "../adapters/simulated-payments-client";
 import { createNotificationsClient, NotificationsClient } from "../adapters/notifications-client";
 import { generateRecurringOccurrences } from "../modules/trips/trip-recurrence";
 import { createNotificationClaims } from "../utils/notification-claim";
@@ -45,7 +46,7 @@ export default fp(async (app: FastifyInstance, opts: TripExpirySweepPluginOption
     tripRepository: repository,
     shipmentRepository: createShipmentRepository(app.db),
     usersClient: opts.usersClient ?? createUsersClient(app.config),
-    paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
+    paymentsClient: opts.paymentsClient ?? createAppPaymentsClient(app),
     notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),
     claims: createNotificationClaims(app.redis),
     logger: app.log,

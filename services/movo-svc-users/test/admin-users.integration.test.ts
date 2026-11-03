@@ -289,10 +289,10 @@ describe("Búsqueda, ficha y acciones de soporte del panel (MOVO-294)", () => {
       expect(vehicle.vehicle).toEqual({ brand: "Fiat", model: "Cronos", licensePlate: "AB123CD", cargoCapacityLabel: "Baúl mediano" });
     });
 
-    it("POST /names resuelve los nombres que existen", async () => {
+    it("POST /names resuelve los nombres que existen, con los roles de la cuenta (MOVO-322)", async () => {
       const user = await createUser({ firstName: "Pedro", lastName: "Yorlano" });
       const res = await app.inject({ method: "POST", url: "/internal/admin/users/names", payload: { ids: [user.id, randomUUID()] } });
-      expect(JSON.parse(res.body)).toEqual({ users: [{ id: user.id, fullName: "Pedro Yorlano" }] });
+      expect(JSON.parse(res.body)).toEqual({ users: [{ id: user.id, fullName: "Pedro Yorlano", roles: ["sender"] }] });
     });
   });
 

@@ -1,5 +1,24 @@
 import { randomUUID } from "node:crypto";
 import {
+  AuditTargetsRequest,
+  AuditTargetsResponse,
+  OverviewInboxSource,
+  OverviewDisputesExtra,
+  OverviewKycExtra,
+  OverviewPaymentsExtra,
+  OverviewShipmentAlertsExtra,
+  OverviewSupportExtra,
+  OverviewUserReportsExtra,
+  AdminDisputeCounts,
+  AdminDisputeDetail,
+  DisputeStatus,
+  AdminDisputeHandshakeEvent,
+  AdminDisputePage,
+  AdminDisputeResolutionPreview,
+  AdminDisputeTrace,
+  InternalResolveDisputeRequest,
+  ResolveDisputeResponse,
+  AccountSanction,
   AdminCandidate,
   AdminSummary,
   AdminUserLedgerRowPage,
@@ -20,14 +39,31 @@ import {
   AdminShipmentPage,
   AdminShipmentPhoto,
   HoldDetailResponse,
+  InProgressShipment,
+  OpenActivitySummary,
   ShipmentParties,
   ShipmentStatus,
+  SupportInternalActor,
+  SupportInternalAgentLoad,
+  SupportInternalAttachmentBody,
+  SupportInternalCounts,
+  SupportInternalCountsQuery,
+  SupportInternalListQuery,
+  SupportInternalMessage,
+  SupportInternalPatchBody,
+  SupportInternalRow,
+  SupportInternalSendBody,
+  SupportInternalUserConversations,
   UserReportParties,
+  WithdrawOpenActivityResult,
 } from "@movo/shared";
 import { InternalClient } from "../src/adapters/internal-client";
 import { ShipmentsClient } from "../src/adapters/shipments-client";
 import { PartyCard, UsersClient } from "../src/adapters/users-client";
 import { LedgerAdjustmentRequest, PaymentsClient } from "../src/adapters/payments-client";
+import { SupportClient } from "../src/adapters/support-client";
+
+const emptyInbox = { count: 0, oldestAt: null, yesterdayCount: null, breakdown: [] };
 
 const unusedRequest: InternalClient["request"] = async () => {
   throw new Error("request genérico fuera de alcance de este fake");
@@ -39,6 +75,15 @@ export const usersDown = () => new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "E
 export const paymentsDown = () => new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "El servicio de pagos no responde.");
 
 const userNotFound = () => new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+
+export const emptyWithdrawal = (): WithdrawOpenActivityResult => ({
+  cancelledShipmentIds: [],
+  withdrawnOfferIds: [],
+  cancelledTripIds: [],
+  stoppedRecurrenceTripIds: [],
+  notifiedCounterpartyCount: 0,
+  failures: [],
+});
 
 export function createFakeShipmentsClient(data: {
   shipments?: Record<string, ShipmentParties>;
@@ -60,15 +105,88 @@ export function createFakeShipmentsClient(data: {
   trackings?: Record<string, AdminShipmentTracking>;
   /** Últimos query strings recibidos, para comprobar que se reenvían. */
   seen?: { list?: string; chat?: string };
+  /** MOVO-299: efectos de una sanción, por id de usuario. */
+  inProgress?: Record<string, InProgressShipment[]>;
+  openActivity?: Record<string, Omit<OpenActivitySummary, "inProgressShipments">>;
+  /** Respuestas del retiro, en orden; un `ApiError` se lanza. Agotadas, el retiro no encuentra nada. */
+  withdrawResults?: Array<WithdrawOpenActivityResult | ApiError>;
+  withdrawCalls?: Array<{ userId: string; sanctionId: string }>;
   /**
    * MOVO-332: `POST .../force-status`. `calls` guarda lo recibido; `error` hace que svc-shipments rechace;
    * `unavailable` simula que no responde (la bitácora lo toma por "pudo haberse aplicado").
    */
   force?: { calls: ForceShipmentStatusRequest[]; error?: ApiError; unavailable?: boolean };
+  /**
+   * MOVO-337: disputas, por id. `resolve.calls` guarda lo recibido; `error` hace que svc-shipments rechace;
+   * `unavailable` simula que no responde; `response` pisa campos de la respuesta.
+   */
+  disputes?: {
+    page?: AdminDisputePage;
+    details?: Record<string, AdminDisputeDetail>;
+    parties?: Record<string, ShipmentParties & { shipmentId: string }>;
+    previews?: Record<string, AdminDisputeResolutionPreview>;
+    handshakes?: Record<string, AdminDisputeHandshakeEvent[]>;
+    traces?: Record<string, AdminDisputeTrace>;
+    resolve?: {
+      calls: InternalResolveDisputeRequest[];
+      error?: ApiError;
+      unavailable?: boolean;
+      response?: Partial<ResolveDisputeResponse>;
+    };
+    seen?: { list?: string };
+    counts?: AdminDisputeCounts;
+  };
+  /** MOVO-342: bandejas de la home y objetivos de la bitácora. `targetsDown`: solo esa lectura falla. */
+  overview?: {
+    disputes?: OverviewInboxSource<OverviewDisputesExtra>;
+    support?: OverviewInboxSource<OverviewSupportExtra>;
+    shipmentAlerts?: OverviewInboxSource<OverviewShipmentAlertsExtra>;
+    flaggedMessages?: OverviewInboxSource;
+  };
+  auditTargets?: AuditTargetsResponse;
+  auditTargetsSeen?: AuditTargetsRequest[];
+  targetsDown?: boolean;
   down?: boolean;
 } = {}): ShipmentsClient {
   return {
     request: unusedRequest,
+    async getOverviewDisputes() {
+      if (data.down) throw shipmentsDown();
+      return data.overview?.disputes ?? { ...emptyInbox, awaitingPayment: 0 };
+    },
+    async getOverviewSupport() {
+      if (data.down) throw shipmentsDown();
+      return data.overview?.support ?? { ...emptyInbox, urgent: 0 };
+    },
+    async getOverviewShipmentAlerts() {
+      if (data.down) throw shipmentsDown();
+      return data.overview?.shipmentAlerts ?? { ...emptyInbox, inTransit: 0 };
+    },
+    async getOverviewFlaggedMessages() {
+      if (data.down) throw shipmentsDown();
+      return data.overview?.flaggedMessages ?? emptyInbox;
+    },
+    async getAuditTargets(request) {
+      if (data.down || data.targetsDown) throw shipmentsDown();
+      data.auditTargetsSeen?.push(request);
+      return data.auditTargets ?? { disputes: {}, chatReports: {}, supportConversations: {} };
+    },
+    async listInProgressShipments(userId) {
+      if (data.down) throw shipmentsDown();
+      return data.inProgress?.[userId] ?? [];
+    },
+    async getOpenActivity(userId) {
+      if (data.down) throw shipmentsDown();
+      const open = data.openActivity?.[userId] ?? { shipments: 0, offers: 0, trips: 0, recurringSeries: 0 };
+      return { ...open, inProgressShipments: data.inProgress?.[userId] ?? [] };
+    },
+    async withdrawOpenActivity(userId, sanctionId) {
+      data.withdrawCalls?.push({ userId, sanctionId });
+      if (data.down) throw shipmentsDown();
+      const next = data.withdrawResults?.shift();
+      if (next instanceof ApiError) throw next;
+      return next ?? emptyWithdrawal();
+    },
     async listUserShipments(userId, query) {
       if (data.down) throw shipmentsDown();
       return (
@@ -128,6 +246,58 @@ export function createFakeShipmentsClient(data: {
       const kind = body.targetStatus === "cancelled" && body.expectedStatus === "assigned" ? "forced" : "manual";
       return { shipmentId: id, fromStatus: body.expectedStatus, toStatus: body.targetStatus, kind, replayed: false };
     },
+    async listAdminDisputes(query) {
+      if (data.down) throw shipmentsDown();
+      if (data.disputes?.seen) data.disputes.seen.list = query.toString();
+      return data.disputes?.page ?? { items: [], nextCursor: null, statusCounts: { open: 0, resolving: 0, resolved: 0 } };
+    },
+    async getDisputeCounts() {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.counts ?? { open: 0, resolving: 0, openOlderThan3Days: 0, openOlderThan7Days: 0 };
+    },
+    async getAdminDispute(id) {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.details?.[id] ?? null;
+    },
+    async getDisputeParties(id) {
+      if (data.down) throw shipmentsDown();
+      const detail = data.disputes?.details?.[id];
+      return (
+        data.disputes?.parties?.[id] ??
+        (detail ? { shipmentId: detail.shipmentId, senderId: "", carrierId: null, receiverId: null, formerReceiverIds: [] } : null)
+      );
+    },
+    async getDisputeHandshake(id) {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.handshakes?.[id] ?? (data.disputes?.details?.[id] ? [] : null);
+    },
+    async getDisputeTrace(id) {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.traces?.[id] ?? (data.disputes?.details?.[id] ? { available: false, points: [] } : null);
+    },
+    async getDisputeResolutionPreview(id) {
+      if (data.down) throw shipmentsDown();
+      return data.disputes?.previews?.[id] ?? null;
+    },
+    async resolveDispute(id, body): Promise<ResolveDisputeResponse> {
+      if (data.down || data.disputes?.resolve?.unavailable) throw shipmentsDown();
+      data.disputes?.resolve?.calls.push(body);
+      if (data.disputes?.resolve?.error) throw data.disputes.resolve.error;
+      return {
+        disputeId: id,
+        shipmentId: data.disputes?.parties?.[id]?.shipmentId ?? randomUUID(),
+        outcome: body.outcome,
+        reasoning: body.reasoning,
+        carrierAmountArs: body.outcome === "sender" ? 0 : 1150,
+        senderAmountArs: body.outcome === "carrier" ? 0 : 1150,
+        paymentAction: "none",
+        status: DisputeStatus.RESOLVED,
+        shipmentStatus: body.outcome === "sender" ? "cancelled" : "completed",
+        replayed: false,
+        resolvedAt: new Date().toISOString(),
+        ...data.disputes?.resolve?.response,
+      };
+    },
     async getShipmentParties(id) {
       if (data.down) throw shipmentsDown();
       return data.shipments?.[id] ?? null;
@@ -146,9 +316,20 @@ export function createFakeUsersClient(
     candidates?: AdminCandidate[];
     /** MOVO-294: perfiles de la ficha; sus nombres son los que resuelve `getUserNames`. */
     profiles?: AdminUserProfile[];
+    /** MOVO-342: bandejas de la home y el reportado de cada reporte. */
+    overview?: {
+      kyc?: OverviewInboxSource<OverviewKycExtra>;
+      userReports?: OverviewInboxSource<OverviewUserReportsExtra>;
+      sanctionsEndingToday?: OverviewInboxSource;
+    };
+    reported?: Array<{ id: string; reportedId: string }>;
     /** Solo la resolución de nombres falla (el resto de `svc-users` responde). */
     namesDown?: boolean;
+    /** MOVO-322: solo el KYC falla (las insignias del contexto de soporte fallan abierto). */
+    kycDown?: boolean;
     cards?: PartyCard[];
+    /** MOVO-299: historial de sanciones de todos los usuarios; se muta como en `svc-users`. */
+    sanctions?: AccountSanction[];
     /**
      * MOVO-332: el segundo factor. `consumed` guarda los tokens gastados; `consumeError` hace que `svc-users`
      * rechace el token (`STEP_UP_INVALID`); `verifyError` rechaza el código.
@@ -165,6 +346,7 @@ export function createFakeUsersClient(
   } = {},
 ): UsersClient {
   const admins = data.admins ?? [];
+  const sanctions = data.sanctions ?? [];
   const profiles = data.profiles ?? [];
   const profileOf = (id: string) => {
     if (data.down) throw usersDown();
@@ -206,6 +388,7 @@ export function createFakeUsersClient(
     },
     async getUserKyc(id) {
       profileOf(id);
+      if (data.kycDown) throw usersDown();
       return {
         identity: { status: "approved" as const, lastSessionId: "s-1", attempts: [] },
         license: { status: "not_started" as const, lastSessionId: null, expiresAt: null, attempts: [] },
@@ -227,9 +410,25 @@ export function createFakeUsersClient(
       profileOf(id);
       return { devices: [], handshakeKey: null };
     },
+    async getOverviewKyc() {
+      if (data.down) throw usersDown();
+      return data.overview?.kyc ?? { ...emptyInbox, carriers: 0, senders: 0 };
+    },
+    async getOverviewUserReports() {
+      if (data.down) throw usersDown();
+      return data.overview?.userReports ?? { ...emptyInbox, blockRequested: 0 };
+    },
+    async getOverviewSanctionsEndingToday() {
+      if (data.down) throw usersDown();
+      return data.overview?.sanctionsEndingToday ?? emptyInbox;
+    },
+    async getReportedUsers(ids) {
+      if (data.down) throw usersDown();
+      return (data.reported ?? []).filter((report) => ids.includes(report.id));
+    },
     async getUserNames(ids) {
       if (data.down || data.namesDown) throw usersDown();
-      return profiles.filter((p) => ids.includes(p.id)).map((p) => ({ id: p.id, fullName: p.fullName }));
+      return profiles.filter((p) => ids.includes(p.id)).map((p) => ({ id: p.id, fullName: p.fullName, roles: (p.roles ?? []).map((r) => r.role) }));
     },
     async requestStepUp(adminId, body) {
       if (data.down) throw usersDown();
@@ -302,16 +501,57 @@ export function createFakeUsersClient(
       if (data.down) throw usersDown();
       return data.userReports?.[id] ?? null;
     },
+    async listSanctions(userId) {
+      profileOf(userId);
+      return sanctions.filter((s) => s.userId === userId).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    },
+    async applySanction(userId, body, actorId) {
+      const profile = profileOf(userId);
+      const open = sanctions.filter((s) => s.userId === userId && !s.liftedAt);
+      if (open.some((s) => s.type === "disable")) throw new ApiError(409, "ACCOUNT_ALREADY_DISABLED", "La cuenta ya está inhabilitada.");
+      const now = new Date().toISOString();
+      for (const s of open) Object.assign(s, { liftedAt: now, closedCause: body.type === "disable" ? "escalated" : "replaced" });
+      const created: AccountSanction = {
+        id: randomUUID(),
+        userId,
+        type: body.type,
+        reason: body.reason,
+        internalNote: body.internalNote ?? null,
+        startedAt: now,
+        endsAt: body.endsAt ?? null,
+        appliedBy: actorId,
+        liftedAt: null,
+        liftedBy: null,
+        liftReason: null,
+        closedCause: null,
+      };
+      sanctions.push(created);
+      Object.assign(profile, { accountStatus: body.type === "disable" ? "banned" : "suspended", bannedUntil: body.endsAt ?? null });
+      return created;
+    },
+    async liftSanction(userId, sanctionId, reason, actorId) {
+      const profile = profileOf(userId);
+      const sanction = sanctions.find((s) => s.id === sanctionId && s.userId === userId);
+      if (!sanction) throw new ApiError(404, "SANCTION_NOT_FOUND", "La sanción no existe.");
+      if (sanction.liftedAt) throw new ApiError(409, "SANCTION_ALREADY_CLOSED", "La sanción ya está cerrada.");
+      Object.assign(sanction, { liftedAt: new Date().toISOString(), liftedBy: actorId, liftReason: reason, closedCause: "lifted" });
+      Object.assign(profile, { accountStatus: "active", bannedUntil: null });
+      return sanction;
+    },
   };
 }
 
 /** MOVO-294: cuenta corriente y Mercado Pago. El ajuste es idempotente por key, como el real. */
 export function createFakePaymentsClient(
-  data: { holds?: Record<string, HoldDetailResponse>; ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
+  data: { overview?: OverviewInboxSource<OverviewPaymentsExtra>; holds?: Record<string, HoldDetailResponse>; ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
 ) {
   const adjustments = new Map<string, { body: LedgerAdjustmentRequest; id: string; createdAt: string }>();
   const client: PaymentsClient = {
     request: unusedRequest,
+    async getOverview() {
+      if (data.down) throw paymentsDown();
+      return data.overview ?? { ...emptyInbox, holdsExpiringToday: 0, overSla: false };
+    },
     async findHoldByShipment(id) {
       if (data.down) throw paymentsDown();
       return data.holds?.[id] ?? null;
@@ -350,4 +590,110 @@ export function createFakePaymentsClient(
     },
   };
   return { client, adjustments };
+}
+
+export const supportDown = () => new ApiError(502, "SUPPORT_SERVICE_UNAVAILABLE", "El servicio de soporte no responde.");
+const supportNotFound = () => new ApiError(404, "SUPPORT_CONVERSATION_NOT_FOUND", "La consulta no existe.");
+
+/**
+ * MOVO-322: `/internal/admin/support/*` de svc-shipments. Guarda lo que recibe (`seen`) para comprobar qué resolvió
+ * svc-admin (`assignee=me`, `userIds`, el actor) sin repetir las reglas del modelo, que prueba svc-shipments.
+ */
+export function createFakeSupportClient(
+  data: {
+    rows?: Record<string, SupportInternalRow>;
+    messages?: Record<string, SupportInternalMessage[]>;
+    userConversations?: Record<string, SupportInternalUserConversations>;
+    loads?: SupportInternalAgentLoad[];
+    counts?: SupportInternalCounts;
+    down?: boolean;
+  } = {},
+) {
+  const seen: {
+    list?: SupportInternalListQuery;
+    counts?: SupportInternalCountsQuery;
+    send?: SupportInternalSendBody;
+    patch?: SupportInternalPatchBody;
+    actor?: SupportInternalActor;
+    attachment?: SupportInternalAttachmentBody;
+    read?: string;
+  } = {};
+  const rowOf = (id: string) => {
+    if (data.down) throw supportDown();
+    const row = data.rows?.[id];
+    if (!row) throw supportNotFound();
+    return row;
+  };
+  const client: SupportClient = {
+    request: unusedRequest,
+    async list(query) {
+      if (data.down) throw supportDown();
+      seen.list = query;
+      return { items: Object.values(data.rows ?? {}).filter((r) => r.status === query.status), nextCursor: null };
+    },
+    async counts(query) {
+      if (data.down) throw supportDown();
+      seen.counts = query;
+      return data.counts ?? { byStatus: { open: 0, awaiting_user: 0, resolved: 0 }, byOwner: { all: 0, mine: 0, none: 0 }, unreadTotal: 0 };
+    },
+    async get(id) {
+      return rowOf(id);
+    },
+    async messages(id) {
+      rowOf(id);
+      return { items: data.messages?.[id] ?? [], nextCursor: null };
+    },
+    async send(id, body) {
+      const row = rowOf(id);
+      seen.send = body;
+      const message: SupportInternalMessage = {
+        id: randomUUID(),
+        conversationId: id,
+        kind: body.internal ? "note" : "agent",
+        authorId: body.actorId,
+        authorName: body.actorFirstName,
+        body: body.body,
+        clientMessageId: body.clientMessageId,
+        attachments: [],
+        createdAt: new Date().toISOString(),
+      };
+      return { message, conversation: row };
+    },
+    async patch(id, body) {
+      const row = rowOf(id);
+      seen.patch = body;
+      return { ...row, ...(body.assignedTo !== undefined ? { assignedTo: body.assignedTo } : {}), ...(body.priority ? { priority: body.priority } : {}) };
+    },
+    async resolve(id, actor) {
+      seen.actor = actor;
+      return { ...rowOf(id), status: "resolved" };
+    },
+    async reopen(id, actor) {
+      seen.actor = actor;
+      return { ...rowOf(id), status: "open" };
+    },
+    async read(id) {
+      rowOf(id);
+      seen.read = id;
+    },
+    async getParties(id) {
+      if (data.down) throw supportDown();
+      const row = data.rows?.[id];
+      return row ? { userId: row.userId } : null;
+    },
+    async userConversations(id) {
+      rowOf(id);
+      return data.userConversations?.[id] ?? { items: [] };
+    },
+    async agentLoads() {
+      if (data.down) throw supportDown();
+      return data.loads ?? [];
+    },
+    async createAttachment(id, body) {
+      rowOf(id);
+      seen.attachment = body;
+      return { attachmentId: randomUUID(), uploadUrl: "https://bucket/put", expiresAt: new Date(Date.now() + 300_000).toISOString() };
+    },
+  };
+  return { client, seen };
 }

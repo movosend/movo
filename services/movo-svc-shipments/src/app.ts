@@ -32,12 +32,15 @@ import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import mutualConnectionsRoutes from "./modules/mutual-connections/mutual-connections.routes";
 import adminInternalRoutes from "./modules/admin-internal/admin-internal.routes";
+import adminDisputesRoutes from "./modules/admin-internal/admin-disputes.routes";
+import adminOverviewRoutes from "./modules/admin-internal/admin-overview.routes";
 import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
 import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
 import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
 import chatRoutes, { ChatRoutesOptions } from "./modules/chat/chat.routes";
 import supportRoutes, { SupportRoutesOptions } from "./modules/support/support.routes";
+import adminSupportRoutes, { AdminSupportRoutesOptions } from "./modules/admin-support/admin-support.routes";
 import receiverTransfersRoutes, {
   ReceiverTransfersRoutesOptions,
   shipmentReceiverTransferRoutes,
@@ -53,6 +56,7 @@ import { PricingClient } from "./adapters/pricing-client";
 import { PricingLogisticsClient } from "./adapters/pricing-logistics-client";
 import { FundsReleaseNotifier } from "./adapters/funds-release-notifier";
 import { AlertNotifier } from "./adapters/alert-notifier";
+import { SupportEventStream } from "./realtime/support-event-stream";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -79,6 +83,8 @@ export interface BuildAppOptions {
   supportNow?: () => Date;
   /** Agenda el resumen de avisos de una ráfaga de soporte (MOVO-320, DD-046); solo tests. */
   supportSchedulePush?: (run: () => void, delayMs: number) => void;
+  /** Stream de los eventos del panel de soporte (MOVO-322, ADR-024); solo tests, para fallar o espiar la escritura. */
+  supportEventStream?: SupportEventStream;
   /** Override solo para tests de integración — evita depender de un
    * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
    * `usersClient`. */
@@ -324,6 +330,18 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
   });
 
+  // MOVO-337: disputas para el panel (listado, expediente, resolución). Interno, como el resto de /internal/admin.
+  app.register(adminDisputesRoutes, {
+    prefix: "/internal",
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+    ...(opts.alertNotifier ? { alertNotifier: opts.alertNotifier } : {}),
+  });
+
+  // MOVO-342: bandejas de la home del panel y objetivos de la bitácora. Interno, como el resto de /internal/admin.
+  app.register(adminOverviewRoutes, { prefix: "/internal" });
+
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
   // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.
   app.register(internalRatingsRoutes, { prefix: "/internal" });
@@ -361,6 +379,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/shipments",
     ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
   };
   app.register(positionsRoutes, positionsRouteOpts);
 
@@ -414,8 +433,20 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.supportNow ? { now: opts.supportNow } : {}),
     ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
+    ...(opts.supportEventStream ? { eventStream: opts.supportEventStream } : {}),
   };
   app.register(supportRoutes, supportRouteOpts);
+
+  // MOVO-322: el lado del agente de soporte, solo para svc-admin (red Docker interna, sin pasar por el gateway).
+  const adminSupportRouteOpts: AdminSupportRoutesOptions = {
+    prefix: "/internal/admin/support",
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.supportNow ? { now: opts.supportNow } : {}),
+    ...(opts.supportSchedulePush ? { schedulePush: opts.supportSchedulePush } : {}),
+    ...(opts.supportEventStream ? { eventStream: opts.supportEventStream } : {}),
+  };
+  app.register(adminSupportRoutes, adminSupportRouteOpts);
 
   return app;
 }

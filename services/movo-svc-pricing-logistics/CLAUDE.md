@@ -273,3 +273,7 @@ nuevos en `app/config.py`; `PRICING_FACTOR_*` de MOVO-82 eliminados. `QuoteBreak
   `_round_to_10` lance `OverflowError` (500).
 - Pendiente (R3): recalibrar contra el Correo para más de 10 kg y ampliar la banda a `fragile_item`, `letter_document` y rutas cortas; no hay
   tarifas de referencia por encima de 10 kg en `docs/pricing/grilla-referencia.md`. Todo precio sobre 10 kg facturables es extrapolación.
+
+### MOVO-346 — Horas de la ruta con zona
+
+`vrptw_solver.py` trabaja siempre con `datetime` con zona. Sin `departureTime` usa `datetime.now(timezone.utc)`, y una hora sin offset se toma como UTC (nunca con la `TZ` del contenedor). Por eso `estimatedArrivalAt`/`estimatedDepartureAt` salen con `+00:00`. Antes salían sin offset, el mobile las leía como hora local y la llegada aparecía corrida 3 h. Una ventana `"HH:MM"` es hora de reloj de Argentina (UTC-3 fijo, igual que `ARGENTINA_UTC_OFFSET_HOURS` de `svc-shipments`). `candidate_evaluator.py` no se tocó: `svc-shipments` siempre le manda `departureAt` con `Z`.

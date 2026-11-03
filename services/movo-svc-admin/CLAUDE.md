@@ -152,6 +152,15 @@ por polling. Es ruta propia y no un bloque del detalle, así el polling no vuelv
 rutea `/admin/*` por prefijo. El schema declara nullable cada campo que puede venir en `null`. Deploy en serie: hasta que `svc-shipments`
 tenga la ruta, es 502.
 
+### MOVO-299 — Sanciones desde la ficha: suspender, inhabilitar, levantar (DD-049)
+
+`modules/sanctions/`: historial, vista previa, aplicar, levantar y reintentar el retiro. Orden: sanción en `svc-users` → retiro en
+`svc-shipments` en la misma `runAdminAction`; un retiro fallido o parcial no hace fallar la acción y se reintenta con `POST .../withdraw`.
+Inhabilitar con envíos en curso es 409 `USER_HAS_IN_PROGRESS_SHIPMENTS` sin aplicar nada. El estado del retiro se deriva de la bitácora
+(`context.withdrawal` por `sanctionId`), sumando los intentos, sin tabla nueva. Limitaciones aceptadas en la fila de DD-049.
+
+Pendiente: verificar a mano contra dev (suspender un usuario de prueba y comprobar en la app que no puede publicar pero sí entregar).
+
 ### MOVO-332 — Cambio de estado de un envío desde el panel (DD-055)
 
 `modules/shipments/shipments.routes.ts` suma cuatro rutas: `GET /admin/shipments/:id/status-options`, `POST /admin/step-up`,
@@ -178,6 +187,12 @@ tenga la ruta, es 502.
   rechazados y se aplica antes de la bitácora (un 429 no deja fila). El `forceShipmentStatus` espera hasta 30 s (el servicio llama a payments).
 - Pendiente: probar contra dev real que el email del step-up llega (Resend). El modal del panel (MOVO-333) ya está hecho.
 
+### MOVO-333 (fix) — `simulatePayment` en `POST /admin/shipments/:id/status`
+
+El body acepta `simulatePayment` (boolean, solo con destino `assigned`, si no `422`), se registra en `context` de la bitácora y se reenvía a
+`svc-shipments`, que lo valida y aplica (DD-055, sección "Pago simulado"). No se agregó variable de entorno acá: el interruptor es
+`ALLOW_SIMULATED_PAYMENTS` de `svc-shipments`.
+
 ### MOVO-333 (backend de apoyo) — `status-options` con `checks`/`irreversible` y código de confirmación del panel
 
 `GET /admin/shipments/:id/status-options` devuelve también `checks` (qué verificar antes) e `irreversible` (qué no se deshace) por opción, y `code` pasa a
@@ -186,3 +201,68 @@ ser el que muestra el panel (`MOVO-12345`, `shipmentConfirmationCode`), no los 8
 
 **Corrección (MOVO-333): el schema de respuesta de los eventos declara `kind` y `actorName`.** Sin declararlos Fastify los recortaba y el detalle del
 panel nunca recibía la marca de manual/forzado. El test de `shipments.integration.test.ts` fija un evento forzado y falla si se pierden.
+
+### MOVO-337 — Disputas: lecturas por bloque, notas internas y resolución (DD-056)
+
+`modules/disputes/`: `GET /admin/disputes` (filtros de estado, motivo, resultado, fecha y `q`; cursor por id; `statusCounts`), `GET /admin/disputes/:id` y una ruta
+por bloque (`photos`, `handshake`, `trace`, `chat`, `resolution-preview`, `notes`), cada una contra `svc-shipments` (`/internal/admin/disputes*`); fotos y chat son
+los del envío. Escrituras por `runAdminAction`: `dispute.resolve` y `dispute.note_add` (objetivo nuevo `dispute` en la regla de conflicto: las partes del envío
+disputado, vía `GET /internal/admin/disputes/:id/parties`).
+- **Notas en `admin.admin_dispute_notes`** (de solo agregar, mismo molde que las del usuario; migración `20261025190000`, que también suma `dispute` al enum de la
+  bitácora). Las partes no las ven: no viven en `svc-shipments`.
+- **AC6 en el `precheck` de `resolve`**: con la disputa `open` y un `partial`, `svc-admin` lee la vista previa y rechaza con 422 `DISPUTE_PARTIAL_BELOW_MINIMUM`
+  (`details.minimumArs`) o `DISPUTE_PARTIAL_ABOVE_MAXIMUM` antes de llamar. Con la disputa ya `resolving`/`resolved` no revalida: lo decide `svc-shipments` con lo guardado.
+- **`DISPUTE_PAYMENT_FAILED` (502) es un `failed` seguro** (`relayServerErrorCodes`), no `unknown`: el servicio dueño sabe en qué quedó la disputa (`resolving`). Una
+  caída real de `svc-shipments` sí queda `unknown`. Timeout de 90 s (la captura de payments puede tardar ~50 s).
+- Pendiente: el panel (MOVO-338) y el reporte (MOVO-344). Las lecturas que faltaban para el panel se cerraron en MOVO-341 (entrada siguiente).
+
+### MOVO-341 — Lectura de disputas para el panel (sobre MOVO-337)
+
+`GET /admin/disputes` suma `city` (parcial, sin tildes ni mayúsculas, sobre el `pickupCity` del envío) y `sort=oldest|newest`; cada fila trae
+`pickupCity`. `GET /admin/disputes/:id` suma `partyHistory` (abrió/perdió/abiertas por parte) y, en las disputas de sistema, `attribution`
+(DD-052: atribución del barrido y sus datos GPS, solo agregados). Ruta nueva `GET /admin/disputes/counts` (`open`, `resolving`,
+`openOlderThan3Days`, `openOlderThan7Days`, sin caché) para el menú lateral y la home. `GET /admin/shipments/:id` suma `dispute` (resumen) y
+`disputeId` deja de ser `null`. Todo es lectura pura vía `svc-shipments`; el cálculo está en su `HISTORIAL.md`.
+- **Campos nuevos fuera de `required` en los schemas de respuesta** (`pickupCity`, `partyHistory`, `attribution`, `dispute`): con un deploy en
+  serie, un `svc-shipments` anterior no los manda y Fastify no tiene que tirar la ruta.
+- **Difiere del ticket**: las notas siguen en `svc-admin` (decisión de MOVO-337), y el expediente sigue por rutas separadas, no por `AdminBlock`.
+  "Abiertas por defecto" tampoco: el panel pasa `status=open`.
+- Pendiente: plazo del descargo (para mostrar "días abierta" como atraso) y verificar que `movo-admin` (MOVO-343) consuma el contrato.
+
+### MOVO-322 — Bandeja de soporte: `/admin/support/*`
+
+`modules/support/` sobre `adapters/support-client.ts` (`/internal/admin/support/*` de `svc-shipments`; un fallo es 502
+`SUPPORT_SERVICE_UNAVAILABLE` y una consulta inexistente, 404 `SUPPORT_CONVERSATION_NOT_FOUND`). Contrato y reglas en
+`docs/support/README.md`.
+- Nombres y roles best-effort (`getUserNames` ahora trae `roles`; tolera un `svc-users` que todavía no los manda). El rol de la
+  fila es `carrier` si la cuenta lo tiene, `sender` si no. La búsqueda por nombre consulta `svc-users` y manda los ids.
+  `getUserNames` parte en lotes de 200 (el `maxItems` de `svc-users`). Lo que queda grabado no depende de esa resolución: el
+  nombre del asignado sale de `listAdmins` (el mismo pedido que lo valida) y el autor sin nombre resuelto muestra el de pila del mensaje.
+- Toda escritura por `runAdminAction` con objetivo `support_conversation` (migración `20261025130000_…` del enum de la
+  bitácora; caso nuevo en `conflict-of-interest.ts`). El actor viaja en el body; si `svc-users` no responde firma "Equipo de Movo".
+- `GET events` lee el Redis Stream `support:events` (ADR-024, `support-events.ts`): cursor = id de la entrada, `reset` si es
+  más viejo que lo retenido, y los `counts_changed` se juntan en un `counts_updated` con los contadores del admin que mira.
+- **WebSocket** (`support-realtime.ts`, segunda PR): `POST realtime-ticket` emite un ticket de 30 s (en Redis solo su sha256, atado al
+  admin) y `GET /admin/support/ws` lo gasta con `GETDEL`, exige un `Origin` de `SUPPORT_WS_ALLOWED_ORIGINS` (`*` = un tramo, para los
+  previews de Vercel) y responde solo `movo-support.v1`. Detrás del gateway el ticket llega en `x-ws-protocols`. Un lector `XREAD BLOCK`
+  (conexión Redis propia) reparte a todas las conexiones mientras haya alguna, con los contadores de cada admin. La conexión dura una sesión
+  de panel (15 min, después 4001) y tiene heartbeat de 30 s. Env nuevas `SUPPORT_WS_PUBLIC_URL` y `SUPPORT_WS_ALLOWED_ORIGINS`. Registro
+  en memoria y una réplica, como el `ChatHub` (ADR-019). El lector arranca desde la última entrada (`XREVRANGE` por la conexión ya
+  abierta, no `$`), los contadores de cada admin van en paralelo con tope de 2 s y un fallo al repartir una tanda se loguea aparte
+  (`support_ws_dispatch_failed`) sin la espera de un error de Redis. Header y parseo del subprotocolo en `@movo/shared`, los mismos del gateway.
+- Pendiente: cargar las dos env vars por ambiente y probarlo contra un deploy real (ver el `CLAUDE.md` raíz).
+
+### MOVO-342 — Base de reportes: CSV, bitácora ampliada y home (ADR-025, DD-058)
+
+Contrato acordado con el panel (comentarios de MOVO-345 en el ticket), en `types/admin-reports.ts` de `@movo/shared`.
+- **`utils/csv.ts`** (lo reusan MOVO-344 y MOVO-35): `toCsv` con BOM y CRLF y `escapeCsvCell` (un texto que empieza con `=`, `+`, `-`, `@`, tab o CR lleva `'` adelante; un
+  número no, así `-5` sigue siendo número). `utils/admin-block.ts` es el `block()` que antes vivía en `shipments.routes.ts`.
+- **`GET /admin/audit-log`** devuelve `AdminAuditLogPage`: suma `admins` (id → nombre) y `targets` (`auditTargetKey` → etiqueta y relación, `audit-refs.ts`), best-effort por fuente:
+  si una no responde faltan esas claves y el listado sale igual. Suma `from`/`to` (días de Argentina) y `targetId` matchea por prefijo desde 8 caracteres. `action` sigue siendo texto
+  libre en la query: `ADMIN_AUDIT_ACTIONS` es el catálogo para las etiquetas del panel, y un enum daría 400 con acciones viejas de la bitácora.
+- **`GET /admin/audit-log/export`**: mismos filtros y misma consulta que el listado (`audit.listForExport`), así el CSV coincide. **Corta en `CSV_MAX_ROWS` y avisa** con `x-export-rows` y
+  `x-export-truncated`, no con un error. Sin `context`: columnas acordadas con el panel. **Cada exportación pasa por `runAdminAction`** (`report.export`, objetivo nuevo `report`, sin
+  conflicto de interés; migración `20261028120000`) con filtros, filas y si se cortó. Esa fila se escribe después de leer, así que no entra en su propio CSV. Un `svc-users` caído deja vacío `admin_name`.
+- **`GET /admin/overview[?blocks=kyc,support]`** (`modules/overview/`): ocho bandejas pedidas en paralelo a su servicio dueño (`/internal/.../overview/*`). `toOverviewInbox` les suma el plazo y
+  si se pasó. Cada una falla por separado, con `requestId` en el error y el timeout de 5 s del cliente interno. Un bloque desconocido es 400. `no-store`, sin bitácora.
+- Pendiente: alerta por Telegram por antigüedad de disputa (opcional, sin hacer); la pantalla (MOVO-345, en curso). Su `admin-reports.ts` no estaba en el remoto al hacer esto: hay que reconciliarlo al integrar.

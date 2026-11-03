@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  cashPenaltyCompensationArs,
   __resetCommissionConfigForTests,
   carrierPaymentView,
   computeNetFromGross,
@@ -119,6 +120,17 @@ describe("commission", () => {
     it("MOVO-285: el fee del transportista nunca es negativo, aunque el recargo absorbido supere al fee real", () => {
       // Fee real de MP chico (4,1 %) y un recargo grande cuyo fee estimado (4,99 %) se pasó.
       expect(carrierPaymentView({ grossAmountArs: 1000, mpFeeArs: 5, debtSurchargeArs: 900, debtSurchargeFeeArs: 800 }).mpFeeArs).toBe(0);
+    });
+  });
+
+  describe("cashPenaltyCompensationArs (MOVO-37)", () => {
+    it("deja lo mismo que la captura parcial con tarjeta: penalidad − comisión del precio − fee de MP de la penalidad", () => {
+      // Precio 11.500 (bruto con 15 %): comisión 1.500. Penalidad del 25 %: 2.875. Fee de MP 5 % de 2.875: 143,75.
+      expect(cashPenaltyCompensationArs(11500, 2875, { commissionRate: 0.15, mpRate: 0.05 })).toBe(1231.25);
+    });
+
+    it("nunca es negativa cuando la penalidad no cubre la comisión", () => {
+      expect(cashPenaltyCompensationArs(11500, 1000, { commissionRate: 0.15, mpRate: 0.05 })).toBe(0);
     });
   });
 });

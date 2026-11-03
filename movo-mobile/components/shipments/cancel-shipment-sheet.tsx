@@ -13,6 +13,7 @@ import {
   type CancellationQuoteView,
 } from "../../src/lib/cancellation-format";
 import { formatSettlementAmount } from "../../src/lib/settlement-format";
+import { isCashShipment } from "../../src/lib/payment-method";
 import { BottomSheetModal } from "../ui/bottom-sheet-modal";
 import { TextField } from "../ui/text-field";
 
@@ -35,7 +36,8 @@ function isBlockingError(err: unknown): boolean {
 
 export interface CancelShipmentSheetProps {
   visible: boolean;
-  shipment: Pick<ShipmentSummary, "id" | "status" | "agreedPriceArs">;
+  /** MOVO-37: en efectivo no hay reserva; la penalidad queda como saldo en la cuenta del emisor. */
+  shipment: Pick<ShipmentSummary, "id" | "status" | "agreedPriceArs" | "paymentMethod">;
   /** Monto real reservado en el hold (incluye deuda cobrada en MOVO-311); cae a `agreedPriceArs` si no cargó. */
   holdAmountArs?: number | null;
   /**
@@ -96,11 +98,15 @@ export function CancelShipmentSheet({
   // Una respuesta que llega con el sheet ya cerrado (o reabierto) no pisa el estado nuevo.
   const sessionRef = useRef(0);
   const hasHold = shipment.status === ShipmentStatus.ASSIGNED;
+  // MOVO-37: un envío en efectivo `assigned` cotiza igual (la penalidad se manda como `expectedPenaltyArs`), pero
+  // no tiene reserva que esperar: la penalidad va a su cuenta corriente.
+  const isCash = isCashShipment(shipment);
+  const waitsForHold = hasHold && !isCash;
   // La cotización puede llegar antes que el hold: hasta tener el monto real no se muestra nada confirmable.
   const phase: Phase =
-    quotePhase === "quote" && hasHold && holdState === "loading"
+    quotePhase === "quote" && waitsForHold && holdState === "loading"
       ? "loading"
-      : quotePhase === "quote" && hasHold && holdState === "error"
+      : quotePhase === "quote" && waitsForHold && holdState === "error"
         ? "quoteError"
         : quotePhase;
   const isConfirming = cancelMutation.isPending || isRequoting;
@@ -224,7 +230,9 @@ export function CancelShipmentSheet({
           <ActivityIndicator color={colors.fg1} />
           <View className="items-center gap-0.5">
             <Text className="font-sans-semibold text-[15px] leading-5 text-fg">Calculando si tiene cargo</Text>
-            <Text className="font-sans text-small text-fg-3">Revisamos el plazo y lo que reservaste.</Text>
+            <Text className="font-sans text-small text-fg-3">
+              {isCash ? "Revisamos el plazo para cancelar sin cargo." : "Revisamos el plazo y lo que reservaste."}
+            </Text>
           </View>
         </View>
       ) : null}
@@ -301,7 +309,7 @@ export function CancelShipmentSheet({
               ) : (
                 "Podés cancelar sin cargo."
               )}{" "}
-              Te liberamos {reserved(view.reservedArs)} y le avisamos a {carrierName}.
+              {isCash ? `Le avisamos a ${carrierName}.` : `Te liberamos ${reserved(view.reservedArs)} y le avisamos a ${carrierName}.`}
             </Text>
           ) : null}
 
@@ -312,8 +320,8 @@ export function CancelShipmentSheet({
               ) : null}
               <Text testID={id("expired")} className="font-sans text-small leading-5 text-fg-2">
                 Ya pasó el plazo para cancelar sin cargo, pero esta vez{" "}
-                <Text className="font-sans-semibold text-fg">no se te cobra nada</Text>. Te liberamos{" "}
-                {reserved(view.reservedArs)}.
+                <Text className="font-sans-semibold text-fg">no se te cobra nada</Text>.
+                {isCash ? "" : ` Te liberamos ${reserved(view.reservedArs)}.`}
               </Text>
               <View className="flex-row gap-2.5 rounded-[10px] border border-dashed border-border-strong bg-bg-sub px-3.5 py-3">
                 <Info size={16} color={colors.fg2} strokeWidth={2} style={{ marginTop: 1 }} />
@@ -329,12 +337,20 @@ export function CancelShipmentSheet({
               {previousPenaltyArs !== null ? (
                 <MismatchNotice previous={previousPenaltyArs} next={penaltyArs} testID={id("mismatch")} />
               ) : null}
+              {isCash ? (
+                <Text testID={id("penalty-cash")} className="font-sans text-small leading-5 text-fg-2">
+                  Se suma una penalidad de{" "}
+                  <Text className="font-sans-semibold text-fg">{formatSettlementAmount(view.penaltyArs)}</Text> a tu
+                  saldo con Movo, que pagás desde &quot;Pagar mi saldo&quot;. Parte de ella compensa a {carrierName}.
+                </Text>
+              ) : (
               <Text testID={id("penalty")} className="font-sans text-small leading-5 text-fg-2">
                 Se te cobrará{" "}
                 <Text className="font-sans-semibold text-fg">{formatSettlementAmount(view.penaltyArs)}</Text> de los{" "}
                 <Text className="font-sans-semibold text-fg">{formatSettlementAmount(view.reservedArs)}</Text>{" "}
                 reservados. El resto se libera en tu tarjeta.
               </Text>
+              )}
               {view.reasonText ? (
                 <View className="flex-row gap-2.5 rounded-[10px] border border-dashed border-border-strong bg-bg-sub px-3.5 py-3">
                   <Info size={16} color={colors.fg2} strokeWidth={2} style={{ marginTop: 1 }} />
@@ -343,6 +359,7 @@ export function CancelShipmentSheet({
                   </Text>
                 </View>
               ) : null}
+              {isCash ? null : (
               <View className="overflow-hidden rounded-[10px] border border-border">
                 {/* Barra de 6 px: 14 de padding arriba + 6 de alto, como el prototipo. */}
                 <View className="flex-row gap-0.5 px-3.5 pt-3.5" style={{ height: 20 }}>
@@ -376,6 +393,7 @@ export function CancelShipmentSheet({
                   </Text>
                 </View>
               </View>
+              )}
             </>
           ) : null}
 

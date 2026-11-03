@@ -54,7 +54,7 @@ const settlement = {
     carrierId: uuid,
     mpPaymentId: { type: "string" },
     status: { type: "string", enum: ["processing", "credited", "failed", "escalated"] },
-    kind: { type: "string", enum: ["delivery", "cancellation_penalty"] },
+    kind: { type: "string", enum: ["delivery", "cancellation_penalty", "dispute_partial"] },
     grossAmountArs: { type: "number" },
     mpFeeArs: { type: ["number", "null"] },
     commissionArs: { type: "number" },
@@ -74,16 +74,16 @@ const settlement = {
   },
 } as const;
 
-// MOVO-306: sin body es la captura de entrega de MOVO-212. `cancellation_penalty` exige
-// `amountArs`; `delivery` no lo acepta (la entrega siempre cobra lo autorizado).
+// MOVO-306: sin body es la captura de entrega de MOVO-212. `cancellation_penalty` y
+// `dispute_partial` exigen `amountArs`; `delivery` no lo acepta (la entrega siempre cobra lo autorizado).
 const captureHoldBody = {
   type: "object",
   additionalProperties: false,
   properties: {
-    kind: { type: "string", enum: ["delivery", "cancellation_penalty"], default: "delivery" },
+    kind: { type: "string", enum: ["delivery", "cancellation_penalty", "dispute_partial"], default: "delivery" },
     amountArs: { type: "number", exclusiveMinimum: 0 },
   },
-  if: { required: ["kind"], properties: { kind: { const: "cancellation_penalty" } } },
+  if: { required: ["kind"], properties: { kind: { enum: ["cancellation_penalty", "dispute_partial"] } } },
   then: { required: ["amountArs"] },
   else: { not: { required: ["amountArs"] } },
 } as const;
@@ -95,7 +95,7 @@ export const captureHoldSchema = {
   description:
     "200 con la liquidación acreditada. Una liquidación ya acreditada se devuelve sin llamar a MP. " +
     "Si la captura falla el hold queda como estaba y la liquidación en `failed`/`processing`. " +
-    "`cancellation_penalty` captura `amountArs` (MP libera el resto): 422 `CAPTURE_AMOUNT_EXCEEDS_HOLD` si supera " +
+    "`cancellation_penalty` y `dispute_partial` (disputa resuelta en parcial) capturan `amountArs` (MP libera el resto): 422 `CAPTURE_AMOUNT_EXCEEDS_HOLD` si supera " +
     "el hold, 422 `CAPTURE_BELOW_APPLICATION_FEE` si no supera la comisión (el hold sigue `authorized`), " +
     "409 `SETTLEMENT_CONFLICT` si el envío ya tiene una liquidación de otro tipo o monto.",
   params: shipmentIdParams,

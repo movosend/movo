@@ -1,4 +1,4 @@
-import { ApiError, ApiErrorCode } from "@movo/shared";
+import { ApiError, ApiErrorCode, OverviewInboxSource } from "@movo/shared";
 
 /** Datos del request del panel que viajan a cada llamada interna. */
 export interface RequestContext {
@@ -133,3 +133,14 @@ export const isNullableString = (value: unknown): value is string | null => valu
 export const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString);
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** MOVO-342: la forma común de una bandeja de la home (`/internal/.../overview/*`). */
+export function isOverviewInboxSource<E = unknown>(body: unknown): body is OverviewInboxSource<E> {
+  return (
+    isRecord(body) &&
+    typeof body.count === "number" &&
+    isNullableString(body.oldestAt) &&
+    (body.yesterdayCount === null || typeof body.yesterdayCount === "number") &&
+    Array.isArray(body.breakdown)
+  );
+}

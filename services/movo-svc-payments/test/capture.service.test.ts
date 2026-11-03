@@ -101,6 +101,20 @@ class MemorySettlementRepository implements SettlementRepository {
     }
     return this.row;
   }
+  async replaceFailed(_id: string, data: NewSettlement) {
+    if (this.row?.status !== "failed") return false;
+    Object.assign(this.row, data, {
+      status: "processing",
+      failureReason: null,
+      statusDetail: null,
+      attempts: 0,
+      nextAttemptAt: null,
+      lastError: null,
+      escalatedAt: null,
+      escalationReason: null,
+    });
+    return true;
+  }
   async update(_id: string, patch: SettlementUpdate) {
     Object.assign(this.row as Settlement, patch, { updatedAt: this.clock() });
     return this.row as Settlement;
@@ -621,7 +635,7 @@ describe("createCaptureService.capture: penalidad de cancelación (MOVO-306)", (
 
     expect(replayed).toBe(false);
     expect(ctx.mp.capturePayment).toHaveBeenCalledWith("TEST-access", MP_PAYMENT, {
-      idempotencyKey: `movo-hold-penalty-${HOLD_ID}`,
+      idempotencyKey: `movo-hold-penalty-${HOLD_ID}-250`,
       amount: 250,
     });
     expect(settlement).toMatchObject({
@@ -749,6 +763,44 @@ describe("createCaptureService.capture: penalidad de cancelación (MOVO-306)", (
     );
   });
 
+  it("una captura parcial rechazada por MP se reemplaza por otro monto o por la entrega si el pago sigue sin capturar", async () => {
+    ctx.mp.capturePayment.mockRejectedValueOnce({ status: 500, message: "boom" });
+    ctx.mp.getPayment.mockResolvedValueOnce(penaltyPayment({ status: "authorized", fee_details: [] }));
+    await expectApiError(ctx.service.capture(SHIPMENT, PENALTY), 502, "PAYMENT_PROVIDER_ERROR");
+
+    ctx.mp.getPayment.mockResolvedValueOnce(penaltyPayment({ status: "authorized", fee_details: [] }));
+    ctx.mp.capturePayment.mockImplementation(async () => penaltyPayment({ transaction_amount: 300 }));
+    const { settlement } = await ctx.service.capture(SHIPMENT, { kind: "cancellation_penalty", amountArs: 300 });
+
+    expect(settlement).toMatchObject({ kind: "cancellation_penalty", grossAmountArs: 300 });
+    expect(ctx.mp.capturePayment).toHaveBeenLastCalledWith("TEST-access", MP_PAYMENT, {
+      idempotencyKey: `movo-hold-penalty-${HOLD_ID}-300`,
+      amount: 300,
+    });
+    expect(ctx.settlements.creates).toBe(1);
+  });
+
+  it("MOVO-337: una captura parcial de disputa se liquida como dispute_partial, con su key, y no choca con una penalidad", async () => {
+    const { settlement } = await ctx.service.capture(SHIPMENT, { kind: "dispute_partial", amountArs: 250 });
+
+    expect(settlement).toMatchObject({ kind: "dispute_partial", status: "credited", grossAmountArs: 250 });
+    expect(ctx.mp.capturePayment).toHaveBeenCalledWith("TEST-access", MP_PAYMENT, {
+      idempotencyKey: `movo-hold-dispute-${HOLD_ID}-250`,
+      amount: 250,
+    });
+    // Mismo monto pero otro tipo: no es el mismo pedido.
+    await expectApiError(ctx.service.capture(SHIPMENT, PENALTY), 409, "SETTLEMENT_CONFLICT");
+  });
+
+  it("MOVO-337: el piso del application_fee también rige para dispute_partial", async () => {
+    await expectApiError(
+      ctx.service.capture(SHIPMENT, { kind: "dispute_partial", amountArs: 150 }),
+      422,
+      "CAPTURE_BELOW_APPLICATION_FEE"
+    );
+    expect(ctx.mp.capturePayment).not.toHaveBeenCalled();
+  });
+
   it("AC6: un fallo deja la penalidad failed y el reintento usa la misma key y el mismo monto", async () => {
     ctx.mp.capturePayment.mockRejectedValueOnce({ status: 500, message: "boom" });
     ctx.mp.getPayment.mockResolvedValueOnce(penaltyPayment({ status: "authorized", fee_details: [] }));
@@ -759,7 +811,7 @@ describe("createCaptureService.capture: penalidad de cancelación (MOVO-306)", (
 
     expect(retry.settlement).toMatchObject({ status: "credited", kind: "cancellation_penalty", grossAmountArs: 250 });
     expect(ctx.mp.capturePayment).toHaveBeenLastCalledWith("TEST-access", MP_PAYMENT, {
-      idempotencyKey: `movo-hold-penalty-${HOLD_ID}`,
+      idempotencyKey: `movo-hold-penalty-${HOLD_ID}-250`,
       amount: 250,
     });
     expect(ctx.settlements.creates).toBe(1);

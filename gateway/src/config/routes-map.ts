@@ -148,10 +148,14 @@ export function getServiceRoutes(env: {
 
     // admin service (MOVO-288). Solo el panel: el rol admin entra al JWT
     // únicamente en una sesión de panel (MOVO-287), nunca en la de la app.
+    // MOVO-322: también el WebSocket de la bandeja de soporte (`GET /admin/support/ws`, un upgrade), que es la
+    // única ruta pública del prefijo: el navegador no tiene el JWT (cookies httpOnly del panel), así que se
+    // autentica con un ticket de un solo uso en el subprotocolo que valida svc-admin.
     {
       prefix: "/admin",
       upstream: env.ADMIN_SERVICE_URL,
       allowedRoles: [UserRole.ADMIN],
+      websocket: true,
     },
 
     // pricing-logistics service (futuro)
@@ -318,6 +322,12 @@ export function getPublicRoutes(): PublicRoute[] {
       path: "/payments/webhooks/mercadopago",
       rateLimit: { max: 300, timeWindow: "1 minute" },
     },
+    // MOVO-322: WebSocket de la bandeja de soporte del panel. Sin JWT (el navegador no puede mandarlo en un
+    // WebSocket): lo autentica svc-admin con el ticket de un solo uso del subprotocolo (`movo-support.v1`,
+    // `<ticket>`), que pidió el servidor del panel con la sesión de admin. El gateway solo rechaza el upgrade
+    // que ni siquiera trae un ticket (`routes/index.ts`). Límite propio y estricto: cada intento abre un
+    // WebSocket hacia svc-admin y gasta un `GETDEL`, y un panel legítimo conecta una vez por ticket.
+    { method: "GET", path: "/admin/support/ws", rateLimit: { max: 20, timeWindow: "1 minute" } },
   ];
 }
 

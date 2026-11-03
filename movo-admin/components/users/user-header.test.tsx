@@ -63,7 +63,7 @@ describe("aviso de la cuenta", () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it("distingue suspendida, baneada y eliminada", () => {
+  it("distingue suspendida, inhabilitada y eliminada", () => {
     const { rerender } = render(
       <AccountBanner
         user={profile({
@@ -75,10 +75,12 @@ describe("aviso de la cuenta", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       /Suspendida hasta el 1 ene 2099/
     )
-    rerender(<AccountBanner user={profile({ accountStatus: "banned" })} />)
+    rerender(<AccountBanner user={profile({ accountStatus: "suspended" })} />)
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Baneada de forma permanente"
+      "Suspendida sin fecha de fin"
     )
+    rerender(<AccountBanner user={profile({ accountStatus: "banned" })} />)
+    expect(screen.getByRole("status")).toHaveTextContent("Inhabilitada")
     rerender(
       <AccountBanner
         user={profile({

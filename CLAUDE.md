@@ -94,7 +94,7 @@ excepción, sin versionar, para healthchecks).
 
 ## Architecture Decision Records (ADRs) y decisiones de diseño
 
-Son **23 ADRs**, numerados del 001 al 023. Un ADR se queda solo si fija el stack, un
+Son **25 ADRs**, numerados del 001 al 025. Un ADR se queda solo si fija el stack, un
 proveedor o una integración, la estructura entre servicios, o el modelo de seguridad. Una
 regla de negocio, el detalle de un solo módulo o un parámetro es una **decisión de diseño
 (`DD-NNN`)**: va al registro de diseño, no a los ADRs. Los ADRs completos (contexto,
@@ -120,7 +120,9 @@ reemplaza 019) · 006 EC2 + Docker Compose, Next en Vercel · 007 S3 con presign
 de `GeocodingProvider` · 015 Google Routes API (Compute Route Matrix) · 016 Resend detrás
 de `EmailProvider` · 017 pricing stateless, `Offer` en shipments · 018 handshake
 ECDSA P-256 / P1363 · 019 WebSocket nativo · 020 tracking: ingesta HTTP, difusión WS ·
-021 pricing `demand_fuel_routes_v1` · 022 arquitectura de cobro (MP) · 023 chat propio.
+021 pricing `demand_fuel_routes_v1` · 022 arquitectura de cobro (MP) · 023 chat propio ·
+024 eventos de la bandeja de soporte por Redis Stream · 025 convención de reportes del panel
+(agregados en el servicio dueño, CSV en backend).
 
 **Decisiones de diseño** — DD-016 fotos de perfil en prefijo S3 público · 018 `POST /quote`
 provisorio versionado · 021 `ShipmentStatus` de 11 estados · 023 retención de traza GPS
@@ -137,7 +139,9 @@ corriente del usuario · 045 salida de `in_transit` demorado · 046 push de chat
 de MP (5 días) y N=3 · 051 soporte al usuario sobre el chat existente · 052 atribución
 del no-retiro por GPS · 053 oferta del recargo por demanda: solo `declared` · 054 disputa
 desde `completed` (entidad de disputa, ventana de 7 días) · 055 (propuesto) cambio
-forzado de estado de un envío desde el panel.
+forzado de estado de un envío desde el panel · 056 (propuesto) resolución de disputas: matriz de pago,
+estado final sin estados nuevos y reembolsos · 057 (propuesto) plazo de pago extendido ante una falla del
+proveedor · 058 bandejas y plazos de la home del panel.
 
 ## Convenciones de código
 
@@ -308,10 +312,11 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
   arriba: el heartbeat ping/pong ya está implementado y `proxy_read_timeout` bajó de
   3600s a 90s. Falta la prueba contra dev/prod real (AC6 de MOVO-201), sin acceso a esa
   infra desde ninguna de las dos sesiones todavía.
-- **WS del panel de soporte (MOVO-323 → MOVO-322)**: el cliente (`movo-admin`) ya abre el WebSocket con un ticket de un
-  solo uso en el subprotocolo `movo-support.v1`, y cae a polling si falla. Falta del lado servidor: `POST
-  /admin/support/realtime-ticket`, el upgrade en `svc-admin` (vía gateway `/api/v1/admin/support/ws` y `infra/nginx`) y
-  `GET /admin/support/events`. Contrato en `docs/support/README.md`. Esto resuelve el diseño de la entrada siguiente para el panel.
+- **WS del panel de soporte (MOVO-322)**: implementado (ticket de un solo uso en el subprotocolo, `svc-admin`
+  `/admin/support/ws`, ruta pública en el gateway). Falta cargar en Secrets Manager `SUPPORT_WS_PUBLIC_URL`
+  (`wss://api-dev.movosend.app/...` y `wss://api.movosend.app/...`) y `SUPPORT_WS_ALLOWED_ORIGINS` (panel y previews de
+  Vercel) por ambiente, y probarlo contra un deploy real: sin ellas `svc-admin` usa los defaults locales y el panel cae a
+  polling (el ticket no pasa su chequeo de host). Ver `services/movo-svc-admin/CLAUDE.md`.
 - **Auth por header custom (`Authorization: Bearer`) no sirve para un cliente de
   navegador estándar** (`window.WebSocket` no permite headers custom, a diferencia del
   `WebSocket` de React Native) — MOVO-201 dejó el mecanismo DISEÑADO (subprotocolo

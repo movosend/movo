@@ -134,6 +134,7 @@ export function StepConfirm({
   typedOk,
   code,
   ack,
+  simulatePayment,
   challenge,
   resendAt,
   verified,
@@ -143,6 +144,7 @@ export function StepConfirm({
   onTyped,
   onCode,
   onAck,
+  onSimulatePayment,
   onSendCode,
 }: {
   shipmentCode: string
@@ -153,6 +155,7 @@ export function StepConfirm({
   typedOk: boolean
   code: string
   ack: boolean
+  simulatePayment: boolean
   challenge: StepUpChallenge | null
   resendAt: number
   verified: boolean
@@ -162,6 +165,7 @@ export function StepConfirm({
   onTyped: (value: string) => void
   onCode: (value: string) => void
   onAck: (value: boolean) => void
+  onSimulatePayment: (value: boolean) => void
   onSendCode: () => void
 }) {
   const length = reason.trim().length
@@ -240,6 +244,18 @@ export function StepConfirm({
           sending={sending}
           disabled={disabled}
         />
+      )}
+
+      {option.targetStatus === "assigned" && (
+        <AckCheck
+          checked={simulatePayment}
+          onChange={onSimulatePayment}
+          disabled={disabled}
+        >
+          <span className="font-medium">Simular el pago</span>: pasa a Asignado
+          sin hold de Mercado Pago. El envío no se cobra: ni el emisor paga ni
+          el transportista cobra. Solo para pruebas.
+        </AckCheck>
       )}
 
       <AckCheck checked={ack} onChange={onAck} disabled={disabled}>

@@ -398,6 +398,58 @@ sequenceDiagram
 
 ---
 
+### 5.8 Reembolso de un pago ya capturado (MOVO-336)
+
+Lo pide quien resuelve una disputa (MOVO-337) cuando el cobro ya está acreditado al transportista (`delivered` o
+`completed`); antes de la captura no se reembolsa, el hold se libera (MOVO-209). Un solo endpoint interno,
+`POST /internal/payments/settlements/by-shipment/:id/refund`, con `amountArs?` (sin monto, todo lo reembolsable),
+`reason`, `idempotencyKey` del llamador y `adminId`.
+
+```mermaid
+sequenceDiagram
+    participant R as Quien resuelve (MOVO-337)
+    participant P as svc-payments
+    participant MP as Mercado Pago
+    participant L as Cuenta corriente
+
+    R->>P: refund (amountArs?, reason, idempotencyKey, adminId)
+    P->>P: liquidación credited? (si no, 409)
+    P->>P: reserva el intento en processing (lock por liquidación, tope = capturado − ya reembolsado)
+    P->>MP: POST /v1/payments/:id/refunds (token del transportista, key movo-refund-<settlementId>-<n>)
+    alt MP reembolsa
+        MP-->>P: reembolso aprobado
+        P->>P: intento succeeded
+        P-->>R: 200
+    else el transportista no tiene saldo
+        MP-->>P: error de saldo insuficiente
+        P->>L: manual_adjustment +monto al transportista (se cobra como cualquier deuda)
+        P->>P: intento fallback_to_ledger + alerta (el emisor todavía no cobró: caso manual)
+        P-->>R: 200 (status fallback_to_ledger)
+    else MP rechaza
+        P->>P: intento failed + alerta
+        P-->>R: 502 (el reintento con la misma key abre un intento nuevo)
+    else MP no responde
+        P->>P: intento sigue processing + alerta
+        P-->>R: 502 (el reintento reusa la key de MP: no devuelve dos veces)
+    end
+```
+
+El webhook de MP (5.5) reconoce los reembolsos de esta tabla y no los alerta como externos; si MP informa devuelto lo que
+un intento `processing` pedía, lo promueve a `succeeded`. El reembolso confirmado aparece en el historial de transacciones
+como movimiento propio.
+
+Reintentos: un intento `processing` lo toma un solo pedido a la vez (`409 REFUND_IN_PROGRESS` al otro), y si lleva
+sin confirmarse más de 12 h no se reintenta (`409 REFUND_NEEDS_REVIEW` y alerta): MP recuerda la key por tiempo limitado
+y un reintento de un reembolso parcial que sí se hizo lo repetiría. Un intento ya enviado nunca se da por `failed` por algo
+que pasó antes de hablar con MP (credenciales vencidas, un 401).
+
+**TODO (Paso 0 de MOVO-336, sin correr):** el fallback asienta en la cuenta corriente el monto BRUTO reembolsado al emisor,
+pero el transportista cobró menos (neto de la comisión de Movo y la de MP). Si MP no devuelve el `application_fee` en el
+reembolso, eso lo hace pagar de más; si lo devuelve, de menos. Tampoco está confirmado cuánto tiempo recuerda MP la key
+de idempotencia (el guard usa 12 h por prudencia) ni el código/texto con que MP informa "saldo insuficiente": hasta tenerlo,
+un 4xx que no se reconoce queda `failed` con `provider_rejected` y una alerta propia (`refund_rejected_unrecognized`). El detalle de las decisiones (por qué cada intento
+tiene su propia key hacia MP, el tope, el fallback) está en `services/movo-svc-payments/HISTORIAL.md` (MOVO-336).
+
 ## 6. Cómo se reparte el dinero
 
 Ejemplo real del sandbox (29/09/2026), envío de $1000 con comisión de Movo de 15%:

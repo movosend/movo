@@ -1,5 +1,6 @@
 import { ApiError } from "@movo/shared/src/errors/api-error"
 import { publicError } from "@/lib/auth/api"
+import type { InProgressShipment } from "@movo/shared/src/types/admin"
 import type { ActionResult } from "./action-result"
 
 const BY_CODE: Record<string, string> = {
@@ -15,6 +16,13 @@ const BY_CODE: Record<string, string> = {
   LEDGER_IDEMPOTENCY_CONFLICT:
     "Ya se envió un ajuste distinto con esta misma operación. Cerrá el diálogo y empezá de nuevo.",
   VALIDATION_FAILED: "Revisá los datos: alguno no es válido.",
+  // MOVO-299: sanciones.
+  USER_HAS_IN_PROGRESS_SHIPMENTS:
+    "La cuenta tiene envíos en curso: no se puede inhabilitar. Suspendela primero y esperá a que terminen.",
+  ACCOUNT_ALREADY_DISABLED: "La cuenta ya está inhabilitada.",
+  SANCTION_NOT_FOUND: "La sanción ya no existe. Actualizá la ficha.",
+  SANCTION_ALREADY_CLOSED:
+    "La sanción ya está cerrada (venció o la levantó otro admin). Actualizá la ficha.",
 }
 
 /**
@@ -35,10 +43,15 @@ export function actionFailure(error: unknown): ActionResult<never> {
       status: error.statusCode,
       unconfirmed: true,
     }
+  const shipments = error.details?.shipments
   return {
     ok: false,
     error: BY_CODE[error.code] ?? publicError(error),
     code: error.code,
     status: error.statusCode,
+    ...(error.code === "USER_HAS_IN_PROGRESS_SHIPMENTS" &&
+    Array.isArray(shipments)
+      ? { inProgressShipments: shipments as InProgressShipment[] }
+      : {}),
   }
 }

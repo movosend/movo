@@ -99,9 +99,9 @@ export const SECTION_META: Record<SectionId, SectionMeta> = {
     title: "Sanciones",
     label: "Sanciones",
     noun: "las sanciones",
-    hint: "Historial · aplicar sanciones llega con MOVO-36",
+    hint: "Historial · suspender, inhabilitar y levantar",
     icon: Gavel,
-    route: "/suspensions",
+    route: "/sanctions",
   },
   cuenta: {
     title: "Cuenta corriente",

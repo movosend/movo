@@ -15,21 +15,26 @@ import captureRetrySweepPlugin from "./plugins/capture-retry-sweep";
 import cardsPlugin from "./plugins/cards";
 import transactionsPlugin from "./plugins/transactions";
 import userLedgerPlugin from "./plugins/user-ledger";
+import cashPaymentsPlugin from "./plugins/cash-payments";
 import balancePaymentPlugin from "./plugins/balance-payment";
 import paymentsRoutes from "./modules/payments/payments.routes";
 import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
 import holdsRoutes from "./modules/holds/holds.routes";
 import cardsInternalRoutes from "./modules/cards/cards-internal.routes";
 import userLedgerInternalRoutes from "./modules/user-ledger/user-ledger-internal.routes";
+import cashPaymentsInternalRoutes from "./modules/cash-payments/cash-payments-internal.routes";
 import mpConnectInternalRoutes from "./modules/mp-connect/mp-connect-internal.routes";
+import paymentsAdminOverviewRoutes from "./modules/settlements/admin-overview.routes";
 import { MercadoPagoClient, SdkMercadoPagoClient } from "./adapters/mercadopago-client";
 import { FetchMercadoPagoOAuthClient, MercadoPagoOAuthClient } from "./adapters/mercadopago-oauth-client";
 import { MercadoPagoCustomersClient } from "./adapters/mercadopago-customers-client";
 import { UsersClient } from "./adapters/users-client";
 import capturesPlugin from "./plugins/captures";
+import refundsPlugin from "./plugins/refunds";
 import mpWebhooksPlugin from "./plugins/mp-webhooks";
 import mpWebhookRoutes from "./modules/webhooks/mp-webhook.routes";
 import settlementsRoutes, { settlementIssuesRoutes } from "./modules/settlements/settlements.routes";
+import refundsRoutes from "./modules/settlements/refunds.routes";
 import type { ShipmentsClient } from "./adapters/shipments-client";
 import shipmentsClientPlugin from "./plugins/shipments-client";
 import type { AlertNotifier } from "./adapters/alert-notifier";
@@ -99,8 +104,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(transactionsPlugin);
   // MOVO-309 (DD-044): cuenta corriente del usuario. Solo necesita la DB.
   app.register(userLedgerPlugin);
+  app.register(cashPaymentsPlugin);
   // MOVO-212: captura del hold y liquidación, también sobre `mercadoPago`.
   app.register(capturesPlugin);
+  // MOVO-336: reembolso de un pago ya capturado (resolución de disputas, MOVO-337).
+  app.register(refundsPlugin);
   // MOVO-213: reintenta las capturas fallidas con backoff y escala las que no se arreglan solas.
   app.register(captureRetrySweepPlugin, {
     ...(opts.captureRetrySweepEnabled !== undefined ? { enabled: opts.captureRetrySweepEnabled } : {}),
@@ -137,14 +145,21 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(settlementsRoutes, { prefix: "/internal/payments/holds" });
   // MOVO-213: liquidaciones pendientes de reintento o escaladas (proceso manual).
   app.register(settlementIssuesRoutes, { prefix: "/internal/payments/settlements" });
+  // MOVO-336: reembolso (`/by-shipment/:id/refund`) y sus intentos (`/refunds`); mismo prefijo que las liquidaciones.
+  app.register(refundsRoutes, { prefix: "/internal/payments/settlements" });
 
   // MOVO-100: interno, lo llama svc-users al dar de baja una cuenta (MOVO-39).
   app.register(cardsInternalRoutes, { prefix: "/internal/payments/users" });
   // MOVO-309: cuenta corriente (saldo, alta de movimientos, ajuste manual), interno.
   app.register(userLedgerInternalRoutes, { prefix: "/internal/payments/users" });
+  // MOVO-37: comisión y penalidad de los envíos pagados en efectivo, interno.
+  app.register(cashPaymentsInternalRoutes, { prefix: "/internal/payments/cash-shipments" });
 
   // MOVO-116: interno, lo llama svc-shipments para el bloqueo del transportista.
   app.register(mpConnectInternalRoutes, { prefix: "/internal/payments/mp-connect" });
+
+  // MOVO-342: la bandeja de pagos de la home del panel, interno.
+  app.register(paymentsAdminOverviewRoutes, { prefix: "/internal/payments/admin" });
 
   return app;
 }

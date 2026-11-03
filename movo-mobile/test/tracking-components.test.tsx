@@ -146,11 +146,12 @@ describe("Componentes de Tracking (MOVO-203)", () => {
       expect(getByText("Permiso de ubicación requerido")).toBeTruthy();
     });
 
-    it("muestra indicador de sin conexión a internet cuando hay posiciones pendientes (AC6)", async () => {
+    it("muestra indicador de sin conexión a internet cuando el último envío falló por red (AC6)", async () => {
       mockTrackingState = {
         isTracking: true,
         inTransitCount: 1,
         pendingQueueCount: 3,
+        deliveryFailing: true,
         permissionGranted: true,
         lastReportedAt: null,
         lastError: null,
@@ -164,6 +165,24 @@ describe("Componentes de Tracking (MOVO-203)", () => {
       expect(
         getByText("Tu ubicación se transmitirá a los participantes de tus envíos una vez que se restablezca")
       ).toBeTruthy();
+    });
+
+    it("MOVO-346: con posiciones en la cola pero sin fallas de envío no muestra sin conexión", async () => {
+      mockTrackingState = {
+        isTracking: true,
+        inTransitCount: 1,
+        pendingQueueCount: 2,
+        deliveryFailing: false,
+        permissionGranted: true,
+        lastReportedAt: null,
+        lastError: null,
+        requestPermission: jest.fn(),
+        flushQueue: jest.fn(),
+      };
+
+      const { queryByText } = await render(<TrackingActiveIndicator />);
+
+      expect(queryByText("Sin conexión a internet")).toBeNull();
     });
 
     it("abre el modal de permisos al presionar el indicador cuando el permiso está denegado", async () => {

@@ -18,6 +18,7 @@ import { SavedCardRepository } from "../../repositories/saved-card-repository";
 import { Hold, HoldAmountChangedError, HoldAttemptConflictError, HoldRepository, HoldUpdate } from "../../repositories/hold-repository";
 import { cardFromPayment, missingCardFields } from "../../utils/payment-card";
 import { missingFeeField, mpFeeFromPayment } from "../../utils/payment-fee";
+import type { HoldProviderFailure } from "./provider-outage-alert";
 import { splitRetainedFee } from "./retained-fee";
 import { computeDebtCollection } from "./debt-collection";
 
@@ -282,6 +283,8 @@ export interface HoldServiceDeps {
   savedCards: Pick<SavedCardRepository, "findLive" | "findCustomer">;
   log: FastifyBaseLogger;
   now?: () => Date;
+  /** MOVO-346: MP no respondió al crear un hold (alerta al equipo si se repite). No debe tirar. */
+  onProviderUnavailable?: (failure: HoldProviderFailure) => Promise<void>;
 }
 
 export interface CreateHoldResult {
@@ -691,6 +694,7 @@ export function createHoldService(deps: HoldServiceDeps) {
         // Timeout, red, 408/409/429, 5xx o un 4xx que no entendemos: no se sabe si MP
         // creó el pago. El intento queda en `creating` y el reintento reusa la key.
         log.error({ ...context, reason: info.message }, "MP no respondió al crear el hold");
+        await deps.onProviderUnavailable?.({ shipmentId: hold.shipmentId, holdId: hold.id, mpHttpStatus: info.status ?? null });
         throw new ApiError(502, "PAYMENT_PROVIDER_ERROR", "Mercado Pago no respondió: reintentá con la misma tarjeta");
       }
 
