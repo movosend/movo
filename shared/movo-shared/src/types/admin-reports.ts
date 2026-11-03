@@ -1,3 +1,4 @@
+import type { QuoteBreakdown } from "./pricing";
 /**
  * MOVO-342 (ADR-025): base de los reportes del panel. Rango de fechas común (lo reusan la bitácora, el reporte de
  * disputas de MOVO-344 y las métricas de MOVO-35), las ocho bandejas de la home y la bitácora ampliada. Sin
@@ -437,3 +438,298 @@ export const DISPUTES_REPORT_EXPORT_SECTIONS = [
   "disputes",
 ] as const;
 export type DisputesReportExportSection = (typeof DISPUTES_REPORT_EXPORT_SECTIONS)[number];
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Métricas del panel: contratos de las otras pestañas (MOVO-345) y su backend (MOVO-35)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Lo de menos de 200 km, también lo de menos de 50, cae en el primer tramo. */
+export function distanceBandOf(distanceKm: number): DistanceBand {
+  if (distanceKm < 200) return "50_200";
+  return distanceKm < 500 ? "200_500" : "500_plus";
+}
+
+export type AdminReportId = "cashflow" | "pricing" | "deliveries" | "carriers" | "distances" | "support" | "disputes";
+export const ADMIN_REPORT_IDS: readonly AdminReportId[] = ["cashflow", "pricing", "deliveries", "carriers", "distances", "support", "disputes"];
+
+/** Montos en ARS, porcentajes 0-100, duraciones como mediana. `avgTicket` es `gmv / completed`. */
+export const CASHFLOW_KPIS = ["gmv", "completed", "avgTicket", "commission", "takeRate"] as const;
+export type CashflowKpi = (typeof CASHFLOW_KPIS)[number];
+/**
+ * `priceIndex`: precio a mix de distancias constante, base 100 = el período anterior. `captureRate`: GMV capturado sobre
+ * el cotizado de los envíos publicados en el período.
+ */
+export const PRICING_KPIS = ["completed", "avgTicket", "priceIndex", "captureRate"] as const;
+export type PricingKpi = (typeof PRICING_KPIS)[number];
+export const DELIVERIES_KPIS = ["onTimeRate", "doorToDoorHours", "incidentRate", "lateCount"] as const;
+export type DeliveriesKpi = (typeof DELIVERIES_KPIS)[number];
+export const CARRIERS_KPIS = ["assignedWithin24hRate", "timeToAssignHours", "activeCarriers"] as const;
+export type CarriersKpi = (typeof CARRIERS_KPIS)[number];
+export const DISTANCES_KPIS = ["published", "completionRate", "avgDistanceKm"] as const;
+export type DistancesKpi = (typeof DISTANCES_KPIS)[number];
+export const SUPPORT_KPIS = ["firstResponseMinutes", "conversations", "firstContactResolutionRate"] as const;
+export type SupportKpi = (typeof SUPPORT_KPIS)[number];
+
+/**
+ * Por qué llegó tarde un envío (DD-059). Un solo motivo por envío, en este orden: anomalía marcada, retiro fuera de su
+ * ventana y, si no, en ruta. `receiver_absent` no tiene dato que lo respalde y queda en 0.
+ */
+export type DeliveryDelayReason = "pickup_late" | "in_route" | "receiver_absent" | "gps_anomaly";
+export const DELIVERY_DELAY_REASONS: readonly DeliveryDelayReason[] = ["pickup_late", "in_route", "receiver_absent", "gps_anomaly"];
+
+export interface CashflowReport extends Report<CashflowKpi> {
+  /** Capturas que MP todavía no confirmó: no entran en `gmv` ni `commission` (B8 de MOVO-35). */
+  pendingCapture: { count: number; amountArs: number };
+}
+export type DeliveriesReport = Report<DeliveriesKpi>;
+export interface CarrierSupplyPoint {
+  start: string;
+  end: string;
+  published: number | null;
+  assignedWithin24h: number | null;
+}
+export interface CarriersReport extends Report<CarriersKpi> {
+  /** Misma granularidad que `series`. */
+  supply: CarrierSupplyPoint[];
+}
+export type SupportReport = Report<SupportKpi>;
+
+export interface ReportCorridor {
+  originCity: string;
+  destinationCity: string;
+  /** Centroides de los retiros y las entregas del corredor. */
+  originLat: number;
+  originLng: number;
+  destinationLat: number;
+  destinationLng: number;
+  distanceKm: number;
+  band: DistanceBand;
+  published: number;
+  publishedPrevious: number;
+  completionRate: number | null;
+}
+
+/** Siempre los tres tramos, ignora el filtro `band`. */
+export interface ReportScorecardRow {
+  band: DistanceBand;
+  published: ReportValue;
+  completionRate: ReportValue;
+  onTimeRate: ReportValue;
+  assignedWithin24hRate: ReportValue;
+  doorToDoorHours: ReportValue;
+  avgTicket: ReportValue;
+}
+export type ReportScorecardMetric = Exclude<keyof ReportScorecardRow, "band">;
+
+export interface DistancesReport extends Report<DistancesKpi> {
+  /** Top 20 por envíos publicados. */
+  corridors: ReportCorridor[];
+  scorecard: ReportScorecardRow[];
+}
+
+/** Qué movió el precio (DD-059), en el orden en que se atribuye. `other` cierra la cuenta. */
+export type PriceComponent = "fuel" | "demand" | "distance" | "package" | "algorithm" | "negotiation" | "other";
+export const PRICE_COMPONENTS: readonly PriceComponent[] = ["fuel", "demand", "distance", "package", "algorithm", "negotiation", "other"];
+
+/** Puente del GMV de completados, con signo. Cierra exacto: `previous + volume + mix + Σ price = current`. */
+export interface GmvBridge {
+  previous: number;
+  current: number;
+  volume: number;
+  mix: number;
+  price: { key: PriceComponent; amount: number }[];
+}
+
+export type CaptureLeakageStep =
+  | "unassigned"
+  | "cancelled"
+  | "payment_failed"
+  | "hold_expired"
+  | "capture_failed"
+  | "dispute_refund"
+  | "cash_commission_debt"
+  | "pending_capture"
+  | "in_flight";
+export const CAPTURE_LEAKAGE_STEPS: readonly CaptureLeakageStep[] = [
+  "unassigned",
+  "cancelled",
+  "payment_failed",
+  "hold_expired",
+  "capture_failed",
+  "dispute_refund",
+  "cash_commission_debt",
+  "pending_capture",
+  "in_flight",
+];
+
+export interface CaptureAmounts {
+  shipments: number;
+  gmvArs: number;
+  commissionArs: number;
+}
+
+/** Cascada de lo cotizado a lo capturado, por fecha de publicación. Cierra exacto: `quoted − Σ steps = captured`. */
+export interface CaptureLeakage {
+  quoted: CaptureAmounts;
+  steps: (CaptureAmounts & { key: CaptureLeakageStep; timing: boolean })[];
+  captured: CaptureAmounts;
+}
+
+export interface PricingReport extends Report<PricingKpi> {
+  /** `null`: no hubo envíos completados en alguno de los dos períodos. */
+  bridge: GmvBridge | null;
+  /** `null`: no hubo envíos publicados en el período. */
+  leakage: CaptureLeakage | null;
+}
+
+export interface AdminReportById {
+  cashflow: CashflowReport;
+  pricing: PricingReport;
+  deliveries: DeliveriesReport;
+  carriers: CarriersReport;
+  distances: DistancesReport;
+  support: SupportReport;
+  disputes: DisputesReport;
+}
+
+export interface AdminReportQuery extends ReportRange {
+  band?: DistanceBand;
+}
+
+/** Lo que manda el servicio dueño: el filtro de distancia en `meta` lo agrega `svc-admin`. */
+export type ReportSource<R extends { meta: ReportMeta }> = Omit<R, "meta"> & { meta: Omit<ReportMeta, "band" | "bandApplied"> };
+
+/** `?section=` de `GET /admin/reports/:report/export`. */
+export type AdminReportExportSection = `trend.${string}` | `breakdown.${string}` | "scorecard" | "corridors" | "bridge" | "leakage" | "backlog" | "disputes";
+
+const REPORT_KPIS: Readonly<Record<AdminReportId, readonly string[]>> = {
+  cashflow: CASHFLOW_KPIS,
+  pricing: PRICING_KPIS,
+  deliveries: DELIVERIES_KPIS,
+  carriers: CARRIERS_KPIS,
+  distances: DISTANCES_KPIS,
+  support: SUPPORT_KPIS,
+  disputes: DISPUTES_REPORT_KPIS,
+};
+export const reportKpis = (id: AdminReportId): readonly string[] => REPORT_KPIS[id];
+
+/** KPIs en porcentaje: su `change` va en puntos (`reportChange`). */
+const REPORT_PERCENTAGE_KPIS: ReadonlySet<string> = new Set(["takeRate", "captureRate", "onTimeRate", "incidentRate", "assignedWithin24hRate", "completionRate", "firstContactResolutionRate", "disputeRate"]);
+export const isReportPercentageMetric = (metric: string): boolean => REPORT_PERCENTAGE_KPIS.has(metric);
+
+const REPORT_BREAKDOWNS: Readonly<Record<AdminReportId, readonly string[]>> = {
+  cashflow: ["band"],
+  pricing: ["band"],
+  deliveries: ["delayReason"],
+  carriers: ["band"],
+  distances: [],
+  support: ["topic"],
+  disputes: DISPUTES_REPORT_BREAKDOWNS,
+};
+const REPORT_EXTRA_SECTIONS: Readonly<Record<AdminReportId, readonly AdminReportExportSection[]>> = {
+  cashflow: [],
+  pricing: ["bridge", "leakage"],
+  deliveries: [],
+  carriers: [],
+  distances: ["scorecard", "corridors"],
+  support: [],
+  disputes: ["backlog", "disputes"],
+};
+
+export function reportExportSections(id: AdminReportId): AdminReportExportSection[] {
+  return [
+    ...REPORT_KPIS[id].map((kpi) => `trend.${kpi}` as const),
+    ...REPORT_BREAKDOWNS[id].map((dimension) => `breakdown.${dimension}` as const),
+    ...REPORT_EXTRA_SECTIONS[id],
+  ];
+}
+
+/** Soporte no tiene envío del cual sacar una distancia. */
+export const reportAppliesBand = (id: AdminReportId): boolean => id !== "support";
+
+export const reportRound = (value: number): number => Math.round(value * 100) / 100;
+
+export function reportMedian(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 1 ? (sorted[middle] as number) : ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2;
+  return reportRound(median);
+}
+
+/** Porcentaje de 0 a 100; `null` si no hay denominador. */
+export const reportRate = (part: number, total: number): number | null => (total === 0 ? null : reportRound((part / total) * 100));
+
+/** Si un instante cae dentro de un rango de días de Argentina. */
+export function isInReportRange(instant: string | null, range: ReportRange): boolean {
+  if (!instant) return false;
+  const at = Date.parse(instant);
+  return at >= argentinaDayBounds(range.from).start.getTime() && at < argentinaDayBounds(range.to).end.getTime();
+}
+
+/** KPIs y series de un reporte a partir de una sola función: un total y sus buckets no pueden medir distinto. */
+export function buildReportBody<K extends string>(
+  range: ReportRange,
+  kpiNames: readonly K[],
+  metricsFor: (range: ReportRange) => Record<K, number | null>,
+  now: Date,
+): Pick<Report<K>, "kpis" | "series"> & { meta: Omit<ReportMeta, "band" | "bandApplied"> } {
+  const previous = previousReportRange(range);
+  const current = metricsFor(range);
+  const before = metricsFor(previous);
+  const buckets = reportBuckets(range).map((bucket) => ({ bucket, value: metricsFor(bucket), previous: metricsFor(bucket.previous) }));
+  const kpis = {} as Record<K, ReportValue>;
+  const series = {} as Record<K, ReportPoint[]>;
+  for (const kpi of kpiNames) {
+    kpis[kpi] = { value: current[kpi], previous: before[kpi] };
+    series[kpi] = buckets.map((point) => ({ start: point.bucket.from, end: point.bucket.to, value: point.value[kpi], previous: point.previous[kpi] }));
+  }
+  return { meta: { range, previous, granularity: reportGranularity(range), generatedAt: now.toISOString() }, kpis, series };
+}
+
+/** Un envío, para los reportes que se arman con datos de `svc-shipments` y `svc-payments` (Cashflow y Precio). */
+export interface ShipmentReportFact {
+  shipmentId: string;
+  status: string;
+  paymentMethod: string;
+  band: DistanceBand | null;
+  suggestedPriceArs: number | null;
+  agreedPriceArs: number | null;
+  calculationMethod: string | null;
+  breakdown: QuoteBreakdown | null;
+  publishedAt: string | null;
+  firstAssignedAt: string | null;
+  firstCompletedAt: string | null;
+  deliveredAt: string | null;
+  /** Cancelado por un barrido del sistema y no por una persona. */
+  cancelledBySystem: boolean;
+}
+
+export interface ShipmentReportFactsResponse {
+  items: ShipmentReportFact[];
+}
+
+/** Lo que `svc-payments` sabe del cobro de un envío. Sin fila: el envío no llegó a tener ningún movimiento. */
+export interface PaymentReportFact {
+  shipmentId: string;
+  settlementStatus: "processing" | "credited" | "failed" | "escalated" | null;
+  /** Capturado sin el recargo por deuda del emisor (MOVO-311). */
+  capturedArs: number | null;
+  commissionArs: number | null;
+  /** Comisión del hold más reciente. */
+  holdCommissionArs: number | null;
+  refundedArs: number;
+  holdRejected: boolean;
+  holdExpired: boolean;
+  cashCommissionArs: number | null;
+  /** La comisión del pago en efectivo sigue como deuda en la cuenta corriente. */
+  cashCommissionDebtOpen: boolean;
+}
+
+export interface PaymentReportFactsRequest {
+  shipmentIds: string[];
+}
+
+export interface PaymentReportFactsResponse {
+  items: PaymentReportFact[];
+}

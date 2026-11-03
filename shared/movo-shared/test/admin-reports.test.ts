@@ -4,6 +4,15 @@ import {
   auditTargetKey,
   previousReportRange,
   REPORT_RANGE_MAX_DAYS,
+  ADMIN_REPORT_IDS,
+  buildReportBody,
+  distanceBandOf,
+  isInReportRange,
+  isReportPercentageMetric,
+  reportAppliesBand,
+  reportExportSections,
+  reportMedian,
+  reportRate,
   reportBuckets,
   reportChange,
   reportGranularity,
@@ -107,6 +116,66 @@ describe("bandejas de la home (MOVO-342)", () => {
 
   it("la clave de un objetivo es tipo:id", () => {
     expect(auditTargetKey("dispute", "abc")).toBe("dispute:abc");
+  });
+});
+
+describe("métricas del panel (MOVO-35)", () => {
+  it("los tramos de distancia cortan en 200 y 500 km, y lo de menos de 50 cae en el primero", () => {
+    expect([10, 199.99, 200, 499.99, 500, 2000].map(distanceBandOf)).toEqual(["50_200", "50_200", "200_500", "200_500", "500_plus", "500_plus"]);
+  });
+
+  it("la mediana no depende del orden, promedia con cantidad par y sin muestras es null", () => {
+    expect(reportMedian([5, 1, 3])).toBe(3);
+    expect(reportMedian([4, 1, 2, 3])).toBe(2.5);
+    expect(reportMedian([])).toBeNull();
+  });
+
+  it("una tasa sin denominador es null", () => {
+    expect(reportRate(1, 3)).toBe(33.33);
+    expect(reportRate(0, 0)).toBeNull();
+  });
+
+  it("un instante cae en el día de Argentina", () => {
+    const day = { from: "2026-10-02", to: "2026-10-02" };
+    expect(isInReportRange("2026-10-03T02:59:00.000Z", day)).toBe(true);
+    expect(isInReportRange("2026-10-03T03:00:00.000Z", day)).toBe(false);
+    expect(isInReportRange(null, day)).toBe(false);
+  });
+
+  it("KPIs y series salen de la misma función, con el período anterior corrido", () => {
+    const seen: string[] = [];
+    const body = buildReportBody(
+      { from: "2026-10-01", to: "2026-10-02" },
+      ["count"] as const,
+      (period) => {
+        seen.push(period.from);
+        return { count: period.from === period.to ? 1 : 2 };
+      },
+      new Date("2026-10-03T00:00:00.000Z"),
+    );
+    expect(body.kpis.count).toEqual({ value: 2, previous: 2 });
+    expect(body.series.count).toEqual([
+      { start: "2026-10-01", end: "2026-10-01", value: 1, previous: 1 },
+      { start: "2026-10-02", end: "2026-10-02", value: 1, previous: 1 },
+    ]);
+    expect(body.meta).toMatchObject({ previous: { from: "2026-09-29", to: "2026-09-30" }, granularity: "day" });
+    expect(seen).toContain("2026-09-29");
+  });
+
+  it("cada reporte expone sus secciones de CSV", () => {
+    expect(reportExportSections("distances")).toEqual(["trend.published", "trend.completionRate", "trend.avgDistanceKm", "scorecard", "corridors"]);
+    expect(reportExportSections("pricing")).toEqual(expect.arrayContaining(["breakdown.band", "bridge", "leakage"]));
+    expect(reportExportSections("disputes")).toEqual(expect.arrayContaining(["breakdown.reason", "backlog", "disputes"]));
+    for (const id of ADMIN_REPORT_IDS) expect(reportExportSections(id).length).toBeGreaterThan(0);
+  });
+
+  it("solo Soporte ignora el tramo", () => {
+    expect(ADMIN_REPORT_IDS.filter((id) => !reportAppliesBand(id))).toEqual(["support"]);
+  });
+
+  it("los porcentajes varían en puntos, el resto en %", () => {
+    expect(isReportPercentageMetric("takeRate")).toBe(true);
+    expect(isReportPercentageMetric("gmv")).toBe(false);
   });
 });
 
