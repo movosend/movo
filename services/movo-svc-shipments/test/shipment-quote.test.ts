@@ -83,7 +83,7 @@ describe("quoteShipment (MOVO-138)", () => {
     await quoteShipment(d, partial);
 
     expect(d.shipmentRepository.countPublishedNearPickup).not.toHaveBeenCalled();
-    expect(d.pricingClient.getQuote).toHaveBeenCalledWith(partial);
+    expect(d.pricingClient.getQuote).toHaveBeenCalledWith({ ...partial, includeBreakdown: true });
   });
 
   it("sin pricingClient devuelve 'precio a estimar' sin contar nada", async () => {
