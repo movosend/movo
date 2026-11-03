@@ -308,6 +308,21 @@ describe("reportes de Métricas (Postgres) — MOVO-35", () => {
       expect(items.find((item) => item.shipmentId === before)?.cancelledBySystem).toBe(true);
     });
 
+    it("la primera vez que se completó sale de toda la historia, aunque sea anterior a la ventana", async () => {
+      const firstCompleted = noon("2026-09-01");
+      // Se recompleta adentro, pero ninguna de sus fechas del reporte cae en el rango: no entra.
+      const reclosed = await shipment({ published: noon("2026-08-01"), completed: firstCompleted });
+      await app.db.shipmentEvent.create({ data: { shipmentId: reclosed, toStatus: ShipmentStatus.COMPLETED, createdAt: noon("2026-10-01") } });
+      // Entra por la entrega, y conserva las fechas de antes de la ventana.
+      const delivered = await shipment({ published: noon("2026-08-01"), completed: firstCompleted, deliveredAt: noon("2026-10-01") });
+      await app.db.shipmentEvent.create({ data: { shipmentId: delivered, toStatus: ShipmentStatus.COMPLETED, createdAt: noon("2026-10-02") } });
+
+      const { items } = await get<ShipmentReportFactsResponse>("shipment-facts");
+
+      expect(items.map((item) => item.shipmentId)).toEqual([delivered]);
+      expect(items[0]).toMatchObject({ publishedAt: noon("2026-08-01").toISOString(), firstCompletedAt: firstCompleted.toISOString() });
+    });
+
     it("un rango inválido es 400", async () => {
       const response = await app.inject({ method: "GET", url: "/internal/admin/reports/shipment-facts?from=2026-10-05&to=2026-10-01" });
       expect(response.statusCode).toBe(400);
