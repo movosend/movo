@@ -358,8 +358,9 @@ describe("offer-repository (Postgres)", () => {
       // exista o no un `update()` intercalado. Lo único no determinístico es si el
       // `update()` llega a commitear ANTES de que `withdraw()` lo haga (ambos
       // aplican, en ese orden, un resultado igual de válido que si hubieran corrido
-      // en serie) o DESPUÉS (pierde con `OfferConcurrentModificationError`, porque
-      // para entonces `withdraw()` ya movió `status` fuera de `pending`). "Uno gana,
+      // en serie) o DESPUÉS: pierde con `OfferConcurrentModificationError` si leyó la
+      // oferta antes de que `withdraw()` moviera `status` fuera de `pending`, y con
+      // `OfferNotEditableError` si ya la leyó movida. "Uno gana,
       // el otro pierde siempre" no es una garantía real de este mecanismo -- lo que
       // sí es real, y lo que este test verifica, es que ningún resultado fulfilled
       // se pierde jamás en el estado final.
@@ -373,9 +374,9 @@ describe("offer-repository (Postgres)", () => {
         // sobreviven en el resultado final.
         expect(final?.priceOffered).toBe(9000);
       } else {
-        // withdraw() commiteó primero -- update() perdió el CAS contra el status ya
-        // cambiado, sin pisar nada.
-        expect(resUpdate.reason).toBeInstanceOf(OfferConcurrentModificationError);
+        // withdraw() commiteó primero -- update() perdió contra el status ya cambiado,
+        // en el CAS o en la lectura, sin pisar nada.
+        expect(resUpdate.reason instanceof OfferConcurrentModificationError || resUpdate.reason instanceof OfferNotEditableError).toBe(true);
         expect(final?.priceOffered).toBe(5000);
       }
     });
