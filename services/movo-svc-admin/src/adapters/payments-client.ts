@@ -52,6 +52,9 @@ const isAdjustment = (body: unknown): body is LedgerAdjustmentResponse =>
 const userPath = (userId: string) => `/internal/payments/users/${encodeURIComponent(userId)}`;
 const isHoldDetail = (body: unknown): body is HoldDetailResponse => isRecord(body) && isString(body.status);
 
+/** Lotes de `report-facts` en vuelo a la vez. */
+const REPORT_FACTS_CONCURRENCY = 3;
+
 export function createPaymentsClient(config: { PAYMENTS_SERVICE_URL: string }): PaymentsClient {
   const client = createInternalClient({
     baseUrl: config.PAYMENTS_SERVICE_URL,
@@ -64,19 +67,29 @@ export function createPaymentsClient(config: { PAYMENTS_SERVICE_URL: string }): 
   return {
     ...client,
     async getReportFacts(shipmentIds, ctx) {
-      const items: PaymentReportFactsResponse["items"] = [];
-      // En serie: cada lote son cuatro consultas en `svc-payments`, y un rango largo no le tiene que agotar el pool.
+      const batches: string[][] = [];
       for (let start = 0; start < shipmentIds.length; start += PAYMENT_REPORT_FACTS_MAX_IDS) {
-        const facts = await client.request("/internal/payments/admin/report-facts", ctx, {
-          method: "POST",
-          body: { shipmentIds: shipmentIds.slice(start, start + PAYMENT_REPORT_FACTS_MAX_IDS) },
-          isValid: (body: unknown): body is PaymentReportFactsResponse => isRecord(body) && Array.isArray(body.items),
-          notFoundCodes: [],
-        });
-        if (!facts) throw new Error("getReportFacts: respuesta vacía");
-        items.push(...facts.items);
+        batches.push(shipmentIds.slice(start, start + PAYMENT_REPORT_FACTS_MAX_IDS));
       }
-      return { items };
+      const results: PaymentReportFactsResponse["items"][] = new Array(batches.length);
+      let next = 0;
+      // Concurrencia acotada: cada lote son cuatro consultas en `svc-payments`. En serie un rango largo pasaba el timeout
+      // del gateway; sin tope le agotaría el pool. Los resultados se guardan por índice para conservar el orden.
+      const worker = async (): Promise<void> => {
+        while (next < batches.length) {
+          const index = next++;
+          const facts = await client.request("/internal/payments/admin/report-facts", ctx, {
+            method: "POST",
+            body: { shipmentIds: batches[index] },
+            isValid: (body: unknown): body is PaymentReportFactsResponse => isRecord(body) && Array.isArray(body.items),
+            notFoundCodes: [],
+          });
+          if (!facts) throw new Error("getReportFacts: respuesta vacía");
+          results[index] = facts.items;
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(REPORT_FACTS_CONCURRENCY, batches.length) }, worker));
+      return { items: results.flat() };
     },
     async getOverview(ctx) {
       const inbox = await client.request("/internal/payments/admin/overview", ctx, { isValid: isOverviewInboxSource<OverviewPaymentsExtra>, notFoundCodes: [] });

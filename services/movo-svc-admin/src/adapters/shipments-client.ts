@@ -172,6 +172,8 @@ const isResolveDisputeResponse = (body: unknown): body is ResolveDisputeResponse
 
 /** El servicio llama a payments (liberar o capturar el hold) antes de responder: más holgado que los 5 s base. */
 const FORCE_STATUS_TIMEOUT_MS = 30_000;
+/** Los envíos de todo el rango para Cashflow y Precio: con un año de historia son decenas de miles de filas con su desglose. */
+const SHIPMENT_FACTS_TIMEOUT_MS = 20_000;
 
 const isForceStatusResponse = (body: unknown): body is ForceShipmentStatusResponse =>
   isRecord(body) &&
@@ -454,6 +456,7 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
       const facts = await client.request(`/internal/admin/reports/shipment-facts?${new URLSearchParams({ ...range })}`, ctx, {
         isValid: isShipmentReportFacts,
         notFoundCodes: [],
+        timeoutMs: SHIPMENT_FACTS_TIMEOUT_MS,
       });
       if (!facts) throw new Error("getShipmentReportFacts: respuesta vacía");
       return facts;

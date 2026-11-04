@@ -173,6 +173,29 @@ describe("clientes internos de la ficha del panel (MOVO-294)", () => {
       expect(sent.map((batch) => batch.length)).toEqual([PAYMENT_REPORT_FACTS_MAX_IDS, 1]);
     });
 
+    it("getReportFacts pide los lotes en paralelo acotado y conserva el orden", async () => {
+      const batches = 7;
+      const ids = Array.from({ length: PAYMENT_REPORT_FACTS_MAX_IDS * batches }, () => randomUUID());
+      let inFlight = 0;
+      let peak = 0;
+      const fetchMock = vi.fn(async (_url: string, init: { body: string }) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        const first = (JSON.parse(init.body).shipmentIds as string[])[0];
+        // Los primeros lotes tardan más: sin guardar por índice, las respuestas saldrían desordenadas.
+        await new Promise((resolve) => setTimeout(resolve, first === ids[0] ? 30 : 1));
+        inFlight -= 1;
+        return { ok: true, status: 200, json: async () => ({ items: [{ shipmentId: first }] }) };
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const result = await payments.getReportFacts(ids, ctx);
+
+      expect(result.items.map((item) => item.shipmentId)).toEqual(Array.from({ length: batches }, (_, i) => ids[i * PAYMENT_REPORT_FACTS_MAX_IDS]));
+      expect(peak).toBeGreaterThan(1);
+      expect(peak).toBeLessThanOrEqual(3);
+    });
+
     it("getReportFacts sin ids no llama al servicio", async () => {
       const fetchMock = mockFetch(200, { items: [] });
 
