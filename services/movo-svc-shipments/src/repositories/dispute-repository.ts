@@ -412,6 +412,7 @@ export function createDisputeRepository(db: PrismaClient): DisputeRepository {
             paymentAction: input.paymentAction,
             reasoning: input.reasoning,
             resolvedBy: input.resolvedBy,
+            decidedAt: new Date(),
           },
         });
         return { dispute: mapDisputeRow(row), state: "started" as const };
@@ -430,6 +431,7 @@ export function createDisputeRepository(db: PrismaClient): DisputeRepository {
           paymentAction: null,
           reasoning: null,
           resolvedBy: null,
+          decidedAt: null,
         },
       });
       return result.count > 0;

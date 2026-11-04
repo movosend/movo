@@ -219,6 +219,10 @@ model Shipment {
   // anterior a demand_fuel_routes_v1 -- no equivale a false (el badge solo con true).
   highDemand        Boolean?      @map("high_demand")
   agreedPriceArs    Decimal?      @map("agreed_price_ars") @db.Decimal
+  // MOVO-35: distancia por calle de la cotización, o la estimación en línea recta con el mismo factor de desvío si
+  // pricing no respondió. `quote_breakdown` es la misma foto que `suggestedPriceArs`; `null` en los envíos anteriores.
+  distanceKm        Decimal?      @map("distance_km") @db.Decimal(10, 2)
+  quoteBreakdown    Json?         @map("quote_breakdown")
   // MOVO-37: modalidad de pago elegida al crear el envío (`PaymentMethod` de @movo/shared). Con `cash` no hay
   // hold ni saga: al aceptar una oferta pasa directo a `assigned`. Solo cambia mientras no haya ofertas.
   paymentMethod     PaymentMethod @default(card) @map("payment_method")
@@ -303,6 +307,7 @@ model Shipment {
   // MOVO-325: listado del panel (orden por último cambio de estado) y filtro por ciudad de retiro.
   @@index([lastStatusChangedAt(sort: Desc), id(sort: Desc)], map: "shipments_last_status_changed_at_idx")
   @@index([pickupCity], map: "shipments_pickup_city_idx")
+  @@index([deliveredAt], map: "shipments_delivered_at_idx")
   @@map("shipments")
   @@schema("shipments")
 }
@@ -335,6 +340,7 @@ model ShipmentEvent {
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId], map: "shipment_events_shipment_id_idx")
+  @@index([createdAt], map: "shipment_events_created_at_idx")
   @@map("shipment_events")
   @@schema("shipments")
 }
@@ -1118,7 +1124,8 @@ model Dispute {
   openedAt     DateTime          @default(now()) @map("opened_at") @db.Timestamptz
 
   // MOVO-337 (DD-056): resolución. `outcome` y lo que sigue se guardan al pasar a `resolving` (antes de mover la
-  // plata); `resolved_at` recién cuando se confirma la acción de pago y el envío cambia de estado.
+  // plata); `resolved_at` recién cuando se confirma la acción de pago y el envío cambia de estado. `decided_at`
+  // (MOVO-344) es el paso a `resolving`; `null` en las anteriores a esa columna.
   outcome              DisputeOutcome?
   resolutionPercentage Int?            @map("resolution_percentage") @db.SmallInt
   carrierAmountArs     Decimal?        @map("carrier_amount_ars") @db.Decimal(12, 2)
@@ -1126,6 +1133,7 @@ model Dispute {
   paymentAction        String?         @map("payment_action")
   reasoning            String?
   resolvedBy           String?         @map("resolved_by") @db.Uuid
+  decidedAt            DateTime?       @map("decided_at") @db.Timestamptz
   resolvedAt           DateTime?       @map("resolved_at") @db.Timestamptz
 
   shipment   Shipment           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)

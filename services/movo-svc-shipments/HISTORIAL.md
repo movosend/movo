@@ -3975,3 +3975,18 @@ Paquete de fixes de `docs/pruebas/2026-10-25-flujo-completo.md` (el frontend va 
 `admin-overview.routes.ts` → `repositories/admin-overview-repository.ts`: `GET /internal/admin/overview/{disputes,support,shipment-alerts,flagged-messages}`, una ruta por bandeja para que una falla
 toque solo su tarjeta, y `POST /internal/admin/audit-targets` (disputa y reporte de chat → envío, consulta → `SOP-NNNN`). `shipment-alerts` usa `ALERT_SQL` (ahora exportado), así coincide con `alertCounts.all`.
 Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni un reporte de chat tienen estado de revisión (limitación aceptada en DD-058). El plazo lo agrega `svc-admin`.
+
+### MOVO-344 — Agregados del reporte de disputas (ADR-025)
+
+`repositories/admin-reports-repository.ts` y `modules/admin-internal/admin-reports.routes.ts`: `GET /internal/admin/reports/disputes` y `.../rows`. Totales y buckets salen de una sola consulta por intervalos, así no pueden contar distinto. `opened` va por `opened_at`; `resolved`, la mediana y los montos, por `resolved_at` y solo con `status = resolved` (una `resolving` no cuenta, y en el detalle no muestra resultado ni montos).
+- **Denominador de la tasa**: la primera vez que el envío llegó a `completed` (`shipment_events`). `Shipment` no guarda esa fecha, y `last_status_changed_at` cambiaría si una disputa lo reabre. Un envío que después termina `cancelled` por la disputa sigue contando.
+- **Montos**: `sender_amount_ars` y `carrier_amount_ars` son lo que la resolución le dejó a cada parte, no el dinero que se movió en esa resolución (a favor del transportista con el pago ya capturado, la acción es `none`).
+- **Sin índices nuevos**: el ticket los pide solo si el volumen los necesita. Si hacen falta, van sobre `opened_at` y `resolved_at`.
+- **Embudo y `Dispute.decidedAt`** (pedido por el panel en MOVO-345): cohorte de las abiertas en el período hasta su estado actual. `decided_at` se guarda al pasar a `resolving` y se borra si la resolución se aborta. Sin backfill: ese instante no se guardaba, así que las disputas anteriores cuentan en las etapas pero no en las medianas.
+
+### MOVO-35 — Agregados de Métricas, distancia y desglose persistidos (ADR-025, DD-059)
+
+`domain/admin-report-metrics.ts` calcula Entregas, Transportistas, Distancias y Soporte sobre filas por envío de `admin-reports-repository.ts`; `GET /internal/admin/reports/shipment-facts` da los mismos envíos a `svc-admin` para Cashflow y Precio.
+- **`Shipment.distanceKm` y `quoteBreakdown`**, migración `20261102130000`: la distancia se completa con la estimación de pricing en los envíos existentes; el desglose no se puede reconstruir. `quoteShipment` siempre pide el desglose y la cotización congelada lo guarda en Redis.
+- **Fecha de publicación**: el primer evento a `published`, no `created_at`, porque el envío puede esperar antes al receptor. Un envío sin eventos no aparece en estos reportes.
+- **`activeCarriers` con tramo** cuenta solo ofertas a envíos de ese tramo: un viaje no tiene distancia de envío.
