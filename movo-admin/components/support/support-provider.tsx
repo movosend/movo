@@ -45,10 +45,14 @@ const SupportContext = createContext<SupportContextValue>({
 
 export const useSupport = () => useContext(SupportContext)
 
-/** Pide la conexión en vivo mientras el componente esté montado (lo usa `AdminShell`). */
-export function useSupportConnection() {
+/**
+ * Pide la conexión en vivo mientras el componente esté montado (lo usa `AdminShell`).
+ * `enabled=false` en el marco de carga: `app/loading.tsx` también se dibuja sobre /login y /verify,
+ * y sin sesión el ticket borraba el desafío OTP y devolvía a /login?expired=1.
+ */
+export function useSupportConnection(enabled = true) {
   const { retain } = useSupport()
-  useEffect(() => retain(), [retain])
+  useEffect(() => (enabled ? retain() : undefined), [retain, enabled])
 }
 
 /** Recibe los eventos de la bandeja (WS o polling) y los `resync` tras recuperar la conexión. */
