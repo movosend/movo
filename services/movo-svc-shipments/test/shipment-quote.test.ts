@@ -48,6 +48,7 @@ describe("quoteShipment (MOVO-138)", () => {
     });
     expect(d.pricingClient.getQuote).toHaveBeenCalledWith({
       ...input,
+      includeBreakdown: true,
       demandContext: { publishedShipments: 9, availableCarriers: 2 },
     });
     expect(result.suggestedPriceArs).toBe(2256);
@@ -58,7 +59,7 @@ describe("quoteShipment (MOVO-138)", () => {
 
     const result = await quoteShipment(d, input);
 
-    expect(d.pricingClient.getQuote).toHaveBeenCalledWith(input);
+    expect(d.pricingClient.getQuote).toHaveBeenCalledWith({ ...input, includeBreakdown: true });
     expect(d.logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ event: "pricing_demand_count_failed" }),
       expect.any(String)
@@ -72,7 +73,7 @@ describe("quoteShipment (MOVO-138)", () => {
     await quoteShipment(d, input);
 
     expect(d.shipmentRepository.countPublishedNearPickup).not.toHaveBeenCalled();
-    expect(d.pricingClient.getQuote).toHaveBeenCalledWith(input);
+    expect(d.pricingClient.getQuote).toHaveBeenCalledWith({ ...input, includeBreakdown: true });
   });
 
   it("sin coordenadas de retiro no cuenta demanda", async () => {
@@ -82,7 +83,7 @@ describe("quoteShipment (MOVO-138)", () => {
     await quoteShipment(d, partial);
 
     expect(d.shipmentRepository.countPublishedNearPickup).not.toHaveBeenCalled();
-    expect(d.pricingClient.getQuote).toHaveBeenCalledWith(partial);
+    expect(d.pricingClient.getQuote).toHaveBeenCalledWith({ ...partial, includeBreakdown: true });
   });
 
   it("sin pricingClient devuelve 'precio a estimar' sin contar nada", async () => {

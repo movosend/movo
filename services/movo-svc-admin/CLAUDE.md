@@ -266,3 +266,19 @@ Contrato acordado con el panel (comentarios de MOVO-345 en el ticket), en `types
 - **`GET /admin/overview[?blocks=kyc,support]`** (`modules/overview/`): ocho bandejas pedidas en paralelo a su servicio dueño (`/internal/.../overview/*`). `toOverviewInbox` les suma el plazo y
   si se pasó. Cada una falla por separado, con `requestId` en el error y el timeout de 5 s del cliente interno. Un bloque desconocido es 400. `no-store`, sin bitácora.
 - Pendiente: alerta por Telegram por antigüedad de disputa (opcional, sin hacer); la pantalla (MOVO-345, en curso). Su `admin-reports.ts` no estaba en el remoto al hacer esto: hay que reconciliarlo al integrar.
+
+### MOVO-344 — Reporte de disputas: `GET /admin/reports/disputes` y su CSV (ADR-025)
+
+`modules/reports/`: valida el rango, pide los agregados a `svc-shipments` y arma el CSV. Lectura sin bitácora; `GET .../export` pasa por `runAdminAction` (`report.export`, objetivo `report`, id `disputes`).
+- **`section` obligatoria en el export**: `trend.<kpi>`, `breakdown.<reason|outcome>` y `backlog` salen del mismo objeto que el JSON, así no pueden diferir; `disputes` es una fila por disputa (ids, fechas y montos), con el tope de `CSV_MAX_ROWS`.
+- **`band`** filtra por la distancia del envío disputado, desde la entrada siguiente.
+- **`funnel`** lo pasa tal cual desde `svc-shipments`; no tiene sección de CSV porque el contrato del panel no la pide. La sección `disputes` es otra cohorte que los KPIs (cada KPI va por su fecha), así que sus montos no tienen por qué sumar lo mismo.
+- Difiere del contrato de MOVO-345 en una cosa: una cuenta sin casos es `0`, no `null` (`null` queda para lo indefinido, como una mediana sin muestras). Suma `senderAmountArs`, `carrierAmountArs` y `backlog`, que el panel no dibuja.
+
+### MOVO-35 — Backend de las otras pestañas de Métricas (ADR-025, DD-059)
+
+Misma PR que MOVO-344. `modules/reports/` registra `GET /admin/reports/:report` y `/export` para los siete reportes. Entregas, Transportistas, Distancias, Soporte y Disputas los calcula `svc-shipments` (`getOwnedReport`).
+- **Cashflow y Precio se arman acá** (`financial-reports.ts`): cruzan envíos de `svc-shipments` (`shipment-facts`) con cobros de `svc-payments` (`report-facts`), que viven en servicios distintos, así que no hay un servicio dueño de esos números. Los dos clientes fallan cerrado: mejor un error que un reporte en cero.
+- **El puente y la cascada cierran exacto**: se calculan en centavos; el redondeo del puente lo absorbe `other`.
+- `report-csv.ts` reemplaza a `disputes-report-csv.ts`, con las columnas de `movo-admin/lib/reports/csv.ts`.
+- Pendiente: probarlo contra el panel en dev (el modo fixtures de MOVO-345 sigue siendo la referencia). Del alcance propio de MOVO-35 no se hizo la segmentación por ciudad, oferta y demanda por ciudad, el desglose de cancelaciones ni el reporte financiero con fee de MP y deuda abierta (B1-B3, B7).

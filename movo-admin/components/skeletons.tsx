@@ -71,3 +71,71 @@ export function PageSkeleton({
     </SkeletonGroup>
   )
 }
+
+/** Encabezado de una tabla del panel y sus filas (Inicio, Bitácora). */
+export function TableSkeleton({
+  rows = 8,
+  className,
+}: {
+  rows?: number
+  className?: string
+}) {
+  return (
+    <div
+      className={cn("overflow-hidden rounded-[10px] border bg-card", className)}
+    >
+      <div className="h-10 border-b bg-surface-sub" />
+      {Array.from({ length: rows }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-6 border-b px-[18px] py-4"
+        >
+          <Skeleton className="size-8 rounded-lg" />
+          <Skeleton className="h-3 w-1/4" />
+          <Skeleton className="h-5 w-1/4 rounded-full" />
+          <Skeleton className="ml-auto h-3 w-16" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Tarjetas de KPI de Métricas. */
+export function KpiRowSkeleton({ cards = 3 }: { cards?: number }) {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
+      {Array.from({ length: cards }, (_, i) => (
+        <div
+          key={i}
+          className="flex h-[118px] flex-col gap-3 rounded-[10px] border bg-card p-[18px]"
+        >
+          <Skeleton className="h-3.5 w-28" />
+          <Skeleton className="h-7 w-24" />
+          <Skeleton className="h-3 w-40 max-w-full" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Gráfico de tendencia y panel de desglose de Métricas. */
+export function ChartPanelsSkeleton() {
+  return (
+    <div className="flex flex-wrap gap-4">
+      <div className="flex h-[380px] min-w-0 flex-[2_1_520px] flex-col gap-3 rounded-[10px] border bg-card p-[18px]">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-3 w-72 max-w-full" />
+        <Skeleton className="mt-4 flex-1 rounded-lg" />
+      </div>
+      <div className="flex h-[380px] min-w-0 flex-[1_1_320px] flex-col gap-4 rounded-[10px] border bg-card p-[18px]">
+        <Skeleton className="h-4 w-36" />
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex flex-col gap-2">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-1.5 w-full rounded-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}

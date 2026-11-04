@@ -21,11 +21,16 @@ const SHIPMENTS_PATH =
 const DISPUTES_PATH =
   /^\/disputes(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?(\?[A-Za-z0-9=&%+._~-]*)?$/i
 
+// /metrics y /audit-log (MOVO-345), con sus filtros en la query.
+// `*` entra porque `URLSearchParams` no lo codifica: un texto de búsqueda con `*` no puede tirar al admin a Inicio.
+const REPORTS_PATH = /^\/(metrics|audit-log)(\?[A-Za-z0-9=&%+._~*-]*)?$/
+
 export function internalReturnPath(value: string | null): string {
   // Only implemented protected destinations are accepted. Never redirect to auth.
   if (value === "/" || value === "/admins") return value
   if (value !== null && SUPPORT_PATH.test(value)) return value
   if (value !== null && SHIPMENTS_PATH.test(value)) return value
   if (value !== null && DISPUTES_PATH.test(value)) return value
+  if (value !== null && REPORTS_PATH.test(value)) return value
   return value !== null && USERS_PATH.test(value) ? value : "/"
 }

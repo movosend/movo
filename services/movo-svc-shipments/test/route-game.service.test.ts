@@ -6,7 +6,7 @@ import { RouteGameMatrixStore } from "../src/modules/demo/route-game-matrix-stor
 import { RouteGameRepository } from "../src/repositories/route-game-repository";
 import { RouteGameSessionRecord } from "../src/models/route-game";
 import { findScenario } from "../src/modules/demo/route-game.scenarios";
-import { routeCost } from "../src/domain/route-game";
+import { ROUTE_GAME_TIE_KM, routeCost } from "../src/domain/route-game";
 import { bruteForceOptimize, straightLineMatrix } from "./fake-route-game-optimizer";
 
 const GAME_ID = "0f8d6a1c-2b3e-4c5d-8e9f-0a1b2c3d4e5f";
@@ -114,7 +114,9 @@ describe("route-game.service", () => {
       expect(res).toMatchObject({ created: true, computedBy: "server", optimalOrder: stored.optimalOrder });
       // La respuesta sale redondeada igual que las columnas (km a 2 decimales, % a 1).
       expect(res.userKm).toBeCloseTo(round(mine.km, 2), 6);
-      expect(res.efficiencyPct).toBeCloseTo(round(Math.min(100, (stored.optimalKm / mine.km) * 100), 1), 6);
+      // La matriz sale al azar: a menos de `ROUTE_GAME_TIE_KM` del óptimo, el jugador empata y da 100.
+      const expectedEfficiency = mine.km - stored.optimalKm < ROUTE_GAME_TIE_KM ? 100 : round(Math.min(100, (stored.optimalKm / mine.km) * 100), 1);
+      expect(res.efficiencyPct).toBeCloseTo(expectedEfficiency, 6);
       expect(saved[0]).toMatchObject({ inRanking: false, name: null, email: null, stopCount: 4, timeLimitSec: 60 });
     });
 

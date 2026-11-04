@@ -55,9 +55,12 @@ import type { ReactNode, CSSProperties } from "react"
 const SOON = [
   { label: "KYC", icon: BadgeCheck },
   { label: "Reportes", icon: Flag },
-  { label: "Métricas", icon: Activity },
-  { label: "Bitácora", icon: ScrollText },
 ]
+/** Reportería (MOVO-345): el breadcrumb es "Panel / Reportería / Métricas". */
+const REPORTS = [
+  { href: "/metrics", label: "Métricas", icon: Activity },
+  { href: "/audit-log", label: "Bitácora", icon: ScrollText },
+] as const
 const LIVE = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/admins", label: "Admins", icon: ShieldCheck },
@@ -100,6 +103,8 @@ export function AdminShell({
     | "/users"
     | "/support"
     | "/disputes"
+    | "/metrics"
+    | "/audit-log"
   defaultOpen?: boolean
   /** Último tramo del breadcrumb (p. ej. el nombre en la ficha); la sección pasa a ser un link. */
   crumb?: string
@@ -108,7 +113,10 @@ export function AdminShell({
   const [state, action, pending] = useActionState(logout, {})
   const { resolvedTheme, setTheme } = useTheme()
   const dark = resolvedTheme === "dark"
-  const section = LIVE.find((item) => item.href === current)
+  const section =
+    LIVE.find((item) => item.href === current) ??
+    REPORTS.find((item) => item.href === current)
+  const inReports = REPORTS.some((item) => item.href === current)
   // Una sola conexión en vivo para todo el panel (badge de Soporte y toasts de consultas nuevas).
   useSupportConnection()
   const { unread } = useSupport()
@@ -182,6 +190,31 @@ export function AdminShell({
             </SidebarMenu>
             <SidebarGroup className="p-0 pt-5">
               <SidebarGroupLabel className="h-auto px-2.5 pb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                Reportería
+              </SidebarGroupLabel>
+              <SidebarMenu>
+                {REPORTS.map(({ href, label, icon: Icon }) => (
+                  <SidebarMenuItem key={href}>
+                    <SidebarMenuButton
+                      className="h-9 px-2.5 text-fg2 group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:justify-center"
+                      isActive={current === href}
+                      tooltip={label}
+                      render={
+                        <Link
+                          href={href}
+                          aria-current={current === href ? "page" : undefined}
+                        />
+                      }
+                    >
+                      <Icon />
+                      <span>{label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
+            <SidebarGroup className="p-0 pt-5">
+              <SidebarGroupLabel className="h-auto px-2.5 pb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
                 Próximamente
               </SidebarGroupLabel>
               <SidebarMenu>
@@ -210,6 +243,12 @@ export function AdminShell({
             <ShellTrigger />
             <span>Panel</span>
             <span className="text-muted-foreground">/</span>
+            {inReports && (
+              <>
+                <span>Reportería</span>
+                <span className="text-muted-foreground">/</span>
+              </>
+            )}
             {detailCrumb && section ? (
               <>
                 <Link href={section.href} className="hover:text-foreground">

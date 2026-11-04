@@ -141,7 +141,7 @@ del no-retiro por GPS · 053 oferta del recargo por demanda: solo `declared` · 
 desde `completed` (entidad de disputa, ventana de 7 días) · 055 (propuesto) cambio
 forzado de estado de un envío desde el panel · 056 (propuesto) resolución de disputas: matriz de pago,
 estado final sin estados nuevos y reembolsos · 057 (propuesto) plazo de pago extendido ante una falla del
-proveedor · 058 bandejas y plazos de la home del panel.
+proveedor · 058 bandejas y plazos de la home del panel · 059 (propuesto) reglas de las métricas del panel.
 
 ## Convenciones de código
 

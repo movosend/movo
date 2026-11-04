@@ -49,7 +49,7 @@ import {
   pickupWindowEndInstant,
   pickupWindowInstant,
 } from "../../domain/pickup-window";
-import { haversineKm } from "../../domain/geo";
+import { haversineKm, roadDistanceEstimateKm } from "../../domain/geo";
 import { isPickupMissed, isTransitAnomalous, isTransitAnomalyDeadlinePassed } from "../../domain/expiration";
 import { quoteShipment } from "./shipment-quote";
 import { quoteCarrierWithdrawal, quoteShipmentCancellation } from "../../domain/cancellation-penalty";
@@ -1426,8 +1426,8 @@ export function createShipmentsService(
         "Los datos del envío cambiaron después de cotizar. Volvé a cotizar el envío."
       );
     }
-    const { suggestedPriceArs, calculationMethod, highDemand } = result.quote;
-    return { suggestedPriceArs, calculationMethod, highDemand };
+    const { suggestedPriceArs, calculationMethod, highDemand, breakdown } = result.quote;
+    return { suggestedPriceArs, calculationMethod, highDemand, ...(breakdown ? { breakdown } : {}) };
   }
 
   return {
@@ -1458,6 +1458,7 @@ export function createShipmentsService(
         suggestedPriceArs: quote.suggestedPriceArs,
         highDemand: quote.highDemand,
         calculationMethod: quote.calculationMethod,
+        ...(quote.breakdown ? { breakdown: quote.breakdown } : {}),
         fingerprint: quoteFingerprint(input),
       });
       return {
@@ -1586,6 +1587,10 @@ export function createShipmentsService(
         suggestedPriceArs: quote.suggestedPriceArs,
         calculationMethod: quote.calculationMethod,
         highDemand: quote.highDemand,
+        distanceKm:
+          quote.breakdown?.distanceKm ??
+          roadDistanceEstimateKm(input.pickupLat, input.pickupLng, input.deliveryLat, input.deliveryLng),
+        quoteBreakdown: quote.breakdown ?? null,
         receiverConfirmationDeadline,
         paymentMethod,
       });

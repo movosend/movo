@@ -1,12 +1,11 @@
 import { toArgentinaCalendarDateString } from "@movo/shared";
 
+export { CSV_MAX_ROWS } from "@movo/shared";
+
 /**
  * MOVO-342 (ADR-025): CSV de los reportes del panel, generado en el backend. Lo reusan la bitácora, el reporte de
  * disputas (MOVO-344) y las métricas (MOVO-35).
  */
-
-/** Tope de filas de un CSV. Quien exporta corta ahí y lo avisa con `EXPORT_TRUNCATED_HEADER`. */
-export const CSV_MAX_ROWS = 10_000;
 
 export type CsvValue = string | number | boolean | null | undefined;
 

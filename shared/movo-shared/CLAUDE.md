@@ -787,9 +787,31 @@ acá antes de tipar desde otro workspace.
 y `AdminShipmentDetail.dispute?` (opcional a propósito, para no romper los fixtures de `movo-admin`); `AdminShipmentRow.disputeId` pasa a ser la
 disputa más reciente del envío. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-345 — Contratos de los reportes del panel (`types/admin-reports.ts`)
+
+Rango (`ReportRange`, `REPORT_RANGE_MAX_DAYS`, `ReportGranularity`/`REPORT_GRANULARITY_LIMITS`, `DistanceBand`), forma común de un reporte
+(`Report<K>` con `kpis`/`series`/`breakdowns`, `ReportValue` con `previous`, `ReportMeta.bandApplied`), los seis reportes de Métricas
+(`AdminReportById`, `CashflowReport.pendingCapture`, `DistancesReport.corridors/scorecard`), la home (`AdminOverview` con un
+`AdminOverviewBlock` por bandeja, `OverviewInbox`), la bitácora ampliada (`AdminAuditLogPage` con `admins`/`targets`, `AuditTargetRef`,
+`auditTargetKey`, `ADMIN_AUDIT_ACTIONS`) y los headers de export (`EXPORT_ROWS_HEADER`/`EXPORT_TRUNCATED_HEADER`). Los define el panel y los
+implementan MOVO-342/344. Aditivo: `AuditLogPage` y `AuditLogEntry.action` no cambian (la página ampliada es un tipo aparte, así `svc-admin`
+compila hasta sumarla). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace. Pestaña **Precio y volumen** (`pricing`): `CashflowKpi`/`PricingKpi`
+suman `completed` (volumen), `PricingReport` trae `GmvBridge` (volumen, mix y `PRICE_COMPONENTS`; cierra exacto) y `CaptureLeakage`
+(`CAPTURE_LEAKAGE_STEPS`, en GMV y comisión, cohorte por fecha de publicación). El precio por componente necesita que `svc-shipments`
+persista el `QuoteBreakdown` y el precio acordado de cada envío. `DisputesReport.funnel` (`DisputeFunnelStage`): embudo por cohorte de
+las abiertas en el período, `opened → decided → resolved` sobre los estados reales. `CarriersReport.supply` (`CarrierSupplyPoint`): publicados y asignados en 24 h por bucket.
+
 ### MOVO-342 — Rango de los reportes, home y bitácora ampliada (`types/admin-reports.ts`, ADR-025, DD-058)
 
 Rango en días `YYYY-MM-DD` inclusivos de Argentina (`REPORT_RANGE_MAX_DAYS` 366): `validateReportRange` (filtros, extremos opcionales), `resolveReportRange` (reporte, completa los extremos), `previousReportRange`,
 `reportGranularity`, `argentinaDayBounds`. Home: `ADMIN_OVERVIEW_BLOCKS`, `OVERVIEW_SLA_HOURS`, `OverviewInbox`, `OverviewInboxSource` (lo que manda el servicio dueño), `toOverviewInbox` (le suma el plazo) y `AdminOverview`.
 Bitácora: `AdminAuditLogPage`, `AuditTargetRef`, `auditTargetKey`, `ADMIN_AUDIT_ACTIONS`, `AUDIT_TARGET_PREFIX_MIN_LENGTH` y los headers `EXPORT_ROWS_HEADER`/`EXPORT_TRUNCATED_HEADER`. `AdminTargetType` suma `report` y `ApiErrorCode` suma
 `REPORT_RANGE_INVALID` (400, `details.reason`). Sin dependencias de Node: el panel puede importarlo por subpath. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-344 — Forma común de los reportes y reporte de disputas (`types/admin-reports.ts`, ADR-025)
+
+`Report<K>`, `ReportValue`, `ReportPoint`, `ReportBreakdown` y `ReportMeta`, con los nombres del contrato de MOVO-345 (comentario en MOVO-344); `reportBuckets` (día, semana desde `from` o mes de calendario, recortados al rango) y `reportChange` (puntos en un porcentaje, % en el resto). Los tipos de `disputes` (`DisputesKpi`, `DisputeFunnelStage`) y `DISPUTES_REPORT_EXPORT_SECTIONS` son de este reporte. Esta rama mergea antes que MOVO-345 con sus mismos nombres: al rebasear, esa PR se queda con estos tipos y suma solo los de las otras pestañas.
+
+### MOVO-35 — Tipos de las otras pestañas de Métricas (`types/admin-reports.ts`, DD-059)
+
+Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `distanceBandOf`, `buildReportBody` (KPIs y series de una sola función), `reportExportSections` y `ShipmentReportFact`/`PaymentReportFact`, los datos que cruza `svc-admin`. Al rebasear, MOVO-345 se queda con estos.
