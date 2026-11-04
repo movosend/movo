@@ -1893,5 +1893,196 @@
     ]
    }
   ]
+ },
+ {
+  "id": "ADR-024",
+  "numero": "024",
+  "titulo": "Eventos de la bandeja de soporte por Redis Stream (MOVO-322)",
+  "estado": "Aceptado (MOVO-322)",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "La bandeja de soporte del panel (MOVO-323) necesita ver en tiempo real las consultas nuevas, los mensajes de los usuarios y lo que hacen los otros agentes. Los cambios ocurren en movo-svc-shipments, dueño del modelo y del ChatHub (DD-051), pero el panel solo habla con movo-svc-admin (decisión 6 de MOVO-286), que es donde vive su WebSocket y su respaldo por polling (GET /admin/support/events?since=<cursor>, con reset si el cursor ya no se guarda). Hace falta que svc-shipments le haga llegar esos eventos a svc-admin, con un cursor monótono y unos minutos de retención. Hasta acá toda la comunicación entre servicios era REST síncrono y no había broker (ADR-001, ADR-005)."
+      ]
+     },
+     {
+      "etiqueta": "Alcance",
+      "parrafos": [
+       "Complementa ADR-001, ADR-019 y DD-051 sin modificarlos. Es la primera comunicación asíncrona entre servicios del proyecto y se acota a este caso."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Tabla support_events en Postgres y consulta periódica desde svc-admin. Sin infraestructura nueva, pero con latencia de polling entre servicios además del polling del panel, carga constante en la base y una purga más que mantener."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Redis Pub/Sub. Sin retención: GET /admin/support/events?since no tendría de dónde leer lo que pasó mientras el panel estaba desconectado."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "Broker de mensajes (RabbitMQ, SQS). Un contenedor o un servicio administrado más para un solo caso de uso; desproporcionado para el alcance del TFG (ADR-006)."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 4",
+      "parrafos": [
+       "WebSocket de svc-admin hacia svc-shipments. Sin retención ni cursor, y otra conexión de larga vida que reconectar."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "1. svc-shipments escribe cada evento en el Redis Stream support:events (XADD … MAXLEN ~ 2000), en el mismo Redis 7 que ya comparten los servicios (ADR-003). Hay cuatro tipos (SupportStreamEvent, en @movo/shared): conversation_created, support_message (incluidas notas y eventos del equipo), conversation_updated y counts_changed. Cada uno lleva la fila de la bandeja ya actualizada, sin nombres: svc-shipments solo tiene ids y los nombres los completa svc-admin con svc-users.",
+       "2. counts_changed no lleva contadores: los contadores dependen de quién mira, así que svc-admin los calcula por admin al presentar el evento (counts_updated).",
+       "3. El id de la entrada (<ms>-<seq>) es el cursor del panel. Es monótono por construcción; GET events lee con XRANGE desde el cursor. Si el cursor es más viejo que la primera entrada que queda, responde reset: true y el panel vuelve a pedir lista, contadores y mensajes.",
+       "4. Escribir el evento nunca falla la operación: el cambio ya está guardado en Postgres; si Redis no responde se loguea y el panel lo ve al refrescar.",
+       "5. Lo escriben el lado del usuario y el del agente (support-admin-feed.ts), así la bandeja ve igual una consulta abierta desde la app que una respuesta de otro agente."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "• Primera comunicación asíncrona entre servicios: un contrato más (SupportStreamEvent) que no aparece en el Swagger. No es una cola de trabajo: nadie depende de procesar cada entrada una vez, y perderlas solo cuesta un refetch del panel.",
+       "• Retención corta y aproximada (MAXLEN ~): un panel desconectado mucho tiempo recibe reset.",
+       "• Redis pasa a estar en el camino de los eventos del panel, además de sesiones y rate limiting: si cae, la bandeja deja de actualizarse sola, pero no se pierde nada en Postgres."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "referencias",
+    "filas": [
+     {
+      "etiqueta": "Referencias",
+      "parrafos": [
+       "• docs/support/adr-024-eventos-del-panel-por-redis-stream.md",
+       "• ADR-001, ADR-003, ADR-005, ADR-006, ADR-019, DD-051",
+       "• Tickets: MOVO-286, MOVO-320, MOVO-322, MOVO-323"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ADR-025",
+  "numero": "025",
+  "titulo": "Convención de los reportes del panel (MOVO-342)",
+  "estado": "Aceptado (MOVO-342)",
+  "secciones": [
+   {
+    "clave": "contexto",
+    "filas": [
+     {
+      "etiqueta": "Situación",
+      "parrafos": [
+       "El panel va a tener varios reportes: la exportación de la bitácora y la home (MOVO-342), el reporte de disputas (MOVO-344) y las métricas (MOVO-35). Los datos viven en esquemas de servicios distintos (ADR-003) y ningún servicio puede leer el esquema de otro. Hacía falta fijar antes del primer reporte dónde se calcula cada número, quién arma el archivo y si se guardan agregados. El contrato del lado del panel lo propuso MOVO-345."
+      ]
+     },
+     {
+      "etiqueta": "Alcance",
+      "parrafos": [
+       "Complementa ADR-001 y la decisión 6 de MOVO-286 (el panel solo habla con svc-admin) sin modificarlos. Las bandejas y plazos de la home están en DD-058."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "alternativas",
+    "filas": [
+     {
+      "etiqueta": "Alternativa 1",
+      "parrafos": [
+       "Réplica de lectura o vistas cruzadas entre esquemas. svc-admin consultaría directo, pero rompe el aislamiento por esquema de ADR-003 y acopla svc-admin al modelo interno de cada servicio."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 2",
+      "parrafos": [
+       "Tablas de agregados precalculadas por un barrido. Con el volumen del TFG la consulta en vivo alcanza, y una tabla precalculada suma la pregunta de qué tan desactualizada está."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 3",
+      "parrafos": [
+       "CSV armado en el navegador (movo-admin) a partir de las páginas del listado. Obliga a paginar todo desde el cliente, no permite auditar la exportación y duplica el escape en cada pantalla."
+      ]
+     },
+     {
+      "etiqueta": "Alternativa 4",
+      "parrafos": [
+       "Rechazar con un error la exportación que pasa el tope. El archivo nunca queda recortado, pero el admin se queda sin datos. Se prefirió cortar y avisar, como pidió el panel."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "decision",
+    "filas": [
+     {
+      "etiqueta": "Decisión tomada",
+      "parrafos": [
+       "1. Los agregados se calculan en el servicio dueño de los datos, en un endpoint interno (/internal/admin/..., o /internal/payments/admin/... en pagos). El SQL de un conteo vive junto a su tabla; ningún otro servicio recalcula a partir de filas sueltas.",
+       "2. svc-admin orquesta: valida el rango y los filtros, pide en paralelo a cada servicio dueño, resuelve nombres y arma la respuesta. Una vista que combina fuentes (la home, GET /admin/overview) devuelve un bloque { data, error } por fuente, con el requestId en el error: una fuente caída no tumba el resto.",
+       "3. El CSV se genera en el backend, en svc-admin, con los mismos filtros y el mismo orden que el listado que exporta. Las celdas se escapan contra inyección de fórmulas. Tope de filas con aviso: CSV_MAX_ROWS (10.000) corta el archivo y los headers X-Export-Rows y X-Export-Truncated lo informan; el corte conserva las filas más recientes.",
+       "4. Rango de fechas común (@movo/shared): días YYYY-MM-DD inclusivos, en hora de Argentina, con from ≤ to ≤ hoy y tope de 366 días. Un rango inválido es 400 REPORT_RANGE_INVALID. El período anterior tiene el mismo largo y va inmediatamente antes; la granularidad la decide el backend (día hasta 31 días, semana hasta 120, mes el resto).",
+       "5. Sin tablas precalculadas: cada número se calcula al pedirlo. Lo que no se puede reconstruir con fechas viaja en null, no estimado.",
+       "6. Cada exportación queda en la bitácora (report.export, objetivo report), porque un CSV saca datos del sistema. El listado en pantalla no se audita."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "consecuencias",
+    "filas": [
+     {
+      "etiqueta": "Trade-offs",
+      "parrafos": [
+       "• Cada reporte cuesta una consulta en vivo al servicio dueño. Si uno se vuelve caro se le agrega un índice o, recién entonces, una tabla precalculada con su propio ADR.",
+       "• Una exportación cortada no trae las filas más viejas: hay que acotar con filtros para llegar a ellas. No hay exportación en segundo plano.",
+       "• La fila de bitácora de una exportación se escribe después de leer, así que no aparece en el CSV que la generó."
+      ]
+     }
+    ]
+   },
+   {
+    "clave": "referencias",
+    "filas": [
+     {
+      "etiqueta": "Referencias",
+      "parrafos": [
+       "• docs/admin/adr-025-convencion-de-reportes.md",
+       "• ADR-001, ADR-003, DD-058",
+       "• Tickets: MOVO-286, MOVO-342, MOVO-344, MOVO-345, MOVO-35"
+      ]
+     }
+    ]
+   }
+  ]
  }
 ]

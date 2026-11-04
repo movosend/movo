@@ -8,7 +8,7 @@ Los procedimientos de este manual se dividen en dos grupos:
 - los **procedimientos de administración**, que ejecuta el equipo de Movo desde el panel web o con las herramientas internas.
 
 ::: nota
-**Lo que el sistema todavía no cubre.** Tres procedimientos de administración dependen de funcionalidad que no está implementada al cierre del Sprint 8: la **resolución de disputas con reembolsos** (MOVO-34), la **revisión manual de verificaciones de identidad** (MOVO-32) y las **métricas de oferta y demanda** (MOVO-35). Cada uno figura en este manual con el estado real y, cuando existe, el procedimiento provisorio.
+**Lo que el sistema todavía no cubre.** Un procedimiento de administración depende de funcionalidad que no está implementada al cierre del Sprint 8: la **revisión manual de verificaciones de identidad** (MOVO-32). Además, la experiencia móvil para **abrir una disputa** (MOVO-335) quedó en el backlog: hoy el backend acepta la apertura, pero la aplicación todavía no ofrece el reclamo. Cada caso figura en este manual con el estado real y, cuando existe, el procedimiento provisorio.
 :::
 
 # Roles y Responsabilidades
@@ -45,13 +45,13 @@ El proceso completo de un envío tiene dos tramos. El primero, desde el registro
 | 3 | Confirmación del receptor | Receptor | Avisa al receptor y vence el plazo (48 horas) si no responde. | Envío publicado, rechazado o cancelado |
 | 4 | Declaración y oferta | Transportista | Muestra el feed según la cercanía, calcula el neto y el bruto de la oferta y la vence si no se atiende. | Ofertas sobre el envío |
 | 5 | Selección y asignación | Emisor | Revalida al transportista y asigna el envío de forma atómica. | Envío asignado (a la espera del pago) |
-| 6 | Reserva de fondos | Emisor | Reserva el importe en la tarjeta sin cobrarlo, según el retiro sea cercano o lejano, y compensa si el pago falla o vence. | Envío asignado con fondos |
+| 6 | Reserva de fondos | Emisor | Reserva el importe en la tarjeta sin cobrarlo, según el retiro sea cercano o lejano, y compensa si el pago falla o vence. Si Mercado Pago no responde, extiende el plazo de pago 15 minutos, hasta dos veces, en vez de revertir la asignación. En un envío **en efectivo** no hay reserva: el emisor le paga al transportista en mano al retirar. | Envío asignado con fondos (o asignado, en efectivo) |
 | 7 | Retiro | Emisor y transportista | Exige las fotos de evidencia, verifica la firma, la vigencia del código y la proximidad de 100 metros y registra el evento. | Envío en camino |
 | 8 | Tránsito | Transportista | Calcula la ruta óptima, recibe la posición y la transmite en vivo; habilita el chat. | Seguimiento en vivo |
 | 9 | Entrega | Transportista y receptor | Repite la verificación del retiro con los roles invertidos. | Envío entregado |
-| 10 | Liquidación | Sistema | Captura la reserva y reparte el pago: comisión de Movo y neto al transportista; reintenta si falla. | Envío completado y cobro acreditado |
+| 10 | Liquidación | Sistema | Captura la reserva y reparte el pago: comisión de Movo y neto al transportista; reintenta si falla (tres reintentos a los 5 minutos, 30 minutos y 2 horas) y, si persiste, escala a revisión manual. En un envío en efectivo registra la comisión de Movo como **deuda** del transportista en su cuenta corriente. | Envío completado y cobro acreditado |
 | 11 | Calificación | Las tres partes | Abre una ventana de 72 horas y actualiza la reputación. | Reputación actualizada |
-| 12 | Reclamos | Cualquier parte | Permite abrir una disputa dentro de los 7 días de la entrega. | Disputa abierta |
+| 12 | Reclamos | Cualquier parte y administrador | Permite abrir una disputa dentro de los 7 días de la entrega (también la abre el sistema ante un no-retiro o un tránsito demorado). Un administrador la resuelve desde el panel (PO-11). | Disputa abierta y luego resuelta |
 
 : Etapas del proceso de negocio.
 
@@ -67,6 +67,7 @@ Los plazos y umbrales son valores de configuración de los servicios (variables 
 | Plazo del nuevo receptor ante una transferencia | 6 horas | Configuración (`RECEIVER_TRANSFER_TIMEOUT_HOURS`) |
 | Retiro «cercano» (el emisor paga al aceptar) | Dentro de 3 días | Configuración (`FUNDING_NEAR_PICKUP_DAYS`) |
 | Plazo para completar el pago de un retiro cercano | 30 minutos | Configuración (`FUNDING_PAYMENT_TIMEOUT_MINUTES`) |
+| Extensión del plazo de pago ante una caída de Mercado Pago | 15 minutos, hasta 2 veces | DD-057 |
 | Límite para pagar un retiro lejano | 24 horas antes del retiro | Configuración (`FUNDING_RELEASE_HOURS_BEFORE_PICKUP`) |
 | Vigencia del código QR del handshake | 15 segundos | ADR-018 |
 | Distancia máxima entre las partes del handshake | 100 metros | ADR-018 |
@@ -78,6 +79,7 @@ Los plazos y umbrales son valores de configuración de los servicios (variables 
 | Penalidad de cancelación | 25 % del precio acordado | DD-047 |
 | Tope del descuento de deuda por envío | 30 % del precio | Configuración (`DEBT_COLLECTION_MAX_RATE`) |
 | Deuda vencida (bloquea ofertar y declarar viajes) | Más de 14 días | Configuración (`USER_DEBT_OVERDUE_DAYS`) |
+| Deuda máxima de un transportista para ofertar en efectivo | 30.000 ARS | Configuración (`CASH_SHIPMENT_MAX_CARRIER_DEBT_ARS`) |
 | Reintentos de una captura fallida | 5, 30 y 120 minutos | DD-044 |
 | Revisión manual de una liquidación escalada | 48 horas | Configuración (`SETTLEMENT_REVIEW_SLA_HOURS`) |
 | Vigencia de un hold en Mercado Pago | 5 días | Configuración (`MP_HOLD_VALIDITY_DAYS`) |
@@ -125,7 +127,7 @@ Cada procedimiento indica quién lo ejecuta, cuándo se dispara, los pasos y el 
 4. Responder. Las **notas internas** no las ve nunca el usuario.
 5. Marcar la consulta como resuelta. Si el usuario escribe de nuevo, se reabre sola.
 
-**Estado:** la interfaz de la bandeja está construida, pero la API de soporte para agentes (MOVO-322) sigue en desarrollo; hasta entonces el panel opera con datos de prueba.
+**Estado:** la bandeja opera sobre la API de soporte para agentes (MOVO-322). La actualización en tiempo real usa un WebSocket del panel que requiere variables de configuración por ambiente (`SUPPORT_WS_PUBLIC_URL` y `SUPPORT_WS_ALLOWED_ORIGINS`, ver el Manual de Instalación y Operación); mientras no estén cargadas, la bandeja se actualiza por consulta periódica.
 
 ## PO-04 Revisar un reporte de usuario
 
@@ -151,7 +153,7 @@ Cada procedimiento indica quién lo ejecuta, cuándo se dispara, los pasos y el 
 
 **Restricciones:** un administrador no puede sancionarse a sí mismo ni levantar su propia sanción; no se puede sancionar al último administrador elegible.
 
-**Estado:** el backend y la experiencia del usuario sancionado están completos; la pantalla del panel para aplicar y levantar sanciones (MOVO-299) está en curso.
+**Estado:** completo. El panel permite aplicar y levantar sanciones desde la ficha del usuario (MOVO-299), y el efecto es inmediato en el gateway y en la aplicación del usuario sancionado.
 
 ## PO-06 Ajustar la cuenta corriente de un usuario
 
@@ -197,11 +199,27 @@ Cada procedimiento indica quién lo ejecuta, cuándo se dispara, los pasos y el 
 
 ## PO-11 Resolver una disputa
 
-**Estado: pendiente de implementación (MOVO-34).** Hoy el sistema permite abrir la disputa, cargar los descargos de las partes y bloquear al transportista, pero **no existe todavía la pantalla de resolución ni los reembolsos** automáticos. Mientras tanto:
+**Quién:** administrador. **Cuándo:** hay una disputa abierta, sea porque la abrió una de las partes o porque la abrió el sistema (no-retiro o tránsito demorado). Mientras está abierta, el envío permanece en estado *disputado* y el transportista queda bloqueado.
 
-1. Revisar la disputa y los descargos en la línea de tiempo del envío y, si hace falta, el chat y las fotos de evidencia.
-2. Contactar a las partes por soporte.
-3. Registrar la decisión como nota interna y, si hay que compensar a alguna parte, usar un ajuste de la cuenta corriente (PO-06). Los envíos en disputa permanecen en ese estado hasta que se implemente la resolución.
+1. Abrir **Disputas**. La bandeja se filtra por estado, ciudad de retiro y fechas, y se busca por código del envío o nombre de una parte. Un contador marca las abiertas.
+2. Abrir el **expediente**: el motivo y los descargos de cada parte, lo que detectó el sistema (atribución del no-retiro por GPS), las posiciones del transportista, el handshake, las fotos del envío, el historial de las partes y las notas internas. Se puede consultar el chat del envío en solo lectura.
+3. Dejar **notas internas** con lo que se habló o falta; las ven todos los administradores, con el nombre de quien las escribió.
+4. Resolver con **Resolver disputa**: elegir el resultado (**a favor del emisor**, **a favor del transportista** o **parcial**), escribir el **razonamiento** (mínimo 10 caracteres; lo reciben las tres partes) y, en el parcial, elegir el reparto (25, 50 o 75 %, o un monto libre). El panel muestra antes qué ocurrirá con el dinero.
+5. Confirmar. El sistema ejecuta el pago según la matriz de resolución, cierra el envío, desbloquea al transportista, avisa a las tres partes y habilita la calificación del ganador (en el parcial, de ambas partes).
+
+| Resultado | Envío asignado (reserva ya liberada) | Envío en tránsito (reserva sin capturar) | Envío entregado o completado (ya capturado) |
+|------------|---------------------|---------------------|---------------------|
+| A favor del emisor | Sin movimiento de dinero | Se libera la reserva | Reembolso total |
+| A favor del transportista | Crédito en su cuenta corriente | Captura total | Sin movimiento |
+| Parcial | Crédito en su cuenta corriente | Captura parcial | Reembolso parcial |
+
+: Matriz de resolución de una disputa (DD-056).
+
+**Estado final del envío:** *cancelado* si gana el emisor y *completado* en los otros dos casos; no se agregan estados nuevos. En un envío en efectivo no hay movimiento contra Mercado Pago: la compensación se registra en la cuenta corriente.
+
+**Si el pago falla:** la disputa queda en *Procesando pago* y el expediente ofrece **reintentar** (la operación es idempotente). Si el transportista no tiene saldo en Mercado Pago para devolver el monto, el reembolso queda en *respaldo a la cuenta corriente*: el sistema asienta la **deuda del transportista** con Movo y **alerta al equipo**, porque el emisor todavía no recibió su dinero y devolvérselo es una acción manual del equipo. Una disputa **resuelta es definitiva**: no se reabre ni se modifica.
+
+**Restricciones:** el administrador que es parte del envío no puede resolver su disputa (conflicto de interés). Toda resolución queda en la bitácora con el administrador, el resultado y el razonamiento.
 
 ## PO-12 Revisar una verificación de identidad en revisión manual
 
@@ -215,6 +233,54 @@ Cada procedimiento indica quién lo ejecuta, cuándo se dispara, los pasos y el 
 2. Al dar de baja, la cuenta queda anonimizada y se eliminan los registros de verificación y la clave del dispositivo.
 3. El historial de envíos cerrados se conserva el plazo legal (5 años) y luego un proceso automático lo purga.
 4. Los pedidos de acceso o rectificación se atienden por soporte, verificando la identidad de quien los pide (PO-07).
+
+## PO-14 Cambiar el estado de un envío trabado
+
+**Cuándo:** un envío quedó detenido por un hecho que el sistema no puede resolver solo (por ejemplo, el receptor confirmó por teléfono una entrega cuyo QR no se pudo leer). Es una acción excepcional: **no reemplaza** al handshake ni a la resolución de una disputa.
+
+1. En el detalle del envío, elegir **Cambiar estado**. El botón está deshabilitado si el administrador es parte del envío.
+2. **Elegir el destino.** El panel ofrece solo los cambios que permite la matriz de transiciones (DD-055) y muestra, para los bloqueados, el motivo.
+3. **Revisar el impacto:** qué se ejecuta, en qué orden y a quién se avisa (siempre a las partes; al transportista solo si el envío tiene uno), qué conviene verificar antes y qué no se puede deshacer.
+4. **Confirmar:** escribir el **motivo** (mínimo 20 caracteres), tipear el **código del envío** (desde el riesgo alto) y, si la transición es *forzada* o de riesgo *crítico*, ingresar un **código de 6 dígitos** enviado al correo del administrador, que se pide de nuevo en cada acción.
+5. El cambio se ejecuta con los mismos servicios de dominio que usa el flujo normal (cancelar, retirar al transportista, confirmar fondos, capturar y completar), queda marcado como forzado en la línea de tiempo, en la bitácora y se avisa a las partes.
+
+| Desde | Hacia | Riesgo | Qué ejecuta |
+|----------------|----------------|----------|------------------------|
+| Esperando al receptor, publicado o rechazado por el receptor | Cancelado | Medio | Cierra las ofertas pendientes |
+| Asignación pendiente o asignado sin fondos | Publicado | Medio | Retira al transportista |
+| Asignación pendiente o asignado sin fondos | Asignado | Alto | Confirma el pago |
+| Asignación pendiente o asignado sin fondos | Cancelado | Alto | Libera la reserva |
+| Asignado | Publicado | Alto | Retira al transportista |
+| Asignado | Cancelado | Alto (forzado) | Libera la reserva, sin penalidad ni deuda |
+| Entregado | Completado | Crítico | Captura el pago y completa el envío |
+
+: Cambios de estado permitidos desde el panel (resumen de la matriz de DD-055).
+
+**No se puede forzar:** un envío en tránsito, completado, cancelado o en disputa; tampoco se fuerza hacia *en tránsito*, *entregado* ni *en disputa*, porque el retiro y la entrega exigen la evidencia del handshake y una disputa se abre con su expediente. **Estado:** DD-055 figura como propuesta, a la espera de la revisión de dos integrantes del equipo.
+
+## PO-15 Atender el resumen operativo de Inicio
+
+**Quién:** administrador de turno. **Cuándo:** al comenzar la jornada y a lo largo del día.
+
+1. Abrir **Inicio** y mirar primero el grupo **Fuera de plazo**: son las bandejas cuyo caso más viejo superó su plazo.
+2. Entrar a cada bandeja y atender el caso más viejo con el procedimiento que corresponde: disputas abiertas (PO-11), conversaciones sin responder (PO-03), envíos con alerta (PO-09), pagos por revisar (PO-10), reportes de usuarios (PO-04) y sanciones que vencen hoy (PO-05).
+3. Si una bandeja muestra un error, usar **Reintentar** en esa bandeja; el resto sigue disponible.
+4. Para entender tendencias (por ejemplo, si crecen las disputas o las entregas tarde), consultar **Reportería > Métricas** y exportar el CSV si hace falta documentarlo.
+
+| Bandeja | Plazo |
+|--------------------------|----------------------|
+| Disputas abiertas | 72 horas |
+| Conversaciones sin responder | 30 minutos |
+| KYC por revisar | 24 horas |
+| Reportes de usuarios | 24 horas |
+| Envíos con alerta | 1 hora |
+| Pagos por revisar | 6 horas |
+| Mensajes señalados | 12 horas |
+| Sanciones que vencen hoy | Sin plazo |
+
+: Plazos de las bandejas de Inicio (DD-058).
+
+Las bandejas de KYC, reportes y mensajes señalados se leen desde el resumen, pero todavía no tienen una pantalla propia de atención (ver PO-04 y PO-12).
 
 # Contingencias
 
@@ -234,7 +300,7 @@ Cuando un servicio externo falla, el sistema está diseñado para degradar de fo
 
 # Registro y Auditoría
 
-- **Bitácora de administración.** Toda acción de escritura del panel se registra con el administrador, el motivo, el contexto y el identificador del pedido, y puede quedar como *éxito*, *fallida* o *desconocida* (si el servicio no respondió y la acción pudo haberse aplicado). La tabla no admite modificaciones ni borrados.
+- **Bitácora de administración.** Se consulta en **Reportería > Bitácora**, con filtros y exportación a CSV. Toda acción de escritura del panel se registra con el administrador, el motivo, el contexto y el identificador del pedido, y puede quedar como *éxito*, *fallida* o *desconocida* (si el servicio no respondió y la acción pudo haberse aplicado). La tabla no admite modificaciones ni borrados.
 - **Línea de tiempo de cada envío.** Registra cada cambio de estado, quién lo causó y el motivo.
 - **Eventos de custodia.** Cada retiro y entrega guarda el hash del código, las coordenadas y la distancia.
 - **Historial de sanciones** y **cuenta corriente** del usuario: solo se agregan filas.

@@ -103,7 +103,7 @@ def main() -> None:
     out.append(
         "Los *Architecture Decision Records* (ADR) documentan cada decisión técnica significativa: el contexto que la motivó, "
         "las alternativas evaluadas con criterios explícitos, la decisión tomada y sus consecuencias, incluidos los costos que "
-        "el equipo aceptó de forma consciente. Se mantienen **23 ADR**, numerados del 001 al 023, que fijan el stack, un "
+        f"el equipo aceptó de forma consciente. Se mantienen **{len(adrs)} ADR**, numerados del 001 al {len(adrs):03d}, que fijan el stack, un "
         "proveedor o una integración, la estructura entre servicios o el modelo de seguridad. Un ADR aceptado no se modifica: si "
         "la decisión cambia, se crea uno nuevo que referencia y depreca al anterior.\n"
     )
@@ -120,8 +120,8 @@ def main() -> None:
         out.append(f"| {a['id']} | {a['titulo']} | {est} | {ANTES.get(a['numero'], '–')} |")
     out.append("\n: Índice de los ADR vigentes.\n")
     out.append(
-        "La columna *Núm. anterior* indica el número con el que estas decisiones se registraron antes de depurar el registro a 23 ADR; "
-        "los ADR 001 a 015 conservan su número. Las referencias a un número anterior que hoy corresponde a un DD se leen con el prefijo DD.\n"
+        "La columna *Núm. anterior* indica el número con el que estas decisiones se registraron antes de depurar el registro a 23 ADR (24/10/2026); "
+        "los ADR 001 a 015 conservan su número y los ADR 024 y 025 se agregaron después. Las referencias a un número anterior que hoy corresponde a un DD se leen con el prefijo DD.\n"
     )
     for a in adrs:
         out.append(f"## {a['id']} · {a['titulo']}\n")

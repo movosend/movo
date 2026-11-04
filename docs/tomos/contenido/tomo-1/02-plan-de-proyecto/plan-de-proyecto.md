@@ -170,7 +170,7 @@ El cronograma se alinea al calendario académico 2026 de la cátedra y a las cin
 | Sprint 5 | Cycle 6 | 07/09/2026 | 20/09/2026 | Circuito del envío asignado: matching por desvío, envíos activos, evidencia fotográfica y base del handshake y del tracking |
 | Sprint 6 | Cycle 7 | 21/09/2026 | 04/10/2026 | Handshake de retiro y entrega, tracking en vivo, ruta multi-parada y reputación |
 | Sprint 7 | Cycle 8 | 05/10/2026 | 18/10/2026 | Pagos con Mercado Pago (vinculación, tarjetas, hold, captura y split), penalidades, chat y acceso al panel de administración |
-| Sprint 8 | Cycle 9 | 19/10/2026 | 01/11/2026 | Panel de administración (usuarios, sanciones, soporte y envíos), disputas, atribución del no-retiro, cierre del circuito de pagos y documentación legal |
+| Sprint 8 | Cycle 9 | 19/10/2026 | 01/11/2026 | Panel de administración (usuarios, sanciones, envíos, disputas, soporte y reportes), atribución del no-retiro, cierre del circuito de pagos, pago en efectivo y primera prueba de flujo completo con dispositivos reales |
 
 : Calendario de sprints.
 

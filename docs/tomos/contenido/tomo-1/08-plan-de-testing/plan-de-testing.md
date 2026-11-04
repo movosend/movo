@@ -78,20 +78,20 @@ La revisión de resultados es responsabilidad del equipo de desarrollo. El *revi
 
 # Estado Final de las Pruebas Automatizadas
 
-El 24 de octubre de 2026, sobre la rama de integración `develop`, se ejecutaron todas las suites automatizadas del repositorio contra una base PostgreSQL 16 y una instancia de Redis reales (no simuladas), con el mismo procedimiento que usa la integración continua. El resultado fue de **7.428 casos aprobados, ninguno fallido y 28 omitidos**, que son las pruebas contra el *sandbox* de Mercado Pago, que requieren credenciales de pruebas que no se cargan en el entorno de ejecución.
+El 4 de noviembre de 2026, sobre la rama de integración `develop` con los cambios del cierre del Sprint 8 (hasta el *pull request* 328, que incluye los reportes y el panel de Reportería), se ejecutaron todas las suites automatizadas del repositorio contra una base PostgreSQL 16 y una instancia de Redis reales (no simuladas), con el mismo procedimiento que usa la integración continua. El resultado fue de **8.518 casos aprobados, ninguno fallido y 33 omitidos**, que son las pruebas contra el *sandbox* de Mercado Pago, que requieren credenciales de pruebas que no se cargan en el entorno de ejecución. La corrida anterior, del 24 de octubre, había dado 7.428 casos aprobados y 28 omitidos: el crecimiento corresponde a las suites del panel de administración, las disputas, los reembolsos, el cambio forzado de estado, el soporte, el pago en efectivo y los reportes.
 
 | Paquete | Casos aprobados | Omitidos | Cobertura de líneas |
 |----------------|--------:|--------:|--------:|
-| `movo-mobile` (Jest) | 2.944 | 0 | no medida |
-| `movo-svc-shipments` | 2.073 | 0 | 91,1 % |
-| `movo-svc-users` | 874 | 0 | 89,3 % |
-| `movo-svc-payments` | 663 | 28 | 95,2 % |
-| `movo-admin` (panel web) | 414 | 0 | no medida |
-| `movo-svc-pricing-logistics` | 145 | 0 | 93,1 % |
-| `gateway` | 121 | 0 | 98,8 % |
-| `movo-svc-admin` | 108 | 0 | 86,8 % |
-| `shared/movo-shared` | 86 | 0 | 50,6 % |
-| **Total** | **7.428** | **28** | |
+| `movo-mobile` (Jest) | 3.079 | 0 | no medida |
+| `movo-svc-shipments` | 2.342 | 0 | 91,3 % |
+| `movo-svc-users` | 901 | 0 | 89,4 % |
+| `movo-svc-payments` | 783 | 33 | 95,5 % |
+| `movo-admin` (panel web) | 590 | 0 | 59,5 % |
+| `movo-svc-admin` | 362 | 0 | 84,4 % |
+| `movo-svc-pricing-logistics` | 175 | 0 | 94,5 % |
+| `shared/movo-shared` | 162 | 0 | 59,9 % |
+| `gateway` | 124 | 0 | 98,9 % |
+| **Total** | **8.518** | **33** | |
 
 : Resultado de la ejecución de las pruebas automatizadas por paquete.
 
@@ -101,8 +101,8 @@ La cobertura se midió con el proveedor V8 de Vitest (y `pytest-cov` en el servi
 
 La medición final también mostró desvíos respecto de lo planificado, que se documentan en lugar de omitirse:
 
-- **`shared/movo-shared` no alcanza su umbral declarado.** El paquete exige 95 % de líneas y funciones y 90 % de ramas, pero mide 50,6 % de líneas y 27,9 % de funciones. La diferencia se explica por archivos de configuración agregados con posterioridad a la creación del paquete (plantillas de notificaciones, categorías de calificación, textos legales, recorridos guiados) que no tienen pruebas propias en el paquete. Es una deuda técnica de prueba reconocida: los *pull request checks* solo compilan el paquete y no ejecutan su propia suite, por lo que su umbral nunca se evalúa en la integración continua.
-- **Una prueba del gateway depende de que Redis esté limpio.** La prueba del límite de uso de la carga de fotos asume contadores en cero; si se ejecuta dos veces seguidas sobre la misma instancia de Redis dentro de la ventana de límite, la segunda falla con 403. En la integración continua no ocurre porque cada ejecución usa un Redis nuevo.
-- **No se midió la cobertura de `movo-mobile` ni del panel `movo-admin`**, que no tienen umbral de cobertura configurado; solo se verificó que sus suites pasen.
+- **`shared/movo-shared` no alcanza su umbral declarado.** El paquete exige 95 % de líneas y funciones y 90 % de ramas, pero mide 59,9 % de líneas y 34,1 % de funciones. La diferencia se explica por archivos de configuración agregados con posterioridad a la creación del paquete (plantillas de notificaciones, categorías de calificación, textos legales, recorridos guiados) que no tienen pruebas propias en el paquete. Es una deuda técnica de prueba reconocida: los *pull request checks* solo compilan el paquete y no ejecutan su propia suite, por lo que su umbral nunca se evalúa en la integración continua. Sus 162 casos pasan; lo que falla es el umbral de cobertura.
+- **Una prueba del gateway depende de que Redis esté limpio.** La prueba del límite de uso de la carga de fotos asume contadores en cero; si se ejecuta sobre una instancia de Redis que ya sirvió a otras suites dentro de la ventana de límite, falla con 403 (volvió a ocurrir en esta corrida y pasó al limpiar Redis). En la integración continua no ocurre porque cada ejecución usa un Redis nuevo.
+- **No se midió la cobertura de `movo-mobile`**, que no tiene umbral de cobertura configurado; solo se verificó que su suite pase. La del panel `movo-admin` tampoco tiene umbral: el 59,5 % es informativo.
 
 La derivación de casos de prueba formales (precondición, pasos y resultado esperado) para cada historia de usuario se presenta en el **Tomo II**, junto con la trazabilidad de cada historia.

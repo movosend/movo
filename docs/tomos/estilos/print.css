@@ -527,6 +527,8 @@ table.caso .chip { white-space: nowrap; }
 table.fija { table-layout: fixed; }
 table.fija td, table.fija th { overflow-wrap: anywhere; }
 table.fija code { word-break: break-all; }
+/* Un número de ticket nunca se parte, tampoco dentro de las tablas de layout fijo */
+.tk, table.fija .tk, table.fija code.tk { white-space: nowrap; word-break: keep-all; overflow-wrap: normal; }
 
 /* ─────────────────────────────── Fichas de ADR / DD ─────────────────────────────── */
 

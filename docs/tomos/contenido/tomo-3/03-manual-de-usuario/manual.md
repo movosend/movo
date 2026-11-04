@@ -125,6 +125,10 @@ Si no tenés envíos en un rol, esa sección no aparece. Cada tarjeta muestra el
 
 # Enviar un Paquete (Emisor)
 
+La primera vez que entrás, un **tutorial interactivo** te muestra en pocos pasos cómo publicar un envío, seguirlo y hablar con tu transportista, y te propone transportar si ya hacés un recorrido seguido. Podés saltearlo y volver a verlo cuando quieras desde **Mi perfil > Ayuda y soporte**.
+
+{{captura M-100}}
+
 ## Crear el envío
 
 En **Inicio**, tocá el botón de **enviar**. Un asistente de cinco pasos con una barra de progreso te guía. Podés salir y la aplicación te pregunta si querés **Seguir cargando** o **Descartar**.
@@ -138,6 +142,8 @@ En **Inicio**, tocá el botón de **enviar**. Un asistente de cinco pasos con un
 **Paso 4: fotos del paquete.** Sacá al menos 2 fotos como evidencia del estado inicial. Sirven de prueba si más adelante hay un reclamo.
 
 **Paso 5: revisá y confirmá.** Se muestra un resumen con todos los datos y el **precio sugerido**, calculado según la distancia, el peso, el tipo de paquete y la demanda de la zona. Si se aplica un recargo porque hay muchos paquetes y pocos transportistas en tu zona, aparece la insignia **Alta demanda en tu zona**. El precio queda **fijo durante 15 minutos** desde que lo ves: si tardás más, el resumen se actualiza y te pide confirmar el nuevo valor. Si el precio no se pudo calcular, el resumen indica **precio a estimar** y podés publicar igual.
+
+En este paso también elegís **cómo pagar**: **Tarjeta** (la reserva de fondos que se describe en *Pagar: la reserva de fondos*) o **Efectivo**, que le pagás en mano al transportista al retirar el paquete. Desde la aplicación, la modalidad queda **fija** una vez creado el envío. Si tenés un saldo pendiente con Movo, la opción de efectivo se deshabilita y la aplicación te lleva a **Pagar mi saldo**.
 
 Al confirmar, el envío queda **esperando al receptor**. Todavía no lo ven los transportistas.
 
@@ -156,6 +162,10 @@ Al confirmar, el envío queda **esperando al receptor**. Todavía no lo ven los 
 {{captura M-23}}
 
 {{captura M-24}}
+
+{{captura M-94}}
+
+{{captura M-95}}
 
 ## Esperar al receptor
 
@@ -221,7 +231,9 @@ Movo no te cobra de inmediato: **reserva** el importe en tu tarjeta y lo **cobra
 
 Para pagar, elegí una de tus tarjetas guardadas y escribí **solo el código de seguridad** (no se guarda: se pide en cada pago). Si todavía no tenés tarjetas, podés agregar una en el momento. Si tenés un saldo pendiente con Movo, se suma al total y se te muestra el desglose antes de confirmar.
 
-Si el pago falla, la aplicación te dice por qué (fondos insuficientes, datos que no coinciden, rechazo del banco o un problema del procesador) y te deja reintentar con otra tarjeta. **No se cobra nada** en ningún caso de falla.
+Si el pago falla, la aplicación te dice por qué (fondos insuficientes, datos que no coinciden, rechazo del banco o un problema del procesador) y te deja reintentar con otra tarjeta. **No se cobra nada** en ningún caso de falla. Si el problema es de Mercado Pago y no de tu tarjeta, el plazo para pagar se **extiende 15 minutos** (hasta dos veces) en lugar de cancelar la asignación.
+
+**Si elegiste efectivo**, no hay nada que pagar en la aplicación: el envío queda asignado y le pagás al transportista **en mano al retirar el paquete**. El detalle muestra *En efectivo al retiro* en lugar de *Reservado en tu tarjeta*. Si cancelás con menos de 12 horas de anticipación, la penalidad queda como saldo pendiente con Movo (ver *Pagos y cobros*).
 
 {{captura M-33}}
 
@@ -230,6 +242,8 @@ Si el pago falla, la aplicación te dice por qué (fondos insuficientes, datos q
 {{captura M-35}}
 
 {{captura M-36}}
+
+{{captura M-96}}
 
 ## Entregar el paquete al transportista (retiro)
 
@@ -267,6 +281,8 @@ Podés cancelar un envío desde su detalle con **Cancelar envío**, indicando op
 : Costo de cancelar un envío.
 
 {{captura M-37}}
+
+{{captura M-99}}
 
 ## Calificar y reclamar
 
@@ -311,6 +327,8 @@ Además, para transportar la aplicación necesita acceso a tu **ubicación en se
 
 {{captura M-48}}
 
+{{captura M-98}}
+
 {{captura M-73}}
 
 {{captura M-72}}
@@ -342,11 +360,15 @@ En el detalle de un envío tocá **Hacer una oferta**:
 3. Podés sumar un mensaje.
 4. **Deslizá para confirmar.**
 
+Si el emisor eligió pagar en **efectivo**, el envío lleva la insignia **Efectivo** y, en lugar de *Recibís aprox.*, la pantalla muestra **Cobrás en mano**: el emisor te paga el monto completo al retirar, y la comisión de Movo queda como **saldo a tu cargo** (ver *Pagos y cobros*). Solo podés ofertar en efectivo mientras tu deuda con Movo no supere **30.000 ARS**; si la superás, la lista de requisitos te lo indica.
+
 Podés tener una sola oferta pendiente por envío. Si tenés una **deuda vencida** con Movo, no podés ofertar ni declarar viajes hasta saldarla (ver *Pagos y cobros*).
 
 {{captura M-51}}
 
 {{captura M-52}}
+
+{{captura M-102}}
 
 ## Seguir tus ofertas
 
@@ -414,11 +436,13 @@ Mientras el viaje esté en curso, la aplicación envía tu posición para el seg
 
 ## Entregar el paquete y cobrar
 
-La entrega es el espejo del retiro: confirmás que llegaste (estando a menos de 100 metros del destino), sacás las fotos de evidencia y **generás un código QR** que el receptor escanea con su teléfono. Cuando el receptor confirma, el envío pasa a **Entregado** y se **captura el pago**: la comisión de Movo se descuenta automáticamente y el resto se acredita en tu cuenta de Mercado Pago. La aplicación te muestra el monto acreditado; si el cobro se demora, lo indica y el equipo lo revisa.
+La entrega es el espejo del retiro: confirmás que llegaste (estando a menos de 100 metros del destino), sacás las fotos de evidencia y **generás un código QR** que el receptor escanea con su teléfono. Cuando el receptor confirma, el envío pasa a **Entregado** y se **captura el pago**: la comisión de Movo se descuenta automáticamente y el resto se acredita en tu cuenta de Mercado Pago. La aplicación te muestra el monto acreditado, con el valor real de la comisión de Mercado Pago; si el cobro se demora, lo indica y el equipo lo revisa. En un envío **pagado en efectivo** no hay acreditación: cobraste el monto en mano al retirar y la comisión de Movo se suma a tu saldo pendiente, con un aviso y un acceso directo a **Saldo**.
 
 {{captura M-65}}
 
 {{captura M-66}}
+
+{{captura M-97}}
 
 ## Bajarte de un envío
 
@@ -454,7 +478,7 @@ La pantalla **Pagos y cobros** tiene tres pestañas:
 
 - **Medios de pago.** Tus tarjetas guardadas: podés agregar una, marcar la predeterminada, ponerles un nombre y eliminarlas (no se puede eliminar una tarjeta con una reserva vigente). Una tarjeta vencida se marca y ya no puede usarse. Movo **nunca guarda el número ni el código de seguridad**: la tarjeta queda cifrada en Mercado Pago. Si sos transportista, acá figura también tu **medio de cobro** (la cuenta de Mercado Pago vinculada), que podés desvincular. Si Mercado Pago revoca la vinculación, la aplicación te avisa y te ofrece volver a vincular.
 - **Historial.** Tus pagos como emisor y tus cobros como transportista, del más reciente al más antiguo, agrupados por mes y filtrables. Al tocar un movimiento ves cómo se compone: lo que pagó el emisor, la comisión de Movo, la comisión de Mercado Pago y lo que te queda.
-- **Saldo.** Si cancelaste con penalidad o te bajaste de un envío, la penalidad queda como **saldo pendiente** con Movo. Se descuenta sola de tu próximo cobro (hasta un tope por envío) o se suma a tu próximo pago, y también podés pagarla en cualquier momento con **Pagar mi saldo**, con una tarjeta guardada. Una deuda sin saldar por más de 14 días te impide ofertar y declarar viajes hasta saldarla.
+- **Saldo.** Si cancelaste con penalidad, te bajaste de un envío o entregaste un envío pagado en efectivo (la comisión de Movo), el monto queda como **saldo pendiente** con Movo. Se descuenta sola de tu próximo cobro (hasta un tope por envío) o se suma a tu próximo pago, y también podés pagarla en cualquier momento con **Pagar mi saldo**, con una tarjeta guardada. Una deuda sin saldar por más de 14 días te impide ofertar y declarar viajes hasta saldarla.
 
 {{captura M-74}}
 
@@ -512,6 +536,8 @@ En **Mi perfil > Ayuda y soporte** podés escribirle al equipo. Tocá **Nueva co
 
 {{captura M-89}}
 
+{{captura M-101}}
+
 {{captura M-90}}
 
 ## Si tu cuenta es suspendida o inhabilitada
@@ -543,11 +569,30 @@ Solo pueden ingresar cuentas con el rol de administrador, correo verificado y cu
 
 ## Navegar el panel
 
-La barra lateral da acceso a **Inicio**, **Usuarios**, **Envíos**, **Soporte** y **Admins**. Las secciones **Reportes**, **Disputas**, **Métricas** y **Bitácora** figuran como *Próximamente*: todavía no están disponibles. En **Inicio** solo **Admins** y **Usuarios** figuran hoy como activas en las tarjetas; **KYC**, **Reportes**, **Disputas**, **Métricas** y **Bitácora** dicen *Próximamente*. Desde el menú de tu cuenta, arriba a la derecha, podés cambiar entre tema claro y oscuro y cerrar sesión; ahí mismo se recuerda que la sesión dura 8 horas.
-
-{{captura W-04}}
+La barra lateral da acceso a **Inicio**, **Usuarios**, **Envíos**, **Disputas**, **Soporte** y **Admins**, y a un grupo **Reportería** con **Métricas** y **Bitácora**. Las secciones **KYC** y **Reportes** (denuncias entre usuarios) figuran como *Próximamente*: todavía no tienen pantalla propia. Desde el menú de tu cuenta, arriba a la derecha, podés cambiar entre tema claro y oscuro y cerrar sesión; ahí mismo se recuerda que la sesión dura 8 horas.
 
 {{captura W-18}}
+
+## Inicio: el resumen operativo
+
+**Inicio** es el punto de partida de cada jornada: un resumen de las **bandejas** que requieren atención, agrupadas en **Fuera de plazo** y **Al día**. Cada bandeja muestra cuántos casos tiene, su desglose, cuál es el más viejo y la variación respecto de ayer. Son ocho:
+
+| Bandeja | Se considera fuera de plazo cuando el caso más viejo supera |
+|--------------------------|----------------------|
+| Disputas abiertas | 72 horas |
+| Conversaciones sin responder | 30 minutos |
+| KYC por revisar | 24 horas |
+| Reportes de usuarios | 24 horas |
+| Envíos con alerta | 1 hora |
+| Pagos por revisar | 6 horas |
+| Mensajes señalados | 12 horas |
+| Sanciones que vencen hoy | (sin plazo) |
+
+: Bandejas del resumen operativo y su plazo.
+
+Cada bandeja se carga por separado: si una falla, muestra el error con su identificador y un botón **Reintentar** que pide solo esa. Al tocar una bandeja se llega a la pantalla donde se atiende (Disputas, Soporte, Envíos o Usuarios). Las bandejas de KYC, reportes y mensajes señalados todavía no tienen pantalla propia y llevan a Usuarios o a Envíos.
+
+{{captura W-04}}
 
 ## Usuarios
 
@@ -572,7 +617,8 @@ Ver una ficha no deja registro.
 - **Cambiar el correo o el teléfono**, con motivo y una vista previa del *antes* y el *después*.
 - **Ajustar el saldo** de la cuenta corriente, con monto, sentido y motivo.
 - **Agregar una nota interna**, que ven todos los administradores.
-- **Suspender o inhabilitar** una cuenta. Al suspender se escribe el **motivo** (lo ve la persona en la app y por correo, así que se redacta para ella), una **nota interna** opcional que solo ven los administradores y el **plazo**: hasta una fecha (la suspensión termina a las 23:59 de ese día) o indefinida. Antes de aplicarla, **Revisar** muestra un resumen para confirmar.
+- **Suspender o inhabilitar** una cuenta. Al suspender se escribe el **motivo** (lo ve la persona en la app y por correo, así que se redacta para ella), una **nota interna** opcional que solo ven los administradores y el **plazo**: hasta una fecha (la suspensión termina a las 23:59 de ese día) o indefinida. Antes de aplicarla, **Revisar** muestra un resumen para confirmar, con lo que se retirará del usuario (publicaciones, ofertas y viajes sin paquetes) y los envíos en curso que tiene. **Inhabilitar** a quien tiene envíos en curso se rechaza hasta resolverlos.
+- **Levantar una sanción** vigente, con motivo. Una suspensión con fecha de fin se levanta sola. En la sección **Sanciones** se ve el historial, y en cada una si el retiro de lo no comprometido se completó o hay que reintentarlo.
 
 Toda acción de escritura exige un **motivo** y queda registrada en la bitácora con tu nombre. Un administrador no puede actuar sobre su propia cuenta ni sobre un envío del que sea parte.
 
@@ -586,13 +632,15 @@ Toda acción de escritura exige un **motivo** y queda registrada en la bitácora
 
 {{captura W-16}}
 
+{{captura W-26}}
+
 {{captura W-17}}
 
 ## Envíos
 
 **Listado.** En **Envíos** se ven los envíos organizados por pestañas: **Todos**, **Sin asignar**, **Asignando**, **En curso**, **Cerrados** y **Disputas** (por defecto, los activos), con la opción **Solo con alerta** para ver únicamente los que requieren atención, con un buscador por código, nombre de cualquiera de las partes o dirección, y filtros por ciudad de retiro y por rango de fechas del último cambio de estado.
 
-**Detalle.** El detalle muestra las partes, el retiro y la entrega, el paquete y el pago, la **línea de tiempo** de estados, las **ofertas** recibidas (precio sugerido, acordado y rango ofertado) y el chat del envío en solo lectura, en **Modo observador** (el administrador lee pero nunca escribe). **Cambiar estado** queda deshabilitado si el administrador es parte del envío. Un envío en camino muestra además un **mapa de seguimiento** con la ruta y la posición del transportista.
+**Detalle.** El detalle muestra las partes, el retiro y la entrega, el paquete y el pago, la **línea de tiempo** de estados, las **ofertas** recibidas (precio sugerido, acordado y rango ofertado) y el chat del envío en solo lectura, en **Modo observador** (el administrador lee pero nunca escribe). **Cambiar estado** queda deshabilitado si el administrador es parte del envío; si no, abre un asistente de tres pasos: **elegir el destino** (solo los cambios permitidos; los bloqueados muestran el motivo), **ver el impacto** (qué se ejecuta, a quién se avisa, qué verificar y qué no se puede deshacer) y **confirmar** con un motivo de al menos 20 caracteres, el código del envío tipeado (desde el riesgo alto) y, en los cambios forzados o críticos, un código de 6 dígitos que llega por correo. Cada cambio queda marcado como forzado en la línea de tiempo y en la bitácora. Un envío en camino muestra además un **mapa de seguimiento** con la ruta y la posición del transportista; uno cerrado o en disputa conserva el tramo recorrido. Si el envío tiene una disputa, el detalle la resume y enlaza a su expediente.
 
 {{captura W-09}}
 
@@ -602,13 +650,70 @@ Toda acción de escritura exige un **motivo** y queda registrada en la bitácora
 
 {{captura W-12}}
 
+{{captura W-23}}
+
+{{captura W-24}}
+
+{{captura W-25}}
+
+## Disputas
+
+En **Disputas** se gestionan los reclamos sobre un envío, sea que los abrió una de las partes o el sistema. La **bandeja** muestra las disputas con un contador de las abiertas, y se filtra por estado, ciudad de retiro y rango de fechas, y se busca por código del envío o nombre de una parte.
+
+Al abrir una disputa se ve su **expediente**: el motivo y los descargos de cada parte, lo que detectó el sistema, las posiciones del transportista, el handshake, las fotos del envío, el historial de las partes y las **notas internas** (visibles para todos los administradores, con el nombre de quien las escribió).
+
+Desde el expediente, **Resolver disputa** permite decidir a favor del emisor, a favor del transportista o de forma parcial (25, 50 o 75 %, o un monto libre). Se escribe un razonamiento de al menos 10 caracteres, que reciben las tres partes, y el panel muestra antes qué ocurrirá con el dinero (liberar la reserva, capturarla, reembolsar total o parcialmente, o acreditar en la cuenta corriente). Al confirmar, el envío queda *cancelado* si ganó el emisor o *completado* en los otros casos, y se desbloquea al transportista. Si el pago falla, la disputa queda en *Procesando pago* y se puede reintentar. Una disputa resuelta no se modifica. El procedimiento completo está en el *Manual de Procedimientos* (PO-11).
+
+{{captura W-19}}
+
+{{captura W-20}}
+
+{{captura W-21}}
+
+{{captura W-22}}
+
 ## Soporte
 
-La **bandeja de soporte** lista las consultas de los usuarios, con filtros **Todos**, **Míos** y **Sin asignar**, búsqueda por nombre, código SOP o envío y filtro por estado. Al abrir una consulta se ve la conversación y, a un costado, el contexto del usuario: verificaciones, reputación, envíos recientes y consultas anteriores. Se puede vincular la consulta a un envío y agregar etiquetas. Una consulta propia, es decir, abierta por la cuenta del propio administrador, no se puede responder.
+La **bandeja de soporte** lista las consultas de los usuarios, con filtros **Todos**, **Míos** y **Sin asignar**, búsqueda por nombre, código SOP o envío y filtro por estado. Al abrir una consulta se ve la conversación y, a un costado, el contexto del usuario: verificaciones, reputación, envíos recientes y consultas anteriores. Se puede vincular la consulta a un envío y agregar etiquetas. Se puede asignar y priorizar la consulta, dejar **notas internas** (que el usuario nunca ve), adjuntar imágenes y marcarla como resuelta; si el usuario vuelve a escribir, se reabre sola. Una consulta propia, es decir, abierta por la cuenta del propio administrador, no se puede responder. La conversación se actualiza en tiempo real cuando el WebSocket del panel está configurado; si no, se actualiza por consulta periódica.
 
 {{captura W-13}}
 
 {{captura W-14}}
+
+## Métricas
+
+En **Reportería > Métricas** se consulta la actividad de la plataforma en siete pestañas: **Cashflow**, **Precio y volumen**, **Entregas**, **Transportistas**, **Distancias**, **Soporte** y **Disputas**. Cada una responde una pregunta con tarjetas de indicadores (con su tendencia), un gráfico en el tiempo y desgloses:
+
+- **Cashflow:** GMV (dinero cobrado por envíos completados antes de comisiones, incluidos los pagados en efectivo), comisión de Movo, *take rate* y ticket promedio.
+- **Precio y volumen:** qué parte del cambio del GMV se debe al volumen, a la mezcla de distancias o al precio (es una atribución aproximada: lo que no se puede explicar queda en *otros*), y cuánto de lo cotizado se terminó capturando.
+- **Entregas:** porcentaje entregado a tiempo, tiempo de puerta a puerta y envíos con incidencia.
+- **Transportistas:** transportistas activos y envíos asignados dentro de las 24 horas de publicados.
+- **Distancias:** mapa de corredores y comparación de los tres tramos de distancia (hasta 200 km, de 200 a 500 km y más de 500 km); la distancia de los envíos viejos es una estimación.
+- **Soporte** y **Disputas:** volumen, tiempos y, en disputas, el embudo de abiertas a decididas y resueltas.
+
+El **rango de fechas** (con atajos) y la **distancia** se eligen arriba y viajan en la dirección de la página, de modo que **Copiar link** comparte la misma vista. Cada reporte se exporta a **CSV** desde el servidor. Un selector **Datos: Reales / Demo** permite mostrar el panel con datos de demostración, con un aviso amarillo mientras esté activo. Desde el expediente de una disputa se llega a la pestaña Disputas con su motivo marcado.
+
+{{captura W-27}}
+
+{{captura W-28}}
+
+{{captura W-29}}
+
+{{captura W-30}}
+
+{{captura W-31}}
+
+{{captura W-32}}
+
+{{captura W-33}}
+
+## Bitácora
+
+En **Reportería > Bitácora** se audita lo que hicieron los administradores. Se puede ver como **línea de tiempo** (por defecto) o como **tabla**, filtrar por **administrador**, **acción**, **tipo de objetivo**, **resultado** (éxito, fallida o desconocida) y rango de fechas, y buscar por identificador, código o correo del objetivo. Cada fila abre el detalle con el motivo y el contexto; **Cargar 20 más** trae más filas y la vista se exporta a **CSV**. Es de solo lectura: ninguna acción puede modificarse ni borrarse desde acá.
+
+{{captura W-34}}
+
+{{captura W-35}}
 
 ## Administradores
 
@@ -625,6 +730,8 @@ En **Admins** se lista a los administradores con su fecha de alta. Con **Agregar
 **¿Por qué no puedo ver envíos en Transportar?** Falta alguno de los requisitos: identidad, licencia, ficha del vehículo o cuenta de Mercado Pago. La pestaña te muestra cuál. Si tenés una deuda vencida con Movo, también se bloquean las ofertas.
 
 **¿Cuándo me cobran?** A vos como emisor no se te cobra al elegir la oferta: se **reserva** el importe en tu tarjeta y se cobra recién cuando el receptor confirma la entrega.
+
+**¿Puedo pagar en efectivo?** Sí. Al confirmar el envío elegís **Efectivo** en lugar de **Tarjeta** y le pagás al transportista en mano al retirar el paquete. La modalidad queda fija una vez creado el envío, y no está disponible si tenés un saldo pendiente con Movo. La comisión de Movo la debe el transportista, que la paga desde su saldo.
 
 **La reserva falló, ¿me cobraron?** No. Cuando el pago falla no se retiene ni se cobra nada. Podés reintentar con otra tarjeta.
 

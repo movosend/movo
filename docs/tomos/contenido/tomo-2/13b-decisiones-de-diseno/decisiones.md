@@ -2,7 +2,7 @@
 
 Este registro reúne las decisiones de diseño de alcance acotado (las reglas de un módulo, el contrato de un endpoint, el ajuste de un comportamiento) que se tomaron durante los sprints y que no definen la arquitectura ni el stack del sistema. Por eso no forman parte del registro de ADR.
 
-Cada decisión lleva el prefijo **DD** y conserva el número que tenía cuando se registró como ADR, para que las referencias existentes en el código, en los tickets y en los demás documentos sigan siendo válidas: un «ADR» anterior con uno de estos números se lee como DD con el mismo número. Los ADR vigentes están en el documento de Arquitectura del Sistema y se numeran del 001 al 023.
+Cada decisión lleva el prefijo **DD** y conserva el número que tenía cuando se registró como ADR, para que las referencias existentes en el código, en los tickets y en los demás documentos sigan siendo válidas: un «ADR» anterior con uno de estos números se lee como DD con el mismo número. Los ADR vigentes están en el documento de Arquitectura del Sistema y se numeran del 001 al 025.
 
 ## Índice de decisiones de diseño
 
@@ -21,7 +21,7 @@ Cada decisión lleva el prefijo **DD** y conserva el número que tenía cuando s
 | DD-032 | Expiración y cierre automático de envíos y viajes |
 | DD-033 | Navegación turn-by-turn del transportista por deep-link |
 | DD-034 | Inicio de viaje: día calendario y paquete ejecutable |
-| DD-036 | Requisitos habilitantes del transportista: licencia aprobada + cuenta de Mercado Pago vinculada |
+| DD-036 | Requisitos habilitantes del transportista: licencia aprobada \+ cuenta de Mercado Pago vinculada |
 | DD-037 | Saga de asignación: ofertas vivas hasta confirmar el hold y reversión a published |
 | DD-038 | Transferencia de receptor como entidad paralela al ciclo de vida del envío |
 | DD-039 | Tarjetas guardadas del emisor con re-ingreso de CVV |
@@ -40,8 +40,11 @@ Cada decisión lleva el prefijo **DD** y conserva el número que tenía cuando s
 | DD-053 | Oferta de transportistas del recargo por demanda: solo viajes declared |
 | DD-054 | Disputa sobre un envío completed: la arista completed → disputed |
 | DD-055 | Cambio forzado de estado de un envío desde el panel |
+| DD-056 | Resolución de disputas: matriz de pago, estado final y reembolsos |
+| DD-057 | Plazo de pago extendido ante una falla del proveedor |
+| DD-058 | Bandejas y plazos de la home del panel |
 
-: Índice de las 32 decisiones de diseño.
+: Índice de las 35 decisiones de diseño.
 
 ## DD-016 · Foto de perfil: prefijo profile-photos/ público en S3 con key aleatoria
 
@@ -89,12 +92,12 @@ El alcance del proyecto (\[Movo\] 002-Estudio Inicial.md) describe un motor de p
 
 A la fecha de esta revisión, movo-svc-pricing-logistics seguía siendo un esqueleto (GET /health únicamente, sin ningún endpoint de negocio) — el único código relacionado era el spike de VRPTW con OR-Tools (MOVO-50), que no calcula precio. Es el punto más barato del proyecto para fijar el contrato correcto antes de escribir el algoritmo final, mismo criterio que ya justificó adoptar Prisma en ADR-011 y migrar a Routes API en ADR-015.
 
-**Criterios:** - Cumplimiento completo del AC de la US padre (precio sugerido, o "precio a estimar" si faltan datos) sin bloquear el resto del flujo de creación de envíos.
+**Criterios:** \- Cumplimiento completo del AC de la US padre (precio sugerido, o "precio a estimar" si faltan datos) sin bloquear el resto del flujo de creación de envíos.
 
-  - Esfuerzo de implementación dentro de la capacidad real del sprint 1, con un solo dev disponible para movo-svc-pricing-logistics en paralelo al track de svc-shipments.
-  - Honestidad académica: no presentar una fórmula simplificada como si fuera el motor completo en la defensa oral — la memoria escrita necesita justificación documentada de cualquier limitación aceptada.
-  - Costo de reemplazo futuro: que el contrato HTTP no tenga que migrarse cuando el motor real exista.
-  - Separar "levantar el primer servicio de negocio en Python/FastAPI del monorepo" de "escribir el algoritmo definitivo" — son dos riesgos distintos que conviene no acoplar en un mismo ticket.
+* Esfuerzo de implementación dentro de la capacidad real del sprint 1, con un solo dev disponible para movo-svc-pricing-logistics en paralelo al track de svc-shipments.  
+* Honestidad académica: no presentar una fórmula simplificada como si fuera el motor completo en la defensa oral — la memoria escrita necesita justificación documentada de cualquier limitación aceptada.  
+* Costo de reemplazo futuro: que el contrato HTTP no tenga que migrarse cuando el motor real exista.  
+* Separar "levantar el primer servicio de negocio en Python/FastAPI del monorepo" de "escribir el algoritmo definitivo" — son dos riesgos distintos que conviene no acoplar en un mismo ticket.
 
 <span class="dd-etq">Alternativas consideradas</span>
 
@@ -105,7 +108,7 @@ Pros: nunca se le muestra al emisor un precio inexacto.
 
 Contras: viola el AC explícito de la US padre — "precio a estimar" es un estado válido y esperado, no una degradación a evitar. Introduce un acoplamiento duro entre movo-svc-shipments y movo-svc-pricing-logistics sin justificación de negocio (ADR-001 ya acepta el acoplamiento temporal de REST síncrono, pero no bloquear un flujo completo por un servicio no crítico). El sprint 1 se extendería indefinidamente: ni el índice de demanda ni el precio de combustible tienen todavía fuente de datos ni definición de negocio, y las credenciales de Google Maps seguían sin cargar (mismo estado que Twilio/Didit).
 
-**Alternativa 2:** Implementar el motor de precios real completo (demanda + combustible + Google Routes API) en este mismo ticket.
+**Alternativa 2:** Implementar el motor de precios real completo (demanda \+ combustible \+ Google Routes API) en este mismo ticket.
 
 Pros: no hay que volver a tocar el cálculo de precio más adelante.
 
@@ -122,11 +125,11 @@ Contras: el precio mostrado no refleja demanda, combustible ni tráfico real has
 
 **Decisión tomada:** Se adopta el contrato POST /quote en movo-svc-pricing-logistics, tipado en shared/movo-shared/src/types/pricing.ts (QuoteRequest/QuoteResponse/PriceCalculationMethod) y consumido desde movo-svc-shipments vía src/adapters/pricing-client.ts.
 
-La implementación de este sprint calcula el precio con una fórmula lineal (base + distanciaKm·tarifaKm + pesoKg·tarifaKg, escalada por un factor según packageType), usando distancia euclidiana entre coordenadas (proyección equirectangular: los grados se convierten a km escalando la longitud por cos(latitud promedio), y recién ahí se aplica Pitágoras). Los coeficientes de la fórmula viven en configuración (env vars con prefijo PRICING\_), no hardcodeados, para poder ajustarlos durante las pruebas sin rebuildear la imagen.
+La implementación de este sprint calcula el precio con una fórmula lineal (base \+ distanciaKm·tarifaKm \+ pesoKg·tarifaKg, escalada por un factor según packageType), usando distancia euclidiana entre coordenadas (proyección equirectangular: los grados se convierten a km escalando la longitud por cos(latitud promedio), y recién ahí se aplica Pitágoras). Los coeficientes de la fórmula viven en configuración (env vars con prefijo PRICING\_), no hardcodeados, para poder ajustarlos durante las pruebas sin rebuildear la imagen.
 
 La versión del algoritmo queda identificada explícitamente en cada respuesta (calculationMethod: "euclidean\_linear\_v1") y se persiste junto al precio en shipments.shipments.calculation\_method — un envío ya creado nunca se recalcula retroactivamente, así que un cambio de fórmula a futuro no altera precios ya cotizados.
 
-Si movo-svc-pricing-logistics no responde, hace timeout, o faltan datos necesarios (peso, dimensiones o coordenadas), movo-svc-shipments no bloquea la creación del envío: persiste suggested\_price\_ars = null (junto con calculation\_method = null), que la API expone como el indicador de "precio a estimar" exigido por el AC de la US padre.
+Si movo-svc-pricing-logistics no responde, hace timeout, o faltan datos necesarios (peso, dimensiones o coordenadas), movo-svc-shipments no bloquea la creación del envío: persiste suggested\_price\_ars \= null (junto con calculation\_method \= null), que la API expone como el indicador de "precio a estimar" exigido por el AC de la US padre.
 
 Se deja registrado en el backlog (MOVO-138, sin refinar todavía) el motor de precios real — índice de demanda, precio de combustible y distancia real por calle vía Google Routes API (ADR-015) — que reemplazará euclidean\_linear\_v1 con un nuevo valor de PriceCalculationMethod, nunca reusando ni renombrando el existente.
 
@@ -166,7 +169,7 @@ Trade-off negativo: MOVO-138 (el motor real) queda en el backlog sin refinar —
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** El enum pasa a 11 valores, en @movo/shared, en Postgres y en la máquina de estados, en el mismo PR. assigned\_unfunded: transportista asignado sin hold creado porque el retiro es a más de N días; cuando el retiro entra en N días se abre una ventana para que el emisor confirme el pago con la app abierta (crea el hold y pasa a assigned), y sin pago a T-24h vuelve a published. Es una rama alternativa a assignment\_pending desde published, y nunca sale directo a in\_transit. completed: entrega confirmada y pago liberado, terminal, solo entra desde delivered. La migración se escribió a mano con dos ALTER TYPE ... ADD VALUE; la reversibilidad (Postgres no soporta DROP VALUE) está documentada en la propia migración y probada en un test de integración. Cuatro lugares que comparaban status === DELIVERED pasan a tratar completed como equivalente (FULFILLED\_SHIPMENT\_STATUSES).
+**Decisión tomada:** El enum pasa a 11 valores, en @movo/shared, en Postgres y en la máquina de estados, en el mismo PR. assigned\_unfunded: transportista asignado sin hold creado porque el retiro es a más de N días; cuando el retiro entra en N días se abre una ventana para que el emisor confirme el pago con la app abierta (crea el hold y pasa a assigned), y sin pago a T-24h vuelve a published. Es una rama alternativa a assignment\_pending desde published, y nunca sale directo a in\_transit. completed: entrega confirmada y pago liberado, terminal, solo entra desde delivered. La migración se escribió a mano con dos ALTER TYPE ... ADD VALUE; la reversibilidad (Postgres no soporta DROP VALUE) está documentada en la propia migración y probada en un test de integración. Cuatro lugares que comparaban status \=== DELIVERED pasan a tratar completed como equivalente (FULFILLED\_SHIPMENT\_STATUSES).
 
 <span class="dd-etq">Consecuencias</span>
 
@@ -194,7 +197,7 @@ Trade-off negativo: MOVO-138 (el motor real) queda en el backlog sin refinar —
 
 **Alternativa 1:** Sin plazo fijo / purga manual a demanda: Pros: no había que definir un número arbitrario; simple de implementar (nada que programar). Contras: exactamente lo que el ticket advertía evitar — sin un job real y probado, la retención queda como intención, no como control efectivo; acumula datos de geolocalización sensibles indefinidamente sin justificación de propósito, el escenario de mayor riesgo de cumplimiento; ningún costo de mantenimiento pero el mayor pasivo legal.
 
-**Alternativa 2:** 30 días desde el cierre del envío (ELEGIDA): Pros: cubre con margen amplio la ventana típica en que una disputa se abre después de una entrega, bien por encima de las 72hs que ya rigen la ventana de calificación (MOVO-146); minimiza el tiempo que se retiene un dato sensible sin necesidad real, más alineado al principio de minimización que un plazo largo; job de purga simple (setInterval + lock de Redis, mismo patrón ya aceptado en el proyecto para MOVO-124/MOVO-130) sin infraestructura nueva. Contras: corta frente a un litigio civil que escale mucho después de esos 30 días — mitigado por la excepción de disputed (ver Decisión); es un número de equipo, no derivado de una norma específica, y así queda documentado, no presentado como obligación legal que no es.
+**Alternativa 2:** 30 días desde el cierre del envío (ELEGIDA): Pros: cubre con margen amplio la ventana típica en que una disputa se abre después de una entrega, bien por encima de las 72hs que ya rigen la ventana de calificación (MOVO-146); minimiza el tiempo que se retiene un dato sensible sin necesidad real, más alineado al principio de minimización que un plazo largo; job de purga simple (setInterval \+ lock de Redis, mismo patrón ya aceptado en el proyecto para MOVO-124/MOVO-130) sin infraestructura nueva. Contras: corta frente a un litigio civil que escale mucho después de esos 30 días — mitigado por la excepción de disputed (ver Decisión); es un número de equipo, no derivado de una norma específica, y así queda documentado, no presentado como obligación legal que no es.
 
 **Alternativa 3:** 90 días desde el cierre del envío: Pros: más margen si una disputa demora en escalar o el usuario tarda en reclamar. Contras: retiene geolocalización sensible el triple de tiempo sin que el propósito declarado (evidencia para disputas, no analítica) lo justifique — contradice el principio de minimización que el propio ticket invocaba; sin ningún caso de uso comprometido hoy que necesite ese margen extra.
 
@@ -206,7 +209,7 @@ Trade-off negativo: MOVO-138 (el motor real) queda en el backlog sin refinar —
 <span class="dd-etq">Consecuencias</span>
 
 
-**Trade-offs:** Positivo — minimiza el tiempo que se retiene un dato de geolocalización sensible sin necesidad real, alineado al propósito declarado (evidencia operativa, no analítica). Positivo — la excepción de disputed evita el escenario más grave (borrar evidencia mientras una disputa sigue abierta) sin necesitar todavía una fecha de resolución real, que no existe en el proyecto. Positivo — el job de purga existe, está probado (incluido el caso disputed) y corre con el mismo mecanismo ya validado en el proyecto (Redis lock + setInterval), no queda como intención.
+**Trade-offs:** Positivo — minimiza el tiempo que se retiene un dato de geolocalización sensible sin necesidad real, alineado al propósito declarado (evidencia operativa, no analítica). Positivo — la excepción de disputed evita el escenario más grave (borrar evidencia mientras una disputa sigue abierta) sin necesitar todavía una fecha de resolución real, que no existe en el proyecto. Positivo — el job de purga existe, está probado (incluido el caso disputed) y corre con el mismo mecanismo ya validado en el proyecto (Redis lock \+ setInterval), no queda como intención.
 
 Trade-off negativo — 30 días es corto frente a un litigio civil que escale mucho después de ese plazo; se acepta porque el propósito declarado de esta traza es evidencia operativa de una disputa gestionada por la plataforma (MOVO-30), no evidencia judicial de largo plazo, y la excepción de disputed cubre el caso donde la evidencia todavía hace falta. Trade-off negativo — el borrado cross-service de la supresión de cuenta es best-effort, no transaccional (no hay 2PC entre movo-svc-users y movo-svc-shipments, ADR-001) — si falla, depende del barrido periódico para llegar más tarde; el escenario de un transportista con un envío todavía activo dándose de baja ya está bloqueado aguas arriba (MOVO-134 que cerró envíos activos), así que en la práctica el riesgo real es bajo.
 
@@ -253,7 +256,7 @@ Alternativa a reabrir si cambian las condiciones: si el equipo define una transi
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** rejected\_by\_receiver deja de ser terminal (MOVO-253, reemplaza en ese punto a MOVO-79/DD-021): el emisor tiene un plazo (receiver\_redesignation\_deadline, 48hs con tope en la ventana de retiro) para elegir otro receptor (POST /shipments/:id/receiver, vuelve a awaiting\_receiver\_confirmation) o cancelar; si no, el barrido de MOVO-130 lo pasa a cancelled. Mismo molde “estado con deadline + barrido” que la confirmación del receptor, en vez de decidir en el cliente según la hora
+**Decisión tomada:** rejected\_by\_receiver deja de ser terminal (MOVO-253, reemplaza en ese punto a MOVO-79/DD-021): el emisor tiene un plazo (receiver\_redesignation\_deadline, 48hs con tope en la ventana de retiro) para elegir otro receptor (POST /shipments/:id/receiver, vuelve a awaiting\_receiver\_confirmation) o cancelar; si no, el barrido de MOVO-130 lo pasa a cancelled. Mismo molde “estado con deadline \+ barrido” que la confirmación del receptor, en vez de decidir en el cliente según la hora
 
 <span class="dd-etq">Consecuencias</span>
 
@@ -343,7 +346,7 @@ Fuente: fila de resumen del registro de ADRs del repositorio; no tiene borrador 
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** Expiración y cierre automático (MOVO-258, revisa “bloquea, no cascadea” de MOVO-238): todo envío con transportista (assignment\_pending/assigned\_unfunded/assigned) se cancela sin culpables 24h después de cerrar su ventana de retiro efectiva (la acordada, copiada al envío al aceptar la oferta); cancelar un envío cierra sus ofertas (pending vigentes y accepted → nuevo OfferStatus.shipment\_cancelled) en la misma transacción y eso destraba al viaje sin cascada explícita; un published sigue vivo mientras tenga ofertas vigentes (solo lo protege de la cancelación: deja de ofrecerse y no recibe ofertas nuevas); un in\_transit que no se entrega se MARCA para revisión (entrega estimada + 50% de la duración) y nunca se cancela; los paquetes de un viaje quedan fijos al iniciarlo (start() exige ≥1 paquete; solo un viaje declared recibe ofertas, matches y el push de paquete compatible) y un viaje active pasa a completed cuando todos sus paquetes terminaron (disputed cuenta como terminado: sin salida modelada, retenerlo trabaría al transportista para siempre), o se cancela si se queda sin ninguno
+**Decisión tomada:** Expiración y cierre automático (MOVO-258, revisa “bloquea, no cascadea” de MOVO-238): todo envío con transportista (assignment\_pending/assigned\_unfunded/assigned) se cancela sin culpables 24h después de cerrar su ventana de retiro efectiva (la acordada, copiada al envío al aceptar la oferta); cancelar un envío cierra sus ofertas (pending vigentes y accepted → nuevo OfferStatus.shipment\_cancelled) en la misma transacción y eso destraba al viaje sin cascada explícita; un published sigue vivo mientras tenga ofertas vigentes (solo lo protege de la cancelación: deja de ofrecerse y no recibe ofertas nuevas); un in\_transit que no se entrega se MARCA para revisión (entrega estimada \+ 50% de la duración) y nunca se cancela; los paquetes de un viaje quedan fijos al iniciarlo (start() exige ≥1 paquete; solo un viaje declared recibe ofertas, matches y el push de paquete compatible) y un viaje active pasa a completed cuando todos sus paquetes terminaron (disputed cuenta como terminado: sin salida modelada, retenerlo trabaría al transportista para siempre), o se cancela si se queda sin ninguno
 
 <span class="dd-etq">Consecuencias</span>
 
@@ -359,12 +362,12 @@ Fuente: fila de resumen del registro de ADRs del repositorio; no tiene borrador 
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** Navegación turn-by-turn del transportista (MOVO-237): se delega por deep-link a la app de mapas del dispositivo (Google Maps nativo → Waze → Google Maps web, movo-mobile/src/lib/navigation-deeplink.ts) en vez del Navigation SDK de Google o re-routing propio. RoutesProvider (svc-shipments) gana mode: "per\_trip" | "live": per\_trip es el polyline estático de siempre (default, MOVO-123) y live queda tipado pero falla con 501 ROUTE\_MODE\_NOT\_IMPLEMENTED, como placeholder intencional para una navegación 100% in-app futura
+**Decisión tomada:** Navegación turn-by-turn del transportista (MOVO-237): se delega por deep-link a la app de mapas del dispositivo (Google Maps nativo → Waze → Google Maps web, movo-mobile/src/lib/navigation-deeplink.ts) en vez del Navigation SDK de Google o re-routing propio. RoutesProvider (svc-shipments) gana mode: "per\_trip" \| "live": per\_trip es el polyline estático de siempre (default, MOVO-123) y live queda tipado pero falla con 501 ROUTE\_MODE\_NOT\_IMPLEMENTED, como placeholder intencional para una navegación 100% in-app futura
 
 <span class="dd-etq">Consecuencias</span>
 
 
-Trade-off aceptado: Costo cero para Movo a cambio de que la navegación salga de la app (el tracking en segundo plano de MOVO-242 sigue emitiendo, pero el transportista tiene que volver a Movo para confirmar cada parada); el Navigation SDK (\~US$25/1.000, 5x Compute Routes) queda descartado hasta que haya una razón de producto para pagarlo. El ticket lo numeraba ADR-019, ya ocupado por el canal WebSocket
+Trade-off aceptado: Costo cero para Movo a cambio de que la navegación salga de la app (el tracking en segundo plano de MOVO-242 sigue emitiendo, pero el transportista tiene que volver a Movo para confirmar cada parada); el Navigation SDK (\~US\$25/1.000, 5x Compute Routes) queda descartado hasta que haya una razón de producto para pagarlo. El ticket lo numeraba ADR-019, ya ocupado por el canal WebSocket
 
 Fuente: fila de resumen del registro de ADRs del repositorio; no tiene borrador extendido.
 
@@ -375,7 +378,7 @@ Fuente: fila de resumen del registro de ADRs del repositorio; no tiene borrador 
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** Inicio de viaje (MOVO-277, complementa DD-032 sin modificarlo): POST /trips/:id/start exige que el día calendario argentino de departureAt ya haya llegado (canStartTripOn, @movo/shared, la misma función que decide el botón en el mobile) y al menos un paquete ejecutable. “Paquete ejecutable” (TRIP\_EXECUTABLE\_SHIPMENT\_STATUSES = assigned/in\_transit, shipment-state-machine.ts) pasa a ser la única definición que usan start(), la ruta del viaje, el tracking y el conteo executablePackagesCount de /trips; “paquete aceptado” (ACCEPTED\_OFFER\_FILTER) sigue rigiendo lo que bloquea editar/cancelar y el cierre de un viaje active
+**Decisión tomada:** Inicio de viaje (MOVO-277, complementa DD-032 sin modificarlo): POST /trips/:id/start exige que el día calendario argentino de departureAt ya haya llegado (canStartTripOn, @movo/shared, la misma función que decide el botón en el mobile) y al menos un paquete ejecutable. “Paquete ejecutable” (TRIP\_EXECUTABLE\_SHIPMENT\_STATUSES \= assigned/in\_transit, shipment-state-machine.ts) pasa a ser la única definición que usan start(), la ruta del viaje, el tracking y el conteo executablePackagesCount de /trips; “paquete aceptado” (ACCEPTED\_OFFER\_FILTER) sigue rigiendo lo que bloquea editar/cancelar y el cierre de un viaje active
 
 <span class="dd-etq">Consecuencias</span>
 
@@ -384,7 +387,7 @@ Trade-off aceptado: Mientras no exista el hold de fondos (MOVO-210) ningún env�
 
 Fuente: fila de resumen del registro de ADRs del repositorio; no tiene borrador extendido.
 
-## DD-036 · Requisitos habilitantes del transportista: licencia aprobada + cuenta de Mercado Pago vinculada
+## DD-036 · Requisitos habilitantes del transportista: licencia aprobada \+ cuenta de Mercado Pago vinculada
 
 <p class="adr-cab"><span class="chip lime">Aceptado</span> (MOVO-116)</p>
 
@@ -395,8 +398,8 @@ Fuente: fila de resumen del registro de ADRs del repositorio; no tiene borrador 
 
 Dos problemas con eso:
 
-  - Mercado Pago: sin una cuenta vinculada y vigente (MOVO-111), el transportista no puede cobrar. Hoy lo descubre recién el hold (MOVO-209, 409 CARRIER\_MP\_ACCOUNT\_NOT\_LINKED), cuando el emisor ya eligió su oferta: el envío queda trabado y el emisor tiene que volver a elegir.
-  - Licencia: el equipo decidió que la insignia de "transportista verificado" pase a ser condición para operar (MOVO-116 lo pide explícito), aceptando que se pierde el caso del transportista sin vehículo propio.
+* Mercado Pago: sin una cuenta vinculada y vigente (MOVO-111), el transportista no puede cobrar. Hoy lo descubre recién el hold (MOVO-209, 409 CARRIER\_MP\_ACCOUNT\_NOT\_LINKED), cuando el emisor ya eligió su oferta: el envío queda trabado y el emisor tiene que volver a elegir.  
+* Licencia: el equipo decidió que la insignia de "transportista verificado" pase a ser condición para operar (MOVO-116 lo pide explícito), aceptando que se pierde el caso del transportista sin vehículo propio.
 
 **Alcance:** Revierte, en ese punto, la decisión de MOVO-142 ("la licencia de conducir es una insignia de confianza, no un permiso de acceso").
 
@@ -414,11 +417,11 @@ Dos problemas con eso:
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** 1. Para operar como transportista hacen falta tres cosas: KYC de identidad aprobado (prerequisito, igual que antes), licencia de conducir aprobada (kyc\_status\_license = approved, svc-users) y una cuenta de Mercado Pago con la que hoy se pueda cobrar (svc-payments, mismo criterio que el hold: no desvinculada, no revocada, token sin vencer y con public\_key).
+**Decisión tomada:** 1\. Para operar como transportista hacen falta tres cosas: KYC de identidad aprobado (prerequisito, igual que antes), licencia de conducir aprobada (kyc\_status\_license \= approved, svc-users) y una cuenta de Mercado Pago con la que hoy se pueda cobrar (svc-payments, mismo criterio que el hold: no desvinculada, no revocada, token sin vencer y con public\_key).
 
 2\. Dónde se exige (svc-shipments, utils/carrier-gate.ts): declarar viaje (POST /trips), ofertar (POST /shipments/:id/offers), editar una oferta (PATCH /offers/:id) e iniciar un viaje (POST /trips/:id/start, sobre el dueño del viaje). Al aceptar una oferta (POST /offers/:id/accept) se revalida al transportista y, si ya no cumple, el emisor recibe 409 OFFER\_CARRIER\_NOT\_ELIGIBLE sin detalle y la oferta sigue pending. Las lecturas (feed, detalle de un envío publicado, mis viajes, matches) siguen pidiendo solo identidad: se puede mirar antes de completar los requisitos.
 
-3\. Error explícito y accionable: 403 con code = el primer requisito que falta (CARRIER\_LICENSE\_NOT\_APPROVED, si no CARRIER\_MP\_ACCOUNT\_NOT\_LINKED) y details.missingRequirements con todos (\["license", "mp\_account"\]). Para eso ApiError (@movo/shared) gana un campo details opcional, compatible hacia atrás.
+3\. Error explícito y accionable: 403 con code \= el primer requisito que falta (CARRIER\_LICENSE\_NOT\_APPROVED, si no CARRIER\_MP\_ACCOUNT\_NOT\_LINKED) y details.missingRequirements con todos (\["license", "mp\_account"\]). Para eso ApiError (@movo/shared) gana un campo details opcional, compatible hacia atrás.
 
 4\. Consulta síncrona REST sin cache (ADR-001): dos endpoints internos nuevos, GET /internal/users/:id/kyc-status y GET /internal/payments/mp-connect/:userId/status, consultados en paralelo. Si cualquiera no responde, el bloqueo falla cerrado (502), mismo criterio que el bloqueo de usuarios en escrituras (DD-026).
 
@@ -427,22 +430,22 @@ Dos problemas con eso:
 
 **Trade-offs:** • Se pierde el transportista sin vehículo propio (el caso que MOVO-142 quería cubrir).
 
-  - Dos llamadas síncronas más por escritura de transportista: si svc-users o svc-payments están caídos, nadie puede declarar viajes ni ofertar (falla cerrado).
-  - Perder la cuenta de MP a mitad de un viaje en curso no se trata acá (regla de negocio sin definir, fuera del alcance de MOVO-116): solo se revalida al iniciar el viaje y al aceptar una oferta. El hold de MOVO-209 sigue revalidando al cobrar.
-  - Hoy nada escribe revoked\_at (MOVO-243), así que el único motivo real de "cuenta no vigente", además de no haber vinculado, es el vencimiento del token.
+* Dos llamadas síncronas más por escritura de transportista: si svc-users o svc-payments están caídos, nadie puede declarar viajes ni ofertar (falla cerrado).  
+* Perder la cuenta de MP a mitad de un viaje en curso no se trata acá (regla de negocio sin definir, fuera del alcance de MOVO-116): solo se revalida al iniciar el viaje y al aceptar una oferta. El hold de MOVO-209 sigue revalidando al cobrar.  
+* Hoy nada escribe revoked\_at (MOVO-243), así que el único motivo real de "cuenta no vigente", además de no haber vinculado, es el vencimiento del token.
 
 <span class="dd-etq">Requisitos sumados después</span>
 
 
 Detalle: • no\_open\_dispute (MOVO-278, DD-045): ningún envío en disputed como transportista. Va primero en missingRequirements y responde 403 CARRIER\_DISPUTE\_OPEN. Es una consulta local (misma DB) y falla cerrado igual que los otros dos. Se levanta cuando se resuelve la disputa (MOVO-34).
 
-  - no\_overdue\_debt (MOVO-313, DD-044): ninguna deuda de la cuenta corriente sin saldar hace más de USER\_DEBT\_OVERDUE\_DAYS (14, env var de svc-shipments). Responde 403 USER\_DEBT\_OVERDUE y va al final de missingRequirements: es lo último que se resuelve (con un pago) y, como la disputa, no es un paso de la checklist de MOVO-117.
-  - La deuda es de la persona, el bloqueo es del rol: solo corta las operaciones de transportista de arriba. Como emisor no se bloquea (crear envíos, pagar, aceptar ofertas): su próximo pago ya incluye la deuda (MOVO-311), así que se cobra ahí.
-  - Umbral por antigüedad, sin monto mínimo: balanceArs \> 0 y oldestUnpaidAt hace más de 14 días (\> estricto). Quien sigue operando con tarjeta la salda sola; el bloqueo apunta a quien no lo hace por esa vía (efectivo, MOVO-37).
-  - Mismo trato que los otros requisitos: consulta síncrona sin cache a GET /internal/payments/users/:userId/balance (MOVO-309), en el mismo Promise.all, y falla cerrado con 502 si svc-payments no responde. Al saldarla (MOVO-311/312) el bloqueo se levanta en la siguiente consulta. No corta envíos en curso: ni el handshake ni el tracking pasan por este gate.
-  - Un saldo positivo sin oldestUnpaidAt (solo pasa si lo compone un movimiento ya settled sin contrapartida) bloquea: no se puede probar que la deuda es reciente y no se puede deber plata y operar como si nada. Se levanta al compensar el saldo.
-  - Consecuencias por usar la misma función: el emisor que intenta aceptar la oferta de un transportista con deuda vencida recibe el 409 OFFER\_CARRIER\_NOT\_ELIGIBLE sin detalle (igual que con la licencia o una disputa). Es a propósito: el emisor solo se entera de que ese transportista no puede tomar el envío, no del motivo; la deuda es privada del transportista.
-  - Viajes recurrentes (DD-042): la deuda frena la ocurrencia, no corta la serie. Si lo único que falta es no\_overdue\_debt (cuenta activa, identidad aprobada), el barrido posterga la generación (deferred, log trip\_recurrence\_generation\_blocked\_by\_debt) y la serie queda intacta. Se avisa al transportista una sola vez por ocurrencia frenada (tripRecurrenceBlockedByDebt: "no pudimos declarar tu próximo viaje porque tenés una deuda pendiente"). Al saldar, la próxima corrida declara la siguiente ocurrencia (sale de max(departureAt, ahora), no nace vencida ni se acumulan atrasadas). Con cualquier otro requisito faltante además de la deuda, la serie se corta como antes.
+* no\_overdue\_debt (MOVO-313, DD-044): ninguna deuda de la cuenta corriente sin saldar hace más de USER\_DEBT\_OVERDUE\_DAYS (14, env var de svc-shipments). Responde 403 USER\_DEBT\_OVERDUE y va al final de missingRequirements: es lo último que se resuelve (con un pago) y, como la disputa, no es un paso de la checklist de MOVO-117.  
+* La deuda es de la persona, el bloqueo es del rol: solo corta las operaciones de transportista de arriba. Como emisor no se bloquea (crear envíos, pagar, aceptar ofertas): su próximo pago ya incluye la deuda (MOVO-311), así que se cobra ahí.  
+* Umbral por antigüedad, sin monto mínimo: balanceArs \> 0 y oldestUnpaidAt hace más de 14 días (\> estricto). Quien sigue operando con tarjeta la salda sola; el bloqueo apunta a quien no lo hace por esa vía (efectivo, MOVO-37).  
+* Mismo trato que los otros requisitos: consulta síncrona sin cache a GET /internal/payments/users/:userId/balance (MOVO-309), en el mismo Promise.all, y falla cerrado con 502 si svc-payments no responde. Al saldarla (MOVO-311/312) el bloqueo se levanta en la siguiente consulta. No corta envíos en curso: ni el handshake ni el tracking pasan por este gate.  
+* Un saldo positivo sin oldestUnpaidAt (solo pasa si lo compone un movimiento ya settled sin contrapartida) bloquea: no se puede probar que la deuda es reciente y no se puede deber plata y operar como si nada. Se levanta al compensar el saldo.  
+* Consecuencias por usar la misma función: el emisor que intenta aceptar la oferta de un transportista con deuda vencida recibe el 409 OFFER\_CARRIER\_NOT\_ELIGIBLE sin detalle (igual que con la licencia o una disputa). Es a propósito: el emisor solo se entera de que ese transportista no puede tomar el envío, no del motivo; la deuda es privada del transportista.  
+* Viajes recurrentes (DD-042): la deuda frena la ocurrencia, no corta la serie. Si lo único que falta es no\_overdue\_debt (cuenta activa, identidad aprobada), el barrido posterga la generación (deferred, log trip\_recurrence\_generation\_blocked\_by\_debt) y la serie queda intacta. Se avisa al transportista una sola vez por ocurrencia frenada (tripRecurrenceBlockedByDebt: "no pudimos declarar tu próximo viaje porque tenés una deuda pendiente"). Al saldar, la próxima corrida declara la siguiente ocurrencia (sale de max(departureAt, ahora), no nace vencida ni se acumulan atrasadas). Con cualquier otro requisito faltante además de la deuda, la serie se corta como antes.
 
 **Referencias:** MOVO-116 (este ticket), MOVO-117 (UI de requisitos pendientes), MOVO-142 (decisión que se revierte), MOVO-15 (licencia), MOVO-111/112 (vinculación de MP), MOVO-209 (hold), DD-026 (criterio de fallar cerrado).
 
@@ -475,7 +478,6 @@ Detalle: • no\_open\_dispute (MOVO-278, DD-045): ningún envío en disputed co
 ## DD-038 · Transferencia de receptor como entidad paralela al ciclo de vida del envío
 
 <p class="adr-cab"><span class="chip lime">Aceptado</span> (MOVO-275)</p>
-
 Complementa DD-027 (elegir otro receptor tras un rechazo) sin modificarlo.
 
 <span class="dd-etq">Contexto</span>
@@ -498,18 +500,18 @@ Una vez que el receptor aceptó un envío, y sobre todo con el paquete viajando,
 
 6\. Plazo y carrera con la entrega. La persona invitada tiene RECEIVER\_TRANSFER\_TIMEOUT\_HOURS (6 h); la vence el mismo barrido que la confirmación del receptor (MOVO-130), y aceptar fuera de plazo da 409 aunque el barrido no haya corrido (pedir otra transferencia también vence inline la pendiente pasada de plazo). La entrega “empieza” cuando el transportista genera el QR de entrega por primera vez: eso deja una marca durable ( shipments.delivery\_handshake\_started\_at , no el QR de Redis, que vence a los 15 s), cancela la solicitud pendiente y desde ahí no se puede pedir ni aceptar un cambio; el UPDATE de receiverId también exige la marca vacía. El handshake siempre valida contra el receiverId vigente.
 
-7\. Línea de tiempo: un item por solicitud. shipment\_events sigue siendo “evento = transición de estado”. Las solicitudes se exponen aparte ( GET /shipments/:id/receiver-transfers , sin cambiar la respuesta de /events ) y el mobile las intercala por fecha como un solo item que cambia según su estado, con texto según quién mira. El emisor y quien pidió cada solicitud ven todas; el transportista y el receptor vigente, solo la completada.
+7\. Línea de tiempo: un item por solicitud. shipment\_events sigue siendo “evento \= transición de estado”. Las solicitudes se exponen aparte ( GET /shipments/:id/receiver-transfers , sin cambiar la respuesta de /events ) y el mobile las intercala por fecha como un solo item que cambia según su estado, con texto según quién mira. El emisor y quien pidió cada solicitud ven todas; el transportista y el receptor vigente, solo la completada.
 
 8\. Chat del envío (MOVO-340). Al completarse, el receptor nuevo se suma al chat (ADR-023) en el acto y ve el historial previo : el hilo es uno por envío, es la evidencia de la coordinación y suele tener indicaciones de entrega que le sirven. Lo anterior le cuenta como leído (solo suman como no leídos los mensajes posteriores), y los tildes de un mensaje previo se miden contra los integrantes de ese momento, con el corte en resolved\_at de la transferencia. Los sockets abiertos reciben chat\_participants\_changed ; el receptor original pasa a solo lectura sin que se cierre el suyo, y deja de recibir la push del chat.
 
 <span class="dd-etq">Consecuencias</span>
 
 
-  - Sin aprobación del emisor, una cuenta de receptor comprometida puede desviar el envío hacia otra persona verificada. Queda la evidencia y la disputa.
-  - El receptor original sigue viendo la ubicación del transportista hasta la entrega aunque ya no reciba el paquete (decisión del equipo: le sirve saber que llegó a quien eligió).
-  - Dos llamadas a svc-users más al pedir y una al aceptar (perfil y bloqueos), fallando cerrado si no responde.
-  - El receptor nuevo lee lo que el original escribió en el chat antes de transferir (por ejemplo, un teléfono). Fue el original quien eligió transferir.
-  - Una solicitud pendiente cuenta como actividad de la persona invitada para la baja de cuenta (MOVO-134).
+* Sin aprobación del emisor, una cuenta de receptor comprometida puede desviar el envío hacia otra persona verificada. Queda la evidencia y la disputa.  
+* El receptor original sigue viendo la ubicación del transportista hasta la entrega aunque ya no reciba el paquete (decisión del equipo: le sirve saber que llegó a quien eligió).  
+* Dos llamadas a svc-users más al pedir y una al aceptar (perfil y bloqueos), fallando cerrado si no responde.  
+* El receptor nuevo lee lo que el original escribió en el chat antes de transferir (por ejemplo, un teléfono). Fue el original quien eligió transferir.  
+* Una solicitud pendiente cuenta como actividad de la persona invitada para la baja de cuenta (MOVO-134).
 
 <span class="dd-etq">Referencias</span>
 
@@ -527,15 +529,15 @@ MOVO-275, DD-027 (MOVO-253), DD-026 (MOVO-175), DD-023 (traza GPS), MOVO-130, MO
 
 El 13/10/2026 se repitió la prueba contra el sandbox con un Vendedor de prueba vinculado en dev (token TEST-), con un script propio y no el del spike. El 128 no se reprodujo. Lo que se verificó, con Visa y Mastercard de prueba:
 
-Paso | Resultado
+Paso \| Resultado
 
-Guardar la tarjeta en un customer de la cuenta del Vendedor (POST /v1/customers/{id}/cards) | 201
+Guardar la tarjeta en un customer de la cuenta del Vendedor (POST /v1/customers/{id}/cards) \| 201
 
-Re-tokenizar con card\_id + security\_code y la public\_key del Vendedor (POST /v1/card\_tokens) | 201
+Re-tokenizar con card\_id \+ security\_code y la public\_key del Vendedor (POST /v1/card\_tokens) \| 201
 
-Crear el hold con ese token, capture:false y application\_fee (POST /v1/payments, token del Vendedor) | 201, authorized / pending\_capture (los dos holds se cancelaron: cancelled / by\_collector)
+Crear el hold con ese token, capture:false y application\_fee (POST /v1/payments, token del Vendedor) \| 201, authorized / pending\_capture (los dos holds se cancelaron: cancelled / by\_collector)
 
-Control: re-tokenizar sin CVV y crear el hold | Visa: 500 internal\_error. Mastercard: 400 3031 "security\_code\_id can't be null"
+Control: re-tokenizar sin CVV y crear el hold \| Visa: 500 internal\_error. Mastercard: 400 3031 "security\_code\_id can't be null"
 
 Conclusiones firmes: (1) guardar la tarjeta y pagar con solo el CVV funciona con el hold y el split de ADR-022; (2) pagar sin CVV no es posible, así que el cobro automático sin el emisor (la opción B original de MOVO-12) sigue descartado.
 
@@ -546,9 +548,9 @@ No se verificó: que application\_fee efectivamente se aplique (la consulta post
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** 1. El emisor puede guardar tarjetas y, al pagar, solo re-ingresa el CVV. El CVV nunca se guarda: el mobile lo usa para pedir a MP un token de un solo uso (card\_id + CVV + public\_key correspondiente) y lo manda como hoy a POST /shipments/:id/funding. El contrato de svc-shipments y svc-payments no cambia: ya recibe un cardToken.
+**Decisión tomada:** 1\. El emisor puede guardar tarjetas y, al pagar, solo re-ingresa el CVV. El CVV nunca se guarda: el mobile lo usa para pedir a MP un token de un solo uso (card\_id \+ CVV \+ public\_key correspondiente) y lo manda como hoy a POST /shipments/:id/funding. El contrato de svc-shipments y svc-payments no cambia: ya recibe un cardToken.
 
-2\. Lo que se persiste de la tarjeta es solo customer\_id + card\_id de MP más los metadatos de display (marca, últimos 4, vencimiento y un nombre de referencia opcional que elige el usuario). Nunca el card\_token (de un solo uso, vence a los 7 días) ni número ni CVV.
+2\. Lo que se persiste de la tarjeta es solo customer\_id \+ card\_id de MP más los metadatos de display (marca, últimos 4, vencimiento y un nombre de referencia opcional que elige el usuario). Nunca el card\_token (de un solo uso, vence a los 7 días) ni número ni CVV.
 
 3\. Dueño de la entidad: movo-svc-payments, no svc-users como decía MOVO-100. Es el único servicio que habla con MP (ADR-022) y quien alta/baja la tarjeta tiene que llamar a la API de Customers & Cards; ponerla en svc-users obligaría a svc-users a conocer a MP o a hacer un hop extra por cada operación.
 
@@ -561,55 +563,52 @@ No se verificó: que application\_fee efectivamente se aplique (la consulta post
 
 **Trade-offs:** • Cumplimiento (PCI): no cambia. Número y CVV se capturan y tokenizan en el dispositivo contra MP; el backend nunca los ve. Se suma que se guardan identificadores de MP (customer\_id, card\_id), no datos de tarjeta.
 
-  - El CVV sigue siendo obligatorio en cada pago: sin él MP no crea el hold. El emisor no puede pagar "en segundo plano" y el hold de un retiro lejano sigue requiriendo que abra la app (MOVO-12, DD-021).
-  - Más superficie: pantalla de alta/baja de tarjetas, endpoints y una entidad nueva, a cambio de un pago de un paso (elegir tarjeta + CVV).
-  - Baja de tarjeta: no se puede borrar una tarjeta con un hold vivo asociado a un envío del emisor. Si MP rechaza la baja o hay un hold vivo, la app muestra el motivo.
-  - Tarjetas vencidas o dadas de baja del lado del emisor/banco: la re-tokenización falla y el pago cae al formulario completo (misma pantalla de MOVO-269).
-  - El sandbox no refleja del todo producción en este tema (credenciales live de la app): parte de la validación queda para producción, igual que la homologación del modelo Marketplace (ADR-022).
+* El CVV sigue siendo obligatorio en cada pago: sin él MP no crea el hold. El emisor no puede pagar "en segundo plano" y el hold de un retiro lejano sigue requiriendo que abra la app (MOVO-12, DD-021).  
+* Más superficie: pantalla de alta/baja de tarjetas, endpoints y una entidad nueva, a cambio de un pago de un paso (elegir tarjeta \+ CVV).  
+* Baja de tarjeta: no se puede borrar una tarjeta con un hold vivo asociado a un envío del emisor. Si MP rechaza la baja o hay un hold vivo, la app muestra el motivo.  
+* Tarjetas vencidas o dadas de baja del lado del emisor/banco: la re-tokenización falla y el pago cae al formulario completo (misma pantalla de MOVO-269).  
+* El sandbox no refleja del todo producción en este tema (credenciales live de la app): parte de la validación queda para producción, igual que la homologación del modelo Marketplace (ADR-022).
 
 <span class="dd-etq">Dónde vive la tarjeta</span>
 
 
 Detalle: En la primera prueba el customer y la tarjeta se crearon con el access\_token del Vendedor, es decir en la cuenta del transportista. Eso no sirve para el modelo que se quiere (guardar tarjetas en Ajustes → Pagos y cobros y pedir solo el CVV al aceptar una oferta): en Ajustes no hay transportista, y cada oferta puede venir de uno distinto. La alternativa es guardar la tarjeta en la cuenta de Movo S.A. (un customer por emisor) y derivar de ahí un token por transportista.
 
-Por qué parecía imposible y no lo era. El spike había dado 401 300 "Unauthorized use of live credentials" al crear el customer con la app. La causa no era que Movo S.A. sea una cuenta de prueba, sino que se usaba el token de la app (APP\_USR-…), que MP trata como producción. Pidiendo un token con POST /oauth/token (grant\_type=client\_credentials, test\_token=true) Movo obtiene un token TEST- y puede crear customers (201). Con test\_token=false se reproduce el 300.
+Por qué parecía imposible y no lo era. El spike había dado 401 300 "Unauthorized use of live credentials" al crear el customer con la app. La causa no era que Movo S.A. sea una cuenta de prueba, sino que se usaba el token de la app (APP\_USR-…), que MP trata como producción. Pidiendo un token con POST /oauth/token (grant\_type=client\_credentials, test\_token=true) Movo obtiene un token TEST- y puede crear customers (201). Con test\_token=false se reproduce el 300\.
 
 Verificado el 13/10/2026 (opción A):
 
-Paso | Resultado
+Paso \| Resultado
 
-Token TEST- de Movo S.A. (client\_credentials + test\_token:true) | 200, TEST-
+Token TEST- de Movo S.A. (client\_credentials \+ test\_token:true) \| 200, TEST-
 
-Crear el customer del emisor en la cuenta de Movo | 201
+Crear el customer del emisor en la cuenta de Movo \| 201
 
-Guardar la tarjeta en ese customer (token de la tarjeta generado con una public\_key TEST-) | 201 (visa)
+Guardar la tarjeta en ese customer (token de la tarjeta generado con una public\_key TEST-) \| 201 (visa)
 
-Re-tokenizar con card\_id de la cuenta de Movo + CVV y la public\_key del Vendedor A | 201
+Re-tokenizar con card\_id de la cuenta de Movo \+ CVV y la public\_key del Vendedor A \| 201
 
-Hold con el access\_token del Vendedor A, payer: {type: "customer", id: \<customer de Movo\>}, capture:false + application\_fee | 201, authorized / pending\_capture (cancelado después)
+Hold con el access\_token del Vendedor A, payer: {type: "customer", id: \<customer de Movo\>}, capture:false \+ application\_fee \| 201, authorized / pending\_capture (cancelado después)
 
-Mismo hold con payer: {email} en vez del customer | 400 2002 "Customer not found": el pagador tiene que ser el customer de la tarjeta
+Mismo hold con payer: {email} en vez del customer \| 400 2002 "Customer not found": el pagador tiene que ser el customer de la tarjeta
 
-Re-tokenizar con la public\_key del Vendedor B | 201 (el hold de B no se probó: sin sus credenciales)
+Re-tokenizar con la public\_key del Vendedor B \| 201 (el hold de B no se probó: sin sus credenciales)
 
 Detalles que condicionan la implementación:
 
-  - Tokenizar la tarjeta con el Bearer de Movo (sin public\_key) da 403 G001; hace falta una public\_key TEST- en sandbox. La public\_key APP\_USR- de la app genera un token que el customer TEST- no reconoce (404 card not found). En producción se espera usar la public\_key de Movo.
-  - El payer del hold debe ser { type: "customer", id }, por lo que payerEmail solo no alcanza: hay que guardar el customer\_id por emisor.
+* Tokenizar la tarjeta con el Bearer de Movo (sin public\_key) da 403 G001; hace falta una public\_key TEST- en sandbox. La public\_key APP\_USR- de la app genera un token que el customer TEST- no reconoce (404 card not found). En producción se espera usar la public\_key de Movo.  
+* El payer del hold debe ser { type: "customer", id }, por lo que payerEmail solo no alcanza: hay que guardar el customer\_id por emisor.
 
-|  |  |  |
-| :-: | :-: | :-: |
-| \*\*Opción\*\* | \*\*Cómo funciona\*\* | \*\*Estado\*\* |
-| A. Tarjeta en la cuenta de Movo (un customer por emisor), token por transportista derivado de ella | Ajustes guarda la tarjeta una vez; al aceptar una oferta se pide el token al transportista con card\\\_id + CVV | Validada en sandbox con el Vendedor A. Falta el hold de otro Vendedor (B) y confirmar en producción |
-| B. card\\\_id de la cuenta del Vendedor A con la public\\\_key de B | Una tarjeta guardada en una sola cuenta de transportista | Descartada: A resuelve el problema de raíz |
+| Opción | Cómo funciona | Estado |
+| :---- | :---- | :---- |
+| A. Tarjeta en la cuenta de Movo (un customer por emisor), token por transportista derivado de ella | Ajustes guarda la tarjeta una vez; al aceptar una oferta se pide el token al transportista con card\_id \+ CVV | Validada en sandbox con el Vendedor A. Falta el hold de otro Vendedor (B) y confirmar en producción |
+| B. card\_id de la cuenta del Vendedor A con la public\_key de B | Una tarjeta guardada en una sola cuenta de transportista | Descartada: A resuelve el problema de raíz |
 | C. Tarjeta por transportista | Ingresar la tarjeta completa la primera vez con cada transportista | Validada pero sin valor para el emisor; queda como respaldo si A fallara en producción |
-
-  
 
 <span class="dd-etq">Pasos para cerrar la decisión</span>
 
 
-Detalle: 1. Crear el hold con las credenciales de un segundo Vendedor (B) usando la misma tarjeta guardada en la cuenta de Movo (hoy solo se probó con A; el token de B se emite, falta el hold).
+Detalle: 1\. Crear el hold con las credenciales de un segundo Vendedor (B) usando la misma tarjeta guardada en la cuenta de Movo (hoy solo se probó con A; el token de B se emite, falta el hold).
 
 2\. Repetir el recorrido en producción con una cuenta real y bajo monto: la public\_key y el token de Movo son distintos fuera del sandbox, y la homologación del modelo Marketplace sigue pendiente (ADR-022).
 
@@ -622,9 +621,9 @@ Detalle: 1. Crear el hold con las credenciales de un segundo Vendedor (B) usando
 
 **Referencias:** • docs/payments/adr-022-arquitectura-de-cobro.md (punto 5 y alternativas)
 
-  - docs/payments/mercadopago-spike/SOLUCION-FINAL.md §7
-  - docs/payments/flujo-de-pagos.md §7
-  - Tickets: MOVO-65, MOVO-100, MOVO-101, MOVO-12, MOVO-269, MOVO-37, MOVO-49, MOVO-212
+* docs/payments/mercadopago-spike/SOLUCION-FINAL.md §7  
+* docs/payments/flujo-de-pagos.md §7  
+* Tickets: MOVO-65, MOVO-100, MOVO-101, MOVO-12, MOVO-269, MOVO-37, MOVO-49, MOVO-212
 
 ## DD-041 · Pricing por peso facturable con distancia achatada
 
@@ -633,7 +632,7 @@ Detalle: 1. Crear el hold con las credenciales de un segundo Vendedor (B) usando
 <span class="dd-etq">Contexto</span>
 
 
-**Situación:** demand\_fuel\_routes\_v1 casi no usaba el paquete para cotizar: el peso entraba lineal y barato (\~300 $/kg) y el volumen no entraba. Un televisor de 105 × 65 × 15 cm costaba apenas más que una caja de zapatos, y un cubo de 1 m³ lo mismo que una caja compacta de 10 kg. La distancia ya se había achatado con un hotfix (tramos decrecientes, 10/10/2026) pero esa curva nunca se había documentado ni calibrado contra una referencia.
+**Situación:** demand\_fuel\_routes\_v1 casi no usaba el paquete para cotizar: el peso entraba lineal y barato (\~300 \$/kg) y el volumen no entraba. Un televisor de 105 × 65 × 15 cm costaba apenas más que una caja de zapatos, y un cubo de 1 m³ lo mismo que una caja compacta de 10 kg. La distancia ya se había achatado con un hotfix (tramos decrecientes, 10/10/2026) pero esa curva nunca se había documentado ni calibrado contra una referencia.
 
 Correo Argentino, Andreani, OCA y Mercado Envíos cotizan con el mismo modelo, aunque sus números no sean públicos: peso facturable (máximo entre real y volumétrico, L × A × H / 5000), distancia por zonas, tramos de peso y límites duros de peso y medidas.
 
@@ -667,9 +666,9 @@ Límites duros
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** 1. Método nuevo package\_tapered\_v2 (PriceCalculationMethod, @movo/shared y Python). Los envíos ya creados conservan su precio congelado y su método (demand\_fuel\_routes\_v1 o euclidean\_linear\_v1): nada recalcula un precio persistido (MOVO-82 AC8, MOVO-255).
+**Decisión tomada:** 1\. Método nuevo package\_tapered\_v2 (PriceCalculationMethod, @movo/shared y Python). Los envíos ya creados conservan su precio congelado y su método (demand\_fuel\_routes\_v1 o euclidean\_linear\_v1): nada recalcula un precio persistido (MOVO-82 AC8, MOVO-255).
 
-2\. Peso facturable = máx(peso real, L × A × H / PRICING\_VOLUMETRIC\_DIVISOR), divisor 5000 por default (Correo/Andreani/OCA; Mercado Libre usa 6000). Los primeros PRICING\_WEIGHT\_TIER\_KG (10) se cobran a tarifa llena y el resto al PRICING\_WEIGHT\_TIER\_RATE (35%): sin ese tramo, el cubo de 1 m³ que admiten los límites (200 kg volumétricos) cotizaba \~$135.000 a cualquier destino.
+2\. Peso facturable \= máx(peso real, L × A × H / PRICING\_VOLUMETRIC\_DIVISOR), divisor 5000 por default (Correo/Andreani/OCA; Mercado Libre usa 6000). Los primeros PRICING\_WEIGHT\_TIER\_KG (10) se cobran a tarifa llena y el resto al PRICING\_WEIGHT\_TIER\_RATE (35%): sin ese tramo, el cubo de 1 m³ que admiten los límites (200 kg volumétricos) cotizaba \~\$135.000 a cualquier destino.
 
 3\. Distancia: se conservan los tramos de km del hotfix (primeros 30 km al 100%, hasta 300 km al 20%, el resto al 1,5%), ahora formalizados y calibrados.
 
@@ -684,20 +683,19 @@ Límites duros
 <span class="dd-etq">Consecuencias</span>
 
 
-**Trade-offs:** • El documento a larga distancia sigue siendo caro (\~$15.500 a 1.500 km, más que 1 kg por Correo): su precio es casi todo distancia y una base menor no alcanza. Corregirlo exigiría una tarifa por km por categoría; queda para recalibrar con datos reales.
+**Trade-offs:** • El documento a larga distancia sigue siendo caro (\~\$15.500 a 1.500 km, más que 1 kg por Correo): su precio es casi todo distancia y una base menor no alcanza. Corregirlo exigiría una tarifa por km por categoría; queda para recalibrar con datos reales.
 
-  - La caja de zapatos a CABA queda en 0,99× del Correo, al borde del techo de la banda. Con la distancia real de Google (menor que la del mock de la grilla) el cociente baja, pero cualquier recalibración tiene que volver a pasar los golden tests.
-  - La banda solo cubre standard\_package de hasta 10 kg facturables en rutas de 200 km o más: el Correo no publica tramos mayores ni sirve de referencia para envíos urbanos (ahí la competencia es la mensajería en moto). El resto queda cubierto solo por las propiedades de forma: monotonía en distancia y peso facturable, y concavidad en distancia.
-  - Las medidas siguen siendo las que declara el emisor: quien subdeclara paga menos. No hay verificación más allá de las fotos del retiro.
-  - Los límites se configuran en dos servicios: si se recalibran, hay que cambiarlos en los dos (y el mobile replica 150 cm por lado y 300 cm de suma para el aviso en línea; el 422 del backend sigue siendo la fuente de verdad).
+* La caja de zapatos a CABA queda en 0,99× del Correo, al borde del techo de la banda. Con la distancia real de Google (menor que la del mock de la grilla) el cociente baja, pero cualquier recalibración tiene que volver a pasar los golden tests.  
+* La banda solo cubre standard\_package de hasta 10 kg facturables en rutas de 200 km o más: el Correo no publica tramos mayores ni sirve de referencia para envíos urbanos (ahí la competencia es la mensajería en moto). El resto queda cubierto solo por las propiedades de forma: monotonía en distancia y peso facturable, y concavidad en distancia.  
+* Las medidas siguen siendo las que declara el emisor: quien subdeclara paga menos. No hay verificación más allá de las fotos del retiro.  
+* Los límites se configuran en dos servicios: si se recalibran, hay que cambiarlos en los dos (y el mobile replica 150 cm por lado y 300 cm de suma para el aviso en línea; el 422 del backend sigue siendo la fuente de verdad).
 
 **Referencias:** MOVO-276, MOVO-138/ADR-021, MOVO-216 (spike), MOVO-219 (desvío marginal), MOVO-255/DD-028 (cotización congelada), MOVO-82/DD-018.
 
 ## DD-042 · Viajes recurrentes: recurrencia como atributo del Trip con generación de la siguiente ocurrencia
 
 <p class="adr-cab"><span class="chip lime">Aceptado</span> (MOVO-264, spike)</p>
-
-Implementación en MOVO-265 (svc-shipments) y MOVO-266 (movo-mobile). El ticket reservaba DD-029 (lo tomó MOVO-260) y después DD-041 (lo tomó MOVO-276), así que queda 042.
+Implementación en MOVO-265 (svc-shipments) y MOVO-266 (movo-mobile). El ticket reservaba DD-029 (lo tomó MOVO-260) y después DD-041 (lo tomó MOVO-276), así que queda 042\.
 
 <span class="dd-etq">Contexto</span>
 
@@ -707,14 +705,14 @@ El PO pide viajes recurrentes (“todos los viernes viajo a Villa María”). Ho
 <span class="dd-etq">Alternativas consideradas</span>
 
 
-Entidad TripSchedule + job que materializa trips con N días de anticipación. Cubre más casos (por ejemplo, matchear paquetes de dentro de dos semanas), pero suma una entidad, un job nuevo y el problema de “editar la serie o solo esta ocurrencia”. Para el alcance del TFG no compensa.
+Entidad TripSchedule \+ job que materializa trips con N días de anticipación. Cubre más casos (por ejemplo, matchear paquetes de dentro de dos semanas), pero suma una entidad, un job nuevo y el problema de “editar la serie o solo esta ocurrencia”. Para el alcance del TFG no compensa.
 
 <span class="dd-etq">Decisión</span>
 
 
-1\. Un trip por ocurrencia, generados de a uno. La recurrencia es un atributo del propio Trip : recurrenceWeekdays ( int\[\] , valores 0-6, nullable = no recurrente), recurrenceUntil ( date , nullable, inclusive, interpretada en America/Argentina/Cordoba ) y seriesId ( uuid ; el primer trip de la serie usa su propio id). Cuando pasa el departureAt del trip vigente, el sistema genera solo la ocurrencia siguiente como un Trip común en declared . La genera sin importar cómo termine el vigente ( declared todavía sin vencer, active , expired , cancelled , completed ).
+1\. Un trip por ocurrencia, generados de a uno. La recurrencia es un atributo del propio Trip : recurrenceWeekdays ( int\[\] , valores 0-6, nullable \= no recurrente), recurrenceUntil ( date , nullable, inclusive, interpretada en America/Argentina/Cordoba ) y seriesId ( uuid ; el primer trip de la serie usa su propio id). Cuando pasa el departureAt del trip vigente, el sistema genera solo la ocurrencia siguiente como un Trip común en declared . La genera sin importar cómo termine el vigente ( declared todavía sin vencer, active , expired , cancelled , completed ).
 
-2\. Convención de días: 0 = domingo … 6 = sábado , como getDay() de JS y EXTRACT(DOW) de Postgres. Se fija como constante documentada en @movo/shared . El mobile ordena los chips arrancando en lunes, pero el mapeo nunca depende de la posición.
+2\. Convención de días: 0 \= domingo … 6 \= sábado , como getDay() de JS y EXTRACT(DOW) de Postgres. Se fija como constante documentada en @movo/shared . El mobile ordena los chips arrancando en lunes, pero el mapeo nunca depende de la posición.
 
 3\. Trip vigente e idempotencia por sucesor. El trip generado guarda generatedFromTripId ( uuid , FK a Trip , UNIQUE ): cada trip tiene a lo sumo un sucesor. El “trip vigente” de una serie es el que nadie referencia. Se descartó el índice único parcial “un solo trip no terminal por seriesId ”: cuando el vigente pasa a active y se genera el siguiente en declared , los dos son legítimos a la vez. El insert usa ON CONFLICT DO NOTHING , así que una segunda corrida del barrido o dos instancias en paralelo no duplican, y no hace falta un nextGeneratedAt . Como el candidato se lee antes de dos llamadas HTTP por serie, el insert bloquea la fila origen ( FOR UPDATE ), la relee como cabeza de una serie activa y copia los datos de esa fila: un PATCH / cancel con stopRecurrence que llegó en el medio gana y no se genera nada (review de PR \#246). La API expone isSeriesHead para que el mobile no tenga que reconstruir la cadena.
 
@@ -724,11 +722,11 @@ Entidad TripSchedule + job que materializa trips con N días de anticipación. C
 
 6\. Editar. La recurrencia solo se edita en el trip vigente (en otro trip de la serie responde 409 TRIP\_NOT\_SERIES\_HEAD ). Editar el vigente (ruta, hora, días) define el patrón de las ocurrencias siguientes: no hay una edición “de la serie” aparte. Un viaje con paquetes aceptados no se edita (409 TRIP\_HAS\_ACCEPTED\_PACKAGES ), tampoco su recurrencia: si el transportista quiere otro patrón, declara un viaje nuevo. La única excepción es apagar la recurrencia ( recurrenceWeekdays: null , con o sin recurrenceUntil: null ), que no cambia ese viaje concreto y es la única forma de cortar una serie cuyo vigente ya tiene paquetes (review de PR \#246: la primera versión dejaba pasar cualquier PATCH de solo recurrencia, y entonces cambiar los días de un vigente ya active chocaba con la regla del día de salida de abajo, pensada para un viaje que todavía se puede editar). Validaciones: al menos un día, sin repetidos; el día de semana de departureAt (huso Córdoba) tiene que estar en recurrenceWeekdays ; recurrenceUntil tiene que ser posterior a la fecha de departureAt . Prender o cambiar la recurrencia exige que el viaje esté declared o active (409 TRIP\_NOT\_EDITABLE si ya terminó: un expired / cancelled / completed sin sucesor sería candidato del barrido y se declararía uno nuevo desde el historial). Un trip auto-creado por MOVO-234 se puede volver recurrente con PATCH , como cualquier otro.
 
-7\. Cancelar la ocurrencia o cortar la serie. POST /trips/:id/cancel (MOVO-260) suma { stopRecurrence?: boolean } . Sin el flag cancela solo la ocurrencia, y la siguiente se genera igual cuando pasa su departureAt . Con true también apaga la recurrencia, en la misma transacción. Sobre un trip no recurrente o que no es vigente, el flag se ignora. El cancel sigue limitado a viajes declared sin paquetes aceptados ( TRIP\_NOT\_DECLARED / TRIP\_HAS\_ACCEPTED\_PACKAGES ), así que la elección “solo este / este y dejar de repetir” del mobile solo aparece ahí. Para cortar una serie cuyo vigente ya tiene paquetes, está “Dejar de repetir” (el PATCH que la apaga, única excepción del punto 6). Apagar la recurrencia ( recurrenceWeekdays = null ) conserva seriesId como histórico.
+7\. Cancelar la ocurrencia o cortar la serie. POST /trips/:id/cancel (MOVO-260) suma { stopRecurrence?: boolean } . Sin el flag cancela solo la ocurrencia, y la siguiente se genera igual cuando pasa su departureAt . Con true también apaga la recurrencia, en la misma transacción. Sobre un trip no recurrente o que no es vigente, el flag se ignora. El cancel sigue limitado a viajes declared sin paquetes aceptados ( TRIP\_NOT\_DECLARED / TRIP\_HAS\_ACCEPTED\_PACKAGES ), así que la elección “solo este / este y dejar de repetir” del mobile solo aparece ahí. Para cortar una serie cuyo vigente ya tiene paquetes, está “Dejar de repetir” (el PATCH que la apaga, única excepción del punto 6). Apagar la recurrencia ( recurrenceWeekdays \= null ) conserva seriesId como histórico.
 
-8\. Cortes automáticos (siempre recurrenceWeekdays = null en el vigente + push):
+8\. Cortes automáticos (siempre recurrenceWeekdays \= null en el vigente \+ push):
 
-  - Serie fantasma: si las últimas 3 ocurrencias consecutivas de la cadena ( generatedFromTripId ) terminaron expired , no se genera la siguiente. Cuenta cualquier expired , sea un declared vencido o un active que se quedó sin paquetes: las dos rutas significan “el viaje no llevó nada” y no hay un startedAt que permita distinguirlas. Una cancelled por el usuario no cuenta y corta la racha.
+* Serie fantasma: si las últimas 3 ocurrencias consecutivas de la cadena ( generatedFromTripId ) terminaron expired , no se genera la siguiente. Cuenta cualquier expired , sea un declared vencido o un active que se quedó sin paquetes: las dos rutas significan “el viaje no llevó nada” y no hay un startedAt que permita distinguirlas. Una cancelled por el usuario no cuenta y corta la racha.
 
 El resto de esta decisión (los demás cortes automáticos, la alternativa descartada y las consecuencias completas) está en el repositorio: docs/shipments/dd-042-viajes-recurrentes.md.
 
@@ -746,7 +744,7 @@ Trade-off aceptado: Solo existe la próxima ocurrencia, así que no se matchean 
 <span class="dd-etq">Consecuencias</span>
 
 
-Trade-off aceptado: Es una excepción acotada a la rotación estricta, pensada para solicitudes concurrentes de Next. Queda pendiente de aceptación en Sprint 0.
+Trade-off aceptado: Es una excepción acotada a la rotación estricta, pensada para solicitudes concurrentes de Next. Queda pendiente de aceptación en Sprint 0\.
 
 Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisiones/README.md); texto completo en docs/auth/dd-043-refresh-idempotente-panel.md.
 
@@ -757,7 +755,7 @@ Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisio
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** Cuenta corriente por usuario (no por rol), en payments.user\_ledger\_entries, con saldo con signo (positivo = debe, negativo = a favor); el saldo es la suma de lo que no está voided. Es de solo inserción, impuesta por triggers (de un UPDATE solo pasa status), e idempotente por idempotencyKey más el hash del cuerpo. Incluye oldestUnpaidAt para el bloqueo por deuda (MOVO-313). Es la base de las penalidades (MOVO-226) y de la comisión en efectivo (MOVO-37).
+**Decisión tomada:** Cuenta corriente por usuario (no por rol), en payments.user\_ledger\_entries, con saldo con signo (positivo \= debe, negativo \= a favor); el saldo es la suma de lo que no está voided. Es de solo inserción, impuesta por triggers (de un UPDATE solo pasa status), e idempotente por idempotencyKey más el hash del cuerpo. Incluye oldestUnpaidAt para el bloqueo por deuda (MOVO-313). Es la base de las penalidades (MOVO-226) y de la comisión en efectivo (MOVO-37).
 
 <span class="dd-etq">Consecuencias</span>
 
@@ -853,12 +851,12 @@ Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisio
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** Complementa ADR-022. MP\_HOLD\_VALIDITY\_DAYS = 5 (el mínimo documentado por MP; el sandbox no venció dos holds en unas 188 h, así que la medición no permite subirlo) y FUNDING\_NEAR\_PICKUP\_DAYS = 3, de modo que N + tránsito máximo no supere el plazo del hold (2 días entre retiro y vencimiento, uno de tránsito y uno de margen). Ambos valores son configuración.
+**Decisión tomada:** Complementa ADR-022. MP\_HOLD\_VALIDITY\_DAYS \= 5 (el mínimo documentado por MP; el sandbox no venció dos holds en unas 188 h, así que la medición no permite subirlo) y FUNDING\_NEAR\_PICKUP\_DAYS \= 3, de modo que N \+ tránsito máximo no supere el plazo del hold (2 días entre retiro y vencimiento, uno de tránsito y uno de margen). Ambos valores son configuración.
 
 <span class="dd-etq">Consecuencias</span>
 
 
-Trade-off aceptado: El plazo no está confirmado en producción ni por banco emisor, y solo se midió Visa crédito. El status\_detail de un hold vencido que asume MOVO-268 sigue sin confirmarse. Con N = 3, más envíos van por la ruta lejana.
+Trade-off aceptado: El plazo no está confirmado en producción ni por banco emisor, y solo se midió Visa crédito. El status\_detail de un hold vencido que asume MOVO-268 sigue sin confirmarse. Con N \= 3, más envíos van por la ruta lejana.
 
 Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisiones/README.md); texto completo en docs/payments/dd-050-plazo-del-hold.md.
 
@@ -869,7 +867,7 @@ Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisio
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** Las consultas de soporte viven en movo-svc-shipments (support\_conversations, support\_messages, support\_participant\_states) y reusan el ChatHub con otra clave de sala (support:\<id\>), el handshake WS, el filtro de lenguaje y la push de DD-046 (con categoría propia support). Las notas internas del equipo no llegan al usuario por ningún camino: un único punto (toUserFacingMessage) arma lo que ve y la consulta usa una lista blanca de kind. Escribir sobre una conversación resolved la reabre; un envío ajeno es 422 SUPPORT\_SHIPMENT\_NOT\_PARTY y una consulta ajena es 404. No hay borrado ni archivo al resolver.
+**Decisión tomada:** Las consultas de soporte viven en movo-svc-shipments (support\_conversations, support\_messages, support\_participant\_states) y reusan el ChatHub con otra clave de sala (support:\<id\>), el handshake WS, el filtro de lenguaje y la push de DD-046 (con categoría propia support). Las notas internas del equipo no llegan al usuario por ningún camino: un único punto (toUserFacingMessage) arma lo que ve y la consulta usa una lista blanca de kind. Escribir sobre una conversación resolved la reabre; un envío ajeno es 422 SUPPORT\_SHIPMENT\_NOT\_PARTY y una consulta ajena es 404\. No hay borrado ni archivo al resolver.
 
 <span class="dd-etq">Consecuencias</span>
 
@@ -901,7 +899,7 @@ Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisio
 <span class="dd-etq">Decisión</span>
 
 
-**Decisión tomada:** Ajusta el insumo de ADR-021 (DD-041 no cambia el recargo): countAvailableCarriersNear cuenta solo viajes declared, porque un viaje active ya no toma paquetes (DD-032). El umbral ((publicados + 1) / transportistas ≥ 3, mínimo 4) queda igual, y v2 aplica el mismo multiplicador sobre su subtotal.
+**Decisión tomada:** Ajusta el insumo de ADR-021 (DD-041 no cambia el recargo): countAvailableCarriersNear cuenta solo viajes declared, porque un viaje active ya no toma paquetes (DD-032). El umbral ((publicados \+ 1\) / transportistas ≥ 3, mínimo 4\) queda igual, y v2 aplica el mismo multiplicador sobre su subtotal.
 
 <span class="dd-etq">Consecuencias</span>
 
@@ -941,3 +939,51 @@ Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisio
 Trade-off aceptado: Un envío in\_transit o disputed trabado sigue sin salida por el panel (el primero necesita una decisión sobre evidencia, el segundo es MOVO-34). Los avisos críticos saltan las preferencias del usuario.
 
 Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisiones/README.md); texto completo en docs/shipments/dd-055-cambio-forzado-de-estado.md.
+
+## DD-056 · Resolución de disputas: matriz de pago, estado final y reembolsos
+
+<p class="adr-cab"><span class="chip lime">Propuesto</span> (MOVO-337)</p>
+
+<span class="dd-etq">Decisión</span>
+
+
+**Decisión tomada:** Complementa DD-021, DD-044, DD-052 y DD-054 sin modificarlos. La acción de pago depende del estado en que se abrió la disputa: en assigned (sin hold) no se mueve plata o se acredita el neto en la cuenta corriente del transportista; en in\_transit se libera el hold o se captura total o parcialmente; en delivered o completed se reembolsa total o parcialmente (MOVO-336, que cae a la cuenta corriente del transportista si no tiene saldo) o no se hace nada. El estado final no suma estados nuevos: cancelled si gana el emisor y completed si gana el transportista o la resolución es parcial, con las aristas disputed → completed y disputed → cancelled, que solo usa la resolución. Una resolución parcial lleva un porcentaje de DISPUTE\_PARTIAL\_PRESETS (25/50/75) o un monto libre, que es lo que conserva el transportista; la captura parcial no puede quedar por debajo de la comisión del hold más la de Mercado Pago (422 con el mínimo, validado en svc-admin). La resolución es idempotente en tres pasos (open → resolving → resolved): si la acción de pago falla, la disputa queda en resolving, con alerta y el transportista bloqueado, y se reintenta con los mismos datos. El push dispute\_resolved va sin montos; califica el ganador (en una parcial, las dos partes) y el no-retiro atribuido lo califica el emisor, sin penalización automática.
+
+<span class="dd-etq">Consecuencias</span>
+
+
+Trade-off aceptado: Un reembolso que cae a la cuenta corriente (fallback\_to\_ledger) deja al emisor sin cobrar hasta que el equipo lo resuelva a mano. El crédito en assigned es saldo a favor en la cuenta corriente, no dinero, y un envío delivered cuyo cobro todavía no se acreditó no se puede resolver hasta que se acredite (422 SETTLEMENT\_NOT\_REFUNDABLE).
+
+Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisiones/README.md); texto completo en docs/shipments/dd-056-resolucion-de-disputas.md.
+
+## DD-057 · Plazo de pago extendido ante una falla del proveedor
+
+<p class="adr-cab"><span class="chip lime">Propuesto</span> (MOVO-346)</p>
+
+<span class="dd-etq">Decisión</span>
+
+
+**Decisión tomada:** Complementa DD-037 y DD-050 sin modificarlos. En la ruta cercana, un POST /funding que termina en 502 PAYMENT\_PROVIDER\_ERROR o 502 PAYMENTS\_SERVICE\_UNAVAILABLE, o con un hold que Mercado Pago no resolvió (creating o in\_process), extiende el plazo de assignment\_pending hasta la hora del intento más 15 minutos (FUNDING\_PROVIDER\_EXTENSION\_MINUTES), hasta 2 veces por asignación (FUNDING\_PROVIDER\_MAX\_EXTENSIONS) y nunca más allá del cierre de la ventana de retiro. Solo alarga el plazo, nunca lo acorta, y un rechazo de tarjeta no lo extiende. Se persiste en shipments.funding\_deadline\_extended\_until y funding\_deadline\_extensions, que se limpian en cada aceptación, y lo lee fundingPayUntil, la misma función que usan el barrido, GET y POST /funding y el panel. Motivo: en la prueba del 25/10 una caída de Mercado Pago revirtió la asignación y obligó a repetir la oferta y la aceptación.
+
+<span class="dd-etq">Consecuencias</span>
+
+
+Trade-off aceptado: Una caída larga del proveedor igual termina en reversión (30 \+ 2 × 15 minutos en el peor caso), y el transportista queda reservado hasta 30 minutos más sin pago. La ruta lejana no se extiende: su plazo es T-24 h, con margen de sobra.
+
+Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisiones/README.md).
+
+## DD-058 · Bandejas y plazos de la home del panel
+
+<p class="adr-cab"><span class="chip lime">Aceptado</span> (MOVO-342)</p>
+
+<span class="dd-etq">Decisión</span>
+
+
+**Decisión tomada:** Complementa ADR-025. La home del panel muestra ocho bandejas, cada una con su plazo en OVERVIEW\_SLA\_HOURS de @movo/shared: disputas open, 72 h; soporte open (le toca responder al equipo), 30 minutos desde el último mensaje del usuario; KYC pending o manual\_review (último intento de cada verificación de una cuenta viva), 24 h; reportes de usuarios pending, 24 h; envíos en alerta (la regla de isAdminShipmentAlert), 1 h; pagos (holds autorizados que vencen hoy y capturas failed o escalated), 6 h; mensajes señalados, 12 h; sanciones que vencen hoy, sin plazo. Una bandeja está fuera de plazo si su elemento más viejo pasó esas horas, salvo pagos, donde lo decide svc-payments: un hold se pasa cuando le quedan menos de 6 h, no por antigüedad. El valor de "ayer" se reconstruye con fechas en disputas, KYC, mensajes y sanciones; en soporte, alertas, reportes y pagos va en null, porque esas tablas no guardan el historial de estados. Los plazos los propuso MOVO-345 y el equipo los confirmó el 01/11/2026.
+
+<span class="dd-etq">Consecuencias</span>
+
+
+Trade-off aceptado: Los mensajes señalados no tienen estado de revisión (ni ChatMessage.moderated ni ChatReport se pueden marcar como vistos), así que esa bandeja es una ventana móvil de 7 días y no una cola real: nunca se vacía por atenderla, y con un mensaje de más de 12 h queda fuera de plazo hasta que salga de la ventana. El valor de "ayer" en disputas no distingue open de resolving, y en KYC mira solo el último intento. Una sesión de Didit abandonada cuenta como pending en KYC hasta que el usuario reintente.
+
+Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisiones/README.md).

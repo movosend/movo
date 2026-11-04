@@ -126,6 +126,54 @@ def sin_rayas_largas(html: str) -> str:
     return html
 
 
+def proteger_tickets(soup, cuerpo) -> None:
+    """Un número de ticket (MOVO-123) nunca se parte: ni al medio ni después del guion.
+
+    Se marca cada aparición con la clase `tk` (sin cortes de línea) y, en las tablas de ancho fijo, se garantiza a
+    las columnas que lo contienen el ancho que necesitan, quitándoselo a la columna más ancha.
+    """
+    patron = re.compile(r"MOVO-\d+")
+    for code in cuerpo.find_all("code"):
+        if patron.fullmatch(code.get_text(strip=True)):
+            code["class"] = code.get("class", []) + ["tk"]
+    for nodo in list(cuerpo.find_all(string=patron)):
+        if nodo.find_parent(["code", "script", "style"]) or nodo.parent.name == "span" and "tk" in nodo.parent.get("class", []):
+            continue
+        partes, ultimo = [], 0
+        for m in patron.finditer(str(nodo)):
+            partes.append(str(nodo)[ultimo:m.start()])
+            sp = soup.new_tag("span", attrs={"class": "tk"})
+            sp.string = m.group(0)
+            partes.append(sp)
+            ultimo = m.end()
+        partes.append(str(nodo)[ultimo:])
+        nodo.replace_with(*[p for p in partes if p != ""])
+    MINIMO = 12.0  # % del ancho: alcanza para MOVO-999 en el cuerpo de tabla
+    for tabla in cuerpo.find_all("table"):
+        cg = tabla.find("colgroup")
+        cols = cg.find_all("col") if cg else []
+        if not cols:
+            continue
+        anchos = []
+        for c in cols:
+            m = re.search(r"width:\s*([\d.]+)%", c.get("style", ""))
+            anchos.append(float(m.group(1)) if m else None)
+        if any(a is None for a in anchos):
+            continue
+        filas = [tr.find_all(["td", "th"], recursive=False) for tr in tabla.find_all("tr")]
+        for j in range(len(cols)):
+            celdas = [f[j].get_text(strip=True) for f in filas if len(f) == len(cols) and f[j].get_text(strip=True)]
+            tickets = [t for t in celdas if re.fullmatch(r"MOVO-\d+(\s*[,y/]\s*MOVO-\d+)*", t)]
+            if celdas and len(tickets) >= 0.5 * len(celdas) and anchos[j] < MINIMO:
+                falta = MINIMO - anchos[j]
+                mayor = max(range(len(cols)), key=lambda k: anchos[k])
+                if anchos[mayor] - falta >= 20:
+                    anchos[mayor] -= falta
+                    anchos[j] = MINIMO
+        for c, a in zip(cols, anchos):
+            c["style"] = re.sub(r"width:\s*[\d.]+%", f"width: {a:.1f}%", c.get("style", ""))
+
+
 def numerar(doc: dict, html: str, figuras: list, tablas: list) -> tuple[str, list]:
     """Numera secciones, figuras y tablas del documento y arma su lista de secciones."""
     soup = BeautifulSoup(html, "lxml")
@@ -222,6 +270,7 @@ def numerar(doc: dict, html: str, figuras: list, tablas: list) -> tuple[str, lis
         tabla["id"] = tabla.get("id") or f"{doc['id']}-tab-{nt}"
         tablas.append({"numero": numero, "titulo": titulo, "ancla": tabla["id"]})
 
+    proteger_tickets(soup, cuerpo)
     salida = "".join(str(c) for c in cuerpo.contents)
     return salida, secciones
 

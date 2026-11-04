@@ -7,7 +7,7 @@ fecha: 02/11/2026
 archivos: [01-resumen.md, 02-sprint-0.html, 03-sprint-1.html, 04-sprint-2.html, 05-sprint-3.html, 06-sprint-4.html, 07-sprint-5.html, 08-sprint-6.html, 09-sprint-7.html, 10-sprint-8.md]
 indice_nivel_3: true
 historial:
-  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Compilación de los Informes de los Sprints 0 a 7 (redactados al cierre de cada sprint por el Scrum Master correspondiente) y del estado del Sprint 8 en curso."}
+  - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Compilación de los Informes de los Sprints 0 a 8, redactados al cierre de cada sprint (el del Sprint 8, por Alena Ariza)."}
 introduccion: |
   Los Informes de Sprint registran qué planificó el equipo en cada sprint, qué logró, qué
   aprendió y cómo va a mejorar. Son el insumo principal para evaluar el *proceso* de desarrollo

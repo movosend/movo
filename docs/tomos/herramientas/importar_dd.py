@@ -32,7 +32,7 @@ def main(ruta: str) -> None:
         "Cada decisión lleva el prefijo **DD** y conserva el número que tenía cuando se registró como ADR, para que las "
         "referencias existentes en el código, en los tickets y en los demás documentos sigan siendo válidas: un «ADR» anterior "
         "con uno de estos números se lee como DD con el mismo número. Los ADR vigentes están en el documento de Arquitectura "
-        "del Sistema y se numeran del 001 al 023.\n"
+        "del Sistema y se numeran del 001 al 025.\n"
     )
     out.append("## Índice de decisiones de diseño\n")
     out.append("| DD | Decisión |\n|--------|------------------------------------------------------------|")

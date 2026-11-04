@@ -5,9 +5,9 @@ from pathlib import Path
 
 INK, INK6, INK4, INK2, INK1, LIME = "#0A0A0B", "#3A3A40", "#8A8A93", "#D9D9DE", "#F1F1F3", "#C6F24A"
 FONT = "Inter, sans-serif"
-# (sprint, SP completados, en curso)  ·  Serie del Informe del Sprint 7; Sprint 1 según el Informe del Sprint 2.
+# (sprint, SP completados, en curso)  ·  Serie de los Informes de Sprint (Sprint 8 según su informe); Sprint 1 según el Informe del Sprint 2.
 DATOS = [("Sprint 1", 22, False), ("Sprint 2", 95, False), ("Sprint 3", 121, False), ("Sprint 4", 106, False),
-         ("Sprint 5", 80, False), ("Sprint 6", 135, False), ("Sprint 7", 150, False), ("Sprint 8", 82, True)]
+         ("Sprint 5", 80, False), ("Sprint 6", 135, False), ("Sprint 7", 150, False), ("Sprint 8", 160, False)]
 
 
 def main() -> None:

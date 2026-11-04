@@ -74,6 +74,8 @@ El índice de figuras y de tablas se omite (`indices_figuras_tablas: false`); la
 ## Estado de la entrega (cierre del Sprint 8)
 
 - Los tres tomos compilan: `python3 docs/tomos/build.py [tomo-1|tomo-2|tomo-3]`. Salida en `salida/` (ignorada por Git).
+- Estado de las historias: exportar el CSV de Linear y correr `python3 herramientas/importar_linear.py export.csv`; actualiza estado, ciclo, estimación, responsable y sub-issues de `datos/historias.json` y conserva los criterios de aceptación ya redactados.
+- Registros de decisiones: re-exportar de Drive "[Movo] 004 - Sprint 0" (HTML) y "[Movo] 011-Registro de Decisiones de Diseño" (Markdown) y correr `herramientas/importar_adr.py` y `herramientas/importar_dd.py`; el Tomo II y los conteos del Tomo I tienen que coincidir con esos documentos.
 - Resultados de pruebas: ejecutar las suites con reporter JSON/JUnit y consolidar con `herramientas/ingerir_resultados.py paquete=ruta ...`.
 - Manual de Usuario: las capturas son marcos pendientes; al guardar `assets/capturas/M-NN.png` (o `W-NN.png`) el build las incluye solas.
 - Pendientes de contenido: fechas de hitos por confirmar.
