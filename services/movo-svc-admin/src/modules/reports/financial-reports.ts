@@ -93,7 +93,7 @@ export function cashflowReport(
     count: pending.length,
     amountArs: reportRound(sumOf(pending.map((fact) => payments.get(fact.shipmentId)?.capturedArs ?? fact.agreedPriceArs ?? 0))),
   };
-  return { ...body, breakdowns: [bandBreakdown(facts, range, "gmv", gmvOf, reportRound(gmvOf(completedIn(facts, previousReportRange(range)))))], pendingCapture };
+  return { ...body, breakdowns: [bandBreakdown(facts, range, "gmv", gmvOf)], pendingCapture };
 }
 
 function bandBreakdown(
@@ -101,15 +101,17 @@ function bandBreakdown(
   range: ReportRange,
   metric: "gmv" | "completed",
   valueOf: (rows: readonly ShipmentReportFact[]) => number,
-  previousTotal: number,
 ): ReportBreakdown {
   const previous = previousReportRange(range);
   const inBand = (band: DistanceBand, period: ReportRange) => completedIn(facts, period).filter((fact) => fact.band === band);
-  const total = reportRound(valueOf(completedIn(facts, range)));
+  // El total son los envíos con tramo: uno sin distancia guardada (`band` null) no tiene fila, y si entrara en el total las
+  // filas no sumarían ni el 100 %. Los KPI del reporte sí lo cuentan.
+  const banded = (period: ReportRange) => DISTANCE_BANDS.flatMap((band) => inBand(band, period));
+  const total = reportRound(valueOf(banded(range)));
   return {
     dimension: "band",
     metric,
-    total: { value: total, previous: previousTotal },
+    total: { value: total, previous: reportRound(valueOf(banded(previous))) },
     rows: DISTANCE_BANDS.map((key) => {
       const rows = inBand(key, range);
       const value = reportRound(valueOf(rows));
@@ -396,10 +398,9 @@ export function pricingReport(
   const buckets = reportBuckets(range);
   body.series.priceIndex = buckets.map((bucket) => ({ start: bucket.from, end: bucket.to, ...indexOf(bucket, bucket.previous) }));
 
-  const previousTotal = completedIn(facts, previousReportRange(range)).length;
   return {
     ...body,
-    breakdowns: [bandBreakdown(facts, range, "completed", (rows) => rows.length, previousTotal)],
+    breakdowns: [bandBreakdown(facts, range, "completed", (rows) => rows.length)],
     bridge: gmvBridge(facts, range),
     leakage: captureLeakage(facts, payments, range)?.leakage ?? null,
   };

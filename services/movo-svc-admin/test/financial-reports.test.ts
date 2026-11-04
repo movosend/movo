@@ -308,6 +308,20 @@ describe("Precio y volumen — MOVO-35", () => {
     expect(report.series.priceIndex).toHaveLength(2);
   });
 
+  it("el desglose por tramo no cuenta en el total un envío sin tramo, así las filas suman el total", () => {
+    const report = pricingReport(
+      [fact({ firstCompletedAt: BEFORE, publishedAt: BEFORE, band: null }), fact({ band: "50_200" }), fact({ band: "200_500" }), fact({ band: null })],
+      byId([]),
+      RANGE,
+      NOW,
+    );
+    const breakdown = report.breakdowns[0];
+
+    expect(breakdown?.total).toEqual({ value: 2, previous: 0 });
+    expect(breakdown?.rows.reduce((sum, row) => sum + row.value, 0)).toBe(breakdown?.total.value);
+    expect(breakdown?.rows.reduce((sum, row) => sum + (row.share ?? 0), 0)).toBeCloseTo(100, 1);
+  });
+
   it("sin período anterior no hay índice", () => {
     expect(pricingReport([fact()], byId([]), RANGE, NOW).kpis.priceIndex).toEqual({ value: null, previous: null });
   });
