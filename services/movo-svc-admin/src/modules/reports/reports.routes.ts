@@ -53,7 +53,7 @@ const REPORT_DESCRIPTIONS: Readonly<Record<AdminReportId, string>> = {
   pricing:
     "MOVO-35: `bridge` explica el GMV de completados contra el período anterior. `leakage` va por fecha de publicación, así que no coincide con el GMV de Cashflow. Sin desglose guardado, el efecto precio cae en `other`.",
   deliveries:
-    "MOVO-35: por fecha de entrega. `onTimeRate` y `lateCount` miden contra la franja estimada; un envío sin franja no entra. `delayReason` se deriva con la regla de DD-059.",
+    "MOVO-35: por fecha de entrega. `onTimeRate` y `lateCount` miden contra la franja estimada; un envío sin franja vence al terminar el día estimado, y uno sin fecha estimada no entra. `delayReason` se deriva con la regla de DD-059.",
   carriers:
     "MOVO-35: por fecha de publicación. `activeCarriers` es el promedio diario con viaje u oferta; con `band`, las ofertas a envíos de ese tramo y los viajes cuya ruta cae en él. Un transportista puede contar en más de un tramo, así que los tramos no suman el total.",
   distances: "MOVO-35: por fecha de publicación. `corridors` trae los 20 con más envíos; `scorecard` siempre trae los tres tramos e ignora `band`.",

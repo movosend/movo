@@ -25,6 +25,8 @@ interface Options {
   deliveryCity?: string;
   agreedPriceArs?: number;
   estimatedDeliveryDate?: string;
+  /** Fecha estimada sin franja horaria: vence al terminar el día. */
+  noDeliveryWindow?: boolean;
   deliveredAt?: Date;
   anomaly?: boolean;
   published?: Date;
@@ -97,7 +99,7 @@ describe("reportes de Métricas (Postgres) — MOVO-35", () => {
         status: options.deliveredAt ? ShipmentStatus.DELIVERED : ShipmentStatus.PUBLISHED,
         ...(options.agreedPriceArs ? { agreedPriceArs: options.agreedPriceArs } : {}),
         ...(options.estimatedDeliveryDate
-          ? { estimatedDeliveryDate: new Date(`${options.estimatedDeliveryDate}T00:00:00.000Z`), estimatedDeliveryTimeWindowEnd: "20:00:00" }
+          ? { estimatedDeliveryDate: new Date(`${options.estimatedDeliveryDate}T00:00:00.000Z`), estimatedDeliveryTimeWindowEnd: options.noDeliveryWindow ? null : "20:00:00" }
           : {}),
         ...(options.deliveredAt ? { deliveredAt: options.deliveredAt } : {}),
         ...(options.anomaly ? { transitAnomalyFlaggedAt: options.deliveredAt ?? new Date() } : {}),
@@ -145,6 +147,19 @@ describe("reportes de Métricas (Postgres) — MOVO-35", () => {
       const rows = Object.fromEntries((body.breakdowns[0]?.rows ?? []).map((row) => [row.key, row.value]));
       expect(rows).toEqual({ gps_anomaly: 1, pickup_late: 1, in_route: 1, receiver_absent: 0 });
       expect(body.series.lateCount.map((point) => point.value)).toEqual([0, 3]);
+    });
+
+    it("una fecha estimada sin franja vence al terminar el día, incluso en su último segundo", async () => {
+      const pickedUp = noon("2026-10-01");
+      // 23:59:59.5 hora argentina (UTC-3) del día estimado: todavía a tiempo.
+      await shipment({ pickedUp, deliveredAt: new Date("2026-10-02T02:59:59.500Z"), estimatedDeliveryDate: "2026-10-01", noDeliveryWindow: true });
+      // Un segundo después de la medianoche: tarde.
+      await shipment({ pickedUp, deliveredAt: new Date("2026-10-02T03:00:01.000Z"), estimatedDeliveryDate: "2026-10-01", noDeliveryWindow: true });
+
+      const body = await get<ReportSource<DeliveriesReport>>("deliveries");
+
+      expect(body.kpis.onTimeRate.value).toBe(50);
+      expect(body.kpis.lateCount.value).toBe(1);
     });
 
     it("sin entregas, las tasas son null y las cuentas 0", async () => {

@@ -23,18 +23,19 @@ import {
   ReportValue,
 } from "@movo/shared";
 import { CarrierActivityDay, ShipmentMetricFact, SupportMetricFact } from "../domain/admin-report-metrics";
+import { ROAD_DETOUR_FACTOR } from "../domain/geo";
 import { Prisma, PrismaClient } from "../generated/prisma/client";
 
 const AR_TIME_ZONE = "America/Argentina/Buenos_Aires";
 
 const SHIPMENT_DISTANCE_KM = Prisma.sql`s.distance_km`;
-/** La ruta de un viaje de alias `t`, con la misma estimación que `roadDistanceEstimateKm`: el viaje no guarda distancia. */
+/** La ruta de un viaje de alias `t`, con la misma estimación (y el mismo factor) que `roadDistanceEstimateKm`: el viaje no guarda distancia. */
 const TRIP_DISTANCE_KM = Prisma.sql`(
   2 * 6371 * ASIN(LEAST(1, SQRT(
     POWER(SIN(RADIANS((t.destination_lat - t.origin_lat)::float8) / 2), 2) +
     COS(RADIANS(t.origin_lat::float8)) * COS(RADIANS(t.destination_lat::float8)) *
     POWER(SIN(RADIANS((t.destination_lng - t.origin_lng)::float8) / 2), 2)
-  ))) * 1.3
+  ))) * ${ROAD_DETOUR_FACTOR}::float8
 )`;
 
 /** Condición del tramo sobre una distancia, por defecto la de un envío de alias `s`. Sin distancia, no cae en ningún tramo. */
@@ -173,7 +174,7 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
              s.agreed_price_ars::float8 AS agreed_price, s.calculation_method, s.quote_breakdown,
              e.published_at, e.first_assigned_at, e.picked_up_at, e.first_completed_at, s.delivered_at,
              CASE WHEN s.estimated_delivery_date IS NOT NULL THEN
-               (s.estimated_delivery_date + COALESCE(s.estimated_delivery_time_window_end::time, TIME '23:59:59')) AT TIME ZONE ${AR_TIME_ZONE}
+               (s.estimated_delivery_date + COALESCE(s.estimated_delivery_time_window_end::time, TIME '23:59:59.999999')) AT TIME ZONE ${AR_TIME_ZONE}
              END AS delivery_deadline,
              (s.pickup_date + s.pickup_time_window_end) AT TIME ZONE ${AR_TIME_ZONE} AS pickup_deadline,
              s.transit_anomaly_flagged_at IS NOT NULL AS anomaly_flagged,

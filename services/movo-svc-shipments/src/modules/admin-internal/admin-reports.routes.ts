@@ -1,12 +1,11 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
-import { ApiError, CSV_MAX_ROWS, DISTANCE_BANDS, DistanceBand, REPORT_RANGE_ERROR_MESSAGES, ReportRange, validateReportRange } from "@movo/shared";
+import { ApiError, CSV_MAX_ROWS, DISTANCE_BANDS, DistanceBand, REPORT_RANGE_ERROR_MESSAGES, ReportRange, SUPPORT_TOPICS, validateReportRange } from "@movo/shared";
 import { carriersReport, deliveriesReport, distancesReport, ShipmentMetricFact, supportReport } from "../../domain/admin-report-metrics";
 import { createAdminReportsRepository } from "../../repositories/admin-reports-repository";
 
 const rangeProperties = { from: { type: "string" }, to: { type: "string" } } as const;
 const reportProperties = { ...rangeProperties, band: { type: "string", enum: [...DISTANCE_BANDS] } } as const;
 const reportQuery = { type: "object", additionalProperties: false, required: ["from", "to"], properties: reportProperties } as const;
-const SUPPORT_TOPICS = ["shipment", "payments", "account", "carrier", "security"] as const;
 
 type ReportQuery = ReportRange & { band?: DistanceBand };
 
