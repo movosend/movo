@@ -9,21 +9,23 @@ vi.mock("@/components/admin-shell", () => ({
     <main>{children}</main>
   ),
 }))
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock("@/lib/reports/api", () => ({
+  getOverview: async () => {
+    throw new Error("svc-admin caído")
+  },
+}))
 import Page from "./page"
+
 describe("Inicio", () => {
-  it("saluda al admin real y marca como próximas las secciones sin construir", async () => {
+  it("si el resumen no responde, cada bandeja muestra el error con su reintento", async () => {
     render(await Page())
-    expect(
-      screen.getByRole("heading", { name: "Hola, Alena." })
-    ).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: /Admins/ })).toHaveAttribute(
-      "href",
-      "/admins"
+    expect(screen.getByRole("heading", { name: "Inicio" })).toBeInTheDocument()
+    expect(screen.getAllByText("No pudimos cargar esta bandeja")).toHaveLength(
+      8
     )
-    expect(screen.getByRole("link", { name: /Usuarios/ })).toHaveAttribute(
-      "href",
-      "/users"
+    expect(screen.getAllByRole("button", { name: /Reintentar/ })).toHaveLength(
+      8
     )
-    expect(screen.getAllByText("Próximamente")).toHaveLength(6)
   })
 })

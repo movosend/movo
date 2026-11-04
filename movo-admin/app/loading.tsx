@@ -1,14 +1,17 @@
 import { AdminShell } from "@/components/admin-shell"
-import { CardGridSkeleton, PageSkeleton } from "@/components/skeletons"
-import { Skeleton } from "@/components/ui/skeleton"
+import {
+  PageHeaderSkeleton,
+  PageSkeleton,
+  TableSkeleton,
+} from "@/components/skeletons"
 import { sidebarDefaultOpen } from "@/lib/sidebar"
 
 export default async function Loading() {
   return (
     <AdminShell defaultOpen={await sidebarDefaultOpen()}>
-      <PageSkeleton>
-        <Skeleton className="h-40 rounded-[14px]" />
-        <CardGridSkeleton />
+      <PageSkeleton className="max-w-[1280px] gap-5 pt-7 md:pt-7">
+        <PageHeaderSkeleton />
+        <TableSkeleton rows={8} />
       </PageSkeleton>
     </AdminShell>
   )

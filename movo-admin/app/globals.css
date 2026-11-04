@@ -748,3 +748,108 @@
     opacity: 0.4;
   }
 }
+
+/* Mapa de corredores de Métricas (MOVO-345): mismo mapa base que el seguimiento. */
+:root {
+  --corridor: var(--track-done);
+  --corridor-low: var(--warn-icon);
+}
+.mv-track-map path.mv-corr-line {
+  stroke: var(--corridor);
+}
+.mv-track-map path.mv-corr-low {
+  stroke: var(--corridor-low);
+}
+.mv-track-map path.mv-corr-on {
+  stroke: var(--lime);
+  stroke-opacity: 1;
+}
+.mv-track-map path.mv-corr-casing {
+  stroke: #0a0a0b;
+}
+.mv-corr-city {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+}
+.mv-corr-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 2px solid var(--foreground);
+}
+.mv-corr-city[data-active="true"] .mv-corr-dot {
+  width: 12px;
+  height: 12px;
+}
+.mv-corr-label {
+  position: absolute;
+  left: 14px;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg2);
+  text-shadow:
+    0 0 3px var(--card),
+    0 0 3px var(--card),
+    0 0 3px var(--card);
+}
+.mv-corr-city[data-active="true"] .mv-corr-label {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+/*
+ * Gráficos de Métricas (MOVO-345), con los colores del sistema: categorías en la escala de tinta
+ * (`--chart-*`, de más a menos contraste con la tarjeta, por eso se invierte en oscuro); lima marca lo que
+ * suma o lo que importa; lo que resta va en `--dot-danger`. Sobre lima el texto es tinta fija.
+ */
+:root {
+  --viz-1: #0a0a0b;
+  --viz-2: var(--chart-4);
+  --viz-3: var(--chart-3);
+  --viz-4: var(--chart-2);
+  --viz-5: var(--chart-1);
+  --viz-on-1: #ffffff;
+  --viz-on-2: #ffffff;
+  --viz-on-3: #ffffff;
+  --viz-on-4: #ffffff;
+  --viz-on-5: #0a0a0b;
+  --wf-up: var(--lime);
+  --wf-down: var(--dot-danger);
+  /* Borde de lo que va en lima: en claro, lima sobre blanco no alcanza contraste por sí sola. */
+  --lime-edge: rgba(10, 10, 11, 0.3);
+  /* Tope de lima en el mapa de calor: en oscuro, más alto se come el texto blanco. */
+  --heat-lime: 70%;
+}
+.dark {
+  --viz-1: #ffffff;
+  --viz-2: var(--chart-1);
+  --viz-3: var(--chart-2);
+  --viz-4: var(--chart-3);
+  --viz-5: var(--chart-4);
+  --viz-on-1: #0a0a0b;
+  --viz-on-2: #0a0a0b;
+  --viz-on-3: #0a0a0b;
+  --viz-on-4: #ffffff;
+  --viz-on-5: #ffffff;
+  --lime-edge: transparent;
+  --heat-lime: 26%;
+}
+/* "En camino" de la cascada de fugas: rayado, no es pérdida. */
+.mv-hatch {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--muted-foreground) 55%, transparent) 0 2px,
+    transparent 2px 6px
+  );
+  background-color: color-mix(
+    in oklab,
+    var(--muted-foreground) 14%,
+    transparent
+  );
+}

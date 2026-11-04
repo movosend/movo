@@ -9,14 +9,23 @@ import {
 export const gatewayBaseUrl = () =>
   process.env.MOVO_GATEWAY_URL ?? "https://api-dev.movosend.app"
 
-export async function gateway<T>(
+type GatewayOptions = {
+  method?: "GET" | "POST" | "PATCH" | "DELETE"
+  body?: unknown
+  accessToken?: string
+  idempotencyKey?: string
+  timeoutMs?: number
+}
+
+/**
+ * Único camino al gateway: arma el request (request-id, bearer, `no-store`, `redirect: "error"`,
+ * timeout) y mapea los errores a `ApiError`. `gateway()` y `gatewayFile()` solo difieren en cómo
+ * leen el cuerpo de una respuesta buena, así un arreglo acá llega a las dos.
+ */
+async function gatewayRequest<T>(
   path: string,
-  options: {
-    method?: "GET" | "POST" | "PATCH" | "DELETE"
-    body?: unknown
-    accessToken?: string
-    idempotencyKey?: string
-  } = {}
+  options: GatewayOptions,
+  parse: (response: Response) => Promise<T>
 ): Promise<T> {
   const requestId = (await headers()).get("x-request-id") || randomUUID()
   let response: Response
@@ -24,7 +33,9 @@ export async function gateway<T>(
     response = await fetch(`${gatewayBaseUrl()}/api/v1${path}`, {
       method: options.method ?? (options.body === undefined ? "GET" : "POST"),
       headers: {
-        "Content-Type": "application/json",
+        ...(options.body === undefined
+          ? {}
+          : { "Content-Type": "application/json" }),
         "x-request-id": requestId,
         ...(options.accessToken
           ? { Authorization: `Bearer ${options.accessToken}` }
@@ -36,7 +47,7 @@ export async function gateway<T>(
       body:
         options.body === undefined ? undefined : JSON.stringify(options.body),
       cache: "no-store",
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 10000),
       redirect: "error",
     })
   } catch {
@@ -57,9 +68,28 @@ export async function gateway<T>(
       result?.error?.details
     )
   }
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
+  return parse(response)
 }
+
+export const gateway = <T>(path: string, options: GatewayOptions = {}) =>
+  gatewayRequest<T>(path, options, (response) =>
+    response.status === 204
+      ? Promise.resolve(undefined as T)
+      : (response.json() as Promise<T>)
+  )
+
+/**
+ * Un archivo del gateway (CSV de los reportes, MOVO-345). Devuelve los bytes, no un string:
+ * `Response.text()` descarta el BOM que `svc-admin` antepone para que Excel abra el CSV en UTF-8.
+ */
+export const gatewayFile = (
+  path: string,
+  options: { accessToken?: string } = {}
+) =>
+  gatewayRequest(path, { ...options, timeoutMs: 30000 }, async (response) => ({
+    body: new Uint8Array(await response.arrayBuffer()),
+    headers: response.headers,
+  }))
 
 const ADMIN_REASONS: Record<string, string> = {
   USER_NOT_FOUND:

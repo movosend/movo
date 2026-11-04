@@ -6,8 +6,8 @@ Leer `AGENTS.md` y las guías instaladas de Next antes de cambiar routing o aute
 ## Estado actual de la implementación
 
 MOVO-291 implementa login con email y contraseña, OTP por email, reenvío y sesión
-protegida en un BFF. Inicio saluda al administrador real; las secciones futuras están
-deshabilitadas y no se muestran estadísticas ficticias. El tema claro/oscuro usa Inter
+protegida en un BFF. Inicio pasó a ser el resumen de bandejas de MOVO-345 (ver abajo); las
+secciones futuras siguen deshabilitadas en el menú. El tema claro/oscuro usa Inter
 local, logos existentes y tokens semánticos en `app/globals.css`.
 La aceptación contra dev queda pendiente de desplegar las dependencias backend y
 configurar las variables de entorno; el deploy de `admin.movosend.app` lo hace GitHub
@@ -389,3 +389,44 @@ Modo fixtures: `MOVO_ADMIN_MOCK=1` (`lib/disputes/{mock,fixtures}.ts`).
 
 Pendiente: probar contra `svc-admin` en dev, revisar claro/oscuro y mobile. `resolution.resolvedBy` llega como UUID del admin: falta que `svc-admin` mande
 el nombre (o resolverlo en el panel).
+
+## MOVO-345 — Inicio, Métricas y Bitácora
+
+Fieles al prototipo `Movo Admin Reportes v2.dc.html`. El backend (MOVO-342/344) ya está en develop y esta rama usa sus tipos finales
+(`shared/movo-shared/src/types/admin-reports.ts`); `MOVO_ADMIN_MOCK=1` (`lib/reports/{mock,fixtures}.ts`) sigue sirviendo para trabajar sin gateway.
+
+- **Inicio** (`app/page.tsx`, `components/reports/overview-inbox.tsx`): ocho bandejas (`lib/reports/overview.ts`) agrupadas en "Fuera de
+  plazo" / "Al día", con desglose, la más vieja y "vs ayer" (`yesterdayCount: null` lo oculta). Cada bandeja es un bloque: una caída muestra su
+  error con el `requestId` y "Reintentar" pide solo esa (`/api/overview?blocks=`). KYC, reportes y mensajes señalados todavía no tienen
+  bandeja propia: llevan a Usuarios o Envíos.
+- **Métricas** (`app/metrics`, `components/reports/metrics/`): siete pestañas (`lib/reports/catalog.ts` dice qué KPI, desglose y descripción
+  tiene cada una; los números son del backend). Rango, distancia y pestaña viven en la URL (`lib/reports/params.ts`) y "Copiar link" copia
+  esa URL. El cuerpo va en un `<Suspense key=filtros>`. Los atajos se resuelven a días argentinos en `lib/reports/range.ts` (misma regla de
+  granularidad que el backend: día ≤ 31, semana ≤ 120, mes). Gráficos propios, sin librería: tarjetas con sparkline (`chart-bits.tsx`),
+  tendencia en columnas para lo que suma y en línea para lo que promedia (`trend-chart.tsx`, un solo eje, "Ver como tabla"), desgloses con
+  composición contra el anterior, mapa de corredores y comparación de tramos como mapa de calor (mejor/peor por columna, con la palabra) en
+  `distances.tsx`, embudo por cohorte en Disputas (`disputes-flow.tsx`: abiertas → decididas (`resolving`) → resueltas, con
+  conversión, mediana entre etapas y cuántas quedaron en cada una; `DisputesReport.funnel`). Transportistas: publicados contra asignados en 24 h
+  (`carriers.tsx`, `CarriersReport.supply`). Entregas: meta de a tiempo `ON_TIME_TARGET` (90 %, provisoria, del panel) en la tarjeta y la
+  tendencia. Colores solo del sistema (`globals.css`): categorías en la escala de tinta (`--viz-1..5` sobre `--chart-*`,
+  invertida en oscuro, con su texto `--viz-on-*`), lima para lo que suma o se destaca (pico, KPI elegido, etapa final, mejor celda; texto
+  encima en tinta fija y `--lime-edge` en claro) y `--dot-danger` para lo que resta. El color sigue a la entidad (`seriesColor`). Cashflow
+  muestra la cuenta GMV = envíos × ticket (`kpiRows`). **Precio y volumen** (`pricing.tsx`, `waterfall-chart.tsx`, `lib/reports/waterfall.ts`):
+  puente del GMV (volumen, mix de distancias y el precio abierto por componente) y cascada de fugas de captura (cotizado → capturado, en GMV
+  o comisión; "por confirmar" y "en curso" rayados, no son pérdida). Si los pasos son chicos al lado de los totales, el eje se corta y lo
+  avisa. Soporte no se filtra por distancia (`meta.bandApplied`).
+- **Datos de demostración** (`datos=demo`, selector "Datos: Reales / Demo" de Métricas): para mostrar el panel con una red chica (la
+  demo en vivo). Solo Métricas: `getReport`/`exportReport` con `{ demo }` usan los generadores de `lib/reports/mock.ts`
+  (`demoReport`), también en producción y sin latencia ni fallas simuladas. Aviso amarillo arriba de todo mientras esté activo; los CSV
+  salen de los mismos datos y se llaman `movo-demo-…`. Viaja en la URL, así "Copiar link" lo conserva.
+- **CSV**: siempre del backend, por Route Handlers (`app/api/reports/[report]/export`, `app/api/audit-log/export`) que reenvían
+  `Content-Disposition`, `x-export-rows` y `x-export-truncated`. `lib/reports/csv.ts` arma el mismo CSV para el modo fixtures y los tests
+  (prefija `'` a las celdas que arrancan con `= + - @`; `change` en pp para porcentajes).
+- **Bitácora** (`app/audit-log`, `components/reports/audit/audit-log-view.tsx`): filtros en la URL, "Cargar 20 más" por Server Action,
+  línea de tiempo (por defecto) o tabla (`view=table`) y detalle en un `Sheet`. Las etiquetas salen de `lib/reports/audit-catalog.ts`, que sigue a `ADMIN_AUDIT_ACTIONS`
+  (las acciones reales de `svc-admin`, no las del prototipo). Sin `admins`/`targets` en la respuesta (backend anterior), muestra ids cortos.
+- **Disputas → Métricas**: el expediente linkea a `disputeReportHref(id)` (90 días, pestaña Disputas) y el desglose marca su motivo.
+- Menú lateral: grupo "Reportería" (Métricas, Bitácora) y breadcrumb "Panel / Reportería / …"; `internalReturnPath` acepta las dos rutas.
+- El tramo de menos de 200 km se rotula "Hasta 200 km" (no "50–200"): lo de menos de 50 km también cae ahí hasta que MOVO-344 decida.
+
+Pendiente: probar contra `svc-admin` en dev (DoD), revisar a mano claro/oscuro y mobile. `gateway()` y `gatewayFile()` comparten un solo request; el CSV se lee como bytes para no perder el BOM.
