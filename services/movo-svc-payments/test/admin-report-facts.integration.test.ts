@@ -126,6 +126,21 @@ describe("datos de cobro para los reportes (Postgres) — MOVO-35", () => {
     expect(of(released)).toMatchObject({ holdRejected: false, holdExpired: false });
   });
 
+  it("el rechazo o vencimiento de un intento anterior no se arrastra al último", async () => {
+    const afterRejected = randomUUID();
+    const afterExpired = randomUUID();
+    await hold(afterRejected, { attempt: 1, status: "rejected" });
+    await hold(afterRejected, { attempt: 2, status: "cancelled", wasAuthorized: true, statusDetail: "by_collector" });
+    await hold(afterExpired, { attempt: 1, status: "cancelled", wasAuthorized: true, statusDetail: "expired" });
+    await hold(afterExpired, { attempt: 2, status: "authorized" });
+
+    const items = await facts([afterRejected, afterExpired]);
+    const of = (id: string) => items.find((item) => item.shipmentId === id);
+
+    expect(of(afterRejected)).toMatchObject({ holdRejected: false, holdExpired: false });
+    expect(of(afterExpired)).toMatchObject({ holdRejected: false, holdExpired: false });
+  });
+
   it("toma la comisión del hold más reciente", async () => {
     const shipmentId = randomUUID();
     await hold(shipmentId, { attempt: 1, status: "cancelled", commissionArs: 100 });

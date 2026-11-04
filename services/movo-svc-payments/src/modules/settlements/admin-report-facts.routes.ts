@@ -71,9 +71,11 @@ export default async function paymentsAdminReportFactsRoutes(app: FastifyInstanc
       for (const row of holds) {
         const fact = factOf(row.shipmentId);
         fact.holdCommissionArs = toNumber(row.commissionArs);
-        if (row.status === "rejected") fact.holdRejected = true;
+        // Los holds vienen por intento ascendente y los flags describen el ÚLTIMO: un rechazo o vencimiento de un intento
+        // anterior (el envío se reasignó y el siguiente se autorizó) no puede arrastrarse y mal-clasificar la fuga.
+        fact.holdRejected = row.status === "rejected";
         // Un hold autorizado que MP cancela solo: es el vencimiento (DD-050), no una liberación nuestra.
-        if (row.status === "cancelled" && row.wasAuthorized && row.statusDetail === "expired") fact.holdExpired = true;
+        fact.holdExpired = row.status === "cancelled" && row.wasAuthorized && row.statusDetail === "expired";
       }
       for (const row of cash) {
         const fact = factOf(row.shipmentId);
