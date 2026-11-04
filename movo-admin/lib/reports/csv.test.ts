@@ -4,6 +4,7 @@ import { changeOf, csvCell, reportSectionCsv, UnknownSectionError } from "./csv"
 
 const report: DisputesReport = {
   funnel: null,
+  backlog: [],
   meta: {
     range: { from: "2026-10-30", to: "2026-11-01" },
     previous: { from: "2026-10-27", to: "2026-10-29" },
@@ -17,6 +18,8 @@ const report: DisputesReport = {
     resolved: { value: 3, previous: 3 },
     resolutionHours: { value: 30.5, previous: 40 },
     disputeRate: { value: 1.6, previous: 2.1 },
+    senderAmountArs: { value: 0, previous: 0 },
+    carrierAmountArs: { value: 0, previous: 0 },
   },
   series: {
     opened: [
@@ -26,6 +29,8 @@ const report: DisputesReport = {
     ],
     resolved: [],
     resolutionHours: [],
+    senderAmountArs: [],
+    carrierAmountArs: [],
     disputeRate: [
       { start: "2026-10-30", end: "2026-10-30", value: 1.2, previous: 2.0 },
       { start: "2026-10-31", end: "2026-10-31", value: null, previous: 2.2 },

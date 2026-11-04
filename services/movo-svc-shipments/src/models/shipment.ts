@@ -1,4 +1,4 @@
-import { PaymentMethod, ShipmentStatus } from "@movo/shared";
+import { PaymentMethod, ShipmentStatus, QuoteBreakdown } from "@movo/shared";
 import { CancellationPenaltyStatus, PackageType, PhotoStage } from "../generated/prisma/client";
 
 export { CancellationPenaltyStatus, PackageType, PhotoStage };
@@ -179,6 +179,9 @@ export interface CreateShipmentInput {
   suggestedPriceArs: number | null;
   calculationMethod: string | null;
   highDemand: boolean | null;
+  /** MOVO-35: para las métricas del panel. */
+  distanceKm?: number | null;
+  quoteBreakdown?: QuoteBreakdown | null;
   receiverConfirmationDeadline?: Date | null;
   /** MOVO-325: ciudad del retiro/entrega (reverse geocoding), `null`/ausente si no se pudo resolver. */
   pickupCity?: string | null;

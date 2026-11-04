@@ -2,7 +2,11 @@ import type { Metadata } from "next"
 import { publicError } from "@/lib/auth/api"
 import { requireAdmin } from "@/lib/auth/session"
 import { sidebarDefaultOpen } from "@/lib/sidebar"
-import { getAuditLog, listAuditAdmins } from "@/lib/reports/api"
+import {
+  getAuditLog,
+  listCurrentAdmins,
+  mergeAuditAdmins,
+} from "@/lib/reports/api"
 import {
   auditFilterQuery,
   auditHref,
@@ -24,11 +28,15 @@ export default async function Page({
   const state = parseAuditState(await searchParams)
   const returnTo = auditHref(state)
   const profile = await requireAdmin(false, returnTo)
-  const result = await getAuditLog(state).then(
-    (page) => ({ page, error: null }),
-    (error: unknown) => ({ page: null, error: publicError(error) })
-  )
-  const admins = result.page ? await listAuditAdmins(result.page) : []
+  // Los admins no dependen de la página: las dos llamadas salen juntas.
+  const [result, currentAdmins] = await Promise.all([
+    getAuditLog(state).then(
+      (page) => ({ page, error: null }),
+      (error: unknown) => ({ page: null, error: publicError(error) })
+    ),
+    listCurrentAdmins(),
+  ])
+  const admins = result.page ? mergeAuditAdmins(currentAdmins, result.page) : []
 
   return (
     <AdminShell

@@ -57,7 +57,9 @@ export default async function Page({
             bandApplied={state.tab !== "support"}
           />
           {state.tab === "disputes" && state.dispute && (
-            <FromDispute state={state} />
+            <Suspense fallback={null}>
+              <FromDispute state={state} />
+            </Suspense>
           )}
           {/* Un cambio de filtro remonta el cuerpo: se ve el skeleton mientras llega el reporte nuevo. */}
           <Suspense
@@ -85,10 +87,10 @@ async function ReportBody({
   range: { from: string; to: string }
 }) {
   const id: AdminReportId = state.tab
-  let highlight: string | null = null
-  if (id === "disputes" && state.dispute)
-    highlight = (await disputeOnce(state.dispute))?.reason ?? null
-  const result = await getReport(
+  // La disputa solo resalta un motivo: se pide junto con el reporte y no lo demora ni lo rompe.
+  const dispute =
+    id === "disputes" && state.dispute ? disputeOnce(state.dispute) : null
+  const reportRequest = getReport(
     id,
     {
       ...range,
@@ -99,6 +101,8 @@ async function ReportBody({
     (report) => ({ report, error: null }),
     (error: unknown) => ({ report: null, error: publicError(error) })
   )
+  const [result, disputeData] = await Promise.all([reportRequest, dispute])
+  const highlight = disputeData?.reason ?? null
   if (result.report)
     return (
       <MetricsView

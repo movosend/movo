@@ -14,10 +14,9 @@ describe("internalReturnPath", () => {
     "/disputes?status=resolved&city=Cordoba",
     `/disputes/${ID}`,
     `/disputes/${ID}?from=status%3Dresolved`,
-  ])(
-    "acepta %s",
-    (path) => expect(internalReturnPath(path)).toBe(path)
-  )
+    "/audit-log?q=ab*c&page=2",
+    "/metrics?tab=cashflow",
+  ])("acepta %s", (path) => expect(internalReturnPath(path)).toBe(path))
 
   it.each([
     null,

@@ -392,9 +392,8 @@ el nombre (o resolverlo en el panel).
 
 ## MOVO-345 — Inicio, Métricas y Bitácora
 
-Fieles al prototipo `Movo Admin Reportes v2.dc.html`, en una sola PR y contra fixtures (`MOVO_ADMIN_MOCK=1`, `lib/reports/{mock,fixtures}.ts`)
-mientras no estén MOVO-342 (bitácora ampliada, `/admin/overview`, export) y MOVO-344 (`/admin/reports/*`). Contratos en
-`shared/movo-shared/src/types/admin-reports.ts`: los define este ticket y están propuestos en comentarios de esas dos issues.
+Fieles al prototipo `Movo Admin Reportes v2.dc.html`. El backend (MOVO-342/344) ya está en develop y esta rama usa sus tipos finales
+(`shared/movo-shared/src/types/admin-reports.ts`); `MOVO_ADMIN_MOCK=1` (`lib/reports/{mock,fixtures}.ts`) sigue sirviendo para trabajar sin gateway.
 
 - **Inicio** (`app/page.tsx`, `components/reports/overview-inbox.tsx`): ocho bandejas (`lib/reports/overview.ts`) agrupadas en "Fuera de
   plazo" / "Al día", con desglose, la más vieja y "vs ayer" (`yesterdayCount: null` lo oculta). Cada bandeja es un bloque: una caída muestra su
@@ -430,5 +429,4 @@ mientras no estén MOVO-342 (bitácora ampliada, `/admin/overview`, export) y MO
 - Menú lateral: grupo "Reportería" (Métricas, Bitácora) y breadcrumb "Panel / Reportería / …"; `internalReturnPath` acepta las dos rutas.
 - El tramo de menos de 200 km se rotula "Hasta 200 km" (no "50–200"): lo de menos de 50 km también cae ahí hasta que MOVO-344 decida.
 
-Pendiente: probar contra `svc-admin` en dev con 342/344 desplegados (DoD), revisar a mano claro/oscuro y mobile (esta sesión verificó con
-tests, lint, typecheck y build; no abrió el panel porque el login necesita el gateway real).
+Pendiente: probar contra `svc-admin` en dev (DoD), revisar a mano claro/oscuro y mobile. `gateway()` y `gatewayFile()` comparten un solo request; el CSV se lee como bytes para no perder el BOM.

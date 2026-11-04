@@ -1,7 +1,7 @@
 import type {
   AdminOverview,
-  AdminOverviewBlockId,
-  AdminOverviewData,
+  AdminOverviewBlockName,
+  AdminOverviewBlocks,
   OverviewInbox,
 } from "@movo/shared/src/types/admin-reports"
 import { DISPUTE_REASON_LABEL } from "@/lib/disputes/format"
@@ -14,7 +14,7 @@ import { ageShort } from "./format"
  * mensajes señalados) llevan a la sección más cercana.
  */
 export interface InboxDef {
-  id: AdminOverviewBlockId
+  id: AdminOverviewBlockName
   title: string
   icon:
     | "Scale"
@@ -31,10 +31,15 @@ export interface InboxDef {
   chips: Record<string, string>
 }
 
+/** Los datos de cada bandeja, sin el sobre `{ data, error }`. */
+export type AdminOverviewData = {
+  [K in AdminOverviewBlockName]: NonNullable<AdminOverviewBlocks[K]["data"]>
+}
+
 const plural = (n: number, one: string, many: string) =>
   `${n} ${n === 1 ? one : many}`
 
-function def<K extends AdminOverviewBlockId>(
+function def<K extends AdminOverviewBlockName>(
   id: K,
   rest: Omit<InboxDef, "id" | "sub"> & {
     sub: (data: AdminOverviewData[K]) => string
@@ -168,7 +173,7 @@ export function inboxChips(
 
 export type OverviewBlocks = AdminOverview["blocks"]
 
-const OLDEST_NAME: Record<AdminOverviewBlockId, string> = {
+const OLDEST_NAME: Record<AdminOverviewBlockName, string> = {
   disputes: "una disputa",
   support: "una conversación",
   kyc: "KYC",
@@ -182,7 +187,7 @@ const OLDEST_NAME: Record<AdminOverviewBlockId, string> = {
 /** "Hay 60 cosas para atender en 7 bandejas. La más vieja: KYC de hace 26 h. 1 bandeja no cargó." */
 export function overviewSummary(
   blocks: OverviewBlocks,
-  loading: Set<AdminOverviewBlockId>,
+  loading: Set<AdminOverviewBlockName>,
   now: Date
 ): string {
   const states = INBOXES.map((d) => ({ d, b: blocks[d.id] }))

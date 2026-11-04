@@ -113,6 +113,21 @@ describe("waterfallDomain", () => {
     const d = waterfallDomain(leakageBars(big, "gmv"))
     expect(d).toMatchObject({ lo: 0, cut: false })
   })
+
+  it("baja el eje si el nivel acumulado cae bajo cero", () => {
+    const bar = (from: number, to: number) => ({
+      key: "x",
+      label: "x",
+      kind: "down" as const,
+      value: to - from,
+      from,
+      to,
+    })
+    const d = waterfallDomain([bar(100, 40), bar(40, -30)])
+    expect(d.cut).toBe(false)
+    expect(d.lo).toBeLessThanOrEqual(-30)
+    expect(d.hi).toBeGreaterThanOrEqual(100)
+  })
 })
 
 describe("CSV de Precio y volumen", () => {

@@ -140,6 +140,13 @@ export function waterfallDomain(bars: WaterfallBar[]): {
   )
   const max = Math.max(0, ...levels)
   const min = Math.min(...levels)
+  // Un nivel acumulado bajo cero (un puente o una cascada que se pasa de 0): el eje baja con él.
+  if (min < 0)
+    return {
+      lo: -niceMax(-min * 1.05),
+      hi: max > 0 ? niceMax(max * 1.05) : 0,
+      cut: false,
+    }
   if (!(max > 0)) return { lo: 0, hi: 1, cut: false }
   if (min <= max * 0.6) return { lo: 0, hi: niceMax(max * 1.05), cut: false }
   // Cuatro divisiones de un paso "lindo", así las etiquetas del eje no se repiten al abreviarlas.

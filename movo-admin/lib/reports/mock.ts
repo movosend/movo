@@ -12,8 +12,7 @@ import {
   type AdminAuditAction,
   type AdminAuditLogPage,
   type AdminOverview,
-  type AdminOverviewBlockId,
-  type AdminOverviewData,
+  type AdminOverviewBlockName,
   type AdminReportById,
   type AdminReportId,
   type AdminReportQuery,
@@ -31,6 +30,7 @@ import {
 import { latency, mockEnabled, shouldFail, sleep } from "@/lib/shipments/mock"
 import { argentinaDay } from "@/lib/shipments/format"
 import { AUDIT_ACTION } from "./audit-catalog"
+import type { AdminOverviewData } from "./overview"
 import { REPORT_TABS, SCORECARD_COLUMNS } from "./catalog"
 import { csvLine, demoFileName, reportFileName, reportSectionCsv } from "./csv"
 import {
@@ -729,7 +729,7 @@ function overviewData(): AdminOverviewData {
   }
 }
 
-const SERVICE_OF: Record<AdminOverviewBlockId, string> = {
+const SERVICE_OF: Record<AdminOverviewBlockName, string> = {
   disputes: "svc-shipments",
   support: "svc-shipments",
   kyc: "svc-users",
@@ -741,7 +741,7 @@ const SERVICE_OF: Record<AdminOverviewBlockId, string> = {
 }
 
 export async function mockGetOverview(
-  blocks?: AdminOverviewBlockId[]
+  blocks?: AdminOverviewBlockName[]
 ): Promise<AdminOverview> {
   await sleep(latency())
   const data = overviewData()

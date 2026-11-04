@@ -34,6 +34,7 @@ import mutualConnectionsRoutes from "./modules/mutual-connections/mutual-connect
 import adminInternalRoutes from "./modules/admin-internal/admin-internal.routes";
 import adminDisputesRoutes from "./modules/admin-internal/admin-disputes.routes";
 import adminOverviewRoutes from "./modules/admin-internal/admin-overview.routes";
+import adminReportsRoutes from "./modules/admin-internal/admin-reports.routes";
 import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
 import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
@@ -341,6 +342,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // MOVO-342: bandejas de la home del panel y objetivos de la bitácora. Interno, como el resto de /internal/admin.
   app.register(adminOverviewRoutes, { prefix: "/internal" });
+  app.register(adminReportsRoutes, { prefix: "/internal" });
 
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
   // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.

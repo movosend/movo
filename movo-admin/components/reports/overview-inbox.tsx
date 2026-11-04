@@ -18,7 +18,7 @@ import {
 } from "lucide-react"
 import type {
   AdminOverview,
-  AdminOverviewBlockId,
+  AdminOverviewBlockName,
 } from "@movo/shared/src/types/admin-reports"
 import { ageShort, vsYesterday } from "@/lib/reports/format"
 import {
@@ -56,7 +56,7 @@ export function OverviewInbox({ initial }: { initial: AdminOverview }) {
   const router = useRouter()
   // La página lo monta con `key={generatedAt}`: tras "Actualizar" arranca de cero con lo nuevo.
   const [blocks, setBlocks] = useState<OverviewBlocks>(initial.blocks)
-  const [loading, setLoading] = useState<Set<AdminOverviewBlockId>>(new Set())
+  const [loading, setLoading] = useState<Set<AdminOverviewBlockName>>(new Set())
   const [refreshing, startRefresh] = useTransition()
   const [now, setNow] = useState(() => new Date(initial.generatedAt))
   const at = initial.generatedAt
@@ -67,7 +67,7 @@ export function OverviewInbox({ initial }: { initial: AdminOverview }) {
     return () => clearInterval(id)
   }, [])
 
-  const retry = async (id: AdminOverviewBlockId) => {
+  const retry = async (id: AdminOverviewBlockName) => {
     setLoading((s) => new Set(s).add(id))
     try {
       const res = await fetch(
@@ -178,7 +178,7 @@ function InboxRow({
   now,
 }: {
   def: InboxDef
-  block: OverviewBlocks[AdminOverviewBlockId]
+  block: OverviewBlocks[AdminOverviewBlockName]
   loading: boolean
   onRetry: () => void
   now: Date

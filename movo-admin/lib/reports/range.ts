@@ -1,5 +1,5 @@
 import {
-  REPORT_GRANULARITY_LIMITS,
+  reportGranularity,
   REPORT_RANGE_MAX_DAYS,
   type ReportGranularity,
   type ReportRange,
@@ -49,12 +49,8 @@ export function previousRange(range: ReportRange): ReportRange {
   return { from: addDays(range.from, -len), to: addDays(range.to, -len) }
 }
 
-export function granularityOf(range: ReportRange): ReportGranularity {
-  const len = rangeLength(range)
-  if (len <= REPORT_GRANULARITY_LIMITS.day) return "day"
-  if (len <= REPORT_GRANULARITY_LIMITS.week) return "week"
-  return "month"
-}
+export const granularityOf = (range: ReportRange): ReportGranularity =>
+  reportGranularity(range)
 
 /** Mes calendario anterior al de `today`. */
 function previousMonth(today: string): ReportRange {

@@ -633,7 +633,9 @@ describe("resolución de disputas (Postgres + Redis) — MOVO-337", () => {
       expect(pushTo(receiverId)?.data).toMatchObject({ result: "neutral", ratingPending: false });
       for (const [push] of sendPush.mock.calls) {
         expect(`${push.title} ${push.body}`).not.toMatch(/\$|\d/);
-        expect(JSON.stringify(push.data)).not.toMatch(/amountArs|1150|862/);
+        // Sin los ids: un UUID aleatorio puede contener esos dígitos.
+        const { disputeId: _disputeId, shipmentId: _shipmentId, ...rest } = push.data as Record<string, unknown>;
+        expect(JSON.stringify(rest)).not.toMatch(/amountArs|1150|862/);
       }
     });
 

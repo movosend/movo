@@ -8,7 +8,7 @@ import {
   EXPORT_TRUNCATED_HEADER,
   type AdminAuditLogPage,
   type AdminOverview,
-  type AdminOverviewBlockId,
+  type AdminOverviewBlockName,
   type AdminReportById,
   type AdminReportId,
   type AdminReportQuery,
@@ -40,8 +40,12 @@ export interface ExportFile {
   truncated: boolean
 }
 
+/** `ignoreBOM: true` conserva el U+FEFF que antepone `svc-admin`: sin él, Excel abre el CSV en ANSI. */
+const decodeCsv = (bytes: Uint8Array) =>
+  new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes)
+
 function fileFrom(
-  body: string,
+  body: Uint8Array,
   headers: Headers,
   fallback: string
 ): ExportFile {
@@ -49,7 +53,7 @@ function fileFrom(
   const filename = /filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? fallback
   const rows = Number(headers.get(EXPORT_ROWS_HEADER))
   return {
-    csv: body,
+    csv: decodeCsv(body),
     filename,
     rows:
       Number.isFinite(rows) && headers.has(EXPORT_ROWS_HEADER) ? rows : null,
@@ -73,7 +77,7 @@ const reportQuery = (query: AdminReportQuery, section?: string) => {
  * como error de ese bloque: la home nunca se cae entera por una tarjeta.
  */
 export async function getOverview(
-  blocks?: AdminOverviewBlockId[]
+  blocks?: AdminOverviewBlockName[]
 ): Promise<AdminOverview> {
   const wanted = blocks?.length ? blocks : ADMIN_OVERVIEW_BLOCKS
   const raw = mockEnabled()
@@ -181,16 +185,14 @@ export async function exportAuditLog(state: AuditState): Promise<ExportFile> {
 }
 
 /**
- * Opciones del filtro "Admin": los admins de hoy (`GET /admin/admins`) más los que aparecen en la
- * página (un admin dado de baja ya no está en el listado, pero sus filas sí). Si el listado falla,
- * quedan solo los de la página.
+ * Los admins de hoy (`GET /admin/admins`) para el filtro "Admin" de la bitácora. No depende de la
+ * página, así que se pide junto con ella. Si falla, devuelve `[]`: el filtro queda con los de la página.
  */
-export async function listAuditAdmins(
-  page: AdminAuditLogPage
-): Promise<{ id: string; fullName: string }[]> {
-  let current: { id: string; fullName: string }[] = []
+export async function listCurrentAdmins(): Promise<
+  { id: string; fullName: string }[]
+> {
   try {
-    current = mockEnabled()
+    return mockEnabled()
       ? MOCK_ADMINS.map(([id, fullName]) => ({ id, fullName }))
       : (
           await gateway<AdminSummary[]>("/admin/admins", {
@@ -198,8 +200,15 @@ export async function listAuditAdmins(
           })
         ).map(({ id, fullName }) => ({ id, fullName }))
   } catch {
-    current = []
+    return []
   }
+}
+
+/** Suma a los admins de hoy los que aparecen en la página (uno dado de baja ya no está en el listado, pero sus filas sí). */
+export function mergeAuditAdmins(
+  current: { id: string; fullName: string }[],
+  page: AdminAuditLogPage
+): { id: string; fullName: string }[] {
   const byId = new Map(current.map((a) => [a.id, a]))
   for (const [id, { fullName }] of Object.entries(page.admins))
     if (!byId.has(id)) byId.set(id, { id, fullName })
