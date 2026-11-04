@@ -259,10 +259,10 @@ export interface AuditTargetsResponse {
   supportConversations: Record<string, { code: string }>;
 }
 
-/** Headers de una exportación: cuántas filas trae y si el tope la cortó. */
 /** Tope de filas de un CSV del panel. Quien exporta corta ahí y lo avisa con `EXPORT_TRUNCATED_HEADER`. */
 export const CSV_MAX_ROWS = 10_000;
 
+/** Headers de una exportación: cuántas filas trae y si el tope la cortó. */
 export const EXPORT_ROWS_HEADER = "x-export-rows";
 export const EXPORT_TRUNCATED_HEADER = "x-export-truncated";
 
