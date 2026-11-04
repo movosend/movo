@@ -118,7 +118,7 @@ export function AdminShell({
     REPORTS.find((item) => item.href === current)
   const inReports = REPORTS.some((item) => item.href === current)
   // Una sola conexión en vivo para todo el panel (badge de Soporte y toasts de consultas nuevas).
-  useSupportConnection()
+  useSupportConnection(fullName !== undefined)
   const { unread } = useSupport()
   const openDisputes = useOpenDisputes(fullName !== undefined)
   return (
