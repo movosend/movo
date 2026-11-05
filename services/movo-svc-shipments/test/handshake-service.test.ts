@@ -1,6 +1,6 @@
 import { webcrypto } from "node:crypto";
 import { describe, it, expect, vi, beforeAll } from "vitest";
-import { PaymentMethod, ShipmentStatus } from "@movo/shared";
+import { PaymentMethod, ShipmentStatus, TripStatus } from "@movo/shared";
 import { createHandshakeService, HandshakeRedisClient } from "../src/modules/handshake/handshake.service";
 import { HandshakeRepository, ConfirmHandshakeInput } from "../src/repositories/handshake-repository";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
@@ -94,6 +94,11 @@ function fakeShipmentRepository(overrides: Partial<ShipmentRepository> = {}): Sh
     // (firma/distancia/CAS/etc.) no tienen que preocuparse por fotos. Los tests de
     // evidencia de abajo pisan esto explícitamente con 0.
     countPhotosByStage: vi.fn().mockResolvedValue(MIN_EVIDENCE_PHOTOS_PER_STAGE),
+    // Default: viaje iniciado (DD-061); sus tests de abajo lo pisan.
+    findAcceptedOfferTrip: vi.fn().mockResolvedValue({
+      offerId: "offer-1",
+      trip: { id: "trip-1", status: TripStatus.ACTIVE, startedAt: new Date() },
+    }),
     listByUser: vi.fn(),
     listAvailable: vi.fn(),
     findExpiredAwaitingConfirmation: vi.fn(),
@@ -147,6 +152,55 @@ describe("handshake.service", () => {
   beforeAll(async () => {
     keyPair = await generateKeyPair();
     publicKeyB64 = await exportPublicKeyBase64(keyPair.publicKey);
+  });
+
+  describe("retiro con viaje iniciado (DD-061)", () => {
+    const assigned = () =>
+      fakeShipment({ status: ShipmentStatus.ASSIGNED, senderId: "sender-1", carrierId: "carrier-1" });
+    const serviceWith = (accepted: unknown, redis = createFakeRedis()) =>
+      createHandshakeService(
+        fakeShipmentRepository({
+          findById: vi.fn().mockResolvedValue(assigned()),
+          findAcceptedOfferTrip: vi.fn().mockResolvedValue(accepted),
+        }),
+        fakeHandshakeRepository(),
+        createFakeUsersClient({}),
+        redis,
+        createFakeFundsReleaseNotifier()
+      );
+    const generate = (service: ReturnType<typeof serviceWith>) =>
+      service.generateHandshake({ shipmentId: "shipment-1", callerId: "sender-1", lat: 0, lng: 0 });
+
+    it("409 HANDSHAKE_TRIP_NOT_STARTED al generar con el viaje en declared", async () => {
+      const service = serviceWith({ offerId: "o", trip: { id: "t", status: TripStatus.DECLARED, startedAt: null } });
+      await expect(generate(service)).rejects.toMatchObject({ statusCode: 409, code: "HANDSHAKE_TRIP_NOT_STARTED" });
+    });
+
+    it("409 HANDSHAKE_TRIP_NOT_STARTED al generar sin viaje o sin oferta aceptada", async () => {
+      await expect(generate(serviceWith({ offerId: "o", trip: null }))).rejects.toMatchObject({
+        code: "HANDSHAKE_TRIP_NOT_STARTED",
+      });
+      await expect(generate(serviceWith(null))).rejects.toMatchObject({ code: "HANDSHAKE_TRIP_NOT_STARTED" });
+    });
+
+    it("409 HANDSHAKE_TRIP_NOT_STARTED al confirmar si el viaje ya no está activo", async () => {
+      const redis = createFakeRedis();
+      await redis.set(
+        "handshake:pending:shipment-1",
+        JSON.stringify({ stage: "pickup", nonce: "n", cedenteId: "sender-1", cedenteLat: 0, cedenteLng: 0 }),
+        "PX",
+        15000
+      );
+      const service = serviceWith({ offerId: "o", trip: { id: "t", status: TripStatus.CANCELLED, startedAt: null } }, redis);
+      await expect(
+        service.confirmHandshake({ shipmentId: "shipment-1", callerId: "carrier-1", nonce: "n", signature: "s", lat: 0, lng: 0 })
+      ).rejects.toMatchObject({ statusCode: 409, code: "HANDSHAKE_TRIP_NOT_STARTED" });
+    });
+
+    it("genera con el viaje active", async () => {
+      const service = serviceWith({ offerId: "o", trip: { id: "t", status: TripStatus.ACTIVE, startedAt: new Date() } });
+      await expect(generate(service)).resolves.toMatchObject({ stage: "pickup" });
+    });
   });
 
   describe("generateHandshake", () => {

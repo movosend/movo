@@ -1,7 +1,7 @@
 import { randomUUID, webcrypto } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
-import { ShipmentStatus } from "@movo/shared";
+import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
@@ -72,6 +72,37 @@ describe("Handshake criptográfico — /shipments/:id/handshake (Postgres + Redi
    * (MOVO-196, default true): la mayoría de los tests de este archivo confirman el
    * handshake de retiro y no son sobre evidencia -- los tests dedicados de MOVO-196
    * pasan `false` para dejar el envío sin evidencia de pickup a propósito. */
+  /** DD-061: oferta aceptada y viaje del transportista, en el estado pedido. */
+  async function attachCarrierTrip(shipmentId: string, status: TripStatus): Promise<string> {
+    // Un transportista tiene un solo viaje activo: los envíos del mismo test lo comparten.
+    const active = await app.db.trip.findFirst({ where: { carrierId, status } });
+    const trip = active ?? await app.db.trip.create({
+      data: {
+        carrierId,
+        originAddress: "Av. Colón 1234, Córdoba",
+        originLat: -31.4201,
+        originLng: -64.1888,
+        destinationAddress: "Av. San Martín 100, Villa María",
+        destinationLat: -32.4104,
+        destinationLng: -63.2404,
+        departureAt: new Date(),
+        vehicleType: "auto",
+        status,
+      },
+    });
+    await app.db.offer.create({
+      data: {
+        shipmentId,
+        carrierId,
+        tripId: trip.id,
+        priceOffered: 5000,
+        offeredDate: new Date("2030-01-01T00:00:00.000Z"),
+        status: OfferStatus.ACCEPTED,
+      },
+    });
+    return trip.id;
+  }
+
   async function createAssignedShipment(
     overrides: Partial<CreateShipmentInput> = {},
     withPickupEvidence = true
@@ -83,6 +114,7 @@ describe("Handshake criptográfico — /shipments/:id/handshake (Postgres + Redi
     await shipmentRepo.updateStatus(created.id, ShipmentStatus.ASSIGNMENT_PENDING, null);
     await app.db.shipment.update({ where: { id: created.id }, data: { carrierId } });
     await shipmentRepo.updateStatus(created.id, ShipmentStatus.ASSIGNED, null);
+    await attachCarrierTrip(created.id, TripStatus.ACTIVE);
     if (withPickupEvidence) {
       await shipmentRepo.addPhoto(created.id, PhotoStage.pickup, `shipments/${created.id}/pickup/${randomUUID()}.jpg`);
     }
@@ -136,6 +168,22 @@ describe("Handshake criptográfico — /shipments/:id/handshake (Postgres + Redi
   });
 
   describe("Retiro (pickup) — assigned -> in_transit", () => {
+    it("DD-061: 409 HANDSHAKE_TRIP_NOT_STARTED si el viaje sigue declared, y el envío no cambia", async () => {
+      const shipmentId = await createAssignedShipment();
+      await app.db.trip.updateMany({ where: { carrierId }, data: { status: TripStatus.DECLARED } });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/handshake/generate`,
+        headers: { "x-user-id": senderId },
+        payload: { lat: -31.4201, lng: -64.1888 },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("HANDSHAKE_TRIP_NOT_STARTED");
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNED);
+    });
+
     it("flujo feliz: el emisor genera, el transportista confirma, persiste el evento y transiciona", async () => {
       const shipmentId = await createAssignedShipment();
 
