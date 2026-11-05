@@ -35,6 +35,11 @@
       padding-top: 3.4mm;
     }
   }
+{% if edicion == 'digital' %}
+  /* Edición digital: se lee en pantalla, sin lomo. Mismo ancho de texto que la impresa (160 mm), pero centrado en todas las páginas. */
+  @page :right { margin: 25mm 25mm 22mm 25mm; }
+  @page :left { margin: 25mm 25mm 22mm 25mm; }
+{% endif %}
 {% include '_portadas.css.j2' %}
 {% if edicion == 'digital' %}{% include '_tapa.css.j2' %}{% endif %}
   .pt, .sep, .presentacion, .indice, .ficha, .equipo-pg { break-before: right; }

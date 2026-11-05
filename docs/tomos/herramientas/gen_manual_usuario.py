@@ -89,7 +89,16 @@ def galeria(ids: list[str]) -> str:
     )
 
 
+def enmarcar_moviles() -> None:
+    """Deja al día las capturas con marco de iPhone antes de armar el manual (se regeneran solo si cambió el original)."""
+    import subprocess
+    import sys
+
+    subprocess.run([sys.executable, str(RAIZ / "capturas" / "enmarcar_todas.py")], check=True)
+
+
 def main() -> None:
+    enmarcar_moviles()
     base = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent / "contenido/tomo-3/03-manual-de-usuario/manual.md"
     txt = base.read_text(encoding="utf-8")
     usadas = []
