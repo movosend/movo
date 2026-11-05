@@ -145,7 +145,7 @@ export function formatTripStartErrorMessage(err: unknown, departureAt?: string):
     if (err.code === "TRIP_START_TOO_EARLY") {
       return departureAt
         ? `Podés iniciar este viaje el ${formatTripStartDate(departureAt)}.`
-        : "Todavía no podés iniciar este viaje: se habilita el día de salida.";
+        : "Todavía no podés iniciar este viaje: se habilita 3 días antes de la salida.";
     }
     if (err.code === "TRIP_PACKAGES_NOT_READY") {
       return `${TRIP_PACKAGES_NOT_READY_MESSAGE} Vas a poder iniciar el viaje cuando estén listos para retirar.`;

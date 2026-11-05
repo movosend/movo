@@ -613,6 +613,32 @@ describe("aceptación de una oferta en la línea de tiempo", () => {
 });
 
 describe("shipmentDetailCta (MOVO-194)", () => {
+  describe("DD-061: retiro con viaje iniciado", () => {
+    const withTrip = (carrierTripActive?: boolean) => ({ carrierTripActive });
+
+    it("sin viaje iniciado, el transportista ve 'Iniciar viaje'", () => {
+      expect(shipmentDetailCta("carrier", ShipmentStatus.ASSIGNED, "s1", withTrip(false))).toEqual({
+        kind: "action",
+        label: "Iniciar viaje",
+        path: "/(app)/carrier/trips",
+        icon: "package",
+      });
+    });
+
+    it("sin viaje iniciado, el emisor no ve el QR sino un aviso", () => {
+      expect(shipmentDetailCta("sender", ShipmentStatus.ASSIGNED, "s1", withTrip(false))?.kind).toBe("info");
+    });
+
+    it("con viaje iniciado, o sin el dato (Home), sigue el retiro", () => {
+      expect(shipmentDetailCta("carrier", ShipmentStatus.ASSIGNED, "s1", withTrip(true))).toMatchObject({ label: "Retirar paquete" });
+      expect(shipmentDetailCta("carrier", ShipmentStatus.ASSIGNED, "s1", withTrip())).toMatchObject({ label: "Retirar paquete" });
+    });
+
+    it("no toca la entrega: en in_transit el dato no cambia nada", () => {
+      expect(shipmentDetailCta("carrier", ShipmentStatus.IN_TRANSIT, "s1", withTrip(false))).toMatchObject({ label: "Entregar paquete" });
+    });
+  });
+
   it("un usuario sin rol en el envío no tiene CTA", () => {
     expect(shipmentDetailCta(null, ShipmentStatus.ASSIGNED, "s1")).toBeNull();
   });

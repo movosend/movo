@@ -155,7 +155,7 @@ export function useHandshakeQr({
       }
 
       try {
-        const location = await getCurrentLocation();
+        const location = await getCurrentLocation({ highAccuracy: true });
         if (!location.granted) {
           throw new LocationDeniedError();
         }

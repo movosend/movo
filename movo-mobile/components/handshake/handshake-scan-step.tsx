@@ -75,7 +75,7 @@ export function HandshakeScanStep({ shipmentId, onConfirmed, onEvidenceMissing, 
     setIsConfirming(true);
     setErrorMessage(null);
     try {
-      const location = await getCurrentLocation();
+      const location = await getCurrentLocation({ highAccuracy: true });
       if (!location.granted) {
         setErrorMessage(
           "Necesitamos tu ubicación para confirmar esto — sin GPS no podemos verificar la distancia.",

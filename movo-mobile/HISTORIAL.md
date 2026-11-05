@@ -5082,3 +5082,10 @@ Informe en `docs/pruebas/2026-10-25-flujo-completo.md`. Un commit por punto; el 
 - Emisor: selector Tarjeta/Efectivo en el resumen del wizard (se bloquea una vez creado el envío; saldo pendiente vía `useBalanceArs` deshabilita efectivo con "Pagar mi saldo"). En efectivo no se consultan hold ni settlement (`/settlement` da 404): `/pay` redirige al detalle sin pedir funding ni tarjetas, y la penalidad de una cancelación tardía se muestra con `cash-cancellation-note.tsx`.
 - Transportista: badge "Efectivo" y monto bruto "Cobrás en mano" (pasado tras la entrega); la comisión queda como saldo, sin fee de MP ni descuento por deuda. La entrega exitosa muestra una nota con link al saldo; si el envío no carga se asume tarjeta.
 - 403 `CASH_DEBT_LIMIT_EXCEEDED` → fila `cash_debt_within_limit` en la checklist de MOVO-117. Push `cash_commission` → `/profile/payments?tab=balance`; historial con `cash_shipment` y su detalle propio.
+
+### Fixes de la prueba del 04/11 — fechas, retiro, entrega y modales (DD-060, DD-061, DD-062)
+
+- **Fechas**: `availableWindowsFor` filtra por fin de franja. En la oferta, `offerDayOffsets` da días desde hoy y `isTimeWindowEnded` deshabilita las franjas terminadas. `tripStartBlocker` sigue con `too_early`, ahora a más de 3 días de la salida.
+- **Retiro**: `shipmentDetailCta` recibe `carrierTripActive`: sin viaje iniciado, "Iniciar viaje" para el transportista y un aviso para el emisor. `pickup/index.tsx` redirige al detalle para las entradas desde Home o ruta, y `useStartTrip` invalida el detalle.
+- **Entrega**: el paso 1 sigue informativo con textos que no sugieren una validación; `getCurrentLocation({ highAccuracy })` solo en el handshake.
+- **Modales**: `AcceptSuccessModal`, su copia en `shipment-confirmation-sheets.tsx` y `ChooseOfferSuccessModal` llegan al borde en Android (`statusBarTranslucent` + `navigationBarTranslucent`), con el contenido en `SafeAreaView`. Falta verlo en un Android real.

@@ -41,7 +41,9 @@ function buildRejectReasonChips(senderFirstName?: string): string[] {
   return [
     "No espero este paquete",
     "El horario no me sirve",
-    senderFirstName ? `No conozco a ${senderFirstName}` : "No conozco al emisor",
+    senderFirstName
+      ? `No conozco a ${senderFirstName}`
+      : "No conozco al emisor",
     "Otro motivo",
   ];
 }
@@ -77,7 +79,11 @@ export interface ShipmentConfirmationSheetsProps {
   shipmentId: string;
   senderFirstName?: string;
   acceptMutation: UseMutationResult<ShipmentSummary, unknown, { id: string }>;
-  rejectMutation: UseMutationResult<ShipmentSummary, unknown, { id: string; reason?: string }>;
+  rejectMutation: UseMutationResult<
+    ShipmentSummary,
+    unknown,
+    { id: string; reason?: string }
+  >;
   onRefetch?: () => void;
   onAcceptSuccess?: () => void;
   onError?: (message: string) => void;
@@ -115,12 +121,20 @@ export const ShipmentConfirmationSheets = forwardRef<
   const [isAcceptModalVisible, setIsAcceptModalVisible] = useState(false);
   const [isSuccessVisible, setIsSuccessVisible] = useState(false);
   const [isRejectModalVisible, setIsRejectModalVisible] = useState(false);
-  const [selectedRejectReason, setSelectedRejectReason] = useState<string | null>(null);
+  const [selectedRejectReason, setSelectedRejectReason] = useState<
+    string | null
+  >(null);
   const rejectReasonChips = buildRejectReasonChips(senderFirstName);
-  const { isMounted: isAcceptMounted, backdropStyle: acceptBackdropStyle, sheetStyle: acceptSheetStyle } =
-    useSheetAnimation(isAcceptModalVisible);
-  const { isMounted: isRejectMounted, backdropStyle: rejectBackdropStyle, sheetStyle: rejectSheetStyle } =
-    useSheetAnimation(isRejectModalVisible);
+  const {
+    isMounted: isAcceptMounted,
+    backdropStyle: acceptBackdropStyle,
+    sheetStyle: acceptSheetStyle,
+  } = useSheetAnimation(isAcceptModalVisible);
+  const {
+    isMounted: isRejectMounted,
+    backdropStyle: rejectBackdropStyle,
+    sheetStyle: rejectSheetStyle,
+  } = useSheetAnimation(isRejectModalVisible);
 
   const successOpacity = useSharedValue(0);
   const checkScale = useSharedValue(0.4);
@@ -210,30 +224,46 @@ export const ShipmentConfirmationSheets = forwardRef<
         onRequestClose={() => !isBusy && setIsAcceptModalVisible(false)}
         testID={testID ? `${testID}-accept-modal` : "receiver-accept-modal"}
       >
-        <SafeAreaProvider initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}>
+        <SafeAreaProvider
+          initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}
+        >
           <View className="flex-1">
-            <Animated.View style={[StyleSheet.absoluteFill, acceptBackdropStyle]}>
+            <Animated.View
+              style={[StyleSheet.absoluteFill, acceptBackdropStyle]}
+            >
               <Pressable
-                testID={testID ? `${testID}-accept-modal-backdrop` : "receiver-accept-modal-backdrop"}
+                testID={
+                  testID
+                    ? `${testID}-accept-modal-backdrop`
+                    : "receiver-accept-modal-backdrop"
+                }
                 onPress={() => !isBusy && setIsAcceptModalVisible(false)}
                 className="flex-1 bg-black/40"
               />
             </Animated.View>
             <View className="flex-1 justify-end" pointerEvents="box-none">
               <Animated.View style={acceptSheetStyle}>
-                <SafeAreaView className="rounded-t-2xl bg-bg" edges={["bottom"]}>
+                <SafeAreaView
+                  className="rounded-t-2xl bg-bg"
+                  edges={["bottom"]}
+                >
                   <View className="px-5 pt-5">
                     <Text className="mb-1 font-sans-semibold text-h3 text-fg">
                       ¿Aceptar este envío?
                     </Text>
                     <Text className="mb-4 font-sans text-small text-fg-3">
-                      Vas a confirmar que esperás este paquete. El emisor será notificado
-                      y el envío pasará a estar publicado para transportistas.
+                      Vas a confirmar que esperás este paquete. El emisor será
+                      notificado y el envío pasará a estar publicado para
+                      transportistas.
                     </Text>
 
                     <View className="mt-2 flex-col gap-2.5 pb-4 pt-2">
                       <Pressable
-                        testID={testID ? `${testID}-accept-confirm-button` : "receiver-accept-confirm-button"}
+                        testID={
+                          testID
+                            ? `${testID}-accept-confirm-button`
+                            : "receiver-accept-confirm-button"
+                        }
                         onPress={() => void handleConfirmAccept()}
                         disabled={acceptMutation.isPending}
                         className={`w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-3.5 ${
@@ -249,7 +279,11 @@ export const ShipmentConfirmationSheets = forwardRef<
                       </Pressable>
 
                       <Pressable
-                        testID={testID ? `${testID}-accept-cancel-button` : "receiver-accept-cancel-button"}
+                        testID={
+                          testID
+                            ? `${testID}-accept-cancel-button`
+                            : "receiver-accept-cancel-button"
+                        }
                         onPress={() => setIsAcceptModalVisible(false)}
                         disabled={acceptMutation.isPending}
                         className="w-full items-center justify-center py-2.5"
@@ -272,55 +306,76 @@ export const ShipmentConfirmationSheets = forwardRef<
         visible={isSuccessVisible}
         transparent
         animationType="fade"
+        statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={handleDismissSuccess}
-        testID={testID ? `${testID}-success-modal` : "receiver-accept-success-modal"}
+        testID={
+          testID ? `${testID}-success-modal` : "receiver-accept-success-modal"
+        }
       >
-        <View className="flex-1 items-center justify-center bg-[#C6F24A] px-10">
-          <Animated.View style={[{ alignItems: "center", width: "100%", gap: 20 }, successStyle]}>
+        <SafeAreaProvider
+          initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}
+        >
+          <SafeAreaView
+            edges={["top", "bottom"]}
+            className="flex-1 items-center justify-center bg-[#C6F24A] px-10"
+          >
             <Animated.View
               style={[
-                {
-                  width: 72,
-                  height: 72,
-                  borderRadius: 999,
-                  backgroundColor: CHECK_CIRCLE,
-                  alignItems: "center",
-                  justifyContent: "center",
-                },
-                checkStyle,
+                { alignItems: "center", width: "100%", gap: 20 },
+                successStyle,
               ]}
             >
-              <Svg width={34} height={34} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M4 12.5L9.5 18L20 6"
-                  stroke={SUCCESS_LIME}
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </Svg>
+              <Animated.View
+                style={[
+                  {
+                    width: 72,
+                    height: 72,
+                    borderRadius: 999,
+                    backgroundColor: CHECK_CIRCLE,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  },
+                  checkStyle,
+                ]}
+              >
+                <Svg width={34} height={34} viewBox="0 0 24 24" fill="none">
+                  <Path
+                    d="M4 12.5L9.5 18L20 6"
+                    stroke={SUCCESS_LIME}
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </Svg>
+              </Animated.View>
+
+              <View className="items-center">
+                <Text className="mb-2 font-sans-semibold text-[22px] tracking-tight text-ink-950">
+                  Envío aceptado
+                </Text>
+                <Text className="text-center font-sans text-[14px] leading-[21px] text-[#3A3A40]">
+                  Confirmaste que esperás este paquete. El emisor fue notificado
+                  y el envío ya está publicado para transportistas.
+                </Text>
+              </View>
+
+              <Pressable
+                testID={
+                  testID
+                    ? `${testID}-success-view-button`
+                    : "receiver-accept-success-button"
+                }
+                onPress={handleDismissSuccess}
+                className="mt-2 rounded-full border border-black/25 px-5 py-2.5"
+              >
+                <Text className="font-sans-medium text-[13px] text-ink-950">
+                  Ver detalle
+                </Text>
+              </Pressable>
             </Animated.View>
-
-            <View className="items-center">
-              <Text className="mb-2 font-sans-semibold text-[22px] tracking-tight text-ink-950">
-                Envío aceptado
-              </Text>
-              <Text className="text-center font-sans text-[14px] leading-[21px] text-[#3A3A40]">
-                Confirmaste que esperás este paquete. El emisor fue notificado y el envío ya está publicado para transportistas.
-              </Text>
-            </View>
-
-            <Pressable
-              testID={testID ? `${testID}-success-view-button` : "receiver-accept-success-button"}
-              onPress={handleDismissSuccess}
-              className="mt-2 rounded-full border border-black/25 px-5 py-2.5"
-            >
-              <Text className="font-sans-medium text-[13px] text-ink-950">
-                Ver detalle
-              </Text>
-            </Pressable>
-          </Animated.View>
-        </View>
+          </SafeAreaView>
+        </SafeAreaProvider>
       </Modal>
 
       {/* Sheet de confirmación de rechazo */}

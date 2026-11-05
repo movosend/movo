@@ -56,11 +56,12 @@ import {
   shortAddressLabel,
 } from "../../../../src/lib/shipment-format";
 import { formatTimeRange } from "../../../../src/lib/time-format";
+import { isTimeWindowEnded, offerDayOffsets } from "../../../../src/lib/pickup-windows";
 import { carrierPriceBreakdown, isCashShipment } from "../../../../src/lib/payment-method";
 import { SuspendedScreenGate } from "../../../../components/account/suspended-screen-gate";
 
 /** MOVO-177: el transportista puede proponer retirar hasta este número de días después
- * de la fecha pedida por el emisor (nunca antes) -- mismo límite que valida el backend
+ * de la fecha pedida por el emisor (y desde hoy, DD-060) -- mismo límite que valida el backend
  * (`OFFER_DATE_MAX_FORWARD_OFFSET_DAYS`, `offer-repository.ts`). */
 const MAX_ALT_DAY_OFFSET = 3;
 
@@ -159,23 +160,28 @@ function TimeSlotGrid({
   selectedIndex,
   onSelect,
   testIDPrefix,
+  isSlotDisabled,
 }: {
   selectedIndex: number | null;
   onSelect: (index: number) => void;
   testIDPrefix: string;
+  /** DD-060: el día propuesto es hoy y la franja ya terminó. */
+  isSlotDisabled?: (index: number) => boolean;
 }) {
   return (
     <View className="flex-row flex-wrap gap-2.5">
       {TIME_SLOTS.map((slot, i) => {
         const selected = selectedIndex === i;
+        const disabled = isSlotDisabled?.(i) ?? false;
         return (
           <Pressable
             key={slot.label}
             testID={`${testIDPrefix}-${i}`}
             onPress={() => onSelect(i)}
+            disabled={disabled}
             className={`min-w-[47%] flex-1 rounded-md border-[1.5px] px-3 py-2.5 ${
               selected ? "border-fg bg-fg" : "border-border"
-            }`}
+            } ${disabled ? "opacity-40" : ""}`}
           >
             <Text
               className={`font-sans-semibold text-[13px] ${selected ? "text-bg" : "text-fg"}`}
@@ -425,7 +431,7 @@ function CreateOfferScreenContent() {
       const requested = parseDateOnly(shipment.pickupDate);
       const offered = parseDateOnly(existingOffer.offeredDate);
       const offsetMs = offered.getTime() - requested.getTime();
-      setDayOffset(Math.max(0, Math.round(offsetMs / (24 * 60 * 60 * 1000))));
+      setDayOffset(Math.round(offsetMs / (24 * 60 * 60 * 1000)));
       const slotIndex = TIME_SLOTS.findIndex(
         (slot) =>
           slot.start === existingOffer.offeredPickupTimeWindowStart &&
@@ -572,8 +578,8 @@ function CreateOfferScreenContent() {
     );
 
   const dayOptions = useMemo(
-    () => Array.from({ length: MAX_ALT_DAY_OFFSET + 1 }, (_, i) => i),
-    [],
+    () => (shipment ? offerDayOffsets(shipment.pickupDate, MAX_ALT_DAY_OFFSET) : []),
+    [shipment],
   );
 
   const effectivePickupDate = useMemo(() => {
@@ -584,6 +590,12 @@ function CreateOfferScreenContent() {
     );
   }, [shipment, dateMode, dayOffset]);
 
+  const isPickupSlotEnded = (index: number) =>
+    effectivePickupDate !== null && isTimeWindowEnded(effectivePickupDate, TIME_SLOTS[index].end);
+  // Al cambiar de día, una franja elegida que ya terminó ese día deja de contar.
+  const activePickupSlotIndex =
+    pickupSlotIndex !== null && !isPickupSlotEnded(pickupSlotIndex) ? pickupSlotIndex : null;
+
   const pickupSummary =
     dateMode === "requested"
       ? shipment
@@ -592,8 +604,8 @@ function CreateOfferScreenContent() {
             shipment.pickupTimeWindowEnd,
           )}`
         : ""
-      : pickupSlotIndex !== null && effectivePickupDate
-        ? `${dayChipLabel(parseDateOnly(effectivePickupDate))} · ${TIME_SLOTS[pickupSlotIndex].label}`
+      : activePickupSlotIndex !== null && effectivePickupDate
+        ? `${dayChipLabel(parseDateOnly(effectivePickupDate))} · ${TIME_SLOTS[activePickupSlotIndex].label}`
         : "Elegí un día y una franja";
 
   const deliverySummary =
@@ -606,7 +618,7 @@ function CreateOfferScreenContent() {
   const canContinueToPickup = netArs > 0;
   const canSubmit =
     netArs > 0 &&
-    (dateMode === "requested" || pickupSlotIndex !== null) &&
+    (dateMode === "requested" || activePickupSlotIndex !== null) &&
     deliverySlotIndex !== null;
 
   const handleBack = () => {
@@ -662,24 +674,24 @@ function CreateOfferScreenContent() {
             priceOfferedArs: netArs,
             offeredDate: effectivePickupDate,
             offeredPickupTimeWindowStart:
-              dateMode === "other" && pickupSlotIndex !== null
-                ? TIME_SLOTS[pickupSlotIndex].start
+              dateMode === "other" && activePickupSlotIndex !== null
+                ? TIME_SLOTS[activePickupSlotIndex].start
                 : null,
             offeredPickupTimeWindowEnd:
-              dateMode === "other" && pickupSlotIndex !== null
-                ? TIME_SLOTS[pickupSlotIndex].end
+              dateMode === "other" && activePickupSlotIndex !== null
+                ? TIME_SLOTS[activePickupSlotIndex].end
                 : null,
           })
         : await createOffer.mutateAsync({
             priceOfferedArs: netArs,
             offeredDate: effectivePickupDate,
             offeredPickupTimeWindowStart:
-              dateMode === "other" && pickupSlotIndex !== null
-                ? TIME_SLOTS[pickupSlotIndex].start
+              dateMode === "other" && activePickupSlotIndex !== null
+                ? TIME_SLOTS[activePickupSlotIndex].start
                 : undefined,
             offeredPickupTimeWindowEnd:
-              dateMode === "other" && pickupSlotIndex !== null
-                ? TIME_SLOTS[pickupSlotIndex].end
+              dateMode === "other" && activePickupSlotIndex !== null
+                ? TIME_SLOTS[activePickupSlotIndex].end
                 : undefined,
             message: message.trim() || undefined,
           });
@@ -1119,9 +1131,10 @@ function CreateOfferScreenContent() {
                       Franja de retiro
                     </Text>
                     <TimeSlotGrid
-                      selectedIndex={pickupSlotIndex}
+                      selectedIndex={activePickupSlotIndex}
                       onSelect={setPickupSlotIndex}
                       testIDPrefix="create-offer-pickup-slot"
+                      isSlotDisabled={isPickupSlotEnded}
                     />
                   </View>
                 ) : null}

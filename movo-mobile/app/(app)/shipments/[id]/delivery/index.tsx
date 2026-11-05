@@ -14,7 +14,7 @@ import { useShipment } from "../../../../../src/hooks/use-shipments";
  * MOVO-346 (punto 16): acá la distancia es informativa (`blocking={false}`). El receptor puede estar
  * en la esquina o en la puerta de un edificio, o el pin del emisor puede estar mal puesto: el gate
  * dejaba al transportista bloqueado junto al receptor. La proximidad que importa la valida el
- * handshake en el servidor, transportista contra receptor, a 100 m.
+ * handshake en el servidor, transportista contra receptor, a 100 m (DD-062).
  */
 export default function DeliveryGeoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -30,7 +30,7 @@ export default function DeliveryGeoScreen() {
       targetLng={shipment?.deliveryLng}
       counterpartId={shipment?.receiverId}
       counterpartFallbackLabel="Receptor"
-      arrivedTitle="Llegaste al punto de entrega"
+      arrivedTitle="Estás cerca de la dirección de entrega"
       outOfRangeHint="Podés seguir igual: la entrega se confirma cuando el receptor escanea el QR cerca tuyo."
       deniedHint="Podés seguir igual, pero para confirmar la entrega vas a necesitar el GPS."
       blocking={false}

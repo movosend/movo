@@ -106,7 +106,7 @@ export function TimeWindowPicker({
         {PICKUP_TIME_WINDOWS.map((w) => {
           const selected =
             w.start === timeWindowStart && w.end === timeWindowEnd;
-          // MOVO-340: una franja de hoy que ya empezó no se puede elegir (el backend la rechaza).
+          // DD-060: una franja de hoy que ya terminó no se puede elegir (el backend la rechaza).
           const disabled = !isAvailable(w);
           return (
             <Pressable

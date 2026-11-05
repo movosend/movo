@@ -67,7 +67,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // MOVO-308 (DD-047): el sheet de cancelación re-cotiza solo; este texto es para cualquier
   // otro lugar que lo reciba.
   CANCELLATION_PENALTY_MISMATCH: "El monto de la penalidad cambió. Revisalo y confirmá de nuevo.",
-  SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",
+  SHIPMENT_PICKUP_WINDOW_IN_PAST: "Esa franja de retiro ya terminó. Elegí otra.",
   SHIPMENT_PICKUP_WINDOW_INVALID: "El horario de fin del retiro tiene que ser posterior al de inicio.",
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",
   // MOVO-276: el wizard ya valida lo mismo; esto cubre una recalibración de los límites del backend.
@@ -109,7 +109,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   TRIP_NOT_AVAILABLE: "Este viaje ya no está disponible.",
   TRIP_NO_PACKAGES: "Este viaje no tiene paquetes asignados, así que no se puede iniciar.",
   // MOVO-277: el caso con fecha lo arma `formatTripStartErrorMessage` (trip-format.ts).
-  TRIP_START_TOO_EARLY: "Todavía no podés iniciar este viaje: se habilita el día de salida.",
+  TRIP_START_TOO_EARLY: "Todavía no podés iniciar este viaje: se habilita 3 días antes de la salida.",
   TRIP_PACKAGES_NOT_READY:
     "Tus paquetes todavía esperan la confirmación del pago. Vas a poder iniciar el viaje cuando estén listos para retirar.",
   // Calificaciones post-entrega (MOVO-153 / backend MOVO-146).
@@ -122,7 +122,8 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // Creación de oferta (MOVO-149 / backend MOVO-143).
   SHIPMENT_NOT_AVAILABLE_FOR_OFFER: "Este envío ya no está disponible para ofertar.",
   OFFER_DUPLICATE_ACTIVE: "Ya tenés una oferta activa sobre este envío.",
-  OFFER_DATE_OUT_OF_RANGE: "La fecha del viaje tiene que coincidir con la fecha de retiro del envío.",
+  OFFER_PICKUP_WINDOW_IN_PAST: "Esa franja de retiro ya terminó. Elegí otra.",
+  OFFER_DATE_OUT_OF_RANGE: "Elegí un día de retiro entre hoy y 3 días después de la fecha pedida.",
   // MOVO-116 (DD-036): lo ve el emisor al aceptar la oferta de un transportista que ya no
   // cumple los requisitos para operar.
   OFFER_CARRIER_NOT_ELIGIBLE: "Este transportista ya no puede tomar envíos. Elegí otra oferta.",
@@ -149,11 +150,12 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   PAYMENTS_SERVICE_UNAVAILABLE: "No pudimos verificar tu cuenta de Mercado Pago. Intentá de nuevo en unos minutos.",
   // Handshake criptográfico: escaneo del receptor de custodia (MOVO-160 / backend MOVO-158, Done).
   HANDSHAKE_QR_EXPIRED: "Este código venció. Pedile a la otra persona que genere uno nuevo.",
-  HANDSHAKE_DISTANCE_EXCEEDED: "Estás a más de 100 m del punto. Acercate e intentá de nuevo.",
+  HANDSHAKE_DISTANCE_EXCEEDED: "Estás a más de 100 m de la otra persona. Acérquense e intentá de nuevo.",
   HANDSHAKE_INVALID_SIGNATURE: "Este código no es válido. Pedile a la otra persona que genere uno nuevo.",
   HANDSHAKE_CEDENTE_KEY_MISSING:
     "La otra persona todavía no puede confirmar la transferencia desde su dispositivo. Pedile que actualice la app.",
   HANDSHAKE_INVALID_SHIPMENT_STATE: "Este envío ya no está en un estado que permita confirmar esto.",
+  HANDSHAKE_TRIP_NOT_STARTED: "El transportista tiene que iniciar el viaje antes de retirar el paquete.",
   HANDSHAKE_PICKUP_DEADLINE_PASSED: "Ya pasó el plazo para retirar este paquete, así que no se puede confirmar el retiro.",
   SHIPMENT_NOT_TRACKABLE: "El envío no se encuentra en un viaje activo para realizar seguimiento.",
   // MOVO-111/112: vinculación de Mercado Pago. Los cuatro últimos llegan en el deep link

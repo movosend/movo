@@ -119,7 +119,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     deliveryAddress: "Bv. San Juan 500, Córdoba",
     deliveryLat: -31.41,
     deliveryLng: -64.19,
-    pickupDate: "2026-08-20",
+    pickupDate: "2030-08-20",
     pickupTimeWindowStart: "09:00",
     pickupTimeWindowEnd: "12:00",
     suggestedPriceArs: 4500,
@@ -129,8 +129,8 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     status: ShipmentStatus.PUBLISHED,
     lastStatusChangedAt: null,
     deliveredAt: null,
-    createdAt: "2026-08-15T10:00:00.000Z",
-    updatedAt: "2026-08-15T10:00:00.000Z",
+    createdAt: "2030-08-15T10:00:00.000Z",
+    updatedAt: "2030-08-15T10:00:00.000Z",
     ...overrides,
   };
 }
@@ -319,7 +319,7 @@ describe("CreateOfferScreen (MOVO-177)", () => {
       priceOffered: 5175,
       priceNetArs: 4500,
       commissionAmountArs: 675,
-      offeredDate: "2026-08-20T00:00:00.000Z",
+      offeredDate: "2030-08-20T00:00:00.000Z",
       offeredPickupTimeWindowStart: null,
       offeredPickupTimeWindowEnd: null,
       message: null,
@@ -345,7 +345,7 @@ describe("CreateOfferScreen (MOVO-177)", () => {
         // Default "gross": el body siempre manda el NETO (contrato de MOVO-143 sin
         // cambios), aunque el transportista haya tipeado el bruto (4500 / 1.15).
         priceOfferedArs: 3913.04,
-        offeredDate: "2026-08-20",
+        offeredDate: "2030-08-20",
         offeredPickupTimeWindowStart: undefined,
         offeredPickupTimeWindowEnd: undefined,
       })
@@ -375,7 +375,7 @@ describe("CreateOfferScreen (MOVO-177)", () => {
       priceOffered: 5175,
       priceNetArs: 4500,
       commissionAmountArs: 675,
-      offeredDate: "2026-08-20T00:00:00.000Z",
+      offeredDate: "2030-08-20T00:00:00.000Z",
       offeredPickupTimeWindowStart: null,
       offeredPickupTimeWindowEnd: null,
       message: null,
@@ -410,7 +410,7 @@ describe("CreateOfferScreen (MOVO-177)", () => {
       priceOffered: 5175,
       priceNetArs: 4500,
       commissionAmountArs: 675,
-      offeredDate: "2026-08-21T00:00:00.000Z",
+      offeredDate: "2030-08-21T00:00:00.000Z",
       offeredPickupTimeWindowStart: "15:00",
       offeredPickupTimeWindowEnd: "19:00",
       message: null,
@@ -441,7 +441,7 @@ describe("CreateOfferScreen (MOVO-177)", () => {
 
     expect(mockMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
-        offeredDate: "2026-08-21",
+        offeredDate: "2030-08-21",
         offeredPickupTimeWindowStart: "15:00",
         offeredPickupTimeWindowEnd: "19:00",
       })
@@ -553,11 +553,11 @@ describe("CreateOfferScreen (MOVO-177)", () => {
       id: "offer-1",
       shipmentId: "shipment-1",
       priceOffered: 8000,
-      offeredDate: "2026-08-20",
+      offeredDate: "2030-08-20",
       offeredPickupTimeWindowStart: null,
       offeredPickupTimeWindowEnd: null,
       message: "Mensaje que ya mandé",
-      estimatedDeliveryDate: "2026-08-20",
+      estimatedDeliveryDate: "2030-08-20",
       estimatedDeliveryTimeWindowStart: "08:00",
       estimatedDeliveryTimeWindowEnd: "12:00",
     };
@@ -630,7 +630,7 @@ describe("CreateOfferScreen (MOVO-177)", () => {
       expect(mockMutateUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           priceOfferedArs: expect.any(Number),
-          offeredDate: "2026-08-20",
+          offeredDate: "2030-08-20",
           offeredPickupTimeWindowStart: null,
           offeredPickupTimeWindowEnd: null,
         })

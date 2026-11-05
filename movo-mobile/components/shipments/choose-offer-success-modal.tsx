@@ -123,6 +123,8 @@ export function ChooseOfferSuccessModal({
       visible={isMounted}
       animationType="none"
       transparent
+      statusBarTranslucent
+      navigationBarTranslucent
       onRequestClose={onDismiss}
       testID={testID ?? "choose-offer-success-modal"}
     >

@@ -9,14 +9,18 @@ export type CurrentLocationResult =
  * (MOVO-83). Mismo patrón permiso-then-branch que `photo-utils.ts` (`takePhotoWithCamera`/
  * `pickPhotoFromGallery`): nunca lanza por un permiso denegado, el caller decide qué
  * mostrar. No hace reverse-geocoding — solo fija `lat`/`lng`, el caller es responsable
- * de un label de dirección (p.ej. "Ubicación actual") si el usuario no escribe uno. */
-export async function getCurrentLocation(): Promise<CurrentLocationResult> {
+ * de un label de dirección (p.ej. "Ubicación actual") si el usuario no escribe uno.
+ * `highAccuracy` lo pide el handshake (DD-062): el servidor compara dos posiciones a 100 m, y un
+ * GPS impreciso en cualquiera de los dos teléfonos rechaza a dos personas que están juntas. */
+export async function getCurrentLocation(options?: { highAccuracy?: boolean }): Promise<CurrentLocationResult> {
   const permission = await Location.requestForegroundPermissionsAsync();
   if (!permission.granted) {
     return { granted: false };
   }
 
-  const position = await Location.getCurrentPositionAsync({});
+  const position = await Location.getCurrentPositionAsync(
+    options?.highAccuracy ? { accuracy: Location.Accuracy.High } : {},
+  );
   return {
     granted: true,
     lat: position.coords.latitude,
