@@ -66,6 +66,7 @@ const row = {
     outcome: { type: ["string", "null"], enum: [...outcomes, null] },
     // MOVO-341. Fuera de `required` a propósito: si `svc-shipments` todavía no lo manda (deploy en serie), no se cae la ruta.
     pickupCity: nullableStr,
+    pickupAddress: str,
   },
 };
 
