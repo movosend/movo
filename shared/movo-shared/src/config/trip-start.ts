@@ -1,24 +1,35 @@
 import { toArgentinaCalendarDateString } from "../utils/argentina-date";
 
 /**
+ * DD-060: días calendario antes de la salida en que el viaje ya se puede iniciar. Mismo
+ * margen que `OFFER_DATE_MAX_FORWARD_OFFSET_DAYS`: alcanza para adelantar un viaje sin dejar
+ * un `active` abierto durante semanas.
+ */
+export const TRIP_START_MAX_DAYS_EARLY = 3;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function shiftCalendarDate(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00.000Z`) + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+/**
  * MOVO-277: regla única de "¿ya se puede iniciar este viaje?" por fecha, compartida
  * entre `movo-svc-shipments` (`POST /trips/:id/start` responde 409
  * `TRIP_START_TOO_EARLY`) y `movo-mobile` (decide si muestra "Iniciar viaje").
  *
- * Se compara el día calendario en Argentina, no la hora: el día de la salida se puede
- * iniciar a cualquier hora (el transportista suele arrancar antes de lo declarado), y
- * después de la salida también, mientras el viaje siga `declared` (el barrido de
- * vencimiento es el que lo da de baja, no esta regla). Antes de ese día, nunca.
+ * Se compara el día calendario en Argentina, no la hora: desde el primer día habilitado
+ * se puede iniciar a cualquier hora, y después de la salida también, mientras el viaje siga
+ * `declared` (el barrido de vencimiento es el que lo da de baja, no esta regla).
  */
 export function canStartTripOn(departureAt: Date | string, now: Date = new Date()): boolean {
-  return toArgentinaCalendarDateString(departureAt) <= toArgentinaCalendarDateString(now);
+  return tripStartAvailableOn(departureAt) <= toArgentinaCalendarDateString(now);
 }
 
 /**
  * MOVO-277: primer día (calendario argentino, `"YYYY-MM-DD"`) en que el viaje se
- * puede iniciar -- el de su salida. Para el texto "Podés iniciarlo el {fecha}" del
- * mobile y el mensaje del 409.
+ * puede iniciar. Para el texto "Podés iniciarlo el {fecha}" del mobile y el mensaje del 409.
  */
 export function tripStartAvailableOn(departureAt: Date | string): string {
-  return toArgentinaCalendarDateString(departureAt);
+  return shiftCalendarDate(toArgentinaCalendarDateString(departureAt), -TRIP_START_MAX_DAYS_EARLY);
 }

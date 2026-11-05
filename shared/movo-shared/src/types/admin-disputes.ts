@@ -54,6 +54,8 @@ export interface AdminDisputeRow {
   outcome: DisputeOutcome | null;
   /** MOVO-341: ciudad del retiro del envío (la misma que filtra `city`); `null` si el envío no la tiene. */
   pickupCity: string | null;
+  /** Dirección del retiro: la ciudad sola no distingue envíos dentro de una misma ciudad. */
+  pickupAddress: string;
 }
 
 /** MOVO-341: orden del listado por fecha de apertura. */

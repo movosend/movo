@@ -93,6 +93,8 @@ export type ApiErrorCode =
   | "OFFER_DATE_OUT_OF_RANGE"
   | "OFFER_DUPLICATE_ACTIVE"
   | "OFFER_PICKUP_WINDOW_INVALID"
+  // DD-060: la franja efectiva de la oferta ya terminó; la oferta nacería vencida.
+  | "OFFER_PICKUP_WINDOW_IN_PAST"
   | "OFFER_NOT_EDITABLE"
   | "HANDSHAKE_QR_EXPIRED"
   | "HANDSHAKE_DISTANCE_EXCEEDED"
@@ -101,6 +103,8 @@ export type ApiErrorCode =
   | "HANDSHAKE_INVALID_SHIPMENT_STATE"
   // MOVO-270: el plazo del retiro (ventana + gracia) ya venció; el barrido cierra el envío.
   | "HANDSHAKE_PICKUP_DEADLINE_PASSED"
+  // DD-061: el retiro exige el viaje del transportista iniciado.
+  | "HANDSHAKE_TRIP_NOT_STARTED"
   | "ROUTING_SERVICE_ERROR"
   | "ROUTING_SERVICE_UNAVAILABLE"
   // MOVO-221 / MOVO-252: rediseño de estados de viaje (declared/active/completed).
