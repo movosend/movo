@@ -1,3 +1,4 @@
+import { shortAddress } from "@/lib/shipments/format"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   act,
@@ -115,14 +116,16 @@ describe("DisputeFilters", () => {
 })
 
 describe("DisputeRowLink", () => {
-  it("diferencia el motivo automático y muestra la ciudad del retiro", () => {
+  it("diferencia el motivo automático y muestra la dirección del retiro", () => {
     const system = MOCK_DISPUTES.find(
       (d) => d.detail.openedByRole === null
     )!.detail
     render(<DisputeRowLink row={system} href="/disputes/x" now={new Date()} />)
     expect(screen.getByText("Anomalía en tránsito")).toBeTruthy()
     expect(screen.getAllByText("Sistema").length).toBeGreaterThan(0)
-    expect(screen.getAllByText(system.pickupCity!).length).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText(shortAddress(system.pickupAddress)).length
+    ).toBeGreaterThan(0)
   })
 })
 

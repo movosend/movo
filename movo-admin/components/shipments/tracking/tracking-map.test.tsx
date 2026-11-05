@@ -1,4 +1,4 @@
-import { cleanup, render } from "@testing-library/react"
+import { act, cleanup, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { trackingFixture } from "./fixtures"
 
@@ -25,10 +25,21 @@ const h = vi.hoisted(() => {
     marker: vi.fn(() => chain()),
     divIcon: vi.fn((o: unknown) => o),
   }
+  const glErrorListeners: Array<(e: { error: unknown }) => void> = []
   const maplibreGL = vi.fn(
-    (o: unknown) => (void o, Object.assign(chain(), { options: {} }))
+    (o: unknown) => (
+      void o,
+      Object.assign(chain(), {
+        options: {},
+        getMaplibreMap: () => ({
+          on: (_: string, cb: (e: { error: unknown }) => void) => {
+            glErrorListeners.push(cb)
+          },
+        }),
+      })
+    )
   )
-  return { map, lib, maplibreGL }
+  return { map, lib, maplibreGL, glErrorListeners }
 })
 
 vi.mock("leaflet", () => ({ default: h.lib }))
@@ -155,6 +166,28 @@ describe("TrackingMap", () => {
     )
     expect(styles[0]).toContain("/arcgis/light-gray")
     expect(styles[1]).toContain("/arcgis/dark-gray")
+  })
+
+  it("avisa si falta la key, en lugar de un fondo liso sin explicación", () => {
+    vi.stubEnv("NEXT_PUBLIC_ESRI_API_KEY", "")
+    render(
+      <TrackingMap tracking={trackingFixture()} follow={false} theme="light" />
+    )
+    expect(screen.getByRole("status").textContent).toContain(
+      "NEXT_PUBLIC_ESRI_API_KEY"
+    )
+  })
+
+  it("avisa si ArcGIS rechaza la key, pero no ante otros errores", () => {
+    vi.stubEnv("NEXT_PUBLIC_ESRI_API_KEY", "k")
+    render(
+      <TrackingMap tracking={trackingFixture()} follow={false} theme="light" />
+    )
+    const emit = h.glErrorListeners.at(-1)!
+    act(() => emit({ error: { status: 500 } }))
+    expect(screen.queryByRole("status")).toBeNull()
+    act(() => emit({ error: { status: 498 } }))
+    expect(screen.getByRole("status").textContent).toContain("rechazó la key")
   })
 
   it("destruye el mapa al desmontar", () => {

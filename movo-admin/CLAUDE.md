@@ -430,3 +430,7 @@ Fieles al prototipo `Movo Admin Reportes v2.dc.html`. El backend (MOVO-342/344) 
 - El tramo de menos de 200 km se rotula "Hasta 200 km" (no "50–200"): lo de menos de 50 km también cae ahí hasta que MOVO-344 decida.
 
 Pendiente: probar contra `svc-admin` en dev (DoD), revisar a mano claro/oscuro y mobile. `gateway()` y `gatewayFile()` comparten un solo request; el CSV se lee como bytes para no perder el BOM.
+
+### Fixes de la prueba del 04/11 — direcciones y aviso del mapa
+
+`routeLine` y `shortAddress` (`lib/shipments/format.ts`) muestran calle y número en lugar de la ciudad, en listado, detalle y disputas: dentro de una misma ciudad decía "Córdoba → Córdoba". `BasemapNotice` avisa en los dos mapas si falta `NEXT_PUBLIC_ESRI_API_KEY` o si ArcGIS rechaza la key (401/403/498/499); antes quedaba un fondo liso sin explicación. Falta confirmar la key y sus referrers en Vercel.
