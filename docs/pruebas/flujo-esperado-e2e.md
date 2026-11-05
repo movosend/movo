@@ -163,7 +163,9 @@ Payments loguea `info` `"notificación de MP recibida"` (`modules/webhooks/mp-we
 estaba `authorized`. Queda una fila en `payments.mp_webhook_notifications` con `status = processed`.
 Si la notificación tiene firma inválida: `warn` `"notificación de MP con firma inválida"` y un 401.
 
-### Paso 6. El transportista inicia el viaje (DD-034)
+### Paso 6. El transportista inicia el viaje (DD-034, DD-060, DD-061)
+
+Hasta 3 días antes de la salida. Es condición del retiro: sin viaje `active`, el paso siguiente responde 409 `HANDSHAKE_TRIP_NOT_STARTED`.
 
 | | |
 |---|---|
@@ -196,7 +198,7 @@ Cedente: el emisor. Escanea: el transportista. Antes, foto `pickup` (1 a 5).
 | Llamadas | users `GET /internal/users/<emisor>/device-key` (clave pública registrada con `POST /users/me/device-key`) |
 | BD | `generate`: solo Redis `handshake:pending:<id>`, TTL **15 s**. `confirm` (una transacción): `shipments.status = in_transit`; `shipment_events` `assigned → in_transit`, `actor_id = carrier`, `reason = "Handshake de retiro confirmado"` (`modules/handshake/handshake.service.ts:333`); `handshake_events` `stage = pickup`, `actor_id = carrier`, `counterparty_id = sender`, `nonce_hash`, coordenadas de ambos, `distance_m ≤ 100` |
 | Logs esperados | solo access log (generate 2xx, confirm 2xx). Pushes de custodia al emisor y al receptor |
-| Logs de falla | access log con 410 `HANDSHAKE_QR_EXPIRED` (QR de más de 15 s: esperable en pruebas, se regenera), 422 `HANDSHAKE_INVALID_SIGNATURE`, 422 `HANDSHAKE_DISTANCE_EXCEEDED`, 409 `HANDSHAKE_CEDENTE_KEY_MISSING`, 409 `HANDSHAKE_PICKUP_DEADLINE_PASSED`, `PICKUP_EVIDENCE_MISSING`; `warn` `handshake_pending_cleanup_failed` |
+| Logs de falla | access log con 410 `HANDSHAKE_QR_EXPIRED` (QR de más de 15 s: esperable en pruebas, se regenera), 422 `HANDSHAKE_INVALID_SIGNATURE`, 422 `HANDSHAKE_DISTANCE_EXCEEDED`, 409 `HANDSHAKE_CEDENTE_KEY_MISSING`, 409 `HANDSHAKE_PICKUP_DEADLINE_PASSED`, 409 `HANDSHAKE_TRIP_NOT_STARTED` (viaje sin iniciar, DD-061), `PICKUP_EVIDENCE_MISSING`; `warn` `handshake_pending_cleanup_failed` |
 
 ### Paso 9. En tránsito: ingesta GPS (ADR-020)
 
