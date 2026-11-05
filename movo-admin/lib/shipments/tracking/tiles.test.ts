@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { basemapStyleUrl, withArcgisToken } from "./tiles"
+import { basemapStyleUrl, isBasemapRejected, withArcgisToken } from "./tiles"
 
 describe("basemapStyleUrl", () => {
   it("sin key no hay estilo", () => {
@@ -30,5 +30,19 @@ describe("withArcgisToken", () => {
     expect(transform("https://example.com/a").url).toBe("https://example.com/a")
     const withToken = "https://basemaps-api.arcgis.com/a?token=z"
     expect(transform(withToken).url).toBe(withToken)
+  })
+})
+
+describe("isBasemapRejected", () => {
+  it("reconoce los estados de una key rechazada", () => {
+    for (const status of [401, 403, 498, 499]) {
+      expect(isBasemapRejected({ status })).toBe(true)
+    }
+  })
+
+  it("no confunde otros errores", () => {
+    expect(isBasemapRejected({ status: 500 })).toBe(false)
+    expect(isBasemapRejected(new Error("red"))).toBe(false)
+    expect(isBasemapRejected(undefined)).toBe(false)
   })
 })

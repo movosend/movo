@@ -38,6 +38,7 @@ import {
   pickupWindow,
   priceLabel,
   ROLE_LABEL,
+  routeLine,
   rowAlert,
   timeAgo,
   type ShipmentStatusValue,
@@ -104,9 +105,8 @@ export function DetailHeader({
           </span>
         </div>
         <span className="text-sm text-fg2">
-          {shipment.pickupCity ?? "Sin ciudad"} →{" "}
-          {shipment.deliveryCity ?? "Sin ciudad"} · {priceLabel(shipment)} ·
-          actualizado {timeAgo(shipment.lastStatusChangeAt, now)}
+          {routeLine(shipment)} · {priceLabel(shipment)} · actualizado{" "}
+          {timeAgo(shipment.lastStatusChangeAt, now)}
         </span>
       </div>
       <div className="flex gap-2">{actions}</div>

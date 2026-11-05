@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   pickReusableTrip,
   ReusableTripCandidate,
-  TRIP_PICKUP_WINDOW_LEAD_HOURS,
-  tripDepartureFitsPickupWindow,
+  tripDepartureOnPickupDay,
 } from "../src/domain/trip-compatibility";
 
 const HOUR = 60 * 60 * 1000;
@@ -12,27 +11,16 @@ const windowStart = new Date("2030-01-01T12:00:00.000Z");
 const windowEnd = new Date("2030-01-01T15:00:00.000Z");
 const at = (ms: number) => new Date(windowStart.getTime() + ms);
 
-describe("tripDepartureFitsPickupWindow (MOVO-314)", () => {
-  it("acepta una salida dentro de la ventana y en sus dos bordes", () => {
-    expect(tripDepartureFitsPickupWindow(at(HOUR), windowStart, windowEnd)).toBe(true);
-    expect(tripDepartureFitsPickupWindow(windowStart, windowStart, windowEnd)).toBe(true);
-    expect(tripDepartureFitsPickupWindow(windowEnd, windowStart, windowEnd)).toBe(true);
-  });
-
-  it("acepta salir hasta LEAD horas antes del inicio, no más", () => {
-    expect(tripDepartureFitsPickupWindow(at(-TRIP_PICKUP_WINDOW_LEAD_HOURS * HOUR), windowStart, windowEnd)).toBe(true);
-    expect(tripDepartureFitsPickupWindow(at(-TRIP_PICKUP_WINDOW_LEAD_HOURS * HOUR - 1), windowStart, windowEnd)).toBe(false);
-  });
-
-  it("rechaza salir después del cierre de la ventana", () => {
-    expect(tripDepartureFitsPickupWindow(new Date(windowEnd.getTime() + 1), windowStart, windowEnd)).toBe(false);
+describe("tripDepartureOnPickupDay (DD-060)", () => {
+  it("acepta cualquier hora del día del retiro, antes o después de la franja", () => {
+    expect(tripDepartureOnPickupDay(at(-6 * HOUR), windowStart)).toBe(true);
+    expect(tripDepartureOnPickupDay(at(HOUR), windowStart)).toBe(true);
+    expect(tripDepartureOnPickupDay(new Date(windowEnd.getTime() + 6 * HOUR), windowStart)).toBe(true);
   });
 
   it("rechaza otro día calendario argentino aunque la diferencia sea chica", () => {
-    // 02:00 ART del día siguiente vs. ventana 23:00-23:30 ART: 3 h después del cierre y otro día.
-    const lateStart = new Date("2030-01-02T02:00:00.000Z");
-    const lateEnd = new Date("2030-01-02T02:30:00.000Z");
-    expect(tripDepartureFitsPickupWindow(new Date("2030-01-02T03:30:00.000Z"), lateStart, lateEnd)).toBe(false);
+    // 23:30 ART del 1 contra 00:30 ART del 2: una hora de diferencia, otro día.
+    expect(tripDepartureOnPickupDay(new Date("2030-01-02T03:30:00.000Z"), new Date("2030-01-02T02:30:00.000Z"))).toBe(false);
   });
 });
 
@@ -58,8 +46,12 @@ describe("pickReusableTrip (MOVO-314)", () => {
     expect(pickReusableTrip([trip("a", { departureAt: at(3 * HOUR) })], shipment, window, 15)?.id).toBe("a");
   });
 
-  it("descarta viajes que salen después del cierre de la ventana", () => {
-    expect(pickReusableTrip([trip("a", { departureAt: new Date(windowEnd.getTime() + 1) })], shipment, window, 15)).toBeNull();
+  it("DD-060: toma un viaje del mismo día aunque salga después del cierre de la ventana", () => {
+    expect(pickReusableTrip([trip("a", { departureAt: new Date(windowEnd.getTime() + 1) })], shipment, window, 15)?.id).toBe("a");
+  });
+
+  it("descarta viajes de otro día", () => {
+    expect(pickReusableTrip([trip("a", { departureAt: new Date(windowEnd.getTime() + 24 * HOUR) })], shipment, window, 15)).toBeNull();
   });
 
   it("descarta viajes con la entrega fuera del desvío", () => {

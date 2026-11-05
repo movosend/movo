@@ -20,6 +20,7 @@ import {
   rowAlert,
   shortName,
   timeAgo,
+  routeLine,
 } from "./format"
 import {
   CARRIER,
@@ -316,5 +317,16 @@ describe("chat", () => {
       NOW
     )
     expect(items.filter((i) => i.kind === "event")).toHaveLength(0)
+  })
+})
+
+describe("routeLine", () => {
+  it("distingue dos direcciones de una misma ciudad", () => {
+    expect(
+      routeLine({
+        pickupAddress: "Las Mulitas 7565, Cordoba",
+        deliveryAddress: "Av. Colón 500, X5000 Córdoba",
+      })
+    ).toBe("Las Mulitas 7565 → Av. Colón 500")
   })
 })

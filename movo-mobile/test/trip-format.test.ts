@@ -50,10 +50,14 @@ describe("trip-format (MOVO-252)", () => {
   describe("tripStartBlocker (MOVO-277)", () => {
     const NOW = new Date("2026-10-08T15:00:00.000Z"); // 12:00 AR
 
-    it("antes del día de salida bloquea por fecha, aunque haya paquetes ejecutables", () => {
-      expect(tripStartBlocker({ departureAt: "2026-10-10T13:00:00.000Z", executablePackagesCount: 2 }, NOW)).toBe(
+    it("a más de 3 días de la salida bloquea por fecha, aunque haya paquetes ejecutables", () => {
+      expect(tripStartBlocker({ departureAt: "2026-10-12T13:00:00.000Z", executablePackagesCount: 2 }, NOW)).toBe(
         "too_early",
       );
+    });
+
+    it("DD-060: a 3 días de la salida ya se puede iniciar", () => {
+      expect(tripStartBlocker({ departureAt: "2026-10-11T13:00:00.000Z", executablePackagesCount: 2 }, NOW)).toBeNull();
     });
 
     it("el día de salida, a cualquier hora, sin paquetes ejecutables bloquea por el pago", () => {
@@ -71,10 +75,10 @@ describe("trip-format (MOVO-252)", () => {
       // 2026-10-10T02:00Z es el viernes 9 de octubre a las 23:00 en Argentina.
       // Se fija el texto completo para detectar diferencias de ICU entre plataformas (Hermes vs
       // Node); solo se tolera la coma tras el día de la semana, que varía según la versión.
-      expect(formatTripStartDate("2026-10-10T02:00:00.000Z").replace(",", "")).toBe("viernes 9 de octubre");
+      expect(formatTripStartDate("2026-10-10T02:00:00.000Z").replace(",", "")).toBe("martes 6 de octubre");
       expect(
         tripStartBlockerMessage({ departureAt: "2026-10-10T02:00:00.000Z" }, "too_early").replace(",", ""),
-      ).toBe("Podés iniciarlo el viernes 9 de octubre.");
+      ).toBe("Podés iniciarlo el martes 6 de octubre.");
       expect(tripStartBlockerMessage({ departureAt: "2026-10-10T02:00:00.000Z" }, "packages_not_ready")).toBe(
         "Tus paquetes todavía esperan la confirmación del pago.",
       );
@@ -113,10 +117,10 @@ describe("trip-format (MOVO-252)", () => {
     it("MOVO-277: TRIP_START_TOO_EARLY dice desde qué día se puede iniciar", () => {
       const err = new ApiError(409, "TRIP_START_TOO_EARLY", "Muy temprano");
       expect(formatTripStartErrorMessage(err, "2026-10-10T02:00:00.000Z")).toMatch(
-        /^Podés iniciar este viaje el viernes,? 9 de octubre\.$/,
+        /^Podés iniciar este viaje el martes,? 6 de octubre\.$/,
       );
       expect(formatTripStartErrorMessage(err)).toBe(
-        "Todavía no podés iniciar este viaje: se habilita el día de salida.",
+        "Todavía no podés iniciar este viaje: se habilita 3 días antes de la salida.",
       );
     });
 

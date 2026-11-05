@@ -1,3 +1,4 @@
+import { shortAddress } from "@/lib/shipments/format"
 import Link from "next/link"
 import type { ReactNode } from "react"
 import {
@@ -124,8 +125,10 @@ export function ExpedienteHeader({
           </span>
         </div>
         <span className="text-sm text-fg2">
-          {dispute.pickupCity ?? "Sin ciudad"} · abierta{" "}
-          {formatDateTime(dispute.openedAt)}
+          {dispute.pickupAddress
+            ? shortAddress(dispute.pickupAddress)
+            : (dispute.pickupCity ?? "Sin ciudad")}{" "}
+          · abierta {formatDateTime(dispute.openedAt)}
           {dispute.status === "open" && ` · ${ageLabel(dispute.openedAt, now)}`}
           {" · "}
           <Link

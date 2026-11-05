@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { ProximityGeoScreen } from "../../../../../components/shipments/proximity-geo-screen";
 import { useShipment } from "../../../../../src/hooks/use-shipments";
 
@@ -14,6 +14,9 @@ import { useShipment } from "../../../../../src/hooks/use-shipments";
 export default function PickupGeoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: shipment } = useShipment(id);
+
+  // DD-061: entradas sin el detalle a la vista (Home, ruta). El detalle ofrece iniciar el viaje.
+  if (shipment?.carrierTripActive === false) return <Redirect href={`/shipments/${id}`} />;
 
   return (
     <ProximityGeoScreen

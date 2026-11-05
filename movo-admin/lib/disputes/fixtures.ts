@@ -427,6 +427,7 @@ function build(spec: Spec): MockDispute {
     statements,
     resolution,
     pickupCity: s.pickupCity,
+    pickupAddress: s.pickupAddress,
     partyHistory: [],
     attribution: spec.attribution ?? null,
   }

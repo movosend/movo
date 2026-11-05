@@ -1489,8 +1489,9 @@ export function createShipmentsService(
           "El fin de la franja de retiro debe ser posterior al inicio."
         );
       }
-      if (toRealInstant(windowStartAt) < new Date()) {
-        throw new ApiError(422, "SHIPMENT_PICKUP_WINDOW_IN_PAST", "La franja de retiro no puede estar en el pasado.");
+      // DD-060: una franja en curso sigue sirviendo; solo se rechaza la que ya terminó.
+      if (toRealInstant(windowEndAt) <= new Date()) {
+        throw new ApiError(422, "SHIPMENT_PICKUP_WINDOW_IN_PAST", "La franja de retiro ya terminó.");
       }
 
       // AC5 — el receptor tiene que existir y tener KYC de identidad aprobado.
@@ -2024,6 +2025,11 @@ export function createShipmentsService(
         input.offeredPickupTimeWindowEnd || null,
         shipment.pickupTimeWindowEnd
       );
+      // DD-060: con ofertas para hoy, la franja efectiva puede haber terminado (una ya
+      // pasada, o la del envío aplicada a un día anterior): la oferta nacería vencida.
+      if (expiresAt <= new Date()) {
+        throw new ApiError(422, "OFFER_PICKUP_WINDOW_IN_PAST", "La franja de retiro propuesta ya terminó.");
+      }
 
       const offer = await offerRepository.create({
         shipmentId: input.shipmentId,

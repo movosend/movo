@@ -193,7 +193,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       });
     });
 
-    it("falla con 400 TRIP_DEPARTURE_IN_PAST si la fecha de salida es en el pasado", async () => {
+    it("falla con 400 TRIP_DEPARTURE_IN_PAST si la fecha de salida quedó más de 5 minutos atrás", async () => {
       const service = buildService();
 
       await expect(
@@ -207,7 +207,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
             destinationAddress: "Villa María",
             destinationLat: -32.4,
             destinationLng: -63.24,
-            departureAt: new Date(Date.now() - 100000),
+            departureAt: new Date(Date.now() - 10 * 60 * 1000),
             vehicleType: "auto",
           },
         }),
@@ -615,8 +615,16 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
     describe("fecha de salida (MOVO-277)", () => {
       const DAY_MS = 24 * 60 * 60 * 1000;
 
-      it("falla con 409 TRIP_START_TOO_EARLY si la salida es un día futuro y no toca el repo", async () => {
-        trip = fakeTrip({ status: TripStatus.DECLARED, departureAt: new Date(Date.now() + 2 * DAY_MS) });
+      it("DD-060: permite iniciar 3 días antes de la salida", async () => {
+        trip = fakeTrip({ status: TripStatus.DECLARED, departureAt: new Date(Date.now() + 3 * DAY_MS) });
+        const service = buildService();
+
+        const result = await service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] });
+        expect(result.status).toBe(TripStatus.ACTIVE);
+      });
+
+      it("falla con 409 TRIP_START_TOO_EARLY a más de 3 días de la salida y no toca el repo", async () => {
+        trip = fakeTrip({ status: TripStatus.DECLARED, departureAt: new Date(Date.now() + 4 * DAY_MS) });
         const service = buildService();
 
         await expect(
@@ -941,7 +949,6 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         destinationLng: -63.2402,
         radiusKm: 15,
         pickupDate: toArgentinaCalendarDate(trip.departureAt),
-        departureAt: trip.departureAt,
         excludeUserId: CARRIER_ID,
         excludePartyIds: [],
         page: 1,

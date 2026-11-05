@@ -1,3 +1,4 @@
+import { shortAddress } from "@/lib/shipments/format"
 import Link from "next/link"
 import { Bot, SearchX } from "lucide-react"
 import type { AdminDisputeRow } from "@movo/shared/src/types/admin-disputes"
@@ -39,7 +40,8 @@ export function DisputeRowLink({
   href,
   now,
 }: {
-  row: AdminDisputeRow & Partial<Pick<AdminDisputeRow, "pickupCity">>
+  row: AdminDisputeRow &
+    Partial<Pick<AdminDisputeRow, "pickupCity" | "pickupAddress">>
   href: string
   now: Date
 }) {
@@ -68,7 +70,9 @@ export function DisputeRowLink({
             #{row.shipmentCode}
           </span>
           <span className="truncate text-xs text-muted-foreground">
-            {row.pickupCity ?? "Sin ciudad"}
+            {row.pickupAddress
+              ? shortAddress(row.pickupAddress)
+              : (row.pickupCity ?? "Sin ciudad")}
           </span>
         </span>
         <span className="flex min-w-0 flex-col items-start gap-1">

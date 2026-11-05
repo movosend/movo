@@ -70,8 +70,8 @@ describe("POST /trips/:id/start (MOVO-277)", () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
   });
 
-  it("responde 409 TRIP_START_TOO_EARLY con la salida en un día futuro y el viaje sigue declared", async () => {
-    const trip = await tripRepo.create(tripInput({ departureAt: new Date(Date.now() + 2 * DAY_MS) }));
+  it("responde 409 TRIP_START_TOO_EARLY a más de 3 días de la salida y el viaje sigue declared", async () => {
+    const trip = await tripRepo.create(tripInput({ departureAt: new Date(Date.now() + 4 * DAY_MS) }));
     await attachAcceptedPackage(app.db, trip);
 
     const res = await start(trip.id, trip.carrierId);
@@ -79,6 +79,15 @@ describe("POST /trips/:id/start (MOVO-277)", () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().error.code).toBe("TRIP_START_TOO_EARLY");
     expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.DECLARED);
+  });
+
+  it("DD-060: permite iniciar 3 días antes de la salida", async () => {
+    const trip = await tripRepo.create(tripInput({ departureAt: new Date(Date.now() + 3 * DAY_MS) }));
+    await attachAcceptedPackage(app.db, trip);
+
+    const res = await start(trip.id, trip.carrierId);
+
+    expect(res.statusCode).toBe(200);
   });
 
   it("permite iniciar con la salida ya pasada", async () => {

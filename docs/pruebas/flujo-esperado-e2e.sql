@@ -46,7 +46,7 @@ FROM shipments.offers WHERE shipment_id = :'shipment_id' ORDER BY created_at;
 
 \echo '== 4. Viaje (vía la oferta aceptada)'
 -- N: status=completed (lo cierra trip-expiry-sweep apenas el envío está delivered), started_at no nulo,
---    started_at <= primer handshake.
+--    started_at <= primer handshake (DD-061: el retiro lo exige; started_at nulo es un bug).
 SELECT t.id, t.status, t.departure_at, t.started_at, t.cancelled_at, t.vehicle_type,
        t.series_id, t.created_at, t.updated_at
 FROM shipments.trips t

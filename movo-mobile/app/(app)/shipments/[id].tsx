@@ -328,6 +328,7 @@ export default function ShipmentDetailScreen() {
   const detailCta = shipment
     ? shipmentDetailCta(role, shipment.status, shipment.id, {
         fundingWindowOpen: isFundingWindowOpen(shipment),
+        carrierTripActive: shipment.carrierTripActive,
       })
     : null;
   // MOVO-211: con la card de la reserva a la vista, ella lleva el CTA de pago y la explicación de

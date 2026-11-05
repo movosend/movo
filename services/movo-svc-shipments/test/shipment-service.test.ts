@@ -167,6 +167,23 @@ describe("shipments.service — createShipment", () => {
     expect(repository.create).not.toHaveBeenCalled();
   });
 
+  it("DD-060: acepta una franja de hoy que ya empezó pero no terminó", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-01-01T13:30:00.000Z")); // 10:30 en Argentina.
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
+    const service = createTestShipmentsService(repository, usersClient);
+
+    await expect(
+      service.createShipment({ ...baseInput, pickupDate: "2030-01-01", pickupTimeWindowStart: "09:00", pickupTimeWindowEnd: "12:00" })
+    ).resolves.toBeDefined();
+    vi.useRealTimers();
+
+    expect(repository.create).toHaveBeenCalled();
+  });
+
   it("rechaza una franja de retiro en el pasado", async () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({});

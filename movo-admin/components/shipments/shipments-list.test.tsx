@@ -85,12 +85,14 @@ describe("tabla de envíos", () => {
     expect(within(link).getByText("#MOVO-48213")).toBeTruthy()
     expect(within(link).getByText("hace 6 min")).toBeTruthy()
     expect(within(link).getAllByText("En camino").length).toBeGreaterThan(0)
-    expect(within(link).getByText("Córdoba → Villa Allende")).toBeTruthy()
+    expect(
+      within(link).getByText("Av. Colón 1234 → Av. San Martín 1200")
+    ).toBeTruthy()
     expect(
       within(link).getByText("Ana M. → Luis H. · vía Diego F.")
     ).toBeTruthy()
     expect(
-      within(link).getByText("Av. Colón 1234, Alberdi → Av. San Martín 1200")
+      within(link).getByTitle("Av. Colón 1234, Alberdi → Av. San Martín 1200")
     ).toBeTruthy()
     expect(within(link).getByText("Hoy · 09:00 a 12:00 hs")).toBeTruthy()
     expect(within(link).getByText("$6.800")).toBeTruthy()

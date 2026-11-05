@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { ApiError, ShipmentStatus } from "@movo/shared";
+import { ApiError, ShipmentStatus, TripStatus } from "@movo/shared";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { HandshakeRepository } from "../../repositories/handshake-repository";
 import { UsersClient } from "../../adapters/users-client";
@@ -128,6 +128,22 @@ function assertPickupStillAllowed(shipment: Shipment, graceHours: number | undef
   }
 }
 
+/**
+ * DD-061: sin el viaje iniciado no hay retiro. Es lo que ordena el resto del flujo (ruta,
+ * seguimiento, atribución del no-retiro) y antes un retiro podía dejar el viaje en `declared`
+ * con el envío ya entregado. Un envío sin viaje tampoco pasa: se destraba desde el panel.
+ */
+async function assertCarrierTripStarted(shipmentRepository: ShipmentRepository, shipmentId: string): Promise<void> {
+  const accepted = await shipmentRepository.findAcceptedOfferTrip(shipmentId);
+  if (accepted?.trip?.status !== TripStatus.ACTIVE) {
+    throw new ApiError(
+      409,
+      "HANDSHAKE_TRIP_NOT_STARTED",
+      "El transportista tiene que iniciar el viaje antes de retirar el paquete."
+    );
+  }
+}
+
 export function createHandshakeService(
   shipmentRepository: ShipmentRepository,
   handshakeRepository: HandshakeRepository,
@@ -168,6 +184,7 @@ export function createHandshakeService(
       if (stage === "pickup") {
         assertIsSender(shipment, input.callerId, "Solo el emisor del envío puede generar el código de handshake de retiro.");
         assertPickupStillAllowed(shipment, pickupMissedGraceHours);
+        await assertCarrierTripStarted(shipmentRepository, input.shipmentId);
       } else {
         assertIsCarrier(shipment, input.callerId);
         await cancelPendingReceiverTransfer?.(input.shipmentId);
@@ -253,6 +270,7 @@ export function createHandshakeService(
       const stage = pending.stage;
       if (stage === "pickup") {
         assertIsCarrier(shipment, input.callerId);
+        await assertCarrierTripStarted(shipmentRepository, input.shipmentId);
       } else {
         assertIsReceiver(shipment, input.callerId, "Solo el receptor designado puede confirmar el handshake de entrega.");
       }
@@ -294,7 +312,12 @@ export function createHandshakeService(
       const distanceM = haversineKm(pending.cedenteLat, pending.cedenteLng, input.lat, input.lng) * 1000;
       if (distanceM > HANDSHAKE_MAX_DISTANCE_METERS) {
         // AC4: ni el status ni el desafío pendiente se tocan -- reintentable dentro
-        // del mismo TTL si el receptor se acerca.
+        // del mismo TTL si el receptor se acerca. El código de error no queda en el log de la
+        // request: sin este warn, un rechazo no se puede diagnosticar después.
+        logger?.warn(
+          { shipmentId: input.shipmentId, stage, distanceM: Math.round(distanceM) },
+          "handshake rechazado por distancia entre las partes"
+        );
         throw new ApiError(
           422,
           "HANDSHAKE_DISTANCE_EXCEEDED",

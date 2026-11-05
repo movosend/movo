@@ -160,7 +160,7 @@ describe("CarrierTripCta (MOVO-252)", () => {
     it("con la salida en un día futuro no ofrece 'Iniciar viaje' y dice desde cuándo se puede", async () => {
       const { queryByTestId, getByTestId } = await render(
         <CarrierTripCta
-          trip={{ ...BASE_TRIP, departureAt: new Date(Date.now() + 3 * DAY_MS).toISOString() }}
+          trip={{ ...BASE_TRIP, departureAt: new Date(Date.now() + 5 * DAY_MS).toISOString() }}
           testID="carrier-cta"
         />,
       );

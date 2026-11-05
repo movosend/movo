@@ -55,12 +55,12 @@ export function createAdminTrackingService(deps: AdminTrackingServiceDeps) {
       const origin = {
         lat: row.pickupLat.toNumber(),
         lng: row.pickupLng.toNumber(),
-        label: row.pickupCity ?? row.pickupAddress,
+        label: row.pickupAddress,
       };
       const destination = {
         lat: row.deliveryLat.toNumber(),
         lng: row.deliveryLng.toNumber(),
-        label: row.deliveryCity ?? row.deliveryAddress,
+        label: row.deliveryAddress,
       };
 
       // El contexto se resuelve una sola vez por tick; la ruta solo se pide (y factura) con viaje asignado.

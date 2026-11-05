@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
-import { KycStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import { KycStatus, ShipmentStatus, TripStatus, toArgentinaCalendarDateString } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
@@ -219,11 +219,32 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
     expect(second.json().id).not.toBe(first.json().id);
   });
 
-  it("AC5: 422 OFFER_DATE_OUT_OF_RANGE si offeredDate es anterior a la fecha de retiro del envío", async () => {
+  it("DD-060: 422 OFFER_PICKUP_WINDOW_IN_PAST si offeredDate es anterior a hoy", async () => {
     const shipment = await createPublishedShipment();
-    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { offeredDate: "2029-12-31" });
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { offeredDate: "2020-01-01" });
     expect(response.statusCode).toBe(422);
-    expect(response.json().error.code).toBe("OFFER_DATE_OUT_OF_RANGE");
+    expect(response.json().error.code).toBe("OFFER_PICKUP_WINDOW_IN_PAST");
+  });
+
+  it("DD-060: acepta ofertar para hoy un retiro pedido para más adelante", async () => {
+    const shipment = await createPublishedShipment();
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+      offeredDate: toArgentinaCalendarDateString(new Date()),
+      offeredPickupTimeWindowStart: "00:00",
+      offeredPickupTimeWindowEnd: "23:59",
+    });
+    expect(response.statusCode).toBe(201);
+  });
+
+  it("DD-060: 422 OFFER_PICKUP_WINDOW_IN_PAST si la franja de hoy ya terminó", async () => {
+    const shipment = await createPublishedShipment();
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+      offeredDate: toArgentinaCalendarDateString(new Date()),
+      offeredPickupTimeWindowStart: "00:00",
+      offeredPickupTimeWindowEnd: "00:01",
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe("OFFER_PICKUP_WINDOW_IN_PAST");
   });
 
   it("422 OFFER_DATE_OUT_OF_RANGE si offeredDate supera el máximo de 3 días después del retiro (MOVO-177)", async () => {

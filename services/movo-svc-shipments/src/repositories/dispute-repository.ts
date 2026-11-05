@@ -94,6 +94,7 @@ export interface DisputeListItem {
     carrierId: string | null;
     receiverId: string;
     pickupCity: string | null;
+    pickupAddress: string;
   };
   names: { sender: string | null; carrier: string | null; receiver: string | null };
   /** Estado del envío cuando se abrió la disputa (`fromStatus` del evento que lo pasó a `disputed`). */
@@ -369,6 +370,7 @@ export function createDisputeRepository(db: PrismaClient): DisputeRepository {
             carrierId: shipment.carrierId,
             receiverId: shipment.receiverId,
             pickupCity: shipment.pickupCity,
+            pickupAddress: shipment.pickupAddress,
           },
           names: {
             sender: nameOf.get(shipment.senderId) ?? null,

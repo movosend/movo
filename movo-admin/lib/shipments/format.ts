@@ -84,8 +84,16 @@ export function partiesLine(row: AdminShipmentRow): string {
   return row.carrier ? `${base} · vía ${shortName(row.carrier.name)}` : base
 }
 
-export const routeLine = (row: AdminShipmentRow) =>
-  `${row.pickupCity ?? "Sin ciudad"} → ${row.deliveryCity ?? "Sin ciudad"}`
+/** "Av. Colón 1234, Córdoba" -> "Av. Colón 1234". En un envío dentro de una misma ciudad, la ciudad
+ * sola dice "Córdoba → Córdoba": la calle y el número son lo que distingue. */
+export const shortAddress = (address: string) =>
+  address.split(",")[0]?.trim() || address
+
+export const routeLine = (row: {
+  pickupAddress: string
+  deliveryAddress: string
+}) =>
+  `${shortAddress(row.pickupAddress)} → ${shortAddress(row.deliveryAddress)}`
 
 export const addressLine = (row: AdminShipmentRow) =>
   `${row.pickupAddress} → ${row.deliveryAddress}`
