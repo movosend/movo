@@ -308,6 +308,16 @@ caption .rotulo, figcaption .rotulo { font-weight: 600; color: var(--ink-950); }
 
 table.compacta { font-size: 7.6pt; }
 table.compacta th, table.compacta td { padding: 1.1mm 1.6mm; }
+.tabla-backlog-inicial table { table-layout: fixed; }
+.tabla-backlog-inicial col:nth-child(1) { width: 10% !important; }
+.tabla-backlog-inicial col:nth-child(2) { width: 56% !important; }
+.tabla-backlog-inicial col:nth-child(3) { width: 12% !important; }
+.tabla-backlog-inicial col:nth-child(4) { width: 8% !important; }
+.tabla-backlog-inicial col:nth-child(5) { width: 14% !important; }
+.tabla-der-inventario table { table-layout: fixed; font-size: 7.8pt; }
+.tabla-der-inventario col:nth-child(1) { width: 28% !important; }
+.tabla-der-inventario col:nth-child(2) { width: 37% !important; }
+.tabla-der-inventario col:nth-child(3) { width: 35% !important; }
 table.clave-valor th { width: 32%; background: var(--ink-50); }
 table.clave-valor tr:first-child th, table.clave-valor tr:first-child td { border-top: 1pt solid var(--ink-950); }
 

@@ -2,6 +2,7 @@
 """Genera en Markdown el documento del modelo de datos: DER por servicio y diccionario de datos."""
 import re
 import sys
+import argparse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -26,8 +27,19 @@ def primera_frase(s: str, n: int = 190) -> str:
     return s if len(s) <= n else s[: n - 1].rsplit(" ", 1)[0] + "…"
 
 
+def campos_clave(modelo) -> str:
+    """Selecciona identificadores, relaciones y atributos que explican el negocio."""
+    patron = re.compile(r"(^status$|^state$|amount|price|balance|currency|score|rating|"
+                        r"pickup|delivery|expires|deadline|verified|role|reason|type$)", re.I)
+    elegidos = [c.nombre for c in modelo.columnas if c.pk or c.fk or c.unica or patron.search(c.nombre)]
+    return ", ".join(f"`{nombre}`" for nombre in elegidos[:8]) or "—"
+
+
 def main() -> None:
-    out = ["# Modelo de Datos y Diccionario\n"]
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--completo", action="store_true", help="incluye el diccionario de todas las columnas")
+    args = parser.parse_args()
+    out = ["# Modelo de Datos y " + ("Diccionario Completo" if args.completo else "Campos Clave") + "\n"]
     out.append(
         "El modelo de datos relacional vive en una única instancia de PostgreSQL 16 con **un esquema por microservicio** (ADR-003). "
         "Cada servicio define su esquema con Prisma (ADR-011) y es el único que lo lee y escribe: las referencias entre esquemas "
@@ -37,8 +49,9 @@ def main() -> None:
     )
     out.append(
         "En los diagramas, `*` marca una columna obligatoria, `PK` la clave primaria y `FK` una clave foránea. "
-        "Por legibilidad cada entidad muestra su clave, sus claves foráneas y las columnas más relevantes; el detalle completo de cada tabla "
-        "está en el diccionario de datos de cada sección. Las entidades de otro grupo que se referencian por clave foránea aparecen solo con su clave.\n"
+        "Por legibilidad cada entidad muestra su clave, sus claves foráneas y las columnas más relevantes. "
+        "El inventario siguiente destaca campos clave; el diccionario completo de columnas se conserva como anexo digital "
+        "en `docs/tomos/anexos/diccionario-datos-completo.md`. Las entidades de otro grupo que se referencian por clave foránea aparecen solo con su clave.\n"
     )
     tot_t = tot_c = 0
     for servicio, grupos in GRUPOS.items():
@@ -50,17 +63,20 @@ def main() -> None:
         for ident, titulo, _ in grupos:
             out.append(f"![DER: {titulo}.](diagrama:{ident}){{.borde .sin-corte}}\n")
         out.append("### Tablas\n")
-        out.append("| Tabla | Propósito | Columnas |\n|----------------|--------------------------------------------------------------|---------:|")
+        out.append("::: {.tabla-der-inventario}\n")
+        out.append("| Tabla | Propósito | Campos clave |\n|----------------|----------------------------------------|----------------------------------------|")
         for m in modelos:
-            out.append(f"| `{m.tabla}` | {esc(primera_frase(m.comentario)) or '–'} | {len(m.columnas)} |")
+            out.append(f"| `{m.tabla}` | {esc(primera_frase(m.comentario)) or '–'} | {campos_clave(m)} |")
         out.append(f"\n: Tablas del esquema `{servicio}`.\n")
+        out.append(":::\n")
         out.append("### Tipos enumerados\n")
         out.append("| Tipo | Valores |\n|------------------------------|----------------------------------------------------|")
         for nombre, vals in enums.items():
             out.append(f"| `{nombre}` | {', '.join(f'`{v}`' for v in vals)} |")
         out.append(f"\n: Enumerados del esquema `{servicio}`.\n")
-        out.append("### Diccionario de datos\n")
-        for m in modelos:
+        if args.completo:
+            out.append("### Diccionario de datos completo\n")
+        for m in modelos if args.completo else []:
             out.append(f"#### `{m.tabla}`\n")
             out.append("| Columna | Tipo | Restricciones | Descripción |\n|----------------------------------|--------------|-----------------|-------------------------------------|")
             for c in m.columnas:

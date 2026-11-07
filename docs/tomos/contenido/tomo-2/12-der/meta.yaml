@@ -1,16 +1,18 @@
 titulo: Modelo de Datos (DER)
-subtitulo: Diagramas entidad-relación por servicio y diccionario de datos de las cuatro bases de Movo.
+subtitulo: Diagramas entidad-relación por servicio e inventario de tablas y campos clave.
 instancia: Producto · Modelo de datos
-version: "1"
-fecha: 02/11/2026
+version: "1.1"
+fecha: 07/11/2026
 indice_nivel_3: false
 archivos:
   - {gen: herramientas/gen_der.py}
 historial:
   - {version: "1", fecha: 02/11/2026, autor: Equipo completo, descripcion: "Primera versión: DER y diccionario de datos generados a partir de los esquemas Prisma vigentes al cierre del Sprint 8."}
+  - {version: "1.1", fecha: 07/11/2026, autor: Equipo completo, descripcion: "El tomo conserva diagramas y campos clave; el diccionario exhaustivo pasa a anexo digital."}
 introduccion: |
   Este documento presenta el modelo de datos de Movo: un diagrama entidad-relación por cada grupo
-  de tablas, la lista de tablas con su propósito, los tipos enumerados y el diccionario de datos
-  de cada tabla. Se genera automáticamente desde los esquemas Prisma de cada servicio.
+  de tablas, la lista de tablas con su propósito, los tipos enumerados y los campos clave.
+  El diccionario completo se conserva como anexo digital. Ambos se generan desde los
+  esquemas Prisma de cada servicio.
 audiencia: |
   El tribunal evaluador y los futuros mantenedores, con conocimiento de bases de datos relacionales.

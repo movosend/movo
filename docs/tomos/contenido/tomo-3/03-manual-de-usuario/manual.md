@@ -617,10 +617,10 @@ Ver una ficha no deja registro.
 - **Cambiar el correo o el teléfono**, con motivo y una vista previa del *antes* y el *después*.
 - **Ajustar el saldo** de la cuenta corriente, con monto, sentido y motivo.
 - **Agregar una nota interna**, que ven todos los administradores.
-- **Suspender o inhabilitar** una cuenta. Al suspender se escribe el **motivo** (lo ve la persona en la app y por correo, así que se redacta para ella), una **nota interna** opcional que solo ven los administradores y el **plazo**: hasta una fecha (la suspensión termina a las 23:59 de ese día) o indefinida. Antes de aplicarla, **Revisar** muestra un resumen para confirmar, con lo que se retirará del usuario (publicaciones, ofertas y viajes sin paquetes) y los envíos en curso que tiene. **Inhabilitar** a quien tiene envíos en curso se rechaza hasta resolverlos.
-- **Levantar una sanción** vigente, con motivo. Una suspensión con fecha de fin se levanta sola. En la sección **Sanciones** se ve el historial, y en cada una si el retiro de lo no comprometido se completó o hay que reintentarlo.
+- **Suspender o inhabilitar** una cuenta. Completá el motivo, la nota interna opcional y, si suspendés, el plazo; la pantalla **Revisar** muestra el impacto antes de confirmar. En **Sanciones** podés consultar el historial y reintentar una operación pendiente.
+- **Levantar una sanción** vigente, con motivo.
 
-Toda acción de escritura exige un **motivo** y queda registrada en la bitácora con tu nombre. Un administrador no puede actuar sobre su propia cuenta ni sobre un envío del que sea parte.
+Para decidir cuándo aplicar una sanción, qué ocurre con las publicaciones y qué restricciones rigen, seguí PO-05 del *Manual de Procedimientos*. Toda acción de escritura exige un **motivo** y queda registrada en la bitácora con tu nombre.
 
 {{captura W-05}}
 
@@ -662,7 +662,7 @@ En **Disputas** se gestionan los reclamos sobre un envío, sea que los abrió un
 
 Al abrir una disputa se ve su **expediente**: el motivo y los descargos de cada parte, lo que detectó el sistema, las posiciones del transportista, el handshake, las fotos del envío, el historial de las partes y las **notas internas** (visibles para todos los administradores, con el nombre de quien las escribió).
 
-Desde el expediente, **Resolver disputa** permite decidir a favor del emisor, a favor del transportista o de forma parcial (25, 50 o 75 %, o un monto libre). Se escribe un razonamiento de al menos 10 caracteres, que reciben las tres partes, y el panel muestra antes qué ocurrirá con el dinero (liberar la reserva, capturarla, reembolsar total o parcialmente, o acreditar en la cuenta corriente). Al confirmar, el envío queda *cancelado* si ganó el emisor o *completado* en los otros casos, y se desbloquea al transportista. Si el pago falla, la disputa queda en *Procesando pago* y se puede reintentar. Una disputa resuelta no se modifica. El procedimiento completo está en el *Manual de Procedimientos* (PO-11).
+Para resolverla, tocá **Resolver disputa**, elegí el resultado, completá el razonamiento y revisá la vista previa del efecto sobre el dinero antes de confirmar. Si la pantalla indica *Procesando pago*, podés usar **Reintentar**. La matriz de pagos, las restricciones y el estado final del envío se explican en PO-11 del *Manual de Procedimientos*; consultalo antes de decidir.
 
 {{captura W-19}}
 
@@ -717,7 +717,7 @@ En **Reportería > Bitácora** se audita lo que hicieron los administradores. Se
 
 ## Administradores
 
-En **Admins** se lista a los administradores con su fecha de alta. Con **Agregar administrador** se busca una cuenta por nombre o correo, se escribe un motivo y se confirma con la contraseña y un código. **Revocar acceso** también exige motivo. No es posible revocarse el acceso a uno mismo ni dejar al sistema sin administradores. Ambas acciones quedan en la bitácora.
+En **Admins** se lista a los administradores con su fecha de alta. Con **Agregar administrador** se busca una cuenta por nombre o correo, se escribe un motivo y se confirma con la contraseña y un código. **Revocar acceso** también exige motivo. Los requisitos, restricciones y efectos de ambas acciones están en PO-01 y PO-02 del *Manual de Procedimientos*.
 
 {{captura W-15}}
 

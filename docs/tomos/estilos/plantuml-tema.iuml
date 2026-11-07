@@ -108,7 +108,6 @@ skinparam Participant<<movo>> {
 skinparam sequenceMessageAlign left
 skinparam responseMessageBelowArrow true
 skinparam maxMessageSize 170
-skinparam ParticipantPadding 8
 skinparam BoxPadding 8
 
 

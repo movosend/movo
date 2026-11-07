@@ -4,7 +4,7 @@ El dominio de Movo se reparte en tres contextos delimitados, cada uno propiedad 
 
 Se aplican estas convenciones de lectura:
 
-- Los **atributos** son los del esquema real de datos (Prisma, ADR-011), con los tipos del dominio (`UUID`, `Decimal`, `DateTime`); se muestran los más relevantes de cada entidad, y el listado completo está en el diccionario de datos del documento de DER.
+- Los **atributos** son los del esquema real de datos (Prisma, ADR-011), con los tipos del dominio (`UUID`, `Decimal`, `DateTime`); se muestran los más relevantes de cada entidad. El DER de este tomo destaca los campos clave y el diccionario completo se conserva en el anexo digital.
 - Las **operaciones** son los métodos reales de los servicios de cada módulo que operan sobre la entidad, no operaciones inventadas: en Movo las reglas de negocio viven en servicios (`*.service.ts`) y las entidades son datos persistidos, por lo que cada operación se asocia a la entidad sobre la que actúa.
 - Las **clases marcadas con el estereotipo `«movo»`** (en verde) son los agregados raíz de cada contexto.
 - Entre contextos **no hay asociaciones** en los diagramas: las referencias entre servicios (por ejemplo, el `senderId` de un envío hacia un usuario) son referencias lógicas por identificador, sin clave foránea, para que ningún servicio dependa de las tablas de otro (ADR-003, ADR-010).

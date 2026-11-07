@@ -39,6 +39,7 @@ plantillas/_portadas.css.j2  estilos de esas páginas (medidas del diseño en px
 plantillas/tapa.html.j2  tapa dura: contratapa + lomo + tapa a escala real
 herramientas/motivos.py  motivos de puntos (SVG) de las carátulas y las tapas
 datos/                   datos estructurados (historias de usuario, casos de prueba)
+anexos/                  informes de sprint íntegros, DD completas y diccionario de datos exhaustivo
 ```
 
 ## Generar los PDF
@@ -77,5 +78,8 @@ El índice de figuras y de tablas se omite (`indices_figuras_tablas: false`); la
 - Estado de las historias: exportar el CSV de Linear y correr `python3 herramientas/importar_linear.py export.csv`; actualiza estado, ciclo, estimación, responsable y sub-issues de `datos/historias.json` y conserva los criterios de aceptación ya redactados.
 - Registros de decisiones: re-exportar de Drive "[Movo] 004 - Sprint 0" (HTML) y "[Movo] 011-Registro de Decisiones de Diseño" (Markdown) y correr `herramientas/importar_adr.py` y `herramientas/importar_dd.py`; el Tomo II y los conteos del Tomo I tienen que coincidir con esos documentos.
 - Resultados de pruebas: ejecutar las suites con reporter JSON/JUnit y consolidar con `herramientas/ingerir_resultados.py paquete=ruta ...`.
+- El Tomo I contiene el inventario inicial abreviado; el desarrollo detallado y vigente de las historias queda en el Tomo II. Los informes de sprint íntegros están en `anexos/sprints/`.
+- La entrega digital incluye `entrega/Movo - Anexos digitales.zip`, con los criterios originales del backlog, los informes de sprint íntegros, el diccionario de datos y las DD completas. Entregarlo junto con los tres PDF digitales.
+- El DER impreso se concentra en diagramas, tablas y campos clave. Para actualizar el diccionario exhaustivo: `python3 herramientas/gen_der.py --completo > anexos/diccionario-datos-completo.md` desde `docs/tomos/`. `importar_dd.py` actualiza el registro completo en `anexos/` y la síntesis del Tomo II.
 - Manual de Usuario: las capturas son marcos pendientes; al guardar `assets/capturas/M-NN.png` (o `W-NN.png`) el build las incluye solas.
 - Pendientes de contenido: fechas de hitos por confirmar.

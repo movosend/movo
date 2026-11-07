@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Convierte "[Movo] 011-Registro de Decisiones de Diseño" (Markdown exportado de Drive) en contenido del Tomo II.
 
-Uso: python3 herramientas/importar_dd.py <dd.md>   (escribe contenido/tomo-2/13b-decisiones-de-diseno/decisiones.md)
+Uso: python3 herramientas/importar_dd.py <dd.md>   (actualiza el anexo íntegro y la síntesis del Tomo II)
 """
 import re
 import sys
 from pathlib import Path
 
-DESTINO = Path(__file__).resolve().parents[1] / "contenido" / "tomo-2" / "13b-decisiones-de-diseno" / "decisiones.md"
+DESTINO = Path(__file__).resolve().parents[1] / "anexos" / "decisiones-diseno-completas.md"
 ROTULO = {"CONTEXTO": "Contexto", "ALTERNATIVAS CONSIDERADAS": "Alternativas consideradas", "DECISIÓN": "Decisión",
           "CONSECUENCIAS": "Consecuencias", "REFERENCIAS": "Referencias"}
 
@@ -52,7 +52,10 @@ def main(ruta: str) -> None:
         out.append(resto.strip() + "\n")
     DESTINO.parent.mkdir(parents=True, exist_ok=True)
     DESTINO.write_text("\n".join(out), encoding="utf-8")
-    print(f"{len(indice)} DD -> {DESTINO}")
+    from resumir_dd import generar
+    resumen = generar()
+    assert resumen == len(indice), (resumen, len(indice))
+    print(f"{len(indice)} DD -> {DESTINO} y síntesis del Tomo II")
 
 
 if __name__ == "__main__":
