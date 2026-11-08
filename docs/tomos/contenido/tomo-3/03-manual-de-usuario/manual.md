@@ -200,6 +200,8 @@ El estado se muestra con una etiqueta de color en cada tarjeta y en el detalle:
 
 : Estados de un envío.
 
+![Cómo pasa un envío de un estado a otro. El recorrido habitual es la fila central; Cancelado se alcanza desde cualquier estado anterior al retiro.](diagrama:mu-estados-envio)
+
 En **Mis envíos** (desde **Inicio**, **Ver todos**) ves el listado completo, con búsqueda por persona y filtros por estado. Al tocar un envío se abre su detalle, con la línea de tiempo de todos los cambios de estado.
 
 {{captura M-25}}
@@ -279,6 +281,8 @@ Podés cancelar un envío desde su detalle con **Cancelar envío**, indicando op
 | Una vez retirado el paquete | Ya no se puede cancelar. |
 
 : Costo de cancelar un envío.
+
+![Costo de cancelar según el momento, como porcentaje del precio acordado.](diagrama:mu-cancelacion)
 
 {{captura M-37}}
 
@@ -385,6 +389,8 @@ En **Mis ofertas** ves tus propuestas agrupadas en **En juego** (pendientes), **
 | **No se concretó / Te bajaste del envío** | La asignación no prosperó, o te bajaste después de que te eligieron. |
 
 : Estados de una oferta.
+
+![Recorrido de una oferta desde que la enviás.](diagrama:mu-estados-oferta)
 
 También ves cuántos transportistas compiten por el mismo envío y en qué posición está tu oferta.
 

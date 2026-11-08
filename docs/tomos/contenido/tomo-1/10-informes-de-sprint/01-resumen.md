@@ -28,6 +28,8 @@ La velocity es la que informa Linear al cierre de cada ciclo; difiere en unos po
 
 ![Velocity por sprint: Story Points completados según Linear.](diagrama:velocity)
 
+![Story Points acumulados sprint a sprint (burn-up), con el aporte de cada sprint y el ritmo promedio como referencia.](diagrama:rs-burnup)
+
 La velocity pasó de 95 SP en el Sprint 2 a 121 SP en el Sprint 3, bajó a 106 SP en el Sprint 4 y a 80 SP en el Sprint 5, la más baja de la serie (−29,5% respecto del promedio de los dos sprints previos, al borde del umbral de alerta del 30% definido en el Plan de Proyecto; el informe aclara que no hay datos de horas disponibles para atribuir la caída a una causa concreta). Subió a 135 SP en el Sprint 6 (118 SP si se descuentan los registros de horas académicas cargados al final del ciclo, que inflan la métrica sin representar funcionalidad entregada) a 150 SP en el Sprint 7 y a 160 SP en el Sprint 8, el máximo de la serie (+7% respecto del Sprint 7; suma por issue: 152 SP). El Sprint 6 registra MOVO-231 como cancelado; su tratamiento en el scope se explica en ese informe.
 
 ::: nota

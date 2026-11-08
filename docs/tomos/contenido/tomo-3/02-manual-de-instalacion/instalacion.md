@@ -83,6 +83,8 @@ El comando es idempotente: si ya está todo aplicado, no hace nada.
 
 : Puertos del entorno local.
 
+![Componentes del entorno local y sus puertos: el tráfico entra por Nginx al gateway, que lo reparte entre los servicios.](diagrama:inst-puertos)
+
 La documentación interactiva de la API (Swagger) se genera automáticamente y está disponible en la ruta `/docs` del gateway y de cada servicio de Node (por ejemplo, `http://localhost:3000/docs`).
 
 ## Operación local
@@ -140,6 +142,8 @@ El despliegue es automático al integrar cambios (ver la sección siguiente). Pa
 | `main` | Producción | `ci-prod.yml` | `prod` |
 
 : Despliegue por rama.
+
+![Pipeline de integración y despliegue por evento del repositorio.](diagrama:gc-pipeline){.sin-corte}
 
 El *workflow* de desarrollo ejecuta, en orden:
 

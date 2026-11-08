@@ -187,17 +187,9 @@ Cada riesgo se evalúa en dos dimensiones, usando una escala cualitativa de tres
 - **Probabilidad:** qué tan factible es que el riesgo se materialice durante el desarrollo del proyecto.
 - **Impacto:** qué tan grave sería el efecto sobre el proyecto (cronograma, alcance, calidad o viabilidad técnica) si el riesgo ocurre.
 
-La combinación de ambas dimensiones determina la prioridad del riesgo, que es la que define cuánto esfuerzo de mitigación se le dedica. La siguiente matriz resume las combinaciones posibles:
+La combinación de ambas dimensiones determina la prioridad del riesgo, que es la que define cuánto esfuerzo de mitigación se le dedica. La siguiente matriz resume las combinaciones posibles y ubica en ella los riesgos identificados en la sección siguiente:
 
-<table class="matriz">
-<caption>Matriz de prioridad de riesgos (probabilidad × impacto).</caption>
-<thead><tr><th></th><th>Impacto bajo</th><th>Impacto medio</th><th>Impacto alto</th></tr></thead>
-<tbody>
-<tr><th>Probabilidad baja</th><td>Bajo</td><td>Bajo</td><td><span class="chip">Medio</span></td></tr>
-<tr><th>Probabilidad media</th><td>Bajo</td><td><span class="chip">Medio</span></td><td><span class="chip warn">Alto</span></td></tr>
-<tr><th>Probabilidad alta</th><td><span class="chip">Medio</span></td><td><span class="chip warn">Alto</span></td><td><span class="chip err">Crítico</span></td></tr>
-</tbody>
-</table>
+![Matriz de prioridad de riesgos (probabilidad × impacto) con los riesgos del registro inicial ubicados en su celda.](diagrama:pp-riesgos)
 
 Para cada riesgo identificado se define además una estrategia de mitigación concreta y accionable, orientada a reducir la probabilidad de ocurrencia, acotar el impacto, o ambas. Los riesgos de prioridad Alta y Crítica son los que reciben seguimiento explícito durante las retrospectivas de cada sprint.
 
@@ -315,6 +307,8 @@ Estructura de costos recurrentes una vez que Movo opera en producción con volum
 
 : Costos variables que escalan con el volumen.
 
+![Composición del presupuesto de desarrollo y rango del costo operativo fijo mensual por servicio.](diagrama:pp-presupuesto)
+
 ::: importante
 **Observación clave.** Los dos costos variables relevantes (KYC y Maps) están acotados en la etapa inicial. KYC es un costo único por usuario (no recurrente), y Maps cuenta con un crédito mensual gratuito que absorbe el volumen temprano. Por eso el costo operativo fijo se mantiene en una banda baja (~40 a 90 USD/mes) hasta alcanzar escala significativa.
 :::
@@ -348,14 +342,7 @@ El circuito de dinero aprovecha el modelo Marketplace de Mercado Pago, lo que ti
 1. El receptor paga al transportista en efectivo al momento de la entrega.
 2. Al completarse el handshake, Movo debita automáticamente su comisión (15%) de la tarjeta precargada del transportista (obligatoria para operar en efectivo).
 
-| Concepto | Monto |
-|---|--:|
-| Valor del envío (paga el emisor) | USD 10,00 |
-| Comisión Movo (15%) | USD 1,50 |
-| Pago neto al transportista (85%) | USD 8,50 |
-| Ingreso que procesa Movo | USD 1,50 |
-
-: Ejemplo numérico de un envío de USD 10.
+![Ejemplo de un envío de USD 10 en modalidad digital: el hold reserva el monto total y, al completarse el handshake de entrega, la captura lo divide entre el transportista y Movo. Movo solo procesa los USD 1,50 de su comisión.](diagrama:pp-flujo-fondos)
 
 ::: nota
 **Nota de compilación.** La implementación final mantiene la comisión del 15% (`MOVO_COMMISSION_RATE=0.15`). Los Términos y Condiciones v0.2 precisan que la comisión se calcula sobre el neto que acredita Mercado Pago después de su propio costo de procesamiento (`MP_TRANSACTION_FEE_RATE`), como se detalla en el Informe del Sprint 7.
@@ -375,10 +362,4 @@ Dado que el ingreso de Movo es la comisión y el costo operativo fijo es bajo (~
 
 Con aproximadamente 54 envíos completados al mes (menos de 2 por día), la plataforma cubre su costo operativo fijo en la etapa inicial. A partir de ahí, cada envío adicional genera margen positivo, descontando únicamente el costo variable marginal (KYC solo en el primer envío de un usuario nuevo; Maps cubierto por el crédito gratuito).
 
-| Ticket promedio | Ingreso por envío (15%) | Envíos/mes para el equilibrio (costo fijo USD 65) |
-|---|--:|--:|
-| USD 5 | 0,75 | ~87 |
-| USD 8 | 1,20 | ~54 |
-| USD 12 | 1,80 | ~36 |
-
-: Sensibilidad del punto de equilibrio según el ticket promedio.
+![Sensibilidad del punto de equilibrio según el ticket promedio: envíos por mes necesarios para cubrir el costo fijo de USD 65 con una comisión del 15 %.](diagrama:pp-equilibrio)

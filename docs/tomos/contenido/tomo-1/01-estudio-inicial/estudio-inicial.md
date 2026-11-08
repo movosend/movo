@@ -74,6 +74,9 @@ Cientos de personas se movilizan a diario con espacio libre en sus vehículos, b
 | Grupos de WhatsApp o Facebook informales                                                                                                  | Sin tecnología, trazabilidad, garantías ni sistema de pagos.                                                                                                                                                                                                      |
 +-------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 
+![Posicionamiento cualitativo de Movo frente a los referentes del mercado: quién aporta la capacidad de transporte y en qué tipo de trayecto opera cada uno.](diagrama:ei-posicionamiento)
+
+
 # Procesos Involucrados
 
 Esta sección describe el panorama actual de los procesos de logística P2P informal tal como existen hoy, sin la intervención de una plataforma como Movo. El análisis cubre la descripción de cada proceso, el flujo operativo, los participantes involucrados, la información que manejan y los sistemas o herramientas que utilizan actualmente.

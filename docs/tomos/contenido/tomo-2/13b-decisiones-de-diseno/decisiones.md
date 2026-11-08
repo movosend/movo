@@ -130,6 +130,8 @@ Las decisiones de alcance local se resumen aquí para ubicar la regla y su efect
 
 **Efecto o costo.** Trade-offs: • El documento a larga distancia sigue siendo caro (\~\$15.500 a 1.500 km, más que 1 kg por Correo): su precio es casi todo distancia y una base menor no alcanza.
 
+![Precio sugerido según la distancia y el peso facturable, con los coeficientes vigentes de `package_tapered_v3` (sucesor de `package_tapered_v2`, MOVO-317), nafta a \$2.222,5 por litro y sin recargo por demanda. Las líneas punteadas marcan los tramos de distancia.](diagrama:dd-pricing)
+
 ## DD-042 · Viajes recurrentes: recurrencia como atributo del Trip con generación de la siguiente ocurrencia
 
 **Decisión.** Un trip por ocurrencia, generados de a uno.
@@ -193,6 +195,8 @@ Las decisiones de alcance local se resumen aquí para ubicar la regla y su efect
 Trade-off aceptado: El plazo no está confirmado en producción ni por banco emisor, y solo se midió Visa crédito. El status\_detail de un hold vencido que asume MOVO-268 sigue sin confirmarse. Con N \= 3, más envíos van por la ruta lejana.
 
 Fuente: fila de resumen del registro de decisiones del repositorio (docs/decisiones/README.md); texto completo en docs/payments/dd-050-plazo-del-hold.md.
+
+![Por qué N = 3: en el peor caso de la ruta cercana, el retiro (día 3), un día de tránsito y uno de margen caben en los 5 días de vigencia del hold.](diagrama:dd-hold)
 
 ## DD-051 · Soporte al usuario sobre el chat existente (MOVO-320)
 

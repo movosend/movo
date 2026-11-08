@@ -57,7 +57,9 @@ El proceso completo de un envío tiene dos tramos. El primero, desde el registro
 
 # Plazos y Reglas de Negocio
 
-Los plazos y umbrales son valores de configuración de los servicios (variables de entorno) o constantes del código; los de esta tabla son los vigentes al cierre del Sprint 8.
+Los plazos y umbrales son valores de configuración de los servicios (variables de entorno) o constantes del código; los de esta tabla son los vigentes al cierre del Sprint 8. El esquema siguiente ubica los principales en el recorrido de un envío.
+
+![Plazos del proceso ubicados en el recorrido de un envío, de la cotización al cierre (esquema, sin escala de tiempo).](diagrama:proc-plazos)
 
 | Regla | Valor | Origen |
 |--------------------------------------------|----------------------|------------------|

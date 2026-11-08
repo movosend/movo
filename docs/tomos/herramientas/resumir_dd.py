@@ -8,6 +8,11 @@ RAIZ = Path(__file__).resolve().parents[1]
 FUENTE = RAIZ / "anexos" / "decisiones-diseno-completas.md"
 DESTINO = RAIZ / "contenido" / "tomo-2" / "13b-decisiones-de-diseno" / "decisiones.md"
 COMPLETAS_EN_TOMO = {"DD-037", "DD-050", "DD-056"}
+# Figuras que acompañan a una DD en la síntesis (se agregan al final de su bloque; ver diagramas/graficos_producto.py).
+FIGURAS = {
+    "DD-041": '![Precio sugerido según la distancia y el peso facturable, con los coeficientes vigentes de `package_tapered_v3` (sucesor de `package_tapered_v2`, MOVO-317), nafta a \\$2.222,5 por litro y sin recargo por demanda. Las líneas punteadas marcan los tramos de distancia.](diagrama:dd-pricing)',
+    "DD-050": '![Por qué N = 3: en el peor caso de la ruta cercana, el retiro (día 3), un día de tránsito y uno de margen caben en los 5 días de vigencia del hold.](diagrama:dd-hold)',
+}
 
 
 def limpiar(texto: str) -> str:
@@ -43,8 +48,11 @@ def generar() -> int:
     ]
     for bloque in bloques:
         titulo = bloque.splitlines()[0]
-        if titulo.split()[1] in COMPLETAS_EN_TOMO:
+        dd = titulo.split()[1]
+        if dd in COMPLETAS_EN_TOMO:
             salida += [bloque.strip(), ""]
+            if dd in FIGURAS:
+                salida += [FIGURAS[dd], ""]
             continue
         partes = re.split(r'<span class="dd-etq">([^<]+)</span>', bloque)
         secciones = {partes[i].strip(): partes[i + 1] for i in range(1, len(partes) - 1, 2)}
@@ -57,6 +65,8 @@ def generar() -> int:
             titulo, "", f"**Decisión.** {primera_frase(primer_parrafo(decision))}", "",
             f"**Efecto o costo.** {primera_frase(efecto) if efecto else 'Ver el registro completo para las consecuencias y alternativas.'}", "",
         ]
+        if dd in FIGURAS:
+            salida += [FIGURAS[dd], ""]
     DESTINO.write_text("\n".join(salida), encoding="utf-8")
     return len(bloques)
 

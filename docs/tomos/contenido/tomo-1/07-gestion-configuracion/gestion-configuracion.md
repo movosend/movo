@@ -156,9 +156,13 @@ Estos artefactos se editan de forma colaborativa y son los que la cátedra revis
 
 : Workflows de GitHub Actions del repositorio.
 
+![Pipeline de integración y despliegue: qué workflow dispara cada evento del repositorio y qué hace cada uno de sus jobs.](diagrama:gc-pipeline){.sin-corte}
+
 # Modelo de Ramas
 
 Se utiliza *GitHub Flow* con una capa `develop`. Hay dos ramas permanentes (`main` y `develop`); el resto son ramas de trabajo efímeras.
+
+![Modelo de ramas: las ramas de trabajo se integran a `develop` por Pull Request con *squash*, `develop` pasa a `main` por Pull Request y un *hotfix* vuelve a `develop` por la sincronización automática.](diagrama:gc-ramas)
 
 | Rama | Ambiente | Regla |
 |---|---|---|

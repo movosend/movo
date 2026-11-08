@@ -18,6 +18,8 @@ La energía de los servidores se calcula con el método de *Cloud Carbon Footpri
 
 : Fuentes de impacto y su tratamiento.
 
+![Límite del análisis: dentro, lo que se cuantifica; fuera, lo que se declara sin estimar por falta de datos medidos.](diagrama:ia-limites)
+
 ## Cálculo
 
 La energía de un servidor suma cómputo, memoria y almacenamiento, y se multiplica por el PUE del centro de datos. Las emisiones resultan de multiplicar esa energía por el factor de emisión de la red eléctrica de la región.
@@ -77,14 +79,11 @@ Un mes de 730 horas. El cómputo depende de la utilización de CPU, que no está
 
 : Energía mensual por ambiente y cota de utilización.
 
-| Dev + prod | Energía por mes | Energía por año | Emisiones por año (FE 0,074) | Emisiones por año (FE 0,064, sitio actual de CCF) |
-|--------------------|--------:|--------:|----------:|----------:|
-| Cota inferior (CPU al 0 %) | 3,04 kWh | 36,5 kWh | 2,7 kgCO₂e | 2,4 kgCO₂e |
-| Cota superior (CPU al 100 %) | 12,16 kWh | 145,9 kWh | 10,8 kgCO₂e | 9,4 kgCO₂e |
+Sumando los dos ambientes, la energía va de 3,04 a 12,16 kWh por mes, es decir, de 36,5 a 145,9 kWh por año.
 
-: Energía y emisiones anuales de la infraestructura.
+![Emisiones anuales de la infraestructura (dev + prod): cada barra va de la cota inferior (CPU al 0 %) a la superior (CPU al 100 %), con los coeficientes fijados y con los del sitio actual de CCF.](diagrama:ia-rango)
 
-Con los coeficientes actuales del sitio de CCF (0,74 y 3,5 W por vCPU), la energía anual pasa a 37,7 kWh y 147,5 kWh, y las emisiones, calculadas con 0,064 kgCO₂e/kWh, son las de la última columna. La diferencia con la versión fijada es menor que el rango por utilización.
+Con los coeficientes actuales del sitio de CCF (0,74 y 3,5 W por vCPU), la energía anual pasa a 37,7 kWh y 147,5 kWh, y las emisiones, calculadas con 0,064 kgCO₂e/kWh, van de 2,4 a 9,4 kgCO₂e. La diferencia con la versión fijada es menor que el rango por utilización.
 
 No se incluye la red. Cada GB transferido suma 0,001 kWh (0,001135 kWh con PUE), así que para agregar 1 kWh por mes harían falta unos 880 GB transferidos por mes. El tráfico real no está medido.
 
@@ -130,6 +129,8 @@ Estas prácticas surgieron por costo, estabilidad o rendimiento, y se registran 
 
 : Prácticas adoptadas con posible efecto ambiental.
 
+![Factor de emisión de la región de AWS usada frente al de la red eléctrica argentina. La línea punteada marca el valor que lista hoy el sitio de CCF para sa-east-1.](diagrama:ia-factores)
+
 ## Alternativas evaluadas y no adoptadas
 
 No hay registro en el Terraform ni en los workflows de que ninguna de estas alternativas esté implementada.
@@ -155,6 +156,8 @@ Movo no suma vehículos: usa el espacio libre de viajes que ya existen. El servi
 
 El spike usó un viaje Córdoba Capital a Villa María con una distancia directa de 141,63 km, calculada con la fórmula de Haversine (línea recta). Las ofertas son un catálogo sintético, y la matriz de distancias es un mock Haversine a 75 km/h, no rutas reales.
 
+![Prefiltro de corredor del spike: franja de 15 km a cada lado del viaje Córdoba Capital a Villa María y las cuatro ofertas del catálogo, con las coordenadas del prototipo (`docs/or-tools/vrptw_prototype.py`). Mapa base: © colaboradores de OpenStreetMap.](diagrama:ia-corredor)
+
 | Oferta | Resultado del prefiltro | Desvío (km) | Desvío (tiempo) | OR-Tools |
 |-------------------|------------------------------------|--------:|--------:|--------:|
 | OFFER-102: Oliva a Villa María | Pasa (retiro a 1,37 km y entrega a 0,00 km del segmento) | +0,04 km | +20 min | 0,51 ms |
@@ -177,7 +180,11 @@ Si un envío reemplaza un viaje dedicado en auto, las emisiones evitadas son el 
 
 : Emisiones evitadas por envío en los casos del spike.
 
-Un solo envío como estos evita entre 3,2 y 13 veces lo que emite en un año toda la infraestructura (2,7 a 10,8 kgCO₂e). Esas cifras valen solo bajo estas condiciones:
+Un solo envío como estos evita entre 3,2 y 13 veces lo que emite en un año toda la infraestructura (2,7 a 10,8 kgCO₂e).
+
+![Órdenes de magnitud en kgCO₂e: el desvío del transportista, la infraestructura de un año, el viaje dedicado y lo que evita un envío que lo reemplaza (escala logarítmica).](diagrama:ia-escala)
+
+Esas cifras valen solo bajo estas condiciones:
 
 - El envío tiene que haber reemplazado un viaje dedicado. El sistema no registra qué habría hecho el remitente sin Movo, así que no se puede calcular cuántos envíos cumplen esta condición.
 - El factor de EPA corresponde a la flota de Estados Unidos y no a los vehículos de Argentina. La distancia de 141,63 km es en línea recta, y por ruta es mayor.

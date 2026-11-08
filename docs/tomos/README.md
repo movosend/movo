@@ -32,6 +32,7 @@ config/proyecto.yaml     datos únicos del equipo (carátulas, ficha, encabezado
 config/tomos.yaml        manifiesto: qué documentos van en cada tomo y en qué orden
 contenido/<tomo>/<doc>/  meta.yaml (título, historial, introducción, audiencia) + .md
 diagramas/*.puml         diagramas UML (PlantUML) · *.py generadores de diagramas no UML
+diagramas/graficos_*.py  gráficos de datos y esquemas (SVG) de los tres tomos; primitivas en svg_comun.py
 estilos/print.css        hoja de estilos de impresión (marca Movo aplicada de forma sutil)
 estilos/plantuml-tema.iuml  tema común de todos los diagramas
 plantillas/tomo.html.j2  portada, créditos, ficha, índice, separadores y colofón
@@ -71,6 +72,10 @@ El índice de figuras y de tablas se omite (`indices_figuras_tablas: false`); la
   generado). Las figuras y las tablas con `: Título` se numeran solas y entran en los índices.
 - Bloques: `::: nota`, `::: importante`, `::: pendiente` (marca lo que falta completar).
 - No se usan rayas (—): el build las reemplaza.
+- Los gráficos de `diagramas/graficos_*.py` copian sus cifras de las tablas del texto (cada función cita cuál) y,
+  en pricing, mapa del spike, estados y pipeline, del código (`config.py`, `vrptw_prototype.py`, las máquinas de
+  estados y `.github/workflows/`). Si cambia la fuente, actualizar el generador. Las figuras de DD-041 y DD-050 las
+  inserta `herramientas/resumir_dd.py` (`FIGURAS`), no se editan a mano en `decisiones.md`.
 
 ## Estado de la entrega (cierre del Sprint 8)
 

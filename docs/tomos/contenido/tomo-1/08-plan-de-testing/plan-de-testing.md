@@ -95,6 +95,8 @@ El 4 de noviembre de 2026, sobre la rama de integración `develop` con los cambi
 
 : Resultado de la ejecución de las pruebas automatizadas por paquete.
 
+![Casos aprobados y cobertura de líneas por paquete, frente al 70 % acordado y al umbral que cada paquete tiene configurado.](diagrama:pt-cobertura)
+
 La cobertura se midió con el proveedor V8 de Vitest (y `pytest-cov` en el servicio de precios), sobre los archivos que cada paquete declara como medibles: servicios, repositorios, dominio y modelos. El motor de precios cumple su umbral estricto del 100 % sobre el cálculo.
 
 ## Hallazgos de la medición

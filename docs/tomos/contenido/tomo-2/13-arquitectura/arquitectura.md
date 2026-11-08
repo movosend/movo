@@ -58,6 +58,8 @@ La infraestructura se aprovisiona con Terraform en un repositorio separado, `mov
 
 Los *workflows* de GitHub Actions automatizan la verificación y el despliegue:
 
+![Pipeline de integración y despliegue por evento del repositorio.](diagrama:gc-pipeline){.sin-corte}
+
 1. **Pull request.** Con detección de cambios por ruta, se ejecutan *lint*, verificación de tipos y pruebas de cada paquete afectado contra PostgreSQL y Redis reales. El chequeo `tests-summary` bloquea el *merge* a `develop` y `main`.
 2. **Integración en `develop`.** Se construye y publica en GHCR una imagen Docker por servicio con la etiqueta `dev`; luego se genera el archivo `.env` desde AWS Secrets Manager (`movo/dev/app-secrets`), se copian a la instancia el archivo de Compose y las plantillas de Nginx, se aplican las migraciones de Prisma servicio por servicio, se hace *pull* de las imágenes, se reinician los contenedores y se limpian las imágenes huérfanas.
 3. **Producción.** El flujo equivalente se dispara al integrar `develop` en `main`, con sus propios secretos y su propia instancia.
