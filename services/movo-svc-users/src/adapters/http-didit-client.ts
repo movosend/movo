@@ -1,6 +1,12 @@
 import { ApiError } from "@movo/shared";
 import { VerificationType } from "../models/kyc-verification";
-import { CreateDiditSessionInput, DiditClient, DiditSession, DiditSessionDecision } from "./didit-client";
+import {
+  CreateDiditSessionInput,
+  DiditClient,
+  DiditSession,
+  DiditSessionDecision,
+  UpdateDiditSessionStatusInput,
+} from "./didit-client";
 
 export interface HttpDiditClientConfig {
   baseUrl: string;
@@ -101,6 +107,33 @@ export function createHttpDiditClient(config: HttpDiditClientConfig): DiditClien
       }
 
       return { sessionId: body.session_id ?? sessionId, rawStatus: body.status, decision: body };
+    },
+
+    async updateSessionStatus(input: UpdateDiditSessionStatusInput): Promise<void> {
+      let response: Response;
+      try {
+        response = await fetch(
+          `${config.baseUrl}/v3/session/${encodeURIComponent(input.sessionId)}/update-status/`,
+          {
+            method: "PATCH",
+            headers: { "x-api-key": config.apiKey, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              new_status: input.newStatus,
+              ...(input.comment ? { comment: input.comment } : {}),
+              send_email: false,
+            }),
+          }
+        );
+      } catch {
+        throw new ApiError(502, "KYC_PROVIDER_ERROR", "No se pudo conectar con el proveedor de verificación de identidad.");
+      }
+
+      if (response.status === 404) {
+        throw new ApiError(404, "KYC_SESSION_NOT_FOUND", "El proveedor no conoce la sesión de verificación.");
+      }
+      if (!response.ok) {
+        throw new ApiError(502, "KYC_PROVIDER_ERROR", "El proveedor de verificación de identidad devolvió un error.");
+      }
     },
   };
 }

@@ -132,4 +132,44 @@ describe("HTTP Didit Client (adapter concreto, MOVO-72)", () => {
       code: "KYC_PROVIDER_ERROR",
     });
   });
+
+  it("updateSessionStatus() hace PATCH a update-status con new_status, comment y send_email false", async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+
+    const client = createHttpDiditClient({ baseUrl: "https://verification.didit.me", apiKey: "k", workflowIds: { identity: "w", license: "w2" } });
+
+    await client.updateSessionStatus({ sessionId: "sess_123", newStatus: "Approved", comment: "Documento legible y coincide" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://verification.didit.me/v3/session/sess_123/update-status/");
+    expect(init.method).toBe("PATCH");
+    expect(init.headers["x-api-key"]).toBe("k");
+    expect(JSON.parse(init.body as string)).toEqual({
+      new_status: "Approved",
+      comment: "Documento legible y coincide",
+      send_email: false,
+    });
+  });
+
+  it("updateSessionStatus() mapea 404 a KYC_SESSION_NOT_FOUND y cualquier otro fallo a 502 KYC_PROVIDER_ERROR", async () => {
+    const client = createHttpDiditClient({ baseUrl: "https://verification.didit.me", apiKey: "k", workflowIds: { identity: "w", license: "w2" } });
+
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) });
+    await expect(client.updateSessionStatus({ sessionId: "x", newStatus: "Declined" })).rejects.toMatchObject({
+      statusCode: 404,
+      code: "KYC_SESSION_NOT_FOUND",
+    });
+
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({}) });
+    await expect(client.updateSessionStatus({ sessionId: "x", newStatus: "Declined" })).rejects.toMatchObject({
+      statusCode: 502,
+      code: "KYC_PROVIDER_ERROR",
+    });
+
+    fetchMock.mockRejectedValueOnce(new Error("network error"));
+    await expect(client.updateSessionStatus({ sessionId: "x", newStatus: "Declined" })).rejects.toMatchObject({
+      statusCode: 502,
+      code: "KYC_PROVIDER_ERROR",
+    });
+  });
 });

@@ -50,6 +50,23 @@ export interface DiditClient {
    * política de qué hacer con un proveedor caído es del servicio, no del adapter.
    */
   getSessionDecision(sessionId: string): Promise<DiditSessionDecision | null>;
+  /**
+   * Resuelve a mano una sesión en revisión (`PATCH /v3/session/{id}/update-status/`): es lo
+   * que hace un operador en la consola de Didit, pero disparado desde el panel de admin.
+   * Siempre se manda `send_email: false`: el aviso al usuario lo da Movo (push), no Didit.
+   *
+   * Tira `ApiError` 404 `KYC_SESSION_NOT_FOUND` si Didit no conoce la sesión, y 502
+   * `KYC_PROVIDER_ERROR` ante cualquier otro fallo (red, 5xx, credenciales sin permiso de
+   * escritura).
+   */
+  updateSessionStatus(input: UpdateDiditSessionStatusInput): Promise<void>;
+}
+
+export interface UpdateDiditSessionStatusInput {
+  sessionId: string;
+  newStatus: "Approved" | "Declined";
+  /** Motivo de la decisión; queda en el historial de revisiones de Didit. */
+  comment?: string;
 }
 
 /**

@@ -26,6 +26,7 @@ function createFakeDiditClient() {
     async getSessionDecision(sessionId: string) {
       return decision;
     },
+    async updateSessionStatus() {},
   };
 
   return {
