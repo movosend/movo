@@ -3,10 +3,11 @@ import { Pressable, Text, View } from "react-native";
 import type { MyOfferSummary } from "../../src/api/offers-client";
 import { DebtDiscount } from "../payments/debt-discount";
 import {
+  acceptedOfferOutcome,
   formatOfferedAgo,
+  myOfferAmountLabel,
+  myOfferStatusLabel,
   offerReceivedArs,
-  offerStatusLabel,
-  receivedAmountLabel,
 } from "../../src/lib/offer-format";
 import { carrierPriceBreakdown, isCashShipment } from "../../src/lib/payment-method";
 import { PaymentMethodBadge } from "../shipments/payment-method-badge";
@@ -78,6 +79,9 @@ function routeLabel(offer: MyOfferSummary): string {
  * tratamiento visual (fondo lima para positivo, mute para de atención).
  */
 export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyOfferCardProps) {
+  const outcome = acceptedOfferOutcome(offer);
+  const chipBg = outcome === "completed" ? "bg-lime-200/60" : outcome === "cancelled" ? "bg-bg-mute" : STATUS_CHIP_BG_CLASS[offer.status];
+  const chipText = outcome === "completed" ? "text-fg" : outcome === "cancelled" ? "text-fg-3" : STATUS_CHIP_TEXT_CLASS[offer.status];
   const pickupLabel = formatPickupDateLabel(offer.shipment.pickupDate) ?? offer.shipment.pickupDate;
   const distanceLabel = `${formatDetourKm(offer.shipment.distanceKm)} km`;
   const sentAgoLabel = showSentAgo ? formatOfferedAgo(offer.createdAt) : "";
@@ -92,11 +96,9 @@ export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyO
     >
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1">
-          <View className={`self-start rounded-full px-2 py-0.5 ${STATUS_CHIP_BG_CLASS[offer.status]}`}>
-            <Text
-              className={`font-sans-semibold text-[10px] uppercase tracking-wide ${STATUS_CHIP_TEXT_CLASS[offer.status]}`}
-            >
-              {offerStatusLabel(offer.status)}
+          <View className={`self-start rounded-full px-2 py-0.5 ${chipBg}`}>
+            <Text className={`font-sans-semibold text-[10px] uppercase tracking-wide ${chipText}`}>
+              {myOfferStatusLabel(offer)}
             </Text>
           </View>
           <Text numberOfLines={1} className="mt-1.5 font-sans-semibold text-[15px] text-fg">
@@ -116,7 +118,7 @@ export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyO
             {formatPriceArs(offerReceivedArs(offer))}
           </Text>
           <Text className="font-sans text-[10px] text-fg-3">
-            {receivedAmountLabel(offer.status, isCashShipment(offer.shipment)).toLowerCase()}
+            {myOfferAmountLabel(offer).toLowerCase()}
           </Text>
           <PaymentMethodBadge paymentMethod={offer.shipment.paymentMethod} testID={testID ? `${testID}-cash` : undefined} />
         </View>

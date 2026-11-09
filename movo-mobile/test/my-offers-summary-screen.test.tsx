@@ -169,6 +169,36 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
     expect(queryByTestId("my-offers-active-p1")).toBeNull();
   });
 
+  it("una aceptada con el envío ya entregado pasa a Cerradas como 'Completada' y oculta la que caducó del mismo envío", async () => {
+    const delivered = { ...offer().shipment, status: "completed" };
+    mockOffers([
+      offer({ id: "a1", status: "accepted" as MyOfferSummary["status"], shipment: delivered, createdAt: "2026-10-25T21:17:00.000Z" }),
+      offer({ id: "l1", status: "assignment_lapsed" as MyOfferSummary["status"], shipment: delivered, createdAt: "2026-10-25T20:40:00.000Z" }),
+    ]);
+
+    const { getByTestId, queryByTestId, getByText } = await render(<MyOffersSummaryScreen />);
+
+    expect(queryByTestId("my-offers-attention-a1")).toBeNull();
+    expect(getByText("0 pendientes · 0 aceptadas")).toBeTruthy();
+    expect(getByTestId("my-offers-accepted-total")).toHaveTextContent("$0");
+
+    await fireEvent.press(getByTestId("my-offers-tab-closed"));
+
+    expect(getByTestId("my-offers-closed-a1")).toHaveTextContent(/Completada/);
+    expect(getByTestId("my-offers-closed-a1")).toHaveTextContent(/cobraste aprox\./);
+    expect(queryByTestId("my-offers-closed-l1")).toBeNull();
+  });
+
+  it("una aceptada con el envío cancelado pasa a Cerradas como 'Cancelada'", async () => {
+    mockOffers([offer({ id: "a1", status: "accepted" as MyOfferSummary["status"], shipment: { ...offer().shipment, status: "cancelled" } })]);
+
+    const { getByTestId } = await render(<MyOffersSummaryScreen />);
+    await fireEvent.press(getByTestId("my-offers-tab-closed"));
+
+    expect(getByTestId("my-offers-closed-a1")).toHaveTextContent(/Cancelada/);
+    expect(getByTestId("my-offers-closed-a1")).toHaveTextContent(/habrías recibido aprox\./);
+  });
+
   it("estado vacío sin ninguna oferta ofrece ir a Disponibles (AC7)", async () => {
     mockOffers([]);
 
