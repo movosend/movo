@@ -3,6 +3,7 @@ import { FastifyBaseLogger } from "fastify";
 import {
   ApiError,
   MAX_ACTIVE_RECURRING_SERIES,
+  TRIP_DEPARTURE_PAST_TOLERANCE_MS,
   ShipmentStatus,
   PaymentMethod,
   UserRole,
@@ -36,9 +37,6 @@ import { formatPickupInstant, toArgentinaCalendarDate } from "../../domain/picku
 import { aggregateCarrierStops } from "../../domain/carrier-route";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { assertTripAccess } from "./trip-access";
-
-/** DD-060: el reloj del teléfono y la latencia no pueden hacer fallar un "salgo ahora". */
-const TRIP_DEPARTURE_PAST_TOLERANCE_MS = 5 * 60 * 1000;
 
 export interface TripsService {
   createTrip(params: {

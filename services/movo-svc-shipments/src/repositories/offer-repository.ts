@@ -33,7 +33,12 @@ function utcDateOnly(d: Date): number {
 
 /** AC10 relajado por MOVO-177 y DD-060: `offeredDate` va desde hoy (calendario argentino; o
  * desde `pickupDate` si ya pasó) hasta `OFFER_DATE_MAX_FORWARD_OFFSET_DAYS` días después de
- * `pickupDate`. El emisor acepta o no un retiro adelantado al elegir la oferta. */
+ * `pickupDate`. El emisor acepta o no un retiro adelantado al elegir la oferta.
+ *
+ * Este chequeo no es el que impide ofertar en el pasado: eso lo hace el de la franja efectiva
+ * vencida (`OFFER_PICKUP_WINDOW_IN_PAST`), al crear en `shipments.service.ts` y al editar en
+ * `updateOffer`, que también rechaza hoy con la franja terminada. El `min` con `pickupDay` deja
+ * crear ofertas por el repositorio sobre envíos con el retiro ya pasado (fixtures de tests). */
 function isWithinOfferDateRange(offeredDate: Date, pickupDate: Date, now: Date = new Date()): boolean {
   const offeredDay = utcDateOnly(offeredDate);
   const pickupDay = utcDateOnly(pickupDate);
@@ -164,13 +169,6 @@ export class OfferShipmentNotFoundError extends Error {
   }
 }
 
-/**
- * AC10, relajado por MOVO-177 y DD-060: `offeredDate` tiene que caer entre hoy y
- * `pickupDate + OFFER_DATE_MAX_FORWARD_OFFSET_DAYS` días (`isWithinOfferDateRange`).
- * Hasta MOVO-177 exigía coincidencia exacta (`sameDay`) -- probado en dispositivo
- * (MOVO-149/MOVO-177), un transportista real casi siempre quiere correr el retiro
- * unos días, nunca antes de lo que pidió el emisor.
- */
 /** DD-060: al editar, la franja efectiva de la oferta ya terminó (422 `OFFER_PICKUP_WINDOW_IN_PAST`). */
 export class OfferPickupWindowInPastError extends Error {
   constructor(public readonly offerId: string) {
@@ -179,6 +177,13 @@ export class OfferPickupWindowInPastError extends Error {
   }
 }
 
+/**
+ * AC10, relajado por MOVO-177 y DD-060: `offeredDate` tiene que caer entre hoy y
+ * `pickupDate + OFFER_DATE_MAX_FORWARD_OFFSET_DAYS` días (`isWithinOfferDateRange`).
+ * Hasta MOVO-177 exigía coincidencia exacta (`sameDay`) -- probado en dispositivo
+ * (MOVO-149/MOVO-177), un transportista real casi siempre quiere correr el retiro
+ * unos días, nunca antes de lo que pidió el emisor.
+ */
 export class OfferDateOutOfRangeError extends Error {
   constructor(
     public readonly offeredDate: Date,

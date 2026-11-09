@@ -148,8 +148,7 @@ export default fp(async (app: FastifyInstance) => {
       return;
     }
 
-    // MOVO-143 AC5: offeredDate no coincide con la fecha de retiro del envío -- 422
-    // explícito, no un 409 (no es un conflicto de estado, es un dato de entrada inválido).
+    // DD-060: la franja efectiva de la oferta ya terminó -- 422, dato de entrada inválido.
     if (error instanceof OfferPickupWindowInPastError) {
       const apiError = new ApiError(422, "OFFER_PICKUP_WINDOW_IN_PAST", error.message);
       reply.code(apiError.statusCode).send({
@@ -159,6 +158,8 @@ export default fp(async (app: FastifyInstance) => {
       return;
     }
 
+    // MOVO-143 AC5: offeredDate fuera del rango permitido respecto de la fecha de retiro del
+    // envío -- 422 explícito, no un 409 (no es un conflicto de estado, es un dato de entrada inválido).
     if (error instanceof OfferDateOutOfRangeError) {
       const apiError = new ApiError(422, "OFFER_DATE_OUT_OF_RANGE", error.message);
       reply.code(apiError.statusCode).send({

@@ -7,6 +7,13 @@ import { toArgentinaCalendarDateString } from "../utils/argentina-date";
  */
 export const TRIP_START_MAX_DAYS_EARLY = 3;
 
+/**
+ * DD-060: tolerancia hacia atrás de `departureAt` al crear o editar un viaje. El reloj del teléfono
+ * y la latencia no pueden hacer fallar un "salgo ahora". La usan `movo-svc-shipments`
+ * (`TRIP_DEPARTURE_IN_PAST`) y el formulario de viaje del mobile, para que los dos coincidan.
+ */
+export const TRIP_DEPARTURE_PAST_TOLERANCE_MS = 5 * 60 * 1000;
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function shiftCalendarDate(date: string, days: number): string {
