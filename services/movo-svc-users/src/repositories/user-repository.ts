@@ -7,7 +7,7 @@ import {
 } from "../generated/prisma/client";
 import { escapeLike } from "../utils/escape-like";
 import { VerificationType } from "../models/kyc-verification";
-import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName, displayName, effectiveAccountStatus } from "../models/user";
+import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, displayName, effectiveAccountStatus } from "../models/user";
 
 export interface VerifiedIdentity {
   firstName: string;
