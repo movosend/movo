@@ -13,6 +13,7 @@ export function ReasonField({
   onChange,
   disabled,
   max = ADMIN_ACTION_REASON_MAX_LENGTH,
+  min,
   label = "Motivo",
   hint = "Queda en la bitácora con tu nombre. La persona no lo ve.",
   placeholder,
@@ -23,15 +24,29 @@ export function ReasonField({
   onChange: (value: string) => void
   disabled?: boolean
   max?: number
+  /**
+   * Largo mínimo (sin contar espacios de los bordes, como lo cuenta el backend). Con él, mientras falte se muestra
+   * "Faltan N caracteres" y una barra que se llena hasta el mínimo, en vez del contador.
+   */
+  min?: number
   label?: string
   hint?: string
   placeholder?: string
   autoFocus?: boolean
 }) {
+  const length = value.trim().length
+  const missing = min !== undefined ? Math.max(0, min - length) : 0
+  const statusId = `${id}-status`
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="text-[13px] font-medium">
         {label}
+        {min !== undefined && (
+          <span className="font-normal text-muted-foreground">
+            {" "}
+            · mínimo {min} caracteres
+          </span>
+        )}
       </label>
       <Textarea
         id={id}
@@ -40,14 +55,50 @@ export function ReasonField({
         disabled={disabled}
         autoFocus={autoFocus}
         placeholder={placeholder}
+        aria-describedby={min !== undefined ? statusId : undefined}
+        aria-invalid={min !== undefined && length > 0 && missing > 0 ? true : undefined}
         onChange={(e) => onChange(e.target.value)}
         className="min-h-[72px]"
       />
+      {min !== undefined && (
+        <div
+          aria-hidden
+          className="h-1 w-full overflow-hidden rounded-full bg-muted"
+        >
+          <div
+            className={cn(
+              "h-full rounded-full transition-[width,background-color] duration-200 motion-reduce:transition-none",
+              missing > 0 ? "bg-dot-warning" : "bg-dot-success"
+            )}
+            style={{ width: `${Math.min(100, (length / min) * 100)}%` }}
+          />
+        </div>
+      )}
       <div className="flex justify-between gap-3 text-xs text-muted-foreground">
         <span>{hint}</span>
-        <span className="tabular-nums">
-          {value.length}/{max}
-        </span>
+        {min !== undefined ? (
+          <span
+            id={statusId}
+            aria-live="polite"
+            className={cn(
+              "flex flex-none items-center gap-1 font-medium whitespace-nowrap tabular-nums",
+              missing > 0 ? "text-warn-fg" : "text-success-fg"
+            )}
+          >
+            {missing > 0 ? (
+              `Faltan ${missing} ${missing === 1 ? "carácter" : "caracteres"}`
+            ) : (
+              <>
+                <CircleCheck aria-hidden className="size-3.5" />
+                {value.length}/{max}
+              </>
+            )}
+          </span>
+        ) : (
+          <span className="tabular-nums">
+            {value.length}/{max}
+          </span>
+        )}
       </div>
     </div>
   )

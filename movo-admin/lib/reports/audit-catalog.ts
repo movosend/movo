@@ -144,6 +144,16 @@ export const AUDIT_ACTION: Record<AdminAuditAction, ActionMeta> = {
     verb: "resolvió la disputa",
     target: "dispute",
   },
+  "kyc.approve": {
+    label: "KYC aprobado",
+    verb: "aprobó la verificación de",
+    target: "user",
+  },
+  "kyc.decline": {
+    label: "KYC rechazado",
+    verb: "rechazó la verificación de",
+    target: "user",
+  },
   "report.export": {
     label: "Exportación de CSV",
     verb: "exportó",

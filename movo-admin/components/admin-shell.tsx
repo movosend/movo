@@ -53,7 +53,6 @@ import {
 import type { ReactNode, CSSProperties } from "react"
 
 const SOON = [
-  { label: "KYC", icon: BadgeCheck },
   { label: "Reportes", icon: Flag },
 ]
 /** Reportería (MOVO-345): el breadcrumb es "Panel / Reportería / Métricas". */
@@ -68,6 +67,7 @@ const LIVE = [
   { href: "/users", label: "Usuarios", icon: Users },
   { href: "/support", label: "Soporte", icon: Headset },
   { href: "/disputes", label: "Disputas", icon: MessagesSquare },
+  { href: "/kyc", label: "KYC", icon: BadgeCheck },
 ] as const
 
 function ShellTrigger() {
@@ -105,6 +105,7 @@ export function AdminShell({
     | "/disputes"
     | "/metrics"
     | "/audit-log"
+    | "/kyc"
   defaultOpen?: boolean
   /** Último tramo del breadcrumb (p. ej. el nombre en la ficha); la sección pasa a ser un link. */
   crumb?: string

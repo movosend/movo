@@ -24,5 +24,11 @@ export function createMockDiditClient(): DiditClient {
     async getSessionDecision(): Promise<null> {
       return null;
     },
+
+    // En mock no hay nada que actualizar en Didit: la decisión se aplica solo en la base
+    // local, así el flujo del panel se puede probar sin credenciales.
+    async updateSessionStatus(): Promise<void> {
+      return;
+    },
   };
 }
