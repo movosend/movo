@@ -5,6 +5,7 @@ import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { DuplicateRatingError } from "../src/repositories/rating-repository";
 import { Shipment, ShipmentEvent, PackageType } from "../src/models/shipment";
 import { RatingRole } from "../src/models/rating";
+import { MIN_RATINGS_FOR_ESTABLISHED_PROFILE } from "../src/domain/reputation";
 import { createFakeRatingRepository, fakeRating } from "./fake-rating-repository";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 
@@ -359,6 +360,45 @@ describe("ratings.service — getReputationSummary (MOVO-147 AC3)", () => {
     // La de 5 (sender) empuja su bucket para arriba, la de 1 (carrier) para abajo --
     // si se mezclaran, ambos buckets darían el mismo valor.
     expect(summary.asSender.reputationScore).toBeGreaterThan(summary.asCarrier.reputationScore as number);
+  });
+
+  it("asSender suma las recibidas como receptor (misma lista que la pestaña \"Como emisor\" del perfil)", async () => {
+    const ratingRepository = createFakeRatingRepository({
+      listForReputation: vi.fn().mockResolvedValue([
+        { score: 5, createdAt: new Date(), role: RatingRole.sender },
+        { score: 2, createdAt: new Date(), role: RatingRole.receiver },
+        { score: 2, createdAt: new Date(), role: RatingRole.receiver },
+        { score: 4, createdAt: new Date(), role: RatingRole.carrier },
+      ]),
+      getGlobalAverageScore: vi.fn().mockResolvedValue(3),
+    });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository, undefined, undefined, REPUTATION_CONFIG);
+
+    const summary = await service.getReputationSummary(RECEIVER_ID);
+
+    expect(summary.asSender.ratingCount).toBe(3);
+    expect(summary.asCarrier.ratingCount).toBe(1);
+    expect(summary.ratingCount).toBe(4);
+  });
+
+  it("solo con reseñas de receptor, asSender deja de ser perfil nuevo", async () => {
+    const ratingRepository = createFakeRatingRepository({
+      listForReputation: vi.fn().mockResolvedValue(
+        Array.from({ length: MIN_RATINGS_FOR_ESTABLISHED_PROFILE }, () => ({
+          score: 4,
+          createdAt: new Date(),
+          role: RatingRole.receiver,
+        }))
+      ),
+      getGlobalAverageScore: vi.fn().mockResolvedValue(3),
+    });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository, undefined, undefined, REPUTATION_CONFIG);
+
+    const summary = await service.getReputationSummary(RECEIVER_ID);
+
+    expect(summary.asSender.ratingCount).toBe(MIN_RATINGS_FOR_ESTABLISHED_PROFILE);
+    expect(summary.asSender.isNewProfile).toBe(false);
+    expect(summary.asSender.reputationScore).not.toBeNull();
   });
 
   it("propaga transactionCounts del shipmentRepository sin tocarlo", async () => {
