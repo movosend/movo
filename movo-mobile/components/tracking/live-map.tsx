@@ -3,7 +3,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import { useColorScheme } from "nativewind";
 import * as Haptics from "expo-haptics";
-import { Crosshair, Map, MapPin, Truck } from "lucide-react-native";
+import { Car, Crosshair, Map, MapPin } from "lucide-react-native";
 import {
   movoMapStyleDark,
   movoMapStyleLight,
@@ -389,7 +389,7 @@ export function LiveMap({
                   ]}
                 >
                   <View style={styles.carrierInnerCircle}>
-                    <Truck
+                    <Car
                       size={18}
                       color={trackingStatus === "stale" ? "#A1A1AA" : "#C6F24A"}
                     />

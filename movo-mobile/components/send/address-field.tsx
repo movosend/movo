@@ -1,8 +1,9 @@
 import { ChevronRight, MapPin, Star } from "lucide-react-native";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useCreateAddress, useAddresses } from "../../src/hooks/use-addresses";
 import { addressSelectionToCreateInput } from "../../src/lib/address-selection-to-input";
+import { PIN_ADDRESS_FALLBACK, resolvePinAddress } from "../../src/lib/pin-address";
 import type { AddressSelection } from "../../src/types/address-selection";
 import { AddressSearchSheet } from "./address-search-sheet";
 import { CollapsibleMapRow } from "./collapsible-map-row";
@@ -32,8 +33,21 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
   const [saveError, setSaveError] = useState<string | null>(null);
   const { data: savedAddresses } = useAddresses();
   const createAddress = useCreateAddress();
+  // Cada movimiento del pin invalida el reverse-geocode anterior: solo aplica la respuesta del último.
+  const pinRequestRef = useRef(0);
+
+  const handlePinMoved = async (lat: number, lng: number) => {
+    const request = ++pinRequestRef.current;
+    setSaved(false);
+    // Provisoria: con `resolving` no se puede guardar ni avanzar hasta que llegue la dirección del punto nuevo.
+    onChange({ address: PIN_ADDRESS_FALLBACK, lat, lng, source: "map-pin", resolving: true });
+    const address = await resolvePinAddress(lat, lng);
+    if (request !== pinRequestRef.current) return;
+    onChange({ address, lat, lng, source: "map-pin" });
+  };
 
   const handleSelect = (selection: AddressSelection) => {
+    pinRequestRef.current += 1;
     onChange(selection);
     setSheetOpen(false);
     setMapOpen(false);
@@ -41,7 +55,7 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
   };
 
   const handleSaveAddress = async () => {
-    if (!value) return;
+    if (!value || value.resolving) return;
     setSaveError(null);
     try {
       await createAddress.mutateAsync(addressSelectionToCreateInput(value));
@@ -65,7 +79,7 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
             className={`font-sans-medium text-[15px] ${value ? "text-fg" : "text-fg-3"}`}
             numberOfLines={1}
           >
-            {value?.address || "Tocá para buscar la dirección"}
+            {value?.resolving ? "Buscando la dirección…" : value?.address || "Tocá para buscar la dirección"}
           </Text>
         </View>
         {value ? (
@@ -86,7 +100,7 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
           <Pressable
             testID={testID ? `${testID}-save-address` : undefined}
             onPress={() => void handleSaveAddress()}
-            disabled={saved || createAddress.isPending}
+            disabled={saved || createAddress.isPending || !!value.resolving}
             hitSlop={8}
             className="flex-row items-center gap-1.5 self-start rounded-full px-1 py-2"
           >
@@ -116,9 +130,7 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
             lat={value?.lat ?? null}
             lng={value?.lng ?? null}
             autoExpand
-            onConfirm={(lat, lng) => {
-              onChange(value ? { ...value, lat, lng, source: "map-pin" } : { address: "Ubicación en el mapa", lat, lng, source: "map-pin" });
-            }}
+            onConfirm={(lat, lng) => void handlePinMoved(lat, lng)}
           />
         </View>
       ) : null}

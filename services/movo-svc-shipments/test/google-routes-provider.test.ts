@@ -101,6 +101,33 @@ describe("createGoogleRoutesProvider", () => {
     } satisfies Partial<ApiError>);
   });
 
+  it("un rechazo de Google (403) sale como 502 y deja en el log el status y el mensaje, sin la key", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: { code: 403, status: "PERMISSION_DENIED", message: "The caller does not have permission" } }),
+      }),
+    );
+    const warn = vi.fn();
+
+    const provider = createGoogleRoutesProvider({ apiKey: "secret-key", log: { warn } as never });
+
+    await expect(provider.getRoute({ origin, destination })).rejects.toMatchObject({
+      statusCode: 502,
+      code: "ROUTES_PROVIDER_ERROR",
+    });
+    expect(warn).toHaveBeenCalledWith(
+      {
+        google: { httpStatus: 403, googleStatus: "PERMISSION_DENIED", googleMessage: "The caller does not have permission" },
+        op: "computeRoutes",
+      },
+      "google_routes_error",
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret-key");
+  });
+
   it("traduce una respuesta sin rutas a ApiError 422 ROUTE_NOT_FOUND", async () => {
     vi.stubGlobal(
       "fetch",

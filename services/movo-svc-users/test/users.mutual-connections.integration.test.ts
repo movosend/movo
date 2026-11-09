@@ -27,6 +27,9 @@ function createFakeShipmentsClient() {
     async findRecentRatingComments() {
       return { items: [], nextCursor: null };
     },
+    async findRecentRatingCommentsByRole() {
+      return { all: [], asSender: [], asCarrier: [] };
+    },
     async deleteCarrierPositions() {
       return 0;
     },

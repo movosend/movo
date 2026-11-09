@@ -3,7 +3,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Pressable, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { HandshakeConfirmationResult } from "../../../../../components/handshake/handshake-confirmation-result";
+import { HandshakeConfirmationResult, type SecondaryCta } from "../../../../../components/handshake/handshake-confirmation-result";
 import { DeliveryCashCommissionNote } from "../../../../../components/payments/delivery-cash-commission-note";
 import { DeliveryPaymentStatus } from "../../../../../components/payments/delivery-payment-status";
 import { RatingSheet, type RatingTarget } from "../../../../../components/shipments/rating-sheet";
@@ -11,6 +11,7 @@ import { useShipment } from "../../../../../src/hooks/use-shipments";
 import { isCashShipment } from "../../../../../src/lib/payment-method";
 import { useShipmentRatings } from "../../../../../src/hooks/use-ratings";
 import { usePublicProfile } from "../../../../../src/hooks/use-profile";
+import { useAuthStore } from "../../../../../src/store/auth-store";
 import { useDeliveryResult } from "./_layout";
 
 /**
@@ -24,21 +25,25 @@ import { useDeliveryResult } from "./_layout";
  * a `/route` -- acá no hay próxima parada que trackear, la entrega es el final del
  * viaje de ese envío).
  *
- * **AC9 (acceso a calificar desde el éxito)**: CTA secundario que abre `RatingSheet`
- * (MOVO-153) directo con el receptor como target, sin reimplementar nada de la
- * lógica de calificación -- mismo componente que ya usa `ShipmentRatingsCard` en el
- * detalle del envío. `useShipment(result.shipmentId)` resuelve el `receiverId` --
- * mismo query key que ya consume `HandshakeConfirmationResult` internamente,
- * TanStack Query dedupea, sin request de más.
+ * **AC9 (acceso a calificar desde el éxito)**: un CTA secundario por contraparte, emisor y
+ * receptor (feedback de TestFlight, build 17: antes solo el receptor), que abre `RatingSheet`
+ * (MOVO-153) con ese target -- mismo componente que ya usa `ShipmentRatingsCard` en el
+ * detalle del envío. Si emisor y receptor son la misma persona, va un solo botón.
+ * `useShipment(result.shipmentId)` resuelve los ids -- mismo query key que ya consume
+ * `HandshakeConfirmationResult` internamente, TanStack Query dedupea.
  */
 export default function DeliverySuccessScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
   const { result } = useDeliveryResult();
+  // El target queda puesto al cerrar: la hoja lo sigue dibujando mientras se anima hacia abajo.
+  const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [ratingOpen, setRatingOpen] = useState(false);
 
   const { data: shipment } = useShipment(result?.shipmentId);
+  const myUserId = useAuthStore((state) => state.user?.userId);
   const { data: ratings } = useShipmentRatings(result?.shipmentId, { enabled: !!result });
+  const { data: senderProfile } = usePublicProfile(shipment?.senderId);
   const { data: receiverProfile } = usePublicProfile(shipment?.receiverId);
 
   function goToShipment() {
@@ -67,19 +72,35 @@ export default function DeliverySuccessScreen() {
     );
   }
 
-  const receiverUserId = shipment?.receiverId;
-  const existingRating = ratings?.find((r) => r.rateeId === receiverUserId);
-  const alreadyRated = !!existingRating;
-  const ratingTarget: RatingTarget | null = receiverUserId
-    ? {
-        userId: receiverUserId,
-        fullName: receiverProfile?.fullName ?? "Receptor",
-        photoUrl: receiverProfile?.photoUrl ?? null,
-        roleLabel: "Receptor",
-        rateeRole: "receiver",
-        existingRating,
-      }
-    : null;
+  const counterparties = [
+    { userId: shipment?.senderId, profile: senderProfile, roleLabel: "Emisor", rateeRole: "sender", noun: "emisor" },
+    { userId: shipment?.receiverId, profile: receiverProfile, roleLabel: "Receptor", rateeRole: "receiver", noun: "receptor" },
+  ] as const;
+  const ratingCtas: SecondaryCta[] = [];
+  const seen = new Set<string>();
+  for (const counterparty of counterparties) {
+    const userId = counterparty.userId;
+    if (!userId || seen.has(userId)) continue;
+    seen.add(userId);
+    // Solo la mía: el endpoint devuelve las de todas las partes del envío.
+    const existingRating = ratings?.find((r) => r.raterId === myUserId && r.rateeId === userId);
+    const target: RatingTarget = {
+      userId,
+      fullName: counterparty.profile?.fullName ?? counterparty.roleLabel,
+      photoUrl: counterparty.profile?.photoUrl ?? null,
+      roleLabel: counterparty.roleLabel,
+      rateeRole: counterparty.rateeRole,
+      existingRating,
+    };
+    ratingCtas.push({
+      id: counterparty.rateeRole,
+      label: existingRating ? `Ya calificaste al ${counterparty.noun}` : `Calificar al ${counterparty.noun}`,
+      onPress: () => {
+        setRatingTarget(target);
+        setRatingOpen(true);
+      },
+    });
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-ink-950">
@@ -87,8 +108,7 @@ export default function DeliverySuccessScreen() {
         testID="delivery-success-result"
         result={result}
         onCtaPress={goToShipment}
-        secondaryCtaLabel={ratingTarget ? (alreadyRated ? "Ya calificaste al receptor" : "Calificar al receptor") : undefined}
-        onSecondaryCtaPress={ratingTarget ? () => setRatingOpen(true) : undefined}
+        secondaryCtas={ratingCtas}
         paymentSlot={
           // MOVO-37: en efectivo no hay liquidación (`/settlement` da 404), solo la comisión como saldo. Si el envío no
           // llegó a cargar se asume tarjeta (como antes de MOVO-37): el estado del cobro no depende de esa query.

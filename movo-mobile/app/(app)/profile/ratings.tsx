@@ -1,13 +1,13 @@
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
-import { ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ReputationCommentCard } from "../../../components/profile/reputation-comment-card";
 import { ProfileSkeleton } from "../../../components/profile/profile-skeleton";
 import { useAuthStore } from "../../../src/store/auth-store";
-import { usePublicProfile } from "../../../src/hooks/use-profile";
+import { usePublicProfile, useUserRatings } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
-import { formatRatingCount, formatReputationScore } from "../../../src/lib/profile-format";
+import { formatRatingCount, formatReputationScore, ratingCommentsForRole } from "../../../src/lib/profile-format";
 import { StarRatingInput } from "../../../components/ui/star-rating-input";
 
 /**
@@ -17,14 +17,22 @@ import { StarRatingInput } from "../../../components/ui/star-rating-input";
  * `app/(app)/(tabs)/profile.tsx`, así que no dispara un segundo request (TanStack
  * Query dedupea).
  *
- * `recentRatingComments` sigue siendo, hoy, como mucho las últimas 10 (MOVO-152 —
- * `GET /internal/users/:id/ratings/recent` no pagina todavía, MOVO-170). Esta pantalla
- * ya es el lugar correcto para esa paginación futura sin volver a tocar el perfil.
+ * El perfil trae como mucho las últimas 10: esta pantalla las muestra al instante y pagina el resto con
+ * `GET /users/:id/ratings` (MOVO-170), filtrado por la pestaña elegida (`?role=`).
  */
 export default function ProfileRatingsScreen() {
   const colors = useThemeColors();
   const myId = useAuthStore((state) => state.user?.userId);
   const { data: profile, isLoading } = usePublicProfile(myId);
+  // Llega con la pestaña elegida en el perfil (`?role=`); sin ella, todas.
+  const { role } = useLocalSearchParams<{ role?: string }>();
+  const ratingRole = role === "carrier" || role === "sender" ? role : undefined;
+  const ratings = useUserRatings(myId, ratingRole);
+  // Mientras llega la primera página, las que ya trajo el perfil.
+  const cachedComments = profile ? (ratingRole ? ratingCommentsForRole(profile, ratingRole) : profile.recentRatingComments) : [];
+  const comments = ratings.data ? ratings.data.pages.flatMap((page) => page.items) : cachedComments;
+  // Con una pestaña elegida, el puntaje y el conteo son los de ese rol, los mismos que cuentan la lista.
+  const summary = profile ? (ratingRole ? (ratingRole === "carrier" ? profile.asCarrier : profile.asSender) : profile) : undefined;
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
@@ -44,7 +52,7 @@ export default function ProfileRatingsScreen() {
         <Text className="font-sans-semibold text-h3 text-fg">Tus calificaciones</Text>
       </View>
 
-      {isLoading || !profile ? (
+      {isLoading || !profile || !summary ? (
         <ProfileSkeleton testID="profile-ratings-skeleton" />
       ) : (
         <ScrollView
@@ -54,24 +62,25 @@ export default function ProfileRatingsScreen() {
         >
           <View className="mb-2 flex-row items-center gap-3">
             <Text className="font-sans-semibold text-[30px] leading-[30px] text-fg">
-              {formatReputationScore(profile.reputationScore, profile.isNewProfile)}
+              {formatReputationScore(summary.reputationScore, summary.isNewProfile)}
             </Text>
             <View className="gap-1">
-              <StarRatingInput score={profile.reputationScore ?? 0} readOnly size={13} gap={2} />
-              {!profile.isNewProfile ? (
+              <StarRatingInput score={summary.reputationScore ?? 0} readOnly size={13} gap={2} />
+              {!summary.isNewProfile ? (
                 <Text className="font-sans text-caption text-fg-3">
-                  {formatRatingCount(profile.ratingCount)} en total
+                  {formatRatingCount(summary.ratingCount)}
+                  {ratingRole ? (ratingRole === "carrier" ? " como transportista" : " como emisor") : " en total"}
                 </Text>
               ) : null}
             </View>
           </View>
 
-          {profile.recentRatingComments.length === 0 ? (
+          {comments.length === 0 ? (
             <Text testID="profile-ratings-empty" className="font-sans text-small text-fg-3">
               Todavía no tenés calificaciones.
             </Text>
           ) : (
-            profile.recentRatingComments.map((comment) => (
+            comments.map((comment) => (
               <ReputationCommentCard
                 key={comment.id}
                 comment={comment}
@@ -80,6 +89,20 @@ export default function ProfileRatingsScreen() {
               />
             ))
           )}
+          {ratings.hasNextPage ? (
+            <Pressable
+              testID="profile-ratings-more"
+              accessibilityRole="button"
+              disabled={ratings.isFetchingNextPage}
+              onPress={() => void ratings.fetchNextPage()}
+              className="mt-1 flex-row items-center justify-center gap-2 py-3 active:opacity-75"
+            >
+              {ratings.isFetchingNextPage ? <ActivityIndicator size="small" color={colors.fg1} /> : null}
+              <Text className="font-sans-medium text-[14px] text-fg">
+                {ratings.isFetchNextPageError ? "Reintentar" : ratings.isFetchingNextPage ? "Cargando…" : "Cargar más"}
+              </Text>
+            </Pressable>
+          ) : null}
         </ScrollView>
       )}
     </SafeAreaView>

@@ -184,6 +184,15 @@ describe("trip-format — Inicio (jerarquía de viajes)", () => {
       expect(otherTrips.map((t) => t.id)).toEqual(["past", "today"]);
     });
 
+    it("un active que se quedó sin paquetes no se muestra como viaje en curso", () => {
+      const { primaryTrip, otherTrips } = splitCarrierHomeTrips([
+        trip("empty-active", -1, { status: TripStatus.ACTIVE, hasAcceptedPackages: false }),
+        trip("today", 0),
+      ]);
+      expect(primaryTrip?.id).toBe("today");
+      expect(otherTrips).toEqual([]);
+    });
+
     it("sin viaje en curso, la card es el de hoy; un declared pasado no se trata distinto", () => {
       const { primaryTrip, otherTrips } = splitCarrierHomeTrips([trip("future", 3), trip("past", -7), trip("today", 0)]);
       expect(primaryTrip?.id).toBe("today");

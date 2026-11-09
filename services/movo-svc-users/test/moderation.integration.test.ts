@@ -22,6 +22,9 @@ const shipmentsClient: ShipmentsClient = {
   async findRecentRatingComments() {
     throw new Error("fuera de alcance de esta suite");
   },
+  async findRecentRatingCommentsByRole() {
+    throw new Error("fuera de alcance de esta suite");
+  },
   async deleteCarrierPositions() {
     return 0;
   },

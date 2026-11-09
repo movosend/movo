@@ -50,7 +50,7 @@ export default async function handshakeRoutes(app: FastifyInstance, opts: Handsh
       // El service de liquidación solo se arma si hace falta: con "console" no toca payments.
       settlementService: app.config.FUNDS_RELEASE_NOTIFIER === "payments" ? app.settlements : undefined,
     });
-  const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
+  const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config, app.log);
   const shipmentRepository = createShipmentRepository(app.db);
   const handshakeRepository = createHandshakeRepository(app.db);
   const receiverTransfersService = buildReceiverTransfersService(app, { usersClient, notificationsClient });

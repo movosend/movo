@@ -429,6 +429,23 @@ describe("TransportShipmentDetailScreen", () => {
       expect(mockRouterPush).toHaveBeenCalledWith("/(app)/transport/shipment-1/offer");
     });
 
+    it("con el envío ya entregado no dice 'Te eligieron' ni cuándo arranca el viaje", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "carrier-me", status: ShipmentStatus.COMPLETED, suggestedPriceArs: 4500 }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockMyOffers([]);
+
+      const { getByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      expect(getByTestId("transport-assigned-to-me-card")).toHaveTextContent(/Entregaste este envío/);
+      expect(getByTestId("transport-assigned-to-me-card")).not.toHaveTextContent(/Te eligieron/);
+      expect(getByTestId("transport-assigned-to-me-detail")).not.toHaveTextContent(/El viaje arranca/);
+    });
+
     it("si ya me asignaron este envío (mi oferta fue aceptada), oculta 'Hacer una oferta' y 'Recibís aprox. si ofertás el sugerido', y muestra 'Te eligieron para este envío'", async () => {
       mockUseShipment.mockReturnValue({
         isLoading: false,

@@ -76,6 +76,8 @@ export type {
   ReputationBreakdown,
   ReputationCategoryScore,
   RecentRatingComment,
+  RecentRatingCommentsByRole,
+  ProfileRatingRole,
   MutualConnections,
   VehicleProfile,
 } from "./types/user-profile";
@@ -884,3 +886,10 @@ export type {
   ResolveDisputeResponse,
   DisputePartialCaptureFloor,
 } from "./types/dispute";
+export {
+  googleErrorDetail,
+  readGoogleErrorDetail,
+  type GoogleErrorBody,
+  type GoogleErrorDetail,
+  type ProviderLogger,
+} from "./utils/google-error";

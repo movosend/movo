@@ -41,6 +41,9 @@ function createFakeShipmentsClient() {
         "findRecentRatingComments no implementado en este fake (MOVO-152, fuera de alcance de esta suite)"
       );
     },
+    async findRecentRatingCommentsByRole() {
+      throw new Error("findRecentRatingCommentsByRole no implementado en este fake (fuera de alcance de esta suite)");
+    },
     // MOVO-202: best-effort en el caller (`deleteAccount`) -- un no-op alcanza,
     // esta suite no verifica el borrado de posiciones GPS en sí (eso vive del lado
     // de movo-svc-shipments).

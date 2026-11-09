@@ -4,6 +4,11 @@ import type { ShipmentSummary } from "../src/api/shipments-client";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 import { RecentShipmentsSection } from "../components/home/recent-shipments-section";
 
+const TODAY_PICKUP_DATE = (() => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+})();
+
 const mockRouterPush = jest.fn();
 
 jest.mock("expo-router", () => ({
@@ -63,7 +68,8 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     deliveryAddress: "Bv. San Juan 500, Córdoba",
     deliveryLat: -31.41,
     deliveryLng: -64.19,
-    pickupDate: "2026-08-20",
+    // Hoy: un retiro de antes de ayer haría que el envío abierto salga de Inicio (home-visibility.ts).
+    pickupDate: TODAY_PICKUP_DATE,
     pickupTimeWindowStart: "09:00",
     pickupTimeWindowEnd: "12:00",
     suggestedPriceArs: 4500,

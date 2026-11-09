@@ -149,9 +149,10 @@ describe("ShipmentHandshakeScreen (MOVO-159)", () => {
       },
     });
 
-    const { getByTestId, getByText } = await render(<ShipmentHandshakeScreen />);
+    const { getByTestId, getAllByText } = await render(<ShipmentHandshakeScreen />);
 
     expect(getByTestId("handshake-success-view")).toBeTruthy();
-    expect(getByText("Retiro confirmado")).toBeTruthy();
+    // Título y fila "Etapa" usan la misma palabra.
+    expect(getAllByText("Retiro confirmado")).toHaveLength(2);
   });
 });

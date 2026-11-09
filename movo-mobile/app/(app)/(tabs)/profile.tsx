@@ -2,7 +2,8 @@ import { KycStatus, UserRole } from '@movo/shared/dist/types/user';
 import { Pencil, Sparkles } from 'lucide-react-native';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AvatarPeekViewer } from '../../../components/profile/avatar-peek-viewer';
 import { ProfileBadges } from '../../../components/profile/profile-badges';
@@ -48,6 +49,16 @@ export default function ProfileScreen() {
   // "Cerrar sesión" no dependen de `GET /users/me` y siguen a la vista y usables. Con `data` en
   // caché manda el perfil: un refetch fallido no lo tapa con el error.
   const profileReady = !!data;
+  // Tirar hacia abajo vuelve a pedir el perfil y la reputación (feedback de TestFlight, build 17).
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([refetch(), data?.id ? refetchReputation() : Promise.resolve()]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const displayName = data ? capitalizeName(data.fullName) : '';
 
   return (
@@ -57,6 +68,7 @@ export default function ProfileScreen() {
         testID="profile-screen-content"
         contentContainerClassName="px-6 pb-32 pt-8"
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
       >
         {!data && isLoading ? (
           <>
@@ -126,13 +138,14 @@ export default function ProfileScreen() {
                       asSender: publicProfile.asSender,
                       asCarrier: publicProfile.asCarrier,
                       recentRatingComments: publicProfile.recentRatingComments,
+                      recentRatingCommentsByRole: publicProfile.recentRatingCommentsByRole,
                     }
                   : undefined
               }
               reputationLoading={reputationLoading}
               reputationError={reputationError}
               onRetryReputation={() => void refetchReputation()}
-              onViewAllRatings={() => router.push('/profile/ratings')}
+              onViewAllRatings={(role) => router.push(`/profile/ratings?role=${role}`)}
             />
           </>
         )}

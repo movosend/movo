@@ -1,4 +1,4 @@
-import { ApiError } from "@movo/shared";
+import { ApiError, ProviderLogger, readGoogleErrorDetail } from "@movo/shared";
 import {
   assertSupportedRouteMode,
   RouteDurationResult,
@@ -12,6 +12,8 @@ export interface GoogleRoutesProviderConfig {
   apiKey: string;
   baseUrl?: string;
   matrixBaseUrl?: string;
+  /** Para dejar en el log por qué Google rechazó el pedido (key, facturación, API sin habilitar). */
+  log?: ProviderLogger | undefined;
 }
 
 const DEFAULT_BASE_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
@@ -88,6 +90,7 @@ export function createGoogleRoutesProvider(config: GoogleRoutesProviderConfig): 
       }
 
       if (!response.ok) {
+        config.log?.warn({ google: await readGoogleErrorDetail(response), op: "computeRoutes" }, "google_routes_error");
         throw new ApiError(502, "ROUTES_PROVIDER_ERROR", "El proveedor de rutas devolvió un error.");
       }
 
@@ -134,6 +137,7 @@ export function createGoogleRoutesProvider(config: GoogleRoutesProviderConfig): 
       }
 
       if (!response.ok) {
+        config.log?.warn({ google: await readGoogleErrorDetail(response), op: "computeRouteMatrix" }, "google_routes_error");
         throw new ApiError(502, "ROUTES_PROVIDER_ERROR", "El proveedor de rutas devolvió un error.");
       }
 

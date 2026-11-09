@@ -54,6 +54,36 @@ export const ACCEPTED_OFFER_FILTER = {
 } as const;
 
 /**
+ * Viaje `active` que ya no tiene ningún paquete vivo (`ACCEPTED_OFFER_FILTER`): pasa a
+ * `expired` (DD-029/DD-032). Lo usan el barrido (`expireActiveWithoutPackages`) y la
+ * transición de un envío que suelta su viaje (cancelación o baja del transportista), para
+ * que el viaje no quede "en curso" con 0 paquetes hasta la próxima corrida.
+ */
+const ACTIVE_WITHOUT_PACKAGES_WHERE = {
+  status: TripStatus.ACTIVE,
+  offers: { none: ACCEPTED_OFFER_FILTER },
+} satisfies Prisma.TripWhereInput;
+
+/**
+ * Expira, de `tripIds`, los que quedaron `active` sin paquetes vivos. Pensada para correr
+ * dentro de la transacción que cerró la última oferta del viaje. Devuelve los ids expirados.
+ */
+export async function expireEmptyActiveTrips(
+  tx: Prisma.TransactionClient,
+  tripIds: readonly string[],
+): Promise<string[]> {
+  const expired: string[] = [];
+  for (const id of new Set(tripIds)) {
+    const result = await tx.trip.updateMany({
+      where: { ...ACTIVE_WITHOUT_PACKAGES_WHERE, id },
+      data: { status: TripStatus.EXPIRED },
+    });
+    if (result.count > 0) expired.push(id);
+  }
+  return expired;
+}
+
+/**
  * MOVO-277: subconjunto de `ACCEPTED_OFFER_FILTER` cuyo envío el viaje puede ejecutar
  * (`TRIP_EXECUTABLE_SHIPMENT_STATUSES`, fuente única en `shipment-state-machine.ts`).
  * Es el que habilita `start()` y el que alimenta `executablePackagesCount`.
@@ -936,20 +966,16 @@ export function createTripRepository(db: PrismaClient): TripRepository {
     },
 
     async expireActiveWithoutPackages(limit: number): Promise<string[]> {
-      const where = { status: TripStatus.ACTIVE, offers: { none: ACCEPTED_OFFER_FILTER } };
       const candidates = await db.trip.findMany({
-        where,
+        where: ACTIVE_WITHOUT_PACKAGES_WHERE,
         select: { id: true },
         orderBy: { departureAt: "asc" },
         take: limit,
       });
-
-      const expired: string[] = [];
-      for (const { id } of candidates) {
-        const result = await db.trip.updateMany({ where: { ...where, id }, data: { status: TripStatus.EXPIRED } });
-        if (result.count > 0) expired.push(id);
-      }
-      return expired;
+      return expireEmptyActiveTrips(
+        db,
+        candidates.map(({ id }) => id),
+      );
     },
 
     async findDeclaredForDepartureReminder(params: DepartureReminderParams): Promise<DepartureReminderTrip[]> {

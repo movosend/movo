@@ -1403,6 +1403,17 @@ quien escribe es transportista sin una llamada por fila. Aditivo; `svc-admin` to
 la bitácora). KYC cuenta el último intento de cada verificación de una cuenta viva, para que un reintento reemplace al abandonado; `carriers` son las licencias y `senders` las identidades. `blockRequested`:
 quien reportó además bloqueó al reportado. "Vencen hoy" es el día de Argentina. Lo consume `GET /admin/overview` de `svc-admin`.
 
+### Feedback de TestFlight build 17 — errores de Google visibles en el log
+
+- `google-error.ts` (`readGoogleErrorDetail`): los adapters de Places y Geocoding reciben `app.log` desde la factory y, ante un rechazo, loguean `google_places_error`/`google_geocoding_error` con el status y el mensaje de Google, nunca la URL (Geocoding lleva la key en el query string). El 502 al cliente no cambia.
+- Geocoding: solo `ZERO_RESULTS` es 422 `GEOCODING_ADDRESS_NOT_FOUND`. `REQUEST_DENIED`/`OVER_QUERY_LIMIT` (que Google responde con 200) pasan a 502: antes una key sin facturación parecía una dirección mal cargada.
+- Causa del feedback: el proyecto de Google Cloud de dev (`289071851142`) no tiene facturación activa; Places, Geocoding y Routes rechazan la key. Se arregla en la consola de Google, no en el código.
+
+### Feedback de TestFlight build 17 — reseñas recientes por rol
+
+`GET /users/:id` suma `recentRatingCommentsByRole` (`asSender`/`asCarrier`, opcional en `@movo/shared`): filtrar las 10 últimas generales dejaba una pestaña vacía aunque ese rol tuviera reseñas más viejas. Sale de una sola llamada (`findRecentRatingCommentsByRole` → `/ratings/recent-by-role`) con un solo lookup de nombres; si falla, se omite y el mobile cae a la lista general, que en ese caso también llega vacía (sale de la misma llamada): se ve "sin reseñas", igual que antes del cambio. La pestaña de emisor incluye las recibidas como receptor (no tienen pestaña propia). `recentRatingComments` no cambia, para las builds anteriores. `GET /users/:id/ratings` acepta `role` (`sender`/`carrier`) y es el que pagina "Ver todas" en el mobile.
+- `google-error.ts` pasó a `@movo/shared` (`readGoogleErrorDetail`, `ProviderLogger`): era idéntico en `svc-shipments`.
+
 ### Cola de revisión manual de KYC — `/internal/admin/kyc/reviews` (DD-063)
 
 `modules/kyc/kyc-review-internal.routes.ts` y `kyc-review.service.ts`: lista paginada (solo `manual_review` y solo el último intento de su usuario y tipo), detalle con historial y `POST .../decision`. `kyc.service.ts#decideManualReview` le pide a Didit el cambio (`DiditClient.updateSessionStatus`, `PATCH /v3/session/{id}/update-status/` con `send_email: false`) y aplica la decisión por `applyTerminalDecision`, el mismo camino del webhook, así que el webhook posterior es un no-op y no repite el push. No guarda el motivo del admin en `raw_decision` (vive en Didit y en la bitácora de `svc-admin`) y suma `reviewed_by_admin: true`. Códigos nuevos `KYC_SESSION_NOT_FOUND`, `KYC_REVIEW_STATUS_CHANGED`, `KYC_REVIEW_SUPERSEDED`.

@@ -4,6 +4,8 @@ import { ShipmentStatus } from "@movo/shared";
 export interface ShipmentStatusChangedEvent {
   shipmentId: string;
   to: ShipmentStatus;
+  /** Viajes `active` que esta transición dejó sin paquetes y se vencieron en la misma transacción. */
+  expiredTripIds?: string[];
 }
 
 /**

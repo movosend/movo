@@ -1,5 +1,6 @@
 import type {
   RecentRatingComment,
+  RecentRatingCommentsByRole,
   ReputationBreakdown,
   TransactionCounts,
 } from "@movo/shared/dist/types/user-profile";
@@ -19,6 +20,8 @@ import {
   formatReputationScore,
   formatShipmentCount,
   formatTripCount,
+  hasSenderSide,
+  ratingCommentsForRole,
 } from "../../src/lib/profile-format";
 import { GradientBorderCard } from "../ui/gradient-border-card";
 import { SkeletonBlock } from "../ui/skeleton-block";
@@ -31,6 +34,7 @@ export interface ProfileActivityCardReputation {
   asSender: ReputationBreakdown;
   asCarrier: ReputationBreakdown;
   recentRatingComments: RecentRatingComment[];
+  recentRatingCommentsByRole?: RecentRatingCommentsByRole;
 }
 
 export interface ProfileActivityCardProps {
@@ -49,7 +53,8 @@ export interface ProfileActivityCardProps {
   /** MOVO-168: si esa segunda query falla, el aviso queda dentro de la card, con reintento local. */
   reputationError?: boolean;
   onRetryReputation?: () => void;
-  onViewAllRatings?: () => void;
+  /** Recibe la pestaña elegida, así "Ver todas" muestra las de ese rol. */
+  onViewAllRatings?: (role: ReputationRole) => void;
   testID?: string;
 }
 
@@ -88,17 +93,19 @@ export function ProfileActivityCard({
 }: ProfileActivityCardProps) {
   const colors = useThemeColors();
   const hasCarrier = transactionCounts.asCarrier > 0;
-  const hasSender = transactionCounts.asSender > 0;
+  const hasSender = hasSenderSide(transactionCounts, reputation);
   const showRoleToggle = hasCarrier && hasSender;
   const [role, setRole] = useState<ReputationRole>(hasCarrier ? "carrier" : "sender");
   const [activeCommentIndex, setActiveCommentIndex] = useState(0);
 
   const breakdown = reputation ? (role === "carrier" ? reputation.asCarrier : reputation.asSender) : undefined;
-  const comments = reputation?.recentRatingComments ?? [];
+  // Las de la pestaña elegida: una reseña como transportista no va en "Como emisor" (feedback de TestFlight, build 17).
+  const comments = reputation ? ratingCommentsForRole(reputation, role) : [];
+  const allComments = reputation?.recentRatingComments ?? [];
   // Perfil nuevo sin ningún comentario todavía: ni el score ni "lo que dicen de vos"
   // tienen nada real que mostrar (feedback: "toda esta sección es irrelevante") — se
   // oculta la sección entera en vez de mostrar el badge/nota vacíos de antes.
-  const showReputationSection = Boolean(reputation && breakdown && !(isNewProfile && comments.length === 0));
+  const showReputationSection = Boolean(reputation && breakdown && !(isNewProfile && allComments.length === 0));
 
   const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const index = Math.round(event.nativeEvent.contentOffset.x / (CARD_WIDTH + CARD_GAP));
@@ -177,7 +184,11 @@ export function ProfileActivityCard({
                   <Pressable
                     key={r}
                     testID={testID ? `${testID}-role-${r}` : undefined}
-                    onPress={() => setRole(r)}
+                    onPress={() => {
+                      // Cada pestaña tiene su propia lista: el carrusel vuelve a la primera reseña.
+                      setRole(r);
+                      setActiveCommentIndex(0);
+                    }}
                     className={`flex-1 items-center rounded-lg py-2 ${role === r ? "bg-bg" : ""}`}
                   >
                     <Text
@@ -232,7 +243,7 @@ export function ProfileActivityCard({
               {comments.length > 0 && onViewAllRatings ? (
                 <Pressable
                   testID={testID ? `${testID}-view-all` : undefined}
-                  onPress={onViewAllRatings}
+                  onPress={() => onViewAllRatings(role)}
                   hitSlop={8}
                   className="flex-row items-center gap-0.5"
                 >
@@ -257,6 +268,7 @@ export function ProfileActivityCard({
             ) : (
               <>
                 <ScrollView
+                  key={role}
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   decelerationRate="fast"

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { router } from "expo-router";
 import { Text, View } from "react-native";
 import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { useCarrierRequirementsSheet } from "../../src/hooks/use-carrier-requirements-sheet";
@@ -54,6 +55,9 @@ export function CarrierTransportingSection({
       setStartingTripId(targetTrip.id);
       setStartTripError(null);
       await startTripMutation.mutateAsync(targetTrip.id);
+      // Mismo destino que iniciar desde el detalle del viaje: al arrancar, el transportista va
+      // al mapa en vez de quedarse en Inicio (feedback de TestFlight, build 16).
+      router.push({ pathname: "/route", params: { tripId: targetTrip.id } } as never);
     } catch (err) {
       // MOVO-117: un 403 por licencia/MP faltante abre la checklist en vez de un error genérico.
       if (requirements.handleError(err)) return;

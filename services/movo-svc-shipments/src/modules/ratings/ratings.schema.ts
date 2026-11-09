@@ -169,6 +169,9 @@ export const ratingsSchemas = {
       limit: { type: "integer", minimum: 1, maximum: MAX_RECENT_RATINGS_LIMIT, default: DEFAULT_RECENT_RATINGS_LIMIT },
       // MOVO-170: cursor opaco (base64 de `createdAt|id`) para "ver todas las calificaciones".
       cursor: { type: "string" },
+      // Roles del calificado, separados por comas (`sender,receiver`): sin él, todas. La pestaña "Como emisor" del
+      // perfil pide las de emisor y receptor (feedback de TestFlight, build 17).
+      role: { type: "string", pattern: `^(${RATING_ROLE_VALUES.join("|")})(,(${RATING_ROLE_VALUES.join("|")}))*$` },
     },
   },
 
@@ -177,6 +180,24 @@ export const ratingsSchemas = {
   listRatingsResponse: {
     type: "array",
     items: ratingResponse,
+  },
+
+  // Perfil público: las últimas de cada pestaña en una sola llamada (review de la PR #332).
+  recentRatingsByRoleQuery: {
+    type: "object",
+    properties: {
+      limit: { type: "integer", minimum: 1, maximum: MAX_RECENT_RATINGS_LIMIT, default: DEFAULT_RECENT_RATINGS_LIMIT },
+    },
+  },
+
+  recentRatingsByRoleResponse: {
+    type: "object",
+    required: ["all", "asSender", "asCarrier"],
+    properties: {
+      all: { type: "array", items: ratingResponse },
+      asSender: { type: "array", items: ratingResponse },
+      asCarrier: { type: "array", items: ratingResponse },
+    },
   },
 
   // MOVO-170

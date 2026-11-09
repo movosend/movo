@@ -51,7 +51,7 @@ export function HandshakeSuccessView({
       : "El envío figura como entregado. Estamos procesando el pago; te avisamos cuando se acredite.";
 
   const statusValue = isPickup ? "En tránsito" : isCompleted ? "Completado" : "Entregado";
-  const stageValue = isPickup ? "Retiro completado" : "Entrega completada";
+  const stageValue = isPickup ? "Retiro confirmado" : "Entrega confirmada";
 
   return (
     <View testID={testID} className="flex-1 justify-between px-5 pt-8 pb-10">

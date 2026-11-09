@@ -1,4 +1,4 @@
-import { ApiError, ReputationBreakdown, RecentRatingComment, TransactionCounts } from "@movo/shared";
+import { ApiError, ProfileRatingRole, ReputationBreakdown, RecentRatingComment, TransactionCounts } from "@movo/shared";
 
 /**
  * MOVO-170: `svc-shipments` no conoce nombres de usuario -- devuelve `raterId` crudo.
@@ -56,7 +56,18 @@ export interface ShipmentsClient {
     userId: string,
     limit: number,
     cursor?: string,
+    /** Solo las de esa pestaña del perfil (la de emisor incluye las recibidas como receptor); sin él, todas. */
+    role?: ProfileRatingRole,
   ): Promise<{ items: RawRecentRatingComment[]; nextCursor: string | null }>;
+  /**
+   * Las últimas `limit` del perfil público, todas y por pestaña (emisor, transportista), de
+   * `GET /internal/users/:id/ratings/recent-by-role`: una sola llamada en vez de una por lista. Lanza ante
+   * cualquier falla, como `findReputation`.
+   */
+  findRecentRatingCommentsByRole(
+    userId: string,
+    limit: number,
+  ): Promise<{ all: RawRecentRatingComment[]; asSender: RawRecentRatingComment[]; asCarrier: RawRecentRatingComment[] }>;
   /**
    * MOVO-202/AC7: borra la traza GPS del usuario como transportista (supresión de
    * cuenta, MOVO-39) -- llamado DESPUÉS de que `hasActiveShipments` ya confirmó que
@@ -96,6 +107,17 @@ interface RatingApiResponse {
   score: number;
   comment: string | null;
   createdAt: string;
+}
+
+/** Roles de `svc-shipments` que entran en cada pestaña del perfil: lo recibido como receptor va con emisor. */
+const PROFILE_ROLE_RATING_ROLES: Record<ProfileRatingRole, string> = {
+  sender: "sender,receiver",
+  carrier: "carrier",
+};
+
+/** Se queda con los campos del contrato: el endpoint de shipments trae más (rateeId, role, categorías). */
+function toRawComment(row: RatingApiResponse): RawRecentRatingComment {
+  return { id: row.id, raterId: row.raterId, score: row.score, comment: row.comment, createdAt: row.createdAt };
 }
 
 export function createShipmentsClient(config: ShipmentsClientConfig): ShipmentsClient {
@@ -140,10 +162,12 @@ export function createShipmentsClient(config: ShipmentsClientConfig): ShipmentsC
       userId: string,
       limit: number,
       cursor?: string,
+      role?: ProfileRatingRole,
     ): Promise<{ items: RawRecentRatingComment[]; nextCursor: string | null }> {
       const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+      const roleParam = role ? `&role=${PROFILE_ROLE_RATING_ROLES[role]}` : "";
       const response = await fetch(
-        `${config.SHIPMENTS_SERVICE_URL}/internal/users/${encodeURIComponent(userId)}/ratings/recent?limit=${limit}${cursorParam}`,
+        `${config.SHIPMENTS_SERVICE_URL}/internal/users/${encodeURIComponent(userId)}/ratings/recent?limit=${limit}${cursorParam}${roleParam}`,
         { method: "GET", signal: AbortSignal.timeout(REPUTATION_REQUEST_TIMEOUT_MS) }
       );
       if (!response.ok) {
@@ -151,15 +175,24 @@ export function createShipmentsClient(config: ShipmentsClientConfig): ShipmentsC
       }
       const body = (await response.json()) as { items: RatingApiResponse[]; nextCursor: string | null };
       return {
-        items: body.items.map((row) => ({
-          id: row.id,
-          raterId: row.raterId,
-          score: row.score,
-          comment: row.comment,
-          createdAt: row.createdAt,
-        })),
+        items: body.items.map(toRawComment),
         nextCursor: body.nextCursor,
       };
+    },
+
+    async findRecentRatingCommentsByRole(
+      userId: string,
+      limit: number,
+    ): Promise<{ all: RawRecentRatingComment[]; asSender: RawRecentRatingComment[]; asCarrier: RawRecentRatingComment[] }> {
+      const response = await fetch(
+        `${config.SHIPMENTS_SERVICE_URL}/internal/users/${encodeURIComponent(userId)}/ratings/recent-by-role?limit=${limit}`,
+        { method: "GET", signal: AbortSignal.timeout(REPUTATION_REQUEST_TIMEOUT_MS) }
+      );
+      if (!response.ok) {
+        throw new Error(`El servicio de envíos devolvió status ${response.status} al pedir las calificaciones por rol.`);
+      }
+      const body = (await response.json()) as { all: RatingApiResponse[]; asSender: RatingApiResponse[]; asCarrier: RatingApiResponse[] };
+      return { all: body.all.map(toRawComment), asSender: body.asSender.map(toRawComment), asCarrier: body.asCarrier.map(toRawComment) };
     },
 
     async findMutualConnectionIds(viewerId: string, otherId: string): Promise<string[]> {

@@ -111,6 +111,15 @@ const publicProfileExtras = {
   asSender: reputationBreakdown,
   asCarrier: reputationBreakdown,
   recentRatingComments: { type: "array", items: recentRatingComment },
+  // Las mismas, separadas por rol (perfil con pestañas). Solo en `GET /users/:id`.
+  recentRatingCommentsByRole: {
+    type: "object",
+    required: ["asSender", "asCarrier"],
+    properties: {
+      asSender: { type: "array", items: recentRatingComment },
+      asCarrier: { type: "array", items: recentRatingComment },
+    },
+  },
   memberSince: { type: "string", format: "date-time" },
   phoneVerified: { type: "boolean" },
   emailVerified: { type: "boolean" },
@@ -318,6 +327,8 @@ export const usersSchemas = {
     properties: {
       limit: { type: "integer", minimum: 1, maximum: 50, default: 10 },
       cursor: { type: "string" },
+      // Rol en que se recibieron; sin él, todas.
+      role: { type: "string", enum: ["sender", "carrier"] },
     },
   },
 

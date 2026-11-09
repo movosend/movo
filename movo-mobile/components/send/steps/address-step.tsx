@@ -4,22 +4,11 @@ import { Text, View } from "react-native";
 import { haversineKm } from "../../../src/lib/geo";
 import { availableWindowsFor, defaultPickupDate } from "../../../src/lib/pickup-windows";
 import { useShipmentWizardStore } from "../../../src/store/shipment-wizard-store";
-import type { AddressSelection } from "../../../src/types/address-selection";
+import { isAddressSelectionReady, type AddressSelection } from "../../../src/types/address-selection";
 import { AddressField } from "../address-field";
 import { TimeWindowPicker } from "../time-window-picker";
 
-function isValidSelection(selection: AddressSelection | null): boolean {
-  if (!selection) return false;
-  return (
-    selection.address.trim().length > 0 &&
-    Number.isFinite(selection.lat) &&
-    selection.lat >= -90 &&
-    selection.lat <= 90 &&
-    Number.isFinite(selection.lng) &&
-    selection.lng >= -180 &&
-    selection.lng <= 180
-  );
-}
+const isValidSelection = isAddressSelectionReady;
 
 // MOVO-126: mismo umbral que rechaza el backend (`shipments.service.ts`) — retiro y
 // entrega a menos de 100m se tratan como la misma ubicación. Repetido acá a propósito

@@ -12,7 +12,7 @@ import { GridPattern } from "../ui/grid-pattern";
 import { haversineKm } from "../../src/lib/geo";
 import { tierFromLabel } from "../../src/data/vehicle-catalog";
 import { useMyVehicle } from "../../src/hooks/use-vehicle";
-import type { AddressSelection } from "../../src/types/address-selection";
+import { isAddressSelectionReady, type AddressSelection } from "../../src/types/address-selection";
 import {
   DEFAULT_UNTIL_OFFSET_MS,
   fromUntilDateString,
@@ -148,7 +148,7 @@ export function TripForm(props: TripFormProps) {
   const tooClose = areTooClose(origin, destination);
   // DD-060: misma tolerancia que el backend, para que "salgo ahora" no lo bloquee el cliente.
   const inThePast = departureAt.getTime() <= Date.now() - TRIP_DEPARTURE_PAST_TOLERANCE_MS;
-  const isValid = !!origin && !!destination && !tooClose && !inThePast && !!vehicle && !untilInvalid;
+  const isValid = isAddressSelectionReady(origin) && isAddressSelectionReady(destination) && !tooClose && !inThePast && !!vehicle && !untilInvalid;
 
   /** Campos de recurrencia del PATCH: solo lo que cambió. Apagar manda `null` y el
    * backend limpia `recurrenceUntil` solo. */

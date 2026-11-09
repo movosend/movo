@@ -135,7 +135,7 @@ const CONTENT_PADDING_TOP = ANCHOR_CHROME_INSET + 16;
  * AC4: orden, tipo, dirección, ventana horaria y ETA de cada parada.
  * AC5: `outsideTimeWindow` se marca explícitamente como "Fuera de ventana".
  * AC6: `route.optimized === false` muestra un aviso de orden por defecto.
- * AC9: "Ver envío" lleva al detalle del envío.
+ * AC9: "Ver detalle" lleva al detalle del envío.
  * AC11: el ETA se presenta siempre como aproximado.
  * MOVO-237: la card ancla ofrece "Navegar" (deep-link a la app de mapas del sistema).
  */
@@ -399,7 +399,7 @@ interface AnchorStopCardProps {
 
 /**
  * Card ancla. La dirección es el título (lo que busca quien maneja) y el ID del envío queda
- * detrás de "Ver envío". Con la ruta abierta, un fondo con borde lima aparece detrás y
+ * detrás de "Ver detalle". Con la ruta abierta, un fondo con borde lima aparece detrás y
  * sobresale `ANCHOR_CHROME_INSET`; el contenido no se mueve ni cambia de ancho.
  */
 function AnchorStopCard({
@@ -529,7 +529,7 @@ function AnchorStopCard({
               accessibilityLabel={`Ver detalle del envío ${stop.shipmentId}`}
             >
               <Package size={20} color={colors.fg1} strokeWidth={1.75} />
-              <Text className="font-sans-medium text-[16px] text-fg">Ver envío</Text>
+              <Text className="font-sans-medium text-[16px] text-fg">Ver detalle</Text>
             </Pressable>
           )}
           <NavigateButton

@@ -1,6 +1,6 @@
 import { createMockPlacesProvider } from "./mock-places-provider";
 import { createGooglePlacesProvider } from "./google-places-provider";
-import type { PlacePrediction } from "@movo/shared";
+import type { PlacePrediction, ProviderLogger } from "@movo/shared";
 
 // MOVO-340: el contrato de la predicción vive en `@movo/shared` (lo comparte el mobile).
 export type { PlacePrediction } from "@movo/shared";
@@ -42,12 +42,12 @@ export interface PlacesProviderConfig {
  * se hizo (mismo estado "credencial pendiente de cargar" que Twilio/Didit, ver
  * CLAUDE.md). Falla rápido al arrancar si se pide "google" sin la key.
  */
-export function createPlacesProvider(config: PlacesProviderConfig): PlacesProvider {
+export function createPlacesProvider(config: PlacesProviderConfig, log?: ProviderLogger): PlacesProvider {
   if (config.PLACES_PROVIDER === "google") {
     if (!config.GOOGLE_MAPS_API_KEY) {
       throw new Error("PLACES_PROVIDER=google requiere GOOGLE_MAPS_API_KEY");
     }
-    return createGooglePlacesProvider({ apiKey: config.GOOGLE_MAPS_API_KEY });
+    return createGooglePlacesProvider({ apiKey: config.GOOGLE_MAPS_API_KEY, log });
   }
   return createMockPlacesProvider();
 }
