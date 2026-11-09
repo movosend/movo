@@ -439,8 +439,10 @@ export function createKycService(
           await txUserRepository.setVerifiedIdentity(result.userId, {
             firstName: identity.firstName,
             lastName: identity.lastName,
-            dni: identity.dni ?? undefined,
-            birthdate: identity.birthdate ?? undefined,
+            // El documento manda: un número que no es un DNI (o una fecha ilegible) deja el dato en `null` en vez de
+            // conservar el de otro documento (por ejemplo, el que tipeó una cuenta vieja).
+            dni: identity.dni,
+            birthdate: identity.birthdate,
           });
         }
 
@@ -637,7 +639,13 @@ export function createKycService(
             "Falta el nombre y el apellido: Didit no los leyó del documento. Escribilos para poder aprobar."
           );
         }
-        identity = { firstName, lastName, dni: extracted?.dni ?? null, birthdate: extracted?.birthdate ?? null };
+        // Sin lectura de Didit, el DNI y la fecha que la cuenta ya tenía (guardados cuando pasó a revisión) se conservan.
+        identity = {
+          firstName,
+          lastName,
+          dni: extracted ? extracted.dni : (stored?.dni ?? null),
+          birthdate: extracted ? extracted.birthdate : (stored?.birthdate ?? null),
+        };
       }
 
       await diditClient.updateSessionStatus({

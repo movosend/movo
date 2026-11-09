@@ -93,14 +93,15 @@ export function formatRatingDate(createdAt: string): string {
   return RATING_DATE_FORMATTER.format(new Date(createdAt));
 }
 
-/** Nombre propio o compuesto ("Ana-Maria") a Title Case — nunca se confía en cómo
- * quedó guardado (DNI/formulario pueden traerlo en mayúsculas, minúsculas o mezclado),
- * así que arranca de un `toLocaleLowerCase` antes de capitalizar cada palabra. Único
- * punto de esta lógica — todo lugar de la app que muestra un nombre de usuario pasa
- * por acá, en vez de confiar en el casing que vino de la fuente (input del usuario,
- * import de datos, etc.). */
+/** Nombre para mostrar. El backend guarda el nombre ya normalizado (`normalizePersonName`: nombre y apellido por separado, con las
+ * partículas "de", "del", "la" en minúscula), así que un nombre que ya tiene mayúsculas y minúsculas se respeta tal cual: sobre
+ * un nombre completo no se puede saber dónde empieza el apellido, y volver a normalizarlo pasaría a minúscula el "Del" de
+ * "Julia Del Valle". Solo se corrige el que viene todo en mayúsculas o todo en minúsculas (cuentas anteriores, tipeadas a mano). */
 export function capitalizeName(name: string | null | undefined): string {
-  return normalizePersonName(name);
+  const clean = (name ?? "").trim().replace(/\s+/g, " ");
+  const hasLower = clean !== clean.toLocaleUpperCase("es-AR");
+  const hasUpper = clean !== clean.toLocaleLowerCase("es-AR");
+  return hasLower && hasUpper ? clean : normalizePersonName(clean);
 }
 
 const GREETING_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {

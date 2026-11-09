@@ -1406,8 +1406,8 @@ quien reportó además bloqueó al reportado. "Vencen hoy" es el día de Argenti
 ### Nombre, DNI y fecha de nacimiento desde el documento de Didit (DD-065)
 
 `POST /auth/register` ya no exige nombre, DNI ni dirección: la cuenta nace con `first_name`/`last_name` vacíos (las columnas siguen `NOT NULL`, sin migración) y `fullName()` hace
-`trim`. Los builds viejos siguen funcionando: `auth.schema.ts` conserva esos campos como opcionales (por `additionalProperties: false`), nombre y DNI se descartan y la dirección se
-crea como predeterminada solo si viene. `kyc.service.ts#extractVerifiedIdentity` lee `decision.id_verifications[0]` (webhook y pull) y `applyTerminalDecision` escribe con
+`trim`. Los builds anteriores no pueden registrarse (la versión legal nueva da 422 `LEGAL_DOCUMENT_VERSION_MISMATCH`, antes de mirar nada más): `auth.schema.ts` conserva esos campos como opcionales solo para
+que vean ese mensaje y no un 400 de validación; si llegaran a pasar, nombre y DNI se descartan y la dirección se crea como predeterminada solo si viene. Hay una ventana entre el deploy del backend y la build nueva sin registro posible. `kyc.service.ts#extractVerifiedIdentity` lee `decision.id_verifications[0]` (webhook y pull) y `applyTerminalDecision` escribe con
 `UserRepository.setVerifiedIdentity` dentro de la transacción y del gate de idempotencia, solo para identidad aprobada; nombre y apellido salen normalizados (`normalizePersonName`,
 `@movo/shared`), el DNI sin separadores y solo si cumple `^\d{7,8}$`. Sin nombre y apellido legibles la aprobación pasa a `manual_review` con el motivo `NAME_NOT_DETECTED`. Nada de eso entra
 en `raw_decision`. El bloqueo `PROFILE_NAME_LOCKED_BY_KYC` no cambió. Tests: `kyc.push.test.ts`, `kyc.webhook.integration.test.ts`, `kyc.manual-review-reconcile.test.ts`, `auth.register.integration.test.ts`.

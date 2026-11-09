@@ -33,8 +33,10 @@ export const authSchemas = {
       // Nombre, apellido, DNI y dirección ya no se piden en el registro: el nombre legal y el
       // DNI los completa Didit al aprobar el KYC de identidad, y la dirección se carga después
       // desde la libreta. Siguen declarados (opcionales y descartados, salvo la dirección) porque
-      // el esquema tiene `additionalProperties: false` y los builds viejos del mobile los mandan;
-      // sin esto, un payload viejo respondería 400. Mismos límites que
+      // el esquema tiene `additionalProperties: false` y los builds anteriores del mobile los mandan:
+      // sin esto recibirían un 400 de validación en vez del 422 `LEGAL_DOCUMENT_VERSION_MISMATCH`
+      // ("actualizá la app"), que es lo que les toca porque la versión legal cambió y no pueden
+      // registrarse. Mismos límites que
       // users.schema.ts#patchProfileBody (MOVO-133).
       firstName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
       lastName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },

@@ -19,21 +19,11 @@ describe("POST /auth/login", () => {
   let app: FastifyInstance;
   let captor: ReturnType<typeof createCaptorSmsProvider>;
 
+  // Registro simplificado: sin nombre, DNI ni dirección (los completa Didit al aprobar el KYC).
   const validRegisterPayload = {
-    fullName: "Tomas Olmos",
     email: "tomasolmos04@example.com",
     phone: "3511234567",
     password: "Password1",
-    dni: "30123456",
-    address: {
-      street: "Av. Colón",
-      number: "1234",
-      city: "Córdoba",
-      province: "Córdoba",
-      zip: "5000",
-      lat: -31.4201,
-      long: -64.1888,
-    },
     termsAccepted: true,
     termsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
     privacyAccepted: true,
@@ -120,7 +110,8 @@ describe("POST /auth/login", () => {
     expect(body.refreshToken).toBeTruthy();
     expect(body.expiresIn).toBe(3600);
     expect(body.kycStatus).toBe("not_started");
-    expect(body.fullName).toBe("Tomas Olmos");
+    // La cuenta no tiene nombre hasta que Didit lea el documento (KYC de identidad).
+    expect(body.fullName).toBe("");
     expect(body.roles.sort()).toEqual(["carrier", "sender"].sort());
 
     // 3. Verificar Access Token JWT

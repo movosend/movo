@@ -152,7 +152,7 @@ describe("POST /auth/register", () => {
     expect(await app.db.address.count({ where: { userId } })).toBe(0);
   });
 
-  it("un build viejo que manda DNI, nombre y dirección sigue registrándose: nombre y DNI se descartan y la dirección se crea", async () => {
+  it("el esquema todavía acepta los campos de un build anterior (nombre, DNI y dirección): nombre y DNI se descartan y la dirección se crea", async () => {
     const legacyAddress = {
       street: "Av. Colón",
       number: "1234",

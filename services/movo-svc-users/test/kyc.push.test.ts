@@ -321,12 +321,26 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
         decision: { id_verifications: [{ first_name: "ANA", last_name: "LÓPEZ", document_number: "AB1234567" }] },
       });
 
+      // `null` explícito: deja el dato vacío en vez de conservar el de otro documento (p. ej. el que tipeó una cuenta vieja).
       expect(mocks.setVerifiedIdentity).toHaveBeenCalledWith(USER_ID, {
         firstName: "ANA",
         lastName: "LÓPEZ",
-        dni: undefined,
-        birthdate: undefined,
+        dni: null,
+        birthdate: null,
       });
+    });
+
+    it("una cuenta con un DNI tipeado que verifica con un pasaporte queda sin DNI, no con el de otro documento", async () => {
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.APPROVED));
+      const { service } = buildService();
+
+      await postWebhook(service, {
+        status: "Approved",
+        session_id: SESSION_ID,
+        decision: { id_verifications: [{ first_name: "Maria Victoria", last_name: "Villareal", document_number: "AAF794880" }] },
+      });
+
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledWith(USER_ID, expect.objectContaining({ dni: null }));
     });
 
     it("una identidad aprobada sin nombre legible pasa a revisión manual, con el motivo, y no guarda nada", async () => {

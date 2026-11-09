@@ -61,6 +61,18 @@ export function fullName(user: Pick<User, "firstName" | "lastName">): string {
   return `${user.firstName} ${user.lastName}`.trim();
 }
 
+/** Cómo se muestra hacia otras personas una cuenta que todavía no tiene el nombre del documento (mismo texto que usa `svc-shipments`). */
+export const UNNAMED_USER_DISPLAY_NAME = "Usuario de Movo";
+
+/**
+ * Nombre para mostrarle a OTRAS personas (perfil público, chat, tarjetas de envío): el de la cuenta o, si todavía no lo tiene,
+ * un texto genérico. Un `""` no lo atrapan los `??` de los consumidores y terminaría en una etiqueta vacía. El perfil propio
+ * sigue devolviendo `fullName` (vacío) para que la app sepa que falta.
+ */
+export function displayName(user: Pick<User, "firstName" | "lastName">): string {
+  return fullName(user) || UNNAMED_USER_DISPLAY_NAME;
+}
+
 /**
  * Único puente permitido de `User` (interno) a lo que se serializa al cliente.
  * `toPublicUser` se construye campo por campo y no con spread: si se agrega una

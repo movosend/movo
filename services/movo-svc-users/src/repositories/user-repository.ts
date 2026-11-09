@@ -7,7 +7,7 @@ import {
 } from "../generated/prisma/client";
 import { escapeLike } from "../utils/escape-like";
 import { VerificationType } from "../models/kyc-verification";
-import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName, effectiveAccountStatus } from "../models/user";
+import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName, displayName, effectiveAccountStatus } from "../models/user";
 
 export interface VerifiedIdentity {
   firstName: string;
@@ -638,7 +638,7 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         where: { id: { in: ids } },
         select: { id: true, firstName: true, lastName: true },
       });
-      return new Map(rows.map((row) => [row.id, fullName(row)]));
+      return new Map(rows.map((row) => [row.id, displayName(row)]));
     },
 
     async countActiveByIds(ids: string[]): Promise<number> {
