@@ -5089,3 +5089,13 @@ Informe en `docs/pruebas/2026-10-25-flujo-completo.md`. Un commit por punto; el 
 - **Retiro**: `shipmentDetailCta` recibe `carrierTripActive`: sin viaje iniciado, "Iniciar viaje" para el transportista y un aviso para el emisor. `pickup/index.tsx` redirige al detalle para las entradas desde Home o ruta, y `useStartTrip` invalida el detalle.
 - **Entrega**: el paso 1 sigue informativo con textos que no sugieren una validación; `getCurrentLocation({ highAccuracy })` solo en el handshake.
 - **Modales**: `AcceptSuccessModal`, su copia en `shipment-confirmation-sheets.tsx` y `ChooseOfferSuccessModal` llegan al borde en Android (`statusBarTranslucent` + `navigationBarTranslucent`), con el contenido en `SafeAreaView`. Falta verlo en un Android real.
+
+### Registro de 4 pasos sin nombre, DNI ni dirección (DD-063)
+
+`register.tsx` pasa de 7 pasos a 4: email y teléfono, código SMS, contraseña, revisión. Se sacaron nombre, apellido, DNI, dirección y mapa:
+el nombre y el DNI los completa Didit al aprobar el KYC (`svc-users`), y la dirección se carga desde la libreta. `use-registration.tsx` queda con
+`email`/`phone`/`password`/`passwordConfirm` (`isStepValid` solo tiene los pasos 0 y 1), sin `geocodeAddress` ni `confirmLocation`; `authClient` sin
+`geocodeAddress` ni `RegisterAddress`. `capitalizeName` delega en `normalizePersonName` de `@movo/shared` (partículas y apóstrofes). `profile-photo.tsx` toma el nombre
+del perfil, y `kyc.tsx` avisa que el nombre y el número salen del documento. Tests: `register-screen.test.tsx` (nuevo) y `use-registration.test.tsx`.
+Pendiente: la barra "Paso x" sigue contando 4 aunque se omita el código SMS (teléfono ya verificado); la Política de Privacidad todavía no menciona que se
+guardan nombre, número de documento y fecha de nacimiento del documento (cambiarla sube la versión legal y fuerza actualizar la app).

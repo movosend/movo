@@ -1402,3 +1402,13 @@ quien escribe es transportista sin una llamada por fila. Aditivo; `svc-admin` to
 `admin-users/admin-overview-internal.routes.ts`: `GET /internal/admin/overview/{kyc,user-reports,sanctions-ending-today}` y `POST /internal/admin/user-reports/reported` (reporte → persona reportada, para
 la bitácora). KYC cuenta el último intento de cada verificación de una cuenta viva, para que un reintento reemplace al abandonado; `carriers` son las licencias y `senders` las identidades. `blockRequested`:
 quien reportó además bloqueó al reportado. "Vencen hoy" es el día de Argentina. Lo consume `GET /admin/overview` de `svc-admin`.
+
+### Nombre, DNI y fecha de nacimiento desde el documento de Didit (DD-063)
+
+`POST /auth/register` ya no exige nombre, DNI ni dirección: la cuenta nace con `first_name`/`last_name` vacíos (las columnas siguen `NOT NULL`, sin migración) y `fullName()` hace
+`trim`. Los builds viejos siguen funcionando: `auth.schema.ts` conserva esos campos como opcionales (por `additionalProperties: false`), nombre y DNI se descartan y la dirección se
+crea como predeterminada solo si viene. `kyc.service.ts#extractVerifiedIdentity` lee `decision.id_verifications[0]` (webhook y pull) y `applyTerminalDecision` escribe con
+`UserRepository.setVerifiedIdentity` dentro de la transacción y del gate de idempotencia, solo para identidad aprobada; nombre y apellido salen normalizados (`normalizePersonName`,
+`@movo/shared`), el DNI sin separadores y solo si cumple `^\d{7,8}$`. Sin nombre y apellido legibles la aprobación pasa a `manual_review` con el motivo `NAME_NOT_DETECTED`. Nada de eso entra
+en `raw_decision`. El bloqueo `PROFILE_NAME_LOCKED_BY_KYC` no cambió. Tests: `kyc.push.test.ts`, `kyc.webhook.integration.test.ts`, `kyc.manual-review-reconcile.test.ts`, `auth.register.integration.test.ts`.
+Pendiente: confirmar con una sesión real de Didit en dev el formato del nombre de un DNI argentino; las pruebas de integración no se corrieron en local (sin Postgres ni Redis).
