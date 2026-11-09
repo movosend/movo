@@ -33,6 +33,27 @@ describe("Google Places Provider (adapter concreto, PLACES_PROVIDER=google)", ()
     });
   });
 
+  it("autocomplete() deja en el log el status y el mensaje de Google al rechazar el pedido, sin la key", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { code: 403, status: "PERMISSION_DENIED", message: "The caller does not have permission" } }),
+    });
+    const warn = vi.fn();
+
+    const provider = createGooglePlacesProvider({ apiKey: "secret-key", log: { warn } as never });
+
+    await expect(provider.autocomplete("Colón")).rejects.toMatchObject({ statusCode: 502, code: "PLACES_PROVIDER_ERROR" });
+    expect(warn).toHaveBeenCalledWith(
+      {
+        google: { httpStatus: 403, googleStatus: "PERMISSION_DENIED", googleMessage: "The caller does not have permission" },
+        op: "autocomplete",
+      },
+      "google_places_error",
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret-key");
+  });
+
   it("details() mapea un 429 (cuota excedida) a 502 PLACES_PROVIDER_ERROR", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
 

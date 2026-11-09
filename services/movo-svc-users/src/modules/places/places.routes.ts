@@ -36,8 +36,8 @@ interface DetailsBody {
  * consistente con el precedente ya establecido.
  */
 export default async function placesRoutes(app: FastifyInstance, opts: PlacesRoutesOptions) {
-  const provider = opts.placesProvider ?? createPlacesProvider(app.config);
-  const geocoding = opts.geocodingProvider ?? createGeocodingProvider(app.config);
+  const provider = opts.placesProvider ?? createPlacesProvider(app.config, app.log);
+  const geocoding = opts.geocodingProvider ?? createGeocodingProvider(app.config, app.log);
 
   /**
    * MOVO-340: el autocompletado de Google busca lugares por texto y no entiende

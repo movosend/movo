@@ -1,10 +1,13 @@
 import { ApiError } from "@movo/shared";
+import { ProviderLogger, readGoogleErrorDetail } from "./google-error";
 import { PlaceDetails, PlacePrediction, PlacesProvider } from "./places-provider";
 
 export interface GooglePlacesProviderConfig {
   apiKey: string;
   autocompleteUrl?: string;
   detailsBaseUrl?: string;
+  /** Para dejar en el log por qué Google rechazó el pedido (key, facturación, API sin habilitar). */
+  log?: ProviderLogger | undefined;
 }
 
 const DEFAULT_AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete";
@@ -68,6 +71,7 @@ export function createGooglePlacesProvider(config: GooglePlacesProviderConfig): 
       }
 
       if (!response.ok) {
+        config.log?.warn({ google: await readGoogleErrorDetail(response), op: "autocomplete" }, "google_places_error");
         throw new ApiError(502, "PLACES_PROVIDER_ERROR", "El proveedor de direcciones devolvió un error.");
       }
 
@@ -100,6 +104,7 @@ export function createGooglePlacesProvider(config: GooglePlacesProviderConfig): 
         throw new ApiError(404, "PLACE_NOT_FOUND", "No encontramos esa dirección.");
       }
       if (!response.ok) {
+        config.log?.warn({ google: await readGoogleErrorDetail(response), op: "details" }, "google_places_error");
         throw new ApiError(502, "PLACES_PROVIDER_ERROR", "El proveedor de direcciones devolvió un error.");
       }
 
