@@ -630,6 +630,8 @@ describe("Cola de revisión manual de KYC (rutas internas del panel)", () => {
     });
 
     it("422 KYC_EVIDENCE_NOT_FOUND si Didit no conoce la sesión", async () => {
+      // El fake de Didit tiene por defecto la decisión con el documento leído; acá no conoce la sesión.
+      didit.setDecision(null);
       const user = await createUser();
       const session = await createAttempt(user.id, "manual_review");
 
