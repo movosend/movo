@@ -470,5 +470,18 @@ describe("ProfileScreen", () => {
     expect(getByTestId("profile-avatar-button")).toBeTruthy();
     expect(getByTestId("profile-avatar")).toBeTruthy();
   });
+  it("tirar hacia abajo vuelve a pedir el perfil y la reputación (feedback de TestFlight, build 17)", async () => {
+    const refetchReputation = jest.fn().mockResolvedValue(undefined);
+    mockRefetch.mockResolvedValue(undefined);
+    mockUseMyProfile.mockReturnValue({ isLoading: false, isError: false, data: baseProfile(), refetch: mockRefetch });
+    mockUsePublicProfile.mockReturnValue({ data: undefined, isLoading: false, isError: false, refetch: refetchReputation });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+    const { refreshControl } = getByTestId("profile-screen-content").props;
+    await refreshControl.props.onRefresh();
+
+    expect(mockRefetch).toHaveBeenCalled();
+    expect(refetchReputation).toHaveBeenCalled();
+  });
 });
 
