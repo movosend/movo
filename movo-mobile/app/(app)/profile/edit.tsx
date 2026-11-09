@@ -25,7 +25,7 @@ import {
 } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
-import { formatDni } from "../../../src/hooks/use-registration";
+import { formatDni } from "../../../src/lib/dni";
 import { capitalizeName, formatPhoneDisplay } from "../../../src/lib/profile-format";
 
 /** Mismo largo y forma que `patchProfileBody` en `movo-svc-users` (MOVO-133): 1-80

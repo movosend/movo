@@ -11,27 +11,12 @@ import type { SessionResponse } from "./session-types";
  * no de un parámetro explícito) — ver `createKycSession`/`getKycStatus` abajo.
  */
 
-export interface RegisterAddress {
-  street: string;
-  number: string;
-  floor?: string;
-  city: string;
-  province: string;
-  zip: string;
-  /** Confirmados por el paso de mapa/geocoding del wizard (MOVO-73) — ver `geocodeAddress`. */
-  lat: number;
-  long: number;
-}
-
 export interface RegisterRequest {
-  /** MOVO-340: por separado, así un nombre compuesto no se corre al apellido. */
-  firstName: string;
-  lastName: string;
+  // Sin nombre, DNI ni dirección: el nombre legal y el DNI los completa Didit al aprobar el KYC
+  // de identidad, y la dirección se carga después desde la libreta.
   email: string;
   phone: string;
   password: string;
-  dni: string;
-  address: RegisterAddress;
   /** Prueba de que `phone` ya pasó el OTP — ver `verifyOtp`. */
   phoneVerificationToken: string;
   // MOVO-228: "firma electrónica" — el checkbox del último paso del wizard exige
@@ -105,21 +90,6 @@ export interface RefreshRequest {
 /** Mismo shape que `LoginResponse` (auth.schema.ts#refreshResponse en svc-users). */
 export type RefreshResponse = SessionResponse;
 
-export interface GeocodeAddressInput {
-  street: string;
-  number: string;
-  floor?: string;
-  city: string;
-  province: string;
-  zip: string;
-}
-
-export interface GeocodeAddressResponse {
-  lat: number;
-  long: number;
-  formattedAddress: string;
-}
-
 function authHeader(accessToken: string): Record<string, string> {
   return { Authorization: `Bearer ${accessToken}` };
 }
@@ -176,12 +146,6 @@ export const authClient = {
 
   resetPassword(passwordResetToken: string, newPassword: string): Promise<void> {
     return httpClient.post<void>("/auth/reset-password", { passwordResetToken, newPassword });
-  },
-
-  /** Paso de mapa del wizard (MOVO-73): centra el pin inicial a partir de la
-   * dirección cargada a mano. Público — se llama antes de que exista cuenta o token. */
-  geocodeAddress(payload: GeocodeAddressInput): Promise<GeocodeAddressResponse> {
-    return httpClient.post<GeocodeAddressResponse>("/geocode", payload);
   },
 
   /** Protegida desde PR #51 (MOVO-72) — el `userId` se deriva del `accessToken`.
