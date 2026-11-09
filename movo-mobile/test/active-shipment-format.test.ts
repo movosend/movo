@@ -5,6 +5,7 @@ import {
   activeShipmentFooterText,
   activeShipmentInfoText,
   activeShipmentPickupDayLabel,
+  activeShipmentPickupWindowLabel,
   activeShipmentStatusLabel,
   activeShipmentStepIndex,
   activeShipmentSubtitle,
@@ -185,6 +186,32 @@ describe("activeShipmentPickupDayLabel", () => {
 
   it("cualquier otro día no devuelve nada (nunca una frase relativa ambigua)", () => {
     expect(activeShipmentPickupDayLabel(makeShipment({ isToday: false, pickupDate: "2026-09-20" }), now)).toBeNull();
+  });
+});
+
+describe("activeShipmentPickupWindowLabel", () => {
+  it("con la ventana vigente muestra solo la franja", () => {
+    expect(activeShipmentPickupWindowLabel(makeShipment({ pickupWindowExpired: false }))).toBe("09:00 a 12:00 h");
+  });
+
+  it("con la ventana vencida de otro día antepone el día (TestFlight build 17)", () => {
+    expect(
+      activeShipmentPickupWindowLabel(
+        makeShipment({
+          pickupDate: "2026-10-25",
+          pickupTimeWindowStart: "21:00",
+          pickupTimeWindowEnd: "23:00",
+          pickupWindowExpired: true,
+          isToday: false,
+        }),
+      ),
+    ).toBe("dom 25/10 · 21:00 a 23:00 h");
+  });
+
+  it("con la ventana vencida de hoy no repite el día (el subtítulo ya dice \"hoy\")", () => {
+    expect(activeShipmentPickupWindowLabel(makeShipment({ pickupWindowExpired: true, isToday: true }))).toBe(
+      "09:00 a 12:00 h",
+    );
   });
 });
 
