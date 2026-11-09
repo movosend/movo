@@ -179,6 +179,56 @@ function extractDocumentExpirationDate(decision: unknown): string | null {
 }
 
 /**
+ * Identidad leída del documento por Didit (`decision.id_verifications[0]`): nombre de pila y
+ * apellidos tal como figuran en el documento (la normalización a "Nombre Apellido" la hace
+ * `UserRepository.setVerifiedIdentity`), número de documento y fecha de nacimiento.
+ * `dni` y `birthdate` son `null` si el campo falta o no es válido; el nombre es obligatorio:
+ * sin nombre y apellido la función devuelve `null` y la aprobación pasa a revisión manual.
+ *
+ * Es PII: va directo a las columnas de `users` y nunca a `raw_decision` (AC9, ver
+ * `buildRedactedRawDecision`). Mismo shape en el webhook y en el pull. Nunca tira.
+ */
+export interface VerifiedDocumentIdentity {
+  firstName: string;
+  lastName: string;
+  dni: string | null;
+  birthdate: Date | null;
+}
+
+const DNI_PATTERN = /^\d{7,8}$/;
+
+function readString(source: Record<string, unknown>, key: string): string | null {
+  const value = source[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function extractVerifiedIdentity(decision: unknown): VerifiedDocumentIdentity | null {
+  if (!decision || typeof decision !== "object") return null;
+  const idVerifications = (decision as Record<string, unknown>)["id_verifications"];
+  if (!Array.isArray(idVerifications) || idVerifications.length === 0) return null;
+  const first = idVerifications[0];
+  if (!first || typeof first !== "object") return null;
+  const doc = first as Record<string, unknown>;
+
+  const firstName = readString(doc, "first_name");
+  const lastName = readString(doc, "last_name");
+  if (!firstName || !lastName) return null;
+
+  const documentNumber = readString(doc, "document_number")?.replace(/[.\s-]/g, "") ?? null;
+  const dateOfBirth = readString(doc, "date_of_birth");
+  const birthdate = dateOfBirth ? new Date(`${dateOfBirth}T00:00:00.000Z`) : null;
+
+  return {
+    firstName,
+    lastName,
+    dni: documentNumber && DNI_PATTERN.test(documentNumber) ? documentNumber : null,
+    birthdate: birthdate && !Number.isNaN(birthdate.getTime()) ? birthdate : null,
+  };
+}
+
+/**
  * Whitelist explícita de campos "seguros" del payload del webhook (AC9: Movo no
  * persiste imágenes de documentos ni datos biométricos). Se arma campo por campo en vez
  * de guardar el payload completo, para que un campo nuevo que Didit agregue mañana
@@ -329,26 +379,66 @@ export function createKycService(
   async function applyTerminalDecision(
     externalSessionId: string,
     targetStatus: KycStatus,
-    rawDecision: Record<string, unknown>
+    rawDecision: Record<string, unknown>,
+    identity: VerifiedDocumentIdentity | null
   ): Promise<KycVerification | null> {
-    const fromStatus =
-      targetStatus === KycStatus.MANUAL_REVIEW
-        ? [KycStatus.PENDING]
-        : [KycStatus.PENDING, KycStatus.MANUAL_REVIEW];
-
     return db.$transaction(async (tx) => {
       const txKycVerificationRepository = createKycVerificationRepository(tx);
+
+      // Una identidad aprobada sin nombre legible no se aprueba sola: el nombre de la cuenta sale
+      // del documento, así que sin él se manda a revisión manual (con el motivo a la vista).
+      // Solo aplica a la verificación de identidad; la de licencia no toca el nombre.
+      let effectiveStatus = targetStatus;
+      let effectiveRawDecision = rawDecision;
+      if (targetStatus === KycStatus.APPROVED && !identity) {
+        const attempt = await txKycVerificationRepository.findByExternalSessionId(externalSessionId);
+        if (attempt?.verificationType === "identity") {
+          effectiveStatus = KycStatus.MANUAL_REVIEW;
+          const previous = Array.isArray(rawDecision["warnings"]) ? (rawDecision["warnings"] as unknown[]) : [];
+          effectiveRawDecision = {
+            ...rawDecision,
+            warnings: [
+              ...previous,
+              {
+                feature: "ID_VERIFICATION",
+                risk: "NAME_NOT_DETECTED",
+                description: "No se pudo leer el nombre del documento.",
+              },
+            ],
+          };
+          logger.warn(
+            { externalSessionId, event: "kyc_identity_without_name" },
+            "identidad aprobada por Didit sin nombre legible: pasa a revisión manual"
+          );
+        }
+      }
+
+      const fromStatus =
+        effectiveStatus === KycStatus.MANUAL_REVIEW
+          ? [KycStatus.PENDING]
+          : [KycStatus.PENDING, KycStatus.MANUAL_REVIEW];
+
       const result = await txKycVerificationRepository.resolveByExternalSessionId({
         externalSessionId,
         fromStatus,
-        toStatus: targetStatus,
-        rawDecision,
+        toStatus: effectiveStatus,
+        rawDecision: effectiveRawDecision,
       });
       if (result) {
         const txUserRepository = createUserRepository(tx);
-        await updateUserKycStatus(txUserRepository, result.userId, result.verificationType, targetStatus);
+        await updateUserKycStatus(txUserRepository, result.userId, result.verificationType, effectiveStatus);
 
-        if (result.verificationType === "license" && targetStatus === KycStatus.APPROVED) {
+        if (result.verificationType === "identity" && effectiveStatus === KycStatus.APPROVED && identity) {
+          // Una sola vez por transición: está dentro del gate de idempotencia de arriba.
+          await txUserRepository.setVerifiedIdentity(result.userId, {
+            firstName: identity.firstName,
+            lastName: identity.lastName,
+            dni: identity.dni ?? undefined,
+            birthdate: identity.birthdate ?? undefined,
+          });
+        }
+
+        if (result.verificationType === "license" && effectiveStatus === KycStatus.APPROVED) {
           const expirationDateStr =
             typeof (result.rawDecision as { expiration_date?: unknown } | null)?.expiration_date === "string"
               ? ((result.rawDecision as { expiration_date: string }).expiration_date as string)
@@ -435,7 +525,8 @@ export function createKycService(
     const resolved = await applyTerminalDecision(
       latest.externalSessionId,
       targetStatus,
-      buildRedactedPulledDecision(decision)
+      buildRedactedPulledDecision(decision),
+      extractVerifiedIdentity(decision.decision)
     );
 
     if (!resolved) {
@@ -451,14 +542,14 @@ export function createKycService(
         externalSessionId: latest.externalSessionId,
         verificationType,
         previousStatus: currentStatus,
-        newStatus: targetStatus,
+        newStatus: resolved.status,
         event: "kyc_reconciled",
       },
       "kyc status transition (reconciliada por pull, no por webhook)"
     );
 
-    await notifyDecision(resolved, targetStatus);
-    return targetStatus;
+    await notifyDecision(resolved, resolved.status);
+    return resolved.status;
   }
 
   return {
@@ -561,7 +652,12 @@ export function createKycService(
       // la reconciliación por pull (ver `reconcilePendingAttempt`), a propósito. No
       // hace falta saber el `verificationType` acá: `applyTerminalDecision` lo lee de
       // la fila resuelta y dispatcha solo (MOVO-15).
-      const resolved = await applyTerminalDecision(externalSessionId, targetStatus, rawDecision);
+      const resolved = await applyTerminalDecision(
+        externalSessionId,
+        targetStatus,
+        rawDecision,
+        extractVerifiedIdentity(payload.decision)
+      );
 
       if (!resolved) {
         logger.info({ externalSessionId, rawStatus }, "kyc webhook ignorado: duplicado o sesión desconocida (AC7)");
@@ -576,12 +672,12 @@ export function createKycService(
           userId: resolved.userId,
           verificationType: resolved.verificationType,
           externalSessionId,
-          newStatus: targetStatus,
+          newStatus: resolved.status,
         },
         "kyc status transition"
       );
 
-      await notifyDecision(resolved, targetStatus);
+      await notifyDecision(resolved, resolved.status);
     },
 
     async getStatus(userId: string, verificationType: VerificationType): Promise<KycStatusResult> {

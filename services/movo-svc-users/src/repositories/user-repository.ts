@@ -1,4 +1,4 @@
-import { KycStatus } from "@movo/shared";
+import { KycStatus, normalizePersonName } from "@movo/shared";
 import {
   Prisma,
   UserRole as PrismaUserRole,
@@ -9,6 +9,13 @@ import { escapeLike } from "../utils/escape-like";
 import { VerificationType } from "../models/kyc-verification";
 import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName, effectiveAccountStatus } from "../models/user";
 
+export interface VerifiedIdentity {
+  firstName: string;
+  lastName: string;
+  dni?: string | null | undefined;
+  birthdate?: Date | null | undefined;
+}
+
 export interface UserRepository {
   count(): Promise<number>;
   findByEmail(email: string): Promise<User | null>;
@@ -16,6 +23,12 @@ export interface UserRepository {
   findById(id: string): Promise<User | null>;
   create(input: CreateUserInput): Promise<User>;
   updateKycStatusIdentity(id: string, status: KycStatus): Promise<User | null>;
+  /**
+   * Nombre, DNI y fecha de nacimiento leídos del documento por Didit al aprobar el KYC de
+   * identidad. Nombre y apellido se normalizan acá (`normalizePersonName`): el documento los
+   * trae en mayúsculas. `dni`/`birthdate` en `undefined` no se tocan.
+   */
+  setVerifiedIdentity(id: string, identity: VerifiedIdentity): Promise<User | null>;
   updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null>;
   /**
    * MOVO-230: vuelve a `not_started` el caché de KYC de estos usuarios para el tipo dado, solo
@@ -266,21 +279,25 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
             // no vienen del caller -- se hardcodean acá: la app es solo Argentina hoy
             // (mismo criterio que el regex de teléfono) y esta es siempre la dirección
             // por defecto porque es la única que existe en este punto.
-            addresses: {
-              create: {
-                label: null,
-                isDefault: true,
-                street: input.address.street,
-                streetNumber: input.address.number,
-                floorApartment: input.address.floor ?? null,
-                city: input.address.city,
-                province: input.address.province,
-                postalCode: input.address.zip,
-                country: "AR",
-                lat: input.address.lat,
-                long: input.address.long,
-              },
-            },
+            ...(input.address
+              ? {
+                  addresses: {
+                    create: {
+                      label: null,
+                      isDefault: true,
+                      street: input.address.street,
+                      streetNumber: input.address.number,
+                      floorApartment: input.address.floor ?? null,
+                      city: input.address.city,
+                      province: input.address.province,
+                      postalCode: input.address.zip,
+                      country: "AR",
+                      lat: input.address.lat,
+                      long: input.address.long,
+                    },
+                  },
+                }
+              : {}),
           },
           include: { roles: true },
         });
@@ -293,6 +310,27 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
           if (uniqueConstraintFieldsInclude(error, "phone")) {
             throw new UserConflictError("phone");
           }
+        }
+        throw error;
+      }
+    },
+
+    async setVerifiedIdentity(id: string, identity: VerifiedIdentity): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: {
+            firstName: normalizePersonName(identity.firstName),
+            lastName: normalizePersonName(identity.lastName),
+            ...(identity.dni !== undefined ? { dni: identity.dni } : {}),
+            ...(identity.birthdate !== undefined ? { birthdate: identity.birthdate } : {}),
+          },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
         }
         throw error;
       }

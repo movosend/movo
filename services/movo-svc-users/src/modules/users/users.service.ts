@@ -925,9 +925,9 @@ export function createUsersService(
         (input.firstName !== undefined && input.firstName !== user.firstName) ||
         (input.lastName !== undefined && input.lastName !== user.lastName);
 
-      // Decisión de refinamiento (MOVO-133): el nombre ya quedó validado contra el
-      // documento por Didit (MOVO-72) cuando se aprueba el KYC de identidad --
-      // permitir cambiarlo después rompería esa garantía. Reenviar el mismo nombre que
+      // Decisión de refinamiento (MOVO-133): al aprobarse el KYC de identidad el nombre pasa a ser
+      // el del documento (lo escribe `kyc.service.ts` con lo que lee Didit) -- permitir cambiarlo
+      // después rompería esa garantía. Reenviar el mismo nombre que
       // ya tiene no cuenta como cambio (nameChanged en false), así que no rompe con un
       // PATCH idempotente.
       if (nameChanged && user.kycStatusIdentity === KycStatus.APPROVED) {

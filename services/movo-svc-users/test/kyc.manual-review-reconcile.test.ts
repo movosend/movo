@@ -36,6 +36,11 @@ function createFakeDiditClient() {
   };
 }
 
+// Lo que Didit devuelve de un documento leído: el nombre llega tal cual figura (en mayúsculas).
+const IDENTITY_DECISION = {
+  id_verifications: [{ first_name: "JULIA MARÍA", last_name: "PÉREZ GÓMEZ", document_number: "12345678" }],
+};
+
 /**
  * Caso real reportado: un usuario queda en `manual_review` (webhook "In Review" ya
  * procesado), un operador lo aprueba manualmente en la consola de Didit, y aunque
@@ -111,7 +116,7 @@ describe("Reconciliación de manual_review → estado terminal (fix del caso rep
   it("un segundo webhook terminal (operador aprobó la revisión manual) transiciona manual_review → approved", async () => {
     const { userId, externalSessionId } = await createManualReviewVerification();
 
-    const response = await postWebhook({ status: "Approved", session_id: externalSessionId });
+    const response = await postWebhook({ status: "Approved", session_id: externalSessionId, decision: IDENTITY_DECISION });
 
     expect(response.statusCode).toBe(200);
     const user = await app.db.user.findUnique({ where: { id: userId } });
@@ -151,7 +156,7 @@ describe("Reconciliación de manual_review → estado terminal (fix del caso rep
     const { userId, externalSessionId } = await createManualReviewVerification();
     // Simula que Didit sí tiene la decisión (el operador ya aprobó), pero por lo que
     // sea (túnel de desarrollo caído, red) nuestro webhook nunca la recibió.
-    didit.setDecision({ sessionId: externalSessionId, rawStatus: "Approved", decision: {} });
+    didit.setDecision({ sessionId: externalSessionId, rawStatus: "Approved", decision: IDENTITY_DECISION });
 
     const response = await app.inject({
       method: "GET",

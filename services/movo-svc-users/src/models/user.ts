@@ -56,7 +56,9 @@ export type PublicUser = Omit<User, "passwordHash">;
  * `user-profile.ts` (x2) y `auth.service.ts`.
  */
 export function fullName(user: Pick<User, "firstName" | "lastName">): string {
-  return `${user.firstName} ${user.lastName}`;
+  // `trim()`: una cuenta que todavía no pasó el KYC de identidad tiene nombre y apellido
+  // vacíos (los completa Didit al aprobar), y no debe quedar un espacio suelto.
+  return `${user.firstName} ${user.lastName}`.trim();
 }
 
 /**
@@ -128,9 +130,9 @@ export interface CreateUserInput {
   // MOVO-72: register() ahora exige phoneVerificationToken (MOVO-71) y lo consume antes
   // de crear la cuenta — el usuario se persiste ya con el teléfono verificado.
   phoneVerified: boolean;
-  // MOVO-73: `POST /auth/register` exige `address` en el body (ver auth.schema.ts) —
-  // requerido acá también, no opcional, porque `users.address.lat/long` son NOT NULL.
-  address: CreateUserAddressInput;
+  // Opcional: el registro ya no pide la dirección (se carga después desde la libreta).
+  // Solo la mandan los builds viejos del mobile; con ella se crea como predeterminada.
+  address?: CreateUserAddressInput;
 }
 
 /** Fila cruda de `users.users`, tal como la devuelve `pg` (snake_case). */

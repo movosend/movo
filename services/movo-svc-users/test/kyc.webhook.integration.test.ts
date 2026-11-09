@@ -6,6 +6,14 @@ import { canonicalizeJson } from "../src/adapters/didit-signature";
 
 const WEBHOOK_SECRET = "webhook_secret_test";
 
+// Lo que Didit devuelve de un documento leído: el nombre llega tal cual figura (en mayúsculas).
+const IDENTITY_DECISION = {
+  id_verifications: [
+    { first_name: "JULIA MARÍA", last_name: "PÉREZ GÓMEZ", document_number: "12.345.678", date_of_birth: "1990-05-17" },
+  ],
+};
+
+
 function signWebhook(payload: Record<string, unknown>) {
   const rawBody = Buffer.from(JSON.stringify(payload), "utf8");
   const signature = createHmac("sha256", WEBHOOK_SECRET).update(canonicalizeJson(payload)).digest("hex");
@@ -88,6 +96,7 @@ describe("POST /kyc/webhook (MOVO-72, AC4-AC7)", () => {
       status: diditStatus,
       session_id: externalSessionId,
       vendor_data: userId,
+      decision: IDENTITY_DECISION,
     });
 
     expect(response.statusCode).toBe(200);
@@ -166,7 +175,7 @@ describe("POST /kyc/webhook (MOVO-72, AC4-AC7)", () => {
 
   it("un webhook duplicado (mismo evento dos veces) es idempotente: la segunda vez no cambia nada (AC7)", async () => {
     const { userId, externalSessionId } = await createPendingVerification();
-    const payload = { status: "Approved", session_id: externalSessionId };
+    const payload = { status: "Approved", session_id: externalSessionId, decision: IDENTITY_DECISION };
 
     const first = await postWebhook(payload);
     expect(first.statusCode).toBe(200);
@@ -267,6 +276,48 @@ describe("POST /kyc/webhook (MOVO-72, AC4-AC7)", () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  it("Approved de identidad guarda el nombre capitalizado, el DNI y la fecha de nacimiento del documento, y deja el nombre bloqueado", async () => {
+    const { userId, externalSessionId } = await createPendingVerification();
+
+    const response = await postWebhook({ status: "Approved", session_id: externalSessionId, decision: IDENTITY_DECISION });
+
+    expect(response.statusCode).toBe(200);
+    const user = await app.db.user.findUnique({ where: { id: userId } });
+    expect(user).toMatchObject({
+      kycStatusIdentity: "approved",
+      firstName: "Julia María",
+      lastName: "Pérez Gómez",
+      dni: "12345678",
+    });
+    expect(user?.birthdate?.toISOString().slice(0, 10)).toBe("1990-05-17");
+  });
+
+  it("Approved de identidad sin nombre en el documento pasa a manual_review y no toca el nombre de la cuenta", async () => {
+    const { userId, externalSessionId } = await createPendingVerification();
+
+    const response = await postWebhook({
+      status: "Approved",
+      session_id: externalSessionId,
+      decision: { id_verifications: [{ document_number: "12345678" }] },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const user = await app.db.user.findUnique({ where: { id: userId } });
+    expect(user).toMatchObject({ kycStatusIdentity: "manual_review", firstName: "Juan", lastName: "Perez", dni: null });
+    const verification = await app.db.kycVerification.findUnique({ where: { externalSessionId } });
+    expect(verification?.status).toBe("manual_review");
+    expect(JSON.stringify(verification?.rawDecision)).toContain("NAME_NOT_DETECTED");
+  });
+
+  it("Approved de licencia no pisa el nombre ni el DNI de la cuenta", async () => {
+    const { userId, externalSessionId } = await createPendingVerification("license");
+
+    await postWebhook({ status: "Approved", session_id: externalSessionId, decision: IDENTITY_DECISION });
+
+    const user = await app.db.user.findUnique({ where: { id: userId } });
+    expect(user).toMatchObject({ firstName: "Juan", lastName: "Perez", dni: null });
   });
 
   // MOVO-15: a diferencia de identity, un webhook Approved de license además tiene que

@@ -250,7 +250,10 @@ describe("POST /kyc/session (MOVO-72)", () => {
     didit.setDecision({
       sessionId,
       rawStatus: "Approved",
-      decision: { status: "Approved", id_verifications: [{ warnings: [] }] },
+      decision: {
+        status: "Approved",
+        id_verifications: [{ first_name: "JULIA", last_name: "PÉREZ", document_number: "12345678", warnings: [] }],
+      },
     });
 
     const retry = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
