@@ -16,6 +16,10 @@ describe("internalReturnPath", () => {
     `/disputes/${ID}?from=status%3Dresolved`,
     "/audit-log?q=ab*c&page=2",
     "/metrics?tab=cashflow",
+    "/kyc",
+    "/kyc?type=license&q=ana&page=2",
+    `/kyc/${ID}`,
+    "/kyc/sess_123.abc-4",
   ])("acepta %s", (path) => expect(internalReturnPath(path)).toBe(path))
 
   it.each([
@@ -30,5 +34,10 @@ describe("internalReturnPath", () => {
     "/disputes/abc",
     `/disputes/${ID}/../../login`,
     "/disputes?next=//evil.test",
+    "/kyc//evil.test",
+    "/kyc/../login",
+    "/kyc/a/b",
+    "/kyc?next=//evil.test",
+    "/kyc#x",
   ])("descarta %s", (path) => expect(internalReturnPath(path)).toBe("/"))
 })
