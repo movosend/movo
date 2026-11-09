@@ -861,3 +861,10 @@ export type {
   ResolveDisputeResponse,
   DisputePartialCaptureFloor,
 } from "./types/dispute";
+export {
+  googleErrorDetail,
+  readGoogleErrorDetail,
+  type GoogleErrorBody,
+  type GoogleErrorDetail,
+  type ProviderLogger,
+} from "./utils/google-error";

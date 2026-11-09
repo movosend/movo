@@ -1,7 +1,10 @@
-import type { FastifyBaseLogger } from "fastify";
-
-/** Lo único que los adapters de Google necesitan del logger de Fastify. */
-export type ProviderLogger = Pick<FastifyBaseLogger, "warn">;
+/**
+ * Lo único que los adapters de Google de los servicios necesitan del logger de Fastify (pino). Estructural para no
+ * depender de `fastify` acá: un `FastifyBaseLogger` lo cumple.
+ */
+export interface ProviderLogger {
+  warn(obj: object, msg?: string): void;
+}
 
 /**
  * Status y mensaje de un rechazo de Google, para el log. Sin esto, un 502 del adapter no
@@ -16,7 +19,7 @@ export interface GoogleErrorDetail {
 
 const MAX_MESSAGE_LENGTH = 300;
 
-interface GoogleErrorBody {
+export interface GoogleErrorBody {
   status?: unknown;
   error_message?: unknown;
   error?: { status?: unknown; message?: unknown };

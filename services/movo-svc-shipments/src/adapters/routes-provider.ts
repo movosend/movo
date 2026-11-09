@@ -1,7 +1,6 @@
-import { ApiError } from "@movo/shared";
+import { ApiError, type ProviderLogger } from "@movo/shared";
 import { createMockRoutesProvider } from "./mock-routes-provider";
 import { createGoogleRoutesProvider } from "./google-routes-provider";
-import type { ProviderLogger } from "./google-error";
 
 export interface RouteLatLng {
   lat: number;

@@ -1,7 +1,6 @@
 import { createMockPlacesProvider } from "./mock-places-provider";
 import { createGooglePlacesProvider } from "./google-places-provider";
-import type { ProviderLogger } from "./google-error";
-import type { PlacePrediction } from "@movo/shared";
+import type { PlacePrediction, ProviderLogger } from "@movo/shared";
 
 // MOVO-340: el contrato de la predicción vive en `@movo/shared` (lo comparte el mobile).
 export type { PlacePrediction } from "@movo/shared";

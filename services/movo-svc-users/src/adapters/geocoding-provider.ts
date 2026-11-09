@@ -1,6 +1,6 @@
 import { createMockGeocodingProvider } from "./mock-geocoding-provider";
 import { createGoogleGeocodingProvider } from "./google-geocoding-provider";
-import type { ProviderLogger } from "./google-error";
+import type { ProviderLogger } from "@movo/shared";
 
 /** Dirección tal como la carga el usuario en el wizard de registro (MOVO-73), antes
  * de confirmar el pin en el paso de mapa. */
