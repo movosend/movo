@@ -44,36 +44,18 @@ describe("AddressField", () => {
 
   it("muestra el placeholder cuando no hay dirección elegida", async () => {
     const { getByText } = await render(
-      <AddressField
-        testID="pickup"
-        label="Retiro"
-        dotColor="#000"
-        value={null}
-        onChange={jest.fn()}
-      />,
+      <AddressField testID="pickup" label="Retiro" dotColor="#000" value={null} onChange={jest.fn()} />,
     );
     expect(getByText("Tocá para buscar la dirección")).toBeTruthy();
   });
 
   it("busca predicciones con debounce y confirma la dirección elegida", async () => {
-    mockAutocomplete.mockResolvedValue([
-      { placeId: "p1", description: "Av. Colón 1000, Córdoba" },
-    ]);
-    mockDetails.mockResolvedValue({
-      formattedAddress: "Av. Colón 1000, Córdoba",
-      lat: -31.4,
-      long: -64.18,
-    });
+    mockAutocomplete.mockResolvedValue([{ placeId: "p1", description: "Av. Colón 1000, Córdoba" }]);
+    mockDetails.mockResolvedValue({ formattedAddress: "Av. Colón 1000, Córdoba", lat: -31.4, long: -64.18 });
     const onChange = jest.fn();
 
     const { getByTestId, getByText } = await render(
-      <AddressField
-        testID="pickup"
-        label="Retiro"
-        dotColor="#000"
-        value={null}
-        onChange={onChange}
-      />,
+      <AddressField testID="pickup" label="Retiro" dotColor="#000" value={null} onChange={onChange} />,
     );
 
     await act(async () => {
@@ -82,14 +64,9 @@ describe("AddressField", () => {
     });
     fireEvent.changeText(getByTestId("pickup-sheet-input"), "Av. Colón");
 
-    await waitFor(
-      () => expect(mockAutocomplete).toHaveBeenCalledWith("Av. Colón"),
-      { timeout: 1000 },
-    );
+    await waitFor(() => expect(mockAutocomplete).toHaveBeenCalledWith("Av. Colón"), { timeout: 1000 });
 
-    await waitFor(() =>
-      expect(getByText("Av. Colón 1000, Córdoba")).toBeTruthy(),
-    );
+    await waitFor(() => expect(getByText("Av. Colón 1000, Córdoba")).toBeTruthy());
     await act(async () => {
       fireEvent.press(getByTestId("pickup-sheet-result-p1"));
       await Promise.resolve();
@@ -108,42 +85,23 @@ describe("AddressField", () => {
 
   it("MOVO-340: una sugerencia por coordenadas se confirma con ese punto, sin llamar a details", async () => {
     mockAutocomplete.mockResolvedValue([
-      {
-        placeId: "coords:-31.4201,-64.1888",
-        description: "Av. Colón 1234, Córdoba",
-        lat: -31.4201,
-        long: -64.1888,
-      },
+      { placeId: "coords:-31.4201,-64.1888", description: "Av. Colón 1234, Córdoba", lat: -31.4201, long: -64.1888 },
     ]);
     const onChange = jest.fn();
 
     const { getByTestId, getByText } = await render(
-      <AddressField
-        testID="pickup"
-        label="Retiro"
-        dotColor="#000"
-        value={null}
-        onChange={onChange}
-      />,
+      <AddressField testID="pickup" label="Retiro" dotColor="#000" value={null} onChange={onChange} />,
     );
 
     await act(async () => {
       fireEvent.press(getByTestId("pickup"));
       await Promise.resolve();
     });
-    fireEvent.changeText(
-      getByTestId("pickup-sheet-input"),
-      "-31.4201, -64.1888",
-    );
+    fireEvent.changeText(getByTestId("pickup-sheet-input"), "-31.4201, -64.1888");
 
-    await waitFor(
-      () => expect(getByText("Av. Colón 1234, Córdoba")).toBeTruthy(),
-      { timeout: 1000 },
-    );
+    await waitFor(() => expect(getByText("Av. Colón 1234, Córdoba")).toBeTruthy(), { timeout: 1000 });
     await act(async () => {
-      fireEvent.press(
-        getByTestId("pickup-sheet-result-coords:-31.4201,-64.1888"),
-      );
+      fireEvent.press(getByTestId("pickup-sheet-result-coords:-31.4201,-64.1888"));
       await Promise.resolve();
     });
 
@@ -159,24 +117,12 @@ describe("AddressField", () => {
   });
 
   it("usa la ubicación actual por GPS", async () => {
-    mockGetCurrentLocation.mockResolvedValue({
-      granted: true,
-      lat: -31.41,
-      lng: -64.18,
-    });
-    mockReverseGeocode.mockResolvedValue({
-      formattedAddress: "Rafael Núñez 4500, Córdoba",
-    });
+    mockGetCurrentLocation.mockResolvedValue({ granted: true, lat: -31.41, lng: -64.18 });
+    mockReverseGeocode.mockResolvedValue({ formattedAddress: "Rafael Núñez 4500, Córdoba" });
     const onChange = jest.fn();
 
     const { getByTestId } = await render(
-      <AddressField
-        testID="pickup"
-        label="Retiro"
-        dotColor="#000"
-        value={null}
-        onChange={onChange}
-      />,
+      <AddressField testID="pickup" label="Retiro" dotColor="#000" value={null} onChange={onChange} />,
     );
 
     await act(async () => {
@@ -197,22 +143,12 @@ describe("AddressField", () => {
   });
 
   it("si no se puede obtener la dirección del GPS, avisa y no elige nada (TestFlight build 17)", async () => {
-    mockGetCurrentLocation.mockResolvedValue({
-      granted: true,
-      lat: -31.41,
-      lng: -64.18,
-    });
+    mockGetCurrentLocation.mockResolvedValue({ granted: true, lat: -31.41, lng: -64.18 });
     mockReverseGeocode.mockRejectedValue(new Error("502"));
     const onChange = jest.fn();
 
     const { getByTestId, getByText } = await render(
-      <AddressField
-        testID="pickup"
-        label="Retiro"
-        dotColor="#000"
-        value={null}
-        onChange={onChange}
-      />,
+      <AddressField testID="pickup" label="Retiro" dotColor="#000" value={null} onChange={onChange} />,
     );
 
     await act(async () => {
@@ -225,11 +161,7 @@ describe("AddressField", () => {
     });
 
     expect(onChange).not.toHaveBeenCalled();
-    expect(
-      getByText(
-        "No pudimos obtener la dirección de tu ubicación. Escribila en el buscador.",
-      ),
-    ).toBeTruthy();
+    expect(getByText("No pudimos obtener la dirección de tu ubicación. Escribila en el buscador.")).toBeTruthy();
   });
 
   it("permite elegir una dirección guardada sin llamar a Places", async () => {
@@ -256,13 +188,7 @@ describe("AddressField", () => {
     const onChange = jest.fn();
 
     const { getByTestId } = await render(
-      <AddressField
-        testID="pickup"
-        label="Retiro"
-        dotColor="#000"
-        value={null}
-        onChange={onChange}
-      />,
+      <AddressField testID="pickup" label="Retiro" dotColor="#000" value={null} onChange={onChange} />,
     );
 
     await act(async () => {
@@ -283,24 +209,11 @@ describe("AddressField", () => {
     });
   });
   it("al mover el pin vuelve a resolver la dirección del punto nuevo (no deja el texto viejo)", async () => {
-    mockReverseGeocode.mockResolvedValue({
-      formattedAddress: "Av. Colón 6051, Córdoba",
-    });
+    mockReverseGeocode.mockResolvedValue({ formattedAddress: "Av. Colón 6051, Córdoba" });
     const onChange = jest.fn();
-    const value = {
-      address: "Ubicación actual",
-      lat: -31.41,
-      lng: -64.19,
-      source: "gps" as const,
-    };
+    const value = { address: "Ubicación actual", lat: -31.41, lng: -64.19, source: "gps" as const };
     const { getByTestId } = await render(
-      <AddressField
-        testID="dropoff"
-        label="Entrega"
-        dotColor="#000"
-        value={value}
-        onChange={onChange}
-      />,
+      <AddressField testID="dropoff" label="Entrega" dotColor="#000" value={value} onChange={onChange} />,
     );
 
     await act(async () => {
@@ -314,22 +227,10 @@ describe("AddressField", () => {
       await Promise.resolve();
     });
 
-    expect(onChange).toHaveBeenCalledWith({
-      address: "Ubicación en el mapa",
-      lat: -31.38,
-      lng: -64.22,
-      source: "map-pin",
-    });
+    expect(onChange).toHaveBeenCalledWith({ address: "Ubicación en el mapa", lat: -31.38, lng: -64.22, source: "map-pin" });
     await waitFor(() =>
-      expect(onChange).toHaveBeenLastCalledWith({
-        address: "Av. Colón 6051, Córdoba",
-        lat: -31.38,
-        lng: -64.22,
-        source: "map-pin",
-      }),
+      expect(onChange).toHaveBeenLastCalledWith({ address: "Av. Colón 6051, Córdoba", lat: -31.38, lng: -64.22, source: "map-pin" }),
     );
-    expect(onChange).not.toHaveBeenCalledWith(
-      expect.objectContaining({ address: "Ubicación actual", lat: -31.38 }),
-    );
+    expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ address: "Ubicación actual", lat: -31.38 }));
   });
 });

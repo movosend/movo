@@ -3,28 +3,14 @@ import * as Haptics from "expo-haptics";
 import { MapPin } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
 import { useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Modal,
-  Platform,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
-import MapView, {
-  Marker,
-  PROVIDER_GOOGLE,
-  type Region,
-} from "react-native-maps";
+import { ActivityIndicator, Modal, Platform, Pressable, Text, View } from "react-native";
+import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 import {
   SafeAreaProvider,
   initialWindowMetrics,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import {
-  movoMapStyleDark,
-  movoMapStyleLight,
-} from "../../src/constants/map-style";
+import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-style";
 import { useCreateAddress } from "../../src/hooks/use-addresses";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { addressSelectionToCreateInput } from "../../src/lib/address-selection-to-input";
@@ -91,9 +77,7 @@ export function ConfirmAddAddressSheet({
       onRequestClose={onClose}
       testID={testID}
     >
-      <SafeAreaProvider
-        initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}
-      >
+      <SafeAreaProvider initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}>
         {selection ? (
           <ConfirmAddAddressBody
             key={`${selection.lat}-${selection.lng}-${selection.address}`}
@@ -151,14 +135,13 @@ function ConfirmAddAddressBody({
     }
   };
 
-  const blurTint =
-    Platform.OS === "ios"
-      ? isDark
-        ? "systemUltraThinMaterialDark"
-        : "systemUltraThinMaterialLight"
-      : isDark
-        ? "dark"
-        : "light";
+  const blurTint = Platform.OS === "ios"
+    ? isDark
+      ? "systemUltraThinMaterialDark"
+      : "systemUltraThinMaterialLight"
+    : isDark
+      ? "dark"
+      : "light";
   const blurMethod = Platform.OS === "android" ? "dimezisBlurView" : "none";
 
   return (
@@ -207,26 +190,13 @@ function ConfirmAddAddressBody({
               elevation: 4,
             }}
           >
-            <MapPin
-              size={44}
-              strokeWidth={1.5}
-              color="#1A1A1D"
-              fill="#C6F24A"
-            />
+            <MapPin size={44} strokeWidth={1.5} color="#1A1A1D" fill="#C6F24A" />
           </View>
         </Marker>
       </MapView>
 
       {/* Header flotante sobre el mapa, mismo lenguaje "glassy" que FloatingTabBar */}
-      <View
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          overflow: "hidden",
-        }}
-      >
+      <View style={{ position: "absolute", top: 0, left: 0, right: 0, overflow: "hidden" }}>
         <BlurView
           intensity={isDark ? 45 : 70}
           tint={blurTint}
@@ -241,9 +211,7 @@ function ConfirmAddAddressBody({
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: isDark
-              ? "rgba(10,10,11,0.4)"
-              : "rgba(255,255,255,0.55)",
+            backgroundColor: isDark ? "rgba(10,10,11,0.4)" : "rgba(255,255,255,0.55)",
           }}
         />
         <View
@@ -258,9 +226,7 @@ function ConfirmAddAddressBody({
             onPress={onClose}
             hitSlop={8}
           >
-            <Text className="font-sans-medium text-[13px] text-fg-3">
-              Cancelar
-            </Text>
+            <Text className="font-sans-medium text-[13px] text-fg-3">Cancelar</Text>
           </Pressable>
         </View>
       </View>
@@ -302,10 +268,7 @@ function ConfirmAddAddressBody({
         }}
       >
         <View className="gap-3 px-5 pb-4">
-          <ErrorBanner
-            testID={testID ? `${testID}-error` : undefined}
-            message={error}
-          />
+          <ErrorBanner testID={testID ? `${testID}-error` : undefined} message={error} />
           <View
             className="rounded-[12px] bg-bg px-4 py-3"
             style={{
@@ -316,10 +279,7 @@ function ConfirmAddAddressBody({
               elevation: 3,
             }}
           >
-            <Text
-              numberOfLines={2}
-              className="font-sans-medium text-[15px] text-fg"
-            >
+            <Text numberOfLines={2} className="font-sans-medium text-[15px] text-fg">
               {resolvingAddress ? "Buscando la dirección…" : address}
             </Text>
           </View>
@@ -341,9 +301,7 @@ function ConfirmAddAddressBody({
               elevation: 4,
             }}
           >
-            {createAddress.isPending ? (
-              <ActivityIndicator color={colors.fg3} />
-            ) : null}
+            {createAddress.isPending ? <ActivityIndicator color={colors.fg3} /> : null}
             <Text
               className={`font-sans-semibold text-body ${
                 createAddress.isPending ? "text-fg-3" : "text-bg"

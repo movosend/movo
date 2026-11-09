@@ -7,9 +7,7 @@ jest.mock("../src/hooks/use-addresses", () => ({
 
 const mockReverseGeocode = jest.fn();
 jest.mock("../src/api/geocode-client", () => ({
-  geocodeClient: {
-    reverseGeocode: (lat: number, lng: number) => mockReverseGeocode(lat, lng),
-  },
+  geocodeClient: { reverseGeocode: (lat: number, lng: number) => mockReverseGeocode(lat, lng) },
 }));
 
 import { useCreateAddress } from "../src/hooks/use-addresses";
@@ -32,10 +30,7 @@ describe("ConfirmAddAddressSheet", () => {
   });
 
   it("muestra el mapa para ajustar el pin (AC3 + fix de feedback)", async () => {
-    mockUseCreateAddress.mockReturnValue({
-      mutateAsync: jest.fn(),
-      isPending: false,
-    });
+    mockUseCreateAddress.mockReturnValue({ mutateAsync: jest.fn(), isPending: false });
 
     const { getByTestId } = await render(
       <ConfirmAddAddressSheet
@@ -159,20 +154,12 @@ describe("ConfirmAddAddressSheet", () => {
     );
   });
   it("al mover el pin guarda la dirección del punto nuevo", async () => {
-    mockReverseGeocode.mockResolvedValue({
-      formattedAddress: "Av. Colón 1200, Córdoba, Argentina",
-    });
+    mockReverseGeocode.mockResolvedValue({ formattedAddress: "Av. Colón 1200, Córdoba, Argentina" });
     const mutateAsync = jest.fn().mockResolvedValue(undefined);
     mockUseCreateAddress.mockReturnValue({ mutateAsync, isPending: false });
 
     const { getByTestId, findByText } = await render(
-      <ConfirmAddAddressSheet
-        visible
-        selection={SELECTION}
-        onClose={jest.fn()}
-        onSaved={jest.fn()}
-        testID="confirm-sheet"
-      />,
+      <ConfirmAddAddressSheet visible selection={SELECTION} onClose={jest.fn()} onSaved={jest.fn()} testID="confirm-sheet" />,
     );
 
     await act(async () => {
@@ -188,12 +175,7 @@ describe("ConfirmAddAddressSheet", () => {
       await Promise.resolve();
     });
     expect(mutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({
-        street: "Av. Colón",
-        streetNumber: "1200",
-        lat: -31.41,
-        long: -64.2,
-      }),
+      expect.objectContaining({ street: "Av. Colón", streetNumber: "1200", lat: -31.41, long: -64.2 }),
     );
   });
 });

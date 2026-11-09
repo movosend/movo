@@ -3,10 +3,7 @@ import { useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useCreateAddress, useAddresses } from "../../src/hooks/use-addresses";
 import { addressSelectionToCreateInput } from "../../src/lib/address-selection-to-input";
-import {
-  PIN_ADDRESS_FALLBACK,
-  resolvePinAddress,
-} from "../../src/lib/pin-address";
+import { PIN_ADDRESS_FALLBACK, resolvePinAddress } from "../../src/lib/pin-address";
 import type { AddressSelection } from "../../src/types/address-selection";
 import { AddressSearchSheet } from "./address-search-sheet";
 import { CollapsibleMapRow } from "./collapsible-map-row";
@@ -29,13 +26,7 @@ interface AddressFieldProps {
  * formulario manual de 6 campos. "Ajustar en el mapa" queda como escape hatch
  * opcional para corregir el pin exacto, reusando `CollapsibleMapRow` tal cual.
  */
-export function AddressField({
-  label,
-  dotColor,
-  value,
-  onChange,
-  testID,
-}: AddressFieldProps) {
+export function AddressField({ label, dotColor, value, onChange, testID }: AddressFieldProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -80,14 +71,9 @@ export function AddressField({
         onPress={() => setSheetOpen(true)}
         className="flex-row items-center gap-3 rounded-[10px] border border-border-strong bg-bg py-3.5 pl-3.5 pr-2"
       >
-        <View
-          className="h-2.5 w-2.5 rounded-full"
-          style={{ backgroundColor: dotColor }}
-        />
+        <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dotColor }} />
         <View className="flex-1">
-          <Text className="mb-0.5 font-sans text-[11px] text-fg-3">
-            {label}
-          </Text>
+          <Text className="mb-0.5 font-sans text-[11px] text-fg-3">{label}</Text>
           <Text
             className={`font-sans-medium text-[15px] ${value ? "text-fg" : "text-fg-3"}`}
             numberOfLines={1}
@@ -102,11 +88,7 @@ export function AddressField({
             hitSlop={8}
             className={`h-9 w-9 items-center justify-center rounded-full ${mapOpen ? "bg-fg" : "bg-bg-sub"}`}
           >
-            <MapPin
-              size={16}
-              color={mapOpen ? "#C6F24A" : "#8A8A93"}
-              strokeWidth={1.8}
-            />
+            <MapPin size={16} color={mapOpen ? "#C6F24A" : "#8A8A93"} strokeWidth={1.8} />
           </Pressable>
         ) : null}
         <ChevronRight size={18} color="#8A8A93" strokeWidth={1.8} />
@@ -121,11 +103,7 @@ export function AddressField({
             hitSlop={8}
             className="flex-row items-center gap-1.5 self-start rounded-full px-1 py-2"
           >
-            <Star
-              size={13}
-              color={saved ? "#C6F24A" : "#8A8A93"}
-              fill={saved ? "#C6F24A" : "none"}
-            />
+            <Star size={13} color={saved ? "#C6F24A" : "#8A8A93"} fill={saved ? "#C6F24A" : "none"} />
             <Text className="font-sans-medium text-[12px] text-fg-2">
               {saved ? "Dirección guardada" : "Guardar para la próxima"}
             </Text>
