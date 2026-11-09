@@ -1,15 +1,18 @@
-import { ApiError } from "@movo/shared";
+import { ApiError, googleErrorDetail, ProviderLogger, readGoogleErrorDetail } from "@movo/shared";
 import { GeocodeAddressInput, GeocodeResult, GeocodingProvider, ReverseGeocodeResult } from "./geocoding-provider";
 
 export interface GoogleGeocodingProviderConfig {
   apiKey: string;
   baseUrl?: string;
+  /** Para dejar en el log por qué Google rechazó el pedido (key, facturación, API sin habilitar). */
+  log?: ProviderLogger | undefined;
 }
 
 const DEFAULT_BASE_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 
 interface GoogleGeocodeResponse {
   status: string;
+  error_message?: string;
   results: Array<{
     formatted_address: string;
     geometry: { location: { lat: number; lng: number } };
@@ -25,6 +28,32 @@ function extractCity(components: Array<{ long_name: string; types: string[] }> |
     if (found) return found.long_name;
   }
   return null;
+}
+
+/**
+ * La Geocoding API responde 200 también cuando rechaza el pedido (`REQUEST_DENIED` por
+ * key o facturación, `OVER_QUERY_LIMIT`, `UNKNOWN_ERROR`): solo `ZERO_RESULTS` significa
+ * que la dirección no existe. Antes cualquier status distinto de `OK` salía como 422
+ * "no pudimos ubicar", y una key sin facturación parecía un dato mal cargado.
+ */
+async function parseGeocodeResponse(
+  response: Response,
+  op: "geocode" | "reverse",
+  log: ProviderLogger | undefined,
+  notFoundMessage: string,
+): Promise<GoogleGeocodeResponse["results"][number]> {
+  if (!response.ok) {
+    log?.warn({ google: await readGoogleErrorDetail(response), op }, "google_geocoding_error");
+    throw new ApiError(502, "GEOCODING_PROVIDER_ERROR", "El proveedor de geocoding devolvió un error.");
+  }
+  const body = (await response.json()) as GoogleGeocodeResponse;
+  const first = body.results?.[0];
+  if (body.status === "OK" && first) return first;
+  if (body.status === "OK" || body.status === "ZERO_RESULTS") {
+    throw new ApiError(422, "GEOCODING_ADDRESS_NOT_FOUND", notFoundMessage);
+  }
+  log?.warn({ google: googleErrorDetail(response.status, body), op }, "google_geocoding_error");
+  throw new ApiError(502, "GEOCODING_PROVIDER_ERROR", "El proveedor de geocoding devolvió un error.");
 }
 
 function buildAddressLine(input: GeocodeAddressInput): string {
@@ -53,15 +82,12 @@ export function createGoogleGeocodingProvider(config: GoogleGeocodingProviderCon
         throw new ApiError(502, "GEOCODING_PROVIDER_ERROR", "No se pudo conectar con el proveedor de geocoding.");
       }
 
-      if (!response.ok) {
-        throw new ApiError(502, "GEOCODING_PROVIDER_ERROR", "El proveedor de geocoding devolvió un error.");
-      }
-
-      const body = (await response.json()) as GoogleGeocodeResponse;
-      const first = body.results[0];
-      if (body.status !== "OK" || !first) {
-        throw new ApiError(422, "GEOCODING_ADDRESS_NOT_FOUND", "No pudimos ubicar esa dirección en el mapa.");
-      }
+      const first = await parseGeocodeResponse(
+        response,
+        "geocode",
+        config.log,
+        "No pudimos ubicar esa dirección en el mapa.",
+      );
 
       return {
         lat: first.geometry.location.lat,
@@ -85,15 +111,12 @@ export function createGoogleGeocodingProvider(config: GoogleGeocodingProviderCon
         throw new ApiError(502, "GEOCODING_PROVIDER_ERROR", "No se pudo conectar con el proveedor de geocoding.");
       }
 
-      if (!response.ok) {
-        throw new ApiError(502, "GEOCODING_PROVIDER_ERROR", "El proveedor de geocoding devolvió un error.");
-      }
-
-      const body = (await response.json()) as GoogleGeocodeResponse;
-      const first = body.results[0];
-      if (body.status !== "OK" || !first) {
-        throw new ApiError(422, "GEOCODING_ADDRESS_NOT_FOUND", "No pudimos ubicar una dirección para esa posición.");
-      }
+      const first = await parseGeocodeResponse(
+        response,
+        "reverse",
+        config.log,
+        "No pudimos ubicar una dirección para esa posición.",
+      );
 
       return { formattedAddress: first.formatted_address, city: extractCity(first.address_components) };
     },

@@ -1,5 +1,5 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PrivateProfile } from "@movo/shared/dist/types/user-profile";
+import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { PrivateProfile, ProfileRatingRole } from "@movo/shared/dist/types/user-profile";
 import {
   usersClient,
   type AcceptLegalDocumentsInput,
@@ -37,6 +37,18 @@ export function usePublicProfile(id: string | undefined) {
   return useQuery({
     queryKey: ["profile", "public", id],
     queryFn: () => usersClient.getPublicProfile(id!),
+    enabled: !!id,
+  });
+}
+
+/** Todas las calificaciones recibidas por `id`, de a páginas ("Ver todas"); con `role`, solo las de esa pestaña. Va
+ * bajo `["profile", ...]` para que el refresco del perfil (pull-to-refresh, push `rating_received`) también la invalide. */
+export function useUserRatings(id: string | undefined, role?: ProfileRatingRole) {
+  return useInfiniteQuery({
+    queryKey: ["profile", "ratings", id, role ?? "all"],
+    queryFn: ({ pageParam }) => usersClient.listRatings(id!, { role, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: !!id,
   });
 }

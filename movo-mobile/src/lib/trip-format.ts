@@ -99,7 +99,9 @@ export function splitCarrierHomeTrips(trips: TripWithAcceptedPackages[]): {
   primaryTrip: TripWithAcceptedPackages | null;
   otherTrips: TripWithAcceptedPackages[];
 } {
-  const activeTrip = trips.find((t) => t.status === TripStatus.ACTIVE);
+  // Un `active` sin paquetes vivos ya no está "en curso": el backend lo expira al cancelarse
+  // su último envío, pero la lista puede llegar vieja hasta que se refresque.
+  const activeTrip = trips.find((t) => t.status === TripStatus.ACTIVE && t.hasAcceptedPackages);
   const readyDeclared = trips
     .filter((t) => t.status === TripStatus.DECLARED && t.hasAcceptedPackages)
     .sort((a, b) => a.departureAt.localeCompare(b.departureAt));

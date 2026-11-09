@@ -143,7 +143,9 @@ forzado de estado de un envío desde el panel · 056 (propuesto) resolución de 
 estado final sin estados nuevos y reembolsos · 057 (propuesto) plazo de pago extendido ante una falla del
 proveedor · 058 bandejas y plazos de la home del panel · 059 (propuesto) reglas de las métricas del panel ·
 060 flexibilización de fechas (reemplaza la regla de fecha de 034) · 061 retiro con viaje iniciado ·
-062 proximidad de la entrega · 063 registro sin nombre, DNI ni dirección (los completa Didit).
+062 proximidad de la entrega
+063 reseñas de receptor en la reputación como emisor · 064 (propuesto) revisión manual de KYC desde el panel ·
+065 registro sin nombre, DNI ni dirección (los completa Didit).
 
 ## Convenciones de código
 

@@ -42,7 +42,7 @@ describe("ProfileActivityCard", () => {
         reputationScore={5.0}
         reputation={{
           asCarrier: breakdown({ reputationScore: 4.9 }),
-          asSender: breakdown({ reputationScore: null, isNewProfile: true }),
+          asSender: breakdown({ reputationScore: null, ratingCount: 0, isNewProfile: true }),
           recentRatingComments: [],
         }}
       />,
@@ -50,6 +50,23 @@ describe("ProfileActivityCard", () => {
 
     expect(queryByTestId("card-role-carrier")).toBeNull();
     expect(getByText("4.9")).toBeTruthy();
+  });
+
+  it("un transportista que nunca envió pero tiene reseñas como receptor ve la pestaña \"Como emisor\"", async () => {
+    const { getByTestId } = await render(
+      <ProfileActivityCard
+        testID="card"
+        transactionCounts={{ asSender: 0, asCarrier: 4 }}
+        reputationScore={4.5}
+        reputation={{
+          asCarrier: breakdown({ reputationScore: 4.9 }),
+          asSender: breakdown({ reputationScore: 4.0, ratingCount: 1 }),
+          recentRatingComments: [],
+        }}
+      />,
+    );
+
+    expect(getByTestId("card-role-sender")).toBeTruthy();
   });
 
   it("muestra el toggle y cambia de rol al tocarlo cuando hay ambos", async () => {
@@ -226,5 +243,27 @@ describe("ProfileActivityCard", () => {
     expect(getByTestId("card-reputation")).toBeTruthy();
     expect(queryByTestId("card-reputation-error")).toBeNull();
     expect(queryByTestId("card-reputation-skeleton")).toBeNull();
+  });
+  it("cada pestaña muestra solo las reseñas recibidas en ese rol (feedback de TestFlight, build 17)", async () => {
+    const asCarrier = comment({ id: "c1", comment: "Se frenó a tomar un café" });
+    const { getByTestId, queryByText, getByText } = await render(
+      <ProfileActivityCard
+        testID="card"
+        transactionCounts={{ asSender: 1, asCarrier: 1 }}
+        reputationScore={3}
+        reputation={{
+          asCarrier: breakdown(),
+          asSender: breakdown(),
+          recentRatingComments: [asCarrier],
+          recentRatingCommentsByRole: { asCarrier: [asCarrier], asSender: [] },
+        }}
+      />,
+    );
+
+    expect(getByText("Se frenó a tomar un café")).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(getByTestId("card-role-sender"));
+    });
+    expect(queryByText("Se frenó a tomar un café")).toBeNull();
   });
 });

@@ -7,6 +7,7 @@ import {
   type PublicAccountStatus,
   type PublicProfile,
   type RecentRatingComment,
+  type RecentRatingCommentsByRole,
   type ReputationBreakdown,
   type TransactionCounts,
   type UserTourRecord,
@@ -106,7 +107,8 @@ export function toPublicProfile(
   reputation: ReputationBreakdown & { asSender: ReputationBreakdown; asCarrier: ReputationBreakdown },
   transactionCounts: TransactionCounts,
   recentRatingComments: RecentRatingComment[],
-  vehicle: VehicleProfile | null
+  vehicle: VehicleProfile | null,
+  recentRatingCommentsByRole?: RecentRatingCommentsByRole
 ): PublicProfile {
   return {
     id: user.id,
@@ -122,6 +124,7 @@ export function toPublicProfile(
     asSender: reputation.asSender,
     asCarrier: reputation.asCarrier,
     recentRatingComments,
+    ...(recentRatingCommentsByRole ? { recentRatingCommentsByRole } : {}),
     // MOVO-170: sin I/O nueva -- vienen directo de la fila de `User` ya cargada, sin
     // filtrar el teléfono/email reales (mismo criterio que `isVerified`).
     memberSince: user.createdAt.toISOString(),

@@ -36,6 +36,7 @@ function createFakeDiditClient(): DiditClient {
     async getSessionDecision() {
       return null;
     },
+    async updateSessionStatus() {},
   };
 }
 

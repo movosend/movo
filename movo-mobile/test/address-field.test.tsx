@@ -17,14 +17,20 @@ jest.mock("../src/lib/location.ts", () => ({
   getCurrentLocation: jest.fn(),
 }));
 
+jest.mock("../src/api/geocode-client", () => ({
+  geocodeClient: { reverseGeocode: jest.fn() },
+}));
+
 import { placesClient } from "../src/api/places-client";
 import { useAddresses } from "../src/hooks/use-addresses";
 import { getCurrentLocation } from "../src/lib/location";
+import { geocodeClient } from "../src/api/geocode-client";
 
 const mockAutocomplete = placesClient.autocomplete as jest.Mock;
 const mockDetails = placesClient.details as jest.Mock;
 const mockUseAddresses = useAddresses as jest.Mock;
 const mockGetCurrentLocation = getCurrentLocation as jest.Mock;
+const mockReverseGeocode = geocodeClient.reverseGeocode as jest.Mock;
 
 // MOVO-83 rediseño de UI: reemplaza el formulario manual de 6 campos por búsqueda
 // tipo Uber/PedidosYa (Google Places) — cubre el flujo nuevo completo: abrir la
@@ -112,6 +118,7 @@ describe("AddressField", () => {
 
   it("usa la ubicación actual por GPS", async () => {
     mockGetCurrentLocation.mockResolvedValue({ granted: true, lat: -31.41, lng: -64.18 });
+    mockReverseGeocode.mockResolvedValue({ formattedAddress: "Rafael Núñez 4500, Córdoba" });
     const onChange = jest.fn();
 
     const { getByTestId } = await render(
@@ -128,11 +135,33 @@ describe("AddressField", () => {
     });
 
     expect(onChange).toHaveBeenCalledWith({
-      address: "Ubicación actual",
+      address: "Rafael Núñez 4500, Córdoba",
       lat: -31.41,
       lng: -64.18,
       source: "gps",
     });
+  });
+
+  it("si no se puede obtener la dirección del GPS, avisa y no elige nada (TestFlight build 17)", async () => {
+    mockGetCurrentLocation.mockResolvedValue({ granted: true, lat: -31.41, lng: -64.18 });
+    mockReverseGeocode.mockRejectedValue(new Error("502"));
+    const onChange = jest.fn();
+
+    const { getByTestId, getByText } = await render(
+      <AddressField testID="pickup" label="Retiro" dotColor="#000" value={null} onChange={onChange} />,
+    );
+
+    await act(async () => {
+      fireEvent.press(getByTestId("pickup"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("pickup-sheet-use-location"));
+      await Promise.resolve();
+    });
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(getByText("No pudimos obtener la dirección de tu ubicación. Escribila en el buscador.")).toBeTruthy();
   });
 
   it("permite elegir una dirección guardada sin llamar a Places", async () => {
@@ -178,5 +207,40 @@ describe("AddressField", () => {
       lng: -64.19,
       source: "saved",
     });
+  });
+  it("al mover el pin vuelve a resolver la dirección del punto nuevo (no deja el texto viejo)", async () => {
+    mockReverseGeocode.mockResolvedValue({ formattedAddress: "Av. Colón 6051, Córdoba" });
+    const onChange = jest.fn();
+    const value = { address: "Ubicación actual", lat: -31.41, lng: -64.19, source: "gps" as const };
+    const { getByTestId } = await render(
+      <AddressField testID="dropoff" label="Entrega" dotColor="#000" value={value} onChange={onChange} />,
+    );
+
+    await act(async () => {
+      fireEvent.press(getByTestId("dropoff-adjust-map"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent(getByTestId("dropoff-map-marker"), "dragEnd", {
+        nativeEvent: { coordinate: { latitude: -31.38, longitude: -64.22 } },
+      });
+      await Promise.resolve();
+    });
+
+    // Provisoria mientras busca: marcada `resolving` para que no se pueda guardar ni avanzar.
+    expect(onChange).toHaveBeenCalledWith({ address: "Ubicación en el mapa", lat: -31.38, lng: -64.22, source: "map-pin", resolving: true });
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith({ address: "Av. Colón 6051, Córdoba", lat: -31.38, lng: -64.22, source: "map-pin" }),
+    );
+    expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ address: "Ubicación actual", lat: -31.38 }));
+  });
+  it("con la dirección del pin todavía buscándose no deja guardarla", async () => {
+    const value = { address: "Ubicación en el mapa", lat: -31.38, lng: -64.22, source: "map-pin" as const, resolving: true };
+    const { getByTestId, getByText } = await render(
+      <AddressField testID="dropoff" label="Entrega" dotColor="#000" value={value} onChange={jest.fn()} />,
+    );
+
+    expect(getByText("Buscando la dirección…")).toBeTruthy();
+    expect(getByTestId("dropoff-save-address").props.accessibilityState?.disabled).toBe(true);
   });
 });

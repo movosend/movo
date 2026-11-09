@@ -20,6 +20,8 @@ const ACTION: Record<string, string> = {
   "user.contact_update": "Cambio de email o teléfono",
   "user.sessions_revoke": "Cierre de sesiones",
   "user.note_add": "Nota interna",
+  "kyc.approve": "KYC aprobado",
+  "kyc.decline": "KYC rechazado",
 }
 
 /** Acciones de admins sobre esta cuenta, de la más reciente a la más vieja. Ver una ficha no deja rastro (AC4 de MOVO-293). */

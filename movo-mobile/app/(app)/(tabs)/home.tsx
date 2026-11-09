@@ -1,7 +1,7 @@
 import { KycStatus, UserRole } from '@movo/shared/dist/types/user';
 import { useQueryClient } from '@tanstack/react-query';
 import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AccountSuspendedBanner } from '../../../components/account/account-suspended-banner';
@@ -30,6 +30,7 @@ import {
   kycStatusIcon,
   kycStatusTone,
 } from '../../../src/lib/kyc-status-ui';
+import { isStaleActiveShipment } from '../../../src/lib/home-visibility';
 import { capitalizeName, formatGreetingDateLabel, getFirstName } from '../../../src/lib/profile-format';
 import { useAuthStore } from '../../../src/store/auth-store';
 import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
@@ -71,8 +72,12 @@ export default function AuthenticatedHomeScreen() {
   const colors = useThemeColors();
   const sendingQuery = useSendingShipments();
   const sending = sendingQuery.data;
+  // Un envío con la ventana vencida se ve el día del retiro y el siguiente; después, en "Mis envíos". El que espera el
+  // pago del emisor se queda: le pide una acción.
+  const visibleSending = useMemo(() => (sending ?? []).filter((s) => !isStaleActiveShipment(s, undefined, "sender")), [sending]);
   const receivingQuery = useReceivingShipments();
   const receiving = receivingQuery.data;
+  const visibleReceiving = useMemo(() => (receiving ?? []).filter((s) => !isStaleActiveShipment(s)), [receiving]);
   const { data: chats } = useChatList();
   // Solo los envíos que ya tienen chat llevan el botón en su card.
   const chatByShipment = Object.fromEntries((chats ?? []).map((item) => [item.shipmentId, { unreadCount: item.unreadCount }]));
@@ -240,7 +245,7 @@ export default function AuthenticatedHomeScreen() {
           testID="app-home-sending"
           title="Estoy enviando"
           role="sending"
-          shipments={sending ?? []}
+          shipments={visibleSending}
           chatByShipment={chatByShipment}
           isLoading={sendingQuery.isLoading}
         />
@@ -248,7 +253,7 @@ export default function AuthenticatedHomeScreen() {
           testID="app-home-receiving"
           title="Voy a recibir"
           role="receiving"
-          shipments={receiving ?? []}
+          shipments={visibleReceiving}
           chatByShipment={chatByShipment}
           isLoading={receivingQuery.isLoading}
         />

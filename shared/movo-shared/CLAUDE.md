@@ -815,3 +815,11 @@ Bitácora: `AdminAuditLogPage`, `AuditTargetRef`, `auditTargetKey`, `ADMIN_AUDIT
 ### MOVO-35 — Tipos de las otras pestañas de Métricas (`types/admin-reports.ts`, DD-059)
 
 Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `distanceBandOf`, `buildReportBody` (KPIs y series de una sola función), `reportExportSections` y `ShipmentReportFact`/`PaymentReportFact`, los datos que cruza `svc-admin`. Al rebasear, MOVO-345 se queda con estos.
+
+### Feedback de TestFlight build 17 — reseñas por rol y errores de Google
+
+`types/user-profile.ts`: `ProfileRatingRole` (pestaña del perfil; la de emisor incluye lo recibido como receptor) y `RecentRatingCommentsByRole`, opcional en `PublicProfile`. `utils/google-error.ts` (`readGoogleErrorDetail`, `googleErrorDetail`, `ProviderLogger` estructural para no depender de `fastify`): lo usan los adapters de Google de `svc-users` y `svc-shipments`, que tenían una copia cada uno.
+
+### Cola de revisión manual de KYC (`types/admin-kyc.ts`, DD-063)
+
+`AdminKycReviewRow`/`AdminKycReviewPage`/`AdminKycReviewDetail`, `AdminKycDecisionRequest`/`Response` y las constantes de página y de largo del motivo (10 a 500). `AdminKycEvidence` (y sus piezas) es el detalle que trae Didit, que no se guarda. `ApiErrorCode` suma `KYC_SESSION_NOT_FOUND`, `KYC_REVIEW_STATUS_CHANGED`, `KYC_REVIEW_SUPERSEDED`, `KYC_EVIDENCE_NOT_FOUND`, `KYC_REVIEW_IN_PROGRESS` y `KYC_PROVIDER_UNCONFIRMED`; `ADMIN_AUDIT_ACTIONS` suma `kyc.approve` y `kyc.decline`. Las filas de la cola traen `inReviewSince` y el detalle `status`/`resolvedAt`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

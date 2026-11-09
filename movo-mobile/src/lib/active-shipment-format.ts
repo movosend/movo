@@ -6,7 +6,7 @@ import {
   SENDER_PICKUP_CTA_LABEL,
   shipmentDetailCta,
 } from "./shipment-format";
-import { formatTimeOfDay } from "./time-format";
+import { formatTimeOfDay, formatTimeRange } from "./time-format";
 
 /** Rol efectivo con el que se consultó el envío activo — "sending"/"receiving" son
  * los dos únicos implementados en esta fase (ver `use-active-shipments.ts`);
@@ -205,6 +205,29 @@ export function activeShipmentPickupDayLabel(
   const isTomorrow =
     year === tomorrow.getFullYear() && month - 1 === tomorrow.getMonth() && day === tomorrow.getDate();
   return isTomorrow ? "mañana" : null;
+}
+
+const WEEKDAYS_SHORT = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"] as const;
+
+/**
+ * Franja de retiro de la card. Con la ventana vencida y un retiro que no es de hoy, antepone
+ * el día ("dom 25/10 · 21:00 a 23:00 h"): sin el día, "Ventana vencida" junto a una franja
+ * que todavía no llegó en el reloj parecía un error (feedback de TestFlight, build 17: un
+ * retiro del 25/10 visto el 9/11). Sin fecha legible (`"YYYY-MM-DD"`) queda solo la franja.
+ */
+export function activeShipmentPickupWindowLabel(
+  shipment: Pick<
+    ActiveShipmentSummary,
+    "pickupDate" | "isToday" | "pickupWindowExpired" | "pickupTimeWindowStart" | "pickupTimeWindowEnd"
+  >,
+): string {
+  const range = formatTimeRange(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd);
+  if (!shipment.pickupWindowExpired || shipment.isToday) return range;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(shipment.pickupDate)) return range;
+  // Año/mes/día explícitos, mismo criterio que `activeShipmentPickupDayLabel`: no correr el día por UTC.
+  const [year, month, day] = shipment.pickupDate.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return `${WEEKDAYS_SHORT[date.getDay()]} ${day}/${month} · ${range}`;
 }
 
 /**

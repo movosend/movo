@@ -202,7 +202,7 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
       } else if (finalStatus) {
         await app.db.shipment.update({ where: { id: shipmentId }, data: { status: finalStatus } });
       }
-      return { tripId: trip.id, shipmentId };
+      return { tripId: trip.id, shipmentId, carrierId };
     }
 
     it("pasa a completed cuando todos sus paquetes se entregaron", async () => {
@@ -239,16 +239,62 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
       expect((await tripRepo.findById(declared.id))?.status).toBe(TripStatus.DECLARED);
     });
 
-    it("expireActiveWithoutPackages expira un active al que se le cancelaron todos los paquetes", async () => {
+    it("expireActiveWithoutPackages expira un active que se quedó sin paquetes por otro camino", async () => {
       const { tripId, shipmentId } = await activeTripWithShipment(null);
 
       // Con un paquete vivo no se toca.
       expect(await tripRepo.expireActiveWithoutPackages(100)).toEqual([]);
 
-      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.CANCELLED, null);
+      // Escritura directa (sin `updateStatus`): simula un camino que no cierra el viaje al soltarlo.
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { status: ShipmentStatus.CANCELLED } });
 
       expect(await tripRepo.expireActiveWithoutPackages(100)).toEqual([tripId]);
       expect((await tripRepo.findById(tripId))?.status).toBe(TripStatus.EXPIRED);
+    });
+
+    it("cancelar el único envío de un viaje active lo expira en la misma transacción, sin esperar al barrido", async () => {
+      const { tripId, shipmentId } = await activeTripWithShipment(null);
+
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.CANCELLED, null);
+
+      expect((await tripRepo.findById(tripId))?.status).toBe(TripStatus.EXPIRED);
+      expect(await tripRepo.expireActiveWithoutPackages(100)).toEqual([]);
+    });
+
+    it("cancelar un envío no expira el viaje active si le queda otro paquete vivo", async () => {
+      const { tripId, shipmentId, carrierId } = await activeTripWithShipment(null);
+      const otherShipmentId = await createPublished();
+      const otherOffer = await offerRepo.create({
+        shipmentId: otherShipmentId,
+        carrierId,
+        priceOffered: 5000,
+        offeredDate: PICKUP_DATE,
+      });
+      await offerRepo.acceptOffer(otherOffer.id, carrierId);
+      await app.db.offer.update({ where: { id: otherOffer.id }, data: { tripId } });
+
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.CANCELLED, null);
+
+      expect((await tripRepo.findById(tripId))?.status).toBe(TripStatus.ACTIVE);
+    });
+
+    it("la baja del transportista de su único envío expira el viaje active", async () => {
+      const { tripId, shipmentId, carrierId } = await activeTripWithShipment(null);
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { carrierWithdrawalPending: true } });
+
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, carrierId, undefined, {
+        carrierWithdrawal: { penaltyArs: 0 },
+      });
+
+      expect((await tripRepo.findById(tripId))?.status).toBe(TripStatus.EXPIRED);
+    });
+
+    it("cancelar un envío no toca un viaje declared (lo cierra cancelOverdueDeclared)", async () => {
+      const { shipmentId, trip } = await createAssignedWithTrip({ departureAt: new Date(Date.now() + HOUR_MS) });
+
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.CANCELLED, null);
+
+      expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.DECLARED);
     });
 
     it("expireActiveWithoutPackages no toca un declared sin paquetes ni un active con paquete entregado", async () => {

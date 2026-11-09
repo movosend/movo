@@ -5,8 +5,12 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HandshakeConfirmationResult } from "../../../../components/handshake/handshake-confirmation-result";
 import { HandshakeScanStep } from "../../../../components/handshake/handshake-scan-step";
+import { RatingSheet, type RatingTarget } from "../../../../components/shipments/rating-sheet";
 import type { ConfirmHandshakeResult } from "../../../../src/api/shipments-client";
+import { usePublicProfile } from "../../../../src/hooks/use-profile";
+import { useShipmentRatings } from "../../../../src/hooks/use-ratings";
 import { useShipment } from "../../../../src/hooks/use-shipments";
+import { useAuthStore } from "../../../../src/store/auth-store";
 
 /**
  * Escaneo del QR de quien recibe la custodia (MOVO-160), sin wizard: el receptor llega desde el CTA
@@ -15,12 +19,37 @@ import { useShipment } from "../../../../src/hooks/use-shipments";
  *
  * El estado confirmado es `HandshakeConfirmationResult` a pantalla completa, con su CTA horneado
  * adentro: este archivo solo decide a dónde va ese CTA y desde qué lado se lee el texto (en la
- * entrega quien escanea es el receptor, MOVO-346).
+ * entrega quien escanea es el receptor, MOVO-346). En la entrega el receptor puede calificar al
+ * transportista desde ahí mismo, como el transportista califica a sus contrapartes en su propio
+ * éxito (feedback de TestFlight, build 17).
  */
 export default function HandshakeScanScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: shipment } = useShipment(id);
   const [confirmedResult, setConfirmedResult] = useState<ConfirmHandshakeResult | null>(null);
+  const [ratingOpen, setRatingOpen] = useState(false);
+  // Se fija al tocar el botón: `RatingSheet` se resetea cuando cambia su `target`, y un objeto nuevo en cada render
+  // (perfil que llega tarde, refetch) borraba lo que el usuario estaba escribiendo.
+  const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
+  const myUserId = useAuthStore((state) => state.user?.userId);
+  const isDelivery = confirmedResult?.stage === "delivery";
+  const carrierId = isDelivery ? (shipment?.carrierId ?? undefined) : undefined;
+  const { data: ratings } = useShipmentRatings(id, { enabled: !!carrierId });
+  const { data: carrierProfile } = usePublicProfile(carrierId);
+  // Solo la mía: el endpoint devuelve las de todas las partes del envío (el emisor también califica al transportista).
+  const existingRating = carrierId ? ratings?.find((r) => r.raterId === myUserId && r.rateeId === carrierId) : undefined;
+  const openRating = () => {
+    if (!carrierId) return;
+    setRatingTarget({
+      userId: carrierId,
+      fullName: carrierProfile?.fullName ?? "Transportista",
+      photoUrl: carrierProfile?.photoUrl ?? null,
+      roleLabel: "Transportista",
+      rateeRole: "carrier",
+      existingRating,
+    });
+    setRatingOpen(true);
+  };
 
   const title = shipment?.status === "in_transit" ? "Confirmar entrega" : "Confirmar retiro";
 
@@ -33,7 +62,28 @@ export default function HandshakeScanScreen() {
           viewer={confirmedResult.stage === "delivery" ? "receiver" : "carrier"}
           ctaLabel="Volver a Inicio"
           onCtaPress={() => router.replace("/")}
+          secondaryCtas={
+            carrierId
+              ? [
+                  {
+                    id: "carrier",
+                    label: existingRating ? "Ya calificaste al transportista" : "Calificar al transportista",
+                    onPress: openRating,
+                  },
+                ]
+              : undefined
+          }
         />
+        {id ? (
+          <RatingSheet
+            testID="handshake-scan-rating-sheet"
+            shipmentId={id}
+            target={ratingTarget}
+            visible={ratingOpen}
+            onClose={() => setRatingOpen(false)}
+            onSuccess={() => setRatingOpen(false)}
+          />
+        ) : null}
       </SafeAreaView>
     );
   }

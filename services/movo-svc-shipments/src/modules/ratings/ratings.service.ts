@@ -75,8 +75,13 @@ type ServiceLogger =
   | FastifyBaseLogger
   | { warn: (obj: unknown, msg?: string) => void };
 
+/** Roles que cuentan "como emisor" (pestaña del perfil y desglose `asSender`): lo recibido
+ * como receptor también es del lado cliente, y comparte categorías con el emisor. */
+export const PROFILE_SENDER_RATING_ROLES: readonly RatingRole[] = [RatingRole.sender, RatingRole.receiver];
+
 /** AC1: rol del usuario dentro de ESTE envío en particular. `null` si no es ninguna de
  * las tres partes -- el caller decide qué `ApiError` corresponde. */
+
 function resolveShipmentRole(shipment: Shipment, userId: string): RatingRole | null {
   if (userId === shipment.senderId) {
     return RatingRole.sender;
@@ -372,8 +377,26 @@ export function createRatingsService(
       userId: string,
       limit: number,
       cursor?: string,
+      roles?: readonly RatingRole[],
     ): Promise<{ items: Rating[]; nextCursor: string | null }> {
-      return ratingRepository.listRecentByRateePaginated(userId, limit, cursor);
+      return ratingRepository.listRecentByRateePaginated(userId, limit, cursor, roles);
+    },
+
+    /**
+     * Las últimas `limit` del perfil público: todas y las de cada pestaña por separado, en una sola llamada de
+     * `svc-users`. Filtrar las generales por rol dejaba vacía una pestaña con reseñas más viejas. La de emisor suma las
+     * recibidas como receptor (`PROFILE_SENDER_RATING_ROLES`): no tienen pestaña propia.
+     */
+    async listRecentRatingsByRoleForUser(
+      userId: string,
+      limit: number,
+    ): Promise<{ all: Rating[]; asSender: Rating[]; asCarrier: Rating[] }> {
+      const [all, asSender, asCarrier] = await Promise.all([
+        ratingRepository.listRecentByRateePaginated(userId, limit),
+        ratingRepository.listRecentByRateePaginated(userId, limit, undefined, PROFILE_SENDER_RATING_ROLES),
+        ratingRepository.listRecentByRateePaginated(userId, limit, undefined, [RatingRole.carrier]),
+      ]);
+      return { all: all.items, asSender: asSender.items, asCarrier: asCarrier.items };
     },
 
     /**
@@ -405,11 +428,10 @@ export function createRatingsService(
       // AC3: "asSender"/"asCarrier" son el MISMO cálculo (`computeReputationScore`,
       // AC1) restringido a las calificaciones recibidas en ese rol -- `role` acá es el
       // rol del CALIFICADO en cada envío puntual (models/rating.ts), no un rol de
-      // cuenta. Las calificaciones como `receiver` entran al global pero no tienen
-      // desglose propio -- AC3 solo pide sender/carrier porque es la reputación de
-      // transportista la que importa al elegir una oferta (MOVO-17/23).
+      // cuenta. Las calificaciones como `receiver` cuentan en `asSender` (lado cliente,
+      // mismas categorías), así el puntaje de la pestaña "Como emisor" coincide con sus reseñas.
       const global = computeReputationScore(ratings, params);
-      const senderRatings = ratings.filter((r) => r.role === RatingRole.sender);
+      const senderRatings = ratings.filter((r) => PROFILE_SENDER_RATING_ROLES.includes(r.role));
       const carrierRatings = ratings.filter((r) => r.role === RatingRole.carrier);
       const asSender = computeReputationScore(senderRatings, params);
       const asCarrier = computeReputationScore(carrierRatings, params);

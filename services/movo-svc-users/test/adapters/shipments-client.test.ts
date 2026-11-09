@@ -144,6 +144,16 @@ describe("ShipmentsClient (adapter concreto)", () => {
       expect(result.nextCursor).toBe("abc123");
     });
 
+    it("manda el rol en la query cuando se pide uno (la pestaña de emisor incluye las recibidas como receptor)", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null }) });
+
+      await client.findRecentRatingComments("user-1", 10, undefined, "carrier");
+      await client.findRecentRatingComments("user-1", 10, undefined, "sender");
+
+      expect(fetchMock.mock.calls[0][0]).toBe("http://svc-shipments.test/internal/users/user-1/ratings/recent?limit=10&role=carrier");
+      expect(fetchMock.mock.calls[1][0]).toBe("http://svc-shipments.test/internal/users/user-1/ratings/recent?limit=10&role=sender,receiver");
+    });
+
     it("devuelve items vacío pasa a través solo si el body ya viene vacío -- no swallowea errores", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null }) });
 
@@ -156,6 +166,26 @@ describe("ShipmentsClient (adapter concreto)", () => {
       fetchMock.mockResolvedValue({ ok: false, status: 500 });
 
       await expect(client.findRecentRatingComments("user-1", 10)).rejects.toThrow(/500/);
+    });
+  });
+
+  describe("findRecentRatingCommentsByRole", () => {
+    it("pega una sola vez a /ratings/recent-by-role y mapea las tres listas a los campos del contrato", async () => {
+      const row = { id: "r1", raterId: "u2", rateeId: "user-1", role: "carrier", score: 4, comment: "ok", createdAt: "2026-11-01T00:00:00.000Z" };
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ all: [row], asSender: [], asCarrier: [row] }) });
+
+      const result = await client.findRecentRatingCommentsByRole("user-1", 10);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe("http://svc-shipments.test/internal/users/user-1/ratings/recent-by-role?limit=10");
+      const raw = { id: "r1", raterId: "u2", score: 4, comment: "ok", createdAt: "2026-11-01T00:00:00.000Z" };
+      expect(result).toEqual({ all: [raw], asSender: [], asCarrier: [raw] });
+    });
+
+    it("lanza ante una respuesta no-ok", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 404 });
+
+      await expect(client.findRecentRatingCommentsByRole("user-1", 10)).rejects.toThrow(/404/);
     });
   });
 

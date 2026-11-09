@@ -91,6 +91,7 @@ function buildService(overrides: { getSessionDecision?: DiditClient["getSessionD
       throw new Error("no usado en este test");
     },
     getSessionDecision: overrides.getSessionDecision ?? (async () => null),
+    async updateSessionStatus() {},
   };
   const db = { $transaction: (callback: (tx: unknown) => unknown) => callback({}) } as unknown as PrismaClient;
   const service = createKycService(db, didit, WEBHOOK_SECRET, logger as unknown as FastifyBaseLogger, notifications);

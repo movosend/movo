@@ -5090,7 +5090,7 @@ Informe en `docs/pruebas/2026-10-25-flujo-completo.md`. Un commit por punto; el 
 - **Entrega**: el paso 1 sigue informativo con textos que no sugieren una validación; `getCurrentLocation({ highAccuracy })` solo en el handshake.
 - **Modales**: `AcceptSuccessModal`, su copia en `shipment-confirmation-sheets.tsx` y `ChooseOfferSuccessModal` llegan al borde en Android (`statusBarTranslucent` + `navigationBarTranslucent`), con el contenido en `SafeAreaView`. Falta verlo en un Android real.
 
-### Registro de 4 pasos sin nombre, DNI ni dirección (DD-063)
+### Registro de 4 pasos sin nombre, DNI ni dirección (DD-065)
 
 `register.tsx` pasa de 7 pasos a 4: email y teléfono, código SMS, contraseña, revisión. Se sacaron nombre, apellido, DNI, dirección y mapa:
 el nombre y el DNI los completa Didit al aprobar el KYC (`svc-users`), y la dirección se carga desde la libreta. `use-registration.tsx` queda con
@@ -5100,3 +5100,20 @@ del perfil, y `kyc.tsx` avisa que el nombre y el número salen del documento. Te
 La barra "Paso x" cuenta solo los pasos que se ven: con el teléfono ya verificado el código SMS deja de contar (`src/lib/register-steps.ts`, estado `otpSkipped` en `register.tsx`).
 La Política de Privacidad y los Términos se actualizaron (versión 2026-11-09): el nombre, el número de documento y la fecha de nacimiento salen del documento y no se editan; los builds anteriores
 no pueden registrarse hasta actualizar (`LEGAL_DOCUMENT_VERSION_MISMATCH`).
+### Feedback de TestFlight builds 16 y 17
+
+- **"Usar mi ubicación actual"**: si falla el reverse-geocode, `useMyLocation` avisa ("Escribila en el buscador") y no devuelve nada, en vez de guardar "Ubicación actual" como dirección. La pestaña Transportar pasa `requireAddress: false`: ese origen no se guarda y conserva el GPS.
+- **Viaje en curso con 0 paquetes**: `splitCarrierHomeTrips` ignora un `active` sin paquetes, y `useTripsSync` (montado con `useChatUnreadSync`) refresca los viajes con la push `shipment_cancelled` y al volver a primer plano.
+- **"Ventana vencida"**: `activeShipmentPickupWindowLabel` antepone el día ("dom 25/10 · 21:00 a 23:00 h") cuando la ventana venció otro día; antes la franja sola parecía futura.
+- **Viaje**: iniciarlo desde Inicio abre el mapa, como desde el detalle. El botón de la parada dice "Ver detalle".
+- **Inicio sin envíos viejos** (`home-visibility.ts`): un envío cerrado sin completarse (cancelado, vencido, rechazado) se ve en "Actividad reciente" el día del cierre y el siguiente, en días calendario; antes eran 48 h corridas. Uno abierto sin retirar, con el retiro antes de ayer, sale de "Actividad reciente" salvo que pida una acción, y de las cards "Estoy enviando"/"Voy a recibir" si tiene la ventana vencida (salvo el `assigned_unfunded` del emisor, que espera su pago). Los días se cuentan en hora argentina, como el backend. Todos siguen en "Mis envíos". `delivered`/`completed` no cambian.
+### Feedback de TestFlight build 17 (segunda tanda)
+
+- **Calificar desde el éxito de la entrega**: `HandshakeConfirmationResult` acepta una lista de CTAs secundarios (`secondaryCtas`). El transportista califica al emisor y al receptor (uno solo si son la misma persona); el receptor, al transportista desde `handshake-scan.tsx`.
+- **Reseñas por rol**: la tarjeta del perfil y el perfil ajeno usan `recentRatingCommentsByRole` (`ratingCommentsForRole` en `profile-format.ts`, que cae a la lista general si no llega). "Como emisor" incluye las recibidas como receptor, y aparece también sin envíos hechos si hay reseñas de ese lado (`hasSenderSide`). Con `?role=`, el encabezado de "Ver todas" muestra el puntaje y el conteo de ese rol. "Ver todas" (`?role=`) pagina con `GET /users/:id/ratings` (`useUserRatings`); antes mostraba solo las 10 del perfil. El perfil propio se refresca al tirar hacia abajo y con `useProfileSync` (push `rating_received` y vuelta a primer plano, `useInvalidateOnPushOrForeground`, compartido con `useTripsSync`).
+- **Calificación propia**: los botones de calificar de los éxitos buscan la calificación por `raterId` y `rateeId`: `GET /shipments/:id/ratings` trae las de todas las partes.
+- **Mis ofertas**: una oferta `accepted` cuyo envío está entregado o cancelado va a "Cerradas" como "Completada"/"Cancelada" (`acceptedOfferOutcome` en `offer-format.ts`); la oferta no tiene estado de cierre propio. Se oculta la `assignment_lapsed` del mismo envío si después volvieron a aceptarte. El banner "Te eligieron" de `transport/[id].tsx` cambia de texto con el envío terminado.
+- **Dirección tras mover el pin**: `resolvePinAddress` (`src/lib/pin-address.ts`, con tope de 8 s) vuelve a resolver la dirección en el wizard y en las direcciones guardadas; si falla queda "Ubicación en el mapa", nunca el texto anterior. Mientras busca, la selección va con `resolving: true` (`AddressSelection`) y `isAddressSelectionReady` no deja guardarla ni avanzar el wizard o el formulario de viaje.
+- **Soporte**: con el tema "Envío" hay que elegir el envío (sin "No es sobre un envío"). El backend todavía acepta `topic=shipment` sin envío, para no romper la build 17 que tienen los testers.
+- **"Pagar mi saldo"**: la hoja se vuelve a montar en cada toque (`key`) y el atajo `?pay=1` la abre después de la transición; el param se limpia recién al abrir (limpiarlo antes cancelaba la apertura). La causa no se pudo confirmar; la hipótesis es un `Modal` de iOS que no se presentó y dejó `payOpen` trabado en `true`.
+- Copy y detalles: "Retiro confirmado"/"Entrega confirmada" también en la fila "Etapa"; el marcador del seguimiento en vivo es un auto. Pendiente: el "se ve horrible" de la reputación en tema claro, a la espera de que Juan Cruz diga qué parte.

@@ -117,6 +117,35 @@ describe("CarrierTransportingSection", () => {
     });
   });
 
+  it("al iniciar el viaje desde Inicio abre el mapa del viaje", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: {
+        items: [
+          {
+            id: "t-start",
+            carrierId: "c1",
+            originAddress: "Av. Colón 100, Córdoba",
+            destinationAddress: "San Martín 200, Villa Carlos Paz",
+            departureAt: new Date().toISOString(),
+            status: TripStatus.DECLARED,
+            hasAcceptedPackages: true,
+            acceptedPackagesCount: 1,
+          },
+        ],
+        total: 1,
+      },
+    });
+    mockStartTripMutateAsync.mockResolvedValueOnce({});
+
+    const { getByText } = await render(<CarrierTransportingSection />);
+    await act(async () => {
+      fireEvent.press(getByText("Iniciar viaje"));
+    });
+
+    expect(mockStartTripMutateAsync).toHaveBeenCalledWith("t-start");
+    expect(router.push).toHaveBeenCalledWith({ pathname: "/route", params: { tripId: "t-start" } });
+  });
+
   it("muestra banner de error si la mutación falla con 409", async () => {
     const today = new Date().toISOString();
     mockUseMyTrips.mockReturnValue({
@@ -150,6 +179,7 @@ describe("CarrierTransportingSection", () => {
       "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez.",
     );
     expect(errorMsg).toBeTruthy();
+    expect(router.push).not.toHaveBeenCalled();
   });
 
   it("MOVO-117: un 403 por requisitos al iniciar abre la checklist en vez del banner de error", async () => {

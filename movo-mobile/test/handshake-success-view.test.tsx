@@ -28,7 +28,7 @@ describe("HandshakeSuccessView (MOVO-159)", () => {
     const onBack = jest.fn();
     const onHome = jest.fn();
 
-    const { getByText, getByTestId } = await render(
+    const { getByText, getAllByText, getByTestId } = await render(
       <HandshakeSuccessView
         shipment={baseShipment}
         stage="pickup"
@@ -39,9 +39,9 @@ describe("HandshakeSuccessView (MOVO-159)", () => {
 
     expect(Haptics.notificationAsync).toHaveBeenCalledWith("success");
     expect(getByTestId("handshake-success-badge")).toBeTruthy();
-    expect(getByText("Retiro confirmado")).toBeTruthy();
+    // Título y fila "Etapa" usan la misma palabra.
+    expect(getAllByText("Retiro confirmado")).toHaveLength(2);
     expect(getByText("Movo-shp-1234")).toBeTruthy();
-    expect(getByText("Retiro completado")).toBeTruthy();
 
     await fireEvent.press(getByTestId("handshake-success-back"));
     expect(onBack).toHaveBeenCalledTimes(1);
@@ -56,7 +56,7 @@ describe("HandshakeSuccessView (MOVO-159)", () => {
       status: ShipmentStatus.DELIVERED,
     };
 
-    const { getByText } = await render(
+    const { getByText, getAllByText } = await render(
       <HandshakeSuccessView
         shipment={deliveryShipment}
         stage="delivery"
@@ -65,14 +65,13 @@ describe("HandshakeSuccessView (MOVO-159)", () => {
       />
     );
 
-    expect(getByText("Entrega confirmada")).toBeTruthy();
+    expect(getAllByText("Entrega confirmada")).toHaveLength(2);
     expect(
       getByText(
         "El envío figura como entregado. Estamos procesando el pago; te avisamos cuando se acredite."
       )
     ).toBeTruthy();
     expect(getByText("Entregado")).toBeTruthy();
-    expect(getByText("Entrega completada")).toBeTruthy();
   });
 
   it("renderiza correctamente para la etapa de entrega (delivery) cuando el pago ya fue acreditado (COMPLETED)", async () => {
@@ -81,7 +80,7 @@ describe("HandshakeSuccessView (MOVO-159)", () => {
       status: ShipmentStatus.COMPLETED,
     };
 
-    const { getByText } = await render(
+    const { getByText, getAllByText } = await render(
       <HandshakeSuccessView
         shipment={completedShipment}
         stage="delivery"
@@ -90,11 +89,10 @@ describe("HandshakeSuccessView (MOVO-159)", () => {
       />
     );
 
-    expect(getByText("Entrega confirmada")).toBeTruthy();
+    expect(getAllByText("Entrega confirmada")).toHaveLength(2);
     expect(
       getByText("El envío figura como completado y el pago fue acreditado.")
     ).toBeTruthy();
     expect(getByText("Completado")).toBeTruthy();
-    expect(getByText("Entrega completada")).toBeTruthy();
   });
 });

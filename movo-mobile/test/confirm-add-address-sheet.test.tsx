@@ -5,6 +5,11 @@ jest.mock("../src/hooks/use-addresses", () => ({
   useCreateAddress: jest.fn(),
 }));
 
+const mockReverseGeocode = jest.fn();
+jest.mock("../src/api/geocode-client", () => ({
+  geocodeClient: { reverseGeocode: (lat: number, lng: number) => mockReverseGeocode(lat, lng) },
+}));
+
 import { useCreateAddress } from "../src/hooks/use-addresses";
 
 const mockUseCreateAddress = useCreateAddress as jest.Mock;
@@ -146,6 +151,31 @@ describe("ConfirmAddAddressSheet", () => {
         lat: -31.42,
         long: -64.19,
       }),
+    );
+  });
+  it("al mover el pin guarda la dirección del punto nuevo", async () => {
+    mockReverseGeocode.mockResolvedValue({ formattedAddress: "Av. Colón 1200, Córdoba, Argentina" });
+    const mutateAsync = jest.fn().mockResolvedValue(undefined);
+    mockUseCreateAddress.mockReturnValue({ mutateAsync, isPending: false });
+
+    const { getByTestId, findByText } = await render(
+      <ConfirmAddAddressSheet visible selection={SELECTION} onClose={jest.fn()} onSaved={jest.fn()} testID="confirm-sheet" />,
+    );
+
+    await act(async () => {
+      fireEvent(getByTestId("confirm-sheet-marker"), "dragEnd", {
+        nativeEvent: { coordinate: { latitude: -31.41, longitude: -64.2 } },
+      });
+      await Promise.resolve();
+    });
+    expect(await findByText("Av. Colón 1200, Córdoba, Argentina")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(getByTestId("confirm-sheet-save"));
+      await Promise.resolve();
+    });
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ street: "Av. Colón", streetNumber: "1200", lat: -31.41, long: -64.2 }),
     );
   });
 });

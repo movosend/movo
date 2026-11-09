@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import { BalanceTab } from "../components/payments/balance-tab";
 
 const mockFetchNextPage = jest.fn();
@@ -10,7 +10,17 @@ jest.mock("../src/hooks/use-balance", () => ({
   useBalance: () => ({ data: { pages: [mockPage] }, isPending: false, isError: false, isRefetching: false, isFetchingNextPage: false, hasNextPage: mockHasNextPage, fetchNextPage: mockFetchNextPage, refetch: mockRefetch }),
 }));
 jest.mock("../src/hooks/use-saved-cards", () => ({ useSavedCards: () => ({ data: [] }) }));
-jest.mock("../components/payments/balance-pay-sheet", () => ({ BalancePaySheet: () => null }));
+const mockSheetMounts: { visible: boolean }[] = [];
+jest.mock("../components/payments/balance-pay-sheet", () => {
+  const { useEffect } = require("react");
+  return {
+    BalancePaySheet: (props: { visible: boolean }) => {
+      // Una entrada por montaje: la hoja se vuelve a montar en cada apertura.
+      useEffect(() => { mockSheetMounts.push({ visible: props.visible }); }, []);
+      return null;
+    },
+  };
+});
 const mockPush = jest.fn();
 jest.mock("expo-router", () => ({ router: { push: (...args: unknown[]) => mockPush(...args) } }));
 
@@ -21,7 +31,7 @@ const movement = {
 };
 
 describe("BalanceTab (MOVO-315)", () => {
-  beforeEach(() => { jest.clearAllMocks(); mockHasNextPage = false; mockPage = { balanceArs: 6100, oldestUnpaidAt: "2026-09-20T12:00:00.000Z", items: [movement], nextCursor: null }; });
+  beforeEach(() => { jest.clearAllMocks(); mockSheetMounts.length = 0; mockHasNextPage = false; mockPage = { balanceArs: 6100, oldestUnpaidAt: "2026-09-20T12:00:00.000Z", items: [movement], nextCursor: null }; });
 
   it("muestra deuda, rol, origen y acceso al envío", async () => {
     const screen = await render(<BalanceTab />);
@@ -97,5 +107,26 @@ describe("BalanceTab (MOVO-315)", () => {
     expect(screen.getByText("En proceso")).toBeTruthy();
     expect(screen.getByTestId("balance-amount")).toHaveTextContent("$1.742,50");
     expect(screen.getByText("−$1.742,50")).toBeTruthy();
+  });
+  it("cada toque de 'Pagar mi saldo' vuelve a montar la hoja abierta (si iOS no la presentó, el próximo toque sí)", async () => {
+    const screen = await render(<BalanceTab />);
+    expect(mockSheetMounts).toEqual([{ visible: false }]);
+
+    await fireEvent.press(screen.getByTestId("balance-pay-button"));
+    expect(mockSheetMounts.at(-1)).toEqual({ visible: true });
+    const mountsAfterFirst = mockSheetMounts.length;
+
+    await fireEvent.press(screen.getByTestId("balance-pay-button"));
+    expect(mockSheetMounts.length).toBe(mountsAfterFirst + 1);
+    expect(mockSheetMounts.at(-1)).toEqual({ visible: true });
+  });
+  it("el atajo ?pay=1 abre la hoja aunque el padre limpie el param al abrirla", async () => {
+    const onPayOpened = jest.fn();
+    const screen = await render(<BalanceTab openPay onPayOpened={onPayOpened} />);
+    await waitFor(() => expect(onPayOpened).toHaveBeenCalledTimes(1));
+    // El padre limpia `?pay=1`: el re-render con `openPay=false` no debe cancelar la apertura ya hecha.
+    await screen.rerender(<BalanceTab openPay={false} onPayOpened={onPayOpened} />);
+    expect(mockSheetMounts.at(-1)?.visible).toBe(true);
+    expect(onPayOpened).toHaveBeenCalledTimes(1);
   });
 });

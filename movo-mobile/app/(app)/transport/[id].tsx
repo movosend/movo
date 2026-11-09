@@ -273,6 +273,13 @@ export default function TransportShipmentDetailScreen() {
   // ya pasó a `accepted` y dejó de aparecer ahí.
   const isAssignedToMe =
     !!currentUser?.userId && shipment?.carrierId === currentUser.userId;
+  // Un envío ya terminado no es "te eligieron, el viaje arranca el…" (feedback de TestFlight, build 17).
+  const assignedOutcome =
+    shipment?.status === ShipmentStatus.DELIVERED || shipment?.status === ShipmentStatus.COMPLETED
+      ? "completed"
+      : shipment?.status === ShipmentStatus.CANCELLED
+        ? "cancelled"
+        : null;
 
   const openProfile = (userId: string) => router.push(`/profile/${userId}`);
 
@@ -466,7 +473,11 @@ export default function TransportShipmentDetailScreen() {
               >
                 <View className="flex-row items-center justify-between gap-2">
                   <Text className="font-sans-semibold text-small text-lime-800 dark:text-lime-300">
-                    Te eligieron para este envío
+                    {assignedOutcome === "completed"
+                      ? "Entregaste este envío"
+                      : assignedOutcome === "cancelled"
+                        ? "Este envío se canceló"
+                        : "Te eligieron para este envío"}
                   </Text>
                   <ChevronRight size={16} strokeWidth={2} color={activeOfferAccentColor} />
                 </View>
@@ -479,9 +490,17 @@ export default function TransportShipmentDetailScreen() {
                   testID="transport-assigned-to-me-detail"
                   className="mt-1.5 font-sans text-[13px] leading-[19px] text-lime-800/80 dark:text-lime-200/80"
                 >
-                  El viaje arranca el {effectivePickupDateLabel}, de{" "}
-                  {formatTimeRange(effectivePickupTimeWindowStart, effectivePickupTimeWindowEnd)}. Ese día retirás el
-                  paquete y arrancás el viaje hasta la entrega.
+                  {assignedOutcome === "completed" ? (
+                    "Lo que cobraste y la calificación están en el detalle del envío."
+                  ) : assignedOutcome === "cancelled" ? (
+                    "Ya no tenés que retirarlo. El motivo está en el detalle del envío."
+                  ) : (
+                    <>
+                      El viaje arranca el {effectivePickupDateLabel}, de{" "}
+                      {formatTimeRange(effectivePickupTimeWindowStart, effectivePickupTimeWindowEnd)}. Ese día retirás el
+                      paquete y arrancás el viaje hasta la entrega.
+                    </>
+                  )}
                 </Text>
                 <Text className="mt-2.5 font-sans-semibold text-[13px] text-lime-800 dark:text-lime-300">
                   Ver detalle del envío

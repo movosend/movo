@@ -26,7 +26,7 @@ function createShipment(
     deliveryAddress: "Bv. San Juan 500, Córdoba",
     deliveryLat: -31.41,
     deliveryLng: -64.19,
-    pickupDate: "2026-08-20",
+    pickupDate: "2026-10-02",
     pickupTimeWindowStart: "09:00",
     pickupTimeWindowEnd: "12:00",
     suggestedPriceArs: 4500,
@@ -88,22 +88,56 @@ describe("selectRecentShipments (MOVO-184)", () => {
     expect(resultReceptor.map((s) => s.id)).toEqual(["ong", "rej"]);
   });
 
-  it("AC2: cancelled y rejected_by_receiver (receptor) expiran a las 48h desde lastStatusChangedAt", () => {
-    const _47_HOURS_AGO = new Date(NOW.getTime() - 47 * 60 * 60 * 1000).toISOString();
-    const _49_HOURS_AGO = new Date(NOW.getTime() - 49 * 60 * 60 * 1000).toISOString();
+  describe("AC2: se ve el día en que se cerró o venció y el siguiente (días calendario)", () => {
+    // Hora argentina (UTC-3): la regla es por día del calendario argentino, no por 48 h corridas ni por el
+    // calendario del dispositivo (CI corre en UTC).
+    const argentina = (day: number, hour: number) => new Date(Date.UTC(2026, 9, day, hour + 3, 0));
+    const LOCAL_NOW = argentina(2, 10); // vie 02/10 10:00
+    const at = (day: number, hour: number) => argentina(day, hour).toISOString();
 
-    const cancelledNew = createShipment("can-new", _47_HOURS_AGO, ShipmentStatus.CANCELLED);
-    const cancelledOld = createShipment("can-old", _49_HOURS_AGO, ShipmentStatus.CANCELLED);
-    
-    // rejected viejo (para el receptor es historial que expira, para el emisor no expira de la vista en este filtro, 
-    // pero si pierde el action level 1 si ya pasó la re-designación, bajando a nivel 2. 
-    // Aquí testeamos como receptor para ver si se oculta)
-    const rejectedOld = createShipment("rej-old", _49_HOURS_AGO, ShipmentStatus.REJECTED_BY_RECEIVER);
+    it("un cancelado se ve el día del cierre y el siguiente, aunque pasen más de 24 h", () => {
+      const today = createShipment("today", at(2, 1), ShipmentStatus.CANCELLED);
+      const yesterdayEarly = createShipment("yesterday", at(1, 0), ShipmentStatus.CANCELLED);
+      const twoDaysAgoLate = createShipment("two-days", at(0, 23), ShipmentStatus.CANCELLED);
 
-    const items = [cancelledNew, cancelledOld, rejectedOld];
-    const result = selectRecentShipments(items, USER_2, { now: NOW });
+      const result = selectRecentShipments([today, yesterdayEarly, twoDaysAgoLate], USER_2, { now: LOCAL_NOW });
 
-    expect(result.map((s) => s.id)).toEqual(["can-new"]);
+      expect(result.map((s) => s.id).sort()).toEqual(["today", "yesterday"]);
+    });
+
+    it("rejected_by_receiver (visto por el receptor) sigue la misma regla", () => {
+      const rejectedOld = createShipment("rej-old", at(0, 12), ShipmentStatus.REJECTED_BY_RECEIVER);
+
+      expect(selectRecentShipments([rejectedOld], USER_2, { now: LOCAL_NOW })).toEqual([]);
+    });
+
+    it("un envío abierto sin retirar con el retiro antes de ayer sale de Inicio (ventana vencida)", () => {
+      const assignedOld = createShipment("assigned-old", at(1, 9), ShipmentStatus.ASSIGNED, {
+        pickupDate: "2026-09-30",
+      });
+      const assignedYesterday = createShipment("assigned-yesterday", at(1, 9), ShipmentStatus.ASSIGNED, {
+        pickupDate: "2026-10-01",
+      });
+
+      const result = selectRecentShipments([assignedOld, assignedYesterday], USER_1, { now: LOCAL_NOW });
+
+      expect(result.map((s) => s.id)).toEqual(["assigned-yesterday"]);
+    });
+
+    it("un envío vencido que todavía pide una acción se queda", () => {
+      const rejected = createShipment("rej", at(1, 9), ShipmentStatus.REJECTED_BY_RECEIVER, {
+        pickupDate: "2026-09-25",
+        receiverRedesignationDeadline: at(3, 9), // plazo vivo para el emisor
+      });
+
+      expect(selectRecentShipments([rejected], USER_1, { now: LOCAL_NOW }).map((s) => s.id)).toEqual(["rej"]);
+    });
+
+    it("in_transit no vence por la fecha de retiro (ya se retiró)", () => {
+      const inTransit = createShipment("transit", at(1, 9), ShipmentStatus.IN_TRANSIT, { pickupDate: "2026-09-20" });
+
+      expect(selectRecentShipments([inTransit], USER_1, { now: LOCAL_NOW }).map((s) => s.id)).toEqual(["transit"]);
+    });
   });
 
   it("AC2: delivered y completed no expiran nunca", () => {

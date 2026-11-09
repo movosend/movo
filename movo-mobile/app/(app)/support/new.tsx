@@ -8,7 +8,7 @@ import { useMemo, useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ReportDraftPhotoRow, DRAFT_THUMB_SIZE } from "../../../components/profile/report-photos";
-import { ShipmentSelectField } from "../../../components/support/shipment-select-field";
+import { NO_SHIPMENTS_MESSAGE, ShipmentSelectField } from "../../../components/support/shipment-select-field";
 import { SelectField } from "../../../components/ui/select-field";
 import { TextField } from "../../../components/ui/text-field";
 import { useSupportShipments } from "../../../src/hooks/use-support";
@@ -28,8 +28,8 @@ const TOPIC_LABELS = SUPPORT_TOPIC_OPTIONS.map((option) => option.label);
 const formatCount = (value: number) => String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 
 /**
- * MOVO-324: "Nueva consulta" (modal). Tema sin valor por defecto, envío vinculado opcional ("No es sobre un envío"
- * por defecto), texto y hasta 4 fotos. Abierta desde el detalle de un envío (`?shipmentId=`) llega con tema Envío y ese
+ * MOVO-324: "Nueva consulta" (modal). Tema sin valor por defecto; con el tema Envío hay que elegir el envío (los demás
+ * temas no lo piden), texto y hasta 4 fotos. Abierta desde el detalle de un envío (`?shipmentId=`) llega con tema Envío y ese
  * envío ya vinculado. "Enviar consulta" pasa directo a la conversación (`support/pending`), que hace el POST.
  */
 export default function NewSupportRequestScreen() {
@@ -61,7 +61,10 @@ export default function NewSupportRequestScreen() {
   }, [options, shipmentId]);
 
   const trimmed = text.trim();
-  const canSubmit = !!topic && trimmed.length > 0 && trimmed.length <= SUPPORT_MESSAGE_MAX_LENGTH && !photos.hasPending;
+  const needsShipment = topic === "shipment" && !shipmentId;
+  const noShipments = needsShipment && !shipmentsQuery.isLoading && !shipmentsQuery.isError && options.length === 0;
+  const canSubmit =
+    !!topic && !needsShipment && trimmed.length > 0 && trimmed.length <= SUPPORT_MESSAGE_MAX_LENGTH && !photos.hasPending;
 
   const onTopicChange = (label: string) => {
     const next = SUPPORT_TOPIC_OPTIONS.find((option) => option.label === label)?.value ?? null;
@@ -113,17 +116,24 @@ export default function NewSupportRequestScreen() {
           </View>
 
           {topic === "shipment" ? (
-            <ShipmentSelectField
-              label="Envío vinculado (opcional)"
-              selected={selected}
-              options={options}
-              isLoading={shipmentsQuery.isLoading}
-              isError={shipmentsQuery.isError}
-              onRetry={() => void shipmentsQuery.refetch()}
-              hasMore={!!shipmentsQuery.hasNextPage}
-              onLoadMore={() => void shipmentsQuery.fetchNextPage()}
-              onChange={(option) => setShipmentId(option?.id ?? null)}
-            />
+            <View className="gap-1.5">
+              <ShipmentSelectField
+                label="¿Qué envío?"
+                selected={selected}
+                options={options}
+                isLoading={shipmentsQuery.isLoading}
+                isError={shipmentsQuery.isError}
+                onRetry={() => void shipmentsQuery.refetch()}
+                hasMore={!!shipmentsQuery.hasNextPage}
+                onLoadMore={() => void shipmentsQuery.fetchNextPage()}
+                onChange={(option) => setShipmentId(option.id)}
+              />
+              {noShipments ? (
+                <Text testID="support-no-shipments" className="font-sans text-small text-fg-3">
+                  {NO_SHIPMENTS_MESSAGE}
+                </Text>
+              ) : null}
+            </View>
           ) : null}
 
           <View>

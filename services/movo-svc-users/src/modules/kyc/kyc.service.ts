@@ -105,7 +105,7 @@ export interface DiditWebhookPayload {
   [key: string]: unknown;
 }
 
-interface DecisionWarning {
+export interface DecisionWarning {
   feature: string;
   risk: string;
   description: string;
@@ -119,7 +119,7 @@ interface DecisionWarning {
  * item que lo contiene (que sí puede traer PII, como `id_verifications[].address`).
  * Devuelve `[]` si `decision` falta o no tiene la forma esperada — nunca tira.
  */
-function extractDecisionWarnings(decision: unknown): DecisionWarning[] {
+export function extractDecisionWarnings(decision: unknown): DecisionWarning[] {
   if (!decision || typeof decision !== "object") {
     return [];
   }
@@ -553,6 +553,124 @@ export function createKycService(
   }
 
   return {
+    /**
+     * Resuelve desde el panel de admin un intento en `manual_review`: le pide a Didit que
+     * cierre la sesión (`update-status`) y aplica la decisión acá mismo por
+     * `applyTerminalDecision`, el mismo camino que usa el webhook. No espera al webhook de
+     * Didit: si llega después, la fila ya está resuelta, `applyTerminalDecision` devuelve
+     * `null` y no hay un segundo push.
+     *
+     * Dos admins a la vez no llegan acá: la ruta toma un lock por sesión antes (ver `kyc-review-internal.routes.ts`).
+     *
+     * Solo se puede decidir el último intento del usuario: `createSession` deja vivo un
+     * `manual_review` viejo si el usuario abre una sesión nueva, y decidirlo pisaría el
+     * estado de la sesión más reciente. Si Didit responde 2xx pero la escritura local falla,
+     * el intento sigue en `manual_review` y `reconcilePendingAttempt` lo corrige en el
+     * próximo "actualizar estado" del usuario.
+     */
+    async decideManualReview(input: {
+      externalSessionId: string;
+      decision: KycStatus.APPROVED | KycStatus.REJECTED;
+      reason: string;
+    }): Promise<KycVerification> {
+      const attempt = await kycVerificationRepository.findByExternalSessionId(input.externalSessionId);
+      if (!attempt) {
+        throw new ApiError(404, "KYC_SESSION_NOT_FOUND", "No existe esa verificación.");
+      }
+      if (attempt.status !== KycStatus.MANUAL_REVIEW) {
+        throw new ApiError(409, "KYC_REVIEW_STATUS_CHANGED", "La verificación ya no está en revisión manual.");
+      }
+      const latest = await kycVerificationRepository.findLatestByUserId(attempt.userId, attempt.verificationType);
+      if (!latest || latest.id !== attempt.id) {
+        throw new ApiError(409, "KYC_REVIEW_SUPERSEDED", "El usuario ya abrió una verificación más reciente.");
+      }
+
+      // Antes de pedir el cambio, lo que Didit ya tiene: la sesión pudo resolverse en su consola, o en un pedido anterior
+      // que quedó sin confirmar (`KYC_PROVIDER_UNCONFIRMED`). Si ya está resuelta, se aplica esa decisión acá y no se le
+      // pide otra a Didit (pisarla dejaría a Movo y a Didit en estados distintos). Si Didit no responde, todavía no se
+      // cambió nada: el `KYC_PROVIDER_ERROR` de esta lectura es un rechazo seguro.
+      const current = await diditClient.getSessionDecision(attempt.externalSessionId);
+      const already = current ? mapDiditStatusToKycStatus(current.rawStatus) : null;
+      if (current && already !== null && already !== KycStatus.MANUAL_REVIEW) {
+        const reconciled = await applyTerminalDecision(
+          attempt.externalSessionId,
+          already,
+          buildRedactedPulledDecision(current),
+          extractVerifiedIdentity(current.decision)
+        );
+        if (reconciled) {
+          logger.info(
+            { externalSessionId: attempt.externalSessionId, newStatus: already, event: "kyc_reconciled_before_decision" },
+            "kyc status transition (Didit ya la tenía resuelta al decidir desde el panel)"
+          );
+          await notifyDecision(reconciled, already);
+        }
+        throw new ApiError(409, "KYC_REVIEW_STATUS_CHANGED", "Didit ya tenía resuelta esta verificación: se aplicó su decisión.", {
+          status: already,
+        });
+      }
+
+      const approved = input.decision === KycStatus.APPROVED;
+
+      // Aprobar una identidad escribe el nombre, el DNI y la fecha de nacimiento del documento en la cuenta (DD-065), y esos
+      // datos son los que Didit ya extrajo en la sesión (`current`). Sin nombre y apellido legibles no hay con qué completar
+      // la cuenta: se corta ANTES de pedirle a Didit el cambio, así Movo y Didit no quedan en estados distintos. El admin
+      // puede rechazar, y la persona repite la verificación.
+      const identity = approved && attempt.verificationType === "identity" ? extractVerifiedIdentity(current?.decision) : null;
+      if (approved && attempt.verificationType === "identity" && !identity) {
+        throw new ApiError(
+          409,
+          "KYC_REVIEW_IDENTITY_MISSING",
+          "No se puede aprobar: el documento no trae un nombre y un apellido legibles. Rechazá la verificación para que la persona la repita."
+        );
+      }
+
+      await diditClient.updateSessionStatus({
+        sessionId: attempt.externalSessionId,
+        newStatus: approved ? "Approved" : "Declined",
+        comment: input.reason,
+      });
+
+      // Se conservan los `warnings` y el vencimiento ya redactados; el motivo del admin no se
+      // copia acá (vive en la bitácora de svc-admin, y puede mencionar datos de la persona).
+      const previous = (attempt.rawDecision && typeof attempt.rawDecision === "object" ? attempt.rawDecision : {}) as Record<
+        string,
+        unknown
+      >;
+      const resolved = await applyTerminalDecision(
+        attempt.externalSessionId,
+        input.decision,
+        {
+          ...previous,
+          status: approved ? "Approved" : "Declined",
+          reviewed_by_admin: true,
+        },
+        identity
+      );
+
+      if (!resolved) {
+        // Otra ruta (webhook de Didit o pull) lo resolvió entre la lectura y la escritura.
+        const current = await kycVerificationRepository.findByExternalSessionId(attempt.externalSessionId);
+        if (current && current.status === input.decision) {
+          return current;
+        }
+        throw new ApiError(409, "KYC_REVIEW_STATUS_CHANGED", "La verificación cambió de estado mientras se resolvía.");
+      }
+
+      logger.info(
+        {
+          userId: resolved.userId,
+          externalSessionId: resolved.externalSessionId,
+          verificationType: resolved.verificationType,
+          newStatus: input.decision,
+          event: "kyc_manual_review_decided",
+        },
+        "kyc status transition (decidida por un admin desde el panel)"
+      );
+      await notifyDecision(resolved, input.decision);
+      return resolved;
+    },
+
     async createSession(userId: string, verificationType: VerificationType): Promise<CreateKycSessionResult> {
       const user = await userRepository.findById(userId);
       if (!user) {

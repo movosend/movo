@@ -201,6 +201,8 @@ export const ADMIN_AUDIT_ACTIONS = [
   "admin_role.revoke",
   "dispute.note_add",
   "dispute.resolve",
+  "kyc.approve",
+  "kyc.decline",
   "report.export",
   "shipment.status_change",
   "support.assign",

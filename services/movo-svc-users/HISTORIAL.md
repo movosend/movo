@@ -1403,7 +1403,7 @@ quien escribe es transportista sin una llamada por fila. Aditivo; `svc-admin` to
 la bitácora). KYC cuenta el último intento de cada verificación de una cuenta viva, para que un reintento reemplace al abandonado; `carriers` son las licencias y `senders` las identidades. `blockRequested`:
 quien reportó además bloqueó al reportado. "Vencen hoy" es el día de Argentina. Lo consume `GET /admin/overview` de `svc-admin`.
 
-### Nombre, DNI y fecha de nacimiento desde el documento de Didit (DD-063)
+### Nombre, DNI y fecha de nacimiento desde el documento de Didit (DD-065)
 
 `POST /auth/register` ya no exige nombre, DNI ni dirección: la cuenta nace con `first_name`/`last_name` vacíos (las columnas siguen `NOT NULL`, sin migración) y `fullName()` hace
 `trim`. Los builds viejos siguen funcionando: `auth.schema.ts` conserva esos campos como opcionales (por `additionalProperties: false`), nombre y DNI se descartan y la dirección se
@@ -1413,4 +1413,25 @@ crea como predeterminada solo si viene. `kyc.service.ts#extractVerifiedIdentity`
 en `raw_decision`. El bloqueo `PROFILE_NAME_LOCKED_BY_KYC` no cambió. Tests: `kyc.push.test.ts`, `kyc.webhook.integration.test.ts`, `kyc.manual-review-reconcile.test.ts`, `auth.register.integration.test.ts`.
 Verificado contra la app sandbox de Didit (09/11/2026): `first_name` trae todos los nombres de pila y `last_name` los apellidos, `date_of_birth` va como `YYYY-MM-DD`, y una aprobación simulada
 sin pasar por el flujo trae `id_verifications: null` (cae en `manual_review`). El workflow live "KYC DNI" ya devuelve esos campos; el número de un pasaporte es alfanumérico y no se guarda como DNI.
+Revisión manual desde el panel (DD-064): `decideManualReview` pasa a `applyTerminalDecision` la identidad que Didit ya extrajo de la sesión (`extractVerifiedIdentity(current.decision)`), y si una identidad no trae nombre y apellido legibles aprobar es 409 `KYC_REVIEW_IDENTITY_MISSING`, antes de pedirle el cambio a Didit; la cola y el detalle muestran el email de una cuenta sin nombre.
 Las tildes no se tocan: `normalizePersonName` solo ajusta las mayúsculas. `kyc.identity-extract.test.ts` fija la forma real. Las pruebas de integración no se corrieron en local (sin Postgres ni Redis).
+### Feedback de TestFlight build 17 — errores de Google visibles en el log
+
+- `google-error.ts` (`readGoogleErrorDetail`): los adapters de Places y Geocoding reciben `app.log` desde la factory y, ante un rechazo, loguean `google_places_error`/`google_geocoding_error` con el status y el mensaje de Google, nunca la URL (Geocoding lleva la key en el query string). El 502 al cliente no cambia.
+- Geocoding: solo `ZERO_RESULTS` es 422 `GEOCODING_ADDRESS_NOT_FOUND`. `REQUEST_DENIED`/`OVER_QUERY_LIMIT` (que Google responde con 200) pasan a 502: antes una key sin facturación parecía una dirección mal cargada.
+- Causa del feedback: el proyecto de Google Cloud de dev (`289071851142`) no tiene facturación activa; Places, Geocoding y Routes rechazan la key. Se arregla en la consola de Google, no en el código.
+
+### Feedback de TestFlight build 17 — reseñas recientes por rol
+
+`GET /users/:id` suma `recentRatingCommentsByRole` (`asSender`/`asCarrier`, opcional en `@movo/shared`): filtrar las 10 últimas generales dejaba una pestaña vacía aunque ese rol tuviera reseñas más viejas. Sale de una sola llamada (`findRecentRatingCommentsByRole` → `/ratings/recent-by-role`) con un solo lookup de nombres; si falla, se omite y el mobile cae a la lista general, que en ese caso también llega vacía (sale de la misma llamada): se ve "sin reseñas", igual que antes del cambio. La pestaña de emisor incluye las recibidas como receptor (no tienen pestaña propia). `recentRatingComments` no cambia, para las builds anteriores. `GET /users/:id/ratings` acepta `role` (`sender`/`carrier`) y es el que pagina "Ver todas" en el mobile.
+- `google-error.ts` pasó a `@movo/shared` (`readGoogleErrorDetail`, `ProviderLogger`): era idéntico en `svc-shipments`.
+
+### Cola de revisión manual de KYC — `/internal/admin/kyc/reviews` (DD-063)
+
+`modules/kyc/kyc-review-internal.routes.ts` y `kyc-review.service.ts`: lista paginada (solo `manual_review` y solo el último intento de su usuario y tipo), detalle con historial y `POST .../decision`. `kyc.service.ts#decideManualReview` le pide a Didit el cambio (`DiditClient.updateSessionStatus`, `PATCH /v3/session/{id}/update-status/` con `send_email: false`) y aplica la decisión por `applyTerminalDecision`, el mismo camino del webhook, así que el webhook posterior es un no-op y no repite el push. No guarda el motivo del admin en `raw_decision` (vive en Didit y en la bitácora de `svc-admin`) y suma `reviewed_by_admin: true`. Códigos nuevos `KYC_SESSION_NOT_FOUND`, `KYC_REVIEW_STATUS_CHANGED`, `KYC_REVIEW_SUPERSEDED`.
+
+**Fixes de review (PR #333, Alena1812):** la decisión toma un lock por sesión en Redis (`kycDecisionLockKey`, 30 s) y le pregunta a Didit qué tiene antes de pedir el cambio (si ya está resuelta, aplica esa decisión y responde 409). `updateSessionStatus` tiene timeout de 10 s y separa el rechazo de Didit (4xx, `KYC_PROVIDER_ERROR`) de lo que no se sabe (red, timeout o 5xx, `KYC_PROVIDER_UNCONFIRMED`, que deja el lock vencer solo). La cola filtra, pagina y cuenta en SQL con `DISTINCT ON`, excluye cuentas dadas de baja, ordena por cuándo entró a revisión (`resolved_at` del paso a `manual_review`) y busca con `buildMatchExpression` (exportado de `admin-users.service.ts`). El detalle expone `status`, `resolvedAt` e `inReviewSince`.
+
+**Detalle de Didit** (`GET /internal/admin/kyc/reviews/:sessionId/evidence`, `kyc-evidence.ts#buildKycEvidence`): pide a Didit la decisión completa y devuelve, con una lista blanca tipada, datos del documento, puntuaciones, IP, alertas, revisiones (sin quién las hizo) y las imágenes como links `https` temporales. No se persiste ni se loguea nada (AC9 prohíbe guardarlo, no mostrarlo), responde `Cache-Control: no-store` y un campo ausente o de otro tipo es `null`, nunca un error. `KYC_EVIDENCE_NOT_FOUND` es 422 y no 404 porque el cliente interno de `svc-admin` lee todo 404 como "no existe el objetivo".
+
+Pendiente: confirmar contra el sandbox de Didit que la `DIDIT_API_KEY` tiene permiso de escritura y si Didit manda un webhook tras `update-status` (el diseño no depende de eso). Contra una sesión real de Didit hay que verificar los nombres de los campos de imagen y puntuación (`reference_image`, `source_image`, `target_image`, `score`, `ip_*`), que salen de su documentación: solo `front_image` está confirmado contra un payload real.

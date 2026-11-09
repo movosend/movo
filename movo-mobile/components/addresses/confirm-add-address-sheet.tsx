@@ -2,7 +2,7 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { MapPin } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, Text, View } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 import {
@@ -14,6 +14,7 @@ import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-sty
 import { useCreateAddress } from "../../src/hooks/use-addresses";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { addressSelectionToCreateInput } from "../../src/lib/address-selection-to-input";
+import { resolvePinAddress } from "../../src/lib/pin-address";
 import type { AddressSelection } from "../../src/types/address-selection";
 import { ErrorBanner } from "../ui/error-banner";
 
@@ -109,6 +110,10 @@ function ConfirmAddAddressBody({
   const createAddress = useCreateAddress();
   const [lat, setLat] = useState(selection.lat);
   const [lng, setLng] = useState(selection.lng);
+  // El texto sigue al pin: al moverlo se vuelve a resolver la dirección (ver `resolvePinAddress`).
+  const [address, setAddress] = useState(selection.address);
+  const [resolvingAddress, setResolvingAddress] = useState(false);
+  const pinRequestRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
 
   const region: Region = {
@@ -122,7 +127,7 @@ function ConfirmAddAddressBody({
     setError(null);
     try {
       await createAddress.mutateAsync(
-        addressSelectionToCreateInput({ ...selection, lat, lng }),
+        addressSelectionToCreateInput({ ...selection, address, lat, lng }),
       );
       onSaved();
     } catch {
@@ -165,6 +170,13 @@ function ConfirmAddAddressBody({
             const { latitude, longitude } = e.nativeEvent.coordinate;
             setLat(latitude);
             setLng(longitude);
+            const request = ++pinRequestRef.current;
+            setResolvingAddress(true);
+            void resolvePinAddress(latitude, longitude).then((resolved) => {
+              if (request !== pinRequestRef.current) return;
+              setAddress(resolved);
+              setResolvingAddress(false);
+            });
           }}
         >
           <View
@@ -268,7 +280,7 @@ function ConfirmAddAddressBody({
             }}
           >
             <Text numberOfLines={2} className="font-sans-medium text-[15px] text-fg">
-              {selection.address}
+              {resolvingAddress ? "Buscando la dirección…" : address}
             </Text>
           </View>
           <Pressable
@@ -277,7 +289,7 @@ function ConfirmAddAddressBody({
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               void handleSave();
             }}
-            disabled={createAddress.isPending}
+            disabled={createAddress.isPending || resolvingAddress}
             className={`w-full flex-row items-center justify-center gap-2 rounded-lg py-3.5 ${
               createAddress.isPending ? "bg-bg-mute" : "bg-fg"
             }`}

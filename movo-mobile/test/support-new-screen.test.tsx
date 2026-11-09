@@ -20,10 +20,11 @@ const shipments = [
   { id: "s2", code: "MOVO-48176", status: "delivered", route: "Güemes → Cofico", role: "carrier", createdAt: "2026-10-10T10:00:00.000Z" },
 ];
 let mockHasNextPage = false;
+let mockShipments: typeof shipments = shipments;
 const mockFetchNextPage = jest.fn();
 jest.mock("../src/hooks/use-support", () => ({
   useSupportShipments: () => ({
-    data: { pages: [{ items: shipments, nextCursor: null }] },
+    data: { pages: [{ items: mockShipments, nextCursor: null }] },
     isLoading: false,
     hasNextPage: mockHasNextPage,
     fetchNextPage: () => mockFetchNextPage(),
@@ -48,6 +49,7 @@ describe("NewSupportRequestScreen (MOVO-324)", () => {
     resetNavigationGuard();
     mockParams = {};
     mockHasNextPage = false;
+    mockShipments = shipments;
     mockPhotos = photosState();
     useSupportDraftStore.setState({ draft: null });
   });
@@ -86,10 +88,25 @@ describe("NewSupportRequestScreen (MOVO-324)", () => {
     expect(queryByTestId("support-shipment-select")).toBeNull();
   });
 
-  it("sin envío elegido: 'No es sobre un envío' por defecto y la consulta se manda sin shipmentId", async () => {
-    const { getByTestId, getByText } = await render(<NewSupportRequestScreen />);
+  it("con el tema Envío no se puede mandar sin elegir el envío, y no hay opción 'ninguno'", async () => {
+    const { getByTestId, getByText, findByTestId, queryByTestId, queryByText } = await render(<NewSupportRequestScreen />);
     await pickTopic({ getByTestId }, "Envío");
-    expect(getByText("No es sobre un envío")).toBeTruthy();
+    expect(getByText("Elegí un envío")).toBeTruthy();
+    await fireEvent.changeText(getByTestId("support-text"), "Llegó abierto");
+    expect(getByTestId("support-submit").props.accessibilityState.disabled).toBe(true);
+
+    await fireEvent.press(getByTestId("support-shipment-select"));
+    expect(await findByTestId("support-shipment-select-option-s1")).toBeTruthy();
+    expect(queryByTestId("support-shipment-select-none")).toBeNull();
+    expect(queryByText("No es sobre un envío")).toBeNull();
+
+    await fireEvent.press(getByTestId("support-shipment-select-option-s1"));
+    expect(getByTestId("support-submit").props.accessibilityState.disabled).toBe(false);
+  });
+
+  it("con otro tema la consulta se manda sin shipmentId", async () => {
+    const { getByTestId } = await render(<NewSupportRequestScreen />);
+    await pickTopic({ getByTestId }, "Envío");
     await pickTopic({ getByTestId }, "Pagos");
     await fireEvent.changeText(getByTestId("support-text"), "  Me cobraron dos veces  ");
     await fireEvent.press(getByTestId("support-submit"));
@@ -97,6 +114,13 @@ describe("NewSupportRequestScreen (MOVO-324)", () => {
     const draft = useSupportDraftStore.getState().draft;
     expect(draft).toMatchObject({ topic: "payments", body: "Me cobraron dos veces", clientMessageId: "uuid-form", shipment: null, attachments: [] });
     expect(router.replace).toHaveBeenCalledWith("/support/pending");
+  });
+
+  it("sin envíos propios, el tema Envío avisa que elija otro tema", async () => {
+    mockShipments = [];
+    const { getByTestId } = await render(<NewSupportRequestScreen />);
+    await pickTopic({ getByTestId }, "Envío");
+    expect(getByTestId("support-no-shipments")).toHaveTextContent("Todavía no tenés envíos. Elegí otro tema para tu consulta.");
   });
 
   it("vincula un envío elegido de la lista (cualquier rol) y lo manda en el borrador", async () => {
@@ -112,18 +136,6 @@ describe("NewSupportRequestScreen (MOVO-324)", () => {
     await fireEvent.press(getByTestId("support-submit"));
 
     expect(useSupportDraftStore.getState().draft?.shipment).toEqual({ id: "s2", code: "MOVO-48176" });
-  });
-
-  it("se puede volver a 'No es sobre un envío' después de elegir uno", async () => {
-    const { getByTestId, findByTestId, getAllByText } = await render(<NewSupportRequestScreen />);
-    await pickTopic({ getByTestId }, "Envío");
-    await fireEvent.press(getByTestId("support-shipment-select"));
-    await fireEvent.press(await findByTestId("support-shipment-select-option-s1"));
-
-    await fireEvent.press(getByTestId("support-shipment-select"));
-    await fireEvent.press(await findByTestId("support-shipment-select-none"));
-
-    expect(getAllByText("No es sobre un envío").length).toBeGreaterThan(0);
   });
 
   it("abierta desde el detalle de un envío llega con tema Envío y el envío ya vinculado", async () => {

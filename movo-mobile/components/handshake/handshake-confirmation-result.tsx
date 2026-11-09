@@ -24,6 +24,12 @@ import { formatDurationSeconds } from "../../src/lib/time-format";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
+export interface SecondaryCta {
+  id: string;
+  label: string;
+  onPress: () => void;
+}
+
 interface HandshakeConfirmationResultProps {
   result: ConfirmHandshakeResult;
   /** Sin esta prop, no se muestra ningún CTA -- este componente sigue sin ser dueño
@@ -33,14 +39,11 @@ interface HandshakeConfirmationResultProps {
   /** Default por stage si no se pasa: "Ver la ruta" (retiro) / "Volver al envío"
    * (entrega). */
   ctaLabel?: string;
-  /** CTA secundario, opcional (MOVO-199 AC9: acceso a calificar a la contraparte
-   * desde el éxito de entrega) -- outline, debajo del primario dentro de la misma
-   * hoja. Sin esta prop no se renderiza nada, retrocompatible con los 3 callers que
-   * ya existían antes (`pickup/success.tsx`, `handshake-scan.tsx` standalone,
-   * `/dev-handshake`). Requiere `onCtaPress` (no tiene sentido un CTA secundario sin
-   * uno primario). */
-  secondaryCtaLabel?: string;
-  onSecondaryCtaPress?: () => void;
+  /** CTAs secundarios, opcionales (MOVO-199 AC9: calificar a las contrapartes desde el
+   * éxito de entrega; el transportista tiene dos, emisor y receptor) -- outline, uno
+   * debajo del otro, después del primario dentro de la misma hoja. Sin esta prop no se
+   * renderiza nada. Cada uno lleva el testID `${testID}-secondary-cta-${id}`. */
+  secondaryCtas?: readonly SecondaryCta[];
   /** Solo en la entrega: estado del cobro del transportista (MOVO-214 AC5). Lo pasa el wizard
    * de entrega; el receptor que escanea no lo recibe y no ve nada del pago (AC3). */
   paymentSlot?: ReactNode;
@@ -88,8 +91,7 @@ export function HandshakeConfirmationResult({
   result,
   onCtaPress,
   ctaLabel,
-  secondaryCtaLabel,
-  onSecondaryCtaPress,
+  secondaryCtas,
   paymentSlot,
   viewer = "carrier",
   testID,
@@ -234,15 +236,16 @@ export function HandshakeConfirmationResult({
           </Pressable>
         ) : null}
 
-        {onSecondaryCtaPress && secondaryCtaLabel ? (
+        {secondaryCtas?.map((cta) => (
           <Pressable
-            testID={testID ? `${testID}-secondary-cta` : undefined}
-            onPress={onSecondaryCtaPress}
+            key={cta.id}
+            testID={testID ? `${testID}-secondary-cta-${cta.id}` : undefined}
+            onPress={cta.onPress}
             className="w-full items-center justify-center rounded-lg border border-ink-950/15 py-3.5 active:opacity-70"
           >
-            <Text className="font-sans-semibold text-body text-ink-950">{secondaryCtaLabel}</Text>
+            <Text className="font-sans-semibold text-body text-ink-950">{cta.label}</Text>
           </Pressable>
-        ) : null}
+        ))}
       </Animated.View>
     </View>
   );

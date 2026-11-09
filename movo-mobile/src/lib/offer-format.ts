@@ -1,4 +1,5 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { MyOfferSummary, OfferCompetitiveRank } from "../api/offers-client";
 import { estimateReceivedArs } from "./commission-config";
 import { carrierPriceBreakdown, isCashShipment } from "./payment-method";
@@ -26,6 +27,39 @@ const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
 
 export function offerStatusLabel(status: OfferStatus): string {
   return OFFER_STATUS_LABEL[status];
+}
+
+/**
+ * Cómo terminó una oferta aceptada cuyo envío ya llegó a un estado final. La oferta no tiene un
+ * estado de cierre propio (sigue `accepted`), así que sin esto un envío entregado hace días seguía
+ * en "Activas" como "Ya te aceptaron" (feedback de TestFlight, build 17). `null` mientras el envío
+ * sigue en curso, o si la oferta no es `accepted`.
+ */
+export type AcceptedOfferOutcome = "completed" | "cancelled";
+
+export function acceptedOfferOutcome(offer: Pick<MyOfferSummary, "status" | "shipment">): AcceptedOfferOutcome | null {
+  if (offer.status !== OfferStatus.ACCEPTED) return null;
+  const status = offer.shipment.status;
+  if (status === ShipmentStatus.DELIVERED || status === ShipmentStatus.COMPLETED) return "completed";
+  if (status === ShipmentStatus.CANCELLED) return "cancelled";
+  return null;
+}
+
+/** Chip de una oferta en "Mis ofertas": el estado de la oferta, o cómo terminó el envío si ya terminó. */
+export function myOfferStatusLabel(offer: Pick<MyOfferSummary, "status" | "shipment">): string {
+  const outcome = acceptedOfferOutcome(offer);
+  if (outcome === "completed") return "Completada";
+  if (outcome === "cancelled") return "Cancelada";
+  return offerStatusLabel(offer.status);
+}
+
+/** Etiqueta del monto de una oferta en "Mis ofertas" (ver `receivedAmountLabel`); un envío ya entregado se cobró. */
+export function myOfferAmountLabel(offer: Pick<MyOfferSummary, "status" | "shipment">): string {
+  const cash = isCashShipment(offer.shipment);
+  const outcome = acceptedOfferOutcome(offer);
+  if (outcome === "completed") return cash ? "Cobraste en mano" : "Cobraste aprox.";
+  if (outcome === "cancelled") return receivedAmountLabel(OfferStatus.SHIPMENT_CANCELLED, cash);
+  return receivedAmountLabel(offer.status, cash);
 }
 
 export interface OfferStatusBannerCopy {

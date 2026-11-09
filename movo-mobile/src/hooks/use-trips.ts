@@ -9,7 +9,7 @@ import {
 } from "../api/trips-client";
 import { markTripAsSeen } from "../lib/seen-trips";
 
-const TRIPS_LIST_QUERY_KEY = ["trips", "mine", "list"];
+export const TRIPS_LIST_QUERY_KEY = ["trips", "mine", "list"];
 
 /**
  * "Mis viajes" (MOVO-162): una sola página con `limit` generoso en vez de scroll

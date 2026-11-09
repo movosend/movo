@@ -3998,3 +3998,13 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 - **Distancia** (DD-062): la lógica no cambia, porque ya comparaba las dos partes. Un rechazo ahora deja un `warn` con la distancia: el código de error no queda en el log de la request y sin esto no se podía diagnosticar.
 - **Panel**: el `label` de los pines del seguimiento es la dirección, y las filas de disputas exponen `pickupAddress`.
 - Pendiente: el barrido de no-retiro sigue fallando con `PAYMENT_PROVIDER_ERROR` en tres envíos de dev del 25/10, dos de ellos todavía `assigned`.
+
+### Feedback de TestFlight build 17 — viaje sin paquetes y errores de Routes
+
+- **Viaje en curso vacío**: `updateStatus` anota los viajes de la oferta aceptada y, al cancelarse el envío o bajarse el transportista, expira en la misma transacción los que quedan `active` sin paquetes vivos (`expireEmptyActiveTrips` en `trip-repository.ts`, mismo `where` que el barrido, que queda como red). Destino `expired` por DD-029/DD-032; un `declared` sigue a cargo de `cancelOverdueDeclared`.
+- **Routes**: `google-routes-provider.ts` recibe `app.log` y loguea `google_routes_error` con el status y el mensaje de Google (mismo helper que `svc-users`).
+- Pendiente: el envío del "Ventana vencida" del feedback (`16d2352c…`, retiro del 25/10) es uno de los `assigned` que el barrido de no-retiro no puede cancelar porque falla la liberación del hold en MP.
+### Feedback de TestFlight build 17 — reseñas recientes por rol
+
+`GET /internal/users/:id/ratings/recent` acepta `role`, una lista separada por comas de roles del calificado (`sender,receiver`), y `listRecentByRateePaginated` la filtra. Sin él devuelve todas, como antes. `GET /internal/users/:id/ratings/recent-by-role` devuelve en una llamada las últimas generales y las de cada pestaña del perfil (la de emisor suma las de receptor, `PROFILE_SENDER_RATING_ROLES`, DD-063), para que `GET /users/:id` no haga tres pedidos. El desglose `asSender` de `getReputationSummary` usa los mismos roles (las categorías de receptor son las de emisor), así el puntaje y el conteo de la pestaña coinciden con sus reseñas; también lo ven los consumidores de la reputación del emisor (`shipments.routes.ts`).
+- El viaje que se vence en la misma transacción viaja en `ShipmentStatusChangedEvent.expiredTripIds` y `realtime.ts` lo loguea como `trip_auto_expired` (`reason: last_shipment_released`), igual que el barrido. `google-error.ts` pasó a `@movo/shared`.

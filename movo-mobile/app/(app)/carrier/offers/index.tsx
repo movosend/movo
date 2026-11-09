@@ -10,7 +10,7 @@ import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import type { MyOfferSummary } from "../../../../src/api/offers-client";
 import { useMyOffers } from "../../../../src/hooks/use-offers";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
-import { competitiveRankNotice, offerReceivedArs } from "../../../../src/lib/offer-format";
+import { acceptedOfferOutcome, competitiveRankNotice, offerReceivedArs } from "../../../../src/lib/offer-format";
 import { formatPriceArs } from "../../../../src/lib/shipment-format";
 
 const CLOSED_STATUSES: readonly OfferStatus[] = [
@@ -104,11 +104,20 @@ export default function MyOffersSummaryScreen() {
 
   const items = data?.items ?? [];
   const pending = items.filter((o) => o.status === OfferStatus.PENDING);
-  const accepted = items.filter((o) => o.status === OfferStatus.ACCEPTED);
-  const closed = useMemo(
-    () => items.filter((o) => CLOSED_STATUSES.includes(o.status)).sort(byRecent),
-    [items],
-  );
+  // Una aceptada cuyo envío ya terminó (entregado o cancelado) va a "Cerradas": la oferta no tiene un estado de
+  // cierre propio y seguía como "Ya te aceptaron" (feedback de TestFlight, build 17).
+  const accepted = items.filter((o) => o.status === OfferStatus.ACCEPTED && acceptedOfferOutcome(o) === null);
+  const closed = useMemo(() => {
+    const acceptedShipmentIds = new Set(
+      items.filter((o) => o.status === OfferStatus.ACCEPTED).map((o) => o.shipmentId),
+    );
+    return items
+      .filter((o) => CLOSED_STATUSES.includes(o.status) || acceptedOfferOutcome(o) !== null)
+      // Si el pago de una aceptación anterior no se completó pero después volvieron a aceptarte en el mismo envío,
+      // la que caducó ya no cuenta nada: queda solo la que siguió.
+      .filter((o) => !(o.status === OfferStatus.ASSIGNMENT_LAPSED && acceptedShipmentIds.has(o.shipmentId)))
+      .sort(byRecent);
+  }, [items]);
   // MOVO-225: totales en lo que recibe aprox. (neto menos el estimado de MP), el
   // mismo monto que muestra cada card y el detalle de la oferta.
   // MOVO-37: las de efectivo suman el bruto que se cobra en mano (`offerReceivedArs`).

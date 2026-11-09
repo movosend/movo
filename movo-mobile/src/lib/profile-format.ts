@@ -1,3 +1,9 @@
+import type {
+  ProfileRatingRole,
+  RecentRatingComment,
+  RecentRatingCommentsByRole,
+} from "@movo/shared/dist/types/user-profile";
+
 /**
  * Formateo puro de los datos del perfil (MOVO-78 AC10 — el criterio que "rompe la
  * demo" si se descuida: sin envíos/ratings todavía en este sprint, todos los usuarios
@@ -10,6 +16,34 @@
  */
 
 import { normalizePersonName } from "@movo/shared/dist/utils/person-name";
+/**
+ * Reseñas recientes de una pestaña del perfil ("Como transportista" / "Como emisor"; la de emisor incluye
+ * las recibidas como receptor). Usa las que el backend ya separa por rol; si no las manda (backend
+ * anterior, o falló la consulta), cae a la lista general, que mezcla todo, como antes. Feedback de
+ * TestFlight, build 17.
+ */
+export function ratingCommentsForRole(
+  profile: { recentRatingComments: RecentRatingComment[]; recentRatingCommentsByRole?: RecentRatingCommentsByRole },
+  role: ProfileRatingRole,
+): RecentRatingComment[] {
+  const byRole = profile.recentRatingCommentsByRole;
+  if (!byRole) return profile.recentRatingComments;
+  return role === "carrier" ? byRole.asCarrier : byRole.asSender;
+}
+
+/**
+ * Si el perfil tiene lado emisor para mostrar: envíos hechos o reseñas "como emisor" (que incluyen las
+ * recibidas como receptor). Sin lo segundo, un transportista que solo recibió paquetes no llega nunca a esas
+ * reseñas: no hay pestaña "Como emisor".
+ */
+export function hasSenderSide(
+  transactionCounts: { asSender: number },
+  reputation?: { asSender: { ratingCount: number }; recentRatingCommentsByRole?: RecentRatingCommentsByRole },
+): boolean {
+  if (transactionCounts.asSender > 0) return true;
+  if (!reputation) return false;
+  return reputation.asSender.ratingCount > 0 || (reputation.recentRatingCommentsByRole?.asSender.length ?? 0) > 0;
+}
 
 function isMissing(value: number | null | undefined): boolean {
   return value === null || value === undefined || Number.isNaN(value);

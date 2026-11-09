@@ -170,7 +170,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const paymentsClient = opts.paymentsClient ?? createAppPaymentsClient(app);
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
-  const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
+  const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config, app.log);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const pricingClient = opts.pricingClient ?? createPricingClient(app.config);
   const pricingLogisticsClient =

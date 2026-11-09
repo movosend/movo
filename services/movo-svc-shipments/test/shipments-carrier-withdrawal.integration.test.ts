@@ -451,7 +451,7 @@ describe("baja del transportista de un envío asignado (Postgres) — MOVO-310",
     });
   });
 
-  it("AC7: si era el último paquete de un viaje activo, el barrido de MOVO-258 lo vence", async () => {
+  it("AC7: si era el último paquete de un viaje activo, la baja misma lo vence (sin esperar al barrido de MOVO-258)", async () => {
     const trip = await app.db.trip.create({
       data: {
         carrierId,
@@ -472,8 +472,8 @@ describe("baja del transportista de un envío asignado (Postgres) — MOVO-310",
 
     expect((await withdraw(shipmentId)).statusCode).toBe(200);
 
-    expect(await tripRepo.expireActiveWithoutPackages(10)).toEqual([trip.id]);
     expect((await app.db.trip.findUniqueOrThrow({ where: { id: trip.id } })).status).toBe(TripStatus.EXPIRED);
+    expect(await tripRepo.expireActiveWithoutPackages(10)).toEqual([]);
   });
 
   it("assigned -> published sin la baja del transportista se rechaza", async () => {

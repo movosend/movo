@@ -18,7 +18,7 @@ export interface GeocodeRoutesOptions extends FastifyPluginOptions {
  * comentario más abajo.
  */
 export default async function geocodeRoutes(app: FastifyInstance, opts: GeocodeRoutesOptions) {
-  const provider = opts.geocodingProvider ?? createGeocodingProvider(app.config);
+  const provider = opts.geocodingProvider ?? createGeocodingProvider(app.config, app.log);
 
   app.post<{ Body: GeocodeAddressInput }>(
     "/",
