@@ -30,8 +30,13 @@ export interface AdminKycReviewRow {
   verificationType: AdminKycVerificationType;
   /** Motivos que Didit marcó para la revisión, si se pudieron derivar. */
   reason: string | null;
-  /** Cuándo entró el intento (inicio de la sesión de verificación). */
+  /** Cuándo se abrió la sesión de verificación en Didit. */
   requestedAt: string;
+  /**
+   * Cuándo pasó a revisión manual (la persona puede terminar la verificación horas después de abrir la sesión). `null` si el
+   * intento ya no está en revisión: al decidirse, ese dato se reemplaza por el de la decisión.
+   */
+  inReviewSince: string | null;
 }
 
 /** `GET /admin/kyc/reviews`. */
@@ -54,6 +59,10 @@ export interface AdminKycReviewHistoryItem {
 
 /** `GET /admin/kyc/reviews/:sessionId`. */
 export interface AdminKycReviewDetail extends AdminKycReviewRow {
+  /** Estado actual del intento (ya no es `manual_review` si alguien lo decidió). */
+  status: AdminKycReviewHistoryItem["status"];
+  /** Cuándo se resolvió, si ya se resolvió. */
+  resolvedAt: string | null;
   email: string;
   phone: string;
   /** Vencimiento del documento, si Didit lo informó. */

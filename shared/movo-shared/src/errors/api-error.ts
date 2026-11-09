@@ -417,7 +417,12 @@ export type ApiErrorCode =
   | "KYC_REVIEW_STATUS_CHANGED"
   | "KYC_REVIEW_SUPERSEDED"
   // Didit no conoce la sesión cuyo detalle se pidió (422, no 404: el cliente interno de svc-admin lee un 404 como "no existe el objetivo").
-  | "KYC_EVIDENCE_NOT_FOUND";
+  | "KYC_EVIDENCE_NOT_FOUND"
+  // Otro admin está decidiendo el mismo caso en este momento (409).
+  | "KYC_REVIEW_IN_PROGRESS"
+  // Didit no respondió o respondió 5xx al pedido de decisión: el cambio pudo haberse aplicado o no (502). A diferencia de
+  // KYC_PROVIDER_ERROR (Didit rechazó el pedido), no es un rechazo seguro.
+  | "KYC_PROVIDER_UNCONFIRMED";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el
