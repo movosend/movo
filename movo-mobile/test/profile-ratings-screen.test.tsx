@@ -44,6 +44,8 @@ describe("ProfileRatingsScreen", () => {
         reputationScore: 4,
         ratingCount: 2,
         isNewProfile: true,
+        asSender: { reputationScore: 5, ratingCount: 1, isNewProfile: true },
+        asCarrier: { reputationScore: 3, ratingCount: 1, isNewProfile: true },
         recentRatingComments: [asCarrier, asSender],
         recentRatingCommentsByRole: { asCarrier: [asCarrier], asSender: [asSender] },
       },
@@ -52,6 +54,28 @@ describe("ProfileRatingsScreen", () => {
     const { getByTestId, queryByTestId } = await render(<ProfileRatingsScreen />);
     expect(getByTestId("profile-ratings-comment-c1")).toBeTruthy();
     expect(queryByTestId("profile-ratings-comment-s1")).toBeNull();
+  });
+
+  it("con ?role= el encabezado usa el puntaje y el conteo de ese rol, no los globales", async () => {
+    mockParams = { role: "sender" };
+    mockUsePublicProfile.mockReturnValue({
+      isLoading: false,
+      data: {
+        id: "user-1",
+        reputationScore: 4.5,
+        ratingCount: 9,
+        isNewProfile: false,
+        asSender: { reputationScore: 3.2, ratingCount: 4, isNewProfile: false },
+        asCarrier: { reputationScore: 4.9, ratingCount: 5, isNewProfile: false },
+        recentRatingComments: [],
+        recentRatingCommentsByRole: { asCarrier: [], asSender: [] },
+      },
+    });
+
+    const { getByText, queryByText } = await render(<ProfileRatingsScreen />);
+    expect(getByText("3.2")).toBeTruthy();
+    expect(getByText(/como emisor/)).toBeTruthy();
+    expect(queryByText(/en total/)).toBeNull();
   });
 
   it("muestra el skeleton mientras carga", async () => {
@@ -119,7 +143,7 @@ describe("ProfileRatingsScreen", () => {
     const older = { id: "s9", raterId: "u9", raterName: "Ana", score: 4, comment: "Vieja", createdAt: "2026-01-02T00:00:00.000Z" };
     mockUsePublicProfile.mockReturnValue({
       isLoading: false,
-      data: { id: "user-1", reputationScore: 4, ratingCount: 30, isNewProfile: false, recentRatingComments: [], recentRatingCommentsByRole: { asCarrier: [], asSender: [] } },
+      data: { id: "user-1", reputationScore: 4, ratingCount: 30, isNewProfile: false, asSender: { reputationScore: 4, ratingCount: 30, isNewProfile: false }, asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true }, recentRatingComments: [], recentRatingCommentsByRole: { asCarrier: [], asSender: [] } },
     });
     mockUseUserRatings.mockReturnValue({ data: { pages: [{ items: [older], nextCursor: "c" }] }, hasNextPage: true, isFetchingNextPage: false, fetchNextPage });
 

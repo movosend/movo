@@ -20,6 +20,7 @@ import {
   formatReputationScore,
   formatShipmentCount,
   formatTripCount,
+  hasSenderSide,
   ratingCommentsForRole,
 } from "../../src/lib/profile-format";
 import { GradientBorderCard } from "../ui/gradient-border-card";
@@ -92,7 +93,7 @@ export function ProfileActivityCard({
 }: ProfileActivityCardProps) {
   const colors = useThemeColors();
   const hasCarrier = transactionCounts.asCarrier > 0;
-  const hasSender = transactionCounts.asSender > 0;
+  const hasSender = hasSenderSide(transactionCounts, reputation);
   const showRoleToggle = hasCarrier && hasSender;
   const [role, setRole] = useState<ReputationRole>(hasCarrier ? "carrier" : "sender");
   const [activeCommentIndex, setActiveCommentIndex] = useState(0);

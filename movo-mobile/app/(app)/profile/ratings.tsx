@@ -31,6 +31,8 @@ export default function ProfileRatingsScreen() {
   // Mientras llega la primera página, las que ya trajo el perfil.
   const cachedComments = profile ? (ratingRole ? ratingCommentsForRole(profile, ratingRole) : profile.recentRatingComments) : [];
   const comments = ratings.data ? ratings.data.pages.flatMap((page) => page.items) : cachedComments;
+  // Con una pestaña elegida, el puntaje y el conteo son los de ese rol, los mismos que cuentan la lista.
+  const summary = profile ? (ratingRole ? (ratingRole === "carrier" ? profile.asCarrier : profile.asSender) : profile) : undefined;
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
@@ -50,7 +52,7 @@ export default function ProfileRatingsScreen() {
         <Text className="font-sans-semibold text-h3 text-fg">Tus calificaciones</Text>
       </View>
 
-      {isLoading || !profile ? (
+      {isLoading || !profile || !summary ? (
         <ProfileSkeleton testID="profile-ratings-skeleton" />
       ) : (
         <ScrollView
@@ -60,13 +62,14 @@ export default function ProfileRatingsScreen() {
         >
           <View className="mb-2 flex-row items-center gap-3">
             <Text className="font-sans-semibold text-[30px] leading-[30px] text-fg">
-              {formatReputationScore(profile.reputationScore, profile.isNewProfile)}
+              {formatReputationScore(summary.reputationScore, summary.isNewProfile)}
             </Text>
             <View className="gap-1">
-              <StarRatingInput score={profile.reputationScore ?? 0} readOnly size={13} gap={2} />
-              {!profile.isNewProfile ? (
+              <StarRatingInput score={summary.reputationScore ?? 0} readOnly size={13} gap={2} />
+              {!summary.isNewProfile ? (
                 <Text className="font-sans text-caption text-fg-3">
-                  {formatRatingCount(profile.ratingCount)} en total
+                  {formatRatingCount(summary.ratingCount)}
+                  {ratingRole ? (ratingRole === "carrier" ? " como transportista" : " como emisor") : " en total"}
                 </Text>
               ) : null}
             </View>

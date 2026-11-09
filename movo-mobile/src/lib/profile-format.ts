@@ -30,6 +30,20 @@ export function ratingCommentsForRole(
   return role === "carrier" ? byRole.asCarrier : byRole.asSender;
 }
 
+/**
+ * Si el perfil tiene lado emisor para mostrar: envíos hechos o reseñas "como emisor" (que incluyen las
+ * recibidas como receptor). Sin lo segundo, un transportista que solo recibió paquetes no llega nunca a esas
+ * reseñas: no hay pestaña "Como emisor".
+ */
+export function hasSenderSide(
+  transactionCounts: { asSender: number },
+  reputation?: { asSender: { ratingCount: number }; recentRatingCommentsByRole?: RecentRatingCommentsByRole },
+): boolean {
+  if (transactionCounts.asSender > 0) return true;
+  if (!reputation) return false;
+  return reputation.asSender.ratingCount > 0 || (reputation.recentRatingCommentsByRole?.asSender.length ?? 0) > 0;
+}
+
 function isMissing(value: number | null | undefined): boolean {
   return value === null || value === undefined || Number.isNaN(value);
 }

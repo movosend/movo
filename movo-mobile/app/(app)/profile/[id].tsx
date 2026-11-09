@@ -23,7 +23,7 @@ import { usePendingReport } from "../../../src/hooks/use-moderation";
 import { useSharedHistory } from "../../../src/hooks/use-shipments";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
-import { formatMemberSince, formatRatingDate, ratingCommentsForRole } from "../../../src/lib/profile-format";
+import { formatMemberSince, formatRatingDate, hasSenderSide, ratingCommentsForRole } from "../../../src/lib/profile-format";
 
 const NEW_PROFILE_GUARANTEES = [
   {
@@ -139,7 +139,7 @@ export default function PublicProfileScreen() {
   }
 
   const hasCarrier = profile.transactionCounts.asCarrier > 0;
-  const hasSender = profile.transactionCounts.asSender > 0;
+  const hasSender = hasSenderSide(profile.transactionCounts, profile);
   const isOwnProfile = !!currentUserId && currentUserId === profile.id;
   // Las del rol de la pestaña elegida (feedback de TestFlight, build 17).
   const shownComments = ratingCommentsForRole(profile, hasCarrier ? role : "sender").slice(0, 10);

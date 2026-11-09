@@ -1,4 +1,5 @@
 import {
+  hasSenderSide,
   ratingCommentsForRole,
   capitalizeName,
   formatGreetingDateLabel,
@@ -156,5 +157,22 @@ describe("ratingCommentsForRole", () => {
 
   it("con un backend anterior cae a la lista general", () => {
     expect(ratingCommentsForRole({ recentRatingComments: [c("a")] }, "sender").map((x) => x.id)).toEqual(["a"]);
+  });
+});
+
+describe("hasSenderSide", () => {
+  const rep = (ratingCount: number) => ({ asSender: { ratingCount } });
+
+  it("con envíos hechos, sí", () => {
+    expect(hasSenderSide({ asSender: 2 })).toBe(true);
+  });
+
+  it("sin envíos pero con reseñas como emisor (incluye las de receptor), también", () => {
+    expect(hasSenderSide({ asSender: 0 }, rep(1))).toBe(true);
+  });
+
+  it("sin envíos ni reseñas, no", () => {
+    expect(hasSenderSide({ asSender: 0 }, rep(0))).toBe(false);
+    expect(hasSenderSide({ asSender: 0 })).toBe(false);
   });
 });
