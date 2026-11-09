@@ -10,6 +10,8 @@ import {
   AdminKycVerificationType,
   ApiError,
   KycStatus,
+  KYC_DECISION_NAME_RULES,
+  PERSON_NAME_FIELD_PATTERN,
 } from "@movo/shared";
 import { createDiditClient, DiditClient } from "../../adapters/didit-client";
 import { createPushNotificationProvider, PushNotificationProvider } from "../../adapters/push-notification-provider";
@@ -218,12 +220,13 @@ const schemas = {
     body: {
       type: "object",
       required: ["decision", "reason"],
+      ...KYC_DECISION_NAME_RULES,
       additionalProperties: false,
       properties: {
         decision: { type: "string", enum: ["approved", "rejected"] },
-        // Nombre y apellido corregidos al aprobar una identidad: los dos o ninguno (se valida en la ruta).
-        firstName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: "^\\S+(\\s+\\S+)*$" },
-        lastName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: "^\\S+(\\s+\\S+)*$" },
+        // Nombre y apellido corregidos al aprobar una identidad: los dos o ninguno, y solo al aprobar (`KYC_DECISION_NAME_RULES`).
+        firstName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: PERSON_NAME_FIELD_PATTERN },
+        lastName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: PERSON_NAME_FIELD_PATTERN },
         reason: {
           type: "string",
           minLength: ADMIN_KYC_DECISION_REASON_MIN_LENGTH,
@@ -293,12 +296,6 @@ export default async function kycReviewInternalRoutes(app: FastifyInstance, opts
         lastName?: string;
       };
       const sessionId = sessionIdOf(request);
-      if ((firstName === undefined) !== (lastName === undefined)) {
-        throw new ApiError(400, "VALIDATION_FAILED", "Mandá el nombre y el apellido juntos.");
-      }
-      if (decision === "rejected" && firstName !== undefined) {
-        throw new ApiError(400, "VALIDATION_FAILED", "El nombre solo se corrige al aprobar.");
-      }
 
       // Dos admins decidiendo a la vez el mismo caso pasarían los dos el chequeo de `manual_review` y los dos le pedirían el
       // cambio a Didit (gana la última llamada allá y la primera escritura acá). Con el lock, el segundo recibe 409 sin

@@ -69,7 +69,10 @@ export const UNNAMED_USER_DISPLAY_NAME = "Usuario de Movo";
  * un texto genérico. Un `""` no lo atrapan los `??` de los consumidores y terminaría en una etiqueta vacía. El perfil propio
  * sigue devolviendo `fullName` (vacío) para que la app sepa que falta.
  */
-export function displayName(user: Pick<User, "firstName" | "lastName">): string {
+export function displayName(user: Pick<User, "firstName" | "lastName" | "kycStatusIdentity">): string {
+  // Mientras la identidad está en revisión manual, el nombre guardado es el de un documento que todavía no se aprobó (podría
+  // ser de otra persona): no se muestra hacia afuera hasta que se apruebe.
+  if (user.kycStatusIdentity === KycStatus.MANUAL_REVIEW) return UNNAMED_USER_DISPLAY_NAME;
   return fullName(user) || UNNAMED_USER_DISPLAY_NAME;
 }
 

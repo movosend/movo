@@ -3,6 +3,8 @@ import {
   ADMIN_KYC_NAME_MAX_LENGTH,
   ADMIN_KYC_REVIEW_DEFAULT_PAGE_SIZE,
   ADMIN_KYC_REVIEW_MAX_PAGE_SIZE,
+  KYC_DECISION_NAME_RULES,
+  PERSON_NAME_FIELD_PATTERN,
 } from "@movo/shared";
 
 // Autocontenido a propósito, mismo criterio que `sanctions.schema.ts`: el serializador de Fastify descarta lo que no
@@ -155,13 +157,14 @@ export const kycSchemas = {
     body: {
       type: "object",
       required: ["decision", "reason"],
+      ...KYC_DECISION_NAME_RULES,
       additionalProperties: false,
       properties: {
         decision: { type: "string", enum: ["approved", "rejected"] },
         reason: { type: "string", minLength: 1, maxLength: ADMIN_KYC_DECISION_REASON_MAX_LENGTH },
-        // Nombre y apellido corregidos al aprobar una identidad: los dos o ninguno (se valida en la ruta).
-        firstName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: "^\\S+(\\s+\\S+)*$" },
-        lastName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: "^\\S+(\\s+\\S+)*$" },
+        // Nombre y apellido corregidos al aprobar una identidad: los dos o ninguno, y solo al aprobar (`KYC_DECISION_NAME_RULES`).
+        firstName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: PERSON_NAME_FIELD_PATTERN },
+        lastName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: PERSON_NAME_FIELD_PATTERN },
       },
     },
     response: {

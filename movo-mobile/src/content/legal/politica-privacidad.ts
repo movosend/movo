@@ -132,7 +132,8 @@ más alto estándar de cuidado, y así los tratamos nosotros también.
   revisión manual. No los escribís al registrarte: los toma el documento, así
   el nombre que ven otras personas es el que consta en tu DNI. Un
   administrador de MOVO puede corregir el nombre si Didit lo leyó mal, al
-  revisar el caso. Una vez aprobada la verificación, el nombre no se puede
+  revisar el caso. Si la verificación se rechaza, esos datos se borran de tu
+  cuenta. Mientras está en revisión y una vez aprobada, el nombre no se puede
   modificar desde la app.
 - MOVO no almacena una copia propia de las imágenes del documento ni de los
   datos biométricos más allá de lo que el flujo de verificación requiera de

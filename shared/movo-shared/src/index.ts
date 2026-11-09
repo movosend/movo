@@ -299,7 +299,7 @@ export {
   toArgentinaCalendarDateString,
   toArgentinaTimeOfDayString,
 } from "./utils/argentina-date";
-export { normalizePersonName } from "./utils/person-name";
+export { normalizePersonName, PERSON_NAME_FIELD_PATTERN } from "./utils/person-name";
 
 // notification preferences (MOVO-239)
 export {
@@ -702,6 +702,7 @@ export {
   ADMIN_KYC_DECISION_REASON_MIN_LENGTH,
   ADMIN_KYC_DECISION_REASON_MAX_LENGTH,
   ADMIN_KYC_NAME_MAX_LENGTH,
+  KYC_DECISION_NAME_RULES,
 } from "./types/admin-kyc";
 export type {
   AdminKycVerificationType,

@@ -1,3 +1,5 @@
+import { PERSON_NAME_FIELD_PATTERN } from "@movo/shared";
+
 // MOVO-140 (AC1/AC10): extraídos para que `forgotPasswordBody.identifier` y
 // `resetPasswordBody.newPassword` compartan exactamente el mismo formato que
 // `registerBody.email`/`.phone`/`.password` -- una sola fuente de verdad para la
@@ -7,8 +9,8 @@
 // archivo, no hay razón para no compartirlas).
 const EMAIL_PATTERN = "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$";
 const PHONE_PATTERN = "^(\\+?54)?9?\\d{10}$";
-// Mismo patrón que users.schema.ts#NAME_FIELD_PATTERN (MOVO-133): no vacío ni solo espacios.
-const NAME_FIELD_PATTERN = "^\\S+(\\s+\\S+)*$";
+// No vacío ni solo espacios: el mismo patrón en el registro, la edición del perfil y el panel (`@movo/shared`).
+const NAME_FIELD_PATTERN = PERSON_NAME_FIELD_PATTERN;
 const PASSWORD_SCHEMA = {
   type: "string",
   minLength: 8,

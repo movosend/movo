@@ -349,19 +349,53 @@ describe("Cola de revisión manual de KYC (rutas internas del panel)", () => {
       });
     });
 
-    it("si la cuenta ya tiene el nombre guardado de cuando pasó a revisión, aprobar lo confirma aunque Didit ya no lo traiga", async () => {
+    it("el nombre guardado en la cuenta no se usa para aprobar: podría ser uno tipeado, y si Didit no trae nombre hay que escribirlo", async () => {
       didit.setDecision({ id_verifications: [] });
-      const user = await createUser("Julia María", "Pérez Gómez");
+      const user = await createUser("Escrito", "Amano");
       const session = await createAttempt(user.id, "manual_review");
       await app.db.user.update({ where: { id: user.id }, data: { kycStatusIdentity: "manual_review" } });
 
       const response = await decide(session, { decision: "approved", reason: "Motivo suficiente" });
 
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("KYC_REVIEW_IDENTITY_MISSING");
+    });
+
+    it("el caso que Didit aprobó sin nombre se resuelve con el nombre del admin y sin pedirle otro cambio a Didit", async () => {
+      didit.setDecision({ id_verifications: [{ document_number: "12345678" }] }, "Approved");
+      const user = await createUser();
+      const session = await createAttempt(user.id, "manual_review");
+      await app.db.user.update({ where: { id: user.id }, data: { kycStatusIdentity: "manual_review", firstName: "", lastName: "" } });
+
+      const response = await decide(session, {
+        decision: "approved",
+        reason: "Motivo suficiente",
+        firstName: "ana maría",
+        lastName: "paz",
+      });
+
       expect(response.statusCode).toBe(200);
+      expect(didit.updates).toEqual([]);
       expect(await app.db.user.findUnique({ where: { id: user.id } })).toMatchObject({
         kycStatusIdentity: "approved",
-        firstName: "Julia María",
-        lastName: "Pérez Gómez",
+        firstName: "Ana María",
+        lastName: "Paz",
+      });
+    });
+
+    it("rechazar una identidad que estaba en revisión borra el nombre que se guardó del documento", async () => {
+      const user = await createUser("Julia María", "Pérez Gómez");
+      const session = await createAttempt(user.id, "manual_review");
+      await app.db.user.update({ where: { id: user.id }, data: { kycStatusIdentity: "manual_review", dni: "12345678" } });
+
+      const response = await decide(session, { decision: "rejected", reason: "La cara no coincide" });
+
+      expect(response.statusCode).toBe(200);
+      expect(await app.db.user.findUnique({ where: { id: user.id } })).toMatchObject({
+        kycStatusIdentity: "rejected",
+        firstName: "",
+        lastName: "",
+        dni: null,
       });
     });
 

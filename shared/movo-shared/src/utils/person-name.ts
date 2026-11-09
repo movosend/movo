@@ -32,6 +32,12 @@ const PARTICLES: ReadonlySet<string> = new Set([
   "der",
 ]);
 
+/**
+ * Patrón de un campo de nombre o apellido (JSON Schema): no vacío ni solo espacios. Lo comparten el registro, la edición del
+ * perfil y la corrección del nombre desde el panel, para que no se desincronicen.
+ */
+export const PERSON_NAME_FIELD_PATTERN = "^\\S+(\\s+\\S+)*$";
+
 const LOCALE = "es-AR";
 
 /** Mayúscula inicial de cada tramo separado por guion o apóstrofe ("o'brien" -> "O'Brien"). */

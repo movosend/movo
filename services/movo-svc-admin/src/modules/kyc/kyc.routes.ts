@@ -104,12 +104,6 @@ export default async function kycRoutes(app: FastifyInstance, _opts: FastifyPlug
       const ctx = ctxOf(request);
       const raw = request.body as AdminKycDecisionRequest;
       const reason = requireReason(raw.reason);
-      if ((raw.firstName === undefined) !== (raw.lastName === undefined)) {
-        throw new ApiError(400, "VALIDATION_FAILED", "Mandá el nombre y el apellido juntos.");
-      }
-      if (raw.decision === "rejected" && raw.firstName !== undefined) {
-        throw new ApiError(400, "VALIDATION_FAILED", "El nombre solo se corrige al aprobar.");
-      }
       const name = raw.firstName !== undefined && raw.lastName !== undefined ? { firstName: raw.firstName, lastName: raw.lastName } : null;
       if (reason.length < ADMIN_KYC_DECISION_REASON_MIN_LENGTH) {
         throw new ApiError(400, "VALIDATION_FAILED", `El motivo necesita al menos ${ADMIN_KYC_DECISION_REASON_MIN_LENGTH} caracteres.`);
@@ -118,6 +112,11 @@ export default async function kycRoutes(app: FastifyInstance, _opts: FastifyPlug
       // El objetivo de la bitácora es el usuario: la regla de conflicto impide que un admin decida su propio KYC.
       // Un 404 acá no deja fila: no hay objetivo sobre el que registrar nada.
       const review = await app.usersClient.getKycReview(sessionId, ctx);
+      // El nombre solo se corrige en una verificación de identidad: en una de licencia `svc-users` lo ignoraría y la bitácora
+      // (de solo agregar) quedaría con una corrección que no ocurrió.
+      if (name && review.verificationType !== "identity") {
+        throw new ApiError(400, "VALIDATION_FAILED", "El nombre solo se corrige en una verificación de identidad.");
+      }
 
       return app.audit.runAdminAction(
         {

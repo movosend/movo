@@ -86,7 +86,11 @@ export default function EditProfileScreen() {
     setBio(profile.bio ?? "");
   }, [profile?.firstName, profile?.lastName, profile?.bio]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isNameLockedByKyc = profile?.kycStatus === KycStatus.APPROVED;
+  // Aprobada, en revisión o en curso: el nombre es el que lee Didit del documento y no se edita (el backend responde 409).
+  const isNameLockedByKyc =
+    profile?.kycStatus === KycStatus.APPROVED ||
+    profile?.kycStatus === KycStatus.MANUAL_REVIEW ||
+    profile?.kycStatus === KycStatus.PENDING;
 
   function handleBack() {
     // Sin botón Guardar no existen "cambios sin guardar": cada campo ya se persistió

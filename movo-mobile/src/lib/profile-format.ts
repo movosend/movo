@@ -94,15 +94,26 @@ export function formatRatingDate(createdAt: string): string {
 }
 
 /** Nombre para mostrar. El backend guarda el nombre ya normalizado (`normalizePersonName`: nombre y apellido por separado, con las
- * partículas "de", "del", "la" en minúscula), así que un nombre que ya tiene mayúsculas y minúsculas se respeta tal cual: sobre
- * un nombre completo no se puede saber dónde empieza el apellido, y volver a normalizarlo pasaría a minúscula el "Del" de
- * "Julia Del Valle". Solo se corrige el que viene todo en mayúsculas o todo en minúsculas (cuentas anteriores, tipeadas a mano). */
+ * partículas "de", "del", "la" en minúscula), así que sobre un nombre completo se corrige palabra por palabra, solo lo que
+ * está todo en mayúsculas o todo en minúsculas (cuentas anteriores, tipeadas a mano): una palabra ya bien escrita ("Del" de
+ * "Julia Del Valle", "DiCaprio") se respeta, porque en un nombre completo no se sabe dónde empieza el apellido. */
 export function capitalizeName(name: string | null | undefined): string {
   const clean = (name ?? "").trim().replace(/\s+/g, " ");
-  const hasLower = clean !== clean.toLocaleUpperCase("es-AR");
-  const hasUpper = clean !== clean.toLocaleLowerCase("es-AR");
-  return hasLower && hasUpper ? clean : normalizePersonName(clean);
+  if (!clean) return "";
+  return clean
+    .split(" ")
+    .map((word, index) => {
+      const lower = word.toLocaleLowerCase("es-AR");
+      const isUniform = word === lower || word === word.toLocaleUpperCase("es-AR");
+      if (!isUniform) return word;
+      // Una partícula después de la primera palabra va en minúscula ("de la Cruz").
+      if (index > 0 && PARTICLES.has(lower)) return lower;
+      return normalizePersonName(lower);
+    })
+    .join(" ");
 }
+
+const PARTICLES: ReadonlySet<string> = new Set(["de", "del", "la", "las", "los", "y", "e", "da", "das", "do", "dos", "di", "van", "von", "der"]);
 
 const GREETING_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
   weekday: "long",

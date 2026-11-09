@@ -22,6 +22,16 @@ export const ADMIN_KYC_DECISION_REASON_MAX_LENGTH = 500;
 /** Largo máximo del nombre y del apellido que el admin puede corregir al aprobar una identidad (los mismos 80 del perfil). */
 export const ADMIN_KYC_NAME_MAX_LENGTH = 80;
 
+/**
+ * Reglas del cuerpo de la decisión que van en el JSON Schema (y así en el Swagger generado) de `svc-admin` y `svc-users`: el
+ * nombre y el apellido van juntos, y solo se corrigen al aprobar.
+ */
+export const KYC_DECISION_NAME_RULES = {
+  dependencies: { firstName: ["lastName"], lastName: ["firstName"] },
+  if: { properties: { decision: { const: "rejected" } }, required: ["decision"] },
+  then: { not: { anyOf: [{ required: ["firstName"] }, { required: ["lastName"] }] } },
+} as const;
+
 /** Una fila de la cola: un intento en revisión. */
 export interface AdminKycReviewRow {
   /** `session_id` de Didit: identifica el intento en todas las rutas. */

@@ -932,11 +932,17 @@ export function createUsersService(
       // después rompería esa garantía. Reenviar el mismo nombre que
       // ya tiene no cuenta como cambio (nameChanged en false), así que no rompe con un
       // PATCH idempotente.
-      if (nameChanged && user.kycStatusIdentity === KycStatus.APPROVED) {
+      // También mientras la verificación está en curso o en revisión: ahí el nombre guardado es el que leyó Didit del documento, y
+      // un nombre tipeado por la persona se confundiría con él y quedaría confirmado al aprobar.
+      const nameLocked =
+        user.kycStatusIdentity === KycStatus.APPROVED ||
+        user.kycStatusIdentity === KycStatus.MANUAL_REVIEW ||
+        user.kycStatusIdentity === KycStatus.PENDING;
+      if (nameChanged && nameLocked) {
         throw new ApiError(
           409,
           "PROFILE_NAME_LOCKED_BY_KYC",
-          "El nombre no se puede modificar porque el KYC de identidad ya fue aprobado."
+          "El nombre no se puede modificar mientras la verificación de identidad está en curso, en revisión o aprobada."
         );
       }
 

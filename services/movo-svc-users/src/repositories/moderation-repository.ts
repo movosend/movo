@@ -1,6 +1,6 @@
 import { AccountStatus as PrismaAccountStatus, Prisma } from "../generated/prisma/client";
 import { BlockedUserSummary, ReportReason, ReportStatus, UserReportParties } from "@movo/shared";
-import { fullName } from "../models/user";
+import { fullName, UNNAMED_USER_DISPLAY_NAME } from "../models/user";
 
 export interface UserReportRecord {
   id: string;
@@ -153,7 +153,7 @@ export function createModerationRepository(db: Prisma.TransactionClient): Modera
       });
       return rows.map((row) => ({
         id: row.blocked.id,
-        fullName: fullName(row.blocked),
+        fullName: fullName(row.blocked) || UNNAMED_USER_DISPLAY_NAME,
         photoUrl: row.blocked.photoUrl,
         blockedAt: row.createdAt.toISOString(),
       }));

@@ -208,6 +208,21 @@ describe("Cola de revisión manual de KYC", { timeout: 15_000 }, () => {
     expect(t.decisions).toHaveLength(0);
   });
 
+  it("corregir el nombre en una verificación de licencia es 400 y no deja una corrección en la bitácora", async () => {
+    const t = await setup({ reviews: (userId) => [review(userId, { verificationType: "license" })] });
+
+    const response = await t.decide(t.first.sessionId, {
+      decision: "approved",
+      reason: "Carnet vigente y legible",
+      firstName: "Julia",
+      lastName: "Pérez",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(t.decisions).toHaveLength(0);
+    expect((await t.rows()).some((row) => JSON.stringify(row.context).includes("nameCorrected"))).toBe(false);
+  });
+
   it("rechazar deja una fila kyc.decline", async () => {
     const t = await setup();
 
