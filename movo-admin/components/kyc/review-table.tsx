@@ -33,7 +33,9 @@ export function KycHeader() {
 }
 
 export function KycRow({ row }: { row: AdminKycReviewRow }) {
-  const long = isLongWait(row.requestedAt)
+  // Desde que entró a revisión (la persona puede terminar la verificación horas después de abrir la sesión).
+  const since = row.inReviewSince ?? row.requestedAt
+  const long = isLongWait(since)
   return (
     <Link
       href={`/kyc/${encodeURIComponent(row.sessionId)}`}
@@ -66,15 +68,15 @@ export function KycRow({ row }: { row: AdminKycReviewRow }) {
       </span>
       <span
         className="flex flex-col items-end gap-0.5 text-right text-xs whitespace-nowrap"
-        title={formatDateTime(row.requestedAt)}
+        title={formatDateTime(since)}
       >
         <span
           className={cn("font-medium", long ? "text-warn-fg" : "text-fg2")}
         >
-          {waitingLabel(row.requestedAt)}
+          {waitingLabel(since)}
         </span>
         <span className="hidden text-muted-foreground min-[900px]:block">
-          {formatDateTime(row.requestedAt)}
+          {formatDateTime(since)}
         </span>
       </span>
     </Link>

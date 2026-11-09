@@ -5,9 +5,11 @@ import type { ActionResult } from "@/lib/users/action-result"
 const BY_CODE: Record<string, string> = {
   KYC_SESSION_NOT_FOUND: "La verificación ya no existe.",
   KYC_REVIEW_STATUS_CHANGED:
-    "Este caso ya no está en revisión: otra persona lo resolvió o la verificación cambió. Volvé a la lista para ver el estado actual.",
+    "Este caso ya no está en revisión: otra persona lo resolvió, Didit ya lo tenía resuelto o la verificación cambió. Volvé a la lista para ver el estado actual.",
   KYC_REVIEW_SUPERSEDED:
     "La persona abrió una verificación más nueva, así que este intento ya no se puede decidir.",
+  KYC_REVIEW_IN_PROGRESS:
+    "Otro admin está decidiendo este caso en este momento. Esperá unos segundos y volvé a la lista para ver cómo quedó.",
   ADMIN_CONFLICT_OF_INTEREST:
     "No podés decidir tu propia verificación. Le tiene que tocar a otro admin.",
   VALIDATION_FAILED: "Revisá el motivo: tiene que tener entre 10 y 500 caracteres.",

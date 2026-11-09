@@ -18,6 +18,7 @@ describe("internalReturnPath", () => {
     "/metrics?tab=cashflow",
     "/kyc",
     "/kyc?type=license&q=ana&page=2",
+    "/kyc?q=ab*c",
     `/kyc/${ID}`,
     "/kyc/sess_123.abc-4",
   ])("acepta %s", (path) => expect(internalReturnPath(path)).toBe(path))

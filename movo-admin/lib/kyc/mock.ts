@@ -57,6 +57,10 @@ function seed(): AdminKycReviewDetail[] {
       verificationType: spec.type,
       reason: spec.reason,
       requestedAt,
+      // Entró a revisión unos minutos después de abrir la sesión (lo que tardó en completar la verificación).
+      inReviewSince: new Date(new Date(requestedAt).getTime() + 12 * 60_000).toISOString(),
+      status: "manual_review" as const,
+      resolvedAt: null,
       email: user.email,
       phone: user.phone,
       expirationDate: spec.expires,
@@ -105,12 +109,12 @@ export async function mockListKycReviews(input: {
         r.email.toLowerCase().includes(q) ||
         r.sessionId === input.q.trim()
     )
-    .sort((a, b) => (a.requestedAt < b.requestedAt ? -1 : 1))
+    .sort((a, b) => ((a.inReviewSince ?? a.requestedAt) < (b.inReviewSince ?? b.requestedAt) ? -1 : 1))
   const pageSize = 20
   const start = (input.page - 1) * pageSize
   return {
     items: open.slice(start, start + pageSize).map(
-      ({ sessionId, userId, fullName, photoUrl, verificationType, reason, requestedAt }) => ({
+      ({ sessionId, userId, fullName, photoUrl, verificationType, reason, requestedAt, inReviewSince }) => ({
         sessionId,
         userId,
         fullName,
@@ -118,6 +122,7 @@ export async function mockListKycReviews(input: {
         verificationType,
         reason,
         requestedAt,
+        inReviewSince,
       })
     ),
     page: input.page,
@@ -149,6 +154,9 @@ export async function mockDecideKycReview(
   if (!review.decidable)
     throw new ApiError(409, "KYC_REVIEW_STATUS_CHANGED", "La verificación ya no está en revisión manual.")
   review.decidable = false
+  review.status = body.decision
+  review.resolvedAt = new Date().toISOString()
+  review.inReviewSince = null
   return {
     sessionId,
     userId: review.userId,

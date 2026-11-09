@@ -10,7 +10,7 @@ import { requireAdmin } from "@/lib/auth/session"
 import { sidebarDefaultOpen } from "@/lib/sidebar"
 import { getKycReview } from "@/lib/kyc/api"
 import { isLongWait, KYC_TYPE_LABEL, waitingLabel } from "@/lib/kyc/format"
-import { formatDate, formatDateTime, formatPhone, KYC } from "@/lib/users/format"
+import { formatDate, formatDateTime, formatPhone, KYC, type Pill } from "@/lib/users/format"
 import { cn } from "@/lib/utils"
 import { AdminShell } from "@/components/admin-shell"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -57,6 +57,13 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   }
 
   const type = review ? KYC_TYPE_LABEL[review.verificationType] : ""
+  // Estado del intento: un `manual_review` que ya no se puede decidir es uno reemplazado por una verificación más nueva.
+  const statusPill: Pill | null = review
+    ? !review.decidable && review.status === "manual_review"
+      ? { label: "Reemplazado", tone: "neutral" }
+      : (KYC[review.status] ?? { label: review.status, tone: "neutral" })
+    : null
+  const inReviewSince = review?.inReviewSince ?? null
   const attempts = review ? review.history.length + 1 : 0
   const TypeIcon = review?.verificationType === "license" ? Car : IdCard
 
@@ -105,11 +112,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                       <h1 className="mr-1.5 text-[28px] leading-[1.15] font-semibold tracking-[-0.025em]">
                         {review.fullName}
                       </h1>
-                      <StatusPill
-                        pill={review.decidable ? KYC.manual_review : { label: "Ya resuelto", tone: "neutral" }}
-                        dot
-                        className="h-[26px] gap-[7px] px-[11px] text-[13px]"
-                      />
+                      {statusPill && (
+                        <StatusPill pill={statusPill} dot className="h-[26px] gap-[7px] px-[11px] text-[13px]" />
+                      )}
                       <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full border border-border-strong bg-card px-2.5 text-[13px]">
                         <TypeIcon aria-hidden className="size-3.5" />
                         {type}
@@ -118,27 +123,28 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-fg2">
                       <CopyChip value={review.sessionId} label="id de la sesión de Didit" />
                       <span aria-hidden className="text-muted-foreground">·</span>
-                      <span className={cn(isLongWait(review.requestedAt) && "font-medium text-warn-fg")}>
-                        En revisión {waitingLabel(review.requestedAt)}
-                      </span>
+                      {inReviewSince ? (
+                        <span className={cn(isLongWait(inReviewSince) && "font-medium text-warn-fg")}>
+                          En revisión {waitingLabel(inReviewSince)}
+                        </span>
+                      ) : (
+                        <span>
+                          {review.resolvedAt ? `Resuelto el ${formatDateTime(review.resolvedAt)}` : "Ya no está en revisión"}
+                        </span>
+                      )}
                       <span aria-hidden className="text-muted-foreground">·</span>
                       <span>
                         {attempts} {attempts === 1 ? "intento" : "intentos"}
                       </span>
                     </div>
                   </div>
-                  {review.decidable ? (
-                    <DecisionPanel
-                      sessionId={review.sessionId}
-                      fullName={review.fullName}
-                      verificationType={review.verificationType}
-                    />
-                  ) : (
-                    <p className="max-w-[300px] text-[13px] text-fg2">
-                      Este caso ya no se puede decidir: lo resolvió otra persona o la verificación cambió. Mirá la
-                      bitácora para ver quién fue.
-                    </p>
-                  )}
+                  {/* Siempre montado: si se reemplazara al resolverse, el admin perdería la confirmación de su decisión. */}
+                  <DecisionPanel
+                    decidable={review.decidable}
+                    sessionId={review.sessionId}
+                    fullName={review.fullName}
+                    verificationType={review.verificationType}
+                  />
                 </div>
               </div>
               <Suspense fallback={<KpiStrip kpis={null} />}>
@@ -165,7 +171,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                 >
                   <ul>
                     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-surface-sub px-5 py-3 text-[13px]">
-                      <StatusPill pill={review.decidable ? KYC.manual_review : KYC.pending} dot />
+                      {statusPill && <StatusPill pill={statusPill} dot />}
                       <span className="font-medium">Este intento</span>
                       <span className="text-fg2">{formatDateTime(review.requestedAt)}</span>
                       <span className="ml-auto font-mono text-xs text-muted-foreground">
@@ -205,18 +211,13 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                       {review.userId.slice(0, 8)}…
                     </span>
                   </div>
-                  <RailRow label="Estado del caso">
-                    <StatusPill
-                      pill={review.decidable ? KYC.manual_review : { label: "Ya resuelto", tone: "neutral" }}
-                      dot
-                    />
-                  </RailRow>
+                  <RailRow label="Estado del caso">{statusPill && <StatusPill pill={statusPill} dot />}</RailRow>
                   <RailRow label="Qué marcó Didit">
                     {review.reason ?? <span className="text-muted-foreground">Sin motivo legible</span>}
                   </RailRow>
-                  <RailRow label="Entró a revisión">
-                    {formatDateTime(review.requestedAt)}
-                  </RailRow>
+                  {inReviewSince && <RailRow label="Entró a revisión">{formatDateTime(inReviewSince)}</RailRow>}
+                  {review.resolvedAt && <RailRow label="Resuelto">{formatDateTime(review.resolvedAt)}</RailRow>}
+                  <RailRow label="Inició la verificación">{formatDateTime(review.requestedAt)}</RailRow>
                   {review.expirationDate && (
                     <RailRow label="Vencimiento del documento">{formatDate(review.expirationDate)}</RailRow>
                   )}

@@ -24,6 +24,7 @@ import {
   ReasonField,
 } from "@/components/users/actions/fields"
 import { KYC_TYPE_LABEL } from "@/lib/kyc/format"
+import { StatusPill } from "@/components/users/ui"
 
 type Props = {
   sessionId: string
@@ -31,7 +32,6 @@ type Props = {
   verificationType: "identity" | "license"
 }
 
-/** Aprobar y rechazar un caso en revisión: cada botón abre un diálogo que pide el motivo. */
 /** Atajo de teclado en el botón, como en Didit. */
 function Kbd({ children }: { children: string }) {
   return (
@@ -49,10 +49,20 @@ function shortcutBlocked(event: KeyboardEvent): boolean {
   return document.querySelector("[data-slot='dialog-content']") !== null
 }
 
-export function DecisionPanel(props: Props) {
+/**
+ * Aprobar y rechazar un caso en revisión: cada botón (o su atajo) abre un diálogo que pide el motivo.
+ *
+ * Se monta siempre, también con el caso ya resuelto (`decidable: false`). Al decidir, la action revalida la página y
+ * `decidable` pasa a `false`: si este componente se reemplazara por otro, el diálogo con la confirmación se desmontaría
+ * en la cara del admin. Montado, el diálogo sigue abierto con "Quedó aprobada" hasta que lo cierra, y después se ve que
+ * la decisión fue suya (no "lo resolvió otra persona").
+ */
+export function DecisionPanel({ decidable, ...props }: Props & { decidable: boolean }) {
   const [open, setOpen] = useState<AdminKycDecision | null>(null)
+  const [decided, setDecided] = useState<AdminKycDecision | null>(null)
 
   useEffect(() => {
+    if (!decidable) return
     const onKey = (event: KeyboardEvent) => {
       if (open || shortcutBlocked(event)) return
       const key = event.key.toLowerCase()
@@ -66,24 +76,46 @@ export function DecisionPanel(props: Props) {
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open])
+  }, [open, decidable])
 
   return (
     <>
-      <div className="flex flex-wrap gap-2.5">
-        <Button
-          type="button"
-          variant="outline"
-          size="lg"
-          onClick={() => setOpen("rejected")}
-          aria-keyshortcuts="D"
-        >
-          <X aria-hidden data-icon="inline-start" /> Rechazar <Kbd>D</Kbd>
-        </Button>
-        <Button type="button" size="lg" onClick={() => setOpen("approved")} aria-keyshortcuts="A">
-          <Check aria-hidden data-icon="inline-start" /> Aprobar <Kbd>A</Kbd>
-        </Button>
-      </div>
+      {decidable ? (
+        <div className="flex flex-wrap gap-2.5">
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            onClick={() => setOpen("rejected")}
+            aria-keyshortcuts="D"
+          >
+            <X aria-hidden data-icon="inline-start" /> Rechazar <Kbd>D</Kbd>
+          </Button>
+          <Button type="button" size="lg" onClick={() => setOpen("approved")} aria-keyshortcuts="A">
+            <Check aria-hidden data-icon="inline-start" /> Aprobar <Kbd>A</Kbd>
+          </Button>
+        </div>
+      ) : decided ? (
+        <div role="status" className="flex max-w-[320px] flex-col items-start gap-1.5">
+          <StatusPill
+            pill={
+              decided === "approved"
+                ? { label: "La aprobaste vos", tone: "success" }
+                : { label: "La rechazaste vos", tone: "danger" }
+            }
+            dot
+            className="h-[26px] gap-[7px] px-[11px] text-[13px]"
+          />
+          <Link href="/kyc" className="text-[13px] font-medium underline underline-offset-4">
+            Volver a la cola
+          </Link>
+        </div>
+      ) : (
+        <p className="max-w-[300px] text-[13px] text-fg2">
+          Este caso ya no se puede decidir: ya se resolvió o la persona abrió una verificación más nueva. En la bitácora se
+          ve quién lo decidió.
+        </p>
+      )}
       <Dialog open={open !== null} onOpenChange={(next) => !next && setOpen(null)}>
         <DialogContent aria-describedby={undefined}>
           {open && (
@@ -91,6 +123,7 @@ export function DecisionPanel(props: Props) {
               key={open}
               {...props}
               decision={open}
+              onDecided={setDecided}
               onClose={() => setOpen(null)}
             />
           )}
@@ -105,8 +138,13 @@ function DecisionForm({
   fullName,
   verificationType,
   decision,
+  onDecided,
   onClose,
-}: Props & { decision: AdminKycDecision; onClose: () => void }) {
+}: Props & {
+  decision: AdminKycDecision
+  onDecided: (decision: AdminKycDecision) => void
+  onClose: () => void
+}) {
   const approve = decision === "approved"
   const what = KYC_TYPE_LABEL[verificationType].toLowerCase()
   const [reason, setReason] = useState("")
@@ -121,6 +159,7 @@ function DecisionForm({
       const result = await decideKyc(sessionId, decision, reason)
       if (!result.ok) return setError(result.error)
       setDone(true)
+      onDecided(decision)
     })
 
   if (done)

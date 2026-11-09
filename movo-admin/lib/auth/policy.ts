@@ -25,8 +25,9 @@ const DISPUTES_PATH =
 // `*` entra porque `URLSearchParams` no lo codifica: un texto de búsqueda con `*` no puede tirar al admin a Inicio.
 const REPORTS_PATH = /^\/(metrics|audit-log)(\?[A-Za-z0-9=&%+._~*-]*)?$/
 
-// /kyc (cola de revisión, con filtros y página) y el caso /kyc/<id de sesión de Didit>.
-const KYC_PATH = /^\/kyc(\/[A-Za-z0-9._-]{1,128})?(\?[A-Za-z0-9=&%+._~-]*)?$/
+// /kyc (cola de revisión, con filtros y página) y el caso /kyc/<id de sesión de Didit>. `*` en la query por lo mismo que en
+// REPORTS_PATH: `URLSearchParams` no lo codifica.
+const KYC_PATH = /^\/kyc(\/[A-Za-z0-9._-]{1,128})?(\?[A-Za-z0-9=&%+._~*-]*)?$/
 
 export function internalReturnPath(value: string | null): string {
   // Only implemented protected destinations are accepted. Never redirect to auth.

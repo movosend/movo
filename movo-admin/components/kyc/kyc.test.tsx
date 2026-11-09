@@ -26,12 +26,14 @@ const row = (over: Partial<AdminKycReviewRow> = {}): AdminKycReviewRow => ({
   photoUrl: null,
   verificationType: "identity",
   reason: "Documento borroso",
-  requestedAt: new Date(Date.now() - 5 * 86_400_000).toISOString(),
+  requestedAt: new Date(Date.now() - 6 * 86_400_000).toISOString(),
+  // Entró a revisión un día después de abrir la sesión: la espera se cuenta desde acá.
+  inReviewSince: new Date(Date.now() - 5 * 86_400_000).toISOString(),
   ...over,
 })
 
 describe("cola de KYC", () => {
-  it("cada fila lleva al caso y muestra tipo, motivo y la espera", () => {
+  it("cada fila lleva al caso y muestra tipo, motivo y la espera desde que entró a revisión", () => {
     render(<KycRows rows={[row()]} filtered={false} />)
 
     const link = screen.getByRole("link", { name: /Marcos Vera/ })
@@ -63,6 +65,7 @@ describe("DecisionPanel", () => {
     sessionId: "sess-1",
     fullName: "Marcos Vera",
     verificationType: "identity" as const,
+    decidable: true,
   }
 
   it("aprobar pide un motivo de al menos 10 caracteres y confirma", async () => {
@@ -187,5 +190,35 @@ describe("DecisionPanel", () => {
     expect(screen.getByText("17/500")).toBeInTheDocument()
     expect(screen.queryByText("Escribí el motivo para aprobar")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Aprobar" })).toBeEnabled()
+  })
+
+  it("la confirmación no se pierde cuando la página se refresca y el caso pasa a resuelto", async () => {
+    actions.decideKyc.mockResolvedValue({ ok: true, data: { sessionId: "sess-1", status: "approved" } })
+    const { rerender } = render(<DecisionPanel {...props} />)
+
+    fireEvent.click(screen.getByRole("button", { name: /Aprobar/ }))
+    fireEvent.change(await screen.findByLabelText(/Motivo/), {
+      target: { value: "El documento y la selfie coinciden" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Aprobar" }))
+    expect(await screen.findByText("Quedó aprobada")).toBeInTheDocument()
+
+    // Lo que hace el revalidatePath de la action: el caso ya no se puede decidir.
+    rerender(<DecisionPanel {...props} decidable={false} />)
+    expect(screen.getByText("Quedó aprobada")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Listo" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect(screen.getByText("La aprobaste vos")).toBeInTheDocument()
+    expect(screen.queryByText(/ya no se puede decidir/)).not.toBeInTheDocument()
+  })
+
+  it("un caso que ya no se puede decidir no muestra botones ni responde a los atajos", () => {
+    render(<DecisionPanel {...props} decidable={false} />)
+
+    expect(screen.queryByRole("button", { name: /Aprobar/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/ya no se puede decidir/)).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: "a" })
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 })

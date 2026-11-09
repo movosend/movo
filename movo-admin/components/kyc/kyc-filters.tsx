@@ -17,7 +17,7 @@ const TYPES: { value: AdminKycVerificationType | undefined; label: string }[] =
   ]
 
 /**
- * Búsqueda (nombre, email o id de sesión) y filtro por tipo de la cola de KYC. Escriben `q` y `type` en la URL
+ * Búsqueda (nombre, email, DNI, teléfono o id de sesión) y filtro por tipo de la cola de KYC. Escriben `q` y `type` en la URL
  * (la página del servidor devuelve los resultados) y vuelven a la primera página. Los resultados llegan como children.
  */
 export function KycFilters({
@@ -88,7 +88,7 @@ export function KycFilters({
           <input
             type="search"
             aria-label="Buscar verificaciones"
-            placeholder="Nombre, email o id de sesión"
+            placeholder="Nombre, email, DNI o id de sesión"
             value={value}
             onChange={(e) => change(e.target.value)}
             maxLength={100}
