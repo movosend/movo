@@ -248,7 +248,7 @@ export interface PublicProfile {
    * Las mismas reseñas recientes, separadas por el rol en que las recibió (feedback de
    * TestFlight, build 17: una reseña como transportista aparecía también en "Como emisor").
    * Solo en `GET /users/:id`, igual que `recentRatingComments`. Opcional para no romper
-   * literales armados a mano; las de receptor no tienen pestaña y solo están en la lista general.
+   * literales armados a mano; las de receptor no tienen pestaña propia y van en "Como emisor" (DD-063).
    */
   recentRatingCommentsByRole?: RecentRatingCommentsByRole;
   /** ISO date, de `User.createdAt`. */
